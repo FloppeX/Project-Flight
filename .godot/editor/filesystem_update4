@@ -1,0 +1,5 @@
+res://default_env.tres
+res://example/Example1_Simple.tscn
+res://addons/simplified_flightsim/Aircraft/Aircraft.gd
+res://example/scenes/Airplane/visuals/Steering/Steering.tscn
+res://example/AeroForces.gd
