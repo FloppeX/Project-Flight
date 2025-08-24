@@ -53,10 +53,6 @@ func _physics_process(delta: float):
 	# Control effectiveness based on speed
 	var control_authority = clamp(speed / min_control_speed, 0.0, 1.0)
 	
-	# In the control section, add this debug:
-	if abs(yaw_input) > 0.1:
-		print("Yaw Input: ", yaw_input, " Yaw Force: ", yaw_power, " Applied Torque: ", rb.global_transform.basis.y * yaw_power)
-	
 	# Apply controls (only if moving)
 	if control_authority > 0.0:
 		var pitch_force = pitch_input * pitch_power * control_authority * rb.mass

@@ -13,4 +13,3 @@ func _on_Flaps_update_interface(values):
 
 func _process(delta):
 	$FlapRotation.rotation.x = lerp($FlapRotation.rotation.x, target_flap_position, delta*5.0)
-

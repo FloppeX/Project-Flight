@@ -125,4 +125,3 @@ func _physics_process(delta: float) -> void:
 # --- Wind hook (replace later with your gust/turbulence field) ---
 func wind_at(_pos: Vector3) -> Vector3:
 	return Vector3.ZERO
-

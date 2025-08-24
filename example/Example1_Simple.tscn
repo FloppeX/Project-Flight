@@ -1,30 +1,31 @@
-[gd_scene load_steps=63 format=3 uid="uid://di4mmbdu6qiv1"]
+[gd_scene load_steps=60 format=3 uid="uid://di4mmbdu6qiv1"]
 
-[ext_resource type="Script" path="res://example/Example1_Simple.gd" id="1"]
+[ext_resource type="Script" uid="uid://dhif0k7fphvot" path="res://example/Example1_Simple.gd" id="1"]
 [ext_resource type="AudioStream" uid="uid://cvxa8h3yftguj" path="res://example/sfx/aircraft_modules/landing_gear/deploy.wav" id="2"]
 [ext_resource type="AudioStream" uid="uid://ch1k8klfyw0mq" path="res://example/sfx/aircraft_modules/landing_gear/stow.wav" id="3"]
-[ext_resource type="PackedScene" path="res://addons/simplified_flightsim/aircraft_modules/EnergyContainer/EnergyContainer.tscn" id="4"]
+[ext_resource type="PackedScene" uid="uid://diddm04vtjnny" path="res://addons/simplified_flightsim/aircraft_modules/EnergyContainer/EnergyContainer.tscn" id="4"]
 [ext_resource type="PackedScene" uid="uid://d1hbh6da5xywh" path="res://example/models/Air_tractor.glb" id="4_2sbs1"]
 [ext_resource type="PackedScene" uid="uid://cs0vdgfq68lmc" path="res://example/models/Air_tractor_prop_5.glb" id="4_67wra"]
 [ext_resource type="PackedScene" uid="uid://dsel16gi76dnm" path="res://example/ui/UIEnergyContainer/UIFuelLevel.tscn" id="5"]
-[ext_resource type="PackedScene" path="res://addons/simplified_flightsim/aircraft_modules/Controls/ControlSteering.tscn" id="6"]
+[ext_resource type="PackedScene" uid="uid://booy8rgevyscb" path="res://addons/simplified_flightsim/aircraft_modules/Controls/ControlSteering.tscn" id="6"]
 [ext_resource type="PackedScene" uid="uid://d0mgf4yjnwxgl" path="res://addons/simplified_flightsim/Aircraft/Aircraft.tscn" id="7"]
-[ext_resource type="PackedScene" path="res://addons/simplified_flightsim/aircraft_modules/Controls/ControlEngine.tscn" id="8"]
+[ext_resource type="PackedScene" uid="uid://chvx807lmr2rs" path="res://addons/simplified_flightsim/aircraft_modules/Controls/ControlEngine.tscn" id="8"]
 [ext_resource type="PackedScene" uid="uid://bpna5btnwpvpr" path="res://example/scenes/Airplane/visuals/Engine/Engine.tscn" id="9"]
 [ext_resource type="PackedScene" uid="uid://bu2hixfhu8ndm" path="res://example/ui/UIEnginePower/UIEnginePower.tscn" id="10"]
-[ext_resource type="PackedScene" path="res://addons/simplified_flightsim/aircraft_modules/Engine/Engine.tscn" id="11"]
+[ext_resource type="PackedScene" uid="uid://bxmk3xwsygst" path="res://addons/simplified_flightsim/aircraft_modules/Engine/Engine.tscn" id="11"]
 [ext_resource type="PackedScene" uid="uid://5f7vvtjcqw00" path="res://example/scenes/CameraTripod/CameraTripod.tscn" id="12"]
-[ext_resource type="PackedScene" path="res://addons/simplified_flightsim/aircraft_modules/Steering/Steering.tscn" id="13"]
-[ext_resource type="PackedScene" path="res://example/scenes/Airplane/visuals/Flaps/Flaps.tscn" id="15"]
-[ext_resource type="PackedScene" path="res://addons/simplified_flightsim/aircraft_modules/LandingGear/LandingGear.tscn" id="16"]
-[ext_resource type="PackedScene" path="res://addons/simplified_flightsim/aircraft_modules/Controls/ControlLandingGear.tscn" id="17"]
-[ext_resource type="PackedScene" path="res://addons/simplified_flightsim/aircraft_modules/Controls/ControlFlaps.tscn" id="18"]
+[ext_resource type="PackedScene" uid="uid://dtqtmiqu6tnjn" path="res://addons/simplified_flightsim/aircraft_modules/Steering/Steering.tscn" id="13"]
+[ext_resource type="PackedScene" uid="uid://c2lg5kyagogv3" path="res://example/scenes/Airplane/visuals/Flaps/Flaps.tscn" id="15"]
+[ext_resource type="PackedScene" uid="uid://byum6h2if6b1a" path="res://addons/simplified_flightsim/aircraft_modules/LandingGear/LandingGear.tscn" id="16"]
+[ext_resource type="PackedScene" uid="uid://btkewnvu2bgu7" path="res://addons/simplified_flightsim/aircraft_modules/Controls/ControlLandingGear.tscn" id="17"]
+[ext_resource type="PackedScene" uid="uid://dmkf543ywx7dl" path="res://addons/simplified_flightsim/aircraft_modules/Controls/ControlFlaps.tscn" id="18"]
 [ext_resource type="PackedScene" uid="uid://nhbm7re0glcb" path="res://example/scenes/Airplane/visuals/LandingGear/LandingGear.tscn" id="19"]
-[ext_resource type="PackedScene" path="res://addons/simplified_flightsim/aircraft_modules/Instruments/InstrumentAttitude.tscn" id="20"]
-[ext_resource type="Script" path="res://example/SimpleAero.gd" id="21_6s31u"]
+[ext_resource type="PackedScene" uid="uid://rwrylqryd1wq" path="res://addons/simplified_flightsim/aircraft_modules/Instruments/InstrumentAttitude.tscn" id="20"]
+[ext_resource type="Script" uid="uid://cyxrx2cid1gt" path="res://example/SimpleAero.gd" id="21_6s31u"]
 [ext_resource type="PackedScene" uid="uid://bmut2y2xaqj6x" path="res://example/ui/UIAltSpeed/UIAltSpeed.tscn" id="22"]
 [ext_resource type="PackedScene" uid="uid://c4dncgm8qjt7u" path="res://example/ui/UIFlaps/UIFlaps.tscn" id="23"]
-[ext_resource type="PackedScene" path="res://addons/simplified_flightsim/aircraft_modules/Flaps/Flaps.tscn" id="24"]
+[ext_resource type="PackedScene" uid="uid://cjfopuepgkub3" path="res://addons/simplified_flightsim/aircraft_modules/Flaps/Flaps.tscn" id="24"]
+[ext_resource type="Script" uid="uid://nduup0ehe83b" path="res://example/camera_controller.gd" id="24_fmrln"]
 [ext_resource type="PackedScene" uid="uid://b8s77ar81hq22" path="res://example/ui/UILandingGear/UILandingGear.tscn" id="25"]
 [ext_resource type="PackedScene" uid="uid://cd204w3enw6bv" path="res://Environment/desert_hill_1_sandy.tscn" id="25_kidwi"]
 [ext_resource type="PackedScene" uid="uid://dhg4sb4ifrvh8" path="res://example/ui/UIAttitude/UIAttitude.tscn" id="26"]
@@ -102,24 +103,11 @@ albedo_color = Color(0.839216, 0.72549, 0.611765, 1)
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_vj7ux"]
 albedo_color = Color(0.839216, 0.72549, 0.611765, 1)
 
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_ot0j3"]
-albedo_color = Color(0, 0, 0, 1)
-uv1_scale = Vector3(3, 10, 1)
-
-[sub_resource type="BoxMesh" id="21"]
-material = SubResource("StandardMaterial3D_ot0j3")
-size = Vector3(20, 0.5, 100)
-
-[sub_resource type="PhysicsMaterial" id="PhysicsMaterial_c3uvg"]
-friction = 0.5
-
-[sub_resource type="BoxShape3D" id="23"]
-size = Vector3(20, 0.5, 100)
+[sub_resource type="BoxShape3D" id="BoxShape3D_57k0l"]
+size = Vector3(178.626, 12.9889, 3657.2)
 
 [sub_resource type="BoxShape3D" id="24"]
 size = Vector3(10, 8, 90)
-
-[sub_resource type="BoxShape3D" id="BoxShape3D_57k0l"]
 
 [node name="Example" type="Node3D"]
 script = ExtResource("1")
@@ -222,10 +210,12 @@ UINode = NodePath("../../Interface/UIAttitude")
 
 [node name="CameraCockpit" parent="Aircraft" instance=ExtResource("12")]
 transform = Transform3D(1.13388, 0.000834114, -9.26021e-11, -0.00166248, 0.568899, -5.98573e-08, 1.71211e-07, 0.00106239, 3.20531e-05, 0.00470552, 0.826637, -0.360046)
-horizontal_sensitivity = 90.0
-vertical_sensitivity = 60.0
-return_speed = 10.0
-g_force_sensitivity = 0.04
+horizontal_sensitivity = 0.0
+vertical_sensitivity = 1.0
+return_speed = 6.0
+g_force_sensitivity = 0.03
+g_force_smoothing = 10.0
+max_g_offset = 0.2
 
 [node name="SimpleAero" type="Node" parent="Aircraft"]
 script = ExtResource("21_6s31u")
@@ -237,6 +227,21 @@ alignment_strength = 1000.0
 angular_damping_strength = 10.0
 stall_speed = 30.0
 stall_nose_drop = 6.0
+
+[node name="CameraController" type="Node3D" parent="Aircraft" node_paths=PackedStringArray("aircraft", "cockpit_tripod", "chase_tripod", "cinematic_tripod")]
+script = ExtResource("24_fmrln")
+aircraft = NodePath("..")
+cockpit_tripod = NodePath("../CameraCockpit")
+chase_tripod = NodePath("../../CameraChase")
+cinematic_tripod = NodePath("../../CameraCinematic")
+
+[node name="CameraChase" parent="." instance=ExtResource("12")]
+transform = Transform3D(-1.13388, -0.000834114, 9.54043e-11, -0.00166248, 0.568899, -5.98573e-08, -2.70338e-07, -0.00106239, -3.20531e-05, 0.029513, 5.01077, -601.092)
+script = null
+
+[node name="CameraCinematic" parent="." instance=ExtResource("12")]
+transform = Transform3D(-1.13388, -0.000834114, 9.54043e-11, -0.00166248, 0.568899, -5.98573e-08, -2.70338e-07, -0.00106239, -3.20531e-05, -0.0668548, 2.84982, -559.483)
+script = null
 
 [node name="Scenario" type="Node3D" parent="."]
 
@@ -472,16 +477,14 @@ mesh = SubResource("12")
 transform = Transform3D(-4.37114e-08, 0, -1, 0, 1, 0, 1, 0, -4.37114e-08, 0, 4, 0)
 shape = SubResource("14")
 
-[node name="Runway" type="MeshInstance3D" parent="."]
-transform = Transform3D(2, 0, 0, 0, 1, 0, 0, 0, 8, 0, -15.3863, -216.931)
-mesh = SubResource("21")
+[node name="RunwayNew" parent="." instance=ExtResource("32_uol1a")]
+transform = Transform3D(0.3, 0, 0, 0, 0.2, 0, 0, 0, 0.2, 0, 0.0483205, -241.768)
 
-[node name="StaticBody3D" type="StaticBody3D" parent="Runway"]
-transform = Transform3D(1, 0, 0, 0, 0.67101, 0, 0, 0, 1, 0, 0, 0)
-physics_material_override = SubResource("PhysicsMaterial_c3uvg")
+[node name="StaticBody3D" type="StaticBody3D" parent="RunwayNew"]
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="Runway/StaticBody3D"]
-shape = SubResource("23")
+[node name="CollisionShape3D" type="CollisionShape3D" parent="RunwayNew/StaticBody3D"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.0186502, -6.50002, -4.76355)
+shape = SubResource("BoxShape3D_57k0l")
 
 [node name="FuelArea" type="Area3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -217.504)
@@ -609,15 +612,6 @@ offset_right = 163.0
 offset_bottom = 24.0
 focus_mode = 0
 text = "<- Back to example list"
-
-[node name="RunwayNew" parent="." instance=ExtResource("32_uol1a")]
-transform = Transform3D(0.3, 0, 0, 0, 0.2, 0, 0, 0, 0.2, 0, 0.0188258, -241.768)
-
-[node name="StaticBody3D" type="StaticBody3D" parent="RunwayNew"]
-
-[node name="CollisionShape3D" type="CollisionShape3D" parent="RunwayNew/StaticBody3D"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4.89446, -0.775223, 261.806)
-shape = SubResource("BoxShape3D_57k0l")
 
 [node name="Desert hill 2" parent="." instance=ExtResource("32_rofq3")]
 transform = Transform3D(3, 0, -5.19615, 0, 6, 0, 5.19615, 0, 3, -286.654, -1, -342)

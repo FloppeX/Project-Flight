@@ -1,6 +1,6 @@
 [gd_scene load_steps=5 format=3 uid="uid://1uui4r6ipopw"]
 
-[ext_resource type="Script" path="res://example/scenes/Airplane/visuals/Steering/Steering.gd" id="1"]
+[ext_resource type="Script" uid="uid://b5d0dmobotxva" path="res://example/scenes/Airplane/visuals/Steering/Steering.gd" id="1"]
 
 [sub_resource type="BoxMesh" id="1"]
 size = Vector3(1, 0.1, 0.5)

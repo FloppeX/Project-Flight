@@ -62,4 +62,3 @@ func _node_has_properties(n: Object, names: Array) -> bool:
 		if not have.has(name):
 			return false
 	return true
-

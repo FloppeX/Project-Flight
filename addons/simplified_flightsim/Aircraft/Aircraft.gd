@@ -498,10 +498,3 @@ func land(landing_velocity: float, impact_velocity: float):
 
 func crash(impact_velocity: float):
 	emit_signal("crashed", impact_velocity)
-
-
-
-
-
-
-

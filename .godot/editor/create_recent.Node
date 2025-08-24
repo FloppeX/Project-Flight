@@ -1,8 +1,9 @@
+Node3D
 CollisionShape3D
+Terrain3D
 StaticBody3D
 AircraftModule
 MeshInstance3D
-Node3D
 CSGSphere3D
 Node
 CSGBox3D
