@@ -178,8 +178,8 @@ func _on_Aircraft_body_shape_entered(body_rid, body, body_shape_index, local_sha
 	if collider_shape in safe_colliders:
 		var landing_force = linear_velocity.dot(global_transform.basis.y)
 		land(landing_force, impact_force)
-	#else:
-	#	crash(impact_force)
+	else:
+		crash(impact_force)
 	
 
 func _on_Aircraft_body_shape_exited(body_rid, body, body_shape_index, local_shape_index):
@@ -331,7 +331,7 @@ func process_physics_frame(delta):
 	# ================
 	# LIFT
 	
-	var lift_vector = up_vector * lift_intensity
+	# var lift_vector = up_vector * lift_intensity
 	# apply_force(lift_vector, forward_vector * LiftPointDistance)
 	
 	
@@ -340,7 +340,7 @@ func process_physics_frame(delta):
 	
 	# Add drag
 	# Convert drag from local rotation to global rotation
-	var drag_vec_global_rotation = to_global(drag_intensity_vector) - global_transform.origin
+	# var drag_vec_global_rotation = to_global(drag_intensity_vector) - global_transform.origin
 	# Apply drag
 	# apply_force(drag_vec_global_rotation, -forward_vector * DragPointDistance)
 	

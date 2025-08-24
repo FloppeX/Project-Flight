@@ -7,7 +7,7 @@ class_name AircraftModule_LandingGear
 signal update_interface(values)
 
 @export var GearCollisionShape: NodePath
-@onready var landing_gear_collision_shape = get_node_or_null(GearCollisionShape)
+@export var gear_collision_shapes: Array[CollisionShape3D] = []  # Array for your 3 spheres
 
 enum LandingGearInitialStates {
 	STOWED,
@@ -18,6 +18,12 @@ enum LandingGearInitialStates {
 @export var DeployStowTime: float = 1.0 # secs
 @export var DeploySound: AudioStream
 @export var StowSound: AudioStream
+
+# Gear springyness
+@export var spring_strength: float = 15000.0    # Spring force per meter compressed
+@export var spring_damping: float = 3000.0      # Damping to prevent bouncing  
+@export var wheel_rest_height: float = 1.0      # Normal wheel height above ground
+@export var max_compression: float = 0.5        # Maximum compression distance
 
 # You don't really *need* to use this property, as any node can receive the
 # signals. This is just a helper to automatically connect all possible signals
@@ -48,11 +54,14 @@ func _ready():
 		connect("update_interface", Callable(ui_node, "update_interface"))
 	
 	ModuleType = "landing_gear"
+	ProcessPhysics = true
 
 func setup(aircraft_node):
 	aircraft = aircraft_node
-	if landing_gear_collision_shape:
-		aircraft.register_safe_collider(landing_gear_collision_shape)
+	# Register all gear collision shapes as safe colliders
+	for collision_shape in gear_collision_shapes:
+		if collision_shape:
+			aircraft.register_safe_collider(collision_shape)
 	
 	match InitialState:
 		LandingGearInitialStates.STOWED:
@@ -63,8 +72,10 @@ func setup(aircraft_node):
 			is_stowed = false
 			is_deployed = true
 	
-	if landing_gear_collision_shape:
-		landing_gear_collision_shape.disabled = not is_deployed
+	# Set initial collision state for all gear
+	for collision_shape in gear_collision_shapes:
+		if collision_shape:
+			collision_shape.disabled = not is_deployed
 	
 	request_update_interface()
 
@@ -129,8 +140,10 @@ func _on_deploy_completed():
 	is_deploying = false
 	is_deployed = true
 	
-	if landing_gear_collision_shape:
-		landing_gear_collision_shape.disabled = false
+	# Enable all gear collisions
+	for collision_shape in gear_collision_shapes:
+		if collision_shape:
+			collision_shape.disabled = false
 	
 	request_update_interface()
 
@@ -162,8 +175,10 @@ func stow():
 	is_deploying = false
 	is_stowing = true
 	
-	if landing_gear_collision_shape:
-		landing_gear_collision_shape.disabled = true
+	# Disable all gear collisions
+	for collision_shape in gear_collision_shapes:
+		if collision_shape:
+			collision_shape.disabled = true
 	
 	request_update_interface()
 
@@ -173,3 +188,44 @@ func _on_stow_completed():
 	is_stowed = true
 	
 	request_update_interface()
+	
+func process_physic_frame(delta):
+	if not is_deployed:
+		return
+	
+	# Apply spring forces for each deployed wheel
+	for collision_shape in gear_collision_shapes:
+		if collision_shape and not collision_shape.disabled:
+			apply_wheel_spring(collision_shape)
+			
+func apply_wheel_spring(wheel_collision: CollisionShape3D):
+	# Don't apply springs if we're moving fast upward (taking off)
+	var vertical_velocity = aircraft.linear_velocity.y
+	if vertical_velocity > 2.0:  # If climbing fast, disable springs
+		return
+	# Cast a ray down from wheel to detect ground compression
+	var space_state = wheel_collision.get_world_3d().direct_space_state
+	var wheel_pos = wheel_collision.global_position
+	var ray_start = wheel_pos
+	var ray_end = wheel_pos + Vector3.DOWN * (wheel_rest_height + max_compression)
+	
+	var query = PhysicsRayQueryParameters3D.create(ray_start, ray_end)
+	query.exclude = [aircraft.get_rid()]  # Don't hit the aircraft itself
+	var result = space_state.intersect_ray(query)
+	
+	if result:
+		var ground_distance = wheel_pos.distance_to(result.position)
+		var compression = wheel_rest_height - ground_distance
+		
+		if compression > 0.0:  # Wheel is compressed
+			# Spring force (Hooke's law)
+			var spring_force = compression * spring_strength
+			
+			# Damping force (based on vertical velocity)
+			var wheel_velocity = aircraft.linear_velocity.y
+			var damping_force = -wheel_velocity * spring_damping
+			
+			# Apply combined force at wheel position
+			var total_force = Vector3.UP * (spring_force + damping_force)
+			var force_position = wheel_collision.global_position - aircraft.global_position
+			aircraft.apply_force(total_force, force_position)

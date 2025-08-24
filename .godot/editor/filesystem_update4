@@ -1,5 +1,9 @@
 res://default_env.tres
 res://example/Example1_Simple.tscn
-res://addons/simplified_flightsim/Aircraft/Aircraft.gd
-res://example/scenes/Airplane/visuals/Steering/Steering.tscn
-res://example/AeroForces.gd
+res://addons/simplified_flightsim/Aircraft/Aircraft.tscn
+res://example/scenes/Airplane/visuals/LandingGear/LandingGear.tscn
+res://example/scenes/CameraTripod/CameraTripod.tscn
+res://Environment/desert_hill_1_sandy.tscn
+res://Environment/desert_hill_2_sandy.tscn
+res://Environment/desert_mountain_1_sandy.tscn
+res://Environment/runway.tscn

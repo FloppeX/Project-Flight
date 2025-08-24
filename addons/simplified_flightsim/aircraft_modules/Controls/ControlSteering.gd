@@ -6,8 +6,8 @@ class_name AircraftModule_ControlSteering
 @export var deadzone: float = 0.05
 
 var steering_module: Node = null
-var aero_forces: Node = null   # optional; will point to Aircraft/AeroForces if present
-var _aero_has_cmds := false    # cache whether cmd_* properties exist
+var simple_aero: Node = null   # Add this line
+var aero_has_cmds := false
 
 func setup(aircraft_node: Node) -> void:
 	aircraft = aircraft_node
@@ -17,16 +17,9 @@ func setup(aircraft_node: Node) -> void:
 	if list and list.size() > 0:
 		steering_module = list.pop_front()
 	print("steering found: %s" % str(steering_module))
-
-	# Try to find a node named "AeroForces" under the Aircraft (optional)
-	aero_forces = aircraft.get_node_or_null("AeroForces")
-	if aero_forces == null:
-		aero_forces = aircraft.find_child("AeroForces", true, false)
-
-	if aero_forces:
-		print("AeroForces found at: %s" % aero_forces.get_path())
-		# Detect if it exposes cmd_* properties
-		_aero_has_cmds = _node_has_properties(aero_forces, ["cmd_pitch", "cmd_roll", "cmd_yaw"])
+	simple_aero = aircraft.get_node_or_null("SimpleAero")
+	if simple_aero == null:
+		simple_aero = aircraft.find_child("SimpleAero", true, false)
 
 func _physics_process(_delta: float) -> void:
 	if (not ControlActive) or (steering_module == null):
@@ -47,11 +40,10 @@ func _physics_process(_delta: float) -> void:
 	steering_module.set_x(pitch)
 	steering_module.set_y(yaw)
 
-	# Feed the same to AeroForces if present and compatible
-	if aero_forces and _aero_has_cmds:
-		aero_forces.set("cmd_pitch", pitch)
-		aero_forces.set("cmd_roll",  -roll)
-		aero_forces.set("cmd_yaw",   yaw)
+	# Feed the same to SimpleAero if present and compatible
+	simple_aero.pitch_input = pitch
+	simple_aero.roll_input = -roll
+	simple_aero.yaw_input = yaw
 
 func _shape_input(v: float) -> float:
 	if absf(v) < deadzone:

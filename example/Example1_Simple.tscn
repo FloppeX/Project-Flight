@@ -1,9 +1,11 @@
-[gd_scene load_steps=71 format=3 uid="uid://di4mmbdu6qiv1"]
+[gd_scene load_steps=63 format=3 uid="uid://di4mmbdu6qiv1"]
 
 [ext_resource type="Script" path="res://example/Example1_Simple.gd" id="1"]
 [ext_resource type="AudioStream" uid="uid://cvxa8h3yftguj" path="res://example/sfx/aircraft_modules/landing_gear/deploy.wav" id="2"]
 [ext_resource type="AudioStream" uid="uid://ch1k8klfyw0mq" path="res://example/sfx/aircraft_modules/landing_gear/stow.wav" id="3"]
 [ext_resource type="PackedScene" path="res://addons/simplified_flightsim/aircraft_modules/EnergyContainer/EnergyContainer.tscn" id="4"]
+[ext_resource type="PackedScene" uid="uid://d1hbh6da5xywh" path="res://example/models/Air_tractor.glb" id="4_2sbs1"]
+[ext_resource type="PackedScene" uid="uid://cs0vdgfq68lmc" path="res://example/models/Air_tractor_prop_5.glb" id="4_67wra"]
 [ext_resource type="PackedScene" uid="uid://dsel16gi76dnm" path="res://example/ui/UIEnergyContainer/UIFuelLevel.tscn" id="5"]
 [ext_resource type="PackedScene" path="res://addons/simplified_flightsim/aircraft_modules/Controls/ControlSteering.tscn" id="6"]
 [ext_resource type="PackedScene" uid="uid://d0mgf4yjnwxgl" path="res://addons/simplified_flightsim/Aircraft/Aircraft.tscn" id="7"]
@@ -11,7 +13,7 @@
 [ext_resource type="PackedScene" uid="uid://bpna5btnwpvpr" path="res://example/scenes/Airplane/visuals/Engine/Engine.tscn" id="9"]
 [ext_resource type="PackedScene" uid="uid://bu2hixfhu8ndm" path="res://example/ui/UIEnginePower/UIEnginePower.tscn" id="10"]
 [ext_resource type="PackedScene" path="res://addons/simplified_flightsim/aircraft_modules/Engine/Engine.tscn" id="11"]
-[ext_resource type="PackedScene" path="res://example/scenes/CameraTripod/CameraTripod.tscn" id="12"]
+[ext_resource type="PackedScene" uid="uid://5f7vvtjcqw00" path="res://example/scenes/CameraTripod/CameraTripod.tscn" id="12"]
 [ext_resource type="PackedScene" path="res://addons/simplified_flightsim/aircraft_modules/Steering/Steering.tscn" id="13"]
 [ext_resource type="PackedScene" path="res://example/scenes/Airplane/visuals/Flaps/Flaps.tscn" id="15"]
 [ext_resource type="PackedScene" path="res://addons/simplified_flightsim/aircraft_modules/LandingGear/LandingGear.tscn" id="16"]
@@ -19,15 +21,18 @@
 [ext_resource type="PackedScene" path="res://addons/simplified_flightsim/aircraft_modules/Controls/ControlFlaps.tscn" id="18"]
 [ext_resource type="PackedScene" uid="uid://nhbm7re0glcb" path="res://example/scenes/Airplane/visuals/LandingGear/LandingGear.tscn" id="19"]
 [ext_resource type="PackedScene" path="res://addons/simplified_flightsim/aircraft_modules/Instruments/InstrumentAttitude.tscn" id="20"]
-[ext_resource type="Script" path="res://example/AeroForces.gd" id="20_so1na"]
-[ext_resource type="Texture2D" uid="uid://bo81iive6ulsl" path="res://example/textures/kenney_prototypetextures/PNG/Light/texture_06.png" id="21_q2ulu"]
+[ext_resource type="Script" path="res://example/SimpleAero.gd" id="21_6s31u"]
 [ext_resource type="PackedScene" uid="uid://bmut2y2xaqj6x" path="res://example/ui/UIAltSpeed/UIAltSpeed.tscn" id="22"]
 [ext_resource type="PackedScene" uid="uid://c4dncgm8qjt7u" path="res://example/ui/UIFlaps/UIFlaps.tscn" id="23"]
 [ext_resource type="PackedScene" path="res://addons/simplified_flightsim/aircraft_modules/Flaps/Flaps.tscn" id="24"]
 [ext_resource type="PackedScene" uid="uid://b8s77ar81hq22" path="res://example/ui/UILandingGear/UILandingGear.tscn" id="25"]
+[ext_resource type="PackedScene" uid="uid://cd204w3enw6bv" path="res://Environment/desert_hill_1_sandy.tscn" id="25_kidwi"]
 [ext_resource type="PackedScene" uid="uid://dhg4sb4ifrvh8" path="res://example/ui/UIAttitude/UIAttitude.tscn" id="26"]
+[ext_resource type="PackedScene" uid="uid://coredvkanm5vi" path="res://Environment/desert_mountain_1_sandy.tscn" id="26_l3wxt"]
 [ext_resource type="AudioStream" uid="uid://cqkqskpah2gx7" path="res://example/sfx/aircraft_modules/flaps/flap_loop.ogg" id="27"]
 [ext_resource type="PackedScene" uid="uid://1uui4r6ipopw" path="res://example/scenes/Airplane/visuals/Steering/Steering.tscn" id="28"]
+[ext_resource type="PackedScene" uid="uid://co3w8uw4s0art" path="res://Environment/desert_hill_2_sandy.tscn" id="32_rofq3"]
+[ext_resource type="PackedScene" uid="uid://d1mrl7eofpiop" path="res://Environment/runway.tscn" id="32_uol1a"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_ryrq1"]
 
@@ -38,49 +43,19 @@ sky_material = SubResource("ProceduralSkyMaterial_ryrq1")
 background_mode = 2
 sky = SubResource("Sky_8e340")
 
-[sub_resource type="CapsuleMesh" id="4"]
-radius = 0.7
-height = 4.0
-radial_segments = 16
-rings = 2
-
-[sub_resource type="CylinderMesh" id="5"]
-bottom_radius = 0.3
-height = 2.5
-radial_segments = 16
-rings = 1
-
-[sub_resource type="BoxMesh" id="6"]
-size = Vector3(8, 0.1, 1.5)
-
-[sub_resource type="BoxMesh" id="7"]
-size = Vector3(3, 0.1, 0.5)
-
-[sub_resource type="BoxMesh" id="8"]
-size = Vector3(0.1, 1, 0.5)
-
 [sub_resource type="BoxShape3D" id="9"]
 size = Vector3(8, 1, 6)
 
 [sub_resource type="BoxShape3D" id="19"]
 size = Vector3(1.6, 1.4, 3.4)
 
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_ldf4x"]
-albedo_color = Color(0.129412, 0.65098, 0.380392, 1)
-albedo_texture = ExtResource("21_q2ulu")
-uv1_scale = Vector3(10, 10, 10)
+[sub_resource type="SphereShape3D" id="SphereShape3D_limyo"]
 
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_myovo"]
-albedo_color = Color(1, 1, 0.811765, 1)
-albedo_texture = ExtResource("21_q2ulu")
-uv1_scale = Vector3(10, 10, 10)
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_aen88"]
+albedo_color = Color(0.78, 0.50791, 0.0702, 1)
 
 [sub_resource type="PlaneMesh" id="1"]
-material = SubResource("StandardMaterial3D_myovo")
 size = Vector2(640, 640)
-
-[sub_resource type="BoxShape3D" id="3"]
-size = Vector3(640, 2, 640)
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_ggaxk"]
 albedo_color = Color(0.839216, 0.72549, 0.611765, 1)
@@ -88,20 +63,20 @@ albedo_color = Color(0.839216, 0.72549, 0.611765, 1)
 [sub_resource type="BoxMesh" id="10"]
 size = Vector3(10, 3, 6)
 
-[sub_resource type="ConvexPolygonShape3D" id="11"]
-points = PackedVector3Array(-5, -1.5, -3, -5, 1.5, -3, 5, -1.5, -3, -5, -1.5, 3, -5, 1.5, 3, 5, 1.5, -3, 5, -1.5, 3, 5, 1.5, 3)
-
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_cnded"]
-albedo_color = Color(0.666667, 0.4, 0.337255, 1)
-
-[sub_resource type="PrismMesh" id="12"]
-size = Vector3(7, 2, 10)
-
 [sub_resource type="ConvexPolygonShape3D" id="14"]
 points = PackedVector3Array(3.5, -1, 5, 0, 1, 5, -3.5, -1, 5, 3.5, -1, -5, 0, 1, -5, -3.5, -1, -5)
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_ilvfk"]
 albedo_color = Color(0.839216, 0.72549, 0.611765, 1)
+
+[sub_resource type="ConvexPolygonShape3D" id="11"]
+points = PackedVector3Array(-5, -1.5, -3, -5, 1.5, -3, 5, -1.5, -3, -5, -1.5, 3, -5, 1.5, 3, 5, 1.5, -3, 5, -1.5, 3, 5, 1.5, 3)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_cnded"]
+albedo_color = Color(0.84, 0.51408, 0.0252, 1)
+
+[sub_resource type="PrismMesh" id="12"]
+size = Vector3(7, 2, 10)
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_2b8lc"]
 albedo_color = Color(0.839216, 0.72549, 0.611765, 1)
@@ -127,30 +102,6 @@ albedo_color = Color(0.839216, 0.72549, 0.611765, 1)
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_vj7ux"]
 albedo_color = Color(0.839216, 0.72549, 0.611765, 1)
 
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_3a1o2"]
-albedo_color = Color(0.34902, 0.454902, 0.458824, 1)
-
-[sub_resource type="BoxMesh" id="15"]
-size = Vector3(10, 15, 8)
-
-[sub_resource type="ConvexPolygonShape3D" id="16"]
-points = PackedVector3Array(-5, -7.5, -4, -5, -7.5, 4, -5, 7.5, -4, 5, -7.5, -4, 5, -7.5, 4, -5, 7.5, 4, 5, 7.5, -4, 5, 7.5, 4)
-
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_wgruu"]
-albedo_color = Color(0.34902, 0.454902, 0.458824, 1)
-
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_mc13v"]
-albedo_color = Color(0.34902, 0.454902, 0.458824, 1)
-
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_drtov"]
-albedo_color = Color(0.27451, 0.439216, 0.639216, 1)
-
-[sub_resource type="BoxMesh" id="17"]
-size = Vector3(12, 30, 15)
-
-[sub_resource type="ConvexPolygonShape3D" id="18"]
-points = PackedVector3Array(6, 15, 7.5, -6, 15, 7.5, 6, -15, 7.5, 6, 15, -7.5, -6, 15, -7.5, -6, -15, 7.5, 6, -15, -7.5, -6, -15, -7.5)
-
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_ot0j3"]
 albedo_color = Color(0, 0, 0, 1)
 uv1_scale = Vector3(3, 10, 1)
@@ -168,6 +119,8 @@ size = Vector3(20, 0.5, 100)
 [sub_resource type="BoxShape3D" id="24"]
 size = Vector3(10, 8, 90)
 
+[sub_resource type="BoxShape3D" id="BoxShape3D_57k0l"]
+
 [node name="Example" type="Node3D"]
 script = ExtResource("1")
 
@@ -175,65 +128,66 @@ script = ExtResource("1")
 environment = SubResource("Environment_sg2lb")
 
 [node name="Aircraft" parent="." instance=ExtResource("7")]
-transform = Transform3D(-1, 0, 8.74228e-08, 8.35639e-08, 0.293823, 0.95586, -2.56869e-08, 0.95586, -0.293823, 2.83971, 416.82, -588.056)
-mass = 5.0
+transform = Transform3D(-1, 0, 8.74228e-08, 0, 1, 0, -8.74228e-08, 0, -1, -0.0621493, 2.02318, -588.056)
+mass = 600.0
 center_of_mass_mode = 1
 LiftFactor = 0.003
 
-[node name="Model" type="Node3D" parent="Aircraft"]
-transform = Transform3D(2, 0, 0, 0, 2, 0, 0, 0, 2, 0, 0, 0)
+[node name="Air_tractor" parent="Aircraft" instance=ExtResource("4_2sbs1")]
+transform = Transform3D(-4.43897e-08, -1.08692e-08, -1, 0.124329, 0.992241, -1.63038e-08, 0.992241, -0.124329, -4.26939e-08, -2.6077e-08, -1.27772, -0.307495)
 
-[node name="StaticParts" type="Node3D" parent="Aircraft/Model"]
+[node name="Air_tractor_prop" parent="Aircraft/Air_tractor" instance=ExtResource("4_67wra")]
+transform = Transform3D(0.494243, -3.46493, 3.94158e-07, 3.46493, 0.494243, -4.54371e-07, 3.94157e-07, 4.54372e-07, 3.5, -3.63159, 1.87276, 5.21541e-07)
 
-[node name="MeshInstance3D" type="MeshInstance3D" parent="Aircraft/Model/StaticParts"]
-transform = Transform3D(1, -8.74228e-08, 8.74228e-08, 8.74228e-08, -4.37114e-08, -1, 8.74228e-08, 1, -4.37114e-08, 0, 0, -1.0191)
-mesh = SubResource("4")
-skeleton = NodePath("../..")
+[node name="StaticParts" type="Node3D" parent="Aircraft/Air_tractor"]
+transform = Transform3D(-4.43897e-08, 0.124329, 0.992241, -1.08692e-08, 0.992241, -0.124329, -1, -1.63038e-08, -4.26939e-08, 0.463989, 1.22958, -6.33299e-08)
 
-[node name="MeshInstance2" type="MeshInstance3D" parent="Aircraft/Model/StaticParts"]
-transform = Transform3D(1, 0, 0, 0, -4.37114e-08, 1, 0, -1, -4.37114e-08, 0, 0, 1.33447)
-mesh = SubResource("5")
-skeleton = NodePath("../..")
+[node name="MovingParts" type="Node3D" parent="Aircraft/Air_tractor"]
+transform = Transform3D(-4.43897e-08, 0.124329, 0.992241, -1.08692e-08, 0.992241, -0.124329, -1, -1.63038e-08, -4.26939e-08, 0.463989, 1.22958, -6.33299e-08)
 
-[node name="MeshInstance3" type="MeshInstance3D" parent="Aircraft/Model/StaticParts"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.292487, -0.559304)
-mesh = SubResource("6")
-skeleton = NodePath("../..")
+[node name="Engine" parent="Aircraft/Air_tractor/MovingParts" instance=ExtResource("9")]
+transform = Transform3D(0.7, 0, -2.84217e-14, 0, 0.7, 0, 0, 0, 0.7, 0.0236731, -0.0418878, 3.23819)
+visible = false
 
-[node name="MeshInstance4" type="MeshInstance3D" parent="Aircraft/Model/StaticParts"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.0388618, 2.33686)
-mesh = SubResource("7")
-skeleton = NodePath("../..")
+[node name="Steering" parent="Aircraft/Air_tractor/MovingParts" instance=ExtResource("28")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.184352, 0)
+visible = false
 
-[node name="MeshInstance5" type="MeshInstance3D" parent="Aircraft/Model/StaticParts"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.591909, 2.33686)
-mesh = SubResource("8")
-skeleton = NodePath("../..")
+[node name="LandingGear" parent="Aircraft/Air_tractor/MovingParts" instance=ExtResource("19")]
+transform = Transform3D(1, 0, -2.27374e-13, 0, 0.999997, 0, 0, 0, 0.999997, -5.7742e-08, 0.11445, -0.915619)
+visible = false
 
-[node name="MovingParts" type="Node3D" parent="Aircraft/Model"]
-
-[node name="Engine" parent="Aircraft/Model/MovingParts" instance=ExtResource("9")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 2.60584)
-
-[node name="Steering" parent="Aircraft/Model/MovingParts" instance=ExtResource("28")]
-
-[node name="LandingGear" parent="Aircraft/Model/MovingParts" instance=ExtResource("19")]
-
-[node name="Flaps" parent="Aircraft/Model/MovingParts" instance=ExtResource("15")]
+[node name="Flaps" parent="Aircraft/Air_tractor/MovingParts" instance=ExtResource("15")]
+visible = false
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="Aircraft"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.49012e-08, 0.015686, -0.22049)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.49012e-08, 0.015686, -0.22052)
 shape = SubResource("9")
 
 [node name="LandingGearCollisionShape" type="CollisionShape3D" parent="Aircraft"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.49012e-08, -0.872238, -0.800049)
+transform = Transform3D(2, 0, -2.98428e-13, 0, 2, 0, 0, 0, 2, -2.01166e-07, -1.55046, -3.28412)
+visible = false
 shape = SubResource("19")
+disabled = true
+
+[node name="CenterGearCollider" type="CollisionShape3D" parent="Aircraft"]
+transform = Transform3D(-0.2, 0, -3.01992e-08, 0, 0.2, 0, 3.01992e-08, 0, -0.2, -0.062149, -0.737147, 2.9942)
+shape = SubResource("SphereShape3D_limyo")
+
+[node name="LeftGearCollider" type="CollisionShape3D" parent="Aircraft"]
+transform = Transform3D(0.5, 0, 8.74228e-08, 0, 0.5, 0, -8.74228e-08, 0, 0.5, -1.05, -1.231, -2.144)
+shape = SubResource("SphereShape3D_limyo")
+
+[node name="RightGearCollider" type="CollisionShape3D" parent="Aircraft"]
+transform = Transform3D(0.5, 0, 8.74228e-08, 0, 0.5, 0, -8.74228e-08, 0, 0.5, 1.05, -1.231, -2.144)
+shape = SubResource("SphereShape3D_limyo")
 
 [node name="EnergyContainer" parent="Aircraft" instance=ExtResource("4")]
 UINode = NodePath("../../Interface/UIFuelLevel")
 
 [node name="Engine" parent="Aircraft" instance=ExtResource("11")]
-PowerFactor = 1500.0
+PowerFactor = 8000.0
+propeller_node = NodePath("../Air_tractor/Air_tractor_prop")
 FuelRate = 0.01
 UINode = NodePath("../../Interface/UIEnginePower")
 ProcessPhysics = true
@@ -244,11 +198,15 @@ ProcessPhysics = true
 UINode = NodePath("../../Interface/UIFlaps")
 FlapSoundLoop = ExtResource("27")
 
-[node name="LandingGear" parent="Aircraft" instance=ExtResource("16")]
+[node name="LandingGear" parent="Aircraft" node_paths=PackedStringArray("gear_collision_shapes") instance=ExtResource("16")]
 GearCollisionShape = NodePath("../LandingGearCollisionShape")
+gear_collision_shapes = [NodePath("../CenterGearCollider"), NodePath("../LeftGearCollider"), NodePath("../RightGearCollider")]
 InitialState = 1
 DeploySound = ExtResource("2")
 StowSound = ExtResource("3")
+spring_strength = 400.0
+spring_damping = 500.0
+max_compression = 1.0
 UINode = NodePath("../../Interface/UILandingGear")
 
 [node name="ControlEngine" parent="Aircraft" instance=ExtResource("8")]
@@ -262,43 +220,42 @@ UINode = NodePath("../../Interface/UILandingGear")
 [node name="InstrumentAttitude" parent="Aircraft" instance=ExtResource("20")]
 UINode = NodePath("../../Interface/UIAttitude")
 
-[node name="AeroForces" type="Node" parent="Aircraft"]
-script = ExtResource("20_so1na")
-wing_area_m2 = 12.0
-cl_max = 0.8
-alpha_stall_deg = 14.0
-side_force_gain = 0.1
-pitch_stab = 0.2
-yaw_stab = 0.04
-pitch_damp = 0.2
-roll_damp = 0.2
-yaw_damp = 0.18
-elev_power = 1.6
-aileron_power = 1.6
-rudder_power = 1.2
-q_effect_scale = 0.002
-
 [node name="CameraCockpit" parent="Aircraft" instance=ExtResource("12")]
-transform = Transform3D(1.13388, 0.000834114, -9.26021e-11, -0.00166248, 0.5689, -5.98574e-08, 1.71211e-07, 0.00106239, 3.20531e-05, 0.00470519, 1.69765, -4.07416)
+transform = Transform3D(1.13388, 0.000834114, -9.26021e-11, -0.00166248, 0.568899, -5.98573e-08, 1.71211e-07, 0.00106239, 3.20531e-05, 0.00470552, 0.826637, -0.360046)
+horizontal_sensitivity = 90.0
+vertical_sensitivity = 60.0
+return_speed = 10.0
+g_force_sensitivity = 0.04
+
+[node name="SimpleAero" type="Node" parent="Aircraft"]
+script = ExtResource("21_6s31u")
+pitch_power = 6.0
+roll_power = 12.0
+yaw_power = 6.0
+min_control_speed = 80.0
+alignment_strength = 1000.0
+angular_damping_strength = 10.0
+stall_speed = 30.0
+stall_nose_drop = 6.0
 
 [node name="Scenario" type="Node3D" parent="."]
 
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="Scenario"]
 transform = Transform3D(-1, 5.01437e-08, -7.16125e-08, 0, 0.819152, 0.573577, 8.74228e-08, 0.573577, -0.819152, 0, 124.741, 0)
-light_energy = 0.2
+light_energy = 2.0
 shadow_enabled = true
 directional_shadow_max_distance = 200.0
 
 [node name="Floor" type="MeshInstance3D" parent="Scenario"]
 transform = Transform3D(10, 0, 0, 0, 10, 0, 0, 0, 10, -2.57236, 0, 0)
-material_override = SubResource("StandardMaterial3D_ldf4x")
+material_override = SubResource("StandardMaterial3D_aen88")
 mesh = SubResource("1")
 
-[node name="StaticBody3D" type="StaticBody3D" parent="Scenario/Floor"]
+[node name="Desert hill 1" parent="Scenario" instance=ExtResource("25_kidwi")]
+transform = Transform3D(10, 0, 0, 0, 10, 0, 0, 0, 10, 324.76, -1.50875, -85.2272)
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="Scenario/Floor/StaticBody3D"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -1, 0)
-shape = SubResource("3")
+[node name="Desert mountain 1" parent="Scenario" instance=ExtResource("26_l3wxt")]
+transform = Transform3D(9.71504, 0, 2.37025, 0, 10, 0, -2.37025, 0, 9.71504, -502.561, -2.86633, 0)
 
 [node name="Houseblock" type="Node3D" parent="Scenario"]
 transform = Transform3D(2, 0, 0, 0, 2, 0, 0, 0, 2, 68.0698, 0, 100.881)
@@ -310,15 +267,6 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.5, 0)
 material_override = SubResource("StandardMaterial3D_ggaxk")
 mesh = SubResource("10")
 skeleton = NodePath("../../..")
-
-[node name="CollisionShape3D" type="CollisionShape3D" parent="Scenario/Houseblock/House1"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.5, 0)
-shape = SubResource("11")
-
-[node name="MeshInstance3D" type="MeshInstance3D" parent="Scenario/Houseblock/House1"]
-transform = Transform3D(-4.37114e-08, 0, -1, 0, 1, 0, 1, 0, -4.37114e-08, 0, 4, 0)
-material_override = SubResource("StandardMaterial3D_cnded")
-mesh = SubResource("12")
 
 [node name="CollisionShape2" type="CollisionShape3D" parent="Scenario/Houseblock/House1"]
 transform = Transform3D(-4.37114e-08, 0, -1, 0, 1, 0, 1, 0, -4.37114e-08, 0, 4, 0)
@@ -524,56 +472,8 @@ mesh = SubResource("12")
 transform = Transform3D(-4.37114e-08, 0, -1, 0, 1, 0, 1, 0, -4.37114e-08, 0, 4, 0)
 shape = SubResource("14")
 
-[node name="Building" type="StaticBody3D" parent="Scenario"]
-transform = Transform3D(2, 0, 0, 0, 2, 0, 0, 0, 2, -205.185, 0, -55.4436)
-
-[node name="MeshInstance3D" type="MeshInstance3D" parent="Scenario/Building"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 7.5, 0)
-material_override = SubResource("StandardMaterial3D_3a1o2")
-mesh = SubResource("15")
-
-[node name="CollisionShape3D" type="CollisionShape3D" parent="Scenario/Building"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 7.5, 0)
-shape = SubResource("16")
-
-[node name="Building3" type="StaticBody3D" parent="Scenario"]
-transform = Transform3D(2, 0, 0, 0, 2, 0, 0, 0, 2, -128.405, 0, -112.059)
-
-[node name="MeshInstance3D" type="MeshInstance3D" parent="Scenario/Building3"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 7.5, 0)
-material_override = SubResource("StandardMaterial3D_wgruu")
-mesh = SubResource("15")
-
-[node name="CollisionShape3D" type="CollisionShape3D" parent="Scenario/Building3"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 7.5, 0)
-shape = SubResource("16")
-
-[node name="Building2" type="StaticBody3D" parent="Scenario"]
-transform = Transform3D(2, 0, 0, 0, 2, 0, 0, 0, 2, -115.342, 0, 47.2189)
-
-[node name="MeshInstance3D" type="MeshInstance3D" parent="Scenario/Building2"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 7.5, 0)
-material_override = SubResource("StandardMaterial3D_mc13v")
-mesh = SubResource("15")
-
-[node name="CollisionShape3D" type="CollisionShape3D" parent="Scenario/Building2"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 7.5, 0)
-shape = SubResource("16")
-
-[node name="LargeBuilding" type="StaticBody3D" parent="Scenario"]
-transform = Transform3D(2, 0, 0, 0, 2, 0, 0, 0, 2, -272.386, 0, 6.84215)
-
-[node name="MeshInstance3D" type="MeshInstance3D" parent="Scenario/LargeBuilding"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 14.8427, 0)
-material_override = SubResource("StandardMaterial3D_drtov")
-mesh = SubResource("17")
-
-[node name="CollisionShape3D" type="CollisionShape3D" parent="Scenario/LargeBuilding"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 14.8427, 0)
-shape = SubResource("18")
-
 [node name="Runway" type="MeshInstance3D" parent="."]
-transform = Transform3D(2, 0, 0, 0, 1, 0, 0, 0, 8, 0, 0, -216.931)
+transform = Transform3D(2, 0, 0, 0, 1, 0, 0, 0, 8, 0, -15.3863, -216.931)
 mesh = SubResource("21")
 
 [node name="StaticBody3D" type="StaticBody3D" parent="Runway"]
@@ -710,7 +610,16 @@ offset_bottom = 24.0
 focus_mode = 0
 text = "<- Back to example list"
 
-[node name="CSGBox3D" type="CSGBox3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 11.4655, 2.55107, -252.794)
+[node name="RunwayNew" parent="." instance=ExtResource("32_uol1a")]
+transform = Transform3D(0.3, 0, 0, 0, 0.2, 0, 0, 0, 0.2, 0, 0.0188258, -241.768)
+
+[node name="StaticBody3D" type="StaticBody3D" parent="RunwayNew"]
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="RunwayNew/StaticBody3D"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4.89446, -0.775223, 261.806)
+shape = SubResource("BoxShape3D_57k0l")
+
+[node name="Desert hill 2" parent="." instance=ExtResource("32_rofq3")]
+transform = Transform3D(3, 0, -5.19615, 0, 6, 0, 5.19615, 0, 3, -286.654, -1, -342)
 
 [connection signal="pressed" from="Interface/BtnBack" to="." method="_on_BtnBack_pressed"]

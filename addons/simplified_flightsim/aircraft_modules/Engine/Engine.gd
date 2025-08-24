@@ -9,6 +9,9 @@ signal update_interface(values)
 @export var PowerFactor: float = 20.0
 @export var EnginePosition: Vector3 = Vector3.ZERO # Deprecated, use node's own position instead
 
+@export var propeller_node: NodePath = "../Model/propeller_spin"  # Adjust path
+@onready var propeller = get_node_or_null(propeller_node)
+
 @export var EngineSoundLoop: AudioStream
 @export var EngineSoundStart: AudioStream
 @export var EngineSoundStop: AudioStream
@@ -49,6 +52,7 @@ func _ready():
 	
 	if ui_node:
 		connect("update_interface", Callable(ui_node, "update_interface"))
+		
 	
 	ProcessPhysics = true
 	ModuleType = "engine"
@@ -72,7 +76,11 @@ func process_physic_frame(delta):
 		# Engine position must be in local position but global rotation
 		var engine_rotated_position = global_transform.origin - aircraft.global_transform.origin
 		aircraft.apply_force(force_vector, engine_rotated_position)
-
+		
+	# Spin propeller directly
+		if propeller and current_power > 0.0:
+			var prop_speed = current_power * 50.0 + 5.0  # RPM based on power
+			propeller.rotate_x(prop_speed * delta)  # Adjust axis as needed
 
 # -----------------------------------------------------------------------------
 

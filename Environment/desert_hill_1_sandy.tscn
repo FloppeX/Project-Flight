@@ -1,0 +1,12 @@
+[gd_scene load_steps=3 format=3 uid="uid://cd204w3enw6bv"]
+
+[ext_resource type="PackedScene" uid="uid://cbem8e8i2v6uu" path="res://example/models/landscape/Desert hill 1.glb" id="1_m16kh"]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_l1h31"]
+albedo_color = Color(0.82, 0.546667, 0, 1)
+
+[node name="Desert hill 1" instance=ExtResource("1_m16kh")]
+transform = Transform3D(8, 0, 0, 0, 8, 0, 0, 0, 8, 0, 0, 0)
+
+[node name="Hill_desert_001" parent="." index="0"]
+surface_material_override/0 = SubResource("StandardMaterial3D_l1h31")
