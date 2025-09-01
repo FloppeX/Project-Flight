@@ -1,0 +1,5 @@
+[gd_scene load_steps=2 format=3 uid="uid://c6xg8u3scd6xm"]
+
+[ext_resource type="PackedScene" uid="uid://l7y3qpxh72ii" path="res://example/models/Land Carrier/Land carrier static.glb" id="1_3qgiu"]
+
+[node name="Land carrier static" instance=ExtResource("1_3qgiu")]

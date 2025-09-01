@@ -38,7 +38,7 @@ const EARTH_GRAVITY = 9.8 # for g-force calculation
 @export var AirTemperature: float = 25.0: set = set_temperature
 @onready var air_temperature_K = ZERO_C_IN_K + AirTemperature
 
-@export var MaxLandingForce: float = 1.0
+@export var MaxLandingForce: float = 3.0
 
 @export var Gravity: float = 1.0 # Normalized to Earth average at sea level
 @export var SeaLevelFromOrigin: float = 0.0

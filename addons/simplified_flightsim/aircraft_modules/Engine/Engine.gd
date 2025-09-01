@@ -80,7 +80,7 @@ func process_physic_frame(delta):
 	# Spin propeller directly
 		if propeller and current_power > 0.0:
 			var prop_speed = current_power * 50.0 + 5.0  # RPM based on power
-			propeller.rotate_x(prop_speed * delta)  # Adjust axis as needed
+			propeller.rotate_z(prop_speed * delta)  # Adjust axis as needed
 
 # -----------------------------------------------------------------------------
 

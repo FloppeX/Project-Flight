@@ -1,7 +1,10 @@
-res://default_env.tres
 res://example/Example1_Simple.tscn
+res://default_env.tres
 res://addons/terrain_3d/tools/importer.tscn
-res://example/scenes/CameraTripod/CameraTripod.tscn
-res://example/camera_controller.gd
-res://example/scenes/CameraTripod/CameraTripod.gd
-res://example/SimpleAero.gd
+res://hardpoint.tscn
+res://weapon.tscn
+res://bomb.tscn
+res://addons/simplified_flightsim/aircraft_modules/Controls/ControlEngine.tscn
+res://addons/simplified_flightsim/aircraft_modules/Engine/Engine.tscn
+res://land_carrier_static.tscn
+res://example/scenes/Airplane/visuals/LandingGear/LandingGear.tscn
