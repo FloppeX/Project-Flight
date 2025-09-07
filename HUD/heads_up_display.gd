@@ -59,29 +59,26 @@ func _ready():
 	
 	print("Material created with transparency: ", material.transparency)
 	
-	# Set up viewport size - try much smaller resolution
-	viewport.size = Vector2i(64, 64)  # Very small - should force stretching
+	# Set up viewport size
+	viewport.size = Vector2i(256, 256)
 	viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	# Transparent background so only reticle shows on glass
+	viewport.transparent_bg = true
 	
-	# Debug: Make viewport background visible
-	viewport.transparent_bg = false  # Force opaque background
-	var env = Environment.new()
-	env.background_mode = Environment.BG_COLOR
-	env.background_color = Color.BLUE  # Blue background so we can see the viewport
-	viewport.world_3d = World3D.new()
-	viewport.world_3d.environment = env
+	# Set up crosshair size to match viewport
+	var hud_size: Vector2 = Vector2(viewport.size)
+	reticle.size = hud_size
+	reticle.pivot_offset = hud_size * 0.5
+	reticle.position = Vector2.ZERO
 	
-	# Set up crosshair size - make them fill the tiny viewport
-	reticle.size = Vector2(64, 64)  # Fill the entire 64x64 viewport
-	reticle.pivot_offset = Vector2(32, 32)  # Center pivot
-	reticle.position = Vector2(0, 0)  # Top-left of viewport
+	# Make crosshair lines centered and scale relative to HUD size
+	var line_len: float = max(hud_size.x, hud_size.y) * 0.25
+	var line_thickness: float = 2.0
+	horizontal_line.size = Vector2(line_len, line_thickness)
+	horizontal_line.position = reticle.pivot_offset - Vector2(line_len * 0.5, line_thickness * 0.5)
 	
-	# Make crosshair lines smaller and centered
-	horizontal_line.size = Vector2(16, 2)  # Smaller horizontal line
-	horizontal_line.position = Vector2(24, 31)  # Center it (32-8=24 for X, 32-1=31 for Y)
-	
-	vertical_line.size = Vector2(2, 16)  # Smaller vertical line
-	vertical_line.position = Vector2(31, 24)  # Center it (32-1=31 for X, 32-8=24 for Y)
+	vertical_line.size = Vector2(line_thickness, line_len)
+	vertical_line.position = reticle.pivot_offset - Vector2(line_thickness * 0.5, line_len * 0.5)
 	
 	# Set up crosshair colors - make them very obvious
 	horizontal_line.color = Color.YELLOW  # Bright yellow
@@ -107,25 +104,23 @@ func _process(dt: float) -> void:
 		reticle.visible = false
 		return
 	
-	# Project to screen coordinates 
+	# Project to screen coordinates (world → screen)
 	var screen_pos: Vector2 = cam.unproject_position(nose_world)
 	
-	# Convert screen coordinates to HUD viewport coordinates
-	# The HUD viewport is 64x64, so normalize and scale
+	# Convert screen coordinates to HUD viewport coordinates using actual sizes
 	var main_viewport_size = get_viewport().size
+	var hud_size_px: Vector2 = Vector2(viewport.size)
 	var normalized_pos = Vector2(
-		screen_pos.x / main_viewport_size.x,
-		screen_pos.y / main_viewport_size.y
+		screen_pos.x / max(main_viewport_size.x, 0.001),
+		screen_pos.y / max(main_viewport_size.y, 0.001)
 	)
-	
-	# Scale to HUD viewport size and center the reticle
 	var hud_pos = Vector2(
-		normalized_pos.x * 64.0,
-		normalized_pos.y * 64.0
+		normalized_pos.x * hud_size_px.x,
+		normalized_pos.y * hud_size_px.y
 	)
 	
 	# Only show if within reasonable bounds (with some margin)
-	if hud_pos.x >= -10 and hud_pos.x <= 74 and hud_pos.y >= -10 and hud_pos.y <= 74:
+	if hud_pos.x >= -10 and hud_pos.x <= (hud_size_px.x + 10) and hud_pos.y >= -10 and hud_pos.y <= (hud_size_px.y + 10):
 		reticle.visible = true
 		reticle.position = hud_pos - reticle.pivot_offset
 	else:

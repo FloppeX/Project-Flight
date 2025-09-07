@@ -137,14 +137,19 @@ common/enable_pause_aware_picking=true
 
 [rendering]
 
-textures/canvas_textures/default_texture_repeat=1
-lights_and_shadows/positional_shadow/soft_shadow_filter_quality=0
-reflections/sky_reflections/texture_array_reflections=false
-shading/overrides/force_vertex_shading=true
+lights_and_shadows/directional_shadow/soft_shadow_filter_quality=0
 shading/overrides/force_lambert_over_burley=true
-shading/overrides/force_lambert_over_burley.mobile=false
+environment/ssao/quality=0
 environment/ssao/blur_passes=0
-environment/defaults/default_environment="res://default_env.tres"
-quality/driver/driver_name="GLES2"
-vram_compression/import_etc=true
-quality/filters/msaa=2
+#Low-polyaestheticsettingsforearly90s/Amigavectorartlooktextures/canvas_textures/default_texture_repeat=1
+#Disableallshadowsforflatlooklights_and_shadows/positional_shadow/soft_shadow_filter_quality=0
+#DisablereflectionsandSSAOreflections/sky_reflections/texture_array_reflections=false
+environment/ssr/roughness_quality=0
+#Forceflatshading-nosmoothnormalsshading/overrides/force_vertex_shading=true
+#Disableanti-aliasingforpixelatedlookquality/filters/msaa=0
+quality/filters/use_taa=false
+#UseGLES2forcompatibilityandflatlookquality/driver/driver_name="GLES2"
+#Disabletexturecompressionforcrisppixelsvram_compression/import_etc=false
+vram_compression/import_etc2=false
+#Disabletexturefilteringforpixelatedlooktextures/canvas_textures/default_texture_filter=0
+#Simplelow-polyenvironmentenvironment/defaults/default_environment="res://low_poly_env.tres"

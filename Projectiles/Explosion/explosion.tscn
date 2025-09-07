@@ -4,3 +4,4 @@
 
 [node name="Explosion" type="Node3D"]
 script = ExtResource("1_5ktmv")
+explosion_sounds = Array[AudioStream]([])

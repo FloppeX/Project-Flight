@@ -1,7 +1,2 @@
-res://default_env.tres
-res://Aircraft/CompleteFighterJet.tscn
-res://example/scenes/Cameras/CameraTripod.tscn
-res://example/Example1_Simple.tscn
-res://Projectiles/BombNew/bomb_new.tscn
-res://example/scenes/Cameras/ChaseCamera.gd
-res://Aircraft.tscn
+res://example/ExampleList.tscn
+res://example/scenes/Cameras/camera_controller.gd

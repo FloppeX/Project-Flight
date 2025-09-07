@@ -39,22 +39,28 @@ func _ready():
 		sfx_engine_loop = AudioStreamPlayer3D.new()
 		add_child(sfx_engine_loop)
 		sfx_engine_loop.stream = EngineSoundLoop
-		sfx_engine_loop.unit_size = 5.0    
-		sfx_engine_loop.max_distance = 100.0   
+		sfx_engine_loop.unit_size = 50.0     # Larger unit size for more consistent volume
+		sfx_engine_loop.max_distance = 2000.0  # Much larger range - 2km
+		sfx_engine_loop.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE
+		sfx_engine_loop.add_to_group("3d_audio")  # Add to group for audio management
 	
 	if EngineSoundStart:
 		sfx_engine_start = AudioStreamPlayer3D.new()
 		add_child(sfx_engine_start)
 		sfx_engine_start.stream = EngineSoundStart
-		sfx_engine_start.unit_size = 5.0     
-		sfx_engine_start.max_distance = 100.0   
+		sfx_engine_start.unit_size = 50.0     
+		sfx_engine_start.max_distance = 2000.0  # Much larger range - 2km
+		sfx_engine_start.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE
+		sfx_engine_start.add_to_group("3d_audio")  # Add to group for audio management
 			
 	if EngineSoundStop:
 		sfx_engine_stop = AudioStreamPlayer3D.new()
 		add_child(sfx_engine_stop)
 		sfx_engine_stop.stream = EngineSoundStop
-		sfx_engine_stop.unit_size = 5.0     
-		sfx_engine_stop.max_distance = 100.0   
+		sfx_engine_stop.unit_size = 50.0     
+		sfx_engine_stop.max_distance = 2000.0  # Much larger range - 2km
+		sfx_engine_stop.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE
+		sfx_engine_stop.add_to_group("3d_audio")  # Add to group for audio management   
 	
 	if ui_node:
 		connect("update_interface", Callable(ui_node, "update_interface"))

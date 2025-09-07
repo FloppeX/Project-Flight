@@ -4,6 +4,13 @@ extends RigidBody3D
 signal crashed(impact_velocity)
 signal parked
 signal moved
+signal damaged(damage_amount, current_health)
+signal destroyed
+
+# Health/Damage System
+@export var max_health: float = 100.0
+@export var explosion_scene: PackedScene  # Explosion effect when aircraft is destroyed
+var current_health: float
 
 @export var MaxLandingForce: float = 3.0
 @export var Gravity: float = 1.0 # Normalized to Earth average at sea level
@@ -48,6 +55,13 @@ var local_load_factor = 1.0
 
 func _ready():
 	await get_tree().process_frame
+	
+	# Initialize health system
+	current_health = max_health
+	
+	# Add to aircraft group for easy finding
+	add_to_group("aircraft")
+	add_to_group("weather_affected")
 	
 	# Create world reference (for compatibility)
 	var internal_world_reference = get_node_or_null("/root/WorldOrientationReference")
@@ -144,6 +158,11 @@ func land(landing_velocity: float, impact_velocity: float):
 
 func crash(impact_velocity: float):
 	emit_signal("crashed", impact_velocity)
+	
+	# Only take damage if impact is significant (prevent startup issues)
+	if impact_velocity > 5.0:
+		var damage_amount = (impact_velocity - 5.0) * 8.0  # Damage starts after 5 m/s
+		take_damage(damage_amount)
 
 ##############################################################################
 #  ENERGY SYSTEM
@@ -284,6 +303,45 @@ func check_movement_state():
 		emit_signal("moved")
 	
 	is_velocity_nonzero = is_moving_now
+
+##############################################################################
+#  DAMAGE SYSTEM
+# ----------------------------------------------------------------------------
+
+func take_damage(damage_amount: float):
+	if current_health <= 0:
+		return  # Already destroyed
+	
+	current_health -= damage_amount
+	current_health = max(current_health, 0.0)
+	
+	emit_signal("damaged", damage_amount, current_health)
+	
+	if current_health <= 0:
+		explode()
+
+func explode():
+	emit_signal("destroyed")
+	
+	# Activate deathcam before removing aircraft
+	activate_deathcam()
+	
+	# Spawn explosion effect if available
+	if explosion_scene:
+		var explosion_instance = explosion_scene.instantiate()
+		get_parent().add_child(explosion_instance)
+		explosion_instance.global_position = global_position
+
+func activate_deathcam():
+	# Find the camera controller and switch to deathcam mode
+	var camera_controller = find_child("CameraController")
+	if camera_controller and camera_controller.has_method("activate_deathcam"):
+		camera_controller.activate_deathcam(global_position)
+	
+	# Make aircraft non-interactive but don't remove it yet
+	set_collision_layer(0)
+	set_collision_mask(0)
+	freeze = true
 
 ##############################################################################
 #  UTILITY FUNCTIONS

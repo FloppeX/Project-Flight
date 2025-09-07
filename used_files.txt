@@ -1,0 +1,83 @@
+addons\simplified_flightsim\aircraft_modules\Controls\ControlEngine.gd
+addons\simplified_flightsim\aircraft_modules\Controls\ControlEngine.tscn
+addons\simplified_flightsim\aircraft_modules\Controls\ControlFlaps.gd
+addons\simplified_flightsim\aircraft_modules\Controls\ControlFlaps.tscn
+addons\simplified_flightsim\aircraft_modules\Controls\ControlLandingGear.gd
+addons\simplified_flightsim\aircraft_modules\Controls\ControlLandingGear.tscn
+addons\simplified_flightsim\aircraft_modules\Controls\ControlSteering.gd
+addons\simplified_flightsim\aircraft_modules\Controls\ControlSteering.tscn
+addons\simplified_flightsim\aircraft_modules\EnergyContainer\EnergyContainer.gd
+addons\simplified_flightsim\aircraft_modules\EnergyContainer\EnergyContainer.tscn
+addons\simplified_flightsim\aircraft_modules\Engine\Engine.gd
+addons\simplified_flightsim\aircraft_modules\Engine\Engine.tscn
+addons\simplified_flightsim\aircraft_modules\Flaps\Flaps.gd
+addons\simplified_flightsim\aircraft_modules\Flaps\Flaps.tscn
+addons\simplified_flightsim\aircraft_modules\LandingGear\LandingGear.gd
+addons\simplified_flightsim\aircraft_modules\LandingGear\LandingGear.tscn
+addons\simplified_flightsim\aircraft_modules\Steering\Steering.gd
+addons\simplified_flightsim\aircraft_modules\Steering\Steering.tscn
+addons\terrain_3d\extras\shaders\flat_lit_shader.gdshader
+Aircraft\aircraft.gd
+Aircraft\CompleteFighterJet.tscn
+Blank.png
+Digital camo.png
+example\control_weapons.gd
+example\Example1_Simple.gd
+example\Example1_Simple.tscn
+example\fonts\Pixel.ttf
+example\models\Aircraft_1\Aircraft 1 nose gear.glb
+example\models\Aircraft_1\Aircraft 1 right gear.glb
+example\models\Aircraft_1\Aircraft 1.glb
+example\models\Aircraft_1\Aircraft 2 left gear.glb
+example\models\Aircraft_1\Aircraft 2 propeller.glb
+example\models\Land Carrier\Land carrier 1 new.glb
+example\scenes\Cameras\camera_chase.gd
+example\scenes\Cameras\camera_controller.gd
+example\scenes\Cameras\CameraTripod.tscn
+example\scenes\Cameras\CinematicCamera.gd
+example\scenes\Cameras\CockpitCamera.gd
+example\sfx\aircraft_modules\engine\engine.ogg
+example\sfx\aircraft_modules\engine\engine_start.wav
+example\sfx\aircraft_modules\landing_gear\deploy.wav
+example\sfx\aircraft_modules\landing_gear\stow.wav
+example\SimpleAero.gd
+example\ui\back_bg9.png
+example\ui\back_fg9.png
+example\ui\panel_bg9.png
+example\ui\UIAltSpeed\UIAltSpeed.gd
+example\ui\UIAltSpeed\UIAltSpeed.tscn
+example\ui\UIAttitude\compass2.png
+example\ui\UIAttitude\scale.png
+example\ui\UIAttitude\UIAttitude.gd
+example\ui\UIAttitude\UIAttitude.tscn
+example\ui\UIEnergyContainer\UIFuelLevel.gd
+example\ui\UIEnergyContainer\UIFuelLevel.tscn
+example\ui\UIEnginePower\UIEnginePower.gd
+example\ui\UIEnginePower\UIEnginePower.tscn
+example\ui\UIFlaps\UIFlaps.gd
+example\ui\UIFlaps\UIFlaps.tscn
+example\ui\UIGForce\UIGForce.gd
+example\ui\UIGForce\UIGForce.tscn
+example\ui\UILandingGear\lgear_deploying.png
+example\ui\UILandingGear\lgear_down.png
+example\ui\UILandingGear\lgear_stowing.png
+example\ui\UILandingGear\lgear_up.png
+example\ui\UILandingGear\UILandingGear.gd
+example\ui\UILandingGear\UILandingGear.tscn
+HUD\heads_up_display.gd
+HUD\HeadsUpDisplay.tscn
+HUD\instrument_panel.gd
+HUD\InstrumentPanel.tscn
+Projectiles\Bullet\bullet.gd
+Projectiles\Bullet\bullet.tscn
+Sounds\airplane_propeller 2.wav
+Sounds\Heavy machine gun.wav
+Sounds\prop startup 3.wav
+Sounds\wind_sound_cockpit.wav
+Weapons\Autocannon\autocannon.gd
+Weapons\Autocannon\Autocannon.tscn
+Weapons\Autocannon\machine gun low poly.glb
+Weapons\hardpoint.gd
+Weapons\hardpoint.tscn
+Weather\ContinuousTurbulence.gd
+Weather\ContinuousTurbulence.tscn

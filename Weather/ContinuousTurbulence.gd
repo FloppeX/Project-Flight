@@ -27,6 +27,7 @@ func _ready():
 	noise.frequency = turbulence_scale
 	noise.seed = randi()
 	print("ContinuousTurbulence system initialized")
+	print("Wind sound: ", wind_sound)
 
 func _process(delta):
 	time_offset += delta * time_speed
@@ -163,28 +164,41 @@ func update_wind_audio(body: RigidBody3D, intensity: float):
 	var body_id = body.get_instance_id()
 	if not body_id in audio_players:
 		var audio_player = AudioStreamPlayer3D.new()
-		body.add_child(audio_player)
+		# Don't attach to aircraft - keep it as a world object
+		get_tree().current_scene.add_child(audio_player)
 		audio_player.stream = wind_sound
 		
 		# Force loop mode if it's a WAV file
 		if wind_sound is AudioStreamWAV:
 			wind_sound.loop_mode = AudioStreamWAV.LOOP_FORWARD
 		
-		audio_player.max_distance = 200.0
-		audio_player.unit_size = 50.0
+		# Set up for external camera listening
+		audio_player.max_distance = 1000.0  # Very large range for wind
+		audio_player.unit_size = 200.0      # Large unit size for consistent volume
+		audio_player.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE
+		audio_player.add_to_group("3d_audio")  # Add to group for audio management
 		audio_player.play()  # Start playing immediately
 		audio_players[body_id] = audio_player
 		
 		if debug_output:
-			print("Created audio player for ", body.name, " - Stream: ", wind_sound)
+			print("Created wind audio player for ", body.name, " - Stream: ", wind_sound)
 	
 	var audio_player = audio_players[body_id]
+	
+	# Position wind audio at the active camera for external views
+	var active_camera = get_active_camera()
+	if active_camera:
+		# For external cameras, position wind at camera
+		audio_player.global_position = active_camera.global_position
+	else:
+		# Fallback to aircraft position
+		audio_player.global_position = body.global_position
 	
 	# Make sure it's playing
 	if not audio_player.playing:
 		audio_player.play()
 		if debug_output:
-			print("Restarting audio for ", body.name)
+			print("Restarting wind audio for ", body.name)
 	
 	# Update volume and pitch based on turbulence intensity
 	var volume_factor = clamp(intensity / max_intensity, 0.0, 1.0)
@@ -203,6 +217,22 @@ func update_wind_audio(body: RigidBody3D, intensity: float):
 			if is_instance_valid(audio_players[id]):
 				audio_players[id].queue_free()
 			audio_players.erase(id)
+
+func get_active_camera() -> Camera3D:
+	# Find the currently active camera
+	var camera_controller = get_tree().get_first_node_in_group("camera_controller")
+	if not camera_controller:
+		return null
+	
+	# Check which camera is currently active
+	if camera_controller.cockpit_camera and camera_controller.cockpit_camera.current:
+		return camera_controller.cockpit_camera
+	elif camera_controller.chase_camera and camera_controller.chase_camera.current:
+		return camera_controller.chase_camera
+	elif camera_controller.cinematic_camera and camera_controller.cinematic_camera.current:
+		return camera_controller.cinematic_camera
+	
+	return null
 
 func get_turbulence_intensity_at_position(pos: Vector3) -> float:
 	# Utility function for other systems to query turbulence intensity

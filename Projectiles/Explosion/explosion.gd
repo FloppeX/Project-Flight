@@ -5,9 +5,11 @@ class_name Explosion
 @export var flash_duration: float = 1  # Increased from 0.15
 @export var debris_count: int = 25  # Increased from 15
 @export var effect_duration: float = 8.0  # Increased from 2.0
+@export var explosion_sounds: Array[AudioStream] = []
 
 var debris_particles: GPUParticles3D
 var smoke_particles: GPUParticles3D
+var sfx_explosion: AudioStreamPlayer3D
 
 func _ready():
 	print("=== EXPLOSION CREATED ===")
@@ -15,9 +17,27 @@ func _ready():
 	create_debris_particles()
 	create_smoke_particles()
 	create_fire_debris()
+	setup_explosion_audio()
 	
 	# Start the explosion sequence
 	trigger_explosion()
+
+func setup_explosion_audio():
+	if explosion_sounds.size() > 0:
+		sfx_explosion = AudioStreamPlayer3D.new()
+		add_child(sfx_explosion)
+		
+		# Randomly select one of the explosion sounds
+		var selected_sound = explosion_sounds[randi() % explosion_sounds.size()]
+		sfx_explosion.stream = selected_sound
+		
+		sfx_explosion.volume_db = 0.0
+		sfx_explosion.max_distance = 2000.0  # Very large range - 2km
+		sfx_explosion.unit_size = 100.0      # Large unit size for consistent volume
+		sfx_explosion.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE
+		sfx_explosion.add_to_group("3d_audio")  # Add to group for audio management
+		
+		print("Selected explosion sound: ", selected_sound.resource_path)
 
 func create_debris_particles():
 	print("Creating debris particles...")
@@ -165,6 +185,11 @@ func trigger_explosion():
 	# Start particles
 	debris_particles.restart()
 	smoke_particles.restart()
+	
+	# Play explosion sound
+	if sfx_explosion:
+		sfx_explosion.play()
+		print("Playing explosion sound")
 	
 	# Create multiple flash bursts for angular effect (instead of sphere)
 	create_angular_bursts()

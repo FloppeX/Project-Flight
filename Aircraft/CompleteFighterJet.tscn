@@ -27,6 +27,7 @@
 [ext_resource type="PackedScene" uid="uid://dmkf543ywx7dl" path="res://addons/simplified_flightsim/aircraft_modules/Controls/ControlFlaps.tscn" id="29"]
 [ext_resource type="Script" uid="uid://cmcm4b17iaaro" path="res://example/control_weapons.gd" id="30"]
 [ext_resource type="Script" uid="uid://nduup0ehe83b" path="res://example/scenes/Cameras/camera_controller.gd" id="32"]
+[ext_resource type="PackedScene" path="res://Audio/AudioManager3D.tscn" id="33"]
 
 [sub_resource type="PhysicsMaterial" id="PhysicsMaterial_lowfriction"]
 friction = 0.1
@@ -133,6 +134,10 @@ aircraft = NodePath("..")
 cockpit_tripod = NodePath("../CameraCockpit")
 chase_tripod = NodePath("../CameraChase")
 cinematic_tripod = NodePath("../CameraCinematic")
+
+[node name="AudioManager3D" parent="." instance=ExtResource("33")]
+aircraft = NodePath("..")
+camera_controller = NodePath("../CameraController")
 
 [node name="CameraCockpit" parent="." instance=ExtResource("25")]
 transform = Transform3D(1, 0, 0, 0, 0.999983, 0, 0, 0, 0.999983, 0, 0.92, -1.04034)

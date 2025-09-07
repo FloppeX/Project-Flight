@@ -27,10 +27,11 @@ func _ready():
 		add_child(sfx_cannon)
 		sfx_cannon.stream = cannon_sound
 		sfx_cannon.volume_db = 0.0  # Adjust volume as needed
-		sfx_cannon.max_distance = 50.0      # Increase hearing range
-		sfx_cannon.unit_size = 10.0         # Larger "size" of sound source  
-		sfx_cannon.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_SQUARE_DISTANCE
+		sfx_cannon.max_distance = 1000.0     # Much larger range - 1km
+		sfx_cannon.unit_size = 25.0          # Larger "size" of sound source  
+		sfx_cannon.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE
 		sfx_cannon.doppler_tracking = AudioStreamPlayer3D.DOPPLER_TRACKING_DISABLED
+		sfx_cannon.add_to_group("3d_audio")  # Add to group for audio management
 
 func _process(delta):
 	if fire_timer > 0:

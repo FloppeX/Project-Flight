@@ -1,0 +1,16 @@
+[gd_resource type="Environment" load_steps=2 format=3 uid="uid://lowpolyenv123"]
+
+[sub_resource type="Sky" id="1"]
+sky_material = null
+radiance_size = 32
+process_mode = 0
+
+[resource]
+background_mode = 2
+sky = SubResource("1")
+ambient_light_source = 2
+ambient_light_color = Color(0.8, 0.8, 0.9, 1)
+ambient_light_energy = 0.3
+tonemap_mode = 0
+tonemap_exposure = 1.0
+auto_exposure_enabled = false

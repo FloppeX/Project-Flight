@@ -33,6 +33,7 @@
 [ext_resource type="Script" uid="uid://g7wt23f15o4i" path="res://example/simple_aero_chat_gpt.gd" id="32_f3qwj"]
 [ext_resource type="Script" uid="uid://cyxrx2cid1gt" path="res://example/SimpleAero.gd" id="33_wqjss"]
 [ext_resource type="Script" uid="uid://nduup0ehe83b" path="res://example/scenes/Cameras/camera_controller.gd" id="34_mdrlt"]
+[ext_resource type="PackedScene" path="res://Audio/AudioManager3D.tscn" id="35_audio_manager"]
 [ext_resource type="PackedScene" uid="uid://dsnc8jllg42ph" path="res://Weapons/hardpoint.tscn" id="35_36142"]
 [ext_resource type="PackedScene" uid="uid://bu2hixfhu8ndm" path="res://example/ui/UIEnginePower/UIEnginePower.tscn" id="43_3b2i2"]
 [ext_resource type="PackedScene" uid="uid://dsel16gi76dnm" path="res://example/ui/UIEnergyContainer/UIFuelLevel.tscn" id="44_6tdp7"]
@@ -191,6 +192,10 @@ aircraft = NodePath("..")
 cockpit_tripod = NodePath("../CameraCockpit")
 chase_tripod = NodePath("../CameraChase")
 cinematic_tripod = NodePath("../CameraCinematic")
+
+[node name="AudioManager3D" parent="Aircraft" instance=ExtResource("35_audio_manager")]
+aircraft = NodePath("..")
+camera_controller = NodePath("../CameraController")
 
 [node name="CameraChase" parent="Aircraft" instance=ExtResource("30_dnwn8")]
 transform = Transform3D(0.0804371, 0.00133164, 3.19724e-05, -0.00226377, 0.568899, -7.06689e-08, -1.13102, -0.00104375, 2.274e-06, 7771.05, -1103.61, -14245)

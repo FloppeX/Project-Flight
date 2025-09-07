@@ -76,9 +76,6 @@ func _physics_process(delta: float) -> void:
 
 	# Apply lift at center of mass
 	rb.apply_central_force(lift_force)
-	
-	# Apply lift normally
-	rb.apply_central_force(lift_force)
 
 	# Apply nose-down force when stalled
 	if stall_severity > 0.1 and speed > 5.0:  # Only when flying and stalled
