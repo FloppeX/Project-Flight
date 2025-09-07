@@ -2,7 +2,7 @@
 
 [ext_resource type="PackedScene" uid="uid://c4n08bfodjaq8" path="res://Projectiles/ProjectileNew/projectile_new.tscn" id="1_gufam"]
 [ext_resource type="PackedScene" uid="uid://cadi81fcpvmuc" path="res://Projectiles/Explosion/explosion.tscn" id="2_s0eg3"]
-[ext_resource type="PackedScene" uid="uid://cbpsn8r87hlrc" path="res://bomb.glb" id="3_q8txw"]
+[ext_resource type="PackedScene" uid="uid://cbpsn8r87hlrc" path="res://Weapons/bomb.glb" id="3_q8txw"]
 
 [node name="BombNew" instance=ExtResource("1_gufam")]
 transform = Transform3D(1.91069e-15, 4.37114e-08, -1, 1, -4.37114e-08, 0, -4.37114e-08, -1, -4.37114e-08, 0, 0, 0)

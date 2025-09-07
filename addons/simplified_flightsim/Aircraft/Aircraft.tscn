@@ -1,6 +1,6 @@
 [gd_scene load_steps=2 format=3 uid="uid://vljqqcniwr2c"]
 
-[ext_resource type="Script" uid="uid://c4ltq2v6fji05" path="res://aircraft.gd" id="1"]
+[ext_resource type="Script" uid="uid://c4ltq2v6fji05" path="res://Aircraft/aircraft.gd" id="1"]
 
 [node name="Aircraft" type="RigidBody3D"]
 gravity_scale = 0.0

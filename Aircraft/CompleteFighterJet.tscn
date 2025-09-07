@@ -1,6 +1,6 @@
 [gd_scene load_steps=32 format=3 uid="uid://b5ni1vhgcw1xc"]
 
-[ext_resource type="Script" uid="uid://c4ltq2v6fji05" path="res://aircraft.gd" id="1"]
+[ext_resource type="Script" uid="uid://c4ltq2v6fji05" path="res://Aircraft/aircraft.gd" id="1"]
 [ext_resource type="PackedScene" uid="uid://dnok58llfxfur" path="res://example/models/Aircraft_1/Aircraft 1.glb" id="3"]
 [ext_resource type="PackedScene" uid="uid://c0o23b5ljp2ux" path="res://example/models/Aircraft_1/Aircraft 1 nose gear.glb" id="4"]
 [ext_resource type="PackedScene" uid="uid://bumb5qqc3xt7" path="res://example/models/Aircraft_1/Aircraft 1 right gear.glb" id="5"]
@@ -19,7 +19,7 @@
 [ext_resource type="PackedScene" uid="uid://booy8rgevyscb" path="res://addons/simplified_flightsim/aircraft_modules/Controls/ControlSteering.tscn" id="20"]
 [ext_resource type="PackedScene" uid="uid://cqyfnpv28jupa" path="res://HUD/HeadsUpDisplay.tscn" id="21"]
 [ext_resource type="PackedScene" uid="uid://b4xm8v23opqrs" path="res://HUD/InstrumentPanel.tscn" id="22"]
-[ext_resource type="PackedScene" uid="uid://dsnc8jllg42ph" path="res://hardpoint.tscn" id="23"]
+[ext_resource type="PackedScene" uid="uid://dsnc8jllg42ph" path="res://Weapons/hardpoint.tscn" id="23"]
 [ext_resource type="PackedScene" uid="uid://bar7l5uwuwevr" path="res://Weapons/Autocannon/Autocannon.tscn" id="24"]
 [ext_resource type="PackedScene" uid="uid://5f7vvtjcqw00" path="res://example/scenes/Cameras/CameraTripod.tscn" id="25"]
 [ext_resource type="Script" uid="uid://cyxrx2cid1gt" path="res://example/SimpleAero.gd" id="27"]

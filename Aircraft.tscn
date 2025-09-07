@@ -1,4 +1,4 @@
-[gd_scene load_steps=0 format=3 uid="uid://0a6mw65hn1jq"]
+[gd_scene format=3 uid="uid://0a6mw65hn1jq"]
 
 [node name="Aircraft" type="RigidBody3D"]
 gravity_scale = 0.0

@@ -1,7 +1,7 @@
 [gd_scene load_steps=4 format=3 uid="uid://idqmpbpg2jul"]
 
 [ext_resource type="Script" uid="uid://cnnj4ryshwws5" path="res://Weapons/Bomb/bomb.gd" id="1_573fp"]
-[ext_resource type="PackedScene" uid="uid://cbpsn8r87hlrc" path="res://bomb.glb" id="2_4fn8o"]
+[ext_resource type="PackedScene" uid="uid://cbpsn8r87hlrc" path="res://Weapons/bomb.glb" id="2_4fn8o"]
 [ext_resource type="PackedScene" uid="uid://bjh4sid7u0lyk" path="res://Projectiles/BombNew/bomb_new.tscn" id="2_clhcb"]
 
 [node name="Bomb" type="Node3D"]
