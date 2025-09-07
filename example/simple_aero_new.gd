@@ -43,7 +43,7 @@ func _physics_process(delta: float) -> void:
 	# --- Kinematics / basis ---
 	var vel: Vector3 = rb.linear_velocity
 	var speed: float = vel.length()  # total airspeed magnitude
-	var fwd: Vector3 = -rb.global_transform.basis.z
+	var fwd: Vector3 = rb.global_transform.basis.z
 	var right: Vector3 = rb.global_transform.basis.x
 	var up: Vector3 = rb.global_transform.basis.y
 	var v_dir: Vector3 = (vel / speed) if speed > 0.001 else fwd
@@ -82,7 +82,7 @@ func _physics_process(delta: float) -> void:
 		var yaw_force: float = coordinated_yaw * yaw_power * control_authority * rb.mass
 
 		rb.apply_torque(right * pitch_force)                           # Pitch
-		rb.apply_torque(rb.global_transform.basis.z * roll_force)      # Roll
+		rb.apply_torque(fwd * roll_force)      # Roll
 		rb.apply_torque(rb.global_transform.basis.y * yaw_force)       # Yaw
 
 	# --- Velocity alignment (gate by forward speed, use total speed for magnitude) ---

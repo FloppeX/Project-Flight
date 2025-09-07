@@ -1,74 +1,117 @@
 extends Node3D
-# HeadsUpDisplay.gd
 
 @export var camera_path: NodePath
 @export var aircraft_path: NodePath
 @export var crosshair_color: Color = Color.GREEN
 @export var hud_range: float = 10000.0
-@export var hud_glass_size: Vector2 = Vector2(0.20, 0.20) # 20×20 cm combiner
+@export var hud_glass_size: Vector2 = Vector2(0.2, 0.2)  # 20x20 cm in meters
 
 @onready var cam: Camera3D = get_node(camera_path) as Camera3D
 @onready var aircraft: Node3D = get_node(aircraft_path) as Node3D
-@onready var subvp: SubViewport = $SubViewport
+@onready var viewport: SubViewport = $SubViewport
 @onready var reticle: Control = $SubViewport/Reticle
 @onready var horizontal_line: ColorRect = $SubViewport/Reticle/HorizontalLine
 @onready var vertical_line: ColorRect = $SubViewport/Reticle/VerticalLine
-@onready var hud_mesh: MeshInstance3D = $"HUD glass"   # << matches your scene name
+@onready var hud_mesh: MeshInstance3D = $HUDglass
 
-func _ready() -> void:
-	# Mesh
-	var quad := QuadMesh.new()
+func _ready():
+	# Debug: Check what children exist
+	print("All children of ", name, ":")
+	for child in get_children():
+		print("  - ", child.name, " (", child.get_class(), ")")
+	
+	# Check each node reference
+	print("HUD Mesh: ", hud_mesh)
+	print("Viewport: ", viewport)
+	print("Reticle: ", reticle)
+	print("H-Line: ", horizontal_line)
+	print("V-Line: ", vertical_line)
+	
+	# Exit early if any critical nodes are missing
+	if hud_mesh == null:
+		print("ERROR: HUDglass node not found!")
+		return
+	if viewport == null:
+		print("ERROR: SubViewport node not found!")
+		return
+	
+	# Set up the HUD glass mesh
+	var quad = QuadMesh.new()
 	quad.size = hud_glass_size
-	$"HUD glass".mesh = quad
+	hud_mesh.mesh = quad
+	
+	# Create material for the HUD glass - use correct property names
+	var material = StandardMaterial3D.new()
+	
+	# Basic transparency setup
+	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	material.flags_unshaded = true
+	material.albedo_color = Color(1.0, 1.0, 1.0, 0.1)  # White with low alpha
+	
+	# Add viewport texture and emission
+	material.albedo_texture = viewport.get_texture()
+	material.emission_enabled = true
+	material.emission_texture = viewport.get_texture()
+	material.emission_energy = 3.0
+	
+	# Apply material
+	hud_mesh.material_override = material
+	
+	print("Material created with transparency: ", material.transparency)
+	
+	# Set up viewport size - try much smaller resolution
+	viewport.size = Vector2i(64, 64)  # Very small - should force stretching
+	viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	
+	# Debug: Make viewport background visible
+	viewport.transparent_bg = false  # Force opaque background
+	var env = Environment.new()
+	env.background_mode = Environment.BG_COLOR
+	env.background_color = Color.BLUE  # Blue background so we can see the viewport
+	viewport.world_3d = World3D.new()
+	viewport.world_3d.environment = env
+	
+	# Set up crosshair size - make them fill the tiny viewport
+	reticle.size = Vector2(64, 64)  # Fill the entire 64x64 viewport
+	reticle.pivot_offset = Vector2(32, 32)  # Center pivot
+	reticle.position = Vector2(0, 0)  # Top-left of viewport
+	
+	# Make crosshair lines smaller and centered
+	horizontal_line.size = Vector2(16, 2)  # Smaller horizontal line
+	horizontal_line.position = Vector2(24, 31)  # Center it (32-8=24 for X, 32-1=31 for Y)
+	
+	vertical_line.size = Vector2(2, 16)  # Smaller vertical line
+	vertical_line.position = Vector2(31, 24)  # Center it (32-1=31 for X, 32-8=24 for Y)
+	
+	# Set up crosshair colors - make them very obvious
+	horizontal_line.color = Color.YELLOW  # Bright yellow
+	vertical_line.color = Color.YELLOW
+	
+	print("Crosshair setup complete - should be yellow on red background")
 
-	# SubViewport (2D, always updating)
-	var sv := $SubViewport
-	sv.size = Vector2i(256, 256)
-	sv.render_target_update_mode = SubViewport.UPDATE_ALWAYS
-	sv.transparent_bg = false
-	sv.clear_mode = SubViewport.CLEAR_MODE_ALWAYS
-
-	# Fill SubViewport so you can see it on the glass
-	var bg := ColorRect.new()
-	bg.color = Color(0, 1, 0, 1)	# bright green
-	bg.anchors_preset = Control.PRESET_FULL_RECT
-	sv.add_child(bg)
-
-	# Material uses the SubViewport texture
-	var mat := StandardMaterial3D.new()
-	mat.flags_unshaded = true
-	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_DISABLED
-	mat.albedo_texture = sv.get_texture()
-	mat.emission_enabled = true
-	mat.emission_texture = sv.get_texture()
-	mat.no_depth_test = true
-	# (Optional: crisp sampling)
-	mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
-	$"HUD glass".material_override = mat
-
-
-
-func _process(_dt: float) -> void:
+func _process(dt: float) -> void:
 	if cam == null or aircraft == null:
 		return
-
-	# Project a far point along the aircraft’s forward vector (collimated/“infinite”)
-	var fwd: Vector3 = -aircraft.global_transform.basis.z
+	
+	# Aircraft forward in Godot: +Z (now corrected)
+	var fwd: Vector3 = aircraft.global_transform.basis.z
 	var nose_world: Vector3 = aircraft.global_transform.origin + fwd * hud_range
-
+	
+	# Hide if the target point is behind the camera
 	if cam.is_position_behind(nose_world):
 		reticle.visible = false
 		return
-
-	# Screen position in MAIN viewport pixels
+	
+	# Project to screen coordinates and convert to viewport coordinates
 	var screen_pos: Vector2 = cam.unproject_position(nose_world)
-
-	# Convert to SubViewport pixel space
-	var main_size: Vector2 = get_viewport().size
-	var sub_size: Vector2 = Vector2(subvp.size)
-	var uv := Vector2(screen_pos.x / max(main_size.x, 1.0), screen_pos.y / max(main_size.y, 1.0))
-	var sub_px := Vector2(uv.x * sub_size.x, uv.y * sub_size.y)
-
+	
+	# Convert screen coordinates to viewport coordinates (0-64 range)
+	var viewport_size = get_viewport().size
+	var viewport_pos = Vector2(
+		(screen_pos.x / viewport_size.x) * 64,
+		(screen_pos.y / viewport_size.y) * 64
+	)
+	
 	reticle.visible = true
-	reticle.position = sub_px - reticle.pivot_offset
+	reticle.position = viewport_pos - reticle.pivot_offset
+	

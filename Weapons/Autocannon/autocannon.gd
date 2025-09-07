@@ -78,7 +78,7 @@ func fire() -> bool:
 	
 	# Set bullet velocity (aircraft speed + muzzle velocity)
 	var aircraft_vel = hardpoint.get_aircraft_velocity()
-	var muzzle_vel = -bullet.global_transform.basis.z * muzzle_velocity
+	var muzzle_vel = bullet.global_transform.basis.z * muzzle_velocity
 	bullet.linear_velocity = aircraft_vel + muzzle_vel
 	
 	hardpoint.apply_recoil_force(get_recoil_force())

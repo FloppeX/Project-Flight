@@ -219,7 +219,7 @@ func apply_shake_forces(delta):
 	if shake_intensity <= 0:
 		return
 	
-	print("Shake intensity: ", shake_intensity, " Decay rate: ", shake_decay_rate)
+	#print("Shake intensity: ", shake_intensity, " Decay rate: ", shake_decay_rate)
 	# Decay shake over time
 		
 	# Always decay shake, regardless of shake_time
@@ -250,7 +250,7 @@ func apply_shake_forces(delta):
 func calculate_flight_data(delta):
 	# Calculate speed
 	air_velocity = linear_velocity.length()
-	forward_air_speed = -linear_velocity.dot(global_transform.basis.z)  # Speed in forward direction
+	forward_air_speed = linear_velocity.dot(global_transform.basis.z)  # Speed in forward direction
 	
 	# Calculate altitude
 	if AltitudeEnabled:

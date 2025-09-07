@@ -4,10 +4,10 @@
 
 [sub_resource type="QuadMesh" id="QuadMesh_prtlp"]
 
-[node name="HeadsUpDisplay" type="Node3D"]
+[node name="PhysicalHUD" type="Node3D"]
 script = ExtResource("1_prtlp")
 
-[node name="HUD glass" type="MeshInstance3D" parent="."]
+[node name="HUDglass" type="MeshInstance3D" parent="."]
 mesh = SubResource("QuadMesh_prtlp")
 
 [node name="SubViewport" type="SubViewport" parent="."]

@@ -1,6 +1,3 @@
-res://default_env.tres
-res://example/ExampleList.tscn
-res://HUD/heads_up_display.gd
 res://example/Example1_Simple.tscn
-res://HUD/HeadsUpDisplay.tscn
-res://Weapons/Autocannon/Autocannon.tscn
+res://default_env.tres
+res://Aircraft/CompleteFighterJet.tscn
