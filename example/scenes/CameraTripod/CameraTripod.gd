@@ -62,6 +62,3 @@ func _physics_process(delta: float):
 	
 	# Apply to camera position
 	position = base_position + g_force_offset
-	
-	print("G-forces: ", g_forces)
-	print("Camera offset: ", g_force_offset)

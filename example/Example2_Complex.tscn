@@ -1,7 +1,7 @@
 [gd_scene load_steps=64 format=4 uid="uid://n2mto6nhnxjp"]
 
 [ext_resource type="PackedScene" uid="uid://bxmk3xwsygst" path="res://addons/simplified_flightsim/aircraft_modules/Engine/Engine.tscn" id="1"]
-[ext_resource type="PackedScene" uid="uid://d0mgf4yjnwxgl" path="res://addons/simplified_flightsim/Aircraft/Aircraft.tscn" id="2"]
+[ext_resource type="PackedScene" uid="uid://d0mgf4yjnwxgl" path="res://Aircraft/Aircraft 1/Aircraft.tscn" id="2"]
 [ext_resource type="PackedScene" uid="uid://dtqtmiqu6tnjn" path="res://addons/simplified_flightsim/aircraft_modules/Steering/Steering.tscn" id="3"]
 [ext_resource type="PackedScene" uid="uid://cjfopuepgkub3" path="res://addons/simplified_flightsim/aircraft_modules/Flaps/Flaps.tscn" id="4"]
 [ext_resource type="PackedScene" uid="uid://bu2hixfhu8ndm" path="res://example/ui/UIEnginePower/UIEnginePower.tscn" id="5"]

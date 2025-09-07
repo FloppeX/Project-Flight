@@ -69,15 +69,15 @@ func update_chase_camera(delta):
 	var target_pos = aircraft_pos - aircraft_forward * chase_distance + Vector3.UP * chase_height
 	
 	# Debug prints
-	print("Aircraft pos: ", aircraft_pos)
-	print("Chase current: ", chase_tripod.global_position)
-	print("Chase target: ", target_pos)
+	#print("Aircraft pos: ", aircraft_pos)
+	#print("Chase current: ", chase_tripod.global_position)
+	#print("Chase target: ", target_pos)
 	
 	chase_tripod.global_position = chase_tripod.global_position.lerp(target_pos, chase_smoothing * delta)
 	chase_tripod.look_at(aircraft_pos, Vector3.UP)
 	
-	print("Chase after lerp: ", chase_tripod.global_position)
-	print("---")
+	#print("Chase after lerp: ", chase_tripod.global_position)
+	#print("---")
 
 func setup_cinematic_shot():
 	# Same as before - position the tripod

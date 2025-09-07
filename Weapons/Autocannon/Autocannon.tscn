@@ -1,0 +1,14 @@
+[gd_scene load_steps=5 format=3 uid="uid://bar7l5uwuwevr"]
+
+[ext_resource type="Script" uid="uid://cc5i2s0mvs378" path="res://Weapons/Autocannon/autocannon.gd" id="1_vsd06"]
+[ext_resource type="PackedScene" uid="uid://cvtsgxjlbovb7" path="res://Projectiles/Bullet/bullet.tscn" id="2_8ku1u"]
+[ext_resource type="PackedScene" uid="uid://ca6d1nc6lkmsj" path="res://Weapons/Autocannon/machine gun low poly.glb" id="2_yrjfh"]
+[ext_resource type="AudioStream" uid="uid://dqxot06c6ine2" path="res://Sounds/Heavy machine gun.wav" id="3_8ku1u"]
+
+[node name="Autocannon" type="Node3D"]
+script = ExtResource("1_vsd06")
+bullet_projectile_scene = ExtResource("2_8ku1u")
+cannon_sound = ExtResource("3_8ku1u")
+
+[node name="Autocannon_glb" parent="." instance=ExtResource("2_yrjfh")]
+transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, -0.183087, -0.148, -0.593)

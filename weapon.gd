@@ -5,21 +5,18 @@ class_name Weapon
 @export var ammo_count: int = 100
 @export var weight: float = 50.0
 @export var delete_when_empty: bool = false
+@export var automatic_fire: bool = false
 
-var mounted_aircraft: RigidBody3D
-
-func mount_to_aircraft(aircraft: RigidBody3D):
-	mounted_aircraft = aircraft
+func get_recoil_force() -> float:  # Returns magnitude, not vector
+	return 0.0  # Override in child classes
 
 func fire() -> bool:
-	# Override this in child classes
 	if not can_fire():
 		return false
 	
-	# Placeholder - actual firing logic goes in subclasses
+	# Let the hardpoint handle aircraft-specific stuff
 	ammo_count -= 1
 	
-	# Self-destruct if enabled and empty
 	if delete_when_empty and ammo_count <= 0:
 		queue_free()
 	
@@ -27,14 +24,3 @@ func fire() -> bool:
 
 func can_fire() -> bool:
 	return ammo_count > 0
-
-func is_empty() -> bool:
-	return ammo_count <= 0
-
-func get_weapon_info() -> Dictionary:
-	return {
-		"name": weapon_name,
-		"ammo": ammo_count,
-		"weight": weight,
-		"can_fire": can_fire()
-	}

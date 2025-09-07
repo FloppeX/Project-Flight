@@ -22,7 +22,7 @@
 [ext_resource type="Texture2D" uid="uid://c5v0s3g174mm6" path="res://example/textures/planets/1/sph_clouds.png" id="21_fwtnq"]
 [ext_resource type="PackedScene" uid="uid://diddm04vtjnny" path="res://addons/simplified_flightsim/aircraft_modules/EnergyContainer/EnergyContainer.tscn" id="22"]
 [ext_resource type="Texture2D" uid="uid://diobdop3l10em" path="res://example/textures/planets/2/sph_normal.png" id="22_d2stf"]
-[ext_resource type="PackedScene" uid="uid://d0mgf4yjnwxgl" path="res://addons/simplified_flightsim/Aircraft/Aircraft.tscn" id="23"]
+[ext_resource type="PackedScene" uid="uid://d0mgf4yjnwxgl" path="res://Aircraft/Aircraft 1/Aircraft.tscn" id="23"]
 [ext_resource type="PackedScene" uid="uid://nhbm7re0glcb" path="res://example/scenes/Airplane/visuals/LandingGear/LandingGear.tscn" id="24"]
 [ext_resource type="Script" uid="uid://rjktqs1qjdnd" path="res://example/Example4_Space.gd" id="25"]
 [ext_resource type="Texture2D" uid="uid://b0ljv2v22me4t" path="res://example/ui/arrow_down_dark.png" id="25_3h1g2"]

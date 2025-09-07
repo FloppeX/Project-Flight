@@ -6,136 +6,136 @@ var rb: RigidBody3D = null
 
 # Simple parameters
 @export var pitch_power: float = 6.0         # Elevator strength
-@export var roll_power: float = 12.0          # Aileron strength  
-@export var yaw_power: float = 3.0           # Rudder strength (usually weaker)
-@export var min_control_speed: float = 80.0   # Speed where controls start working
+@export var roll_power: float = 12.0         # Aileron strength
+@export var yaw_power: float = 3.0           # Rudder strength
+@export var min_control_speed: float = 80.0  # Speed where controls start working
 @export var alignment_strength: float = 1000.0   # How fast velocity aligns with nose direction
 @export var angular_damping_strength: float = 16.0  # How quickly rotations stop
-@export var drag_strength: float = 0.8  # How much drag opposes motion
+@export var drag_strength: float = 0.8       # How much drag opposes motion
 @export var stability_strength: float = 2.0  # How strongly it wants to return to level
-@export var stall_speed: float = 40.0      # Speed below which aircraft stalls
-@export var stall_nose_drop: float = 20.0   # How strongly nose drops in stall
+@export var stall_speed: float = 40.0        # Forward speed below which aircraft stalls
 @export var auto_rudder_strength: float = 0.3  # How much auto-rudder per roll input
-#@export var landing_gear_spring_strength: float = 5000.0
-#@export var landing_gear_height: float = 2.0  # Normal height above ground
-@export var lift_gain: float = 0.0025      # scales lift with speed^2
-@export var min_vertical_lift_frac: float = 0.01  # keep a little support at steep bank
+@export var lift_gain: float = 0.0025        # Scales lift with speed^2
 
+# Keep a tiny support near knife-edge (optional safety net)
+@export var min_vertical_lift_frac: float = 0.01
+
+# Simplified stall parameters
+@export var stall_nose_drop_force: float = 5.0  # Downward force strength at nose
+@export var stall_lift_loss: float = 0.2      # Fraction of lift lost at full stall (0.0 to 1.0)
+@export var stall_shake_intensity: float = 3.0  # How intense stall shake is
 
 # Control inputs
 var pitch_input: float = 0.0
 var roll_input: float = 0.0
 var yaw_input: float = 0.0
 
-func _ready():
-	# Find RigidBody and let gravity work normally
+func _ready() -> void:
 	rb = get_parent() as RigidBody3D
-	rb.gravity_scale = 1.0
+	if rb:
+		rb.gravity_scale = 1.0
 
-#func apply_landing_gear_springs():
-#	var height_above_ground = rb.global_position.y  # Assuming flat ground at Y=0
-#	
-#	if height_above_ground < landing_gear_height:
-#		# "Compressed" - apply spring force
-#		var compression = landing_gear_height - height_above_ground
-#		var spring_force = compression * landing_gear_spring_strength
-#		rb.apply_central_force(Vector3.UP * spring_force)
-#		
-#		# Add some damping to prevent bouncing
-#		var vertical_velocity = rb.linear_velocity.y
-#		var damping_force = -vertical_velocity * 1000.0
-#		rb.apply_central_force(Vector3.UP * damping_force)
+func _physics_process(delta: float) -> void:
+	if rb == null:
+		return
 
-func _physics_process(delta: float):
-	var speed = rb.linear_velocity.length()
-	
-	if speed > 0.1:  # Avoid division by zero
-		var drag_force = -rb.linear_velocity.normalized() * drag_strength * speed * speed
+	# --- Basic kinematics ---
+	var vel: Vector3 = rb.linear_velocity
+	var speed: float = vel.length()
+	var fwd: Vector3 = -rb.global_transform.basis.z
+	var right: Vector3 = rb.global_transform.basis.x
+	var up: Vector3 = rb.global_transform.basis.y
+	var v_dir: Vector3 = (vel / speed) if speed > 0.001 else fwd
+
+	# Forward speed (nose-aligned component)
+	var forward_speed: float = max(vel.dot(fwd), 0.0)
+
+	# --- Drag (simple quadratic, opposes velocity direction) ---
+	if speed > 0.1:
+		var drag_force: Vector3 = -v_dir * drag_strength * speed * speed
 		rb.apply_central_force(drag_force)
-		
-	
-		# --- simple lift that weakens with bank ---
-	if speed > 1.0:
-		var body_up := rb.global_transform.basis.y
-		# 1.0 when wings level, 0.0 when knife-edge
-		var bank_factor = abs(body_up.dot(Vector3.UP))
-		# keep some vertical support so turns don’t insta-sink (tune to taste)
-		bank_factor = max(bank_factor, min_vertical_lift_frac)
 
-		# Lift magnitude ~ speed^2 (arcade-friendly)
-		var lift_mag = lift_gain * speed * speed * rb.mass
-		rb.apply_central_force(body_up * lift_mag * bank_factor)
+	# --- Lift calculation ---
+	# Project aircraft "up" onto plane perpendicular to airflow for realistic banking
+	var lift_dir: Vector3 = (up - v_dir * up.dot(v_dir)).normalized()
+	var base_lift_mag: float = lift_gain * speed * speed * rb.mass
+
+	# Calculate stall effects
+	var stall_severity: float = 0.0
+	if forward_speed < stall_speed and speed > 5.0:
+		stall_severity = 1.0 - (forward_speed / stall_speed)
+		
+	# Reduce lift in stall
+	var actual_lift_mag: float = base_lift_mag * (1.0 - stall_lift_loss * stall_severity)
+	var lift_force: Vector3 = lift_dir * actual_lift_mag
+
+	# Optional: tiny vertical safety net near knife-edge
+	var bank_vertical: float = abs(up.dot(Vector3.UP))
+	if bank_vertical < 0.2 and min_vertical_lift_frac > 0.0:
+		lift_force += Vector3.UP * (base_lift_mag * min_vertical_lift_frac * (0.2 - bank_vertical) * 5.0)
+
+	# Apply lift at center of mass
+	rb.apply_central_force(lift_force)
 	
-	# Control effectiveness based on speed
-	var control_authority = clamp(speed / min_control_speed, 0.0, 1.0)
+	# Apply lift normally
+	rb.apply_central_force(lift_force)
+
+	# Apply nose-down force when stalled
+	if stall_severity > 0.1 and speed > 5.0:  # Only when flying and stalled
+		var nose_position = fwd * 2.0  # 2 meters forward of center (adjust to your aircraft)
+		var nose_down_force = Vector3.DOWN * stall_nose_drop_force * stall_severity * rb.mass
+		rb.apply_force(nose_down_force, nose_position)
+		
+	# Add stall shake
+	if stall_severity > 0.1:  # Start shake at 10% stall
+		var shake_intensity = stall_shake_intensity * stall_severity
+		rb.add_shake(shake_intensity)
 	
-	# Apply controls (only if moving)
+	# --- Control effectiveness based on forward speed ---
+	var control_authority: float = clamp(forward_speed / min_control_speed, 0.0, 1.0)
+	
+	# Reduce control authority in stall
+	var stall_control_loss = pow(stall_severity, 0.3)  # Steep curve
+	control_authority *= (1.0 - 0.9 * stall_control_loss)
+
+	# --- Flight controls ---
 	if control_authority > 0.0:
-		var pitch_force = pitch_input * pitch_power * control_authority * rb.mass
-		var roll_force = roll_input * roll_power * control_authority * rb.mass
-		# Automatic rudder coordination - add some rudder when rolling
-		var coordinated_yaw = yaw_input + (roll_input * auto_rudder_strength)
-		var yaw_force = coordinated_yaw * yaw_power * control_authority * rb.mass
-		
-		rb.apply_torque(rb.global_transform.basis.x * pitch_force)  # Pitch
-		rb.apply_torque(rb.global_transform.basis.z * roll_force)   # Roll
-		rb.apply_torque(rb.global_transform.basis.y * yaw_force)    # Yaw
-	
-	# Gradually align velocity with nose direction
-	if speed > stall_speed:
-		var nose_direction = -rb.global_transform.basis.z
-		var current_velocity = rb.linear_velocity
-		var target_velocity = nose_direction * speed
-		
-		var alignment_force = (target_velocity - current_velocity) * alignment_strength
+		var pitch_torque: float = pitch_input * pitch_power * control_authority * rb.mass
+		var roll_torque: float = roll_input * roll_power * control_authority * rb.mass
+		var coordinated_yaw: float = yaw_input + (roll_input * auto_rudder_strength)
+		var yaw_torque: float = coordinated_yaw * yaw_power * control_authority * rb.mass
+
+		rb.apply_torque(right * pitch_torque)
+		rb.apply_torque(rb.global_transform.basis.z * roll_torque)
+		rb.apply_torque(rb.global_transform.basis.y * yaw_torque)
+
+	# --- Velocity alignment (the "on rails" effect) ---
+	# Only when not stalled and moving forward
+	if forward_speed > stall_speed and speed > 1.0:
+		var target_velocity: Vector3 = fwd * speed
+		var alignment_force: Vector3 = (target_velocity - vel) * alignment_strength
 		rb.apply_central_force(alignment_force)
-		
-	var angular_damping = rb.angular_velocity * -angular_damping_strength * rb.mass * control_authority
+
+	# --- Angular damping ---
+	# Always apply some damping, stronger when moving
+	var damping_factor: float = max(control_authority, 0.3)  # Minimum 30% damping
+	var angular_damping: Vector3 = rb.angular_velocity * -angular_damping_strength * rb.mass * damping_factor
 	rb.apply_torque(angular_damping)
 	
-	# Roll/Pitch Stability - wants to return to level flight
-	if speed > 0:  # Only when moving
-		var aircraft_up = rb.global_transform.basis.y
-		var world_up = Vector3.UP
-		
-		# How far are we tilted from level?
-		var tilt_angle = aircraft_up.angle_to(world_up)
-		
-		if tilt_angle > 0.1:  # Only if significantly tilted
-			# Which way to rotate to get back to level?
-			var correction_axis = aircraft_up.cross(world_up).normalized()
-			# NEW: fade stability with airspeed; kill most of it in stall
-			var speed_frac = clamp(speed / max(min_control_speed, 0.001), 0.0, 1.0)
-			var stalled = speed < stall_speed
-			var stability_gain = stability_strength * rb.mass * speed_frac
-			if stalled:
-				stability_gain *= 0.1   # 10% of normal while stalled
+	# Extra pitch damping when slow to prevent ground loops
+	if speed < 10.0:
+		var pitch_rate: float = rb.angular_velocity.dot(right)
+		var extra_pitch_damping: Vector3 = -right * pitch_rate * rb.mass * angular_damping_strength * 3.0
+		rb.apply_torque(extra_pitch_damping)
 
-			var stability_torque = correction_axis * tilt_angle * stability_gain
+	# --- Stability (return to level flight) ---
+	# Only when moving and not stalled
+	if speed > 5.0 and forward_speed > stall_speed:
+		var world_up: Vector3 = Vector3.UP
+		var tilt_angle: float = up.angle_to(world_up)
+
+		if tilt_angle > 0.1:
+			var correction_axis: Vector3 = up.cross(world_up).normalized()
+			var stability_gain: float = stability_strength * rb.mass * control_authority
+			var stability_torque: Vector3 = correction_axis * tilt_angle * stability_gain
 			rb.apply_torque(stability_torque)
-
-	# Stall behavior - nose drops and loses lift at low speed
-	if speed < stall_speed:
-		var stall_severity = 1.0 - (speed / stall_speed)
-		
-		# Nose drops toward GROUND, not aircraft-relative down
-		var gravity_direction = Vector3.DOWN
-		var aircraft_forward = -rb.global_transform.basis.z
-		var aircraft_right = rb.global_transform.basis.x
-		
-		# Create torque that pitches nose toward ground
-		var ground_drop_axis = aircraft_right
-		if aircraft_forward.dot(gravity_direction) < 0:  # If nose is pointing up
-			ground_drop_axis = -aircraft_right  # Reverse direction
-		
-		
-		var nose_drop_torque = -rb.global_transform.basis.x * stall_nose_drop * stall_severity * rb.mass
-		rb.apply_torque(nose_drop_torque)
-		
-		# Lose lift/sink faster
-		var stall_sink = Vector3.DOWN * stall_severity * 2000.0  # Adjust sink rate
-		rb.apply_central_force(stall_sink)
-		
-		# Reduce control authority in stall (make it feel mushy)
-		control_authority *= (1.0 - stall_severity * 0.7)  # Lose 70% control in full stall
-		

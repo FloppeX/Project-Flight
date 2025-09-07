@@ -1,10 +1,6 @@
-res://example/Example1_Simple.tscn
 res://default_env.tres
-res://addons/terrain_3d/tools/importer.tscn
-res://hardpoint.tscn
-res://weapon.tscn
-res://bomb.tscn
-res://addons/simplified_flightsim/aircraft_modules/Controls/ControlEngine.tscn
-res://addons/simplified_flightsim/aircraft_modules/Engine/Engine.tscn
-res://land_carrier_static.tscn
-res://example/scenes/Airplane/visuals/LandingGear/LandingGear.tscn
+res://example/ExampleList.tscn
+res://HUD/heads_up_display.gd
+res://example/Example1_Simple.tscn
+res://HUD/HeadsUpDisplay.tscn
+res://Weapons/Autocannon/Autocannon.tscn

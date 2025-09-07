@@ -36,19 +36,25 @@ var is_engine_changing_state = false
 func _ready():
 	
 	if EngineSoundLoop:
-		sfx_engine_loop = AudioStreamPlayer.new()
+		sfx_engine_loop = AudioStreamPlayer3D.new()
 		add_child(sfx_engine_loop)
 		sfx_engine_loop.stream = EngineSoundLoop
+		sfx_engine_loop.unit_size = 5.0    
+		sfx_engine_loop.max_distance = 100.0   
 	
 	if EngineSoundStart:
-		sfx_engine_start = AudioStreamPlayer.new()
+		sfx_engine_start = AudioStreamPlayer3D.new()
 		add_child(sfx_engine_start)
 		sfx_engine_start.stream = EngineSoundStart
-	
+		sfx_engine_start.unit_size = 5.0     
+		sfx_engine_start.max_distance = 100.0   
+			
 	if EngineSoundStop:
-		sfx_engine_stop = AudioStreamPlayer.new()
+		sfx_engine_stop = AudioStreamPlayer3D.new()
 		add_child(sfx_engine_stop)
 		sfx_engine_stop.stream = EngineSoundStop
+		sfx_engine_stop.unit_size = 5.0     
+		sfx_engine_stop.max_distance = 100.0   
 	
 	if ui_node:
 		connect("update_interface", Callable(ui_node, "update_interface"))
@@ -104,6 +110,7 @@ func engine_start():
 	if not is_engine_working:
 		sfx_engine_loop.volume_db = -40
 		sfx_engine_loop.pitch_scale = 0.2
+		
 	
 	if sfx_tween:
 		sfx_tween.kill()

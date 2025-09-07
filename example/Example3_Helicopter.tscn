@@ -17,7 +17,7 @@
 [ext_resource type="Texture2D" uid="uid://bo81iive6ulsl" path="res://example/textures/kenney_prototypetextures/PNG/Light/texture_06.png" id="17_4lio0"]
 [ext_resource type="PackedScene" uid="uid://bu2hixfhu8ndm" path="res://example/ui/UIEnginePower/UIEnginePower.tscn" id="18"]
 [ext_resource type="PackedScene" uid="uid://nhbm7re0glcb" path="res://example/scenes/Airplane/visuals/LandingGear/LandingGear.tscn" id="19"]
-[ext_resource type="PackedScene" uid="uid://d0mgf4yjnwxgl" path="res://addons/simplified_flightsim/Aircraft/Aircraft.tscn" id="20"]
+[ext_resource type="PackedScene" uid="uid://d0mgf4yjnwxgl" path="res://Aircraft/Aircraft 1/Aircraft.tscn" id="20"]
 [ext_resource type="PackedScene" uid="uid://diddm04vtjnny" path="res://addons/simplified_flightsim/aircraft_modules/EnergyContainer/EnergyContainer.tscn" id="22"]
 [ext_resource type="AudioStream" uid="uid://cvxa8h3yftguj" path="res://example/sfx/aircraft_modules/landing_gear/deploy.wav" id="24"]
 [ext_resource type="AudioStream" uid="uid://ch1k8klfyw0mq" path="res://example/sfx/aircraft_modules/landing_gear/stow.wav" id="25"]

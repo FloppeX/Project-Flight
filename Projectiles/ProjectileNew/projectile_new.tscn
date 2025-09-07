@@ -1,0 +1,13 @@
+[gd_scene load_steps=3 format=3 uid="uid://c4n08bfodjaq8"]
+
+[ext_resource type="Script" uid="uid://cu1iku80tbhpg" path="res://Projectiles/ProjectileNew/projectile_new.gd" id="1_esyn2"]
+
+[sub_resource type="SphereShape3D" id="SphereShape3D_esyn2"]
+
+[node name="ProjectileNew" type="RigidBody3D"]
+script = ExtResource("1_esyn2")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+shape = SubResource("SphereShape3D_esyn2")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
