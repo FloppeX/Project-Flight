@@ -1,7 +1,7 @@
 [gd_scene load_steps=64 format=4 uid="uid://n2mto6nhnxjp"]
 
 [ext_resource type="PackedScene" uid="uid://bxmk3xwsygst" path="res://addons/simplified_flightsim/aircraft_modules/Engine/Engine.tscn" id="1"]
-[ext_resource type="PackedScene" uid="uid://d0mgf4yjnwxgl" path="res://Aircraft/Aircraft 1/Aircraft.tscn" id="2"]
+[ext_resource type="PackedScene" path="res://Aircraft/Aircraft 1/Aircraft.tscn" id="2"]
 [ext_resource type="PackedScene" uid="uid://dtqtmiqu6tnjn" path="res://addons/simplified_flightsim/aircraft_modules/Steering/Steering.tscn" id="3"]
 [ext_resource type="PackedScene" uid="uid://cjfopuepgkub3" path="res://addons/simplified_flightsim/aircraft_modules/Flaps/Flaps.tscn" id="4"]
 [ext_resource type="PackedScene" uid="uid://bu2hixfhu8ndm" path="res://example/ui/UIEnginePower/UIEnginePower.tscn" id="5"]
@@ -15,7 +15,7 @@
 [ext_resource type="PackedScene" uid="uid://c2lg5kyagogv3" path="res://example/scenes/Airplane/visuals/Flaps/Flaps.tscn" id="13"]
 [ext_resource type="PackedScene" uid="uid://chvx807lmr2rs" path="res://addons/simplified_flightsim/aircraft_modules/Controls/ControlEngine.tscn" id="14"]
 [ext_resource type="PackedScene" uid="uid://byum6h2if6b1a" path="res://addons/simplified_flightsim/aircraft_modules/LandingGear/LandingGear.tscn" id="15"]
-[ext_resource type="PackedScene" uid="uid://5f7vvtjcqw00" path="res://example/scenes/CameraTripod/CameraTripod.tscn" id="16"]
+[ext_resource type="PackedScene" uid="uid://5f7vvtjcqw00" path="res://example/scenes/Cameras/CameraTripod.tscn" id="16"]
 [ext_resource type="PackedScene" uid="uid://booy8rgevyscb" path="res://addons/simplified_flightsim/aircraft_modules/Controls/ControlSteering.tscn" id="17"]
 [ext_resource type="PackedScene" uid="uid://bmut2y2xaqj6x" path="res://example/ui/UIAltSpeed/UIAltSpeed.tscn" id="18"]
 [ext_resource type="PackedScene" uid="uid://bpna5btnwpvpr" path="res://example/scenes/Airplane/visuals/Engine/Engine.tscn" id="19"]

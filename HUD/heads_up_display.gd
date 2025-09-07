@@ -93,25 +93,41 @@ func _process(dt: float) -> void:
 	if cam == null or aircraft == null:
 		return
 	
-	# Aircraft forward in Godot: +Z (now corrected)
-	var fwd: Vector3 = aircraft.global_transform.basis.z
-	var nose_world: Vector3 = aircraft.global_transform.origin + fwd * hud_range
+	# Get aircraft's forward direction (nose pointing direction)
+	# In Godot, -Z is forward for most objects
+	var aircraft_forward: Vector3 = -aircraft.global_transform.basis.z
 	
-	# Hide if the target point is behind the camera
-	if cam.is_position_behind(nose_world):
+	# Project aircraft's nose direction to infinity for proper collimation
+	# This makes the crosshair appear at the same point regardless of head movement
+	var nose_world: Vector3 = aircraft.global_transform.origin + aircraft_forward * hud_range
+	
+	# Convert to camera's local space to check if it's in front
+	var nose_local = cam.global_transform.inverse() * nose_world
+	if nose_local.z > 0:  # Behind camera in local space
 		reticle.visible = false
 		return
 	
-	# Project to screen coordinates and convert to viewport coordinates
+	# Project to screen coordinates 
 	var screen_pos: Vector2 = cam.unproject_position(nose_world)
 	
-	# Convert screen coordinates to viewport coordinates (0-64 range)
-	var viewport_size = get_viewport().size
-	var viewport_pos = Vector2(
-		(screen_pos.x / viewport_size.x) * 64,
-		(screen_pos.y / viewport_size.y) * 64
+	# Convert screen coordinates to HUD viewport coordinates
+	# The HUD viewport is 64x64, so normalize and scale
+	var main_viewport_size = get_viewport().size
+	var normalized_pos = Vector2(
+		screen_pos.x / main_viewport_size.x,
+		screen_pos.y / main_viewport_size.y
 	)
 	
-	reticle.visible = true
-	reticle.position = viewport_pos - reticle.pivot_offset
+	# Scale to HUD viewport size and center the reticle
+	var hud_pos = Vector2(
+		normalized_pos.x * 64.0,
+		normalized_pos.y * 64.0
+	)
+	
+	# Only show if within reasonable bounds (with some margin)
+	if hud_pos.x >= -10 and hud_pos.x <= 74 and hud_pos.y >= -10 and hud_pos.y <= 74:
+		reticle.visible = true
+		reticle.position = hud_pos - reticle.pivot_offset
+	else:
+		reticle.visible = false
 	

@@ -76,10 +76,10 @@ func fire() -> bool:
 	bullet.rotate_object_local(Vector3.RIGHT, deg_to_rad(spread.x))
 	bullet.rotate_object_local(Vector3.UP, deg_to_rad(spread.y))
 	
-	# Set bullet velocity (aircraft speed + muzzle velocity)
-	var aircraft_vel = hardpoint.get_aircraft_velocity()
+	# Use the new fire method from ProjectileNew/Bullet
+	var aircraft = hardpoint.aircraft  # Access the aircraft directly
 	var muzzle_vel = bullet.global_transform.basis.z * muzzle_velocity
-	bullet.linear_velocity = aircraft_vel + muzzle_vel
+	bullet.fire(muzzle_vel, aircraft)
 	
 	hardpoint.apply_recoil_force(get_recoil_force())
 	

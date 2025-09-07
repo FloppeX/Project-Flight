@@ -1,27 +1,21 @@
-extends RigidBody3D
-class_name Projectile
+extends ProjectileNew
+class_name Bullet
 
-@export var damage: float = 10.0
-@export var lifetime: float = 5.0
-@export var impact_effect: PackedScene  # Explosion/impact visual
+# Visual effects specific to bullets
 @export var tracer_enabled: bool = true
 @export var tracer_length: int = 8  # How many trail points
 @export var tracer_color: Color = Color.YELLOW
 @export var tracer_width: float = 0.1
 
-var shooter: Node3D  # Reference to whoever fired this
 var trail_points = []
 var trail_mesh: MeshInstance3D
 var immediate_mesh: ImmediateMesh
 
 func _ready():
-	# Auto-destroy after lifetime
-	get_tree().create_timer(lifetime).timeout.connect(_on_timeout)
+	# Call parent's _ready first to get all the base functionality
+	super._ready()
 	
-	# Connect collision detection
-	body_entered.connect(_on_body_entered)
-	
-	# Make bullet more visible
+	# Add bullet-specific visual effects
 	make_bullet_glowy()
 	
 	# Create tracer trail
@@ -60,28 +54,17 @@ func create_tracer_trail():
 	trail_mesh.material_override = trail_material
 
 func fire(initial_velocity: Vector3, firing_aircraft: Node3D):
-	shooter = firing_aircraft
-	linear_velocity = initial_velocity
-	# Inherit some of the aircraft's velocity for realistic ballistics
-	linear_velocity += firing_aircraft.linear_velocity * 0.5
-
-func _on_body_entered(body):
-	if body == shooter:
-		return  # Don't hit the aircraft that fired us
+	# Call parent's fire method to get all the base functionality
+	super.fire(initial_velocity, firing_aircraft)
 	
-	# Create impact effect
-	if impact_effect:
-		var effect = impact_effect.instantiate()
-		get_tree().current_scene.add_child(effect)
-		effect.global_position = global_position
-	
-	# Apply damage if target has health
-	if body.has_method("take_damage"):
-		body.take_damage(damage)
-	
-	queue_free()
+	# Add some aircraft velocity inheritance for more realistic ballistics
+	if firing_aircraft and firing_aircraft.has_method("get_linear_velocity"):
+		linear_velocity += firing_aircraft.linear_velocity * 0.3
 
 func _physics_process(delta):
+	# Call parent's physics process first
+	super._physics_process(delta)
+	
 	# Point projectile in direction of travel
 	if linear_velocity.length() > 0.1:
 		look_at(global_position + linear_velocity, Vector3.UP)
@@ -114,5 +97,4 @@ func update_tracer_trail():
 		
 		immediate_mesh.surface_end()
 
-func _on_timeout():
-	queue_free()
+# _on_timeout is handled by the parent class now

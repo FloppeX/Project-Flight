@@ -8,6 +8,9 @@ signal update_interface(values)
 
 @export var GearCollisionShape: NodePath
 @export var gear_collision_shapes: Array[CollisionShape3D] = []  # Array for your 3 spheres
+@export var gear_visuals: Array[Node3D] = []  # Array for visual gear meshes
+@export var gear_rotation_axes: Array[Vector3] = []  # Rotation axis for each gear (empty = no rotation)
+@export var gear_rotation_angles: Array[float] = []  # Rotation angle in degrees for each gear when stowed
 
 enum LandingGearInitialStates {
 	STOWED,
@@ -34,11 +37,14 @@ enum LandingGearInitialStates {
 var sfx_player = null
 
 var move_timer = Timer.new()
+var rotation_tween: Tween
 
 var is_deploying = false
 var is_stowing = false
 var is_deployed = false
 var is_stowed = true
+
+var initial_gear_rotations: Array[Vector3] = []  # Store initial rotations
 
 
 func _ready():
@@ -76,6 +82,12 @@ func setup(aircraft_node):
 	for collision_shape in gear_collision_shapes:
 		if collision_shape:
 			collision_shape.disabled = not is_deployed
+	
+	# Set initial visual state for all gear
+	for gear_visual in gear_visuals:
+		if gear_visual:
+			gear_visual.visible = is_deployed
+	
 	
 	request_update_interface()
 
@@ -145,6 +157,11 @@ func _on_deploy_completed():
 		if collision_shape:
 			collision_shape.disabled = false
 	
+	# Show all gear visuals
+	for gear_visual in gear_visuals:
+		if gear_visual:
+			gear_visual.visible = true
+	
 	request_update_interface()
 
 
@@ -179,6 +196,11 @@ func stow():
 	for collision_shape in gear_collision_shapes:
 		if collision_shape:
 			collision_shape.disabled = true
+	
+	# Hide all gear visuals
+	for gear_visual in gear_visuals:
+		if gear_visual:
+			gear_visual.visible = false
 	
 	request_update_interface()
 

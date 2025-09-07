@@ -1,0 +1,9 @@
+[gd_scene load_steps=2 format=3 uid="uid://5f7vvtjcqw00"]
+
+[ext_resource type="Script" uid="uid://xa5qxkcuo4pa" path="res://example/scenes/Cameras/camera_chase.gd" id="1_1f2py"]
+
+[node name="CameraChase" type="Node3D"]
+script = ExtResource("1_1f2py")
+
+[node name="Camera3D" type="Camera3D" parent="."]
+far = 2000.0
