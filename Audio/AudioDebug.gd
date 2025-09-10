@@ -49,3 +49,6 @@ func _process(_delta):
 		var screen_pos = camera.unproject_position(Vector3.ZERO)
 		# This is a simple text display - in a real implementation you'd use a Label node
 		print(debug_text)
+
+
+

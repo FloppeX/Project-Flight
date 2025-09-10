@@ -1,0 +1,31 @@
+[gd_scene load_steps=4 format=3 uid="uid://enemyaircraft123"]
+
+[ext_resource type="Script" path="res://Enemies/EnemyAircraft.gd" id="1_enemy"]
+[ext_resource type="PackedScene" uid="uid://cadi81fcpvmuc" path="res://Projectiles/Explosion/explosion.tscn" id="2_explosion"]
+
+[sub_resource type="BoxMesh" id="BoxMesh_enemy_aircraft"]
+size = Vector3(8, 2, 12)
+
+[sub_resource type="StandardMaterial3D" id="Material_enemy_aircraft"]
+emission_enabled = true
+emission = Color(1, 0.5, 0, 1)
+emission_energy = 2.0
+albedo_color = Color(1, 0.5, 0, 1)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_enemy_aircraft"]
+size = Vector3(8, 2, 12)
+
+[node name="EnemyAircraft" type="RigidBody3D"]
+mass = 200.0
+script = ExtResource("1_enemy")
+max_health = 50.0
+damage_per_shot = 10.0
+fire_rate = 1.0
+explosion_scene = ExtResource("2_explosion")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
+mesh = SubResource("BoxMesh_enemy_aircraft")
+material_override = SubResource("Material_enemy_aircraft")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+shape = SubResource("BoxShape3D_enemy_aircraft")

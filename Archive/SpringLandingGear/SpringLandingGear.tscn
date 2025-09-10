@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://fssca3kxbdvg"]
+
+[ext_resource type="Script" uid="uid://dp46a67wvahfo" path="res://Aircraft/SpringLandingGear.gd" id="1"]
+
+[node name="SpringLandingGear" type="Node3D"]
+script = ExtResource("1")

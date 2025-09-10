@@ -1,0 +1,28 @@
+[gd_scene load_steps=4 format=3 uid="uid://enemybox123"]
+
+[ext_resource type="Script" path="res://Enemies/EnemyBox.gd" id="1_enemy"]
+
+[sub_resource type="BoxMesh" id="BoxMesh_enemy"]
+size = Vector3(8, 2, 3)
+
+[sub_resource type="StandardMaterial3D" id="Material_enemy_red"]
+emission_enabled = true
+emission = Color(0.8, 0.2, 0.2, 1)  # Reddish color
+emission_energy = 1.5
+albedo_color = Color(0.8, 0.2, 0.2, 1)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_enemy"]
+size = Vector3(8, 2, 3)
+
+[node name="EnemyBox" type="RigidBody3D"]
+mass = 1000.0
+gravity_scale = 1.0
+script = ExtResource("1_enemy")
+max_health = 50.0
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
+mesh = SubResource("BoxMesh_enemy")
+material_override = SubResource("Material_enemy_red")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+shape = SubResource("BoxShape3D_enemy")

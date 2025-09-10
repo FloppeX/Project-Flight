@@ -84,3 +84,6 @@ if ($WhatIf) {
     Write-Host "Moved $movedCount files to $ArchiveDir"
     Write-Host "To restore files, run: .\tools\restore_archive.ps1 -ArchiveDir `"$ArchiveDir`""
 }
+
+
+

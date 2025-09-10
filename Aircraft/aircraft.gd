@@ -10,6 +10,7 @@ signal destroyed
 # Health/Damage System
 @export var max_health: float = 100.0
 @export var explosion_scene: PackedScene  # Explosion effect when aircraft is destroyed
+@export var team: int = 1
 var current_health: float
 
 @export var MaxLandingForce: float = 3.0
@@ -62,6 +63,7 @@ func _ready():
 	# Add to aircraft group for easy finding
 	add_to_group("aircraft")
 	add_to_group("weather_affected")
+	add_to_group("team_" + str(team))
 	
 	# Create world reference (for compatibility)
 	var internal_world_reference = get_node_or_null("/root/WorldOrientationReference")
@@ -359,4 +361,94 @@ func find_modules_by_tag(module_tag: String) -> Array:
 	for module in modules:
 		if module_tag in module.ModuleTags:
 			result.append(module)
+	return result
+
+func get_team() -> int:
+	return team
+
+##############################################################################
+#  CCIP (CONTINUOUSLY COMPUTED IMPACT POINT) SYSTEM
+# ----------------------------------------------------------------------------
+
+func calculate_ccip_impact_point() -> Dictionary:
+	"""Calculate where a bomb would hit if dropped right now"""
+	var result = {
+		"has_impact": false,
+		"impact_position": Vector3.ZERO,
+		"time_to_impact": 0.0
+	}
+	
+	# Get bomb drop parameters
+	var drop_force: float = 0.0  # Default bomb drop force
+	var gravity = ProjectSettings.get_setting("physics/3d/default_gravity", 9.8)
+	
+	# Get bomb hardpoints (first one with bombs)
+	var bomb_hardpoint = null
+	var control_weapons = find_child("ControlWeapons")
+	if control_weapons and control_weapons.hardpoints:
+		for hardpoint in control_weapons.hardpoints:
+			if (hardpoint.weapon_instance and 
+				hardpoint.weapon_instance.weapon_name == "Bomb"):
+				bomb_hardpoint = hardpoint
+				if "drop_force" in hardpoint.weapon_instance:
+					drop_force = float(hardpoint.weapon_instance.drop_force)
+				break
+	
+	if not bomb_hardpoint:
+		return result
+	
+	# Start from bomb hardpoint position
+	var start_pos = bomb_hardpoint.global_position
+	var aircraft_velocity = linear_velocity
+	var initial_velocity = Vector3.DOWN * drop_force + aircraft_velocity
+	
+	# Get bomb physics parameters - match exact values from bomb_new.tscn
+	var linear_damp = 0.01  # From bomb_new.tscn
+	var gravity_scale = 1.0  # From bomb_new.tscn
+	var bomb_mass = 50.0  # From bomb_new.tscn
+	
+	# Aircraft for comparison: mass = 500.0, no linear_damp set (defaults to 0.0)
+	# Bomb: mass = 50.0, linear_damp = 0.01, gravity_scale = 1.0
+	
+	# Ballistic trajectory calculation with drag and proper terrain detection
+	var time_step = 0.05  # Smaller timestep for better accuracy with drag
+	var max_time = 30.0  # Maximum 30 seconds trajectory
+	var current_pos = start_pos
+	var current_vel = initial_velocity
+	
+	# Raycast to terrain for each time step
+	var space_state = get_world_3d().direct_space_state
+	
+	for step in int(max_time / time_step):
+		# Apply physics before moving
+		# Apply gravity to velocity (using gravity scale like the actual bomb)
+		current_vel.y -= gravity * gravity_scale * time_step
+		
+		# Apply drag (linear damping) - Godot applies this as: velocity *= (1.0 - damp * delta)
+		var drag_factor = max(0.0, 1.0 - (linear_damp * time_step))
+		current_vel *= drag_factor
+		
+		# Calculate next position
+		var next_pos = current_pos + current_vel * time_step
+		
+		# Check for terrain collision along the path
+		var query = PhysicsRayQueryParameters3D.create(current_pos, next_pos)
+		query.exclude = [self]  # Don't hit the aircraft
+		query.collision_mask = 0xFFFFFFFF  # Check all collision layers for terrain
+		
+		var hit_result = space_state.intersect_ray(query)
+		if hit_result:
+			# Found terrain collision
+			result.has_impact = true
+			result.impact_position = hit_result.position
+			result.time_to_impact = step * time_step
+			break
+		
+		# Also check if we've gone below a reasonable ground level (fallback)
+		if next_pos.y < -1000:  # Assume no terrain goes below -1000m
+			result.has_impact = false
+			break
+		
+		current_pos = next_pos
+	
 	return result

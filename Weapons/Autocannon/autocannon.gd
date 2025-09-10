@@ -20,6 +20,7 @@ func _ready():
 	ammo_count = 200  # More ammo than bombs
 	hardpoint = get_parent() as Hardpoint
 	automatic_fire = true
+	weapon_name = "Autocannon"  # Set weapon type name
 	
 		# Setup cannon sound
 	if cannon_sound:
@@ -79,7 +80,7 @@ func fire() -> bool:
 	
 	# Use the new fire method from ProjectileNew/Bullet
 	var aircraft = hardpoint.aircraft  # Access the aircraft directly
-	var muzzle_vel = bullet.global_transform.basis.z * muzzle_velocity
+	var muzzle_vel = hardpoint.get_hardpoint_forward_direction() * muzzle_velocity
 	bullet.fire(muzzle_vel, aircraft)
 	
 	hardpoint.apply_recoil_force(get_recoil_force())

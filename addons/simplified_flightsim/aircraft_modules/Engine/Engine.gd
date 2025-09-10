@@ -168,6 +168,19 @@ func engine_set_power(value: float):
 	if is_engine_changing_state:
 		return
 	
+	# If engine is not working and power is requested, start the engine first
+	if not is_engine_working and value > 0.01:
+		engine_start()
+		# Set power after a short delay to allow engine to start
+		call_deferred("set_power_after_start", value)
+		return
+	
+	# If engine is working and power is 0, stop the engine
+	if is_engine_working and value <= 0.01:
+		engine_stop()
+		return
+	
+	# Only set power if engine is working
 	if not is_engine_working:
 		return
 	
@@ -184,6 +197,12 @@ func engine_set_power(value: float):
 	sfx_tween = create_tween()
 	sfx_tween.tween_property(sfx_engine_loop, "volume_db", 1.0, 0.3).set_trans(Tween.TRANS_LINEAR)
 	sfx_tween.parallel().tween_property(sfx_engine_loop, "pitch_scale", power_to_pitch(current_power), 0.3).set_trans(Tween.TRANS_LINEAR)
+
+func set_power_after_start(value: float):
+	"""Set power after engine has started"""
+	await get_tree().create_timer(1.1).timeout  # Wait for engine start sequence
+	if is_engine_working:
+		engine_set_power(value)
 
 
 

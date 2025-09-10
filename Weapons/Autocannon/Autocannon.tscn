@@ -8,7 +8,9 @@
 [node name="Autocannon" type="Node3D"]
 script = ExtResource("1_vsd06")
 bullet_projectile_scene = ExtResource("2_8ku1u")
+rounds_per_minute = 800.0
+muzzle_velocity = 800.0
 cannon_sound = ExtResource("3_8ku1u")
 
 [node name="Autocannon_glb" parent="." instance=ExtResource("2_yrjfh")]
-transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, -0.183087, -0.148, -0.593)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.182019, -0.146, 0.605749)

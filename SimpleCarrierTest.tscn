@@ -1,0 +1,25 @@
+[gd_scene load_steps=3 format=3 uid="uid://simple_carrier_test"]
+
+[ext_resource type="PackedScene" uid="uid://b8x70a02a1b2c" path="res://LandCarrier.tscn" id="1_carrier"]
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_ground"]
+size = Vector3(200, 1, 200)
+
+[node name="SimpleCarrierTest" type="Node3D"]
+
+[node name="LandCarrier" parent="." instance=ExtResource("1_carrier")]
+
+[node name="Ground" type="StaticBody3D" parent="."]
+
+[node name="GroundMesh" type="MeshInstance3D" parent="Ground"]
+transform = Transform3D(200, 0, 0, 0, 1, 0, 0, 0, 200, 0, -0.5, 0)
+
+[node name="GroundCollision" type="CollisionShape3D" parent="Ground"]
+shape = SubResource("BoxShape3D_ground")
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(0.707107, -0.5, 0.5, 0, 0.707107, 0.707107, -0.707107, -0.5, 0.5, 0, 30, 30)
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.707107, -0.5, 0.5, 0, 0.707107, 0.707107, -0.707107, -0.5, 0.5, 0, 10, 0)
+

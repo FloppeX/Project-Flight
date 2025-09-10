@@ -1,11 +1,15 @@
 extends Node3D
 class_name Explosion
 
-@export var blast_radius: float = 15.0  # Increased from 5.0
+@export var blast_radius: float = 25.0  # Much bigger explosions
 @export var flash_duration: float = 1  # Increased from 0.15
 @export var debris_count: int = 25  # Increased from 15
 @export var effect_duration: float = 8.0  # Increased from 2.0
 @export var explosion_sounds: Array[AudioStream] = []
+
+# Damage properties
+@export var max_damage: float = 100.0  # Maximum damage at center
+@export var min_damage: float = 10.0   # Minimum damage at edge
 
 var debris_particles: GPUParticles3D
 var smoke_particles: GPUParticles3D
@@ -23,21 +27,26 @@ func _ready():
 	trigger_explosion()
 
 func setup_explosion_audio():
+	sfx_explosion = AudioStreamPlayer3D.new()
+	add_child(sfx_explosion)
+	
+	# Use explosion sounds if available, otherwise load a default one
+	var selected_sound: AudioStream
 	if explosion_sounds.size() > 0:
-		sfx_explosion = AudioStreamPlayer3D.new()
-		add_child(sfx_explosion)
-		
 		# Randomly select one of the explosion sounds
-		var selected_sound = explosion_sounds[randi() % explosion_sounds.size()]
-		sfx_explosion.stream = selected_sound
-		
-		sfx_explosion.volume_db = 0.0
-		sfx_explosion.max_distance = 2000.0  # Very large range - 2km
-		sfx_explosion.unit_size = 100.0      # Large unit size for consistent volume
-		sfx_explosion.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE
-		sfx_explosion.add_to_group("3d_audio")  # Add to group for audio management
-		
+		selected_sound = explosion_sounds[randi() % explosion_sounds.size()]
 		print("Selected explosion sound: ", selected_sound.resource_path)
+	else:
+		# Fallback to default explosion sound
+		selected_sound = load("res://Sounds/explosion_large_01.wav")
+		print("Using fallback explosion sound")
+	
+	sfx_explosion.stream = selected_sound
+	sfx_explosion.volume_db = 0.0
+	sfx_explosion.max_distance = 800.0  # Realistic range - 800m
+	sfx_explosion.unit_size = 50.0      # Smaller unit size for more realistic falloff
+	sfx_explosion.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE
+	sfx_explosion.add_to_group("3d_audio")  # Add to group for audio management
 
 func create_debris_particles():
 	print("Creating debris particles...")
@@ -191,6 +200,9 @@ func trigger_explosion():
 		sfx_explosion.play()
 		print("Playing explosion sound")
 	
+	# Deal damage to enemies in blast radius
+	deal_explosion_damage()
+	
 	# Create multiple flash bursts for angular effect (instead of sphere)
 	create_angular_bursts()
 	
@@ -297,3 +309,101 @@ func create_scorch_mark():
 	
 	# Load your scorch mark PNG texture
 	decal.texture_albedo = preload("res://Projectiles/Explosion/scorch_mark.png")
+
+func deal_explosion_damage():
+	"""Deal damage to all enemies within blast radius"""
+	print("=== DEALING EXPLOSION DAMAGE ===")
+	print("Blast radius: ", blast_radius)
+	print("Explosion position: ", global_position)
+	
+	# Find all potential targets in the scene
+	var potential_targets = []
+	
+	# Look for enemies in groups
+	var enemy_groups = ["enemies", "enemy", "targets", "aircraft"]
+	for group_name in enemy_groups:
+		var group_members = get_tree().get_nodes_in_group(group_name)
+		for member in group_members:
+			if member != self and member.has_method("take_damage"):
+				potential_targets.append(member)
+	
+	# Also check all RigidBody3D nodes (could be enemy aircraft)
+	var all_bodies = get_tree().get_nodes_in_group("aircraft")
+	for body in all_bodies:
+		if body != self and body.has_method("take_damage"):
+			if not body in potential_targets:
+				potential_targets.append(body)
+	
+	print("Found ", potential_targets.size(), " potential targets to check")
+	
+	# Check distance and deal damage
+	var targets_hit = 0
+	for target in potential_targets:
+		var distance = global_position.distance_to(target.global_position)
+		print("Target ", target.name, " distance: ", distance)
+		
+		if distance <= blast_radius:
+			# Calculate damage based on distance (closer = more damage)
+			var damage_ratio = 1.0 - (distance / blast_radius)
+			var damage = lerp(min_damage, max_damage, damage_ratio)
+			
+			print("Hitting ", target.name, " with ", damage, " damage (distance: ", distance, ")")
+			target.take_damage(damage)
+			targets_hit += 1
+			
+			# Add knockback force if target is a RigidBody3D
+			if target is RigidBody3D:
+				var knockback_direction = (target.global_position - global_position).normalized()
+				var knockback_force = (max_damage - damage) * 100.0  # Scale force to damage
+				target.apply_central_impulse(knockback_direction * knockback_force)
+				print("Applied knockback to ", target.name)
+	
+	print("Explosion hit ", targets_hit, " targets")
+	
+	# Create visual blast wave
+	create_blast_wave()
+
+func create_blast_wave():
+	"""Create a visual blast wave ring to show the damage area"""
+	print("Creating blast wave ring...")
+	
+	# Create a torus-shaped blast wave
+	var blast_ring = MeshInstance3D.new()
+	add_child(blast_ring)
+	
+	# Create torus mesh for ring shape
+	var torus_mesh = TorusMesh.new()
+	torus_mesh.inner_radius = blast_radius * 0.8
+	torus_mesh.outer_radius = blast_radius
+	blast_ring.mesh = torus_mesh
+	
+	# Create bright blast material
+	var blast_material = StandardMaterial3D.new()
+	blast_material.emission_enabled = true
+	blast_material.emission = Color.ORANGE_RED
+	blast_material.emission_energy = 10.0
+	blast_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	blast_material.albedo_color = Color(1.0, 0.5, 0.0, 0.8)  # Orange with transparency
+	blast_ring.material_override = blast_material
+	
+	# Start small and expand rapidly
+	blast_ring.scale = Vector3(0.1, 0.1, 0.1)
+	
+	# Animate the blast wave
+	var blast_tween = create_tween()
+	
+	# Expand quickly
+	blast_tween.parallel().tween_property(blast_ring, "scale", Vector3(1.0, 0.2, 1.0), 0.3)
+	
+	# Fade out
+	blast_tween.parallel().tween_method(set_blast_wave_alpha.bind(blast_ring), 0.8, 0.0, 0.5)
+	
+	# Clean up
+	blast_tween.tween_callback(blast_ring.queue_free)
+
+func set_blast_wave_alpha(blast_ring: MeshInstance3D, alpha: float):
+	"""Helper function to fade the blast wave"""
+	if blast_ring and blast_ring.material_override:
+		var material = blast_ring.material_override as StandardMaterial3D
+		material.albedo_color.a = alpha
+		material.emission_energy = alpha * 10.0

@@ -78,18 +78,21 @@ func _process(_delta: float) -> void:
 		fuel_bar.modulate = Color.RED
 	
 	# Update gear status (check for landing gear modules)
-	var gear_modules = aircraft.find_modules_by_type("landingGear")
+	var gear_modules = aircraft.find_modules_by_type("landing_gear")
 	if gear_modules.size() > 0:
 		var gear = gear_modules[0]
-		if gear.gear_position >= 0.9:
+		if gear.is_deployed:
 			gear_label.text = "GEAR\nDOWN"
 			gear_label.modulate = Color.GREEN
-		elif gear.gear_position <= 0.1:
+		elif gear.is_stowed:
 			gear_label.text = "GEAR\nUP"
 			gear_label.modulate = Color.WHITE
-		else:
+		elif gear.is_deploying or gear.is_stowing:
 			gear_label.text = "GEAR\nMOVING"
 			gear_label.modulate = Color.YELLOW
+		else:
+			gear_label.text = "GEAR\nUNKNOWN"
+			gear_label.modulate = Color.GRAY
 	else:
 		gear_label.text = "GEAR\nN/A"
 		gear_label.modulate = Color.GRAY

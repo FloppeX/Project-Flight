@@ -29,6 +29,9 @@ func _physics_process(delta: float) -> void:
 	if not ControlActive or engine_modules.is_empty():
 		return
 
+	# Store previous power for comparison
+	var previous_power = target_power
+
 	# Incremental throttle (e.g., D-pad up/down or keys)
 	var up: float = Input.get_action_strength("throttle_up")
 	var down: float = Input.get_action_strength("throttle_down")
@@ -42,14 +45,30 @@ func _physics_process(delta: float) -> void:
 			var t: float = clamp(AbsoluteSmoothing * delta, 0.0, 1.0)
 			target_power = lerp(target_power, abs_throttle, t)
 
-	# Start/stop
-	if Input.is_action_just_pressed("engine_start"):
-		send_to_engines("engine_start")
-	if Input.is_action_just_pressed("engine_stop"):
-		send_to_engines("engine_stop")
+	# Automatic engine start/stop based on throttle
+	handle_automatic_engine_control(previous_power)
 
 	# Apply power
 	send_to_engines("engine_set_power", [target_power])
+
+func handle_automatic_engine_control(previous_power: float):
+	"""Automatically start/stop engines based on throttle position"""
+	# Check if any engine is currently working
+	var any_engine_working = false
+	for engine in engine_modules:
+		if engine.is_engine_working:
+			any_engine_working = true
+			break
+	
+	# Start engines if throttle increased from 0 and engines are stopped
+	if target_power > 0.01 and not any_engine_working and previous_power <= 0.01:
+		print("Auto-starting engines (throttle increased)")
+		send_to_engines("engine_start")
+	
+	# Stop engines if throttle reached 0 and engines are running
+	elif target_power <= 0.01 and any_engine_working:
+		print("Auto-stopping engines (throttle at 0)")
+		send_to_engines("engine_stop")
 
 func receive_input(_event: InputEvent) -> void:
 	# Polling mode; keep to satisfy the aircraft loop if it calls us.

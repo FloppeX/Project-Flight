@@ -1,2 +1,6 @@
-res://example/ExampleList.tscn
-res://example/scenes/Cameras/camera_controller.gd
+res://example/Example1_Simple.tscn
+res://HUD/HeadsUpDisplay.tscn
+res://Aircraft/TestAircraft.tscn
+res://Aircraft/CompleteFighterJet.tscn
+res://Weapons/Bomb/bomb.tscn
+res://Weapons/Autocannon/Autocannon.tscn

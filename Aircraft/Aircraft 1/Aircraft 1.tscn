@@ -41,6 +41,7 @@
 [ext_resource type="PackedScene" uid="uid://c4dncgm8qjt7u" path="res://example/ui/UIFlaps/UIFlaps.tscn" id="46_pyouv"]
 [ext_resource type="PackedScene" uid="uid://dhg4sb4ifrvh8" path="res://example/ui/UIAttitude/UIAttitude.tscn" id="47_tgj2k"]
 [ext_resource type="PackedScene" uid="uid://bmut2y2xaqj6x" path="res://example/ui/UIAltSpeed/UIAltSpeed.tscn" id="48_4ftis"]
+[ext_resource type="PackedScene" uid="uid://cqyfnpv28jupa" path="res://HUD/HeadsUpDisplay.tscn" id="49_hud"]
 
 [sub_resource type="BoxShape3D" id="9"]
 size = Vector3(4.11335, 1.83179, 5.74279)
@@ -277,5 +278,11 @@ offset_right = 785.0
 offset_bottom = -11.0
 grow_vertical = 0
 AircraftNode = NodePath("../../..")
+
+[node name="HeadsUpDisplay" parent="Aircraft" instance=ExtResource("49_hud")]
+transform = Transform3D(0.4, 0, -1.19209e-08, 0, 0.4, 0, 1.19209e-08, 0, 0.4, 0, 0.92, -2.1)
+camera_path = NodePath("../CameraCockpit")
+aircraft_path = NodePath("..")
+hud_glass_size = Vector2(1, 1)
 
 [editable path="Aircraft"]

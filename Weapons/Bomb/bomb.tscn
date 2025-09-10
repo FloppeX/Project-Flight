@@ -5,6 +5,7 @@
 [ext_resource type="PackedScene" uid="uid://bjh4sid7u0lyk" path="res://Projectiles/BombNew/bomb_new.tscn" id="2_clhcb"]
 
 [node name="Bomb" type="Node3D"]
+transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, 0, -0.0263879)
 script = ExtResource("1_573fp")
 bomb_projectile_scene = ExtResource("2_clhcb")
 ammo_count = 136

@@ -38,8 +38,8 @@ func apply_recoil_force(force_magnitude: float):
 		# Random force variation ±25%
 		var varied_force = force_magnitude * randf_range(0.75, 1.25)
 		
-		# Add random scatter to recoil direction
-		var base_direction = global_transform.basis.z
+		# Add random scatter to recoil direction - use opposite of forward direction
+		var base_direction = -get_hardpoint_forward_direction()  # Recoil is opposite to firing direction
 		var random_offset = Vector3(
 			randf_range(-0.15, 0.15),
 			randf_range(-0.15, 0.15), 
@@ -65,4 +65,4 @@ func get_hardpoint_world_position() -> Vector3:
 	return global_position
 
 func get_hardpoint_forward_direction() -> Vector3:
-	return -global_transform.basis.z
+	return global_transform.basis.z

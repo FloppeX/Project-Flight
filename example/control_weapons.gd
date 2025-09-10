@@ -2,43 +2,139 @@ extends AircraftModule
 class_name ControlWeapons
 
 @export var hardpoints: Array[Hardpoint] = []
-var selected_hardpoint_index: int = 0
+var weapon_types: Array[String] = []  # Available weapon types
+var selected_weapon_type: String = ""
+var selected_weapon_type_index: int = 0
 var is_trigger_held: bool = false
+
+func _ready():
+	# We poll every frame instead of using event callbacks
+	ReceiveInput = false
+	ProcessPhysics = true
+	
+	# Add to group for easy finding
+	add_to_group("ControlWeapons")
+
+func setup(aircraft_node: Node) -> void:
+	aircraft = aircraft_node
+	# Find all hardpoints automatically
+	find_hardpoints()
+	# Categorize weapons by type
+	categorize_weapons()
+	# Select first weapon type if available
+	if weapon_types.size() > 0:
+		selected_weapon_type = weapon_types[0]
+		print("Weapon control ready. Available types: ", weapon_types)
+		print("Selected weapon type: ", selected_weapon_type)
+	else:
+		print("WARNING: No weapon types found!")
+
+func find_hardpoints():
+	"""Find all hardpoints on the aircraft"""
+	hardpoints.clear()
+	# Look for Hardpoint nodes in the aircraft
+	for child in aircraft.get_children():
+		if child is Hardpoint:
+			hardpoints.append(child)
+		# Also check children of children
+		for grandchild in child.get_children():
+			if grandchild is Hardpoint:
+				hardpoints.append(grandchild)
+	
+	print("Found ", hardpoints.size(), " hardpoints")
+
+func categorize_weapons():
+	"""Categorize weapons by type and build weapon type list"""
+	weapon_types.clear()
+	var weapon_type_set = {}
+	
+	for hardpoint in hardpoints:
+		if hardpoint.weapon_instance:
+			var weapon_name = hardpoint.weapon_instance.weapon_name
+			if not weapon_name in weapon_type_set:
+				weapon_type_set[weapon_name] = true
+				weapon_types.append(weapon_name)
+	
+	print("Available weapon types: ", weapon_types)
 
 func _input(event):
 	if Input.is_action_just_pressed("fire_weapon"):
 		is_trigger_held = true
-		fire_current_weapon()
+		fire_selected_weapon_type()
 	
 	if Input.is_action_just_released("fire_weapon"):
 		is_trigger_held = false
-	
-	if Input.is_action_just_pressed("cycle_weapon"):
-		cycle_weapon()
 
-func _process(delta):
-	# Continuous firing for automatic weapons
+func process_physic_frame(delta):
+	# Check for weapon switching
+	if Input.is_action_just_pressed("change_weapon"):
+		cycle_weapon_type()
+	
+	# Continuous firing only for automatic weapons of selected type
 	if is_trigger_held:
-		fire_current_weapon()
+		fire_automatic_weapons_of_type(selected_weapon_type)
 
-func fire_current_weapon():
-	var fired = false
+func fire_selected_weapon_type():
+	"""Fire all weapons of the currently selected type"""
+	if selected_weapon_type == "":
+		return
 	
-	# First try to fire all automatic weapons (autocannons)
+	var weapons_fired = 0
 	for hardpoint in hardpoints:
-		if hardpoint.weapon_instance and hardpoint.weapon_instance.automatic_fire:
+		if hardpoint.weapon_instance and hardpoint.weapon_instance.weapon_name == selected_weapon_type:
 			if hardpoint.fire():
-				fired = true
+				weapons_fired += 1
 	
-	# If no automatic weapons fired, fire the currently selected single-shot weapon
-	if not fired and hardpoints.size() > 0:
-		var current_hardpoint = hardpoints[selected_hardpoint_index]
-		if current_hardpoint and current_hardpoint.weapon_instance:
-			if not current_hardpoint.weapon_instance.automatic_fire:
-				# Only fire single-shot weapons once per trigger pull
-				if Input.is_action_just_pressed("fire_weapon"):
-					current_hardpoint.fire()
+	if weapons_fired > 0:
+		print("Fired ", weapons_fired, " ", selected_weapon_type, " weapons")
 
-func cycle_weapon():
-	if hardpoints.size() > 1:
-		selected_hardpoint_index = (selected_hardpoint_index + 1) % hardpoints.size()
+func fire_automatic_weapons_of_type(weapon_type: String):
+	"""Fire all automatic weapons of the specified type continuously"""
+	for hardpoint in hardpoints:
+		if (hardpoint.weapon_instance and 
+			hardpoint.weapon_instance.weapon_name == weapon_type and 
+			hardpoint.weapon_instance.automatic_fire):
+			hardpoint.fire()
+
+func cycle_weapon_type():
+	"""Cycle to the next weapon type"""
+	if weapon_types.size() <= 1:
+		print("Only one weapon type available - cannot cycle")
+		return
+	
+	selected_weapon_type_index = (selected_weapon_type_index + 1) % weapon_types.size()
+	selected_weapon_type = weapon_types[selected_weapon_type_index]
+	
+	print("Switched to weapon type: ", selected_weapon_type)
+	
+	# Count weapons of this type
+	var count = 0
+	for hardpoint in hardpoints:
+		if hardpoint.weapon_instance and hardpoint.weapon_instance.weapon_name == selected_weapon_type:
+			count += 1
+	
+	print("Available ", selected_weapon_type, " weapons: ", count)
+
+func get_weapon_status() -> Dictionary:
+	"""Get current weapon status for UI display"""
+	var status = {
+		"selected_type": selected_weapon_type,
+		"available_types": weapon_types,
+		"weapon_count": 0,
+		"total_ammo": 0
+	}
+	
+	# Count weapons of selected type and total ammo
+	for hardpoint in hardpoints:
+		if hardpoint.weapon_instance and hardpoint.weapon_instance.weapon_name == selected_weapon_type:
+			status.weapon_count += 1
+			# Add ammo count if weapon has ammo property
+			if hardpoint.weapon_instance.has_method("get_ammo_count"):
+				status.total_ammo += hardpoint.weapon_instance.get_ammo_count()
+			else:
+				# Try to access ammo_count property safely
+				var ammo_count = hardpoint.weapon_instance.get("ammo_count")
+				if ammo_count != null:
+					status.total_ammo += ammo_count
+	
+	return status

@@ -7,7 +7,7 @@ class_name AircraftModule_LandingGear
 signal update_interface(values)
 
 @export var GearCollisionShape: NodePath
-@export var gear_collision_shapes: Array[CollisionShape3D] = []  # Array for your 3 spheres
+@export var gear_collision_shapes: Array[CollisionShape3D] = []  # Array for wheel collision shapes
 @export var gear_visuals: Array[Node3D] = []  # Array for visual gear meshes
 @export var gear_rotation_axes: Array[Vector3] = []  # Rotation axis for each gear (empty = no rotation)
 @export var gear_rotation_angles: Array[float] = []  # Rotation angle in degrees for each gear when stowed
@@ -22,232 +22,198 @@ enum LandingGearInitialStates {
 @export var DeploySound: AudioStream
 @export var StowSound: AudioStream
 
-# Gear springyness
-@export var spring_strength: float = 15000.0    # Spring force per meter compressed
-@export var spring_damping: float = 3000.0      # Damping to prevent bouncing  
-@export var wheel_rest_height: float = 1.0      # Normal wheel height above ground
-@export var max_compression: float = 0.5        # Maximum compression distance
+# Gear suspension (simplified)
+@export var spring_strength: float = 50000.0   # Spring force per meter compressed
+@export var spring_damping: float = 8000.0     # Damping to prevent bouncing  
+@export var wheel_rest_height: float = 1.2     # Normal wheel height above ground
+@export var max_compression: float = 0.8       # Maximum compression distance
 
-# You don't really *need* to use this property, as any node can receive the
-# signals. This is just a helper to automatically connect all possible signals
-# assigning the node just once 
-@export var UINode: NodePath
-@onready var ui_node = get_node_or_null(UINode)
+# Directional wheel friction
+@export var forward_friction: float = 0.1      # Low resistance for rolling forward/backward
+@export var sideways_friction: float = 8.0     # High resistance for sliding sideways
+@export var friction_force_multiplier: float = 1000.0  # Overall friction strength
 
-var sfx_player = null
+var current_state: LandingGearInitialStates
+var deploy_timer: Timer
+var audio_player: AudioStreamPlayer3D
 
-var move_timer = Timer.new()
-var rotation_tween: Tween
-
-var is_deploying = false
-var is_stowing = false
-var is_deployed = false
-var is_stowed = true
-
-var initial_gear_rotations: Array[Vector3] = []  # Store initial rotations
-
+# Properties for external access
+var is_deployed: bool = false
+var is_stowed: bool = true
 
 func _ready():
-	add_child(move_timer)
-	move_timer.one_shot = true
-	move_timer.connect("timeout", Callable(self, "_on_move_timer_timeout"))
-	
-	if DeploySound or StowSound:
-		sfx_player = AudioStreamPlayer.new()
-		add_child(sfx_player)
-	
-	if ui_node:
-		connect("update_interface", Callable(ui_node, "update_interface"))
-	
+	"""Set up module properties"""
 	ModuleType = "landing_gear"
 	ProcessPhysics = true
+	
+	# Set up timer
+	deploy_timer = Timer.new()
+	add_child(deploy_timer)
+	deploy_timer.one_shot = true
+	deploy_timer.timeout.connect(_on_timer_timeout)
+	
+	# Set up audio player
+	audio_player = AudioStreamPlayer3D.new()
+	add_child(audio_player)
 
 func setup(aircraft_node):
-	aircraft = aircraft_node
-	# Register all gear collision shapes as safe colliders
-	for collision_shape in gear_collision_shapes:
-		if collision_shape:
-			aircraft.register_safe_collider(collision_shape)
+	"""Initialize the landing gear system"""
+	super.setup(aircraft_node)
 	
-	match InitialState:
-		LandingGearInitialStates.STOWED:
-			is_stowed = true
-			is_deployed = false
+	# Register wheel colliders as safe colliders (for landing detection)
+	for collider in gear_collision_shapes:
+		if collider:
+			aircraft.register_safe_collider(collider)
+	
+	# Set initial state
+	current_state = InitialState
+	if current_state == LandingGearInitialStates.STOWED:
+		stow()
+	else:
+		deploy()
+
+func process_physic_frame(delta: float):
+	"""Apply spring physics to each wheel"""
+	if current_state != LandingGearInitialStates.DEPLOYED:
+		return
 		
-		LandingGearInitialStates.DEPLOYED:
-			is_stowed = false
-			is_deployed = true
+	# Only apply springs if we have proper values set
+	if spring_strength > 0 and wheel_rest_height > 0:
+		# Apply spring forces to each collision shape
+		for i in range(gear_collision_shapes.size()):
+			apply_spring_physics(gear_collision_shapes[i], i, delta)
+
+func apply_spring_physics(collision_shape: CollisionShape3D, gear_index: int, delta: float):
+	"""Apply spring and damping forces to a gear collision shape"""
+	if not collision_shape or collision_shape.disabled:
+		return
+		
+	# Cast ray downward from collision shape to detect ground
+	var space_state = collision_shape.get_world_3d().direct_space_state
+	var query = PhysicsRayQueryParameters3D.create(
+		collision_shape.global_position,
+		collision_shape.global_position + Vector3.DOWN * (wheel_rest_height + max_compression)
+	)
+	query.exclude = [aircraft.get_rid()]
 	
-	# Set initial collision state for all gear
-	for collision_shape in gear_collision_shapes:
-		if collision_shape:
-			collision_shape.disabled = not is_deployed
+	var result = space_state.intersect_ray(query)
 	
-	# Set initial visual state for all gear
-	for gear_visual in gear_visuals:
-		if gear_visual:
-			gear_visual.visible = is_deployed
-	
-	
-	request_update_interface()
-
-
-#func receive_input(event):
-#	pass
-
-#func process_physic_frame(delta):
-#	pass
-
-#func process_render_frame(delta):
-#	pass
-
-func _on_move_timer_timeout():
-	if is_deploying:
-		_on_deploy_completed()
-	if is_stowing:
-		_on_stow_completed()
-
-
-# -----------------------------------------------------------------------------
-
-func request_update_interface():
-	var message = {
-		"lgear_deploying": is_deploying,
-		"lgear_stowing": is_stowing,
-		"lgear_down": is_deployed,
-		"lgear_up": is_stowed,
-	}
-	emit_signal("update_interface", message)
-
+	if result:
+		# Ground detected - calculate compression
+		var distance_to_ground = collision_shape.global_position.distance_to(result.position)
+		var compression = wheel_rest_height - distance_to_ground
+		compression = clamp(compression, 0.0, max_compression)
+		
+		if compression > 0.01:  # Small threshold to avoid jittering
+			# Calculate spring force (Hooke's law)
+			var spring_force = spring_strength * compression
+			
+			# Calculate damping force (opposes velocity)
+			var aircraft_velocity = aircraft.linear_velocity.y
+			var damping_force = -spring_damping * aircraft_velocity * compression
+			
+			# Apply vertical forces (spring + damping)
+			var total_vertical_force = spring_force + damping_force
+			var force_position = collision_shape.global_position - aircraft.global_position
+			aircraft.apply_force(Vector3.UP * total_vertical_force, force_position)
+			
+			# Apply directional wheel friction
+			apply_wheel_friction(collision_shape, compression)
 
 func deploy():
-	if is_deployed or is_deploying:
+	"""Deploy the landing gear"""
+	if current_state == LandingGearInitialStates.DEPLOYED:
 		return
 	
-	var timer_time = DeployStowTime
-	var sfx_position = 0.0
+	# Start deploy animation/timer
+	deploy_timer.start(DeployStowTime)
 	
-	# Do we have to abort a stowing process?
-	if is_stowing:
-		timer_time = DeployStowTime - move_timer.time_left
-		sfx_position = move_timer.time_left
-		
-		move_timer.stop()
-		sfx_player.stop()
-	
-	# Start process
-	move_timer.start(timer_time)
-	
+	# Play deploy sound
 	if DeploySound:
-		sfx_player.stream = DeploySound
-		sfx_player.play(sfx_position)
+		play_sound(DeploySound)
 	
-	is_deploying = true
-	is_stowing = false
-	is_stowed = false
-	request_update_interface()
-
-
-func _on_deploy_completed():
-	is_deploying = false
+	# Update state immediately for interface
+	current_state = LandingGearInitialStates.DEPLOYED
 	is_deployed = true
+	is_stowed = false
 	
-	# Enable all gear collisions
+	# Enable collision shapes immediately
 	for collision_shape in gear_collision_shapes:
 		if collision_shape:
 			collision_shape.disabled = false
 	
-	# Show all gear visuals
-	for gear_visual in gear_visuals:
-		if gear_visual:
-			gear_visual.visible = true
+	# Show visual meshes immediately
+	for visual in gear_visuals:
+		if visual:
+			visual.visible = true
 	
-	request_update_interface()
-
-
+	# Emit interface update
+	update_interface.emit({"landing_gear": "deployed"})
 
 func stow():
-	if is_stowed or is_stowing:
+	"""Stow the landing gear"""
+	if current_state == LandingGearInitialStates.STOWED:
 		return
 	
-	var timer_time = DeployStowTime
-	var sfx_position = 0.0
+	# Start stow animation/timer
+	deploy_timer.start(DeployStowTime)
 	
-	# Do we have to abort a deploying process?
-	if is_deploying:
-		timer_time = DeployStowTime - move_timer.time_left
-		sfx_position = move_timer.time_left
-		
-		move_timer.stop()
-		sfx_player.stop()
-	
-	# Start process
-	move_timer.start(timer_time)
-	
+	# Play stow sound
 	if StowSound:
-		sfx_player.stream = StowSound
-		sfx_player.play(sfx_position)
+			play_sound(StowSound)
 	
+	# Update state immediately for interface
+	current_state = LandingGearInitialStates.STOWED
 	is_deployed = false
-	is_deploying = false
-	is_stowing = true
+	is_stowed = true
 	
-	# Disable all gear collisions
+	# Disable collision shapes immediately
 	for collision_shape in gear_collision_shapes:
 		if collision_shape:
 			collision_shape.disabled = true
 	
-	# Hide all gear visuals
-	for gear_visual in gear_visuals:
-		if gear_visual:
-			gear_visual.visible = false
+	# Hide visual meshes immediately
+	for visual in gear_visuals:
+		if visual:
+			visual.visible = false
 	
-	request_update_interface()
+	# Emit interface update
+	update_interface.emit({"landing_gear": "stowed"})
 
+func _on_timer_timeout():
+	"""Called when deploy/stow timer completes"""
+	# Animation is complete, nothing more to do since we handle states immediately
+	pass
 
-func _on_stow_completed():
-	is_stowing = false
-	is_stowed = true
-	
-	request_update_interface()
-	
-func process_physic_frame(delta):
-	if not is_deployed:
+func play_sound(sound: AudioStream):
+	"""Play a sound effect"""
+	if sound and audio_player:
+		audio_player.stream = sound
+		audio_player.play()
+
+func apply_wheel_friction(collision_shape: CollisionShape3D, compression: float):
+	"""Apply directional friction to simulate realistic wheel behavior"""
+	if not aircraft or compression <= 0.01:
 		return
 	
-	# Apply spring forces for each deployed wheel
-	for collision_shape in gear_collision_shapes:
-		if collision_shape and not collision_shape.disabled:
-			apply_wheel_spring(collision_shape)
-			
-func apply_wheel_spring(wheel_collision: CollisionShape3D):
-	# Don't apply springs if we're moving fast upward (taking off)
-	var vertical_velocity = aircraft.linear_velocity.y
-	if vertical_velocity > 2.0:  # If climbing fast, disable springs
-		return
-	# Cast a ray down from wheel to detect ground compression
-	var space_state = wheel_collision.get_world_3d().direct_space_state
-	var wheel_pos = wheel_collision.global_position
-	var ray_start = wheel_pos
-	var ray_end = wheel_pos + Vector3.DOWN * (wheel_rest_height + max_compression)
+	# Get aircraft's local coordinate system
+	var aircraft_forward = -aircraft.global_transform.basis.z  # Aircraft forward direction
+	var aircraft_right = aircraft.global_transform.basis.x     # Aircraft right direction
 	
-	var query = PhysicsRayQueryParameters3D.create(ray_start, ray_end)
-	query.exclude = [aircraft.get_rid()]  # Don't hit the aircraft itself
-	var result = space_state.intersect_ray(query)
+	# Get aircraft velocity in world space
+	var world_velocity = aircraft.linear_velocity
 	
-	if result:
-		var ground_distance = wheel_pos.distance_to(result.position)
-		var compression = wheel_rest_height - ground_distance
-		
-		if compression > 0.0:  # Wheel is compressed
-			# Spring force (Hooke's law)
-			var spring_force = compression * spring_strength
-			
-			# Damping force (based on vertical velocity)
-			var wheel_velocity = aircraft.linear_velocity.y
-			var damping_force = -wheel_velocity * spring_damping
-			
-			# Apply combined force at wheel position
-			var total_force = Vector3.UP * (spring_force + damping_force)
-			var force_position = wheel_collision.global_position - aircraft.global_position
-			aircraft.apply_force(total_force, force_position)
+	# Project velocity onto aircraft's local axes
+	var forward_velocity = world_velocity.dot(aircraft_forward)
+	var sideways_velocity = world_velocity.dot(aircraft_right)
+	
+	# Calculate friction forces
+	var forward_friction_force = -forward_velocity * forward_friction * friction_force_multiplier * compression
+	var sideways_friction_force = -sideways_velocity * sideways_friction * friction_force_multiplier * compression
+	
+	# Apply friction forces in aircraft's local coordinate system
+	var total_friction = (aircraft_forward * forward_friction_force) + (aircraft_right * sideways_friction_force)
+	
+	# Apply friction force at wheel position
+	var force_position = collision_shape.global_position - aircraft.global_position
+	aircraft.apply_force(total_friction, force_position)

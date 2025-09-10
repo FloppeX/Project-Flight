@@ -1,7 +1,12 @@
-[gd_scene load_steps=2 format=3 uid="uid://cadi81fcpvmuc"]
+[gd_scene load_steps=7 format=3 uid="uid://cadi81fcpvmuc"]
 
 [ext_resource type="Script" uid="uid://tytqsm7km7oq" path="res://Projectiles/Explosion/explosion.gd" id="1_5ktmv"]
+[ext_resource type="AudioStream" path="res://Sounds/explosion_large_01.wav" id="2_sound1"]
+[ext_resource type="AudioStream" path="res://Sounds/explosion_large_02.wav" id="3_sound2"]
+[ext_resource type="AudioStream" path="res://Sounds/explosion_large_03.wav" id="4_sound3"]
+[ext_resource type="AudioStream" path="res://Sounds/explosion_large_04.wav" id="5_sound4"]
+[ext_resource type="AudioStream" path="res://Sounds/explosion_large_05.wav" id="6_sound5"]
 
 [node name="Explosion" type="Node3D"]
 script = ExtResource("1_5ktmv")
-explosion_sounds = Array[AudioStream]([])
+explosion_sounds = Array[AudioStream]([ExtResource("2_sound1"), ExtResource("3_sound2"), ExtResource("4_sound3"), ExtResource("5_sound4"), ExtResource("6_sound5")])

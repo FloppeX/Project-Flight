@@ -1,0 +1,18 @@
+[gd_scene load_steps=3 format=3 uid="uid://carrier_visibility_debug"]
+
+[ext_resource type="PackedScene" uid="uid://b8x70a02a1b2c" path="res://LandCarrier.tscn" id="1_carrier"]
+[ext_resource type="Script" path="res://CarrierVisibilityDebug.gd" id="2_script"]
+
+[node name="CarrierVisibilityDebug" type="Node3D"]
+script = ExtResource("2_script")
+
+[node name="LandCarrier" parent="." instance=ExtResource("1_carrier")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 10, 0)
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(0.707107, -0.5, 0.5, 0, 0.707107, 0.707107, -0.707107, -0.5, 0.5, 0, 50, 50)
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.707107, -0.5, 0.5, 0, 0.707107, 0.707107, -0.707107, -0.5, 0.5, 0, 10, 0)
+
+

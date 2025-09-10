@@ -5,6 +5,7 @@
 [sub_resource type="QuadMesh" id="QuadMesh_prtlp"]
 
 [node name="PhysicalHUD" type="Node3D"]
+transform = Transform3D(1.4, 0, 0, 0, 1.4, 0, 0, 0, 1.4, 0, 0, 0)
 script = ExtResource("1_prtlp")
 
 [node name="HUDglass" type="MeshInstance3D" parent="."]
@@ -33,3 +34,18 @@ offset_left = 11.0
 offset_top = 2.0
 offset_right = 13.0
 offset_bottom = 24.0
+
+[node name="WeaponStatus" type="Label" parent="SubViewport"]
+offset_left = 5.0
+offset_top = 452.0
+offset_right = 305.0
+offset_bottom = 502.0
+text = "No Weapons"
+
+[node name="SpeedAltitude" type="Label" parent="SubViewport"]
+offset_left = 312.0
+offset_top = 452.0
+offset_right = 502.0
+offset_bottom = 502.0
+text = "SPD: 0
+ALT: 0"

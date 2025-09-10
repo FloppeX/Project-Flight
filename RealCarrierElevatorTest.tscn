@@ -1,0 +1,34 @@
+[gd_scene load_steps=5 format=3 uid="uid://dc05ro1rvx30m"]
+
+[ext_resource type="PackedScene" uid="uid://b8x70a02a1b2c" path="res://LandCarrier.tscn" id="1_carrier"]
+[ext_resource type="Script" uid="uid://csegaifgadeu3" path="res://RealCarrierElevatorTest.gd" id="2_script"]
+
+[sub_resource type="BoxMesh" id="1_ground_mesh"]
+size = Vector3(100, 2, 100)
+
+[sub_resource type="BoxShape3D" id="2_ground_shape"]
+size = Vector3(100, 2, 100)
+
+[node name="RealCarrierElevatorTest" type="Node3D"]
+script = ExtResource("2_script")
+
+[node name="LandCarrier" parent="." instance=ExtResource("1_carrier")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0)
+
+[node name="Ground" type="StaticBody3D" parent="."]
+
+[node name="GroundMesh" type="MeshInstance3D" parent="Ground"]
+transform = Transform3D(50, 0, 0, 0, 1, 0, 0, 0, 50, 0, -1, 0)
+mesh = SubResource("1_ground_mesh")
+
+[node name="GroundCollision" type="CollisionShape3D" parent="Ground"]
+transform = Transform3D(50, 0, 0, 0, 1, 0, 0, 0, 50, 0, -1, 0)
+shape = SubResource("2_ground_shape")
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(0.707107, -0.5, 0.5, 0, 0.707107, 0.707107, -0.707107, -0.5, 0.5, 0, 40, 40)
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.707107, -0.5, 0.5, 0, 0.707107, 0.707107, -0.707107, -0.5, 0.5, 0, 10, 0)
+
+

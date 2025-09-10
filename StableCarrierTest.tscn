@@ -1,0 +1,33 @@
+[gd_scene load_steps=4 format=3 uid="uid://c0nm6mnlpstoi"]
+
+[ext_resource type="PackedScene" uid="uid://b8x70a02a1b2c" path="res://LandCarrier.tscn" id="1_carrier"]
+[ext_resource type="Script" uid="uid://c8pwfav1v78o1" path="res://StableCarrierTest.gd" id="2_script"]
+[ext_resource type="BoxShape3D" path="res://GroundShape.tres" id="3_ground_shape"]
+
+[node name="StableCarrierTest" type="Node3D"]
+script = ExtResource("2_script")
+
+[node name="LandCarrier" parent="." instance=ExtResource("1_carrier")]
+
+[node name="Ground" type="StaticBody3D" parent="."]
+
+[node name="GroundMesh" type="MeshInstance3D" parent="Ground"]
+transform = Transform3D(50, 0, 0, 0, 1, 0, 0, 0, 50, 0, -1, 0)
+mesh = SubResource("1_ground_mesh")
+surface_material_override/0 = SubResource("2_ground_material")
+
+[sub_resource type="BoxMesh" id="1_ground_mesh"]
+size = Vector3(100, 2, 100)
+
+[sub_resource type="StandardMaterial3D" id="2_ground_material"]
+albedo_color = Color(0.4, 0.3, 0.2, 1)
+
+[node name="GroundCollision" type="CollisionShape3D" parent="Ground"]
+transform = Transform3D(50, 0, 0, 0, 1, 0, 0, 0, 50, 0, -1, 0)
+shape = ExtResource("3_ground_shape")
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(0.707107, -0.5, 0.5, 0, 0.707107, 0.707107, -0.707107, -0.5, 0.5, 0, 20, 20)
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.707107, -0.5, 0.5, 0, 0.707107, 0.707107, -0.707107, -0.5, 0.5, 0, 10, 0)
