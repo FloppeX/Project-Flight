@@ -6,4 +6,4 @@
 script = ExtResource("1_1f2py")
 
 [node name="Camera3D" type="Camera3D" parent="."]
-far = 2000.0
+far = 3000.0

@@ -4,7 +4,7 @@
 background_mode = 1
 background_color = Color(0.4, 0.6, 0.9, 1)
 sky_rotation = Vector3(0, 0, 0)
-ambient_light_source = 2
+ambient_light_source = 1
 ambient_light_color = Color(0.8, 0.85, 1, 1)
 ambient_light_energy = 0.3
 reflected_light_source = 2
