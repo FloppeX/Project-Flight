@@ -1,4 +1,4 @@
-[gd_scene load_steps=13 format=3 uid="uid://b8x70a02a1b2c"]
+[gd_scene load_steps=18 format=3 uid="uid://b8x70a02a1b2c"]
 
 [ext_resource type="Script" uid="uid://dqly5yht3qjks" path="res://LandCarrier.gd" id="1_landcarrier"]
 [ext_resource type="Script" uid="uid://cwa0pxevthqb1" path="res://FlightDeck.gd" id="2_flightdeck"]
@@ -8,12 +8,21 @@
 [ext_resource type="Script" uid="uid://coy0ngchse8q6" path="res://WeaponSystem.gd" id="5_weapons"]
 [ext_resource type="PackedScene" uid="uid://7fxt8bm8o8ml" path="res://Models/Land carrier NEW.glb" id="6_carrier_model"]
 [ext_resource type="Script" uid="uid://1dc3wqfq3v2j" path="res://TreadPositionHelper.gd" id="7_tread_helper"]
+[ext_resource type="Script" uid="uid://byhupfh0501o1" path="res://LandCarrier/Catapult.gd" id="8_0rqhh"]
 [ext_resource type="PackedScene" uid="uid://jd7fjuhmfvd4" path="res://CarrierElevator.tscn" id="8_elevator"]
 [ext_resource type="Script" uid="uid://cwglf226m425r" path="res://CarrierCollisionSetup.gd" id="9_collision"]
 [ext_resource type="Script" uid="uid://b6ioeynvc7a1n" path="res://LandCarrierInput.gd" id="10_input"]
+[ext_resource type="PackedScene" uid="uid://c31lkp3a7sq3a" path="res://LandCarrier/arresting_cable.tscn" id="12_eyg35"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_main_carrier"]
 size = Vector3(2.51178, 3.94672, 4.92171)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_dnvtn"]
+
+[sub_resource type="BoxMesh" id="BoxMesh_q2nwn"]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_yy1ll"]
+albedo_color = Color(1, 0.566667, 0, 1)
 
 [node name="LandCarrier" type="CharacterBody3D"]
 script = ExtResource("1_landcarrier")
@@ -59,8 +68,35 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 8, 0)
 script = ExtResource("4_bridge")
 
 [node name="WeaponSystem" type="Node3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3, -24.3209)
 script = ExtResource("5_weapons")
+
+[node name="Shuttle" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -25)
+
+[node name="gear_connector" type="Area3D" parent="Shuttle"]
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Shuttle/gear_connector"]
+transform = Transform3D(1, 0, 0, 0, 0.5, 0, 0, 0, 0.5, 0, 0.25, 0.710272)
+shape = SubResource("BoxShape3D_dnvtn")
+
+[node name="gear_connector_mesh" type="MeshInstance3D" parent="Shuttle"]
+mesh = SubResource("BoxMesh_q2nwn")
+surface_material_override/0 = SubResource("StandardMaterial3D_yy1ll")
+
+[node name="Catapult" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -25)
+script = ExtResource("8_0rqhh")
+shuttle_path = NodePath("../Shuttle")
+shuttle_area_path = NodePath("../Shuttle/gear_connector/CollisionShape3D")
+end_z = -72.0
+start_marker_path = NodePath("catapult_start_marker")
+shuttle_speed = 40.0
+deck_reference_path = NodePath("catapult_start_marker")
+deck_clearance = 2.5
+
+[node name="catapult_start_marker" type="Node3D" parent="Catapult"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 6.60371, 6.87694)
 
 [node name="TreadPositionHelper" type="Node3D" parent="."]
 script = ExtResource("7_tread_helper")
@@ -81,3 +117,12 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 30.4572, 14.3332, 0)
 
 [node name="CarrierCam" type="Camera3D" parent="." groups=["carrier_cam"]]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 30.4572, 14.3332, 0)
+
+[node name="Arresting Cable 1" parent="." instance=ExtResource("12_eyg35")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 64)
+
+[node name="Arresting Cable 2" parent="." instance=ExtResource("12_eyg35")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 56)
+
+[node name="Arresting Cable 3" parent="." instance=ExtResource("12_eyg35")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 48)

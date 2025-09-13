@@ -15,8 +15,8 @@ hook_area = NodePath("HookArea")
 hook_body_collision = NodePath("BodyCollider")
 hook_mesh = NodePath("Tailhook")
 
-[node name="HookArea" type="Area3D" parent="."]
-collision_layer = 17
+[node name="HookArea" type="Area3D" parent="." groups=["tailhook"]]
+collision_layer = 33
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="HookArea"]
 transform = Transform3D(0.5, 0, 0, 0, 0.5, 0, 0, 0, 0.5, -0.00260258, -2.38419e-07, 0.00872469)

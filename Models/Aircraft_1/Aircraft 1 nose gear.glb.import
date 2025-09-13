@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://bumb5qqc3xt7"
-path="res://.godot/imported/Aircraft 1 right gear.glb-f42cfa73b2463e67ee590bdb150d94bf.scn"
+uid="uid://c0o23b5ljp2ux"
+path="res://.godot/imported/Aircraft 1 nose gear.glb-07e8de12543eb9d2a275f48f9ff4cc8f.scn"
 
 [deps]
 
-source_file="res://example/models/Aircraft_1/Aircraft 1 right gear.glb"
-dest_files=["res://.godot/imported/Aircraft 1 right gear.glb-f42cfa73b2463e67ee590bdb150d94bf.scn"]
+source_file="res://Models/Aircraft_1/Aircraft 1 nose gear.glb"
+dest_files=["res://.godot/imported/Aircraft 1 nose gear.glb-07e8de12543eb9d2a275f48f9ff4cc8f.scn"]
 
 [params]
 

@@ -1,0 +1,7 @@
+[gd_scene load_steps=2 format=3 uid="uid://dqsrp1dooynfu"]
+
+[ext_resource type="PackedScene" uid="uid://di4mmbdu6qiv1" path="res://Main_Scene.tscn" id="1"]
+
+[node name="DesertScenario" type="Node3D"]
+
+[node name="MainScenario" parent="." instance=ExtResource("1")]

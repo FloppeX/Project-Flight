@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://dnok58llfxfur"
-path="res://.godot/imported/Aircraft 1.glb-0e79e2af7675470e9f45d8b5c42fe311.scn"
+uid="uid://bumb5qqc3xt7"
+path="res://.godot/imported/Aircraft 1 right gear.glb-25ba3fcdce26ce4aca428e6a14b8f99c.scn"
 
 [deps]
 
-source_file="res://example/models/Aircraft_1/Aircraft 1.glb"
-dest_files=["res://.godot/imported/Aircraft 1.glb-0e79e2af7675470e9f45d8b5c42fe311.scn"]
+source_file="res://Models/Aircraft_1/Aircraft 1 right gear.glb"
+dest_files=["res://.godot/imported/Aircraft 1 right gear.glb-25ba3fcdce26ce4aca428e6a14b8f99c.scn"]
 
 [params]
 
@@ -21,8 +21,8 @@ nodes/import_as_skeleton_bones=false
 nodes/use_node_type_suffixes=true
 meshes/ensure_tangents=true
 meshes/generate_lods=true
-meshes/create_shadow_meshes=false
-meshes/light_baking=0
+meshes/create_shadow_meshes=true
+meshes/light_baking=1
 meshes/lightmap_texel_size=0.2
 meshes/force_disable_compression=false
 skins/use_named_skins=true

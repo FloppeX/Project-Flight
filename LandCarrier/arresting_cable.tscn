@@ -1,0 +1,34 @@
+[gd_scene load_steps=3 format=3 uid="uid://c31lkp3a7sq3a"]
+
+[ext_resource type="Script" uid="uid://c8mht6ujj024x" path="res://LandCarrier/ArrestingCable.gd" id="1_1e4gy"]
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_eyg35"]
+size = Vector3(1, 1, 1.02039)
+
+[node name="Arresting Cable 1" type="Node3D"]
+script = ExtResource("1_1e4gy")
+cable_area_path = NodePath("cable_area")
+left_anchor_path = NodePath("left_cable_anchor")
+right_anchor_path = NodePath("right_cable_anchor")
+max_tension = 20000.0
+linear_k = 6000.0
+linear_c = 60000.0
+max_pay_out = 20.0
+auto_release_speed = 0.0
+lateral_k = 0.0
+lateral_c = 0.0
+force_smoothing = 2.0
+
+[node name="cable_area" type="Area3D" parent="."]
+transform = Transform3D(4982.27, 0, 0, 0, 55.0841, 0, 0, 0, 71.7317, 0, 0, -1.58627)
+collision_layer = 17
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="cable_area"]
+transform = Transform3D(0.01, 0, 0, 0, 0.01, 0, 0, 0, 0.01, 0, 0, 0.0101929)
+shape = SubResource("BoxShape3D_eyg35")
+
+[node name="left_cable_anchor" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -24.8, 0.2, 0)
+
+[node name="right_cable_anchor" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 24.8, 0.2, 0)

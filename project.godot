@@ -11,7 +11,7 @@ config_version=5
 [application]
 
 config/name="Project Flight"
-run/main_scene="res://example/ExampleList.tscn"
+run/main_scene="res://desert_scenario.tscn"
 config/features=PackedStringArray("4.4")
 config/icon="res://icon.png"
 
@@ -27,6 +27,10 @@ window/stretch/aspect="keep_height"
 [editor_plugins]
 
 enabled=PackedStringArray("res://addons/simplified_flightsim/plugin.cfg", "res://addons/terrain_3d/plugin.cfg")
+
+[global_group]
+
+tailhook=""
 
 [gui]
 
@@ -141,10 +145,16 @@ toggle_zoom={
 "events": [Object(InputEventJoypadButton,"resource_local_to_scene":false,"resource_name":"","device":-1,"button_index":8,"pressure":0.0,"pressed":false,"script":null)
 ]
 }
+catapult_align={
+"deadzone": 0.2,
+"events": [Object(InputEventJoypadButton,"resource_local_to_scene":false,"resource_name":"","device":-1,"button_index":6,"pressure":0.0,"pressed":false,"script":null)
+]
+}
 
 [layer_names]
 
 3d_physics/layer_5="Tailhook"
+3d_physics/layer_6="Cable"
 3d_physics/layer_10="Terrain"
 
 [physics]
@@ -171,7 +181,7 @@ reflections/ssr/enabled=false
 textures/default_filters/texture_filter=0
 gi/use_sdfgi=false
 volumetric_fog/enabled=false
-lights_and_shadows/directional_shadow/max_distance=1000.0
+lights_and_shadows/directional_shadow/max_distance=800.0
 lights_and_shadows/shadow_atlas/size=2048
 quality/3d/render_scale=0.9
 lights_and_shadows/directional_shadow/stabilize=true

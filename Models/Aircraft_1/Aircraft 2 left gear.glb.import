@@ -4,12 +4,12 @@ importer="scene"
 importer_version=1
 type="PackedScene"
 uid="uid://cjjut6tj4mout"
-path="res://.godot/imported/Aircraft 2 left gear.glb-9550dc43d6b5b9065d58cb7a3f77b2c0.scn"
+path="res://.godot/imported/Aircraft 2 left gear.glb-8d0e3272afba38c161fc7eae170b0697.scn"
 
 [deps]
 
-source_file="res://example/models/Aircraft_1/Aircraft 2 left gear.glb"
-dest_files=["res://.godot/imported/Aircraft 2 left gear.glb-9550dc43d6b5b9065d58cb7a3f77b2c0.scn"]
+source_file="res://Models/Aircraft_1/Aircraft 2 left gear.glb"
+dest_files=["res://.godot/imported/Aircraft 2 left gear.glb-8d0e3272afba38c161fc7eae170b0697.scn"]
 
 [params]
 
