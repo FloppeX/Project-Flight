@@ -14,14 +14,21 @@ signal destroyed(enemy)
 
 var current_health: float
 var detected_enemies: Array = []
-var original_material: StandardMaterial3D
-var blink_timer: float = 0.0
-var is_blinking: bool = false
+#var original_material: StandardMaterial3D  # Disabled for performance
+#var blink_timer: float = 0.0  # Disabled for performance
+#var is_blinking: bool = false  # Disabled for performance
 var turret_node: Node3D
 var fire_timer: float = 0.0
 var current_target: Node3D
+var detection_timer: float = 0.0
+var target_search_timer: float = 0.0
 
 func _ready():
+	# Temporarily disabled for debugging a hard crash.
+	# This will prevent any enemy logic from running.
+	queue_free()
+	return
+
 	# Initialize health
 	current_health = max_health
 	
@@ -29,10 +36,10 @@ func _ready():
 	add_to_group("enemies")
 	add_to_group("team_" + str(team))
 	
-	# Store original material for blinking
-	var mesh_instance = get_node("MeshInstance3D")
-	if mesh_instance and mesh_instance.material_override:
-		original_material = mesh_instance.material_override.duplicate()
+	# Store original material for blinking (disabled for performance)
+	#var mesh_instance = get_node("MeshInstance3D")
+	#if mesh_instance and mesh_instance.material_override:
+	#	original_material = mesh_instance.material_override.duplicate()
 	
 	# Create turret
 	create_turret()
@@ -55,9 +62,15 @@ func _physics_process(delta):
 		linear_damp = 2.0
 		angular_damp = 2.0
 	
-	# Detection and blinking
-	detect_enemies()
-	update_blinking(delta)
+	# Update timers
+	detection_timer += delta
+	target_search_timer += delta
+	
+	# Detection (once per second)
+	if detection_timer >= 1.0:
+		detect_enemies()
+		detection_timer = 0.0
+	#update_blinking(delta)  # Disabled for performance
 	
 	# Turret combat
 	update_turret(delta)
@@ -112,38 +125,17 @@ func detect_enemies():
 			if distance <= detection_range:
 				enemies_in_range.append(enemy)
 	
-	# Update detection state
-	if enemies_in_range.size() > 0 and not is_blinking:
-		is_blinking = true
-		print("Enemy detected! Distance: ", global_position.distance_to(enemies_in_range[0].global_position))
-	elif enemies_in_range.size() == 0 and is_blinking:
-		is_blinking = false
-		print("No enemies in range")
+	# Update detection state (blinking and debug prints disabled for performance)
+	#if enemies_in_range.size() > 0:
+	#	print("Enemy detected! Distance: ", global_position.distance_to(enemies_in_range[0].global_position))
+	#else:
+	#	print("No enemies in range")
 	
 	detected_enemies = enemies_in_range
 
 func update_blinking(delta):
-	if not is_blinking:
-		# Reset to original color
-		var mesh_instance = get_node("MeshInstance3D")
-		if mesh_instance and original_material:
-			mesh_instance.material_override = original_material
-		return
-	
-	# Blink between red and yellow when detecting enemies
-	blink_timer += delta
-	var mesh_instance = get_node("MeshInstance3D")
-	if mesh_instance and original_material:
-		var blink_material = original_material.duplicate()
-		
-		if int(blink_timer * 4) % 2 == 0:  # Blink 4 times per second
-			blink_material.albedo_color = Color.RED
-			blink_material.emission = Color.RED
-		else:
-			blink_material.albedo_color = Color.YELLOW
-			blink_material.emission = Color.YELLOW
-		
-		mesh_instance.material_override = blink_material
+	# Blinking disabled for performance
+	pass
 
 func get_team() -> int:
 	return team
@@ -184,21 +176,20 @@ func update_turret(delta):
 	# Update fire timer
 	fire_timer += delta
 	
-	# Find best target within turret range
-	var best_target = find_best_target()
-	
-	if best_target:
+	# Find best target within turret range (once per second)
+	if target_search_timer >= 1.0:
+		var best_target = find_best_target()
 		current_target = best_target
-		
+		target_search_timer = 0.0
+	
+	if current_target and is_instance_valid(current_target):
 		# Track target
-		track_target(best_target)
+		track_target(current_target)
 		
 		# Fire if ready and in range
 		if fire_timer >= (1.0 / fire_rate):
-			fire_at_target(best_target)
+			fire_at_target(current_target)
 			fire_timer = 0.0
-	else:
-		current_target = null
 
 func find_best_target() -> Node3D:
 	var best_target: Node3D = null
@@ -241,6 +232,9 @@ func track_target(target: Node3D):
 		turret_node.look_at(look_at_pos, Vector3.UP)
 
 func calculate_lead_position(target: Node3D) -> Vector3:
+	if not target:
+		return Vector3.ZERO
+
 	# Get target position and velocity
 	var target_pos = target.global_position
 	var target_velocity = Vector3.ZERO
@@ -248,17 +242,30 @@ func calculate_lead_position(target: Node3D) -> Vector3:
 	# Try to get target velocity
 	if target.has_method("get_linear_velocity"):
 		target_velocity = target.get_linear_velocity()
-	elif target.has_method("linear_velocity"):
+	elif "linear_velocity" in target:
 		target_velocity = target.linear_velocity
 	
-	# Calculate time to intercept
-	var distance = global_position.distance_to(target_pos)
-	var time_to_target = distance / bullet_speed
+	# Get our position (turret barrel tip is more accurate)
+	var barrel_tip = turret_node.global_position + turret_node.global_transform.basis.z * 1.0
 	
-	# Predict target position
-	var lead_position = target_pos + (target_velocity * time_to_target)
+	# Get gravity from project settings
+	var gravity = ProjectSettings.get_setting("physics/3d/default_gravity_vector") * ProjectSettings.get_setting("physics/3d/default_gravity")
+
+	# Iteratively calculate the lead position (3 iterations is a good balance)
+	var time_to_target = 0.0
+	var predicted_pos = target_pos
 	
-	return lead_position
+	for i in range(3):
+		var distance = barrel_tip.distance_to(predicted_pos)
+		time_to_target = distance / bullet_speed if bullet_speed > 0 else 0
+		predicted_pos = target_pos + (target_velocity * time_to_target)
+
+	# Compensate for bullet drop. The formula for drop is 0.5 * g * t^2.
+	# We must aim *higher* to counteract the drop, so we subtract the gravity vector's effect.
+	var bullet_drop_offset = 0.5 * gravity * time_to_target * time_to_target
+	var final_aim_position = predicted_pos - bullet_drop_offset
+	
+	return final_aim_position
 
 func fire_at_target(target: Node3D):
 	if not bullet_scene or not turret_node:

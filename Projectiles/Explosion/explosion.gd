@@ -16,7 +16,6 @@ var smoke_particles: GPUParticles3D
 var sfx_explosion: AudioStreamPlayer3D
 
 func _ready():
-	print("=== EXPLOSION CREATED ===")
 	# Only create the effects we want - NO SPHERES
 	create_debris_particles()
 	create_smoke_particles()

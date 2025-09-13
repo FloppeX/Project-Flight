@@ -46,3 +46,4 @@ func _ready():
 	# Rotate mesh to align with wheel orientation
 	mesh_instance.rotation_degrees = Vector3(0, 0, 90)
 
+

@@ -11,7 +11,15 @@ signal destroyed
 @export var max_health: float = 100.0
 @export var explosion_scene: PackedScene  # Explosion effect when aircraft is destroyed
 @export var team: int = 1
-var current_health: float
+
+var _current_health: float
+var current_health: float:
+	get:
+		return _current_health
+	set(value):
+		if _current_health != value:
+			_current_health = value
+
 
 @export var MaxLandingForce: float = 3.0
 @export var Gravity: float = 1.0 # Normalized to Earth average at sea level
@@ -56,6 +64,9 @@ var local_load_factor = 1.0
 
 func _ready():
 	await get_tree().process_frame
+	
+	# Force-set health to maximum at startup to override any scene file issues
+	_current_health = max_health
 	
 	# Initialize health system
 	current_health = max_health
@@ -134,6 +145,10 @@ func _process(delta):
 # ----------------------------------------------------------------------------
 
 func _on_Aircraft_body_shape_entered(body_rid, body, body_shape_index, local_shape_index):
+	# If the colliding body is a projectile, let the projectile's script handle the damage.
+	if body is ProjectileNew:
+		return
+		
 	var collider_shape = shape_owner_get_owner(local_shape_index)
 	var impact_force = linear_velocity.length()
 	
@@ -378,40 +393,55 @@ func calculate_ccip_impact_point() -> Dictionary:
 		"time_to_impact": 0.0
 	}
 	
-	# Get bomb drop parameters
-	var drop_force: float = 0.0  # Default bomb drop force
-	var gravity = ProjectSettings.get_setting("physics/3d/default_gravity", 9.8)
-	
 	# Get bomb hardpoints (first one with bombs)
 	var bomb_hardpoint = null
+	var bomb_projectile_scene = null
 	var control_weapons = find_child("ControlWeapons")
 	if control_weapons and control_weapons.hardpoints:
 		for hardpoint in control_weapons.hardpoints:
 			if (hardpoint.weapon_instance and 
 				hardpoint.weapon_instance.weapon_name == "Bomb"):
 				bomb_hardpoint = hardpoint
-				if "drop_force" in hardpoint.weapon_instance:
-					drop_force = float(hardpoint.weapon_instance.drop_force)
+				if "bomb_projectile_scene" in hardpoint.weapon_instance:
+					bomb_projectile_scene = hardpoint.weapon_instance.bomb_projectile_scene
 				break
 	
-	if not bomb_hardpoint:
+	if not bomb_hardpoint or not bomb_projectile_scene:
 		return result
-	
+		
+	# Get bomb drop parameters from the weapon
+	var drop_force: float = 0.0
+	if "drop_force" in bomb_hardpoint.weapon_instance:
+		drop_force = float(bomb_hardpoint.weapon_instance.drop_force)
+
 	# Start from bomb hardpoint position
 	var start_pos = bomb_hardpoint.global_position
 	var aircraft_velocity = linear_velocity
-	var initial_velocity = Vector3.DOWN * drop_force + aircraft_velocity
+	# Include angular velocity contribution: v = ω × r
+	var r_offset: Vector3 = start_pos - global_position
+	var angular_vel_component: Vector3 = angular_velocity.cross(r_offset)
+	var initial_velocity = Vector3.DOWN * drop_force + aircraft_velocity + angular_vel_component
 	
-	# Get bomb physics parameters - match exact values from bomb_new.tscn
-	var linear_damp = 0.01  # From bomb_new.tscn
-	var gravity_scale = 1.0  # From bomb_new.tscn
-	var bomb_mass = 50.0  # From bomb_new.tscn
+	# Get bomb physics properties dynamically from the projectile scene
+	var bomb_instance = bomb_projectile_scene.instantiate()
+	var linear_damp := 0.0
+	if "linear_damp" in bomb_instance:
+		linear_damp = float(bomb_instance.linear_damp)
+		# In Godot, -1 means inherit from project default; resolve it to the actual value
+		if linear_damp < 0.0:
+			linear_damp = float(ProjectSettings.get_setting("physics/3d/default_linear_damp", 0.0))
+	var gravity_scale := 1.0
+	if "gravity_scale" in bomb_instance:
+		gravity_scale = float(bomb_instance.gravity_scale)
+	bomb_instance.queue_free() # Clean up the temporary instance
 	
-	# Aircraft for comparison: mass = 500.0, no linear_damp set (defaults to 0.0)
-	# Bomb: mass = 50.0, linear_damp = 0.01, gravity_scale = 1.0
+	# Get world gravity as a vector (direction * magnitude)
+	var gravity_dir: Vector3 = ProjectSettings.get_setting("physics/3d/default_gravity_vector", Vector3(0, -1, 0))
+	var gravity_mag: float = float(ProjectSettings.get_setting("physics/3d/default_gravity", 9.8))
+	var gravity_vec: Vector3 = gravity_dir * gravity_mag
 	
 	# Ballistic trajectory calculation with drag and proper terrain detection
-	var time_step = 0.05  # Smaller timestep for better accuracy with drag
+	var time_step = 0.02  # Smaller timestep for better accuracy with fast motion/turning
 	var max_time = 30.0  # Maximum 30 seconds trajectory
 	var current_pos = start_pos
 	var current_vel = initial_velocity
@@ -421,12 +451,12 @@ func calculate_ccip_impact_point() -> Dictionary:
 	
 	for step in int(max_time / time_step):
 		# Apply physics before moving
-		# Apply gravity to velocity (using gravity scale like the actual bomb)
-		current_vel.y -= gravity * gravity_scale * time_step
+		# Apply gravity (vector-based) with gravity scale
+		current_vel += gravity_vec * gravity_scale * time_step
 		
-		# Apply drag (linear damping) - Godot applies this as: velocity *= (1.0 - damp * delta)
-		var drag_factor = max(0.0, 1.0 - (linear_damp * time_step))
-		current_vel *= drag_factor
+		# Apply linear damping to match Godot: v /= (1 + damp * dt)
+		if linear_damp > 0.0:
+			current_vel /= (1.0 + linear_damp * time_step)
 		
 		# Calculate next position
 		var next_pos = current_pos + current_vel * time_step
@@ -434,7 +464,10 @@ func calculate_ccip_impact_point() -> Dictionary:
 		# Check for terrain collision along the path
 		var query = PhysicsRayQueryParameters3D.create(current_pos, next_pos)
 		query.exclude = [self]  # Don't hit the aircraft
-		query.collision_mask = 0xFFFFFFFF  # Check all collision layers for terrain
+		
+		# Use a dedicated physics layer (e.g., layer 10) for terrain.
+		# Also check layer 1 for compatibility.
+		query.collision_mask = (1 << 0) | (1 << 9) # Bitmask for layer 1 AND layer 10
 		
 		var hit_result = space_state.intersect_ray(query)
 		if hit_result:
@@ -451,4 +484,77 @@ func calculate_ccip_impact_point() -> Dictionary:
 		
 		current_pos = next_pos
 	
+	return result
+
+# Fast CCIP on flat gravity direction using closed-form solution
+func calculate_ccip_impact_point_fast() -> Dictionary:
+	var result := {
+		"has_impact": false,
+		"impact_position": Vector3.ZERO,
+		"time_to_impact": 0.0
+	}
+
+	# Find a bomb hardpoint and drop parameters
+	var bomb_hardpoint: Node = null
+	var drop_force: float = 0.0
+	var control_weapons = find_child("ControlWeapons")
+	if control_weapons and control_weapons.hardpoints:
+		for hardpoint in control_weapons.hardpoints:
+			if (hardpoint.weapon_instance and hardpoint.weapon_instance.weapon_name == "Bomb"):
+				bomb_hardpoint = hardpoint
+				if "drop_force" in hardpoint.weapon_instance:
+					drop_force = float(hardpoint.weapon_instance.drop_force)
+				break
+
+	if not bomb_hardpoint:
+		return result
+
+	var start_pos: Vector3 = bomb_hardpoint.global_position
+
+	# Gravity vector and magnitude
+	var gravity_dir: Vector3 = ProjectSettings.get_setting("physics/3d/default_gravity_vector", Vector3(0, -1, 0))
+	var gravity_mag: float = float(ProjectSettings.get_setting("physics/3d/default_gravity", 9.8))
+	var gravity_vec: Vector3 = gravity_dir * gravity_mag
+
+	# Define up axis opposite gravity for scalar projection
+	var up_axis: Vector3 = (-gravity_vec).normalized()
+
+	# Measure initial height above terrain along up_axis using a ray straight down
+	var space_state = get_world_3d().direct_space_state
+	var down_query = PhysicsRayQueryParameters3D.create(start_pos, start_pos + gravity_vec.normalized() * 5000.0)
+	# Check default and terrain layers (1 and 10)
+	down_query.collision_mask = (1 << 0) | (1 << 9)
+	var down_hit = space_state.intersect_ray(down_query)
+	if not down_hit:
+		return result
+	var ground_pos: Vector3 = down_hit.position
+	var h0: float = (start_pos - ground_pos).dot(up_axis)
+	if h0 <= 0.0:
+		return result
+
+	# Initial velocity = aircraft linear + angular contribution + immediate drop impulse
+	var r_offset: Vector3 = start_pos - global_position
+	var v0: Vector3 = linear_velocity + angular_velocity.cross(r_offset) + Vector3.DOWN * drop_force
+
+	# Vertical component along up_axis and solve: -0.5*g*t^2 + Vn*t + h0 = 0
+	var Vn0: float = v0.dot(up_axis)
+	var g: float = gravity_mag
+	var D: float = Vn0 * Vn0 + 2.0 * g * h0
+	if D < 0.0:
+		return result
+	var t: float = (Vn0 + sqrt(D)) / g
+	if t <= 0.0:
+		return result
+
+	# Predict impact and refine with a short ray toward gravity at that time
+	var predicted: Vector3 = start_pos + v0 * t + 0.5 * gravity_vec * t * t
+	var refine_query = PhysicsRayQueryParameters3D.create(predicted - up_axis * 50.0, predicted + gravity_vec.normalized() * 100.0)
+	refine_query.collision_mask = (1 << 0) | (1 << 9)
+	var refine_hit = space_state.intersect_ray(refine_query)
+	if refine_hit:
+		predicted = refine_hit.position
+
+	result.has_impact = true
+	result.impact_position = predicted
+	result.time_to_impact = t
 	return result

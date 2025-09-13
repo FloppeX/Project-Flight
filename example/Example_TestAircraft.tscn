@@ -1,8 +1,9 @@
-[gd_scene load_steps=8 format=3 uid="uid://test_aircraft_scene"]
+[gd_scene load_steps=8 format=3]
 
-[ext_resource type="PackedScene" uid="uid://complete_fighter_jet" path="res://Aircraft/CompleteFighterJet.tscn" id="1"]
+[ext_resource type="PackedScene" uid="uid://b5ni1vhgcw1xc" path="res://CompleteFighterJet.tscn" id="1"]
 [ext_resource type="PackedScene" uid="uid://d1mrl7eofpiop" path="res://Environment/runway.tscn" id="2"]
-[ext_resource type="Script" path="res://example/Example1_Simple.gd" id="3"]
+[ext_resource type="Script" uid="uid://dhif0k7fphvot" path="res://example/Example1_Simple.gd" id="3"]
+
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_1"]
 sky_horizon_color = Color(0.64625, 0.65575, 0.67075, 1)

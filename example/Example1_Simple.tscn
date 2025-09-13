@@ -1,7 +1,7 @@
 [gd_scene load_steps=32 format=3 uid="uid://di4mmbdu6qiv1"]
 
 [ext_resource type="Script" uid="uid://dhif0k7fphvot" path="res://example/Example1_Simple.gd" id="1"]
-[ext_resource type="PackedScene" uid="uid://b5ni1vhgcw1xc" path="res://Aircraft/CompleteFighterJet.tscn" id="3_13cwd"]
+[ext_resource type="PackedScene" uid="uid://b5ni1vhgcw1xc" path="res://CompleteFighterJet.tscn" id="3_13cwd"]
 [ext_resource type="PackedScene" uid="uid://dqkq5j03narwp" path="res://example/models/Land Carrier/Land carrier 1 new.glb" id="3_cdcjq"]
 [ext_resource type="PackedScene" uid="uid://dsel16gi76dnm" path="res://example/ui/UIEnergyContainer/UIFuelLevel.tscn" id="5"]
 [ext_resource type="PackedScene" uid="uid://bu2hixfhu8ndm" path="res://example/ui/UIEnginePower/UIEnginePower.tscn" id="10"]
@@ -40,8 +40,8 @@ _shader_parameters = {
 &"enable_macro_variation": true,
 &"enable_projection": true,
 &"flat_terrain_normals": true,
-&"macro_variation1": Color(1, 0.9, 0.8, 1),
-&"macro_variation2": Color(1, 0.85, 0.7, 1),
+&"macro_variation1": Color(0.858441, 0.752447, 0.306167, 1),
+&"macro_variation2": Color(0.64361, 0.397951, 0.1679, 1),
 &"macro_variation_slope": 0.333,
 &"mipmap_bias": 1.0,
 &"noise1_angle": 0.0,
@@ -127,7 +127,7 @@ environment = SubResource("Environment_sg2lb")
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4835.63, 61.5183, 4771.57)
 
 [node name="CompleteFighterJet" parent="." instance=ExtResource("3_13cwd")]
-transform = Transform3D(0.848048, 0.00513425, 0.529893, -0.0327941, 0.998545, 0.042809, -0.528903, -0.0536816, 0.846983, 5187.06, 62.3269, 5087.54)
+transform = Transform3D(0.999122, 0.0338692, -0.0246349, -0.0327941, 0.998545, 0.042809, 0.0260478, -0.0419637, 0.998779, 4837.03, 63.5235, 4828.87)
 
 [node name="Land carrier 1 new" parent="." instance=ExtResource("3_cdcjq")]
 transform = Transform3D(0.82095, 0, 0.571, 0, 1, 0, -0.571, 0, 0.82095, 5179.59, 60.2136, 5045.42)
@@ -142,14 +142,19 @@ shape = SubResource("BoxShape3D_1r38o")
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
 transform = Transform3D(-1, 5.01437e-08, -7.16125e-08, 0, 0.819152, 0.573577, 8.74228e-08, 0.573577, -0.819152, 0, 124.741, 0)
 light_energy = 2.0
+light_bake_mode = 0
 shadow_enabled = true
+shadow_bias = 0.08
 shadow_blur = 0.0
-directional_shadow_max_distance = 200.0
+directional_shadow_mode = 0
+directional_shadow_max_distance = 1000.0
+sky_mode = 1
 
 [node name="Landscape" type="Terrain3D" parent="."]
 data_directory = "res://Terrain3d_data"
 material = SubResource("Terrain3DMaterial_6v5mh")
 assets = SubResource("Terrain3DAssets_1r38o")
+collision_layer = 512
 mesh_lods = 3
 mesh_size = 50
 vertex_spacing = 10.0

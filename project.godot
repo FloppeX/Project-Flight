@@ -136,6 +136,16 @@ change_weapon={
 , Object(InputEventJoypadButton,"resource_local_to_scene":false,"resource_name":"","device":-1,"button_index":2,"pressure":0.0,"pressed":false,"script":null)
 ]
 }
+toggle_zoom={
+"deadzone": 0.2,
+"events": [Object(InputEventJoypadButton,"resource_local_to_scene":false,"resource_name":"","device":-1,"button_index":8,"pressure":0.0,"pressed":false,"script":null)
+]
+}
+
+[layer_names]
+
+3d_physics/layer_5="Tailhook"
+3d_physics/layer_10="Terrain"
 
 [physics]
 
@@ -144,18 +154,25 @@ common/enable_pause_aware_picking=true
 
 [rendering]
 
+textures/canvas_textures/default_texture_filter=0
 textures/canvas_textures/default_texture_repeat=1
+renderer/rendering_method="mobile"
 lights_and_shadows/directional_shadow/soft_shadow_filter_quality=0
 lights_and_shadows/positional_shadow/soft_shadow_filter_quality=0
 reflections/sky_reflections/texture_array_reflections=false
 shading/overrides/force_vertex_shading=true
+shading/overrides/force_lambert_over_burley=true
 environment/ssao/blur_passes=0
-#LowPolyAestheticSettings#Forceflat/LambertshadinginsteadofsmoothBurleyshading/overrides/force_lambert_over_burley=true
-#Hardshadowsforlowpolylooklights_and_shadows/directional_shadow/enabled=true
-#Disableadvancedlightingeffectsenvironment/ssao/quality=0
-environment/ssr/roughness_quality=0
-#Disableanti-aliasingforcrispedgesanti_aliasing/quality/msaa_3d=0
-#Texturesettingsforcrisppixelstextures/canvas_textures/default_texture_filter=0
-#Disabletexturecompressionforsharpvisualsvram_compression/import_etc=false
-vram_compression/import_etc2=false
-#Lowpolyenvironmentenvironment/defaults/default_environment="res://low_poly_env.tres"
+environment/defaults/default_environment="res://low_poly_env.tres"
+environment/ssao/enabled=false
+environment/ssil/enabled=false
+reflections/ssr/roughness_quality=0
+reflections/ssr/enabled=false
+textures/default_filters/texture_filter=0
+gi/use_sdfgi=false
+volumetric_fog/enabled=false
+lights_and_shadows/directional_shadow/max_distance=1000.0
+lights_and_shadows/shadow_atlas/size=2048
+quality/3d/render_scale=0.9
+lights_and_shadows/directional_shadow/stabilize=true
+lights_and_shadows/directional_shadow/blend_splits=false

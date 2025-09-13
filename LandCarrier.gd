@@ -27,7 +27,7 @@ func _ready():
 	find_treads()
 	
 	# Set up collision
-	setup_collision()
+	#setup_collision()
 	
 	# Initialize elevator
 	elevator = find_child("Elevator")
@@ -60,12 +60,12 @@ func find_treads():
 
 func setup_collision():
 	"""Set up collision shape for the carrier"""
-	var collision_shape = CollisionShape3D.new()
-	var box_shape = BoxShape3D.new()
-	box_shape.size = Vector3(30, 8, 60)  # Carrier dimensions
-	collision_shape.shape = box_shape
-	collision_shape.position = Vector3(0, 0, 0)
-	add_child(collision_shape)
+	#var collision_shape = CollisionShape3D.new()
+	#var box_shape = BoxShape3D.new()
+	#box_shape.size = Vector3(30, 8, 60)  # Carrier dimensions
+	#collision_shape.shape = box_shape
+	#collision_shape.position = Vector3(0, 0, 0)
+	#add_child(collision_shape)
 
 func _physics_process(delta):
 	# Update ground detection

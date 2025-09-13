@@ -1,6 +1,6 @@
 [gd_scene load_steps=3 format=3 uid="uid://b4xm8v23opqrs"]
 
-[ext_resource type="Script" uid="uid://bvn4x7m8d9qwe" path="res://HUD/instrument_panel.gd" id="1_panel"]
+[ext_resource type="Script" uid="uid://frnf1mg4wvlr" path="res://HUD/instrument_panel.gd" id="1_panel"]
 
 [sub_resource type="QuadMesh" id="QuadMesh_panel"]
 
@@ -18,12 +18,16 @@ layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
 
 [node name="Background" type="ColorRect" parent="SubViewport/InstrumentDisplay"]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
 color = Color(0.05, 0.05, 0.05, 1)
 
 [node name="AltitudePanel" type="Panel" parent="SubViewport/InstrumentDisplay"]
@@ -35,12 +39,15 @@ offset_left = -120.0
 offset_top = 10.0
 offset_right = -10.0
 offset_bottom = 60.0
+grow_horizontal = 0
 
 [node name="AltitudeLabel" type="Label" parent="SubViewport/InstrumentDisplay/AltitudePanel"]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
 text = "ALT
 0 m"
 horizontal_alignment = 1
@@ -48,7 +55,6 @@ vertical_alignment = 1
 
 [node name="SpeedPanel" type="Panel" parent="SubViewport/InstrumentDisplay"]
 layout_mode = 1
-anchors_preset = 0
 offset_left = 10.0
 offset_top = 10.0
 offset_right = 120.0
@@ -59,6 +65,8 @@ layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
 text = "SPD
 0 m/s"
 horizontal_alignment = 1
@@ -73,12 +81,15 @@ offset_left = 10.0
 offset_top = -60.0
 offset_right = 120.0
 offset_bottom = -10.0
+grow_vertical = 0
 
 [node name="FuelLabel" type="Label" parent="SubViewport/InstrumentDisplay/FuelPanel"]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
 text = "FUEL
 100%"
 horizontal_alignment = 1
@@ -95,6 +106,8 @@ offset_left = -40.0
 offset_top = -8.0
 offset_right = 40.0
 offset_bottom = -4.0
+grow_horizontal = 2
+grow_vertical = 0
 value = 100.0
 show_percentage = false
 
@@ -109,12 +122,16 @@ offset_left = -120.0
 offset_top = -60.0
 offset_right = -10.0
 offset_bottom = -10.0
+grow_horizontal = 0
+grow_vertical = 0
 
 [node name="GearLabel" type="Label" parent="SubViewport/InstrumentDisplay/GearPanel"]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
 text = "GEAR
 UP"
 horizontal_alignment = 1
@@ -131,12 +148,16 @@ offset_left = -60.0
 offset_top = -30.0
 offset_right = 60.0
 offset_bottom = 20.0
+grow_horizontal = 2
+grow_vertical = 2
 
 [node name="EngineLabel" type="Label" parent="SubViewport/InstrumentDisplay/EnginePanel"]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
 text = "ENG
 OFF"
 horizontal_alignment = 1

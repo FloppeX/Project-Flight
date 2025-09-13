@@ -7,12 +7,10 @@
 
 [node name="BombNew" instance=ExtResource("1_gufam")]
 transform = Transform3D(1.91069e-15, 4.37114e-08, -1, 1, -4.37114e-08, 0, -4.37114e-08, -1, -4.37114e-08, 0, 0, 0)
-mass = 50.0
-gravity_scale = 1.0
-linear_damp = 0.01
-angular_damp = 0.1
+mass = 200.0
 contact_monitor = true
 max_contacts_reported = 10
+angular_damp = 0.1
 script = ExtResource("4_bomb_script")
 arming_delay = 1.0
 armed = false

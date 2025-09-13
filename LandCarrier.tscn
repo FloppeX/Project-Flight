@@ -1,26 +1,21 @@
-[gd_scene load_steps=14 format=3 uid="uid://b8x70a02a1b2c"]
+[gd_scene load_steps=13 format=3 uid="uid://b8x70a02a1b2c"]
 
 [ext_resource type="Script" uid="uid://dqly5yht3qjks" path="res://LandCarrier.gd" id="1_landcarrier"]
-[ext_resource type="Script" uid="uid://cjswoj8kxbedy" path="res://FlightDeck.gd" id="2_flightdeck"]
-[ext_resource type="Script" uid="uid://c03sv4xswoau7" path="res://Hangar.gd" id="3_hangar"]
+[ext_resource type="Script" uid="uid://cwa0pxevthqb1" path="res://FlightDeck.gd" id="2_flightdeck"]
+[ext_resource type="Script" uid="uid://dnlss5c5cuec7" path="res://Hangar.gd" id="3_hangar"]
 [ext_resource type="PackedScene" uid="uid://carriertread" path="res://CarrierTread.tscn" id="3_tread"]
-[ext_resource type="Script" uid="uid://bgejjdlx1gxrn" path="res://Bridge.gd" id="4_bridge"]
-[ext_resource type="Script" uid="uid://dl1xa4lj3x2s8" path="res://WeaponSystem.gd" id="5_weapons"]
+[ext_resource type="Script" uid="uid://crvpw25guy2us" path="res://Bridge.gd" id="4_bridge"]
+[ext_resource type="Script" uid="uid://coy0ngchse8q6" path="res://WeaponSystem.gd" id="5_weapons"]
 [ext_resource type="PackedScene" uid="uid://7fxt8bm8o8ml" path="res://Models/Land carrier NEW.glb" id="6_carrier_model"]
-[ext_resource type="Script" uid="uid://kq823atrotdi" path="res://TreadPositionHelper.gd" id="7_tread_helper"]
+[ext_resource type="Script" uid="uid://1dc3wqfq3v2j" path="res://TreadPositionHelper.gd" id="7_tread_helper"]
 [ext_resource type="PackedScene" uid="uid://jd7fjuhmfvd4" path="res://CarrierElevator.tscn" id="8_elevator"]
-[ext_resource type="Script" uid="uid://dp1lg7ixkhtti" path="res://CarrierCollisionSetup.gd" id="9_collision"]
+[ext_resource type="Script" uid="uid://cwglf226m425r" path="res://CarrierCollisionSetup.gd" id="9_collision"]
 [ext_resource type="Script" uid="uid://b6ioeynvc7a1n" path="res://LandCarrierInput.gd" id="10_input"]
-
-[sub_resource type="PhysicsMaterial" id="PhysicsMaterial_carrier"]
-friction = 0.8
-bounce = 0.0
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_main_carrier"]
 size = Vector3(2.51178, 3.94672, 4.92171)
 
 [node name="LandCarrier" type="CharacterBody3D"]
-physics_material_override = SubResource("PhysicsMaterial_carrier")
 script = ExtResource("1_landcarrier")
 
 [node name="MainCollision" type="CollisionShape3D" parent="."]
@@ -80,3 +75,9 @@ script = ExtResource("9_collision")
 
 [node name="LandCarrierInput" type="Node3D" parent="."]
 script = ExtResource("10_input")
+
+[node name="CameraCenter" type="Node3D" parent="." groups=["carrier_cam"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 30.4572, 14.3332, 0)
+
+[node name="CarrierCam" type="Camera3D" parent="." groups=["carrier_cam"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 30.4572, 14.3332, 0)

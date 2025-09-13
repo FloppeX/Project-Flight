@@ -93,11 +93,11 @@ func create_platform() -> Node3D:
 	platform_node.add_child(mesh_instance)
 	
 	# Add collision shape
-	var collision_shape = CollisionShape3D.new()
-	var box_shape = BoxShape3D.new()
-	box_shape.size = platform_size
-	collision_shape.shape = box_shape
-	platform_node.add_child(collision_shape)
+	#var collision_shape = CollisionShape3D.new()
+	#var box_shape = BoxShape3D.new()
+	#box_shape.size = platform_size
+	#collision_shape.shape = box_shape
+	#platform_node.add_child(collision_shape)
 	
 	# Position platform so its top surface is flush with carrier deck
 	platform_node.position.y = -platform_size.y / 2.0  # -0.5m for 1m tall platform
@@ -126,11 +126,11 @@ func create_cover(name: String) -> Node3D:
 	cover_node.add_child(mesh_instance)
 	
 	# Add collision shape
-	var collision_shape = CollisionShape3D.new()
-	var box_shape = BoxShape3D.new()
-	box_shape.size = cover_size
-	collision_shape.shape = box_shape
-	cover_node.add_child(collision_shape)
+	#var collision_shape = CollisionShape3D.new()
+	#var box_shape = BoxShape3D.new()
+	#box_shape.size = cover_size
+	#collision_shape.shape = box_shape
+	#cover_node.add_child(collision_shape)
 	
 	# Rotate covers 90 degrees so their long sides face each other
 	cover_node.rotation.y = PI / 2

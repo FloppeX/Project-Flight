@@ -22,6 +22,11 @@ var axis_z = 0.0 # Ailerons
 
 var energy_failed = false
 
+# Nose wheel steering
+@export var max_nose_wheel_angle: float = 45.0  # Maximum nose wheel rotation in degrees
+var nose_gear_visual: Node3D
+var nose_gear_collider: Node3D
+
 func _ready():
 	ProcessPhysics = true
 	ModuleType = "steering"
@@ -31,6 +36,19 @@ func _ready():
 
 func setup(aircraft_node):
 	aircraft = aircraft_node
+	
+	# Find nose gear collider and visual for steering
+	nose_gear_collider = aircraft.get_node_or_null("CenterGearCollider")
+	if nose_gear_collider:
+		print("Found nose gear collider for steering: ", nose_gear_collider.name)
+		nose_gear_visual = nose_gear_collider.get_node_or_null("Aircraft 1 nose gear")
+		if nose_gear_visual:
+			print("Found nose gear visual for steering: ", nose_gear_visual.name)
+		else:
+			print("Warning: Could not find nose gear visual")
+	else:
+		print("Warning: Could not find nose gear collider")
+	
 	request_update_interface()
 
 func request_update_interface():
@@ -127,6 +145,19 @@ func set_x(value: float):
 
 func set_y(value: float):
 	axis_y = value
+	
+	# Update nose wheel rotation based on rudder input
+	var target_angle = axis_y * max_nose_wheel_angle
+	var target_rotation = deg_to_rad(target_angle)
+	
+	# Rotate the collider (for physics damping direction)
+	if nose_gear_collider:
+		nose_gear_collider.rotation.y = target_rotation
+	
+	# Rotate the visual (relative to the collider, so reset to 0)
+	if nose_gear_visual:
+		nose_gear_visual.rotation.y = 0
+	
 	request_update_interface()
 
 func set_z(value: float):

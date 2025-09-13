@@ -5,6 +5,9 @@ extends Node3D
 @export var crosshair_color: Color = Color.GREEN
 @export var hud_range: float = 10000.0
 @export var hud_glass_size: Vector2 = Vector2(0.4, 0.4)  # 40x40 cm in meters - bigger for more text room
+@export var ccip_below_horizon_only: bool = true  # Hide CCIP when projected above screen center
+@export var ccip_use_fast: bool = true  # Prefer fast closed-form CCIP
+@export var hud_follow_camera_forward: bool = true  # If true, reticle tracks camera forward instead of aircraft nose
 
 var cam: Camera3D
 var aircraft: Node3D
@@ -19,6 +22,7 @@ var aircraft: Node3D
 # CCIP elements
 var ccip_circle: Control
 var ccip_dot: ColorRect
+var ccip_update_timer: Timer
 
 func _ready():
 	# Manually resolve NodePath references
@@ -97,6 +101,13 @@ func _ready():
 	
 	# Set up CCIP elements
 	setup_ccip()
+
+	# Set up a timer to update the CCIP periodically
+	ccip_update_timer = Timer.new()
+	ccip_update_timer.wait_time = 0.1 # Update 10 times per second
+	add_child(ccip_update_timer)
+	ccip_update_timer.timeout.connect(update_ccip)
+	ccip_update_timer.start()
 
 func setup_weapon_status():
 	"""Set up the weapon status display in lower left corner"""
@@ -207,16 +218,20 @@ func _process(dt: float) -> void:
 	# Update speed and altitude display
 	update_speed_altitude()
 	
-	# Update CCIP display
-	update_ccip()
-	
 	# Get aircraft's forward direction (nose pointing direction)
 	# In Godot, -Z is forward for most objects
 	var aircraft_forward: Vector3 = -aircraft.global_transform.basis.z
+	var camera_forward: Vector3 = -cam.global_transform.basis.z if cam else Vector3.FORWARD
 	
 	# Project aircraft's nose direction to infinity for proper collimation
 	# This makes the crosshair appear at the same point regardless of head movement
-	var nose_world: Vector3 = aircraft.global_transform.origin + aircraft_forward * hud_range
+	var nose_world: Vector3
+	if hud_follow_camera_forward and cam:
+		# Use camera position and forward so looking up moves the crosshair up
+		nose_world = cam.global_transform.origin + camera_forward * hud_range
+	else:
+		# Use aircraft boresight
+		nose_world = aircraft.global_transform.origin + aircraft_forward * hud_range
 	
 	# Convert to camera's local space to check if it's in front
 	var nose_local = cam.global_transform.inverse() * nose_world
@@ -308,8 +323,8 @@ func update_ccip():
 		ccip_dot.visible = false
 		return
 	
-	# Calculate CCIP impact point
-	var ccip_data = aircraft.calculate_ccip_impact_point()
+	# Calculate CCIP impact point (use explicit ternary to avoid boolean coercion)
+	var ccip_data = aircraft.calculate_ccip_impact_point_fast() if ccip_use_fast else aircraft.calculate_ccip_impact_point()
 	
 	if not ccip_data.has_impact:
 		ccip_circle.visible = false
@@ -343,6 +358,12 @@ func update_ccip():
 	# Only show if within HUD bounds
 	if (hud_pos.x >= 0 and hud_pos.x <= hud_size_px.x and 
 		hud_pos.y >= 0 and hud_pos.y <= hud_size_px.y):
+		# Optional filter: hide CCIP if above approximate horizon (screen center)
+		if ccip_below_horizon_only and hud_pos.y < (hud_size_px.y * 0.5 - 4.0):
+			ccip_circle.visible = false
+			ccip_dot.visible = false
+			return
+		
 		ccip_circle.visible = true
 		ccip_dot.visible = true
 		

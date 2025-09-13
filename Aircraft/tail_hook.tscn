@@ -1,0 +1,29 @@
+[gd_scene load_steps=5 format=3 uid="uid://ds5dlvtqfa7tv"]
+
+[ext_resource type="PackedScene" uid="uid://bg63t1r0rh3f8" path="res://example/models/Tailhook.glb" id="1_77qu3"]
+[ext_resource type="Script" uid="uid://cn5aksjiys7pa" path="res://Aircraft/TailhookSimple.gd" id="1_t8ash"]
+
+[sub_resource type="SphereShape3D" id="SphereShape3D_77qu3"]
+
+[sub_resource type="CylinderShape3D" id="CylinderShape3D_0bqfh"]
+height = 2.68359
+radius = 0.136719
+
+[node name="TailHook" type="Node3D"]
+script = ExtResource("1_t8ash")
+hook_area = NodePath("HookArea")
+hook_body_collision = NodePath("BodyCollider")
+hook_mesh = NodePath("Tailhook")
+
+[node name="HookArea" type="Area3D" parent="."]
+collision_layer = 17
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="HookArea"]
+transform = Transform3D(0.5, 0, 0, 0, 0.5, 0, 0, 0, 0.5, -0.00260258, -2.38419e-07, 0.00872469)
+shape = SubResource("SphereShape3D_77qu3")
+
+[node name="Tailhook" parent="." instance=ExtResource("1_77qu3")]
+
+[node name="BodyCollider" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.42022, 0)
+shape = SubResource("CylinderShape3D_0bqfh")

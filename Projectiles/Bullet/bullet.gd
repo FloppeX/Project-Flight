@@ -15,6 +15,9 @@ func _ready():
 	# Call parent's _ready first to get all the base functionality
 	super._ready()
 	
+	# This projectile should not create an explosion on impact
+	creates_explosion = false
+	
 	# Add bullet-specific visual effects
 	make_bullet_glowy()
 	
