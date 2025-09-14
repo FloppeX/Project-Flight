@@ -13,11 +13,11 @@ right_anchor_path = NodePath("right_cable_anchor")
 max_tension = 20000.0
 linear_k = 6000.0
 linear_c = 60000.0
-max_pay_out = 20.0
-auto_release_speed = 0.0
 lateral_k = 0.0
 lateral_c = 0.0
-force_smoothing = 2.0
+max_pay_out = 15.0
+auto_release_speed = 0.0
+force_smoothing = 4.0
 
 [node name="cable_area" type="Area3D" parent="."]
 transform = Transform3D(4982.27, 0, 0, 0, 55.0841, 0, 0, 0, 71.7317, 0, 0, -1.58627)

@@ -45,7 +45,7 @@ radius = 0.3
 metadata/__load_path__ = "res://Sounds/flaps_deploy 2.wav"
 
 [node name="CompleteFighterJet" type="RigidBody3D"]
-mass = 500.0
+mass = 700.0
 physics_material_override = SubResource("PhysicsMaterial_lowfriction")
 center_of_mass_mode = 1
 center_of_mass = Vector3(0, 0, -1)

@@ -28,10 +28,11 @@ albedo_color = Color(1, 0.566667, 0, 1)
 script = ExtResource("1_landcarrier")
 
 [node name="MainCollision" type="CollisionShape3D" parent="."]
-transform = Transform3D(20, 0, 0, 0, 6, 0, 0, 0, 30, 0.149422, -11.794, -0.181503)
+transform = Transform3D(-20, 0, -2.62268e-06, 0, 6, 0, 1.74846e-06, 0, -30, 0.149422, -11.794, -0.181503)
 shape = SubResource("BoxShape3D_main_carrier")
 
 [node name="CarrierModel" parent="." instance=ExtResource("6_carrier_model")]
+transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, 0, 0)
 
 [node name="Land carrier tread 6" parent="." instance=ExtResource("3_tread")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -32, -32, 43)
@@ -72,7 +73,7 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3, -24.3209)
 script = ExtResource("5_weapons")
 
 [node name="Shuttle" type="Node3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -25)
+transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, 0, 35.971)
 
 [node name="gear_connector" type="Area3D" parent="Shuttle"]
 
@@ -85,18 +86,21 @@ mesh = SubResource("BoxMesh_q2nwn")
 surface_material_override/0 = SubResource("StandardMaterial3D_yy1ll")
 
 [node name="Catapult" type="Node3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -25)
+transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, 0, 25)
 script = ExtResource("8_0rqhh")
 shuttle_path = NodePath("../Shuttle")
 shuttle_area_path = NodePath("../Shuttle/gear_connector/CollisionShape3D")
 end_z = -72.0
 start_marker_path = NodePath("catapult_start_marker")
-shuttle_speed = 40.0
+shuttle_speed = 4.0
+latch_distance = 2.0
 deck_reference_path = NodePath("catapult_start_marker")
-deck_clearance = 2.5
+deck_clearance = 2.2
+max_pickup_duration = 5.0
+heading_offset_deg = 135.0
 
 [node name="catapult_start_marker" type="Node3D" parent="Catapult"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 6.60371, 6.87694)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 6.60371, 9.37236)
 
 [node name="TreadPositionHelper" type="Node3D" parent="."]
 script = ExtResource("7_tread_helper")
@@ -113,16 +117,16 @@ script = ExtResource("9_collision")
 script = ExtResource("10_input")
 
 [node name="CameraCenter" type="Node3D" parent="." groups=["carrier_cam"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 30.4572, 14.3332, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -30.457, 14.333, 0)
 
 [node name="CarrierCam" type="Camera3D" parent="." groups=["carrier_cam"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 30.4572, 14.3332, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -30.457, 14.333, 0)
 
 [node name="Arresting Cable 1" parent="." instance=ExtResource("12_eyg35")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 64)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -64)
 
 [node name="Arresting Cable 2" parent="." instance=ExtResource("12_eyg35")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 56)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -56)
 
 [node name="Arresting Cable 3" parent="." instance=ExtResource("12_eyg35")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 48)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -48)

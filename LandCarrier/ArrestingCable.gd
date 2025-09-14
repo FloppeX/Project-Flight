@@ -1,22 +1,35 @@
 extends Node3D
 
-@export var cable_area_path: NodePath
-@export var left_anchor_path: NodePath
-@export var right_anchor_path: NodePath
-@export var deck_direction: Vector3 = Vector3(0, 0, -1) # along landing axis (normalized at _ready)
-@export var max_tension: float = 80000.0 # N (force cap)
-@export var linear_k: float = 5000.0      # spring-like proportional to extension
-@export var linear_c: float = 30000.0     # damping proportional to velocity along cable (higher = more damping)
-@export var max_pay_out: float = 25.0     # meters of give before hard stop (higher = more play)
-@export var auto_release_speed: float = 2.0 # m/s
-@export var lateral_k: float = 1500.0        # gentle centering spring across deck (N/m)
-@export var lateral_c: float = 5000.0        # lateral damping (N*s/m)
-@export var force_smoothing: float = 0.15    # seconds to smooth force changes
-@export var visualize_cable: bool = true      # draw a simple cable visualization
+# Arresting cable: engages a tailhook Area3D and applies braking force along the deck axis,
+# with lateral centering toward the cable line and optional simple visualization.
+
+@export var cable_area_path: NodePath           # Area3D detecting the tailhook Area3D
+@export var left_anchor_path: NodePath          # Left deck anchor (Node3D)
+@export var right_anchor_path: NodePath         # Right deck anchor (Node3D)
+@export var deck_direction: Vector3 = Vector3(0, 0, -1) # legacy override; ignored if deck_forward_is_plus_z
+@export var deck_forward_is_plus_z: bool = true          # when true, +Z is forward; else -Z
+@export var max_tension: float = 80000.0        # Force clamp (N)
+
+# Legacy names kept for compatibility in existing scenes (mapped to clearer names in _ready)
+@export var linear_k: float = 5000.0            # LEGACY: spring stiffness along deck axis (N/m)
+@export var linear_c: float = 30000.0           # LEGACY: damping along deck axis (N*s/m)
+@export var lateral_k: float = 1500.0           # LEGACY: centering spring across deck (N/m)
+@export var lateral_c: float = 5000.0           # LEGACY: lateral damping across deck (N*s/m)
+
+# Clear names used in code after mapping (units in names)
+@export var braking_spring_stiffness_n_per_m: float = 5000.0
+@export var braking_damping_n_s_per_m: float = 30000.0
+@export var lateral_centering_stiffness_n_per_m: float = 1500.0
+@export var lateral_damping_n_s_per_m: float = 5000.0
+
+@export var max_pay_out: float = 25.0           # Max extension before hard stop (m)
+@export var auto_release_speed: float = 2.0     # Release when near stop (m/s)
+@export var force_smoothing: float = 0.15       # Smooth force changes (s)
+@export var visualize_cable: bool = true        # Enable simple cable visuals
 @export var cable_radius: float = 0.05
-@export var band_length_m: float = 0.5        # physical band length (meters) for stripes
-@export var band_color_a: Color = Color(0, 0, 0, 1)     # black
-@export var band_color_b: Color = Color(1, 1, 1, 1)     # white
+@export var band_length_m: float = 0.5          # Stripe length for visualization (m)
+@export var band_color_a: Color = Color(0, 0, 0, 1)
+@export var band_color_b: Color = Color(1, 1, 1, 1)
 
 var _area: Area3D
 var _left_anchor: Node3D
@@ -53,7 +66,11 @@ func _ready():
 	if deck_direction.length() == 0:
 		deck_direction = Vector3(0,0,-1)
 	deck_direction = deck_direction.normalized()
-
+	# Map legacy editor values into clearer names so existing scenes continue to work
+	braking_spring_stiffness_n_per_m = linear_k
+	braking_damping_n_s_per_m = linear_c
+	lateral_centering_stiffness_n_per_m = lateral_k
+	lateral_damping_n_s_per_m = lateral_c
 	if visualize_cable:
 		_create_cable_visuals()
 
@@ -61,64 +78,59 @@ func _physics_process(delta: float) -> void:
 	if not _engaged or not is_instance_valid(_aircraft):
 		return
 	_engaged_elapsed += delta
-	# Project velocity along deck direction
+	# Velocity along deck axis (+Z or legacy deck_direction)
 	var v = _aircraft.linear_velocity
-	# Prefer live axis from anchors if available
-	# Braking axis in world space derived from carrier orientation
-	var axis = (global_transform.basis * deck_direction).normalized()
+	var fwd = deck_direction
+	if deck_forward_is_plus_z:
+		fwd = Vector3(0, 0, 1)
+	var axis = (global_transform.basis * fwd).normalized()
 	var v_along = v.dot(axis)
-	# Estimate extension along deck axis from engage point to current hook pos
+	# Signed extension along axis from cable midline to hook
 	var hook_pos = _hook_global_position()
 	var anchor_mid = _anchor_midpoint()
 	var rel = hook_pos - anchor_mid
-	var x = rel.dot(axis) # signed extension from midline
-	# Resist motion in direction of travel; spring toward midline
-	var spring_term = linear_k * min(abs(x), max_pay_out)
+	var x = rel.dot(axis)
+	# Spring-damper braking along axis; clamp to max_tension
+	var spring_term = braking_spring_stiffness_n_per_m * min(abs(x), max_pay_out)
 	var sign_v = 1.0 if v_along >= 0.0 else -1.0
-	var force_along_target = -(linear_c * v_along + spring_term * sign_v)
-	# Smooth force to reduce oscillations
+	var force_along_target = -(braking_damping_n_s_per_m * v_along + spring_term * sign_v)
 	var alpha = clamp(delta / max(force_smoothing, 0.001), 0.0, 1.0)
 	var force_along = lerp(_force_along_prev, force_along_target, alpha)
 	force_along = clamp(force_along, -max_tension, max_tension)
 	var force_vec = axis * force_along
-	# Apply force at hook contact point to avoid destabilizing torque
+	# Apply at hook location to avoid destabilizing torques
 	var apply_at = hook_pos - _aircraft.global_position
 	_aircraft.apply_force(force_vec, apply_at)
 	_force_along_prev = force_along
-
-	# Lateral centering toward the cable line: vector form, not fixed X
-	var lateral_rel = rel - axis * rel.dot(axis)            # component from midline to hook, across deck
-	var v_lat_vec = v - axis * v_along                      # aircraft velocity component across deck
-	var f_lat_vec = -(lateral_k * lateral_rel + lateral_c * v_lat_vec)
+	# Lateral centering with damping across deck (vector form)
+	var lateral_rel = rel - axis * rel.dot(axis)
+	var v_lat_vec = v - axis * v_along
+	var f_lat_vec = -(lateral_centering_stiffness_n_per_m * lateral_rel + lateral_damping_n_s_per_m * v_lat_vec)
 	var f_lat_limit = max_tension * 0.25
 	if f_lat_vec.length() > f_lat_limit:
 		f_lat_vec = f_lat_vec.normalized() * f_lat_limit
 	_aircraft.apply_force(f_lat_vec, apply_at)
-
 	# Update visuals
 	if visualize_cable:
 		_update_cable_visuals(hook_pos)
-
-	# Periodic debug
+	# Debug and auto-release
 	_debug_t += delta
 	if _debug_t >= 0.5:
 		_debug_t = 0.0
 		print("[Cable] engaged: x=", x, " v_along=", v_along, " F=", force_along)
-	# Auto release when nearly stopped
 	if _engaged_elapsed > 0.3 and v.length() < auto_release_speed and abs(x) < 1.0:
 		print("[Cable] RELEASE by speed: v=", v.length(), " x=", x)
 		_release()
 
 func _on_area_entered(area: Area3D) -> void:
+	# Engage on tailhook Area3D by group/name; enforce single-cable interlock
 	if _engaged:
 		return
-	# Expect tailhook HookArea to be an Area3D; accept by group or name
 	if area.is_in_group("tailhook") or area.name.to_lower().find("hook") != -1:
 		print("[Cable] ENTER by ", area.name, " groups=", area.get_groups())
 		var ac = _find_aircraft(area)
 		if ac:
 			_aircraft = ac
-			# Interlock: only one cable can engage a given aircraft at a time
 			if _aircraft.has_meta("arresting_engaged") and _aircraft.get_meta("arresting_engaged") == true:
 				print("[Cable] SKIP engage: aircraft already engaged by another cable")
 				_aircraft = null
@@ -129,7 +141,7 @@ func _on_area_entered(area: Area3D) -> void:
 			_pay_out_used = 0.0
 			_engaged = true
 			print("[Cable] ENGAGED with ", _aircraft.name)
-			# Soften landing gear lateral grip while cable is engaged to prevent tipping
+			# Reduce lateral grip while engaged to prevent tipping
 			_gear_module = _aircraft.find_child("LandingGear", true, false)
 			if _gear_module:
 				var sf = _gear_module.get("sideways_friction")
@@ -142,10 +154,12 @@ func _on_area_entered(area: Area3D) -> void:
 					_gear_module.set("friction_force_multiplier", max(200.0, _orig_friction_multiplier * 0.5))
 
 func _on_area_exited(area: Area3D) -> void:
+	# Stay engaged on exit; release by speed criteria or explicit command
 	if area == _hook_node:
 		print("[Cable] EXIT by ", area.name, " (ignoring; remain engaged until slow or manual release)")
 
 func _release():
+	# Clear engaged state, visuals, and restore gear friction settings
 	_engaged = false
 	if _aircraft and _aircraft.has_meta("arresting_engaged"):
 		_aircraft.set_meta("arresting_engaged", false)
@@ -153,9 +167,7 @@ func _release():
 	_hook_node = null
 	print("[Cable] RELEASED")
 	if visualize_cable:
-		# Return to straight cable between anchors
 		_update_cable_visuals(Vector3.INF)
-	# Restore landing gear friction settings
 	if _gear_module:
 		if not is_nan(_orig_sideways_friction) and _gear_module.get("sideways_friction") != null:
 			_gear_module.set("sideways_friction", _orig_sideways_friction)
@@ -163,6 +175,7 @@ func _release():
 			_gear_module.set("friction_force_multiplier", _orig_friction_multiplier)
 		_gear_module = null
 
+# --- Helpers ---
 func _find_aircraft(from_node: Node) -> RigidBody3D:
 	var n: Node = from_node
 	while n:
@@ -226,6 +239,7 @@ func _update_cable_visuals(hook_pos: Vector3) -> void:
 		_set_cylinder_between(_seg_rest, A, B, _mat_rest)
 
 func _set_cylinder_between(mi: MeshInstance3D, a: Vector3, b: Vector3, mat: ShaderMaterial) -> void:
+	# Orient a cylinder's Y axis along the vector from a to b, centered at midpoint
 	var dir = b - a
 	var len = dir.length()
 	if len < 0.001:
@@ -235,10 +249,8 @@ func _set_cylinder_between(mi: MeshInstance3D, a: Vector3, b: Vector3, mat: Shad
 	var cyl := mi.mesh as CylinderMesh
 	if cyl:
 		cyl.height = len
-		# Update band repeats based on physical length
 		if mat and band_length_m > 0.01:
 			mat.set_shader_parameter("u_repeat", max(1.0, len / band_length_m))
-	# Align cylinder local Y with dir
 	dir = dir / len
 	var y_axis = dir
 	var tmp = Vector3(0,1,0)
@@ -251,6 +263,7 @@ func _set_cylinder_between(mi: MeshInstance3D, a: Vector3, b: Vector3, mat: Shad
 	mi.global_transform = Transform3D(basis, mid)
 
 func _make_stripe_material() -> ShaderMaterial:
+	# Simple unshaded black/white stripe shader; repeats based on cylinder height
 	var sh = Shader.new()
 	sh.code = """
 shader_type spatial;
