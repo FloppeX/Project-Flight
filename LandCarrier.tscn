@@ -96,7 +96,6 @@ shuttle_speed = 4.0
 latch_distance = 2.0
 deck_reference_path = NodePath("catapult_start_marker")
 deck_clearance = 2.2
-max_pickup_duration = 5.0
 heading_offset_deg = 135.0
 
 [node name="catapult_start_marker" type="Node3D" parent="Catapult"]

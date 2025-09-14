@@ -43,8 +43,3 @@ func update_health_display():
 		health_bar.modulate = Color.YELLOW
 	else:
 		health_bar.modulate = Color.RED
-
-
-
-
-

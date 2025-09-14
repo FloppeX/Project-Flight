@@ -4,6 +4,8 @@
 extends AircraftModuleSpatial
 class_name AircraftModule_LandingGear
 
+@export var debug_enabled: bool = false
+
 signal update_interface(values)
 
 @export var GearCollisionShape: NodePath
@@ -136,15 +138,21 @@ func deploy():
 	current_state = LandingGearInitialStates.DEPLOYED
 	is_deployed = true
 	is_stowed = false
+	if debug_enabled:
+		print("[LG] deploy() called; enabling ", gear_collision_shapes.size(), " colliders and ", gear_visuals.size(), " visuals")
 	
 	# Enable collision shapes immediately
 	for collision_shape in gear_collision_shapes:
 		if collision_shape:
+			if debug_enabled:
+				print("[LG]  collider -> ", collision_shape.get_path())
 			collision_shape.disabled = false
 	
 	# Show visual meshes immediately
 	for visual in gear_visuals:
 		if visual:
+			if debug_enabled:
+				print("[LG]  visual   -> ", visual.get_path())
 			visual.visible = true
 	
 	# Emit interface update
@@ -166,15 +174,21 @@ func stow():
 	current_state = LandingGearInitialStates.STOWED
 	is_deployed = false
 	is_stowed = true
+	if debug_enabled:
+		print("[LG] stow() called; disabling ", gear_collision_shapes.size(), " colliders and hiding ", gear_visuals.size(), " visuals")
 	
 	# Disable collision shapes immediately
 	for collision_shape in gear_collision_shapes:
 		if collision_shape:
+			if debug_enabled:
+				print("[LG]  collider -> ", collision_shape.get_path())
 			collision_shape.disabled = true
 	
 	# Hide visual meshes immediately
 	for visual in gear_visuals:
 		if visual:
+			if debug_enabled:
+				print("[LG]  visual   -> ", visual.get_path())
 			visual.visible = false
 	
 	# Emit interface update

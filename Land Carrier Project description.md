@@ -175,3 +175,27 @@ Pilot Ejection & Rescue
 	  Pilot Ejection: A pilot can eject before an aircraft explodes. The canopy shoots off, and the pilot in his seat is propelled upward. The seat then detaches, and the parachute opens. The pilot floats to the ground.
 
 	  Rescue: Ejected pilots wait on the ground to be rescued either by a ground vehicle or a rescue helicopter.
+
+Session Summary (2025-09-14)
+	Catapult
+		Implemented robust teleport + settle alignment (collisions disabled during placement, deferred finalize), updated for +Z deck forward, added heading offset, and nose-gear-targeted shuttle approach with Area3D-only latch.
+	Arresting Cables
+		Aligned braking axis to +Z when selected, clarified parameters (braking_spring_stiffness_n_per_m, braking_damping_n_s_per_m, lateral_centering_stiffness_n_per_m, lateral_damping_n_s_per_m).
+	Landing Gear & Tailhook Control
+		Unified toggle: gear and tailhook alternate stow/deploy; start state forced (gear deployed, tailhook stowed). Added resilient module discovery and optional direct collider/visual control.
+	Deck Forward Convention
+		Updated systems to support carrier +Z as forward.
+	Documentation & Debugging
+		Added concise in-code comments and targeted debug logs for alignment, latching, and gear.
+
+Coming Plans
+	Catapult
+		Finalize launch stroke tuning, release/return cycle, and interlocks; small UI indicator for latch/ready.
+	FlightDeckManager
+		Introduce central manager to orchestrate catapult, elevator, tractor bots, and aircraft tasks.
+	Tractor Bots
+		Implement CharacterBody3D bots that attach to wheels, lift, and translate aircraft to/from catapult and elevator.
+	Arresting System
+		Tune spring/damper values, consider multi-cable setup and refined lateral control.
+	Cleanup
+		Remove unused pickup-align path, consolidate deck-forward settings, and document editor assignments for gear colliders/visuals.

@@ -3,6 +3,8 @@ extends Node3D
 # Arresting cable: engages a tailhook Area3D and applies braking force along the deck axis,
 # with lateral centering toward the cable line and optional simple visualization.
 
+@export var debug_enabled: bool = false
+
 @export var cable_area_path: NodePath           # Area3D detecting the tailhook Area3D
 @export var left_anchor_path: NodePath          # Left deck anchor (Node3D)
 @export var right_anchor_path: NodePath         # Right deck anchor (Node3D)
@@ -115,11 +117,12 @@ func _physics_process(delta: float) -> void:
 		_update_cable_visuals(hook_pos)
 	# Debug and auto-release
 	_debug_t += delta
-	if _debug_t >= 0.5:
+	if debug_enabled and _debug_t >= 0.5:
 		_debug_t = 0.0
 		print("[Cable] engaged: x=", x, " v_along=", v_along, " F=", force_along)
 	if _engaged_elapsed > 0.3 and v.length() < auto_release_speed and abs(x) < 1.0:
-		print("[Cable] RELEASE by speed: v=", v.length(), " x=", x)
+		if debug_enabled:
+			print("[Cable] RELEASE by speed: v=", v.length(), " x=", x)
 		_release()
 
 func _on_area_entered(area: Area3D) -> void:

@@ -130,6 +130,10 @@ max_compression = 0.3
 [node name="ControlSteering" parent="." instance=ExtResource("19_ubuxl")]
 
 [node name="ControlLandingGear" parent="." instance=ExtResource("20_gd71x")]
+nose_gear_collider_path = NodePath("../CenterGearCollider")
+left_main_gear_collider_path = NodePath("../LeftGearCollider")
+right_main_gear_collider_path = NodePath("../RightGearCollider")
+gear_visual_root_paths = Array[NodePath]([NodePath("../CenterGearCollider/Aircraft 1 nose gear"), NodePath("../LeftGearCollider/Aircraft 2 left gear"), NodePath("../RightGearCollider/Aircraft 1 right gear")])
 
 [node name="ControlFlaps" parent="." instance=ExtResource("21_rcffs")]
 
