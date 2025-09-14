@@ -10,6 +10,11 @@ class_name ContinuousTurbulence
 @export var ground_effect_height: float = 100.0  # Calmer air near ground
 @export var shake_factor: float = 0.0001  # Multiplier for shake intensity
 @export var impulse_threshold: float = 0.7  # Only apply force when noise is above this
+@export var gust_rate_hz: float = 3.0       # Average impulses per second per body
+@export var gust_impulse_scale: float = 30.0 # Scales impulse magnitude
+@export var lateral_scale: float = 1.2      # Emphasize horizontal components
+@export var vertical_scale: float = 0.2     # De-emphasize vertical component
+@export var min_interval_s: float = 0.05    # Minimum time between impulses per body
 @export var debug_output: bool = false  # Toggle debug messages
 
 # Audio settings
@@ -21,6 +26,7 @@ var noise: FastNoiseLite
 var time_offset: float = 0.0
 var audio_players: Dictionary = {}  # One audio player per aircraft
 var debug_timer: float = 0.0
+var _last_impulse_time: Dictionary = {}  # body_id -> last impulse time
 
 func _ready():
 	noise = FastNoiseLite.new()
@@ -139,16 +145,31 @@ func apply_turbulence_at_point(body: RigidBody3D, world_pos: Vector3, local_offs
 	
 	intensity *= altitude_multiplier * ground_factor * strength_multiplier
 	
-	# Create impulse-style turbulence instead of continuous force
-	if noise_value > impulse_threshold:
-		var impulse_strength = (noise_value - impulse_threshold) / (1.0 - impulse_threshold)
+	# Poisson-like triggering: chance based on gust_rate and delta time
+	var body_id = body.get_instance_id()
+	var now = Time.get_ticks_msec() * 0.001
+	var last_t = _last_impulse_time.get(body_id, 0.0)
+	var dt_since = now - last_t
+	var fire_random = randf() < clamp(gust_rate_hz * get_process_delta_time(), 0.0, 0.8)
+	var time_ok = dt_since >= min_interval_s
+	
+	# Create impulse-style turbulence with horizontal bias
+	if (noise_value > impulse_threshold and time_ok and fire_random):
+		_last_impulse_time[body_id] = now
+		var impulse_strength = (noise_value - impulse_threshold) / max(1e-3, (1.0 - impulse_threshold))
 		
-		# Generate sharp, brief impulses using different noise samples
-		var turbulence_impulse = Vector3(
+		# Separate lateral and vertical samples; de-emphasize vertical
+		var lateral = Vector3(
 			noise.get_noise_3d(world_pos.x + 2000, world_pos.y, world_pos.z + time_offset),
-			noise.get_noise_3d(world_pos.x, world_pos.y + 2000, world_pos.z + time_offset) * 0.3,
+			0.0,
 			noise.get_noise_3d(world_pos.x, world_pos.y, world_pos.z + 2000 + time_offset)
-		) * intensity * impulse_strength * velocity_factor * 20.0  # Higher force, less frequent
+		)
+		var vertical = Vector3(0.0, noise.get_noise_3d(world_pos.x, world_pos.y + 2000, world_pos.z + time_offset), 0.0)
+		var dir = (lateral * lateral_scale + vertical * vertical_scale).normalized()
+		
+		# Scale by configured gust impulse scale
+		var magnitude = intensity * impulse_strength * velocity_factor * gust_impulse_scale
+		var turbulence_impulse = dir * magnitude
 		
 		# Apply as impulse for sharp jolts
 		body.apply_impulse(turbulence_impulse, local_offset)

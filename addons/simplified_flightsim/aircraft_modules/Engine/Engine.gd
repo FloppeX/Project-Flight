@@ -30,6 +30,7 @@ var sfx_engine_stop = null
 var sfx_tween
 var is_engine_working = false
 var current_power = 0.0
+var throttle_input = 0.0 # The user/AI's desired throttle setting
 
 var is_engine_changing_state = false
 
@@ -210,3 +211,32 @@ func engine_increase_power(step: float):
 	var new_value = clamp(current_power + step, 0.0, 1.0)
 	if new_value != current_power:
 		engine_set_power(new_value)
+
+func is_running() -> bool:
+	return is_engine_working
+
+func get_throttle_ratio() -> float:
+	# Returns the current throttle as a value from 0.0 to 1.0
+	return current_power
+
+func set_throttle_input(new_throttle: float):
+	# Allows external systems like the catapult to command the throttle
+	# Bypasses the checks in engine_set_power as the external system is responsible for state
+	if is_engine_working:
+		var new_value = clamp(new_throttle, 0.0, 1.0)
+		current_power = new_value
+		throttle_input = new_value
+		
+		# Update sound pitch based on new power
+		if sfx_tween:
+			sfx_tween.kill()
+		sfx_tween = create_tween()
+		sfx_tween.tween_property(sfx_engine_loop, "pitch_scale", power_to_pitch(current_power), 0.1).set_trans(Tween.TRANS_LINEAR)
+
+func process_input(input_actions):
+	if input_actions.engine_power_up > 0.0:
+		throttle_input = clamp(throttle_input + input_actions.engine_power_up * 0.01, 0.0, 1.0)
+	if input_actions.engine_power_down > 0.0:
+		throttle_input = clamp(throttle_input - input_actions.engine_power_down * 0.01, 0.0, 1.0)
+		
+	engine_set_power(throttle_input)

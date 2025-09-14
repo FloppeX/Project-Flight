@@ -3,6 +3,9 @@ extends Node3D
 # Arresting cable: engages a tailhook Area3D and applies braking force along the deck axis,
 # with lateral centering toward the cable line and optional simple visualization.
 
+signal cable_engaged(aircraft: RigidBody3D)
+signal cable_released(aircraft: RigidBody3D)
+
 @export var debug_enabled: bool = false
 
 @export var cable_area_path: NodePath           # Area3D detecting the tailhook Area3D
@@ -55,6 +58,7 @@ var _orig_sideways_friction: float = NAN
 var _orig_friction_multiplier: float = NAN
 
 func _ready():
+	add_to_group("arresting_cable")
 	_area = get_node_or_null(cable_area_path) as Area3D
 	_left_anchor = get_node_or_null(left_anchor_path) as Node3D
 	_right_anchor = get_node_or_null(right_anchor_path) as Node3D
@@ -139,6 +143,7 @@ func _on_area_entered(area: Area3D) -> void:
 				_aircraft = null
 				return
 			_aircraft.set_meta("arresting_engaged", true)
+			_aircraft.set_meta("arresting_cable", self)
 			_hook_node = area
 			_engage_point = area.global_position
 			_pay_out_used = 0.0
@@ -155,6 +160,8 @@ func _on_area_entered(area: Area3D) -> void:
 				if fm != null:
 					_orig_friction_multiplier = float(fm)
 					_gear_module.set("friction_force_multiplier", max(200.0, _orig_friction_multiplier * 0.5))
+			# Notify listeners (e.g., FlightDeckManager)
+			emit_signal("cable_engaged", _aircraft)
 
 func _on_area_exited(area: Area3D) -> void:
 	# Stay engaged on exit; release by speed criteria or explicit command
@@ -163,9 +170,12 @@ func _on_area_exited(area: Area3D) -> void:
 
 func _release():
 	# Clear engaged state, visuals, and restore gear friction settings
+	var released_aircraft := _aircraft
 	_engaged = false
 	if _aircraft and _aircraft.has_meta("arresting_engaged"):
 		_aircraft.set_meta("arresting_engaged", false)
+		if _aircraft.has_meta("arresting_cable"):
+			_aircraft.remove_meta("arresting_cable")
 	_aircraft = null
 	_hook_node = null
 	print("[Cable] RELEASED")
@@ -177,6 +187,14 @@ func _release():
 		if not is_nan(_orig_friction_multiplier) and _gear_module.get("friction_force_multiplier") != null:
 			_gear_module.set("friction_force_multiplier", _orig_friction_multiplier)
 		_gear_module = null
+	# Notify listeners that the cable released
+	if is_instance_valid(released_aircraft):
+		emit_signal("cable_released", released_aircraft)
+
+func manual_release() -> void:
+	# Public manual release for external controllers (e.g., FlightDeckManager)
+	if _engaged:
+		_release()
 
 # --- Helpers ---
 func _find_aircraft(from_node: Node) -> RigidBody3D:

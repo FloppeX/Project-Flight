@@ -34,6 +34,8 @@ enum LandingGearInitialStates {
 @export var forward_friction: float = 0.1      # Low resistance for rolling forward/backward
 @export var sideways_friction: float = 8.0     # High resistance for sliding sideways
 @export var friction_force_multiplier: float = 1000.0  # Overall friction strength
+@export var ground_longitudinal_damping: float = 5000.0  # Extra along-forward damping (N per m/s)
+@export var ground_lateral_damping: float = 15000.0      # Extra side damping (N per m/s)
 
 var current_state: LandingGearInitialStates
 var deploy_timer: Timer
@@ -211,7 +213,7 @@ func apply_wheel_friction(collision_shape: CollisionShape3D, compression: float)
 		return
 	
 	# Get aircraft's local coordinate system
-	var aircraft_forward = -aircraft.global_transform.basis.z  # Aircraft forward direction
+	var aircraft_forward = aircraft.global_transform.basis.z    # Aircraft forward direction (+Z)
 	var aircraft_right = aircraft.global_transform.basis.x     # Aircraft right direction
 	
 	# Get aircraft velocity in world space
@@ -225,9 +227,30 @@ func apply_wheel_friction(collision_shape: CollisionShape3D, compression: float)
 	var forward_friction_force = -forward_velocity * forward_friction * friction_force_multiplier * compression
 	var sideways_friction_force = -sideways_velocity * sideways_friction * friction_force_multiplier * compression
 	
+	# Add velocity-proportional damping to keep aircraft still on deck ONLY when engine is off
+	# and not under external control (like a catapult).
+	if (not _is_engine_running() and not aircraft.has_meta("controls_disabled")) or aircraft.has_meta("parking_brake"):
+		forward_friction_force += -forward_velocity * ground_longitudinal_damping
+		sideways_friction_force += -sideways_velocity * ground_lateral_damping
+	
 	# Apply friction forces in aircraft's local coordinate system
 	var total_friction = (aircraft_forward * forward_friction_force) + (aircraft_right * sideways_friction_force)
 	
 	# Apply friction force at wheel position
 	var force_position = collision_shape.global_position - aircraft.global_position
 	aircraft.apply_force(total_friction, force_position)
+
+func _is_engine_running() -> bool:
+	if aircraft == null:
+		return false
+	if not aircraft.has_method("find_modules_by_type"):
+		return false
+	var engines = aircraft.find_modules_by_type("engine")
+	for e in engines:
+		var working = e.get("is_engine_working") if e.has_method("get") else null
+		if working != null and bool(working):
+			return true
+		var power = e.get("current_power") if e.has_method("get") else null
+		if power != null and float(power) > 0.05:
+			return true
+	return false

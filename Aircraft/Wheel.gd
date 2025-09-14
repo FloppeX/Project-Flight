@@ -47,3 +47,5 @@ func _ready():
 	mesh_instance.rotation_degrees = Vector3(0, 0, 90)
 
 
+
+

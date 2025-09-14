@@ -41,7 +41,7 @@ func _physics_process(delta: float) -> void:
 	# --- Basic kinematics ---
 	var vel: Vector3 = rb.linear_velocity
 	var speed: float = vel.length()
-	var fwd: Vector3 = -rb.global_transform.basis.z
+	var fwd: Vector3 = rb.global_transform.basis.z
 	var right: Vector3 = rb.global_transform.basis.x
 	var up: Vector3 = rb.global_transform.basis.y
 	var v_dir: Vector3 = (vel / speed) if speed > 0.001 else fwd

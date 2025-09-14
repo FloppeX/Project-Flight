@@ -38,7 +38,46 @@ func _ready():
 	material.emission_energy = 2.0
 	panel_mesh.material_override = material
 	
+	# Create a top row container and move the five value labels into it
+	_relayout_top_row()
+	
 	print("Instrument Panel initialized")
+
+func _relayout_top_row() -> void:
+	var display := $SubViewport/InstrumentDisplay as Control
+	if display == null:
+		return
+	var top_row := display.get_node_or_null("TopRow") as HBoxContainer
+	if top_row == null:
+		top_row = HBoxContainer.new()
+		top_row.name = "TopRow"
+		display.add_child(top_row)
+		# Anchor to top, full width, fixed small height
+		top_row.anchor_left = 0.0
+		top_row.anchor_right = 1.0
+		top_row.anchor_top = 0.0
+		top_row.anchor_bottom = 0.0
+		top_row.offset_top = 4
+		top_row.offset_bottom = 44
+		top_row.alignment = BoxContainer.ALIGNMENT_CENTER
+		top_row.add_theme_constant_override("separation", 16)
+	
+	# Reparent labels into the top row and make them expand evenly
+	var labels: Array = [altitude_label, speed_label, fuel_label, gear_label, engine_label]
+	for l in labels:
+		if l != null and l.get_parent() != top_row:
+			var p: Node = l.get_parent()
+			if p:
+				p.remove_child(l)
+			top_row.add_child(l)
+			l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	
+	# Hide legacy panels to remove gray boxes
+	for pname in ["AltitudePanel", "SpeedPanel", "FuelPanel", "GearPanel", "EnginePanel"]:
+		var panel := display.get_node_or_null(pname) as Control
+		if panel:
+			panel.visible = false
 
 func _process(_delta: float) -> void:
 	if aircraft == null or not is_instance_valid(aircraft):

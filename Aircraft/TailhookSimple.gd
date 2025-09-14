@@ -4,6 +4,9 @@ extends Node3D
 @export var hook_body_collision: NodePath
 @export var hook_mesh: NodePath
 
+# Identify this module for external systems (e.g., FlightDeckManager)
+var ModuleType: String = "tailhook"
+
 # Simple spring/damper to let the hook flex on deck contact
 @export var spring_strength: float = 2500.0       # N/m (small compared to landing gear)
 @export var spring_damping: float = 1200.0        # N*s/m

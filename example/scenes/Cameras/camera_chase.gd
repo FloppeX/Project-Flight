@@ -51,7 +51,7 @@ func update_position(delta):
 
 	# Calculate the desired offset from the center based on look input.
 	# Start with a base offset (behind and above) and then apply the look rotation.
-	var base_offset = Vector3(0, chase_height, chase_distance)
+	var base_offset = Vector3(0, chase_height, -chase_distance)
 	
 	# Create a rotation transform from the look_offset angles (yaw and pitch)
 	var look_rotation = Basis()

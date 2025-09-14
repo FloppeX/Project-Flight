@@ -28,6 +28,10 @@ func setup(aircraft_node: Node) -> void:
 func _physics_process(delta: float) -> void:
 	if not ControlActive or engine_modules.is_empty():
 		return
+		
+	# If controls are disabled by an external system (e.g., catapult), do nothing.
+	if is_instance_valid(aircraft) and aircraft.has_meta("controls_disabled"):
+		return
 
 	# Store previous power for comparison
 	var previous_power = target_power

@@ -52,7 +52,7 @@ func _physics_process(delta: float) -> void:
 	# --- Kinematics / basis ---
 	var vel: Vector3 = rb.linear_velocity
 	var speed: float = vel.length() # total airspeed magnitude
-	var fwd: Vector3 = -rb.global_transform.basis.z # The aircraft's forward vector
+	var fwd: Vector3 = rb.global_transform.basis.z # The aircraft's forward vector
 	var right: Vector3 = rb.global_transform.basis.x
 	var up: Vector3 = rb.global_transform.basis.y
 	var v_dir: Vector3 = (vel / speed) if speed > 0.001 else fwd

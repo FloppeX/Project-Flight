@@ -65,4 +65,4 @@ func get_hardpoint_world_position() -> Vector3:
 	return global_position
 
 func get_hardpoint_forward_direction() -> Vector3:
-	return -global_transform.basis.z
+	return global_transform.basis.z

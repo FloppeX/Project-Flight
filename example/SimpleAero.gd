@@ -11,7 +11,7 @@ var rb: RigidBody3D = null
 @export var min_control_speed: float = 80.0  # Speed where controls start working
 @export var alignment_strength: float = 1000.0   # How fast velocity aligns with nose direction
 @export var angular_damping_strength: float = 16.0  # How quickly rotations stop
-@export var drag_strength: float = 0.8       # How much drag opposes motion
+@export var drag_base_multiplier: float = 0.8  # Base multiplier on combined forward+lateral drag
 @export var stability_strength: float = 2.0  # How strongly it wants to return to level
 @export var stall_speed: float = 40.0        # Forward speed below which aircraft stalls
 @export var auto_rudder_strength: float = 0.3  # How much auto-rudder per roll input
@@ -25,15 +25,25 @@ var rb: RigidBody3D = null
 @export var stall_lift_loss: float = 0.2      # Fraction of lift lost at full stall (0.0 to 1.0)
 @export var stall_shake_intensity: float = 3.0  # How intense stall shake is
 
+# Drag tuning
+@export var forward_drag_strength: float = 0.4
+@export var lateral_drag_strength: float = 1.2
+@export var gear_drag_multiplier: float = 1.5
+
 # Control inputs
 var pitch_input: float = 0.0
 var roll_input: float = 0.0
 var yaw_input: float = 0.0
 
+@onready var _landing_gear_node: Node = null
+@onready var _gear_controller: Node = null
+
 func _ready() -> void:
 	rb = get_parent() as RigidBody3D
 	if rb:
 		rb.gravity_scale = 1.0
+		_landing_gear_node = rb.get_node_or_null("LandingGear")
+		_gear_controller = rb.get_node_or_null("ControlLandingGear")
 
 func _physics_process(delta: float) -> void:
 	if rb == null:
@@ -42,7 +52,7 @@ func _physics_process(delta: float) -> void:
 	# --- Basic kinematics ---
 	var vel: Vector3 = rb.linear_velocity
 	var speed: float = vel.length()
-	var fwd: Vector3 = -rb.global_transform.basis.z
+	var fwd: Vector3 = rb.global_transform.basis.z
 	var right: Vector3 = rb.global_transform.basis.x
 	var up: Vector3 = rb.global_transform.basis.y
 	var v_dir: Vector3 = (vel / speed) if speed > 0.001 else fwd
@@ -50,10 +60,19 @@ func _physics_process(delta: float) -> void:
 	# Forward speed (nose-aligned component)
 	var forward_speed: float = max(vel.dot(fwd), 0.0)
 
-	# --- Drag (simple quadratic, opposes velocity direction) ---
+	# --- Drag (split longitudinal vs lateral, optional gear multiplier) ---
 	if speed > 0.1:
-		var drag_force: Vector3 = -v_dir * drag_strength * speed * speed
-		rb.apply_central_force(drag_force)
+		var gear_mult: float = gear_drag_multiplier if _is_gear_deployed() else 1.0
+		# Longitudinal
+		var f_drag: Vector3 = -fwd * forward_drag_strength * forward_speed * abs(forward_speed)
+		# Lateral (velocity minus forward component)
+		var lateral_vel: Vector3 = vel - fwd * forward_speed
+		var lateral_speed: float = lateral_vel.length()
+		var lat_dir: Vector3 = (-lateral_vel / lateral_speed) if lateral_speed > 0.001 else Vector3.ZERO
+		var l_drag: Vector3 = lat_dir * lateral_drag_strength * lateral_speed * lateral_speed
+		# Combine and scale
+		var drag_force: Vector3 = (f_drag + l_drag) * drag_base_multiplier
+		rb.apply_central_force(drag_force * gear_mult)
 
 	# --- Lift calculation ---
 	# Project aircraft "up" onto plane perpendicular to airflow for realistic banking
@@ -102,9 +121,9 @@ func _physics_process(delta: float) -> void:
 		var coordinated_yaw: float = yaw_input + (roll_input * auto_rudder_strength)
 		var yaw_torque: float = coordinated_yaw * yaw_power * control_authority * rb.mass
 
-		rb.apply_torque(right * pitch_torque)
-		rb.apply_torque(rb.global_transform.basis.z * roll_torque)
-		rb.apply_torque(rb.global_transform.basis.y * yaw_torque)
+		rb.apply_torque(-right * pitch_torque)
+		rb.apply_torque(-fwd * roll_torque)
+		rb.apply_torque(up * yaw_torque)
 
 	# --- Velocity alignment (the "on rails" effect) ---
 	# Only when not stalled and moving forward
@@ -136,3 +155,16 @@ func _physics_process(delta: float) -> void:
 			var stability_gain: float = stability_strength * rb.mass * control_authority
 			var stability_torque: Vector3 = correction_axis * tilt_angle * stability_gain
 			rb.apply_torque(stability_torque)
+
+func _is_gear_deployed() -> bool:
+	# Prefer LandingGear module state
+	if _landing_gear_node != null:
+		var val = _landing_gear_node.get("is_deployed") if _landing_gear_node.has_method("get") else null
+		if val != null:
+			return bool(val)
+	# Fallback: ControlLandingGear controller
+	if _gear_controller != null:
+		var v2 = _gear_controller.get("gear_down_state") if _gear_controller.has_method("get") else null
+		if v2 != null:
+			return bool(v2)
+	return false

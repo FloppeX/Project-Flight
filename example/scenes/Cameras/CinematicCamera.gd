@@ -26,7 +26,7 @@ func setup_shot():
 		return
 		
 	var aircraft_pos = aircraft.global_position
-	var aircraft_forward = -aircraft.global_transform.basis.z
+	var aircraft_forward = aircraft.global_transform.basis.z
 	var aircraft_right = aircraft.global_transform.basis.x
 	
 	# Position camera ahead of aircraft's flight path
