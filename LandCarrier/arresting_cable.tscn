@@ -10,12 +10,13 @@ script = ExtResource("1_1e4gy")
 cable_area_path = NodePath("cable_area")
 left_anchor_path = NodePath("left_cable_anchor")
 right_anchor_path = NodePath("right_cable_anchor")
-max_tension = 20000.0
+max_tension = 30000.0
 linear_k = 6000.0
 linear_c = 60000.0
 lateral_k = 0.0
 lateral_c = 0.0
-max_pay_out = 15.0
+braking_spring_stiffness_n_per_m = 8000.0
+max_pay_out = 10.0
 auto_release_speed = 0.0
 force_smoothing = 4.0
 

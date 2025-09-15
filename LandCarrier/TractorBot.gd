@@ -12,21 +12,60 @@ class_name TractorBot
 @export var tow_speed_mps: float = 3.5
 @export var accel_mps2: float = 10.0
 @export var turn_speed_deg_s: float = 200.0
+@export var turn_in_place_deg: float = 25.0
 
 # Towing connection tuning
-@export var towing_force_gain: float = 1.0  # legacy scalar multiplier
-@export var tow_kv: float = 2.5             # velocity error gain
-@export var tow_kp: float = 3.0             # position error gain
-@export var tow_force_limit: float = 300000.0 # max force (N)
-@export var hitch_offset_m: float = 1.0     # desired nose gear distance ahead of tractor origin
-@export var stand_off_m: float = 2.0        # tractor target stays this far behind the elevator marker
-@export var stop_tolerance_m: float = 0.5   # stop when nose gear is within this of destination
+@export var towing_force_gain: float = 1.0	# legacy scalar multiplier
+@export var tow_kv: float = 2.5				# velocity error gain
+@export var tow_kp: float = 3.0				# position error gain
+@export var tow_force_limit: float = 300000.0	# max force (N)
+@export var tow_force_smoothing_s: float = 0.2	# low-pass filter time (s)
+@export var hitch_offset_m: float = 1.0		# desired nose gear distance ahead of tractor origin
+@export var stand_off_m: float = 2.0			# tractor target stays this far behind the elevator marker
+@export var stop_tolerance_m: float = 0.5		# stop when nose gear is within this of destination
+
+# Arm (optional)
+@export var arm_node_path: NodePath = "TowArm"
+@export var arm_extended_z: float = 1.3
+@export var arm_retracted_z: float = 0.3
+@export var arm_extend_distance_m: float = 3.0
+@export var arm_length_m: float = 1.0
+@export var hitch_separation_m: float = 0.15
+
+# Rope mode
+@export var use_rope_mode: bool = true
+@export var rope_length_m: float = 2.0
+@export var rope_anchor_path: NodePath = "RopeAnchor"
+@export var approach_a_marker: Node3D
+@export var approach_b_marker: Node3D
+@export var elevator_marker: Node3D
+@export var disconnect_distance_m: float = 1.0
+
+@export var center_stop_tolerance_m: float = 1.0
+@export var arm_extend_time_s: float = 0.4
+@export var min_tow_time_s: float = 1.0
+
+var _arm_extending: bool = false
+var _arm_extended_flag: bool = false
+var _arm_extend_elapsed: float = 0.0
+var _reverse_mode: bool = false
+var _arm_node: Node3D
+var _arm_tip: Node3D
+var _prev_force: Vector3 = Vector3.ZERO
+var _tow_elapsed: float = 0.0
+var _hitch_body: Node3D
+var _joint: PinJoint3D
+var _rope_anchor: Node3D
+var _rope_active: bool = true
+var _tow_phase: int = 0	# 0: to A, 1: to B
+var _latched: bool = false
 
 enum BotState {
 	IDLE,
 	MOVING_TO_AIRCRAFT,
 	COUPLING,
 	TOWING_TO_DESTINATION,
+	DISCONNECTING,
 	UNCOUPLING,
 	RETURNING_TO_STAGING
 }
@@ -43,6 +82,10 @@ func _ready():
 	add_to_group("tractor_bot")
 	if not nav_agent:
 		nav_agent = get_node_or_null("NavAgent") as NavigationAgent3D
+	_arm_node = get_node_or_null(arm_node_path) as Node3D
+	_arm_tip = _arm_node.get_node_or_null("Tip") as Node3D if is_instance_valid(_arm_node) else null
+	_hitch_body = get_node_or_null("TowArm/HitchBody") as Node3D
+	_rope_anchor = get_node_or_null(rope_anchor_path) as Node3D
 	set_physics_process(true)
 	if debug_enabled:
 		print("[TractorBot] Ready. nav_agent=", nav_agent != null)
@@ -57,6 +100,8 @@ func _physics_process(delta: float) -> void:
 			_tick_coupling(delta)
 		BotState.TOWING_TO_DESTINATION:
 			_tick_towing(delta)
+		BotState.DISCONNECTING:
+			_tick_disconnecting(delta)
 		BotState.UNCOUPLING:
 			_tick_uncoupling(delta)
 		BotState.RETURNING_TO_STAGING:
@@ -67,12 +112,15 @@ func accept_recover_job(aircraft: RigidBody3D, destination_marker: Node3D) -> vo
 		print("[TractorBot] accept_recover_job -> ", aircraft, " -> ", destination_marker)
 	_job_aircraft = aircraft
 	_job_destination = destination_marker
+	if elevator_marker == null:
+		elevator_marker = destination_marker
 	if not is_instance_valid(_job_aircraft) or not is_instance_valid(_job_destination):
 		if debug_enabled:
 			print("[TractorBot] Invalid job parameters.")
 		_clear_job()
 		return
 	_nose_gear = _find_nose_gear_collider(_job_aircraft)
+	_reverse_mode = false
 	_state = BotState.MOVING_TO_AIRCRAFT
 	_plan_move_to(_get_couple_target())
 
@@ -87,25 +135,59 @@ func _tick_move_to_aircraft(delta: float) -> void:
 	var goal = _get_couple_target()
 	_set_nav_target(goal)
 	var done = _follow_plan(goal, cruise_speed_mps, delta)
-	_face_toward(goal, delta)
+	# Face toward aircraft while approaching
+	_face_toward(_get_nose_pos_or(goal), delta)
+	if not use_rope_mode:
+		_update_arm_extension(goal)
 	if global_position.distance_to(goal) <= approach_distance_m:
-		_state = BotState.COUPLING
+		# Enter coupling only if not already latched
+		if not _latched:
+			_state = BotState.COUPLING
 
 func _tick_coupling(_delta: float) -> void:
 	if not is_instance_valid(_job_aircraft):
 		_abort_job("Aircraft invalid while coupling")
 		return
-	# Take control of the aircraft and ensure engine is at 0; clear parking brake
-	_job_aircraft.set_meta("controls_disabled", true)
-	if _job_aircraft.has_meta("parking_brake"):
-		_job_aircraft.remove_meta("parking_brake")
-	var engine_controller = _find_engine_controller(_job_aircraft)
-	if is_instance_valid(engine_controller):
-		engine_controller.set("target_power", 0.0)
-	var engine = _find_engine(_job_aircraft)
-	if is_instance_valid(engine) and engine.has_method("set_throttle_input"):
-		engine.set_throttle_input(0.0)
+	# Stop movement and prepare connector (rope or arm)
+	_current_speed = 0.0
+	var nose = _find_nose_gear_collider(_job_aircraft)
+	if not use_rope_mode:
+		if is_instance_valid(_arm_node) and is_instance_valid(nose):
+			var nose_pos = nose.global_position
+			nose_pos.y = _arm_node.global_transform.origin.y
+			_arm_node.look_at(nose_pos, Vector3.UP)
+		if not _arm_extending and not _arm_extended_flag:
+			_arm_extending = true
+			_arm_extend_elapsed = 0.0
+		if _arm_extending and is_instance_valid(_arm_node):
+			_arm_extend_elapsed += _delta
+			var t = clamp(_arm_extend_elapsed / max(arm_extend_time_s, 0.001), 0.0, 1.0)
+			var tr = _arm_node.transform
+			tr.origin.z = lerp(arm_retracted_z, arm_extended_z, t)
+			_arm_node.transform = tr
+			if t >= 1.0:
+				_arm_extending = false
+				_arm_extended_flag = true
+	# Latch and start towing
+	if (not use_rope_mode and _arm_extended_flag) or (use_rope_mode and is_instance_valid(nose)):
+		# Take control of the aircraft and ensure engine is at 0; clear parking brake
+		_job_aircraft.set_meta("controls_disabled", true)
+		if _job_aircraft.has_meta("parking_brake"):
+			_job_aircraft.remove_meta("parking_brake")
+		var engine_controller = _find_engine_controller(_job_aircraft)
+		if is_instance_valid(engine_controller):
+			engine_controller.set("target_power", 0.0)
+		var engine = _find_engine(_job_aircraft)
+		if is_instance_valid(engine) and engine.has_method("set_throttle_input"):
+			engine.set_throttle_input(0.0)
+		if not use_rope_mode:
+			_create_hitch_joint()
+		_latched = true
 	_state = BotState.TOWING_TO_DESTINATION
+	_reverse_mode = true
+	_tow_elapsed = 0.0
+	_rope_active = true
+	_tow_phase = 0
 	# Start path to destination (tractor target sits stand_off_m behind marker)
 	_set_nav_target(_get_tow_tractor_target())
 
@@ -113,23 +195,91 @@ func _tick_towing(delta: float) -> void:
 	if not is_instance_valid(_job_aircraft) or not is_instance_valid(_job_destination):
 		_abort_job("Invalid towing references")
 		return
-	# Tractor target each tick so we place the aircraft nose at the elevator marker
+	# Tractor target each tick per phase
 	var tractor_goal = _get_tow_tractor_target()
 	_set_nav_target(tractor_goal)
-	var done = _follow_plan(tractor_goal, tow_speed_mps, delta)
-	_face_toward(tractor_goal, delta)
-	# Strong towing connection
-	_apply_towing_force(delta)
-	# Stop condition: nose gear reaches destination marker
-	var nose = _find_nose_gear_collider(_job_aircraft)
-	if is_instance_valid(nose):
-		var nose_to_dest = nose.global_position.distance_to(_job_destination.global_position)
-		if nose_to_dest <= stop_tolerance_m:
+	# Slow down gently as the aircraft nears destination
+	var local_tow_speed = tow_speed_mps
+	var ac_center = _job_aircraft.global_transform.origin
+	var dist_center = _horizontal_distance(ac_center, (elevator_marker.global_position if is_instance_valid(elevator_marker) else _job_destination.global_position))
+	if _tow_phase == 1:
+		# approach B slowly
+		local_tow_speed = max(1.0, tow_speed_mps * 0.5)
+	elif dist_center < 3.0:
+		local_tow_speed = max(1.0, tow_speed_mps * 0.7)
+	var done = _follow_plan(tractor_goal, local_tow_speed, delta, false)
+	# Face the aircraft while reversing to maintain alignment and avoid spinning around goal
+	_face_toward(_get_nose_pos_or(tractor_goal), delta)
+	# Keep arm fully extended while towing (arm mode only)
+	if not use_rope_mode and is_instance_valid(_arm_node):
+		var tr = _arm_node.transform
+		tr.origin.z = arm_extended_z
+		_arm_node.transform = tr
+	# If no joint in arm mode, apply force; in rope mode apply force only when rope is active
+	if use_rope_mode:
+		_apply_towing_force(delta)
+	else:
+		if _joint == null or not is_instance_valid(_joint):
+			_apply_towing_force(delta)
+	_tow_elapsed += delta
+	# Stop condition: aircraft center near marker
+	if is_instance_valid(_job_aircraft):
+		var center_to_dest = _horizontal_distance(_job_aircraft.global_transform.origin, (elevator_marker.global_position if is_instance_valid(elevator_marker) else _job_destination.global_position))
+		# Drop rope when within 1m of elevator marker
+		if use_rope_mode and _rope_active and center_to_dest <= disconnect_distance_m:
+			_state = BotState.DISCONNECTING
+			return
+		# Phase advance: when near A, switch to B
+		if _tow_phase == 0 and is_instance_valid(approach_a_marker):
+			if global_position.distance_to(approach_a_marker.global_position) <= 0.75:
+				_tow_phase = 1
+		var ac_vel = _job_aircraft.linear_velocity.length()
+		if _tow_phase == 1 and center_to_dest <= center_stop_tolerance_m and _tow_elapsed >= min_tow_time_s and ac_vel < 0.3:
 			_state = BotState.UNCOUPLING
+
+func _tick_disconnecting(delta: float) -> void:
+	# Smoothly come to a stop, disconnect, then resume towing toward phase B
+	_current_speed = max(0.0, _current_speed - accel_mps2 * delta)
+	# Face approach B for clean egress
+	if is_instance_valid(approach_b_marker):
+		_face_toward(approach_b_marker.global_position, delta)
+	# When both bot and aircraft are nearly still, drop rope/joint
+	var ac_speed = 0.0
+	if is_instance_valid(_job_aircraft):
+		ac_speed = _job_aircraft.linear_velocity.length()
+	if _current_speed <= 0.05 and ac_speed < 0.3:
+		# Disconnect
+		if use_rope_mode:
+			_rope_active = false
+		else:
+			if _joint and is_instance_valid(_joint):
+				_joint.queue_free()
+			_joint = null
+		# Engage aircraft parking brake after disconnect
+		if is_instance_valid(_job_aircraft):
+			_job_aircraft.set_meta("parking_brake", true)
+		# Proceed to phase B
+		_tow_phase = 1
+		_state = BotState.TOWING_TO_DESTINATION
+		_set_nav_target(_get_tow_tractor_target())
 
 func _tick_uncoupling(_delta: float) -> void:
 	if is_instance_valid(_job_aircraft):
 		_job_aircraft.remove_meta("controls_disabled")
+	_reverse_mode = false
+	# Remove joint (arm mode)
+	if _joint and is_instance_valid(_joint):
+		_joint.queue_free()
+	_joint = null
+	# Retract arm if we were using it
+	if not use_rope_mode:
+		if is_instance_valid(_arm_node):
+			var tr = _arm_node.transform
+			tr.origin.z = arm_retracted_z
+			_arm_node.transform = tr
+		_arm_extending = false
+		_arm_extended_flag = false
+	_latched = false
 	_state = BotState.RETURNING_TO_STAGING
 	if is_instance_valid(staging_marker):
 		_plan_move_to(staging_marker.global_position)
@@ -161,10 +311,32 @@ func _get_couple_target() -> Vector3:
 
 func _get_tow_tractor_target() -> Vector3:
 	var dest = _job_destination.global_position if is_instance_valid(_job_destination) else global_position
-	var back = -global_transform.basis.z.normalized()
-	var target = dest + back * stand_off_m
+	if is_instance_valid(elevator_marker):
+		dest = elevator_marker.global_position
+	# Choose intermediate waypoint
+	var phase_target = dest
+	if _tow_phase == 0 and is_instance_valid(approach_a_marker):
+		# Go directly to A (no standoff) to avoid circling
+		return Vector3(approach_a_marker.global_position.x, global_position.y, approach_a_marker.global_position.z)
+	elif _tow_phase == 1 and is_instance_valid(approach_b_marker):
+		phase_target = approach_b_marker.global_position
+	var nose = _find_nose_gear_collider(_job_aircraft) if is_instance_valid(_job_aircraft) else null
+	var back_dir: Vector3
+	if is_instance_valid(nose):
+		back_dir = (phase_target - nose.global_position)
+	else:
+		back_dir = -global_transform.basis.z
+	if back_dir.length() < 0.001:
+		back_dir = -global_transform.basis.z
+	back_dir = back_dir.normalized()
+	var target = phase_target + back_dir * stand_off_m
 	target.y = global_position.y
 	return target
+
+func _horizontal_distance(a: Vector3, b: Vector3) -> float:
+	var da = Vector3(a.x, 0.0, a.z)
+	var db = Vector3(b.x, 0.0, b.z)
+	return da.distance_to(db)
 
 func _plan_move_to(target: Vector3) -> void:
 	if nav_agent:
@@ -174,13 +346,17 @@ func _set_nav_target(target: Vector3) -> void:
 	if nav_agent:
 		nav_agent.set_target_position(target)
 
-func _follow_plan(target: Vector3, max_speed: float, delta: float) -> bool:
+func _follow_plan(target: Vector3, max_speed: float, delta: float, allow_turn_in_place: bool = true) -> bool:
 	var desired_dir: Vector3
 	if nav_agent:
 		var next_pos = nav_agent.get_next_path_position()
 		if (next_pos - global_position).length() < 0.05:
 			next_pos = nav_agent.get_target_position()
-		desired_dir = (next_pos - global_position)
+		var vec = next_pos - global_position
+		if vec.length() < 0.05:
+			desired_dir = (target - global_position)
+		else:
+			desired_dir = vec
 	else:
 		desired_dir = (target - global_position)
 	desired_dir.y = 0.0
@@ -188,11 +364,19 @@ func _follow_plan(target: Vector3, max_speed: float, delta: float) -> bool:
 	if dist < 0.01:
 		_current_speed = 0.0
 		return true
-	desired_dir = desired_dir.normalized()
+	var move_dir = desired_dir.normalized()
+	# If facing error is large, rotate in place (zero-radius turn) when allowed
+	if allow_turn_in_place:
+		var forward = global_transform.basis.z
+		var angle_to = forward.signed_angle_to(move_dir, Vector3.UP)
+		if abs(angle_to) > deg_to_rad(turn_in_place_deg):
+			# Decelerate while rotating; no translation this tick
+			_current_speed = max(0.0, _current_speed - accel_mps2 * delta)
+			return false
 	# Basic accel/decel
 	var target_speed = clamp(max_speed, 0.0, max_speed)
 	_current_speed = clamp(_current_speed + accel_mps2 * delta, 0.0, target_speed)
-	global_position += desired_dir * _current_speed * delta
+	global_position += move_dir * _current_speed * delta
 	return false
 
 func _face_toward(target: Vector3, delta: float) -> void:
@@ -205,20 +389,56 @@ func _face_toward(target: Vector3, delta: float) -> void:
 	var forward = basis.z
 	var angle_to = forward.signed_angle_to(dir, Vector3.UP)
 	var max_turn = deg_to_rad(turn_speed_deg_s) * delta
-	angle_to = clamp(angle_to, -max_turn, max_turn)
+	# If in reverse mode, keep the tractor roughly facing the plane (avoid spinning 180)
+	if _reverse_mode:
+		angle_to = clamp(angle_to, -max_turn * 0.5, max_turn * 0.5)
+	else:
+		angle_to = clamp(angle_to, -max_turn, max_turn)
 	rotate_y(angle_to)
+
+func _get_nose_pos_or(fallback: Vector3) -> Vector3:
+	var nose = _find_nose_gear_collider(_job_aircraft) if is_instance_valid(_job_aircraft) else null
+	if is_instance_valid(nose):
+		return nose.global_position
+	return fallback
+
+func _update_arm_extension(goal: Vector3) -> void:
+	if not is_instance_valid(_arm_node):
+		return
+	# Do not change arm extension while coupling/towing; keep it extended until uncoupling
+	if _state == BotState.TOWING_TO_DESTINATION or _state == BotState.COUPLING:
+		return
+	var d = global_position.distance_to(goal)
+	var tz = arm_extended_z if d <= arm_extend_distance_m else arm_retracted_z
+	var t = _arm_node.transform
+	t.origin.z = tz
+	_arm_node.transform = t
 
 func _apply_towing_force(_delta: float) -> void:
 	if not is_instance_valid(_job_aircraft):
 		return
 	var dt = max(get_physics_process_delta_time(), 0.001)
-	var desired_velocity = (global_transform.basis.z) * _current_speed
+	# Reverse towing: move backward while pulling aircraft toward the marker
+	var desired_velocity = -(global_transform.basis.z) * _current_speed
 	var current_velocity = _job_aircraft.linear_velocity
 	var velocity_error = desired_velocity - current_velocity
 	var nose = _find_nose_gear_collider(_job_aircraft)
 	var pos_error = Vector3.ZERO
-	if is_instance_valid(nose):
-		var hitch_target = global_transform.origin + global_transform.basis.z * hitch_offset_m
+	if use_rope_mode:
+		if is_instance_valid(nose) and is_instance_valid(_rope_anchor) and _rope_active:
+			# Rope constraint: only pull when stretched beyond rope_length
+			var anchor_pos = _rope_anchor.global_transform.origin
+			var nose_pos = nose.global_position
+			var vec = nose_pos - anchor_pos
+			var dist = vec.length()
+			if dist > rope_length_m and dist > 0.001:
+				var target_on_rope = anchor_pos + vec.normalized() * rope_length_m
+				pos_error = target_on_rope - nose_pos
+	else:
+		# Hitch at explicit arm tip marker with a slight separation to avoid overlap
+		var tip_pos = _arm_tip.global_transform.origin if is_instance_valid(_arm_tip) else (_arm_node.global_transform.origin + _arm_node.global_transform.basis.z * arm_length_m)
+		var dir_to_nose = (nose.global_position - tip_pos).normalized()
+		var hitch_target = tip_pos + dir_to_nose * hitch_separation_m
 		pos_error = hitch_target - nose.global_position
 	# PD acceleration
 	var accel_vec = tow_kv * velocity_error + tow_kp * pos_error
@@ -227,11 +447,27 @@ func _apply_towing_force(_delta: float) -> void:
 	force *= towing_force_gain
 	if force.length() > tow_force_limit:
 		force = force.normalized() * tow_force_limit
+	# Smooth the force to reduce jerks
+	var alpha = clamp(dt / max(tow_force_smoothing_s, 0.001), 0.0, 1.0)
+	force = _prev_force.lerp(force, alpha)
+	_prev_force = force
 	var force_position = (nose.global_position - _job_aircraft.global_position) if is_instance_valid(nose) else Vector3.ZERO
 	if is_instance_valid(nose):
 		_job_aircraft.apply_force(force, force_position)
 	else:
 		_job_aircraft.apply_central_force(force)
+
+func _create_hitch_joint() -> void:
+	if not is_instance_valid(_job_aircraft) or not is_instance_valid(_hitch_body):
+		return
+	# Create a PinJoint3D at the tip position and attach A=aircraft, B=hitch body
+	var joint := PinJoint3D.new()
+	var tip_pos = _arm_tip.global_transform.origin if is_instance_valid(_arm_tip) else _hitch_body.global_transform.origin
+	joint.global_position = tip_pos
+	get_tree().current_scene.add_child(joint)
+	joint.set_node_a(_job_aircraft.get_path())
+	joint.set_node_b(_hitch_body.get_path())
+	_joint = joint
 
 func _clear_job() -> void:
 	_job_aircraft = null

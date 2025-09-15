@@ -1,3 +1,64 @@
+## Project Change Log (latest session)
+
+### Core systems
+- Catapult
+  - Uses `controls_disabled` meta on aircraft during launch; restores on release.
+  - Engine spool-up/hold sequence driven by timers (3s ramp, 3s hold).
+  - Immobilizes main wheels during latch with `PinJoint3D`; releases on launch.
+  - Force-based towing replaced springy coupling; PD force applied at nose gear during shuttle run.
+
+- Engine/Controls
+  - `ControlEngine.gd` respects `controls_disabled` (skips input/auto-stop when set).
+  - `Engine.gd` `set_throttle_input()` directly sets power when engine running to avoid start-up race.
+
+- Landing Gear
+  - Added parking brake meta support: when `parking_brake` is set, directional damping engages even if `controls_disabled` is present.
+
+- Arresting Cable
+  - Added signals: `cable_engaged(aircraft)` and `cable_released(aircraft)`; grouped as `arresting_cable`.
+  - Stores a reference to itself on the aircraft meta (`arresting_cable`) while engaged.
+  - Exposes `manual_release()` for external control; restores gear friction on release.
+
+- Flight Deck Manager
+  - Auto-connects to all arresting cables (initial and dynamically added).
+  - On cable engage: disables controls, ramps throttle down over 3s, waits 3s, releases cable, sets `parking_brake`, and dispatches tractor.
+  - Tailhook auto-stow on cable release and as a fallback after manual release.
+  - Added robust polling fallback for arrests (guarded to not conflict with the timed sequence).
+
+### Tailhook
+- `TailhookSimple.gd`
+  - Added `ModuleType = "tailhook"` and ensures nodes are in `tailhook` group.
+  - `stow()` disables colliders and visibility to prevent re-snagging.
+
+### Tractor Bot
+- Scene
+  - New: `LandCarrier/TractorBot.tscn` with body, collision, `NavAgent`, tow arm (`TowArm`), visual cylinder, `Tip` marker, and `RopeAnchor` marker.
+  - Optional `HitchBody` under `TowArm` for arm-attach mode.
+
+- Script: `LandCarrier/TractorBot.gd`
+  - States: IDLE → MOVING_TO_AIRCRAFT → COUPLING → TOWING_TO_DESTINATION → (DISCONNECTING) → UNCOUPLING → RETURNING_TO_STAGING.
+  - Reverse towing: faces and pulls the aircraft while driving in reverse; slows near destination.
+  - Two modes:
+	- Arm mode: extend arm, optional `PinJoint3D` at `TowArm/Tip` to aircraft; keeps arm extended during towing.
+	- Rope mode (default): virtual rope with `rope_length_m` (2 m); only pulls when stretched beyond length.
+  - Exports and markers:
+	- `approach_a_marker`, `approach_b_marker` for elevator approach flow.
+	- `elevator_marker` for final placement and disconnect; `disconnect_distance_m` (horizontal) controls dropout threshold.
+	- Speed/handling: `cruise_speed_mps`, `tow_speed_mps`, `accel_mps2`, `turn_speed_deg_s`, `turn_in_place_deg` (turn-in-place on approach only).
+	- Towing PD tuning: `tow_kp`, `tow_kv`, `tow_force_limit`, `tow_force_smoothing_s`.
+  - Flow:
+	- Approach plane, stop; in arm mode aim/extend; latch (arm or rope).
+	- Phase 0: tow toward Approach A; Phase 1: toward Approach B (slower).
+	- Drop rope when aircraft center within `disconnect_distance_m` (XZ) of `elevator_marker`; bot continues to B then staging.
+	- After disconnect, sets aircraft `parking_brake` to hold position; prevents re-coupling with `_latched` guard.
+
+### Misc
+- Exported and used `controls_disabled`, `parking_brake`, `arresting_cable` metas consistently across systems.
+- Added robust lookup helpers for engine controller, engine, nose gear, and tailhook modules.
+
+### Notes / Next steps
+- Tractor pathing: if circling or stalls occur, confirm `approach_a_marker`, `approach_b_marker`, and `elevator_marker` assignments, and consider enabling a deck `NavigationRegion3D` for `NavAgent`.
+- If a rigid rope is preferred, replace virtual rope with a tuned `Generic6DOFJoint3D` (linear limit on one axis), but this needs careful axis setup per scene orientation.
 The Land Carrier Project
 Welcome to the Land Carrier project. This document serves as an initial overview, providing the foundational concepts and vision for the game before we dive into the detailed development roadmap. The aim is to give AI assistants a clear understanding of the project's essence to better assist with subsequent coding and design tasks.
 

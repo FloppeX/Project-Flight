@@ -59,16 +59,29 @@ tread_index = 1
 script = ExtResource("4_6n087")
 catapult = NodePath("../Catapult")
 tractor_bot = NodePath("../TractorBot")
-elevator_pickup_marker = NodePath("elevator_marker")
+elevator_pickup_marker = NodePath("../elevator_marker")
 
 [node name="plane_start_marker" type="Node3D" parent="FlightDeckManager"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 4.60371, 14.2729)
 
-[node name="elevator_marker" type="Marker3D" parent="FlightDeckManager"]
+[node name="elevator_marker" type="Marker3D" parent="."]
 
-[node name="TractorBot" parent="." node_paths=PackedStringArray("staging_marker") instance=ExtResource("5_olyyp")]
+[node name="elevator_approach_marker_a" type="Marker3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.023, 0, -15.619)
+
+[node name="elevator_approach_marker_b" type="Marker3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.027, 0, 14.862)
+
+[node name="TractorBot" parent="." node_paths=PackedStringArray("staging_marker", "approach_a_marker", "approach_b_marker", "elevator_marker") instance=ExtResource("5_olyyp")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -21.3197, 0.62589, 12.8658)
 staging_marker = NodePath("staging_marker")
+tow_speed_mps = 3.5
+arm_length_m = 1.0
+rope_length_m = 3.0
+approach_a_marker = NodePath("../elevator_approach_marker_a")
+approach_b_marker = NodePath("../elevator_approach_marker_b")
+elevator_marker = NodePath("../elevator_marker")
+disconnect_distance_m = 2.0
 
 [node name="staging_marker" type="Marker3D" parent="TractorBot"]
 
