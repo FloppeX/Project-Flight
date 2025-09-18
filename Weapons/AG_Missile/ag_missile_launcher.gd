@@ -82,6 +82,9 @@ func fire() -> bool:
 	else:
 		print("[AGMissileLauncher] WARNING: Missile instance has no fire methods")
 	
+	# Trigger missile camera tracking on instrument panel
+	_start_missile_camera_tracking(missile, aircraft)
+	
 	ammo_count -= 1
 	print("[AGMissileLauncher] Fired missile. Remaining ammo=", ammo_count)
 	if hide_visual_on_fire and missile_visual and missile_visual.visible:
@@ -89,6 +92,23 @@ func fire() -> bool:
 	if delete_when_empty and ammo_count <= 0:
 		queue_free()
 	return true
+
+func _start_missile_camera_tracking(missile: Node3D, aircraft: Node3D) -> void:
+	"""Find instrument panel and start missile camera tracking"""
+	if not missile or not aircraft:
+		return
+	
+	# Look for instrument panel in the aircraft
+	var instrument_panel = aircraft.find_child("InstrumentPanel", true, false)
+	if not instrument_panel:
+		# Try to find it in the scene tree
+		instrument_panel = get_tree().get_first_node_in_group("instrument_panel")
+	
+	if instrument_panel and instrument_panel.has_method("start_missile_camera_tracking"):
+		print("[AGMissileLauncher] Starting missile camera tracking")
+		instrument_panel.start_missile_camera_tracking(missile)
+	else:
+		print("[AGMissileLauncher] Could not find instrument panel for missile camera")
 
 func _ensure_missile_scene() -> bool:
 	var candidates: Array[String] = [

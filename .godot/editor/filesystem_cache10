@@ -1,38 +1,38 @@
 ea4bc82a6ad023ab7ee23ee620429895
-::res://::1758218006
+::res://::1758230842
 Aircraft.tscn::PackedScene/PackedScene::1756625952029027202::1757752819::0::1::::<><><>0<>0<><>::
 archive_candidates.txt::TextFile/TextFile::-1::1757263574::0::1::::<><><>0<>0<><>::
 Blank.png::CompressedTexture2D/CompressedTexture2D::8743737611526492024::1756236705::1757263394::1::::<><><>0<>0<>3ecf2dc36c94b026e612db5a3efe134d<>res://.godot/imported/Blank.png-6116059764052402205d601398dce6a5.s3tc.ctex::
-Bridge.gd::GDScript::6010355149200313446::1758217982::0::1::::Bridge<>Node3D<><>0<>0<><>::
-CarrierCollisionSetup.gd::GDScript::6330060471103108161::1758217981::0::1::::CarrierCollisionSetup<>Node3D<><>0<>0<><>::
-CarrierElevator.gd::GDScript::7357281367143612821::1758217981::0::1::::CarrierElevator<>Node3D<><>0<>0<><>::
-CarrierElevator.tscn::PackedScene::639845102683066655::1758217981::0::1::::<><><>0<>0<><>::uid://dc26l4xew3q0d::::res://CarrierElevator.gd
-CarrierTread.gd::GDScript::8393597097382259651::1758217981::0::1::::CarrierTread<>StaticBody3D<><>0<>0<><>::
-CarrierTread.tscn::PackedScene::141440661813962091::1758217981::0::1::::<><><>0<>0<><>::uid://drtit26euv7s0::::res://CarrierTread.gd<>uid://cl66ul7ehqqi3::::res://Models/Land carrier NEW treads 2.glb
-CompleteFighterJet.tscn::PackedScene::4519456184300673352::1758218006::0::1::::<><><>0<>0<><>::uid://c4ltq2v6fji05::::res://Aircraft/aircraft.gd<>uid://cadi81fcpvmuc::::res://Projectiles/Explosion/explosion.tscn<>uid://bt14e1qa1msic::::res://Models/Aircraft_1/Aircraft 1 new.glb<>uid://djtbinx1svo2u::::res://Aircraft/Aircraft wreck/aircraft_1_wreck.tscn<>uid://bpfxucj3ypbxu::::res://Models/Aircraft_1/Aircraft 2 propeller.glb<>uid://cyxrx2cid1gt::::res://example/SimpleAero.gd<>uid://c0o23b5ljp2ux::::res://Models/Aircraft_1/Aircraft 1 nose gear.glb<>uid://cjjut6tj4mout::::res://Models/Aircraft_1/Aircraft 2 left gear.glb<>uid://bumb5qqc3xt7::::res://Models/Aircraft_1/Aircraft 1 right gear.glb<>uid://diddm04vtjnny::::res://addons/simplified_flightsim/aircraft_modules/EnergyContainer/EnergyContainer.tscn<>uid://bxmk3xwsygst::::res://addons/simplified_flightsim/aircraft_modules/Engine/Engine.tscn<>uid://b1vdg40us1d5i::::res://Sounds/airplane_propeller 2.wav<>uid://dscm8ajwonvl5::::res://Sounds/prop startup 3.wav<>uid://dtqtmiqu6tnjn::::res://addons/simplified_flightsim/aircraft_modules/Steering/Steering.tscn<>uid://cjfopuepgkub3::::res://addons/simplified_flightsim/aircraft_modules/Flaps/Flaps.tscn<>uid://byum6h2if6b1a::::res://addons/simplified_flightsim/aircraft_modules/LandingGear/LandingGear.tscn<>uid://cvxa8h3yftguj::::res://example/sfx/aircraft_modules/landing_gear/deploy.wav<>uid://ch1k8klfyw0mq::::res://example/sfx/aircraft_modules/landing_gear/stow.wav<>uid://chvx807lmr2rs::::res://addons/simplified_flightsim/aircraft_modules/Controls/ControlEngine.tscn<>uid://booy8rgevyscb::::res://addons/simplified_flightsim/aircraft_modules/Controls/ControlSteering.tscn<>uid://btkewnvu2bgu7::::res://addons/simplified_flightsim/aircraft_modules/Controls/ControlLandingGear.tscn<>uid://dmkf543ywx7dl::::res://addons/simplified_flightsim/aircraft_modules/Controls/ControlFlaps.tscn<>uid://cmcm4b17iaaro::::res://example/control_weapons.gd<>uid://nduup0ehe83b::::res://example/scenes/Cameras/camera_controller.gd<>uid://bofxleceqjey4::::res://addons/simplified_flightsim/aircraft_modules/Controls/ControlTargeting.gd<>uid://drhynljb0dts8::::res://Audio/AudioManager3D.tscn<>uid://5f7vvtjcqw00::::res://example/scenes/Cameras/CameraTripod.tscn<>uid://cqyfnpv28jupa::::res://HUD/HeadsUpDisplay.tscn<>uid://b4xm8v23opqrs::::res://HUD/InstrumentPanel.tscn<>uid://dsnc8jllg42ph::::res://Weapons/hardpoint.tscn<>uid://bar7l5uwuwevr::::res://Weapons/Autocannon/Autocannon.tscn<>uid://ds5dlvtqfa7tv::::res://Aircraft/tail_hook.tscn<>uid://yjaa3lj4xxb3::::res://Weapons/AG_Missile/ag_missile_launcher.tscn
+Bridge.gd::GDScript/GDScript::6010355149200313446::1758218373::0::1::::Bridge<>Node3D<><>0<>0<><>::
+CarrierCollisionSetup.gd::GDScript/GDScript::6330060471103108161::1758218372::0::1::::CarrierCollisionSetup<>Node3D<><>0<>0<><>::
+CarrierElevator.gd::GDScript/GDScript::7357281367143612821::1758218372::0::1::::CarrierElevator<>Node3D<><>0<>0<><>::
+CarrierElevator.tscn::PackedScene/PackedScene::639845102683066655::1758218373::0::1::::<><><>0<>0<><>::uid://dc26l4xew3q0d::::res://CarrierElevator.gd
+CarrierTread.gd::GDScript/GDScript::8393597097382259651::1758218372::0::1::::CarrierTread<>StaticBody3D<><>0<>0<><>::
+CarrierTread.tscn::PackedScene/PackedScene::141440661813962091::1758218373::0::1::::<><><>0<>0<><>::uid://drtit26euv7s0::::res://CarrierTread.gd<>uid://cl66ul7ehqqi3::::res://Models/Land carrier NEW treads 2.glb
+CompleteFighterJet.tscn::PackedScene::4519456184300673352::1758230777::0::1::::<><><>0<>0<><>::uid://c4ltq2v6fji05::::res://Aircraft/aircraft.gd<>uid://cadi81fcpvmuc::::res://Projectiles/Explosion/explosion.tscn<>uid://bt14e1qa1msic::::res://Models/Aircraft_1/Aircraft 1 new.glb<>uid://djtbinx1svo2u::::res://Aircraft/Aircraft wreck/aircraft_1_wreck.tscn<>uid://bpfxucj3ypbxu::::res://Models/Aircraft_1/Aircraft 2 propeller.glb<>uid://cyxrx2cid1gt::::res://example/SimpleAero.gd<>uid://c0o23b5ljp2ux::::res://Models/Aircraft_1/Aircraft 1 nose gear.glb<>uid://cjjut6tj4mout::::res://Models/Aircraft_1/Aircraft 2 left gear.glb<>uid://bumb5qqc3xt7::::res://Models/Aircraft_1/Aircraft 1 right gear.glb<>uid://diddm04vtjnny::::res://addons/simplified_flightsim/aircraft_modules/EnergyContainer/EnergyContainer.tscn<>uid://bxmk3xwsygst::::res://addons/simplified_flightsim/aircraft_modules/Engine/Engine.tscn<>uid://b1vdg40us1d5i::::res://Sounds/airplane_propeller 2.wav<>uid://dscm8ajwonvl5::::res://Sounds/prop startup 3.wav<>uid://dtqtmiqu6tnjn::::res://addons/simplified_flightsim/aircraft_modules/Steering/Steering.tscn<>uid://cjfopuepgkub3::::res://addons/simplified_flightsim/aircraft_modules/Flaps/Flaps.tscn<>uid://byum6h2if6b1a::::res://addons/simplified_flightsim/aircraft_modules/LandingGear/LandingGear.tscn<>uid://cvxa8h3yftguj::::res://example/sfx/aircraft_modules/landing_gear/deploy.wav<>uid://ch1k8klfyw0mq::::res://example/sfx/aircraft_modules/landing_gear/stow.wav<>uid://chvx807lmr2rs::::res://addons/simplified_flightsim/aircraft_modules/Controls/ControlEngine.tscn<>uid://booy8rgevyscb::::res://addons/simplified_flightsim/aircraft_modules/Controls/ControlSteering.tscn<>uid://btkewnvu2bgu7::::res://addons/simplified_flightsim/aircraft_modules/Controls/ControlLandingGear.tscn<>uid://dmkf543ywx7dl::::res://addons/simplified_flightsim/aircraft_modules/Controls/ControlFlaps.tscn<>uid://cmcm4b17iaaro::::res://example/control_weapons.gd<>uid://nduup0ehe83b::::res://example/scenes/Cameras/camera_controller.gd<>uid://bofxleceqjey4::::res://addons/simplified_flightsim/aircraft_modules/Controls/ControlTargeting.gd<>uid://drhynljb0dts8::::res://Audio/AudioManager3D.tscn<>uid://5f7vvtjcqw00::::res://example/scenes/Cameras/CameraTripod.tscn<>uid://cqyfnpv28jupa::::res://HUD/HeadsUpDisplay.tscn<>uid://b4xm8v23opqrs::::res://HUD/InstrumentPanel.tscn<>uid://dsnc8jllg42ph::::res://Weapons/hardpoint.tscn<>uid://bar7l5uwuwevr::::res://Weapons/Autocannon/Autocannon.tscn<>uid://ds5dlvtqfa7tv::::res://Aircraft/tail_hook.tscn<>uid://yjaa3lj4xxb3::::res://Weapons/AG_Missile/ag_missile_launcher.tscn
 default_env.tres::Environment/Environment::3801532319314207958::1757267568::0::1::::<><><>0<>0<><>::
 desert_scenario.tscn::PackedScene/PackedScene::8320502695543780754::1757914690::0::1::::<><><>0<>0<><>::uid://di4mmbdu6qiv1::::res://Main_Scene.tscn
 Digital camo 2.png::CompressedTexture2D/CompressedTexture2D::2169774627044335105::1756231983::1757263394::1::::<><><>0<>0<>8f0ba7b532b5b8ab19ba66161c21c7a2<>res://.godot/imported/Digital camo 2.png-24b0315ba9144a86f200d9be4d026c24.s3tc.ctex::
 Digital camo.png::CompressedTexture2D/CompressedTexture2D::3068128888498655020::1756231334::1757263394::1::::<><><>0<>0<>f11dd1475f32c28ab006105a63e99e98<>res://.godot/imported/Digital camo.png-dee407b9703fcf42c195e6985c8471d9.s3tc.ctex::
 dry-cracked-ground-texture.jpg::CompressedTexture2D/CompressedTexture2D::1712957847348881442::1756042305::1757263401::1::::<><><>0<>0<>23c550aaa31528b573470494053f8d43<>res://.godot/imported/dry-cracked-ground-texture.jpg-9ff096949de3d4a11043c9d2812009ff.ctex::
-FlightDeck.gd::GDScript::6318541854346748548::1758218005::0::1::::FlightDeck<>Node3D<><>0<>0<><>::
-GLB_Integration_Guide.md::TextFile::-1::1758217981::0::1::::<><><>0<>0<><>::
-GroundShape.tres::BoxShape3D::-1::1758217981::0::1::::<><><>0<>0<><>::
-Hangar.gd::GDScript::8095551803985105524::1758217980::0::1::::Hangar<>Node3D<><>0<>0<><>::
+FlightDeck.gd::GDScript/GDScript::6318541854346748548::1758218568::0::1::::FlightDeck<>Node3D<><>0<>0<><>::
+GLB_Integration_Guide.md::TextFile/TextFile::-1::1758218372::0::1::::<><><>0<>0<><>::
+GroundShape.tres::BoxShape3D/BoxShape3D::-1::1758218372::0::1::::<><><>0<>0<><>::
+Hangar.gd::GDScript/GDScript::8095551803985105524::1758218372::0::1::::Hangar<>Node3D<><>0<>0<><>::
 icon.png::CompressedTexture2D/CompressedTexture2D::6643516849135214777::1755622868::1757263394::1::::<><><>0<>0<>bb53edd3b1b2a24d4794029bcf3f6646<>res://.godot/imported/icon.png-487276ed1e3a0c39cad0279d744ee560.ctex::
-Land Carrier Project description.md::TextFile::-1::1758217983::0::1::::<><><>0<>0<><>::
-LandCarrier.gd::GDScript::8306503758501385322::1758217981::0::1::::LandCarrier<>CharacterBody3D<><>0<>0<><>::
-LandCarrier.tscn::PackedScene::4752120840555584652::1758218005::0::1::::<><><>0<>0<><>::uid://dqly5yht3qjks::::res://LandCarrier.gd<>uid://carriertread::::res://CarrierTread.tscn<>uid://bdcuxticnrnfj::::res://LandCarrier/FlightDeckManager.gd<>uid://bvpw5kh47xoaq::::res://LandCarrier/TractorBot.tscn<>uid://7fxt8bm8o8ml::::res://Models/Land carrier NEW.glb<>uid://1dc3wqfq3v2j::::res://TreadPositionHelper.gd<>uid://byhupfh0501o1::::res://LandCarrier/Catapult.gd<>uid://jd7fjuhmfvd4::::res://CarrierElevator.tscn<>uid://cwglf226m425r::::res://CarrierCollisionSetup.gd<>uid://b6ioeynvc7a1n::::res://LandCarrierInput.gd<>uid://c31lkp3a7sq3a::::res://LandCarrier/arresting_cable.tscn
-LandCarrierInput.gd::GDScript::4579648321179869313::1758217981::0::1::::LandCarrierInput<>Node3D<><>0<>0<><>::
+Land Carrier Project description.md::TextFile/TextFile::-1::1758218403::0::1::::<><><>0<>0<><>::
+LandCarrier.gd::GDScript/GDScript::8306503758501385322::1758218373::0::1::::LandCarrier<>CharacterBody3D<><>0<>0<><>::
+LandCarrier.tscn::PackedScene::4752120840555584652::1758230776::0::1::::<><><>0<>0<><>::uid://dqly5yht3qjks::::res://LandCarrier.gd<>uid://carriertread::::res://CarrierTread.tscn<>uid://bdcuxticnrnfj::::res://LandCarrier/FlightDeckManager.gd<>uid://bvpw5kh47xoaq::::res://LandCarrier/TractorBot.tscn<>uid://7fxt8bm8o8ml::::res://Models/Land carrier NEW.glb<>uid://1dc3wqfq3v2j::::res://TreadPositionHelper.gd<>uid://byhupfh0501o1::::res://LandCarrier/Catapult.gd<>uid://jd7fjuhmfvd4::::res://CarrierElevator.tscn<>uid://cwglf226m425r::::res://CarrierCollisionSetup.gd<>uid://b6ioeynvc7a1n::::res://LandCarrierInput.gd<>uid://c31lkp3a7sq3a::::res://LandCarrier/arresting_cable.tscn
+LandCarrierInput.gd::GDScript/GDScript::4579648321179869313::1758218372::0::1::::LandCarrierInput<>Node3D<><>0<>0<><>::
 land_carrier_static.tscn::PackedScene/PackedScene::6996600536206232590::1756758207::0::1::::<><><>0<>0<><>::uid://l7y3qpxh72ii::::res://example/models/Land Carrier/Land carrier static.glb
-low_poly_env.tres::Environment::2951130167922056759::1758218006::0::1::::<><><>0<>0<><>::
-Main_Scene.tscn::PackedScene::7781389846599889204::1758217113::0::1::::<><><>0<>0<><>::uid://dhif0k7fphvot::::res://example/Example1_Simple.gd<>uid://b5ni1vhgcw1xc::::res://CompleteFighterJet.tscn<>uid://dsel16gi76dnm::::res://example/ui/UIEnergyContainer/UIFuelLevel.tscn<>uid://bu2hixfhu8ndm::::res://example/ui/UIEnginePower/UIEnginePower.tscn<>uid://c5ymngm2dd31d::::res://Enemies/EnemyController.gd<>uid://b8x70a02a1b2c::::res://LandCarrier.tscn<>uid://bmut2y2xaqj6x::::res://example/ui/UIAltSpeed/UIAltSpeed.tscn<>uid://c4dncgm8qjt7u::::res://example/ui/UIFlaps/UIFlaps.tscn<>uid://b8s77ar81hq22::::res://example/ui/UILandingGear/UILandingGear.tscn<>uid://dhg4sb4ifrvh8::::res://example/ui/UIAttitude/UIAttitude.tscn<>uid://bjyhvtr0couky::::res://Digital camo.png<>uid://cpbhova213sy7::::res://addons/terrain_3d/extras/shaders/flat_lit_shader.gdshader<>uid://dwtsc0vchv7r5::::res://Blank.png<>uid://c2s8c25rpg1df::::res://Weather/ContinuousTurbulence.tscn<>uid://d1f7iy8ov1hjm::::res://UI/HealthDisplay.tscn<>uid://enemybox123::::res://Enemies/EnemyBox.tscn
+low_poly_env.tres::Environment::2951130167922056759::1758230779::0::1::::<><><>0<>0<><>::
+Main_Scene.tscn::PackedScene::7781389846599889204::1758230778::0::1::::<><><>0<>0<><>::uid://dhif0k7fphvot::::res://example/Example1_Simple.gd<>uid://b5ni1vhgcw1xc::::res://CompleteFighterJet.tscn<>uid://dsel16gi76dnm::::res://example/ui/UIEnergyContainer/UIFuelLevel.tscn<>uid://bu2hixfhu8ndm::::res://example/ui/UIEnginePower/UIEnginePower.tscn<>uid://c5ymngm2dd31d::::res://Enemies/EnemyController.gd<>uid://b8x70a02a1b2c::::res://LandCarrier.tscn<>uid://bmut2y2xaqj6x::::res://example/ui/UIAltSpeed/UIAltSpeed.tscn<>uid://c4dncgm8qjt7u::::res://example/ui/UIFlaps/UIFlaps.tscn<>uid://b8s77ar81hq22::::res://example/ui/UILandingGear/UILandingGear.tscn<>uid://dhg4sb4ifrvh8::::res://example/ui/UIAttitude/UIAttitude.tscn<>uid://bjyhvtr0couky::::res://Digital camo.png<>uid://cpbhova213sy7::::res://addons/terrain_3d/extras/shaders/flat_lit_shader.gdshader<>uid://dwtsc0vchv7r5::::res://Blank.png<>uid://c2s8c25rpg1df::::res://Weather/ContinuousTurbulence.tscn<>uid://d1f7iy8ov1hjm::::res://UI/HealthDisplay.tscn<>uid://enemybox123::::res://Enemies/EnemyBox.tscn
 new_terrain_3d_assets.tres::Terrain3DAssets/Terrain3DAssets::8263581795652343512::1756035881::0::1::::<><><>0<>0<><>::
 new_terrain_3d_material.tres::Terrain3DMaterial/Terrain3DMaterial::7998334557141876891::1756035887::0::1::::<><><>0<>0<><>::
 ParticleManager.gd::GDScript/GDScript::8735500278856960486::1758205097::0::1::::ParticleManager<>Node<><>0<>0<><>::
-TreadPositionHelper.gd::GDScript::1831275684546149363::1758217981::0::1::::TreadPositionHelper<>Node3D<><>0<>0<><>::
+TreadPositionHelper.gd::GDScript/GDScript::1831275684546149363::1758218372::0::1::::TreadPositionHelper<>Node3D<><>0<>0<><>::
 used_files.txt::TextFile/TextFile::-1::1757263573::0::1::::<><><>0<>0<><>::
-WeaponSystem.gd::GDScript::5806571703128023011::1758217981::0::1::::WeaponSystem<>Node3D<><>0<>0<><>::
+WeaponSystem.gd::GDScript/GDScript::5806571703128023011::1758218372::0::1::::WeaponSystem<>Node3D<><>0<>0<><>::
 ::res://_archive/::1757263361
 ::res://_archive/addons/::1757263036
 ::res://_archive/addons/simplified_flightsim/::1757263361
@@ -140,27 +140,27 @@ Aircraft.tscn::PackedScene/PackedScene::1497249741396161708::1757259248::0::1:::
 ::res://addons/simplified_flightsim/aircraft_modules/::1757700548
 AircraftModule_Node_icon.png::CompressedTexture2D/CompressedTexture2D::3567938336548541010::1755622869::1757263395::1::::<><><>0<>0<>67cba32580ac64a97ae5b32a3b4c32af<>res://.godot/imported/AircraftModule_Node_icon.png-e87713d249ce81f8e92e4f9388e0821f.ctex::
 AircraftModule_Spatial_icon.png::CompressedTexture2D/CompressedTexture2D::4097048892786841222::1755622869::1757263395::1::::<><><>0<>0<>a0696150bd03652aea3b126022848607<>res://.godot/imported/AircraftModule_Spatial_icon.png-b584e1eb46d3640e5e47add71bc159a5.ctex::
-base_module.gd::GDScript/GDScript::2130289506373141604::1755622869::0::1::::AircraftModule<>Node<><>0<>0<><>::
-base_module_spatial.gd::GDScript/GDScript::4020123433613359544::1755622869::0::1::::AircraftModuleSpatial<>Node3D<><>0<>0<><>::
+base_module.gd::GDScript/GDScript::2130289506373141604::1755622869::0::1::::AircraftModule<>Node<>res://addons/simplified_flightsim/aircraft_modules/AircraftModule_Node_icon.png<>0<>0<><>::
+base_module_spatial.gd::GDScript/GDScript::4020123433613359544::1755622869::0::1::::AircraftModuleSpatial<>Node3D<>res://addons/simplified_flightsim/aircraft_modules/AircraftModule_Spatial_icon.png<>0<>0<><>::
 ::res://addons/simplified_flightsim/aircraft_modules/Controls/::1757969975
 ControlAircraft.gd::GDScript/GDScript::-1::1757880149::0::1::::<>RefCounted<><>0<>0<><>::
 ControlEnergyContainer.gd::GDScript/GDScript::994207464816568133::1755453672::0::1::::AircraftModule_ControlEnergyContainer<>AircraftModule<><>0<>0<><>::
 ControlEnergyContainer.tscn::PackedScene/PackedScene::1080243347082295234::1756034487::0::1::::<><><>0<>0<><>::uid://ofupmfhuxjh2::::res://addons/simplified_flightsim/aircraft_modules/Controls/ControlEnergyContainer.gd
-ControlEngine.gd::GDScript::840192690160173353::1758217983::0::1::::AircraftModule_ControlEngine<>AircraftModule<><>0<>0<><>::
+ControlEngine.gd::GDScript/GDScript::840192690160173353::1758218403::0::1::::AircraftModule_ControlEngine<>AircraftModule<><>0<>0<><>::
 ControlEngine.tscn::PackedScene/PackedScene::5308971990754194920::1756758206::0::1::::<><><>0<>0<><>::uid://l7836t63fuj6::::res://addons/simplified_flightsim/aircraft_modules/Controls/ControlEngine.gd
 ControlFlaps.gd::GDScript/GDScript::93188582642793341::1755461198::0::1::::AircraftModule_ControlFlaps<>AircraftModule<><>0<>0<><>::
 ControlFlaps.tscn::PackedScene/PackedScene::8022530678609737225::1756034487::0::1::::<><><>0<>0<><>::uid://ble2jrhkjmcb::::res://addons/simplified_flightsim/aircraft_modules/Controls/ControlFlaps.gd
 ControlInput.gd::GDScript/GDScript::-1::1757880674::0::1::::<>RefCounted<><>0<>0<><>::
-ControlLandingGear.gd::GDScript::4571001372849916451::1758217983::0::1::::AircraftModule_ControlLandingGear<>AircraftModule<><>0<>0<><>::
+ControlLandingGear.gd::GDScript/GDScript::4571001372849916451::1758218403::0::1::::AircraftModule_ControlLandingGear<>AircraftModule<><>0<>0<><>::
 ControlLandingGear.tscn::PackedScene/PackedScene::3740935361982568792::1756034488::0::1::::<><><>0<>0<><>::uid://b6ehyv3yrllap::::res://addons/simplified_flightsim/aircraft_modules/Controls/ControlLandingGear.gd
 ControlSteering.gd::GDScript/GDScript::46650950441067335::1756034615::0::1::::AircraftModule_ControlSteering<>AircraftModule<><>0<>0<><>::
 ControlSteering.tscn::PackedScene/PackedScene::3399482824584195869::1756034488::0::1::::<><><>0<>0<><>::uid://wulmq24ws6b::::res://addons/simplified_flightsim/aircraft_modules/Controls/ControlSteering.gd
-ControlTargeting.gd::GDScript::3380802731348927525::1758217983::0::1::::AircraftModule_ControlTargeting<>AircraftModule<><>0<>0<><>::
+ControlTargeting.gd::GDScript::3380802731348927525::1758219287::0::1::::AircraftModule_ControlTargeting<>AircraftModule<><>0<>0<><>::
 ::res://addons/simplified_flightsim/aircraft_modules/EnergyContainer/::1757263361
 EnergyContainer.gd::GDScript/GDScript::5178256421269441966::1755622869::0::1::::AircraftModule_EnergyContainer<>AircraftModule<><>0<>0<><>::
 EnergyContainer.tscn::PackedScene/PackedScene::7727170872813884894::1756034488::0::1::::<><><>0<>0<><>::uid://cf1nekqbht2ik::::res://addons/simplified_flightsim/aircraft_modules/EnergyContainer/EnergyContainer.gd
 ::res://addons/simplified_flightsim/aircraft_modules/Engine/::1757263361
-Engine.gd::GDScript::4946461896204408430::1758217983::0::1::::AircraftModule_Engine<>AircraftModuleSpatial<><>0<>0<><>::
+Engine.gd::GDScript/GDScript::4946461896204408430::1758218403::0::1::::AircraftModule_Engine<>AircraftModuleSpatial<><>0<>0<><>::
 Engine.tscn::PackedScene/PackedScene::118417501042543599::1756758206::0::1::::<><><>0<>0<><>::uid://ccqdrfqoyse5s::::res://addons/simplified_flightsim/aircraft_modules/Engine/Engine.gd<>uid://bouv88p2spjty::::res://example/sfx/aircraft_modules/engine/engine_start.wav<>uid://d113roojokjhb::::res://example/sfx/aircraft_modules/engine/engine.ogg
 ::res://addons/simplified_flightsim/aircraft_modules/Flaps/::1757263361
 Flaps.gd::GDScript/GDScript::3074243977646852710::1755622869::0::1::::AircraftModule_Flaps<>AircraftModule<><>0<>0<><>::
@@ -169,13 +169,13 @@ Flaps.tscn::PackedScene/PackedScene::5415740731042282526::1756034488::0::1::::<>
 InstrumentAttitude.gd::GDScript/GDScript::3801395348636798651::1756837639::0::1::::AircraftModule_InstrumentAttitude<>AircraftModule<><>0<>0<><>::
 InstrumentAttitude.tscn::PackedScene/PackedScene::1239702303644958236::1756034488::0::1::::<><><>0<>0<><>::uid://bufooqps13aq2::::res://addons/simplified_flightsim/aircraft_modules/Instruments/InstrumentAttitude.gd
 ::res://addons/simplified_flightsim/aircraft_modules/LandingGear/::1757542558
-LandingGear.gd::GDScript::8239872503934521587::1758217983::0::1::::AircraftModule_LandingGear<>AircraftModuleSpatial<><>0<>0<><>::
+LandingGear.gd::GDScript/GDScript::8239872503934521587::1758218403::0::1::::AircraftModule_LandingGear<>AircraftModuleSpatial<><>0<>0<><>::
 LandingGear.tscn::PackedScene/PackedScene::4113024859355878912::1756034488::0::1::::<><><>0<>0<><>::uid://dpnpq4x08iv8n::::res://addons/simplified_flightsim/aircraft_modules/LandingGear/LandingGear.gd
 ::res://addons/simplified_flightsim/aircraft_modules/Steering/::1757617407
 Steering.gd::GDScript/GDScript::6137030535910219979::1757617407::0::1::::AircraftModule_Steering<>AircraftModule<><>0<>0<><>::
 Steering.tscn::PackedScene/PackedScene::8527055622510865275::1756034488::0::1::::<><><>0<>0<><>::uid://cto284ym7oj28::::res://addons/simplified_flightsim/aircraft_modules/Steering/Steering.gd
 ::res://addons/simplified_flightsim/aircraft_modules/Tailhook/::1757704917
-Tailhook.gd::GDScript::7437139618737804471::1758217983::0::1::::AircraftModule_Tailhook<>AircraftModuleSpatial<><>0<>0<><>::
+Tailhook.gd::GDScript/GDScript::7437139618737804471::1758218403::0::1::::AircraftModule_Tailhook<>AircraftModuleSpatial<><>0<>0<><>::
 ::res://addons/terrain_3d/::1757263394
 Heightmap.png::CompressedTexture2D/CompressedTexture2D::5786182705710066644::1756043506::1757263394::1::::<><><>0<>0<>bad4496d5f81931f42a9c3ff3bd17a30<>res://.godot/imported/Heightmap.png-19c6a7a929ea2006c9265a2eac3b735b.ctex::
 LICENSE.txt::TextFile/TextFile::-1::1756035184::0::1::::<><><>0<>0<><>::
@@ -198,7 +198,7 @@ terrain3d_03_01.res::Terrain3DRegion/Terrain3DRegion::8631662448157211138::17561
 terrain3d_03_02.res::Terrain3DRegion/Terrain3DRegion::8799202692832163968::1756136948::0::1::::<><><>0<>0<><>::
 terrain3d_03_03.res::Terrain3DRegion/Terrain3DRegion::3181360921640911821::1756136948::0::1::::<><><>0<>0<><>::
 terrain.gdextension::GDExtension/GDExtension::2625506675569593757::1756035189::0::1::::<><><>0<>0<><>::
-::res://addons/terrain_3d/bin/::1758136893
+::res://addons/terrain_3d/bin/::1758230838
 ::res://addons/terrain_3d/bin/libterrain.macos.debug.framework/::1757263361
 ::res://addons/terrain_3d/bin/libterrain.macos.release.framework/::1757263361
 ::res://addons/terrain_3d/extras/::1756150277
@@ -265,21 +265,21 @@ region_gizmo.gd::GDScript/GDScript::2942749309794269562::1756035188::0::1::::<>E
 toolbar.gd::GDScript/GDScript::4231668338561292708::1756035189::0::1::::<>VFlowContainer<><>0<>0<><>::
 tool_settings.gd::GDScript/GDScript::5372118092779126474::1756035188::0::1::::<>PanelContainer<><>0<>0<><>::
 ui.gd::GDScript/GDScript::3439494081897891987::1756035189::0::1::::<>Node<><>0<>0<><>::
-::res://addons/terrain_3d/tools/::1758217114
+::res://addons/terrain_3d/tools/::1758230779
 importer.gd::GDScript/GDScript::5338086642484027321::1756035189::0::1::::<>Terrain3D<><>0<>1<><>::
-importer.tscn::PackedScene::3158990868267418980::1758217114::0::1::::<><><>0<>0<><>::uid://cib2rig7vup10::::res://addons/terrain_3d/tools/importer.gd<>uid://56b4u8xpw0c0::::res://Digital camo 2.png
+importer.tscn::PackedScene::3158990868267418980::1758230779::0::1::::<><><>0<>0<><>::uid://cib2rig7vup10::::res://addons/terrain_3d/tools/importer.gd<>uid://56b4u8xpw0c0::::res://Digital camo 2.png
 region_mover.gd::GDScript/GDScript::3312089740165276770::1756035189::0::1::::<>Terrain3D<><>0<>1<><>::
 ::res://addons/terrain_3d/utils/::1757263361
 terrain_3d_objects.gd::GDScript/GDScript::7256511001583860152::1756035189::0::1::::Terrain3DObjects<>Node3D<><>0<>1<><>::
 transform_changed_notifier.gd::GDScript/GDScript::5546349407322732584::1756035189::0::1::::<>Node3D<><>0<>1<><>::
 ::res://Aircraft/::1757964601
-aircraft.gd::GDScript::6832209635735730248::1758217982::0::1::::Aircraft<>RigidBody3D<><>0<>0<><>::
-TailhookSimple.gd::GDScript::5747246484961308110::1758217983::0::1::::<>Node3D<><>0<>0<><>::
-tail_hook.tscn::PackedScene::8484795496972255659::1758217983::0::1::::<><><>0<>0<><>::uid://bg63t1r0rh3f8::::res://example/models/Tailhook.glb<>uid://cn5aksjiys7pa::::res://Aircraft/TailhookSimple.gd
-Wheel.gd::GDScript::5767027733276416264::1758217981::0::1::::Wheel<>RigidBody3D<><>0<>0<><>::
-Wheel.tscn::PackedScene::7138541524248685708::1758217981::0::1::::<><><>0<>0<><>::res://Aircraft/Wheel.gd
+aircraft.gd::GDScript/GDScript::6832209635735730248::1758218403::0::1::::Aircraft<>RigidBody3D<><>0<>0<><>::
+TailhookSimple.gd::GDScript/GDScript::5747246484961308110::1758218403::0::1::::<>Node3D<><>0<>0<><>::
+tail_hook.tscn::PackedScene/PackedScene::8484795496972255659::1758218403::0::1::::<><><>0<>0<><>::uid://bg63t1r0rh3f8::::res://example/models/Tailhook.glb<>uid://cn5aksjiys7pa::::res://Aircraft/TailhookSimple.gd
+Wheel.gd::GDScript/GDScript::5767027733276416264::1758218372::0::1::::Wheel<>RigidBody3D<><>0<>0<><>::
+Wheel.tscn::PackedScene/PackedScene::7138541524248685708::1758218373::0::1::::<><><>0<>0<><>::res://Aircraft/Wheel.gd
 ::res://Aircraft/Aircraft 1/::1757746127
-Aircraft 1.tscn::PackedScene::2954716952250664156::1758217981::0::1::::<><><>0<>0<><>::uid://0a6mw65hn1jq::::res://Aircraft.tscn<>uid://c4ltq2v6fji05::::res://Aircraft/aircraft.gd<>uid://dnok58llfxfur::::res://Models/Aircraft_1/Aircraft 1.glb<>uid://c0o23b5ljp2ux::::res://Models/Aircraft_1/Aircraft 1 nose gear.glb<>uid://bumb5qqc3xt7::::res://Models/Aircraft_1/Aircraft 1 right gear.glb<>uid://cjjut6tj4mout::::res://Models/Aircraft_1/Aircraft 2 left gear.glb<>uid://bpfxucj3ypbxu::::res://Models/Aircraft_1/Aircraft 2 propeller.glb<>uid://bpna5btnwpvpr::::res://example/scenes/Airplane/visuals/Engine/Engine.tscn<>uid://1uui4r6ipopw::::res://example/scenes/Airplane/visuals/Steering/Steering.tscn<>uid://nhbm7re0glcb::::res://example/scenes/Airplane/visuals/LandingGear/LandingGear.tscn<>uid://c2lg5kyagogv3::::res://example/scenes/Airplane/visuals/Flaps/Flaps.tscn<>res://example/models/Air_tractor.glb<>uid://diddm04vtjnny::::res://addons/simplified_flightsim/aircraft_modules/EnergyContainer/EnergyContainer.tscn<>uid://bxmk3xwsygst::::res://addons/simplified_flightsim/aircraft_modules/Engine/Engine.tscn<>uid://b1vdg40us1d5i::::res://Sounds/airplane_propeller 2.wav<>uid://dscm8ajwonvl5::::res://Sounds/prop startup 3.wav<>uid://dtqtmiqu6tnjn::::res://addons/simplified_flightsim/aircraft_modules/Steering/Steering.tscn<>uid://cjfopuepgkub3::::res://addons/simplified_flightsim/aircraft_modules/Flaps/Flaps.tscn<>uid://cqkqskpah2gx7::::res://example/sfx/aircraft_modules/flaps/flap_loop.ogg<>uid://byum6h2if6b1a::::res://addons/simplified_flightsim/aircraft_modules/LandingGear/LandingGear.tscn<>uid://cvxa8h3yftguj::::res://example/sfx/aircraft_modules/landing_gear/deploy.wav<>uid://ch1k8klfyw0mq::::res://example/sfx/aircraft_modules/landing_gear/stow.wav<>uid://chvx807lmr2rs::::res://addons/simplified_flightsim/aircraft_modules/Controls/ControlEngine.tscn<>uid://booy8rgevyscb::::res://addons/simplified_flightsim/aircraft_modules/Controls/ControlSteering.tscn<>uid://btkewnvu2bgu7::::res://addons/simplified_flightsim/aircraft_modules/Controls/ControlLandingGear.tscn<>uid://dmkf543ywx7dl::::res://addons/simplified_flightsim/aircraft_modules/Controls/ControlFlaps.tscn<>uid://rwrylqryd1wq::::res://addons/simplified_flightsim/aircraft_modules/Instruments/InstrumentAttitude.tscn<>uid://cmcm4b17iaaro::::res://example/control_weapons.gd<>uid://5f7vvtjcqw00::::res://example/scenes/Cameras/CameraTripod.tscn<>uid://db7d7jp2mgdth::::res://example/simple_aero_gemini.gd<>uid://g7wt23f15o4i::::res://example/simple_aero_chat_gpt.gd<>uid://cyxrx2cid1gt::::res://example/SimpleAero.gd<>uid://nduup0ehe83b::::res://example/scenes/Cameras/camera_controller.gd<>uid://drhynljb0dts8::::res://Audio/AudioManager3D.tscn<>uid://dsnc8jllg42ph::::res://Weapons/hardpoint.tscn<>uid://bu2hixfhu8ndm::::res://example/ui/UIEnginePower/UIEnginePower.tscn<>uid://dsel16gi76dnm::::res://example/ui/UIEnergyContainer/UIFuelLevel.tscn<>uid://b8s77ar81hq22::::res://example/ui/UILandingGear/UILandingGear.tscn<>uid://c4dncgm8qjt7u::::res://example/ui/UIFlaps/UIFlaps.tscn<>uid://dhg4sb4ifrvh8::::res://example/ui/UIAttitude/UIAttitude.tscn<>uid://bmut2y2xaqj6x::::res://example/ui/UIAltSpeed/UIAltSpeed.tscn<>uid://cqyfnpv28jupa::::res://HUD/HeadsUpDisplay.tscn
+Aircraft 1.tscn::PackedScene/PackedScene::2954716952250664156::1758218373::0::1::::<><><>0<>0<><>::uid://0a6mw65hn1jq::::res://Aircraft.tscn<>uid://c4ltq2v6fji05::::res://Aircraft/aircraft.gd<>uid://dnok58llfxfur::::res://Models/Aircraft_1/Aircraft 1.glb<>uid://c0o23b5ljp2ux::::res://Models/Aircraft_1/Aircraft 1 nose gear.glb<>uid://bumb5qqc3xt7::::res://Models/Aircraft_1/Aircraft 1 right gear.glb<>uid://cjjut6tj4mout::::res://Models/Aircraft_1/Aircraft 2 left gear.glb<>uid://bpfxucj3ypbxu::::res://Models/Aircraft_1/Aircraft 2 propeller.glb<>uid://bpna5btnwpvpr::::res://example/scenes/Airplane/visuals/Engine/Engine.tscn<>uid://1uui4r6ipopw::::res://example/scenes/Airplane/visuals/Steering/Steering.tscn<>uid://nhbm7re0glcb::::res://example/scenes/Airplane/visuals/LandingGear/LandingGear.tscn<>uid://c2lg5kyagogv3::::res://example/scenes/Airplane/visuals/Flaps/Flaps.tscn<>res://example/models/Air_tractor.glb<>uid://diddm04vtjnny::::res://addons/simplified_flightsim/aircraft_modules/EnergyContainer/EnergyContainer.tscn<>uid://bxmk3xwsygst::::res://addons/simplified_flightsim/aircraft_modules/Engine/Engine.tscn<>uid://b1vdg40us1d5i::::res://Sounds/airplane_propeller 2.wav<>uid://dscm8ajwonvl5::::res://Sounds/prop startup 3.wav<>uid://dtqtmiqu6tnjn::::res://addons/simplified_flightsim/aircraft_modules/Steering/Steering.tscn<>uid://cjfopuepgkub3::::res://addons/simplified_flightsim/aircraft_modules/Flaps/Flaps.tscn<>uid://cqkqskpah2gx7::::res://example/sfx/aircraft_modules/flaps/flap_loop.ogg<>uid://byum6h2if6b1a::::res://addons/simplified_flightsim/aircraft_modules/LandingGear/LandingGear.tscn<>uid://cvxa8h3yftguj::::res://example/sfx/aircraft_modules/landing_gear/deploy.wav<>uid://ch1k8klfyw0mq::::res://example/sfx/aircraft_modules/landing_gear/stow.wav<>uid://chvx807lmr2rs::::res://addons/simplified_flightsim/aircraft_modules/Controls/ControlEngine.tscn<>uid://booy8rgevyscb::::res://addons/simplified_flightsim/aircraft_modules/Controls/ControlSteering.tscn<>uid://btkewnvu2bgu7::::res://addons/simplified_flightsim/aircraft_modules/Controls/ControlLandingGear.tscn<>uid://dmkf543ywx7dl::::res://addons/simplified_flightsim/aircraft_modules/Controls/ControlFlaps.tscn<>uid://rwrylqryd1wq::::res://addons/simplified_flightsim/aircraft_modules/Instruments/InstrumentAttitude.tscn<>uid://cmcm4b17iaaro::::res://example/control_weapons.gd<>uid://5f7vvtjcqw00::::res://example/scenes/Cameras/CameraTripod.tscn<>uid://db7d7jp2mgdth::::res://example/simple_aero_gemini.gd<>uid://g7wt23f15o4i::::res://example/simple_aero_chat_gpt.gd<>uid://cyxrx2cid1gt::::res://example/SimpleAero.gd<>uid://nduup0ehe83b::::res://example/scenes/Cameras/camera_controller.gd<>uid://drhynljb0dts8::::res://Audio/AudioManager3D.tscn<>uid://dsnc8jllg42ph::::res://Weapons/hardpoint.tscn<>uid://bu2hixfhu8ndm::::res://example/ui/UIEnginePower/UIEnginePower.tscn<>uid://dsel16gi76dnm::::res://example/ui/UIEnergyContainer/UIFuelLevel.tscn<>uid://b8s77ar81hq22::::res://example/ui/UILandingGear/UILandingGear.tscn<>uid://c4dncgm8qjt7u::::res://example/ui/UIFlaps/UIFlaps.tscn<>uid://dhg4sb4ifrvh8::::res://example/ui/UIAttitude/UIAttitude.tscn<>uid://bmut2y2xaqj6x::::res://example/ui/UIAltSpeed/UIAltSpeed.tscn<>uid://cqyfnpv28jupa::::res://HUD/HeadsUpDisplay.tscn
 ::res://Aircraft/Aircraft wreck/::1757964603
 aircraft_1_wreck.tscn::PackedScene/PackedScene::7830260544033007018::1757964603::0::1::::<><><>0<>0<><>::uid://cdeg13gyvhvo8::::res://Models/Aircraft_1/Aircraft 1 wreck/Aircraft 1 wreck ny.glb
 ::res://Archive/::1757532100
@@ -290,9 +290,9 @@ SpringLandingGear.gd::GDScript/GDScript::8273845565978529252::1757519169::0::1::
 SpringLandingGear.tscn::PackedScene/PackedScene::389199538960501140::1757525291::0::1::::<><><>0<>0<><>::uid://dp46a67wvahfo::::res://Aircraft/SpringLandingGear.gd
 SpringLandingGearTest.gd::GDScript/GDScript::2391158330665056114::1757519169::0::1::::<>Node3D<><>0<>0<><>::
 ::res://Audio/::1757263928
-AudioDebug.gd::GDScript::3333354915971447590::1758217980::0::1::::AudioDebug<>Node<><>0<>0<><>::
-AudioManager3D.gd::GDScript::6191947622854845770::1758217980::0::1::::AudioManager3D<>Node3D<><>0<>0<><>::
-AudioManager3D.tscn::PackedScene::8368404052090506585::1758217980::0::1::::<><><>0<>0<><>::res://Audio/AudioManager3D.gd
+AudioDebug.gd::GDScript/GDScript::3333354915971447590::1758218371::0::1::::AudioDebug<>Node<><>0<>0<><>::
+AudioManager3D.gd::GDScript/GDScript::6191947622854845770::1758218371::0::1::::AudioManager3D<>Node3D<><>0<>0<><>::
+AudioManager3D.tscn::PackedScene/PackedScene::8368404052090506585::1758218371::0::1::::<><><>0<>0<><>::res://Audio/AudioManager3D.gd
 ::res://demo/::1757263361
 CodeGeneratedDemo.tscn::PackedScene/PackedScene::5766609049318048670::1756035189::0::1::::<><><>0<>0<><>::res://demo/src/CodeGenerated.gd<>uid://domhm87hbhbg1::::res://demo/components/Player.tscn<>uid://bb2lp50sjndus::::res://demo/components/Environment.tscn<>uid://di5fovhcyd7re::::res://demo/components/Enemy.tscn<>uid://d2jihfohphuue::::res://demo/components/UI.tscn<>res://demo/src/RuntimeNavigationBaker.gd
 Demo.tscn::PackedScene/PackedScene::5293781890024210248::1756035189::0::1::::<><><>0<>0<><>::uid://chstoagn42gbr::::res://demo/src/DemoScene.gd<>uid://d2jihfohphuue::::res://demo/components/UI.tscn<>uid://dwnhqfjq7v1pq::::res://demo/components/Borders.tscn<>uid://domhm87hbhbg1::::res://demo/components/Player.tscn<>uid://djhl3foqkj4e2::::res://demo/components/Tunnel.tscn<>uid://bb2lp50sjndus::::res://demo/components/Environment.tscn<>uid://d3sr0a7dxfkr8::::res://addons/terrain_3d/extras/particle_example/Terrain3DParticles.tscn<>uid://dal3jhw6241qg::::res://demo/data/assets.tres
@@ -357,13 +357,13 @@ lift_point.png::CompressedTexture2D/CompressedTexture2D::3532052721646673062::17
 modules_control_diagram.png::CompressedTexture2D/CompressedTexture2D::5636873141287871067::1755622869::1757263395::1::::<><><>0<>0<>827052f5884c61d765b75d9f5a283d12<>res://.godot/imported/modules_control_diagram.png-e41ee9c562125fbfe1749be1ac7cbcd6.ctex::
 scene_tree_aircraft.png::CompressedTexture2D/CompressedTexture2D::8660789628255907996::1755622869::1757263395::1::::<><><>0<>0<>d46a67e3458e82454d4decd4cbb117f6<>res://.godot/imported/scene_tree_aircraft.png-90a930ef5eb3ceba24ae3a2bc7cd5c57.ctex::
 steering_distance.png::CompressedTexture2D/CompressedTexture2D::107235875726683754::1755622869::1757263395::1::::<><><>0<>0<>a0efd449121ee5e04f0710eeccff2bf3<>res://.godot/imported/steering_distance.png-0dadf9c25a0d34db2ef0c5e976749ce6.ctex::
-::res://Enemies/::1758218006
-EnemyAircraft.gd::GDScript::8358739335297264816::1758217937::0::1::::EnemyAircraft<>RigidBody3D<><>0<>0<><>::
-EnemyAircraft.tscn::PackedScene::2233219823724232898::1758217980::0::1::::<><><>0<>0<><>::res://Enemies/EnemyAircraft.gd<>uid://cadi81fcpvmuc::::res://Projectiles/Explosion/explosion.tscn
-EnemyBox.gd::GDScript::6815226428058118985::1758217982::0::1::::EnemyBox<>StaticBody3D<><>0<>0<><>::
-EnemyBox.tscn::PackedScene::9054642518409554::1758218006::0::1::::<><><>0<>0<><>::uid://c4dl1v11gf6w0::::res://Enemies/EnemyBox.gd
-EnemyController.gd::GDScript::6928803896767239951::1758217984::0::1::::EnemyController<>Node3D<><>0<>0<><>::
-EnemyRegistry.gd::GDScript::5090717850179437721::1758217983::0::1::::<>Node<><>0<>0<><>::
+::res://Enemies/::1758230777
+EnemyAircraft.gd::GDScript/GDScript::8358739335297264816::1758219460::0::1::::EnemyAircraft<>RigidBody3D<><>0<>0<><>::
+EnemyAircraft.tscn::PackedScene/PackedScene::2233219823724232898::1758218372::0::1::::<><><>0<>0<><>::res://Enemies/EnemyAircraft.gd<>uid://cadi81fcpvmuc::::res://Projectiles/Explosion/explosion.tscn
+EnemyBox.gd::GDScript::6815226428058118985::1758219460::0::1::::EnemyBox<>StaticBody3D<><>0<>0<><>::
+EnemyBox.tscn::PackedScene::9054642518409554::1758230777::0::1::::<><><>0<>0<><>::uid://c4dl1v11gf6w0::::res://Enemies/EnemyBox.gd
+EnemyController.gd::GDScript/GDScript::6928803896767239951::1758218403::0::1::::EnemyController<>Node3D<><>0<>0<><>::
+EnemyRegistry.gd::GDScript/GDScript::5090717850179437721::1758218403::0::1::::<>Node<><>0<>0<><>::
 ::res://Environment/::1757263361
 desert_hill_1.tscn::PackedScene/PackedScene::504790966937132979::1756034728::0::1::::<><><>0<>0<><>::uid://cbem8e8i2v6uu::::res://example/models/landscape/Desert hill 1.glb
 desert_hill_1_sandy.tscn::PackedScene/PackedScene::5040717009470558259::1756034616::0::1::::<><><>0<>0<><>::uid://cbem8e8i2v6uu::::res://example/models/landscape/Desert hill 1.glb
@@ -371,9 +371,9 @@ desert_hill_2_sandy.tscn::PackedScene/PackedScene::5814683546267417565::17560346
 desert_mountain_1_sandy.tscn::PackedScene/PackedScene::5790828943946728826::1756034616::0::1::::<><><>0<>0<><>::uid://6mde3xgrt7s6::::res://example/models/landscape/Desert mountain 1.glb
 runway.tscn::PackedScene/PackedScene::9009998038896645395::1756034616::0::1::::<><><>0<>0<><>::uid://bssq6dewc1cgl::::res://example/models/runway.glb
 ::res://Environment/Terrain3D/::1756036803
-::res://example/::1758218005
+::res://example/::1758230776
 AeroForces.gd::GDScript/GDScript::1135991637474094000::1756034615::0::1::::AeroForces<>Node<><>0<>0<><>::
-control_weapons.gd::GDScript::5620016732640039632::1758217981::0::1::::ControlWeapons<>AircraftModule<><>0<>0<><>::
+control_weapons.gd::GDScript/GDScript::5620016732640039632::1758218372::0::1::::ControlWeapons<>AircraftModule<><>0<>0<><>::
 Example1_Simple.gd::GDScript/GDScript::7667447783304227595::1757963963::0::1::::<>Node3D<><>0<>0<><>::
 Example2_Complex.gd::GDScript/GDScript::3356132142168891214::1755622867::0::1::::<>Node3D<><>0<>0<><>::
 Example2_Complex.tscn::PackedScene/PackedScene::968956484467817173::1757253395::0::1::::<><><>0<>0<><>::uid://bxmk3xwsygst::::res://addons/simplified_flightsim/aircraft_modules/Engine/Engine.tscn<>res://Aircraft/Aircraft 1/Aircraft.tscn<>uid://dtqtmiqu6tnjn::::res://addons/simplified_flightsim/aircraft_modules/Steering/Steering.tscn<>uid://cjfopuepgkub3::::res://addons/simplified_flightsim/aircraft_modules/Flaps/Flaps.tscn<>uid://bu2hixfhu8ndm::::res://example/ui/UIEnginePower/UIEnginePower.tscn<>uid://dsel16gi76dnm::::res://example/ui/UIEnergyContainer/UIFuelLevel.tscn<>uid://btkewnvu2bgu7::::res://addons/simplified_flightsim/aircraft_modules/Controls/ControlLandingGear.tscn<>uid://diddm04vtjnny::::res://addons/simplified_flightsim/aircraft_modules/EnergyContainer/EnergyContainer.tscn<>uid://c4dncgm8qjt7u::::res://example/ui/UIFlaps/UIFlaps.tscn<>uid://dhg4sb4ifrvh8::::res://example/ui/UIAttitude/UIAttitude.tscn<>uid://cmnn11bshth6g::::res://example/ui/UITemperature/UITemperature.tscn<>uid://1uui4r6ipopw::::res://example/scenes/Airplane/visuals/Steering/Steering.tscn<>uid://c2lg5kyagogv3::::res://example/scenes/Airplane/visuals/Flaps/Flaps.tscn<>uid://chvx807lmr2rs::::res://addons/simplified_flightsim/aircraft_modules/Controls/ControlEngine.tscn<>uid://byum6h2if6b1a::::res://addons/simplified_flightsim/aircraft_modules/LandingGear/LandingGear.tscn<>uid://5f7vvtjcqw00::::res://example/scenes/Cameras/CameraTripod.tscn<>uid://booy8rgevyscb::::res://addons/simplified_flightsim/aircraft_modules/Controls/ControlSteering.tscn<>uid://bmut2y2xaqj6x::::res://example/ui/UIAltSpeed/UIAltSpeed.tscn<>uid://bpna5btnwpvpr::::res://example/scenes/Airplane/visuals/Engine/Engine.tscn<>uid://rwrylqryd1wq::::res://addons/simplified_flightsim/aircraft_modules/Instruments/InstrumentAttitude.tscn<>uid://nhbm7re0glcb::::res://example/scenes/Airplane/visuals/LandingGear/LandingGear.tscn<>uid://dmkf543ywx7dl::::res://addons/simplified_flightsim/aircraft_modules/Controls/ControlFlaps.tscn<>uid://b8s77ar81hq22::::res://example/ui/UILandingGear/UILandingGear.tscn<>uid://bn20ag8tpqab3::::res://example/Example2_Complex.gd<>uid://cvxa8h3yftguj::::res://example/sfx/aircraft_modules/landing_gear/deploy.wav<>uid://ch1k8klfyw0mq::::res://example/sfx/aircraft_modules/landing_gear/stow.wav<>uid://cqkqskpah2gx7::::res://example/sfx/aircraft_modules/flaps/flap_loop.ogg<>uid://d3w7kvckn8jf6::::res://example/textures/faux_asphalt/ground_asphalt_synth_12.png<>uid://pnjpkk1castu::::res://addons/simplified_flightsim/aircraft_modules/Controls/ControlEnergyContainer.tscn<>uid://d3b3fuqwdgfvt::::res://example/textures/battery.png
@@ -381,11 +381,11 @@ Example3_Helicopter.gd::GDScript/GDScript::3029286945421034493::1755622867::0::1
 Example3_Helicopter.tscn::PackedScene/PackedScene::3452273052159250304::1757253395::0::1::::<><><>0<>0<><>::uid://booy8rgevyscb::::res://addons/simplified_flightsim/aircraft_modules/Controls/ControlSteering.tscn<>uid://btkewnvu2bgu7::::res://addons/simplified_flightsim/aircraft_modules/Controls/ControlLandingGear.tscn<>uid://6iaidfdn83ye::::res://example/sfx/aircraft_modules/engine/helicopter2.ogg<>uid://rwrylqryd1wq::::res://addons/simplified_flightsim/aircraft_modules/Instruments/InstrumentAttitude.tscn<>uid://bmut2y2xaqj6x::::res://example/ui/UIAltSpeed/UIAltSpeed.tscn<>uid://dbpv3chq52qmh::::res://example/textures/heli_pad.png<>uid://5f7vvtjcqw00::::res://example/scenes/Cameras/CameraTripod.tscn<>uid://b8s77ar81hq22::::res://example/ui/UILandingGear/UILandingGear.tscn<>uid://dhg4sb4ifrvh8::::res://example/ui/UIAttitude/UIAttitude.tscn<>uid://dsel16gi76dnm::::res://example/ui/UIEnergyContainer/UIFuelLevel.tscn<>uid://bxmk3xwsygst::::res://addons/simplified_flightsim/aircraft_modules/Engine/Engine.tscn<>uid://chvx807lmr2rs::::res://addons/simplified_flightsim/aircraft_modules/Controls/ControlEngine.tscn<>uid://dtqtmiqu6tnjn::::res://addons/simplified_flightsim/aircraft_modules/Steering/Steering.tscn<>uid://byum6h2if6b1a::::res://addons/simplified_flightsim/aircraft_modules/LandingGear/LandingGear.tscn<>uid://bo81iive6ulsl::::res://example/textures/kenney_prototypetextures/PNG/Light/texture_06.png<>uid://bu2hixfhu8ndm::::res://example/ui/UIEnginePower/UIEnginePower.tscn<>uid://nhbm7re0glcb::::res://example/scenes/Airplane/visuals/LandingGear/LandingGear.tscn<>res://Aircraft/Aircraft 1/Aircraft.tscn<>uid://diddm04vtjnny::::res://addons/simplified_flightsim/aircraft_modules/EnergyContainer/EnergyContainer.tscn<>uid://cvxa8h3yftguj::::res://example/sfx/aircraft_modules/landing_gear/deploy.wav<>uid://ch1k8klfyw0mq::::res://example/sfx/aircraft_modules/landing_gear/stow.wav<>uid://bjfn6b5sjy606::::res://example/Example3_Helicopter.gd<>uid://d3w7kvckn8jf6::::res://example/textures/faux_asphalt/ground_asphalt_synth_12.png<>uid://begsn48c5vlu6::::res://example/scenes/Airplane/visuals/HeliPropeller/HeliPropeller.tscn
 Example4_Space.gd::GDScript/GDScript::1212431711028088017::1755622867::0::1::::<>Node3D<><>0<>0<><>::
 Example4_Space.tscn::PackedScene/PackedScene::5487881816768613281::1757253395::0::1::::<><><>0<>0<><>::uid://bpna5btnwpvpr::::res://example/scenes/Airplane/visuals/Engine/Engine.tscn<>uid://bmg8764htq5p2::::res://example/scenes/Airplane/visuals/Temperature/Temperature.tscn<>uid://byum6h2if6b1a::::res://addons/simplified_flightsim/aircraft_modules/LandingGear/LandingGear.tscn<>uid://bjf823lr1pxhn::::res://example/ui/arrow_down.png<>uid://dsel16gi76dnm::::res://example/ui/UIEnergyContainer/UIFuelLevel.tscn<>uid://b8s77ar81hq22::::res://example/ui/UILandingGear/UILandingGear.tscn<>uid://7hjicoxf6spx::::res://example/textures/planets/2/NormalMap.png<>uid://pnjpkk1castu::::res://addons/simplified_flightsim/aircraft_modules/Controls/ControlEnergyContainer.tscn<>uid://bu2hixfhu8ndm::::res://example/ui/UIEnginePower/UIEnginePower.tscn<>uid://dhg4sb4ifrvh8::::res://example/ui/UIAttitude/UIAttitude.tscn<>uid://bmut2y2xaqj6x::::res://example/ui/UIAltSpeed/UIAltSpeed.tscn<>uid://cmnn11bshth6g::::res://example/ui/UITemperature/UITemperature.tscn<>uid://chvx807lmr2rs::::res://addons/simplified_flightsim/aircraft_modules/Controls/ControlEngine.tscn<>uid://rwrylqryd1wq::::res://addons/simplified_flightsim/aircraft_modules/Instruments/InstrumentAttitude.tscn<>uid://btkewnvu2bgu7::::res://addons/simplified_flightsim/aircraft_modules/Controls/ControlLandingGear.tscn<>uid://5f7vvtjcqw00::::res://example/scenes/Cameras/CameraTripod.tscn<>uid://bxmk3xwsygst::::res://addons/simplified_flightsim/aircraft_modules/Engine/Engine.tscn<>uid://booy8rgevyscb::::res://addons/simplified_flightsim/aircraft_modules/Controls/ControlSteering.tscn<>uid://dtqtmiqu6tnjn::::res://addons/simplified_flightsim/aircraft_modules/Steering/Steering.tscn<>uid://c5v0s3g174mm6::::res://example/textures/planets/1/sph_clouds.png<>uid://diddm04vtjnny::::res://addons/simplified_flightsim/aircraft_modules/EnergyContainer/EnergyContainer.tscn<>uid://diobdop3l10em::::res://example/textures/planets/2/sph_normal.png<>res://Aircraft/Aircraft 1/Aircraft.tscn<>uid://nhbm7re0glcb::::res://example/scenes/Airplane/visuals/LandingGear/LandingGear.tscn<>uid://rjktqs1qjdnd::::res://example/Example4_Space.gd<>uid://b0ljv2v22me4t::::res://example/ui/arrow_down_dark.png<>uid://cvxa8h3yftguj::::res://example/sfx/aircraft_modules/landing_gear/deploy.wav<>uid://d3w7kvckn8jf6::::res://example/textures/faux_asphalt/ground_asphalt_synth_12.png<>uid://ch1k8klfyw0mq::::res://example/sfx/aircraft_modules/landing_gear/stow.wav<>uid://bevidspouh61s::::res://example/textures/planets/1/NormalMap.png<>uid://dahv77q5w8crv::::res://example/textures/planets/1/sph_ground.png<>uid://cmx18s8a4vo04::::res://example/scenes/Airplane/visuals/SteeringThrusters/SteeringThrusters.tscn
-ExampleList.tscn::PackedScene::8528845239856050335::1758218005::0::1::::<><><>0<>0<><>::
+ExampleList.tscn::PackedScene::8528845239856050335::1758230776::0::1::::<><><>0<>0<><>::
 Example_TestAircraft.tscn::PackedScene/PackedScene::-1::1757712959::0::1::::<><><>0<>0<><>::res://Aircraft/CompleteFighterJet.tscn<>uid://d1mrl7eofpiop::::res://Environment/runway.tscn<>res://example/Example1_Simple.gd
-SimpleAero.gd::GDScript::191350852551993567::1758217983::0::1::::SimpleAero<>Node<><>0<>0<><>::
-simple_aero_chat_gpt.gd::GDScript::488564315531258058::1758217983::0::1::::SimpleAeroChatGPT<>Node<><>0<>0<><>::
-simple_aero_gemini.gd::GDScript::7295750776355754409::1758217983::0::1::::SimpleAeroGemini<>Node<><>0<>0<><>::
+SimpleAero.gd::GDScript/GDScript::191350852551993567::1758218403::0::1::::SimpleAero<>Node<><>0<>0<><>::
+simple_aero_chat_gpt.gd::GDScript/GDScript::488564315531258058::1758218403::0::1::::SimpleAeroChatGPT<>Node<><>0<>0<><>::
+simple_aero_gemini.gd::GDScript/GDScript::7295750776355754409::1758218403::0::1::::SimpleAeroGemini<>Node<><>0<>0<><>::
 simple_aero_new.gd::GDScript/GDScript::4574642097392959913::1757243022::0::1::::SimpleAeroNew2<>Node<><>0<>0<><>::
 turbulence_manager.gd::GDScript/GDScript::8577534057744383131::1756851398::0::1::::TurbulenceManager<>Node3D<><>0<>0<><>::
 ::res://example/fonts/::1757263394
@@ -441,14 +441,14 @@ SteeringThrusters.tscn::PackedScene/PackedScene::5664226748835199711::1756034489
 ::res://example/scenes/Airplane/visuals/Temperature/::1757263362
 Temperature.gd::GDScript/GDScript::8190792643311987864::1755622867::0::1::::<>Node3D<><>0<>0<><>::
 Temperature.tscn::PackedScene/PackedScene::3243135553407383265::1756034489::0::1::::<><><>0<>0<><>::uid://doxxfm20u41e7::::res://example/scenes/Airplane/visuals/Temperature/Temperature.gd
-::res://example/scenes/Cameras/::1758218006
-CameraTripod.tscn::PackedScene::2117968776105683651::1758218006::0::1::::<><><>0<>0<><>::
-camera_chase.gd::GDScript::1616194709763496418::1758217982::0::1::::ChaseCamera<>Node3D<><>0<>0<><>::
-camera_controller.gd::GDScript::919898982951682445::1758217982::0::1::::CameraController<>Node<><>0<>0<><>::
-CinematicCamera.gd::GDScript::7284193983602213474::1758217983::0::1::::CinematicCamera<>Node3D<><>0<>0<><>::
+::res://example/scenes/Cameras/::1758230777
+CameraTripod.tscn::PackedScene::2117968776105683651::1758230777::0::1::::<><><>0<>0<><>::
+camera_chase.gd::GDScript/GDScript::1616194709763496418::1758218403::0::1::::ChaseCamera<>Node3D<><>0<>0<><>::
+camera_controller.gd::GDScript/GDScript::919898982951682445::1758218403::0::1::::CameraController<>Node<><>0<>0<><>::
+CinematicCamera.gd::GDScript/GDScript::7284193983602213474::1758218403::0::1::::CinematicCamera<>Node3D<><>0<>0<><>::
 CockpitCamera.gd::GDScript/GDScript::2060324542412616423::1757253570::0::1::::CockpitCamera<>Node3D<><>0<>0<><>::
-Deathcam.gd::GDScript::3953706259424291985::1758217983::0::1::::<>Node3D<><>0<>0<><>::
-Deathcam.tscn::PackedScene::4482108662107571940::1758217982::0::1::::<><><>0<>0<><>::uid://bwlg715x6o7y8::::res://example/scenes/Cameras/Deathcam.gd
+Deathcam.gd::GDScript/GDScript::3953706259424291985::1758218403::0::1::::<>Node3D<><>0<>0<><>::
+Deathcam.tscn::PackedScene/PackedScene::4482108662107571940::1758218403::0::1::::<><><>0<>0<><>::uid://bwlg715x6o7y8::::res://example/scenes/Cameras/Deathcam.gd
 ::res://example/scenes/Explosion/::1757263362
 Explosion.tscn::PackedScene/PackedScene::976339941353075979::1756034489::0::1::::<><><>0<>0<><>::uid://culd451gdickb::::res://example/sfx/explosion/explosion.wav
 ::res://example/sfx/::1755713665
@@ -615,18 +615,18 @@ UILandingGear.tscn::PackedScene/PackedScene::4741811440290812585::1756034489::0:
 UITemperature.gd::GDScript/GDScript::313158085356409280::1755622868::0::1::::<>Control<><>0<>0<><>::
 UITemperature.tscn::PackedScene/PackedScene::5642781521372715208::1756034489::0::1::::<><><>0<>0<><>::uid://drtlaesfdwfor::::res://example/ui/back_fg9.png<>uid://btekexp2jh7kq::::res://example/ui/panel_bg9.png<>uid://ba1q1fbp0drn8::::res://example/ui/back_bg9.png<>uid://epxwydv8ua21::::res://example/ui/UITemperature/UITemperature.gd
 ::res://HUD/::1758217095
-HeadsUpDisplay.tscn::PackedScene::5945735553539128646::1758217981::0::1::::<><><>0<>0<><>::uid://c1ssam4fb2lxq::::res://HUD/heads_up_display.gd
-heads_up_display.gd::GDScript::6636003682727034386::1758217982::0::1::::<>Node3D<><>0<>0<><>::
+HeadsUpDisplay.tscn::PackedScene/PackedScene::5945735553539128646::1758218372::0::1::::<><><>0<>0<><>::uid://c1ssam4fb2lxq::::res://HUD/heads_up_display.gd
+heads_up_display.gd::GDScript::6636003682727034386::1758225553::0::1::::<>Node3D<><>0<>0<><>::
 InstrumentPanel.tscn::PackedScene/PackedScene::4470166518643055660::1757704919::0::1::::<><><>0<>0<><>::uid://frnf1mg4wvlr::::res://HUD/instrument_panel.gd
-instrument_panel.gd::GDScript::386838274341679003::1758217937::0::1::::<>Node3D<><>0<>0<><>::
-RadarCanvas.gd::GDScript::3681656257658558508::1758217983::0::1::::<>Control<><>0<>0<><>::
-::res://LandCarrier/::1758218005
-ArrestingCable.gd::GDScript::7114306349065449813::1758217983::0::1::::<>Node3D<><>0<>0<><>::
+instrument_panel.gd::GDScript::386838274341679003::1758229122::0::1::::<>Node3D<><>0<>0<><>::
+RadarCanvas.gd::GDScript/GDScript::3681656257658558508::1758218403::0::1::::<>Control<><>0<>0<><>::
+::res://LandCarrier/::1758218850
+ArrestingCable.gd::GDScript/GDScript::7114306349065449813::1758218403::0::1::::<>Node3D<><>0<>0<><>::
 arresting_cable.tscn::PackedScene/PackedScene::6792489386864408584::1758047990::0::1::::<><><>0<>0<><>::uid://c8mht6ujj024x::::res://LandCarrier/ArrestingCable.gd
-Catapult.gd::GDScript::4086644976655569894::1758217982::0::1::::<>Node3D<><>0<>0<><>::
-FlightDeckManager.gd::GDScript::2602372393641474303::1758218005::0::1::::FlightDeckManager<>Node<><>0<>0<><>::
-TractorBot.gd::GDScript::4238033733722391690::1758217983::0::1::::TractorBot<>Node3D<><>0<>0<><>::
-TractorBot.tscn::PackedScene::3892741951469129440::1758217983::0::1::::<><><>0<>0<><>::uid://b1m62cwdi4d6y::::res://LandCarrier/TractorBot.gd
+Catapult.gd::GDScript/GDScript::4086644976655569894::1758218403::0::1::::<>Node3D<><>0<>0<><>::
+FlightDeckManager.gd::GDScript::2602372393641474303::1758218850::0::1::::FlightDeckManager<>Node<><>0<>0<><>::
+TractorBot.gd::GDScript/GDScript::4238033733722391690::1758218403::0::1::::TractorBot<>Node3D<><>0<>0<><>::
+TractorBot.tscn::PackedScene/PackedScene::3892741951469129440::1758218403::0::1::::<><><>0<>0<><>::uid://b1m62cwdi4d6y::::res://LandCarrier/TractorBot.gd
 ::res://materials/::1757541852
 low_poly_material.tres::StandardMaterial3D/StandardMaterial3D::-1::1757541852::0::1::::<><><>0<>0<><>::
 ::res://Models/::1757746127
@@ -643,24 +643,24 @@ Aircraft 2 propeller.glb::PackedScene/PackedScene::3451007554000407774::17565780
 ::res://Models/Aircraft_1/Aircraft 1 wreck/::1757956040
 Aircraft 1 wreck ny.glb::PackedScene/PackedScene::4992077622956108121::1757951781::1757956040::1::::<><><>0<>0<>1567bb4535abeec470becd084c1e13d1<>res://.godot/imported/Aircraft 1 wreck ny.glb-6d112495330e7a52d94035d58e25171f.scn::
 ::res://Projectiles/::1758037169
-::res://Projectiles/AG Missile/::1758218005
-ag_missile.gd::GDScript::2746323666712826310::1758217984::0::1::::AGMissile<>ProjectileNew<><>0<>0<><>::
-ag_missile.tscn::PackedScene::-1::1758217984::0::1::::<><><>0<>0<><>::res://Projectiles/AG Missile/ag_missile.gd<>res://Projectiles/AG Missile/missile.glb
-ag_missile_projectile.tscn::PackedScene::7021034394686823760::1758218005::0::1::::<><><>0<>0<><>::uid://bs5wys2xqauft::::res://Projectiles/AG Missile/missile.glb<>uid://bfelsxjotvaha::::res://Projectiles/AG Missile/ag_missile.gd
+::res://Projectiles/AG Missile/::1758230777
+ag_missile.gd::GDScript::2746323666712826310::1758230418::0::1::::AGMissile<>ProjectileNew<><>0<>0<><>::
+ag_missile.tscn::PackedScene/PackedScene::-1::1758218403::0::1::::<><><>0<>0<><>::res://Projectiles/AG Missile/ag_missile.gd<>res://Projectiles/AG Missile/missile.glb
+ag_missile_projectile.tscn::PackedScene::7021034394686823760::1758230777::0::1::::<><><>0<>0<><>::uid://bs5wys2xqauft::::res://Projectiles/AG Missile/missile.glb<>uid://bfelsxjotvaha::::res://Projectiles/AG Missile/ag_missile.gd
 missile.glb::PackedScene/PackedScene::3713130822890498221::1758037433::1758037433::1::::<><><>0<>0<>ed012dd8ceb384bd1b46adf93248280f<>res://.godot/imported/missile.glb-fa3ef4a8175a163c89032ea72855b655.scn::
 ::res://Projectiles/BombNew/::1758047990
-bomb_new.gd::GDScript::2155691831567004358::1758217937::0::1::::BombProjectile<>ProjectileNew<><>0<>0<><>::
-bomb_new.tscn::PackedScene::3034364284097197358::1758217982::0::1::::<><><>0<>0<><>::uid://c4n08bfodjaq8::::res://Projectiles/ProjectileNew/projectile_new.tscn<>uid://cadi81fcpvmuc::::res://Projectiles/Explosion/explosion.tscn<>uid://cbpsn8r87hlrc::::res://Weapons/bomb.glb<>uid://5yh6urw441iw::::res://Projectiles/BombNew/bomb_new.gd
+bomb_new.gd::GDScript/GDScript::2155691831567004358::1758218403::0::1::::BombProjectile<>ProjectileNew<><>0<>0<><>::
+bomb_new.tscn::PackedScene/PackedScene::3034364284097197358::1758218373::0::1::::<><><>0<>0<><>::uid://c4n08bfodjaq8::::res://Projectiles/ProjectileNew/projectile_new.tscn<>uid://cadi81fcpvmuc::::res://Projectiles/Explosion/explosion.tscn<>uid://cbpsn8r87hlrc::::res://Weapons/bomb.glb<>uid://5yh6urw441iw::::res://Projectiles/BombNew/bomb_new.gd
 ::res://Projectiles/Bullet/::1757704919
-bullet.gd::GDScript::5954881683155190515::1758217982::0::1::::Bullet<>ProjectileNew<><>0<>0<><>::
+bullet.gd::GDScript/GDScript::5954881683155190515::1758218403::0::1::::Bullet<>ProjectileNew<><>0<>0<><>::
 bullet.tscn::PackedScene/PackedScene::6287135104187237302::1757704919::0::1::::<><><>0<>0<><>::uid://cq3ubcgkuyj12::::res://Projectiles/Bullet/bullet.gd
 ::res://Projectiles/Explosion/::1758208337
-explosion.gd::GDScript::1384316256210852716::1758217982::0::1::::Explosion<>Node3D<><>0<>0<><>::
-explosion.tscn::PackedScene::4779580541232256370::1758217980::0::1::::<><><>0<>0<><>::uid://tytqsm7km7oq::::res://Projectiles/Explosion/explosion.gd<>res://Sounds/explosion_large_01.wav<>res://Sounds/explosion_large_02.wav<>res://Sounds/explosion_large_03.wav<>res://Sounds/explosion_large_04.wav<>res://Sounds/explosion_large_05.wav
+explosion.gd::GDScript/GDScript::1384316256210852716::1758218403::0::1::::Explosion<>Node3D<><>0<>0<><>::
+explosion.tscn::PackedScene/PackedScene::4779580541232256370::1758218372::0::1::::<><><>0<>0<><>::uid://tytqsm7km7oq::::res://Projectiles/Explosion/explosion.gd<>res://Sounds/explosion_large_01.wav<>res://Sounds/explosion_large_02.wav<>res://Sounds/explosion_large_03.wav<>res://Sounds/explosion_large_04.wav<>res://Sounds/explosion_large_05.wav
 scorch_mark.png::CompressedTexture2D/CompressedTexture2D::4335093837938566386::1757095609::1757263394::1::::<><><>0<>0<>4bb4f751619b5205849a0efc599c54b8<>res://.godot/imported/scorch_mark.png-eddb79544970dd8fd982608da44d5c58.ctex::
-::res://Projectiles/ProjectileNew/::1758218005
-projectile_new.gd::GDScript::6230796758240457144::1758217982::0::1::::ProjectileNew<>RigidBody3D<><>0<>0<><>::
-projectile_new.tscn::PackedScene::6836731660597772985::1758218005::0::1::::<><><>0<>0<><>::uid://cu1iku80tbhpg::::res://Projectiles/ProjectileNew/projectile_new.gd
+::res://Projectiles/ProjectileNew/::1758230777
+projectile_new.gd::GDScript/GDScript::6230796758240457144::1758218403::0::1::::ProjectileNew<>RigidBody3D<><>0<>0<><>::
+projectile_new.tscn::PackedScene::6836731660597772985::1758230777::0::1::::<><><>0<>0<><>::uid://cu1iku80tbhpg::::res://Projectiles/ProjectileNew/projectile_new.gd
 ::res://Sounds/::1757276921
 airplane_propeller 1.wav::AudioStreamWAV/AudioStreamWAV::7874603717363503427::1756738847::1757263401::1::::<><><>0<>0<>a0d4152c556c3aca9b2015b5e381782b<>res://.godot/imported/airplane_propeller 1.wav-d0b1ad5c1309f817b74f3d53ba0fa747.sample::
 airplane_propeller 2.wav::AudioStreamWAV/AudioStreamWAV::4254876979589980608::1756738847::1757263401::1::::<><><>0<>0<>23b4372133600f54e584fa74608a8589<>res://.godot/imported/airplane_propeller 2.wav-ee977773e476e5120d1a7391a193d509.sample::
@@ -709,26 +709,26 @@ terrain3d_02_01.res::Terrain3DRegion/Terrain3DRegion::6823060133310009096::17567
 ::res://tools/::1757345060
 list_used_files.gd::GDScript/GDScript::7731499121047026781::1757345059::0::1::::<>SceneTree<><>0<>0<><>::
 ::res://UI/::1757890908
-HealthDisplay.gd::GDScript::1828451898707845300::1758217981::0::1::::HealthDisplay<>Control<><>0<>0<><>::
-HealthDisplay.tscn::PackedScene::8996452416762348538::1758217982::0::1::::<><><>0<>0<><>::uid://1byln8wr5r8o::::res://UI/HealthDisplay.gd
+HealthDisplay.gd::GDScript/GDScript::1828451898707845300::1758218373::0::1::::HealthDisplay<>Control<><>0<>0<><>::
+HealthDisplay.tscn::PackedScene/PackedScene::8996452416762348538::1758218373::0::1::::<><><>0<>0<><>::uid://1byln8wr5r8o::::res://UI/HealthDisplay.gd
 ::res://Weapons/::1758043667
 bomb.glb::PackedScene/PackedScene::4875113759600341128::1756468515::1757263403::1::::<><><>0<>0<>23c4e3082ac240d151ab50bbdad87e52<>res://.godot/imported/bomb.glb-60d067ccffc78403978efea135594733.scn::
 hardpoint.gd::GDScript/GDScript::7659927232638778809::1757858373::0::1::::Hardpoint<>Node3D<><>0<>0<><>::
 hardpoint.tscn::PackedScene/PackedScene::8449679002763036761::1757525291::0::1::::<><><>0<>0<><>::uid://dher5abspdyj6::::res://Weapons/hardpoint.gd
 weapon.gd::GDScript/GDScript::7022234249322271261::1756737687::0::1::::Weapon<>Node3D<><>0<>0<><>::
 weapon.tscn::PackedScene/PackedScene::5484080853642759847::1757259163::0::1::::<><><>0<>0<><>::uid://c7bvf38g6ysbd::::res://Weapons/weapon.gd
-::res://Weapons/AG_Missile/::1758218006
-ag_missile_launcher.gd::GDScript::6870141254440567470::1758217984::0::1::::AGMissileLauncher<>Weapon<><>0<>0<><>::
-ag_missile_launcher.tscn::PackedScene::1703113135194571010::1758218005::0::1::::<><><>0<>0<><>::uid://c447htp2lqx5g::::res://Weapons/AG_Missile/ag_missile_launcher.gd<>uid://c6dxufxlfcbsx::::res://Weapons/AG_Missile/missile_visual.tscn<>uid://c7bbn7065cl17::::res://Projectiles/AG Missile/ag_missile_projectile.tscn
-missile_visual.tscn::PackedScene::6956321158792915967::1758218006::0::1::::<><><>0<>0<><>::uid://bs5wys2xqauft::::res://Projectiles/AG Missile/missile.glb
+::res://Weapons/AG_Missile/::1758230777
+ag_missile_launcher.gd::GDScript::6870141254440567470::1758228278::0::1::::AGMissileLauncher<>Weapon<><>0<>0<><>::
+ag_missile_launcher.tscn::PackedScene::1703113135194571010::1758230777::0::1::::<><><>0<>0<><>::uid://c447htp2lqx5g::::res://Weapons/AG_Missile/ag_missile_launcher.gd<>uid://c6dxufxlfcbsx::::res://Weapons/AG_Missile/missile_visual.tscn<>uid://c7bbn7065cl17::::res://Projectiles/AG Missile/ag_missile_projectile.tscn
+missile_visual.tscn::PackedScene::6956321158792915967::1758230777::0::1::::<><><>0<>0<><>::uid://bs5wys2xqauft::::res://Projectiles/AG Missile/missile.glb
 ::res://Weapons/Autocannon/::1757704919
-autocannon.gd::GDScript::4975685324276066161::1758217981::0::1::::Autocannon<>Weapon<><>0<>0<><>::
+autocannon.gd::GDScript/GDScript::4975685324276066161::1758218373::0::1::::Autocannon<>Weapon<><>0<>0<><>::
 Autocannon.tscn::PackedScene/PackedScene::2423479300637366683::1757704919::0::1::::<><><>0<>0<><>::uid://cc5i2s0mvs378::::res://Weapons/Autocannon/autocannon.gd<>uid://cvtsgxjlbovb7::::res://Projectiles/Bullet/bullet.tscn<>uid://ca6d1nc6lkmsj::::res://Weapons/Autocannon/machine gun low poly.glb<>uid://dqxot06c6ine2::::res://Sounds/Heavy machine gun.wav
 machine gun low poly.glb::PackedScene/PackedScene::4837066346698647933::1756732233::1757263404::1::::<><><>0<>0<>3f53e16ca9de75720ac3d3b25b27959b<>res://.godot/imported/machine gun low poly.glb-e87a6c3d5ca3b4f23ab89d9fa1d2d528.scn::
-::res://Weapons/Bomb/::1758218005
-bomb.gd::GDScript::5712732417241881530::1758217937::0::1::::Bomb<>Weapon<><>0<>0<><>::
-bomb.tscn::PackedScene::568697573863238831::1758218005::0::1::::<><><>0<>0<><>::uid://cnnj4ryshwws5::::res://Weapons/Bomb/bomb.gd<>uid://cbpsn8r87hlrc::::res://Weapons/bomb.glb<>uid://bjh4sid7u0lyk::::res://Projectiles/BombNew/bomb_new.tscn
+::res://Weapons/Bomb/::1758230777
+bomb.gd::GDScript/GDScript::5712732417241881530::1758218403::0::1::::Bomb<>Weapon<><>0<>0<><>::
+bomb.tscn::PackedScene::568697573863238831::1758230777::0::1::::<><><>0<>0<><>::uid://cnnj4ryshwws5::::res://Weapons/Bomb/bomb.gd<>uid://cbpsn8r87hlrc::::res://Weapons/bomb.glb<>uid://bjh4sid7u0lyk::::res://Projectiles/BombNew/bomb_new.tscn
 ::res://Weather/::1757275419
-ContinuousTurbulence.gd::GDScript::7739179474742295100::1758217983::0::1::::ContinuousTurbulence<>Node3D<><>0<>0<><>::
+ContinuousTurbulence.gd::GDScript/GDScript::7739179474742295100::1758218403::0::1::::ContinuousTurbulence<>Node3D<><>0<>0<><>::
 ContinuousTurbulence.tscn::PackedScene/PackedScene::6707107642802555155::1757105757::0::1::::<><><>0<>0<><>::uid://dii6fjpt1sxl1::::res://Weather/ContinuousTurbulence.gd<>uid://fw6styeqfphy::::res://Sounds/wind_sound_cockpit.wav
 TurbulenceVolume.tscn::PackedScene/PackedScene::6779879481060331732::1757105757::0::1::::<><><>0<>0<><>::

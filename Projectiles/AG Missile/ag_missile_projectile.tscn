@@ -15,11 +15,14 @@ max_contacts_reported = 8
 script = ExtResource("2_script")
 max_speed_mps = 120.0
 thrust_force = 6000.0
-steer_torque = 300.0
+steer_torque = 2400.0
+drag_coefficient = 0.01
+engine_on = false
 high_approach_altitude = 300.0
 terminal_attack_distance = 400.0
 explosion_radius = 20.0
 explosion_damage_multiplier = 1.0
+engine_ignition_delay = 1.0
 damage = 50.0
 
 [node name="missile" parent="." instance=ExtResource("1_mesh")]
@@ -28,3 +31,7 @@ transform = Transform3D(1, 0, 0, 0, -4.37114e-08, -1, 0, 1, -4.37114e-08, 0, 0, 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="."]
 transform = Transform3D(0.3, 0, 0, 0, -2.71011e-08, -0.3, 0, 0.62, -1.31134e-08, 0, 0, 0)
 shape = SubResource("CylinderShape3D_rl7mi")
+
+[node name="NoseCamera" type="Camera3D" parent="."]
+transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, 0, 1.19189)
+fov = 60.0

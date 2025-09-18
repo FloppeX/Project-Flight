@@ -20,11 +20,14 @@ extends Node3D
 
 # Radar/Target UI
 var radar_panel: PanelContainer
-var target_panel: PanelContainer
+var target_panel: Control
 var target_texture_rect: TextureRect
 var target_viewport: SubViewport
 var target_camera: Camera3D
 var target_placeholder: TextureRect
+var target_info_label: Label  # Text overlay for enemy name and distance
+var missile_camera_mode: bool = false  # Whether we're following a missile
+var tracked_missile: Node3D = null     # Reference to the missile we're following
 var test_pattern_tex: Texture2D
 @export var camera_target_path: NodePath
 var camera_target: Node3D
@@ -83,6 +86,9 @@ func _ready():
 	# Also defer one more bind in case aircraft registers after us
 	call_deferred("_ensure_aircraft_bound")
 	
+	# Add to group so weapon systems can find us for missile camera
+	add_to_group("instrument_panel")
+	
 	print("Instrument Panel initialized")
 
 func _ensure_aircraft_bound() -> void:
@@ -90,6 +96,11 @@ func _ensure_aircraft_bound() -> void:
 		var a := get_tree().get_first_node_in_group("aircraft") as Aircraft
 		if a:
 			aircraft = a
+
+func _physics_process(delta: float) -> void:
+	# Update missile camera in physics process for better sync with missile movement
+	if missile_camera_mode and is_instance_valid(tracked_missile):
+		_update_missile_camera()
 
 func _process(delta: float) -> void:
 	# Keep aircraft reference alive if it spawns late or was freed
@@ -168,6 +179,10 @@ func _process(delta: float) -> void:
 
 	# Update target camera to look at current target if module present
 	if target_camera and is_instance_valid(target_camera):
+		# MISSILE CAMERA MODE: Follow missile if one is being tracked
+		if missile_camera_mode and is_instance_valid(tracked_missile):
+			_update_missile_camera()
+			return  # Skip normal target camera logic
 		# Prefer explicit CameraTarget provided on the aircraft
 		if camera_target and is_instance_valid(camera_target):
 			var source_xform: Transform3D = camera_target.global_transform
@@ -211,11 +226,18 @@ func _process(delta: float) -> void:
 				target_camera.current = true
 				if target_placeholder:
 					target_placeholder.visible = false
+				# Update target info label
+				if target_info_label:
+					var distance = aircraft.global_position.distance_to(enemy_tgt.global_position)
+					target_info_label.text = enemy_tgt.name + "\n" + str(int(distance)) + "m"
 			else:
 				# No target: reset camera to source and show placeholder
 				target_camera.global_transform = source_xform
 				if target_placeholder:
 					target_placeholder.visible = true
+				# Update target info label for no target
+				if target_info_label:
+					target_info_label.text = "NO TARGET"
 		else:
 			# Fallback: derive from targeting module if available, else look forward
 			var targeting = _find_targeting_module()
@@ -225,6 +247,10 @@ func _process(delta: float) -> void:
 				target_camera.look_at(targeting.current_target.global_position, Vector3.UP)
 				if target_placeholder:
 					target_placeholder.visible = false
+				# Update target info label for targeting module target
+				if target_info_label:
+					var distance = aircraft.global_position.distance_to(targeting.current_target.global_position)
+					target_info_label.text = targeting.current_target.name + "\n" + str(int(distance)) + "m"
 			else:
 				# Idle: look forward
 				var cam_pos2 = aircraft.global_position + aircraft.global_transform.basis.z * 1.0 + Vector3(0, 0.3, 0)
@@ -232,6 +258,9 @@ func _process(delta: float) -> void:
 				target_camera.global_transform.basis = Basis(aircraft.global_transform.basis)
 				if target_placeholder:
 					target_placeholder.visible = true
+				# Update target info label for no target (idle state)
+				if target_info_label:
+					target_info_label.text = "NO TARGET"
 
 		# Auto-zoom to fit target width assuming ~assumed_target_width_m across
 		var tgt = _get_enemy_target_node()
@@ -252,31 +281,31 @@ func _process(delta: float) -> void:
 func _setup_lower_displays() -> void:
 	if display_root == null:
 		return
-	var lower := display_root.get_node_or_null("LowerRow") as HBoxContainer
+	var lower := display_root.get_node_or_null("LowerRow") as Control
 	if lower == null:
-		lower = HBoxContainer.new()
+		lower = Control.new()  # Use regular Control instead of HBoxContainer
 		lower.name = "LowerRow"
 		display_root.add_child(lower)
 		lower.anchor_left = 0.0
 		lower.anchor_right = 0.0
 		lower.anchor_top = 0.0
 		lower.anchor_bottom = 0.0
-		lower.offset_top = 45
-		lower.offset_bottom = 45  # Will be set dynamically based on square size
+		lower.offset_top = 55  # Moved down 10 pixels to avoid overlap
+		lower.offset_bottom = 250  # Fixed height: 55 + 195
 		lower.offset_left = 0
-		lower.offset_right = 400
-		lower.add_theme_constant_override("separation", 10)
-		lower.size_flags_vertical = 0
-		# React to size changes
-		lower.resized.connect(_update_lower_layout_sizes)
+		lower.offset_right = 400  # Fixed width
+		# No automatic layout - we'll position manually
 
-	# Left: Radar panel
+	# Left: Radar panel - manually positioned
 	if radar_panel == null:
-		radar_panel = PanelContainer.new()
+		radar_panel = PanelContainer.new()  # Keep as PanelContainer for radar functionality
 		radar_panel.name = "RadarPanel"
 		lower.add_child(radar_panel)
-		radar_panel.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-		radar_panel.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		# Fixed position and size - left side
+		radar_panel.position = Vector2(0, 0)
+		radar_panel.custom_minimum_size = Vector2(195, 195)
+		radar_panel.size = Vector2(195, 195)
+		radar_panel.clip_contents = true  # Clip content to panel bounds
 		# Remove default panel padding to match sizes exactly
 		radar_panel.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
 		var radar = preload("res://HUD/RadarCanvas.gd").new()
@@ -287,15 +316,16 @@ func _setup_lower_displays() -> void:
 		radar.size_flags_vertical = Control.SIZE_EXPAND_FILL
 		radar.set_provider(self)
 
-	# Right: Target view panel
+	# Right: Target view panel - manually positioned
 	if target_panel == null:
-		target_panel = PanelContainer.new()
+		target_panel = Control.new()  # Use Control instead of PanelContainer
 		target_panel.name = "TargetPanel"
 		lower.add_child(target_panel)
-		target_panel.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-		target_panel.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		# Remove default panel padding to match sizes exactly
-		target_panel.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
+		# Fixed position and size - right side (195 + 10 separation = 205)
+		target_panel.position = Vector2(205, 0)
+		target_panel.custom_minimum_size = Vector2(195, 195)
+		target_panel.size = Vector2(195, 195)
+		target_panel.clip_contents = true  # Clip content to panel bounds
 		# Create viewport and camera for target feed
 		target_viewport = SubViewport.new()
 		target_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
@@ -314,7 +344,7 @@ func _setup_lower_displays() -> void:
 		vp_container.add_child(target_camera)
 		# TextureRect to display
 		target_texture_rect = TextureRect.new()
-		target_texture_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		target_texture_rect.stretch_mode = TextureRect.STRETCH_SCALE  # Match placeholder stretch mode
 		target_texture_rect.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		target_texture_rect.size_flags_vertical = Control.SIZE_EXPAND_FILL
 		target_texture_rect.add_theme_constant_override("margin_left", 0)
@@ -335,7 +365,7 @@ func _setup_lower_displays() -> void:
 		# Placeholder test pattern when no target
 		test_pattern_tex = _generate_test_pattern_texture(viewport_resolution)
 		target_placeholder = TextureRect.new()
-		target_placeholder.stretch_mode = TextureRect.STRETCH_SCALE
+		target_placeholder.stretch_mode = TextureRect.STRETCH_SCALE  # Keep consistent with live feed
 		target_placeholder.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		target_placeholder.size_flags_vertical = Control.SIZE_EXPAND_FILL
 		target_placeholder.add_theme_constant_override("margin_left", 0)
@@ -347,37 +377,47 @@ func _setup_lower_displays() -> void:
 		target_panel.add_child(target_placeholder)
 		# Ensure placeholder sits behind/over depending on visibility ordering
 		target_panel.move_child(target_placeholder, 0)
+		
+		# Create text overlay for enemy name and distance
+		target_info_label = Label.new()
+		target_info_label.name = "TargetInfoLabel"
+		target_info_label.text = "NO TARGET"
+		target_info_label.position = Vector2(5, 5)  # Top-left corner with small margin
+		target_info_label.size = Vector2(185, 40)  # Fit within panel width, allow for 2 lines
+		target_info_label.add_theme_color_override("font_color", Color.WHITE)
+		target_info_label.add_theme_font_size_override("font_size", 12)
+		target_info_label.vertical_alignment = VERTICAL_ALIGNMENT_TOP
+		target_info_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		# Add black outline for better visibility
+		target_info_label.add_theme_color_override("font_outline_color", Color.BLACK)
+		target_info_label.add_theme_constant_override("outline_size", 2)
+		target_panel.add_child(target_info_label)
 	
 	# Force initial layout update to ensure consistent sizing
 	call_deferred("_update_lower_layout_sizes")
 
 func _update_lower_layout_sizes() -> void:
-	# Keep the two displays square and with a small gap, positioned directly under top row
-	var lower := display_root.get_node_or_null("LowerRow") as HBoxContainer
+	# MANUAL LAYOUT: Fixed positioning, no dynamic calculations
+	var lower := display_root.get_node_or_null("LowerRow") as Control
 	if lower == null:
 		return
 	
-	# Use full available width
-	var display_width: float = display_root.get_size().x
-	lower.offset_right = display_width
+	# DEBUG: Print layout information
+	var has_target = _get_enemy_target_node() != null
+	print("DEBUG LAYOUT: Has target = ", has_target)
+	print("DEBUG LAYOUT: MANUAL POSITIONING - Lower container size = ", lower.size)
 	
-	# Set both displays to use available horizontal space
-	var separation: float = lower.get_theme_constant("separation")
-	var available_width: float = display_width - separation
-	var side: float = max(0.0, available_width * 0.5)
-	
-	# Set container height to exactly match square size
-	lower.offset_bottom = lower.offset_top + side
-	
-	# Set both panels to use the calculated square size exactly
+	# Ensure panels maintain fixed positions and sizes
 	if radar_panel:
-		radar_panel.custom_minimum_size = Vector2(side, side)
-		radar_panel.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-		radar_panel.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		radar_panel.position = Vector2(0, 0)
+		radar_panel.custom_minimum_size = Vector2(195, 195)
+		radar_panel.size = Vector2(195, 195)
+		print("DEBUG LAYOUT: Radar panel size = ", radar_panel.size, " position = ", radar_panel.position)
 	if target_panel:
-		target_panel.custom_minimum_size = Vector2(side, side)
-		target_panel.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-		target_panel.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		target_panel.position = Vector2(205, 0)  # 195 + 10 separation
+		target_panel.custom_minimum_size = Vector2(195, 195)
+		target_panel.size = Vector2(195, 195)
+		print("DEBUG LAYOUT: Target panel size = ", target_panel.size, " position = ", target_panel.position)
 
 func _compute_top_row_content_width() -> float:
 	var tr := display_root.get_node_or_null("TopRow") as HBoxContainer
@@ -517,6 +557,87 @@ void fragment() {
 	var sh := Shader.new()
 	sh.code = code
 	return sh
+
+func _update_missile_camera() -> void:
+	"""Update camera to use missile's built-in nose camera"""
+	if not is_instance_valid(tracked_missile):
+		# Missile was destroyed, exit missile camera mode
+		missile_camera_mode = false
+		tracked_missile = null
+		return
+	
+	# Find the missile's nose camera
+	var missile_nose_camera = tracked_missile.find_child("NoseCamera", true, false) as Camera3D
+	if missile_nose_camera and is_instance_valid(missile_nose_camera):
+		# Use missile camera position but create level-horizon orientation
+		target_camera.global_position = missile_nose_camera.global_position
+		target_camera.fov = missile_nose_camera.fov
+		
+		# Get missile forward direction and preserve pitch but eliminate roll
+		var missile_forward = -missile_nose_camera.global_transform.basis.z.normalized()
+		# Keep the full forward direction (including up/down component for pitch)
+		var forward = missile_forward
+		# Use world up vector and project it perpendicular to forward for level "wings"
+		var up = Vector3.UP
+		var right = forward.cross(up).normalized()
+		# Recalculate up to ensure it's perpendicular to both forward and right (eliminates roll)
+		up = right.cross(forward).normalized()
+		
+		# Create basis with pitch but no roll (wings always level)
+		target_camera.global_transform.basis = Basis(right, up, -forward)
+	else:
+		# Fallback to manual calculation if no nose camera found
+		var missile_transform = tracked_missile.global_transform
+		var missile_forward = -missile_transform.basis.z.normalized()
+		var camera_offset = missile_forward * 2.0
+		target_camera.global_position = missile_transform.origin + camera_offset
+		
+		# Apply wings-level to fallback as well (preserve pitch, eliminate roll)
+		var forward = missile_forward
+		var up = Vector3.UP
+		var right = forward.cross(up).normalized()
+		up = right.cross(forward).normalized()
+		target_camera.global_transform.basis = Basis(right, up, -forward)
+	
+	# Hide placeholder since we have active camera feed
+	if target_placeholder:
+		target_placeholder.visible = false
+	
+	# Update info label with missile status
+	if target_info_label and is_instance_valid(aircraft):
+		var missile_speed = 0.0
+		if tracked_missile.has_method("get_linear_velocity"):
+			missile_speed = tracked_missile.get_linear_velocity().length()
+		elif "linear_velocity" in tracked_missile:
+			missile_speed = tracked_missile.linear_velocity.length()
+		
+		target_info_label.text = "MISSILE CAM\n" + str(int(missile_speed)) + " m/s"
+
+func start_missile_camera_tracking(missile: Node3D) -> void:
+	"""Switch target view to follow the missile camera"""
+	if not is_instance_valid(missile):
+		return
+	
+	print("Starting missile camera tracking for: ", missile.name)
+	missile_camera_mode = true
+	tracked_missile = missile
+	
+	# Connect to missile destruction signal to stop tracking when it hits
+	if missile.has_signal("tree_exiting"):
+		missile.tree_exiting.connect(_on_missile_destroyed)
+	elif missile.has_signal("destroyed"):
+		missile.destroyed.connect(_on_missile_destroyed)
+	
+	# Update target info label
+	if target_info_label:
+		target_info_label.text = "MISSILE CAM\nGUIDANCE VIEW"
+
+func _on_missile_destroyed():
+	"""Called when tracked missile is destroyed, return to normal target view"""
+	print("Missile destroyed, returning to normal target view")
+	missile_camera_mode = false
+	tracked_missile = null
+	# Target info will be updated in normal _process loop
 
 func _generate_test_pattern_texture(size_px: Vector2i) -> Texture2D:
 	var width: int = max(8, size_px.x)

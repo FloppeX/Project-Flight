@@ -18,6 +18,7 @@ var target_aircraft: Node3D
 var _last_ground_y: float = -INF
 var _terrain: Node = null
 var _last_integrator_log_ms: int = 0
+var is_dying: bool = false # To prevent multiple explosion calls
 
 signal destroyed(enemy)
 
@@ -58,6 +59,10 @@ func _ready():
 	sleeping = false
 
 func _process(delta):
+	# If dying, do nothing else
+	if is_dying:
+		return
+
 	if not target_aircraft or not is_instance_valid(target_aircraft):
 		return
 	
@@ -88,6 +93,10 @@ func fire_at_target():
 	print("Enemy fired at aircraft!")
 
 func _physics_process(delta: float) -> void:
+	# If dying, do nothing else
+	if is_dying:
+		# Keep gravity enabled so it falls out of the sky
+		return
 	# Ground clamp to avoid falling through streamed-out terrain
 	if not enable_ground_clamp:
 		return
@@ -151,8 +160,8 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 			_last_integrator_log_ms = now_ms
 
 func take_damage(damage_amount: float):
-	if current_health <= 0:
-		return  # Already destroyed
+	if is_dying or current_health <= 0:
+		return  # Already destroyed or in the process of exploding
 	
 	current_health -= damage_amount
 	current_health = max(current_health, 0.0)
@@ -160,7 +169,16 @@ func take_damage(damage_amount: float):
 	print("Enemy aircraft taking damage: ", damage_amount, " HP remaining: ", current_health)
 	
 	if current_health <= 0:
-		explode()
+		is_dying = true
+		# Create a timer for a random delay before exploding
+		var death_timer = Timer.new()
+		death_timer.wait_time = randf_range(0.0, 1.0)
+		death_timer.one_shot = true
+		death_timer.timeout.connect(explode)
+		add_child(death_timer)
+		death_timer.start()
+		# Make sure the timer is removed after it's done
+		death_timer.timeout.connect(death_timer.queue_free)
 
 func explode():
 	print("Enemy aircraft exploding!")

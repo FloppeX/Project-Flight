@@ -431,118 +431,108 @@ func get_weapon_control():
 	
 	return weapon_control
 
+func _set_target_box_visible(p_visible: bool):
+	if not is_instance_valid(target_overlay):
+		return
+	if target_overlay.visible == p_visible:
+		return
+	
+	target_overlay.visible = p_visible
+	# The lines are children, but were created invisible.
+	# Make sure their visibility matches the parent overlay.
+	for line in target_box_lines:
+		if is_instance_valid(line):
+			line.visible = p_visible
+
 func update_target_overlay():
 	"""Update the green target box overlay when target is visible in HUD"""
-	if target_overlay == null or target_box_lines.size() != 4:
-		return
-	
-	# Get current target from targeting system
+	# Ensure all required nodes are valid before proceeding
+	var required_nodes = [target_overlay, cam, aircraft, hud_mesh]
+	for node in required_nodes:
+		if not is_instance_valid(node):
+			_set_target_box_visible(false)
+			return
+
+	# Get current target from the targeting system
 	var targeting_system = get_targeting_system()
-	var target = null
-	
-	if targeting_system and "current_target" in targeting_system:
+	var target: Node3D = null
+	if is_instance_valid(targeting_system) and "current_target" in targeting_system:
 		target = targeting_system.current_target
-	
-	# Hide overlay if no target or invalid target
-	if not target or not is_instance_valid(target):
-		target_overlay.visible = false
-		for line in target_box_lines:
-			line.visible = false
+
+	# Hide overlay if no valid target exists
+	if not is_instance_valid(target):
+		_set_target_box_visible(false)
 		return
-	
-	# Use the existing camera reference (should be cockpit camera)
-	if not cam:
-		target_overlay.visible = false
-		for line in target_box_lines:
-			line.visible = false
+
+	# First, ensure the target is actually in front of the camera
+	if cam.is_position_behind(target.global_position):
+		_set_target_box_visible(false)
 		return
-	
-	# Calculate ray from camera to target
+
+	# Cast ray from camera through target, find where it hits HUD plane
 	var camera_pos = cam.global_position
-	var target_pos = target.global_position
-	var ray_direction = (target_pos - camera_pos).normalized()
+	var ray_direction = (target.global_position - camera_pos).normalized()
 	
-	# Get HUD glass plane properties
-	var hud_glass_pos = hud_mesh.global_position
-	var hud_glass_basis = hud_mesh.global_transform.basis
+	# Define HUD plane in world space
+	var hud_transform = hud_mesh.global_transform
+	var hud_normal = -hud_transform.basis.z.normalized()
+	var hud_plane = Plane(hud_normal, hud_transform.origin)
 	
-	# HUD glass normal (pointing toward camera)
-	var hud_normal = -hud_glass_basis.z.normalized()
+	# Find intersection point
+	var intersection_point = hud_plane.intersects_ray(camera_pos, ray_direction)
 	
-	# Ray-plane intersection
-	var denom = ray_direction.dot(hud_normal)
-	
-	# Check if ray is roughly parallel to plane or pointing away
-	if abs(denom) < 0.001:
-		target_overlay.visible = false
-		for line in target_box_lines:
-			line.visible = false
+	if intersection_point == null:
+		_set_target_box_visible(false)
 		return
 	
-	# Calculate intersection distance
-	var plane_to_camera = camera_pos - hud_glass_pos
-	var t = -plane_to_camera.dot(hud_normal) / denom
+	# Convert intersection point to HUD mesh local coordinates
+	var local_point = hud_mesh.to_local(intersection_point)
 	
-	# Check if intersection is behind camera (t < 0) or behind target (t > distance to target)
-	var distance_to_target = camera_pos.distance_to(target_pos)
-	if t < 0 or t > distance_to_target:
-		target_overlay.visible = false
-		for line in target_box_lines:
-			line.visible = false
-		return
-	
-	# Calculate 3D intersection point
-	var intersection_point = camera_pos + ray_direction * t
-	
-	# Convert intersection point to HUD local coordinates
-	var local_pos = hud_mesh.global_transform.inverse() * intersection_point
-	
-	# Check if intersection is within HUD glass bounds
+	# Check bounds
 	var half_size = hud_glass_size * 0.5
-	if abs(local_pos.x) > half_size.x or abs(local_pos.y) > half_size.y:
-		target_overlay.visible = false
-		for line in target_box_lines:
-			line.visible = false
+	if abs(local_point.x) > half_size.x or abs(local_point.y) > half_size.y:
+		_set_target_box_visible(false)
 		return
 	
-	# Convert HUD local coordinates to viewport coordinates
-	# HUD local space: -half_size to +half_size
-	# Viewport space: 0 to viewport.size
+	# Convert to viewport coordinates
 	var hud_size_px = Vector2(viewport.size)
-	var viewport_x = (local_pos.x + half_size.x) / hud_glass_size.x * hud_size_px.x
-	var viewport_y = (local_pos.y + half_size.y) / hud_glass_size.y * hud_size_px.y
-	var hud_pos = Vector2(viewport_x, viewport_y)
+	var hud_pos = Vector2(
+		(local_point.x + half_size.x) / hud_glass_size.x * hud_size_px.x,
+		(-local_point.y + half_size.y) / hud_glass_size.y * hud_size_px.y
+	)
 	
-	# Target is within HUD bounds, show the box
-	target_overlay.visible = true
+	# Check if the target is within the HUD viewport bounds (with some margin)
+	var margin = 50.0
+	if (hud_pos.x < -margin or hud_pos.x > (hud_size_px.x + margin) or 
+		hud_pos.y < -margin or hud_pos.y > (hud_size_px.y + margin)):
+		_set_target_box_visible(false)
+		return
+
+	# Target is visible in HUD, so show and position the box
+	_set_target_box_visible(true)
 	
-	var box_size = Vector2(40, 40)  # 40x40 pixel box
+	var box_size = Vector2(40, 40)
 	var line_thickness = 2.0
+	var top_left = hud_pos - (box_size * 0.5)
 	
-	var half_box = box_size * 0.5
-	var top_left = hud_pos - half_box
-	var bottom_right = hud_pos + half_box
+	# Position the 4 lines that form the box
+	var top_line := target_box_lines[0]
+	var bottom_line := target_box_lines[1]
+	var left_line := target_box_lines[2]
+	var right_line := target_box_lines[3]
 	
-	# Position and show the 4 corner lines to form a complete box
-	# Top line
-	target_box_lines[0].visible = true
-	target_box_lines[0].size = Vector2(box_size.x, line_thickness)
-	target_box_lines[0].position = top_left
+	top_line.position = top_left
+	top_line.size = Vector2(box_size.x, line_thickness)
 	
-	# Bottom line
-	target_box_lines[1].visible = true
-	target_box_lines[1].size = Vector2(box_size.x, line_thickness)
-	target_box_lines[1].position = Vector2(top_left.x, bottom_right.y - line_thickness)
+	bottom_line.position = Vector2(top_left.x, top_left.y + box_size.y - line_thickness)
+	bottom_line.size = Vector2(box_size.x, line_thickness)
+
+	left_line.position = top_left
+	left_line.size = Vector2(line_thickness, box_size.y)
 	
-	# Left line
-	target_box_lines[2].visible = true
-	target_box_lines[2].size = Vector2(line_thickness, box_size.y)
-	target_box_lines[2].position = top_left
-	
-	# Right line
-	target_box_lines[3].visible = true
-	target_box_lines[3].size = Vector2(line_thickness, box_size.y)
-	target_box_lines[3].position = Vector2(bottom_right.x - line_thickness, top_left.y)
+	right_line.position = Vector2(top_left.x + box_size.x - line_thickness, top_left.y)
+	right_line.size = Vector2(line_thickness, box_size.y)
+
 
 func get_targeting_system():
 	"""Get the targeting system module"""

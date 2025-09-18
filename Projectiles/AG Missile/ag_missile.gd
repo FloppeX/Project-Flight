@@ -20,6 +20,7 @@ class_name AGMissile
 @export var explosion_radius: float = 30.0  # Blast radius in meters
 @export var explosion_damage_multiplier: float = 2.0  # Multiplier for max damage (damage * this = max explosion damage)
 @export var arming_time: float = 2.0  # Time in seconds before missile can explode
+@export var engine_ignition_delay: float = 0.5  # Time before engine starts (missile drops like bomb first)
 @export var proximity_detonation_distance: float = 3.0  # Distance from ground to detonate
 
 var target: Node3D
@@ -64,18 +65,38 @@ func fire_with_target(initial_velocity: Vector3, firing_aircraft: Node3D, t: Nod
 func fire(initial_velocity: Vector3, firing_aircraft: Node3D):
 	# Call parent fire method
 	super.fire(initial_velocity, firing_aircraft)
-	# Record launch time for arming delay
+	# Record launch time for arming and engine ignition delays
 	launch_time = Time.get_ticks_msec() / 1000.0
 	is_armed = false
-	print("Missile launched - will arm in ", arming_time, " seconds")
+	engine_on = true  # Start with engine "on" but it will be disabled until ignition delay
+	print("Missile launched - engine ignites in ", engine_ignition_delay, " seconds, arms in ", arming_time, " seconds")
 
 func _physics_process(delta):
+	var current_time = Time.get_ticks_msec() / 1000.0
+	
+	# Check engine ignition status
+	var was_engine_on = engine_on
+	if launch_time > 0.0:
+		if (current_time - launch_time) < engine_ignition_delay:
+			# Engine not yet ignited - missile drops like a bomb
+			engine_on = false
+		else:
+			# Engine should be running
+			if not engine_on:
+				print("Missile engine ignited! Starting thrust and guidance.")
+			engine_on = true
+			
 	# Check arming status
 	if not is_armed and launch_time > 0.0:
-		var current_time = Time.get_ticks_msec() / 1000.0
 		if (current_time - launch_time) >= arming_time:
 			is_armed = true
 			print("Missile armed and ready to explode")
+	
+	# Print engine status for first few seconds
+	if launch_time > 0.0 and (current_time - launch_time) < 3.0:
+		var time_since_launch = current_time - launch_time
+		if int(time_since_launch * 10) % 5 == 0:  # Print every 0.5 seconds
+			print("Missile status: time=", "%.1f" % time_since_launch, " engine=", engine_on, " armed=", is_armed)
 	
 	# Proximity detonation check (if armed)
 	if is_armed and proximity_detonation_distance > 0.0:
@@ -86,10 +107,14 @@ func _physics_process(delta):
 	if engine_on:
 		_apply_thrust_and_lift(delta)
 		_apply_guidance(delta)
-	# Always update smoke trail regardless of engine state for visibility testing
-	_update_smoke_trail(delta)
-	_apply_drag_and_limit_speed(delta)
-	_apply_turbulence(delta)
+	# Note: No steering/guidance when engine is off - missile drops like unguided bomb
+	# Only update smoke trail when engine is running
+	if engine_on:
+		_update_smoke_trail(delta)
+		# Only apply drag and turbulence when engine is running
+		_apply_drag_and_limit_speed(delta)
+		_apply_turbulence(delta)
+	# When engine is off: no drag, no turbulence - pure ballistic flight
 
 func _apply_thrust_and_lift(delta: float) -> void:
 	var fwd: Vector3 = global_transform.basis.z
@@ -114,24 +139,39 @@ func _apply_guidance(delta: float) -> void:
 	elif "linear_velocity" in target:
 		target_velocity = target.linear_velocity
 	
-	# Two-phase missile guidance: high approach then direct attack
 	var distance_to_target: float = global_position.distance_to(target.global_position)
 	var base_target_pos: Vector3 = target.global_position
 	
-	# Apply lead prediction for fast-moving targets
+	# Improved lead prediction - reduce overcompensation
 	if target_velocity.length() > lead_velocity_threshold:
 		var missile_speed: float = max(linear_velocity.length(), 50.0)
 		var time_to_target: float = distance_to_target / missile_speed
-		base_target_pos = target.global_position + (target_velocity * time_to_target * lead_factor)
+		
+		# Reduce lead factor based on distance - less lead when close
+		var distance_lead_factor: float = clamp(distance_to_target / 500.0, 0.1, 1.0)
+		var adjusted_lead_factor: float = lead_factor * distance_lead_factor
+		
+		# Cap the lead prediction to prevent extreme overshooting
+		var lead_prediction: Vector3 = target_velocity * time_to_target * adjusted_lead_factor
+		var max_lead_distance: float = distance_to_target * 0.3  # Max 30% of distance
+		if lead_prediction.length() > max_lead_distance:
+			lead_prediction = lead_prediction.normalized() * max_lead_distance
+		
+		base_target_pos = target.global_position + lead_prediction
 	
-	# Two-phase guidance system
+	# Restored two-phase guidance system with overshoot fixes
 	var attack_point: Vector3
 	if distance_to_target > terminal_attack_distance:
-		# Phase 1: Head to point above target for high approach
+		# Phase 1: High approach - aim for point above target
 		attack_point = base_target_pos + Vector3.UP * high_approach_altitude
 	else:
-		# Phase 2: Within terminal distance, dive straight at target
-		attack_point = base_target_pos
+		# Phase 2: Terminal attack - dive at target with reduced lead when very close
+		if distance_to_target < 50.0:
+			# Very close: aim directly at current target position to prevent overshoot
+			attack_point = target.global_position
+		else:
+			# Close but not too close: use reduced lead prediction
+			attack_point = base_target_pos
 	
 	var to_target: Vector3 = (attack_point - global_position).normalized()
 	var fwd: Vector3 = global_transform.basis.z.normalized()
@@ -144,13 +184,24 @@ func _apply_guidance(delta: float) -> void:
 	var steer_axis: Vector3 = fwd.cross(to_target)
 	if steer_axis.length() > 0.0001:
 		steer_axis = steer_axis.normalized()
-		# Reduce steering force as we get closer to prevent overshooting
-		var distance_factor: float = clamp(distance_to_target / 200.0, 0.3, 1.0)
+		
+		# Improved distance-based steering control
+		var distance_factor: float
+		if distance_to_target < 100.0:
+			# Very aggressive steering when close to prevent overshoot
+			distance_factor = clamp(distance_to_target / 50.0, 2.0, 3.0)  # Increased steering when close
+		else:
+			# Normal steering when far
+			distance_factor = clamp(distance_to_target / 200.0, 0.5, 1.0)
+		
 		var torque_mag: float = steer_torque * angle_err * distance_factor
 		apply_torque(steer_axis * torque_mag)
 	
-	# Increased angular damping for stability
-	angular_velocity *= 0.95
+	# Stronger angular damping when close to target for stability
+	var damping_factor: float = 0.95
+	if distance_to_target < 100.0:
+		damping_factor = 0.85  # Stronger damping when close
+	angular_velocity *= damping_factor
 
 func _on_body_entered(body):
 	print("=== MISSILE HIT ===")
@@ -158,16 +209,23 @@ func _on_body_entered(body):
 	print("Missile armed: ", is_armed)
 	print("Body collision layer: ", body.collision_layer if body.has_method("get_collision_layer") else "N/A")
 	
+	# Always check if we hit the shooter first
+	if body == shooter:
+		print("Missile hit shooter - ignored")
+		return
+	
 	# Check if missile is armed before exploding
 	if not is_armed:
-		print("Missile not armed yet - impact ignored")
+		print("Missile not armed yet - collision ignored but missile continues")
+		# Don't call parent _on_body_entered to avoid setting has_impacted = true
+		# Just let the missile bounce/continue flying
 		return
 	
 	print("Body has take_damage method: ", body.has_method("take_damage"))
 	print("Missile damage: ", damage)
 	print("Body groups: ", body.get_groups())
 	
-	# Trigger explosion
+	# Trigger explosion (only when armed)
 	_trigger_explosion(body)
 
 func _apply_drag_and_limit_speed(delta: float) -> void:

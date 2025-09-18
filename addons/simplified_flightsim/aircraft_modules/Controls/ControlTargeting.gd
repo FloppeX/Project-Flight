@@ -105,9 +105,40 @@ func _update_best_target_if_needed():
 	# Select nearest in-cone
 	candidates.sort_custom(func(a, b): return a["dist"] < b["dist"]) 
 	if auto_target_when_none or auto_replace_target or (current_target == null or not is_instance_valid(current_target)):
-		current_target = candidates[0]["node"]
+		var new_target = candidates[0]["node"]
+		set_target(new_target)
 		if debug_enabled:
 			print("[Targeting] selected ", current_target.name)
+
+func set_target(new_target: Node3D):
+	"""Sets the current target and handles signal connections."""
+	# Add a guard clause to ensure we never assign a freed instance.
+	if new_target != null and not is_instance_valid(new_target):
+		# If the new target is invalid, treat it as if we're clearing the target.
+		new_target = null
+
+	if new_target == current_target:
+		return
+
+	# Disconnect from the old target's destroyed signal if it was valid
+	if is_instance_valid(current_target) and current_target.has_signal("destroyed"):
+		current_target.destroyed.disconnect(on_target_destroyed)
+
+	current_target = new_target
+
+	# Connect to the new target's destroyed signal if it is valid
+	if is_instance_valid(current_target) and current_target.has_signal("destroyed"):
+		current_target.destroyed.connect(on_target_destroyed)
+
+func on_target_destroyed(enemy_node):
+	"""Callback function for when a target is destroyed."""
+	if debug_enabled:
+		print("[Targeting] Target destroyed signal received from: ", enemy_node)
+	# If the destroyed enemy is our current target, clear it.
+	if enemy_node == current_target:
+		clear_target()
+		if debug_enabled:
+			print("[Targeting] Current target was destroyed. Target cleared.")
 
 func target_next():
 	_cycle_target(1)
@@ -116,7 +147,7 @@ func target_prev():
 	_cycle_target(-1)
 
 func clear_target():
-	current_target = null
+	set_target(null)
 
 func _cycle_target(direction: int):
 	if not is_instance_valid(aircraft):
@@ -138,7 +169,7 @@ func _cycle_target(direction: int):
 				else:
 					enemies.append(e2)
 	if enemies.size() == 0:
-		current_target = null
+		clear_target()
 		return
 	# Build list in-cone for cycling
 	var forward: Vector3 = aircraft.global_transform.basis.z
@@ -153,16 +184,16 @@ func _cycle_target(direction: int):
 				if forward.dot(dir) >= cos_half:
 					in_cone.append(e)
 	if in_cone.size() == 0:
-		current_target = null
+		clear_target()
 		return
 	if not current_target or not is_instance_valid(current_target):
-		current_target = in_cone[0]
+		set_target(in_cone[0])
 		return
 	var idx := in_cone.find(current_target)
 	if idx == -1:
-		current_target = in_cone[0]
+		set_target(in_cone[0])
 		return
 	idx = (idx + direction) % in_cone.size()
 	if idx < 0:
 		idx += in_cone.size()
-	current_target = in_cone[idx]
+	set_target(in_cone[idx])
