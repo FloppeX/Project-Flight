@@ -5,10 +5,11 @@
 [ext_resource type="PackedScene" uid="uid://bjh4sid7u0lyk" path="res://Projectiles/BombNew/bomb_new.tscn" id="2_clhcb"]
 
 [node name="Bomb" type="Node3D"]
-transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, 0, -0.0263879)
+transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, 0, 0)
 script = ExtResource("1_573fp")
 bomb_projectile_scene = ExtResource("2_clhcb")
+fire_cooldown = 0.1
 ammo_count = 136
 
 [node name="bomb" parent="." instance=ExtResource("2_4fn8o")]
-transform = Transform3D(7.64274e-16, 1.74846e-08, -0.4, 0.4, -1.74846e-08, 0, -1.74846e-08, -0.4, -1.74846e-08, -0.170012, 0.110302, 0.404797)
+transform = Transform3D(7.6427e-16, 1.74846e-08, -0.4, 0.4, -1.74846e-08, -4.12929e-21, -1.74846e-08, -0.4, -1.74846e-08, -0.170012, 0.110302, 0.404797)

@@ -6,10 +6,14 @@ class_name Explosion
 @export var debris_count: int = 25  # Increased from 15
 @export var effect_duration: float = 8.0  # Increased from 2.0
 @export var explosion_sounds: Array[AudioStream] = []
+@export var use_line_of_sight: bool = true  # Do raycast LOS checks before applying damage/impulse
+@export var debug_enabled: bool = false
 
 # Damage properties
 @export var max_damage: float = 100.0  # Maximum damage at center
 @export var min_damage: float = 10.0   # Minimum damage at edge
+@export var knockback_impulse_at_center: float = 2500.0
+@export var knockback_impulse_at_edge: float = 250.0
 
 var debris_particles: GPUParticles3D
 var smoke_particles: GPUParticles3D
@@ -34,11 +38,13 @@ func setup_explosion_audio():
 	if explosion_sounds.size() > 0:
 		# Randomly select one of the explosion sounds
 		selected_sound = explosion_sounds[randi() % explosion_sounds.size()]
-		print("Selected explosion sound: ", selected_sound.resource_path)
+		if debug_enabled:
+			print("Selected explosion sound: ", selected_sound.resource_path)
 	else:
 		# Fallback to default explosion sound
 		selected_sound = load("res://Sounds/explosion_large_01.wav")
-		print("Using fallback explosion sound")
+		if debug_enabled:
+			print("Using fallback explosion sound")
 	
 	sfx_explosion.stream = selected_sound
 	sfx_explosion.volume_db = 0.0
@@ -48,7 +54,8 @@ func setup_explosion_audio():
 	sfx_explosion.add_to_group("3d_audio")  # Add to group for audio management
 
 func create_debris_particles():
-	print("Creating debris particles...")
+	if debug_enabled:
+		print("Creating debris particles...")
 	debris_particles = GPUParticles3D.new()
 	add_child(debris_particles)
 	
@@ -89,7 +96,8 @@ func create_debris_particles():
 	debris_particles.draw_pass_1 = cube_mesh
 
 func create_smoke_particles():
-	print("Creating smoke particles...")
+	if debug_enabled:
+		print("Creating smoke particles...")
 	smoke_particles = GPUParticles3D.new()
 	add_child(smoke_particles)
 	
@@ -135,7 +143,8 @@ func create_smoke_gradient() -> Gradient:
 	return gradient
 
 func create_fire_debris():
-	print("Creating fire debris...")
+	if debug_enabled:
+		print("Creating fire debris...")
 	# Create several individual fire-trailing pieces
 	for i in range(6):  # 6 burning debris pieces
 		print("Creating fire debris piece: ", i)
@@ -165,7 +174,8 @@ func create_single_fire_debris(index: int):
 	debris_material.albedo_color = Color.YELLOW  # Bright color
 	debris_mesh.material_override = debris_material
 	
-	print("Debris mesh created with bright material")
+	if debug_enabled:
+		print("Debris mesh created with bright material")
 	
 	# Launch debris in random direction
 	var launch_direction = Vector3(
@@ -177,19 +187,22 @@ func create_single_fire_debris(index: int):
 	var launch_speed = randf_range(5.0, 10.0)  # Slower so we can see it
 	var target_position = launch_direction * launch_speed
 	
-	print("Launch direction: ", launch_direction)
-	print("Target position: ", target_position)
+	if debug_enabled:
+		print("Launch direction: ", launch_direction)
+		print("Target position: ", target_position)
 	
 	# Animate the debris movement - slower and longer
 	var debris_tween = create_tween()
 	debris_tween.tween_property(debris_container, "position", target_position, 4.0)  # Slower movement
 	debris_tween.tween_callback(func(): 
-		print("Debris piece finished flying: ", debris_container.name)
+		if debug_enabled:
+			print("Debris piece finished flying: ", debris_container.name)
 		debris_container.queue_free()
 	)
 
 func trigger_explosion():
-	print("=== TRIGGERING EXPLOSION ===")
+	if debug_enabled:
+		print("=== TRIGGERING EXPLOSION ===")
 	# Start particles
 	debris_particles.restart()
 	smoke_particles.restart()
@@ -197,10 +210,11 @@ func trigger_explosion():
 	# Play explosion sound
 	if sfx_explosion:
 		sfx_explosion.play()
-		print("Playing explosion sound")
+		if debug_enabled:
+			print("Playing explosion sound")
 	
-	# Deal damage to enemies in blast radius
-	deal_explosion_damage()
+	# Deal damage to enemies in blast radius (delayed to allow position/radius to be set)
+	call_deferred("deal_explosion_damage")
 	
 	# Create multiple flash bursts for angular effect (instead of sphere)
 	create_angular_bursts()
@@ -209,7 +223,8 @@ func trigger_explosion():
 	get_tree().create_timer(effect_duration + 0.5).timeout.connect(cleanup_explosion)
 
 func create_angular_bursts():
-	print("Creating three rotating fire cubes...")
+	if debug_enabled:
+		print("Creating three rotating fire cubes...")
 	
 	# Create three cubes with different fire colors
 	var colors = [
@@ -249,7 +264,8 @@ func create_angular_bursts():
 			randf_range(-10.0, 10.0)   # Z rotation speed
 		)
 		
-		print("Created fire cube: ", cube.name, " with rotation speed: ", rotation_speed)
+		if debug_enabled:
+			print("Created fire cube: ", cube.name, " with rotation speed: ", rotation_speed)
 		
 		# Create the expansion and rotation animation
 		var cube_tween = create_tween()
@@ -284,7 +300,8 @@ func set_cube_intensity(cube: MeshInstance3D, intensity: float):
 		material.albedo_color.a = intensity * 0.15  # Fade transparency
 
 func cleanup_explosion():
-	print("=== CLEANING UP EXPLOSION ===")
+	if debug_enabled:
+		print("=== CLEANING UP EXPLOSION ===")
 	# Remove particle systems but leave scorch mark
 	if debris_particles:
 		debris_particles.queue_free()
@@ -292,72 +309,149 @@ func cleanup_explosion():
 		smoke_particles.queue_free()
 
 func create_scorch_mark():
-	print("Creating scorch mark...")
-	# Create a decal for the scorch mark
-	var decal = Decal.new()
-	add_child(decal)
+	if debug_enabled:
+		print("Creating scorch mark at explosion position: ", global_position)
+	# Raycast to find the terrain directly below the explosion and align the decal to the surface normal
+	var space_state: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
+	var origin: Vector3 = global_position + Vector3.UP * 5.0  # Start higher to ensure we hit terrain
+	var end: Vector3 = global_position - Vector3.UP * 200.0   # Raycast straight down from explosion
+	var params: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(origin, end)
+	params.exclude = [self]
+	params.collision_mask = (1 << 0) | (1 << 9)  # Only check terrain layers (1 and 10)
+	var hit: Dictionary = space_state.intersect_ray(params)
 	
-	# Position slightly above ground to avoid z-fighting
-	decal.position.y = 0.01
+	if debug_enabled:
+		print("Scorch raycast from ", origin, " to ", end)
+		print("Hit result: ", hit.has("position"))
 	
-	# Size matches blast radius
-	decal.size = Vector3(blast_radius, 0.1, blast_radius)
-	
-	# Random rotation for variety
-	decal.rotation.y = randf() * TAU
-	
-	# Load your scorch mark PNG texture
-	decal.texture_albedo = preload("res://Projectiles/Explosion/scorch_mark.png")
+	if hit and hit.has("position") and hit.has("normal"):
+		var hit_pos: Vector3 = hit.position
+		var hit_normal: Vector3 = hit.normal.normalized()
+		
+		var decal: Decal = Decal.new()
+		add_child(decal)
+		decal.texture_albedo = preload("res://Projectiles/Explosion/scorch_mark.png")
+		
+		# Size matches blast radius
+		decal.size = Vector3(blast_radius, 0.1, blast_radius)
+		
+		# Position slightly along the normal to avoid z-fighting
+		decal.global_position = hit_pos + hit_normal * 0.02
+		
+		# Orient decal to project straight down onto the surface
+		# Decals project along their negative Y axis, so we want Y axis pointing up from surface
+		var up_vector: Vector3 = hit_normal.normalized()
+		var right_vector: Vector3 = up_vector.cross(Vector3.FORWARD).normalized()
+		if right_vector.length() < 0.001:  # Handle edge case where normal is parallel to forward
+			right_vector = up_vector.cross(Vector3.RIGHT).normalized()
+		var forward_vector: Vector3 = right_vector.cross(up_vector).normalized()
+		
+		# Build orthonormal basis
+		decal.global_basis = Basis(right_vector, up_vector, forward_vector)
+		
+		# Add random rotation around the normal for variety
+		var random_yaw: float = randf() * TAU
+		var rotation_basis: Basis = Basis(up_vector, random_yaw)
+		decal.global_basis = rotation_basis * decal.global_basis
+	else:
+		# Fallback: place a flat decal centered at explosion
+		var decal_fallback: Decal = Decal.new()
+		add_child(decal_fallback)
+		decal_fallback.texture_albedo = preload("res://Projectiles/Explosion/scorch_mark.png")
+		decal_fallback.size = Vector3(blast_radius, 0.1, blast_radius)
+		decal_fallback.global_position = global_position + Vector3.UP * 0.02
+		decal_fallback.rotation.y = randf() * TAU
 
 func deal_explosion_damage():
-	"""Deal damage to all enemies within blast radius"""
-	print("=== DEALING EXPLOSION DAMAGE ===")
+	"""Deal damage to all physics bodies overlapping a sphere around the explosion."""
+	print("=== EXPLOSION DAMAGE SYSTEM CALLED ===")
 	print("Blast radius: ", blast_radius)
 	print("Explosion position: ", global_position)
 	
-	# Find all potential targets in the scene
-	var potential_targets = []
+	var space_state: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
+	var sphere: SphereShape3D = SphereShape3D.new()
+	sphere.radius = blast_radius
+	var params: PhysicsShapeQueryParameters3D = PhysicsShapeQueryParameters3D.new()
+	params.shape = sphere
+	params.transform = Transform3D(Basis(), global_position)
+	params.collide_with_areas = true
+	params.collide_with_bodies = true
+	params.collision_mask = 0xFFFFFFFF  # Check all collision layers
+	params.exclude = [self]
 	
-	# Look for enemies in groups
-	var enemy_groups = ["enemies", "enemy", "targets", "aircraft"]
-	for group_name in enemy_groups:
-		var group_members = get_tree().get_nodes_in_group(group_name)
-		for member in group_members:
-			if member != self and member.has_method("take_damage"):
-				potential_targets.append(member)
+	if debug_enabled:
+		print("Shape query parameters:")
+		print("  - Position: ", global_position)
+		print("  - Radius: ", sphere.radius)
+		print("  - Collision mask: ", params.collision_mask)
 	
-	# Also check all RigidBody3D nodes (could be enemy aircraft)
-	var all_bodies = get_tree().get_nodes_in_group("aircraft")
-	for body in all_bodies:
-		if body != self and body.has_method("take_damage"):
-			if not body in potential_targets:
-				potential_targets.append(body)
+	var results: Array = space_state.intersect_shape(params, 128)
+	if debug_enabled:
+		print("Overlap hits: ", results.size())
 	
-	print("Found ", potential_targets.size(), " potential targets to check")
-	
-	# Check distance and deal damage
-	var targets_hit = 0
-	for target in potential_targets:
-		var distance = global_position.distance_to(target.global_position)
-		print("Target ", target.name, " distance: ", distance)
+	var targets_hit: int = 0
+	for hit: Dictionary in results:
+		if not hit.has("collider"):
+			if debug_enabled:
+				print("Hit has no collider")
+			continue
+		var collider: Object = hit.collider
+		if debug_enabled:
+			print("Found collider: ", collider.get_class(), " name: ", collider.name if collider.has_method("get_name") else "no name")
 		
-		if distance <= blast_radius:
-			# Calculate damage based on distance (closer = more damage)
-			var damage_ratio = 1.0 - (distance / blast_radius)
-			var damage = lerp(min_damage, max_damage, damage_ratio)
+		if not (collider is Node3D):
+			if debug_enabled:
+				print("Collider is not Node3D")
+			continue
+		var target: Node3D = collider as Node3D
+		if target == self:
+			continue
 			
-			print("Hitting ", target.name, " with ", damage, " damage (distance: ", distance, ")")
-			target.take_damage(damage)
+		if debug_enabled:
+			print("Checking target: ", target.name)
+			print("  - Has take_damage: ", target.has_method("take_damage"))
+			print("  - Is RigidBody3D: ", target is RigidBody3D)
+			
+		if not target.has_method("take_damage") and not (target is RigidBody3D):
+			# Skip things that can't take damage and won't receive impulse
+			if debug_enabled:
+				print("  - Skipping (no take_damage method and not RigidBody3D)")
+			continue
+		
+		var distance: float = global_position.distance_to(target.global_position)
+		if distance > blast_radius:
+			continue
+		
+		# Optional line-of-sight check to avoid damaging through walls/terrain
+		if use_line_of_sight:
+			var ray_params: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(global_position, target.global_position)
+			ray_params.exclude = [self, target]
+			var ray_hit: Dictionary = space_state.intersect_ray(ray_params)
+			if ray_hit and ray_hit.has("collider") and ray_hit.collider != target:
+				if debug_enabled:
+					print("LOS blocked for ", target.name)
+				continue
+		
+		# Damage scales with distance (closer = more)
+		var damage_ratio: float = clamp(1.0 - (distance / blast_radius), 0.0, 1.0)
+		var damage_amount: float = lerp(min_damage, max_damage, damage_ratio)
+		if target.has_method("take_damage"):
+			target.take_damage(damage_amount)
 			targets_hit += 1
-			
-			# Add knockback force if target is a RigidBody3D
-			if target is RigidBody3D:
-				var knockback_direction = (target.global_position - global_position).normalized()
-				var knockback_force = (max_damage - damage) * 100.0  # Scale force to damage
-				target.apply_central_impulse(knockback_direction * knockback_force)
-				print("Applied knockback to ", target.name)
+			if debug_enabled:
+				print("Hit ", target.name, " dmg=", damage_amount, " dist=", distance)
+		
+		# Impulse also scales with distance
+		if target is RigidBody3D:
+			var body: RigidBody3D = target as RigidBody3D
+			var direction: Vector3 = (body.global_position - global_position).normalized()
+			var impulse_strength: float = lerp(knockback_impulse_at_edge, knockback_impulse_at_center, damage_ratio)
+			body.apply_central_impulse(direction * impulse_strength)
+			if debug_enabled:
+				print("Applied impulse to ", body.name, " strength=", impulse_strength)
 	
-	print("Explosion hit ", targets_hit, " targets")
+	if debug_enabled:
+		print("Explosion hit ", targets_hit, " targets")
 	
 	# Create visual blast wave
 	create_blast_wave()

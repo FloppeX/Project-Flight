@@ -1,0 +1,57 @@
+[gd_scene load_steps=2 format=3 uid="uid://djtbinx1svo2u"]
+
+[ext_resource type="PackedScene" uid="uid://cdeg13gyvhvo8" path="res://Models/Aircraft_1/Aircraft 1 wreck/Aircraft 1 wreck ny.glb" id="1_fgepq"]
+
+[node name="Aircraft 1 wreck" instance=ExtResource("1_fgepq")]
+
+[node name="Aircraft 1_cell" parent="." index="0"]
+collision_layer = 513
+mass = 100.0
+
+[node name="Aircraft 1_cell_001" parent="." index="1"]
+collision_layer = 513
+mass = 150.0
+
+[node name="Aircraft 1_cell_002" parent="." index="2"]
+collision_layer = 513
+mass = 150.0
+
+[node name="Aircraft 1_cell_003" parent="." index="3"]
+collision_layer = 513
+mass = 150.0
+
+[node name="Aircraft 1_cell_004" parent="." index="4"]
+collision_layer = 513
+mass = 150.0
+
+[node name="Aircraft 1_cell_006" parent="." index="5"]
+collision_layer = 513
+mass = 150.0
+
+[node name="Aircraft 1_cell_008" parent="." index="6"]
+collision_layer = 513
+mass = 150.0
+
+[node name="Aircraft 1_cell_011" parent="." index="7"]
+collision_layer = 513
+mass = 150.0
+
+[node name="Aircraft 1_cell_005_cell" parent="." index="8"]
+collision_layer = 513
+mass = 150.0
+
+[node name="Aircraft 1_cell_005_cell_001" parent="." index="9"]
+collision_layer = 513
+mass = 150.0
+
+[node name="Aircraft 1_cell_005_cell_002" parent="." index="10"]
+collision_layer = 513
+mass = 150.0
+
+[node name="Aircraft 1_cell_007_cell" parent="." index="11"]
+collision_layer = 513
+mass = 150.0
+
+[node name="Aircraft 1_cell_007_cell_001" parent="." index="12"]
+collision_layer = 513
+mass = 150.0

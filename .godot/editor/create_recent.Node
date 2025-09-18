@@ -1,7 +1,9 @@
-Marker3D
+StaticBody3D
+RigidBody3D
 Node3D
+Camera3D
 MeshInstance3D
 CollisionShape3D
+Node
+Marker3D
 Area3D
-Camera3D
-RigidBody3D

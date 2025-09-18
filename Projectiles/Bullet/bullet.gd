@@ -6,10 +6,13 @@ class_name Bullet
 @export var tracer_length: int = 8  # How many trail points
 @export var tracer_color: Color = Color.YELLOW
 @export var tracer_width: float = 0.1
+@export var damage_amount: float = 10.0
 
 var trail_points = []
 var trail_mesh: MeshInstance3D
 var immediate_mesh: ImmediateMesh
+
+const SCORCH_TEXTURE_PATH: String = "res://Projectiles/Explosion/scorch_mark.png"
 
 func _ready():
 	# Call parent's _ready first to get all the base functionality
@@ -17,6 +20,8 @@ func _ready():
 	
 	# This projectile should not create an explosion on impact
 	creates_explosion = false
+	# Set base damage lower than default ProjectileNew
+	damage = damage_amount
 	
 	# Add bullet-specific visual effects
 	make_bullet_glowy()
@@ -75,6 +80,61 @@ func _physics_process(delta):
 	# Update tracer trail
 	if tracer_enabled:
 		update_tracer_trail()
+
+func _on_body_entered(body):
+	# Create a small bullet mark decal at the impact point using the scorch texture
+	_create_bullet_mark(body)
+	# Then run default impact handling (damage, cleanup)
+	super._on_body_entered(body)
+
+func _create_bullet_mark(body: Object) -> void:
+	var space_state: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
+	var dir: Vector3 = linear_velocity.normalized()
+	if dir == Vector3.ZERO:
+		dir = Vector3.FORWARD
+	# Cast a short ray through the impact point to recover the surface normal
+	var from: Vector3 = global_position - dir * 1.0
+	var to: Vector3 = global_position + dir * 0.5
+	var params: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(from, to)
+	params.exclude = [self]
+	if body:
+		params.exclude.append(body)
+	var hit: Dictionary = space_state.intersect_ray(params)
+	var hit_pos: Vector3 = global_position
+	var hit_normal: Vector3 = -dir
+	if hit and hit.has("position") and hit.has("normal"):
+		hit_pos = hit.position
+		hit_normal = (hit.normal as Vector3).normalized()
+
+	# Build decal aligned to the surface
+	var decal: Decal = Decal.new()
+	decal.texture_albedo = load(SCORCH_TEXTURE_PATH)
+	# Small size for bullet mark
+	decal.size = Vector3(0.5, 0.05, 0.5)
+	# Offset slightly along normal to avoid z-fighting
+	decal.global_position = hit_pos + hit_normal * 0.01
+	
+	# Create basis from normal (Y axis) and random yaw around it
+	var y_axis: Vector3 = hit_normal
+	var x_axis: Vector3 = y_axis.cross(Vector3.FORWARD)
+	if x_axis.length() < 0.001:
+		x_axis = y_axis.cross(Vector3.RIGHT)
+	x_axis = x_axis.normalized()
+	var z_axis: Vector3 = x_axis.cross(y_axis).normalized()
+	var basis: Basis = Basis(x_axis, y_axis, z_axis)
+	# Random rotate around normal for variation
+	var random_yaw: float = randf() * TAU
+	var rot: Basis = Basis(y_axis, random_yaw)
+	decal.global_basis = rot * basis
+	
+	# Prefer to attach to the hit body if possible so the mark moves with it
+	var parent_node: Node3D = null
+	if body is Node3D:
+		parent_node = body as Node3D
+	if parent_node and is_instance_valid(parent_node):
+		parent_node.add_child(decal)
+	else:
+		get_tree().current_scene.add_child(decal)
 
 func update_tracer_trail():
 	# Add current position to trail

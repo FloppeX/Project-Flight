@@ -7,28 +7,15 @@ class_name BombProjectile
 
 @export var arming_delay: float = 1.0  # Seconds before bomb can explode
 @export var armed: bool = false
+@export var explosion_blast_radius: float = 50.0
 
 var arming_timer: float = 0.0
-var status_label: Label3D
 
 func _ready():
 	super._ready()
 	# Override the base class collision detection
 	body_entered.disconnect(_on_body_entered)
 	body_entered.connect(_on_bomb_body_entered)
-	
-	# Create status label for visual feedback
-	create_status_label()
-
-func create_status_label():
-	"""Create a 3D label to show bomb status"""
-	status_label = Label3D.new()
-	status_label.text = "ARMING..."
-	status_label.font_size = 24
-	status_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	status_label.modulate = Color.RED
-	status_label.position = Vector3(0, 1, 0)  # Above the bomb
-	add_child(status_label)
 
 func _physics_process(delta):
 	# Update arming timer
@@ -36,11 +23,6 @@ func _physics_process(delta):
 		arming_timer += delta
 		if arming_timer >= arming_delay:
 			arm_bomb()
-		else:
-			# Update status label with countdown
-			if status_label:
-				var time_remaining = arming_delay - arming_timer
-				status_label.text = "ARMING... " + str(int(time_remaining * 10) / 10.0)
 	
 	# Call parent physics process for tunneling detection
 	super._physics_process(delta)
@@ -48,9 +30,6 @@ func _physics_process(delta):
 func arm_bomb():
 	"""Arm the bomb after the delay"""
 	armed = true
-	if status_label:
-		status_label.text = "ARMED"
-		status_label.modulate = Color.GREEN
 
 func _on_bomb_body_entered(body):
 	"""Handle bomb collision with arming check"""
@@ -73,6 +52,9 @@ func _on_bomb_body_entered(body):
 		var explosion = explosion_scene.instantiate()
 		get_tree().current_scene.add_child(explosion)
 		explosion.global_position = global_position
+		# Apply configured blast radius if compatible
+		if explosion is Explosion:
+			(explosion as Explosion).blast_radius = explosion_blast_radius
 		
 		# Create scorch mark if we hit the ground
 		if hit_ground:

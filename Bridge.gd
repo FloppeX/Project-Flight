@@ -207,3 +207,8 @@ func get_status() -> Dictionary:
 		"pending_missions": active_missions.filter(func(m): return m.status == "pending").size(),
 		"executing_missions": active_missions.filter(func(m): return m.status == "executing").size()
 	}
+
+
+
+
+

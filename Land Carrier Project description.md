@@ -56,6 +56,14 @@
 - Exported and used `controls_disabled`, `parking_brake`, `arresting_cable` metas consistently across systems.
 - Added robust lookup helpers for engine controller, engine, nose gear, and tailhook modules.
 
+### HUD: Radar and Targeting Displays
+- Enemy registry: Added `Enemies/EnemyRegistry.gd` as an autoload to maintain a shared list of enemies per team.
+- Targeting module: New `AircraftModule_ControlTargeting` finds targets in a ±30–60° cone and cycles via inputs (E/Q, X to clear).
+- Instrument panel UI: Top row preserved; added a lower HBox with two square displays:
+  - Left: Radar map showing known enemies within 5 km, top-down relative to aircraft.
+  - Right: Target view using a dedicated `SubViewport` + `Camera3D` to show the currently targeted enemy.
+- Inputs: Added `target_next` (E), `target_prev` (Q), `target_clear` (X) to `project.godot`.
+
 ### Notes / Next steps
 - Tractor pathing: if circling or stalls occur, confirm `approach_a_marker`, `approach_b_marker`, and `elevator_marker` assignments, and consider enabling a deck `NavigationRegion3D` for `NavAgent`.
 - If a rigid rope is preferred, replace virtual rope with a tuned `Generic6DOFJoint3D` (linear limit on one axis), but this needs careful axis setup per scene orientation.
@@ -260,3 +268,41 @@ Coming Plans
 		Tune spring/damper values, consider multi-cable setup and refined lateral control.
 	Cleanup
 		Remove unused pickup-align path, consolidate deck-forward settings, and document editor assignments for gear colliders/visuals.
+
+## Particle System
+
+### ParticleManager (ParticleManager.gd)
+A global singleton that manages all visual particle effects independently of their creators:
+
+**Features:**
+- **Global management**: All particles are handled centrally, ensuring they persist even after their creator is destroyed
+- **Multiple particle types**: Supports different behaviors for different visual effects
+- **Automatic cleanup**: Particles remove themselves after their lifetime expires
+- **Extensible system**: Easy to add new particle types and behaviors
+
+**Particle Types:**
+- **Smoke**: Shrinks over time (used for missile trails)
+- **Explosion**: Grows and fades out (for explosion effects)
+- **Spark**: Moves with physics and gravity (for impact sparks)
+- **Default**: Basic fade-out behavior
+
+**Usage:**
+```gdscript
+# Get or create particle manager
+var particle_manager = get_node_or_null("/root/ParticleManager")
+if not particle_manager:
+	particle_manager = preload("res://ParticleManager.gd").new()
+	particle_manager.name = "ParticleManager"
+	get_tree().root.add_child(particle_manager)
+
+# Add particles
+particle_manager.add_smoke_particle(mesh_instance, 1.5, Vector3(2.0, 2.0, 2.0))
+particle_manager.add_explosion_particle(mesh_instance, 0.5, Vector3(1.0, 1.0, 1.0))
+particle_manager.add_spark_particle(mesh_instance, 2.0, Vector3(0.5, 0.5, 0.5), velocity)
+```
+
+**Implementation Details:**
+- Particles are MeshInstance3D nodes with materials
+- Each particle has a type, lifetime, and initial scale
+- Update behaviors are defined per particle type in the manager
+- The system ensures visual effects persist naturally even when their source is destroyed

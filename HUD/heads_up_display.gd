@@ -24,6 +24,10 @@ var ccip_circle: Control
 var ccip_dot: ColorRect
 var ccip_update_timer: Timer
 
+# Target overlay elements
+var target_overlay: Control
+var target_box_lines: Array[ColorRect] = []
+
 func _ready():
 	# Manually resolve NodePath references
 	if camera_path != NodePath():
@@ -101,6 +105,9 @@ func _ready():
 	
 	# Set up CCIP elements
 	setup_ccip()
+
+	# Set up target overlay elements
+	setup_target_overlay()
 
 	# Set up a timer to update the CCIP periodically
 	ccip_update_timer = Timer.new()
@@ -207,6 +214,26 @@ func setup_ccip():
 	ccip_dot.visible = false
 	viewport.add_child(ccip_dot)
 
+func setup_target_overlay():
+	"""Set up target overlay elements for drawing green targeting box"""
+	target_overlay = Control.new()
+	target_overlay.name = "TargetOverlay"
+	target_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	target_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	target_overlay.visible = false
+	viewport.add_child(target_overlay)
+	
+	# Create 4 lines to form a target box (top, bottom, left, right)
+	var box_color = Color(0, 10.0, 0, 1.0)  # Bright green
+	var line_thickness = 2.0
+	
+	for i in range(4):
+		var line = ColorRect.new()
+		line.color = box_color
+		line.visible = false
+		target_overlay.add_child(line)
+		target_box_lines.append(line)
+
 func _process(dt: float) -> void:
 	if cam == null or aircraft == null:
 		print("HUD: Missing camera or aircraft reference")
@@ -217,6 +244,9 @@ func _process(dt: float) -> void:
 	
 	# Update speed and altitude display
 	update_speed_altitude()
+	
+	# Update target overlay
+	update_target_overlay()
 	
 	# Get aircraft's forward direction (nose pointing direction)
 	# In Godot, -Z is forward for most objects
@@ -400,3 +430,140 @@ func get_weapon_control():
 			weapon_control = weapon_controls[0]
 	
 	return weapon_control
+
+func update_target_overlay():
+	"""Update the green target box overlay when target is visible in HUD"""
+	if target_overlay == null or target_box_lines.size() != 4:
+		return
+	
+	# Get current target from targeting system
+	var targeting_system = get_targeting_system()
+	var target = null
+	
+	if targeting_system and "current_target" in targeting_system:
+		target = targeting_system.current_target
+	
+	# Hide overlay if no target or invalid target
+	if not target or not is_instance_valid(target):
+		target_overlay.visible = false
+		for line in target_box_lines:
+			line.visible = false
+		return
+	
+	# Use the existing camera reference (should be cockpit camera)
+	if not cam:
+		target_overlay.visible = false
+		for line in target_box_lines:
+			line.visible = false
+		return
+	
+	# Calculate ray from camera to target
+	var camera_pos = cam.global_position
+	var target_pos = target.global_position
+	var ray_direction = (target_pos - camera_pos).normalized()
+	
+	# Get HUD glass plane properties
+	var hud_glass_pos = hud_mesh.global_position
+	var hud_glass_basis = hud_mesh.global_transform.basis
+	
+	# HUD glass normal (pointing toward camera)
+	var hud_normal = -hud_glass_basis.z.normalized()
+	
+	# Ray-plane intersection
+	var denom = ray_direction.dot(hud_normal)
+	
+	# Check if ray is roughly parallel to plane or pointing away
+	if abs(denom) < 0.001:
+		target_overlay.visible = false
+		for line in target_box_lines:
+			line.visible = false
+		return
+	
+	# Calculate intersection distance
+	var plane_to_camera = camera_pos - hud_glass_pos
+	var t = -plane_to_camera.dot(hud_normal) / denom
+	
+	# Check if intersection is behind camera (t < 0) or behind target (t > distance to target)
+	var distance_to_target = camera_pos.distance_to(target_pos)
+	if t < 0 or t > distance_to_target:
+		target_overlay.visible = false
+		for line in target_box_lines:
+			line.visible = false
+		return
+	
+	# Calculate 3D intersection point
+	var intersection_point = camera_pos + ray_direction * t
+	
+	# Convert intersection point to HUD local coordinates
+	var local_pos = hud_mesh.global_transform.inverse() * intersection_point
+	
+	# Check if intersection is within HUD glass bounds
+	var half_size = hud_glass_size * 0.5
+	if abs(local_pos.x) > half_size.x or abs(local_pos.y) > half_size.y:
+		target_overlay.visible = false
+		for line in target_box_lines:
+			line.visible = false
+		return
+	
+	# Convert HUD local coordinates to viewport coordinates
+	# HUD local space: -half_size to +half_size
+	# Viewport space: 0 to viewport.size
+	var hud_size_px = Vector2(viewport.size)
+	var viewport_x = (local_pos.x + half_size.x) / hud_glass_size.x * hud_size_px.x
+	var viewport_y = (local_pos.y + half_size.y) / hud_glass_size.y * hud_size_px.y
+	var hud_pos = Vector2(viewport_x, viewport_y)
+	
+	# Target is within HUD bounds, show the box
+	target_overlay.visible = true
+	
+	var box_size = Vector2(40, 40)  # 40x40 pixel box
+	var line_thickness = 2.0
+	
+	var half_box = box_size * 0.5
+	var top_left = hud_pos - half_box
+	var bottom_right = hud_pos + half_box
+	
+	# Position and show the 4 corner lines to form a complete box
+	# Top line
+	target_box_lines[0].visible = true
+	target_box_lines[0].size = Vector2(box_size.x, line_thickness)
+	target_box_lines[0].position = top_left
+	
+	# Bottom line
+	target_box_lines[1].visible = true
+	target_box_lines[1].size = Vector2(box_size.x, line_thickness)
+	target_box_lines[1].position = Vector2(top_left.x, bottom_right.y - line_thickness)
+	
+	# Left line
+	target_box_lines[2].visible = true
+	target_box_lines[2].size = Vector2(line_thickness, box_size.y)
+	target_box_lines[2].position = top_left
+	
+	# Right line
+	target_box_lines[3].visible = true
+	target_box_lines[3].size = Vector2(line_thickness, box_size.y)
+	target_box_lines[3].position = Vector2(bottom_right.x - line_thickness, top_left.y)
+
+func get_targeting_system():
+	"""Get the targeting system module"""
+	var targeting_system = null
+	
+	# Look for targeting system in the aircraft
+	if aircraft and aircraft.has_method("get_children"):
+		for child in aircraft.get_children():
+			if child is AircraftModule_ControlTargeting:
+				targeting_system = child
+				break
+			# Also check children of children
+			for grandchild in child.get_children():
+				if grandchild is AircraftModule_ControlTargeting:
+					targeting_system = grandchild
+					break
+	
+	# If not found, try searching by group or module type
+	if not targeting_system:
+		var modules = get_tree().get_nodes_in_group("targeting")
+		if modules.size() > 0:
+			targeting_system = modules[0]
+	
+	return targeting_system

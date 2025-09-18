@@ -1,0 +1,39 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://Projectiles/AG Missile/ag_missile.gd" id="1_script"]
+[ext_resource type="PackedScene" path="res://Projectiles/AG Missile/missile.glb" id="2_mesh"]
+
+[sub_resource type="CylinderShape3D" id="1_shape"]
+
+[node name="AGMissile" type="RigidBody3D"]
+script = ExtResource("1_script")
+continuous_cd = true
+contact_monitor = true
+max_contacts_reported = 8
+
+[node name="missile" parent="." instance=ExtResource("2_mesh")]
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+shape = SubResource("1_shape")
+
+[gd_scene load_steps=4 format=3 uid="uid://cplk212v3h6ql"]
+
+[ext_resource type="PackedScene" uid="uid://bs5wys2xqauft" path="res://Projectiles/AG Missile/missile.glb" id="1_fgcps"]
+[ext_resource type="Script" path="res://Projectiles/AG Missile/ag_missile.gd" id="2_script"]
+
+[sub_resource type="CylinderShape3D" id="CylinderShape3D_rl7mi"]
+
+[ext_resource type="Script" uid="uid://xyzagmissile" path="res://Projectiles/AG Missile/ag_missile.gd" id="2_script"]
+
+[node name="AgMissile" type="RigidBody3D"]
+script = ExtResource("2_script")
+continuous_cd = true
+contact_monitor = true
+max_contacts_reported = 8
+
+[node name="missile" parent="." instance=ExtResource("1_fgcps")]
+transform = Transform3D(1, 0, 0, 0, -4.37114e-08, -1, 0, 1, -4.37114e-08, 0, 0, 0)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+transform = Transform3D(0.3, 0, 0, 0, -2.71011e-08, -0.3, 0, 0.62, -1.31134e-08, 0, 0, 0)
+shape = SubResource("CylinderShape3D_rl7mi")

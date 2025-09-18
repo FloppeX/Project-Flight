@@ -15,7 +15,7 @@ func _input(event):
 
 func _on_aircraft_destroyed():
 	print("Aircraft destroyed! Restarting scene in 3 seconds...")
-	restart_scene_after_delay(3.0)
+	restart_scene_after_delay(10.0)
 
 func _on_aircraft_crashed(impact_velocity: float):
 	# Only restart on hard crashes (high impact)

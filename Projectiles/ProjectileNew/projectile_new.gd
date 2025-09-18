@@ -9,6 +9,7 @@ class_name ProjectileNew
 
 var shooter: Node3D  # Reference to whoever fired this
 var last_position: Vector3 = Vector3.ZERO
+var has_impacted: bool = false
 
 func _ready():
 	# IMPORTANT: Enable collision detection
@@ -31,18 +32,21 @@ func get_child_collision_shape() -> CollisionShape3D:
 	return null
 
 func _physics_process(delta):
+	if has_impacted:
+		return
 	# Raycast between last position and current position to catch tunneling
 	if last_position != Vector3.ZERO:
-		var space_state = get_world_3d().direct_space_state
-		var query = PhysicsRayQueryParameters3D.create(last_position, global_position)
+		var space_state: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
+		var query: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(last_position, global_position)
 		query.exclude = [self]
 		if shooter:
 			query.exclude.append(shooter)
 			
-		var result = space_state.intersect_ray(query)
-		if result:
+		var result: Dictionary = space_state.intersect_ray(query)
+		if result and not has_impacted:
 			# Move to hit point and trigger collision
 			global_position = result.position
+			has_impacted = true
 			_on_body_entered(result.collider)
 			return
 	
@@ -63,8 +67,12 @@ func fire(initial_velocity: Vector3, firing_aircraft: Node3D):
 		)
 
 func _on_body_entered(body):
+	if has_impacted:
+		return
 	if body == shooter:
 		return  # Don't hit the aircraft that fired us
+	# Mark as impacted immediately to prevent duplicate hits
+	has_impacted = true
 	
 	# Determine if we hit the ground/terrain for scorch mark
 	var hit_ground = is_ground_or_terrain(body)

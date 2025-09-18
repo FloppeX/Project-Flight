@@ -12,6 +12,7 @@ class_name CameraController
 @export var carrier_orbit_speed: float = 0.0  # radians/sec (0 = manual only)
 @export var carrier_look_sensitivity: float = 1.5  # input sensitivity for yaw/pitch
 @export var carrier_pitch_limit_deg: float = 45.0
+@export var deathcam_use_chase: bool = true  # If true, use chase cam for deathcam; else use cinematic
 
 # Zoom variables
 @export var normal_fov: float = 75.0
@@ -109,6 +110,11 @@ func _input(event):
 			cycle_camera()
 			last_switch_time = current_time
 	
+	# Handle zoom toggle
+	if Input.is_action_just_pressed("toggle_zoom"):
+		is_zoomed = not is_zoomed
+		update_camera_zoom()
+	
 	# Manual carrier cam control
 	if current_mode == CameraMode.CINEMATIC and _use_external_cinematic:
 		var look_x = Input.get_action_strength("look_left") - Input.get_action_strength("look_right")
@@ -197,15 +203,25 @@ func activate_deathcam(target_pos: Vector3):
 	deathcam_target_position = target_pos
 	deathcam_time = 0.0
 	
-	# Switch to cinematic camera for deathcam
+	# Choose outside camera for deathcam
 	current_mode = CameraMode.DEATHCAM
 	cockpit_camera.current = false
-	chase_camera.current = false
-	cinematic_camera.current = true
-	
-	# Detach cinematic camera from aircraft transform if using tripod
-	if cinematic_tripod:
-		cinematic_tripod.top_level = true
+	if deathcam_use_chase:
+		if chase_script:
+			chase_script.reset_look()
+		# Detach chase tripod so it survives aircraft removal and stop its own updates
+		if chase_tripod:
+			chase_tripod.top_level = true
+			chase_tripod.set_process(false)
+			chase_tripod.set_physics_process(false)
+		chase_camera.current = true
+		cinematic_camera.current = false
+	else:
+		chase_camera.current = false
+		cinematic_camera.current = true
+		# Detach cinematic camera from aircraft transform if using tripod
+		if cinematic_tripod:
+			cinematic_tripod.top_level = true
 	
 	print("Deathcam activated at position: ", target_pos)
 
@@ -215,20 +231,21 @@ func update_deathcam(delta):
 		
 	deathcam_time += delta
 	
-	# Calculate orbital position only if using tripod cinematic camera
-	if cinematic_tripod and cinematic_script:
-		var angle = deathcam_time * deathcam_speed
-		var orbit_pos = Vector3(
-			cos(angle) * deathcam_radius,
-			deathcam_height,
-			sin(angle) * deathcam_radius
-		)
-		var camera_pos = deathcam_target_position + orbit_pos
-		
-		# Update camera tripod position and make camera look at target
+	# Calculate orbital position for chosen outside camera
+	var angle = deathcam_time * deathcam_speed
+	var orbit_pos = Vector3(
+		cos(angle) * deathcam_radius,
+		deathcam_height,
+		sin(angle) * deathcam_radius
+	)
+	var camera_pos = deathcam_target_position + orbit_pos
+	var look_target = deathcam_target_position + Vector3(0, 1, 0)
+	
+	if deathcam_use_chase and chase_tripod:
+		chase_tripod.global_position = camera_pos
+		chase_tripod.look_at(look_target, Vector3.UP)
+	elif cinematic_tripod and cinematic_script:
 		cinematic_tripod.global_position = camera_pos
-		# Make the camera look at the crash site
-		var look_target = deathcam_target_position + Vector3(0, 1, 0)  # Look slightly above crash site
 		cinematic_tripod.look_at(look_target, Vector3.UP)
 	
 	# Clean up after duration expires

@@ -10,8 +10,25 @@ signal destroyed
 # Health/Damage System
 @export var max_health: float = 100.0
 @export var explosion_scene: PackedScene  # Explosion effect when aircraft is destroyed
+@export var wreck_scene: PackedScene  # Wreck scene spawned on destruction
+@export var deathcam_scene: PackedScene = preload("res://example/scenes/Cameras/Deathcam.tscn")
+@export var wreck_base_impulse: float = 400.0
+@export var wreck_random_spread: float = 0.35
+@export var wreck_extra_spin: float = 25.0
 @export var team: int = 1
+@export var damage_cooldown_s: float = 0.05
+@export var debug_damage: bool = false
+@export var prevent_below_terrain: bool = true
+@export var ground_clearance: float = 0.25
+@export var ground_probe_up: float = 50.0
+@export var ground_probe_down: float = 2000.0
+@export var belly_land_max_vertical_speed: float = 6.0
+@export var belly_land_max_total_speed: float = 80.0
+@export var belly_align_tolerance_deg: float = 25.0
+@export var hard_crash_vertical_speed: float = 10.0
+@export var steep_slope_min_up_dot: float = 0.7
 
+var _last_damage_ms: int = 0
 var _current_health: float
 var current_health: float:
 	get:
@@ -104,6 +121,11 @@ func _ready():
 	gravity_scale = 1.0
 	linear_damp = 0.0
 	angular_damp = 0.0
+	continuous_cd = true
+	# Ensure we collide with both default (layer 1) and terrain (layer 10)
+	var mask: int = get_collision_mask()
+	mask |= (1 << 0) | (1 << 9)
+	set_collision_mask(mask)
 	
 	setup()
 	
@@ -128,6 +150,10 @@ func _physics_process(delta):
 		if module.ProcessPhysics:
 			module.process_physic_frame(delta)
 	
+	# Safety: never allow aircraft below terrain height (fallback against streaming holes)
+	if prevent_below_terrain:
+		_enforce_above_terrain()
+	
 	# Clean up energy budget and check movement state
 	consume_energy_budget()
 	check_movement_state()
@@ -147,6 +173,10 @@ func _process(delta):
 func _on_Aircraft_body_shape_entered(body_rid, body, body_shape_index, local_shape_index):
 	# If the colliding body is a projectile, let the projectile's script handle the damage.
 	if body is ProjectileNew:
+		return
+	# Terrain-specific handling
+	if _is_ground_or_terrain(body):
+		_evaluate_terrain_impact()
 		return
 		
 	var collider_shape = shape_owner_get_owner(local_shape_index)
@@ -175,11 +205,101 @@ func land(landing_velocity: float, impact_velocity: float):
 
 func crash(impact_velocity: float):
 	emit_signal("crashed", impact_velocity)
-	
-	# Only take damage if impact is significant (prevent startup issues)
-	if impact_velocity > 5.0:
-		var damage_amount = (impact_velocity - 5.0) * 8.0  # Damage starts after 5 m/s
+	# Only apply crash damage when hitting terrain from above; ignore if under terrain to avoid death loops
+	var is_below_ground: bool = _is_below_terrain()
+	if is_below_ground:
+		return
+	# Apply a mild crash damage if speed is high
+	if impact_velocity > 10.0:
+		var damage_amount = (impact_velocity - 10.0) * 2.0
 		take_damage(damage_amount)
+
+func _is_below_terrain() -> bool:
+	var space_state: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
+	var from: Vector3 = global_position + Vector3.UP * ground_probe_up
+	var to: Vector3 = global_position - Vector3.UP * ground_probe_down
+	var params: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(from, to)
+	params.collision_mask = (1 << 0) | (1 << 9)
+	var hit: Dictionary = space_state.intersect_ray(params)
+	if hit and hit.has("position"):
+		var ground_y: float = float(hit.position.y)
+		# Only consider surfaces at or below us as ground; ignore overhead hits
+		if ground_y > global_position.y + 0.05:
+			return false
+		return global_position.y < ground_y - 0.01
+	return false
+
+func _evaluate_terrain_impact_normal() -> Vector3:
+	# Try to get terrain normal beneath aircraft by raycast down
+	var space_state: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
+	var from: Vector3 = global_position + Vector3.UP * ground_probe_up
+	var to: Vector3 = global_position - Vector3.UP * ground_probe_down
+	var params: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(from, to)
+	params.collision_mask = (1 << 0) | (1 << 9)
+	var hit: Dictionary = space_state.intersect_ray(params)
+	if hit and hit.has("normal"):
+		return (hit.normal as Vector3).normalized()
+	return Vector3.UP
+
+func _evaluate_terrain_impact():
+	# Determine velocities and alignment
+	var total_speed: float = linear_velocity.length()
+	var vertical_speed_down: float = -linear_velocity.dot(Vector3.UP)
+	var ground_normal: Vector3 = _evaluate_terrain_impact_normal()
+	var up_dot: float = ground_normal.dot(Vector3.UP)
+	# Belly alignment: aircraft belly faces -up (down vector)
+	var belly_normal: Vector3 = -global_transform.basis.y
+	var align_dot: float = clamp(belly_normal.normalized().dot(ground_normal), -1.0, 1.0)
+	var align_angle_deg: float = rad_to_deg(acos(align_dot))
+	
+	# Steep slope crash
+	if up_dot < steep_slope_min_up_dot and total_speed > 20.0:
+		explode()
+		return
+	# Hard vertical crash
+	if vertical_speed_down > hard_crash_vertical_speed:
+		explode()
+		return
+	# Safe belly landing window
+	if (vertical_speed_down <= belly_land_max_vertical_speed) and (total_speed <= belly_land_max_total_speed) and (align_angle_deg <= belly_align_tolerance_deg):
+		# Considered a belly landing, no damage
+		return
+	# Otherwise, unsafe terrain contact
+	explode()
+
+func _is_ground_or_terrain(body: Node) -> bool:
+	if body.name == "Aircraft" or "aircraft" in body.name.to_lower():
+		return false
+	if body.get_class() == "Terrain3D" or "terrain3d" in body.name.to_lower():
+		return true
+	if body.is_in_group("terrain") or body.is_in_group("ground"):
+		return true
+	if "ground" in body.name.to_lower() or "terrain" in body.name.to_lower():
+		return true
+	if body is StaticBody3D:
+		return true
+	return false
+
+func _enforce_above_terrain():
+	var space_state: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
+	var from: Vector3 = global_position + Vector3.UP * ground_probe_up
+	var to: Vector3 = global_position - Vector3.UP * ground_probe_down
+	var params: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(from, to)
+	params.collision_mask = (1 << 0) | (1 << 9)
+	var hit: Dictionary = space_state.intersect_ray(params)
+	if hit and hit.has("position"):
+		var ground_y: float = float(hit.position.y)
+		# Ignore overhead hits (above aircraft)
+		if ground_y > global_position.y + 0.05:
+			return
+		var min_y: float = ground_y + ground_clearance
+		if global_position.y < min_y:
+			# Snap up to just above terrain and kill downward velocity to avoid re-penetration
+			var pos := global_position
+			pos.y = min_y
+			global_position = pos
+			if linear_velocity.y < 0.0:
+				linear_velocity.y = 0.0
 
 ##############################################################################
 #  ENERGY SYSTEM
@@ -328,9 +448,17 @@ func check_movement_state():
 func take_damage(damage_amount: float):
 	if current_health <= 0:
 		return  # Already destroyed
+	# Simple damage cooldown to prevent multiple applications from a single collision frame
+	var now_ms: int = Time.get_ticks_msec()
+	if (now_ms - _last_damage_ms) < int(damage_cooldown_s * 1000.0):
+		return
+	_last_damage_ms = now_ms
 	
+	# Apply damage
 	current_health -= damage_amount
 	current_health = max(current_health, 0.0)
+	if debug_damage:
+		print("[Aircraft] take_damage=", damage_amount, " -> health=", current_health, "/", max_health)
 	
 	emit_signal("damaged", damage_amount, current_health)
 	
@@ -349,9 +477,21 @@ func explode():
 		get_parent().add_child(explosion_instance)
 		explosion_instance.global_position = global_position
 
+	# Swap to wreck and free the aircraft body
+	_spawn_wreck_and_free()
+
 func activate_deathcam():
-	# Find the camera controller and switch to deathcam mode
+	# Prefer independent deathcam scene
+	if deathcam_scene:
+		var dc = deathcam_scene.instantiate()
+		get_tree().current_scene.add_child(dc)
+		if dc.has_method("set_target_position"):
+			dc.set_target_position(global_position)
+		return
+	# Fallback to any camera controller
 	var camera_controller = find_child("CameraController")
+	if not camera_controller:
+		camera_controller = get_tree().get_first_node_in_group("camera_controller")
 	if camera_controller and camera_controller.has_method("activate_deathcam"):
 		camera_controller.activate_deathcam(global_position)
 	
@@ -359,6 +499,59 @@ func activate_deathcam():
 	set_collision_layer(0)
 	set_collision_mask(0)
 	freeze = true
+
+func _spawn_wreck_and_free():
+	# Guard: need wreck scene assigned
+	if not wreck_scene:
+		queue_free()
+		return
+	
+	var parent := get_parent()
+	if not is_instance_valid(parent):
+		queue_free()
+		return
+	
+	# Instance wreck and place where aircraft was
+	var wreck_root: Node3D = wreck_scene.instantiate()
+	parent.add_child(wreck_root)
+	wreck_root.global_transform = global_transform
+
+	# Cache aircraft velocities
+	var aircraft_linear: Vector3 = linear_velocity
+	var aircraft_angular: Vector3 = angular_velocity
+	var explosion_center: Vector3 = global_transform.origin
+
+	# Scatter settings
+	var base_impulse: float = wreck_base_impulse
+	var random_spread: float = wreck_random_spread
+	var extra_spin: float = wreck_extra_spin
+
+	# Copy velocities and apply impulses to rigid pieces
+	for piece in wreck_root.get_children():
+		if piece is RigidBody3D:
+			var rb := piece as RigidBody3D
+			rb.sleeping = false
+			rb.linear_velocity = aircraft_linear
+			rb.angular_velocity = aircraft_angular
+			var to_piece: Vector3 = rb.global_transform.origin - explosion_center
+			var dir: Vector3 = to_piece.normalized()
+			if dir == Vector3.ZERO:
+				dir = Vector3.FORWARD
+			var rnd: float = 1.0 + randf_range(-random_spread, random_spread)
+			rb.apply_central_impulse(dir * base_impulse * rnd)
+			var torque_axis: Vector3 = Vector3(
+				randf_range(-1, 1), randf_range(-1, 1), randf_range(-1, 1)
+			).normalized()
+			rb.apply_torque_impulse(torque_axis * extra_spin)
+
+	# Cleanly detach from deck systems
+	if has_meta("arresting_cable"):
+		var cable = get_meta("arresting_cable")
+		if is_instance_valid(cable) and cable.has_method("manual_release"):
+			cable.manual_release()
+
+	# Remove original aircraft
+	queue_free()
 
 ##############################################################################
 #  UTILITY FUNCTIONS

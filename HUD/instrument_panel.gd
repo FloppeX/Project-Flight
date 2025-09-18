@@ -16,6 +16,30 @@ extends Node3D
 @onready var fuel_bar: ProgressBar = $SubViewport/InstrumentDisplay/FuelPanel/FuelBar
 @onready var gear_label: Label = $SubViewport/InstrumentDisplay/GearPanel/GearLabel
 @onready var engine_label: Label = $SubViewport/InstrumentDisplay/EnginePanel/EngineLabel
+@onready var display_root: Control = $SubViewport/InstrumentDisplay
+
+# Radar/Target UI
+var radar_panel: PanelContainer
+var target_panel: PanelContainer
+var target_texture_rect: TextureRect
+var target_viewport: SubViewport
+var target_camera: Camera3D
+var target_placeholder: TextureRect
+var test_pattern_tex: Texture2D
+@export var camera_target_path: NodePath
+var camera_target: Node3D
+var camera_target_cam: Camera3D
+@export var assumed_target_width_m: float = 10.0
+@export var min_fov_deg: float = 10.0
+@export var max_fov_deg: float = 60.0
+@export var fov_lerp_speed: float = 8.0
+@export var zoom_distance: float = 50.0
+@export var obstacle_margin: float = 1.0
+@export var scan_spacing_px: float = 3.0
+@export var scan_thickness_px: float = 1.0
+@export var scan_strength: float = 0.35
+@export var grayscale_strength: float = 1.0
+var target_effect_material: ShaderMaterial
 
 func _ready():
 	# Set up the panel screen mesh
@@ -40,49 +64,40 @@ func _ready():
 	
 	# Create a top row container and move the five value labels into it
 	_relayout_top_row()
+	_setup_lower_displays()
+	# Resolve camera target on aircraft
+	if aircraft:
+		if camera_target_path != NodePath():
+			camera_target = aircraft.get_node_or_null(camera_target_path) as Node3D
+		if camera_target == null:
+			camera_target = aircraft.find_child("CameraTarget", true, false) as Node3D
+		# If CameraTarget has a child Camera3D, use it as source pose (but do not make it current)
+		if camera_target:
+			camera_target_cam = camera_target.find_child("Camera3D", true, false) as Camera3D
+			if camera_target_cam:
+				camera_target_cam.current = false
+	_update_lower_layout_sizes()
+	# Auto-bind aircraft if not provided via export, so radar works by default
+	if aircraft == null:
+		aircraft = get_tree().get_first_node_in_group("aircraft") as Aircraft
+	# Also defer one more bind in case aircraft registers after us
+	call_deferred("_ensure_aircraft_bound")
 	
 	print("Instrument Panel initialized")
 
-func _relayout_top_row() -> void:
-	var display := $SubViewport/InstrumentDisplay as Control
-	if display == null:
-		return
-	var top_row := display.get_node_or_null("TopRow") as HBoxContainer
-	if top_row == null:
-		top_row = HBoxContainer.new()
-		top_row.name = "TopRow"
-		display.add_child(top_row)
-		# Anchor to top, full width, fixed small height
-		top_row.anchor_left = 0.0
-		top_row.anchor_right = 1.0
-		top_row.anchor_top = 0.0
-		top_row.anchor_bottom = 0.0
-		top_row.offset_top = 4
-		top_row.offset_bottom = 44
-		top_row.alignment = BoxContainer.ALIGNMENT_CENTER
-		top_row.add_theme_constant_override("separation", 16)
-	
-	# Reparent labels into the top row and make them expand evenly
-	var labels: Array = [altitude_label, speed_label, fuel_label, gear_label, engine_label]
-	for l in labels:
-		if l != null and l.get_parent() != top_row:
-			var p: Node = l.get_parent()
-			if p:
-				p.remove_child(l)
-			top_row.add_child(l)
-			l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-			l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	
-	# Hide legacy panels to remove gray boxes
-	for pname in ["AltitudePanel", "SpeedPanel", "FuelPanel", "GearPanel", "EnginePanel"]:
-		var panel := display.get_node_or_null(pname) as Control
-		if panel:
-			panel.visible = false
+func _ensure_aircraft_bound() -> void:
+	if aircraft == null or not is_instance_valid(aircraft):
+		var a := get_tree().get_first_node_in_group("aircraft") as Aircraft
+		if a:
+			aircraft = a
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
+	# Keep aircraft reference alive if it spawns late or was freed
+	if aircraft == null or not is_instance_valid(aircraft):
+		_ensure_aircraft_bound()
 	if aircraft == null or not is_instance_valid(aircraft):
 		return
-	
+
 	# Update altitude display
 	var altitude = aircraft.local_altitude
 	altitude_label.text = "ALT\n" + str(int(altitude)) + " m"
@@ -150,3 +165,379 @@ func _process(_delta: float) -> void:
 	else:
 		engine_label.text = "ENG\nN/A"
 		engine_label.modulate = Color.GRAY
+
+	# Update target camera to look at current target if module present
+	if target_camera and is_instance_valid(target_camera):
+		# Prefer explicit CameraTarget provided on the aircraft
+		if camera_target and is_instance_valid(camera_target):
+			var source_xform: Transform3D = camera_target.global_transform
+			if camera_target_cam and is_instance_valid(camera_target_cam):
+				source_xform = camera_target_cam.global_transform
+			# Default: copy source pose
+			target_camera.global_transform = source_xform
+			var enemy_tgt := _get_enemy_target_node()
+			if enemy_tgt and is_instance_valid(enemy_tgt):
+				# Rotate the CameraTarget mount toward the target
+				camera_target.look_at(enemy_tgt.global_position, Vector3.UP)
+				# Compute clear line of sight from mount to target
+				var mount_pos: Vector3 = source_xform.origin
+				var tgt_pos: Vector3 = enemy_tgt.global_position
+				var space_state: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
+				var ray_params: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(mount_pos, tgt_pos)
+				ray_params.exclude = [aircraft]
+				var hit: Dictionary = space_state.intersect_ray(ray_params)
+				var dir: Vector3 = (tgt_pos - mount_pos).normalized()
+				var desired_pos: Vector3 = tgt_pos - dir * zoom_distance
+				# If unobstructed or the only obstruction is the target itself, move camera along path
+				var can_move: bool = false
+				if not hit:
+					can_move = true
+				elif hit.has("collider") and hit.collider == enemy_tgt:
+					can_move = true
+				# Apply camera position
+				if can_move:
+					# Clamp so we don't go past the mount
+					var seg_len = (tgt_pos - mount_pos).length()
+					var dist_from_mount = max(0.0, seg_len - zoom_distance)
+					desired_pos = mount_pos + dir * dist_from_mount
+					target_camera.global_position = desired_pos
+					# Look at target
+					target_camera.look_at(tgt_pos, Vector3.UP)
+				else:
+					# Stay at mount if obstructed, still look at target
+					target_camera.global_transform = source_xform
+					target_camera.look_at(tgt_pos, Vector3.UP)
+				# Ensure the camera is active for the viewport
+				target_camera.current = true
+				if target_placeholder:
+					target_placeholder.visible = false
+			else:
+				# No target: reset camera to source and show placeholder
+				target_camera.global_transform = source_xform
+				if target_placeholder:
+					target_placeholder.visible = true
+		else:
+			# Fallback: derive from targeting module if available, else look forward
+			var targeting = _find_targeting_module()
+			if targeting and targeting.current_target and is_instance_valid(targeting.current_target):
+				var cam_pos = aircraft.global_position + aircraft.global_transform.basis.z * 1.0 + Vector3(0, 0.3, 0)
+				target_camera.global_position = cam_pos
+				target_camera.look_at(targeting.current_target.global_position, Vector3.UP)
+				if target_placeholder:
+					target_placeholder.visible = false
+			else:
+				# Idle: look forward
+				var cam_pos2 = aircraft.global_position + aircraft.global_transform.basis.z * 1.0 + Vector3(0, 0.3, 0)
+				target_camera.global_position = cam_pos2
+				target_camera.global_transform.basis = Basis(aircraft.global_transform.basis)
+				if target_placeholder:
+					target_placeholder.visible = true
+
+		# Auto-zoom to fit target width assuming ~assumed_target_width_m across
+		var tgt = _get_enemy_target_node()
+		if tgt and is_instance_valid(tgt):
+			var dist: float = max(0.1, target_camera.global_position.distance_to(tgt.global_position))
+			var aspect: float = float(viewport_resolution.x) / float(viewport_resolution.y)
+			var desired_vfov_rad: float = 2.0 * atan( (assumed_target_width_m) / (2.0 * dist * aspect) )
+			var desired_vfov_deg: float = rad_to_deg(desired_vfov_rad)
+			desired_vfov_deg = clamp(desired_vfov_deg, min_fov_deg, max_fov_deg)
+			var t: float = 0.12
+			target_camera.fov = lerp(target_camera.fov, desired_vfov_deg, t)
+		else:
+			# Relax FOV toward a default when no target
+			var t2: float = 0.12
+			target_camera.fov = lerp(target_camera.fov, 30.0, t2)
+	
+
+func _setup_lower_displays() -> void:
+	if display_root == null:
+		return
+	var lower := display_root.get_node_or_null("LowerRow") as HBoxContainer
+	if lower == null:
+		lower = HBoxContainer.new()
+		lower.name = "LowerRow"
+		display_root.add_child(lower)
+		lower.anchor_left = 0.0
+		lower.anchor_right = 0.0
+		lower.anchor_top = 0.0
+		lower.anchor_bottom = 0.0
+		lower.offset_top = 45
+		lower.offset_bottom = 45  # Will be set dynamically based on square size
+		lower.offset_left = 0
+		lower.offset_right = 400
+		lower.add_theme_constant_override("separation", 10)
+		lower.size_flags_vertical = 0
+		# React to size changes
+		lower.resized.connect(_update_lower_layout_sizes)
+
+	# Left: Radar panel
+	if radar_panel == null:
+		radar_panel = PanelContainer.new()
+		radar_panel.name = "RadarPanel"
+		lower.add_child(radar_panel)
+		radar_panel.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		radar_panel.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		# Remove default panel padding to match sizes exactly
+		radar_panel.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
+		var radar = preload("res://HUD/RadarCanvas.gd").new()
+		radar.name = "RadarCanvas"
+		radar_panel.add_child(radar)
+		radar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		radar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		radar.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		radar.set_provider(self)
+
+	# Right: Target view panel
+	if target_panel == null:
+		target_panel = PanelContainer.new()
+		target_panel.name = "TargetPanel"
+		lower.add_child(target_panel)
+		target_panel.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		target_panel.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		# Remove default panel padding to match sizes exactly
+		target_panel.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
+		# Create viewport and camera for target feed
+		target_viewport = SubViewport.new()
+		target_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+		target_viewport.size = Vector2i(200, 200)  # Larger viewport size for better quality
+		target_viewport.transparent_bg = false
+		# Share the main 3D world so the camera renders the scene
+		target_viewport.world_3d = get_world_3d()
+		# IMPORTANT: Add SubViewport to the scene tree so it renders
+		add_child(target_viewport)
+		var vp_container = Node3D.new()
+		vp_container.name = "TargetRig"
+		target_viewport.add_child(vp_container)
+		target_camera = Camera3D.new()
+		target_camera.fov = 20.0
+		target_camera.current = true
+		vp_container.add_child(target_camera)
+		# TextureRect to display
+		target_texture_rect = TextureRect.new()
+		target_texture_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		target_texture_rect.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		target_texture_rect.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		target_texture_rect.add_theme_constant_override("margin_left", 0)
+		target_texture_rect.add_theme_constant_override("margin_right", 0)
+		target_texture_rect.add_theme_constant_override("margin_top", 0)
+		target_texture_rect.add_theme_constant_override("margin_bottom", 0)
+		target_texture_rect.texture = target_viewport.get_texture()
+		# Post-process material (grayscale + scan lines)
+		target_effect_material = ShaderMaterial.new()
+		target_effect_material.shader = _create_target_effect_shader()
+		target_effect_material.set_shader_parameter("texture_size", Vector2(viewport_resolution.x, viewport_resolution.y))
+		target_effect_material.set_shader_parameter("scan_spacing_px", scan_spacing_px)
+		target_effect_material.set_shader_parameter("scan_thickness_px", scan_thickness_px)
+		target_effect_material.set_shader_parameter("scan_strength", scan_strength)
+		target_effect_material.set_shader_parameter("grayscale_strength", grayscale_strength)
+		target_texture_rect.material = target_effect_material
+		target_panel.add_child(target_texture_rect)
+		# Placeholder test pattern when no target
+		test_pattern_tex = _generate_test_pattern_texture(viewport_resolution)
+		target_placeholder = TextureRect.new()
+		target_placeholder.stretch_mode = TextureRect.STRETCH_SCALE
+		target_placeholder.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		target_placeholder.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		target_placeholder.add_theme_constant_override("margin_left", 0)
+		target_placeholder.add_theme_constant_override("margin_right", 0)
+		target_placeholder.add_theme_constant_override("margin_top", 0)
+		target_placeholder.add_theme_constant_override("margin_bottom", 0)
+		target_placeholder.texture = test_pattern_tex
+		target_placeholder.visible = true
+		target_panel.add_child(target_placeholder)
+		# Ensure placeholder sits behind/over depending on visibility ordering
+		target_panel.move_child(target_placeholder, 0)
+	
+	# Force initial layout update to ensure consistent sizing
+	call_deferred("_update_lower_layout_sizes")
+
+func _update_lower_layout_sizes() -> void:
+	# Keep the two displays square and with a small gap, positioned directly under top row
+	var lower := display_root.get_node_or_null("LowerRow") as HBoxContainer
+	if lower == null:
+		return
+	
+	# Use full available width
+	var display_width: float = display_root.get_size().x
+	lower.offset_right = display_width
+	
+	# Set both displays to use available horizontal space
+	var separation: float = lower.get_theme_constant("separation")
+	var available_width: float = display_width - separation
+	var side: float = max(0.0, available_width * 0.5)
+	
+	# Set container height to exactly match square size
+	lower.offset_bottom = lower.offset_top + side
+	
+	# Set both panels to use the calculated square size exactly
+	if radar_panel:
+		radar_panel.custom_minimum_size = Vector2(side, side)
+		radar_panel.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		radar_panel.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	if target_panel:
+		target_panel.custom_minimum_size = Vector2(side, side)
+		target_panel.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		target_panel.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+
+func _compute_top_row_content_width() -> float:
+	var tr := display_root.get_node_or_null("TopRow") as HBoxContainer
+	if tr == null:
+		return 0.0
+	var sep: float = tr.get_theme_constant("separation")
+	var total: float = 0.0
+	var count: int = 0
+	for c in tr.get_children():
+		if c is Control and (c as Control).visible:
+			total += (c as Control).get_combined_minimum_size().x
+			count += 1
+	if count > 1:
+		total += sep * float(count - 1)
+	return total
+
+
+func _draw_radar():
+	# Draw simple top-down radar of known enemies for our team
+	var cr := (display_root.get_node_or_null("LowerRow/RadarPanel/RadarCanvas") as ColorRect)
+	if cr == null:
+		return
+	var draw_size: Vector2 = cr.get_size()
+	var center: Vector2 = draw_size * 0.5
+	var radius: float = min(draw_size.x, draw_size.y) * 0.48
+	if aircraft == null or not is_instance_valid(aircraft):
+		return
+	var team_id: int = aircraft.get_team()
+	var enemies: Array = []
+	var registry: Node = get_node_or_null("/root/EnemyRegistry")
+	var enemy_team: int = (1 if team_id != 1 else 2)
+	if registry and registry.has_method("get_enemies_for_team"):
+		enemies = registry.get_enemies_for_team(enemy_team)
+	# Fallback if registry missing or empty: use group
+	if enemies.is_empty():
+		enemies = get_tree().get_nodes_in_group("enemies")
+	var range_m: float = 5000.0
+	var origin: Vector3 = aircraft.global_position
+	var fwd: Vector3 = aircraft.global_transform.basis.z
+	# Background
+	cr.draw_circle(center, radius, Color(0.02, 0.06, 0.02))
+	# If nothing to show, draw a simple color-bars test pattern
+	if enemies.size() == 0:
+		var bars: Array = [Color.WHITE, Color(1,1,0), Color(0,1,1), Color(0,1,0), Color(1,0,1), Color(1,0,0), Color(0,0,1), Color.BLACK]
+		var bar_w: float = (radius * 2.0) / float(bars.size())
+		for i in range(bars.size()):
+			var x0: float = center.x - radius + i * bar_w
+			var rect := Rect2(Vector2(x0, center.y - radius), Vector2(bar_w, radius * 2.0))
+			cr.draw_rect(rect, bars[i])
+		# Ring overlay
+		cr.draw_arc(center, radius, 0, TAU, 64, Color(0.0, 0.6, 0.0), 2)
+		return
+	# Normal radar rings
+	cr.draw_arc(center, radius, 0, TAU, 64, Color(0.0, 0.6, 0.0), 2)
+	for e in enemies:
+		if e and is_instance_valid(e):
+			var rel: Vector3 = e.global_position - origin
+			var x: float = rel.dot(aircraft.global_transform.basis.x)
+			var z: float = rel.dot(fwd)
+			var dist: float = sqrt(x*x + z*z)
+			if dist <= range_m:
+				var px: float = center.x + (x / range_m) * radius
+				var py: float = center.y - (z / range_m) * radius
+				cr.draw_circle(Vector2(px, py), 3, Color.RED)
+
+
+func _relayout_top_row() -> void:
+	var display := $SubViewport/InstrumentDisplay as Control
+	if display == null:
+		return
+	var top_row := display.get_node_or_null("TopRow") as HBoxContainer
+	if top_row == null:
+		top_row = HBoxContainer.new()
+		top_row.name = "TopRow"
+		display.add_child(top_row)
+		# Anchor to top, full width, fixed small height
+		top_row.anchor_left = 0.0
+		top_row.anchor_right = 1.0
+		top_row.anchor_top = 0.0
+		top_row.anchor_bottom = 0.0
+		top_row.offset_top = 4
+		top_row.offset_bottom = 44
+		top_row.alignment = BoxContainer.ALIGNMENT_CENTER
+		top_row.add_theme_constant_override("separation", 16)
+	
+	# Reparent labels into the top row and make them expand evenly
+	var labels: Array = [altitude_label, speed_label, fuel_label, gear_label, engine_label]
+	for l in labels:
+		if l != null and l.get_parent() != top_row:
+			var p: Node = l.get_parent()
+			if p:
+				p.remove_child(l)
+			top_row.add_child(l)
+			l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	
+	# Hide legacy panels to remove gray boxes
+	for pname in ["AltitudePanel", "SpeedPanel", "FuelPanel", "GearPanel", "EnginePanel"]:
+		var panel := display.get_node_or_null(pname) as Control
+		if panel:
+			panel.visible = false
+
+
+func _find_targeting_module():
+	if aircraft == null:
+		return null
+	var modules = aircraft.find_modules_by_type("targeting")
+	return modules[0] if modules.size() > 0 else null
+
+func _get_enemy_target_node() -> Node3D:
+	var targeting = _find_targeting_module()
+	if targeting and targeting.current_target and is_instance_valid(targeting.current_target):
+		return targeting.current_target
+	return null
+
+func _create_target_effect_shader() -> Shader:
+	var code := """
+shader_type canvas_item;
+uniform vec2 texture_size = vec2(400.0, 300.0);
+uniform float scan_spacing_px = 3.0;
+uniform float scan_thickness_px = 1.0;
+uniform float scan_strength = 0.35;
+uniform float grayscale_strength = 1.0;
+void fragment() {
+	vec4 c = texture(TEXTURE, UV);
+	float gray = dot(c.rgb, vec3(0.299, 0.587, 0.114));
+	c.rgb = mix(c.rgb, vec3(gray), grayscale_strength);
+	float y_px = UV.y * texture_size.y;
+	float spacing = max(scan_spacing_px, 0.0001);
+	float tr = clamp(scan_thickness_px / spacing, 0.0, 1.0);
+	float f = fract(y_px / spacing);
+	float band = 1.0 - step(tr, f);
+	c.rgb = mix(c.rgb, c.rgb * (1.0 - scan_strength), band);
+	COLOR = c;
+}
+"""
+	var sh := Shader.new()
+	sh.code = code
+	return sh
+
+func _generate_test_pattern_texture(size_px: Vector2i) -> Texture2D:
+	var width: int = max(8, size_px.x)
+	var height: int = max(8, size_px.y)
+	var img := Image.create(width, height, false, Image.FORMAT_RGBA8)
+	# SMPTE-like vertical color bars
+	var bars: Array = [
+		Color(1,1,1),   # White
+		Color(1,1,0),   # Yellow
+		Color(0,1,1),   # Cyan
+		Color(0,1,0),   # Green
+		Color(1,0,1),   # Magenta
+		Color(1,0,0),   # Red
+		Color(0,0,1),   # Blue
+		Color(0,0,0)    # Black
+	]
+	var bar_count: int = bars.size()
+	var bar_w: int = max(1, width / bar_count)
+	for x in range(width):
+		var idx: int = clamp(x / bar_w, 0, bar_count - 1)
+		var col: Color = bars[idx]
+		for y in range(height):
+			img.set_pixel(x, y, col)
+	return ImageTexture.create_from_image(img)

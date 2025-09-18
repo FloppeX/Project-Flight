@@ -134,9 +134,6 @@ script = ExtResource("10_input")
 [node name="CameraCenter" type="Node3D" parent="." groups=["carrier_cam"]]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -30.457, 14.333, 0)
 
-[node name="CarrierCam" type="Camera3D" parent="." groups=["carrier_cam"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -30.457, 14.333, 0)
-
 [node name="Arresting Cable 1" parent="." instance=ExtResource("12_eyg35")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -64)
 

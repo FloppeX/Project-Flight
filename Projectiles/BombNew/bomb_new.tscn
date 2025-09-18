@@ -1,12 +1,15 @@
-[gd_scene load_steps=5 format=3 uid="uid://bjh4sid7u0lyk"]
+[gd_scene load_steps=6 format=3 uid="uid://bjh4sid7u0lyk"]
 
 [ext_resource type="PackedScene" uid="uid://c4n08bfodjaq8" path="res://Projectiles/ProjectileNew/projectile_new.tscn" id="1_gufam"]
 [ext_resource type="PackedScene" uid="uid://cadi81fcpvmuc" path="res://Projectiles/Explosion/explosion.tscn" id="2_s0eg3"]
 [ext_resource type="PackedScene" uid="uid://cbpsn8r87hlrc" path="res://Weapons/bomb.glb" id="3_q8txw"]
 [ext_resource type="Script" uid="uid://5yh6urw441iw" path="res://Projectiles/BombNew/bomb_new.gd" id="4_bomb_script"]
 
+[sub_resource type="BoxShape3D" id="BoxShape3D_q8txw"]
+size = Vector3(0.580933, 1.97827, 0.576904)
+
 [node name="BombNew" instance=ExtResource("1_gufam")]
-transform = Transform3D(1.91069e-15, 4.37114e-08, -1, 1, -4.37114e-08, 0, -4.37114e-08, -1, -4.37114e-08, 0, 0, 0)
+transform = Transform3D(7.64276e-16, 1.74846e-08, -0.4, 0.4, -1.74846e-08, 1.43996e-21, -1.74846e-08, -0.4, -1.74846e-08, 0, 0, 0)
 mass = 200.0
 contact_monitor = true
 max_contacts_reported = 10
@@ -14,8 +17,13 @@ angular_damp = 0.1
 script = ExtResource("4_bomb_script")
 arming_delay = 1.0
 armed = false
+explosion_blast_radius = 50.0
 lifetime = 30.0
 explosion_scene = ExtResource("2_s0eg3")
+
+[node name="CollisionShape3D" parent="." index="0"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.0133619, -0.132202, 0.0135498)
+shape = SubResource("BoxShape3D_q8txw")
 
 [node name="bomb" parent="." index="2" instance=ExtResource("3_q8txw")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.261153, -1.12174, 0.458329)

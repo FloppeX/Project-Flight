@@ -1,0 +1,30 @@
+[gd_scene load_steps=4 format=3 uid="uid://c7bbn7065cl17"]
+
+[ext_resource type="PackedScene" uid="uid://bs5wys2xqauft" path="res://Projectiles/AG Missile/missile.glb" id="1_mesh"]
+[ext_resource type="Script" uid="uid://bfelsxjotvaha" path="res://Projectiles/AG Missile/ag_missile.gd" id="2_script"]
+
+[sub_resource type="CylinderShape3D" id="CylinderShape3D_rl7mi"]
+
+[node name="AGMissile" type="RigidBody3D"]
+collision_layer = 513
+collision_mask = 513
+mass = 50.0
+continuous_cd = true
+contact_monitor = true
+max_contacts_reported = 8
+script = ExtResource("2_script")
+max_speed_mps = 120.0
+thrust_force = 6000.0
+steer_torque = 300.0
+high_approach_altitude = 300.0
+terminal_attack_distance = 400.0
+explosion_radius = 20.0
+explosion_damage_multiplier = 1.0
+damage = 50.0
+
+[node name="missile" parent="." instance=ExtResource("1_mesh")]
+transform = Transform3D(1, 0, 0, 0, -4.37114e-08, -1, 0, 1, -4.37114e-08, 0, 0, 0)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+transform = Transform3D(0.3, 0, 0, 0, -2.71011e-08, -0.3, 0, 0.62, -1.31134e-08, 0, 0, 0)
+shape = SubResource("CylinderShape3D_rl7mi")

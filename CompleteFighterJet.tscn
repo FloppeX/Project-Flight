@@ -1,8 +1,9 @@
-[gd_scene load_steps=36 format=3 uid="uid://b5ni1vhgcw1xc"]
+[gd_scene load_steps=38 format=3 uid="uid://b5ni1vhgcw1xc"]
 
 [ext_resource type="Script" uid="uid://c4ltq2v6fji05" path="res://Aircraft/aircraft.gd" id="1_e8t1h"]
 [ext_resource type="PackedScene" uid="uid://cadi81fcpvmuc" path="res://Projectiles/Explosion/explosion.tscn" id="2_x73up"]
 [ext_resource type="PackedScene" uid="uid://bt14e1qa1msic" path="res://Models/Aircraft_1/Aircraft 1 new.glb" id="3_kq7no"]
+[ext_resource type="PackedScene" uid="uid://djtbinx1svo2u" path="res://Aircraft/Aircraft wreck/aircraft_1_wreck.tscn" id="3_x73up"]
 [ext_resource type="PackedScene" uid="uid://bpfxucj3ypbxu" path="res://Models/Aircraft_1/Aircraft 2 propeller.glb" id="4_ii5ys"]
 [ext_resource type="Script" uid="uid://cyxrx2cid1gt" path="res://example/SimpleAero.gd" id="5_8vbcf"]
 [ext_resource type="PackedScene" uid="uid://c0o23b5ljp2ux" path="res://Models/Aircraft_1/Aircraft 1 nose gear.glb" id="6_uu721"]
@@ -23,14 +24,15 @@
 [ext_resource type="PackedScene" uid="uid://dmkf543ywx7dl" path="res://addons/simplified_flightsim/aircraft_modules/Controls/ControlFlaps.tscn" id="21_rcffs"]
 [ext_resource type="Script" uid="uid://cmcm4b17iaaro" path="res://example/control_weapons.gd" id="22_fi8sb"]
 [ext_resource type="Script" uid="uid://nduup0ehe83b" path="res://example/scenes/Cameras/camera_controller.gd" id="23_6y2pl"]
+[ext_resource type="Script" uid="uid://bofxleceqjey4" path="res://addons/simplified_flightsim/aircraft_modules/Controls/ControlTargeting.gd" id="24_kq7no"]
 [ext_resource type="PackedScene" uid="uid://drhynljb0dts8" path="res://Audio/AudioManager3D.tscn" id="24_wyvhj"]
 [ext_resource type="PackedScene" uid="uid://5f7vvtjcqw00" path="res://example/scenes/Cameras/CameraTripod.tscn" id="25_lvoxg"]
 [ext_resource type="PackedScene" uid="uid://cqyfnpv28jupa" path="res://HUD/HeadsUpDisplay.tscn" id="26_0u53p"]
 [ext_resource type="PackedScene" uid="uid://b4xm8v23opqrs" path="res://HUD/InstrumentPanel.tscn" id="27_h17fj"]
 [ext_resource type="PackedScene" uid="uid://dsnc8jllg42ph" path="res://Weapons/hardpoint.tscn" id="28_ymevh"]
-[ext_resource type="PackedScene" uid="uid://idqmpbpg2jul" path="res://Weapons/Bomb/bomb.tscn" id="29_2get8"]
 [ext_resource type="PackedScene" uid="uid://bar7l5uwuwevr" path="res://Weapons/Autocannon/Autocannon.tscn" id="30_ymyte"]
 [ext_resource type="PackedScene" uid="uid://ds5dlvtqfa7tv" path="res://Aircraft/tail_hook.tscn" id="31_3f4kl"]
+[ext_resource type="PackedScene" uid="uid://yjaa3lj4xxb3" path="res://Weapons/AG_Missile/ag_missile_launcher.tscn" id="31_kq7no"]
 
 [sub_resource type="PhysicsMaterial" id="PhysicsMaterial_lowfriction"]
 friction = 0.1
@@ -53,6 +55,10 @@ contact_monitor = true
 max_contacts_reported = 10
 script = ExtResource("1_e8t1h")
 explosion_scene = ExtResource("2_x73up")
+wreck_scene = ExtResource("3_x73up")
+wreck_base_impulse = 100.0
+wreck_random_spread = 1.0
+wreck_extra_spin = 15.0
 
 [node name="Aircraft 1 new" parent="." instance=ExtResource("3_kq7no")]
 
@@ -141,6 +147,12 @@ script = ExtResource("22_fi8sb")
 hardpoints = [NodePath("../Hardpoint1"), NodePath("../Hardpoint2")]
 metadata/_custom_type_script = "uid://5l6s62uv3p3a"
 
+[node name="ControlTargeting" type="Node" parent="."]
+script = ExtResource("24_kq7no")
+fov_cone_deg = 90.0
+max_range_m = 2000.0
+debug_enabled = false
+
 [node name="CameraController" type="Node3D" parent="." node_paths=PackedStringArray("aircraft", "cockpit_tripod", "chase_tripod", "cinematic_tripod")]
 script = ExtResource("23_6y2pl")
 aircraft = NodePath("..")
@@ -152,6 +164,12 @@ cinematic_tripod = NodePath("../CameraCinematic")
 
 [node name="CameraCockpit" parent="." instance=ExtResource("25_lvoxg")]
 transform = Transform3D(-1, 0, -8.74213e-08, 0, 0.999983, 0, 8.74228e-08, 0, -0.999983, 0, 0.92, 1.04)
+
+[node name="CameraTarget" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 4.7872)
+
+[node name="Camera" type="Camera3D" parent="CameraTarget"]
+transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, 0, 0)
 
 [node name="CameraChase" parent="." instance=ExtResource("25_lvoxg")]
 transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, 0, -11.714)
@@ -169,10 +187,12 @@ hud_glass_size = Vector2(1, 1)
 transform = Transform3D(-0.6, 1.79402e-08, -4.92904e-08, 0, 0.563816, 0.205212, 5.24537e-08, 0.205212, -0.563816, 0, 0.42, 1.95)
 aircraft_path = NodePath("..")
 panel_size = Vector2(1, 0.8)
+camera_target_path = NodePath("../CameraTarget")
+zoom_distance = 100.0
 
 [node name="Hardpoint1" parent="." instance=ExtResource("28_ymevh")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2.66, -0.387, -0.2)
-mounted_weapon = ExtResource("29_2get8")
+mounted_weapon = ExtResource("31_kq7no")
 
 [node name="Hardpoint2" parent="." instance=ExtResource("28_ymevh")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2.659, -0.386, -0.2)
