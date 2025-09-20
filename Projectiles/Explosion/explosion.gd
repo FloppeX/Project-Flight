@@ -7,7 +7,7 @@ class_name Explosion
 @export var effect_duration: float = 8.0  # Increased from 2.0
 @export var explosion_sounds: Array[AudioStream] = []
 @export var use_line_of_sight: bool = true  # Do raycast LOS checks before applying damage/impulse
-@export var debug_enabled: bool = false
+@export var debug_enabled: bool = true
 
 # Damage properties
 @export var max_damage: float = 100.0  # Maximum damage at center
@@ -376,7 +376,8 @@ func deal_explosion_damage():
 	params.transform = Transform3D(Basis(), global_position)
 	params.collide_with_areas = true
 	params.collide_with_bodies = true
-	params.collision_mask = 0xFFFFFFFF  # Check all collision layers
+	# Explicitly check default layer (1) and a common 'hittable' layer (4)
+	params.collision_mask = (1 << 0) | (1 << 3)
 	params.exclude = [self]
 	
 	if debug_enabled:

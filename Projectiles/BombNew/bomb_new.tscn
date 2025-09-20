@@ -17,8 +17,10 @@ angular_damp = 0.1
 script = ExtResource("4_bomb_script")
 arming_delay = 1.0
 armed = false
-explosion_blast_radius = 50.0
-lifetime = 30.0
+explosion_radius = 30.0
+explosion_damage_multiplier = 2.0
+damage = 100.0
+lifetime = 80.0
 explosion_scene = ExtResource("2_s0eg3")
 
 [node name="CollisionShape3D" parent="." index="0"]

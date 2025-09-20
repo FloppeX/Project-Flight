@@ -60,8 +60,6 @@ func fire() -> bool:
 	var aircraft_velocity: Vector3 = aircraft.linear_velocity if aircraft else Vector3.ZERO
 	var drop_velocity: Vector3 = Vector3.DOWN * drop_force + aircraft_velocity
 	
-	# Pass weapon-level blast radius to projectile
-	bomb_projectile.explosion_blast_radius = blast_radius
 	# Use the projectile's fire method
 	bomb_projectile.fire(drop_velocity, aircraft)
 	

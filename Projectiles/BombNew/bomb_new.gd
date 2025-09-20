@@ -7,15 +7,21 @@ class_name BombProjectile
 
 @export var arming_delay: float = 1.0  # Seconds before bomb can explode
 @export var armed: bool = false
-@export var explosion_blast_radius: float = 50.0
+@export var explosion_radius: float = 30.0
+@export var explosion_damage_multiplier: float = 2.0  # Multiplier for max damage
 
 var arming_timer: float = 0.0
 
 func _ready():
 	super._ready()
+	# Set base damage to match AG missile
+	damage = 200.0
+	# Failsafe: ensure explosion scene is loaded, matching missile behavior
+	if explosion_scene == null:
+		explosion_scene = load("res://Projectiles/Explosion/explosion.tscn")
 	# Override the base class collision detection
 	body_entered.disconnect(_on_body_entered)
-	body_entered.connect(_on_bomb_body_entered)
+	body_entered.connect(_on_body_entered)
 
 func _physics_process(delta):
 	# Update arming timer
@@ -31,45 +37,57 @@ func arm_bomb():
 	"""Arm the bomb after the delay"""
 	armed = true
 
-func _on_bomb_body_entered(body):
-	"""Handle bomb collision with arming check"""
-	if body == shooter:
-		return  # Don't hit the aircraft that dropped us
+func _on_body_entered(body):
+	print("=== MISSILE HIT ===")
+	print("Hit body: ", body.name, " (", body.get_class(), ")")
+	print("Missile armed: ", armed)
+	print("Body collision layer: ", body.collision_layer if body.has_method("get_collision_layer") else "N/A")
 	
-	# Only explode if armed
+	# Always check if we hit the shooter first
+	if body == shooter:
+		print("Missile hit shooter - ignored")
+		return
+	
+	# Check if missile is armed before exploding
 	if not armed:
-		# Still apply some damage even if not armed (dud bomb)
-		if body.has_method("take_damage"):
-			body.take_damage(damage * 0.1)  # Reduced damage for unarmed bomb
+		print("Missile not armed yet - will impact but not explode")
+		# Still impact and destroy missile, but don't explode
+		# This prevents phasing through ground while unarmed
+		has_impacted = true
+		print("Unarmed missile destroyed on impact with: ", body.name)
 		queue_free()
 		return
 	
-	# Determine if we hit the ground/terrain for scorch mark
-	var hit_ground = is_ground_or_terrain(body)
+	print("Body has take_damage method: ", body.has_method("take_damage"))
+	print("Missile damage: ", damage)
+	print("Body groups: ", body.get_groups())
 	
-	# Create explosion effect
-	if creates_explosion and explosion_scene:
+	# Trigger explosion (only when armed)
+	_trigger_explosion(body)
+
+func _trigger_explosion(hit_body: Node = null):
+	# Create custom explosion with missile's damage values
+	if explosion_scene:
 		var explosion = explosion_scene.instantiate()
 		get_tree().current_scene.add_child(explosion)
-		explosion.global_position = global_position
-		# Apply configured blast radius if compatible
-		if explosion is Explosion:
-			(explosion as Explosion).blast_radius = explosion_blast_radius
 		
-		# Create scorch mark if we hit the ground
-		if hit_ground:
-			explosion.create_scorch_mark()
+		# Position explosion 1m above ground to avoid line-of-sight issues
+		explosion.global_position = global_position + Vector3.UP * 1.0
+		
+		# Set explosion damage to match missile damage
+		explosion.max_damage = damage * explosion_damage_multiplier
+		explosion.min_damage = damage * 0.5
+		explosion.blast_radius = explosion_radius
+		explosion.use_line_of_sight = false
+		
+		print("Explosion created at position: ", explosion.global_position)
+		print("Explosion stats: max_damage=", explosion.max_damage, " blast_radius=", explosion.blast_radius, " LOS=", explosion.use_line_of_sight)
+		
+		# Always create scorch mark for missile explosions since they detonate near ground
+		explosion.create_scorch_mark()
 	
-	# Fallback to old impact effect if no explosion
-	elif impact_effect:
-		var effect = impact_effect.instantiate()
-		get_tree().current_scene.add_child(effect)
-		effect.global_position = global_position
-	
-	# Apply full damage if target has health
-	if body.has_method("take_damage"):
-		body.take_damage(damage)
-	
+	# Mark as impacted and cleanup
+	has_impacted = true
 	queue_free()
 
 func get_arming_status() -> Dictionary:

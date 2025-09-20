@@ -41,6 +41,8 @@ func _physics_process(delta):
 		query.exclude = [self]
 		if shooter:
 			query.exclude.append(shooter)
+		# Use the same collision mask as the projectile
+		query.collision_mask = collision_mask
 			
 		var result: Dictionary = space_state.intersect_ray(query)
 		if result and not has_impacted:

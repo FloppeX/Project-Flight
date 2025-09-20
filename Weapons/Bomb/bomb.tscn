@@ -8,6 +8,7 @@
 transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, 0, 0)
 script = ExtResource("1_573fp")
 bomb_projectile_scene = ExtResource("2_clhcb")
+blast_radius = 30.0
 fire_cooldown = 0.1
 ammo_count = 136
 

@@ -353,58 +353,73 @@ func update_ccip():
 		ccip_dot.visible = false
 		return
 	
-	# Calculate CCIP impact point (use explicit ternary to avoid boolean coercion)
-	var ccip_data = aircraft.calculate_ccip_impact_point_fast() if ccip_use_fast else aircraft.calculate_ccip_impact_point()
+	# Calculate CCIP impact point
+	var ccip_data = aircraft.calculate_ccip_impact_point()
 	
 	if not ccip_data.has_impact:
 		ccip_circle.visible = false
 		ccip_dot.visible = false
 		return
 	
-	# Convert impact point to screen coordinates
-	var impact_world = ccip_data.impact_position
-	var impact_local = cam.global_transform.inverse() * impact_world
+	var impact_world: Vector3 = ccip_data.impact_position
+
+	# --- Replicate working projection logic from target box ---
+	# First, ensure the target is actually in front of the camera
+	if cam.is_position_behind(impact_world):
+		ccip_circle.visible = false
+		ccip_dot.visible = false
+		return
+
+	# Cast ray from camera through target, find where it hits HUD plane
+	var camera_pos = cam.global_position
+	var ray_direction = (impact_world - camera_pos).normalized()
 	
-	if impact_local.z > 0:  # Behind camera
+	# Define HUD plane in world space
+	var hud_transform = hud_mesh.global_transform
+	var hud_normal = -hud_transform.basis.z.normalized()
+	var hud_plane = Plane(hud_normal, hud_transform.origin)
+	
+	# Find intersection point
+	var intersection_point = hud_plane.intersects_ray(camera_pos, ray_direction)
+	
+	if intersection_point == null:
 		ccip_circle.visible = false
 		ccip_dot.visible = false
 		return
 	
-	# Project to screen coordinates
-	var screen_pos = cam.unproject_position(impact_world)
+	# Convert intersection point to HUD mesh local coordinates
+	var local_point = hud_mesh.to_local(intersection_point)
 	
-	# Convert to HUD viewport coordinates
-	var main_viewport_size = get_viewport().size
-	var hud_size_px = Vector2(viewport.size)
-	var normalized_pos = Vector2(
-		screen_pos.x / max(main_viewport_size.x, 0.001),
-		screen_pos.y / max(main_viewport_size.y, 0.001)
-	)
-	var hud_pos = Vector2(
-		normalized_pos.x * hud_size_px.x,
-		normalized_pos.y * hud_size_px.y
-	)
-	
-	# Only show if within HUD bounds
-	if (hud_pos.x >= 0 and hud_pos.x <= hud_size_px.x and 
-		hud_pos.y >= 0 and hud_pos.y <= hud_size_px.y):
-		# Optional filter: hide CCIP if above approximate horizon (screen center)
-		if ccip_below_horizon_only and hud_pos.y < (hud_size_px.y * 0.5 - 4.0):
-			ccip_circle.visible = false
-			ccip_dot.visible = false
-			return
-		
-		ccip_circle.visible = true
-		ccip_dot.visible = true
-		
-		# Position circle and dot at impact point
-		ccip_circle.position = hud_pos - ccip_circle.size * 0.5
-		# Center the dot precisely in the middle of the circle
-		var circle_center = ccip_circle.position + ccip_circle.size * 0.5
-		ccip_dot.position = circle_center - ccip_dot.size * 0.5
-	else:
+	# Check bounds
+	var half_size = hud_glass_size * 0.5
+	if abs(local_point.x) > half_size.x or abs(local_point.y) > half_size.y:
 		ccip_circle.visible = false
 		ccip_dot.visible = false
+		return
+
+	# Convert to viewport coordinates
+	var hud_size_px = Vector2(viewport.size)
+	var hud_pos = Vector2(
+		(local_point.x + half_size.x) / hud_glass_size.x * hud_size_px.x,
+		(-local_point.y + half_size.y) / hud_glass_size.y * hud_size_px.y
+	)
+	
+	# --- End of replicated logic ---
+
+	# Optional filter: hide CCIP if above approximate horizon (screen center)
+	if ccip_below_horizon_only and hud_pos.y < (hud_size_px.y * 0.5 - 4.0):
+		ccip_circle.visible = false
+		ccip_dot.visible = false
+		return
+	
+	ccip_circle.visible = true
+	ccip_dot.visible = true
+	
+	# Position circle and dot at impact point
+	ccip_circle.position = hud_pos - ccip_circle.size * 0.5
+	# Center the dot precisely in the middle of the circle
+	var circle_center = ccip_circle.position + ccip_circle.size * 0.5
+	ccip_dot.position = circle_center - ccip_dot.size * 0.5
 
 func get_weapon_control():
 	"""Get the weapon control module"""
@@ -493,14 +508,14 @@ func update_target_overlay():
 	if abs(local_point.x) > half_size.x or abs(local_point.y) > half_size.y:
 		_set_target_box_visible(false)
 		return
-	
+
 	# Convert to viewport coordinates
 	var hud_size_px = Vector2(viewport.size)
 	var hud_pos = Vector2(
 		(local_point.x + half_size.x) / hud_glass_size.x * hud_size_px.x,
 		(-local_point.y + half_size.y) / hud_glass_size.y * hud_size_px.y
 	)
-	
+
 	# Check if the target is within the HUD viewport bounds (with some margin)
 	var margin = 50.0
 	if (hud_pos.x < -margin or hud_pos.x > (hud_size_px.x + margin) or 

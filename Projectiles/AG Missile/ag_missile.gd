@@ -4,6 +4,8 @@ class_name AGMissile
 @export var max_speed_mps: float = 100.0
 @export var thrust_force: float = 1200.0
 @export var steer_torque: float = 80.0
+@export var max_turn_rate_deg_per_sec: float = 180.0
+@export var lateral_damping: float = 0.8
 @export var lift_coefficient: float = 0.6
 @export var drag_coefficient: float = 0.5
 @export var turbulence_strength: float = 6.0
@@ -47,12 +49,14 @@ func _ready():
 	max_contacts_reported = 32
 	can_sleep = false
 	sleeping = false
-	# Ensure we collide with enemies (layer 1) and terrain (layer 10)
-	set_collision_mask(0x7fffffff)
+	# Collision mask is set in the scene file - don't override it
 	# Ensure body_entered is connected (redundant but robust)
 	if not is_connected("body_entered", Callable(self, "_on_body_entered")):
 		body_entered.connect(_on_body_entered)
 	# Keep default collision_layer unless customized
+
+	# Add to weather_affected group for turbulence
+	add_to_group("weather_affected")
 	
 
 func set_target(t: Node3D) -> void:
@@ -68,7 +72,7 @@ func fire(initial_velocity: Vector3, firing_aircraft: Node3D):
 	# Record launch time for arming and engine ignition delays
 	launch_time = Time.get_ticks_msec() / 1000.0
 	is_armed = false
-	engine_on = true  # Start with engine "on" but it will be disabled until ignition delay
+	engine_on = false  # Start with engine OFF - will be enabled after ignition delay
 	print("Missile launched - engine ignites in ", engine_ignition_delay, " seconds, arms in ", arming_time, " seconds")
 
 func _physics_process(delta):
@@ -111,10 +115,11 @@ func _physics_process(delta):
 	# Only update smoke trail when engine is running
 	if engine_on:
 		_update_smoke_trail(delta)
-		# Only apply drag and turbulence when engine is running
+		# Only apply drag and lateral damping when engine is running
 		_apply_drag_and_limit_speed(delta)
-		_apply_turbulence(delta)
+		_apply_lateral_damping(delta)
 	# When engine is off: no drag, no turbulence - pure ballistic flight
+	# Note: Turbulence is now handled by ContinuousTurbulence system via weather_affected group
 
 func _apply_thrust_and_lift(delta: float) -> void:
 	var fwd: Vector3 = global_transform.basis.z
@@ -142,36 +147,31 @@ func _apply_guidance(delta: float) -> void:
 	var distance_to_target: float = global_position.distance_to(target.global_position)
 	var base_target_pos: Vector3 = target.global_position
 	
-	# Improved lead prediction - reduce overcompensation
-	if target_velocity.length() > lead_velocity_threshold:
+	# Improved lead prediction - disable when very close to prevent overshooting
+	if target_velocity.length() > lead_velocity_threshold and distance_to_target > 75.0:
 		var missile_speed: float = max(linear_velocity.length(), 50.0)
 		var time_to_target: float = distance_to_target / missile_speed
-		
-		# Reduce lead factor based on distance - less lead when close
-		var distance_lead_factor: float = clamp(distance_to_target / 500.0, 0.1, 1.0)
+
+		# Reduce lead factor based on distance - much less lead when close
+		var distance_lead_factor: float = clamp(distance_to_target / 300.0, 0.05, 1.0)
 		var adjusted_lead_factor: float = lead_factor * distance_lead_factor
-		
+
 		# Cap the lead prediction to prevent extreme overshooting
 		var lead_prediction: Vector3 = target_velocity * time_to_target * adjusted_lead_factor
-		var max_lead_distance: float = distance_to_target * 0.3  # Max 30% of distance
+		var max_lead_distance: float = distance_to_target * 0.15  # Reduced from 30% to 15%
 		if lead_prediction.length() > max_lead_distance:
 			lead_prediction = lead_prediction.normalized() * max_lead_distance
-		
+
 		base_target_pos = target.global_position + lead_prediction
 	
-	# Restored two-phase guidance system with overshoot fixes
+	# Progressive three-phase guidance system to prevent overshooting
 	var attack_point: Vector3
 	if distance_to_target > terminal_attack_distance:
 		# Phase 1: High approach - aim for point above target
 		attack_point = base_target_pos + Vector3.UP * high_approach_altitude
 	else:
-		# Phase 2: Terminal attack - dive at target with reduced lead when very close
-		if distance_to_target < 50.0:
-			# Very close: aim directly at current target position to prevent overshoot
-			attack_point = target.global_position
-		else:
-			# Close but not too close: use reduced lead prediction
-			attack_point = base_target_pos
+		# Phase 3: Final approach - aim directly at current target position
+		attack_point = target.global_position
 	
 	var to_target: Vector3 = (attack_point - global_position).normalized()
 	var fwd: Vector3 = global_transform.basis.z.normalized()
@@ -188,19 +188,26 @@ func _apply_guidance(delta: float) -> void:
 		# Improved distance-based steering control
 		var distance_factor: float
 		if distance_to_target < 100.0:
-			# Very aggressive steering when close to prevent overshoot
-			distance_factor = clamp(distance_to_target / 50.0, 2.0, 3.0)  # Increased steering when close
+			# REDUCE steering when very close to prevent overshoot
+			distance_factor = clamp(distance_to_target / 100.0, 0.1, 0.5)  # Much gentler steering when close
 		else:
 			# Normal steering when far
 			distance_factor = clamp(distance_to_target / 200.0, 0.5, 1.0)
 		
 		var torque_mag: float = steer_torque * angle_err * distance_factor
 		apply_torque(steer_axis * torque_mag)
-	
-	# Stronger angular damping when close to target for stability
+
+	# Apply maximum turn rate limiting
+	var max_angular_velocity = deg_to_rad(max_turn_rate_deg_per_sec)
+	if angular_velocity.length() > max_angular_velocity:
+		angular_velocity = angular_velocity.normalized() * max_angular_velocity
+
+	# Progressive angular damping based on distance for stability
 	var damping_factor: float = 0.95
 	if distance_to_target < 100.0:
-		damping_factor = 0.85  # Stronger damping when close
+		# Increase damping progressively as we get closer
+		var damping_strength = clamp((100.0 - distance_to_target) / 100.0, 0.0, 1.0)
+		damping_factor = lerp(0.95, 0.7, damping_strength)  # Stronger damping when very close
 	angular_velocity *= damping_factor
 
 func _on_body_entered(body):
@@ -216,9 +223,12 @@ func _on_body_entered(body):
 	
 	# Check if missile is armed before exploding
 	if not is_armed:
-		print("Missile not armed yet - collision ignored but missile continues")
-		# Don't call parent _on_body_entered to avoid setting has_impacted = true
-		# Just let the missile bounce/continue flying
+		print("Missile not armed yet - will impact but not explode")
+		# Still impact and destroy missile, but don't explode
+		# This prevents phasing through ground while unarmed
+		has_impacted = true
+		print("Unarmed missile destroyed on impact with: ", body.name)
+		queue_free()
 		return
 	
 	print("Body has take_damage method: ", body.has_method("take_damage"))
@@ -235,12 +245,26 @@ func _apply_drag_and_limit_speed(delta: float) -> void:
 	if speed > max_speed_mps:
 		linear_velocity = linear_velocity.normalized() * max_speed_mps
 
-func _apply_turbulence(delta: float) -> void:
-	var fwd: Vector3 = global_transform.basis.z
-	var right: Vector3 = fwd.cross(Vector3.UP).normalized()
-	var up: Vector3 = right.cross(fwd).normalized()
-	var lateral: Vector3 = (right * (randf() - 0.5) + up * (randf() - 0.5)).normalized()
-	apply_central_force(lateral * turbulence_strength)
+func _apply_lateral_damping(delta: float) -> void:
+	# Reduce sideways velocity to prevent sliding past targets
+	var fwd: Vector3 = global_transform.basis.z.normalized()
+	var forward_velocity: float = linear_velocity.dot(fwd)
+	var forward_component: Vector3 = fwd * forward_velocity
+	var lateral_component: Vector3 = linear_velocity - forward_component
+
+	# Apply damping to lateral velocity, stronger when close to target
+	var damping_strength: float = lateral_damping
+	if target and is_instance_valid(target):
+		var distance_to_target: float = global_position.distance_to(target.global_position)
+		if distance_to_target < 150.0:
+			# Increase lateral damping when approaching target
+			var proximity_factor: float = clamp((150.0 - distance_to_target) / 150.0, 0.0, 1.0)
+			damping_strength = lerp(lateral_damping, 0.95, proximity_factor)
+
+	# Apply the damping
+	lateral_component *= (1.0 - damping_strength * delta)
+	linear_velocity = forward_component + lateral_component
+
 
 func _update_smoke_trail(delta: float) -> void:
 	smoke_timer += delta
