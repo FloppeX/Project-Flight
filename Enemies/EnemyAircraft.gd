@@ -6,6 +6,9 @@ class_name EnemyAircraft
 @export var fire_rate: float = 1.0  # shots per second
 @export var bullet_scene: PackedScene
 @export var explosion_scene: PackedScene
+@export var bullet_speed: float = 100.0  # m/s
+@export var ballistics_drag: float = 0.1  # Air resistance factor
+@export var aim_skill: float = 1.0  # 0.0 = terrible, 1.0 = perfect aim
 @export var ground_clearance: float = 0.5
 @export var ground_snap_probe_up: float = 50.0
 @export var ground_snap_probe_down: float = 1500.0
@@ -44,6 +47,10 @@ func _ready():
 	
 	# Find the player aircraft
 	target_aircraft = get_tree().get_first_node_in_group("aircraft")
+	if target_aircraft:
+		print("[EnemyAircraft] Found target aircraft: ", target_aircraft.name)
+	else:
+		print("[EnemyAircraft] WARNING: No aircraft found in 'aircraft' group!")
 	
 	# Load bullet scene if not set
 	if not bullet_scene:
@@ -78,19 +85,114 @@ func fire_at_target():
 	if not bullet_scene or not target_aircraft:
 		return
 	
-	# Calculate direction to target
-	var direction = (target_aircraft.global_position - global_position).normalized()
+	# Calculate proper lead position with ballistics
+	var lead_pos = calculate_ballistic_lead_position(target_aircraft)
+	var direction = (lead_pos - global_position).normalized()
 	
 	# Create bullet
 	var bullet = bullet_scene.instantiate()
 	get_tree().current_scene.add_child(bullet)
 	bullet.global_position = global_position + direction * 2.0  # Spawn slightly in front
 	
-	# Fire bullet towards target
-	var bullet_velocity = direction * 100.0  # Adjust speed as needed
+	# Fire bullet towards predicted position
+	var bullet_velocity = direction * bullet_speed
 	bullet.fire(bullet_velocity, self)
 	
-	print("Enemy fired at aircraft!")
+	var distance = global_position.distance_to(target_aircraft.global_position)
+	var lead_distance = global_position.distance_to(lead_pos)
+	print("[EnemyAircraft] Fired at lead position! Distance: ", distance, "m, Lead: ", lead_distance, "m")
+
+func calculate_ballistic_lead_position(target: Node3D) -> Vector3:
+	# Enhanced ballistics calculation with drag and gravity compensation
+	var target_pos = target.global_position
+	var target_velocity = Vector3.ZERO
+	
+	# Get target velocity
+	if target.has_method("get_linear_velocity"):
+		target_velocity = target.get_linear_velocity()
+	elif target.has_method("linear_velocity"):
+		target_velocity = target.linear_velocity
+	
+	# Ballistic parameters
+	var initial_bullet_speed = bullet_speed  # Use exported value
+	var gravity = 9.8  # m/s²
+	var drag_coefficient = ballistics_drag  # Use exported value
+	
+	# Iterative solution for intercept point
+	var predicted_pos = target_pos
+	var best_solution = target_pos
+	var best_error = 999999.0
+	
+	# Try multiple iterations to converge on solution
+	for iteration in range(5):
+		var distance_to_predicted = global_position.distance_to(predicted_pos)
+		
+		# Calculate flight time with drag compensation
+		var flight_time = calculate_flight_time_with_drag(distance_to_predicted, initial_bullet_speed, drag_coefficient)
+		
+		# Predict target position at flight time
+		var target_predicted = target_pos + (target_velocity * flight_time)
+		
+		# Account for gravity drop
+		var height_difference = target_predicted.y - global_position.y
+		var horizontal_distance = Vector2(target_predicted.x - global_position.x, target_predicted.z - global_position.z).length()
+		var gravity_drop = 0.5 * gravity * flight_time * flight_time
+		
+		# Adjust for gravity (aim higher)
+		target_predicted.y += gravity_drop
+		
+		# Calculate error and update best solution
+		var error = predicted_pos.distance_to(target_predicted)
+		if error < best_error:
+			best_error = error
+			best_solution = target_predicted
+		
+		# Update for next iteration
+		predicted_pos = target_predicted
+		
+		# Break if converged
+		if error < 1.0:  # Within 1 meter is good enough
+			break
+	
+	# Add some inaccuracy based on aim skill
+	if aim_skill < 1.0:
+		var inaccuracy_range = (1.0 - aim_skill) * 20.0  # Up to 20m spread for terrible aim
+		var random_offset = Vector3(
+			randf_range(-inaccuracy_range, inaccuracy_range),
+			randf_range(-inaccuracy_range * 0.5, inaccuracy_range * 0.5),  # Less vertical spread
+			randf_range(-inaccuracy_range, inaccuracy_range)
+		)
+		best_solution += random_offset
+	
+	return best_solution
+
+func calculate_flight_time_with_drag(distance: float, initial_speed: float, drag: float) -> float:
+	# Approximate flight time accounting for drag deceleration
+	# Using simplified drag model: v(t) = v0 * e^(-drag * t)
+	# Distance with drag: d = (v0 / drag) * (1 - e^(-drag * t))
+	
+	if drag <= 0.0:
+		return distance / initial_speed
+	
+	# Solve for time using Newton's method approximation
+	var time_estimate = distance / initial_speed  # Start with no-drag estimate
+	
+	for i in range(3):  # Few iterations for approximation
+		var predicted_distance = (initial_speed / drag) * (1.0 - exp(-drag * time_estimate))
+		var error = predicted_distance - distance
+		
+		if abs(error) < 0.1:  # Close enough
+			break
+			
+		# Newton's method derivative
+		var derivative = initial_speed * exp(-drag * time_estimate)
+		if derivative > 0.01:  # Avoid division by zero
+			time_estimate -= error / derivative
+		
+		# Clamp to reasonable values
+		time_estimate = clamp(time_estimate, 0.01, 10.0)
+	
+	return time_estimate
 
 func _physics_process(delta: float) -> void:
 	# If dying, do nothing else

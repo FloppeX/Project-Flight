@@ -1,6 +1,7 @@
-[gd_scene load_steps=5 format=3 uid="uid://enemybox123"]
+[gd_scene load_steps=6 format=3 uid="uid://enemybox123"]
 
 [ext_resource type="Script" uid="uid://c4dl1v11gf6w0" path="res://Enemies/EnemyBox.gd" id="1_enemy"]
+[ext_resource type="PackedScene" uid="uid://bar7l5uwuwevr" path="res://Weapons/Autocannon/Autocannon.tscn" id="2_xi3hl"]
 
 [sub_resource type="StandardMaterial3D" id="Material_enemy_red"]
 albedo_color = Color(0.8, 0.2, 0.2, 1)
@@ -19,6 +20,7 @@ disable_mode = 2
 collision_layer = 513
 collision_mask = 513
 script = ExtResource("1_enemy")
+turret_weapon = ExtResource("2_xi3hl")
 
 [node name="MeshInstance3D" type="MeshInstance3D" parent="."]
 material_override = SubResource("Material_enemy_red")

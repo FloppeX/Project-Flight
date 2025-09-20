@@ -8,9 +8,10 @@ signal destroyed(enemy)
 @export var detection_range: float = 500.0
 @export var team: int = 2
 @export var turret_range: float = 400.0
-@export var fire_rate: float = 2.0  # shots per second
-@export var bullet_speed: float = 200.0  # m/s
-@export var bullet_scene: PackedScene
+@export var burst_length: float = 2.0  # How long to hold trigger (seconds)
+@export var delay_length: float = 4.0  # How long to wait between bursts (seconds)
+@export var turret_weapon: PackedScene  # Drag weapon scene here (e.g., Autocannon.tscn)
+@export var aim_skill: float = 0.8  # Ground turrets are pretty good but not perfect
 
 var current_health: float
 var detected_enemies: Array = []
@@ -18,11 +19,18 @@ var detected_enemies: Array = []
 #var blink_timer: float = 0.0  # Disabled for performance
 #var is_blinking: bool = false  # Disabled for performance
 var turret_node: Node3D
-var fire_timer: float = 0.0
+var weapon_instance: Weapon
 var current_target: Node3D
 var detection_timer: float = 0.0
 var target_search_timer: float = 0.0
 var is_dying: bool = false # To prevent multiple explosion calls
+
+# Burst firing system
+enum FireState { IDLE, BURSTING, DELAYING }
+var fire_state: FireState = FireState.IDLE
+var burst_timer: float = 0.0
+var delay_timer: float = 0.0
+var is_firing: bool = false
 
 func _ready():
 	# Initialize health
@@ -37,14 +45,40 @@ func _ready():
 	#if mesh_instance and mesh_instance.material_override:
 	#	original_material = mesh_instance.material_override.duplicate()
 	
-	# Create turret
+	# Create turret with weapon
 	create_turret()
 	
-	# Load bullet scene if not set
-	if not bullet_scene:
-		bullet_scene = load("res://Projectiles/Bullet/bullet.tscn")
+	# Mount weapon on turret if provided
+	if turret_weapon and turret_node:
+		mount_weapon_on_turret(turret_weapon)
 	
 	print("Enemy box created with ", max_health, " HP at position: ", global_position, " (Team ", team, ")")
+
+func mount_weapon_on_turret(weapon_scene: PackedScene):
+	if weapon_instance:
+		weapon_instance.queue_free()
+	
+	# Create a simple turret mount that acts like a hardpoint
+	var turret_mount = TurretMount.new()
+	turret_mount.enemy_box = self
+	turret_node.add_child(turret_mount)
+	
+	# Mount weapon on the turret mount
+	weapon_instance = weapon_scene.instantiate()
+	turret_mount.add_child(weapon_instance)
+	
+	# Store weapon reference in both places for easy access
+	turret_mount.weapon_instance = weapon_instance
+	
+	# Position mount at turret tip
+	turret_mount.position = Vector3(0, 0, 1.0)  # 1 meter forward on turret
+	
+	# Ensure weapon is oriented correctly (may need rotation adjustment)
+	# The weapon should fire in the +Z direction of the turret mount
+	print("[EnemyBox] Weapon mounted at position: ", turret_mount.position)
+	print("[EnemyBox] Turret Z-axis: ", turret_node.transform.basis.z)
+	
+	print("[EnemyBox] Mounted weapon: ", weapon_instance.weapon_name if weapon_instance else "Unknown")
 
 func _physics_process(delta):
 	# If dying, do nothing else
@@ -171,9 +205,6 @@ func update_turret(delta):
 	if not turret_node:
 		return
 	
-	# Update fire timer
-	fire_timer += delta
-	
 	# Find best target within turret range (once per second)
 	if target_search_timer >= 1.0:
 		var best_target = find_best_target()
@@ -184,10 +215,51 @@ func update_turret(delta):
 		# Track target
 		track_target(current_target)
 		
-		# Fire if ready and in range
-		if fire_timer >= (1.0 / fire_rate):
-			fire_at_target(current_target)
-			fire_timer = 0.0
+		# Update burst firing state machine
+		update_burst_firing(delta)
+	else:
+		# No target - stop firing and reset to idle
+		stop_firing()
+		fire_state = FireState.IDLE
+
+func update_burst_firing(delta):
+	match fire_state:
+		FireState.IDLE:
+			# Start a new burst
+			start_burst()
+			
+		FireState.BURSTING:
+			# Continue firing for burst_length seconds
+			burst_timer += delta
+			if burst_timer >= burst_length:
+				# Burst complete - enter delay phase
+				stop_firing()
+				fire_state = FireState.DELAYING
+				delay_timer = 0.0
+				print("[EnemyBox] Burst complete, entering delay phase")
+			else:
+				# Keep firing during burst
+				fire_at_target(current_target)
+				
+		FireState.DELAYING:
+			# Wait for delay_length seconds before next burst
+			delay_timer += delta
+			if delay_timer >= delay_length:
+				# Delay complete - ready for next burst
+				fire_state = FireState.IDLE
+				print("[EnemyBox] Delay complete, ready for next burst")
+
+func start_burst():
+	fire_state = FireState.BURSTING
+	burst_timer = 0.0
+	is_firing = true
+	print("[EnemyBox] Starting burst - will fire for ", burst_length, " seconds")
+
+func stop_firing():
+	is_firing = false
+	# Tell weapon to stop firing if it supports it
+	if weapon_instance and weapon_instance.has_method("stop_firing"):
+		weapon_instance.stop_firing()
 
 func find_best_target() -> Node3D:
 	var best_target: Node3D = null
@@ -230,43 +302,77 @@ func track_target(target: Node3D):
 		turret_node.look_at(look_at_pos, Vector3.UP)
 
 func calculate_lead_position(target: Node3D) -> Vector3:
-	# Get target position and velocity
+	# Simple lead calculation for turret aiming
+	# The weapon will handle its own ballistics
 	var target_pos = target.global_position
 	var target_velocity = Vector3.ZERO
 	
-	# Try to get target velocity
+	# Get target velocity
 	if target.has_method("get_linear_velocity"):
 		target_velocity = target.get_linear_velocity()
 	elif target.has_method("linear_velocity"):
 		target_velocity = target.linear_velocity
 	
-	# Calculate time to intercept
+	# Simple lead calculation
 	var distance = global_position.distance_to(target_pos)
-	var time_to_target = distance / bullet_speed
+	var estimated_bullet_speed = 600.0  # Assume autocannon speed
+	var flight_time = distance / estimated_bullet_speed
 	
 	# Predict target position
-	var lead_position = target_pos + (target_velocity * time_to_target)
+	var lead_position = target_pos + (target_velocity * flight_time)
+	
+	# Add some inaccuracy based on aim skill
+	if aim_skill < 1.0:
+		var inaccuracy_range = (1.0 - aim_skill) * 15.0  # Up to 15m spread for terrible aim
+		var random_offset = Vector3(
+			randf_range(-inaccuracy_range, inaccuracy_range),
+			randf_range(-inaccuracy_range * 0.3, inaccuracy_range * 0.3),  # Less vertical spread for turrets
+			randf_range(-inaccuracy_range, inaccuracy_range)
+		)
+		lead_position += random_offset
 	
 	return lead_position
 
+# Simple turret mount that extends Hardpoint for weapons
+class TurretMount extends Hardpoint:
+	var enemy_box: EnemyBox
+	
+	func _ready():
+		# Don't call super._ready() to avoid mounted_weapon logic
+		# Use set() to bypass type checking for aircraft assignment
+		set("aircraft", enemy_box)
+	
+	# Override methods for turret-specific behavior
+	func get_aircraft_velocity() -> Vector3:
+		return Vector3.ZERO  # Turrets are stationary
+	
+	func apply_recoil_force(force_magnitude: float):
+		# Turrets don't have recoil effects like aircraft
+		pass
+
 func fire_at_target(target: Node3D):
-	if not bullet_scene or not turret_node:
+	if not weapon_instance or not turret_node:
+		print("[EnemyBox] Cannot fire - no weapon mounted or turret missing")
 		return
 	
-	# Create bullet
-	var bullet = bullet_scene.instantiate()
-	get_tree().current_scene.add_child(bullet)
-	
-	# Position bullet at turret barrel tip
-	var barrel_tip = turret_node.global_position + turret_node.global_transform.basis.z * 1.0
-	bullet.global_position = barrel_tip
-	
-	# Calculate firing direction with lead
+	# Calculate lead position for aiming
 	var target_pos = calculate_lead_position(target)
-	var fire_direction = (target_pos - barrel_tip).normalized()
-	var bullet_velocity = fire_direction * bullet_speed
 	
-	# Fire bullet
-	bullet.fire(bullet_velocity, self)
+	# Aim turret at target position
+	var fire_direction = (target_pos - turret_node.global_position).normalized()
+	if fire_direction.length() > 0:
+		# Create a transform that makes +Z point toward target
+		var up = Vector3.UP
+		var right = fire_direction.cross(up).normalized()
+		up = right.cross(fire_direction).normalized()
+		
+		# Build basis with +Z pointing toward target
+		var new_basis = Basis(right, up, fire_direction)
+		turret_node.global_transform.basis = new_basis
 	
-	print("Turret fired at target! Distance: ", global_position.distance_to(target.global_position))
+	# Fire the weapon (let weapon handle its own fire rate)
+	if weapon_instance.can_fire() and weapon_instance.fire():
+		var distance = global_position.distance_to(target.global_position)
+		var lead_distance = global_position.distance_to(target_pos)
+		var firing_direction = turret_node.global_transform.basis.z
+		print("[EnemyBox] Turret fired! Distance: ", distance, "m, Lead: ", lead_distance, "m")

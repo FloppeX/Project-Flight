@@ -18,6 +18,9 @@ extends Node3D
 @onready var engine_label: Label = $SubViewport/InstrumentDisplay/EnginePanel/EngineLabel
 @onready var display_root: Control = $SubViewport/InstrumentDisplay
 
+# STRUCT indicator (created dynamically)
+var struct_label: Label
+
 # Radar/Target UI
 var radar_panel: PanelContainer
 var target_panel: Control
@@ -176,6 +179,21 @@ func _process(delta: float) -> void:
 	else:
 		engine_label.text = "ENG\nN/A"
 		engine_label.modulate = Color.GRAY
+	
+	# Update STRUCT indicator with aircraft health
+	if struct_label:
+		var health_percent = int((aircraft.current_health / aircraft.max_health) * 100)
+		struct_label.text = "STRUCT\n" + str(health_percent)
+		
+		# Color coding based on health
+		if health_percent > 60:
+			struct_label.modulate = Color.GREEN
+		elif health_percent > 30:
+			struct_label.modulate = Color.YELLOW
+		elif health_percent > 0:
+			struct_label.modulate = Color.RED
+		else:
+			struct_label.modulate = Color.DARK_RED
 
 	# Update target camera to look at current target if module present
 	if target_camera and is_instance_valid(target_camera):
@@ -501,10 +519,18 @@ func _relayout_top_row() -> void:
 		top_row.offset_top = 4
 		top_row.offset_bottom = 44
 		top_row.alignment = BoxContainer.ALIGNMENT_CENTER
-		top_row.add_theme_constant_override("separation", 16)
+		top_row.add_theme_constant_override("separation", 12)  # Reduced from 16 to fit 6 indicators
+	
+	# Create STRUCT label if it doesn't exist
+	if struct_label == null:
+		struct_label = Label.new()
+		struct_label.text = "STRUCT\n100"
+		struct_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		struct_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	
 	# Reparent labels into the top row and make them expand evenly
-	var labels: Array = [altitude_label, speed_label, fuel_label, gear_label, engine_label]
+	# Now includes 6 indicators: ALT, SPD, FUEL, GEAR, ENG, STRUCT
+	var labels: Array = [altitude_label, speed_label, fuel_label, gear_label, engine_label, struct_label]
 	for l in labels:
 		if l != null and l.get_parent() != top_row:
 			var p: Node = l.get_parent()

@@ -136,6 +136,9 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -30.457, 14.333, 0)
 
 [node name="Arresting Cable 1" parent="." instance=ExtResource("12_eyg35")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -64)
+braking_spring_stiffness_n_per_m = 4000.0
+braking_damping_n_s_per_m = 4000.0
+max_pay_out = 20.0
 
 [node name="Arresting Cable 2" parent="." instance=ExtResource("12_eyg35")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -56)

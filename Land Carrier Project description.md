@@ -1,5 +1,16 @@
 ## Project Change Log (latest session)
 
+### Session Summary (2025-09-20)
+*   **Enemy Stability:** Fixed critical issue where ground units (`EnemyBox`) would fall through terrain or teleport to the world origin. This was resolved by converting them from `RigidBody3D` to `StaticBody3D` and implementing a robust ground-snapping mechanism, ensuring they remain firmly on the terrain.
+*   **HUD Overhaul:**
+	*   **Target Box:** Implemented a properly collimated green target box on the HUD. The box is now projected onto a 3D plane, eliminating parallax and ensuring it accurately frames the selected target from the pilot's perspective.
+	*   **CCIP Collimation:** Applied the same ray-plane intersection logic to the CCIP (bomb impact point) display, making it accurately collimated with the 3D world.
+*   **Targeting System:** The aircraft's targeting module now correctly detects when a target has been destroyed and automatically clears the target, preventing players from staying locked onto defeated enemies.
+*   **Projectile & Explosion FX:**
+	*   **Delayed Explosions:** Added a randomized 0-1 second delay before an enemy explodes after its health reaches zero, improving the visual feedback of destruction.
+	*   **Bomb Damage:** Corrected an issue where the bomb launcher was overriding the bomb projectile's properties. Bombs now correctly use their intended splash damage radius of 30 meters, consistent with AG missiles, making them effective area-denial weapons.
+*   **Landing Gear Suspension:** Implemented suspension system with damping for smoother landings and enhanced immersion during carrier operations (launching and landing).
+
 ### Core systems
 - Catapult
   - Uses `controls_disabled` meta on aircraft during launch; restores on release.
