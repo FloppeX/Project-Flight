@@ -1,6 +1,7 @@
 res://low_poly_env.tres
 res://example/ExampleList.tscn
 res://LandCarrier/FlightDeckManager.gd
+res://FlightDeck.gd
 res://LandCarrier.tscn
 res://Weapons/Bomb/bomb.tscn
 res://Projectiles/ProjectileNew/projectile_new.tscn
@@ -10,6 +11,6 @@ res://Weapons/Autocannon/Autocannon.tscn
 res://Enemies/EnemyBox.tscn
 res://Main_Scene.tscn
 res://CompleteFighterJet.tscn
+res://Projectiles/Explosion/explosion.gd
 res://Projectiles/ProjectileNew/projectile_new.gd
-res://Enemies/EnemyBox.gd
-res://Land Carrier Project description.md
+res://Projectiles/Bullet/bullet.tscn

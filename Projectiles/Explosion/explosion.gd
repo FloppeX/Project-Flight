@@ -332,27 +332,23 @@ func create_scorch_mark():
 		add_child(decal)
 		decal.texture_albedo = preload("res://Projectiles/Explosion/scorch_mark.png")
 		
-		# Size matches blast radius
-		decal.size = Vector3(blast_radius, 0.1, blast_radius)
+		# Size matches blast radius - much larger depth for projection
+		decal.size = Vector3(blast_radius, 10.0, blast_radius)  # Much larger depth
 		
-		# Position slightly along the normal to avoid z-fighting
-		decal.global_position = hit_pos + hit_normal * 0.02
+		# Position the decal slightly above the hit point
+		decal.global_position = hit_pos + Vector3(0, 0.1, 0)  # Just 0.1 meter above
 		
-		# Orient decal to project straight down onto the surface
-		# Decals project along their negative Y axis, so we want Y axis pointing up from surface
-		var up_vector: Vector3 = hit_normal.normalized()
-		var right_vector: Vector3 = up_vector.cross(Vector3.FORWARD).normalized()
-		if right_vector.length() < 0.001:  # Handle edge case where normal is parallel to forward
-			right_vector = up_vector.cross(Vector3.RIGHT).normalized()
-		var forward_vector: Vector3 = right_vector.cross(up_vector).normalized()
+		# Make decal face straight down (simple approach)
+		# Decals project along negative Y, so we want Y pointing up and Z pointing forward
+		decal.global_basis = Basis.IDENTITY
 		
-		# Build orthonormal basis
-		decal.global_basis = Basis(right_vector, up_vector, forward_vector)
+		# Add random rotation around Y-axis only
+		decal.rotate_y(randf() * TAU)
 		
-		# Add random rotation around the normal for variety
-		var random_yaw: float = randf() * TAU
-		var rotation_basis: Basis = Basis(up_vector, random_yaw)
-		decal.global_basis = rotation_basis * decal.global_basis
+		if debug_enabled:
+			print("Scorch decal positioned at: ", decal.global_position)
+			print("Scorch decal basis: ", decal.global_basis)
+			print("Surface normal: ", hit_normal)
 	else:
 		# Fallback: place a flat decal centered at explosion
 		var decal_fallback: Decal = Decal.new()

@@ -23,12 +23,14 @@ var fov_tween: Tween
 var cockpit_camera: Camera3D
 var chase_camera: Camera3D  
 var cinematic_camera: Camera3D
+var bridge_camera: Camera3D
 
 var cockpit_script: CockpitCamera
 var chase_script: ChaseCamera
 var cinematic_script: CinematicCamera
+var bridge_script: BridgeCamera
 
-enum CameraMode { COCKPIT, CHASE, CINEMATIC, DEATHCAM }
+enum CameraMode { COCKPIT, CHASE, CINEMATIC, BRIDGE, DEATHCAM }
 var current_mode: CameraMode = CameraMode.COCKPIT
 var last_switch_time: float = 0.0
 var switch_cooldown: float = 0.3  # Prevent rapid switching
@@ -56,6 +58,7 @@ func _ready():
 	cockpit_camera = cockpit_tripod.find_child("Camera3D", true, false)
 	chase_camera = chase_tripod.find_child("Camera3D", true, false) 
 	cinematic_camera = null
+	bridge_camera = null
 	
 	# Set up camera scripts
 	cockpit_tripod.set_script(preload("res://example/scenes/Cameras/CockpitCamera.gd"))
@@ -67,6 +70,9 @@ func _ready():
 	chase_script = chase_tripod as ChaseCamera
 	if chase_script:
 		chase_script.setup_aircraft(aircraft)
+	
+	# Set up bridge camera
+	setup_bridge_camera()
 	
 	# Prefer external carrier cam for cinematic, else fall back to tripod
 	var external_cam: Camera3D = null
@@ -98,6 +104,55 @@ func _ready():
 		_use_external_cinematic = false
 	
 	switch_to_camera(CameraMode.COCKPIT)
+
+func setup_bridge_camera():
+	# Skip if already set up
+	if bridge_script and bridge_camera:
+		print("[CameraController] Bridge camera already set up, skipping")
+		return
+	
+	# Simply find the existing BridgeCamera in the scene (no script application)
+	var bridge_nodes = get_tree().get_nodes_in_group("carrier_cam")
+	print("[CameraController] Looking for BridgeCamera in carrier_cam group. Found ", bridge_nodes.size(), " nodes:")
+	
+	for node in bridge_nodes:
+		print("[CameraController] - Node: ", node.name, " (", node.get_class(), ")")
+		if node is BridgeCamera:
+			print("[CameraController] Found BridgeCamera instance: ", node.name)
+			bridge_script = node as BridgeCamera
+			bridge_script.set_aircraft_reference(aircraft)
+			bridge_camera = bridge_script.get_camera()
+			print("[CameraController] Connected to bridge camera, camera: ", bridge_camera)
+			return
+	
+	print("[CameraController] No BridgeCamera found. Please attach BridgeCamera script to CameraHolderBridge in the scene.")
+
+func find_node_by_name(parent: Node, target_name: String) -> Node:
+	# Recursively search for a node by name
+	if parent.name == target_name:
+		return parent
+	
+	for child in parent.get_children():
+		var result = find_node_by_name(child, target_name)
+		if result:
+			return result
+	
+	return null
+
+func _retry_bridge_camera_setup():
+	print("[CameraController] Retrying bridge camera setup...")
+	if bridge_script:
+		return  # Already found, don't retry
+	
+	var bridge_nodes = get_tree().get_nodes_in_group("carrier_cam")
+	for node in bridge_nodes:
+		if node.name == "CameraHolderBridge" or "bridge" in node.name.to_lower():
+			node.set_script(preload("res://LandCarrier/BridgeCamera.gd"))
+			bridge_script = node as BridgeCamera
+			if bridge_script:
+				bridge_camera = bridge_script.get_camera()
+				print("[CameraController] Bridge camera found on retry!")
+			break
 
 func _input(event):
 	# Don't allow camera switching during deathcam
@@ -132,22 +187,26 @@ func _process(delta):
 
 func cycle_camera():
 	var old_mode = current_mode
-	current_mode = (current_mode + 1) % 3
+	# Cycle through 4 modes: COCKPIT, CHASE, CINEMATIC, BRIDGE
+	current_mode = (current_mode + 1) % 4
 	print("Camera switching: ", old_mode, " -> ", current_mode)
 	switch_to_camera(current_mode)
 
 func switch_to_camera(mode: CameraMode):
 	print("switch_to_camera called with mode: ", mode)
 	
-	# Validate cameras exist
-	if not cockpit_camera or not chase_camera or not cinematic_camera:
-		print("ERROR: One or more cameras not found!")
+	# Validate cameras exist (bridge camera is optional)
+	if not cockpit_camera or not chase_camera:
+		print("ERROR: Required cameras not found!")
 		return
 	
 	# Disable all cameras
 	cockpit_camera.current = false
 	chase_camera.current = false  
-	cinematic_camera.current = false
+	if cinematic_camera:
+		cinematic_camera.current = false
+	if bridge_camera:
+		bridge_camera.current = false
 	
 	# Reset camera states when switching
 	current_mode = mode
@@ -166,10 +225,20 @@ func switch_to_camera(mode: CameraMode):
 			print("Activating cinematic camera")
 			if cinematic_script:
 				cinematic_script.setup_shot()
-			cinematic_camera.current = true
+			if cinematic_camera:
+				cinematic_camera.current = true
+		CameraMode.BRIDGE:
+			print("Activating bridge camera")
+			if bridge_camera:
+				bridge_camera.current = true
+			else:
+				print("Bridge camera not available - falling back to cockpit")
+				switch_to_camera(CameraMode.COCKPIT)
 	
 	# Verify which camera is actually active
-	print("Camera states - Cockpit:", cockpit_camera.current, " Chase:", chase_camera.current, " Cinematic:", cinematic_camera.current)
+	var bridge_status = bridge_camera.current if bridge_camera else "N/A"
+	var cinematic_status = cinematic_camera.current if cinematic_camera else "N/A"
+	print("Camera states - Cockpit:", cockpit_camera.current, " Chase:", chase_camera.current, " Cinematic:", cinematic_status, " Bridge:", bridge_status)
 
 func get_current_camera() -> Camera3D:
 	match current_mode:
@@ -179,7 +248,10 @@ func get_current_camera() -> Camera3D:
 			return chase_camera
 		CameraMode.CINEMATIC:
 			return cinematic_camera
-	return null
+		CameraMode.BRIDGE:
+			return bridge_camera
+		_:
+			return cockpit_camera
 
 func update_camera_zoom(instant: bool = false):
 	var target_camera = get_current_camera()

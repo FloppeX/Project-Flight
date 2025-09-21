@@ -1,9 +1,9 @@
 extends Node3D
 class_name CinematicCamera
 
-@export var distance_range: Vector2 = Vector2(80, 200)
-@export var height_range: Vector2 = Vector2(5, 100)
-@export var side_range: Vector2 = Vector2(-100, 100)
+@export var distance_range: Vector2 = Vector2(100, 200)  # Distance in front of aircraft
+@export var height_offset_range: Vector2 = Vector2(0, 30)  # Random height offset from aircraft
+@export var side_offset_range: Vector2 = Vector2(-30, 30)  # Random horizontal offset
 @export var look_smoothing: float = 8.0
 
 var aircraft: RigidBody3D
@@ -28,16 +28,17 @@ func setup_shot():
 	var aircraft_pos = aircraft.global_position
 	var aircraft_forward = aircraft.global_transform.basis.z
 	var aircraft_right = aircraft.global_transform.basis.x
+	var aircraft_up = aircraft.global_transform.basis.y
 	
-	# Position camera ahead of aircraft's flight path
+	# Position camera ahead of aircraft with random offsets
 	var ahead_distance = randf_range(distance_range.x, distance_range.y)
-	var side_offset = randf_range(side_range.x * 0.5, side_range.y * 0.5)  # Less extreme side positioning
-	var random_height = randf_range(height_range.x, height_range.y)
+	var side_offset = randf_range(side_offset_range.x, side_offset_range.y)
+	var height_offset = randf_range(height_offset_range.x, height_offset_range.y)
 	
 	# Calculate position ahead of aircraft's current direction
 	var cinematic_pos = aircraft_pos + aircraft_forward * ahead_distance
 	cinematic_pos += aircraft_right * side_offset
-	cinematic_pos.y = random_height  # Absolute height above ground
+	cinematic_pos += aircraft_up * height_offset  # Height relative to aircraft, not ground
 	
 	# Set position once and stay there (completely stationary)
 	global_position = cinematic_pos

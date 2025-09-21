@@ -140,7 +140,11 @@ func _on_body_entered(body):
 	
 	# Create scorch mark if we hit an aircraft
 	if is_aircraft(body):
-		create_bullet_scorch_mark(body)
+		var aircraft_target = find_damage_target(body)  # Get the main aircraft node
+		if aircraft_target:
+			create_bullet_scorch_mark(aircraft_target)
+		else:
+			create_bullet_scorch_mark(body)  # Fallback to original body
 	
 	# Apply damage if target has health
 	var damage_target = find_damage_target(body)
@@ -236,23 +240,22 @@ func create_bullet_scorch_mark(aircraft_body: Node) -> void:
 	var decal: Decal = Decal.new()
 	decal.texture_albedo = load("res://Projectiles/Explosion/scorch_mark.png")
 	
-	# Make bullet marks smaller than explosion marks
-	decal.size = Vector3(0.3, 0.02, 0.3)  # Small bullet hole
-	decal.global_position = hit_pos + hit_normal * 0.005  # Slight offset to avoid z-fighting
+	# Make bullet marks smaller than explosion marks - much larger depth
+	decal.size = Vector3(0.3, 2.0, 0.3)  # Much larger depth for projection
 	
-	# Align decal to surface normal
-	var y_axis: Vector3 = hit_normal
-	var x_axis: Vector3 = y_axis.cross(Vector3.FORWARD)
-	if x_axis.length() < 0.001:
-		x_axis = y_axis.cross(Vector3.RIGHT)
-	x_axis = x_axis.normalized()
-	var z_axis: Vector3 = x_axis.cross(y_axis).normalized()
-	var basis: Basis = Basis(x_axis, y_axis, z_axis)
+	# Position the decal slightly above the hit point
+	decal.global_position = hit_pos + Vector3(0, 0.05, 0)  # Just 0.05 meters above
 	
-	# Add some random rotation for variation
-	var random_yaw: float = randf() * TAU
-	var rot: Basis = Basis(y_axis, random_yaw)
-	decal.global_basis = rot * basis
+	# Make decal face straight down (simple approach)
+	# Decals project along negative Y, so we want Y pointing up and Z pointing forward
+	decal.global_basis = Basis.IDENTITY
+	
+	# Add random rotation around Y-axis only
+	decal.rotate_y(randf() * TAU)
+	
+	print("[ProjectileNew] Bullet decal positioned at: ", decal.global_position)
+	print("[ProjectileNew] Bullet decal basis: ", decal.global_basis)
+	print("[ProjectileNew] Surface normal: ", hit_normal)
 	
 	# Make the scorch mark darker/more visible
 	decal.modulate = Color(0.8, 0.8, 0.8, 1.0)  # Slightly darker
@@ -260,11 +263,13 @@ func create_bullet_scorch_mark(aircraft_body: Node) -> void:
 	# Attach decal to the aircraft so it moves with it
 	if aircraft_body and is_instance_valid(aircraft_body):
 		aircraft_body.add_child(decal)
-		print("[ProjectileNew] Added bullet scorch mark to aircraft")
+		print("[ProjectileNew] Added bullet scorch mark to aircraft: ", aircraft_body.name, " (", aircraft_body.get_class(), ")")
+		print("[ProjectileNew] Decal world position: ", decal.global_position)
+		print("[ProjectileNew] Aircraft world position: ", aircraft_body.global_position)
 	else:
 		# Fallback: add to scene
 		get_tree().current_scene.add_child(decal)
-		print("[ProjectileNew] Added bullet scorch mark to scene (fallback)")
+		print("[ProjectileNew] Added bullet scorch mark to scene (fallback) - aircraft_body was: ", aircraft_body)
 
 func find_damage_target(body: Node) -> Node:
 	# Smart damage target finder - handles various collision scenarios

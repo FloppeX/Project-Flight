@@ -119,4 +119,3 @@ func get_status() -> Dictionary:
 		"arresting_cables_active": arresting_cables_active,
 		"catapult_cooldown_remaining": catapult_timer
 	}
-

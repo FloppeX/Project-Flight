@@ -1,4 +1,4 @@
-[gd_scene load_steps=16 format=3 uid="uid://b8x70a02a1b2c"]
+[gd_scene load_steps=17 format=3 uid="uid://b8x70a02a1b2c"]
 
 [ext_resource type="Script" uid="uid://dqly5yht3qjks" path="res://LandCarrier.gd" id="1_landcarrier"]
 [ext_resource type="PackedScene" uid="uid://carriertread" path="res://CarrierTread.tscn" id="3_tread"]
@@ -10,6 +10,7 @@
 [ext_resource type="PackedScene" uid="uid://jd7fjuhmfvd4" path="res://CarrierElevator.tscn" id="8_elevator"]
 [ext_resource type="Script" uid="uid://cwglf226m425r" path="res://CarrierCollisionSetup.gd" id="9_collision"]
 [ext_resource type="Script" uid="uid://b6ioeynvc7a1n" path="res://LandCarrierInput.gd" id="10_input"]
+[ext_resource type="Script" uid="uid://c64jvhgmdrm6e" path="res://LandCarrier/BridgeCamera.gd" id="11_eyg35"]
 [ext_resource type="PackedScene" uid="uid://c31lkp3a7sq3a" path="res://LandCarrier/arresting_cable.tscn" id="12_eyg35"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_main_carrier"]
@@ -131,8 +132,12 @@ script = ExtResource("9_collision")
 [node name="LandCarrierInput" type="Node3D" parent="."]
 script = ExtResource("10_input")
 
-[node name="CameraCenter" type="Node3D" parent="." groups=["carrier_cam"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -30.457, 14.333, 0)
+[node name="CameraHolderBridge" type="Node3D" parent="." groups=["carrier_cam"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -29.547, 14.333, 0)
+script = ExtResource("11_eyg35")
+
+[node name="CameraBridge" type="Camera3D" parent="CameraHolderBridge"]
+transform = Transform3D(-1, 0, 8.74228e-08, 0, 1, 0, -8.74228e-08, 0, -1, 0, 0, 5.92204)
 
 [node name="Arresting Cable 1" parent="." instance=ExtResource("12_eyg35")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -64)
