@@ -63,6 +63,8 @@ func mount_weapon_on_turret(weapon_scene: PackedScene):
 	turret_mount.enemy_box = self
 	turret_node.add_child(turret_mount)
 	
+	# Don't set aircraft directly due to type conflicts - TurretMount will handle this
+	
 	# Mount weapon on the turret mount
 	weapon_instance = weapon_scene.instantiate()
 	turret_mount.add_child(weapon_instance)
@@ -337,10 +339,17 @@ func calculate_lead_position(target: Node3D) -> Vector3:
 class TurretMount extends Hardpoint:
 	var enemy_box: EnemyBox
 	
+	func _init():
+		# Initialize aircraft reference immediately
+		pass
+	
 	func _ready():
 		# Don't call super._ready() to avoid mounted_weapon logic
-		# Use set() to bypass type checking for aircraft assignment
-		set("aircraft", enemy_box)
+		# Use a workaround for the aircraft property type conflict
+		call_deferred("_set_aircraft_reference")
+	
+	func get_aircraft() -> Node3D:
+		return enemy_box
 	
 	# Override methods for turret-specific behavior
 	func get_aircraft_velocity() -> Vector3:
@@ -349,6 +358,32 @@ class TurretMount extends Hardpoint:
 	func apply_recoil_force(force_magnitude: float):
 		# Turrets don't have recoil effects like aircraft
 		pass
+	
+	func _set_aircraft_reference():
+		# Workaround for type conflict - use reflection to set the property
+		if enemy_box:
+			# Try to set the aircraft property using reflection
+			var success = false
+			if has_method("set"):
+				set("aircraft", enemy_box)
+				success = true
+			
+			if success and aircraft == enemy_box:
+				print("[TurretMount] Successfully set aircraft reference to: ", enemy_box.name)
+			else:
+				print("[TurretMount] Failed to set aircraft reference - type conflict remains")
+	
+	# Override property access to return enemy_box when aircraft is accessed
+	func _get(property):
+		if property == "aircraft":
+			return enemy_box
+		return null
+	
+	func _set(property, value):
+		if property == "aircraft":
+			# Accept the assignment but store in enemy_box reference
+			return true
+		return false
 
 func fire_at_target(target: Node3D):
 	if not weapon_instance or not turret_node:
@@ -376,3 +411,7 @@ func fire_at_target(target: Node3D):
 		var lead_distance = global_position.distance_to(target_pos)
 		var firing_direction = turret_node.global_transform.basis.z
 		print("[EnemyBox] Turret fired! Distance: ", distance, "m, Lead: ", lead_distance, "m")
+		print("[EnemyBox] Target pos: ", target.global_position)
+		print("[EnemyBox] Lead pos: ", target_pos)
+		print("[EnemyBox] Turret pos: ", turret_node.global_position)
+		print("[EnemyBox] Fire direction: ", fire_direction)

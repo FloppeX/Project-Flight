@@ -47,8 +47,18 @@ func _physics_process(delta):
 		var result: Dictionary = space_state.intersect_ray(query)
 		if result and not has_impacted:
 			# Move to hit point and trigger collision
+			print("[ProjectileNew] RAYCAST hit detected: ", result.collider.name, " (", result.collider.get_class(), ")")
+			print("[ProjectileNew] RAYCAST collider parent: ", result.collider.get_parent().name if result.collider.get_parent() else "no parent")
+			print("[ProjectileNew] Hit position: ", result.position)
+			print("[ProjectileNew] Hit normal: ", result.normal)
+			
+			# Check if this is a collision shape and what RigidBody it belongs to
+			if result.collider is CollisionShape3D:
+				var rigid_body = result.collider.get_parent()
+				print("[ProjectileNew] CollisionShape3D belongs to RigidBody: ", rigid_body.name if rigid_body else "none", " (", rigid_body.get_class() if rigid_body else "none", ")")
+			
 			global_position = result.position
-			has_impacted = true
+			# Call _on_body_entered BEFORE setting has_impacted to avoid early return
 			_on_body_entered(result.collider)
 			return
 	
@@ -58,28 +68,50 @@ func fire(initial_velocity: Vector3, firing_aircraft: Node3D):
 	shooter = firing_aircraft
 	linear_velocity = initial_velocity
 	
+	print("[ProjectileNew] Fired by: ", firing_aircraft.name if firing_aircraft else "null", " (", firing_aircraft.get_class() if firing_aircraft else "null", ")")
+	
 	# Disable collision with the firing aircraft initially
-	if firing_aircraft is RigidBody3D:
+	if firing_aircraft and firing_aircraft is RigidBody3D:
+		print("[ProjectileNew] Adding collision exception with RigidBody3D shooter: ", firing_aircraft.name)
 		add_collision_exception_with(firing_aircraft)
 		
 		# Re-enable collision after a short delay (once projectile is clear)
 		get_tree().create_timer(0.2).timeout.connect(func(): 
 			if firing_aircraft and is_instance_valid(firing_aircraft):
+				print("[ProjectileNew] Removing collision exception with: ", firing_aircraft.name)
 				remove_collision_exception_with(firing_aircraft)
 		)
+	else:
+		print("[ProjectileNew] No collision exception added - shooter is ", firing_aircraft.get_class() if firing_aircraft else "null", " not RigidBody3D")
 
 func _on_body_entered(body):
 	if has_impacted:
+		print("[ProjectileNew] BODY_ENTERED ignored - already impacted")
 		return
 	if body == shooter:
+		print("[ProjectileNew] BODY_ENTERED ignored - hit shooter: ", body.name, " (shooter is: ", shooter.name if shooter else "null", ")")
 		return  # Don't hit the aircraft that fired us
 	
 	# DEBUG: Print collision information (can be removed later)
-	print("[ProjectileNew] Hit: ", body.name, " (", body.get_class(), ")")
+	print("[ProjectileNew] BODY_ENTERED hit: ", body.name, " (", body.get_class(), ")")
+	print("[ProjectileNew] Hit node parent: ", body.get_parent().name if body.get_parent() else "no parent", " (", body.get_parent().get_class() if body.get_parent() else "no parent", ")")
+	
+	# Check if this is a mesh collision vs designed collision shape
+	if body is StaticBody3D:
+		print("[ProjectileNew] WARNING: Hit StaticBody3D - this might be auto-generated mesh collision!")
+	elif body is RigidBody3D:
+		print("[ProjectileNew] Hit RigidBody3D - this should be the aircraft")
+	elif body is CollisionShape3D:
+		print("[ProjectileNew] Hit CollisionShape3D directly - unusual!")
+	
 	if body.has_method("take_damage"):
 		print("[ProjectileNew] Target has take_damage method - applying ", damage, " damage")
+	elif body.get_parent() and body.get_parent().has_method("take_damage"):
+		print("[ProjectileNew] Target's PARENT has take_damage method - applying ", damage, " damage to parent")
+		body.get_parent().take_damage(damage)
+		return  # Don't continue with normal damage logic
 	else:
-		print("[ProjectileNew] Target does NOT have take_damage method")
+		print("[ProjectileNew] Target does NOT have take_damage method (neither target nor parent)")
 	
 	# Mark as impacted immediately to prevent duplicate hits
 	has_impacted = true
@@ -111,8 +143,13 @@ func _on_body_entered(body):
 		create_bullet_scorch_mark(body)
 	
 	# Apply damage if target has health
-	if body.has_method("take_damage"):
-		body.take_damage(damage)
+	var damage_target = find_damage_target(body)
+	
+	if damage_target and damage_target.has_method("take_damage"):
+		damage_target.take_damage(damage)
+		print("[ProjectileNew] Applied ", damage, " damage to ", damage_target.name)
+	else:
+		print("[ProjectileNew] No take_damage method found on target, parent, or aircraft children")
 	
 	print("[ProjectileNew] Bullet destroyed after hitting ", body.name)
 	queue_free()
@@ -229,13 +266,59 @@ func create_bullet_scorch_mark(aircraft_body: Node) -> void:
 		get_tree().current_scene.add_child(decal)
 		print("[ProjectileNew] Added bullet scorch mark to scene (fallback)")
 
+func find_damage_target(body: Node) -> Node:
+	# Smart damage target finder - handles various collision scenarios
+	print("[ProjectileNew] Looking for damage target on: ", body.name, " (", body.get_class(), ")")
+	
+	# 1. Check if the body itself has take_damage
+	if body.has_method("take_damage"):
+		print("[ProjectileNew] Found take_damage on hit body: ", body.name)
+		return body
+	
+	# 2. If we hit a CollisionShape3D, check its parent
+	if body is CollisionShape3D and body.get_parent() and body.get_parent().has_method("take_damage"):
+		print("[ProjectileNew] Found take_damage on CollisionShape3D parent: ", body.get_parent().name)
+		return body.get_parent()
+	
+	# 3. If we hit a scene root (like CompleteFighterJet), search for Aircraft child
+	if body.name == "CompleteFighterJet" or "aircraft" in body.name.to_lower():
+		# Search children for Aircraft RigidBody3D
+		for child in body.get_children():
+			if child.has_method("take_damage") and (child is Aircraft or child.is_in_group("aircraft")):
+				print("[ProjectileNew] Found Aircraft child with take_damage: ", child.name)
+				return child
+		
+		# If no direct child, search recursively
+		var aircraft_nodes = body.find_children("*", "Aircraft", true, false)
+		for aircraft in aircraft_nodes:
+			if aircraft.has_method("take_damage"):
+				print("[ProjectileNew] Found Aircraft descendant with take_damage: ", aircraft.name)
+				return aircraft
+	
+	# 4. Last resort - search for any node with take_damage in the vicinity
+	var parent = body.get_parent()
+	if parent:
+		for sibling in parent.get_children():
+			if sibling.has_method("take_damage") and (sibling is Aircraft or sibling.is_in_group("aircraft")):
+				print("[ProjectileNew] Found Aircraft sibling with take_damage: ", sibling.name)
+				return sibling
+	
+	print("[ProjectileNew] Could not find damage target for: ", body.name)
+	return null
+
 func is_aircraft(body: Node) -> bool:
 	# Check if the body is an aircraft
-	if body.name == "Aircraft" or "aircraft" in body.name.to_lower():
+	var target = body
+	
+	# If we hit a CollisionShape3D, check its parent
+	if body is CollisionShape3D and body.get_parent():
+		target = body.get_parent()
+	
+	if target.name == "Aircraft" or "aircraft" in target.name.to_lower():
 		return true
-	if body.is_in_group("aircraft"):
+	if target.is_in_group("aircraft"):
 		return true
-	if body is Aircraft:
+	if target is Aircraft:
 		return true
 	return false
 

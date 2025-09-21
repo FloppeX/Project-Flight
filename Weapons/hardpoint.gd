@@ -19,9 +19,17 @@ func mount_weapon_from_scene(weapon_scene: PackedScene):
 	add_child(weapon_instance)
 	
 	# Find the aircraft once and cache it
+	print("[Hardpoint] Looking for aircraft parent...")
 	aircraft = get_parent() as RigidBody3D
+	print("[Hardpoint] Initial parent: ", get_parent().name if get_parent() else "null", " (", get_parent().get_class() if get_parent() else "null", ")")
 	while aircraft and not (aircraft is RigidBody3D):
+		print("[Hardpoint] Parent ", aircraft.name, " is not RigidBody3D, checking its parent...")
 		aircraft = aircraft.get_parent()
+	
+	if aircraft:
+		print("[Hardpoint] Found aircraft: ", aircraft.name, " (", aircraft.get_class(), ")")
+	else:
+		print("[Hardpoint] ERROR: No RigidBody3D aircraft found in parent hierarchy!")
 
 func fire():
 	if not weapon_instance or not weapon_instance.can_fire():

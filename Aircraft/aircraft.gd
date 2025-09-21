@@ -16,7 +16,7 @@ signal destroyed
 @export var wreck_random_spread: float = 0.35
 @export var wreck_extra_spin: float = 25.0
 @export var team: int = 1
-@export var damage_cooldown_s: float = 0.05
+@export var damage_cooldown_s: float = 0.01  # Reduced from 0.05 to allow more bullet hits
 @export var debug_damage: bool = false
 @export var prevent_below_terrain: bool = true
 @export var ground_clearance: float = 0.25
@@ -450,7 +450,9 @@ func take_damage(damage_amount: float):
 		return  # Already destroyed
 	# Simple damage cooldown to prevent multiple applications from a single collision frame
 	var now_ms: int = Time.get_ticks_msec()
-	if (now_ms - _last_damage_ms) < int(damage_cooldown_s * 1000.0):
+	var time_since_last = now_ms - _last_damage_ms
+	if time_since_last < int(damage_cooldown_s * 1000.0):
+		print("[Aircraft] Damage BLOCKED by cooldown - ", time_since_last, "ms since last (need ", int(damage_cooldown_s * 1000.0), "ms)")
 		return
 	_last_damage_ms = now_ms
 	

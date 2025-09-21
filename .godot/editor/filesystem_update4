@@ -1,17 +1,15 @@
 res://low_poly_env.tres
 res://example/ExampleList.tscn
 res://LandCarrier/FlightDeckManager.gd
-res://FlightDeck.gd
-res://Land Carrier Project description.md
 res://LandCarrier.tscn
 res://Weapons/Bomb/bomb.tscn
 res://Projectiles/ProjectileNew/projectile_new.tscn
 res://Projectiles/AG Missile/ag_missile_projectile.tscn
 res://Projectiles/BombNew/bomb_new.tscn
-res://Enemies/EnemyAircraft.gd
-res://Projectiles/ProjectileNew/projectile_new.gd
 res://Weapons/Autocannon/Autocannon.tscn
-res://Enemies/EnemyBox.gd
 res://Enemies/EnemyBox.tscn
 res://Main_Scene.tscn
-res://HUD/instrument_panel.gd
+res://CompleteFighterJet.tscn
+res://Projectiles/ProjectileNew/projectile_new.gd
+res://Enemies/EnemyBox.gd
+res://Land Carrier Project description.md

@@ -10,6 +10,9 @@
 	*   **Delayed Explosions:** Added a randomized 0-1 second delay before an enemy explodes after its health reaches zero, improving the visual feedback of destruction.
 	*   **Bomb Damage:** Corrected an issue where the bomb launcher was overriding the bomb projectile's properties. Bombs now correctly use their intended splash damage radius of 30 meters, consistent with AG missiles, making them effective area-denial weapons.
 *   **Landing Gear Suspension:** Implemented suspension system with damping for smoother landings and enhanced immersion during carrier operations (launching and landing).
+*   **Bullet Collision System:** Fixed critical issue where bullets were inconsistently hitting aircraft (1 in 20 hit rate). Resolved logic flow bug in projectile collision detection and implemented smart damage targeting system. Added bullet impact sounds and scorch marks on aircraft surfaces.
+*   **Enemy Weapon Integration:** Refactored enemy boxes to use the same weapon system as aircraft (Autocannon.tscn) instead of custom bullet code. Implemented burst firing system with configurable burst length and delay timing.
+*   **Enhanced Enemy Ballistics:** Upgraded enemy targeting with iterative lead calculation, drag compensation, and gravity drop accounting for more realistic and challenging combat.
 
 ### Core systems
 - Catapult
