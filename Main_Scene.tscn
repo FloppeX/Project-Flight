@@ -24,6 +24,19 @@ sky_material = SubResource("ProceduralSkyMaterial_ryrq1")
 [sub_resource type="Environment" id="Environment_sg2lb"]
 background_mode = 2
 sky = SubResource("Sky_8e340")
+fog_enabled = true
+fog_mode = 1
+fog_light_color = Color(0.769715, 0.578018, 0.384647, 1)
+fog_sun_scatter = 0.05
+fog_density = 0.8993
+fog_height_density = 2.0135
+fog_depth_curve = 8.28211
+fog_depth_begin = 245.8
+fog_depth_end = 1966.1
+volumetric_fog_density = 0.01
+volumetric_fog_albedo = Color(0.6, 0.45, 0.3, 1)
+volumetric_fog_emission_energy = 26.78
+volumetric_fog_detail_spread = 6.0
 
 [sub_resource type="Terrain3DMaterial" id="Terrain3DMaterial_6v5mh"]
 _shader_parameters = {
@@ -133,11 +146,11 @@ transform = Transform3D(-1, 5.01437e-08, -7.16125e-08, 0, 0.819152, 0.573577, 8.
 light_energy = 2.0
 light_bake_mode = 0
 shadow_enabled = true
-shadow_bias = 0.12
-shadow_normal_bias = 3.0
-shadow_blur = 0.0
+shadow_bias = 0.05
+shadow_normal_bias = 0.8
+shadow_blur = 2.0
 directional_shadow_mode = 0
-directional_shadow_max_distance = 1000.0
+directional_shadow_max_distance = 3000.0
 
 [node name="Landscape" type="Terrain3D" parent="."]
 data_directory = "res://Terrain3d_data"

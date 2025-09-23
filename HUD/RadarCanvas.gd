@@ -64,6 +64,53 @@ func _draw() -> void:
 	
 	# Center dot (aircraft position)
 	draw_circle(center, 2, Color.WHITE)
+
+	# Draw carrier as blue rectangle roughly size of two red dots side by side
+	var carrier_nodes: Array = get_tree().get_nodes_in_group("carrier")
+	if carrier_nodes.size() > 0:
+		var carrier: Node3D = carrier_nodes[0] as Node3D
+		if carrier and is_instance_valid(carrier):
+			var rel_c: Vector3 = carrier.global_position - origin
+			# Project with flat axes
+			var cx: float = rel_c.dot(flat_right)
+			var cz: float = rel_c.dot(flat_forward)
+			var cdist: float = sqrt(cx*cx + cz*cz)
+			if cdist <= range_m:
+				var cpx: float = center.x + (cx / range_m) * radius
+				var cpy: float = center.y - (cz / range_m) * radius
+				var dot_r: float = 3.0
+				# Two red dots side by side ~ 12px width
+				var rect_w: float = dot_r * 4.0
+				var rect_h: float = dot_r * 2.0
+				# Compute carrier forward on horizontal plane
+				var carrier_flat_forward: Vector3 = Vector3(carrier.global_transform.basis.z.x, 0.0, carrier.global_transform.basis.z.z)
+				if carrier_flat_forward.length() < 0.001:
+					carrier_flat_forward = Vector3(0, 0, 1)
+				else:
+					carrier_flat_forward = carrier_flat_forward.normalized()
+				# Map to 2D radar axes (relative to aircraft's flat axes)
+				var dir2d: Vector2 = Vector2(
+					carrier_flat_forward.dot(flat_right),
+					-carrier_flat_forward.dot(flat_forward)
+				)
+				if dir2d.length() < 0.001:
+					dir2d = Vector2(0, -1)
+				else:
+					dir2d = dir2d.normalized()
+				# Rotate 90 degrees to align rectangle orientation with carrier
+				dir2d = Vector2(-dir2d.y, dir2d.x)
+				# Right vector in 2D (perpendicular)
+				var right2d: Vector2 = Vector2(dir2d.y, -dir2d.x)
+				var half_w: float = rect_w * 0.5
+				var half_h: float = rect_h * 0.5
+				var center_pt: Vector2 = Vector2(cpx, cpy)
+				var p0: Vector2 = center_pt + (-right2d * half_w) + (-dir2d * half_h)
+				var p1: Vector2 = center_pt + ( right2d * half_w) + (-dir2d * half_h)
+				var p2: Vector2 = center_pt + ( right2d * half_w) + ( dir2d * half_h)
+				var p3: Vector2 = center_pt + (-right2d * half_w) + ( dir2d * half_h)
+				draw_polygon(PackedVector2Array([p0, p1, p2, p3]), PackedColorArray([Color(0.2, 0.4, 1.0)]))
+				# Optional outline for clarity
+				draw_polyline(PackedVector2Array([p0, p1, p2, p3, p0]), Color(0.5, 0.7, 1.0), 1.0)
 	
 	# FOV cone lines (get FOV from targeting system)
 	var fov_cone_deg: float = 60.0  # Default value

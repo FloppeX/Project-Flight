@@ -22,6 +22,8 @@ var ground_height: float = 0.0
 func _ready():
 	# Set up ground detection
 	setup_ground_detection()
+	# Make carrier discoverable to systems (e.g., radar)
+	add_to_group("carrier")
 	
 	# Find all treads
 	find_treads()

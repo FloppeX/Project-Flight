@@ -36,6 +36,11 @@ signal cable_released(aircraft: RigidBody3D)
 @export var band_color_a: Color = Color(0, 0, 0, 1)
 @export var band_color_b: Color = Color(1, 1, 1, 1)
 
+# Roll stabilization while engaged: applies damping around aircraft longitudinal axis
+@export var roll_stabilize_enabled: bool = true
+@export var roll_stabilize_gain: float = 0.6          # torque per rad/s (scaled by mass)
+@export var roll_level_gain: float = 0.2              # small leveling torque toward upright
+
 var _area: Area3D
 var _left_anchor: Node3D
 var _right_anchor: Node3D
@@ -116,6 +121,24 @@ func _physics_process(delta: float) -> void:
 	if f_lat_vec.length() > f_lat_limit:
 		f_lat_vec = f_lat_vec.normalized() * f_lat_limit
 	_aircraft.apply_force(f_lat_vec, apply_at)
+
+	# Roll stabilization torque around aircraft forward axis to resist flipping
+	if roll_stabilize_enabled and is_instance_valid(_aircraft):
+		var fwd_axis: Vector3 = _aircraft.global_transform.basis.z.normalized()
+		var up_axis: Vector3 = _aircraft.global_transform.basis.y.normalized()
+		# Dampen roll rate (component of angular velocity around forward axis)
+		var roll_rate: float = _aircraft.angular_velocity.dot(fwd_axis)
+		var damp_torque: float = -roll_rate * roll_stabilize_gain * _aircraft.mass
+		_aircraft.apply_torque(fwd_axis * damp_torque)
+		# Gentle leveling toward world up using signed angle around forward axis
+		var up_proj: Vector3 = (up_axis - fwd_axis * up_axis.dot(fwd_axis)).normalized()
+		var world_up_proj: Vector3 = (Vector3.UP - fwd_axis * Vector3.UP.dot(fwd_axis)).normalized()
+		if up_proj.length() > 0.0 and world_up_proj.length() > 0.0:
+			var sin_a: float = up_proj.cross(world_up_proj).dot(fwd_axis)
+			var cos_a: float = up_proj.dot(world_up_proj)
+			var roll_err: float = atan2(sin_a, cos_a)  # positive means need +roll around fwd to align
+			var level_torque: float = -roll_err * roll_level_gain * _aircraft.mass
+			_aircraft.apply_torque(fwd_axis * level_torque)
 	# Update visuals
 	if visualize_cable:
 		_update_cable_visuals(hook_pos)

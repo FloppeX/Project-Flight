@@ -1,0 +1,15 @@
+[gd_scene load_steps=2 format=3]
+
+[sub_resource type="FogMaterial" id="FogMaterial_dust"]
+density = 0.016
+albedo = Color(0.8, 0.72, 0.6, 1)
+height = 800.0
+height_falloff = 8.0
+
+[node name="DustLayer" type="FogVolume"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 400, 0)
+size = Vector3(20000, 800, 20000)
+material = SubResource("FogMaterial_dust")
+edge_fade = 0.1
+
+

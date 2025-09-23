@@ -1,4 +1,4 @@
-[gd_scene load_steps=17 format=3 uid="uid://b8x70a02a1b2c"]
+[gd_scene load_steps=18 format=3 uid="uid://b8x70a02a1b2c"]
 
 [ext_resource type="Script" uid="uid://dqly5yht3qjks" path="res://LandCarrier.gd" id="1_landcarrier"]
 [ext_resource type="PackedScene" uid="uid://carriertread" path="res://CarrierTread.tscn" id="3_tread"]
@@ -12,6 +12,7 @@
 [ext_resource type="Script" uid="uid://b6ioeynvc7a1n" path="res://LandCarrierInput.gd" id="10_input"]
 [ext_resource type="Script" uid="uid://c64jvhgmdrm6e" path="res://LandCarrier/BridgeCamera.gd" id="11_eyg35"]
 [ext_resource type="PackedScene" uid="uid://c31lkp3a7sq3a" path="res://LandCarrier/arresting_cable.tscn" id="12_eyg35"]
+[ext_resource type="PackedScene" path="res://LandCarrier/DeckLights.tscn" id="13_decklights"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_main_carrier"]
 size = Vector3(2.51178, 3.94672, 4.92171)
@@ -143,12 +144,25 @@ transform = Transform3D(-1, 0, 8.74228e-08, 0, 1, 0, -8.74228e-08, 0, -1, 0, 0, 
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -64)
 braking_spring_stiffness_n_per_m = 4000.0
 braking_damping_n_s_per_m = 4000.0
-max_pay_out = 20.0
 
 [node name="Arresting Cable 2" parent="." instance=ExtResource("12_eyg35")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -56)
 
 [node name="Arresting Cable 3" parent="." instance=ExtResource("12_eyg35")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -48)
+
+[node name="DeckCenterStart" type="Marker3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, -72.9282)
+
+[node name="DeckCenterEnd" type="Marker3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 72.5944)
+
+[node name="DeckLights" parent="." instance=ExtResource("13_decklights")]
+start_marker_path = NodePath("../DeckCenterStart")
+end_marker_path = NodePath("../DeckCenterEnd")
+centerline_color = Color(0, 1, 0, 1)
+edge_color = Color(1, 1, 1, 1)
+light_energy = 4.0
+edge_offset_m = 20.0
 
 [connection signal="launch_sequence_complete" from="Catapult" to="FlightDeckManager" method="_on_catapult_launch_sequence_complete"]
