@@ -1,0 +1,12 @@
+[gd_resource type="ShaderMaterial" load_steps=2 format=3]
+
+[ext_resource type="Shader" path="res://materials/TerrainSlopeUnshaded.gdshader" id="1"]
+
+[resource]
+shader = ExtResource("1")
+shader_parameter/sand_color = Color(0.8, 0.72, 0.5, 1)
+shader_parameter/rock_color = Color(0.45, 0.45, 0.45, 1)
+shader_parameter/slope_start = 0.2
+shader_parameter/slope_end = 0.45
+
+

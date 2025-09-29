@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://simple_tractorbot"]
+
+[ext_resource type="Script" path="res://LandCarrier/SimpleTractorBot.gd" id="1_script"]
+
+[node name="SimpleTractorBot" type="Node3D"]
+script = ExtResource("1_script")

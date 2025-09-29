@@ -97,7 +97,7 @@ func _ready() -> void:
 
 	# Slope painting filter
 	add_setting({ "name":"slope", "type":SettingType.DOUBLE_SLIDER, "list":main_list, "default":Vector2(0, 90), 
-								"unit":"°", "range":Vector3(0, 90, 1), "flags":ADD_SEPARATOR })
+								"unit":"deg", "range":Vector3(0, 90, 1), "flags":ADD_SEPARATOR })
 	
 	add_setting({ "name":"enable_angle", "label":"Angle", "type":SettingType.CHECKBOX, 
 								"list":main_list, "default":true, "flags":ADD_SEPARATOR })
@@ -138,20 +138,20 @@ func _ready() -> void:
 
 	rotation_list = create_submenu(main_list, "Rotation", Layout.VERTICAL)
 	add_setting({ "name":"fixed_spin", "label":"Fixed Spin (Around Y)", "type":SettingType.SLIDER, "list":rotation_list, 
-								"default":0, "unit":"°", "range":Vector3(0, 360, 1) })
+								"default":0, "unit":"deg", "range":Vector3(0, 360, 1) })
 	add_setting({ "name":"random_spin", "type":SettingType.SLIDER, "list":rotation_list, "default":360, 
-								"unit":"°", "range":Vector3(0, 360, 1) })
+								"unit":"deg", "range":Vector3(0, 360, 1) })
 	add_setting({ "name":"fixed_tilt", "label":"Fixed Tilt", "type":SettingType.SLIDER, "list":rotation_list, 
-								"default":0, "unit":"°", "range":Vector3(-85, 85, 1), "flags":ALLOW_OUT_OF_BOUNDS })
+								"default":0, "unit":"deg", "range":Vector3(-85, 85, 1), "flags":ALLOW_OUT_OF_BOUNDS })
 	add_setting({ "name":"random_tilt", "label":"Random Tilt ±", "type":SettingType.SLIDER, "list":rotation_list, 
-								"default":10, "unit":"°", "range":Vector3(0, 85, 1), "flags":ALLOW_OUT_OF_BOUNDS })
+								"default":10, "unit":"deg", "range":Vector3(0, 85, 1), "flags":ALLOW_OUT_OF_BOUNDS })
 	add_setting({ "name":"align_to_normal", "type":SettingType.CHECKBOX, "list":rotation_list, "default":false })
 	
 	color_list = create_submenu(main_list, "Color", Layout.VERTICAL)
 	add_setting({ "name":"vertex_color", "type":SettingType.COLOR_SELECT, "list":color_list, 
 								"default":Color.WHITE })
 	add_setting({ "name":"random_hue", "label":"Random Hue Shift ±", "type":SettingType.SLIDER, 
-								"list":color_list, "default":0, "unit":"°", "range":Vector3(0, 360, 1) })
+								"list":color_list, "default":0, "unit":"deg", "range":Vector3(0, 360, 1) })
 	add_setting({ "name":"random_darken", "type":SettingType.SLIDER, "list":color_list, "default":50, 
 								"unit":"%", "range":Vector3(0, 100, 1) })
 	#add_setting({ "name":"blend_mode", "type":SettingType.OPTION, "list":color_list, "default":0, 

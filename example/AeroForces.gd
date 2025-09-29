@@ -65,7 +65,7 @@ func _physics_process(delta: float) -> void:
 	var T: Transform3D = rb.global_transform
 	var right_ws: Vector3 = T.basis.x
 	var up_ws: Vector3    = T.basis.y
-	var fwd_ws: Vector3   = T.basis.z    # your plane faces +Z due to Y = -180°
+	var fwd_ws: Vector3   = T.basis.z    # your plane faces +Z due to Y = -180 degrees
 
 	# Relative airflow (hook wind here later if you like)
 	var v_air_ws: Vector3 = rb.linear_velocity - wind_at(T.origin)

@@ -1,4 +1,4 @@
-[gd_scene load_steps=30 format=3 uid="uid://di4mmbdu6qiv1"]
+[gd_scene load_steps=33 format=3 uid="uid://di4mmbdu6qiv1"]
 
 [ext_resource type="Script" uid="uid://dhif0k7fphvot" path="res://example/Example1_Simple.gd" id="1"]
 [ext_resource type="PackedScene" uid="uid://b5ni1vhgcw1xc" path="res://CompleteFighterJet.tscn" id="3_13cwd"]
@@ -10,11 +10,11 @@
 [ext_resource type="PackedScene" uid="uid://c4dncgm8qjt7u" path="res://example/ui/UIFlaps/UIFlaps.tscn" id="23"]
 [ext_resource type="PackedScene" uid="uid://b8s77ar81hq22" path="res://example/ui/UILandingGear/UILandingGear.tscn" id="25"]
 [ext_resource type="PackedScene" uid="uid://dhg4sb4ifrvh8" path="res://example/ui/UIAttitude/UIAttitude.tscn" id="26"]
-[ext_resource type="Texture2D" uid="uid://bjyhvtr0couky" path="res://Digital camo.png" id="27_6v5mh"]
-[ext_resource type="Shader" uid="uid://cpbhova213sy7" path="res://addons/terrain_3d/extras/shaders/flat_lit_shader.gdshader" id="27_6x61q"]
 [ext_resource type="Texture2D" uid="uid://dwtsc0vchv7r5" path="res://Blank.png" id="29_3rhln"]
 [ext_resource type="PackedScene" uid="uid://c2s8c25rpg1df" path="res://Weather/ContinuousTurbulence.tscn" id="49_hrb0d"]
 [ext_resource type="PackedScene" uid="uid://enemybox123" path="res://Enemies/EnemyBox.tscn" id="52_enemy_box"]
+[ext_resource type="PackedScene" path="res://Environment/RockScatter.tscn" id="60_rock"]
+[ext_resource type="PackedScene" path="res://Environment/RockStream.tscn" id="61_rockstream"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_ryrq1"]
 
@@ -38,32 +38,47 @@ volumetric_fog_albedo = Color(0.6, 0.45, 0.3, 1)
 volumetric_fog_emission_energy = 26.78
 volumetric_fog_detail_spread = 6.0
 
+[sub_resource type="Gradient" id="Gradient_uwvao"]
+offsets = PackedFloat32Array(0.2, 1)
+colors = PackedColorArray(1, 1, 1, 1, 0, 0, 0, 1)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_kj35w"]
+noise_type = 2
+frequency = 0.03
+cellular_jitter = 3.0
+cellular_return_type = 0
+domain_warp_enabled = true
+domain_warp_type = 1
+domain_warp_amplitude = 50.0
+domain_warp_fractal_type = 2
+domain_warp_fractal_lacunarity = 1.5
+domain_warp_fractal_gain = 1.0
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_wtuui"]
+seamless = true
+color_ramp = SubResource("Gradient_uwvao")
+noise = SubResource("FastNoiseLite_kj35w")
+
 [sub_resource type="Terrain3DMaterial" id="Terrain3DMaterial_6v5mh"]
 _shader_parameters = {
-&"auto_base_texture": 0,
-&"auto_height_reduction": 0.1,
-&"auto_overlay_texture": 1,
-&"auto_slope": 1.0,
 &"bias_distance": 512.0,
-&"blend_sharpness": 0.8,
+&"blend_sharpness": 0.5,
 &"depth_blur": 0.0,
 &"enable_macro_variation": true,
 &"enable_projection": true,
-&"flat_terrain_normals": true,
-&"macro_variation1": Color(0.858441, 0.752447, 0.306167, 1),
-&"macro_variation2": Color(0.64361, 0.397951, 0.1679, 1),
+&"flat_terrain_normals": false,
+&"macro_variation1": Color(0.955963, 0.955963, 0.955963, 1),
+&"macro_variation2": Color(0.900126, 0.900126, 0.900126, 1),
 &"macro_variation_slope": 0.333,
 &"mipmap_bias": 1.0,
 &"noise1_angle": 0.0,
 &"noise1_offset": Vector2(0.5, 0.5),
 &"noise1_scale": 0.04,
 &"noise2_scale": 0.076,
-&"noise_texture": ExtResource("27_6v5mh"),
-&"projection_threshold": 0.6
+&"noise_texture": SubResource("NoiseTexture2D_wtuui"),
+&"projection_threshold": 0.8
 }
 world_background = 0
-auto_shader = true
-shader_override = ExtResource("27_6x61q")
 show_region_grid = true
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_wbojw"]
@@ -166,6 +181,28 @@ vertex_spacing = 10.0
 show_region_grid = true
 top_level = true
 metadata/_edit_lock_ = true
+
+[node name="RockStream" parent="Landscape" instance=ExtResource("61_rockstream")]
+cell_size_m = 15.0
+density_per_cell = 0.45
+max_instances = 400
+min_scale = 0.7
+max_slope_deg = 32.0
+update_interval_s = 5.0
+preload_margin_m = 400.0
+cells_threshold = 8
+seed = 24680
+
+[node name="RockScatter" parent="Landscape" instance=ExtResource("60_rock")]
+process_mode = 4
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 5000, 0, 5000)
+min_distance_m = 60.0
+max_instances = 2500
+max_slope_deg = 20.0
+min_scale = 0.5
+max_scale = 1.4
+rock_color = Color(0.55, 0.55, 0.55, 1)
+seed = 987654
 
 [node name="FuelArea" type="Area3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -217.504)

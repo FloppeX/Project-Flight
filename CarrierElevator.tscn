@@ -1,9 +1,11 @@
 [gd_scene load_steps=2 format=3 uid="uid://jd7fjuhmfvd4"]
 
-[ext_resource type="Script" uid="uid://dc26l4xew3q0d" path="res://CarrierElevator.gd" id="1_elevator"]
+[ext_resource type="Script" path="res://LandCarrier/CarrierElevator.gd" id="1_elevator"]
 
 [node name="CarrierElevator" type="Node3D"]
 script = ExtResource("1_elevator")
+
+
 
 
 

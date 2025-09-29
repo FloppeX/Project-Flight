@@ -1,0 +1,14 @@
+res://low_poly_env.tres
+res://example/ExampleList.tscn
+res://LandCarrier/FlightDeckManager.gd
+res://LandCarrier.tscn
+res://Weapons/Bomb/bomb.tscn
+res://Projectiles/ProjectileNew/projectile_new.tscn
+res://Projectiles/AG Missile/ag_missile_projectile.tscn
+res://Projectiles/BombNew/bomb_new.tscn
+res://Weapons/Autocannon/Autocannon.tscn
+res://CompleteFighterJet.tscn
+res://Enemies/EnemyBox.tscn
+res://Projectiles/Bullet/bullet.tscn
+res://Main_Scene.tscn
+res://LandCarrier/arresting_cable.tscn

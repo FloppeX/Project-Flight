@@ -40,6 +40,8 @@ signal cable_released(aircraft: RigidBody3D)
 @export var roll_stabilize_enabled: bool = true
 @export var roll_stabilize_gain: float = 0.6          # torque per rad/s (scaled by mass)
 @export var roll_level_gain: float = 0.2              # small leveling torque toward upright
+@export var roll_max_torque_g_m: float = 1.5          # clamp per (mass*9.8) so torque stays sane
+@export var engaged_downforce_g: float = 0.35         # extra downforce in multiples of weight while engaged
 
 var _area: Area3D
 var _left_anchor: Node3D
@@ -129,7 +131,6 @@ func _physics_process(delta: float) -> void:
 		# Dampen roll rate (component of angular velocity around forward axis)
 		var roll_rate: float = _aircraft.angular_velocity.dot(fwd_axis)
 		var damp_torque: float = -roll_rate * roll_stabilize_gain * _aircraft.mass
-		_aircraft.apply_torque(fwd_axis * damp_torque)
 		# Gentle leveling toward world up using signed angle around forward axis
 		var up_proj: Vector3 = (up_axis - fwd_axis * up_axis.dot(fwd_axis)).normalized()
 		var world_up_proj: Vector3 = (Vector3.UP - fwd_axis * Vector3.UP.dot(fwd_axis)).normalized()
@@ -138,7 +139,14 @@ func _physics_process(delta: float) -> void:
 			var cos_a: float = up_proj.dot(world_up_proj)
 			var roll_err: float = atan2(sin_a, cos_a)  # positive means need +roll around fwd to align
 			var level_torque: float = -roll_err * roll_level_gain * _aircraft.mass
-			_aircraft.apply_torque(fwd_axis * level_torque)
+			# Clamp total torque to avoid violent reactions
+			var max_torque: float = max(0.0, _aircraft.mass * 9.8 * roll_max_torque_g_m)
+			var total_torque: float = clamp(damp_torque + level_torque, -max_torque, max_torque)
+			_aircraft.apply_torque(fwd_axis * total_torque)
+		# Apply a small additional downforce while engaged to keep mains planted
+		if engaged_downforce_g > 0.0:
+			var downforce: Vector3 = Vector3.DOWN * (_aircraft.mass * 9.8 * engaged_downforce_g)
+			_aircraft.apply_central_force(downforce)
 	# Update visuals
 	if visualize_cable:
 		_update_cable_visuals(hook_pos)

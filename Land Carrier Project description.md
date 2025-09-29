@@ -1,5 +1,39 @@
 ## Project Change Log (latest session)
 
+### Session Summary (2025-09-26)
+*   **Flight Deck Cycle Automation**:
+	*   Implemented a complete, robust cycle for landing, hangar storage, retrieval, and launch, all orchestrated by the `FlightDeckManager`.
+	*   Added a visual-only tractorbot system. Three disk-shaped bots move to the aircraft's gear colliders, while the `FlightDeckManager` handles the actual aircraft movement (with physics disabled) for a convincing towing effect.
+	*   The elevator is now fully integrated, correctly descending with the aircraft and bots, and returning to the flight deck after operations.
+	*   Ensured that throughout all movement and elevator sequences, the aircraft's gear colliders and the tractorbots maintain a constant, exact height of 0.2 meters above the flight deck or elevator platform.
+*   **Arresting Cable & Aircraft Stabilization**:
+	*   Added a roll-stabilizing and leveling torque to the `ArrestingCable` logic. When an aircraft engages a cable, this force counteracts roll, preventing the aircraft from flipping over.
+*   **Environment and Visual Enhancements**:
+	*   Created a `DeckLights` system that procedurally places green centerline and white edge lights along the flight deck using start/end markers.
+	*   Implemented a custom, unshaded terrain shader that colors the landscape based on slope—sandy brown for flat areas and gray for steep slopes—to better match the project's low-poly aesthetic.
+	*   Developed a performant, camera-centered rock scattering system (`RockStream`) that uses Poisson-disk sampling to distribute rocks deterministically in a ring around the camera, streaming them in and out for performance.
+
+### Session Summary (2025-09-23)
+*   **Cameras**
+	*   Bridge camera: fixed discovery via `carrier_cam` group, robust aircraft/camera lookup, horizontal `look_at()` with 180° yaw correction, and smoothed pitch tracking.
+	*   Cinematic camera: positions 100–200 m ahead of aircraft with random ±30 m horizontal and 0–30 m vertical offsets, relative to aircraft axes (no ground snapping).
+*   **Scorch Marks / Decals**
+	*   Explosion and bullet decals now project cleanly: use decal projection-from-above (Basis.IDENTITY + random yaw), increased projection depth, minimal surface offset, and bullet marks attach to aircraft so they move with it.
+*   **HUD / Radar**
+	*   Carrier is drawn as a blue rectangle, size ~two enemy dots wide, positioned/oriented correctly from aircraft frame; applied +90° visual rotation for alignment.
+*   **Landing Gear Suspension**
+	*   Documented spring/damping parameters in `addons/simplified_flightsim/.../LandingGear.gd` and noted overrides in `Aircraft/Aircraft 1/Aircraft 1.tscn`.
+*   **Environment & Lighting**
+	*   Enabled Filmic tonemap, Glow, SSAO, Volumetric Fog; added a deck `ReflectionProbe`.
+	*   Added dust layer as separate scene `Environment/DustLayer.tscn` (height 800 m with falloff) to preserve environment fog while allowing clear air above.
+	*   Tweaked directional light shadow bias/normal bias/blur to reduce flicker and striping on aircraft.
+*   **Arresting Cable Stabilization**
+	*   Added roll damping and signed-angle roll leveling torque when cable engaged to prevent flip-overs; tunable gains exported.
+*   **Carrier Deck Lights**
+	*   New `LandCarrier/DeckLights.tscn` + `DeckLights.gd`: generates green centerline lights at 6 m spacing and white edge rows at configurable offset; billboard material fix (`billboard_mode` on material).
+*   **Stability**
+	*   Resolved a main scene corruption by restoring `Main_Scene.tscn` and instancing the dust layer as a separate scene.
+
 ### Session Summary (2025-09-20)
 *   **Enemy Stability:** Fixed critical issue where ground units (`EnemyBox`) would fall through terrain or teleport to the world origin. This was resolved by converting them from `RigidBody3D` to `StaticBody3D` and implementing a robust ground-snapping mechanism, ensuring they remain firmly on the terrain.
 *   **HUD Overhaul:**
