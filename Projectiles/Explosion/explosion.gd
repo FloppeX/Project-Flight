@@ -7,7 +7,7 @@ class_name Explosion
 @export var effect_duration: float = 8.0  # Increased from 2.0
 @export var explosion_sounds: Array[AudioStream] = []
 @export var use_line_of_sight: bool = true  # Do raycast LOS checks before applying damage/impulse
-@export var debug_enabled: bool = true
+@export var debug_enabled: bool = false
 
 # Damage properties
 @export var max_damage: float = 100.0  # Maximum damage at center
@@ -147,7 +147,6 @@ func create_fire_debris():
 		print("Creating fire debris...")
 	# Create several individual fire-trailing pieces
 	for i in range(6):  # 6 burning debris pieces
-		print("Creating fire debris piece: ", i)
 		create_single_fire_debris(i)
 
 func create_single_fire_debris(index: int):
@@ -156,7 +155,8 @@ func create_single_fire_debris(index: int):
 	add_child(debris_container)
 	debris_container.name = "FireDebris_" + str(index)
 	
-	print("Created debris container: ", debris_container.name)
+	if debug_enabled:
+		print("Created debris container: ", debris_container.name)
 	
 	# The actual debris piece (bigger, more visible cube)
 	var debris_mesh = MeshInstance3D.new()
@@ -201,6 +201,7 @@ func create_single_fire_debris(index: int):
 	)
 
 func trigger_explosion():
+	print("[Explosion] at ", snapped(global_position, Vector3(1,1,1)))
 	if debug_enabled:
 		print("=== TRIGGERING EXPLOSION ===")
 	# Start particles
@@ -360,9 +361,10 @@ func create_scorch_mark():
 
 func deal_explosion_damage():
 	"""Deal damage to all physics bodies overlapping a sphere around the explosion."""
-	print("=== EXPLOSION DAMAGE SYSTEM CALLED ===")
-	print("Blast radius: ", blast_radius)
-	print("Explosion position: ", global_position)
+	if debug_enabled:
+		print("=== EXPLOSION DAMAGE SYSTEM CALLED ===")
+		print("Blast radius: ", blast_radius)
+		print("Explosion position: ", global_position)
 	
 	var space_state: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
 	var sphere: SphereShape3D = SphereShape3D.new()
@@ -455,7 +457,8 @@ func deal_explosion_damage():
 
 func create_blast_wave():
 	"""Create a visual blast wave ring to show the damage area"""
-	print("Creating blast wave ring...")
+	if debug_enabled:
+		print("Creating blast wave ring...")
 	
 	# Create a torus-shaped blast wave
 	var blast_ring = MeshInstance3D.new()

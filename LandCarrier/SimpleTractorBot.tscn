@@ -4,3 +4,8 @@
 
 [node name="SimpleTractorBot" type="Node3D"]
 script = ExtResource("1_script")
+
+
+
+
+

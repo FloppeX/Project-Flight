@@ -10,6 +10,7 @@ class_name ProjectileNew
 var shooter: Node3D  # Reference to whoever fired this
 var last_position: Vector3 = Vector3.ZERO
 var has_impacted: bool = false
+var _terrain_node: Node = null
 
 func _ready():
 	# IMPORTANT: Enable collision detection
@@ -41,26 +42,29 @@ func _physics_process(delta):
 		query.exclude = [self]
 		if shooter:
 			query.exclude.append(shooter)
-		# Use the same collision mask as the projectile
-		query.collision_mask = collision_mask
+		# Use all layers so projectile collision works with project-specific Terrain3D setup.
+		query.collision_mask = 0xFFFFFFFF
 			
 		var result: Dictionary = space_state.intersect_ray(query)
 		if result and not has_impacted:
-			# Move to hit point and trigger collision
-			print("[ProjectileNew] RAYCAST hit detected: ", result.collider.name, " (", result.collider.get_class(), ")")
-			print("[ProjectileNew] RAYCAST collider parent: ", result.collider.get_parent().name if result.collider.get_parent() else "no parent")
-			print("[ProjectileNew] Hit position: ", result.position)
-			print("[ProjectileNew] Hit normal: ", result.normal)
-			
-			# Check if this is a collision shape and what RigidBody it belongs to
-			if result.collider is CollisionShape3D:
-				var rigid_body = result.collider.get_parent()
-				print("[ProjectileNew] CollisionShape3D belongs to RigidBody: ", rigid_body.name if rigid_body else "none", " (", rigid_body.get_class() if rigid_body else "none", ")")
-			
 			global_position = result.position
 			# Call _on_body_entered BEFORE setting has_impacted to avoid early return
 			_on_body_entered(result.collider)
 			return
+		# Fallback for Terrain3D setups where physics collider/raycast may miss:
+		# detect if the projectile segment crossed below terrain height data.
+		var terrain := _get_cached_terrain_node()
+		if terrain:
+			var h_prev: float = _get_terrain_height_at_position(last_position)
+			var h_curr: float = _get_terrain_height_at_position(global_position)
+			if not is_nan(h_prev) and not is_nan(h_curr):
+				var prev_above: bool = last_position.y >= h_prev
+				var curr_above: bool = global_position.y >= h_curr
+				if (not curr_above) or (prev_above and not curr_above):
+					# Clamp to terrain surface and trigger impact.
+					global_position.y = h_curr + 0.02
+					_on_body_entered(terrain)
+					return
 	
 	last_position = global_position
 
@@ -68,50 +72,26 @@ func fire(initial_velocity: Vector3, firing_aircraft: Node3D):
 	shooter = firing_aircraft
 	linear_velocity = initial_velocity
 	
-	print("[ProjectileNew] Fired by: ", firing_aircraft.name if firing_aircraft else "null", " (", firing_aircraft.get_class() if firing_aircraft else "null", ")")
-	
 	# Disable collision with the firing aircraft initially
 	if firing_aircraft and firing_aircraft is RigidBody3D:
-		print("[ProjectileNew] Adding collision exception with RigidBody3D shooter: ", firing_aircraft.name)
 		add_collision_exception_with(firing_aircraft)
-		
 		# Re-enable collision after a short delay (once projectile is clear)
 		get_tree().create_timer(0.2).timeout.connect(func(): 
 			if firing_aircraft and is_instance_valid(firing_aircraft):
-				print("[ProjectileNew] Removing collision exception with: ", firing_aircraft.name)
 				remove_collision_exception_with(firing_aircraft)
 		)
-	else:
-		print("[ProjectileNew] No collision exception added - shooter is ", firing_aircraft.get_class() if firing_aircraft else "null", " not RigidBody3D")
 
 func _on_body_entered(body):
 	if has_impacted:
-		print("[ProjectileNew] BODY_ENTERED ignored - already impacted")
 		return
 	if body == shooter:
-		print("[ProjectileNew] BODY_ENTERED ignored - hit shooter: ", body.name, " (shooter is: ", shooter.name if shooter else "null", ")")
-		return  # Don't hit the aircraft that fired us
-	
-	# DEBUG: Print collision information (can be removed later)
-	print("[ProjectileNew] BODY_ENTERED hit: ", body.name, " (", body.get_class(), ")")
-	print("[ProjectileNew] Hit node parent: ", body.get_parent().name if body.get_parent() else "no parent", " (", body.get_parent().get_class() if body.get_parent() else "no parent", ")")
-	
-	# Check if this is a mesh collision vs designed collision shape
-	if body is StaticBody3D:
-		print("[ProjectileNew] WARNING: Hit StaticBody3D - this might be auto-generated mesh collision!")
-	elif body is RigidBody3D:
-		print("[ProjectileNew] Hit RigidBody3D - this should be the aircraft")
-	elif body is CollisionShape3D:
-		print("[ProjectileNew] Hit CollisionShape3D directly - unusual!")
-	
+		return
+
 	if body.has_method("take_damage"):
-		print("[ProjectileNew] Target has take_damage method - applying ", damage, " damage")
+		pass
 	elif body.get_parent() and body.get_parent().has_method("take_damage"):
-		print("[ProjectileNew] Target's PARENT has take_damage method - applying ", damage, " damage to parent")
 		body.get_parent().take_damage(damage)
-		return  # Don't continue with normal damage logic
-	else:
-		print("[ProjectileNew] Target does NOT have take_damage method (neither target nor parent)")
+		return
 	
 	# Mark as impacted immediately to prevent duplicate hits
 	has_impacted = true
@@ -151,12 +131,37 @@ func _on_body_entered(body):
 	
 	if damage_target and damage_target.has_method("take_damage"):
 		damage_target.take_damage(damage)
-		print("[ProjectileNew] Applied ", damage, " damage to ", damage_target.name)
-	else:
-		print("[ProjectileNew] No take_damage method found on target, parent, or aircraft children")
-	
-	print("[ProjectileNew] Bullet destroyed after hitting ", body.name)
 	queue_free()
+
+func _get_cached_terrain_node() -> Node:
+	if _terrain_node and is_instance_valid(_terrain_node):
+		return _terrain_node
+	var root: Node = get_tree().current_scene
+	if not root:
+		return null
+	var queue: Array = [root]
+	while queue.size() > 0:
+		var cur: Node = queue.pop_front()
+		if cur.get_class() == "Terrain3D":
+			_terrain_node = cur
+			return _terrain_node
+		for child in cur.get_children():
+			queue.append(child)
+	return null
+
+func _get_terrain_height_at_position(world_pos: Vector3) -> float:
+	var terrain: Node = _get_cached_terrain_node()
+	if not terrain:
+		return NAN
+	if terrain.has_method("get_height"):
+		var h = terrain.get_height(world_pos)
+		if typeof(h) == TYPE_FLOAT and not is_nan(float(h)):
+			return float(h)
+	if "data" in terrain and terrain.data and terrain.data.has_method("get_height"):
+		var h2 = terrain.data.get_height(world_pos)
+		if typeof(h2) == TYPE_FLOAT and not is_nan(float(h2)):
+			return float(h2)
+	return NAN
 
 func play_impact_sound(body: Node) -> void:
 	# Create 3D audio player for impact sound
@@ -253,62 +258,30 @@ func create_bullet_scorch_mark(aircraft_body: Node) -> void:
 	# Add random rotation around Y-axis only
 	decal.rotate_y(randf() * TAU)
 	
-	print("[ProjectileNew] Bullet decal positioned at: ", decal.global_position)
-	print("[ProjectileNew] Bullet decal basis: ", decal.global_basis)
-	print("[ProjectileNew] Surface normal: ", hit_normal)
-	
-	# Make the scorch mark darker/more visible
-	decal.modulate = Color(0.8, 0.8, 0.8, 1.0)  # Slightly darker
-	
-	# Attach decal to the aircraft so it moves with it
+	decal.modulate = Color(0.8, 0.8, 0.8, 1.0)
 	if aircraft_body and is_instance_valid(aircraft_body):
 		aircraft_body.add_child(decal)
-		print("[ProjectileNew] Added bullet scorch mark to aircraft: ", aircraft_body.name, " (", aircraft_body.get_class(), ")")
-		print("[ProjectileNew] Decal world position: ", decal.global_position)
-		print("[ProjectileNew] Aircraft world position: ", aircraft_body.global_position)
 	else:
-		# Fallback: add to scene
 		get_tree().current_scene.add_child(decal)
-		print("[ProjectileNew] Added bullet scorch mark to scene (fallback) - aircraft_body was: ", aircraft_body)
 
 func find_damage_target(body: Node) -> Node:
-	# Smart damage target finder - handles various collision scenarios
-	print("[ProjectileNew] Looking for damage target on: ", body.name, " (", body.get_class(), ")")
-	
-	# 1. Check if the body itself has take_damage
 	if body.has_method("take_damage"):
-		print("[ProjectileNew] Found take_damage on hit body: ", body.name)
 		return body
-	
-	# 2. If we hit a CollisionShape3D, check its parent
 	if body is CollisionShape3D and body.get_parent() and body.get_parent().has_method("take_damage"):
-		print("[ProjectileNew] Found take_damage on CollisionShape3D parent: ", body.get_parent().name)
 		return body.get_parent()
-	
-	# 3. If we hit a scene root (like CompleteFighterJet), search for Aircraft child
 	if body.name == "CompleteFighterJet" or "aircraft" in body.name.to_lower():
-		# Search children for Aircraft RigidBody3D
 		for child in body.get_children():
 			if child.has_method("take_damage") and (child is Aircraft or child.is_in_group("aircraft")):
-				print("[ProjectileNew] Found Aircraft child with take_damage: ", child.name)
 				return child
-		
-		# If no direct child, search recursively
 		var aircraft_nodes = body.find_children("*", "Aircraft", true, false)
 		for aircraft in aircraft_nodes:
 			if aircraft.has_method("take_damage"):
-				print("[ProjectileNew] Found Aircraft descendant with take_damage: ", aircraft.name)
 				return aircraft
-	
-	# 4. Last resort - search for any node with take_damage in the vicinity
 	var parent = body.get_parent()
 	if parent:
 		for sibling in parent.get_children():
 			if sibling.has_method("take_damage") and (sibling is Aircraft or sibling.is_in_group("aircraft")):
-				print("[ProjectileNew] Found Aircraft sibling with take_damage: ", sibling.name)
 				return sibling
-	
-	print("[ProjectileNew] Could not find damage target for: ", body.name)
 	return null
 
 func is_aircraft(body: Node) -> bool:
@@ -355,5 +328,4 @@ func is_ground_or_terrain(body: Node) -> bool:
 	return false
 
 func _on_timeout():
-	print("[ProjectileNew] Bullet destroyed by timeout after ", lifetime, " seconds")
 	queue_free()

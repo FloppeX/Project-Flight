@@ -71,6 +71,7 @@ var shake_time: float = 0.0
 var last_linear_velocity = null
 var last_angular_velocity = null
 var is_velocity_nonzero = false
+var _terrain_node: Node = null
 
 # Flight data
 var air_velocity = 0.0
@@ -205,9 +206,11 @@ func land(landing_velocity: float, impact_velocity: float):
 
 func crash(impact_velocity: float):
 	emit_signal("crashed", impact_velocity)
-	# Only apply crash damage when hitting terrain from above; ignore if under terrain to avoid death loops
+	# If we are already under terrain, force destruction instead of ignoring impact.
+	# This prevents the aircraft from tunneling through ground and recovering later.
 	var is_below_ground: bool = _is_below_terrain()
 	if is_below_ground:
+		explode()
 		return
 	# Apply a mild crash damage if speed is high
 	if impact_velocity > 10.0:
@@ -215,19 +218,10 @@ func crash(impact_velocity: float):
 		take_damage(damage_amount)
 
 func _is_below_terrain() -> bool:
-	var space_state: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
-	var from: Vector3 = global_position + Vector3.UP * ground_probe_up
-	var to: Vector3 = global_position - Vector3.UP * ground_probe_down
-	var params: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(from, to)
-	params.collision_mask = (1 << 0) | (1 << 9)
-	var hit: Dictionary = space_state.intersect_ray(params)
-	if hit and hit.has("position"):
-		var ground_y: float = float(hit.position.y)
-		# Only consider surfaces at or below us as ground; ignore overhead hits
-		if ground_y > global_position.y + 0.05:
-			return false
-		return global_position.y < ground_y - 0.01
-	return false
+	var ground_y: float = _get_ground_height_at_position(global_position)
+	if is_nan(ground_y):
+		return false
+	return global_position.y < ground_y - 0.01
 
 func _evaluate_terrain_impact_normal() -> Vector3:
 	# Try to get terrain normal beneath aircraft by raycast down
@@ -235,7 +229,9 @@ func _evaluate_terrain_impact_normal() -> Vector3:
 	var from: Vector3 = global_position + Vector3.UP * ground_probe_up
 	var to: Vector3 = global_position - Vector3.UP * ground_probe_down
 	var params: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(from, to)
-	params.collision_mask = (1 << 0) | (1 << 9)
+	params.exclude = [self]
+	# Use all physics layers so terrain checks work with any Terrain3D layer setup.
+	params.collision_mask = 0xFFFFFFFF
 	var hit: Dictionary = space_state.intersect_ray(params)
 	if hit and hit.has("normal"):
 		return (hit.normal as Vector3).normalized()
@@ -281,25 +277,54 @@ func _is_ground_or_terrain(body: Node) -> bool:
 	return false
 
 func _enforce_above_terrain():
+	var ground_y: float = _get_ground_height_at_position(global_position)
+	if is_nan(ground_y):
+		return
+	var min_y: float = ground_y + ground_clearance
+	if global_position.y < min_y:
+		# Aircraft penetrated terrain - crash (no more rescuing by snapping back up)
+		explode()
+
+func _get_cached_terrain_node() -> Node:
+	if _terrain_node and is_instance_valid(_terrain_node):
+		return _terrain_node
+	var root: Node = get_tree().current_scene
+	if not root:
+		return null
+	var queue: Array = [root]
+	while queue.size() > 0:
+		var cur: Node = queue.pop_front()
+		if cur.get_class() == "Terrain3D":
+			_terrain_node = cur
+			return _terrain_node
+		for child in cur.get_children():
+			queue.append(child)
+	return null
+
+func _get_ground_height_at_position(world_pos: Vector3) -> float:
+	# Prefer Terrain3D height API (works even when physics collider misses),
+	# then fallback to a raycast.
+	var terrain: Node = _get_cached_terrain_node()
+	if terrain:
+		if terrain.has_method("get_height"):
+			var h = terrain.get_height(world_pos)
+			if typeof(h) == TYPE_FLOAT and not is_nan(float(h)):
+				return float(h)
+		if "data" in terrain and terrain.data and terrain.data.has_method("get_height"):
+			var h2 = terrain.data.get_height(world_pos)
+			if typeof(h2) == TYPE_FLOAT and not is_nan(float(h2)):
+				return float(h2)
+
 	var space_state: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
-	var from: Vector3 = global_position + Vector3.UP * ground_probe_up
-	var to: Vector3 = global_position - Vector3.UP * ground_probe_down
+	var from: Vector3 = world_pos + Vector3.UP * ground_probe_up
+	var to: Vector3 = world_pos - Vector3.UP * ground_probe_down
 	var params: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(from, to)
-	params.collision_mask = (1 << 0) | (1 << 9)
+	params.exclude = [self]
+	params.collision_mask = 0xFFFFFFFF
 	var hit: Dictionary = space_state.intersect_ray(params)
 	if hit and hit.has("position"):
-		var ground_y: float = float(hit.position.y)
-		# Ignore overhead hits (above aircraft)
-		if ground_y > global_position.y + 0.05:
-			return
-		var min_y: float = ground_y + ground_clearance
-		if global_position.y < min_y:
-			# Snap up to just above terrain and kill downward velocity to avoid re-penetration
-			var pos := global_position
-			pos.y = min_y
-			global_position = pos
-			if linear_velocity.y < 0.0:
-				linear_velocity.y = 0.0
+		return float(hit.position.y)
+	return NAN
 
 ##############################################################################
 #  ENERGY SYSTEM
@@ -452,7 +477,8 @@ func take_damage(damage_amount: float):
 	var now_ms: int = Time.get_ticks_msec()
 	var time_since_last = now_ms - _last_damage_ms
 	if time_since_last < int(damage_cooldown_s * 1000.0):
-		print("[Aircraft] Damage BLOCKED by cooldown - ", time_since_last, "ms since last (need ", int(damage_cooldown_s * 1000.0), "ms)")
+		if debug_damage:
+			print("[Aircraft] Damage BLOCKED by cooldown - ", time_since_last, "ms since last (need ", int(damage_cooldown_s * 1000.0), "ms)")
 		return
 	_last_damage_ms = now_ms
 	
@@ -470,8 +496,10 @@ func take_damage(damage_amount: float):
 func explode():
 	emit_signal("destroyed")
 	
-	# Activate deathcam before removing aircraft
-	activate_deathcam()
+	# Only player aircraft should trigger deathcam cut.
+	# AI aircraft are removed from "aircraft" group by the spawner.
+	if is_in_group("aircraft"):
+		activate_deathcam()
 	
 	# Spawn explosion effect if available
 	if explosion_scene:
@@ -660,9 +688,8 @@ func calculate_ccip_impact_point() -> Dictionary:
 		var query = PhysicsRayQueryParameters3D.create(current_pos, next_pos)
 		query.exclude = [self]  # Don't hit the aircraft
 		
-		# Use a dedicated physics layer (e.g., layer 10) for terrain.
-		# Also check layer 1 for compatibility.
-		query.collision_mask = (1 << 0) | (1 << 9) # Bitmask for layer 1 AND layer 10
+		# Use all physics layers so predicted impact works with any Terrain3D layer setup.
+		query.collision_mask = 0xFFFFFFFF
 		
 		var hit_result = space_state.intersect_ray(query)
 		if hit_result:

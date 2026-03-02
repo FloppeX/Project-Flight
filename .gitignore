@@ -1,4 +1,5 @@
 # Godot 4+ specific ignores
+.godot/
 .import/
 export.cfg
 export_presets.cfg
@@ -6,13 +7,12 @@ export_presets.cfg
 data_*/
 mono_crash.*.json
 
+# Godot 3 specific (kept for compatibility)
+.import/
+
 # OS-specific ignores
 .DS_Store
 Thumbs.db
-# Godot-specific ignores
-.import/
-export.cfg
-export_presets.cfg
 
 # Imported translations (automatically generated from CSV files)
 *.translation
@@ -22,5 +22,8 @@ export_presets.cfg
 data_*/
 mono_crash.*.json
 
+# Backup files
 *.bak
+
+# Documentation imports
 docs/*.import

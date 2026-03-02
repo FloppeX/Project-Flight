@@ -40,14 +40,7 @@ func setup(aircraft_node):
 	# Find nose gear collider and visual for steering
 	nose_gear_collider = aircraft.get_node_or_null("CenterGearCollider")
 	if nose_gear_collider:
-		print("Found nose gear collider for steering: ", nose_gear_collider.name)
 		nose_gear_visual = nose_gear_collider.get_node_or_null("Aircraft 1 nose gear")
-		if nose_gear_visual:
-			print("Found nose gear visual for steering: ", nose_gear_visual.name)
-		else:
-			print("Warning: Could not find nose gear visual")
-	else:
-		print("Warning: Could not find nose gear collider")
 	
 	request_update_interface()
 

@@ -108,7 +108,6 @@ func power_to_pitch(value: float) -> float:
 	return 0.2 + value*0.8
 
 func engine_start():
-	print("engine start")
 	if is_engine_changing_state:
 		return
 	

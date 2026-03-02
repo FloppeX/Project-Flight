@@ -1,4 +1,4 @@
-[gd_scene load_steps=38 format=3 uid="uid://b5ni1vhgcw1xc"]
+[gd_scene load_steps=40 format=3 uid="uid://b5ni1vhgcw1xc"]
 
 [ext_resource type="Script" uid="uid://c4ltq2v6fji05" path="res://Aircraft/aircraft.gd" id="1_e8t1h"]
 [ext_resource type="PackedScene" uid="uid://cadi81fcpvmuc" path="res://Projectiles/Explosion/explosion.tscn" id="2_x73up"]
@@ -33,6 +33,8 @@
 [ext_resource type="PackedScene" uid="uid://ds5dlvtqfa7tv" path="res://Aircraft/tail_hook.tscn" id="31_3f4kl"]
 [ext_resource type="PackedScene" uid="uid://bar7l5uwuwevr" path="res://Weapons/Autocannon/Autocannon.tscn" id="31_kq7no"]
 [ext_resource type="PackedScene" uid="uid://idqmpbpg2jul" path="res://Weapons/Bomb/bomb.tscn" id="32_kq7no"]
+[ext_resource type="Script" uid="uid://ov07c02ulmhl" path="res://Aircraft/AIToggle.gd" id="33_aitgl"]
+[ext_resource type="Script" uid="uid://bwjigrpitv7cm" path="res://AI/AIPilot.gd" id="34_aipil"]
 
 [sub_resource type="PhysicsMaterial" id="PhysicsMaterial_lowfriction"]
 friction = 0.1
@@ -205,3 +207,30 @@ mounted_weapon = ExtResource("32_kq7no")
 transform = Transform3D(1, 0, 0, 0, 0.5, -0.866025, 0, 0.866025, 0.5, 0, -1.728, -2.409)
 spring_strength = 100.0
 spring_damping = 1000.0
+
+[node name="AIPilot" type="Node" parent="."]
+script = ExtResource("34_aipil")
+sensor_range = null
+ground_check_distance = null
+terrain_ahead_check_distance = null
+terrain_warning_distance = null
+skill_level = null
+aggressiveness = null
+rtb_health_threshold = null
+debug_enabled = null
+max_pitch_angle = null
+max_roll_angle = null
+patrol_altitude_m = null
+bank_cmd_limit_deg = null
+bank_limit_when_low_deg = null
+climb_rate_limit_mps = null
+descend_rate_limit_mps = null
+stall_speed_mps = null
+stall_margin_mps = null
+throttle_bank_gain = null
+flight_path_angle_limit_deg = null
+nav_update_hz = null
+
+[node name="AIToggle" type="Node" parent="."]
+script = ExtResource("33_aitgl")
+ai_enabled_at_start = false

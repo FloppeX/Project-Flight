@@ -24,10 +24,9 @@ func setup(aircraft_node: Node) -> void:
 	# Select first weapon type if available
 	if weapon_types.size() > 0:
 		selected_weapon_type = weapon_types[0]
-		print("Weapon control ready. Available types: ", weapon_types)
-		print("Selected weapon type: ", selected_weapon_type)
+		pass
 	else:
-		print("WARNING: No weapon types found!")
+		pass
 
 func find_hardpoints():
 	"""Find all hardpoints on the aircraft"""
@@ -41,7 +40,7 @@ func find_hardpoints():
 			if grandchild is Hardpoint:
 				hardpoints.append(grandchild)
 	
-	print("Found ", hardpoints.size(), " hardpoints")
+	pass
 
 func categorize_weapons():
 	"""Categorize weapons by type and build weapon type list"""
@@ -55,7 +54,7 @@ func categorize_weapons():
 				weapon_type_set[weapon_name] = true
 				weapon_types.append(weapon_name)
 	
-	print("Available weapon types: ", weapon_types)
+	pass
 
 func _input(event):
 	if Input.is_action_just_pressed("fire_weapon"):

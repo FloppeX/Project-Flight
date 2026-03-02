@@ -92,7 +92,7 @@ func _ready():
 	# Add to group so weapon systems can find us for missile camera
 	add_to_group("instrument_panel")
 	
-	print("Instrument Panel initialized")
+	pass
 
 func _ensure_aircraft_bound() -> void:
 	if aircraft == null or not is_instance_valid(aircraft):
@@ -420,22 +420,15 @@ func _update_lower_layout_sizes() -> void:
 	if lower == null:
 		return
 	
-	# DEBUG: Print layout information
-	var has_target = _get_enemy_target_node() != null
-	print("DEBUG LAYOUT: Has target = ", has_target)
-	print("DEBUG LAYOUT: MANUAL POSITIONING - Lower container size = ", lower.size)
-	
 	# Ensure panels maintain fixed positions and sizes
 	if radar_panel:
 		radar_panel.position = Vector2(0, 0)
 		radar_panel.custom_minimum_size = Vector2(195, 195)
 		radar_panel.size = Vector2(195, 195)
-		print("DEBUG LAYOUT: Radar panel size = ", radar_panel.size, " position = ", radar_panel.position)
 	if target_panel:
 		target_panel.position = Vector2(205, 0)  # 195 + 10 separation
 		target_panel.custom_minimum_size = Vector2(195, 195)
 		target_panel.size = Vector2(195, 195)
-		print("DEBUG LAYOUT: Target panel size = ", target_panel.size, " position = ", target_panel.position)
 
 func _compute_top_row_content_width() -> float:
 	var tr := display_root.get_node_or_null("TopRow") as HBoxContainer

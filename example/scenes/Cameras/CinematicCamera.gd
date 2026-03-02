@@ -42,7 +42,6 @@ func setup_shot():
 	
 	# Set position once and stay there (completely stationary)
 	global_position = cinematic_pos
-	print("Cinematic camera positioned at: ", cinematic_pos, " ahead of aircraft")
 
 func update_look():
 	# Calculate target rotation to look at aircraft

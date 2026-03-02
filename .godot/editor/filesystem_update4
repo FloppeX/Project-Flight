@@ -1,14 +1,16 @@
-res://low_poly_env.tres
-res://example/ExampleList.tscn
-res://LandCarrier/FlightDeckManager.gd
-res://LandCarrier.tscn
-res://Weapons/Bomb/bomb.tscn
-res://Projectiles/ProjectileNew/projectile_new.tscn
-res://Projectiles/AG Missile/ag_missile_projectile.tscn
-res://Projectiles/BombNew/bomb_new.tscn
-res://Weapons/Autocannon/Autocannon.tscn
-res://CompleteFighterJet.tscn
-res://Enemies/EnemyBox.tscn
-res://Projectiles/Bullet/bullet.tscn
+res://desert_scenario.tscn
 res://Main_Scene.tscn
-res://LandCarrier/arresting_cable.tscn
+res://low_poly_env.tres
+res://AI/AIPilot.gd
+res://Enemies/EnemyBox.gd
+res://Enemies/EnemyAircraftSpawner.gd
+res://Aircraft/aircraft.gd
+res://LandCarrier.tscn
+res://example/scenes/Cameras/CinematicCamera.gd
+res://LandCarrier/StandaloneCameraSwitcher.gd
+res://Projectiles/ProjectileNew/projectile_new.gd
+res://example/scenes/Cameras/camera_controller.gd
+res://Projectiles/AG Missile/ag_missile.gd
+res://Projectiles/BombNew/bomb_new.gd
+res://Projectiles/Explosion/explosion.gd
+res://Weapons/Bomb/bomb.gd

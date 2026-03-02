@@ -4,7 +4,7 @@ class_name Bomb
 @export var bomb_projectile_scene: PackedScene
 @export var drop_force: float = 0.0
 @export var blast_radius: float = 10.0
-@export var fire_cooldown: float = 0.5  # Minimum time between bomb drops
+@export var fire_cooldown: float = 0.1  # Minimum time between bomb drops
 
 var hardpoint: Hardpoint
 var last_fire_time: float = 0.0

@@ -58,7 +58,11 @@ func _ready():
 		_connect_cable_signals(c)
 	get_tree().node_added.connect(_on_node_added)
 	set_physics_process(true)
-	print("[FlightDeckManager] Ready.")
+
+	# Pre-populate hangar with aircraft
+	_initialize_hangar_with_aircraft()
+
+	print("[FlightDeckManager] Ready. Hangar contains ", stored_aircraft.size(), " aircraft.")
 
 func _on_node_added(node: Node) -> void:
 	if node.is_in_group("arresting_cable"):
@@ -112,10 +116,25 @@ func request_launch_sequence(aircraft: RigidBody3D):
 	if not catapult:
 		print("ERROR [FlightDeckManager]: Catapult not available.")
 		return
-	
+
+	# Clear parking brake and any restrictive metas
+	if aircraft.has_meta("parking_brake"):
+		aircraft.remove_meta("parking_brake")
+		print("[FlightDeckManager] Cleared parking brake for launch")
+
+	if aircraft.has_meta("controls_disabled"):
+		aircraft.remove_meta("controls_disabled")
+		print("[FlightDeckManager] Cleared controls_disabled for launch")
+
 	# Restore physics for launch
 	_restore_aircraft_physics(aircraft)
-	
+
+	# Tell AI to start launch sequence if it exists
+	var ai_pilot = aircraft.get_node_or_null("AIPilot")
+	if ai_pilot and ai_pilot.has_method("launch"):
+		print("[FlightDeckManager] Commanding AI to start launch sequence")
+		ai_pilot.launch()
+
 	print("[FlightDeckManager] Initiating launch sequence for ", aircraft.name)
 	current_state = DeckState.LAUNCH_IN_PROGRESS
 	deck_aircraft = aircraft
@@ -406,6 +425,24 @@ func get_hangar_status() -> Dictionary:
 		"pending_store": _pending_store_aircraft != null
 	}
 
+func _initialize_hangar_with_aircraft():
+	"""Pre-populate hangar with aircraft at startup"""
+	print("[FlightDeckManager] Initializing hangar with aircraft...")
+
+	# Fill hangar to capacity
+	for i in range(max_hangar_capacity):
+		var aircraft_data = {
+			"name": "Aircraft_" + str(i + 1),
+			"scene_file": "res://CompleteFighterJet.tscn",
+			"position": Vector3.ZERO,
+			"rotation": Vector3.ZERO,
+			"scale": Vector3.ONE,
+			"metadata": {}
+		}
+		stored_aircraft.append(aircraft_data)
+
+	print("[FlightDeckManager] Hangar initialized with ", stored_aircraft.size(), " aircraft")
+
 # --- Aircraft Movement System ---
 func _move_aircraft_to_elevator(aircraft: RigidBody3D):
 	"""Move aircraft to elevator position using gentle forces"""
@@ -477,10 +514,12 @@ func _start_aircraft_movement(aircraft: RigidBody3D, target_position: Vector3):
 func _prepare_aircraft_for_movement(aircraft: RigidBody3D):
 	"""Disable physics and position aircraft with gear colliders 20cm above flight deck"""
 	print("[FlightDeckManager] Preparing aircraft for movement")
-	
-	# Save original collision settings
-	_aircraft_original_collision_layer = aircraft.collision_layer
-	_aircraft_original_collision_mask = aircraft.collision_mask
+
+	# Save original collision settings (only if not already saved)
+	if _aircraft_original_collision_layer == 0:
+		_aircraft_original_collision_layer = aircraft.collision_layer
+		_aircraft_original_collision_mask = aircraft.collision_mask
+		print("[FlightDeckManager] Saved collision settings - layer: ", _aircraft_original_collision_layer, " mask: ", _aircraft_original_collision_mask)
 	
 	# Disable physics
 	aircraft.freeze = true
@@ -684,13 +723,17 @@ func _create_aircraft_at_hangar_level() -> RigidBody3D:
 	elevator_hangar_pos.y = _get_deck_height_y() + elevator.platform.position.y + 0.2
 	aircraft.global_position = elevator_hangar_pos
 
-	# Apply stored rotation and scale if desired
-	aircraft.global_rotation = aircraft_data.rotation
+	# Face aircraft toward deck forward (+Z on this carrier) during retrieval
+	aircraft.global_rotation = Vector3(0, PI, 0)
 	aircraft.scale = aircraft_data.scale
 
 	# Restore metadata
 	for key in aircraft_data.metadata:
 		aircraft.set_meta(key, aircraft_data.metadata[key])
+
+	# Save original collision settings BEFORE disabling
+	_aircraft_original_collision_layer = aircraft.collision_layer
+	_aircraft_original_collision_mask = aircraft.collision_mask
 
 	# Disable physics for elevator movement
 	aircraft.freeze = true
@@ -953,15 +996,19 @@ func _restore_aircraft_physics(aircraft: RigidBody3D):
 	aircraft.linear_velocity = Vector3.ZERO
 	aircraft.angular_velocity = Vector3.ZERO
 
-	# Finally restore collisions
-	aircraft.collision_layer = _aircraft_original_collision_layer
-	aircraft.collision_mask = _aircraft_original_collision_mask
+	# Finally restore collisions (use defaults if saved values are 0)
+	var default_layer = 513  # Layers 0 and 9 (binary 1000000001)
+	var default_mask = 513
+
+	aircraft.collision_layer = _aircraft_original_collision_layer if _aircraft_original_collision_layer != 0 else default_layer
+	aircraft.collision_mask = _aircraft_original_collision_mask if _aircraft_original_collision_mask != 0 else default_mask
 
 	# Final clearing after collisions enabled
 	aircraft.linear_velocity = Vector3.ZERO
 	aircraft.angular_velocity = Vector3.ZERO
 
 	print("[FlightDeckManager] Aircraft physics fully restored with aggressive velocity clearing")
+	print("[FlightDeckManager] Collision layer: ", aircraft.collision_layer, " mask: ", aircraft.collision_mask)
 
 func _start_retrieval_ascent_sequence(aircraft: RigidBody3D):
 	"""Start the elevator ascent with aircraft and tractorbots"""
@@ -1121,9 +1168,12 @@ func _complete_retrieval_sequence():
 	# Restore physics
 	_restore_aircraft_physics(aircraft)
 
-	# Set state back to idle
-	current_state = DeckState.IDLE
-	print("[FlightDeckManager] Retrieval sequence complete - aircraft ready for launch")
+	# Wait a moment for physics to fully settle
+	await get_tree().create_timer(0.5).timeout
+
+	# Automatically start launch sequence
+	print("[FlightDeckManager] Retrieval sequence complete - automatically starting launch sequence")
+	request_launch_sequence(aircraft)
 
 func _move_aircraft_horizontally(aircraft: RigidBody3D, target_position: Vector3):
 	"""Move aircraft horizontally to target position with tractorbots following"""

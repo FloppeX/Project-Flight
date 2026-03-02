@@ -12,6 +12,7 @@ signal destroyed(enemy)
 @export var delay_length: float = 4.0  # How long to wait between bursts (seconds)
 @export var turret_weapon: PackedScene  # Drag weapon scene here (e.g., Autocannon.tscn)
 @export var aim_skill: float = 0.8  # Ground turrets are pretty good but not perfect
+@export var debug_enabled: bool = false
 
 var current_health: float
 var detected_enemies: Array = []
@@ -52,7 +53,8 @@ func _ready():
 	if turret_weapon and turret_node:
 		mount_weapon_on_turret(turret_weapon)
 	
-	print("Enemy box created with ", max_health, " HP at position: ", global_position, " (Team ", team, ")")
+	if debug_enabled:
+		print("Enemy box created with ", max_health, " HP at position: ", global_position, " (Team ", team, ")")
 
 func mount_weapon_on_turret(weapon_scene: PackedScene):
 	if weapon_instance:
@@ -77,10 +79,10 @@ func mount_weapon_on_turret(weapon_scene: PackedScene):
 	
 	# Ensure weapon is oriented correctly (may need rotation adjustment)
 	# The weapon should fire in the +Z direction of the turret mount
-	print("[EnemyBox] Weapon mounted at position: ", turret_mount.position)
-	print("[EnemyBox] Turret Z-axis: ", turret_node.transform.basis.z)
-	
-	print("[EnemyBox] Mounted weapon: ", weapon_instance.weapon_name if weapon_instance else "Unknown")
+	if debug_enabled:
+		print("[EnemyBox] Weapon mounted at position: ", turret_mount.position)
+		print("[EnemyBox] Turret Z-axis: ", turret_node.transform.basis.z)
+		print("[EnemyBox] Mounted weapon: ", weapon_instance.weapon_name if weapon_instance else "Unknown")
 
 func _physics_process(delta):
 	# If dying, do nothing else
@@ -104,7 +106,8 @@ func take_damage(damage_amount: float):
 	if is_dying or current_health <= 0:
 		return  # Already destroyed or in the process of exploding
 	
-	print("Enemy box taking damage: ", damage_amount, " HP remaining: ", current_health - damage_amount)
+	if debug_enabled:
+		print("Enemy box taking damage: ", damage_amount, " HP remaining: ", current_health - damage_amount)
 	
 	current_health -= damage_amount
 	current_health = max(current_health, 0.0)
@@ -122,7 +125,8 @@ func take_damage(damage_amount: float):
 		death_timer.timeout.connect(death_timer.queue_free)
 
 func explode():
-	print("Enemy box exploding!")
+	if debug_enabled:
+		print("Enemy box exploding!")
 	emit_signal("destroyed", self)
 	
 	# Spawn explosion effect
@@ -131,41 +135,15 @@ func explode():
 		var explosion_instance = explosion_scene_resource.instantiate()
 		get_parent().add_child(explosion_instance)
 		explosion_instance.global_position = global_position
-		print("Enemy explosion spawned at: ", global_position)
+		if debug_enabled:
+			print("Enemy explosion spawned at: ", global_position)
 	
 	# Remove the enemy
 	queue_free()
 
 func detect_enemies():
-	# Find all enemies from other teams within detection range
-	var enemies_in_range = []
-	
-	# Check aircraft group (player)
-	var aircraft = get_tree().get_first_node_in_group("aircraft")
-	if aircraft and aircraft.has_method("get_team") and aircraft.get_team() != team:
-		var distance = global_position.distance_to(aircraft.global_position)
-		if distance <= detection_range:
-			enemies_in_range.append(aircraft)
-	
-	# Check other enemies group
-	var all_enemies = get_tree().get_nodes_in_group("enemies")
-	for enemy in all_enemies:
-		if enemy == self:
-			continue
-		
-		# Check if enemy is from different team
-		if enemy.has_method("get_team") and enemy.get_team() != team:
-			var distance = global_position.distance_to(enemy.global_position)
-			if distance <= detection_range:
-				enemies_in_range.append(enemy)
-	
-	# Update detection state (blinking and debug prints disabled for performance)
-	#if enemies_in_range.size() > 0:
-	#	print("Enemy detected! Distance: ", global_position.distance_to(enemies_in_range[0].global_position))
-	#else:
-	#	print("No enemies in range")
-	
-	detected_enemies = enemies_in_range
+	# Find all hostiles from other teams within detection range.
+	detected_enemies = _get_hostile_targets_in_range(detection_range)
 
 func update_blinking(delta):
 	# Blinking disabled for performance
@@ -238,7 +216,8 @@ func update_burst_firing(delta):
 				stop_firing()
 				fire_state = FireState.DELAYING
 				delay_timer = 0.0
-				print("[EnemyBox] Burst complete, entering delay phase")
+				if debug_enabled:
+					print("[EnemyBox] Burst complete, entering delay phase")
 			else:
 				# Keep firing during burst
 				fire_at_target(current_target)
@@ -249,13 +228,15 @@ func update_burst_firing(delta):
 			if delay_timer >= delay_length:
 				# Delay complete - ready for next burst
 				fire_state = FireState.IDLE
-				print("[EnemyBox] Delay complete, ready for next burst")
+				if debug_enabled:
+					print("[EnemyBox] Delay complete, ready for next burst")
 
 func start_burst():
 	fire_state = FireState.BURSTING
 	burst_timer = 0.0
 	is_firing = true
-	print("[EnemyBox] Starting burst - will fire for ", burst_length, " seconds")
+	if debug_enabled:
+		print("[EnemyBox] Starting burst - will fire for ", burst_length, " seconds")
 
 func stop_firing():
 	is_firing = false
@@ -266,28 +247,36 @@ func stop_firing():
 func find_best_target() -> Node3D:
 	var best_target: Node3D = null
 	var best_distance = turret_range
-	
-	# Check aircraft
-	var aircraft = get_tree().get_first_node_in_group("aircraft")
-	if aircraft and aircraft.has_method("get_team") and aircraft.get_team() != team:
-		var distance = global_position.distance_to(aircraft.global_position)
-		if distance <= turret_range and distance < best_distance:
-			best_target = aircraft
+	var hostiles: Array = _get_hostile_targets_in_range(turret_range)
+	for enemy in hostiles:
+		var distance = global_position.distance_to(enemy.global_position)
+		if distance < best_distance:
+			best_target = enemy
 			best_distance = distance
 	
-	# Check other enemies
-	var all_enemies = get_tree().get_nodes_in_group("enemies")
-	for enemy in all_enemies:
-		if enemy == self:
-			continue
-		
-		if enemy.has_method("get_team") and enemy.get_team() != team:
-			var distance = global_position.distance_to(enemy.global_position)
-			if distance <= turret_range and distance < best_distance:
-				best_target = enemy
-				best_distance = distance
-	
 	return best_target
+
+func _get_hostile_targets_in_range(max_range: float) -> Array:
+	"""Collect unique hostile Node3D targets across relevant aircraft groups."""
+	var results: Array = []
+	var seen: Dictionary = {}
+	var groups_to_scan: Array[String] = ["aircraft", "enemies", "friendlies", "ai_aircraft"]
+	for group_name in groups_to_scan:
+		for node in get_tree().get_nodes_in_group(group_name):
+			if not (node is Node3D) or node == self or not is_instance_valid(node):
+				continue
+			if not node.has_method("get_team"):
+				continue
+			if int(node.get_team()) == team:
+				continue
+			var id: int = node.get_instance_id()
+			if seen.has(id):
+				continue
+			var distance = global_position.distance_to((node as Node3D).global_position)
+			if distance <= max_range:
+				seen[id] = true
+				results.append(node)
+	return results
 
 func track_target(target: Node3D):
 	if not target or not turret_node:
@@ -369,9 +358,11 @@ class TurretMount extends Hardpoint:
 				success = true
 			
 			if success and aircraft == enemy_box:
-				print("[TurretMount] Successfully set aircraft reference to: ", enemy_box.name)
+				if enemy_box.debug_enabled:
+					print("[TurretMount] Successfully set aircraft reference to: ", enemy_box.name)
 			else:
-				print("[TurretMount] Failed to set aircraft reference - type conflict remains")
+				if enemy_box.debug_enabled:
+					print("[TurretMount] Failed to set aircraft reference - type conflict remains")
 	
 	# Override property access to return enemy_box when aircraft is accessed
 	func _get(property):
@@ -387,7 +378,8 @@ class TurretMount extends Hardpoint:
 
 func fire_at_target(target: Node3D):
 	if not weapon_instance or not turret_node:
-		print("[EnemyBox] Cannot fire - no weapon mounted or turret missing")
+		if debug_enabled:
+			print("[EnemyBox] Cannot fire - no weapon mounted or turret missing")
 		return
 	
 	# Calculate lead position for aiming
@@ -407,11 +399,11 @@ func fire_at_target(target: Node3D):
 	
 	# Fire the weapon (let weapon handle its own fire rate)
 	if weapon_instance.can_fire() and weapon_instance.fire():
-		var distance = global_position.distance_to(target.global_position)
-		var lead_distance = global_position.distance_to(target_pos)
-		var firing_direction = turret_node.global_transform.basis.z
-		print("[EnemyBox] Turret fired! Distance: ", distance, "m, Lead: ", lead_distance, "m")
-		print("[EnemyBox] Target pos: ", target.global_position)
-		print("[EnemyBox] Lead pos: ", target_pos)
-		print("[EnemyBox] Turret pos: ", turret_node.global_position)
-		print("[EnemyBox] Fire direction: ", fire_direction)
+		if debug_enabled:
+			var distance = global_position.distance_to(target.global_position)
+			var lead_distance = global_position.distance_to(target_pos)
+			print("[EnemyBox] Turret fired! Distance: ", distance, "m, Lead: ", lead_distance, "m")
+			print("[EnemyBox] Target pos: ", target.global_position)
+			print("[EnemyBox] Lead pos: ", target_pos)
+			print("[EnemyBox] Turret pos: ", turret_node.global_position)
+			print("[EnemyBox] Fire direction: ", fire_direction)

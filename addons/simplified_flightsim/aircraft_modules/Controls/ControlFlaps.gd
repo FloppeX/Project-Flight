@@ -15,7 +15,7 @@ func setup(aircraft_node: Node) -> void:
 	var found = aircraft.find_modules_by_type("flaps")
 	if not found.is_empty():
 		flaps_module = found.pop_front()
-	print("flaps found: %s" % str(flaps_module))
+	pass
 
 func _physics_process(delta: float) -> void:
 	if (not ControlActive) or (flaps_module == null):

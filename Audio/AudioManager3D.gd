@@ -25,41 +25,22 @@ var audio_effect_high: AudioEffectHighPassFilter
 var audio_effect_volume: AudioEffectAmplify
 
 func _ready():
-	print("AudioManager3D starting up...")
-	
-	# Try to find aircraft and camera controller if not set
 	if not aircraft:
 		aircraft = get_parent() as RigidBody3D
 		if not aircraft:
-			# Look for aircraft in the scene
 			aircraft = get_tree().get_first_node_in_group("aircraft")
 	
 	if not camera_controller:
 		camera_controller = get_parent().find_child("CameraController", true, false)
 		if not camera_controller:
-			# Look for camera controller in the scene
 			camera_controller = get_tree().get_first_node_in_group("camera_controller")
 	
-	print("Aircraft: ", aircraft)
-	print("Camera Controller: ", camera_controller)
-	
-	if not aircraft:
-		print("ERROR: No aircraft found!")
-		return
-	if not camera_controller:
-		print("ERROR: No camera controller found!")
+	if not aircraft or not camera_controller:
 		return
 	
-	# Create audio buses if they don't exist
 	create_audio_buses()
-	
-	# Set up audio effects
 	setup_audio_effects()
-	
-	# Start with exterior audio
 	switch_to_exterior_audio()
-	
-	print("AudioManager3D ready!")
 
 func create_audio_buses():
 	# Create interior bus as child of Master
@@ -67,9 +48,6 @@ func create_audio_buses():
 		AudioServer.add_bus(1)  # Add after Master bus
 		AudioServer.set_bus_name(1, interior_audio_bus)
 		AudioServer.set_bus_send(1, "Master")
-		print("Created interior audio bus: ", interior_audio_bus)
-	else:
-		print("Interior audio bus already exists: ", interior_audio_bus)
 
 func setup_audio_effects():
 	# Create low-pass filter for muffled interior sound
@@ -128,7 +106,7 @@ func get_current_camera() -> Camera3D:
 	
 	# Only print when camera changes
 	if camera_name != last_camera_name:
-		print("AudioManager3D: Camera changed to ", camera_name)
+		pass
 		last_camera_name = camera_name
 	
 	return current_camera
@@ -143,7 +121,7 @@ func is_camera_inside_aircraft(camera: Camera3D) -> bool:
 	
 	# Debug output
 	if is_inside != is_inside_aircraft:  # Only print when state changes
-		print("Camera distance: ", distance, " (radius: ", interior_radius, ") - Inside: ", is_inside)
+		pass
 	
 	return is_inside
 
@@ -164,7 +142,7 @@ func switch_to_interior_audio():
 	# Switch all 3D audio sources to interior bus
 	switch_audio_sources_to_bus(interior_audio_bus)
 	
-	print("Switched to interior audio (muffled)")
+	pass
 
 func switch_to_exterior_audio():
 	if current_audio_bus == exterior_audio_bus:
@@ -182,18 +160,18 @@ func switch_to_exterior_audio():
 	# Switch all 3D audio sources to master bus
 	switch_audio_sources_to_bus(exterior_audio_bus)
 	
-	print("Switched to exterior audio (normal)")
+	pass
 
 func switch_audio_sources_to_bus(bus_name: String):
 	# Find all AudioStreamPlayer3D nodes in the scene and switch their bus
 	var audio_players = get_tree().get_nodes_in_group("3d_audio")
 	
-	print("Switching ", audio_players.size(), " audio players to bus: ", bus_name)
+	pass
 	
 	for player in audio_players:
 		if player is AudioStreamPlayer3D:
 			player.bus = bus_name
-			print("  - Switched ", player.name, " to ", bus_name)
+			pass
 	
 	# Also find audio players attached to aircraft modules
 	if aircraft:

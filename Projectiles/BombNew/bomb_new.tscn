@@ -2,7 +2,7 @@
 
 [ext_resource type="PackedScene" uid="uid://c4n08bfodjaq8" path="res://Projectiles/ProjectileNew/projectile_new.tscn" id="1_gufam"]
 [ext_resource type="PackedScene" uid="uid://cadi81fcpvmuc" path="res://Projectiles/Explosion/explosion.tscn" id="2_s0eg3"]
-[ext_resource type="PackedScene" uid="uid://cbpsn8r87hlrc" path="res://Weapons/bomb.glb" id="3_q8txw"]
+[ext_resource type="PackedScene" path="res://Weapons/bomb.glb" id="3_q8txw"]
 [ext_resource type="Script" uid="uid://5yh6urw441iw" path="res://Projectiles/BombNew/bomb_new.gd" id="4_bomb_script"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_q8txw"]

@@ -4,13 +4,14 @@
 [ext_resource type="PackedScene" uid="uid://carriertread" path="res://CarrierTread.tscn" id="3_tread"]
 [ext_resource type="Script" uid="uid://bdcuxticnrnfj" path="res://LandCarrier/FlightDeckManager.gd" id="4_6n087"]
 [ext_resource type="PackedScene" path="res://LandCarrier/SimpleTractorBot.tscn" id="5_olyyp"]
-[ext_resource type="PackedScene" uid="uid://7fxt8bm8o8ml" path="res://Models/Land carrier NEW.glb" id="6_carrier_model"]
+[ext_resource type="PackedScene" path="res://Models/Land carrier NEW.glb" id="6_carrier_model"]
 [ext_resource type="Script" uid="uid://1dc3wqfq3v2j" path="res://TreadPositionHelper.gd" id="7_tread_helper"]
 [ext_resource type="Script" uid="uid://byhupfh0501o1" path="res://LandCarrier/Catapult.gd" id="8_0rqhh"]
 [ext_resource type="PackedScene" uid="uid://jd7fjuhmfvd4" path="res://CarrierElevator.tscn" id="8_elevator"]
 [ext_resource type="Script" uid="uid://cwglf226m425r" path="res://CarrierCollisionSetup.gd" id="9_collision"]
 [ext_resource type="Script" uid="uid://b6ioeynvc7a1n" path="res://LandCarrierInput.gd" id="10_input"]
 [ext_resource type="Script" uid="uid://c64jvhgmdrm6e" path="res://LandCarrier/BridgeCamera.gd" id="11_eyg35"]
+[ext_resource type="Script" path="res://LandCarrier/StandaloneCameraSwitcher.gd" id="11_standalone_cam"]
 [ext_resource type="PackedScene" uid="uid://c31lkp3a7sq3a" path="res://LandCarrier/arresting_cable.tscn" id="12_eyg35"]
 [ext_resource type="PackedScene" path="res://LandCarrier/DeckLights.tscn" id="13_decklights"]
 
@@ -108,7 +109,7 @@ latch_marker = NodePath("catapult_latch_marker")
 release_marker = NodePath("catapult_release_marker")
 deck_ref = NodePath("../FlightDeckManager/plane_start_marker")
 shuttle_speed = 40.0
-approach_speed_mps = 8.0
+approach_speed_mps = 30.0
 deck_clearance = 2.2
 
 [node name="catapult_release_marker" type="Marker3D" parent="Catapult"]
@@ -130,6 +131,9 @@ script = ExtResource("9_collision")
 
 [node name="LandCarrierInput" type="Node3D" parent="."]
 script = ExtResource("10_input")
+
+[node name="StandaloneCameraSwitcher" type="Node" parent="."]
+script = ExtResource("11_standalone_cam")
 
 [node name="CameraHolderBridge" type="Node3D" parent="." groups=["carrier_cam"]]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -29.547, 14.333, 0)

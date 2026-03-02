@@ -23,7 +23,7 @@ func setup(aircraft_node: Node) -> void:
 		engine_modules = aircraft.find_modules_by_type_and_tag("engine", SearchTag)
 	else:
 		engine_modules = aircraft.find_modules_by_type("engine")
-	print("engines found: %s" % str(engine_modules))
+	pass
 
 func _physics_process(delta: float) -> void:
 	if not ControlActive or engine_modules.is_empty():
@@ -73,6 +73,11 @@ func handle_automatic_engine_control(previous_power: float):
 	elif target_power <= 0.01 and any_engine_working:
 		print("Auto-stopping engines (throttle at 0)")
 		send_to_engines("engine_stop")
+
+func set_target_power(power: float) -> void:
+	target_power = clamp(power, 0.0, 1.0)
+	handle_automatic_engine_control(target_power - 0.01 if target_power > 0.01 else 0.0)
+	send_to_engines("engine_set_power", [target_power])
 
 func receive_input(_event: InputEvent) -> void:
 	# Polling mode; keep to satisfy the aircraft loop if it calls us.

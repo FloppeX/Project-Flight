@@ -1,5 +1,187 @@
 ## Project Change Log (latest session)
 
+### Session Summary (2025) - AI Ground Attack & Bombing System
+
+**Overview:** The AI pilot now has a complete ground attack capability. Friendly AI aircraft can patrol, detect ground targets, execute bombing runs, and return to patrol—all autonomously.
+
+**Controls:**
+- **P** – Spawn a friendly AI plane (EnemyAircraftSpawner)
+- **O** – Toggle all AI planes between patrol and attack mode
+- **Y** – Switch camera (bridge ↔ AI plane views when no player)
+
+---
+
+#### AI Ground Attack State Machine
+
+**Attack flow:**
+1. **ATTACK_POSITIONING** – Fly to setup waypoint (~800m in front of target, 300–500m above)
+2. **ATTACK_INBOUND** – Fly level toward target at setup altitude until dive start range
+3. **ATTACK_DIVE** – Dive at target, drop bombs, pull up when done
+4. **ATTACK_BREAK_OFF** – Fly away from target, then line up next run
+
+**Configuration (AIPilot.gd):**
+- `bomb_run_setup_distance_m`: 1400 m – setup waypoint offset
+- `bomb_dive_start_distance_m`: 800 m – start dive at this horizontal range
+- `bomb_pull_up_distance_m`: 250 m – minimum distance for break-off
+- `bomb_release_altitude_window_m`: 300 m – drop when 5–300 m above target
+
+---
+
+#### Bomb Release Logic
+
+**Simplified release model:**
+- Drops when altitude above target is between **5 m and 300 m**
+- Drops **3 bombs per run**, then pulls up
+- Spacing: 0.11 s between bombs (slightly above weapon fire cooldown)
+- Must be descending (flight path angle > 1°)
+- No prediction or nose-alignment checks—altitude window only
+
+**Break-off:**
+- When 3 bombs have been dropped, or
+- When within 120 m of target (safety margin)
+
+---
+
+#### Dive & Aim Behavior
+
+**Aim correction:**
+- Uses predicted bomb impact to steer the aim point toward the target
+- Correction strength increases as range decreases (0.6–1.2)
+
+**Precise aim mode** (within 500 m horizontal, 400 m altitude):
+- Bank limited to 35° for steadier approach
+- Aim height reduced to target + 15 m
+- Bearing-based bank control instead of lateral ratio
+- Faster roll response (reduced smoothing)
+
+**Smooth aim height transition:**
+- Aim height lerps from 80 m to 15 m between 600 m and 400 m range
+- Avoids abrupt pitch changes
+
+---
+
+#### Pitch & Dive Stability
+
+**Soft dive entry:**
+- vs_limit and vs_gain ramp over 1.2 s (18→40 m/s, 0.12→0.25)
+- Reduces initial pull-too-hard and oscillation at dive start
+
+**Pitch oscillation fixes:**
+- Deadband within 35 m of aim altitude (gentler correction)
+- Stronger pitch derivative damping in dive (0.45 vs 0.28)
+- Heavier pitch smoothing in dive (0.12 vs 0.2)
+- Min-pitch threshold raised to 60 m in dive for earlier ease-off
+
+---
+
+#### Emergency & Safety
+
+**Terrain avoidance:**
+- Emergency pull-up if AGL < 180 m or terrain time-to-impact < 3 s
+- Terrain sampling along dive path to raise aim point over hills
+
+**Descending spiral recovery:**
+- When banked > 25° and descending > 15 m/s, level wings first, then climb
+
+---
+
+#### Camera Behavior
+
+**StandaloneCameraSwitcher (bridge-only / no-player mode):**
+- Switches to bridge only when the **destroyed plane** is the one being viewed
+- Viewing another plane or the bridge is unchanged when a different plane is destroyed
+- Linger time: 4 s on destroyed plane’s camera before switching
+
+---
+
+### Session Summary (2025-02-15 Part 2) - Restored Manual Control
+
+**Changes Made:**
+- ✅ Disabled AI pilot by default in `CompleteFighterJet.tscn`
+- ✅ Aircraft now starts with player control enabled
+- ✅ Press **A** key if you want to toggle AI pilot on (optional)
+
+**Configuration:**
+- All controls are gamepad-based (Xbox/PlayStation controller)
+- No keyboard flight controls configured (only toggle keys)
+- Manual flight control is now the default
+
+---
+
+### Session Summary (2025-02-15) - Critical File Permission Issues
+
+**Issue Overview:**
+The project is experiencing widespread file permission errors that prevent Godot Engine from importing and saving resources. This affects:
+- 3D model imports (.glb files)
+- Texture imports (.png, .jpg, .svg files)
+- Audio imports (.wav, .ogg files)
+- Font imports (.ttf files)
+- MD5 checksum files
+- Godot's filesystem cache
+
+**Symptoms:**
+- ERROR: `Cannot create file 'res://.godot/imported/...'`
+- ERROR: `Cannot save scene to file '...'`
+- ERROR: `Cannot open MD5 file '...'`
+- ERROR: `Cannot create file 'res://.godot/editor/filesystem_cache10'. Check user write permissions.`
+- WARNING: Resources cannot be imported and must be loaded uncompressed
+- ERROR: `Failed loading resource: ... Make sure resources have been imported by opening the project in the editor at least once.`
+
+**Root Cause:**
+The `.godot` directory (Godot's import cache and editor data folder) does not have proper write permissions, preventing the engine from creating/updating imported asset files.
+
+**Resolution Steps:**
+
+1. **Check Directory Permissions (Windows):**
+   - Right-click the project folder → Properties → Security tab
+   - Ensure your user account has "Full control" permissions
+   - If not, click Edit → Add your user → Grant "Full control"
+   - Apply to all subdirectories
+
+2. **Check Directory Permissions (Linux/Mac):**
+   ```bash
+   # Check current permissions
+   ls -la .godot/
+   
+   # Fix permissions if needed
+   chmod -R u+rwX .godot/
+   chmod -R u+rwX .
+   ```
+
+3. **Delete and Regenerate .godot folder:**
+   - Close Godot completely
+   - Delete the `.godot` folder entirely (it will be regenerated)
+   - Reopen the project in Godot
+   - Wait for all assets to reimport (may take several minutes)
+
+4. **Check for Read-Only Attributes (Windows):**
+   - Right-click project folder → Properties
+   - Uncheck "Read-only" if checked
+   - Apply to all files and subfolders
+
+5. **Verify Disk Space:**
+   - Ensure you have sufficient free disk space (recommended: >2GB free)
+   - The `.godot/imported/` folder can grow quite large with many assets
+
+6. **Check Antivirus/Security Software:**
+   - Some antivirus software may block Godot from writing files
+   - Add the project folder to antivirus exclusions if necessary
+   - Check Windows Defender or other security software settings
+
+7. **Run Godot with Elevated Permissions (Last Resort):**
+   - Windows: Right-click Godot executable → "Run as administrator"
+   - Linux/Mac: May need to adjust ownership: `sudo chown -R $USER:$USER .`
+
+**Prevention:**
+- Always ensure project folders have proper write permissions before opening in Godot
+- Avoid placing projects in system-protected directories (Program Files, Windows System folders, etc.)
+- Don't sync the `.godot` folder to cloud storage services (Dropbox, OneDrive, etc.) as this can cause conflicts
+- Add `.godot/` to `.gitignore` - this folder should never be committed to version control
+
+**Status:** ⚠️ **UNRESOLVED** - Project cannot run until permissions are fixed
+
+---
+
 ### Session Summary (2025-09-26)
 *   **Flight Deck Cycle Automation**:
 	*   Implemented a complete, robust cycle for landing, hangar storage, retrieval, and launch, all orchestrated by the `FlightDeckManager`.
@@ -171,7 +353,7 @@ Destruction Mechanics ("Blowing Up")
 Flight & Control Model
 	  Aerodynamics: Aircraft use a simplified aerodynamic model (SimpleAero.gd) including lift, drag, and stall.
 	  Turbulence: Continuous turbulence (ContinuousTurbulence.gd) and wind vectors apply forces dynamically.
-	  AI Pilot System: AI-controlled aircraft use the same inputs as the player (aileron, elevator, rudder, throttle, gear, weapons). Core states: Launch, Navigate, Attack, Defend, Land. AI selects a waypoint and adjusts inputs to reach it.
+	  AI Pilot System: AI-controlled aircraft use the same inputs as the player (aileron, elevator, rudder, throttle, gear, weapons). Core states: Launch, Climb, Transit, Search (patrol), Attack (ground attack with bombs), Break-off, RTB, Approach, Landing. **Ground attack:** AI detects ground targets (EnemyBox), sets up bombing runs from 1400 m, flies inbound, dives at 800 m, drops 3 bombs when 5–300 m above target, then breaks off. Press **O** to toggle AI between patrol and attack mode.
 Cameras
 	  Managed via CameraManager.gd and CameraTripod.gd.
 	  Modes: cockpit (default), chase, orbit, cinematic tripod.
@@ -354,3 +536,46 @@ particle_manager.add_spark_particle(mesh_instance, 2.0, Vector3(0.5, 0.5, 0.5), 
 - Each particle has a type, lifetime, and initial scale
 - Update behaviors are defined per particle type in the manager
 - The system ensures visual effects persist naturally even when their source is destroyed
+
+### Session Summary (2025-10-05)
+*   **AI Pilot System Implementation**:
+	*   Created comprehensive AI pilot system for autonomous aircraft control using same inputs as player
+	*   **PIDController.gd**: Reusable PID controller for smooth, human-like control (prevents jerky robot movements)
+	*   **AIPilot.gd**: Main AI brain with state machine (IDLE → LAUNCHING → CLIMBING → TRANSIT → SEARCH → ENGAGE → RTB → APPROACH → LANDING)
+	*   **AIToggle.gd**: Toggle between AI and player control with 'A' key; disables player control modules when AI active
+	*   Modified CompleteFighterJet.tscn to be AI-controlled by default
+	*   Fixed SimpleAero integration (aileron_input → roll_input, etc.)
+*   **AI Launch & Collision Systems**:
+	*   Fixed critical collision bug where aircraft collision layers were set to 0 and never restored
+	*   FlightDeckManager now saves/restores collision settings properly (default 513)
+	*   Added ai_pilot.launch() command to initiate AI launch sequence
+	*   Implemented deck clearance check - AI maintains level flight for 300m after launch before climbing
+	*   Added automatic landing gear and tailhook retraction when airborne
+*   **AI Sensor & Navigation Systems**:
+	*   Implemented controlled information access - AI only "sees" what sensors detect:
+		*   `altitude_agl`: Radar altimeter via raycast to terrain
+		*   `terrain_ahead_distance`: Forward-looking terrain scan (2000m range)
+		*   `known_enemies`/`known_friendlies`: Only contacts within 5000m sensor range
+	*   Emergency terrain avoidance: Auto pull-up if AGL < 100m or terrain ahead < 500m
+	*   Aircraft automatically added to "friendlies" group for AI detection
+*   **Waypoint-Based Flight Control**:
+	*   Restructured AI navigation to be waypoint-based instead of direct altitude control (eliminates oscillation)
+	*   Navigation flow: "WHERE do I want to go?" → "WHAT heading/pitch/roll?" → "APPLY controls"
+	*   Implemented proper coordinated turn physics:
+		*   Bank angle selection: 20° (gentle) / 30-45° (standard) / 60° (steep) based on heading error
+		*   Pull back elevator to turn - more bank requires more back pressure
+		*   Rudder proportional to bank angle for coordination (0.5 × bank ratio)
+	*   Organic altitude maintenance: Pitch control responds to both altitude error and vertical speed
+	*   AI naturally discovers it needs more pitch in turns to maintain altitude (lift = total lift × cos(bank))
+*   **Rectangular Patrol Pattern**:
+	*   Implemented 4-waypoint rectangular patrol around carrier (750m × 750m square at 500m altitude)
+	*   AI switches waypoints when within 50m, loops continuously
+	*   Carrier position saved at launch for patrol reference
+	*   Enemy engagement temporarily disabled to focus on stable flight
+*   **Flight Parameters & Tuning**:
+	*   Set AI flight limits: max pitch ±60°, max roll ±60° (limits on commanded angles, not actual aircraft capability)
+	*   Changed initial climb altitude from 1000m to 500m
+	*   Tuned PID controllers to prevent looping and oscillation:
+		*   Pitch: 0.5 P, 0.3 D (reduced from 2.0)
+		*   Altitude: 0.005 P, 0.01 D
+		*   Heading: 0.3 P, 0.1 D

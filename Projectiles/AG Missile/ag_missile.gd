@@ -86,15 +86,12 @@ func _physics_process(delta):
 			engine_on = false
 		else:
 			# Engine should be running
-			if not engine_on:
-				print("Missile engine ignited! Starting thrust and guidance.")
 			engine_on = true
 			
 	# Check arming status
-	if not is_armed and launch_time > 0.0:
+		if not is_armed and launch_time > 0.0:
 		if (current_time - launch_time) >= arming_time:
 			is_armed = true
-			print("Missile armed and ready to explode")
 	
 	# Print engine status for first few seconds
 	if launch_time > 0.0 and (current_time - launch_time) < 3.0:
@@ -211,31 +208,12 @@ func _apply_guidance(delta: float) -> void:
 	angular_velocity *= damping_factor
 
 func _on_body_entered(body):
-	print("=== MISSILE HIT ===")
-	print("Hit body: ", body.name, " (", body.get_class(), ")")
-	print("Missile armed: ", is_armed)
-	print("Body collision layer: ", body.collision_layer if body.has_method("get_collision_layer") else "N/A")
-	
-	# Always check if we hit the shooter first
 	if body == shooter:
-		print("Missile hit shooter - ignored")
 		return
-	
-	# Check if missile is armed before exploding
 	if not is_armed:
-		print("Missile not armed yet - will impact but not explode")
-		# Still impact and destroy missile, but don't explode
-		# This prevents phasing through ground while unarmed
 		has_impacted = true
-		print("Unarmed missile destroyed on impact with: ", body.name)
 		queue_free()
 		return
-	
-	print("Body has take_damage method: ", body.has_method("take_damage"))
-	print("Missile damage: ", damage)
-	print("Body groups: ", body.get_groups())
-	
-	# Trigger explosion (only when armed)
 	_trigger_explosion(body)
 
 func _apply_drag_and_limit_speed(delta: float) -> void:
@@ -342,9 +320,6 @@ func _trigger_explosion(hit_body: Node = null):
 		explosion.min_damage = damage * 0.5
 		explosion.blast_radius = explosion_radius
 		explosion.use_line_of_sight = false
-		
-		print("Explosion created at position: ", explosion.global_position)
-		print("Explosion stats: max_damage=", explosion.max_damage, " blast_radius=", explosion.blast_radius, " LOS=", explosion.use_line_of_sight)
 		
 		# Always create scorch mark for missile explosions since they detonate near ground
 		explosion.create_scorch_mark()

@@ -439,7 +439,15 @@ func align_aircraft(ac: RigidBody3D) -> void:
 	
 	var target_transform = latch_marker.global_transform
 	
-	print("[CATAPULT] align_aircraft called. Using latch_marker transform: ", target_transform)
+	# Orient aircraft to face launch direction (latch → release)
+	# Aircraft model forward is +Z (basis.z), so atan2 directly gives the correct yaw
+	var launch_dir = (release_marker.global_position - latch_marker.global_position)
+	launch_dir.y = 0.0
+	launch_dir = launch_dir.normalized()
+	var yaw_angle = atan2(launch_dir.x, launch_dir.z) + deg_to_rad(heading_offset_deg)
+	target_transform.basis = Basis(Vector3.UP, yaw_angle)
+	
+	print("[CATAPULT] align_aircraft called. Launch dir: ", launch_dir, " Yaw: ", rad_to_deg(yaw_angle))
 	print("[CATAPULT] Aircraft transform BEFORE teleport: ", ac.global_transform)
 	
 	# --- Prepare aircraft for teleport ---

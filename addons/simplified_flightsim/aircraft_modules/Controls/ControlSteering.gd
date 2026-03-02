@@ -16,7 +16,7 @@ func setup(aircraft_node: Node) -> void:
 	var list = aircraft.find_modules_by_type("steering")
 	if list and list.size() > 0:
 		steering_module = list.pop_front()
-	print("steering found: %s" % str(steering_module))
+	pass
 	simple_aero = aircraft.get_node_or_null("SimpleAero")
 	if simple_aero == null:
 		simple_aero = aircraft.find_child("SimpleAero", true, false)

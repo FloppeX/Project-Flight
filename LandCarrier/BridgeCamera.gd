@@ -87,10 +87,13 @@ func _process(delta):
 			set_process(false)
 			return
 
-	if not aircraft or not bridge_camera or not enable_tracking:
+	# If no aircraft, just stay in default position (static view of deck)
+	if not aircraft or not bridge_camera:
 		return
 
-	update_tracking(delta)
+	# Only track if we have an aircraft and tracking is enabled
+	if enable_tracking:
+		update_tracking(delta)
 
 func update_tracking(delta):
 	# Use look_at for horizontal tracking (Node3D holder)
