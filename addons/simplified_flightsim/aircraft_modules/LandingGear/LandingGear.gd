@@ -30,6 +30,10 @@ enum LandingGearInitialStates {
 @export var wheel_rest_height: float = 1.2     # Normal wheel height above ground
 @export var max_compression: float = 0.8       # Maximum compression distance
 
+# Deck hold: downforce applied at each wheel during cable engagement to resist flipping.
+# Released automatically when the cable releases and clears the arresting_engaged meta.
+@export var deck_hold_force: float = 15000.0   # Force in Newtons pulling each wheel toward the deck
+
 # Directional wheel friction
 @export var forward_friction: float = 0.1      # Low resistance for rolling forward/backward
 @export var sideways_friction: float = 8.0     # High resistance for sliding sideways
@@ -44,6 +48,11 @@ var audio_player: AudioStreamPlayer3D
 # Properties for external access
 var is_deployed: bool = false
 var is_stowed: bool = true
+var gear_compressions: Array[float] = []  # Latest compression per gear slot (metres); readable by debug systems
+
+# Debug state
+var _debug_timer: float = 0.0
+var _wheel_was_grounded: Array[bool] = []  # Per-wheel first-contact tracking
 
 func _ready():
 	"""Set up module properties"""
@@ -80,12 +89,33 @@ func process_physic_frame(delta: float):
 	"""Apply spring physics to each wheel"""
 	if current_state != LandingGearInitialStates.DEPLOYED:
 		return
-		
+
 	# Only apply springs if we have proper values set
 	if spring_strength > 0 and wheel_rest_height > 0:
 		# Apply spring forces to each collision shape
 		for i in range(gear_collision_shapes.size()):
 			apply_spring_physics(gear_collision_shapes[i], i, delta)
+
+	if not debug_enabled:
+		return
+	_debug_timer += delta
+	if _debug_timer < 0.25:
+		return
+	_debug_timer = 0.0
+	var b: Basis = aircraft.global_transform.basis
+	var roll_deg: float = rad_to_deg(atan2(b.x.y, b.y.y))
+	var ang: Vector3 = aircraft.angular_velocity
+	var spd: float = aircraft.linear_velocity.length()
+	var vs: float = aircraft.linear_velocity.y
+	var cable: bool = aircraft.get_meta("arresting_engaged", false)
+	var comp_str: String = ""
+	for c in gear_compressions:
+		comp_str += "%.3fm " % c
+	print("[LG] roll=%.1f°  ang=(%.2f,%.2f,%.2f) rad/s  spd=%.1f VS=%.1f  cable=%s  comp=[%s]" % [
+		roll_deg, ang.x, ang.y, ang.z, spd, vs, cable, comp_str.strip_edges()])
+	# Warn loudly if tumble is developing
+	if ang.length() > 1.5:
+		print("[LG TUMBLE] angular_velocity magnitude=%.2f rad/s (%.0f°/s)" % [ang.length(), rad_to_deg(ang.length())])
 
 func apply_spring_physics(collision_shape: CollisionShape3D, gear_index: int, delta: float):
 	"""Apply spring and damping forces to a gear collision shape"""
@@ -102,27 +132,60 @@ func apply_spring_physics(collision_shape: CollisionShape3D, gear_index: int, de
 	
 	var result = space_state.intersect_ray(query)
 	
+	# Track per-wheel grounded state for touchdown prints
+	if _wheel_was_grounded.size() <= gear_index:
+		_wheel_was_grounded.resize(gear_index + 1)
+		_wheel_was_grounded[gear_index] = false
+
 	if result:
 		# Ground detected - calculate compression
 		var distance_to_ground = collision_shape.global_position.distance_to(result.position)
 		var compression = wheel_rest_height - distance_to_ground
 		compression = clamp(compression, 0.0, max_compression)
-		
+		# Store for external readers (e.g. debug logging)
+		if gear_compressions.size() <= gear_index:
+			gear_compressions.resize(gear_index + 1)
+		gear_compressions[gear_index] = compression
+
+		# First contact — log touchdown state for this wheel
+		if debug_enabled and not _wheel_was_grounded[gear_index]:
+			var b: Basis = aircraft.global_transform.basis
+			var roll_deg: float = rad_to_deg(atan2(b.x.y, b.y.y))
+			var ang: Vector3 = aircraft.angular_velocity
+			var cable: bool = aircraft.get_meta("arresting_engaged", false)
+			print("[LG Wheel %d] TOUCHDOWN  spd=%.1f m/s  VS=%.1f m/s  roll=%.1f°  ang=(%.2f,%.2f,%.2f) rad/s  cable=%s  comp=%.3fm" % [
+				gear_index, aircraft.linear_velocity.length(), aircraft.linear_velocity.y,
+				roll_deg, ang.x, ang.y, ang.z, cable, compression])
+		_wheel_was_grounded[gear_index] = true
+
+		# Deck hold: pull the wheel toward the deck during cable engagement to prevent flipping.
+		# Runs on any ground contact (not just compression) so it fires even if a wheel
+		# momentarily unloads during the arrest. Released when the cable clears arresting_engaged.
+		var force_position = collision_shape.global_position - aircraft.global_position
+		if deck_hold_force > 0.0 and aircraft.get_meta("arresting_engaged", false):
+			if debug_enabled and Engine.get_process_frames() % 30 == 0:
+				print("[LG Wheel %d] DECK HOLD  force=%.0fN  normal=%s" % [gear_index, deck_hold_force, snapped(result.normal, Vector3.ONE * 0.01)])
+			aircraft.apply_force(-result.normal * deck_hold_force, force_position)
+
 		if compression > 0.01:  # Small threshold to avoid jittering
 			# Calculate spring force (Hooke's law)
 			var spring_force = spring_strength * compression
-			
+
 			# Calculate damping force (opposes velocity)
 			var aircraft_velocity = aircraft.linear_velocity.y
 			var damping_force = -spring_damping * aircraft_velocity * compression
-			
+
 			# Apply vertical forces (spring + damping)
 			var total_vertical_force = spring_force + damping_force
-			var force_position = collision_shape.global_position - aircraft.global_position
 			aircraft.apply_force(Vector3.UP * total_vertical_force, force_position)
-			
+
 			# Apply directional wheel friction
 			apply_wheel_friction(collision_shape, compression)
+	else:
+		if debug_enabled and _wheel_was_grounded.size() > gear_index and _wheel_was_grounded[gear_index]:
+			print("[LG Wheel %d] LIFTOFF" % [gear_index])
+		if _wheel_was_grounded.size() > gear_index:
+			_wheel_was_grounded[gear_index] = false
 
 func deploy():
 	"""Deploy the landing gear"""
@@ -229,8 +292,10 @@ func apply_wheel_friction(collision_shape: CollisionShape3D, compression: float)
 	
 	# Add velocity-proportional damping to keep aircraft still on deck ONLY when engine is off
 	# and not under external control (like a catapult).
+	# Skip forward damping while arresting cable is engaged — cable provides the braking.
 	if (not _is_engine_running() and not aircraft.has_meta("controls_disabled")) or aircraft.has_meta("parking_brake"):
-		forward_friction_force += -forward_velocity * ground_longitudinal_damping
+		if not aircraft.get_meta("arresting_engaged", false):
+			forward_friction_force += -forward_velocity * ground_longitudinal_damping
 		sideways_friction_force += -sideways_velocity * ground_lateral_damping
 	
 	# Apply friction forces in aircraft's local coordinate system

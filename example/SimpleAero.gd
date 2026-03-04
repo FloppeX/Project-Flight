@@ -29,6 +29,8 @@ var rb: RigidBody3D = null
 @export var forward_drag_strength: float = 0.4
 @export var lateral_drag_strength: float = 1.2
 @export var gear_drag_multiplier: float = 1.5
+@export var flaps_drag_multiplier: float = 1.25  # When flaps deployed (approach config: gear+flaps together)
+@export var flaps_stall_speed_factor: float = 0.85  # Stall speed multiplier when flaps deployed (0.85 = 15% lower)
 
 # Control inputs
 var pitch_input: float = 0.0
@@ -37,6 +39,7 @@ var yaw_input: float = 0.0
 
 @onready var _landing_gear_node: Node = null
 @onready var _gear_controller: Node = null
+@onready var _flaps_module: Node = null
 
 func _ready() -> void:
 	rb = get_parent() as RigidBody3D
@@ -44,6 +47,11 @@ func _ready() -> void:
 		rb.gravity_scale = 1.0
 		_landing_gear_node = rb.get_node_or_null("LandingGear")
 		_gear_controller = rb.get_node_or_null("ControlLandingGear")
+		# Flaps: find AircraftModule_Flaps (gear+flaps deployed together on approach)
+		if rb.has_method("find_modules_by_type"):
+			var found = rb.find_modules_by_type("flaps")
+			if not found.is_empty():
+				_flaps_module = found[0]
 
 func _physics_process(delta: float) -> void:
 	if rb == null:
@@ -60,9 +68,11 @@ func _physics_process(delta: float) -> void:
 	# Forward speed (nose-aligned component)
 	var forward_speed: float = max(vel.dot(fwd), 0.0)
 
-	# --- Drag (split longitudinal vs lateral, optional gear multiplier) ---
+	# --- Drag (split longitudinal vs lateral; gear+flaps increase drag on approach) ---
 	if speed > 0.1:
 		var gear_mult: float = gear_drag_multiplier if _is_gear_deployed() else 1.0
+		var flaps_mult: float = flaps_drag_multiplier if _is_flaps_deployed() else 1.0
+		var approach_mult: float = gear_mult * flaps_mult
 		# Longitudinal
 		var f_drag: Vector3 = -fwd * forward_drag_strength * forward_speed * abs(forward_speed)
 		# Lateral (velocity minus forward component)
@@ -70,19 +80,22 @@ func _physics_process(delta: float) -> void:
 		var lateral_speed: float = lateral_vel.length()
 		var lat_dir: Vector3 = (-lateral_vel / lateral_speed) if lateral_speed > 0.001 else Vector3.ZERO
 		var l_drag: Vector3 = lat_dir * lateral_drag_strength * lateral_speed * lateral_speed
-		# Combine and scale
+		# Combine and scale (gear+flaps multiply drag when deployed)
 		var drag_force: Vector3 = (f_drag + l_drag) * drag_base_multiplier
-		rb.apply_central_force(drag_force * gear_mult)
+		rb.apply_central_force(drag_force * approach_mult)
 
 	# --- Lift calculation ---
 	# Project aircraft "up" onto plane perpendicular to airflow for realistic banking
 	var lift_dir: Vector3 = (up - v_dir * up.dot(v_dir)).normalized()
 	var base_lift_mag: float = lift_gain * speed * speed * rb.mass
 
+	# Effective stall speed: lower when flaps deployed (more lift at low speed)
+	var effective_stall_speed: float = stall_speed * (flaps_stall_speed_factor if _is_flaps_deployed() else 1.0)
+
 	# Calculate stall effects
 	var stall_severity: float = 0.0
-	if forward_speed < stall_speed and speed > 5.0:
-		stall_severity = 1.0 - (forward_speed / stall_speed)
+	if forward_speed < effective_stall_speed and speed > 5.0:
+		stall_severity = 1.0 - (forward_speed / effective_stall_speed)
 		
 	# Reduce lift in stall
 	var actual_lift_mag: float = base_lift_mag * (1.0 - stall_lift_loss * stall_severity)
@@ -127,7 +140,7 @@ func _physics_process(delta: float) -> void:
 
 	# --- Velocity alignment (the "on rails" effect) ---
 	# Only when not stalled and moving forward
-	if forward_speed > stall_speed and speed > 1.0:
+	if forward_speed > effective_stall_speed and speed > 1.0:
 		var target_velocity: Vector3 = fwd * speed
 		var alignment_force: Vector3 = (target_velocity - vel) * alignment_strength
 		rb.apply_central_force(alignment_force)
@@ -146,7 +159,7 @@ func _physics_process(delta: float) -> void:
 
 	# --- Stability (return to level flight) ---
 	# Only when moving and not stalled
-	if speed > 5.0 and forward_speed > stall_speed:
+	if speed > 5.0 and forward_speed > effective_stall_speed:
 		var world_up: Vector3 = Vector3.UP
 		var tilt_angle: float = up.angle_to(world_up)
 
@@ -167,4 +180,12 @@ func _is_gear_deployed() -> bool:
 		var v2 = _gear_controller.get("gear_down_state") if _gear_controller.has_method("get") else null
 		if v2 != null:
 			return bool(v2)
+	return false
+
+func _is_flaps_deployed() -> bool:
+	"""True when flaps are extended (flap_position > 0.5). Gear+flaps deployed together on approach."""
+	if _flaps_module == null:
+		return false
+	if "flap_position" in _flaps_module:
+		return float(_flaps_module.flap_position) > 0.5
 	return false

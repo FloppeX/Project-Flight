@@ -436,7 +436,11 @@ func align_aircraft(ac: RigidBody3D) -> void:
 		return
 
 	_aircraft = ac
-	
+
+	# Lock controls immediately so AIPilot/ControlEngine can't run the engine
+	# before the shuttle connects. Released on launch (line with remove_meta).
+	ac.set_meta("controls_disabled", true)
+
 	var target_transform = latch_marker.global_transform
 	
 	# Orient aircraft to face launch direction (latch → release)

@@ -6,30 +6,32 @@ extends Node3D
 signal cable_engaged(aircraft: RigidBody3D)
 signal cable_released(aircraft: RigidBody3D)
 
-@export var debug_enabled: bool = false
+@export var debug_enabled: bool = true
 
 @export var cable_area_path: NodePath           # Area3D detecting the tailhook Area3D
 @export var left_anchor_path: NodePath          # Left deck anchor (Node3D)
 @export var right_anchor_path: NodePath         # Right deck anchor (Node3D)
 @export var deck_direction: Vector3 = Vector3(0, 0, -1) # legacy override; ignored if deck_forward_is_plus_z
 @export var deck_forward_is_plus_z: bool = true          # when true, +Z is forward; else -Z
-@export var max_tension: float = 80000.0        # Force clamp (N)
+@export var max_tension: float = 750000.0       # Force clamp (N) — increased for ~4.5g stop on 16t aircraft
 
 # Legacy names kept for compatibility in existing scenes (mapped to clearer names in _ready)
-@export var linear_k: float = 5000.0            # LEGACY: spring stiffness along deck axis (N/m)
-@export var linear_c: float = 30000.0           # LEGACY: damping along deck axis (N*s/m)
+@export var linear_k: float = 200.0             # LEGACY: spring stiffness along deck axis (N/m)
+@export var linear_c: float = 100.0             # LEGACY: base damping (mass-adaptive added in code)
 @export var lateral_k: float = 1500.0           # LEGACY: centering spring across deck (N/m)
 @export var lateral_c: float = 5000.0           # LEGACY: lateral damping across deck (N*s/m)
 
 # Clear names used in code after mapping (units in names)
-@export var braking_spring_stiffness_n_per_m: float = 5000.0
-@export var braking_damping_n_s_per_m: float = 30000.0
+@export var braking_spring_stiffness_n_per_m: float = 1000.0
+@export var braking_damping_n_s_per_m: float = 100.0
 @export var lateral_centering_stiffness_n_per_m: float = 1500.0
 @export var lateral_damping_n_s_per_m: float = 5000.0
 
-@export var max_pay_out: float = 25.0           # Max extension before hard stop (m)
+@export var mass_adaptive_quadratic_damping_factor: float = 0.03 # kg/m, scales quadratic damping with mass
+
+@export var max_pay_out: float = 30.0           # Max extension before hard stop (m)
 @export var auto_release_speed: float = 2.0     # Release when near stop (m/s)
-@export var force_smoothing: float = 0.15       # Smooth force changes (s)
+@export var force_smoothing: float = 0.03       # Smooth force changes (s) — fast engagement
 @export var visualize_cable: bool = true        # Enable simple cable visuals
 @export var cable_radius: float = 0.05
 @export var band_length_m: float = 0.5          # Stripe length for visualization (m)
@@ -38,10 +40,10 @@ signal cable_released(aircraft: RigidBody3D)
 
 # Roll stabilization while engaged: applies damping around aircraft longitudinal axis
 @export var roll_stabilize_enabled: bool = true
-@export var roll_stabilize_gain: float = 0.6          # torque per rad/s (scaled by mass)
-@export var roll_level_gain: float = 0.2              # small leveling torque toward upright
-@export var roll_max_torque_g_m: float = 1.5          # clamp per (mass*9.8) so torque stays sane
-@export var engaged_downforce_g: float = 0.35         # extra downforce in multiples of weight while engaged
+@export var roll_stabilize_gain: float = 4.0          # torque per rad/s (scaled by mass)
+@export var roll_level_gain: float = 20.0             # leveling torque toward upright (N·m per rad per kg)
+@export var roll_max_torque_g_m: float = 30.0         # clamp per (mass*9.8) so torque stays sane
+@export var engaged_downforce_g: float = 1.2          # extra downforce in multiples of weight while engaged
 
 var _area: Area3D
 var _left_anchor: Node3D
@@ -79,6 +81,7 @@ func _ready():
 	if deck_direction.length() == 0:
 		deck_direction = Vector3(0,0,-1)
 	deck_direction = deck_direction.normalized()
+	
 	# Map legacy editor values into clearer names so existing scenes continue to work
 	braking_spring_stiffness_n_per_m = linear_k
 	braking_damping_n_s_per_m = linear_c
@@ -103,26 +106,38 @@ func _physics_process(delta: float) -> void:
 	var anchor_mid = _anchor_midpoint()
 	var rel = hook_pos - anchor_mid
 	var x = rel.dot(axis)
-	# Spring-damper braking along axis; clamp to max_tension
+
+	# Anti-rubber-band: Release if pulling back (rollback)
+	if x > 0.5 and v_along < -0.1:
+		if debug_enabled:
+			print("[Cable] RELEASE by rollback: v_along=", v_along, " x=", x)
+		_release()
+		return
+
+	# Spring-damper braking: high linear damping clamps to max_tension at high speed (constant braking);
+	# spring takes over at low speed to maintain tension until auto-release.
 	var spring_term = braking_spring_stiffness_n_per_m * min(abs(x), max_pay_out)
-	var sign_v = 1.0 if v_along >= 0.0 else -1.0
-	var force_along_target = -(braking_damping_n_s_per_m * v_along + spring_term * sign_v)
+	var sign_x = 1.0 if x >= 0.0 else -1.0
+	var damping_force = braking_damping_n_s_per_m * v_along
+	var force_along_target = -(damping_force + spring_term * sign_x)
+
 	var alpha = clamp(delta / max(force_smoothing, 0.001), 0.0, 1.0)
 	var force_along = lerp(_force_along_prev, force_along_target, alpha)
 	force_along = clamp(force_along, -max_tension, max_tension)
 	var force_vec = axis * force_along
-	# Apply at hook location to avoid destabilizing torques
-	var apply_at = hook_pos - _aircraft.global_position
-	_aircraft.apply_force(force_vec, apply_at)
+	# Braking force applied at CG — avoids pitch torque from hook offset (hook is ~1.7m below
+	# and ~2.4m behind CG; applying there creates nose-down pitching that lifts the main gear).
+	_aircraft.apply_central_force(force_vec)
 	_force_along_prev = force_along
-	# Lateral centering with damping across deck (vector form)
+	# Lateral centering applied at CG — avoids the roll/yaw torque that the hook's tail
+	# offset creates when lateral force is applied there (~2.4m behind, ~1.7m below CG).
 	var lateral_rel = rel - axis * rel.dot(axis)
 	var v_lat_vec = v - axis * v_along
 	var f_lat_vec = -(lateral_centering_stiffness_n_per_m * lateral_rel + lateral_damping_n_s_per_m * v_lat_vec)
 	var f_lat_limit = max_tension * 0.25
 	if f_lat_vec.length() > f_lat_limit:
 		f_lat_vec = f_lat_vec.normalized() * f_lat_limit
-	_aircraft.apply_force(f_lat_vec, apply_at)
+	_aircraft.apply_central_force(f_lat_vec)
 
 	# Roll stabilization torque around aircraft forward axis to resist flipping
 	if roll_stabilize_enabled and is_instance_valid(_aircraft):
@@ -143,19 +158,36 @@ func _physics_process(delta: float) -> void:
 			var max_torque: float = max(0.0, _aircraft.mass * 9.8 * roll_max_torque_g_m)
 			var total_torque: float = clamp(damp_torque + level_torque, -max_torque, max_torque)
 			_aircraft.apply_torque(fwd_axis * total_torque)
-		# Apply a small additional downforce while engaged to keep mains planted
-		if engaged_downforce_g > 0.0:
-			var downforce: Vector3 = Vector3.DOWN * (_aircraft.mass * 9.8 * engaged_downforce_g)
-			_aircraft.apply_central_force(downforce)
+		# Pull each landing gear toward the deck individually.
+		# Applying at each gear's position creates a restoring roll torque: if the aircraft
+		# tips right, the left gear (now higher) gets pulled down, and so does the right,
+		# but their offsets from CG create a net torque that rights the aircraft.
+		if engaged_downforce_g > 0.0 and is_instance_valid(_gear_module):
+			var gear_shapes = _gear_module.get("gear_collision_shapes")
+			if gear_shapes != null and gear_shapes.size() > 0:
+				var per_gear_force = Vector3.DOWN * (_aircraft.mass * 9.8 * engaged_downforce_g / gear_shapes.size())
+				for gear in gear_shapes:
+					if is_instance_valid(gear):
+						_aircraft.apply_force(per_gear_force, gear.global_position - _aircraft.global_position)
+			else:
+				_aircraft.apply_central_force(Vector3.DOWN * (_aircraft.mass * 9.8 * engaged_downforce_g))
+		elif engaged_downforce_g > 0.0:
+			_aircraft.apply_central_force(Vector3.DOWN * (_aircraft.mass * 9.8 * engaged_downforce_g))
 	# Update visuals
 	if visualize_cable:
 		_update_cable_visuals(hook_pos)
 	# Debug and auto-release
 	_debug_t += delta
-	if debug_enabled and _debug_t >= 0.5:
+	if debug_enabled and _debug_t >= 0.2:
 		_debug_t = 0.0
-		print("[Cable] engaged: x=", x, " v_along=", v_along, " F=", force_along)
-	if _engaged_elapsed > 0.3 and v.length() < auto_release_speed and abs(x) < 1.0:
+		var gear_str: String = ""
+		if _gear_module and "gear_compressions" in _gear_module and _gear_module.gear_compressions.size() > 0:
+			var parts: Array[String] = []
+			for c in _gear_module.gear_compressions:
+				parts.append(str(snapped(c, 0.001)))
+			gear_str = " gear=[" + ", ".join(parts) + "] m"
+		print("[Cable] engaged: x=", snapped(x, 0.1), " v=", snapped(v_along, 0.1), " F=", snapped(force_along, 1), gear_str)
+	if _engaged_elapsed > 0.3 and v.length() < auto_release_speed:
 		if debug_enabled:
 			print("[Cable] RELEASE by speed: v=", v.length(), " x=", x)
 		_release()
@@ -179,7 +211,11 @@ func _on_area_entered(area: Area3D) -> void:
 			_engage_point = area.global_position
 			_pay_out_used = 0.0
 			_engaged = true
-			print("[Cable] ENGAGED with ", _aircraft.name)
+			_engaged_elapsed = 0.0
+			_force_along_prev = 0.0
+			_debug_t = 0.0
+			_cut_aircraft_engine(_aircraft)
+			print("[Cable] ENGAGED with ", _aircraft.name, " (Mass: ", _aircraft.mass, " kg)")
 			# Reduce lateral grip while engaged to prevent tipping
 			_gear_module = _aircraft.find_child("LandingGear", true, false)
 			if _gear_module:
@@ -226,6 +262,18 @@ func manual_release() -> void:
 	# Public manual release for external controllers (e.g., FlightDeckManager)
 	if _engaged:
 		_release()
+
+func _cut_aircraft_engine(ac: RigidBody3D) -> void:
+	# Try to find ControlEngine or Engine and cut power immediately
+	# This ensures stopping even if AI is disabled or player holds throttle
+	var targets = ["ControlEngine", "Engine"]
+	for t in targets:
+		var nodes = ac.find_children(t, "", true, false)
+		for n in nodes:
+			if n.has_method("set_target_power"):
+				n.set_target_power(0.0)
+			elif n.has_method("set_throttle_input"):
+				n.set_throttle_input(0.0)
 
 # --- Helpers ---
 func _find_aircraft(from_node: Node) -> RigidBody3D:

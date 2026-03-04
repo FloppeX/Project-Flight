@@ -1,4 +1,169 @@
+﻿## Current Status
+
+**Last Updated:** 2026-03-04 (session 2)
+**Godot Version:** 4.4.1.stable.official.49a5bc7b6
+**Project Health:** PLAYABLE
+**Control Mode:** Manual (Game Controller) + AI autonomous
+
+### Core Systems
+| System | Status | Notes |
+|--------|--------|-------|
+| Flight Physics | Working | SimpleAero integration complete |
+| AI Pilot | Working | Full carrier cycle: hangar → catapult → climb → approach → land → hangar |
+| Catapult | Working | Launches AI and player aircraft |
+| Arresting Cables | Working | Roll stabilization, mass-adaptive braking |
+| Landing Gear | Working | Suspension and damping implemented |
+| Tailhook | Working | Auto-deploy/stow functional |
+
+### Aircraft Systems
+| System | Status | Notes |
+|--------|--------|-------|
+| Player Control | Working | Full manual flight control |
+| AI Control | Working | Press 1 to spawn AI from hangar; auto land-after-launch |
+| Weapons | Working | Autocannon, bombs, missiles |
+| Targeting | Working | HUD target box, sensor cone |
+| HUD | Working | Radar, instruments, CCIP |
+| Camera System | Working | Multiple camera modes |
+| Destruction | Working | Explosion and wreckage |
+
+### Carrier Systems
+| System | Status | Notes |
+|--------|--------|-------|
+| Flight Deck Manager | Working | Orchestrates all operations including AI config |
+| Elevator | Working | Hangar <-> deck transit |
+| Tractor Bots | Working | Aircraft towing system |
+| Deck Lights | Working | Procedural light placement |
+| Arresting Cables | Working | Multi-cable support |
+| Tracks | Partial | Basic movement, needs refinement |
+
+### Enemy Systems
+| System | Status | Notes |
+|--------|--------|-------|
+| Detection | Working | Sensor-based target acquisition |
+| Weapons | Working | Autocannon with burst fire |
+| Ballistics | Working | Lead calculation and gravity |
+| Ground Snapping | Working | StaticBody3D terrain alignment |
+| Movement | Partial | Basic positioning, no pathfinding |
+| AI Behavior | Partial | Attack only, no tactics |
+
+### Environment
+| System | Status | Notes |
+|--------|--------|-------|
+| Terrain | Working | Terrain3D with LOD (desert) |
+| Terrain Shader | Working | Slope-based coloring |
+| Rock Scatter | Working | Poisson disk distribution |
+| Lighting | Working | Directional + deck lights |
+| Post-Processing | Working | Filmic, glow, SSAO, fog |
+| Weather | Planned | Not yet implemented |
+
+### Immediate Priorities
+1. End-to-end AI cycle testing: hangar → catapult → climb → approach → land → hangar (loop)
+2. Implement enemy movement and pathfinding
+3. Add carrier defense turrets
+4. Develop resource management system
+
+### Version History
+- 2026-03-04 (s2): AI hangar-launch cycle: controls_disabled fix, terrain avoidance post-launch, aggressive climb, proximity waypoint clearing, land-after-launch flow
+- 2026-03-04: AI landing tumble fix, bomb accuracy, auto-hangar recovery, post-arrest AI hand-off
+- 2026-03-03: Arresting cable physics overhaul (mass-adaptive, quadratic damping)
+- 2025-09-26: Flight deck automation
+- 2025-09-23: Camera and lighting improvements
+- 2025-09-20: Enemy stabilization and HUD overhaul
+- 2025-10-05: AI pilot system implementation
+- 2025-09-14: Catapult and arresting cables
+
+---
+
 ## Project Change Log (latest session)
+
+### Session Summary (2026-03-04 part 2) - AI Hangar-Launch-Climb-Land Cycle
+
+**Overview:** Pressing **1** now spawns an AI-controlled aircraft from the hangar, which is raised by the elevator, towed to the catapult, launched, climbs to a waypoint, and then automatically begins a carrier landing approach — completing a full hands-off cycle.
+
+#### Spawning AI from Hangar (`LandCarrier/FlightDeckManager.gd`)
+- `_configure_retrieved_aircraft_as_ai()`: disables player UI/targeting nodes, keeps camera tripods enabled, sets `controls_disabled` (so AI stays silent until the catapult fires), enables AIToggle, and sets `ai_pilot.land_after_launch = true`.
+- Aircraft is added to `friendlies` and `ai_aircraft` groups; removed from `aircraft` group.
+
+#### AIToggle Priority Fix (`Aircraft/AIToggle.gd`)
+- `enable_ai()` previously checked altitude first: aircraft on deck (Y > 10 m) wrongly went to `SEARCH` instead of `LAUNCHING`.
+- Fixed: `controls_disabled` is checked **first**. Calls `ai_pilot.launch()` (not just `change_state`) so that `launch_position` is correctly recorded at the catapult deck position, enabling the 300 m deck-clearance distance calculation.
+
+#### AIPilot `controls_disabled` Guard (`AI/AIPilot.gd`)
+- `_physics_process` returns early (no `_apply_controls` call) when `controls_disabled` is set — prevents the AI from interfering with the catapult, tractor bots, or recovery sequence.
+- Previously, calling `_apply_controls(throttle=0)` triggered `engine_stop()`, killing the catapult spool-up.
+
+#### Post-Launch Terrain Avoidance Fix (`AI/AIPilot.gd`)
+- `emergency_min_agl_m = 180 m` was firing immediately after catapult launch (aircraft at ~15 m AGL), slamming `pitch_input = 1.0` and causing a violent loop.
+- Fixed: `_check_emergency_terrain_avoidance()` returns early for `LAUNCHING` (always) and for `CLIMBING` when climbing (`linear_velocity.y > 2 m/s`).
+
+#### LAUNCHING State (`AI/AIPilot.gd`)
+- Applies `pitch_input = 0.05` when `vel.y < 2 m/s` to prevent gravity drag into the ground during the brief deck-clearance phase.
+- Transitions to `CLIMBING` once aircraft is 300 m from the recorded launch position.
+
+#### CLIMBING State Overhaul (`AI/AIPilot.gd`)
+- **Waypoint:** Fixed 3D point at `carrier_position + launch_forward × 600 m`, altitude = `carrier.y + 200 m`. Computed from stable inputs (carrier position + launch heading) so it is the same point every frame.
+- **Exit condition:** `distance_to(nav_waypoint) < 200 m` — aircraft physically clears the waypoint. Previous altitude-only check was broken (waypoint was recalculated 1000 m ahead each frame, so distance was always ~1000 m).
+- **Aggressive climb:** forces `pitch_input = 0.5` and `_smoothed_pitch_input = 0.5` directly while more than 50 m below target, bypassing the slow lerp ramp.
+- **Pitch authority:** CLIMBING now uses `vs_limit = 25 m/s`, `vs_gain = 0.15` in `_navigate_to_waypoint()` (vs normal 10/0.08).
+- **Gear/flap retraction:** runs on the first airborne frame in CLIMBING as before.
+
+#### Land-After-Launch Flow
+- `land_after_launch` flag (set by FDM before catapult) → cleared in `_state_launching()` when deck-clear, sets `_land_after_climb = true`.
+- When climb waypoint is cleared and `_land_after_climb` is set → calls `start_landing()`.
+- This ensures the aircraft goes through a proper climb (gear up, altitude gained) before attempting the approach, rather than diving straight from the deck toward the carrier.
+
+---
+
+### Session Summary (2026-03-04) - AI Carrier Landing & Hangar Recovery
+
+**Overview:** AI aircraft can now complete the full carrier cycle autonomously: fly an approach, catch the arresting wire, stop safely, and be moved to the hangar without any player input.
+
+#### AI Bomb Attack Improvements
+- **CCIP tolerance tightened** from 50 m to 30 m for more accurate release.
+- **Improving-accuracy hold:** AI waits for peak CCIP accuracy before releasing—holds fire while predicted miss is still decreasing and > 8 m, then releases at the minimum.
+- **Systematic undershoot fixed:** `bomb_dive_aim_height_m` changed from 80 m to 0 m so the ballistic arc sweeps through the target rather than stopping short. Terrain clearance margin reduced from 80 m to 25 m. Result: bomb miss distance improved from ~32 m to ~22 m.
+- **Multi-bomb drops restored:** 3 bombs per run with 0.2 s spacing (was 1 bomb; 0.5 s spacing was too long for CCIP to remain within tolerance).
+- **Attack setup altitude** raised from 500 m to 650 m offset for better flight-path-angle buildup.
+
+#### Bank Angle Judder Fix (`AI/AIPilot.gd`)
+- Root cause: `desired_bank` was computed from `lateral_ratio` (local aircraft frame), which oscillates as the aircraft rolls, causing feedback near max bank.
+- Fix: switched to world-space `bearing_err_rad` for both normal and precise aim modes. Bank is now `clamp(bearing_err_rad × gain, ±bank_limit)`.
+
+#### Carrier Landing Tumble Fix (`LandCarrier/ArrestingCable.gd`, `LandingGear/LandingGear.gd`)
+- **Root cause:** Lateral centering force was applied at the hook position (2.4 m behind, 1.7 m below CG), generating yaw and roll torques. Roll developed at ~200°/s; roll stabilization was capped too low (~20 kN·m).
+- **Fixes applied:**
+  - Lateral centering force moved to CG (`apply_central_force` instead of `apply_force` at hook offset).
+  - `roll_max_torque_g_m` raised 3.0 → 30.0 (cap lifted from ~20 kN·m to ~200 kN·m).
+  - Added `deck_hold_force` (15,000 N per wheel) in LandingGear: pulls each wheel toward the deck surface during cable engagement to resist flipping.
+- **Result:** Roll holds at 0.0° throughout arrest; all wheels stay on deck; aircraft stops cleanly.
+
+#### AI Post-Landing Recovery (`AI/AIPilot.gd`, `LandCarrier/FlightDeckManager.gd`)
+- **Problem:** After the arresting cable auto-released (speed < 2 m/s), AIPilot resumed `_state_landing` and hit the stall-speed guard (`throttle = 1.0`), causing the aircraft to accelerate away.
+- **AIPilot changes:**
+  - `_physics_process` checks `controls_disabled` meta at entry; if set, zeros all inputs, calls `_apply_controls()`, and returns—preventing the AI from fighting FlightDeckManager.
+  - When arrest ends (`_arrest_engaged_prev` → false), transitions to `State.IDLE` and calls `_request_carrier_recovery()` instead of resuming the approach.
+  - `_request_carrier_recovery()` finds FlightDeckManager via group and calls `start_post_arrest_recovery(aircraft)`.
+- **FlightDeckManager changes:**
+  - New `start_post_arrest_recovery(aircraft)`: sets `parking_brake` + `controls_disabled`, stows tailhook, dispatches tractor/elevator recovery job. Skips if already in `RECOVERY_IN_PROGRESS` (signal-based path already running).
+- **Result:** Aircraft is automatically moved to elevator and stored in hangar after landing, with no player input required.
+
+---
+
+### Session Summary (2026-03-03) - Arresting Cable Physics Overhaul
+*   **Goal:** Tune the arresting cable for a ~30m, non-linear stop and improve physical realism.
+*   **Mass-Adaptive Braking:** Replaced fixed-force braking with a mass-adaptive system. The cable now calculates the required force based on the aircraft's mass, ensuring consistent performance for any aircraft (e.g., a 700kg fighter or a 16,000kg bomber).
+*   **Quadratic Damping:** Implemented non-linear quadratic damping (`F ∝ v²`). This creates a more realistic feel, with a strong initial pull at high speed that eases off as the aircraft slows, resulting in a gentle roll-out at the end.
+*   **Pitching Moment Dynamics:** The braking force is now applied at the tailhook's physical location instead of the aircraft's center of gravity. This introduces a natural nose-down pitching moment, causing the suspension to compress and react dynamically.
+*   **Stability Enhancements:**
+    *   Added a tunable artificial downforce (`engaged_downforce_g`) that is applied to each wheel individually, keeping the aircraft firmly planted on the deck during high-G deceleration.
+    *   Increased the authority of the roll-stabilization torque to counteract the pitching moment and prevent rollovers.
+*   **Bug Fixes & Refinements:**
+    *   Corrected a physics bug where the spring force could push the aircraft forward.
+    *   Fixed a G-force calculation error in the AI pilot's debug telemetry.
+    *   Resolved an issue that could cause the aircraft to "rubber-band" backwards after stopping.
+    *   Added robust debug logging for gear compression to monitor suspension performance.
+
+---
 
 ### Session Summary (2025) - AI Ground Attack & Bombing System
 
@@ -579,3 +744,4 @@ particle_manager.add_spark_particle(mesh_instance, 2.0, Vector3(0.5, 0.5, 0.5), 
 		*   Pitch: 0.5 P, 0.3 D (reduced from 2.0)
 		*   Altitude: 0.005 P, 0.01 D
 		*   Heading: 0.3 P, 0.1 D
+

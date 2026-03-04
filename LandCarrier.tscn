@@ -1,17 +1,17 @@
-[gd_scene load_steps=18 format=3 uid="uid://b8x70a02a1b2c"]
+[gd_scene load_steps=19 format=3 uid="uid://b8x70a02a1b2c"]
 
 [ext_resource type="Script" uid="uid://dqly5yht3qjks" path="res://LandCarrier.gd" id="1_landcarrier"]
 [ext_resource type="PackedScene" uid="uid://carriertread" path="res://CarrierTread.tscn" id="3_tread"]
 [ext_resource type="Script" uid="uid://bdcuxticnrnfj" path="res://LandCarrier/FlightDeckManager.gd" id="4_6n087"]
 [ext_resource type="PackedScene" path="res://LandCarrier/SimpleTractorBot.tscn" id="5_olyyp"]
-[ext_resource type="PackedScene" path="res://Models/Land carrier NEW.glb" id="6_carrier_model"]
+[ext_resource type="PackedScene" uid="uid://7fxt8bm8o8ml" path="res://Models/Land carrier NEW.glb" id="6_carrier_model"]
 [ext_resource type="Script" uid="uid://1dc3wqfq3v2j" path="res://TreadPositionHelper.gd" id="7_tread_helper"]
 [ext_resource type="Script" uid="uid://byhupfh0501o1" path="res://LandCarrier/Catapult.gd" id="8_0rqhh"]
 [ext_resource type="PackedScene" uid="uid://jd7fjuhmfvd4" path="res://CarrierElevator.tscn" id="8_elevator"]
 [ext_resource type="Script" uid="uid://cwglf226m425r" path="res://CarrierCollisionSetup.gd" id="9_collision"]
 [ext_resource type="Script" uid="uid://b6ioeynvc7a1n" path="res://LandCarrierInput.gd" id="10_input"]
 [ext_resource type="Script" uid="uid://c64jvhgmdrm6e" path="res://LandCarrier/BridgeCamera.gd" id="11_eyg35"]
-[ext_resource type="Script" path="res://LandCarrier/StandaloneCameraSwitcher.gd" id="11_standalone_cam"]
+[ext_resource type="Script" uid="uid://bfg081xviy2ej" path="res://LandCarrier/StandaloneCameraSwitcher.gd" id="11_standalone_cam"]
 [ext_resource type="PackedScene" uid="uid://c31lkp3a7sq3a" path="res://LandCarrier/arresting_cable.tscn" id="12_eyg35"]
 [ext_resource type="PackedScene" path="res://LandCarrier/DeckLights.tscn" id="13_decklights"]
 
@@ -143,21 +143,39 @@ script = ExtResource("11_eyg35")
 transform = Transform3D(-1, 0, 8.74228e-08, 0, 1, 0, -8.74228e-08, 0, -1, 0, 0, 5.92204)
 
 [node name="Arresting Cable 1" parent="." instance=ExtResource("12_eyg35")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -64)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -62.4367)
+linear_c = 100.0
 braking_spring_stiffness_n_per_m = 4000.0
 braking_damping_n_s_per_m = 4000.0
 
 [node name="Arresting Cable 2" parent="." instance=ExtResource("12_eyg35")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -56)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -51.5947)
+linear_c = 100.0
 
 [node name="Arresting Cable 3" parent="." instance=ExtResource("12_eyg35")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -48)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -39.9283)
+linear_c = 100.0
 
 [node name="DeckCenterStart" type="Marker3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, -72.9282)
 
 [node name="DeckCenterEnd" type="Marker3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 72.5944)
+
+[node name="approach_0" type="Marker3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1400, 200, -1400)
+
+[node name="approach_1" type="Marker3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 200, 200, -1200)
+
+[node name="approach_2" type="Marker3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 100, -1000)
+
+[node name="approach_3" type="Marker3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 40, -600)
+
+[node name="approach_4" type="Marker3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, -47.2995)
 
 [node name="DeckLights" parent="." instance=ExtResource("13_decklights")]
 start_marker_path = NodePath("../DeckCenterStart")

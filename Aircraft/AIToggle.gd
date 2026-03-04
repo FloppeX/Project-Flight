@@ -63,22 +63,23 @@ func enable_ai():
 	if ai_pilot:
 		ai_pilot.initialize(aircraft)
 		ai_pilot.set_physics_process(true)
-		# If airborne, start in search mode (figure-eight patrol)
-		if aircraft.global_position.y > 10:
+		# If deck manager owns the aircraft (catapult/recovery sequence), go to LAUNCHING.
+		# This must be checked before the altitude check — the aircraft is on deck (Y > 10)
+		# but controls are locked; launch() sets the correct launch_position reference point.
+		if aircraft.has_meta("controls_disabled"):
+			ai_pilot.launch()
+		# If airborne and free, start in search mode (figure-eight patrol)
+		elif aircraft.global_position.y > 10:
 			# Update carrier position so figure-eight is centered correctly
 			var carriers = get_tree().get_nodes_in_group("carrier")
 			if carriers.size() > 0 and carriers[0] is Node3D:
 				ai_pilot.carrier_position = carriers[0].global_position
 			else:
 				ai_pilot.carrier_position = aircraft.global_position
-			
+
 			# Clear old waypoints to force regeneration of figure-eight
 			ai_pilot.waypoints.clear()
 			ai_pilot.change_state(AIPilot.State.SEARCH)
-			pass
-		# If launching, start in launching mode
-		elif aircraft.has_meta("controls_disabled"):
-			ai_pilot.change_state(AIPilot.State.LAUNCHING)
 
 	pass
 

@@ -130,8 +130,7 @@ gear_visuals = [null, null, null]
 InitialState = 1
 DeploySound = ExtResource("16_biq0k")
 StowSound = ExtResource("17_1st6a")
-spring_strength = 4000.0
-spring_damping = 1000.0
+spring_strength = 12000.0
 wheel_rest_height = 0.5
 max_compression = 0.4
 
@@ -210,26 +209,6 @@ spring_damping = 1000.0
 
 [node name="AIPilot" type="Node" parent="."]
 script = ExtResource("34_aipil")
-sensor_range = null
-ground_check_distance = null
-terrain_ahead_check_distance = null
-terrain_warning_distance = null
-skill_level = null
-aggressiveness = null
-rtb_health_threshold = null
-debug_enabled = null
-max_pitch_angle = null
-max_roll_angle = null
-patrol_altitude_m = null
-bank_cmd_limit_deg = null
-bank_limit_when_low_deg = null
-climb_rate_limit_mps = null
-descend_rate_limit_mps = null
-stall_speed_mps = null
-stall_margin_mps = null
-throttle_bank_gain = null
-flight_path_angle_limit_deg = null
-nav_update_hz = null
 
 [node name="AIToggle" type="Node" parent="."]
 script = ExtResource("33_aitgl")

@@ -146,6 +146,14 @@ func _build_camera_list():
 			if cam:
 				_cameras.append(cam)
 
+func get_watched_aircraft() -> RigidBody3D:
+	"""Return the aircraft whose camera is currently active, or null if watching the bridge."""
+	_build_camera_list()
+	var active_cam: Camera3D = _get_active_camera()
+	if active_cam == null:
+		return null
+	return _get_camera_aircraft(active_cam) as RigidBody3D
+
 func _activate_camera(cam: Camera3D):
 	# Deactivate all known cameras
 	for c in _cameras:

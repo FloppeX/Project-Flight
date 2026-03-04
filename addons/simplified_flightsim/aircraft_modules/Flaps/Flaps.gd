@@ -62,14 +62,17 @@ func process_physic_frame(delta):
 			# Just complete it
 			flap_position = target_flap_position
 			is_moving = false
-			sfx_player.stop()
+			if sfx_player:
+				sfx_player.stop()
 		else:
 			# Still some way to go
 			flap_position += (frame_move_delta) if target_flap_position > flap_position else (-frame_move_delta)
 	
 	
-	# Apply effects
-	if flap_position > 0:
+	# Lift/drag effects: SimpleAero handles these via flaps_drag_multiplier and flaps_stall_speed_factor.
+	# This module only tracks flap_position for UI and for SimpleAero._is_flaps_deployed().
+	# (Legacy aircraft with lift_intensity/drag_intensity_vector use the block below.)
+	if flap_position > 0 and aircraft.get("lift_intensity") != null and aircraft.get("drag_intensity_vector") != null:
 		aircraft.lift_intensity *= lerp(1.0, LiftFlapFactor, flap_position)
 		aircraft.drag_intensity_vector.z *= lerp(1.0, DragFlapFactor, flap_position)
 
@@ -82,7 +85,7 @@ func flap_set_position(value: float):
 	target_flap_position = value
 	if not is_moving:
 		is_moving = true
-		if FlapSoundLoop:
+		if sfx_player:
 			sfx_player.play()
 	
 	request_update_interface()

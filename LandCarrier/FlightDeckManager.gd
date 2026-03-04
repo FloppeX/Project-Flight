@@ -240,6 +240,65 @@ func _find_arrested_aircraft() -> RigidBody3D:
 		return ac
 	return null
 
+func start_post_arrest_recovery(aircraft: RigidBody3D) -> void:
+	"""Called by AIPilot when the arresting cable has already auto-released.
+	Skips the power-down timer and goes straight to hangar storage."""
+	if not is_instance_valid(aircraft):
+		return
+	# If FlightDeckManager already started a managed recovery via signal, let it finish.
+	if current_state == DeckState.RECOVERY_IN_PROGRESS:
+		print("[FlightDeckManager] Post-arrest recovery requested but already in RECOVERY — skipping duplicate")
+		return
+	print("[FlightDeckManager] Starting post-arrest recovery for ", aircraft.name)
+	deck_aircraft = aircraft
+	current_state = DeckState.RECOVERY_IN_PROGRESS
+	aircraft.set_meta("parking_brake", true)
+	aircraft.set_meta("controls_disabled", true)
+	var th = _find_tailhook(aircraft)
+	if is_instance_valid(th) and th.has_method("stow"):
+		th.stow()
+	_dispatch_recovery_job()
+	_pending_store_aircraft = aircraft
+
+func _configure_retrieved_aircraft_as_ai(aircraft: RigidBody3D) -> void:
+	"""Set up a hangar-retrieved aircraft for AI control with land-after-launch behaviour."""
+	aircraft.add_to_group("friendlies")
+	aircraft.add_to_group("ai_aircraft")
+	aircraft.remove_from_group("aircraft")  # Ensure not treated as player plane
+
+	# Disable player-only nodes
+	for node_name in ["CameraController", "HeadsUpDisplay", "InstrumentPanel", "ControlTargeting"]:
+		var node = aircraft.find_child(node_name, true, false)
+		if node:
+			node.set_process(false)
+			node.set_physics_process(false)
+			node.set_process_input(false)
+			if node is CanvasItem:
+				node.visible = false
+			elif node is Node3D:
+				node.visible = false
+
+	# Keep camera tripods so the player can watch this plane
+	for cam_name in ["CameraCockpit", "CameraChase", "CameraCinematic"]:
+		var tripod = aircraft.get_node_or_null(cam_name)
+		if tripod:
+			tripod.set_process(true)
+			tripod.set_physics_process(true)
+
+	# Enable AI but keep it muted until the catapult shuttle connects.
+	# controls_disabled is cleared by request_launch_sequence() just before launch().
+	aircraft.set_meta("controls_disabled", true)
+
+	var ai_toggle = aircraft.find_child("AIToggle", true, false)
+	if ai_toggle and ai_toggle.has_method("enable_ai"):
+		ai_toggle.enable_ai()
+
+	# Tell AI to go straight to landing approach after clearing the deck
+	var ai_pilot = aircraft.find_child("AIPilot", true, false)
+	if ai_pilot and "land_after_launch" in ai_pilot:
+		ai_pilot.land_after_launch = true
+		print("[FlightDeckManager] AI configured: will begin landing approach after deck clearance")
+
 # --- Helpers ---
 func _find_nodes_by_script(root: Node, script_name: String) -> Array[Node]:
 	var found_nodes: Array[Node] = []
@@ -711,6 +770,9 @@ func _create_aircraft_at_hangar_level() -> RigidBody3D:
 		print("[FlightDeckManager] ERROR: Failed to instantiate aircraft from template")
 		return null
 
+	# Mute all controls immediately — before add_child so _physics_process never sees an open throttle.
+	aircraft.set_meta("controls_disabled", true)
+
 	# Add to scene
 	var main_scene = get_tree().current_scene
 	main_scene.add_child(aircraft)
@@ -1170,6 +1232,9 @@ func _complete_retrieval_sequence():
 
 	# Wait a moment for physics to fully settle
 	await get_tree().create_timer(0.5).timeout
+
+	# Configure as AI-controlled before launch
+	_configure_retrieved_aircraft_as_ai(aircraft)
 
 	# Automatically start launch sequence
 	print("[FlightDeckManager] Retrieval sequence complete - automatically starting launch sequence")

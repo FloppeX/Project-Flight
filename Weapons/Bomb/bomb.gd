@@ -8,6 +8,7 @@ class_name Bomb
 
 var hardpoint: Hardpoint
 var last_fire_time: float = 0.0
+var last_bomb_dropped: BombProjectile = null  # Set after each drop for debug access
 
 func _ready():
 	delete_when_empty = true
@@ -62,7 +63,8 @@ func fire() -> bool:
 	
 	# Use the projectile's fire method
 	bomb_projectile.fire(drop_velocity, aircraft)
-	
+	last_bomb_dropped = bomb_projectile  # Expose for debug access by AI
+
 	ammo_count -= 1
 	
 	# Self-destruct if enabled and empty

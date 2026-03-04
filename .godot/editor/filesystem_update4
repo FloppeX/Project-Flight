@@ -14,3 +14,12 @@ res://Projectiles/AG Missile/ag_missile.gd
 res://Projectiles/BombNew/bomb_new.gd
 res://Projectiles/Explosion/explosion.gd
 res://Weapons/Bomb/bomb.gd
+res://example/SimpleAero.gd
+res://addons/simplified_flightsim/aircraft_modules/Flaps/Flaps.gd
+res://LandCarrier/ArrestingCable.gd
+res://addons/simplified_flightsim/aircraft_modules/LandingGear/LandingGear.gd
+res://CompleteFighterJet.tscn
+res://LandCarrier/arresting_cable.tscn
+res://LandCarrier/FlightDeckManager.gd
+res://LandCarrier/Catapult.gd
+res://Aircraft/AIToggle.gd

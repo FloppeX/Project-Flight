@@ -165,6 +165,6 @@ This is currently a single-player development project. AI assistants helping wit
 
 ---
 
-**Last Updated:** 2025-02-15
+**Last Updated:** 2026-03-03
 **Godot Version:** 4.4.1.stable.official.49a5bc7b6
 **Platform:** Windows/Linux/macOS

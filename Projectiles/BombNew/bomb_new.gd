@@ -47,24 +47,36 @@ func _on_body_entered(body):
 	_trigger_explosion(body)
 
 func _trigger_explosion(hit_body: Node = null):
+	# Debug: report actual vs intended impact
+	var impact_pos: Vector3 = global_position
+	if has_meta("debug_aim_target"):
+		var aim: Vector3 = get_meta("debug_aim_target")
+		var predicted: Vector3 = get_meta("debug_predicted_impact", Vector3.ZERO)
+		var miss: float = Vector2(impact_pos.x - aim.x, impact_pos.z - aim.z).length()
+		print("━━━━ BOMB IMPACT ━━━━")
+		print("  actual    pos=", snapped(impact_pos, Vector3.ONE * 0.1))
+		print("  target    pos=", snapped(aim, Vector3.ONE * 0.1), "  miss=", snapped(miss, 0.1), "m")
+		if predicted != Vector3.ZERO:
+			var pred_miss: float = Vector2(impact_pos.x - predicted.x, impact_pos.z - predicted.z).length()
+			print("  predicted pos=", snapped(predicted, Vector3.ONE * 0.1), "  predict_err=", snapped(pred_miss, 0.1), "m")
+
 	# Create custom explosion with missile's damage values
 	if explosion_scene:
 		var explosion = explosion_scene.instantiate()
 		get_tree().current_scene.add_child(explosion)
-		
+
 		# Position explosion 1m above ground to avoid line-of-sight issues
-		explosion.global_position = global_position + Vector3.UP * 1.0
-		
+		explosion.global_position = impact_pos + Vector3.UP * 1.0
+
 		# Set explosion damage to match missile damage
 		explosion.max_damage = damage * explosion_damage_multiplier
 		explosion.min_damage = damage * 0.5
 		explosion.blast_radius = explosion_radius
 		explosion.use_line_of_sight = false
-		
-		
+
 		# Always create scorch mark for missile explosions since they detonate near ground
 		explosion.create_scorch_mark()
-	
+
 	# Mark as impacted and cleanup
 	has_impacted = true
 	queue_free()

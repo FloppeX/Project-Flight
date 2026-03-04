@@ -20,6 +20,10 @@ func _input(event):
 			_spawn_enemy()
 		elif event.keycode == KEY_O:
 			_toggle_ai_attack_mode()
+		elif event.keycode == KEY_L:
+			_command_land()
+		elif event.keycode == KEY_U:
+			_spawn_on_approach()
 
 func _spawn_enemy():
 	if not _aircraft_scene:
@@ -156,11 +160,126 @@ func _schedule_respawn(aircraft: RigidBody3D):
 	_active_ai_planes.erase(aircraft)
 	_prune_active_ai_planes()
 
-	if _active_ai_planes.size() < max_ai_planes:
-		_spawn_enemy()
+	# No automatic respawn — planes are only spawned manually via key press.
 
 func _prune_active_ai_planes():
 	_active_ai_planes = _active_ai_planes.filter(func(p): return is_instance_valid(p))
+
+func _spawn_on_approach():
+	"""U key: spawn an AI plane at approach_0 (alt 450 m), pointed at approach_1, already in landing mode."""
+	var root := get_tree().current_scene
+	var wp0 := root.find_child("approach_0", true, false) as Node3D
+	var wp1 := root.find_child("approach_1", true, false) as Node3D
+	if not wp0 or not wp1:
+		print("[EnemyAircraftSpawner] U: approach_0/1 nodes not found in scene")
+		return
+
+	if not _aircraft_scene:
+		return
+	_prune_active_ai_planes()
+	if _active_ai_planes.size() >= max_ai_planes:
+		print("[EnemyAircraftSpawner] U: max AI planes reached")
+		return
+
+	var aircraft = _aircraft_scene.instantiate() as RigidBody3D
+	if not aircraft:
+		return
+
+	aircraft.name = "FriendlyAI"
+	get_tree().current_scene.add_child(aircraft)
+
+	# Place at approach_0 XZ, altitude 450 m, pointed toward approach_1
+	var spawn_pos := Vector3(wp0.global_position.x, 450.0, wp0.global_position.z)
+	aircraft.global_position = spawn_pos
+	var to_wp1 := Vector3(wp1.global_position.x - spawn_pos.x, 0.0, wp1.global_position.z - spawn_pos.z).normalized()
+	var yaw := atan2(to_wp1.x, to_wp1.z)
+	aircraft.global_rotation = Vector3(0.0, yaw, 0.0)
+	aircraft.linear_velocity = to_wp1 * 80.0
+
+	await get_tree().process_frame
+	await get_tree().process_frame
+	aircraft.remove_from_group("aircraft")
+	aircraft.add_to_group("friendlies")
+	aircraft.add_to_group("ai_aircraft")
+
+	var disable_nodes = ["CameraController", "HeadsUpDisplay", "InstrumentPanel", "ControlTargeting"]
+	for node_name in disable_nodes:
+		var node = aircraft.find_child(node_name, true, false)
+		if node:
+			node.set_process(false)
+			node.set_physics_process(false)
+			node.set_process_input(false)
+			if node is CanvasItem:
+				node.visible = false
+			elif node is Node3D:
+				node.visible = false
+
+	for cam_name in ["CameraCockpit", "CameraChase", "CameraCinematic"]:
+		var tripod = aircraft.get_node_or_null(cam_name)
+		if tripod:
+			tripod.set_process(true)
+			tripod.set_physics_process(true)
+
+	# Gear stowed — will be deployed by AIPilot at approach_2
+	var control_gear = aircraft.find_child("ControlLandingGear", true, false)
+	if control_gear and control_gear.has_method("send_to_landing_gears"):
+		control_gear.send_to_landing_gears("stow")
+		control_gear.send_to_tailhooks("stow")
+		if control_gear.has_method("send_to_tailhook_simple"):
+			control_gear.send_to_tailhook_simple(false)
+		if "gear_down_state" in control_gear:
+			control_gear.gear_down_state = false
+		if control_gear.has_method("_set_collider_disabled"):
+			control_gear._set_collider_disabled(true)
+
+	if aircraft.has_signal("crashed"):
+		aircraft.crashed.connect(_on_enemy_crashed.bind(aircraft))
+	if aircraft.has_signal("destroyed"):
+		aircraft.destroyed.connect(_on_enemy_destroyed.bind(aircraft))
+
+	_active_ai_planes.append(aircraft)
+
+	await get_tree().create_timer(0.5).timeout
+	if not is_instance_valid(aircraft):
+		return
+
+	var ai_toggle = aircraft.find_child("AIToggle", true, false)
+	if ai_toggle and ai_toggle.has_method("enable_ai"):
+		ai_toggle.enable_ai()
+
+	var ai_pilot = aircraft.find_child("AIPilot", true, false)
+	if not ai_pilot or not ai_pilot.has_method("start_landing"):
+		push_error("[EnemyAircraftSpawner] U: no AIPilot on spawned aircraft")
+		return
+
+	# start_landing() finds all waypoints, sets phase 0, enters APPROACH state.
+	# Override phase to 1 so it heads straight to approach_1 (we spawned at approach_0).
+	var ok: bool = ai_pilot.start_landing()
+	if ok:
+		ai_pilot._landing_phase = 1
+		print("[EnemyAircraftSpawner] U: spawned on approach at approach_0, heading to approach_1")
+	else:
+		print("[EnemyAircraftSpawner] U: approach waypoints not found — place approach_0..4 in scene")
+
+func _command_land():
+	"""L key: tell the currently watched AI plane to begin its carrier landing approach."""
+	var switcher = get_tree().get_first_node_in_group("standalone_camera_switcher")
+	if not switcher or not switcher.has_method("get_watched_aircraft"):
+		print("[EnemyAircraftSpawner] L: camera switcher not found")
+		return
+	var aircraft: RigidBody3D = switcher.get_watched_aircraft()
+	if not aircraft or not is_instance_valid(aircraft):
+		print("[EnemyAircraftSpawner] L: no aircraft currently being watched")
+		return
+	var ai_pilot = aircraft.find_child("AIPilot", true, false)
+	if not ai_pilot or not ai_pilot.has_method("start_landing"):
+		print("[EnemyAircraftSpawner] L: no AIPilot on watched aircraft")
+		return
+	var ok: bool = ai_pilot.start_landing()
+	if ok:
+		print("[EnemyAircraftSpawner] L: landing commanded for ", aircraft.name)
+	else:
+		print("[EnemyAircraftSpawner] L: approach_0/1/2/3/4 waypoints not found in scene — place them first")
 
 func _toggle_ai_attack_mode():
 	"""Toggle all AI planes between patrol mode and attack mode (O key)."""
