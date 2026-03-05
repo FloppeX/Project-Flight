@@ -5,14 +5,20 @@ extends Node3D
 @export var respawn_delay: float = 3.0
 @export var patrol_side_length: float = 2000.0
 @export var max_ai_planes: int = 10
+@export var duel_range_from_carrier_m: float = 1000.0
+@export var duel_altitude_m: float = 600.0
 
 var _aircraft_scene: PackedScene
+var _enemy_aircraft_scene: PackedScene
 var _active_ai_planes: Array[RigidBody3D] = []
 
 func _ready():
 	_aircraft_scene = load("res://CompleteFighterJet.tscn")
 	if not _aircraft_scene:
 		push_error("[EnemyAircraftSpawner] Failed to load CompleteFighterJet.tscn")
+	_enemy_aircraft_scene = load("res://Enemies/EnemyFighter.tscn")
+	if not _enemy_aircraft_scene:
+		push_error("[EnemyAircraftSpawner] Failed to load Enemies/EnemyFighter.tscn")
 
 func _input(event):
 	if event is InputEventKey and event.pressed and not event.echo:
@@ -24,6 +30,8 @@ func _input(event):
 			_command_land()
 		elif event.keycode == KEY_U:
 			_spawn_on_approach()
+		elif event.keycode == KEY_D:
+			_spawn_dogfight_duel()
 
 func _spawn_enemy():
 	if not _aircraft_scene:
@@ -103,6 +111,119 @@ func _spawn_enemy():
 
 	await get_tree().create_timer(0.5).timeout
 	_configure_ai_patrol(aircraft)
+
+func _spawn_ai_fighter(scene: PackedScene, display_name: String, team_id: int, extra_group: String, spawn_pos: Vector3, forward_dir: Vector3, initial_speed: float) -> RigidBody3D:
+	if not scene:
+		return null
+	var aircraft := scene.instantiate() as RigidBody3D
+	if not aircraft:
+		return null
+	aircraft.name = display_name
+	if "team" in aircraft:
+		aircraft.team = team_id
+	get_tree().current_scene.add_child(aircraft)
+
+	aircraft.global_position = spawn_pos
+	var flat_fwd := Vector3(forward_dir.x, 0.0, forward_dir.z).normalized()
+	if flat_fwd.length() < 0.01:
+		flat_fwd = Vector3.FORWARD
+	var yaw := atan2(flat_fwd.x, flat_fwd.z)
+	aircraft.global_rotation = Vector3(0.0, yaw, 0.0)
+	aircraft.linear_velocity = flat_fwd * initial_speed
+
+	# Wait for aircraft._ready() to finish adding default groups.
+	await get_tree().process_frame
+	await get_tree().process_frame
+	aircraft.remove_from_group("aircraft")
+	aircraft.add_to_group("ai_aircraft")
+	if not extra_group.is_empty():
+		aircraft.add_to_group(extra_group)
+
+	# Disable player-only UI/camera controller/targeting.
+	for node_name in ["CameraController", "HeadsUpDisplay", "InstrumentPanel", "ControlTargeting"]:
+		var node = aircraft.find_child(node_name, true, false)
+		if node:
+			node.set_process(false)
+			node.set_physics_process(false)
+			node.set_process_input(false)
+			if node is CanvasItem:
+				node.visible = false
+			elif node is Node3D:
+				node.visible = false
+
+	for cam_name in ["CameraCockpit", "CameraChase", "CameraCinematic"]:
+		var tripod = aircraft.get_node_or_null(cam_name)
+		if tripod:
+			tripod.set_process(true)
+			tripod.set_physics_process(true)
+
+	# Spawn airborne with gear up.
+	var control_gear = aircraft.find_child("ControlLandingGear", true, false)
+	if control_gear and control_gear.has_method("send_to_landing_gears"):
+		control_gear.send_to_landing_gears("stow")
+		control_gear.send_to_tailhooks("stow")
+		if control_gear.has_method("send_to_tailhook_simple"):
+			control_gear.send_to_tailhook_simple(false)
+		if "gear_down_state" in control_gear:
+			control_gear.gear_down_state = false
+		if control_gear.has_method("_set_collider_disabled"):
+			control_gear._set_collider_disabled(true)
+
+	if aircraft.has_signal("crashed"):
+		aircraft.crashed.connect(_on_enemy_crashed.bind(aircraft))
+	if aircraft.has_signal("destroyed"):
+		aircraft.destroyed.connect(_on_enemy_destroyed.bind(aircraft))
+	_active_ai_planes.append(aircraft)
+	return aircraft
+
+func _spawn_dogfight_duel() -> void:
+	"""D key: spawn one friendly + one enemy in a head-on dogfight setup."""
+	if not _aircraft_scene or not _enemy_aircraft_scene:
+		print("[EnemyAircraftSpawner] D: missing aircraft scenes")
+		return
+	_prune_active_ai_planes()
+	if _active_ai_planes.size() + 2 > max_ai_planes:
+		print("[EnemyAircraftSpawner] D: max AI planes would be exceeded")
+		return
+
+	var carrier_pos: Vector3 = _get_carrier_position()
+	var carrier_fwd: Vector3 = _get_carrier_forward()
+	var forward_flat: Vector3 = Vector3(carrier_fwd.x, 0.0, carrier_fwd.z).normalized()
+	if forward_flat.length() < 0.01:
+		forward_flat = Vector3.FORWARD
+	var altitude_y: float = carrier_pos.y + duel_altitude_m
+
+	var friendly_pos: Vector3 = carrier_pos + forward_flat * duel_range_from_carrier_m
+	friendly_pos.y = altitude_y
+	var enemy_pos: Vector3 = carrier_pos - forward_flat * duel_range_from_carrier_m
+	enemy_pos.y = altitude_y
+
+	var friendly: RigidBody3D = await _spawn_ai_fighter(_aircraft_scene, "FriendlyDuelAI", 1, "friendlies", friendly_pos, -forward_flat, spawn_speed)
+	var enemy: RigidBody3D = await _spawn_ai_fighter(_enemy_aircraft_scene, "EnemyDuelAI", 2, "enemies", enemy_pos, forward_flat, spawn_speed)
+	if not is_instance_valid(friendly) or not is_instance_valid(enemy):
+		print("[EnemyAircraftSpawner] D: failed to spawn duel aircraft")
+		return
+
+	await get_tree().create_timer(0.5).timeout
+	var friendly_toggle = friendly.find_child("AIToggle", true, false)
+	if friendly_toggle and friendly_toggle.has_method("enable_ai"):
+		friendly_toggle.enable_ai()
+	var enemy_toggle = enemy.find_child("AIToggle", true, false)
+	if enemy_toggle and enemy_toggle.has_method("enable_ai"):
+		enemy_toggle.enable_ai()
+
+	var friendly_pilot = friendly.find_child("AIPilot", true, false)
+	var enemy_pilot = enemy.find_child("AIPilot", true, false)
+	if friendly_pilot and enemy_pilot and friendly_pilot is AIPilot and enemy_pilot is AIPilot:
+		friendly_pilot.dogfight_enabled = true
+		enemy_pilot.dogfight_enabled = true
+		friendly_pilot.ground_attack_enabled = false
+		enemy_pilot.ground_attack_enabled = false
+		friendly_pilot.set_target(enemy)
+		enemy_pilot.set_target(friendly)
+		print("[EnemyAircraftSpawner] D: spawned dogfight duel. Separation=", snapped(friendly.global_position.distance_to(enemy.global_position), 1.0), "m Alt=", snapped(duel_altitude_m, 1.0), "m")
+	else:
+		print("[EnemyAircraftSpawner] D: missing AIPilot on one or both duel aircraft")
 
 func _configure_ai_patrol(aircraft: RigidBody3D):
 	if not is_instance_valid(aircraft):

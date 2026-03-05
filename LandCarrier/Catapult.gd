@@ -19,6 +19,8 @@ signal launch_sequence_aborted
 @export var shuttle_speed: float = 30.0       # Constant shuttle speed (m/s)
 @export var approach_speed_mps: float = 2.0   # Slow approach speed when moving to latch
 @export var return_speed_mps: float = 10.0 # Speed shuttle moves back after launch
+@export var tow_position_gain: float = 12.0   # Converts nose-position error to corrective target velocity
+@export var tow_force_max: float = 250000.0   # Caps tow force to avoid instability
 
 # Input
 @export var launch_action: String = "fire_weapon"
@@ -27,7 +29,7 @@ signal launch_sequence_aborted
 # Deck snap / elevation configuration used by teleport path
 @export var deck_snap_mask: int = (1 << 0) | (1 << 9) # default + terrain
 @export var deck_clearance: float = 0.2               # clearance above deck on settle
-@export var teleport_snap_to_deck: bool = true        # snap teleport height to deck
+@export var teleport_snap_to_deck: bool = false       # optional deck ray-snap for generic alignment path
 @export var heading_offset_deg: float = 0.0           # compensate model yaw misalignment
 @export var deck_forward_is_plus_z: bool = true       # carrier now uses +Z as forward
 
@@ -43,7 +45,7 @@ var _saved_gravity_scale: float = 1.0
 var _saved_collision_layer: int = 0
 var _saved_collision_mask: int = 0
 var _settling: bool = false
-var _settle_duration: float = 1.5
+var _settle_duration: float = 0.35
 var _settle_timer: float = 0.0
 var _finalizing: bool = false
 var _pin_at_release_point: bool = true
@@ -283,22 +285,28 @@ func _command_throttle(throttle_value: float):
 func _drag_aircraft_to_shuttle() -> void:
 	if not _aircraft or not shuttle: return
 
-	# Instead of a rigid velocity lock, apply a strong corrective force.
-	# This simulates a stiff tow bar but allows the aircraft's own physics to operate.
-	var desired_velocity = _shuttle_current_velocity
-	var current_velocity = _aircraft.linear_velocity
-	var velocity_error = desired_velocity - current_velocity
-	
-	# Calculate the required force using F = m * a, where a = dv / dt
-	var force = velocity_error * _aircraft.mass / get_physics_process_delta_time()
-	
-	# Apply this force at the nose gear's position for a more realistic pull.
+	# Stiff tow-bar style pull:
+	# match shuttle velocity plus a position-error correction so nose gear is
+	# constrained in all axes (including vertical) relative to shuttle.
 	var nose_gear = _find_nose_gear_collider(_aircraft)
 	if is_instance_valid(nose_gear):
+		var position_error: Vector3 = shuttle.global_position - nose_gear.global_position
+		var desired_velocity: Vector3 = _shuttle_current_velocity + position_error * tow_position_gain
+		var current_velocity: Vector3 = _aircraft.linear_velocity
+		var velocity_error: Vector3 = desired_velocity - current_velocity
+		var force: Vector3 = velocity_error * _aircraft.mass / maxf(get_physics_process_delta_time(), 0.001)
+		if tow_force_max > 0.0 and force.length() > tow_force_max:
+			force = force.normalized() * tow_force_max
 		var force_position = nose_gear.global_position - _aircraft.global_position
 		_aircraft.apply_force(force, force_position)
 	else:
 		# Fallback to applying a central force if the nose gear isn't found
+		var desired_velocity: Vector3 = _shuttle_current_velocity
+		var current_velocity: Vector3 = _aircraft.linear_velocity
+		var velocity_error: Vector3 = desired_velocity - current_velocity
+		var force: Vector3 = velocity_error * _aircraft.mass / maxf(get_physics_process_delta_time(), 0.001)
+		if tow_force_max > 0.0 and force.length() > tow_force_max:
+			force = force.normalized() * tow_force_max
 		_aircraft.apply_central_force(force)
 
 
@@ -441,6 +449,15 @@ func align_aircraft(ac: RigidBody3D) -> void:
 	# before the shuttle connects. Released on launch (line with remove_meta).
 	ac.set_meta("controls_disabled", true)
 
+	# Retrieval launch handoff: plane is already at marker and physics-stable,
+	# so skip teleport/freeze once and go straight to shuttle approach.
+	if ac.has_meta("catapult_skip_teleport_once") and bool(ac.get_meta("catapult_skip_teleport_once")):
+		ac.remove_meta("catapult_skip_teleport_once")
+		if debug_enabled:
+			print("[CATAPULT] Retrieval handoff: skipping teleport/freeze; starting sequence directly.")
+		begin_sequence(ac)
+		return
+
 	var target_transform = latch_marker.global_transform
 	
 	# Orient aircraft to face launch direction (latch → release)
@@ -465,14 +482,15 @@ func align_aircraft(ac: RigidBody3D) -> void:
 	ac.collision_mask = 0
 	
 	var final_transform = target_transform
-	# Snap Y to deck to account for marker height
-	var from = final_transform.origin + Vector3.UP * 5.0
-	var to = final_transform.origin + Vector3.DOWN * 10.0
-	var space = get_world_3d().direct_space_state
-	var query = PhysicsRayQueryParameters3D.create(from, to, 1) # Assume mask 1 is ground
-	var hit = space.intersect_ray(query)
-	if hit:
-		final_transform.origin.y = hit.position.y + deck_clearance
+	if teleport_snap_to_deck:
+		# Snap Y to deck to account for marker height
+		var from = final_transform.origin + Vector3.UP * 5.0
+		var to = final_transform.origin + Vector3.DOWN * 10.0
+		var space = get_world_3d().direct_space_state
+		var query = PhysicsRayQueryParameters3D.create(from, to, 1) # Assume mask 1 is ground
+		var hit = space.intersect_ray(query)
+		if hit:
+			final_transform.origin.y = hit.position.y + deck_clearance
 
 	ac.global_transform = final_transform
 	print("[CATAPULT] Aircraft transform AFTER teleport: ", ac.global_transform)

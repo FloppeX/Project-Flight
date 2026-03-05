@@ -5,6 +5,7 @@ extends Node3D
 # The actual aircraft movement is handled by FlightDeckManager
 
 @export var target_aircraft: RigidBody3D
+@export var target_wheel_node: Node3D
 @export var wheel_position_offset: Vector3 = Vector3.ZERO  # Offset from aircraft center to wheel
 @export var follow_height: float = 0.2  # Height above flight deck when "lifting" aircraft (should match _aircraft_lift_height)
 @export var move_speed: float = 15.0  # Speed to follow aircraft
@@ -41,12 +42,15 @@ func _ready():
 	# Position disk flat on ground
 	mesh_instance.position.y = -0.15
 
-func activate(aircraft: RigidBody3D, wheel_offset: Vector3):
+func activate(aircraft: RigidBody3D, wheel_offset: Vector3, wheel_node: Node3D = null):
 	"""Activate this tractorbot to position at a specific aircraft wheel"""
 	target_aircraft = aircraft
+	target_wheel_node = wheel_node
 	wheel_position_offset = wheel_offset
 	is_active = true
 	is_positioned = false
+	movement_disabled = false
+	external_target_set = false
 	
 	# Calculate fixed target position (aircraft position + wheel offset) at the correct height
 	var deck_height = _get_deck_height()
@@ -61,6 +65,9 @@ func deactivate():
 	"""Deactivate this tractorbot"""
 	is_active = false
 	target_aircraft = null
+	target_wheel_node = null
+	movement_disabled = false
+	external_target_set = false
 	print("[TractorBot] Deactivated")
 
 func is_positioned_at_gear() -> bool:
@@ -101,9 +108,12 @@ func _physics_process(delta: float):
 	
 	# Use external target if set (e.g., by elevator), otherwise calculate from aircraft
 	if not external_target_set:
-		# Calculate target position (aircraft position + wheel offset) at correct height
+		# Track live wheel position if available; fallback to stored aircraft offset.
 		var deck_height = _get_deck_height()
-		target_position = target_aircraft.global_position + wheel_position_offset
+		if is_instance_valid(target_wheel_node):
+			target_position = target_wheel_node.global_position
+		else:
+			target_position = target_aircraft.global_position + wheel_position_offset
 		target_position.y = deck_height + follow_height
 	
 	# Debug: Print heights occasionally

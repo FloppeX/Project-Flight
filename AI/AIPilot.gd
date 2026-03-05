@@ -17,6 +17,7 @@ enum State {
 	ATTACK_INBOUND, # Bombing only: fly level toward target before dive
 	ATTACK_DIVE,    # Diving at target, firing guns, pull up at 100m
 	ATTACK_BREAK_OFF,   # Too close - fly away from target, then line up new run
+	DOGFIGHT,       # Air-to-air gun combat with lead pursuit + burst fire
 	ENGAGE,         # Attacking target (legacy/air combat)
 	RTB,            # Returning to base
 	APPROACH,       # Carrier approach pattern
@@ -94,6 +95,63 @@ var maneuver_waypoint: Vector3 = Vector3.ZERO  # Short-term maneuvering target
 @export var attack_aim_lead_time_s: float = 0.25  # Small lead for moving targets during dive
 @export var bomb_release_spacing_s: float = 0.2   # Time spacing between bombs
 var ground_attack_enabled: bool = false  # Toggle with O key: true=attack mode, false=patrol only
+@export var dogfight_enabled: bool = true
+@export var dogfight_max_range_m: float = 1800.0
+@export var dogfight_target_radius_m: float = 4.0
+@export var dogfight_min_hit_chance: float = 0.20
+@export var dogfight_fire_burst_s: float = 0.7
+@export var dogfight_burst_cooldown_s: float = 0.15
+@export var dogfight_min_aim_dot: float = 0.96  # ~16 deg
+@export var dogfight_default_muzzle_velocity_mps: float = 600.0
+@export var dogfight_retarget_interval_s: float = 0.5
+@export var dogfight_retarget_advantage_m: float = 150.0
+@export var dogfight_bank_cmd_limit_deg: float = 90.0
+@export var dogfight_min_speed_mps: float = 60.0
+@export var dogfight_max_speed_mps: float = 130.0
+@export var dogfight_closure_speed_boost_mps: float = 15.0
+@export var dogfight_corner_speed_mps: float = 85.0
+@export var dogfight_turn_pitch_bias: float = 7.5
+@export var dogfight_turn_vs_limit_mps: float = 42.0
+@export var dogfight_turn_pull_vs_per_extra_g: float = 10.0
+@export var dogfight_ground_protect_agl_m: float = 260.0
+@export var dogfight_ground_protect_min_bank_deg: float = 30.0
+@export var dogfight_ground_protect_min_climb_vs_mps: float = 8.0
+@export var dogfight_collision_check_horizon_s: float = 3.0
+@export var dogfight_collision_min_sep_m: float = 130.0
+@export var dogfight_collision_escape_distance_m: float = 700.0
+@export var dogfight_collision_escape_vertical_m: float = 260.0
+@export var dogfight_stalemate_trigger_s: float = 6.0
+@export var dogfight_variation_duration_s: float = 2.2
+@export var dogfight_variation_cooldown_s: float = 4.0
+@export var dogfight_variation_lateral_m: float = 650.0
+@export var dogfight_variation_vertical_m: float = 220.0
+@export var dogfight_max_rudder_input: float = 1.0
+@export var dogfight_sideslip_damping_gain: float = 0.9
+@export var dogfight_aim_rudder_gain: float = 0.12
+@export var dogfight_coord_rudder_gain: float = 0.15
+@export var dogfight_spiral_recovery_bank_deg: float = 40.0
+@export var dogfight_spiral_recovery_sink_mps: float = 10.0
+@export var dogfight_spiral_recovery_min_speed_mps: float = 75.0
+@export var dogfight_spiral_recovery_duration_s: float = 1.8
+@export var dogfight_spiral_recovery_climb_m: float = 320.0
+@export var dogfight_spiral_recovery_forward_m: float = 900.0
+@export var dogfight_vs_limit_mps: float = 16.0
+@export var dogfight_vs_gain: float = 0.10
+@export var dogfight_unload_speed_margin_mps: float = 8.0
+@export var dogfight_unload_descent_gain: float = 0.18
+@export var dogfight_low_speed_pitch_cap: float = 0.18
+@export var dogfight_lead_pursuit_blend: float = 0.6
+@export var dogfight_rejoin_range_m: float = 2200.0
+@export var dogfight_rejoin_speed_mps: float = 110.0
+@export var dogfight_rejoin_bank_limit_deg: float = 45.0
+@export var dogfight_straight_level_yaw_deg: float = 15.0
+@export var dogfight_straight_level_bank_blend: float = 0.85
+@export var dogfight_straight_level_pitch_blend: float = 0.75
+@export var dogfight_simple_yaw_aim_gain: float = 0.45
+@export var dogfight_simple_yaw_coord_gain: float = 0.35
+@export var dogfight_simple_yaw_high_bank_scale: float = 0.85
+@export var dogfight_simple_yaw_rejoin_scale: float = 0.9
+@export var dogfight_simple_yaw_smoothing: float = 0.45
 var _run_weapon_type: String = "Autocannon"
 var _bombs_to_drop_this_run: int = 0
 var _bombs_dropped_this_run: int = 0
@@ -103,10 +161,26 @@ var _prev_ccip_miss: float = INF  # Tracks CCIP miss from last frame to detect i
 var _attack_recovery_until_s: float = 0.0  # After emergency, hold egress before next run
 var _dive_precise_aim: bool = false  # When true, use tighter bank for steadier final approach
 var _dive_entry_time_s: float = -INF  # When we entered ATTACK_DIVE (for soft dive entry)
+var _dogfight_burst_timer_s: float = 0.0
+var _dogfight_burst_cooldown_timer_s: float = 0.0
+var _dogfight_burst_active: bool = false
+var _dogfight_retarget_timer_s: float = 0.0
+var _dogfight_variation_timer_s: float = 0.0
+var _dogfight_variation_cooldown_timer_s: float = 0.0
+var _dogfight_stalemate_timer_s: float = 0.0
+var _dogfight_variation_waypoint: Vector3 = Vector3.ZERO
+var _dogfight_prev_target_distance_m: float = INF
+var _dogfight_recovery_timer_s: float = 0.0
+var _dogfight_recovery_waypoint: Vector3 = Vector3.ZERO
 
 # Landing approach
-var _landing_phase: int = 0  # 0=to approach_1, 1=to approach_2, then→LANDING state
+var _landing_phase: int = 0  # 0=to approach_1, 1=to approach_2, thenÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢LANDING state
 var _approach_wp: Array = []  # [Node3D approach_1, Node3D approach_2, Node3D approach_3]
+@export var approach_phase0_alt_above_deck_m: float = 450.0
+@export var approach_phase1_alt_above_deck_m: float = 350.0
+@export var approach_phase2_alt_above_deck_m: float = 200.0
+@export var approach_phase3_alt_above_deck_m: float = 130.0
+@export var approach_deck_height_fallback_m: float = 60.0  # Used if approach_4 cannot be read
 
 # ============================================================================
 # CONTROL OUTPUTS - Fed to aircraft control system
@@ -141,6 +215,10 @@ var launch_position: Vector3 = Vector3.ZERO
 var deck_clearance_distance: float = 300.0  # Distance from launch point to start climbing
 var land_after_launch: bool = false         # If true, start landing approach once climb completes
 var _land_after_climb: bool = false         # Set internally when land_after_launch triggers climb
+@export var launch_pullup_pitch_input: float = 0.35  # Strong initial pull-up after catapult
+@export var launch_min_climb_rate_mps: float = 8.0   # Keep pulling until this vertical speed
+@export var climb_aggressive_pitch_input: float = 0.75  # Strong climb command after deck clear
+@export var climb_aggressive_alt_margin_m: float = 120.0  # Stay aggressive until near climb target
 
 # Waypoint marker (visual)
 var _waypoint_marker: MeshInstance3D = null
@@ -191,7 +269,7 @@ var _smoothed_yaw_input: float = 0.0
 # Arrest debug
 var _arrest_engaged_prev: bool = false  # Detect wire-catch transition
 var _arrest_debug_timer: float = 0.0    # Accumulates time since last print
-var _arrest_debug_interval: float = 0.1 # Print 10×/s
+var _arrest_debug_interval: float = 0.1 # Print 10ÃƒÆ’Ã¢â‚¬â€/s
 var _arrest_prev_vel: Vector3 = Vector3.ZERO
 var _arrest_start_pos: Vector3 = Vector3.ZERO
 var _arrest_stopped_reported: bool = false
@@ -218,9 +296,18 @@ func initialize(aircraft_node: RigidBody3D):
 	"""Setup AI pilot with aircraft reference"""
 	aircraft = aircraft_node
 
-	# Add to friendlies group so other AI can detect us
-	if not aircraft.is_in_group("friendlies"):
-		aircraft.add_to_group("friendlies")
+	# Team-driven contact groups used by sensor scans.
+	var my_team: int = aircraft.get_team() if aircraft.has_method("get_team") else 1
+	if my_team == 1:
+		if not aircraft.is_in_group("friendlies"):
+			aircraft.add_to_group("friendlies")
+		if aircraft.is_in_group("enemies"):
+			aircraft.remove_from_group("enemies")
+	else:
+		if not aircraft.is_in_group("enemies"):
+			aircraft.add_to_group("enemies")
+		if aircraft.is_in_group("friendlies"):
+			aircraft.remove_from_group("friendlies")
 
 	# Find control modules
 	control_engine = _find_module(aircraft, "ControlEngine")
@@ -294,7 +381,7 @@ func _physics_process(delta: float):
 		return
 
 	# Yield control to FlightDeckManager / catapult during deck sequences.
-	# Do NOT call _apply_controls() here — the catapult owns the engine and
+	# Do NOT call _apply_controls() here ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the catapult owns the engine and
 	# set_target_power(0) would trigger engine_stop(), killing the spool-up.
 	if aircraft.get_meta("controls_disabled", false):
 		return
@@ -325,6 +412,8 @@ func _physics_process(delta: float):
 			_state_attack_dive(delta)
 		State.ATTACK_BREAK_OFF:
 			_state_attack_break_off(delta)
+		State.DOGFIGHT:
+			_state_dogfight(delta)
 		State.ENGAGE:
 			_state_engage(delta)
 		State.RTB:
@@ -344,7 +433,7 @@ func _physics_process(delta: float):
 		var fpa_deg: float = rad_to_deg(atan2(-aircraft.linear_velocity.y, max(h_spd, 1.0)))
 		var state_name: String = State.keys()[current_state]
 		var pos: Vector3 = aircraft.global_position
-		print("[AIPilot TEL] state=", state_name, "  pos=(", snapped(pos.x, 1), ",", snapped(pos.y, 1), ",", snapped(pos.z, 1), ")  alt=", snapped(alt, 1), "  AGL=", snapped(altitude_agl, 1), "  spd=", snapped(spd, 1), "m/s  VS=", snapped(vs, 1), "  pitch=", snapped(pitch_deg, 0.1), "°  fpa=", snapped(fpa_deg, 0.1), "°")
+		print("[AIPilot TEL] state=", state_name, "  pos=(", snapped(pos.x, 1), ",", snapped(pos.y, 1), ",", snapped(pos.z, 1), ")  alt=", snapped(alt, 1), "  AGL=", snapped(altitude_agl, 1), "  spd=", snapped(spd, 1), "m/s  VS=", snapped(vs, 1), "  pitch=", snapped(pitch_deg, 0.1), "Ãƒâ€šÃ‚Â°  fpa=", snapped(fpa_deg, 0.1), "Ãƒâ€šÃ‚Â°")
 
 	# Emergency terrain avoidance - overrides normal behavior
 	_check_emergency_terrain_avoidance()
@@ -366,9 +455,13 @@ func _state_idle(delta: float):
 
 func _state_launching(delta: float):
 	"""In catapult sequence"""
-	# Maintain near-level flight — gentle pitch-up keeps us from descending into the water
+	# Maintain near-level flight ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â gentle pitch-up keeps us from descending into the water
 	# while we clear the deck, but avoid aggressive pull-up at catapult speed.
-	pitch_input = 0.05 if aircraft.linear_velocity.y < 2.0 else 0.0
+	if aircraft.linear_velocity.y < launch_min_climb_rate_mps:
+		pitch_input = launch_pullup_pitch_input
+	else:
+		pitch_input = launch_pullup_pitch_input * 0.5
+	_smoothed_pitch_input = pitch_input
 	roll_input = 0.0
 	yaw_input = 0.0
 	throttle_input = 1.0  # Full throttle
@@ -382,7 +475,7 @@ func _state_launching(delta: float):
 			if land_after_launch:
 				land_after_launch = false
 				_land_after_climb = true
-				print("[AIPilot] Clear of deck — climbing to pattern altitude before approach")
+				print("[AIPilot] Clear of deck ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â climbing to pattern altitude before approach")
 			else:
 				if debug_enabled and verbose_debug_enabled:
 					print("[AIPilot] Clear of deck (", distance_from_launch, "m), starting climb")
@@ -410,7 +503,7 @@ func _state_climbing(delta: float):
 
 	# Fixed climb waypoint: 600 m ahead of the carrier along the launch heading, 200 m above it.
 	# Computed from fixed inputs (carrier_position, target_heading) so it is the same 3D
-	# point every frame — the aircraft can actually reach and clear it.
+	# point every frame ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the aircraft can actually reach and clear it.
 	_ensure_carrier_position()
 	var launch_fwd := Vector3(sin(target_heading), 0.0, cos(target_heading))
 	nav_waypoint = carrier_position + launch_fwd * 600.0
@@ -422,9 +515,9 @@ func _state_climbing(delta: float):
 	# Aggressive climb: full stick back + full throttle until 50 m below the waypoint.
 	# Override the smoothed pitch so the aircraft pitches up instantly rather than
 	# ramping over several seconds.
-	if aircraft.global_position.y < nav_waypoint.y - 50.0:
-		pitch_input = 0.5
-		_smoothed_pitch_input = 0.5
+	if aircraft.global_position.y < nav_waypoint.y - climb_aggressive_alt_margin_m:
+		pitch_input = climb_aggressive_pitch_input
+		_smoothed_pitch_input = climb_aggressive_pitch_input
 		throttle_input = 1.0
 
 	# Limit roll during climb
@@ -439,7 +532,7 @@ func _state_climbing(delta: float):
 	if aircraft.global_position.distance_to(nav_waypoint) < 200.0:
 		if _land_after_climb:
 			_land_after_climb = false
-			print("[AIPilot] Climb waypoint cleared — starting landing approach")
+			print("[AIPilot] Climb waypoint cleared ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â starting landing approach")
 			start_landing()
 		elif waypoints.size() > 0:
 			change_state(State.TRANSIT)
@@ -488,6 +581,17 @@ func _state_search(delta: float):
 			if debug_enabled and verbose_debug_enabled:
 				print("[AIPilot SEARCH] Reached waypoint ", current_waypoint_index, "/", waypoints.size())
 
+	# Dogfight has priority over ground attack when an enemy aircraft is nearby.
+	if dogfight_enabled:
+		var air_target: Node3D = _find_nearest_enemy_aircraft_target()
+		if air_target and is_instance_valid(air_target):
+			combat_target = air_target
+			change_state(State.DOGFIGHT)
+			if debug_enabled:
+				var da: float = aircraft.global_position.distance_to(combat_target.global_position)
+				print("[AIPilot DOGFIGHT] Air target acquired: ", combat_target.name, "  dist=", snapped(da, 1.0), "m")
+			return
+
 	# Look for ground attack target (EnemyBox) only when in attack mode
 	if ground_attack_enabled:
 		var ground_target = _find_ground_attack_target()
@@ -521,6 +625,40 @@ func _find_ground_attack_target() -> Node3D:
 		if d < nearest_dist:
 			nearest_dist = d
 			nearest = enemy
+	return nearest
+
+func _is_enemy_aircraft_target(node: Node3D) -> bool:
+	if not node or not is_instance_valid(node):
+		return false
+	if node == aircraft:
+		return false
+	# Exclude ground boxes from dogfight target list.
+	if node is EnemyBox:
+		return false
+	# Require a physics-body-like target so velocity lead is meaningful.
+	if not (node is RigidBody3D):
+		return false
+	# Exclude same-team contacts.
+	var my_team: int = aircraft.get_team() if aircraft.has_method("get_team") else 1
+	if node.has_method("get_team"):
+		var node_team: int = int(node.get_team())
+		if node_team == my_team:
+			return false
+	return true
+
+func _find_nearest_enemy_aircraft_target() -> Node3D:
+	var nearest: Node3D = null
+	var nearest_dist: float = INF
+	for enemy in known_enemies:
+		if not (enemy is Node3D):
+			continue
+		var enemy_node: Node3D = enemy as Node3D
+		if not _is_enemy_aircraft_target(enemy_node):
+			continue
+		var d: float = aircraft.global_position.distance_to(enemy_node.global_position)
+		if d < nearest_dist:
+			nearest_dist = d
+			nearest = enemy_node
 	return nearest
 
 func _setup_attack_run_waypoint():
@@ -557,7 +695,7 @@ func _state_attack_positioning(delta: float):
 		change_state(State.SEARCH)
 		return
 
-	# Don't attempt attack maneuvers at dangerously low speed — build energy first
+	# Don't attempt attack maneuvers at dangerously low speed ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â build energy first
 	var cur_speed: float = aircraft.linear_velocity.length()
 	if cur_speed < stall_speed_mps + stall_margin_mps + 10.0:
 		# Too slow: fly straight, nose slightly down, build speed
@@ -644,7 +782,7 @@ func _state_attack_inbound(delta: float):
 			var alt_above: float = aircraft.global_position.y - target_pos.y
 			print("[AIPilot ATTACK] Dive start: target=", combat_target.name, "  horiz_range=", snapped(horiz_dist_to_target, 1.0), "m  alt_above=", snapped(alt_above, 1.0), "m  aim_height=", bomb_dive_aim_height_m, "m")
 	elif horiz_dist_to_target <= bomb_dive_start_distance_m * 0.4:
-		# Abort: we're way too close and still too low — can't set up a proper dive
+		# Abort: we're way too close and still too low ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â can't set up a proper dive
 		change_state(State.ATTACK_BREAK_OFF)
 		_committed_turn_sign = 0.0
 		if debug_enabled:
@@ -662,7 +800,7 @@ func _state_attack_dive(delta: float):
 	var target_pos: Vector3 = combat_target.global_position
 	var dist_to_target: float = aircraft.global_position.distance_to(target_pos)
 
-	# Bomb runs need a much larger break-off margin — they dive from high altitude and need room to recover.
+	# Bomb runs need a much larger break-off margin ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â they dive from high altitude and need room to recover.
 	var pull_up_dist: float = bomb_pull_up_distance_m if _run_weapon_type == "Bomb" else attack_pull_up_distance_m
 
 	# Break off when we've dropped all planned bombs (3 for bomb runs)
@@ -696,7 +834,7 @@ func _state_attack_dive(delta: float):
 	if "linear_velocity" in combat_target:
 		aim_pos += combat_target.linear_velocity * attack_aim_lead_time_s
 
-	# Bomb runs: refine aim using predicted impact — steer to put the bullseye on target
+	# Bomb runs: refine aim using predicted impact ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â steer to put the bullseye on target
 	var horiz_dist: float = Vector2(aircraft.global_position.x - target_pos.x, aircraft.global_position.z - target_pos.z).length()
 	var alt_above: float = aircraft.global_position.y - target_pos.y
 	var ccip_impact: Vector3 = Vector3.ZERO  # Shared between aim correction and release check
@@ -707,7 +845,7 @@ func _state_attack_dive(delta: float):
 			var correction_strength: float = clamp(0.6 + 0.6 * (1.0 - horiz_dist / 500.0), 0.6, 1.2)
 			aim_pos += err_h * correction_strength
 		# In release window: aim closer to target and use precise steering
-		# Smooth transition 600→400m to avoid abrupt aim-height jump that causes pitch oscillation
+		# Smooth transition 600ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢400m to avoid abrupt aim-height jump that causes pitch oscillation
 		var release_t: float = clamp(1.0 - (horiz_dist - 400.0) / 200.0, 0.0, 1.0) if alt_above < 400.0 else 0.0
 		var aim_height_close: float = lerp(aim_height, 15.0, release_t)
 		aim_pos.y = target_pos.y + aim_height_close
@@ -724,11 +862,11 @@ func _state_attack_dive(delta: float):
 	if _run_weapon_type == "Bomb":
 		_handle_bomb_release_run(aim_pos, target_pos, ccip_impact)
 	else:
-		# Fire guns only when precisely aimed (within ~5° cone)
+		# Fire guns only when precisely aimed (within ~5Ãƒâ€šÃ‚Â° cone)
 		var fwd: Vector3 = aircraft.global_transform.basis.z
 		var to_tgt: Vector3 = (aim_pos - aircraft.global_position).normalized()
 		var dot: float = fwd.dot(to_tgt)
-		if dot > cos(deg_to_rad(5.0)):  # ~5° cone - fire only when precisely aimed
+		if dot > cos(deg_to_rad(5.0)):  # ~5Ãƒâ€šÃ‚Â° cone - fire only when precisely aimed
 			_fire_guns()
 		else:
 			_stop_firing()
@@ -775,6 +913,402 @@ func _state_attack_break_off(delta: float):
 	_navigate_to_waypoint(delta)
 
 	target_speed = 100.0
+
+func _state_dogfight(delta: float):
+	"""Simple dogfight law: roll into target bearing, pull to bring target near nose, full throttle."""
+	if not dogfight_enabled:
+		_stop_firing()
+		change_state(State.SEARCH)
+		return
+
+	_dogfight_retarget_timer_s -= delta
+	var target_invalid: bool = not (combat_target and is_instance_valid(combat_target) and _is_enemy_aircraft_target(combat_target))
+	if target_invalid or _dogfight_retarget_timer_s <= 0.0:
+		_dogfight_retarget_timer_s = maxf(dogfight_retarget_interval_s, 0.1)
+		var candidate: Node3D = _find_nearest_enemy_aircraft_target()
+		if candidate and is_instance_valid(candidate):
+			if target_invalid or _should_switch_dogfight_target(combat_target, candidate):
+				combat_target = candidate
+
+	if not (combat_target and is_instance_valid(combat_target) and _is_enemy_aircraft_target(combat_target)):
+		_stop_firing()
+		change_state(State.SEARCH)
+		return
+
+	_select_dogfight_weapon()
+
+	var own_pos: Vector3 = aircraft.global_position
+	var own_vel: Vector3 = aircraft.linear_velocity
+	var speed_mps: float = own_vel.length()
+	var b: Basis = aircraft.global_transform.basis
+
+	var target_pos: Vector3 = combat_target.global_position
+	var target_vel: Vector3 = Vector3.ZERO
+	if "linear_velocity" in combat_target:
+		target_vel = combat_target.linear_velocity
+	var dist_to_target: float = own_pos.distance_to(target_pos)
+	_dogfight_prev_target_distance_m = dist_to_target
+	var in_rejoin: bool = dist_to_target > dogfight_rejoin_range_m
+
+	var muzzle_velocity: float = _get_selected_gun_muzzle_velocity()
+	var lead_point: Vector3 = _predict_lead_point(own_pos, own_vel, target_pos, target_vel, muzzle_velocity)
+	var aim_blend: float = clampf(dogfight_lead_pursuit_blend, 0.0, 1.0)
+	var aim_point: Vector3 = target_pos.lerp(lead_point, aim_blend)
+
+	# Keep debug marker aligned with dogfight aim point.
+	nav_waypoint = aim_point
+	maneuver_waypoint = aim_point
+	if nav_target:
+		nav_target.global_position = maneuver_waypoint
+
+	var to_aim: Vector3 = aim_point - own_pos
+	if to_aim.length_squared() < 1.0:
+		to_aim = b.z
+	var aim_dir: Vector3 = to_aim.normalized()
+	var local_x: float = aim_dir.dot(b.x)
+	var local_y: float = aim_dir.dot(b.y)
+	var local_z: float = aim_dir.dot(b.z)
+
+	# Outer loop: choose desired bank from aim azimuth error.
+	var max_bank_deg: float = dogfight_bank_cmd_limit_deg
+	if in_rejoin:
+		max_bank_deg = minf(max_bank_deg, dogfight_rejoin_bank_limit_deg)
+	var speed_t: float = clampf(
+		(speed_mps - dogfight_min_speed_mps) / maxf(dogfight_corner_speed_mps - dogfight_min_speed_mps, 1.0),
+		0.0,
+		1.0
+	)
+	var low_speed_bank_deg: float = 30.0 if in_rejoin else 40.0
+	max_bank_deg = lerpf(low_speed_bank_deg, max_bank_deg, speed_t)
+	if altitude_agl < dogfight_ground_protect_agl_m:
+		max_bank_deg = minf(max_bank_deg, dogfight_ground_protect_min_bank_deg + 15.0)
+
+	var yaw_err_rad: float
+	if local_z < -0.15:
+		# Target behind: commit hard turn toward the side of the target.
+		yaw_err_rad = signf(local_x) * PI * 0.5
+	else:
+		yaw_err_rad = atan2(local_x, maxf(local_z, 0.05))
+	var pitch_err_rad: float = atan2(local_y, maxf(absf(local_z), 0.05))
+
+	var desired_bank: float = clampf(yaw_err_rad * 1.7, -deg_to_rad(max_bank_deg), deg_to_rad(max_bank_deg))
+	var straight_t: float = 0.0
+	if local_z > 0.2:
+		var straight_yaw_rad: float = deg_to_rad(maxf(dogfight_straight_level_yaw_deg, 1.0))
+		straight_t = 1.0 - clampf(absf(yaw_err_rad) / straight_yaw_rad, 0.0, 1.0)
+		var bank_blend: float = clampf(dogfight_straight_level_bank_blend, 0.0, 1.0)
+		desired_bank = lerpf(desired_bank, 0.0, straight_t * bank_blend)
+	# Keep dogfight roll sign aligned with the aircraft's configured control mapping.
+	if flip_roll_direction:
+		desired_bank = -desired_bank
+
+	# Inner loop: roll to desired bank.
+	var current_roll: float = atan2(b.x.y, b.y.y)
+	var inverted_recover: bool = b.y.y < -0.05
+	if inverted_recover:
+		# Never level inverted: force wings back to upright first.
+		desired_bank = 0.0
+	var bank_error: float = _normalize_angle(desired_bank - current_roll)
+	var roll_rate: float = aircraft.angular_velocity.dot(b.z)
+	var roll_p_gain: float = 4.8 if inverted_recover else 3.4
+	var roll_d_gain: float = 0.55 if inverted_recover else 0.45
+	var raw_roll: float = clampf(bank_error * roll_p_gain - roll_rate * roll_d_gain, -1.0, 1.0)
+
+	# Inner loop: pitch toward aim elevation with turn-load bias.
+	var pitch_rate_up: float = -aircraft.angular_velocity.dot(b.x)
+	var turn_pull_bias: float = clampf(absf(desired_bank) / deg_to_rad(maxf(max_bank_deg, 1.0)), 0.0, 1.0) * 0.22
+	if local_z < -0.15:
+		turn_pull_bias += 0.15
+	var pitch_level_blend: float = clampf(dogfight_straight_level_pitch_blend, 0.0, 1.0)
+	turn_pull_bias *= 1.0 - straight_t * pitch_level_blend
+	var raw_pitch: float
+	if inverted_recover:
+		raw_pitch = clampf(-pitch_rate_up * 0.30 - own_vel.y * 0.012, -0.25, 0.35)
+	else:
+		raw_pitch = pitch_err_rad * 1.6 + turn_pull_bias - pitch_rate_up * 0.35
+	var level_vs_correction: float = clampf(-own_vel.y * 0.020, -0.45, 0.45)
+	if not inverted_recover:
+		raw_pitch += level_vs_correction * straight_t
+	if in_rejoin:
+		raw_pitch = clampf(raw_pitch, -0.45, 0.55)
+	else:
+		raw_pitch = clampf(raw_pitch, -0.60, 0.95)
+	var low_speed_t: float = clampf((dogfight_corner_speed_mps - speed_mps) / maxf(dogfight_corner_speed_mps, 1.0), 0.0, 1.0)
+	var low_speed_pitch_cap: float = lerpf(0.85, dogfight_low_speed_pitch_cap, low_speed_t)
+	raw_pitch = clampf(raw_pitch, -0.6, low_speed_pitch_cap)
+	if altitude_agl < 80.0 and own_vel.y < 0.0:
+		raw_pitch = maxf(raw_pitch, 0.6)
+		raw_roll = clampf(raw_roll, -0.6, 0.6)
+
+	# Inner loop: yaw toward azimuth error + coordinated-turn + yaw-rate damping.
+	var yaw_rate: float = aircraft.angular_velocity.dot(b.y)
+	var sideslip: float = clampf(own_vel.dot(b.x) / maxf(speed_mps, 1.0), -1.0, 1.0)
+	var yaw_p_gain: float = dogfight_simple_yaw_aim_gain
+	if local_z < -0.15:
+		yaw_p_gain *= 1.25
+	var yaw_coord: float = -sin(current_roll) * dogfight_simple_yaw_coord_gain
+	var raw_yaw: float
+	if inverted_recover:
+		raw_yaw = 0.0
+	else:
+		raw_yaw = yaw_err_rad * yaw_p_gain + yaw_coord - yaw_rate * 0.18 - sideslip * 0.25
+	raw_yaw = clampf(raw_yaw, -dogfight_max_rudder_input, dogfight_max_rudder_input)
+	if absf(rad_to_deg(current_roll)) > 55.0:
+		raw_yaw *= dogfight_simple_yaw_high_bank_scale
+	if in_rejoin:
+		raw_yaw *= dogfight_simple_yaw_rejoin_scale
+
+	roll_input = lerpf(_smoothed_roll_input, raw_roll, 0.40)
+	pitch_input = lerpf(_smoothed_pitch_input, raw_pitch, 0.30)
+	yaw_input = lerpf(_smoothed_yaw_input, raw_yaw, dogfight_simple_yaw_smoothing)
+	_smoothed_roll_input = roll_input
+	_smoothed_pitch_input = pitch_input
+	_smoothed_yaw_input = yaw_input
+
+	# Keep energy high in dogfight.
+	throttle_input = 1.0
+	if in_rejoin:
+		target_speed = clampf(dogfight_rejoin_speed_mps, dogfight_min_speed_mps, dogfight_max_speed_mps)
+	else:
+		target_speed = clampf(dogfight_corner_speed_mps, dogfight_min_speed_mps, dogfight_max_speed_mps)
+
+	var fire_ok: bool = _dogfight_has_good_fire_solution(lead_point, muzzle_velocity, dist_to_target)
+	# Geometric fallback: when target is clearly in front, fire even if hit model is conservative.
+	var fire_geom_ok: bool = local_z > 0.90 and absf(local_x) < 0.35 and absf(local_y) < 0.35
+	if dist_to_target < 700.0:
+		fire_geom_ok = local_z > 0.82 and absf(local_x) < 0.55 and absf(local_y) < 0.45
+	fire_ok = fire_ok or fire_geom_ok
+	if in_rejoin or inverted_recover:
+		fire_ok = false
+	_update_dogfight_burst_timers(delta, fire_ok)
+	if _dogfight_burst_active:
+		_fire_guns()
+	else:
+		_stop_firing()
+
+	if debug_enabled and Engine.get_process_frames() % 30 == 0 and is_instance_valid(combat_target):
+		var mode_str: String = "REJOIN" if in_rejoin else "FIGHT"
+		var bank_deg_signed: float = rad_to_deg(current_roll)
+		var pitch_deg: float = rad_to_deg(asin(clamp(-b.y.z, -1.0, 1.0)))
+		var hdg_deg: float = rad_to_deg(atan2(b.z.x, b.z.z))
+		var to_tgt: Vector3 = target_pos - own_pos
+		var tgt_bearing_deg: float = rad_to_deg(atan2(to_tgt.x, to_tgt.z))
+		var bearing_err_deg: float = rad_to_deg(_normalize_angle(deg_to_rad(tgt_bearing_deg) - deg_to_rad(hdg_deg)))
+		print("[DOGFIGHT] mode=%s tgt=%-10s  dist=%4.0fm  bear=%+5.0fdeg  hdg=%4.0fdeg" % [
+			mode_str, combat_target.name, dist_to_target, bearing_err_deg, hdg_deg])
+		print("  attitude: bank=%+5.0fdeg  pitch=%+4.0fdeg  spd=%4.0fm/s  VS=%+5.1fm/s  AGL=%4.0fm" % [
+			bank_deg_signed, pitch_deg, speed_mps, own_vel.y, altitude_agl])
+		print("  local:    x=%+6.0f  y=%+6.0f  z=%+6.0f  bank_cmd=%+5.0fdeg" % [
+			local_x, local_y, local_z, rad_to_deg(desired_bank)])
+		print("  aim_err:  yaw=%+5.1fdeg  pitch=%+5.1fdeg" % [
+			rad_to_deg(yaw_err_rad), rad_to_deg(pitch_err_rad)])
+		print("  recovery: inverted=%s" % [str(inverted_recover)])
+		print("  inputs:   roll=%+5.2f  pitch=%+5.2f  yaw=%+5.2f  thr=%.2f  firing=%s" % [
+			roll_input, pitch_input, yaw_input, throttle_input, str(_dogfight_burst_active)])
+func _should_switch_dogfight_target(current_target: Node3D, candidate: Node3D) -> bool:
+	if not candidate or not is_instance_valid(candidate):
+		return false
+	if not current_target or not is_instance_valid(current_target):
+		return true
+	if candidate == current_target:
+		return false
+	var current_dist: float = aircraft.global_position.distance_to(current_target.global_position)
+	var candidate_dist: float = aircraft.global_position.distance_to(candidate.global_position)
+	return candidate_dist + maxf(dogfight_retarget_advantage_m, 0.0) < current_dist
+
+func _compute_dogfight_collision_avoidance(target_pos: Vector3, target_vel: Vector3, own_pos: Vector3, own_vel: Vector3) -> Vector3:
+	"""Predict close pass and return an avoidance waypoint when needed."""
+	var rel_pos: Vector3 = target_pos - own_pos
+	var rel_vel: Vector3 = target_vel - own_vel
+	var rel_speed_sq: float = rel_vel.length_squared()
+	if rel_speed_sq < 1.0:
+		return Vector3.ZERO
+
+	var horizon: float = maxf(dogfight_collision_check_horizon_s, 0.1)
+	var t_cpa: float = clampf(-rel_pos.dot(rel_vel) / rel_speed_sq, 0.0, horizon)
+	var sep_vec: Vector3 = rel_pos + rel_vel * t_cpa
+	var sep_dist: float = sep_vec.length()
+	if sep_dist > dogfight_collision_min_sep_m:
+		return Vector3.ZERO
+
+	# Build an orthogonal break direction away from closure line.
+	var closure_dir: Vector3 = rel_vel.normalized()
+	var lateral: Vector3 = closure_dir.cross(Vector3.UP).normalized()
+	if lateral.length() < 0.1:
+		lateral = aircraft.global_transform.basis.x.normalized()
+	var side_sign: float = 1.0 if lateral.dot(aircraft.global_transform.basis.x) >= 0.0 else -1.0
+	if randf() < 0.5:
+		side_sign *= -1.0
+
+	var climb_sign: float = 1.0
+	if altitude_agl > dogfight_ground_protect_agl_m * 1.5 and randf() < 0.35:
+		climb_sign = -1.0
+
+	var avoid_wp: Vector3 = own_pos + lateral * side_sign * dogfight_collision_escape_distance_m
+	avoid_wp += aircraft.global_transform.basis.z.normalized() * 250.0
+	avoid_wp.y = own_pos.y + dogfight_collision_escape_vertical_m * climb_sign
+	if altitude_agl < dogfight_ground_protect_agl_m:
+		avoid_wp.y = maxf(avoid_wp.y, own_pos.y + dogfight_collision_escape_vertical_m)
+	return avoid_wp
+
+func _start_dogfight_variation_maneuver(target_pos: Vector3, target_vel: Vector3, own_pos: Vector3, _now_s: float) -> void:
+	"""Inject a short random maneuver to break endless turn loops."""
+	var to_target: Vector3 = target_pos - own_pos
+	var to_target_flat: Vector3 = Vector3(to_target.x, 0.0, to_target.z).normalized()
+	if to_target_flat.length() < 0.01:
+		to_target_flat = aircraft.global_transform.basis.z.normalized()
+	var right: Vector3 = to_target_flat.cross(Vector3.UP).normalized()
+	if right.length() < 0.01:
+		right = aircraft.global_transform.basis.x.normalized()
+	var side_sign: float = -1.0 if randf() < 0.5 else 1.0
+	var vertical_sign: float = 1.0
+	if altitude_agl > dogfight_ground_protect_agl_m * 1.8 and randf() < 0.4:
+		vertical_sign = -1.0
+	if altitude_agl < dogfight_ground_protect_agl_m:
+		vertical_sign = 1.0
+
+	var lateral_mag: float = dogfight_variation_lateral_m * randf_range(0.75, 1.2)
+	var vertical_mag: float = dogfight_variation_vertical_m * randf_range(0.7, 1.25)
+	var forward_mag: float = 300.0 + randf_range(0.0, 250.0)
+
+	var wp: Vector3 = own_pos
+	wp += to_target_flat * forward_mag
+	wp += right * side_sign * lateral_mag
+	wp.y += vertical_sign * vertical_mag
+	if altitude_agl < dogfight_ground_protect_agl_m:
+		wp.y = maxf(wp.y, own_pos.y + dogfight_variation_vertical_m * 0.8)
+
+	# Mild target-motion bias keeps the maneuver relevant.
+	wp += target_vel * 0.25
+	_dogfight_variation_waypoint = wp
+	_dogfight_variation_timer_s = maxf(dogfight_variation_duration_s, 0.5)
+	_dogfight_variation_cooldown_timer_s = maxf(dogfight_variation_cooldown_s, 0.5)
+	_dogfight_stalemate_timer_s = 0.0
+
+func _select_dogfight_weapon() -> void:
+	"""Force a gun weapon type for dogfight (prefer Autocannon)."""
+	if not control_weapons:
+		return
+	var selected: String = ""
+	if "weapon_types" in control_weapons:
+		var types: Array = control_weapons.weapon_types
+		if types.has("Autocannon"):
+			selected = "Autocannon"
+		else:
+			for t in types:
+				var t_str: String = String(t)
+				if t_str != "Bomb":
+					selected = t_str
+					break
+	if selected.is_empty():
+		selected = "Autocannon"
+	if "selected_weapon_type" in control_weapons:
+		control_weapons.selected_weapon_type = selected
+	_run_weapon_type = selected
+
+func _get_selected_gun_muzzle_velocity() -> float:
+	if not control_weapons:
+		return dogfight_default_muzzle_velocity_mps
+	var selected: String = ""
+	if "selected_weapon_type" in control_weapons:
+		selected = String(control_weapons.selected_weapon_type)
+	if selected.is_empty():
+		selected = "Autocannon"
+	if not ("hardpoints" in control_weapons):
+		return dogfight_default_muzzle_velocity_mps
+	for hp in control_weapons.hardpoints:
+		if not hp or not hp.weapon_instance:
+			continue
+		var wname: String = String(hp.weapon_instance.weapon_name)
+		if wname != selected:
+			continue
+		if "muzzle_velocity" in hp.weapon_instance:
+			return maxf(float(hp.weapon_instance.muzzle_velocity), 50.0)
+	return dogfight_default_muzzle_velocity_mps
+
+func _predict_lead_point(shooter_pos: Vector3, shooter_vel: Vector3, target_pos: Vector3, target_vel: Vector3, projectile_speed: float) -> Vector3:
+	"""First-order interception point for constant-velocity target."""
+	var rel_pos: Vector3 = target_pos - shooter_pos
+	# Bullets inherit some aircraft velocity, so include own velocity to reduce lead bias.
+	var effective_projectile_speed: float = projectile_speed + shooter_vel.length() * 0.3
+	effective_projectile_speed = maxf(effective_projectile_speed, 50.0)
+	var rel_vel: Vector3 = target_vel - shooter_vel
+	var a: float = rel_vel.dot(rel_vel) - effective_projectile_speed * effective_projectile_speed
+	var b: float = 2.0 * rel_pos.dot(rel_vel)
+	var c: float = rel_pos.dot(rel_pos)
+	var t: float = 0.0
+
+	if absf(a) < 0.001:
+		if absf(b) > 0.001:
+			t = maxf(-c / b, 0.0)
+	else:
+		var disc: float = b * b - 4.0 * a * c
+		if disc >= 0.0:
+			var sqrt_disc: float = sqrt(disc)
+			var t1: float = (-b - sqrt_disc) / (2.0 * a)
+			var t2: float = (-b + sqrt_disc) / (2.0 * a)
+			var t_min: float = INF
+			if t1 > 0.0:
+				t_min = min(t_min, t1)
+			if t2 > 0.0:
+				t_min = min(t_min, t2)
+			if t_min < INF:
+				t = t_min
+
+	if t <= 0.0:
+		t = rel_pos.length() / effective_projectile_speed
+	return target_pos + target_vel * t
+
+func _dogfight_has_good_fire_solution(lead_point: Vector3, muzzle_velocity: float, dist_to_target: float) -> bool:
+	if dist_to_target > dogfight_max_range_m:
+		return false
+	var to_aim: Vector3 = lead_point - aircraft.global_position
+	var aim_dist: float = to_aim.length()
+	if aim_dist < 1.0:
+		return false
+	var aim_dir: Vector3 = to_aim / aim_dist
+	var fwd: Vector3 = aircraft.global_transform.basis.z.normalized()
+	var dot: float = clampf(fwd.dot(aim_dir), -1.0, 1.0)
+	if dot < dogfight_min_aim_dot:
+		return false
+
+	# Approximate hit chance from angular miss vs. target size + weapon spread.
+	var miss_angle: float = acos(dot)
+	var miss_radius: float = sin(miss_angle) * aim_dist
+	var spread_deg: float = 1.0
+	if control_weapons and "hardpoints" in control_weapons:
+		var selected: String = "Autocannon"
+		if "selected_weapon_type" in control_weapons:
+			selected = String(control_weapons.selected_weapon_type)
+		for hp in control_weapons.hardpoints:
+			if not hp or not hp.weapon_instance:
+				continue
+			if String(hp.weapon_instance.weapon_name) != selected:
+				continue
+			if "spread_angle" in hp.weapon_instance:
+				spread_deg = float(hp.weapon_instance.spread_angle)
+				break
+	var spread_radius: float = tan(deg_to_rad(maxf(spread_deg, 0.1))) * aim_dist
+	var hit_envelope: float = dogfight_target_radius_m + spread_radius
+	var hit_chance: float = clampf(1.0 - (miss_radius / maxf(hit_envelope, 0.1)), 0.0, 1.0)
+
+	# Also require finite bullet time-of-flight to avoid very stale lead.
+	var tof: float = aim_dist / maxf(muzzle_velocity, 50.0)
+	return hit_chance >= dogfight_min_hit_chance and tof <= 2.5
+
+func _update_dogfight_burst_timers(delta: float, fire_solution_good: bool) -> void:
+	_dogfight_burst_timer_s = maxf(0.0, _dogfight_burst_timer_s - delta)
+	_dogfight_burst_cooldown_timer_s = maxf(0.0, _dogfight_burst_cooldown_timer_s - delta)
+
+	if _dogfight_burst_active:
+		if _dogfight_burst_timer_s <= 0.0:
+			_dogfight_burst_active = false
+			_dogfight_burst_cooldown_timer_s = dogfight_burst_cooldown_s
+		return
+
+	if fire_solution_good and _dogfight_burst_cooldown_timer_s <= 0.0:
+		_dogfight_burst_active = true
+		_dogfight_burst_timer_s = dogfight_fire_burst_s
 
 func _fire_guns():
 	"""Trigger weapon fire via ControlWeapons."""
@@ -861,18 +1395,18 @@ func _handle_bomb_release_run(aim_pos: Vector3, target_pos: Vector3, ccip_predic
 		return
 
 	var alt_above_target: float = aircraft.global_position.y - target_pos.y
-	# Safety window: never release outside 5–600m above target
+	# Safety window: never release outside 5ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“600m above target
 	if alt_above_target > bomb_release_altitude_window_m or alt_above_target < 5.0:
 		return
 	# Must be descending
 	var horiz_speed: float = Vector2(aircraft.linear_velocity.x, aircraft.linear_velocity.z).length()
 	var fpa_deg: float = rad_to_deg(atan2(-aircraft.linear_velocity.y, max(horiz_speed, 1.0)))
 	if fpa_deg < 30.0:
-		return  # Not in a real dive yet — CCIP is unreliable at shallow angles
+		return  # Not in a real dive yet ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â CCIP is unreliable at shallow angles
 
 	# CCIP release: hold until predicted impact is close enough to target,
 	# unless we're very low (fallback ensures we always release before breaking off).
-	# If CCIP failed (Vector3.ZERO — no terrain found), release immediately.
+	# If CCIP failed (Vector3.ZERO ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â no terrain found), release immediately.
 	if ccip_predicted != Vector3.ZERO and alt_above_target > bomb_ccip_fallback_alt_m:
 		var pred_err_h: float = Vector2(target_pos.x - ccip_predicted.x, target_pos.z - ccip_predicted.z).length()
 		var improving: bool = pred_err_h < _prev_ccip_miss - 0.5  # Still getting noticeably better
@@ -880,7 +1414,7 @@ func _handle_bomb_release_run(aim_pos: Vector3, target_pos: Vector3, ccip_predic
 		if pred_err_h > bomb_ccip_release_tolerance_m:
 			return  # Not accurate enough yet
 		if improving and pred_err_h > 8.0:
-			return  # Accuracy still improving — wait for the peak
+			return  # Accuracy still improving ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â wait for the peak
 
 	var dropped_bomb: BombProjectile = _drop_one_bomb()
 	if dropped_bomb:
@@ -891,13 +1425,13 @@ func _handle_bomb_release_run(aim_pos: Vector3, target_pos: Vector3, ccip_predic
 		var pred_err_h: float = Vector2(target_pos.x - ccip_predicted.x, target_pos.z - ccip_predicted.z).length() if ccip_predicted != Vector3.ZERO else -1.0
 		var spd: float = aircraft.linear_velocity.length()
 		var fpa_at_drop: float = rad_to_deg(atan2(-aircraft.linear_velocity.y, max(horiz_speed, 1.0)))
-		print("━━━━ BOMB RELEASE ━━━━")
-		print("  aircraft  pos=", snapped(aircraft.global_position, Vector3.ONE * 0.1), "  spd=", snapped(spd, 0.1), " m/s  fpa=", snapped(fpa_at_drop, 0.1), "°")
+		print("ÃƒÂ¢Ã¢â‚¬ÂÃ‚ÂÃƒÂ¢Ã¢â‚¬ÂÃ‚ÂÃƒÂ¢Ã¢â‚¬ÂÃ‚ÂÃƒÂ¢Ã¢â‚¬ÂÃ‚Â BOMB RELEASE ÃƒÂ¢Ã¢â‚¬ÂÃ‚ÂÃƒÂ¢Ã¢â‚¬ÂÃ‚ÂÃƒÂ¢Ã¢â‚¬ÂÃ‚ÂÃƒÂ¢Ã¢â‚¬ÂÃ‚Â")
+		print("  aircraft  pos=", snapped(aircraft.global_position, Vector3.ONE * 0.1), "  spd=", snapped(spd, 0.1), " m/s  fpa=", snapped(fpa_at_drop, 0.1), "Ãƒâ€šÃ‚Â°")
 		print("  target    pos=", snapped(target_pos, Vector3.ONE * 0.1), "  alt_above=", snapped(alt_above_target, 0.1), "m  hdist=", snapped(hdist, 0.1), "m")
 		if ccip_predicted != Vector3.ZERO:
 			print("  predicted pos=", snapped(ccip_predicted, Vector3.ONE * 0.1), "  miss_from_target=", snapped(pred_err_h, 0.1), "m")
 		else:
-			print("  predicted pos=N/A (fallback release — no terrain in CCIP)")
+			print("  predicted pos=N/A (fallback release ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â no terrain in CCIP)")
 
 		# Tag the bomb with the intended target so it can report miss at impact
 		dropped_bomb.set_meta("debug_aim_target", target_pos)
@@ -918,7 +1452,7 @@ func _drop_one_bomb() -> BombProjectile:
 func _predict_bomb_impact_point(log_debug: bool = false) -> Vector3:
 	"""Estimate bomb impact point using ballistic simulation.
 	The Terrain3D plugin doesn't register physics collision for raycasts,
-	so we use Terrain3D.get_height() as the primary detection method —
+	so we use Terrain3D.get_height() as the primary detection method ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â
 	the same fallback used by projectile_new.gd."""
 	var start_pos: Vector3 = aircraft.global_position
 	var drop_force: float = 0.0
@@ -982,7 +1516,7 @@ func _predict_bomb_impact_point(log_debug: bool = false) -> Vector3:
 				print("[CCIP] raycast HIT at t=", snapped(step * time_step, 0.01), "s  pos=", snapped(hit["position"], Vector3.ONE * 0.1))
 			return hit.position
 
-		# Fallback: Terrain3D height API — mirrors projectile_new.gd tunneling detection
+		# Fallback: Terrain3D height API ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â mirrors projectile_new.gd tunneling detection
 		if terrain:
 			var h_prev: float = _get_ground_height_at_position(current_pos)
 			var h_next: float = _get_ground_height_at_position(next_pos)
@@ -1035,20 +1569,31 @@ func _state_rtb(delta: float):
 	# For now, just maintain altitude and heading
 	_navigate_to_altitude_and_speed(delta)
 
+func _get_approach_deck_y() -> float:
+	"""Deck reference for approach phase altitudes."""
+	if _approach_wp.size() >= 5:
+		var wp4: Node3D = _approach_wp[4] as Node3D
+		if is_instance_valid(wp4):
+			return wp4.global_position.y
+	# Fallback: carrier center + configured deck offset
+	return carrier_position.y + approach_deck_height_fallback_m
+
 func _state_approach(delta: float):
-	"""Carrier approach: phase 0→3 (approach_0→3) then LANDING toward approach_4."""
+	"""Carrier approach: phase 0ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢3 (approach_0ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢3) then LANDING toward approach_4."""
 	if _approach_wp.size() < 5:
 		change_state(State.SEARCH)
 		return
 
+	var deck_y: float = _get_approach_deck_y()
+
 	match _landing_phase:
-		0:  # --- Phase 0: fly to approach_0 at 80 m/s, alt 450 m ---
+		0:  # --- Phase 0: fly to approach_0 at 80 m/s, alt above deck ---
 			target_speed = 80.0
 			var wp0: Node3D = _approach_wp[0] as Node3D
 			if not is_instance_valid(wp0):
 				change_state(State.SEARCH)
 				return
-			nav_waypoint = Vector3(wp0.global_position.x, 450.0, wp0.global_position.z)
+			nav_waypoint = Vector3(wp0.global_position.x, approach_phase0_alt_above_deck_m - deck_y, wp0.global_position.z)
 			_update_maneuver_waypoint()
 			_navigate_to_waypoint(delta)
 			var h0 := Vector2(aircraft.global_position.x - wp0.global_position.x, aircraft.global_position.z - wp0.global_position.z).length()
@@ -1057,13 +1602,13 @@ func _state_approach(delta: float):
 				if debug_enabled:
 					print("[AIPilot] Approach: reached approach_0, turning to approach_1")
 
-		1:  # --- Phase 1: fly to approach_1 at 80 m/s, alt 350 m ---
+		1:  # --- Phase 1: fly to approach_1 at 80 m/s, alt above deck ---
 			target_speed = 80.0
 			var wp1: Node3D = _approach_wp[1] as Node3D
 			if not is_instance_valid(wp1):
 				change_state(State.SEARCH)
 				return
-			nav_waypoint = Vector3(wp1.global_position.x, 350.0, wp1.global_position.z)
+			nav_waypoint = Vector3(wp1.global_position.x, approach_phase1_alt_above_deck_m - deck_y, wp1.global_position.z)
 			_update_maneuver_waypoint()
 			_navigate_to_waypoint(delta)
 			var h1 := Vector2(aircraft.global_position.x - wp1.global_position.x, aircraft.global_position.z - wp1.global_position.z).length()
@@ -1072,13 +1617,13 @@ func _state_approach(delta: float):
 				if debug_enabled:
 					print("[AIPilot] Approach: reached approach_1, turning to approach_2")
 
-		2:  # --- Phase 2: fly to approach_2 at 65 m/s, alt 200 m ---
+		2:  # --- Phase 2: fly to approach_2 at 65 m/s, alt above deck ---
 			target_speed = 65.0
 			var wp2: Node3D = _approach_wp[2] as Node3D
 			if not is_instance_valid(wp2):
 				change_state(State.SEARCH)
 				return
-			nav_waypoint = Vector3(wp2.global_position.x, 200.0, wp2.global_position.z)
+			nav_waypoint = Vector3(wp2.global_position.x, approach_phase2_alt_above_deck_m - deck_y, wp2.global_position.z)
 			_update_maneuver_waypoint()
 			_navigate_to_waypoint(delta)
 			var h2 := Vector2(aircraft.global_position.x - wp2.global_position.x, aircraft.global_position.z - wp2.global_position.z).length()
@@ -1088,13 +1633,13 @@ func _state_approach(delta: float):
 				if debug_enabled:
 					print("[AIPilot] Approach: reached approach_2, gear and flaps deployed, turning to approach_3")
 
-		3:  # --- Phase 3: fly to approach_3 at 50 m/s, alt 150 m ---
+		3:  # --- Phase 3: fly to approach_3 at 50 m/s, alt above deck ---
 			target_speed = 50.0
 			var wp3: Node3D = _approach_wp[3] as Node3D
 			if not is_instance_valid(wp3):
 				change_state(State.SEARCH)
 				return
-			nav_waypoint = Vector3(wp3.global_position.x, 150.0, wp3.global_position.z)
+			nav_waypoint = Vector3(wp3.global_position.x, approach_phase3_alt_above_deck_m - deck_y, wp3.global_position.z)
 			_update_maneuver_waypoint()
 			_navigate_to_waypoint(delta)
 			var h3 := Vector2(aircraft.global_position.x - wp3.global_position.x, aircraft.global_position.z - wp3.global_position.z).length()
@@ -1125,7 +1670,7 @@ func _state_landing(delta: float):
 	var ang_vel: Vector3 = aircraft.angular_velocity
 
 	# Wire caught: kill engine, release pitch/yaw, but keep wings-level roll command
-	# (mirrors real pilot behaviour — hold aileron to stay upright through the arrest)
+	# (mirrors real pilot behaviour ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â hold aileron to stay upright through the arrest)
 	var arrest_engaged: bool = aircraft.get_meta("arresting_engaged", false)
 	if arrest_engaged:
 		throttle_input = 0.0
@@ -1140,7 +1685,7 @@ func _state_landing(delta: float):
 		roll_input = lerp(_smoothed_roll_input, raw_roll, 0.25)
 		_smoothed_roll_input = roll_input
 
-		# ── Arrest debug ────────────────────────────────────────────────────
+		# ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Arrest debug ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
 		var delta_time: float = get_physics_process_delta_time()
 		if not _arrest_engaged_prev:
 			# First frame of engagement
@@ -1148,7 +1693,7 @@ func _state_landing(delta: float):
 			_arrest_prev_vel = vel
 			_arrest_debug_timer = 0.0
 			_arrest_stopped_reported = false
-			print("━━━━ WIRE CAUGHT ━━━━  pos=", snapped(aircraft.global_position, Vector3.ONE * 0.1),
+			print("ÃƒÂ¢Ã¢â‚¬ÂÃ‚ÂÃƒÂ¢Ã¢â‚¬ÂÃ‚ÂÃƒÂ¢Ã¢â‚¬ÂÃ‚ÂÃƒÂ¢Ã¢â‚¬ÂÃ‚Â WIRE CAUGHT ÃƒÂ¢Ã¢â‚¬ÂÃ‚ÂÃƒÂ¢Ã¢â‚¬ÂÃ‚ÂÃƒÂ¢Ã¢â‚¬ÂÃ‚ÂÃƒÂ¢Ã¢â‚¬ÂÃ‚Â  pos=", snapped(aircraft.global_position, Vector3.ONE * 0.1),
 				"  speed=", snapped(speed, 0.1), " m/s")
 		_arrest_engaged_prev = true
 
@@ -1179,15 +1724,15 @@ func _state_landing(delta: float):
 
 		if speed < 2.0 and not _arrest_stopped_reported:
 			var run: float = aircraft.global_position.distance_to(_arrest_start_pos)
-			print("━━━━ STOPPED  run=", snapped(run, 0.1), " m ━━━━")
+			print("ÃƒÂ¢Ã¢â‚¬ÂÃ‚ÂÃƒÂ¢Ã¢â‚¬ÂÃ‚ÂÃƒÂ¢Ã¢â‚¬ÂÃ‚ÂÃƒÂ¢Ã¢â‚¬ÂÃ‚Â STOPPED  run=", snapped(run, 0.1), " m ÃƒÂ¢Ã¢â‚¬ÂÃ‚ÂÃƒÂ¢Ã¢â‚¬ÂÃ‚ÂÃƒÂ¢Ã¢â‚¬ÂÃ‚ÂÃƒÂ¢Ã¢â‚¬ÂÃ‚Â")
 			_arrest_stopped_reported = true
-		# ────────────────────────────────────────────────────────────────────
+		# ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
 		return
-	# Cable just released — go idle and hand aircraft to FlightDeckManager
+	# Cable just released ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â go idle and hand aircraft to FlightDeckManager
 	if _arrest_engaged_prev:
 		_arrest_engaged_prev = false
 		_arrest_stopped_reported = false
-		print("[AIPilot] Arrest ended — transitioning to IDLE and requesting recovery")
+		print("[AIPilot] Arrest ended ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â transitioning to IDLE and requesting recovery")
 		change_state(State.IDLE)
 		_request_carrier_recovery()
 		return
@@ -1205,7 +1750,7 @@ func _state_landing(delta: float):
 	# === ROLL: wings level on short final (< 200 m), bearing-based further out ===
 	var current_roll: float = atan2(b.x.y, b.y.y)
 	var roll_rate: float = ang_vel.dot(b.z)
-	# Bearing error computed always — needed for rudder correction throughout final approach
+	# Bearing error computed always ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â needed for rudder correction throughout final approach
 	var bearing_err_final: float = 0.0
 	var horiz_to_target_flat: Vector3 = Vector3(to_target.x, 0.0, to_target.z)
 	if horiz_to_target_flat.length() > 1.0:
@@ -1217,7 +1762,7 @@ func _state_landing(delta: float):
 		desired_bank = clamp(bearing_err_final * 2.5, -deg_to_rad(30.0), deg_to_rad(30.0))
 		if flip_roll_direction:
 			desired_bank = -desired_bank
-	# desired_bank stays 0.0 inside 200 m — command wings level
+	# desired_bank stays 0.0 inside 200 m ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â command wings level
 	var bank_error: float = desired_bank - current_roll
 	var raw_roll: float = clamp(bank_error * 11.0 - roll_rate * 0.3, -1.0, 1.0)
 	roll_input = lerp(_smoothed_roll_input, raw_roll, 0.25)
@@ -1235,7 +1780,7 @@ func _state_landing(delta: float):
 	pitch_input = lerp(_smoothed_pitch_input, raw_pitch, 0.15)
 	_smoothed_pitch_input = pitch_input
 
-	# === THROTTLE: maintain approach speed (min 0.1 — lower than normal nav's 0.4) ===
+	# === THROTTLE: maintain approach speed (min 0.1 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â lower than normal nav's 0.4) ===
 	var speed_err: float = target_speed - speed
 	throttle_input = clamp(throttle_input + clamp(speed_err * 0.01, -0.05, 0.05), 0.1, 1.0)
 	if speed < stall_speed_mps + stall_margin_mps:
@@ -1248,7 +1793,7 @@ func _state_landing(delta: float):
 	_smoothed_yaw_input = yaw_input
 
 	if debug_enabled and Engine.get_process_frames() % 30 == 0:
-		print("[AIPilot FINAL] dist=%.0fm  Δalt=%.1fm  fpa: want=%.1f°  act=%.1f°  err=%.1f°  pitch=%.2f  thr=%.2f  spd=%.0f" % [
+		print("[AIPilot FINAL] dist=%.0fm  ÃƒÅ½Ã¢â‚¬Âalt=%.1fm  fpa: want=%.1fÃƒâ€šÃ‚Â°  act=%.1fÃƒâ€šÃ‚Â°  err=%.1fÃƒâ€šÃ‚Â°  pitch=%.2f  thr=%.2f  spd=%.0f" % [
 			horiz_dist, to_target.y,
 			rad_to_deg(desired_fpa), rad_to_deg(current_fpa), rad_to_deg(fpa_err),
 			pitch_input, throttle_input, speed])
@@ -1267,8 +1812,11 @@ func _navigate_to_waypoint(delta: float):
 	var current_roll: float = atan2(aircraft.global_transform.basis.x.y, aircraft.global_transform.basis.y.y)
 	var bank_rad: float = abs(current_roll)
 	var aircraft_up_y: float = aircraft.global_transform.basis.y.y
-	var is_upright: bool = aircraft_up_y > 0.3
-	
+	# In dogfight, the aircraft intentionally banks up to dogfight_bank_cmd_limit_deg (e.g. 85Ãƒâ€šÃ‚Â°).
+	# cos(85Ãƒâ€šÃ‚Â°) = 0.087 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â below the normal 0.3 threshold ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â so we raise the limit only in states
+	# that deliberately command steep banks, to avoid fighting the roll controller.
+	var is_upright: bool = current_state == State.DOGFIGHT or aircraft_up_y > 0.3
+
 	# === INVERTED RECOVERY ===
 	if not is_upright:
 		var roll_to_level: float = _normalize_angle(0.0 - current_roll)
@@ -1284,8 +1832,8 @@ func _navigate_to_waypoint(delta: float):
 	# === DESCENDING SPIRAL RECOVERY ===
 	# If we're banked significantly and descending fast, the turn is bleeding altitude.
 	# Pulling back in a steep bank just tightens the spiral. Level wings first, then climb.
-	# Approach/Landing are also intentional descents — don't interfere with spiral recovery
-	var in_dive_or_attack: bool = current_state in [State.ATTACK_DIVE, State.APPROACH, State.LANDING]
+	# Approach/Landing are also intentional descents ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â don't interfere with spiral recovery
+	var in_dive_or_attack: bool = current_state in [State.DOGFIGHT, State.ATTACK_DIVE, State.APPROACH, State.LANDING]
 	if not in_dive_or_attack and bank_rad > deg_to_rad(25.0) and vel.y < -15.0:
 		var roll_to_level: float = _normalize_angle(0.0 - current_roll)
 		roll_input = clamp(roll_to_level * 3.0, -1.0, 1.0)
@@ -1299,15 +1847,42 @@ func _navigate_to_waypoint(delta: float):
 	
 	var to_target: Vector3 = maneuver_waypoint - aircraft.global_position
 	var b: Basis = aircraft.global_transform.basis
+	var in_dogfight_rejoin: bool = false
+	if current_state == State.DOGFIGHT and combat_target and is_instance_valid(combat_target):
+		in_dogfight_rejoin = aircraft.global_position.distance_to(combat_target.global_position) > dogfight_rejoin_range_m
+	var horiz_to_target_for_limit: Vector3 = Vector3(to_target.x, 0.0, to_target.z)
+	var local_z_for_limit: float = horiz_to_target_for_limit.dot(b.z)
 	var bank_limit_deg: float
 	if current_state not in [State.ATTACK_DIVE, State.LANDING]:
 		_dive_precise_aim = false
 	if _dive_precise_aim:
 		bank_limit_deg = 35.0  # Tighter bank for steadier final approach
+	elif current_state == State.DOGFIGHT:
+		bank_limit_deg = dogfight_bank_cmd_limit_deg
 	elif current_state in [State.ATTACK_POSITIONING, State.ATTACK_DIVE, State.ATTACK_BREAK_OFF]:
 		bank_limit_deg = attack_bank_cmd_limit_deg
 	else:
 		bank_limit_deg = bank_cmd_limit_deg
+	if current_state == State.DOGFIGHT and _dogfight_recovery_timer_s > 0.0:
+		bank_limit_deg = minf(bank_limit_deg, 25.0)
+	if current_state == State.DOGFIGHT and in_dogfight_rejoin:
+		bank_limit_deg = minf(bank_limit_deg, dogfight_rejoin_bank_limit_deg)
+	# Ground protection in dogfight: taper max bank as AGL gets low.
+	if current_state == State.DOGFIGHT:
+		var agl_t: float = clampf((dogfight_ground_protect_agl_m - altitude_agl) / maxf(dogfight_ground_protect_agl_m, 1.0), 0.0, 1.0)
+		var protected_bank_limit: float = lerpf(dogfight_bank_cmd_limit_deg, dogfight_ground_protect_min_bank_deg, agl_t)
+		bank_limit_deg = minf(bank_limit_deg, protected_bank_limit)
+		# Energy-aware bank limit: at low speed, avoid knife-edge banks that produce no useful turn.
+		var speed_t: float = clampf(
+			(speed - dogfight_min_speed_mps) / maxf(dogfight_corner_speed_mps - dogfight_min_speed_mps, 1.0),
+			0.0,
+			1.0
+		)
+		var speed_bank_floor: float = 45.0 if local_z_for_limit < -0.2 else 35.0
+		if in_dogfight_rejoin:
+			speed_bank_floor = 30.0
+		var speed_bank_limit: float = lerpf(speed_bank_floor, dogfight_bank_cmd_limit_deg, speed_t)
+		bank_limit_deg = minf(bank_limit_deg, speed_bank_limit)
 	
 	# === ROLL: project HORIZONTAL direction to target into local frame ===
 	# By zeroing Y we prevent altitude differences from affecting the bank command.
@@ -1322,43 +1897,54 @@ func _navigate_to_waypoint(delta: float):
 		var lateral_ratio: float = local_horiz_x / horiz_len
 		var horiz_dir_z: float = local_horiz_z / horiz_len
 
-		# Bearing error: positive = turn right, negative = turn left (for when target is directly behind)
+		# Bearing error: used for rudder and non-dogfight states
 		var heading_rad: float = atan2(aircraft.global_transform.basis.z.x, aircraft.global_transform.basis.z.z)
 		var bearing_to_wp_rad: float = atan2(horiz_to_target.x, horiz_to_target.z)
 		bearing_err_rad = _normalize_angle(bearing_to_wp_rad - heading_rad)
-		
-		# Positive current_roll = right bank (empirically verified).
-		# Target right (positive lateral_ratio) → right bank (positive desired_bank).
-		if horiz_dir_z < -0.5:
+
+		if current_state == State.DOGFIGHT:
+			# Pure horizontal LOS turn law: bank toward target bearing.
+			# Vertical pursuit is handled by pitch/energy logic below.
+			var dogfight_bearing_err_rad: float = atan2(local_horiz_x, local_horiz_z)
+			if local_horiz_z < -0.2:
+				var behind_sign: float = signf(local_horiz_x)
+				if absf(behind_sign) < 0.01:
+					behind_sign = signf(bearing_err_rad)
+				if absf(behind_sign) < 0.01:
+					behind_sign = 1.0
+				desired_bank = behind_sign * deg_to_rad(bank_limit_deg)
+			else:
+				desired_bank = clampf(
+					dogfight_bearing_err_rad * 1.9,
+					-deg_to_rad(bank_limit_deg),
+					deg_to_rad(bank_limit_deg)
+				)
+			# Dogfight uses direct LOS sign; do not apply generic waypoint sign flip here.
+			_committed_turn_sign = 0.0
+		elif horiz_dir_z < -0.5:
 			# Target behind: commit to a turn direction.
-			# When target is directly behind (lateral_ratio ~0), bearing_err flips +180/-180 - LOCK direction.
-			# When lateral is clear, use it; overshoot check switches when target crosses.
 			var turn_toward: float
 			if abs(lateral_ratio) > 0.05:
 				turn_toward = signf(lateral_ratio)
 			else:
-				# Directly behind: set once and LOCK - bearing_err wraps at ±180° causing flip
 				if _committed_turn_sign == 0.0:
-					# First time: use cross product (avoids ±180° wrap). cross>0 = target left = turn left
 					var cross: float = aircraft.global_transform.basis.z.x * horiz_to_target.z - aircraft.global_transform.basis.z.z * horiz_to_target.x
 					_committed_turn_sign = -1.0 if cross > 0 else 1.0
 				turn_toward = _committed_turn_sign
 			if _committed_turn_sign == 0.0:
 				_committed_turn_sign = turn_toward
 			elif abs(lateral_ratio) > 0.05 and signf(_committed_turn_sign) != signf(lateral_ratio):
-				# Overshot: target crossed to other side, switch turn direction
 				_committed_turn_sign = turn_toward
 			desired_bank = _committed_turn_sign * deg_to_rad(bank_limit_deg)
+			if flip_roll_direction:
+				desired_bank = -desired_bank
 		else:
 			if horiz_dir_z > 0.0:
 				_committed_turn_sign = 0.0
-			# Use bearing error (world-space) — stable across roll angles, avoids the local-frame
-			# feedback loop where rolling changes lateral_ratio and oscillates near max bank.
-			# Precise aim uses a tighter gain for fine alignment; normal uses a gentler gain.
 			var bank_gain: float = 2.2 if _dive_precise_aim else 1.5
 			desired_bank = clamp(bearing_err_rad * bank_gain, -deg_to_rad(bank_limit_deg), deg_to_rad(bank_limit_deg))
-		if flip_roll_direction:
-			desired_bank = -desired_bank
+			if flip_roll_direction:
+				desired_bank = -desired_bank
 	
 	# Read angular rates for derivative damping (PD control instead of just P)
 	var ang_vel: Vector3 = aircraft.angular_velocity
@@ -1371,7 +1957,10 @@ func _navigate_to_waypoint(delta: float):
 	# === ROLL: PD controller - decisive gain + minimum input when off target ===
 	var bank_error: float = desired_bank - current_roll
 	var roll_rate_damping: float = 0.30 + high_bank_roll_damping_gain * high_bank_t
-	var raw_roll: float = clamp(bank_error * 11.0 - roll_rate * roll_rate_damping, -1.0, 1.0)
+	# Taper P-gain as bank approaches the limit: reduces vibration at max bank by making
+	# the controller damping-dominated near the ceiling rather than twitchy-proportional.
+	var roll_p_gain: float = lerp(11.0, 4.5, high_bank_t)
+	var raw_roll: float = clamp(bank_error * roll_p_gain - roll_rate * roll_rate_damping, -1.0, 1.0)
 	if abs(bank_error) > deg_to_rad(2.0):
 		var min_roll: float = 0.45 * (1.0 - 0.55 * high_bank_t) * sign(bank_error)
 		if abs(raw_roll) < abs(min_roll):
@@ -1387,15 +1976,16 @@ func _navigate_to_waypoint(delta: float):
 	var in_dive_state: bool = current_state == State.ATTACK_DIVE
 	var in_break_off: bool = current_state == State.ATTACK_BREAK_OFF
 	var in_attack_approach: bool = current_state in [State.ATTACK_POSITIONING, State.ATTACK_INBOUND]
+	var in_dogfight: bool = current_state == State.DOGFIGHT
 	var in_landing: bool = current_state == State.LANDING
-	# Continuous ramp 0→1 as alt deficit grows 0→80m. Replaces the old binary in_attack_climb
+	# Continuous ramp 0ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢1 as alt deficit grows 0ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢80m. Replaces the old binary in_attack_climb
 	# switch at 30m which caused an abrupt gain step and drove oscillation.
 	var attack_climb_t: float = clamp(alt_err / 80.0, 0.0, 1.0) if in_attack_approach else 0.0
 	var needs_high_authority: bool = in_dive_state or in_break_off or in_landing
 	var vs_limit: float
 	var vs_gain: float
 	if in_landing:
-		# Carrier final: need enough descent (150m over ~540m) — default 10 m/s cap is too low
+		# Carrier final: need enough descent (150m over ~540m) ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â default 10 m/s cap is too low
 		vs_limit = 18.0
 		vs_gain = 0.18
 	elif needs_high_authority:
@@ -1406,9 +1996,17 @@ func _navigate_to_waypoint(delta: float):
 		vs_limit = lerp(18.0, 55.0, entry_t)
 		vs_gain = lerp(0.12, 0.25, entry_t)
 	elif in_attack_approach:
-		# Smoothly blend authority as altitude deficit grows — no abrupt step at any threshold
+		# Smoothly blend authority as altitude deficit grows ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â no abrupt step at any threshold
 		vs_limit = lerp(10.0, 18.0, attack_climb_t)
 		vs_gain  = lerp(0.08, 0.12, attack_climb_t)
+	elif in_dogfight:
+		# Dogfight: bounded vertical command; calmer rejoin profile at long range.
+		if in_dogfight_rejoin:
+			vs_limit = 10.0
+			vs_gain = 0.06
+		else:
+			vs_limit = maxf(dogfight_vs_limit_mps, 2.0)
+			vs_gain = maxf(dogfight_vs_gain, 0.01)
 	elif current_state == State.CLIMBING:
 		# Post-launch climb: allow aggressive rate to reach pattern altitude quickly
 		vs_limit = 25.0
@@ -1417,28 +2015,49 @@ func _navigate_to_waypoint(delta: float):
 		vs_limit = 10.0
 		vs_gain = 0.08
 	var desired_vs: float = clamp(alt_err * vs_gain, -vs_limit, vs_limit)
-	# Deadband: settle when close to target altitude — applies in all non-dive/break-off states
+	# Deadband: settle when close to target altitude ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â applies in all non-dive/break-off states
 	if not needs_high_authority and abs(alt_err) < pitch_deadband_m and abs(vel.y) < 2.0:
 		desired_vs = 0.0
 	# During dive: deadband near aim altitude to prevent pitch hunting/oscillation
 	elif in_dive_state and abs(alt_err) < 35.0:
 		desired_vs = clamp(alt_err * 0.15, -8.0, 8.0)  # Gentle correction when close
+	var dogfight_speed_deficit: float = 0.0
+	# Dogfight turn-pull assist: compensate lift loss in steep bank.
+	if in_dogfight:
+		if not in_dogfight_rejoin:
+			# Unload/push over when below corner-speed envelope to avoid endless climb + stall.
+			dogfight_speed_deficit = maxf((dogfight_corner_speed_mps + dogfight_unload_speed_margin_mps) - speed, 0.0)
+			var allow_energy_unload: bool = local_horiz_z > -0.2
+			dogfight_speed_deficit = minf(dogfight_speed_deficit, 35.0)
+			if dogfight_speed_deficit > 0.0 and allow_energy_unload:
+				var unload_descent: float = -minf(dogfight_speed_deficit * dogfight_unload_descent_gain, vs_limit * 0.75)
+				desired_vs = minf(desired_vs, unload_descent)
+		# Near ground, enforce a minimum climb demand during significant bank.
+		var protect_agl: float = dogfight_ground_protect_agl_m
+		if in_dogfight_rejoin:
+			protect_agl = minf(protect_agl, 120.0)
+		if altitude_agl < protect_agl and bank_rad > deg_to_rad(35.0):
+			desired_vs = maxf(desired_vs, dogfight_ground_protect_min_climb_vs_mps)
+		if _dogfight_recovery_timer_s > 0.0:
+			desired_vs = maxf(desired_vs, dogfight_ground_protect_min_climb_vs_mps + 4.0)
 	var vs_err: float = desired_vs - vel.y
 	var bank_compensation: float = clamp(1.0 / max(cos(bank_rad), 0.7), 1.0, 1.2)
-	var pitch_limit: float = max_pitch_angle / deg_to_rad(60.0)
+	var pitch_limit: float = 0.75 if in_dogfight else max_pitch_angle / deg_to_rad(60.0)
 	var pitch_gain: float
 	if needs_high_authority:
 		pitch_gain = 0.10
 	elif in_attack_approach:
 		pitch_gain = lerp(0.06, 0.08, attack_climb_t)  # Gentler ceiling reduces overshoot
+	elif in_dogfight:
+		pitch_gain = 0.14
 	else:
 		pitch_gain = 0.06
-	var pitch_rate_damping: float = 0.45 if in_dive_state else 0.5  # Stronger pitch-rate damping to resist porpoising
+	var pitch_rate_damping: float = 0.45 if in_dive_state or in_dogfight else 0.5  # Stronger damping in combat
 	var raw_pitch: float = clamp(vs_err * pitch_gain * bank_compensation - pitch_rate_up * pitch_rate_damping, -pitch_limit, pitch_limit)
 	# Min pitch prevents dead-zone but must not fight the controller when it is already correcting
 	# correctly. Only enforce the floor when vs_err agrees with the altitude error direction.
 	var min_pitch_threshold: float = 60.0 if in_dive_state else 40.0
-	if abs(alt_err) > min_pitch_threshold:
+	if not in_dogfight and abs(alt_err) > min_pitch_threshold:
 		var min_pitch: float = (0.10 if needs_high_authority else 0.04) * sign(alt_err)
 		if sign(vs_err) == sign(alt_err) and abs(raw_pitch) < abs(min_pitch):
 			raw_pitch = min_pitch
@@ -1456,13 +2075,33 @@ func _navigate_to_waypoint(delta: float):
 	if debug_enabled and Engine.get_process_frames() % 30 == 0:
 		var gh: float = _smoothed_ground_height if not is_nan(_smoothed_ground_height) else _get_ground_height_at_position(aircraft.global_position)
 		print("[AIPilot PITCH] Alt: %.1f (Tgt: %.1f, Err: %.1f) | VS: %.1f (Des: %.1f, Err: %.1f) | Pitch: %.3f (Raw: %.3f) | Gnd: %.1f" % [aircraft.global_position.y, nav_waypoint.y, alt_err, vel.y, desired_vs, vs_err, pitch_input, raw_pitch, gh])
+
+	# Dogfight controller internals ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â shows bank/roll PD details every 30 frames
+	if debug_enabled and current_state == State.DOGFIGHT and Engine.get_process_frames() % 30 == 0:
+		print("  [ROLL_CTL] desired=%+5.0fÃƒâ€šÃ‚Â°  cur=%+5.0fÃƒâ€šÃ‚Â°  err=%+5.1fÃƒâ€šÃ‚Â°  p_gain=%.1f  d=%.2f  raw=%+5.2f  out=%+5.2f  rate=%.2f" % [
+			rad_to_deg(desired_bank), rad_to_deg(current_roll), rad_to_deg(bank_error),
+			roll_p_gain, roll_rate_damping, raw_roll, roll_input, roll_rate])
+		print("  [PITCH_CTL] vs_des=%+5.1f  vs_err=%+5.1f  gain=%.2f  bank_comp=%.2f  dV=%.1f  raw=%+5.2f  out=%+5.2f" % [
+			desired_vs, vs_err, pitch_gain, bank_compensation, dogfight_speed_deficit, raw_pitch, pitch_input])
 	
 	# === YAW: coordinate the bank + rudder fine-tuning for small heading errors ===
 	# Rudder correction fades at high bank angles (not effective for heading in steep turns)
-	var yaw_turn: float = -sin(desired_bank) * lerp(1.0, high_bank_yaw_scale, high_bank_t)
-	var yaw_correction: float = clamp(bearing_err_rad * 0.25, -0.3, 0.3) * (1.0 - high_bank_t)
-	var raw_yaw: float = clamp(yaw_turn + yaw_correction, -1.0, 1.0)
-	var yaw_smoothing: float = lerp(input_smoothing, 0.5, high_bank_t)
+	var raw_yaw: float
+	var yaw_smoothing: float
+	if in_dogfight:
+		# Dogfight yaw: do NOT use rudder as primary turn control.
+		# Use mostly slip damping + small aiming trim, and fade with high bank.
+		var sideslip_ratio: float = clampf(vel.dot(b.x) / maxf(speed, 1.0), -1.0, 1.0)
+		var yaw_slip_damp: float = -sideslip_ratio * dogfight_sideslip_damping_gain
+		var yaw_aim: float = bearing_err_rad * dogfight_aim_rudder_gain * (1.0 - high_bank_t)
+		var yaw_coord: float = -sin(desired_bank) * dogfight_coord_rudder_gain * (1.0 - high_bank_t)
+		raw_yaw = clampf(yaw_slip_damp + yaw_aim + yaw_coord, -dogfight_max_rudder_input, dogfight_max_rudder_input)
+		yaw_smoothing = 0.25
+	else:
+		var yaw_turn: float = -sin(desired_bank) * lerp(1.0, high_bank_yaw_scale, high_bank_t)
+		var yaw_correction: float = clampf(bearing_err_rad * 0.25, -0.3, 0.3) * (1.0 - high_bank_t)
+		raw_yaw = clampf(yaw_turn + yaw_correction, -1.0, 1.0)
+		yaw_smoothing = lerp(input_smoothing, 0.5, high_bank_t)
 	yaw_input = lerp(_smoothed_yaw_input, raw_yaw, yaw_smoothing)
 	_smoothed_yaw_input = yaw_input
 	
@@ -1478,9 +2117,15 @@ func _navigate_to_waypoint(delta: float):
 	throttle_input += clamp(bank_rad / deg_to_rad(30.0), 0.0, 1.0) * 0.15
 	throttle_input = clamp(throttle_input, 0.0, 1.0)
 	
-	# Low speed protection — full throttle, limit pitch-up to avoid bleeding more energy
+	# Low speed protection ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â full throttle, limit pitch-up to avoid bleeding more energy
 	if speed < stall_speed_mps + stall_margin_mps:
-		pitch_input = clamp(pitch_input, -0.5, 0.3)
+		if current_state == State.DOGFIGHT:
+			var speed_shortfall: float = maxf((stall_speed_mps + stall_margin_mps) - speed, 0.0)
+			var extra_unload_t: float = clampf(speed_shortfall / 20.0, 0.0, 1.0)
+			var dogfight_pitch_cap: float = lerpf(dogfight_low_speed_pitch_cap, 0.0, extra_unload_t)
+			pitch_input = clamp(pitch_input, -0.6, dogfight_pitch_cap)
+		else:
+			pitch_input = clamp(pitch_input, -0.5, 0.3)
 		throttle_input = 1.0
 	
 	if debug_enabled and verbose_debug_enabled and Engine.get_process_frames() % 30 == 0:
@@ -1505,11 +2150,11 @@ func _navigate_to_waypoint(delta: float):
 		var bearing_err := _normalize_angle(deg_to_rad(bearing_to_wp - heading_deg)) if horiz_len > 0.1 else 0.0
 		print("=== [AIPilot %s] STEERING ===" % aircraft.name)
 		print("  WAYPOINT: nav=(%.0f,%.0f,%.0f)  maneuver=(%.0f,%.0f,%.0f)" % [nav_waypoint.x, nav_waypoint.y, nav_waypoint.z, maneuver_waypoint.x, maneuver_waypoint.y, maneuver_waypoint.z])
-		print("  TARGET: %s  dist=%.0fm  bearing=%.0f°  heading=%.0f°  err=%.0f° (pos=turn R)" % [target_pos, to_target.length(), bearing_to_wp, heading_deg, rad_to_deg(bearing_err)])
+		print("  TARGET: %s  dist=%.0fm  bearing=%.0fÃƒâ€šÃ‚Â°  heading=%.0fÃƒâ€šÃ‚Â°  err=%.0fÃƒâ€šÃ‚Â° (pos=turn R)" % [target_pos, to_target.length(), bearing_to_wp, heading_deg, rad_to_deg(bearing_err)])
 		var vel_fwd: float = vel.dot(aircraft.global_transform.basis.z)
 		var vel_right: float = vel.dot(aircraft.global_transform.basis.x)
 		var turning: String = "RIGHT" if vel_right > 5 else ("LEFT" if vel_right < -5 else "STRAIGHT")
-		print("  TURN: %s  desired_bank=%.1f°  current_roll=%.1f°  bank_err=%.1f°  commit=%.0f  flip=%s" % [turn_dir, rad_to_deg(desired_bank), rad_to_deg(current_roll), rad_to_deg(bank_error), _committed_turn_sign, flip_roll_direction])
+		print("  TURN: %s  desired_bank=%.1fÃƒâ€šÃ‚Â°  current_roll=%.1fÃƒâ€šÃ‚Â°  bank_err=%.1fÃƒâ€šÃ‚Â°  commit=%.0f  flip=%s" % [turn_dir, rad_to_deg(desired_bank), rad_to_deg(current_roll), rad_to_deg(bank_error), _committed_turn_sign, flip_roll_direction])
 		print("  ACTUAL: turning=%s (vel_right=%.1f)  vel_fwd=%.1f" % [turning, vel_right, vel_fwd])
 		print("  LOCAL: lx=%.2f (right+)  lz=%.2f (ahead+)  lateral_ratio=%.2f" % [lateral_norm, ahead_norm, lateral_norm])
 		print("  CMD: roll=%.2f  pitch=%.2f  yaw=%.2f  thr=%.2f" % [roll_input, pitch_input, yaw_input, throttle_input])
@@ -1520,7 +2165,7 @@ func _update_maneuver_waypoint():
 	if nav_waypoint == Vector3.ZERO:
 		return
 	
-	# LANDING: always steer directly at approach_4 (touchdown point). No lookahead — we must
+	# LANDING: always steer directly at approach_4 (touchdown point). No lookahead ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â we must
 	# fly to the deck, not past it. The general lookahead helps turning but causes overfly on final.
 	if current_state == State.LANDING:
 		maneuver_waypoint = nav_waypoint
@@ -1611,8 +2256,8 @@ func _apply_turn_controls(desired_pitch: float, desired_roll: float, delta: floa
 	if debug_enabled and verbose_debug_enabled and Engine.get_process_frames() % 60 == 0:
 		var current_alt = aircraft.global_position.y
 		var vertical_speed = aircraft.linear_velocity.y
-		print("[AIPilot TURN] Bank: ", snapped(rad_to_deg(current_roll), 0.1), "° Pitch: ", snapped(rad_to_deg(current_pitch), 0.1),
-			  "° Alt: ", snapped(current_alt, 0.1), " VS: ", snapped(vertical_speed, 0.1))
+		print("[AIPilot TURN] Bank: ", snapped(rad_to_deg(current_roll), 0.1), "Ãƒâ€šÃ‚Â° Pitch: ", snapped(rad_to_deg(current_pitch), 0.1),
+			  "Ãƒâ€šÃ‚Â° Alt: ", snapped(current_alt, 0.1), " VS: ", snapped(vertical_speed, 0.1))
 
 func _navigate_to_altitude_and_speed(delta: float):
 	"""Navigate to target altitude and speed (waypoint-based)"""
@@ -1639,7 +2284,7 @@ func _check_emergency_terrain_avoidance():
 	if current_state == State.CLIMBING and aircraft.linear_velocity.y > 2.0:
 		return
 
-	var in_attack_phase: bool = current_state in [State.ATTACK_POSITIONING, State.ATTACK_INBOUND, State.ATTACK_DIVE, State.ATTACK_BREAK_OFF]
+	var in_attack_phase: bool = current_state in [State.DOGFIGHT, State.ATTACK_POSITIONING, State.ATTACK_INBOUND, State.ATTACK_DIVE, State.ATTACK_BREAK_OFF]
 	var in_landing: bool = current_state in [State.APPROACH, State.LANDING]
 	# During an actual dive the plane intentionally descends; use less conservative thresholds.
 	# During positioning/inbound the plane is just navigating, use slightly relaxed but still safe values.
@@ -1648,7 +2293,7 @@ func _check_emergency_terrain_avoidance():
 	var tti_limit: float
 	var terrain_warn: float
 	if in_landing and current_state == State.LANDING:
-		# On final approach we intentionally descend to the deck. Do NOT pull up — the
+		# On final approach we intentionally descend to the deck. Do NOT pull up ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the
 		# carrier hull/deck is in the flight path and we must fly to approach_4. Skip
 		# all emergency terrain avoidance; let _navigate_to_waypoint steer to the deck.
 		return
@@ -1680,7 +2325,7 @@ func _check_emergency_terrain_avoidance():
 	# altitude. Don't abort the attack based on AGL alone when the plane is climbing and
 	# there's no terrain directly ahead. Only trigger on truly dangerous AGL (<30m) or
 	# if terrain ahead is actually a threat.
-	var is_climbing_to_altitude: bool = current_state in [State.ATTACK_POSITIONING, State.ATTACK_INBOUND] and aircraft.linear_velocity.y > 0.0
+	var is_climbing_to_altitude: bool = current_state in [State.DOGFIGHT, State.ATTACK_POSITIONING, State.ATTACK_INBOUND] and aircraft.linear_velocity.y > 0.0
 	var low_agl: bool
 	if is_climbing_to_altitude:
 		low_agl = altitude_agl < 30.0
@@ -1958,8 +2603,27 @@ func change_state(new_state: State):
 	"""Change AI state with logging"""
 	if debug_enabled and verbose_debug_enabled:
 		print("[AIPilot] State change: ", State.keys()[current_state], " -> ", State.keys()[new_state])
+	if current_state == State.DOGFIGHT and new_state != State.DOGFIGHT:
+		_dogfight_burst_active = false
+		_dogfight_burst_timer_s = 0.0
+		_dogfight_burst_cooldown_timer_s = 0.0
+		_dogfight_retarget_timer_s = 0.0
+		_dogfight_variation_timer_s = 0.0
+		_dogfight_variation_cooldown_timer_s = 0.0
+		_dogfight_stalemate_timer_s = 0.0
+		_dogfight_variation_waypoint = Vector3.ZERO
+		_dogfight_prev_target_distance_m = INF
+		_dogfight_recovery_timer_s = 0.0
+		_dogfight_recovery_waypoint = Vector3.ZERO
+		_stop_firing()
 	if new_state == State.ATTACK_DIVE:
 		_dive_entry_time_s = Time.get_ticks_msec() / 1000.0
+	elif new_state == State.DOGFIGHT:
+		_dogfight_retarget_timer_s = 0.0
+		_dogfight_stalemate_timer_s = 0.0
+		_dogfight_prev_target_distance_m = INF
+		_dogfight_recovery_timer_s = 0.0
+		_dogfight_recovery_waypoint = Vector3.ZERO
 	current_state = new_state
 
 # ============================================================================
@@ -1978,7 +2642,10 @@ func add_waypoint(waypoint: Vector3):
 func set_target(target: Node3D):
 	"""Set combat target and engage"""
 	combat_target = target
-	change_state(State.ENGAGE)
+	if target and _is_enemy_aircraft_target(target):
+		change_state(State.DOGFIGHT)
+	else:
+		change_state(State.ENGAGE)
 
 func set_target_altitude(meters: float) -> void:
 	"""Set the AI's immediate altitude target. If patrolling, also update patrol altitude."""

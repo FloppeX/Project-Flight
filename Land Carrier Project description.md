@@ -1,6 +1,6 @@
 ﻿## Current Status
 
-**Last Updated:** 2026-03-04 (session 2)
+**Last Updated:** 2026-03-06
 **Godot Version:** 4.4.1.stable.official.49a5bc7b6
 **Project Health:** PLAYABLE
 **Control Mode:** Manual (Game Controller) + AI autonomous
@@ -44,7 +44,7 @@
 | Ballistics | Working | Lead calculation and gravity |
 | Ground Snapping | Working | StaticBody3D terrain alignment |
 | Movement | Partial | Basic positioning, no pathfinding |
-| AI Behavior | Partial | Attack only, no tactics |
+| AI Behavior | Partial | Dogfight behavior implemented and actively tuned |
 
 ### Environment
 | System | Status | Notes |
@@ -57,12 +57,14 @@
 | Weather | Planned | Not yet implemented |
 
 ### Immediate Priorities
-1. End-to-end AI cycle testing: hangar → catapult → climb → approach → land → hangar (loop)
-2. Implement enemy movement and pathfinding
-3. Add carrier defense turrets
-4. Develop resource management system
+1. Dogfight tuning pass: improve final nose placement and shot conversion at close range
+2. End-to-end AI cycle testing: hangar -> catapult -> climb -> approach -> land -> hangar (loop)
+3. Implement enemy movement and pathfinding
+4. Add carrier defense turrets
+5. Develop resource management system
 
 ### Version History
+- 2026-03-06: Dogfight controller rework (direct nose-pointing control), inverted recovery, firing logic/rudder tuning
 - 2026-03-04 (s2): AI hangar-launch cycle: controls_disabled fix, terrain avoidance post-launch, aggressive climb, proximity waypoint clearing, land-after-launch flow
 - 2026-03-04: AI landing tumble fix, bomb accuracy, auto-hangar recovery, post-arrest AI hand-off
 - 2026-03-03: Arresting cable physics overhaul (mass-adaptive, quadratic damping)
@@ -75,6 +77,38 @@
 ---
 
 ## Project Change Log (latest session)
+
+### Session Summary (2026-03-06) - Dogfight Control Rework
+
+**Overview:** Air-to-air behavior was reworked from mixed navigation heuristics to a direct nose-pointing controller. The AI now picks an aim direction and drives roll/pitch/yaw to put the nose on that aim point.
+
+#### Dogfight Control Architecture (`AI/AIPilot.gd`)
+- Replaced the previous layered dogfight steering stack with a direct local-space control loop in `_state_dogfight`.
+- Outer loop computes desired bank from local azimuth error (`yaw_err_rad`) to the blended target/lead aim point.
+- Inner loops:
+  - Roll PD tracks desired bank.
+  - Pitch tracks local elevation error (`pitch_err_rad`) with turn-load bias and low-speed limits.
+  - Yaw tracks azimuth error with coordinated-turn and yaw-rate/sideslip damping.
+- Added straight-flight preference when target is mostly ahead and yaw error is small: bank and pull bias are blended toward level flight.
+
+#### Inverted Recovery Behavior (`AI/AIPilot.gd`)
+- Added explicit inverted recovery guard in dogfight (`basis.y.y < -0.05`):
+  - Forces upright roll target (`desired_bank = 0`) with stronger roll recovery gains.
+  - Neutralizes yaw and uses conservative pitch until upright.
+  - Suppresses weapon fire during inverted recovery.
+- This prevents "leveling off while inverted"; AI now prioritizes rolling upright first.
+
+#### Rudder and Fire Behavior Tuning (`AI/AIPilot.gd`)
+- Increased rudder authority to full scale (`dogfight_max_rudder_input = 1.0`).
+- Added/raised simple dogfight yaw gains and smoothing controls for faster nose placement.
+- Relaxed fire gating:
+  - Lowered minimum aim/hit thresholds.
+  - Increased burst duration and shortened cooldown.
+  - Added geometric fallback so AI fires when target is clearly in front even if hit model is conservative.
+
+#### Current Result / Remaining Issue
+- Dogfight behavior is improved and more coherent than earlier sessions.
+- Remaining tuning focus: terminal closure phase. AI can point generally toward target but still needs stronger "last bit" nose authority to convert more opportunities into shots.
 
 ### Session Summary (2026-03-04 part 2) - AI Hangar-Launch-Climb-Land Cycle
 
