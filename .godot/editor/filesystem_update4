@@ -5,3 +5,9 @@ res://LandCarrier.tscn
 res://CompleteFighterJet.tscn
 res://Enemies/EnemyFighter.tscn
 res://AI/AIPilot.gd
+res://Environment/LowPolyTerrain.gd
+res://LandCarrier/FlightDeckManager.gd
+res://Aircraft/aircraft.gd
+res://Enemies/EnemyController.gd
+res://Projectiles/ProjectileNew/projectile_new.gd
+res://example/Example1_Simple.gd

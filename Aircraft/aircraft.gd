@@ -277,6 +277,10 @@ func _is_ground_or_terrain(body: Node) -> bool:
 	return false
 
 func _enforce_above_terrain():
+	# FlightDeckManager sets this while the aircraft is moved inside carrier/elevator.
+	# During that phase, terrain safety checks would be false positives.
+	if has_meta("carrier_transport_mode") and bool(get_meta("carrier_transport_mode")):
+		return
 	var ground_y: float = _get_ground_height_at_position(global_position)
 	if is_nan(ground_y):
 		return
@@ -288,6 +292,10 @@ func _enforce_above_terrain():
 func _get_cached_terrain_node() -> Node:
 	if _terrain_node and is_instance_valid(_terrain_node):
 		return _terrain_node
+	var tagged: Node = get_tree().get_first_node_in_group("terrain_provider")
+	if tagged and is_instance_valid(tagged):
+		_terrain_node = tagged
+		return _terrain_node
 	var root: Node = get_tree().current_scene
 	if not root:
 		return null
@@ -295,6 +303,9 @@ func _get_cached_terrain_node() -> Node:
 	while queue.size() > 0:
 		var cur: Node = queue.pop_front()
 		if cur.get_class() == "Terrain3D":
+			_terrain_node = cur
+			return _terrain_node
+		if cur is Node3D and cur.has_method("get_height"):
 			_terrain_node = cur
 			return _terrain_node
 		for child in cur.get_children():

@@ -98,10 +98,17 @@ var ground_attack_enabled: bool = false  # Toggle with O key: true=attack mode, 
 @export var dogfight_enabled: bool = true
 @export var dogfight_max_range_m: float = 1800.0
 @export var dogfight_target_radius_m: float = 4.0
-@export var dogfight_min_hit_chance: float = 0.20
-@export var dogfight_fire_burst_s: float = 0.7
+@export var dogfight_min_hit_chance: float = 0.42
+@export var dogfight_fire_burst_s: float = 0.5
 @export var dogfight_burst_cooldown_s: float = 0.15
-@export var dogfight_min_aim_dot: float = 0.96  # ~16 deg
+@export var dogfight_min_aim_dot: float = 0.985  # ~10 deg
+@export var dogfight_fire_max_tof_s: float = 1.9
+@export var dogfight_fire_precise_min_blend: float = 0.55
+@export var dogfight_fire_precise_close_range_m: float = 320.0
+@export var dogfight_fire_fallback_range_m: float = 420.0
+@export var dogfight_fire_fallback_min_dot: float = 0.992  # ~7 deg
+@export var dogfight_fire_fallback_lateral: float = 0.18
+@export var dogfight_fire_fallback_vertical: float = 0.14
 @export var dogfight_default_muzzle_velocity_mps: float = 600.0
 @export var dogfight_retarget_interval_s: float = 0.5
 @export var dogfight_retarget_advantage_m: float = 150.0
@@ -152,6 +159,13 @@ var ground_attack_enabled: bool = false  # Toggle with O key: true=attack mode, 
 @export var dogfight_simple_yaw_high_bank_scale: float = 0.85
 @export var dogfight_simple_yaw_rejoin_scale: float = 0.9
 @export var dogfight_simple_yaw_smoothing: float = 0.45
+@export var dogfight_precise_aim_entry_deg: float = 10.0
+@export var dogfight_precise_aim_full_deg: float = 1.5
+@export var dogfight_precise_aim_max_range_m: float = 1200.0
+@export var dogfight_precise_pid_blend: float = 0.95
+@export var dogfight_precise_roll_response: float = 0.72
+@export var dogfight_precise_pitch_response: float = 0.66
+@export var dogfight_precise_yaw_response: float = 0.78
 var _run_weapon_type: String = "Autocannon"
 var _bombs_to_drop_this_run: int = 0
 var _bombs_dropped_this_run: int = 0
@@ -172,6 +186,8 @@ var _dogfight_variation_waypoint: Vector3 = Vector3.ZERO
 var _dogfight_prev_target_distance_m: float = INF
 var _dogfight_recovery_timer_s: float = 0.0
 var _dogfight_recovery_waypoint: Vector3 = Vector3.ZERO
+var _dogfight_precise_yaw_controller: PIDController
+var _dogfight_precise_pitch_controller: PIDController
 
 # Landing approach
 var _landing_phase: int = 0  # 0=to approach_1, 1=to approach_2, thenÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢LANDING state
@@ -289,6 +305,10 @@ func _ready():
 
 	# Pitch: Very gentle control to prevent loops and oscillation
 	pitch_controller = PIDController.new(0.5, 0.0, 0.3)
+	_dogfight_precise_yaw_controller = PIDController.new(1.7, 0.42, 0.12)
+	_dogfight_precise_yaw_controller.integral_limit = 1.0
+	_dogfight_precise_pitch_controller = PIDController.new(1.5, 0.32, 0.10)
+	_dogfight_precise_pitch_controller.integral_limit = 1.0
 
 	set_physics_process(false)  # Don't start until initialized
 
@@ -990,14 +1010,27 @@ func _state_dogfight(delta: float):
 	else:
 		yaw_err_rad = atan2(local_x, maxf(local_z, 0.05))
 	var pitch_err_rad: float = atan2(local_y, maxf(absf(local_z), 0.05))
+	var aim_err_rad: float = sqrt(yaw_err_rad * yaw_err_rad + pitch_err_rad * pitch_err_rad)
+
+	var precise_entry_deg: float = maxf(dogfight_precise_aim_entry_deg, 0.5)
+	var precise_full_deg: float = clampf(dogfight_precise_aim_full_deg, 0.1, precise_entry_deg - 0.1)
+	var precise_entry_rad: float = deg_to_rad(precise_entry_deg)
+	var precise_full_rad: float = deg_to_rad(precise_full_deg)
+	var precise_aim_t: float = 0.0
+	if not in_rejoin and local_z > 0.15 and dist_to_target < maxf(dogfight_precise_aim_max_range_m, 50.0):
+		var denom: float = maxf(precise_entry_rad - precise_full_rad, deg_to_rad(0.1))
+		precise_aim_t = clampf((precise_entry_rad - aim_err_rad) / denom, 0.0, 1.0)
 
 	var desired_bank: float = clampf(yaw_err_rad * 1.7, -deg_to_rad(max_bank_deg), deg_to_rad(max_bank_deg))
 	var straight_t: float = 0.0
+	var straight_t_effective: float = 0.0
 	if local_z > 0.2:
 		var straight_yaw_rad: float = deg_to_rad(maxf(dogfight_straight_level_yaw_deg, 1.0))
 		straight_t = 1.0 - clampf(absf(yaw_err_rad) / straight_yaw_rad, 0.0, 1.0)
+		# In precise-aim phase, reduce straight-flight bias so small errors are still driven to zero.
+		straight_t_effective = straight_t * (1.0 - precise_aim_t)
 		var bank_blend: float = clampf(dogfight_straight_level_bank_blend, 0.0, 1.0)
-		desired_bank = lerpf(desired_bank, 0.0, straight_t * bank_blend)
+		desired_bank = lerpf(desired_bank, 0.0, straight_t_effective * bank_blend)
 	# Keep dogfight roll sign aligned with the aircraft's configured control mapping.
 	if flip_roll_direction:
 		desired_bank = -desired_bank
@@ -1020,7 +1053,7 @@ func _state_dogfight(delta: float):
 	if local_z < -0.15:
 		turn_pull_bias += 0.15
 	var pitch_level_blend: float = clampf(dogfight_straight_level_pitch_blend, 0.0, 1.0)
-	turn_pull_bias *= 1.0 - straight_t * pitch_level_blend
+	turn_pull_bias *= 1.0 - straight_t_effective * pitch_level_blend
 	var raw_pitch: float
 	if inverted_recover:
 		raw_pitch = clampf(-pitch_rate_up * 0.30 - own_vel.y * 0.012, -0.25, 0.35)
@@ -1028,7 +1061,7 @@ func _state_dogfight(delta: float):
 		raw_pitch = pitch_err_rad * 1.6 + turn_pull_bias - pitch_rate_up * 0.35
 	var level_vs_correction: float = clampf(-own_vel.y * 0.020, -0.45, 0.45)
 	if not inverted_recover:
-		raw_pitch += level_vs_correction * straight_t
+		raw_pitch += level_vs_correction * straight_t_effective
 	if in_rejoin:
 		raw_pitch = clampf(raw_pitch, -0.45, 0.55)
 	else:
@@ -1058,9 +1091,27 @@ func _state_dogfight(delta: float):
 	if in_rejoin:
 		raw_yaw *= dogfight_simple_yaw_rejoin_scale
 
-	roll_input = lerpf(_smoothed_roll_input, raw_roll, 0.40)
-	pitch_input = lerpf(_smoothed_pitch_input, raw_pitch, 0.30)
-	yaw_input = lerpf(_smoothed_yaw_input, raw_yaw, dogfight_simple_yaw_smoothing)
+	var precise_pid_t: float = 0.0
+	if precise_aim_t > 0.0 and not inverted_recover:
+		var base_blend: float = clampf(dogfight_precise_pid_blend, 0.0, 1.0)
+		precise_pid_t = precise_aim_t * base_blend
+		if _dogfight_precise_pitch_controller:
+			var precise_pitch_cmd: float = clampf(_dogfight_precise_pitch_controller.update(pitch_err_rad, delta), -1.0, 1.0)
+			raw_pitch = lerpf(raw_pitch, precise_pitch_cmd, precise_pid_t)
+			raw_pitch = clampf(raw_pitch, -0.6, low_speed_pitch_cap)
+		if _dogfight_precise_yaw_controller:
+			var precise_yaw_cmd: float = clampf(_dogfight_precise_yaw_controller.update(yaw_err_rad, delta), -dogfight_max_rudder_input, dogfight_max_rudder_input)
+			raw_yaw = lerpf(raw_yaw, precise_yaw_cmd, precise_pid_t)
+			raw_yaw = clampf(raw_yaw, -dogfight_max_rudder_input, dogfight_max_rudder_input)
+	else:
+		_reset_dogfight_precise_controllers()
+
+	var roll_response: float = clampf(lerpf(0.40, dogfight_precise_roll_response, precise_aim_t), 0.0, 1.0)
+	var pitch_response: float = clampf(lerpf(0.30, dogfight_precise_pitch_response, precise_aim_t), 0.0, 1.0)
+	var yaw_response: float = clampf(lerpf(dogfight_simple_yaw_smoothing, dogfight_precise_yaw_response, precise_aim_t), 0.0, 1.0)
+	roll_input = lerpf(_smoothed_roll_input, raw_roll, roll_response)
+	pitch_input = lerpf(_smoothed_pitch_input, raw_pitch, pitch_response)
+	yaw_input = lerpf(_smoothed_yaw_input, raw_yaw, yaw_response)
 	_smoothed_roll_input = roll_input
 	_smoothed_pitch_input = pitch_input
 	_smoothed_yaw_input = yaw_input
@@ -1073,10 +1124,22 @@ func _state_dogfight(delta: float):
 		target_speed = clampf(dogfight_corner_speed_mps, dogfight_min_speed_mps, dogfight_max_speed_mps)
 
 	var fire_ok: bool = _dogfight_has_good_fire_solution(lead_point, muzzle_velocity, dist_to_target)
-	# Geometric fallback: when target is clearly in front, fire even if hit model is conservative.
-	var fire_geom_ok: bool = local_z > 0.90 and absf(local_x) < 0.35 and absf(local_y) < 0.35
-	if dist_to_target < 700.0:
-		fire_geom_ok = local_z > 0.82 and absf(local_x) < 0.55 and absf(local_y) < 0.45
+	# Don't shoot at medium/long range unless we're in precise-aim phase.
+	var min_precise_fire_blend: float = clampf(dogfight_fire_precise_min_blend, 0.0, 1.0)
+	var precise_close_range_m: float = maxf(dogfight_fire_precise_close_range_m, 50.0)
+	if precise_aim_t < min_precise_fire_blend and dist_to_target > precise_close_range_m:
+		fire_ok = false
+
+	# Geometric fallback only for very close, centerline shots.
+	var fallback_range_m: float = maxf(dogfight_fire_fallback_range_m, 50.0)
+	var fallback_min_dot: float = clampf(dogfight_fire_fallback_min_dot, 0.0, 0.9999)
+	var fire_geom_ok: bool = false
+	if dist_to_target < fallback_range_m and precise_aim_t > 0.80:
+		fire_geom_ok = (
+			local_z > fallback_min_dot
+			and absf(local_x) < maxf(dogfight_fire_fallback_lateral, 0.01)
+			and absf(local_y) < maxf(dogfight_fire_fallback_vertical, 0.01)
+		)
 	fire_ok = fire_ok or fire_geom_ok
 	if in_rejoin or inverted_recover:
 		fire_ok = false
@@ -1102,9 +1165,18 @@ func _state_dogfight(delta: float):
 			local_x, local_y, local_z, rad_to_deg(desired_bank)])
 		print("  aim_err:  yaw=%+5.1fdeg  pitch=%+5.1fdeg" % [
 			rad_to_deg(yaw_err_rad), rad_to_deg(pitch_err_rad)])
+		print("  precise:  aim=%4.2fdeg  blend=%.2f  pid=%.2f" % [
+			rad_to_deg(aim_err_rad), precise_aim_t, precise_pid_t])
 		print("  recovery: inverted=%s" % [str(inverted_recover)])
 		print("  inputs:   roll=%+5.2f  pitch=%+5.2f  yaw=%+5.2f  thr=%.2f  firing=%s" % [
 			roll_input, pitch_input, yaw_input, throttle_input, str(_dogfight_burst_active)])
+
+func _reset_dogfight_precise_controllers() -> void:
+	if _dogfight_precise_yaw_controller:
+		_dogfight_precise_yaw_controller.reset()
+	if _dogfight_precise_pitch_controller:
+		_dogfight_precise_pitch_controller.reset()
+
 func _should_switch_dogfight_target(current_target: Node3D, candidate: Node3D) -> bool:
 	if not candidate or not is_instance_valid(candidate):
 		return false
@@ -1294,7 +1366,8 @@ func _dogfight_has_good_fire_solution(lead_point: Vector3, muzzle_velocity: floa
 
 	# Also require finite bullet time-of-flight to avoid very stale lead.
 	var tof: float = aim_dist / maxf(muzzle_velocity, 50.0)
-	return hit_chance >= dogfight_min_hit_chance and tof <= 2.5
+	var max_tof: float = maxf(dogfight_fire_max_tof_s, 0.1)
+	return hit_chance >= dogfight_min_hit_chance and tof <= max_tof
 
 func _update_dogfight_burst_timers(delta: float, fire_solution_good: bool) -> void:
 	_dogfight_burst_timer_s = maxf(0.0, _dogfight_burst_timer_s - delta)
@@ -2445,6 +2518,10 @@ func _check_terrain_ahead():
 func _get_cached_terrain_node() -> Node:
 	if _terrain_node and is_instance_valid(_terrain_node):
 		return _terrain_node
+	var tagged: Node = get_tree().get_first_node_in_group("terrain_provider")
+	if tagged and is_instance_valid(tagged):
+		_terrain_node = tagged
+		return _terrain_node
 	var root: Node = get_tree().current_scene
 	if not root:
 		return null
@@ -2452,6 +2529,9 @@ func _get_cached_terrain_node() -> Node:
 	while queue.size() > 0:
 		var cur: Node = queue.pop_front()
 		if cur.get_class() == "Terrain3D":
+			_terrain_node = cur
+			return _terrain_node
+		if cur is Node3D and cur.has_method("get_height"):
 			_terrain_node = cur
 			return _terrain_node
 		for child in cur.get_children():
@@ -2615,6 +2695,7 @@ func change_state(new_state: State):
 		_dogfight_prev_target_distance_m = INF
 		_dogfight_recovery_timer_s = 0.0
 		_dogfight_recovery_waypoint = Vector3.ZERO
+		_reset_dogfight_precise_controllers()
 		_stop_firing()
 	if new_state == State.ATTACK_DIVE:
 		_dive_entry_time_s = Time.get_ticks_msec() / 1000.0
@@ -2624,6 +2705,7 @@ func change_state(new_state: State):
 		_dogfight_prev_target_distance_m = INF
 		_dogfight_recovery_timer_s = 0.0
 		_dogfight_recovery_waypoint = Vector3.ZERO
+		_reset_dogfight_precise_controllers()
 	current_state = new_state
 
 # ============================================================================

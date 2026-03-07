@@ -1,0 +1,12 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://Environment/LowPolyTerrain.gd" id="1_tl4v3"]
+
+[node name="LowPolyTerrainPrototype" type="Node3D"]
+script = ExtResource("1_tl4v3")
+
+[node name="TerrainMesh" type="MeshInstance3D" parent="."]
+
+[node name="TerrainBody" type="StaticBody3D" parent="."]
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="TerrainBody"]

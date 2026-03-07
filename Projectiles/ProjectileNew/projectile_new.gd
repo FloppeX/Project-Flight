@@ -136,6 +136,10 @@ func _on_body_entered(body):
 func _get_cached_terrain_node() -> Node:
 	if _terrain_node and is_instance_valid(_terrain_node):
 		return _terrain_node
+	var tagged: Node = get_tree().get_first_node_in_group("terrain_provider")
+	if tagged and is_instance_valid(tagged):
+		_terrain_node = tagged
+		return _terrain_node
 	var root: Node = get_tree().current_scene
 	if not root:
 		return null
@@ -143,6 +147,9 @@ func _get_cached_terrain_node() -> Node:
 	while queue.size() > 0:
 		var cur: Node = queue.pop_front()
 		if cur.get_class() == "Terrain3D":
+			_terrain_node = cur
+			return _terrain_node
+		if cur is Node3D and cur.has_method("get_height"):
 			_terrain_node = cur
 			return _terrain_node
 		for child in cur.get_children():

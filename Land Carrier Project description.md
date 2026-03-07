@@ -1,6 +1,6 @@
 ﻿## Current Status
 
-**Last Updated:** 2026-03-06
+**Last Updated:** 2026-03-07
 **Godot Version:** 4.4.1.stable.official.49a5bc7b6
 **Project Health:** PLAYABLE
 **Control Mode:** Manual (Game Controller) + AI autonomous
@@ -19,7 +19,7 @@
 | System | Status | Notes |
 |--------|--------|-------|
 | Player Control | Working | Full manual flight control |
-| AI Control | Working | Press 1 to spawn AI from hangar; auto land-after-launch |
+| AI Control | Working | Press 1 retrieves/spawns a player aircraft from hangar/elevator flow |
 | Weapons | Working | Autocannon, bombs, missiles |
 | Targeting | Working | HUD target box, sensor cone |
 | HUD | Working | Radar, instruments, CCIP |
@@ -49,21 +49,22 @@
 ### Environment
 | System | Status | Notes |
 |--------|--------|-------|
-| Terrain | Working | Terrain3D with LOD (desert) |
-| Terrain Shader | Working | Slope-based coloring |
-| Rock Scatter | Working | Poisson disk distribution |
+| Terrain | Working | Custom low-poly procedural terrain mesh with chunk streaming |
+| Terrain Shader | Working | Flat-shaded slope-based sand/rock color blending |
+| Rock Scatter | Partial | Terrain-driven layout in progress after Terrain3D removal |
 | Lighting | Working | Directional + deck lights |
 | Post-Processing | Working | Filmic, glow, SSAO, fog |
 | Weather | Planned | Not yet implemented |
 
 ### Immediate Priorities
-1. Dogfight tuning pass: improve final nose placement and shot conversion at close range
-2. End-to-end AI cycle testing: hangar -> catapult -> climb -> approach -> land -> hangar (loop)
+1. Dogfight precision pass: final nose authority + stricter fire gating validation
+2. End-to-end AI cycle soak testing: hangar -> catapult -> climb -> approach -> land -> hangar
 3. Implement enemy movement and pathfinding
 4. Add carrier defense turrets
 5. Develop resource management system
 
 ### Version History
+- 2026-03-07: Custom low-poly terrain rollout (streaming chunks, mesas/gullies, palette pass, base height offset), carrier flat-ground placement near map center, key-1 retrieval/player flow hardening
 - 2026-03-06: Dogfight controller rework (direct nose-pointing control), inverted recovery, firing logic/rudder tuning
 - 2026-03-04 (s2): AI hangar-launch cycle: controls_disabled fix, terrain avoidance post-launch, aggressive climb, proximity waypoint clearing, land-after-launch flow
 - 2026-03-04: AI landing tumble fix, bomb accuracy, auto-hangar recovery, post-arrest AI hand-off
@@ -77,6 +78,38 @@
 ---
 
 ## Project Change Log (latest session)
+
+### Session Summary (2026-03-07) - Low-Poly Terrain + Retrieval/Combat Tuning
+
+**Overview:** Terrain3D was replaced in the main play scene with a custom procedural low-poly terrain pipeline, and aircraft retrieval/spawn behavior was stabilized. Dogfight firing was also tightened to reduce low-probability shots.
+
+#### Custom Terrain System (`Environment/LowPolyTerrain.gd`, `Environment/LowPolyTerrainPrototype.tscn`, `Main_Scene.tscn`)
+- Large low-poly mesh terrain generated from layered procedural noise and streamed as chunks around a moving target.
+- Terrain shape pass includes:
+  - broad flatter zones for flight readability,
+  - deep/wide gully networks,
+  - mesa generation with steep sides and flatter tops,
+  - stepped/snap controls to keep the faceted low-poly look.
+- Added global vertical lift parameter `base_height_offset_m` to prevent gully floors from bottoming out at world `y = 0`.
+- Terrain color tuning moved to warm desert palette:
+  - sand shifted to deeper warm orange-brown,
+  - steep surfaces shifted to cooler light gray.
+
+#### Scene Integration / Terrain3D Replacement (`Main_Scene.tscn`, `example/Example1_Simple.gd`)
+- Main scene now uses `LowPolyTerrainPrototype` as the active terrain source.
+- Carrier auto-placement samples terrain heights and selects flat ground near map center at runtime.
+- Streaming/tuning overrides are set in-scene for chunk radius, update cadence, and terrain morphology.
+
+#### Retrieval/Spawn Flow Hardening (`LandCarrier/FlightDeckManager.gd`)
+- Retrieval pipeline remains elevator-based (spawn in hangar space, raise to deck, handoff to catapult path).
+- Resolved invalid freed-object call during retrieval ascent sequencing by tightening retrieval state/object validity handling.
+- Prevented immediate post-spawn destruction regressions by preserving physics-disabled retrieval staging until proper handoff.
+- Key `1` retrieval flow is configured for player-controlled aircraft on retrieval launch.
+
+#### Dogfight Fire Discipline Updates (`AI/AIPilot.gd`)
+- Gun firing adjusted to fixed half-second burst behavior.
+- Fire gates tightened so AI is less trigger-happy when solution quality is poor.
+- Aiming loop continues to be tuned for higher nose-point precision before firing.
 
 ### Session Summary (2026-03-06) - Dogfight Control Rework
 

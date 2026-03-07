@@ -175,11 +175,17 @@ func request_launch_sequence(aircraft: RigidBody3D):
 			# One-shot catapult bypass for retrieval launches.
 			aircraft.set_meta("catapult_skip_teleport_once", true)
 		catapult.align_aircraft(aircraft)
-		# Record launch reference after alignment while controls remain disabled.
-		var ai_pilot = aircraft.get_node_or_null("AIPilot")
-		if ai_pilot and ai_pilot.has_method("launch"):
-			print("[FlightDeckManager] Commanding AI to start launch sequence")
-			ai_pilot.launch()
+		# If this aircraft is AI-controlled, start AI launch state.
+		# Player-retrieved aircraft should not auto-enable AI here.
+		var ai_toggle = aircraft.find_child("AIToggle", true, false)
+		var ai_is_active: bool = false
+		if ai_toggle and "ai_active" in ai_toggle:
+			ai_is_active = bool(ai_toggle.ai_active)
+		if ai_is_active:
+			var ai_pilot = aircraft.get_node_or_null("AIPilot")
+			if ai_pilot and ai_pilot.has_method("launch"):
+				print("[FlightDeckManager] Commanding AI to start launch sequence")
+				ai_pilot.launch()
 	else:
 		print("ERROR [FlightDeckManager]: Catapult is missing the 'align_aircraft' method.")
 
@@ -339,6 +345,39 @@ func _configure_retrieved_aircraft_as_ai(aircraft: RigidBody3D) -> void:
 		ai_pilot.land_after_launch = true
 		print("[FlightDeckManager] AI configured: will begin landing approach after deck clearance")
 
+func _configure_retrieved_aircraft_as_player(aircraft: RigidBody3D) -> void:
+	"""Set up a hangar-retrieved aircraft for player control."""
+	# Ensure this craft is treated as a player aircraft, not AI-only.
+	if not aircraft.is_in_group("aircraft"):
+		aircraft.add_to_group("aircraft")
+	if aircraft.is_in_group("ai_aircraft"):
+		aircraft.remove_from_group("ai_aircraft")
+
+	# Ensure player-facing nodes are enabled.
+	for node_name in ["CameraController", "HeadsUpDisplay", "InstrumentPanel", "ControlTargeting"]:
+		var node = aircraft.find_child(node_name, true, false)
+		if not node:
+			continue
+		node.set_process(true)
+		node.set_physics_process(true)
+		node.set_process_input(true)
+		if node is CanvasItem:
+			node.visible = true
+		elif node is Node3D:
+			node.visible = true
+
+	# Explicitly disable AI pilot for this retrieved aircraft.
+	var ai_toggle = aircraft.find_child("AIToggle", true, false)
+	if ai_toggle and ai_toggle.has_method("disable_ai"):
+		ai_toggle.disable_ai()
+	var ai_pilot = aircraft.find_child("AIPilot", true, false)
+	if ai_pilot and "land_after_launch" in ai_pilot:
+		ai_pilot.land_after_launch = false
+
+	# Keep controls muted until catapult handoff/release.
+	aircraft.set_meta("controls_disabled", true)
+	print("[FlightDeckManager] Retrieved aircraft configured for PLAYER control")
+
 # --- Helpers ---
 func _find_nodes_by_script(root: Node, script_name: String) -> Array[Node]:
 	var found_nodes: Array[Node] = []
@@ -488,7 +527,14 @@ func _spawn_aircraft_at_hangar_level():
 
 	# Wait 1 second for aircraft to settle, then activate tractorbots and start ascent
 	await get_tree().create_timer(1.0).timeout
-	_start_retrieval_ascent_sequence(aircraft)
+	# Re-validate after await: local references can become stale if the node was freed.
+	var retrieval_aircraft := deck_aircraft
+	if not is_instance_valid(retrieval_aircraft):
+		print("[FlightDeckManager] Retrieval ascent cancelled: aircraft reference is no longer valid")
+		deck_aircraft = null
+		current_state = DeckState.IDLE
+		return
+	_start_retrieval_ascent_sequence(retrieval_aircraft)
 
 func _on_elevator_at_top():
 	"""Handle elevator reaching top"""
@@ -618,6 +664,10 @@ func _start_aircraft_movement(aircraft: RigidBody3D, target_position: Vector3):
 	await get_tree().create_timer(1.0).timeout
 
 	# After aircraft reaches elevator, start elevator sequence
+	if not is_instance_valid(aircraft):
+		print("[FlightDeckManager] Elevator sequence cancelled: aircraft reference is no longer valid")
+		current_state = DeckState.IDLE
+		return
 	_start_elevator_sequence(aircraft)
 
 func _prepare_aircraft_for_movement(aircraft: RigidBody3D):
@@ -631,6 +681,7 @@ func _prepare_aircraft_for_movement(aircraft: RigidBody3D):
 		print("[FlightDeckManager] Saved collision settings - layer: ", _aircraft_original_collision_layer, " mask: ", _aircraft_original_collision_mask)
 	
 	# Disable physics
+	aircraft.set_meta("carrier_transport_mode", true)
 	aircraft.freeze = true
 	aircraft.gravity_scale = 0.0
 	aircraft.collision_layer = 0  # Disable collision with ship
@@ -822,6 +873,15 @@ func _create_aircraft_at_hangar_level() -> RigidBody3D:
 
 	# Mute all controls immediately — before add_child so _physics_process never sees an open throttle.
 	aircraft.set_meta("controls_disabled", true)
+	aircraft.set_meta("carrier_transport_mode", true)
+	_aircraft_original_collision_layer = aircraft.collision_layer
+	_aircraft_original_collision_mask = aircraft.collision_mask
+	aircraft.freeze = true
+	aircraft.gravity_scale = 0.0
+	aircraft.linear_velocity = Vector3.ZERO
+	aircraft.angular_velocity = Vector3.ZERO
+	aircraft.collision_layer = 0
+	aircraft.collision_mask = 0
 
 	# Add to scene
 	var main_scene = get_tree().current_scene
@@ -843,15 +903,9 @@ func _create_aircraft_at_hangar_level() -> RigidBody3D:
 	for key in aircraft_data.metadata:
 		aircraft.set_meta(key, aircraft_data.metadata[key])
 
-	# Save original collision settings BEFORE disabling
-	_aircraft_original_collision_layer = aircraft.collision_layer
-	_aircraft_original_collision_mask = aircraft.collision_mask
-
-	# Disable physics for elevator movement
-	aircraft.freeze = true
-	aircraft.gravity_scale = 0.0
-	aircraft.collision_layer = 0
-	aircraft.collision_mask = 0
+	# Keep aircraft fully still during elevator movement.
+	aircraft.linear_velocity = Vector3.ZERO
+	aircraft.angular_velocity = Vector3.ZERO
 
 	# Immediately spawn tractorbots at aircraft wheels (they can't travel from staging to hangar)
 	_spawn_tractorbots_at_aircraft(aircraft)
@@ -1039,6 +1093,8 @@ func _restore_aircraft_physics(aircraft: RigidBody3D):
 	# Final clearing after collisions enabled
 	aircraft.linear_velocity = Vector3.ZERO
 	aircraft.angular_velocity = Vector3.ZERO
+	if aircraft.has_meta("carrier_transport_mode"):
+		aircraft.remove_meta("carrier_transport_mode")
 
 	print("[FlightDeckManager] Aircraft physics fully restored with aggressive velocity clearing")
 	print("[FlightDeckManager] Collision layer: ", aircraft.collision_layer, " mask: ", aircraft.collision_mask)
@@ -1125,8 +1181,9 @@ func _complete_retrieval_sequence():
 	print("[FlightDeckManager] Completing retrieval sequence - moving to launch position")
 
 	var aircraft = deck_aircraft
-	if not aircraft:
+	if not is_instance_valid(aircraft):
 		print("[FlightDeckManager] ERROR: No aircraft found for retrieval completion")
+		deck_aircraft = null
 		current_state = DeckState.IDLE
 		return
 
@@ -1177,8 +1234,8 @@ func _complete_retrieval_sequence():
 	print("[FlightDeckManager] Moving tractorbots to staging positions")
 	await _move_tractorbots_to_staging()
 
-	# Configure as AI-controlled before launch
-	_configure_retrieved_aircraft_as_ai(aircraft)
+	# Configure as player-controlled before launch
+	_configure_retrieved_aircraft_as_player(aircraft)
 
 	# Automatically start launch sequence
 	print("[FlightDeckManager] Retrieval sequence complete - automatically starting launch sequence")

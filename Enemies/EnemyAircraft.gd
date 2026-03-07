@@ -30,13 +30,15 @@ func _ready():
 	if terrain_path != NodePath(""):
 		_terrain = get_node_or_null(terrain_path)
 	if _terrain == null:
-		# Search breadth-first for any Terrain3D node
+		_terrain = get_tree().get_first_node_in_group("terrain_provider")
+	if _terrain == null:
+		# Search breadth-first for terrain providers.
 		var queue: Array = [get_tree().current_scene]
 		while queue.size() > 0 and _terrain == null:
 			var cur: Node = queue.pop_front()
 			for child in cur.get_children():
 				queue.append(child)
-				if child.get_class() == "Terrain3D" or "terrain3d" in child.name.to_lower():
+				if child.get_class() == "Terrain3D" or "terrain3d" in child.name.to_lower() or (child is Node3D and child.has_method("get_height")):
 					_terrain = child
 					break
 	current_health = max_health
@@ -295,7 +297,6 @@ func explode():
 	
 	# Remove the enemy
 	queue_free()
-
 
 
 
