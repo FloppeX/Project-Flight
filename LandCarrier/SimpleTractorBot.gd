@@ -57,9 +57,7 @@ func activate(aircraft: RigidBody3D, wheel_offset: Vector3, wheel_node: Node3D =
 	fixed_target_position = aircraft.global_position + wheel_offset
 	fixed_target_position.y = deck_height + follow_height
 	
-	print("[TractorBot] ", name, " Activated for wheel at offset: ", wheel_offset)
-	print("[TractorBot] ", name, " Fixed target position: ", fixed_target_position)
-	print("[TractorBot] ", name, " Current position: ", global_position)
+	pass  # activated
 
 func deactivate():
 	"""Deactivate this tractorbot"""
@@ -68,7 +66,7 @@ func deactivate():
 	target_wheel_node = null
 	movement_disabled = false
 	external_target_set = false
-	print("[TractorBot] Deactivated")
+	pass  # deactivated
 
 func is_positioned_at_gear() -> bool:
 	"""Check if this tractorbot is positioned at its target gear"""
@@ -78,7 +76,7 @@ func set_external_target(new_target: Vector3):
 	"""Set target position externally (e.g., by elevator)"""
 	target_position = new_target
 	external_target_set = true
-	print("[TractorBot] ", name, " External target set: ", new_target)
+	pass  # external target set
 
 func clear_external_target():
 	"""Clear external target and return to following aircraft"""
@@ -116,11 +114,6 @@ func _physics_process(delta: float):
 			target_position = target_aircraft.global_position + wheel_position_offset
 		target_position.y = deck_height + follow_height
 	
-	# Debug: Print heights occasionally
-	if Engine.get_process_frames() % 60 == 0:  # Every second at 60fps
-		var deck_height = _get_deck_height()
-		print("[TractorBot] ", name, " - External target: ", external_target_set, " Target Y: ", target_position.y, " Current Y: ", global_position.y)
-	
 	# First phase: Move to gear position (slower, smoother)
 	if not is_positioned:
 		var distance = global_position.distance_to(target_position)
@@ -131,7 +124,6 @@ func _physics_process(delta: float):
 		else:
 			global_position = target_position
 			is_positioned = true
-			print("[TractorBot] ", name, " Positioned at gear")
 	
 	# Second phase: Follow aircraft movement (smooth lerp)
 	else:

@@ -129,7 +129,6 @@ func _physics_process(delta: float):
 
 	# If not settling and not pinned, proceed with approach or launch logic.
 	if _moving_to_latch and not _latched:
-		if debug_enabled: print("[CATAPULT] Approaching latch point at: ", _latch_target_position)
 		shuttle.global_position = shuttle.global_position.move_toward(_latch_target_position, approach_speed_mps * delta)
 		if shuttle.global_position.is_equal_approx(_latch_target_position):
 			# Snap to final position
@@ -148,8 +147,7 @@ func _physics_process(delta: float):
 			_spool_timer = 0.0
 			
 	elif _spooling_up and not _launching:
-		if debug_enabled: print("[CATAPULT] In spooling up state. Timer: ", _spool_timer)
-		# Gradually increase throttle over _spool_duration
+			# Gradually increase throttle over _spool_duration
 		_spool_timer += delta
 		var throttle_ratio = min(_spool_timer / _spool_duration, 1.0)
 		_command_throttle(throttle_ratio)
@@ -277,7 +275,6 @@ func _command_throttle(throttle_value: float):
 	var engine = _find_engine(_aircraft)
 	if is_instance_valid(engine) and engine.has_method("set_throttle_input"):
 		engine.set_throttle_input(throttle_value)
-		if debug_enabled: print("[CATAPULT] Commanded engine throttle: ", throttle_value)
 	else:
 		if debug_enabled: print("[CATAPULT] WARNING: Could not find engine to command throttle.")
 
@@ -372,6 +369,8 @@ func _immobilize_wheels():
 			get_tree().current_scene.add_child(pin_joint)
 			# Pin the aircraft (Node A) to the static world (Node B is empty)
 			pin_joint.set_node_a(_aircraft.get_path())
+			# Mark so the carrier can drag this joint along as it moves
+			pin_joint.add_to_group("carrier_pin_joint")
 			_wheel_latches.append(pin_joint)
 			if debug_enabled: print("[CATAPULT] Latched wheel at: ", gear_node.global_position)
 			
@@ -468,8 +467,8 @@ func align_aircraft(ac: RigidBody3D) -> void:
 	var yaw_angle = atan2(launch_dir.x, launch_dir.z) + deg_to_rad(heading_offset_deg)
 	target_transform.basis = Basis(Vector3.UP, yaw_angle)
 	
-	print("[CATAPULT] align_aircraft called. Launch dir: ", launch_dir, " Yaw: ", rad_to_deg(yaw_angle))
-	print("[CATAPULT] Aircraft transform BEFORE teleport: ", ac.global_transform)
+	if debug_enabled: print("[CATAPULT] align_aircraft called. Launch dir: ", launch_dir, " Yaw: ", rad_to_deg(yaw_angle))
+	if debug_enabled: print("[CATAPULT] Aircraft transform BEFORE teleport: ", ac.global_transform)
 	
 	# --- Prepare aircraft for teleport ---
 	# Save state and freeze the physics body to ensure a clean teleport.
@@ -493,7 +492,7 @@ func align_aircraft(ac: RigidBody3D) -> void:
 			final_transform.origin.y = hit.position.y + deck_clearance
 
 	ac.global_transform = final_transform
-	print("[CATAPULT] Aircraft transform AFTER teleport: ", ac.global_transform)
+	if debug_enabled: print("[CATAPULT] Aircraft transform AFTER teleport: ", ac.global_transform)
 	
 	if debug_enabled: print("[CATAPULT] Aircraft teleported by manager. Flagging for finalize on next frame.")
 		

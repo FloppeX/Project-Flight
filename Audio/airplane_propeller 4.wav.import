@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://cfbs38bsud1p6"
+path="res://.godot/imported/airplane_propeller 4.wav-812f4773cbc0c42053ac2072e4049ae3.sample"
+
+[deps]
+
+source_file="res://Audio/airplane_propeller 4.wav"
+dest_files=["res://.godot/imported/airplane_propeller 4.wav-812f4773cbc0c42053ac2072e4049ae3.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

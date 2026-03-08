@@ -73,7 +73,7 @@ func _process(delta):
 			# Try alternative search methods
 			var all_nodes = get_tree().current_scene.get_children()
 			for node in all_nodes:
-				if node.name == "CompleteFighterJet" or node.is_in_group("aircraft"):
+				if node.name == "Aircraft_1" or node.is_in_group("aircraft"):
 					aircraft = node
 					break
 

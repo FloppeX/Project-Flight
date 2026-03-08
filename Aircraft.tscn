@@ -1,7 +1,0 @@
-[gd_scene format=3 uid="uid://0a6mw65hn1jq"]
-
-[node name="Aircraft" type="RigidBody3D"]
-gravity_scale = 0.0
-contact_monitor = true
-max_contacts_reported = 3
-angular_damp = 1.0

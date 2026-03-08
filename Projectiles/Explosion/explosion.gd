@@ -41,7 +41,7 @@ func setup_explosion_audio():
 			print("Selected explosion sound: ", selected_sound.resource_path)
 	else:
 		# Fallback to default explosion sound
-		selected_sound = load("res://Sounds/explosion_large_01.wav")
+		selected_sound = load("res://Audio/explosion_large_01.wav")
 		if debug_enabled:
 			print("Using fallback explosion sound")
 	

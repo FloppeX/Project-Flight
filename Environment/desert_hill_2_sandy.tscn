@@ -1,6 +1,6 @@
 [gd_scene load_steps=3 format=3 uid="uid://co3w8uw4s0art"]
 
-[ext_resource type="PackedScene" uid="uid://dcnyeh2fdlriw" path="res://example/models/landscape/Desert hill 2.glb" id="1_noqp8"]
+[ext_resource type="PackedScene" uid="uid://dcnyeh2fdlriw" path="res://Models/landscape/Desert hill 2.glb" id="1_noqp8"]
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_gu1tw"]
 albedo_color = Color(1, 0.7, 0, 1)

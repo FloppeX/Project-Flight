@@ -11,7 +11,7 @@ signal destroyed
 @export var max_health: float = 100.0
 @export var explosion_scene: PackedScene  # Explosion effect when aircraft is destroyed
 @export var wreck_scene: PackedScene  # Wreck scene spawned on destruction
-@export var deathcam_scene: PackedScene = preload("res://example/scenes/Cameras/Deathcam.tscn")
+@export var deathcam_scene: PackedScene = preload("res://Camera/Deathcam.tscn")
 @export var wreck_base_impulse: float = 400.0
 @export var wreck_random_spread: float = 0.35
 @export var wreck_extra_spin: float = 25.0

@@ -11,14 +11,18 @@ extends Node3D
 var _aircraft_scene: PackedScene
 var _enemy_aircraft_scene: PackedScene
 var _active_ai_planes: Array[RigidBody3D] = []
+var _enemy_vehicle_scene: PackedScene
+var _friendly_vehicle_scene: PackedScene
 
 func _ready():
-	_aircraft_scene = load("res://CompleteFighterJet.tscn")
+	_aircraft_scene = load("res://Aircraft/Aircraft_1.tscn")
 	if not _aircraft_scene:
-		push_error("[EnemyAircraftSpawner] Failed to load CompleteFighterJet.tscn")
+		push_error("[EnemyAircraftSpawner] Failed to load Aircraft_1.tscn")
 	_enemy_aircraft_scene = load("res://Enemies/EnemyFighter.tscn")
 	if not _enemy_aircraft_scene:
 		push_error("[EnemyAircraftSpawner] Failed to load Enemies/EnemyFighter.tscn")
+	_enemy_vehicle_scene = load("res://GroundVehicle/GroundVehicle.tscn")
+	_friendly_vehicle_scene = load("res://GroundVehicle/vehicle_friendly_light.tscn")
 
 func _input(event):
 	if event is InputEventKey and event.pressed and not event.echo:
@@ -32,6 +36,52 @@ func _input(event):
 			_spawn_on_approach()
 		elif event.keycode == KEY_D:
 			_spawn_dogfight_duel()
+		elif event.keycode == KEY_E:
+			_spawn_ground_vehicles(_enemy_vehicle_scene, 3)
+		elif event.keycode == KEY_F:
+			_spawn_ground_vehicles(_friendly_vehicle_scene, 3)
+
+func _spawn_ground_vehicles(scene: PackedScene, count: int) -> void:
+	if not scene:
+		return
+	# Find spawn XZ from player aircraft, fall back to carrier
+	var base_xz: Vector2 = Vector2(_get_carrier_position().x, _get_carrier_position().z)
+	var aircraft_nodes = get_tree().get_nodes_in_group("aircraft")
+	if aircraft_nodes.size() > 0 and aircraft_nodes[0] is Node3D:
+		var ac := aircraft_nodes[0] as Node3D
+		base_xz = Vector2(ac.global_position.x, ac.global_position.z)
+
+	var space_state := get_world_3d().direct_space_state
+
+	# Generate shared patrol waypoints around the spawn cluster (4 points, 150-300m out)
+	var patrol_positions: Array[Vector3] = []
+	for w in range(4):
+		var angle := w * TAU / 4.0 + randf_range(-0.3, 0.3)
+		var dist := randf_range(150.0, 300.0)
+		var wp := Vector3(base_xz.x + cos(angle) * dist, 0.0, base_xz.y + sin(angle) * dist)
+		var wp_hit := space_state.intersect_ray(
+			PhysicsRayQueryParameters3D.create(wp + Vector3.UP * 2000.0, wp - Vector3.UP * 200.0))
+		wp.y = wp_hit.position.y + 1.5 if wp_hit else 300.0
+		patrol_positions.append(wp)
+
+	var offsets: Array = [Vector3(-25, 0, 0), Vector3(0, 0, 25), Vector3(25, 0, -15)]
+	for i in range(count):
+		var off: Vector3 = offsets[i] if i < offsets.size() else Vector3(randf_range(-30, 30), 0, randf_range(-30, 30))
+		var spawn_pos := Vector3(base_xz.x + off.x, 0.0, base_xz.y + off.z)
+
+		var hit := space_state.intersect_ray(
+			PhysicsRayQueryParameters3D.create(spawn_pos + Vector3.UP * 2000.0, spawn_pos - Vector3.UP * 200.0))
+		spawn_pos.y = hit.position.y + 2.0 if hit else 300.0
+
+		var vehicle := scene.instantiate() as Node3D
+		get_tree().current_scene.add_child(vehicle)
+		vehicle.global_position = spawn_pos
+
+		# Stagger starting waypoint so vehicles don't all drive to the same point at once
+		if vehicle.has_method("set_patrol_waypoints"):
+			var staggered := patrol_positions.duplicate()
+			staggered = staggered.slice(i % staggered.size()) + staggered.slice(0, i % staggered.size())
+			vehicle.set_patrol_waypoints(staggered)
 
 func _spawn_enemy():
 	if not _aircraft_scene:

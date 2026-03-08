@@ -1,9 +1,9 @@
 extends SceneTree
 
 # Usage (from project root):
-# godot --headless --script tools/list_used_files.gd --example res://example/Example1_Simple.tscn --out res://used_files.txt
+# godot --headless --script tools/list_used_files.gd --example res://Main_Scene.tscn --out res://used_files.txt
 
-var start_scene: String = "res://example/Example1_Simple.tscn"
+var start_scene: String = "res://Main_Scene.tscn"
 var out_file: String = "res://used_files.txt"
 
 var visited: = {}              # String -> bool

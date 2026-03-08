@@ -1,6 +1,6 @@
 [gd_scene load_steps=5 format=3 uid="uid://ds5dlvtqfa7tv"]
 
-[ext_resource type="PackedScene" uid="uid://bg63t1r0rh3f8" path="res://example/models/Tailhook.glb" id="1_77qu3"]
+[ext_resource type="PackedScene" uid="uid://bg63t1r0rh3f8" path="res://Models/Tailhook.glb" id="1_77qu3"]
 [ext_resource type="Script" uid="uid://cn5aksjiys7pa" path="res://Aircraft/TailhookSimple.gd" id="1_t8ash"]
 
 [sub_resource type="SphereShape3D" id="SphereShape3D_77qu3"]

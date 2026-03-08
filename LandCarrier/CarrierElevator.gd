@@ -124,9 +124,7 @@ func _physics_process(delta: float):
 	animate_covers(delta)
 	check_state_transitions()
 
-	# Debug state every 2 seconds during movement
-	if current_state == ElevatorState.MOVING_DOWN and Engine.get_process_frames() % 120 == 0:
-		print("[Elevator] DEBUG - State: ", current_state, " Platform Y: ", platform.position.y, " Target Y: ", platform_target_y)
+	pass
 
 func animate_platform(delta: float):
 	if abs(platform.position.y - platform_target_y) > 0.01:
@@ -156,37 +154,27 @@ func animate_covers(delta: float):
 
 func move_platform_down():
 	current_state = ElevatorState.MOVING_DOWN
-	platform_target_y = -shaft_depth  # Simple: -10 meters below deck level
+	platform_target_y = -shaft_depth
 	covers_started_closing = false
 	covers_started_opening = false
-	print("[Elevator] Moving platform down to hangar level (target Y: ", platform_target_y, ")")
 
 func move_platform_up():
-	print("[Elevator] move_platform_up() called - Current state: ", current_state)
-	print("[Elevator] Current platform Y: ", platform.position.y, " Target Y: ", -platform_size.y / 2.0)
 	current_state = ElevatorState.MOVING_UP
 	platform_target_y = -platform_size.y / 2.0
 	covers_started_closing = false
 	covers_started_opening = false
-	print("Moving platform up to flight deck level")
 
 func close_covers():
 	current_state = ElevatorState.COVERS_CLOSING
 	left_cover_target_x = -5.0
 	right_cover_target_x = 5.0
-	print("Closing covers")
 
 func open_covers():
 	current_state = ElevatorState.COVERS_OPENING
 	left_cover_target_x = -15.0
 	right_cover_target_x = 15.0
-	print("Opening covers")
 
 func check_state_transitions():
-	# Debug once per second during movement states
-	if (current_state == ElevatorState.MOVING_DOWN or current_state == ElevatorState.MOVING_UP) and Engine.get_process_frames() % 60 == 0:
-		print("[Elevator] check_state_transitions() - State: ", current_state, " Platform Y: ", platform.position.y)
-
 	match current_state:
 		ElevatorState.MOVING_DOWN:
 			# Start closing covers when platform has descended 3 meters
@@ -197,15 +185,11 @@ func check_state_transitions():
 			var target_bottom = -shaft_depth + 0.1  # Simple: -10 + 0.1 = -9.9
 			if platform.position.y <= target_bottom:
 				current_state = ElevatorState.AT_BOTTOM
-				print("[Elevator] Platform reached bottom at Y: ", platform.position.y, " (target: ", target_bottom, ")")
 				emit_signal("elevator_at_bottom")
-			elif abs(platform.position.y - target_bottom) < 1.0:  # Debug when close
-				print("[Elevator] Platform close to bottom - Current Y: ", platform.position.y, " Target Y: ", target_bottom, " Diff: ", platform.position.y - target_bottom)
 		
 		ElevatorState.COVERS_CLOSING:
 			if covers_are_closed():
 				current_state = ElevatorState.COVERS_CLOSED
-				print("Covers closed")
 				emit_signal("covers_closed")
 		
 		ElevatorState.COVERS_CLOSED:
@@ -213,13 +197,11 @@ func check_state_transitions():
 			var target_bottom = -shaft_depth + 0.1  # -9.9
 			if platform.position.y <= target_bottom and current_state != ElevatorState.AT_BOTTOM:
 				current_state = ElevatorState.AT_BOTTOM
-				print("[Elevator] Platform reached bottom at Y: ", platform.position.y, " (covers closed)")
 				emit_signal("elevator_at_bottom")
 		
 		ElevatorState.COVERS_OPENING:
 			if covers_are_open():
 				current_state = ElevatorState.AT_TOP
-				print("Covers opened")
 				emit_signal("covers_opened")
 		
 		ElevatorState.MOVING_UP:
@@ -231,7 +213,6 @@ func check_state_transitions():
 			# Only reach top if covers are fully open
 			if covers_are_open() and platform.position.y >= -platform_size.y / 2.0 - 0.1:
 				current_state = ElevatorState.AT_TOP
-				print("Platform reached top")
 				emit_signal("elevator_at_top")
 
 func covers_are_closed() -> bool:

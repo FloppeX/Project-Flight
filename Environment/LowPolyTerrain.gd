@@ -27,15 +27,15 @@ class_name LowPolyTerrain
 ## Tributary canyons are this fraction as deep as the main canyons
 @export var tributary_depth_fraction: float = 0.60
 ## Amplitude of surface variation on the plateau top
-@export var plateau_surface_amplitude_m: float = 22.0
+@export var plateau_surface_amplitude_m: float = 120.0
 ## Frequency of plateau surface variation
-@export var plateau_surface_frequency: float = 0.00085
+@export var plateau_surface_frequency: float = 0.0014
 ## Height of visible strata bands in canyon walls
 @export var strata_step_m: float = 40.0
 ## How strongly strata layers snap (0 = off, 1 = fully snapped)
-@export var strata_strength: float = 0.55
+@export var strata_strength: float = 0.28
 ## Fraction of each strata band that is flat shelf; remainder is a gentle slope to the next level
-@export var strata_shelf_fraction: float = 0.58
+@export var strata_shelf_fraction: float = 0.22
 ## How much the strata band height varies across the map (metres)
 @export var strata_height_variation_m: float = 25.0
 ## Global vertical offset applied to the whole terrain
@@ -57,9 +57,11 @@ class_name LowPolyTerrain
 ## Strength of the smooth color gradient (0 = off)
 @export var color_patch_strength: float = 0.20
 ## Grey applied to steep cliff faces
-@export var steep_slope_color: Color = Color(0.52, 0.52, 0.50)
+@export var steep_slope_color: Color = Color(0.28, 0.27, 0.25)
 ## Blend strength toward grey on steep faces (0 = off, 1 = fully grey)
-@export var steep_slope_strength: float = 0.72
+@export var steep_slope_strength: float = 1.0
+## n.y threshold where grey begins (n.y=1 flat, n.y=0 vertical); higher = grey starts on shallower slopes
+@export var steep_slope_min_ny: float = 0.88
 
 @export_group("Output")
 @export var generate_on_ready: bool = true
@@ -376,9 +378,9 @@ func _append_face(
 		# Upper wall → plateau (orange-tan to cream)
 		base_color = canyon_upper_color.lerp(plateau_color, (height_t - 0.72) / 0.28)
 
-	# Steep-slope grey: n.y=1 is flat ground, n.y=0 is a vertical wall.
-	# Blend fully to grey by ~70° slope (n.y ≈ 0.34).
-	var steep_t: float = clampf(1.0 - n.y * 2.9, 0.0, 1.0) * steep_slope_strength
+	# Steep-slope grey: n.y=1 is flat, n.y=0 is vertical wall.
+	# Grey starts at steep_slope_min_ny and ramps to full at n.y=0.
+	var steep_t: float = clampf((steep_slope_min_ny - n.y) / steep_slope_min_ny, 0.0, 1.0) * steep_slope_strength
 	base_color = base_color.lerp(steep_slope_color, steep_t)
 
 	# Smooth spatial gradient — sample at face centroid so neighbouring faces share similar tints

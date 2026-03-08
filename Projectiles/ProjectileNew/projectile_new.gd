@@ -182,32 +182,32 @@ func play_impact_sound(body: Node) -> void:
 	if is_aircraft(body):
 		# Aircraft hit - use metal impact sounds
 		var metal_sounds = [
-			"res://Sounds/bullet_impact_metal_heavy_01.wav",
-			"res://Sounds/bullet_impact_metal_heavy_02.wav",
-			"res://Sounds/bullet_impact_metal_heavy_03.wav",
-			"res://Sounds/bullet_impact_metal_heavy_04.wav",
-			"res://Sounds/bullet_impact_metal_heavy_05.wav",
-			"res://Sounds/bullet_impact_metal_heavy_06.wav",
-			"res://Sounds/bullet_impact_metal_heavy_07.wav",
-			"res://Sounds/bullet_impact_metal_heavy_08.wav"
+			"res://Audio/bullet_impact_metal_heavy_01.wav",
+			"res://Audio/bullet_impact_metal_heavy_02.wav",
+			"res://Audio/bullet_impact_metal_heavy_03.wav",
+			"res://Audio/bullet_impact_metal_heavy_04.wav",
+			"res://Audio/bullet_impact_metal_heavy_05.wav",
+			"res://Audio/bullet_impact_metal_heavy_06.wav",
+			"res://Audio/bullet_impact_metal_heavy_07.wav",
+			"res://Audio/bullet_impact_metal_heavy_08.wav"
 		]
 		sound_path = metal_sounds[randi() % metal_sounds.size()]
 	elif is_ground_or_terrain(body):
 		# Ground/terrain hit - use dirt impact sounds
 		var dirt_sounds = [
-			"res://Sounds/bullet_impact_dirt_01.wav",
-			"res://Sounds/bullet_impact_dirt_02.wav",
-			"res://Sounds/bullet_impact_dirt_03.wav",
-			"res://Sounds/bullet_impact_dirt_04.wav",
-			"res://Sounds/bullet_impact_dirt_05.wav",
-			"res://Sounds/bullet_impact_dirt_06.wav",
-			"res://Sounds/bullet_impact_dirt_07.wav",
-			"res://Sounds/bullet_impact_dirt_08.wav"
+			"res://Audio/bullet_impact_dirt_01.wav",
+			"res://Audio/bullet_impact_dirt_02.wav",
+			"res://Audio/bullet_impact_dirt_03.wav",
+			"res://Audio/bullet_impact_dirt_04.wav",
+			"res://Audio/bullet_impact_dirt_05.wav",
+			"res://Audio/bullet_impact_dirt_06.wav",
+			"res://Audio/bullet_impact_dirt_07.wav",
+			"res://Audio/bullet_impact_dirt_08.wav"
 		]
 		sound_path = dirt_sounds[randi() % dirt_sounds.size()]
 	else:
 		# Default to metal sound for other objects
-		sound_path = "res://Sounds/bullet_impact_metal_heavy_01.wav"
+		sound_path = "res://Audio/bullet_impact_metal_heavy_01.wav"
 	
 	# Load and play the sound
 	var sound = load(sound_path)
@@ -276,7 +276,7 @@ func find_damage_target(body: Node) -> Node:
 		return body
 	if body is CollisionShape3D and body.get_parent() and body.get_parent().has_method("take_damage"):
 		return body.get_parent()
-	if body.name == "CompleteFighterJet" or "aircraft" in body.name.to_lower():
+	if body.name == "Aircraft_1" or "aircraft" in body.name.to_lower():
 		for child in body.get_children():
 			if child.has_method("take_damage") and (child is Aircraft or child.is_in_group("aircraft")):
 				return child

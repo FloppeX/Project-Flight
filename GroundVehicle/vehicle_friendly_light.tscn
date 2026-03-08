@@ -1,0 +1,55 @@
+[gd_scene load_steps=5 format=3 uid="uid://c6onmabbqcjtc"]
+
+[ext_resource type="Script" uid="uid://cont4fpva1hw" path="res://GroundVehicle/vehicle_friendly_light.gd" id="1_hhiab"]
+[ext_resource type="PackedScene" uid="uid://derhabj65mpc6" path="res://Models/ground vehicle new friendly.glb" id="2_wkhwc"]
+[ext_resource type="PackedScene" uid="uid://t65yrhatlm8e" path="res://Models/Ground vehicle wheel.glb" id="3_gysuo"]
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_body"]
+size = Vector3(2, 1, 4.5)
+
+[node name="VehicleFriendlyLight" type="CharacterBody3D"]
+script = ExtResource("1_hhiab")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 0)
+shape = SubResource("BoxShape3D_body")
+
+[node name="Body" parent="." instance=ExtResource("2_wkhwc")]
+
+[node name="wheel_right_1" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.50686, 0, 2.5443)
+
+[node name="Mesh" parent="wheel_right_1" instance=ExtResource("3_gysuo")]
+
+[node name="wheel_right_2" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.50686, 0, -0.964473)
+
+[node name="Mesh" parent="wheel_right_2" instance=ExtResource("3_gysuo")]
+
+[node name="Mesh2" parent="wheel_right_2" instance=ExtResource("3_gysuo")]
+
+[node name="wheel_right_3" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.50686, 0, -3.08061)
+
+[node name="Mesh" parent="wheel_right_3" instance=ExtResource("3_gysuo")]
+
+[node name="Mesh2" parent="wheel_right_3" instance=ExtResource("3_gysuo")]
+
+[node name="wheel_left_1" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.507, 0, 2.544)
+
+[node name="Mesh" parent="wheel_left_1" instance=ExtResource("3_gysuo")]
+
+[node name="wheel_left_2" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.507, 0, -0.964)
+
+[node name="Mesh" parent="wheel_left_2" instance=ExtResource("3_gysuo")]
+
+[node name="Mesh2" parent="wheel_left_2" instance=ExtResource("3_gysuo")]
+
+[node name="wheel_left_3" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.507, 0, -3.081)
+
+[node name="Mesh" parent="wheel_left_3" instance=ExtResource("3_gysuo")]
+
+[node name="Mesh2" parent="wheel_left_3" instance=ExtResource("3_gysuo")]

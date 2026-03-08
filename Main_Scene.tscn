@@ -1,16 +1,14 @@
-[gd_scene load_steps=19 format=3 uid="uid://di4mmbdu6qiv1"]
+[gd_scene load_steps=17 format=3 uid="uid://di4mmbdu6qiv1"]
 
-[ext_resource type="Script" uid="uid://dhif0k7fphvot" path="res://example/Example1_Simple.gd" id="1"]
-[ext_resource type="PackedScene" uid="uid://dsel16gi76dnm" path="res://example/ui/UIEnergyContainer/UIFuelLevel.tscn" id="5"]
-[ext_resource type="PackedScene" uid="uid://bu2hixfhu8ndm" path="res://example/ui/UIEnginePower/UIEnginePower.tscn" id="10"]
-[ext_resource type="Script" uid="uid://c5ymngm2dd31d" path="res://Enemies/EnemyController.gd" id="15_v4hrs"]
-[ext_resource type="PackedScene" uid="uid://b8x70a02a1b2c" path="res://LandCarrier.tscn" id="16_13cwd"]
-[ext_resource type="PackedScene" uid="uid://bmut2y2xaqj6x" path="res://example/ui/UIAltSpeed/UIAltSpeed.tscn" id="22"]
-[ext_resource type="PackedScene" uid="uid://c4dncgm8qjt7u" path="res://example/ui/UIFlaps/UIFlaps.tscn" id="23"]
-[ext_resource type="PackedScene" uid="uid://b8s77ar81hq22" path="res://example/ui/UILandingGear/UILandingGear.tscn" id="25"]
-[ext_resource type="PackedScene" uid="uid://dhg4sb4ifrvh8" path="res://example/ui/UIAttitude/UIAttitude.tscn" id="26"]
+[ext_resource type="Script" uid="uid://dhif0k7fphvot" path="res://ScenarioManager.gd" id="1"]
+[ext_resource type="PackedScene" uid="uid://dsel16gi76dnm" path="res://UI/UIEnergyContainer/UIFuelLevel.tscn" id="5"]
+[ext_resource type="PackedScene" uid="uid://bu2hixfhu8ndm" path="res://UI/UIEnginePower/UIEnginePower.tscn" id="10"]
+[ext_resource type="PackedScene" path="res://LandCarrier/LandCarrier.tscn" id="16_13cwd"]
+[ext_resource type="PackedScene" uid="uid://bmut2y2xaqj6x" path="res://UI/UIAltSpeed/UIAltSpeed.tscn" id="22"]
+[ext_resource type="PackedScene" uid="uid://c4dncgm8qjt7u" path="res://UI/UIFlaps/UIFlaps.tscn" id="23"]
+[ext_resource type="PackedScene" uid="uid://b8s77ar81hq22" path="res://UI/UILandingGear/UILandingGear.tscn" id="25"]
+[ext_resource type="PackedScene" uid="uid://dhg4sb4ifrvh8" path="res://UI/UIAttitude/UIAttitude.tscn" id="26"]
 [ext_resource type="PackedScene" uid="uid://c2s8c25rpg1df" path="res://Weather/ContinuousTurbulence.tscn" id="49_hrb0d"]
-[ext_resource type="PackedScene" uid="uid://enemybox123" path="res://Enemies/EnemyBox.tscn" id="52_enemy_box"]
 [ext_resource type="Script" uid="uid://b2gfgs7ytoexe" path="res://Enemies/EnemyAircraftSpawner.gd" id="70_enemyair"]
 [ext_resource type="PackedScene" path="res://Environment/LowPolyTerrainPrototype.tscn" id="71_lowpoly"]
 [ext_resource type="PackedScene" path="res://Environment/RockStream.tscn" id="72_rockstream"]
@@ -163,12 +161,6 @@ base_intensity = 0.0
 max_intensity = 3.0
 shake_factor = 1.0
 impulse_threshold = 0.3
-
-[node name="EnemyController" type="Node3D" parent="."]
-script = ExtResource("15_v4hrs")
-land_carrier_path = NodePath("../LandCarrier")
-enemy_scene = ExtResource("52_enemy_box")
-terrain_path = NodePath("../LowPolyTerrainPrototype")
 
 [node name="EnemyAircraftSpawner" type="Node3D" parent="."]
 script = ExtResource("70_enemyair")

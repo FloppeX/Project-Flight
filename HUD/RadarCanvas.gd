@@ -50,23 +50,36 @@ func _draw() -> void:
 	var flat_right: Vector3 = flat_forward.cross(Vector3.UP).normalized()
 	var range_m: float = 5000.0
 
-	# Collect airborne contacts (any aircraft that isn't the player)
+	# Collect airborne contacts (aircraft only, not ground vehicles)
 	var air_contacts: Array = []
 	for node in get_tree().get_nodes_in_group("aircraft"):
-		if node and is_instance_valid(node) and node != aircraft and node is RigidBody3D:
+		if node and is_instance_valid(node) and node != aircraft and node is RigidBody3D and not node.is_in_group("ground_vehicles"):
 			air_contacts.append(node)
 	for node in get_tree().get_nodes_in_group("enemies"):
-		if node and is_instance_valid(node) and node != aircraft and node is RigidBody3D:
+		if node and is_instance_valid(node) and node != aircraft and node is RigidBody3D and not node.is_in_group("ground_vehicles"):
 			if node not in air_contacts:
 				air_contacts.append(node)
 
-	# Collect ground enemies (non-aircraft from enemies list)
+	# Collect ground vehicle contacts by team
+	var ground_enemy_contacts: Array = []
+	var ground_friendly_contacts: Array = []
+	for node in get_tree().get_nodes_in_group("ground_vehicles"):
+		if not node or not is_instance_valid(node) or not (node is Node3D):
+			continue
+		if not node.has_method("get_team"):
+			continue
+		if int(node.get_team()) == team_id:
+			ground_friendly_contacts.append(node)
+		else:
+			ground_enemy_contacts.append(node)
+
+	# Static ground enemies (non-RigidBody3D, e.g. legacy EnemyBox)
 	var ground_enemies: Array = []
 	for e in enemies:
 		if e and is_instance_valid(e) and not (e is RigidBody3D):
 			ground_enemies.append(e)
 
-	var has_contacts: bool = air_contacts.size() > 0 or ground_enemies.size() > 0
+	var has_contacts: bool = air_contacts.size() > 0 or ground_enemies.size() > 0 or ground_enemy_contacts.size() > 0 or ground_friendly_contacts.size() > 0
 	var carrier_nodes: Array = get_tree().get_nodes_in_group("carrier")
 	var has_carrier: bool = carrier_nodes.size() > 0
 
@@ -173,19 +186,32 @@ func _draw() -> void:
 		if ac == current_target:
 			draw_arc(blip_pos, 8, 0, TAU, 16, Color.WHITE, 2)
 
-	# Draw ground enemies as red dots
-	for e in ground_enemies:
+	# Draw ground contacts as coloured dots
+	for e in ground_enemies + ground_enemy_contacts:
 		if not is_instance_valid(e):
 			continue
 		var rel: Vector3 = e.global_position - origin
 		var ex: float = rel.dot(flat_right)
 		var ez: float = rel.dot(flat_forward)
-		var edist: float = sqrt(ex * ex + ez * ez)
-		if edist > range_m:
+		if sqrt(ex * ex + ez * ez) > range_m:
 			continue
 		var epx: float = center.x + (ex / range_m) * radius
 		var epy: float = center.y - (ez / range_m) * radius
 		draw_circle(Vector2(epx, epy), 3, Color.RED)
+		if e == current_target:
+			draw_arc(Vector2(epx, epy), 8, 0, TAU, 16, Color.WHITE, 2)
+
+	for e in ground_friendly_contacts:
+		if not is_instance_valid(e):
+			continue
+		var rel: Vector3 = e.global_position - origin
+		var ex: float = rel.dot(flat_right)
+		var ez: float = rel.dot(flat_forward)
+		if sqrt(ex * ex + ez * ez) > range_m:
+			continue
+		var epx: float = center.x + (ex / range_m) * radius
+		var epy: float = center.y - (ez / range_m) * radius
+		draw_circle(Vector2(epx, epy), 3, Color(0.3, 0.6, 1.0))
 		if e == current_target:
 			draw_arc(Vector2(epx, epy), 8, 0, TAU, 16, Color.WHITE, 2)
 

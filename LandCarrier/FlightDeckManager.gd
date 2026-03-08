@@ -18,7 +18,8 @@ signal deck_state_changed(new_state)
 	Vector3(12, 0, 0)
 ]
 @export var max_hangar_capacity: int = 12
-@export var aircraft_template_scene: PackedScene  # Aircraft template for spawning new aircraft
+@export var aircraft_template_scene: PackedScene  # Aircraft 1 template
+@export var aircraft_2_scene: PackedScene         # Aircraft 2 template
 
 enum DeckState {
 	IDLE,
@@ -134,6 +135,20 @@ func _input(event):
 			if stored_aircraft.is_empty():
 				print("[FlightDeckManager] Hangar is empty - no aircraft to retrieve")
 
+	# Spawn Aircraft 2 from hangar (key "2")
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_2:
+		if current_state == DeckState.IDLE:
+			var scene := aircraft_2_scene
+			if not scene:
+				scene = load("res://Aircraft/Aircraft_2.tscn")
+			if scene:
+				stored_aircraft.push_front({"name": "Aircraft_2", "scene_file": "", "scene": scene, "position": Vector3.ZERO, "rotation": Vector3.ZERO, "scale": Vector3.ONE, "metadata": {}})
+				start_hangar_retrieval()
+			else:
+				print("[FlightDeckManager] ERROR: Could not load Aircraft_2.tscn")
+		else:
+			print("[FlightDeckManager] Deck busy - current state: ", DeckState.keys()[current_state])
+
 	# Debug key to force reset state (key "9")
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_9:
 		print("[FlightDeckManager] DEBUG: Force resetting deck state to IDLE")
@@ -153,7 +168,7 @@ func request_launch_sequence(aircraft: RigidBody3D):
 		print("[FlightDeckManager] Cleared parking brake for launch")
 
 	aircraft.set_meta("controls_disabled", true)
-	print("[FlightDeckManager] Set controls_disabled for catapult handoff")
+	
 
 	var physics_ready_handoff := false
 	# Retrieval launch handoff:
@@ -163,11 +178,11 @@ func request_launch_sequence(aircraft: RigidBody3D):
 	if aircraft.has_meta("physics_ready_for_launch") and bool(aircraft.get_meta("physics_ready_for_launch")):
 		aircraft.remove_meta("physics_ready_for_launch")
 		physics_ready_handoff = true
-		print("[FlightDeckManager] Physics already restored for launch handoff")
+		
 	else:
 		await _restore_aircraft_physics(aircraft)
 
-	print("[FlightDeckManager] Initiating launch sequence for ", aircraft.name)
+	print("[FlightDeckManager] Launching ", aircraft.name)
 	current_state = DeckState.LAUNCH_IN_PROGRESS
 	deck_aircraft = aircraft
 	if catapult.has_method("align_aircraft"):
@@ -376,7 +391,7 @@ func _configure_retrieved_aircraft_as_player(aircraft: RigidBody3D) -> void:
 
 	# Keep controls muted until catapult handoff/release.
 	aircraft.set_meta("controls_disabled", true)
-	print("[FlightDeckManager] Retrieved aircraft configured for PLAYER control")
+	
 
 # --- Helpers ---
 func _find_nodes_by_script(root: Node, script_name: String) -> Array[Node]:
@@ -572,7 +587,7 @@ func _initialize_hangar_with_aircraft():
 	for i in range(max_hangar_capacity):
 		var aircraft_data = {
 			"name": "Aircraft_" + str(i + 1),
-			"scene_file": "res://CompleteFighterJet.tscn",
+			"scene_file": "res://Aircraft/Aircraft_1.tscn",
 			"position": Vector3.ZERO,
 			"rotation": Vector3.ZERO,
 			"scale": Vector3.ONE,
@@ -678,9 +693,7 @@ func _prepare_aircraft_for_movement(aircraft: RigidBody3D):
 	if _aircraft_original_collision_layer == 0:
 		_aircraft_original_collision_layer = aircraft.collision_layer
 		_aircraft_original_collision_mask = aircraft.collision_mask
-		print("[FlightDeckManager] Saved collision settings - layer: ", _aircraft_original_collision_layer, " mask: ", _aircraft_original_collision_mask)
-	
-	# Disable physics
+		# Disable physics
 	aircraft.set_meta("carrier_transport_mode", true)
 	aircraft.freeze = true
 	aircraft.gravity_scale = 0.0
@@ -711,23 +724,20 @@ func _position_aircraft_above_deck(aircraft: RigidBody3D):
 	# Calculate offset to position lowest gear 20cm above deck
 	var y_offset = target_gear_height - lowest_gear_y
 	
-	print("[FlightDeckManager] Deck height: ", deck_height, " Target gear height: ", target_gear_height, " Current lowest gear Y: ", lowest_gear_y, " Y offset: ", y_offset)
-	
 	# Apply offset to aircraft position
 	aircraft.global_position.y += y_offset
-	
-	print("[FlightDeckManager] Aircraft positioned with gear 20cm above flight deck at height: ", target_gear_height)
 
 func _move_aircraft_smoothly(aircraft: RigidBody3D, target_position: Vector3):
 	"""Move aircraft smoothly to target position with rotation"""
-	var start_position = aircraft.global_position
+	# Work in carrier-local space so movement tracks with the moving carrier.
+	var carrier := get_parent() as Node3D
 	var start_rotation = aircraft.global_rotation
 	var target_rotation = aircraft.global_rotation  # Keep same rotation for now
-	
+
 	# Calculate target position - maintain gear at 20cm above deck
 	var deck_height = _get_deck_height_y()
 	var target_gear_height = deck_height + _aircraft_lift_height
-	
+
 	# Find the lowest gear collider to calculate the aircraft's target Y position
 	var gear_colliders = _find_gear_colliders(aircraft)
 	var lowest_gear_local_y = INF
@@ -735,43 +745,39 @@ func _move_aircraft_smoothly(aircraft: RigidBody3D, target_position: Vector3):
 		var local_y = aircraft.to_local(gear.global_position).y
 		if local_y < lowest_gear_local_y:
 			lowest_gear_local_y = local_y
-	
+
 	# Calculate aircraft's target Y position so its lowest gear is at target_gear_height
 	var aircraft_target_y = target_gear_height - lowest_gear_local_y
 	var final_position = Vector3(target_position.x, aircraft_target_y, target_position.z)
-	
-	var distance = start_position.distance_to(final_position)
+
+	# Convert to carrier-local space
+	var start_local: Vector3 = carrier.to_local(aircraft.global_position) if carrier else aircraft.global_position
+	var target_local: Vector3 = carrier.to_local(final_position) if carrier else final_position
+
+	var distance = start_local.distance_to(target_local)
 	var duration = distance / _aircraft_move_speed
-	
-	print("[FlightDeckManager] Moving aircraft smoothly to elevator - Distance: ", distance, " Duration: ", duration)
-	print("[FlightDeckManager] Aircraft target Y: ", aircraft_target_y, " Gear will be at: ", target_gear_height)
-	
-	# Use a proper timer for smooth movement
+
+	print("[FlightDeckManager] Moving aircraft to elevator - Distance: ", snappedf(distance, 0.1), "m")
+
 	var elapsed_time = 0.0
-	
-	# Smooth movement with rotation
-	while aircraft.global_position.distance_to(final_position) > 0.1:
+
+	while elapsed_time < duration:
 		elapsed_time += get_process_delta_time()
-		
-		if elapsed_time >= duration:
-			break
-		
-		var t = elapsed_time / duration
-		t = ease_in_out_cubic(t)  # Smooth easing
-		
-		# Interpolate position - maintain gear height throughout movement
-		var current_position = start_position.lerp(final_position, t)
-		aircraft.global_position = current_position
-		
+		var t = ease_in_out_cubic(clamp(elapsed_time / duration, 0.0, 1.0))
+
+		# Lerp in carrier-local space, convert back to world — tracks carrier movement
+		var current_local = start_local.lerp(target_local, t)
+		aircraft.global_position = carrier.to_global(current_local) if carrier else current_local
+
 		# Interpolate rotation (smooth rotation towards target)
 		aircraft.global_rotation = start_rotation.slerp(target_rotation, t)
-		
+
 		await get_tree().process_frame
-	
-	# Final position
-	aircraft.global_position = final_position
+
+	# Final position — snap to carrier-relative target
+	aircraft.global_position = carrier.to_global(target_local) if carrier else final_position
 	aircraft.global_rotation = target_rotation
-	
+
 	# Don't deactivate tractorbots yet - they need to follow the elevator
 	print("[FlightDeckManager] Aircraft moved to elevator - gear at height: ", target_gear_height)
 
@@ -801,7 +807,7 @@ func _find_gear_colliders(aircraft: RigidBody3D) -> Array[Node3D]:
 			if child is Node3D and "gear" in child.name.to_lower():
 				gear_colliders.append(child)
 	
-	print("[FlightDeckManager] Found ", gear_colliders.size(), " gear colliders")
+	pass
 	return gear_colliders
 
 func _get_all_children(node: Node) -> Array[Node]:
@@ -851,22 +857,24 @@ func _create_aircraft_at_hangar_level() -> RigidBody3D:
 		print("[FlightDeckManager] No aircraft data in hangar")
 		return null
 
-	if not aircraft_template_scene:
-		print("[FlightDeckManager] No aircraft template assigned, attempting to load CompleteFighterJet.tscn")
-		aircraft_template_scene = load("res://CompleteFighterJet.tscn")
-		if not aircraft_template_scene:
-			print("[FlightDeckManager] ERROR: Could not load CompleteFighterJet.tscn")
-			return null
-		else:
-			print("[FlightDeckManager] Successfully loaded aircraft template")
-
-	print("[FlightDeckManager] Spawning aircraft from template at hangar level")
-
 	# Get the stored aircraft data (use first stored aircraft)
 	var aircraft_data = stored_aircraft[0]  # We'll remove this after spawning
 
+	# Use scene embedded in data dict (e.g. Aircraft 2), otherwise fall back to template
+	var scene_to_use: PackedScene = aircraft_data.get("scene", null)
+	if not scene_to_use:
+		scene_to_use = aircraft_template_scene
+	if not scene_to_use:
+		print("[FlightDeckManager] No aircraft template assigned, attempting to load Aircraft_1.tscn")
+		scene_to_use = load("res://Aircraft/Aircraft_1.tscn")
+		if not scene_to_use:
+			print("[FlightDeckManager] ERROR: Could not load Aircraft_1.tscn")
+			return null
+
+	print("[FlightDeckManager] Spawning aircraft from template at hangar level")
+
 	# Instantiate new aircraft from template
-	var aircraft = aircraft_template_scene.instantiate() as RigidBody3D
+	var aircraft = scene_to_use.instantiate() as RigidBody3D
 	if not aircraft:
 		print("[FlightDeckManager] ERROR: Failed to instantiate aircraft from template")
 		return null
@@ -995,38 +1003,27 @@ func _follow_elevator_down(aircraft: RigidBody3D):
 		else:
 			initial_bot_offsets_from_deck.append(0.0)
 	
-	print("[FlightDeckManager] Deck height: ", deck_height)
-	print("[FlightDeckManager] Lowest gear local Y: ", lowest_gear_local_y)
-	print("[FlightDeckManager] Initial bot offsets from deck: ", initial_bot_offsets_from_deck)
-	
-	print("[FlightDeckManager] Starting elevator following loop")
+	print("[FlightDeckManager] Following elevator down...")
 	# Start following the elevator platform
 	while is_instance_valid(aircraft) and is_instance_valid(elevator) and elevator.current_state != elevator.ElevatorState.AT_BOTTOM:
-		# Calculate the current elevator platform height relative to deck
+		# Refresh deck height each frame so carrier movement is tracked
+		var current_deck_height = _get_deck_height_y()
 		var elevator_local_y = elevator.platform.position.y
-		var elevator_global_y = deck_height + elevator_local_y
-		
+		var elevator_global_y = current_deck_height + elevator_local_y
+
 		# Calculate aircraft position so its lowest gear is 0.2m above elevator platform
 		var target_gear_height = elevator_global_y + target_gear_height_above_elevator
 		var target_aircraft_y = target_gear_height - gear_offset_from_aircraft_center
-		
-		# Move aircraft maintaining the same relative position to deck
-		var target_aircraft_position = aircraft.global_position
-		target_aircraft_position.y = target_aircraft_y
-		aircraft.global_position = target_aircraft_position
-		
-		# Disabled for cleaner output:
-		# print("[FlightDeckManager] Elevator local Y: ", elevator_local_y, " Global Y: ", elevator_global_y, " Aircraft Y: ", target_aircraft_y, " Gear will be at: ", target_gear_height)
 
-		# Move tractorbots maintaining the same relative positions to deck
+		# Only update Y — carrier delta (LandCarrier._carry_deck_passengers) handles XZ
+		aircraft.global_position.y = target_aircraft_y
+
+		# Bots are carrier children so XZ auto-follows; only update Y
 		for i in range(min(tractor_bots.size(), initial_bot_offsets_from_deck.size())):
 			var bot = tractor_bots[i]
 			if bot and bot.is_active:
-				var target_bot_position = bot.global_position
-				target_bot_position.y = elevator_global_y + initial_bot_offsets_from_deck[i]
-				bot.global_position = target_bot_position
-				# Disabled: print("[FlightDeckManager] Bot ", i, " positioned at: ", target_bot_position)
-		
+				bot.global_position.y = elevator_global_y + initial_bot_offsets_from_deck[i]
+
 		await get_tree().process_frame
 
 	if not is_instance_valid(aircraft):
@@ -1145,24 +1142,23 @@ func _follow_elevator_up_for_retrieval(aircraft: RigidBody3D):
 
 	# Follow until the platform is physically at top, not just state transitions.
 	while is_instance_valid(aircraft) and is_instance_valid(elevator) and not _is_elevator_physically_at_top():
-		# Calculate the current elevator platform height relative to deck
+		# Refresh deck height each frame so carrier movement is tracked
+		var current_deck_height = _get_deck_height_y()
 		var elevator_local_y = elevator.platform.position.y
-		var elevator_global_y = deck_height + elevator_local_y
+		var elevator_global_y = current_deck_height + elevator_local_y
 
 		# Calculate aircraft position so its lowest gear is 0.2m above elevator platform
 		var target_gear_height = elevator_global_y + target_gear_height_above_elevator
 		var target_aircraft_y = target_gear_height - gear_offset_from_aircraft_center
 
-		# Move aircraft to follow elevator
+		# Only update Y — carrier delta (LandCarrier._carry_deck_passengers) handles XZ
 		aircraft.global_position.y = target_aircraft_y
 
-		# Move tractorbots to follow elevator
+		# Bots are carrier children so XZ auto-follows; only update Y
 		for i in range(min(tractor_bots.size(), initial_bot_offsets_from_deck.size())):
 			var bot = tractor_bots[i]
 			if bot and bot.is_active:
-				var target_bot_position = bot.global_position
-				target_bot_position.y = elevator_global_y + 0.2  # Keep bots on elevator platform
-				bot.global_position = target_bot_position
+				bot.global_position.y = elevator_global_y + 0.2
 
 		await get_tree().process_frame
 
@@ -1197,12 +1193,8 @@ func _complete_retrieval_sequence():
 	else:
 		# Fallback - position forward of elevator
 		target_position = elevator_pickup_marker.global_position + Vector3(0, 0, 20)
-		print("[FlightDeckManager] No catapult_latch_marker found, using fallback")
+		print("[FlightDeckManager] WARNING: No catapult_latch_marker found, using fallback")
 
-	# Move aircraft smoothly to catapult position while maintaining lift height
-	print("[FlightDeckManager] Moving aircraft to launch position while maintaining 0.2m gear height")
-
-	# Calculate the correct Y position to maintain gear 0.2m above deck during move
 	var deck_height = _get_deck_height_y()
 	var gear_colliders = _find_gear_colliders(aircraft)
 	var target_gear_height = deck_height + _aircraft_lift_height  # deck + 0.2m
@@ -1231,19 +1223,24 @@ func _complete_retrieval_sequence():
 	aircraft.set_meta("physics_ready_for_launch", true)
 
 	# After physics handoff, send tractorbots to staging.
-	print("[FlightDeckManager] Moving tractorbots to staging positions")
 	await _move_tractorbots_to_staging()
 
 	# Configure as player-controlled before launch
 	_configure_retrieved_aircraft_as_player(aircraft)
 
 	# Automatically start launch sequence
-	print("[FlightDeckManager] Retrieval sequence complete - automatically starting launch sequence")
+	
 	request_launch_sequence(aircraft)
 
 func _move_aircraft_horizontally(aircraft: RigidBody3D, target_position: Vector3):
 	"""Move aircraft horizontally to target position with tractorbots following"""
-	var start_position = aircraft.global_position
+	# Work in carrier-local space so movement tracks with the moving carrier.
+	# Lerping world-space snapshots causes the aircraft to lag behind as the
+	# carrier moves forward during the tween.
+	var carrier := get_parent() as Node3D
+	var start_local: Vector3 = carrier.to_local(aircraft.global_position) if carrier else aircraft.global_position
+	var target_local: Vector3 = carrier.to_local(target_position) if carrier else target_position
+
 	var start_rotation = aircraft.global_rotation
 	var target_rotation = aircraft.global_rotation  # Keep same rotation
 
@@ -1255,28 +1252,20 @@ func _move_aircraft_horizontally(aircraft: RigidBody3D, target_position: Vector3
 		else:
 			bot_offsets.append(Vector3.ZERO)
 
-	var distance = start_position.distance_to(target_position)
+	var distance = start_local.distance_to(target_local)
 	var duration = distance / _aircraft_move_speed
 
-	print("[FlightDeckManager] Moving aircraft horizontally with tractorbots - Distance: ", distance, " Duration: ", duration)
-	print("[FlightDeckManager] From: ", start_position, " To: ", target_position)
+	print("[FlightDeckManager] Moving aircraft to catapult - Distance: ", snappedf(distance, 0.1), "m")
 
-	# Use a proper timer for smooth movement
 	var elapsed_time = 0.0
 
-	# Smooth movement with rotation
-	while aircraft.global_position.distance_to(target_position) > 0.1:
+	while elapsed_time < duration:
 		elapsed_time += get_process_delta_time()
+		var t = ease_in_out_cubic(clamp(elapsed_time / duration, 0.0, 1.0))
 
-		if elapsed_time >= duration:
-			break
-
-		var t = elapsed_time / duration
-		t = ease_in_out_cubic(t)  # Smooth easing
-
-		# Interpolate aircraft position
-		var current_position = start_position.lerp(target_position, t)
-		aircraft.global_position = current_position
+		# Lerp in carrier-local space, convert back to world — tracks carrier movement
+		var current_local = start_local.lerp(target_local, t)
+		aircraft.global_position = carrier.to_global(current_local) if carrier else current_local
 
 		# Move tractorbots to maintain relative positions
 		for i in range(min(tractor_bots.size(), bot_offsets.size())):
@@ -1289,8 +1278,8 @@ func _move_aircraft_horizontally(aircraft: RigidBody3D, target_position: Vector3
 
 		await get_tree().process_frame
 
-	# Final position
-	aircraft.global_position = target_position
+	# Final position — snap to carrier-relative target
+	aircraft.global_position = carrier.to_global(target_local) if carrier else target_position
 	aircraft.global_rotation = target_rotation
 
 	# Final tractorbot positions
@@ -1303,8 +1292,6 @@ func _move_aircraft_horizontally(aircraft: RigidBody3D, target_position: Vector3
 
 func _move_tractorbots_to_staging():
 	"""Move tractorbots to staging at a consistent speed, then deactivate them"""
-	print("[FlightDeckManager] Moving tractorbots to staging positions")
-
 	var moving_bots: Array[Node3D] = []
 	var start_positions: Array[Vector3] = []
 	var target_positions: Array[Vector3] = []
@@ -1313,8 +1300,6 @@ func _move_tractorbots_to_staging():
 	for i in range(tractor_bots.size()):
 		var bot = tractor_bots[i]
 		if bot:
-			print("[FlightDeckManager] Moving tractorbot ", i, " to staging")
-
 			# Deactivate bot logic so it doesn't fight manual retreat motion.
 			if bot.has_method("deactivate"):
 				bot.deactivate()
@@ -1345,7 +1330,7 @@ func _move_tractorbots_to_staging():
 
 	for i in range(moving_bots.size()):
 		moving_bots[i].global_position = target_positions[i]
-		print("[FlightDeckManager] Moved bot ", i, " to staging at: ", target_positions[i])
+		
 
 func ease_in_out_cubic(t: float) -> float:
 	"""Smooth easing function"""

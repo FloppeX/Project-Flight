@@ -284,7 +284,7 @@ func _emit_smoke_particle() -> void:
 	var particle_manager = get_node_or_null("/root/ParticleManager")
 	if not particle_manager:
 		# Create particle manager if it doesn't exist
-		particle_manager = preload("res://ParticleManager.gd").new()
+		particle_manager = preload("res://Effects/ParticleManager.gd").new()
 		particle_manager.name = "ParticleManager"
 		get_tree().root.add_child(particle_manager)
 	

@@ -25,5 +25,8 @@ mono_crash.*.json
 # Backup files
 *.bak
 
+# Trash folder (unused/deprecated files kept locally for safety)
+_trash/
+
 # Documentation imports
 docs/*.import

@@ -172,7 +172,7 @@ func _activate_camera(cam: Camera3D):
 					cam_parent.reset_look()
 			elif cam_parent.name == "CameraCinematic":
 				if not cam_parent.get_script():
-					cam_parent.set_script(preload("res://example/scenes/Cameras/CinematicCamera.gd"))
+					cam_parent.set_script(preload("res://Camera/CinematicCamera.gd"))
 				if cam_parent.has_method("setup_aircraft"):
 					cam_parent.setup_aircraft(ac)
 				if cam_parent.has_method("setup_shot"):
