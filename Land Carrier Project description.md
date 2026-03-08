@@ -1,6 +1,6 @@
 ﻿## Current Status
 
-**Last Updated:** 2026-03-07
+**Last Updated:** 2026-03-08
 **Godot Version:** 4.4.1.stable.official.49a5bc7b6
 **Project Health:** PLAYABLE
 **Control Mode:** Manual (Game Controller) + AI autonomous
@@ -24,7 +24,7 @@
 | Targeting | Working | HUD target box, sensor cone |
 | HUD | Working | Radar, instruments, CCIP |
 | Camera System | Working | Multiple camera modes |
-| Destruction | Working | Explosion and wreckage |
+| Destruction | Working | Explosion with volumetric smoke puffs (SphereMesh, staggered, rising/fading) |
 
 ### Carrier Systems
 | System | Status | Notes |
@@ -49,21 +49,22 @@
 ### Environment
 | System | Status | Notes |
 |--------|--------|-------|
-| Terrain | Working | Custom low-poly procedural terrain mesh with chunk streaming |
-| Terrain Shader | Working | Flat-shaded slope-based sand/rock color blending |
-| Rock Scatter | Partial | Terrain-driven layout in progress after Terrain3D removal |
-| Lighting | Working | Directional + deck lights |
+| Terrain | Working | Custom low-poly procedural terrain mesh with chunk streaming; strata height varies spatially |
+| Terrain Shader | Working | Slope-based coloring (grey on steep, beige-yellow on mesa tops) with spatial gradient color patches |
+| Rock Scatter | Working | MultiMesh rocks placed at correct world height; atomic swap prevents popping |
+| Lighting | Working | Directional + deck lights; hard shadow edges, 4-split cascades, tuned bias |
 | Post-Processing | Working | Filmic, glow, SSAO, fog |
 | Weather | Planned | Not yet implemented |
 
 ### Immediate Priorities
-1. Dogfight precision pass: final nose authority + stricter fire gating validation
+1. Continue explosion polish (blast marker / scorch mark visibility)
 2. End-to-end AI cycle soak testing: hangar -> catapult -> climb -> approach -> land -> hangar
 3. Implement enemy movement and pathfinding
 4. Add carrier defense turrets
 5. Develop resource management system
 
 ### Version History
+- 2026-03-08: Terrain strata spatial variation, rock scatter fix (world-Y offset + atomic MultiMesh swap), slope/mesa color tuning, spatial gradient color patches, bullet speed 900 m/s, hard shadow edges + 4-split cascades, volumetric explosion smoke (SphereMesh puffs), explosion position fix (call_deferred)
 - 2026-03-07: Custom low-poly terrain rollout (streaming chunks, mesas/gullies, palette pass, base height offset), carrier flat-ground placement near map center, key-1 retrieval/player flow hardening
 - 2026-03-06: Dogfight controller rework (direct nose-pointing control), inverted recovery, firing logic/rudder tuning
 - 2026-03-04 (s2): AI hangar-launch cycle: controls_disabled fix, terrain avoidance post-launch, aggressive climb, proximity waypoint clearing, land-after-launch flow
@@ -78,6 +79,38 @@
 ---
 
 ## Project Change Log (latest session)
+
+### Session Summary (2026-03-08) - Visual Polish Pass
+
+**Overview:** Visual quality pass across terrain, lighting, weapons, and explosions.
+
+#### Terrain (`Environment/LowPolyTerrain.gd`)
+- Added `strata_height_variation_m` export: low-frequency noise modulates strata band height per region, so different areas of the map have different layer thicknesses.
+- Slope-based color: steep faces blend toward grey (`steep_slope_color`, `steep_slope_strength`). Mesa tops use a more beige-yellow `plateau_color`.
+- Spatial gradient color variation: low-frequency noise sampled at face centroid gives smooth color patches across the terrain. Per-quad hash (not per-triangle) prevents alternating stripe artifacts.
+- Fixed `get_height()` to return world-space Y by adding `global_position.y` to the sampled height.
+
+#### Rock Scatter (`Environment/RockStream.gd`)
+- Fixed rocks appearing underground: `get_height()` now returns world Y correctly.
+- Fixed rocks popping/repositioning every few seconds: replaced in-place `instance_count` mutation with an atomic MultiMesh swap (`_mmi.multimesh = new_mm`), eliminating the flash-to-origin artifact.
+
+#### Lighting (`Main_Scene.tscn`, `project.godot`)
+- Hard shadow edges: `shadow_blur = 0.0`, `soft_shadow_filter_quality = 0` (disabled).
+- Eliminated shadow banding stripes: `shadow_bias = 0.15`, `shadow_normal_bias = 2.0`, `directional_shadow_mode = PARALLEL_4_SPLITS`.
+
+#### Weapons (`Weapons/Autocannon/autocannon.gd`, `Projectiles/Bullet/bullet.gd`, `AI/AIPilot.gd`)
+- Autocannon `muzzle_velocity` increased from 600 → 900 m/s.
+- Bullet now inherits 100% of firing aircraft velocity (was 30%).
+- AI lead calculation updated to match new muzzle velocity.
+
+#### Explosions (`Projectiles/Explosion/explosion.gd`)
+- Replaced flat QuadMesh smoke particles with volumetric puff system: 12 `SphereMesh` (radial_segments=6, rings=4) blobs spawned staggered over 3+ seconds, each with non-uniform random scale, rising/expanding/fading tween animation.
+- Smoke color: near-black at base, dark grey higher up.
+- Fixed explosion effects spawning at world origin: `trigger_explosion()` is now called via `call_deferred` so the caller can set `global_position` before effects start.
+- Removed flat debris particle fountain (GPUParticles3D with black cubes).
+- Scorch mark raycast updated to use `collision_mask = 0xFFFFFFFF`.
+
+---
 
 ### Session Summary (2026-03-07) - Low-Poly Terrain + Retrieval/Combat Tuning
 

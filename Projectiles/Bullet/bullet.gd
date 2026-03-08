@@ -67,7 +67,7 @@ func fire(initial_velocity: Vector3, firing_aircraft: Node3D):
 	
 	# Add some aircraft velocity inheritance for more realistic ballistics
 	if firing_aircraft and firing_aircraft.has_method("get_linear_velocity"):
-		linear_velocity += firing_aircraft.linear_velocity * 0.3
+		linear_velocity += firing_aircraft.linear_velocity
 
 func _physics_process(delta):
 	# Call parent's physics process first

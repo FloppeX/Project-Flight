@@ -3,7 +3,7 @@ class_name Autocannon
 
 @export var bullet_projectile_scene: PackedScene
 @export var rounds_per_minute: float = 400.0  # Rate of fire
-@export var muzzle_velocity: float = 600.0    # Bullet speed
+@export var muzzle_velocity: float = 900.0    # Bullet speed
 @export var spread_angle: float = 1.0         # Degrees of inaccuracy
 @export var recoil_force: float = 1000.0
 @export var cannon_sound: AudioStream

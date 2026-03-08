@@ -1,4 +1,4 @@
-[gd_scene load_steps=18 format=3 uid="uid://di4mmbdu6qiv1"]
+[gd_scene load_steps=19 format=3 uid="uid://di4mmbdu6qiv1"]
 
 [ext_resource type="Script" uid="uid://dhif0k7fphvot" path="res://example/Example1_Simple.gd" id="1"]
 [ext_resource type="PackedScene" uid="uid://dsel16gi76dnm" path="res://example/ui/UIEnergyContainer/UIFuelLevel.tscn" id="5"]
@@ -13,6 +13,7 @@
 [ext_resource type="PackedScene" uid="uid://enemybox123" path="res://Enemies/EnemyBox.tscn" id="52_enemy_box"]
 [ext_resource type="Script" uid="uid://b2gfgs7ytoexe" path="res://Enemies/EnemyAircraftSpawner.gd" id="70_enemyair"]
 [ext_resource type="PackedScene" path="res://Environment/LowPolyTerrainPrototype.tscn" id="71_lowpoly"]
+[ext_resource type="PackedScene" path="res://Environment/RockStream.tscn" id="72_rockstream"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_ryrq1"]
 
@@ -53,52 +54,15 @@ transform = Transform3D(-1, 5.01437e-08, -7.16125e-08, 0, 0.819152, 0.573577, 8.
 light_energy = 2.0
 light_bake_mode = 0
 shadow_enabled = true
-shadow_bias = 0.05
-shadow_normal_bias = 0.8
-shadow_blur = 2.0
-directional_shadow_mode = 0
+shadow_bias = 0.15
+shadow_blur = 0.0
 directional_shadow_max_distance = 3000.0
 
 [node name="LowPolyTerrainPrototype" parent="." instance=ExtResource("71_lowpoly")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 5000, 62, 5000)
-quads_x = 2778
-quads_z = 2778
 cell_size_m = 36.0
 seed = 22551
-dune_amplitude_m = 18.0
-hill_amplitude_m = 72.0
-hill_frequency = 0.00072
-gully_depth_m = 190.0
-gully_frequency = 0.00135
-gully_width = 0.62
-gully_falloff = 0.11
-gully_profile_pow = 2.1
-gully_floor_step_m = 8.0
-gully_warp_amplitude_m = 620.0
-flat_area_strength = 0.72
-flat_blend_exponent = 0.68
-flat_snap_step_m = 12.0
-flat_snap_strength = 0.84
-global_flatten_strength = 0.12
-plateau_strength = 0.4
-plateau_threshold = 0.14
-terrace_step_m = 8.0
-mesa_frequency = 0.00034
-mesa_threshold = 0.1
-mesa_height_m = 520.0
-mesa_side_hardness = 24.0
-mesa_min_height_m = 140.0
-mesa_height_curve = 1.15
-mesa_ramp_until = 0.34
-mesa_ramp_fraction = 0.08
-mesa_top_variation_m = 8.0
-mesa_top_step_m = 26.0
-mesa_top_flatten_start = 0.7
-mesa_top_flatten_strength = 0.98
 base_height_offset_m = 220.0
-sand_color = Color(0.8, 0.43, 0.17, 1)
-rock_color = Color(0.64, 0.68, 0.74, 1)
-load_radius_chunks = 4
 stream_update_interval_s = 0.2
 max_chunk_builds_per_update = 3
 
@@ -208,5 +172,7 @@ terrain_path = NodePath("../LowPolyTerrainPrototype")
 
 [node name="EnemyAircraftSpawner" type="Node3D" parent="."]
 script = ExtResource("70_enemyair")
+
+[node name="RockStream" parent="." instance=ExtResource("72_rockstream")]
 
 [connection signal="pressed" from="Interface/BtnBack" to="." method="_on_BtnBack_pressed"]

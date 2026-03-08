@@ -21,13 +21,12 @@ var sfx_explosion: AudioStreamPlayer3D
 
 func _ready():
 	# Only create the effects we want - NO SPHERES
-	create_debris_particles()
 	create_smoke_particles()
 	create_fire_debris()
 	setup_explosion_audio()
 	
-	# Start the explosion sequence
-	trigger_explosion()
+	# Start the explosion sequence — deferred so the caller can set global_position first
+	call_deferred("trigger_explosion")
 
 func setup_explosion_audio():
 	sfx_explosion = AudioStreamPlayer3D.new()
@@ -95,52 +94,11 @@ func create_debris_particles():
 	cube_mesh.size = Vector3(0.2, 0.2, 0.2)  # Bigger cubes
 	debris_particles.draw_pass_1 = cube_mesh
 
-func create_smoke_particles():
-	if debug_enabled:
-		print("Creating smoke particles...")
+func create_smoke_particles() -> void:
+	# Stub — volumetric puffs are spawned at trigger time
 	smoke_particles = GPUParticles3D.new()
+	smoke_particles.amount = 0
 	add_child(smoke_particles)
-	
-	# Configure smoke
-	smoke_particles.emitting = false
-	smoke_particles.amount = 50  # More smoke particles (was 30)
-	smoke_particles.lifetime = effect_duration
-	smoke_particles.one_shot = true
-	
-	# Smoke material
-	var process_material = ParticleProcessMaterial.new()
-	
-	# Emission
-	process_material.direction = Vector3(0, 1, 0)
-	process_material.initial_velocity_min = 2.0  # Slower rise
-	process_material.initial_velocity_max = 5.0  # Slower rise
-	
-	# Spread
-	process_material.spread = 35.0
-	
-	# Gravity (smoke rises)
-	process_material.gravity = Vector3(0, -1.0, 0)  # Even lighter gravity
-	
-	# Size grows over time
-	process_material.scale_min = 1.0  # Start bigger (was 0.5)
-	process_material.scale_max = 3.0  # End bigger (was 1.5)
-	
-	# Color and transparency
-	process_material.color = Color.GRAY
-	process_material.color_ramp = create_smoke_gradient()
-	
-	smoke_particles.process_material = process_material
-	
-	# Use quad mesh for smoke
-	var quad_mesh = QuadMesh.new()
-	quad_mesh.size = Vector2(1.0, 1.0)  # Bigger smoke puffs
-	smoke_particles.draw_pass_1 = quad_mesh
-
-func create_smoke_gradient() -> Gradient:
-	var gradient = Gradient.new()
-	gradient.add_point(0.0, Color(0.5, 0.5, 0.5, 1.0))  # Solid gray at start
-	gradient.add_point(1.0, Color(0.5, 0.5, 0.5, 0.0))  # Transparent at end
-	return gradient
 
 func create_fire_debris():
 	if debug_enabled:
@@ -200,13 +158,76 @@ func create_single_fire_debris(index: int):
 		debris_container.queue_free()
 	)
 
+func _start_smoke_puffs() -> void:
+	var puff_count := 12
+	var captured_pos := global_position
+	for i in range(puff_count):
+		var progress := float(i) / float(puff_count - 1)
+		get_tree().create_timer(i * 0.28).timeout.connect(func():
+			if is_instance_valid(self):
+				_spawn_smoke_puff(progress, captured_pos)
+		)
+
+func _spawn_smoke_puff(progress: float, origin: Vector3) -> void:
+	print("[Smoke] spawning puff progress=", snapped(progress, 0.01), " at ", snapped(origin, Vector3.ONE))
+	var puff := MeshInstance3D.new()
+	get_tree().current_scene.add_child(puff)
+	puff.global_position = origin + Vector3(
+		randf_range(-2.5, 2.5),
+		progress * 10.0,
+		randf_range(-2.5, 2.5)
+	)
+
+	# Low-poly sphere for faceted irregular cloud look
+	var sphere := SphereMesh.new()
+	sphere.radial_segments = 6
+	sphere.rings = 4
+	var base_r := randf_range(1.5, 3.5)
+	sphere.radius = base_r
+	sphere.height = base_r * 2.0
+	puff.mesh = sphere
+
+	# Non-uniform scale for lumpy shape; later puffs are bigger (they've had time to expand)
+	puff.scale = Vector3(
+		randf_range(0.8, 1.6),
+		randf_range(0.5, 1.0),
+		randf_range(0.8, 1.6)
+	) * lerp(3.0, 6.0, progress)
+
+	# Very dark at base (near black), dark grey higher up
+	var grey: float = lerp(0.05, 0.30, progress)
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.albedo_color = Color(grey, grey, grey, 1.0)
+	mat.emission_enabled = true
+	mat.emission = Color(grey, grey * 0.8, grey * 0.6)
+	mat.emission_energy = 0.4
+	puff.material_override = mat
+
+	# Animate: rise, expand sideways/flatten, slow yaw, fade out
+	var puff_duration := randf_range(3.5, 5.5)
+	var rise := randf_range(14.0, 24.0)
+	var end_scale := puff.scale * Vector3(2.2, 0.6, 2.2)
+	var end_y := puff.position.y + rise
+
+	var t := puff.create_tween()
+	t.set_parallel(true)
+	t.tween_property(puff, "position:y", end_y, puff_duration)
+	t.tween_property(puff, "scale", end_scale, puff_duration)
+	t.tween_property(puff, "rotation:y", randf_range(-TAU * 0.3, TAU * 0.3), puff_duration)
+	t.tween_method(func(a: float):
+		if is_instance_valid(puff) and puff.material_override:
+			(puff.material_override as StandardMaterial3D).albedo_color.a = a
+	, 1.0, 0.0, puff_duration)
+	t.chain().tween_callback(puff.queue_free)
+
 func trigger_explosion():
 	print("[Explosion] at ", snapped(global_position, Vector3(1,1,1)))
 	if debug_enabled:
 		print("=== TRIGGERING EXPLOSION ===")
-	# Start particles
-	debris_particles.restart()
-	smoke_particles.restart()
+	# Start smoke puffs
+	_start_smoke_puffs()
 	
 	# Play explosion sound
 	if sfx_explosion:
@@ -304,8 +325,6 @@ func cleanup_explosion():
 	if debug_enabled:
 		print("=== CLEANING UP EXPLOSION ===")
 	# Remove particle systems but leave scorch mark
-	if debris_particles:
-		debris_particles.queue_free()
 	if smoke_particles:
 		smoke_particles.queue_free()
 
@@ -318,7 +337,7 @@ func create_scorch_mark():
 	var end: Vector3 = global_position - Vector3.UP * 200.0   # Raycast straight down from explosion
 	var params: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(origin, end)
 	params.exclude = [self]
-	params.collision_mask = (1 << 0) | (1 << 9)  # Only check terrain layers (1 and 10)
+	params.collision_mask = 0xFFFFFFFF  # Check all layers
 	var hit: Dictionary = space_state.intersect_ray(params)
 	
 	if debug_enabled:
@@ -355,7 +374,7 @@ func create_scorch_mark():
 		var decal_fallback: Decal = Decal.new()
 		add_child(decal_fallback)
 		decal_fallback.texture_albedo = preload("res://Projectiles/Explosion/scorch_mark.png")
-		decal_fallback.size = Vector3(blast_radius, 0.1, blast_radius)
+		decal_fallback.size = Vector3(blast_radius, 10.0, blast_radius)
 		decal_fallback.global_position = global_position + Vector3.UP * 0.02
 		decal_fallback.rotation.y = randf() * TAU
 

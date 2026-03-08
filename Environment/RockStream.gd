@@ -4,72 +4,70 @@ class_name RockStream
 @export var rock_scene_path: String = "res://Models/Rocks/Rock.glb"
 @export var radius_m: float = 400.0
 @export var cell_size_m: float = 25.0
-@export var density_per_cell: float = 0.4 # probability [0..1] of a rock in a cell
+## Probability [0..1] of a rock appearing in each cell
+@export var density_per_cell: float = 0.4
 @export var max_instances: int = 2000
 @export var min_scale: float = 0.6
 @export var max_scale: float = 1.6
-@export var max_slope_deg: float = 35.0
-@export var update_interval_s: float = 1.5 # deprecated: no longer used for triggering updates
+## Maximum terrain slope in degrees — steeper faces get no rocks
+@export var max_slope_deg: float = 30.0
+## Distance used to sample slope from neighbouring height points
+@export var slope_sample_m: float = 6.0
 @export var preload_margin_m: float = 100.0
+## Minimum cell movement before rebuilding the rock set
 @export var cells_threshold: int = 2
-@export var require_terrain_hit: bool = true
-@export var raycast_collision_mask: int = 513
 @export var seed: int = 12345
-
-const RAYCAST_HEIGHT: float = 4000.0
 
 var _mmi: MultiMeshInstance3D
 var _mm: MultiMesh
 var _rock_mesh: Mesh
+var _terrain: LowPolyTerrain
 var _last_center_cell: Vector2i = Vector2i(1_000_000, 1_000_000)
-var _timer: float = 0.0
 
 func _ready() -> void:
 	_mmi = MultiMeshInstance3D.new()
 	add_child(_mmi)
-	_mmi.owner = get_tree().edited_scene_root
 	_mm = MultiMesh.new()
 	_mm.transform_format = MultiMesh.TRANSFORM_3D
 	_mmi.multimesh = _mm
 	_rock_mesh = _load_mesh_from_scene(rock_scene_path)
 	if _rock_mesh == null:
 		var fallback := BoxMesh.new()
-		fallback.size = Vector3(1.0, 0.6, 0.8)
+		fallback.size = Vector3(1.2, 0.7, 1.0)
 		_rock_mesh = fallback
 	_mm.mesh = _rock_mesh
-	# Prepopulate at current camera position to avoid visible popping on start
-	var cam := get_viewport().get_camera_3d()
-	if cam != null:
-		_last_center_cell = Vector2i(-999999, -999999)
-		_rebuild(cam.global_position)
+	# Terrain lookup — find via group set in LowPolyTerrain._ready()
+	_terrain = get_tree().get_first_node_in_group("terrain_provider") as LowPolyTerrain
 
-func _process(delta: float) -> void:
-	var cam := get_viewport().get_camera_3d()
-	if cam == null:
+func _process(_delta: float) -> void:
+	if _terrain == null:
+		_terrain = get_tree().get_first_node_in_group("terrain_provider") as LowPolyTerrain
+		if _terrain == null:
+			return
+
+	# Track the aircraft or carrier as the streaming center
+	var focus: Node3D = get_tree().get_first_node_in_group("aircraft") as Node3D
+	if focus == null:
+		focus = get_tree().get_first_node_in_group("carrier") as Node3D
+	if focus == null:
+		focus = get_viewport().get_camera_3d()
+	if focus == null:
 		return
-	var center := cam.global_position
-	# Project center to terrain to avoid empty areas (e.g., over carrier deck or sea)
-	var grounded: Variant = _find_ground_center(center)
-	if grounded is Vector3:
-		center = grounded
-	elif require_terrain_hit:
-		# No terrain under/nearby; skip rebuild to avoid shifting clumps to one side
-		return
-	var cell := Vector2i(floor(center.x / cell_size_m), floor(center.z / cell_size_m))
-	var delta_cells := Vector2i(cell.x - _last_center_cell.x, cell.y - _last_center_cell.y)
+
+	var center := focus.global_position
+	var cell := Vector2i(int(floor(center.x / cell_size_m)), int(floor(center.z / cell_size_m)))
+	var delta_cells := cell - _last_center_cell
 	if abs(delta_cells.x) < cells_threshold and abs(delta_cells.y) < cells_threshold and _mm.instance_count > 0:
 		return
 	_last_center_cell = cell
 	_rebuild(center)
 
 func _rebuild(center: Vector3) -> void:
-	if _rock_mesh == null:
+	if _terrain == null or _rock_mesh == null:
 		return
-	var space := get_world_3d().direct_space_state
-	var up := Vector3.UP
-	var max_slope_cos := cos(deg_to_rad(max_slope_deg))
+
+	var max_slope_tan: float = tan(deg_to_rad(max_slope_deg))
 	var rng := RandomNumberGenerator.new()
-	var cells_radius := int(ceil(radius_m / cell_size_m))
 	var eff_radius := radius_m + preload_margin_m
 	var eff_cells_radius := int(ceil(eff_radius / cell_size_m))
 
@@ -85,62 +83,56 @@ func _rebuild(center: Vector3) -> void:
 			var dz: float = world_z - center.z
 			if dx * dx + dz * dz > eff_radius * eff_radius:
 				continue
-			# Deterministic RNG per cell
-			var h := _hash2i(int(world_x), int(world_z)) ^ seed
-			rng.seed = h
+
+			# Deterministic per-cell random — same result every time for same cell
+			var h_val := _hash2i(int(world_x / cell_size_m), int(world_z / cell_size_m)) ^ seed
+			rng.seed = h_val
 			if rng.randf() > density_per_cell:
 				continue
-			# Random offset within the cell for natural look
-			var offx := rng.randf_range(-cell_size_m * 0.5, cell_size_m * 0.5)
-			var offz := rng.randf_range(-cell_size_m * 0.5, cell_size_m * 0.5)
-			var xz := Vector3(world_x + offx, 0.0, world_z + offz)
-			var ray_from := xz + Vector3(0, RAYCAST_HEIGHT, 0)
-			var ray_to := xz - Vector3(0, RAYCAST_HEIGHT, 0)
-			var params := PhysicsRayQueryParameters3D.create(ray_from, ray_to)
-			params.collision_mask = raycast_collision_mask
-			var hit := space.intersect_ray(params)
-			if hit.is_empty():
+
+			# Random offset within cell for organic scatter
+			var offx := rng.randf_range(-cell_size_m * 0.45, cell_size_m * 0.45)
+			var offz := rng.randf_range(-cell_size_m * 0.45, cell_size_m * 0.45)
+			var px: float = world_x + offx
+			var pz: float = world_z + offz
+
+			# Height lookup directly from terrain — no raycasts needed
+			var h: float = _terrain.get_height(Vector3(px, 0.0, pz))
+			if is_nan(h):
+				continue  # Outside terrain bounds
+
+			# Slope check via neighbouring height samples
+			var hx: float = _terrain.get_height(Vector3(px + slope_sample_m, 0.0, pz))
+			var hz: float = _terrain.get_height(Vector3(px, 0.0, pz + slope_sample_m))
+			if is_nan(hx) or is_nan(hz):
 				continue
-			var n: Vector3 = (hit["normal"] as Vector3).normalized()
-			if n.dot(up) < max_slope_cos:
-				continue
-			var pos: Vector3 = hit["position"]
+			var slope_x: float = abs(hx - h) / slope_sample_m
+			var slope_z: float = abs(hz - h) / slope_sample_m
+			if maxf(slope_x, slope_z) > max_slope_tan:
+				continue  # Too steep — cliff face, no rocks
+
 			var yaw := rng.randf() * TAU
 			var s := rng.randf_range(min_scale, max_scale)
 			var basis := Basis().rotated(Vector3.UP, yaw).scaled(Vector3(s, s, s))
-			# Tiny offset to avoid z-fighting but keep grounded
-			transforms[count] = Transform3D(basis, pos + Vector3(0, 0.02, 0))
+			transforms[count] = Transform3D(basis, Vector3(px, h + 0.02, pz))
 			count += 1
 			if count >= max_instances:
 				break
 		if count >= max_instances:
 			break
 
-	_mm.instance_count = count
+	# Build into a fresh MultiMesh and swap atomically — avoids a one-frame
+	# flash to world-origin that happens when setting instance_count in-place.
+	var new_mm := MultiMesh.new()
+	new_mm.transform_format = MultiMesh.TRANSFORM_3D
+	new_mm.mesh = _rock_mesh
+	new_mm.instance_count = count
 	for i in range(count):
-		_mm.set_instance_transform(i, transforms[i])
-
-func _find_ground_center(around: Vector3) -> Variant:
-	var space := get_world_3d().direct_space_state
-	var offsets := [
-		Vector3(0, 0, 0),
-		Vector3(50, 0, 0), Vector3(-50, 0, 0), Vector3(0, 0, 50), Vector3(0, 0, -50),
-		Vector3(100, 0, 0), Vector3(-100, 0, 0), Vector3(0, 0, 100), Vector3(0, 0, -100),
-		Vector3(200, 0, 0), Vector3(-200, 0, 0), Vector3(0, 0, 200), Vector3(0, 0, -200)
-	]
-	for off in offsets:
-		var origin := Vector3(around.x + off.x, around.y, around.z + off.z)
-		var ray_from := origin + Vector3(0, RAYCAST_HEIGHT, 0)
-		var ray_to := origin - Vector3(0, RAYCAST_HEIGHT, 0)
-		var params := PhysicsRayQueryParameters3D.create(ray_from, ray_to)
-		params.collision_mask = raycast_collision_mask
-		var hit := space.intersect_ray(params)
-		if not hit.is_empty():
-			return hit["position"] as Vector3
-	return null
+		new_mm.set_instance_transform(i, transforms[i])
+	_mm = new_mm
+	_mmi.multimesh = _mm
 
 func _hash2i(x: int, y: int) -> int:
-	# 2D integer hash (32-bit)
 	var n := int(x) * 374761393 + int(y) * 668265263
 	n = (n ^ (n >> 13)) * 1274126177
 	return n ^ (n >> 16)
@@ -154,7 +146,7 @@ func _load_mesh_from_scene(path: String) -> Mesh:
 		var mi := _find_mesh_instance(inst)
 		if mi != null:
 			return mi.mesh
-	elif res is ArrayMesh or res is Mesh:
+	elif res is Mesh:
 		return res as Mesh
 	return null
 

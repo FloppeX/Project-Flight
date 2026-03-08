@@ -2,55 +2,64 @@ extends Node3D
 class_name LowPolyTerrain
 
 @export_group("Size")
-@export var quads_x: int = 180
-@export var quads_z: int = 180
-@export var cell_size_m: float = 28.0
+@export var quads_x: int = 2778
+@export var quads_z: int = 2778
+@export var cell_size_m: float = 18.0
 @export var seed: int = 1337
 
 @export_group("Shape")
-@export var dune_amplitude_m: float = 50.0
-@export var dune_frequency: float = 0.0018
-@export var hill_amplitude_m: float = 95.0
-@export var hill_frequency: float = 0.00085
-@export var gully_depth_m: float = 70.0
-@export var gully_frequency: float = 0.0038
-@export var gully_width: float = 0.42
-@export var gully_falloff: float = 0.24
-@export var gully_profile_pow: float = 1.20
-@export var gully_floor_step_m: float = 4.0
-@export var gully_warp_amplitude_m: float = 260.0
-@export var flat_area_strength: float = 0.65
-@export var flat_area_threshold: float = 0.08
-@export var flat_area_frequency: float = 0.00045
-@export var flat_blend_exponent: float = 0.65
-@export var flat_snap_step_m: float = 6.0
-@export var flat_snap_strength: float = 0.80
-@export var global_flatten_strength: float = 0.55
-@export var global_flatten_scale: float = 0.12
-@export var plateau_strength: float = 0.55
-@export var plateau_threshold: float = 0.10
-@export var terrace_step_m: float = 4.5
-@export var mesa_frequency: float = 0.00016
-@export var mesa_threshold: float = 0.72
-@export var mesa_height_m: float = 180.0
-@export var mesa_side_hardness: float = 2.8
-@export var mesa_min_height_m: float = 40.0
-@export var mesa_max_height_m: float = 600.0
-@export var mesa_height_curve: float = 1.25
-@export var mesa_ramp_until: float = 0.58
-@export var mesa_ramp_fraction: float = 0.38
-@export var mesa_top_variation_m: float = 18.0
-@export var mesa_top_step_m: float = 10.0
-@export var mesa_top_flatten_start: float = 0.82
-@export var mesa_top_flatten_strength: float = 0.90
+## Baseline plateau elevation — most of the terrain is at this height
+@export var plateau_height_m: float = 300.0
+## Maximum canyon depth carved below the plateau
+@export var canyon_max_depth_m: float = 220.0
+## Fraction of ridge-noise range that becomes flat canyon floor (wider = broader floors)
+@export var canyon_floor_width: float = 0.12
+## Width of the cliff transition zone (smaller = more vertical walls)
+@export var canyon_cliff_width: float = 0.09
+## Cliff wall steepness exponent — higher values approach true vertical cliffs
+@export var canyon_cliff_power: float = 12.0
+## Spatial frequency of the main canyon network
+@export var main_canyon_frequency: float = 0.00022
+## Spatial frequency of tributary canyons (should be 1.5–2× main)
+@export var tributary_frequency: float = 0.00044
+## Domain warp amplitude for organic canyon meandering
+@export var canyon_warp_amplitude_m: float = 360.0
+## Tributary canyons are this fraction as deep as the main canyons
+@export var tributary_depth_fraction: float = 0.60
+## Amplitude of surface variation on the plateau top
+@export var plateau_surface_amplitude_m: float = 22.0
+## Frequency of plateau surface variation
+@export var plateau_surface_frequency: float = 0.00085
+## Height of visible strata bands in canyon walls
+@export var strata_step_m: float = 40.0
+## How strongly strata layers snap (0 = off, 1 = fully snapped)
+@export var strata_strength: float = 0.55
+## Fraction of each strata band that is flat shelf; remainder is a gentle slope to the next level
+@export var strata_shelf_fraction: float = 0.58
+## How much the strata band height varies across the map (metres)
+@export var strata_height_variation_m: float = 25.0
+## Global vertical offset applied to the whole terrain
 @export var base_height_offset_m: float = 0.0
 
 @export_group("Color")
-@export var sand_color: Color = Color(0.87, 0.62, 0.36, 1.0)
-@export var rock_color: Color = Color(0.56, 0.42, 0.31, 1.0)
-@export var slope_sand_start: float = 0.12
-@export var slope_rock_full: float = 0.55
-@export var color_noise_strength: float = 0.12
+## Dark reddish-brown at the canyon floor
+@export var canyon_floor_color: Color = Color(0.30, 0.17, 0.09)
+## Deep red sandstone on lower canyon walls
+@export var canyon_wall_color: Color = Color(0.72, 0.34, 0.17)
+## Orange-tan on upper canyon walls
+@export var canyon_upper_color: Color = Color(0.86, 0.57, 0.34)
+## Cream/tan on the flat plateau surface
+@export var plateau_color: Color = Color(0.88, 0.80, 0.42)
+## Per-face random micro-tint (salt & pepper, keep small)
+@export var color_noise_strength: float = 0.05
+## Spatial frequency of smooth color gradient patches
+@export var color_patch_frequency: float = 0.0012
+## Strength of the smooth color gradient (0 = off)
+@export var color_patch_strength: float = 0.20
+## Grey applied to steep cliff faces
+@export var steep_slope_color: Color = Color(0.52, 0.52, 0.50)
+## Blend strength toward grey on steep faces (0 = off, 1 = fully grey)
+@export var steep_slope_strength: float = 0.72
 
 @export_group("Output")
 @export var generate_on_ready: bool = true
@@ -61,7 +70,7 @@ class_name LowPolyTerrain
 @export var use_streaming: bool = true
 @export var chunk_quads_x: int = 28
 @export var chunk_quads_z: int = 28
-@export var load_radius_chunks: int = 3
+@export var load_radius_chunks: int = 4
 @export var unload_margin_chunks: int = 1
 @export var stream_target_path: NodePath
 @export var stream_update_interval_s: float = 0.25
@@ -143,7 +152,7 @@ func get_height(world_pos: Vector3) -> float:
 	var local: Vector3 = to_local(world_pos)
 	if local.x < _x0 or local.x > _x0 + _span_x or local.z < _z0 or local.z > _z0 + _span_z:
 		return NAN
-	return _sample_height(local.x, local.z, _noises)
+	return _sample_height(local.x, local.z, _noises) + global_position.y
 
 func _refresh_layout() -> void:
 	_size_x = max(quads_x, 2)
@@ -348,13 +357,38 @@ func _append_face(
 	var n: Vector3 = (v2 - v0).cross(v1 - v0).normalized()
 	if n.y < 0.0:
 		n = -n
-	var slope: float = clampf(1.0 - absf(n.y), 0.0, 1.0)
-	var denom: float = maxf(slope_rock_full - slope_sand_start, 0.001)
-	var slope_t: float = clampf((slope - slope_sand_start) / denom, 0.0, 1.0)
-	var base_color: Color = sand_color.lerp(rock_color, slope_t)
 
-	var tint_rand: float = _hash01(tri_id * 101 + seed * 17)
-	var tint: float = 1.0 + (tint_rand * 2.0 - 1.0) * color_noise_strength
+	# Altitude-based coloring — geological strata like Colorado Plateau / Grand Canyon.
+	# Four color bands from canyon floor up to plateau top.
+	var face_y: float = (v0.y + v1.y + v2.y) / 3.0
+	var floor_y: float = base_height_offset_m + (plateau_height_m - canyon_max_depth_m)
+	var top_y: float = base_height_offset_m + plateau_height_m + plateau_surface_amplitude_m * 0.5
+	var height_t: float = clampf((face_y - floor_y) / maxf(top_y - floor_y, 1.0), 0.0, 1.0)
+
+	var base_color: Color
+	if height_t < 0.25:
+		# Canyon floor → lower wall (dark brown to deep red)
+		base_color = canyon_floor_color.lerp(canyon_wall_color, height_t / 0.25)
+	elif height_t < 0.72:
+		# Lower wall → upper wall (deep red to orange-tan)
+		base_color = canyon_wall_color.lerp(canyon_upper_color, (height_t - 0.25) / 0.47)
+	else:
+		# Upper wall → plateau (orange-tan to cream)
+		base_color = canyon_upper_color.lerp(plateau_color, (height_t - 0.72) / 0.28)
+
+	# Steep-slope grey: n.y=1 is flat ground, n.y=0 is a vertical wall.
+	# Blend fully to grey by ~70° slope (n.y ≈ 0.34).
+	var steep_t: float = clampf(1.0 - n.y * 2.9, 0.0, 1.0) * steep_slope_strength
+	base_color = base_color.lerp(steep_slope_color, steep_t)
+
+	# Smooth spatial gradient — sample at face centroid so neighbouring faces share similar tints
+	var cx: float = (v0.x + v1.x + v2.x) / 3.0
+	var cz: float = (v0.z + v1.z + v2.z) / 3.0
+	var spatial_n: float = (_noises["color_var"] as FastNoiseLite).get_noise_2d(cx, cz)
+	# Per-quad micro-randomness — both triangles in a quad share the same tint
+	# so they don't create alternating stripe artifacts across the surface.
+	var tint_rand: float = _hash01((tri_id / 2) * 101 + seed * 17)
+	var tint: float = 1.0 + spatial_n * color_patch_strength + (tint_rand * 2.0 - 1.0) * color_noise_strength
 	var c := Color(
 		clampf(base_color.r * tint, 0.0, 1.0),
 		clampf(base_color.g * tint, 0.0, 1.0),
@@ -381,186 +415,147 @@ func _build_material() -> StandardMaterial3D:
 	return mat
 
 func _build_noises() -> Dictionary:
-	var dune := FastNoiseLite.new()
-	dune.seed = seed
-	dune.noise_type = FastNoiseLite.TYPE_SIMPLEX
-	dune.frequency = maxf(dune_frequency, 0.00001)
-	dune.fractal_type = FastNoiseLite.FRACTAL_FBM
-	dune.fractal_octaves = 4
-	dune.fractal_lacunarity = 2.0
-	dune.fractal_gain = 0.5
+	# Domain warp: low-frequency, low-octave — gently meanders canyon paths
+	var canyon_warp := FastNoiseLite.new()
+	canyon_warp.seed = seed + 7
+	canyon_warp.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	canyon_warp.frequency = maxf(main_canyon_frequency * 0.45, 0.000005)
+	canyon_warp.fractal_type = FastNoiseLite.FRACTAL_FBM
+	canyon_warp.fractal_octaves = 2
+	canyon_warp.fractal_lacunarity = 2.0
+	canyon_warp.fractal_gain = 0.5
 
-	var hill := FastNoiseLite.new()
-	hill.seed = seed + 101
-	hill.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
-	hill.frequency = maxf(hill_frequency, 0.00001)
-	hill.fractal_type = FastNoiseLite.FRACTAL_FBM
-	hill.fractal_octaves = 3
-	hill.fractal_lacunarity = 1.95
-	hill.fractal_gain = 0.55
+	# Main canyon network: smooth simplex so zero-crossings form continuous channel lines
+	var main_canyon := FastNoiseLite.new()
+	main_canyon.seed = seed + 101
+	main_canyon.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	main_canyon.frequency = maxf(main_canyon_frequency, 0.000005)
+	main_canyon.fractal_type = FastNoiseLite.FRACTAL_FBM
+	main_canyon.fractal_octaves = 3
+	main_canyon.fractal_lacunarity = 2.0
+	main_canyon.fractal_gain = 0.50
 
-	var gully := FastNoiseLite.new()
-	gully.seed = seed + 211
-	gully.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
-	gully.frequency = maxf(gully_frequency, 0.00001)
-	gully.fractal_type = FastNoiseLite.FRACTAL_FBM
-	gully.fractal_octaves = 4
-	gully.fractal_lacunarity = 2.0
-	gully.fractal_gain = 0.5
+	# Tributary canyons: higher frequency, more octaves for complex branching
+	var tributary := FastNoiseLite.new()
+	tributary.seed = seed + 211
+	tributary.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	tributary.frequency = maxf(tributary_frequency, 0.000005)
+	tributary.fractal_type = FastNoiseLite.FRACTAL_FBM
+	tributary.fractal_octaves = 4
+	tributary.fractal_lacunarity = 2.1
+	tributary.fractal_gain = 0.48
 
-	var gully_secondary := FastNoiseLite.new()
-	gully_secondary.seed = seed + 233
-	gully_secondary.noise_type = FastNoiseLite.TYPE_SIMPLEX
-	gully_secondary.frequency = maxf(gully_frequency * 1.25, 0.00001)
-	gully_secondary.fractal_type = FastNoiseLite.FRACTAL_FBM
-	gully_secondary.fractal_octaves = 3
-	gully_secondary.fractal_lacunarity = 2.1
-	gully_secondary.fractal_gain = 0.52
+	# Plateau surface: medium frequency for rolling plateau texture
+	var plateau_surface := FastNoiseLite.new()
+	plateau_surface.seed = seed + 313
+	plateau_surface.noise_type = FastNoiseLite.TYPE_SIMPLEX
+	plateau_surface.frequency = maxf(plateau_surface_frequency, 0.000005)
+	plateau_surface.fractal_type = FastNoiseLite.FRACTAL_FBM
+	plateau_surface.fractal_octaves = 4
+	plateau_surface.fractal_lacunarity = 2.0
+	plateau_surface.fractal_gain = 0.5
 
-	var gully_warp := FastNoiseLite.new()
-	gully_warp.seed = seed + 263
-	gully_warp.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
-	gully_warp.frequency = maxf(gully_frequency * 0.30, 0.00001)
-	gully_warp.fractal_type = FastNoiseLite.FRACTAL_FBM
-	gully_warp.fractal_octaves = 2
+	# Color variation: medium-low frequency so adjacent faces share similar tints,
+	# producing smooth gradient patches rather than per-face salt-and-pepper noise.
+	var color_var := FastNoiseLite.new()
+	color_var.seed = seed + 521
+	color_var.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	color_var.frequency = maxf(color_patch_frequency, 0.000001)
+	color_var.fractal_type = FastNoiseLite.FRACTAL_FBM
+	color_var.fractal_octaves = 3
+	color_var.fractal_lacunarity = 2.0
+	color_var.fractal_gain = 0.5
 
-	var flat := FastNoiseLite.new()
-	flat.seed = seed + 307
-	flat.noise_type = FastNoiseLite.TYPE_SIMPLEX
-	flat.frequency = maxf(flat_area_frequency, 0.00001)
-	flat.fractal_type = FastNoiseLite.FRACTAL_FBM
-	flat.fractal_octaves = 2
-
-	var plateau := FastNoiseLite.new()
-	plateau.seed = seed + 401
-	plateau.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
-	plateau.frequency = maxf(flat_area_frequency * 1.35, 0.00001)
-	plateau.fractal_type = FastNoiseLite.FRACTAL_FBM
-	plateau.fractal_octaves = 2
-
-	var macro := FastNoiseLite.new()
-	macro.seed = seed + 509
-	macro.noise_type = FastNoiseLite.TYPE_SIMPLEX
-	macro.frequency = maxf(flat_area_frequency * 0.65, 0.00001)
-	macro.fractal_type = FastNoiseLite.FRACTAL_FBM
-	macro.fractal_octaves = 2
-
-	var mesa := FastNoiseLite.new()
-	mesa.seed = seed + 613
-	mesa.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
-	mesa.frequency = maxf(mesa_frequency, 0.00001)
-	mesa.fractal_type = FastNoiseLite.FRACTAL_FBM
-	mesa.fractal_octaves = 2
-	mesa.fractal_lacunarity = 2.0
-	mesa.fractal_gain = 0.5
-
-	var mesa_top := FastNoiseLite.new()
-	mesa_top.seed = seed + 719
-	mesa_top.noise_type = FastNoiseLite.TYPE_SIMPLEX
-	mesa_top.frequency = maxf(mesa_frequency * 1.8, 0.00001)
-	mesa_top.fractal_type = FastNoiseLite.FRACTAL_FBM
-	mesa_top.fractal_octaves = 1
-
-	var mesa_height := FastNoiseLite.new()
-	mesa_height.seed = seed + 823
-	mesa_height.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
-	mesa_height.frequency = maxf(mesa_frequency * 0.65, 0.00001)
-	mesa_height.fractal_type = FastNoiseLite.FRACTAL_FBM
-	mesa_height.fractal_octaves = 2
-	mesa_height.fractal_lacunarity = 2.1
-	mesa_height.fractal_gain = 0.45
+	# Strata variation: very low frequency so band heights shift gradually across the map
+	var strata_var := FastNoiseLite.new()
+	strata_var.seed = seed + 419
+	strata_var.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	strata_var.frequency = maxf(main_canyon_frequency * 0.3, 0.000002)
+	strata_var.fractal_type = FastNoiseLite.FRACTAL_FBM
+	strata_var.fractal_octaves = 2
+	strata_var.fractal_lacunarity = 2.0
+	strata_var.fractal_gain = 0.5
 
 	return {
-		"dune": dune,
-		"hill": hill,
-		"gully": gully,
-		"gully_secondary": gully_secondary,
-		"gully_warp": gully_warp,
-		"flat": flat,
-		"plateau": plateau,
-		"macro": macro,
-		"mesa": mesa,
-		"mesa_top": mesa_top,
-		"mesa_height": mesa_height
+		"canyon_warp": canyon_warp,
+		"main_canyon": main_canyon,
+		"tributary": tributary,
+		"plateau_surface": plateau_surface,
+		"strata_var": strata_var,
+		"color_var": color_var,
 	}
 
 func _sample_height(world_x: float, world_z: float, noises: Dictionary) -> float:
-	var macro_noise: FastNoiseLite = noises["macro"] as FastNoiseLite
-	var macro_signal: float = macro_noise.get_noise_2d(world_x, world_z)
+	# --- Domain warp: organically meander the canyon network ---
+	var warp_noise: FastNoiseLite = noises["canyon_warp"] as FastNoiseLite
+	var warp_x: float = warp_noise.get_noise_2d(world_x, world_z) * canyon_warp_amplitude_m
+	var warp_z: float = warp_noise.get_noise_2d(world_x + 6000.0, world_z - 8000.0) * canyon_warp_amplitude_m
+	var wx: float = world_x + warp_x
+	var wz: float = world_z + warp_z
 
-	var dune: float = (noises["dune"] as FastNoiseLite).get_noise_2d(world_x, world_z) * dune_amplitude_m
+	# --- Main canyon network ---
+	# absf() of smooth noise: zero-crossings become channel centers, forming a connected network
+	var main_raw: float = absf((noises["main_canyon"] as FastNoiseLite).get_noise_2d(wx, wz))
+	var main_carve: float = _canyon_carve(main_raw, canyon_floor_width, canyon_cliff_width, canyon_cliff_power, canyon_max_depth_m)
 
-	var hill_signal: float = (noises["hill"] as FastNoiseLite).get_noise_2d(world_x, world_z)
-	var hill: float = pow(maxf(hill_signal, 0.0), 2.4) * hill_amplitude_m
+	# --- Tributary canyons ---
+	# Slightly offset warp keeps tributaries diverging naturally from main channels
+	var trib_raw: float = absf((noises["tributary"] as FastNoiseLite).get_noise_2d(wx + wz * 0.28, wz - wx * 0.22))
+	var trib_depth: float = canyon_max_depth_m * clampf(tributary_depth_fraction, 0.1, 1.0)
+	var trib_carve: float = _canyon_carve(trib_raw, canyon_floor_width * 0.75, canyon_cliff_width * 0.85, canyon_cliff_power, trib_depth)
 
-	var gully_warp: FastNoiseLite = noises["gully_warp"] as FastNoiseLite
-	var warp_x: float = gully_warp.get_noise_2d(world_x, world_z) * gully_warp_amplitude_m
-	var warp_z: float = gully_warp.get_noise_2d(world_x + 7000.0, world_z - 9000.0) * gully_warp_amplitude_m
-	var gully_signal_a: float = absf((noises["gully"] as FastNoiseLite).get_noise_2d(world_x + warp_x, world_z + warp_z))
-	var gully_signal_b: float = absf((noises["gully_secondary"] as FastNoiseLite).get_noise_2d(world_x - warp_z * 0.5, world_z + warp_x * 0.5))
-	var gully_signal: float = minf(gully_signal_a, gully_signal_b * 1.05)
-	var gully_w: float = clampf(gully_width, 0.01, 0.95)
-	var gully_f: float = clampf(gully_falloff, 0.01, 0.99 - gully_w)
-	var gully_core: float = 1.0 - _smoothstep(gully_w, gully_w + gully_f, gully_signal)
-	var gully_shape: float = pow(clampf(gully_core, 0.0, 1.0), maxf(gully_profile_pow, 0.05))
-	var gully: float = -gully_shape * gully_depth_m
-	if gully_floor_step_m > 0.001:
-		var gully_snapped: float = round(gully / gully_floor_step_m) * gully_floor_step_m
-		gully = lerpf(gully, gully_snapped, 0.65)
+	# Use the deepest carving at each point (union of all canyon networks)
+	var total_carve: float = maxf(main_carve, trib_carve)
+	var h: float = plateau_height_m - total_carve
 
-	var h: float = dune + hill + gully
+	# --- Horizontal strata bands with soft slopes in cliff faces ---
+	# Each band: flat shelf at its base, then a smooth slope rising to the next level.
+	# Band height varies spatially via low-frequency noise for geological interest.
+	var carve_frac: float = total_carve / maxf(canyon_max_depth_m, 1.0)
+	if carve_frac > 0.04 and carve_frac < 0.97 and strata_step_m > 0.5:
+		var strata_var_n: float = (noises["strata_var"] as FastNoiseLite).get_noise_2d(world_x, world_z)
+		var local_step: float = maxf(strata_step_m + strata_var_n * strata_height_variation_m, 5.0)
+		var shaped: float = _strata_with_slopes(h, local_step, strata_shelf_fraction)
+		# Blending is strongest mid-wall, fades near floor and plateau rim
+		var wall_t: float = 1.0 - absf(carve_frac * 2.0 - 1.0)  # peaks at 0.5 (mid-wall)
+		h = lerpf(h, shaped, wall_t * clampf(strata_strength, 0.0, 1.0))
 
-	var global_flat_target: float = macro_signal * (dune_amplitude_m * global_flatten_scale)
-	h = lerpf(h, global_flat_target, clampf(global_flatten_strength, 0.0, 1.0))
-
-	var flat_signal: float = (noises["flat"] as FastNoiseLite).get_noise_2d(world_x, world_z)
-	var flat_t_raw: float = _smoothstep(flat_area_threshold, 1.0, flat_signal)
-	var flat_t: float = pow(clampf(flat_t_raw, 0.0, 1.0), maxf(flat_blend_exponent, 0.01)) * flat_area_strength
-	flat_t = clampf(flat_t, 0.0, 1.0)
-	var flat_target: float = macro_signal * (dune_amplitude_m * 0.10)
-	h = lerpf(h, flat_target, flat_t)
-	if flat_snap_step_m > 0.001:
-		var flat_snapped: float = round(h / flat_snap_step_m) * flat_snap_step_m
-		var snap_t: float = clampf(flat_t * flat_snap_strength, 0.0, 1.0)
-		h = lerpf(h, flat_snapped, snap_t)
-
-	var plateau_signal: float = (noises["plateau"] as FastNoiseLite).get_noise_2d(world_x, world_z)
-	var plateau_t: float = _smoothstep(plateau_threshold, 1.0, plateau_signal) * plateau_strength
-	if terrace_step_m > 0.001:
-		var terraced: float = round(h / terrace_step_m) * terrace_step_m
-		h = lerpf(h, terraced, clampf(plateau_t, 0.0, 1.0))
-
-	var mesa_signal: float = (noises["mesa"] as FastNoiseLite).get_noise_2d(world_x, world_z)
-	var mesa_blend: float = _smoothstep(mesa_threshold, mesa_threshold + 0.45, mesa_signal)
-	if mesa_blend > 0.0:
-		var ramp_until: float = clampf(mesa_ramp_until, 0.05, 0.95)
-		var ramp_t: float = _smoothstep(0.0, ramp_until, mesa_blend)
-		var cliff_t: float = _smoothstep(ramp_until, 1.0, mesa_blend)
-		var cliff_shape: float = pow(cliff_t, maxf(mesa_side_hardness, 0.1))
-		var ramp_fraction: float = clampf(mesa_ramp_fraction, 0.0, 1.0)
-		var mesa_profile: float = clampf(ramp_t * ramp_fraction + cliff_shape * (1.0 - ramp_fraction), 0.0, 1.0)
-
-		var height_signal: float = (noises["mesa_height"] as FastNoiseLite).get_noise_2d(world_x, world_z)
-		var height_t: float = pow(clampf((height_signal + 1.0) * 0.5, 0.0, 1.0), maxf(mesa_height_curve, 0.01))
-		var mesa_min_h: float = minf(mesa_min_height_m, mesa_max_height_m)
-		var mesa_max_h: float = maxf(mesa_min_height_m, mesa_max_height_m)
-		var variable_height: float = lerpf(mesa_min_h, mesa_max_h, height_t)
-		var mesa_height_blend: float = clampf(mesa_height_m / maxf(mesa_max_h, 0.001), 0.0, 1.0)
-		variable_height = lerpf(variable_height, mesa_height_m, mesa_height_blend * 0.25)
-
-		var mesa_base: float = macro_signal * (dune_amplitude_m * 0.18)
-		var mesa_top_noise: float = (noises["mesa_top"] as FastNoiseLite).get_noise_2d(world_x, world_z) * mesa_top_variation_m
-		var mesa_target: float = mesa_base + variable_height * mesa_profile + mesa_top_noise
-
-		var top_start: float = clampf(mesa_top_flatten_start, 0.0, 0.98)
-		var top_t: float = _smoothstep(top_start, 1.0, mesa_blend) * clampf(mesa_top_flatten_strength, 0.0, 1.0)
-		if mesa_top_step_m > 0.001:
-			var mesa_snapped: float = round(mesa_target / mesa_top_step_m) * mesa_top_step_m
-			mesa_target = lerpf(mesa_target, mesa_snapped, top_t)
-
-		h = maxf(h, mesa_target)
+	# --- Plateau surface variation ---
+	# Only applied where there is little or no carving (on the plateau)
+	var plateau_blend: float = clampf(1.0 - carve_frac * 6.0, 0.0, 1.0)  # fades quickly into canyons
+	var surface_var: float = (noises["plateau_surface"] as FastNoiseLite).get_noise_2d(world_x, world_z) * plateau_surface_amplitude_m
+	h += surface_var * plateau_blend
 
 	return h + base_height_offset_m
+
+# Maps canyon ridge-noise signal to a carving depth with near-vertical walls.
+# signal_raw: 0 = canyon center, increases outward to plateau
+# Returns: metres to carve down from plateau (0 = no carve; max_depth = deepest floor)
+func _canyon_carve(signal_raw: float, floor_w: float, cliff_w: float, cliff_pow: float, max_depth: float) -> float:
+	var threshold: float = floor_w + cliff_w
+	if signal_raw >= threshold:
+		return 0.0  # Fully on the plateau
+	var t: float
+	if signal_raw <= floor_w:
+		t = 0.0  # Flat canyon floor
+	else:
+		t = _smoothstep(floor_w, threshold, signal_raw)
+		t = pow(t, maxf(cliff_pow, 0.5))  # Sharpen into near-vertical wall
+	return (1.0 - t) * max_depth
+
+# Shapes height into strata bands: flat shelf at the base of each band,
+# then a smooth slope up to the next band level.
+# shelf_frac: 0 = all slope, 1 = all flat (pure step terraces)
+func _strata_with_slopes(h: float, step: float, shelf_frac: float) -> float:
+	var band: float = floor(h / step)
+	var frac: float = (h - band * step) / step  # 0..1 within this band
+	var sf: float = clampf(shelf_frac, 0.01, 0.99)
+	var shaped: float
+	if frac <= sf:
+		shaped = 0.0  # flat rock shelf
+	else:
+		shaped = _smoothstep(sf, 1.0, frac)  # smooth ramp to next level
+	return (band + shaped) * step
 
 func _get_stream_center_local() -> Vector3:
 	var target: Node3D = null

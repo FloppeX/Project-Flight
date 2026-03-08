@@ -220,3 +220,4 @@ lights_and_shadows/shadow_atlas/size=4096
 quality/3d/render_scale=1.0
 lights_and_shadows/directional_shadow/stabilize=true
 lights_and_shadows/directional_shadow/blend_splits=true
+lights_and_shadows/directional_shadow/soft_shadow_filter_quality=0

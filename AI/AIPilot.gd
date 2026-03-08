@@ -109,7 +109,7 @@ var ground_attack_enabled: bool = false  # Toggle with O key: true=attack mode, 
 @export var dogfight_fire_fallback_min_dot: float = 0.992  # ~7 deg
 @export var dogfight_fire_fallback_lateral: float = 0.18
 @export var dogfight_fire_fallback_vertical: float = 0.14
-@export var dogfight_default_muzzle_velocity_mps: float = 600.0
+@export var dogfight_default_muzzle_velocity_mps: float = 900.0
 @export var dogfight_retarget_interval_s: float = 0.5
 @export var dogfight_retarget_advantage_m: float = 150.0
 @export var dogfight_bank_cmd_limit_deg: float = 90.0
