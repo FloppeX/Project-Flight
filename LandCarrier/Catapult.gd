@@ -11,7 +11,7 @@ signal launch_sequence_aborted
 # Nodes
 @export var shuttle: Node3D            # Shuttle Node3D (moves along deck axis)
 @export var shuttle_area: Area3D       # Area3D on shuttle that detects nose gear collider
-@export var latch_marker: Marker3D       # Marker for the latch/start position
+@export var latch_marker: Marker3D       # Marker for the latch/start position — also the abort limit when returning
 @export var release_marker: Marker3D     # Marker for the release/end position
 @export var deck_ref: Node3D     # Node whose +Z/-Z defines deck forward
 
@@ -19,6 +19,7 @@ signal launch_sequence_aborted
 @export var shuttle_speed: float = 30.0       # Constant shuttle speed (m/s)
 @export var approach_speed_mps: float = 2.0   # Slow approach speed when moving to latch
 @export var return_speed_mps: float = 10.0 # Speed shuttle moves back after launch
+@export var latch_proximity_m: float = 0.1    # Distance at which shuttle latches nose gear (proximity fallback)
 @export var tow_position_gain: float = 12.0   # Converts nose-position error to corrective target velocity
 @export var tow_force_max: float = 250000.0   # Caps tow force to avoid instability
 
@@ -59,7 +60,8 @@ var _spool_timer: float = 0.0
 var _hold_timer: float = 0.0
 var _spool_duration: float = 3.0
 var _hold_duration: float = 3.0
-var _wheel_latches: Array[PinJoint3D] = []
+var _wheel_latches: Array[PinJoint3D] = [] # kept for cleanup of any legacy joints
+var _saved_freeze_state: bool = false
 var _launch_acceleration: float = 0.0
 var _shuttle_current_velocity: Vector3 = Vector3.ZERO
 var _spool_fallback_timer: float = 0.0
@@ -78,6 +80,7 @@ func _ready():
 
 	if shuttle_area:
 		shuttle_area.area_entered.connect(_on_shuttle_area_entered)
+		shuttle_area.body_entered.connect(_on_shuttle_body_entered)
 		
 	# Start shuttle at release point and pin it there.
 	shuttle.global_position = release_marker.global_position
@@ -129,13 +132,33 @@ func _physics_process(delta: float):
 
 	# If not settling and not pinned, proceed with approach or launch logic.
 	if _moving_to_latch and not _latched:
+		# Track latch_marker live so the target follows the moving carrier.
+		_latch_target_position = latch_marker.global_position
+		
+		# Override with exact nose gear position when possible
+		var nose_gear = _find_nose_gear_collider(_aircraft)
+		if is_instance_valid(nose_gear):
+			_latch_target_position = nose_gear.global_position
+			
+		_latch_target_position.y = shuttle.global_position.y
+
 		shuttle.global_position = shuttle.global_position.move_toward(_latch_target_position, approach_speed_mps * delta)
+
+		# Proximity check — more reliable than area signals when the shuttle parent
+		# is a Node3D moved via direct global_position assignment each frame.
+		if is_instance_valid(nose_gear):
+			var s_pos = shuttle.global_position
+			var g_pos = nose_gear.global_position
+			var dist = Vector2(s_pos.x, s_pos.z).distance_to(Vector2(g_pos.x, g_pos.z))
+			if dist <= latch_proximity_m:
+				if debug_enabled: print("[CATAPULT] Proximity latch triggered at dist=", snappedf(dist, 0.01), "m")
+				_try_latch()
+				return
+
 		if shuttle.global_position.is_equal_approx(_latch_target_position):
-			# Snap to final position
-			shuttle.global_position = _latch_target_position
-			# Failsafe: If we've reached the destination and haven't latched, force it.
-			if debug_enabled: print("[CATAPULT] Shuttle reached latch point. Forcing latch.")
-			_try_latch()
+			# Shuttle reached latch_marker without a nose-gear contact — launch failed.
+			print("[CATAPULT] Shuttle reached latch_marker with no latch. Aborting launch.")
+			_abort_launch()
 	
 	elif _engine_starting:
 		# Waiting for the engine to physically start up before spooling
@@ -167,8 +190,8 @@ func _physics_process(delta: float):
 			_release_wheels()
 			_launching = true
 			_shuttle_current_velocity = Vector3.ZERO
-			# Ensure shuttle starts exactly at the latch point for the run.
-			shuttle.global_position = _latch_target_position
+			# No position reset needed — shuttle is a child of the carrier and already
+			# sits at the nose gear position it stopped at when latching.
 			
 	elif _launching and _latched:
 		# Move shuttle with constant acceleration
@@ -214,32 +237,44 @@ func begin_sequence(aircraft: RigidBody3D) -> void:
 	_launching = false
 	_moving_to_latch = true
 	_pin_at_release_point = false
-	
-	# Find the nose gear and set its position as the precise target.
-	var nose_gear = _find_nose_gear_collider(aircraft)
-	if is_instance_valid(nose_gear):
-		_latch_target_position = nose_gear.global_position
-		# Keep the shuttle on its current Y plane to prevent it from moving up/down.
-		_latch_target_position.y = shuttle.global_position.y
-		if debug_enabled: print("[CATAPULT] Nose gear found. Target latch pos: ", _latch_target_position)
-	else:
-		# Fallback to the marker if nose gear can't be found.
-		_latch_target_position = latch_marker.global_position
-		if debug_enabled: print("[CATAPULT] WARNING: Could not find nose gear collider. Falling back to latch_marker position.")
+	# _latch_target_position is updated live each frame from latch_marker (see _physics_process).
+	# Set an initial value now.
+	_latch_target_position = latch_marker.global_position
+	_latch_target_position.y = shuttle.global_position.y
+	if debug_enabled: print("[CATAPULT] Shuttle approaching latch_marker. Will abort if no latch by then.")
 
 
 func _on_shuttle_area_entered(area: Area3D) -> void:
 	if _latched or _launching or not _moving_to_latch:
 		return
-		
 	if debug_enabled:
-		print("[CATAPULT] Shuttle area entered by: ", area.name, " (owner: ", area.owner.name if area.owner else "null", ")")
-		
+		print("[CATAPULT] Shuttle area entered by Area3D: ", area.name)
 	if area.name.to_lower().find("gear") != -1 or area.is_in_group("nose_gear"):
 		var ac = _find_aircraft(area)
 		if ac and ac == _aircraft:
-			if debug_enabled: print("[CATAPULT] Shuttle area detected nose gear.")
-			_try_latch()
+			var s_pos = shuttle.global_position
+			var g_pos = area.global_position
+			var dist = Vector2(s_pos.x, s_pos.z).distance_to(Vector2(g_pos.x, g_pos.z))
+			if dist <= latch_proximity_m:
+				if debug_enabled: print("[CATAPULT] Shuttle area detected nose gear (area).")
+				_try_latch()
+
+func _on_shuttle_body_entered(body: Node3D) -> void:
+	# The nose gear is a CollisionShape3D on the aircraft RigidBody3D, so it
+	# triggers body_entered rather than area_entered.
+	if _latched or _launching or not _moving_to_latch:
+		return
+	if debug_enabled:
+		print("[CATAPULT] Shuttle area entered by body: ", body.name)
+	if body == _aircraft:
+		var nose_gear = _find_nose_gear_collider(_aircraft)
+		if is_instance_valid(nose_gear):
+			var s_pos = shuttle.global_position
+			var g_pos = nose_gear.global_position
+			var dist = Vector2(s_pos.x, s_pos.z).distance_to(Vector2(g_pos.x, g_pos.z))
+			if dist <= latch_proximity_m:
+				if debug_enabled: print("[CATAPULT] Shuttle area detected aircraft body — latching.")
+				_try_latch()
 
 func _try_latch() -> void:
 	if not _aircraft or _latched: return
@@ -338,48 +373,26 @@ func _find_aircraft(from_node: Node) -> RigidBody3D:
 	return null
 
 func _immobilize_wheels():
+	# Freeze the aircraft instead of using PinJoint3D wheel latches.
+	# PinJoints anchored in world space fight against _carry_deck_passengers on a
+	# moving carrier — the physics solver re-snaps the aircraft to the old anchor
+	# each frame. Freezing lets _carry_deck_passengers move the body directly while
+	# engine thrust is discarded (FREEZE_MODE_STATIC ignores applied forces).
 	if not is_instance_valid(_aircraft): return
-	
-	# Find the landing gear controller module, which holds the references.
-	var gear_controller_nodes = _find_nodes_by_script(_aircraft, "ControlLandingGear.gd")
-	if gear_controller_nodes.is_empty():
-		if debug_enabled: print("[CATAPULT] WARNING: Could not find ControlLandingGear module to latch wheels.")
-		return
-		
-	var gear_controller = gear_controller_nodes[0]
-	
-	# Get the main gear colliders using the paths already defined in the controller.
-	var left_gear_path = gear_controller.get("left_main_gear_collider_path")
-	var right_gear_path = gear_controller.get("right_main_gear_collider_path")
-	
-	var gear_nodes_to_latch: Array[Node3D] = []
-	if left_gear_path and not left_gear_path.is_empty():
-		gear_nodes_to_latch.append(gear_controller.get_node_or_null(left_gear_path))
-	if right_gear_path and not right_gear_path.is_empty():
-		gear_nodes_to_latch.append(gear_controller.get_node_or_null(right_gear_path))
+	_saved_freeze_state = _aircraft.freeze
+	_aircraft.freeze = true
+	if debug_enabled: print("[CATAPULT] Aircraft frozen for spool-up.")
 
-	if debug_enabled: print("[CATAPULT] Found %d main gear nodes to latch." % gear_nodes_to_latch.size())
-	
-	for gear_node in gear_nodes_to_latch:
-		if is_instance_valid(gear_node):
-			var pin_joint = PinJoint3D.new()
-			# Place the joint at the wheel's global position
-			pin_joint.global_position = gear_node.global_position
-			# Add the joint as a child of the world, not the aircraft
-			get_tree().current_scene.add_child(pin_joint)
-			# Pin the aircraft (Node A) to the static world (Node B is empty)
-			pin_joint.set_node_a(_aircraft.get_path())
-			# Mark so the carrier can drag this joint along as it moves
-			pin_joint.add_to_group("carrier_pin_joint")
-			_wheel_latches.append(pin_joint)
-			if debug_enabled: print("[CATAPULT] Latched wheel at: ", gear_node.global_position)
-			
 func _release_wheels():
-	if debug_enabled: print("[CATAPULT] Releasing %d wheel latches." % _wheel_latches.size())
+	# Clean up any legacy PinJoint3D nodes (safety), then unfreeze the aircraft
+	# so engine forces apply at launch.
 	for joint in _wheel_latches:
 		if is_instance_valid(joint):
 			joint.queue_free()
 	_wheel_latches.clear()
+	if is_instance_valid(_aircraft):
+		_aircraft.freeze = _saved_freeze_state
+		if debug_enabled: print("[CATAPULT] Aircraft unfrozen for launch.")
 
 func _find_nose_gear_collider(root: Node) -> Node3D:
 	# A robust way to find the nose gear. It checks for a specific group first,
@@ -524,8 +537,32 @@ func _finalize_alignment_and_settle() -> void:
 	_settle_timer = _settle_duration
 	_finalizing = false
 
+func _abort_launch() -> void:
+	# Shuttle reached its limit without connecting — clean up and signal failure.
+	if is_instance_valid(_aircraft):
+		if _aircraft.has_meta("controls_disabled"):
+			_aircraft.remove_meta("controls_disabled")
+		if _aircraft.has_meta("parking_brake"):
+			_aircraft.remove_meta("parking_brake")
+	_release_wheels()
+	_latched = false
+	_launching = false
+	_moving_to_latch = false
+	_spooling_up = false
+	_hold_at_power = false
+	_engine_starting = false
+	_aircraft = null
+	_pin_shuttle_at_end()
+	emit_signal("launch_sequence_aborted")
+
 func _reset_state():
 	# Resets all state variables to their defaults
+	if is_instance_valid(_aircraft):
+		if _aircraft.has_meta("controls_disabled"):
+			_aircraft.remove_meta("controls_disabled")
+		if _aircraft.has_meta("parking_brake"):
+			_aircraft.remove_meta("parking_brake")
+		_release_wheels()
 	_aircraft = null
 	_finalizing = false
 	_alignment_pending = false
@@ -533,6 +570,10 @@ func _reset_state():
 	_settle_timer = 0.0
 	_latched = false
 	_launching = false
+	_moving_to_latch = false
+	_spooling_up = false
+	_hold_at_power = false
+	_engine_starting = false
 	_pin_at_release_point = true
 
 # --- Helpers ---

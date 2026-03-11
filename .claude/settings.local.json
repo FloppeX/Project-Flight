@@ -29,7 +29,8 @@
       "Bash(echo \"updated: $f\")",
       "Bash(done)",
       "Bash(python3 -c \":*)",
-      "Bash(python -c \":*)"
+      "Bash(python -c \":*)",
+      "Bash(ls \"C:\\\\Users\\\\jonto\\\\.claude\\\\projects\\\\c--Godot-projects-Project-Flight\\\\memory\"\" 2>/dev/null || echo \"Directory empty or missing \")"
     ],
     "deny": [],
     "ask": []

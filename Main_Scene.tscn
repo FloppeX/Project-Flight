@@ -3,7 +3,7 @@
 [ext_resource type="Script" uid="uid://dhif0k7fphvot" path="res://ScenarioManager.gd" id="1"]
 [ext_resource type="PackedScene" uid="uid://dsel16gi76dnm" path="res://UI/UIEnergyContainer/UIFuelLevel.tscn" id="5"]
 [ext_resource type="PackedScene" uid="uid://bu2hixfhu8ndm" path="res://UI/UIEnginePower/UIEnginePower.tscn" id="10"]
-[ext_resource type="PackedScene" path="res://LandCarrier/LandCarrier.tscn" id="16_13cwd"]
+[ext_resource type="PackedScene" uid="uid://cfbnb1h25pmhu" path="res://LandCarrier/LandCarrier.tscn" id="16_13cwd"]
 [ext_resource type="PackedScene" uid="uid://bmut2y2xaqj6x" path="res://UI/UIAltSpeed/UIAltSpeed.tscn" id="22"]
 [ext_resource type="PackedScene" uid="uid://c4dncgm8qjt7u" path="res://UI/UIFlaps/UIFlaps.tscn" id="23"]
 [ext_resource type="PackedScene" uid="uid://b8s77ar81hq22" path="res://UI/UILandingGear/UILandingGear.tscn" id="25"]

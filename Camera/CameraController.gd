@@ -239,12 +239,6 @@ func _input(event):
 	# Don't allow camera switching during deathcam
 	if deathcam_active:
 		return
-		
-	if Input.is_action_just_pressed("switch_camera"):
-		var current_time = Time.get_ticks_msec() / 1000.0
-		if current_time - last_switch_time > switch_cooldown:
-			cycle_camera()
-			last_switch_time = current_time
 	
 	# Handle zoom toggle
 	if Input.is_action_just_pressed("toggle_zoom"):
@@ -342,20 +336,35 @@ func _deactivate_all_cameras():
 				if c:
 					c.current = false
 
-func switch_to_camera(mode: CameraMode):
+func switch_to_camera(mode):
+	## Accepts either a CameraMode enum value or an int (0=COCKPIT,1=CHASE,2=CINEMATIC,3=BRIDGE).
 	if not cockpit_camera or not chase_camera:
 		return
+	
+	# Convert int shorthand to CameraMode
+	var cam_mode: CameraMode
+	if mode is int:
+		match mode:
+			0: cam_mode = CameraMode.COCKPIT
+			1: cam_mode = CameraMode.CHASE
+			2: cam_mode = CameraMode.CINEMATIC
+			3: cam_mode = CameraMode.BRIDGE
+			_: cam_mode = CameraMode.COCKPIT
+	else:
+		cam_mode = mode
+	
+	_build_view_targets()
 	
 	# Find matching view target and switch
 	for i in range(_view_targets.size()):
 		var t = _view_targets[i]
-		if t.get("aircraft", null) == aircraft and t.get("mode", CameraMode.COCKPIT) == mode:
+		if t.get("aircraft", null) == aircraft and t.get("mode", CameraMode.COCKPIT) == cam_mode:
 			_current_view_index = i
 			_switch_to_view_target(t)
 			return
 	
 	# Fallback for BRIDGE
-	if mode == CameraMode.BRIDGE:
+	if cam_mode == CameraMode.BRIDGE:
 		for i in range(_view_targets.size()):
 			if _view_targets[i].get("mode") == CameraMode.BRIDGE:
 				_current_view_index = i
@@ -365,6 +374,37 @@ func switch_to_camera(mode: CameraMode):
 	# Default to first view
 	_current_view_index = 0
 	_switch_to_view_target(_view_targets[0])
+
+func switch_to_aircraft_and_mode(ac: RigidBody3D, mode_index: int):
+	"""Direct the camera toward a specific aircraft at the given mode (0=COCKPIT,1=CHASE,2=CINEMATIC).
+	This is called by FlightDirector when spectating friendly / enemy aircraft."""
+	if not ac or not is_instance_valid(ac):
+		return
+	
+	var target_mode: CameraMode
+	match mode_index:
+		0: target_mode = CameraMode.COCKPIT
+		1: target_mode = CameraMode.CHASE
+		2: target_mode = CameraMode.CINEMATIC
+		_: target_mode = CameraMode.COCKPIT
+	
+	_build_view_targets()
+	
+	# Search the target list for this aircraft+mode combination
+	for i in range(_view_targets.size()):
+		var t = _view_targets[i]
+		if t.get("aircraft") == ac and t.get("mode") == target_mode:
+			_current_view_index = i
+			_switch_to_view_target(t)
+			return
+	
+	# Fallback: just switch to whatever mode we can find for this aircraft
+	for i in range(_view_targets.size()):
+		var t = _view_targets[i]
+		if t.get("aircraft") == ac:
+			_current_view_index = i
+			_switch_to_view_target(t)
+			return
 
 func get_current_camera() -> Camera3D:
 	if _current_view_index >= 0 and _current_view_index < _view_targets.size():

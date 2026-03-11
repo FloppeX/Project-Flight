@@ -128,9 +128,28 @@ func _ready():
 	mask |= (1 << 0) | (1 << 9)
 	set_collision_mask(mask)
 	
+	# Randomize weapons for AI - 50% chance to carry AAMs instead of Bombs
+	_randomize_loadout()
+	
 	setup()
 	
 	physics_interpolation_mode = Node3D.PHYSICS_INTERPOLATION_MODE_ON
+
+func _randomize_loadout():
+	# Always equip AA missile launcher on Hardpoint2
+	var hp2 = get_node_or_null("Hardpoint2")
+	if hp2 and hp2 is Hardpoint:
+		var aam_scene = load("res://Weapons/AA_Missile/aa_missile_launcher.tscn")
+		if aam_scene:
+			hp2.mount_weapon_from_scene(aam_scene)
+			# Add ControlTargeting_AAM so lock-on, HUD diamond and launcher all work
+			if not find_child("ControlTargeting_AAM", true, false):
+				var aam_targeting = preload("res://Weapons/AA_Missile/ControlTargeting_AAM.gd").new()
+				aam_targeting.name = "ControlTargeting_AAM"
+				add_child(aam_targeting)
+				# Module discovery already ran — manually register and set up this module
+				modules.append(aam_targeting)
+				aam_targeting.setup(self)
 
 func setup():
 	for module in modules:

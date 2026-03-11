@@ -23,21 +23,14 @@ signal destroyed(vehicle)
 @export var turret_weapon: PackedScene
 @export var aim_skill: float = 0.75
 
-# --- State ---
+# State
 var current_health: float
-var turret_node: Node3D
-var weapon_instance: Weapon
-var current_target: Node3D
 var is_dying: bool = false
+var turret_controller: TurretController
+var current_target: Node3D
 
 var _waypoint_positions: Array[Vector3] = []
 var _waypoint_index: int = 0
-
-enum FireState { IDLE, BURSTING, DELAYING }
-var fire_state: FireState = FireState.IDLE
-var burst_timer: float = 0.0
-var delay_timer: float = 0.0
-var target_search_timer: float = 0.0
 
 var _front_wheels: Array[Node3D] = []
 var _body_node: Node3D
@@ -58,10 +51,23 @@ func _ready() -> void:
 	add_to_group("team_" + str(team))
 	_resolve_waypoints()
 	_collect_wheel_nodes()
-	create_turret()
-	var weapon_scene = turret_weapon if turret_weapon else load("res://Weapons/Autocannon/Autocannon.tscn")
-	if weapon_scene and turret_node:
-		mount_weapon_on_turret(weapon_scene)
+	
+	# Look for a turret controller child
+	for child in get_children():
+		if child is TurretController:
+			turret_controller = child
+			break
+			
+	if not turret_controller:
+		push_warning("VehicleFriendlyLight: No TurretController found as child!")
+	else:
+		turret_controller.team = team
+		turret_controller.max_range = turret_range
+		turret_controller.burst_length = burst_length
+		turret_controller.delay_length = delay_length
+		turret_controller.aim_skill = aim_skill
+		if turret_weapon and turret_controller.weapon_instance == null:
+			turret_controller.mount_weapon(turret_weapon)
 
 func _collect_wheel_nodes() -> void:
 	_body_node = get_node_or_null("Body")
@@ -88,10 +94,14 @@ func set_patrol_waypoints(positions: Array[Vector3]) -> void:
 func _physics_process(delta: float) -> void:
 	if is_dying:
 		return
+		
+	if turret_controller:
+		current_target = turret_controller.current_target
+	else:
+		current_target = null
+		
 	_drive_to_waypoint(delta)
 	_update_wheel_visuals()
-	target_search_timer += delta
-	update_turret(delta)
 
 # --- Wheel Visuals ---
 
@@ -234,170 +244,3 @@ func explode() -> void:
 		exp.global_position = global_position
 	VehicleWreck.spawn(get_parent(), global_transform)
 	queue_free()
-
-# --- Turret ---
-
-func create_turret() -> void:
-	turret_node = Node3D.new()
-	turret_node.name = "Turret"
-	add_child(turret_node)
-	turret_node.position = Vector3(0, 1.1, 0)
-
-	var barrel_mesh = CylinderMesh.new()
-	barrel_mesh.height = 2.0
-	barrel_mesh.top_radius = 0.1
-	barrel_mesh.bottom_radius = 0.1
-
-	var barrel_instance = MeshInstance3D.new()
-	barrel_instance.name = "Barrel"
-	barrel_instance.mesh = barrel_mesh
-	barrel_instance.position = Vector3(0, 0, 1.0)
-	barrel_instance.rotation_degrees = Vector3(90, 0, 0)
-
-	var mat = StandardMaterial3D.new()
-	mat.albedo_color = Color(0.25, 0.25, 0.25)
-	barrel_instance.material_override = mat
-	turret_node.add_child(barrel_instance)
-
-func mount_weapon_on_turret(weapon_scene: PackedScene) -> void:
-	if weapon_instance:
-		weapon_instance.queue_free()
-	var turret_mount = TurretMount.new()
-	turret_mount.friendly_vehicle = self
-	turret_node.add_child(turret_mount)
-	weapon_instance = weapon_scene.instantiate()
-	turret_mount.add_child(weapon_instance)
-	turret_mount.weapon_instance = weapon_instance
-	turret_mount.position = Vector3(0, 0, 1.0)
-
-func update_turret(delta: float) -> void:
-	if not turret_node:
-		return
-	if target_search_timer >= 1.0:
-		current_target = find_best_target()
-		target_search_timer = 0.0
-	if current_target and is_instance_valid(current_target):
-		track_target(current_target)
-		update_burst_firing(delta)
-	else:
-		stop_firing()
-		fire_state = FireState.IDLE
-
-func update_burst_firing(delta: float) -> void:
-	match fire_state:
-		FireState.IDLE:
-			fire_state = FireState.BURSTING
-			burst_timer = 0.0
-		FireState.BURSTING:
-			burst_timer += delta
-			if burst_timer >= burst_length:
-				stop_firing()
-				fire_state = FireState.DELAYING
-				delay_timer = 0.0
-			else:
-				fire_at_target(current_target)
-		FireState.DELAYING:
-			delay_timer += delta
-			if delay_timer >= delay_length:
-				fire_state = FireState.IDLE
-
-func stop_firing() -> void:
-	if weapon_instance and weapon_instance.has_method("stop_firing"):
-		weapon_instance.stop_firing()
-
-func find_best_target() -> Node3D:
-	var best = _pick_closest_hostile(["ground_vehicles"])
-	if best:
-		return best
-	return _pick_closest_hostile(["aircraft", "ai_aircraft", "enemies"])
-
-func _pick_closest_hostile(groups: Array) -> Node3D:
-	var best_target: Node3D = null
-	var best_dist: float = turret_range
-	var seen: Dictionary = {}
-	for group_name in groups:
-		for node in get_tree().get_nodes_in_group(group_name):
-			if not (node is Node3D) or node == self or not is_instance_valid(node):
-				continue
-			if node.has_method("get_team") and int(node.get_team()) == team:
-				continue
-			var id: int = node.get_instance_id()
-			if seen.has(id):
-				continue
-			seen[id] = true
-			var dist: float = global_position.distance_to((node as Node3D).global_position)
-			if dist < best_dist:
-				best_dist = dist
-				best_target = node
-	return best_target
-
-func track_target(target: Node3D) -> void:
-	var target_pos = calculate_lead_position(target)
-	var direction = (target_pos - turret_node.global_position).normalized()
-	if direction.length() > 0:
-		turret_node.look_at(turret_node.global_position + direction, Vector3.UP)
-
-func calculate_lead_position(target: Node3D) -> Vector3:
-	var target_pos = target.global_position
-	var target_velocity = Vector3.ZERO
-	if target.has_method("get_linear_velocity"):
-		target_velocity = target.get_linear_velocity()
-	elif "linear_velocity" in target:
-		target_velocity = target.linear_velocity
-	elif "velocity" in target:
-		target_velocity = target.velocity
-	var flight_time: float = global_position.distance_to(target_pos) / 600.0
-	var lead = target_pos + target_velocity * flight_time
-	if aim_skill < 1.0:
-		var spread = (1.0 - aim_skill) * 15.0
-		lead += Vector3(
-			randf_range(-spread, spread),
-			randf_range(-spread * 0.3, spread * 0.3),
-			randf_range(-spread, spread)
-		)
-	return lead
-
-func fire_at_target(target: Node3D) -> void:
-	if not weapon_instance or not turret_node:
-		return
-	var target_pos = calculate_lead_position(target)
-	var dir = (target_pos - turret_node.global_position).normalized()
-	if dir.length() > 0:
-		var right = dir.cross(Vector3.UP).normalized()
-		var up = right.cross(dir).normalized()
-		turret_node.global_transform.basis = Basis(right, up, dir)
-	if weapon_instance.can_fire():
-		weapon_instance.fire()
-
-# --- Inner class: weapon mount on turret ---
-
-class TurretMount extends Hardpoint:
-	var friendly_vehicle: VehicleFriendlyLight
-
-	func _ready() -> void:
-		call_deferred("_set_aircraft_reference")
-
-	func get_aircraft() -> Node3D:
-		return friendly_vehicle
-
-	func get_aircraft_velocity() -> Vector3:
-		if friendly_vehicle:
-			return friendly_vehicle.velocity
-		return Vector3.ZERO
-
-	func apply_recoil_force(_force_magnitude: float) -> void:
-		pass
-
-	func _set_aircraft_reference() -> void:
-		if friendly_vehicle:
-			set("aircraft", friendly_vehicle)
-
-	func _get(property: StringName):
-		if property == "aircraft":
-			return friendly_vehicle
-		return null
-
-	func _set(property: StringName, _value) -> bool:
-		if property == "aircraft":
-			return true
-		return false

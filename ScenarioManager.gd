@@ -1,13 +1,13 @@
 extends Node3D
 
 var restart_timer: Timer
-@export var auto_place_carrier_on_flat_ground: bool = true
+@export var auto_place_carrier_on_flat_ground: bool = false
 @export var carrier_node_path: NodePath = NodePath("LandCarrier")
 @export var terrain_node_path: NodePath = NodePath("LowPolyTerrainPrototype")
 @export var carrier_center_search_radius_m: float = 1400.0
 @export var carrier_search_step_m: float = 120.0
 @export var carrier_flat_probe_radius_m: float = 140.0
-@export var carrier_ground_clearance_m: float = 32.0  # Carrier root floats 32m above terrain (tread ride height)
+@export var carrier_ground_clearance_m: float = 40.0  # Carrier root floats 40m above terrain (tread ride height)
 @export var carrier_placement_debug: bool = false
 
 func _ready():

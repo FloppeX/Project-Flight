@@ -97,11 +97,20 @@ func fire_automatic_weapons_of_type(weapon_type: String):
 
 func cycle_weapon_type():
 	"""Cycle to the next weapon type"""
+	# Refresh list each time — weapons may have been swapped after setup() ran
+	var previous_type = selected_weapon_type
+	categorize_weapons()
+	
 	if weapon_types.size() <= 1:
 		print("Only one weapon type available - cannot cycle")
 		return
 	
-	selected_weapon_type_index = (selected_weapon_type_index + 1) % weapon_types.size()
+	# Keep the index in sync with the (possibly refreshed) type list
+	var prev_idx = weapon_types.find(previous_type)
+	if prev_idx == -1:
+		prev_idx = 0
+	
+	selected_weapon_type_index = (prev_idx + 1) % weapon_types.size()
 	selected_weapon_type = weapon_types[selected_weapon_type_index]
 	
 	print("Switched to weapon type: ", selected_weapon_type)

@@ -1,11 +1,11 @@
-[gd_scene load_steps=5 format=3 uid="uid://carriertread"]
+[gd_scene load_steps=6 format=3 uid="uid://pfnx57rs2d41"]
 
-[ext_resource type="Script" uid="uid://drtit26euv7s0" path="res://LandCarrier/CarrierTread.gd" id="1_script"]
-[ext_resource type="PackedScene" uid="uid://cl66ul7ehqqi3" path="res://Models/Land carrier NEW treads 2.glb" id="2_4fc5j"]
+[ext_resource type="Script" uid="uid://drt6k2pyqc1pn" path="res://LandCarrier/CarrierTread.gd" id="1_script"]
+[ext_resource type="PackedScene" uid="uid://kj0rqaukibhl" path="res://Models/LandCarrier/carrier track tread.glb" id="2_mtwxr"]
+[ext_resource type="PackedScene" uid="uid://dv8clvbts5mhw" path="res://Models/LandCarrier/carrier track wheel.glb" id="3_r01ng"]
 
 [sub_resource type="PhysicsMaterial" id="PhysicsMaterial_tread"]
 friction = 0.8
-bounce = 0.0
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_tread"]
 size = Vector3(12.1176, 11.4878, 32.7458)
@@ -13,9 +13,29 @@ size = Vector3(12.1176, 11.4878, 32.7458)
 [node name="CarrierTread" type="StaticBody3D"]
 physics_material_override = SubResource("PhysicsMaterial_tread")
 script = ExtResource("1_script")
-
-[node name="Land carrier NEW treads 2" parent="." instance=ExtResource("2_4fc5j")]
+belt_band_scale = 2.0
+belt_uv_scale = 0.3
+belt_axis = 1
+belt_debug_axes = true
 
 [node name="TreadCollision" type="CollisionShape3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.0450191, -3.18909, 0.207926)
 shape = SubResource("BoxShape3D_tread")
+
+[node name="carrier track tread" parent="." instance=ExtResource("2_mtwxr")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -10.4511, 11.337, 0.129011)
+
+[node name="carrier track wheel" parent="." instance=ExtResource("3_r01ng")]
+transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, -4.00431, 0)
+
+[node name="carrier track wheel2" parent="." instance=ExtResource("3_r01ng")]
+transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, -3.98866, 15.6213)
+
+[node name="carrier track wheel3" parent="." instance=ExtResource("3_r01ng")]
+transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, -3.9963, -15.4274)
+
+[node name="carrier track wheel4" parent="." instance=ExtResource("3_r01ng")]
+transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, 6.49421, 7.61009)
+
+[node name="carrier track wheel5" parent="." instance=ExtResource("3_r01ng")]
+transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, 6.31181, -7.90697)

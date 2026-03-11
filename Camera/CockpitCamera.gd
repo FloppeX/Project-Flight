@@ -5,7 +5,8 @@ class_name CockpitCamera
 @export var vertical_sensitivity: float = 90.0    # degrees for up/down  
 @export var return_speed: float = 5.0             # how fast it snaps back to center
 @export var g_force_sensitivity: float = 0.08   # How much camera moves per G
-@export var g_force_smoothing: float = 12.0     # How fast camera returns to center
+@export var g_force_smoothing_horizontal: float = 12.0  # How fast camera returns to center side-to-side/front-back
+@export var g_force_smoothing_vertical: float = 35.0    # How fast camera returns to center up-down
 @export var max_g_offset: float = 0.4           # Maximum camera displacement
 @export var g_deadzone: float = 0.5             # Minimum G-force to trigger effect
 
@@ -64,8 +65,10 @@ func _physics_process(delta: float):
 	# Clamp maximum offset
 	target_offset = target_offset.limit_length(max_g_offset)
 	
-	# Smooth camera movement
-	g_force_offset = g_force_offset.lerp(target_offset, g_force_smoothing * delta)
+	# Smooth camera movement independently by axis
+	g_force_offset.x = lerp(g_force_offset.x, target_offset.x, g_force_smoothing_horizontal * delta)
+	g_force_offset.y = lerp(g_force_offset.y, target_offset.y, g_force_smoothing_vertical * delta)
+	g_force_offset.z = lerp(g_force_offset.z, target_offset.z, g_force_smoothing_horizontal * delta)
 	
 	# Apply to camera position
 	position = base_position + g_force_offset

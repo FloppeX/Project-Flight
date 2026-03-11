@@ -1,0 +1,12 @@
+[gd_scene load_steps=3 format=3 uid="uid://38xqikpdfhdk"]
+
+[ext_resource type="Script" uid="uid://c1jwpg25tydnr" path="res://Weapons/Turrets/turret.gd" id="1_script1"]
+[ext_resource type="PackedScene" uid="uid://dddu1w45c74bn" path="res://Models/Turrets/turret.glb" id="2_model1"]
+
+[node name="TurretScene" type="Node3D" node_paths=PackedStringArray("base_mesh", "barrel_mount", "firing_points")]
+script = ExtResource("1_script1")
+base_mesh = NodePath("TurretModel/tripo_node_5b2d22a4_001")
+barrel_mount = NodePath("TurretModel/Cylinder")
+firing_points = [null]
+
+[node name="TurretModel" parent="." instance=ExtResource("2_model1")]

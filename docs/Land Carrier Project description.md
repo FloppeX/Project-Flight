@@ -1,6 +1,6 @@
-﻿## Current Status
+## Current Status
 
-**Last Updated:** 2026-03-09
+**Last Updated:** 2026-03-10
 **Godot Version:** 4.4.1.stable.official.49a5bc7b6
 **Project Health:** PLAYABLE
 **Control Mode:** Manual (Game Controller) + AI autonomous
@@ -61,10 +61,11 @@
 1. Verify full end-to-end carrier cycle with moving carrier (gap should stay ~0 throughout)
 2. End-to-end AI cycle soak testing: hangar → catapult → climb → approach → land → hangar
 3. Implement enemy movement and pathfinding
-4. Add carrier defense turrets
+4. ~~Add carrier defense turrets~~ (Completed: Unified modular physical turret system)
 5. Develop resource management system
 
 ### Version History
+- 2026-03-10: Modular Turret System overhaul — unified component-based `Turret` and `TurretController` systems; replaced hitscan with physical bullets; smooth pitch/yaw aiming; integrated with ground vehicles and carrier defenses.
 - 2026-03-09: Moving carrier tracking overhaul — all deck objects (parked, elevator, catapult) now follow carrier each frame; carrier-local lerping for horizontal moves; PinJoint3D wheel latches moved with carrier to prevent world-space anchoring during catapult spool; debug message cleanup across Catapult, FlightDeckManager, Elevator, TractorBot
 - 2026-03-08: Terrain strata spatial variation, rock scatter fix (world-Y offset + atomic MultiMesh swap), slope/mesa color tuning, spatial gradient color patches, bullet speed 900 m/s, hard shadow edges + 4-split cascades, volumetric explosion smoke (SphereMesh puffs), explosion position fix (call_deferred)
 - 2026-03-07: Custom low-poly terrain rollout (streaming chunks, mesas/gullies, palette pass, base height offset), carrier flat-ground placement near map center, key-1 retrieval/player flow hardening
@@ -81,6 +82,28 @@
 ---
 
 ## Project Change Log (latest session)
+
+### Session Summary (2026-03-10) - Modular Turret System Overhaul
+
+**Overview:** Completely refactored the disjointed, hardcoded weapon systems across ground vehicles and the carrier into a unified, modular, component-based turret architecture.
+
+#### Universal Turret Component (`Weapons/Turrets/turret.gd`)
+- Designed a core `Turret` visual and mechanical component.
+- Implemented smooth, physically-constrained rotations (independent base yaw and barrel pitch) to track targets, moving away from instant-snapping logic for enhanced realism.
+
+#### Autonomous AI Gunner (`Weapons/Turrets/turret_controller.gd`)
+- Shifted all aiming algorithms from the vehicles into a standalone `TurretController` AI node.
+- Handles target acquisition across groups, sophisticated ballistic lead calculation (accounting for target velocity and gravity drop), and manages burst-fire logic.
+
+#### Physical Munitions (`Weapons/Turrets/bullet_weapon.gd`)
+- Replaced the Land Carrier's hitscan mechanics with real physical interactions.
+- Added a `BulletWeapon` component that spawns actual physical bullet projectiles dynamically from the articulated turret barrels.
+
+#### Deep Vehicle Integration
+- Re-architected `GroundVehicle` classes (friend/enemy) to securely parent the autonomous `TurretController` directly to their tilting visual `Body` meshes. 
+- Vehicles now retain terrain pitch/roll without breaking the turret aim logic or experiencing visual "floating".
+
+---
 
 ### Session Summary (2026-03-09) - Moving Carrier Tracking Overhaul
 

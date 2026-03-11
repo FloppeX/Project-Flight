@@ -211,7 +211,8 @@ var throttle_input: float = 0.5 # 0 to 1
 # ============================================================================
 @export var skill_level: float = 1.0  # 0-1, affects reaction time and precision
 @export var aggressiveness: float = 0.7  # 0-1, affects combat decisions
-@export var rtb_health_threshold: float = 0.5  # Return to base below this health %
+@export var rtb_health_threshold: float = 0.3  # Return to base below this health %
+@export var rtb_fuel_threshold: float = 0.2    # Return to base below this fuel %
 @export var debug_enabled: bool = true
 @export var verbose_debug_enabled: bool = false  # Extra non-attack telemetry spam
 
@@ -409,8 +410,8 @@ func _physics_process(delta: float):
 	# Update sensors - AI's view of the world
 	_update_sensors()
 
-	# Update health monitoring
-	_check_health()
+	# Update health and fuel monitoring for RTB
+	_check_rtb_triggers()
 
 	# State machine
 	match current_state:
@@ -1258,22 +1259,35 @@ func _start_dogfight_variation_maneuver(target_pos: Vector3, target_vel: Vector3
 	_dogfight_stalemate_timer_s = 0.0
 
 func _select_dogfight_weapon() -> void:
-	"""Force a gun weapon type for dogfight (prefer Autocannon)."""
+	"""Choose weapon for dogfight. Prefer AA Missile if it has a lock, else Autocannon."""
 	if not control_weapons:
 		return
+	
 	var selected: String = ""
-	if "weapon_types" in control_weapons:
+	
+	# Check if AA Missile is available and ready (locked on)
+	if "hardpoints" in control_weapons:
+		for hp in control_weapons.hardpoints:
+			if hp and hp.weapon_instance and hp.weapon_instance.weapon_name == "AA Missile":
+				if hp.weapon_instance.can_fire():
+					selected = "AA Missile"
+					break
+	
+	# Fallback to Autocannon or other non-bomb weapon if no AAM is ready
+	if selected.is_empty() and "weapon_types" in control_weapons:
 		var types: Array = control_weapons.weapon_types
 		if types.has("Autocannon"):
 			selected = "Autocannon"
 		else:
 			for t in types:
 				var t_str: String = String(t)
-				if t_str != "Bomb":
+				if t_str != "Bomb" and t_str != "AA Missile":
 					selected = t_str
 					break
+
 	if selected.is_empty():
 		selected = "Autocannon"
+		
 	if "selected_weapon_type" in control_weapons:
 		control_weapons.selected_weapon_type = selected
 	_run_weapon_type = selected
@@ -1332,6 +1346,13 @@ func _predict_lead_point(shooter_pos: Vector3, shooter_vel: Vector3, target_pos:
 	return target_pos + target_vel * t
 
 func _dogfight_has_good_fire_solution(lead_point: Vector3, muzzle_velocity: float, dist_to_target: float) -> bool:
+	if control_weapons and "selected_weapon_type" in control_weapons and control_weapons.selected_weapon_type == "AA Missile":
+		if "hardpoints" in control_weapons:
+			for hp in control_weapons.hardpoints:
+				if hp and hp.weapon_instance and hp.weapon_instance.weapon_name == "AA Missile":
+					return hp.weapon_instance.can_fire()
+		return false
+	
 	if dist_to_target > dogfight_max_range_m:
 		return false
 	var to_aim: Vector3 = lead_point - aircraft.global_position
@@ -1638,9 +1659,28 @@ func _state_engage(delta: float):
 
 func _state_rtb(delta: float):
 	"""Returning to base"""
-	# TODO: Fly to carrier
-	# For now, just maintain altitude and heading
-	_navigate_to_altitude_and_speed(delta)
+	# Priority 1: Stop combat
+	_stop_firing()
+	
+	_ensure_carrier_position()
+	
+	# Set target speed and navigation towards carrier
+	target_speed = 100.0
+	nav_waypoint = carrier_position
+	nav_waypoint.y = patrol_altitude_m
+	
+	# Climb/descend to patrol altitude while navigating
+	_update_maneuver_waypoint()
+	_navigate_to_waypoint(delta)
+	
+	# Check horizontal distance to carrier
+	var h_dist: float = Vector2(aircraft.global_position.x - carrier_position.x, aircraft.global_position.z - carrier_position.z).length()
+	
+	# Start landing approach when within 4000m
+	if h_dist < 4000.0:
+		if debug_enabled:
+			print("[AIPilot RTB] Reached carrier vicinity (", h_dist, "m), starting approach sequence.")
+		start_landing()
 
 func _get_approach_deck_y() -> float:
 	"""Deck reference for approach phase altitudes."""
@@ -2586,16 +2626,36 @@ func _scan_contacts():
 			if distance <= sensor_range:
 				known_friendlies.append(friendly)
 
-func _check_health():
-	"""Monitor health and RTB if damaged"""
+func _check_rtb_triggers():
+	"""Monitor health and fuel, trigger RTB if critical"""
+	if current_state in [State.RTB, State.APPROACH, State.LANDING]:
+		return
+		
+	var needs_rtb: bool = false
+	var rtb_reason: String = ""
+
+	# Check Health
 	if aircraft.has_meta("current_health"):
 		current_health = aircraft.get_meta("current_health")
 		var health_percent = current_health / max_health
+		if health_percent < rtb_health_threshold:
+			needs_rtb = true
+			rtb_reason = "Health low (%.1f%%)" % (health_percent * 100.0)
 
-		if health_percent < rtb_health_threshold and current_state not in [State.RTB, State.APPROACH, State.LANDING]:
-			if debug_enabled:
-				print("[AIPilot] Health low (", health_percent * 100, "%), returning to base")
-			change_state(State.RTB)
+	# Check Fuel
+	if not needs_rtb and "available_energy" in aircraft and "max_energy" in aircraft:
+		var current_fuel = aircraft.available_energy.get("fuel", -1.0)
+		var max_fuel = aircraft.max_energy.get("fuel", -1.0)
+		if max_fuel > 0.0 and current_fuel >= 0.0:
+			var fuel_percent = current_fuel / max_fuel
+			if fuel_percent < rtb_fuel_threshold:
+				needs_rtb = true
+				rtb_reason = "Fuel low (%.1f%%)" % (fuel_percent * 100.0)
+
+	if needs_rtb:
+		if debug_enabled:
+			print("[AIPilot] Triggering RTB: ", rtb_reason)
+		change_state(State.RTB)
 
 func _find_nearest_enemy() -> Node3D:
 	"""Find nearest enemy target from known contacts"""

@@ -35,12 +35,17 @@ func _ready():
 		enable_ai()
 	else:
 		disable_ai()
+		
+	# Register with global FlightDirector
+	if FlightDirector.has_method("register_aircraft"):
+		FlightDirector.register_aircraft(aircraft)
 
-	pass
+func _exit_tree():
+	if is_instance_valid(aircraft) and FlightDirector.has_method("unregister_aircraft"):
+		FlightDirector.unregister_aircraft(aircraft)
 
 func _input(event):
-	if Input.is_action_just_pressed("toggle_ai_pilot"):
-		toggle_ai()
+	pass
 
 func toggle_ai():
 	"""Toggle between AI and player control"""
@@ -105,12 +110,13 @@ func _find_player_controls():
 
 	# Find control modules by script name
 	var control_scripts = [
-		"ControlEngine.gd",
-		"ControlSteering.gd",
-		"ControlLandingGear.gd",
-		"ControlFlaps.gd",
-		"control_weapons.gd",
-		"ControlTargeting.gd"
+		"controlengine.gd",
+		"controlsteering.gd",
+		"controllandinggear.gd",
+		"controlflaps.gd",
+		"controlweapons.gd",
+		"controltargeting.gd",
+		"controltargeting_aam.gd"
 	]
 
 	for script_name in control_scripts:
@@ -123,7 +129,8 @@ func _find_nodes_by_script(root: Node, script_name: String) -> Array[Node]:
 	"""Find all nodes with a specific script"""
 	var found_nodes: Array[Node] = []
 	for child in root.get_children():
-		if child.get_script() and child.get_script().resource_path.ends_with(script_name):
+		var script_obj = child.get_script()
+		if script_obj and script_obj.resource_path.to_lower().ends_with(script_name):
 			found_nodes.append(child)
 		found_nodes.append_array(_find_nodes_by_script(child, script_name))
 	return found_nodes

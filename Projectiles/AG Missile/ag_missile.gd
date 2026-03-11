@@ -89,7 +89,7 @@ func _physics_process(delta):
 			engine_on = true
 			
 	# Check arming status
-		if not is_armed and launch_time > 0.0:
+	if not is_armed and launch_time > 0.0:
 		if (current_time - launch_time) >= arming_time:
 			is_armed = true
 	

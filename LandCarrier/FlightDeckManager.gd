@@ -210,7 +210,11 @@ func _on_catapult_sequence_complete():
 	deck_aircraft = null
 
 func _on_catapult_sequence_aborted():
-	print("[FlightDeckManager] Catapult reported sequence aborted. Deck is now IDLE.")
+	print("[FlightDeckManager] Catapult reported sequence aborted. Restoring controls and returning to IDLE.")
+	if is_instance_valid(deck_aircraft):
+		if deck_aircraft.has_meta("controls_disabled"):
+			deck_aircraft.remove_meta("controls_disabled")
+	_return_tractors_to_staging()
 	current_state = DeckState.IDLE
 	deck_aircraft = null
 
@@ -284,16 +288,41 @@ func _perform_cable_release(ac: RigidBody3D) -> void:
 	_pending_store_aircraft = ac
 	print("[FlightDeckManager] Aircraft ready for hangar storage. Press 'store_aircraft' to store.")
 
-# --- Fallback polling to ensure robustness ---
+# --- Fallback polling and safety checks ---
 func _physics_process(_delta: float) -> void:
-	# Only poll if not already in a managed recovery sequence
+	# 1. Safety Check: If an operation is active, verify the aircraft still exists and is on the deck
+	if current_state == DeckState.LAUNCH_IN_PROGRESS or current_state == DeckState.RECOVERY_IN_PROGRESS:
+		if not is_instance_valid(deck_aircraft):
+			print("[FlightDeckManager] ERROR: deck_aircraft became invalid (destroyed?). Aborting sequence.")
+			_abort_current_sequence()
+		else:
+			var deck_y = _get_deck_height_y()
+			# If aircraft falls 10m below the deck, it fell off
+			if deck_aircraft.global_position.y < deck_y - 10.0:
+				print("[FlightDeckManager] ERROR: Aircraft fell off the deck. Aborting sequence.")
+				# Allow the player/AI to fly away if they fell off, but free up the deck state
+				if deck_aircraft.has_meta("controls_disabled"):
+					deck_aircraft.remove_meta("controls_disabled")
+				_abort_current_sequence()
+
+	# 2. Polling for unmanaged arrests
 	if current_state != DeckState.RECOVERY_IN_PROGRESS and not _recovery_powerdown_in_progress:
 		var ac = _find_arrested_aircraft()
 		if ac:
 			print("[FlightDeckManager] Detected arrested aircraft via poll: ", ac.name)
 			_on_cable_engaged(ac)
 			return
-	# Do not force-stop/release during the timed sequence; let it control timing
+
+func _abort_current_sequence() -> void:
+	# Called when a safety check fails (plane destroyed or fell off)
+	print("[FlightDeckManager] Executing emergency deck reset.")
+	_return_tractors_to_staging()
+	_recovery_powerdown_in_progress = false
+	deck_aircraft = null
+	_pending_store_aircraft = null
+	if catapult and catapult.has_method("_reset_state"):
+		catapult._reset_state()
+	current_state = DeckState.IDLE
 
 func _find_arrested_aircraft() -> RigidBody3D:
 	var ac = get_tree().get_first_node_in_group("aircraft") as RigidBody3D
@@ -648,6 +677,18 @@ func _deactivate_tractor_bots():
 		if bot and bot.has_method("deactivate"):
 			bot.deactivate()
 
+func _return_tractors_to_staging():
+	"""Force tractorbots to drop what they are doing and return to staging"""
+	for bot in tractor_bots:
+		if is_instance_valid(bot):
+			# Drop any active connections
+			if bot.has_method("_tick_uncoupling"):
+				bot._tick_uncoupling(0.0)
+			# Force state to returning
+			bot.set("_state", TractorBot.BotState.RETURNING_TO_STAGING)
+			if bot.has_method("_plan_move_to") and is_instance_valid(bot.staging_marker):
+				bot._plan_move_to(bot.staging_marker.global_position)
+
 func _disable_tractor_bot_movement():
 	"""Disable tractorbot movement logic during elevator sequence"""
 	for bot in tractor_bots:
@@ -903,8 +944,9 @@ func _create_aircraft_at_hangar_level() -> RigidBody3D:
 	elevator_hangar_pos.y = _get_deck_height_y() + elevator.platform.position.y + 0.2
 	aircraft.global_position = elevator_hangar_pos
 
-	# Face aircraft toward deck forward (+Z on this carrier) during retrieval
-	aircraft.global_rotation = Vector3(0, PI, 0)
+	# Face aircraft toward deck forward (carrier's +Z) during retrieval
+	var carrier_fwd := (get_parent() as Node3D).global_transform.basis.z
+	aircraft.global_rotation = Vector3(0, atan2(carrier_fwd.x, carrier_fwd.z), 0)
 	aircraft.scale = aircraft_data.scale
 
 	# Restore metadata

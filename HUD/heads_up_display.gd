@@ -28,6 +28,11 @@ var ccip_update_timer: Timer
 var target_overlay: Control
 var target_box_lines: Array[ColorRect] = []
 
+# AA missile lock diamond elements
+var lock_diamond: Control
+var lock_diamond_lines: Array[ColorRect] = []
+var lock_label: Label
+
 func _ready():
 	# Manually resolve NodePath references
 	if camera_path != NodePath():
@@ -108,6 +113,9 @@ func _ready():
 
 	# Set up target overlay elements
 	setup_target_overlay()
+
+	# Set up AA lock diamond
+	setup_lock_diamond()
 
 	# Set up a timer to update the CCIP periodically
 	ccip_update_timer = Timer.new()
@@ -234,6 +242,32 @@ func setup_target_overlay():
 		target_overlay.add_child(line)
 		target_box_lines.append(line)
 
+func setup_lock_diamond():
+	"""Set up the 4-line diamond shape for AA missile lock indication."""
+	lock_diamond = Control.new()
+	lock_diamond.name = "LockDiamond"
+	lock_diamond.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	lock_diamond.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	lock_diamond.visible = false
+	viewport.add_child(lock_diamond)
+
+	# Diamond = 4 lines: top-left, top-right, bottom-left, bottom-right
+	# Each is a thin rect rotated 45° — approximate with short rects positioned at diagonals
+	var dim_color = Color(0, 4.0, 0, 1.0)   # Dimmer while acquiring
+	for i in range(4):
+		var seg = ColorRect.new()
+		seg.color = dim_color
+		seg.size = Vector2(2, 18)  # thin vertical segment, rotated in position
+		lock_diamond.add_child(seg)
+		lock_diamond_lines.append(seg)
+
+	# Lock-acquired label above diamond
+	lock_label = Label.new()
+	lock_label.text = ""
+	lock_label.add_theme_color_override("font_color", Color(0, 10.0, 0, 1.0))
+	lock_label.add_theme_font_size_override("font_size", 16)
+	lock_diamond.add_child(lock_label)
+
 func _process(dt: float) -> void:
 	if cam == null or aircraft == null:
 		print("HUD: Missing camera or aircraft reference")
@@ -247,6 +281,9 @@ func _process(dt: float) -> void:
 	
 	# Update target overlay
 	update_target_overlay()
+
+	# Update AA missile lock diamond
+	update_lock_diamond()
 	
 	# Get aircraft's forward direction (nose pointing direction)
 	# In Godot, -Z is forward for most objects
@@ -422,29 +459,16 @@ func update_ccip():
 	ccip_dot.position = circle_center - ccip_dot.size * 0.5
 
 func get_weapon_control():
-	"""Get the weapon control module"""
-	# Try to find the weapon control module
-	var weapon_control = null
-	
-	# Look for ControlWeapons in the aircraft
-	if aircraft and aircraft.has_method("get_children"):
-		for child in aircraft.get_children():
-			if child is ControlWeapons:
-				weapon_control = child
-				break
-			# Also check children of children
-			for grandchild in child.get_children():
-				if grandchild is ControlWeapons:
-					weapon_control = grandchild
-					break
-	
-	# If not found, try searching by group
-	if not weapon_control:
-		var weapon_controls = get_tree().get_nodes_in_group("ControlWeapons")
-		if weapon_controls.size() > 0:
-			weapon_control = weapon_controls[0]
-	
-	return weapon_control
+	"""Get the weapon control module - always from our own aircraft only."""
+	if not is_instance_valid(aircraft):
+		return null
+	for child in aircraft.get_children():
+		if child is ControlWeapons:
+			return child
+		for grandchild in child.get_children():
+			if grandchild is ControlWeapons:
+				return grandchild
+	return null
 
 func _set_target_box_visible(p_visible: bool):
 	if not is_instance_valid(target_overlay):
@@ -472,7 +496,9 @@ func update_target_overlay():
 	var targeting_system = get_targeting_system()
 	var target: Node3D = null
 	if is_instance_valid(targeting_system) and "current_target" in targeting_system:
-		target = targeting_system.current_target
+		var raw_target = targeting_system.current_target
+		if is_instance_valid(raw_target):
+			target = raw_target
 
 	# Hide overlay if no valid target exists
 	if not is_instance_valid(target):
@@ -550,25 +576,146 @@ func update_target_overlay():
 
 
 func get_targeting_system():
-	"""Get the targeting system module"""
-	var targeting_system = null
-	
-	# Look for targeting system in the aircraft
-	if aircraft and aircraft.has_method("get_children"):
-		for child in aircraft.get_children():
-			if child is AircraftModule_ControlTargeting:
-				targeting_system = child
-				break
-			# Also check children of children
-			for grandchild in child.get_children():
-				if grandchild is AircraftModule_ControlTargeting:
-					targeting_system = grandchild
-					break
-	
-	# If not found, try searching by group or module type
-	if not targeting_system:
-		var modules = get_tree().get_nodes_in_group("targeting")
-		if modules.size() > 0:
-			targeting_system = modules[0]
-	
-	return targeting_system
+	"""Get the targeting system module - always from our own aircraft only."""
+	if not is_instance_valid(aircraft):
+		return null
+	for child in aircraft.get_children():
+		if child is AircraftModule_ControlTargeting:
+			return child
+		for grandchild in child.get_children():
+			if grandchild is AircraftModule_ControlTargeting:
+				return grandchild
+	return null
+
+## Called by FlightDirector when switching spectated aircraft.
+## Rebinds the HUD so both the reticle and readouts reflect the new plane.
+func bind_to_aircraft(new_aircraft: Node3D) -> void:
+	if not is_instance_valid(new_aircraft):
+		return
+	aircraft = new_aircraft
+	# Re-resolve the cockpit camera so the reticle projects correctly for this plane
+	var cockpit_tripod := new_aircraft.get_node_or_null("CameraCockpit") as Node3D
+	if cockpit_tripod:
+		var cockpit_cam := cockpit_tripod.find_child("Camera3D", true, false) as Camera3D
+		if cockpit_cam:
+			cam = cockpit_cam
+
+func update_lock_diamond() -> void:
+	"""Show a diamond over the current AA target: dim while acquiring, bright when locked."""
+	if not is_instance_valid(lock_diamond):
+		return
+
+	# Only show for AA missiles
+	var weapon_control = get_weapon_control()
+	var aa_selected := false
+	if weapon_control and "selected_weapon_type" in weapon_control:
+		aa_selected = (weapon_control.selected_weapon_type == "AAMissile")
+	if not aa_selected:
+		lock_diamond.visible = false
+		return
+
+	# Need a targeting module with lock data
+	var targeting = _get_aa_targeting()
+	if not is_instance_valid(targeting):
+		lock_diamond.visible = false
+		return
+
+	var raw_target = targeting.get("current_target")
+	if not is_instance_valid(raw_target):
+		lock_diamond.visible = false
+		return
+
+	# Project target onto HUD glass
+	var target_world: Vector3 = raw_target.global_position
+	if not is_instance_valid(cam) or not is_instance_valid(hud_mesh):
+		lock_diamond.visible = false
+		return
+	if cam.is_position_behind(target_world):
+		lock_diamond.visible = false
+		return
+
+	var camera_pos := cam.global_position
+	var ray_dir := (target_world - camera_pos).normalized()
+	var hud_tf := hud_mesh.global_transform
+	var hud_normal := -hud_tf.basis.z.normalized()
+	var hud_plane := Plane(hud_normal, hud_tf.origin)
+	var isect = hud_plane.intersects_ray(camera_pos, ray_dir)
+	if isect == null:
+		lock_diamond.visible = false
+		return
+
+	var local_pt := hud_mesh.to_local(isect)
+	var half_size := hud_glass_size * 0.5
+	if abs(local_pt.x) > half_size.x or abs(local_pt.y) > half_size.y:
+		lock_diamond.visible = false
+		return
+
+	var hud_size_px := Vector2(viewport.size)
+	var hud_pos := Vector2(
+		(local_pt.x + half_size.x) / hud_glass_size.x * hud_size_px.x,
+		(-local_pt.y + half_size.y) / hud_glass_size.y * hud_size_px.y
+	)
+
+	# Lock progress
+	var lock_time: float = 0.0
+	if targeting.has_method("get_target_lock_time"):
+		lock_time = targeting.get_target_lock_time()
+	var required: float = 3.0
+	if "required_lock_time" in targeting:
+		required = float(targeting.required_lock_time)
+	var locked := lock_time >= required
+
+	# Draw diamond: 4 line segments at N/E/S/W tips
+	# Diamond half-size
+	var r := 20.0  # radius in viewport pixels
+	var t := 2.0   # line thickness
+	var seg_len := r * 0.6
+	var bright := Color(0, 10.0, 0, 1.0)
+	var dim := Color(0, 4.0, 0, 0.6)
+	var col := bright if locked else dim
+
+	# NW corner segment (top-left arm of diamond)
+	# We represent the diamond with 4 corner-angle brackets (like ⟨⟩ rotated)
+	# Positions: top (hud_pos - (0, r)), right (hud_pos + (r, 0)),
+	#            bottom (hud_pos + (0, r)), left (hud_pos - (r, 0))
+	# Lines: top→right, right→bottom, bottom→left, left→top
+	var tips := [
+		hud_pos + Vector2(0, -r),   # top
+		hud_pos + Vector2(r, 0),    # right
+		hud_pos + Vector2(0, r),    # bottom
+		hud_pos + Vector2(-r, 0),   # left
+	]
+
+	for i in range(4):
+		var seg: ColorRect = lock_diamond_lines[i]
+		seg.color = col
+		var a: Vector2 = tips[i]
+		var b: Vector2 = tips[(i + 1) % 4]
+		var dx: float = b.x - a.x
+		var dy: float = b.y - a.y
+		var length := sqrt(dx * dx + dy * dy)
+		seg.size = Vector2(length, t)
+		seg.position = a
+		seg.pivot_offset = Vector2(0, t * 0.5)
+		seg.rotation = atan2(dy, dx)
+
+	# Label
+	if locked:
+		lock_label.text = "LOCK"
+	else:
+		lock_label.text = ""
+	lock_label.position = hud_pos + Vector2(-20, -r - 20)
+
+	lock_diamond.visible = true
+
+func _get_aa_targeting() -> Node:
+	"""Find AircraftModule_ControlTargeting_AAM on the aircraft."""
+	if not is_instance_valid(aircraft):
+		return null
+	for child in aircraft.get_children():
+		if child is AircraftModule_ControlTargeting_AAM:
+			return child
+		for grandchild in child.get_children():
+			if grandchild is AircraftModule_ControlTargeting_AAM:
+				return grandchild
+	return null

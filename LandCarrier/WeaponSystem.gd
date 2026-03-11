@@ -4,86 +4,67 @@ extends Node3D
 # =============================================================================
 # WEAPON SYSTEM - CARRIER DEFENSIVE WEAPONS
 # =============================================================================
-# Manages the carrier's defensive weapon systems
+# Manages the carrier's defensive weapon systems by deploying TurretControllers
 # =============================================================================
 
 # Weapon Properties
 @export var weapon_turrets: Array[Node3D] = []
 @export var max_range: float = 500.0
-@export var damage_per_shot: float = 50.0
-@export var fire_rate: float = 2.0  # Shots per second
 @export var ammunition: int = 1000
 @export var max_ammunition: int = 1000
 
+# Optional scene to spawn at each weapon_turret node location
+@export var turret_scene: PackedScene 
+
 # State
-var carrier: LandCarrier
-var target_enemies: Array[Node3D] = []
-var fire_timer: float = 0.0
+var carrier: Node3D # Usually LandCarrier
+var active_controllers: Array[TurretController] = []
 var is_active: bool = true
 
 # Signals
-signal weapon_fired(target, damage)
 signal ammunition_changed(current, max)
-signal target_acquired(target)
-signal target_lost(target)
 
-func setup(carrier_node: LandCarrier):
+func setup(carrier_node: Node3D):
     """Initialize the weapon system"""
     carrier = carrier_node
+    
+    # Try to deploy turrets at the weapon_turret hardpoint locations
+    if turret_scene and not weapon_turrets.is_empty():
+        for point in weapon_turrets:
+            var instance = turret_scene.instantiate()
+            point.add_child(instance)
+            
+            # Find the controller within
+            var controller: TurretController = null
+            if instance is TurretController:
+                controller = instance
+            else:
+                for child in instance.get_children():
+                    if child is TurretController:
+                        controller = child
+                        break
+                        
+            if controller:
+                controller.max_range = max_range
+                # Assuming carrier is team 1
+                controller.team = 1 if carrier.has_method("get_team") else 1
+                active_controllers.append(controller)
 
 func update(delta: float):
-    """Update weapon system"""
-    if not is_active or ammunition <= 0:
+    """Update weapon system (Mainly ammo management now, logic handled by Turrets)"""
+    if not is_active:
         return
-    
-    # Update fire timer
-    if fire_timer > 0:
-        fire_timer -= delta
-    
-    # Find targets
-    find_targets()
-    
-    # Fire at targets
-    if fire_timer <= 0 and not target_enemies.is_empty():
-        fire_at_target(target_enemies[0])
-
-func find_targets():
-    """Find enemy targets within range"""
-    target_enemies.clear()
-    
-    # Get all enemy aircraft
-    var enemies = get_tree().get_nodes_in_group("aircraft")
-    for enemy in enemies:
-        if enemy.has_method("get_team") and enemy.get_team() != carrier.team:
-            var distance = global_position.distance_to(enemy.global_position)
-            if distance <= max_range:
-                target_enemies.append(enemy)
-
-func fire_at_target(target: Node3D):
-    """Fire at a specific target"""
-    if ammunition <= 0:
-        return
-    
-    # Calculate damage
-    var distance = global_position.distance_to(target.global_position)
-    var damage = damage_per_shot * (1.0 - distance / max_range)  # Damage decreases with distance
-    
-    # Apply damage to target
-    if target.has_method("take_damage"):
-        target.take_damage(damage)
-    
-    # Consume ammunition
-    ammunition -= 1
-    emit_signal("ammunition_changed", ammunition, max_ammunition)
-    
-    # Reset fire timer
-    fire_timer = 1.0 / fire_rate
-    
-    emit_signal("weapon_fired", target, damage)
+        
+    # Ammunition logic could be wired into the controllers' fire signals,
+    # but since controllers manage their own burst loops now, we might leave
+    # carrier ammo passive unless we connect the "fired" signal from the turrets.
 
 func set_active(active: bool):
     """Enable/disable weapon system"""
     is_active = active
+    for controller in active_controllers:
+        controller.set_process(active)
+        controller.set_physics_process(active)
 
 func reload_ammunition(amount: int):
     """Reload ammunition"""
@@ -96,8 +77,7 @@ func get_status() -> Dictionary:
         "active": is_active,
         "ammunition": ammunition,
         "max_ammunition": max_ammunition,
-        "targets_in_range": target_enemies.size(),
-        "fire_rate": fire_rate,
+        "active_turrets": active_controllers.size(),
         "max_range": max_range
     }
 

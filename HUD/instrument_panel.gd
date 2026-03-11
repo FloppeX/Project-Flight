@@ -100,6 +100,21 @@ func _ensure_aircraft_bound() -> void:
 		if a:
 			aircraft = a
 
+## Called by FlightDirector when switching spectated aircraft.
+## Rebinds the instrument panel so all gauges reflect the new plane.
+func bind_to_aircraft(new_aircraft: Node3D) -> void:
+	if not is_instance_valid(new_aircraft):
+		return
+	aircraft = new_aircraft as Aircraft
+	# Re-resolve the camera target on the new aircraft
+	var ct := new_aircraft.get_node_or_null("CameraTarget") as Node3D
+	if ct:
+		camera_target = ct
+		camera_target_cam = ct.find_child("Camera3D", true, false) as Camera3D
+		if camera_target_cam:
+			camera_target_cam.current = false
+
+
 func _physics_process(delta: float) -> void:
 	# Update missile camera in physics process for better sync with missile movement
 	if missile_camera_mode and is_instance_valid(tracked_missile):
