@@ -489,9 +489,13 @@ func apply_wheel_friction(collision_shape: CollisionShape3D, compression: float)
 	var aircraft_forward = aircraft.global_transform.basis.z    # Aircraft forward direction (+Z)
 	var aircraft_right = aircraft.global_transform.basis.x     # Aircraft right direction
 	
-	# Get aircraft velocity in world space
+	# Get aircraft velocity relative to any carrier it sits on, so friction brakes
+	# toward deck-relative zero rather than world zero (carrier is a moving platform).
 	var world_velocity = aircraft.linear_velocity
-	
+	var carrier_node = aircraft.get_tree().get_first_node_in_group("carrier") if aircraft.get_tree() else null
+	if carrier_node and carrier_node.has_method("get") and "velocity" in carrier_node:
+		world_velocity -= carrier_node.velocity
+
 	# Project velocity onto aircraft's local axes
 	var forward_velocity = world_velocity.dot(aircraft_forward)
 	var sideways_velocity = world_velocity.dot(aircraft_right)

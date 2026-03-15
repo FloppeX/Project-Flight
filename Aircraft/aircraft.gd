@@ -72,6 +72,7 @@ var last_linear_velocity = null
 var last_angular_velocity = null
 var is_velocity_nonzero = false
 var _terrain_node: Node = null
+const AAM_TARGETING_SCRIPT := preload("res://Weapons/AA_Missile/ControlTargeting_AAM.gd")
 
 # Flight data
 var air_velocity = 0.0
@@ -127,29 +128,34 @@ func _ready():
 	var mask: int = get_collision_mask()
 	mask |= (1 << 0) | (1 << 9)
 	set_collision_mask(mask)
-	
-	# Randomize weapons for AI - 50% chance to carry AAMs instead of Bombs
-	_randomize_loadout()
+
+	# Preserve the editor-authored loadout, but still bootstrap support modules
+	# that some weapon types depend on to function.
+	_ensure_weapon_support_modules()
 	
 	setup()
 	
 	physics_interpolation_mode = Node3D.PHYSICS_INTERPOLATION_MODE_ON
 
-func _randomize_loadout():
-	# Always equip AA missile launcher on Hardpoint2
-	var hp2 = get_node_or_null("Hardpoint2")
-	if hp2 and hp2 is Hardpoint:
-		var aam_scene = load("res://Weapons/AA_Missile/aa_missile_launcher.tscn")
-		if aam_scene:
-			hp2.mount_weapon_from_scene(aam_scene)
-			# Add ControlTargeting_AAM so lock-on, HUD diamond and launcher all work
-			if not find_child("ControlTargeting_AAM", true, false):
-				var aam_targeting = preload("res://Weapons/AA_Missile/ControlTargeting_AAM.gd").new()
-				aam_targeting.name = "ControlTargeting_AAM"
-				add_child(aam_targeting)
-				# Module discovery already ran — manually register and set up this module
-				modules.append(aam_targeting)
-				aam_targeting.setup(self)
+func _ensure_weapon_support_modules() -> void:
+	if _has_weapon_type("AAMissile") and not find_child("ControlTargeting_AAM", true, false):
+		var aam_targeting := AAM_TARGETING_SCRIPT.new()
+		aam_targeting.name = "ControlTargeting_AAM"
+		add_child(aam_targeting)
+		modules.append(aam_targeting)
+
+func _has_weapon_type(weapon_name: String) -> bool:
+	for child in get_children():
+		if child is Hardpoint:
+			var hardpoint := child as Hardpoint
+			if hardpoint.weapon_instance and hardpoint.weapon_instance.weapon_name == weapon_name:
+				return true
+		for grandchild in child.get_children():
+			if grandchild is Hardpoint:
+				var nested_hardpoint := grandchild as Hardpoint
+				if nested_hardpoint.weapon_instance and nested_hardpoint.weapon_instance.weapon_name == weapon_name:
+					return true
+	return false
 
 func setup():
 	for module in modules:

@@ -24,7 +24,11 @@ buses/default_bus_layout=""
 EnemyRegistry="*res://Enemies/EnemyRegistry.gd"
 ControllerDebug="*res://tools/ControllerDebug.gd"
 TerrainNavGrid="*res://TerrainNavGrid.gd"
+LoadingScreen="*res://UI/LoadingScreen.gd"
 FlightDirector="*res://FlightDirector.gd"
+AirOpsManager="*res://AirOps/AirOpsManager.gd"
+RadioComms="*res://Radio/RadioComms.gd"
+NavGraph="*res://NavGraph.gd"
 
 [display]
 
@@ -179,8 +183,7 @@ store_aircraft={
 }
 retrieve_aircraft={
 "deadzone": 0.5,
-"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":82,"key_label":0,"unicode":114,"location":0,"echo":false,"script":null)
-]
+"events": []
 }
 toggle_ai_pilot={
 "deadzone": 0.5,
@@ -236,4 +239,4 @@ lights_and_shadows/directional_shadow/max_distance=800.0
 lights_and_shadows/shadow_atlas/size=4096
 quality/3d/render_scale=1.0
 lights_and_shadows/directional_shadow/stabilize=true
-lights_and_shadows/directional_shadow/blend_splits=true
+lights_and_shadows/directional_shadow/blend_splits=false

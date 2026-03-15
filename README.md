@@ -14,7 +14,7 @@ A strategic action game inspired by Armourgeddon and Carrier Command, featuring 
 
 👉 **See [CONTROLLER_GUIDE.md](CONTROLLER_GUIDE.md) for complete controller layout** 👈
 
-**AI Pilot is now DISABLED by default** - you have full manual control!
+**AI Pilot is now ENABLED by default** - aircraft stay autonomous until the player takes over.
 
 ## Quick Start (After Fixing Permissions)
 
@@ -109,12 +109,13 @@ Land-Carrier-Project/
 **Systems:**
 - **B/Circle button** - Landing gear
 - **Y/Triangle button** - Switch camera
+- **Start / Options** - Toggle spectator / pilot mode
+- **LB/RB (L1/R1) while spectating** - Cycle carrier and friendly aircraft
 - **D-pad Left/Right** - Flaps
 
 ### ⌨️ Keyboard (Limited)
 - **R** or **1** - Retrieve aircraft from hangar
 - **S** - Store aircraft in hangar
-- **A** - Toggle AI pilot on/off (currently OFF)
 - **ESC** - Quit game
 
 👉 **See [CONTROLLER_GUIDE.md](CONTROLLER_GUIDE.md) for detailed controller layout**

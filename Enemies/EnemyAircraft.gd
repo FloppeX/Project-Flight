@@ -6,7 +6,7 @@ class_name EnemyAircraft
 @export var fire_rate: float = 1.0  # shots per second
 @export var bullet_scene: PackedScene
 @export var explosion_scene: PackedScene
-@export var bullet_speed: float = 100.0  # m/s
+@export var bullet_speed: float = 600.0  # m/s
 @export var ballistics_drag: float = 0.1  # Air resistance factor
 @export var aim_skill: float = 1.0  # 0.0 = terrible, 1.0 = perfect aim
 @export var ground_clearance: float = 0.5
@@ -297,10 +297,3 @@ func explode():
 	
 	# Remove the enemy
 	queue_free()
-
-
-
-
-
-
-

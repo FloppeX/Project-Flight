@@ -1,4 +1,4 @@
-[gd_scene load_steps=40 format=3 uid="uid://bm1iw1hw06s0n"]
+[gd_scene load_steps=42 format=3 uid="uid://bm1iw1hw06s0n"]
 
 [ext_resource type="Script" uid="uid://c4ltq2v6fji05" path="res://Aircraft/aircraft.gd" id="1_e8t1h"]
 [ext_resource type="PackedScene" uid="uid://cadi81fcpvmuc" path="res://Projectiles/Explosion/explosion.tscn" id="2_x73up"]
@@ -32,6 +32,7 @@
 [ext_resource type="PackedScene" uid="uid://dsnc8jllg42ph" path="res://Weapons/hardpoint.tscn" id="28_ymevh"]
 [ext_resource type="PackedScene" uid="uid://ds5dlvtqfa7tv" path="res://Aircraft/tail_hook.tscn" id="31_3f4kl"]
 [ext_resource type="PackedScene" uid="uid://bar7l5uwuwevr" path="res://Weapons/Autocannon/Autocannon.tscn" id="31_kq7no"]
+[ext_resource type="PackedScene" uid="uid://yjaa3lj4xxb3" path="res://Weapons/AG_Missile/ag_missile_launcher.tscn" id="31_t66al"]
 [ext_resource type="PackedScene" uid="uid://idqmpbpg2jul" path="res://Weapons/Bomb/bomb.tscn" id="32_kq7no"]
 [ext_resource type="Script" uid="uid://ov07c02ulmhl" path="res://Aircraft/AIToggle.gd" id="33_aitgl"]
 [ext_resource type="Script" uid="uid://bwjigrpitv7cm" path="res://AI/AIPilot.gd" id="34_aipil"]
@@ -42,6 +43,9 @@ friction = 0.1
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_kq7no"]
 radius = 0.883839
 height = 6.72811
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_wing_hitbox"]
+size = Vector3(12.2301, 0.24, 1.57192)
 
 [sub_resource type="SphereShape3D" id="SphereShape3D_gear"]
 radius = 0.3
@@ -76,6 +80,10 @@ transform = Transform3D(1, 0, 2.98023e-08, 0, 1, 0, -2.98023e-08, 0, 1, -2.00808
 [node name="CollisionShape3D" type="CollisionShape3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, -4.37114e-08, -1, 0, 1, -4.37114e-08, 0, 0, 0.525806)
 shape = SubResource("CapsuleShape3D_kq7no")
+
+[node name="WingCollider" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.0337157, 0.05, -0.323462)
+shape = SubResource("BoxShape3D_wing_hitbox")
 
 [node name="SimpleAero" type="Node" parent="."]
 script = ExtResource("5_8vbcf")
@@ -196,11 +204,15 @@ zoom_distance = 100.0
 
 [node name="Hardpoint1" parent="." instance=ExtResource("28_ymevh")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2.66, -0.387, -0.2)
-mounted_weapon = ExtResource("31_kq7no")
+mounted_weapon = ExtResource("31_t66al")
 
 [node name="Hardpoint2" parent="." instance=ExtResource("28_ymevh")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2.659, -0.386, -0.2)
 mounted_weapon = ExtResource("32_kq7no")
+
+[node name="Hardpoint3" parent="." instance=ExtResource("28_ymevh")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -1, 1)
+mounted_weapon = ExtResource("31_kq7no")
 
 [node name="TailHook" parent="." instance=ExtResource("31_3f4kl")]
 transform = Transform3D(1, 0, 0, 0, 0.5, -0.866025, 0, 0.866025, 0.5, 0, -1.728, -2.409)
@@ -212,4 +224,3 @@ script = ExtResource("34_aipil")
 
 [node name="AIToggle" type="Node" parent="."]
 script = ExtResource("33_aitgl")
-ai_enabled_at_start = false

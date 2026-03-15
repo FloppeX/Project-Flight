@@ -21,10 +21,14 @@ func setup(aircraft_node: Node) -> void:
 	find_hardpoints()
 	# Categorize weapons by type
 	categorize_weapons()
-	# Select first weapon type if available
+	# Default to guns when available so a freshly spawned plane can always fire
+	# immediately without requiring missile lock.
 	if weapon_types.size() > 0:
-		selected_weapon_type = weapon_types[0]
-		pass
+		var preferred_index: int = weapon_types.find("Autocannon")
+		if preferred_index == -1:
+			preferred_index = 0
+		selected_weapon_type_index = preferred_index
+		selected_weapon_type = weapon_types[selected_weapon_type_index]
 	else:
 		pass
 

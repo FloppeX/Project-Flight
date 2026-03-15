@@ -1,19 +1,19 @@
-[gd_scene load_steps=4 format=3 uid="uid://enemyaircraft123"]
+[gd_scene load_steps=9 format=3 uid="uid://6212lxbedcs5"]
 
-[ext_resource type="Script" path="res://Enemies/EnemyAircraft.gd" id="1_enemy"]
+[ext_resource type="Script" uid="uid://drdbhli61pkei" path="res://Enemies/EnemyAircraft.gd" id="1_enemy"]
 [ext_resource type="PackedScene" uid="uid://cadi81fcpvmuc" path="res://Projectiles/Explosion/explosion.tscn" id="2_explosion"]
-[ext_resource type="Script" path="res://Weapons/Turrets/turret_controller.gd" id="3_tctrl"]
-[ext_resource type="PackedScene" uid="uid://turret_custom_id123" path="res://Weapons/Turrets/turret.tscn" id="4_tscn"]
-[ext_resource type="PackedScene" uid="uid://bullet_weapon_id123" path="res://Weapons/Turrets/bullet_weapon.tscn" id="5_bwpn"]
+[ext_resource type="Script" uid="uid://cqw36derm5yh1" path="res://Weapons/Turrets/turret_controller.gd" id="3_tctrl"]
+[ext_resource type="PackedScene" uid="uid://38xqikpdfhdk" path="res://Weapons/Turrets/turret.tscn" id="4_tscn"]
+[ext_resource type="PackedScene" path="res://Weapons/Turrets/bullet_weapon.tscn" id="5_bwpn"]
+
+[sub_resource type="StandardMaterial3D" id="Material_enemy_aircraft"]
+albedo_color = Color(1, 0.5, 0, 1)
+emission_enabled = true
+emission = Color(1, 0.5, 0, 1)
+emission_energy_multiplier = 2.0
 
 [sub_resource type="BoxMesh" id="BoxMesh_enemy_aircraft"]
 size = Vector3(8, 2, 12)
-
-[sub_resource type="StandardMaterial3D" id="Material_enemy_aircraft"]
-emission_enabled = true
-emission = Color(1, 0.5, 0, 1)
-emission_energy = 2.0
-albedo_color = Color(1, 0.5, 0, 1)
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_enemy_aircraft"]
 size = Vector3(8, 2, 12)
@@ -21,20 +21,17 @@ size = Vector3(8, 2, 12)
 [node name="EnemyAircraft" type="RigidBody3D"]
 mass = 200.0
 script = ExtResource("1_enemy")
-max_health = 50.0
-damage_per_shot = 10.0
-fire_rate = 1.0
 explosion_scene = ExtResource("2_explosion")
 
 [node name="MeshInstance3D" type="MeshInstance3D" parent="."]
-mesh = SubResource("BoxMesh_enemy_aircraft")
 material_override = SubResource("Material_enemy_aircraft")
+mesh = SubResource("BoxMesh_enemy_aircraft")
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="."]
 shape = SubResource("BoxShape3D_enemy_aircraft")
 
 [node name="TurretController" type="Node3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.0, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0)
 script = ExtResource("3_tctrl")
 weapon_scene = ExtResource("5_bwpn")
 

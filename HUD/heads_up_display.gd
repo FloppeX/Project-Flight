@@ -3,6 +3,10 @@ extends Node3D
 @export var camera_path: NodePath
 @export var aircraft_path: NodePath
 @export var crosshair_color: Color = Color.GREEN
+@export var hud_primary_color: Color = Color(0.0, 0.55, 0.0, 0.95)
+@export var hud_dim_color: Color = Color(0.0, 0.28, 0.0, 0.85)
+@export var hud_line_thickness_px: float = 3.5
+@export var hud_text_outline_size: int = 2
 @export var hud_range: float = 10000.0
 @export var hud_glass_size: Vector2 = Vector2(0.4, 0.4)  # 40x40 cm in meters - bigger for more text room
 @export var ccip_below_horizon_only: bool = true  # Hide CCIP when projected above screen center
@@ -72,7 +76,7 @@ func _ready():
 	material.albedo_texture = viewport.get_texture()
 	material.emission_enabled = true
 	material.emission_texture = viewport.get_texture()
-	material.emission_energy = 10.0  # Much higher emission for brightness
+	material.emission_energy = 5.5
 	
 	# Apply material
 	hud_mesh.material_override = material
@@ -91,16 +95,15 @@ func _ready():
 	
 	# Make crosshair lines centered and scale relative to HUD size
 	var line_len: float = max(hud_size.x, hud_size.y) * 0.25
-	var line_thickness: float = 2.0
+	var line_thickness: float = hud_line_thickness_px
 	horizontal_line.size = Vector2(line_len, line_thickness)
 	horizontal_line.position = reticle.pivot_offset - Vector2(line_len * 0.5, line_thickness * 0.5)
 	
 	vertical_line.size = Vector2(line_thickness, line_len)
 	vertical_line.position = reticle.pivot_offset - Vector2(line_thickness * 0.5, line_len * 0.5)
 	
-	# Set up crosshair colors - maximum brightness green
-	horizontal_line.color = Color(0, 10.0, 0, 1.0)  # Maximum brightness green
-	vertical_line.color = Color(0, 10.0, 0, 1.0)  # Maximum brightness green
+	horizontal_line.color = hud_primary_color
+	vertical_line.color = hud_primary_color
 	
 	# Set up weapon status display
 	setup_weapon_status()
@@ -137,7 +140,9 @@ func setup_weapon_status():
 	
 	# Style the text - make it more opaque and larger
 	weapon_status.text = "No Weapons"
-	weapon_status.add_theme_color_override("font_color", Color(0, 10.0, 0, 1.0))  # Maximum brightness green
+	weapon_status.add_theme_color_override("font_color", hud_primary_color)
+	weapon_status.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 0.85))
+	weapon_status.add_theme_constant_override("outline_size", hud_text_outline_size)
 	weapon_status.add_theme_font_size_override("font_size", 20)
 	
 	# Add background for better visibility
@@ -162,7 +167,9 @@ func setup_speed_altitude():
 	
 	# Style the text - make it more opaque and larger
 	speed_altitude.text = "SPD: 0\nALT: 0"
-	speed_altitude.add_theme_color_override("font_color", Color(0, 10.0, 0, 1.0))  # Maximum brightness green
+	speed_altitude.add_theme_color_override("font_color", hud_primary_color)
+	speed_altitude.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 0.85))
+	speed_altitude.add_theme_constant_override("outline_size", hud_text_outline_size)
 	speed_altitude.add_theme_font_size_override("font_size", 18)
 	
 	# Add background for better visibility
@@ -183,8 +190,8 @@ func setup_ccip():
 	viewport.add_child(ccip_circle)
 	
 	# Create circle outline using 4 ColorRect segments (top, bottom, left, right)
-	var circle_color = Color(0, 10.0, 0, 1.0)
-	var line_thickness = 2.0
+	var circle_color: Color = hud_primary_color
+	var line_thickness: float = hud_line_thickness_px
 	var radius = 14.0
 	
 	# Top arc (approximate with rectangle)
@@ -217,8 +224,8 @@ func setup_ccip():
 	
 	# Create CCIP dot (center)
 	ccip_dot = ColorRect.new()
-	ccip_dot.color = Color(0, 10.0, 0, 1.0)  # Maximum brightness green
-	ccip_dot.size = Vector2(4, 4)  # 4px dot
+	ccip_dot.color = hud_primary_color
+	ccip_dot.size = Vector2(6, 6)
 	ccip_dot.visible = false
 	viewport.add_child(ccip_dot)
 
@@ -232,8 +239,8 @@ func setup_target_overlay():
 	viewport.add_child(target_overlay)
 	
 	# Create 4 lines to form a target box (top, bottom, left, right)
-	var box_color = Color(0, 10.0, 0, 1.0)  # Bright green
-	var line_thickness = 2.0
+	var box_color: Color = hud_primary_color
+	var line_thickness: float = hud_line_thickness_px
 	
 	for i in range(4):
 		var line = ColorRect.new()
@@ -253,18 +260,20 @@ func setup_lock_diamond():
 
 	# Diamond = 4 lines: top-left, top-right, bottom-left, bottom-right
 	# Each is a thin rect rotated 45° — approximate with short rects positioned at diagonals
-	var dim_color = Color(0, 4.0, 0, 1.0)   # Dimmer while acquiring
+	var dim_color: Color = hud_dim_color
 	for i in range(4):
 		var seg = ColorRect.new()
 		seg.color = dim_color
-		seg.size = Vector2(2, 18)  # thin vertical segment, rotated in position
+		seg.size = Vector2(hud_line_thickness_px, 20)
 		lock_diamond.add_child(seg)
 		lock_diamond_lines.append(seg)
 
 	# Lock-acquired label above diamond
 	lock_label = Label.new()
 	lock_label.text = ""
-	lock_label.add_theme_color_override("font_color", Color(0, 10.0, 0, 1.0))
+	lock_label.add_theme_color_override("font_color", hud_primary_color)
+	lock_label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 0.85))
+	lock_label.add_theme_constant_override("outline_size", hud_text_outline_size)
 	lock_label.add_theme_font_size_override("font_size", 16)
 	lock_diamond.add_child(lock_label)
 
@@ -553,7 +562,7 @@ func update_target_overlay():
 	_set_target_box_visible(true)
 	
 	var box_size = Vector2(40, 40)
-	var line_thickness = 2.0
+	var line_thickness: float = hud_line_thickness_px
 	var top_left = hud_pos - (box_size * 0.5)
 	
 	# Position the 4 lines that form the box
@@ -668,10 +677,10 @@ func update_lock_diamond() -> void:
 	# Draw diamond: 4 line segments at N/E/S/W tips
 	# Diamond half-size
 	var r := 20.0  # radius in viewport pixels
-	var t := 2.0   # line thickness
+	var t: float = hud_line_thickness_px
 	var seg_len := r * 0.6
-	var bright := Color(0, 10.0, 0, 1.0)
-	var dim := Color(0, 4.0, 0, 0.6)
+	var bright: Color = hud_primary_color
+	var dim: Color = hud_dim_color
 	var col := bright if locked else dim
 
 	# NW corner segment (top-left arm of diamond)

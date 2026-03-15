@@ -18,10 +18,14 @@ signal launch_sequence_aborted
 # Timing and forces
 @export var shuttle_speed: float = 30.0       # Constant shuttle speed (m/s)
 @export var approach_speed_mps: float = 2.0   # Slow approach speed when moving to latch
-@export var return_speed_mps: float = 10.0 # Speed shuttle moves back after launch
+@export var return_speed_mps: float = 10.0    # Speed shuttle moves back after launch
 @export var latch_proximity_m: float = 0.1    # Distance at which shuttle latches nose gear (proximity fallback)
 @export var tow_position_gain: float = 12.0   # Converts nose-position error to corrective target velocity
-@export var tow_force_max: float = 250000.0   # Caps tow force to avoid instability
+@export var tow_force_max: float = 250000.0   # Caps tow force to avoid instability (overridden by mass-based calc)
+@export var engine_start_wait_s: float = 0.5  # Time to wait for engine to fire before spooling
+@export var spool_duration_s: float = 1.5     # Time to ramp throttle from 0 → 100%
+@export var hold_duration_s: float = 0.5      # Time to hold at full power before stroke
+@export var settle_duration_s: float = 0.2    # Physics settle time after alignment
 
 # Input
 @export var launch_action: String = "fire_weapon"
@@ -46,7 +50,6 @@ var _saved_gravity_scale: float = 1.0
 var _saved_collision_layer: int = 0
 var _saved_collision_mask: int = 0
 var _settling: bool = false
-var _settle_duration: float = 0.35
 var _settle_timer: float = 0.0
 var _finalizing: bool = false
 var _pin_at_release_point: bool = true
@@ -58,13 +61,12 @@ var _engine_start_timer: float = 0.0
 var _hold_at_power: bool = false
 var _spool_timer: float = 0.0
 var _hold_timer: float = 0.0
-var _spool_duration: float = 3.0
-var _hold_duration: float = 3.0
 var _wheel_latches: Array[PinJoint3D] = [] # kept for cleanup of any legacy joints
 var _saved_freeze_state: bool = false
 var _launch_acceleration: float = 0.0
 var _shuttle_current_velocity: Vector3 = Vector3.ZERO
 var _spool_fallback_timer: float = 0.0
+var _effective_tow_force_max: float = 0.0  # Computed from aircraft mass at latch time
 
 var _is_ready: bool = false
 
@@ -101,7 +103,23 @@ func _ready():
 	_is_ready = true
 	set_physics_process(true)
 
+var _dbg_frame: int = 0
 func _physics_process(delta: float):
+	if is_instance_valid(_aircraft) and (not _pin_at_release_point) and not _launching:
+		_dbg_frame += 1
+		if _dbg_frame % 10 == 0:  # every ~10 physics frames
+			var lm_pos := latch_marker.global_position if is_instance_valid(latch_marker) else Vector3.ZERO
+			var ac_pos := _aircraft.global_position
+			var offset := Vector2(ac_pos.x - lm_pos.x, ac_pos.z - lm_pos.z)
+			print("[CAT DBG] frozen=", _aircraft.freeze,
+				"  vel=", snapped(_aircraft.linear_velocity.length(), 0.01),
+				"  ac=(", snapped(ac_pos.x,0.1), ",", snapped(ac_pos.z,0.1), ")",
+				"  latch=(", snapped(lm_pos.x,0.1), ",", snapped(lm_pos.z,0.1), ")",
+				"  offset=", snapped(offset.length(), 0.1), "m",
+				"  state=", "settle" if _settling else ("approach" if _moving_to_latch else ("latched" if _latched else "?")),
+				"  brake=", _aircraft.has_meta("parking_brake"),
+				"  cdis=", _aircraft.has_meta("controls_disabled"))
+
 	# Highest priority: handle pending finalization from the previous frame.
 	if _alignment_pending:
 		# Important: Do nothing else this frame to let the transform "settle"
@@ -172,14 +190,14 @@ func _physics_process(delta: float):
 	elif _spooling_up and not _launching:
 			# Gradually increase throttle over _spool_duration
 		_spool_timer += delta
-		var throttle_ratio = min(_spool_timer / _spool_duration, 1.0)
+		var throttle_ratio = min(_spool_timer / spool_duration_s, 1.0)
 		_command_throttle(throttle_ratio)
 
-		if _spool_timer >= _spool_duration:
-			if debug_enabled: print("[CATAPULT] Spool up complete. Holding at max power for ", _hold_duration, "s.")
+		if _spool_timer >= spool_duration_s:
+			if debug_enabled: print("[CATAPULT] Spool up complete. Holding at max power for ", hold_duration_s, "s.")
 			_spooling_up = false
 			_hold_at_power = true
-			_hold_timer = _hold_duration
+			_hold_timer = hold_duration_s
 
 	elif _hold_at_power and not _launching:
 		# Hold at full power for a few seconds before launch
@@ -237,6 +255,10 @@ func begin_sequence(aircraft: RigidBody3D) -> void:
 	_launching = false
 	_moving_to_latch = true
 	_pin_at_release_point = false
+	# Freeze the aircraft solid while the shuttle approaches.
+	# _release_wheels() will unfreeze for the launch stroke.
+	aircraft.freeze = true
+	print("[CATAPULT][DBG] begin_sequence — frozen=", aircraft.freeze, " vel=", snapped(aircraft.linear_velocity.length(), 0.01), "m/s")
 	# _latch_target_position is updated live each frame from latch_marker (see _physics_process).
 	# Set an initial value now.
 	_latch_target_position = latch_marker.global_position
@@ -283,6 +305,15 @@ func _try_latch() -> void:
 	_latched = true
 	_moving_to_latch = false
 	_immobilize_wheels()
+
+	# Scale tow force to the aircraft's mass so heavier planes get the same
+	# launch speed regardless of weight.  Required force = mass × acceleration,
+	# with 4× headroom so the tow-bar PID can track the shuttle cleanly.
+	_effective_tow_force_max = _aircraft.mass * _launch_acceleration * 4.0
+	if tow_force_max > 0.0:
+		_effective_tow_force_max = max(_effective_tow_force_max, tow_force_max)
+	if debug_enabled:
+		print("[CATAPULT] Aircraft mass: %.0f kg — tow force cap: %.0f N" % [_aircraft.mass, _effective_tow_force_max])
 	
 	var engine = _find_engine(_aircraft)
 	if is_instance_valid(engine):
@@ -293,7 +324,7 @@ func _try_latch() -> void:
 				engine.engine_start()
 				# Set a timer to wait for the engine to start
 				_engine_starting = true
-				_engine_start_timer = 1.2
+				_engine_start_timer = engine_start_wait_s
 		else:
 			# If engine is already running, go straight to spool up
 			_spooling_up = true
@@ -327,8 +358,9 @@ func _drag_aircraft_to_shuttle() -> void:
 		var current_velocity: Vector3 = _aircraft.linear_velocity
 		var velocity_error: Vector3 = desired_velocity - current_velocity
 		var force: Vector3 = velocity_error * _aircraft.mass / maxf(get_physics_process_delta_time(), 0.001)
-		if tow_force_max > 0.0 and force.length() > tow_force_max:
-			force = force.normalized() * tow_force_max
+		var cap := _effective_tow_force_max if _effective_tow_force_max > 0.0 else tow_force_max
+		if cap > 0.0 and force.length() > cap:
+			force = force.normalized() * cap
 		var force_position = nose_gear.global_position - _aircraft.global_position
 		_aircraft.apply_force(force, force_position)
 	else:
@@ -337,8 +369,9 @@ func _drag_aircraft_to_shuttle() -> void:
 		var current_velocity: Vector3 = _aircraft.linear_velocity
 		var velocity_error: Vector3 = desired_velocity - current_velocity
 		var force: Vector3 = velocity_error * _aircraft.mass / maxf(get_physics_process_delta_time(), 0.001)
-		if tow_force_max > 0.0 and force.length() > tow_force_max:
-			force = force.normalized() * tow_force_max
+		var cap := _effective_tow_force_max if _effective_tow_force_max > 0.0 else tow_force_max
+		if cap > 0.0 and force.length() > cap:
+			force = force.normalized() * cap
 		_aircraft.apply_central_force(force)
 
 
@@ -373,13 +406,10 @@ func _find_aircraft(from_node: Node) -> RigidBody3D:
 	return null
 
 func _immobilize_wheels():
-	# Freeze the aircraft instead of using PinJoint3D wheel latches.
-	# PinJoints anchored in world space fight against _carry_deck_passengers on a
-	# moving carrier — the physics solver re-snaps the aircraft to the old anchor
-	# each frame. Freezing lets _carry_deck_passengers move the body directly while
-	# engine thrust is discarded (FREEZE_MODE_STATIC ignores applied forces).
+	# Aircraft is already frozen by begin_sequence(); just record the pre-sequence
+	# state so _release_wheels() restores it correctly.
 	if not is_instance_valid(_aircraft): return
-	_saved_freeze_state = _aircraft.freeze
+	_saved_freeze_state = false  # we always want to unfreeze on launch
 	_aircraft.freeze = true
 	if debug_enabled: print("[CATAPULT] Aircraft frozen for spool-up.")
 
@@ -532,9 +562,10 @@ func _finalize_alignment_and_settle() -> void:
 	_aircraft.collision_mask = _saved_collision_mask if _saved_collision_mask != 0 else 1
 	_aircraft.freeze = false
 	_aircraft.sleeping = false
-	
+	print("[CATAPULT][DBG] finalize_alignment — unfrozen for settle. vel=", snapped(_aircraft.linear_velocity.length(), 0.01), "m/s  parking_brake=", _aircraft.has_meta("parking_brake"), " transport=", _aircraft.has_meta("carrier_transport_mode"))
+
 	_settling = true
-	_settle_timer = _settle_duration
+	_settle_timer = settle_duration_s
 	_finalizing = false
 
 func _abort_launch() -> void:
@@ -575,6 +606,7 @@ func _reset_state():
 	_hold_at_power = false
 	_engine_starting = false
 	_pin_at_release_point = true
+	_effective_tow_force_max = 0.0
 
 # --- Helpers ---
 

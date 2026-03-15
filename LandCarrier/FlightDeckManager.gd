@@ -49,6 +49,10 @@ var _aircraft_original_collision_layer: int = 0
 var _aircraft_original_collision_mask: int = 0
 var _retrieval_top_handled: bool = false
 
+# FlightOps AI-launch queue
+var _ai_launch_queue: int = 0          # Aircraft still to retrieve+launch for FlightOps
+var _pending_flight_ops: Node = null   # Node waiting for notify_aircraft_launched() callbacks (FlightDirector)
+
 func _ready():
 	add_to_group("flight_deck_manager")
 	if catapult:
@@ -204,10 +208,43 @@ func request_launch_sequence(aircraft: RigidBody3D):
 	else:
 		print("ERROR [FlightDeckManager]: Catapult is missing the 'align_aircraft' method.")
 
+func queue_ai_flight(count: int, ops: Node) -> void:
+	"""Request FlightOps to launch `count` AI aircraft one after another.
+	Each successful launch calls ops.notify_aircraft_launched(pilot)."""
+	var available := mini(count, stored_aircraft.size())
+	if available <= 0:
+		push_warning("[FlightDeckManager] queue_ai_flight: hangar empty")
+		return
+	_ai_launch_queue = available
+	_pending_flight_ops = ops
+	print("[FlightDeckManager] FlightOps scramble: queuing ", _ai_launch_queue, " aircraft")
+	if current_state == DeckState.IDLE:
+		_launch_next_queued_ai()
+
+func _launch_next_queued_ai() -> void:
+	if _ai_launch_queue <= 0 or stored_aircraft.is_empty():
+		_ai_launch_queue = 0
+		_pending_flight_ops = null
+		return
+	_ai_launch_queue -= 1
+	start_hangar_retrieval()
+
 func _on_catapult_sequence_complete():
-	print("[FlightDeckManager] Catapult reported sequence complete. Deck is now IDLE.")
+	# Notify FlightOps about the aircraft that just launched
+	if _pending_flight_ops and is_instance_valid(deck_aircraft):
+		var pilot = deck_aircraft.get_node_or_null("AIPilot")
+		if pilot and _pending_flight_ops.has_method("notify_aircraft_launched"):
+			_pending_flight_ops.notify_aircraft_launched(pilot)
+
+	print("[FlightDeckManager] Catapult sequence complete. Deck IDLE.")
 	current_state = DeckState.IDLE
 	deck_aircraft = null
+
+	# Continue queued AI launches if more are pending
+	if _ai_launch_queue > 0:
+		_launch_next_queued_ai()
+	elif _pending_flight_ops != null:
+		_pending_flight_ops = null
 
 func _on_catapult_sequence_aborted():
 	print("[FlightDeckManager] Catapult reported sequence aborted. Restoring controls and returning to IDLE.")
@@ -1077,9 +1114,11 @@ func _follow_elevator_down(aircraft: RigidBody3D):
 	# Now deactivate tractorbots after elevator sequence is complete
 	_deactivate_tractor_bots()
 
-func _restore_aircraft_physics(aircraft: RigidBody3D):
-	"""Restore aircraft physics for launch"""
-	print("[FlightDeckManager] Restoring aircraft physics for launch")
+func _restore_aircraft_physics(aircraft: RigidBody3D, keep_frozen: bool = false):
+	"""Restore aircraft physics for launch.
+	keep_frozen=true restores collisions/gravity but skips the unfreeze,
+	used by the retrieval path where the aircraft is already correctly positioned."""
+	print("[FlightDeckManager] Restoring aircraft physics for launch (keep_frozen=", keep_frozen, ")")
 
 	# Force aircraft to be completely still first
 	aircraft.freeze = true
@@ -1110,33 +1149,41 @@ func _restore_aircraft_physics(aircraft: RigidBody3D):
 	aircraft.linear_velocity = Vector3.ZERO
 	aircraft.angular_velocity = Vector3.ZERO
 
-	# Unfreeze and immediately clear velocities
+	var default_layer = 513  # Layers 0 and 9 (binary 1000000001)
+	var default_mask = 513
+
+	if keep_frozen:
+		# Retrieval path: aircraft is already correctly positioned on the deck.
+		# Restore collisions and gravity without unfreezing — avoids the moving
+		# deck surface pushing the aircraft before begin_sequence freezes it.
+		aircraft.set_gravity_scale(1.0)
+		aircraft.collision_layer = _aircraft_original_collision_layer if _aircraft_original_collision_layer != 0 else default_layer
+		aircraft.collision_mask  = _aircraft_original_collision_mask  if _aircraft_original_collision_mask  != 0 else default_mask
+		if aircraft.has_meta("carrier_transport_mode"):
+			aircraft.remove_meta("carrier_transport_mode")
+		print("[FlightDeckManager] Aircraft physics restored (frozen, no settle). Layer=", aircraft.collision_layer)
+		return
+
+	# Normal path: aircraft was teleported to catapult, needs a brief unfreeze
+	# so it can settle onto the deck under gravity before the catapult latches.
 	aircraft.freeze = false
 	aircraft.linear_velocity = Vector3.ZERO
 	aircraft.angular_velocity = Vector3.ZERO
 
-	# Give unfreeze one frame before restoring collisions
 	await get_tree().process_frame
 
-	# Clear velocities yet again
 	aircraft.linear_velocity = Vector3.ZERO
 	aircraft.angular_velocity = Vector3.ZERO
 
-	# Finally restore collisions (use defaults if saved values are 0)
-	var default_layer = 513  # Layers 0 and 9 (binary 1000000001)
-	var default_mask = 513
-
 	aircraft.collision_layer = _aircraft_original_collision_layer if _aircraft_original_collision_layer != 0 else default_layer
-	aircraft.collision_mask = _aircraft_original_collision_mask if _aircraft_original_collision_mask != 0 else default_mask
+	aircraft.collision_mask  = _aircraft_original_collision_mask  if _aircraft_original_collision_mask  != 0 else default_mask
 
-	# Final clearing after collisions enabled
 	aircraft.linear_velocity = Vector3.ZERO
 	aircraft.angular_velocity = Vector3.ZERO
 	if aircraft.has_meta("carrier_transport_mode"):
 		aircraft.remove_meta("carrier_transport_mode")
 
-	print("[FlightDeckManager] Aircraft physics fully restored with aggressive velocity clearing")
-	print("[FlightDeckManager] Collision layer: ", aircraft.collision_layer, " mask: ", aircraft.collision_mask)
+	print("[FlightDeckManager] Aircraft physics fully restored. Layer=", aircraft.collision_layer)
 
 func _start_retrieval_ascent_sequence(aircraft: RigidBody3D):
 	"""Start the elevator ascent with aircraft and tractorbots"""
@@ -1259,16 +1306,39 @@ func _complete_retrieval_sequence():
 		# Fallback if no gear colliders found
 		await _move_aircraft_smoothly(aircraft, target_position)
 
-	# Re-enable physics at launch position and let suspension settle naturally.
-	# This replaces manual "lowering" while bots are still attached.
-	await _restore_aircraft_physics(aircraft)
+	# Re-enable physics at launch position. Keep the body frozen so the moving
+	# deck doesn't push it before the catapult takes over.
+	await _restore_aircraft_physics(aircraft, true)
+
+	# Lower the frozen aircraft so its wheels sit on the flight deck.
+	# Must happen before tractor bots leave so they can support the aircraft.
+	var deck_y := _get_deck_height_y()
+	var landing_gear_nodes: Array[Node3D] = []
+	for child in aircraft.get_children():
+		if child is Node3D and ("gear" in child.name.to_lower() or "wheel" in child.name.to_lower()):
+			landing_gear_nodes.append(child as Node3D)
+		for grandchild in child.get_children():
+			if grandchild is Node3D and ("gear" in grandchild.name.to_lower() or "wheel" in grandchild.name.to_lower()):
+				landing_gear_nodes.append(grandchild as Node3D)
+	if not landing_gear_nodes.is_empty():
+		var lowest_local_y := INF
+		for gear in landing_gear_nodes:
+			var ly := aircraft.to_local(gear.global_position).y
+			if ly < lowest_local_y:
+				lowest_local_y = ly
+		aircraft.global_position.y = deck_y - lowest_local_y
+		print("[FlightDeckManager] Lowered aircraft to deck: gear_y=", snappedf(deck_y, 0.1), " aircraft_y=", snappedf(aircraft.global_position.y, 0.1))
+	else:
+		aircraft.global_position.y = deck_y
+		print("[FlightDeckManager] Lowered aircraft to deck (no gear found, using deck_y directly)")
+
 	aircraft.set_meta("physics_ready_for_launch", true)
 
 	# After physics handoff, send tractorbots to staging.
 	await _move_tractorbots_to_staging()
 
-	# Configure as player-controlled before launch
-	_configure_retrieved_aircraft_as_player(aircraft)
+	# Retrieved aircraft stay AI-controlled until the player explicitly takes over.
+	_configure_retrieved_aircraft_as_ai(aircraft)
 
 	# Automatically start launch sequence
 	

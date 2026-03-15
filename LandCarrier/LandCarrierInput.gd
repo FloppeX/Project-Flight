@@ -11,6 +11,7 @@ class_name LandCarrierInput
 @export var speed_increment: float = 5.0  # m/s speed change per key press
 @export var max_speed: float = 20.0  # m/s maximum speed
 @export var min_speed: float = 0.0   # m/s minimum speed
+@export var enable_legacy_keyboard_controls: bool = false
 
 var current_speed: float = 0.0
 var current_direction: float = 0.0  # Direction in degrees
@@ -36,19 +37,35 @@ func _ready():
 		return
 	
 	print("Land Carrier Input Controls Ready!")
-	print("Controls:")
-	print("  E - Move elevator up")
-	print("  D - Move elevator down") 
-	print("  W - Increase speed")
-	print("  S - Decrease speed")
-	print("  A - Turn left")
-	print("  D - Turn right")
-	print("  ESC - Quit")
+	if enable_legacy_keyboard_controls:
+		print("Controls:")
+		print("  E - Move elevator up")
+		print("  D - Move elevator down") 
+		print("  W - Increase speed")
+		print("  S - Decrease speed")
+		print("  A - Turn left")
+		print("  D - Turn right")
+		print("  ESC - Quit")
 
 func _input(event):
 	if not land_carrier:
 		return
-	
+
+	# Arrow Up/Down always adjust max_speed regardless of legacy mode.
+	if event is InputEventKey and event.pressed and not event.echo:
+		match event.keycode:
+			KEY_UP:
+				land_carrier.max_speed = clamp(land_carrier.max_speed + 8.0, min_speed, 40.0)
+				print("[Carrier] Speed → %.0f m/s" % land_carrier.max_speed)
+				return
+			KEY_DOWN:
+				land_carrier.max_speed = clamp(land_carrier.max_speed - 8.0, min_speed, 40.0)
+				print("[Carrier] Speed → %.0f m/s" % land_carrier.max_speed)
+				return
+
+	if not enable_legacy_keyboard_controls:
+		return
+
 	# Handle key presses
 	if event is InputEventKey and event.pressed:
 		match event.keycode:

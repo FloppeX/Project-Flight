@@ -2,6 +2,7 @@ extends ProjectileNew
 class_name AAMissile
 
 @export var max_speed_mps: float = 600.0
+@export var launch_speed_mps: float = 120.0
 @export var thrust_force: float = 6000.0
 @export var steer_torque: float = 200.0
 @export var max_turn_rate_deg_per_sec: float = 240.0
@@ -17,6 +18,13 @@ class_name AAMissile
 @export var terminal_attack_distance: float = 100.0  # Distance to switch to phase 2
 @export var lead_velocity_threshold: float = 15.0  # Min target velocity for lead prediction
 @export var lead_factor: float = 0.2  # How much to lead fast-moving targets
+@export var guidance_velocity_blend: float = 0.125
+@export var terminal_guidance_velocity_blend: float = 0.38
+@export var terminal_turn_rate_boost: float = 1.35
+@export var spiral_radius_m: float = 28.0
+@export var spiral_frequency_hz: float = 1.55
+@export var spiral_terminal_scale: float = 0.6
+@export var spiral_launch_ramp_s: float = 0.45
 
 # Explosion parameters
 @export var explosion_radius: float = 10.0  # Blast radius in meters
@@ -25,6 +33,7 @@ class_name AAMissile
 @export var arming_time: float = 0.5  # Time in seconds before missile can explode
 @export var engine_ignition_delay: float = 0.1  # Fast start
 @export var proximity_detonation_distance: float = 10.0  # Detonate if it passes within 10m of a plane
+@export var proximity_target_padding_m: float = 6.0
 
 var target: Node3D
 var smoke_particles: Array = []
@@ -32,6 +41,9 @@ var smoke_timer: float = 0.0
 var smoke_interval: float = 0.05  # Emit every 3 frames at 60fps
 var launch_time: float = 0.0
 var is_armed: bool = false
+var _spiral_phase: float = 0.0
+var _spiral_direction: float = 1.0
+var _spiral_radius_scale: float = 1.0
 
 # Simple particle data structure
 class SmokeParticle:
@@ -68,12 +80,22 @@ func fire_with_target(initial_velocity: Vector3, firing_aircraft: Node3D, t: Nod
 	fire(initial_velocity, firing_aircraft)
 
 func fire(initial_velocity: Vector3, firing_aircraft: Node3D):
+	# Launch with the carrier aircraft's current velocity plus a forward rail/ejection speed.
+	var launch_velocity: Vector3 = initial_velocity
+	var launch_dir: Vector3 = global_transform.basis.z.normalized()
+	if launch_dir.length_squared() < 0.001:
+		launch_dir = Vector3.FORWARD
+	launch_velocity += launch_dir * maxf(launch_speed_mps, 0.0)
+
 	# Call parent fire method
-	super.fire(initial_velocity, firing_aircraft)
+	super.fire(launch_velocity, firing_aircraft)
 	# Record launch time for arming and engine ignition delays
 	launch_time = Time.get_ticks_msec() / 1000.0
 	is_armed = false
 	engine_on = false  # Start with engine OFF - will be enabled after ignition delay
+	_spiral_phase = randf() * TAU
+	_spiral_direction = -1.0 if randf() < 0.5 else 1.0
+	_spiral_radius_scale = randf_range(0.95, 1.6)
 	print("Missile launched - engine ignites in ", engine_ignition_delay, " seconds, arms in ", arming_time, " seconds")
 
 func _physics_process(delta):
@@ -126,72 +148,47 @@ func _apply_guidance(delta: float) -> void:
 		print("No valid target for missile guidance")
 		return
 	
-	# Get target velocity for lead calculation
-	var target_velocity: Vector3 = Vector3.ZERO
-	if target.has_method("get_linear_velocity"):
-		target_velocity = target.get_linear_velocity()
-	elif "linear_velocity" in target:
-		target_velocity = target.linear_velocity
+	var target_velocity: Vector3 = _get_target_velocity(target)
 	
 	var distance_to_target: float = global_position.distance_to(target.global_position)
-	var base_target_pos: Vector3 = target.global_position
-	
-	# Improved lead prediction - disable when very close to prevent overshooting
-	if target_velocity.length() > lead_velocity_threshold and distance_to_target > 75.0:
-		var missile_speed: float = max(linear_velocity.length(), 50.0)
-		var time_to_target: float = distance_to_target / missile_speed
+	var terminal_t: float = 1.0 - clampf(distance_to_target / maxf(terminal_attack_distance, 1.0), 0.0, 1.0)
+	var intercept_point: Vector3 = _predict_intercept_point(target.global_position, target_velocity)
+	var lead_blend: float = clampf(lead_factor, 0.0, 1.0) * (1.0 - terminal_t * 0.65)
+	var attack_point: Vector3 = target.global_position.lerp(intercept_point, lead_blend)
+	if distance_to_target < terminal_attack_distance:
+		attack_point = attack_point.lerp(target.global_position, terminal_t)
+	attack_point += _get_spiral_guidance_offset(attack_point, distance_to_target, terminal_t)
 
-		# Reduce lead factor based on distance - much less lead when close
-		var distance_lead_factor: float = clamp(distance_to_target / 300.0, 0.05, 1.0)
-		var adjusted_lead_factor: float = lead_factor * distance_lead_factor
-
-		# Cap the lead prediction to prevent extreme overshooting
-		var lead_prediction: Vector3 = target_velocity * time_to_target * adjusted_lead_factor
-		var max_lead_distance: float = distance_to_target * 0.15  # Reduced from 30% to 15%
-		if lead_prediction.length() > max_lead_distance:
-			lead_prediction = lead_prediction.normalized() * max_lead_distance
-
-		base_target_pos = target.global_position + lead_prediction
-	
-	# Progressive three-phase guidance system to prevent overshooting
-	var attack_point = base_target_pos
-	
-	var to_target: Vector3 = (attack_point - global_position).normalized()
+	var to_target_vec: Vector3 = attack_point - global_position
+	if to_target_vec.length_squared() < 0.01:
+		return
+	var to_target: Vector3 = to_target_vec.normalized()
 	var fwd: Vector3 = global_transform.basis.z.normalized()
+	if fwd.length_squared() < 0.001:
+		fwd = linear_velocity.normalized() if linear_velocity.length_squared() > 1.0 else Vector3.FORWARD
 	var dot_val: float = clamp(fwd.dot(to_target), -1.0, 1.0)
 	var angle_err: float = acos(dot_val)
-	
-	if angle_err < 0.001:
-		return
 	
 	var steer_axis: Vector3 = fwd.cross(to_target)
 	if steer_axis.length() > 0.0001:
 		steer_axis = steer_axis.normalized()
-		
-		# Improved distance-based steering control
-		var distance_factor: float
-		if distance_to_target < 100.0:
-			# REDUCE steering when very close to prevent overshoot
-			distance_factor = clamp(distance_to_target / 100.0, 0.1, 0.5)  # Much gentler steering when close
-		else:
-			# Normal steering when far
-			distance_factor = clamp(distance_to_target / 200.0, 0.5, 1.0)
-		
-		var torque_mag: float = steer_torque * angle_err * distance_factor
+
+		var max_turn_rate_rad: float = deg_to_rad(max_turn_rate_deg_per_sec) * lerpf(1.0, maxf(terminal_turn_rate_boost, 1.0), terminal_t)
+		var desired_ang_vel: Vector3 = steer_axis * minf(angle_err / maxf(delta, 0.001), max_turn_rate_rad)
+		var ang_vel_blend: float = clampf(lerpf(0.18, 0.55, terminal_t), 0.0, 1.0)
+		angular_velocity = angular_velocity.lerp(desired_ang_vel, ang_vel_blend)
+
+		var torque_mag: float = steer_torque * angle_err * lerpf(0.8, 1.4, terminal_t)
 		apply_torque(steer_axis * torque_mag)
 
-	# Apply maximum turn rate limiting
-	var max_angular_velocity = deg_to_rad(max_turn_rate_deg_per_sec)
-	if angular_velocity.length() > max_angular_velocity:
-		angular_velocity = angular_velocity.normalized() * max_angular_velocity
-
-	# Progressive angular damping based on distance for stability
-	var damping_factor: float = 0.95
-	if distance_to_target < 100.0:
-		# Increase damping progressively as we get closer
-		var damping_strength = clamp((100.0 - distance_to_target) / 100.0, 0.0, 1.0)
-		damping_factor = lerp(0.95, 0.7, damping_strength)  # Stronger damping when very close
-	angular_velocity *= damping_factor
+	var current_speed: float = maxf(linear_velocity.length(), maxf(launch_speed_mps, 1.0))
+	var desired_velocity: Vector3 = to_target * current_speed
+	var velocity_blend: float = lerpf(
+		clampf(guidance_velocity_blend, 0.0, 1.0),
+		clampf(terminal_guidance_velocity_blend, 0.0, 1.0),
+		terminal_t
+	)
+	linear_velocity = linear_velocity.lerp(desired_velocity, clampf(velocity_blend * delta * 60.0, 0.0, 1.0))
 
 func _on_body_entered(body):
 	if body == shooter:
@@ -277,17 +274,24 @@ func _emit_smoke_particle() -> void:
 	particle_manager.add_smoke_particle(smoke_mesh, 1.5, Vector3(2.0, 2.0, 2.0))
 
 func _check_proximity_detonation():
-	# First cheap check: distance to locked target
+	var valid_target = null
 	if target and is_instance_valid(target):
-		var dist = global_position.distance_to(target.global_position)
-		if dist <= proximity_detonation_distance:
-			_trigger_explosion(target)
+		valid_target = target
+
+	# First cheap check: distance to locked target
+	if valid_target:
+		var fuse_radius: float = _get_effective_proximity_radius(valid_target)
+		var segment_start: Vector3 = last_position if last_position != Vector3.ZERO else global_position
+		var closest_point: Vector3 = _closest_point_on_segment(valid_target.global_position, segment_start, global_position)
+		var dist = closest_point.distance_to(valid_target.global_position)
+		if dist <= fuse_radius:
+			_trigger_explosion(valid_target)
 			return
 
 	# Sphere-overlap query so we don't skip past aircraft at high speed
 	var space := get_world_3d().direct_space_state
 	var shape := SphereShape3D.new()
-	shape.radius = proximity_detonation_distance
+	shape.radius = _get_effective_proximity_radius(valid_target)
 	var query := PhysicsShapeQueryParameters3D.new()
 	query.shape = shape
 	query.transform = global_transform
@@ -298,9 +302,111 @@ func _check_proximity_detonation():
 		var body := r.get("collider") as Node
 		if not body or body == shooter:
 			continue
-		if body is RigidBody3D and body.is_in_group("aircraft"):
-			_trigger_explosion(body)
+		var aircraft_target: Node = _resolve_aircraft_target(body)
+		if aircraft_target:
+			_trigger_explosion(aircraft_target)
 			return
+
+func _get_target_velocity(node: Node3D) -> Vector3:
+	if not node or not is_instance_valid(node):
+		return Vector3.ZERO
+	if node.has_method("get_linear_velocity"):
+		return node.get_linear_velocity()
+	if "linear_velocity" in node:
+		return node.linear_velocity
+	return Vector3.ZERO
+
+func _predict_intercept_point(target_pos: Vector3, target_velocity: Vector3) -> Vector3:
+	var rel_pos: Vector3 = target_pos - global_position
+	var accel_speed_gain: float = 0.0
+	if mass > 0.0:
+		accel_speed_gain = thrust_force / mass * 0.35
+	var missile_speed: float = clampf(
+		maxf(linear_velocity.length(), launch_speed_mps) + accel_speed_gain,
+		50.0,
+		maxf(max_speed_mps, 50.0)
+	)
+	var rel_vel: Vector3 = target_velocity - linear_velocity
+	var a: float = rel_vel.dot(rel_vel) - missile_speed * missile_speed
+	var b: float = 2.0 * rel_pos.dot(rel_vel)
+	var c: float = rel_pos.dot(rel_pos)
+	var t: float = 0.0
+
+	if absf(a) < 0.001:
+		if absf(b) > 0.001:
+			t = maxf(-c / b, 0.0)
+	else:
+		var disc: float = b * b - 4.0 * a * c
+		if disc >= 0.0:
+			var sqrt_disc: float = sqrt(disc)
+			var t1: float = (-b - sqrt_disc) / (2.0 * a)
+			var t2: float = (-b + sqrt_disc) / (2.0 * a)
+			var best_t: float = INF
+			if t1 > 0.0:
+				best_t = minf(best_t, t1)
+			if t2 > 0.0:
+				best_t = minf(best_t, t2)
+			if best_t < INF:
+				t = best_t
+
+	if t <= 0.0:
+		t = rel_pos.length() / missile_speed
+	return target_pos + target_velocity * clampf(t, 0.0, 4.0)
+
+func _get_spiral_guidance_offset(attack_point: Vector3, distance_to_target: float, terminal_t: float) -> Vector3:
+	if spiral_radius_m <= 0.0 or spiral_frequency_hz <= 0.0:
+		return Vector3.ZERO
+
+	var attack_dir: Vector3 = (attack_point - global_position).normalized()
+	if attack_dir.length_squared() < 0.001:
+		return Vector3.ZERO
+
+	var spiral_right: Vector3 = attack_dir.cross(Vector3.UP)
+	if spiral_right.length_squared() < 0.001:
+		spiral_right = attack_dir.cross(Vector3.RIGHT)
+	if spiral_right.length_squared() < 0.001:
+		return Vector3.ZERO
+	spiral_right = spiral_right.normalized()
+	var spiral_up: Vector3 = spiral_right.cross(attack_dir).normalized()
+
+	var current_time: float = Time.get_ticks_msec() / 1000.0
+	var time_since_launch: float = maxf(current_time - launch_time, 0.0)
+	var launch_ramp: float = 1.0
+	if spiral_launch_ramp_s > 0.0:
+		launch_ramp = clampf(time_since_launch / spiral_launch_ramp_s, 0.0, 1.0)
+
+	var far_range: float = maxf(terminal_attack_distance * 4.0, 1.0)
+	var far_weight: float = clampf(distance_to_target / far_range, 0.0, 1.0)
+	var terminal_radius_scale: float = lerpf(1.0, clampf(spiral_terminal_scale, 0.0, 1.0), clampf(terminal_t, 0.0, 1.0))
+	var radius_scale: float = terminal_radius_scale * lerpf(0.8, 1.0, far_weight)
+	var spiral_radius: float = spiral_radius_m * _spiral_radius_scale * launch_ramp * radius_scale
+	var theta: float = _spiral_phase + time_since_launch * spiral_frequency_hz * TAU * _spiral_direction
+
+	return spiral_right * cos(theta) * spiral_radius + spiral_up * sin(theta) * spiral_radius
+
+func _get_effective_proximity_radius(target_node = null) -> float:
+	var fuse_radius: float = maxf(proximity_detonation_distance, 1.0)
+	if target_node and is_instance_valid(target_node):
+		fuse_radius += maxf(proximity_target_padding_m, 0.0)
+	return fuse_radius
+
+func _closest_point_on_segment(point: Vector3, a: Vector3, b: Vector3) -> Vector3:
+	var ab: Vector3 = b - a
+	var ab_len_sq: float = ab.length_squared()
+	if ab_len_sq <= 0.0001:
+		return a
+	var t: float = clampf((point - a).dot(ab) / ab_len_sq, 0.0, 1.0)
+	return a + ab * t
+
+func _resolve_aircraft_target(body: Node) -> Node:
+	var node: Node = body
+	while node:
+		if node == shooter:
+			return null
+		if node.has_method("take_damage") and node.is_in_group("aircraft"):
+			return node
+		node = node.get_parent()
+	return null
 
 
 func _trigger_explosion(hit_body: Node = null):

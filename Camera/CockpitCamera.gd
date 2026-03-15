@@ -5,6 +5,7 @@ class_name CockpitCamera
 @export var vertical_sensitivity: float = 90.0    # degrees for up/down  
 @export var return_speed: float = 5.0             # how fast it snaps back to center
 @export var g_force_sensitivity: float = 0.08   # How much camera moves per G
+@export var g_force_vertical_scale: float = 0.35 # Scale vertical G camera motion without affecting horizontal response
 @export var g_force_smoothing_horizontal: float = 12.0  # How fast camera returns to center side-to-side/front-back
 @export var g_force_smoothing_vertical: float = 35.0    # How fast camera returns to center up-down
 @export var max_g_offset: float = 0.4           # Maximum camera displacement
@@ -58,7 +59,7 @@ func _physics_process(delta: float):
 	# Calculate camera offset from G-forces with improved mapping
 	var target_offset = Vector3(
 		-g_forces.x * g_force_sensitivity,     # Side G's push camera opposite direction
-		-g_forces.y * g_force_sensitivity,     # Positive G pushes down, negative G lifts up
+		-g_forces.y * g_force_sensitivity * g_force_vertical_scale,     # Positive G pushes down, negative G lifts up
 		-g_forces.z * g_force_sensitivity      # Forward G's push camera back
 	)
 	

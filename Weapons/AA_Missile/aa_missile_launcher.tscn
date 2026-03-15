@@ -1,7 +1,7 @@
 [gd_scene load_steps=4 format=3 uid="uid://yjaa3lj4xxb3"]
 
 [ext_resource type="Script" uid="uid://dvtitw0bcnpj" path="res://Weapons/AA_Missile/aa_missile_launcher.gd" id="1_script"]
-[ext_resource type="PackedScene" uid="uid://c6dxufxlfcbsx" path="res://Weapons/AA_Missile/missile_visual.tscn" id="2_57nns"]
+[ext_resource type="PackedScene" uid="uid://c6dxufxlfcbsx" path="res://Weapons/AG_Missile/missile_visual.tscn" id="2_57nns"]
 [ext_resource type="PackedScene" uid="uid://cplk212v3h6ql" path="res://Projectiles/AA Missile/aa_missile.tscn" id="2_y7bmw"]
 
 [node name="AAMissileLauncher" type="Node3D"]

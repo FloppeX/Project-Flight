@@ -8,6 +8,7 @@ class_name AAMissileLauncher
 
 var hardpoint: Hardpoint
 var last_fire_time: float = 0.0
+var last_fired_missile: Node3D = null
 @onready var missile_visual: Node3D = get_node_or_null("MissileVisual")
 
 func _ready():
@@ -37,7 +38,10 @@ func can_fire() -> bool:
 	if aircraft_node:
 		var targeting = aircraft_node.find_child("ControlTargeting_AAM", true, false)
 		if targeting and targeting.has_method("get_target_lock_time"):
-			if targeting.get_target_lock_time() < 3.0:
+			var required_lock_time: float = 3.0
+			if "required_lock_time" in targeting:
+				required_lock_time = maxf(float(targeting.required_lock_time), 0.0)
+			if targeting.get_target_lock_time() < required_lock_time:
 				return false
 			# Also need a target
 			var raw_target = targeting.get("current_target")
@@ -60,6 +64,7 @@ func fire() -> bool:
 	# Instantiate missile (avoid relying on global class)
 	var missile = missile_scene.instantiate()
 	get_tree().current_scene.add_child(missile)
+	last_fired_missile = missile as Node3D
 	
 	# Align missile with hardpoint orientation and position
 	if hardpoint:

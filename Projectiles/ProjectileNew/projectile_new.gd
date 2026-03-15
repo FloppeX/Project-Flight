@@ -6,6 +6,8 @@ class_name ProjectileNew
 @export var impact_effect: PackedScene  # Explosion/impact visual
 @export var creates_explosion: bool = true  # Whether this projectile explodes
 @export var explosion_scene: PackedScene  # Reference to explosion scene
+@export var target_mark_lifetime_s: float = 12.0
+@export var target_mark_size: Vector3 = Vector3(0.3, 2.0, 0.3)
 
 var shooter: Node3D  # Reference to whoever fired this
 var last_position: Vector3 = Vector3.ZERO
@@ -13,6 +15,11 @@ var has_impacted: bool = false
 var _terrain_node: Node = null
 
 func _ready():
+	mass = 0.01
+	gravity_scale = maxf(gravity_scale, 0.0)
+	physics_material_override = PhysicsMaterial.new()
+	physics_material_override.bounce = 0.0
+	physics_material_override.friction = 0.0
 	# IMPORTANT: Enable collision detection
 	contact_monitor = true
 	max_contacts_reported = 10
@@ -72,8 +79,10 @@ func fire(initial_velocity: Vector3, firing_aircraft: Node3D):
 	shooter = firing_aircraft
 	linear_velocity = initial_velocity
 	
-	# Disable collision with the firing aircraft initially
-	if firing_aircraft and firing_aircraft is RigidBody3D:
+	# Disable collision with the firing entity initially.
+	# Ground vehicles are CharacterBody3D, not RigidBody3D, and turret bullets can
+	# otherwise spawn inside the host collider and die immediately.
+	if firing_aircraft and firing_aircraft is CollisionObject3D:
 		add_collision_exception_with(firing_aircraft)
 		# Re-enable collision after a short delay (once projectile is clear)
 		get_tree().create_timer(0.2).timeout.connect(func(): 
@@ -87,11 +96,7 @@ func _on_body_entered(body):
 	if body == shooter:
 		return
 
-	if body.has_method("take_damage"):
-		pass
-	elif body.get_parent() and body.get_parent().has_method("take_damage"):
-		body.get_parent().take_damage(damage)
-		return
+	var damage_target = find_damage_target(body)
 	
 	# Mark as impacted immediately to prevent duplicate hits
 	has_impacted = true
@@ -118,17 +123,10 @@ func _on_body_entered(body):
 	# Play impact sound
 	play_impact_sound(body)
 	
-	# Create scorch mark if we hit an aircraft
-	if is_aircraft(body):
-		var aircraft_target = find_damage_target(body)  # Get the main aircraft node
-		if aircraft_target:
-			create_bullet_scorch_mark(aircraft_target)
-		else:
-			create_bullet_scorch_mark(body)  # Fallback to original body
+	if damage_target and _supports_target_hit_mark(damage_target):
+		create_bullet_scorch_mark(damage_target)
 	
 	# Apply damage if target has health
-	var damage_target = find_damage_target(body)
-	
 	if damage_target and damage_target.has_method("take_damage"):
 		damage_target.take_damage(damage)
 	queue_free()
@@ -252,8 +250,8 @@ func create_bullet_scorch_mark(aircraft_body: Node) -> void:
 	var decal: Decal = Decal.new()
 	decal.texture_albedo = load("res://Projectiles/Explosion/scorch_mark.png")
 	
-	# Make bullet marks smaller than explosion marks - much larger depth
-	decal.size = Vector3(0.3, 2.0, 0.3)  # Much larger depth for projection
+	# Make bullet marks smaller than explosion marks, but with enough depth to project onto moving meshes.
+	decal.size = target_mark_size
 	
 	# Position the decal slightly above the hit point
 	decal.global_position = hit_pos + Vector3(0, 0.05, 0)  # Just 0.05 meters above
@@ -271,24 +269,31 @@ func create_bullet_scorch_mark(aircraft_body: Node) -> void:
 	else:
 		get_tree().current_scene.add_child(decal)
 
+	if target_mark_lifetime_s > 0.0:
+		get_tree().create_timer(target_mark_lifetime_s).timeout.connect(func():
+			if is_instance_valid(decal):
+				decal.queue_free()
+		)
+
+func _supports_target_hit_mark(target: Node) -> bool:
+	if not target or not is_instance_valid(target):
+		return false
+	if is_aircraft(target):
+		return true
+	if target.is_in_group("ground_vehicles"):
+		return true
+	return false
+
 func find_damage_target(body: Node) -> Node:
 	if body.has_method("take_damage"):
 		return body
 	if body is CollisionShape3D and body.get_parent() and body.get_parent().has_method("take_damage"):
 		return body.get_parent()
-	if body.name == "Aircraft_1" or "aircraft" in body.name.to_lower():
-		for child in body.get_children():
-			if child.has_method("take_damage") and (child is Aircraft or child.is_in_group("aircraft")):
-				return child
-		var aircraft_nodes = body.find_children("*", "Aircraft", true, false)
-		for aircraft in aircraft_nodes:
-			if aircraft.has_method("take_damage"):
-				return aircraft
-	var parent = body.get_parent()
-	if parent:
-		for sibling in parent.get_children():
-			if sibling.has_method("take_damage") and (sibling is Aircraft or sibling.is_in_group("aircraft")):
-				return sibling
+	var node: Node = body
+	while node:
+		if node != body and node.has_method("take_damage"):
+			return node
+		node = node.get_parent()
 	return null
 
 func is_aircraft(body: Node) -> bool:

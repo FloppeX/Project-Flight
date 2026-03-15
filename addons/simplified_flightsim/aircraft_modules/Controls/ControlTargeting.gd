@@ -7,6 +7,7 @@ class_name AircraftModule_ControlTargeting
 @export var auto_target_when_none: bool = true
 @export var auto_replace_target: bool = false
 @export var relaxed_lock_when_none: bool = true  # If true, pick nearest in range even if out of cone
+@export var enable_legacy_keyboard_shortcuts: bool = false
 
 var _time_accum: float = 0.0
 var current_target: Node3D
@@ -18,6 +19,8 @@ func _ready():
 	ModuleType = "targeting"
 
 func receive_input(event):
+	if not enable_legacy_keyboard_shortcuts:
+		return
 	if event is InputEventKey and event.pressed and not event.echo:
 		match event.physical_keycode:
 			Key.KEY_E:

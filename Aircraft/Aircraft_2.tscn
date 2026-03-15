@@ -1,4 +1,4 @@
-[gd_scene load_steps=40 format=3 uid="uid://cm31u7j3tfjxt"]
+[gd_scene load_steps=42 format=3 uid="uid://cm31u7j3tfjxt"]
 
 [ext_resource type="Script" uid="uid://c4ltq2v6fji05" path="res://Aircraft/aircraft.gd" id="1_e8t1h"]
 [ext_resource type="PackedScene" uid="uid://cadi81fcpvmuc" path="res://Projectiles/Explosion/explosion.tscn" id="2_x73up"]
@@ -35,6 +35,7 @@
 [ext_resource type="PackedScene" uid="uid://idqmpbpg2jul" path="res://Weapons/Bomb/bomb.tscn" id="32_kq7no"]
 [ext_resource type="Script" uid="uid://ov07c02ulmhl" path="res://Aircraft/AIToggle.gd" id="33_aitgl"]
 [ext_resource type="Script" uid="uid://bwjigrpitv7cm" path="res://AI/AIPilot.gd" id="34_aipil"]
+[ext_resource type="Script" uid="uid://bmdbl71mniagw" path="res://Aircraft/WingFold.gd" id="35_wingfold"]
 
 [sub_resource type="PhysicsMaterial" id="PhysicsMaterial_lowfriction"]
 friction = 0.1
@@ -42,6 +43,9 @@ friction = 0.1
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_kq7no"]
 radius = 0.883839
 height = 9.50646
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_wing_hitbox"]
+size = Vector3(15.2925, 0.26, 2.2)
 
 [sub_resource type="SphereShape3D" id="SphereShape3D_gear"]
 radius = 0.3
@@ -76,6 +80,10 @@ transform = Transform3D(1.6, 0, 4.76837e-08, 0, 1.6, 0, -4.76837e-08, 0, 1.6, 0,
 [node name="CollisionShape3D" type="CollisionShape3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, -4.37114e-08, -1, 0, 1, -4.37114e-08, 0, 0, 0.496142)
 shape = SubResource("CapsuleShape3D_kq7no")
+
+[node name="WingCollider" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.0202514, 0.129079, -0.853565)
+shape = SubResource("BoxShape3D_wing_hitbox")
 
 [node name="SimpleAero" type="Node" parent="."]
 script = ExtResource("5_8vbcf")
@@ -208,9 +216,11 @@ transform = Transform3D(1, 0, 0, 0, 0.5, -0.866025, 0, 0.866025, 0.5, 0, -1.728,
 spring_strength = 100.0
 spring_damping = 1000.0
 
+[node name="WingFold" type="Node" parent="."]
+script = ExtResource("35_wingfold")
+
 [node name="AIPilot" type="Node" parent="."]
 script = ExtResource("34_aipil")
 
 [node name="AIToggle" type="Node" parent="."]
 script = ExtResource("33_aitgl")
-ai_enabled_at_start = false

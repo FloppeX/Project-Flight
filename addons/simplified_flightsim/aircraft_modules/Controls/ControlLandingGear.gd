@@ -163,8 +163,10 @@ func receive_input(_event: InputEvent) -> void:
 
 func send_to_landing_gears(method_name: String, arguments: Array = []) -> void:
 	for gear in landing_gear_modules:
+		if not is_instance_valid(gear):
+			continue
 		var target := _resolve_gear_module(gear)
-		if target and target.has_method(method_name):
+		if target and is_instance_valid(target) and target.has_method(method_name):
 			target.callv(method_name, arguments)
 			if debug_enabled:
 				print("[GEAR] ", method_name, " called on ", target)
@@ -173,10 +175,14 @@ func send_to_landing_gears(method_name: String, arguments: Array = []) -> void:
 				print("[GEAR] gear node missing method ", method_name, ": ", gear)
 
 func _resolve_gear_module(n: Node) -> Node:
+	if not is_instance_valid(n):
+		return null
 	# If node is already a gear module, return it; else search children
 	if n is AircraftModule_LandingGear:
 		return n
 	for c in n.get_children():
+		if not is_instance_valid(c):
+			continue
 		if c is AircraftModule_LandingGear:
 			return c
 		var deep := _resolve_gear_module(c)
@@ -186,13 +192,15 @@ func _resolve_gear_module(n: Node) -> Node:
 
 func send_to_tailhooks(method_name: String, arguments: Array = []) -> void:
 	for hook in tailhook_modules:
-		if hook and hook.has_method(method_name):
+		if hook and is_instance_valid(hook) and hook.has_method(method_name):
 			hook.callv(method_name, arguments)
 			if debug_enabled:
 				print("[HOOK] ", method_name, " called on ", hook)
 
 func send_to_tailhook_simple(deploying: bool) -> void:
 	for n in tailhook_simple_nodes:
+		if not n or not is_instance_valid(n):
+			continue
 		if deploying and n.has_method("deploy"):
 			n.deploy()
 			if debug_enabled:

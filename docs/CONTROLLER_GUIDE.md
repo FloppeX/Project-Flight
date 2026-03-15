@@ -1,7 +1,7 @@
 # Controller Guide - Land Carrier Project
 
 **Updated:** 2025-02-15  
-**Default Control:** Manual (AI disabled)
+**Default Control:** Spectator mode with AI active
 
 ---
 
@@ -11,7 +11,7 @@
 2. **Press F5** to start the game
 3. **Press R** (keyboard) to retrieve aircraft from hangar
 4. Wait for the elevator and tractor bots to position the aircraft
-5. **Fly with your controller!**
+5. **Press Start/Options** to take over the nearest friendly aircraft when you want to fly
 
 ---
 
@@ -47,6 +47,9 @@
 | Button | Action |
 |--------|--------|
 | **Y / Triangle** | Switch camera view |
+| **Start / Options** | Toggle spectator / pilot mode |
+| **LB / L1** | Previous spectate target (spectator mode only) |
+| **RB / R1** | Next spectate target (spectator mode only) |
 
 ---
 
@@ -56,7 +59,6 @@
 |-----|--------|
 | **R** or **1** | Retrieve aircraft from hangar |
 | **S** | Store aircraft in hangar |
-| **A** | Toggle AI pilot on/off (currently OFF by default) |
 | **ESC** | Quit game |
 
 ---
@@ -66,10 +68,11 @@
 ### Taking Off
 1. Retrieve aircraft (press **R**)
 2. Wait for positioning on catapult
-3. Hold **LB/L1** to increase throttle
-4. Catapult will launch you automatically
-5. Pull back on **left stick** to climb
-6. Press **B/Circle** to retract landing gear once airborne
+3. Press **Start/Options** to enter pilot mode if you are still spectating
+4. Hold **LB/L1** to increase throttle
+5. Catapult will launch you automatically
+6. Pull back on **left stick** to climb
+7. Press **B/Circle** to retract landing gear once airborne
 
 ### Flying
 - **Gentle turns:** Small left stick movements
@@ -105,8 +108,8 @@
 - Aircraft start stored below deck, not on the flight deck
 
 ### "AI is flying for me"
-- Press **A** (keyboard) to toggle AI off
-- AI is now disabled by default, but this toggles it if needed
+- Press **Start/Options** to leave spectator mode and take over the nearest friendly aircraft
+- Press **Start/Options** again to return that aircraft to AI control
 
 ### "Controller not working"
 - Godot supports Xbox and PlayStation controllers natively
@@ -118,11 +121,11 @@
 ## AI Pilot (Optional)
 
 If you want the AI to fly for you:
-- Press **A** (keyboard) to toggle AI on
-- AI will handle takeoff, navigation, and combat
-- Press **A** again to take back manual control
+- Leave the game in spectator mode
+- Press **Start/Options** to take over the nearest friendly aircraft
+- Press **Start/Options** again to hand it back to AI
 
-**Current default:** AI is **OFF** (you have manual control)
+**Current default:** AI is **ON** and the player starts in spectator mode
 
 ---
 

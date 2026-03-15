@@ -1,6 +1,6 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=2 format=3 uid="uid://db4ow6u1r6kce"]
 
-[ext_resource type="Script" path="res://Environment/LowPolyTerrain.gd" id="1_tl4v3"]
+[ext_resource type="Script" uid="uid://dfb8fofg8e3yp" path="res://Environment/LowPolyTerrain.gd" id="1_tl4v3"]
 
 [node name="LowPolyTerrainPrototype" type="Node3D"]
 script = ExtResource("1_tl4v3")

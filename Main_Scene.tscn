@@ -1,4 +1,4 @@
-[gd_scene load_steps=17 format=3 uid="uid://di4mmbdu6qiv1"]
+[gd_scene load_steps=19 format=3 uid="uid://di4mmbdu6qiv1"]
 
 [ext_resource type="Script" uid="uid://dhif0k7fphvot" path="res://ScenarioManager.gd" id="1"]
 [ext_resource type="PackedScene" uid="uid://dsel16gi76dnm" path="res://UI/UIEnergyContainer/UIFuelLevel.tscn" id="5"]
@@ -10,8 +10,10 @@
 [ext_resource type="PackedScene" uid="uid://dhg4sb4ifrvh8" path="res://UI/UIAttitude/UIAttitude.tscn" id="26"]
 [ext_resource type="PackedScene" uid="uid://c2s8c25rpg1df" path="res://Weather/ContinuousTurbulence.tscn" id="49_hrb0d"]
 [ext_resource type="Script" uid="uid://b2gfgs7ytoexe" path="res://Enemies/EnemyAircraftSpawner.gd" id="70_enemyair"]
-[ext_resource type="PackedScene" path="res://Environment/LowPolyTerrainPrototype.tscn" id="71_lowpoly"]
+[ext_resource type="PackedScene" uid="uid://db4ow6u1r6kce" path="res://Environment/LowPolyTerrainPrototype.tscn" id="71_lowpoly"]
 [ext_resource type="PackedScene" path="res://Environment/RockStream.tscn" id="72_rockstream"]
+[ext_resource type="Script" uid="uid://cnyht8dc3kewe" path="res://Environment/DayNightCycle.gd" id="80_daynightcycle"]
+[ext_resource type="Script" uid="uid://nun0gkvcnljq" path="res://Environment/RockFeatureSpawner.gd" id="81_rockfeatures"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_ryrq1"]
 
@@ -26,6 +28,8 @@ fog_mode = 1
 fog_light_color = Color(0.769715, 0.578018, 0.384647, 1)
 fog_sun_scatter = 0.05
 fog_density = 0.8993
+fog_aerial_perspective = 0.3
+fog_height = 350.0
 fog_height_density = 2.0135
 fog_depth_curve = 8.28211
 fog_depth_begin = 245.8
@@ -44,6 +48,9 @@ script = ExtResource("1")
 [node name="WorldEnvironment" type="WorldEnvironment" parent="."]
 environment = SubResource("Environment_sg2lb")
 
+[node name="DayNightCycle" type="Node" parent="."]
+script = ExtResource("80_daynightcycle")
+
 [node name="LandCarrier" parent="." instance=ExtResource("16_13cwd")]
 transform = Transform3D(-0.999969, 0, -0.00788886, 0, 1, 0, 0.00788886, 0, -0.999969, 5000, 62, 5000)
 
@@ -52,15 +59,22 @@ transform = Transform3D(-1, 5.01437e-08, -7.16125e-08, 0, 0.819152, 0.573577, 8.
 light_energy = 2.0
 light_bake_mode = 0
 shadow_enabled = true
-shadow_bias = 0.15
-shadow_blur = 0.0
-directional_shadow_max_distance = 3000.0
+shadow_bias = 0.02
+directional_shadow_split_2 = 0.3
+directional_shadow_max_distance = 1000.0
+
+[node name="RockFeatureSpawner" type="Node3D" parent="."]
+script = ExtResource("81_rockfeatures")
 
 [node name="LowPolyTerrainPrototype" parent="." instance=ExtResource("71_lowpoly")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 5000, 62, 5000)
 cell_size_m = 36.0
 seed = 22551
+plateau_height_m = 500.0
 base_height_offset_m = 220.0
+canyon_wall_color = Color(0.667926, 0.427286, 0.274156, 1)
+canyon_upper_color = Color(0.744223, 0.61311, 0.439865, 1)
+steep_slope_color = Color(0.338234, 0.326747, 0.303773, 1)
 stream_update_interval_s = 0.2
 max_chunk_builds_per_update = 3
 

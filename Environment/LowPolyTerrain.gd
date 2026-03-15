@@ -4,14 +4,14 @@ class_name LowPolyTerrain
 @export_group("Size")
 @export var quads_x: int = 2778
 @export var quads_z: int = 2778
-@export var cell_size_m: float = 18.0
+@export var cell_size_m: float = 12.0
 @export var seed: int = 1337
 
 @export_group("Shape")
 ## Baseline plateau elevation — most of the terrain is at this height
 @export var plateau_height_m: float = 300.0
 ## Maximum canyon depth carved below the plateau
-@export var canyon_max_depth_m: float = 220.0
+@export var canyon_max_depth_m: float = 300.0
 ## Fraction of ridge-noise range that becomes flat canyon floor (wider = broader floors)
 @export var canyon_floor_width: float = 0.12
 ## Width of the cliff transition zone (smaller = more vertical walls)
@@ -19,17 +19,26 @@ class_name LowPolyTerrain
 ## Cliff wall steepness exponent — higher values approach true vertical cliffs
 @export var canyon_cliff_power: float = 12.0
 ## Spatial frequency of the main canyon network
-@export var main_canyon_frequency: float = 0.00022
+@export var main_canyon_frequency: float = 0.00013
 ## Spatial frequency of tributary canyons (should be 1.5–2× main)
-@export var tributary_frequency: float = 0.00044
+@export var tributary_frequency: float = 0.00024
 ## Domain warp amplitude for organic canyon meandering
-@export var canyon_warp_amplitude_m: float = 360.0
+@export var canyon_warp_amplitude_m: float = 220.0
 ## Tributary canyons are this fraction as deep as the main canyons
 @export var tributary_depth_fraction: float = 0.60
 ## Amplitude of surface variation on the plateau top
-@export var plateau_surface_amplitude_m: float = 120.0
+@export var plateau_surface_amplitude_m: float = 60.0
 ## Frequency of plateau surface variation
 @export var plateau_surface_frequency: float = 0.0014
+## Very low-frequency relief added to otherwise flat surfaces such as plateau tops
+## and broad canyon floors so they read as shallow terrain instead of perfect planes.
+@export var flat_surface_undulation_amplitude_m: float = 12.0
+## Frequency of the broad flat-surface undulation layer.
+@export var flat_surface_undulation_frequency: float = 0.00032
+## Smaller-scale detail on broad flat areas so they do not read as ironed flat.
+@export var flat_surface_detail_amplitude_m: float = 4.5
+## Frequency of the subtle flat-surface detail layer.
+@export var flat_surface_detail_frequency: float = 0.0011
 ## Height of visible strata bands in canyon walls
 @export var strata_step_m: float = 40.0
 ## How strongly strata layers snap (0 = off, 1 = fully snapped)
@@ -62,11 +71,23 @@ class_name LowPolyTerrain
 @export var steep_slope_strength: float = 1.0
 ## n.y threshold where grey begins (n.y=1 flat, n.y=0 vertical); higher = grey starts on shallower slopes
 @export var steep_slope_min_ny: float = 0.88
+## Width of the sand→grey transition in n.y units (smaller = sharper border, e.g. 0.05)
+@export var steep_slope_band: float = 0.08
 
 @export_group("Output")
 @export var generate_on_ready: bool = true
 @export var generate_collision: bool = true
 @export var double_sided: bool = true
+
+@export_group("Quantization")
+## Snap heights to multiples of this value (0 = off).
+## With cell_size_m=12: 6 m gives 0°/26.6°/45° slope steps.
+@export var quant_step_m: float = 3.0
+## Max height diff between 4-adjacent nodes enforced by relaxation.
+## 12 m = 45° cap per cell, 6 m = 26.6° cap. 0 = no limit.
+@export var quant_max_step_m: float = 0.0
+## Relaxation passes per chunk (more = accurate seams, slower build).
+@export var quant_relax_passes: int = 0
 
 @export_group("Streaming")
 @export var use_streaming: bool = true
@@ -154,7 +175,10 @@ func get_height(world_pos: Vector3) -> float:
 	var local: Vector3 = to_local(world_pos)
 	if local.x < _x0 or local.x > _x0 + _span_x or local.z < _z0 or local.z > _z0 + _span_z:
 		return NAN
-	return _sample_height(local.x, local.z, _noises) + global_position.y
+	var h: float = _sample_height(local.x, local.z, _noises)
+	if quant_step_m > 0.1:
+		h = round(h / quant_step_m) * quant_step_m
+	return h + global_position.y
 
 func _refresh_layout() -> void:
 	_size_x = max(quads_x, 2)
@@ -311,8 +335,37 @@ func _build_chunk(chunk_x: int, chunk_z: int) -> Node3D:
 
 func _build_chunk_arrays(qx0: int, qx1: int, qz0: int, qz1: int) -> Array:
 	var vertices := PackedVector3Array()
-	var normals := PackedVector3Array()
-	var colors := PackedColorArray()
+	var normals  := PackedVector3Array()
+	var colors   := PackedColorArray()
+
+	# --- Quantized height grid with padding for seamless chunk relaxation ---
+	# Padding = relax_passes so relaxed values at chunk edges are correct regardless
+	# of which chunk computed them (all chunks sample the same raw noise).
+	var use_quant: bool = quant_step_m > 0.1
+	var hgrid     := PackedFloat32Array()
+	var px0: int  = 0
+	var pz0: int  = 0
+	var pcols: int = 0
+
+	if use_quant:
+		var P: int  = max(quant_relax_passes, 0)
+		px0          = max(qx0 - P, 0)
+		var px1: int = min(qx1 + P, _size_x)
+		pz0          = max(qz0 - P, 0)
+		var pz1: int = min(qz1 + P, _size_z)
+		pcols        = px1 - px0 + 1
+		var prows: int = pz1 - pz0 + 1
+		hgrid.resize(pcols * prows)
+
+		for lz in range(prows):
+			for lx in range(pcols):
+				var wx: float = _x0 + float(px0 + lx) * cell_size_m
+				var wz: float = _z0 + float(pz0 + lz) * cell_size_m
+				var h: float  = _sample_height(wx, wz, _noises)
+				hgrid[lz * pcols + lx] = round(h / quant_step_m) * quant_step_m
+
+		if P > 0 and quant_max_step_m > 0.0:
+			_relax_heights(hgrid, pcols, prows)
 
 	for z in range(qz0, qz1):
 		for x in range(qx0, qx1):
@@ -321,10 +374,22 @@ func _build_chunk_arrays(qx0: int, qx1: int, qz0: int, qz1: int) -> Array:
 			var z_a: float = _z0 + float(z) * cell_size_m
 			var z_b: float = z_a + cell_size_m
 
-			var h00: float = _sample_height(x_a, z_a, _noises)
-			var h10: float = _sample_height(x_b, z_a, _noises)
-			var h01: float = _sample_height(x_a, z_b, _noises)
-			var h11: float = _sample_height(x_b, z_b, _noises)
+			var h00: float
+			var h10: float
+			var h01: float
+			var h11: float
+			if use_quant:
+				var lx: int = x - px0
+				var lz: int = z - pz0
+				h00 = hgrid[lz       * pcols + lx    ]
+				h10 = hgrid[lz       * pcols + lx + 1]
+				h01 = hgrid[(lz + 1) * pcols + lx    ]
+				h11 = hgrid[(lz + 1) * pcols + lx + 1]
+			else:
+				h00 = _sample_height(x_a, z_a, _noises)
+				h10 = _sample_height(x_b, z_a, _noises)
+				h01 = _sample_height(x_a, z_b, _noises)
+				h11 = _sample_height(x_b, z_b, _noises)
 
 			var v00 := Vector3(x_a, h00, z_a)
 			var v10 := Vector3(x_b, h10, z_a)
@@ -332,14 +397,14 @@ func _build_chunk_arrays(qx0: int, qx1: int, qz0: int, qz1: int) -> Array:
 			var v11 := Vector3(x_b, h11, z_b)
 
 			var cell_id: int = z * _size_x + x
-			_append_face(v00, v10, v11, cell_id * 2, vertices, normals, colors)
+			_append_face(v00, v10, v11, cell_id * 2,     vertices, normals, colors)
 			_append_face(v00, v11, v01, cell_id * 2 + 1, vertices, normals, colors)
 
 	var arrays: Array = []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = vertices
 	arrays[Mesh.ARRAY_NORMAL] = normals
-	arrays[Mesh.ARRAY_COLOR] = colors
+	arrays[Mesh.ARRAY_COLOR]  = colors
 	return arrays
 
 func _build_full_mesh() -> ArrayMesh:
@@ -380,17 +445,12 @@ func _append_face(
 
 	# Steep-slope grey: n.y=1 is flat, n.y=0 is vertical wall.
 	# Grey starts at steep_slope_min_ny and ramps to full at n.y=0.
-	var steep_t: float = clampf((steep_slope_min_ny - n.y) / steep_slope_min_ny, 0.0, 1.0) * steep_slope_strength
+	var steep_t: float = clampf((steep_slope_min_ny - n.y) / maxf(steep_slope_band, 0.001), 0.0, 1.0) * steep_slope_strength
 	base_color = base_color.lerp(steep_slope_color, steep_t)
 
-	# Smooth spatial gradient — sample at face centroid so neighbouring faces share similar tints
-	var cx: float = (v0.x + v1.x + v2.x) / 3.0
-	var cz: float = (v0.z + v1.z + v2.z) / 3.0
-	var spatial_n: float = (_noises["color_var"] as FastNoiseLite).get_noise_2d(cx, cz)
-	# Per-quad micro-randomness — both triangles in a quad share the same tint
-	# so they don't create alternating stripe artifacts across the surface.
-	var tint_rand: float = _hash01((tri_id / 2) * 101 + seed * 17)
-	var tint: float = 1.0 + spatial_n * color_patch_strength + (tint_rand * 2.0 - 1.0) * color_noise_strength
+	# Per-face micro-randomness
+	var tint_rand: float = _hash01(tri_id * 101 + seed * 17)
+	var tint: float = 1.0 + (tint_rand * 2.0 - 1.0) * color_noise_strength
 	var c := Color(
 		clampf(base_color.r * tint, 0.0, 1.0),
 		clampf(base_color.g * tint, 0.0, 1.0),
@@ -457,6 +517,24 @@ func _build_noises() -> Dictionary:
 	plateau_surface.fractal_lacunarity = 2.0
 	plateau_surface.fractal_gain = 0.5
 
+	var flat_surface_undulation := FastNoiseLite.new()
+	flat_surface_undulation.seed = seed + 347
+	flat_surface_undulation.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	flat_surface_undulation.frequency = maxf(flat_surface_undulation_frequency, 0.000001)
+	flat_surface_undulation.fractal_type = FastNoiseLite.FRACTAL_FBM
+	flat_surface_undulation.fractal_octaves = 2
+	flat_surface_undulation.fractal_lacunarity = 2.0
+	flat_surface_undulation.fractal_gain = 0.5
+
+	var flat_surface_detail := FastNoiseLite.new()
+	flat_surface_detail.seed = seed + 359
+	flat_surface_detail.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	flat_surface_detail.frequency = maxf(flat_surface_detail_frequency, 0.000001)
+	flat_surface_detail.fractal_type = FastNoiseLite.FRACTAL_FBM
+	flat_surface_detail.fractal_octaves = 3
+	flat_surface_detail.fractal_lacunarity = 2.0
+	flat_surface_detail.fractal_gain = 0.5
+
 	# Color variation: medium-low frequency so adjacent faces share similar tints,
 	# producing smooth gradient patches rather than per-face salt-and-pepper noise.
 	var color_var := FastNoiseLite.new()
@@ -483,6 +561,8 @@ func _build_noises() -> Dictionary:
 		"main_canyon": main_canyon,
 		"tributary": tributary,
 		"plateau_surface": plateau_surface,
+		"flat_surface_undulation": flat_surface_undulation,
+		"flat_surface_detail": flat_surface_detail,
 		"strata_var": strata_var,
 		"color_var": color_var,
 	}
@@ -527,6 +607,15 @@ func _sample_height(world_x: float, world_z: float, noises: Dictionary) -> float
 	var plateau_blend: float = clampf(1.0 - carve_frac * 6.0, 0.0, 1.0)  # fades quickly into canyons
 	var surface_var: float = (noises["plateau_surface"] as FastNoiseLite).get_noise_2d(world_x, world_z) * plateau_surface_amplitude_m
 	h += surface_var * plateau_blend
+
+	# --- Subtle undulation on broad flat surfaces ---
+	# Keep this off the canyon walls and reserve it for the plateau and flat canyon floors.
+	var canyon_floor_blend: float = clampf((carve_frac - 0.82) / 0.18, 0.0, 1.0)
+	var flat_surface_blend: float = maxf(plateau_blend, canyon_floor_blend)
+	var flat_surface_var: float = (noises["flat_surface_undulation"] as FastNoiseLite).get_noise_2d(world_x, world_z) * flat_surface_undulation_amplitude_m
+	h += flat_surface_var * flat_surface_blend
+	var flat_surface_detail_var: float = (noises["flat_surface_detail"] as FastNoiseLite).get_noise_2d(world_x, world_z) * flat_surface_detail_amplitude_m
+	h += flat_surface_detail_var * flat_surface_blend
 
 	return h + base_height_offset_m
 
@@ -606,6 +695,31 @@ func _set_owner_recursive(node: Node) -> void:
 	node.owner = root
 	for child in node.get_children():
 		_set_owner_recursive(child)
+
+func _relax_heights(heights: PackedFloat32Array, cols: int, rows: int) -> void:
+	var ms: float = quant_max_step_m
+	for _p in range(quant_relax_passes):
+		# Forward pass: propagate low values rightward/downward
+		for gz in range(rows):
+			for gx in range(cols):
+				var idx: int = gz * cols + gx
+				var h: float = heights[idx]
+				if gx > 0:
+					h = minf(h, heights[gz * cols + gx - 1] + ms)
+				if gz > 0:
+					h = minf(h, heights[(gz - 1) * cols + gx] + ms)
+				heights[idx] = h
+		# Reverse pass: propagate leftward/upward
+		for gz in range(rows - 1, -1, -1):
+			for gx in range(cols - 1, -1, -1):
+				var idx: int = gz * cols + gx
+				var h: float = heights[idx]
+				if gx < cols - 1:
+					h = minf(h, heights[gz * cols + gx + 1] + ms)
+				if gz < rows - 1:
+					h = minf(h, heights[(gz + 1) * cols + gx] + ms)
+				heights[idx] = h
+
 
 func _smoothstep(edge0: float, edge1: float, x: float) -> float:
 	var t: float = clampf((x - edge0) / maxf(edge1 - edge0, 0.00001), 0.0, 1.0)

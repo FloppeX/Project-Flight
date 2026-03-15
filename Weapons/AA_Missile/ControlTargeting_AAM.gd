@@ -7,6 +7,7 @@ class_name AircraftModule_ControlTargeting_AAM
 @export var auto_target_when_none: bool = true
 @export var auto_replace_target: bool = false
 @export var relaxed_lock_when_none: bool = true  # If true, pick nearest in range even if out of cone
+@export var enable_legacy_keyboard_shortcuts: bool = false
 
 var _time_accum: float = 0.0
 var current_target: Node3D
@@ -23,6 +24,8 @@ func _ready():
 	ModuleType = "targeting"
 
 func receive_input(event):
+	if not enable_legacy_keyboard_shortcuts:
+		return
 	if event is InputEventKey and event.pressed and not event.echo:
 		match event.physical_keycode:
 			Key.KEY_E:
@@ -36,6 +39,10 @@ func receive_input(event):
 				return
 
 func process_physic_frame(delta):
+	if current_target != null and not is_instance_valid(current_target):
+		current_target = null
+		target_lock_time = 0.0
+
 	_time_accum += delta
 	var interval = 1.0 / max(targeting_update_rate_hz, 0.1)
 	if _time_accum >= interval:
@@ -68,6 +75,9 @@ func get_target_lock_time() -> float:
 func _update_best_target_if_needed():
 	if not is_instance_valid(aircraft):
 		return
+	if current_target != null and not is_instance_valid(current_target):
+		current_target = null
+		target_lock_time = 0.0
 	var team_id: int = 1
 	if aircraft and aircraft.has_method("get_team"):
 		team_id = int(aircraft.get_team())
@@ -115,7 +125,7 @@ func _update_best_target_if_needed():
 					best_dist = d2
 					nearest = e2
 		if nearest:
-			current_target = nearest
+			set_target(nearest)
 			if debug_enabled:
 				print("[Targeting] relaxed selected ", current_target.name, " dist=", int(best_dist))
 		return
@@ -142,6 +152,9 @@ func set_target(new_target: Node3D):
 	"""Sets the current target and handles signal connections."""
 	if new_target != null and not is_instance_valid(new_target):
 		new_target = null
+
+	if current_target != null and not is_instance_valid(current_target):
+		current_target = null
 
 	if new_target == current_target:
 		return
