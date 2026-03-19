@@ -11,14 +11,17 @@ class_name WingFold
 @export var fold_angle_deg: float = 120.0
 ## Time in seconds to complete a full fold or unfold.
 @export var fold_duration:  float = 2.0
-## Local rotation axis for the LEFT wing.  Right wing mirrors the Z component.
-## Default (0,0,1) = rotate around the fore-aft axis → tip goes up.
-@export var fold_axis: Vector3 = Vector3(0.0, 0.0, 1.0)
+## Local hinge axis for the LEFT wing. Right wing mirrors the Z component.
+## Default is tilted 15 degrees upward from the fore-aft axis so folded wings
+## point slightly up and back.
+@export var fold_axis: Vector3 = Vector3(0.0, 0.258819, 0.965926)
 
 var _left_wing:  Node3D
 var _right_wing: Node3D
 var _fold_t: float = 0.0   # 0.0 = unfolded, 1.0 = fully folded
 var _snapped: bool = false  # true after first-frame snap
+var _left_rest_quat: Quaternion
+var _right_rest_quat: Quaternion
 
 func _ready() -> void:
 	var body := get_parent().get_node_or_null("Aircraft 2 body") as Node3D
@@ -27,6 +30,9 @@ func _ready() -> void:
 		_right_wing = body.get_node_or_null("right outer wing") as Node3D
 	if not _left_wing or not _right_wing:
 		push_warning("[WingFold] Wing nodes not found — check GLB node names")
+		return
+	_left_rest_quat = _left_wing.quaternion
+	_right_rest_quat = _right_wing.quaternion
 
 func _process(delta: float) -> void:
 	if not _left_wing or not _right_wing:
@@ -48,8 +54,14 @@ func _process(delta: float) -> void:
 	_fold_t = move_toward(_fold_t, target, speed)
 
 	var angle := deg_to_rad(fold_angle_deg) * _fold_t
+	_apply_fold_pose(angle)
 
-	# Left wing rotates around fold_axis; right wing mirrors the Z component
-	# so both tips fold upward symmetrically.
-	_left_wing.rotation  = fold_axis * angle
-	_right_wing.rotation = Vector3(fold_axis.x, fold_axis.y, -fold_axis.z) * angle
+func _apply_fold_pose(angle: float) -> void:
+	var left_axis := fold_axis.normalized()
+	if left_axis.length_squared() <= 0.0001:
+		left_axis = Vector3.FORWARD
+
+	_left_wing.quaternion = _left_rest_quat * Quaternion(left_axis, angle)
+	# Mirror the full hinge rotation on the opposite wing so the aft/up tilt
+	# stays symmetrical when the fold axis itself is canted.
+	_right_wing.quaternion = _right_rest_quat * Quaternion(left_axis, -angle)

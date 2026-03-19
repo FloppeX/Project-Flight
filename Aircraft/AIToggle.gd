@@ -68,6 +68,19 @@ func enable_ai():
 	if ai_pilot:
 		ai_pilot.initialize(aircraft)
 		ai_pilot.set_physics_process(true)
+		var arresting_engaged: bool = bool(aircraft.get_meta("arresting_engaged", false))
+		var has_arresting_cable := aircraft.has_meta("arresting_cable")
+		var parking_brake: bool = bool(aircraft.get_meta("parking_brake", false))
+		var transport_mode: bool = bool(aircraft.get_meta("carrier_transport_mode", false))
+		if arresting_engaged or has_arresting_cable:
+			ai_pilot.change_state(AIPilot.State.IDLE)
+			var fdm = get_tree().get_first_node_in_group("flight_deck_manager")
+			if fdm and fdm.has_method("start_post_arrest_recovery"):
+				fdm.start_post_arrest_recovery(aircraft)
+			return
+		if parking_brake or transport_mode:
+			ai_pilot.change_state(AIPilot.State.IDLE)
+			return
 		# If deck manager owns the aircraft (catapult/recovery sequence), go to LAUNCHING.
 		# This must be checked before the altitude check — the aircraft is on deck (Y > 10)
 		# but controls are locked; launch() sets the correct launch_position reference point.

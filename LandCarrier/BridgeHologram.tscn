@@ -1,0 +1,14 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://LandCarrier/BridgeHologram.gd" id="1_hologram"]
+
+[node name="BridgeHologram" type="Node3D"]
+script = ExtResource("1_hologram")
+
+[node name="TerrainDots" type="MultiMeshInstance3D" parent="."]
+
+[node name="TerrainLines" type="MultiMeshInstance3D" parent="."]
+
+[node name="ContactDots" type="MultiMeshInstance3D" parent="."]
+
+[node name="CarrierPlate" type="MeshInstance3D" parent="."]

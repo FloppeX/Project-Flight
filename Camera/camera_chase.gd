@@ -6,12 +6,28 @@ class_name ChaseCamera
 @export var chase_smoothing: float = 5.0
 @export var rotation_smoothing: float = 8.0
 @export var look_sensitivity: float = 2.0
-@export var max_horizontal_angle: float = 45.0  # Maximum degrees for yaw look
-@export var max_vertical_angle: float = 45.0    # Maximum degrees for pitch look
-@export var return_speed: float = 5.0           # How fast camera returns to center
+@export var orbit_yaw_speed_deg: float = 120.0
+@export var orbit_pitch_deg: float = 0.0
 
 var aircraft: RigidBody3D
-var current_look: Vector2 = Vector2.ZERO  # Current look offset (X = yaw, Y = pitch)
+var orbit_yaw: float = 0.0
+var current_offset: Vector3 = Vector3.ZERO
+
+func _get_horizontal_forward() -> Vector3:
+	var forward_flat: Vector3 = aircraft.global_transform.basis.z
+	forward_flat.y = 0.0
+	if forward_flat.length_squared() > 0.001:
+		return forward_flat.normalized()
+
+	var velocity_flat: Vector3 = aircraft.linear_velocity
+	velocity_flat.y = 0.0
+	if velocity_flat.length_squared() > 0.001:
+		return velocity_flat.normalized()
+
+	return Vector3.FORWARD
+
+func _get_orbit_center() -> Vector3:
+	return aircraft.global_position
 
 func _ready():
 	# Make this node ignore parent transforms so it doesn't move with the aircraft
@@ -19,6 +35,10 @@ func _ready():
 
 func setup_aircraft(aircraft_node: RigidBody3D):
 	aircraft = aircraft_node
+	if aircraft:
+		var forward_flat: Vector3 = _get_horizontal_forward()
+		orbit_yaw = atan2(-forward_flat.x, -forward_flat.z)
+		current_offset = Vector3(sin(orbit_yaw), 0.0, cos(orbit_yaw)) * chase_distance + Vector3.UP * chase_height
 
 func _process(delta):
 	if not aircraft:
@@ -31,44 +51,35 @@ func _physics_process(delta: float) -> void:
 	update_position(delta)
 
 func handle_input(delta):
-	# Get look input
 	var look_x = Input.get_action_strength("look_left") - Input.get_action_strength("look_right")
-	var look_y = Input.get_action_strength("look_down") - Input.get_action_strength("look_up")
-	
-	# Calculate target look angles based on input
-	var target_look = Vector2(
-		deg_to_rad(look_x * max_horizontal_angle),  # Yaw
-		deg_to_rad(-look_y * max_vertical_angle)    # Pitch (negative for correct direction)
-	)
-	
-	# Smoothly move current look towards target (returns to center when no input)
-	current_look = current_look.lerp(target_look, return_speed * delta)
+	orbit_yaw = wrapf(orbit_yaw + deg_to_rad(look_x * orbit_yaw_speed_deg * look_sensitivity * delta), -PI, PI)
 
 func update_position(delta):
-	# Get aircraft position and orientation
-	var aircraft_transform = aircraft.global_transform
-	var aircraft_position = aircraft.global_position
+	var orbit_center: Vector3 = _get_orbit_center()
+
+	# Orbit around the aircraft on the horizontal plane, keeping the aircraft centered.
+	var orbit_dir: Vector3 = Vector3(sin(orbit_yaw), 0.0, cos(orbit_yaw))
+	var desired_offset: Vector3 = orbit_dir * chase_distance + Vector3.UP * chase_height
 	
-	# Calculate position 20m behind and 2m above the aircraft
-	# Use aircraft's basis to get the "behind" direction relative to aircraft orientation
-	var behind_offset = aircraft_transform.basis * Vector3(0, chase_height, -chase_distance)
-	var target_position = aircraft_position + behind_offset
-	
-	# Apply framerate-independent smoothing for position
+	# Smooth the orbit offset, not the world position, so the camera truly stays centered on the aircraft.
 	var pos_smoothing_factor = 1.0 - exp(-chase_smoothing * delta)
-	global_position = global_position.lerp(target_position, pos_smoothing_factor)
+	current_offset = current_offset.lerp(desired_offset, pos_smoothing_factor)
+	global_position = orbit_center + current_offset
 	
-	# Make camera look along the aircraft's flight direction with look offset
-	# Start with aircraft basis flipped to look forward
-	var base_basis = Basis(-aircraft_transform.basis.x, aircraft_transform.basis.y, -aircraft_transform.basis.z)
-	
-	# Apply look offset rotations relative to aircraft orientation
-	# Yaw around aircraft's local Y-axis, pitch around aircraft's local X-axis
-	var look_basis = base_basis.rotated(base_basis.y, current_look.x)
-	look_basis = look_basis.rotated(base_basis.x, current_look.y)
+	# Keep the chase camera level relative to the world and only orbit around global Y.
+	var look_target: Vector3 = orbit_center
+	var look_basis: Basis = Transform3D(Basis.IDENTITY, global_position).looking_at(look_target, Vector3.UP).basis
+	if not is_zero_approx(orbit_pitch_deg):
+		look_basis = look_basis.rotated(look_basis.x, deg_to_rad(orbit_pitch_deg))
 	
 	var rot_smoothing_factor = 1.0 - exp(-rotation_smoothing * delta)
 	global_transform.basis = global_transform.basis.slerp(look_basis, rot_smoothing_factor)
 
 func reset_look():
-	current_look = Vector2.ZERO
+	if aircraft:
+		var forward_flat: Vector3 = _get_horizontal_forward()
+		orbit_yaw = atan2(-forward_flat.x, -forward_flat.z)
+		current_offset = Vector3(sin(orbit_yaw), 0.0, cos(orbit_yaw)) * chase_distance + Vector3.UP * chase_height
+	else:
+		orbit_yaw = 0.0
+		current_offset = Vector3(0.0, chase_height, chase_distance)

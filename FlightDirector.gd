@@ -115,6 +115,11 @@ func _input(event):
 	if Input.is_action_just_pressed("switch_camera"):
 		_cycle_aircraft_view()
 
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_L:
+		command_closest_friendly_to_land()
+		get_viewport().set_input_as_handled()
+		return
+
 	if Input.is_action_just_pressed("toggle_player_control"):
 		toggle_player_control()
 
@@ -321,6 +326,63 @@ func _find_closest_friendly_aircraft() -> RigidBody3D:
 
 	return best_aircraft
 
+func command_closest_friendly_to_land() -> void:
+	var target := _find_closest_friendly_aircraft_to_carrier()
+	if not is_instance_valid(target):
+		print("[FlightDirector] L: no eligible friendly aircraft available for landing command")
+		return
+
+	var ai_toggle = target.get_node_or_null("AIToggle")
+	if ai_toggle and ai_toggle.has_method("enable_ai"):
+		ai_toggle.enable_ai()
+
+	var ai_pilot = target.find_child("AIPilot", true, false)
+	if not ai_pilot or not ai_pilot.has_method("start_landing"):
+		print("[FlightDirector] L: no AIPilot found on ", target.name)
+		return
+
+	var ok: bool = ai_pilot.start_landing()
+	if ok:
+		print("[FlightDirector] L: landing commanded for ", target.name)
+	else:
+		print("[FlightDirector] L: approach waypoints not found for ", target.name)
+
+func _is_aircraft_in_landing_flow(aircraft: RigidBody3D) -> bool:
+	var ai_pilot := aircraft.find_child("AIPilot", true, false) as AIPilot
+	if ai_pilot == null:
+		return false
+	return ai_pilot.current_state in [AIPilot.State.APPROACH, AIPilot.State.LANDING, AIPilot.State.MISSED_APPROACH]
+
+func _find_closest_friendly_aircraft_to_carrier() -> RigidBody3D:
+	var carrier := get_tree().get_first_node_in_group("carrier") as Node3D
+	if carrier == null:
+		return null
+
+	var best_aircraft: RigidBody3D = null
+	var best_distance := INF
+
+	for node in _get_friendly_aircraft():
+		var aircraft := node as RigidBody3D
+		if not is_instance_valid(aircraft):
+			continue
+		if aircraft.get_meta("carrier_transport_mode", false):
+			continue
+		if aircraft.get_meta("parking_brake", false):
+			continue
+		if aircraft.get_meta("arresting_engaged", false):
+			continue
+		if _is_aircraft_in_landing_flow(aircraft):
+			continue
+		var ai_pilot = aircraft.find_child("AIPilot", true, false)
+		if not ai_pilot or not ai_pilot.has_method("start_landing"):
+			continue
+		var distance := aircraft.global_position.distance_squared_to(carrier.global_position)
+		if distance < best_distance:
+			best_distance = distance
+			best_aircraft = aircraft
+
+	return best_aircraft
+
 func _get_focus_position() -> Vector3:
 	if _free_camera_active and is_instance_valid(_free_camera):
 		return _free_camera.global_position
@@ -394,11 +456,9 @@ func _get_current_active_camera() -> Camera3D:
 	if _free_camera_active and is_instance_valid(_free_camera) and _free_camera.current:
 		return _free_camera
 
-	for node in get_tree().get_nodes_in_group("carrier_cam"):
-		if node is BridgeCamera:
-			var bridge_cam: Camera3D = (node as BridgeCamera).get_camera()
-			if bridge_cam and bridge_cam.current:
-				return bridge_cam
+	var bridge_cam := _get_bridge_camera()
+	if bridge_cam and bridge_cam.current:
+		return bridge_cam
 
 	for node in get_tree().get_nodes_in_group("camera_controller"):
 		if node and node.has_method("get_current_camera"):
@@ -500,10 +560,7 @@ func _snap_free_camera_to_target() -> void:
 
 func _get_free_camera_anchor_camera() -> Camera3D:
 	if current_category == Category.BRIDGE:
-		for node in get_tree().get_nodes_in_group("carrier_cam"):
-			if node is BridgeCamera:
-				return (node as BridgeCamera).get_camera()
-		return null
+		return _get_bridge_camera()
 
 	if not is_instance_valid(current_viewed_aircraft):
 		return null
@@ -527,3 +584,11 @@ func _sync_free_camera_angles() -> void:
 	)
 	_free_camera_yaw = camera_rotation.y
 	_free_camera.rotation = Vector3(_free_camera_pitch, _free_camera_yaw, 0.0)
+
+func _get_bridge_camera() -> Camera3D:
+	for node in get_tree().get_nodes_in_group("carrier_cam"):
+		if node != null and node.has_method("get_camera"):
+			var cam = node.call("get_camera")
+			if cam is Camera3D:
+				return cam as Camera3D
+	return null

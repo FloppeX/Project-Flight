@@ -38,7 +38,7 @@ func _input(event):
 		elif event.keycode == KEY_O:
 			_toggle_ai_attack_mode()
 			get_viewport().set_input_as_handled()
-		elif event.keycode == KEY_L:
+		elif event.keycode == KEY_L and event.shift_pressed:
 			_command_land()
 			get_viewport().set_input_as_handled()
 		elif event.keycode == KEY_U:
@@ -687,22 +687,22 @@ func _spawn_on_approach():
 		print("[EnemyAircraftSpawner] U: approach waypoints not found — place approach_0..4 in scene")
 
 func _command_land():
-	"""L key: tell the currently watched AI plane to begin its carrier landing approach."""
+	"""Shift+L: tell the currently watched AI plane to begin its carrier landing approach."""
 	var switcher = get_tree().get_first_node_in_group("standalone_camera_switcher")
 	if not switcher or not switcher.has_method("get_watched_aircraft"):
-		print("[EnemyAircraftSpawner] L: camera switcher not found")
+		print("[EnemyAircraftSpawner] Shift+L: camera switcher not found")
 		return
 	var aircraft: RigidBody3D = switcher.get_watched_aircraft()
 	if not aircraft or not is_instance_valid(aircraft):
-		print("[EnemyAircraftSpawner] L: no aircraft currently being watched")
+		print("[EnemyAircraftSpawner] Shift+L: no aircraft currently being watched")
 		return
 	var ai_pilot = aircraft.find_child("AIPilot", true, false)
 	if not ai_pilot or not ai_pilot.has_method("start_landing"):
-		print("[EnemyAircraftSpawner] L: no AIPilot on watched aircraft")
+		print("[EnemyAircraftSpawner] Shift+L: no AIPilot on watched aircraft")
 		return
 	var ok: bool = ai_pilot.start_landing()
 	if ok:
-		print("[EnemyAircraftSpawner] L: landing commanded for ", aircraft.name)
+		print("[EnemyAircraftSpawner] Shift+L: landing commanded for ", aircraft.name)
 	else:
 		print("[EnemyAircraftSpawner] L: approach_0/1/2/3/4 waypoints not found in scene — place them first")
 

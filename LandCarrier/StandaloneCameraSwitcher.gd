@@ -21,13 +21,9 @@ func _ready():
 func _ensure_bridge_active():
 	if get_tree().get_first_node_in_group("aircraft"):
 		return
-	var bridge_nodes = get_tree().get_nodes_in_group("carrier_cam")
-	for node in bridge_nodes:
-		if node is BridgeCamera:
-			var cam = (node as BridgeCamera).get_camera()
-			if cam:
-				cam.current = true
-			break
+	var cam := _get_bridge_camera()
+	if cam:
+		cam.current = true
 
 func _process(_delta: float):
 	# Auto-switch away from a destroyed plane once linger time expires.
@@ -124,13 +120,9 @@ func _build_camera_list():
 	_cameras.clear()
 	
 	# Bridge camera
-	var bridge_nodes = get_tree().get_nodes_in_group("carrier_cam")
-	for node in bridge_nodes:
-		if node is BridgeCamera:
-			var cam = (node as BridgeCamera).get_camera()
-			if cam:
-				_cameras.append(cam)
-				break
+	var bridge_cam := _get_bridge_camera()
+	if bridge_cam:
+		_cameras.append(bridge_cam)
 	
 	# AI aircraft cameras (friendly AI planes)
 	for node in get_tree().get_nodes_in_group("ai_aircraft"):
@@ -177,3 +169,11 @@ func _activate_camera(cam: Camera3D):
 					cam_parent.setup_aircraft(ac)
 				if cam_parent.has_method("setup_shot"):
 					cam_parent.setup_shot()
+
+func _get_bridge_camera() -> Camera3D:
+	for node in get_tree().get_nodes_in_group("carrier_cam"):
+		if node != null and node.has_method("get_camera"):
+			var cam = node.call("get_camera")
+			if cam is Camera3D:
+				return cam as Camera3D
+	return null

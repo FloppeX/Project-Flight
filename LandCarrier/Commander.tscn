@@ -1,0 +1,29 @@
+[gd_scene load_steps=5 format=3 uid="uid://ci74apimqcahq"]
+
+[ext_resource type="Script" uid="uid://cvo1dkmsekwhk" path="res://LandCarrier/Commander.gd" id="1_commander"]
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_body"]
+radius = 0.35
+height = 1.1
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_body"]
+top_radius = 0.35
+bottom_radius = 0.35
+height = 1.8
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_body"]
+
+[node name="Commander" type="CharacterBody3D" groups=["carrier_cam"]]
+script = ExtResource("1_commander")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
+shape = SubResource("CapsuleShape3D_body")
+
+[node name="BodyMesh" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
+mesh = SubResource("CylinderMesh_body")
+surface_material_override/0 = SubResource("StandardMaterial3D_body")
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, 1.8, 0.333247)

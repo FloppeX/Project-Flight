@@ -13,6 +13,7 @@ class_name TurretController
 @export var aim_skill: float = 0.75 # 0.0 to 1.0 (adds noise)
 @export var target_search_interval_s: float = 0.25
 @export var target_aim_height_bias_m: float = 0.75
+@export var debug_enabled: bool = false
 
 # --- Firing configuration ---
 @export_group("AI Firing")
@@ -47,7 +48,8 @@ func _ready() -> void:
         return
 
     host_actor = _resolve_host_actor()
-    print("[TurretController] Ready. team=%d host=%s turret=%s" % [team, str(host_actor), str(turret)])
+    if debug_enabled:
+        print("[TurretController] Ready. team=%d host=%s turret=%s" % [team, str(host_actor), str(turret)])
 
     if weapon_scene:
         mount_weapon(weapon_scene)
@@ -55,7 +57,7 @@ func _ready() -> void:
 func mount_weapon(scene: PackedScene) -> void:
     if weapon_instance:
         weapon_instance.queue_free()
-        
+
     weapon_instance = scene.instantiate() as Weapon
     if not weapon_instance:
         push_warning("TurretController: Failed to instantiate weapon scene.")
@@ -81,9 +83,10 @@ func _physics_process(delta: float) -> void:
     if target_search_timer >= maxf(target_search_interval_s, 0.05):
         target_search_timer = 0.0
         find_and_set_best_target()
-        var angle = turret.get_aim_angle_to_target() if current_target else -1.0
-        print("[TC t=%d] after search: target=%s state=%s angle=%.1f° weapon=%s" % [
-            team, str(current_target), FireState.keys()[fire_state], angle, str(weapon_instance)])
+        if debug_enabled:
+            var angle = turret.get_aim_angle_to_target() if current_target else -1.0
+            print("[TC t=%d] after search: target=%s state=%s angle=%.1fdeg weapon=%s" % [
+                team, str(current_target), FireState.keys()[fire_state], angle, str(weapon_instance)])
 
     # 2. Target Tracking + Rotation
     if current_target and is_instance_valid(current_target):
@@ -95,8 +98,8 @@ func _physics_process(delta: float) -> void:
         turret.tick(delta, lead_position)
         var angle_after := turret.get_aim_angle_to_target()
 
-        if target_search_timer < 0.05:  # Print once per search cycle
-            print("[TC t=%d] tick: angle %.1f° -> %.1f° (delta=%.4f)" % [team, angle_before, angle_after, delta])
+        if debug_enabled and target_search_timer < 0.05: # Print once per search cycle
+            print("[TC t=%d] tick: angle %.1fdeg -> %.1fdeg (delta=%.4f)" % [team, angle_before, angle_after, delta])
 
         # 3. Burst firing logic
         if turret.is_aimed_at_target(fire_angle_tolerance_deg):
@@ -136,9 +139,11 @@ func stop_firing() -> void:
 
 func fire_weapon() -> void:
     if not weapon_instance or not turret:
-        print("[TC t=%d] fire_weapon: SKIP no weapon or turret" % team)
+        if debug_enabled:
+            print("[TC t=%d] fire_weapon: SKIP no weapon or turret" % team)
         return
-    print("[TC t=%d] fire_weapon: can_fire=%s" % [team, str(weapon_instance.can_fire())])
+    if debug_enabled:
+        print("[TC t=%d] fire_weapon: can_fire=%s" % [team, str(weapon_instance.can_fire())])
     if weapon_instance.can_fire():
         turret.fire()
         weapon_instance.fire()
@@ -150,15 +155,18 @@ func find_and_set_best_target() -> void:
     var best_distance = max_range
 
     var candidates = _get_hostile_targets_in_range(max_range)
-    print("[TC t=%d] %d candidates, current=%s" % [team, candidates.size(), str(current_target)])
+    if debug_enabled:
+        print("[TC t=%d] %d candidates, current=%s" % [team, candidates.size(), str(current_target)])
     for enemy in candidates:
         var d = global_position.distance_to(enemy.global_position)
-        print("  cand %s dist=%.0f (best_dist=%.0f) -> pick=%s" % [enemy.name, d, best_distance, str(d < best_distance)])
+        if debug_enabled:
+            print("  cand %s dist=%.0f (best_dist=%.0f) -> pick=%s" % [enemy.name, d, best_distance, str(d < best_distance)])
         if d < best_distance:
             best_target = enemy
             best_distance = d
 
-    print("[TC t=%d] best=%s  current=%s  same=%s" % [team, str(best_target), str(current_target), str(best_target == current_target)])
+    if debug_enabled:
+        print("[TC t=%d] best=%s  current=%s  same=%s" % [team, str(best_target), str(current_target), str(best_target == current_target)])
     if current_target != best_target:
         current_target = best_target
         if turret and is_instance_valid(turret):
@@ -311,7 +319,7 @@ func calculate_lead_position(target: Node3D) -> Vector3:
             randf_range(-spread * 0.3, spread * 0.3),
             randf_range(-spread, spread)
         )
-        
+
     return lead_position
 
 func _get_target_aim_point(target: Node3D) -> Vector3:

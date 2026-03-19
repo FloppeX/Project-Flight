@@ -1,171 +1,132 @@
-# Land Carrier Project
+# Project Flight
 
-A strategic action game inspired by Armourgeddon and Carrier Command, featuring tactical air combat and commanding a massive mobile base.
+This document is the short project brief for Project Flight. For version history, session summaries, and archived long-form notes, see [Land Carrier Changelog](docs/Land%20Carrier%20Changelog.md).
 
-## ⚠️ CURRENT STATUS: FILE PERMISSIONS (If applicable)
+## Brief Description
 
-**If you see import errors:** The project may have file permission errors preventing Godot from importing assets.
+Land Carrier is a single-player strategic action game inspired by Armourgeddon and Carrier Command. The player commands a massive tracked land carrier across a post-apocalyptic desert, launches aircraft, supports ground units, and balances offense with defense of the carrier itself.
 
-👉 **See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for fix instructions** 👈
+There are no scripted missions. Each scenario is intended to support open-ended problem solving, with the player deciding how to use available aircraft, vehicles, and carrier systems to achieve the objective.
 
-## 🎮 CONTROLLER SETUP
+## Core Concept
 
-**This project uses a game controller (Xbox/PlayStation) for flight controls.**
+### Aesthetic Vision
 
-👉 **See [CONTROLLER_GUIDE.md](CONTROLLER_GUIDE.md) for complete controller layout** 👈
+The project aims for a low-poly, flat-shaded look with an old-school Amiga feel.
 
-**AI Pilot is now ENABLED by default** - aircraft stay autonomous until the player takes over.
+### The World
 
-## Quick Start (After Fixing Permissions)
+The setting is a desert wasteland with mesas, cliffs, ruins, rock formations, fortified enemy positions, and resource locations. Weather is planned to matter to gameplay through turbulence, wind, and reduced visibility during dust storms.
 
-1. **Prerequisites:**
-   - Godot Engine v4.4.1 or later
-   - 2GB+ free disk space
-   - Windows 10/11, Linux, or macOS
+### The Carrier
 
-2. **Opening the Project:**
-   - Ensure you have write permissions on the project folder
-   - Open Godot Engine
-   - Click "Import" and select `project.godot`
-   - Wait for all assets to import (5-10 minutes first time)
+The land carrier is the centerpiece of the game: a 200-meter-long tracked mobile fortress that serves as command center, airbase, and logistics hub. It carries aircraft, ground support systems, elevator and catapult operations, arresting gear, tractor bots, and defensive turrets.
 
-3. **Running the Game:**
-   - Press F5 or click the "Play" button
-   - Use WASD for aircraft control
-   - Mouse to look around
-   - G to toggle landing gear
-   - Space to fire weapons
+### Player Units
 
-## Project Structure
+Aircraft are the primary player-flown vehicles and are meant to be modular, upgradeable, and recoverable. Ground vehicles are mostly AI controlled, but support the player's wider tactical plan.
 
-```
-Land-Carrier-Project/
-├── addons/                   # Godot addons (terrain_3d, flight sim)
-├── Aircraft/                 # Player aircraft models and scripts
-├── demo/                     # Demo scenes and assets
-├── example/                  # Example implementations
-├── Enemies/                  # Enemy units and AI
-├── Environment/              # Terrain, weather, lighting
-├── LandCarrier/              # Main carrier systems
-├── Projectiles/              # Weapons and ammunition
-├── Weapons/                  # Weapon systems
-├── .godot/                   # Cache folder (DO NOT COMMIT)
-└── project.godot             # Main project file
-```
+### High-Level Gameplay Loop
 
-## Key Documentation
+The player pushes into enemy-controlled territory, launches and recovers aircraft, protects the carrier, attacks enemy positions, and gradually expands capability through resources, repairs, and upgrades.
 
-- **[Land Carrier Project description.md](Land%20Carrier%20Project%20description.md)** - Full project overview, systems, and changelog
-- **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** - Fix file permission errors and other issues
-- **[GLB_Integration_Guide.md](GLB_Integration_Guide.md)** - 3D model integration guide
+## Current Status
 
-## Current Features
-
-### ✅ Implemented
-- Flight physics with simplified aerodynamics
-- AI pilot system with autonomous flight
-- Catapult launch system
-- Arresting cable landing system
-- Elevator and hangar operations
-- Tractor bot aircraft handling
-- Targeting and weapon systems
-- HUD with radar and instruments
-- Enemy detection and combat
-- Flight deck lighting
-- Terrain system with dynamic LOD
-- Landing gear with suspension
-- Tailhook mechanism
-
-### 🚧 In Progress
-- File permission issues (BLOCKING)
-- Enhanced enemy AI
-- Resource management
-- Carrier defense systems
-
-### 📋 Planned
-- Additional aircraft types
-- Ground vehicles
-- Strategic map view
-- Territory control
-- Weather systems
-- Campaign progression
-
-## Controls
-
-### 🎮 Game Controller (Primary)
-**This project is designed for game controllers!**
-
-**Flight:**
-- **Left Stick** - Pitch and Roll
-- **Right Stick** - Look around
-- **LT/RT (L2/R2)** - Rudder left/right
-- **LB/RB (L1/R1)** - Throttle up/down
-
-**Combat:**
-- **A/X button** - Fire weapon
-- **X/Square button** - Switch weapons
-- **D-pad Up/Down** - Target next/previous
-
-**Systems:**
-- **B/Circle button** - Landing gear
-- **Y/Triangle button** - Switch camera
-- **Start / Options** - Toggle spectator / pilot mode
-- **LB/RB (L1/R1) while spectating** - Cycle carrier and friendly aircraft
-- **D-pad Left/Right** - Flaps
-
-### ⌨️ Keyboard (Limited)
-- **R** or **1** - Retrieve aircraft from hangar
-- **S** - Store aircraft in hangar
-- **ESC** - Quit game
-
-👉 **See [CONTROLLER_GUIDE.md](CONTROLLER_GUIDE.md) for detailed controller layout**
-
-## Technical Requirements
-
-- **Engine:** Godot 4.4.1 or later
-- **GPU:** Vulkan 1.4+ compatible
-- **RAM:** 4GB minimum, 8GB recommended
-- **Storage:** 2GB free space for cache
-
-## Known Issues
-
-1. **File Permission Errors** (CRITICAL - see TROUBLESHOOTING.md)
-   - Cannot create imported files
-   - Assets fail to load
-   - **Solution:** Fix folder permissions and delete `.godot` folder
-
-2. **Performance**
-   - Large terrain may cause FPS drops on low-end systems
-   - Adjust LOD settings in project settings
-
-3. **Asset Loading**
-   - First load takes 5-10 minutes to import all assets
-   - Subsequent loads are much faster
-
-## Development Status
-
-This is an active development project. Current session focus:
-- Resolving file permission issues
-- Stabilizing core flight mechanics
-- Refining AI pilot behavior
-
-See [Land Carrier Project description.md](Land%20Carrier%20Project%20description.md) for detailed development log and upcoming features.
-
-## License
-
-[Specify your license here]
-
-## Contributing
-
-This is currently a single-player development project. AI assistants helping with development should:
-1. Read the project description thoroughly
-2. Follow established code patterns
-3. Document all changes
-4. Test incrementally
-5. Confirm before major structural changes
-
----
-
-**Last Updated:** 2026-03-03
+**Last Updated:** 2026-03-17
 **Godot Version:** 4.4.1.stable.official.49a5bc7b6
-**Platform:** Windows/Linux/macOS
+**Project Health:** PLAYABLE
+**Control Mode:** AI-by-default with spectator/pilot toggle (game controller)
+
+### Local Godot Install
+
+Portable Godot 4.4.1 is available on this machine for project checks and local runs:
+
+- `C:\Users\jonto\tools\godot-4.4.1\Godot_v4.4.1-stable_win64.exe`
+- `C:\Users\jonto\tools\godot-4.4.1\Godot_v4.4.1-stable_win64_console.exe`
+
+Example project launch from this repo root:
+
+```powershell
+& "C:\Users\jonto\tools\godot-4.4.1\Godot_v4.4.1-stable_win64_console.exe" --path "C:\Godot projects\Project-Flight"
+```
+
+### Core Systems
+
+| System | Status | Notes |
+|--------|--------|-------|
+| Flight Physics | Working | SimpleAero integration complete |
+| AI Pilot | Working | Full carrier cycle exists; carrier approach now uses authored approach markers/heights and is under active landing-pattern tuning |
+| Catapult | Working | Launches AI and player aircraft |
+| Arresting Cables | Working | Roll stabilization, mass-adaptive braking |
+| Landing Gear | Working | Suspension/damping implemented; Aircraft 1 and 2 now use animated gear pivots instead of pop-in/out, with stowed visuals/shadows suppressed |
+| Tailhook | Working | Auto-deploy/stow functional |
+
+### Aircraft Systems
+
+| System | Status | Notes |
+|--------|--------|-------|
+| Player Control | Working | Full manual flight control |
+| AI Control | Working | All vehicles default to AI; Start toggles spectator/pilot takeover of nearest friendly aircraft; LB/RB cycles carrier + friendly aircraft while spectating; Space exits free camera to spectator |
+| Weapons | Working | Autocannon, bombs, missiles |
+| Targeting | Working | HUD target box, sensor cone |
+| HUD | Working | Radar, instruments, CCIP, terrain map overlay on radar; HUD symbology/text now fully opaque |
+| Camera System | Working | Multiple camera modes, free-fly debug camera, delayed death-camera handoff; chase camera now orbits the aircraft on a level horizontal plane |
+| Destruction | Working | Explosion with volumetric smoke puffs (SphereMesh, staggered, rising/fading) |
+
+### Carrier Systems
+
+| System | Status | Notes |
+|--------|--------|-------|
+| Flight Deck Manager | Partial | Orchestrates deck/hangar/catapult/recovery flow, scramble queues, and runtime aircraft persistence; recent recovery fallback, wheel-settle, and wheel-lookup hardening improved reliability, but moving-carrier recovery edge cases are still under test |
+| Air Operations Manager | Working | Autoload (Citadel). Commands four named flights (Archer, Bulldog, Crimson, Dingo); intercept/CAS vectoring; scrambles from hangar when a flight has no members; radio comms throughout |
+| Wing Fold (Aircraft 2) | Working | Wings fold in hangar/transport, unfold at catapult; instant-snap on spawn |
+| Elevator | Working | Hangar <-> deck transit; aircraft tracks carrier horizontally |
+| Tractor Bots | Working | Aircraft towing system; follow carrier as carrier children and now use shared wheel-node lookup instead of brittle hard-coded wheel names |
+| Deck Lights | Working | Procedural light placement; center elevator-adjacent strips retuned and recolored yellow |
+| Arresting Cables | Working | Multi-cable support |
+| Carrier Movement Tracking | Working | All deck objects (parked, transport, catapult) move with carrier each frame |
+| Tracks | Working | Nav-grid A* pathfinding; tread height from grid (no per-frame raycasts); wall avoidance raycasts; stuck detection |
+
+### Enemy Systems
+
+| System | Status | Notes |
+|--------|--------|-------|
+| Detection | Working | Sensor-based target acquisition |
+| Weapons | Working | Autocannon with burst fire |
+| Ballistics | Working | Lead calculation and gravity |
+| Ground Snapping | Working | StaticBody3D terrain alignment |
+| Movement | Partial | Aircraft behavior solid; ground vehicles now share NavGraph waypoint path-following with cooldown/backoff logic, but movement/combat stance still being tuned |
+| AI Behavior | Working | Carrier-centered patrol, dogfight, missile/gun choice, RTB/landing, lost-sight variation, and platoon-based ground vehicle objectives implemented; still being tuned |
+
+### Environment
+
+| System | Status | Notes |
+|--------|--------|-------|
+| Terrain | Working | Custom low-poly procedural terrain mesh with chunk streaming; `cell_size_m=12`; height quantization (6 m snap) for grid-aligned slopes |
+| Terrain Shaping | Working | Flat areas now include subtle undulation/detail noise; cliffs/canyons deepened for stronger relief |
+| Terrain Shader | Working | Slope-based coloring; sharp sand-to-grey border (`steep_slope_band`); per-face independent tint (no spatial bleeding) |
+| Rock Scatter | Working | MultiMesh rocks placed at correct world height; atomic swap prevents popping |
+| Lighting | Working | Directional + deck lights; soft shadows, split cascades, normal bias; shadow acne fixed |
+| Post-Processing | Working | Filmic, glow, SSAO, fog |
+| Weather | Planned | Not yet implemented |
+
+## Current Agenda
+
+1. Validate the full end-to-end carrier cycle on a moving carrier, especially arrested landing -> tractor recovery -> elevator/hangar and retrieval -> catapult relaunch.
+2. Continue tuning AI landing behavior around the authored approach markers, including speed reduction, descent timing, and final deck alignment.
+3. Verify Aircraft 2's launch/recovery loop after the landing-gear mesh/pivot changes so all three wheels settle correctly onto the deck.
+4. Continue tuning ground vehicle movement, combat stance, and pathing performance.
+5. Expand enemy movement/pathfinding and build out the resource management layer.
+
+**Current focus:** As of 2026-03-17, the main active work is carrier-air-ops polish: recovery reliability, launch handoff, and AI approach/landing tuning on the moving carrier.
+
+## Working Style Notes
+
+- Build iteratively and favor small, well-documented steps.
+- Keep temporary structures easy to identify and remove later.
+- Maintain the established project structure and move files into the correct folders when the design is clear.
+
+## Additional Documentation
+
+- [Land Carrier Changelog](docs/Land%20Carrier%20Changelog.md)
+- [Controller Guide](docs/CONTROLLER_GUIDE.md)

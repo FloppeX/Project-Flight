@@ -1,4 +1,4 @@
-[gd_scene load_steps=40 format=3 uid="uid://bowbp6tm1x3c0"]
+[gd_scene load_steps=41 format=3 uid="uid://bowbp6tm1x3c0"]
 
 [ext_resource type="Script" uid="uid://c4ltq2v6fji05" path="res://Aircraft/aircraft.gd" id="1_e8t1h"]
 [ext_resource type="PackedScene" uid="uid://cadi81fcpvmuc" path="res://Projectiles/Explosion/explosion.tscn" id="2_x73up"]
@@ -35,6 +35,7 @@
 [ext_resource type="PackedScene" uid="uid://idqmpbpg2jul" path="res://Weapons/Bomb/bomb.tscn" id="32_kq7no"]
 [ext_resource type="Script" uid="uid://ov07c02ulmhl" path="res://Aircraft/AIToggle.gd" id="33_aitgl"]
 [ext_resource type="Script" uid="uid://bwjigrpitv7cm" path="res://AI/AIPilot.gd" id="34_aipil"]
+[ext_resource type="Script" uid="uid://ckyxqpwu5tkkl" path="res://Aircraft/CockpitCanopyVisibility.gd" id="35_canopyvis"]
 
 [sub_resource type="PhysicsMaterial" id="PhysicsMaterial_lowfriction"]
 friction = 0.1
@@ -155,7 +156,6 @@ metadata/_custom_type_script = "uid://5l6s62uv3p3a"
 script = ExtResource("24_kq7no")
 fov_cone_deg = 90.0
 max_range_m = 2000.0
-debug_enabled = false
 
 [node name="CameraController" type="Node3D" parent="." node_paths=PackedStringArray("aircraft", "cockpit_tripod", "chase_tripod", "cinematic_tripod")]
 script = ExtResource("23_6y2pl")
@@ -206,6 +206,13 @@ mounted_weapon = ExtResource("32_kq7no")
 transform = Transform3D(1, 0, 0, 0, 0.5, -0.866025, 0, 0.866025, 0.5, 0, -1.728, -2.409)
 spring_strength = 100.0
 spring_damping = 1000.0
+
+[node name="CockpitCanopyVisibility" type="Node" parent="."]
+script = ExtResource("35_canopyvis")
+canopy_node_paths = Array[NodePath]([])
+canopy_surface_mesh_paths = Array[NodePath]([NodePath("../Aircraft 1 new/Aircraft 1")])
+canopy_surface_indices = PackedInt32Array(7)
+cockpit_shadow_disable_paths = Array[NodePath]([NodePath("../Aircraft 1 new/Aircraft 1")])
 
 [node name="AIPilot" type="Node" parent="."]
 script = ExtResource("34_aipil")

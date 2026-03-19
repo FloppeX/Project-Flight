@@ -13,8 +13,10 @@ signal update_interface(values)
 @export var gear_visuals: Array[Node3D] = []  # Array for visual gear meshes
 @export var gear_rotation_axes: Array[Vector3] = []  # Rotation axis for each gear (empty = no rotation)
 @export var gear_rotation_angles: Array[float] = []  # Rotation angle in degrees for each gear when stowed
+@export var gear_stowed_rotations_degrees: Array[Vector3] = []  # Explicit Euler stow rotation per gear in degrees
 @export var animate_lean_visuals: bool = true
 @export var visual_lean_scale: float = 1.0  # 1.0 = visual moves same metres as lean offset
+@export var hide_visuals_when_stowed: bool = true
 
 enum LandingGearInitialStates {
 	STOWED,
@@ -81,6 +83,10 @@ var _catapult_accel_filtered_mps2: float = 0.0
 var _grounded_stable_time_s: float = 0.0
 var _collider_rest_positions: Array[Vector3] = []
 var _visual_rest_positions: Array[Vector3] = []
+var _visual_rest_rotations: Array[Vector3] = []
+var _gear_animation_progress: float = 1.0
+var _gear_animation_target: float = 1.0
+var _gear_animation_active: bool = false
 
 # Debug state
 var _debug_timer: float = 0.0
@@ -114,13 +120,19 @@ func setup(aircraft_node):
 	
 	# Set initial state
 	current_state = InitialState
-	if current_state == LandingGearInitialStates.STOWED:
-		stow()
-	else:
-		deploy()
+	is_deployed = current_state == LandingGearInitialStates.DEPLOYED
+	is_stowed = current_state == LandingGearInitialStates.STOWED
+	_gear_animation_progress = 1.0 if is_deployed else 0.0
+	_gear_animation_target = _gear_animation_progress
+	_gear_animation_active = false
+	for collision_shape in gear_collision_shapes:
+		if collision_shape:
+			collision_shape.disabled = is_stowed
+	_apply_visual_gear_pose()
 
 func process_physic_frame(delta: float):
 	"""Apply spring physics to each wheel"""
+	_update_gear_animation(delta)
 	if current_state != LandingGearInitialStates.DEPLOYED:
 		return
 
@@ -351,6 +363,7 @@ func _resolve_gear_visuals_from_colliders() -> void:
 func _cache_visual_rest_positions() -> void:
 	_collider_rest_positions.clear()
 	_visual_rest_positions.clear()
+	_visual_rest_rotations.clear()
 	for i in range(gear_collision_shapes.size()):
 		var cs: CollisionShape3D = gear_collision_shapes[i]
 		if is_instance_valid(cs):
@@ -360,8 +373,62 @@ func _cache_visual_rest_positions() -> void:
 		var v: Node3D = gear_visuals[i] if i < gear_visuals.size() else null
 		if is_instance_valid(v):
 			_visual_rest_positions.append(v.position)
+			_visual_rest_rotations.append(v.rotation)
 		else:
 			_visual_rest_positions.append(Vector3.ZERO)
+			_visual_rest_rotations.append(Vector3.ZERO)
+
+func _update_gear_animation(delta: float) -> void:
+	if not _gear_animation_active:
+		return
+	var duration: float = maxf(DeployStowTime, 0.001)
+	var step: float = delta / duration
+	_gear_animation_progress = move_toward(_gear_animation_progress, _gear_animation_target, step)
+	_apply_visual_gear_pose()
+	if is_equal_approx(_gear_animation_progress, _gear_animation_target):
+		_gear_animation_active = false
+		if hide_visuals_when_stowed and _gear_animation_progress <= 0.0:
+			for visual in gear_visuals:
+				if is_instance_valid(visual):
+					visual.visible = false
+					_set_shadow_casting_recursive(visual, false)
+
+func _set_shadow_casting_recursive(node: Node, enabled: bool) -> void:
+	if node is GeometryInstance3D:
+		var geom: GeometryInstance3D = node as GeometryInstance3D
+		geom.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if enabled else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	for child in node.get_children():
+		_set_shadow_casting_recursive(child, enabled)
+
+func _apply_visual_gear_pose() -> void:
+	if _visual_rest_positions.size() < gear_collision_shapes.size() or _visual_rest_rotations.size() < gear_collision_shapes.size():
+		_cache_visual_rest_positions()
+	var stow_alpha: float = 1.0 - clampf(_gear_animation_progress, 0.0, 1.0)
+	for i in range(gear_visuals.size()):
+		var visual: Node3D = gear_visuals[i]
+		if not is_instance_valid(visual):
+			continue
+		if i < _visual_rest_positions.size():
+			visual.position = _visual_rest_positions[i]
+		if i < _visual_rest_rotations.size():
+			var rest_rotation: Vector3 = _visual_rest_rotations[i]
+			var stowed_rotation_deg: Vector3 = gear_stowed_rotations_degrees[i] if i < gear_stowed_rotations_degrees.size() else Vector3.ZERO
+			if i < gear_stowed_rotations_degrees.size():
+				visual.rotation = rest_rotation + Vector3(
+					deg_to_rad(stowed_rotation_deg.x),
+					deg_to_rad(stowed_rotation_deg.y),
+					deg_to_rad(stowed_rotation_deg.z)
+				) * stow_alpha
+			else:
+				var axis: Vector3 = gear_rotation_axes[i] if i < gear_rotation_axes.size() else Vector3.ZERO
+				var angle_deg: float = gear_rotation_angles[i] if i < gear_rotation_angles.size() else 0.0
+				if axis.length_squared() > 0.0 and not is_zero_approx(angle_deg):
+					visual.rotation = rest_rotation + axis.normalized() * deg_to_rad(angle_deg) * stow_alpha
+				else:
+					visual.rotation = rest_rotation
+		if _gear_animation_progress > 0.0 or not hide_visuals_when_stowed:
+			visual.visible = true
+			_set_shadow_casting_recursive(visual, true)
 
 func _update_lean_geometry() -> void:
 	if not animate_lean_visuals:
@@ -391,7 +458,7 @@ func _update_lean_geometry() -> void:
 
 func deploy():
 	"""Deploy the landing gear"""
-	if current_state == LandingGearInitialStates.DEPLOYED:
+	if current_state == LandingGearInitialStates.DEPLOYED and is_equal_approx(_gear_animation_target, 1.0):
 		return
 	
 	# Start deploy animation/timer
@@ -405,6 +472,8 @@ func deploy():
 	current_state = LandingGearInitialStates.DEPLOYED
 	is_deployed = true
 	is_stowed = false
+	_gear_animation_target = 1.0
+	_gear_animation_active = true
 	if debug_enabled:
 		print("[LG] deploy() called; enabling ", gear_collision_shapes.size(), " colliders and ", gear_visuals.size(), " visuals")
 	
@@ -421,14 +490,14 @@ func deploy():
 			if debug_enabled:
 				print("[LG]  visual   -> ", visual.get_path())
 			visual.visible = true
-	_cache_visual_rest_positions()
+	_apply_visual_gear_pose()
 	
 	# Emit interface update
 	update_interface.emit({"landing_gear": "deployed"})
 
 func stow():
 	"""Stow the landing gear"""
-	if current_state == LandingGearInitialStates.STOWED:
+	if current_state == LandingGearInitialStates.STOWED and is_equal_approx(_gear_animation_target, 0.0):
 		return
 	
 	# Start stow animation/timer
@@ -442,6 +511,8 @@ func stow():
 	current_state = LandingGearInitialStates.STOWED
 	is_deployed = false
 	is_stowed = true
+	_gear_animation_target = 0.0
+	_gear_animation_active = true
 	if debug_enabled:
 		print("[LG] stow() called; disabling ", gear_collision_shapes.size(), " colliders and hiding ", gear_visuals.size(), " visuals")
 	
@@ -452,19 +523,22 @@ func stow():
 				print("[LG]  collider -> ", collision_shape.get_path())
 			collision_shape.disabled = true
 	
-	# Hide visual meshes immediately
 	for visual in gear_visuals:
 		if visual:
 			if debug_enabled:
 				print("[LG]  visual   -> ", visual.get_path())
-			visual.visible = false
+			visual.visible = true
 	# Reset visual transforms to rest
 	for i in range(min(gear_visuals.size(), _visual_rest_positions.size())):
 		if is_instance_valid(gear_visuals[i]):
 			gear_visuals[i].position = _visual_rest_positions[i]
+	for i in range(min(gear_visuals.size(), _visual_rest_rotations.size())):
+		if is_instance_valid(gear_visuals[i]):
+			gear_visuals[i].rotation = _visual_rest_rotations[i]
 	for i in range(min(gear_collision_shapes.size(), _collider_rest_positions.size())):
 		if is_instance_valid(gear_collision_shapes[i]):
 			gear_collision_shapes[i].position = _collider_rest_positions[i]
+	_apply_visual_gear_pose()
 	
 	# Emit interface update
 	update_interface.emit({"landing_gear": "stowed"})

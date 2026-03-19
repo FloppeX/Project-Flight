@@ -11,7 +11,7 @@ class_name AircraftModule_ControlTargeting_AAM
 
 var _time_accum: float = 0.0
 var current_target: Node3D
-@export var debug_enabled: bool = true
+@export var debug_enabled: bool = false
 
 # AA Missile Lock-on variables
 var target_lock_time: float = 0.0

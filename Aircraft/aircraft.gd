@@ -42,6 +42,10 @@ var current_health: float:
 @export var Gravity: float = 1.0 # Normalized to Earth average at sea level
 @export var SeaLevelFromOrigin: float = 0.0
 @export var AltitudeEnabled: bool = true
+@export var carrier_deck_reference_altitude_m: float = 40.0
+@export var carrier_deck_extent_x_m: float = 90.0
+@export var carrier_deck_extent_z_m: float = 140.0
+@export var carrier_deck_altitude_zone_margin_y_m: float = 120.0
 @export var GForceFactor: float = 1.0
 @export var WorldOrientationReference: NodePath
 @onready var world_ref : Node3D = get_node_or_null(WorldOrientationReference)
@@ -362,6 +366,47 @@ func _get_ground_height_at_position(world_pos: Vector3) -> float:
 		return float(hit.position.y)
 	return NAN
 
+func _get_carrier_reference_ground_y() -> float:
+	var carrier: Node3D = get_tree().get_first_node_in_group("carrier") as Node3D
+	if carrier == null:
+		return NAN
+	var local_pos: Vector3 = carrier.to_local(global_position)
+	if absf(local_pos.x) > carrier_deck_extent_x_m:
+		return NAN
+	if absf(local_pos.z) > carrier_deck_extent_z_m:
+		return NAN
+	var fdm: Node = get_tree().get_first_node_in_group("flight_deck_manager")
+	if fdm == null or not fdm.has_method("get_deck_height"):
+		return NAN
+	var deck_y: float = float(fdm.get_deck_height())
+	if absf(global_position.y - deck_y) > carrier_deck_altitude_zone_margin_y_m:
+		return NAN
+	return deck_y - carrier_deck_reference_altitude_m
+
+func get_effective_altitude_agl_m() -> float:
+	var ground_y: float = _get_ground_height_at_position(global_position)
+	var carrier_ground_y: float = _get_carrier_reference_ground_y()
+	var reference_ground_y: float = ground_y
+	if not is_nan(carrier_ground_y):
+		if is_nan(reference_ground_y):
+			reference_ground_y = carrier_ground_y
+		else:
+			reference_ground_y = minf(reference_ground_y, carrier_ground_y)
+	if is_nan(reference_ground_y):
+		return maxf(global_position.y - SeaLevelFromOrigin, 0.0)
+	return maxf(global_position.y - reference_ground_y, 0.0)
+
+func get_effective_altitude_reference_y() -> float:
+	var ground_y: float = _get_ground_height_at_position(global_position)
+	var carrier_ground_y: float = _get_carrier_reference_ground_y()
+	if not is_nan(carrier_ground_y):
+		if is_nan(ground_y):
+			return carrier_ground_y
+		return minf(ground_y, carrier_ground_y)
+	if not is_nan(ground_y):
+		return ground_y
+	return SeaLevelFromOrigin
+
 ##############################################################################
 #  ENERGY SYSTEM
 # ----------------------------------------------------------------------------
@@ -471,7 +516,7 @@ func calculate_flight_data(delta):
 	
 	# Calculate altitude
 	if AltitudeEnabled:
-		local_altitude = global_position.y - SeaLevelFromOrigin
+		local_altitude = get_effective_altitude_agl_m()
 	else:
 		local_altitude = 0.0
 	

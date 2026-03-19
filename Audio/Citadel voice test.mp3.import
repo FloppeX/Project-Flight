@@ -1,0 +1,19 @@
+[remap]
+
+importer="mp3"
+type="AudioStreamMP3"
+uid="uid://c8xn278d4hkay"
+path="res://.godot/imported/Citadel voice test.mp3-9527827bc8ff54224535d4d34a4ac47e.mp3str"
+
+[deps]
+
+source_file="res://Audio/Citadel voice test.mp3"
+dest_files=["res://.godot/imported/Citadel voice test.mp3-9527827bc8ff54224535d4d34a4ac47e.mp3str"]
+
+[params]
+
+loop=false
+loop_offset=0
+bpm=0
+beat_count=0
+bar_beats=4

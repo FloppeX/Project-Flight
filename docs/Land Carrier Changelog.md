@@ -1,80 +1,17 @@
-## Current Status
+﻿# Land Carrier Changelog
 
-**Last Updated:** 2026-03-15
-**Godot Version:** 4.4.1.stable.official.49a5bc7b6
-**Project Health:** PLAYABLE
-**Control Mode:** AI-by-default with spectator/pilot toggle (game controller)
+This document contains version history, session-by-session notes, and archived long-form material extracted from the main project overview. For the short project brief, see [README](../README.md).
 
-### Core Systems
-| System | Status | Notes |
-|--------|--------|-------|
-| Flight Physics | Working | SimpleAero integration complete |
-| AI Pilot | Working | Full carrier cycle: hangar → catapult → climb → patrol → engage → RTB → land → hangar |
-| Catapult | Working | Launches AI and player aircraft |
-| Arresting Cables | Working | Roll stabilization, mass-adaptive braking |
-| Landing Gear | Working | Suspension and damping implemented |
-| Tailhook | Working | Auto-deploy/stow functional |
-
-### Aircraft Systems
-| System | Status | Notes |
-|--------|--------|-------|
-| Player Control | Working | Full manual flight control |
-| AI Control | Working | All vehicles default to AI; Start toggles spectator/pilot takeover of nearest friendly aircraft; LB/RB cycles carrier + friendly aircraft while spectating; Space exits free camera to spectator |
-| Weapons | Working | Autocannon, bombs, missiles |
-| Targeting | Working | HUD target box, sensor cone |
-| HUD | Working | Radar, instruments, CCIP, terrain map overlay on radar |
-| Camera System | Working | Multiple camera modes, free-fly debug camera, delayed death-camera handoff |
-| Destruction | Working | Explosion with volumetric smoke puffs (SphereMesh, staggered, rising/fading) |
-
-### Carrier Systems
-| System | Status | Notes |
-|--------|--------|-------|
-| Flight Deck Manager | Working | Orchestrates all operations including AI config; queue_ai_flight() API for AirOpsManager scrambles |
-| Air Operations Manager | Working | Autoload (Citadel). Commands four named flights (Archer, Bulldog, Crimson, Dingo); intercept/CAS vectoring; scrambles from hangar when a flight has no members; radio comms throughout |
-| Wing Fold (Aircraft 2) | Working | Wings fold in hangar/transport, unfold at catapult; instant-snap on spawn |
-| Elevator | Working | Hangar <-> deck transit; aircraft tracks carrier horizontally |
-| Tractor Bots | Working | Aircraft towing system; follow carrier as carrier children |
-| Deck Lights | Working | Procedural light placement |
-| Arresting Cables | Working | Multi-cable support |
-| Carrier Movement Tracking | Working | All deck objects (parked, transport, catapult) move with carrier each frame |
-| Tracks | Working | Nav-grid A* pathfinding; tread height from grid (no per-frame raycasts); wall avoidance raycasts; stuck detection |
-
-### Enemy Systems
-| System | Status | Notes |
-|--------|--------|-------|
-| Detection | Working | Sensor-based target acquisition |
-| Weapons | Working | Autocannon with burst fire |
-| Ballistics | Working | Lead calculation and gravity |
-| Ground Snapping | Working | StaticBody3D terrain alignment |
-| Movement | Partial | Aircraft behavior solid; ground vehicle movement/combat stance still being tuned |
-| AI Behavior | Working | Carrier-centered patrol, dogfight, missile/gun choice, RTB/landing, lost-sight variation, and platoon-based ground vehicle objectives implemented; still being tuned |
-
-### Environment
-| System | Status | Notes |
-|--------|--------|-------|
-| Terrain | Working | Custom low-poly procedural terrain mesh with chunk streaming; cell_size_m=12; height quantization (6m snap) for grid-aligned slopes |
-| Terrain Shaping | Working | Flat areas now include subtle undulation/detail noise; cliffs/canyons deepened for stronger relief |
-| Terrain Shader | Working | Slope-based coloring; sharp sand→grey border (steep_slope_band); per-face independent tint (no spatial bleeding) |
-| Rock Scatter | Working | MultiMesh rocks placed at correct world height; atomic swap prevents popping |
-| Lighting | Working | Directional + deck lights; soft shadows, split cascades, normal bias; shadow acne fixed |
-| Post-Processing | Working | Filmic, glow, SSAO, fog |
-| Weather | Planned | Not yet implemented |
-
-### Immediate Priorities
-1. Verify full end-to-end carrier cycle with moving carrier (gap should stay ~0 throughout)
-2. End-to-end AI cycle soak testing: hangar → catapult → climb → approach → land → hangar
-3. Implement enemy movement and pathfinding
-4. ~~Add carrier defense turrets~~ (Completed: Unified modular physical turret system)
-5. Develop resource management system
-
-### Version History
-- 2026-03-15: AI launch/climb/patrol fixes; wing fold integration; Air Operations Manager (Citadel) with four named flights, intercept/CAS vectoring, hangar scramble, and radio comms; AIPilot CLIMBING→SEARCH altitude-based transition; mass-scaled catapult launch power; carrier-relative wheel friction; spacebar exits free camera to spectator.
+## Version History
+- 2026-03-17: README/docs refresh; radio test call on `V` moved to `Audio/` and routed through filtered/static radio comms; carrier now spawns facing its first active waypoint; elevator-adjacent deck lights retuned/repositioned; nearest friendly can be ordered to land with `L`; AI landing approach reworked around authored approach marker heights plus carrier-relative altitude reference (`deck = 40 m`); landing gear now animates through pivot nodes with configurable stowed rotations and hidden/shadowless stowed visuals; Aircraft 2 gear scene wiring repaired after mesh changes; flight-deck recovery/launch flow hardened with cable-release fallback, wheel-based deck settling, and tractor-bot wheel lookup fixes; chase camera now uses a level orbit around the aircraft.
+- 2026-03-15 (s2): Ground vehicles now use shared NavGraph waypoint pathing with replan cooldown/backoff to prevent once-per-second hitches; turret/targeting debug spam disabled by default; carrier steering/stuck diagnostics improved; Aircraft 2 wing-fold hinge canted upward and mirrored correctly; HUD symbology made fully opaque; cockpit-view canopy/interior shadow suppression added to Aircraft 1/2 to reduce flicker; hangar storage now preserves aircraft type, damage, fuel, and loadout state; startup crash from early `find_hardpoints()` call hardened; arrested-landing recovery remains under active investigation.
+- 2026-03-15: AI launch/climb/patrol fixes; wing fold integration; Air Operations Manager (Citadel) with four named flights, intercept/CAS vectoring, hangar scramble, and radio comms; AIPilot CLIMBINGâ†’SEARCH altitude-based transition; mass-scaled catapult launch power; carrier-relative wheel friction; spacebar exits free camera to spectator.
 - 2026-03-14 (s2): Battlefield systems pass - added platoon-style ground vehicle grouping/objectives plus F/E/R/G spawn hotkeys; added free-fly camera on Space and frozen death-camera linger before spectate handoff; aircraft radar now draws a heading-up low-res terrain map with sharper cliff emphasis and circular mask; HUD green/line weight improved; aircraft keep scene-authored weapon loadouts while auto-adding AAM targeting support when needed; carrier waypoint/pathfinding startup disabled by default to reduce load wait; autocannon speed raised to 1200 m/s with proper velocity inheritance; terrain flats gained subtle relief and cliffs were made taller; bullets now leave larger ground marks/rock chips and attach hit marks to aircraft/vehicles; ground vehicle/turret behavior received major ongoing tuning, but ground combat movement/stance remains an active tuning area.
 - 2026-03-14: AI/player-control overhaul - all aircraft default to AI; controller Start now toggles spectator/pilot mode with nearest-friendly takeover and AI handback; spectator LB/RB cycles carrier + friendlies; AI loop unified around launch -> patrol carrier -> engage -> RTB -> land; dogfight lost-sight variation added; ballistic gun lead/drop aiming improved; AA missiles inherit aircraft speed, use mixed AI missile/gun logic, avoid ripple-firing, have improved guidance/proximity handling, and now use tunable spiral guidance for style + imperfect accuracy; aircraft wing box colliders added; landing gear / target-sync freed-instance crashes hardened.
-- 2026-03-13 (s2): Terrain cell_size_m reduced 18→12 for more detail; height quantization (quant_step_m=6m, relaxation disabled) for grid-aligned 0°/26.6°/45° slopes; per-face independent color tint (removed spatial gradient bleed); sharp sand→grey cliff border (steep_slope_band export); carrier path-retry disabled (stuttering fix); splash/loading screen added (LoadingScreen.gd autoload, 5s minimum display, fade-out); LoadingScreen registers with TerrainNavGrid.bake_complete.
-- 2026-03-13: Carrier nav-grid pathfinding overhaul — A* search window expanded to full destination; `_cell_clear` separated into impassable-clearance + slope-only checks; `max_smooth_segment_m` limits LOS smoothing; spawn/destination restricted to lowest height level; debug heightmap image export with full-route A* preview; shadow acne fix (normal bias, soft shadows, tighter cascade).
-- 2026-03-10: Modular Turret System overhaul — unified component-based `Turret` and `TurretController` systems; replaced hitscan with physical bullets; smooth pitch/yaw aiming; integrated with ground vehicles and carrier defenses.
-- 2026-03-09: Moving carrier tracking overhaul — all deck objects (parked, elevator, catapult) now follow carrier each frame; carrier-local lerping for horizontal moves; PinJoint3D wheel latches moved with carrier to prevent world-space anchoring during catapult spool; debug message cleanup across Catapult, FlightDeckManager, Elevator, TractorBot
+- 2026-03-13 (s2): Terrain cell_size_m reduced 18â†’12 for more detail; height quantization (quant_step_m=6m, relaxation disabled) for grid-aligned 0Â°/26.6Â°/45Â° slopes; per-face independent color tint (removed spatial gradient bleed); sharp sandâ†’grey cliff border (steep_slope_band export); carrier path-retry disabled (stuttering fix); splash/loading screen added (LoadingScreen.gd autoload, 5s minimum display, fade-out); LoadingScreen registers with TerrainNavGrid.bake_complete.
+- 2026-03-13: Carrier nav-grid pathfinding overhaul â€” A* search window expanded to full destination; `_cell_clear` separated into impassable-clearance + slope-only checks; `max_smooth_segment_m` limits LOS smoothing; spawn/destination restricted to lowest height level; debug heightmap image export with full-route A* preview; shadow acne fix (normal bias, soft shadows, tighter cascade).
+- 2026-03-10: Modular Turret System overhaul â€” unified component-based `Turret` and `TurretController` systems; replaced hitscan with physical bullets; smooth pitch/yaw aiming; integrated with ground vehicles and carrier defenses.
+- 2026-03-09: Moving carrier tracking overhaul â€” all deck objects (parked, elevator, catapult) now follow carrier each frame; carrier-local lerping for horizontal moves; PinJoint3D wheel latches moved with carrier to prevent world-space anchoring during catapult spool; debug message cleanup across Catapult, FlightDeckManager, Elevator, TractorBot
 - 2026-03-08: Terrain strata spatial variation, rock scatter fix (world-Y offset + atomic MultiMesh swap), slope/mesa color tuning, spatial gradient color patches, bullet speed 900 m/s, hard shadow edges + 4-split cascades, volumetric explosion smoke (SphereMesh puffs), explosion position fix (call_deferred)
 - 2026-03-07: Custom low-poly terrain rollout (streaming chunks, mesas/gullies, palette pass, base height offset), carrier flat-ground placement near map center, key-1 retrieval/player flow hardening
 - 2026-03-06: Dogfight controller rework (direct nose-pointing control), inverted recovery, firing logic/rudder tuning
@@ -91,12 +28,80 @@
 
 ## Project Change Log (latest session)
 
-### Session Summary (2026-03-15) — AI Launch Polish, Air Ops Manager, Wing Fold
+### Session Summary (2026-03-17) - Carrier Air Ops Polish, Gear Pivots, and Docs Consolidation
+
+**Overview:** Consolidated the project docs around `README.md`, added in-game radio playback, kept tightening the moving-carrier flight-deck loop, and reworked aircraft gear visuals to animate through real pivot nodes instead of popping.
+
+#### Documentation / Project Structure (`README.md`, `docs/*`)
+- Replaced the duplicated project-description flow with `README.md` as the maintained short project brief.
+- Split historical material into this changelog and removed stale setup/troubleshooting duplicates.
+- Added local portable Godot paths plus a ready-to-run console launch command to the README.
+
+#### Radio / Audio (`Audio/Citadel voice test.mp3`, `Radio/RadioComms.gd`)
+- Added keyboard-triggered radio playback on `V` using the Citadel voice test file.
+- Routed the call through a dedicated filtered/static radio treatment for a broken comms sound.
+- Moved the source MP3 into the root `Audio/` folder and updated references accordingly.
+
+#### Carrier / Deck Presentation (`LandCarrier/LandCarrier.gd`, `LandCarrier/LandCarrier.tscn`)
+- Carrier now aligns to its first active waypoint at spawn instead of beginning sideways.
+- The elevator-adjacent center deck light strips were repositioned away from the elevator, raised slightly, and recolored yellow.
+
+#### Flight Deck Recovery / Launch Reliability (`LandCarrier/FlightDeckManager.gd`, `Aircraft/AIToggle.gd`, `FlightDirector.gd`)
+- Arrested recovery now handles missed cable-release signal cases by explicitly continuing recovery after manual release if needed.
+- Switching a trapped/parked aircraft back to AI no longer makes it immediately throttle up and try to launch.
+- Added `L` as a command that sends the nearest eligible friendly aircraft into landing mode; the old debug enemy landing shortcut moved to `Shift+L`.
+- Retrieval-to-launch settling now uses wheel colliders and small pitch correction so the aircraft rests on all three wheels before the shuttle approaches.
+- Tractor-bot assignment and wait logic now use shared wheel-node lookup instead of hard-coded wheel names, making recovery less fragile after aircraft scene edits.
+
+#### AI Landing Approach / Altitude Reference (`AI/AIPilot.gd`, `Aircraft/aircraft.gd`)
+- Approach sequencing now uses the authored approach marker heights directly after the aircraft reaches the horizontal gate for `approach_0`.
+- Added descending capture radii for the marker sequence (`100 / 80 / 60 / 40 m`).
+- After the `approach_0` horizontal gate, the AI lowers gear/tailhook/flaps and aggressively reduces throttle/speed for the landing pattern.
+- Aircraft displayed altitude and AI altitude calculations now treat the carrier deck as approximately `40 m`, so deck operations read as real above-ground altitude instead of world-Y.
+- Emergency terrain pull-up behavior during `APPROACH` was reduced so it stops fighting every planned descent.
+
+#### Landing Gear / Aircraft Scene Wiring (`addons/simplified_flightsim/.../LandingGear.gd`, `Aircraft/Aircraft_1.tscn`, `Aircraft/Aircraft_2.tscn`)
+- Aircraft 1 and 2 landing gear visuals now animate over time instead of popping visible/invisible.
+- Added configurable per-gear stowed Euler rotations so the nose and mains can fold to different end orientations.
+- Gear visuals now animate around dedicated pivot nodes in the aircraft scenes.
+- Fully stowed gear visuals are hidden and stop casting shadows.
+- Aircraft 2's gear scene wiring was repaired after mesh/collider changes so the deck manager, controls, and launch/recovery flow all reference the correct wheel colliders again.
+
+#### Camera (`Camera/camera_chase.gd`)
+- Chase camera behavior was reworked into a true 360-degree orbit that stays on the horizontal plane and orbits the aircraft around its origin rather than lagging behind it.
+
+### Session Summary (2026-03-15 part 2) - Ground Vehicle Pathing, Cockpit Polish, and Hangar Persistence
+
+**Overview:** Extended NavGraph pathing to ground vehicles, cleaned up several high-frequency debug/perf problems, improved cockpit readability/flicker in both aircraft, and expanded hangar storage to preserve more of each recovered aircraft's identity and state.
+
+#### Ground Vehicle Pathfinding / Perf (`GroundVehicle/vehicle_enemy_light.gd`, `GroundVehicle/vehicle_friendly_light.gd`, `NavGraph.gd`)
+- Friendly and enemy light vehicles now follow segmented `NavGraph` waypoint paths instead of steering straight at their long-range goal.
+- Added periodic replanning, goal-shift detection, and stuck-triggered replans using the same general approach as the carrier.
+- Added nearby-node checks plus retry cooldown/backoff when a vehicle cannot anchor to the graph, preventing the old once-per-second `find_path` failure loop and associated hitching.
+- `NavGraph` "no node near start/goal" spam is now gated behind debug printing.
+
+#### Carrier / Recovery Debugging (`LandCarrier/LandCarrier.gd`, `LandCarrier/FlightDeckManager.gd`)
+- Carrier steering now uses signed heading error and a turn-in-place bias for better commitment to sharp path turns; debug output now reports more truthful speed/turn data.
+- Added extra recovery handoff hardening in `FlightDeckManager` for arrested aircraft and expanded hangar retrieval/storage state handling.
+- Recovery is still not fully reliable for all arrested-landings/player cases and remains an active debugging item.
+
+#### Aircraft / Cockpit / HUD Polish (`Aircraft/WingFold.gd`, `Aircraft/CockpitCanopyVisibility.gd`, `HUD/heads_up_display.gd`, `Camera/CameraController.gd`)
+- Aircraft 2 wing-fold hinge axis was tilted upward so folded wings point up and slightly aft; right-wing mirroring was corrected.
+- HUD text, reticles, and linework now render fully opaque for better readability.
+- Cockpit-view canopy hiding was expanded, and cockpit-only shadow suppression on nearby canopy/fuselage geometry was added to Aircraft 1 and Aircraft 2 to eliminate visible interior seam/shadow flicker.
+- Cockpit camera near-plane tuning was added, though the shadow suppression change was the meaningful flicker fix.
+
+#### Hangar Persistence (`LandCarrier/FlightDeckManager.gd`, `Weapons/ControlWeapons.gd`)
+- Hangar storage/retrieval now preserves aircraft scene type, current health, fuel/energy state, hardpoint weapon scenes, ammo counts, and selected weapon type.
+- Runtime restoration was deferred until after spawn to avoid early-node setup races.
+- `ControlWeapons.find_hardpoints()` was hardened so missing aircraft references at startup/retrieval do not crash the project.
+
+### Session Summary (2026-03-15) â€” AI Launch Polish, Air Ops Manager, Wing Fold
 
 **Overview:** Polished the full AI carrier-launch cycle, added the Air Operations Manager that commands named flights and scrambles from the hangar when threats appear, and fixed several post-launch AI behavior issues.
 
 #### Catapult / Launch Polish (`LandCarrier/Catapult.gd`, `LandCarrier/FlightDeckManager.gd`)
-- Launch power now scales with aircraft mass: `_effective_tow_force_max = aircraft.mass × launch_acceleration × 4.0`, preventing light Aircraft 1 from launching too slow while still propelling heavier Aircraft 2.
+- Launch power now scales with aircraft mass: `_effective_tow_force_max = aircraft.mass Ã— launch_acceleration Ã— 4.0`, preventing light Aircraft 1 from launching too slow while still propelling heavier Aircraft 2.
 - Reduced all catapult timing pauses (`engine_start_wait_s`, `spool_duration_s`, `hold_duration_s`, `settle_duration_s`) for a faster, snappier launch sequence.
 - Aircraft is now frozen (`freeze = true`) immediately when the catapult sequence begins, preventing deck rolling before the shuttle latches.
 - Landing gear friction changed to use carrier-relative velocity instead of world-space velocity so parked aircraft don't drift as the carrier moves.
@@ -106,13 +111,13 @@
 #### Wing Fold (`Aircraft/WingFold.gd`)
 - Wings snap to fully folded on the first frame when spawned in hangar/transport mode.
 - Wings fold when `carrier_transport_mode` or `parking_brake` meta is set; unfold otherwise.
-- Correctly stays unfolded through the entire catapult sequence — parking_brake is never set during catapult, so wings don't cycle during launch.
+- Correctly stays unfolded through the entire catapult sequence â€” parking_brake is never set during catapult, so wings don't cycle during launch.
 - Fold/unfold is animated over `fold_duration` seconds (export, default 2s); fold angle and axis are also exports.
 
 #### AIPilot Post-Launch Behavior (`AI/AIPilot.gd`)
 - **LAUNCHING state:** Pull-up pitch input raised to 0.8; a minimum floor of 0.2 prevents nose-drop at any speed; transition to CLIMBING now requires both deck clearance distance AND >60m AGL.
-- **CLIMBING state:** Climb waypoint is anchored to aircraft's own position at launch (not the moving carrier), so carrier turns don't drag the waypoint sideways and trigger a bank. Bank is limited to 0 below 150m AGL, growing gradually to 30° above 300m. Pitch is speed-gated so the aircraft doesn't over-pitch at low speed. Transition from CLIMBING to SEARCH changed from distance-based (unreachable with a forward waypoint) to **altitude-based** — switches when the aircraft reaches `nav_waypoint.y − 20m`.
-- **TRANSIT state:** Implemented properly — navigates to `nav_waypoint` and transitions to SEARCH when within `on_station_radius_m` (export, default 400m). Previously this state immediately fell through to SEARCH.
+- **CLIMBING state:** Climb waypoint is anchored to aircraft's own position at launch (not the moving carrier), so carrier turns don't drag the waypoint sideways and trigger a bank. Bank is limited to 0 below 150m AGL, growing gradually to 30Â° above 300m. Pitch is speed-gated so the aircraft doesn't over-pitch at low speed. Transition from CLIMBING to SEARCH changed from distance-based (unreachable with a forward waypoint) to **altitude-based** â€” switches when the aircraft reaches `nav_waypoint.y âˆ’ 20m`.
+- **TRANSIT state:** Implemented properly â€” navigates to `nav_waypoint` and transitions to SEARCH when within `on_station_radius_m` (export, default 400m). Previously this state immediately fell through to SEARCH.
 - Added `on_station_radius_m` export variable.
 
 #### Air Operations Manager (`AirOps/AirOpsManager.gd`, `AirOps/Flight.gd`)
@@ -120,12 +125,12 @@
 - Manages four named flights: **Archer, Bulldog, Crimson, Dingo**.
 - Scans for threats every 2.5s. Air threats trigger an **intercept** vector; ground vehicle threats trigger a **CAS** vector.
 - When a threat appears and the best available flight has no members, **scrambles from the hangar**: calls `FlightDeckManager.queue_ai_flight(n, self)`, plays a radio scramble call, and registers each launched aircraft into the flight via `notify_aircraft_launched()`.
-- Once the flight is airborne, the existing mission logic (CAP → intercept/CAS → recall to CAP) takes over automatically.
+- Once the flight is airborne, the existing mission logic (CAP â†’ intercept/CAS â†’ recall to CAP) takes over automatically.
 - When threats clear, the flight is recalled to CAP with appropriate radio comms.
 - `Flight.gd` handles per-flight logic: CAP patrol, CAS target distribution (one target claimed per aircraft to avoid pile-ons), loose wedge formation during CAP, radio splash calls on target destruction, RTB ordering.
 
-#### FlightDeckManager — Scramble API (`LandCarrier/FlightDeckManager.gd`)
-- Added `queue_ai_flight(count: int, ops: Node)` — queues `count` sequential retrieval+launch cycles.
+#### FlightDeckManager â€” Scramble API (`LandCarrier/FlightDeckManager.gd`)
+- Added `queue_ai_flight(count: int, ops: Node)` â€” queues `count` sequential retrieval+launch cycles.
 - After each catapult completion, calls `ops.notify_aircraft_launched(pilot)` with the just-launched AIPilot, then automatically starts the next retrieval if more are queued.
 
 #### Camera / Input (`FlightDirector.gd`)
@@ -256,8 +261,8 @@
 
 **Overview:** Completely reworked the carrier's pathfinding to use the nav grid correctly, fixed path quality, restricted spawn/destination to the lowest terrain level, added a debug heightmap image exporter, and fixed cockpit shadow acne.
 
-#### TerrainNavGrid — A* Search Window Fix (`TerrainNavGrid.gd`)
-- A* search window was previously computed from `bbox(start, clipped_goal) + padding`. When `path_max_segment_m = 1600m`, this window was too small to route around large impassable areas — the only path might require going significantly off the direct line. Fixed: search window now uses the full `to_world` destination so A* has room to find indirect routes regardless of segment clip.
+#### TerrainNavGrid â€” A* Search Window Fix (`TerrainNavGrid.gd`)
+- A* search window was previously computed from `bbox(start, clipped_goal) + padding`. When `path_max_segment_m = 1600m`, this window was too small to route around large impassable areas â€” the only path might require going significantly off the direct line. Fixed: search window now uses the full `to_world` destination so A* has room to find indirect routes regardless of segment clip.
 
 #### `_cell_clear` Separated Checks (`TerrainNavGrid.gd`)
 - Old behaviour: checked all neighbours within `body_clearance_cells` radius for both impassable AND slope. This caused interior flat cells to be rejected because a distant neighbour happened to be near a plateau edge, pushing A* to route along canyon walls.
@@ -277,7 +282,7 @@
 - `height_smoothing = 15.0` for snappy body Y tracking; prevents carrier sinking into rising terrain.
 
 #### Wall Avoidance Raycasts (`LandCarrier.gd`)
-- Periodic horizontal raycasts (2 per `wall_check_interval = 12` frames) detect walls/cliff faces the A* path may graze. Result stored in `_wall_steer`, scaled ×0.4 to nudge without overriding waypoint steering.
+- Periodic horizontal raycasts (2 per `wall_check_interval = 12` frames) detect walls/cliff faces the A* path may graze. Result stored in `_wall_steer`, scaled Ã—0.4 to nudge without overriding waypoint steering.
 
 #### Stuck Detection & No-Path Retry (`LandCarrier.gd`)
 - `_stuck_timer`: if `wp_dist` grows for 20 continuous seconds, forces a replan and clears `_wall_steer`.
@@ -286,7 +291,7 @@
 
 #### Debug Heightmap Image Export (`TerrainNavGrid.gd`)
 - `save_debug_image(path_world, carrier_pos, destination, max_slope_m)` saves `user://navgrid_debug.png` each time a path is received.
-- 3× scaled image (~900×900px). Shows: grayscale heightmap, dark-purple impassable cells, full-route orange A* preview (no segment limit), active segment in red, carrier (green cross), destination (cyan cross).
+- 3Ã— scaled image (~900Ã—900px). Shows: grayscale heightmap, dark-purple impassable cells, full-route orange A* preview (no segment limit), active segment in red, carrier (green cross), destination (cyan cross).
 - Full-route preview runs a one-shot A* with `max_segment_m = INF` just for visualization; does not affect navigation.
 
 #### Shadow Acne Fix (`Main_Scene.tscn`)
@@ -325,10 +330,10 @@
 - `_move_aircraft_horizontally`: converted from world-space lerp to carrier-local lerp. Start and target positions are converted to carrier-local space at function start; each frame lerps in local space and converts back via `carrier.to_global()`. The world position naturally tracks carrier movement each frame.
 - `_move_aircraft_smoothly`: same carrier-local conversion applied (fallback path used when no gear colliders found).
 
-#### Per-Frame Carrier Tracking (`LandCarrier/LandCarrier.gd` — `_carry_deck_passengers`)
+#### Per-Frame Carrier Tracking (`LandCarrier/LandCarrier.gd` â€” `_carry_deck_passengers`)
 - Applied carrier's per-frame `pos_delta` to all aircraft with `parking_brake` or `carrier_transport_mode` meta (parked / elevator transport).
 - Extended to catapult phase: aircraft with `controls_disabled` but not `parking_brake`/`carrier_transport_mode` are also dragged (covers full catapult sequence from physics restore to launch release).
-- Added `[Deck]` debug print every 2s showing plane Z, carrier Z, and gap — auto-stops when `controls_disabled` is cleared at launch.
+- Added `[Deck]` debug print every 2s showing plane Z, carrier Z, and gap â€” auto-stops when `controls_disabled` is cleared at launch.
 
 #### PinJoint3D World-Space Anchor Fix (`LandCarrier/Catapult.gd`, `LandCarrier/LandCarrier.gd`)
 - During catapult spool/hold phase, PinJoint3D wheel latches were added to world root and anchored the aircraft to a fixed world-space position, overriding `pos_delta` each physics frame.
@@ -360,7 +365,7 @@
 - Eliminated shadow banding stripes: `shadow_bias = 0.15`, `shadow_normal_bias = 2.0`, `directional_shadow_mode = PARALLEL_4_SPLITS`.
 
 #### Weapons (`Weapons/Autocannon/autocannon.gd`, `Projectiles/Bullet/bullet.gd`, `AI/AIPilot.gd`)
-- Autocannon `muzzle_velocity` increased from 600 → 900 m/s.
+- Autocannon `muzzle_velocity` increased from 600 â†’ 900 m/s.
 - Bullet now inherits 100% of firing aircraft velocity (was 30%).
 - AI lead calculation updated to match new muzzle velocity.
 
@@ -439,7 +444,7 @@
 
 ### Session Summary (2026-03-04 part 2) - AI Hangar-Launch-Climb-Land Cycle
 
-**Overview:** Pressing **1** now spawns an AI-controlled aircraft from the hangar, which is raised by the elevator, towed to the catapult, launched, climbs to a waypoint, and then automatically begins a carrier landing approach — completing a full hands-off cycle.
+**Overview:** Pressing **1** now spawns an AI-controlled aircraft from the hangar, which is raised by the elevator, towed to the catapult, launched, climbs to a waypoint, and then automatically begins a carrier landing approach â€” completing a full hands-off cycle.
 
 #### Spawning AI from Hangar (`LandCarrier/FlightDeckManager.gd`)
 - `_configure_retrieved_aircraft_as_ai()`: disables player UI/targeting nodes, keeps camera tripods enabled, sets `controls_disabled` (so AI stays silent until the catapult fires), enables AIToggle, and sets `ai_pilot.land_after_launch = true`.
@@ -450,7 +455,7 @@
 - Fixed: `controls_disabled` is checked **first**. Calls `ai_pilot.launch()` (not just `change_state`) so that `launch_position` is correctly recorded at the catapult deck position, enabling the 300 m deck-clearance distance calculation.
 
 #### AIPilot `controls_disabled` Guard (`AI/AIPilot.gd`)
-- `_physics_process` returns early (no `_apply_controls` call) when `controls_disabled` is set — prevents the AI from interfering with the catapult, tractor bots, or recovery sequence.
+- `_physics_process` returns early (no `_apply_controls` call) when `controls_disabled` is set â€” prevents the AI from interfering with the catapult, tractor bots, or recovery sequence.
 - Previously, calling `_apply_controls(throttle=0)` triggered `engine_stop()`, killing the catapult spool-up.
 
 #### Post-Launch Terrain Avoidance Fix (`AI/AIPilot.gd`)
@@ -462,15 +467,15 @@
 - Transitions to `CLIMBING` once aircraft is 300 m from the recorded launch position.
 
 #### CLIMBING State Overhaul (`AI/AIPilot.gd`)
-- **Waypoint:** Fixed 3D point at `carrier_position + launch_forward × 600 m`, altitude = `carrier.y + 200 m`. Computed from stable inputs (carrier position + launch heading) so it is the same point every frame.
-- **Exit condition:** `distance_to(nav_waypoint) < 200 m` — aircraft physically clears the waypoint. Previous altitude-only check was broken (waypoint was recalculated 1000 m ahead each frame, so distance was always ~1000 m).
+- **Waypoint:** Fixed 3D point at `carrier_position + launch_forward Ã— 600 m`, altitude = `carrier.y + 200 m`. Computed from stable inputs (carrier position + launch heading) so it is the same point every frame.
+- **Exit condition:** `distance_to(nav_waypoint) < 200 m` â€” aircraft physically clears the waypoint. Previous altitude-only check was broken (waypoint was recalculated 1000 m ahead each frame, so distance was always ~1000 m).
 - **Aggressive climb:** forces `pitch_input = 0.5` and `_smoothed_pitch_input = 0.5` directly while more than 50 m below target, bypassing the slow lerp ramp.
 - **Pitch authority:** CLIMBING now uses `vs_limit = 25 m/s`, `vs_gain = 0.15` in `_navigate_to_waypoint()` (vs normal 10/0.08).
 - **Gear/flap retraction:** runs on the first airborne frame in CLIMBING as before.
 
 #### Land-After-Launch Flow
-- `land_after_launch` flag (set by FDM before catapult) → cleared in `_state_launching()` when deck-clear, sets `_land_after_climb = true`.
-- When climb waypoint is cleared and `_land_after_climb` is set → calls `start_landing()`.
+- `land_after_launch` flag (set by FDM before catapult) â†’ cleared in `_state_launching()` when deck-clear, sets `_land_after_climb = true`.
+- When climb waypoint is cleared and `_land_after_climb` is set â†’ calls `start_landing()`.
 - This ensures the aircraft goes through a proper climb (gear up, altitude gained) before attempting the approach, rather than diving straight from the deck toward the carrier.
 
 ---
@@ -481,28 +486,28 @@
 
 #### AI Bomb Attack Improvements
 - **CCIP tolerance tightened** from 50 m to 30 m for more accurate release.
-- **Improving-accuracy hold:** AI waits for peak CCIP accuracy before releasing—holds fire while predicted miss is still decreasing and > 8 m, then releases at the minimum.
+- **Improving-accuracy hold:** AI waits for peak CCIP accuracy before releasingâ€”holds fire while predicted miss is still decreasing and > 8 m, then releases at the minimum.
 - **Systematic undershoot fixed:** `bomb_dive_aim_height_m` changed from 80 m to 0 m so the ballistic arc sweeps through the target rather than stopping short. Terrain clearance margin reduced from 80 m to 25 m. Result: bomb miss distance improved from ~32 m to ~22 m.
 - **Multi-bomb drops restored:** 3 bombs per run with 0.2 s spacing (was 1 bomb; 0.5 s spacing was too long for CCIP to remain within tolerance).
 - **Attack setup altitude** raised from 500 m to 650 m offset for better flight-path-angle buildup.
 
 #### Bank Angle Judder Fix (`AI/AIPilot.gd`)
 - Root cause: `desired_bank` was computed from `lateral_ratio` (local aircraft frame), which oscillates as the aircraft rolls, causing feedback near max bank.
-- Fix: switched to world-space `bearing_err_rad` for both normal and precise aim modes. Bank is now `clamp(bearing_err_rad × gain, ±bank_limit)`.
+- Fix: switched to world-space `bearing_err_rad` for both normal and precise aim modes. Bank is now `clamp(bearing_err_rad Ã— gain, Â±bank_limit)`.
 
 #### Carrier Landing Tumble Fix (`LandCarrier/ArrestingCable.gd`, `LandingGear/LandingGear.gd`)
-- **Root cause:** Lateral centering force was applied at the hook position (2.4 m behind, 1.7 m below CG), generating yaw and roll torques. Roll developed at ~200°/s; roll stabilization was capped too low (~20 kN·m).
+- **Root cause:** Lateral centering force was applied at the hook position (2.4 m behind, 1.7 m below CG), generating yaw and roll torques. Roll developed at ~200Â°/s; roll stabilization was capped too low (~20 kNÂ·m).
 - **Fixes applied:**
   - Lateral centering force moved to CG (`apply_central_force` instead of `apply_force` at hook offset).
-  - `roll_max_torque_g_m` raised 3.0 → 30.0 (cap lifted from ~20 kN·m to ~200 kN·m).
+  - `roll_max_torque_g_m` raised 3.0 â†’ 30.0 (cap lifted from ~20 kNÂ·m to ~200 kNÂ·m).
   - Added `deck_hold_force` (15,000 N per wheel) in LandingGear: pulls each wheel toward the deck surface during cable engagement to resist flipping.
-- **Result:** Roll holds at 0.0° throughout arrest; all wheels stay on deck; aircraft stops cleanly.
+- **Result:** Roll holds at 0.0Â° throughout arrest; all wheels stay on deck; aircraft stops cleanly.
 
 #### AI Post-Landing Recovery (`AI/AIPilot.gd`, `LandCarrier/FlightDeckManager.gd`)
 - **Problem:** After the arresting cable auto-released (speed < 2 m/s), AIPilot resumed `_state_landing` and hit the stall-speed guard (`throttle = 1.0`), causing the aircraft to accelerate away.
 - **AIPilot changes:**
-  - `_physics_process` checks `controls_disabled` meta at entry; if set, zeros all inputs, calls `_apply_controls()`, and returns—preventing the AI from fighting FlightDeckManager.
-  - When arrest ends (`_arrest_engaged_prev` → false), transitions to `State.IDLE` and calls `_request_carrier_recovery()` instead of resuming the approach.
+  - `_physics_process` checks `controls_disabled` meta at entry; if set, zeros all inputs, calls `_apply_controls()`, and returnsâ€”preventing the AI from fighting FlightDeckManager.
+  - When arrest ends (`_arrest_engaged_prev` â†’ false), transitions to `State.IDLE` and calls `_request_carrier_recovery()` instead of resuming the approach.
   - `_request_carrier_recovery()` finds FlightDeckManager via group and calls `start_post_arrest_recovery(aircraft)`.
 - **FlightDeckManager changes:**
   - New `start_post_arrest_recovery(aircraft)`: sets `parking_brake` + `controls_disabled`, stows tailhook, dispatches tractor/elevator recovery job. Skips if already in `RECOVERY_IN_PROGRESS` (signal-based path already running).
@@ -513,7 +518,7 @@
 ### Session Summary (2026-03-03) - Arresting Cable Physics Overhaul
 *   **Goal:** Tune the arresting cable for a ~30m, non-linear stop and improve physical realism.
 *   **Mass-Adaptive Braking:** Replaced fixed-force braking with a mass-adaptive system. The cable now calculates the required force based on the aircraft's mass, ensuring consistent performance for any aircraft (e.g., a 700kg fighter or a 16,000kg bomber).
-*   **Quadratic Damping:** Implemented non-linear quadratic damping (`F ∝ v²`). This creates a more realistic feel, with a strong initial pull at high speed that eases off as the aircraft slows, resulting in a gentle roll-out at the end.
+*   **Quadratic Damping:** Implemented non-linear quadratic damping (`F âˆ vÂ²`). This creates a more realistic feel, with a strong initial pull at high speed that eases off as the aircraft slows, resulting in a gentle roll-out at the end.
 *   **Pitching Moment Dynamics:** The braking force is now applied at the tailhook's physical location instead of the aircraft's center of gravity. This introduces a natural nose-down pitching moment, causing the suspension to compress and react dynamically.
 *   **Stability Enhancements:**
     *   Added a tunable artificial downforce (`engaged_downforce_g`) that is applied to each wheel individually, keeping the aircraft firmly planted on the deck during high-G deceleration.
@@ -528,28 +533,28 @@
 
 ### Session Summary (2025) - AI Ground Attack & Bombing System
 
-**Overview:** The AI pilot now has a complete ground attack capability. Friendly AI aircraft can patrol, detect ground targets, execute bombing runs, and return to patrol—all autonomously.
+**Overview:** The AI pilot now has a complete ground attack capability. Friendly AI aircraft can patrol, detect ground targets, execute bombing runs, and return to patrolâ€”all autonomously.
 
 **Controls:**
-- **P** – Spawn a friendly AI plane (EnemyAircraftSpawner)
-- **O** – Toggle all AI planes between patrol and attack mode
-- **Y** – Switch camera (bridge ↔ AI plane views when no player)
+- **P** â€“ Spawn a friendly AI plane (EnemyAircraftSpawner)
+- **O** â€“ Toggle all AI planes between patrol and attack mode
+- **Y** â€“ Switch camera (bridge â†” AI plane views when no player)
 
 ---
 
 #### AI Ground Attack State Machine
 
 **Attack flow:**
-1. **ATTACK_POSITIONING** – Fly to setup waypoint (~800m in front of target, 300–500m above)
-2. **ATTACK_INBOUND** – Fly level toward target at setup altitude until dive start range
-3. **ATTACK_DIVE** – Dive at target, drop bombs, pull up when done
-4. **ATTACK_BREAK_OFF** – Fly away from target, then line up next run
+1. **ATTACK_POSITIONING** â€“ Fly to setup waypoint (~800m in front of target, 300â€“500m above)
+2. **ATTACK_INBOUND** â€“ Fly level toward target at setup altitude until dive start range
+3. **ATTACK_DIVE** â€“ Dive at target, drop bombs, pull up when done
+4. **ATTACK_BREAK_OFF** â€“ Fly away from target, then line up next run
 
 **Configuration (AIPilot.gd):**
-- `bomb_run_setup_distance_m`: 1400 m – setup waypoint offset
-- `bomb_dive_start_distance_m`: 800 m – start dive at this horizontal range
-- `bomb_pull_up_distance_m`: 250 m – minimum distance for break-off
-- `bomb_release_altitude_window_m`: 300 m – drop when 5–300 m above target
+- `bomb_run_setup_distance_m`: 1400 m â€“ setup waypoint offset
+- `bomb_dive_start_distance_m`: 800 m â€“ start dive at this horizontal range
+- `bomb_pull_up_distance_m`: 250 m â€“ minimum distance for break-off
+- `bomb_release_altitude_window_m`: 300 m â€“ drop when 5â€“300 m above target
 
 ---
 
@@ -559,8 +564,8 @@
 - Drops when altitude above target is between **5 m and 300 m**
 - Drops **3 bombs per run**, then pulls up
 - Spacing: 0.11 s between bombs (slightly above weapon fire cooldown)
-- Must be descending (flight path angle > 1°)
-- No prediction or nose-alignment checks—altitude window only
+- Must be descending (flight path angle > 1Â°)
+- No prediction or nose-alignment checksâ€”altitude window only
 
 **Break-off:**
 - When 3 bombs have been dropped, or
@@ -572,10 +577,10 @@
 
 **Aim correction:**
 - Uses predicted bomb impact to steer the aim point toward the target
-- Correction strength increases as range decreases (0.6–1.2)
+- Correction strength increases as range decreases (0.6â€“1.2)
 
 **Precise aim mode** (within 500 m horizontal, 400 m altitude):
-- Bank limited to 35° for steadier approach
+- Bank limited to 35Â° for steadier approach
 - Aim height reduced to target + 15 m
 - Bearing-based bank control instead of lateral ratio
 - Faster roll response (reduced smoothing)
@@ -589,7 +594,7 @@
 #### Pitch & Dive Stability
 
 **Soft dive entry:**
-- vs_limit and vs_gain ramp over 1.2 s (18→40 m/s, 0.12→0.25)
+- vs_limit and vs_gain ramp over 1.2 s (18â†’40 m/s, 0.12â†’0.25)
 - Reduces initial pull-too-hard and oscillation at dive start
 
 **Pitch oscillation fixes:**
@@ -607,7 +612,7 @@
 - Terrain sampling along dive path to raise aim point over hills
 
 **Descending spiral recovery:**
-- When banked > 25° and descending > 15 m/s, level wings first, then climb
+- When banked > 25Â° and descending > 15 m/s, level wings first, then climb
 
 ---
 
@@ -616,7 +621,7 @@
 **StandaloneCameraSwitcher (bridge-only / no-player mode):**
 - Switches to bridge only when the **destroyed plane** is the one being viewed
 - Viewing another plane or the bridge is unchanged when a different plane is destroyed
-- Linger time: 4 s on destroyed plane’s camera before switching
+- Linger time: 4 s on destroyed planeâ€™s camera before switching
 
 ---
 
@@ -627,9 +632,9 @@
 - Current behavior is different: aircraft default to AI control, and controller `Start/Options` toggles spectator and pilot modes.
 
 **Changes Made:**
-- ✅ Disabled AI pilot by default in `CompleteFighterJet.tscn`
-- ✅ Aircraft now starts with player control enabled
-- ✅ Press **A** key if you want to toggle AI pilot on (optional)
+- âœ… Disabled AI pilot by default in `CompleteFighterJet.tscn`
+- âœ… Aircraft now starts with player control enabled
+- âœ… Press **A** key if you want to toggle AI pilot on (optional)
 
 **Configuration:**
 - All controls are gamepad-based (Xbox/PlayStation controller)
@@ -663,9 +668,9 @@ The `.godot` directory (Godot's import cache and editor data folder) does not ha
 **Resolution Steps:**
 
 1. **Check Directory Permissions (Windows):**
-   - Right-click the project folder → Properties → Security tab
+   - Right-click the project folder â†’ Properties â†’ Security tab
    - Ensure your user account has "Full control" permissions
-   - If not, click Edit → Add your user → Grant "Full control"
+   - If not, click Edit â†’ Add your user â†’ Grant "Full control"
    - Apply to all subdirectories
 
 2. **Check Directory Permissions (Linux/Mac):**
@@ -685,7 +690,7 @@ The `.godot` directory (Godot's import cache and editor data folder) does not ha
    - Wait for all assets to reimport (may take several minutes)
 
 4. **Check for Read-Only Attributes (Windows):**
-   - Right-click project folder → Properties
+   - Right-click project folder â†’ Properties
    - Uncheck "Read-only" if checked
    - Apply to all files and subfolders
 
@@ -699,7 +704,7 @@ The `.godot` directory (Godot's import cache and editor data folder) does not ha
    - Check Windows Defender or other security software settings
 
 7. **Run Godot with Elevated Permissions (Last Resort):**
-   - Windows: Right-click Godot executable → "Run as administrator"
+   - Windows: Right-click Godot executable â†’ "Run as administrator"
    - Linux/Mac: May need to adjust ownership: `sudo chown -R $USER:$USER .`
 
 **Prevention:**
@@ -708,7 +713,7 @@ The `.godot` directory (Godot's import cache and editor data folder) does not ha
 - Don't sync the `.godot` folder to cloud storage services (Dropbox, OneDrive, etc.) as this can cause conflicts
 - Add `.godot/` to `.gitignore` - this folder should never be committed to version control
 
-**Status:** ⚠️ **UNRESOLVED** - Project cannot run until permissions are fixed
+**Status:** âš ï¸ **UNRESOLVED** - Project cannot run until permissions are fixed
 
 ---
 
@@ -722,17 +727,17 @@ The `.godot` directory (Godot's import cache and editor data folder) does not ha
 	*   Added a roll-stabilizing and leveling torque to the `ArrestingCable` logic. When an aircraft engages a cable, this force counteracts roll, preventing the aircraft from flipping over.
 *   **Environment and Visual Enhancements**:
 	*   Created a `DeckLights` system that procedurally places green centerline and white edge lights along the flight deck using start/end markers.
-	*   Implemented a custom, unshaded terrain shader that colors the landscape based on slope—sandy brown for flat areas and gray for steep slopes—to better match the project's low-poly aesthetic.
+	*   Implemented a custom, unshaded terrain shader that colors the landscape based on slopeâ€”sandy brown for flat areas and gray for steep slopesâ€”to better match the project's low-poly aesthetic.
 	*   Developed a performant, camera-centered rock scattering system (`RockStream`) that uses Poisson-disk sampling to distribute rocks deterministically in a ring around the camera, streaming them in and out for performance.
 
 ### Session Summary (2025-09-23)
 *   **Cameras**
-	*   Bridge camera: fixed discovery via `carrier_cam` group, robust aircraft/camera lookup, horizontal `look_at()` with 180° yaw correction, and smoothed pitch tracking.
-	*   Cinematic camera: positions 100–200 m ahead of aircraft with random ±30 m horizontal and 0–30 m vertical offsets, relative to aircraft axes (no ground snapping).
+	*   Bridge camera: fixed discovery via `carrier_cam` group, robust aircraft/camera lookup, horizontal `look_at()` with 180Â° yaw correction, and smoothed pitch tracking.
+	*   Cinematic camera: positions 100â€“200 m ahead of aircraft with random Â±30 m horizontal and 0â€“30 m vertical offsets, relative to aircraft axes (no ground snapping).
 *   **Scorch Marks / Decals**
 	*   Explosion and bullet decals now project cleanly: use decal projection-from-above (Basis.IDENTITY + random yaw), increased projection depth, minimal surface offset, and bullet marks attach to aircraft so they move with it.
 *   **HUD / Radar**
-	*   Carrier is drawn as a blue rectangle, size ~two enemy dots wide, positioned/oriented correctly from aircraft frame; applied +90° visual rotation for alignment.
+	*   Carrier is drawn as a blue rectangle, size ~two enemy dots wide, positioned/oriented correctly from aircraft frame; applied +90Â° visual rotation for alignment.
 *   **Landing Gear Suspension**
 	*   Documented spring/damping parameters in `addons/simplified_flightsim/.../LandingGear.gd` and noted overrides in `Aircraft/Aircraft 1/Aircraft 1.tscn`.
 *   **Environment & Lighting**
@@ -796,7 +801,7 @@ The `.godot` directory (Godot's import cache and editor data folder) does not ha
   - Optional `HitchBody` under `TowArm` for arm-attach mode.
 
 - Script: `LandCarrier/TractorBot.gd`
-  - States: IDLE → MOVING_TO_AIRCRAFT → COUPLING → TOWING_TO_DESTINATION → (DISCONNECTING) → UNCOUPLING → RETURNING_TO_STAGING.
+  - States: IDLE â†’ MOVING_TO_AIRCRAFT â†’ COUPLING â†’ TOWING_TO_DESTINATION â†’ (DISCONNECTING) â†’ UNCOUPLING â†’ RETURNING_TO_STAGING.
   - Reverse towing: faces and pulls the aircraft while driving in reverse; slows near destination.
   - Two modes:
 	- Arm mode: extend arm, optional `PinJoint3D` at `TowArm/Tip` to aircraft; keeps arm extended during towing.
@@ -818,7 +823,7 @@ The `.godot` directory (Godot's import cache and editor data folder) does not ha
 
 ### HUD: Radar and Targeting Displays
 - Enemy registry: Added `Enemies/EnemyRegistry.gd` as an autoload to maintain a shared list of enemies per team.
-- Targeting module: New `AircraftModule_ControlTargeting` finds targets in a ±30–60° cone and cycles via inputs (E/Q, X to clear).
+- Targeting module: New `AircraftModule_ControlTargeting` finds targets in a Â±30â€“60Â° cone and cycles via inputs (E/Q, X to clear).
 - Instrument panel UI: Top row preserved; added a lower HBox with two square displays:
   - Left: Radar map showing known enemies within 5 km, top-down relative to aircraft.
   - Right: Target view using a dedicated `SubViewport` + `Camera3D` to show the currently targeted enemy.
@@ -827,6 +832,8 @@ The `.godot` directory (Godot's import cache and editor data folder) does not ha
 ### Notes / Next steps
 - Tractor pathing: if circling or stalls occur, confirm `approach_a_marker`, `approach_b_marker`, and `elevator_marker` assignments, and consider enabling a deck `NavigationRegion3D` for `NavAgent`.
 - If a rigid rope is preferred, replace virtual rope with a tuned `Generic6DOFJoint3D` (linear limit on one axis), but this needs careful axis setup per scene orientation.
+## Archived Notes From Original Project Description
+
 The Land Carrier Project
 Welcome to the Land Carrier project. This document serves as an initial overview, providing the foundational concepts and vision for the game before we dive into the detailed development roadmap. The aim is to give AI assistants a clear understanding of the project's essence to better assist with subsequent coding and design tasks.
 
@@ -883,7 +890,7 @@ Destruction Mechanics ("Blowing Up")
 Flight & Control Model
 	  Aerodynamics: Aircraft use a simplified aerodynamic model (SimpleAero.gd) including lift, drag, and stall.
 	  Turbulence: Continuous turbulence (ContinuousTurbulence.gd) and wind vectors apply forces dynamically.
-	  AI Pilot System: AI-controlled aircraft use the same inputs as the player (aileron, elevator, rudder, throttle, gear, weapons). Core states: Launch, Climb, Transit, Search (patrol), Attack (ground attack with bombs), Break-off, RTB, Approach, Landing. **Ground attack:** AI detects ground targets (EnemyBox), sets up bombing runs from 1400 m, flies inbound, dives at 800 m, drops 3 bombs when 5–300 m above target, then breaks off. Press **O** to toggle AI between patrol and attack mode.
+	  AI Pilot System: AI-controlled aircraft use the same inputs as the player (aileron, elevator, rudder, throttle, gear, weapons). Core states: Launch, Climb, Transit, Search (patrol), Attack (ground attack with bombs), Break-off, RTB, Approach, Landing. **Ground attack:** AI detects ground targets (EnemyBox), sets up bombing runs from 1400 m, flies inbound, dives at 800 m, drops 3 bombs when 5â€“300 m above target, then breaks off. Press **O** to toggle AI between patrol and attack mode.
 Cameras
 	  Managed via CameraManager.gd and CameraTripod.gd.
 	  Modes: cockpit (default), chase, orbit, cinematic tripod.
@@ -1071,10 +1078,10 @@ particle_manager.add_spark_particle(mesh_instance, 2.0, Vector3(0.5, 0.5, 0.5), 
 *   **AI Pilot System Implementation**:
 	*   Created comprehensive AI pilot system for autonomous aircraft control using same inputs as player
 	*   **PIDController.gd**: Reusable PID controller for smooth, human-like control (prevents jerky robot movements)
-	*   **AIPilot.gd**: Main AI brain with state machine (IDLE → LAUNCHING → CLIMBING → TRANSIT → SEARCH → ENGAGE → RTB → APPROACH → LANDING)
+	*   **AIPilot.gd**: Main AI brain with state machine (IDLE â†’ LAUNCHING â†’ CLIMBING â†’ TRANSIT â†’ SEARCH â†’ ENGAGE â†’ RTB â†’ APPROACH â†’ LANDING)
 	*   **AIToggle.gd**: Toggle between AI and player control with 'A' key; disables player control modules when AI active
 	*   Modified CompleteFighterJet.tscn to be AI-controlled by default
-	*   Fixed SimpleAero integration (aileron_input → roll_input, etc.)
+	*   Fixed SimpleAero integration (aileron_input â†’ roll_input, etc.)
 *   **AI Launch & Collision Systems**:
 	*   Fixed critical collision bug where aircraft collision layers were set to 0 and never restored
 	*   FlightDeckManager now saves/restores collision settings properly (default 513)
@@ -1090,20 +1097,20 @@ particle_manager.add_spark_particle(mesh_instance, 2.0, Vector3(0.5, 0.5, 0.5), 
 	*   Aircraft automatically added to "friendlies" group for AI detection
 *   **Waypoint-Based Flight Control**:
 	*   Restructured AI navigation to be waypoint-based instead of direct altitude control (eliminates oscillation)
-	*   Navigation flow: "WHERE do I want to go?" → "WHAT heading/pitch/roll?" → "APPLY controls"
+	*   Navigation flow: "WHERE do I want to go?" â†’ "WHAT heading/pitch/roll?" â†’ "APPLY controls"
 	*   Implemented proper coordinated turn physics:
-		*   Bank angle selection: 20° (gentle) / 30-45° (standard) / 60° (steep) based on heading error
+		*   Bank angle selection: 20Â° (gentle) / 30-45Â° (standard) / 60Â° (steep) based on heading error
 		*   Pull back elevator to turn - more bank requires more back pressure
-		*   Rudder proportional to bank angle for coordination (0.5 × bank ratio)
+		*   Rudder proportional to bank angle for coordination (0.5 Ã— bank ratio)
 	*   Organic altitude maintenance: Pitch control responds to both altitude error and vertical speed
-	*   AI naturally discovers it needs more pitch in turns to maintain altitude (lift = total lift × cos(bank))
+	*   AI naturally discovers it needs more pitch in turns to maintain altitude (lift = total lift Ã— cos(bank))
 *   **Rectangular Patrol Pattern**:
-	*   Implemented 4-waypoint rectangular patrol around carrier (750m × 750m square at 500m altitude)
+	*   Implemented 4-waypoint rectangular patrol around carrier (750m Ã— 750m square at 500m altitude)
 	*   AI switches waypoints when within 50m, loops continuously
 	*   Carrier position saved at launch for patrol reference
 	*   Enemy engagement temporarily disabled to focus on stable flight
 *   **Flight Parameters & Tuning**:
-	*   Set AI flight limits: max pitch ±60°, max roll ±60° (limits on commanded angles, not actual aircraft capability)
+	*   Set AI flight limits: max pitch Â±60Â°, max roll Â±60Â° (limits on commanded angles, not actual aircraft capability)
 	*   Changed initial climb altitude from 1000m to 500m
 	*   Tuned PID controllers to prevent looping and oscillation:
 		*   Pitch: 0.5 P, 0.3 D (reduced from 2.0)

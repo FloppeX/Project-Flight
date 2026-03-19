@@ -6,9 +6,8 @@
 [ext_resource type="PackedScene" uid="uid://djtbinx1svo2u" path="res://Aircraft/Aircraft wreck/aircraft_1_wreck.tscn" id="3_x73up"]
 [ext_resource type="PackedScene" uid="uid://bpfxucj3ypbxu" path="res://Models/Aircraft_1/Aircraft 2 propeller.glb" id="4_ii5ys"]
 [ext_resource type="Script" path="res://Aircraft/SimpleAero.gd" id="5_8vbcf"]
-[ext_resource type="PackedScene" uid="uid://c0o23b5ljp2ux" path="res://Models/Aircraft_1/Aircraft 1 nose gear.glb" id="6_uu721"]
-[ext_resource type="PackedScene" uid="uid://cjjut6tj4mout" path="res://Models/Aircraft_1/Aircraft 2 left gear.glb" id="7_hcuof"]
-[ext_resource type="PackedScene" uid="uid://bumb5qqc3xt7" path="res://Models/Aircraft_1/Aircraft 1 right gear.glb" id="8_bd6tw"]
+[ext_resource type="PackedScene" uid="uid://c2skyi8tilc13" path="res://Models/Aircraft_1/Aircraft nose gear.glb" id="7_xldsk"]
+[ext_resource type="PackedScene" uid="uid://bifk2d4o2un2l" path="res://Models/Aircraft_1/Aircraft main gear.glb" id="8_xnqm1"]
 [ext_resource type="PackedScene" uid="uid://diddm04vtjnny" path="res://addons/simplified_flightsim/aircraft_modules/EnergyContainer/EnergyContainer.tscn" id="9_n2s36"]
 [ext_resource type="PackedScene" uid="uid://bxmk3xwsygst" path="res://addons/simplified_flightsim/aircraft_modules/Engine/Engine.tscn" id="10_jemhm"]
 [ext_resource type="AudioStream" uid="uid://b1vdg40us1d5i" path="res://Audio/airplane_propeller 2.wav" id="11_btnkm"]
@@ -36,6 +35,7 @@
 [ext_resource type="PackedScene" uid="uid://idqmpbpg2jul" path="res://Weapons/Bomb/bomb.tscn" id="32_kq7no"]
 [ext_resource type="Script" uid="uid://ov07c02ulmhl" path="res://Aircraft/AIToggle.gd" id="33_aitgl"]
 [ext_resource type="Script" uid="uid://bwjigrpitv7cm" path="res://AI/AIPilot.gd" id="34_aipil"]
+[ext_resource type="Script" uid="uid://ckyxqpwu5tkkl" path="res://Aircraft/CockpitCanopyVisibility.gd" id="35_canopyvis"]
 
 [sub_resource type="PhysicsMaterial" id="PhysicsMaterial_lowfriction"]
 friction = 0.1
@@ -99,22 +99,31 @@ auto_rudder_strength = 0.5
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -1.432, 3.645)
 shape = SubResource("SphereShape3D_gear")
 
-[node name="Aircraft 1 nose gear" parent="CenterGearCollider" instance=ExtResource("6_uu721")]
-transform = Transform3D(1, 0, 2.84217e-14, 0, 1, 0, -2.84217e-14, 0, 1, 5.49129e-07, 1.2276, -3.63669)
+[node name="nose gear pivot point" type="Node3D" parent="CenterGearCollider"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.1597, -0.137423)
+
+[node name="Aircraft nose gear" parent="CenterGearCollider/nose gear pivot point" instance=ExtResource("7_xldsk")]
+transform = Transform3D(1, 0, 2.84217e-14, 0, 1, 0, -2.84217e-14, 0, 1, 5.49129e-07, 0.0679039, -3.49927)
 
 [node name="RightGearCollider" type="CollisionShape3D" parent="."]
 transform = Transform3D(1, 0, 1.49012e-07, 0, 1, 0, -1.49012e-07, 0, 1, -1.69, -1.5, -0.802)
 shape = SubResource("SphereShape3D_gear")
 
-[node name="Aircraft 2 right gear" parent="RightGearCollider" instance=ExtResource("7_hcuof")]
-transform = Transform3D(-1, 0, -1.50996e-07, 0, 1, 0, 1.50996e-07, 0, -1, 1.68, 1.4, -0.68)
+[node name="right gear pivot point" type="Node3D" parent="RightGearCollider"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.22378, 1.04143, 1.78814e-07)
+
+[node name="Aircraft main gear" parent="RightGearCollider/right gear pivot point" instance=ExtResource("8_xnqm1")]
+transform = Transform3D(-1, 0, -1.50996e-07, 0, 1, 0, 1.50996e-07, 0, -1, 0.456225, 0.358572, -0.68)
 
 [node name="LeftGearCollider" type="CollisionShape3D" parent="."]
 transform = Transform3D(1, 0, 1.19209e-07, 0, 1, 0, -1.19209e-07, 0, 1, 1.69, -1.5, -0.802)
 shape = SubResource("SphereShape3D_gear")
 
-[node name="Aircraft 1 left gear" parent="LeftGearCollider" instance=ExtResource("8_bd6tw")]
-transform = Transform3D(-1, 0, -1.50996e-07, 0, 1, 0, 1.50996e-07, 0, -1, -1.68, 1.4, -0.68)
+[node name="left gear pivot point" type="Node3D" parent="LeftGearCollider"]
+transform = Transform3D(1, 0, 2.9803e-08, 0, 1, 0, -2.9803e-08, 0, 1, -1.224, 1.041, 0)
+
+[node name="Aircraft main gear" parent="LeftGearCollider/left gear pivot point" instance=ExtResource("8_xnqm1")]
+transform = Transform3D(1, 0, -2.9803e-08, 0, 1, 0, 2.9803e-08, 0, 1, -0.456, 0.359, 0.661711)
 
 [node name="EnergyContainer" parent="." instance=ExtResource("9_n2s36")]
 
@@ -135,6 +144,7 @@ FlapSoundLoop = SubResource("Resource_qvmvr")
 [node name="LandingGear" parent="." node_paths=PackedStringArray("gear_collision_shapes", "gear_visuals") instance=ExtResource("15_bwm4r")]
 gear_collision_shapes = [NodePath("../CenterGearCollider"), NodePath("../RightGearCollider"), NodePath("../LeftGearCollider")]
 gear_visuals = [null, null, null]
+gear_stowed_rotations_degrees = Array[Vector3]([Vector3(90, 0, 0), Vector3(90, 90, -45), Vector3(90, -90, 45)])
 InitialState = 1
 DeploySound = ExtResource("16_biq0k")
 StowSound = ExtResource("17_1st6a")
@@ -150,7 +160,7 @@ max_compression = 0.4
 nose_gear_collider_path = NodePath("../CenterGearCollider")
 left_main_gear_collider_path = NodePath("../RightGearCollider")
 right_main_gear_collider_path = NodePath("../LeftGearCollider")
-gear_visual_root_paths = Array[NodePath]([NodePath("../CenterGearCollider/Aircraft 1 nose gear"), NodePath("../RightGearCollider/Aircraft 2 right gear"), NodePath("../LeftGearCollider/Aircraft 1 left gear")])
+gear_visual_root_paths = Array[NodePath]([NodePath("../CenterGearCollider/nose gear pivot point"), NodePath("../RightGearCollider/right gear pivot point"), NodePath("../LeftGearCollider/left gear pivot point")])
 
 [node name="ControlFlaps" parent="." instance=ExtResource("21_rcffs")]
 
@@ -163,7 +173,6 @@ metadata/_custom_type_script = "uid://5l6s62uv3p3a"
 script = ExtResource("24_kq7no")
 fov_cone_deg = 90.0
 max_range_m = 2000.0
-debug_enabled = false
 
 [node name="CameraController" type="Node3D" parent="." node_paths=PackedStringArray("aircraft", "cockpit_tripod", "chase_tripod", "cinematic_tripod")]
 script = ExtResource("23_6y2pl")
@@ -218,6 +227,13 @@ mounted_weapon = ExtResource("31_kq7no")
 transform = Transform3D(1, 0, 0, 0, 0.5, -0.866025, 0, 0.866025, 0.5, 0, -1.728, -2.409)
 spring_strength = 100.0
 spring_damping = 1000.0
+
+[node name="CockpitCanopyVisibility" type="Node" parent="."]
+script = ExtResource("35_canopyvis")
+canopy_node_paths = Array[NodePath]([])
+canopy_surface_mesh_paths = Array[NodePath]([NodePath("../Aircraft 1 new/Aircraft 1")])
+canopy_surface_indices = PackedInt32Array(7)
+cockpit_shadow_disable_paths = Array[NodePath]([NodePath("../Aircraft 1 new/Aircraft 1")])
 
 [node name="AIPilot" type="Node" parent="."]
 script = ExtResource("34_aipil")

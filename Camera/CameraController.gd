@@ -17,6 +17,7 @@ class_name CameraController
 # Zoom variables
 @export var normal_fov: float = 75.0
 @export var zoomed_fov: float = 30.0
+@export var cockpit_near: float = 0.2
 var is_zoomed: bool = false
 var fov_tween: Tween
 
@@ -28,7 +29,7 @@ var bridge_camera: Camera3D
 var cockpit_script: CockpitCamera
 var chase_script: ChaseCamera
 var cinematic_script: CinematicCamera
-var bridge_script: BridgeCamera
+var bridge_script: Node
 
 enum CameraMode { COCKPIT, CHASE, CINEMATIC, BRIDGE, DEATHCAM }
 var current_mode: CameraMode = CameraMode.COCKPIT
@@ -63,6 +64,7 @@ func _ready():
 	chase_camera = chase_tripod.find_child("Camera3D", true, false) 
 	cinematic_camera = null
 	bridge_camera = null
+	_apply_cockpit_camera_settings(cockpit_camera)
 	
 	# Set up camera scripts
 	cockpit_tripod.set_script(preload("res://Camera/CockpitCamera.gd"))
@@ -133,15 +135,18 @@ func setup_bridge_camera():
 	# Skip if already set up
 	if bridge_script and bridge_camera:
 		return
-	
-	# Simply find the existing BridgeCamera in the scene (no script application)
-	var bridge_nodes = get_tree().get_nodes_in_group("carrier_cam")
-	for node in bridge_nodes:
-		if node is BridgeCamera:
-			bridge_script = node as BridgeCamera
-			bridge_script.set_aircraft_reference(aircraft)
-			bridge_camera = bridge_script.get_camera()
-			return
+
+	var bridge_provider := _get_bridge_camera_provider()
+	if bridge_provider == null:
+		return
+
+	bridge_script = bridge_provider
+	if bridge_script.has_method("set_aircraft_reference"):
+		bridge_script.call("set_aircraft_reference", aircraft)
+
+	var bridge_cam = bridge_script.call("get_camera")
+	if bridge_cam is Camera3D:
+		bridge_camera = bridge_cam as Camera3D
 
 func _build_view_targets():
 	"""Build list of (aircraft, mode) for camera cycling: player views, bridge, then each AI plane."""
@@ -189,12 +194,22 @@ func _get_camera_for(ac: RigidBody3D, mode: CameraMode) -> Camera3D:
 	# Try direct path first (CameraTripod has Camera3D as direct child)
 	var cam = ac.get_node_or_null(tripod_name + "/Camera3D") as Camera3D
 	if cam:
+		if mode == CameraMode.COCKPIT:
+			_apply_cockpit_camera_settings(cam)
 		return cam
 	# Fallback: find_child for different scene structures
 	var tripod = ac.get_node_or_null(tripod_name) as Node3D
 	if tripod:
-		return tripod.find_child("Camera3D", true, false) as Camera3D
+		cam = tripod.find_child("Camera3D", true, false) as Camera3D
+		if mode == CameraMode.COCKPIT:
+			_apply_cockpit_camera_settings(cam)
+		return cam
 	return null
+
+func _apply_cockpit_camera_settings(cam: Camera3D) -> void:
+	if cam == null:
+		return
+	cam.near = cockpit_near
 
 func _get_chase_script_for(ac: RigidBody3D) -> ChaseCamera:
 	if ac == aircraft:
@@ -223,17 +238,15 @@ func find_node_by_name(parent: Node, target_name: String) -> Node:
 	return null
 
 func _retry_bridge_camera_setup():
-	if bridge_script:
-		return  # Already found, don't retry
-	
-	var bridge_nodes = get_tree().get_nodes_in_group("carrier_cam")
-	for node in bridge_nodes:
-		if node.name == "CameraHolderBridge" or "bridge" in node.name.to_lower():
-			node.set_script(preload("res://LandCarrier/BridgeCamera.gd"))
-			bridge_script = node as BridgeCamera
-			if bridge_script:
-				bridge_camera = bridge_script.get_camera()
-			break
+	if bridge_script and bridge_camera:
+		return
+	setup_bridge_camera()
+
+func _get_bridge_camera_provider() -> Node:
+	for node in get_tree().get_nodes_in_group("carrier_cam"):
+		if node != null and node.has_method("get_camera"):
+			return node
+	return null
 
 func _input(event):
 	# Don't allow camera switching during deathcam

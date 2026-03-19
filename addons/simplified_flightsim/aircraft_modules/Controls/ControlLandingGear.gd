@@ -212,28 +212,20 @@ func send_to_tailhook_simple(deploying: bool) -> void:
 
 func _set_collider_disabled(disabled: bool) -> void:
 	# Directly toggle assigned colliders, independent of module wiring
-	var toggled_visuals := 0
 	if _nose_cs:
 		_nose_cs.disabled = disabled
 		if debug_enabled:
 			print("[GEAR] nose collider ", ("DISABLED" if disabled else "ENABLED"), ": ", _nose_cs)
-		toggled_visuals += _set_descendant_visuals_visible(_nose_cs, not disabled)
 	if _left_cs:
 		_left_cs.disabled = disabled
 		if debug_enabled:
 			print("[GEAR] left collider ", ("DISABLED" if disabled else "ENABLED"), ": ", _left_cs)
-		toggled_visuals += _set_descendant_visuals_visible(_left_cs, not disabled)
 	if _right_cs:
 		_right_cs.disabled = disabled
 		if debug_enabled:
 			print("[GEAR] right collider ", ("DISABLED" if disabled else "ENABLED"), ": ", _right_cs)
-		toggled_visuals += _set_descendant_visuals_visible(_right_cs, not disabled)
-	# Toggle any extra visual roots provided
-	for vr in _visual_roots:
-		_set_node3d_tree_visible(vr, not disabled)
-		toggled_visuals += 1
-	if debug_enabled:
-		print("[GEAR] visuals toggled: ", toggled_visuals)
+	if debug_enabled and not _visual_roots.is_empty():
+		print("[GEAR] visual roots managed by LandingGear module: ", _visual_roots.size())
 
 func _set_descendant_visuals_visible(root: Node, visible: bool) -> int:
 	# Recursively toggle visibility of all Node3D descendants of root

@@ -35,6 +35,10 @@ func setup(aircraft_node: Node) -> void:
 func find_hardpoints():
 	"""Find all hardpoints on the aircraft"""
 	hardpoints.clear()
+	if aircraft == null:
+		aircraft = get_parent()
+	if aircraft == null:
+		return
 	# Look for Hardpoint nodes in the aircraft
 	for child in aircraft.get_children():
 		if child is Hardpoint:

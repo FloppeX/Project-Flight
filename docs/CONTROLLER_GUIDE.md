@@ -1,6 +1,6 @@
 # Controller Guide - Land Carrier Project
 
-**Updated:** 2025-02-15  
+**Updated:** 2026-03-17  
 **Default Control:** Spectator mode with AI active
 
 ---
@@ -59,6 +59,9 @@
 |-----|--------|
 | **R** or **1** | Retrieve aircraft from hangar |
 | **S** | Store aircraft in hangar |
+| **L** | Order the nearest eligible friendly aircraft to begin its landing approach |
+| **Shift+L** | Debug enemy landing shortcut |
+| **V** | Play the Citadel radio test call |
 | **ESC** | Quit game |
 
 ---
@@ -150,4 +153,4 @@ If you want the AI to fly for you:
 
 ---
 
-*For technical details and full project documentation, see [Land Carrier Project description.md](Land%20Carrier%20Project%20description.md)*
+*For technical details and full project documentation, see [README](../README.md)*

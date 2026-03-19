@@ -11,7 +11,7 @@ class_name AircraftModule_ControlTargeting
 
 var _time_accum: float = 0.0
 var current_target: Node3D
-@export var debug_enabled: bool = true
+@export var debug_enabled: bool = false
 
 func _ready():
 	ReceiveInput = true

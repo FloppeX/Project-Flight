@@ -1,19 +1,20 @@
-[gd_scene load_steps=19 format=3 uid="uid://cfbnb1h25pmhu"]
+[gd_scene load_steps=23 format=3 uid="uid://cfbnb1h25pmhu"]
 
 [ext_resource type="Script" uid="uid://dqly5yht3qjks" path="res://LandCarrier/LandCarrier.gd" id="1_landcarrier"]
 [ext_resource type="PackedScene" uid="uid://pfnx57rs2d41" path="res://LandCarrier/CarrierTread.tscn" id="3_tread"]
 [ext_resource type="Script" uid="uid://bdcuxticnrnfj" path="res://LandCarrier/FlightDeckManager.gd" id="4_6n087"]
 [ext_resource type="PackedScene" path="res://LandCarrier/SimpleTractorBot.tscn" id="5_olyyp"]
-[ext_resource type="PackedScene" uid="uid://7fxt8bm8o8ml" path="res://Models/Land carrier NEW.glb" id="6_carrier_model"]
+[ext_resource type="PackedScene" uid="uid://1rhdvhlj0sl1" path="res://Models/LandCarrier/Land carrier body.glb" id="6_carrier_model"]
 [ext_resource type="Script" path="res://LandCarrier/TreadPositionHelper.gd" id="7_tread_helper"]
 [ext_resource type="Script" uid="uid://byhupfh0501o1" path="res://LandCarrier/Catapult.gd" id="8_0rqhh"]
 [ext_resource type="PackedScene" path="res://LandCarrier/CarrierElevator.tscn" id="8_elevator"]
 [ext_resource type="Script" path="res://LandCarrier/CarrierCollisionSetup.gd" id="9_collision"]
 [ext_resource type="Script" uid="uid://b6ioeynvc7a1n" path="res://LandCarrier/LandCarrierInput.gd" id="10_input"]
-[ext_resource type="Script" uid="uid://c64jvhgmdrm6e" path="res://LandCarrier/BridgeCamera.gd" id="11_eyg35"]
+[ext_resource type="PackedScene" uid="uid://ci74apimqcahq" path="res://LandCarrier/Commander.tscn" id="11_eyg35"]
 [ext_resource type="Script" uid="uid://bfg081xviy2ej" path="res://LandCarrier/StandaloneCameraSwitcher.gd" id="11_standalone_cam"]
 [ext_resource type="PackedScene" uid="uid://c31lkp3a7sq3a" path="res://LandCarrier/arresting_cable.tscn" id="12_eyg35"]
 [ext_resource type="PackedScene" path="res://LandCarrier/DeckLights.tscn" id="13_decklights"]
+[ext_resource type="PackedScene" path="res://LandCarrier/BridgeHologram.tscn" id="14_bridge_holo"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_main_carrier"]
 size = Vector3(2.51178, 3.94672, 4.92171)
@@ -24,6 +25,15 @@ size = Vector3(2.51178, 3.94672, 4.92171)
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_yy1ll"]
 albedo_color = Color(1, 0.566667, 0, 1)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_bridge_floor"]
+size = Vector3(11.209, 1, 12.3867)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_6v1v0"]
+size = Vector3(12.3674, 4.79993, 0.717285)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_nevds"]
+size = Vector3(0.804688, 4.82013, 13.4082)
 
 [node name="LandCarrier" type="CharacterBody3D"]
 script = ExtResource("1_landcarrier")
@@ -140,12 +150,40 @@ script = ExtResource("10_input")
 [node name="StandaloneCameraSwitcher" type="Node" parent="."]
 script = ExtResource("11_standalone_cam")
 
-[node name="CameraHolderBridge" type="Node3D" parent="." groups=["carrier_cam"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -29.547, 14.333, 0)
-script = ExtResource("11_eyg35")
+[node name="Commander" parent="." instance=ExtResource("11_eyg35")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -29.547, 12.6907, -3.14736)
 
-[node name="CameraBridge" type="Camera3D" parent="CameraHolderBridge"]
-transform = Transform3D(-1, 0, 8.74228e-08, 0, 1, 0, -8.74228e-08, 0, -1, 0, 0, 5.92204)
+[node name="BridgeWalkCollision" type="StaticBody3D" parent="."]
+transform = Transform3D(-1, 0, 8.74228e-08, 0, 1, 0, -8.74228e-08, 0, -1, -29.5437, 12.0742, -0.816334)
+
+[node name="Floor" type="CollisionShape3D" parent="BridgeWalkCollision"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.148438, 0.0308838, -0.815331)
+shape = SubResource("BoxShape3D_bridge_floor")
+
+[node name="Wall1" type="CollisionShape3D" parent="BridgeWalkCollision"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.139942, 1.27378, -7.18243)
+shape = SubResource("BoxShape3D_6v1v0")
+
+[node name="Wall2" type="CollisionShape3D" parent="BridgeWalkCollision"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.1371, 1.3244, 5.53947)
+shape = SubResource("BoxShape3D_6v1v0")
+
+[node name="Wall3" type="CollisionShape3D" parent="BridgeWalkCollision"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -5.91432, 1.31442, -0.823898)
+shape = SubResource("BoxShape3D_nevds")
+
+[node name="Wall4" type="CollisionShape3D" parent="BridgeWalkCollision"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 5.65518, 1.32379, -0.778321)
+shape = SubResource("BoxShape3D_nevds")
+
+[node name="BridgeCeilingLight" type="OmniLight3D" parent="."]
+transform = Transform3D(-1, 0, 8.74228e-08, 0, 1, 0, -8.74228e-08, 0, -1, -29.5554, 15.3059, 0.00964248)
+light_color = Color(1, 0.956863, 0.85098, 1)
+light_energy = 2.5
+omni_range = 18.0
+
+[node name="BridgeHologram" parent="." instance=ExtResource("14_bridge_holo")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -29.5554, 13.5188, 0.00964248)
 
 [node name="Arresting Cable 1" parent="." instance=ExtResource("12_eyg35")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -62.4367)
@@ -168,29 +206,33 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, -72.9282)
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 72.5944)
 
 [node name="approach_0" type="Marker3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1000, 200, -1000)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 600, -2000)
 
 [node name="approach_1" type="Marker3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 200, 200, -1000)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 300, -1400)
 
 [node name="approach_2" type="Marker3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 100, -800)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 200, -1000)
 
 [node name="approach_3" type="Marker3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 40, -600)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 120, -600)
 
 [node name="approach_4" type="Marker3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, -47.2995)
 
+[node name="takeoff_0" type="Marker3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 600, 2000)
+
 [node name="DeckLights" parent="." instance=ExtResource("13_decklights")]
 start_marker_path = NodePath("../DeckCenterStart")
 end_marker_path = NodePath("../DeckCenterEnd")
-centerline_color = Color(0, 1, 0, 1)
+centerline_color = Color(1, 0.9, 0, 1)
 edge_color = Color(1, 0.55, 0, 1)
 light_energy = 4.0
 edge_offset_m = 20.0
-centerline_height_m = -0.35
+centerline_height_m = -0.29
 edge_height_m = -0.35
 elevator_path = NodePath("../Elevator")
+elevator_gap_margin_m = 1.0
 
 [connection signal="launch_sequence_complete" from="Catapult" to="FlightDeckManager" method="_on_catapult_launch_sequence_complete"]

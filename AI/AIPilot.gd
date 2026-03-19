@@ -21,7 +21,8 @@ enum State {
 	ENGAGE,         # Attacking target (legacy/air combat)
 	RTB,            # Returning to base
 	APPROACH,       # Carrier approach pattern
-	LANDING         # Final approach and landing
+	LANDING,        # Final approach and landing
+	MISSED_APPROACH # Bolter/go-around back to takeoff_0
 }
 
 enum DogfightLostSightBehavior {
@@ -30,6 +31,11 @@ enum DogfightLostSightBehavior {
 	CLIMB,
 	EXTEND,
 	OFFSET
+}
+
+enum ApproachGuidanceMode {
+	WAYPOINT_CHAIN,
+	PATH_FOLLOWER
 }
 
 var current_state: State = State.IDLE
@@ -222,11 +228,46 @@ var _dogfight_lost_sight_turn_sign: float = 0.0
 # Landing approach
 var _landing_phase: int = 0  # 0=to approach_1, 1=to approach_2, thenÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢LANDING state
 var _approach_wp: Array = []  # [Node3D approach_1, Node3D approach_2, Node3D approach_3]
+var _takeoff_wp: Node3D = null
 @export var approach_phase0_alt_above_deck_m: float = 450.0
 @export var approach_phase1_alt_above_deck_m: float = 350.0
 @export var approach_phase2_alt_above_deck_m: float = 200.0
 @export var approach_phase3_alt_above_deck_m: float = 130.0
 @export var approach_deck_height_fallback_m: float = 60.0  # Used if approach_4 cannot be read
+@export var approach_entry_altitude_m: float = 600.0
+@export var approach_post_gate_speed_mps: float = 56.0
+@export var approach_post_gate_throttle_cut: float = 0.2
+@export var approach_post_gate_min_throttle: float = 0.1
+@export var approach_post_gate_slowdown_margin_mps: float = 6.0
+@export var approach_phase0_capture_m: float = 100.0
+@export var approach_phase1_capture_m: float = 80.0
+@export var approach_phase2_capture_m: float = 60.0
+@export var approach_phase3_capture_m: float = 40.0
+@export var approach_guidance_mode: ApproachGuidanceMode = ApproachGuidanceMode.PATH_FOLLOWER
+@export var approach_precision_bank_limit_deg: float = 55.0
+@export var approach_precision_bank_gain: float = 2.5
+@export var approach_precision_min_bank_deg: float = 8.0
+@export var approach_path_far_speed_mps: float = 78.0
+@export var approach_path_near_speed_mps: float = 60.0
+@export var approach_path_lookahead_time_s: float = 3.0
+@export var approach_path_min_lookahead_m: float = 140.0
+@export var approach_path_max_lookahead_m: float = 260.0
+@export var approach_path_final_switch_buffer_m: float = 120.0
+@export var landing_path_lookahead_time_s: float = 2.0
+@export var landing_path_min_lookahead_m: float = 35.0
+@export var landing_path_max_lookahead_m: float = 120.0
+@export var landing_short_final_bank_distance_m: float = 200.0
+@export var landing_short_final_bank_limit_deg: float = 18.0
+@export var landing_short_final_min_bank_deg: float = 4.0
+@export var landing_touchdown_level_distance_m: float = 90.0
+@export var landing_touchdown_bank_limit_deg: float = 6.0
+@export var landing_short_final_yaw_gain: float = 0.65
+@export var landing_waveoff_check_distance_m: float = 220.0
+@export var landing_bolter_past_target_m: float = 25.0
+@export var landing_bolter_rejoin_distance_m: float = 180.0
+@export var landing_bolter_rejoin_altitude_margin_m: float = 80.0
+@export var landing_bolter_target_speed_mps: float = 92.0
+@export var landing_bolter_gear_retract_height_m: float = 35.0
 
 # ============================================================================
 # CONTROL OUTPUTS - Fed to aircraft control system
@@ -309,6 +350,13 @@ var nav_target: Node3D = null
 @export var high_bank_start_ratio: float = 0.75  # Start extra damping above this % of bank limit
 @export var high_bank_roll_damping_gain: float = 0.45  # Extra roll-rate damping near max bank
 @export var high_bank_yaw_scale: float = 0.7  # Reduce rudder at high bank to avoid waggle
+@export var precision_point_pitch_gain: float = 1.8
+@export var precision_point_yaw_gain: float = 0.6
+@export var precision_point_roll_response: float = 0.38
+@export var precision_point_pitch_response: float = 0.22
+@export var precision_point_yaw_response: float = 0.32
+@export var dogfight_precision_bank_gain: float = 2.45
+@export var dogfight_precision_min_bank_deg: float = 7.0
 
 var _smoothed_roll_input: float = 0.0
 var _smoothed_pitch_input: float = 0.0
@@ -474,6 +522,8 @@ func _physics_process(delta: float):
 			_state_approach(delta)
 		State.LANDING:
 			_state_landing(delta)
+		State.MISSED_APPROACH:
+			_state_missed_approach(delta)
 
 	# Periodic telemetry (~2 per second at 60fps)
 	if debug_enabled and Engine.get_process_frames() % 30 == 0:
@@ -543,17 +593,7 @@ func _state_climbing(delta: float):
 
 	# Retract gear and flaps once airborne
 	if _is_airborne() and is_instance_valid(control_gear):
-		if control_gear.get("gear_down_state") == true:
-			control_gear.send_to_landing_gears("stow")
-			control_gear.send_to_tailhooks("stow")
-			control_gear.send_to_tailhook_simple(false)
-			control_gear._set_collider_disabled(true)
-			control_gear.gear_down_state = false
-			var flaps = aircraft.find_modules_by_type("flaps") if aircraft.has_method("find_modules_by_type") else []
-			if not flaps.is_empty() and flaps[0].has_method("flap_set_position"):
-				flaps[0].flap_set_position(0.0)
-			if debug_enabled and verbose_debug_enabled:
-				print("[AIPilot] Retracting landing gear, tailhook, and flaps")
+		_stow_landing_config()
 
 	# Fixed climb waypoint: 600 m ahead of the carrier along the launch heading, 200 m above it.
 	# Computed from fixed inputs (carrier_position, target_heading) so it is the same 3D
@@ -1264,6 +1304,22 @@ func _state_dogfight(delta: float):
 		raw_yaw *= dogfight_simple_yaw_high_bank_scale
 	if in_rejoin:
 		raw_yaw *= dogfight_simple_yaw_rejoin_scale
+
+	if precise_aim_t > 0.0 and not inverted_recover:
+		var precision_control: Dictionary = _compute_precision_point_control(
+			compensated_aim_point,
+			max_bank_deg,
+			dogfight_precision_bank_gain,
+			1.9,
+			maxf(dogfight_simple_yaw_aim_gain, precision_point_yaw_gain),
+			dogfight_precision_min_bank_deg,
+			low_speed_pitch_cap,
+			dogfight_max_rudder_input
+		)
+		if bool(precision_control.get("valid", false)):
+			raw_roll = lerpf(raw_roll, float(precision_control.get("raw_roll", raw_roll)), precise_aim_t)
+			raw_pitch = lerpf(raw_pitch, float(precision_control.get("raw_pitch", raw_pitch)), precise_aim_t)
+			raw_yaw = lerpf(raw_yaw, float(precision_control.get("raw_yaw", raw_yaw)), precise_aim_t)
 
 	var precise_pid_t: float = 0.0
 	if precise_aim_t > 0.0 and not inverted_recover:
@@ -2161,72 +2217,515 @@ func _get_approach_deck_y() -> float:
 	# Fallback: carrier center + configured deck offset
 	return carrier_position.y + approach_deck_height_fallback_m
 
-func _state_approach(delta: float):
-	"""Carrier approach: phase 0ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢3 (approach_0ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢3) then LANDING toward approach_4."""
+func _get_approach_entry_altitude() -> float:
+	if not is_instance_valid(aircraft):
+		return approach_entry_altitude_m
+
+	var reference_y: float = aircraft.global_position.y - altitude_agl
+	if aircraft.has_method("get_effective_altitude_reference_y"):
+		reference_y = float(aircraft.get_effective_altitude_reference_y())
+
+	var current_effective_altitude_m: float = altitude_agl
+	if aircraft.has_method("get_effective_altitude_agl_m"):
+		current_effective_altitude_m = float(aircraft.get_effective_altitude_agl_m())
+
+	var target_effective_altitude_m: float = maxf(approach_entry_altitude_m, current_effective_altitude_m)
+	return reference_y + target_effective_altitude_m
+
+func _get_approach_phase_capture_radius(phase: int) -> float:
+	match phase:
+		1:
+			return approach_phase0_capture_m
+		2:
+			return approach_phase1_capture_m
+		3:
+			return approach_phase2_capture_m
+		4:
+			return approach_phase3_capture_m
+		_:
+			return approach_phase0_capture_m
+
+func _compute_precision_point_control(
+	target_point: Vector3,
+	bank_limit_deg: float,
+	bank_gain: float,
+	pitch_gain: float = -1.0,
+	yaw_gain: float = -1.0,
+	min_bank_deg: float = 0.0,
+	pitch_limit: float = 0.8,
+	yaw_limit: float = 1.0
+) -> Dictionary:
+	if not aircraft:
+		return {"valid": false}
+	var to_target: Vector3 = target_point - aircraft.global_position
+	if to_target.length_squared() < 1.0:
+		return {"valid": false}
+
+	var vel: Vector3 = aircraft.linear_velocity
+	var speed_mps: float = maxf(vel.length(), 1.0)
+	var b: Basis = aircraft.global_transform.basis
+	var ang_vel: Vector3 = aircraft.angular_velocity
+	var aim_dir: Vector3 = to_target.normalized()
+	var local_x: float = aim_dir.dot(b.x)
+	var local_y: float = aim_dir.dot(b.y)
+	var local_z: float = aim_dir.dot(b.z)
+
+	var yaw_err_rad: float
+	if local_z < -0.15:
+		yaw_err_rad = signf(local_x)
+		if absf(yaw_err_rad) < 0.01:
+			yaw_err_rad = 1.0
+		yaw_err_rad *= PI * 0.5
+	else:
+		yaw_err_rad = atan2(local_x, maxf(local_z, 0.05))
+	var pitch_err_rad: float = atan2(local_y, maxf(absf(local_z), 0.05))
+
+	var bank_limit_rad: float = deg_to_rad(maxf(bank_limit_deg, 1.0))
+	var desired_bank: float = clampf(yaw_err_rad * bank_gain, -bank_limit_rad, bank_limit_rad)
+	var min_bank_rad: float = deg_to_rad(maxf(min_bank_deg, 0.0))
+	if min_bank_rad > 0.0 and absf(yaw_err_rad) > deg_to_rad(1.0) and absf(desired_bank) < min_bank_rad:
+		desired_bank = signf(yaw_err_rad)
+		if absf(desired_bank) < 0.01:
+			desired_bank = 1.0
+		desired_bank *= minf(min_bank_rad, bank_limit_rad)
+	if flip_roll_direction:
+		desired_bank = -desired_bank
+
+	var current_roll: float = atan2(b.x.y, b.y.y)
+	var roll_rate: float = ang_vel.dot(b.z)
+	var bank_error: float = _normalize_angle(desired_bank - current_roll)
+	var raw_roll: float = clampf(bank_error * 5.5 - roll_rate * 0.45, -1.0, 1.0)
+	if absf(bank_error) > deg_to_rad(1.5):
+		var min_roll: float = 0.35 * signf(bank_error)
+		if absf(raw_roll) < absf(min_roll):
+			raw_roll = min_roll
+
+	var pitch_rate_up: float = -ang_vel.dot(b.x)
+	var effective_pitch_gain: float = precision_point_pitch_gain if pitch_gain < 0.0 else pitch_gain
+	var raw_pitch: float = clampf(
+		pitch_err_rad * effective_pitch_gain - pitch_rate_up * 0.35,
+		-pitch_limit,
+		pitch_limit
+	)
+
+	var yaw_rate: float = ang_vel.dot(b.y)
+	var sideslip: float = clampf(vel.dot(b.x) / speed_mps, -1.0, 1.0)
+	var effective_yaw_gain: float = precision_point_yaw_gain if yaw_gain < 0.0 else yaw_gain
+	var raw_yaw: float = clampf(
+		yaw_err_rad * effective_yaw_gain - yaw_rate * 0.18 - sideslip * 0.25 - sin(current_roll) * 0.12,
+		-yaw_limit,
+		yaw_limit
+	)
+
+	return {
+		"valid": true,
+		"raw_roll": raw_roll,
+		"raw_pitch": raw_pitch,
+		"raw_yaw": raw_yaw,
+		"desired_bank": desired_bank,
+		"yaw_err_rad": yaw_err_rad,
+		"pitch_err_rad": pitch_err_rad
+	}
+
+func _apply_precision_point_guidance(
+	target_point: Vector3,
+	bank_limit_deg: float,
+	bank_gain: float,
+	min_bank_deg: float = 0.0,
+	pitch_gain: float = -1.0,
+	yaw_gain: float = -1.0,
+	roll_response: float = -1.0,
+	pitch_response: float = -1.0,
+	yaw_response: float = -1.0,
+	pitch_limit: float = 0.8,
+	yaw_limit: float = 1.0
+) -> Dictionary:
+	var control: Dictionary = _compute_precision_point_control(
+		target_point,
+		bank_limit_deg,
+		bank_gain,
+		pitch_gain,
+		yaw_gain,
+		min_bank_deg,
+		pitch_limit,
+		yaw_limit
+	)
+	if not bool(control.get("valid", false)):
+		return control
+
+	var effective_roll_response: float = precision_point_roll_response if roll_response < 0.0 else roll_response
+	var effective_pitch_response: float = precision_point_pitch_response if pitch_response < 0.0 else pitch_response
+	var effective_yaw_response: float = precision_point_yaw_response if yaw_response < 0.0 else yaw_response
+	roll_input = lerpf(_smoothed_roll_input, float(control.get("raw_roll", 0.0)), clampf(effective_roll_response, 0.0, 1.0))
+	pitch_input = lerpf(_smoothed_pitch_input, float(control.get("raw_pitch", 0.0)), clampf(effective_pitch_response, 0.0, 1.0))
+	yaw_input = lerpf(_smoothed_yaw_input, float(control.get("raw_yaw", 0.0)), clampf(effective_yaw_response, 0.0, 1.0))
+	_smoothed_roll_input = roll_input
+	_smoothed_pitch_input = pitch_input
+	_smoothed_yaw_input = yaw_input
+	return control
+
+func _apply_precision_horizontal_guidance(
+	target_point: Vector3,
+	bank_limit_deg: float,
+	bank_gain: float,
+	min_bank_deg: float = 0.0,
+	yaw_gain: float = -1.0,
+	roll_response: float = -1.0,
+	yaw_response: float = -1.0,
+	yaw_limit: float = 1.0
+) -> Dictionary:
+	var flat_target: Vector3 = target_point
+	flat_target.y = aircraft.global_position.y
+	var control: Dictionary = _compute_precision_point_control(
+		flat_target,
+		bank_limit_deg,
+		bank_gain,
+		0.0,
+		yaw_gain,
+		min_bank_deg,
+		0.0,
+		yaw_limit
+	)
+	if not bool(control.get("valid", false)):
+		return control
+
+	var effective_roll_response: float = precision_point_roll_response if roll_response < 0.0 else roll_response
+	var effective_yaw_response: float = precision_point_yaw_response if yaw_response < 0.0 else yaw_response
+	roll_input = lerpf(_smoothed_roll_input, float(control.get("raw_roll", 0.0)), clampf(effective_roll_response, 0.0, 1.0))
+	yaw_input = lerpf(_smoothed_yaw_input, float(control.get("raw_yaw", 0.0)), clampf(effective_yaw_response, 0.0, 1.0))
+	_smoothed_roll_input = roll_input
+	_smoothed_yaw_input = yaw_input
+	return control
+
+func _horizontal_distance_vec3(a: Vector3, b: Vector3) -> float:
+	return Vector2(a.x - b.x, a.z - b.z).length()
+
+func _get_approach_path_points() -> Array[Vector3]:
+	var points: Array[Vector3] = []
+	if _approach_wp.size() < 5:
+		return points
+	for i in range(5):
+		var wp: Node3D = _approach_wp[i] as Node3D
+		if not is_instance_valid(wp):
+			return []
+		points.append(wp.global_position)
+	return points
+
+func _get_polyline_total_horizontal_length(points: Array[Vector3]) -> float:
+	if points.size() < 2:
+		return 0.0
+	var total: float = 0.0
+	for i in range(points.size() - 1):
+		total += _horizontal_distance_vec3(points[i], points[i + 1])
+	return total
+
+func _sample_polyline_xz(points: Array[Vector3], distance_along: float) -> Dictionary:
+	if points.size() < 2:
+		return {"valid": false}
+	var remaining: float = maxf(distance_along, 0.0)
+	var total: float = _get_polyline_total_horizontal_length(points)
+	for i in range(points.size() - 1):
+		var a: Vector3 = points[i]
+		var b: Vector3 = points[i + 1]
+		var seg_len: float = _horizontal_distance_vec3(a, b)
+		if seg_len <= 0.001:
+			continue
+		if remaining <= seg_len or i == points.size() - 2:
+			var t: float = clampf(remaining / seg_len, 0.0, 1.0)
+			var pos: Vector3 = a.lerp(b, t)
+			var tangent: Vector3 = (b - a).normalized()
+			return {
+				"valid": true,
+				"position": pos,
+				"tangent": tangent,
+				"segment_index": i,
+				"t": t,
+				"total_length": total
+			}
+		remaining -= seg_len
+	var last_idx: int = points.size() - 1
+	var fallback_tangent: Vector3 = (points[last_idx] - points[last_idx - 1]).normalized()
+	return {
+		"valid": true,
+		"position": points[last_idx],
+		"tangent": fallback_tangent,
+		"segment_index": last_idx - 1,
+		"t": 1.0,
+		"total_length": total
+	}
+
+func _find_closest_polyline_point_xz(points: Array[Vector3], pos: Vector3) -> Dictionary:
+	if points.size() < 2:
+		return {"valid": false}
+	var total_length: float = _get_polyline_total_horizontal_length(points)
+	var best_dist: float = INF
+	var best: Dictionary = {"valid": false}
+	var traveled: float = 0.0
+	var pos2: Vector2 = Vector2(pos.x, pos.z)
+	for i in range(points.size() - 1):
+		var a: Vector3 = points[i]
+		var b: Vector3 = points[i + 1]
+		var a2: Vector2 = Vector2(a.x, a.z)
+		var b2: Vector2 = Vector2(b.x, b.z)
+		var ab2: Vector2 = b2 - a2
+		var seg_len_sq: float = ab2.length_squared()
+		if seg_len_sq <= 0.001:
+			continue
+		var t: float = clampf((pos2 - a2).dot(ab2) / seg_len_sq, 0.0, 1.0)
+		var sample: Vector3 = a.lerp(b, t)
+		var dist: float = Vector2(sample.x - pos.x, sample.z - pos.z).length()
+		var seg_len: float = sqrt(seg_len_sq)
+		if dist < best_dist:
+			best_dist = dist
+			best = {
+				"valid": true,
+				"position": sample,
+				"segment_index": i,
+				"t": t,
+				"along_distance": traveled + seg_len * t,
+				"horizontal_error": dist,
+				"total_length": total_length
+			}
+		traveled += seg_len
+	return best
+
+func _state_approach_path_follower(delta: float) -> void:
 	if _approach_wp.size() < 5:
 		change_state(State.SEARCH)
 		return
 
-	var deck_y: float = _get_approach_deck_y()
+	var points: Array[Vector3] = _get_approach_path_points()
+	if points.size() < 5:
+		change_state(State.SEARCH)
+		return
+
+	if _landing_phase <= 0:
+		target_speed = 80.0
+		nav_waypoint = Vector3(points[0].x, _get_approach_entry_altitude(), points[0].z)
+		_update_maneuver_waypoint()
+		_navigate_to_waypoint(delta)
+		if _horizontal_distance_vec3(aircraft.global_position, points[0]) <= approach_phase0_capture_m:
+			_deploy_landing_gear()
+			target_speed = approach_post_gate_speed_mps
+			throttle_input = approach_post_gate_throttle_cut
+			if control_engine and control_engine.has_method("set_target_power"):
+				control_engine.set_target_power(throttle_input)
+			if engine and engine.has_method("set_throttle_input"):
+				engine.set_throttle_input(throttle_input)
+			_landing_phase = 1
+			if debug_enabled:
+				print("[AIPilot] Approach(path): captured approach entry, switching to path follower")
+		return
+
+	var closest: Dictionary = _find_closest_polyline_point_xz(points, aircraft.global_position)
+	if not bool(closest.get("valid", false)):
+		change_state(State.SEARCH)
+		return
+	var speed_mps: float = aircraft.linear_velocity.length()
+	var total_length: float = float(closest.get("total_length", 0.0))
+	var along_distance: float = float(closest.get("along_distance", 0.0))
+	var remaining_distance: float = maxf(total_length - along_distance, 0.0)
+	var lookahead_m: float = clampf(
+		speed_mps * approach_path_lookahead_time_s,
+		approach_path_min_lookahead_m,
+		approach_path_max_lookahead_m
+	)
+	var sample: Dictionary = _sample_polyline_xz(points, minf(along_distance + lookahead_m, total_length))
+	if not bool(sample.get("valid", false)):
+		change_state(State.SEARCH)
+		return
+
+	nav_waypoint = sample.get("position", points[1])
+	maneuver_waypoint = nav_waypoint
+	if nav_target:
+		nav_target.global_position = maneuver_waypoint
+	var remaining_t: float = clampf(remaining_distance / maxf(total_length, 1.0), 0.0, 1.0)
+	var far_speed: float = maxf(approach_path_far_speed_mps, approach_post_gate_speed_mps)
+	var near_speed: float = maxf(approach_path_near_speed_mps, approach_post_gate_speed_mps)
+	target_speed = lerpf(near_speed, far_speed, remaining_t)
+	_navigate_to_waypoint(delta)
+	_apply_precision_horizontal_guidance(
+		nav_waypoint,
+		approach_precision_bank_limit_deg,
+		approach_precision_bank_gain,
+		approach_precision_min_bank_deg,
+		precision_point_yaw_gain,
+		0.42,
+		0.32,
+		1.0
+	)
+
+	var final_segment_length: float = _horizontal_distance_vec3(points[3], points[4])
+	var final_segment_start: float = maxf(total_length - final_segment_length, 0.0)
+	if along_distance >= maxf(final_segment_start - approach_path_final_switch_buffer_m, 0.0):
+		if debug_enabled:
+			print("[AIPilot] Approach(path): established on final segment, switching to LANDING")
+		change_state(State.LANDING)
+
+func _get_landing_path_target() -> Dictionary:
+	var points: Array[Vector3] = _get_approach_path_points()
+	if points.size() < 5:
+		return {"valid": false}
+
+	var final_points: Array[Vector3] = [points[3], points[4]]
+	var closest: Dictionary = _find_closest_polyline_point_xz(final_points, aircraft.global_position)
+	if not bool(closest.get("valid", false)):
+		return {"valid": false}
+
+	var speed_mps: float = aircraft.linear_velocity.length()
+	var final_length: float = float(closest.get("total_length", 0.0))
+	var along_distance: float = float(closest.get("along_distance", 0.0))
+	var remaining_distance: float = maxf(final_length - along_distance, 0.0)
+	var lookahead_m: float = clampf(
+		speed_mps * landing_path_lookahead_time_s,
+		landing_path_min_lookahead_m,
+		landing_path_max_lookahead_m
+	)
+	var target_distance: float = minf(along_distance + lookahead_m, final_length)
+	if remaining_distance <= lookahead_m * 0.45:
+		target_distance = final_length
+	var sample: Dictionary = _sample_polyline_xz(final_points, target_distance)
+	var target_pos: Vector3 = sample.get("position", points[4])
+	return {
+		"valid": true,
+		"target_pos": target_pos
+	}
+
+func _state_approach(delta: float):
+	"""Carrier approach: phase 0ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢3 (approach_0ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢3) then LANDING toward approach_4."""
+	if approach_guidance_mode == ApproachGuidanceMode.PATH_FOLLOWER:
+		_state_approach_path_follower(delta)
+		return
+	if _approach_wp.size() < 5:
+		change_state(State.SEARCH)
+		return
 
 	match _landing_phase:
-		0:  # --- Phase 0: fly to approach_0 at 80 m/s, alt above deck ---
+		0:  # Fly to the horizontal position of approach_0 at entry altitude.
 			target_speed = 80.0
 			var wp0: Node3D = _approach_wp[0] as Node3D
 			if not is_instance_valid(wp0):
 				change_state(State.SEARCH)
 				return
-			nav_waypoint = Vector3(wp0.global_position.x, approach_phase0_alt_above_deck_m - deck_y, wp0.global_position.z)
+			nav_waypoint = Vector3(
+				wp0.global_position.x,
+				_get_approach_entry_altitude(),
+				wp0.global_position.z
+			)
 			_update_maneuver_waypoint()
 			_navigate_to_waypoint(delta)
-			var h0 := Vector2(aircraft.global_position.x - wp0.global_position.x, aircraft.global_position.z - wp0.global_position.z).length()
-			if h0 < 200.0:
+			var horiz_to_wp0: float = Vector2(
+				aircraft.global_position.x - wp0.global_position.x,
+				aircraft.global_position.z - wp0.global_position.z
+			).length()
+			if horiz_to_wp0 <= approach_phase0_capture_m:
+				_deploy_landing_gear()
+				target_speed = approach_post_gate_speed_mps
+				throttle_input = approach_post_gate_throttle_cut
+				if control_engine and control_engine.has_method("set_target_power"):
+					control_engine.set_target_power(throttle_input)
+				if engine and engine.has_method("set_throttle_input"):
+					engine.set_throttle_input(throttle_input)
 				_landing_phase = 1
 				if debug_enabled:
-					print("[AIPilot] Approach: reached approach_0, turning to approach_1")
+					print("[AIPilot] Approach: reached approach_0 horizontal gate, gear down, slowing for descent")
 
-		1:  # --- Phase 1: fly to approach_1 at 80 m/s, alt above deck ---
-			target_speed = 80.0
-			var wp1: Node3D = _approach_wp[1] as Node3D
+		1:  # Fly to the actual approach_0 marker.
+			target_speed = approach_post_gate_speed_mps
+			var wp1: Node3D = _approach_wp[0] as Node3D
 			if not is_instance_valid(wp1):
 				change_state(State.SEARCH)
 				return
-			nav_waypoint = Vector3(wp1.global_position.x, approach_phase1_alt_above_deck_m - deck_y, wp1.global_position.z)
+			nav_waypoint = wp1.global_position
 			_update_maneuver_waypoint()
 			_navigate_to_waypoint(delta)
-			var h1 := Vector2(aircraft.global_position.x - wp1.global_position.x, aircraft.global_position.z - wp1.global_position.z).length()
-			if h1 < 200.0:
+			_apply_precision_horizontal_guidance(
+				nav_waypoint,
+				approach_precision_bank_limit_deg,
+				approach_precision_bank_gain,
+				approach_precision_min_bank_deg,
+				precision_point_yaw_gain,
+				0.42,
+				0.32,
+				1.0
+			)
+			var h1: float = aircraft.global_position.distance_to(wp1.global_position)
+			if h1 <= approach_phase0_capture_m:
 				_landing_phase = 2
 				if debug_enabled:
-					print("[AIPilot] Approach: reached approach_1, turning to approach_2")
+					print("[AIPilot] Approach: reached approach_0, turning to approach_1")
 
-		2:  # --- Phase 2: fly to approach_2 at 65 m/s, alt above deck ---
-			target_speed = 65.0
-			var wp2: Node3D = _approach_wp[2] as Node3D
+		2:  # Fly to approach_1.
+			target_speed = approach_post_gate_speed_mps
+			var wp2: Node3D = _approach_wp[1] as Node3D
 			if not is_instance_valid(wp2):
 				change_state(State.SEARCH)
 				return
-			nav_waypoint = Vector3(wp2.global_position.x, approach_phase2_alt_above_deck_m - deck_y, wp2.global_position.z)
+			nav_waypoint = wp2.global_position
 			_update_maneuver_waypoint()
 			_navigate_to_waypoint(delta)
-			var h2 := Vector2(aircraft.global_position.x - wp2.global_position.x, aircraft.global_position.z - wp2.global_position.z).length()
-			if h2 < 200.0:
-				_deploy_landing_gear()
+			_apply_precision_horizontal_guidance(
+				nav_waypoint,
+				approach_precision_bank_limit_deg,
+				approach_precision_bank_gain,
+				approach_precision_min_bank_deg,
+				precision_point_yaw_gain,
+				0.42,
+				0.32,
+				1.0
+			)
+			var h2: float = aircraft.global_position.distance_to(wp2.global_position)
+			if h2 <= approach_phase1_capture_m:
 				_landing_phase = 3
 				if debug_enabled:
-					print("[AIPilot] Approach: reached approach_2, gear and flaps deployed, turning to approach_3")
+					print("[AIPilot] Approach: reached approach_1, turning to approach_2")
 
-		3:  # --- Phase 3: fly to approach_3 at 50 m/s, alt above deck ---
-			target_speed = 50.0
-			var wp3: Node3D = _approach_wp[3] as Node3D
+		3:  # Fly to approach_2.
+			target_speed = approach_post_gate_speed_mps
+			var wp3: Node3D = _approach_wp[2] as Node3D
 			if not is_instance_valid(wp3):
 				change_state(State.SEARCH)
 				return
-			nav_waypoint = Vector3(wp3.global_position.x, approach_phase3_alt_above_deck_m - deck_y, wp3.global_position.z)
+			nav_waypoint = wp3.global_position
 			_update_maneuver_waypoint()
 			_navigate_to_waypoint(delta)
-			var h3 := Vector2(aircraft.global_position.x - wp3.global_position.x, aircraft.global_position.z - wp3.global_position.z).length()
-			if h3 < 100.0:
+			_apply_precision_horizontal_guidance(
+				nav_waypoint,
+				approach_precision_bank_limit_deg,
+				approach_precision_bank_gain,
+				approach_precision_min_bank_deg,
+				precision_point_yaw_gain,
+				0.42,
+				0.32,
+				1.0
+			)
+			var h3: float = aircraft.global_position.distance_to(wp3.global_position)
+			if h3 <= approach_phase2_capture_m:
+				_landing_phase = 4
+				if debug_enabled:
+					print("[AIPilot] Approach: reached approach_2, turning to approach_3")
+
+		4:  # Fly to approach_3.
+			target_speed = 54.0
+			var wp4: Node3D = _approach_wp[3] as Node3D
+			if not is_instance_valid(wp4):
+				change_state(State.SEARCH)
+				return
+			nav_waypoint = wp4.global_position
+			_update_maneuver_waypoint()
+			_navigate_to_waypoint(delta)
+			_apply_precision_horizontal_guidance(
+				nav_waypoint,
+				approach_precision_bank_limit_deg,
+				approach_precision_bank_gain,
+				approach_precision_min_bank_deg,
+				precision_point_yaw_gain,
+				0.45,
+				0.34,
+				1.0
+			)
+			var h4: float = aircraft.global_position.distance_to(wp4.global_position)
+			if h4 <= approach_phase3_capture_m:
 				if debug_enabled:
 					print("[AIPilot] Approach: reached approach_3, starting final approach")
 				change_state(State.LANDING)
@@ -2235,12 +2734,19 @@ func _state_landing(delta: float):
 	"""Final approach: aim the velocity vector at approach_4 (FPA steering).
 	Throttle holds approach speed. This correctly accounts for the nose being
 	above the actual flight path at low speed with gear/flaps extended."""
-	if _approach_wp.size() < 5 or not is_instance_valid(_approach_wp[4]):
-		change_state(State.SEARCH)
-		return
-
-	var wp4: Node3D = _approach_wp[4] as Node3D
-	var target_pos: Vector3 = wp4.global_position
+	var target_pos: Vector3
+	if approach_guidance_mode == ApproachGuidanceMode.PATH_FOLLOWER:
+		var path_target: Dictionary = _get_landing_path_target()
+		if not bool(path_target.get("valid", false)):
+			change_state(State.SEARCH)
+			return
+		target_pos = path_target.get("target_pos", Vector3.ZERO)
+	else:
+		if _approach_wp.size() < 5 or not is_instance_valid(_approach_wp[4]):
+			change_state(State.SEARCH)
+			return
+		var wp4: Node3D = _approach_wp[4] as Node3D
+		target_pos = wp4.global_position
 	nav_waypoint = target_pos
 	_update_maneuver_waypoint()  # keeps waypoint marker visible
 
@@ -2320,15 +2826,25 @@ func _state_landing(delta: float):
 		_request_carrier_recovery()
 		return
 
+	if _should_wave_off_for_busy_deck(horiz_dist):
+		if debug_enabled:
+			print("[AIPilot] Wave-off: landing deck is active, going around")
+		_begin_missed_approach()
+		return
+
+	if _should_start_missed_approach():
+		_begin_missed_approach()
+		return
+
 	# Speed target: bleed off as we close in (gear+flap drag assists)
 	if horiz_dist < 80.0:
-		target_speed = 38.0
+		target_speed = 40.0
 	elif horiz_dist < 150.0:
-		target_speed = 42.0
+		target_speed = 44.0
 	elif horiz_dist < 250.0:
-		target_speed = 45.0
+		target_speed = 48.0
 	else:
-		target_speed = 50.0
+		target_speed = 54.0
 
 	# === ROLL: wings level on short final (< 200 m), bearing-based further out ===
 	var current_roll: float = atan2(b.x.y, b.y.y)
@@ -2349,6 +2865,43 @@ func _state_landing(delta: float):
 	var bank_error: float = desired_bank - current_roll
 	var raw_roll: float = clamp(bank_error * 11.0 - roll_rate * 0.3, -1.0, 1.0)
 	roll_input = lerp(_smoothed_roll_input, raw_roll, 0.25)
+	_smoothed_roll_input = roll_input
+	var short_final_dist_m: float = maxf(landing_short_final_bank_distance_m, 1.0)
+	var close_alignment_t: float = 1.0 - clampf(horiz_dist / short_final_dist_m, 0.0, 1.0)
+	var touchdown_level_dist_m: float = maxf(landing_touchdown_level_distance_m, 1.0)
+	var touchdown_level_t: float = 1.0 - clampf(horiz_dist / touchdown_level_dist_m, 0.0, 1.0)
+	var landing_bank_limit_deg: float = lerpf(
+		30.0,
+		clampf(landing_short_final_bank_limit_deg, 4.0, 30.0),
+		close_alignment_t
+	)
+	landing_bank_limit_deg = lerpf(
+		landing_bank_limit_deg,
+		clampf(landing_touchdown_bank_limit_deg, 2.0, landing_bank_limit_deg),
+		touchdown_level_t
+	)
+	var aligned_bank: float = clampf(
+		bearing_err_final * lerpf(2.5, 3.0, close_alignment_t),
+		-deg_to_rad(landing_bank_limit_deg),
+		deg_to_rad(landing_bank_limit_deg)
+	)
+	var short_final_min_bank_deg: float = lerpf(
+		clampf(landing_short_final_min_bank_deg, 0.0, landing_bank_limit_deg),
+		0.0,
+		touchdown_level_t
+	)
+	var short_final_min_bank_rad: float = deg_to_rad(short_final_min_bank_deg)
+	if close_alignment_t > 0.0 and absf(bearing_err_final) > deg_to_rad(1.0) and absf(aligned_bank) < short_final_min_bank_rad:
+		aligned_bank = signf(bearing_err_final)
+		if absf(aligned_bank) < 0.01:
+			aligned_bank = 1.0
+		aligned_bank *= short_final_min_bank_rad
+	if flip_roll_direction:
+		aligned_bank = -aligned_bank
+	var aligned_bank_error: float = _normalize_angle(aligned_bank - current_roll)
+	var touchdown_roll_damping: float = lerpf(0.3, 0.45, touchdown_level_t)
+	var aligned_raw_roll: float = clampf(aligned_bank_error * 11.0 - roll_rate * touchdown_roll_damping, -1.0, 1.0)
+	roll_input = lerpf(_smoothed_roll_input, aligned_raw_roll, lerpf(0.25, 0.4, maxf(close_alignment_t, touchdown_level_t)))
 	_smoothed_roll_input = roll_input
 
 	# === PITCH: aim the velocity vector at approach_4 (not the nose) ===
@@ -2374,12 +2927,57 @@ func _state_landing(delta: float):
 	var raw_yaw: float = -sin(desired_bank) * 0.5 + yaw_correction_final
 	yaw_input = lerp(_smoothed_yaw_input, raw_yaw, input_smoothing)
 	_smoothed_yaw_input = yaw_input
+	var aligned_yaw_correction_limit: float = lerpf(0.3, 0.45, close_alignment_t)
+	var aligned_yaw_correction: float = clampf(
+		bearing_err_final * landing_short_final_yaw_gain,
+		-aligned_yaw_correction_limit,
+		aligned_yaw_correction_limit
+	)
+	var yaw_rate: float = ang_vel.dot(b.y)
+	var aligned_raw_yaw: float = clampf(
+		-sin(aligned_bank) * 0.5 + aligned_yaw_correction - yaw_rate * 0.12,
+		-1.0,
+		1.0
+	)
+	yaw_input = lerpf(_smoothed_yaw_input, aligned_raw_yaw, lerpf(input_smoothing, 0.4, close_alignment_t))
+	_smoothed_yaw_input = yaw_input
 
 	if debug_enabled and Engine.get_process_frames() % 30 == 0:
 		print("[AIPilot FINAL] dist=%.0fm  ÃƒÅ½Ã¢â‚¬Âalt=%.1fm  fpa: want=%.1fÃƒâ€šÃ‚Â°  act=%.1fÃƒâ€šÃ‚Â°  err=%.1fÃƒâ€šÃ‚Â°  pitch=%.2f  thr=%.2f  spd=%.0f" % [
 			horiz_dist, to_target.y,
 			rad_to_deg(desired_fpa), rad_to_deg(current_fpa), rad_to_deg(fpa_err),
 			pitch_input, throttle_input, speed])
+
+func _state_missed_approach(delta: float):
+	"""Bolter/go-around: climb to takeoff_0, then restart the landing pattern."""
+	if not is_instance_valid(_takeoff_wp):
+		if not _find_takeoff_waypoint():
+			push_warning("[AIPilot] Missed approach: could not find takeoff_0")
+			change_state(State.RTB)
+			return
+
+	target_speed = maxf(landing_bolter_target_speed_mps, approach_path_far_speed_mps)
+	nav_waypoint = _takeoff_wp.global_position
+	_update_maneuver_waypoint()
+	_navigate_to_waypoint(delta)
+	throttle_input = 1.0
+
+	var deck_height: float = nav_waypoint.y
+	if _approach_wp.size() >= 5 and is_instance_valid(_approach_wp[4]):
+		deck_height = (_approach_wp[4] as Node3D).global_position.y
+	if aircraft.global_position.y >= deck_height + landing_bolter_gear_retract_height_m:
+		_stow_landing_config()
+
+	var horiz_to_takeoff: float = Vector2(
+		aircraft.global_position.x - nav_waypoint.x,
+		aircraft.global_position.z - nav_waypoint.z
+	).length()
+	var close_to_rejoin_altitude: bool = aircraft.global_position.y >= nav_waypoint.y - landing_bolter_rejoin_altitude_margin_m
+	if horiz_to_takeoff <= landing_bolter_rejoin_distance_m and close_to_rejoin_altitude:
+		if debug_enabled:
+			print("[AIPilot] Missed approach: reached takeoff_0, restarting landing pattern")
+		if not start_landing():
+			change_state(State.RTB)
 
 # ============================================================================
 # NAVIGATION FUNCTIONS
@@ -2560,17 +3158,21 @@ func _navigate_to_waypoint(delta: float):
 	var in_break_off: bool = current_state == State.ATTACK_BREAK_OFF
 	var in_attack_approach: bool = current_state in [State.ATTACK_POSITIONING, State.ATTACK_INBOUND]
 	var in_dogfight: bool = current_state == State.DOGFIGHT
+	var in_carrier_approach: bool = current_state == State.APPROACH
 	var in_landing: bool = current_state == State.LANDING
 	# Continuous ramp 0ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢1 as alt deficit grows 0ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢80m. Replaces the old binary in_attack_climb
 	# switch at 30m which caused an abrupt gain step and drove oscillation.
 	var attack_climb_t: float = clamp(alt_err / 80.0, 0.0, 1.0) if in_attack_approach else 0.0
-	var needs_high_authority: bool = in_dive_state or in_break_off or in_landing
+	var needs_high_authority: bool = in_dive_state or in_break_off or in_landing or in_carrier_approach
 	var vs_limit: float
 	var vs_gain: float
 	if in_landing:
 		# Carrier final: need enough descent (150m over ~540m) ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â default 10 m/s cap is too low
 		vs_limit = 18.0
 		vs_gain = 0.18
+	elif in_carrier_approach:
+		vs_limit = 20.0
+		vs_gain = 0.16
 	elif needs_high_authority:
 		# Soft dive entry: ramp up over 1.2s to avoid initial pull-too-hard oscillation
 		var now_s: float = Time.get_ticks_msec() / 1000.0
@@ -2626,8 +3228,12 @@ func _navigate_to_waypoint(delta: float):
 	var vs_err: float = desired_vs - vel.y
 	var bank_compensation: float = clamp(1.0 / max(cos(bank_rad), 0.7), 1.0, 1.2)
 	var pitch_limit: float = 0.75 if in_dogfight else max_pitch_angle / deg_to_rad(60.0)
+	if in_carrier_approach:
+		pitch_limit = maxf(pitch_limit, 0.85)
 	var pitch_gain: float
-	if needs_high_authority:
+	if in_carrier_approach:
+		pitch_gain = 0.11
+	elif needs_high_authority:
 		pitch_gain = 0.10
 	elif in_attack_approach:
 		pitch_gain = lerp(0.06, 0.08, attack_climb_t)  # Gentler ceiling reduces overshoot
@@ -2648,6 +3254,8 @@ func _navigate_to_waypoint(delta: float):
 	var effective_pitch_smoothing: float
 	if in_dive_state:
 		effective_pitch_smoothing = 0.12
+	elif in_carrier_approach:
+		effective_pitch_smoothing = 0.14
 	elif in_attack_approach:
 		effective_pitch_smoothing = 0.15
 	else:
@@ -2692,12 +3300,16 @@ func _navigate_to_waypoint(delta: float):
 	var speed_error: float = target_speed - speed
 	throttle_input += clamp(speed_error * 0.01, -0.05, 0.05)
 	var thr_min: float = 0.4
-	if current_state == State.LANDING:
+	if current_state == State.APPROACH and _landing_phase >= 1:
+		thr_min = approach_post_gate_min_throttle
+	elif current_state == State.LANDING:
 		var dist_to_touchdown: float = Vector2(aircraft.global_position.x - nav_waypoint.x, aircraft.global_position.z - nav_waypoint.z).length()
 		if dist_to_touchdown < 150.0:
 			thr_min = 0.25  # Allow lower throttle on short final to avoid overflying
 	throttle_input = clamp(throttle_input, thr_min, 1.0)
 	throttle_input += clamp(bank_rad / deg_to_rad(30.0), 0.0, 1.0) * 0.15
+	if current_state == State.APPROACH and _landing_phase >= 1 and speed > target_speed + approach_post_gate_slowdown_margin_mps:
+		throttle_input = minf(throttle_input, approach_post_gate_throttle_cut)
 	throttle_input = clamp(throttle_input, 0.0, 1.0)
 	
 	# Low speed protection ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â full throttle, limit pitch-up to avoid bleeding more energy
@@ -2777,9 +3389,10 @@ func _create_waypoint_marker():
 	var box := BoxMesh.new()
 	box.size = Vector3(10.0, 1000.0, 10.0)  # 10m footprint (visible from distance), 1000m tall
 	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.5, 1.0, 0.0)  # Lime green
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.albedo_color = Color(0.5, 1.0, 0.0, 0.2)  # Lime green at 20% opacity
 	mat.emission_enabled = true
-	mat.emission = Color(0.5, 1.0, 0.0)
+	mat.emission = Color(0.5, 1.0, 0.0, 0.2)
 	mat.emission_energy_multiplier = 2.0
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED  # Always visible
 	_waypoint_marker = MeshInstance3D.new()
@@ -2796,7 +3409,7 @@ func _update_waypoint_marker():
 	if not _waypoint_marker:
 		return
 	# Only show when actively navigating/attacking
-	if current_state not in [State.TRANSIT, State.SEARCH, State.ATTACK_POSITIONING, State.ATTACK_INBOUND, State.ATTACK_DIVE, State.ATTACK_BREAK_OFF, State.ENGAGE, State.APPROACH, State.LANDING]:
+	if current_state not in [State.TRANSIT, State.SEARCH, State.ATTACK_POSITIONING, State.ATTACK_INBOUND, State.ATTACK_DIVE, State.ATTACK_BREAK_OFF, State.ENGAGE, State.APPROACH, State.LANDING, State.MISSED_APPROACH]:
 		_waypoint_marker.visible = false
 		return
 	var marker_world: Vector3 = nav_waypoint
@@ -2869,6 +3482,7 @@ func _check_emergency_terrain_avoidance():
 
 	var in_attack_phase: bool = current_state in [State.DOGFIGHT, State.ATTACK_POSITIONING, State.ATTACK_INBOUND, State.ATTACK_DIVE, State.ATTACK_BREAK_OFF]
 	var in_landing: bool = current_state in [State.APPROACH, State.LANDING]
+	var in_carrier_approach: bool = current_state == State.APPROACH
 	# During an actual dive the plane intentionally descends; use less conservative thresholds.
 	# During positioning/inbound the plane is just navigating, use slightly relaxed but still safe values.
 	var in_dive: bool = current_state == State.ATTACK_DIVE
@@ -2881,10 +3495,11 @@ func _check_emergency_terrain_avoidance():
 		# all emergency terrain avoidance; let _navigate_to_waypoint steer to the deck.
 		return
 	elif in_landing:
-		# APPROACH phases: plane is still above 150 m, use relaxed but real thresholds.
-		agl_floor    = 30.0
-		tti_limit    = 0.5
-		terrain_warn = 40.0
+		# Pre-final carrier approach should still be protected, but without fighting
+		# every planned descent toward the marker chain.
+		agl_floor    = 45.0
+		tti_limit    = 0.9
+		terrain_warn = 90.0
 	elif in_dive:
 		agl_floor  = 60.0
 		tti_limit  = 1.2
@@ -2910,7 +3525,9 @@ func _check_emergency_terrain_avoidance():
 	# if terrain ahead is actually a threat.
 	var is_climbing_to_altitude: bool = current_state in [State.DOGFIGHT, State.ATTACK_POSITIONING, State.ATTACK_INBOUND] and aircraft.linear_velocity.y > 0.0
 	var low_agl: bool
-	if is_climbing_to_altitude:
+	if in_carrier_approach:
+		low_agl = altitude_agl < 20.0 and aircraft.linear_velocity.y < -6.0 and terrain_ahead_distance < terrain_warn
+	elif is_climbing_to_altitude:
 		low_agl = altitude_agl < 30.0
 	else:
 		low_agl = altitude_agl < agl_floor
@@ -2972,6 +3589,9 @@ func _update_sensors():
 
 func _update_agl():
 	"""Raycast down to find altitude above ground"""
+	if aircraft and aircraft.has_method("get_effective_altitude_agl_m"):
+		altitude_agl = float(aircraft.get_effective_altitude_agl_m())
+		return
 	var terrain_h: float = _get_ground_height_at_position(aircraft.global_position)
 	if not is_nan(terrain_h):
 		altitude_agl = aircraft.global_position.y - terrain_h
@@ -3110,7 +3730,7 @@ func _scan_contacts():
 
 func _check_rtb_triggers():
 	"""Monitor health and fuel, trigger RTB if critical"""
-	if current_state in [State.RTB, State.APPROACH, State.LANDING]:
+	if current_state in [State.RTB, State.APPROACH, State.LANDING, State.MISSED_APPROACH]:
 		return
 		
 	var needs_rtb: bool = false
@@ -3409,11 +4029,20 @@ func _request_carrier_recovery() -> void:
 		if is_instance_valid(aircraft):
 			aircraft.set_meta("parking_brake", true)
 
+func _should_wave_off_for_busy_deck(horiz_dist: float) -> bool:
+	if horiz_dist > landing_waveoff_check_distance_m:
+		return false
+	var fdm = get_tree().get_first_node_in_group("flight_deck_manager")
+	if not fdm or not fdm.has_method("can_accept_landing"):
+		return false
+	return not bool(fdm.can_accept_landing(aircraft))
+
 func start_landing() -> bool:
 	"""Command the AI to begin the carrier landing approach sequence.
 	Returns false if approach_1/2/3 waypoint nodes cannot be found in the scene."""
 	if not _find_approach_waypoints():
 		return false
+	_find_takeoff_waypoint()
 	_landing_phase = 0
 	_committed_turn_sign = 0.0
 	target_speed = 80.0
@@ -3438,6 +4067,43 @@ func _find_approach_waypoints() -> bool:
 	push_warning("[AIPilot] start_landing: could not find approach_0/1/2/3/4 nodes in scene")
 	return false
 
+func _find_takeoff_waypoint() -> bool:
+	var root: Node = get_tree().current_scene
+	if not root:
+		_takeoff_wp = null
+		return false
+	_takeoff_wp = root.find_child("takeoff_0", true, false) as Node3D
+	return is_instance_valid(_takeoff_wp)
+
+func _should_start_missed_approach() -> bool:
+	if _approach_wp.size() < 5 or not is_instance_valid(_approach_wp[3]) or not is_instance_valid(_approach_wp[4]):
+		return false
+	var wp3: Node3D = _approach_wp[3] as Node3D
+	var wp4: Node3D = _approach_wp[4] as Node3D
+	var final_dir_flat := Vector3(
+		wp4.global_position.x - wp3.global_position.x,
+		0.0,
+		wp4.global_position.z - wp3.global_position.z
+	)
+	if final_dir_flat.length_squared() < 1.0:
+		return false
+	final_dir_flat = final_dir_flat.normalized()
+	var past_target_m: float = Vector3(
+		aircraft.global_position.x - wp4.global_position.x,
+		0.0,
+		aircraft.global_position.z - wp4.global_position.z
+	).dot(final_dir_flat)
+	return past_target_m >= landing_bolter_past_target_m
+
+func _begin_missed_approach() -> void:
+	if not is_instance_valid(_takeoff_wp) and not _find_takeoff_waypoint():
+		push_warning("[AIPilot] Missed approach: could not find takeoff_0")
+		change_state(State.RTB)
+		return
+	if debug_enabled:
+		print("[AIPilot] Missed approach: bolter detected, climbing to takeoff_0")
+	change_state(State.MISSED_APPROACH)
+
 func _deploy_landing_gear():
 	"""Deploy landing gear, tailhook, and flaps for the carrier approach (gear+flaps together)."""
 	if not is_instance_valid(control_gear):
@@ -3460,3 +4126,20 @@ func _deploy_landing_gear():
 		flaps[0].flap_set_position(1.0)
 	if debug_enabled:
 		print("[AIPilot] Landing gear, tailhook, and flaps deployed")
+
+func _stow_landing_config() -> void:
+	"""Retract landing gear, tailhook, and flaps after launch or a go-around."""
+	if not is_instance_valid(control_gear):
+		return
+	if control_gear.get("gear_down_state") != true:
+		return
+	control_gear.send_to_landing_gears("stow")
+	control_gear.send_to_tailhooks("stow")
+	control_gear.send_to_tailhook_simple(false)
+	control_gear._set_collider_disabled(true)
+	control_gear.gear_down_state = false
+	var flaps = aircraft.find_modules_by_type("flaps") if aircraft.has_method("find_modules_by_type") else []
+	if not flaps.is_empty() and flaps[0].has_method("flap_set_position"):
+		flaps[0].flap_set_position(0.0)
+	if debug_enabled and verbose_debug_enabled:
+		print("[AIPilot] Retracting landing gear, tailhook, and flaps")
