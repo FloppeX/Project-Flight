@@ -3,7 +3,7 @@ class_name AAMissileLauncher
 
 @export var missile_scene: PackedScene
 @export var fire_cooldown: float = 1.0
-@export var max_ammo: int = 2
+@export var max_ammo: int = 0
 @export var hide_visual_on_fire: bool = true
 
 var hardpoint: Hardpoint
@@ -14,10 +14,12 @@ var last_fired_missile: Node3D = null
 func _ready():
 	hardpoint = get_parent() as Hardpoint
 	# Sanitize serialized values from scene instances
-	if typeof(max_ammo) != TYPE_INT or max_ammo <= 0:
-		max_ammo = 2
-	if typeof(ammo_count) != TYPE_INT or ammo_count <= 0:
+	if typeof(max_ammo) != TYPE_INT or max_ammo < 0:
+		max_ammo = 0
+	if typeof(ammo_count) != TYPE_INT or ammo_count < 0:
 		ammo_count = max_ammo
+	else:
+		ammo_count = mini(ammo_count, max_ammo)
 	if typeof(fire_cooldown) != TYPE_FLOAT or fire_cooldown <= 0.0:
 		fire_cooldown = 1.0
 	weapon_name = "AAMissile"

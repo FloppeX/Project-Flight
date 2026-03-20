@@ -20,6 +20,7 @@ var bridge_camera: Camera3D
 var target_yaw: float = 0.0
 var target_pitch: float = 0.0
 var setup_attempts: int = 0
+var _has_children: bool = false
 
 func _ready():
 	# Initialize the bridge camera system
@@ -44,6 +45,7 @@ func initialize_bridge_camera():
 
 	# Create camera if it doesn't exist
 	setup_camera()
+	_has_children = get_child_count() > 0
 
 func setup_camera():
 	# Look for the specific CameraBridge child
@@ -61,21 +63,13 @@ func setup_camera():
 
 func _process(delta):
 	# Safety check - if we're a duplicate instance without children, disable ourselves
-	if get_children().size() == 0 and bridge_camera == null:
-		# We're probably a duplicate instance - disable processing
+	if not _has_children and bridge_camera == null:
 		set_process(false)
 		return
 
 	# Try to re-find aircraft if we lost the reference
 	if not aircraft:
 		aircraft = get_tree().get_first_node_in_group("aircraft")
-		if not aircraft:
-			# Try alternative search methods
-			var all_nodes = get_tree().current_scene.get_children()
-			for node in all_nodes:
-				if node.name == "Aircraft_1" or node.is_in_group("aircraft"):
-					aircraft = node
-					break
 
 	# Try to find camera if we don't have it (but only a few times)
 	if not bridge_camera:

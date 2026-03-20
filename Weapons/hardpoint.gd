@@ -57,7 +57,6 @@ func get_aircraft_velocity() -> Vector3:
 	if aircraft:
 		return aircraft.linear_velocity
 	else:
-		print("No aircraft found!")
 		return Vector3.ZERO
 
 func get_hardpoint_world_position() -> Vector3:

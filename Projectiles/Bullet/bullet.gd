@@ -81,22 +81,25 @@ func fire(initial_velocity: Vector3, firing_aircraft: Node3D):
 	# Call parent's fire method to get all the base functionality
 	super.fire(initial_velocity, firing_aircraft)
 	
-	# Inherit the firing platform's velocity so rounds don't lag behind in turns.
+	# Inherit the firing platform's point velocity at the muzzle so rounds stay
+	# aligned with the gun line during hard turns and rolls.
 	if not firing_aircraft or not is_instance_valid(firing_aircraft):
 		return
 
 	var inherited_velocity = firing_aircraft.get("linear_velocity")
 	if inherited_velocity is Vector3:
 		linear_velocity += inherited_velocity
-		return
-	var kinematic_velocity = firing_aircraft.get("velocity")
-	if kinematic_velocity is Vector3:
-		linear_velocity += kinematic_velocity
-		return
-	if firing_aircraft.has_method("get_linear_velocity"):
+	elif firing_aircraft.get("velocity") is Vector3:
+		linear_velocity += firing_aircraft.get("velocity")
+	elif firing_aircraft.has_method("get_linear_velocity"):
 		var getter_velocity = firing_aircraft.call("get_linear_velocity")
 		if getter_velocity is Vector3:
 			linear_velocity += getter_velocity
+
+	var angular_velocity = firing_aircraft.get("angular_velocity")
+	if angular_velocity is Vector3 and firing_aircraft is Node3D:
+		var r_offset: Vector3 = global_position - (firing_aircraft as Node3D).global_position
+		linear_velocity += (angular_velocity as Vector3).cross(r_offset)
 
 func _physics_process(delta):
 	# Call parent's physics process first
@@ -191,8 +194,7 @@ func _spawn_ground_impact_particles(body: Object) -> void:
 	var impact: Dictionary = _resolve_impact_surface(body)
 	var hit_pos: Vector3 = impact.get("position", global_position)
 	var hit_normal: Vector3 = impact.get("normal", Vector3.UP)
-	var particle_manager: ParticleManager = _get_or_create_particle_manager()
-	if not particle_manager:
+	if not ParticleManager:
 		return
 
 	for i in range(count):
@@ -217,21 +219,13 @@ func _spawn_ground_impact_particles(body: Object) -> void:
 			randf_range(-1.0, 1.0)
 		).normalized()
 		var launch_velocity: Vector3 = (hit_normal * randf_range(1.5, 3.0) + lateral_dir * randf_range(1.0, 3.0)).normalized() * randf_range(3.0, 8.0)
-		particle_manager.add_spark_particle(
+		ParticleManager.add_spark_particle(
 			chip,
 			ground_particle_lifetime_s,
 			Vector3.ONE,
 			launch_velocity
 		)
 
-func _get_or_create_particle_manager() -> ParticleManager:
-	var particle_manager := get_node_or_null("/root/ParticleManager") as ParticleManager
-	if particle_manager:
-		return particle_manager
-	particle_manager = preload("res://Effects/ParticleManager.gd").new()
-	particle_manager.name = "ParticleManager"
-	get_tree().root.add_child(particle_manager)
-	return particle_manager
 
 func update_tracer_mesh() -> void:
 	if trail_mesh == null or tracer_box_mesh == null:

@@ -17,7 +17,7 @@ var sfx_cannon: AudioStreamPlayer3D
 
 func _ready():
 	delete_when_empty = false  # Don't auto-remove when empty
-	ammo_count = 200  # More ammo than bombs
+	ammo_count = 1000  # Large gun ammo pool for sustained air combat
 	hardpoint = get_parent() as Hardpoint
 	automatic_fire = true
 	weapon_name = "Autocannon"  # Set weapon type name

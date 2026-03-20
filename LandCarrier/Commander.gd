@@ -27,24 +27,34 @@ func _process(delta: float) -> void:
 	_update_look(delta)
 
 func _physics_process(delta: float) -> void:
-	var move_velocity := Vector3.ZERO
-	if _is_active_view():
-		var forward_input := Input.get_action_strength("pitch_up") - Input.get_action_strength("pitch_down")
-		var strafe_input := Input.get_action_strength("roll_left") - Input.get_action_strength("roll_right")
-		var move_input := Vector2(strafe_input, forward_input)
-		if move_input.length_squared() > 1.0:
-			move_input = move_input.normalized()
+	# When not the active view, skip physics entirely to avoid jitter.
+	# The commander is a child of the carrier so it moves with it automatically.
+	if not _is_active_view():
+		velocity = Vector3.ZERO
+		return
 
-		var move_basis := global_basis
-		var right_dir := move_basis.x
-		right_dir.y = 0.0
-		right_dir = right_dir.normalized()
+	var forward_input := Input.get_action_strength("pitch_up") - Input.get_action_strength("pitch_down")
+	var strafe_input := Input.get_action_strength("roll_left") - Input.get_action_strength("roll_right")
+	var move_input := Vector2(strafe_input, forward_input)
+	if move_input.length_squared() > 1.0:
+		move_input = move_input.normalized()
 
-		var forward_dir := -move_basis.z
-		forward_dir.y = 0.0
-		forward_dir = forward_dir.normalized()
+	var move_basis := global_basis
+	var right_dir := move_basis.x
+	right_dir.y = 0.0
+	right_dir = right_dir.normalized()
 
-		move_velocity = ((right_dir * move_input.x) + (forward_dir * move_input.y)) * walk_speed_mps
+	var forward_dir := -move_basis.z
+	forward_dir.y = 0.0
+	forward_dir = forward_dir.normalized()
+
+	var move_velocity: Vector3 = ((right_dir * move_input.x) + (forward_dir * move_input.y)) * walk_speed_mps
+
+	# If on floor with no movement input, skip move_and_slide to prevent
+	# physics jitter from gravity fighting the moving platform floor.
+	if is_on_floor() and move_input.length_squared() < 0.001:
+		velocity = Vector3.ZERO
+		return
 
 	velocity.x = move_velocity.x
 	velocity.z = move_velocity.z

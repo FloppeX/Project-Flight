@@ -32,7 +32,7 @@ The player pushes into enemy-controlled territory, launches and recovers aircraf
 
 ## Current Status
 
-**Last Updated:** 2026-03-17
+**Last Updated:** 2026-03-20
 **Godot Version:** 4.4.1.stable.official.49a5bc7b6
 **Project Health:** PLAYABLE
 **Control Mode:** AI-by-default with spectator/pilot toggle (game controller)
@@ -55,7 +55,7 @@ Example project launch from this repo root:
 | System | Status | Notes |
 |--------|--------|-------|
 | Flight Physics | Working | SimpleAero integration complete |
-| AI Pilot | Working | Full carrier cycle exists; carrier approach now uses authored approach markers/heights and is under active landing-pattern tuning |
+| AI Pilot | Working | Full carrier cycle exists; path-follower carrier recovery remains the default; dogfight gun aiming/fire discipline has been tightened significantly and is still under active tuning |
 | Catapult | Working | Launches AI and player aircraft |
 | Arresting Cables | Working | Roll stabilization, mass-adaptive braking |
 | Landing Gear | Working | Suspension/damping implemented; Aircraft 1 and 2 now use animated gear pivots instead of pop-in/out, with stowed visuals/shadows suppressed |
@@ -66,18 +66,18 @@ Example project launch from this repo root:
 | System | Status | Notes |
 |--------|--------|-------|
 | Player Control | Working | Full manual flight control |
-| AI Control | Working | All vehicles default to AI; Start toggles spectator/pilot takeover of nearest friendly aircraft; LB/RB cycles carrier + friendly aircraft while spectating; Space exits free camera to spectator |
-| Weapons | Working | Autocannon, bombs, missiles |
+| AI Control | Working | All vehicles default to AI; Start toggles spectator/pilot takeover of nearest friendly aircraft; LB/RB cycles carrier + friendly aircraft while spectating; Space exits free camera to spectator; `L` now assigns the next eligible friendly aircraft to landing |
+| Weapons | Working | Autocannon, bombs, missiles; bullets inherit muzzle-point velocity in turns, autocannon ammo pool increased for sustained tests, and AA missile launchers can now be intentionally fielded empty |
 | Targeting | Working | HUD target box, sensor cone |
-| HUD | Working | Radar, instruments, CCIP, terrain map overlay on radar; HUD symbology/text now fully opaque |
-| Camera System | Working | Multiple camera modes, free-fly debug camera, delayed death-camera handoff; chase camera now orbits the aircraft on a level horizontal plane |
+| HUD | Working | Radar, instruments, CCIP, terrain map overlay on radar; HUD symbology/text fully opaque, and the main gunsight now uses proper HUD-glass collimation/boresight projection |
+| Camera System | Working | Multiple camera modes, free-fly debug camera, delayed death-camera handoff; chase camera now orbits the aircraft on a level horizontal plane; the old bridge cam has been replaced by a first-person commander view inside the carrier bridge |
 | Destruction | Working | Explosion with volumetric smoke puffs (SphereMesh, staggered, rising/fading) |
 
 ### Carrier Systems
 
 | System | Status | Notes |
 |--------|--------|-------|
-| Flight Deck Manager | Partial | Orchestrates deck/hangar/catapult/recovery flow, scramble queues, and runtime aircraft persistence; recent recovery fallback, wheel-settle, and wheel-lookup hardening improved reliability, but moving-carrier recovery edge cases are still under test |
+| Flight Deck Manager | Partial | Orchestrates deck/hangar/catapult/recovery flow, scramble queues, and runtime aircraft persistence; now supports last-leg wave-offs when the deck is occupied, bolter/go-around recovery retries, and cleanup of extra tractor bots by sending them below via the elevator |
 | Air Operations Manager | Working | Autoload (Citadel). Commands four named flights (Archer, Bulldog, Crimson, Dingo); intercept/CAS vectoring; scrambles from hangar when a flight has no members; radio comms throughout |
 | Wing Fold (Aircraft 2) | Working | Wings fold in hangar/transport, unfold at catapult; instant-snap on spawn |
 | Elevator | Working | Hangar <-> deck transit; aircraft tracks carrier horizontally |
@@ -86,6 +86,9 @@ Example project launch from this repo root:
 | Arresting Cables | Working | Multi-cable support |
 | Carrier Movement Tracking | Working | All deck objects (parked, transport, catapult) move with carrier each frame |
 | Tracks | Working | Nav-grid A* pathfinding; tread height from grid (no per-frame raycasts); wall avoidance raycasts; stuck detection |
+| Carrier Defensive Turrets | Working | Carrier defense mounts can now host dual functioning turrets per set and are wired through the shared turret controller/weapon stack |
+| Bridge Commander | Working | First-person commander pawn with analog walk/look on the bridge; simple collision, warm bridge lighting, and bridge-view camera handoff integrated |
+| Bridge Hologram | Working | 2 m centered wireframe tactical table with deep-green-to-neon-green terrain, blue/red 3D aircraft markers, blue/red ground-unit squares, raised carrier/ground markers, and camera-gated low-frequency refresh to reduce bridge stutter |
 
 ### Enemy Systems
 
@@ -112,13 +115,13 @@ Example project launch from this repo root:
 
 ## Current Agenda
 
-1. Validate the full end-to-end carrier cycle on a moving carrier, especially arrested landing -> tractor recovery -> elevator/hangar and retrieval -> catapult relaunch.
-2. Continue tuning AI landing behavior around the authored approach markers, including speed reduction, descent timing, and final deck alignment.
-3. Verify Aircraft 2's launch/recovery loop after the landing-gear mesh/pivot changes so all three wheels settle correctly onto the deck.
+1. Continue tuning AI precision control in dogfights so aircraft point more authoritatively at gun solutions, align the pipper with the real gun line, and waste fewer shots.
+2. Validate the new default path-follower landing mode, especially touchdown wings-level behavior, wave-offs, and bolter/go-around retries.
+3. Add terrain-aware local avoidance to AI flight so aircraft stop blindly obeying waypoints into cliffs or other obvious hazards.
 4. Continue tuning ground vehicle movement, combat stance, and pathing performance.
-5. Expand enemy movement/pathfinding and build out the resource management layer.
+5. Expand the bridge experience with more environmental polish and commander-facing command-space features around the hologram/table setup now that the first tactical holomap pass is in.
 
-**Current focus:** As of 2026-03-17, the main active work is carrier-air-ops polish: recovery reliability, launch handoff, and AI approach/landing tuning on the moving carrier.
+**Current focus:** As of 2026-03-20, the main active work is still AI flight polish: dogfight aiming precision, fire-discipline cleanup, pipper/gun-line alignment, path-based carrier recovery behavior, and safer/firmer final approach control, alongside bridge-command presentation work around the new holomap.
 
 ## Working Style Notes
 

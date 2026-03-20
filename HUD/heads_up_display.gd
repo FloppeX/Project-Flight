@@ -11,7 +11,7 @@ extends Node3D
 @export var hud_glass_size: Vector2 = Vector2(0.4, 0.4)  # 40x40 cm in meters - bigger for more text room
 @export var ccip_below_horizon_only: bool = true  # Hide CCIP when projected above screen center
 @export var ccip_use_fast: bool = true  # Prefer fast closed-form CCIP
-@export var hud_follow_camera_forward: bool = true  # If true, reticle tracks camera forward instead of aircraft nose
+@export var hud_follow_camera_forward: bool = false  # Debug option; true collimated HUD uses aircraft boresight
 
 var cam: Camera3D
 var aircraft: Node3D
@@ -37,6 +37,11 @@ var lock_diamond: Control
 var lock_diamond_lines: Array[ColorRect] = []
 var lock_label: Label
 
+# Lead aim reticle (red crosshair showing where to aim guns to hit target)
+var lead_reticle: Control
+var lead_reticle_h_line: ColorRect
+var lead_reticle_v_line: ColorRect
+
 func _opaque(color: Color) -> Color:
 	return Color(color.r, color.g, color.b, 1.0)
 
@@ -56,10 +61,10 @@ func _ready():
 	
 	# Exit early if any critical nodes are missing
 	if hud_mesh == null:
-		print("ERROR: HUDglass node not found!")
+		push_error("HUD: HUDglass node not found!")
 		return
 	if viewport == null:
-		print("ERROR: SubViewport node not found!")
+		push_error("HUD: SubViewport node not found!")
 		return
 	
 	# Set up the HUD glass mesh
@@ -123,6 +128,9 @@ func _ready():
 	# Set up AA lock diamond
 	setup_lock_diamond()
 
+	# Set up lead aim reticle
+	setup_lead_reticle()
+
 	# Set up a timer to update the CCIP periodically
 	ccip_update_timer = Timer.new()
 	ccip_update_timer.wait_time = 0.1 # Update 10 times per second
@@ -133,7 +141,7 @@ func _ready():
 func setup_weapon_status():
 	"""Set up the weapon status display in lower left corner"""
 	if weapon_status == null:
-		print("ERROR: WeaponStatus label not found!")
+		push_error("HUD: WeaponStatus label not found!")
 		return
 	
 	# Position in lower left corner - move more towards the edge
@@ -160,7 +168,7 @@ func setup_weapon_status():
 func setup_speed_altitude():
 	"""Set up the speed and altitude display in lower right corner"""
 	if speed_altitude == null:
-		print("ERROR: SpeedAltitude label not found!")
+		push_error("HUD: SpeedAltitude label not found!")
 		return
 	
 	# Position in lower right corner - move more towards the edge
@@ -282,7 +290,6 @@ func setup_lock_diamond():
 
 func _process(dt: float) -> void:
 	if cam == null or aircraft == null:
-		print("HUD: Missing camera or aircraft reference")
 		return
 	
 	# Update weapon status display
@@ -296,10 +303,12 @@ func _process(dt: float) -> void:
 
 	# Update AA missile lock diamond
 	update_lock_diamond()
+
+	# Update lead aim reticle
+	update_lead_reticle()
 	
-	# Get aircraft's forward direction (nose pointing direction)
-	# In Godot, -Z is forward for most objects
-	var aircraft_forward: Vector3 = -aircraft.global_transform.basis.z
+	# Aircraft in this project are authored facing +Z.
+	var aircraft_forward: Vector3 = aircraft.global_transform.basis.z
 	var camera_forward: Vector3 = -cam.global_transform.basis.z if cam else Vector3.FORWARD
 	
 	# Project aircraft's nose direction to infinity for proper collimation
@@ -312,33 +321,48 @@ func _process(dt: float) -> void:
 		# Use aircraft boresight
 		nose_world = aircraft.global_transform.origin + aircraft_forward * hud_range
 	
-	# Convert to camera's local space to check if it's in front
-	var nose_local = cam.global_transform.inverse() * nose_world
-	if nose_local.z > 0:  # Behind camera in local space
+	var hud_projection: Dictionary = _project_world_to_hud(nose_world)
+	if not bool(hud_projection.get("visible", false)):
 		reticle.visible = false
 		return
-	
-	# Project to screen coordinates (world → screen)
-	var screen_pos: Vector2 = cam.unproject_position(nose_world)
-	
-	# Convert screen coordinates to HUD viewport coordinates using actual sizes
-	var main_viewport_size = get_viewport().size
-	var hud_size_px: Vector2 = Vector2(viewport.size)
-	var normalized_pos = Vector2(
-		screen_pos.x / max(main_viewport_size.x, 0.001),
-		screen_pos.y / max(main_viewport_size.y, 0.001)
+
+	reticle.visible = true
+	reticle.position = (hud_projection.get("hud_pos", Vector2.ZERO) as Vector2) - reticle.pivot_offset
+
+func _project_world_to_hud(world_pos: Vector3) -> Dictionary:
+	if not is_instance_valid(cam) or not is_instance_valid(hud_mesh):
+		return {"visible": false}
+	if cam.is_position_behind(world_pos):
+		return {"visible": false}
+
+	var camera_pos: Vector3 = cam.global_position
+	var ray_direction: Vector3 = (world_pos - camera_pos).normalized()
+	if ray_direction.length_squared() < 0.000001:
+		return {"visible": false}
+
+	var hud_transform: Transform3D = hud_mesh.global_transform
+	var hud_normal: Vector3 = -hud_transform.basis.z.normalized()
+	var hud_plane := Plane(hud_normal, hud_transform.origin)
+	var intersection_point = hud_plane.intersects_ray(camera_pos, ray_direction)
+	if intersection_point == null:
+		return {"visible": false}
+
+	var local_point: Vector3 = hud_mesh.to_local(intersection_point)
+	var half_size: Vector2 = hud_glass_size * 0.5
+	if abs(local_point.x) > half_size.x or abs(local_point.y) > half_size.y:
+		return {"visible": false}
+
+	var hud_size_px := Vector2(viewport.size)
+	var hud_pos := Vector2(
+		(local_point.x + half_size.x) / max(hud_glass_size.x, 0.001) * hud_size_px.x,
+		(-local_point.y + half_size.y) / max(hud_glass_size.y, 0.001) * hud_size_px.y
 	)
-	var hud_pos = Vector2(
-		normalized_pos.x * hud_size_px.x,
-		normalized_pos.y * hud_size_px.y
-	)
-	
-	# Only show if within reasonable bounds (with some margin)
-	if hud_pos.x >= -10 and hud_pos.x <= (hud_size_px.x + 10) and hud_pos.y >= -10 and hud_pos.y <= (hud_size_px.y + 10):
-		reticle.visible = true
-		reticle.position = hud_pos - reticle.pivot_offset
-	else:
-		reticle.visible = false
+	return {
+		"visible": true,
+		"hud_pos": hud_pos,
+		"intersection_point": intersection_point,
+		"local_point": local_point,
+	}
 
 func update_weapon_status():
 	"""Update the weapon status display with current weapon type"""
@@ -413,47 +437,14 @@ func update_ccip():
 	var impact_world: Vector3 = ccip_data.impact_position
 
 	# --- Replicate working projection logic from target box ---
-	# First, ensure the target is actually in front of the camera
-	if cam.is_position_behind(impact_world):
+	var hud_projection: Dictionary = _project_world_to_hud(impact_world)
+	if not bool(hud_projection.get("visible", false)):
 		ccip_circle.visible = false
 		ccip_dot.visible = false
 		return
 
-	# Cast ray from camera through target, find where it hits HUD plane
-	var camera_pos = cam.global_position
-	var ray_direction = (impact_world - camera_pos).normalized()
-	
-	# Define HUD plane in world space
-	var hud_transform = hud_mesh.global_transform
-	var hud_normal = -hud_transform.basis.z.normalized()
-	var hud_plane = Plane(hud_normal, hud_transform.origin)
-	
-	# Find intersection point
-	var intersection_point = hud_plane.intersects_ray(camera_pos, ray_direction)
-	
-	if intersection_point == null:
-		ccip_circle.visible = false
-		ccip_dot.visible = false
-		return
-	
-	# Convert intersection point to HUD mesh local coordinates
-	var local_point = hud_mesh.to_local(intersection_point)
-	
-	# Check bounds
-	var half_size = hud_glass_size * 0.5
-	if abs(local_point.x) > half_size.x or abs(local_point.y) > half_size.y:
-		ccip_circle.visible = false
-		ccip_dot.visible = false
-		return
-
-	# Convert to viewport coordinates
-	var hud_size_px = Vector2(viewport.size)
-	var hud_pos = Vector2(
-		(local_point.x + half_size.x) / hud_glass_size.x * hud_size_px.x,
-		(-local_point.y + half_size.y) / hud_glass_size.y * hud_size_px.y
-	)
-	
-	# --- End of replicated logic ---
+	var hud_size_px := Vector2(viewport.size)
+	var hud_pos := hud_projection.get("hud_pos", Vector2.ZERO) as Vector2
 
 	# Optional filter: hide CCIP if above approximate horizon (screen center)
 	if ccip_below_horizon_only and hud_pos.y < (hud_size_px.y * 0.5 - 4.0):
@@ -517,42 +508,13 @@ func update_target_overlay():
 		_set_target_box_visible(false)
 		return
 
-	# First, ensure the target is actually in front of the camera
-	if cam.is_position_behind(target.global_position):
+	var hud_projection: Dictionary = _project_world_to_hud(target.global_position)
+	if not bool(hud_projection.get("visible", false)):
 		_set_target_box_visible(false)
 		return
 
-	# Cast ray from camera through target, find where it hits HUD plane
-	var camera_pos = cam.global_position
-	var ray_direction = (target.global_position - camera_pos).normalized()
-	
-	# Define HUD plane in world space
-	var hud_transform = hud_mesh.global_transform
-	var hud_normal = -hud_transform.basis.z.normalized()
-	var hud_plane = Plane(hud_normal, hud_transform.origin)
-	
-	# Find intersection point
-	var intersection_point = hud_plane.intersects_ray(camera_pos, ray_direction)
-	
-	if intersection_point == null:
-		_set_target_box_visible(false)
-		return
-	
-	# Convert intersection point to HUD mesh local coordinates
-	var local_point = hud_mesh.to_local(intersection_point)
-	
-	# Check bounds
-	var half_size = hud_glass_size * 0.5
-	if abs(local_point.x) > half_size.x or abs(local_point.y) > half_size.y:
-		_set_target_box_visible(false)
-		return
-
-	# Convert to viewport coordinates
-	var hud_size_px = Vector2(viewport.size)
-	var hud_pos = Vector2(
-		(local_point.x + half_size.x) / hud_glass_size.x * hud_size_px.x,
-		(-local_point.y + half_size.y) / hud_glass_size.y * hud_size_px.y
-	)
+	var hud_size_px := Vector2(viewport.size)
+	var hud_pos := hud_projection.get("hud_pos", Vector2.ZERO) as Vector2
 
 	# Check if the target is within the HUD viewport bounds (with some margin)
 	var margin = 50.0
@@ -642,31 +604,12 @@ func update_lock_diamond() -> void:
 	if not is_instance_valid(cam) or not is_instance_valid(hud_mesh):
 		lock_diamond.visible = false
 		return
-	if cam.is_position_behind(target_world):
+	var hud_projection: Dictionary = _project_world_to_hud(target_world)
+	if not bool(hud_projection.get("visible", false)):
 		lock_diamond.visible = false
 		return
 
-	var camera_pos := cam.global_position
-	var ray_dir := (target_world - camera_pos).normalized()
-	var hud_tf := hud_mesh.global_transform
-	var hud_normal := -hud_tf.basis.z.normalized()
-	var hud_plane := Plane(hud_normal, hud_tf.origin)
-	var isect = hud_plane.intersects_ray(camera_pos, ray_dir)
-	if isect == null:
-		lock_diamond.visible = false
-		return
-
-	var local_pt := hud_mesh.to_local(isect)
-	var half_size := hud_glass_size * 0.5
-	if abs(local_pt.x) > half_size.x or abs(local_pt.y) > half_size.y:
-		lock_diamond.visible = false
-		return
-
-	var hud_size_px := Vector2(viewport.size)
-	var hud_pos := Vector2(
-		(local_pt.x + half_size.x) / hud_glass_size.x * hud_size_px.x,
-		(-local_pt.y + half_size.y) / hud_glass_size.y * hud_size_px.y
-	)
+	var hud_pos := hud_projection.get("hud_pos", Vector2.ZERO) as Vector2
 
 	# Lock progress
 	var lock_time: float = 0.0
@@ -719,6 +662,162 @@ func update_lock_diamond() -> void:
 	lock_label.position = hud_pos + Vector2(-20, -r - 20)
 
 	lock_diamond.visible = true
+
+func setup_lead_reticle() -> void:
+	"""Set up the red lead-aim crosshair that shows where to point guns to hit the target."""
+	lead_reticle = Control.new()
+	lead_reticle.name = "LeadReticle"
+	lead_reticle.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	lead_reticle.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	lead_reticle.visible = false
+	viewport.add_child(lead_reticle)
+
+	var red: Color = Color(1.0, 0.15, 0.1, 1.0)
+	var arm_len: float = 14.0
+	var thickness: float = hud_line_thickness_px
+
+	lead_reticle_h_line = ColorRect.new()
+	lead_reticle_h_line.color = red
+	lead_reticle_h_line.size = Vector2(arm_len * 2.0, thickness)
+	lead_reticle.add_child(lead_reticle_h_line)
+
+	lead_reticle_v_line = ColorRect.new()
+	lead_reticle_v_line.color = red
+	lead_reticle_v_line.size = Vector2(thickness, arm_len * 2.0)
+	lead_reticle.add_child(lead_reticle_v_line)
+
+func update_lead_reticle() -> void:
+	"""Compute and display the lead-aim point for the current gun/target pair."""
+	if not is_instance_valid(lead_reticle):
+		return
+	if not is_instance_valid(cam) or not is_instance_valid(aircraft) or not is_instance_valid(hud_mesh):
+		lead_reticle.visible = false
+		return
+
+	# Need a valid air target
+	var targeting_system = get_targeting_system()
+	var target: Node3D = null
+	if is_instance_valid(targeting_system) and "current_target" in targeting_system:
+		var raw_target = targeting_system.current_target
+		if is_instance_valid(raw_target):
+			target = raw_target
+	if not is_instance_valid(target):
+		lead_reticle.visible = false
+		return
+
+	# Get target motion — only show lead reticle for moving targets (aircraft)
+	var target_pos: Vector3 = target.global_position
+	var target_vel: Vector3 = Vector3.ZERO
+	if "linear_velocity" in target:
+		target_vel = target.linear_velocity
+	if target_vel.length_squared() < 25.0:
+		# Target not moving fast enough to need lead (ground target or stationary)
+		lead_reticle.visible = false
+		return
+
+	# Get shooter (our aircraft) motion
+	var shooter_pos: Vector3 = aircraft.global_position
+	var shooter_vel: Vector3 = Vector3.ZERO
+	if "linear_velocity" in aircraft:
+		shooter_vel = aircraft.linear_velocity
+
+	# Get muzzle velocity from equipped gun
+	var muzzle_speed: float = _get_gun_muzzle_velocity()
+	if muzzle_speed < 50.0:
+		lead_reticle.visible = false
+		return
+
+	# Compute gravity-compensated aim point (where to point the nose so bullets hit)
+	var lead_point: Vector3 = _compute_ballistic_aim_point(shooter_pos, shooter_vel, target_pos, target_vel, muzzle_speed)
+
+	# Project lead point onto HUD
+	var hud_projection: Dictionary = _project_world_to_hud(lead_point)
+	if not bool(hud_projection.get("visible", false)):
+		lead_reticle.visible = false
+		return
+
+	var hud_pos: Vector2 = hud_projection.get("hud_pos", Vector2.ZERO) as Vector2
+	var hud_size_px := Vector2(viewport.size)
+	var margin: float = 30.0
+	if hud_pos.x < -margin or hud_pos.x > hud_size_px.x + margin or hud_pos.y < -margin or hud_pos.y > hud_size_px.y + margin:
+		lead_reticle.visible = false
+		return
+
+	lead_reticle.visible = true
+	# Center the crosshair lines on the projected point
+	var h_size: Vector2 = lead_reticle_h_line.size
+	var v_size: Vector2 = lead_reticle_v_line.size
+	lead_reticle_h_line.position = hud_pos - Vector2(h_size.x * 0.5, h_size.y * 0.5)
+	lead_reticle_v_line.position = hud_pos - Vector2(v_size.x * 0.5, v_size.y * 0.5)
+
+func _get_gun_muzzle_velocity() -> float:
+	"""Return the muzzle velocity of the first autocannon found on the aircraft."""
+	var weapon_control = get_weapon_control()
+	if not is_instance_valid(weapon_control):
+		return 0.0
+	if not "hardpoints" in weapon_control:
+		return 0.0
+	for hp in weapon_control.hardpoints:
+		if not hp or not hp.weapon_instance:
+			continue
+		if hp.weapon_instance.weapon_name == "Autocannon" and "muzzle_velocity" in hp.weapon_instance:
+			return float(hp.weapon_instance.muzzle_velocity)
+	return 0.0
+
+func _compute_ballistic_aim_point(shooter_pos: Vector3, shooter_vel: Vector3, target_pos: Vector3, target_vel: Vector3, projectile_speed: float) -> Vector3:
+	"""Gravity-compensated aim point: where to point the nose so bullets hit the target.
+	Iteratively solves for the muzzle direction that makes a gravity-affected projectile
+	arrive at the target's predicted future position."""
+	var muzzle_speed: float = maxf(projectile_speed, 50.0)
+	var gravity_vec: Vector3 = Vector3(0.0, -1.0, 0.0) * ProjectSettings.get_setting("physics/3d/default_gravity", 9.8)
+	var max_tof: float = 1.2
+	var min_tof: float = 0.02
+	var best_error: float = INF
+	var best_t: float = min_tof
+	var best_muzzle_vec: Vector3 = Vector3.ZERO
+	var best_intercept: Vector3 = target_pos
+
+	# Coarse search over time-of-flight
+	var coarse_steps: int = 24
+	for i in range(coarse_steps):
+		var t: float = lerpf(min_tof, max_tof, float(i) / float(coarse_steps - 1))
+		var future_target: Vector3 = target_pos + target_vel * t
+		# Solve for the muzzle-relative velocity needed to hit future_target at time t:
+		# future_target = shooter_pos + shooter_vel * t + muzzle_vec * t + 0.5 * gravity * t²
+		var required_muzzle_vec: Vector3 = (future_target - shooter_pos - shooter_vel * t - 0.5 * gravity_vec * t * t) / t
+		var speed_error: float = absf(required_muzzle_vec.length() - muzzle_speed)
+		if speed_error < best_error:
+			best_error = speed_error
+			best_t = t
+			best_intercept = future_target
+			best_muzzle_vec = required_muzzle_vec
+
+	# Refine around the best coarse result
+	var coarse_step_span: float = (max_tof - min_tof) / maxf(float(coarse_steps - 1), 1.0)
+	var refine_min: float = maxf(min_tof, best_t - coarse_step_span)
+	var refine_max: float = minf(max_tof, best_t + coarse_step_span)
+	var refine_steps: int = 10
+	for i in range(refine_steps):
+		var t: float = lerpf(refine_min, refine_max, float(i) / float(refine_steps - 1))
+		var future_target: Vector3 = target_pos + target_vel * t
+		var required_muzzle_vec: Vector3 = (future_target - shooter_pos - shooter_vel * t - 0.5 * gravity_vec * t * t) / t
+		var speed_error: float = absf(required_muzzle_vec.length() - muzzle_speed)
+		if speed_error < best_error:
+			best_error = speed_error
+			best_t = t
+			best_intercept = future_target
+			best_muzzle_vec = required_muzzle_vec
+
+	if best_muzzle_vec.length_squared() < 1.0:
+		# Fallback: simple lead point without gravity
+		var rel_pos: Vector3 = target_pos - shooter_pos
+		var t: float = maxf(rel_pos.length() / muzzle_speed, 0.01)
+		return target_pos + target_vel * t
+
+	# Project the required muzzle direction out to aim distance to get the aim point
+	var launch_dir: Vector3 = best_muzzle_vec.normalized()
+	var aim_dist: float = maxf((best_intercept - shooter_pos).length(), 50.0)
+	return shooter_pos + launch_dir * aim_dist
 
 func _get_aa_targeting() -> Node:
 	"""Find AircraftModule_ControlTargeting_AAM on the aircraft."""

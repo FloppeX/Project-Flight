@@ -88,7 +88,6 @@ func _ready():
 	# Pre-populate hangar with aircraft
 	_initialize_hangar_with_aircraft()
 
-	print("[FlightDeckManager] Ready. Hangar contains ", stored_aircraft.size(), " aircraft.")
 
 func _on_node_added(node: Node) -> void:
 	if node.is_in_group("arresting_cable"):
@@ -97,10 +96,8 @@ func _on_node_added(node: Node) -> void:
 func _connect_cable_signals(cable: Node) -> void:
 	if cable.has_signal("cable_engaged") and not cable.cable_engaged.is_connected(_on_cable_engaged):
 		cable.cable_engaged.connect(_on_cable_engaged)
-		print("[FlightDeckManager] Connected to cable_engaged on ", cable.name)
 	if cable.has_signal("cable_released") and not cable.cable_released.is_connected(_on_cable_released):
 		cable.cable_released.connect(_on_cable_released)
-		print("[FlightDeckManager] Connected to cable_released on ", cable.name)
 
 func _ensure_elevator_signal_connections() -> void:
 	if not elevator:
@@ -135,27 +132,26 @@ func _input(event):
 			if current_state == DeckState.IDLE:
 				request_launch_sequence(player_aircraft)
 			else:
-				print("[FlightDeckManager] Cannot start launch, deck is busy. State: ", DeckState.keys()[current_state])
+				pass
 		else:
-			print("[FlightDeckManager] No aircraft found to launch.")
-	
+			pass
+
 	# Store last landed aircraft in hangar
 	if Input.is_action_just_pressed("store_aircraft"):
 		if _pending_store_aircraft and current_state == DeckState.IDLE:
 			start_hangar_storage(_pending_store_aircraft)
 		else:
-			print("[FlightDeckManager] No aircraft to store or deck busy")
-	
+			pass
+
 	# Retrieve aircraft from hangar (key "1" or retrieve_aircraft action)
 	if Input.is_action_just_pressed("retrieve_aircraft") or (event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_1):
-		print("[FlightDeckManager] Retrieval requested - State: ", DeckState.keys()[current_state], " Hangar count: ", stored_aircraft.size())
 		if current_state == DeckState.IDLE and not stored_aircraft.is_empty():
 			start_hangar_retrieval()
 		else:
 			if current_state != DeckState.IDLE:
-				print("[FlightDeckManager] Deck busy - current state: ", DeckState.keys()[current_state])
+				pass
 			if stored_aircraft.is_empty():
-				print("[FlightDeckManager] Hangar is empty - no aircraft to retrieve")
+				pass
 
 	# Spawn Aircraft 2 from hangar (key "2")
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_2:
@@ -167,27 +163,23 @@ func _input(event):
 				stored_aircraft.push_front({"name": "Aircraft_2", "scene_file": "", "scene": scene, "position": Vector3.ZERO, "rotation": Vector3.ZERO, "scale": Vector3.ONE, "metadata": {}})
 				start_hangar_retrieval()
 			else:
-				print("[FlightDeckManager] ERROR: Could not load Aircraft_2.tscn")
+				pass
 		else:
-			print("[FlightDeckManager] Deck busy - current state: ", DeckState.keys()[current_state])
+			pass
 
 	# Debug key to force reset state (key "9")
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_9:
-		print("[FlightDeckManager] DEBUG: Force resetting deck state to IDLE")
 		current_state = DeckState.IDLE
 		_pending_store_aircraft = null
-		print("[FlightDeckManager] Deck state reset. Hangar count: ", stored_aircraft.size())
 
 func request_launch_sequence(aircraft: RigidBody3D):
 	if not catapult:
-		print("ERROR [FlightDeckManager]: Catapult not available.")
 		return
 
 	# Clear parking brake but keep controls_disabled set until catapult latch/release.
 	# This prevents AIPilot/ControlEngine from spooling before shuttle connection.
 	if aircraft.has_meta("parking_brake"):
 		aircraft.remove_meta("parking_brake")
-		print("[FlightDeckManager] Cleared parking brake for launch")
 
 	aircraft.set_meta("controls_disabled", true)
 	
@@ -204,7 +196,6 @@ func request_launch_sequence(aircraft: RigidBody3D):
 	else:
 		await _restore_aircraft_physics(aircraft)
 
-	print("[FlightDeckManager] Launching ", aircraft.name)
 	current_state = DeckState.LAUNCH_IN_PROGRESS
 	deck_aircraft = aircraft
 	if catapult.has_method("align_aircraft"):
@@ -221,10 +212,9 @@ func request_launch_sequence(aircraft: RigidBody3D):
 		if ai_is_active:
 			var ai_pilot = aircraft.get_node_or_null("AIPilot")
 			if ai_pilot and ai_pilot.has_method("launch"):
-				print("[FlightDeckManager] Commanding AI to start launch sequence")
 				ai_pilot.launch()
 	else:
-		print("ERROR [FlightDeckManager]: Catapult is missing the 'align_aircraft' method.")
+		pass
 
 func queue_ai_flight(count: int, ops: Node) -> void:
 	"""Request FlightOps to launch `count` AI aircraft one after another.
@@ -235,7 +225,6 @@ func queue_ai_flight(count: int, ops: Node) -> void:
 		return
 	_ai_launch_queue = available
 	_pending_flight_ops = ops
-	print("[FlightDeckManager] FlightOps scramble: queuing ", _ai_launch_queue, " aircraft")
 	if current_state == DeckState.IDLE:
 		_launch_next_queued_ai()
 
@@ -254,7 +243,6 @@ func _on_catapult_sequence_complete():
 		if pilot and _pending_flight_ops.has_method("notify_aircraft_launched"):
 			_pending_flight_ops.notify_aircraft_launched(pilot)
 
-	print("[FlightDeckManager] Catapult sequence complete. Deck IDLE.")
 	current_state = DeckState.IDLE
 	deck_aircraft = null
 
@@ -265,7 +253,6 @@ func _on_catapult_sequence_complete():
 		_pending_flight_ops = null
 
 func _on_catapult_sequence_aborted():
-	print("[FlightDeckManager] Catapult reported sequence aborted. Restoring controls and returning to IDLE.")
 	if is_instance_valid(deck_aircraft):
 		if deck_aircraft.has_meta("controls_disabled"):
 			deck_aircraft.remove_meta("controls_disabled")
@@ -275,7 +262,6 @@ func _on_catapult_sequence_aborted():
 
 # --- Arresting cable integration ---
 func _on_cable_engaged(aircraft: RigidBody3D) -> void:
-	print("[FlightDeckManager] Cable engaged by ", aircraft.name)
 	deck_aircraft = aircraft
 	current_state = DeckState.RECOVERY_IN_PROGRESS
 	_recovery_powerdown_in_progress = true
@@ -290,25 +276,20 @@ func _deferred_release_cable(_cable: Node) -> void:
 	pass
 
 func _on_cable_released(aircraft: RigidBody3D) -> void:
-	print("[FlightDeckManager] Cable released from ", aircraft.name)
 	var tailhook = _find_tailhook(aircraft)
 	if is_instance_valid(tailhook) and tailhook.has_method("stow"):
 		tailhook.stow()
 	if current_state == DeckState.RECOVERY_IN_PROGRESS and deck_aircraft == aircraft and not _recovery_job_dispatched:
-		print("[FlightDeckManager] Cable released - starting immediate deck recovery for ", aircraft.name)
 		start_post_arrest_recovery(aircraft)
 
 func _dispatch_recovery_job() -> void:
 	"""Move aircraft to elevator using simple movement and visual tractorbots"""
 	if not is_instance_valid(deck_aircraft) or not is_instance_valid(elevator_pickup_marker):
-		print("[FlightDeckManager] WARNING: Missing deck_aircraft or elevator_pickup_marker.")
 		return
 	if _recovery_job_dispatched:
-		print("[FlightDeckManager] Recovery job already dispatched for ", deck_aircraft.name)
 		return
 	
 	_recovery_job_dispatched = true
-	print("[FlightDeckManager] Moving aircraft to elevator with tractorbots")
 	_move_aircraft_to_elevator(deck_aircraft)
 
 # Timed power-down and release sequence
@@ -349,20 +330,17 @@ func _perform_cable_release(ac: RigidBody3D) -> void:
 	
 	# Set aircraft as pending for storage
 	_pending_store_aircraft = ac
-	print("[FlightDeckManager] Aircraft ready for hangar storage. Press 'store_aircraft' to store.")
 
 # --- Fallback polling and safety checks ---
 func _physics_process(_delta: float) -> void:
 	# 1. Safety Check: If an operation is active, verify the aircraft still exists and is on the deck
 	if current_state == DeckState.LAUNCH_IN_PROGRESS or current_state == DeckState.RECOVERY_IN_PROGRESS:
 		if not is_instance_valid(deck_aircraft):
-			print("[FlightDeckManager] ERROR: deck_aircraft became invalid (destroyed?). Aborting sequence.")
 			_abort_current_sequence()
 		else:
 			var deck_y = _get_deck_height_y()
 			# If aircraft falls 10m below the deck, it fell off
 			if deck_aircraft.global_position.y < deck_y - 10.0:
-				print("[FlightDeckManager] ERROR: Aircraft fell off the deck. Aborting sequence.")
 				# Allow the player/AI to fly away if they fell off, but free up the deck state
 				if deck_aircraft.has_meta("controls_disabled"):
 					deck_aircraft.remove_meta("controls_disabled")
@@ -386,7 +364,6 @@ func _physics_process(_delta: float) -> void:
 	if current_state != DeckState.RECOVERY_IN_PROGRESS and not _recovery_powerdown_in_progress:
 		var ac = _find_arrested_aircraft()
 		if ac:
-			print("[FlightDeckManager] Detected arrested aircraft via poll: ", ac.name)
 			_on_cable_engaged(ac)
 			return
 
@@ -394,7 +371,6 @@ func _physics_process(_delta: float) -> void:
 	if auto_recovery_enabled and current_state in [DeckState.IDLE, DeckState.AIRCRAFT_ON_DECK]:
 		var recovery_candidate := _find_stopped_aircraft_in_recovery_zone()
 		if recovery_candidate and recovery_candidate != _pending_store_aircraft:
-			print("[FlightDeckManager] Detected stopped aircraft in recovery zone: ", recovery_candidate.name)
 			start_post_arrest_recovery(recovery_candidate)
 			return
 
@@ -403,7 +379,6 @@ func _physics_process(_delta: float) -> void:
 
 func _abort_current_sequence() -> void:
 	# Called when a safety check fails (plane destroyed or fell off)
-	print("[FlightDeckManager] Executing emergency deck reset.")
 	_return_tractors_to_staging()
 	_recovery_powerdown_in_progress = false
 	_recovery_release_done = false
@@ -518,15 +493,11 @@ func start_post_arrest_recovery(aircraft: RigidBody3D) -> void:
 	# If FlightDeckManager already started a managed recovery via signal, let it finish.
 	if current_state == DeckState.RECOVERY_IN_PROGRESS:
 		if deck_aircraft == aircraft and _recovery_job_dispatched:
-			print("[FlightDeckManager] Recovery already dispatched for ", aircraft.name)
 			return
 		if deck_aircraft != aircraft and _recovery_job_dispatched:
-			print("[FlightDeckManager] Post-arrest recovery requested but already in RECOVERY - skipping duplicate")
 			return
 	if current_state == DeckState.RECOVERY_IN_PROGRESS and deck_aircraft != aircraft and _recovery_job_dispatched and false:
-		print("[FlightDeckManager] Post-arrest recovery requested but already in RECOVERY — skipping duplicate")
 		return
-	print("[FlightDeckManager] Starting post-arrest recovery for ", aircraft.name)
 	deck_aircraft = aircraft
 	_pending_store_aircraft = aircraft
 	current_state = DeckState.RECOVERY_IN_PROGRESS
@@ -536,16 +507,14 @@ func start_post_arrest_recovery(aircraft: RigidBody3D) -> void:
 	if is_instance_valid(th) and th.has_method("stow"):
 		th.stow()
 	if arresting_engaged and cable and cable.has_method("manual_release"):
-		print("[FlightDeckManager] Recovery requested while cable still engaged - releasing wire first for ", aircraft.name)
 		_recovery_powerdown_in_progress = false
 		_recovery_release_done = false
 		_recovery_job_dispatched = false
 		cable.manual_release()
 		var still_engaged: bool = aircraft.has_meta("arresting_engaged") and bool(aircraft.get_meta("arresting_engaged"))
 		if still_engaged:
-			print("[FlightDeckManager] WARNING: Aircraft still reports arresting_engaged after manual release: ", aircraft.name)
+			pass
 		elif not _recovery_job_dispatched:
-			print("[FlightDeckManager] Cable release signal fallback - continuing deck recovery for ", aircraft.name)
 			_recovery_release_done = true
 			_dispatch_recovery_job()
 		return
@@ -591,7 +560,6 @@ func _configure_retrieved_aircraft_as_ai(aircraft: RigidBody3D) -> void:
 	var ai_pilot = aircraft.find_child("AIPilot", true, false)
 	if ai_pilot and "land_after_launch" in ai_pilot:
 		ai_pilot.land_after_launch = true
-		print("[FlightDeckManager] AI configured: will begin landing approach after deck clearance")
 
 func _configure_retrieved_aircraft_as_player(aircraft: RigidBody3D) -> void:
 	"""Set up a hangar-retrieved aircraft for player control."""
@@ -680,12 +648,10 @@ func _find_engine(root: Node) -> Node:
 func start_hangar_storage(aircraft: RigidBody3D):
 	"""Start storing aircraft in hangar"""
 	if stored_aircraft.size() >= max_hangar_capacity:
-		print("[FlightDeckManager] Hangar at capacity")
 		return
 	
 	current_state = DeckState.STORING_IN_HANGAR
 	_retrieval_top_handled = false
-	print("[FlightDeckManager] Starting hangar storage sequence")
 	
 	# Move elevator down to hangar level
 	if elevator and elevator.has_method("move_platform_down"):
@@ -695,12 +661,10 @@ func start_hangar_storage(aircraft: RigidBody3D):
 func start_hangar_retrieval():
 	"""Start retrieving aircraft from hangar"""
 	if stored_aircraft.is_empty():
-		print("[FlightDeckManager] No aircraft in hangar")
 		return
 
 	current_state = DeckState.RETRIEVING_FROM_HANGAR
 	_retrieval_top_handled = false
-	print("[FlightDeckManager] Starting hangar retrieval sequence - lowering empty elevator")
 
 	# Move elevator down to hangar level (empty)
 	if elevator and elevator.has_method("move_platform_down"):
@@ -709,68 +673,54 @@ func start_hangar_retrieval():
 
 func _on_elevator_at_bottom():
 	"""Handle elevator reaching bottom"""
-	print("[FlightDeckManager] _on_elevator_at_bottom() called - Current state: ", DeckState.keys()[current_state])
 	match current_state:
 		DeckState.STORING_IN_HANGAR:
-			print("[FlightDeckManager] State matches STORING_IN_HANGAR - calling _store_aircraft_in_hangar()")
 			_store_aircraft_in_hangar()
 		DeckState.RETRIEVING_FROM_HANGAR:
-			print("[FlightDeckManager] State matches RETRIEVING_FROM_HANGAR - spawning aircraft at hangar level")
 			_spawn_aircraft_at_hangar_level()
 		DeckState.TRACTOR_CLEANUP:
-			print("[FlightDeckManager] Tractor cleanup elevator reached bottom")
+			pass
 		_:
-			print("[FlightDeckManager] WARNING: Elevator reached bottom but state doesn't match storage operations: ", DeckState.keys()[current_state])
+			pass
 
 func _store_aircraft_in_hangar():
 	"""Store the aircraft in hangar"""
-	print("[FlightDeckManager] _store_aircraft_in_hangar() called")
 	if not _pending_store_aircraft:
-		print("[FlightDeckManager] No aircraft to store")
 		current_state = DeckState.IDLE
 		return
 
-	print("[FlightDeckManager] Storing aircraft: ", _pending_store_aircraft.name)
 
 	# Store aircraft data for later spawning
 	var aircraft_data = _extract_aircraft_data(_pending_store_aircraft)
 	stored_aircraft.append(aircraft_data)
-	print("[FlightDeckManager] Removing aircraft from scene: ", _pending_store_aircraft.name)
 
 	# Remove aircraft from the scene
 	_pending_store_aircraft.queue_free()
 	_pending_store_aircraft = null
 
-	print("[FlightDeckManager] Aircraft stored in hangar. Count: ", stored_aircraft.size())
 
 	# Move elevator back up
-	print("[FlightDeckManager] Commanding elevator to move up...")
 	if elevator and elevator.has_method("move_platform_up"):
 		_ensure_elevator_signal_connections()
 		elevator.move_platform_up()
-		print("[FlightDeckManager] Elevator move_platform_up() called successfully; waiting for elevator_at_top signal")
 	else:
-		print("[FlightDeckManager] ERROR: Elevator not found or missing move_platform_up() method")
+		pass
 
 func _spawn_aircraft_at_hangar_level():
 	"""Spawn aircraft at hangar level when elevator reaches bottom during retrieval"""
 	if stored_aircraft.is_empty():
-		print("[FlightDeckManager] No aircraft in hangar")
 		current_state = DeckState.IDLE
 		return
 
-	print("[FlightDeckManager] Spawning aircraft at hangar level on elevator platform")
 
 	# Create aircraft at hangar level
 	var aircraft = _create_aircraft_at_hangar_level()
 
 	if not aircraft:
-		print("[FlightDeckManager] Failed to create aircraft for retrieval")
 		current_state = DeckState.IDLE
 		return
 
 	stored_aircraft.pop_front()  # Remove from hangar storage
-	print("[FlightDeckManager] Aircraft spawned from hangar. Remaining: ", stored_aircraft.size())
 
 	# Store reference for the retrieval sequence
 	deck_aircraft = aircraft
@@ -780,7 +730,6 @@ func _spawn_aircraft_at_hangar_level():
 	# Re-validate after await: local references can become stale if the node was freed.
 	var retrieval_aircraft := deck_aircraft
 	if not is_instance_valid(retrieval_aircraft):
-		print("[FlightDeckManager] Retrieval ascent cancelled: aircraft reference is no longer valid")
 		deck_aircraft = null
 		current_state = DeckState.IDLE
 		return
@@ -788,7 +737,6 @@ func _spawn_aircraft_at_hangar_level():
 
 func _on_elevator_at_top():
 	"""Handle elevator reaching top"""
-	print("[FlightDeckManager] _on_elevator_at_top() called - Current state: ", DeckState.keys()[current_state])
 	match current_state:
 		DeckState.STORING_IN_HANGAR:
 			deck_aircraft = null
@@ -797,20 +745,17 @@ func _on_elevator_at_top():
 			_recovery_release_done = false
 			_recovery_job_dispatched = false
 			current_state = DeckState.IDLE
-			print("[FlightDeckManager] Storage complete - deck now IDLE")
 		DeckState.RETRIEVING_FROM_HANGAR:
 			if not _is_elevator_physically_at_top():
-				print("[FlightDeckManager] Retrieval top signal received before elevator reached deck height; waiting...")
 				return
 			if _retrieval_top_handled:
 				return
 			_retrieval_top_handled = true
-			print("[FlightDeckManager] Retrieval elevator reached top - continuing to catapult positioning")
 			_complete_retrieval_sequence()
 		DeckState.TRACTOR_CLEANUP:
-			print("[FlightDeckManager] Tractor cleanup elevator reached top")
+			pass
 		_:
-			print("[FlightDeckManager] WARNING: Elevator reached top but unexpected state: ", DeckState.keys()[current_state])
+			pass
 
 func get_hangar_status() -> Dictionary:
 	"""Get hangar status"""
@@ -823,7 +768,6 @@ func get_hangar_status() -> Dictionary:
 
 func _initialize_hangar_with_aircraft():
 	"""Pre-populate hangar with aircraft at startup"""
-	print("[FlightDeckManager] Initializing hangar with aircraft...")
 
 	# Fill hangar to capacity
 	for i in range(max_hangar_capacity):
@@ -837,7 +781,6 @@ func _initialize_hangar_with_aircraft():
 		}
 		stored_aircraft.append(aircraft_data)
 
-	print("[FlightDeckManager] Hangar initialized with ", stored_aircraft.size(), " aircraft")
 
 # --- Aircraft Movement System ---
 func _move_aircraft_to_elevator(aircraft: RigidBody3D):
@@ -847,7 +790,7 @@ func _move_aircraft_to_elevator(aircraft: RigidBody3D):
 	if not active_bots.is_empty():
 		await _wait_for_tractor_bots_positioned(active_bots)
 	else:
-		print("[FlightDeckManager] WARNING: No tractor bots could be assigned to aircraft wheels for ", aircraft.name)
+		pass
 	_start_aircraft_movement(aircraft, elevator_pickup_marker.global_position)
 
 func _activate_tractor_bots(aircraft: RigidBody3D) -> Array[Node]:
@@ -855,7 +798,6 @@ func _activate_tractor_bots(aircraft: RigidBody3D) -> Array[Node]:
 	var active_bots: Array[Node] = []
 	var gear_colliders: Array[Node3D] = _get_launch_wheel_nodes(aircraft)
 	if gear_colliders.is_empty():
-		print("[FlightDeckManager] WARNING: No wheel colliders found while activating tractor bots for ", aircraft.name)
 		return active_bots
 
 	for i in range(min(tractor_bots.size(), gear_colliders.size())):
@@ -866,12 +808,10 @@ func _activate_tractor_bots(aircraft: RigidBody3D) -> Array[Node]:
 			var wheel_offset = gear_collider.global_position - aircraft.global_position
 			bot.activate(aircraft, wheel_offset, gear_collider)
 			active_bots.append(bot)
-			print("[FlightDeckManager] Activated bot ", i, " at gear: ", gear_collider.name, " offset: ", wheel_offset)
 	return active_bots
 
 func _wait_for_tractor_bots_positioned(active_bots: Array[Node]):
 	"""Wait for all tractorbots to be positioned at their gear locations"""
-	print("[FlightDeckManager] Waiting for tractorbots to position...")
 	
 	while true:
 		var all_positioned = true
@@ -881,7 +821,6 @@ func _wait_for_tractor_bots_positioned(active_bots: Array[Node]):
 				break
 		
 		if all_positioned:
-			print("[FlightDeckManager] All tractorbots positioned!")
 			break
 		
 		await get_tree().process_frame
@@ -911,7 +850,6 @@ func _disable_tractor_bot_movement():
 	for bot in tractor_bots:
 		if bot and bot.has_method("disable_movement"):
 			bot.disable_movement()
-			print("[FlightDeckManager] Disabled movement for ", bot.name)
 
 func _start_aircraft_movement(aircraft: RigidBody3D, target_position: Vector3):
 	"""Start moving aircraft to target position with physics disabled"""
@@ -933,19 +871,16 @@ func _start_aircraft_movement(aircraft: RigidBody3D, target_position: Vector3):
 		await _move_aircraft_smoothly(aircraft, target_position)
 	
 	# Wait 1 second after aircraft is in position before starting elevator
-	print("[FlightDeckManager] Aircraft in position. Waiting 1 second before elevator descent...")
 	await get_tree().create_timer(1.0).timeout
 
 	# After aircraft reaches elevator, start elevator sequence
 	if not is_instance_valid(aircraft):
-		print("[FlightDeckManager] Elevator sequence cancelled: aircraft reference is no longer valid")
 		current_state = DeckState.IDLE
 		return
 	_start_elevator_sequence(aircraft)
 
 func _prepare_aircraft_for_movement(aircraft: RigidBody3D):
 	"""Disable physics and position aircraft with gear colliders 20cm above flight deck"""
-	print("[FlightDeckManager] Preparing aircraft for movement")
 
 	# Save original collision settings (only if not already saved)
 	if _aircraft_original_collision_layer == 0:
@@ -968,7 +903,6 @@ func _position_aircraft_above_deck(aircraft: RigidBody3D):
 	var target_gear_height = deck_height + _aircraft_lift_height
 	
 	if gear_colliders.is_empty():
-		print("[FlightDeckManager] No gear colliders found, using default positioning")
 		# Default positioning - lift aircraft 20cm above deck
 		aircraft.global_position.y = target_gear_height
 		return
@@ -1015,7 +949,6 @@ func _move_aircraft_smoothly(aircraft: RigidBody3D, target_position: Vector3):
 	var distance = start_local.distance_to(target_local)
 	var duration = distance / _aircraft_move_speed
 
-	print("[FlightDeckManager] Moving aircraft to elevator - Distance: ", snappedf(distance, 0.1), "m")
 
 	var elapsed_time = 0.0
 
@@ -1037,7 +970,6 @@ func _move_aircraft_smoothly(aircraft: RigidBody3D, target_position: Vector3):
 	aircraft.global_rotation = target_rotation
 
 	# Don't deactivate tractorbots yet - they need to follow the elevator
-	print("[FlightDeckManager] Aircraft moved to elevator - gear at height: ", target_gear_height)
 
 func _find_gear_colliders(aircraft: RigidBody3D) -> Array[Node3D]:
 	"""Find gear colliders on the aircraft"""
@@ -1127,7 +1059,6 @@ func _lower_launch_wheels_to_deck(aircraft: RigidBody3D, wheel_nodes: Array[Node
 func _settle_launch_aircraft_on_wheels(aircraft: RigidBody3D, wheel_nodes: Array[Node3D], deck_y: float) -> void:
 	if wheel_nodes.is_empty():
 		aircraft.global_position.y = deck_y
-		print("[FlightDeckManager] Lowered aircraft to deck (no gear found, using deck_y directly)")
 		return
 
 	var wheel_split: Dictionary = _get_launch_nose_and_main_nodes(aircraft, wheel_nodes)
@@ -1162,7 +1093,6 @@ func _settle_launch_aircraft_on_wheels(aircraft: RigidBody3D, wheel_nodes: Array
 	var final_heights: Array[String] = []
 	for wheel in wheel_nodes:
 		final_heights.append(str(snappedf(wheel.global_position.y - deck_y, 0.001)))
-	print("[FlightDeckManager] Lowered aircraft to deck: wheel offsets=", final_heights, " aircraft_y=", snappedf(aircraft.global_position.y, 0.1))
 
 func _apply_launch_three_wheel_pitch_correction(aircraft: RigidBody3D, wheel_nodes: Array[Node3D]) -> void:
 	if wheel_nodes.size() < 3 or launch_deck_pitch_contact_max_deg <= 0.0:
@@ -1213,7 +1143,6 @@ func _apply_launch_three_wheel_pitch_correction(aircraft: RigidBody3D, wheel_nod
 	var adjusted_transform := aircraft.global_transform
 	adjusted_transform.basis = adjusted_basis
 	aircraft.global_transform = adjusted_transform
-	print("[FlightDeckManager] Applied launch deck pitch correction: ", snappedf(rad_to_deg(pitch_correction), 0.01), " deg")
 
 func _get_all_children(node: Node) -> Array[Node]:
 	"""Get all children recursively"""
@@ -1430,13 +1359,11 @@ func _extract_aircraft_data(aircraft: RigidBody3D) -> Dictionary:
 	for key in aircraft.get_meta_list():
 		data.metadata[key] = aircraft.get_meta(key)
 
-	print("[FlightDeckManager] Extracted aircraft data: ", data.name)
 	return data
 
 func _create_aircraft_at_hangar_level() -> RigidBody3D:
 	"""Create aircraft at hangar level from stored data and template"""
 	if stored_aircraft.is_empty():
-		print("[FlightDeckManager] No aircraft data in hangar")
 		return null
 
 	# Get the stored aircraft data (use first stored aircraft)
@@ -1451,18 +1378,14 @@ func _create_aircraft_at_hangar_level() -> RigidBody3D:
 	if not scene_to_use:
 		scene_to_use = aircraft_template_scene
 	if not scene_to_use:
-		print("[FlightDeckManager] No aircraft template assigned, attempting to load Aircraft_1.tscn")
 		scene_to_use = load("res://Aircraft/Aircraft_1.tscn")
 		if not scene_to_use:
-			print("[FlightDeckManager] ERROR: Could not load Aircraft_1.tscn")
 			return null
 
-	print("[FlightDeckManager] Spawning aircraft from template at hangar level")
 
 	# Instantiate new aircraft from template
 	var aircraft = scene_to_use.instantiate() as RigidBody3D
 	if not aircraft:
-		print("[FlightDeckManager] ERROR: Failed to instantiate aircraft from template")
 		return null
 
 	# Mute all controls immediately — before add_child so _physics_process never sees an open throttle.
@@ -1506,16 +1429,13 @@ func _create_aircraft_at_hangar_level() -> RigidBody3D:
 	# Immediately spawn tractorbots at aircraft wheels (they can't travel from staging to hangar)
 	_spawn_tractorbots_at_aircraft(aircraft)
 
-	print("[FlightDeckManager] Aircraft spawned at: ", aircraft.global_position, " with tractorbots")
 	return aircraft
 
 func _spawn_tractorbots_at_aircraft(aircraft: RigidBody3D):
 	"""Spawn tractorbots directly at aircraft wheel positions at hangar level"""
-	print("[FlightDeckManager] Spawning tractorbots at aircraft wheels")
 
 	var gear_colliders: Array[Node3D] = _get_launch_wheel_nodes(aircraft)
 	if gear_colliders.is_empty():
-		print("[FlightDeckManager] WARNING: No wheel colliders found while spawning tractor bots for ", aircraft.name)
 		return
 
 	# Position tractorbots directly at aircraft wheels
@@ -1531,11 +1451,9 @@ func _spawn_tractorbots_at_aircraft(aircraft: RigidBody3D):
 			if bot.has_method("activate"):
 				var wheel_offset = gear_collider.global_position - aircraft.global_position
 				bot.activate(aircraft, wheel_offset, gear_collider)
-				print("[FlightDeckManager] Spawned and activated bot ", i, " at gear: ", gear_collider.name)
 
 func _start_elevator_sequence(aircraft: RigidBody3D):
 	"""Start the elevator sequence - aircraft and tractorbots follow elevator down"""
-	print("[FlightDeckManager] Starting elevator sequence")
 
 	# Set state to STORING_IN_HANGAR so elevator signals work properly
 	current_state = DeckState.STORING_IN_HANGAR
@@ -1557,10 +1475,7 @@ func _start_elevator_sequence(aircraft: RigidBody3D):
 func _follow_elevator_down(aircraft: RigidBody3D):
 	"""Make aircraft and tractorbots follow the elevator down"""
 	if not is_instance_valid(aircraft):
-		print("[FlightDeckManager] Elevator-down follow aborted: aircraft is invalid")
 		return
-	print("[FlightDeckManager] Aircraft and tractorbots following elevator down")
-	print("[FlightDeckManager] Elevator current state: ", elevator.current_state)
 	
 	# Store reference to aircraft for elevator following
 	_pending_store_aircraft = aircraft
@@ -1589,7 +1504,6 @@ func _follow_elevator_down(aircraft: RigidBody3D):
 		else:
 			initial_bot_offsets_from_deck.append(0.0)
 	
-	print("[FlightDeckManager] Following elevator down...")
 	# Start following the elevator platform
 	while is_instance_valid(aircraft) and is_instance_valid(elevator) and elevator.current_state != elevator.ElevatorState.AT_BOTTOM:
 		# Refresh deck height each frame so carrier movement is tracked
@@ -1613,10 +1527,8 @@ func _follow_elevator_down(aircraft: RigidBody3D):
 		await get_tree().process_frame
 
 	if not is_instance_valid(aircraft):
-		print("[FlightDeckManager] Elevator-down follow ended: aircraft was freed during storage sequence")
 		return
 	
-	print("[FlightDeckManager] Elevator reached bottom - waiting for signal to handle storage")
 
 	# Now deactivate tractorbots after elevator sequence is complete
 	_deactivate_tractor_bots()
@@ -1625,7 +1537,6 @@ func _restore_aircraft_physics(aircraft: RigidBody3D, keep_frozen: bool = false)
 	"""Restore aircraft physics for launch.
 	keep_frozen=true restores collisions/gravity but skips the unfreeze,
 	used by the retrieval path where the aircraft is already correctly positioned."""
-	print("[FlightDeckManager] Restoring aircraft physics for launch (keep_frozen=", keep_frozen, ")")
 
 	# Force aircraft to be completely still first
 	aircraft.freeze = true
@@ -1668,7 +1579,6 @@ func _restore_aircraft_physics(aircraft: RigidBody3D, keep_frozen: bool = false)
 		aircraft.collision_mask  = _aircraft_original_collision_mask  if _aircraft_original_collision_mask  != 0 else default_mask
 		if aircraft.has_meta("carrier_transport_mode"):
 			aircraft.remove_meta("carrier_transport_mode")
-		print("[FlightDeckManager] Aircraft physics restored (frozen, no settle). Layer=", aircraft.collision_layer)
 		return
 
 	# Normal path: aircraft was teleported to catapult, needs a brief unfreeze
@@ -1690,14 +1600,11 @@ func _restore_aircraft_physics(aircraft: RigidBody3D, keep_frozen: bool = false)
 	if aircraft.has_meta("carrier_transport_mode"):
 		aircraft.remove_meta("carrier_transport_mode")
 
-	print("[FlightDeckManager] Aircraft physics fully restored. Layer=", aircraft.collision_layer)
 
 func _start_retrieval_ascent_sequence(aircraft: RigidBody3D):
 	"""Start the elevator ascent with aircraft and tractorbots"""
-	print("[FlightDeckManager] Starting retrieval ascent sequence")
 
 	# Tractorbots are already spawned at aircraft wheels, so just start elevator
-	print("[FlightDeckManager] Tractorbots already positioned, starting elevator ascent")
 
 	# Start elevator moving up
 	_retrieval_top_handled = false
@@ -1710,9 +1617,7 @@ func _start_retrieval_ascent_sequence(aircraft: RigidBody3D):
 func _follow_elevator_up_for_retrieval(aircraft: RigidBody3D):
 	"""Make aircraft and tractorbots follow the elevator up during retrieval"""
 	if not is_instance_valid(aircraft):
-		print("[FlightDeckManager] Elevator-up follow aborted: aircraft is invalid")
 		return
-	print("[FlightDeckManager] Aircraft and tractorbots following elevator up for retrieval")
 
 	# Get initial positions relative to deck level
 	var deck_height = _get_deck_height_y()
@@ -1759,10 +1664,8 @@ func _follow_elevator_up_for_retrieval(aircraft: RigidBody3D):
 		await get_tree().process_frame
 
 	if not is_instance_valid(aircraft):
-		print("[FlightDeckManager] Elevator-up follow ended: aircraft became invalid")
 		return
 
-	print("[FlightDeckManager] Elevator physically reached top")
 	# Signal timing can vary (elevator_at_top/covers_opened may have fired early).
 	# Force the handoff once we have physically reached top.
 	if current_state == DeckState.RETRIEVING_FROM_HANGAR and not _retrieval_top_handled:
@@ -1770,11 +1673,9 @@ func _follow_elevator_up_for_retrieval(aircraft: RigidBody3D):
 
 func _complete_retrieval_sequence():
 	"""Complete the retrieval by moving aircraft to launch position and restoring physics"""
-	print("[FlightDeckManager] Completing retrieval sequence - moving to launch position")
 
 	var aircraft = deck_aircraft
 	if not is_instance_valid(aircraft):
-		print("[FlightDeckManager] ERROR: No aircraft found for retrieval completion")
 		deck_aircraft = null
 		current_state = DeckState.IDLE
 		return
@@ -1785,11 +1686,9 @@ func _complete_retrieval_sequence():
 
 	if launch_marker and launch_marker is Node3D:
 		target_position = (launch_marker as Node3D).global_position
-		print("[FlightDeckManager] Found catapult_latch_marker at: ", target_position)
 	else:
 		# Fallback - position forward of elevator
 		target_position = elevator_pickup_marker.global_position + Vector3(0, 0, 20)
-		print("[FlightDeckManager] WARNING: No catapult_latch_marker found, using fallback")
 
 	var deck_height = _get_deck_height_y()
 	var gear_colliders = _find_gear_colliders(aircraft)
@@ -1858,7 +1757,6 @@ func _move_aircraft_horizontally(aircraft: RigidBody3D, target_position: Vector3
 	var distance = start_local.distance_to(target_local)
 	var duration = distance / _aircraft_move_speed
 
-	print("[FlightDeckManager] Moving aircraft to catapult - Distance: ", snappedf(distance, 0.1), "m")
 
 	var elapsed_time = 0.0
 
@@ -1891,7 +1789,6 @@ func _move_aircraft_horizontally(aircraft: RigidBody3D, target_position: Vector3
 		if bot and bot.is_active:
 			bot.global_position = aircraft.global_position + bot_offsets[i]
 
-	print("[FlightDeckManager] Aircraft horizontal movement complete with tractorbots")
 
 func _move_tractorbots_to_staging():
 	"""Move tractorbots to staging at a consistent speed, then deactivate them"""
@@ -2020,7 +1917,6 @@ func _run_extra_tractor_cleanup() -> void:
 	_tractor_cleanup_batch.clear()
 	_tractor_cleanup_in_progress = false
 	current_state = DeckState.IDLE
-	print("[FlightDeckManager] Tractor cleanup complete - extra bots sent to hangar")
 
 func _maybe_dispatch_extra_tractor_cleanup() -> void:
 	if _tractor_cleanup_in_progress or current_state != DeckState.IDLE:
@@ -2036,7 +1932,6 @@ func _maybe_dispatch_extra_tractor_cleanup() -> void:
 		_tractor_cleanup_batch.append(extras[i])
 	_tractor_cleanup_in_progress = true
 	current_state = DeckState.TRACTOR_CLEANUP
-	print("[FlightDeckManager] Tractor cleanup starting - sending ", _tractor_cleanup_batch.size(), " extra bots to hangar")
 	_run_extra_tractor_cleanup.call_deferred()
 
 func ease_in_out_cubic(t: float) -> float:

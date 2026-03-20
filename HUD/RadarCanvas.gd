@@ -70,13 +70,11 @@ func _draw() -> void:
 
 	# Collect airborne contacts (aircraft only, not ground vehicles)
 	var air_contacts: Array = []
-	for node in get_tree().get_nodes_in_group("aircraft"):
-		if node and is_instance_valid(node) and node != aircraft and node is RigidBody3D and not node.is_in_group("ground_vehicles"):
-			air_contacts.append(node)
-	for node in get_tree().get_nodes_in_group("enemies"):
-		if node and is_instance_valid(node) and node != aircraft and node is RigidBody3D and not node.is_in_group("ground_vehicles"):
-			if node not in air_contacts:
-				air_contacts.append(node)
+	for group_name in ["aircraft", "ai_aircraft", "enemies"]:
+		for node in get_tree().get_nodes_in_group(group_name):
+			if node and is_instance_valid(node) and node != aircraft and node is RigidBody3D and not node.is_in_group("ground_vehicles"):
+				if node not in air_contacts:
+					air_contacts.append(node)
 
 	# Collect ground vehicle contacts by team
 	var ground_enemy_contacts: Array = []

@@ -25,7 +25,6 @@ var _half: float = 1.0
 var _min_r: float = 1.0
 
 func _ready() -> void:
-	print("[RockScatter] _ready() called")
 	# Force correct area size (export value not updating in running scene)
 	area_size_m = 10000.0  # Cover full 10km x 10km terrain
 	min_distance_m = 80.0   # Increase spacing for larger area
@@ -58,7 +57,6 @@ func _ensure_multimesh() -> void:
 		mmi.multimesh = MultiMesh.new()
 		mmi.multimesh.transform_format = MultiMesh.TRANSFORM_3D
 		mmi.multimesh.instance_count = 0
-		print("[RockScatter] Created ", name, " with multimesh")
 
 func _build_rock_mesh() -> void:
 	var mat := StandardMaterial3D.new()
@@ -88,7 +86,6 @@ func _build_rock_mesh() -> void:
 		mesh_copy.material = m
 		var node := get_node("MM" + str(i)) as MultiMeshInstance3D
 		node.multimesh.mesh = mesh_copy
-		print("[RockScatter] Set mesh for ", node.name, " with color ", m.albedo_color)
 
 func _scatter_poisson() -> void:
 	# Ensure meshes exist
@@ -189,32 +186,11 @@ func _scatter_poisson() -> void:
 			node.multimesh.set_instance_transform(i, tr)
 		total_instances += arr.size()
 
-	print("[RockScatter] Placed ", total_instances, " rocks across ", variants, " variants around carrier")
-
-	# Debug visibility
-	for v in range(variants):
-		var node := get_node("MM" + str(v)) as MultiMeshInstance3D
-		print("  Variant ", v, ": visible=", node.visible, " instances=", node.multimesh.instance_count)
-		if node.multimesh.mesh:
-			var mesh = node.multimesh.mesh as BoxMesh
-			print("    Mesh size: ", mesh.size)
-		if v == 0 and node.multimesh.instance_count > 0:
-			var tr = node.multimesh.get_instance_transform(0)
-			print("    First rock at: ", tr.origin, " scale: ", tr.basis.get_scale())
-
-	# Create a simple test - just one big rock near carrier
-	var test_mm = get_node("MM0")
-	test_mm.multimesh.instance_count = 1
-	var test_pos = base_origin + Vector3(50, 20, 0)
-	var test_transform = Transform3D(Basis().scaled(Vector3(10, 10, 10)), test_pos)
-	test_mm.multimesh.set_instance_transform(0, test_transform)
-	print("  SIMPLE TEST: One huge purple rock at ", test_pos)
 
 func _create_simple_rocks() -> void:
 	# Center scatter on terrain center (5km, 0, 5km) instead of carrier
 	var base_origin := Vector3(5000, 0, 5000)
 
-	print("[RockScatter] Creating rocks across 10km terrain centered at: ", base_origin)
 
 	# Generate Poisson disk points
 	_generate_points()
@@ -268,7 +244,6 @@ func _create_simple_rocks() -> void:
 
 		rock_count += 1
 
-	print("[RockScatter] Placed ", rock_count, " rocks on terrain")
 
 func _generate_points() -> void:
 	var rng := RandomNumberGenerator.new()

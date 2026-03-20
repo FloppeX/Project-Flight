@@ -11,12 +11,21 @@ res://LandCarrier/LandCarrier.tscn
 res://Weapons/Turrets/turret.tscn
 res://Environment/LowPolyTerrainPrototype.tscn
 res://Weapons/AA_Missile/aa_missile_launcher.tscn
-res://AI/AIPilot.gd
-res://LandCarrier/FlightDeckManager.gd
-res://FlightDirector.gd
-res://Camera/CameraController.gd
-res://LandCarrier/StandaloneCameraSwitcher.gd
-res://LandCarrier/Commander.gd
-res://LandCarrier/BridgeHologram.gd
-res://LandCarrier/BridgeHologram.tscn
 res://LandCarrier/Commander.tscn
+res://LandCarrier/CarrierDefenseTurret.tscn
+res://Projectiles/Bullet/bullet.tscn
+res://LandCarrier/LandCarrier.gd
+res://LandCarrier/Commander.gd
+res://TerrainNavGrid.gd
+res://HUD/heads_up_display.gd
+res://LandCarrier/CarrierTread.gd
+res://LandCarrier/FlightDeckManager.gd
+res://Weapons/hardpoint.gd
+res://Enemies/EnemyAircraftSpawner.gd
+res://HUD/RadarCanvas.gd
+res://LandCarrier/BridgeHologram.gd
+res://Effects/ParticleManager.gd
+res://Projectiles/AA Missile/aa_missile.gd
+res://Projectiles/AG Missile/ag_missile.gd
+res://Projectiles/Bullet/bullet.gd
+res://Projectiles/Explosion/explosion.gd

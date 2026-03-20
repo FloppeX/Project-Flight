@@ -3,6 +3,7 @@
 This document contains version history, session-by-session notes, and archived long-form material extracted from the main project overview. For the short project brief, see [README](../README.md).
 
 ## Version History
+- 2026-03-20: Bridge hologram pass â€” added the bridge holomap as a 2 m tactical table, then iterated it into a wireframe-only deep-greenâ†’neon-green terrain display with faction-colored air/ground markers, raised carrier/ground markers, lower-frequency/camera-gated refresh, and yaw-only carrier-frame projection to reduce stutter/flicker; HUD main reticle collimation fixed to use the physical HUD glass plane and aircraft boresight; dogfight gun aiming/fire logic tightened substantially (stronger terminal authority, stricter fire gates, burst cancellation, muzzle-point velocity solve/inheritance); autocannon ammo increased to 1000, AA missile launchers can start at 0 ammo, and carrier defense turret mounts now support two independently functioning turrets per set.
 - 2026-03-17: README/docs refresh; radio test call on `V` moved to `Audio/` and routed through filtered/static radio comms; carrier now spawns facing its first active waypoint; elevator-adjacent deck lights retuned/repositioned; nearest friendly can be ordered to land with `L`; AI landing approach reworked around authored approach marker heights plus carrier-relative altitude reference (`deck = 40 m`); landing gear now animates through pivot nodes with configurable stowed rotations and hidden/shadowless stowed visuals; Aircraft 2 gear scene wiring repaired after mesh changes; flight-deck recovery/launch flow hardened with cable-release fallback, wheel-based deck settling, and tractor-bot wheel lookup fixes; chase camera now uses a level orbit around the aircraft.
 - 2026-03-15 (s2): Ground vehicles now use shared NavGraph waypoint pathing with replan cooldown/backoff to prevent once-per-second hitches; turret/targeting debug spam disabled by default; carrier steering/stuck diagnostics improved; Aircraft 2 wing-fold hinge canted upward and mirrored correctly; HUD symbology made fully opaque; cockpit-view canopy/interior shadow suppression added to Aircraft 1/2 to reduce flicker; hangar storage now preserves aircraft type, damage, fuel, and loadout state; startup crash from early `find_hardpoints()` call hardened; arrested-landing recovery remains under active investigation.
 - 2026-03-15: AI launch/climb/patrol fixes; wing fold integration; Air Operations Manager (Citadel) with four named flights, intercept/CAS vectoring, hangar scramble, and radio comms; AIPilot CLIMBINGâ†’SEARCH altitude-based transition; mass-scaled catapult launch power; carrier-relative wheel friction; spacebar exits free camera to spectator.
@@ -27,6 +28,56 @@ This document contains version history, session-by-session notes, and archived l
 ---
 
 ## Project Change Log (latest session)
+
+### Session Summary (2026-03-20) - Bridge Holomap, HUD Collimation, and Dogfight Gun Tuning
+
+**Overview:** Added and heavily iterated the carrier bridge holomap, fixed the main HUD reticle so it behaves like a real collimated gunsight on the combiner glass, and kept tightening AI dogfight gun use so aircraft point harder, shoot later, and waste fewer rounds.
+
+#### Bridge Holomap (`LandCarrier/BridgeHologram.gd`, `LandCarrier/BridgeHologram.tscn`, `LandCarrier/LandCarrier.tscn`)
+- Added a 2 m x 2 m tactical holomap centered on the bridge table.
+- Terrain display evolved from dots + wireframe into a wireframe-only table for cleaner readability.
+- Terrain coloring now runs from deep green in low areas to neon green in high areas.
+- Added faction-colored contact markers:
+  - friendly aircraft = bright-blue 3D wireframe arrowheads,
+  - enemy aircraft = red 3D wireframe arrowheads,
+  - friendly ground vehicles = blue squares,
+  - enemy ground vehicles = red squares.
+- Carrier marker is now a larger bright-blue wireframe box that stands out clearly on the table.
+- Aircraft markers now use full represented-aircraft orientation (yaw/pitch/roll) instead of a flat heading-only marker.
+- Ground vehicles and the carrier marker were lifted so the terrain wireframe no longer visually cuts through them.
+- Holomap refresh cost was reduced:
+  - contacts refresh at 1 Hz,
+  - terrain refresh slowed to roughly 1 Hz,
+  - updates are skipped when the active camera is not near the bridge,
+  - carrier-relative map projection now uses a yaw-only planar frame to avoid visible trembling from carrier pitch/roll motion.
+- Reduced visual shimmer by separating terrain wireframe from the old dot layer and then removing the dot layer entirely.
+
+#### HUD / Gunsight Collimation (`HUD/heads_up_display.gd`)
+- Main gunsight reticle now uses the same ray-to-HUD-plane projection approach as the other collimated HUD symbology instead of a screen-space shortcut.
+- Default HUD boresight behavior now uses aircraft forward/boresight instead of camera-forward drift.
+- Fixed a temporary forward-axis mistake during the conversion; the aircraft in this project are authored facing `+Z`, and the reticle now follows that correctly.
+- Result: the target box, CCIP, and main reticle now all share the same physical HUD-glass projection model.
+
+#### AI Dogfight Gun Aiming / Fire Discipline (`AI/AIPilot.gd`, `Projectiles/Bullet/bullet.gd`)
+- Tightened the precise-aim phase repeatedly so the AI drives harder through the final few degrees instead of settling for "pretty close."
+- Increased terminal roll/pitch/yaw authority and reduced straight-and-level bias near gun alignment.
+- Rudder usage in dogfight was loosened by reducing AI-side yaw damping/fades and raising yaw gains.
+- Fire discipline was tightened substantially:
+  - stricter minimum aim dot and hit-chance requirements,
+  - much smaller fallback shot windows,
+  - shorter gun bursts,
+  - burst cancellation as soon as the fire solution becomes invalid.
+- Gun aim solving now uses muzzle-point velocity instead of only aircraft-center velocity, which matters in hard turns.
+- Bullet projectiles now inherit the muzzle point's angular/tangential velocity from aircraft rotation, reducing mismatch between the solved gun line and the actual bullet stream in tight maneuvering.
+- Bullets can still hit wing colliders, but wing hits remain whole-aircraft damage rather than a separate localized damage model.
+
+#### Weapons / Ammo (`Weapons/Autocannon/autocannon.gd`, `Weapons/AA_Missile/aa_missile_launcher.gd`, `Weapons/AA_Missile/aa_missile_launcher.tscn`)
+- Increased autocannon ammo pool to 1000 rounds for sustained dogfight testing.
+- AA missile launchers can now intentionally start with `0` ammo; launcher startup no longer auto-refills zero.
+
+#### Carrier Defensive Turrets (`LandCarrier/CarrierDefenseTurret.tscn`)
+- Reworked the carrier defense turret mount so each set can host two independently functioning turrets instead of one active turret plus one inert nested visual.
+- Each turret in the set now has its own controller/weapon chain while still sharing the carrier-style turret-base mount.
 
 ### Session Summary (2026-03-17) - Carrier Air Ops Polish, Gear Pivots, and Docs Consolidation
 

@@ -16,7 +16,6 @@ class_name Explosion
 @export var knockback_impulse_at_edge: float = 250.0
 
 var debris_particles: GPUParticles3D
-var smoke_particles: GPUParticles3D
 var sfx_explosion: AudioStreamPlayer3D
 
 func _ready():
@@ -95,10 +94,7 @@ func create_debris_particles():
 	debris_particles.draw_pass_1 = cube_mesh
 
 func create_smoke_particles() -> void:
-	# Stub — volumetric puffs are spawned at trigger time
-	smoke_particles = GPUParticles3D.new()
-	smoke_particles.amount = 0
-	add_child(smoke_particles)
+	pass  # Smoke puffs are handled by ParticleManager at trigger time
 
 func create_fire_debris():
 	if debug_enabled:
@@ -159,17 +155,16 @@ func create_single_fire_debris(index: int):
 	)
 
 func _start_smoke_puffs() -> void:
-	var puff_count := 12
+	var puff_count := 20
 	var captured_pos := global_position
 	for i in range(puff_count):
 		var progress := float(i) / float(puff_count - 1)
-		get_tree().create_timer(i * 0.28).timeout.connect(func():
+		get_tree().create_timer(i * 0.18).timeout.connect(func():
 			if is_instance_valid(self):
 				_spawn_smoke_puff(progress, captured_pos)
 		)
 
 func _spawn_smoke_puff(progress: float, origin: Vector3) -> void:
-	print("[Smoke] spawning puff progress=", snapped(progress, 0.01), " at ", snapped(origin, Vector3.ONE))
 	var puff := MeshInstance3D.new()
 	get_tree().current_scene.add_child(puff)
 	puff.global_position = origin + Vector3(
@@ -187,12 +182,9 @@ func _spawn_smoke_puff(progress: float, origin: Vector3) -> void:
 	sphere.height = base_r * 2.0
 	puff.mesh = sphere
 
-	# Non-uniform scale for lumpy shape; later puffs are bigger (they've had time to expand)
-	puff.scale = Vector3(
-		randf_range(0.8, 1.6),
-		randf_range(0.5, 1.0),
-		randf_range(0.8, 1.6)
-	) * lerp(3.0, 6.0, progress)
+	# Roughly uniform scale for round puffs; later puffs are bigger
+	var s := randf_range(0.8, 1.4)
+	puff.scale = Vector3(s, s * randf_range(0.85, 1.15), s) * lerp(3.0, 6.0, progress)
 
 	# Very dark at base (near black), dark grey higher up
 	var grey: float = lerp(0.05, 0.30, progress)
@@ -205,25 +197,13 @@ func _spawn_smoke_puff(progress: float, origin: Vector3) -> void:
 	mat.emission_energy = 0.4
 	puff.material_override = mat
 
-	# Animate: rise, expand sideways/flatten, slow yaw, fade out
+	# Hand off to ParticleManager for rising, expanding, fading
 	var puff_duration := randf_range(3.5, 5.5)
-	var rise := randf_range(14.0, 24.0)
-	var end_scale := puff.scale * Vector3(2.2, 0.6, 2.2)
-	var end_y := puff.position.y + rise
-
-	var t := puff.create_tween()
-	t.set_parallel(true)
-	t.tween_property(puff, "position:y", end_y, puff_duration)
-	t.tween_property(puff, "scale", end_scale, puff_duration)
-	t.tween_property(puff, "rotation:y", randf_range(-TAU * 0.3, TAU * 0.3), puff_duration)
-	t.tween_method(func(a: float):
-		if is_instance_valid(puff) and puff.material_override:
-			(puff.material_override as StandardMaterial3D).albedo_color.a = a
-	, 1.0, 0.0, puff_duration)
-	t.chain().tween_callback(puff.queue_free)
+	var rise_speed := randf_range(4.0, 7.0)
+	var yaw_speed := randf_range(-0.5, 0.5)
+	ParticleManager.add_rising_smoke(puff, puff_duration, puff.scale, rise_speed, yaw_speed)
 
 func trigger_explosion():
-	print("[Explosion] at ", snapped(global_position, Vector3(1,1,1)))
 	if debug_enabled:
 		print("=== TRIGGERING EXPLOSION ===")
 	# Start smoke puffs
@@ -324,9 +304,8 @@ func set_cube_intensity(cube: MeshInstance3D, intensity: float):
 func cleanup_explosion():
 	if debug_enabled:
 		print("=== CLEANING UP EXPLOSION ===")
-	# Remove particle systems but leave scorch mark
-	if smoke_particles:
-		smoke_particles.queue_free()
+	# ParticleManager handles smoke cleanup automatically
+	pass
 
 func create_scorch_mark():
 	if debug_enabled:

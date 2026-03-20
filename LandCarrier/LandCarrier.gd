@@ -12,16 +12,10 @@ class_name LandCarrier
 @export var turn_speed: float = 0.25
 
 # --- Height ---
-@export var height_smoothing: float = 15.0 # height tracking speed (higher = snappier)
+@export var height_smoothing: float = 2.5  # height tracking speed (higher = snappier)
 
-# --- Obstacle avoidance (short-range reactive) ---
-@export var obstacle_lookahead_m: float = 300.0
-@export var obstacle_width_m: float = 120.0
-@export var obstacle_height_threshold_m: float = 20.0
-
-# --- Wall avoidance (periodic side raycasts) ---
-@export var wall_check_dist_m: float = 100.0  # how far to cast sideways from carrier edge
-@export var wall_check_interval: int = 12     # frames between checks (~5/s at 60fps)
+# --- Terrain feeler avoidance ---
+@export var feeler_height_threshold_m: float = 15.0  # terrain rise above carrier base that counts as obstacle
 
 # --- Pathfinding ---
 @export var path_max_slope_m: float = 12.0    # max height variation within clearance radius (carrier-specific)
@@ -43,13 +37,11 @@ var _tread_local_xz: Array[Vector2] = []
 var _tread_initial_rot_y: Array[float] = []
 var _current_steer: float = 0.0
 var _tread_steer: float = 0.0
-var _wall_steer: float = 0.0
-var _wall_check_frame: int = 0
 var _stuck_timer: float = 0.0
 var _prev_wp_dist: float = INF
 var _no_path_timer: float = 0.0
-var _debug_timer: float = 0.0
 var _last_planar_speed_mps: float = 0.0
+var _smoothed_desired_y: float = NAN
 var treads: Array[CarrierTread] = []
 var elevator: Node3D
 const TEAM_ID: int = 1
@@ -115,10 +107,15 @@ func _start_random_patrol() -> void:
 	visible = true
 
 	var destination: Vector3 = TerrainNavGrid.get_furthest_edge_position(global_position, 3, path_max_slope_m)
+	# Face toward the destination at spawn
+	var to_dest := destination - global_position
+	to_dest.y = 0.0
+	if to_dest.length_squared() > 1.0:
+		var dir := to_dest.normalized()
+		rotation.y = atan2(dir.x, dir.z)
 	_raw_waypoints = [destination]
 	_raw_waypoint_index = 0
 	_compute_next_path_segment()
-	print("[LandCarrier] Random patrol: start=", global_position, " dest=", destination)
 
 func _compute_next_path_segment() -> void:
 	visible = true
@@ -157,13 +154,8 @@ func _compute_next_path_segment() -> void:
 			for k in range(1, path.size()):
 				path_xz_len += Vector2(path[k].x - path[k - 1].x, path[k].z - path[k - 1].z).length()
 			if path_xz_len > seg_len * 2.5:
-				print("[Carrier] Rejected %.0fm path at %.0fdeg (%.1fx target) - U-turn route" % [
-					path_xz_len, deg, path_xz_len / seg_len
-				])
 				path = []
 				continue
-			if deg != 0.0:
-				print("[Carrier] Path found at %.0fdeg rotation from destination bearing" % deg)
 			break
 
 	if path.is_empty():
@@ -171,7 +163,6 @@ func _compute_next_path_segment() -> void:
 			var raw_target := _raw_waypoints[_raw_waypoint_index]
 			var dist := Vector2(global_position.x - raw_target.x, global_position.z - raw_target.z).length()
 			if dist < path_max_segment_m:
-				print("[Carrier] No path found but within %.0fm of destination - skipping" % dist)
 				_raw_waypoint_index += 1
 				_compute_next_path_segment()
 				return
@@ -182,7 +173,6 @@ func _pick_new_patrol_destination() -> void:
 	var destination: Vector3 = TerrainNavGrid.get_furthest_edge_position(global_position, 3, path_max_slope_m)
 	_raw_waypoints = [destination]
 	_raw_waypoint_index = 0
-	print("[LandCarrier] New patrol destination: (%d,%d,%d)" % [int(destination.x), int(destination.y), int(destination.z)])
 	_compute_next_path_segment()
 
 func _on_path_ready(path: Array) -> void:
@@ -199,18 +189,28 @@ func _on_path_ready(path: Array) -> void:
 			_waypoint_positions[i].x - _waypoint_positions[i - 1].x,
 			_waypoint_positions[i].z - _waypoint_positions[i - 1].z
 		).length()
-	print("[Carrier] Path: %d waypoints, %.0fm total" % [_waypoint_positions.size(), total_dist])
 	var dest := _raw_waypoints[_raw_waypoint_index] if not _raw_waypoints.is_empty() and _raw_waypoint_index < _raw_waypoints.size() else Vector3.ZERO
 	# TerrainNavGrid.save_debug_image(_waypoint_positions, global_position, dest, path_max_slope_m)
 
 func _align_to_active_waypoint() -> void:
 	if _waypoint_positions.is_empty() or _waypoint_index >= _waypoint_positions.size():
 		return
-	var target: Vector3 = _waypoint_positions[_waypoint_index]
-	var to_target := target - global_position
-	to_target.y = 0.0
-	if to_target.length_squared() < 0.01:
+	# Waypoint 0 is often the carrier's own position (from NavGraph).
+	# Find the first waypoint that is actually ahead of us.
+	var target: Vector3
+	var found := false
+	for i in range(_waypoint_index, _waypoint_positions.size()):
+		var candidate: Vector3 = _waypoint_positions[i]
+		var to_candidate := candidate - global_position
+		to_candidate.y = 0.0
+		if to_candidate.length_squared() > 100.0:  # > 10m away
+			target = candidate
+			found = true
+			break
+	if not found:
 		return
+	var to_target := (target - global_position)
+	to_target.y = 0.0
 	to_target = to_target.normalized()
 	rotation.y = atan2(to_target.x, to_target.z)
 
@@ -252,10 +252,6 @@ func _physics_process(delta: float) -> void:
 	var transform_before := global_transform
 	_drive_to_waypoint(delta)
 	_update_tread_visuals(delta)
-	_debug_timer += delta
-	if _debug_timer >= 3.0:
-		_debug_timer = 0.0
-		_print_debug_status()
 	if elevator and elevator.has_method("update"):
 		elevator.update(delta)
 	_carry_deck_passengers(global_transform, transform_before)
@@ -275,13 +271,9 @@ func _carry_deck_passengers(current_transform: Transform3D, old_transform: Trans
 			var on_catapult := n.has_meta("controls_disabled") and bool(n.get_meta("controls_disabled")) and not has_brake and not has_transport
 			if on_carrier or on_catapult:
 				(node as Node3D).global_transform = transform_delta * (node as Node3D).global_transform
-			if (on_carrier or on_catapult) and Engine.get_process_frames() % 120 == 0:
-				var plane_z = snappedf((node as Node3D).global_position.z, 0.1)
-				var carrier_z = snappedf(global_position.z, 0.1)
-				print("[Deck] ", node.name, " z=", plane_z, "  carrier z=", carrier_z, "  gap=", snappedf(plane_z - carrier_z, 0.1))
-	for joint in get_tree().get_nodes_in_group("carrier_pin_joint"):
-		if is_instance_valid(joint) and joint is Node3D:
-			(joint as Node3D).global_transform = transform_delta * (joint as Node3D).global_transform
+		for joint in get_tree().get_nodes_in_group("carrier_pin_joint"):
+			if is_instance_valid(joint) and joint is Node3D:
+				(joint as Node3D).global_transform = transform_delta * (joint as Node3D).global_transform
 
 func _update_tread_visuals(delta: float) -> void:
 	_tread_steer = lerp(_tread_steer, _current_steer, delta * 1.5)
@@ -302,7 +294,10 @@ func _update_tread_visuals(delta: float) -> void:
 		world_heights.append(terrain_y)
 
 		var tread := _tread_nodes[i] as Node3D
-		tread.global_position = Vector3(world_xz.x, terrain_y + TREAD_GROUND_OFFSET, world_xz.z)
+		var tread_target_y: float = terrain_y + TREAD_GROUND_OFFSET
+		var tread_current_y: float = tread.global_position.y
+		var tread_smooth_y: float = lerp(tread_current_y, tread_target_y, clampf(3.0 * delta, 0.0, 1.0))
+		tread.global_position = Vector3(world_xz.x, tread_smooth_y, world_xz.z)
 		var steer_offset: float = 0.0
 		if xz.y > 20.0:
 			steer_offset = _tread_steer * MAX_TREAD_STEER
@@ -315,8 +310,14 @@ func _update_tread_visuals(delta: float) -> void:
 		for h in world_heights:
 			avg_y += h
 		avg_y /= world_heights.size()
-		var desired_y: float = avg_y + BODY_RIDE_HEIGHT
-		global_position.y = lerp(global_position.y, desired_y, height_smoothing * delta)
+		var raw_desired_y: float = avg_y + BODY_RIDE_HEIGHT
+		# Smooth the desired height target to filter terrain quantization jitter.
+		if is_nan(_smoothed_desired_y):
+			_smoothed_desired_y = raw_desired_y
+		else:
+			_smoothed_desired_y = lerp(_smoothed_desired_y, raw_desired_y, clampf(4.0 * delta, 0.0, 1.0))
+		global_position.y = lerp(global_position.y, _smoothed_desired_y, clampf(height_smoothing * delta, 0.0, 1.0))
+
 
 func _sample_terrain_y(wx: float, wz: float) -> float:
 	var h: float = TerrainNavGrid.sample_height(wx, wz)
@@ -325,76 +326,72 @@ func _sample_terrain_y(wx: float, wz: float) -> float:
 	return h
 
 func _get_avoidance_steer() -> float:
-	var fwd := global_transform.basis.z
-	var right := fwd.cross(global_transform.basis.y)
-	var ahead := global_position + fwd * obstacle_lookahead_m
-
-	var port_pos := ahead - right * obstacle_width_m
-	var center_pos := ahead
-	var starboard_pos := ahead + right * obstacle_width_m
-	var port_h := _sample_terrain_y(port_pos.x, port_pos.z)
-	var center_h := _sample_terrain_y(center_pos.x, center_pos.z)
-	var starboard_h := _sample_terrain_y(starboard_pos.x, starboard_pos.z)
-
-	var base_y := global_position.y - BODY_RIDE_HEIGHT
-	var thresh := obstacle_height_threshold_m
-
-	var left_excess := maxf(port_h - base_y - thresh, 0.0)
-	var center_excess := maxf(center_h - base_y - thresh, 0.0)
-	var right_excess := maxf(starboard_h - base_y - thresh, 0.0)
-
-	if left_excess == 0.0 and center_excess == 0.0 and right_excess == 0.0:
+	# Multi-range terrain feelers: sample heights at various offsets around the
+	# carrier and steer away from rising terrain.  Uses the baked heightmap so
+	# there is no physics cost.
+	if not TerrainNavGrid.is_ready():
 		return 0.0
 
-	var side_diff := right_excess - left_excess
-	var urgency := 1.0 + center_excess * 0.05
-	return clamp(side_diff * urgency, -1.0, 1.0)
+	var fwd := global_transform.basis.z
+	fwd.y = 0.0
+	if fwd.length_squared() < 0.0001:
+		return 0.0
+	fwd = fwd.normalized()
+	var right := Vector3(-fwd.z, 0.0, fwd.x)  # perpendicular on XZ plane
+	var base_y := global_position.y - BODY_RIDE_HEIGHT
+	var thresh := feeler_height_threshold_m
+	var pos := global_position
 
-func _update_wall_steer() -> void:
-	var space := get_world_3d().direct_space_state
-	var params := PhysicsRayQueryParameters3D.new()
-	var exclude: Array[RID] = [get_rid()]
-	for t in _tread_nodes:
-		exclude.append((t as CollisionObject3D).get_rid())
-	params.exclude = exclude
+	# Feeler layout: (forward_dist, lateral_offset, weight)
+	# Positive lateral = starboard, negative = port
+	# Close feelers respond more urgently (higher weight)
+	var feelers: Array = [
+		# Near sides (80m out) — strong push away from adjacent walls
+		[0.0,    80.0,  1.8],
+		[0.0,   -80.0,  1.8],
+		[60.0,   80.0,  1.5],
+		[60.0,  -80.0,  1.5],
+		# Mid-range forward diagonals (150m ahead, 100m wide)
+		[150.0,  100.0, 1.2],
+		[150.0, -100.0, 1.2],
+		[150.0,  50.0,  0.8],
+		[150.0, -50.0,  0.8],
+		# Far forward (300m ahead)
+		[300.0,  120.0, 0.6],
+		[300.0, -120.0, 0.6],
+		[300.0,  0.0,   0.4],
+	]
 
-	var right := global_transform.basis.x
-	var cast_y := global_position.y - BODY_RIDE_HEIGHT + 10.0
-	var carrier_half_width := 40.0
+	var steer_sum := 0.0
+	var weight_sum := 0.0
+	for f in feelers:
+		var f_fwd: float = float(f[0])
+		var f_lat: float = float(f[1])
+		var f_wt: float = float(f[2])
+		var sample_pos: Vector3 = pos + fwd * f_fwd + right * f_lat
+		var h := _sample_terrain_y(sample_pos.x, sample_pos.z)
+		var excess := maxf(h - base_y - thresh, 0.0)
+		if excess > 0.0:
+			var strength := minf(excess / 40.0, 1.0)
+			if f_lat > 0.1:
+				steer_sum -= strength * f_wt
+			elif f_lat < -0.1:
+				steer_sum += strength * f_wt
+			else:
+				weight_sum += strength * f_wt * 0.5
+			weight_sum += absf(strength * f_wt)
 
-	var origin_r := Vector3(global_position.x, cast_y, global_position.z) + right * carrier_half_width
-	var origin_l := Vector3(global_position.x, cast_y, global_position.z) - right * carrier_half_width
-
-	params.from = origin_r
-	params.to = origin_r + right * wall_check_dist_m
-	var hit_r := space.intersect_ray(params)
-
-	params.from = origin_l
-	params.to = origin_l - right * wall_check_dist_m
-	var hit_l := space.intersect_ray(params)
-
-	var steer := 0.0
-	if hit_r:
-		var d := ((hit_r.position as Vector3) - origin_r).length()
-		steer -= (1.0 - d / wall_check_dist_m)
-	if hit_l:
-		var d := ((hit_l.position as Vector3) - origin_l).length()
-		steer += (1.0 - d / wall_check_dist_m)
-	_wall_steer = clamp(steer, -1.0, 1.0)
+	if weight_sum < 0.001:
+		return 0.0
+	return clampf(steer_sum, -1.0, 1.0)
 
 func _drive_to_waypoint(delta: float) -> void:
-	_wall_check_frame = (_wall_check_frame + 1) % wall_check_interval
-	if _wall_check_frame == 0:
-		_update_wall_steer()
-
 	if _waypoint_positions.is_empty() or _waypoint_index >= _waypoint_positions.size():
 		_no_path_timer += delta
 		var avoidance: float = _get_avoidance_steer()
-		var combined: float = clamp(avoidance + _wall_steer, -1.0, 1.0)
-		_current_steer = combined if abs(combined) > 0.1 else move_toward(_current_steer, 0.0, delta * 2.0)
+		_current_steer = avoidance if absf(avoidance) > 0.1 else move_toward(_current_steer, 0.0, delta * 2.0)
 		_last_planar_speed_mps = 0.0
 		if use_waypoint_pathfinding and _no_path_timer > 6.0:
-			print("[Carrier] No path for %.0fs - retrying" % _no_path_timer)
 			_no_path_timer = 0.0
 			_compute_next_path_segment()
 		return
@@ -409,13 +406,6 @@ func _drive_to_waypoint(delta: float) -> void:
 		_stuck_timer = 0.0
 		_prev_wp_dist = INF
 		_waypoint_index += 1
-		var next_dist := 0.0
-		if _waypoint_index < _waypoint_positions.size():
-			var next_wp := _waypoint_positions[_waypoint_index]
-			next_dist = Vector2(global_position.x - next_wp.x, global_position.z - next_wp.z).length()
-		print("[Carrier] WP reached -> [%d/%d]  next dist=%.0fm" % [
-			_waypoint_index, _waypoint_positions.size(), next_dist
-		])
 		if _waypoint_index >= _waypoint_positions.size():
 			_advance_waypoint_or_replan()
 		_current_steer = move_toward(_current_steer, 0.0, delta * 2.0)
@@ -425,10 +415,8 @@ func _drive_to_waypoint(delta: float) -> void:
 	if wp_dist > _prev_wp_dist:
 		_stuck_timer += delta
 		if use_waypoint_pathfinding and _stuck_timer > 20.0:
-			print("[Carrier] Stuck (dist growing for 20s) - replanning from current position")
 			_stuck_timer = 0.0
 			_prev_wp_dist = INF
-			_wall_steer = 0.0
 			_compute_next_path_segment()
 			return
 	else:
@@ -444,14 +432,12 @@ func _drive_to_waypoint(delta: float) -> void:
 	var turn_angle_deg: float = abs(rad_to_deg(turn_angle))
 	var dot: float = clampf(current_forward.dot(desired_dir), -1.0, 1.0)
 
-	# Signed-angle steering stays decisive even when the waypoint is almost directly behind.
 	var wp_steer: float = clampf(turn_angle / deg_to_rad(75.0), -1.0, 1.0)
 	var avoidance: float = _get_avoidance_steer()
-	var wall_weight: float = 0.4
-	if turn_angle_deg > 70.0:
-		avoidance *= 0.35
-		wall_weight = 0.15
-	_current_steer = clamp(wp_steer + avoidance + _wall_steer * wall_weight, -1.0, 1.0)
+	# Avoidance overrides waypoint steering when strong — walls take priority
+	var avoid_strength := absf(avoidance)
+	var avoid_blend := clampf(avoid_strength * 2.0, 0.0, 1.0)  # full override at 0.5+ avoidance
+	_current_steer = clamp(lerpf(wp_steer, wp_steer + avoidance * 2.0, avoid_blend), -1.0, 1.0)
 	rotate_y(_current_steer * turn_speed * delta)
 
 	var throttle: float = clamp((dot + 1.0) * 0.5, 0.0, 1.0) * (1.0 - abs(_current_steer) * 0.3)
@@ -461,41 +447,6 @@ func _drive_to_waypoint(delta: float) -> void:
 	global_position.x += forward.x * throttle * max_speed * delta
 	global_position.z += forward.z * throttle * max_speed * delta
 	_last_planar_speed_mps = throttle * max_speed
-
-func _print_debug_status() -> void:
-	var pos := global_position
-	var fwd := global_transform.basis.z
-	var heading_deg := rad_to_deg(atan2(-fwd.x, -fwd.z))
-	var terrain_y := TerrainNavGrid.sample_height(pos.x, pos.z)
-	var agl := pos.y - BODY_RIDE_HEIGHT - terrain_y if terrain_y > TerrainNavGrid.IMPASSABLE * 0.5 else NAN
-
-	var wp_str := "none"
-	var turn_err_deg := 0.0
-	if not _waypoint_positions.is_empty() and _waypoint_index < _waypoint_positions.size():
-		var wp := _waypoint_positions[_waypoint_index]
-		var to_wp := wp - pos
-		to_wp.y = 0.0
-		var dist := Vector2(to_wp.x, to_wp.z).length()
-		wp_str = "(%d,%d) dist=%.0fm [%d/%d]" % [int(wp.x), int(wp.z), dist, _waypoint_index + 1, _waypoint_positions.size()]
-		if to_wp.length_squared() > 0.0001:
-			var flat_fwd := fwd
-			flat_fwd.y = 0.0
-			flat_fwd = flat_fwd.normalized() if flat_fwd.length_squared() > 0.0001 else Vector3.FORWARD
-			turn_err_deg = rad_to_deg(flat_fwd.signed_angle_to(to_wp.normalized(), Vector3.UP))
-
-	var raw_dest := "none"
-	if not _raw_waypoints.is_empty() and _raw_waypoint_index < _raw_waypoints.size():
-		var rd := _raw_waypoints[_raw_waypoint_index]
-		var raw_dist := Vector2(rd.x - pos.x, rd.z - pos.z).length()
-		raw_dest = "(%d,%d) dist=%.0fm" % [int(rd.x), int(rd.z), raw_dist]
-
-	var avoid := _get_avoidance_steer()
-	print("[Carrier] pos=(%d,%d,%d)  hdg=%.0fdeg  AGL=%.1f  spd=%.1fm/s" % [
-		int(pos.x), int(pos.y), int(pos.z), heading_deg, agl, _last_planar_speed_mps
-	])
-	print("[Carrier] steer=%.2f  avoid=%.2f  wall=%.2f  turn=%.0fdeg  stuck=%.0fs  wp=%s  -> %s" % [
-		_current_steer, avoid, _wall_steer, turn_err_deg, _stuck_timer, wp_str, raw_dest
-	])
 
 # --- Speed / direction API (kept for LandCarrierInput compatibility) ---
 

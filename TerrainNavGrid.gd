@@ -138,8 +138,6 @@ func _try_start_bake() -> void:
 	_heights.fill(IMPASSABLE)
 	_bake_terrain = terrain
 	_bake_gz = 0
-	print("[TerrainNavGrid] Starting bake: %d×%d cells at %.0fm (%.1f km²)" % [
-		_cols, _rows, cell_size_m, (_cols * cell_size_m * _rows * cell_size_m) / 1e6])
 		
 	# Synchronous bake to avoid visual pop-in (teleport) on startup
 	var original_rows_per_frame = rows_per_frame
@@ -168,7 +166,6 @@ func _bake_rows() -> void:
 		for h in _heights:
 			if h > IMPASSABLE * 0.5:
 				_h_min_passable = minf(_h_min_passable, h)
-		print("[TerrainNavGrid] Bake complete (%d cells)  lowest passable Y=%.1f" % [_cols * _rows, _h_min_passable])
 		bake_complete.emit()
 
 
@@ -233,7 +230,6 @@ func _astar(from_world: Vector3, to_world: Vector3,
 				g_score[nb] = tg
 				open.append([tg + _h(nb, eg), nb.x, nb.y])
 
-	print("[TerrainNavGrid] No path found — returning empty (caller will retry)")
 	return []
 
 

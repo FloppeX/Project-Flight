@@ -280,15 +280,7 @@ func _emit_smoke_particle() -> void:
 	# Add to scene
 	get_tree().current_scene.add_child(smoke_mesh)
 	
-	# Register with global particle manager for independent updating
-	var particle_manager = get_node_or_null("/root/ParticleManager")
-	if not particle_manager:
-		# Create particle manager if it doesn't exist
-		particle_manager = preload("res://Effects/ParticleManager.gd").new()
-		particle_manager.name = "ParticleManager"
-		get_tree().root.add_child(particle_manager)
-	
-	particle_manager.add_smoke_particle(smoke_mesh, 1.5, Vector3(2.0, 2.0, 2.0))
+	ParticleManager.add_smoke_particle(smoke_mesh, 1.5, Vector3(2.0, 2.0, 2.0))
 
 func _check_proximity_detonation():
 	# Raycast downward to check distance to ground

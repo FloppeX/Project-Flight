@@ -1,5 +1,4 @@
 extends Node
-class_name ParticleManager
 
 # Global particle manager - handles all types of particles independently of their creators
 var particles: Array = []
@@ -35,10 +34,30 @@ func _process(delta):
 			particles.remove_at(i)
 
 func _update_smoke_particle(particle: Dictionary, delta: float):
-	# Scale down over time - shrink each frame
-	var life_progress = particle.life_time / particle.max_life
-	var scale_factor = 1.0 - life_progress * 0.9  # Shrink to 10% of original size
-	particle.mesh_instance.scale = particle.initial_scale * scale_factor
+	var life_progress: float = particle.life_time / particle.max_life
+
+	# Rise upward
+	if "rise_speed" in particle:
+		particle.mesh_instance.global_position.y += particle.rise_speed * delta
+		# Slow down rise over time
+		particle.rise_speed *= (1.0 - delta * 0.3)
+
+	# Expand uniformly over time
+	if "expand" in particle and particle.expand:
+		var expand_factor: float = 1.0 + life_progress * 1.2
+		particle.mesh_instance.scale = particle.initial_scale * expand_factor
+	else:
+		var scale_factor = 1.0 - life_progress * 0.9
+		particle.mesh_instance.scale = particle.initial_scale * scale_factor
+
+	# Slow rotation
+	if "yaw_speed" in particle:
+		particle.mesh_instance.rotation.y += particle.yaw_speed * delta
+
+	# Fade out
+	if particle.mesh_instance.material_override:
+		var alpha: float = 1.0 - life_progress * life_progress  # Quadratic fade — visible longer
+		particle.mesh_instance.material_override.albedo_color.a = alpha
 
 func _update_explosion_particle(particle: Dictionary, delta: float):
 	# Scale up quickly then fade
@@ -89,6 +108,13 @@ func add_particle(mesh_instance: MeshInstance3D, type: String, max_life: float, 
 # Convenience functions for common particle types
 func add_smoke_particle(mesh_instance: MeshInstance3D, max_life: float, initial_scale: Vector3):
 	add_particle(mesh_instance, "smoke", max_life, initial_scale)
+
+func add_rising_smoke(mesh_instance: MeshInstance3D, max_life: float, initial_scale: Vector3, rise_speed: float = 5.0, yaw_speed: float = 0.0):
+	add_particle(mesh_instance, "smoke", max_life, initial_scale, {
+		"rise_speed": rise_speed,
+		"expand": true,
+		"yaw_speed": yaw_speed,
+	})
 
 func add_explosion_particle(mesh_instance: MeshInstance3D, max_life: float, initial_scale: Vector3):
 	add_particle(mesh_instance, "explosion", max_life, initial_scale)

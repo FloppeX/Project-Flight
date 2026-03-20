@@ -4,11 +4,15 @@
 
 [node name="BridgeHologram" type="Node3D"]
 script = ExtResource("1_hologram")
+table_size_m = 2.0
+table_center_local = Vector3(0, 0, 0)
 
 [node name="TerrainDots" type="MultiMeshInstance3D" parent="."]
 
 [node name="TerrainLines" type="MultiMeshInstance3D" parent="."]
 
 [node name="ContactDots" type="MultiMeshInstance3D" parent="."]
+
+[node name="GroundDots" type="MultiMeshInstance3D" parent="."]
 
 [node name="CarrierPlate" type="MeshInstance3D" parent="."]
