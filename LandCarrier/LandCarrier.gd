@@ -1,6 +1,9 @@
 extends CharacterBody3D
 class_name LandCarrier
 
+const CARRIER_TREAD_SCRIPT := preload("res://LandCarrier/CarrierTread.gd")
+const VEHICLE_RAMP_SCRIPT := preload("res://LandCarrier/VehicleRamp.gd")
+
 # --- Waypoints ---
 @export var waypoints: Array[NodePath] = []
 @export var loop_waypoints: bool = false
@@ -10,9 +13,15 @@ class_name LandCarrier
 @export var max_speed: float = 8.0
 @export var acceleration: float = 1.5
 @export var turn_speed: float = 0.25
+@export var steer_response: float = 2.5
+@export var steer_deadzone: float = 0.03
+@export var settle_turn_angle_deg: float = 1.5
+@export var settle_steer_deadzone: float = 0.08
 
 # --- Height ---
 @export var height_smoothing: float = 2.5  # height tracking speed (higher = snappier)
+@export var height_deadband_m: float = 0.35
+@export var height_target_response: float = 2.0
 
 # --- Terrain feeler avoidance ---
 @export var feeler_height_threshold_m: float = 15.0  # terrain rise above carrier base that counts as obstacle
@@ -20,7 +29,6 @@ class_name LandCarrier
 # --- Pathfinding ---
 @export var path_max_slope_m: float = 12.0    # max height variation within clearance radius (carrier-specific)
 @export var use_waypoint_pathfinding: bool = true
-@export var path_max_segment_m: float = 1600.0 # replan distance; long routes are split into segments
 @export var turn_in_place_angle_deg: float = 100.0
 
 const BODY_RIDE_HEIGHT: float = 40.0
@@ -40,10 +48,12 @@ var _tread_steer: float = 0.0
 var _stuck_timer: float = 0.0
 var _prev_wp_dist: float = INF
 var _no_path_timer: float = 0.0
+var _replan_attempts: int = 0
 var _last_planar_speed_mps: float = 0.0
 var _smoothed_desired_y: float = NAN
-var treads: Array[CarrierTread] = []
+var treads: Array[Node3D] = []
 var elevator: Node3D
+var vehicle_ramp: Node3D
 const TEAM_ID: int = 1
 
 func _ready():
@@ -55,13 +65,21 @@ func _ready():
 	elevator = find_child("Elevator")
 	if elevator and elevator.has_method("setup"):
 		elevator.setup(self)
+	_setup_vehicle_ramp()
 	if not use_waypoint_pathfinding:
 		_apply_direct_waypoints()
 		visible = true
 	elif _raw_waypoints.is_empty():
 		call_deferred("_set_north_heading")
 	else:
-		call_deferred("_compute_next_path_segment")
+		call_deferred("_compute_path_to_destination")
+
+func _setup_vehicle_ramp() -> void:
+	var ramp_node := Node3D.new()
+	ramp_node.name = "VehicleRamp"
+	ramp_node.set_script(VEHICLE_RAMP_SCRIPT)
+	add_child(ramp_node)
+	vehicle_ramp = ramp_node
 
 func _resolve_waypoints() -> void:
 	_raw_waypoints.clear()
@@ -78,7 +96,7 @@ func set_patrol_waypoints(positions: Array[Vector3]) -> void:
 	if not use_waypoint_pathfinding:
 		_apply_direct_waypoints()
 		return
-	_compute_next_path_segment()
+	_compute_path_to_destination()
 
 func _apply_direct_waypoints() -> void:
 	_waypoint_positions = _raw_waypoints.duplicate()
@@ -115,9 +133,11 @@ func _start_random_patrol() -> void:
 		rotation.y = atan2(dir.x, dir.z)
 	_raw_waypoints = [destination]
 	_raw_waypoint_index = 0
-	_compute_next_path_segment()
+	_compute_path_to_destination()
 
-func _compute_next_path_segment() -> void:
+const CARRIER_CLEARANCE_M: float = 120.0
+
+func _compute_path_to_destination() -> void:
 	visible = true
 	if _raw_waypoints.is_empty():
 		return
@@ -130,50 +150,50 @@ func _compute_next_path_segment() -> void:
 	if not use_waypoint_pathfinding:
 		_apply_direct_waypoints()
 		return
+
 	var target := _raw_waypoints[_raw_waypoint_index]
-
-	var flat := Vector2(target.x - global_position.x, target.z - global_position.z)
-	var base_dir := flat.normalized() if flat.length() > 1.0 else Vector2(1.0, 0.0)
-
-	var path: Array[Vector3] = []
-	const ROTATIONS: Array[float] = [0.0, 30.0, -30.0, 60.0, -60.0, 90.0, -90.0, 120.0, -120.0, 150.0, -150.0, 180.0]
-	for deg in ROTATIONS:
-		var rad := deg_to_rad(deg)
-		var c := cos(rad)
-		var s := sin(rad)
-		var dir := Vector2(base_dir.x * c - base_dir.y * s, base_dir.x * s + base_dir.y * c)
-		var seg_len := minf(flat.length(), path_max_segment_m)
-		var sg := global_position + Vector3(dir.x, 0.0, dir.y) * seg_len
-		var h := TerrainNavGrid.sample_height(sg.x, sg.z)
-		sg.y = h if h > TerrainNavGrid.IMPASSABLE * 0.5 else global_position.y
-		path = NavGraph.find_path(global_position, sg, 40.0)
-		if path.is_empty():
-			path = NavGraph.find_path(global_position, sg, 0.0)
-		if not path.is_empty():
-			var path_xz_len := 0.0
-			for k in range(1, path.size()):
-				path_xz_len += Vector2(path[k].x - path[k - 1].x, path[k].z - path[k - 1].z).length()
-			if path_xz_len > seg_len * 2.5:
-				path = []
-				continue
-			break
+	var path := NavGraph.find_path(global_position, target, CARRIER_CLEARANCE_M)
 
 	if path.is_empty():
-		if not _raw_waypoints.is_empty() and _raw_waypoint_index < _raw_waypoints.size():
-			var raw_target := _raw_waypoints[_raw_waypoint_index]
-			var dist := Vector2(global_position.x - raw_target.x, global_position.z - raw_target.z).length()
-			if dist < path_max_segment_m:
-				_raw_waypoint_index += 1
-				_compute_next_path_segment()
-				return
+		# Destination unreachable — skip it
+		_raw_waypoint_index += 1
+		if _raw_waypoint_index >= _raw_waypoints.size():
+			_pick_new_patrol_destination()
+		else:
+			_compute_path_to_destination()
+		return
 
 	_on_path_ready(path)
 
 func _pick_new_patrol_destination() -> void:
-	var destination: Vector3 = TerrainNavGrid.get_furthest_edge_position(global_position, 3, path_max_slope_m)
-	_raw_waypoints = [destination]
+	# Try several candidate destinations, pick the furthest one that
+	# A* can actually reach with full carrier clearance.
+	var best_dest := Vector3.ZERO
+	var best_dist_sq := -1.0
+	for inset in [3, 5, 8]:
+		var dest: Vector3 = TerrainNavGrid.get_furthest_edge_position(global_position, inset, path_max_slope_m)
+		if dest == global_position:
+			continue
+		if not NavGraph.has_nearby_node(dest, CARRIER_CLEARANCE_M):
+			continue
+		# Verify full path exists before committing
+		var test_path := NavGraph.find_path(global_position, dest, CARRIER_CLEARANCE_M)
+		if test_path.is_empty():
+			continue
+		var dsq := Vector2(dest.x - global_position.x, dest.z - global_position.z).length_squared()
+		if dsq > best_dist_sq:
+			best_dist_sq = dsq
+			best_dest = dest
+	if best_dist_sq < 0.0:
+		# Nothing reachable at edges — try a random passable position
+		var rng := RandomNumberGenerator.new()
+		rng.randomize()
+		best_dest = TerrainNavGrid.get_random_passable_position(rng, path_max_slope_m)
+		if best_dest == Vector3.ZERO:
+			best_dest = global_position + global_transform.basis.z * 500.0
+	_raw_waypoints = [best_dest]
 	_raw_waypoint_index = 0
-	_compute_next_path_segment()
+	_compute_path_to_destination()
 
 func _on_path_ready(path: Array) -> void:
 	_waypoint_positions.clear()
@@ -230,14 +250,14 @@ func _advance_waypoint_or_replan() -> void:
 	if not use_waypoint_pathfinding:
 		_apply_direct_waypoints()
 		return
-	_compute_next_path_segment()
+	_compute_path_to_destination()
 
 func _collect_tread_nodes() -> void:
 	_tread_nodes.clear()
 	_tread_local_xz.clear()
 	_tread_initial_rot_y.clear()
 	for child in get_children():
-		if child is CarrierTread:
+		if _is_tread_node(child):
 			_tread_nodes.append(child)
 			_tread_local_xz.append(Vector2(child.position.x, child.position.z))
 			_tread_initial_rot_y.append(child.rotation.y)
@@ -245,8 +265,11 @@ func _collect_tread_nodes() -> void:
 func find_treads() -> void:
 	treads.clear()
 	for child in get_children():
-		if child is CarrierTread:
+		if _is_tread_node(child):
 			treads.append(child)
+
+func _is_tread_node(node: Node) -> bool:
+	return node is Node3D and node.get_script() == CARRIER_TREAD_SCRIPT
 
 func _physics_process(delta: float) -> void:
 	var transform_before := global_transform
@@ -315,7 +338,14 @@ func _update_tread_visuals(delta: float) -> void:
 		if is_nan(_smoothed_desired_y):
 			_smoothed_desired_y = raw_desired_y
 		else:
-			_smoothed_desired_y = lerp(_smoothed_desired_y, raw_desired_y, clampf(4.0 * delta, 0.0, 1.0))
+			var target_delta: float = raw_desired_y - _smoothed_desired_y
+			if absf(target_delta) > height_deadband_m:
+				var filtered_target: float = raw_desired_y - signf(target_delta) * height_deadband_m
+				_smoothed_desired_y = lerp(
+					_smoothed_desired_y,
+					filtered_target,
+					clampf(height_target_response * delta, 0.0, 1.0)
+				)
 		global_position.y = lerp(global_position.y, _smoothed_desired_y, clampf(height_smoothing * delta, 0.0, 1.0))
 
 
@@ -337,7 +367,11 @@ func _get_avoidance_steer() -> float:
 	if fwd.length_squared() < 0.0001:
 		return 0.0
 	fwd = fwd.normalized()
-	var right := Vector3(-fwd.z, 0.0, fwd.x)  # perpendicular on XZ plane
+	var right := global_transform.basis.x
+	right.y = 0.0
+	if right.length_squared() < 0.0001:
+		right = Vector3(fwd.z, 0.0, -fwd.x)
+	right = right.normalized()
 	var base_y := global_position.y - BODY_RIDE_HEIGHT
 	var thresh := feeler_height_threshold_m
 	var pos := global_position
@@ -388,12 +422,15 @@ func _get_avoidance_steer() -> float:
 func _drive_to_waypoint(delta: float) -> void:
 	if _waypoint_positions.is_empty() or _waypoint_index >= _waypoint_positions.size():
 		_no_path_timer += delta
-		var avoidance: float = _get_avoidance_steer()
-		_current_steer = avoidance if absf(avoidance) > 0.1 else move_toward(_current_steer, 0.0, delta * 2.0)
 		_last_planar_speed_mps = 0.0
-		if use_waypoint_pathfinding and _no_path_timer > 6.0:
+		if use_waypoint_pathfinding and _no_path_timer > 4.0:
 			_no_path_timer = 0.0
-			_compute_next_path_segment()
+			_replan_attempts += 1
+			if _replan_attempts >= 2:
+				_replan_attempts = 0
+				_pick_new_patrol_destination()
+			else:
+				_compute_path_to_destination()
 		return
 	_no_path_timer = 0.0
 
@@ -405,19 +442,26 @@ func _drive_to_waypoint(delta: float) -> void:
 	if wp_dist < waypoint_reach_distance:
 		_stuck_timer = 0.0
 		_prev_wp_dist = INF
+		_replan_attempts = 0
 		_waypoint_index += 1
 		if _waypoint_index >= _waypoint_positions.size():
 			_advance_waypoint_or_replan()
-		_current_steer = move_toward(_current_steer, 0.0, delta * 2.0)
+		_current_steer = move_toward(_current_steer, 0.0, steer_response * delta)
 		_last_planar_speed_mps = 0.0
 		return
 
 	if wp_dist > _prev_wp_dist:
 		_stuck_timer += delta
-		if use_waypoint_pathfinding and _stuck_timer > 20.0:
+		if _stuck_timer > 10.0:
 			_stuck_timer = 0.0
 			_prev_wp_dist = INF
-			_compute_next_path_segment()
+			_replan_attempts += 1
+			if _replan_attempts >= 3:
+				_replan_attempts = 0
+				_pick_new_patrol_destination()
+			else:
+				# Replan full path from current position
+				_compute_path_to_destination()
 			return
 	else:
 		_stuck_timer = 0.0
@@ -434,11 +478,27 @@ func _drive_to_waypoint(delta: float) -> void:
 
 	var wp_steer: float = clampf(turn_angle / deg_to_rad(75.0), -1.0, 1.0)
 	var avoidance: float = _get_avoidance_steer()
-	# Avoidance overrides waypoint steering when strong — walls take priority
+	# Avoidance blends with waypoint steering but cannot fully oppose it.
+	# If avoidance and waypoint steer are in opposite directions, cap avoidance
+	# so the carrier always retains some forward waypoint progress.
 	var avoid_strength := absf(avoidance)
-	var avoid_blend := clampf(avoid_strength * 2.0, 0.0, 1.0)  # full override at 0.5+ avoidance
-	_current_steer = clamp(lerpf(wp_steer, wp_steer + avoidance * 2.0, avoid_blend), -1.0, 1.0)
-	rotate_y(_current_steer * turn_speed * delta)
+	var opposing := signf(avoidance) != signf(wp_steer) and absf(wp_steer) > 0.1
+	var effective_avoidance := avoidance
+	if opposing:
+		# Cap opposing avoidance so waypoint direction is never fully overridden
+		effective_avoidance = clampf(avoidance, -absf(wp_steer) * 0.8, absf(wp_steer) * 0.8)
+	var avoid_blend := clampf(avoid_strength * 2.0, 0.0, 1.0)
+	var target_steer := clampf(lerpf(wp_steer, wp_steer + effective_avoidance * 2.0, avoid_blend), -1.0, 1.0)
+	if absf(target_steer) < steer_deadzone:
+		target_steer = 0.0
+	_current_steer = move_toward(_current_steer, target_steer, steer_response * delta)
+	if turn_angle_deg < settle_turn_angle_deg and absf(avoidance) < steer_deadzone and absf(_current_steer) < settle_steer_deadzone:
+		_current_steer = 0.0
+	# When turning in place (large angle to waypoint), turn faster to recover sooner
+	var effective_turn_speed := turn_speed
+	if turn_angle_deg > turn_in_place_angle_deg:
+		effective_turn_speed = turn_speed * 2.0
+	rotate_y(_current_steer * effective_turn_speed * delta)
 
 	var throttle: float = clamp((dot + 1.0) * 0.5, 0.0, 1.0) * (1.0 - abs(_current_steer) * 0.3)
 	if turn_angle_deg > turn_in_place_angle_deg:

@@ -12,20 +12,11 @@ res://Weapons/Turrets/turret.tscn
 res://Environment/LowPolyTerrainPrototype.tscn
 res://Weapons/AA_Missile/aa_missile_launcher.tscn
 res://LandCarrier/Commander.tscn
-res://LandCarrier/CarrierDefenseTurret.tscn
-res://Projectiles/Bullet/bullet.tscn
+res://Weapons/Turrets/turret.gd
+res://Weapons/Turrets/turret_controller.gd
+res://Weapons/Turrets/bullet_weapon.gd
+res://AI/AIPilot.gd
+res://GroundVehicle/vehicle_friendly_light.gd
+res://README.md
 res://LandCarrier/LandCarrier.gd
-res://LandCarrier/Commander.gd
-res://TerrainNavGrid.gd
-res://HUD/heads_up_display.gd
-res://LandCarrier/CarrierTread.gd
-res://LandCarrier/FlightDeckManager.gd
-res://Weapons/hardpoint.gd
-res://Enemies/EnemyAircraftSpawner.gd
-res://HUD/RadarCanvas.gd
-res://LandCarrier/BridgeHologram.gd
-res://Effects/ParticleManager.gd
-res://Projectiles/AA Missile/aa_missile.gd
-res://Projectiles/AG Missile/ag_missile.gd
-res://Projectiles/Bullet/bullet.gd
-res://Projectiles/Explosion/explosion.gd
+res://LandCarrier/VehicleRamp.gd

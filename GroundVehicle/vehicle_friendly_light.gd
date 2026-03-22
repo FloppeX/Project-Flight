@@ -386,9 +386,9 @@ func _recompute_navigation_path(raw_target: Vector3) -> void:
 
 	_nav_path_positions = best_path
 	_nav_path_index = 0
-	_consume_reached_nav_waypoints(raw_target)
+	_consume_reached_nav_waypoints(raw_target, false)
 
-func _consume_reached_nav_waypoints(raw_target: Vector3) -> void:
+func _consume_reached_nav_waypoints(raw_target: Vector3, _allow_replan: bool = true) -> void:
 	var reach_dist := maxf(path_waypoint_reach_distance, waypoint_reach_distance)
 	while _nav_path_index < _nav_path_positions.size():
 		if _flat_distance(global_position, _nav_path_positions[_nav_path_index]) > reach_dist:
@@ -396,7 +396,7 @@ func _consume_reached_nav_waypoints(raw_target: Vector3) -> void:
 		_nav_path_index += 1
 		_nav_stuck_timer_s = 0.0
 		_nav_prev_wp_distance = INF
-	if _nav_path_index >= _nav_path_positions.size() and _flat_distance(global_position, raw_target) > reach_dist:
+	if _allow_replan and _nav_path_index >= _nav_path_positions.size() and _flat_distance(global_position, raw_target) > reach_dist:
 		_recompute_navigation_path(raw_target)
 
 func _clear_navigation_path() -> void:

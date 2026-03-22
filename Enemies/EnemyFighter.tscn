@@ -32,7 +32,7 @@
 [ext_resource type="PackedScene" uid="uid://dsnc8jllg42ph" path="res://Weapons/hardpoint.tscn" id="28_ymevh"]
 [ext_resource type="PackedScene" uid="uid://ds5dlvtqfa7tv" path="res://Aircraft/tail_hook.tscn" id="31_3f4kl"]
 [ext_resource type="PackedScene" uid="uid://bar7l5uwuwevr" path="res://Weapons/Autocannon/Autocannon.tscn" id="31_kq7no"]
-[ext_resource type="PackedScene" uid="uid://yjaa3lj4xxb3" path="res://Weapons/AA_Missile/aa_missile_launcher.tscn" id="31_t66al"]
+[ext_resource type="PackedScene" uid="uid://yjaa3lj4xxb3" path="res://Weapons/AG_Missile/ag_missile_launcher.tscn" id="31_t66al"]
 [ext_resource type="PackedScene" uid="uid://idqmpbpg2jul" path="res://Weapons/Bomb/bomb.tscn" id="32_kq7no"]
 [ext_resource type="Script" uid="uid://ov07c02ulmhl" path="res://Aircraft/AIToggle.gd" id="33_aitgl"]
 [ext_resource type="Script" uid="uid://bwjigrpitv7cm" path="res://AI/AIPilot.gd" id="34_aipil"]
@@ -58,7 +58,7 @@ metadata/__load_path__ = "res://Audio/flaps_deploy 2.wav"
 [node name="EnemyFighter" type="RigidBody3D" groups=["enemies"]]
 collision_layer = 513
 collision_mask = 513
-mass = 700.0
+mass = 900.0
 physics_material_override = SubResource("PhysicsMaterial_lowfriction")
 center_of_mass_mode = 1
 center_of_mass = Vector3(0, 0, 0.5)

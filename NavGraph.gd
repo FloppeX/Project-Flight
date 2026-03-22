@@ -25,6 +25,7 @@ var _node_cl:          PackedFloat32Array  = []  ## Per-node clearance (m) to ne
 var _edge_starts:      PackedInt32Array   = []  ## _edge_starts[i] = first edge index for node i
 var _edge_nb:          PackedInt32Array   = []  ## Neighbour node index (flat)
 var _edge_cl:          PackedFloat32Array  = []  ## Edge clearance = min(endpoint clearances) (flat)
+var _cl_map:           PackedFloat32Array  = []  ## Per-cell clearance (m), kept for edge sampling
 var _is_ready:         bool               = false
 
 # ── Spatial index for O(1) nearest-node lookup ─────────────────────────────
@@ -61,14 +62,16 @@ func find_path(from_world: Vector3, to_world: Vector3,
 			print("[NavGraph] find_path: no node near start(si=%d) or goal(ei=%d) cl=%.0fm" % [si, ei, min_clearance_m])
 		return []
 	if si == ei:
-		return [from_world, to_world]
+		# Both snap to the same node — just go to that node
+		return [from_world, _nodes[si]]
 	var raw := _astar(si, ei, min_clearance_m)
 	if raw.is_empty():
 		print("[NavGraph] find_path: A* found no path node %d → %d, cl=%.0fm" % [si, ei, min_clearance_m])
 		return []
-	raw[0]               = from_world
-	raw[raw.size() - 1]  = to_world
-	return raw
+	# Start from caller's position but end at the actual graph node,
+	# not the raw destination which may be in impassable terrain.
+	raw[0] = from_world
+	return _simplify_path(raw, min_clearance_m)
 
 func has_nearby_node(world_pos: Vector3, min_clearance_m: float = 0.0) -> bool:
 	if not _is_ready or _nodes.is_empty():
@@ -81,6 +84,8 @@ func _init_graph() -> void:
 	var cache := _cache_path()
 	if FileAccess.file_exists(cache):
 		if _load(cache):
+			# Rebuild clearance map (needed for path simplification at query time)
+			_cl_map = _build_clearance_map(TerrainNavGrid._cols, TerrainNavGrid._rows, TerrainNavGrid.cell_size_m)
 			_build_spatial_index()
 			if debug_print:
 				print("[NavGraph] Loaded from cache — %d nodes, %d edges" % [
@@ -121,7 +126,8 @@ func _build() -> void:
 	var oz    := TerrainNavGrid._origin_z
 
 	# ── Clearance map: BFS distance to nearest impassable cell ──────────────
-	var cl_map := _build_clearance_map(cols, rows, cell)
+	_cl_map = _build_clearance_map(cols, rows, cell)
+	var cl_map := _cl_map
 
 	# ── Pass 1: place nodes ─────────────────────────────────────────────────
 	var grid_to_node := PackedInt32Array()
@@ -130,6 +136,7 @@ func _build() -> void:
 
 	var node_gx: PackedInt32Array = []
 	var node_gz: PackedInt32Array = []
+	var h_ceil := TerrainNavGrid._h_min_passable + TerrainNavGrid.low_level_tolerance_m
 
 	for gz in range(0, rows, step):
 		for gx in range(0, cols, step):
@@ -139,6 +146,9 @@ func _build() -> void:
 			if not _cell_slope_ok(gx, gz):
 				continue
 			var wy: float = TerrainNavGrid._heights[gz * cols + gx]
+			# Skip high-elevation cells — carrier stays on low terrain
+			if wy > h_ceil:
+				continue
 			var idx := _nodes.size()
 			_nodes.append(Vector3(ox + gx * cell, wy, oz + gz * cell))
 			_node_cl.append(cl_map[gz * cols + gx])
@@ -210,17 +220,24 @@ func _build() -> void:
 # ── Clearance map ───────────────────────────────────────────────────────────
 
 func _build_clearance_map(cols: int, rows: int, cell: float) -> PackedFloat32Array:
-	## BFS from every impassable cell outward.  Result[i] = distance (m) from
-	## cell i to the nearest impassable cell.
+	## BFS from every obstacle cell outward.  Result[i] = distance (m) from
+	## cell i to the nearest obstacle.  "Obstacle" includes both truly impassable
+	## cells AND high-elevation cells (hills/mountains) that ground vehicles
+	## cannot traverse.
 	var cl := PackedFloat32Array()
 	cl.resize(cols * rows)
 	cl.fill(1e9)
+
+	# Determine height ceiling: only low-level terrain is navigable.
+	# This matches TerrainNavGrid.get_furthest_edge_position logic.
+	var h_ceil := TerrainNavGrid._h_min_passable + TerrainNavGrid.low_level_tolerance_m
 
 	var queue: PackedInt32Array = []
 	for gz in rows:
 		for gx in cols:
 			var h := TerrainNavGrid._heights[gz * cols + gx]
-			if h <= TerrainNavGrid.IMPASSABLE * 0.5:
+			var is_obstacle := h <= TerrainNavGrid.IMPASSABLE * 0.5 or h > h_ceil
+			if is_obstacle:
 				cl[gz * cols + gx] = 0.0
 				queue.append(gz * cols + gx)
 
@@ -274,7 +291,7 @@ func _cell_slope_ok(gx: int, gz: int) -> bool:
 
 func _edge_clearance(pa: Vector3, pb: Vector3, ia: int, ib: int) -> float:
 	## Walk the edge in cell_size steps and check slope + passability.
-	## Returns the min clearance along the edge, or -1 if impassable.
+	## Returns the min clearance along the entire edge, or -1 if impassable.
 	var diff := Vector2(pb.x - pa.x, pb.z - pa.z)
 	var dist := diff.length()
 	if dist < 0.01:
@@ -282,7 +299,13 @@ func _edge_clearance(pa: Vector3, pb: Vector3, ia: int, ib: int) -> float:
 	var step_m := TerrainNavGrid.cell_size_m
 	var dir := diff / dist
 	var prev_h := pa.y
+	var min_cl := minf(_node_cl[ia], _node_cl[ib])
 	var d := step_m * 0.5
+	var cell := TerrainNavGrid.cell_size_m
+	var cols := TerrainNavGrid._cols
+	var rows := TerrainNavGrid._rows
+	var ox := TerrainNavGrid._origin_x
+	var oz := TerrainNavGrid._origin_z
 	while d < dist:
 		var px := pa.x + dir.x * d
 		var pz := pa.z + dir.y * d
@@ -292,8 +315,16 @@ func _edge_clearance(pa: Vector3, pb: Vector3, ia: int, ib: int) -> float:
 		if abs(h - prev_h) > max_slope_m:
 			return -1.0
 		prev_h = h
+		# Sample clearance at this intermediate point from the clearance map
+		var gx := int((px - ox) / cell)
+		var gz := int((pz - oz) / cell)
+		if gx >= 0 and gx < cols and gz >= 0 and gz < rows:
+			var cl_here := _cl_map[gz * cols + gx]
+			min_cl = minf(min_cl, cl_here)
+		else:
+			return -1.0
 		d += step_m
-	return minf(_node_cl[ia], _node_cl[ib])
+	return min_cl
 
 # ── A* ──────────────────────────────────────────────────────────────────────
 
@@ -314,6 +345,11 @@ func _astar(start: int, goal: int, min_cl: float) -> Array[Vector3]:
 
 	var goal_pos: Vector3 = _nodes[goal]
 	var open: Array = [[_nodes[start].distance_to(goal_pos), start]]
+
+	# Penalize edges near obstacles so paths prefer open corridors.
+	# An edge with exactly min_cl clearance gets a 100% distance penalty;
+	# edges well beyond the required clearance get no penalty.
+	var cl_penalty_range := maxf(min_cl * 2.0, 120.0)
 
 	while not open.is_empty():
 		var entry: Array = _heap_pop(open)
@@ -336,7 +372,11 @@ func _astar(start: int, goal: int, min_cl: float) -> Array[Vector3]:
 				continue
 			if _edge_cl[e] < min_cl:
 				continue
-			var tg: float = g_cur + _nodes[cur].distance_to(_nodes[nb])
+			var dist: float = _nodes[cur].distance_to(_nodes[nb])
+			# Clearance penalty: edges near walls cost more
+			var excess_cl := maxf(_edge_cl[e] - min_cl, 0.0)
+			var penalty := 1.0 + 1.0 * clampf(1.0 - excess_cl / cl_penalty_range, 0.0, 1.0)
+			var tg: float = g_cur + dist * penalty
 			if tg < g_score[nb]:
 				came_from[nb] = cur
 				g_score[nb]   = tg
@@ -352,6 +392,75 @@ func _rebuild(came_from: PackedInt32Array, end: int) -> Array[Vector3]:
 		c = came_from[c]
 	path.reverse()
 	return path
+
+func _simplify_path(path: Array[Vector3], min_cl: float) -> Array[Vector3]:
+	## Greedy line-of-sight simplification: skip intermediate waypoints when a
+	## direct segment between two non-adjacent points has sufficient clearance
+	## and acceptable slope.  Simplified segments require 50% MORE clearance
+	## than the original path to keep shortcuts away from walls.
+	## Max segment length capped at 400m so the carrier doesn't cut huge corners.
+	if path.size() <= 2:
+		return path
+	var simplify_cl := min_cl * 1.5
+	var max_seg_m := 400.0
+	var result: Array[Vector3] = [path[0]]
+	var i := 0
+	while i < path.size() - 1:
+		var best := i + 1
+		for j in range(i + 2, path.size()):
+			var seg_dist := Vector2(path[i].x - path[j].x, path[i].z - path[j].z).length()
+			if seg_dist > max_seg_m:
+				break
+			var cl := _check_segment_clearance(path[i], path[j], simplify_cl)
+			if cl >= simplify_cl:
+				best = j
+			else:
+				break
+		result.append(path[best])
+		i = best
+	return result
+
+func _check_segment_clearance(from: Vector3, to: Vector3, min_cl: float) -> float:
+	## Walk a straight segment and return the minimum clearance along it.
+	## Returns -1.0 if any point is impassable or too steep.
+	var diff := Vector2(to.x - from.x, to.z - from.z)
+	var dist := diff.length()
+	if dist < 0.01:
+		return 1e9
+	var step_m := TerrainNavGrid.cell_size_m
+	var dir := diff / dist
+	var prev_h := from.y
+	var result_cl := 1e9
+	var cell := TerrainNavGrid.cell_size_m
+	var cols := TerrainNavGrid._cols
+	var rows := TerrainNavGrid._rows
+	var ox := TerrainNavGrid._origin_x
+	var oz := TerrainNavGrid._origin_z
+	var d := step_m * 0.5
+	while d < dist:
+		var px := from.x + dir.x * d
+		var pz := from.z + dir.y * d
+		var h := TerrainNavGrid.sample_height(px, pz)
+		if h <= TerrainNavGrid.IMPASSABLE * 0.5:
+			return -1.0
+		if abs(h - prev_h) > max_slope_m:
+			return -1.0
+		prev_h = h
+		var gx := int((px - ox) / cell)
+		var gz := int((pz - oz) / cell)
+		if gx >= 0 and gx < cols and gz >= 0 and gz < rows:
+			var cl_here: float
+			if _cl_map.size() > 0:
+				cl_here = _cl_map[gz * cols + gx]
+			else:
+				cl_here = 1e9
+			result_cl = minf(result_cl, cl_here)
+			if result_cl < min_cl:
+				return result_cl
+		else:
+			return -1.0
+		d += step_m
+	return result_cl
 
 # ── Spatial index ───────────────────────────────────────────────────────────
 
@@ -421,7 +530,7 @@ func _heap_pop(heap: Array) -> Array:
 
 # ── Save / Load ─────────────────────────────────────────────────────────────
 
-const _CACHE_VERSION := 3
+const _CACHE_VERSION := 5
 
 func _save(path: String) -> void:
 	var data := {

@@ -34,6 +34,7 @@ var delay_timer: float = 0.0
 # Instanced component
 var weapon_instance: Weapon = null
 var host_actor: Node3D = null
+var _debug_print_timer: float = 0.0
 
 func _ready() -> void:
     if not turret:
@@ -48,8 +49,6 @@ func _ready() -> void:
         return
 
     host_actor = _resolve_host_actor()
-    if debug_enabled:
-        print("[TurretController] Ready. team=%d host=%s turret=%s" % [team, str(host_actor), str(turret)])
 
     if weapon_scene:
         mount_weapon(weapon_scene)
@@ -83,29 +82,40 @@ func _physics_process(delta: float) -> void:
     if target_search_timer >= maxf(target_search_interval_s, 0.05):
         target_search_timer = 0.0
         find_and_set_best_target()
-        if debug_enabled:
-            var angle = turret.get_aim_angle_to_target() if current_target else -1.0
-            print("[TC t=%d] after search: target=%s state=%s angle=%.1fdeg weapon=%s" % [
-                team, str(current_target), FireState.keys()[fire_state], angle, str(weapon_instance)])
 
     # 2. Target Tracking + Rotation
     if current_target and is_instance_valid(current_target):
         turret.set_target(current_target)
         var lead_position := calculate_lead_position(current_target)
         turret.aim_at_point(lead_position)
-
-        var angle_before := turret.get_aim_angle_to_target()
         turret.tick(delta, lead_position)
-        var angle_after := turret.get_aim_angle_to_target()
 
-        if debug_enabled and target_search_timer < 0.05: # Print once per search cycle
-            print("[TC t=%d] tick: angle %.1fdeg -> %.1fdeg (delta=%.4f)" % [team, angle_before, angle_after, delta])
+        var aim_angle := turret.get_aim_angle_to_target()
+        var aimed := aim_angle >= 0.0 and aim_angle <= fire_angle_tolerance_deg
 
         # 3. Burst firing logic
-        if turret.is_aimed_at_target(fire_angle_tolerance_deg):
+        if aimed:
+            update_burst_firing(delta)
+        elif fire_state == FireState.DELAYING:
             update_burst_firing(delta)
         else:
             stop_firing()
+
+        # Throttled debug: print once per second per turret
+        _debug_print_timer += delta
+        if _debug_print_timer >= 1.0:
+            _debug_print_timer = 0.0
+            var dist := global_position.distance_to(current_target.global_position)
+            var lead_offset: Vector3 = lead_position - current_target.global_position
+            var tgt_vel := _get_node_velocity(current_target)
+            var flight_t := dist / maxf(_get_weapon_projectile_speed(), 1.0)
+            print("[TC %s] tgt=%s dist=%.0fm tVel=(%.0f,%.0f,%.0f) lead_ofs=(%.1f,%.1f,%.1f) flight_t=%.2fs state=%s" % [
+                get_parent().name if get_parent() else name,
+                current_target.name, dist,
+                tgt_vel.x, tgt_vel.y, tgt_vel.z,
+                lead_offset.x, lead_offset.y, lead_offset.z,
+                flight_t,
+                FireState.keys()[fire_state]])
     else:
         turret.set_target(null)
         stop_firing()
@@ -139,11 +149,7 @@ func stop_firing() -> void:
 
 func fire_weapon() -> void:
     if not weapon_instance or not turret:
-        if debug_enabled:
-            print("[TC t=%d] fire_weapon: SKIP no weapon or turret" % team)
         return
-    if debug_enabled:
-        print("[TC t=%d] fire_weapon: can_fire=%s" % [team, str(weapon_instance.can_fire())])
     if weapon_instance.can_fire():
         turret.fire()
         weapon_instance.fire()
@@ -155,18 +161,12 @@ func find_and_set_best_target() -> void:
     var best_distance = max_range
 
     var candidates = _get_hostile_targets_in_range(max_range)
-    if debug_enabled:
-        print("[TC t=%d] %d candidates, current=%s" % [team, candidates.size(), str(current_target)])
     for enemy in candidates:
         var d = global_position.distance_to(enemy.global_position)
-        if debug_enabled:
-            print("  cand %s dist=%.0f (best_dist=%.0f) -> pick=%s" % [enemy.name, d, best_distance, str(d < best_distance)])
         if d < best_distance:
             best_target = enemy
             best_distance = d
 
-    if debug_enabled:
-        print("[TC t=%d] best=%s  current=%s  same=%s" % [team, str(best_target), str(current_target), str(best_target == current_target)])
     if current_target != best_target:
         current_target = best_target
         if turret and is_instance_valid(turret):

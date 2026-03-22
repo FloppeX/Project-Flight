@@ -13,8 +13,6 @@ size = Vector3(12.1176, 11.4878, 32.7458)
 [node name="CarrierTread" type="StaticBody3D"]
 physics_material_override = SubResource("PhysicsMaterial_tread")
 script = ExtResource("1_script")
-belt_debug_mode = 2
-belt_debug_freeze_scroll = true
 
 [node name="TreadCollision" type="CollisionShape3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.0450191, -3.18909, 0.207926)

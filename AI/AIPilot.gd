@@ -63,6 +63,10 @@ var known_enemies: Array[Node3D] = []  # Enemies in sensor range
 var known_friendlies: Array[Node3D] = []  # Friendly aircraft in sensor range
 var _terrain_node: Node = null
 var _smoothed_ground_height: float = NAN  # Smoothed ground height for stable low-level flight
+# Terrain fan avoidance — directional escape sampling
+var _terrain_fan_clearances: PackedFloat32Array = PackedFloat32Array([INF, INF, INF, INF, INF])
+var _terrain_fan_best_idx: int = 2  # Index into fan angles; 2 = forward
+var _safety_override_active: bool = false  # True when terrain/collision override is controlling
 
 @export var sensor_range: float = 5000.0  # How far AI can "see"
 @export var ground_check_distance: float = 10000.0  # Max distance for AGL raycast
@@ -110,6 +114,7 @@ var maneuver_waypoint: Vector3 = Vector3.ZERO  # Short-term maneuvering target
 @export var bomb_release_spacing_s: float = 0.2   # Time spacing between bombs
 @export var ground_attack_enabled: bool = true  # True = autonomous ground attack when valid targets appear
 @export var dogfight_enabled: bool = true
+@export var dogfight_proximity_override_m: float = 500.0  # Break off ground attack if enemy aircraft within this range
 @export var engagement_radius_from_carrier_m: float = 4500.0
 @export var disengage_radius_from_carrier_m: float = 6000.0
 @export var dogfight_max_range_m: float = 1800.0
@@ -173,7 +178,7 @@ var maneuver_waypoint: Vector3 = Vector3.ZERO  # Short-term maneuvering target
 @export var dogfight_unload_speed_margin_mps: float = 8.0
 @export var dogfight_unload_descent_gain: float = 0.18
 @export var dogfight_low_speed_pitch_cap: float = 0.45
-@export var dogfight_lead_pursuit_blend: float = 0.6
+@export var dogfight_lead_pursuit_blend: float = 1.0
 @export var dogfight_ballistic_aim_blend: float = 0.72
 @export var dogfight_precise_ballistic_aim_blend: float = 1.0
 @export var dogfight_rejoin_range_m: float = 2200.0
@@ -206,6 +211,10 @@ var _bombs_dropped_this_run: int = 0
 var _last_bomb_drop_time_s: float = -INF
 var _bomb_run_altitude_m: float = 0.0
 var _prev_ccip_miss: float = INF  # Tracks CCIP miss from last frame to detect improving accuracy
+var _ccip_cache_timer: float = 0.0  # Throttle CCIP to avoid per-frame ballistic sim
+var _ccip_cached_result: Vector3 = Vector3.ZERO
+var _cached_bomb_linear_damp: float = -1.0  # -1 = not yet cached
+var _cached_bomb_gravity_scale: float = 1.0
 var _attack_recovery_until_s: float = 0.0  # After emergency, hold egress before next run
 var _dive_precise_aim: bool = false  # When true, use tighter bank for steadier final approach
 var _dive_entry_time_s: float = -INF  # When we entered ATTACK_DIVE (for soft dive entry)
@@ -495,38 +504,49 @@ func _physics_process(delta: float):
 	# Update health and fuel monitoring for RTB
 	_check_rtb_triggers()
 
-	# State machine
-	match current_state:
-		State.IDLE:
-			_state_idle(delta)
-		State.LAUNCHING:
-			_state_launching(delta)
-		State.CLIMBING:
-			_state_climbing(delta)
-		State.TRANSIT:
-			_state_transit(delta)
-		State.SEARCH:
-			_state_search(delta)
-		State.ATTACK_POSITIONING:
-			_state_attack_positioning(delta)
-		State.ATTACK_INBOUND:
-			_state_attack_inbound(delta)
-		State.ATTACK_DIVE:
-			_state_attack_dive(delta)
-		State.ATTACK_BREAK_OFF:
-			_state_attack_break_off(delta)
-		State.DOGFIGHT:
-			_state_dogfight(delta)
-		State.ENGAGE:
-			_state_engage(delta)
-		State.RTB:
-			_state_rtb(delta)
-		State.APPROACH:
-			_state_approach(delta)
-		State.LANDING:
-			_state_landing(delta)
-		State.MISSED_APPROACH:
-			_state_missed_approach(delta)
+	# === HIERARCHY OF NEEDS ===
+	# 1. Don't fly into terrain (highest priority)
+	# 2. Don't fly into other aircraft
+	# 3. Do whatever the state machine says
+	_safety_override_active = false
+	if _check_terrain_avoidance(delta):
+		_safety_override_active = true
+	elif _check_collision_avoidance(delta):
+		_safety_override_active = true
+
+	if not _safety_override_active:
+		# State machine — only runs when safety is not overriding
+		match current_state:
+			State.IDLE:
+				_state_idle(delta)
+			State.LAUNCHING:
+				_state_launching(delta)
+			State.CLIMBING:
+				_state_climbing(delta)
+			State.TRANSIT:
+				_state_transit(delta)
+			State.SEARCH:
+				_state_search(delta)
+			State.ATTACK_POSITIONING:
+				_state_attack_positioning(delta)
+			State.ATTACK_INBOUND:
+				_state_attack_inbound(delta)
+			State.ATTACK_DIVE:
+				_state_attack_dive(delta)
+			State.ATTACK_BREAK_OFF:
+				_state_attack_break_off(delta)
+			State.DOGFIGHT:
+				_state_dogfight(delta)
+			State.ENGAGE:
+				_state_engage(delta)
+			State.RTB:
+				_state_rtb(delta)
+			State.APPROACH:
+				_state_approach(delta)
+			State.LANDING:
+				_state_landing(delta)
+			State.MISSED_APPROACH:
+				_state_missed_approach(delta)
 
 	# Periodic telemetry (~2 per second at 60fps)
 	if debug_enabled and Engine.get_process_frames() % 30 == 0:
@@ -538,10 +558,8 @@ func _physics_process(delta: float):
 		var fpa_deg: float = rad_to_deg(atan2(-aircraft.linear_velocity.y, max(h_spd, 1.0)))
 		var state_name: String = State.keys()[current_state]
 		var pos: Vector3 = aircraft.global_position
-		print("[AIPilot TEL] state=", state_name, "  pos=(", snapped(pos.x, 1), ",", snapped(pos.y, 1), ",", snapped(pos.z, 1), ")  alt=", snapped(alt, 1), "  AGL=", snapped(altitude_agl, 1), "  spd=", snapped(spd, 1), "m/s  VS=", snapped(vs, 1), "  pitch=", snapped(pitch_deg, 0.1), "Ãƒâ€šÃ‚Â°  fpa=", snapped(fpa_deg, 0.1), "Ãƒâ€šÃ‚Â°")
-
-	# Emergency terrain avoidance - overrides normal behavior
-	_check_emergency_terrain_avoidance()
+		var override_str: String = "  [SAFETY]" if _safety_override_active else ""
+		print("[AIPilot TEL] state=", state_name, override_str, "  pos=(", snapped(pos.x, 1), ",", snapped(pos.y, 1), ",", snapped(pos.z, 1), ")  alt=", snapped(alt, 1), "  AGL=", snapped(altitude_agl, 1), "  spd=", snapped(spd, 1), "m/s  VS=", snapped(vs, 1), "  pitch=", snapped(pitch_deg, 0.1), "Ãƒâ€šÃ‚Â°  fpa=", snapped(fpa_deg, 0.1), "Ãƒâ€šÃ‚Â°")
 
 	# Update waypoint marker position
 	_update_waypoint_marker()
@@ -785,6 +803,25 @@ func _find_nearest_enemy_aircraft_target() -> Node3D:
 			nearest = enemy_node
 	return nearest
 
+func _check_air_threat_proximity() -> bool:
+	"""During ground attack, check if an enemy aircraft is dangerously close.
+	If so, break off and engage it in a dogfight."""
+	if not dogfight_enabled or dogfight_proximity_override_m <= 0.0:
+		return false
+	for enemy in known_enemies:
+		if not (enemy is Node3D) or not is_instance_valid(enemy):
+			continue
+		if not _is_enemy_aircraft_target(enemy as Node3D):
+			continue
+		var d: float = aircraft.global_position.distance_to((enemy as Node3D).global_position)
+		if d <= dogfight_proximity_override_m:
+			combat_target = enemy as Node3D
+			change_state(State.DOGFIGHT)
+			if debug_enabled:
+				print("[AIPilot] Air threat at %.0fm — breaking off ground attack to dogfight %s" % [d, combat_target.name])
+			return true
+	return false
+
 func _evaluate_combat_objective() -> bool:
 	# Air defense has priority over ground attack.
 	if dogfight_enabled:
@@ -849,6 +886,8 @@ func _setup_attack_run_waypoint():
 
 func _state_attack_positioning(delta: float):
 	"""Fly to attack run setup waypoint (800m offset; altitude depends on weapon plan)."""
+	if _check_air_threat_proximity():
+		return
 	if not ground_attack_enabled:
 		change_state(State.SEARCH)
 		return
@@ -904,6 +943,8 @@ func _state_attack_positioning(delta: float):
 
 func _state_attack_inbound(delta: float):
 	"""Bomb run inbound leg: fly level toward target at setup altitude, then dive at bomb_dive_start_distance_m."""
+	if _check_air_threat_proximity():
+		return
 	if not ground_attack_enabled:
 		change_state(State.SEARCH)
 		return
@@ -952,6 +993,8 @@ func _state_attack_inbound(delta: float):
 
 func _state_attack_dive(delta: float):
 	"""Dive at target, fire guns, break off at 100m to line up new run."""
+	if _check_air_threat_proximity():
+		return
 	if not ground_attack_enabled:
 		change_state(State.SEARCH)
 		return
@@ -1001,7 +1044,12 @@ func _state_attack_dive(delta: float):
 	var alt_above: float = aircraft.global_position.y - target_pos.y
 	var ccip_impact: Vector3 = Vector3.ZERO  # Shared between aim correction and release check
 	if _run_weapon_type == "Bomb":
-		ccip_impact = _predict_bomb_impact_point()
+		# Throttle CCIP calculation — ballistic sim is expensive (~500 iterations + raycasts)
+		_ccip_cache_timer -= delta
+		if _ccip_cache_timer <= 0.0:
+			_ccip_cache_timer = 0.1  # Recalculate every ~6 physics frames
+			_ccip_cached_result = _predict_bomb_impact_point()
+		ccip_impact = _ccip_cached_result
 		if ccip_impact != Vector3.ZERO:
 			var err_h: Vector3 = Vector3(target_pos.x - ccip_impact.x, 0.0, target_pos.z - ccip_impact.z)
 			var correction_strength: float = clamp(0.6 + 0.6 * (1.0 - horiz_dist / 500.0), 0.6, 1.2)
@@ -1037,6 +1085,8 @@ func _state_attack_dive(delta: float):
 
 func _state_attack_break_off(delta: float):
 	"""Fly away from target until far enough, then return to SEARCH to set up new run."""
+	if _check_air_threat_proximity():
+		return
 	if not ground_attack_enabled:
 		change_state(State.SEARCH)
 		return
@@ -2016,6 +2066,8 @@ func _plan_attack_run_weapon() -> void:
 	_bombs_dropped_this_run = 0
 	_last_bomb_drop_time_s = -INF
 	_prev_ccip_miss = INF
+	_ccip_cache_timer = 0.0
+	_ccip_cached_result = Vector3.ZERO
 	if not control_weapons:
 		return
 
@@ -2152,7 +2204,11 @@ func _predict_bomb_impact_point(log_debug: bool = false) -> Vector3:
 
 	var linear_damp: float = 0.0
 	var gravity_scale: float = 1.0
-	if bomb_projectile_scene:
+	if _cached_bomb_linear_damp >= 0.0:
+		# Use cached values from previous instantiation
+		linear_damp = _cached_bomb_linear_damp
+		gravity_scale = _cached_bomb_gravity_scale
+	elif bomb_projectile_scene:
 		var bomb_instance = bomb_projectile_scene.instantiate()
 		if "linear_damp" in bomb_instance:
 			linear_damp = float(bomb_instance.linear_damp)
@@ -2161,13 +2217,15 @@ func _predict_bomb_impact_point(log_debug: bool = false) -> Vector3:
 		if "gravity_scale" in bomb_instance:
 			gravity_scale = float(bomb_instance.gravity_scale)
 		bomb_instance.queue_free()
+		_cached_bomb_linear_damp = linear_damp
+		_cached_bomb_gravity_scale = gravity_scale
 
 	var gravity_dir: Vector3 = ProjectSettings.get_setting("physics/3d/default_gravity_vector", Vector3(0, -1, 0))
 	var gravity_mag: float = float(ProjectSettings.get_setting("physics/3d/default_gravity", 9.8))
 	var gravity_vec: Vector3 = gravity_dir * gravity_mag
 
-	var time_step: float = 0.02
-	var max_time: float = 25.0
+	var time_step: float = 0.05
+	var max_time: float = 15.0
 	var current_pos: Vector3 = start_pos
 	var space_state: PhysicsDirectSpaceState3D = aircraft.get_world_3d().direct_space_state
 	var terrain: Node = _get_cached_terrain_node()
@@ -3528,83 +3586,216 @@ func _navigate_to_altitude_and_speed(delta: float):
 # UTILITY FUNCTIONS
 # ============================================================================
 
-func _check_emergency_terrain_avoidance():
-	"""Override controls if terrain is dangerously close"""
-	# Post-catapult states: aircraft is intentionally at low AGL. Do not override.
-	if current_state == State.LAUNCHING:
-		return
+func _evaluate_terrain_fan() -> void:
+	"""Sample terrain clearance in a fan of directions ahead of the aircraft.
+	Fills _terrain_fan_clearances with the minimum clearance along each direction,
+	and sets _terrain_fan_best_idx to the direction with the most clearance."""
+	var vel := aircraft.linear_velocity
+	var horiz_speed := Vector2(vel.x, vel.z).length()
+	var vert_speed := vel.y
+
+	var heading_dir: Vector3
+	if horiz_speed > 10.0:
+		heading_dir = Vector3(vel.x, 0.0, vel.z).normalized()
+	else:
+		var fwd := aircraft.global_transform.basis.z
+		heading_dir = Vector3(fwd.x, 0.0, fwd.z).normalized()
+		horiz_speed = maxf(horiz_speed, 30.0)
+
+	var fan_angles := [-60.0, -30.0, 0.0, 30.0, 60.0]
+	var lookahead_times := [0.5, 1.0, 1.5, 2.0]
+	var pos := aircraft.global_position
+
+	var best_clearance := -INF
+	_terrain_fan_best_idx = 2
+
+	for i in range(fan_angles.size()):
+		var angle_rad := deg_to_rad(fan_angles[i])
+		var ca := cos(angle_rad)
+		var sa := sin(angle_rad)
+		# Rotate heading direction horizontally
+		var dir := Vector3(
+			heading_dir.x * ca - heading_dir.z * sa,
+			0.0,
+			heading_dir.x * sa + heading_dir.z * ca
+		)
+
+		var min_clearance := INF
+		for t in lookahead_times:
+			var projected_pos: Vector3 = pos + dir * horiz_speed * t + Vector3.UP * vert_speed * t
+			var terrain_h: float = _get_ground_height_at_position(projected_pos)
+			if is_nan(terrain_h):
+				continue
+			var clearance: float = projected_pos.y - terrain_h
+			min_clearance = minf(min_clearance, clearance)
+
+		_terrain_fan_clearances[i] = min_clearance
+		if min_clearance > best_clearance:
+			best_clearance = min_clearance
+			_terrain_fan_best_idx = i
+
+func _check_terrain_avoidance(_delta: float) -> bool:
+	"""Directional terrain avoidance using fan-sampled clearance data.
+	Steers toward the safest direction when terrain is threatening ahead.
+	Returns true if controls were overridden."""
+	if current_state in [State.LAUNCHING, State.LANDING, State.IDLE]:
+		return false
 	if current_state == State.CLIMBING and aircraft.linear_velocity.y > 2.0:
-		return
+		return false
 
-	var in_attack_phase: bool = current_state in [State.DOGFIGHT, State.ATTACK_POSITIONING, State.ATTACK_INBOUND, State.ATTACK_DIVE, State.ATTACK_BREAK_OFF]
-	var in_landing: bool = current_state in [State.APPROACH, State.LANDING]
-	var in_carrier_approach: bool = current_state == State.APPROACH
-	# During an actual dive the plane intentionally descends; use less conservative thresholds.
-	# During positioning/inbound the plane is just navigating, use slightly relaxed but still safe values.
-	var in_dive: bool = current_state == State.ATTACK_DIVE
-	var agl_floor: float
-	var tti_limit: float
-	var terrain_warn: float
-	if in_landing and current_state == State.LANDING:
-		# On final approach we intentionally descend to the deck. Do NOT pull up ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the
-		# carrier hull/deck is in the flight path and we must fly to approach_4. Skip
-		# all emergency terrain avoidance; let _navigate_to_waypoint steer to the deck.
-		return
-	elif in_landing:
-		# Pre-final carrier approach should still be protected, but without fighting
-		# every planned descent toward the marker chain.
-		agl_floor    = 45.0
-		tti_limit    = 0.9
-		terrain_warn = 90.0
-	elif in_dive:
-		agl_floor  = 60.0
-		tti_limit  = 1.2
-		terrain_warn = 160.0
-	elif in_attack_phase:
-		agl_floor  = 80.0
-		tti_limit  = 1.5
-		terrain_warn = 200.0
+	# State-specific safety margins (how much clearance we need to feel safe)
+	var safety_margin: float
+	if current_state == State.APPROACH:
+		safety_margin = 45.0
+	elif current_state == State.ATTACK_DIVE:
+		safety_margin = 60.0
+	elif current_state in [State.DOGFIGHT, State.ATTACK_POSITIONING, State.ATTACK_INBOUND, State.ATTACK_BREAK_OFF]:
+		safety_margin = 80.0
 	else:
-		agl_floor  = emergency_min_agl_m
-		tti_limit  = emergency_tti_s
-		terrain_warn = terrain_warning_distance
+		safety_margin = emergency_min_agl_m  # 180.0
 
-	var forward_dir: Vector3 = aircraft.linear_velocity.normalized() if aircraft.linear_velocity.length() > 10.0 else aircraft.global_transform.basis.z
-	var forward_speed: float = max(aircraft.linear_velocity.dot(forward_dir), 0.0)
-	var tti: float = terrain_ahead_distance / max(forward_speed, 0.1)
-	var imminent_impact: bool = terrain_ahead_distance < terrain_warn or (terrain_ahead_distance < INF and tti < tti_limit)
-	var descending_low: bool = in_dive and aircraft.linear_velocity.y < -8.0 and altitude_agl < agl_floor + 20.0 and terrain_ahead_distance < terrain_warn * 1.5
+	var fan_angles := [-60.0, -30.0, 0.0, 30.0, 60.0]
+	var forward_clearance: float = _terrain_fan_clearances[2]  # 0 degrees = forward
+	var best_idx := _terrain_fan_best_idx
+	var best_clearance: float = _terrain_fan_clearances[best_idx]
 
-	# During positioning/inbound the plane may be at low AGL while climbing to the setup
-	# altitude. Don't abort the attack based on AGL alone when the plane is climbing and
-	# there's no terrain directly ahead. Only trigger on truly dangerous AGL (<30m) or
-	# if terrain ahead is actually a threat.
-	var is_climbing_to_altitude: bool = current_state in [State.DOGFIGHT, State.ATTACK_POSITIONING, State.ATTACK_INBOUND] and aircraft.linear_velocity.y > 0.0
-	var low_agl: bool
-	if in_carrier_approach:
-		low_agl = altitude_agl < 20.0 and aircraft.linear_velocity.y < -6.0 and terrain_ahead_distance < terrain_warn
-	elif is_climbing_to_altitude:
-		low_agl = altitude_agl < 30.0
+	# Also incorporate the raycast-based terrain_ahead_distance as a forward threat signal.
+	# The raycast catches geometry that terrain height API may miss (overhangs, non-terrain).
+	var vel := aircraft.linear_velocity
+	var forward_speed: float = maxf(vel.length(), 10.0)
+	var tti: float = terrain_ahead_distance / forward_speed
+	if terrain_ahead_distance < INF and tti < 2.5:
+		forward_clearance = minf(forward_clearance, terrain_ahead_distance * 0.3)
+
+	# If forward is fine AND we're not dangerously low, no override needed.
+	var is_climbing: bool = current_state in [State.DOGFIGHT, State.ATTACK_POSITIONING, State.ATTACK_INBOUND] and vel.y > 0.0
+	var agl_ok: bool
+	if current_state == State.APPROACH:
+		agl_ok = altitude_agl > 20.0 or vel.y > -6.0
+	elif is_climbing:
+		agl_ok = altitude_agl > 30.0
 	else:
-		low_agl = altitude_agl < agl_floor
+		agl_ok = altitude_agl > safety_margin
 
-	# Check AGL and predicted collision
-	if low_agl or imminent_impact or descending_low:
-		pitch_input = 1.0  # Full pull up
-		roll_input = 0.0  # Wings level
-		yaw_input = 0.0
-		throttle_input = 1.0  # Full throttle
-		# Slam the smoothed values so navigation doesn't fight the emergency on the next frame
-		_smoothed_roll_input = 0.0
-		_smoothed_pitch_input = 1.0
-		_smoothed_yaw_input = 0.0
-		# Force an egress profile out of attack dive if needed
-		if current_state in [State.ATTACK_DIVE, State.ATTACK_POSITIONING, State.ATTACK_INBOUND]:
-			# Hold off re-attacks briefly so we do not thrash between setup and break-off near terrain.
-			_attack_recovery_until_s = max(_attack_recovery_until_s, Time.get_ticks_msec() / 1000.0 + 4.0)
-			change_state(State.ATTACK_BREAK_OFF)
-		if debug_enabled and Engine.get_process_frames() % 30 == 0:
-			print("[AIPilot EMERGENCY] AGL=", snapped(altitude_agl, 0.1), "m  terrain_ahead=", snapped(terrain_ahead_distance, 0.1), "m  tti=", snapped(tti, 0.1), "s  (attack=", in_attack_phase, ") - PULLING UP!")
+	if forward_clearance > safety_margin and agl_ok:
+		return false
+
+	# We're in danger. Decide: turn or climb?
+	var escape_angle_deg: float = fan_angles[best_idx]
+	var lateral_is_better: bool = best_clearance > forward_clearance + 30.0 and best_idx != 2
+
+	if lateral_is_better:
+		# A lateral direction has more clearance — full bank toward it.
+		var bank_sign: float = signf(escape_angle_deg)
+		roll_input = bank_sign  # Full deflection
+		pitch_input = 1.0  # Full pull — the bank will convert this into a turn
+	else:
+		# No good lateral escape — wings level, full pull up.
+		roll_input = 0.0
+		pitch_input = 1.0
+
+	yaw_input = 0.0
+	throttle_input = 1.0
+	# Slam smoothed values so the state machine doesn't fight the override next frame.
+	_smoothed_roll_input = roll_input
+	_smoothed_pitch_input = pitch_input
+	_smoothed_yaw_input = 0.0
+
+	# Force state transition out of attack if needed.
+	if current_state in [State.ATTACK_DIVE, State.ATTACK_POSITIONING, State.ATTACK_INBOUND]:
+		_attack_recovery_until_s = maxf(_attack_recovery_until_s, Time.get_ticks_msec() / 1000.0 + 4.0)
+		change_state(State.ATTACK_BREAK_OFF)
+
+	if debug_enabled and Engine.get_process_frames() % 30 == 0:
+		var action: String = ("TURN %.0f deg" % escape_angle_deg) if lateral_is_better else "CLIMB"
+		print("[AIPilot TERRAIN] AGL=%.0fm fwd_clr=%.0fm best_dir=%.0f° best_clr=%.0fm — %s" % [
+			altitude_agl, forward_clearance, escape_angle_deg, best_clearance, action])
+	return true
+
+func _check_collision_avoidance(_delta: float) -> bool:
+	"""Avoid mid-air collisions with other aircraft.
+	Uses time-to-closest-approach (TCA) to detect imminent collisions and steer away.
+	Returns true if controls were overridden."""
+	if current_state in [State.LAUNCHING, State.LANDING, State.IDLE]:
+		return false
+
+	var my_pos := aircraft.global_position
+	var my_vel := aircraft.linear_velocity
+
+	var closest_tca := INF
+	var closest_miss := INF
+	var closest_threat: Node3D = null
+	var closest_rel_pos := Vector3.ZERO
+
+	# Check all known contacts (enemies + friendlies)
+	var all_contacts: Array = []
+	all_contacts.append_array(known_enemies)
+	all_contacts.append_array(known_friendlies)
+
+	for contact in all_contacts:
+		if not (contact is Node3D) or not is_instance_valid(contact):
+			continue
+		var cnode := contact as Node3D
+		# Only worry about things near our altitude (skip ground vehicles etc)
+		if absf(cnode.global_position.y - my_pos.y) > 200.0:
+			continue
+		var rel_pos: Vector3 = cnode.global_position - my_pos
+		var dist: float = rel_pos.length()
+		if dist > 400.0:
+			continue
+		# Get contact velocity
+		var contact_vel := Vector3.ZERO
+		var lv = cnode.get("linear_velocity")
+		if lv is Vector3:
+			contact_vel = lv
+		else:
+			var v = cnode.get("velocity")
+			if v is Vector3:
+				contact_vel = v
+		var rel_vel: Vector3 = contact_vel - my_vel
+		var rel_speed_sq: float = rel_vel.length_squared()
+		if rel_speed_sq < 1.0:
+			continue
+		# Time to closest approach
+		var tca: float = -rel_pos.dot(rel_vel) / rel_speed_sq
+		if tca < 0.0 or tca > 3.0:
+			continue
+		# Miss distance at closest approach
+		var miss_vec: Vector3 = rel_pos + rel_vel * tca
+		var miss_dist: float = miss_vec.length()
+		if miss_dist < 80.0 and tca < closest_tca:
+			closest_tca = tca
+			closest_miss = miss_dist
+			closest_threat = cnode
+			closest_rel_pos = rel_pos
+
+	if closest_threat == null:
+		return false
+
+	# Evade: turn away from the threat aircraft
+	var away_horiz := Vector3(-closest_rel_pos.x, 0.0, -closest_rel_pos.z)
+	if away_horiz.length_squared() < 0.01:
+		away_horiz = aircraft.global_transform.basis.x  # Default: dodge right
+	away_horiz = away_horiz.normalized()
+
+	# Which way to bank? Use dot with aircraft's right vector.
+	var right: Vector3 = aircraft.global_transform.basis.x
+	var bank_sign: float = signf(away_horiz.dot(right))
+
+	# Proportional evasion — firm but not violent, so formation flight is possible
+	var urgency: float = clampf(1.0 - closest_tca / 3.0, 0.3, 0.7)
+	roll_input = bank_sign * urgency
+	pitch_input = 0.3 * urgency
+	yaw_input = 0.0
+	throttle_input = 1.0
+	_smoothed_roll_input = roll_input
+	_smoothed_pitch_input = pitch_input
+	_smoothed_yaw_input = 0.0
+
+	if debug_enabled and Engine.get_process_frames() % 30 == 0:
+		print("[AIPilot COLLISION] threat=%s tca=%.1fs miss=%.0fm — EVADING" % [
+			closest_threat.name, closest_tca, closest_miss])
+	return true
 
 func _apply_controls():
 	"""Apply control inputs to aircraft modules"""
@@ -3639,6 +3830,9 @@ func _update_sensors():
 
 	# Check terrain ahead in flight path
 	_check_terrain_ahead()
+
+	# Evaluate terrain clearance in multiple directions for smart avoidance
+	_evaluate_terrain_fan()
 
 	# Scan for enemies and friendlies within sensor range
 	_scan_contacts()

@@ -91,18 +91,13 @@ func _rotate_towards(target_pos: Vector3, delta: float) -> void:
 		var new_yaw: float = rotate_toward(rotation.y, desired_yaw, max_turn)
 		rotation = Vector3(_turret_rest_rotation.x, new_yaw, _turret_rest_rotation.z)
 
-	# 2. Pitch: the barrel only elevates around its hinge axis from the rest pose.
-	var barrel_parent := barrel_mount.get_parent_node_3d()
-	if barrel_parent == null:
+	# 2. Pitch: compute elevation angle in the turret's own frame, then apply
+	#    as rotation around the barrel's pitch axis from its rest pose.
+	var dir_world: Vector3 = target_pos - barrel_mount.global_position
+	if dir_world.length_squared() < 0.01:
 		return
-	var target_dir_parent: Vector3 = (barrel_parent.to_local(target_pos) - barrel_mount.position).normalized()
-	if target_dir_parent.length_squared() <= 0.0001:
-		return
-	var target_dir_rest_local: Vector3 = (_barrel_rest_basis.inverse() * target_dir_parent).normalized()
-	var pitch_plane_dir: Vector3 = target_dir_rest_local.slide(_barrel_pitch_axis_local).normalized()
-	if pitch_plane_dir.length_squared() <= 0.0001:
-		return
-	var target_pitch: float = _signed_angle_around_axis(_barrel_forward_axis_local, pitch_plane_dir, _barrel_pitch_axis_local)
+	var dir_local: Vector3 = global_transform.basis.inverse() * dir_world
+	var target_pitch: float = atan2(dir_local.y, Vector2(dir_local.x, dir_local.z).length())
 	target_pitch = clamp(
 		target_pitch,
 		deg_to_rad(max_pitch_down),
@@ -110,7 +105,7 @@ func _rotate_towards(target_pos: Vector3, delta: float) -> void:
 	)
 	var max_p: float = deg_to_rad(pitch_speed) * delta
 	_barrel_current_pitch = move_toward(_barrel_current_pitch, target_pitch, max_p)
-	barrel_mount.quaternion = _barrel_rest_quaternion * Quaternion(_barrel_pitch_axis_local.normalized(), _barrel_current_pitch)
+	barrel_mount.quaternion = _barrel_rest_quaternion * Quaternion(_barrel_pitch_axis_local.normalized(), -_barrel_current_pitch)
 	barrel_mount.scale = _barrel_rest_scale
 
 func get_aim_angle_to_target() -> float:
@@ -133,11 +128,6 @@ func is_aimed_at_target(tolerance_degrees: float = 5.0) -> bool:
 func get_fallback_firing_origin() -> Vector3:
 	if not barrel_mount or not is_instance_valid(barrel_mount):
 		return global_position
-	if barrel_mount is MeshInstance3D:
-		var mesh_instance := barrel_mount as MeshInstance3D
-		var aabb: AABB = mesh_instance.get_aabb()
-		var local_muzzle: Vector3 = aabb.position + aabb.size * 0.5 + (_barrel_forward_axis_local * _get_barrel_forward_half_extent(aabb))
-		return mesh_instance.to_global(local_muzzle)
 	return barrel_mount.global_position
 
 func get_next_firing_transform() -> Transform3D:
@@ -180,15 +170,17 @@ func _get_current_muzzle_transform() -> Transform3D:
 		return valid_points[_current_fire_point_idx % valid_points.size()].global_transform
 
 	if barrel_mount and is_instance_valid(barrel_mount):
-		var barrel_forward: Vector3 = (barrel_mount.global_transform.basis * _barrel_forward_axis_local).normalized()
+		# Derive barrel forward from turret yaw + current pitch (matches _rotate_towards)
+		var turret_forward: Vector3 = global_transform.basis.z.normalized()
+		var turret_right: Vector3 = global_transform.basis.x.normalized()
+		# Pitch the turret forward direction by _barrel_current_pitch around the turret's right axis
+		var barrel_forward: Vector3 = (turret_forward * cos(_barrel_current_pitch) + Vector3.UP * sin(_barrel_current_pitch)).normalized()
 		if barrel_forward.length_squared() <= 0.0001:
-			barrel_forward = barrel_mount.global_transform.basis.z.normalized()
-		var up: Vector3 = barrel_mount.global_transform.basis.y.normalized()
-		if up.length_squared() <= 0.0001:
-			up = Vector3.UP
+			barrel_forward = turret_forward
+		var up: Vector3 = Vector3.UP
 		var right: Vector3 = up.cross(barrel_forward).normalized()
 		if right.length_squared() <= 0.0001:
-			right = Vector3.RIGHT
+			right = turret_right
 		var corrected_up: Vector3 = barrel_forward.cross(right).normalized()
 		return Transform3D(Basis(right, corrected_up, barrel_forward), get_fallback_firing_origin())
 

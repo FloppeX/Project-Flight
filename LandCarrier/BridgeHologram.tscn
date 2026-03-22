@@ -16,3 +16,7 @@ table_center_local = Vector3(0, 0, 0)
 [node name="GroundDots" type="MultiMeshInstance3D" parent="."]
 
 [node name="CarrierPlate" type="MeshInstance3D" parent="."]
+
+[node name="WaypointDots" type="MultiMeshInstance3D" parent="."]
+
+[node name="WaypointLines" type="MultiMeshInstance3D" parent="."]

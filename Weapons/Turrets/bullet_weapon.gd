@@ -86,7 +86,16 @@ func _spawn_bullet(spawn_transform: Transform3D, firing_entity: Node3D) -> void:
 	
 	if bullet.has_method("fire"):
 		bullet.fire(velocity, firing_entity)
-	
+
+	# Orient bullet to match its actual velocity (which includes inherited platform velocity)
+	if bullet is RigidBody3D and bullet.linear_velocity.length() > 1.0:
+		var vel_dir: Vector3 = bullet.linear_velocity.normalized()
+		var up := Vector3.UP
+		var right := up.cross(vel_dir).normalized()
+		if right.length_squared() > 0.0001:
+			up = vel_dir.cross(right).normalized()
+			bullet.global_transform.basis = Basis(right, up, vel_dir)
+
 	if "damage_amount" in bullet:
 		bullet.damage_amount = damage_per_shot
 		

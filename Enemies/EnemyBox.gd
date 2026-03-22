@@ -293,35 +293,37 @@ func track_target(target: Node3D):
 		turret_node.look_at(look_at_pos, Vector3.UP)
 
 func calculate_lead_position(target: Node3D) -> Vector3:
-	# Simple lead calculation for turret aiming
-	# The weapon will handle its own ballistics
 	var target_pos = target.global_position
 	var target_velocity = Vector3.ZERO
-	
-	# Get target velocity
+
 	if target.has_method("get_linear_velocity"):
 		target_velocity = target.get_linear_velocity()
 	elif target.has_method("linear_velocity"):
 		target_velocity = target.linear_velocity
-	
-	# Simple lead calculation
+
 	var distance = global_position.distance_to(target_pos)
-	var estimated_bullet_speed = 600.0  # Assume autocannon speed
-	var flight_time = distance / estimated_bullet_speed
-	
-	# Predict target position
+	var bullet_speed = 600.0
+	if weapon_instance:
+		var spd = weapon_instance.get("bullet_speed")
+		if typeof(spd) in [TYPE_FLOAT, TYPE_INT]:
+			bullet_speed = maxf(float(spd), 50.0)
+	var flight_time = distance / bullet_speed
+
+	# Predict target position with lead
 	var lead_position = target_pos + (target_velocity * flight_time)
-	
-	# Add some inaccuracy based on aim skill
+
+	# Gravity compensation: bullet drops 0.5*g*t^2 during flight
+	var gravity: float = float(ProjectSettings.get_setting("physics/3d/default_gravity", 9.8))
+	lead_position.y += 0.5 * gravity * flight_time * flight_time
+
 	if aim_skill < 1.0:
-		var inaccuracy_range = (1.0 - aim_skill) * 15.0  # Up to 15m spread for terrible aim
-		var random_offset = Vector3(
+		var inaccuracy_range = (1.0 - aim_skill) * 15.0
+		lead_position += Vector3(
 			randf_range(-inaccuracy_range, inaccuracy_range),
-			randf_range(-inaccuracy_range * 0.3, inaccuracy_range * 0.3),  # Less vertical spread for turrets
+			randf_range(-inaccuracy_range * 0.3, inaccuracy_range * 0.3),
 			randf_range(-inaccuracy_range, inaccuracy_range)
 		)
-		lead_position += random_offset
-	
+
 	return lead_position
 
 # Simple turret mount that extends Hardpoint for weapons

@@ -31,10 +31,6 @@ RadioComms="*res://Radio/RadioComms.gd"
 NavGraph="*res://NavGraph.gd"
 ParticleManager="*res://Effects/ParticleManager.gd"
 
-[debug]
-
-settings/stdout/print_gpu_profile=false
-
 [display]
 
 window/size/mode=3

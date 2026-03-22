@@ -155,7 +155,7 @@ cinematic_tripod = NodePath("../CameraCinematic")
 [node name="AudioManager3D" parent="." instance=ExtResource("24_wyvhj")]
 
 [node name="CameraCockpit" parent="." instance=ExtResource("25_lvoxg")]
-transform = Transform3D(-1, 0, -8.74213e-08, 0, 0.999983, 0, 8.74228e-08, 0, -0.999983, 0, 0.92, 2.26299)
+transform = Transform3D(-1, 0, -8.74213e-08, 0, 0.999983, 0, 8.74228e-08, 0, -0.999983, 0, 0.92, 2.27966)
 
 [node name="CameraTarget" type="Node3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.906776, 4.87997)

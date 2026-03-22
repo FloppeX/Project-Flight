@@ -21,9 +21,9 @@ class_name BridgeHologram
 @export var contact_wire_thickness_m: float = 0.03
 @export var ground_contact_scale_m: float = 0.026
 @export var ground_contact_hover_m: float = 0.004
-@export var carrier_plate_length_m: float = 0.058
-@export var carrier_plate_width_m: float = 0.016
-@export var carrier_plate_height_m: float = 0.008
+@export var carrier_plate_length_m: float = 0.09
+@export var carrier_plate_width_m: float = 0.026
+@export var carrier_plate_height_m: float = 0.012
 @export var carrier_plate_hover_m: float = 0.001
 @export var carrier_wire_thickness_m: float = 0.0018
 @export var max_contacts: int = 48
@@ -32,12 +32,18 @@ class_name BridgeHologram
 @export var contact_refresh_interval_s: float = 1.0
 @export var terrain_refresh_distance_m: float = 75.0
 @export var terrain_refresh_heading_deg: float = 4.0
+@export var waypoint_box_size_m: float = 0.018
+@export var waypoint_line_thickness_m: float = 0.005
+@export var waypoint_color: Color = Color(1.0, 0.95, 0.8, 0.9)
+@export var waypoint_refresh_interval_s: float = 1.0
 @export var active_camera_update_distance_m: float = 35.0
 @onready var terrain_dots: MultiMeshInstance3D = $TerrainDots
 @onready var terrain_lines: MultiMeshInstance3D = $TerrainLines
 @onready var contact_dots: MultiMeshInstance3D = $ContactDots
 @onready var ground_dots: MultiMeshInstance3D = $GroundDots
 @onready var carrier_plate: MeshInstance3D = $CarrierPlate
+@onready var waypoint_dots: MultiMeshInstance3D = $WaypointDots
+@onready var waypoint_lines: MultiMeshInstance3D = $WaypointLines
 
 var _carrier: Node3D = null
 var _terrain_provider: Node3D = null
@@ -48,6 +54,7 @@ var _contact_refresh_timer: float = 0.0
 var _last_terrain_center_world: Vector3 = Vector3.INF
 var _last_terrain_heading_yaw: float = 0.0
 var _was_recently_observed: bool = false
+var _waypoint_refresh_timer: float = 0.0
 
 # Incremental terrain rebuild state
 var _rebuild_in_progress: bool = false
@@ -65,13 +72,14 @@ var _rebuild_base_height: float = 0.0
 var _rebuild_carrier_surface_height: float = 0.0
 
 func _ready() -> void:
+	physics_interpolation_mode = Node3D.PHYSICS_INTERPOLATION_MODE_INHERIT
 	_carrier = get_tree().get_first_node_in_group("carrier") as Node3D
 	_terrain_provider = get_tree().get_first_node_in_group("terrain_provider") as Node3D
 	_setup_visuals()
 	call_deferred("_try_build_terrain")
 	_update_contact_dots()
 
-func _process(delta: float) -> void:
+func _physics_process(delta: float) -> void:
 	if not is_instance_valid(_carrier):
 		_carrier = get_tree().get_first_node_in_group("carrier") as Node3D
 		if _carrier == null:
@@ -101,10 +109,8 @@ func _process(delta: float) -> void:
 		_terrain_refresh_timer = 0.0
 		_try_build_terrain()
 
-	_contact_refresh_timer += delta
-	if _contact_refresh_timer >= maxf(contact_refresh_interval_s, 0.1):
-		_contact_refresh_timer = 0.0
-		_update_contact_dots()
+	# Contacts and waypoints are updated together with the terrain rebuild
+	# (see _rebuild_terrain_step) so they stay in sync with the wireframe.
 
 func _setup_visuals() -> void:
 	terrain_dots.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -144,6 +150,7 @@ func _setup_visuals() -> void:
 	ground_dots.multimesh = ground_multimesh
 
 	_setup_carrier_plate()
+	_setup_waypoint_visuals()
 
 func _try_build_terrain() -> void:
 	if _rebuild_in_progress:
@@ -237,6 +244,8 @@ func _rebuild_terrain_step() -> void:
 	terrain_dots.visible = false
 	terrain_lines.visible = valid_point_count > 0
 	_update_carrier_plate_height(base_height, _rebuild_carrier_surface_height)
+	_update_contact_dots()
+	_update_waypoint_display()
 	_terrain_built = valid_point_count > 0
 	if _terrain_built and is_instance_valid(_carrier):
 		_last_terrain_center_world = _carrier.global_position
@@ -645,3 +654,130 @@ func _add_quad(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, d: Vector3) 
 	st.add_vertex(a)
 	st.add_vertex(c)
 	st.add_vertex(d)
+
+# --- Waypoint display ---
+
+func _setup_waypoint_visuals() -> void:
+	if waypoint_dots == null or waypoint_lines == null:
+		return
+
+	waypoint_dots.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var dot_mat := _make_hologram_shader_material(2.0, 0.1, 3.0)
+	dot_mat.set_shader_parameter("tint_color", waypoint_color)
+	waypoint_dots.material_override = dot_mat
+	var dot_mesh := BoxMesh.new()
+	dot_mesh.size = Vector3.ONE  # scaled per-instance
+	var dot_mm := MultiMesh.new()
+	dot_mm.transform_format = MultiMesh.TRANSFORM_3D
+	dot_mm.use_colors = true
+	dot_mm.mesh = dot_mesh
+	waypoint_dots.multimesh = dot_mm
+
+	waypoint_lines.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var line_mat := _make_hologram_shader_material(2.0, 0.1, 3.0)
+	line_mat.set_shader_parameter("tint_color", waypoint_color)
+	waypoint_lines.material_override = line_mat
+	var line_mesh := CylinderMesh.new()
+	line_mesh.top_radius = 0.5
+	line_mesh.bottom_radius = 0.5
+	line_mesh.height = 1.0
+	var line_mm := MultiMesh.new()
+	line_mm.transform_format = MultiMesh.TRANSFORM_3D
+	line_mm.use_colors = true
+	line_mm.mesh = line_mesh
+	waypoint_lines.multimesh = line_mm
+
+func _update_waypoint_display() -> void:
+	if waypoint_dots == null or waypoint_lines == null:
+		return
+	if not is_instance_valid(_carrier):
+		return
+
+	var dot_mm := waypoint_dots.multimesh
+	var line_mm := waypoint_lines.multimesh
+	if dot_mm == null or line_mm == null:
+		return
+
+	# Get waypoints from the carrier
+	var wp_positions: Array[Vector3] = []
+	if _carrier.has_method("get_active_waypoints"):
+		wp_positions = _carrier.get_active_waypoints()
+	elif "_waypoint_positions" in _carrier and "_waypoint_index" in _carrier:
+		var all_wps: Array = _carrier._waypoint_positions
+		var idx: int = _carrier._waypoint_index
+		for i in range(idx, all_wps.size()):
+			wp_positions.append(all_wps[i] as Vector3)
+
+	if wp_positions.is_empty():
+		dot_mm.visible_instance_count = 0
+		line_mm.visible_instance_count = 0
+		waypoint_dots.visible = false
+		waypoint_lines.visible = false
+		return
+
+	var base_height := _sample_reference_terrain_height()
+	var table_half := table_size_m * 0.5
+
+	# Convert world waypoints to hologram-local positions
+	var holo_positions: Array[Vector3] = []
+	for wp in wp_positions:
+		var rel := _carrier_world_to_planar_local(wp)
+		# Skip waypoints outside hologram coverage
+		if absf(rel.x) > coverage_radius_m or absf(rel.z) > coverage_radius_m:
+			continue
+		var terrain_y := _sample_terrain_height_at_local_offset(rel.x, rel.z)
+		var surface_y := _world_height_to_hologram_surface_y(terrain_y, base_height)
+		if is_nan(surface_y):
+			surface_y = 0.03
+		var holo_pos := table_center_local + Vector3(
+			(rel.x / maxf(coverage_radius_m, 1.0)) * table_half,
+			surface_y + terrain_wire_height_offset_m + waypoint_box_size_m * 0.5 + 0.003,
+			(rel.z / maxf(coverage_radius_m, 1.0)) * table_half
+		)
+		holo_positions.append(holo_pos)
+
+	# Dots — small cream boxes at each waypoint
+	var dot_count := holo_positions.size()
+	dot_mm.instance_count = dot_count
+	dot_mm.visible_instance_count = dot_count
+	var box_scale := Vector3.ONE * waypoint_box_size_m
+	for i in range(dot_count):
+		dot_mm.set_instance_transform(i, Transform3D(Basis().scaled(box_scale), holo_positions[i]))
+		dot_mm.set_instance_color(i, waypoint_color)
+	waypoint_dots.visible = dot_count > 0
+
+	# Lines — carrier to first waypoint, then consecutive waypoints
+	var carrier_holo_pos := carrier_plate.position if carrier_plate else table_center_local
+	var line_points: Array[Vector3] = [carrier_holo_pos]
+	line_points.append_array(holo_positions)
+
+	var line_transforms: Array[Transform3D] = []
+	var line_colors: Array[Color] = []
+	for i in range(line_points.size() - 1):
+		var from_pos := line_points[i]
+		var to_pos := line_points[i + 1]
+		var delta := to_pos - from_pos
+		var length := delta.length()
+		if length < 0.0001:
+			continue
+		var y_axis := delta / length
+		var x_axis := Vector3.UP.cross(y_axis)
+		if x_axis.length_squared() < 0.0001:
+			x_axis = Vector3.RIGHT.cross(y_axis)
+		x_axis = x_axis.normalized()
+		var z_axis := y_axis.cross(x_axis).normalized()
+		var basis := Basis(
+			x_axis * waypoint_line_thickness_m,
+			y_axis * length,
+			z_axis * waypoint_line_thickness_m
+		)
+		line_transforms.append(Transform3D(basis, (from_pos + to_pos) * 0.5))
+		line_colors.append(waypoint_color)
+
+	var line_count := line_transforms.size()
+	line_mm.instance_count = line_count
+	line_mm.visible_instance_count = line_count
+	for i in range(line_count):
+		line_mm.set_instance_transform(i, line_transforms[i])
+		line_mm.set_instance_color(i, line_colors[i])
+	waypoint_lines.visible = line_count > 0
