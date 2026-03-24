@@ -2,25 +2,49 @@ extends CharacterBody3D
 class_name VehicleFriendlyLight
 
 signal destroyed(vehicle)
+signal deploy_complete(vehicle)
+signal retrieve_complete(vehicle)
+
+# --- Deployment ---
+enum DeployPhase { NONE, ON_DECK, ON_RAMP, DONE }
+var deploy_mode: bool = false
+var _deploy_phase: DeployPhase = DeployPhase.NONE
+var _deploy_carrier: Node3D = null
+var _deploy_local_pos: Vector3 = Vector3.ZERO
+var _deploy_hinge_z: float = 0.0  # carrier-local Z of ramp hinge
+var _deploy_speed: float = 8.0
+var _deploy_settled_frames: int = 0
+
+# --- Retrieval ---
+enum RetrievePhase { NONE, RALLY, WAITING, ON_RAMP, ON_DECK }
+var retrieve_mode: bool = false
+var _retrieve_phase: RetrievePhase = RetrievePhase.NONE
+var _retrieve_carrier: Node3D = null
+var _retrieve_rally_local: Vector3 = Vector3.ZERO  # carrier-local rally point
+var _retrieve_local_pos: Vector3 = Vector3.ZERO
+var _retrieve_hinge_z: float = 0.0
+var _retrieve_bay_z: float = 0.0
+var _retrieve_deck_y: float = 0.0  # carrier-local Y of bay floor
+var _retrieve_speed: float = 6.0
+var _retrieve_siblings: Array[Node3D] = []  # other vehicles in this retrieval group
 
 # --- Movement ---
-@export var max_speed: float = 15.0
-@export var acceleration: float = 12.0
-@export var turn_speed: float = 1.8
+@export var max_speed: float = 20.0
+@export var acceleration: float = 4.0
+@export var turn_speed: float = 0.6
 @export var max_steering_angle: float = 0.5
-@export var chassis_height_smoothing: float = 30.0
-@export var chassis_rotation_smoothing: float = 20.0
-@export var chassis_ride_height_m: float = 1.72
+@export var chassis_ride_height_m: float = 1.0
 @export var wheel_suspension_smoothing: float = 12.0
-@export var wheel_visual_travel_m: float = 0.55
-@export var wheel_probe_up_m: float = 2.0
-@export var wheel_probe_down_m: float = 8.0
-@export var wheel_support_smoothing: float = 10.0
+@export var wheel_probe_down_m: float = 12.0
+@export var spring_stiffness: float = 120.0
+@export var spring_damping: float = 18.0
+@export var spring_tilt_stiffness: float = 80.0
+@export var spring_tilt_damping: float = 18.0
 
 # --- Waypoints ---
 @export var waypoints: Array[NodePath] = []
 @export var loop_waypoints: bool = true
-@export var waypoint_reach_distance: float = 8.0
+@export var waypoint_reach_distance: float = 25.0
 @export var use_waypoint_pathfinding: bool = true
 @export var path_waypoint_reach_distance: float = 18.0
 @export var path_replan_interval_s: float = 1.0
@@ -39,9 +63,9 @@ signal destroyed(vehicle)
 @export var delay_length: float = 3.0
 @export var turret_weapon: PackedScene
 @export var aim_skill: float = 0.75
-@export var platoon_min_neighbor_distance_m: float = 30.0
+@export var platoon_min_neighbor_distance_m: float = 20.0
 @export var platoon_rejoin_distance_m: float = 80.0
-@export var preferred_vehicle_spacing_min_m: float = 30.0
+@export var preferred_vehicle_spacing_min_m: float = 20.0
 @export var preferred_vehicle_spacing_max_m: float = 80.0
 @export var shoot_and_scoot_enabled: bool = false
 @export var fire_position_hold_s: float = 2.0
@@ -62,6 +86,8 @@ var _combat_hold_timer_s: float = 0.0
 var _combat_is_scooting: bool = false
 var _combat_scoot_destination: Vector3 = Vector3.ZERO
 var _had_combat_target_last_frame: bool = false
+var _arrived_at_destination: bool = false
+var _arrived_destination_pos: Vector3 = Vector3.ZERO
 
 var _waypoint_positions: Array[Vector3] = []
 var _waypoint_index: int = 0
@@ -79,23 +105,43 @@ var _all_wheel_nodes: Array[Node3D] = []
 var _wheel_contact_nodes: Array[Node3D] = []
 var _wheel_nominal_positions: Array[Vector3] = []
 var _wheel_contact_local_positions: Array[Vector3] = []
-var _wheel_support_points_world: Array[Vector3] = []
-var _wheel_support_normals: Array[Vector3] = []
-var _wheel_support_initialized: Array[bool] = []
 var _body_rest_position: Vector3 = Vector3.ZERO
 var _body_rest_rotation: Vector3 = Vector3.ZERO
 
+# Corner probe positions (local space) — front-left, front-right, rear-left, rear-right
+var _corner_probes: Array[Vector3] = []
+var _corner_half_x: float = 1.66
+var _corner_half_z: float = 4.68
+
 const GRAVITY: float = 25.0
 const WHEEL_RADIUS: float = 0.4
+var _spring_velocity_y: float = 0.0
+var _spring_pitch_velocity: float = 0.0
+var _spring_roll_velocity: float = 0.0
+var _spring_initialized: bool = false
 func _ready() -> void:
 	current_health = max_health
-	floor_snap_length = 0.5
+	floor_snap_length = 0.0
 	floor_max_angle = deg_to_rad(50.0)
 	add_to_group("friendlies")
 	add_to_group("ground_vehicles")
 	add_to_group("team_" + str(team))
 	_resolve_waypoints()
 	_collect_wheel_nodes()
+	_compute_corner_probes()
+
+	# Dust from wheels
+	if not has_node("DustEffect"):
+		var dust := DustEffect.new()
+		dust.name = "DustEffect"
+		dust.min_speed_mps = 3.0
+		dust.spawn_interval_s = 0.4
+		dust.puff_scale_min = 1.0
+		dust.puff_scale_max = 2.5
+		dust.puff_lifetime_s = 4.0
+		dust.puff_rise_speed = 5.0
+		dust.full_speed_mps = max_speed
+		add_child(dust)
 
 	turret_controller = _find_turret_controller()
 
@@ -137,11 +183,25 @@ func _collect_wheel_nodes() -> void:
 				_wheel_contact_local_positions.append(w.position + contact_node.position)
 			else:
 				_wheel_contact_local_positions.append(w.position + Vector3(0.0, -WHEEL_RADIUS, 0.0))
-			_wheel_support_points_world.append(Vector3.ZERO)
-			_wheel_support_normals.append(Vector3.UP)
-			_wheel_support_initialized.append(false)
 			if wname.ends_with("_1"):
 				_front_wheels.append(w)
+
+func _compute_corner_probes() -> void:
+	var col_shape: CollisionShape3D = null
+	for child in get_children():
+		if child is CollisionShape3D:
+			col_shape = child as CollisionShape3D
+			break
+	if col_shape and col_shape.shape is BoxShape3D:
+		var box: BoxShape3D = col_shape.shape as BoxShape3D
+		_corner_half_x = box.size.x * 0.5
+		_corner_half_z = box.size.z * 0.5
+	_corner_probes = [
+		Vector3(-_corner_half_x, 0.0,  _corner_half_z),  # front-left
+		Vector3( _corner_half_x, 0.0,  _corner_half_z),  # front-right
+		Vector3(-_corner_half_x, 0.0, -_corner_half_z),  # rear-left
+		Vector3( _corner_half_x, 0.0, -_corner_half_z),  # rear-right
+	]
 
 func _find_wheel_contact_node(wheel_node: Node3D) -> Node3D:
 	if not wheel_node:
@@ -161,16 +221,323 @@ func _resolve_waypoints() -> void:
 func set_patrol_waypoints(positions: Array[Vector3]) -> void:
 	_waypoint_positions = positions.duplicate()
 	_waypoint_index = 0
+	_arrived_at_destination = false
 	_clear_navigation_path()
 
 func assign_platoon(new_platoon: GroundVehiclePlatoon) -> void:
 	platoon = new_platoon
 	if platoon and is_instance_valid(platoon):
 		platoon.register_vehicle(self)
+	_arrived_at_destination = false
 	_clear_navigation_path()
+
+func start_deploy(carrier: Node3D, spawn_local_pos: Vector3, hinge_z: float = 0.0) -> void:
+	deploy_mode = true
+	_deploy_phase = DeployPhase.ON_DECK
+	_deploy_carrier = carrier
+	_deploy_local_pos = spawn_local_pos
+	_deploy_hinge_z = hinge_z
+	_deploy_settled_frames = 0
+	# Position at spawn point
+	global_position = carrier.to_global(spawn_local_pos)
+	# Face carrier rear: vehicle +Z (forward) should point toward carrier -Z (rear)
+	# look_at makes -Z face the target, so target toward the bow to get +Z facing rear
+	var bow_dir: Vector3 = carrier.global_basis.z.normalized()
+	bow_dir.y = 0.0
+	if bow_dir.length_squared() > 0.001:
+		look_at(global_position + bow_dir, Vector3.UP)
+	# Disable pathfinding during deploy
+	use_waypoint_pathfinding = false
+	print("[VehicleDeploy] Started — spawn_local=%s hinge_z=%.1f phase=ON_DECK" % [str(spawn_local_pos), hinge_z])
+
+func _end_deploy() -> void:
+	deploy_mode = false
+	_deploy_phase = DeployPhase.DONE
+	_deploy_carrier = null
+	use_waypoint_pathfinding = true
+	_spring_initialized = false
+	_spring_velocity_y = 0.0
+	_spring_pitch_velocity = 0.0
+	_spring_roll_velocity = 0.0
+	print("[VehicleDeploy] Deploy complete at %s" % str(global_position))
+	emit_signal("deploy_complete", self)
+
+func _process_deploy(delta: float) -> void:
+	if not _deploy_carrier or not is_instance_valid(_deploy_carrier):
+		_end_deploy()
+		return
+
+	# Drive toward carrier rear (-Z in carrier-local space)
+	_deploy_local_pos.z -= _deploy_speed * delta
+
+	# Phase transition: ON_DECK → ON_RAMP when we pass the hinge
+	if _deploy_phase == DeployPhase.ON_DECK and _deploy_local_pos.z <= _deploy_hinge_z:
+		_deploy_phase = DeployPhase.ON_RAMP
+		print("[VehicleDeploy] Reached hinge, phase=ON_RAMP")
+
+	# Only control XZ from carrier-local tracking — spring handles Y
+	var world_pos: Vector3 = _deploy_carrier.to_global(_deploy_local_pos)
+	global_position.x = world_pos.x
+	global_position.z = world_pos.z
+
+	# Face carrier rear (yaw only — tilt spring handles pitch/roll)
+	# Vehicle +Z = forward, should point toward carrier -Z (rear)
+	var rear_dir: Vector3 = -_deploy_carrier.global_basis.z.normalized()
+	rear_dir.y = 0.0
+	if rear_dir.length_squared() > 0.001:
+		var target_yaw: float = atan2(rear_dir.x, rear_dir.z)
+		var current_yaw: float = atan2(global_basis.z.x, global_basis.z.z)
+		var yaw_diff: float = wrapf(target_yaw - current_yaw, -PI, PI)
+		global_rotate(Vector3.UP, clampf(yaw_diff, -3.0 * delta, 3.0 * delta))
+
+	# Spring suspension handles height and tilt via wheel raycasts on bay floor / ramp / terrain
+	_update_wheel_visuals()
+	global_position.y += _spring_velocity_y * delta
+
+	# Deploy complete when 50m behind the carrier (carrier-local -Z)
+	var dist_past_hinge: float = _deploy_hinge_z - _deploy_local_pos.z
+	if dist_past_hinge > 50.0:
+		_end_deploy()
+
+# ── Retrieval ────────────────────────────────────────────────────────────────
+
+func start_retrieve(carrier: Node3D, rally_local: Vector3, hinge_z: float, bay_z: float, deck_y: float = 0.0, siblings: Array[Node3D] = []) -> void:
+	retrieve_mode = true
+	_retrieve_phase = RetrievePhase.RALLY
+	_retrieve_carrier = carrier
+	_retrieve_rally_local = rally_local
+	_retrieve_hinge_z = hinge_z
+	_retrieve_bay_z = bay_z
+	_retrieve_deck_y = deck_y
+	_retrieve_siblings = siblings
+	# Clear combat / platoon state
+	use_waypoint_pathfinding = false
+	var empty: Array[Vector3] = []
+	set_patrol_waypoints(empty)
+	if platoon and is_instance_valid(platoon):
+		platoon.unregister_vehicle(self)
+		platoon = null
+	print("[VehicleRetrieve] Started — rally_local=%s" % str(rally_local))
+
+func _get_rally_world_pos() -> Vector3:
+	## Rally position in world space, recomputed each frame from carrier.
+	var world_pos: Vector3 = _retrieve_carrier.to_global(_retrieve_rally_local)
+	var terrain_y: float = TerrainNavGrid.sample_height(world_pos.x, world_pos.z)
+	if terrain_y > -9000.0:
+		world_pos.y = terrain_y + 2.0
+	return world_pos
+
+func _process_retrieve(delta: float) -> void:
+	if not _retrieve_carrier or not is_instance_valid(_retrieve_carrier):
+		_abort_retrieve()
+		return
+
+	match _retrieve_phase:
+		RetrievePhase.RALLY:
+			_retrieve_drive_to_rally(delta)
+		RetrievePhase.WAITING:
+			_retrieve_hold_at_rally(delta)
+		RetrievePhase.ON_RAMP:
+			_retrieve_on_ramp(delta)
+		RetrievePhase.ON_DECK:
+			_finish_retrieve()
+
+func _retrieve_drive_to_rally(delta: float) -> void:
+	velocity.y = _spring_velocity_y
+
+	var rally_world: Vector3 = _get_rally_world_pos()
+	var to_rally: Vector3 = rally_world - global_position
+	to_rally.y = 0.0
+	var dist: float = to_rally.length()
+
+	if dist < 12.0:
+		velocity.x = move_toward(velocity.x, 0.0, acceleration * delta * 2.5)
+		velocity.z = move_toward(velocity.z, 0.0, acceleration * delta * 2.5)
+		move_and_slide()
+		_retrieve_phase = RetrievePhase.WAITING
+		print("[VehicleRetrieve] At rally, waiting for ramp")
+		return
+
+	# Steer toward rally with avoidance
+	var desired_dir: Vector3 = to_rally.normalized()
+	desired_dir = _retrieve_apply_avoidance(desired_dir, delta)
+	_steer_toward(desired_dir, delta)
+	_update_wheel_visuals()
+
+func _retrieve_hold_at_rally(delta: float) -> void:
+	## Keep following the carrier-relative rally point while waiting.
+	velocity.y = _spring_velocity_y
+
+	var rally_world: Vector3 = _get_rally_world_pos()
+	var to_rally: Vector3 = rally_world - global_position
+	to_rally.y = 0.0
+	var dist: float = to_rally.length()
+
+	# Check for bumps from siblings
+	var bump_push: Vector3 = _retrieve_get_bump_push()
+
+	if dist > 12.0 or bump_push.length_squared() > 0.01:
+		var desired_dir: Vector3 = to_rally.normalized() if dist > 2.0 else Vector3.ZERO
+		if bump_push.length_squared() > 0.01:
+			desired_dir = (desired_dir + bump_push.normalized() * 0.8).normalized() if desired_dir.length_squared() > 0.01 else bump_push.normalized()
+		if desired_dir.length_squared() > 0.01:
+			desired_dir = _retrieve_apply_avoidance(desired_dir, delta)
+			_steer_toward(desired_dir, delta, 0.6)
+		else:
+			velocity.x = move_toward(velocity.x, 0.0, acceleration * delta * 2.5)
+			velocity.z = move_toward(velocity.z, 0.0, acceleration * delta * 2.5)
+			move_and_slide()
+	else:
+		# Match carrier velocity with gentle correction toward rally point
+		var carrier_vel := Vector3.ZERO
+		if _retrieve_carrier and is_instance_valid(_retrieve_carrier) and _retrieve_carrier.has_method("get_velocity_vector"):
+			carrier_vel = _retrieve_carrier.get_velocity_vector()
+
+		var correction := Vector3.ZERO
+		if dist > 2.0:
+			var strength: float = clampf(dist / 15.0, 0.1, 1.0)
+			correction = to_rally.normalized() * strength * max_speed * 0.5
+
+		var target_vel: Vector3 = carrier_vel + correction
+		velocity.x = move_toward(velocity.x, target_vel.x, acceleration * delta * 2.0)
+		velocity.z = move_toward(velocity.z, target_vel.z, acceleration * delta * 2.0)
+
+		# Face carrier rear
+		var planar_vel := Vector2(velocity.x, velocity.z)
+		if planar_vel.length() > 1.0:
+			var move_dir := Vector3(velocity.x, 0.0, velocity.z).normalized()
+			var current_fwd: Vector3 = global_basis.z
+			current_fwd.y = 0.0
+			if current_fwd.length_squared() > 0.0001:
+				current_fwd = current_fwd.normalized()
+				var cross_y: float = current_fwd.cross(move_dir).y
+				global_rotate(Vector3.UP, clamp(cross_y * 2.0, -1.0, 1.0) * turn_speed * delta)
+		move_and_slide()
+	_update_wheel_visuals()
+
+## Deflect desired direction away from nearby siblings during retrieval.
+func _retrieve_apply_avoidance(desired_dir: Vector3, _delta: float) -> Vector3:
+	var avoid := Vector3.ZERO
+	var avoid_dist: float = 15.0
+	for sib in _retrieve_siblings:
+		if sib == self or not sib or not is_instance_valid(sib):
+			continue
+		var to_sib: Vector3 = sib.global_position - global_position
+		to_sib.y = 0.0
+		var d: float = to_sib.length()
+		if d < avoid_dist and d > 0.1:
+			# Push away, stronger when closer
+			avoid -= to_sib.normalized() * (avoid_dist - d) / avoid_dist
+	if avoid.length_squared() < 0.001:
+		return desired_dir
+	# Blend avoidance into desired direction
+	var blended: Vector3 = desired_dir + avoid * 1.2
+	blended.y = 0.0
+	return blended.normalized() if blended.length_squared() > 0.001 else desired_dir
+
+## Returns a push vector if a sibling is very close (bumping).
+func _retrieve_get_bump_push() -> Vector3:
+	var push := Vector3.ZERO
+	var bump_dist: float = 8.0
+	for sib in _retrieve_siblings:
+		if sib == self or not sib or not is_instance_valid(sib):
+			continue
+		var to_sib: Vector3 = sib.global_position - global_position
+		to_sib.y = 0.0
+		var d: float = to_sib.length()
+		if d < bump_dist and d > 0.1:
+			push -= to_sib.normalized() * (bump_dist - d) / bump_dist * 5.0
+	return push
+
+func _steer_toward(desired_dir: Vector3, delta: float, throttle_scale: float = 1.0) -> void:
+	var current_forward: Vector3 = global_basis.z
+	current_forward.y = 0.0
+	current_forward = current_forward.normalized() if current_forward.length_squared() > 0.0001 else Vector3.FORWARD
+
+	var cross_y: float = current_forward.cross(desired_dir).y
+	var dot: float = clampf(current_forward.dot(desired_dir), -1.0, 1.0)
+	var steer: float = clamp(cross_y * 2.0, -1.0, 1.0)
+	global_rotate(Vector3.UP, steer * turn_speed * delta)
+
+	var throttle: float = clamp((dot + 1.0) * 0.5, 0.0, 1.0) * throttle_scale
+	var forward: Vector3 = global_basis.z
+	forward.y = 0.0
+	forward = forward.normalized() if forward.length_squared() > 0.0001 else Vector3.FORWARD
+	velocity.x = move_toward(velocity.x, forward.x * throttle * max_speed, acceleration * delta)
+	velocity.z = move_toward(velocity.z, forward.z * throttle * max_speed, acceleration * delta)
+	move_and_slide()
+
+## Called by VehicleBayManager when it's this vehicle's turn to drive up.
+func begin_ramp_ascent() -> void:
+	if _retrieve_phase != RetrievePhase.WAITING:
+		return
+	_retrieve_phase = RetrievePhase.ON_RAMP
+	# Initialize carrier-local position from current world position
+	_retrieve_local_pos = _retrieve_carrier.to_local(global_position)
+	# Face carrier bow: look_at points -Z at target, so target the rear to get +Z toward bow
+	var rear_dir: Vector3 = _retrieve_carrier.global_basis.z.normalized()
+	rear_dir.y = 0.0
+	if rear_dir.length_squared() > 0.001:
+		look_at(global_position + rear_dir, Vector3.UP)
+	print("[VehicleRetrieve] Ascending ramp")
+
+func _retrieve_on_ramp(delta: float) -> void:
+	# Drive forward in carrier-local space (+Z toward bow/bay)
+	_retrieve_local_pos.z += _retrieve_speed * delta
+
+	# Only control XZ from carrier-local tracking — spring handles Y
+	var world_pos: Vector3 = _retrieve_carrier.to_global(_retrieve_local_pos)
+	global_position.x = world_pos.x
+	global_position.z = world_pos.z
+
+	# Face carrier bow direction (yaw only — tilt spring handles pitch/roll)
+	var bow_dir: Vector3 = -_retrieve_carrier.global_basis.z.normalized()
+	bow_dir.y = 0.0
+	if bow_dir.length_squared() > 0.001:
+		var target_yaw: float = atan2(bow_dir.x, bow_dir.z)
+		var current_yaw: float = atan2(global_basis.z.x, global_basis.z.z)
+		var yaw_diff: float = wrapf(target_yaw - current_yaw, -PI, PI)
+		global_rotate(Vector3.UP, clampf(yaw_diff, -3.0 * delta, 3.0 * delta))
+
+	# Spring suspension handles height and tilt via wheel raycasts on ramp / bay floor
+	_update_wheel_visuals()
+	global_position.y += _spring_velocity_y * delta
+
+	# Reached bay — done
+	if _retrieve_local_pos.z >= _retrieve_bay_z:
+		_retrieve_phase = RetrievePhase.ON_DECK
+		_finish_retrieve()
+
+func _finish_retrieve() -> void:
+	retrieve_mode = false
+	_retrieve_phase = RetrievePhase.NONE
+	print("[VehicleRetrieve] Vehicle stored, despawning")
+	emit_signal("retrieve_complete", self)
+	queue_free()
+
+func _abort_retrieve() -> void:
+	retrieve_mode = false
+	_retrieve_phase = RetrievePhase.NONE
+	_retrieve_carrier = null
+	use_waypoint_pathfinding = true
+	_spring_initialized = false
+	_spring_velocity_y = 0.0
+	_spring_pitch_velocity = 0.0
+	_spring_roll_velocity = 0.0
+
+func is_waiting_for_ramp() -> bool:
+	return retrieve_mode and _retrieve_phase == RetrievePhase.WAITING
 
 func _physics_process(delta: float) -> void:
 	if is_dying:
+		return
+
+	if deploy_mode:
+		_process_deploy(delta)
+		return
+
+	if retrieve_mode:
+		_process_retrieve(delta)
 		return
 
 	if turret_controller:
@@ -186,98 +553,101 @@ func _physics_process(delta: float) -> void:
 # --- Wheel Visuals / Chassis Support ---
 
 func _update_wheel_visuals() -> void:
-	if _all_wheel_nodes.is_empty():
-		return
-
+	var delta := get_physics_process_delta_time()
 	var space_state := get_world_3d().direct_space_state
 	var params := PhysicsRayQueryParameters3D.new()
 	params.exclude = [get_rid()]
 
-	var contact_points: Array[Vector3] = []
-	var ground_normals: Array[Vector3] = []
-
-	for i in range(_all_wheel_nodes.size()):
-		var nominal: Vector3 = _wheel_nominal_positions[i]
-		var contact_node: Node3D = _wheel_contact_nodes[i] if i < _wheel_contact_nodes.size() else null
-		var contact_local: Vector3 = _wheel_contact_local_positions[i] if i < _wheel_contact_local_positions.size() else nominal + Vector3(0.0, -WHEEL_RADIUS, 0.0)
-		var contact_world: Vector3 = to_global(contact_local)
-		if contact_node and is_instance_valid(contact_node):
-			params.from = contact_world + Vector3.UP * wheel_probe_up_m
-			params.to = contact_world - Vector3.UP * wheel_probe_down_m
-		else:
-			params.from = contact_world + Vector3.UP * wheel_probe_up_m
-			params.to = contact_world - Vector3.UP * wheel_probe_down_m
+	# --- 1. Corner probes: determine target height & tilt ---
+	var corner_target_ys: Array[float] = []
+	var hit_count: int = 0
+	for corner_local in _corner_probes:
+		var corner_world: Vector3 = to_global(corner_local)
+		params.from = corner_world + Vector3.UP * 5.0
+		params.to = corner_world - Vector3.UP * wheel_probe_down_m
 		var hit := space_state.intersect_ray(params)
 		if hit:
-			var wheel_y: float = nominal.y
-			var hit_local_y: float = to_local(hit.position).y
-			wheel_y = nominal.y + (hit_local_y - contact_local.y)
-			var clamped_wheel_y: float = clampf(
-				wheel_y,
-				nominal.y - wheel_visual_travel_m,
-				nominal.y + wheel_visual_travel_m
-			)
-			var suspension_blend: float = clampf(wheel_suspension_smoothing * get_physics_process_delta_time(), 0.0, 1.0)
-			_all_wheel_nodes[i].position.y = lerpf(_all_wheel_nodes[i].position.y, clamped_wheel_y, suspension_blend)
-			if not _wheel_support_initialized[i]:
-				_wheel_support_points_world[i] = hit.position
-				_wheel_support_normals[i] = hit.normal.normalized()
-				_wheel_support_initialized[i] = true
-			else:
-				var support_blend: float = clampf(wheel_support_smoothing * get_physics_process_delta_time(), 0.0, 1.0)
-				_wheel_support_points_world[i] = _wheel_support_points_world[i].lerp(hit.position, support_blend)
-				_wheel_support_normals[i] = _wheel_support_normals[i].lerp(hit.normal.normalized(), support_blend).normalized()
-			contact_points.append(_wheel_support_points_world[i])
-			ground_normals.append(_wheel_support_normals[i])
+			corner_target_ys.append(hit.position.y + chassis_ride_height_m)
+			hit_count += 1
 		else:
-			if not _wheel_support_initialized[i]:
-				_wheel_support_points_world[i] = contact_world
-				_wheel_support_normals[i] = Vector3.UP
-				_wheel_support_initialized[i] = true
-			else:
-				_wheel_support_points_world[i] = _wheel_support_points_world[i].lerp(contact_world, clampf(wheel_support_smoothing * get_physics_process_delta_time() * 0.35, 0.0, 1.0))
-				_wheel_support_normals[i] = _wheel_support_normals[i].lerp(Vector3.UP, clampf(wheel_support_smoothing * get_physics_process_delta_time() * 0.2, 0.0, 1.0)).normalized()
-			contact_points.append(_wheel_support_points_world[i])
-			ground_normals.append(_wheel_support_normals[i])
+			corner_target_ys.append(-99999.0)
 
-	if contact_points.is_empty():
+	if hit_count == 0:
+		_spring_velocity_y -= GRAVITY * delta
+		for i in range(_all_wheel_nodes.size()):
+			_all_wheel_nodes[i].position.y = lerpf(_all_wheel_nodes[i].position.y, _wheel_nominal_positions[i].y, 0.1)
 		return
 
-	var support_center := Vector3.ZERO
-	for point in contact_points:
-		support_center += point
-	support_center /= float(contact_points.size())
+	# Fill missing corners with average of valid ones
+	var valid_sum: float = 0.0
+	for y in corner_target_ys:
+		if y > -90000.0:
+			valid_sum += y
+	var valid_avg: float = valid_sum / float(hit_count)
+	for i in range(corner_target_ys.size()):
+		if corner_target_ys[i] < -90000.0:
+			corner_target_ys[i] = valid_avg
 
-	var avg_normal := Vector3.ZERO
-	for normal in ground_normals:
-		avg_normal += normal
-	var support_up: Vector3 = avg_normal.normalized() if avg_normal.length_squared() > 0.0001 else Vector3.UP
+	var target_y: float = (corner_target_ys[0] + corner_target_ys[1] + corner_target_ys[2] + corner_target_ys[3]) / 4.0
+
+	var front_avg_y: float = (corner_target_ys[0] + corner_target_ys[1]) / 2.0
+	var rear_avg_y: float = (corner_target_ys[2] + corner_target_ys[3]) / 2.0
+	var target_pitch: float = atan2(rear_avg_y - front_avg_y, _corner_half_z * 2.0)
+
+	var left_avg_y: float = (corner_target_ys[0] + corner_target_ys[2]) / 2.0
+	var right_avg_y: float = (corner_target_ys[1] + corner_target_ys[3]) / 2.0
+	var target_roll: float = atan2(right_avg_y - left_avg_y, _corner_half_x * 2.0)
+
+	# --- 2. Height spring ---
+	if not _spring_initialized:
+		global_position.y = target_y
+		_spring_velocity_y = 0.0
+		_spring_pitch_velocity = 0.0
+		_spring_roll_velocity = 0.0
+		_spring_initialized = true
+	else:
+		var displacement: float = global_position.y - target_y
+		var spring_force: float = -spring_stiffness * displacement - spring_damping * _spring_velocity_y
+		_spring_velocity_y += spring_force * delta
+		_spring_velocity_y = clampf(_spring_velocity_y, -50.0, 50.0)
+
+	# --- 3. Tilt spring (pitch & roll only, never yaw) ---
+	var current_yaw: float = atan2(global_basis.z.x, global_basis.z.z)
+	var current_pitch: float = asin(clampf(-global_basis.z.y, -1.0, 1.0))
+	var current_roll: float = atan2(global_basis.x.y, global_basis.y.y)
+
+	var pitch_torque: float = -spring_tilt_stiffness * (current_pitch - target_pitch) - spring_tilt_damping * _spring_pitch_velocity
+	_spring_pitch_velocity += pitch_torque * delta
+	_spring_pitch_velocity = clampf(_spring_pitch_velocity, -5.0, 5.0)
+
+	var roll_torque: float = -spring_tilt_stiffness * (current_roll - target_roll) - spring_tilt_damping * _spring_roll_velocity
+	_spring_roll_velocity += roll_torque * delta
+	_spring_roll_velocity = clampf(_spring_roll_velocity, -5.0, 5.0)
+
+	var new_pitch: float = current_pitch + _spring_pitch_velocity * delta
+	var new_roll: float = current_roll + _spring_roll_velocity * delta
+
+	global_basis = Basis.from_euler(Vector3(new_pitch, current_yaw, new_roll), EULER_ORDER_YXZ).orthonormalized()
+
+	# --- 4. Position wheels visually on the ground ---
+	for i in range(_all_wheel_nodes.size()):
+		if i >= _wheel_contact_local_positions.size():
+			continue
+		var nominal: Vector3 = _wheel_nominal_positions[i]
+		var contact_local: Vector3 = _wheel_contact_local_positions[i]
+		var contact_world: Vector3 = to_global(contact_local)
+		params.from = contact_world + Vector3.UP * 3.0
+		params.to = contact_world - Vector3.UP * wheel_probe_down_m
+		var hit := space_state.intersect_ray(params)
+		if hit:
+			var hit_local_y: float = to_local(hit.position).y
+			var target_wheel_y: float = nominal.y + (hit_local_y - contact_local.y)
+			var blend: float = clampf(wheel_suspension_smoothing * delta, 0.0, 1.0)
+			_all_wheel_nodes[i].position.y = lerpf(_all_wheel_nodes[i].position.y, target_wheel_y, blend)
+		else:
+			_all_wheel_nodes[i].position.y = lerpf(_all_wheel_nodes[i].position.y, nominal.y, 0.1)
 
 	if _body_node:
-		var plane_forward: Vector3 = global_basis.z.slide(support_up)
-		if plane_forward.length_squared() <= 0.0001:
-			plane_forward = Vector3.FORWARD.slide(support_up)
-		plane_forward = plane_forward.normalized()
-		var plane_right: Vector3 = support_up.cross(plane_forward).normalized()
-		if plane_right.length_squared() <= 0.0001:
-			plane_right = Vector3.RIGHT
-		var target_basis: Basis = Basis(plane_right, support_up, plane_forward).orthonormalized()
-		var target_y: float = global_position.y
-		var solved_count: int = 0
-		for i in range(contact_points.size()):
-			if i >= _wheel_contact_local_positions.size():
-				continue
-			var solved_origin: Vector3 = contact_points[i] - (target_basis * _wheel_contact_local_positions[i])
-			target_y += solved_origin.y
-			solved_count += 1
-		if solved_count > 0:
-			target_y /= float(solved_count + 1)
-		var height_blend: float = clampf(chassis_height_smoothing * get_physics_process_delta_time(), 0.0, 1.0)
-		global_position.y = lerpf(global_position.y, target_y, height_blend)
-		var rotation_blend: float = clampf(chassis_rotation_smoothing * get_physics_process_delta_time(), 0.0, 1.0)
-		var current_quat: Quaternion = Quaternion(global_basis.orthonormalized())
-		var target_quat: Quaternion = Quaternion(target_basis)
-		global_basis = Basis(current_quat.slerp(target_quat, rotation_blend)).orthonormalized()
 		_body_node.position = _body_rest_position
 		_body_node.rotation = _body_rest_rotation
 
@@ -449,10 +819,7 @@ func _path_length(path: Array[Vector3]) -> float:
 	return total
 
 func _drive_to_waypoint(delta: float) -> void:
-	if not is_on_floor():
-		velocity.y -= GRAVITY * delta
-	else:
-		velocity.y = -2.0
+	velocity.y = _spring_velocity_y
 
 	var hold_in_combat: bool = _has_combat_target()
 
@@ -464,9 +831,24 @@ func _drive_to_waypoint(delta: float) -> void:
 		return
 
 	var nav_dest: Vector3 = _get_follow_navigation_destination()
+	var raw_dest: Vector3 = _get_raw_navigation_destination()
 	var dest: Vector3 = _apply_combat_mobility(nav_dest)
 	dest = _apply_platoon_cohesion(dest)
 	_update_path_stuck_state(delta, nav_dest)
+
+	# Hold position once arrived — only re-engage if destination shifts significantly
+	if not hold_in_combat:
+		if _arrived_at_destination:
+			if _flat_distance(raw_dest, _arrived_destination_pos) > 30.0:
+				_arrived_at_destination = false  # Destination moved, re-engage
+			else:
+				_match_formation_velocity(raw_dest, delta)
+				return
+		elif _flat_distance(global_position, raw_dest) < waypoint_reach_distance:
+			_arrived_at_destination = true
+			_arrived_destination_pos = raw_dest
+			_match_formation_velocity(raw_dest, delta)
+			return
 
 	var current_forward: Vector3 = global_basis.z
 	current_forward.y = 0.0
@@ -490,20 +872,74 @@ func _drive_to_waypoint(delta: float) -> void:
 	else:
 		desired_dir = desired_dir.normalized()
 
+	# Compute avoidance nudge BEFORE steering so it influences direction, not just velocity
+	var nudge := Vector3.ZERO
+	for other in get_tree().get_nodes_in_group("ground_vehicles"):
+		if other == self or not is_instance_valid(other) or not other is Node3D:
+			continue
+		var away: Vector3 = global_position - (other as Node3D).global_position
+		away.y = 0.0
+		var dist: float = away.length()
+		var min_spacing: float = maxf(preferred_vehicle_spacing_min_m, 5.0)
+		if dist < min_spacing and dist > 0.01:
+			var strength: float = (min_spacing - dist) / min_spacing
+			nudge += away.normalized() * strength
+
+	# Elliptical carrier avoidance — gentle flow around (not during deploy/retrieve)
+	if not deploy_mode and not retrieve_mode:
+		for carrier in get_tree().get_nodes_in_group("carrier"):
+			if not carrier is Node3D or not is_instance_valid(carrier):
+				continue
+			var local_pos: Vector3 = (carrier as Node3D).to_local(global_position)
+			var rx: float = 70.0  # wide berth around carrier
+			var rz: float = 90.0
+			var nx: float = local_pos.x / rx
+			var nz: float = local_pos.z / rz
+			var ellipse_dist: float = sqrt(nx * nx + nz * nz)
+			if ellipse_dist < 1.4 and ellipse_dist > 0.01:
+				# Radial outward (gradient of ellipse equation)
+				var radial_local := Vector3(local_pos.x / (rx * rx), 0.0, local_pos.z / (rz * rz))
+				if radial_local.length_squared() > 0.0001:
+					radial_local = radial_local.normalized()
+				# Tangential — perpendicular to radial, pick direction matching desired movement
+				var tangent_local := Vector3(-radial_local.z, 0.0, radial_local.x)
+				var desired_local: Vector3 = (carrier as Node3D).global_basis.inverse() * desired_dir
+				if tangent_local.dot(Vector3(desired_local.x, 0.0, desired_local.z)) < 0.0:
+					tangent_local = -tangent_local
+				# Strength: fades from 1.0 at ellipse surface to 0.0 at 1.3
+				var strength: float = clampf((1.4 - ellipse_dist) / 0.4, 0.0, 1.0)
+				if ellipse_dist < 1.0:
+					strength = 1.0
+				# Blend radial push + tangential flow
+				var push_local := (radial_local * 0.4 + tangent_local * 0.6).normalized()
+				var push_world: Vector3 = (carrier as Node3D).global_basis * push_local
+				push_world.y = 0.0
+				nudge += push_world * strength * 3.0
+
+	# Track whether avoidance is active
+	var nudge_active: bool = nudge.length_squared() > 0.001
+
+	# Blend avoidance into desired direction so vehicles steer around obstacles
+	if nudge_active:
+		var nudge_weight: float = clampf(nudge.length(), 1.0, 6.0)
+		desired_dir = (desired_dir + nudge.normalized() * nudge_weight).normalized()
+
 	var cross_y: float = current_forward.cross(desired_dir).y
 	var dot: float = clampf(current_forward.dot(desired_dir), -1.0, 1.0)
 	var turn_angle_deg: float = rad_to_deg(acos(dot))
 	var planar_speed: float = Vector2(velocity.x, velocity.z).length()
 
-	var steer_target: float = clamp(cross_y * 2.0, -1.0, 1.0)
+	var steer_target: float = clamp(cross_y, -1.0, 1.0)
 	if hold_in_combat:
-		steer_target = clamp(cross_y * 1.1, -0.65, 0.65)
-	var turn_rate_scale: float = lerpf(0.35, 1.0, clampf(planar_speed / maxf(max_speed, 0.1), 0.0, 1.0))
+		steer_target = clamp(cross_y * 0.7, -0.65, 0.65)
+	var turn_rate_scale: float = lerpf(0.2, 1.0, clampf(planar_speed / maxf(max_speed, 0.1), 0.0, 1.0))
+	if nudge_active:
+		turn_rate_scale = maxf(turn_rate_scale, 0.5)  # Don't let avoidance kill turn rate
 	if hold_in_combat:
-		turn_rate_scale = maxf(turn_rate_scale, 0.45)
-	rotate_y(steer_target * turn_speed * delta * turn_rate_scale)
+		turn_rate_scale = maxf(turn_rate_scale, 0.35)
+	global_rotate(Vector3.UP, steer_target * turn_speed * delta * turn_rate_scale)
 
-	var throttle: float = clamp((dot + 1.0) * 0.5, 0.0, 1.0) * (1.0 - abs(steer_target) * 0.3)
+	var throttle: float = 1.0
 	if hold_in_combat and current_target and is_instance_valid(current_target):
 		var target_distance: float = global_position.distance_to(current_target.global_position)
 		if target_distance <= combat_stop_distance_m and turn_angle_deg <= combat_track_angle_deg:
@@ -517,21 +953,16 @@ func _drive_to_waypoint(delta: float) -> void:
 	forward.y = 0.0
 	forward = forward.normalized() if forward.length_squared() > 0.0001 else Vector3.FORWARD
 
-	var sep := Vector3.ZERO
-	if not hold_in_combat:
-		for other in get_tree().get_nodes_in_group("ground_vehicles"):
-			if other == self or not is_instance_valid(other) or not other is Node3D:
-				continue
-			var away: Vector3 = global_position - (other as Node3D).global_position
-			away.y = 0.0
-			var dist: float = away.length()
-			var min_spacing: float = maxf(preferred_vehicle_spacing_min_m, 5.0)
-			if dist < min_spacing and dist > 0.01:
-				sep += away.normalized() * (min_spacing - dist) / min_spacing * max_speed
-
-	var accel_scale: float = 1.8 if hold_in_combat else 1.0
-	velocity.x = move_toward(velocity.x, forward.x * throttle * max_speed + sep.x, acceleration * delta * accel_scale)
-	velocity.z = move_toward(velocity.z, forward.z * throttle * max_speed + sep.z, acceleration * delta * accel_scale)
+	# Kill lateral velocity — vehicles only move along their forward axis
+	var current_planar := Vector3(velocity.x, 0.0, velocity.z)
+	var forward_speed: float = current_planar.dot(forward)
+	var target_speed: float = throttle * max_speed
+	if hold_in_combat:
+		forward_speed = move_toward(forward_speed, target_speed, acceleration * delta * (4.0 if forward_speed > target_speed else 1.8))
+	else:
+		forward_speed = move_toward(forward_speed, target_speed, acceleration * delta * (4.0 if forward_speed > target_speed else 1.0))
+	velocity.x = forward.x * forward_speed
+	velocity.z = forward.z * forward_speed
 
 	move_and_slide()
 
@@ -543,6 +974,44 @@ func _get_navigation_destination() -> Vector3:
 
 func _has_navigation_destination() -> bool:
 	return (platoon and is_instance_valid(platoon) and platoon.has_active_objective()) or not _waypoint_positions.is_empty()
+
+## When holding position in a formation tied to a moving reference (carrier),
+## match its velocity and apply a gentle correction toward the slot position.
+func _match_formation_velocity(slot_pos: Vector3, delta: float) -> void:
+	var base_vel := Vector3.ZERO
+	# Get carrier velocity if escorting
+	if platoon and is_instance_valid(platoon) and platoon.objective_type == GroundVehiclePlatoon.ObjectiveType.ESCORT_CARRIER:
+		if platoon.escort_node and is_instance_valid(platoon.escort_node) and platoon.escort_node.has_method("get_velocity_vector"):
+			base_vel = platoon.escort_node.get_velocity_vector()
+
+	# Correction toward slot position — dead zone so they don't fidget
+	var to_slot: Vector3 = slot_pos - global_position
+	to_slot.y = 0.0
+	var drift: float = to_slot.length()
+	var correction := Vector3.ZERO
+	if drift > 15.0:
+		var correction_strength: float = clampf((drift - 15.0) / 40.0, 0.05, 1.0)
+		correction = to_slot.normalized() * correction_strength * max_speed * 0.4
+
+	var target_vel: Vector3 = base_vel + correction
+	var fm_rate_x: float = acceleration * delta * (4.0 if absf(velocity.x) > absf(target_vel.x) else 2.0)
+	var fm_rate_z: float = acceleration * delta * (4.0 if absf(velocity.z) > absf(target_vel.z) else 2.0)
+	velocity.x = move_toward(velocity.x, target_vel.x, fm_rate_x)
+	velocity.z = move_toward(velocity.z, target_vel.z, fm_rate_z)
+
+	# Face movement direction if moving
+	var planar_vel := Vector2(velocity.x, velocity.z)
+	if planar_vel.length() > 1.0:
+		var move_dir := Vector3(velocity.x, 0.0, velocity.z).normalized()
+		var current_fwd: Vector3 = global_basis.z
+		current_fwd.y = 0.0
+		if current_fwd.length_squared() > 0.0001:
+			current_fwd = current_fwd.normalized()
+			var cross_y: float = current_fwd.cross(move_dir).y
+			global_rotate(Vector3.UP, clamp(cross_y * 2.0, -1.0, 1.0) * turn_speed * delta)
+
+	move_and_slide()
+	_update_wheel_visuals()
 
 func _apply_platoon_cohesion(base_destination: Vector3) -> Vector3:
 	if _has_combat_target():

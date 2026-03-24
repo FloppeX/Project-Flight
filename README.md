@@ -32,7 +32,7 @@ The player pushes into enemy-controlled territory, launches and recovers aircraf
 
 ## Current Status
 
-**Last Updated:** 2026-03-22
+**Last Updated:** 2026-03-24
 **Godot Version:** 4.4.1.stable.official.49a5bc7b6
 **Project Health:** PLAYABLE
 **Control Mode:** AI-by-default with spectator/pilot toggle (game controller)
@@ -58,7 +58,7 @@ Example project launch from this repo root:
 | AI Pilot | Working | Full carrier cycle exists; path-follower carrier recovery remains the default; hierarchy-of-needs safety layer (terrain avoidance > collision avoidance > state machine); terrain fan avoidance with directional escape sampling; dogfight proximity override breaks off ground attack when enemies close; CCIP ballistic sim throttled via caching |
 | Catapult | Working | Launches AI and player aircraft |
 | Arresting Cables | Working | Roll stabilization, mass-adaptive braking |
-| Landing Gear | Working | Suspension/damping implemented; Aircraft 1 and 2 now use animated gear pivots instead of pop-in/out, with stowed visuals/shadows suppressed |
+| Landing Gear | Working | Suspension/damping implemented; Aircraft 1, 2, and 5 now use animated gear pivots instead of pop-in/out, with stowed visuals/shadows suppressed |
 | Tailhook | Working | Auto-deploy/stow functional |
 
 ### Aircraft Systems
@@ -71,7 +71,7 @@ Example project launch from this repo root:
 | Targeting | Working | HUD target box, sensor cone |
 | HUD | Working | Radar, instruments, CCIP, terrain map overlay on radar; HUD symbology/text fully opaque, and the main gunsight now uses proper HUD-glass collimation/boresight projection |
 | Camera System | Working | Multiple camera modes, free-fly debug camera, delayed death-camera handoff; chase camera now orbits the aircraft on a level horizontal plane; the old bridge cam has been replaced by a first-person commander view inside the carrier bridge |
-| Destruction | Working | Explosion with volumetric smoke puffs (SphereMesh, staggered, rising/fading); ParticleManager autoload handles all particle lifecycle |
+| Destruction | Working | Explosion with volumetric smoke puffs (SphereMesh, staggered, rising/fading); ParticleManager autoload handles all particle lifecycle; enemy barracks bases spawn on flat terrain |
 | Damage Effects | Working | 3-tier progressive damage system: hydraulic/fuel/flap failures, engine cap/control loss/HUD flicker, engine sputter/structural failure/HUD blackout; escalating smoke trails |
 
 ### Carrier Systems
@@ -81,12 +81,15 @@ Example project launch from this repo root:
 | Flight Deck Manager | Partial | Orchestrates deck/hangar/catapult/recovery flow, scramble queues, and runtime aircraft persistence; now supports last-leg wave-offs when the deck is occupied, bolter/go-around recovery retries, and cleanup of extra tractor bots by sending them below via the elevator |
 | Air Operations Manager | Working | Autoload (Citadel). Commands four named flights (Archer, Bulldog, Crimson, Dingo); intercept/CAS vectoring; scrambles from hangar when a flight has no members; radio comms throughout |
 | Wing Fold (Aircraft 2) | Working | Wings fold in hangar/transport, unfold at catapult; instant-snap on spawn |
+| Wing Fold (Aircraft 5) | Working | Multi-phase fold: lateral slide, then overlapping X/Y rotations with smoothstep easing; mirrored left-wing geometry handled with flipped X sign |
 | Elevator | Working | Hangar <-> deck transit; aircraft tracks carrier horizontally |
 | Tractor Bots | Working | Aircraft towing system; follow carrier as carrier children and now use shared wheel-node lookup instead of brittle hard-coded wheel names |
-| Deck Lights | Working | Procedural light placement; center elevator-adjacent strips retuned and recolored yellow |
+| Deck Lights | Working | Procedural SpotLight3D placement (downward-facing, no bleed into dust/sky); center elevator-adjacent strips retuned and recolored yellow |
 | Arresting Cables | Working | Multi-cable support |
 | Carrier Movement Tracking | Working | All deck objects (parked, transport, catapult) move with carrier each frame |
 | Vehicle Ramp | Working | Three-panel folding ramp at the carrier rear for ground vehicle deploy/recovery; uses existing GLB meshes; zig-zag fold with simultaneous hinge animation; dynamic terrain-tracking deploy angle; Z key toggles deploy/stow |
+| Vehicle Bay Manager | Working | Manages ground vehicle deployment and retrieval via the rear ramp; spawns vehicles on the bay floor, drives them down the ramp at 3s intervals; retrieval rallies all platoon members behind the carrier, deploys ramp when first vehicle arrives, drives them up one at a time; auto-stows ramp after completion; carrier-local positioning during ramp transit so everything works while the carrier moves |
+| Ground Ops Manager | Working | Autoload singleton managing four named platoons (Ember, Ferret, Grizzly, Hammer); V deploys next empty platoon, B retrieves last deployed, N requests carrier escort; commands: move, attack, protect, escort, pursue, hold, retrieve; carrier escort places vehicles at carrier corners with velocity matching; deploy queue processes one platoon at a time |
 | Tracks | Working | Nav-grid A* pathfinding with path simplification; full-path computation (no more segmented replanning); steering response/deadzone/settle tuning; height deadband smoothing; tread belt UV rewritten to use baked path-based mapping from imported track mesh; new belt debug modes (path UV, cross UV, direction arrows); terrain-feeler wall avoidance; stuck detection; spawn faces first waypoint |
 | Carrier Defensive Turrets | Working | Carrier defense mounts can now host dual functioning turrets per set and are wired through the shared turret controller/weapon stack; turret pitch calculation simplified and barrel forward derivation cleaned up |
 | Bridge Commander | Working | First-person commander pawn with analog walk/look on the bridge; simple collision, warm bridge lighting, and bridge-view camera handoff integrated |
@@ -105,8 +108,8 @@ Example project launch from this repo root:
 | Weapons | Working | Autocannon with burst fire |
 | Ballistics | Working | Lead calculation with gravity compensation; enemy turrets now use actual bullet speed from weapon for lead timing |
 | Ground Snapping | Working | StaticBody3D terrain alignment |
-| Movement | Partial | Aircraft behavior solid; ground vehicles now share NavGraph waypoint path-following with cooldown/backoff logic and fixed nav waypoint consumption to prevent infinite replan loops; movement/combat stance still being tuned |
-| AI Behavior | Working | Carrier-centered patrol, dogfight, missile/gun choice, RTB/landing, lost-sight variation, and platoon-based ground vehicle objectives implemented; still being tuned |
+| Movement | Working | Aircraft behavior solid; ground vehicles use spring-damper suspension with chassis floating above ground and all wheels in contact (works on terrain and carrier ramp); forward-axis velocity projection; larger turn radii; elliptical carrier avoidance with tangential flow steering; movement/combat stance still being tuned |
+| AI Behavior | Working | Carrier-centered patrol, dogfight, missile/gun choice, RTB/landing, lost-sight variation, and platoon-based ground vehicle objectives implemented; ground vehicles hold position once arrived (30m hysteresis), avoid siblings during retrieval rally; escort positions prioritize front corners; still being tuned |
 
 ### Environment
 
@@ -116,7 +119,7 @@ Example project launch from this repo root:
 | Terrain Shaping | Working | Flat areas now include subtle undulation/detail noise; cliffs/canyons deepened for stronger relief |
 | Terrain Shader | Working | Slope-based coloring; sharp sand-to-grey border (`steep_slope_band`); per-face independent tint (no spatial bleeding) |
 | Rock Scatter | Working | MultiMesh rocks placed at correct world height; atomic swap prevents popping |
-| Lighting | Working | Directional + deck lights; soft shadows, split cascades, normal bias; shadow acne fixed |
+| Lighting | Working | Directional + deck SpotLights; soft shadows, 8K atlas, blended cascade splits, normal bias; shadow acne fixed |
 | Post-Processing | Working | Filmic, glow, SSAO, fog |
 | Weather | Planned | Not yet implemented |
 
@@ -127,9 +130,9 @@ Example project launch from this repo root:
 3. Continue tuning terrain fan avoidance and collision avoidance — the hierarchy-of-needs safety layer is in but needs edge-case polish.
 4. Continue tuning ground vehicle movement, combat stance, and pathing performance.
 5. Expand the bridge experience with more environmental polish and commander-facing command-space features; waypoint visualization is now on the holomap.
-6. Build out ground vehicle deployment flow using the new rear ramp — AI-driven drive-off/drive-on, deployment queuing, and integration with the vehicle bay.
+6. Continue expanding ground operations — more mission types, multi-platoon coordination, and integration with carrier tactical AI.
 
-**Current focus:** As of 2026-03-22, recent work added a three-panel folding vehicle deployment ramp at the carrier rear (VehicleRamp.gd) with zig-zag fold mechanics, simultaneous hinge animation, dynamic terrain-tracking angle, and Z-key toggle — using the existing ramp meshes from the carrier body GLB. Prior session work included AI terrain fan/collision avoidance, CCIP caching, baked tread belt UV mapping, full-path carrier navigation with path simplification, waypoint holomap visualization, turret cleanup, enemy ballistics improvements, and ground vehicle nav fixes. Active work continues on vehicle deployment flow, AI flight tuning, and bridge-command features.
+**Current focus:** As of 2026-03-24, recent work added Aircraft_5 wing fold animation, fixed deck light bleed (OmniLight to SpotLight conversion), added dust additive blending, reworked ground vehicle carrier avoidance (elliptical with tangential flow), and fixed building barracks scaling. Prior work overhauled ground vehicle suspension and driving physics, added Aircraft_3, and completed the full ground vehicle deployment/retrieval pipeline via VehicleBayManager and GroundOpsManager with four named platoons and full command set.
 
 ## Working Style Notes
 

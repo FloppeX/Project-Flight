@@ -73,11 +73,9 @@ func _spawn_bullet(spawn_transform: Transform3D, firing_entity: Node3D) -> void:
 		push_warning("BulletWeapon: No current scene found.")
 		return
 		
+	# Set transform BEFORE adding to tree so _ready() visuals don't flash at the origin
+	bullet.transform = spawn_transform
 	root.add_child(bullet)
-	
-	bullet.global_transform = spawn_transform
-	
-	# Move it slightly forward so it doesn't collide with the barrel immediately
 	bullet.global_position += bullet.global_transform.basis.z * 2.5
 	
 	# Fire direction is +Z of the spawn transform

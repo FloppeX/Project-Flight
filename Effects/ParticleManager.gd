@@ -54,10 +54,12 @@ func _update_smoke_particle(particle: Dictionary, delta: float):
 	if "yaw_speed" in particle:
 		particle.mesh_instance.rotation.y += particle.yaw_speed * delta
 
-	# Fade out
+	# Fade out — scale from initial alpha, not 1.0
 	if particle.mesh_instance.material_override:
-		var alpha: float = 1.0 - life_progress * life_progress  # Quadratic fade — visible longer
-		particle.mesh_instance.material_override.albedo_color.a = alpha
+		if not "initial_alpha" in particle:
+			particle.initial_alpha = particle.mesh_instance.material_override.albedo_color.a
+		var fade: float = 1.0 - life_progress * life_progress  # Quadratic fade
+		particle.mesh_instance.material_override.albedo_color.a = particle.initial_alpha * fade
 
 func _update_explosion_particle(particle: Dictionary, delta: float):
 	# Scale up quickly then fade

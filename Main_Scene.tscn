@@ -1,4 +1,4 @@
-[gd_scene load_steps=17 format=3 uid="uid://di4mmbdu6qiv1"]
+[gd_scene load_steps=18 format=3 uid="uid://di4mmbdu6qiv1"]
 
 [ext_resource type="Script" uid="uid://dhif0k7fphvot" path="res://ScenarioManager.gd" id="1"]
 [ext_resource type="PackedScene" uid="uid://dsel16gi76dnm" path="res://UI/UIEnergyContainer/UIFuelLevel.tscn" id="5"]
@@ -11,6 +11,7 @@
 [ext_resource type="PackedScene" uid="uid://c2s8c25rpg1df" path="res://Weather/ContinuousTurbulence.tscn" id="49_hrb0d"]
 [ext_resource type="Script" uid="uid://b2gfgs7ytoexe" path="res://Enemies/EnemyAircraftSpawner.gd" id="70_enemyair"]
 [ext_resource type="PackedScene" uid="uid://db4ow6u1r6kce" path="res://Environment/LowPolyTerrainPrototype.tscn" id="71_lowpoly"]
+[ext_resource type="PackedScene" path="res://Environment/RockStream.tscn" id="72_rockstream"]
 [ext_resource type="Script" uid="uid://cnyht8dc3kewe" path="res://Environment/DayNightCycle.gd" id="80_daynightcycle"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_ryrq1"]
@@ -60,6 +61,8 @@ shadow_enabled = true
 shadow_bias = 0.02
 directional_shadow_split_2 = 0.3
 directional_shadow_max_distance = 1000.0
+
+[node name="RockStream" parent="." instance=ExtResource("72_rockstream")]
 
 [node name="LowPolyTerrainPrototype" parent="." instance=ExtResource("71_lowpoly")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 62, 0)

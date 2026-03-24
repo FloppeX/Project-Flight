@@ -65,23 +65,22 @@ func fire() -> bool:
 	
 	# Instantiate missile (avoid relying on global class)
 	var missile = missile_scene.instantiate()
-	get_tree().current_scene.add_child(missile)
 	last_fired_missile = missile as Node3D
-	
-	# Align missile with hardpoint orientation and position
+
+	# Set transform BEFORE adding to tree so first-frame visuals don't flash at the origin
 	if hardpoint:
 		var hp_tr: Transform3D = hardpoint.global_transform
 		var hp_rot: Basis = hp_tr.basis.orthonormalized()
-		var src_basis: Basis = missile.global_basis
-		var src_rot: Basis = src_basis.orthonormalized()
-		var src_scale: Vector3 = src_basis.get_scale()
+		var src_rot: Basis = missile.transform.basis.orthonormalized()
+		var src_scale: Vector3 = missile.transform.basis.get_scale()
 		var final_basis: Basis = hp_rot * src_rot
 		final_basis = final_basis.scaled(src_scale)
-		missile.global_transform = Transform3D(final_basis, hp_tr.origin)
+		missile.transform = Transform3D(final_basis, hp_tr.origin)
 	else:
-		missile.global_position = global_position
-		missile.global_basis = Basis.IDENTITY
+		missile.position = global_position
+		missile.transform.basis = Basis.IDENTITY
 		missile.scale = Vector3.ONE
+	get_tree().current_scene.add_child(missile)
 
 	# Get aircraft and target (mostly already checked in can_fire, but repeated for setup)
 	var aircraft_node: Node = get_parent()

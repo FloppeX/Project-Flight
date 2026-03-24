@@ -31,26 +31,23 @@ func fire() -> bool:
 	
 	# Create and drop bomb projectile
 	var bomb_projectile: BombProjectile = bomb_projectile_scene.instantiate()
-	get_tree().current_scene.add_child(bomb_projectile)
-	
-	# Align bomb orientation to the hardpoint while preserving the bomb scene's intrinsic rotation and scale
+
+	# Set transform BEFORE adding to tree so first-frame visuals don't flash at the origin
 	if hardpoint:
 		var hp_tr: Transform3D = hardpoint.global_transform
 		var hp_rot: Basis = hp_tr.basis.orthonormalized()
-		# Capture the bomb scene's original basis decomposition (rotation + scale)
-		var src_basis: Basis = bomb_projectile.global_basis
-		var src_rot: Basis = src_basis.orthonormalized()
-		var src_scale: Vector3 = src_basis.get_scale()
-		# Compose final basis: hardpoint rotation, then bomb's local rotation, then apply bomb's scale
+		var src_rot: Basis = bomb_projectile.transform.basis.orthonormalized()
+		var src_scale: Vector3 = bomb_projectile.transform.basis.get_scale()
 		var final_basis: Basis = hp_rot * src_rot
 		final_basis = final_basis.scaled(src_scale)
-		bomb_projectile.global_transform = Transform3D(final_basis, hp_tr.origin)
+		bomb_projectile.transform = Transform3D(final_basis, hp_tr.origin)
 	else:
 		# Fallback: keep current position and remove any inherited scale
-		bomb_projectile.global_position = global_position
-		bomb_projectile.global_basis = Basis.IDENTITY
+		bomb_projectile.position = global_position
+		bomb_projectile.transform.basis = Basis.IDENTITY
 		bomb_projectile.scale = Vector3.ONE
-	
+	get_tree().current_scene.add_child(bomb_projectile)
+
 	# Get the aircraft from the hardpoint (parent)
 	var aircraft_node: Node = get_parent()
 	while aircraft_node and not (aircraft_node is RigidBody3D):

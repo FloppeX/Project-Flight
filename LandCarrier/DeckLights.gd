@@ -6,7 +6,7 @@ extends Node3D
 @export var centerline_color: Color = Color(0.2, 0.8, 1.0)
 @export var edge_color: Color = Color(0.8, 0.8, 0.6)
 @export var light_energy: float = 2.0
-@export var light_range: float = 18.0
+@export var light_range: float = 6.0
 @export var include_edges: bool = true
 @export var edge_offset_m: float = 5.0
 @export var billboard_size: float = 0.18
@@ -47,7 +47,7 @@ func _unhandled_input(event: InputEvent) -> void:
 func _build_lights():
 	# Clear previous
 	for c in get_children():
-		if c is OmniLight3D or c is MeshInstance3D:
+		if c is Light3D or c is MeshInstance3D:
 			c.queue_free()
 	var A: Vector3 = _start.global_position
 	var B: Vector3 = _end.global_position
@@ -105,14 +105,17 @@ func _get_elevator_half_length_along_deck(deck_dir: Vector3) -> float:
 	return maxf(half_len, 0.1)
 
 func _add_light(pos: Vector3, col: Color, is_edge: bool):
-	var o := OmniLight3D.new()
+	var o := SpotLight3D.new()
 	o.light_color = col
 	o.light_energy = light_energy
-	o.omni_range = light_range
+	o.spot_range = light_range
+	o.spot_angle = 45.0
 	o.shadow_enabled = false
+	# Point downward onto the deck surface
+	o.rotation_degrees = Vector3(-90, 0, 0)
 	add_child(o)
 	var y_offset: float = edge_height_m if is_edge else centerline_height_m
-	o.global_position = pos + Vector3(0, y_offset, 0)
+	o.global_position = pos + Vector3(0, y_offset + 0.5, 0)
 	if use_mesh_markers:
 		var mi := MeshInstance3D.new()
 		var quad := QuadMesh.new()

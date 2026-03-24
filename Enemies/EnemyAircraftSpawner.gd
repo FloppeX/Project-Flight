@@ -14,28 +14,29 @@ extends Node3D
 @export var debug_ground_vehicle_spawns: bool = true
 
 var _aircraft_scene: PackedScene
+var _aircraft_3_scene: PackedScene
 var _enemy_aircraft_scene: PackedScene
 var _active_ai_planes: Array[RigidBody3D] = []
 var _enemy_vehicle_scene: PackedScene
 var _friendly_vehicle_scene: PackedScene
 var _ground_platoon_counter: int = 0
+var _building_barracks_scene: PackedScene
 
 func _ready():
 	_aircraft_scene = load("res://Aircraft/Aircraft_1.tscn")
 	if not _aircraft_scene:
 		push_error("[EnemyAircraftSpawner] Failed to load Aircraft_1.tscn")
-	_enemy_aircraft_scene = load("res://Enemies/EnemyFighter.tscn")
-	if not _enemy_aircraft_scene:
-		push_error("[EnemyAircraftSpawner] Failed to load Enemies/EnemyFighter.tscn")
+	_aircraft_3_scene = load("res://Aircraft/Aircraft_3.tscn")
+	if not _aircraft_3_scene:
+		push_error("[EnemyAircraftSpawner] Failed to load Aircraft/Aircraft_3.tscn")
+	_enemy_aircraft_scene = _aircraft_3_scene
 	_enemy_vehicle_scene = load("res://GroundVehicle/GroundVehicle.tscn")
 	_friendly_vehicle_scene = load("res://GroundVehicle/vehicle_friendly_light.tscn")
+	_building_barracks_scene = load("res://Buildings/building_barracks.tscn")
 
 func _input(event):
 	if event is InputEventKey and event.pressed and not event.echo:
-		if event.keycode == KEY_P:
-			_spawn_enemy()
-			get_viewport().set_input_as_handled()
-		elif event.keycode == KEY_O:
+		if event.keycode == KEY_O:
 			_toggle_ai_attack_mode()
 			get_viewport().set_input_as_handled()
 		elif event.keycode == KEY_L and event.shift_pressed:
@@ -58,6 +59,12 @@ func _input(event):
 			get_viewport().set_input_as_handled()
 		elif event.keycode == KEY_G:
 			_spawn_friendly_cap_flight()
+			get_viewport().set_input_as_handled()
+		elif event.keycode == KEY_3:
+			_spawn_friendly_aircraft_3()
+			get_viewport().set_input_as_handled()
+		elif event.keycode == KEY_X:
+			_spawn_enemy_base()
 			get_viewport().set_input_as_handled()
 
 func _spawn_ground_vehicles(scene: PackedScene, count: int) -> void:
@@ -255,6 +262,36 @@ func _spawn_enemy_strike_flight() -> void:
 	await get_tree().create_timer(0.5).timeout
 	for aircraft in spawned:
 		_configure_enemy_strike_pilot(aircraft, carrier)
+
+func _spawn_friendly_aircraft_3() -> void:
+	if not _aircraft_3_scene:
+		return
+	_prune_active_ai_planes()
+	if _active_ai_planes.size() >= max_ai_planes:
+		print("[EnemyAircraftSpawner] 3: max AI planes reached")
+		return
+
+	var carrier_pos: Vector3 = _get_carrier_position()
+	var orbit_waypoints: Array[Vector3] = _build_carrier_orbit_waypoints(carrier_pos, cap_orbit_radius_m, cap_flight_altitude_m, 9)
+
+	var angle: float = randf() * TAU
+	var radial: Vector3 = Vector3(cos(angle), 0.0, sin(angle))
+	var spawn_pos: Vector3 = carrier_pos + radial * cap_orbit_radius_m
+	spawn_pos.y = carrier_pos.y + cap_flight_altitude_m
+	var tangent: Vector3 = Vector3(-radial.z, 0.0, radial.x).normalized()
+
+	var aircraft := await _spawn_ai_fighter(
+		_aircraft_3_scene,
+		"FriendlyAC3_%d" % (_active_ai_planes.size() + 1),
+		1,
+		"friendlies",
+		spawn_pos,
+		tangent,
+		maxf(spawn_speed, 80.0)
+	)
+	if is_instance_valid(aircraft):
+		await get_tree().create_timer(0.5).timeout
+		_configure_friendly_cap_pilot(aircraft, orbit_waypoints, 0)
 
 func _spawn_friendly_cap_flight() -> void:
 	if not _aircraft_scene:
@@ -739,6 +776,90 @@ func _waypoint_most_ahead(aircraft: Node3D, waypoints: Array) -> int:
 			best_dot = dot_val
 			best_idx = i
 	return best_idx
+
+func _spawn_enemy_base() -> void:
+	if not _building_barracks_scene:
+		print("[EnemyAircraftSpawner] X: building scene not loaded")
+		return
+
+	var carrier_pos: Vector3 = _get_carrier_position()
+	var base_center: Vector3 = _find_flat_base_position(carrier_pos)
+	var building_count: int = randi_range(3, 5)
+	var space_state := get_world_3d().direct_space_state
+
+	# Generate cluster offsets 50-100m apart in a rough circle
+	var placed: Array[Vector3] = []
+	for i in range(building_count):
+		var offset := Vector3.ZERO
+		if i > 0:
+			for _attempt in range(20):
+				var angle := randf() * TAU
+				var dist := randf_range(50.0, 100.0)
+				offset = Vector3(cos(angle) * dist, 0.0, sin(angle) * dist)
+				# Check it doesn't overlap too closely with already placed buildings
+				var ok := true
+				for p in placed:
+					if p.distance_to(base_center + offset) < 40.0:
+						ok = false
+						break
+				if ok:
+					break
+
+		var world_pos := base_center + offset
+		# Raycast to find ground height
+		var params := PhysicsRayQueryParameters3D.create(
+			world_pos + Vector3.UP * 2000.0,
+			world_pos - Vector3.UP * 300.0
+		)
+		var hit := space_state.intersect_ray(params)
+		if hit:
+			world_pos.y = hit.position.y
+		else:
+			world_pos.y = base_center.y
+
+		var building := _building_barracks_scene.instantiate() as Node3D
+		get_tree().current_scene.add_child(building)
+		building.global_position = world_pos
+		# Random rotation for variety
+		building.global_rotation.y = randf() * TAU
+		placed.append(world_pos)
+
+	print("[EnemyAircraftSpawner] X: spawned %d buildings at %s" % [building_count, str(base_center)])
+
+func _find_flat_base_position(carrier_pos: Vector3) -> Vector3:
+	var carrier_ground_y: float = _sample_ground_height(carrier_pos)
+	var best_pos := Vector3(carrier_pos.x + 2500.0, carrier_ground_y, carrier_pos.z)
+	var best_flatness: float = INF
+
+	for _attempt in range(40):
+		var angle: float = randf() * TAU
+		var dist: float = randf_range(2000.0, 3500.0)
+		var center := Vector3(
+			carrier_pos.x + cos(angle) * dist,
+			0.0,
+			carrier_pos.z + sin(angle) * dist
+		)
+		center.y = _sample_ground_height(center)
+
+		# Check flatness: sample 4 corners ~60m out, measure max height difference
+		var max_delta: float = 0.0
+		for corner in range(4):
+			var ca: float = corner * TAU / 4.0
+			var sample_pos := Vector3(
+				center.x + cos(ca) * 60.0,
+				0.0,
+				center.z + sin(ca) * 60.0
+			)
+			var sample_y: float = _sample_ground_height(sample_pos)
+			max_delta = maxf(max_delta, absf(sample_y - center.y))
+
+		if max_delta < best_flatness:
+			best_flatness = max_delta
+			best_pos = center
+		if max_delta <= 5.0:
+			break
+
+	return best_pos
 
 func _get_carrier_position() -> Vector3:
 	var carriers = get_tree().get_nodes_in_group("carrier")

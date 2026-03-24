@@ -167,6 +167,14 @@ func _input(event):
 		else:
 			pass
 
+	# Spawn Aircraft 5 from hangar (key "5")
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_5:
+		if current_state == DeckState.IDLE:
+			var scene: PackedScene = load("res://Aircraft/Aircraft_5.tscn")
+			if scene:
+				stored_aircraft.push_front({"name": "Aircraft_5", "scene_file": "", "scene": scene, "position": Vector3.ZERO, "rotation": Vector3.ZERO, "scale": Vector3.ONE, "metadata": {}})
+				start_hangar_retrieval()
+
 	# Debug key to force reset state (key "9")
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_9:
 		current_state = DeckState.IDLE

@@ -20,7 +20,7 @@ const RADIO_BUS_NAME := "Radio"
 @export var tts_rate: float = 1.05        ## Slightly clipped = radio effect
 @export var message_linger_s: float = 9.0 ## How long each line stays visible
 @export var max_visible: int = 7          ## Maximum lines shown at once
-@export var radio_test_hotkey_enabled: bool = true
+@export var radio_test_hotkey_enabled: bool = false
 @export var radio_static_pre_roll_s: float = 0.08
 @export var radio_static_post_roll_s: float = 0.20
 @export var radio_voice_gain_db: float = -2.5

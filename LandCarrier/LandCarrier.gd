@@ -3,6 +3,7 @@ class_name LandCarrier
 
 const CARRIER_TREAD_SCRIPT := preload("res://LandCarrier/CarrierTread.gd")
 const VEHICLE_RAMP_SCRIPT := preload("res://LandCarrier/VehicleRamp.gd")
+const VEHICLE_BAY_SCRIPT := preload("res://LandCarrier/VehicleBayManager.gd")
 
 # --- Waypoints ---
 @export var waypoints: Array[NodePath] = []
@@ -10,7 +11,7 @@ const VEHICLE_RAMP_SCRIPT := preload("res://LandCarrier/VehicleRamp.gd")
 @export var waypoint_reach_distance: float = 120.0
 
 # --- Movement ---
-@export var max_speed: float = 8.0
+@export var max_speed: float = 10.0
 @export var acceleration: float = 1.5
 @export var turn_speed: float = 0.25
 @export var steer_response: float = 2.5
@@ -54,6 +55,7 @@ var _smoothed_desired_y: float = NAN
 var treads: Array[Node3D] = []
 var elevator: Node3D
 var vehicle_ramp: Node3D
+var vehicle_bay: Node3D
 const TEAM_ID: int = 1
 
 func _ready():
@@ -80,6 +82,14 @@ func _setup_vehicle_ramp() -> void:
 	ramp_node.set_script(VEHICLE_RAMP_SCRIPT)
 	add_child(ramp_node)
 	vehicle_ramp = ramp_node
+	_setup_vehicle_bay()
+
+func _setup_vehicle_bay() -> void:
+	var bay_node := Node3D.new()
+	bay_node.name = "VehicleBayManager"
+	bay_node.set_script(VEHICLE_BAY_SCRIPT)
+	add_child(bay_node)
+	vehicle_bay = bay_node
 
 func _resolve_waypoints() -> void:
 	_raw_waypoints.clear()
@@ -261,6 +271,18 @@ func _collect_tread_nodes() -> void:
 			_tread_nodes.append(child)
 			_tread_local_xz.append(Vector2(child.position.x, child.position.z))
 			_tread_initial_rot_y.append(child.rotation.y)
+			# Attach dust effect to each tread
+			if not child.has_node("DustEffect"):
+				var dust := DustEffect.new()
+				dust.name = "DustEffect"
+				dust.spawn_interval_s = 0.5
+				dust.puff_scale_min = 2.0
+				dust.puff_scale_max = 5.0
+				dust.puff_lifetime_s = 5.0
+				dust.puff_rise_speed = 8.0
+				dust.full_speed_mps = 12.0
+				dust.min_speed_mps = 1.0
+				child.add_child(dust)
 
 func find_treads() -> void:
 	treads.clear()
@@ -530,6 +552,12 @@ func turn_right(_amount: float = 30.0) -> void:
 
 func get_speed() -> float:
 	return max_speed
+
+func get_velocity_vector() -> Vector3:
+	var forward: Vector3 = global_transform.basis.z
+	forward.y = 0.0
+	forward = forward.normalized()
+	return forward * _last_planar_speed_mps
 
 func get_direction() -> float:
 	return rad_to_deg(atan2(-global_transform.basis.z.x, -global_transform.basis.z.z))

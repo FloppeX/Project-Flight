@@ -89,6 +89,9 @@ func _find_meshes_and_build() -> void:
 	_build_hierarchy(inner_src, middle_src, outer_src)
 	_set_stowed()
 
+	# Add a bay floor collider so vehicles have a surface to stand on
+	_build_bay_floor(hinge_pos)
+
 func _build_hierarchy(inner_src: MeshInstance3D, middle_src: MeshInstance3D, outer_src: MeshInstance3D) -> void:
 	# Slider — handles the initial slide-out along -Z
 	_slider = Node3D.new()
@@ -176,6 +179,63 @@ func _compute_deploy_angle() -> float:
 	h = pivot_world.y - ground_y - ground_clearance_m
 
 	return asin(clampf(h / total_len, 0.0, 0.85))
+
+# ── Bay floor collider ────────────────────────────────────────────────────
+
+func _build_bay_floor(hinge_pos: Vector3) -> void:
+	## Creates a StaticBody3D floor inside the carrier for vehicles to stand on.
+	## Extends from the hinge forward (+Z) into the carrier interior.
+	var floor_body := StaticBody3D.new()
+	floor_body.name = "BayFloor"
+
+	var col := CollisionShape3D.new()
+	var shape := BoxShape3D.new()
+	var floor_overlap: float = 3.0   # extend past hinge toward ramp to close the gap
+	var floor_length: float = 20.0 + floor_overlap
+	shape.size = Vector3(_panel_width, 0.5, floor_length)
+	col.shape = shape
+	# Position: centered on bay area, shifted back by overlap so it covers the hinge seam
+	col.position = Vector3(0.0, -0.25, floor_length / 2.0 - floor_overlap)
+	floor_body.add_child(col)
+
+	# Bay floor is positioned at the hinge point (same as this node)
+	# but it's a child of the carrier, not the ramp pivots
+	get_parent().add_child(floor_body)
+	floor_body.position = hinge_pos
+
+# ── Helpers for VehicleBayManager ─────────────────────────────────────────
+
+## Bay spawn point in carrier-local space — inside the carrier, forward of the hinge.
+func get_bay_spawn_local() -> Vector3:
+	# position is the hinge point in carrier-local space.
+	# Spawn 12 m forward (+Z) of the hinge and at hinge Y (deck floor level).
+	return Vector3(0.0, position.y, position.z + 12.0)
+
+## The hinge point in carrier-local space (top of deployed ramp).
+func get_hinge_local() -> Vector3:
+	return position
+
+## World position of the ramp tip (bottom end) when deployed.
+func get_ramp_tip_global() -> Vector3:
+	if not _outer_pivot:
+		return global_position
+	# Tip is at the far end of the outer panel
+	var tip_local := Vector3(0.0, 0.0, -_panel_length)
+	return _outer_pivot.to_global(tip_local)
+
+## Total ramp length (all three panels).
+func get_total_length() -> float:
+	return _panel_length * 3.0
+
+## Panel width (for spawn offset checks).
+func get_panel_width() -> float:
+	return _panel_width
+
+func is_deployed() -> bool:
+	return state == State.DEPLOYED
+
+func is_stowed() -> bool:
+	return state == State.STOWED
 
 # ── Toggle / Deploy / Stow ────────────────────────────────────────────────
 

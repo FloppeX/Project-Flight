@@ -93,8 +93,9 @@ func fire_at_target():
 	
 	# Create bullet
 	var bullet = bullet_scene.instantiate()
+	# Set transform BEFORE adding to tree so first-frame visuals don't flash at the origin
+	bullet.position = global_position + direction * 2.0  # Spawn slightly in front
 	get_tree().current_scene.add_child(bullet)
-	bullet.global_position = global_position + direction * 2.0  # Spawn slightly in front
 	
 	# Fire bullet towards predicted position
 	var bullet_velocity = direction * bullet_speed

@@ -10,7 +10,7 @@ class_name TurretController
 @export var team: int = 2
 @export var max_range: float = 400.0
 @export var field_of_view: float = 360.0 # degrees
-@export var aim_skill: float = 0.75 # 0.0 to 1.0 (adds noise)
+@export var aim_skill: float = 1.0 # 0.0 to 1.0 (adds noise)
 @export var target_search_interval_s: float = 0.25
 @export var target_aim_height_bias_m: float = 0.75
 @export var debug_enabled: bool = false

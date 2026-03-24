@@ -2,7 +2,7 @@ extends RigidBody3D
 class_name ProjectileNew
 
 @export var damage: float = 10.0
-@export var lifetime: float = 5.0
+@export var lifetime: float = 1.0
 @export var impact_effect: PackedScene  # Explosion/impact visual
 @export var creates_explosion: bool = true  # Whether this projectile explodes
 @export var explosion_scene: PackedScene  # Reference to explosion scene

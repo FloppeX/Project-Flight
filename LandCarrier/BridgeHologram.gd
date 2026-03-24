@@ -336,7 +336,7 @@ func _collect_contacts_for_group(group_name: String, air_color: Color, ground_co
 			"color": air_color,
 		}
 		if _is_ground_contact(node_3d):
-			entry["color"] = ground_color
+			entry["color"] = Color.WHITE if node_3d is Building else ground_color
 			ground_contacts.append(entry)
 		else:
 			air_contacts.append(entry)
@@ -571,7 +571,7 @@ func _create_ground_contact_square_mesh() -> Mesh:
 	return box_mesh
 
 func _is_ground_contact(node: Node3D) -> bool:
-	return node is VehicleBody3D
+	return node is VehicleBody3D or node is Building
 
 func _create_wire_box_mesh(size: Vector3, thickness: float) -> ArrayMesh:
 	var half := size * 0.5

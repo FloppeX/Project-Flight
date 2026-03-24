@@ -1,4 +1,4 @@
-[gd_scene load_steps=24 format=3 uid="uid://cfbnb1h25pmhu"]
+[gd_scene load_steps=25 format=3 uid="uid://cfbnb1h25pmhu"]
 
 [ext_resource type="Script" uid="uid://dqly5yht3qjks" path="res://LandCarrier/LandCarrier.gd" id="1_landcarrier"]
 [ext_resource type="PackedScene" uid="uid://pfnx57rs2d41" path="res://LandCarrier/CarrierTread.tscn" id="3_tread"]
@@ -35,6 +35,9 @@ size = Vector3(12.3674, 4.79993, 0.717285)
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_nevds"]
 size = Vector3(0.804688, 4.82013, 13.4082)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_1sulk"]
+size = Vector3(36.0825, 2.37, 53.8101)
 
 [node name="LandCarrier" type="CharacterBody3D"]
 script = ExtResource("1_landcarrier")
@@ -171,11 +174,12 @@ shape = SubResource("BoxShape3D_nevds")
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 5.65518, 1.32379, -0.778321)
 shape = SubResource("BoxShape3D_nevds")
 
-[node name="BridgeCeilingLight" type="OmniLight3D" parent="."]
-transform = Transform3D(-1, 0, 8.74228e-08, 0, 1, 0, -8.74228e-08, 0, -1, -29.5554, 15.3059, 0.00964248)
+[node name="BridgeCeilingLight" type="SpotLight3D" parent="."]
+transform = Transform3D(-1, 0, 8.74228e-08, 0, -4.37114e-08, -1, -8.74228e-08, -1, 4.37114e-08, -29.5554, 15.3059, 0.00964248)
 light_color = Color(1, 0.956863, 0.85098, 1)
 light_energy = 2.5
-omni_range = 18.0
+spot_range = 10.0
+spot_angle = 60.0
 
 [node name="BridgeHologram" parent="." instance=ExtResource("14_bridge_holo")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -29.5554, 13.5188, 0.00964248)
@@ -235,5 +239,11 @@ transform = Transform3D(-4.37114e-08, 0, 1, 0, 1, 0, -1, 0, -4.37114e-08, 28, -2
 
 [node name="CarrierDefenseTurret2" parent="." instance=ExtResource("15_center_turret")]
 transform = Transform3D(-4.37114e-08, 0, -1, 0, 1, 0, 1, 0, -4.37114e-08, -28, -2.902, 46.8968)
+
+[node name="Vehiclebay" type="Node3D" parent="."]
+
+[node name="Vehicle bay floor" type="CollisionShape3D" parent="Vehiclebay"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.258278, -24.5711, -41.1594)
+shape = SubResource("BoxShape3D_1sulk")
 
 [connection signal="launch_sequence_complete" from="Catapult" to="FlightDeckManager" method="_on_catapult_launch_sequence_complete"]

@@ -65,9 +65,10 @@ func fire() -> bool:
 	
 	# Create bullet projectile
 	var bullet = bullet_projectile_scene.instantiate()
+	# Set transform BEFORE adding to tree so first-frame visuals don't flash at the origin
+	bullet.position = global_position
+	bullet.rotation = global_rotation
 	get_tree().current_scene.add_child(bullet)
-	bullet.global_position = global_position
-	bullet.global_rotation = global_rotation
 	
 	# Add some spread for realism
 	var spread = Vector3(

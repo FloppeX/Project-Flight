@@ -7,6 +7,7 @@ enum ObjectiveType {
 	PURSUE_ENEMIES,
 	PROTECT_NODE,
 	ATTACK_NODE,
+	ESCORT_CARRIER,
 }
 
 @export var platoon_id: String = ""
@@ -18,9 +19,13 @@ enum ObjectiveType {
 @export var protect_slot_radius_m: float = 140.0
 @export var attack_radius_m: float = 300.0
 @export var attack_slot_radius_m: float = 180.0
+@export var move_scatter_radius_m: float = 50.0
+@export var escort_distance_m: float = 100.0
+@export var escort_engage_radius_m: float = 200.0
 
 var protected_node: Node3D = null
 var attack_node: Node3D = null
+var escort_node: Node3D = null
 var _members: Array[Node3D] = []
 
 func _ready() -> void:
@@ -70,10 +75,15 @@ func set_attack_node(node: Node3D, radius_m: float = 300.0) -> void:
 	attack_node = node
 	attack_radius_m = maxf(radius_m, 50.0)
 
+func set_escort_carrier(carrier: Node3D, distance_m: float = 100.0) -> void:
+	objective_type = ObjectiveType.ESCORT_CARRIER
+	escort_node = carrier
+	escort_distance_m = maxf(distance_m, 20.0)
+
 func get_destination_for(vehicle: Node3D) -> Vector3:
 	match objective_type:
 		ObjectiveType.MOVE_TO_POSITION:
-			return objective_position
+			return _get_slot_position_around(objective_position, vehicle, move_scatter_radius_m)
 		ObjectiveType.PURSUE_ENEMIES:
 			var pursuit_target: Node3D = _find_nearest_hostile(vehicle.global_position, pursue_range_m)
 			if pursuit_target:
@@ -94,6 +104,15 @@ func get_destination_for(vehicle: Node3D) -> Vector3:
 				if defender:
 					return attack_slot.lerp(defender.global_position, 0.45)
 				return attack_slot
+			return get_center_position()
+		ObjectiveType.ESCORT_CARRIER:
+			if escort_node and is_instance_valid(escort_node):
+				var corner_pos: Vector3 = _get_escort_corner_position(vehicle)
+				var threat: Node3D = _find_nearest_hostile(escort_node.global_position, escort_engage_radius_m, escort_node)
+				if threat:
+					# Slight lean toward threat but mostly hold position
+					return corner_pos.lerp(threat.global_position, 0.15)
+				return corner_pos
 			return get_center_position()
 		_:
 			return get_center_position()
@@ -118,6 +137,35 @@ func _find_nearest_hostile(origin: Vector3, range_limit: float, excluded_node: N
 				best_distance = dist
 				best_target = node3d
 	return best_target
+
+func _get_escort_corner_position(vehicle: Node3D) -> Vector3:
+	var members: Array[Node3D] = get_members()
+	var slot_index: int = members.find(vehicle)
+	if slot_index < 0:
+		slot_index = 0
+	# Carrier body half-dimensions (treads at ±32 wide, ±48 long) plus buffer
+	var half_length: float = 48.0 + escort_distance_m  # forward/rear from carrier center
+	var half_width: float = 32.0 + escort_distance_m * 0.5  # left/right from carrier center
+	# Corner offsets: front-right, front-left, rear-right, rear-left
+	var corners: Array[Vector2] = [
+		Vector2( half_width,  half_length),  # front-right
+		Vector2(-half_width,  half_length),  # front-left
+		Vector2( half_width, -half_length),  # rear-right
+		Vector2(-half_width, -half_length),  # rear-left
+	]
+	var corner: Vector2 = corners[slot_index % corners.size()]
+	var forward: Vector3 = escort_node.global_basis.z.normalized()
+	var right: Vector3 = escort_node.global_basis.x.normalized()
+	forward.y = 0.0
+	right.y = 0.0
+	forward = forward.normalized()
+	right = right.normalized()
+	var offset: Vector3 = right * corner.x + forward * corner.y
+	var pos: Vector3 = escort_node.global_position + offset
+	var terrain_y: float = TerrainNavGrid.sample_height(pos.x, pos.z)
+	if terrain_y > -9000.0:
+		pos.y = terrain_y
+	return pos
 
 func _get_slot_position_around(anchor: Vector3, vehicle: Node3D, radius_m: float) -> Vector3:
 	var members: Array[Node3D] = get_members()

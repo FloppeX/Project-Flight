@@ -203,7 +203,7 @@ func _draw() -> void:
 		if ac == current_target:
 			draw_arc(blip_pos, 8, 0, TAU, 16, Color.WHITE, 2)
 
-	# Draw ground contacts as coloured dots
+	# Draw ground contacts as coloured dots (buildings as white squares)
 	for e in ground_enemies + ground_enemy_contacts:
 		if not is_instance_valid(e):
 			continue
@@ -214,7 +214,10 @@ func _draw() -> void:
 			continue
 		var epx: float = center.x + (ex / range_m) * radius
 		var epy: float = center.y - (ez / range_m) * radius
-		draw_circle(Vector2(epx, epy), 3, Color.RED)
+		if e is Building:
+			draw_rect(Rect2(epx - 3, epy - 3, 6, 6), Color.WHITE)
+		else:
+			draw_circle(Vector2(epx, epy), 3, Color.RED)
 		if e == current_target:
 			draw_arc(Vector2(epx, epy), 8, 0, TAU, 16, Color.WHITE, 2)
 

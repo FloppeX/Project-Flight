@@ -17,7 +17,7 @@ class_name CameraController
 # Zoom variables
 @export var normal_fov: float = 75.0
 @export var zoomed_fov: float = 30.0
-@export var cockpit_near: float = 0.2
+@export var cockpit_near: float = 0.01
 var is_zoomed: bool = false
 var fov_tween: Tween
 

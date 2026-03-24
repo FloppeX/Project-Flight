@@ -30,7 +30,8 @@
       "Bash(done)",
       "Bash(python3 -c \":*)",
       "Bash(python -c \":*)",
-      "Bash(ls \"C:\\\\Users\\\\jonto\\\\.claude\\\\projects\\\\c--Godot-projects-Project-Flight\\\\memory\"\" 2>/dev/null || echo \"Directory empty or missing \")"
+      "Bash(ls \"C:\\\\Users\\\\jonto\\\\.claude\\\\projects\\\\c--Godot-projects-Project-Flight\\\\memory\"\" 2>/dev/null || echo \"Directory empty or missing \")",
+      "Read(//c/Godot projects/Project-Flight/$APPDATA/**)"
     ],
     "deny": [],
     "ask": []

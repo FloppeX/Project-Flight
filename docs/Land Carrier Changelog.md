@@ -3,6 +3,8 @@
 This document contains version history, session-by-session notes, and archived long-form material extracted from the main project overview. For the short project brief, see [README](../README.md).
 
 ## Version History
+- 2026-03-24: Aircraft_5 wing fold animation (multi-phase slide/rotate with mirrored geometry handling) and left gear retraction fix; deck lights converted from OmniLight3D to SpotLight3D to prevent bleed into dust/sky; dust effect switched to additive blending; building barracks scale fix (20x→1x); ground vehicle carrier avoidance reworked to elliptical zones with tangential flow steering; escort corner order changed to front-first; enemy barracks base spawning added.
+- 2026-03-23: Ground vehicle suspension overhaul — 4-corner probe spring-damper system with separate pitch/roll Euler springs; chassis floats ~1m above ground with all wheels in contact; works on terrain and carrier ramp; forward-axis velocity projection eliminates lateral sliding; asymmetric accel/decel; larger turn radii; carrier edge avoidance (10m buffer); escort formation uses actual carrier dimensions; ramp bay floor extended 3m to close gap at deck transition. Bullet first-frame flash fixed (set transform before add_child). Large procedural rock structures with colliders removed (visual scatter rocks kept). Shadow quality improved (soft filter quality 0→2, atlas 4K→8K, cascade split blending enabled). Aircraft_3 added as new aircraft type; enemy aircraft now use Aircraft_3 scene.
 - 2026-03-20: Bridge hologram pass â€” added the bridge holomap as a 2 m tactical table, then iterated it into a wireframe-only deep-greenâ†’neon-green terrain display with faction-colored air/ground markers, raised carrier/ground markers, lower-frequency/camera-gated refresh, and yaw-only carrier-frame projection to reduce stutter/flicker; HUD main reticle collimation fixed to use the physical HUD glass plane and aircraft boresight; dogfight gun aiming/fire logic tightened substantially (stronger terminal authority, stricter fire gates, burst cancellation, muzzle-point velocity solve/inheritance); autocannon ammo increased to 1000, AA missile launchers can start at 0 ammo, and carrier defense turret mounts now support two independently functioning turrets per set.
 - 2026-03-17: README/docs refresh; radio test call on `V` moved to `Audio/` and routed through filtered/static radio comms; carrier now spawns facing its first active waypoint; elevator-adjacent deck lights retuned/repositioned; nearest friendly can be ordered to land with `L`; AI landing approach reworked around authored approach marker heights plus carrier-relative altitude reference (`deck = 40 m`); landing gear now animates through pivot nodes with configurable stowed rotations and hidden/shadowless stowed visuals; Aircraft 2 gear scene wiring repaired after mesh changes; flight-deck recovery/launch flow hardened with cable-release fallback, wheel-based deck settling, and tractor-bot wheel lookup fixes; chase camera now uses a level orbit around the aircraft.
 - 2026-03-15 (s2): Ground vehicles now use shared NavGraph waypoint pathing with replan cooldown/backoff to prevent once-per-second hitches; turret/targeting debug spam disabled by default; carrier steering/stuck diagnostics improved; Aircraft 2 wing-fold hinge canted upward and mirrored correctly; HUD symbology made fully opaque; cockpit-view canopy/interior shadow suppression added to Aircraft 1/2 to reduce flicker; hangar storage now preserves aircraft type, damage, fuel, and loadout state; startup crash from early `find_hardpoints()` call hardened; arrested-landing recovery remains under active investigation.
@@ -28,6 +30,89 @@ This document contains version history, session-by-session notes, and archived l
 ---
 
 ## Project Change Log (latest session)
+
+### Session Summary (2026-03-24) - Aircraft_5 Wing Fold, Deck Lights, Dust Fix, Vehicle Avoidance
+
+**Overview:** Added multi-phase wing fold animation for Aircraft_5, fixed left landing gear retraction, converted deck lights to SpotLights, fixed dust particle darkening, corrected building barracks scale, and reworked ground vehicle carrier avoidance.
+
+#### Aircraft_5 Wing Fold (`Aircraft/WingFold5.gd`, `Aircraft/Aircraft_5.tscn`)
+- New multi-phase fold animation: lateral slide (0.5s) → Y rotation (2.5s) → X rotation starts after 1s delay, overlapping with Y (1.5s).
+- Left wing mesh is mirrored in the GLB — X rotation sign must be flipped (+X for left, -X for right). Y rotation is -Y for both.
+- Quaternion multiplication: rest_quat * X_rotation * Y_rotation.
+- Wings fold when `parking_brake` or `carrier_transport_mode` meta is set; unfold when cleared.
+- Smoothstep easing on all phases.
+
+#### Aircraft_5 Left Gear Fix (`Aircraft/Aircraft_5.tscn`)
+- Added missing `gear_collision_shapes` and `gear_visual_root_paths` entries for the left landing gear.
+
+#### Deck Lights (`LandCarrier/DeckLights.gd`, `LandCarrier/LandCarrier.tscn`)
+- Converted all deck lights from OmniLight3D to SpotLight3D pointing downward (-90° X rotation).
+- Reduced default light_range from 18m to 6m to prevent bleed into dust clouds and sky.
+- BridgeCeilingLight also converted from OmniLight3D to SpotLight3D (spot_range=10, spot_angle=60°).
+
+#### Dust Effect (`Effects/DustEffect.gd`)
+- Changed from standard alpha transparency to additive blending (`BLEND_MODE_ADD`) to prevent dark gasoline-like appearance when particles overlap.
+- Alpha range lowered to 0.05–0.12.
+
+#### Building Barracks (`Buildings/building_barracks.tscn`, `Buildings/building_barracks_destroyed.tscn`)
+- Mesh scale reduced from 20x to 1x — GLB was already the correct size.
+- Collision box scaled down proportionally.
+
+#### Enemy Base Spawning (`Enemies/EnemyAircraftSpawner.gd`)
+- X key spawns 3–5 barracks buildings on flat ground 2000–3500m from carrier.
+- `_find_flat_base_position()` samples terrain to find suitable flat ground.
+
+#### Ground Vehicle Avoidance (`GroundVehicle/vehicle_friendly_light.gd`, `GroundVehicle/vehicle_enemy_light.gd`)
+- Replaced rectangular carrier avoidance with elliptical zones (rx=70m, rz=90m) with tangential flow.
+- Avoidance blended into steering direction only — throttle is never reduced by avoidance or facing direction.
+- Vehicle-to-vehicle spacing uses nudge-based steering instead of velocity push.
+- Minimum turn rate floor (50%) during avoidance to prevent slow-speed lockup.
+
+#### Escort Formation (`GroundVehicle/ground_vehicle_platoon.gd`)
+- Corner order changed: first two slots are now front-right and front-left (both ahead of carrier), instead of front-right and rear-right.
+
+---
+
+### Session Summary (2026-03-23) - Ground Vehicle Suspension, Driving Physics, and Polish
+
+**Overview:** Complete rewrite of ground vehicle suspension from quaternion-based tilt to a 4-corner probe spring-damper system with Euler-decomposed pitch/roll springs. Overhauled driving physics for realistic feel. Added Aircraft_3. Various visual fixes and polish.
+
+#### Ground Vehicle Suspension (`GroundVehicle/vehicle_enemy_light.gd`, `GroundVehicle/vehicle_friendly_light.gd`)
+- New 4-corner probe system reads CollisionShape3D box size at runtime and raycasts at each corner.
+- Separate pitch and roll springs using `Basis.from_euler` (EULER_ORDER_YXZ) — cleanly separates yaw steering from terrain tilt.
+- Spring parameters: `spring_stiffness=120`, `spring_damping=18`, `spring_tilt_stiffness=80`, `spring_tilt_damping=18`.
+- Chassis rides ~1m above ground with all 6 wheels always in surface contact.
+- Works seamlessly on terrain and carrier ramp — deploy/retrieve code sets XZ only, springs handle Y and tilt.
+- All `rotate_y()` calls replaced with `global_rotate(Vector3.UP, ...)` to prevent unwanted roll/pitch injection when vehicle is tilted.
+
+#### Ground Vehicle Driving Physics
+- Forward-axis velocity projection eliminates all lateral sliding.
+- Asymmetric acceleration: 4x braking rate vs acceleration rate.
+- Turn speed reduced (1.8→0.6), acceleration reduced (12→4), waypoint reach distance increased (8→25m).
+- Carrier edge avoidance: vehicles stay 10m from carrier edges (±36x, ±52z) when not deploying/retrieving.
+
+#### Escort Formation (`GroundVehicle/ground_vehicle_platoon.gd`)
+- Corner positions now use actual carrier half-dimensions (32m wide, 48m long) plus escort distance, instead of fixed multipliers.
+- 15m dead zone for stable position holding; removed carrier velocity compounding bug.
+
+#### Carrier Ramp (`LandCarrier/VehicleRamp.gd`)
+- Bay floor extended 3m past hinge to close gap at ramp/deck transition.
+
+#### Bullet Fix (`Weapons/Turrets/bullet_weapon.gd`)
+- Fixed first-frame flash: bullet transform now set before `add_child()` so `_ready()` tracer doesn't render at world origin.
+
+#### Terrain (`Main_Scene.tscn`)
+- Removed RockFeatureSpawner (large procedural rock structures with colliders). Visual-only RockStream and RockScatter preserved.
+
+#### Shadow Quality (`project.godot`)
+- Soft shadow filter quality: 0 (hard) → 2 (medium).
+- Shadow atlas: 4096 → 8192.
+- Cascade split blending enabled.
+
+#### Aircraft
+- Aircraft_3 model and scene added. Enemy aircraft spawner now uses `Aircraft_3.tscn`.
+
+---
 
 ### Session Summary (2026-03-20) - Bridge Holomap, HUD Collimation, and Dogfight Gun Tuning
 

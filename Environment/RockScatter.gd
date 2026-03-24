@@ -171,7 +171,7 @@ func _scatter_poisson() -> void:
 		basis = basis.rotated(Vector3.UP, yaw)
 		basis = basis.scaled(Vector3(scale_val, scale_val, scale_val))
 
-		var tr := Transform3D(basis, pos + Vector3(0, 0.1, 0))
+		var tr := Transform3D(basis, pos - Vector3(0, 0.3 * scale_val, 0))
 		var v := i % variants
 		(transforms_per[v] as Array).append(tr)
 		counts[v] += 1
@@ -238,7 +238,7 @@ func _create_simple_rocks() -> void:
 		# Position and scale
 		var yaw := rng.randf() * TAU
 		var scale_val := rng.randf_range(min_scale, max_scale)
-		rock.position = pos + Vector3(0, 0.2, 0)  # Slight elevation
+		rock.position = pos - Vector3(0, 0.3 * scale_val, 0)  # Sink into terrain to prevent floating
 		rock.rotation_degrees = Vector3(0, rad_to_deg(yaw), 0)
 		rock.scale = Vector3(scale_val, scale_val, scale_val)
 
