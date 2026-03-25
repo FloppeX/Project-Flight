@@ -3,6 +3,7 @@
 This document contains version history, session-by-session notes, and archived long-form material extracted from the main project overview. For the short project brief, see [README](../README.md).
 
 ## Version History
+- 2026-03-26: Ground warfare/tactical map pass — enemy ground roster now uses buggy, pickup, and battle bus variants; added vehicle LMG and heavy-gun turrets plus small explosive heavy rounds; enemy wave spawning now picks flat ground more carefully; platoons travel in simple formations, pace to their slowest member, break/reform around combat, and enemy vehicle shooting is intentionally inaccurate but permissive; bridge holomap ground markers changed to cubes, enemy platoons appear as medium red cubes only when friendly units have terrain line-of-sight; suspension/dust/turret update-frequency optimizations and pooled dust work reduced ground-combat CPU cost.
 - 2026-03-24: Aircraft_5 wing fold animation (multi-phase slide/rotate with mirrored geometry handling) and left gear retraction fix; deck lights converted from OmniLight3D to SpotLight3D to prevent bleed into dust/sky; dust effect switched to additive blending; building barracks scale fix (20x→1x); ground vehicle carrier avoidance reworked to elliptical zones with tangential flow steering; escort corner order changed to front-first; enemy barracks base spawning added.
 - 2026-03-23: Ground vehicle suspension overhaul — 4-corner probe spring-damper system with separate pitch/roll Euler springs; chassis floats ~1m above ground with all wheels in contact; works on terrain and carrier ramp; forward-axis velocity projection eliminates lateral sliding; asymmetric accel/decel; larger turn radii; carrier edge avoidance (10m buffer); escort formation uses actual carrier dimensions; ramp bay floor extended 3m to close gap at deck transition. Bullet first-frame flash fixed (set transform before add_child). Large procedural rock structures with colliders removed (visual scatter rocks kept). Shadow quality improved (soft filter quality 0→2, atlas 4K→8K, cascade split blending enabled). Aircraft_3 added as new aircraft type; enemy aircraft now use Aircraft_3 scene.
 - 2026-03-20: Bridge hologram pass â€” added the bridge holomap as a 2 m tactical table, then iterated it into a wireframe-only deep-greenâ†’neon-green terrain display with faction-colored air/ground markers, raised carrier/ground markers, lower-frequency/camera-gated refresh, and yaw-only carrier-frame projection to reduce stutter/flicker; HUD main reticle collimation fixed to use the physical HUD glass plane and aircraft boresight; dogfight gun aiming/fire logic tightened substantially (stronger terminal authority, stricter fire gates, burst cancellation, muzzle-point velocity solve/inheritance); autocannon ammo increased to 1000, AA missile launchers can start at 0 ammo, and carrier defense turret mounts now support two independently functioning turrets per set.
@@ -30,6 +31,54 @@ This document contains version history, session-by-session notes, and archived l
 ---
 
 ## Project Change Log (latest session)
+
+### Session Summary (2026-03-26) - Enemy Ground Roster, Platoon Cohesion, Holomap Spotting, and Ground Combat Polish
+
+**Overview:** Reworked the enemy ground game into a mixed platoon system with new vehicle types and turrets, tightened spawn validity so vehicles follow the same flat-ground rules as other terrain users, expanded holomap ground/platoon readability, and added several low-risk performance passes for suspension, dust, and turret scanning.
+
+#### Enemy Ground Vehicle Roster (`GroundVehicle/vehicle_enemy_buggy.tscn`, `GroundVehicle/vehicle_enemy_pickup.tscn`, `GroundVehicle/vehicle_enemy_battle_bus.tscn`, `Enemies/EnemyAircraftSpawner.gd`)
+- Retired the old single enemy vehicle from manual `E`-key spawning in favor of a random mix of buggy, pickup, and battle bus vehicles.
+- Each `E` press now spawns a compact 4-vehicle enemy wave around one randomized staging point instead of a single old-style vehicle type.
+- Buggy tuned as a faster/tighter light vehicle (`30 m/s`) and pickup as a tougher, wider-turning truck (`25 m/s`, more health).
+- Battle bus established as the heavier support vehicle in the roster.
+
+#### Vehicle Turrets / Weapons (`Weapons/Turrets/vehicle_lmg_turret.tscn`, `Weapons/Turrets/vehicle_heavy_gun_turret.tscn`, `Weapons/Turrets/heavy_gun_weapon.tscn`, `Projectiles/HeavyRound/*`)
+- Added a simple same-origin vehicle LMG turret rig for buggy/pickup mounts.
+- Added a heavy-gun turret for the battle bus that fires smaller explosive rounds rather than plain bullets.
+- Heavy-gun scene wiring was corrected so only one barrel elevates visually (mount/base split correctly between the two GLB instances).
+- Heavy-gun projectile speed reduced to `500 m/s`.
+
+#### Platoon Movement / Formation (`GroundVehicle/ground_vehicle_platoon.gd`, `GroundVehicle/vehicle_enemy_light.gd`, `GroundVehicle/vehicle_friendly_light.gd`)
+- Replaced the old nearest-neighbor “glue” behavior with simple platoon formation slots.
+- Platoons now pace themselves to the slowest member while traveling out of combat.
+- Vehicles break out of formation while actively fighting and naturally reform once combat ends.
+- Escort routing/path use was tightened so escort vehicles stop trying to path through the carrier hull while reaching front-corner slots.
+
+#### Ground Spawn Validity (`Enemies/EnemyAircraftSpawner.gd`)
+- Enemy/friendly vehicle staging logic now checks local terrain flatness instead of only matching carrier-relative height.
+- Individual spawned vehicles also search for nearby valid flat ground patches before final placement.
+- Result: platoons are much less likely to appear on steep hillsides or partially buried in terrain.
+
+#### Ground Combat Readability / Accuracy Tuning (`GroundVehicle/vehicle_enemy_light.gd`, `Enemies/EnemyBox.gd`, `Enemies/EnemyAircraft.gd`)
+- Enemy ground vehicles were tuned away from dead-eye accuracy by lowering `aim_skill`.
+- Their firing rules remain permissive, so they still shoot often and feel aggressive.
+- Static enemy boxes and older enemy aircraft defaults were also softened slightly so the broader enemy side feels less laser-precise overall.
+
+#### Holomap (`LandCarrier/BridgeHologram.gd`)
+- Ground units now render as cubes instead of being misclassified as aircraft wedge markers.
+- Friendly ground vehicles show as blue cubes; enemy ground vehicles as red cubes.
+- Enemy platoons render as medium red cubes centered on the platoon position.
+- Platoon markers no longer reveal by range alone; they appear only when the carrier or another friendly observer has terrain line-of-sight to the platoon center.
+
+#### Performance / Effects (`GroundVehicle/vehicle_enemy_light.gd`, `GroundVehicle/vehicle_friendly_light.gd`, `Effects/DustEffect.gd`, `Effects/ParticleManager.gd`, `Weapons/Turrets/turret_controller.gd`)
+- Suspension probing is now distance-LOD’d and staggered rather than fully detailed for every vehicle at all times.
+- Dust now only appears on terrain (not the ramp/deck), respects distance gating, and reuses pooled puff meshes.
+- Turrets search for targets less often when far from the active camera.
+- ParticleManager was hardened so pooled dust callbacks don’t crash if the owner disappears first.
+
+#### Navigation / Stability Fixes
+- Fixed an enemy-vehicle stack overflow caused by navigation path recompute recursion.
+- Enemy escort/path behavior now uses staged destinations and safer path consumption logic.
 
 ### Session Summary (2026-03-24) - Aircraft_5 Wing Fold, Deck Lights, Dust Fix, Vehicle Avoidance
 

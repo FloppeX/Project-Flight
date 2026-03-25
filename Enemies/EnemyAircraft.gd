@@ -8,7 +8,7 @@ class_name EnemyAircraft
 @export var explosion_scene: PackedScene
 @export var bullet_speed: float = 600.0  # m/s
 @export var ballistics_drag: float = 0.1  # Air resistance factor
-@export var aim_skill: float = 1.0  # 0.0 = terrible, 1.0 = perfect aim
+@export var aim_skill: float = 0.45  # Keep enemy air gunnery dangerous, but noticeably imperfect
 @export var ground_clearance: float = 0.5
 @export var ground_snap_probe_up: float = 50.0
 @export var ground_snap_probe_down: float = 1500.0

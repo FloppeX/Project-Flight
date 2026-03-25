@@ -10,6 +10,8 @@ class_name DustEffect
 @export var full_speed_mps: float = 20.0
 @export var puff_lifetime_s: float = 5.0
 @export var puff_rise_speed: float = 7.0
+@export var max_effect_distance_m: float = 800.0
+@export var pooled_puff_count: int = 16
 
 var _emit_offsets: Array[Vector3] = []
 var _timers: Array[float] = []
@@ -17,12 +19,33 @@ var _parent_node: Node3D = null
 var _last_position: Vector3 = Vector3.ZERO
 var _speed: float = 0.0
 var _exclude_rids: Array[RID] = []
+var _cached_camera: Camera3D = null
+var _camera_cache_timer_s: float = 0.0
+var _puff_pool: Array[MeshInstance3D] = []
+var _available_puff_indices: Array[int] = []
 
 # Shared across all instances
 static var _shared_dust_color: Color = Color(0.55, 0.30, 0.18, 1.0)
 static var _shared_mesh: SphereMesh = null
 static var _shared_color_sample_cooldown: float = 0.0
 static var dust_enabled: bool = true
+
+func _is_terrain_hit(hit: Dictionary) -> bool:
+	if hit.is_empty():
+		return false
+	if not hit.has("collider"):
+		return false
+	var node: Node = hit["collider"] as Node
+	if node == null:
+		return false
+	if node.is_in_group("terrain"):
+		return true
+	var parent: Node = node.get_parent()
+	while parent != null:
+		if parent.is_in_group("terrain"):
+			return true
+		parent = parent.get_parent()
+	return false
 
 func _ready() -> void:
 	_parent_node = get_parent() as Node3D
@@ -56,7 +79,15 @@ func _ready() -> void:
 		_emit_offsets.append(Vector3.ZERO)
 		_timers.append(0.0)
 
+	_initialize_puff_pool()
 	_last_position = _parent_node.global_position
+
+func _exit_tree() -> void:
+	for puff in _puff_pool:
+		if puff and is_instance_valid(puff):
+			puff.queue_free()
+	_puff_pool.clear()
+	_available_puff_indices.clear()
 
 func _setup_carrier_tread() -> void:
 	# Emit from outer edge only. Right treads have 180° Y flip so local X is inverted.
@@ -83,6 +114,48 @@ func _setup_vehicle_wheels() -> void:
 		_emit_offsets.append(Vector3(w.position.x, 0, w.position.z))
 		_timers.append(0.0)
 
+func _initialize_puff_pool() -> void:
+	var scene_root := get_tree().current_scene
+	if scene_root == null:
+		return
+	_shared_mesh.radius = 1.0
+	_shared_mesh.height = 2.0
+	for i in range(maxi(pooled_puff_count, 1)):
+		var puff := MeshInstance3D.new()
+		puff.visible = false
+		puff.mesh = _shared_mesh
+		var mat := StandardMaterial3D.new()
+		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+		mat.albedo_color = Color(1.0, 1.0, 1.0, 0.0)
+		puff.material_override = mat
+		puff.set_meta("dust_pool_index", i)
+		scene_root.add_child(puff)
+		_puff_pool.append(puff)
+		_available_puff_indices.append(i)
+
+func _acquire_pooled_puff() -> MeshInstance3D:
+	if _available_puff_indices.is_empty():
+		return null
+	var pool_index: int = _available_puff_indices.pop_back()
+	if pool_index < 0 or pool_index >= _puff_pool.size():
+		return null
+	return _puff_pool[pool_index]
+
+func _release_pooled_puff(puff: MeshInstance3D) -> void:
+	if puff == null or not is_instance_valid(puff):
+		return
+	puff.visible = false
+	puff.scale = Vector3.ONE
+	if puff.material_override:
+		puff.material_override.albedo_color.a = 0.0
+	var pool_index_variant = puff.get_meta("dust_pool_index", -1)
+	if typeof(pool_index_variant) in [TYPE_INT, TYPE_FLOAT]:
+		var pool_index: int = int(pool_index_variant)
+		if pool_index >= 0 and not _available_puff_indices.has(pool_index):
+			_available_puff_indices.append(pool_index)
+
 func _physics_process(delta: float) -> void:
 	if _parent_node == null or not is_instance_valid(_parent_node):
 		return
@@ -91,7 +164,7 @@ func _physics_process(delta: float) -> void:
 	_speed = current_pos.distance_to(_last_position) / maxf(delta, 0.001)
 	_last_position = current_pos
 
-	if not dust_enabled or _speed < min_speed_mps:
+	if not dust_enabled or _speed < min_speed_mps or not _should_emit_for_camera(delta):
 		return
 
 	# Only one instance samples color, and only every 5 seconds
@@ -109,8 +182,26 @@ func _physics_process(delta: float) -> void:
 			_timers[i] = effective_interval
 			_spawn_dust_puff(i, speed_ratio)
 
+func _get_active_camera(delta: float) -> Camera3D:
+	_camera_cache_timer_s = maxf(_camera_cache_timer_s - delta, 0.0)
+	if _cached_camera and is_instance_valid(_cached_camera) and _camera_cache_timer_s > 0.0:
+		return _cached_camera
+	_cached_camera = get_viewport().get_camera_3d()
+	_camera_cache_timer_s = 0.25
+	return _cached_camera
+
+func _should_emit_for_camera(delta: float) -> bool:
+	var camera := _get_active_camera(delta)
+	if camera == null or not is_instance_valid(camera):
+		return false
+	if _parent_node.global_position.distance_squared_to(camera.global_position) > max_effect_distance_m * max_effect_distance_m:
+		return false
+	if camera.is_position_behind(_parent_node.global_position):
+		return false
+	return true
+
 func _sample_ground_color() -> void:
-	var camera := get_viewport().get_camera_3d()
+	var camera := _get_active_camera(0.0)
 	if camera == null:
 		return
 	var space := _parent_node.get_world_3d().direct_space_state
@@ -127,7 +218,7 @@ func _sample_ground_color() -> void:
 	params.collision_mask = 1
 	params.exclude = _exclude_rids
 	var hit := space.intersect_ray(params)
-	if hit.is_empty():
+	if not _is_terrain_hit(hit):
 		return
 	var ground_pos: Vector3 = hit.position
 	if camera.is_position_behind(ground_pos):
@@ -162,27 +253,24 @@ func _spawn_dust_puff(index: int, speed_ratio: float) -> void:
 	params.collision_mask = 1
 	params.exclude = _exclude_rids
 	var hit := space.intersect_ray(params)
-	if hit.is_empty():
+	if not _is_terrain_hit(hit):
 		return
 
-	var puff := MeshInstance3D.new()
-	get_tree().current_scene.add_child(puff)
+	var puff := _acquire_pooled_puff()
+	if puff == null:
+		return
+	puff.visible = true
 	puff.global_position = hit.position
 
 	# Reuse shared mesh — only vary scale per puff
 	var r: float = lerpf(puff_scale_min, puff_scale_max, speed_ratio) * randf_range(0.7, 1.3)
-	_shared_mesh.radius = 1.0
-	_shared_mesh.height = 2.0
-	puff.mesh = _shared_mesh
 
 	var s: float = randf_range(0.8, 1.2) * r
 	puff.scale = Vector3(s, s * randf_range(0.6, 1.0), s)
 
-	# One material per puff (needed for individual alpha fade) but minimal setup
-	var mat := StandardMaterial3D.new()
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	var mat := puff.material_override as StandardMaterial3D
+	if mat == null:
+		return
 	var variation: float = randf_range(-0.04, 0.04)
 	var base_color: Color = _shared_dust_color
 	mat.albedo_color = Color(
@@ -191,8 +279,9 @@ func _spawn_dust_puff(index: int, speed_ratio: float) -> void:
 		base_color.b + variation,
 		lerpf(0.05, 0.12, speed_ratio)
 	)
-	puff.material_override = mat
 
 	var yaw_speed: float = randf_range(-0.5, 0.5)
 	var rise: float = puff_rise_speed * randf_range(0.6, 1.6)
-	ParticleManager.add_rising_smoke(puff, puff_lifetime_s, puff.scale, rise, yaw_speed)
+	ParticleManager.add_rising_smoke(puff, puff_lifetime_s, puff.scale, rise, yaw_speed, {
+		"on_finish": Callable(self, "_release_pooled_puff")
+	})

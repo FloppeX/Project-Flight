@@ -1,0 +1,69 @@
+[gd_scene load_steps=8 format=3 uid="uid://d21m453qj1wdn"]
+
+[ext_resource type="Script" uid="uid://dqqkx5fyusdg3" path="res://GroundVehicle/vehicle_enemy_light.gd" id="1_enemy"]
+[ext_resource type="PackedScene" uid="uid://b3lfv77b46q30" path="res://Models/vehicle enemy pickup.glb" id="2_body"]
+[ext_resource type="PackedScene" uid="uid://duc1jx1m3f54d" path="res://Models/Vehicle wheel medium.glb" id="3_rjlta"]
+[ext_resource type="Script" uid="uid://cqw36derm5yh1" path="res://Weapons/Turrets/turret_controller.gd" id="4_tctrl"]
+[ext_resource type="PackedScene" path="res://Weapons/Turrets/vehicle_lmg_turret.tscn" id="5_lmg"]
+[ext_resource type="PackedScene" path="res://Weapons/Turrets/bullet_weapon.tscn" id="6_weapon"]
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_body"]
+size = Vector3(2.8, 1.68779, 5.79399)
+
+[node name="VehicleEnemyPickup" type="CharacterBody3D"]
+script = ExtResource("1_enemy")
+max_speed = 25.0
+acceleration = 5.5
+turn_speed = 0.58
+max_steering_angle = 0.45
+chassis_ride_height_m = 0.95
+max_health = 90.0
+preferred_vehicle_spacing_min_m = 28.0
+preferred_vehicle_spacing_max_m = 85.0
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.893897, -0.328101)
+shape = SubResource("BoxShape3D_body")
+
+[node name="Body" parent="." instance=ExtResource("2_body")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.778542, 0)
+
+[node name="TurretController" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.5, -0.05)
+script = ExtResource("4_tctrl")
+weapon_scene = ExtResource("6_weapon")
+
+[node name="VehicleLMGTurret" parent="TurretController" instance=ExtResource("5_lmg")]
+transform = Transform3D(0.75, 0, 0, 0, 0.75, 0, 0, 0, 0.75, 0, 0.956783, -2.10107)
+
+[node name="wheel_right_1" type="Node3D" parent="."]
+transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, -1.5, -0.282, 1.766)
+
+[node name="Vehicle wheel medium" parent="wheel_right_1" instance=ExtResource("3_rjlta")]
+
+[node name="ground_contact_point" type="Node3D" parent="wheel_right_1"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.756107, 0.00395203)
+
+[node name="wheel_right_2" type="Node3D" parent="."]
+transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, -1.5, -0.282, -1.9)
+
+[node name="Vehicle wheel medium" parent="wheel_right_2" instance=ExtResource("3_rjlta")]
+
+[node name="ground_contact_point" type="Node3D" parent="wheel_right_2"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.756107, 0.00395203)
+
+[node name="wheel_left_1" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.5, -0.282, 1.766)
+
+[node name="Vehicle wheel medium" parent="wheel_left_1" instance=ExtResource("3_rjlta")]
+
+[node name="ground_contact_point" type="Node3D" parent="wheel_left_1"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.756107, 0.00395203)
+
+[node name="wheel_left_2" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.5, -0.282, -1.9)
+
+[node name="Vehicle wheel medium" parent="wheel_left_2" instance=ExtResource("3_rjlta")]
+
+[node name="ground_contact_point" type="Node3D" parent="wheel_left_2"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.756107, 0.00395203)

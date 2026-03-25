@@ -20,7 +20,13 @@ class_name BridgeHologram
 @export var contact_dot_scale_m: float = 0.032
 @export var contact_wire_thickness_m: float = 0.03
 @export var ground_contact_scale_m: float = 0.026
+@export var platoon_contact_scale_m: float = 0.045
 @export var ground_contact_hover_m: float = 0.004
+@export var platoon_reveal_observer_height_m: float = 12.0
+@export var platoon_reveal_target_height_m: float = 10.0
+@export var platoon_reveal_sample_step_m: float = 80.0
+@export var platoon_reveal_terrain_clearance_m: float = 4.0
+@export var platoon_reveal_max_range_m: float = 5000.0
 @export var carrier_plate_length_m: float = 0.09
 @export var carrier_plate_width_m: float = 0.026
 @export var carrier_plate_height_m: float = 0.012
@@ -276,6 +282,7 @@ func _update_contact_dots() -> void:
 		air_contacts,
 		ground_contacts
 	)
+	_collect_enemy_platoon_contacts(ground_contacts)
 	air_contacts.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return a["distance_sq"] < b["distance_sq"])
 	ground_contacts.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return a["distance_sq"] < b["distance_sq"])
 	var base_height := _sample_reference_terrain_height()
@@ -305,7 +312,8 @@ func _update_contact_dots() -> void:
 		var rel_local: Vector3 = entry["local_position"]
 		var terrain_y := _sample_terrain_height_at_local_offset(rel_local.x, rel_local.z)
 		var surface_y := _world_height_to_hologram_surface_y(terrain_y, base_height)
-		var marker_half_height := 0.1 * ground_contact_scale_m
+		var scale_m: float = float(entry.get("scale_m", ground_contact_scale_m))
+		var marker_half_height := 0.5 * scale_m
 		var marker_y := surface_y + terrain_wire_height_offset_m + marker_half_height + ground_contact_hover_m
 		if is_nan(terrain_y) or is_nan(base_height):
 			marker_y = 0.03
@@ -314,7 +322,7 @@ func _update_contact_dots() -> void:
 			marker_y,
 			(rel_local.z / maxf(coverage_radius_m, 1.0)) * (table_size_m * 0.5)
 		)
-		var square_basis := Basis().scaled(Vector3.ONE * ground_contact_scale_m)
+		var square_basis := Basis().scaled(Vector3.ONE * scale_m)
 		ground_multimesh.set_instance_transform(i, Transform3D(square_basis, hologram_pos))
 		ground_multimesh.set_instance_color(i, entry["color"])
 
@@ -337,9 +345,63 @@ func _collect_contacts_for_group(group_name: String, air_color: Color, ground_co
 		}
 		if _is_ground_contact(node_3d):
 			entry["color"] = Color.WHITE if node_3d is Building else ground_color
+			entry["scale_m"] = ground_contact_scale_m
 			ground_contacts.append(entry)
 		else:
 			air_contacts.append(entry)
+
+func _collect_enemy_platoon_contacts(ground_contacts: Array[Dictionary]) -> void:
+	for node in get_tree().get_nodes_in_group("ground_vehicle_platoons"):
+		if not (node is GroundVehiclePlatoon) or not is_instance_valid(node):
+			continue
+		var platoon := node as GroundVehiclePlatoon
+		if platoon.team != 2:
+			continue
+		var platoon_pos: Vector3 = platoon.get_center_position()
+		if not _is_enemy_platoon_revealed(platoon_pos):
+			continue
+		var rel_local := _carrier_world_to_planar_local(platoon_pos)
+		if absf(rel_local.x) > coverage_radius_m or absf(rel_local.z) > coverage_radius_m:
+			continue
+		ground_contacts.append({
+			"local_position": rel_local,
+			"distance_sq": rel_local.x * rel_local.x + rel_local.z * rel_local.z,
+			"color": Color(1.0, 0.22, 0.22, 1.0),
+			"scale_m": platoon_contact_scale_m,
+		})
+
+func _is_enemy_platoon_revealed(target_world_pos: Vector3) -> bool:
+	if _carrier and is_instance_valid(_carrier) and _has_terrain_line_of_sight(_carrier.global_position, target_world_pos):
+		return true
+	for observer in get_tree().get_nodes_in_group("team_1"):
+		if not (observer is Node3D) or not is_instance_valid(observer):
+			continue
+		var observer_node := observer as Node3D
+		if observer_node == _carrier:
+			continue
+		if observer_node.global_position.distance_squared_to(target_world_pos) > platoon_reveal_max_range_m * platoon_reveal_max_range_m:
+			continue
+		if _has_terrain_line_of_sight(observer_node.global_position, target_world_pos):
+			return true
+	return false
+
+func _has_terrain_line_of_sight(observer_world_pos: Vector3, target_world_pos: Vector3) -> bool:
+	var from_pos := observer_world_pos + Vector3.UP * platoon_reveal_observer_height_m
+	var to_pos := target_world_pos + Vector3.UP * platoon_reveal_target_height_m
+	var planar_distance := Vector2(to_pos.x - from_pos.x, to_pos.z - from_pos.z).length()
+	if planar_distance <= 1.0:
+		return true
+	var max_range_sq := platoon_reveal_max_range_m * platoon_reveal_max_range_m
+	if from_pos.distance_squared_to(to_pos) > max_range_sq:
+		return false
+	var steps: int = maxi(int(ceil(planar_distance / maxf(platoon_reveal_sample_step_m, 10.0))), 1)
+	for step_idx in range(1, steps):
+		var t: float = float(step_idx) / float(steps)
+		var sample_pos := from_pos.lerp(to_pos, t)
+		var terrain_y := _sample_terrain_world_height(sample_pos)
+		if not is_nan(terrain_y) and terrain_y + platoon_reveal_terrain_clearance_m > sample_pos.y:
+			return false
+	return true
 
 func _sample_reference_terrain_height() -> float:
 	var center_world := _carrier.global_position if is_instance_valid(_carrier) else global_position
@@ -567,11 +629,11 @@ func _create_contact_arrowhead_mesh() -> ArrayMesh:
 
 func _create_ground_contact_square_mesh() -> Mesh:
 	var box_mesh := BoxMesh.new()
-	box_mesh.size = Vector3(1.0, 0.2, 1.0)
+	box_mesh.size = Vector3.ONE
 	return box_mesh
 
 func _is_ground_contact(node: Node3D) -> bool:
-	return node is VehicleBody3D or node is Building
+	return node.is_in_group("ground_vehicles") or node is Building
 
 func _create_wire_box_mesh(size: Vector3, thickness: float) -> ArrayMesh:
 	var half := size * 0.5

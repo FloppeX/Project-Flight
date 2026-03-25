@@ -12,12 +12,16 @@ extends Node3D
 @export var cap_flight_altitude_m: float = 600.0
 @export var cap_orbit_radius_m: float = 1200.0
 @export var debug_ground_vehicle_spawns: bool = true
+@export var ground_vehicle_spawn_probe_radius_m: float = 12.0
+@export var ground_vehicle_spawn_max_height_delta_m: float = 4.0
+@export var ground_vehicle_spawn_search_radius_m: float = 36.0
+@export var ground_vehicle_spawn_search_attempts: int = 14
 
 var _aircraft_scene: PackedScene
 var _aircraft_3_scene: PackedScene
 var _enemy_aircraft_scene: PackedScene
 var _active_ai_planes: Array[RigidBody3D] = []
-var _enemy_vehicle_scene: PackedScene
+var _enemy_vehicle_scenes: Array[PackedScene] = []
 var _friendly_vehicle_scene: PackedScene
 var _ground_platoon_counter: int = 0
 var _building_barracks_scene: PackedScene
@@ -30,7 +34,17 @@ func _ready():
 	if not _aircraft_3_scene:
 		push_error("[EnemyAircraftSpawner] Failed to load Aircraft/Aircraft_3.tscn")
 	_enemy_aircraft_scene = _aircraft_3_scene
-	_enemy_vehicle_scene = load("res://GroundVehicle/GroundVehicle.tscn")
+	_enemy_vehicle_scenes.clear()
+	for vehicle_path in [
+		"res://GroundVehicle/vehicle_enemy_buggy.tscn",
+		"res://GroundVehicle/vehicle_enemy_pickup.tscn",
+		"res://GroundVehicle/vehicle_enemy_battle_bus.tscn",
+	]:
+		var vehicle_scene := load(vehicle_path) as PackedScene
+		if vehicle_scene:
+			_enemy_vehicle_scenes.append(vehicle_scene)
+		else:
+			push_error("[EnemyAircraftSpawner] Failed to load %s" % vehicle_path)
 	_friendly_vehicle_scene = load("res://GroundVehicle/vehicle_friendly_light.tscn")
 	_building_barracks_scene = load("res://Buildings/building_barracks.tscn")
 
@@ -49,7 +63,7 @@ func _input(event):
 			_spawn_dogfight_duel()
 			get_viewport().set_input_as_handled()
 		elif event.keycode == KEY_E:
-			_spawn_ground_vehicles(_enemy_vehicle_scene, 5)
+			_spawn_enemy_vehicle_mix(4)
 			get_viewport().set_input_as_handled()
 		elif event.keycode == KEY_F:
 			_spawn_ground_vehicles(_friendly_vehicle_scene, 5)
@@ -73,17 +87,40 @@ func _spawn_ground_vehicles(scene: PackedScene, count: int) -> void:
 	var carrier_pos: Vector3 = _get_carrier_position()
 	var carrier_node := get_tree().get_first_node_in_group("carrier") as CollisionObject3D
 	var base_pos: Vector3 = carrier_pos
-	if scene == _enemy_vehicle_scene:
-		base_pos = _find_enemy_vehicle_staging_position(carrier_pos)
-	else:
+	var team_id := 1 if scene == _friendly_vehicle_scene else 2
+	if team_id == 1:
 		base_pos = _find_friendly_vehicle_staging_position(carrier_pos, carrier_node)
+	else:
+		base_pos = _find_enemy_vehicle_staging_position(carrier_pos)
+	base_pos = _find_nearby_valid_ground_spawn(base_pos, carrier_node)
+	var scenes: Array[PackedScene] = [scene]
+	_spawn_ground_vehicle_wave(scenes, count, team_id, carrier_pos, base_pos, carrier_node)
+
+func _spawn_enemy_vehicle_mix(count: int) -> void:
+	if _enemy_vehicle_scenes.is_empty():
+		print("[EnemyAircraftSpawner] E: no enemy vehicle scenes loaded")
+		return
+	var carrier_pos: Vector3 = _get_carrier_position()
+	var carrier_node := get_tree().get_first_node_in_group("carrier") as CollisionObject3D
+	var base_pos := _find_enemy_vehicle_staging_position(carrier_pos)
+	base_pos = _find_nearby_valid_ground_spawn(base_pos, carrier_node)
+	var compact_offsets: Array[Vector3] = [
+		Vector3(-12, 0, -8),
+		Vector3(10, 0, -6),
+		Vector3(-6, 0, 12),
+		Vector3(14, 0, 10),
+	]
+	_spawn_ground_vehicle_wave(_enemy_vehicle_scenes, count, 2, carrier_pos, base_pos, carrier_node, compact_offsets)
+
+func _spawn_ground_vehicle_wave(scenes: Array[PackedScene], count: int, team_id: int, carrier_pos: Vector3, base_pos: Vector3, carrier_node: CollisionObject3D = null, offsets_override: Array[Vector3] = []) -> void:
+	if scenes.is_empty():
+		return
 	if debug_ground_vehicle_spawns:
 		print("[GroundSpawn] team=%d carrier=%s base=%s" % [
-			1 if scene == _friendly_vehicle_scene else 2,
+			team_id,
 			str(carrier_pos),
 			str(base_pos)
 		])
-
 	var space_state := get_world_3d().direct_space_state
 
 	# Generate shared patrol waypoints around the spawn cluster (4 points, 150-300m out)
@@ -93,7 +130,7 @@ func _spawn_ground_vehicles(scene: PackedScene, count: int) -> void:
 		var dist := randf_range(150.0, 300.0)
 		var wp := Vector3(base_pos.x + cos(angle) * dist, 0.0, base_pos.z + sin(angle) * dist)
 		var wp_params := PhysicsRayQueryParameters3D.create(wp + Vector3.UP * 2000.0, wp - Vector3.UP * 200.0)
-		if scene == _friendly_vehicle_scene and carrier_node and is_instance_valid(carrier_node):
+		if team_id == 1 and carrier_node and is_instance_valid(carrier_node):
 			wp_params.exclude = [carrier_node.get_rid()]
 		var wp_hit := space_state.intersect_ray(wp_params)
 		wp.y = wp_hit.position.y + 1.5 if wp_hit else 300.0
@@ -103,7 +140,7 @@ func _spawn_ground_vehicles(scene: PackedScene, count: int) -> void:
 	_ground_platoon_counter += 1
 	platoon.name = "GroundPlatoon_%d" % _ground_platoon_counter
 	platoon.platoon_id = platoon.name
-	platoon.team = 1 if scene == _friendly_vehicle_scene else 2
+	platoon.team = team_id
 	platoon.global_position = base_pos
 	get_tree().current_scene.add_child(platoon)
 	if platoon.team == 1:
@@ -119,7 +156,7 @@ func _spawn_ground_vehicles(scene: PackedScene, count: int) -> void:
 		else:
 			platoon.set_pursue_enemies(1800.0)
 
-	var offsets: Array = [
+	var offsets: Array[Vector3] = offsets_override if not offsets_override.is_empty() else [
 		Vector3(-35, 0, 0),
 		Vector3(0, 0, 35),
 		Vector3(35, 0, -15),
@@ -128,18 +165,15 @@ func _spawn_ground_vehicles(scene: PackedScene, count: int) -> void:
 	]
 	for i in range(count):
 		var off: Vector3 = offsets[i] if i < offsets.size() else Vector3(randf_range(-30, 30), 0, randf_range(-30, 30))
-		var spawn_pos := Vector3(base_pos.x + off.x, 0.0, base_pos.z + off.z)
-		var spawn_params := PhysicsRayQueryParameters3D.create(spawn_pos + Vector3.UP * 2000.0, spawn_pos - Vector3.UP * 200.0)
-		if scene == _friendly_vehicle_scene and carrier_node and is_instance_valid(carrier_node):
-			spawn_params.exclude = [carrier_node.get_rid()]
-		var hit := space_state.intersect_ray(spawn_params)
-		spawn_pos.y = hit.position.y + 2.0 if hit else 300.0
+		var desired_spawn := Vector3(base_pos.x + off.x, base_pos.y, base_pos.z + off.z)
+		var spawn_pos := _find_nearby_valid_ground_spawn(desired_spawn, carrier_node)
 
-		var vehicle := scene.instantiate() as Node3D
+		var vehicle_scene := scenes[randi() % scenes.size()]
+		var vehicle := vehicle_scene.instantiate() as Node3D
 		get_tree().current_scene.add_child(vehicle)
 		vehicle.global_position = spawn_pos
 		if debug_ground_vehicle_spawns:
-			_log_ground_vehicle_spawn(scene, i, base_pos, spawn_pos, vehicle, carrier_node)
+			_log_ground_vehicle_spawn(team_id, vehicle_scene, i, base_pos, spawn_pos, vehicle, carrier_node)
 
 		# Stagger starting waypoint so vehicles don't all drive to the same point at once
 		if vehicle.has_method("set_patrol_waypoints"):
@@ -152,7 +186,7 @@ func _spawn_ground_vehicles(scene: PackedScene, count: int) -> void:
 func _find_enemy_vehicle_staging_position(carrier_pos: Vector3) -> Vector3:
 	var carrier_ground_y: float = _sample_ground_height(carrier_pos)
 	var best_pos: Vector3 = Vector3(carrier_pos.x + 5000.0, carrier_ground_y + 2.0, carrier_pos.z)
-	var best_height_delta: float = INF
+	var best_score: float = INF
 	for _attempt in range(32):
 		var angle: float = randf() * TAU
 		var dist: float = randf_range(4500.0, 5500.0)
@@ -161,12 +195,17 @@ func _find_enemy_vehicle_staging_position(carrier_pos: Vector3) -> Vector3:
 			0.0,
 			carrier_pos.z + sin(angle) * dist
 		)
-		candidate.y = _sample_ground_height(candidate) + 2.0
-		var height_delta: float = absf(candidate.y - (carrier_ground_y + 2.0))
-		if height_delta < best_height_delta:
-			best_height_delta = height_delta
-			best_pos = candidate
-		if height_delta <= 35.0:
+		var candidate_eval := _evaluate_ground_spawn_candidate(candidate)
+		if not candidate_eval["valid"]:
+			continue
+		var candidate_pos: Vector3 = candidate_eval["position"]
+		var height_delta: float = absf(candidate_pos.y - (carrier_ground_y + 2.0))
+		var flatness: float = float(candidate_eval["height_delta"])
+		var score: float = height_delta + flatness * 10.0
+		if score < best_score:
+			best_score = score
+			best_pos = candidate_pos
+		if height_delta <= 35.0 and flatness <= ground_vehicle_spawn_max_height_delta_m:
 			break
 	return best_pos
 
@@ -182,15 +221,66 @@ func _find_friendly_vehicle_staging_position(carrier_pos: Vector3, carrier_node:
 			0.0,
 			carrier_pos.z + sin(angle) * dist
 		)
-		candidate.y = _sample_ground_height(candidate, carrier_node) + 2.0
-		var height_delta: float = absf(candidate.y - (carrier_ground_y + 2.0))
-		var score: float = height_delta
+		var candidate_eval := _evaluate_ground_spawn_candidate(candidate, carrier_node)
+		if not candidate_eval["valid"]:
+			continue
+		var candidate_pos: Vector3 = candidate_eval["position"]
+		var height_delta: float = absf(candidate_pos.y - (carrier_ground_y + 2.0))
+		var flatness: float = float(candidate_eval["height_delta"])
+		var score: float = height_delta + flatness * 10.0
 		if score < best_score:
 			best_score = score
-			best_pos = candidate
-		if height_delta <= 12.0:
+			best_pos = candidate_pos
+		if height_delta <= 12.0 and flatness <= ground_vehicle_spawn_max_height_delta_m:
 			break
 	return best_pos
+
+func _find_nearby_valid_ground_spawn(desired_pos: Vector3, exclude_body: CollisionObject3D = null) -> Vector3:
+	var best_eval := _evaluate_ground_spawn_candidate(desired_pos, exclude_body)
+	if bool(best_eval["valid"]):
+		return best_eval["position"]
+	var best_pos: Vector3 = Vector3(desired_pos.x, _sample_ground_height(desired_pos, exclude_body) + 2.0, desired_pos.z)
+	var best_score: float = INF
+	for attempt in range(maxi(ground_vehicle_spawn_search_attempts, 1)):
+		var angle: float = randf() * TAU
+		var dist_t: float = 1.0 if ground_vehicle_spawn_search_attempts <= 1 else float(attempt + 1) / float(ground_vehicle_spawn_search_attempts)
+		var dist: float = dist_t * ground_vehicle_spawn_search_radius_m
+		var candidate := Vector3(
+			desired_pos.x + cos(angle) * dist,
+			desired_pos.y,
+			desired_pos.z + sin(angle) * dist
+		)
+		var eval := _evaluate_ground_spawn_candidate(candidate, exclude_body)
+		if not bool(eval["valid"]):
+			continue
+		var candidate_pos: Vector3 = eval["position"]
+		var score: float = candidate_pos.distance_to(desired_pos) + float(eval["height_delta"]) * 12.0
+		if score < best_score:
+			best_score = score
+			best_pos = candidate_pos
+	return best_pos
+
+func _evaluate_ground_spawn_candidate(world_pos: Vector3, exclude_body: CollisionObject3D = null) -> Dictionary:
+	var center_y: float = _sample_ground_height(world_pos, exclude_body)
+	if not is_finite(center_y):
+		return {"valid": false, "position": world_pos, "height_delta": INF}
+	var center_pos := Vector3(world_pos.x, center_y + 2.0, world_pos.z)
+	var max_delta: float = 0.0
+	var sample_radius: float = maxf(ground_vehicle_spawn_probe_radius_m, 2.0)
+	for sample_idx in range(8):
+		var angle: float = TAU * float(sample_idx) / 8.0
+		var sample_pos := Vector3(
+			world_pos.x + cos(angle) * sample_radius,
+			world_pos.y,
+			world_pos.z + sin(angle) * sample_radius
+		)
+		var sample_y: float = _sample_ground_height(sample_pos, exclude_body)
+		if not is_finite(sample_y):
+			return {"valid": false, "position": center_pos, "height_delta": INF}
+		max_delta = maxf(max_delta, absf(sample_y - center_y))
+		if max_delta > ground_vehicle_spawn_max_height_delta_m:
+			return {"valid": false, "position": center_pos, "height_delta": max_delta}
+	return {"valid": true, "position": center_pos, "height_delta": max_delta}
 
 func _sample_ground_height(world_pos: Vector3, exclude_body: CollisionObject3D = null) -> float:
 	var space_state := get_world_3d().direct_space_state
@@ -202,12 +292,12 @@ func _sample_ground_height(world_pos: Vector3, exclude_body: CollisionObject3D =
 		return hit.position.y
 	return world_pos.y
 
-func _log_ground_vehicle_spawn(scene: PackedScene, index: int, base_pos: Vector3, spawn_pos: Vector3, vehicle: Node3D, carrier_node: CollisionObject3D = null) -> void:
-	var team_id: int = 1 if scene == _friendly_vehicle_scene else 2
+func _log_ground_vehicle_spawn(team_id: int, scene: PackedScene, index: int, base_pos: Vector3, spawn_pos: Vector3, vehicle: Node3D, carrier_node: CollisionObject3D = null) -> void:
 	var terrain_y: float = _sample_ground_height(spawn_pos, carrier_node)
-	print("[GroundSpawn] team=%d idx=%d base=%s spawn=%s terrain_y=%.2f vehicle=%s" % [
+	print("[GroundSpawn] team=%d idx=%d scene=%s base=%s spawn=%s terrain_y=%.2f vehicle=%s" % [
 		team_id,
 		index,
+		scene.resource_path,
 		str(base_pos),
 		str(spawn_pos),
 		terrain_y,

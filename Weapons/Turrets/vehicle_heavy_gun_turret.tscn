@@ -1,0 +1,23 @@
+[gd_scene load_steps=3 format=3 uid="uid://btkbb354s6pxl"]
+
+[ext_resource type="Script" uid="uid://c1jwpg25tydnr" path="res://Weapons/Turrets/turret.gd" id="1_turret"]
+[ext_resource type="PackedScene" uid="uid://bt7a4yvnwp3ug" path="res://Vehicle heavy gun.glb" id="2_model"]
+
+[node name="VehicleHeavyGunTurret" type="Node3D" node_paths=PackedStringArray("base_mesh", "barrel_mount", "firing_points")]
+script = ExtResource("1_turret")
+turn_speed = 42.0
+pitch_speed = 36.0
+max_pitch_up = 55.0
+max_pitch_down = -10.0
+base_mesh = NodePath("StandModel/base")
+barrel_mount = NodePath("BarrelMount")
+firing_points = [NodePath("BarrelMount/Muzzle")]
+
+[node name="StandModel" parent="." instance=ExtResource("2_model")]
+
+[node name="BarrelMount" type="Node3D" parent="."]
+
+[node name="GunModel" parent="BarrelMount" instance=ExtResource("2_model")]
+
+[node name="Muzzle" type="Node3D" parent="BarrelMount"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.06, 1.72)

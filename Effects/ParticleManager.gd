@@ -30,7 +30,10 @@ func _process(delta):
 		
 		# Remove expired particles
 		if particle.life_time >= particle.max_life:
-			particle.mesh_instance.queue_free()
+			if "on_finish" in particle and particle.on_finish is Callable and (particle.on_finish as Callable).is_valid():
+				(particle.on_finish as Callable).call(particle.mesh_instance)
+			else:
+				particle.mesh_instance.queue_free()
 			particles.remove_at(i)
 
 func _update_smoke_particle(particle: Dictionary, delta: float):
@@ -111,12 +114,15 @@ func add_particle(mesh_instance: MeshInstance3D, type: String, max_life: float, 
 func add_smoke_particle(mesh_instance: MeshInstance3D, max_life: float, initial_scale: Vector3):
 	add_particle(mesh_instance, "smoke", max_life, initial_scale)
 
-func add_rising_smoke(mesh_instance: MeshInstance3D, max_life: float, initial_scale: Vector3, rise_speed: float = 5.0, yaw_speed: float = 0.0):
-	add_particle(mesh_instance, "smoke", max_life, initial_scale, {
+func add_rising_smoke(mesh_instance: MeshInstance3D, max_life: float, initial_scale: Vector3, rise_speed: float = 5.0, yaw_speed: float = 0.0, extra_data: Dictionary = {}):
+	var smoke_data := {
 		"rise_speed": rise_speed,
 		"expand": true,
 		"yaw_speed": yaw_speed,
-	})
+	}
+	for key in extra_data:
+		smoke_data[key] = extra_data[key]
+	add_particle(mesh_instance, "smoke", max_life, initial_scale, smoke_data)
 
 func add_explosion_particle(mesh_instance: MeshInstance3D, max_life: float, initial_scale: Vector3):
 	add_particle(mesh_instance, "explosion", max_life, initial_scale)

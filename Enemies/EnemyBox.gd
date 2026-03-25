@@ -11,7 +11,7 @@ signal destroyed(enemy)
 @export var burst_length: float = 2.0  # How long to hold trigger (seconds)
 @export var delay_length: float = 4.0  # How long to wait between bursts (seconds)
 @export var turret_weapon: PackedScene  # Drag weapon scene here (e.g., Autocannon.tscn)
-@export var aim_skill: float = 0.8  # Ground turrets are pretty good but not perfect
+@export var aim_skill: float = 0.4  # Deliberately mediocre so static defenses are threatening, not laser-accurate
 @export var debug_enabled: bool = false
 
 var current_health: float

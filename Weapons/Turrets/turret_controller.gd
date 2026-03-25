@@ -12,6 +12,8 @@ class_name TurretController
 @export var field_of_view: float = 360.0 # degrees
 @export var aim_skill: float = 1.0 # 0.0 to 1.0 (adds noise)
 @export var target_search_interval_s: float = 0.25
+@export var distant_target_search_interval_s: float = 1.0
+@export var detailed_targeting_distance_m: float = 1000.0
 @export var target_aim_height_bias_m: float = 0.75
 @export var debug_enabled: bool = false
 
@@ -35,6 +37,8 @@ var delay_timer: float = 0.0
 var weapon_instance: Weapon = null
 var host_actor: Node3D = null
 var _debug_print_timer: float = 0.0
+var _cached_camera: Camera3D = null
+var _camera_cache_timer: float = 0.0
 
 func _ready() -> void:
     if not turret:
@@ -79,7 +83,7 @@ func _physics_process(delta: float) -> void:
 
     # 1. Target finding
     target_search_timer += delta
-    if target_search_timer >= maxf(target_search_interval_s, 0.05):
+    if target_search_timer >= maxf(_get_effective_target_search_interval(delta), 0.05):
         target_search_timer = 0.0
         find_and_set_best_target()
 
@@ -246,6 +250,25 @@ func _get_world_gravity_vector() -> Vector3:
     var gravity_dir: Vector3 = ProjectSettings.get_setting("physics/3d/default_gravity_vector", Vector3(0, -1, 0))
     var gravity_mag: float = float(ProjectSettings.get_setting("physics/3d/default_gravity", 9.8))
     return gravity_dir * gravity_mag
+
+func _get_active_camera(delta: float) -> Camera3D:
+    _camera_cache_timer = maxf(_camera_cache_timer - delta, 0.0)
+    if _cached_camera and is_instance_valid(_cached_camera) and _camera_cache_timer > 0.0:
+        return _cached_camera
+    _cached_camera = get_viewport().get_camera_3d()
+    _camera_cache_timer = 0.25
+    return _cached_camera
+
+func _get_effective_target_search_interval(delta: float) -> float:
+    var near_interval: float = maxf(target_search_interval_s, 0.05)
+    var far_interval: float = maxf(distant_target_search_interval_s, near_interval)
+    var camera := _get_active_camera(delta)
+    if camera == null or not is_instance_valid(camera):
+        return far_interval
+    var focus_node: Node3D = host_actor if host_actor and is_instance_valid(host_actor) else self
+    if focus_node.global_position.distance_squared_to(camera.global_position) <= detailed_targeting_distance_m * detailed_targeting_distance_m:
+        return near_interval
+    return far_interval
 
 func _predict_ballistic_aim_point(
     shooter_pos: Vector3,

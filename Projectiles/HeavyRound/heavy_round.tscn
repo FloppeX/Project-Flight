@@ -1,0 +1,44 @@
+[gd_scene load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://Projectiles/HeavyRound/heavy_round.gd" id="1_heavy_round"]
+[ext_resource type="PackedScene" path="res://Projectiles/Explosion/explosion.tscn" id="2_explosion"]
+
+[sub_resource type="SphereMesh" id="SphereMesh_heavy"]
+radius = 0.12
+height = 0.24
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_heavy"]
+albedo_color = Color(1, 0.66, 0.2, 1)
+emission_enabled = true
+emission = Color(1, 0.55, 0.1, 1)
+emission_energy_multiplier = 5.5
+
+[sub_resource type="SphereShape3D" id="SphereShape3D_heavy"]
+radius = 0.22
+
+[node name="HeavyRound" type="RigidBody3D"]
+mass = 0.18
+script = ExtResource("1_heavy_round")
+damage_amount = 30.0
+tracer_color = Color(1, 0.7, 0.25, 1)
+tracer_width = 0.16
+tracer_visual_length = 10.0
+ground_mark_size = Vector3(0.7, 0.06, 0.7)
+ground_particle_count = 6
+explosion_scene = ExtResource("2_explosion")
+explosion_blast_radius = 8.0
+explosion_max_damage = 45.0
+explosion_min_damage = 14.0
+explosion_flash_duration = 0.35
+explosion_effect_duration = 3.0
+explosion_debris_count = 10
+explosion_knockback_impulse_at_center = 900.0
+explosion_knockback_impulse_at_edge = 120.0
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
+transform = Transform3D(0.22, 0, 0, 0, 0.22, 0, 0, 0, 0.9, 0, 0, 0)
+mesh = SubResource("SphereMesh_heavy")
+surface_material_override/0 = SubResource("StandardMaterial3D_heavy")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+shape = SubResource("SphereShape3D_heavy")
