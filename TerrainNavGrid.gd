@@ -9,12 +9,15 @@ signal bake_complete
 
 # --- Config (set in Inspector on the autoload node) ---
 @export var cell_size_m: float = 40.0          ## Grid resolution in metres
-@export var bake_half_extent_m: float = 6000.0 ## Half-side of baked square around terrain centre
+@export var bake_half_extent_m: float = 12500.0 ## Half-side of baked square around terrain centre
 @export var search_padding_m: float = 400.0    ## Extra A* search area beyond start→goal bbox
 @export_range(1, 20) var rows_per_frame: int = 4 ## Terrain rows sampled per frame while baking
 ## Clearance radius in cells required around each path node.
 ## Carrier is ~76m wide; at 40m/cell use 2 so a 160m corridor is needed.
 @export_range(0, 8) var body_clearance_cells: int = 3
+## Extra buffer in cells around steep terrain transitions/cliff bands.
+## Higher values keep paths and spawn points further from sharp height changes.
+@export_range(1, 8) var steep_slope_margin_cells: int = 2
 ## Max straight-line distance LOS smoothing may skip in metres.
 ## Lower = more waypoints kept, gentler turns. 0 = no smoothing.
 @export var max_smooth_segment_m: float = 400.0
@@ -376,17 +379,30 @@ func _cell_clear(gx: int, gz: int, max_slope_m: float) -> bool:
 			if _heights[nz * _cols + nx] <= IMPASSABLE * 0.5:
 				return false  # impassable cell too close
 
-	# Slope check: only immediate neighbours (radius 1).
-	for dz in range(-1, 2):
-		for dx in range(-1, 2):
+	return not is_cell_near_steep_slope(gx, gz, max_slope_m)
+
+
+func is_cell_near_steep_slope(gx: int, gz: int, max_slope_m: float, radius_cells: int = -1) -> bool:
+	if gx < 0 or gx >= _cols or gz < 0 or gz >= _rows:
+		return true
+	var h: float = _heights[gz * _cols + gx]
+	if h <= IMPASSABLE * 0.5:
+		return true
+	var r: int = maxi(radius_cells if radius_cells >= 0 else steep_slope_margin_cells, 1)
+	for dz in range(-r, r + 1):
+		for dx in range(-r, r + 1):
+			if dx == 0 and dz == 0:
+				continue
 			var nx: int = gx + dx
 			var nz: int = gz + dz
 			if nx < 0 or nx >= _cols or nz < 0 or nz >= _rows:
 				continue
 			var nh: float = _heights[nz * _cols + nx]
-			if nh > IMPASSABLE * 0.5 and abs(nh - h) > max_slope_m:
-				return false
-	return true
+			if nh <= IMPASSABLE * 0.5:
+				continue
+			if abs(nh - h) > max_slope_m:
+				return true
+	return false
 
 
 func _to_grid(world: Vector3) -> Vector2i:

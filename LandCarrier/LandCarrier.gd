@@ -108,6 +108,14 @@ func set_patrol_waypoints(positions: Array[Vector3]) -> void:
 		return
 	_compute_path_to_destination()
 
+func get_active_waypoints() -> Array[Vector3]:
+	var active_waypoints: Array[Vector3] = []
+	for i in range(_waypoint_index, _waypoint_positions.size()):
+		active_waypoints.append(_waypoint_positions[i])
+	if active_waypoints.is_empty() and _raw_waypoint_index < _raw_waypoints.size():
+		active_waypoints.append(_raw_waypoints[_raw_waypoint_index])
+	return active_waypoints
+
 func _apply_direct_waypoints() -> void:
 	_waypoint_positions = _raw_waypoints.duplicate()
 	_waypoint_index = 0

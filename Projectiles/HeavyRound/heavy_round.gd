@@ -4,6 +4,9 @@ class_name HeavyRound
 @export var explosion_blast_radius: float = 8.0
 @export var explosion_max_damage: float = 45.0
 @export var explosion_min_damage: float = 14.0
+@export var air_explosion_blast_radius: float = 2.5
+@export var air_explosion_max_damage: float = 12.0
+@export var air_explosion_min_damage: float = 0.0
 @export var explosion_flash_duration: float = 0.35
 @export var explosion_effect_duration: float = 3.0
 @export var explosion_debris_count: int = 10
@@ -25,9 +28,10 @@ func _on_body_entered(body: Node) -> void:
 
 	var damage_target: Node = find_damage_target(body)
 	var hit_ground: bool = is_ground_or_terrain(body)
+	var hit_aircraft: bool = _is_aircraft_target(damage_target) or _is_aircraft_target(body)
 	has_impacted = true
 
-	_spawn_custom_explosion(hit_ground)
+	_spawn_custom_explosion(hit_ground, hit_aircraft)
 	play_impact_sound(body)
 
 	if damage_target and _supports_target_hit_mark(damage_target):
@@ -36,7 +40,7 @@ func _on_body_entered(body: Node) -> void:
 		damage_target.take_damage(damage)
 	queue_free()
 
-func _spawn_custom_explosion(hit_ground: bool) -> void:
+func _spawn_custom_explosion(hit_ground: bool, hit_aircraft: bool) -> void:
 	if explosion_scene == null:
 		return
 	var explosion := explosion_scene.instantiate()
@@ -48,9 +52,9 @@ func _spawn_custom_explosion(hit_ground: bool) -> void:
 	var explosion_node := explosion as Explosion
 	get_tree().current_scene.add_child(explosion_node)
 	explosion_node.global_position = global_position
-	explosion_node.blast_radius = explosion_blast_radius
-	explosion_node.max_damage = explosion_max_damage
-	explosion_node.min_damage = explosion_min_damage
+	explosion_node.blast_radius = air_explosion_blast_radius if hit_aircraft else explosion_blast_radius
+	explosion_node.max_damage = air_explosion_max_damage if hit_aircraft else explosion_max_damage
+	explosion_node.min_damage = air_explosion_min_damage if hit_aircraft else explosion_min_damage
 	explosion_node.flash_duration = explosion_flash_duration
 	explosion_node.effect_duration = explosion_effect_duration
 	explosion_node.debris_count = explosion_debris_count
@@ -59,3 +63,6 @@ func _spawn_custom_explosion(hit_ground: bool) -> void:
 	explosion_node.use_line_of_sight = false
 	if hit_ground:
 		explosion_node.create_scorch_mark()
+
+func _is_aircraft_target(node: Object) -> bool:
+	return node is Node and ((node as Node).is_in_group("aircraft") or (node as Node).is_in_group("ai_aircraft"))

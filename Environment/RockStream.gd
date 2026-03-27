@@ -46,15 +46,22 @@ func _process(_delta: float) -> void:
 			return
 
 	# Track the aircraft or carrier as the streaming center
-	var focus: Node3D = get_tree().get_first_node_in_group("aircraft") as Node3D
+	var viewport := get_viewport()
+	var active_camera := viewport.get_camera_3d() if viewport != null else null
+	var focus: Node3D = active_camera
+	if focus == null:
+		focus = get_tree().get_first_node_in_group("aircraft") as Node3D
 	if focus == null:
 		focus = get_tree().get_first_node_in_group("carrier") as Node3D
-	if focus == null:
-		focus = get_viewport().get_camera_3d()
 	if focus == null:
 		return
 
 	var center := focus.global_position
+	if active_camera and is_instance_valid(active_camera):
+		var forward := -active_camera.global_basis.z
+		forward.y = 0.0
+		if forward.length_squared() > 0.0001:
+			center += forward.normalized() * minf(preload_margin_m, radius_m * 0.5)
 	var cell := Vector2i(int(floor(center.x / cell_size_m)), int(floor(center.z / cell_size_m)))
 	var delta_cells := cell - _last_center_cell
 	if abs(delta_cells.x) < cells_threshold and abs(delta_cells.y) < cells_threshold and _mm.instance_count > 0:

@@ -78,6 +78,22 @@ func has_nearby_node(world_pos: Vector3, min_clearance_m: float = 0.0) -> bool:
 		return false
 	return _nearest_node(world_pos, min_clearance_m) >= 0
 
+func can_anchor(world_pos: Vector3, min_clearance_m: float = 0.0, max_anchor_distance_m: float = 180.0) -> bool:
+	if not _is_ready or _nodes.is_empty():
+		return false
+	var pos := world_pos
+	var terrain_y := TerrainNavGrid.sample_height(pos.x, pos.z)
+	if terrain_y <= TerrainNavGrid.IMPASSABLE * 0.5:
+		return false
+	pos.y = terrain_y
+	var anchor_idx := _nearest_node(pos, min_clearance_m)
+	if anchor_idx < 0:
+		return false
+	var anchor_pos: Vector3 = _nodes[anchor_idx]
+	if Vector2(anchor_pos.x - pos.x, anchor_pos.z - pos.z).length() > max_anchor_distance_m:
+		return false
+	return _check_segment_clearance(pos, anchor_pos, min_clearance_m) >= min_clearance_m
+
 # ── Init (load or build) ────────────────────────────────────────────────────
 
 func _init_graph() -> void:
@@ -236,7 +252,11 @@ func _build_clearance_map(cols: int, rows: int, cell: float) -> PackedFloat32Arr
 	for gz in rows:
 		for gx in cols:
 			var h := TerrainNavGrid._heights[gz * cols + gx]
-			var is_obstacle := h <= TerrainNavGrid.IMPASSABLE * 0.5 or h > h_ceil
+			var is_obstacle := (
+				h <= TerrainNavGrid.IMPASSABLE * 0.5
+				or h > h_ceil
+				or TerrainNavGrid.is_cell_near_steep_slope(gx, gz, max_slope_m)
+			)
 			if is_obstacle:
 				cl[gz * cols + gx] = 0.0
 				queue.append(gz * cols + gx)
@@ -273,21 +293,7 @@ func _cell_passable(gx: int, gz: int) -> bool:
 
 func _cell_slope_ok(gx: int, gz: int) -> bool:
 	## Check immediate neighbours for excessive slope.
-	var cols := TerrainNavGrid._cols
-	var rows := TerrainNavGrid._rows
-	var h: float = TerrainNavGrid._heights[gz * cols + gx]
-	for dz in range(-1, 2):
-		for dx in range(-1, 2):
-			if dx == 0 and dz == 0:
-				continue
-			var nx := gx + dx
-			var nz := gz + dz
-			if nx < 0 or nx >= cols or nz < 0 or nz >= rows:
-				continue
-			var nh: float = TerrainNavGrid._heights[nz * cols + nx]
-			if nh > TerrainNavGrid.IMPASSABLE * 0.5 and abs(nh - h) > max_slope_m:
-				return false
-	return true
+	return not TerrainNavGrid.is_cell_near_steep_slope(gx, gz, max_slope_m, 1)
 
 func _edge_clearance(pa: Vector3, pb: Vector3, ia: int, ib: int) -> float:
 	## Walk the edge in cell_size steps and check slope + passability.
@@ -530,7 +536,7 @@ func _heap_pop(heap: Array) -> Array:
 
 # ── Save / Load ─────────────────────────────────────────────────────────────
 
-const _CACHE_VERSION := 5
+const _CACHE_VERSION := 6
 
 func _save(path: String) -> void:
 	var data := {

@@ -30,9 +30,13 @@ signal destroyed(vehicle)
 @export var path_goal_repath_distance_m: float = 80.0
 @export var path_stuck_timeout_s: float = 4.0
 @export var path_max_segment_m: float = 600.0
-@export var path_min_clearance_m: float = 0.0
+@export var path_min_clearance_m: float = 60.0
 @export var path_retry_cooldown_s: float = 3.0
 @export var path_no_anchor_retry_cooldown_s: float = 6.0
+@export var path_goal_anchor_search_radius_m: float = 180.0
+@export var path_goal_anchor_search_samples: int = 12
+@export var path_direct_safety_sample_step_m: float = 20.0
+@export var dynamic_objective_replan_interval_s: float = 2.5
 
 # --- Combat ---
 @export var max_health: float = 50.0
@@ -71,6 +75,7 @@ var _waypoint_index: int = 0
 var _nav_path_positions: Array[Vector3] = []
 var _nav_path_index: int = 0
 var _nav_path_goal: Vector3 = Vector3.ZERO
+var _nav_safe_target: Vector3 = Vector3.INF
 var _nav_repath_timer_s: float = 0.0
 var _nav_stuck_timer_s: float = 0.0
 var _nav_prev_wp_distance: float = INF
@@ -117,6 +122,7 @@ func _ready() -> void:
 	_collect_wheel_nodes()
 	_compute_corner_probes()
 	_suspension_probe_counter = int(get_instance_id()) % maxi(suspension_probe_interval_frames, 1)
+	_nav_repath_timer_s = randf() * maxf(path_replan_interval_s, 0.1)
 
 	# Dust from wheels
 	if not has_node("DustEffect"):
@@ -218,6 +224,7 @@ func assign_platoon(new_platoon: GroundVehiclePlatoon) -> void:
 	if platoon and is_instance_valid(platoon):
 		platoon.register_vehicle(self)
 	_clear_navigation_path()
+	_nav_repath_timer_s = randf() * _get_navigation_replan_interval_s()
 
 func _physics_process(delta: float) -> void:
 	if is_dying:
@@ -430,7 +437,12 @@ func _refresh_suspension_targets() -> void:
 			_cached_corner_target_ys.append(hit.position.y + chassis_ride_height_m)
 			hit_count += 1
 		else:
-			_cached_corner_target_ys.append(-99999.0)
+			var terrain_y: float = TerrainNavGrid.sample_height(corner_world.x, corner_world.z)
+			if terrain_y > TerrainNavGrid.IMPASSABLE * 0.5:
+				_cached_corner_target_ys.append(terrain_y + chassis_ride_height_m)
+				hit_count += 1
+			else:
+				_cached_corner_target_ys.append(-99999.0)
 
 	if hit_count == 0:
 		_suspension_has_ground = false
@@ -460,6 +472,11 @@ func _refresh_suspension_targets() -> void:
 			if hit:
 				var hit_local_y: float = to_local(hit.position).y
 				target_wheel_y = nominal.y + (hit_local_y - contact_local.y)
+			else:
+				var terrain_y: float = TerrainNavGrid.sample_height(contact_world.x, contact_world.z)
+				if terrain_y > TerrainNavGrid.IMPASSABLE * 0.5:
+					var baked_hit_local_y: float = to_local(Vector3(contact_world.x, terrain_y, contact_world.z)).y
+					target_wheel_y = nominal.y + (baked_hit_local_y - contact_local.y)
 		_cached_wheel_target_ys.append(target_wheel_y)
 
 	_suspension_has_ground = true
@@ -509,23 +526,36 @@ func _update_navigation_path(delta: float) -> void:
 		return
 	if not _has_navigation_destination():
 		_clear_navigation_path()
+		_nav_safe_target = Vector3.INF
 		return
 	if not NavGraph.is_ready():
 		return
 	var raw_target: Vector3 = _get_raw_navigation_destination()
-	_consume_reached_nav_waypoints(raw_target)
-	var dynamic_goal: bool = platoon != null and is_instance_valid(platoon) and platoon.has_active_objective()
-	var goal_shifted: bool = _flat_distance(raw_target, _nav_path_goal) > path_goal_repath_distance_m
+	var safe_target: Vector3 = _get_safe_navigation_target(raw_target)
+	_nav_safe_target = safe_target
+	if not _is_valid_navigation_target(safe_target):
+		_nav_path_positions.clear()
+		_nav_path_index = 0
+		_nav_path_goal = global_position
+		_nav_repath_timer_s = 0.0
+		_nav_stuck_timer_s = 0.0
+		_nav_prev_wp_distance = INF
+		_nav_retry_cooldown_s = maxf(_nav_retry_cooldown_s, path_retry_cooldown_s)
+		return
+	_consume_reached_nav_waypoints(safe_target)
+	var dynamic_goal: bool = _has_dynamic_navigation_goal()
+	var repath_interval_s: float = _get_navigation_replan_interval_s()
+	var goal_shifted: bool = _flat_distance(safe_target, _nav_path_goal) > path_goal_repath_distance_m
 	_nav_repath_timer_s += delta
 	var needs_repath: bool = _nav_path_positions.is_empty() or _nav_path_index >= _nav_path_positions.size()
 	if _nav_retry_cooldown_s > 0.0:
 		return
 	if goal_shifted:
-		_recompute_navigation_path(raw_target)
-	elif needs_repath and _nav_repath_timer_s >= path_replan_interval_s:
-		_recompute_navigation_path(raw_target)
-	elif dynamic_goal and _nav_repath_timer_s >= path_replan_interval_s:
-		_recompute_navigation_path(raw_target)
+		_recompute_navigation_path(safe_target)
+	elif needs_repath and _nav_repath_timer_s >= repath_interval_s:
+		_recompute_navigation_path(safe_target)
+	elif dynamic_goal and _nav_repath_timer_s >= repath_interval_s:
+		_recompute_navigation_path(safe_target)
 
 func _advance_patrol_waypoint_if_reached() -> void:
 	if platoon and is_instance_valid(platoon) and platoon.has_active_objective():
@@ -544,7 +574,7 @@ func _advance_patrol_waypoint_if_reached() -> void:
 func _recompute_navigation_path(raw_target: Vector3) -> void:
 	if not NavGraph.is_ready():
 		return
-	if not NavGraph.has_nearby_node(global_position, path_min_clearance_m):
+	if not NavGraph.can_anchor(global_position, path_min_clearance_m):
 		_nav_path_goal = raw_target
 		_nav_repath_timer_s = 0.0
 		_nav_stuck_timer_s = 0.0
@@ -614,6 +644,7 @@ func _consume_reached_nav_waypoints(raw_target: Vector3, _allow_replan: bool = t
 func _clear_navigation_path() -> void:
 	_nav_path_positions.clear()
 	_nav_path_index = 0
+	_nav_safe_target = Vector3.INF
 	_nav_repath_timer_s = path_replan_interval_s
 	_nav_stuck_timer_s = 0.0
 	_nav_prev_wp_distance = INF
@@ -635,7 +666,23 @@ func _get_follow_navigation_destination() -> Vector3:
 		return raw_target
 	if _nav_path_index < _nav_path_positions.size():
 		return _nav_path_positions[_nav_path_index]
-	return raw_target
+	if _is_valid_navigation_target(_nav_safe_target) and _is_direct_navigation_segment_safe(global_position, _nav_safe_target):
+		return _nav_safe_target
+	return global_position
+
+func _has_dynamic_navigation_goal() -> bool:
+	if platoon == null or not is_instance_valid(platoon) or not platoon.has_active_objective():
+		return false
+	match platoon.objective_type:
+		GroundVehiclePlatoon.ObjectiveType.PURSUE_ENEMIES, GroundVehiclePlatoon.ObjectiveType.PROTECT_NODE, GroundVehiclePlatoon.ObjectiveType.ATTACK_NODE, GroundVehiclePlatoon.ObjectiveType.PROTECT_POSITION, GroundVehiclePlatoon.ObjectiveType.ATTACK_POSITION, GroundVehiclePlatoon.ObjectiveType.ESCORT_CARRIER:
+			return true
+		_:
+			return false
+
+func _get_navigation_replan_interval_s() -> float:
+	if _has_dynamic_navigation_goal():
+		return maxf(dynamic_objective_replan_interval_s, path_replan_interval_s)
+	return maxf(path_replan_interval_s, 0.1)
 
 func _update_path_stuck_state(delta: float, follow_destination: Vector3) -> void:
 	if not use_waypoint_pathfinding or _nav_path_index >= _nav_path_positions.size():
@@ -662,6 +709,83 @@ func _path_length(path: Array[Vector3]) -> float:
 	for i in range(1, path.size()):
 		total += _flat_distance(path[i], path[i - 1])
 	return total
+
+func _get_safe_navigation_target(raw_target: Vector3) -> Vector3:
+	var projected_target: Vector3 = _project_destination_to_baked_ground(raw_target)
+	if not use_waypoint_pathfinding or not NavGraph.is_ready():
+		return projected_target
+	if _can_anchor_navigation_target(projected_target):
+		return projected_target
+
+	var search_radius: float = maxf(path_goal_anchor_search_radius_m, path_waypoint_reach_distance)
+	var sample_count: int = maxi(path_goal_anchor_search_samples, 4)
+	var base_vec := Vector2(projected_target.x - global_position.x, projected_target.z - global_position.z)
+	var base_angle: float = atan2(base_vec.y, base_vec.x) if base_vec.length_squared() > 1.0 else 0.0
+	var best_target: Vector3 = Vector3.INF
+	var best_score: float = INF
+	var ring_count: int = 3
+	for ring_idx in range(1, ring_count + 1):
+		var radius: float = search_radius * float(ring_idx) / float(ring_count)
+		for sample_idx in range(sample_count):
+			var angle: float = base_angle + TAU * float(sample_idx) / float(sample_count)
+			var candidate := projected_target + Vector3(cos(angle) * radius, 0.0, sin(angle) * radius)
+			candidate = _project_destination_to_baked_ground(candidate)
+			if not _can_anchor_navigation_target(candidate):
+				continue
+			var score: float = _flat_distance(candidate, projected_target) + _flat_distance(candidate, global_position) * 0.1
+			if score < best_score:
+				best_score = score
+				best_target = candidate
+	if _is_valid_navigation_target(best_target):
+		return best_target
+	return Vector3.INF
+
+func _can_anchor_navigation_target(target_world: Vector3) -> bool:
+	if not _is_valid_navigation_target(target_world):
+		return false
+	return NavGraph.can_anchor(target_world, path_min_clearance_m, path_goal_anchor_search_radius_m)
+
+func _is_direct_navigation_segment_safe(from_world: Vector3, to_world: Vector3) -> bool:
+	if not TerrainNavGrid.is_ready():
+		return true
+	var from_pos := _project_destination_to_baked_ground(from_world)
+	var to_pos := _project_destination_to_baked_ground(to_world)
+	if not _is_valid_navigation_target(from_pos) or not _is_valid_navigation_target(to_pos):
+		return false
+	var planar: Vector2 = Vector2(to_pos.x - from_pos.x, to_pos.z - from_pos.z)
+	var distance_m: float = planar.length()
+	if distance_m <= maxf(path_waypoint_reach_distance, waypoint_reach_distance):
+		return true
+	var dir: Vector2 = planar / maxf(distance_m, 0.001)
+	var sample_step_m: float = maxf(path_direct_safety_sample_step_m, 5.0)
+	var prev_height: float = from_pos.y
+	var max_slope_m: float = NavGraph.max_slope_m if NavGraph != null else 18.0
+	var d: float = sample_step_m
+	while d < distance_m:
+		var sample := Vector3(from_pos.x + dir.x * d, 0.0, from_pos.z + dir.y * d)
+		var sample_height: float = TerrainNavGrid.sample_height(sample.x, sample.z)
+		if sample_height <= TerrainNavGrid.IMPASSABLE * 0.5:
+			return false
+		var gx: int = int((sample.x - TerrainNavGrid._origin_x) / TerrainNavGrid.cell_size_m)
+		var gz: int = int((sample.z - TerrainNavGrid._origin_z) / TerrainNavGrid.cell_size_m)
+		if TerrainNavGrid.is_cell_near_steep_slope(gx, gz, max_slope_m):
+			return false
+		if absf(sample_height - prev_height) > max_slope_m:
+			return false
+		prev_height = sample_height
+		d += sample_step_m
+	return true
+
+func _project_destination_to_baked_ground(candidate: Vector3) -> Vector3:
+	var projected := candidate
+	var terrain_y: float = TerrainNavGrid.sample_height(candidate.x, candidate.z)
+	if terrain_y > TerrainNavGrid.IMPASSABLE * 0.5:
+		projected.y = terrain_y
+		return projected
+	return _project_destination_to_ground(candidate)
+
+func _is_valid_navigation_target(target_world: Vector3) -> bool:
+	return is_finite(target_world.x) and is_finite(target_world.y) and is_finite(target_world.z)
 
 func _get_cached_carrier() -> Node3D:
 	if _cached_carrier and is_instance_valid(_cached_carrier):

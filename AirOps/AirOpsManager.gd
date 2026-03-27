@@ -84,6 +84,18 @@ func order_cap(fname: String, altitude_m: float = 500.0) -> void:
 	_refresh_carrier()
 	f.set_cap(_carrier, altitude_m)
 	RadioComms.say_cap_order(fname, altitude_m)
+	_ensure_flight_can_execute(f)
+
+func order_cap_route(fname: String, route_points: Array[Vector3], altitude_m: float = 500.0) -> void:
+	var f := get_flight(fname)
+	if not f:
+		push_warning("[AirOpsManager] Unknown flight: " + fname)
+		return
+	_clear_role(f)
+	_refresh_carrier()
+	f.set_cap_route(_carrier, route_points, altitude_m)
+	RadioComms.say_cap_order(fname, altitude_m)
+	_ensure_flight_can_execute(f)
 
 func order_cas(fname: String, area_center: Vector3 = Vector3.ZERO, area_radius: float = 3000.0) -> void:
 	var f := get_flight(fname)
@@ -98,6 +110,7 @@ func order_cas(fname: String, area_center: Vector3 = Vector3.ZERO, area_radius: 
 			center = _carrier.global_position
 	f.set_cas(center, area_radius)
 	RadioComms.say_cas_order(fname)
+	_ensure_flight_can_execute(f)
 
 func order_rtb(fname: String) -> void:
 	var f := get_flight(fname)
@@ -126,6 +139,23 @@ func get_flight(fname: String) -> Flight:
 		if f.flight_name == fname:
 			return f
 	return null
+
+func get_flight_names() -> Array[String]:
+	var result: Array[String] = []
+	for flight_name in FLIGHT_NAMES:
+		result.append(flight_name)
+	return result
+
+func get_flight_status(fname: String) -> Dictionary:
+	var f := get_flight(fname)
+	if not f:
+		return {}
+	var summary := f.get_status_summary()
+	summary["kind"] = "flight"
+	summary["role"] = _get_role_name(f)
+	summary["is_scrambling"] = f == _scrambling_flight
+	summary["empty"] = f.strength() <= 0
+	return summary
 
 func print_status() -> void:
 	print("=== Air Ops Status ===")
@@ -354,9 +384,23 @@ func _clear_role(f: Flight) -> void:
 	if f == _cas_flight:
 		_cas_flight = null
 
+func _ensure_flight_can_execute(f: Flight) -> void:
+	if f == null or not is_instance_valid(f):
+		return
+	if f.strength() > 0:
+		return
+	_scramble_flight(f)
+
 func _refresh_carrier() -> void:
 	if not _carrier or not is_instance_valid(_carrier):
 		_carrier = get_tree().get_first_node_in_group("carrier") as Node3D
+
+func _get_role_name(f: Flight) -> String:
+	if f == _intercept_flight:
+		return "INTERCEPT"
+	if f == _cas_flight:
+		return "CAS"
+	return "STANDBY"
 
 func _auto_assign_unassigned() -> void:
 	var candidates: Array[Node3D] = []

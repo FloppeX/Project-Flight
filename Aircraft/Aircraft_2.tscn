@@ -5,7 +5,7 @@
 [ext_resource type="PackedScene" uid="uid://djtbinx1svo2u" path="res://Aircraft/Aircraft wreck/aircraft_1_wreck.tscn" id="3_x73up"]
 [ext_resource type="PackedScene" uid="uid://bi2dmxhb21p11" path="res://Models/Aircraft_2/Aircraft 2 body.glb" id="4_fx6wc"]
 [ext_resource type="PackedScene" uid="uid://bpfxucj3ypbxu" path="res://Models/Aircraft_1/Aircraft 2 propeller.glb" id="4_ii5ys"]
-[ext_resource type="Script" path="res://Aircraft/SimpleAero.gd" id="5_8vbcf"]
+[ext_resource type="Script" uid="uid://cyxrx2cid1gt" path="res://Aircraft/SimpleAero.gd" id="5_8vbcf"]
 [ext_resource type="PackedScene" uid="uid://diddm04vtjnny" path="res://addons/simplified_flightsim/aircraft_modules/EnergyContainer/EnergyContainer.tscn" id="9_n2s36"]
 [ext_resource type="PackedScene" uid="uid://bxmk3xwsygst" path="res://addons/simplified_flightsim/aircraft_modules/Engine/Engine.tscn" id="10_jemhm"]
 [ext_resource type="AudioStream" uid="uid://b1vdg40us1d5i" path="res://Audio/airplane_propeller 2.wav" id="11_btnkm"]
@@ -98,7 +98,7 @@ auto_rudder_strength = 0.5
 
 [node name="Engine" parent="." instance=ExtResource("10_jemhm")]
 transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, 0, 0)
-PowerFactor = 12000.0
+PowerFactor = 14000.0
 propeller_node = NodePath("../Aircraft 2 body/Aircraft 2 propeller")
 EngineSoundLoop = ExtResource("11_btnkm")
 EngineSoundStart = ExtResource("12_sqfht")

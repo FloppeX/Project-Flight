@@ -15,6 +15,7 @@ signal destroyed
 @export var wreck_base_impulse: float = 400.0
 @export var wreck_random_spread: float = 0.35
 @export var wreck_extra_spin: float = 25.0
+@export var wreck_spawn_max_agl_m: float = 120.0
 @export var team: int = 1
 @export var damage_cooldown_s: float = 0.01  # Reduced from 0.05 to allow more bullet hits
 @export var debug_damage: bool = false
@@ -614,6 +615,11 @@ func activate_deathcam():
 func _spawn_wreck_and_free():
 	# Guard: need wreck scene assigned
 	if not wreck_scene:
+		queue_free()
+		return
+
+	var effective_agl_m: float = get_effective_altitude_agl_m()
+	if wreck_spawn_max_agl_m >= 0.0 and effective_agl_m > wreck_spawn_max_agl_m:
 		queue_free()
 		return
 	

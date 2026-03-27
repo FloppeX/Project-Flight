@@ -24,6 +24,7 @@ var _claimed_targets: Dictionary = {}  # Node3D target -> Node3D aircraft
 # CAP state
 var _cap_carrier: Node3D = null
 var _cap_altitude_m: float = 500.0
+var _cap_route_points: Array[Vector3] = []
 
 # CAS state
 var _cas_area_center: Vector3 = Vector3.ZERO
@@ -100,11 +101,23 @@ func set_cap(carrier: Node3D, altitude_m: float = 500.0) -> void:
 	mission = Mission.CAP
 	_cap_carrier = carrier
 	_cap_altitude_m = altitude_m
+	_cap_route_points.clear()
 	_claimed_targets.clear()
 	for aircraft in get_members():
 		_apply_cap(aircraft)
 	mission_changed.emit(mission)
 	print("[Flight %s] CAP  alt=%.0fm" % [flight_name, altitude_m])
+
+func set_cap_route(carrier: Node3D, route_points: Array[Vector3], altitude_m: float = 500.0) -> void:
+	mission = Mission.CAP
+	_cap_carrier = carrier
+	_cap_altitude_m = altitude_m
+	_cap_route_points = _sanitize_cap_route_points(route_points, altitude_m)
+	_claimed_targets.clear()
+	for aircraft in get_members():
+		_apply_cap(aircraft)
+	mission_changed.emit(mission)
+	print("[Flight %s] CAP route  points=%d  alt=%.0fm" % [flight_name, _cap_route_points.size(), altitude_m])
 
 func set_cas(area_center: Vector3, area_radius: float = 3000.0) -> void:
 	mission = Mission.CAS
@@ -118,6 +131,7 @@ func set_cas(area_center: Vector3, area_radius: float = 3000.0) -> void:
 
 func set_rtb() -> void:
 	mission = Mission.RTB
+	_cap_route_points.clear()
 	_claimed_targets.clear()
 	for aircraft in get_members():
 		_apply_rtb(aircraft)
@@ -138,8 +152,12 @@ func _apply_cap(aircraft: Node3D) -> void:
 		return
 	pilot.ground_attack_enabled = false
 	pilot.dogfight_enabled = true
-	# Clear waypoints so AIPilot rebuilds its carrier-centered patrol
-	pilot.waypoints.clear()
+	pilot.set_patrol_altitude(_cap_altitude_m)
+	if aircraft == _get_lead_aircraft() and not _cap_route_points.is_empty():
+		pilot.set_waypoints(_cap_route_points.duplicate())
+	else:
+		# Clear waypoints so AIPilot rebuilds its carrier-centered patrol.
+		pilot.waypoints.clear()
 	if pilot.current_state not in [AIPilot.State.SEARCH]:
 		pilot.change_state(AIPilot.State.SEARCH)
 
@@ -306,10 +324,81 @@ func _ground_target_type(node: Node3D) -> String:
 func _get_pilot(aircraft: Node3D) -> AIPilot:
 	return aircraft.find_child("AIPilot", true, false) as AIPilot
 
+func get_center_position() -> Vector3:
+	var members := get_members()
+	if members.is_empty():
+		if _cap_carrier and is_instance_valid(_cap_carrier):
+			return _cap_carrier.global_position
+		if not _cap_route_points.is_empty():
+			return _cap_route_points[0]
+		return Vector3.ZERO
+	var sum := Vector3.ZERO
+	for member in members:
+		sum += member.global_position
+	return sum / float(members.size())
+
+func get_active_waypoints() -> Array[Vector3]:
+	var active_waypoints: Array[Vector3] = []
+	var lead_pilot := _get_lead_pilot()
+	if not lead_pilot:
+		return active_waypoints
+	var start_index: int = clampi(lead_pilot.current_waypoint_index, 0, lead_pilot.waypoints.size())
+	for i in range(start_index, lead_pilot.waypoints.size()):
+		active_waypoints.append(lead_pilot.waypoints[i])
+	return active_waypoints
+
+func get_mission_name() -> String:
+	return Mission.keys()[mission]
+
+func get_lead_state_name() -> String:
+	var lead_pilot := _get_lead_pilot()
+	if not lead_pilot:
+		return "INACTIVE"
+	return AIPilot.State.keys()[lead_pilot.current_state]
+
+func get_status_summary() -> Dictionary:
+	return {
+		"name": flight_name,
+		"mission": get_mission_name(),
+		"strength": strength(),
+		"position": get_center_position(),
+		"active_waypoints": get_active_waypoints(),
+		"lead_state": get_lead_state_name(),
+	}
+
 func _is_deck_busy(pilot: AIPilot) -> bool:
 	## True when the pilot is in a deck/flight phase we should not interrupt.
 	return pilot.current_state in [
 		AIPilot.State.IDLE, AIPilot.State.LAUNCHING,
 		AIPilot.State.CLIMBING, AIPilot.State.RTB,
 		AIPilot.State.APPROACH, AIPilot.State.LANDING,
+	]
+
+func _get_lead_aircraft() -> Node3D:
+	var members := get_members()
+	return members[0] if not members.is_empty() else null
+
+func _get_lead_pilot() -> AIPilot:
+	var lead := _get_lead_aircraft()
+	return _get_pilot(lead) if lead else null
+
+func _sanitize_cap_route_points(route_points: Array[Vector3], altitude_m: float) -> Array[Vector3]:
+	var sanitized: Array[Vector3] = []
+	for point in route_points:
+		var waypoint := point
+		if not is_finite(waypoint.x) or not is_finite(waypoint.z):
+			continue
+		waypoint.y = altitude_m
+		sanitized.append(waypoint)
+	if sanitized.size() == 1:
+		return _build_cap_loop(sanitized[0], altitude_m)
+	return sanitized
+
+func _build_cap_loop(anchor: Vector3, altitude_m: float) -> Array[Vector3]:
+	var half_side_m: float = 900.0
+	return [
+		Vector3(anchor.x + half_side_m, altitude_m, anchor.z + half_side_m),
+		Vector3(anchor.x - half_side_m, altitude_m, anchor.z + half_side_m),
+		Vector3(anchor.x - half_side_m, altitude_m, anchor.z - half_side_m),
+		Vector3(anchor.x + half_side_m, altitude_m, anchor.z - half_side_m),
 	]

@@ -1,4 +1,4 @@
-[gd_scene load_steps=11 format=3 uid="uid://cyyh0exyshoy"]
+[gd_scene load_steps=10 format=3 uid="uid://cyyh0exyshoy"]
 
 [ext_resource type="Script" uid="uid://dqqkx5fyusdg3" path="res://GroundVehicle/vehicle_enemy_light.gd" id="1_enemy"]
 [ext_resource type="PackedScene" uid="uid://mceg3hp1h2ya" path="res://Vehicle battle bus.glb" id="2_body"]
@@ -8,7 +8,6 @@
 [ext_resource type="PackedScene" path="res://Weapons/Turrets/bullet_weapon.tscn" id="6_weapon"]
 [ext_resource type="PackedScene" uid="uid://btkbb354s6pxl" path="res://Weapons/Turrets/vehicle_heavy_gun_turret.tscn" id="7_hgun"]
 [ext_resource type="PackedScene" path="res://Weapons/Turrets/heavy_gun_weapon.tscn" id="8_hweapon"]
-[ext_resource type="PackedScene" uid="uid://duc1jx1m3f54d" path="res://Models/Vehicle wheel medium.glb" id="9_bwjhb"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_body"]
 size = Vector3(3.25459, 2.22676, 8.03414)
@@ -43,6 +42,12 @@ transform = Transform3D(0.9, 0, 0, 0, 0.9, 0, 0, 0, 0.9, -0.654678, 0.506386, 1.
 transform = Transform3D(0.99863, 0, 0.052336, 0, 1, 0, -0.052336, 0, 0.99863, 0, 2.42, 1.45)
 script = ExtResource("4_tctrl")
 weapon_scene = ExtResource("8_hweapon")
+max_range = 360.0
+aim_skill = 0.28
+air_target_range_multiplier = 0.75
+air_target_aim_skill_multiplier = 0.45
+air_target_fire_angle_tolerance_multiplier = 0.45
+air_target_extra_spread_m = 10.0
 burst_length = 0.6
 delay_length = 2.2
 fire_angle_tolerance_deg = 10.0
@@ -81,11 +86,3 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.95, -0.42, -2.34237)
 
 [node name="ground_contact_point" type="Node3D" parent="wheel_left_2"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.98, 0.02)
-
-[node name="wheel_left_3" type="Node3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.25, -0.281796, -1.89857)
-
-[node name="Vehicle wheel medium" parent="wheel_left_3" instance=ExtResource("9_bwjhb")]
-
-[node name="ground_contact_point" type="Node3D" parent="wheel_left_3"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.756107, 0.00395203)

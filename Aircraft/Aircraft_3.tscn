@@ -5,7 +5,7 @@
 [ext_resource type="PackedScene" uid="uid://b4j2xd4lmh7dx" path="res://Models/Aircraft_3/Aircraft 3.glb" id="3_ac3md"]
 [ext_resource type="PackedScene" uid="uid://djtbinx1svo2u" path="res://Aircraft/Aircraft wreck/aircraft_1_wreck.tscn" id="3_x73up"]
 [ext_resource type="PackedScene" uid="uid://bpfxucj3ypbxu" path="res://Models/Aircraft_1/Aircraft 2 propeller.glb" id="4_ii5ys"]
-[ext_resource type="Script" path="res://Aircraft/SimpleAero.gd" id="5_8vbcf"]
+[ext_resource type="Script" uid="uid://cyxrx2cid1gt" path="res://Aircraft/SimpleAero.gd" id="5_8vbcf"]
 [ext_resource type="PackedScene" uid="uid://c2skyi8tilc13" path="res://Models/Aircraft_1/Aircraft nose gear.glb" id="7_xldsk"]
 [ext_resource type="PackedScene" uid="uid://bifk2d4o2un2l" path="res://Models/Aircraft_1/Aircraft main gear.glb" id="8_xnqm1"]
 [ext_resource type="PackedScene" uid="uid://diddm04vtjnny" path="res://addons/simplified_flightsim/aircraft_modules/EnergyContainer/EnergyContainer.tscn" id="9_n2s36"]
@@ -88,8 +88,8 @@ shape = SubResource("BoxShape3D_wing_hitbox")
 script = ExtResource("5_8vbcf")
 rb_path = NodePath("..")
 pitch_power = 8.0
-roll_power = 14.0
-yaw_power = 4.0
+roll_power = 22.0
+yaw_power = 2.0
 auto_rudder_strength = 0.5
 
 [node name="MovingParts" type="Node3D" parent="."]
@@ -128,7 +128,7 @@ transform = Transform3D(1, 0, -2.9803e-08, 0, 1, 0, 2.9803e-08, 0, 1, -0.456, 0.
 
 [node name="Engine" parent="." instance=ExtResource("10_jemhm")]
 transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, 0, 0)
-PowerFactor = 6000.0
+PowerFactor = 8000.0
 propeller_node = NodePath("../Aircraft 3/Aircraft 2 propeller")
 EngineSoundLoop = ExtResource("11_btnkm")
 EngineSoundStart = ExtResource("12_sqfht")

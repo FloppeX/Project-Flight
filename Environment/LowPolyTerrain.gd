@@ -98,6 +98,7 @@ class_name LowPolyTerrain
 @export var stream_target_path: NodePath
 @export var stream_update_interval_s: float = 0.25
 @export var max_chunk_builds_per_update: int = 2
+@export var stream_preload_ahead_m: float = 1200.0
 
 var _mesh_node: MeshInstance3D
 var _body_node: StaticBody3D
@@ -397,8 +398,12 @@ func _build_chunk_arrays(qx0: int, qx1: int, qz0: int, qz1: int) -> Array:
 			var v11 := Vector3(x_b, h11, z_b)
 
 			var cell_id: int = z * _size_x + x
-			_append_face(v00, v10, v11, cell_id * 2,     vertices, normals, colors)
-			_append_face(v00, v11, v01, cell_id * 2 + 1, vertices, normals, colors)
+			if _should_use_alternate_diagonal(v00, v10, v01, v11, cell_id):
+				_append_face(v00, v10, v01, cell_id * 2,     vertices, normals, colors)
+				_append_face(v10, v11, v01, cell_id * 2 + 1, vertices, normals, colors)
+			else:
+				_append_face(v00, v10, v11, cell_id * 2,     vertices, normals, colors)
+				_append_face(v00, v11, v01, cell_id * 2 + 1, vertices, normals, colors)
 
 	var arrays: Array = []
 	arrays.resize(Mesh.ARRAY_MAX)
@@ -421,9 +426,7 @@ func _append_face(
 		vertices: PackedVector3Array,
 		normals: PackedVector3Array,
 		colors: PackedColorArray) -> void:
-	var n: Vector3 = (v2 - v0).cross(v1 - v0).normalized()
-	if n.y < 0.0:
-		n = -n
+	var n: Vector3 = _face_up_normal(v0, v1, v2)
 
 	# Altitude-based coloring — geological strata like Colorado Plateau / Grand Canyon.
 	# Four color bands from canyon floor up to plateau top.
@@ -467,6 +470,30 @@ func _append_face(
 	colors.push_back(c)
 	colors.push_back(c)
 	colors.push_back(c)
+
+func _should_use_alternate_diagonal(
+		v00: Vector3,
+		v10: Vector3,
+		v01: Vector3,
+		v11: Vector3,
+		cell_id: int) -> bool:
+	var default_n0: Vector3 = _face_up_normal(v00, v10, v11)
+	var default_n1: Vector3 = _face_up_normal(v00, v11, v01)
+	var alternate_n0: Vector3 = _face_up_normal(v00, v10, v01)
+	var alternate_n1: Vector3 = _face_up_normal(v10, v11, v01)
+
+	var default_alignment: float = default_n0.dot(default_n1)
+	var alternate_alignment: float = alternate_n0.dot(alternate_n1)
+	if absf(alternate_alignment - default_alignment) <= 0.01:
+		# Break near-ties deterministically so broad slopes do not all lean the same way.
+		return _hash01(cell_id * 733 + seed * 193) >= 0.5
+	return alternate_alignment > default_alignment
+
+func _face_up_normal(v0: Vector3, v1: Vector3, v2: Vector3) -> Vector3:
+	var n: Vector3 = (v2 - v0).cross(v1 - v0).normalized()
+	if n.y < 0.0:
+		n = -n
+	return n
 
 func _build_material() -> StandardMaterial3D:
 	var mat := StandardMaterial3D.new()
@@ -652,6 +679,15 @@ func _get_stream_center_local() -> Vector3:
 	var target: Node3D = null
 	if stream_target_path != NodePath(""):
 		target = get_node_or_null(stream_target_path) as Node3D
+	var viewport := get_viewport()
+	var active_camera := viewport.get_camera_3d() if viewport != null else null
+	if active_camera and is_instance_valid(active_camera):
+		var stream_world_pos: Vector3 = active_camera.global_position
+		var forward := -active_camera.global_basis.z
+		forward.y = 0.0
+		if forward.length_squared() > 0.0001:
+			stream_world_pos += forward.normalized() * maxf(stream_preload_ahead_m, 0.0)
+		return to_local(stream_world_pos)
 	if not target:
 		target = get_tree().get_first_node_in_group("aircraft") as Node3D
 	if not target:

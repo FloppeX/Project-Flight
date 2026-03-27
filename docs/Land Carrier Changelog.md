@@ -3,6 +3,9 @@
 This document contains version history, session-by-session notes, and archived long-form material extracted from the main project overview. For the short project brief, see [README](../README.md).
 
 ## Version History
+- 2026-03-28: Interactive tactical command grid prototype - the `M` map now supports selecting flights/platoons, mission buttons, map-click targeting, CAP route drafting, draft preview, and confirm/cancel flow; player-issued orders can auto-scramble empty flights or auto-deploy empty platoons without losing the queued task.
+- 2026-03-27: Tactical map / air-ground polish - enemy platoon contacts stay visible on the flat map, render hot pink, use nav-safe contact routing, and show counters/routes; terrain streaming now follows the active camera; `Insert` screenshots save to the project-root `screenshots` folder; F/R/E debug spawns were fixed; aircraft, weapons, audio, and turbulence received another tuning pass; adaptive terrain triangulation removed the repeating cliff washboard artifact.
+- 2026-03-26 (late): Ground navigation/tactical display follow-up — ground platoon and vehicle staging now prefers carrier-reachable terrain with larger margins from steep slopes/cliffs; nav/tactical-map bake expanded to `25 x 25 km`; added the full-screen `M` map with a fixed vector-style terrain display and live symbols; startup/loading splash updated to use `splash image 5`; battle-bus heavy guns were softened against aircraft; enemy platoons now stay abstract on tactical displays until individual vehicles are actually revealable.
 - 2026-03-26: Ground warfare/tactical map pass — enemy ground roster now uses buggy, pickup, and battle bus variants; added vehicle LMG and heavy-gun turrets plus small explosive heavy rounds; enemy wave spawning now picks flat ground more carefully; platoons travel in simple formations, pace to their slowest member, break/reform around combat, and enemy vehicle shooting is intentionally inaccurate but permissive; bridge holomap ground markers changed to cubes, enemy platoons appear as medium red cubes only when friendly units have terrain line-of-sight; suspension/dust/turret update-frequency optimizations and pooled dust work reduced ground-combat CPU cost.
 - 2026-03-24: Aircraft_5 wing fold animation (multi-phase slide/rotate with mirrored geometry handling) and left gear retraction fix; deck lights converted from OmniLight3D to SpotLight3D to prevent bleed into dust/sky; dust effect switched to additive blending; building barracks scale fix (20x→1x); ground vehicle carrier avoidance reworked to elliptical zones with tangential flow steering; escort corner order changed to front-first; enemy barracks base spawning added.
 - 2026-03-23: Ground vehicle suspension overhaul — 4-corner probe spring-damper system with separate pitch/roll Euler springs; chassis floats ~1m above ground with all wheels in contact; works on terrain and carrier ramp; forward-axis velocity projection eliminates lateral sliding; asymmetric accel/decel; larger turn radii; carrier edge avoidance (10m buffer); escort formation uses actual carrier dimensions; ramp bay floor extended 3m to close gap at deck transition. Bullet first-frame flash fixed (set transform before add_child). Large procedural rock structures with colliders removed (visual scatter rocks kept). Shadow quality improved (soft filter quality 0→2, atlas 4K→8K, cascade split blending enabled). Aircraft_3 added as new aircraft type; enemy aircraft now use Aircraft_3 scene.
@@ -31,6 +34,103 @@ This document contains version history, session-by-session notes, and archived l
 ---
 
 ## Project Change Log (latest session)
+
+### Session Summary (2026-03-28) - Interactive Tactical Command Grid Prototype
+
+**Overview:** The `M` map moved from display-only tactical picture to the first playable command console. Flights and platoons can now be selected from the map UI, given an initial mission order, and confirmed directly through the same AirOps/GroundOps layer the AI will eventually use.
+
+#### Tactical Command UI (`UI/WorldMapOverlay.gd`, `UI/WorldMapSymbolLayer.gd`)
+- Rebuilt the full-screen `M` map into a phosphor-style command layout with left and right control panels around the existing terrain display.
+- Added selectable asset lists for named flights and platoons, mission buttons that change with the selected asset, a live order-draft summary, and confirm/cancel controls.
+- The center map is now an input surface: clicking it can place a target or build a CAP route draft, while the symbol layer previews the pending route and highlights the selected asset.
+- Current first-slice mission set:
+  - Flights: `CAP`, `CAS`, `RTB`
+  - Platoons: `MOVE`, `ATTACK`, `PROTECT`, `ESCORT`, `HOLD`, `RETRIEVE`
+- Current limitation: only CAP uses multi-click route execution for now; CAS and platoon target orders are still single-point tasks.
+
+#### Air Operations Hooks (`AirOps/AirOpsManager.gd`, `AirOps/Flight.gd`)
+- Added map-friendly flight query/status helpers so the UI can ask for mission, strength, lead state, position, and active waypoints without poking directly into internals.
+- Added routed CAP support: the player can now issue a CAP route from the tactical map, and a single clicked CAP point auto-expands into a patrol loop.
+- Manual flight orders now auto-scramble empty flights instead of silently assigning an impossible order to a zero-strength flight.
+
+#### Ground Operations Hooks (`GroundOps/GroundOpsManager.gd`, `GroundVehicle/ground_vehicle_platoon.gd`, `GroundVehicle/vehicle_enemy_light.gd`)
+- Added point-based platoon `ATTACK` and `PROTECT` objective types so the tactical map can order ground forces against map positions instead of only scene nodes.
+- Empty platoons now auto-deploy when given a player order from the map.
+- Deployment flow no longer overwrites a pre-staged objective with the old rally/escort defaults, so queued player orders survive the deployment phase.
+- Enemy ground vehicles now treat the new position-based platoon objectives as dynamic navigation goals for replanning.
+
+#### Verification
+- Verified with a headless Godot 4.4.1 boot after the integration work.
+- Existing material/UID warnings remain, but no new script errors were introduced by the tactical command grid pass.
+
+### Session Summary (2026-03-27) - Tactical Readability, Terrain Safety, and Audio/Flight Tuning
+
+**Overview:** This pass tightened the battlefield presentation around the `M` map, hardened ground/terrain edge cases, fixed several debug-spawn workflows, and pushed another round of tuning into aircraft feel, audio, and map readability.
+
+#### Tactical Map / Platoon Contact Pass (`UI/WorldMapSymbolLayer.gd`, `GroundVehicle/ground_vehicle_platoon.gd`, `LandCarrier/BridgeHologram.gd`, `UI/WorldMapOverlay.gd`)
+- Enemy platoons now remain visible on the flat `M` map even before their member vehicles are individually revealed.
+- Platoon markers were recolored hot pink to clearly distinguish abstract platoon contacts from regular enemy ground-vehicle markers.
+- The tactical map orientation bug was fixed so terrain and symbols are shown from above rather than as if viewed from below.
+- Added map counters for visible enemy platoons and visible enemy ground vehicles.
+- Added carrier and platoon route/waypoint visualization on the tactical map.
+- Reworked platoon contact routing so the abstract platoon marker follows a nav-safe representative contact instead of tunneling straight through mountains, and platoon movement now actually follows the shown route preview instead of only acting on the final destination.
+- The tactical map art direction was pushed further into a vector-monitor look, then simplified to three solid terrain elevation colors for faster reading at a glance.
+
+#### Ground Spawn / Navigation / Streaming (`Enemies/EnemyAircraftSpawner.gd`, `GroundVehicle/vehicle_enemy_light.gd`, `Environment/LowPolyTerrain.gd`, `Environment/RockStream.gd`, `Main_Scene.tscn`, `tools/ScreenshotCapture.gd`)
+- `E` now spawns an enemy platoon `7-12 km` away in a random direction on a legal, in-bounds staging point.
+- Enemy ground vehicles now avoid steep-slope routes more aggressively instead of trying to drive straight up bad terrain.
+- Terrain streaming now centers on the active camera and preloads farther ahead, reducing "edge of the world" holes during fast traversal.
+- Ground vehicles now fall back to baked terrain heights when a streamed collision chunk has not arrived yet, preventing units from falling forever through unloaded terrain.
+- `Insert` screenshots now save into the project-root `screenshots/` folder for faster debugging and review.
+- Platoon and vehicle path replans were desynchronized and route-preview recomputes made change-driven, removing the obvious once-per-second hitch when platoons were active.
+
+#### Air Ops / Flight Tuning (`Enemies/EnemyAircraftSpawner.gd`, `AI/AIPilot.gd`, `Aircraft/Aircraft_1.tscn`, `Aircraft/Aircraft_2.tscn`, `Aircraft/Aircraft_3.tscn`, `Aircraft/Aircraft_5.tscn`, `Aircraft/SimpleAero.gd`, `Aircraft/aircraft.gd`, `Weather/ContinuousTurbulence.gd`)
+- `F` and `R` debug spawns were fixed: `F` now spawns three friendly `Aircraft_5`s above the carrier and keeps them in the same flight; `R` now spawns three enemy aircraft `10 km` away in a random legal direction.
+- Dogfight AI now uses the existing close-pass avoidance logic during head-on merges, making aircraft break away instead of charging directly into collision.
+- All aircraft received a `+2000` engine-power increase, and shared forward drag was reduced so dives and acceleration feel less artificially capped.
+- Continuous turbulence at higher speed/altitude was softened so fast aircraft buffet less violently.
+- Aircraft destroyed high above the ground no longer spawn the bright multichunk wreck breakup that looked like colored debris floating in the sky.
+
+#### Weapons / Audio (`Weapons/Autocannon/Autocannon.tscn`, `Weapons/Autocannon/autocannon.gd`, `Weapons/Turrets/bullet_weapon.gd`)
+- Shared aircraft autocannon rate of fire was doubled and muzzle velocity increased to `1000 m/s`.
+- Aircraft autocannons and vehicle machine guns now randomize across the `gun_machinegun_auto_heavy` sound set, with overlap-friendly audio playback so long bursts sound heavier and less repetitive.
+
+#### Terrain Presentation (`Environment/LowPolyTerrain.gd`)
+- Replaced the old fixed quad diagonal split with adaptive triangulation.
+- Result: the repeating left-leaning cliff-face washboard artifact disappeared while preserving the flat-shaded low-poly look.
+
+#### Verification
+- Repeated headless Godot 4.4.1 boots were used after each cluster of changes to catch script/runtime regressions.
+
+### Session Summary (2026-03-26 late) - Ground Nav Safety, Flat Map, Splash Refresh, and Platoon Contact Abstraction
+
+**Overview:** Tightened ground spawn/path safety around cliffs and disconnected shelves, added a fixed full-screen tactical map, refreshed startup presentation, softened battle-bus anti-air lethality, and clarified tactical spotting so enemy platoons stay abstract until their vehicles are individually revealable.
+
+#### Ground Navigation Safety (`TerrainNavGrid.gd`, `NavGraph.gd`, `Enemies/EnemyAircraftSpawner.gd`, `GroundVehicle/vehicle_enemy_light.gd`, `GroundVehicle/vehicle_friendly_light.gd`)
+- Ground platoon staging now requires not just locally acceptable terrain, but a valid anchored navigation route back toward the carrier area.
+- Nav clearance treats steep transition bands more aggressively, so path anchors and routes keep a healthier margin from cliffs/high-angle terrain.
+- Friendly and enemy ground vehicles now use the stricter anchor/clearance rules too, reducing the odds of isolated shelf spawns or cliff-hugging path choices.
+
+#### Tactical Map (`UI/WorldMapOverlay.gd`, `UI/WorldMapSymbolLayer.gd`, `project.godot`, `TerrainNavGrid.gd`)
+- Added a full-screen map toggle on `M`.
+- The map uses a fixed `25 km x 25 km` terrain/nav window instead of dragging with the carrier; units and the carrier move across the map.
+- Visual style was pushed toward a black-and-green vector display:
+  - carrier-level terrain remains black,
+  - the next raised band fills dark green,
+  - higher terrain fills lighter green,
+  - impassable cliff edges draw as bright green outlines.
+- Live symbols on the `M` map reuse the holomap language so aircraft, ground vehicles, platoons, and the carrier are readable at a glance.
+
+#### Splash / Presentation (`project.godot`, `UI/LoadingScreen.gd`)
+- Both the engine boot splash and the in-project loading screen now use `splash image 5`.
+
+#### Heavy Gun AA Tuning (`Weapons/Turrets/turret_controller.gd`, `GroundVehicle/vehicle_enemy_battle_bus.tscn`, `Projectiles/HeavyRound/heavy_round.gd`)
+- Battle-bus heavy turrets now apply harsher penalties against air targets instead of behaving like highly accurate flak.
+- Heavy-round splash is less punishing to aircraft, so near-misses no longer feel disproportionately lethal.
+
+#### Tactical Contact Abstraction (`LandCarrier/BridgeHologram.gd`, `UI/WorldMapSymbolLayer.gd`)
+- Enemy platoons remain visible as abstract platoon contacts before close visual breakup.
+- Enemy ground vehicles no longer split into individual holomap / `M` map markers until those specific vehicle positions are revealable, which preserves the intended "platoon first, vehicles later" read.
 
 ### Session Summary (2026-03-26) - Enemy Ground Roster, Platoon Cohesion, Holomap Spotting, and Ground Combat Polish
 

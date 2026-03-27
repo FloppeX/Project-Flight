@@ -20,7 +20,7 @@ The setting is a desert wasteland with mesas, cliffs, ruins, rock formations, fo
 
 ### The Carrier
 
-The land carrier is the centerpiece of the game: a 200-meter-long tracked mobile fortress that serves as command center, airbase, logistics hub, and home. It carries aircraft, ground vehicles, elevator and catapult operations, arresting gear, tractor bots, defensive turrets, and an estimated complement of 250–350 souls — crew and their families. A folding rear ramp deploys for ground vehicle operations.
+The land carrier is the centerpiece of the game: a 200-meter-long tracked mobile fortress that serves as command center, airbase, logistics hub, and home. It carries aircraft, ground vehicles, elevator and catapult operations, arresting gear, tractor bots, defensive turrets, and an estimated complement of 250-350 souls - crew and their families. A folding rear ramp deploys for ground vehicle operations.
 
 ### Player Units
 
@@ -32,7 +32,7 @@ The player pushes into enemy-controlled territory, launches and recovers aircraf
 
 ## Current Status
 
-**Last Updated:** 2026-03-26
+**Last Updated:** 2026-03-28
 **Godot Version:** 4.4.1.stable.official.49a5bc7b6
 **Project Health:** PLAYABLE
 **Control Mode:** AI-by-default with spectator/pilot toggle (game controller)
@@ -54,8 +54,8 @@ Example project launch from this repo root:
 
 | System | Status | Notes |
 |--------|--------|-------|
-| Flight Physics | Working | SimpleAero integration complete |
-| AI Pilot | Working | Full carrier cycle exists; path-follower carrier recovery remains the default; hierarchy-of-needs safety layer (terrain avoidance > collision avoidance > state machine); terrain fan avoidance with directional escape sampling; dogfight proximity override breaks off ground attack when enemies close; CCIP ballistic sim throttled via caching |
+| Flight Physics | Working | SimpleAero integration complete; aircraft thrust has been bumped across the roster and shared forward drag reduced so dives and acceleration feel less artificially capped |
+| AI Pilot | Working | Full carrier cycle exists; path-follower carrier recovery remains the default; hierarchy-of-needs safety layer (terrain avoidance > collision avoidance > state machine); terrain fan avoidance with directional escape sampling; dogfight proximity override breaks off ground attack when enemies close; close-pass breakaway logic now reduces merge collisions; CCIP ballistic sim throttled via caching |
 | Catapult | Working | Launches AI and player aircraft |
 | Arresting Cables | Working | Roll stabilization, mass-adaptive braking |
 | Landing Gear | Working | Suspension/damping implemented; Aircraft 1, 2, and 5 now use animated gear pivots instead of pop-in/out, with stowed visuals/shadows suppressed |
@@ -67,11 +67,11 @@ Example project launch from this repo root:
 |--------|--------|-------|
 | Player Control | Working | Full manual flight control |
 | AI Control | Working | All vehicles default to AI; Start toggles spectator/pilot takeover of nearest friendly aircraft; LB/RB cycles carrier + friendly aircraft while spectating; Space exits free camera to spectator; `L` now assigns the next eligible friendly aircraft to landing |
-| Weapons | Working | Autocannon, bombs, missiles; bullets inherit muzzle-point velocity in turns and are now oriented to match actual velocity at spawn; autocannon ammo pool increased for sustained tests; AA missile launchers can now be intentionally fielded empty |
+| Weapons | Working | Autocannon, bombs, missiles; bullets inherit muzzle-point velocity in turns and are oriented to match actual velocity at spawn; shared aircraft autocannon now fires at `1200 RPM`, uses `1000 m/s` muzzle velocity, and randomizes across the heavy auto-gun sound set for less repetitive bursts; autocannon ammo pool increased for sustained tests; AA missile launchers can now be intentionally fielded empty |
 | Targeting | Working | HUD target box, sensor cone |
 | HUD | Working | Radar, instruments, CCIP, terrain map overlay on radar; HUD symbology/text fully opaque, and the main gunsight now uses proper HUD-glass collimation/boresight projection |
 | Camera System | Working | Multiple camera modes, free-fly debug camera, delayed death-camera handoff; chase camera now orbits the aircraft on a level horizontal plane; the old bridge cam has been replaced by a first-person commander view inside the carrier bridge |
-| Destruction | Working | Explosion with volumetric smoke puffs (SphereMesh, staggered, rising/fading); ParticleManager autoload handles all particle lifecycle; enemy barracks bases spawn on flat terrain |
+| Destruction | Working | Explosion with volumetric smoke puffs (SphereMesh, staggered, rising/fading); ParticleManager autoload handles all particle lifecycle; enemy barracks bases spawn on flat terrain; high-altitude aircraft kills now skip the bright multichunk wreck breakup so floating debris clouds do not appear in the sky |
 | Damage Effects | Working | 3-tier progressive damage system: hydraulic/fuel/flap failures, engine cap/control loss/HUD flicker, engine sputter/structural failure/HUD blackout; escalating smoke trails |
 
 ### Carrier Systems
@@ -79,7 +79,7 @@ Example project launch from this repo root:
 | System | Status | Notes |
 |--------|--------|-------|
 | Flight Deck Manager | Partial | Orchestrates deck/hangar/catapult/recovery flow, scramble queues, and runtime aircraft persistence; now supports last-leg wave-offs when the deck is occupied, bolter/go-around recovery retries, and cleanup of extra tractor bots by sending them below via the elevator |
-| Air Operations Manager | Working | Autoload (Citadel). Commands four named flights (Archer, Bulldog, Crimson, Dingo); intercept/CAS vectoring; scrambles from hangar when a flight has no members; radio comms throughout |
+| Air Operations Manager | Working | Autoload (Citadel). Commands four named flights (Archer, Bulldog, Crimson, Dingo); intercept/CAS vectoring; player-facing tactical-map orders now support CAP routes, CAS tasking, and RTB; empty flights auto-scramble from the hangar when manually ordered; radio comms throughout |
 | Wing Fold (Aircraft 2) | Working | Wings fold in hangar/transport, unfold at catapult; instant-snap on spawn |
 | Wing Fold (Aircraft 5) | Working | Multi-phase fold: lateral slide, then overlapping X/Y rotations with smoothstep easing; mirrored left-wing geometry handled with flipped X sign |
 | Elevator | Working | Hangar <-> deck transit; aircraft tracks carrier horizontally |
@@ -89,11 +89,18 @@ Example project launch from this repo root:
 | Carrier Movement Tracking | Working | All deck objects (parked, transport, catapult) move with carrier each frame |
 | Vehicle Ramp | Working | Three-panel folding ramp at the carrier rear for ground vehicle deploy/recovery; uses existing GLB meshes; zig-zag fold with simultaneous hinge animation; dynamic terrain-tracking deploy angle; Z key toggles deploy/stow |
 | Vehicle Bay Manager | Working | Manages ground vehicle deployment and retrieval via the rear ramp; spawns vehicles on the bay floor, drives them down the ramp at 3s intervals; retrieval rallies all platoon members behind the carrier, deploys ramp when first vehicle arrives, drives them up one at a time; auto-stows ramp after completion; carrier-local positioning during ramp transit so everything works while the carrier moves |
-| Ground Ops Manager | Working | Autoload singleton managing four named platoons (Ember, Ferret, Grizzly, Hammer); V deploys next empty platoon, B retrieves last deployed, N requests carrier escort; commands: move, attack, protect, escort, pursue, hold, retrieve; carrier escort places vehicles at carrier corners with velocity matching; platoons now use simple formation slots, pace to the slowest member when out of combat, break formation during combat, and reform afterward; deploy queue processes one platoon at a time |
+| Ground Ops Manager | Working | Autoload singleton managing four named platoons (Ember, Ferret, Grizzly, Hammer); V deploys next empty platoon, B retrieves last deployed, N requests carrier escort; commands: move, attack, protect, escort, pursue, hold, retrieve; the tactical map can now issue point-based MOVE / ATTACK / PROTECT / ESCORT / HOLD / RETRIEVE orders; empty platoons auto-deploy when given a task and preserve that queued objective through deployment instead of defaulting back to escort; carrier escort places vehicles at carrier corners with velocity matching; platoons use simple formation slots, pace to the slowest member when out of combat, break formation during combat, and reform afterward; ground staging now prefers carrier-reachable terrain with a larger buffer from steep slopes/cliffs |
 | Tracks | Working | Nav-grid A* pathfinding with path simplification; full-path computation (no more segmented replanning); steering response/deadzone/settle tuning; height deadband smoothing; tread belt UV rewritten to use baked path-based mapping from imported track mesh; new belt debug modes (path UV, cross UV, direction arrows); terrain-feeler wall avoidance; stuck detection; spawn faces first waypoint |
 | Carrier Defensive Turrets | Working | Carrier defense mounts can now host dual functioning turrets per set and are wired through the shared turret controller/weapon stack; turret pitch calculation simplified and barrel forward derivation cleaned up |
 | Bridge Commander | Working | First-person commander pawn with analog walk/look on the bridge; simple collision, warm bridge lighting, and bridge-view camera handoff integrated |
-| Bridge Hologram | Working | 2 m centered wireframe tactical table with deep-green-to-neon-green terrain, blue/red 3D aircraft markers, blue/red ground-unit cubes, raised carrier/ground markers, camera-gated low-frequency refresh, incremental multi-frame terrain rebuild, and waypoint path visualization (dots + lines); enemy platoons show as medium red cubes only when actually observed via friendly terrain line-of-sight; now runs in physics_process with interpolation for smoother carrier-relative motion; carrier plate enlarged |
+| Bridge Hologram | Working | 2 m centered wireframe tactical table with deep-green-to-neon-green terrain, blue/red 3D aircraft markers, blue/red ground-unit cubes, raised carrier/ground markers, camera-gated low-frequency refresh, incremental multi-frame terrain rebuild, and waypoint path visualization (dots + lines); enemy platoons show as medium red cubes only when actually observed via friendly terrain line-of-sight, and enemy ground vehicles do not split into individual markers until those specific vehicles are visually revealable; now runs in physics_process with interpolation for smoother carrier-relative motion; carrier plate enlarged |
+| World Map | Working | Full-screen tactical map on `M`; fixed `25 km x 25 km` terrain/nav window with live holomap-style symbols layered over an interactive phosphor command display; terrain now reads in three solid green elevation bands for fast silhouette recognition; carrier/platoon routes and enemy counters render directly on the map; enemy platoons stay visible as abstract hot-pink contacts while individual enemy vehicles still require visual reveal; the first playable command layer now supports selecting named flights/platoons, drafting missions, clicking map targets, CAP route authoring, and confirming orders from the map itself |
+
+### Workflow / Debug
+
+| System | Status | Notes |
+|--------|--------|-------|
+| Screenshot Capture | Working | `Insert` saves screenshots to the project-root `screenshots/` folder for review/debugging |
 
 ### Current Carrier Troubleshooting Notes
 
@@ -105,34 +112,35 @@ Example project launch from this repo root:
 | System | Status | Notes |
 |--------|--------|-------|
 | Detection | Working | Sensor-based target acquisition |
-| Weapons | Working | Autocannon with burst fire; enemy ground roster now includes buggy, pickup, and battle bus variants; battle bus mounts an LMG plus a heavy gun that fires smaller explosive rounds |
+| Weapons | Working | Autocannon with burst fire; enemy ground roster now includes buggy, pickup, and battle bus variants; battle bus mounts an LMG plus a heavy gun that fires smaller explosive rounds, but its anti-air performance has been deliberately softened so it is threatening without feeling like precision flak |
 | Ballistics | Working | Lead calculation with gravity compensation; enemy turrets now use actual bullet speed from weapon for lead timing |
 | Ground Snapping | Working | StaticBody3D terrain alignment |
-| Movement | Working | Aircraft behavior solid; ground vehicles use spring-damper suspension with chassis floating above ground and all wheels in contact (works on terrain and carrier ramp); forward-axis velocity projection; larger turn radii; elliptical carrier avoidance with tangential flow steering; enemy platoon/vehicle spawning now validates flatter ground patches so units are less likely to appear on steep hillsides or clip into terrain; movement/combat stance still being tuned |
-| AI Behavior | Working | Carrier-centered patrol, dogfight, missile/gun choice, RTB/landing, lost-sight variation, and platoon-based ground vehicle objectives implemented; ground vehicles hold position once arrived (30m hysteresis), avoid siblings during retrieval rally, and use formation/rejoin behavior for platoon travel; escort positions prioritize front corners; enemy vehicle gunnery is now intentionally inaccurate but permissive, so they shoot often without feeling too dead-eye; still being tuned |
+| Movement | Working | Aircraft behavior solid; ground vehicles use spring-damper suspension with chassis floating above ground and all wheels in contact (works on terrain and carrier ramp); forward-axis velocity projection; larger turn radii; elliptical carrier avoidance with tangential flow steering; enemy/friendly platoon and vehicle staging validates carrier-reachable flat ground with larger margins from steep terrain; enemy vehicles now anchor destinations more carefully and reject direct segments that would climb steep slopes; abstract platoon contacts follow nav-safe representative routes instead of tunneling through mountains; movement/combat stance still being tuned |
+| AI Behavior | Working | Carrier-centered patrol, dogfight, missile/gun choice, RTB/landing, lost-sight variation, and platoon-based ground vehicle objectives implemented; ground vehicles hold position once arrived (30m hysteresis), avoid siblings during retrieval rally, and use formation/rejoin behavior for platoon travel; escort positions prioritize front corners; friendly debug-spawned aircraft can now be kept in a shared flight; close-pass breakaway logic now reduces head-on air-to-air collisions; enemy vehicle gunnery is intentionally inaccurate but permissive, so they shoot often without feeling too dead-eye; still being tuned |
 
 ### Environment
 
 | System | Status | Notes |
 |--------|--------|-------|
-| Terrain | Working | Custom low-poly procedural terrain mesh with chunk streaming; `cell_size_m=12`; height quantization (6 m snap) for grid-aligned slopes |
+| Terrain | Working | Custom low-poly procedural terrain mesh with chunk streaming around the active camera plus forward preload; `cell_size_m=12`; height quantization (6 m snap) for grid-aligned slopes; adaptive quad triangulation removes the old repeating cliff-face washboard pattern while keeping flat shading; current baked navigation / tactical-map coverage is `25 km x 25 km` even though the terrain system itself supports a much larger playspace |
 | Terrain Shaping | Working | Flat areas now include subtle undulation/detail noise; cliffs/canyons deepened for stronger relief |
 | Terrain Shader | Working | Slope-based coloring; sharp sand-to-grey border (`steep_slope_band`); per-face independent tint (no spatial bleeding) |
 | Rock Scatter | Working | MultiMesh rocks placed at correct world height; atomic swap prevents popping |
 | Lighting | Working | Directional + deck SpotLights; soft shadows, 8K atlas, blended cascade splits, normal bias; shadow acne fixed |
 | Post-Processing | Working | Filmic, glow, SSAO, fog |
-| Weather | Planned | Not yet implemented |
+| Weather | Planned | Not yet implemented, though turbulence/wind tuning is actively being iterated |
 
 ## Current Agenda
 
-1. Continue tuning AI precision control in dogfights so aircraft point more authoritatively at gun solutions, align the pipper with the real gun line, and waste fewer shots.
-2. Validate the new default path-follower landing mode, especially touchdown wings-level behavior, wave-offs, and bolter/go-around retries.
-3. Continue tuning terrain fan avoidance and collision avoidance — the hierarchy-of-needs safety layer is in but needs edge-case polish.
-4. Continue tuning ground vehicle movement, combat stance, spotting, and pathing performance.
-5. Expand the bridge experience with more environmental polish and commander-facing command-space features; waypoint visualization and LOS-based platoon spotting are now on the holomap.
-6. Continue expanding ground operations — more mission types, multi-platoon coordination, and integration with carrier tactical AI.
+1. Validate the new interactive `M`-map workflow in live play: asset selection, mission drafting, confirm/cancel flow, and readability under pressure.
+2. Expand mission authoring beyond the first slice, especially richer waypoint editing and more flight directives than the current CAP / CAS / RTB set.
+3. Continue tuning AI precision control in dogfights so aircraft point more authoritatively at gun solutions, align the pipper with the real gun line, and waste fewer shots while still breaking off unsafe close merges.
+4. Validate the default path-follower landing mode, especially touchdown wings-level behavior, wave-offs, and bolter/go-around retries.
+5. Continue tuning ground vehicle movement, steep-slope avoidance, spotting, and pathing performance, especially with multiple active platoons.
+6. Recheck terrain streaming and far-edge cases so delayed terrain/collision chunks do not reopen "edge of the world" failures.
+7. Continue expanding bridge/commander command features and allow AirOps/GroundOps AI to create and manage missions through the same order model the player uses.
 
-**Current focus:** As of 2026-03-26, recent work has been centered on ground warfare and tactical readability: enemy forces now use a mixed buggy/pickup/battle-bus roster, platoons travel in loose formation and reform after combat, spawning and holomap spotting obey terrain/visibility rules more closely, and several suspension/dust/turret LOD passes have reduced ground-unit CPU cost. Enemy vehicles are currently tuned to fire often but with deliberately poor accuracy while movement, spotting, and combat readability continue to be refined.
+**Current focus:** As of 2026-03-28, current work is centered on tactical command readability and player-directed ops. The `M` map is now the first playable command console for assigning flights and platoons, while the surrounding systems continue to be tuned so route previews, platoon abstraction, terrain safety, and actual AI behavior stay in sync.
 
 ## Working Style Notes
 

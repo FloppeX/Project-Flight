@@ -73,8 +73,11 @@ base_height_offset_m = 220.0
 canyon_wall_color = Color(0.667926, 0.427286, 0.274156, 1)
 canyon_upper_color = Color(0.744223, 0.61311, 0.439865, 1)
 steep_slope_color = Color(0.338234, 0.326747, 0.303773, 1)
-stream_update_interval_s = 0.2
-max_chunk_builds_per_update = 3
+load_radius_chunks = 5
+unload_margin_chunks = 2
+stream_update_interval_s = 0.12
+max_chunk_builds_per_update = 6
+stream_preload_ahead_m = 1400.0
 
 [node name="FuelArea" type="Area3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -217.504)
@@ -171,8 +174,9 @@ text = "<- Back to example list"
 [node name="ContinuousTurbulence" parent="." instance=ExtResource("49_hrb0d")]
 base_intensity = 0.0
 max_intensity = 3.0
-shake_factor = 1.0
-impulse_threshold = 0.3
+shake_factor = 0.15
+impulse_threshold = 0.45
+gust_impulse_scale = 20.0
 
 [node name="EnemyAircraftSpawner" type="Node3D" parent="."]
 script = ExtResource("70_enemyair")

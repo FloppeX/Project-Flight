@@ -55,7 +55,7 @@ var _retrieve_siblings: Array[Node3D] = []  # other vehicles in this retrieval g
 @export var path_goal_repath_distance_m: float = 80.0
 @export var path_stuck_timeout_s: float = 4.0
 @export var path_max_segment_m: float = 600.0
-@export var path_min_clearance_m: float = 0.0
+@export var path_min_clearance_m: float = 60.0
 @export var path_retry_cooldown_s: float = 3.0
 @export var path_no_anchor_retry_cooldown_s: float = 6.0
 
@@ -756,7 +756,12 @@ func _refresh_suspension_targets() -> void:
 			_cached_corner_target_ys.append(hit.position.y + chassis_ride_height_m)
 			hit_count += 1
 		else:
-			_cached_corner_target_ys.append(-99999.0)
+			var terrain_y: float = TerrainNavGrid.sample_height(corner_world.x, corner_world.z)
+			if terrain_y > TerrainNavGrid.IMPASSABLE * 0.5:
+				_cached_corner_target_ys.append(terrain_y + chassis_ride_height_m)
+				hit_count += 1
+			else:
+				_cached_corner_target_ys.append(-99999.0)
 
 	if hit_count == 0:
 		_suspension_has_ground = false
@@ -786,6 +791,11 @@ func _refresh_suspension_targets() -> void:
 			if hit:
 				var hit_local_y: float = to_local(hit.position).y
 				target_wheel_y = nominal.y + (hit_local_y - contact_local.y)
+			else:
+				var terrain_y: float = TerrainNavGrid.sample_height(contact_world.x, contact_world.z)
+				if terrain_y > TerrainNavGrid.IMPASSABLE * 0.5:
+					var baked_hit_local_y: float = to_local(Vector3(contact_world.x, terrain_y, contact_world.z)).y
+					target_wheel_y = nominal.y + (baked_hit_local_y - contact_local.y)
 		_cached_wheel_target_ys.append(target_wheel_y)
 
 	_suspension_has_ground = true
@@ -875,7 +885,7 @@ func _advance_patrol_waypoint_if_reached() -> void:
 func _recompute_navigation_path(raw_target: Vector3) -> void:
 	if not NavGraph.is_ready():
 		return
-	if not NavGraph.has_nearby_node(global_position, path_min_clearance_m):
+	if not NavGraph.can_anchor(global_position, path_min_clearance_m):
 		_nav_path_goal = raw_target
 		_nav_repath_timer_s = 0.0
 		_nav_stuck_timer_s = 0.0

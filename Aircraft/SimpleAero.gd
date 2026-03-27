@@ -26,7 +26,7 @@ var rb: RigidBody3D = null
 @export var stall_shake_intensity: float = 3.0  # How intense stall shake is
 
 # Drag tuning
-@export var forward_drag_strength: float = 0.4
+@export var forward_drag_strength: float = 0.22
 @export var lateral_drag_strength: float = 1.2
 @export var gear_drag_multiplier: float = 1.5
 @export var flaps_drag_multiplier: float = 1.25  # When flaps deployed (approach config: gear+flaps together)
