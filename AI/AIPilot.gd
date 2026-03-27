@@ -1164,7 +1164,9 @@ func _state_dogfight(delta: float):
 		target_vel = combat_target.linear_velocity
 	var dist_to_target: float = own_pos.distance_to(target_pos)
 	_dogfight_prev_target_distance_m = dist_to_target
-	var in_rejoin: bool = dist_to_target > dogfight_rejoin_range_m
+	var collision_avoid_wp: Vector3 = _compute_dogfight_collision_avoidance(target_pos, target_vel, own_pos, own_vel)
+	var collision_avoiding: bool = collision_avoid_wp != Vector3.ZERO
+	var in_rejoin: bool = dist_to_target > dogfight_rejoin_range_m or collision_avoiding
 	var to_target_dir: Vector3 = (target_pos - own_pos).normalized() if dist_to_target > 1.0 else b.z
 	var sight_cos: float = cos(deg_to_rad(clampf(dogfight_lost_sight_cone_deg, 10.0, 179.0) * 0.5))
 	var target_in_sight: bool = to_target_dir.dot(b.z) >= sight_cos
@@ -1281,6 +1283,11 @@ func _state_dogfight(delta: float):
 				var precise_denom: float = maxf(precise_entry_rad - precise_full_rad, deg_to_rad(0.1))
 				precise_aim_t = clampf((precise_entry_rad - aim_err_rad) / precise_denom, 0.0, 1.0)
 				precise_aim_t = clampf(sqrt(precise_aim_t), 0.0, 1.0)
+
+	if collision_avoiding:
+		aim_point = collision_avoid_wp
+		precise_aim_t = 0.0
+		_reset_dogfight_precise_controllers()
 
 	# Keep debug marker aligned with dogfight aim point.
 	nav_waypoint = aim_point

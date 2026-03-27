@@ -16,6 +16,11 @@ class_name TurretController
 @export var detailed_targeting_distance_m: float = 1000.0
 @export var target_aim_height_bias_m: float = 0.75
 @export var debug_enabled: bool = false
+@export_group("Air Target Penalties")
+@export var air_target_range_multiplier: float = 1.0
+@export var air_target_aim_skill_multiplier: float = 1.0
+@export var air_target_fire_angle_tolerance_multiplier: float = 1.0
+@export var air_target_extra_spread_m: float = 0.0
 
 # --- Firing configuration ---
 @export_group("AI Firing")
@@ -95,7 +100,7 @@ func _physics_process(delta: float) -> void:
         turret.tick(delta, lead_position)
 
         var aim_angle := turret.get_aim_angle_to_target()
-        var aimed := aim_angle >= 0.0 and aim_angle <= fire_angle_tolerance_deg
+        var aimed := aim_angle >= 0.0 and aim_angle <= _get_effective_fire_angle_tolerance_deg(current_target)
 
         # 3. Burst firing logic
         if aimed:
@@ -162,13 +167,16 @@ func fire_weapon() -> void:
 
 func find_and_set_best_target() -> void:
     var best_target: Node3D = null
-    var best_distance = max_range
+    var best_distance: float = INF
 
     var candidates = _get_hostile_targets_in_range(max_range)
     for enemy in candidates:
-        var d = global_position.distance_to(enemy.global_position)
+        var enemy_node := enemy as Node3D
+        var d: float = global_position.distance_to(enemy_node.global_position)
+        if d > _get_effective_range_for_target(enemy_node):
+            continue
         if d < best_distance:
-            best_target = enemy
+            best_target = enemy_node
             best_distance = d
 
     if current_target != best_target:
@@ -335,8 +343,11 @@ func calculate_lead_position(target: Node3D) -> Vector3:
     )
 
     # Inaccuracy based on aim skill
-    if aim_skill < 1.0:
-        var spread = (1.0 - aim_skill) * 15.0
+    var effective_aim_skill: float = _get_effective_aim_skill(target)
+    var spread: float = (1.0 - effective_aim_skill) * 15.0
+    if _is_air_target(target):
+        spread += air_target_extra_spread_m
+    if spread > 0.01:
         lead_position += Vector3(
             randf_range(-spread, spread),
             randf_range(-spread * 0.3, spread * 0.3),
@@ -378,3 +389,18 @@ func _get_shape_vertical_extent(collision_shape: CollisionShape3D) -> float:
     if shape is CylinderShape3D:
         return (shape as CylinderShape3D).height * 0.5
     return target_aim_height_bias_m
+
+func _is_air_target(target: Node3D) -> bool:
+    return target != null and (target.is_in_group("aircraft") or target.is_in_group("ai_aircraft"))
+
+func _get_effective_range_for_target(target: Node3D) -> float:
+    var range_multiplier: float = air_target_range_multiplier if _is_air_target(target) else 1.0
+    return maxf(max_range * range_multiplier, 1.0)
+
+func _get_effective_aim_skill(target: Node3D) -> float:
+    var skill_multiplier: float = air_target_aim_skill_multiplier if _is_air_target(target) else 1.0
+    return clampf(aim_skill * skill_multiplier, 0.0, 1.0)
+
+func _get_effective_fire_angle_tolerance_deg(target: Node3D) -> float:
+    var tolerance_multiplier: float = air_target_fire_angle_tolerance_multiplier if _is_air_target(target) else 1.0
+    return maxf(fire_angle_tolerance_deg * tolerance_multiplier, 0.5)

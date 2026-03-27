@@ -7,14 +7,19 @@ class_name ContinuousTurbulence
 @export var turbulence_scale: float = 0.001  # How "big" the noise patterns are
 @export var time_speed: float = 0.1
 @export var altitude_factor: float = 0.001  # How altitude affects turbulence
+@export var max_altitude_multiplier: float = 1.45  # Cap high-altitude amplification
 @export var ground_effect_height: float = 100.0  # Calmer air near ground
 @export var shake_factor: float = 0.0001  # Multiplier for shake intensity
+@export var max_shake_amount: float = 0.9  # Clamp shake so high-speed flight stays controllable
 @export var impulse_threshold: float = 0.7  # Only apply force when noise is above this
 @export var gust_rate_hz: float = 3.0       # Average impulses per second per body
 @export var gust_impulse_scale: float = 30.0 # Scales impulse magnitude
 @export var lateral_scale: float = 1.2      # Emphasize horizontal components
 @export var vertical_scale: float = 0.2     # De-emphasize vertical component
 @export var min_interval_s: float = 0.05    # Minimum time between impulses per body
+@export var velocity_reference_speed_mps: float = 90.0  # Speed where turbulence reaches full strength
+@export var min_velocity_factor: float = 0.3            # Preserve some movement at low speed
+@export var max_velocity_factor: float = 1.0            # Prevent high-speed over-amplification
 @export var debug_output: bool = false  # Toggle debug messages
 
 # Audio settings
@@ -104,7 +109,7 @@ func apply_continuous_turbulence(body: RigidBody3D, delta: float):
 	
 	# Get velocity for scaling
 	var velocity = body.linear_velocity.length()
-	var velocity_factor = clamp(velocity / 50.0, 0.1, 2.0)
+	var velocity_factor = _get_velocity_factor(velocity)
 	
 	# Apply impulse-based turbulence at each point (emphasize roll over yaw)
 	apply_turbulence_at_point(body, left_wing_pos, body.global_transform.basis.x * -wing_span/2, velocity_factor, 0.8)  # Strong wing effects
@@ -124,7 +129,7 @@ func apply_continuous_turbulence(body: RigidBody3D, delta: float):
 	
 	# Add shake based on average intensity
 	if body.has_method("add_shake"):
-		var shake_amount = avg_intensity * shake_factor * velocity_factor
+		var shake_amount = minf(avg_intensity * shake_factor * velocity_factor, max_shake_amount)
 		body.add_shake(shake_amount, 0.1)
 		if debug_output and debug_timer < 0.1:
 			print("Applying shake: ", shake_amount, " to ", body.name)
@@ -138,7 +143,7 @@ func apply_turbulence_at_point(body: RigidBody3D, world_pos: Vector3, local_offs
 	var intensity = base_intensity + noise_value * max_intensity
 	
 	# Altitude effects
-	var altitude_multiplier = 1.0 + (world_pos.y * altitude_factor)
+	var altitude_multiplier = _get_altitude_multiplier(world_pos.y)
 	var ground_factor = 1.0
 	if world_pos.y < ground_effect_height:
 		ground_factor = world_pos.y / ground_effect_height
@@ -260,9 +265,16 @@ func get_turbulence_intensity_at_position(pos: Vector3) -> float:
 	var noise_value = (noise.get_noise_3d(pos.x, pos.y, pos.z + time_offset) + 1.0) * 0.5
 	var intensity = base_intensity + noise_value * max_intensity
 	
-	var altitude_multiplier = 1.0 + (pos.y * altitude_factor)
+	var altitude_multiplier = _get_altitude_multiplier(pos.y)
 	var ground_factor = 1.0
 	if pos.y < ground_effect_height:
 		ground_factor = pos.y / ground_effect_height
 	
 	return intensity * altitude_multiplier * ground_factor
+
+func _get_velocity_factor(speed: float) -> float:
+	return clamp(speed / maxf(velocity_reference_speed_mps, 1.0), min_velocity_factor, max_velocity_factor)
+
+func _get_altitude_multiplier(world_y: float) -> float:
+	var altitude_y = maxf(world_y, 0.0)
+	return minf(1.0 + altitude_y * altitude_factor, max_altitude_multiplier)

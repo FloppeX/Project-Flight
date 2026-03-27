@@ -93,9 +93,9 @@ func _process_deploy_queue() -> void:
 	_deploying_platoon_name = pname
 	var p: GroundVehiclePlatoon = platoons[pname]
 
-	# Set rally point 100m behind the carrier rear
+	# Default undeployed platoons rally behind the carrier before their first order.
 	_refresh_carrier()
-	if _carrier:
+	if _carrier and not p.has_active_objective():
 		var rear_dir: Vector3 = -_carrier.global_basis.z.normalized()
 		var rally_pos: Vector3 = _carrier.global_position + rear_dir * 100.0
 		var terrain_y: float = TerrainNavGrid.sample_height(rally_pos.x, rally_pos.z)
@@ -113,9 +113,9 @@ func _process_deploy_queue() -> void:
 func _on_platoon_deployed(platoon: GroundVehiclePlatoon) -> void:
 	if debug_print:
 		print("[GroundOps] %s deployed with %d vehicles" % [_deploying_platoon_name, platoon.get_members().size()])
-	# Default to carrier escort after deployment
+	# Default to carrier escort only if the player/AI has not already assigned a task.
 	_refresh_carrier()
-	if _carrier:
+	if _carrier and not platoon.has_active_objective():
 		platoon.set_escort_carrier(_carrier, 100.0)
 		if debug_print:
 			print("[GroundOps] %s — defaulting to carrier escort" % _deploying_platoon_name)
@@ -129,6 +129,7 @@ func order_move(platoon_name: String, target: Vector3) -> void:
 	if not p:
 		return
 	p.set_move_objective(target)
+	_ensure_platoon_deployed(platoon_name, p)
 	if debug_print:
 		print("[GroundOps] %s — move to %s" % [platoon_name, str(target)])
 
@@ -138,8 +139,18 @@ func order_attack(platoon_name: String, target_node: Node3D, radius_m: float = 3
 	if not p:
 		return
 	p.set_attack_node(target_node, radius_m)
+	_ensure_platoon_deployed(platoon_name, p)
 	if debug_print:
 		print("[GroundOps] %s — attack %s" % [platoon_name, target_node.name])
+
+func order_attack_position(platoon_name: String, target_position: Vector3, radius_m: float = 300.0) -> void:
+	var p := _get_platoon(platoon_name)
+	if not p:
+		return
+	p.set_attack_position(target_position, radius_m)
+	_ensure_platoon_deployed(platoon_name, p)
+	if debug_print:
+		print("[GroundOps] %s — attack position %s" % [platoon_name, str(target_position)])
 
 ## Protect a node (carrier, position, etc).
 func order_protect(platoon_name: String, target_node: Node3D, radius_m: float = 250.0) -> void:
@@ -147,8 +158,18 @@ func order_protect(platoon_name: String, target_node: Node3D, radius_m: float = 
 	if not p:
 		return
 	p.set_protect_node(target_node, radius_m)
+	_ensure_platoon_deployed(platoon_name, p)
 	if debug_print:
 		print("[GroundOps] %s — protect %s" % [platoon_name, target_node.name])
+
+func order_protect_position(platoon_name: String, target_position: Vector3, radius_m: float = 250.0) -> void:
+	var p := _get_platoon(platoon_name)
+	if not p:
+		return
+	p.set_protect_position(target_position, radius_m)
+	_ensure_platoon_deployed(platoon_name, p)
+	if debug_print:
+		print("[GroundOps] %s — protect position %s" % [platoon_name, str(target_position)])
 
 ## Escort the carrier — vehicles form up at corners and hold position.
 func order_escort(platoon_name: String, distance_m: float = 100.0) -> void:
@@ -160,6 +181,7 @@ func order_escort(platoon_name: String, distance_m: float = 100.0) -> void:
 		push_warning("[GroundOps] No carrier found for escort order")
 		return
 	p.set_escort_carrier(_carrier, distance_m)
+	_ensure_platoon_deployed(platoon_name, p)
 	if debug_print:
 		print("[GroundOps] %s — escort carrier at %.0fm" % [platoon_name, distance_m])
 
@@ -204,6 +226,9 @@ func order_hold(platoon_name: String) -> void:
 	if not p:
 		return
 	p.objective_type = GroundVehiclePlatoon.ObjectiveType.NONE
+	p.protected_node = null
+	p.attack_node = null
+	p.escort_node = null
 	# Clear member waypoints so they stop moving
 	for member in p.get_members():
 		if member.has_method("set_patrol_waypoints"):
@@ -240,6 +265,7 @@ func order_pursue(platoon_name: String, range_m: float = 1200.0) -> void:
 	if not p:
 		return
 	p.set_pursue_enemies(range_m)
+	_ensure_platoon_deployed(platoon_name, p)
 	if debug_print:
 		print("[GroundOps] %s — pursue enemies within %.0fm" % [platoon_name, range_m])
 
@@ -247,6 +273,30 @@ func order_pursue(platoon_name: String, range_m: float = 1200.0) -> void:
 
 func get_platoon(platoon_name: String) -> GroundVehiclePlatoon:
 	return platoons.get(platoon_name, null)
+
+func get_platoon_names() -> Array[String]:
+	var result: Array[String] = []
+	for platoon_name in PLATOON_NAMES:
+		result.append(platoon_name)
+	return result
+
+func get_platoon_status(platoon_name: String) -> Dictionary:
+	var p := get_platoon(platoon_name)
+	if not p:
+		return {}
+	_refresh_carrier()
+	var has_members: bool = p.has_members()
+	var position: Vector3 = p.get_contact_position() if has_members else (_carrier.global_position if _carrier and is_instance_valid(_carrier) else Vector3.ZERO)
+	return {
+		"kind": "platoon",
+		"name": platoon_name,
+		"objective": p.get_objective_name(),
+		"strength": p.get_members().size(),
+		"deployed": has_members,
+		"queued": platoon_name in _deploy_queue or _deploying_platoon_name == platoon_name,
+		"position": position,
+		"active_waypoints": p.get_active_waypoints(),
+	}
 
 func get_platoon_of(vehicle: Node3D) -> GroundVehiclePlatoon:
 	for pname in PLATOON_NAMES:
@@ -269,3 +319,10 @@ func _get_platoon(platoon_name: String) -> GroundVehiclePlatoon:
 		push_warning("[GroundOps] Unknown platoon: %s" % platoon_name)
 		return null
 	return platoons[platoon_name]
+
+func _ensure_platoon_deployed(platoon_name: String, platoon: GroundVehiclePlatoon) -> void:
+	if platoon == null or not is_instance_valid(platoon):
+		return
+	if platoon.has_members():
+		return
+	deploy(platoon_name)

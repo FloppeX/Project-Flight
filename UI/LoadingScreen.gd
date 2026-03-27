@@ -1,5 +1,5 @@
 extends CanvasLayer
-## Autoload: shows splash image 2 + progress bar while TerrainNavGrid bakes.
+## Autoload: shows splash image 5 + progress bar while TerrainNavGrid bakes.
 ## Fades out and removes itself once bake_complete fires.
 
 const FADE_DURATION   := 1.0   # seconds to fade out after bake complete
@@ -28,7 +28,7 @@ func _ready() -> void:
 
 	# --- Background splash ---
 	var bg := TextureRect.new()
-	bg.texture = load("res://splash image 2.png")
+	bg.texture = load("res://splash image 5.png")
 	bg.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_root.add_child(bg)

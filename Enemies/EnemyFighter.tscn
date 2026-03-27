@@ -5,7 +5,7 @@
 [ext_resource type="PackedScene" uid="uid://cx8wsgprp13gm" path="res://Models/Aircraft_1/Aircraft 1 body red.glb" id="3_kq7no"]
 [ext_resource type="PackedScene" uid="uid://djtbinx1svo2u" path="res://Aircraft/Aircraft wreck/aircraft_1_wreck.tscn" id="3_x73up"]
 [ext_resource type="PackedScene" uid="uid://bpfxucj3ypbxu" path="res://Models/Aircraft_1/Aircraft 2 propeller.glb" id="4_ii5ys"]
-[ext_resource type="Script" path="res://Aircraft/SimpleAero.gd" id="5_8vbcf"]
+[ext_resource type="Script" uid="uid://cyxrx2cid1gt" path="res://Aircraft/SimpleAero.gd" id="5_8vbcf"]
 [ext_resource type="PackedScene" uid="uid://c0o23b5ljp2ux" path="res://Models/Aircraft_1/Aircraft 1 nose gear.glb" id="6_uu721"]
 [ext_resource type="PackedScene" uid="uid://cjjut6tj4mout" path="res://Models/Aircraft_1/Aircraft 2 left gear.glb" id="7_hcuof"]
 [ext_resource type="PackedScene" uid="uid://bumb5qqc3xt7" path="res://Models/Aircraft_1/Aircraft 1 right gear.glb" id="8_bd6tw"]

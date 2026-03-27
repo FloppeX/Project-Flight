@@ -21,6 +21,7 @@ class_name BridgeHologram
 @export var contact_wire_thickness_m: float = 0.03
 @export var ground_contact_scale_m: float = 0.026
 @export var platoon_contact_scale_m: float = 0.045
+@export var platoon_contact_color: Color = Color(1.0, 0.12, 0.72, 1.0)
 @export var ground_contact_hover_m: float = 0.004
 @export var platoon_reveal_observer_height_m: float = 12.0
 @export var platoon_reveal_target_height_m: float = 10.0
@@ -336,6 +337,8 @@ func _collect_contacts_for_group(group_name: String, air_color: Color, ground_co
 		var rel_local := _carrier_world_to_planar_local(node_3d.global_position)
 		if absf(rel_local.x) > coverage_radius_m or absf(rel_local.z) > coverage_radius_m:
 			continue
+		if group_name == "enemies" and node_3d.is_in_group("ground_vehicles") and not _is_enemy_ground_contact_revealed(node_3d):
+			continue
 		var orientation_basis := (_carrier.global_basis.inverse() * node_3d.global_basis).orthonormalized()
 		var entry := {
 			"local_position": rel_local,
@@ -357,7 +360,9 @@ func _collect_enemy_platoon_contacts(ground_contacts: Array[Dictionary]) -> void
 		var platoon := node as GroundVehiclePlatoon
 		if platoon.team != 2:
 			continue
-		var platoon_pos: Vector3 = platoon.get_center_position()
+		if not platoon.has_members():
+			continue
+		var platoon_pos: Vector3 = platoon.get_contact_position()
 		if not _is_enemy_platoon_revealed(platoon_pos):
 			continue
 		var rel_local := _carrier_world_to_planar_local(platoon_pos)
@@ -366,7 +371,7 @@ func _collect_enemy_platoon_contacts(ground_contacts: Array[Dictionary]) -> void
 		ground_contacts.append({
 			"local_position": rel_local,
 			"distance_sq": rel_local.x * rel_local.x + rel_local.z * rel_local.z,
-			"color": Color(1.0, 0.22, 0.22, 1.0),
+			"color": platoon_contact_color,
 			"scale_m": platoon_contact_scale_m,
 		})
 
@@ -384,6 +389,9 @@ func _is_enemy_platoon_revealed(target_world_pos: Vector3) -> bool:
 		if _has_terrain_line_of_sight(observer_node.global_position, target_world_pos):
 			return true
 	return false
+
+func _is_enemy_ground_contact_revealed(target_node: Node3D) -> bool:
+	return _is_enemy_platoon_revealed(target_node.global_position)
 
 func _has_terrain_line_of_sight(observer_world_pos: Vector3, target_world_pos: Vector3) -> bool:
 	var from_pos := observer_world_pos + Vector3.UP * platoon_reveal_observer_height_m

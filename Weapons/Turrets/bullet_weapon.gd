@@ -1,15 +1,35 @@
 extends Weapon
 class_name BulletWeapon
 
+const HEAVY_AUTO_SHOT_STREAMS = [
+	preload("res://Audio/guns/gun_machinegun_auto_heavy_shot_01.wav"),
+	preload("res://Audio/guns/gun_machinegun_auto_heavy_shot_02.wav"),
+	preload("res://Audio/guns/gun_machinegun_auto_heavy_shot_03.wav"),
+	preload("res://Audio/guns/gun_machinegun_auto_heavy_shot_04.wav"),
+	preload("res://Audio/guns/gun_machinegun_auto_heavy_shot_05.wav"),
+	preload("res://Audio/guns/gun_machinegun_auto_heavy_shot_06.wav"),
+	preload("res://Audio/guns/gun_machinegun_auto_heavy_shot_07.wav"),
+	preload("res://Audio/guns/gun_machinegun_auto_heavy_shot_08.wav"),
+]
+
 @export var bullet_scene: PackedScene
 @export var bullet_speed: float = 900.0
 @export var fire_rate: float = 2.5 # Shots per second
 @export var damage_per_shot: float = 20.0
 @export var infinite_ammo: bool = true
+@export var use_heavy_auto_sound_set: bool = true
+@export var sfx_pool_size: int = 4
+@export var pitch_variation: float = 0.03
+@export var volume_variation_db: float = 1.5
+
+var _sfx_players: Array[AudioStreamPlayer3D] = []
+var _sfx_player_index: int = 0
+var _last_shot_sound_index: int = -1
 
 func _ready() -> void:
 	if not bullet_scene:
 		bullet_scene = load("res://Projectiles/Bullet/bullet.tscn")
+	_setup_shot_audio()
 
 func fire() -> bool:
 	if not can_fire():
@@ -19,41 +39,38 @@ func fire() -> bool:
 	var next_fire_time_s: float = float(get_meta("next_fire_time_s", 0.0))
 	if now_s < float(next_fire_time_s):
 		return false
-		
-	# Reset fire rate cooldown
+
 	set_meta("next_fire_time_s", now_s + cooldown_s)
-	
+
 	# Turret weapons default to sustained fire instead of running dry after a short exchange.
 	super.fire()
 	if infinite_ammo:
 		ammo_count += 1
-	
-	# Try to find the turret/barrel we are attached to for position and direction
+
 	var spawn_transform = global_transform
 	var firing_entity = self
-	
-	# Crawl up to find the Turret if we are mounted on one
 	var parent = get_parent()
+
 	while parent:
 		if parent is Turret:
 			spawn_transform = parent.get_next_firing_transform()
-			firing_entity = parent # So bullet ignores collision with the turret base
-			
-			# If the turret is on a ground vehicle, let's pass that as the firing entity instead
+			firing_entity = parent
+
 			var grandparent = parent.get_parent()
 			var greatgrandparent = grandparent.get_parent() if grandparent else null
-			
+
 			if grandparent and grandparent.has_method("get_team"):
 				firing_entity = grandparent
 			elif greatgrandparent and greatgrandparent.has_method("get_team"):
 				firing_entity = greatgrandparent
 			break
-		elif parent.has_method("get_team"): # Just directly on a vehicle
+		elif parent.has_method("get_team"):
 			firing_entity = parent
 			break
 		parent = parent.get_parent()
 
 	_spawn_bullet(spawn_transform, firing_entity)
+	_play_shot_sound(spawn_transform.origin)
 	return true
 
 func can_fire() -> bool:
@@ -64,28 +81,24 @@ func can_fire() -> bool:
 func _spawn_bullet(spawn_transform: Transform3D, firing_entity: Node3D) -> void:
 	if not bullet_scene:
 		return
-		
+
 	var bullet = bullet_scene.instantiate()
-	
-	# Needs to be spawned at top level so it doesn't move with the gun
+
 	var root = get_tree().current_scene
 	if not root:
 		push_warning("BulletWeapon: No current scene found.")
 		return
-		
-	# Set transform BEFORE adding to tree so _ready() visuals don't flash at the origin
+
 	bullet.transform = spawn_transform
 	root.add_child(bullet)
 	bullet.global_position += bullet.global_transform.basis.z * 2.5
-	
-	# Fire direction is +Z of the spawn transform
+
 	var direction = spawn_transform.basis.z.normalized()
 	var velocity = direction * bullet_speed
-	
+
 	if bullet.has_method("fire"):
 		bullet.fire(velocity, firing_entity)
 
-	# Orient bullet to match its actual velocity (which includes inherited platform velocity)
 	if bullet is RigidBody3D and bullet.linear_velocity.length() > 1.0:
 		var vel_dir: Vector3 = bullet.linear_velocity.normalized()
 		var up := Vector3.UP
@@ -96,5 +109,50 @@ func _spawn_bullet(spawn_transform: Transform3D, firing_entity: Node3D) -> void:
 
 	if "damage_amount" in bullet:
 		bullet.damage_amount = damage_per_shot
-		
-	# Audio could also be played here
+
+func _setup_shot_audio() -> void:
+	var sound_bank: Array = _get_shot_sound_bank()
+	if sound_bank.is_empty():
+		return
+
+	for i in range(max(sfx_pool_size, 1)):
+		var player := AudioStreamPlayer3D.new()
+		add_child(player)
+		player.max_distance = 1000.0
+		player.unit_size = 18.0
+		player.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE
+		player.doppler_tracking = AudioStreamPlayer3D.DOPPLER_TRACKING_DISABLED
+		player.add_to_group("3d_audio")
+		_sfx_players.push_back(player)
+
+func _play_shot_sound(world_pos: Vector3) -> void:
+	if _sfx_players.is_empty():
+		return
+
+	var stream: AudioStream = _pick_random_shot_sound()
+	if stream == null:
+		return
+
+	var player: AudioStreamPlayer3D = _sfx_players[_sfx_player_index]
+	_sfx_player_index = (_sfx_player_index + 1) % _sfx_players.size()
+	player.stream = stream
+	player.global_position = world_pos
+	player.pitch_scale = randf_range(1.0 - pitch_variation, 1.0 + pitch_variation)
+	player.volume_db = randf_range(-volume_variation_db, volume_variation_db)
+	player.play()
+
+func _get_shot_sound_bank() -> Array:
+	if use_heavy_auto_sound_set:
+		return HEAVY_AUTO_SHOT_STREAMS
+	return []
+
+func _pick_random_shot_sound() -> AudioStream:
+	var sound_bank: Array = _get_shot_sound_bank()
+	if sound_bank.is_empty():
+		return null
+
+	var index: int = randi_range(0, sound_bank.size() - 1)
+	if sound_bank.size() > 1 and index == _last_shot_sound_index:
+		index = (index + 1 + (randi() % (sound_bank.size() - 1))) % sound_bank.size()
+	_last_shot_sound_index = index
+	return sound_bank[index] as AudioStream
