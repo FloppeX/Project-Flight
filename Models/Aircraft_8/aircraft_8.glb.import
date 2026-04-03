@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://bs5wys2xqauft"
-path="res://.godot/imported/missile.glb-da89294cb0dd2e3311797da38861f680.scn"
+uid="uid://87lf8k4vvvdq"
+path="res://.godot/imported/aircraft_8.glb-017aa7abda93077848b6b7b68dc7e47e.scn"
 
 [deps]
 
-source_file="res://Projectiles/AA Missile/missile.glb"
-dest_files=["res://.godot/imported/missile.glb-da89294cb0dd2e3311797da38861f680.scn"]
+source_file="res://Models/Aircraft_8/aircraft_8.glb"
+dest_files=["res://.godot/imported/aircraft_8.glb-017aa7abda93077848b6b7b68dc7e47e.scn"]
 
 [params]
 

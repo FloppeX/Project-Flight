@@ -23,13 +23,35 @@ class_name ContinuousTurbulence
 @export var debug_output: bool = false  # Toggle debug messages
 
 # Audio settings
-@export var wind_sound: AudioStream
-@export var max_volume_db: float = -15.0
-@export var min_volume_db: float = -35.0
+@export var wind_sound: AudioStream = preload("res://Audio/wind_sound_cockpit.wav")
+@export var air_rush_sound: AudioStream = preload("res://Audio/air rush sound.wav")
+@export var stall_buffet_sound: AudioStream = preload("res://Audio/stall buffet sound.wav")
+@export var layer_silence_db: float = -80.0
+@export var turbulence_max_volume_db: float = -15.0
+@export var turbulence_min_volume_db: float = -35.0
+@export var turbulence_pitch_min: float = 0.7
+@export var turbulence_pitch_max: float = 1.3
+@export var air_rush_start_speed_mps: float = 0.0
+@export var air_rush_full_speed_mps: float = 110.0
+@export var air_rush_min_volume_db: float = -26.0
+@export var air_rush_max_volume_db: float = -6.5
+@export var air_rush_pitch_min: float = 0.72
+@export var air_rush_pitch_max: float = 1.28
+@export var air_rush_audible_threshold: float = 0.0
+@export var air_rush_response_curve: float = 1.0
+@export var air_rush_pitch_curve: float = 0.9
+@export var stall_buffet_enabled: bool = false
+@export var stall_buffet_start_severity: float = 0.05
+@export var stall_buffet_full_severity: float = 0.55
+@export var stall_buffet_min_volume_db: float = -28.0
+@export var stall_buffet_max_volume_db: float = -4.0
+@export var stall_buffet_pitch_min: float = 0.96
+@export var stall_buffet_pitch_max: float = 1.12
+@export var stall_buffet_audible_threshold: float = 0.06
 
 var noise: FastNoiseLite
 var time_offset: float = 0.0
-var audio_players: Dictionary = {}  # One audio player per aircraft
+var audio_players: Dictionary = {}  # body_id -> {gust, air_rush, stall_buffet}
 var debug_timer: float = 0.0
 var _last_impulse_time: Dictionary = {}  # body_id -> last impulse time
 
@@ -38,7 +60,7 @@ func _ready():
 	noise.frequency = turbulence_scale
 	noise.seed = randi()
 	print("ContinuousTurbulence system initialized")
-	print("Wind sound: ", wind_sound)
+	print("Wind sound layers: ", wind_sound, ", ", air_rush_sound, ", ", stall_buffet_sound)
 
 func _process(delta):
 	time_offset += delta * time_speed
@@ -183,81 +205,242 @@ func apply_turbulence_at_point(body: RigidBody3D, world_pos: Vector3, local_offs
 			print("Impulse at offset ", local_offset, ": ", turbulence_impulse)
 
 func update_wind_audio(body: RigidBody3D, intensity: float):
-	if not wind_sound:
+	if not _is_aircraft_audio_target(body):
+		_stop_audio_for_body(body)
+		_cleanup_invalid_audio_players()
 		return
-	
-	# Get or create audio player for this body
+
+	var player_set := _ensure_audio_players(body)
+	if player_set.is_empty():
+		return
+
+	var audio_position := _get_audio_anchor_position(body)
+	for player in player_set.values():
+		if player is AudioStreamPlayer3D:
+			player.global_position = audio_position
+			if not player.playing:
+				player.play()
+
+	var turbulence_factor: float = clampf(intensity / maxf(max_intensity, 0.01), 0.0, 1.0)
+	var forward_airspeed: float = _get_body_forward_airspeed(body)
+	var air_rush_factor: float = _smoothstep(
+		air_rush_start_speed_mps,
+		maxf(air_rush_full_speed_mps, air_rush_start_speed_mps + 0.01),
+		forward_airspeed
+	)
+	var stall_severity: float = _get_body_stall_severity(body)
+	var stall_factor: float = 0.0
+	if stall_buffet_enabled:
+		stall_factor = _smoothstep(
+			stall_buffet_start_severity,
+			maxf(stall_buffet_full_severity, stall_buffet_start_severity + 0.001),
+			stall_severity
+		)
+
+	_update_layer(
+		player_set.get("gust") as AudioStreamPlayer3D,
+		turbulence_min_volume_db,
+		turbulence_max_volume_db,
+		turbulence_pitch_min,
+		turbulence_pitch_max,
+		turbulence_factor,
+		0.0
+	)
+	_update_layer(
+		player_set.get("air_rush") as AudioStreamPlayer3D,
+		air_rush_min_volume_db,
+		air_rush_max_volume_db,
+		air_rush_pitch_min,
+		air_rush_pitch_max,
+		air_rush_factor,
+		air_rush_audible_threshold,
+		air_rush_response_curve,
+		air_rush_pitch_curve
+	)
+	_update_layer(
+		player_set.get("stall_buffet") as AudioStreamPlayer3D,
+		stall_buffet_min_volume_db,
+		stall_buffet_max_volume_db,
+		stall_buffet_pitch_min,
+		stall_buffet_pitch_max,
+		stall_factor,
+		stall_buffet_audible_threshold,
+		0.9,
+		1.0
+	)
+
+	_cleanup_invalid_audio_players()
+
+func _ensure_audio_players(body: RigidBody3D) -> Dictionary:
 	var body_id = body.get_instance_id()
-	if not body_id in audio_players:
-		var audio_player = AudioStreamPlayer3D.new()
-		# Don't attach to aircraft - keep it as a world object
-		get_tree().current_scene.add_child(audio_player)
-		audio_player.stream = wind_sound
-		
-		# Force loop mode if it's a WAV file
-		if wind_sound is AudioStreamWAV:
-			wind_sound.loop_mode = AudioStreamWAV.LOOP_FORWARD
-		
-		# Set up for external camera listening
-		audio_player.max_distance = 1000.0  # Very large range for wind
-		audio_player.unit_size = 200.0      # Large unit size for consistent volume
-		audio_player.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE
-		audio_player.add_to_group("3d_audio")  # Add to group for audio management
-		audio_player.play()  # Start playing immediately
-		audio_players[body_id] = audio_player
-		
-		if debug_output:
-			print("Created wind audio player for ", body.name, " - Stream: ", wind_sound)
-	
-	var audio_player = audio_players[body_id]
-	
-	# Position wind audio at the active camera for external views
-	var active_camera = get_active_camera()
-	if active_camera:
-		# For external cameras, position wind at camera
-		audio_player.global_position = active_camera.global_position
-	else:
-		# Fallback to aircraft position
-		audio_player.global_position = body.global_position
-	
-	# Make sure it's playing
-	if not audio_player.playing:
-		audio_player.play()
-		if debug_output:
-			print("Restarting wind audio for ", body.name)
-	
-	# Update volume and pitch based on turbulence intensity
-	var volume_factor = clamp(intensity / max_intensity, 0.0, 1.0)
-	audio_player.volume_db = lerp(min_volume_db, max_volume_db, volume_factor)
-	audio_player.pitch_scale = 0.7 + volume_factor * 0.6  # 0.7 to 1.3 pitch range
-	
-	# Clean up audio players for destroyed bodies
-	var valid_ids = []
+	if body_id in audio_players:
+		return audio_players[body_id]
+
+	var player_set := {}
+	player_set["gust"] = _create_audio_layer_player(wind_sound)
+	player_set["air_rush"] = _create_audio_layer_player(air_rush_sound)
+	player_set["stall_buffet"] = _create_audio_layer_player(stall_buffet_sound)
+	audio_players[body_id] = player_set
+
+	if body.has_signal("destroyed"):
+		body.destroyed.connect(_on_body_destroyed.bind(body_id), CONNECT_ONE_SHOT)
+
+	if debug_output:
+		print("Created layered wind audio for ", body.name)
+
+	return player_set
+
+func _create_audio_layer_player(stream: AudioStream) -> AudioStreamPlayer3D:
+	if stream == null:
+		return null
+
+	if stream is AudioStreamWAV:
+		stream.loop_mode = AudioStreamWAV.LOOP_FORWARD
+
+	var audio_player := AudioStreamPlayer3D.new()
+	var host: Node = get_tree().current_scene if get_tree() and get_tree().current_scene else self
+	host.add_child(audio_player)
+	audio_player.stream = stream
+	audio_player.max_distance = 1000.0
+	audio_player.unit_size = 200.0
+	audio_player.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE
+	audio_player.add_to_group("3d_audio")
+	audio_player.volume_db = -80.0
+	audio_player.pitch_scale = 1.0
+	return audio_player
+
+func _update_layer(audio_player: AudioStreamPlayer3D, min_db: float, max_db: float, min_pitch: float, max_pitch: float, factor: float, audible_threshold: float = 0.0, volume_curve: float = 0.75, pitch_curve: float = 0.75) -> void:
+	if audio_player == null:
+		return
+	var clamped_factor: float = clampf(factor, 0.0, 1.0)
+	if clamped_factor <= audible_threshold:
+		audio_player.volume_db = layer_silence_db
+		audio_player.pitch_scale = min_pitch
+		return
+	var normalized_factor: float = _smoothstep(
+		audible_threshold,
+		1.0,
+		clamped_factor
+	)
+	var shaped_volume_factor: float = pow(normalized_factor, maxf(volume_curve, 0.01))
+	var shaped_pitch_factor: float = pow(normalized_factor, maxf(pitch_curve, 0.01))
+	audio_player.volume_db = lerpf(min_db, max_db, shaped_volume_factor)
+	audio_player.pitch_scale = lerpf(min_pitch, max_pitch, shaped_pitch_factor)
+
+func _get_body_forward_airspeed(body: RigidBody3D) -> float:
+	if body == null:
+		return 0.0
+	var speed_variant = body.get("forward_air_speed") if body.has_method("get") else null
+	if speed_variant != null:
+		return maxf(float(speed_variant), 0.0)
+	return maxf(body.linear_velocity.dot(body.global_transform.basis.z), 0.0)
+
+func _get_body_stall_severity(body: RigidBody3D) -> float:
+	if body == null:
+		return 0.0
+	var simple_aero := body.get_node_or_null("SimpleAero")
+	if simple_aero and simple_aero.has_method("get_stall_severity"):
+		return clampf(float(simple_aero.get_stall_severity()), 0.0, 1.0)
+	return 0.0
+
+func _is_aircraft_audio_target(body: RigidBody3D) -> bool:
+	if body == null or body.get_node_or_null("SimpleAero") == null:
+		return false
+	if not _is_body_audio_alive(body):
+		return false
+	var active_camera := get_active_camera()
+	if active_camera == null:
+		return false
+	var cockpit_camera := _get_body_cockpit_camera(body)
+	if cockpit_camera == null:
+		return false
+	return active_camera == cockpit_camera and cockpit_camera.current
+
+func _get_audio_anchor_position(body: RigidBody3D) -> Vector3:
+	var cockpit_camera := _get_body_cockpit_camera(body)
+	if cockpit_camera and cockpit_camera.current:
+		return cockpit_camera.global_position
+	return body.global_position
+
+func _stop_audio_for_body(body: RigidBody3D) -> void:
+	if body == null:
+		return
+	var body_id = body.get_instance_id()
+	if not (body_id in audio_players):
+		return
+	var player_set: Dictionary = audio_players[body_id]
+	for player in player_set.values():
+		if player is AudioStreamPlayer3D and player.playing:
+			player.stop()
+
+func _free_audio_for_body_id(body_id: int) -> void:
+	if not (body_id in audio_players):
+		return
+	var player_set: Dictionary = audio_players[body_id]
+	for player in player_set.values():
+		if player is AudioStreamPlayer3D and is_instance_valid(player):
+			player.stop()
+			player.queue_free()
+	audio_players.erase(body_id)
+
+func _on_body_destroyed(body_id: int) -> void:
+	_free_audio_for_body_id(body_id)
+
+func _cleanup_invalid_audio_players() -> void:
+	var invalid_ids: Array = []
 	for id in audio_players.keys():
-		if is_instance_valid(instance_from_id(id)):
-			valid_ids.append(id)
-	
-	# Remove invalid entries
-	for id in audio_players.keys():
-		if not id in valid_ids:
-			if is_instance_valid(audio_players[id]):
-				audio_players[id].queue_free()
-			audio_players.erase(id)
+		var body_instance = instance_from_id(id)
+		if body_instance == null or not is_instance_valid(body_instance):
+			invalid_ids.append(id)
+
+	for id in invalid_ids:
+		_free_audio_for_body_id(id)
+
+func _is_body_audio_alive(body: RigidBody3D) -> bool:
+	if body == null or not is_instance_valid(body):
+		return false
+	var current_health_variant = body.get("current_health") if body.has_method("get") else null
+	if current_health_variant != null and float(current_health_variant) <= 0.0:
+		return false
+	return true
+
+func _get_body_cockpit_camera(body: RigidBody3D) -> Camera3D:
+	if body == null:
+		return null
+	var body_camera_controller := body.get_node_or_null("CameraController")
+	if body_camera_controller and body_camera_controller.cockpit_camera:
+		return body_camera_controller.cockpit_camera
+	var cockpit_tripod := body.get_node_or_null("CameraCockpit")
+	if cockpit_tripod:
+		return cockpit_tripod.find_child("Camera3D", true, false) as Camera3D
+	return null
+
+func _smoothstep(edge0: float, edge1: float, x: float) -> float:
+	if is_equal_approx(edge0, edge1):
+		return 1.0 if x >= edge1 else 0.0
+	var t: float = clampf((x - edge0) / (edge1 - edge0), 0.0, 1.0)
+	return t * t * (3.0 - 2.0 * t)
 
 func get_active_camera() -> Camera3D:
-	# Find the currently active camera
-	var camera_controller = get_tree().get_first_node_in_group("camera_controller")
-	if not camera_controller:
-		return null
-	
-	# Check which camera is currently active
-	if camera_controller.cockpit_camera and camera_controller.cockpit_camera.current:
-		return camera_controller.cockpit_camera
-	elif camera_controller.chase_camera and camera_controller.chase_camera.current:
-		return camera_controller.chase_camera
-	elif camera_controller.cinematic_camera and camera_controller.cinematic_camera.current:
-		return camera_controller.cinematic_camera
-	
+	# Multiple aircraft instantiate CameraController, so scan all of them for the active one.
+	for camera_controller in get_tree().get_nodes_in_group("camera_controller"):
+		if camera_controller == null:
+			continue
+		if camera_controller.has_method("get_current_camera"):
+			var current_camera = camera_controller.get_current_camera()
+			if current_camera is Camera3D and (current_camera as Camera3D).current:
+				return current_camera as Camera3D
+		if camera_controller.cockpit_camera and camera_controller.cockpit_camera.current:
+			return camera_controller.cockpit_camera
+		elif camera_controller.chase_camera and camera_controller.chase_camera.current:
+			return camera_controller.chase_camera
+		elif camera_controller.cinematic_camera and camera_controller.cinematic_camera.current:
+			return camera_controller.cinematic_camera
+
+	for camera in get_tree().get_nodes_in_group("camera"):
+		if camera is Camera3D and camera.current:
+			return camera as Camera3D
+
 	return null
 
 func get_turbulence_intensity_at_position(pos: Vector3) -> float:

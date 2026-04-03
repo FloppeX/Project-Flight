@@ -19,7 +19,8 @@ const FLIGHT_NAMES := ["Archer", "Bulldog", "Crimson", "Dingo"]
 @export var debug_print: bool = true
 
 @export var default_mission: Flight.Mission = Flight.Mission.CAP
-@export var default_cap_altitude_m: float = 500.0
+@export var default_cap_altitude_m: float = 800.0
+@export var default_cas_altitude_m: float = 300.0
 
 ## Aircraft to launch per scramble when a flight has no members.
 @export var scramble_flight_size: int = 2
@@ -75,7 +76,7 @@ func _process(delta: float) -> void:
 
 # ── Ordering API ───────────────────────────────────────────────────────────────
 
-func order_cap(fname: String, altitude_m: float = 500.0) -> void:
+func order_cap(fname: String, altitude_m: float = 800.0) -> void:
 	var f := get_flight(fname)
 	if not f:
 		push_warning("[AirOpsManager] Unknown flight: " + fname)
@@ -86,7 +87,7 @@ func order_cap(fname: String, altitude_m: float = 500.0) -> void:
 	RadioComms.say_cap_order(fname, altitude_m)
 	_ensure_flight_can_execute(f)
 
-func order_cap_route(fname: String, route_points: Array[Vector3], altitude_m: float = 500.0) -> void:
+func order_cap_route(fname: String, route_points: Array[Vector3], altitude_m: float = 800.0) -> void:
 	var f := get_flight(fname)
 	if not f:
 		push_warning("[AirOpsManager] Unknown flight: " + fname)
@@ -97,18 +98,19 @@ func order_cap_route(fname: String, route_points: Array[Vector3], altitude_m: fl
 	RadioComms.say_cap_order(fname, altitude_m)
 	_ensure_flight_can_execute(f)
 
-func order_cas(fname: String, area_center: Vector3 = Vector3.ZERO, area_radius: float = 3000.0) -> void:
+func order_cas(fname: String, area_center: Vector3 = Vector3.ZERO, area_radius: float = 3000.0, altitude_m: float = -1.0) -> void:
 	var f := get_flight(fname)
 	if not f:
 		push_warning("[AirOpsManager] Unknown flight: " + fname)
 		return
 	_clear_role(f)
 	var center := area_center
+	var mission_altitude := altitude_m if altitude_m > 0.0 else default_cas_altitude_m
 	if center == Vector3.ZERO:
 		_refresh_carrier()
 		if _carrier and is_instance_valid(_carrier):
 			center = _carrier.global_position
-	f.set_cas(center, area_radius)
+	f.set_cas(center, area_radius, mission_altitude)
 	RadioComms.say_cas_order(fname)
 	_ensure_flight_can_execute(f)
 
@@ -261,8 +263,10 @@ func _vector_cas(threat: Node3D) -> void:
 	_cas_flight = best
 	var fname := best.flight_name
 	_refresh_carrier()
-	var center := _carrier.global_position if (_carrier and is_instance_valid(_carrier)) else threat.global_position
-	best.set_cas(center, 3000.0)
+	var center := threat.global_position if (threat and is_instance_valid(threat)) else Vector3.ZERO
+	if center == Vector3.ZERO and (_carrier and is_instance_valid(_carrier)):
+		center = _carrier.global_position
+	best.set_cas(center, 3000.0, default_cas_altitude_m)
 
 	RadioComms.transmit("Citadel", "%s flight" % fname, RadioComms._pick([
 		"%s flight, enemy ground forces spotted. Cleared hot. Attack at will." % fname,
@@ -325,7 +329,7 @@ func notify_aircraft_launched(pilot: AIPilot) -> void:
 		return
 	var aircraft := pilot.aircraft as Node3D
 	if aircraft:
-		_scrambling_flight.register(aircraft)
+		reassign(aircraft, _scrambling_flight.flight_name)
 		if debug_print:
 			print("[AirOpsManager] %s launched → %s flight (%d members)" % [
 				aircraft.name, _scrambling_flight.flight_name, _scrambling_flight.strength()])
@@ -411,6 +415,12 @@ func _auto_assign_unassigned() -> void:
 			if not node.has_method("get_team") or int(node.get_team()) != 1:
 				continue
 			if get_flight_of(node) != null:
+				continue
+			if bool(node.get_meta("controls_disabled", false)):
+				continue
+			if bool(node.get_meta("parking_brake", false)):
+				continue
+			if bool(node.get_meta("carrier_transport_mode", false)):
 				continue
 			if not candidates.has(node):
 				candidates.append(node)

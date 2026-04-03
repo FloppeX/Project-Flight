@@ -17,6 +17,9 @@ signal update_interface(values)
 @export var EngineSoundStop: AudioStream
 
 @export var FuelRate: float = 1.0 # Fuel units per second, at max power
+@export var ThrottleSpoolUpRate: float = 0.55 # Power units per second when increasing throttle
+@export var ThrottleSpoolDownRate: float = 0.9 # Power units per second when reducing throttle
+@export var EngineSoundResponseRate: float = 7.5 # How quickly loop pitch follows live engine power
 
 # You don't really *need* to use this property, as any node can receive the
 # signals. This is just a helper to automatically connect all possible signals
@@ -30,6 +33,7 @@ var sfx_engine_stop = null
 var sfx_tween
 var is_engine_working = false
 var current_power = 0.0
+var target_power = 0.0
 var throttle_input = 0.0 # The user/AI's desired throttle setting
 
 var is_engine_changing_state = false
@@ -37,6 +41,8 @@ var is_engine_changing_state = false
 func _ready():
 	
 	if EngineSoundLoop:
+		if EngineSoundLoop is AudioStreamWAV:
+			EngineSoundLoop.loop_mode = AudioStreamWAV.LOOP_FORWARD
 		sfx_engine_loop = AudioStreamPlayer3D.new()
 		add_child(sfx_engine_loop)
 		sfx_engine_loop.stream = EngineSoundLoop
@@ -79,6 +85,8 @@ func setup(aircraft_node):
 
 func process_physic_frame(delta):
 	if aircraft and is_engine_working:
+		_update_power_response(delta)
+
 		var fuel_budget = current_power * FuelRate * delta
 		if not aircraft.request_energy(EnergyType, fuel_budget):
 			engine_stop()
@@ -94,6 +102,8 @@ func process_physic_frame(delta):
 		if propeller and current_power > 0.0:
 			var prop_speed = current_power * 50.0 + 5.0  # RPM based on power
 			propeller.rotate_z(prop_speed * delta)  # Adjust axis as needed
+
+		_update_engine_sound(delta)
 
 # -----------------------------------------------------------------------------
 
@@ -145,6 +155,7 @@ func engine_stop():
 
 	is_engine_working = false
 	current_power = 0.0
+	target_power = 0.0
 	
 	request_update_interface()
 	
@@ -165,44 +176,28 @@ func engine_stop():
 	is_engine_changing_state = false
 
 func engine_set_power(value: float):
-	if is_engine_changing_state:
-		return
+	var requested_power: float = clamp(value, 0.0, 1.0)
+	target_power = requested_power
+	throttle_input = requested_power
 	
 	# If engine is not working and power is requested, start the engine first
-	if not is_engine_working and value > 0.01:
-		engine_start()
-		# Set power after a short delay to allow engine to start
-		call_deferred("set_power_after_start", value)
+	if not is_engine_working and requested_power > 0.01:
+		if not is_engine_changing_state:
+			engine_start()
 		return
 	
 	# If engine is working and power is 0, stop the engine
-	if is_engine_working and value <= 0.01:
+	if is_engine_working and requested_power <= 0.01:
 		engine_stop()
 		return
 	
 	# Only set power if engine is working
 	if not is_engine_working:
 		return
-	
-	is_engine_changing_state = true
-
-	current_power = value
-	
-	request_update_interface()
-	
-	is_engine_changing_state = false
-	
-	if sfx_tween:
-		sfx_tween.kill()
-	sfx_tween = create_tween()
-	sfx_tween.tween_property(sfx_engine_loop, "volume_db", 1.0, 0.3).set_trans(Tween.TRANS_LINEAR)
-	sfx_tween.parallel().tween_property(sfx_engine_loop, "pitch_scale", power_to_pitch(current_power), 0.3).set_trans(Tween.TRANS_LINEAR)
 
 func set_power_after_start(value: float):
-	"""Set power after engine has started"""
-	await get_tree().create_timer(1.1).timeout  # Wait for engine start sequence
-	if is_engine_working:
-		engine_set_power(value)
+	"""Legacy helper kept for compatibility with older call sites."""
+	engine_set_power(value)
 
 
 
@@ -219,18 +214,9 @@ func get_throttle_ratio() -> float:
 	return current_power
 
 func set_throttle_input(new_throttle: float):
-	# Allows external systems like the catapult to command the throttle
-	# Bypasses the checks in engine_set_power as the external system is responsible for state
-	if is_engine_working:
-		var new_value = clamp(new_throttle, 0.0, 1.0)
-		current_power = new_value
-		throttle_input = new_value
-		
-		# Update sound pitch based on new power
-		if sfx_tween:
-			sfx_tween.kill()
-		sfx_tween = create_tween()
-		sfx_tween.tween_property(sfx_engine_loop, "pitch_scale", power_to_pitch(current_power), 0.1).set_trans(Tween.TRANS_LINEAR)
+	# Allows external systems like the catapult to command throttle directly
+	# while still using the engine's internal spool response.
+	engine_set_power(new_throttle)
 
 func process_input(input_actions):
 	if input_actions.engine_power_up > 0.0:
@@ -239,3 +225,16 @@ func process_input(input_actions):
 		throttle_input = clamp(throttle_input - input_actions.engine_power_down * 0.01, 0.0, 1.0)
 		
 	engine_set_power(throttle_input)
+
+func _update_power_response(delta: float) -> void:
+	var previous_power: float = current_power
+	var spool_rate: float = ThrottleSpoolUpRate if target_power >= current_power else ThrottleSpoolDownRate
+	current_power = move_toward(current_power, target_power, maxf(spool_rate, 0.01) * delta)
+	if not is_equal_approx(current_power, previous_power):
+		request_update_interface()
+
+func _update_engine_sound(delta: float) -> void:
+	if sfx_engine_loop == null:
+		return
+	var response_t: float = clampf(EngineSoundResponseRate * delta, 0.0, 1.0)
+	sfx_engine_loop.pitch_scale = lerpf(sfx_engine_loop.pitch_scale, power_to_pitch(current_power), response_t)

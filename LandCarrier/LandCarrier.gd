@@ -31,10 +31,28 @@ const VEHICLE_BAY_SCRIPT := preload("res://LandCarrier/VehicleBayManager.gd")
 @export var path_max_slope_m: float = 12.0    # max height variation within clearance radius (carrier-specific)
 @export var use_waypoint_pathfinding: bool = true
 @export var turn_in_place_angle_deg: float = 100.0
+@export var default_cross_map_route: bool = true
+@export var route_start_edge_margin_m: float = 1800.0
+@export var route_goal_edge_margin_m: float = 0.0
+@export var route_center_search_width_m: float = 4200.0
+@export var route_edge_search_depth_m: float = 3200.0
+@export var route_goal_candidate_spacing_m: float = 1200.0
+@export var route_setup_debug: bool = false
 
 const BODY_RIDE_HEIGHT: float = 40.0
 const TREAD_GROUND_OFFSET: float = 8.0
 const MAX_TREAD_STEER: float = 0.4
+
+@export var deck_sound: AudioStream = preload("res://carrier_deck_sound_mono.wav")
+@export var deck_sound_bus: String = "Master"
+@export var deck_sound_idle_volume_db: float = -16.0
+@export var deck_sound_max_volume_db: float = -8.0
+@export var deck_sound_pitch_min: float = 0.92
+@export var deck_sound_pitch_max: float = 1.05
+@export var deck_sound_idle_factor: float = 0.35
+@export var deck_sound_full_speed_mps: float = 10.0
+@export var deck_sound_unit_size_m: float = 55.0
+@export var deck_sound_max_distance_m: float = 420.0
 
 # --- State ---
 var _raw_waypoints: Array[Vector3] = []
@@ -52,10 +70,13 @@ var _no_path_timer: float = 0.0
 var _replan_attempts: int = 0
 var _last_planar_speed_mps: float = 0.0
 var _smoothed_desired_y: float = NAN
+var _using_default_cross_map_route: bool = false
+var _default_cross_map_route_completed: bool = false
 var treads: Array[Node3D] = []
 var elevator: Node3D
 var vehicle_ramp: Node3D
 var vehicle_bay: Node3D
+var _deck_audio_player: AudioStreamPlayer3D
 const TEAM_ID: int = 1
 
 func _ready():
@@ -67,7 +88,10 @@ func _ready():
 	elevator = find_child("Elevator")
 	if elevator and elevator.has_method("setup"):
 		elevator.setup(self)
+	_setup_deck_audio()
 	_setup_vehicle_ramp()
+	if Livery:
+		Livery.apply(self)
 	if not use_waypoint_pathfinding:
 		_apply_direct_waypoints()
 		visible = true
@@ -103,6 +127,8 @@ func set_patrol_waypoints(positions: Array[Vector3]) -> void:
 	_raw_waypoint_index = 0
 	_waypoint_positions.clear()
 	_waypoint_index = 0
+	_using_default_cross_map_route = false
+	_default_cross_map_route_completed = false
 	if not use_waypoint_pathfinding:
 		_apply_direct_waypoints()
 		return
@@ -135,6 +161,49 @@ func _set_north_heading() -> void:
 func _start_random_patrol() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.randomize()
+	_using_default_cross_map_route = false
+	_default_cross_map_route_completed = false
+
+	if default_cross_map_route:
+		var routed_start := TerrainNavGrid.get_centered_edge_position(
+			"bottom",
+			route_start_edge_margin_m,
+			route_center_search_width_m,
+			route_edge_search_depth_m,
+			path_max_slope_m
+		)
+		if routed_start != Vector3.ZERO:
+			global_position = Vector3(routed_start.x, routed_start.y + BODY_RIDE_HEIGHT, routed_start.z)
+			visible = true
+			var route_plan := _find_shortest_top_edge_route(global_position)
+			if bool(route_plan.get("valid", false)):
+				var routed_destination: Vector3 = route_plan.get("destination", Vector3.ZERO)
+				var routed_path: Array = route_plan.get("path", [])
+				var to_dest := routed_destination - global_position
+				to_dest.y = 0.0
+				if to_dest.length_squared() > 1.0:
+					var dir := to_dest.normalized()
+					rotation.y = atan2(dir.x, dir.z)
+				_raw_waypoints = [routed_destination]
+				_raw_waypoint_index = 0
+				_using_default_cross_map_route = true
+				if route_setup_debug:
+					print(
+						"[LandCarrier] Using shortest top-edge route start=",
+						global_position,
+						" goal=",
+						routed_destination,
+						" edge_depth=",
+						snapped(float(route_plan.get("edge_depth_m", 0.0)), 0.1),
+						" path_length=",
+						snapped(float(route_plan.get("path_length_m", 0.0)), 0.1)
+					)
+				_on_path_ready(routed_path)
+				return
+			if route_setup_debug:
+				print("[LandCarrier] Could not find a reachable shortest route to the top edge; falling back to patrol start.")
+		elif route_setup_debug:
+			print("[LandCarrier] Could not find a suitable bottom-edge start anchor; falling back to patrol start.")
 
 	var start: Vector3 = TerrainNavGrid.get_random_passable_position(rng, path_max_slope_m)
 	if start != Vector3.ZERO:
@@ -143,7 +212,6 @@ func _start_random_patrol() -> void:
 	visible = true
 
 	var destination: Vector3 = TerrainNavGrid.get_furthest_edge_position(global_position, 3, path_max_slope_m)
-	# Face toward the destination at spawn
 	var to_dest := destination - global_position
 	to_dest.y = 0.0
 	if to_dest.length_squared() > 1.0:
@@ -155,6 +223,57 @@ func _start_random_patrol() -> void:
 
 const CARRIER_CLEARANCE_M: float = 120.0
 
+func _find_shortest_top_edge_route(start_world: Vector3) -> Dictionary:
+	var candidates := TerrainNavGrid.get_edge_position_candidates(
+		"top",
+		route_goal_edge_margin_m,
+		route_goal_candidate_spacing_m,
+		route_edge_search_depth_m,
+		path_max_slope_m
+	)
+	if candidates.is_empty():
+		return {"valid": false}
+
+	var best_destination := Vector3.ZERO
+	var best_path: Array = []
+	var best_path_length_m := INF
+	var best_edge_depth_m := INF
+	var top_edge_z: float = TerrainNavGrid._origin_z
+	for candidate in candidates:
+		var path := NavGraph.find_path(start_world, candidate, CARRIER_CLEARANCE_M)
+		if path.is_empty():
+			continue
+		var path_length_m := _measure_path_length(path)
+		var edge_depth_m := maxf(candidate.z - top_edge_z, 0.0)
+		var is_better_edge := edge_depth_m < best_edge_depth_m - 0.5
+		var same_edge_band := absf(edge_depth_m - best_edge_depth_m) <= 0.5
+		if is_better_edge or (same_edge_band and path_length_m < best_path_length_m):
+			best_edge_depth_m = edge_depth_m
+			best_path_length_m = path_length_m
+			best_destination = candidate
+			best_path = path
+
+	if best_path.is_empty():
+		return {"valid": false}
+
+	return {
+		"valid": true,
+		"destination": best_destination,
+		"path": best_path,
+		"edge_depth_m": best_edge_depth_m,
+		"path_length_m": best_path_length_m
+	}
+
+func _measure_path_length(path: Array) -> float:
+	if path.size() < 2:
+		return 0.0
+	var total_length_m := 0.0
+	for i in range(1, path.size()):
+		var prev_point := path[i - 1] as Vector3
+		var next_point := path[i] as Vector3
+		total_length_m += prev_point.distance_to(next_point)
+	return total_length_m
+
 func _compute_path_to_destination() -> void:
 	visible = true
 	if _raw_waypoints.is_empty():
@@ -162,6 +281,12 @@ func _compute_path_to_destination() -> void:
 	if _raw_waypoint_index >= _raw_waypoints.size():
 		if loop_waypoints:
 			_raw_waypoint_index = 0
+		elif _using_default_cross_map_route:
+			_waypoint_positions.clear()
+			_waypoint_index = 0
+			_default_cross_map_route_completed = true
+			_last_planar_speed_mps = 0.0
+			return
 		else:
 			_pick_new_patrol_destination()
 			return
@@ -184,6 +309,8 @@ func _compute_path_to_destination() -> void:
 	_on_path_ready(path)
 
 func _pick_new_patrol_destination() -> void:
+	_using_default_cross_map_route = false
+	_default_cross_map_route_completed = false
 	# Try several candidate destinations, pick the furthest one that
 	# A* can actually reach with full carrier clearance.
 	var best_dest := Vector3.ZERO
@@ -308,6 +435,7 @@ func _physics_process(delta: float) -> void:
 	if elevator and elevator.has_method("update"):
 		elevator.update(delta)
 	_carry_deck_passengers(global_transform, transform_before)
+	_update_deck_audio(delta)
 
 func _carry_deck_passengers(current_transform: Transform3D, old_transform: Transform3D) -> void:
 	if current_transform.is_equal_approx(old_transform):
@@ -451,6 +579,12 @@ func _get_avoidance_steer() -> float:
 
 func _drive_to_waypoint(delta: float) -> void:
 	if _waypoint_positions.is_empty() or _waypoint_index >= _waypoint_positions.size():
+		if _default_cross_map_route_completed:
+			_no_path_timer = 0.0
+			_replan_attempts = 0
+			_current_steer = move_toward(_current_steer, 0.0, steer_response * delta)
+			_last_planar_speed_mps = 0.0
+			return
 		_no_path_timer += delta
 		_last_planar_speed_mps = 0.0
 		if use_waypoint_pathfinding and _no_path_timer > 4.0:
@@ -566,6 +700,53 @@ func get_velocity_vector() -> Vector3:
 	forward.y = 0.0
 	forward = forward.normalized()
 	return forward * _last_planar_speed_mps
+
+func _setup_deck_audio() -> void:
+	if deck_sound == null:
+		return
+
+	if deck_sound is AudioStreamWAV:
+		deck_sound.loop_mode = AudioStreamWAV.LOOP_FORWARD
+
+	_deck_audio_player = AudioStreamPlayer3D.new()
+	_deck_audio_player.name = "DeckAudio"
+	_deck_audio_player.stream = deck_sound
+	_deck_audio_player.bus = deck_sound_bus
+	_deck_audio_player.max_distance = deck_sound_max_distance_m
+	_deck_audio_player.unit_size = deck_sound_unit_size_m
+	_deck_audio_player.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_SQUARE_DISTANCE
+	_deck_audio_player.volume_db = deck_sound_idle_volume_db
+	_deck_audio_player.pitch_scale = deck_sound_pitch_min
+	_deck_audio_player.position = _get_deck_audio_anchor_local_position()
+	_deck_audio_player.add_to_group("3d_audio")
+	add_child(_deck_audio_player)
+	_deck_audio_player.call_deferred("play")
+
+func _get_deck_audio_anchor_local_position() -> Vector3:
+	var start_marker := get_node_or_null("DeckCenterStart") as Node3D
+	var end_marker := get_node_or_null("DeckCenterEnd") as Node3D
+	if start_marker and end_marker:
+		return (start_marker.position + end_marker.position) * 0.5 + Vector3(0.0, 1.5, 0.0)
+	if start_marker:
+		return start_marker.position + Vector3(0.0, 1.5, 0.0)
+	if end_marker:
+		return end_marker.position + Vector3(0.0, 1.5, 0.0)
+	return Vector3(0.0, 0.0, 0.0)
+
+func _update_deck_audio(delta: float) -> void:
+	if _deck_audio_player == null:
+		return
+
+	var speed_factor := clampf(_last_planar_speed_mps / maxf(deck_sound_full_speed_mps, 0.01), 0.0, 1.0)
+	speed_factor = speed_factor * speed_factor * (3.0 - 2.0 * speed_factor)
+	speed_factor = maxf(deck_sound_idle_factor, speed_factor)
+	var target_volume := lerpf(deck_sound_idle_volume_db, deck_sound_max_volume_db, speed_factor)
+	var target_pitch := lerpf(deck_sound_pitch_min, deck_sound_pitch_max, speed_factor)
+	var blend := clampf(delta * 2.5, 0.0, 1.0)
+	_deck_audio_player.volume_db = lerpf(_deck_audio_player.volume_db, target_volume, blend)
+	_deck_audio_player.pitch_scale = lerpf(_deck_audio_player.pitch_scale, target_pitch, blend)
+	if not _deck_audio_player.playing:
+		_deck_audio_player.call_deferred("play")
 
 func get_direction() -> float:
 	return rad_to_deg(atan2(-global_transform.basis.z.x, -global_transform.basis.z.z))

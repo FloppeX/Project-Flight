@@ -6,6 +6,7 @@ class_name Bullet
 @export var tracer_color: Color = Color.YELLOW
 @export var tracer_width: float = 0.1
 @export var tracer_visual_length: float = 8.0
+@export var tracer_hidden_physics_frames: int = 2
 @export var damage_amount: float = 10.0
 @export var ground_mark_lifetime_s: float = 12.0
 @export var ground_mark_size: Vector3 = Vector3(0.56, 0.05, 0.56)
@@ -14,12 +15,20 @@ class_name Bullet
 
 var trail_mesh: MeshInstance3D
 var tracer_box_mesh: BoxMesh
+var tracer_physics_frames_elapsed: int = 0
 
 const SCORCH_TEXTURE_PATH: String = "res://Projectiles/Explosion/scorch_mark.png"
 
 func _ready():
 	# Call parent's _ready first to get all the base functionality
 	super._ready()
+
+	# Ballistic predictors assume bullets keep their muzzle speed except for gravity.
+	# Override project/world damping so rigid-body drag does not pull shots low/short.
+	linear_damp_mode = RigidBody3D.DAMP_MODE_REPLACE
+	angular_damp_mode = RigidBody3D.DAMP_MODE_REPLACE
+	linear_damp = 0.0
+	angular_damp = 0.0
 
 	# Keep bullets as real rigid bodies for flight/gravity, but avoid physical shove-on-contact.
 	# Impact resolution already comes from ProjectileNew's raycast path.
@@ -80,6 +89,7 @@ func create_tracer_mesh():
 func fire(initial_velocity: Vector3, firing_aircraft: Node3D):
 	# Call parent's fire method to get all the base functionality
 	super.fire(initial_velocity, firing_aircraft)
+	tracer_physics_frames_elapsed = 0
 	
 	# Inherit the firing platform's point velocity at the muzzle so rounds stay
 	# aligned with the gun line during hard turns and rolls.
@@ -112,6 +122,7 @@ func _physics_process(delta):
 	# Update tracer trail
 	if tracer_enabled:
 		update_tracer_mesh()
+	tracer_physics_frames_elapsed += 1
 
 func _on_body_entered(body):
 	if is_ground_or_terrain(body):
@@ -230,10 +241,17 @@ func _spawn_ground_impact_particles(body: Object) -> void:
 func update_tracer_mesh() -> void:
 	if trail_mesh == null or tracer_box_mesh == null:
 		return
+	if _should_hide_tracer_for_startup_frames():
+		trail_mesh.visible = false
+		return
+	trail_mesh.visible = true
 	var speed: float = linear_velocity.length()
 	var visual_length: float = maxf(tracer_visual_length, speed * 0.01)
 	tracer_box_mesh.size = Vector3(tracer_width, tracer_width, visual_length)
 	# Node3D.look_at points local -Z toward travel, so place the tracer behind the bullet on +Z.
 	trail_mesh.position = Vector3(0.0, 0.0, visual_length * 0.5)
+
+func _should_hide_tracer_for_startup_frames() -> bool:
+	return tracer_physics_frames_elapsed < max(tracer_hidden_physics_frames, 0)
 
 # _on_timeout is handled by the parent class now

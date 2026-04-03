@@ -6,7 +6,7 @@ extends Node
 ## Controls:
 ##   LB / RB           - cycle target: Carrier -> Friendly aircraft
 ##   Y (switch_camera) - cycle cockpit / chase / cinematic for the viewed aircraft
-##   Start             - toggle spectator / pilot mode
+##   Start             - toggle player / AI control for the viewed aircraft
 ##   Spacebar          - enter free camera / cycle free camera anchor target
 
 enum Category { BRIDGE, FRIENDLY, ENEMY }
@@ -31,6 +31,9 @@ var player_controlled_plane: RigidBody3D = null
 @export var free_camera_max_speed_mps: float = 100.0
 @export var free_camera_look_sensitivity_deg: float = 120.0
 @export var free_camera_pitch_limit_deg: float = 85.0
+@export var enable_audio_debug_logging: bool = false
+@export var enable_audio_test_tones: bool = false
+@export var audio_debug_interval_s: float = 3.0
 
 var _destroyed_plane_linger_active: bool = false
 var _destroyed_plane_linger_until_s: float = 0.0
@@ -40,6 +43,9 @@ var _free_camera_active: bool = false
 var _free_camera: Camera3D = null
 var _free_camera_yaw: float = 0.0
 var _free_camera_pitch: float = 0.0
+var _status_overlay_layer: CanvasLayer = null
+var _ai_status_label: Label = null
+var _ui_visible_aircraft: RigidBody3D = null
 
 # Legacy - kept so AIToggle.register_aircraft still compiles
 var active_aircraft: Array[RigidBody3D] = []
@@ -47,6 +53,7 @@ var active_aircraft: Array[RigidBody3D] = []
 func _ready():
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	set_process(true)
+	_setup_status_overlay()
 	call_deferred("_initial_view")
 
 func _initial_view():
@@ -80,7 +87,22 @@ func _on_aircraft_destroyed(ac: RigidBody3D):
 		else:
 			_begin_destroyed_plane_linger(ac)
 
+var _audio_debug_timer: float = 0.0
+var _audio_test_player: AudioStreamPlayer = null
+var _audio_test_started: bool = false
 func _process(delta: float) -> void:
+	_sync_viewed_aircraft_ui()
+	_update_ai_status_overlay()
+	if enable_audio_test_tones and not _audio_test_started:
+		_audio_test_started = true
+		_start_audio_test()
+	if enable_audio_debug_logging:
+		_audio_debug_timer += delta
+		if _audio_debug_timer >= maxf(audio_debug_interval_s, 0.1):
+			_audio_debug_timer = 0.0
+			_print_audio_debug()
+	else:
+		_audio_debug_timer = 0.0
 	if _free_camera_active:
 		_update_free_camera(delta)
 	if not _destroyed_plane_linger_active:
@@ -100,28 +122,39 @@ func _input(event):
 		return
 
 	if _free_camera_active:
-		if Input.is_action_just_pressed("toggle_player_control"):
+		if _is_action_pressed_event(event, "toggle_player_control"):
 			_exit_free_camera()
 			toggle_player_control()
+			get_viewport().set_input_as_handled()
 		return
 
 	# Shoulder buttons cycle targets only while spectating.
 	if not is_player_controlling:
-		if Input.is_action_just_pressed("spectate_next"):
+		if _is_action_pressed_event(event, "spectate_next"):
 			cycle_target(1)
-		elif Input.is_action_just_pressed("spectate_prev"):
+			get_viewport().set_input_as_handled()
+			return
+		elif _is_action_pressed_event(event, "spectate_prev"):
 			cycle_target(-1)
+			get_viewport().set_input_as_handled()
+			return
 
-	if Input.is_action_just_pressed("switch_camera"):
+	if _is_action_pressed_event(event, "switch_camera"):
 		_cycle_aircraft_view()
+		get_viewport().set_input_as_handled()
+		return
 
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_L:
 		command_closest_friendly_to_land()
 		get_viewport().set_input_as_handled()
 		return
 
-	if Input.is_action_just_pressed("toggle_player_control"):
+	if _is_action_pressed_event(event, "toggle_player_control"):
 		toggle_player_control()
+		get_viewport().set_input_as_handled()
+
+func _is_action_pressed_event(event: InputEvent, action: StringName) -> bool:
+	return event != null and event.is_action_pressed(action, false, true)
 
 func _get_friendly_aircraft() -> Array:
 	var result: Array = []
@@ -238,13 +271,7 @@ func _view_aircraft(ac: RigidBody3D):
 	current_viewed_aircraft = ac
 
 	# FlightDeckManager disables these on AI aircraft. Re-enable them for viewing.
-	for node_name in ["HeadsUpDisplay", "InstrumentPanel"]:
-		var node := ac.find_child(node_name, true, false) as Node
-		if node:
-			node.set_process(true)
-			node.set_physics_process(true)
-			if node is Node3D:
-				(node as Node3D).show()
+	_set_aircraft_view_ui_enabled(ac, true)
 
 	var ac_cc := ac.find_child("CameraController", true, false) as Node
 	if ac_cc and ac_cc.has_method("switch_to_camera"):
@@ -271,7 +298,7 @@ func toggle_player_control():
 		_return_control_to_ai()
 		return
 
-	var target := _find_closest_friendly_aircraft()
+	var target := _get_toggle_target_aircraft()
 	if not is_instance_valid(target):
 		return
 
@@ -302,6 +329,88 @@ func _return_control_to_ai() -> void:
 		print("[FlightDirector] Returned control to AI: ", player_controlled_plane.name)
 	is_player_controlling = false
 	player_controlled_plane = null
+
+func _get_toggle_target_aircraft() -> RigidBody3D:
+	if is_instance_valid(player_controlled_plane):
+		return player_controlled_plane
+	if not is_instance_valid(current_viewed_aircraft):
+		return null
+	var friendlies := _get_friendly_aircraft()
+	if current_viewed_aircraft in friendlies:
+		return current_viewed_aircraft
+	return null
+
+func _setup_status_overlay() -> void:
+	if _status_overlay_layer != null:
+		return
+	_status_overlay_layer = CanvasLayer.new()
+	_status_overlay_layer.name = "FlightDirectorOverlay"
+	_status_overlay_layer.layer = 100
+	add_child(_status_overlay_layer)
+
+	_ai_status_label = Label.new()
+	_ai_status_label.name = "AIStatusLabel"
+	_ai_status_label.text = "AI"
+	_ai_status_label.visible = false
+	_ai_status_label.anchor_left = 0.5
+	_ai_status_label.anchor_right = 0.5
+	_ai_status_label.anchor_top = 1.0
+	_ai_status_label.anchor_bottom = 1.0
+	_ai_status_label.offset_left = -60.0
+	_ai_status_label.offset_right = 60.0
+	_ai_status_label.offset_top = -48.0
+	_ai_status_label.offset_bottom = -18.0
+	_ai_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_ai_status_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_ai_status_label.add_theme_font_size_override("font_size", 24)
+	_ai_status_label.add_theme_color_override("font_color", Color(0.5, 1.0, 0.5, 1.0))
+	_ai_status_label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 1.0))
+	_ai_status_label.add_theme_constant_override("outline_size", 3)
+	_status_overlay_layer.add_child(_ai_status_label)
+
+func _update_ai_status_overlay() -> void:
+	if _ai_status_label == null:
+		return
+	var show_ai := not _free_camera_active and is_instance_valid(current_viewed_aircraft) and _is_aircraft_ai_controlled(current_viewed_aircraft)
+	_ai_status_label.visible = show_ai
+
+func _is_aircraft_ai_controlled(ac: RigidBody3D) -> bool:
+	if not is_instance_valid(ac):
+		return false
+	var ai_toggle := ac.get_node_or_null("AIToggle")
+	if ai_toggle == null:
+		return false
+	if "ai_active" in ai_toggle:
+		return bool(ai_toggle.ai_active)
+	return false
+
+func _sync_viewed_aircraft_ui() -> void:
+	var desired_aircraft: RigidBody3D = null
+	if not _free_camera_active and is_instance_valid(current_viewed_aircraft):
+		desired_aircraft = current_viewed_aircraft
+
+	if _ui_visible_aircraft != desired_aircraft:
+		if is_instance_valid(_ui_visible_aircraft):
+			_set_aircraft_view_ui_enabled(_ui_visible_aircraft, false)
+		_ui_visible_aircraft = desired_aircraft
+
+	if is_instance_valid(_ui_visible_aircraft):
+		_set_aircraft_view_ui_enabled(_ui_visible_aircraft, true)
+
+func _set_aircraft_view_ui_enabled(ac: RigidBody3D, enabled: bool) -> void:
+	if not is_instance_valid(ac):
+		return
+	for node_name in ["CameraController", "HeadsUpDisplay", "InstrumentPanel"]:
+		var node := ac.find_child(node_name, true, false) as Node
+		if node == null:
+			continue
+		node.set_process(enabled)
+		node.set_physics_process(enabled)
+		node.set_process_input(enabled)
+		if node is CanvasItem:
+			(node as CanvasItem).visible = enabled
+		elif node is Node3D:
+			(node as Node3D).visible = enabled
 
 func _find_closest_friendly_aircraft() -> RigidBody3D:
 	var friendlies := _get_friendly_aircraft()
@@ -422,7 +531,7 @@ func _begin_destroyed_plane_linger(ac: RigidBody3D) -> void:
 	linger_camera.keep_aspect = source_camera.keep_aspect
 	linger_camera.projection = source_camera.projection
 	get_tree().current_scene.add_child(linger_camera)
-	linger_camera.current = true
+	_force_current_camera(linger_camera)
 
 	_destroyed_plane_linger_camera = linger_camera
 	_destroyed_plane_linger_aircraft = ac
@@ -499,7 +608,7 @@ func _enter_free_camera() -> void:
 	_free_camera = free_camera
 	_free_camera_active = true
 	_sync_free_camera_angles()
-	_free_camera.current = true
+	_force_current_camera(_free_camera)
 
 func _exit_free_camera() -> void:
 	if not _free_camera_active:
@@ -555,8 +664,40 @@ func _snap_free_camera_to_target() -> void:
 		_free_camera.global_transform = source_camera.global_transform
 	else:
 		_free_camera.global_position = _get_focus_position() + Vector3(0.0, 20.0, 0.0)
-	_free_camera.current = true
+	_force_current_camera(_free_camera)
 	_sync_free_camera_angles()
+
+func _force_current_camera(camera: Camera3D) -> void:
+	if not is_instance_valid(camera):
+		return
+
+	var viewport := get_viewport()
+	if viewport:
+		viewport.audio_listener_enable_3d = true
+		var previous_camera := viewport.get_camera_3d()
+		if previous_camera and previous_camera != camera:
+			previous_camera.current = false
+
+	# A straight current=true toggle has been unreliable for 3D audio listener
+	# handoff in this project, so force a clean transition now and next frame.
+	camera.current = false
+	camera.current = true
+	call_deferred("_force_current_camera_deferred", camera)
+
+func _force_current_camera_deferred(camera: Camera3D) -> void:
+	if not is_instance_valid(camera):
+		return
+	if camera == _free_camera and not _free_camera_active:
+		return
+	if camera == _destroyed_plane_linger_camera and not _destroyed_plane_linger_active:
+		return
+
+	var viewport := get_viewport()
+	if viewport:
+		viewport.audio_listener_enable_3d = true
+
+	camera.current = false
+	camera.current = true
 
 func _get_free_camera_anchor_camera() -> Camera3D:
 	if current_category == Category.BRIDGE:
@@ -592,3 +733,86 @@ func _get_bridge_camera() -> Camera3D:
 			if cam is Camera3D:
 				return cam as Camera3D
 	return null
+
+func _print_audio_debug() -> void:
+	var vp = get_viewport()
+	var cam = vp.get_camera_3d() if vp else null
+	var cam_name = cam.name if cam else "NONE"
+	var cam_pos = cam.global_position if cam else Vector3.ZERO
+	var audio_players_3d = get_tree().get_nodes_in_group("3d_audio")
+	var bus_count = AudioServer.bus_count
+	var bus_names: Array[String] = []
+	for i in range(bus_count):
+		var muted = AudioServer.is_bus_mute(i)
+		var vol = AudioServer.get_bus_volume_db(i)
+		bus_names.append("%s(vol=%.1f%s)" % [AudioServer.get_bus_name(i), vol, " MUTED" if muted else ""])
+	print("=== AUDIO DEBUG ===")
+	print("  Active camera: %s at %s (current=%s)" % [cam_name, str(cam_pos), str(cam.current) if cam else "N/A"])
+	if cam:
+		print("  Camera tree path: %s" % cam.get_path())
+	print("  Viewport audio_listener_enable_3d: %s" % str(vp.audio_listener_enable_3d) if vp else "NO VP")
+	# Check for AudioListener3D nodes that might override camera
+	var listeners = []
+	for node in get_tree().get_nodes_in_group(""):
+		pass  # Can't iterate all nodes easily
+	var listener_nodes := _find_nodes_of_type(get_tree().root, "AudioListener3D")
+	print("  AudioListener3D nodes in scene: %d %s" % [listener_nodes.size(), str(listener_nodes)])
+	print("  Audio buses: %s" % str(bus_names))
+	print("  AudioServer output device: %s" % AudioServer.output_device)
+	print("  3d_audio group members: %d" % audio_players_3d.size())
+	# Print named players only (skip anonymous @AudioStreamPlayer3D@xxx)
+	for player in audio_players_3d:
+		if player is AudioStreamPlayer3D:
+			var p := player as AudioStreamPlayer3D
+			if p.name.begins_with("@"):
+				continue
+			var dist = cam_pos.distance_to(p.global_position) if cam else -1.0
+			var stream_info := "null"
+			if p.stream:
+				var s = p.stream
+				stream_info = "%s len=%.2f" % [s.get_class(), s.get_length()]
+				if s is AudioStreamWAV:
+					var wav := s as AudioStreamWAV
+					stream_info += " fmt=%d rate=%d loop=%d stereo=%s data=%d" % [wav.format, wav.mix_rate, wav.loop_mode, wav.stereo, wav.data.size()]
+			# Try force-play if not playing
+			if not p.playing:
+				p.play()
+			print("    %s: bus=%s vol=%.1f playing=%s after_force_play=%s stream=[%s] dist=%.0f" % [p.name, p.bus, p.volume_db, p.playing, p.playing, stream_info, dist])
+
+func _start_audio_test() -> void:
+	# Test A: known-working sound (propeller)
+	var test_a = load("res://Audio/airplane_propeller 1.wav")
+	# Test B: carrier deck sound (not working)
+	var test_b = load("res://carrier_deck_sound.wav")
+
+	if test_a:
+		var player_a = AudioStreamPlayer.new()
+		player_a.name = "AudioTestA_propeller"
+		player_a.stream = test_a
+		player_a.bus = "Master"
+		player_a.volume_db = -10.0
+		add_child(player_a)
+		player_a.play()
+		print("[AUDIO TEST A] propeller: class=%s len=%.2f playing=%s" % [test_a.get_class(), test_a.get_length(), player_a.playing])
+	else:
+		print("[AUDIO TEST A] FAILED to load propeller wav")
+
+	if test_b:
+		var player_b = AudioStreamPlayer.new()
+		player_b.name = "AudioTestB_deck"
+		player_b.stream = test_b
+		player_b.bus = "Master"
+		player_b.volume_db = -5.0
+		add_child(player_b)
+		player_b.play()
+		print("[AUDIO TEST B] deck: class=%s len=%.2f playing=%s" % [test_b.get_class(), test_b.get_length(), player_b.playing])
+	else:
+		print("[AUDIO TEST B] FAILED to load deck wav")
+
+func _find_nodes_of_type(node: Node, type_name: String) -> Array[String]:
+	var result: Array[String] = []
+	if node.get_class() == type_name:
+		result.append(str(node.get_path()))
+	for child in node.get_children():
+		result.append_array(_find_nodes_of_type(child, type_name))
+	return result

@@ -5,6 +5,8 @@ signal destroyed(vehicle)
 signal deploy_complete(vehicle)
 signal retrieve_complete(vehicle)
 
+const VISUAL_FOCUS_HELPER = preload("res://Effects/VisualFocus.gd")
+
 # --- Deployment ---
 enum DeployPhase { NONE, ON_DECK, ON_RAMP, DONE }
 var deploy_mode: bool = false
@@ -143,6 +145,8 @@ func _ready() -> void:
 	add_to_group("friendlies")
 	add_to_group("ground_vehicles")
 	add_to_group("team_" + str(team))
+	if Livery:
+		Livery.apply(self)
 	_resolve_waypoints()
 	_collect_wheel_nodes()
 	_compute_corner_probes()
@@ -811,6 +815,8 @@ func _get_active_camera(delta: float) -> Camera3D:
 
 func _should_use_detailed_suspension(delta: float) -> bool:
 	if deploy_mode or retrieve_mode:
+		return true
+	if VISUAL_FOCUS_HELPER.is_node_in_target_camera_focus(self, self):
 		return true
 	var camera := _get_active_camera(delta)
 	if camera == null or not is_instance_valid(camera):

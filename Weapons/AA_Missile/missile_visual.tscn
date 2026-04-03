@@ -1,5 +1,0 @@
-[gd_scene load_steps=2 format=3 uid="uid://c6dxufxlfcbsx"]
-
-[ext_resource type="PackedScene" uid="uid://bs5wys2xqauft" path="res://Projectiles/AG Missile/missile.glb" id="1_akwfu"]
-
-[node name="missile" instance=ExtResource("1_akwfu")]

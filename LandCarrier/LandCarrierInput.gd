@@ -16,6 +16,7 @@ class_name LandCarrierInput
 var current_speed: float = 0.0
 var current_direction: float = 0.0  # Direction in degrees
 
+
 func _ready():
 	# Find the land carrier if not assigned
 	if not land_carrier:
@@ -31,21 +32,24 @@ func _ready():
 				if not land_carrier or not land_carrier is LandCarrier:
 					# Search for any LandCarrier in the scene
 					land_carrier = get_tree().get_first_node_in_group("land_carrier")
-	
+
 	if not land_carrier or not land_carrier is LandCarrier:
 		print("Error: No LandCarrier found for input controls")
 		return
-	
+
 	print("Land Carrier Input Controls Ready!")
+	print("  T - Cycle tread debug view")
+	print("  Shift+T - Freeze/unfreeze tread scroll")
 	if enable_legacy_keyboard_controls:
 		print("Controls:")
 		print("  E - Move elevator up")
-		print("  D - Move elevator down") 
+		print("  D - Move elevator down")
 		print("  W - Increase speed")
 		print("  S - Decrease speed")
 		print("  A - Turn left")
 		print("  D - Turn right")
 		print("  ESC - Quit")
+
 
 func _input(event):
 	if not land_carrier:
@@ -56,11 +60,17 @@ func _input(event):
 		match event.keycode:
 			KEY_UP:
 				land_carrier.max_speed = clamp(land_carrier.max_speed + 8.0, min_speed, 40.0)
-				print("[Carrier] Speed → %.0f m/s" % land_carrier.max_speed)
+				print("[Carrier] Speed -> %.0f m/s" % land_carrier.max_speed)
 				return
 			KEY_DOWN:
 				land_carrier.max_speed = clamp(land_carrier.max_speed - 8.0, min_speed, 40.0)
-				print("[Carrier] Speed → %.0f m/s" % land_carrier.max_speed)
+				print("[Carrier] Speed -> %.0f m/s" % land_carrier.max_speed)
+				return
+			KEY_T:
+				if event.shift_pressed:
+					_toggle_tread_debug_freeze()
+				else:
+					_cycle_tread_debug_mode()
 				return
 
 	if not enable_legacy_keyboard_controls:
@@ -80,7 +90,7 @@ func _input(event):
 						print("No elevator system available")
 				else:
 					print("No elevator system available")
-			
+
 			KEY_D:
 				# Move elevator down
 				if land_carrier.has_method("get_elevator"):
@@ -92,27 +102,28 @@ func _input(event):
 						print("No elevator system available")
 				else:
 					print("No elevator system available")
-			
+
 			KEY_W:
 				# Increase speed
 				increase_speed()
-			
+
 			KEY_S:
 				# Decrease speed
 				decrease_speed()
-			
+
 			KEY_A:
 				# Turn left
 				turn_left()
-			
+
 			KEY_D:
 				# Turn right (only if not using D for elevator)
 				if not Input.is_key_pressed(KEY_E):  # Only turn if E is not pressed
 					turn_right()
-			
+
 			KEY_ESCAPE:
 				# Quit application
 				get_tree().quit()
+
 
 func increase_speed():
 	"""Increase carrier speed"""
@@ -120,11 +131,13 @@ func increase_speed():
 	current_speed = land_carrier.get_speed()
 	print("Speed increased to: ", current_speed, " m/s")
 
+
 func decrease_speed():
 	"""Decrease carrier speed"""
 	land_carrier.decrease_speed(speed_increment)
 	current_speed = land_carrier.get_speed()
 	print("Speed decreased to: ", current_speed, " m/s")
+
 
 func turn_left():
 	"""Turn carrier left"""
@@ -132,11 +145,13 @@ func turn_left():
 	current_direction = land_carrier.get_direction()
 	print("Turning left to: ", current_direction, " degrees")
 
+
 func turn_right():
 	"""Turn carrier right"""
 	land_carrier.turn_right(15.0)
 	current_direction = land_carrier.get_direction()
 	print("Turning right to: ", current_direction, " degrees")
+
 
 func get_status() -> Dictionary:
 	"""Get current input status"""
@@ -146,3 +161,43 @@ func get_status() -> Dictionary:
 		"max_speed": max_speed,
 		"min_speed": min_speed
 	}
+
+
+func _get_tread_nodes() -> Array:
+	if not land_carrier:
+		return []
+	if land_carrier.treads.is_empty() and land_carrier.has_method("find_treads"):
+		land_carrier.find_treads()
+	return land_carrier.treads
+
+
+func _cycle_tread_debug_mode() -> void:
+	var tread_nodes := _get_tread_nodes()
+	if tread_nodes.is_empty():
+		print("[CarrierTread] No tread nodes found")
+		return
+
+	for tread in tread_nodes:
+		if tread and tread.has_method("cycle_belt_debug_mode"):
+			tread.cycle_belt_debug_mode()
+
+	var first_tread = tread_nodes[0]
+	var mode_name := "Unknown"
+	if first_tread and first_tread.has_method("get_belt_debug_mode_name"):
+		mode_name = str(first_tread.get_belt_debug_mode_name())
+	print("[CarrierTread] Debug view -> %s" % mode_name)
+
+
+func _toggle_tread_debug_freeze() -> void:
+	var tread_nodes := _get_tread_nodes()
+	if tread_nodes.is_empty():
+		print("[CarrierTread] No tread nodes found")
+		return
+
+	var frozen := false
+	for tread in tread_nodes:
+		if tread and tread.has_method("toggle_belt_debug_freeze"):
+			tread.toggle_belt_debug_freeze()
+			frozen = bool(tread.get("belt_debug_freeze_scroll"))
+
+	print("[CarrierTread] Scroll freeze -> %s" % ("ON" if frozen else "OFF"))

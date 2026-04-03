@@ -94,5 +94,14 @@ func _add_ruin_smoke(wreck: Node3D) -> void:
 		mat.albedo_color = Color(grey, grey, grey, 0.4)
 		puff.material_override = mat
 
-		ParticleManager.add_rising_smoke(puff, randf_range(4.0, 6.0), puff.scale, randf_range(3.0, 5.0), randf_range(-0.3, 0.3))
+		var particle_manager := get_node_or_null("/root/ParticleManager")
+		if particle_manager and particle_manager.has_method("add_rising_smoke"):
+			particle_manager.call(
+				"add_rising_smoke",
+				puff,
+				randf_range(4.0, 6.0),
+				puff.scale,
+				randf_range(3.0, 5.0),
+				randf_range(-0.3, 0.3)
+			)
 	)

@@ -462,52 +462,7 @@ func _compute_top_row_content_width() -> float:
 
 
 func _draw_radar():
-	# Draw simple top-down radar of known enemies for our team
-	var cr := (display_root.get_node_or_null("LowerRow/RadarPanel/RadarCanvas") as ColorRect)
-	if cr == null:
-		return
-	var draw_size: Vector2 = cr.get_size()
-	var center: Vector2 = draw_size * 0.5
-	var radius: float = min(draw_size.x, draw_size.y) * 0.48
-	if aircraft == null or not is_instance_valid(aircraft):
-		return
-	var team_id: int = aircraft.get_team()
-	var enemies: Array = []
-	var registry: Node = get_node_or_null("/root/EnemyRegistry")
-	var enemy_team: int = (1 if team_id != 1 else 2)
-	if registry and registry.has_method("get_enemies_for_team"):
-		enemies = registry.get_enemies_for_team(enemy_team)
-	# Fallback if registry missing or empty: use group
-	if enemies.is_empty():
-		enemies = get_tree().get_nodes_in_group("enemies")
-	var range_m: float = 5000.0
-	var origin: Vector3 = aircraft.global_position
-	var fwd: Vector3 = aircraft.global_transform.basis.z
-	# Background
-	cr.draw_circle(center, radius, Color(0.02, 0.06, 0.02))
-	# If nothing to show, draw a simple color-bars test pattern
-	if enemies.size() == 0:
-		var bars: Array = [Color.WHITE, Color(1,1,0), Color(0,1,1), Color(0,1,0), Color(1,0,1), Color(1,0,0), Color(0,0,1), Color.BLACK]
-		var bar_w: float = (radius * 2.0) / float(bars.size())
-		for i in range(bars.size()):
-			var x0: float = center.x - radius + i * bar_w
-			var rect := Rect2(Vector2(x0, center.y - radius), Vector2(bar_w, radius * 2.0))
-			cr.draw_rect(rect, bars[i])
-		# Ring overlay
-		cr.draw_arc(center, radius, 0, TAU, 64, Color(0.0, 0.6, 0.0), 2)
-		return
-	# Normal radar rings
-	cr.draw_arc(center, radius, 0, TAU, 64, Color(0.0, 0.6, 0.0), 2)
-	for e in enemies:
-		if e and is_instance_valid(e):
-			var rel: Vector3 = e.global_position - origin
-			var x: float = rel.dot(aircraft.global_transform.basis.x)
-			var z: float = rel.dot(fwd)
-			var dist: float = sqrt(x*x + z*z)
-			if dist <= range_m:
-				var px: float = center.x + (x / range_m) * radius
-				var py: float = center.y - (z / range_m) * radius
-				cr.draw_circle(Vector2(px, py), 3, Color.RED)
+	pass
 
 
 func _relayout_top_row() -> void:
@@ -566,6 +521,45 @@ func _get_enemy_target_node() -> Node3D:
 	if targeting and targeting.current_target and is_instance_valid(targeting.current_target):
 		return targeting.current_target
 	return null
+
+func is_target_camera_focusing_node(node: Node3D) -> bool:
+	if node == null or not is_instance_valid(node):
+		return false
+	if missile_camera_mode:
+		return false
+	if aircraft == null or not is_instance_valid(aircraft):
+		return false
+	if target_camera == null or not is_instance_valid(target_camera):
+		return false
+	if not _is_panel_aircraft_currently_viewed():
+		return false
+
+	var focus_target := _get_enemy_target_node()
+	if focus_target == null or not is_instance_valid(focus_target):
+		return false
+	return _node_matches_focus(node, focus_target)
+
+func _is_panel_aircraft_currently_viewed() -> bool:
+	if aircraft == null or not is_instance_valid(aircraft):
+		return false
+	var active_camera := get_viewport().get_camera_3d()
+	if active_camera == null or not is_instance_valid(active_camera):
+		return false
+	var camera_mount := active_camera.get_parent()
+	if camera_mount == null or camera_mount.name != "CameraCockpit":
+		return false
+	return _node_is_same_or_descendant(active_camera, aircraft)
+
+func _node_matches_focus(candidate: Node, focus_target: Node) -> bool:
+	return _node_is_same_or_descendant(candidate, focus_target) or _node_is_same_or_descendant(focus_target, candidate)
+
+func _node_is_same_or_descendant(node: Node, ancestor: Node) -> bool:
+	var current: Node = node
+	while current != null:
+		if current == ancestor:
+			return true
+		current = current.get_parent()
+	return false
 
 func _create_target_effect_shader() -> Shader:
 	var code := """

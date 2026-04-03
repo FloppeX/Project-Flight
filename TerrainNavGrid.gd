@@ -33,8 +33,13 @@ var _cols: int = 0
 var _rows: int = 0
 var _origin_x: float = 0.0
 var _origin_z: float = 0.0
+var _bake_center_x: float = 0.0
+var _bake_center_z: float = 0.0
 var _is_baked: bool = false
 var _h_min_passable: float = INF  # lowest height among all baked passable cells
+var _bake_center_override_enabled: bool = false
+var _bake_center_override_x: float = 0.0
+var _bake_center_override_z: float = 0.0
 
 # --- Bake state ---
 var _bake_terrain: Node3D = null
@@ -115,6 +120,35 @@ func sample_height(wx: float, wz: float) -> float:
 func is_ready() -> bool:
 	return _is_baked
 
+func set_bake_center_override(world_center: Vector3) -> void:
+	_bake_center_override_enabled = true
+	_bake_center_override_x = world_center.x
+	_bake_center_override_z = world_center.z
+
+func rebake_at_center(world_center: Vector3) -> void:
+	set_bake_center_override(world_center)
+	_reset_bake_state()
+
+func clear_bake_center_override() -> void:
+	_bake_center_override_enabled = false
+
+func get_bake_center() -> Vector3:
+	return Vector3(_bake_center_x, 0.0, _bake_center_z)
+
+func _reset_bake_state() -> void:
+	_heights = PackedFloat32Array()
+	_cols = 0
+	_rows = 0
+	_origin_x = 0.0
+	_origin_z = 0.0
+	_bake_center_x = 0.0
+	_bake_center_z = 0.0
+	_h_min_passable = INF
+	_is_baked = false
+	_bake_terrain = null
+	_bake_gz = 0
+	_queue.clear()
+
 
 ## Returns 0.0 while waiting for terrain, 0.0→1.0 while baking, 1.0 when done.
 func get_bake_progress() -> float:
@@ -131,8 +165,10 @@ func _try_start_bake() -> void:
 	var terrain := get_tree().get_first_node_in_group("terrain_provider") as Node3D
 	if not is_instance_valid(terrain):
 		return
-	var cx: float = terrain.global_position.x
-	var cz: float = terrain.global_position.z
+	var cx: float = _bake_center_override_x if _bake_center_override_enabled else terrain.global_position.x
+	var cz: float = _bake_center_override_z if _bake_center_override_enabled else terrain.global_position.z
+	_bake_center_x = cx
+	_bake_center_z = cz
 	_origin_x = cx - bake_half_extent_m
 	_origin_z = cz - bake_half_extent_m
 	_cols = int(bake_half_extent_m * 2.0 / cell_size_m) + 1
@@ -355,6 +391,159 @@ func get_furthest_edge_position(from_world: Vector3, edge_inset: int = 3, max_sl
 		return from_world
 	var bh: float = _heights[best_gz * _cols + best_gx]
 	return Vector3(_origin_x + best_gx * cell_size_m, bh, _origin_z + best_gz * cell_size_m)
+
+
+## Returns a low-level passable cell near the centre of the requested edge.
+## Searches laterally around the map midpoint and then progressively inward.
+func get_centered_edge_position(
+		edge: String,
+		edge_margin_m: float = 1800.0,
+		lateral_search_m: float = 3600.0,
+		inward_search_m: float = 2800.0,
+		max_slope_m: float = 15.0) -> Vector3:
+	if not _is_baked:
+		return Vector3.ZERO
+
+	var border := body_clearance_cells + 8
+	var max_gx := _cols - 1 - border
+	var max_gz := _rows - 1 - border
+	if border > max_gx or border > max_gz:
+		return Vector3.ZERO
+
+	var center_gx := clampi(int(round(float(_cols - 1) * 0.5)), border, max_gx)
+	var edge_margin_cells := maxi(int(round(maxf(edge_margin_m, 0.0) / cell_size_m)), border)
+	var lateral_cells := maxi(int(round(maxf(lateral_search_m, 0.0) / cell_size_m)), 0)
+	var inward_cells := maxi(int(round(maxf(inward_search_m, 0.0) / cell_size_m)), 0)
+
+	var desired_gz := border
+	var depth_sign := 1
+	match edge.to_lower():
+		"top":
+			desired_gz = clampi(edge_margin_cells, border, max_gz)
+			depth_sign = 1
+		"bottom":
+			desired_gz = clampi((_rows - 1) - edge_margin_cells, border, max_gz)
+			depth_sign = -1
+		_:
+			return Vector3.ZERO
+
+	var h_ceil := _h_min_passable + low_level_tolerance_m
+	var best_score := INF
+	var best_gx := center_gx
+	var best_gz := desired_gz
+	var found := false
+
+	for depth_offset in range(inward_cells + 1):
+		var gz := desired_gz + depth_sign * depth_offset
+		if gz < border or gz > max_gz:
+			continue
+		for lateral_offset in range(-lateral_cells, lateral_cells + 1):
+			var gx := center_gx + lateral_offset
+			if gx < border or gx > max_gx:
+				continue
+			var h: float = _heights[gz * _cols + gx]
+			if h > h_ceil:
+				continue
+			if not _cell_clear(gx, gz, max_slope_m):
+				continue
+			var score := absf(float(lateral_offset)) + float(depth_offset) * 0.65
+			if score < best_score:
+				best_score = score
+				best_gx = gx
+				best_gz = gz
+				found = true
+
+	if not found:
+		return Vector3.ZERO
+
+	var bh: float = _heights[best_gz * _cols + best_gx]
+	return Vector3(_origin_x + best_gx * cell_size_m, bh, _origin_z + best_gz * cell_size_m)
+
+
+## Returns passable candidates sampled across the requested edge band.
+## Useful when callers want to evaluate several edge goals and choose the best route.
+func get_edge_position_candidates(
+		edge: String,
+		edge_margin_m: float = 1800.0,
+		lateral_spacing_m: float = 1200.0,
+		inward_search_m: float = 2800.0,
+		max_slope_m: float = 15.0) -> Array[Vector3]:
+	var candidates: Array[Vector3] = []
+	if not _is_baked:
+		return candidates
+
+	var border := body_clearance_cells + 8
+	var max_gx := _cols - 1 - border
+	var max_gz := _rows - 1 - border
+	if border > max_gx or border > max_gz:
+		return candidates
+
+	var edge_margin_cells := maxi(int(round(maxf(edge_margin_m, 0.0) / cell_size_m)), border)
+	var inward_cells := maxi(int(round(maxf(inward_search_m, 0.0) / cell_size_m)), 0)
+	var lateral_step_cells := maxi(int(round(maxf(lateral_spacing_m, cell_size_m) / cell_size_m)), 1)
+	var lateral_radius_cells := maxi(lateral_step_cells / 2, 1)
+
+	var desired_gz := border
+	var depth_sign := 1
+	match edge.to_lower():
+		"top":
+			desired_gz = clampi(edge_margin_cells, border, max_gz)
+			depth_sign = 1
+		"bottom":
+			desired_gz = clampi((_rows - 1) - edge_margin_cells, border, max_gz)
+			depth_sign = -1
+		_:
+			return candidates
+
+	var h_ceil := _h_min_passable + low_level_tolerance_m
+	var seen_keys := {}
+	var target_gx: int = border
+	while target_gx <= max_gx:
+		var best_score := INF
+		var best_gx := -1
+		var best_gz := -1
+		for depth_offset in range(inward_cells + 1):
+			var gz := desired_gz + depth_sign * depth_offset
+			if gz < border or gz > max_gz:
+				continue
+			for lateral_offset in range(-lateral_radius_cells, lateral_radius_cells + 1):
+				var gx := target_gx + lateral_offset
+				if gx < border or gx > max_gx:
+					continue
+				var h: float = _heights[gz * _cols + gx]
+				if h > h_ceil:
+					continue
+				if not _cell_clear(gx, gz, max_slope_m):
+					continue
+				var score := absf(float(lateral_offset)) + float(depth_offset) * 0.65
+				if score < best_score:
+					best_score = score
+					best_gx = gx
+					best_gz = gz
+		if best_gx >= 0 and best_gz >= 0:
+			var key := "%d:%d" % [best_gx, best_gz]
+			if not seen_keys.has(key):
+				seen_keys[key] = true
+				var bh: float = _heights[best_gz * _cols + best_gx]
+				candidates.append(Vector3(_origin_x + best_gx * cell_size_m, bh, _origin_z + best_gz * cell_size_m))
+		target_gx += lateral_step_cells
+
+	var center_candidate := get_centered_edge_position(
+		edge,
+		edge_margin_m,
+		maxf(lateral_spacing_m, cell_size_m),
+		inward_search_m,
+		max_slope_m
+	)
+	if center_candidate != Vector3.ZERO:
+		var center_key := "%d:%d" % [
+			int(round((center_candidate.x - _origin_x) / cell_size_m)),
+			int(round((center_candidate.z - _origin_z) / cell_size_m))
+		]
+		if not seen_keys.has(center_key):
+			candidates.append(center_candidate)
+
+	return candidates
 
 
 # --- Helpers ---

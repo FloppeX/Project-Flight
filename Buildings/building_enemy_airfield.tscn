@@ -1,0 +1,38 @@
+[gd_scene load_steps=6 format=3 uid="uid://dj5oweo3som3k"]
+
+[ext_resource type="Script" uid="uid://ctkom4onof5vk" path="res://Buildings/Building.gd" id="1_building"]
+[ext_resource type="Shader" uid="uid://dgw66csf7pcvg" path="res://Buildings/building_enemy_airfield.gdshader" id="2_shader"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_airfield"]
+render_priority = 0
+shader = ExtResource("2_shader")
+shader_parameter/base_color = Color(0.19, 0.19, 0.2, 1)
+shader_parameter/stripe_color = Color(0.95, 0.95, 0.95, 1)
+shader_parameter/runway_half_width = 20.0
+shader_parameter/runway_half_length = 300.0
+shader_parameter/edge_inset = 1.1
+shader_parameter/edge_width = 0.45
+shader_parameter/center_width = 0.55
+shader_parameter/dash_length = 2.0
+shader_parameter/gap_length = 2.0
+shader_parameter/roughness_value = 0.92
+shader_parameter/specular_value = 0.05
+
+[sub_resource type="BoxMesh" id="BoxMesh_airfield"]
+size = Vector3(40, 2, 600)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_airfield"]
+size = Vector3(40, 2, 600)
+
+[node name="EnemyAirfield" type="StaticBody3D" groups=["runway_surface"]]
+script = ExtResource("1_building")
+max_health = 300.0
+
+[node name="Mesh" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0)
+material_override = SubResource("ShaderMaterial_airfield")
+mesh = SubResource("BoxMesh_airfield")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0)
+shape = SubResource("BoxShape3D_airfield")

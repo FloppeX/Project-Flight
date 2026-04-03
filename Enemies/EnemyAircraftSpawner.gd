@@ -11,6 +11,7 @@ extends Node3D
 @export var strike_flight_altitude_m: float = 600.0
 @export var cap_flight_altitude_m: float = 600.0
 @export var cap_orbit_radius_m: float = 1200.0
+@export var enemy_base_patrol_radius_m: float = 1400.0
 @export var friendly_debug_flight_altitude_m: float = 500.0
 @export var enemy_debug_flight_range_from_carrier_m: float = 10000.0
 @export var debug_air_spawn_spacing_m: float = 180.0
@@ -36,7 +37,7 @@ var _active_ai_planes: Array[RigidBody3D] = []
 var _enemy_vehicle_scenes: Array[PackedScene] = []
 var _friendly_vehicle_scene: PackedScene
 var _ground_platoon_counter: int = 0
-var _building_barracks_scene: PackedScene
+var _enemy_base_scene: PackedScene
 
 func _ready():
 	_aircraft_scene = load("res://Aircraft/Aircraft_1.tscn")
@@ -61,7 +62,9 @@ func _ready():
 		else:
 			push_error("[EnemyAircraftSpawner] Failed to load %s" % vehicle_path)
 	_friendly_vehicle_scene = load("res://GroundVehicle/vehicle_friendly_light.tscn")
-	_building_barracks_scene = load("res://Buildings/building_barracks.tscn")
+	_enemy_base_scene = load("res://Enemies/EnemyBase.tscn")
+	if not _enemy_base_scene:
+		push_error("[EnemyAircraftSpawner] Failed to load Enemies/EnemyBase.tscn")
 
 func _input(event):
 	if event is InputEventKey and event.pressed and not event.echo:
@@ -127,9 +130,9 @@ func _spawn_enemy_vehicle_mix(count: int) -> void:
 	]
 	_spawn_ground_vehicle_wave(_enemy_vehicle_scenes, count, 2, carrier_pos, base_pos, carrier_node, compact_offsets, true, enemy_platoon_spawn_map_margin_m)
 
-func _spawn_ground_vehicle_wave(scenes: Array[PackedScene], count: int, team_id: int, carrier_pos: Vector3, base_pos: Vector3, carrier_node: CollisionObject3D = null, offsets_override: Array[Vector3] = [], require_map_bounds: bool = false, map_margin_m: float = 0.0) -> void:
+func _spawn_ground_vehicle_wave(scenes: Array[PackedScene], count: int, team_id: int, carrier_pos: Vector3, base_pos: Vector3, carrier_node: CollisionObject3D = null, offsets_override: Array[Vector3] = [], require_map_bounds: bool = false, map_margin_m: float = 0.0) -> GroundVehiclePlatoon:
 	if scenes.is_empty():
-		return
+		return null
 	if debug_ground_vehicle_spawns:
 		print("[GroundSpawn] team=%d carrier=%s base=%s" % [
 			team_id,
@@ -191,6 +194,8 @@ func _spawn_ground_vehicle_wave(scenes: Array[PackedScene], count: int, team_id:
 			vehicle.set_patrol_waypoints(staggered)
 		if vehicle.has_method("assign_platoon"):
 			vehicle.assign_platoon(platoon)
+
+	return platoon
 
 func _find_enemy_vehicle_staging_position(carrier_pos: Vector3, carrier_node: CollisionObject3D = null) -> Vector3:
 	var carrier_ground_y: float = _sample_ground_height(carrier_pos)
@@ -511,6 +516,159 @@ func _spawn_enemy_debug_flight() -> void:
 	for aircraft in spawned:
 		_configure_enemy_strike_pilot(aircraft, carrier)
 
+func spawn_enemy_flight_from_base(base: Node3D, aircraft_count: int = 2) -> Array[RigidBody3D]:
+	if not _enemy_aircraft_scene or not is_instance_valid(base):
+		return []
+	_prune_active_ai_planes()
+	var spawn_count: int = maxi(aircraft_count, 1)
+	if _active_ai_planes.size() + spawn_count > max_ai_planes:
+		print("[EnemyAircraftSpawner] Enemy base flight skipped: max AI planes would be exceeded")
+		return []
+
+	var launch_dir := _get_enemy_base_launch_direction(base)
+	var spawned: Array[RigidBody3D] = []
+	for i in range(spawn_count):
+		var spawn_transform: Transform3D = Transform3D(Basis.IDENTITY, base.global_position + Vector3.UP * strike_flight_altitude_m)
+		if base.has_method("get_flight_spawn_transform"):
+			var custom_transform: Variant = base.call("get_flight_spawn_transform", i)
+			if custom_transform is Transform3D:
+				spawn_transform = custom_transform
+		var aircraft := await _spawn_ai_fighter(
+			_enemy_aircraft_scene,
+			"EnemyBaseFlight_%d" % (_active_ai_planes.size() + 1),
+			2,
+			"enemies",
+			spawn_transform.origin,
+			launch_dir,
+			maxf(spawn_speed, 82.0)
+		)
+		if is_instance_valid(aircraft):
+			spawned.append(aircraft)
+			if base.has_method("register_flight"):
+				base.call("register_flight", aircraft)
+
+	if spawned.is_empty():
+		return []
+
+	await get_tree().create_timer(0.5).timeout
+	for i in range(spawned.size()):
+		_configure_enemy_base_patrol_pilot(spawned[i], base, i)
+	return spawned
+
+func spawn_enemy_response_flight_from_base(base: Node3D, response_position: Vector3, aircraft_count: int = 2) -> Array[RigidBody3D]:
+	if not _enemy_aircraft_scene or not is_instance_valid(base):
+		return []
+	_prune_active_ai_planes()
+	var spawn_count: int = maxi(aircraft_count, 1)
+	if _active_ai_planes.size() + spawn_count > max_ai_planes:
+		print("[EnemyAircraftSpawner] Enemy base response flight skipped: max AI planes would be exceeded")
+		return []
+
+	var launch_dir := _get_enemy_base_launch_direction(base)
+	var spawned: Array[RigidBody3D] = []
+	for i in range(spawn_count):
+		var spawn_transform: Transform3D = Transform3D(Basis.IDENTITY, base.global_position + Vector3.UP * strike_flight_altitude_m)
+		if base.has_method("get_flight_spawn_transform"):
+			var custom_transform: Variant = base.call("get_flight_spawn_transform", i)
+			if custom_transform is Transform3D:
+				spawn_transform = custom_transform
+		var aircraft := await _spawn_ai_fighter(
+			_enemy_aircraft_scene,
+			"EnemyBaseResponse_%d" % (_active_ai_planes.size() + 1),
+			2,
+			"enemies",
+			spawn_transform.origin,
+			launch_dir,
+			maxf(spawn_speed, 85.0)
+		)
+		if is_instance_valid(aircraft):
+			spawned.append(aircraft)
+			if base.has_method("register_flight"):
+				base.call("register_flight", aircraft)
+
+	if spawned.is_empty():
+		return []
+
+	await get_tree().create_timer(0.5).timeout
+	for i in range(spawned.size()):
+		_configure_enemy_base_response_pilot(spawned[i], base, response_position, i)
+	return spawned
+
+func spawn_enemy_platoon_from_base(base: Node3D, vehicle_count: int = 4) -> GroundVehiclePlatoon:
+	if _enemy_vehicle_scenes.is_empty() or not is_instance_valid(base):
+		return null
+	var carrier_pos: Vector3 = _get_carrier_position()
+	var carrier_node := get_tree().get_first_node_in_group("carrier") as CollisionObject3D
+	var base_pos: Vector3 = base.global_position
+	if base.has_method("get_platoon_spawn_position"):
+		var custom_spawn: Variant = base.call("get_platoon_spawn_position")
+		if custom_spawn is Vector3:
+			base_pos = custom_spawn
+	base_pos = _find_nearby_valid_ground_spawn(base_pos, carrier_node, carrier_pos, true, true, enemy_platoon_spawn_map_margin_m)
+	var offsets: Array[Vector3] = [
+		Vector3(-18, 0, -10),
+		Vector3(14, 0, -10),
+		Vector3(-18, 0, 12),
+		Vector3(14, 0, 12),
+		Vector3(-2, 0, 26),
+	]
+	var platoon: GroundVehiclePlatoon = _spawn_ground_vehicle_wave(
+		_enemy_vehicle_scenes,
+		vehicle_count,
+		2,
+		carrier_pos,
+		base_pos,
+		carrier_node,
+		offsets,
+		true,
+		enemy_platoon_spawn_map_margin_m
+	)
+	if platoon != null and is_instance_valid(platoon):
+		platoon.objective_type = GroundVehiclePlatoon.ObjectiveType.NONE
+		platoon.protected_node = null
+		platoon.attack_node = null
+		platoon.escort_node = null
+		platoon.objective_position = base_pos
+		if base.has_method("register_platoon"):
+			base.call("register_platoon", platoon)
+	return platoon
+
+func spawn_enemy_response_platoon_from_base(base: Node3D, response_position: Vector3, vehicle_count: int = 4) -> GroundVehiclePlatoon:
+	if _enemy_vehicle_scenes.is_empty() or not is_instance_valid(base):
+		return null
+	var carrier_pos: Vector3 = _get_carrier_position()
+	var carrier_node := get_tree().get_first_node_in_group("carrier") as CollisionObject3D
+	var base_pos: Vector3 = base.global_position
+	if base.has_method("get_platoon_spawn_position"):
+		var custom_spawn: Variant = base.call("get_platoon_spawn_position")
+		if custom_spawn is Vector3:
+			base_pos = custom_spawn
+	base_pos = _find_nearby_valid_ground_spawn(base_pos, carrier_node, carrier_pos, true, true, enemy_platoon_spawn_map_margin_m)
+	var offsets: Array[Vector3] = [
+		Vector3(-18, 0, -10),
+		Vector3(14, 0, -10),
+		Vector3(-18, 0, 12),
+		Vector3(14, 0, 12),
+		Vector3(-2, 0, 26),
+	]
+	var platoon: GroundVehiclePlatoon = _spawn_ground_vehicle_wave(
+		_enemy_vehicle_scenes,
+		vehicle_count,
+		2,
+		carrier_pos,
+		base_pos,
+		carrier_node,
+		offsets,
+		true,
+		enemy_platoon_spawn_map_margin_m
+	)
+	if platoon == null or not is_instance_valid(platoon):
+		return null
+	platoon.set_attack_position(response_position, maxf(enemy_base_patrol_radius_m * 0.45, 500.0))
+	if base.has_method("register_platoon"):
+		base.call("register_platoon", platoon)
+	return platoon
+
 func _assign_friendly_aircraft_to_shared_flight(aircraft_list: Array[RigidBody3D]) -> void:
 	if aircraft_list.is_empty():
 		return
@@ -642,6 +800,54 @@ func _configure_enemy_strike_pilot(aircraft: RigidBody3D, carrier: Node3D) -> vo
 	else:
 		ai_pilot.change_state(AIPilot.State.SEARCH)
 
+func _configure_enemy_base_patrol_pilot(aircraft: RigidBody3D, enemy_base: Node3D, orbit_offset: int) -> void:
+	if not is_instance_valid(aircraft) or not is_instance_valid(enemy_base):
+		return
+	var ai_toggle = aircraft.find_child("AIToggle", true, false)
+	if ai_toggle and ai_toggle.has_method("enable_ai"):
+		ai_toggle.enable_ai()
+	var ai_pilot = aircraft.find_child("AIPilot", true, false) as AIPilot
+	if not ai_pilot:
+		print("[EnemyAircraftSpawner] Enemy base flight missing AIPilot")
+		return
+	var base_pos: Vector3 = enemy_base.global_position
+	var patrol_altitude_m: float = maxf(cap_flight_altitude_m, 400.0)
+	var orbit_waypoints: Array[Vector3] = _build_carrier_orbit_waypoints(base_pos, enemy_base_patrol_radius_m, patrol_altitude_m, 8)
+	ai_pilot.carrier_position = base_pos
+	ai_pilot.target_altitude = patrol_altitude_m
+	ai_pilot.patrol_altitude_m = patrol_altitude_m
+	ai_pilot.target_speed = maxf(spawn_speed, 85.0)
+	ai_pilot.ground_attack_enabled = true
+	ai_pilot.dogfight_enabled = true
+	ai_pilot.set_waypoints(orbit_waypoints.duplicate(), false)
+	if not orbit_waypoints.is_empty():
+		ai_pilot.current_waypoint_index = orbit_offset % orbit_waypoints.size()
+	ai_pilot.change_state(AIPilot.State.SEARCH)
+
+func _configure_enemy_base_response_pilot(aircraft: RigidBody3D, enemy_base: Node3D, response_position: Vector3, orbit_offset: int) -> void:
+	if not is_instance_valid(aircraft) or not is_instance_valid(enemy_base):
+		return
+	var ai_toggle = aircraft.find_child("AIToggle", true, false)
+	if ai_toggle and ai_toggle.has_method("enable_ai"):
+		ai_toggle.enable_ai()
+	var ai_pilot = aircraft.find_child("AIPilot", true, false) as AIPilot
+	if not ai_pilot:
+		print("[EnemyAircraftSpawner] Enemy base response flight missing AIPilot")
+		return
+	var patrol_altitude_m: float = maxf(cap_flight_altitude_m, 450.0)
+	var orbit_radius_m: float = maxf(enemy_base_patrol_radius_m * 0.8, 900.0)
+	var orbit_waypoints: Array[Vector3] = _build_carrier_orbit_waypoints(response_position, orbit_radius_m, patrol_altitude_m, 8)
+	ai_pilot.carrier_position = enemy_base.global_position
+	ai_pilot.target_altitude = patrol_altitude_m
+	ai_pilot.patrol_altitude_m = patrol_altitude_m
+	ai_pilot.target_speed = maxf(spawn_speed, 90.0)
+	ai_pilot.ground_attack_enabled = true
+	ai_pilot.dogfight_enabled = true
+	ai_pilot.set_waypoints(orbit_waypoints.duplicate(), false)
+	if not orbit_waypoints.is_empty():
+		ai_pilot.current_waypoint_index = orbit_offset % orbit_waypoints.size()
+	ai_pilot.change_state(AIPilot.State.SEARCH)
+
 func _configure_friendly_cap_pilot(aircraft: RigidBody3D, orbit_waypoints: Array[Vector3], orbit_offset: int, altitude_override_m: float = -1.0) -> void:
 	if not is_instance_valid(aircraft):
 		return
@@ -659,7 +865,7 @@ func _configure_friendly_cap_pilot(aircraft: RigidBody3D, orbit_waypoints: Array
 	ai_pilot.target_speed = maxf(spawn_speed, 80.0)
 	ai_pilot.ground_attack_enabled = false
 	ai_pilot.dogfight_enabled = true
-	ai_pilot.set_waypoints(orbit_waypoints.duplicate())
+	ai_pilot.set_waypoints(orbit_waypoints.duplicate(), true)
 	if not orbit_waypoints.is_empty():
 		ai_pilot.current_waypoint_index = int((orbit_offset * orbit_waypoints.size()) / 3)
 	ai_pilot.change_state(AIPilot.State.SEARCH)
@@ -704,6 +910,24 @@ func _get_random_valid_air_spawn_direction(origin: Vector3, range_m: float, map_
 	if fallback_dir.length() < 0.01:
 		fallback_dir = Vector3.FORWARD
 	return fallback_dir
+
+func _get_enemy_base_launch_direction(base: Node3D) -> Vector3:
+	if not is_instance_valid(base):
+		return Vector3.FORWARD
+	var carrier := get_tree().get_first_node_in_group("carrier") as Node3D
+	if carrier and is_instance_valid(carrier):
+		var to_carrier := carrier.global_position - base.global_position
+		to_carrier.y = 0.0
+		if to_carrier.length_squared() > 1.0:
+			return to_carrier.normalized()
+	if base.has_method("get_launch_direction"):
+		var launch_dir = base.call("get_launch_direction")
+		if launch_dir is Vector3:
+			var flat_launch: Vector3 = launch_dir
+			flat_launch.y = 0.0
+			if flat_launch.length_squared() > 0.0001:
+				return flat_launch.normalized()
+	return Vector3.FORWARD
 
 func _spawn_enemy():
 	if not _aircraft_scene:
@@ -1105,62 +1329,54 @@ func _waypoint_most_ahead(aircraft: Node3D, waypoints: Array) -> int:
 	return best_idx
 
 func _spawn_enemy_base() -> void:
-	if not _building_barracks_scene:
-		print("[EnemyAircraftSpawner] X: building scene not loaded")
+	if not _enemy_base_scene:
+		print("[EnemyAircraftSpawner] X: enemy base scene not loaded")
 		return
 
-	var carrier_pos: Vector3 = _get_carrier_position()
-	var base_center: Vector3 = _find_flat_base_position(carrier_pos)
-	var building_count: int = randi_range(3, 5)
-	var space_state := get_world_3d().direct_space_state
+	var root := get_tree().current_scene
+	if root == null:
+		return
+	var terrain := root.find_child("LowPolyTerrainPrototype", true, false) as Node3D
+	if terrain == null:
+		print("[EnemyAircraftSpawner] X: terrain not found")
+		return
 
-	# Generate cluster offsets 50-100m apart in a rough circle
-	var placed: Array[Vector3] = []
-	for i in range(building_count):
-		var offset := Vector3.ZERO
-		if i > 0:
-			for _attempt in range(20):
-				var angle := randf() * TAU
-				var dist := randf_range(50.0, 100.0)
-				offset = Vector3(cos(angle) * dist, 0.0, sin(angle) * dist)
-				# Check it doesn't overlap too closely with already placed buildings
-				var ok := true
-				for p in placed:
-					if p.distance_to(base_center + offset) < 40.0:
-						ok = false
-						break
-				if ok:
-					break
+	var carrier := get_tree().get_first_node_in_group("carrier") as Node3D
+	var carrier_pos: Vector3 = carrier.global_position if carrier and is_instance_valid(carrier) else Vector3.ZERO
+	var placement: Dictionary = {"valid": false}
+	var scenario_manager := root.find_child("ScenarioManager", true, false)
+	if scenario_manager and scenario_manager.has_method("_find_enemy_base_placement") and carrier and is_instance_valid(carrier):
+		var scenario_placement = scenario_manager.call("_find_enemy_base_placement", carrier, terrain)
+		if scenario_placement is Dictionary:
+			placement = scenario_placement
 
-		var world_pos := base_center + offset
-		# Raycast to find ground height
-		var params := PhysicsRayQueryParameters3D.create(
-			world_pos + Vector3.UP * 2000.0,
-			world_pos - Vector3.UP * 300.0
-		)
-		var hit := space_state.intersect_ray(params)
-		if hit:
-			world_pos.y = hit.position.y
-		else:
-			world_pos.y = base_center.y
+	var base := _enemy_base_scene.instantiate() as Node3D
+	if base == null:
+		return
+	base.name = "EnemyBaseDebug_%d" % (get_tree().get_nodes_in_group("enemy_bases").size() + 1)
+	root.add_child(base)
 
-		var building := _building_barracks_scene.instantiate() as Node3D
-		get_tree().current_scene.add_child(building)
-		building.global_position = world_pos
-		# Random rotation for variety
-		building.global_rotation.y = randf() * TAU
-		placed.append(world_pos)
+	if bool(placement.get("valid", false)):
+		var yaw_deg: float = float(placement.get("yaw_deg", 0.0))
+		var position: Vector3 = placement.get("position", Vector3.ZERO)
+		base.global_transform = Transform3D(Basis(Vector3.UP, deg_to_rad(yaw_deg)), position)
+	else:
+		var fallback_position := _find_flat_base_position(carrier_pos)
+		base.global_transform = Transform3D(Basis(Vector3.UP, deg_to_rad(45.0 * float(randi() % 4))), fallback_position)
 
-	print("[EnemyAircraftSpawner] X: spawned %d buildings at %s" % [building_count, str(base_center)])
+	if base.has_method("configure_layout"):
+		base.call("configure_layout", terrain, randi_range(5, 6))
+
+	print("[EnemyAircraftSpawner] X: spawned %s at %s" % [base.name, str(base.global_position)])
 
 func _find_flat_base_position(carrier_pos: Vector3) -> Vector3:
 	var carrier_ground_y: float = _sample_ground_height(carrier_pos)
-	var best_pos := Vector3(carrier_pos.x + 2500.0, carrier_ground_y, carrier_pos.z)
+	var best_pos := Vector3(carrier_pos.x + 5000.0, carrier_ground_y, carrier_pos.z)
 	var best_flatness: float = INF
 
 	for _attempt in range(40):
 		var angle: float = randf() * TAU
-		var dist: float = randf_range(2000.0, 3500.0)
+		var dist: float = randf_range(4000.0, 6500.0)
 		var center := Vector3(
 			carrier_pos.x + cos(angle) * dist,
 			0.0,

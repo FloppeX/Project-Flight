@@ -3,6 +3,8 @@ class_name VehicleEnemyLight
 
 signal destroyed(vehicle)
 
+const VISUAL_FOCUS_HELPER = preload("res://Effects/VisualFocus.gd")
+
 # --- Movement ---
 @export var max_speed: float = 15.0
 @export var acceleration: float = 4.0
@@ -491,6 +493,8 @@ func _get_active_camera(delta: float) -> Camera3D:
 	return _cached_active_camera
 
 func _should_use_detailed_suspension(delta: float) -> bool:
+	if VISUAL_FOCUS_HELPER.is_node_in_target_camera_focus(self, self):
+		return true
 	var camera := _get_active_camera(delta)
 	if camera == null or not is_instance_valid(camera):
 		return false

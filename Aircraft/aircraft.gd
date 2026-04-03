@@ -19,7 +19,7 @@ signal destroyed
 @export var team: int = 1
 @export var damage_cooldown_s: float = 0.01  # Reduced from 0.05 to allow more bullet hits
 @export var debug_damage: bool = false
-@export var prevent_below_terrain: bool = true
+@export var prevent_below_terrain: bool = true 
 @export var ground_clearance: float = 0.25
 @export var ground_probe_up: float = 50.0
 @export var ground_probe_down: float = 2000.0
@@ -139,7 +139,11 @@ func _ready():
 	_ensure_weapon_support_modules()
 	
 	setup()
-	
+
+	# Apply player livery colors to friendly aircraft
+	if team == 1 and Livery:
+		Livery.apply(self)
+
 	physics_interpolation_mode = Node3D.PHYSICS_INTERPOLATION_MODE_ON
 
 func _ensure_weapon_support_modules() -> void:
@@ -205,13 +209,19 @@ func _on_Aircraft_body_shape_entered(body_rid, body, body_shape_index, local_sha
 	# If the colliding body is a projectile, let the projectile's script handle the damage.
 	if body is ProjectileNew:
 		return
+	var collider_shape = shape_owner_get_owner(local_shape_index)
+	var impact_force = linear_velocity.length()
+	if _is_runway_surface(body):
+		if collider_shape in safe_colliders:
+			var landing_force = linear_velocity.dot(global_transform.basis.y)
+			land(landing_force, impact_force)
+		else:
+			_evaluate_terrain_impact()
+		return
 	# Terrain-specific handling
 	if _is_ground_or_terrain(body):
 		_evaluate_terrain_impact()
 		return
-		
-	var collider_shape = shape_owner_get_owner(local_shape_index)
-	var impact_force = linear_velocity.length()
 	
 	if collider_shape in safe_colliders:
 		var landing_force = linear_velocity.dot(global_transform.basis.y)
@@ -292,6 +302,9 @@ func _evaluate_terrain_impact():
 		return
 	# Otherwise, unsafe terrain contact
 	explode()
+
+func _is_runway_surface(body: Node) -> bool:
+	return body != null and body.is_in_group("runway_surface")
 
 func _is_ground_or_terrain(body: Node) -> bool:
 	if body.name == "Aircraft" or "aircraft" in body.name.to_lower():

@@ -3,6 +3,8 @@ class_name DustEffect
 
 ## Spawns rising dust puffs at ground contact points while moving.
 
+const VISUAL_FOCUS_HELPER = preload("res://Effects/VisualFocus.gd")
+
 @export var min_speed_mps: float = 2.0
 @export var spawn_interval_s: float = 0.25
 @export var puff_scale_min: float = 0.6
@@ -191,6 +193,8 @@ func _get_active_camera(delta: float) -> Camera3D:
 	return _cached_camera
 
 func _should_emit_for_camera(delta: float) -> bool:
+	if VISUAL_FOCUS_HELPER.is_node_in_target_camera_focus(self, _parent_node):
+		return true
 	var camera := _get_active_camera(delta)
 	if camera == null or not is_instance_valid(camera):
 		return false

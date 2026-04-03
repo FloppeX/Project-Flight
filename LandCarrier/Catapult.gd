@@ -18,7 +18,7 @@ signal launch_sequence_aborted
 # Timing and forces
 @export var shuttle_speed: float = 30.0       # Constant shuttle speed (m/s)
 @export var approach_speed_mps: float = 2.0   # Slow approach speed when moving to latch
-@export var return_speed_mps: float = 10.0    # Speed shuttle moves back after launch
+@export var return_speed_mps: float = 35.0    # Speed shuttle moves back after launch
 @export var latch_proximity_m: float = 0.1    # Distance at which shuttle latches nose gear (proximity fallback)
 @export var tow_position_gain: float = 12.0   # Converts nose-position error to corrective target velocity
 @export var tow_force_max: float = 250000.0   # Caps tow force to avoid instability (overridden by mass-based calc)
@@ -52,7 +52,8 @@ var _saved_collision_mask: int = 0
 var _settling: bool = false
 var _settle_timer: float = 0.0
 var _finalizing: bool = false
-var _pin_at_release_point: bool = true
+var _pin_at_connect_point: bool = true
+var _returning_to_connect: bool = false
 var _alignment_pending: bool = false
 var _latch_target_position: Vector3
 var _spooling_up: bool = false
@@ -84,9 +85,9 @@ func _ready():
 		shuttle_area.area_entered.connect(_on_shuttle_area_entered)
 		shuttle_area.body_entered.connect(_on_shuttle_body_entered)
 		
-	# Start shuttle at release point and pin it there.
-	shuttle.global_position = release_marker.global_position
-	_pin_at_release_point = true
+	# Start shuttle at the latch/connect point so the next aircraft can hook up quickly.
+	shuttle.global_position = latch_marker.global_position
+	_pin_at_connect_point = true
 	
 	# Calculate the required acceleration for the launch sequence
 	var launch_distance = latch_marker.global_position.distance_to(release_marker.global_position)
@@ -105,7 +106,7 @@ func _ready():
 
 var _dbg_frame: int = 0
 func _physics_process(delta: float):
-	if is_instance_valid(_aircraft) and (not _pin_at_release_point) and not _launching:
+	if is_instance_valid(_aircraft) and (not _pin_at_connect_point) and not _launching:
 		_dbg_frame += 1
 		if _dbg_frame % 10 == 0:  # every ~10 physics frames
 			var lm_pos := latch_marker.global_position if is_instance_valid(latch_marker) else Vector3.ZERO
@@ -128,7 +129,7 @@ func _physics_process(delta: float):
 		_alignment_pending = false
 		return
 		
-	if not _is_ready or not is_instance_valid(_aircraft):
+	if not _is_ready:
 		return
 		
 	# State machine
@@ -142,10 +143,22 @@ func _physics_process(delta: float):
 		return
 
 	# If not settling, check if the shuttle should be pinned at its idle spot.
-	if _pin_at_release_point:
-		if debug_enabled: print("[CATAPULT] Shuttle is pinned at release point.")
-		if is_instance_valid(shuttle) and is_instance_valid(release_marker):
-			shuttle.global_position = release_marker.global_position
+	if _pin_at_connect_point:
+		if is_instance_valid(shuttle) and is_instance_valid(latch_marker):
+			shuttle.global_position = latch_marker.global_position
+		return
+
+	if _returning_to_connect:
+		if not is_instance_valid(shuttle) or not is_instance_valid(latch_marker):
+			return
+		shuttle.global_position = shuttle.global_position.move_toward(latch_marker.global_position, return_speed_mps * delta)
+		if shuttle.global_position.distance_to(latch_marker.global_position) <= 0.05:
+			shuttle.global_position = latch_marker.global_position
+			_returning_to_connect = false
+			_pin_at_connect_point = true
+		return
+
+	if not is_instance_valid(_aircraft):
 		return
 
 	# If not settling and not pinned, proceed with approach or launch logic.
@@ -254,7 +267,8 @@ func begin_sequence(aircraft: RigidBody3D) -> void:
 	_latched = false
 	_launching = false
 	_moving_to_latch = true
-	_pin_at_release_point = false
+	_pin_at_connect_point = false
+	_returning_to_connect = false
 	# Freeze the aircraft solid while the shuttle approaches.
 	# _release_wheels() will unfreeze for the launch stroke.
 	aircraft.freeze = true
@@ -391,12 +405,13 @@ func _release() -> void:
 	_latched = false
 	_launching = false
 	_aircraft = null
-	_pin_shuttle_at_end()
+	_return_shuttle_to_connect()
 	emit_signal("launch_sequence_complete")
 	
-func _pin_shuttle_at_end() -> void:
-	if debug_enabled: print("[CATAPULT] Pinning shuttle at release point.")
-	_pin_at_release_point = true
+func _return_shuttle_to_connect() -> void:
+	if debug_enabled: print("[CATAPULT] Returning shuttle to connect point.")
+	_pin_at_connect_point = false
+	_returning_to_connect = true
 
 func _find_aircraft(from_node: Node) -> RigidBody3D:
 	var n: Node = from_node
@@ -583,7 +598,7 @@ func _abort_launch() -> void:
 	_hold_at_power = false
 	_engine_starting = false
 	_aircraft = null
-	_pin_shuttle_at_end()
+	_return_shuttle_to_connect()
 	emit_signal("launch_sequence_aborted")
 
 func _reset_state():
@@ -605,7 +620,8 @@ func _reset_state():
 	_spooling_up = false
 	_hold_at_power = false
 	_engine_starting = false
-	_pin_at_release_point = true
+	_pin_at_connect_point = true
+	_returning_to_connect = false
 	_effective_tow_force_max = 0.0
 
 # --- Helpers ---

@@ -18,8 +18,10 @@ signal deck_state_changed(new_state)
 	Vector3(12, 0, 0)
 ]
 @export var max_hangar_capacity: int = 12
-@export var aircraft_template_scene: PackedScene  # Aircraft 1 template
+@export var aircraft_template_scene: PackedScene  # Default aircraft template (Aircraft 5)
 @export var aircraft_2_scene: PackedScene         # Aircraft 2 template
+@export var aircraft_7_scene: PackedScene         # Aircraft 7 template
+@export var aircraft_8_scene: PackedScene         # Aircraft 8 template
 @export var auto_recovery_enabled: bool = true
 @export var auto_recovery_speed_threshold_mps: float = 1.5
 @export var auto_recovery_zone_half_width_m: float = 22.0
@@ -32,6 +34,8 @@ signal deck_state_changed(new_state)
 @export var landing_deck_block_min_local_z: float = -95.0
 @export var landing_deck_block_max_local_z: float = 95.0
 @export var landing_deck_block_height_margin_m: float = 8.0
+
+const DEFAULT_AIRCRAFT_SCENE_PATH := "res://Aircraft/Aircraft_5.tscn"
 
 enum DeckState {
 	IDLE,
@@ -55,8 +59,9 @@ var _recovery_release_done: bool = false
 var stored_aircraft: Array[Dictionary] = []  # Store aircraft data instead of references
 var _pending_store_aircraft: RigidBody3D = null
 var _aircraft_lift_height: float = 0.2  # Height to lift aircraft when moving
-var _aircraft_move_speed: float = 3.0  # Speed to move aircraft around deck
-var _tractor_staging_speed: float = 6.0  # Bot retreat speed to staging (m/s)
+var _aircraft_move_speed: float = 7.0  # Speed to move aircraft around deck
+var _tractor_staging_speed: float = 18.0  # Bot retreat speed to staging (m/s)
+var _retrieval_spawn_settle_s: float = 0.15
 var _flight_deck_local_offset_y: float = 0.5  # Fallback local offset if no marker
 var _aircraft_original_collision_layer: int = 0
 var _aircraft_original_collision_mask: int = 0
@@ -70,8 +75,11 @@ var landing_deck_active: bool = false
 # FlightOps AI-launch queue
 var _ai_launch_queue: int = 0          # Aircraft still to retrieve+launch for FlightOps
 var _pending_flight_ops: Node = null   # Node waiting for notify_aircraft_launched() callbacks (FlightDirector)
+var _retrieval_ai_land_after_launch: bool = true
 
 func _ready():
+	if not aircraft_template_scene:
+		aircraft_template_scene = load(DEFAULT_AIRCRAFT_SCENE_PATH) as PackedScene
 	add_to_group("flight_deck_manager")
 	if catapult:
 		if catapult.has_signal("launch_sequence_complete"):
@@ -170,9 +178,29 @@ func _input(event):
 	# Spawn Aircraft 5 from hangar (key "5")
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_5:
 		if current_state == DeckState.IDLE:
-			var scene: PackedScene = load("res://Aircraft/Aircraft_5.tscn")
+			var scene: PackedScene = load(DEFAULT_AIRCRAFT_SCENE_PATH)
 			if scene:
 				stored_aircraft.push_front({"name": "Aircraft_5", "scene_file": "", "scene": scene, "position": Vector3.ZERO, "rotation": Vector3.ZERO, "scale": Vector3.ONE, "metadata": {}})
+				start_hangar_retrieval()
+
+	# Spawn Aircraft 7 from hangar (key "7")
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_7:
+		if current_state == DeckState.IDLE:
+			var scene := aircraft_7_scene
+			if not scene:
+				scene = load("res://Aircraft/Aircraft_7.tscn")
+			if scene:
+				stored_aircraft.push_front({"name": "Aircraft_7", "scene_file": "", "scene": scene, "position": Vector3.ZERO, "rotation": Vector3.ZERO, "scale": Vector3.ONE, "metadata": {}})
+				start_hangar_retrieval()
+
+	# Spawn Aircraft 8 from hangar (key "8")
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_8:
+		if current_state == DeckState.IDLE:
+			var scene := aircraft_8_scene
+			if not scene:
+				scene = load("res://Aircraft/Aircraft_8.tscn")
+			if scene:
+				stored_aircraft.push_front({"name": "Aircraft_8", "scene_file": "", "scene": scene, "position": Vector3.ZERO, "rotation": Vector3.ZERO, "scale": Vector3.ONE, "metadata": {}})
 				start_hangar_retrieval()
 
 	# Debug key to force reset state (key "9")
@@ -233,6 +261,7 @@ func queue_ai_flight(count: int, ops: Node) -> void:
 		return
 	_ai_launch_queue = available
 	_pending_flight_ops = ops
+	_retrieval_ai_land_after_launch = false
 	if current_state == DeckState.IDLE:
 		_launch_next_queued_ai()
 
@@ -240,6 +269,7 @@ func _launch_next_queued_ai() -> void:
 	if _ai_launch_queue <= 0 or stored_aircraft.is_empty():
 		_ai_launch_queue = 0
 		_pending_flight_ops = null
+		_retrieval_ai_land_after_launch = true
 		return
 	_ai_launch_queue -= 1
 	start_hangar_retrieval()
@@ -259,12 +289,16 @@ func _on_catapult_sequence_complete():
 		_launch_next_queued_ai()
 	elif _pending_flight_ops != null:
 		_pending_flight_ops = null
+		_retrieval_ai_land_after_launch = true
 
 func _on_catapult_sequence_aborted():
 	if is_instance_valid(deck_aircraft):
 		if deck_aircraft.has_meta("controls_disabled"):
 			deck_aircraft.remove_meta("controls_disabled")
 	_return_tractors_to_staging()
+	_ai_launch_queue = 0
+	_pending_flight_ops = null
+	_retrieval_ai_land_after_launch = true
 	current_state = DeckState.IDLE
 	deck_aircraft = null
 
@@ -398,34 +432,36 @@ func _abort_current_sequence() -> void:
 	current_state = DeckState.IDLE
 
 func _find_arrested_aircraft() -> RigidBody3D:
-	for node in get_tree().get_nodes_in_group("aircraft"):
-		if not (node is RigidBody3D):
-			continue
-		var aircraft := node as RigidBody3D
-		if not is_instance_valid(aircraft):
-			continue
-		if aircraft.has_meta("arresting_engaged") and bool(aircraft.get_meta("arresting_engaged")):
-			return aircraft
+	for group in ["aircraft", "ai_aircraft", "friendlies"]:
+		for node in get_tree().get_nodes_in_group(group):
+			if not (node is RigidBody3D):
+				continue
+			var aircraft := node as RigidBody3D
+			if not is_instance_valid(aircraft):
+				continue
+			if aircraft.has_meta("arresting_engaged") and bool(aircraft.get_meta("arresting_engaged")):
+				return aircraft
 	return null
 
 func _find_stopped_aircraft_in_recovery_zone() -> RigidBody3D:
-	for node in get_tree().get_nodes_in_group("aircraft"):
-		if not (node is RigidBody3D):
-			continue
-		var aircraft := node as RigidBody3D
-		if not is_instance_valid(aircraft):
-			continue
-		if aircraft.has_meta("carrier_transport_mode") and bool(aircraft.get_meta("carrier_transport_mode")):
-			continue
-		var controls_disabled := aircraft.has_meta("controls_disabled") and bool(aircraft.get_meta("controls_disabled"))
-		var arresting_engaged := aircraft.has_meta("arresting_engaged") and bool(aircraft.get_meta("arresting_engaged"))
-		var parking_brake := aircraft.has_meta("parking_brake") and bool(aircraft.get_meta("parking_brake"))
-		if controls_disabled and not arresting_engaged and not parking_brake:
-			continue
-		if aircraft.linear_velocity.length() > auto_recovery_speed_threshold_mps:
-			continue
-		if _is_aircraft_in_auto_recovery_zone(aircraft):
-			return aircraft
+	for group in ["aircraft", "ai_aircraft", "friendlies"]:
+		for node in get_tree().get_nodes_in_group(group):
+			if not (node is RigidBody3D):
+				continue
+			var aircraft := node as RigidBody3D
+			if not is_instance_valid(aircraft):
+				continue
+			if aircraft.has_meta("carrier_transport_mode") and bool(aircraft.get_meta("carrier_transport_mode")):
+				continue
+			var controls_disabled := aircraft.has_meta("controls_disabled") and bool(aircraft.get_meta("controls_disabled"))
+			var arresting_engaged := aircraft.has_meta("arresting_engaged") and bool(aircraft.get_meta("arresting_engaged"))
+			var parking_brake := aircraft.has_meta("parking_brake") and bool(aircraft.get_meta("parking_brake"))
+			if controls_disabled and not arresting_engaged and not parking_brake:
+				continue
+			if aircraft.linear_velocity.length() > auto_recovery_speed_threshold_mps:
+				continue
+			if _is_aircraft_in_auto_recovery_zone(aircraft):
+				return aircraft
 	return null
 
 func _is_aircraft_in_auto_recovery_zone(aircraft: RigidBody3D) -> bool:
@@ -531,8 +567,8 @@ func start_post_arrest_recovery(aircraft: RigidBody3D) -> void:
 	_recovery_job_dispatched = false
 	_dispatch_recovery_job()
 
-func _configure_retrieved_aircraft_as_ai(aircraft: RigidBody3D) -> void:
-	"""Set up a hangar-retrieved aircraft for AI control with land-after-launch behaviour."""
+func _configure_retrieved_aircraft_as_ai(aircraft: RigidBody3D, land_after_launch: bool = true) -> void:
+	"""Set up a hangar-retrieved aircraft for AI control."""
 	aircraft.add_to_group("friendlies")
 	aircraft.add_to_group("ai_aircraft")
 	aircraft.remove_from_group("aircraft")  # Ensure not treated as player plane
@@ -564,10 +600,11 @@ func _configure_retrieved_aircraft_as_ai(aircraft: RigidBody3D) -> void:
 	if ai_toggle and ai_toggle.has_method("enable_ai"):
 		ai_toggle.enable_ai()
 
-	# Tell AI to go straight to landing approach after clearing the deck
+	# Manual retrieval can still use a launch-then-recover flow, but scramble
+	# launches should immediately proceed to their assigned mission.
 	var ai_pilot = aircraft.find_child("AIPilot", true, false)
 	if ai_pilot and "land_after_launch" in ai_pilot:
-		ai_pilot.land_after_launch = true
+		ai_pilot.land_after_launch = land_after_launch
 
 func _configure_retrieved_aircraft_as_player(aircraft: RigidBody3D) -> void:
 	"""Set up a hangar-retrieved aircraft for player control."""
@@ -733,8 +770,8 @@ func _spawn_aircraft_at_hangar_level():
 	# Store reference for the retrieval sequence
 	deck_aircraft = aircraft
 
-	# Wait 1 second for aircraft to settle, then activate tractorbots and start ascent
-	await get_tree().create_timer(1.0).timeout
+	# Short settle so the fresh spawn is stable before the elevator starts up.
+	await get_tree().create_timer(_retrieval_spawn_settle_s).timeout
 	# Re-validate after await: local references can become stale if the node was freed.
 	var retrieval_aircraft := deck_aircraft
 	if not is_instance_valid(retrieval_aircraft):
@@ -781,7 +818,7 @@ func _initialize_hangar_with_aircraft():
 	for i in range(max_hangar_capacity):
 		var aircraft_data = {
 			"name": "Aircraft_" + str(i + 1),
-			"scene_file": "res://Aircraft/Aircraft_1.tscn",
+			"scene_file": DEFAULT_AIRCRAFT_SCENE_PATH,
 			"position": Vector3.ZERO,
 			"rotation": Vector3.ZERO,
 			"scale": Vector3.ONE,
@@ -1386,7 +1423,7 @@ func _create_aircraft_at_hangar_level() -> RigidBody3D:
 	if not scene_to_use:
 		scene_to_use = aircraft_template_scene
 	if not scene_to_use:
-		scene_to_use = load("res://Aircraft/Aircraft_1.tscn")
+		scene_to_use = load(DEFAULT_AIRCRAFT_SCENE_PATH)
 		if not scene_to_use:
 			return null
 
@@ -1736,7 +1773,7 @@ func _complete_retrieval_sequence():
 	await _move_tractorbots_to_staging()
 
 	# Retrieved aircraft stay AI-controlled until the player explicitly takes over.
-	_configure_retrieved_aircraft_as_ai(aircraft)
+	_configure_retrieved_aircraft_as_ai(aircraft, _retrieval_ai_land_after_launch)
 
 	# Automatically start launch sequence
 	
@@ -1815,7 +1852,7 @@ func _move_tractorbots_to_staging():
 				bot.enable_movement()
 
 			# Move them to a position away from the aircraft
-			var staging_offset = Vector3(20.0 + i * 5.0, 0, -10.0)  # Spread them out
+			var staging_offset = Vector3(12.0 + i * 4.0, 0, -6.0)  # Clear the catapult quickly without a long retreat
 			var staging_position = elevator_pickup_marker.global_position + staging_offset
 			staging_position.y = _get_deck_height_y()  # Put them on deck level
 

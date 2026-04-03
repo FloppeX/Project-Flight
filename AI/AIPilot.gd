@@ -53,6 +53,7 @@ var control_weapons: Node # ControlWeapons module (for ground attack)
 # Saved SimpleAero values for restoration when AI is disabled
 var _saved_stability_strength: float = -1.0
 var _saved_auto_rudder_strength: float = -1.0
+var _ai_control_overrides_applied: bool = false
 
 # ============================================================================
 # SENSORS - AI's limited view of the world
@@ -91,11 +92,24 @@ var target_heading: float = 0.0  # Radians
 var target_speed: float = 80.0   # m/s
 var target_waypoint: Vector3 = Vector3.ZERO
 var combat_target: Node3D = null
+var formation_anchor_active: bool = false
+var formation_anchor: Vector3 = Vector3.ZERO
+var formation_speed_cap_mps: float = -1.0
+var formation_speed_bias_mps: float = 0.0
+var formation_slot_quality: float = 0.0
+var formation_ahead_hold_t: float = 0.0
 
 # Two-layer waypoint system
 var nav_waypoint: Vector3 = Vector3.ZERO  # High-level navigation goal
 var maneuver_waypoint: Vector3 = Vector3.ZERO  # Short-term maneuvering target
 @export var maneuver_lookahead_distance: float = 800.0  # How far ahead to place maneuver waypoint
+@export var formation_close_bank_limit_deg: float = 30.0
+@export var formation_close_pitch_limit_deg: float = 12.0
+@export var formation_close_vs_limit_mps: float = 4.0
+@export var formation_close_pitch_gain_scale: float = 0.65
+@export var formation_close_bank_gain_scale: float = 0.45
+@export var formation_turnaround_bank_scale: float = 0.28
+@export var formation_turnaround_bearing_soften_deg: float = 35.0
 
 # Ground attack parameters
 @export var attack_run_distance_m: float = 800.0   # Waypoint ~800m in front of target
@@ -298,6 +312,14 @@ var throttle_input: float = 0.5 # 0 to 1
 @export var rtb_fuel_threshold: float = 0.2    # Return to base below this fuel %
 @export var debug_enabled: bool = true
 @export var verbose_debug_enabled: bool = false  # Extra non-attack telemetry spam
+@export var cap_route_debug_enabled: bool = true
+@export var cap_route_debug_interval_s: float = 1.0
+@export var cap_route_debug_progress_epsilon_m: float = 8.0
+@export var cap_route_debug_stuck_time_s: float = 4.0
+@export var flight_path_alignment_debug_enabled: bool = true
+@export var flight_path_alignment_debug_interval_s: float = 2.5
+@export var flight_path_alignment_debug_min_speed_mps: float = 25.0
+@export var player_control_debug_passthrough_enabled: bool = true
 
 # Flight limits
 @export var max_pitch_angle: float = deg_to_rad(30.0)  # Maximum pitch up/down
@@ -309,6 +331,7 @@ var waypoint_threshold: float = 50.0  # Distance to consider waypoint reached
 var _committed_turn_sign: float = 0.0  # Locks turn direction when target is behind
 var waypoints: Array[Vector3] = []
 var current_waypoint_index: int = 0
+var waypoints_follow_carrier: bool = false
 var carrier_position: Vector3 = Vector3.ZERO  # Home carrier position
 
 # Launch safety
@@ -316,13 +339,25 @@ var launch_position: Vector3 = Vector3.ZERO
 var deck_clearance_distance: float = 300.0  # Distance from launch point to start climbing
 var land_after_launch: bool = false         # If true, start landing approach once climb completes
 var _land_after_climb: bool = false         # Set internally when land_after_launch triggers climb
-@export var launch_pullup_pitch_input: float = 0.8   # Pull-up authority after catapult launch
+@export var launch_pullup_pitch_input: float = 0.45   # Pull-up authority after catapult launch
 @export var launch_min_climb_rate_mps: float = 8.0   # Keep pulling until this vertical speed
+@export var launch_target_pitch_deg: float = 20.0
+@export var launch_soft_pitch_limit_deg: float = 28.0
+@export var launch_hard_pitch_limit_deg: float = 35.0
 @export var climb_aggressive_pitch_input: float = 0.75  # Strong climb command after deck clear
 @export var climb_aggressive_alt_margin_m: float = 120.0  # Stay aggressive until near climb target
+@export var climb_max_pitch_deg: float = 30.0
+@export var climb_vs_limit_mps: float = 14.0
 
 # Waypoint marker (visual)
 var _waypoint_marker: MeshInstance3D = null
+var _cap_route_debug_last_index: int = -1
+var _cap_route_debug_last_waypoint_count: int = 0
+var _flight_path_alignment_debug_timer_s: float = 0.0
+var _cap_route_debug_last_distance_m: float = INF
+var _cap_route_debug_timer_s: float = 0.0
+var _cap_route_debug_no_progress_s: float = 0.0
+var _passive_debug_only: bool = false
 
 # Health monitoring
 var max_health: float = 100.0
@@ -407,6 +442,8 @@ func _ready():
 func initialize(aircraft_node: RigidBody3D):
 	"""Setup AI pilot with aircraft reference"""
 	aircraft = aircraft_node
+	_passive_debug_only = false
+	_flight_path_alignment_debug_timer_s = 0.0
 
 	# Team-driven contact groups used by sensor scans.
 	var my_team: int = aircraft.get_team() if aircraft.has_method("get_team") else 1
@@ -439,12 +476,15 @@ func initialize(aircraft_node: RigidBody3D):
 	# Disable stability (auto-levels aircraft, fights AI's intentional banking)
 	# and auto_rudder (AI manages yaw explicitly based on desired bank angle).
 	if simple_aero:
-		if "stability_strength" in simple_aero:
+		if not _ai_control_overrides_applied and "stability_strength" in simple_aero:
 			_saved_stability_strength = simple_aero.stability_strength
+		if not _ai_control_overrides_applied and "auto_rudder_strength" in simple_aero:
+			_saved_auto_rudder_strength = simple_aero.auto_rudder_strength
+		if "stability_strength" in simple_aero:
 			simple_aero.stability_strength = 0.0
 		if "auto_rudder_strength" in simple_aero:
-			_saved_auto_rudder_strength = simple_aero.auto_rudder_strength
 			simple_aero.auto_rudder_strength = 0.0
+		_ai_control_overrides_applied = true
 		if debug_enabled and verbose_debug_enabled:
 			print("[AIPilot] Disabled stability and auto_rudder for AI control")
 
@@ -478,12 +518,23 @@ func deinitialize():
 			simple_aero.stability_strength = _saved_stability_strength
 		if _saved_auto_rudder_strength >= 0.0 and "auto_rudder_strength" in simple_aero:
 			simple_aero.auto_rudder_strength = _saved_auto_rudder_strength
+		_ai_control_overrides_applied = false
+		if "roll_input" in simple_aero:
+			simple_aero.roll_input = 0.0
+		if "pitch_input" in simple_aero:
+			simple_aero.pitch_input = 0.0
+		if "yaw_input" in simple_aero:
+			simple_aero.yaw_input = 0.0
+		_saved_stability_strength = -1.0
+		_saved_auto_rudder_strength = -1.0
 		if debug_enabled and verbose_debug_enabled:
 			print("[AIPilot] Restored stability and auto_rudder for player control")
 	if _waypoint_marker and is_instance_valid(_waypoint_marker):
 		_waypoint_marker.queue_free()
 		_waypoint_marker = null
-	set_physics_process(false)
+	_flight_path_alignment_debug_timer_s = 0.0
+	_passive_debug_only = player_control_debug_passthrough_enabled and debug_enabled
+	set_physics_process(_passive_debug_only)
 
 func _physics_process(delta: float):
 	if not aircraft or not is_instance_valid(aircraft):
@@ -500,6 +551,10 @@ func _physics_process(delta: float):
 
 	# Update sensors - AI's view of the world
 	_update_sensors()
+
+	if _passive_debug_only:
+		_emit_player_debug_telemetry(delta)
+		return
 
 	# Update health and fuel monitoring for RTB
 	_check_rtb_triggers()
@@ -553,13 +608,15 @@ func _physics_process(delta: float):
 		var spd: float = aircraft.linear_velocity.length()
 		var alt: float = aircraft.global_position.y
 		var vs: float = aircraft.linear_velocity.y
-		var pitch_deg: float = rad_to_deg(asin(clamp(-aircraft.global_transform.basis.y.z, -1.0, 1.0)))
+		var pitch_deg: float = rad_to_deg(_get_forward_pitch_rad())
 		var h_spd: float = Vector2(aircraft.linear_velocity.x, aircraft.linear_velocity.z).length()
 		var fpa_deg: float = rad_to_deg(atan2(-aircraft.linear_velocity.y, max(h_spd, 1.0)))
 		var state_name: String = State.keys()[current_state]
 		var pos: Vector3 = aircraft.global_position
 		var override_str: String = "  [SAFETY]" if _safety_override_active else ""
 		print("[AIPilot TEL] state=", state_name, override_str, "  pos=(", snapped(pos.x, 1), ",", snapped(pos.y, 1), ",", snapped(pos.z, 1), ")  alt=", snapped(alt, 1), "  AGL=", snapped(altitude_agl, 1), "  spd=", snapped(spd, 1), "m/s  VS=", snapped(vs, 1), "  pitch=", snapped(pitch_deg, 0.1), "Ãƒâ€šÃ‚Â°  fpa=", snapped(fpa_deg, 0.1), "Ãƒâ€šÃ‚Â°")
+
+	_debug_flight_path_alignment(delta)
 
 	# Update waypoint marker position
 	_update_waypoint_marker()
@@ -582,10 +639,16 @@ func _state_launching(delta: float):
 	# while we clear the deck, but avoid aggressive pull-up at catapult speed.
 	# Pull hard until we have a healthy climb rate; taper slightly once climbing
 	# but never drop below a minimum to prevent terrain impact after catapult.
-	if aircraft.linear_velocity.y < launch_min_climb_rate_mps:
-		pitch_input = launch_pullup_pitch_input
-	else:
-		pitch_input = maxf(launch_pullup_pitch_input * 0.6, 0.2)
+	var current_pitch_deg := rad_to_deg(_get_forward_pitch_rad())
+	var base_pitch_input: float = launch_pullup_pitch_input if aircraft.linear_velocity.y < launch_min_climb_rate_mps else maxf(launch_pullup_pitch_input * 0.65, 0.16)
+	var pitch_soft_t := clampf(
+		(launch_soft_pitch_limit_deg - current_pitch_deg) / maxf(launch_soft_pitch_limit_deg - launch_target_pitch_deg, 1.0),
+		0.0,
+		1.0
+	)
+	pitch_input = lerpf(-0.16, base_pitch_input, pitch_soft_t)
+	if current_pitch_deg >= launch_hard_pitch_limit_deg:
+		pitch_input = minf(pitch_input, -0.18)
 	_smoothed_pitch_input = pitch_input
 	roll_input = 0.0
 	yaw_input = 0.0
@@ -611,6 +674,7 @@ func _state_launching(delta: float):
 func _state_climbing(delta: float):
 	"""Climb to pattern altitude after launch"""
 	target_speed = 85.0
+	var current_pitch_deg := rad_to_deg(_get_forward_pitch_rad())
 
 	# Retract gear and flaps once airborne
 	if _is_airborne() and is_instance_valid(control_gear):
@@ -641,8 +705,13 @@ func _state_climbing(delta: float):
 		var speed_factor := clampf((cur_speed - safe_speed) / 30.0, 0.0, 1.0)
 		var max_pitch := lerpf(0.1, climb_aggressive_pitch_input * 0.5, speed_factor)
 		pitch_input = minf(pitch_input, max_pitch)
-		_smoothed_pitch_input = pitch_input
 		throttle_input = 1.0
+	var climb_pitch_soft_t := clampf((climb_max_pitch_deg - current_pitch_deg) / 8.0, 0.0, 1.0)
+	var climb_pitch_cap := lerpf(-0.12, climb_aggressive_pitch_input * 0.35, climb_pitch_soft_t)
+	pitch_input = minf(pitch_input, climb_pitch_cap)
+	if current_pitch_deg >= climb_max_pitch_deg + 4.0:
+		pitch_input = minf(pitch_input, -0.16)
+	_smoothed_pitch_input = pitch_input
 
 	# No banking below 150m AGL — turns at low altitude after launch are fatal.
 	# Taper bank in gradually between 150 m and 300 m AGL.
@@ -672,6 +741,13 @@ func _state_transit(delta: float):
 	Notifies flight_ops_ref when on station, then enters patrol."""
 	target_speed = 80.0
 
+	if formation_anchor_active:
+		nav_waypoint = formation_anchor
+		target_altitude = nav_waypoint.y
+		_update_maneuver_waypoint()
+		_navigate_to_waypoint(delta)
+		return
+
 	# Maintain altitude and navigate toward nav_waypoint
 	target_altitude = nav_waypoint.y
 	_update_maneuver_waypoint()
@@ -686,14 +762,25 @@ func _state_transit(delta: float):
 
 func _state_search(delta: float):
 	"""Looking for targets - fly rectangular patrol pattern around carrier"""
-	# Keep patrol altitude via public API to ensure waypoint Y syncs
-	if target_altitude != patrol_altitude_m:
+	# Carrier-centered patrols should stay synced to patrol altitude, but
+	# externally authored routes may carry their own per-waypoint altitudes.
+	var should_sync_patrol_altitude := waypoints_follow_carrier or waypoints.is_empty()
+	if should_sync_patrol_altitude and target_altitude != patrol_altitude_m:
 		set_patrol_altitude(patrol_altitude_m)
 	# Speed policy for patrol
 	target_speed = 80.0
 
+	if formation_anchor_active:
+		_reset_cap_route_debug()
+		nav_waypoint = formation_anchor
+		_update_maneuver_waypoint()
+		_navigate_to_waypoint(delta)
+		if _evaluate_combat_objective():
+			return
+		return
+
 	# Ensure we have a valid patrol center
-	_refresh_carrier_position(true)
+	_refresh_carrier_position(waypoints_follow_carrier)
 	_ensure_carrier_position()
 
 	# Set up patrol waypoints if not already done
@@ -712,7 +799,9 @@ func _state_search(delta: float):
 
 		# Check if reached waypoint (within 100m)
 		var distance_to_waypoint = aircraft.global_position.distance_to(nav_waypoint)
+		_debug_cap_route_following(delta, distance_to_waypoint)
 		if distance_to_waypoint < 100.0:
+			var reached_index: int = current_waypoint_index
 			# Move to next waypoint
 			current_waypoint_index += 1
 			if current_waypoint_index >= waypoints.size():
@@ -720,6 +809,21 @@ func _state_search(delta: float):
 
 			if debug_enabled and verbose_debug_enabled:
 				print("[AIPilot SEARCH] Reached waypoint ", current_waypoint_index, "/", waypoints.size())
+			if _is_debugging_custom_cap_route():
+				print("[AIPilot CAPDBG %s] reached wp %d/%d (dist=%.0fm) -> next %d/%d" % [
+					aircraft.name,
+					reached_index + 1,
+					waypoints.size(),
+					distance_to_waypoint,
+					current_waypoint_index + 1,
+					waypoints.size()
+				])
+				_cap_route_debug_last_index = current_waypoint_index
+				_cap_route_debug_last_distance_m = INF
+				_cap_route_debug_no_progress_s = 0.0
+				_cap_route_debug_timer_s = cap_route_debug_interval_s
+	else:
+		_reset_cap_route_debug()
 
 	if _evaluate_combat_objective():
 		return
@@ -860,7 +964,7 @@ func _is_within_engagement_radius(target: Node3D, radius_m: float = -1.0) -> boo
 	return carrier_position.distance_to(target.global_position) <= radius
 
 func _setup_attack_run_waypoint():
-	"""Set nav_waypoint to attack run start: ~800m in front of target, 300m above it."""
+	"""Set nav_waypoint to the weapon setup point, honoring the mission altitude floor."""
 	if not combat_target or not is_instance_valid(combat_target):
 		return
 	_plan_attack_run_weapon()
@@ -870,16 +974,12 @@ func _setup_attack_run_waypoint():
 	var horiz_dir: Vector3 = to_target.normalized() if to_target.length() > 1.0 else aircraft.global_transform.basis.z
 	var setup_dist: float = bomb_run_setup_distance_m if _run_weapon_type == "Bomb" else attack_run_distance_m
 	nav_waypoint = target_pos - horiz_dir * setup_dist
+	# Survey the highest terrain between setup point and target to guarantee adequate clearance.
+	var terrain_max: float = _sample_max_terrain_height_along_path(nav_waypoint, target_pos, 8)
+	var setup_altitude_m: float = _get_attack_setup_altitude_m(target_pos, terrain_max)
 	if _run_weapon_type == "Bomb":
-		# Survey the highest terrain between setup point and target to guarantee adequate clearance.
-		var terrain_max: float = _sample_max_terrain_height_along_path(nav_waypoint, target_pos, 8)
-		var base_alt: float = target_pos.y + bomb_run_setup_altitude_offset_m
-		if not is_nan(terrain_max):
-			base_alt = max(base_alt, terrain_max + bomb_run_setup_altitude_offset_m)
-		_bomb_run_altitude_m = base_alt
-		nav_waypoint.y = _bomb_run_altitude_m
-	else:
-		nav_waypoint.y = target_pos.y + attack_run_altitude_offset_m
+		_bomb_run_altitude_m = setup_altitude_m
+	nav_waypoint.y = setup_altitude_m
 	maneuver_waypoint = nav_waypoint
 	if debug_enabled:
 		print("[AIPilot ATTACK] Run setup waypoint: ", nav_waypoint, "  target=", target_pos, "  weapon=", _run_weapon_type, "  bombs=", _bombs_to_drop_this_run)
@@ -913,11 +1013,11 @@ func _state_attack_positioning(delta: float):
 	var dir: Vector3 = to_tgt.normalized() if to_tgt.length() > 1.0 else aircraft.global_transform.basis.z
 	var setup_dist: float = bomb_run_setup_distance_m if _run_weapon_type == "Bomb" else attack_run_distance_m
 	nav_waypoint = target_pos - dir * setup_dist
+	var terrain_max: float = _sample_max_terrain_height_along_path(nav_waypoint, target_pos, 8)
+	var setup_altitude_m: float = _get_attack_setup_altitude_m(target_pos, terrain_max)
 	if _run_weapon_type == "Bomb":
-		_bomb_run_altitude_m = target_pos.y + bomb_run_setup_altitude_offset_m
-		nav_waypoint.y = _bomb_run_altitude_m
-	else:
-		nav_waypoint.y = target_pos.y + attack_run_altitude_offset_m
+		_bomb_run_altitude_m = setup_altitude_m
+	nav_waypoint.y = setup_altitude_m
 
 	# Never let the positioning waypoint sit lower than our current altitude minus a gentle
 	# descent allowance. This prevents the plane from descending steeply through hilly terrain
@@ -1120,7 +1220,7 @@ func _state_attack_break_off(delta: float):
 	away.y = 0.0
 	var away_dir: Vector3 = away.normalized() if away.length() > 1.0 else aircraft.global_transform.basis.z
 	nav_waypoint = aircraft.global_position + away_dir * 1000.0
-	nav_waypoint.y = aircraft.global_position.y + 150.0  # Climb while egressing
+	nav_waypoint.y = maxf(aircraft.global_position.y + 150.0, patrol_altitude_m)  # Climb back toward mission altitude while egressing
 	_update_maneuver_waypoint()
 	_navigate_to_waypoint(delta)
 
@@ -2309,8 +2409,11 @@ func _state_rtb(delta: float):
 	
 	# Set target speed and navigation towards carrier
 	target_speed = 100.0
-	nav_waypoint = carrier_position
-	nav_waypoint.y = patrol_altitude_m
+	if formation_anchor_active:
+		nav_waypoint = formation_anchor
+	else:
+		nav_waypoint = carrier_position
+		nav_waypoint.y = patrol_altitude_m
 	
 	# Climb/descend to patrol altitude while navigating
 	_update_maneuver_waypoint()
@@ -3038,7 +3141,8 @@ func _state_landing(delta: float):
 	_smoothed_pitch_input = pitch_input
 
 	# === THROTTLE: maintain approach speed (min 0.1 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â lower than normal nav's 0.4) ===
-	var speed_err: float = target_speed - speed
+	var commanded_target_speed: float = _get_effective_target_speed()
+	var speed_err: float = commanded_target_speed - speed
 	throttle_input = clamp(throttle_input + clamp(speed_err * 0.01, -0.05, 0.05), 0.1, 1.0)
 	if speed < stall_speed_mps + stall_margin_mps:
 		throttle_input = 1.0
@@ -3152,6 +3256,9 @@ func _navigate_to_waypoint(delta: float):
 	var in_dogfight_rejoin: bool = false
 	if current_state == State.DOGFIGHT and combat_target and is_instance_valid(combat_target):
 		in_dogfight_rejoin = aircraft.global_position.distance_to(combat_target.global_position) > dogfight_rejoin_range_m
+	var formation_soft_t: float = 0.0
+	if formation_anchor_active and current_state in [State.SEARCH, State.TRANSIT, State.RTB]:
+		formation_soft_t = clampf(maxf(formation_slot_quality, formation_ahead_hold_t), 0.0, 1.0)
 	var horiz_to_target_for_limit: Vector3 = Vector3(to_target.x, 0.0, to_target.z)
 	var local_z_for_limit: float = horiz_to_target_for_limit.dot(b.z)
 	var bank_limit_deg: float
@@ -3165,6 +3272,12 @@ func _navigate_to_waypoint(delta: float):
 		bank_limit_deg = attack_bank_cmd_limit_deg
 	else:
 		bank_limit_deg = bank_cmd_limit_deg
+	if current_state in [State.SEARCH, State.TRANSIT]:
+		var nav_bank_t: float = clampf((altitude_agl - emergency_min_agl_m) / 220.0, 0.0, 1.0)
+		var low_nav_bank_limit: float = lerpf(bank_limit_when_low_deg, bank_limit_deg, nav_bank_t)
+		bank_limit_deg = minf(bank_limit_deg, low_nav_bank_limit)
+	if formation_soft_t > 0.0:
+		bank_limit_deg = lerpf(bank_limit_deg, minf(bank_limit_deg, formation_close_bank_limit_deg), formation_soft_t)
 	if current_state == State.DOGFIGHT and _dogfight_recovery_timer_s > 0.0:
 		bank_limit_deg = minf(bank_limit_deg, 25.0)
 	if current_state == State.DOGFIGHT and in_dogfight_rejoin:
@@ -3224,26 +3337,48 @@ func _navigate_to_waypoint(delta: float):
 			# Dogfight uses direct LOS sign; do not apply generic waypoint sign flip here.
 			_committed_turn_sign = 0.0
 		elif horiz_dir_z < -0.5:
-			# Target behind: commit to a turn direction.
-			var turn_toward: float
-			if abs(lateral_ratio) > 0.05:
-				turn_toward = signf(lateral_ratio)
+			if formation_soft_t > 0.0:
+				var turnaround_soft_t := clampf(
+					absf(bearing_err_rad) / maxf(deg_to_rad(formation_turnaround_bearing_soften_deg), 0.01),
+					0.0,
+					1.0
+				)
+				var formation_turn_gain := lerpf(
+					formation_turnaround_bank_scale,
+					formation_close_bank_gain_scale,
+					turnaround_soft_t
+				)
+				desired_bank = clampf(
+					bearing_err_rad * formation_turn_gain,
+					-deg_to_rad(bank_limit_deg),
+					deg_to_rad(bank_limit_deg)
+				)
+				_committed_turn_sign = 0.0
+				if flip_roll_direction:
+					desired_bank = -desired_bank
 			else:
+				# Target behind: commit to a turn direction.
+				var turn_toward: float
+				if abs(lateral_ratio) > 0.05:
+					turn_toward = signf(lateral_ratio)
+				else:
+					if _committed_turn_sign == 0.0:
+						var cross: float = aircraft.global_transform.basis.z.x * horiz_to_target.z - aircraft.global_transform.basis.z.z * horiz_to_target.x
+						_committed_turn_sign = -1.0 if cross > 0 else 1.0
+					turn_toward = _committed_turn_sign
 				if _committed_turn_sign == 0.0:
-					var cross: float = aircraft.global_transform.basis.z.x * horiz_to_target.z - aircraft.global_transform.basis.z.z * horiz_to_target.x
-					_committed_turn_sign = -1.0 if cross > 0 else 1.0
-				turn_toward = _committed_turn_sign
-			if _committed_turn_sign == 0.0:
-				_committed_turn_sign = turn_toward
-			elif abs(lateral_ratio) > 0.05 and signf(_committed_turn_sign) != signf(lateral_ratio):
-				_committed_turn_sign = turn_toward
-			desired_bank = _committed_turn_sign * deg_to_rad(bank_limit_deg)
-			if flip_roll_direction:
-				desired_bank = -desired_bank
+					_committed_turn_sign = turn_toward
+				elif abs(lateral_ratio) > 0.05 and signf(_committed_turn_sign) != signf(lateral_ratio):
+					_committed_turn_sign = turn_toward
+				desired_bank = _committed_turn_sign * deg_to_rad(bank_limit_deg)
+				if flip_roll_direction:
+					desired_bank = -desired_bank
 		else:
 			if horiz_dir_z > 0.0:
 				_committed_turn_sign = 0.0
 			var bank_gain: float = 2.2 if _dive_precise_aim else 1.5
+			if formation_soft_t > 0.0:
+				bank_gain = lerpf(bank_gain, formation_close_bank_gain_scale, formation_soft_t)
 			desired_bank = clamp(bearing_err_rad * bank_gain, -deg_to_rad(bank_limit_deg), deg_to_rad(bank_limit_deg))
 			if flip_roll_direction:
 				desired_bank = -desired_bank
@@ -3314,9 +3449,9 @@ func _navigate_to_waypoint(delta: float):
 			vs_limit = maxf(dogfight_vs_limit_mps, 2.0)
 			vs_gain = maxf(dogfight_vs_gain, 0.01)
 	elif current_state == State.CLIMBING:
-		# Post-launch climb: allow aggressive rate to reach pattern altitude quickly
-		vs_limit = 25.0
-		vs_gain = 0.15
+		# Post-launch climb: climb positively without over-rotating into a loop.
+		vs_limit = maxf(climb_vs_limit_mps, 6.0)
+		vs_gain = 0.09
 	else:
 		vs_limit = 10.0
 		vs_gain = 0.08
@@ -3327,6 +3462,9 @@ func _navigate_to_waypoint(delta: float):
 	# During dive: deadband near aim altitude to prevent pitch hunting/oscillation
 	elif in_dive_state and abs(alt_err) < 35.0:
 		desired_vs = clamp(alt_err * 0.15, -8.0, 8.0)  # Gentle correction when close
+	if formation_soft_t > 0.0 and not needs_high_authority and not in_dogfight:
+		var formation_vs := clampf(alt_err * 0.045, -formation_close_vs_limit_mps, formation_close_vs_limit_mps)
+		desired_vs = lerpf(desired_vs, formation_vs, formation_soft_t)
 	var dogfight_speed_deficit: float = 0.0
 	# Dogfight turn-pull assist: compensate lift loss in steep bank.
 	if in_dogfight:
@@ -3351,6 +3489,9 @@ func _navigate_to_waypoint(delta: float):
 	var pitch_limit: float = 0.75 if in_dogfight else max_pitch_angle / deg_to_rad(60.0)
 	if in_carrier_approach:
 		pitch_limit = maxf(pitch_limit, 0.85)
+	if formation_soft_t > 0.0 and not in_dogfight:
+		var formation_pitch_limit: float = deg_to_rad(formation_close_pitch_limit_deg) / deg_to_rad(60.0)
+		pitch_limit = minf(pitch_limit, lerpf(pitch_limit, formation_pitch_limit, formation_soft_t))
 	var pitch_gain: float
 	if in_carrier_approach:
 		pitch_gain = 0.11
@@ -3362,6 +3503,8 @@ func _navigate_to_waypoint(delta: float):
 		pitch_gain = 0.14
 	else:
 		pitch_gain = 0.06
+	if formation_soft_t > 0.0 and not in_dogfight:
+		pitch_gain = lerpf(pitch_gain, pitch_gain * formation_close_pitch_gain_scale, formation_soft_t)
 	var pitch_rate_damping: float = 0.45 if in_dive_state or in_dogfight else 0.5  # Stronger damping in combat
 	var raw_pitch: float = clamp(vs_err * pitch_gain * bank_compensation - pitch_rate_up * pitch_rate_damping, -pitch_limit, pitch_limit)
 	# Min pitch prevents dead-zone but must not fight the controller when it is already correcting
@@ -3418,7 +3561,8 @@ func _navigate_to_waypoint(delta: float):
 	_smoothed_yaw_input = yaw_input
 	
 	# === THROTTLE ===
-	var speed_error: float = target_speed - speed
+	var commanded_target_speed: float = _get_effective_target_speed()
+	var speed_error: float = commanded_target_speed - speed
 	throttle_input += clamp(speed_error * 0.01, -0.05, 0.05)
 	var thr_min: float = 0.4
 	if current_state == State.APPROACH and _landing_phase >= 1:
@@ -3550,7 +3694,7 @@ func _apply_turn_controls(desired_pitch: float, desired_roll: float, delta: floa
 	"""Apply control inputs to execute a coordinated turn"""
 
 	# Get current aircraft attitude
-	var current_pitch = asin(clamp(-aircraft.global_transform.basis.y.z, -1.0, 1.0))
+	var current_pitch = _get_forward_pitch_rad()
 	var current_roll = atan2(aircraft.global_transform.basis.y.x, aircraft.global_transform.basis.y.y)
 
 	# ROLL CONTROL - Establish bank angle
@@ -3817,6 +3961,68 @@ func _apply_controls():
 	if control_engine and control_engine.has_method("set_target_power"):
 		control_engine.set_target_power(throttle_input)
 
+func _emit_player_debug_telemetry(delta: float) -> void:
+	if not debug_enabled or aircraft == null:
+		return
+	if Engine.get_process_frames() % 30 == 0:
+		var spd: float = aircraft.linear_velocity.length()
+		var alt: float = aircraft.global_position.y
+		var vs: float = aircraft.linear_velocity.y
+		var pitch_deg: float = rad_to_deg(_get_forward_pitch_rad())
+		var h_spd: float = Vector2(aircraft.linear_velocity.x, aircraft.linear_velocity.z).length()
+		var fpa_deg: float = rad_to_deg(atan2(-aircraft.linear_velocity.y, max(h_spd, 1.0)))
+		var pos: Vector3 = aircraft.global_position
+		var player_pitch_cmd: float = 0.0
+		var est_lift_ratio: float = 0.0
+		var est_aoa_deg: float = 0.0
+		if simple_aero:
+			if "pitch_input" in simple_aero:
+				player_pitch_cmd = float(simple_aero.pitch_input)
+			if simple_aero.has_method("get_estimated_lift_ratio"):
+				est_lift_ratio = float(simple_aero.call("get_estimated_lift_ratio"))
+			if simple_aero.has_method("get_estimated_angle_of_attack_deg"):
+				est_aoa_deg = float(simple_aero.call("get_estimated_angle_of_attack_deg"))
+		print("[AIPilot TEL] state=PLAYER  [PLAYER]  pos=(", snapped(pos.x, 1), ",", snapped(pos.y, 1), ",", snapped(pos.z, 1), ")  alt=", snapped(alt, 1), "  AGL=", snapped(altitude_agl, 1), "  spd=", snapped(spd, 1), "m/s  VS=", snapped(vs, 1), "  pitch=", snapped(pitch_deg, 0.1), "ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â°  fpa=", snapped(fpa_deg, 0.1), "ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â°  cmdP=", snapped(player_pitch_cmd, 0.01), "  aoa=", snapped(est_aoa_deg, 0.1), "ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â°  liftRatio=", snapped(est_lift_ratio, 0.01))
+	_debug_flight_path_alignment(delta, "PLAYER")
+
+func _debug_flight_path_alignment(delta: float, state_override: String = "") -> void:
+	if not debug_enabled or not flight_path_alignment_debug_enabled or aircraft == null:
+		return
+	if not _is_airborne():
+		_flight_path_alignment_debug_timer_s = 0.0
+		return
+	var velocity: Vector3 = aircraft.linear_velocity
+	var speed: float = velocity.length()
+	if speed < maxf(flight_path_alignment_debug_min_speed_mps, 1.0):
+		return
+	_flight_path_alignment_debug_timer_s += delta
+	if _flight_path_alignment_debug_timer_s < maxf(flight_path_alignment_debug_interval_s, 0.25):
+		return
+	_flight_path_alignment_debug_timer_s = 0.0
+
+	var nose_dir: Vector3 = aircraft.global_transform.basis.z.normalized()
+	var vel_dir: Vector3 = velocity.normalized()
+	var alignment_dot: float = clampf(nose_dir.dot(vel_dir), -1.0, 1.0)
+	var alignment_angle_deg: float = rad_to_deg(acos(alignment_dot))
+	var nose_flat: Vector2 = Vector2(nose_dir.x, nose_dir.z)
+	var vel_flat: Vector2 = Vector2(vel_dir.x, vel_dir.z)
+	var flat_alignment_angle_deg: float = 0.0
+	if nose_flat.length_squared() > 0.0001 and vel_flat.length_squared() > 0.0001:
+		flat_alignment_angle_deg = rad_to_deg(acos(clampf(nose_flat.normalized().dot(vel_flat.normalized()), -1.0, 1.0)))
+	var state_name: String = state_override if not state_override.is_empty() else State.keys()[current_state]
+	print("[AIPilot ALIGN] ", aircraft.name,
+		" state=", state_name,
+		" spd=", snapped(speed, 0.1),
+		" angle3d=", snapped(alignment_angle_deg, 0.1),
+		" angle2d=", snapped(flat_alignment_angle_deg, 0.1),
+		" nose=", snapped(nose_dir, Vector3.ONE * 0.01),
+		" vel=", snapped(vel_dir, Vector3.ONE * 0.01))
+
+func _get_forward_pitch_rad() -> float:
+	var forward: Vector3 = aircraft.global_transform.basis.z.normalized()
+	var horiz_len: float = maxf(Vector2(forward.x, forward.z).length(), 0.0001)
+	return atan2(forward.y, horiz_len)
+
 func _is_airborne() -> bool:
 	"""Check if aircraft is airborne"""
 	# Simple check: altitude > 5m and speed > 30 m/s
@@ -3951,6 +4157,37 @@ func _sample_max_terrain_height_along_path(from_pos: Vector3, to_pos: Vector3, n
 		if is_nan(max_h) or h > max_h:
 			max_h = h
 	return max_h
+
+func _get_attack_setup_altitude_m(target_pos: Vector3, terrain_max: float = NAN) -> float:
+	var setup_altitude_m: float = patrol_altitude_m
+	if _run_weapon_type == "Bomb":
+		setup_altitude_m = maxf(setup_altitude_m, target_pos.y + bomb_run_setup_altitude_offset_m)
+		if not is_nan(terrain_max):
+			setup_altitude_m = maxf(setup_altitude_m, terrain_max + bomb_run_setup_altitude_offset_m)
+	else:
+		setup_altitude_m = maxf(setup_altitude_m, target_pos.y + attack_run_altitude_offset_m)
+		if not is_nan(terrain_max):
+			setup_altitude_m = maxf(setup_altitude_m, terrain_max + attack_run_altitude_offset_m)
+	return setup_altitude_m
+
+func _terrain_safe_altitude_for_segment(from_pos: Vector3, to_pos: Vector3, requested_altitude_m: float, minimum_agl_m: float) -> float:
+	var safe_altitude_m: float = requested_altitude_m
+	var point_terrain_h: float = _get_ground_height_at_position(to_pos)
+	if not is_nan(point_terrain_h):
+		safe_altitude_m = maxf(safe_altitude_m, point_terrain_h + minimum_agl_m)
+	var segment_samples: int = clampi(int(ceil(from_pos.distance_to(to_pos) / 600.0)), 6, 18)
+	var segment_terrain_h: float = _sample_max_terrain_height_along_path(from_pos, to_pos, segment_samples)
+	if not is_nan(segment_terrain_h):
+		safe_altitude_m = maxf(safe_altitude_m, segment_terrain_h + minimum_agl_m)
+	return safe_altitude_m
+
+func _resolve_effective_altitude_world_y(world_pos: Vector3, desired_agl_m: float) -> float:
+	var reference_y: float = _get_ground_height_at_position(world_pos)
+	if is_nan(reference_y) and aircraft and aircraft.has_method("get_effective_altitude_reference_y"):
+		reference_y = float(aircraft.get_effective_altitude_reference_y())
+	if is_nan(reference_y):
+		reference_y = 0.0
+	return reference_y + maxf(desired_agl_m, 0.0)
 
 func _scan_contacts():
 	"""Scan for enemies and friendlies within sensor range"""
@@ -4088,13 +4325,19 @@ func _setup_patrol_waypoints():
 	"""Create 2 km square patrol around carrier"""
 	waypoints.clear()
 	current_waypoint_index = 0
+	waypoints_follow_carrier = true
 
 	var half: float = 1000.0  # half-side → 2 km sides
-	var alt: float = patrol_altitude_m
-	waypoints.append(carrier_position + Vector3( half, alt,  half))
-	waypoints.append(carrier_position + Vector3(-half, alt,  half))
-	waypoints.append(carrier_position + Vector3(-half, alt, -half))
-	waypoints.append(carrier_position + Vector3( half, alt, -half))
+	var patrol_points: Array[Vector3] = [
+		carrier_position + Vector3( half, 0.0,  half),
+		carrier_position + Vector3(-half, 0.0,  half),
+		carrier_position + Vector3(-half, 0.0, -half),
+		carrier_position + Vector3( half, 0.0, -half),
+	]
+	for point in patrol_points:
+		var waypoint := point
+		waypoint.y = _resolve_effective_altitude_world_y(waypoint, patrol_altitude_m)
+		waypoints.append(waypoint)
 
 	if debug_enabled and verbose_debug_enabled:
 		print("[AIPilot] Figure-eight patrol with ", waypoints.size(), " waypoints around carrier at: ", carrier_position)
@@ -4181,10 +4424,178 @@ func change_state(new_state: State):
 # PUBLIC API - For external control
 # ============================================================================
 
-func set_waypoints(new_waypoints: Array[Vector3]):
+func set_waypoints(new_waypoints: Array[Vector3], follow_carrier: bool = false):
 	"""Set waypoint list for navigation"""
 	waypoints = new_waypoints
 	current_waypoint_index = 0
+	waypoints_follow_carrier = follow_carrier
+	_reset_cap_route_debug()
+	if cap_route_debug_enabled and not follow_carrier and new_waypoints.size() > 1:
+		var first := new_waypoints[0]
+		var second := new_waypoints[1]
+		print("[AIPilot CAPDBG %s] route assigned points=%d first=(%.0f,%.0f,%.0f) second=(%.0f,%.0f,%.0f)" % [
+			aircraft.name,
+			new_waypoints.size(),
+			first.x, first.y, first.z,
+			second.x, second.y, second.z
+		])
+
+func set_formation_anchor(anchor_world: Vector3) -> void:
+	formation_anchor = anchor_world
+	formation_anchor_active = true
+
+func set_formation_speed_guidance(speed_cap_mps: float = -1.0, speed_bias_mps: float = 0.0) -> void:
+	formation_speed_cap_mps = speed_cap_mps
+	formation_speed_bias_mps = speed_bias_mps
+
+func set_formation_handling(slot_quality: float = 0.0, ahead_hold_t: float = 0.0) -> void:
+	formation_slot_quality = clampf(slot_quality, 0.0, 1.0)
+	formation_ahead_hold_t = clampf(ahead_hold_t, 0.0, 1.0)
+
+func clear_formation_guidance() -> void:
+	formation_anchor_active = false
+	formation_anchor = Vector3.ZERO
+	formation_speed_cap_mps = -1.0
+	formation_speed_bias_mps = 0.0
+	formation_slot_quality = 0.0
+	formation_ahead_hold_t = 0.0
+
+func _is_debugging_custom_cap_route() -> bool:
+	return cap_route_debug_enabled \
+		and aircraft != null \
+		and is_instance_valid(aircraft) \
+		and current_state == State.SEARCH \
+		and not waypoints_follow_carrier \
+		and not formation_anchor_active \
+		and waypoints.size() > 1
+
+func _reset_cap_route_debug() -> void:
+	_cap_route_debug_last_index = -1
+	_cap_route_debug_last_waypoint_count = 0
+	_cap_route_debug_last_distance_m = INF
+	_cap_route_debug_timer_s = 0.0
+	_cap_route_debug_no_progress_s = 0.0
+
+func _debug_cap_route_following(delta: float, distance_to_waypoint: float) -> void:
+	if not _is_debugging_custom_cap_route():
+		_reset_cap_route_debug()
+		return
+	var waypoint_count: int = waypoints.size()
+	var waypoint_index: int = clampi(current_waypoint_index, 0, waypoint_count - 1)
+	if waypoint_index != _cap_route_debug_last_index or waypoint_count != _cap_route_debug_last_waypoint_count:
+		var nav_local := aircraft.to_local(nav_waypoint)
+		print("[AIPilot CAPDBG %s] tracking wp %d/%d dist=%.0fm local=(%.0f,%.0f,%.0f)" % [
+			aircraft.name,
+			waypoint_index + 1,
+			waypoint_count,
+			distance_to_waypoint,
+			nav_local.x, nav_local.y, nav_local.z
+		])
+		_cap_route_debug_last_index = waypoint_index
+		_cap_route_debug_last_waypoint_count = waypoint_count
+		_cap_route_debug_last_distance_m = distance_to_waypoint
+		_cap_route_debug_no_progress_s = 0.0
+		_cap_route_debug_timer_s = cap_route_debug_interval_s
+		return
+	var progress_m: float = _cap_route_debug_last_distance_m - distance_to_waypoint
+	if distance_to_waypoint > waypoint_threshold * 1.5 and progress_m < cap_route_debug_progress_epsilon_m:
+		_cap_route_debug_no_progress_s += delta
+	else:
+		_cap_route_debug_no_progress_s = maxf(_cap_route_debug_no_progress_s - delta * 0.5, 0.0)
+	_cap_route_debug_timer_s -= delta
+	if _cap_route_debug_timer_s <= 0.0:
+		var nav_local := aircraft.to_local(nav_waypoint)
+		print("[AIPilot CAPDBG %s] wp %d/%d dist=%.0fm progress=%.1fm/s stall=%.1fs local=(%.0f,%.0f,%.0f)" % [
+			aircraft.name,
+			waypoint_index + 1,
+			waypoint_count,
+			distance_to_waypoint,
+			progress_m / maxf(delta, 0.001),
+			_cap_route_debug_no_progress_s,
+			nav_local.x, nav_local.y, nav_local.z
+		])
+		_cap_route_debug_timer_s = cap_route_debug_interval_s
+	if _cap_route_debug_no_progress_s >= cap_route_debug_stuck_time_s:
+		var nav_local := aircraft.to_local(nav_waypoint)
+		print("[AIPilot CAPDBG %s] suspect stuck on wp %d/%d dist=%.0fm stall=%.1fs pos=(%.0f,%.0f,%.0f) nav=(%.0f,%.0f,%.0f) local=(%.0f,%.0f,%.0f)" % [
+			aircraft.name,
+			waypoint_index + 1,
+			waypoint_count,
+			distance_to_waypoint,
+			_cap_route_debug_no_progress_s,
+			aircraft.global_position.x, aircraft.global_position.y, aircraft.global_position.z,
+			nav_waypoint.x, nav_waypoint.y, nav_waypoint.z,
+			nav_local.x, nav_local.y, nav_local.z
+		])
+		_cap_route_debug_no_progress_s = cap_route_debug_stuck_time_s * 0.5
+	_cap_route_debug_last_distance_m = distance_to_waypoint
+
+func _get_effective_target_speed() -> float:
+	var effective_target_speed: float = target_speed + formation_speed_bias_mps
+	if formation_speed_cap_mps > 0.0:
+		effective_target_speed = minf(effective_target_speed, formation_speed_cap_mps)
+	return maxf(effective_target_speed, stall_speed_mps + stall_margin_mps + 2.0)
+
+func build_terrain_safe_waypoints(new_waypoints: Array[Vector3], minimum_agl_m: float = 260.0, include_return_leg: bool = false, keep_uniform_altitude: bool = false) -> Array[Vector3]:
+	"""Raise waypoint altitudes to maintain terrain clearance along each segment."""
+	var safe_waypoints: Array[Vector3] = []
+	for point in new_waypoints:
+		safe_waypoints.append(point)
+	if safe_waypoints.is_empty():
+		return safe_waypoints
+
+	if keep_uniform_altitude:
+		var safe_altitude_m: float = safe_waypoints[0].y
+		var prev_uniform_point := aircraft.global_position if aircraft and is_instance_valid(aircraft) else safe_waypoints[0]
+		for waypoint in safe_waypoints:
+			safe_altitude_m = maxf(
+				safe_altitude_m,
+				_terrain_safe_altitude_for_segment(prev_uniform_point, waypoint, waypoint.y, minimum_agl_m)
+			)
+			prev_uniform_point = waypoint
+		if include_return_leg and safe_waypoints.size() > 1:
+			safe_altitude_m = maxf(
+				safe_altitude_m,
+				_terrain_safe_altitude_for_segment(
+					safe_waypoints[safe_waypoints.size() - 1],
+					safe_waypoints[0],
+					safe_waypoints[0].y,
+					minimum_agl_m
+				)
+			)
+		for i in range(safe_waypoints.size()):
+			var uniform_waypoint := safe_waypoints[i]
+			uniform_waypoint.y = safe_altitude_m
+			safe_waypoints[i] = uniform_waypoint
+		return safe_waypoints
+
+	var prev_point := aircraft.global_position if aircraft and is_instance_valid(aircraft) else safe_waypoints[0]
+	for i in range(safe_waypoints.size()):
+		var waypoint := safe_waypoints[i]
+		waypoint.y = _terrain_safe_altitude_for_segment(prev_point, waypoint, waypoint.y, minimum_agl_m)
+		safe_waypoints[i] = waypoint
+		prev_point = waypoint
+
+	if include_return_leg and safe_waypoints.size() > 1:
+		var first_waypoint := safe_waypoints[0]
+		first_waypoint.y = _terrain_safe_altitude_for_segment(
+			safe_waypoints[safe_waypoints.size() - 1],
+			first_waypoint,
+			first_waypoint.y,
+			minimum_agl_m
+		)
+		safe_waypoints[0] = first_waypoint
+
+	return safe_waypoints
+
+func build_effective_altitude_waypoints(new_waypoints: Array[Vector3], minimum_agl_m: float = 260.0, include_return_leg: bool = false) -> Array[Vector3]:
+	"""Interpret waypoint.y as desired altitude AGL and convert to terrain-relative world coordinates."""
+	var world_waypoints: Array[Vector3] = []
+	for point in new_waypoints:
+		var world_point := point
+		world_point.y = _resolve_effective_altitude_world_y(world_point, point.y)
+		world_waypoints.append(world_point)
+	return build_terrain_safe_waypoints(world_waypoints, minimum_agl_m, include_return_leg, false)
 
 func add_waypoint(waypoint: Vector3):
 	"""Add waypoint to list"""

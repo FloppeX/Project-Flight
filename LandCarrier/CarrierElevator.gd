@@ -14,6 +14,15 @@ signal covers_opened
 @export var shaft_depth: float = 10.0
 @export var move_speed: float = 2.0
 @export var cover_slide_speed: float = 3.0
+@export var moving_sound: AudioStream = preload("res://elevator_moving_mono.wav")
+@export var moving_sound_bus: String = "Master"
+@export var moving_sound_min_volume_db: float = -20.0
+@export var moving_sound_max_volume_db: float = -10.0
+@export var moving_sound_pitch_min: float = 0.82
+@export var moving_sound_pitch_max: float = 1.08
+@export var moving_sound_silence_db: float = -80.0
+@export var moving_sound_unit_size_m: float = 32.0
+@export var moving_sound_max_distance_m: float = 240.0
 
 enum ElevatorState {
 	AT_TOP,
@@ -36,6 +45,8 @@ var covers_started_opening: bool = false
 var platform_target_y: float = 0.0
 var left_cover_target_x: float = 0.0
 var right_cover_target_x: float = 0.0
+var _moving_audio_player: AudioStreamPlayer3D
+var _last_platform_y: float = 0.0
 
 func _ready():
 	print("Setting up elevator system...")
@@ -53,6 +64,7 @@ func create_elevator_components():
 	right_cover = create_cover("RightCover")
 	add_child(left_cover)
 	add_child(right_cover)
+	_setup_moving_audio()
 
 func create_platform() -> Node3D:
 	var platform_node = Node3D.new()
@@ -117,11 +129,13 @@ func set_initial_state():
 	right_cover_target_x = right_cover.position.x
 	
 	current_state = ElevatorState.AT_TOP
+	_last_platform_y = platform.position.y
 	print("Elevator initialized at top")
 
 func _physics_process(delta: float):
 	animate_platform(delta)
 	animate_covers(delta)
+	_update_moving_audio(delta)
 	check_state_transitions()
 
 	pass
@@ -233,3 +247,42 @@ func get_status() -> Dictionary:
 		"covers_closed": covers_are_closed(),
 		"covers_open": covers_are_open()
 	}
+
+func _setup_moving_audio() -> void:
+	if moving_sound == null or platform == null:
+		return
+
+	if moving_sound is AudioStreamWAV:
+		moving_sound.loop_mode = AudioStreamWAV.LOOP_FORWARD
+
+	_moving_audio_player = AudioStreamPlayer3D.new()
+	_moving_audio_player.name = "ElevatorMovingAudio"
+	_moving_audio_player.stream = moving_sound
+	_moving_audio_player.bus = moving_sound_bus
+	_moving_audio_player.max_distance = moving_sound_max_distance_m
+	_moving_audio_player.unit_size = moving_sound_unit_size_m
+	_moving_audio_player.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_SQUARE_DISTANCE
+	_moving_audio_player.volume_db = moving_sound_silence_db
+	_moving_audio_player.pitch_scale = moving_sound_pitch_min
+	_moving_audio_player.add_to_group("3d_audio")
+	platform.add_child(_moving_audio_player)
+	_moving_audio_player.call_deferred("play")
+
+func _update_moving_audio(delta: float) -> void:
+	if _moving_audio_player == null or platform == null:
+		return
+
+	var movement_speed_mps: float = 0.0
+	if delta > 0.0:
+		movement_speed_mps = absf(platform.position.y - _last_platform_y) / delta
+	_last_platform_y = platform.position.y
+
+	var speed_factor := clampf(movement_speed_mps / maxf(move_speed, 0.01), 0.0, 1.0)
+	speed_factor = speed_factor * speed_factor * (3.0 - 2.0 * speed_factor)
+	var target_volume := moving_sound_silence_db if movement_speed_mps < 0.01 else lerpf(moving_sound_min_volume_db, moving_sound_max_volume_db, speed_factor)
+	var target_pitch := lerpf(moving_sound_pitch_min, moving_sound_pitch_max, speed_factor)
+	var blend := clampf(delta * 6.0, 0.0, 1.0)
+	_moving_audio_player.volume_db = lerpf(_moving_audio_player.volume_db, target_volume, blend)
+	_moving_audio_player.pitch_scale = lerpf(_moving_audio_player.pitch_scale, target_pitch, blend)
+	if not _moving_audio_player.playing:
+		_moving_audio_player.call_deferred("play")

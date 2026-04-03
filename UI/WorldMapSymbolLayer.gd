@@ -36,10 +36,15 @@ const CORNER_BRACKET_INSET_PX: float = 7.0
 @export var selection_marker_radius_px: float = 10.0
 @export var counter_margin_px: float = 12.0
 @export var counter_font_size_px: int = 14
+@export var show_contact_counters: bool = true
 
 var _counts_label: Label
 var _selection_world_pos: Vector3 = Vector3.INF
 var _selection_world_color: Color = selection_color
+var _selection_route_origin_world: Vector3 = Vector3.INF
+var _selection_route_points: Array[Vector3] = []
+var _selection_route_color: Color = selection_color
+var _selection_route_closed_loop: bool = false
 var _draft_origin_world: Vector3 = Vector3.INF
 var _draft_points: Array[Vector3] = []
 var _draft_color: Color = draft_waypoint_color
@@ -50,7 +55,7 @@ func _ready() -> void:
 	set_process(true)
 	_counts_label = Label.new()
 	_counts_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_counts_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	_counts_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	_counts_label.vertical_alignment = VERTICAL_ALIGNMENT_TOP
 	_counts_label.add_theme_font_override("font", PIXEL_FONT)
 	_counts_label.add_theme_color_override("font_color", BORDER_COLOR)
@@ -63,7 +68,10 @@ func _ready() -> void:
 
 func _process(_delta: float) -> void:
 	if visible:
-		_update_counts_label()
+		if show_contact_counters:
+			_update_counts_label()
+		elif _counts_label != null:
+			_counts_label.visible = false
 		queue_redraw()
 
 func _draw() -> void:
@@ -101,14 +109,17 @@ func _draw() -> void:
 		_draw_route_from_points(platoon_pos, _get_active_route_points(platoon), platoon_waypoint_color, false)
 		var map_pos: Vector2 = _world_to_map(platoon_pos)
 		_draw_square_marker(map_pos, platoon_marker_size_px, enemy_platoon_color, true)
+	_draw_selection_route()
 	_draw_command_draft()
 	_draw_selection_focus()
 
 func _layout_counts_label() -> void:
 	if _counts_label == null:
 		return
-	_counts_label.position = Vector2(counter_margin_px, counter_margin_px)
-	_counts_label.size = Vector2(maxf(size.x - counter_margin_px * 2.0, 120.0), 56.0)
+	_counts_label.visible = show_contact_counters
+	var label_width: float = clampf(size.x * 0.34, 170.0, 220.0)
+	_counts_label.position = Vector2(size.x - counter_margin_px - label_width, counter_margin_px)
+	_counts_label.size = Vector2(label_width, 56.0)
 
 func _update_counts_label() -> void:
 	if _counts_label == null:
@@ -223,6 +234,19 @@ func set_selection_focus(world_pos: Vector3, color: Color = selection_color) -> 
 
 func clear_selection_focus() -> void:
 	_selection_world_pos = Vector3.INF
+	queue_redraw()
+
+func set_selection_route(origin_world: Vector3, route_points: Array[Vector3], color: Color = selection_color, closed_loop: bool = false) -> void:
+	_selection_route_origin_world = origin_world
+	_selection_route_points = route_points.duplicate()
+	_selection_route_color = color
+	_selection_route_closed_loop = closed_loop
+	queue_redraw()
+
+func clear_selection_route() -> void:
+	_selection_route_origin_world = Vector3.INF
+	_selection_route_points.clear()
+	_selection_route_closed_loop = false
 	queue_redraw()
 
 func set_command_draft(origin_world: Vector3, route_points: Array[Vector3], color: Color = draft_waypoint_color, closed_loop: bool = false) -> void:
@@ -362,6 +386,17 @@ func _draw_selection_focus() -> void:
 	draw_line(center + Vector2(radius - 1.0, 0.0), center + Vector2(radius + 4.0, 0.0), _selection_world_color, 1.4)
 	draw_line(center + Vector2(0.0, -radius - 4.0), center + Vector2(0.0, -radius + 1.0), _selection_world_color, 1.4)
 	draw_line(center + Vector2(0.0, radius - 1.0), center + Vector2(0.0, radius + 4.0), _selection_world_color, 1.4)
+
+func _draw_selection_route() -> void:
+	if _selection_route_points.is_empty():
+		return
+	_draw_route_from_points(
+		_selection_route_origin_world,
+		_selection_route_points,
+		_selection_route_color,
+		true,
+		_selection_route_closed_loop
+	)
 
 func _draw_command_draft() -> void:
 	if _draft_points.is_empty():
