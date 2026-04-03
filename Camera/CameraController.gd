@@ -54,6 +54,7 @@ var _use_external_cinematic: bool = false
 var _carrier_center: Node3D
 var _carrier_yaw: float = 0.0
 var _carrier_pitch: float = 0.0
+var _zoom_button_prev_pressed: bool = false
 
 func _ready():
 	# Add to camera controller group for easy finding
@@ -65,6 +66,10 @@ func _ready():
 	cinematic_camera = null
 	bridge_camera = null
 	_apply_cockpit_camera_settings(cockpit_camera)
+	if cockpit_camera:
+		cockpit_camera.fov = normal_fov
+	if chase_camera:
+		chase_camera.fov = normal_fov
 	
 	# Set up camera scripts
 	cockpit_tripod.set_script(preload("res://Camera/CockpitCamera.gd"))
@@ -107,6 +112,8 @@ func _ready():
 		if cinematic_script:
 			cinematic_script.setup_aircraft(aircraft)
 		cinematic_camera = cinematic_tripod.find_child("Camera3D", true, false)
+		if cinematic_camera:
+			cinematic_camera.fov = normal_fov
 		_use_external_cinematic = false
 
 	# Build view targets for cycling (player + AI aircraft)
@@ -253,11 +260,6 @@ func _input(event):
 	if deathcam_active:
 		return
 	
-	# Handle zoom toggle
-	if Input.is_action_just_pressed("toggle_zoom"):
-		is_zoomed = not is_zoomed
-		update_camera_zoom()
-	
 	# Manual carrier cam control (only when viewing player's external cinematic)
 	if current_mode == CameraMode.CINEMATIC and _use_external_cinematic:
 		if _current_view_index < _view_targets.size():
@@ -269,9 +271,17 @@ func _input(event):
 				_carrier_pitch = clamp(_carrier_pitch + look_y * carrier_look_sensitivity * 0.02, deg_to_rad(-carrier_pitch_limit_deg), deg_to_rad(carrier_pitch_limit_deg))
 
 func _process(delta):
+	var zoom_button_pressed := _is_zoom_button_pressed()
+	var zoom_button_just_pressed := zoom_button_pressed and not _zoom_button_prev_pressed
+	_zoom_button_prev_pressed = zoom_button_pressed
+
 	if deathcam_active:
 		update_deathcam(delta)
 		return
+
+	if _is_cockpit_zoom_view_active() and (Input.is_action_just_pressed("toggle_zoom") or zoom_button_just_pressed):
+		is_zoomed = not is_zoomed
+		update_camera_zoom()
 	
 	# Only run carrier cinematic orbit when viewing player's external cinematic
 	if current_mode == CameraMode.CINEMATIC and _use_external_cinematic:
@@ -279,6 +289,15 @@ func _process(delta):
 			var t = _view_targets[_current_view_index]
 			if t.get("aircraft") == aircraft and t.get("mode") == CameraMode.CINEMATIC:
 				update_carrier_cinematic(delta)
+
+func _is_zoom_button_pressed() -> bool:
+	for device in Input.get_connected_joypads():
+		if Input.is_joy_button_pressed(device, JOY_BUTTON_RIGHT_STICK) or Input.is_joy_button_pressed(device, JOY_BUTTON_LEFT_STICK):
+			return true
+	return false
+
+func _is_cockpit_zoom_view_active() -> bool:
+	return current_mode == CameraMode.COCKPIT and cockpit_camera != null
 
 func cycle_camera():
 	if _view_targets.is_empty():
@@ -331,7 +350,10 @@ func _switch_to_view_target(target: Dictionary):
 			ci.setup_shot()
 	
 	cam.current = true
-	update_camera_zoom(true)
+	if mode == CameraMode.COCKPIT:
+		update_camera_zoom(true, cockpit_camera)
+	else:
+		cam.fov = normal_fov
 
 func _deactivate_all_cameras():
 	"""Deactivate all cameras from player, bridge, and AI aircraft."""
@@ -436,8 +458,10 @@ func get_current_camera() -> Camera3D:
 		CameraMode.BRIDGE: return bridge_camera
 		_: return cockpit_camera
 
-func update_camera_zoom(instant: bool = false):
-	var target_camera = get_current_camera()
+func update_camera_zoom(instant: bool = false, camera_override: Camera3D = null):
+	var target_camera: Camera3D = camera_override
+	if target_camera == null:
+		target_camera = cockpit_camera
 	if not target_camera:
 		return
 

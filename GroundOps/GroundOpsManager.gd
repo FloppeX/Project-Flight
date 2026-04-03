@@ -93,15 +93,10 @@ func _process_deploy_queue() -> void:
 	_deploying_platoon_name = pname
 	var p: GroundVehiclePlatoon = platoons[pname]
 
-	# Default undeployed platoons rally behind the carrier before their first order.
+	# Default undeployed platoons escort the carrier.
 	_refresh_carrier()
 	if _carrier and not p.has_active_objective():
-		var rear_dir: Vector3 = -_carrier.global_basis.z.normalized()
-		var rally_pos: Vector3 = _carrier.global_position + rear_dir * 100.0
-		var terrain_y: float = TerrainNavGrid.sample_height(rally_pos.x, rally_pos.z)
-		if terrain_y > -9000.0:
-			rally_pos.y = terrain_y
-		p.set_move_objective(rally_pos)
+		p.set_escort_carrier(_carrier, 100.0)
 
 	# Tell the bay to deploy, and we'll assign vehicles to this platoon
 	_vehicle_bay.deploy_platoon_for(p)

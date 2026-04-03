@@ -31,6 +31,9 @@ enum LandingGearInitialStates {
 # Gear suspension (simplified)
 @export var spring_strength: float = 50000.0   # Spring force per meter compressed
 @export var spring_damping: float = 8000.0     # Damping to prevent bouncing  
+@export var nose_spring_damping_multiplier: float = 1.35  # Extra damping on nose gear to reduce pogo on touchdown/rollout
+@export var spring_rebound_damping_ratio: float = 0.35  # Use lighter damping while the strut is re-extending to avoid ground pumping
+@export var spring_velocity_deadband_mps: float = 0.05  # Ignore tiny contact-normal velocity noise that can cause chatter
 @export var wheel_rest_height: float = 1.2     # Normal wheel height above ground
 @export var max_compression: float = 0.8       # Maximum compression distance
 @export var use_accel_lean: bool = true        # Programmatic fore/aft weight transfer
@@ -66,6 +69,9 @@ enum LandingGearInitialStates {
 @export var friction_force_multiplier: float = 1000.0  # Overall friction strength
 @export var ground_longitudinal_damping: float = 5000.0  # Extra along-forward damping (N per m/s)
 @export var ground_lateral_damping: float = 15000.0      # Extra side damping (N per m/s)
+@export var nose_wheel_taxi_steering_enabled: bool = true
+@export var nose_wheel_taxi_full_effect_speed_mps: float = 4.0
+@export var nose_wheel_taxi_cutoff_speed_mps: float = 10.0
 
 var current_state: LandingGearInitialStates
 var deploy_timer: Timer
@@ -218,19 +224,29 @@ func apply_spring_physics(collision_shape: CollisionShape3D, gear_index: int, de
 			aircraft.apply_force(-result.normal * deck_hold_force, force_position)
 
 		if compression > 0.01:  # Small threshold to avoid jittering
+			var contact_normal: Vector3 = (result.normal as Vector3).normalized()
+
 			# Calculate spring force (Hooke's law)
 			var spring_force = spring_strength * compression
 
-			# Calculate damping force (opposes velocity)
-			var aircraft_velocity = aircraft.linear_velocity.y
-			var damping_force = -spring_damping * aircraft_velocity * compression
+			# Damping should oppose the wheel point's motion into/out of the contacted surface,
+			# not just the aircraft's global Y speed. This is especially important for the nose gear,
+			# which otherwise tends to pogo on touchdown and rollout.
+			var point_velocity: Vector3 = aircraft.linear_velocity + aircraft.angular_velocity.cross(force_position)
+			var velocity_toward_surface: float = -point_velocity.dot(contact_normal)
+			if absf(velocity_toward_surface) < spring_velocity_deadband_mps:
+				velocity_toward_surface = 0.0
+			var damping_ratio: float = 1.0 if velocity_toward_surface >= 0.0 else clampf(spring_rebound_damping_ratio, 0.0, 1.0)
+			var damping_scale: float = nose_spring_damping_multiplier if gear_index == nose_gear_index else 1.0
+			var damping_force = spring_damping * damping_scale * damping_ratio * velocity_toward_surface
 
-			# Apply vertical forces (spring + damping)
-			var total_vertical_force = spring_force + damping_force
-			aircraft.apply_force(Vector3.UP * total_vertical_force, force_position)
+			# Apply suspension force along the actual contact normal and never let rebound
+			# turn into an active launch force.
+			var total_normal_force = maxf(0.0, spring_force + damping_force)
+			aircraft.apply_force(contact_normal * total_normal_force, force_position)
 
 			# Apply directional wheel friction
-			apply_wheel_friction(collision_shape, compression)
+			apply_wheel_friction(collision_shape, gear_index, compression, contact_normal, result.get("collider", null))
 	else:
 		if gear_compressions.size() <= gear_index:
 			gear_compressions.resize(gear_index + 1)
@@ -554,25 +570,57 @@ func play_sound(sound: AudioStream):
 		audio_player.stream = sound
 		audio_player.play()
 
-func apply_wheel_friction(collision_shape: CollisionShape3D, compression: float):
+func _find_surface_group_node(surface: Variant, group_name: String) -> Node:
+	var node := surface as Node
+	while node:
+		if node.is_in_group(group_name):
+			return node
+		node = node.get_parent()
+	return null
+
+func apply_wheel_friction(collision_shape: CollisionShape3D, gear_index: int, compression: float, contact_normal: Vector3 = Vector3.UP, surface: Variant = null):
 	"""Apply directional friction to simulate realistic wheel behavior"""
 	if not aircraft or compression <= 0.01:
 		return
 	
-	# Get aircraft's local coordinate system
-	var aircraft_forward = aircraft.global_transform.basis.z    # Aircraft forward direction (+Z)
-	var aircraft_right = aircraft.global_transform.basis.x     # Aircraft right direction
+	var carrier_surface := _find_surface_group_node(surface, "carrier")
+	var on_carrier_surface: bool = carrier_surface != null
+	var parking_brake: bool = aircraft.has_meta("parking_brake") and bool(aircraft.get_meta("parking_brake"))
+	var controls_disabled: bool = aircraft.has_meta("controls_disabled") and bool(aircraft.get_meta("controls_disabled"))
+	var arresting_engaged: bool = aircraft.has_meta("arresting_engaged") and bool(aircraft.get_meta("arresting_engaged"))
+	contact_normal = contact_normal.normalized() if contact_normal.length_squared() > 0.0001 else Vector3.UP
+	
+	# Build wheel axes along the contact plane so steering works on ground without
+	# introducing vertical friction components on slopes or moving decks.
+	var wheel_forward: Vector3 = _project_axis_onto_surface(aircraft.global_transform.basis.z, contact_normal, aircraft.global_transform.basis.z)
+	var wheel_right: Vector3 = _project_axis_onto_surface(aircraft.global_transform.basis.x, contact_normal, aircraft.global_transform.basis.x)
 	
 	# Get aircraft velocity relative to any carrier it sits on, so friction brakes
 	# toward deck-relative zero rather than world zero (carrier is a moving platform).
 	var world_velocity = aircraft.linear_velocity
-	var carrier_node = aircraft.get_tree().get_first_node_in_group("carrier") if aircraft.get_tree() else null
-	if carrier_node and carrier_node.has_method("get") and "velocity" in carrier_node:
-		world_velocity -= carrier_node.velocity
+	if on_carrier_surface:
+		var carrier_velocity: Variant = carrier_surface.get("velocity")
+		if typeof(carrier_velocity) == TYPE_VECTOR3:
+			world_velocity -= carrier_velocity as Vector3
+
+	if nose_wheel_taxi_steering_enabled and gear_index == nose_gear_index and nose_wheel_taxi_cutoff_speed_mps > 0.0:
+		var surface_velocity: Vector3 = world_velocity - contact_normal * world_velocity.dot(contact_normal)
+		var ground_speed_mps: float = surface_velocity.length()
+		var steer_blend: float = 1.0 - _smoothstep(
+			nose_wheel_taxi_full_effect_speed_mps,
+			maxf(nose_wheel_taxi_cutoff_speed_mps, nose_wheel_taxi_full_effect_speed_mps + 0.01),
+			ground_speed_mps
+		)
+		if steer_blend > 0.001:
+			var steered_forward: Vector3 = _project_axis_onto_surface(collision_shape.global_transform.basis.z, contact_normal, wheel_forward)
+			wheel_forward = wheel_forward.lerp(steered_forward, steer_blend).normalized()
+			wheel_right = contact_normal.cross(wheel_forward).normalized()
+			if wheel_right.length_squared() <= 0.0001:
+				wheel_right = _project_axis_onto_surface(collision_shape.global_transform.basis.x, contact_normal, aircraft.global_transform.basis.x)
 
 	# Project velocity onto aircraft's local axes
-	var forward_velocity = world_velocity.dot(aircraft_forward)
-	var sideways_velocity = world_velocity.dot(aircraft_right)
+	var forward_velocity = world_velocity.dot(wheel_forward)
+	var sideways_velocity = world_velocity.dot(wheel_right)
 	
 	# Calculate friction forces
 	var forward_friction_force = -forward_velocity * forward_friction * friction_force_multiplier * compression
@@ -581,17 +629,33 @@ func apply_wheel_friction(collision_shape: CollisionShape3D, compression: float)
 	# Add velocity-proportional damping to keep aircraft still on deck ONLY when engine is off
 	# and not under external control (like a catapult).
 	# Skip forward damping while arresting cable is engaged — cable provides the braking.
-	if (not _is_engine_running() and not aircraft.has_meta("controls_disabled")) or aircraft.has_meta("parking_brake"):
-		if not aircraft.get_meta("arresting_engaged", false):
+	if (on_carrier_surface and not _is_engine_running() and not controls_disabled) or parking_brake:
+		if not arresting_engaged:
 			forward_friction_force += -forward_velocity * ground_longitudinal_damping
 		sideways_friction_force += -sideways_velocity * ground_lateral_damping
 	
 	# Apply friction forces in aircraft's local coordinate system
-	var total_friction = (aircraft_forward * forward_friction_force) + (aircraft_right * sideways_friction_force)
+	var total_friction = (wheel_forward * forward_friction_force) + (wheel_right * sideways_friction_force)
 	
 	# Apply friction force at wheel position
 	var force_position = collision_shape.global_position - aircraft.global_position
 	aircraft.apply_force(total_friction, force_position)
+
+func _project_axis_onto_surface(axis: Vector3, normal: Vector3, fallback: Vector3) -> Vector3:
+	var projected: Vector3 = axis - normal * axis.dot(normal)
+	if projected.length_squared() <= 0.0001:
+		projected = fallback - normal * fallback.dot(normal)
+	if projected.length_squared() <= 0.0001:
+		projected = Vector3(normal.z, 0.0, -normal.x)
+	if projected.length_squared() <= 0.0001:
+		projected = Vector3.FORWARD
+	return projected.normalized()
+
+func _smoothstep(edge0: float, edge1: float, x: float) -> float:
+	if is_equal_approx(edge0, edge1):
+		return 1.0 if x >= edge1 else 0.0
+	var t: float = clampf((x - edge0) / (edge1 - edge0), 0.0, 1.0)
+	return t * t * (3.0 - 2.0 * t)
 
 func _is_engine_running() -> bool:
 	if aircraft == null:

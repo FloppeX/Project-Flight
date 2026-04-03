@@ -7,6 +7,13 @@ class_name Commander
 @export var pitch_limit_deg: float = 85.0
 @export var gravity_mps2: float = 9.8
 @export var bridge_wall_margin_m: float = 0.55
+@export var normal_fov: float = 75.0
+@export var zoomed_fov: float = 30.0
+@export var control_room_ambience: AudioStream = preload("res://control_room_ambience.wav")
+@export var control_room_ambience_bus: String = "Master"
+@export var control_room_ambience_volume_db: float = -10.0
+@export var control_room_ambience_pitch_scale: float = 1.0
+@export var control_room_ambience_silence_db: float = -80.0
 
 @onready var commander_camera: Camera3D = $Camera3D
 @onready var body_mesh: MeshInstance3D = $BodyMesh
@@ -17,6 +24,11 @@ var _anchor_local_position: Vector3 = Vector3.ZERO
 var _bridge_bounds_min: Vector2 = Vector2.ZERO
 var _bridge_bounds_max: Vector2 = Vector2.ZERO
 var _has_bridge_bounds: bool = false
+var _is_zoomed: bool = false
+var _zoom_tween: Tween
+var _was_active_view: bool = false
+var _zoom_button_prev_pressed: bool = false
+var _control_room_audio_player: AudioStreamPlayer
 
 func _ready() -> void:
 	physics_interpolation_mode = Node3D.PHYSICS_INTERPOLATION_MODE_INHERIT
@@ -35,10 +47,33 @@ func _ready() -> void:
 	if commander_camera:
 		commander_camera.position.y = eye_height_m
 		_look_pitch = commander_camera.rotation.x
+		commander_camera.fov = normal_fov
+		# Force a camera switch to initialize Godot's 3D audio listener.
+		# Just setting current=true on the first camera isn't enough —
+		# Godot needs to see a false→true transition to activate the listener.
+		commander_camera.current = false
+		call_deferred("_activate_initial_camera")
+	else:
+		print("[Commander] WARNING: No commander_camera found!")
+	_setup_control_room_audio()
+
+func _activate_initial_camera() -> void:
+	if commander_camera:
+		commander_camera.current = true
 
 func _process(delta: float) -> void:
 	var active_view := _is_active_view()
+	var zoom_button_pressed := _is_zoom_button_pressed()
+	var zoom_button_just_pressed := zoom_button_pressed and not _zoom_button_prev_pressed
+	_zoom_button_prev_pressed = zoom_button_pressed
+	if active_view and not _was_active_view:
+		_apply_zoom(true)
+	if active_view and (Input.is_action_just_pressed("toggle_zoom") or zoom_button_just_pressed):
+		_is_zoomed = not _is_zoomed
+		_apply_zoom()
+	_was_active_view = active_view
 	_update_body_visibility(active_view)
+	_update_control_room_audio(delta, active_view)
 
 func _physics_process(delta: float) -> void:
 	if not _is_active_view():
@@ -147,3 +182,50 @@ func _update_body_visibility(active_view: bool) -> void:
 		return
 	body_mesh.visible = not active_view
 	body_mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF if active_view else GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+
+func _is_zoom_button_pressed() -> bool:
+	for device in Input.get_connected_joypads():
+		if Input.is_joy_button_pressed(device, JOY_BUTTON_RIGHT_STICK) or Input.is_joy_button_pressed(device, JOY_BUTTON_LEFT_STICK):
+			return true
+	return false
+
+func _apply_zoom(instant: bool = false) -> void:
+	if commander_camera == null:
+		return
+	var target_fov: float = zoomed_fov if _is_zoomed else normal_fov
+	if _zoom_tween and _zoom_tween.is_valid():
+		_zoom_tween.kill()
+	if instant:
+		commander_camera.fov = target_fov
+	else:
+		_zoom_tween = create_tween()
+		_zoom_tween.tween_property(commander_camera, "fov", target_fov, 0.2).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+
+func _setup_control_room_audio() -> void:
+	if control_room_ambience == null:
+		return
+
+	if control_room_ambience is AudioStreamWAV:
+		control_room_ambience.loop_mode = AudioStreamWAV.LOOP_FORWARD
+
+	_control_room_audio_player = AudioStreamPlayer.new()
+	_control_room_audio_player.name = "ControlRoomAmbience"
+	_control_room_audio_player.stream = control_room_ambience
+	_control_room_audio_player.bus = control_room_ambience_bus
+	_control_room_audio_player.pitch_scale = control_room_ambience_pitch_scale
+	_control_room_audio_player.volume_db = control_room_ambience_silence_db
+	add_child(_control_room_audio_player)
+	_control_room_audio_player.play()
+
+func _update_control_room_audio(delta: float, active_view: bool) -> void:
+	if _control_room_audio_player == null:
+		return
+
+	var target_volume: float = control_room_ambience_volume_db if active_view else control_room_ambience_silence_db
+	var blend := clampf(delta * 4.0, 0.0, 1.0)
+	_control_room_audio_player.volume_db = lerpf(_control_room_audio_player.volume_db, target_volume, blend)
+	if absf(_control_room_audio_player.volume_db - target_volume) < 0.05:
+		_control_room_audio_player.volume_db = target_volume
+
+	if not _control_room_audio_player.playing:
+		_control_room_audio_player.play()

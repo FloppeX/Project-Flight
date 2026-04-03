@@ -27,11 +27,6 @@ var _target_throttle: float = 0.0
 var _target_steering: float = 0.0
 var _braking: bool = false
 
-# Movement targets
-var _target_throttle: float = 0.0
-var _target_steering: float = 0.0
-var _braking: bool = false
-
 func _ready() -> void:
 	current_health = max_health
 	add_to_group("enemies") # Default
@@ -61,10 +56,10 @@ func _physics_process(delta: float) -> void:
 func set_throttle(value: float) -> void:
 	_target_throttle = clamp(value, -1.0, 1.0)
 
-func set_steering(value: float) -> void:
+func set_ai_steering(value: float) -> void:
 	_target_steering = clamp(value, -1.0, 1.0)
 
-func set_brake(value: bool) -> void:
+func set_ai_brake(value: bool) -> void:
 	_braking = value
 
 func stop() -> void:

@@ -44,6 +44,13 @@ func _ready() -> void:
 func is_ready() -> bool:
 	return _is_ready
 
+func rebuild_from_current_navgrid() -> void:
+	_reset_graph()
+	if TerrainNavGrid.is_ready():
+		_init_graph()
+	elif not TerrainNavGrid.bake_complete.is_connected(_init_graph):
+		TerrainNavGrid.bake_complete.connect(_init_graph, CONNECT_ONE_SHOT)
+
 # ── Public API ──────────────────────────────────────────────────────────────
 
 ## Synchronous path find. Returns [] if no path exists.
@@ -124,8 +131,26 @@ func _cache_path() -> String:
 		var s = terrain.get("seed")
 		if s != null:
 			seed_val = int(s)
-	return "user://navgraph_%d_s%.0f_e%.0f.bin" % [
-		seed_val, node_spacing_m, TerrainNavGrid.bake_half_extent_m]
+	var origin_x_key: int = int(round(TerrainNavGrid._origin_x))
+	var origin_z_key: int = int(round(TerrainNavGrid._origin_z))
+	return "user://navgraph_%d_s%.0f_e%.0f_g%.0f_ox%d_oz%d.bin" % [
+		seed_val,
+		node_spacing_m,
+		TerrainNavGrid.bake_half_extent_m,
+		TerrainNavGrid.cell_size_m,
+		origin_x_key,
+		origin_z_key
+	]
+
+func _reset_graph() -> void:
+	_nodes = PackedVector3Array()
+	_node_cl = PackedFloat32Array()
+	_edge_starts = PackedInt32Array()
+	_edge_nb = PackedInt32Array()
+	_edge_cl = PackedFloat32Array()
+	_cl_map = PackedFloat32Array()
+	_sp_grid.clear()
+	_is_ready = false
 
 # ── Build ───────────────────────────────────────────────────────────────────
 

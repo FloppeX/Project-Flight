@@ -42,6 +42,16 @@ var lead_reticle: Control
 var lead_reticle_h_line: ColorRect
 var lead_reticle_v_line: ColorRect
 
+# Flight path vector (velocity vector marker)
+var fpv_container: Control
+var fpv_circle_segments: Array[ColorRect] = []
+var fpv_stub_top: ColorRect
+var fpv_stub_left: ColorRect
+var fpv_stub_right: ColorRect
+var fpv_dotted_line_segments: Array[ColorRect] = []
+const FPV_DOT_COUNT: int = 12
+const FPV_MIN_SPEED_MPS: float = 15.0
+
 func _opaque(color: Color) -> Color:
 	return Color(color.r, color.g, color.b, 1.0)
 
@@ -130,6 +140,9 @@ func _ready():
 
 	# Set up lead aim reticle
 	setup_lead_reticle()
+
+	# Set up flight path vector
+	setup_fpv()
 
 	# Set up a timer to update the CCIP periodically
 	ccip_update_timer = Timer.new()
@@ -306,6 +319,9 @@ func _process(dt: float) -> void:
 
 	# Update lead aim reticle
 	update_lead_reticle()
+
+	# Update flight path vector
+	update_fpv()
 	
 	# Aircraft in this project are authored facing +Z.
 	var aircraft_forward: Vector3 = aircraft.global_transform.basis.z
@@ -329,36 +345,46 @@ func _process(dt: float) -> void:
 	reticle.visible = true
 	reticle.position = (hud_projection.get("hud_pos", Vector2.ZERO) as Vector2) - reticle.pivot_offset
 
-func _project_world_to_hud(world_pos: Vector3) -> Dictionary:
+func _project_world_to_hud(world_pos: Vector3, allow_off_glass: bool = false) -> Dictionary:
 	if not is_instance_valid(cam) or not is_instance_valid(hud_mesh):
-		return {"visible": false}
+		return {"visible": false, "projected": false, "on_glass": false}
 	if cam.is_position_behind(world_pos):
-		return {"visible": false}
+		return {"visible": false, "projected": false, "on_glass": false}
 
 	var camera_pos: Vector3 = cam.global_position
 	var ray_direction: Vector3 = (world_pos - camera_pos).normalized()
 	if ray_direction.length_squared() < 0.000001:
-		return {"visible": false}
+		return {"visible": false, "projected": false, "on_glass": false}
 
 	var hud_transform: Transform3D = hud_mesh.global_transform
 	var hud_normal: Vector3 = -hud_transform.basis.z.normalized()
 	var hud_plane := Plane(hud_normal, hud_transform.origin)
 	var intersection_point = hud_plane.intersects_ray(camera_pos, ray_direction)
 	if intersection_point == null:
-		return {"visible": false}
+		return {"visible": false, "projected": false, "on_glass": false}
 
 	var local_point: Vector3 = hud_mesh.to_local(intersection_point)
 	var half_size: Vector2 = hud_glass_size * 0.5
-	if abs(local_point.x) > half_size.x or abs(local_point.y) > half_size.y:
-		return {"visible": false}
+	var on_glass: bool = abs(local_point.x) <= half_size.x and abs(local_point.y) <= half_size.y
 
 	var hud_size_px := Vector2(viewport.size)
 	var hud_pos := Vector2(
 		(local_point.x + half_size.x) / max(hud_glass_size.x, 0.001) * hud_size_px.x,
 		(-local_point.y + half_size.y) / max(hud_glass_size.y, 0.001) * hud_size_px.y
 	)
+	if not allow_off_glass and not on_glass:
+		return {
+			"visible": false,
+			"projected": true,
+			"on_glass": false,
+			"hud_pos": hud_pos,
+			"intersection_point": intersection_point,
+			"local_point": local_point,
+		}
 	return {
-		"visible": true,
+		"visible": on_glass,
+		"projected": true,
+		"on_glass": on_glass,
 		"hud_pos": hud_pos,
 		"intersection_point": intersection_point,
 		"local_point": local_point,
@@ -663,6 +689,171 @@ func update_lock_diamond() -> void:
 
 	lock_diamond.visible = true
 
+func setup_fpv() -> void:
+	fpv_container = Control.new()
+	fpv_container.name = "FlightPathVector"
+	fpv_container.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	fpv_container.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	fpv_container.visible = false
+	viewport.add_child(fpv_container)
+
+	var col: Color = _opaque(hud_primary_color)
+	var t: float = hud_line_thickness_px
+
+	# Circle — approximate with 8 small segments around a 10px radius
+	var radius: float = 10.0
+	var seg_count: int = 8
+	for i in range(seg_count):
+		var angle_a: float = TAU * float(i) / float(seg_count)
+		var angle_b: float = TAU * float(i + 1) / float(seg_count)
+		var ax: float = cos(angle_a) * radius
+		var ay: float = sin(angle_a) * radius
+		var bx: float = cos(angle_b) * radius
+		var by: float = sin(angle_b) * radius
+		var seg := ColorRect.new()
+		seg.color = col
+		var dx: float = bx - ax
+		var dy: float = by - ay
+		var seg_len: float = sqrt(dx * dx + dy * dy)
+		seg.size = Vector2(seg_len, t)
+		seg.pivot_offset = Vector2(0, t * 0.5)
+		seg.rotation = atan2(dy, dx)
+		# Position will be set relative to FPV center in update
+		fpv_container.add_child(seg)
+		fpv_circle_segments.append(seg)
+
+	# Stub lines — top (vertical going up), left, right (horizontal going outward)
+	var stub_len: float = 8.0
+
+	fpv_stub_top = ColorRect.new()
+	fpv_stub_top.color = col
+	fpv_stub_top.size = Vector2(t, stub_len)
+	fpv_container.add_child(fpv_stub_top)
+
+	fpv_stub_left = ColorRect.new()
+	fpv_stub_left.color = col
+	fpv_stub_left.size = Vector2(stub_len, t)
+	fpv_container.add_child(fpv_stub_left)
+
+	fpv_stub_right = ColorRect.new()
+	fpv_stub_right.color = col
+	fpv_stub_right.size = Vector2(stub_len, t)
+	fpv_container.add_child(fpv_stub_right)
+
+	# Dotted line segments from crosshair to FPV
+	for i in range(FPV_DOT_COUNT):
+		var dot_seg := ColorRect.new()
+		dot_seg.color = col
+		dot_seg.size = Vector2(4, t)
+		dot_seg.pivot_offset = Vector2(2, t * 0.5)
+		fpv_container.add_child(dot_seg)
+		fpv_dotted_line_segments.append(dot_seg)
+
+func update_fpv() -> void:
+	if not is_instance_valid(fpv_container):
+		return
+	if not is_instance_valid(cam) or not is_instance_valid(aircraft) or not is_instance_valid(hud_mesh):
+		fpv_container.visible = false
+		return
+
+	var vel: Vector3 = Vector3.ZERO
+	if "linear_velocity" in aircraft:
+		vel = aircraft.linear_velocity
+	var speed: float = vel.length()
+	if speed < FPV_MIN_SPEED_MPS:
+		fpv_container.visible = false
+		return
+
+	# Project velocity direction onto HUD — place the point far away along the velocity vector
+	# Keep the FPV in HUD-plane coordinates so it does not jump when it leaves the glass.
+	var fpv_world: Vector3 = cam.global_position + vel.normalized() * hud_range
+	var hud_projection: Dictionary = _project_world_to_hud(fpv_world, true)
+	var fpv_projected: bool = bool(hud_projection.get("projected", false))
+	var fpv_pos: Vector2 = Vector2.ZERO
+
+	if fpv_projected:
+		fpv_pos = hud_projection.get("hud_pos", Vector2.ZERO) as Vector2
+	else:
+		# FPV is off-screen — project via screen space so the dotted line can point toward it
+		if cam.is_position_behind(fpv_world):
+			# Behind camera — use unprojected and flip to get a direction
+			var screen_pt: Vector2 = cam.unproject_position(fpv_world)
+			var hud_center := Vector2(viewport.size) * 0.5
+			fpv_pos = hud_center + (hud_center - screen_pt).normalized() * 600.0
+		else:
+			var screen_pt: Vector2 = cam.unproject_position(fpv_world)
+			# Map screen pixel to HUD viewport coordinates
+			var vp_size: Vector2 = cam.get_viewport().get_visible_rect().size
+			fpv_pos = (screen_pt / vp_size) * Vector2(viewport.size)
+
+	fpv_container.visible = true
+
+	# Determine if the FPV symbol itself is within drawable area
+	var hud_size_px := Vector2(viewport.size)
+	var symbol_margin: float = 20.0
+	var symbol_on_hud: bool = (fpv_pos.x >= -symbol_margin and fpv_pos.x <= hud_size_px.x + symbol_margin
+		and fpv_pos.y >= -symbol_margin and fpv_pos.y <= hud_size_px.y + symbol_margin)
+
+	# Position circle segments around FPV center (hide if off-screen)
+	var radius: float = 10.0
+	var seg_count: int = fpv_circle_segments.size()
+	var t: float = hud_line_thickness_px
+	for i in range(seg_count):
+		fpv_circle_segments[i].visible = symbol_on_hud
+		if symbol_on_hud:
+			var angle_a: float = TAU * float(i) / float(seg_count)
+			var ax: float = cos(angle_a) * radius
+			var ay: float = sin(angle_a) * radius
+			fpv_circle_segments[i].position = fpv_pos + Vector2(ax, ay) - Vector2(0, t * 0.5)
+
+	# Position stubs (hide if off-screen)
+	var stub_len: float = 8.0
+	fpv_stub_top.visible = symbol_on_hud
+	fpv_stub_left.visible = symbol_on_hud
+	fpv_stub_right.visible = symbol_on_hud
+	if symbol_on_hud:
+		fpv_stub_top.position = fpv_pos + Vector2(-t * 0.5, -radius - stub_len)
+		fpv_stub_left.position = fpv_pos + Vector2(-radius - stub_len, -t * 0.5)
+		fpv_stub_right.position = fpv_pos + Vector2(radius, -t * 0.5)
+
+	# Dotted line from crosshair center toward FPV (drawn even when FPV is off-HUD)
+	var crosshair_center: Vector2 = reticle.position + reticle.pivot_offset
+	var to_fpv: Vector2 = fpv_pos - crosshair_center
+	var line_dist: float = to_fpv.length()
+	if line_dist < 20.0:
+		for dot_seg in fpv_dotted_line_segments:
+			dot_seg.visible = false
+	else:
+		var line_dir: Vector2 = to_fpv / line_dist
+		var line_angle: float = atan2(line_dir.y, line_dir.x)
+		var start_offset: float = 12.0
+		# If symbol is on screen, stop before the circle; otherwise draw to HUD edge
+		var end_offset: float = (radius + 4.0) if symbol_on_hud else 0.0
+		var draw_dist: float = line_dist - start_offset - end_offset
+		# Clamp draw distance to HUD bounds
+		var max_draw: float = hud_size_px.length()
+		draw_dist = minf(draw_dist, max_draw)
+		if draw_dist < 8.0:
+			for dot_seg in fpv_dotted_line_segments:
+				dot_seg.visible = false
+		else:
+			var dot_len: float = 4.0
+			var gap: float = maxf((draw_dist - dot_len * FPV_DOT_COUNT) / maxf(FPV_DOT_COUNT - 1, 1), dot_len * 0.5)
+			var stride: float = dot_len + gap
+			for i in range(FPV_DOT_COUNT):
+				var along: float = start_offset + stride * float(i)
+				if along + dot_len > start_offset + draw_dist:
+					fpv_dotted_line_segments[i].visible = false
+				else:
+					var dot_center: Vector2 = crosshair_center + line_dir * (along + dot_len * 0.5)
+					# Only show dots that are within the HUD viewport
+					if dot_center.x < -10.0 or dot_center.x > hud_size_px.x + 10.0 or dot_center.y < -10.0 or dot_center.y > hud_size_px.y + 10.0:
+						fpv_dotted_line_segments[i].visible = false
+					else:
+						fpv_dotted_line_segments[i].visible = true
+						fpv_dotted_line_segments[i].position = dot_center - Vector2(dot_len * 0.5, t * 0.5)
+						fpv_dotted_line_segments[i].rotation = line_angle
+
 func setup_lead_reticle() -> void:
 	"""Set up the red lead-aim crosshair that shows where to point guns to hit the target."""
 	lead_reticle = Control.new()
@@ -716,10 +907,9 @@ func update_lead_reticle() -> void:
 		return
 
 	# Get shooter (our aircraft) motion
-	var shooter_pos: Vector3 = aircraft.global_position
-	var shooter_vel: Vector3 = Vector3.ZERO
-	if "linear_velocity" in aircraft:
-		shooter_vel = aircraft.linear_velocity
+	var gun_mount: Dictionary = _get_gun_mount_info()
+	var shooter_pos: Vector3 = gun_mount.get("origin", aircraft.global_position)
+	var shooter_vel: Vector3 = _get_aircraft_point_velocity_at_world_position(shooter_pos)
 
 	# Get muzzle velocity from equipped gun
 	var muzzle_speed: float = _get_gun_muzzle_velocity()
@@ -763,6 +953,50 @@ func _get_gun_muzzle_velocity() -> float:
 		if hp.weapon_instance.weapon_name == "Autocannon" and "muzzle_velocity" in hp.weapon_instance:
 			return float(hp.weapon_instance.muzzle_velocity)
 	return 0.0
+
+func _get_gun_mount_info() -> Dictionary:
+	var mount_info := {
+		"origin": aircraft.global_position if is_instance_valid(aircraft) else Vector3.ZERO,
+	}
+	var weapon_control = get_weapon_control()
+	if not is_instance_valid(weapon_control):
+		return mount_info
+	if not "hardpoints" in weapon_control:
+		return mount_info
+
+	var count: int = 0
+	var avg_origin: Vector3 = Vector3.ZERO
+	for hp in weapon_control.hardpoints:
+		if not hp or not hp.weapon_instance:
+			continue
+		if hp.weapon_instance.weapon_name != "Autocannon":
+			continue
+		avg_origin += hp.global_position
+		count += 1
+
+	if count > 0:
+		mount_info["origin"] = avg_origin / float(count)
+	return mount_info
+
+func _get_aircraft_point_velocity_at_world_position(world_pos: Vector3) -> Vector3:
+	if not is_instance_valid(aircraft):
+		return Vector3.ZERO
+
+	var point_velocity: Vector3 = Vector3.ZERO
+	if "linear_velocity" in aircraft:
+		point_velocity = aircraft.linear_velocity
+	elif aircraft.get("velocity") is Vector3:
+		point_velocity = aircraft.get("velocity")
+	elif aircraft.has_method("get_linear_velocity"):
+		var getter_velocity = aircraft.call("get_linear_velocity")
+		if getter_velocity is Vector3:
+			point_velocity = getter_velocity
+
+	var angular_velocity = aircraft.get("angular_velocity")
+	if angular_velocity is Vector3:
+		var r_offset: Vector3 = world_pos - aircraft.global_position
+		point_velocity += (angular_velocity as Vector3).cross(r_offset)
+	return point_velocity
 
 func _compute_ballistic_aim_point(shooter_pos: Vector3, shooter_vel: Vector3, target_pos: Vector3, target_vel: Vector3, projectile_speed: float) -> Vector3:
 	"""Gravity-compensated aim point: where to point the nose so bullets hit the target.

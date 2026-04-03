@@ -1,5 +1,7 @@
 extends CanvasLayer
 
+const WorldMapTextureBuilder = preload("res://UI/WorldMapTextureBuilder.gd")
+
 const PIXEL_FONT: FontFile = preload("res://UI/Pixel.ttf")
 const MAP_MARGIN_PX: float = 24.0
 const PANEL_GAP_PX: float = 18.0
@@ -9,8 +11,16 @@ const RIGHT_PANEL_WIDTH_PX: float = 290.0
 const MIN_MAP_SIDE_PX: float = 320.0
 const SECTION_GAP_PX: float = 14.0
 const BUTTON_HEIGHT_PX: float = 34.0
+const ASSET_BUTTON_HEIGHT_PX: float = 46.0
+const GRID_COORD_DIVISIONS: int = 8
+const GRID_COORD_BAND_HEIGHT_PX: float = 18.0
+const GRID_COORD_BAND_WIDTH_PX: float = 18.0
+const GRID_COORD_COLUMNS: PackedStringArray = ["A", "B", "C", "D", "E", "F", "G", "H"]
+const ROUTE_NODE_HIT_RADIUS_PX: float = 10.0
+const ROUTE_SEGMENT_HIT_RADIUS_PX: float = 8.0
 const CAP_LOOP_HALF_SIDE_M: float = 900.0
-const FLIGHT_CAP_ALTITUDE_M: float = 500.0
+const CAP_ROUTE_PREVIEW_ENTRY_SKIP_DISTANCE_M: float = 140.0
+const FLIGHT_CAP_ALTITUDE_M: float = 800.0
 const FLIGHT_CAS_RADIUS_M: float = 3000.0
 const PLATOON_ATTACK_RADIUS_M: float = 300.0
 const PLATOON_PROTECT_RADIUS_M: float = 250.0
@@ -42,7 +52,10 @@ var _header_subtitle: Label
 var _left_panel: ColorRect
 var _asset_title: Label
 var _asset_scroll: ScrollContainer
-var _asset_list: VBoxContainer
+var _asset_sections: VBoxContainer
+var _flight_list: VBoxContainer
+var _platoon_title: Label
+var _platoon_list: VBoxContainer
 var _mission_title: Label
 var _mission_list: VBoxContainer
 var _draft_title: Label
@@ -58,6 +71,8 @@ var _symbol_layer: Control
 var _map_meta: Label
 var _map_hint: Label
 var _map_status: Label
+var _grid_col_labels: Array[Label] = []
+var _grid_row_labels: Array[Label] = []
 
 var _right_panel: ColorRect
 var _info_title: Label
@@ -74,6 +89,7 @@ var _selected_asset_kind: AssetKind = AssetKind.NONE
 var _selected_asset_name: String = ""
 var _selected_mission_id: String = ""
 var _draft_points: Array[Vector3] = []
+var _route_drag_index: int = -1
 var _ui_refresh_timer_s: float = 0.0
 
 func _ready() -> void:
@@ -131,17 +147,25 @@ func _build_ui() -> void:
 
 	_left_panel = _make_panel(VECTOR_PANEL_BG)
 	_root.add_child(_left_panel)
-	_asset_title = _make_label("ASSET SELECTION", 16, VECTOR_AMBER_COLOR)
+	_asset_title = _make_label("FLIGHTS", 16, VECTOR_AMBER_COLOR)
 	_left_panel.add_child(_asset_title)
 	_asset_scroll = ScrollContainer.new()
 	_asset_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	_asset_scroll.mouse_filter = Control.MOUSE_FILTER_STOP
 	_left_panel.add_child(_asset_scroll)
-	_asset_list = VBoxContainer.new()
-	_asset_list.add_theme_constant_override("separation", 8)
-	_asset_scroll.add_child(_asset_list)
+	_asset_sections = VBoxContainer.new()
+	_asset_sections.add_theme_constant_override("separation", 10)
+	_asset_scroll.add_child(_asset_sections)
+	_flight_list = VBoxContainer.new()
+	_flight_list.add_theme_constant_override("separation", 8)
+	_asset_sections.add_child(_flight_list)
+	_platoon_title = _make_label("PLATOONS", 16, VECTOR_AMBER_COLOR)
+	_asset_sections.add_child(_platoon_title)
+	_platoon_list = VBoxContainer.new()
+	_platoon_list.add_theme_constant_override("separation", 8)
+	_asset_sections.add_child(_platoon_list)
 
-	_mission_title = _make_label("MISSION DIRECTIVES", 16, VECTOR_AMBER_COLOR)
+	_mission_title = _make_label("MISSION ORDERS", 16, VECTOR_AMBER_COLOR)
 	_left_panel.add_child(_mission_title)
 	_mission_list = VBoxContainer.new()
 	_mission_list.add_theme_constant_override("separation", 8)
@@ -183,6 +207,16 @@ func _build_ui() -> void:
 	_map_status = _make_label("", 18, VECTOR_STATUS_COLOR, HORIZONTAL_ALIGNMENT_CENTER)
 	_map_status.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_center_panel.add_child(_map_status)
+	for column_name in GRID_COORD_COLUMNS:
+		var col_label := _make_label(column_name, 12, VECTOR_STATUS_COLOR, HORIZONTAL_ALIGNMENT_CENTER)
+		col_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		_center_panel.add_child(col_label)
+		_grid_col_labels.append(col_label)
+	for row_idx in range(GRID_COORD_DIVISIONS):
+		var row_label := _make_label(str(row_idx + 1), 12, VECTOR_STATUS_COLOR, HORIZONTAL_ALIGNMENT_CENTER)
+		row_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		_center_panel.add_child(row_label)
+		_grid_row_labels.append(row_label)
 
 	_right_panel = _make_panel(VECTOR_PANEL_BG)
 	_root.add_child(_right_panel)
@@ -234,18 +268,31 @@ func _layout_ui() -> void:
 	_asset_title.position = Vector2(left_inner_x, left_y)
 	_asset_title.size = Vector2(left_inner_w, 20.0)
 	left_y += 28.0
+	var show_mission_panel: bool = _selected_asset_kind != AssetKind.NONE
+	_mission_title.visible = show_mission_panel
+	_mission_list.visible = show_mission_panel
 	var asset_height: float = clampf(_left_panel.size.y * 0.42, 180.0, 340.0)
+	if show_mission_panel:
+		var mission_height: float = _get_mission_panel_height()
+		var mission_min_top: float = left_y + 180.0 + SECTION_GAP_PX
+		var mission_target_top: float = maxf(_left_panel.size.y * 0.5, mission_min_top)
+		var draft_reserved_height: float = 24.0 + 56.0 + BUTTON_HEIGHT_PX * 2.0 + 18.0
+		var mission_reserved_height: float = 28.0 + mission_height + SECTION_GAP_PX
+		var mission_max_top: float = _left_panel.size.y - mission_reserved_height - draft_reserved_height
+		var mission_top: float = clampf(mission_target_top, mission_min_top, maxf(mission_min_top, mission_max_top))
+		asset_height = maxf(180.0, mission_top - left_y - SECTION_GAP_PX)
 	_asset_scroll.position = Vector2(left_inner_x, left_y)
 	_asset_scroll.size = Vector2(left_inner_w, asset_height)
-	_asset_list.custom_minimum_size = Vector2(left_inner_w - 12.0, 0.0)
+	_asset_sections.custom_minimum_size = Vector2(left_inner_w - 12.0, 0.0)
 	left_y += asset_height + SECTION_GAP_PX
-	_mission_title.position = Vector2(left_inner_x, left_y)
-	_mission_title.size = Vector2(left_inner_w, 20.0)
-	left_y += 28.0
-	var mission_height: float = clampf(_left_panel.size.y * 0.24, 120.0, 220.0)
-	_mission_list.position = Vector2(left_inner_x, left_y)
-	_mission_list.size = Vector2(left_inner_w, mission_height)
-	left_y += mission_height + SECTION_GAP_PX
+	if show_mission_panel:
+		_mission_title.position = Vector2(left_inner_x, left_y)
+		_mission_title.size = Vector2(left_inner_w, 20.0)
+		left_y += 28.0
+		var mission_height: float = _get_mission_panel_height()
+		_mission_list.position = Vector2(left_inner_x, left_y)
+		_mission_list.size = Vector2(left_inner_w, mission_height)
+		left_y += mission_height + SECTION_GAP_PX
 	_draft_title.position = Vector2(left_inner_x, left_y)
 	_draft_title.size = Vector2(left_inner_w, 20.0)
 	left_y += 24.0
@@ -257,9 +304,16 @@ func _layout_ui() -> void:
 	_cancel_button.position = Vector2(left_inner_x, _left_panel.size.y - BUTTON_HEIGHT_PX - 6.0)
 	_cancel_button.size = Vector2(left_inner_w, BUTTON_HEIGHT_PX)
 
-	var map_side: float = minf(_center_panel.size.x - 36.0, _center_panel.size.y - 88.0)
+	var map_side: float = minf(
+		_center_panel.size.x - 36.0 - GRID_COORD_BAND_WIDTH_PX,
+		_center_panel.size.y - 88.0 - GRID_COORD_BAND_HEIGHT_PX
+	)
 	map_side = maxf(map_side, MIN_MAP_SIDE_PX)
-	var map_pos := Vector2((_center_panel.size.x - map_side) * 0.5, 22.0)
+	var map_block_width: float = map_side + GRID_COORD_BAND_WIDTH_PX
+	var map_pos := Vector2(
+		(_center_panel.size.x - map_block_width) * 0.5 + GRID_COORD_BAND_WIDTH_PX,
+		22.0 + GRID_COORD_BAND_HEIGHT_PX
+	)
 	_map_frame.position = map_pos - Vector2(12.0, 12.0)
 	_map_frame.size = Vector2(map_side + 24.0, map_side + 24.0)
 	_map_rect.position = map_pos
@@ -274,6 +328,7 @@ func _layout_ui() -> void:
 	_map_hint.size = Vector2(map_side - 28.0, 42.0)
 	_map_status.position = _map_rect.position
 	_map_status.size = _map_rect.size
+	_layout_grid_coord_labels(map_pos, map_side)
 
 	var right_inner_x: float = 18.0
 	var right_inner_w: float = _right_panel.size.x - right_inner_x * 2.0
@@ -300,58 +355,33 @@ func _ensure_map_texture() -> void:
 		_map_status.text = "Building terrain map..."
 		_map_status.visible = true
 		return
-	var terrain := get_tree().get_first_node_in_group("terrain_provider") as Node3D
-	if terrain == null or not is_instance_valid(terrain):
-		_map_status.text = "Terrain not available"
-		_map_status.visible = true
-		return
 	_map_status.text = "Rendering terrain map..."
 	_map_status.visible = true
-	var img := _build_map_image(terrain)
-	if img == null:
+	var texture := WorldMapTextureBuilder.build_texture()
+	if texture == null:
 		_map_status.text = "Map render failed"
 		return
-	_map_texture = ImageTexture.create_from_image(img)
+	_map_texture = texture
 	_map_rect.texture = _map_texture
 	_map_ready = true
 	_map_status.visible = false
 
 func _build_map_image(_terrain: Node3D) -> Image:
-	var cols: int = TerrainNavGrid._cols
-	var rows: int = TerrainNavGrid._rows
-	if cols <= 1 or rows <= 1:
-		return null
-	var h_ceil: float = TerrainNavGrid._h_min_passable + TerrainNavGrid.low_level_tolerance_m
-	var max_slope_m: float = NavGraph.max_slope_m if NavGraph != null else 18.0
-	var raised_threshold_y: float = h_ceil + maxf(max_slope_m * 1.5, 24.0)
-	var high_threshold_y: float = raised_threshold_y + maxf(max_slope_m * 3.0, 45.0)
-	var img := Image.create(cols, rows, false, Image.FORMAT_RGBA8)
-	for gz in range(rows):
-		for gx in range(cols):
-			var idx: int = gz * cols + gx
-			var h: float = TerrainNavGrid._heights[idx]
-			var color: Color = VECTOR_VOID_COLOR
-			if h > TerrainNavGrid.IMPASSABLE * 0.5:
-				color = VECTOR_LOW_COLOR
-				if h >= high_threshold_y:
-					color = VECTOR_HIGH_COLOR
-				elif h >= raised_threshold_y:
-					color = VECTOR_RAISED_COLOR
-			img.set_pixel(gx, gz, color)
-	return img
+	return WorldMapTextureBuilder.build_image()
 
 func _rebuild_asset_buttons() -> void:
-	_clear_children(_asset_list)
+	_clear_children(_flight_list)
+	_clear_children(_platoon_list)
 	_asset_buttons.clear()
 	for flight_name in AirOpsManager.get_flight_names():
-		var button := _make_button("", VECTOR_TEXT_COLOR)
+		var button := _make_button("", VECTOR_TEXT_COLOR, ASSET_BUTTON_HEIGHT_PX, 16)
 		button.pressed.connect(_select_asset.bind(AssetKind.FLIGHT, flight_name))
-		_asset_list.add_child(button)
+		_flight_list.add_child(button)
 		_asset_buttons.append({"kind": AssetKind.FLIGHT, "name": flight_name, "button": button})
 	for platoon_name in GroundOpsManager.get_platoon_names():
-		var button := _make_button("", VECTOR_AMBER_COLOR)
+		var button := _make_button("", VECTOR_AMBER_COLOR, ASSET_BUTTON_HEIGHT_PX, 16)
 		button.pressed.connect(_select_asset.bind(AssetKind.PLATOON, platoon_name))
-		_asset_list.add_child(button)
+		_platoon_list.add_child(button)
 		_asset_buttons.append({"kind": AssetKind.PLATOON, "name": platoon_name, "button": button})
 
 func _rebuild_mission_buttons() -> void:
@@ -359,7 +389,7 @@ func _rebuild_mission_buttons() -> void:
 	_mission_buttons.clear()
 	for spec in _get_selected_mission_specs():
 		var accent: Color = spec.get("accent", VECTOR_TEXT_COLOR)
-		var button := _make_button(spec.get("label", "MISSION"), accent)
+		var button := _make_button(spec.get("label", "MISSION"), accent, BUTTON_HEIGHT_PX)
 		button.pressed.connect(_begin_mission_draft.bind(String(spec.get("id", ""))))
 		_mission_list.add_child(button)
 		_mission_buttons.append({"id": String(spec.get("id", "")), "button": button, "accent": accent})
@@ -373,6 +403,7 @@ func _refresh_ui(force_rebuild: bool = false) -> void:
 	if force_rebuild or mission_signature != _mission_signature:
 		_mission_signature = mission_signature
 		_rebuild_mission_buttons()
+	_layout_ui()
 	_refresh_asset_button_states()
 	_refresh_mission_button_states()
 	_refresh_info_panel()
@@ -437,7 +468,7 @@ func _refresh_draft_summary() -> void:
 		_draft_summary.text = "Select an asset to start drafting an order."
 		return
 	if _selected_mission_id.is_empty():
-		_draft_summary.text = "%s selected.\nChoose a mission directive to begin." % _selected_asset_name.to_upper()
+		_draft_summary.text = "%s selected.\nChoose a mission order to begin." % _selected_asset_name.to_upper()
 		return
 	var lines: Array[String] = []
 	lines.append("ASSET: %s" % _selected_asset_name.to_upper())
@@ -445,7 +476,13 @@ func _refresh_draft_summary() -> void:
 	if _mission_requires_target(_selected_mission_id):
 		lines.append("TARGETS: %d" % _draft_points.size())
 		if _mission_allows_waypoints(_selected_mission_id):
-			lines.append("LMB adds route points. RMB removes the last point.")
+			if _selected_asset_kind == AssetKind.FLIGHT:
+				if _draft_points.is_empty():
+					lines.append("Click the map to place the first patrol point.")
+				else:
+					lines.append("Drag nodes to move them. Left-click a segment to add a node. Right-click a node to remove it.")
+			else:
+				lines.append("LMB adds route points. RMB removes the last point.")
 		elif _draft_points.is_empty():
 			lines.append("Click the map to place the target area.")
 	else:
@@ -455,11 +492,18 @@ func _refresh_draft_summary() -> void:
 func _refresh_map_hint() -> void:
 	if not _map_ready and TerrainNavGrid.is_ready():
 		_ensure_map_texture()
+	var status := _get_selected_asset_status()
 	if _selected_asset_kind == AssetKind.NONE:
 		_map_hint.text = "Select a flight or platoon to issue a command."
 		return
+	if _selected_asset_kind == AssetKind.FLIGHT and String(status.get("mission", "")) == "CAP" and _selected_mission_id.is_empty():
+		_map_hint.text = "Selected CAP route: drag nodes to move, left-click a route segment to add a node, right-click a node to remove it."
+		return
 	if _selected_mission_id.is_empty():
-		_map_hint.text = "Mission console armed. Choose a directive on the left."
+		_map_hint.text = "Mission console armed. Choose an order on the left."
+		return
+	if _selected_asset_kind == AssetKind.FLIGHT and _selected_mission_id == "CAP":
+		_map_hint.text = "Editing CAP route: drag nodes to move, left-click a segment to add a node, right-click a node to remove it, then confirm."
 		return
 	if _mission_requires_target(_selected_mission_id):
 		if _mission_allows_waypoints(_selected_mission_id):
@@ -475,11 +519,28 @@ func _refresh_map_overlays() -> void:
 	var status := _get_selected_asset_status()
 	if status.is_empty():
 		_symbol_layer.call("clear_selection_focus")
+		_symbol_layer.call("clear_selection_route")
 		_symbol_layer.call("clear_command_draft")
 		return
 	var position: Vector3 = status.get("position", Vector3.ZERO)
 	var selection_accent := VECTOR_TEXT_COLOR if _selected_asset_kind == AssetKind.FLIGHT else VECTOR_AMBER_COLOR
 	_symbol_layer.call("set_selection_focus", position, selection_accent)
+	var editing_flight_route: bool = _selected_asset_kind == AssetKind.FLIGHT and _selected_mission_id == "CAP" and not _draft_points.is_empty()
+	if _selected_asset_kind == AssetKind.FLIGHT and not editing_flight_route:
+		var mission_points_variant = status.get("mission_map_points", [])
+		var mission_points: Array = mission_points_variant if mission_points_variant is Array else []
+		if not mission_points.is_empty():
+			_symbol_layer.call(
+				"set_selection_route",
+				position,
+				mission_points,
+				selection_accent,
+				bool(status.get("mission_map_closed_loop", false))
+			)
+		else:
+			_symbol_layer.call("clear_selection_route")
+	else:
+		_symbol_layer.call("clear_selection_route")
 	if _selected_mission_id.is_empty() or _draft_points.is_empty():
 		_symbol_layer.call("clear_command_draft")
 		return
@@ -503,6 +564,7 @@ func _begin_mission_draft(mission_id: String) -> void:
 		return
 	_selected_mission_id = mission_id
 	_draft_points.clear()
+	_route_drag_index = -1
 	_refresh_ui()
 
 func _confirm_draft() -> void:
@@ -517,12 +579,13 @@ func _confirm_draft() -> void:
 			return
 	_selected_mission_id = ""
 	_draft_points.clear()
+	_route_drag_index = -1
 	_refresh_ui()
 
 func _confirm_flight_order() -> void:
 	match _selected_mission_id:
 		"CAP":
-			AirOpsManager.order_cap_route(_selected_asset_name, _draft_points, FLIGHT_CAP_ALTITUDE_M)
+			AirOpsManager.order_cap_route(_selected_asset_name, _draft_points.duplicate(), FLIGHT_CAP_ALTITUDE_M)
 		"CAS":
 			if _draft_points.is_empty():
 				return
@@ -554,14 +617,22 @@ func _confirm_platoon_order() -> void:
 func _cancel_draft() -> void:
 	_selected_mission_id = ""
 	_draft_points.clear()
+	_route_drag_index = -1
 	_refresh_ui()
 
 func _on_map_gui_input(event: InputEvent) -> void:
-	if not _root.visible or not _mission_requires_target(_selected_mission_id):
+	if not _root.visible:
+		return
+	var status := _get_selected_asset_status()
+	if _handle_selected_flight_route_input(event, status):
+		return
+	if not _mission_requires_target(_selected_mission_id):
 		return
 	if event is InputEventMouseButton and event.pressed and not event.double_click:
 		var mouse_event := event as InputEventMouseButton
 		if mouse_event.button_index == MOUSE_BUTTON_LEFT:
+			if _selected_asset_kind == AssetKind.FLIGHT and _selected_mission_id == "CAP" and not _draft_points.is_empty():
+				return
 			var world_pos := _map_to_world(mouse_event.position)
 			if _mission_allows_waypoints(_selected_mission_id):
 				_draft_points.append(world_pos)
@@ -570,6 +641,8 @@ func _on_map_gui_input(event: InputEvent) -> void:
 			_refresh_ui()
 			get_viewport().set_input_as_handled()
 		elif mouse_event.button_index == MOUSE_BUTTON_RIGHT and not _draft_points.is_empty():
+			if _selected_asset_kind == AssetKind.FLIGHT and _selected_mission_id == "CAP":
+				return
 			_draft_points.pop_back()
 			_refresh_ui()
 			get_viewport().set_input_as_handled()
@@ -594,7 +667,9 @@ func _get_selected_mission_specs() -> Array[Dictionary]:
 			return [
 				{"id": "CAP", "label": "> CAP", "accent": VECTOR_TEXT_COLOR},
 				{"id": "CAS", "label": "> CAS", "accent": VECTOR_AMBER_COLOR},
-				{"id": "RTB", "label": "> RTB", "accent": VECTOR_STATUS_COLOR},
+				{"id": "INTERDICTION", "label": "> INTERDICTION", "accent": VECTOR_STATUS_COLOR, "supported": false},
+				{"id": "STRIKE", "label": "> STRIKE", "accent": VECTOR_AMBER_COLOR, "supported": false},
+				{"id": "ESCORT", "label": "> ESCORT", "accent": VECTOR_TEXT_COLOR, "supported": false},
 			]
 		AssetKind.PLATOON:
 			return [
@@ -610,6 +685,8 @@ func _get_selected_mission_specs() -> Array[Dictionary]:
 
 func _is_mission_enabled(spec: Dictionary, status: Dictionary) -> bool:
 	if spec.is_empty() or status.is_empty():
+		return false
+	if not bool(spec.get("supported", true)):
 		return false
 	var mission_id: String = spec.get("id", "")
 	match mission_id:
@@ -628,7 +705,7 @@ func _can_confirm_draft() -> bool:
 	return true
 
 func _mission_requires_target(mission_id: String) -> bool:
-	return mission_id in ["CAP", "CAS", "MOVE", "ATTACK", "PROTECT"]
+	return mission_id in ["CAP", "CAS", "INTERDICTION", "STRIKE", "MOVE", "ATTACK", "PROTECT"]
 
 func _mission_allows_waypoints(mission_id: String) -> bool:
 	return mission_id == "CAP"
@@ -651,12 +728,41 @@ func _get_cap_route_preview(route_points: Array[Vector3]) -> Array[Vector3]:
 	if route_points.size() != 1:
 		return route_points.duplicate()
 	var anchor := route_points[0]
-	return [
+	var preview_points: Array[Vector3] = [
 		Vector3(anchor.x + CAP_LOOP_HALF_SIDE_M, anchor.y, anchor.z + CAP_LOOP_HALF_SIDE_M),
 		Vector3(anchor.x - CAP_LOOP_HALF_SIDE_M, anchor.y, anchor.z + CAP_LOOP_HALF_SIDE_M),
 		Vector3(anchor.x - CAP_LOOP_HALF_SIDE_M, anchor.y, anchor.z - CAP_LOOP_HALF_SIDE_M),
 		Vector3(anchor.x + CAP_LOOP_HALF_SIDE_M, anchor.y, anchor.z - CAP_LOOP_HALF_SIDE_M),
 	]
+	var status := _get_selected_asset_status()
+	if _selected_asset_kind == AssetKind.FLIGHT and not status.is_empty():
+		var from_pos: Vector3 = status.get("position", anchor)
+		return _rotate_cap_route_preview_to_nearest_waypoint(preview_points, from_pos)
+	return preview_points
+
+func _rotate_cap_route_preview_to_nearest_waypoint(route_points: Array[Vector3], from_pos: Vector3) -> Array[Vector3]:
+	if route_points.size() <= 1:
+		return route_points.duplicate()
+	var best_index: int = 0
+	var best_dist_sq: float = INF
+	for i in range(route_points.size()):
+		var point := route_points[i]
+		var dx: float = point.x - from_pos.x
+		var dz: float = point.z - from_pos.z
+		var dist_sq := dx * dx + dz * dz
+		if dist_sq < best_dist_sq:
+			best_dist_sq = dist_sq
+			best_index = i
+	if best_dist_sq <= CAP_ROUTE_PREVIEW_ENTRY_SKIP_DISTANCE_M * CAP_ROUTE_PREVIEW_ENTRY_SKIP_DISTANCE_M:
+		best_index = (best_index + 1) % route_points.size()
+	if best_index == 0:
+		return route_points.duplicate()
+	var rotated: Array[Vector3] = []
+	for i in range(best_index, route_points.size()):
+		rotated.append(route_points[i])
+	for i in range(best_index):
+		rotated.append(route_points[i])
+	return rotated
 
 func _map_to_world(local_pos: Vector2) -> Vector3:
 	var span_x: float = float(TerrainNavGrid._cols - 1) * TerrainNavGrid.cell_size_m
@@ -671,17 +777,7 @@ func _map_to_world(local_pos: Vector2) -> Vector3:
 	return Vector3(world_x, world_y, world_z)
 
 func _format_asset_button_text(status: Dictionary) -> String:
-	var name: String = String(status.get("name", "")).to_upper()
-	var strength: int = int(status.get("strength", 0))
-	if status.get("kind", "") == "flight":
-		var mission: String = String(status.get("mission", "NONE"))
-		var role: String = String(status.get("role", "STANDBY"))
-		var scramble_tag: String = " SCR" if bool(status.get("is_scrambling", false)) else ""
-		return "%s  FLT  %s  %d%s" % [name, role if role != "STANDBY" else mission, strength, scramble_tag]
-	var objective: String = String(status.get("objective", "HOLD"))
-	var queue_tag: String = " Q" if bool(status.get("queued", false)) else ""
-	var bay_tag: String = "" if bool(status.get("deployed", false)) else " BAY"
-	return "%s  PLT  %s  %d%s%s" % [name, objective, strength, bay_tag, queue_tag]
+	return String(status.get("name", "")).to_upper()
 
 func _format_asset_info(status: Dictionary) -> String:
 	var lines: Array[String] = []
@@ -712,6 +808,199 @@ func _count_route_points(status: Dictionary) -> int:
 	var waypoints_variant = status.get("active_waypoints", [])
 	return waypoints_variant.size() if waypoints_variant is Array else 0
 
+func _handle_selected_flight_route_input(event: InputEvent, status: Dictionary) -> bool:
+	if _selected_asset_kind != AssetKind.FLIGHT or status.is_empty():
+		return false
+	var route_points := _get_visible_selected_flight_route_points(status)
+	if route_points.is_empty():
+		return false
+	var closed_loop := _is_selected_flight_route_closed_loop(status, route_points)
+	if event is InputEventMouseMotion:
+		var motion := event as InputEventMouseMotion
+		if _route_drag_index >= 0 and (motion.button_mask & MOUSE_BUTTON_MASK_LEFT) != 0:
+			if not _ensure_cap_route_edit_draft(status):
+				return false
+			_materialize_cap_draft_points_for_editing()
+			if _route_drag_index < 0 or _route_drag_index >= _draft_points.size():
+				return false
+			var moved_point := _map_to_world(motion.position)
+			moved_point.y = _draft_points[_route_drag_index].y
+			_draft_points[_route_drag_index] = moved_point
+			_refresh_ui()
+			get_viewport().set_input_as_handled()
+			return true
+		return false
+	if not (event is InputEventMouseButton):
+		return false
+	var mouse_event := event as InputEventMouseButton
+	if mouse_event.double_click:
+		return false
+	match mouse_event.button_index:
+		MOUSE_BUTTON_LEFT:
+			if mouse_event.pressed:
+				var node_index := _find_route_node_hit_index(mouse_event.position, route_points)
+				if node_index >= 0:
+					if not _ensure_cap_route_edit_draft(status):
+						return false
+					_materialize_cap_draft_points_for_editing()
+					if node_index >= 0 and node_index < _draft_points.size():
+						_route_drag_index = node_index
+						get_viewport().set_input_as_handled()
+						return true
+				var insert_index := _find_route_segment_insert_index(mouse_event.position, route_points, closed_loop)
+				if insert_index >= 0:
+					if not _ensure_cap_route_edit_draft(status):
+						return false
+					_materialize_cap_draft_points_for_editing()
+					var inserted_point := _map_to_world(mouse_event.position)
+					inserted_point.y = _get_flight_route_edit_altitude(status)
+					_draft_points.insert(clampi(insert_index, 0, _draft_points.size()), inserted_point)
+					_route_drag_index = insert_index
+					_refresh_ui()
+					get_viewport().set_input_as_handled()
+					return true
+			elif _route_drag_index >= 0:
+				_route_drag_index = -1
+				get_viewport().set_input_as_handled()
+				return true
+		MOUSE_BUTTON_RIGHT:
+			if mouse_event.pressed:
+				var node_index := _find_route_node_hit_index(mouse_event.position, route_points)
+				if node_index >= 0:
+					if not _ensure_cap_route_edit_draft(status):
+						return false
+					_materialize_cap_draft_points_for_editing()
+					if _draft_points.size() > 1 and node_index < _draft_points.size():
+						_draft_points.remove_at(node_index)
+						_route_drag_index = -1
+						_refresh_ui()
+					get_viewport().set_input_as_handled()
+					return true
+	return false
+
+func _get_visible_selected_flight_route_points(status: Dictionary) -> Array[Vector3]:
+	if _selected_asset_kind != AssetKind.FLIGHT:
+		return []
+	if _selected_mission_id == "CAP" and not _draft_points.is_empty():
+		if _draft_points.size() == 1:
+			return _get_cap_route_preview(_draft_points)
+		return _draft_points.duplicate()
+	if String(status.get("mission", "")) != "CAP":
+		return []
+	return _variant_to_vector3_array(status.get("mission_map_points", []))
+
+func _is_selected_flight_route_closed_loop(status: Dictionary, route_points: Array[Vector3]) -> bool:
+	if _selected_mission_id == "CAP" and not route_points.is_empty():
+		return route_points.size() >= 2
+	return bool(status.get("mission_map_closed_loop", false))
+
+func _ensure_cap_route_edit_draft(status: Dictionary) -> bool:
+	if _selected_asset_kind != AssetKind.FLIGHT:
+		return false
+	if _selected_mission_id == "CAP":
+		return true
+	if String(status.get("mission", "")) != "CAP":
+		return false
+	var mission_points := _variant_to_vector3_array(status.get("mission_map_points", []))
+	if mission_points.is_empty():
+		return false
+	_selected_mission_id = "CAP"
+	_draft_points = mission_points
+	_route_drag_index = -1
+	_refresh_ui()
+	return true
+
+func _materialize_cap_draft_points_for_editing() -> void:
+	if _selected_mission_id != "CAP" or _draft_points.size() != 1:
+		return
+	_draft_points = _get_cap_route_preview(_draft_points)
+
+func _get_flight_route_edit_altitude(status: Dictionary) -> float:
+	if not _draft_points.is_empty():
+		return _draft_points[0].y
+	var mission_points := _variant_to_vector3_array(status.get("mission_map_points", []))
+	if not mission_points.is_empty():
+		return mission_points[0].y
+	return FLIGHT_CAP_ALTITUDE_M
+
+func _find_route_node_hit_index(local_pos: Vector2, route_points: Array[Vector3]) -> int:
+	var best_index: int = -1
+	var best_distance: float = ROUTE_NODE_HIT_RADIUS_PX
+	for i in range(route_points.size()):
+		var map_point := _world_to_map_local(route_points[i])
+		var dist := local_pos.distance_to(map_point)
+		if dist <= best_distance:
+			best_distance = dist
+			best_index = i
+	return best_index
+
+func _find_route_segment_insert_index(local_pos: Vector2, route_points: Array[Vector3], closed_loop: bool) -> int:
+	if route_points.size() < 2:
+		return -1
+	var best_index: int = -1
+	var best_distance: float = ROUTE_SEGMENT_HIT_RADIUS_PX
+	for i in range(route_points.size() - 1):
+		var start := _world_to_map_local(route_points[i])
+		var end := _world_to_map_local(route_points[i + 1])
+		var dist := _distance_to_segment(local_pos, start, end)
+		if dist <= best_distance:
+			best_distance = dist
+			best_index = i + 1
+	if closed_loop:
+		var loop_start := _world_to_map_local(route_points[route_points.size() - 1])
+		var loop_end := _world_to_map_local(route_points[0])
+		var loop_dist := _distance_to_segment(local_pos, loop_start, loop_end)
+		if loop_dist <= best_distance:
+			best_distance = loop_dist
+			best_index = route_points.size()
+	return best_index
+
+func _world_to_map_local(world_pos: Vector3) -> Vector2:
+	var span_x: float = float(TerrainNavGrid._cols - 1) * TerrainNavGrid.cell_size_m
+	var span_z: float = float(TerrainNavGrid._rows - 1) * TerrainNavGrid.cell_size_m
+	if span_x <= 0.0 or span_z <= 0.0:
+		return Vector2.ZERO
+	var u: float = (world_pos.x - TerrainNavGrid._origin_x) / span_x
+	var v: float = (world_pos.z - TerrainNavGrid._origin_z) / span_z
+	return Vector2(u * _map_input.size.x, v * _map_input.size.y)
+
+func _distance_to_segment(point: Vector2, seg_a: Vector2, seg_b: Vector2) -> float:
+	var segment := seg_b - seg_a
+	var segment_len_sq := segment.length_squared()
+	if segment_len_sq <= 0.001:
+		return point.distance_to(seg_a)
+	var t := clampf((point - seg_a).dot(segment) / segment_len_sq, 0.0, 1.0)
+	var projected := seg_a + segment * t
+	return point.distance_to(projected)
+
+func _variant_to_vector3_array(points_variant) -> Array[Vector3]:
+	var result: Array[Vector3] = []
+	if not (points_variant is Array):
+		return result
+	for point in points_variant:
+		if point is Vector3:
+			result.append(point)
+	return result
+
+func _get_mission_panel_height() -> float:
+	var mission_count: int = _get_selected_mission_specs().size()
+	if mission_count <= 0:
+		return 0.0
+	var content_height := float(mission_count) * BUTTON_HEIGHT_PX + float(maxi(mission_count - 1, 0)) * 8.0
+	return clampf(content_height, 120.0, 260.0)
+
+func _layout_grid_coord_labels(map_pos: Vector2, map_side: float) -> void:
+	var column_width: float = map_side / float(GRID_COORD_DIVISIONS)
+	var row_height: float = map_side / float(GRID_COORD_DIVISIONS)
+	for i in range(_grid_col_labels.size()):
+		var label := _grid_col_labels[i]
+		label.position = Vector2(map_pos.x + column_width * float(i), map_pos.y - GRID_COORD_BAND_HEIGHT_PX)
+		label.size = Vector2(column_width, GRID_COORD_BAND_HEIGHT_PX)
+	for i in range(_grid_row_labels.size()):
+		var label := _grid_row_labels[i]
+		label.position = Vector2(map_pos.x - GRID_COORD_BAND_WIDTH_PX, map_pos.y + row_height * float(i))
+		label.size = Vector2(GRID_COORD_BAND_WIDTH_PX, row_height)
+
 func _make_panel(color: Color) -> ColorRect:
 	var panel := ColorRect.new()
 	panel.color = color
@@ -722,6 +1011,7 @@ func _make_label(text: String, font_size: int, color: Color, align: HorizontalAl
 	var label := Label.new()
 	label.text = text
 	label.horizontal_alignment = align
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	label.add_theme_font_override("font", PIXEL_FONT)
 	label.add_theme_font_size_override("font_size", font_size)
 	label.add_theme_color_override("font_color", color)
@@ -729,13 +1019,15 @@ func _make_label(text: String, font_size: int, color: Color, align: HorizontalAl
 	label.add_theme_constant_override("outline_size", 1)
 	return label
 
-func _make_button(text: String, accent: Color) -> Button:
+func _make_button(text: String, accent: Color, min_height: float = BUTTON_HEIGHT_PX, font_size: int = 14) -> Button:
 	var button := Button.new()
 	button.text = text
 	button.focus_mode = Control.FOCUS_NONE
 	button.mouse_filter = Control.MOUSE_FILTER_STOP
+	button.custom_minimum_size = Vector2(0.0, min_height)
+	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	button.add_theme_font_override("font", PIXEL_FONT)
-	button.add_theme_font_size_override("font_size", 14)
+	button.add_theme_font_size_override("font_size", font_size)
 	_style_button(button, accent, false, false)
 	return button
 

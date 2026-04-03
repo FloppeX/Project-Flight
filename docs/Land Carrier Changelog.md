@@ -3,6 +3,10 @@
 This document contains version history, session-by-session notes, and archived long-form material extracted from the main project overview. For the short project brief, see [README](../README.md).
 
 ## Version History
+- 2026-04-03: HUD / Flight model / Ground ops polish - added flight path vector (FPV) symbol to HUD showing actual velocity direction with dotted line from boresight crosshair, visible even when FPV is off-screen; increased low-speed sideslip damping from 0.06 to 0.3 so aircraft velocity vector tracks nose more tightly during normal maneuvering; fixed ground vehicle platoons to default to carrier escort immediately upon deployment instead of parking at static rally point; fixed aircraft landing/recovery by searching multiple groups (aircraft, ai_aircraft, friendlies) instead of just aircraft group (critical for recovering AI-launched aircraft); added Aircraft_8 as deployable variant matching Aircraft_7 framework.
+- 2026-04-02: Flight-feel / terrain-polish / control-handoff pass - added cliff-only planform straightening + washboard suppression + low-frequency contour jitter to reduce organic-looking billowing cliff faces, tightened rock scatter grounding/slope rejection, added `Aircraft_7` as a faster less-stable interceptor retrievable with `7`, added engine throttle spool lag plus another flight-feel/stability tuning pass, and cleaned up Start/Select/stick-click controller behavior so viewed-aircraft AI/player toggling, commander/cockpit zoom, pause, and AI-viewed HUD/cockpit presentation work more reliably.
+- 2026-03-31: Enemy-runway usability / ground-handling / cockpit-audio polish - fixed the circular cockpit radar presentation, made runway striping stable from different view angles, added an adjacent taxiway slab to the enemy runway, improved taxi/takeoff/landing handling with nosewheel steering + grounded rudder/stability tuning, and added a much more structured cockpit-audio pass with per-aircraft engine/interior sounds, cockpit-only airflow layers, crash-aware shutdown, reduced in-cockpit stereo spread, and stronger interior filtering.
+- 2026-03-29: Enemy base prototype / enemy runway pass - the old enemy airfield concept was renamed to an enemy runway and folded into a new `EnemyBase` object; the map now starts with one random enemy base containing a runway, `5-6` barracks aligned to the runway grid, and a dark leveled base pad; the base already exposes hooks for future enemy flight/platoon spawning and mission generation.
 - 2026-03-28: Interactive tactical command grid prototype - the `M` map now supports selecting flights/platoons, mission buttons, map-click targeting, CAP route drafting, draft preview, and confirm/cancel flow; player-issued orders can auto-scramble empty flights or auto-deploy empty platoons without losing the queued task.
 - 2026-03-27: Tactical map / air-ground polish - enemy platoon contacts stay visible on the flat map, render hot pink, use nav-safe contact routing, and show counters/routes; terrain streaming now follows the active camera; `Insert` screenshots save to the project-root `screenshots` folder; F/R/E debug spawns were fixed; aircraft, weapons, audio, and turbulence received another tuning pass; adaptive terrain triangulation removed the repeating cliff washboard artifact.
 - 2026-03-26 (late): Ground navigation/tactical display follow-up — ground platoon and vehicle staging now prefers carrier-reachable terrain with larger margins from steep slopes/cliffs; nav/tactical-map bake expanded to `25 x 25 km`; added the full-screen `M` map with a fixed vector-style terrain display and live symbols; startup/loading splash updated to use `splash image 5`; battle-bus heavy guns were softened against aircraft; enemy platoons now stay abstract on tactical displays until individual vehicles are actually revealable.
@@ -34,6 +38,118 @@ This document contains version history, session-by-session notes, and archived l
 ---
 
 ## Project Change Log (latest session)
+
+### Session Summary (2026-04-03) - HUD / Flight Model / Ground Ops Polish
+
+**Overview:** Visibility and flight feel polish with key HUD improvements, flight model slip tuning, and ground operations bug fixes. Added flight path vector (FPV) symbol to show actual velocity direction, tightened aircraft sideslip damping, fixed ground vehicle escorting behavior, and repaired a critical group-search issue affecting aircraft landing/recovery.
+
+#### HUD / Flight Path Vector (`HUD/heads_up_display.gd`)
+- Added flight path vector (FPV) symbol: circle with three stubs (top, left, right) showing the aircraft's actual velocity direction
+- Drawn as a dotted line from the boresight crosshair to the FPV position, visible even when the FPV is off the HUD glass edge
+- Calculates correctly via collimated HUD projection and handles off-screen cases gracefully, pointing toward where the aircraft is actually flying
+- Only draws when airspeed > 15 m/s; hidden on the ground or very slow flight
+
+#### Flight Model Tuning (`Aircraft/SimpleAero.gd`)
+- Increased `alignment_low_speed_strength` from 0.06 to 0.3 to tighten the velocity-vector-to-nose tracking at normal maneuvering speeds
+- Previous value was effectively zero, leaving aircraft feeling very loose and allowing excessive sideslip during turns; new value creates natural weathervaning without feeling locked-in
+
+#### Ground Operations Fixes (`GroundOps/GroundOpsManager.gd`, `LandCarrier/FlightDeckManager.gd`)
+- Fixed ground vehicle platoons to default to carrier escort immediately in `_process_deploy_queue()` instead of assigning a static move objective that was never updated
+- Previously, newly deployed platoons would drive to a fixed point 100m behind the carrier and stop; now they form up at carrier corners and follow with velocity matching
+- Fixed aircraft landing/recovery issue: `_find_arrested_aircraft()` and `_find_stopped_aircraft_in_recovery_zone()` now search `["aircraft", "ai_aircraft", "friendlies"]` groups instead of just `"aircraft"`
+  - Root cause: `FlightDeckManager` removes launched AI planes from the "aircraft" group in `_configure_retrieved_aircraft_as_ai()`, making recovery invisible to single-group searches
+  - This fix allows AI-launched aircraft to be properly recognized and collected during carrier recovery
+
+#### Aircraft Roster (`Aircraft/Aircraft_8.tscn`, `LandCarrier/FlightDeckManager.gd`)
+- Added `Aircraft_8` as a new deployable variant, structured identically to `Aircraft_7`
+- Key `8` retrieves `Aircraft_8` from the carrier hangar
+
+
+
+**Overview:** This pass stayed focused on feel and presentation rather than new mission systems. The terrain got another round of targeted cliff-shape cleanup, the procedural rock scatter became more believable around slopes, `Aircraft_7` was promoted into a real retrievable interceptor, engine/flight response received more tuning, and the player/AI handoff path was tightened so viewing an AI-flown aircraft feels intentional instead of half-disabled.
+
+#### Terrain / Rock Polish (`Environment/LowPolyTerrain.gd`, `Environment/RockStream.gd`)
+- Added a cliff-only planform-straightening pass so steep walls no longer read as broad rounded curtains after the previous slope quantization work.
+- Added a light post-quantization washboard-suppression pass and low-frequency cliff contour jitter so the terrain keeps its low-poly structure without falling into obvious repeating zig-zags or organic billowing arcs.
+- Tightened procedural rock grounding so rocks use their real mesh bounds for placement, sit slightly embedded into the terrain, and reject steep/unsupported cliff-edge placements instead of hovering in space.
+
+#### Flight Feel / Aircraft_7 (`Aircraft/Aircraft_7.tscn`, `Aircraft/SimpleAero.gd`, `addons/simplified_flightsim/aircraft_modules/Engine/Engine.gd`, `AI/AIPilot.gd`, `LandCarrier/FlightDeckManager.gd`, `LandCarrier/LandCarrier.tscn`)
+- Added `Aircraft_7` as a new hangar-retrievable interceptor based on the `Aircraft_5` setup, but tuned to be more powerful, faster, less stable, and a bit less nimble.
+- Bound key `7` to retrieve `Aircraft_7` from the carrier hangar, matching the existing aircraft retrieval flow.
+- Added engine throttle spool-up/down lag so aircraft no longer leap forward instantly when throttle is punched.
+- Fixed an AI/player stability handoff bug that could zero out the player aircraft's stability, corrected the roll-restoring sign error, and then retuned `Aircraft_5` so the self-righting assist is present but not overbearing.
+- Continued tuning the flight-path alignment helper so it stays very weak through slower flight, then only becomes meaningfully stronger at higher speed where the aircraft should feel more nose-aligned and less floaty.
+
+#### Player/AI Handoff / Camera / HUD (`FlightDirector.gd`, `project.godot`, `tools/ScreenshotCapture.gd`, `Camera/CameraController.gd`, `LandCarrier/Commander.gd`)
+- Cleaned up the controller Start-button handoff so it now toggles only the currently viewed friendly aircraft between player and AI control instead of occasionally grabbing the wrong control path.
+- Added a bottom-center `AI` status overlay while the currently viewed aircraft is under AI control.
+- Kept viewed-aircraft HUD/instrument presentation alive even while that aircraft is being flown by AI, and re-enabled the viewed aircraft's `CameraController` so cockpit zoom is available in that state too.
+- Removed the stale joypad overlap from the old `toggle_ai_pilot` action so there is a single obvious gamepad handoff path instead of two partially conflicting ones.
+- Mapped pause to the gamepad Select/Back button and restored stick-click zoom behavior for both commander view and the cockpit camera.
+
+#### Verification
+- Repeated headless Godot 4.4.1 boots were used during the terrain, flight, and control-handoff changes.
+- The 2026-04-02 pass did not introduce new script or scene parse errors; the remaining output is still the existing material-remap, occasional nav-path, and headless cleanup warnings.
+
+### Session Summary (2026-03-31) - Enemy Runway Usability, Flight Feel, and Cockpit Audio
+
+**Overview:** This pass stayed in the "make the core loop feel convincing" lane rather than expanding scope. The work tightened the enemy runway into a more believable operating surface, improved low-speed and on-ground aircraft behavior, fixed the cockpit radar presentation, and added a broader cockpit-audio pass so interior vs exterior listening states feel much more intentional.
+
+#### Enemy Runway / Taxiway / Radar (`Buildings/building_enemy_runway.tscn`, `Buildings/building_enemy_runway.gdshader`, `HUD/RadarCanvas.gd`)
+- Fixed the cockpit radar display so the terrain map now renders directly inside a proper circular scope instead of relying on awkward post-mask geometry.
+- Corrected the enemy-runway stripe shader so the painted markings stay visible from different camera angles instead of disappearing as view angle changes.
+- Added a light-grey adjacent taxiway slab to the enemy runway scene to create a proper hard surface for taxi-before-launch / taxi-after-landing behavior and future runway-side building placement.
+
+#### Ground Handling / Flight Feel (`addons/simplified_flightsim/aircraft_modules/LandingGear/LandingGear.gd`, `Aircraft/SimpleAero.gd`, `Aircraft/Aircraft_1.tscn`, `Aircraft/Aircraft_2.tscn`, `Aircraft/Aircraft_3.tscn`, `Aircraft/Aircraft_5.tscn`)
+- Added low-speed rudder-driven nosewheel steering with a gradual cutoff so taxiing is controllable without making high-speed ground handling twitchy.
+- Added grounded rudder assist so players can still make useful alignment corrections on takeoff and landing roll instead of losing all yaw authority whenever wheels are on the ground.
+- Reduced suspension rebound damping and added a small deadband so the landing gear settles more cleanly and no longer "pumps" up and down as noticeably after touchdown.
+- Replaced the old generic return-to-level feel with explicit pitch/roll stability torques, then tuned stability strength per aircraft so some types feel calmer and others remain looser/more agile.
+
+#### Cockpit Audio / Aircraft Sound Pass (`Weather/ContinuousTurbulence.gd`, `Audio/AudioManager3D.gd`, `Audio/AudioManager3D.tscn`, `Aircraft/Aircraft_1.tscn`, `Aircraft/Aircraft_2.tscn`, `Aircraft/Aircraft_3.tscn`, `Aircraft/Aircraft_5.tscn`, `addons/simplified_flightsim/aircraft_modules/Engine/Engine.gd`)
+- Replaced the shared engine loop set so each main aircraft now uses its own dedicated looping engine sound.
+- Added per-aircraft cockpit interior loops that only play for the cockpit camera instead of leaking into chase/cinematic listening.
+- Split cockpit airflow into layered wind / air-rush / stall-buffet sounds; the rush is now speed-driven, while buffet groundwork exists but is currently muted during tuning.
+- Tightened aircraft-only audio ownership so cockpit airflow layers do not play while viewing from outside the aircraft, and all cockpit/wind layers stop cleanly when an aircraft is destroyed.
+- Reworked cockpit audio presentation with stronger interior bus filtering, reduced in-cockpit stereo panning, routing of cockpit-only loops through the interior bus, and ongoing air-rush level tuning so the cockpit sounds enclosed rather than like the same exterior mix with a tiny volume cut.
+
+#### Verification
+- Repeated headless Godot 4.4.1 boots were used during the radar, runway, flight, and audio integrations.
+- The 2026-03-31 polish pass did not introduce new script or scene parse errors; the remaining startup noise is still the pre-existing material-remap and headless cleanup warnings.
+
+### Session Summary (2026-03-29) - Enemy Base Prototype and Enemy Runway Rollout
+
+**Overview:** This pass turned the old loose enemy barracks spawn into the first real enemy-base prototype. The world now starts with one randomly placed enemy base that has its own runway site, a clustered barracks layout, and the first object-level hooks for future enemy flights, platoons, and mission generation.
+
+#### Enemy Runway / Landing Surface (`Buildings/building_enemy_runway.tscn`, `Aircraft/aircraft.gd`, `addons/simplified_flightsim/aircraft_modules/LandingGear/LandingGear.gd`)
+- Renamed the old enemy airfield concept to an **enemy runway**.
+- Kept the runway as a simple Godot scene rather than an imported mesh: dark grey strip, white edge lines, and dashed centerline.
+- Added the dedicated runway-surface handling needed so player aircraft can land and roll out on the enemy runway without being treated like they hit generic terrain.
+- Tightened runway rollout behavior so carrier-specific "hold still on deck" damping no longer makes runway landings feel like hidden wheel brakes are engaged.
+
+#### Enemy Base Object (`Enemies/EnemyBase.gd`, `Enemies/EnemyBase.tscn`, `Buildings/building_barracks.tscn`)
+- Added a reusable `EnemyBase` scene/object as the enemy-side equivalent of the land carrier at a structural level.
+- Each base now owns:
+  - one runway,
+  - `5-6` barracks,
+  - fixed grid-aligned building slots on both sides of the runway,
+  - future-facing spawn hooks for enemy flights and platoons.
+- Reused the existing barracks prefab for the base structures instead of introducing a separate permanent building type.
+
+#### Placement / Grounding (`ScenarioManager.gd`, `Buildings/building_enemy_base_ground.tscn`)
+- Startup now spawns one random enemy base on the map instead of a loose debug building cluster.
+- Placement scoring was expanded from a runway-only strip check to a broader base footprint so the chosen site better fits the whole installation.
+- Added a dark-brown leveled foundation pad under the entire enemy base so the runway and barracks sit on visibly even ground instead of inheriting every terrain bump.
+- The base pad is intentionally sunk into the terrain body enough to avoid obvious gaps while keeping the visible top surface clean and readable.
+
+#### Enemy Spawner Hooks (`Enemies/EnemyAircraftSpawner.gd`)
+- Added initial `spawn_enemy_flight_from_base(...)` and `spawn_enemy_platoon_from_base(...)` hooks so the base can later become a proper enemy operations node instead of just scenery.
+- Updated the `X` debug action to spawn a full enemy base using the same layout logic as the startup path.
+- For now these hooks are structural groundwork; enemy AI runway launch/recovery and autonomous mission generation are still future work.
+
+#### Verification
+- Repeated headless Godot 4.4.1 boots were used while the base/runway work was integrated.
+- The enemy-base rollout completed without introducing new script or scene parse errors; the remaining startup noise is the existing material-remap and headless cleanup warnings.
 
 ### Session Summary (2026-03-28) - Interactive Tactical Command Grid Prototype
 

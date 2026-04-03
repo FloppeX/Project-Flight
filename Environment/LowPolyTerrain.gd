@@ -89,6 +89,28 @@ class_name LowPolyTerrain
 ## Relaxation passes per chunk (more = accurate seams, slower build).
 @export var quant_relax_passes: int = 0
 
+@export_group("Cliff Shape")
+## Straighten steep cliff walls along their contour to reduce rounded, organic billowing.
+@export var cliff_planform_straighten_strength: float = 0.52
+## Number of contour-straightening passes applied to steep walls.
+@export var cliff_planform_passes: int = 3
+## Distance sampled along the local wall tangent each pass.
+@export var cliff_planform_sample_distance_cells: float = 1.7
+## Minimum local slope (rise/run) before cliff straightening starts to apply.
+@export var cliff_planform_min_slope_rise_over_run: float = 0.95
+## Light tangent-direction cleanup after quantization to reduce repeating cliff washboards.
+@export var cliff_washboard_suppress_strength: float = 0.24
+## Number of washboard-suppression passes.
+@export var cliff_washboard_passes: int = 1
+## Tangent sample distance for the washboard cleanup pass.
+@export var cliff_washboard_sample_distance_cells: float = 0.8
+## Low-frequency contour jitter on steep walls to break long smooth artificial curves.
+@export var cliff_planform_jitter_strength: float = 0.16
+## Maximum contour jitter distance in grid cells.
+@export var cliff_planform_jitter_offset_cells: float = 0.65
+## Spatial frequency of the cliff contour jitter noise.
+@export var cliff_planform_jitter_frequency: float = 0.00016
+
 @export_group("Streaming")
 @export var use_streaming: bool = true
 @export var chunk_quads_x: int = 28
@@ -339,17 +361,34 @@ func _build_chunk_arrays(qx0: int, qx1: int, qz0: int, qz1: int) -> Array:
 	var normals  := PackedVector3Array()
 	var colors   := PackedColorArray()
 
-	# --- Quantized height grid with padding for seamless chunk relaxation ---
-	# Padding = relax_passes so relaxed values at chunk edges are correct regardless
-	# of which chunk computed them (all chunks sample the same raw noise).
+	# --- Sampled height grid with padding for seamless post-processing ---
+	# Padding covers any grid-space post-process passes (cliff straightening / step relaxation)
+	# so chunk edges evaluate from the same neighborhood regardless of which chunk built them.
 	var use_quant: bool = quant_step_m > 0.1
+	var use_cliff_planform: bool = (
+		cliff_planform_straighten_strength > 0.001
+		and cliff_planform_passes > 0
+		and cliff_planform_sample_distance_cells > 0.05
+	)
+	var use_cliff_planform_jitter: bool = (
+		cliff_planform_jitter_strength > 0.001
+		and cliff_planform_jitter_offset_cells > 0.05
+	)
+	var use_cliff_washboard: bool = (
+		cliff_washboard_suppress_strength > 0.001
+		and cliff_washboard_passes > 0
+		and cliff_washboard_sample_distance_cells > 0.05
+	)
 	var hgrid     := PackedFloat32Array()
 	var px0: int  = 0
 	var pz0: int  = 0
 	var pcols: int = 0
 
-	if use_quant:
-		var P: int  = max(quant_relax_passes, 0)
+	if use_quant or use_cliff_planform or use_cliff_planform_jitter or use_cliff_washboard:
+		var cliff_planform_pad: int = int(ceil(maxf(cliff_planform_sample_distance_cells, 0.0) * float(max(cliff_planform_passes, 0)))) if use_cliff_planform else 0
+		var cliff_jitter_pad: int = int(ceil(maxf(cliff_planform_jitter_offset_cells, 0.0))) if use_cliff_planform_jitter else 0
+		var cliff_washboard_pad: int = int(ceil(maxf(cliff_washboard_sample_distance_cells, 0.0) * float(max(cliff_washboard_passes, 0)))) if use_cliff_washboard else 0
+		var P: int  = max(max(max(max(quant_relax_passes, 0), cliff_planform_pad), cliff_jitter_pad), cliff_washboard_pad)
 		px0          = max(qx0 - P, 0)
 		var px1: int = min(qx1 + P, _size_x)
 		pz0          = max(qz0 - P, 0)
@@ -362,11 +401,23 @@ func _build_chunk_arrays(qx0: int, qx1: int, qz0: int, qz1: int) -> Array:
 			for lx in range(pcols):
 				var wx: float = _x0 + float(px0 + lx) * cell_size_m
 				var wz: float = _z0 + float(pz0 + lz) * cell_size_m
-				var h: float  = _sample_height(wx, wz, _noises)
-				hgrid[lz * pcols + lx] = round(h / quant_step_m) * quant_step_m
+				hgrid[lz * pcols + lx] = _sample_height(wx, wz, _noises)
 
-		if P > 0 and quant_max_step_m > 0.0:
+		if use_cliff_planform:
+			_straighten_cliff_planform(hgrid, pcols, prows)
+
+		if use_cliff_planform_jitter:
+			_jitter_cliff_planform(hgrid, pcols, prows, px0, pz0, _noises)
+
+		if use_quant:
+			for i in range(hgrid.size()):
+				hgrid[i] = round(hgrid[i] / quant_step_m) * quant_step_m
+
+		if quant_relax_passes > 0 and quant_max_step_m > 0.0:
 			_relax_heights(hgrid, pcols, prows)
+
+		if use_cliff_washboard:
+			_soften_cliff_washboard(hgrid, pcols, prows)
 
 	for z in range(qz0, qz1):
 		for x in range(qx0, qx1):
@@ -379,7 +430,7 @@ func _build_chunk_arrays(qx0: int, qx1: int, qz0: int, qz1: int) -> Array:
 			var h10: float
 			var h01: float
 			var h11: float
-			if use_quant:
+			if use_quant or use_cliff_planform:
 				var lx: int = x - px0
 				var lz: int = z - pz0
 				h00 = hgrid[lz       * pcols + lx    ]
@@ -583,6 +634,15 @@ func _build_noises() -> Dictionary:
 	strata_var.fractal_lacunarity = 2.0
 	strata_var.fractal_gain = 0.5
 
+	var cliff_jitter := FastNoiseLite.new()
+	cliff_jitter.seed = seed + 457
+	cliff_jitter.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	cliff_jitter.frequency = maxf(cliff_planform_jitter_frequency, 0.000001)
+	cliff_jitter.fractal_type = FastNoiseLite.FRACTAL_FBM
+	cliff_jitter.fractal_octaves = 2
+	cliff_jitter.fractal_lacunarity = 2.0
+	cliff_jitter.fractal_gain = 0.5
+
 	return {
 		"canyon_warp": canyon_warp,
 		"main_canyon": main_canyon,
@@ -591,6 +651,7 @@ func _build_noises() -> Dictionary:
 		"flat_surface_undulation": flat_surface_undulation,
 		"flat_surface_detail": flat_surface_detail,
 		"strata_var": strata_var,
+		"cliff_jitter": cliff_jitter,
 		"color_var": color_var,
 	}
 
@@ -755,6 +816,179 @@ func _relax_heights(heights: PackedFloat32Array, cols: int, rows: int) -> void:
 				if gz < rows - 1:
 					h = minf(h, heights[(gz + 1) * cols + gx] + ms)
 				heights[idx] = h
+
+func _straighten_cliff_planform(heights: PackedFloat32Array, cols: int, rows: int) -> void:
+	if cols < 3 or rows < 3:
+		return
+	var passes: int = max(cliff_planform_passes, 0)
+	var strength: float = clampf(cliff_planform_straighten_strength, 0.0, 1.0)
+	if passes <= 0 or strength <= 0.0:
+		return
+
+	var min_slope: float = maxf(cliff_planform_min_slope_rise_over_run, 0.001)
+	var sample_dist: float = maxf(cliff_planform_sample_distance_cells, 0.1)
+	var source: PackedFloat32Array = heights.duplicate()
+	var dest := PackedFloat32Array()
+	dest.resize(heights.size())
+
+	for _pass in range(passes):
+		for z in range(rows):
+			for x in range(cols):
+				var idx: int = z * cols + x
+				var h: float = source[idx]
+				if x == 0 or z == 0 or x == cols - 1 or z == rows - 1:
+					dest[idx] = h
+					continue
+
+				var dx: float = (source[z * cols + x + 1] - source[z * cols + x - 1]) * 0.5
+				var dz: float = (source[(z + 1) * cols + x] - source[(z - 1) * cols + x]) * 0.5
+				var slope_rise_over_run: float = Vector2(dx, dz).length() / maxf(cell_size_m, 0.001)
+				if slope_rise_over_run < min_slope:
+					dest[idx] = h
+					continue
+
+				# Smooth along the cliff tangent instead of across it so walls keep their height
+				# while their footprint becomes less rounded and billowy in plan view.
+				var tangent := Vector2(-dz, dx)
+				if tangent.length_squared() < 0.000001:
+					dest[idx] = h
+					continue
+				tangent = tangent.normalized() * sample_dist
+
+				var along_a: float = _sample_grid_bilinear(source, cols, rows, float(x) - tangent.x, float(z) - tangent.y)
+				var along_b: float = _sample_grid_bilinear(source, cols, rows, float(x) + tangent.x, float(z) + tangent.y)
+				var straightened_h: float = 0.5 * (along_a + along_b)
+				var slope_t: float = clampf((slope_rise_over_run - min_slope) / maxf(min_slope * 0.75, 0.001), 0.0, 1.0)
+				dest[idx] = lerpf(h, straightened_h, strength * slope_t)
+
+		source = dest.duplicate()
+
+	for i in range(heights.size()):
+		heights[i] = source[i]
+
+func _soften_cliff_washboard(heights: PackedFloat32Array, cols: int, rows: int) -> void:
+	if cols < 3 or rows < 3:
+		return
+	var passes: int = max(cliff_washboard_passes, 0)
+	var strength: float = clampf(cliff_washboard_suppress_strength, 0.0, 1.0)
+	if passes <= 0 or strength <= 0.0:
+		return
+
+	var min_slope: float = maxf(cliff_planform_min_slope_rise_over_run, 0.001)
+	var sample_dist: float = maxf(cliff_washboard_sample_distance_cells, 0.1)
+	var source: PackedFloat32Array = heights.duplicate()
+	var dest := PackedFloat32Array()
+	dest.resize(heights.size())
+
+	for _pass in range(passes):
+		for z in range(rows):
+			for x in range(cols):
+				var idx: int = z * cols + x
+				var h: float = source[idx]
+				if x == 0 or z == 0 or x == cols - 1 or z == rows - 1:
+					dest[idx] = h
+					continue
+
+				var dx: float = (source[z * cols + x + 1] - source[z * cols + x - 1]) * 0.5
+				var dz: float = (source[(z + 1) * cols + x] - source[(z - 1) * cols + x]) * 0.5
+				var slope_rise_over_run: float = Vector2(dx, dz).length() / maxf(cell_size_m, 0.001)
+				if slope_rise_over_run < min_slope:
+					dest[idx] = h
+					continue
+
+				var tangent := Vector2(-dz, dx)
+				if tangent.length_squared() < 0.000001:
+					dest[idx] = h
+					continue
+				tangent = tangent.normalized() * sample_dist
+
+				var along_a: float = _sample_grid_bilinear(source, cols, rows, float(x) - tangent.x, float(z) - tangent.y)
+				var along_b: float = _sample_grid_bilinear(source, cols, rows, float(x) + tangent.x, float(z) + tangent.y)
+				# Keep the center value weighted in so this pass only trims repeating
+				# zig-zagging instead of erasing the larger cliff shape.
+				var softened_h: float = (along_a + along_b + h * 2.0) * 0.25
+				var slope_t: float = clampf((slope_rise_over_run - min_slope) / maxf(min_slope * 0.75, 0.001), 0.0, 1.0)
+				dest[idx] = lerpf(h, softened_h, strength * slope_t)
+
+		source = dest.duplicate()
+
+	for i in range(heights.size()):
+		heights[i] = source[i]
+
+func _jitter_cliff_planform(
+		heights: PackedFloat32Array,
+		cols: int,
+		rows: int,
+		grid_x0: int,
+		grid_z0: int,
+		noises: Dictionary) -> void:
+	if cols < 3 or rows < 3:
+		return
+	var strength: float = clampf(cliff_planform_jitter_strength, 0.0, 1.0)
+	var jitter_cells: float = maxf(cliff_planform_jitter_offset_cells, 0.05)
+	if strength <= 0.0:
+		return
+
+	var jitter_noise: FastNoiseLite = noises.get("cliff_jitter") as FastNoiseLite
+	if jitter_noise == null:
+		return
+
+	var min_slope: float = maxf(cliff_planform_min_slope_rise_over_run, 0.001)
+	var source: PackedFloat32Array = heights.duplicate()
+	var dest := PackedFloat32Array()
+	dest.resize(heights.size())
+
+	for z in range(rows):
+		for x in range(cols):
+			var idx: int = z * cols + x
+			var h: float = source[idx]
+			if x == 0 or z == 0 or x == cols - 1 or z == rows - 1:
+				dest[idx] = h
+				continue
+
+			var dx: float = (source[z * cols + x + 1] - source[z * cols + x - 1]) * 0.5
+			var dz: float = (source[(z + 1) * cols + x] - source[(z - 1) * cols + x]) * 0.5
+			var slope_rise_over_run: float = Vector2(dx, dz).length() / maxf(cell_size_m, 0.001)
+			if slope_rise_over_run < min_slope:
+				dest[idx] = h
+				continue
+
+			var normal := Vector2(dx, dz)
+			if normal.length_squared() < 0.000001:
+				dest[idx] = h
+				continue
+			normal = normal.normalized()
+			var tangent := Vector2(-normal.y, normal.x)
+
+			var world_x: float = _x0 + float(grid_x0 + x) * cell_size_m
+			var world_z: float = _z0 + float(grid_z0 + z) * cell_size_m
+			var tangent_noise: float = jitter_noise.get_noise_2d(world_x, world_z)
+			var normal_noise: float = jitter_noise.get_noise_2d(world_x + 4137.0, world_z - 2871.0)
+			var mask_noise: float = jitter_noise.get_noise_2d(world_x - 1553.0, world_z + 5221.0)
+			var jitter_offset := tangent * (tangent_noise * jitter_cells * 0.55) + normal * (normal_noise * jitter_cells * 0.22)
+			var jittered_h: float = _sample_grid_bilinear(source, cols, rows, float(x) + jitter_offset.x, float(z) + jitter_offset.y)
+			var slope_t: float = clampf((slope_rise_over_run - min_slope) / maxf(min_slope * 0.75, 0.001), 0.0, 1.0)
+			var mask_t: float = lerpf(0.45, 1.0, mask_noise * 0.5 + 0.5)
+			dest[idx] = lerpf(h, jittered_h, strength * slope_t * mask_t)
+
+	for i in range(heights.size()):
+		heights[i] = dest[i]
+
+func _sample_grid_bilinear(heights: PackedFloat32Array, cols: int, rows: int, gx: float, gz: float) -> float:
+	var x0: int = clampi(int(floor(gx)), 0, cols - 1)
+	var z0: int = clampi(int(floor(gz)), 0, rows - 1)
+	var x1: int = min(x0 + 1, cols - 1)
+	var z1: int = min(z0 + 1, rows - 1)
+	var tx: float = clampf(gx - float(x0), 0.0, 1.0)
+	var tz: float = clampf(gz - float(z0), 0.0, 1.0)
+
+	var h00: float = heights[z0 * cols + x0]
+	var h10: float = heights[z0 * cols + x1]
+	var h01: float = heights[z1 * cols + x0]
+	var h11: float = heights[z1 * cols + x1]
+	var hx0: float = lerpf(h00, h10, tx)
+	var hx1: float = lerpf(h01, h11, tx)
+	return lerpf(hx0, hx1, tz)
 
 
 func _smoothstep(edge0: float, edge1: float, x: float) -> float:

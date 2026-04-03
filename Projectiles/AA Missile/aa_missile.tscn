@@ -1,6 +1,6 @@
-[gd_scene load_steps=4 format=3 uid="uid://cplk212v3h6ql"]
+[gd_scene load_steps=4 format=3 uid="uid://b6k8vrg2l31h4"]
 
-[ext_resource type="PackedScene" uid="uid://bs5wys2xqauft" path="res://Projectiles/AA Missile/missile.glb" id="1_mesh"]
+[ext_resource type="PackedScene" uid="uid://bs5wys2xqauft" path="res://Projectiles/AG Missile/missile.glb" id="1_mesh"]
 [ext_resource type="Script" uid="uid://blndrm4ytclwx" path="res://Projectiles/AA Missile/aa_missile.gd" id="2_script"]
 
 [sub_resource type="CylinderShape3D" id="CylinderShape3D_rl7mi"]

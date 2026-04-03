@@ -23,11 +23,29 @@ static var _cached_path_info: Dictionary = {}
 @export_range(0, 2) var belt_axis: int = 2
 ## Which local mesh axis spans across the visible belt face.
 @export_range(0, 2) var belt_cross_axis: int = 0
-## 0=final shading, 1=path-coordinate debug, 2=cross-width debug.
-## 0=final shading, 1=path-coordinate debug, 2=cross-width debug, 3=direction arrows.
-@export_enum("Final:0", "Path UV:1", "Cross UV:2", "Direction:3") var belt_debug_mode: int = 0
+@export var rolling_sound: AudioStream = preload("res://Rolling_tracks_mono.wav")
+@export var rolling_sound_bus: String = "Master"
+@export var rolling_sound_min_volume_db: float = -16.0
+@export var rolling_sound_max_volume_db: float = -7.0
+@export var rolling_sound_pitch_min: float = 0.78
+@export var rolling_sound_pitch_max: float = 1.18
+@export var rolling_sound_silence_db: float = -80.0
+@export var rolling_sound_full_speed_mps: float = 8.0
+@export var rolling_sound_unit_size_m: float = 48.0
+@export var rolling_sound_max_distance_m: float = 300.0
+## 0=final shading, 1=path-coordinate debug, 2=cross-width debug,
+## 3=direction arrows, 4=loop contours + seam highlight.
+@export_enum("Final:0", "Path UV:1", "Cross UV:2", "Direction:3", "Loop Contours:4") var belt_debug_mode: int = 0
 ## Freeze belt scroll while inspecting the baked mapping.
 @export var belt_debug_freeze_scroll: bool = false
+
+const DEBUG_MODE_NAMES := [
+	"Final",
+	"Path UV",
+	"Cross UV",
+	"Direction",
+	"Loop Contours",
+]
 
 var carrier: Node3D = null
 var _belt_shader_mat: ShaderMaterial = null
@@ -37,6 +55,7 @@ var _scroll_sign: float = 1.0
 var _wheel_spin_sign: float = 1.0
 var _last_carrier_origin: Vector3
 var _last_carrier_forward: Vector3 = Vector3.FORWARD
+var _rolling_audio_player: AudioStreamPlayer3D
 
 const _BELT_SHADER := """
 shader_type spatial;
@@ -51,7 +70,12 @@ void fragment() {
 	float cross_uv = clamp(UV2.y, 0.0, 1.0);
 
 	if (debug_mode == 1) {
-		ALBEDO = vec3(fract(path_uv), 0.2, 1.0 - fract(path_uv));
+		float loop_frac = fract(path_uv);
+		float seam_mask = 1.0 - smoothstep(0.0, 0.020, min(loop_frac, 1.0 - loop_frac));
+		float contour = 1.0 - smoothstep(0.46, 0.50, abs(fract(path_uv * 12.0) - 0.5));
+		vec3 base = vec3(loop_frac, 0.25, 1.0 - loop_frac);
+		vec3 contour_tint = mix(base, vec3(1.0), contour * 0.55);
+		ALBEDO = mix(contour_tint, vec3(1.0, 0.15, 0.1), seam_mask);
 	} else if (debug_mode == 2) {
 		ALBEDO = vec3(cross_uv, 1.0 - cross_uv, 0.0);
 	} else if (debug_mode == 3) {
@@ -59,6 +83,15 @@ void fragment() {
 		// 4 ramps around the loop so the direction is visible on each run.
 		float ramp = fract(path_uv * 4.0);
 		ALBEDO = vec3(ramp);
+	} else if (debug_mode == 4) {
+		float loop_frac = fract(path_uv);
+		float major_line = 1.0 - smoothstep(0.47, 0.50, abs(fract(path_uv * 8.0) - 0.5));
+		float minor_line = 1.0 - smoothstep(0.485, 0.50, abs(fract(path_uv * 32.0) - 0.5));
+		float seam_mask = 1.0 - smoothstep(0.0, 0.020, min(loop_frac, 1.0 - loop_frac));
+		vec3 base = vec3(0.06, 0.07, 0.08);
+		vec3 band = mix(base, vec3(0.15, 0.55, 1.0), major_line);
+		band = mix(band, vec3(1.0), minor_line * 0.45);
+		ALBEDO = mix(band, vec3(1.0, 0.15, 0.1), seam_mask);
 	} else {
 		vec3 base = vec3(0.18, 0.19, 0.20);
 		float loop_pos = fract(path_uv * band_scale + uv_scroll);
@@ -113,6 +146,7 @@ func _ready() -> void:
 		var node := get_node_or_null(wname) as Node3D
 		if node:
 			_wheel_roots.append(node)
+	_setup_rolling_audio()
 
 
 func _build_belt_material(belt_mesh: MeshInstance3D) -> void:
@@ -137,6 +171,25 @@ func _apply_shader_params() -> void:
 	_belt_shader_mat.set_shader_parameter("band_scale", belt_band_scale)
 	_belt_shader_mat.set_shader_parameter("debug_mode", belt_debug_mode)
 	_belt_shader_mat.set_shader_parameter("uv_scroll", _uv_accum)
+
+
+func set_belt_debug_mode(mode: int) -> void:
+	belt_debug_mode = clampi(mode, 0, DEBUG_MODE_NAMES.size() - 1)
+	_apply_shader_params()
+
+
+func cycle_belt_debug_mode(step: int = 1) -> void:
+	var count := DEBUG_MODE_NAMES.size()
+	set_belt_debug_mode(posmod(belt_debug_mode + step, count))
+
+
+func toggle_belt_debug_freeze() -> void:
+	belt_debug_freeze_scroll = not belt_debug_freeze_scroll
+	print("[CarrierTread] Scroll freeze %s" % ("ON" if belt_debug_freeze_scroll else "OFF"))
+
+
+func get_belt_debug_mode_name() -> String:
+	return DEBUG_MODE_NAMES[clampi(belt_debug_mode, 0, DEBUG_MODE_NAMES.size() - 1)]
 
 
 func _get_or_bake_belt_mesh(belt_mesh: MeshInstance3D) -> Mesh:
@@ -289,9 +342,8 @@ func _resample_closed_path(points: Array[Vector2], target_count: int) -> PackedV
 
 func _map_path_points_to_belt(path_points: PackedVector2Array, belt_aabb: AABB) -> PackedVector2Array:
 	var run_axis := _get_run_axis()
-	var belt_run_min := _axis_from_vec3(belt_aabb.position, run_axis)
-	var belt_scroll_min := _axis_from_vec3(belt_aabb.position, belt_axis)
-	var belt_run_span := maxf(_axis_from_vec3(belt_aabb.size, run_axis), 0.001)
+	var belt_run_center := _axis_from_vec3(belt_aabb.position, run_axis) + _axis_from_vec3(belt_aabb.size, run_axis) * 0.5
+	var belt_scroll_center := _axis_from_vec3(belt_aabb.position, belt_axis) + _axis_from_vec3(belt_aabb.size, belt_axis) * 0.5
 	var belt_scroll_span := maxf(_axis_from_vec3(belt_aabb.size, belt_axis), 0.001)
 
 	var path_min := path_points[0]
@@ -304,16 +356,22 @@ func _map_path_points_to_belt(path_points: PackedVector2Array, belt_aabb: AABB) 
 
 	var path_run_span := maxf(path_max.x - path_min.x, 0.001)
 	var path_scroll_span := maxf(path_max.y - path_min.y, 0.001)
+	var path_run_center := (path_min.x + path_max.x) * 0.5
+	var path_scroll_center := (path_min.y + path_max.y) * 0.5
+
+	# Preserve the helper curve's aspect instead of fitting run/scroll
+	# independently to the tread mesh AABB. The exported helper path already
+	# matches the tread very closely along the travel axis, and forcing its
+	# vertical span down to the belt AABB was flattening the turnarounds.
+	var uniform_scale := belt_scroll_span / path_scroll_span
 
 	var mapped := PackedVector2Array()
 	mapped.resize(path_points.size())
 	for idx in range(path_points.size()):
 		var point := path_points[idx]
-		var run_t := (point.x - path_min.x) / path_run_span
-		var scroll_t := (point.y - path_min.y) / path_scroll_span
 		mapped[idx] = Vector2(
-			belt_run_min + run_t * belt_run_span,
-			belt_scroll_min + scroll_t * belt_scroll_span
+			belt_run_center + (point.x - path_run_center) * uniform_scale,
+			belt_scroll_center + (point.y - path_scroll_center) * uniform_scale
 		)
 	return mapped
 
@@ -409,10 +467,12 @@ func _bake_mesh_path_uvs(belt_mesh: MeshInstance3D, path_info: Dictionary) -> Ar
 
 
 func _project_point_onto_path(point: Vector2, path_info: Dictionary) -> float:
-	# Use angle-from-centroid to determine the loop position. This avoids the
-	# ambiguity of nearest-point projection at turnarounds where the top and
-	# bottom runs are geometrically close but topologically distant.
-	var raw_distance := _project_point_by_angle(
+	# Project directly to the nearest point on the closed helper loop.
+	# The previous angle-from-centroid partitioning was creating a visible
+	# handoff around the lower front/rear turnarounds, where small position
+	# changes could flip a vertex into a different angular region even though
+	# the geometric nearest point stayed on the same tread run.
+	var raw_distance := _project_point_onto_closed_path(
 		point,
 		path_info["points"],
 		path_info["closed_cumulative"]
@@ -616,10 +676,14 @@ func setup_tread_offset() -> void:
 	_wheel_spin_sign = -1.0 if carrier_offset.x < 0.0 else 1.0
 
 
-func _physics_process(_delta: float) -> void:
+func _physics_process(delta: float) -> void:
 	_apply_shader_params()
 
 	var signed_travel := _compute_signed_travel()
+	var tread_speed_mps: float = 0.0
+	if delta > 0.0 and absf(signed_travel) <= 20.0:
+		tread_speed_mps = absf(signed_travel) / delta
+	_update_rolling_audio(delta, tread_speed_mps)
 	if absf(signed_travel) < 0.0001 or absf(signed_travel) > 20.0:
 		return
 
@@ -670,3 +734,37 @@ func update_position() -> void:
 		var tread_position := carrier.global_position + carrier_offset
 		tread_position.y = carrier.global_position.y - 32.0
 		global_position = tread_position
+
+func _setup_rolling_audio() -> void:
+	if rolling_sound == null:
+		return
+
+	if rolling_sound is AudioStreamWAV:
+		rolling_sound.loop_mode = AudioStreamWAV.LOOP_FORWARD
+
+	_rolling_audio_player = AudioStreamPlayer3D.new()
+	_rolling_audio_player.name = "RollingTracksAudio"
+	_rolling_audio_player.stream = rolling_sound
+	_rolling_audio_player.bus = rolling_sound_bus
+	_rolling_audio_player.max_distance = rolling_sound_max_distance_m
+	_rolling_audio_player.unit_size = rolling_sound_unit_size_m
+	_rolling_audio_player.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_SQUARE_DISTANCE
+	_rolling_audio_player.volume_db = rolling_sound_silence_db
+	_rolling_audio_player.pitch_scale = rolling_sound_pitch_min
+	_rolling_audio_player.add_to_group("3d_audio")
+	add_child(_rolling_audio_player)
+	_rolling_audio_player.call_deferred("play")
+
+func _update_rolling_audio(delta: float, tread_speed_mps: float) -> void:
+	if _rolling_audio_player == null:
+		return
+
+	var speed_factor := clampf(tread_speed_mps / maxf(rolling_sound_full_speed_mps, 0.01), 0.0, 1.0)
+	speed_factor = speed_factor * speed_factor * (3.0 - 2.0 * speed_factor)
+	var target_volume := rolling_sound_silence_db if tread_speed_mps < 0.05 else lerpf(rolling_sound_min_volume_db, rolling_sound_max_volume_db, speed_factor)
+	var target_pitch := lerpf(rolling_sound_pitch_min, rolling_sound_pitch_max, speed_factor)
+	var blend := clampf(delta * 5.0, 0.0, 1.0)
+	_rolling_audio_player.volume_db = lerpf(_rolling_audio_player.volume_db, target_volume, blend)
+	_rolling_audio_player.pitch_scale = lerpf(_rolling_audio_player.pitch_scale, target_pitch, blend)
+	if not _rolling_audio_player.playing:
+		_rolling_audio_player.call_deferred("play")

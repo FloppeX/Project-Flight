@@ -1,6 +1,25 @@
 extends Node3D
 class_name RockStream
 
+const SUPPORT_SAMPLE_DIRECTIONS := [
+	Vector2(1.0, 0.0),
+	Vector2(-1.0, 0.0),
+	Vector2(0.0, 1.0),
+	Vector2(0.0, -1.0),
+	Vector2(0.70710678, 0.70710678),
+	Vector2(-0.70710678, 0.70710678),
+	Vector2(0.70710678, -0.70710678),
+	Vector2(-0.70710678, -0.70710678),
+	Vector2(0.92387953, 0.38268343),
+	Vector2(-0.92387953, 0.38268343),
+	Vector2(0.92387953, -0.38268343),
+	Vector2(-0.92387953, -0.38268343),
+	Vector2(0.38268343, 0.92387953),
+	Vector2(-0.38268343, 0.92387953),
+	Vector2(0.38268343, -0.92387953),
+	Vector2(-0.38268343, -0.92387953),
+]
+
 @export var rock_scene_path: String = "res://Models/Rocks/Rock.glb"
 @export var radius_m: float = 400.0
 @export var cell_size_m: float = 25.0
@@ -9,10 +28,19 @@ class_name RockStream
 @export var max_instances: int = 2000
 @export var min_scale: float = 0.6
 @export var max_scale: float = 1.6
+## Sink rocks slightly into the terrain so tiny sampling/pivot mismatches do not leave them hovering.
+@export var embed_depth_fraction_of_height: float = 0.14
+## Small constant embed as an extra hedge against visible floating.
+@export var embed_depth_m: float = 0.12
 ## Maximum terrain slope in degrees — steeper faces get no rocks
 @export var max_slope_deg: float = 30.0
 ## Distance used to sample slope from neighbouring height points
-@export var slope_sample_m: float = 6.0
+@export var slope_sample_m: float = 3.0
+## Extra ring around the rock footprint to check for cliff-edge overhangs.
+## 15 m keeps rocks well clear of quantized cliff edges.
+@export var support_check_margin_m: float = 15.0
+## Maximum allowed terrain drop around a placed rock before it is rejected.
+@export var max_support_drop_m: float = 0.9
 @export var preload_margin_m: float = 100.0
 ## Minimum cell movement before rebuilding the rock set
 @export var cells_threshold: int = 2
@@ -23,6 +51,9 @@ var _mm: MultiMesh
 var _rock_mesh: Mesh
 var _terrain: LowPolyTerrain
 var _last_center_cell: Vector2i = Vector2i(1_000_000, 1_000_000)
+var _rock_local_min_y: float = 0.0
+var _rock_local_height: float = 0.0
+var _rock_local_planform_radius: float = 0.5
 
 func _ready() -> void:
 	_mmi = MultiMeshInstance3D.new()
@@ -36,6 +67,7 @@ func _ready() -> void:
 		fallback.size = Vector3(1.2, 0.7, 1.0)
 		_rock_mesh = fallback
 	_mm.mesh = _rock_mesh
+	_cache_rock_bounds()
 	# Terrain lookup — find via group set in LowPolyTerrain._ready()
 	_terrain = get_tree().get_first_node_in_group("terrain_provider") as LowPolyTerrain
 
@@ -103,25 +135,52 @@ func _rebuild(center: Vector3) -> void:
 			var px: float = world_x + offx
 			var pz: float = world_z + offz
 
+			var yaw := rng.randf() * TAU
+			var s := rng.randf_range(min_scale, max_scale)
+
 			# Height lookup directly from terrain — no raycasts needed
 			var h: float = _terrain.get_height(Vector3(px, 0.0, pz))
 			if is_nan(h):
 				continue  # Outside terrain bounds
 
-			# Slope check via neighbouring height samples
-			var hx: float = _terrain.get_height(Vector3(px + slope_sample_m, 0.0, pz))
-			var hz: float = _terrain.get_height(Vector3(px, 0.0, pz + slope_sample_m))
-			if is_nan(hx) or is_nan(hz):
+			# Slope check via central neighbouring samples so one-sided cliffs and
+			# rim transitions are rejected more reliably.
+			var hx_pos: float = _terrain.get_height(Vector3(px + slope_sample_m, 0.0, pz))
+			var hx_neg: float = _terrain.get_height(Vector3(px - slope_sample_m, 0.0, pz))
+			var hz_pos: float = _terrain.get_height(Vector3(px, 0.0, pz + slope_sample_m))
+			var hz_neg: float = _terrain.get_height(Vector3(px, 0.0, pz - slope_sample_m))
+			if is_nan(hx_pos) or is_nan(hx_neg) or is_nan(hz_pos) or is_nan(hz_neg):
 				continue
-			var slope_x: float = abs(hx - h) / slope_sample_m
-			var slope_z: float = abs(hz - h) / slope_sample_m
+			var slope_x: float = abs(hx_pos - hx_neg) / maxf(slope_sample_m * 2.0, 0.001)
+			var slope_z: float = abs(hz_pos - hz_neg) / maxf(slope_sample_m * 2.0, 0.001)
 			if maxf(slope_x, slope_z) > max_slope_tan:
 				continue  # Too steep — cliff face, no rocks
 
-			var yaw := rng.randf() * TAU
-			var s := rng.randf_range(min_scale, max_scale)
+			# Also reject placements that sit near a sharp edge within the rock's
+			# footprint, otherwise the center point can be grounded while the mesh
+			# visibly hangs out into empty space.
+			var support_radius: float = _rock_local_planform_radius * s + support_check_margin_m
+			var min_support_h: float = h
+			var support_valid: bool = true
+			for dir in SUPPORT_SAMPLE_DIRECTIONS:
+				var sample_h: float = _terrain.get_height(Vector3(
+					px + dir.x * support_radius,
+					0.0,
+					pz + dir.y * support_radius
+				))
+				if is_nan(sample_h):
+					support_valid = false
+					break
+				min_support_h = minf(min_support_h, sample_h)
+			if not support_valid:
+				continue
+			if h - min_support_h > max_support_drop_m:
+				continue
+
 			var basis := Basis().rotated(Vector3.UP, yaw).scaled(Vector3(s, s, s))
-			transforms[count] = Transform3D(basis, Vector3(px, h + 0.02, pz))
+			var embed: float = embed_depth_m + _rock_local_height * s * embed_depth_fraction_of_height
+			var rock_y: float = h - _rock_local_min_y * s - embed
+			transforms[count] = Transform3D(basis, Vector3(px, rock_y, pz))
 			count += 1
 			if count >= max_instances:
 				break
@@ -165,3 +224,13 @@ func _find_mesh_instance(node: Node) -> MeshInstance3D:
 		if found != null:
 			return found
 	return null
+
+func _cache_rock_bounds() -> void:
+	if _rock_mesh == null:
+		_rock_local_min_y = 0.0
+		_rock_local_height = 1.0
+		return
+	var aabb: AABB = _rock_mesh.get_aabb()
+	_rock_local_min_y = aabb.position.y
+	_rock_local_height = maxf(aabb.size.y, 0.001)
+	_rock_local_planform_radius = maxf(Vector2(aabb.size.x, aabb.size.z).length() * 0.5, 0.001)

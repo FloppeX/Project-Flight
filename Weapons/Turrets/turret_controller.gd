@@ -236,6 +236,29 @@ func _get_node_velocity(node: Node) -> Vector3:
             return getter_velocity
     return Vector3.ZERO
 
+func _get_node_angular_velocity(node: Node) -> Vector3:
+    if not node or not is_instance_valid(node):
+        return Vector3.ZERO
+    var angular = node.get("angular_velocity")
+    if angular is Vector3:
+        return angular
+    if node.has_method("get_angular_velocity"):
+        var getter_velocity = node.call("get_angular_velocity")
+        if getter_velocity is Vector3:
+            return getter_velocity
+    return Vector3.ZERO
+
+func _get_point_velocity_at_world_position(world_pos: Vector3) -> Vector3:
+    var point_velocity: Vector3 = _get_node_velocity(host_actor)
+    if not host_actor or not is_instance_valid(host_actor):
+        return point_velocity
+
+    var angular_velocity: Vector3 = _get_node_angular_velocity(host_actor)
+    if angular_velocity.length_squared() > 0.000001:
+        var r_offset: Vector3 = world_pos - host_actor.global_position
+        point_velocity += angular_velocity.cross(r_offset)
+    return point_velocity
+
 func _get_weapon_projectile_speed() -> float:
     if weapon_instance:
         var speed = weapon_instance.get("bullet_speed")
@@ -332,7 +355,7 @@ func calculate_lead_position(target: Node3D) -> Vector3:
     var target_pos: Vector3 = _get_target_aim_point(target)
     var target_velocity: Vector3 = _get_node_velocity(target)
     var shooter_pos: Vector3 = _get_aim_origin()
-    var shooter_velocity: Vector3 = _get_node_velocity(host_actor)
+    var shooter_velocity: Vector3 = _get_point_velocity_at_world_position(shooter_pos)
     var bullet_speed: float = _get_weapon_projectile_speed()
     var lead_position: Vector3 = _predict_ballistic_aim_point(
         shooter_pos,
