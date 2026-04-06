@@ -120,6 +120,7 @@ func _ready() -> void:
 	add_to_group("enemies")
 	add_to_group("ground_vehicles")
 	add_to_group("team_" + str(team))
+	add_to_group("origin_shifter")
 	_resolve_waypoints()
 	_collect_wheel_nodes()
 	_compute_corner_probes()
@@ -227,6 +228,15 @@ func assign_platoon(new_platoon: GroundVehiclePlatoon) -> void:
 		platoon.register_vehicle(self)
 	_clear_navigation_path()
 	_nav_repath_timer_s = randf() * _get_navigation_replan_interval_s()
+
+func apply_origin_shift(offset: Vector3) -> void:
+	for i in range(_waypoint_positions.size()):
+		_waypoint_positions[i] -= offset
+	for i in range(_nav_path_positions.size()):
+		_nav_path_positions[i] -= offset
+	_nav_path_goal -= offset
+	if _combat_scoot_destination != Vector3.ZERO:
+		_combat_scoot_destination -= offset
 
 func _physics_process(delta: float) -> void:
 	if is_dying:

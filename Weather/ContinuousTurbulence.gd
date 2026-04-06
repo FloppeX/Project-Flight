@@ -6,6 +6,8 @@ class_name ContinuousTurbulence
 @export var max_intensity: float = 10.0
 @export var turbulence_scale: float = 0.001  # How "big" the noise patterns are
 @export var time_speed: float = 0.1
+@export var update_interval_s: float = 0.05
+@export var body_scan_interval_s: float = 0.5
 @export var altitude_factor: float = 0.001  # How altitude affects turbulence
 @export var max_altitude_multiplier: float = 1.45  # Cap high-altitude amplification
 @export var ground_effect_height: float = 100.0  # Calmer air near ground
@@ -54,6 +56,9 @@ var time_offset: float = 0.0
 var audio_players: Dictionary = {}  # body_id -> {gust, air_rush, stall_buffet}
 var debug_timer: float = 0.0
 var _last_impulse_time: Dictionary = {}  # body_id -> last impulse time
+var _update_timer_s: float = 0.0
+var _body_scan_timer_s: float = 0.0
+var _cached_bodies: Array = []
 
 func _ready():
 	noise = FastNoiseLite.new()
@@ -65,14 +70,19 @@ func _ready():
 func _process(delta):
 	time_offset += delta * time_speed
 	debug_timer += delta
-	
-	# Find all aircraft automatically
-	var bodies = []
-	bodies = get_tree().get_nodes_in_group("weather_affected")
-	
-	# Auto-detect aircraft (fallback if no group assignment)
-	if bodies.is_empty():
-		bodies = find_aircraft_automatically()
+
+	_update_timer_s += maxf(delta, 0.0)
+	_body_scan_timer_s -= maxf(delta, 0.0)
+	if _body_scan_timer_s <= 0.0:
+		_refresh_cached_bodies()
+		_body_scan_timer_s = maxf(body_scan_interval_s, 0.05)
+
+	if _update_timer_s < maxf(update_interval_s, 0.01):
+		return
+	var step_delta: float = minf(_update_timer_s, 0.25)
+	_update_timer_s = 0.0
+	var active_camera := get_active_camera()
+	var bodies := _cached_bodies
 	
 	# Debug output every 2 seconds
 	if debug_output and debug_timer > 2.0:
@@ -80,8 +90,13 @@ func _process(delta):
 		debug_timer = 0.0
 	
 	for body in bodies:
-		if body is RigidBody3D:
-			apply_continuous_turbulence(body, delta)
+		if is_instance_valid(body) and body is RigidBody3D:
+			apply_continuous_turbulence(body, step_delta, active_camera)
+
+func _refresh_cached_bodies() -> void:
+	_cached_bodies = get_tree().get_nodes_in_group("weather_affected")
+	if _cached_bodies.is_empty():
+		_cached_bodies = find_aircraft_automatically()
 
 func find_aircraft_automatically() -> Array:
 	var aircraft = []
@@ -115,39 +130,34 @@ func find_aircraft_recursive(node: Node, aircraft_array: Array):
 	for child in node.get_children():
 		find_aircraft_recursive(child, aircraft_array)
 
-func apply_continuous_turbulence(body: RigidBody3D, delta: float):
+func apply_continuous_turbulence(body: RigidBody3D, delta: float, active_camera: Camera3D):
 	var pos = body.global_position
-	
+
 	# Define aerodynamic points on the aircraft
 	var wing_span = 20.0
 	var fuselage_length = 15.0
-	
+
 	# Sample turbulence at multiple points
 	var left_wing_pos = pos + body.global_transform.basis.x * -wing_span/2
 	var right_wing_pos = pos + body.global_transform.basis.x * wing_span/2
 	var nose_pos = pos + body.global_transform.basis.z * -fuselage_length/2
 	var tail_pos = pos + body.global_transform.basis.z * fuselage_length/2
 	var center_pos = pos
-	
+
 	# Get velocity for scaling
 	var velocity = body.linear_velocity.length()
 	var velocity_factor = _get_velocity_factor(velocity)
-	
-	# Apply impulse-based turbulence at each point (emphasize roll over yaw)
-	apply_turbulence_at_point(body, left_wing_pos, body.global_transform.basis.x * -wing_span/2, velocity_factor, 0.8)  # Strong wing effects
-	apply_turbulence_at_point(body, right_wing_pos, body.global_transform.basis.x * wing_span/2, velocity_factor, 0.8)   # Strong wing effects
-	apply_turbulence_at_point(body, nose_pos, body.global_transform.basis.z * -fuselage_length/2, velocity_factor, 0.1)  # Weak nose
-	apply_turbulence_at_point(body, tail_pos, body.global_transform.basis.z * fuselage_length/2, velocity_factor, 0.2)   # Weak tail
-	apply_turbulence_at_point(body, center_pos, Vector3.ZERO, velocity_factor, 0.15)  # Weak center
-	
-	# Calculate average intensity for audio and shake
-	var avg_intensity = (
-		get_turbulence_intensity_at_position(left_wing_pos) +
-		get_turbulence_intensity_at_position(right_wing_pos) +
-		get_turbulence_intensity_at_position(nose_pos) +
-		get_turbulence_intensity_at_position(tail_pos) +
-		get_turbulence_intensity_at_position(center_pos)
-	) / 5.0
+
+	# Apply impulse-based turbulence at each point and accumulate intensity
+	var intensity_sum: float = 0.0
+	intensity_sum += apply_turbulence_at_point(body, left_wing_pos, body.global_transform.basis.x * -wing_span/2, velocity_factor, 0.8, delta)
+	intensity_sum += apply_turbulence_at_point(body, right_wing_pos, body.global_transform.basis.x * wing_span/2, velocity_factor, 0.8, delta)
+	intensity_sum += apply_turbulence_at_point(body, nose_pos, body.global_transform.basis.z * -fuselage_length/2, velocity_factor, 0.1, delta)
+	intensity_sum += apply_turbulence_at_point(body, tail_pos, body.global_transform.basis.z * fuselage_length/2, velocity_factor, 0.2, delta)
+	intensity_sum += apply_turbulence_at_point(body, center_pos, Vector3.ZERO, velocity_factor, 0.15, delta)
+
+	# Use accumulated intensity instead of re-sampling noise
+	var avg_intensity = intensity_sum / 5.0
 	
 	# Add shake based on average intensity
 	if body.has_method("add_shake"):
@@ -157,27 +167,28 @@ func apply_continuous_turbulence(body: RigidBody3D, delta: float):
 			print("Applying shake: ", shake_amount, " to ", body.name)
 	
 	# Handle wind audio
-	update_wind_audio(body, avg_intensity)
+	update_wind_audio(body, avg_intensity, active_camera)
 
-func apply_turbulence_at_point(body: RigidBody3D, world_pos: Vector3, local_offset: Vector3, velocity_factor: float, strength_multiplier: float):
+func apply_turbulence_at_point(body: RigidBody3D, world_pos: Vector3, local_offset: Vector3, velocity_factor: float, strength_multiplier: float, step_delta: float) -> float:
 	# Sample turbulence intensity at this specific point
 	var noise_value = (noise.get_noise_3d(world_pos.x, world_pos.y, world_pos.z + time_offset) + 1.0) * 0.5
-	var intensity = base_intensity + noise_value * max_intensity
-	
+	var raw_intensity = base_intensity + noise_value * max_intensity
+
 	# Altitude effects
 	var altitude_multiplier = _get_altitude_multiplier(world_pos.y)
 	var ground_factor = 1.0
 	if world_pos.y < ground_effect_height:
 		ground_factor = world_pos.y / ground_effect_height
-	
-	intensity *= altitude_multiplier * ground_factor * strength_multiplier
+
+	var intensity = raw_intensity * altitude_multiplier * ground_factor
+	var point_intensity = intensity * strength_multiplier
 	
 	# Poisson-like triggering: chance based on gust_rate and delta time
 	var body_id = body.get_instance_id()
 	var now = Time.get_ticks_msec() * 0.001
 	var last_t = _last_impulse_time.get(body_id, 0.0)
 	var dt_since = now - last_t
-	var fire_random = randf() < clamp(gust_rate_hz * get_process_delta_time(), 0.0, 0.8)
+	var fire_random = randf() < clamp(gust_rate_hz * maxf(step_delta, 0.0), 0.0, 0.8)
 	var time_ok = dt_since >= min_interval_s
 	
 	# Create impulse-style turbulence with horizontal bias
@@ -195,7 +206,7 @@ func apply_turbulence_at_point(body: RigidBody3D, world_pos: Vector3, local_offs
 		var dir = (lateral * lateral_scale + vertical * vertical_scale).normalized()
 		
 		# Scale by configured gust impulse scale
-		var magnitude = intensity * impulse_strength * velocity_factor * gust_impulse_scale
+		var magnitude = point_intensity * impulse_strength * velocity_factor * gust_impulse_scale
 		var turbulence_impulse = dir * magnitude
 		
 		# Apply as impulse for sharp jolts
@@ -204,8 +215,10 @@ func apply_turbulence_at_point(body: RigidBody3D, world_pos: Vector3, local_offs
 		if debug_output and debug_timer < 0.1:
 			print("Impulse at offset ", local_offset, ": ", turbulence_impulse)
 
-func update_wind_audio(body: RigidBody3D, intensity: float):
-	if not _is_aircraft_audio_target(body):
+	return intensity  # Return unscaled intensity for averaging
+
+func update_wind_audio(body: RigidBody3D, intensity: float, active_camera: Camera3D):
+	if not _is_aircraft_audio_target(body, active_camera):
 		_stop_audio_for_body(body)
 		_cleanup_invalid_audio_players()
 		return
@@ -343,12 +356,11 @@ func _get_body_stall_severity(body: RigidBody3D) -> float:
 		return clampf(float(simple_aero.get_stall_severity()), 0.0, 1.0)
 	return 0.0
 
-func _is_aircraft_audio_target(body: RigidBody3D) -> bool:
+func _is_aircraft_audio_target(body: RigidBody3D, active_camera: Camera3D) -> bool:
 	if body == null or body.get_node_or_null("SimpleAero") == null:
 		return false
 	if not _is_body_audio_alive(body):
 		return false
-	var active_camera := get_active_camera()
 	if active_camera == null:
 		return false
 	var cockpit_camera := _get_body_cockpit_camera(body)

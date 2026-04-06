@@ -128,9 +128,11 @@ func explode():
 	if debug_enabled:
 		print("Enemy box exploding!")
 	emit_signal("destroyed", self)
-	
-	# Spawn explosion effect
-	var explosion_scene_resource = load("res://Projectiles/Explosion/explosion.tscn")
+
+	# Spawn explosion effect (use exported scene or fallback)
+	var explosion_scene_resource: PackedScene = explosion_scene
+	if not explosion_scene_resource:
+		explosion_scene_resource = load("res://Projectiles/Explosion/explosion.tscn")
 	if explosion_scene_resource:
 		var explosion_instance = explosion_scene_resource.instantiate()
 		get_parent().add_child(explosion_instance)

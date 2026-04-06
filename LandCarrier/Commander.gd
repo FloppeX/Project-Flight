@@ -9,7 +9,7 @@ class_name Commander
 @export var bridge_wall_margin_m: float = 0.55
 @export var normal_fov: float = 75.0
 @export var zoomed_fov: float = 30.0
-@export var control_room_ambience: AudioStream = preload("res://control_room_ambience.wav")
+@export var control_room_ambience: AudioStream = preload("res://Audio/Carrier/control_room_ambience.wav")
 @export var control_room_ambience_bus: String = "Master"
 @export var control_room_ambience_volume_db: float = -10.0
 @export var control_room_ambience_pitch_scale: float = 1.0
@@ -174,6 +174,7 @@ func _clamp_to_bridge_bounds(local_position: Vector3) -> Vector3:
 		return clamped
 
 	clamped.x = clampf(clamped.x, _bridge_bounds_min.x, _bridge_bounds_max.x)
+	# _bridge_bounds_min/max are Vector2(x, z) — .y component stores Z bounds
 	clamped.z = clampf(clamped.z, _bridge_bounds_min.y, _bridge_bounds_max.y)
 	return clamped
 

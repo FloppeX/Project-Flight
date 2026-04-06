@@ -303,12 +303,9 @@ func _process(delta: float) -> void:
 			var desired_vfov_rad: float = 2.0 * atan( (assumed_target_width_m) / (2.0 * dist * aspect) )
 			var desired_vfov_deg: float = rad_to_deg(desired_vfov_rad)
 			desired_vfov_deg = clamp(desired_vfov_deg, min_fov_deg, max_fov_deg)
-			var t: float = 0.12
-			target_camera.fov = lerp(target_camera.fov, desired_vfov_deg, t)
+			target_camera.fov = desired_vfov_deg
 		else:
-			# Relax FOV toward a default when no target
-			var t2: float = 0.12
-			target_camera.fov = lerp(target_camera.fov, 30.0, t2)
+			target_camera.fov = 30.0
 	
 
 func _setup_lower_displays() -> void:

@@ -1,316 +1,216 @@
-extends Node3D
 class_name EnemyBase
+extends Node3D
+## A stationary enemy installation: runway, buildings, and virtual flights.
+## Built procedurally at runtime. Each base has a unique faction color.
 
-const FactionPaint = preload("res://FactionPaint.gd")
+# ── Faction palette ──────────────────────────────────────────────────────────
 
-@export var runway_scene: PackedScene = preload("res://Buildings/building_enemy_runway.tscn")
-@export var ground_scene: PackedScene = preload("res://Buildings/building_enemy_base_ground.tscn")
-@export var structure_scene: PackedScene = preload("res://Buildings/building_barracks.tscn")
-@export_range(1, 12) var min_structure_count: int = 5
-@export_range(1, 12) var max_structure_count: int = 6
-@export var structure_ground_clearance_m: float = 0.0
-@export var ground_surface_height_offset_m: float = 1.8
-@export var flight_spawn_altitude_offset_m: float = 80.0
-@export_range(1, 32) var total_aircraft_inventory: int = 12
-@export_range(1, 64) var total_vehicle_inventory: int = 24
-@export_range(1, 16) var max_active_aircraft: int = 6
-@export_range(1, 32) var max_active_vehicles: int = 12
-@export_range(1, 8) var patrol_flight_size: int = 2
-@export_range(1, 12) var patrol_platoon_size: int = 4
-@export_range(1, 8) var response_flight_size: int = 2
-@export_range(1, 12) var response_platoon_size: int = 4
-
-const BUILDING_SLOTS := [
-	{"pos": Vector3(-120, 0, -220), "yaw_deg": 0.0},
-	{"pos": Vector3(120, 0, -220), "yaw_deg": 0.0},
-	{"pos": Vector3(-120, 0, -100), "yaw_deg": 0.0},
-	{"pos": Vector3(120, 0, -100), "yaw_deg": 0.0},
-	{"pos": Vector3(-120, 0, 20), "yaw_deg": 0.0},
-	{"pos": Vector3(120, 0, 20), "yaw_deg": 0.0},
-	{"pos": Vector3(-120, 0, 140), "yaw_deg": 0.0},
-	{"pos": Vector3(120, 0, 140), "yaw_deg": 0.0},
-	{"pos": Vector3(-120, 0, 260), "yaw_deg": 0.0},
-	{"pos": Vector3(120, 0, 260), "yaw_deg": 0.0},
+const FACTION_COLORS: Array[Color] = [
+	Color(0.82, 0.26, 0.12, 1.0),   # Rust red   (faction 0 / upper-left)
+	Color(0.22, 0.44, 0.76, 1.0),   # Steel blue (faction 1 / upper-right)
+]
+const FACTION_NAMES: Array[String] = [
+	"Crimson Pact",
+	"Iron Veil",
 ]
 
-const FLIGHT_SPAWN_SLOTS := [
-	Vector3(0, 0, -180),
-	Vector3(0, 0, -100),
-	Vector3(0, 0, -20),
-]
+const PAD_COLOR     := Color(0.16, 0.11, 0.09, 1.0)
+const PAD_RADIUS_M  := 420.0
+const PATROL_RADIUS := 4500.0
+const FLIGHTS_PER_BASE := 2
 
-const PLATOON_SPAWN_LOCAL := Vector3(170, 0, 240)
+# ── Config ────────────────────────────────────────────────────────────────────
 
-var terrain: Node3D = null
-var base_ground: Node3D = null
-var runway: Node3D = null
-var spawned_buildings: Array[Node3D] = []
-var spawned_flights: Array[Node3D] = []
-var spawned_platoons: Array[Node3D] = []
-var visual_identity: Dictionary = {}
+@export var faction_id:    int  = 0
+@export var debug_enabled: bool = false
 
+# ── State ─────────────────────────────────────────────────────────────────────
+
+var faction_color: Color  = Color.WHITE
+var faction_name:  String = ""
+var flights: Array[EnemyVirtualFlight] = []
+
+var _rng := RandomNumberGenerator.new()
+var _enemy_aircraft_scene: PackedScene = null
+var _tick_acc: float = 0.0
+
+# ── Lifecycle ─────────────────────────────────────────────────────────────────
 
 func _ready() -> void:
 	add_to_group("enemy_bases")
-	add_to_group("enemies")
-	add_to_group("team_2")
-	_ensure_ground()
-	_ensure_runway()
-	_apply_visual_identity()
-	_register_with_enemy_base_manager()
+	add_to_group("origin_shifter")
 
-func _exit_tree() -> void:
-	_unregister_from_enemy_base_manager()
+	faction_color = FACTION_COLORS[faction_id % FACTION_COLORS.size()]
+	faction_name  = FACTION_NAMES[faction_id % FACTION_NAMES.size()]
+	_rng.seed = hash(global_position) ^ (faction_id * 99991 + 12345)
 
+	# Try the dedicated enemy aircraft scene; fall back to Aircraft_3
+	_enemy_aircraft_scene = load("res://Enemies/EnemyAircraft.tscn") as PackedScene
+	if _enemy_aircraft_scene == null:
+		_enemy_aircraft_scene = load("res://Aircraft/Aircraft_3.tscn") as PackedScene
 
-func configure_layout(terrain_node: Node3D, structure_count: int = -1) -> void:
-	terrain = terrain_node
-	_rebuild_layout(structure_count)
-
-func configure_visual_identity(identity: Dictionary) -> void:
-	visual_identity = identity.duplicate(true)
-	_apply_visual_identity()
-
-func get_visual_identity() -> Dictionary:
-	return visual_identity.duplicate(true)
-
-func get_resource_limits() -> Dictionary:
-	return {
-		"total_aircraft_inventory": maxi(total_aircraft_inventory, 1),
-		"total_vehicle_inventory": maxi(total_vehicle_inventory, 1),
-		"max_active_aircraft": clampi(max_active_aircraft, 1, maxi(total_aircraft_inventory, 1)),
-		"max_active_vehicles": clampi(max_active_vehicles, 1, maxi(total_vehicle_inventory, 1)),
-		"patrol_flight_size": clampi(patrol_flight_size, 1, maxi(max_active_aircraft, 1)),
-		"patrol_platoon_size": clampi(patrol_platoon_size, 1, maxi(max_active_vehicles, 1)),
-		"response_flight_size": clampi(response_flight_size, 1, maxi(max_active_aircraft, 1)),
-		"response_platoon_size": clampi(response_platoon_size, 1, maxi(max_active_vehicles, 1)),
-	}
-
-func get_structure_count() -> int:
-	_prune_dead_nodes(spawned_buildings)
-	return spawned_buildings.size()
-
-func get_flight_count() -> int:
-	_prune_dead_nodes(spawned_flights)
-	return spawned_flights.size()
-
-func get_platoon_count() -> int:
-	_prune_dead_nodes(spawned_platoons)
-	return spawned_platoons.size()
-
-func get_status_summary() -> Dictionary:
-	var resource_limits: Dictionary = get_resource_limits()
-	var status := {
-		"kind": "enemy_base",
-		"name": name,
-		"position": global_position,
-		"flight_count": get_flight_count(),
-		"platoon_count": get_platoon_count(),
-		"structure_count": get_structure_count(),
-		"has_runway": is_instance_valid(runway),
-		"runway_position": runway.global_position if is_instance_valid(runway) else global_position,
-		"total_aircraft_inventory": int(resource_limits.get("total_aircraft_inventory", total_aircraft_inventory)),
-		"total_vehicle_inventory": int(resource_limits.get("total_vehicle_inventory", total_vehicle_inventory)),
-		"max_active_aircraft": int(resource_limits.get("max_active_aircraft", max_active_aircraft)),
-		"max_active_vehicles": int(resource_limits.get("max_active_vehicles", max_active_vehicles)),
-		"patrol_flight_size": int(resource_limits.get("patrol_flight_size", patrol_flight_size)),
-		"patrol_platoon_size": int(resource_limits.get("patrol_platoon_size", patrol_platoon_size)),
-		"response_flight_size": int(resource_limits.get("response_flight_size", response_flight_size)),
-		"response_platoon_size": int(resource_limits.get("response_platoon_size", response_platoon_size)),
-	}
-	if not visual_identity.is_empty():
-		status["primary_color"] = visual_identity.get("primary_color", Color(0.0, 0.0, 0.0, 1.0))
-		status["secondary_color"] = visual_identity.get("secondary_color", Color(0.0, 0.0, 0.0, 1.0))
-		status["insignia_index"] = int(visual_identity.get("insignia_index", -1))
-	return status
+	# Defer so global_position is fully set by EnemyBaseManager before we build
+	call_deferred("_build_base")
 
 
-func get_runway() -> Node3D:
-	_ensure_runway()
-	return runway
+func _physics_process(delta: float) -> void:
+	_tick_acc += delta
+	if _tick_acc >= 1.0:
+		var dt := _tick_acc
+		_tick_acc = 0.0
+		for f in flights:
+			if is_instance_valid(f):
+				f.tick(dt)
 
 
-func get_launch_direction() -> Vector3:
-	var forward := global_transform.basis.z
-	forward.y = 0.0
-	if forward.length_squared() < 0.0001:
-		return Vector3.FORWARD
-	return forward.normalized()
+# ── Construction ──────────────────────────────────────────────────────────────
+
+func _build_base() -> void:
+	_build_pad()
+	_place_buildings()
+	_create_flights()
+	if debug_enabled:
+		print("[EnemyBase] %s built at %v" % [faction_name, global_position])
 
 
-func get_flight_spawn_transform(slot_index: int = 0) -> Transform3D:
-	var slot: Vector3 = FLIGHT_SPAWN_SLOTS[clampi(slot_index, 0, FLIGHT_SPAWN_SLOTS.size() - 1)]
-	var world_origin := to_global(slot)
-	world_origin.y = _get_surface_world_y() + flight_spawn_altitude_offset_m
-	return Transform3D(global_transform.basis, world_origin)
+func _build_pad() -> void:
+	var mi := MeshInstance3D.new()
+	mi.mesh = _generate_pad_mesh()
+	mi.position = Vector3(0.0, 0.2, 0.0)   # slight lift to prevent z-fight with terrain
+
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = PAD_COLOR
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.cull_mode    = BaseMaterial3D.CULL_DISABLED
+	mi.material_override = mat
+	add_child(mi)
 
 
-func get_platoon_spawn_position() -> Vector3:
-	var world_origin := to_global(PLATOON_SPAWN_LOCAL)
-	world_origin.y = _get_surface_world_y()
-	return world_origin
+func _generate_pad_mesh() -> ArrayMesh:
+	var num_pts := _rng.randi_range(7, 11)
+	var pts: Array[Vector2] = []
+	for i in range(num_pts):
+		var base_angle := TAU * float(i) / float(num_pts)
+		var jitter     := _rng.randf_range(-0.28, 0.28)
+		var r          := PAD_RADIUS_M * _rng.randf_range(0.68, 1.32)
+		pts.append(Vector2(cos(base_angle + jitter) * r, sin(base_angle + jitter) * r))
+
+	var verts   := PackedVector3Array()
+	var normals := PackedVector3Array()
+	for i in range(pts.size()):
+		var a := pts[i]
+		var b := pts[(i + 1) % pts.size()]
+		verts.append(Vector3.ZERO)
+		verts.append(Vector3(a.x, 0.0, a.y))
+		verts.append(Vector3(b.x, 0.0, b.y))
+		normals.append(Vector3.UP)
+		normals.append(Vector3.UP)
+		normals.append(Vector3.UP)
+
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_NORMAL] = normals
+
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	return mesh
 
 
-func spawn_flight(spawner: Node, aircraft_count: int = 2) -> void:
-	if spawner != null and spawner.has_method("spawn_enemy_flight_from_base"):
-		spawner.call("spawn_enemy_flight_from_base", self, aircraft_count)
+func _place_buildings() -> void:
+	var runway_scene   := load("res://Buildings/building_enemy_runway.tscn") as PackedScene
+	var barracks_scene := load("res://Buildings/building_barracks.tscn") as PackedScene
+
+	var runway_yaw := _rng.randf_range(0.0, TAU)
+	var fwd  := Vector2(cos(runway_yaw), sin(runway_yaw))
+	var perp := Vector2(-fwd.y, fwd.x)
+
+	# Runway at center
+	if runway_scene:
+		var rw := runway_scene.instantiate() as Node3D
+		add_child(rw)
+		rw.position   = Vector3(0.0, _terrain_offset(0.0, 0.0), 0.0)
+		rw.rotation.y = runway_yaw
+
+	# Barracks at fixed offsets relative to runway axis
+	if barracks_scene:
+		var offsets: Array[Vector2] = [
+			perp *  130.0,
+			perp * -130.0,
+			fwd  *  220.0,
+			fwd  * -190.0,
+			perp *  190.0 + fwd * 110.0,
+		]
+		var count := _rng.randi_range(3, offsets.size())
+		for i in range(count):
+			var off := offsets[i]
+			var bx := off.x
+			var bz := off.y
+			var b := barracks_scene.instantiate() as Node3D
+			add_child(b)
+			b.position   = Vector3(bx, _terrain_offset(bx, bz), bz)
+			b.rotation.y = _rng.randf_range(-PI * 0.15, PI * 0.15)
 
 
-func spawn_platoon(spawner: Node, vehicle_count: int = 4) -> void:
-	if spawner != null and spawner.has_method("spawn_enemy_platoon_from_base"):
-		spawner.call("spawn_enemy_platoon_from_base", self, vehicle_count)
+func _terrain_offset(local_x: float, local_z: float) -> float:
+	## Returns the Y offset (relative to base origin) for a point in local XZ space.
+	var wx := global_position.x + local_x
+	var wz := global_position.z + local_z
+	var h  := TerrainNavGrid.sample_height(wx, wz)
+	if h <= TerrainNavGrid.IMPASSABLE * 0.5:
+		return 0.0
+	return h - global_position.y
 
 
-func register_flight(flight_node: Node3D) -> void:
-	if flight_node != null and is_instance_valid(flight_node):
-		spawned_flights.append(flight_node)
-		_prune_dead_nodes(spawned_flights)
-		_apply_visual_identity_to_flight(flight_node)
+func _create_flights() -> void:
+	for i in range(FLIGHTS_PER_BASE):
+		var f := EnemyVirtualFlight.new()
+		f.flight_name    = "%s-%02d" % [faction_name.left(3).to_upper(), i + 1]
+		f.aircraft_count = 2
+		f.patrol_radius  = PATROL_RADIUS
+		f.faction_color  = faction_color
+		f.setup(global_position, _enemy_aircraft_scene,
+				float(i) * TAU / float(FLIGHTS_PER_BASE))
+		add_child(f)
+		flights.append(f)
 
 
-func register_platoon(platoon_node: Node3D) -> void:
-	if platoon_node != null and is_instance_valid(platoon_node):
-		spawned_platoons.append(platoon_node)
-		_prune_dead_nodes(spawned_platoons)
-		_apply_visual_identity_to_platoon(platoon_node)
+# ── Origin shift ──────────────────────────────────────────────────────────────
+
+func _is_shifted_by_scene_root_node3d_chain() -> bool:
+	var root := get_tree().current_scene
+	if root == null:
+		return false
+
+	var node: Node = self
+	while node != null and node != root:
+		var parent := node.get_parent()
+		if parent == null:
+			return false
+		if parent == root:
+			# FloatingOrigin shifts only direct Node3D children of current_scene.
+			# If our topmost node under current_scene is Node3D, we were shifted via parent chain.
+			return node is Node3D
+		node = parent
+
+	return false
 
 
-func _rebuild_layout(structure_count: int = -1) -> void:
-	_clear_layout()
-	_ensure_ground()
-	_ensure_runway()
+func apply_origin_shift(offset: Vector3) -> void:
+	# Fallback: if this base is not under a shifted Node3D chain, shift it manually.
+	if not _is_shifted_by_scene_root_node3d_chain():
+		global_position -= offset
 
-	var count := structure_count
-	if count < 0:
-		count = randi_range(min_structure_count, max_structure_count)
-	count = clampi(count, min_structure_count, min(max_structure_count, BUILDING_SLOTS.size()))
-	_spawn_structures(count)
-	_apply_visual_identity()
+	# Flights keep raw world-space vectors; always forward the shift.
+	for f in flights:
+		if is_instance_valid(f):
+			f.apply_origin_shift(offset)
 
 
-func _clear_layout() -> void:
-	for structure in spawned_buildings:
-		if is_instance_valid(structure):
-			structure.queue_free()
-	spawned_buildings.clear()
+# ── Public API ────────────────────────────────────────────────────────────────
 
+func get_faction_color() -> Color:
+	return faction_color
 
-func _ensure_ground() -> void:
-	if is_instance_valid(base_ground):
-		return
-	if ground_scene == null:
-		return
-	base_ground = ground_scene.instantiate() as Node3D
-	if base_ground == null:
-		return
-	base_ground.name = "EnemyBaseGround"
-	add_child(base_ground)
-	base_ground.transform = Transform3D.IDENTITY
-	_apply_visual_identity()
-
-
-func _ensure_runway() -> void:
-	if is_instance_valid(runway):
-		return
-	if runway_scene == null:
-		return
-	runway = runway_scene.instantiate() as Node3D
-	if runway == null:
-		return
-	runway.name = "EnemyRunway"
-	add_child(runway)
-	runway.transform = Transform3D.IDENTITY
-	_apply_visual_identity()
-
-
-func _spawn_structures(count: int) -> void:
-	if structure_scene == null or count <= 0:
-		return
-
-	var slot_indices: Array[int] = []
-	for idx in range(BUILDING_SLOTS.size()):
-		slot_indices.append(idx)
-	slot_indices.shuffle()
-
-	for slot_idx in slot_indices.slice(0, count):
-		var slot: Dictionary = BUILDING_SLOTS[slot_idx]
-		var structure := structure_scene.instantiate() as Node3D
-		if structure == null:
-			continue
-		add_child(structure)
-
-		var local_pos: Vector3 = slot.get("pos", Vector3.ZERO)
-		var world_pos := to_global(local_pos)
-		world_pos.y = _get_surface_world_y() + structure_ground_clearance_m
-		var local_yaw_deg: float = float(slot.get("yaw_deg", 0.0))
-		var world_yaw_rad := global_rotation.y + deg_to_rad(local_yaw_deg)
-		structure.global_transform = Transform3D(Basis(Vector3.UP, world_yaw_rad), world_pos)
-		spawned_buildings.append(structure)
-		_apply_visual_identity_to_building(structure)
-
-
-func _get_surface_world_y() -> float:
-	return global_position.y + ground_surface_height_offset_m
-
-
-func _sample_ground_y(world_pos: Vector3) -> float:
-	if terrain == null or not is_instance_valid(terrain) or not terrain.has_method("get_height"):
-		return global_position.y
-	var sampled: Variant = terrain.call("get_height", Vector3(world_pos.x, terrain.global_position.y, world_pos.z))
-	if typeof(sampled) != TYPE_FLOAT:
-		return global_position.y
-	var h := float(sampled)
-	if is_nan(h):
-		return global_position.y
-	return h
-
-
-func _prune_dead_nodes(nodes: Array[Node3D]) -> void:
-	for idx in range(nodes.size() - 1, -1, -1):
-		if not is_instance_valid(nodes[idx]):
-			nodes.remove_at(idx)
-
-func _apply_visual_identity() -> void:
-	if visual_identity.is_empty():
-		return
-	if is_instance_valid(base_ground):
-		FactionPaint.apply_base_ground(base_ground, visual_identity)
-	if is_instance_valid(runway):
-		FactionPaint.apply_runway(runway, visual_identity)
-	for structure in spawned_buildings:
-		_apply_visual_identity_to_building(structure)
-	for flight in spawned_flights:
-		_apply_visual_identity_to_flight(flight)
-	for platoon in spawned_platoons:
-		_apply_visual_identity_to_platoon(platoon)
-
-func _apply_visual_identity_to_building(building: Node3D) -> void:
-	if visual_identity.is_empty() or building == null or not is_instance_valid(building):
-		return
-	FactionPaint.apply_building(building, visual_identity)
-
-func _apply_visual_identity_to_flight(flight_node: Node3D) -> void:
-	if visual_identity.is_empty() or flight_node == null or not is_instance_valid(flight_node):
-		return
-	FactionPaint.apply_aircraft(flight_node, visual_identity)
-
-func _apply_visual_identity_to_platoon(platoon_node: Node3D) -> void:
-	if visual_identity.is_empty() or platoon_node == null or not is_instance_valid(platoon_node):
-		return
-	if not platoon_node.has_method("get_members"):
-		return
-	var members_variant: Variant = platoon_node.call("get_members")
-	if members_variant is Array:
-		for member in members_variant:
-			if member is Node3D and is_instance_valid(member):
-				FactionPaint.apply_vehicle(member as Node3D, visual_identity)
-
-func _register_with_enemy_base_manager() -> void:
-	var manager := get_tree().root.get_node_or_null("EnemyBaseManager")
-	if manager != null and manager.has_method("register_base"):
-		manager.call("register_base", self)
-
-func _unregister_from_enemy_base_manager() -> void:
-	var manager := get_tree().root.get_node_or_null("EnemyBaseManager")
-	if manager != null and manager.has_method("unregister_base"):
-		manager.call("unregister_base", self)
+func get_flights() -> Array[EnemyVirtualFlight]:
+	return flights

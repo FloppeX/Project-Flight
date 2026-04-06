@@ -32,7 +32,7 @@ The player pushes into enemy-controlled territory, launches and recovers aircraf
 
 ## Current Status
 
-**Last Updated:** 2026-04-03
+**Last Updated:** 2026-04-06
 **Godot Version:** 4.4.1.stable.official.49a5bc7b6
 **Project Health:** PLAYABLE
 **Control Mode:** AI-by-default with viewed-aircraft player/AI toggle (game controller)
@@ -112,6 +112,7 @@ Example project launch from this repo root:
 - Carrier / free-look audio investigation (2026-04-03): bridge/control-room/deck/elevator/tread audio hooks were added and bridge window damping was being tuned, but carrier-related 3D audio is still unresolved in free-look camera testing.
 - Current audio state (2026-04-03): an accidental always-on 2D debug deck-sound player in `FlightDirector.gd` was disabled; mono versions of the carrier 3D source WAVs were created for deck / tread / elevator use; free-camera listener handoff was also patched, but the latest in-game symptom regressed to no carrier sound at all in free look.
 - Recommended resume point: instrument the active 3D listener and named `3d_audio` players at runtime first, then continue debugging from verified listener/source state instead of doing more blind attenuation or mix tuning.
+- Performance (2026-04-06): render scale set to 0.5 for 4K; terrain chunk rebuild interval raised to 0.5s with smart initial-fill burst; volumetric fog is the main remaining GPU cost; spike logger removed from `ScenarioManager.gd`; AI terrain fan/ahead checks throttled to ~20 Hz in `AIPilot.gd` and `get_height` callable cached to eliminate per-call `has_method` overhead.
 
 ### Enemy Systems
 
@@ -123,19 +124,20 @@ Example project launch from this repo root:
 | Enemy Bases | Partial | One random enemy base now spawns on the map at startup. Each base currently consists of an enemy runway plus `5-6` barracks aligned to the same grid on a dark leveled base pad; the runway now has an adjacent taxiway strip and stable top-surface markings, and the `EnemyBase` object already exposes hooks for future enemy flight/platoon spawning and mission logic, though AI runway operations are still to come |
 | Ground Snapping | Working | StaticBody3D terrain alignment |
 | Movement | Working | Aircraft behavior solid; ground vehicles use spring-damper suspension with chassis floating above ground and all wheels in contact (works on terrain and carrier ramp); forward-axis velocity projection; larger turn radii; elliptical carrier avoidance with tangential flow steering; enemy/friendly platoon and vehicle staging validates carrier-reachable flat ground with larger margins from steep terrain; enemy vehicles now anchor destinations more carefully and reject direct segments that would climb steep slopes; abstract platoon contacts follow nav-safe representative routes instead of tunneling through mountains; movement/combat stance still being tuned |
-| AI Behavior | Working | Carrier-centered patrol, dogfight, missile/gun choice, RTB/landing, lost-sight variation, and platoon-based ground vehicle objectives implemented; ground vehicles hold position once arrived (30m hysteresis), avoid siblings during retrieval rally, and use formation/rejoin behavior for platoon travel; escort positions prioritize front corners; friendly debug-spawned aircraft can now be kept in a shared flight; close-pass breakaway logic now reduces head-on air-to-air collisions; enemy vehicle gunnery is intentionally inaccurate but permissive, so they shoot often without feeling too dead-eye; still being tuned |
+| AI Behavior | Working | Carrier-centered patrol, dogfight, missile/gun choice, RTB/landing, lost-sight variation, and platoon-based ground vehicle objectives implemented; ground vehicles hold position once arrived (30m hysteresis), avoid siblings during retrieval rally, and use formation/rejoin behavior for platoon travel; escort positions prioritize front corners; friendly debug-spawned aircraft can now be kept in a shared flight; close-pass breakaway logic now reduces head-on air-to-air collisions; enemy vehicle gunnery is intentionally inaccurate but permissive, so they shoot often without feeling too dead-eye; sensor scans now use cached group nodes with periodic refresh and guard against freed instances; still being tuned |
 
 ### Environment
 
 | System | Status | Notes |
 |--------|--------|-------|
-| Terrain | Working | Custom low-poly procedural terrain mesh with chunk streaming around the active camera plus forward preload; `cell_size_m=12`; height quantization (6 m snap) for grid-aligned slopes; adaptive quad triangulation removes the old repeating cliff-face washboard pattern while keeping flat shading; recent cliff-only planform straightening, washboard suppression, and low-frequency contour jitter further reduce the rounded "billowing curtain" look on mesas/cliffs; current baked navigation / tactical-map coverage is `25 km x 25 km` even though the terrain system itself supports a much larger playspace |
+| Terrain | Working | Custom low-poly procedural terrain mesh with chunk streaming around the active camera plus forward preload; `cell_size_m=12`; height quantization (6 m snap) for grid-aligned slopes; adaptive quad triangulation removes the old repeating cliff-face washboard pattern while keeping flat shading; recent cliff-only planform straightening, washboard suppression, and low-frequency contour jitter further reduce the rounded "billowing curtain" look on mesas/cliffs; current baked navigation / tactical-map coverage is `25 km x 25 km` even though the terrain system itself supports a much larger playspace; chunk load radius expanded to fill camera view distance |
 | Terrain Shaping | Working | Flat areas now include subtle undulation/detail noise; cliffs/canyons deepened for stronger relief |
 | Terrain Shader | Working | Slope-based coloring; sharp sand-to-grey border (`steep_slope_band`); per-face independent tint (no spatial bleeding) |
 | Rock Scatter | Working | MultiMesh rocks are embedded more firmly into the terrain, use actual mesh bounds for placement, avoid steep/unsupported cliff-edge placements, and still use atomic swap to prevent popping |
 | Lighting | Working | Directional + deck SpotLights; soft shadows, 8K atlas, blended cascade splits, normal bias; shadow acne fixed |
-| Post-Processing | Working | Filmic, glow, SSAO, fog |
-| Weather | Partial | Continuous turbulence plus layered cockpit wind/air-rush audio are in-game and under active tuning; broader weather, visibility, and storm systems are still planned |
+| Post-Processing | Working | Filmic, glow, SSAO, volumetric fog |
+| Floating Origin | Working | Shifts the world when the camera exceeds 4000 m from origin to prevent float32 precision loss; all systems that cache world-space positions (AI pilots, carrier waypoints, nav graph, ground vehicles, flights, terrain grid, UI overlays, cameras, dust effects) implement `apply_origin_shift` via the `origin_shifter` group |
+| Weather | Partial | Continuous turbulence plus layered cockpit wind/air-rush audio are in-game and under active tuning; four-phase day/night cycle drives atmosphere colour, volumetric fog density/anisotropy, and sun energy through dawn/day/dusk/twilight palettes (apricot → bleached ochre → copper/cinnabar → plum); broader weather, visibility, and storm systems are still planned |
 
 ## Current Agenda
 
@@ -146,6 +148,23 @@ Example project launch from this repo root:
 5. Continue tuning ground vehicle movement, steep-slope avoidance, spotting, and pathing performance, especially with multiple active platoons.
 6. Recheck terrain streaming and far-edge cases so delayed terrain/collision chunks do not reopen "edge of the world" failures.
 7. Continue expanding bridge/commander command features and allow AirOps/GroundOps AI to create and manage missions through the same order model the player uses.
+
+## Planned Features
+
+### Weather
+- **Sandstorm** — reduced visibility, radar range shrink, engine stress, ground vehicles slow; fog density + sky tint via `WeatherManager`; extends existing `DustEffect`
+- **Twister** — autonomous moving hazard; `Area3D` applies radial + upward force to `RigidBody3D`; vortex mesh with UV-scrolling spiral shader + debris particles
+- **Electrical storm** — no-fly zone with periodic damage; HUD interference (radar flicker, targeting offline); lightning via `ImmediateMesh` + ambient light flashes on strike
+
+### Resource System
+- **Plasteel** — salvage resource harvested from wrecks and old buildings; used for structural fabrication
+- **Corium** — ambient deposits leeching from the ground; renewable but rate-limited; used for electronics and advanced parts
+- Build order: `ResourceManager` autoload → `ResourceNode` scene → wreck/death hooks → HUD counters → procedural Corium scatter → ground vehicle collection orders → fabricator UI
+
+### Codex
+- In-game encyclopedia accessible from the pause menu
+- 3D rotating model viewer per entry with description text below
+- Covers vehicles and weapons
 
 **Current focus:** As of 2026-04-02, the project is still centered on tactical command readability, player-directed ops, and the first enemy-base layer those systems will eventually fight over, but the immediate polish pass is still living in aircraft feel and presentation: tighter control handoff between AI/player viewing states, cockpit/commander readability and zoom behavior, engine/flight-response tuning, and continued terrain/cliff polish so the world reads better from the cockpit.
 

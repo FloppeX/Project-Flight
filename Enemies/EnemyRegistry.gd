@@ -28,7 +28,7 @@ func register_enemy(enemy: Node, team_id: int) -> void:
 	list.append(enemy)
 	# Clean up on exit
 	if not enemy.is_connected("tree_exiting", Callable(self, "_on_enemy_exiting").bind(enemy, team_id)):
-		enemy.connect("tree_exiting", Callable(self, "_on_enemy_exiting").bind(enemy, team_id))
+		enemy.connect("tree_exiting", Callable(self, "_on_enemy_exiting").bind(enemy, team_id), CONNECT_ONE_SHOT)
 	if debug_enabled:
 		print("[EnemyRegistry] Registered ", enemy.name, " on team ", team_id)
 
@@ -47,9 +47,11 @@ func unregister_enemy(enemy: Node, team_id: int) -> void:
 func get_enemies_for_team(team_id: int) -> Array:
 	if not _team_to_enemies.has(team_id):
 		return []
-	# Filter invalid
+	# Filter invalid and write back to prevent stale reference accumulation
 	var list: Array = _team_to_enemies[team_id]
-	return list.filter(func(n): return is_instance_valid(n))
+	var filtered := list.filter(func(n): return is_instance_valid(n))
+	_team_to_enemies[team_id] = filtered
+	return filtered
 
 func get_all_enemy_positions_for_team(team_id: int) -> Array:
 	var out := []

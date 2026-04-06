@@ -1,6 +1,6 @@
 [gd_scene load_steps=4 format=3 uid="uid://cjojrrc28t5w2"]
 
-[ext_resource type="PackedScene" uid="uid://mirv3eupaeb2" path="res://building barracks.glb" id="1_mesh"]
+[ext_resource type="PackedScene" uid="uid://mirv3eupaeb2" path="res://Models/Buildings/building barracks.glb" id="1_mesh"]
 [ext_resource type="Script" uid="uid://ctkom4onof5vk" path="res://Buildings/Building.gd" id="2_script"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_1"]

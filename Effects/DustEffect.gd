@@ -50,6 +50,7 @@ func _is_terrain_hit(hit: Dictionary) -> bool:
 	return false
 
 func _ready() -> void:
+	add_to_group("origin_shifter")
 	_parent_node = get_parent() as Node3D
 	if _parent_node == null:
 		push_warning("DustEffect: parent is not Node3D")
@@ -83,6 +84,9 @@ func _ready() -> void:
 
 	_initialize_puff_pool()
 	_last_position = _parent_node.global_position
+
+func apply_origin_shift(offset: Vector3) -> void:
+	_last_position -= offset
 
 func _exit_tree() -> void:
 	for puff in _puff_pool:

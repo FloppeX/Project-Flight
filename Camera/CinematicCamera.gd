@@ -18,7 +18,7 @@ func setup_aircraft(aircraft_node: RigidBody3D):
 	aircraft = aircraft_node
 
 func _process(delta):
-	if aircraft:
+	if aircraft and is_instance_valid(aircraft):
 		update_look()
 
 func setup_shot():
@@ -44,8 +44,6 @@ func setup_shot():
 	global_position = cinematic_pos
 
 func update_look():
-	# Calculate target rotation to look at aircraft
-	var target_transform = transform.looking_at(aircraft.global_position, Vector3.UP)
-	
-	# Smooth rotation to reduce jerkiness
-	rotation = rotation.lerp(target_transform.basis.get_euler(), look_smoothing * get_process_delta_time())
+	if aircraft.global_position.is_equal_approx(global_position):
+		return
+	look_at(aircraft.global_position, Vector3.UP)

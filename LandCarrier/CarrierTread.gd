@@ -23,7 +23,7 @@ static var _cached_path_info: Dictionary = {}
 @export_range(0, 2) var belt_axis: int = 2
 ## Which local mesh axis spans across the visible belt face.
 @export_range(0, 2) var belt_cross_axis: int = 0
-@export var rolling_sound: AudioStream = preload("res://Rolling_tracks_mono.wav")
+@export var rolling_sound: AudioStream = preload("res://Audio/Carrier/Rolling_tracks_mono.wav")
 @export var rolling_sound_bus: String = "Master"
 @export var rolling_sound_min_volume_db: float = -16.0
 @export var rolling_sound_max_volume_db: float = -7.0

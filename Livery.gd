@@ -46,7 +46,7 @@ func _process(_delta: float) -> void:
 
 func _find_insignia_paths() -> Array[String]:
 	var paths: Array[String] = []
-	var dir := DirAccess.open("res://")
+	var dir := DirAccess.open("res://Images/Insignia")
 	if dir == null:
 		return paths
 
@@ -62,7 +62,7 @@ func _find_insignia_paths() -> Array[String]:
 			continue
 		if not (lower_name.ends_with(".png") or lower_name.ends_with(".jpg") or lower_name.ends_with(".jpeg") or lower_name.ends_with(".webp")):
 			continue
-		paths.append("res://" + file_name)
+		paths.append("res://Images/Insignia/" + file_name)
 	dir.list_dir_end()
 	paths.sort()
 	return paths

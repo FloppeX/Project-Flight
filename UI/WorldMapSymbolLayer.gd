@@ -12,8 +12,9 @@ const SCANLINE_STEP_PX: float = 4.0
 const CORNER_BRACKET_LEN_PX: float = 18.0
 const CORNER_BRACKET_INSET_PX: float = 7.0
 
+@export var player_color: Color = Color(1.0, 1.0, 0.40, 1.0)
 @export var friendly_color: Color = Color(0.58, 1.0, 0.64, 1.0)
-@export var enemy_color: Color = Color(0.78, 1.0, 0.82, 1.0)
+@export var enemy_color: Color = Color(1.0, 0.38, 0.38, 1.0)
 @export var enemy_platoon_color: Color = Color(1.0, 0.12, 0.72, 1.0)
 @export var carrier_color: Color = Color(0.72, 1.0, 0.78, 1.0)
 @export var building_color: Color = Color(0.64, 0.96, 0.70, 1.0)
@@ -51,6 +52,7 @@ var _draft_color: Color = draft_waypoint_color
 var _draft_closed_loop: bool = false
 
 func _ready() -> void:
+	add_to_group("origin_shifter")
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	set_process(true)
 	_counts_label = Label.new()
@@ -74,6 +76,18 @@ func _process(_delta: float) -> void:
 			_counts_label.visible = false
 		queue_redraw()
 
+func apply_origin_shift(offset: Vector3) -> void:
+	if _selection_world_pos != Vector3.INF:
+		_selection_world_pos -= offset
+	if _selection_route_origin_world != Vector3.INF:
+		_selection_route_origin_world -= offset
+	for i in range(_selection_route_points.size()):
+		_selection_route_points[i] -= offset
+	if _draft_origin_world != Vector3.INF:
+		_draft_origin_world -= offset
+	for i in range(_draft_points.size()):
+		_draft_points[i] -= offset
+
 func _draw() -> void:
 	if not TerrainNavGrid.is_ready():
 		return
@@ -88,6 +102,8 @@ func _draw() -> void:
 			if not (node is Node3D) or not is_instance_valid(node):
 				continue
 			var node_3d := node as Node3D
+			if not node_3d.is_inside_tree():
+				continue
 			if node_3d == carrier:
 				continue
 			if node_3d.is_in_group("ground_vehicles") or node_3d is Building:
@@ -106,9 +122,11 @@ func _draw() -> void:
 		var platoon_pos: Vector3 = platoon.get_contact_position()
 		if not _is_world_in_map_bounds(platoon_pos):
 			continue
-		_draw_route_from_points(platoon_pos, _get_active_route_points(platoon), platoon_waypoint_color, false)
+		var platoon_color := _nearest_base_color(platoon_pos)
+		_draw_route_from_points(platoon_pos, _get_active_route_points(platoon), platoon_color, false)
 		var map_pos: Vector2 = _world_to_map(platoon_pos)
-		_draw_square_marker(map_pos, platoon_marker_size_px, enemy_platoon_color, true)
+		_draw_square_marker(map_pos, platoon_marker_size_px, platoon_color, true)
+	_draw_enemy_bases()
 	_draw_selection_route()
 	_draw_command_draft()
 	_draw_selection_focus()
@@ -155,8 +173,6 @@ func _count_visible_enemy_ground_vehicles() -> int:
 			continue
 		if not _is_world_in_map_bounds(node_3d.global_position):
 			continue
-		if not _is_enemy_ground_contact_revealed(node_3d):
-			continue
 		count += 1
 	return count
 
@@ -196,12 +212,10 @@ func _draw_air_marker(node_3d: Node3D) -> void:
 	draw_polygon(PackedVector2Array([tip, bl, br]), PackedColorArray([team_color]))
 
 func _draw_ground_marker(node_3d: Node3D) -> void:
-	if node_3d.has_method("get_team") and int(node_3d.call("get_team")) == 2 and node_3d.is_in_group("ground_vehicles") and not _is_enemy_ground_contact_revealed(node_3d):
-		return
 	if not _is_world_in_map_bounds(node_3d.global_position):
 		return
 	var map_pos: Vector2 = _world_to_map(node_3d.global_position)
-	var color := building_color if node_3d is Building else _color_for_team_node(node_3d)
+	var color := _color_for_team_node(node_3d)
 	_draw_square_marker(map_pos, ground_marker_size_px, color, false)
 
 func _draw_square_marker(center: Vector2, size_px: float, color: Color, outline: bool) -> void:
@@ -295,9 +309,40 @@ func _basis_to_map_forward(basis: Basis) -> Vector2:
 	return Vector2(forward_3d.x, forward_3d.z)
 
 func _color_for_team_node(node_3d: Node3D) -> Color:
+	# Player aircraft — distinct yellow
+	if node_3d.is_in_group("aircraft") and not node_3d.is_in_group("ai_aircraft") and not node_3d.is_in_group("enemies"):
+		return player_color
+	# Enemy — faction color if available
 	if node_3d.has_method("get_team") and int(node_3d.call("get_team")) == 2:
-		return enemy_color
+		return _faction_color_for_enemy_node(node_3d)
 	return friendly_color
+
+
+func _faction_color_for_enemy_node(node_3d: Node3D) -> Color:
+	# Aircraft materialized from a virtual flight carry faction_color meta
+	if node_3d.has_meta("faction_color"):
+		return node_3d.get_meta("faction_color") as Color
+	# Buildings/vehicles that are children of EnemyBase
+	var n: Node = node_3d.get_parent()
+	while n != null:
+		if n is EnemyBase:
+			return (n as EnemyBase).get_faction_color()
+		n = n.get_parent()
+	# Nearest base fallback
+	return _nearest_base_color(node_3d.global_position)
+
+
+func _nearest_base_color(pos: Vector3) -> Color:
+	var best_dist_sq := INF
+	var best_color   := enemy_color
+	for base in EnemyBaseManager.get_all_bases():
+		if not is_instance_valid(base):
+			continue
+		var d_sq := pos.distance_squared_to(base.global_position)
+		if d_sq < best_dist_sq:
+			best_dist_sq = d_sq
+			best_color   = base.get_faction_color()
+	return best_color
 
 func _is_enemy_platoon_revealed(target_world_pos: Vector3) -> bool:
 	var carrier := get_tree().get_first_node_in_group("carrier") as Node3D
@@ -375,6 +420,48 @@ func _draw_center_reticle() -> void:
 	var center := size * 0.5
 	draw_line(center + Vector2(-8.0, 0.0), center + Vector2(8.0, 0.0), CENTER_RETICLE_COLOR, 1.0)
 	draw_line(center + Vector2(0.0, -8.0), center + Vector2(0.0, 8.0), CENTER_RETICLE_COLOR, 1.0)
+
+func _draw_enemy_bases() -> void:
+	for node in get_tree().get_nodes_in_group("enemy_bases"):
+		if not (node is EnemyBase) or not is_instance_valid(node as EnemyBase):
+			continue
+		var base      := node as EnemyBase
+		var base_pos  := base.global_position
+		if not _is_world_in_map_bounds(base_pos):
+			continue
+		var mp    := _world_to_map(base_pos)
+		var color := base.get_faction_color()
+
+		# Filled diamond
+		var s := 9.0
+		var diamond := PackedVector2Array([
+			mp + Vector2(0.0, -s), mp + Vector2(s, 0.0),
+			mp + Vector2(0.0,  s), mp + Vector2(-s, 0.0),
+		])
+		draw_colored_polygon(diamond, color)
+		draw_polyline(PackedVector2Array([
+			diamond[0], diamond[1], diamond[2], diamond[3], diamond[0]
+		]), Color(1.0, 1.0, 1.0, 0.55), 1.2)
+
+		# Virtual flight arrow markers
+		for flight in base.get_flights():
+			if not is_instance_valid(flight):
+				continue
+			if not _is_world_in_map_bounds(flight.position):
+				continue
+			var fmp := _world_to_map(flight.position)
+			var fh  := Vector2(flight.heading.x, flight.heading.z)
+			if fh.length_squared() < 0.001:
+				fh = Vector2(0.0, -1.0)
+			fh = fh.normalized()
+			var perp := Vector2(fh.y, -fh.x)
+			var tip  := fmp + fh * 6.0
+			var bl   := fmp - fh * 3.5 + perp * 3.5
+			var br   := fmp - fh * 3.5 - perp * 3.5
+			var alpha := 0.50 if flight.vstate == EnemyVirtualFlight.VState.VIRTUAL else 1.0
+			var fc    := Color(color.r, color.g, color.b, alpha)
+			draw_colored_polygon(PackedVector2Array([tip, bl, br]), fc)
+
 
 func _draw_selection_focus() -> void:
 	if not _is_world_in_map_bounds(_selection_world_pos):

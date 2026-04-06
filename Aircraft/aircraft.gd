@@ -36,18 +36,20 @@ var current_health: float:
 		return _current_health
 	set(value):
 		if _current_health != value:
+			var damage_amount = _current_health - value
 			_current_health = value
+			emit_signal("damaged", damage_amount, _current_health)
 
 
-@export var MaxLandingForce: float = 3.0
-@export var Gravity: float = 1.0 # Normalized to Earth average at sea level
-@export var SeaLevelFromOrigin: float = 0.0
-@export var AltitudeEnabled: bool = true
+@export var max_landing_force: float = 3.0
+@export var gravity_factor: float = 1.0 # Normalized to Earth average at sea level
+@export var sea_level_from_origin: float = 0.0
+@export var altitude_enabled: bool = true
 @export var carrier_deck_reference_altitude_m: float = 40.0
 @export var carrier_deck_extent_x_m: float = 90.0
 @export var carrier_deck_extent_z_m: float = 140.0
 @export var carrier_deck_altitude_zone_margin_y_m: float = 120.0
-@export var GForceFactor: float = 1.0
+@export var g_force_factor: float = 1.0
 @export var WorldOrientationReference: NodePath
 @onready var world_ref : Node3D = get_node_or_null(WorldOrientationReference)
 var internal_world_reference : Node3D
@@ -70,13 +72,12 @@ var safe_colliders = []
 # Shake system
 var shake_intensity: float = 0.0
 var shake_decay_rate: float = 500.0
-var shake_frequency: float = 30.0
+var shake_frequency: float = 8.0
 var shake_time: float = 0.0
 
 var last_linear_velocity = null
 var last_angular_velocity = null
 var is_velocity_nonzero = false
-var _terrain_node: Node = null
 const AAM_TARGETING_SCRIPT := preload("res://Weapons/AA_Missile/ControlTargeting_AAM.gd")
 
 # Flight data
@@ -241,7 +242,7 @@ func unregister_safe_collider(collider: CollisionShape3D):
 		safe_colliders.erase(collider)
 
 func land(landing_velocity: float, impact_velocity: float):
-	if landing_velocity > MaxLandingForce:
+	if landing_velocity > max_landing_force:
 		crash(landing_velocity)
 
 func crash(impact_velocity: float):
@@ -333,27 +334,7 @@ func _enforce_above_terrain():
 		explode()
 
 func _get_cached_terrain_node() -> Node:
-	if _terrain_node and is_instance_valid(_terrain_node):
-		return _terrain_node
-	var tagged: Node = get_tree().get_first_node_in_group("terrain_provider")
-	if tagged and is_instance_valid(tagged):
-		_terrain_node = tagged
-		return _terrain_node
-	var root: Node = get_tree().current_scene
-	if not root:
-		return null
-	var queue: Array = [root]
-	while queue.size() > 0:
-		var cur: Node = queue.pop_front()
-		if cur.get_class() == "Terrain3D":
-			_terrain_node = cur
-			return _terrain_node
-		if cur is Node3D and cur.has_method("get_height"):
-			_terrain_node = cur
-			return _terrain_node
-		for child in cur.get_children():
-			queue.append(child)
-	return null
+	return TerrainReference.get_terrain_node()
 
 func _get_ground_height_at_position(world_pos: Vector3) -> float:
 	# Prefer Terrain3D height API (works even when physics collider misses),
@@ -407,7 +388,7 @@ func get_effective_altitude_agl_m() -> float:
 		else:
 			reference_ground_y = minf(reference_ground_y, carrier_ground_y)
 	if is_nan(reference_ground_y):
-		return maxf(global_position.y - SeaLevelFromOrigin, 0.0)
+		return maxf(global_position.y - sea_level_from_origin, 0.0)
 	return maxf(global_position.y - reference_ground_y, 0.0)
 
 func get_effective_altitude_reference_y() -> float:
@@ -419,7 +400,7 @@ func get_effective_altitude_reference_y() -> float:
 		return minf(ground_y, carrier_ground_y)
 	if not is_nan(ground_y):
 		return ground_y
-	return SeaLevelFromOrigin
+	return sea_level_from_origin
 
 ##############################################################################
 #  ENERGY SYSTEM
@@ -529,7 +510,7 @@ func calculate_flight_data(delta):
 	forward_air_speed = linear_velocity.dot(global_transform.basis.z)  # Speed in forward direction
 	
 	# Calculate altitude
-	if AltitudeEnabled:
+	if altitude_enabled:
 		local_altitude = get_effective_altitude_agl_m()
 	else:
 		local_altitude = 0.0
@@ -538,10 +519,10 @@ func calculate_flight_data(delta):
 	if last_linear_velocity != null:
 		var up_vector = global_transform.basis.y
 		var linear_acceleration = (linear_velocity - last_linear_velocity) / delta
-		var vertical_acceleration_normalized = (up_vector.dot(linear_acceleration) / EARTH_GRAVITY) * GForceFactor
+		var vertical_acceleration_normalized = (up_vector.dot(linear_acceleration) / EARTH_GRAVITY) * g_force_factor
 		
-		local_load_factor = (1.0 + vertical_acceleration_normalized/Gravity) if Gravity > 0 else 0.0
-		local_g_force = (Gravity + vertical_acceleration_normalized) if Gravity > 0 else 0.0
+		local_load_factor = (1.0 + vertical_acceleration_normalized/gravity_factor) if gravity_factor > 0 else 0.0
+		local_g_force = (gravity_factor + vertical_acceleration_normalized) if gravity_factor > 0 else 0.0
 
 ##############################################################################
 #  MOVEMENT STATE TRACKING
@@ -583,7 +564,7 @@ func take_damage(damage_amount: float):
 	if debug_damage:
 		print("[Aircraft] take_damage=", damage_amount, " -> health=", current_health, "/", max_health)
 	
-	emit_signal("damaged", damage_amount, current_health)
+	# emit_signal("damaged", damage_amount, current_health)  # Now handled by setter
 	
 	if current_health <= 0:
 		explode()

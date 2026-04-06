@@ -8,16 +8,44 @@ var debug_enabled: bool = false
 @export var show_terrain_map: bool = true
 @export var terrain_map_opacity: float = 0.72
 @export var terrain_map_range_m: float = 5000.0
+@export var refresh_interval_s: float = 0.05
 
 var _terrain_bounds_xz: Rect2 = Rect2()
 var _terrain_map_texture: ImageTexture = null
 var _terrain_map_ready: bool = false
+var _refresh_timer_s: float = 0.0
+
+# Cached contact lists — rebuilt periodically, not every draw call
+var _cached_air_contacts: Array = []
+var _cached_ground_enemy_contacts: Array = []
+var _cached_ground_friendly_contacts: Array = []
+var _cached_ground_enemies: Array = []  # Static enemies (EnemyBox etc.)
+var _cached_enemies: Array = []
+var _contact_cache_timer_s: float = 0.0
+const CONTACT_CACHE_INTERVAL_S: float = 0.2
+
+func _ready() -> void:
+	add_to_group("origin_shifter")
+
+func apply_origin_shift(offset: Vector3) -> void:
+	if _terrain_map_ready:
+		_terrain_bounds_xz.position -= Vector2(offset.x, offset.z)
 
 func set_provider(p: Node) -> void:
 	provider = p
 	queue_redraw()
 
 func _process(_delta: float) -> void:
+	if not visible:
+		return
+	_contact_cache_timer_s -= _delta
+	if _contact_cache_timer_s <= 0.0:
+		_contact_cache_timer_s = CONTACT_CACHE_INTERVAL_S
+		_rebuild_contact_cache()
+	_refresh_timer_s -= _delta
+	if _refresh_timer_s > 0.0:
+		return
+	_refresh_timer_s = maxf(refresh_interval_s, 0.01)
 	queue_redraw()
 
 func _draw() -> void:
@@ -36,21 +64,7 @@ func _draw() -> void:
 		draw_circle(center, radius, radar_bg)
 		return
 	var team_id: int = aircraft.get_team() if aircraft.has_method("get_team") else 1
-	var enemies: Array = []
-	var registry: Node = get_node_or_null("/root/EnemyRegistry")
-	if registry and registry.has_method("get_enemies_for_team"):
-		enemies = registry.get_enemies_for_team(1 if team_id != 1 else 2)
-	# Fallback to scene group if registry is missing/empty
-	if enemies.size() == 0:
-		var group_nodes: Array = get_tree().get_nodes_in_group("enemies")
-		for e in group_nodes:
-			if e and is_instance_valid(e) and e != aircraft:
-				if e.has_method("get_team"):
-					if int(e.get_team()) != team_id:
-						enemies.append(e)
-				else:
-					# If no team method, assume hostile
-					enemies.append(e)
+	var enemies: Array = _cached_enemies
 	if debug_enabled:
 		draw_string(get_theme_default_font(), Vector2(6, 14), "Enemies:" + str(enemies.size()), HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.8, 1, 0.8))
 	var origin: Vector3 = aircraft.global_position
@@ -66,32 +80,11 @@ func _draw() -> void:
 	# Background / terrain map
 	_draw_terrain_map(center, radius, origin, flat_forward, range_m)
 
-	# Collect airborne contacts (aircraft only, not ground vehicles)
-	var air_contacts: Array = []
-	for group_name in ["aircraft", "ai_aircraft", "enemies"]:
-		for node in get_tree().get_nodes_in_group(group_name):
-			if node and is_instance_valid(node) and node != aircraft and node is RigidBody3D and not node.is_in_group("ground_vehicles"):
-				if node not in air_contacts:
-					air_contacts.append(node)
-
-	# Collect ground vehicle contacts by team
-	var ground_enemy_contacts: Array = []
-	var ground_friendly_contacts: Array = []
-	for node in get_tree().get_nodes_in_group("ground_vehicles"):
-		if not node or not is_instance_valid(node) or not (node is Node3D):
-			continue
-		if not node.has_method("get_team"):
-			continue
-		if int(node.get_team()) == team_id:
-			ground_friendly_contacts.append(node)
-		else:
-			ground_enemy_contacts.append(node)
-
-	# Static ground enemies (non-RigidBody3D, e.g. legacy EnemyBox)
-	var ground_enemies: Array = []
-	for e in enemies:
-		if e and is_instance_valid(e) and not (e is RigidBody3D):
-			ground_enemies.append(e)
+	# Use cached contact lists (rebuilt every CONTACT_CACHE_INTERVAL_S)
+	var air_contacts: Array = _cached_air_contacts
+	var ground_enemy_contacts: Array = _cached_ground_enemy_contacts
+	var ground_friendly_contacts: Array = _cached_ground_friendly_contacts
+	var ground_enemies: Array = _cached_ground_enemies
 
 	var has_contacts: bool = air_contacts.size() > 0 or ground_enemies.size() > 0 or ground_enemy_contacts.size() > 0 or ground_friendly_contacts.size() > 0
 	var carrier_nodes: Array = get_tree().get_nodes_in_group("carrier")
@@ -244,6 +237,55 @@ func _draw_heading_triangle(pos: Vector2, heading: Vector2, color: Color) -> voi
 	var bl: Vector2 = pos - heading * tri_size * 0.5 + perp * tri_size * 0.5
 	var br: Vector2 = pos - heading * tri_size * 0.5 - perp * tri_size * 0.5
 	draw_polygon(PackedVector2Array([tip, bl, br]), PackedColorArray([color]))
+
+func _rebuild_contact_cache() -> void:
+	if provider == null or not is_instance_valid(provider):
+		return
+	var aircraft = provider.aircraft if ("aircraft" in provider) else null
+	if aircraft == null or not is_instance_valid(aircraft):
+		return
+	var team_id: int = aircraft.get_team() if aircraft.has_method("get_team") else 1
+
+	# Enemies from registry
+	_cached_enemies.clear()
+	var registry: Node = get_node_or_null("/root/EnemyRegistry")
+	if registry and registry.has_method("get_enemies_for_team"):
+		_cached_enemies = registry.get_enemies_for_team(1 if team_id != 1 else 2)
+	if _cached_enemies.size() == 0:
+		for e in get_tree().get_nodes_in_group("enemies"):
+			if e and is_instance_valid(e) and e != aircraft:
+				if e.has_method("get_team"):
+					if int(e.get_team()) != team_id:
+						_cached_enemies.append(e)
+				else:
+					_cached_enemies.append(e)
+
+	# Air contacts
+	_cached_air_contacts.clear()
+	for group_name in ["aircraft", "ai_aircraft", "enemies"]:
+		for node in get_tree().get_nodes_in_group(group_name):
+			if node and is_instance_valid(node) and node != aircraft and node is RigidBody3D and not node.is_in_group("ground_vehicles"):
+				if node not in _cached_air_contacts:
+					_cached_air_contacts.append(node)
+
+	# Ground contacts by team
+	_cached_ground_enemy_contacts.clear()
+	_cached_ground_friendly_contacts.clear()
+	for node in get_tree().get_nodes_in_group("ground_vehicles"):
+		if not node or not is_instance_valid(node) or not (node is Node3D):
+			continue
+		if not node.has_method("get_team"):
+			continue
+		if int(node.get_team()) == team_id:
+			_cached_ground_friendly_contacts.append(node)
+		else:
+			_cached_ground_enemy_contacts.append(node)
+
+	# Static ground enemies
+	_cached_ground_enemies.clear()
+	for e in _cached_enemies:
+		if e and is_instance_valid(e) and not (e is RigidBody3D):
+			_cached_ground_enemies.append(e)
 
 func _ensure_terrain_map_cache() -> void:
 	if _terrain_map_ready:

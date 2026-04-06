@@ -24,15 +24,13 @@ background_mode = 2
 sky = SubResource("Sky_8e340")
 fog_enabled = true
 fog_mode = 1
-fog_light_color = Color(0.769715, 0.578018, 0.384647, 1)
-fog_sun_scatter = 0.05
-fog_density = 0.8993
-fog_aerial_perspective = 0.3
-fog_height = 350.0
-fog_height_density = 2.0135
-fog_depth_curve = 8.28211
-fog_depth_begin = 245.8
-fog_depth_end = 1966.1
+fog_light_color = Color(0.82, 0.72, 0.6, 1)
+fog_sun_scatter = 0.28
+fog_density = 0.12
+fog_aerial_perspective = 1.0
+fog_depth_curve = 1.25
+fog_depth_begin = 1000.0
+fog_depth_end = 3000.0
 volumetric_fog_density = 0.01
 volumetric_fog_albedo = Color(0.6, 0.45, 0.3, 1)
 volumetric_fog_emission_energy = 26.78
@@ -59,7 +57,8 @@ light_energy = 2.0
 light_bake_mode = 0
 shadow_enabled = true
 shadow_bias = 0.02
-directional_shadow_split_2 = 0.3
+directional_shadow_split_1 = 0.03
+directional_shadow_split_2 = 0.15
 directional_shadow_max_distance = 1000.0
 
 [node name="RockStream" parent="." instance=ExtResource("72_rockstream")]
@@ -73,11 +72,10 @@ base_height_offset_m = 220.0
 canyon_wall_color = Color(0.667926, 0.427286, 0.274156, 1)
 canyon_upper_color = Color(0.744223, 0.61311, 0.439865, 1)
 steep_slope_color = Color(0.338234, 0.326747, 0.303773, 1)
-load_radius_chunks = 5
+load_radius_chunks = 8
 unload_margin_chunks = 2
-stream_update_interval_s = 0.12
-max_chunk_builds_per_update = 6
-stream_preload_ahead_m = 1400.0
+stream_update_interval_s = 0.5
+stream_preload_ahead_m = 2200.0
 
 [node name="FuelArea" type="Area3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -217.504)

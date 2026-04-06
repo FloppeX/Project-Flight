@@ -45,6 +45,7 @@ var _free_camera_yaw: float = 0.0
 var _free_camera_pitch: float = 0.0
 var _status_overlay_layer: CanvasLayer = null
 var _ai_status_label: Label = null
+var _pilot_name_label: Label = null
 var _ui_visible_aircraft: RigidBody3D = null
 
 # Legacy - kept so AIToggle.register_aircraft still compiles
@@ -93,6 +94,7 @@ var _audio_test_started: bool = false
 func _process(delta: float) -> void:
 	_sync_viewed_aircraft_ui()
 	_update_ai_status_overlay()
+	_update_pilot_name_overlay()
 	if enable_audio_test_tones and not _audio_test_started:
 		_audio_test_started = true
 		_start_audio_test()
@@ -368,11 +370,81 @@ func _setup_status_overlay() -> void:
 	_ai_status_label.add_theme_constant_override("outline_size", 3)
 	_status_overlay_layer.add_child(_ai_status_label)
 
+	_pilot_name_label = Label.new()
+	_pilot_name_label.name = "PilotNameLabel"
+	_pilot_name_label.text = ""
+	_pilot_name_label.visible = false
+	_pilot_name_label.anchor_left = 0.5
+	_pilot_name_label.anchor_right = 0.5
+	_pilot_name_label.anchor_top = 1.0
+	_pilot_name_label.anchor_bottom = 1.0
+	_pilot_name_label.offset_left = -260.0
+	_pilot_name_label.offset_right = 260.0
+	_pilot_name_label.offset_top = -78.0
+	_pilot_name_label.offset_bottom = -46.0
+	_pilot_name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_pilot_name_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_pilot_name_label.add_theme_font_size_override("font_size", 20)
+	_pilot_name_label.add_theme_color_override("font_color", Color(0.88, 1.0, 0.88, 1.0))
+	_pilot_name_label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 1.0))
+	_pilot_name_label.add_theme_constant_override("outline_size", 3)
+	_status_overlay_layer.add_child(_pilot_name_label)
+
 func _update_ai_status_overlay() -> void:
 	if _ai_status_label == null:
 		return
 	var show_ai := not _free_camera_active and is_instance_valid(current_viewed_aircraft) and _is_aircraft_ai_controlled(current_viewed_aircraft)
 	_ai_status_label.visible = show_ai
+
+func _update_pilot_name_overlay() -> void:
+	if _pilot_name_label == null:
+		return
+
+	var show_label := false
+	var display_text := ""
+
+	if not _free_camera_active and not _destroyed_plane_linger_active:
+		var active_camera := _get_current_active_camera()
+		var camera_aircraft := _get_aircraft_for_camera(active_camera)
+		if is_instance_valid(camera_aircraft) and _camera_is_in_cockpit_mount(active_camera):
+			display_text = _pilot_display_from_aircraft(camera_aircraft)
+			show_label = display_text != ""
+
+	_pilot_name_label.visible = show_label
+	if show_label:
+		_pilot_name_label.text = display_text
+
+func _camera_is_in_cockpit_mount(camera: Camera3D) -> bool:
+	if not is_instance_valid(camera):
+		return false
+	var node: Node = camera
+	while node != null:
+		if node.name == "CameraCockpit":
+			return true
+		node = node.get_parent()
+	return false
+
+func _get_aircraft_for_camera(camera: Camera3D) -> RigidBody3D:
+	if not is_instance_valid(camera):
+		return null
+	var node: Node = camera
+	while node != null:
+		if node is RigidBody3D:
+			return node as RigidBody3D
+		node = node.get_parent()
+	return null
+
+func _pilot_display_from_aircraft(aircraft: RigidBody3D) -> String:
+	if not is_instance_valid(aircraft):
+		return ""
+	if aircraft.has_meta("pilot_display_name"):
+		return str(aircraft.get_meta("pilot_display_name"))
+	var rank := str(aircraft.get_meta("pilot_rank", ""))
+	var callsign := str(aircraft.get_meta("pilot_callsign", ""))
+	var surname := str(aircraft.get_meta("pilot_name", ""))
+	if rank == "" and callsign == "" and surname == "":
+		return ""
+	return "%s \"%s\" %s" % [rank, callsign, surname]
 
 func _is_aircraft_ai_controlled(ac: RigidBody3D) -> bool:
 	if not is_instance_valid(ac):
@@ -580,6 +652,12 @@ func _get_current_active_camera() -> Camera3D:
 			var cam: Camera3D = _get_aircraft_camera(current_viewed_aircraft, tripod_name)
 			if cam and cam.current:
 				return cam
+
+	var viewport := get_viewport()
+	if viewport:
+		var viewport_camera := viewport.get_camera_3d()
+		if viewport_camera and viewport_camera is Camera3D:
+			return viewport_camera as Camera3D
 	return null
 
 func _toggle_free_camera() -> void:
@@ -783,7 +861,7 @@ func _start_audio_test() -> void:
 	# Test A: known-working sound (propeller)
 	var test_a = load("res://Audio/airplane_propeller 1.wav")
 	# Test B: carrier deck sound (not working)
-	var test_b = load("res://carrier_deck_sound.wav")
+	var test_b = load("res://Audio/Carrier/carrier_deck_sound.wav")
 
 	if test_a:
 		var player_a = AudioStreamPlayer.new()
