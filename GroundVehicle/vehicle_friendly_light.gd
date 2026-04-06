@@ -145,6 +145,7 @@ func _ready() -> void:
 	add_to_group("friendlies")
 	add_to_group("ground_vehicles")
 	add_to_group("team_" + str(team))
+	add_to_group("origin_shifter")
 	if Livery:
 		Livery.apply(self)
 	_resolve_waypoints()
@@ -549,6 +550,15 @@ func _abort_retrieve() -> void:
 
 func is_waiting_for_ramp() -> bool:
 	return retrieve_mode and _retrieve_phase == RetrievePhase.WAITING
+
+func apply_origin_shift(offset: Vector3) -> void:
+	for i in range(_waypoint_positions.size()):
+		_waypoint_positions[i] -= offset
+	for i in range(_nav_path_positions.size()):
+		_nav_path_positions[i] -= offset
+	_nav_path_goal -= offset
+	if _combat_scoot_destination != Vector3.ZERO:
+		_combat_scoot_destination -= offset
 
 func _physics_process(delta: float) -> void:
 	if is_dying:

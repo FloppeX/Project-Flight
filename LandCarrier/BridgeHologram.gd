@@ -61,7 +61,6 @@ var _contact_refresh_timer: float = 0.0
 var _last_terrain_center_world: Vector3 = Vector3.INF
 var _last_terrain_heading_yaw: float = 0.0
 var _was_recently_observed: bool = false
-var _waypoint_refresh_timer: float = 0.0
 
 # Incremental terrain rebuild state
 var _rebuild_in_progress: bool = false
@@ -79,12 +78,17 @@ var _rebuild_base_height: float = 0.0
 var _rebuild_carrier_surface_height: float = 0.0
 
 func _ready() -> void:
+	add_to_group("origin_shifter")
 	physics_interpolation_mode = Node3D.PHYSICS_INTERPOLATION_MODE_INHERIT
 	_carrier = get_tree().get_first_node_in_group("carrier") as Node3D
 	_terrain_provider = get_tree().get_first_node_in_group("terrain_provider") as Node3D
 	_setup_visuals()
 	call_deferred("_try_build_terrain")
 	_update_contact_dots()
+
+func apply_origin_shift(offset: Vector3) -> void:
+	if _last_terrain_center_world != Vector3.INF:
+		_last_terrain_center_world -= offset
 
 func _physics_process(delta: float) -> void:
 	if not is_instance_valid(_carrier):
@@ -116,8 +120,10 @@ func _physics_process(delta: float) -> void:
 		_terrain_refresh_timer = 0.0
 		_try_build_terrain()
 
-	# Contacts and waypoints are updated together with the terrain rebuild
-	# (see _rebuild_terrain_step) so they stay in sync with the wireframe.
+	# Contacts are refreshed with the terrain rebuild (see _rebuild_terrain_step).
+	# Waypoints must update every frame — the carrier moves continuously so the
+	# stored transforms go stale immediately if only refreshed on terrain rebuild.
+	_update_waypoint_display()
 
 func _setup_visuals() -> void:
 	terrain_dots.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF

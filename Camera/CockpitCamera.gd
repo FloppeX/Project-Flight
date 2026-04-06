@@ -41,35 +41,37 @@ func _process(delta):
 	
 func _physics_process(delta: float):
 	# Get aircraft acceleration (need reference to aircraft RigidBody)
-	var aircraft = get_parent()  # Adjust path to your aircraft
+	var aircraft = get_parent() as RigidBody3D
+	if not aircraft:
+		return
 	var current_velocity = aircraft.linear_velocity
-	
-	# Calculate acceleration (change in velocity)  
+
+	# Calculate acceleration (change in velocity)
 	var acceleration = (current_velocity - last_velocity) / delta
 	last_velocity = current_velocity
-	
+
 	# Convert to G-forces relative to aircraft's local coordinate system
 	var local_acceleration = aircraft.global_transform.basis.inverse() * acceleration
 	var g_forces = local_acceleration / 9.8
-	
+
 	# Apply deadzone to reduce jitter from small movements
 	if g_forces.length() < g_deadzone:
 		g_forces = Vector3.ZERO
-	
+
 	# Calculate camera offset from G-forces with improved mapping
 	var target_offset = Vector3(
 		-g_forces.x * g_force_sensitivity,     # Side G's push camera opposite direction
 		-g_forces.y * g_force_sensitivity * g_force_vertical_scale,     # Positive G pushes down, negative G lifts up
 		-g_forces.z * g_force_sensitivity      # Forward G's push camera back
 	)
-	
+
 	# Clamp maximum offset
 	target_offset = target_offset.limit_length(max_g_offset)
-	
+
 	# Smooth camera movement independently by axis
 	g_force_offset.x = lerp(g_force_offset.x, target_offset.x, g_force_smoothing_horizontal * delta)
 	g_force_offset.y = lerp(g_force_offset.y, target_offset.y, g_force_smoothing_vertical * delta)
 	g_force_offset.z = lerp(g_force_offset.z, target_offset.z, g_force_smoothing_horizontal * delta)
-	
+
 	# Apply to camera position
 	position = base_position + g_force_offset

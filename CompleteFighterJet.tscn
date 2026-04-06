@@ -1,4 +1,4 @@
-[gd_scene load_steps=42 format=3 uid="uid://bowbp6tm1x3c0"]
+[gd_scene load_steps=42 format=3 uid="uid://b636hr6uxve0k"]
 
 [ext_resource type="Script" uid="uid://c4ltq2v6fji05" path="res://Aircraft/aircraft.gd" id="1_e8t1h"]
 [ext_resource type="PackedScene" uid="uid://cadi81fcpvmuc" path="res://Projectiles/Explosion/explosion.tscn" id="2_x73up"]

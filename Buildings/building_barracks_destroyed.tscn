@@ -1,6 +1,6 @@
 [gd_scene load_steps=2 format=3 uid="uid://jkvbvw6nmeni"]
 
-[ext_resource type="PackedScene" uid="uid://c553c1qk12wp6" path="res://building barracks destroyed.glb" id="1_mesh"]
+[ext_resource type="PackedScene" uid="uid://c553c1qk12wp6" path="res://Models/Buildings/building barracks destroyed.glb" id="1_mesh"]
 
 [node name="BuildingBarracksDestroyed" type="Node3D"]
 

@@ -14,9 +14,6 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 
 func _input(event: InputEvent) -> void:
-	if event.is_action_pressed("pause_game", false, true):
-		_toggle_pause()
-		return
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_INSERT:
 			_take_screenshot()
@@ -26,11 +23,6 @@ func _input(event: InputEvent) -> void:
 				print("[ScreenshotCapture] Dust effects %s" % ("enabled" if DustEffect.dust_enabled else "disabled"))
 			else:
 				_record_clip()
-		elif event.keycode == KEY_P:
-			_toggle_pause()
-
-func _toggle_pause() -> void:
-	get_tree().paused = not get_tree().paused
 
 func _take_screenshot() -> void:
 	var image := get_viewport().get_texture().get_image()

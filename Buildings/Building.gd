@@ -5,14 +5,15 @@ class_name Building
 @export var destroyed_scene_path: String = ""
 @export var team: int = 2
 
+var _explosion_scene: PackedScene = null
 var current_health: float
 var is_destroyed: bool = false
 
 func _ready() -> void:
 	current_health = max_health
+	_explosion_scene = load("res://Projectiles/Explosion/explosion.tscn")
 	add_to_group("enemies")
 	add_to_group("buildings")
-	add_to_group("ground_vehicles")
 	add_to_group("team_" + str(team))
 
 func get_team() -> int:
@@ -41,9 +42,8 @@ func _destroy() -> void:
 			_add_ruin_smoke(wreck)
 
 	# Spawn explosion
-	var explosion_res := load("res://Projectiles/Explosion/explosion.tscn")
-	if explosion_res:
-		var exp: Node3D = explosion_res.instantiate()
+	if _explosion_scene:
+		var exp: Node3D = _explosion_scene.instantiate()
 		get_tree().current_scene.add_child(exp)
 		exp.global_position = global_position + Vector3(0, 2.0, 0)
 

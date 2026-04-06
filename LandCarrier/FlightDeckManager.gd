@@ -22,6 +22,7 @@ signal deck_state_changed(new_state)
 @export var aircraft_2_scene: PackedScene         # Aircraft 2 template
 @export var aircraft_7_scene: PackedScene         # Aircraft 7 template
 @export var aircraft_8_scene: PackedScene         # Aircraft 8 template
+@export var carrier_manager_path: NodePath = NodePath("../CarrierManager")
 @export var auto_recovery_enabled: bool = true
 @export var auto_recovery_speed_threshold_mps: float = 1.5
 @export var auto_recovery_zone_half_width_m: float = 22.0
@@ -71,6 +72,7 @@ var _tractor_cleanup_in_progress: bool = false
 var _tractor_cleanup_batch: Array[Node3D] = []
 var _tractor_cleanup_move_speed: float = 5.0
 var landing_deck_active: bool = false
+var carrier_manager: CarrierManager = null
 
 # FlightOps AI-launch queue
 var _ai_launch_queue: int = 0          # Aircraft still to retrieve+launch for FlightOps
@@ -80,6 +82,7 @@ var _retrieval_ai_land_after_launch: bool = true
 func _ready():
 	if not aircraft_template_scene:
 		aircraft_template_scene = load(DEFAULT_AIRCRAFT_SCENE_PATH) as PackedScene
+	_resolve_carrier_manager()
 	add_to_group("flight_deck_manager")
 	if catapult:
 		if catapult.has_signal("launch_sequence_complete"):
@@ -118,6 +121,54 @@ func _ensure_elevator_signal_connections() -> void:
 	# Treat it as a top-reached fallback so state transitions complete reliably.
 	if elevator.has_signal("covers_opened") and not elevator.covers_opened.is_connected(_on_elevator_covers_opened):
 		elevator.covers_opened.connect(_on_elevator_covers_opened)
+
+func _resolve_carrier_manager() -> void:
+	if is_instance_valid(carrier_manager):
+		return
+	if carrier_manager_path != NodePath():
+		var configured_node := get_node_or_null(carrier_manager_path)
+		if configured_node is CarrierManager:
+			carrier_manager = configured_node as CarrierManager
+	if not is_instance_valid(carrier_manager):
+		var parent := get_parent()
+		if parent:
+			var sibling := parent.get_node_or_null("CarrierManager")
+			if sibling is CarrierManager:
+				carrier_manager = sibling as CarrierManager
+	if is_instance_valid(carrier_manager):
+		carrier_manager.ensure_initialized()
+	else:
+		push_warning("[FlightDeckManager] CarrierManager not found. Aircraft pilot assignment is unavailable.")
+
+func _ensure_pilot_assigned_for_data(aircraft_data: Dictionary) -> bool:
+	_resolve_carrier_manager()
+	if not is_instance_valid(carrier_manager):
+		return false
+	return carrier_manager.ensure_aircraft_data_has_pilot(aircraft_data)
+
+func _make_stored_aircraft_entry(aircraft_name: String, scene: PackedScene, scene_file: String = "") -> Dictionary:
+	var resolved_scene_file := scene_file
+	if resolved_scene_file == "" and scene != null:
+		resolved_scene_file = scene.resource_path
+	var entry := {
+		"name": aircraft_name,
+		"scene_file": resolved_scene_file,
+		"scene": scene,
+		"position": Vector3.ZERO,
+		"rotation": Vector3.ZERO,
+		"scale": Vector3.ONE,
+		"metadata": {}
+	}
+	if not _ensure_pilot_assigned_for_data(entry):
+		return {}
+	return entry
+
+func _queue_aircraft_scene_for_retrieval(aircraft_name: String, scene: PackedScene, scene_file: String = "") -> void:
+	var entry := _make_stored_aircraft_entry(aircraft_name, scene, scene_file)
+	if entry.is_empty():
+		return
+	stored_aircraft.push_front(entry)
+	start_hangar_retrieval()
 
 func _is_elevator_physically_at_top() -> bool:
 	if not elevator:
@@ -168,8 +219,7 @@ func _input(event):
 			if not scene:
 				scene = load("res://Aircraft/Aircraft_2.tscn")
 			if scene:
-				stored_aircraft.push_front({"name": "Aircraft_2", "scene_file": "", "scene": scene, "position": Vector3.ZERO, "rotation": Vector3.ZERO, "scale": Vector3.ONE, "metadata": {}})
-				start_hangar_retrieval()
+				_queue_aircraft_scene_for_retrieval("Aircraft_2", scene)
 			else:
 				pass
 		else:
@@ -180,8 +230,7 @@ func _input(event):
 		if current_state == DeckState.IDLE:
 			var scene: PackedScene = load(DEFAULT_AIRCRAFT_SCENE_PATH)
 			if scene:
-				stored_aircraft.push_front({"name": "Aircraft_5", "scene_file": "", "scene": scene, "position": Vector3.ZERO, "rotation": Vector3.ZERO, "scale": Vector3.ONE, "metadata": {}})
-				start_hangar_retrieval()
+				_queue_aircraft_scene_for_retrieval("Aircraft_5", scene, DEFAULT_AIRCRAFT_SCENE_PATH)
 
 	# Spawn Aircraft 7 from hangar (key "7")
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_7:
@@ -190,8 +239,7 @@ func _input(event):
 			if not scene:
 				scene = load("res://Aircraft/Aircraft_7.tscn")
 			if scene:
-				stored_aircraft.push_front({"name": "Aircraft_7", "scene_file": "", "scene": scene, "position": Vector3.ZERO, "rotation": Vector3.ZERO, "scale": Vector3.ONE, "metadata": {}})
-				start_hangar_retrieval()
+				_queue_aircraft_scene_for_retrieval("Aircraft_7", scene)
 
 	# Spawn Aircraft 8 from hangar (key "8")
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_8:
@@ -200,8 +248,7 @@ func _input(event):
 			if not scene:
 				scene = load("res://Aircraft/Aircraft_8.tscn")
 			if scene:
-				stored_aircraft.push_front({"name": "Aircraft_8", "scene_file": "", "scene": scene, "position": Vector3.ZERO, "rotation": Vector3.ZERO, "scale": Vector3.ONE, "metadata": {}})
-				start_hangar_retrieval()
+				_queue_aircraft_scene_for_retrieval("Aircraft_8", scene)
 
 	# Debug key to force reset state (key "9")
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_9:
@@ -737,6 +784,11 @@ func _store_aircraft_in_hangar():
 
 	# Store aircraft data for later spawning
 	var aircraft_data = _extract_aircraft_data(_pending_store_aircraft)
+	_resolve_carrier_manager()
+	if is_instance_valid(carrier_manager):
+		carrier_manager.mark_aircraft_stored(_pending_store_aircraft, aircraft_data)
+	elif not _ensure_pilot_assigned_for_data(aircraft_data):
+		push_warning("[FlightDeckManager] Stored aircraft is missing pilot data and CarrierManager is unavailable.")
 	stored_aircraft.append(aircraft_data)
 
 	# Remove aircraft from the scene
@@ -816,14 +868,14 @@ func _initialize_hangar_with_aircraft():
 
 	# Fill hangar to capacity
 	for i in range(max_hangar_capacity):
-		var aircraft_data = {
-			"name": "Aircraft_" + str(i + 1),
-			"scene_file": DEFAULT_AIRCRAFT_SCENE_PATH,
-			"position": Vector3.ZERO,
-			"rotation": Vector3.ZERO,
-			"scale": Vector3.ONE,
-			"metadata": {}
-		}
+		var aircraft_data := _make_stored_aircraft_entry(
+			"Aircraft_" + str(i + 1),
+			null,
+			DEFAULT_AIRCRAFT_SCENE_PATH
+		)
+		if aircraft_data.is_empty():
+			push_warning("[FlightDeckManager] Stopping hangar prefill: unable to assign pilot to stored aircraft.")
+			break
 		stored_aircraft.append(aircraft_data)
 
 
@@ -1413,6 +1465,10 @@ func _create_aircraft_at_hangar_level() -> RigidBody3D:
 
 	# Get the stored aircraft data (use first stored aircraft)
 	var aircraft_data = stored_aircraft[0]  # We'll remove this after spawning
+	if not _ensure_pilot_assigned_for_data(aircraft_data):
+		push_warning("[FlightDeckManager] Retrieval blocked: no available pilot for aircraft.")
+		return null
+	stored_aircraft[0] = aircraft_data
 
 	# Use scene embedded in data dict (e.g. Aircraft 2), otherwise fall back to template
 	var scene_to_use: PackedScene = aircraft_data.get("scene", null)
@@ -1466,6 +1522,10 @@ func _create_aircraft_at_hangar_level() -> RigidBody3D:
 	for key in aircraft_data.metadata:
 		aircraft.set_meta(key, aircraft_data.metadata[key])
 	_restore_aircraft_runtime_state_deferred.call_deferred(aircraft, aircraft_data)
+	_resolve_carrier_manager()
+	if not is_instance_valid(carrier_manager) or not carrier_manager.bind_pilot_to_live_aircraft(aircraft, aircraft_data):
+		aircraft.queue_free()
+		return null
 
 	# Keep aircraft fully still during elevator movement.
 	aircraft.linear_velocity = Vector3.ZERO

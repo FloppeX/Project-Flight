@@ -13,8 +13,8 @@ config_version=5
 config/name="Project Flight"
 run/main_scene="res://Main_Scene.tscn"
 config/features=PackedStringArray("4.4")
-boot_splash/image="res://splash image 5.png"
-config/icon="res://icon.png"
+boot_splash/image="res://Images/Splash/splash image 5.png"
+config/icon="res://Images/icon.png"
 
 [audio]
 
@@ -23,10 +23,11 @@ buses/default_bus_layout=""
 [autoload]
 
 EnemyRegistry="*res://Enemies/EnemyRegistry.gd"
-EnemyBaseManager="*res://Enemies/EnemyBaseManager.gd"
 ControllerDebug="*res://tools/ControllerDebug.gd"
 TerrainNavGrid="*res://TerrainNavGrid.gd"
+TerrainReference="*res://TerrainReference.gd"
 LoadingScreen="*res://UI/LoadingScreen.gd"
+PauseMenu="*res://UI/PauseMenu.gd"
 WorldMapOverlay="*res://UI/WorldMapOverlay.gd"
 FlightDirector="*res://FlightDirector.gd"
 AirOpsManager="*res://AirOps/AirOpsManager.gd"
@@ -34,9 +35,11 @@ RadioComms="*res://Radio/RadioComms.gd"
 NavGraph="*res://NavGraph.gd"
 ParticleManager="*res://Effects/ParticleManager.gd"
 GroundOpsManager="*res://GroundOps/GroundOpsManager.gd"
+EnemyBaseManager="*res://Enemies/EnemyBaseManager.gd"
 ScreenshotCapture="*res://tools/ScreenshotCapture.gd"
 FPSCounter="*res://tools/FPSCounter.gd"
 Livery="*res://Livery.gd"
+FloatingOrigin="*res://FloatingOrigin.gd"
 
 [display]
 
@@ -255,8 +258,10 @@ reflections/ssr/enabled=false
 textures/default_filters/texture_filter=0
 gi/use_sdfgi=false
 volumetric_fog/enabled=false
+environment/volumetric_fog/volume_size=32
+environment/volumetric_fog/volume_depth=32
 lights_and_shadows/directional_shadow/max_distance=800.0
 lights_and_shadows/shadow_atlas/size=8192
-quality/3d/render_scale=1.0
+quality/3d/render_scale=0.5
 lights_and_shadows/directional_shadow/stabilize=true
 lights_and_shadows/directional_shadow/blend_splits=true

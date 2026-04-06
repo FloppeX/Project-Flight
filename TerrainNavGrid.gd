@@ -7,6 +7,19 @@ extends Node
 
 signal bake_complete
 
+func _ready() -> void:
+	add_to_group("origin_shifter")
+
+func apply_origin_shift(offset: Vector3) -> void:
+	_origin_x -= offset.x
+	_origin_z -= offset.z
+	_bake_center_x -= offset.x
+	_bake_center_z -= offset.z
+	if _bake_center_override_enabled:
+		_bake_center_override_x -= offset.x
+		_bake_center_override_z -= offset.z
+
+
 # --- Config (set in Inspector on the autoload node) ---
 @export var cell_size_m: float = 40.0          ## Grid resolution in metres
 @export var bake_half_extent_m: float = 12500.0 ## Half-side of baked square around terrain centre

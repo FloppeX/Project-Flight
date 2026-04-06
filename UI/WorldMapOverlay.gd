@@ -93,6 +93,7 @@ var _route_drag_index: int = -1
 var _ui_refresh_timer_s: float = 0.0
 
 func _ready() -> void:
+	add_to_group("origin_shifter")
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	layer = 190
 	set_process(true)
@@ -106,6 +107,11 @@ func _ready() -> void:
 		call_deferred("_ensure_map_texture")
 	else:
 		TerrainNavGrid.bake_complete.connect(_on_navgrid_bake_complete, CONNECT_ONE_SHOT)
+
+func apply_origin_shift(offset: Vector3) -> void:
+	for i in range(_draft_points.size()):
+		_draft_points[i] -= offset
+	_refresh_ui()
 
 func _process(delta: float) -> void:
 	if _root == null or not _root.visible:

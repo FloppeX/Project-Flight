@@ -115,7 +115,7 @@ class_name LowPolyTerrain
 @export var use_streaming: bool = true
 @export var chunk_quads_x: int = 28
 @export var chunk_quads_z: int = 28
-@export var load_radius_chunks: int = 4
+@export var load_radius_chunks: int = 10
 @export var unload_margin_chunks: int = 1
 @export var stream_target_path: NodePath
 @export var stream_update_interval_s: float = 0.25
@@ -143,6 +143,14 @@ var _pending_builds: Array[Vector2i] = []
 var _pending_set: Dictionary = {} # key "x:z" -> true
 var _stream_timer: float = 0.0
 var _last_center_chunk: Vector2i = Vector2i(-999999, -999999)
+
+# Async chunk building — _build_chunk_arrays runs on WorkerThreadPool, node creation finalizes on main thread
+var _async_tasks: Array = []              # [{coord, task_id, holder}]
+var _building_set: Dictionary = {}        # chunk_key -> true for in-flight builds
+var _discard_on_complete: Dictionary = {} # chunk_key -> true for results to throw away
+
+# Initial load tracking — used by LoadingScreen to show chunk fill progress
+var _initial_pending_total: int = 0  # size of the first pending queue, set once
 
 func _ready() -> void:
 	if not is_in_group("terrain_provider"):
@@ -190,6 +198,22 @@ func rebuild() -> void:
 	else:
 		_shape_node.shape = null
 	set_process(false)
+
+## Returns 0.0..1.0 fraction of the initial chunk fill completed.
+## 1.0 once the first visible ring has fully built and all async tasks are done.
+func get_chunk_load_fraction() -> float:
+	if not use_streaming:
+		return 1.0
+	if _initial_pending_total <= 0:
+		return 1.0 if not _chunks.is_empty() else 0.0
+	var remaining := _pending_builds.size() + _async_tasks.size()
+	return clampf(1.0 - float(remaining) / float(_initial_pending_total), 0.0, 1.0)
+
+## True once the initial fill burst has completed (no pending or in-flight builds).
+func is_initial_load_complete() -> bool:
+	if not use_streaming:
+		return true
+	return _initial_pending_total > 0 and _pending_builds.is_empty() and _async_tasks.is_empty()
 
 func get_height(world_pos: Vector3) -> float:
 	if _noises.is_empty():
@@ -251,6 +275,12 @@ func _clear_legacy_mesh() -> void:
 		_shape_node.shape = null
 
 func _clear_chunks() -> void:
+	# Wait for all in-flight worker tasks before clearing — prevents use-after-free on _noises.
+	for task in _async_tasks:
+		WorkerThreadPool.wait_for_task_completion(task.task_id)
+	_async_tasks.clear()
+	_building_set.clear()
+	_discard_on_complete.clear()
 	if not _chunk_root:
 		return
 	for child in _chunk_root.get_children():
@@ -280,7 +310,7 @@ func _refresh_chunk_targets(center_chunk: Vector2i) -> void:
 			if not _is_chunk_in_bounds(cx, cz):
 				continue
 			var key := _chunk_key(cx, cz)
-			if _chunks.has(key) or _pending_set.has(key):
+			if _chunks.has(key) or _pending_set.has(key) or _building_set.has(key):
 				continue
 			var d2: int = dx * dx + dz * dz
 			candidates.append({"coord": Vector2i(cx, cz), "d2": d2})
@@ -300,20 +330,91 @@ func _refresh_chunk_targets(center_chunk: Vector2i) -> void:
 		_pending_set[key] = true
 
 func _build_pending_chunks() -> void:
-	var budget: int = max(max_chunk_builds_per_update, 1)
+	_finalize_ready_tasks()
+	# Use a higher budget during initial fill (many pending chunks) to reduce pop-in delay.
+	# Once steady-state, honour max_chunk_builds_per_update to avoid hitches.
+	# The budget now controls how many async tasks we launch per update, not how many we build.
+	var initial_fill := _pending_builds.size() > load_radius_chunks * 2
+	if initial_fill and _initial_pending_total == 0:
+		_initial_pending_total = _pending_builds.size()
+	var budget: int = max(max_chunk_builds_per_update, 1) if not initial_fill else 16
 	while budget > 0 and not _pending_builds.is_empty():
 		var coord: Vector2i = _pending_builds.pop_front()
 		var key := _chunk_key(coord.x, coord.y)
 		_pending_set.erase(key)
-		if _chunks.has(key):
+		if _chunks.has(key) or _building_set.has(key):
 			budget -= 1
 			continue
-		var chunk: Node3D = _build_chunk(coord.x, coord.y)
-		if chunk:
-			_chunk_root.add_child(chunk)
-			_set_owner_recursive(chunk)
-			_chunks[key] = chunk
+		_building_set[key] = true
+		_launch_chunk_task(coord)
 		budget -= 1
+
+func _launch_chunk_task(coord: Vector2i) -> void:
+	var qx_step: int = max(chunk_quads_x, 1)
+	var qz_step: int = max(chunk_quads_z, 1)
+	var qx0: int = coord.x * qx_step
+	var qz0: int = coord.y * qz_step
+	var qx1: int = min(qx0 + qx_step, _size_x)
+	var qz1: int = min(qz0 + qz_step, _size_z)
+	if qx0 >= _size_x or qz0 >= _size_z:
+		_building_set.erase(_chunk_key(coord.x, coord.y))
+		return
+	var holder := {"arrays": null}
+	var task_id := WorkerThreadPool.add_task(func():
+		holder["arrays"] = _build_chunk_arrays(qx0, qx1, qz0, qz1)
+	)
+	_async_tasks.append({coord = coord, task_id = task_id, holder = holder})
+
+func _finalize_ready_tasks() -> void:
+	var i := _async_tasks.size() - 1
+	while i >= 0:
+		var task: Dictionary = _async_tasks[i]
+		if WorkerThreadPool.is_task_completed(task.task_id):
+			WorkerThreadPool.wait_for_task_completion(task.task_id)
+			_async_tasks.remove_at(i)
+			var coord: Vector2i = task.coord
+			var key := _chunk_key(coord.x, coord.y)
+			_building_set.erase(key)
+			if _discard_on_complete.erase(key):
+				i -= 1
+				continue
+			if not _chunks.has(key):
+				var arrays: Array = task.holder["arrays"]
+				if arrays != null and not (arrays[Mesh.ARRAY_VERTEX] as PackedVector3Array).is_empty():
+					var chunk := _make_chunk_node(coord, arrays)
+					if chunk:
+						_chunk_root.add_child(chunk)
+						_set_owner_recursive(chunk)
+						_chunks[key] = chunk
+		i -= 1
+
+func _make_chunk_node(coord: Vector2i, arrays: Array) -> Node3D:
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+
+	var root := Node3D.new()
+	root.name = "Chunk_%d_%d" % [coord.x, coord.y]
+	root.set_meta("chunk_coord", coord)
+
+	var mi := MeshInstance3D.new()
+	mi.name = "Mesh"
+	mi.mesh = mesh
+	mi.material_override = _shared_material
+	root.add_child(mi)
+
+	if generate_collision:
+		var body := StaticBody3D.new()
+		body.name = "Body"
+		body.add_to_group("terrain")
+		var shape_node := CollisionShape3D.new()
+		shape_node.name = "CollisionShape3D"
+		var shape := ConcavePolygonShape3D.new()
+		shape.set_faces(mesh.get_faces())
+		shape_node.shape = shape
+		body.add_child(shape_node)
+		root.add_child(body)
+
+	return root
 
 func _build_chunk(chunk_x: int, chunk_z: int) -> Node3D:
 	var qx_step: int = max(chunk_quads_x, 1)
@@ -784,6 +885,9 @@ func _remove_chunk(key: String) -> void:
 		chunk.queue_free()
 	_chunks.erase(key)
 	_pending_set.erase(key)
+	# If a worker is still building this chunk, mark the result for discard on completion.
+	if _building_set.has(key):
+		_discard_on_complete[key] = true
 
 func _set_owner_recursive(node: Node) -> void:
 	var root: Node = get_tree().edited_scene_root

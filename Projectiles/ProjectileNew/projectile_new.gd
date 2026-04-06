@@ -9,12 +9,31 @@ class_name ProjectileNew
 @export var target_mark_lifetime_s: float = 12.0
 @export var target_mark_size: Vector3 = Vector3(0.3, 2.0, 0.3)
 
+# Preloaded impact sounds to avoid per-hit load() calls
+static var _metal_sounds: Array[AudioStream] = []
+static var _dirt_sounds: Array[AudioStream] = []
+static var _scorch_texture: Texture2D = null
+static var _sounds_loaded: bool = false
+
 var shooter: Node3D  # Reference to whoever fired this
 var last_position: Vector3 = Vector3.ZERO
 var has_impacted: bool = false
-var _terrain_node: Node = null
+
+static func _ensure_sounds_loaded() -> void:
+	if _sounds_loaded:
+		return
+	_sounds_loaded = true
+	for i in range(1, 9):
+		var metal := load("res://Audio/bullet_impact_metal_heavy_%02d.wav" % i)
+		if metal:
+			_metal_sounds.append(metal)
+		var dirt := load("res://Audio/bullet_impact_dirt_%02d.wav" % i)
+		if dirt:
+			_dirt_sounds.append(dirt)
+	_scorch_texture = load("res://Projectiles/Explosion/scorch_mark.png")
 
 func _ready():
+	_ensure_sounds_loaded()
 	mass = 0.01
 	gravity_scale = maxf(gravity_scale, 0.0)
 	physics_material_override = PhysicsMaterial.new()
@@ -132,27 +151,7 @@ func _on_body_entered(body):
 	queue_free()
 
 func _get_cached_terrain_node() -> Node:
-	if _terrain_node and is_instance_valid(_terrain_node):
-		return _terrain_node
-	var tagged: Node = get_tree().get_first_node_in_group("terrain_provider")
-	if tagged and is_instance_valid(tagged):
-		_terrain_node = tagged
-		return _terrain_node
-	var root: Node = get_tree().current_scene
-	if not root:
-		return null
-	var queue: Array = [root]
-	while queue.size() > 0:
-		var cur: Node = queue.pop_front()
-		if cur.get_class() == "Terrain3D":
-			_terrain_node = cur
-			return _terrain_node
-		if cur is Node3D and cur.has_method("get_height"):
-			_terrain_node = cur
-			return _terrain_node
-		for child in cur.get_children():
-			queue.append(child)
-	return null
+	return TerrainReference.get_terrain_node()
 
 func _get_terrain_height_at_position(world_pos: Vector3) -> float:
 	var terrain: Node = _get_cached_terrain_node()
@@ -169,59 +168,34 @@ func _get_terrain_height_at_position(world_pos: Vector3) -> float:
 	return NAN
 
 func play_impact_sound(body: Node) -> void:
-	# Create 3D audio player for impact sound
+	# Pick from preloaded sound arrays
+	var sound: AudioStream = null
+	if is_aircraft(body):
+		if not _metal_sounds.is_empty():
+			sound = _metal_sounds[randi() % _metal_sounds.size()]
+	elif is_ground_or_terrain(body):
+		if not _dirt_sounds.is_empty():
+			sound = _dirt_sounds[randi() % _dirt_sounds.size()]
+	else:
+		if not _metal_sounds.is_empty():
+			sound = _metal_sounds[0]
+
+	if not sound:
+		return
+
 	var audio_player = AudioStreamPlayer3D.new()
 	get_tree().current_scene.add_child(audio_player)
 	audio_player.global_position = global_position
-	
-	# Determine appropriate sound based on what we hit
-	var sound_path: String = ""
-	
-	if is_aircraft(body):
-		# Aircraft hit - use metal impact sounds
-		var metal_sounds = [
-			"res://Audio/bullet_impact_metal_heavy_01.wav",
-			"res://Audio/bullet_impact_metal_heavy_02.wav",
-			"res://Audio/bullet_impact_metal_heavy_03.wav",
-			"res://Audio/bullet_impact_metal_heavy_04.wav",
-			"res://Audio/bullet_impact_metal_heavy_05.wav",
-			"res://Audio/bullet_impact_metal_heavy_06.wav",
-			"res://Audio/bullet_impact_metal_heavy_07.wav",
-			"res://Audio/bullet_impact_metal_heavy_08.wav"
-		]
-		sound_path = metal_sounds[randi() % metal_sounds.size()]
-	elif is_ground_or_terrain(body):
-		# Ground/terrain hit - use dirt impact sounds
-		var dirt_sounds = [
-			"res://Audio/bullet_impact_dirt_01.wav",
-			"res://Audio/bullet_impact_dirt_02.wav",
-			"res://Audio/bullet_impact_dirt_03.wav",
-			"res://Audio/bullet_impact_dirt_04.wav",
-			"res://Audio/bullet_impact_dirt_05.wav",
-			"res://Audio/bullet_impact_dirt_06.wav",
-			"res://Audio/bullet_impact_dirt_07.wav",
-			"res://Audio/bullet_impact_dirt_08.wav"
-		]
-		sound_path = dirt_sounds[randi() % dirt_sounds.size()]
-	else:
-		# Default to metal sound for other objects
-		sound_path = "res://Audio/bullet_impact_metal_heavy_01.wav"
-	
-	# Load and play the sound
-	var sound = load(sound_path)
-	if sound:
-		audio_player.stream = sound
-		audio_player.volume_db = -5.0  # Slightly quieter than default
-		audio_player.pitch_scale = randf_range(0.9, 1.1)  # Slight pitch variation
-		audio_player.play()
-		
-		# Clean up audio player after sound finishes
-		audio_player.finished.connect(func(): audio_player.queue_free())
-		# Fallback cleanup in case finished signal doesn't fire
-		get_tree().create_timer(3.0).timeout.connect(func(): 
-			if audio_player and is_instance_valid(audio_player):
-				audio_player.queue_free()
-		)
+	audio_player.stream = sound
+	audio_player.volume_db = -5.0
+	audio_player.pitch_scale = randf_range(0.9, 1.1)
+	audio_player.play()
+
+	audio_player.finished.connect(func(): audio_player.queue_free())
+	get_tree().create_timer(3.0).timeout.connect(func():
+		if audio_player and is_instance_valid(audio_player):
+			audio_player.queue_free()
+	)
 
 func create_bullet_scorch_mark(aircraft_body: Node) -> void:
 	# Create a bullet scorch mark on the aircraft surface
@@ -248,7 +222,7 @@ func create_bullet_scorch_mark(aircraft_body: Node) -> void:
 	
 	# Create bullet scorch decal
 	var decal: Decal = Decal.new()
-	decal.texture_albedo = load("res://Projectiles/Explosion/scorch_mark.png")
+	decal.texture_albedo = _scorch_texture
 	
 	# Make bullet marks smaller than explosion marks, but with enough depth to project onto moving meshes.
 	decal.size = target_mark_size
@@ -313,30 +287,30 @@ func is_aircraft(body: Node) -> bool:
 	return false
 
 func is_ground_or_terrain(body: Node) -> bool:
-	# Don't consider the Aircraft as terrain
-	if body.name == "Aircraft" or "aircraft" in body.name.to_lower():
+	# Exclude aircraft and vehicles — they are not terrain
+	if body is RigidBody3D:
 		return false
-	
+	if is_aircraft(body):
+		return false
+	if body.is_in_group("ground_vehicles") or body.is_in_group("enemies") or body.is_in_group("buildings"):
+		return false
+
 	# Check for Terrain3D plugin
 	if body.get_class() == "Terrain3D" or "terrain3d" in body.name.to_lower():
 		return true
-	
+
 	# Check for groups
-	if body.is_in_group("terrain") or body.is_in_group("ground"):
+	if body.is_in_group("terrain") or body.is_in_group("ground") or body.is_in_group("terrain_provider"):
 		return true
-	
+
 	# Check by name
 	if "ground" in body.name.to_lower() or "terrain" in body.name.to_lower():
 		return true
-	
-	# Check if it's a StaticBody3D (typical for terrain)
+
+	# StaticBody3D without enemy/vehicle groups is likely terrain
 	if body is StaticBody3D:
 		return true
-	
-	# Assume anything that's not the aircraft is terrain
-	if body != shooter:
-		return true
-	
+
 	return false
 
 func _on_timeout():

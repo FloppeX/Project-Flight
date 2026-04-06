@@ -94,7 +94,18 @@ const FORMATION_LEAD_MAX_SLOWDOWN_MPS: float = 24.0
 const FORMATION_LEAD_MIN_SPEED_MPS: float = 62.0
 const CAP_ROUTE_ENTRY_SKIP_DISTANCE_M: float = 140.0
 
+var _members_clean_frame: int = -1  # Frame when _members was last pruned
+
+func _ready() -> void:
+	add_to_group("origin_shifter")
+
+func apply_origin_shift(offset: Vector3) -> void:
+	_cas_area_center -= offset
+	for i in range(_cap_route_points.size()):
+		_cap_route_points[i] -= offset
+
 func _physics_process(_delta: float) -> void:
+	_prune_members_once()
 	_apply_pending_mission_updates()
 	if mission == Mission.CAS:
 		_update_cas_assignments()
@@ -103,12 +114,20 @@ func _physics_process(_delta: float) -> void:
 
 # ── Membership ────────────────────────────────────────────────────────────────
 
+func _prune_members_once() -> void:
+	var frame := Engine.get_physics_frames()
+	if _members_clean_frame == frame:
+		return
+	_members_clean_frame = frame
+	_members = _members.filter(func(a): return a and is_instance_valid(a))
+
 func register(aircraft: Node3D) -> void:
 	if not aircraft or not is_instance_valid(aircraft):
 		return
 	if _members.has(aircraft):
 		return
 	_members.append(aircraft)
+	_members_clean_frame = -1  # Invalidate cache
 	_member_mission_revision[aircraft] = -1
 	_apply_current_mission(aircraft)
 	if debug_print:
@@ -119,6 +138,7 @@ func unregister(aircraft: Node3D) -> void:
 		_cap_route_lead = null
 		_cap_route_lead_revision = -1
 	_members.erase(aircraft)
+	_members_clean_frame = -1  # Invalidate cache
 	_member_mission_revision.erase(aircraft)
 	_prune_stale_claims(false)
 	var stale_claims: Array = []
@@ -130,7 +150,7 @@ func unregister(aircraft: Node3D) -> void:
 		_claimed_targets.erase(target_ref)
 
 func get_members() -> Array[Node3D]:
-	_members = _members.filter(func(a): return a and is_instance_valid(a))
+	_prune_members_once()
 	return _members
 
 func strength() -> int:

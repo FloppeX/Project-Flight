@@ -59,10 +59,11 @@ var _zoom_button_prev_pressed: bool = false
 func _ready():
 	# Add to camera controller group for easy finding
 	add_to_group("camera_controller")
+	add_to_group("origin_shifter")
 	
 	# Find the Camera3D inside each tripod scene
 	cockpit_camera = cockpit_tripod.find_child("Camera3D", true, false)
-	chase_camera = chase_tripod.find_child("Camera3D", true, false) 
+	chase_camera = chase_tripod.find_child("Camera3D", true, false)
 	cinematic_camera = null
 	bridge_camera = null
 	_apply_cockpit_camera_settings(cockpit_camera)
@@ -137,6 +138,9 @@ func _ready():
 	else:
 		_current_view_index = 0
 		_switch_to_view_target(_view_targets[0])
+
+func apply_origin_shift(offset: Vector3) -> void:
+	deathcam_target_position -= offset
 
 func setup_bridge_camera():
 	# Skip if already set up
@@ -357,8 +361,10 @@ func _switch_to_view_target(target: Dictionary):
 
 func _deactivate_all_cameras():
 	"""Deactivate all cameras from player, bridge, and AI aircraft."""
-	cockpit_camera.current = false
-	chase_camera.current = false
+	if cockpit_camera:
+		cockpit_camera.current = false
+	if chase_camera:
+		chase_camera.current = false
 	if cinematic_camera:
 		cinematic_camera.current = false
 	if bridge_camera:
@@ -493,11 +499,15 @@ func activate_deathcam(target_pos: Vector3):
 			chase_tripod.top_level = true
 			chase_tripod.set_process(false)
 			chase_tripod.set_physics_process(false)
-		chase_camera.current = true
-		cinematic_camera.current = false
+		if chase_camera:
+			chase_camera.current = true
+		if cinematic_camera:
+			cinematic_camera.current = false
 	else:
-		chase_camera.current = false
-		cinematic_camera.current = true
+		if chase_camera:
+			chase_camera.current = false
+		if cinematic_camera:
+			cinematic_camera.current = true
 		# Detach cinematic camera from aircraft transform if using tripod
 		if cinematic_tripod:
 			cinematic_tripod.top_level = true

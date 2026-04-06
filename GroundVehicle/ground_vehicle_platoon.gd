@@ -63,10 +63,28 @@ var _route_preview_origin: Vector3 = Vector3.INF
 var _route_preview_repath_timer_s: float = 0.0
 
 func _ready() -> void:
+	add_to_group("origin_shifter")
 	add_to_group("ground_vehicle_platoons")
 	set_physics_process(true)
 	_contact_repath_timer_s = randf() * maxf(contact_repath_interval_s, 0.1)
 	_route_preview_repath_timer_s = randf() * maxf(route_preview_repath_interval_s, 0.1)
+
+func apply_origin_shift(offset: Vector3) -> void:
+	objective_position -= offset
+	if _is_valid_contact_world_position(_contact_world_position):
+		_contact_world_position -= offset
+	if _is_valid_contact_world_position(_route_preview_goal):
+		_route_preview_goal -= offset
+	if _is_valid_contact_world_position(_route_preview_origin):
+		_route_preview_origin -= offset
+	for i in range(_contact_path_positions.size()):
+		if _is_valid_contact_world_position(_contact_path_positions[i]):
+			_contact_path_positions[i] -= offset
+	for i in range(_route_preview_positions.size()):
+		if _is_valid_contact_world_position(_route_preview_positions[i]):
+			_route_preview_positions[i] -= offset
+	if _shared_hostile_cache_origin.length_squared() < 1e10:
+		_shared_hostile_cache_origin -= offset
 
 func _physics_process(delta: float) -> void:
 	_update_contact_position(delta)

@@ -49,6 +49,7 @@ var simple_aero: Node     # SimpleAero module
 var engine: Node          # Engine module
 var control_gear: Node    # ControlLandingGear module
 var control_weapons: Node # ControlWeapons module (for ground attack)
+var cached_hardpoints: Array = []  # Cached hardpoints list
 
 # Saved SimpleAero values for restoration when AI is disabled
 var _saved_stability_strength: float = -1.0
@@ -62,11 +63,17 @@ var altitude_agl: float = 0.0  # Altitude above ground level
 var terrain_ahead_distance: float = INF  # Distance to terrain in flight path
 var known_enemies: Array[Node3D] = []  # Enemies in sensor range
 var known_friendlies: Array[Node3D] = []  # Friendly aircraft in sensor range
-var _terrain_node: Node = null
+var cached_hostile_nodes: Array[Node3D] = []  # Cached raw hostile group nodes
+var cached_friendly_nodes: Array[Node3D] = []  # Cached raw friendly group nodes
+var sensor_update_counter: int = 0
+@export var sensor_update_interval: int = 10  # Update cached groups every N frames
+var _terrain_check_counter: int = 0
+@export var terrain_check_interval: int = 3  # Update terrain fan/ahead every N physics frames (~20 Hz at 60 Hz physics)
 var _smoothed_ground_height: float = NAN  # Smoothed ground height for stable low-level flight
 # Terrain fan avoidance — directional escape sampling
 var _terrain_fan_clearances: PackedFloat32Array = PackedFloat32Array([INF, INF, INF, INF, INF])
 var _terrain_fan_best_idx: int = 2  # Index into fan angles; 2 = forward
+var _terrain_height_callable: Callable  # Cached get_height callable — resolved once on first use
 var _safety_override_active: bool = false  # True when terrain/collision override is controlling
 
 @export var sensor_range: float = 5000.0  # How far AI can "see"
@@ -193,7 +200,7 @@ var maneuver_waypoint: Vector3 = Vector3.ZERO  # Short-term maneuvering target
 @export var dogfight_unload_descent_gain: float = 0.18
 @export var dogfight_low_speed_pitch_cap: float = 0.45
 @export var dogfight_lead_pursuit_blend: float = 1.0
-@export var dogfight_ballistic_aim_blend: float = 0.72
+@export var dogfight_ballistic_aim_blend: float = 0.95
 @export var dogfight_precise_ballistic_aim_blend: float = 1.0
 @export var dogfight_rejoin_range_m: float = 2200.0
 @export var dogfight_rejoin_speed_mps: float = 110.0
@@ -204,6 +211,10 @@ var maneuver_waypoint: Vector3 = Vector3.ZERO  # Short-term maneuvering target
 @export var dogfight_lost_sight_behavior_max_s: float = 1.8
 @export var dogfight_lost_sight_extend_forward_m: float = 900.0
 @export var dogfight_lost_sight_extend_vertical_m: float = 120.0
+
+var cached_ballistic_solution: Dictionary = {}
+var ballistic_cache_time: float = 0.0
+@export var ballistic_cache_duration: float = 0.1
 @export var dogfight_straight_level_yaw_deg: float = 5.0
 @export var dogfight_straight_level_bank_blend: float = 0.25
 @export var dogfight_straight_level_pitch_blend: float = 0.15
@@ -417,7 +428,20 @@ var _arrest_prev_vel: Vector3 = Vector3.ZERO
 var _arrest_start_pos: Vector3 = Vector3.ZERO
 var _arrest_stopped_reported: bool = false
 
+func apply_origin_shift(offset: Vector3) -> void:
+	target_waypoint -= offset
+	formation_anchor -= offset
+	nav_waypoint -= offset
+	maneuver_waypoint -= offset
+	launch_position -= offset
+	carrier_position -= offset
+	_dogfight_variation_waypoint -= offset
+	_dogfight_recovery_waypoint -= offset
+	for i in range(waypoints.size()):
+		waypoints[i] -= offset
+
 func _ready():
+	add_to_group("origin_shifter")
 	# Initialize PID controllers with tuned values
 	# These values will need adjustment based on aircraft flight characteristics
 
@@ -1378,11 +1402,9 @@ func _state_dogfight(delta: float):
 				yaw_err_rad = atan2(local_x, maxf(local_z, 0.05))
 			pitch_err_rad = atan2(local_y, maxf(absf(local_z), 0.05))
 			aim_err_rad = sqrt(yaw_err_rad * yaw_err_rad + pitch_err_rad * pitch_err_rad)
-			precise_aim_t = 0.0
-			if not in_rejoin and local_z > 0.15 and dist_to_target < maxf(dogfight_precise_aim_max_range_m, 50.0):
-				var precise_denom: float = maxf(precise_entry_rad - precise_full_rad, deg_to_rad(0.1))
-				precise_aim_t = clampf((precise_entry_rad - aim_err_rad) / precise_denom, 0.0, 1.0)
-				precise_aim_t = clampf(sqrt(precise_aim_t), 0.0, 1.0)
+			# Don't recompute precise_aim_t here — that creates a feedback loop where
+			# the aim point shifting to ballistic undermines control authority just when
+			# it's needed most. Keep the value computed from the initial aim error.
 
 	if collision_avoiding:
 		aim_point = collision_avoid_wp
@@ -1473,12 +1495,12 @@ func _state_dogfight(delta: float):
 
 	# --- Single-path precision aiming: when precise_aim_t is significant, skip the
 	#     layered blend chain and compute one authoritative command directly. ---
-	if precise_aim_t > 0.5 and not inverted_recover:
+	if precise_aim_t > 0.2 and not inverted_recover:
 		# Direct high-authority aiming: error × gain, minimal damping.
 		var direct_roll: float = clampf(bank_error * 14.0 - roll_rate * 0.08, -1.0, 1.0)
-		var direct_pitch: float = clampf(pitch_err_rad * 12.0 - pitch_rate_up * 0.05, -0.90, low_speed_pitch_cap)
+		var direct_pitch: float = clampf(pitch_err_rad * 20.0 - pitch_rate_up * 0.05, -0.90, low_speed_pitch_cap)
 		var direct_yaw: float = clampf(
-			yaw_err_rad * 6.0 - yaw_rate * 0.03 - sideslip * 0.04,
+			yaw_err_rad * 10.0 - yaw_rate * 0.03 - sideslip * 0.04,
 			-dogfight_max_rudder_input,
 			dogfight_max_rudder_input
 		)
@@ -1489,14 +1511,14 @@ func _state_dogfight(delta: float):
 		if _dogfight_precise_yaw_controller:
 			var pid_yaw: float = clampf(_dogfight_precise_yaw_controller.update(yaw_err_rad, delta), -dogfight_max_rudder_input, dogfight_max_rudder_input)
 			direct_yaw = clampf(direct_yaw + pid_yaw * 0.30, -dogfight_max_rudder_input, dogfight_max_rudder_input)
-		# Anti-deadzone: guarantee minimum input when any error exists.
-		var min_cmd: float = 0.22
+		# Anti-deadzone: guarantee minimum input when any error remains.
+		var min_cmd: float = 0.40
 		if absf(direct_pitch) < min_cmd and absf(pitch_err_rad) > deg_to_rad(0.15):
 			direct_pitch = signf(pitch_err_rad) * min_cmd
 		if absf(direct_yaw) < min_cmd and absf(yaw_err_rad) > deg_to_rad(0.15):
 			direct_yaw = signf(yaw_err_rad) * min_cmd
-		# Blend from base steering into direct control based on precise_aim_t.
-		var direct_t: float = clampf((precise_aim_t - 0.5) * 2.0, 0.0, 1.0)  # 0 at 0.5, 1 at 1.0
+		# Blend from base steering into direct control. Ramps from 0 at precise_aim_t=0.2 to 1 at 1.0.
+		var direct_t: float = clampf((precise_aim_t - 0.2) / 0.8, 0.0, 1.0)
 		raw_roll = lerpf(raw_roll, direct_roll, direct_t)
 		raw_pitch = lerpf(raw_pitch, direct_pitch, direct_t)
 		raw_yaw = lerpf(raw_yaw, direct_yaw, direct_t)
@@ -1772,10 +1794,10 @@ func _start_dogfight_variation_maneuver(target_pos: Vector3, target_vel: Vector3
 	_dogfight_stalemate_timer_s = 0.0
 
 func _get_control_weapon_hardpoints() -> Array:
-	if not control_weapons:
-		return []
-	var hardpoints_value = control_weapons.get("hardpoints")
-	return hardpoints_value if hardpoints_value is Array else []
+	if cached_hardpoints.is_empty() and control_weapons:
+		var hardpoints_value = control_weapons.get("hardpoints")
+		cached_hardpoints = hardpoints_value if hardpoints_value is Array else []
+	return cached_hardpoints
 
 func _get_control_weapon_types() -> Array:
 	if not control_weapons:
@@ -1944,6 +1966,10 @@ func _get_point_velocity_at_world_position(world_pos: Vector3) -> Vector3:
 	return point_velocity
 
 func _get_dogfight_aim_solution(shooter_pos: Vector3, shooter_vel: Vector3, target_pos: Vector3, target_vel: Vector3, projectile_speed: float) -> Dictionary:
+	var current_time = Time.get_ticks_msec() / 1000.0
+	if current_time - ballistic_cache_time < ballistic_cache_duration and not cached_ballistic_solution.is_empty():
+		return cached_ballistic_solution
+
 	var intercept_point: Vector3 = _predict_lead_point(shooter_pos, shooter_vel, target_pos, target_vel, projectile_speed)
 	var tof_guess: float = maxf(shooter_pos.distance_to(intercept_point) / maxf(projectile_speed, 50.0), 0.05)
 	var solution := {
@@ -1955,7 +1981,10 @@ func _get_dogfight_aim_solution(shooter_pos: Vector3, shooter_vel: Vector3, targ
 	if _is_selected_dogfight_missile():
 		return solution
 
-	return _predict_ballistic_aim_solution(shooter_pos, shooter_vel, target_pos, target_vel, projectile_speed)
+	solution = _predict_ballistic_aim_solution(shooter_pos, shooter_vel, target_pos, target_vel, projectile_speed)
+	cached_ballistic_solution = solution
+	ballistic_cache_time = current_time
+	return solution
 
 func _is_selected_dogfight_missile() -> bool:
 	return _get_selected_control_weapon_type() == "AAMissile"
@@ -1974,7 +2003,7 @@ func _predict_ballistic_aim_solution(shooter_pos: Vector3, shooter_vel: Vector3,
 	var best_t: float = min_tof
 	var best_intercept: Vector3 = target_pos
 	var best_muzzle_vec: Vector3 = Vector3.ZERO
-	var coarse_steps: int = 28
+	var coarse_steps: int = 14
 
 	for i in range(coarse_steps):
 		var t: float = lerpf(min_tof, max_tof, float(i) / float(coarse_steps - 1))
@@ -1990,7 +2019,7 @@ func _predict_ballistic_aim_solution(shooter_pos: Vector3, shooter_vel: Vector3,
 	var coarse_step_span: float = (max_tof - min_tof) / maxf(float(coarse_steps - 1), 1.0)
 	var refine_min: float = maxf(min_tof, best_t - coarse_step_span)
 	var refine_max: float = minf(max_tof, best_t + coarse_step_span)
-	var refine_steps: int = 12
+	var refine_steps: int = 6
 	for i in range(refine_steps):
 		var t: float = lerpf(refine_min, refine_max, float(i) / float(refine_steps - 1))
 		var future_target: Vector3 = target_pos + target_vel * t
@@ -2821,6 +2850,9 @@ func _state_approach(delta: float):
 		_state_approach_path_follower(delta)
 		return
 	if _approach_wp.size() < 5:
+		change_state(State.SEARCH)
+		return
+	if _landing_phase >= _approach_wp.size():
 		change_state(State.SEARCH)
 		return
 
@@ -4030,7 +4062,10 @@ func _is_airborne() -> bool:
 
 func _update_sensors():
 	"""Update AI's limited view of the world"""
-	# Update smoothed ground height
+	_terrain_check_counter += 1
+	var run_terrain_checks: bool = (_terrain_check_counter % terrain_check_interval) == 0
+
+	# Update smoothed ground height and AGL every frame (cheap — uses cached terrain node)
 	var gh: float = _get_ground_height_at_position(aircraft.global_position)
 	if not is_nan(gh):
 		if is_nan(_smoothed_ground_height):
@@ -4041,11 +4076,10 @@ func _update_sensors():
 	# Update altitude above ground
 	_update_agl()
 
-	# Check terrain ahead in flight path
-	_check_terrain_ahead()
-
-	# Evaluate terrain clearance in multiple directions for smart avoidance
-	_evaluate_terrain_fan()
+	# Terrain-ahead and fan checks are expensive (many noise evals) — throttle to ~20 Hz
+	if run_terrain_checks:
+		_check_terrain_ahead()
+		_evaluate_terrain_fan()
 
 	# Scan for enemies and friendlies within sensor range
 	_scan_contacts()
@@ -4109,40 +4143,22 @@ func _check_terrain_ahead():
 				break
 
 func _get_cached_terrain_node() -> Node:
-	if _terrain_node and is_instance_valid(_terrain_node):
-		return _terrain_node
-	var tagged: Node = get_tree().get_first_node_in_group("terrain_provider")
-	if tagged and is_instance_valid(tagged):
-		_terrain_node = tagged
-		return _terrain_node
-	var root: Node = get_tree().current_scene
-	if not root:
-		return null
-	var queue: Array = [root]
-	while queue.size() > 0:
-		var cur: Node = queue.pop_front()
-		if cur.get_class() == "Terrain3D":
-			_terrain_node = cur
-			return _terrain_node
-		if cur is Node3D and cur.has_method("get_height"):
-			_terrain_node = cur
-			return _terrain_node
-		for child in cur.get_children():
-			queue.append(child)
-	return null
+	return TerrainReference.get_terrain_node()
 
 func _get_ground_height_at_position(world_pos: Vector3) -> float:
-	var terrain: Node = _get_cached_terrain_node()
-	if not terrain:
-		return NAN
-	if terrain.has_method("get_height"):
-		var h = terrain.get_height(world_pos)
-		if typeof(h) == TYPE_FLOAT and not is_nan(float(h)):
-			return float(h)
-	if "data" in terrain and terrain.data and terrain.data.has_method("get_height"):
-		var h2 = terrain.data.get_height(world_pos)
-		if typeof(h2) == TYPE_FLOAT and not is_nan(float(h2)):
-			return float(h2)
+	if not _terrain_height_callable.is_valid():
+		var terrain: Node = _get_cached_terrain_node()
+		if not terrain:
+			return NAN
+		if terrain.has_method("get_height"):
+			_terrain_height_callable = Callable(terrain, "get_height")
+		elif "data" in terrain and terrain.data and terrain.data.has_method("get_height"):
+			_terrain_height_callable = Callable(terrain.data, "get_height")
+		else:
+			return NAN
+	var h = _terrain_height_callable.call(world_pos)
+	if typeof(h) == TYPE_FLOAT and not is_nan(float(h)):
+		return float(h)
 	return NAN
 
 func _sample_max_terrain_height_along_path(from_pos: Vector3, to_pos: Vector3, num_samples: int) -> float:
@@ -4191,6 +4207,7 @@ func _resolve_effective_altitude_world_y(world_pos: Vector3, desired_agl_m: floa
 
 func _scan_contacts():
 	"""Scan for enemies and friendlies within sensor range"""
+	sensor_update_counter += 1
 	known_enemies.clear()
 	known_friendlies.clear()
 	var my_team: int = aircraft.get_team() if aircraft.has_method("get_team") else 1
@@ -4200,27 +4217,36 @@ func _scan_contacts():
 		hostile_groups = ["friendlies", "aircraft", "ai_aircraft", "carrier", "ground_vehicles"]
 		friendly_groups = ["enemies", "ai_aircraft", "ground_vehicles"]
 
-	for group_name in hostile_groups:
-		for node in get_tree().get_nodes_in_group(group_name):
-			if not (node is Node3D) or not is_instance_valid(node) or node == aircraft:
-				continue
-			if node.has_method("get_team") and int(node.get_team()) == my_team:
-				continue
-			var enemy_node := node as Node3D
-			var distance: float = aircraft.global_position.distance_to(enemy_node.global_position)
-			if distance <= sensor_range and not known_enemies.has(enemy_node):
-				known_enemies.append(enemy_node)
+	# Update cached group nodes periodically
+	if sensor_update_counter % sensor_update_interval == 0:
+		cached_hostile_nodes.clear()
+		for group_name in hostile_groups:
+			cached_hostile_nodes.append_array(get_tree().get_nodes_in_group(group_name))
+		cached_friendly_nodes.clear()
+		for group_name in friendly_groups:
+			cached_friendly_nodes.append_array(get_tree().get_nodes_in_group(group_name))
 
-	for group_name in friendly_groups:
-		for node in get_tree().get_nodes_in_group(group_name):
-			if not (node is Node3D) or not is_instance_valid(node) or node == aircraft:
-				continue
-			if node.has_method("get_team") and int(node.get_team()) != my_team:
-				continue
-			var friendly_node := node as Node3D
-			var distance: float = aircraft.global_position.distance_to(friendly_node.global_position)
-			if distance <= sensor_range and not known_friendlies.has(friendly_node):
-				known_friendlies.append(friendly_node)
+	# Scan cached hostile nodes
+	for node in cached_hostile_nodes:
+		if not is_instance_valid(node) or not (node is Node3D) or node == aircraft:
+			continue
+		if node.has_method("get_team") and int(node.get_team()) == my_team:
+			continue
+		var enemy_node := node as Node3D
+		var distance: float = aircraft.global_position.distance_to(enemy_node.global_position)
+		if distance <= sensor_range and not known_enemies.has(enemy_node):
+			known_enemies.append(enemy_node)
+
+	# Scan cached friendly nodes
+	for node in cached_friendly_nodes:
+		if not is_instance_valid(node) or not (node is Node3D) or node == aircraft:
+			continue
+		if node.has_method("get_team") and int(node.get_team()) != my_team:
+			continue
+		var friendly_node := node as Node3D
+		var distance: float = aircraft.global_position.distance_to(friendly_node.global_position)
+		if distance <= sensor_range and not known_friendlies.has(friendly_node):
+			known_friendlies.append(friendly_node)
 
 func _check_rtb_triggers():
 	"""Monitor health and fuel, trigger RTB if critical"""

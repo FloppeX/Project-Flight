@@ -45,6 +45,12 @@ var _debug_print_timer: float = 0.0
 var _cached_camera: Camera3D = null
 var _camera_cache_timer: float = 0.0
 
+# Aim noise: updated on a timer so the turret can actually track each position
+# rather than chasing a point that jumps every physics frame.
+@export var noise_update_interval_s: float = 0.45
+var _noise_offset: Vector3 = Vector3.ZERO
+var _noise_timer: float = 0.0
+
 func _ready() -> void:
     if not turret:
         # Try to find a child turret
@@ -91,6 +97,27 @@ func _physics_process(delta: float) -> void:
     if target_search_timer >= maxf(_get_effective_target_search_interval(delta), 0.05):
         target_search_timer = 0.0
         find_and_set_best_target()
+
+    # Noise offset: refresh on a timer so the aim point is stable between updates.
+    # Per-frame randomness causes 60 Hz jitter that the turret physically cannot track.
+    _noise_timer -= delta
+    if _noise_timer <= 0.0:
+        _noise_timer = maxf(noise_update_interval_s, 0.05)
+        if current_target and is_instance_valid(current_target):
+            var effective_aim_skill: float = _get_effective_aim_skill(current_target)
+            var spread: float = (1.0 - effective_aim_skill) * 15.0
+            if _is_air_target(current_target):
+                spread += air_target_extra_spread_m
+            if spread > 0.01:
+                _noise_offset = Vector3(
+                    randf_range(-spread, spread),
+                    randf_range(-spread * 0.3, spread * 0.3),
+                    randf_range(-spread, spread)
+                )
+            else:
+                _noise_offset = Vector3.ZERO
+        else:
+            _noise_offset = Vector3.ZERO
 
     # 2. Target Tracking + Rotation
     if current_target and is_instance_valid(current_target):
@@ -365,19 +392,8 @@ func calculate_lead_position(target: Node3D) -> Vector3:
         bullet_speed
     )
 
-    # Inaccuracy based on aim skill
-    var effective_aim_skill: float = _get_effective_aim_skill(target)
-    var spread: float = (1.0 - effective_aim_skill) * 15.0
-    if _is_air_target(target):
-        spread += air_target_extra_spread_m
-    if spread > 0.01:
-        lead_position += Vector3(
-            randf_range(-spread, spread),
-            randf_range(-spread * 0.3, spread * 0.3),
-            randf_range(-spread, spread)
-        )
-
-    return lead_position
+    # Apply pre-computed noise offset (updated on a timer, not per frame).
+    return lead_position + _noise_offset
 
 func _get_target_aim_point(target: Node3D) -> Vector3:
     if not target or not is_instance_valid(target):

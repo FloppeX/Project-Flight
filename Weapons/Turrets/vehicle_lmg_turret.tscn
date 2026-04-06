@@ -1,7 +1,7 @@
 [gd_scene load_steps=3 format=3]
 
 [ext_resource type="Script" uid="uid://c1jwpg25tydnr" path="res://Weapons/Turrets/turret.gd" id="1_turret"]
-[ext_resource type="PackedScene" uid="uid://cyf6h1u6ckoja" path="res://Vehicle LMG.glb" id="2_model"]
+[ext_resource type="PackedScene" uid="uid://cyf6h1u6ckoja" path="res://Models/Vehicles/Vehicle LMG.glb" id="2_model"]
 
 [node name="VehicleLMGTurret" type="Node3D" node_paths=PackedStringArray("base_mesh", "barrel_mount", "firing_points")]
 script = ExtResource("1_turret")

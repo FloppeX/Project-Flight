@@ -36,10 +36,16 @@ var _sp_grid: Dictionary = {}            ## Vector2i → Array[int] of node indi
 # ── Lifecycle ───────────────────────────────────────────────────────────────
 
 func _ready() -> void:
+	add_to_group("origin_shifter")
 	if TerrainNavGrid.is_ready():
 		_init_graph()
 	else:
 		TerrainNavGrid.bake_complete.connect(_init_graph, CONNECT_ONE_SHOT)
+
+func apply_origin_shift(offset: Vector3) -> void:
+	for i in _nodes.size():
+		_nodes[i] -= offset
+	_build_spatial_index()
 
 func is_ready() -> bool:
 	return _is_ready

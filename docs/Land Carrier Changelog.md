@@ -3,6 +3,9 @@
 This document contains version history, session-by-session notes, and archived long-form material extracted from the main project overview. For the short project brief, see [README](../README.md).
 
 ## Version History
+- 2026-04-06: Performance profiling & fog system overhaul — frame spike logger added to ScenarioManager; identified terrain chunk collision rebuild (0.12s timer) and volumetric fog as primary performance culprits; `stream_update_interval_s` raised to 0.5s, initial-fill chunk budget raised to 16 to eliminate pop-in delay while keeping steady-state at 2 builds/tick; switched to volumetric fog for seamless horizon blending; render scale set to 0.5 for 4K performance; fixed `shake_frequency` missing declaration in `aircraft.gd`; shadow cascade splits retuned (`split_1=0.03`, `split_2=0.15`) for better near-geometry resolution; complete day/night palette overhaul — dawn (apricot/dusty salmon), day (bleached ochre glare), dusk (copper/cinnabar/burnt orange), twilight (plum/brown-violet) with per-phase density and anisotropy; `fog_aerial_perspective=1.0` and uniform sky colour prevent horizon seam in all camera orientations.
+- 2026-04-05 (late): Fog/horizon tuning pass — investigated persistent horizon line; identified root causes as missing `fog_aerial_perspective` in active code path and sky gradient visible during bank; zeroed `zenith_darkness` and `sky_ground_darkening` on all phases; `sky_curve`/`ground_curve` widened to 0.45; `fog_depth_begin` and `fog_depth_curve` now explicitly set in the builtin-fog branch to override stale resource values.
+- 2026-04-05: Floating origin system audit & completion — added missing `apply_origin_shift` handlers to 8 scripts (NavGraph, vehicle_enemy_light, vehicle_friendly_light, WorldMapSymbolLayer, RadarCanvas, BridgeHologram, CameraController, DustEffect); fixed AIPilot parse error from bad indentation in `_scan_contacts`; fixed `is` operator crash on freed instances in AIPilot sensor scans by reordering `is_instance_valid` check first; terrain chunk `load_radius_chunks` increased from 4 to 10 so terrain fills the camera view distance; DayNightCycle now forces sky/ground horizon colors to match fog color every frame; day phase fog/sky colors adjusted for desert haze look; fog/sky horizon tuning still in progress.
 - 2026-04-03: HUD / Flight model / Ground ops polish - added flight path vector (FPV) symbol to HUD showing actual velocity direction with dotted line from boresight crosshair, visible even when FPV is off-screen; increased low-speed sideslip damping from 0.06 to 0.3 so aircraft velocity vector tracks nose more tightly during normal maneuvering; fixed ground vehicle platoons to default to carrier escort immediately upon deployment instead of parking at static rally point; fixed aircraft landing/recovery by searching multiple groups (aircraft, ai_aircraft, friendlies) instead of just aircraft group (critical for recovering AI-launched aircraft); added Aircraft_8 as deployable variant matching Aircraft_7 framework.
 - 2026-04-02: Flight-feel / terrain-polish / control-handoff pass - added cliff-only planform straightening + washboard suppression + low-frequency contour jitter to reduce organic-looking billowing cliff faces, tightened rock scatter grounding/slope rejection, added `Aircraft_7` as a faster less-stable interceptor retrievable with `7`, added engine throttle spool lag plus another flight-feel/stability tuning pass, and cleaned up Start/Select/stick-click controller behavior so viewed-aircraft AI/player toggling, commander/cockpit zoom, pause, and AI-viewed HUD/cockpit presentation work more reliably.
 - 2026-03-31: Enemy-runway usability / ground-handling / cockpit-audio polish - fixed the circular cockpit radar presentation, made runway striping stable from different view angles, added an adjacent taxiway slab to the enemy runway, improved taxi/takeoff/landing handling with nosewheel steering + grounded rudder/stability tuning, and added a much more structured cockpit-audio pass with per-aircraft engine/interior sounds, cockpit-only airflow layers, crash-aware shutdown, reduced in-cockpit stereo spread, and stronger interior filtering.
@@ -38,6 +41,68 @@ This document contains version history, session-by-session notes, and archived l
 ---
 
 ## Project Change Log (latest session)
+
+### Session Summary (2026-04-06) - Performance Profiling & Fog / Atmosphere Overhaul
+
+**Overview:** Added a frame spike logger to identify performance culprits. Profiling confirmed terrain chunk collision rebuilds (0.12s timer, 8 builds/tick) and volumetric fog as the two main sources of hitches and sustained slowdowns. Tuned both. Replaced the old flat-colour fog system with a full four-phase day/night atmosphere using a new palette designed for a dusty post-apocalyptic desert world.
+
+#### Spike Logger
+- Added temporary CSV spike logger to `ScenarioManager.gd` — logs all frames >33ms to `user://spike_log.csv` with timestamp
+- Profiling revealed: 0.1–0.5s periodic spikes from terrain chunk rebuilds; sustained 4–9s slowdowns from volumetric fog GPU cost at 4K
+
+#### Terrain Streaming
+- `stream_update_interval_s` raised from 0.12s to 0.5s — reduces chunk rebuild frequency from ~8/s to ~2/s
+- Initial-fill budget raised to 16 builds/tick when `_pending_builds.size() > load_radius_chunks * 2` — eliminates terrain pop-in delay on startup while steady-state stays at 2/tick
+- `max_chunk_builds_per_update` default reduced to 2 in script
+
+#### Render Scale
+- `quality/3d/render_scale = 0.5` set in project settings — renders 3D at 1080p on 4K display, ~4× GPU cost reduction
+
+#### Fog / Atmosphere System
+- Switched from depth fog to volumetric fog for seamless horizon blending (no depth-cutoff seam)
+- `vol_length_m = 5000` matches camera far clip; `detail_spread = 1.0` (was 6.0 in resource); emission zeroed
+- Complete palette overhaul across all four phases:
+  - **Dawn**: apricot/dusty salmon sky (`dust_color` `#AD6B47`), peach-amber sun disc, density 0.0012, anisotropy 0.4
+  - **Day**: bleached ochre/yellow-gray glare (`#D7C299`), cream sun, density 0.0007, anisotropy 0.15
+  - **Dusk**: copper/cinnabar (`#B34D24`), deep burnt-orange disc, density 0.0014, anisotropy 0.5 (strongest forward scatter)
+  - **Twilight**: plum/brown-violet (`#3D2430`), wine-red sun residue, density 0.0008, anisotropy 0.0
+  - Blends between phases give pre-dawn (plum→dusty rose), pre-sunset (ochre→amber), post-sunset (rust→bruised purple) for free
+- Sky set to uniform `dust_col` on all four colour slots (`sky_top`, `sky_horizon`, `ground_horizon`, `ground_bottom`); `sky_curve = ground_curve = 0.45`; `zenith_darkness = 0.0` — eliminates gradient band visible during aircraft bank
+- `fog_aerial_perspective = 1.0` (was missing from active code path) — syncs sky background fog to geometry fog
+
+#### Bug Fix
+- `shake_frequency: float = 8.0` declared in `aircraft.gd` — was used but never declared, causing parser error
+
+---
+
+### Session Summary (2026-04-05) - Floating Origin Audit & Bug Fixes
+
+**Overview:** Audited the floating origin system added by Gemini and found 8 scripts that cache world-space positions but lacked `apply_origin_shift` handlers — 3 critical (NavGraph, both ground vehicle scripts), 4 high/medium (WorldMapSymbolLayer, RadarCanvas, BridgeHologram, CameraController), 1 low (DustEffect). Also fixed two Gemini-introduced bugs in AIPilot. Terrain chunk radius expanded. Fog/sky horizon tuning attempted but not yet resolved.
+
+#### Floating Origin Completion
+- **NavGraph.gd**: Added shift for `_nodes` PackedVector3Array (all nav graph positions) plus spatial index rebuild — without this, all ground pathfinding breaks after an origin shift
+- **vehicle_enemy_light.gd** / **vehicle_friendly_light.gd**: Added shift for `_waypoint_positions`, `_nav_path_positions`, `_nav_path_goal`, `_combat_scoot_destination`
+- **WorldMapSymbolLayer.gd**: Added shift for `_selection_world_pos`, `_selection_route_origin_world`, `_selection_route_points`, `_draft_origin_world`, `_draft_points` (guards `Vector3.INF` sentinels)
+- **RadarCanvas.gd**: Added `_ready()` with group registration; shifts `_terrain_bounds_xz.position` so radar terrain map stays aligned
+- **BridgeHologram.gd**: Shifts `_last_terrain_center_world` to prevent unnecessary terrain rebuild
+- **CameraController.gd**: Shifts `deathcam_target_position`
+- **DustEffect.gd**: Shifts `_last_position` to prevent one-frame speed spike
+
+#### AIPilot Bug Fixes
+- Fixed parse error from bad indentation at line 4228 in `_scan_contacts()` (Gemini had 5 tabs instead of 2)
+- Fixed `is` operator crash on freed instances in both hostile and friendly sensor scan loops — `is_instance_valid(node)` must come before `node is Node3D`
+
+#### Terrain
+- `load_radius_chunks` increased from 4 to 10 so terrain geometry fills the full camera view distance (3360 m vs 1344 m before), preventing visible terrain edge/horizon
+
+#### Fog / Sky (in progress)
+- DayNightCycle now overrides `sky_horizon_color` and `ground_horizon_color` to match fog color every frame
+- Day phase sky/fog colors adjusted for warmer desert haze
+- `sky_curve` / `ground_curve` widened to spread horizon band
+- `fog_aerial_perspective` set to 1.0
+- Horizon line visibility still being addressed
+
+---
 
 ### Session Summary (2026-04-03) - HUD / Flight Model / Ground Ops Polish
 

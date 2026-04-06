@@ -43,7 +43,7 @@ const BODY_RIDE_HEIGHT: float = 40.0
 const TREAD_GROUND_OFFSET: float = 8.0
 const MAX_TREAD_STEER: float = 0.4
 
-@export var deck_sound: AudioStream = preload("res://carrier_deck_sound_mono.wav")
+@export var deck_sound: AudioStream = preload("res://Audio/Carrier/carrier_deck_sound_mono.wav")
 @export var deck_sound_bus: String = "Master"
 @export var deck_sound_idle_volume_db: float = -16.0
 @export var deck_sound_max_volume_db: float = -8.0
@@ -81,6 +81,7 @@ const TEAM_ID: int = 1
 
 func _ready():
 	add_to_group("carrier")
+	add_to_group("origin_shifter")
 	visible = false
 	_resolve_waypoints()
 	_collect_tread_nodes()
@@ -99,6 +100,12 @@ func _ready():
 		call_deferred("_set_north_heading")
 	else:
 		call_deferred("_compute_path_to_destination")
+
+func apply_origin_shift(offset: Vector3) -> void:
+	for i in range(_raw_waypoints.size()):
+		_raw_waypoints[i] -= offset
+	for i in range(_waypoint_positions.size()):
+		_waypoint_positions[i] -= offset
 
 func _setup_vehicle_ramp() -> void:
 	var ramp_node := Node3D.new()
