@@ -48,6 +48,9 @@ func _ready() -> void:
 	_right_rest_pos = _right_wing.position
 	_left_rest_quat = _left_wing.quaternion
 	_right_rest_quat = _right_wing.quaternion
+	# Store the exact authored rest local transforms for livery anchoring.
+	_left_wing.set_meta("livery_rest_transform_local", _left_wing.transform)
+	_right_wing.set_meta("livery_rest_transform_local", _right_wing.transform)
 
 func _process(delta: float) -> void:
 	if not _left_wing or not _right_wing:

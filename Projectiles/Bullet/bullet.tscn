@@ -10,6 +10,7 @@ emission_enabled = true
 emission_energy_multiplier = 9.5
 
 [sub_resource type="SphereShape3D" id="SphereShape3D_v8qja"]
+radius = 1.0
 
 [node name="Hardpoint" type="RigidBody3D"]
 mass = 0.1

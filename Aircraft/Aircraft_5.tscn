@@ -189,6 +189,10 @@ cinematic_tripod = NodePath("../CameraCinematic")
 
 [node name="AudioManager3D" parent="." instance=ExtResource("24_wyvhj")]
 cockpit_interior_sound = ExtResource("38_cpit")
+interior_lowpass_cutoff = 2300.0
+interior_secondary_lowpass_cutoff = 1400.0
+interior_highpass_cutoff = 60.0
+interior_volume_reduction = -4.0
 
 [node name="CameraCockpit" parent="." instance=ExtResource("25_lvoxg")]
 transform = Transform3D(-1, 0, -8.74213e-08, 0, 0.999983, 0, 8.74228e-08, 0, -0.999983, 0, 0.563369, 2.09922)
@@ -254,4 +258,7 @@ script = ExtResource("33_aitgl")
 script = ExtResource("36_dmgfx")
 
 [node name="InsigniaWing" type="Marker3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4.65829, -0.15, 0.77)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4.65829, -0.10073, 0.77)
+
+[node name="InsigniaTail" type="Marker3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2.58299, 0.35, -3.43747)

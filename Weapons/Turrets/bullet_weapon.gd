@@ -48,30 +48,41 @@ func fire() -> bool:
 		ammo_count += 1
 
 	var spawn_transform = global_transform
-	var firing_entity = self
+	var firing_entity: Node3D = self
 	var parent = get_parent()
 
 	while parent:
 		if parent is Turret:
-			spawn_transform = parent.get_next_firing_transform()
-			firing_entity = parent
-
-			var grandparent = parent.get_parent()
-			var greatgrandparent = grandparent.get_parent() if grandparent else null
-
-			if grandparent and grandparent.has_method("get_team"):
-				firing_entity = grandparent
-			elif greatgrandparent and greatgrandparent.has_method("get_team"):
-				firing_entity = greatgrandparent
+			var turret_parent: Turret = parent as Turret
+			spawn_transform = turret_parent.get_next_firing_transform()
+			firing_entity = _resolve_firing_entity_from_turret(turret_parent)
 			break
-		elif parent.has_method("get_team"):
-			firing_entity = parent
+		elif parent is Node3D and parent.has_method("get_team"):
+			firing_entity = parent as Node3D
 			break
 		parent = parent.get_parent()
 
 	_spawn_bullet(spawn_transform, firing_entity)
 	_play_shot_sound(spawn_transform.origin)
 	return true
+
+func _resolve_firing_entity_from_turret(turret_node: Turret) -> Node3D:
+	if turret_node == null or not is_instance_valid(turret_node):
+		return self
+
+	var controller_node: Node = turret_node.get_parent()
+	if controller_node and is_instance_valid(controller_node):
+		var host_candidate: Variant = controller_node.get("host_actor")
+		if host_candidate is Node3D and is_instance_valid(host_candidate) and (host_candidate as Node3D).has_method("get_team"):
+			return host_candidate as Node3D
+
+	var ancestor: Node = turret_node
+	while ancestor:
+		if ancestor is Node3D and ancestor.has_method("get_team"):
+			return ancestor as Node3D
+		ancestor = ancestor.get_parent()
+
+	return turret_node
 
 func can_fire() -> bool:
 	if infinite_ammo:

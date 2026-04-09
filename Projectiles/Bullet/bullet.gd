@@ -12,6 +12,8 @@ class_name Bullet
 @export var ground_mark_size: Vector3 = Vector3(0.56, 0.05, 0.56)
 @export var ground_particle_count: int = 3
 @export var ground_particle_lifetime_s: float = 0.75
+@export var hit_debris_count: int = 4
+@export var hit_debris_lifetime_s: float = 0.6
 
 var trail_mesh: MeshInstance3D
 var tracer_box_mesh: BoxMesh
@@ -20,6 +22,7 @@ var tracer_physics_frames_elapsed: int = 0
 const SCORCH_TEXTURE_PATH: String = "res://Projectiles/Explosion/scorch_mark.png"
 
 func _ready():
+	hit_assist_enabled = true
 	# Call parent's _ready first to get all the base functionality
 	super._ready()
 
@@ -128,6 +131,8 @@ func _on_body_entered(body):
 	if is_ground_or_terrain(body):
 		_create_ground_bullet_mark(body)
 		_spawn_ground_impact_particles(body)
+	else:
+		_spawn_aircraft_hit_debris(body)
 	# Then run default impact handling (damage, cleanup)
 	super._on_body_entered(body)
 
@@ -237,6 +242,39 @@ func _spawn_ground_impact_particles(body: Object) -> void:
 			launch_velocity
 		)
 
+
+func _spawn_aircraft_hit_debris(_body: Object) -> void:
+	if hit_debris_count <= 0 or not ParticleManager:
+		return
+	var hit_pos: Vector3 = global_position
+	var hit_dir: Vector3 = linear_velocity.normalized() if linear_velocity.length() > 0.1 else Vector3.BACK
+	for i in range(hit_debris_count):
+		var chip := MeshInstance3D.new()
+		get_tree().current_scene.add_child(chip)
+		chip.global_position = hit_pos
+
+		var box := BoxMesh.new()
+		var s: float = randf_range(0.06, 0.18)
+		box.size = Vector3(s, s * randf_range(0.4, 1.0), s * randf_range(0.6, 1.6))
+		chip.mesh = box
+
+		var mat := StandardMaterial3D.new()
+		# Mix of bare metal grey and a touch of warm orange for hot fragments
+		var grey: float = randf_range(0.35, 0.65)
+		mat.albedo_color = Color(grey + randf_range(0.0, 0.15), grey, grey * randf_range(0.7, 1.0), 1.0)
+		mat.roughness = 0.6
+		mat.metallic = 0.7
+		chip.material_override = mat
+
+		# Scatter mostly away from the bullet direction, with some upward bias
+		var scatter := Vector3(
+			randf_range(-1.0, 1.0),
+			randf_range(0.2, 1.0),
+			randf_range(-1.0, 1.0)
+		).normalized()
+		var speed: float = randf_range(4.0, 10.0)
+		var launch: Vector3 = (hit_dir * randf_range(0.2, 0.6) + scatter).normalized() * speed
+		ParticleManager.add_spark_particle(chip, hit_debris_lifetime_s, Vector3.ONE, launch)
 
 func update_tracer_mesh() -> void:
 	if trail_mesh == null or tracer_box_mesh == null:
