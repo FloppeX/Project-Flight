@@ -88,15 +88,15 @@ shape = SubResource("BoxShape3D_wing_hitbox")
 [node name="SimpleAero" type="Node" parent="."]
 script = ExtResource("5_8vbcf")
 rb_path = NodePath("..")
-pitch_power = 8.0
-roll_power = 22.0
+pitch_power = 7.0
+roll_power = 19.0
 yaw_power = 2.0
-alignment_low_speed_strength = 0.4
+alignment_low_speed_strength = 1.2
 stability_strength = 1.0
 pitch_stability_factor = 0.55
 auto_rudder_strength = 0.5
 slow_flight_alignment_start_speed_mps = 80.0
-vertical_alignment_low_speed_strength = 0.01
+vertical_alignment_low_speed_strength = 0.06
 vertical_alignment_high_speed_strength = 0.8
 
 [node name="MovingParts" type="Node3D" parent="."]
@@ -135,7 +135,7 @@ transform = Transform3D(1, 0, -2.9803e-08, 0, 1, 0, 2.9803e-08, 0, 1, -0.456, 0.
 
 [node name="Engine" parent="." instance=ExtResource("10_jemhm")]
 transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, 0, 0)
-PowerFactor = 8000.0
+PowerFactor = 7000.0
 propeller_node = NodePath("../Aircraft 3/Aircraft 2 propeller")
 EngineSoundLoop = ExtResource("11_btnkm")
 EngineSoundStart = ExtResource("12_sqfht")

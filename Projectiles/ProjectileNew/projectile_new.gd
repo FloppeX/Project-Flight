@@ -8,16 +8,33 @@ class_name ProjectileNew
 @export var explosion_scene: PackedScene  # Reference to explosion scene
 @export var target_mark_lifetime_s: float = 12.0
 @export var target_mark_size: Vector3 = Vector3(0.3, 2.0, 0.3)
+@export var hit_assist_enabled: bool = false
 
 # Preloaded impact sounds to avoid per-hit load() calls
 static var _metal_sounds: Array[AudioStream] = []
 static var _dirt_sounds: Array[AudioStream] = []
 static var _scorch_texture: Texture2D = null
 static var _sounds_loaded: bool = false
+static var hit_assist_radius_m: float = 0.5
+const HIT_ASSIST_MIN_RADIUS_M: float = 0.0
+const HIT_ASSIST_MAX_RADIUS_M: float = 6.0
+const MAX_BULLET_DECALS_PER_AIRCRAFT: int = 15
+const AIRCRAFT_BULLET_DECAL_META_KEY: StringName = &"_bullet_decal_nodes"
+static var _hit_assist_target_radius_cache: Dictionary = {}
 
 var shooter: Node3D  # Reference to whoever fired this
 var last_position: Vector3 = Vector3.ZERO
 var has_impacted: bool = false
+
+static func get_hit_assist_radius_m() -> float:
+	return hit_assist_radius_m
+
+static func set_hit_assist_radius_m(new_radius_m: float) -> float:
+	hit_assist_radius_m = clampf(new_radius_m, HIT_ASSIST_MIN_RADIUS_M, HIT_ASSIST_MAX_RADIUS_M)
+	return hit_assist_radius_m
+
+static func adjust_hit_assist_radius_m(delta_m: float) -> float:
+	return set_hit_assist_radius_m(hit_assist_radius_m + delta_m)
 
 static func _ensure_sounds_loaded() -> void:
 	if _sounds_loaded:
@@ -77,6 +94,11 @@ func _physics_process(delta):
 			# Call _on_body_entered BEFORE setting has_impacted to avoid early return
 			_on_body_entered(result.collider)
 			return
+		var assist_hit: Dictionary = _check_hit_assist(last_position, global_position)
+		if not assist_hit.is_empty() and not has_impacted:
+			global_position = assist_hit.get("position", global_position)
+			_on_body_entered(assist_hit.get("target", null))
+			return
 		# Fallback for Terrain3D setups where physics collider/raycast may miss:
 		# detect if the projectile segment crossed below terrain height data.
 		var terrain := _get_cached_terrain_node()
@@ -108,6 +130,170 @@ func fire(initial_velocity: Vector3, firing_aircraft: Node3D):
 			if firing_aircraft and is_instance_valid(firing_aircraft):
 				remove_collision_exception_with(firing_aircraft)
 		)
+
+func _check_hit_assist(from_pos: Vector3, to_pos: Vector3) -> Dictionary:
+	if not hit_assist_enabled:
+		return {}
+	var assist_radius: float = get_hit_assist_radius_m()
+	if assist_radius <= 0.0:
+		return {}
+	var target_data: Dictionary = _find_best_hit_assist_target(from_pos, to_pos, assist_radius)
+	if target_data.is_empty():
+		return {}
+	return target_data
+
+func _find_best_hit_assist_target(from_pos: Vector3, to_pos: Vector3, assist_radius: float) -> Dictionary:
+	var candidates: Array = _get_hit_assist_candidates()
+	if candidates.is_empty():
+		return {}
+
+	var best_t: float = INF
+	var best_target: Node3D = null
+	var best_point: Vector3 = Vector3.ZERO
+	for candidate_variant in candidates:
+		if not (candidate_variant is Node3D):
+			continue
+		var candidate: Node3D = candidate_variant as Node3D
+		if not _is_valid_hit_assist_target(candidate):
+			continue
+		var target_center: Vector3 = _get_hit_assist_target_center(candidate)
+		var closest_point: Vector3 = _closest_point_on_segment(target_center, from_pos, to_pos)
+		var target_radius: float = _get_hit_assist_target_radius(candidate)
+		var effective_radius: float = assist_radius + target_radius
+		if target_center.distance_squared_to(closest_point) > effective_radius * effective_radius:
+			continue
+		var segment_t: float = _segment_fraction_for_point(closest_point, from_pos, to_pos)
+		if segment_t < best_t:
+			best_t = segment_t
+			best_target = candidate
+			best_point = closest_point
+
+	if best_target == null:
+		return {}
+	return {
+		"target": best_target,
+		"position": best_point,
+	}
+
+func _get_hit_assist_candidates() -> Array:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return []
+	var out: Array = []
+	var seen: Dictionary = {}
+	var shooter_team: int = _get_shooter_team()
+
+	var registry: Node = tree.root.get_node_or_null("EnemyRegistry")
+	if shooter_team != 0 and registry and registry.has_method("get_enemies_for_team"):
+		var registry_targets = registry.call("get_enemies_for_team", shooter_team)
+		if registry_targets is Array:
+			for target_variant in registry_targets:
+				if target_variant is Node3D:
+					var target_node: Node3D = target_variant as Node3D
+					var instance_id: int = target_node.get_instance_id()
+					if not seen.has(instance_id):
+						seen[instance_id] = true
+						out.append(target_node)
+
+	if out.is_empty():
+		for group_name in ["aircraft", "ai_aircraft", "ground_vehicles", "buildings"]:
+			var group_nodes: Array = tree.get_nodes_in_group(group_name)
+			for target_variant in group_nodes:
+				if target_variant is Node3D:
+					var target_node: Node3D = target_variant as Node3D
+					var instance_id: int = target_node.get_instance_id()
+					if not seen.has(instance_id):
+						seen[instance_id] = true
+						out.append(target_node)
+
+	return out
+
+func _is_valid_hit_assist_target(candidate: Node3D) -> bool:
+	if candidate == null or not is_instance_valid(candidate):
+		return false
+	if candidate == self:
+		return false
+	if shooter != null and candidate == shooter:
+		return false
+	if not _is_hit_assist_target_node(candidate):
+		return false
+	var shooter_team: int = _get_shooter_team()
+	if shooter_team != 0 and candidate.has_method("get_team"):
+		if int(candidate.call("get_team")) == shooter_team:
+			return false
+	if shooter_team != 0 and candidate.is_in_group("team_" + str(shooter_team)):
+		return false
+	return true
+
+func _is_hit_assist_target_node(candidate: Node3D) -> bool:
+	if candidate.is_in_group("aircraft") or candidate.is_in_group("ai_aircraft"):
+		return true
+	if candidate.is_in_group("ground_vehicles") or candidate.is_in_group("buildings"):
+		return true
+	return is_aircraft(candidate)
+
+func _get_shooter_team() -> int:
+	if shooter and is_instance_valid(shooter) and shooter.has_method("get_team"):
+		return int(shooter.call("get_team"))
+	return 0
+
+func _get_hit_assist_target_center(target: Node3D) -> Vector3:
+	var shape_node: CollisionShape3D = _find_first_collision_shape(target)
+	if shape_node and is_instance_valid(shape_node):
+		return shape_node.global_position
+	return target.global_position
+
+func _get_hit_assist_target_radius(target: Node3D) -> float:
+	if target == null or not is_instance_valid(target):
+		return 2.5
+	var instance_id: int = target.get_instance_id()
+	if _hit_assist_target_radius_cache.has(instance_id):
+		return float(_hit_assist_target_radius_cache[instance_id])
+
+	var radius: float = 2.5
+	var shape_node: CollisionShape3D = _find_first_collision_shape(target)
+	if shape_node and is_instance_valid(shape_node) and shape_node.shape:
+		var shape_scale: Vector3 = shape_node.global_transform.basis.get_scale().abs()
+		var max_scale: float = maxf(maxf(shape_scale.x, shape_scale.y), shape_scale.z)
+		var shape: Shape3D = shape_node.shape
+		if shape is SphereShape3D:
+			radius = maxf(radius, (shape as SphereShape3D).radius * max_scale)
+		elif shape is CapsuleShape3D:
+			var capsule: CapsuleShape3D = shape as CapsuleShape3D
+			radius = maxf(radius, (capsule.height * 0.5 + capsule.radius) * max_scale)
+		elif shape is BoxShape3D:
+			var box: BoxShape3D = shape as BoxShape3D
+			radius = maxf(radius, box.size.length() * 0.5 * max_scale)
+
+	_hit_assist_target_radius_cache[instance_id] = radius
+	return radius
+
+func _find_first_collision_shape(root: Node) -> CollisionShape3D:
+	for child in root.get_children():
+		if child is CollisionShape3D:
+			var collision: CollisionShape3D = child as CollisionShape3D
+			if collision.disabled:
+				continue
+			return collision
+		var nested: CollisionShape3D = _find_first_collision_shape(child)
+		if nested:
+			return nested
+	return null
+
+func _closest_point_on_segment(point: Vector3, seg_start: Vector3, seg_end: Vector3) -> Vector3:
+	var segment: Vector3 = seg_end - seg_start
+	var segment_len_sq: float = segment.length_squared()
+	if segment_len_sq <= 0.0001:
+		return seg_start
+	var t: float = clampf((point - seg_start).dot(segment) / segment_len_sq, 0.0, 1.0)
+	return seg_start + segment * t
+
+func _segment_fraction_for_point(point: Vector3, seg_start: Vector3, seg_end: Vector3) -> float:
+	var segment: Vector3 = seg_end - seg_start
+	var segment_len_sq: float = segment.length_squared()
+	if segment_len_sq <= 0.0001:
+		return 0.0
+	return clampf((point - seg_start).dot(segment) / segment_len_sq, 0.0, 1.0)
 
 func _on_body_entered(body):
 	if has_impacted:
@@ -211,6 +397,7 @@ func create_bullet_scorch_mark(aircraft_body: Node) -> void:
 	params.exclude = [self]
 	if shooter:
 		params.exclude.append(shooter)
+	params.collision_mask = 0xFFFFFFFF
 	
 	var hit: Dictionary = space_state.intersect_ray(params)
 	var hit_pos: Vector3 = global_position
@@ -227,27 +414,60 @@ func create_bullet_scorch_mark(aircraft_body: Node) -> void:
 	# Make bullet marks smaller than explosion marks, but with enough depth to project onto moving meshes.
 	decal.size = target_mark_size
 	
-	# Position the decal slightly above the hit point
-	decal.global_position = hit_pos + Vector3(0, 0.05, 0)  # Just 0.05 meters above
-	
-	# Make decal face straight down (simple approach)
-	# Decals project along negative Y, so we want Y pointing up and Z pointing forward
-	decal.global_basis = Basis.IDENTITY
-	
-	# Add random rotation around Y-axis only
-	decal.rotate_y(randf() * TAU)
-	
-	decal.modulate = Color(0.8, 0.8, 0.8, 1.0)
+	# Parent first, then set global transform so placement is correct in world space.
 	if aircraft_body and is_instance_valid(aircraft_body):
 		aircraft_body.add_child(decal)
 	else:
 		get_tree().current_scene.add_child(decal)
+
+	# Align projection with surface normal. Decals project along local -Y.
+	var y_axis: Vector3 = hit_normal.normalized()
+	var x_axis: Vector3 = y_axis.cross(Vector3.FORWARD)
+	if x_axis.length() < 0.001:
+		x_axis = y_axis.cross(Vector3.RIGHT)
+	x_axis = x_axis.normalized()
+	var z_axis: Vector3 = x_axis.cross(y_axis).normalized()
+	var surface_basis: Basis = Basis(x_axis, y_axis, z_axis)
+	var random_spin: Basis = Basis(y_axis, randf() * TAU)
+
+	# Slight offset along normal to avoid z-fighting with the surface.
+	decal.global_position = hit_pos + y_axis * 0.01
+	decal.global_basis = random_spin * surface_basis
+	decal.modulate = Color(0.8, 0.8, 0.8, 1.0)
+	_enforce_aircraft_bullet_decal_cap(aircraft_body, decal)
 
 	if target_mark_lifetime_s > 0.0:
 		get_tree().create_timer(target_mark_lifetime_s).timeout.connect(func():
 			if is_instance_valid(decal):
 				decal.queue_free()
 		)
+
+func _enforce_aircraft_bullet_decal_cap(target: Node, newest_decal: Decal) -> void:
+	if not target or not is_instance_valid(target):
+		return
+	if not is_aircraft(target):
+		return
+	var tracked_decals: Array = []
+	var stored_variant: Variant = target.get_meta(AIRCRAFT_BULLET_DECAL_META_KEY, [])
+	if stored_variant is Array:
+		for decal_variant in stored_variant:
+			if typeof(decal_variant) != TYPE_OBJECT:
+				continue
+			if not is_instance_valid(decal_variant):
+				continue
+			if decal_variant is Decal:
+				tracked_decals.append(decal_variant as Decal)
+	tracked_decals.append(newest_decal)
+	while tracked_decals.size() > MAX_BULLET_DECALS_PER_AIRCRAFT:
+		var oldest_variant: Variant = tracked_decals[0]
+		tracked_decals.remove_at(0)
+		if typeof(oldest_variant) != TYPE_OBJECT:
+			continue
+		if not is_instance_valid(oldest_variant):
+			continue
+		if oldest_variant is Decal:
+			(oldest_variant as Decal).queue_free()
+	target.set_meta(AIRCRAFT_BULLET_DECAL_META_KEY, tracked_decals)
 
 func _supports_target_hit_mark(target: Node) -> bool:
 	if not target or not is_instance_valid(target):
@@ -281,6 +501,8 @@ func is_aircraft(body: Node) -> bool:
 	if target.name == "Aircraft" or "aircraft" in target.name.to_lower():
 		return true
 	if target.is_in_group("aircraft"):
+		return true
+	if target.is_in_group("ai_aircraft"):
 		return true
 	if target is Aircraft:
 		return true

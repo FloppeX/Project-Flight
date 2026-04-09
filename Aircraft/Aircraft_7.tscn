@@ -93,7 +93,7 @@ pitch_power = 8.8
 roll_power = 17.0
 yaw_power = 2.4
 min_control_speed = 88.0
-alignment_strength = 1.6
+alignment_strength = 2.2
 drag_base_multiplier = 0.74
 stability_strength = 1.45
 roll_stability_factor = 0.72
@@ -200,6 +200,10 @@ cinematic_tripod = NodePath("../CameraCinematic")
 
 [node name="AudioManager3D" parent="." instance=ExtResource("24_wyvhj")]
 cockpit_interior_sound = ExtResource("38_cpit")
+interior_lowpass_cutoff = 2300.0
+interior_secondary_lowpass_cutoff = 1400.0
+interior_highpass_cutoff = 60.0
+interior_volume_reduction = -4.0
 
 [node name="CameraCockpit" parent="." instance=ExtResource("25_lvoxg")]
 transform = Transform3D(-1, 0, -8.74213e-08, 0, 0.999983, 0, 8.74228e-08, 0, -0.999983, 0, 0.997178, 2.46956)

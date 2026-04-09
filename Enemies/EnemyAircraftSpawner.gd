@@ -631,6 +631,8 @@ func _configure_enemy_strike_pilot(aircraft: RigidBody3D, carrier: Node3D) -> vo
 	if not ai_pilot:
 		print("[EnemyAircraftSpawner] R: missing AIPilot on strike aircraft")
 		return
+	ai_pilot.skill = AIPilot.AIPilotSkill.ROOKIE
+	ai_pilot.apply_skill_preset()
 	ai_pilot.carrier_position = _get_carrier_position()
 	ai_pilot.target_altitude = strike_flight_altitude_m
 	ai_pilot.patrol_altitude_m = strike_flight_altitude_m
@@ -887,6 +889,8 @@ func _spawn_dogfight_duel() -> void:
 	var friendly_pilot = friendly.find_child("AIPilot", true, false)
 	var enemy_pilot = enemy.find_child("AIPilot", true, false)
 	if friendly_pilot and enemy_pilot and friendly_pilot is AIPilot and enemy_pilot is AIPilot:
+		enemy_pilot.skill = AIPilot.AIPilotSkill.ROOKIE
+		enemy_pilot.apply_skill_preset()
 		friendly_pilot.dogfight_enabled = true
 		enemy_pilot.dogfight_enabled = true
 		friendly_pilot.ground_attack_enabled = false
@@ -905,10 +909,12 @@ func _configure_ai_patrol(aircraft: RigidBody3D):
 	if ai_toggle and ai_toggle.has_method("enable_ai"):
 		ai_toggle.enable_ai()
 
-	var ai_pilot = aircraft.find_child("AIPilot", true, false)
+	var ai_pilot = aircraft.find_child("AIPilot", true, false) as AIPilot
 	if not ai_pilot:
 		push_error("[EnemyAircraftSpawner] No AIPilot found on enemy aircraft")
 		return
+	ai_pilot.skill = AIPilot.AIPilotSkill.ROOKIE
+	ai_pilot.apply_skill_preset()
 
 	var center = _get_carrier_position()
 	ai_pilot.carrier_position = center

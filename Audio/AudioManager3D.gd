@@ -25,10 +25,10 @@ class_name AudioManager3D
 @export var bridge_wind_full_speed_mps: float = 10.0
 
 # Audio filtering settings
-@export var interior_lowpass_cutoff: float = 2600.0  # Hz - broad cockpit muffle
-@export var interior_secondary_lowpass_cutoff: float = 1450.0  # Hz - extra rolloff so the cockpit filter is actually obvious
-@export var interior_highpass_cutoff: float = 170.0  # Hz - shave a bit more low external rumble
-@export var interior_volume_reduction: float = -5.0  # dB reduction when inside
+@export var interior_lowpass_cutoff: float = 2300.0  # Hz - cockpit damping without over-muffling cannon transients
+@export var interior_secondary_lowpass_cutoff: float = 1400.0  # Hz - gentler second-stage rolloff
+@export var interior_highpass_cutoff: float = 60.0   # Hz - keep low engine body present
+@export var interior_volume_reduction: float = -4.0  # dB reduction when inside
 @export var interior_panning_strength: float = 0.18  # Keep cockpit sources mostly centered with only subtle stereo movement
 @export var bridge_lowpass_cutoff: float = 3200.0  # Hz - stronger window damping than open-air deck audio
 @export var bridge_secondary_lowpass_cutoff: float = 1850.0  # Hz - extra rolloff so the bridge feels enclosed
@@ -56,6 +56,8 @@ var carrier: Node3D
 var _aircraft_audio_destroyed: bool = false
 
 func _ready():
+	add_to_group("audio_manager_3d")
+
 	if not aircraft:
 		aircraft = get_parent() as RigidBody3D
 		if not aircraft:
@@ -83,6 +85,10 @@ func _ready():
 	call_deferred("_sync_dynamic_audio_sources")
 
 func _apply_initial_audio_bus() -> void:
+	var current_camera: Camera3D = get_current_camera()
+	if not _is_authoritative_for_camera(current_camera):
+		return
+
 	# Apply initial bus based on which camera is already active
 	if is_bridge_camera_active():
 		switch_to_bridge_audio()
@@ -172,11 +178,16 @@ func setup_audio_effects():
 	bridge_audio_effect_volume.volume_db = bridge_volume_reduction
 
 func _process(delta):
-	_update_cockpit_interior_player(delta, is_cockpit_camera_active())
-	_update_bridge_interior_player(delta, is_bridge_camera_active())
-
 	# Get current camera - this works even without an aircraft
-	var current_camera = get_current_camera()
+	var current_camera: Camera3D = get_current_camera()
+	var has_authority: bool = _is_authoritative_for_camera(current_camera)
+
+	_update_cockpit_interior_player(delta, has_authority and is_cockpit_camera_active())
+	_update_bridge_interior_player(delta, has_authority and is_bridge_camera_active())
+
+	# Prevent multiple aircraft audio managers from fighting over the same global buses.
+	if not has_authority:
+		return
 
 	if current_camera:
 		# Check bridge camera separately - it gets its own audio environment
@@ -340,10 +351,18 @@ func switch_to_interior_audio():
 		return
 	
 	current_audio_bus = interior_audio_bus
+
+	# Clear bridge effects when transitioning away from bridge processing.
+	var bridge_bus_index = AudioServer.get_bus_index(bridge_audio_bus)
+	if bridge_bus_index != -1:
+		while AudioServer.get_bus_effect_count(bridge_bus_index) > 0:
+			AudioServer.remove_bus_effect(bridge_bus_index, 0)
 	
 	# Apply audio effects to interior bus
 	var bus_index = AudioServer.get_bus_index(interior_audio_bus)
 	if bus_index != -1:
+		while AudioServer.get_bus_effect_count(bus_index) > 0:
+			AudioServer.remove_bus_effect(bus_index, 0)
 		# Add effects in order: High-pass -> Low-pass -> Low-pass -> Volume
 		AudioServer.add_bus_effect(bus_index, audio_effect_high)
 		AudioServer.add_bus_effect(bus_index, audio_effect)
@@ -370,6 +389,8 @@ func switch_to_bridge_audio():
 	# Apply light audio effects to bridge bus for canopy damping
 	var bridge_bus_index = AudioServer.get_bus_index(bridge_audio_bus)
 	if bridge_bus_index != -1:
+		while AudioServer.get_bus_effect_count(bridge_bus_index) > 0:
+			AudioServer.remove_bus_effect(bridge_bus_index, 0)
 		# Add effects in order: High-pass -> Low-pass -> Low-pass -> Volume
 		AudioServer.add_bus_effect(bridge_bus_index, bridge_audio_effect_high)
 		AudioServer.add_bus_effect(bridge_bus_index, bridge_audio_effect)
@@ -417,6 +438,9 @@ func switch_audio_sources_to_bus(bus_name: String):
 		switch_aircraft_audio_sources(aircraft, bus_name)
 
 func _sync_dynamic_audio_sources():
+	var current_camera: Camera3D = get_current_camera()
+	if not _is_authoritative_for_camera(current_camera):
+		return
 	switch_audio_sources_to_bus(current_audio_bus)
 
 func switch_aircraft_audio_sources(node: Node, bus_name: String):
@@ -466,3 +490,55 @@ func _get_bridge_wind_factor() -> float:
 	var speed_factor: float = clampf(carrier_speed_mps / maxf(bridge_wind_full_speed_mps, 0.01), 0.0, 1.0)
 	speed_factor = speed_factor * speed_factor * (3.0 - 2.0 * speed_factor)
 	return clampf(maxf(bridge_wind_idle_factor, speed_factor), 0.0, 1.0)
+
+func _is_authoritative_for_camera(camera: Camera3D) -> bool:
+	if camera == null:
+		return false
+
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return false
+
+	var managers: Array = tree.get_nodes_in_group("audio_manager_3d")
+	var best_rank: float = INF
+	var best_id: int = 2147483647
+	for n in managers:
+		if n is AudioManager3D and is_instance_valid(n):
+			var mgr: AudioManager3D = n as AudioManager3D
+			var rank: float = mgr._authority_rank_for_camera(camera)
+			var mgr_id: int = int(mgr.get_instance_id())
+			if rank < best_rank or (is_equal_approx(rank, best_rank) and mgr_id < best_id):
+				best_rank = rank
+				best_id = mgr_id
+
+	return int(get_instance_id()) == best_id
+
+func _authority_rank_for_camera(camera: Camera3D) -> float:
+	if camera == null:
+		return INF
+
+	if camera_controller:
+		if camera_controller.cockpit_camera == camera:
+			return 0.0
+		if camera_controller.chase_camera == camera:
+			return 1.0
+		if camera_controller.cinematic_camera == camera:
+			return 2.0
+		if camera_controller.bridge_camera == camera:
+			return 3.0
+
+	if aircraft and _node_is_same_or_descendant(camera, aircraft):
+		return 4.0
+
+	if aircraft and is_instance_valid(aircraft):
+		return 1000.0 + camera.global_position.distance_to(aircraft.global_position)
+
+	return INF
+
+func _node_is_same_or_descendant(node: Node, root: Node) -> bool:
+	var cur: Node = node
+	while cur != null:
+		if cur == root:
+			return true
+		cur = cur.get_parent()
+	return false

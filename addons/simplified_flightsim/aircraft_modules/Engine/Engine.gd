@@ -20,6 +20,7 @@ signal update_interface(values)
 @export var ThrottleSpoolUpRate: float = 0.55 # Power units per second when increasing throttle
 @export var ThrottleSpoolDownRate: float = 0.9 # Power units per second when reducing throttle
 @export var EngineSoundResponseRate: float = 7.5 # How quickly loop pitch follows live engine power
+@export var EngineLoopTargetVolumeDb: float = 4.0 # Propeller loop loudness at steady running power
 
 # You don't really *need* to use this property, as any node can receive the
 # signals. This is just a helper to automatically connect all possible signals
@@ -131,7 +132,7 @@ func engine_start():
 	if sfx_tween:
 		sfx_tween.kill()
 	sfx_tween = create_tween()
-	sfx_tween.tween_property(sfx_engine_loop, "volume_db", 1.0, 1.0)
+	sfx_tween.tween_property(sfx_engine_loop, "volume_db", EngineLoopTargetVolumeDb, 1.0)
 	sfx_tween.tween_property(sfx_engine_loop, "pitch_scale", power_to_pitch(current_power), 1.0)
 	sfx_engine_loop.play()
 	
@@ -167,7 +168,7 @@ func engine_stop():
 	await sfx_tween.finished
 	
 	sfx_tween = create_tween()
-	sfx_tween.tween_property(sfx_engine_loop, "volume_db", 1.0, 1.0)
+	sfx_tween.tween_property(sfx_engine_loop, "volume_db", EngineLoopTargetVolumeDb, 1.0)
 	
 	await get_tree().create_timer(1.0).timeout
 	sfx_engine_loop.stop()

@@ -309,6 +309,36 @@ func _get_world_gravity_vector() -> Vector3:
     var gravity_mag: float = float(ProjectSettings.get_setting("physics/3d/default_gravity", 9.8))
     return gravity_dir * gravity_mag
 
+func _solve_intercept_time_no_gravity(relative_pos: Vector3, relative_vel: Vector3, projectile_speed: float) -> float:
+    var speed_sq: float = projectile_speed * projectile_speed
+    var a: float = relative_vel.length_squared() - speed_sq
+    var b: float = 2.0 * relative_pos.dot(relative_vel)
+    var c: float = relative_pos.length_squared()
+
+    # Degenerate to linear equation when quadratic term is near zero.
+    if absf(a) <= 0.0001:
+        if absf(b) <= 0.0001:
+            return -1.0
+        var linear_t: float = -c / b
+        return linear_t if linear_t > 0.0 else -1.0
+
+    var discriminant: float = b * b - 4.0 * a * c
+    if discriminant < 0.0:
+        return -1.0
+
+    var sqrt_discriminant: float = sqrt(discriminant)
+    var inv_2a: float = 0.5 / a
+    var t0: float = (-b - sqrt_discriminant) * inv_2a
+    var t1: float = (-b + sqrt_discriminant) * inv_2a
+
+    var best_t: float = INF
+    if t0 > 0.0 and t0 < best_t:
+        best_t = t0
+    if t1 > 0.0 and t1 < best_t:
+        best_t = t1
+
+    return -1.0 if best_t == INF else best_t
+
 func _get_active_camera(delta: float) -> Camera3D:
     _camera_cache_timer = maxf(_camera_cache_timer - delta, 0.0)
     if _cached_camera and is_instance_valid(_cached_camera) and _camera_cache_timer > 0.0:
@@ -337,38 +367,33 @@ func _predict_ballistic_aim_point(
 ) -> Vector3:
     var muzzle_speed: float = maxf(projectile_speed, 50.0)
     var gravity_vec: Vector3 = _get_world_gravity_vector()
-    var min_t: float = 0.05
-    var max_t: float = clampf(shooter_pos.distance_to(target_pos) / muzzle_speed * 2.0, 0.35, 6.0)
-    var best_error: float = INF
-    var best_t: float = min_t
-    var best_intercept: Vector3 = target_pos
+    var relative_pos: Vector3 = target_pos - shooter_pos
+    var relative_vel: Vector3 = target_vel - shooter_vel
+
+    var intercept_t: float = _solve_intercept_time_no_gravity(relative_pos, relative_vel, muzzle_speed)
+    if intercept_t <= 0.0:
+        intercept_t = relative_pos.length() / muzzle_speed
+    intercept_t = clampf(intercept_t, 0.05, 6.0)
+
+    var best_intercept: Vector3 = target_pos + target_vel * intercept_t
     var best_muzzle_vec: Vector3 = Vector3.ZERO
-    var coarse_steps: int = 24
 
-    for i in range(coarse_steps):
-        var t: float = lerpf(min_t, max_t, float(i) / float(coarse_steps - 1))
-        var future_target: Vector3 = target_pos + target_vel * t
-        var required_muzzle_vec: Vector3 = (future_target - shooter_pos - shooter_vel * t - 0.5 * gravity_vec * t * t) / t
-        var speed_error: float = absf(required_muzzle_vec.length() - muzzle_speed)
-        if speed_error < best_error:
-            best_error = speed_error
-            best_t = t
-            best_intercept = future_target
-            best_muzzle_vec = required_muzzle_vec
+    # Refine time-of-flight with gravity by matching required muzzle speed.
+    for _i in range(4):
+        var future_target: Vector3 = target_pos + target_vel * intercept_t
+        var required_muzzle_vec: Vector3 = (future_target - shooter_pos - shooter_vel * intercept_t - 0.5 * gravity_vec * intercept_t * intercept_t) / intercept_t
+        var required_speed: float = required_muzzle_vec.length()
+        if required_speed <= 0.0001:
+            break
 
-    var coarse_span: float = (max_t - min_t) / maxf(float(coarse_steps - 1), 1.0)
-    var refine_min: float = maxf(min_t, best_t - coarse_span)
-    var refine_max: float = minf(max_t, best_t + coarse_span)
-    var refine_steps: int = 10
-    for i in range(refine_steps):
-        var t: float = lerpf(refine_min, refine_max, float(i) / float(refine_steps - 1))
-        var future_target: Vector3 = target_pos + target_vel * t
-        var required_muzzle_vec: Vector3 = (future_target - shooter_pos - shooter_vel * t - 0.5 * gravity_vec * t * t) / t
-        var speed_error: float = absf(required_muzzle_vec.length() - muzzle_speed)
-        if speed_error < best_error:
-            best_error = speed_error
-            best_intercept = future_target
-            best_muzzle_vec = required_muzzle_vec
+        best_intercept = future_target
+        best_muzzle_vec = required_muzzle_vec
+
+        var speed_error: float = required_speed - muzzle_speed
+        if absf(speed_error) <= 0.5:
+            break
+
+        intercept_t = clampf(intercept_t * (required_speed / muzzle_speed), 0.05, 6.0)
 
     if best_muzzle_vec.length_squared() < 0.001:
         var fallback_t: float = shooter_pos.distance_to(target_pos) / muzzle_speed
