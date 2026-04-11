@@ -31,6 +31,9 @@ func _ready() -> void:
 	current_health = max_health
 	add_to_group("enemies") # Default
 	add_to_group("team_" + str(team))
+	var livery_node: Node = get_node_or_null("/root/Livery")
+	if livery_node != null and livery_node.has_method("apply"):
+		livery_node.call("apply", self)
 	
 	# Look for a turret controller child
 	for child in get_children():

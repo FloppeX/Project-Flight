@@ -1,10 +1,10 @@
-[gd_scene load_steps=45 format=3 uid="uid://b27lalggxf8ui"]
+[gd_scene load_steps=46 format=3 uid="uid://b27lalggxf8ui"]
 
 [ext_resource type="Script" uid="uid://c4ltq2v6fji05" path="res://Aircraft/aircraft.gd" id="1_e8t1h"]
 [ext_resource type="PackedScene" uid="uid://cadi81fcpvmuc" path="res://Projectiles/Explosion/explosion.tscn" id="2_x73up"]
 [ext_resource type="PackedScene" uid="uid://c2ipt5jnur18o" path="res://Models/Aircraft_5/aircraft_5.glb" id="3_kq7no"]
 [ext_resource type="PackedScene" uid="uid://djtbinx1svo2u" path="res://Aircraft/Aircraft wreck/aircraft_1_wreck.tscn" id="3_x73up"]
-[ext_resource type="PackedScene" uid="uid://bpfxucj3ypbxu" path="res://Models/Aircraft_1/Aircraft 2 propeller.glb" id="4_ii5ys"]
+[ext_resource type="PackedScene" uid="uid://p831mbxhqubt" path="res://Models/Aircraft_1/aircraft 2 propeller.glb" id="4_ii5ys"]
 [ext_resource type="Script" uid="uid://cyxrx2cid1gt" path="res://Aircraft/SimpleAero.gd" id="5_8vbcf"]
 [ext_resource type="PackedScene" uid="uid://c2skyi8tilc13" path="res://Models/Aircraft_1/Aircraft nose gear.glb" id="7_xldsk"]
 [ext_resource type="PackedScene" uid="uid://bfddu7ij05st8" path="res://Models/Aircraft_1/aircraft main gear straight.glb" id="8_ls0dm"]
@@ -39,6 +39,7 @@
 [ext_resource type="Script" uid="uid://dkrq0ip0i4pq4" path="res://Aircraft/DamageEffects.gd" id="36_dmgfx"]
 [ext_resource type="Script" uid="uid://b308dhuj4e8a" path="res://Aircraft/WingFold5.gd" id="37_wf5"]
 [ext_resource type="AudioStream" uid="uid://o2xkkc5oyh4w" path="res://Audio/cockpit_interior_4.wav" id="38_cpit"]
+[ext_resource type="PackedScene" path="res://Aircraft/CockpitPilot.tscn" id="90_cpilot"]
 
 [sub_resource type="PhysicsMaterial" id="PhysicsMaterial_lowfriction"]
 friction = 0.1
@@ -77,7 +78,7 @@ wreck_extra_spin = 15.0
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.123306, 0.707575)
 
 [node name="Aircraft 2 propeller" parent="aircraft_5" instance=ExtResource("4_ii5ys")]
-transform = Transform3D(1.2, 0, 3.57628e-08, 0, 1.2, 0, -3.57628e-08, 0, 1.2, -2.00808e-09, 0.606723, 5.34411)
+transform = Transform3D(1.2, 0, 3.57628e-08, 0, 1.2, 0, -3.57628e-08, 0, 1.2, -2.00808e-09, 0.606723, -2.66413)
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, -4.37114e-08, -1, 0, 1, -4.37114e-08, 0, 0, 1.22583)
@@ -189,13 +190,13 @@ cinematic_tripod = NodePath("../CameraCinematic")
 
 [node name="AudioManager3D" parent="." instance=ExtResource("24_wyvhj")]
 cockpit_interior_sound = ExtResource("38_cpit")
-interior_lowpass_cutoff = 2300.0
-interior_secondary_lowpass_cutoff = 1400.0
-interior_highpass_cutoff = 60.0
-interior_volume_reduction = -4.0
 
 [node name="CameraCockpit" parent="." instance=ExtResource("25_lvoxg")]
 transform = Transform3D(-1, 0, -8.74213e-08, 0, 0.999983, 0, 8.74228e-08, 0, -0.999983, 0, 0.563369, 2.09922)
+
+[node name="CockpitPilot" parent="." instance=ExtResource("90_cpilot")]
+transform = Transform3D(0.999958, 0, -0.00842568, 0, 0.999949, 0, 0.00839809, 0, 0.999921, 0, -1.09001, 2.22481)
+cockpit_hidden_mesh_names = PackedStringArray("Pilot")
 
 [node name="CameraTarget" type="Node3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.906776, 5.25211)

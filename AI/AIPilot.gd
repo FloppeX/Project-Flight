@@ -1,6 +1,14 @@
 class_name AIPilot
 extends Node
 
+const PROJECTILE_SPEED_CAP_SETTING_KEYS: Array = [
+	"physics/jolt_3d/simulation/limits/max_linear_velocity",
+	"physics/jolt_physics_3d/simulation/limits/max_linear_velocity",
+	"physics/jolt_3d/limits/max_linear_velocity",
+	"physics/jolt_physics_3d/limits/max_linear_velocity",
+	"physics/3d/max_linear_velocity",
+]
+
 ## AI Pilot - Controls aircraft like a human using same input system
 ## Uses PID controllers for smooth, human-like control
 
@@ -168,7 +176,7 @@ var maneuver_waypoint: Vector3 = Vector3.ZERO  # Short-term maneuvering target
 @export var dogfight_missile_use_chance: float = 0.55
 @export var dogfight_missile_commit_s: float = 1.2
 @export var dogfight_missile_required_lock_s: float = 1.0
-@export var dogfight_default_muzzle_velocity_mps: float = 800.0
+@export var dogfight_default_muzzle_velocity_mps: float = 500.0
 @export var dogfight_retarget_interval_s: float = 0.5
 @export var dogfight_retarget_advantage_m: float = 150.0
 @export var dogfight_bank_cmd_limit_deg: float = 90.0
@@ -268,6 +276,8 @@ var _dogfight_precise_pitch_controller: PIDController
 var _dogfight_lost_sight_behavior: DogfightLostSightBehavior = DogfightLostSightBehavior.EFFICIENT
 var _dogfight_lost_sight_timer_s: float = 0.0
 var _dogfight_lost_sight_turn_sign: float = 0.0
+var _projectile_speed_cap_cached: bool = false
+var _projectile_speed_cap_mps: float = INF
 
 # Landing approach
 var _landing_phase: int = 0  # 0=to approach_1, 1=to approach_2, thenÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢LANDING state
@@ -1941,9 +1951,14 @@ func _select_dogfight_weapon(dist_to_target: float, target_in_sight: bool, to_ta
 
 	var gun_choice: String = _choose_non_bomb_weapon_type()
 	if gun_choice == "AAMissile":
-		gun_choice = "Autocannon"
+		gun_choice = ""
+		for t in _get_control_weapon_types():
+			var ts: String = String(t)
+			if ts != "Bomb" and ts != "AAMissile":
+				gun_choice = ts
+				break
 	if gun_choice.is_empty():
-		gun_choice = "Autocannon"
+		gun_choice = _get_selected_control_weapon_type()
 
 	var current_selection: String = _get_selected_control_weapon_type()
 
@@ -2025,8 +2040,9 @@ func _should_use_dogfight_missile(dist_to_target: float, target_in_sight: bool, 
 	return randf() < chance
 
 func _get_selected_gun_muzzle_velocity() -> float:
+	var selected_muzzle_velocity_mps: float = dogfight_default_muzzle_velocity_mps
 	if not control_weapons:
-		return dogfight_default_muzzle_velocity_mps
+		return _get_effective_projectile_speed_mps(selected_muzzle_velocity_mps)
 	var selected: String = _get_selected_control_weapon_type()
 	if selected.is_empty():
 		selected = "Autocannon"
@@ -2037,8 +2053,32 @@ func _get_selected_gun_muzzle_velocity() -> float:
 		if wname != selected:
 			continue
 		if "muzzle_velocity" in hp.weapon_instance:
-			return maxf(float(hp.weapon_instance.muzzle_velocity), 50.0)
-	return dogfight_default_muzzle_velocity_mps
+			selected_muzzle_velocity_mps = maxf(float(hp.weapon_instance.muzzle_velocity), 50.0)
+			break
+	return _get_effective_projectile_speed_mps(selected_muzzle_velocity_mps)
+
+func _get_effective_projectile_speed_mps(nominal_speed_mps: float) -> float:
+	var speed_cap_mps: float = _get_projectile_linear_speed_cap_mps()
+	if is_finite(speed_cap_mps):
+		return maxf(minf(nominal_speed_mps, speed_cap_mps), 50.0)
+	return maxf(nominal_speed_mps, 50.0)
+
+func _get_projectile_linear_speed_cap_mps() -> float:
+	if _projectile_speed_cap_cached:
+		return _projectile_speed_cap_mps
+	_projectile_speed_cap_cached = true
+	_projectile_speed_cap_mps = INF
+	for key_variant in PROJECTILE_SPEED_CAP_SETTING_KEYS:
+		var key: String = str(key_variant)
+		if not ProjectSettings.has_setting(key):
+			continue
+		var cap_variant: Variant = ProjectSettings.get_setting(key)
+		if typeof(cap_variant) in [TYPE_FLOAT, TYPE_INT]:
+			var cap_mps: float = float(cap_variant)
+			if cap_mps > 0.0:
+				_projectile_speed_cap_mps = cap_mps
+				break
+	return _projectile_speed_cap_mps
 
 func _get_selected_weapon_mount_info() -> Dictionary:
 	var default_forward: Vector3 = aircraft.global_transform.basis.z.normalized()
@@ -2377,16 +2417,30 @@ func _plan_attack_run_weapon() -> void:
 
 func _choose_non_bomb_weapon_type() -> String:
 	if not control_weapons:
-		return "Autocannon"
+		return ""
 	var types: Array = _get_control_weapon_types()
 	if types.is_empty():
-		return "Autocannon"
-	if types.has("Autocannon"):
-		return "Autocannon"
+		return ""
+	var fallback_gun: String = ""
 	for t in types:
-		if t != "Bomb":
-			return String(t)
-	return String(types[0])
+		var weapon_type: String = String(t)
+		if weapon_type == "Bomb":
+			continue
+		if weapon_type == "AAMissile":
+			continue
+		if weapon_type.to_lower().find("autocannon") != -1:
+			return weapon_type
+		if fallback_gun.is_empty():
+			fallback_gun = weapon_type
+	if not fallback_gun.is_empty():
+		return fallback_gun
+	if types.has("AAMissile"):
+		return "AAMissile"
+	for t in types:
+		var any_non_bomb: String = String(t)
+		if any_non_bomb != "Bomb":
+			return any_non_bomb
+	return ""
 
 func _count_ready_bombs() -> int:
 	"""Number of hardpoints with a Bomb weapon that can fire (for quick availability check)."""
@@ -4851,10 +4905,12 @@ func _get_surface_target_position(target: Node3D) -> Vector3:
 		return aircraft.global_position
 	var collision_shape: CollisionShape3D = _find_target_collision_shape(target)
 	if collision_shape and is_instance_valid(collision_shape):
-		return collision_shape.global_position + collision_shape.global_basis.y.normalized() * _get_shape_vertical_half_extent(collision_shape) * 0.35
+		# Keep vertical bias in world-up space. Some colliders are rotated so their
+		# local Y axis points along the fuselage, which biases aim behind/ahead.
+		return collision_shape.global_position + Vector3.UP * _get_shape_vertical_half_extent(collision_shape) * 0.35
 	var body_node: Node3D = target.get_node_or_null("Body") as Node3D
 	if body_node and is_instance_valid(body_node):
-		return body_node.global_position + body_node.global_basis.y.normalized() * 1.2
+		return body_node.global_position + Vector3.UP * 1.2
 	return target.global_position + Vector3.UP * 1.2
 
 func _find_target_collision_shape(node: Node) -> CollisionShape3D:

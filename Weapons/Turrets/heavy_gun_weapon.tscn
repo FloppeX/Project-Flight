@@ -1,12 +1,9 @@
 [gd_scene load_steps=3 format=3]
 
 [ext_resource type="Script" path="res://Weapons/Turrets/bullet_weapon.gd" id="1_script"]
-[ext_resource type="PackedScene" path="res://Projectiles/HeavyRound/heavy_round.tscn" id="2_round"]
+[ext_resource type="Resource" path="res://Weapons/Guns/Profiles/25mm_autocannon.tres" id="3_profile"]
 
 [node name="HeavyGunWeapon" type="Node3D"]
 script = ExtResource("1_script")
-bullet_scene = ExtResource("2_round")
-bullet_speed = 500.0
-fire_rate = 0.9
-damage_per_shot = 30.0
+gun_profile = ExtResource("3_profile")
 infinite_ammo = true

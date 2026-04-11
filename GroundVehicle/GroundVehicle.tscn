@@ -24,6 +24,7 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.43686, 0)
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0)
 script = ExtResource("4_tctrl")
 weapon_scene = ExtResource("6_bwpn")
+debug_enabled = true
 
 [node name="TurretScene" parent="Body/TurretController" instance=ExtResource("5_tscn")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.00432968, 0)

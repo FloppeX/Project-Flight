@@ -1,0 +1,9 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://Weapons/Turrets/bullet_weapon.gd" id="1_script"]
+[ext_resource type="Resource" path="res://Weapons/Guns/Profiles/10mm_machine_gun.tres" id="2_profile"]
+
+[node name="10mmMachineGunTurretWeapon" type="Node3D"]
+script = ExtResource("1_script")
+gun_profile = ExtResource("2_profile")
+infinite_ammo = true

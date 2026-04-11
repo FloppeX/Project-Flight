@@ -34,5 +34,6 @@ shape = SubResource("BoxShape3D_enemy_aircraft")
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0)
 script = ExtResource("3_tctrl")
 weapon_scene = ExtResource("5_bwpn")
+debug_enabled = true
 
 [node name="TurretScene" parent="TurretController" instance=ExtResource("4_tscn")]

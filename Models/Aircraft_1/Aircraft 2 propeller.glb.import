@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://bpfxucj3ypbxu"
-path="res://.godot/imported/Aircraft 2 propeller.glb-acc868571fcf53bbde90abed2929442b.scn"
+uid="uid://p831mbxhqubt"
+path="res://.godot/imported/aircraft 2 propeller.glb-09a8028b2927579396ef6083a5db8c19.scn"
 
 [deps]
 
-source_file="res://Models/Aircraft_1/Aircraft 2 propeller.glb"
-dest_files=["res://.godot/imported/Aircraft 2 propeller.glb-acc868571fcf53bbde90abed2929442b.scn"]
+source_file="res://Models/Aircraft_1/aircraft 2 propeller.glb"
+dest_files=["res://.godot/imported/aircraft 2 propeller.glb-09a8028b2927579396ef6083a5db8c19.scn"]
 
 [params]
 

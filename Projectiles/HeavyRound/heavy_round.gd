@@ -26,6 +26,8 @@ func _on_body_entered(body: Node) -> void:
 	if body == shooter:
 		return
 
+	_emit_debug_report("impact", body)
+
 	var damage_target: Node = find_damage_target(body)
 	var hit_ground: bool = is_ground_or_terrain(body)
 	var hit_aircraft: bool = _is_aircraft_target(damage_target) or _is_aircraft_target(body)

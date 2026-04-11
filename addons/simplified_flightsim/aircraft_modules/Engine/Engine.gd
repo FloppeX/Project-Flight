@@ -21,6 +21,17 @@ signal update_interface(values)
 @export var ThrottleSpoolDownRate: float = 0.9 # Power units per second when reducing throttle
 @export var EngineSoundResponseRate: float = 7.5 # How quickly loop pitch follows live engine power
 @export var EngineLoopTargetVolumeDb: float = 4.0 # Propeller loop loudness at steady running power
+@export_group("Propeller Blur")
+@export var enable_propeller_blur: bool = true
+@export var propeller_spin_axis_local: Vector3 = Vector3.FORWARD
+@export var blur_start_power: float = 0.35
+@export var blur_full_power: float = 0.85
+@export var blur_response_hz: float = 10.0
+@export var blade_min_alpha: float = 0.01
+@export var disc_max_alpha: float = 1.0
+@export var disc_name_keywords: PackedStringArray = PackedStringArray(["propeller disc", "disc"])
+@export var blade_name_keywords: PackedStringArray = PackedStringArray(["blade", "blades", "prop_blade"])
+@export var hub_name_keywords: PackedStringArray = PackedStringArray(["hub", "spinner", "cone"])
 
 # You don't really *need* to use this property, as any node can receive the
 # signals. This is just a helper to automatically connect all possible signals
@@ -36,6 +47,10 @@ var is_engine_working = false
 var current_power = 0.0
 var target_power = 0.0
 var throttle_input = 0.0 # The user/AI's desired throttle setting
+var _current_blur_t: float = 0.0
+var _prop_blade_mesh_nodes: Array[MeshInstance3D] = []
+var _prop_disc_mesh_nodes: Array[MeshInstance3D] = []
+var _prop_hub_mesh_nodes: Array[MeshInstance3D] = []
 
 var is_engine_changing_state = false
 
@@ -73,6 +88,7 @@ func _ready():
 	if ui_node:
 		connect("update_interface", Callable(ui_node, "update_interface"))
 		
+	_setup_propeller_blur()
 	
 	ProcessPhysics = true
 	ModuleType = "engine"
@@ -105,6 +121,8 @@ func process_physic_frame(delta):
 			propeller.rotate_z(prop_speed * delta)  # Adjust axis as needed
 
 		_update_engine_sound(delta)
+
+	_update_propeller_blur_visuals(delta)
 
 # -----------------------------------------------------------------------------
 
@@ -239,3 +257,108 @@ func _update_engine_sound(delta: float) -> void:
 		return
 	var response_t: float = clampf(EngineSoundResponseRate * delta, 0.0, 1.0)
 	sfx_engine_loop.pitch_scale = lerpf(sfx_engine_loop.pitch_scale, power_to_pitch(current_power), response_t)
+
+func _setup_propeller_blur() -> void:
+	if not enable_propeller_blur:
+		return
+	if propeller == null or not is_instance_valid(propeller):
+		return
+
+	_prop_blade_mesh_nodes.clear()
+	_prop_disc_mesh_nodes.clear()
+	_prop_hub_mesh_nodes.clear()
+	var mesh_nodes: Array[MeshInstance3D] = []
+	_collect_propeller_mesh_nodes(propeller, mesh_nodes)
+	_classify_propeller_mesh_nodes(mesh_nodes)
+	_update_propeller_blur_visuals(1.0)
+
+func _classify_propeller_mesh_nodes(mesh_nodes: Array[MeshInstance3D]) -> void:
+	var non_disc_meshes: Array[MeshInstance3D] = []
+	for mesh_instance in mesh_nodes:
+		if mesh_instance == null or not is_instance_valid(mesh_instance):
+			continue
+		if mesh_instance.mesh == null:
+			continue
+		if _is_disc_mesh_name(mesh_instance.name):
+			_prop_disc_mesh_nodes.append(mesh_instance)
+		else:
+			non_disc_meshes.append(mesh_instance)
+			if _is_hub_mesh_name(mesh_instance.name):
+				_prop_hub_mesh_nodes.append(mesh_instance)
+
+	for mesh_instance in non_disc_meshes:
+		if _is_hub_mesh_name(mesh_instance.name):
+			continue
+		if _is_blade_mesh_name(mesh_instance.name):
+			_prop_blade_mesh_nodes.append(mesh_instance)
+
+	# Fallback path for older assets that may not name blades.
+	if _prop_blade_mesh_nodes.is_empty():
+		for mesh_instance in non_disc_meshes:
+			if _is_hub_mesh_name(mesh_instance.name):
+				continue
+			_prop_blade_mesh_nodes.append(mesh_instance)
+
+	# Final fallback if we only have one mesh and no naming clues.
+	if _prop_blade_mesh_nodes.is_empty():
+		_prop_blade_mesh_nodes = non_disc_meshes
+
+func _is_disc_mesh_name(mesh_name: String) -> bool:
+	var lowered_name: String = mesh_name.to_lower()
+	for token_variant in disc_name_keywords:
+		var token: String = str(token_variant).to_lower()
+		if token.is_empty():
+			continue
+		if lowered_name.find(token) >= 0:
+			return true
+	return false
+
+func _is_blade_mesh_name(mesh_name: String) -> bool:
+	var lowered_name: String = mesh_name.to_lower()
+	for token_variant in blade_name_keywords:
+		var token: String = str(token_variant).to_lower()
+		if token.is_empty():
+			continue
+		if lowered_name.find(token) >= 0:
+			return true
+	return false
+
+func _is_hub_mesh_name(mesh_name: String) -> bool:
+	var lowered_name: String = mesh_name.to_lower()
+	for token_variant in hub_name_keywords:
+		var token: String = str(token_variant).to_lower()
+		if token.is_empty():
+			continue
+		if lowered_name.find(token) >= 0:
+			return true
+	return false
+
+func _collect_propeller_mesh_nodes(node: Node, out_nodes: Array[MeshInstance3D]) -> void:
+	if node is MeshInstance3D:
+		out_nodes.append(node as MeshInstance3D)
+	for child in node.get_children():
+		_collect_propeller_mesh_nodes(child, out_nodes)
+
+func _update_propeller_blur_visuals(delta: float) -> void:
+	if not enable_propeller_blur:
+		return
+
+	var denom: float = maxf(blur_full_power - blur_start_power, 0.001)
+	var target_t: float = clampf((current_power - blur_start_power) / denom, 0.0, 1.0)
+	var response_t: float = clampf(blur_response_hz * delta, 0.0, 1.0)
+	_current_blur_t = lerpf(_current_blur_t, target_t, response_t)
+	var blade_alpha: float = lerpf(1.0, blade_min_alpha, _current_blur_t)
+	var disc_alpha: float = clampf(disc_max_alpha * _current_blur_t, 0.0, 1.0)
+	for blade_mesh in _prop_blade_mesh_nodes:
+		_apply_mesh_alpha(blade_mesh, blade_alpha)
+	for disc_mesh in _prop_disc_mesh_nodes:
+		_apply_mesh_alpha(disc_mesh, disc_alpha)
+	for hub_mesh in _prop_hub_mesh_nodes:
+		_apply_mesh_alpha(hub_mesh, 1.0)
+
+func _apply_mesh_alpha(mesh_instance: MeshInstance3D, alpha: float) -> void:
+	if mesh_instance == null or not is_instance_valid(mesh_instance):
+		return
+	var clamped_alpha: float = clampf(alpha, 0.0, 1.0)
+	mesh_instance.visible = clamped_alpha > 0.001
+	mesh_instance.transparency = 1.0 - clamped_alpha

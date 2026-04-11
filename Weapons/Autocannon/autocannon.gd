@@ -1,6 +1,14 @@
 extends Weapon
 class_name Autocannon
 
+const PROJECTILE_SPEED_CAP_SETTING_KEYS: Array = [
+	"physics/jolt_3d/simulation/limits/max_linear_velocity",
+	"physics/jolt_physics_3d/simulation/limits/max_linear_velocity",
+	"physics/jolt_3d/limits/max_linear_velocity",
+	"physics/jolt_physics_3d/limits/max_linear_velocity",
+	"physics/3d/max_linear_velocity",
+]
+
 const HEAVY_AUTO_SHOT_STREAMS = [
 	preload("res://Audio/guns/gun_machinegun_auto_heavy_shot_01.wav"),
 	preload("res://Audio/guns/gun_machinegun_auto_heavy_shot_02.wav"),
@@ -11,13 +19,37 @@ const HEAVY_AUTO_SHOT_STREAMS = [
 	preload("res://Audio/guns/gun_machinegun_auto_heavy_shot_07.wav"),
 	preload("res://Audio/guns/gun_machinegun_auto_heavy_shot_08.wav"),
 ]
+const LMG_SHOT_STREAMS = [
+	preload("res://Audio/guns/gun_lmg_1.wav"),
+	preload("res://Audio/guns/gun_lmg_2.wav"),
+	preload("res://Audio/guns/gun_lmg_3.wav"),
+	preload("res://Audio/guns/gun_lmg_4.wav"),
+	preload("res://Audio/guns/gun_lmg_5.wav"),
+	preload("res://Audio/guns/gun_lmg_6.wav"),
+	preload("res://Audio/guns/gun_lmg_7.wav"),
+	preload("res://Audio/guns/gun_lmg_8.wav"),
+	preload("res://Audio/guns/gun_lmg_9.wav"),
+]
+const AUTOCANNON_SHOT_STREAMS = [
+	preload("res://Audio/guns/autocannon_1.wav"),
+	preload("res://Audio/guns/autocannon_2.wav"),
+	preload("res://Audio/guns/autocannon_3.wav"),
+	preload("res://Audio/guns/autocannon_4.wav"),
+]
 
+@export var gun_profile: GunProfile
 @export var bullet_projectile_scene: PackedScene
-@export var rounds_per_minute: float = 400.0  # Rate of fire
-@export var muzzle_velocity: float = 1200.0   # Bullet speed
+@export var rounds_per_minute: float = 600.0  # Rate of fire
+@export var muzzle_velocity: float = 500.0   # Bullet speed
 @export var spread_angle: float = 1.0         # Degrees of inaccuracy
 @export var recoil_force: float = 1000.0
+@export var damage_per_shot: float = 20.0
+@export var max_range_m: float = 550.0
+@export var cockpit_judder_shake_intensity: float = 0.4
+@export var cockpit_judder_shake_duration_s: float = 0.06
 @export var cannon_sound: AudioStream
+@export var use_lmg_sound_set: bool = false
+@export var use_autocannon_sound_set: bool = false
 @export var use_heavy_auto_sound_set: bool = true
 @export var sfx_pool_size: int = 8
 @export var pitch_variation: float = 0.05
@@ -29,13 +61,19 @@ var is_firing: bool = false
 var sfx_cannon_players: Array[AudioStreamPlayer3D] = []
 var _sfx_player_index: int = 0
 var _last_shot_sound_index: int = -1
+var _projectile_speed_cap_cached: bool = false
+var _projectile_speed_cap_mps: float = INF
 
 func _ready():
+	_apply_gun_profile()
 	delete_when_empty = false  # Don't auto-remove when empty
 	ammo_count = 1000  # Large gun ammo pool for sustained air combat
 	hardpoint = get_parent() as Hardpoint
 	automatic_fire = true
-	weapon_name = "Autocannon"
+	if weapon_name.is_empty() or weapon_name == "Generic Weapon":
+		weapon_name = "Autocannon"
+	if bullet_projectile_scene == null:
+		bullet_projectile_scene = load("res://Projectiles/Bullet/bullet.tscn")
 	_setup_cannon_audio()
 
 func _process(delta):
@@ -73,15 +111,77 @@ func fire() -> bool:
 	)
 	bullet.rotate_object_local(Vector3.RIGHT, deg_to_rad(spread.x))
 	bullet.rotate_object_local(Vector3.UP, deg_to_rad(spread.y))
+	_configure_projectile_instance(bullet)
 
 	var aircraft = hardpoint.aircraft
 	var muzzle_vel = hardpoint.get_hardpoint_forward_direction() * muzzle_velocity
 	bullet.fire(muzzle_vel, aircraft)
 
-	hardpoint.apply_recoil_force(get_recoil_force())
+	hardpoint.apply_recoil_force(get_recoil_force(), false)
+	_apply_cockpit_judder(aircraft)
 
 	ammo_count -= 1
 	return true
+
+func _apply_gun_profile() -> void:
+	if gun_profile == null:
+		return
+	if not gun_profile.weapon_name.is_empty():
+		weapon_name = gun_profile.weapon_name
+	rounds_per_minute = maxf(gun_profile.rounds_per_minute, 1.0)
+	muzzle_velocity = maxf(gun_profile.muzzle_velocity_mps, 50.0)
+	spread_angle = maxf(gun_profile.spread_angle_deg, 0.0)
+	recoil_force = maxf(gun_profile.recoil_force, 0.0)
+	damage_per_shot = maxf(gun_profile.damage_per_shot, 0.0)
+	max_range_m = maxf(gun_profile.max_range_m, 10.0)
+	use_lmg_sound_set = gun_profile.use_lmg_sound_set
+	use_autocannon_sound_set = gun_profile.use_autocannon_sound_set
+	use_heavy_auto_sound_set = gun_profile.use_heavy_auto_sound_set
+	if gun_profile.projectile_scene != null:
+		bullet_projectile_scene = gun_profile.projectile_scene
+
+func _configure_projectile_instance(projectile: Node) -> void:
+	if projectile == null or not is_instance_valid(projectile):
+		return
+	if "damage_amount" in projectile:
+		projectile.damage_amount = damage_per_shot
+	if "damage" in projectile:
+		projectile.damage = damage_per_shot
+	if "lifetime" in projectile:
+		var effective_speed_mps: float = _get_effective_projectile_speed_mps()
+		projectile.lifetime = maxf(max_range_m / maxf(effective_speed_mps, 1.0), 0.05)
+
+func _get_effective_projectile_speed_mps() -> float:
+	var nominal_speed_mps: float = maxf(muzzle_velocity, 50.0)
+	var speed_cap_mps: float = _get_projectile_linear_speed_cap_mps()
+	if is_finite(speed_cap_mps):
+		return maxf(minf(nominal_speed_mps, speed_cap_mps), 50.0)
+	return nominal_speed_mps
+
+func _get_projectile_linear_speed_cap_mps() -> float:
+	if _projectile_speed_cap_cached:
+		return _projectile_speed_cap_mps
+	_projectile_speed_cap_cached = true
+	_projectile_speed_cap_mps = INF
+	for key_variant in PROJECTILE_SPEED_CAP_SETTING_KEYS:
+		var key: String = str(key_variant)
+		if not ProjectSettings.has_setting(key):
+			continue
+		var cap_variant: Variant = ProjectSettings.get_setting(key)
+		if typeof(cap_variant) in [TYPE_FLOAT, TYPE_INT]:
+			var cap_mps: float = float(cap_variant)
+			if cap_mps > 0.0:
+				_projectile_speed_cap_mps = cap_mps
+				break
+	return _projectile_speed_cap_mps
+
+func _apply_cockpit_judder(aircraft_body: RigidBody3D) -> void:
+	if aircraft_body == null or not is_instance_valid(aircraft_body):
+		return
+	if not aircraft_body.has_method("add_shake"):
+		return
+	var shake_amount: float = maxf(cockpit_judder_shake_intensity, 0.0) * randf_range(0.9, 1.1)
+	aircraft_body.add_shake(shake_amount, maxf(cockpit_judder_shake_duration_s, 0.01))
 
 func _setup_cannon_audio() -> void:
 	var sound_bank: Array = _get_shot_sound_bank()
@@ -115,6 +215,10 @@ func _play_cannon_sound() -> void:
 	player.play()
 
 func _get_shot_sound_bank() -> Array:
+	if use_lmg_sound_set and not LMG_SHOT_STREAMS.is_empty():
+		return LMG_SHOT_STREAMS
+	if use_autocannon_sound_set and not AUTOCANNON_SHOT_STREAMS.is_empty():
+		return AUTOCANNON_SHOT_STREAMS
 	if use_heavy_auto_sound_set and not HEAVY_AUTO_SHOT_STREAMS.is_empty():
 		return HEAVY_AUTO_SHOT_STREAMS
 	if cannon_sound:

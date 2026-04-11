@@ -8,10 +8,17 @@ signal fired()
 
 # --- Configuration ---
 @export_group("Aiming Restrictions")
-@export var turn_speed: float = 60.0  # degrees per second
-@export var pitch_speed: float = 60.0 # degrees per second
+@export var turn_speed: float = 240.0  # degrees per second
+@export var pitch_speed: float = 240.0 # degrees per second
 @export var max_pitch_up: float = 85.0 # degrees
 @export var max_pitch_down: float = -15.0 # degrees
+@export var limit_yaw_arc: bool = false
+@export var yaw_center_deg: float = 0.0
+@export var yaw_left_limit_deg: float = 180.0
+@export var yaw_right_limit_deg: float = 180.0
+@export_group("Tracking Response")
+@export var low_error_slowdown_range_deg: float = 10.0
+@export var low_error_min_speed_factor: float = 0.7
 
 @export_group("References")
 @export var base_mesh: Node3D # The Y-axis rotation part (visual only)
@@ -86,9 +93,13 @@ func _rotate_towards(target_pos: Vector3, delta: float) -> void:
 	var local_target: Vector3 = turret_parent.to_local(target_pos) - position
 	local_target.y = 0.0
 	if local_target.length() > 0.1:
-		var desired_yaw: float = _turret_rest_rotation.y + atan2(local_target.x, local_target.z)
-		var max_turn: float = deg_to_rad(turn_speed) * delta
-		var new_yaw: float = rotate_toward(rotation.y, desired_yaw, max_turn)
+		var local_target_yaw: float = atan2(local_target.x, local_target.z)
+		local_target_yaw = _clamp_target_yaw_to_arc(local_target_yaw)
+		var desired_yaw: float = _turret_rest_rotation.y + local_target_yaw
+		var yaw_error: float = wrapf(desired_yaw - rotation.y, -PI, PI)
+		var yaw_speed_factor: float = _get_low_error_speed_factor(yaw_error)
+		var max_turn: float = deg_to_rad(turn_speed * yaw_speed_factor) * delta
+		var new_yaw: float = rotation.y + clampf(yaw_error, -max_turn, max_turn)
 		rotation = Vector3(_turret_rest_rotation.x, new_yaw, _turret_rest_rotation.z)
 
 	# 2. Pitch: compute elevation angle in the turret's own frame, then apply
@@ -103,10 +114,45 @@ func _rotate_towards(target_pos: Vector3, delta: float) -> void:
 		deg_to_rad(max_pitch_down),
 		deg_to_rad(max_pitch_up)
 	)
-	var max_p: float = deg_to_rad(pitch_speed) * delta
+	var pitch_error: float = target_pitch - _barrel_current_pitch
+	var pitch_speed_factor: float = _get_low_error_speed_factor(pitch_error)
+	var max_p: float = deg_to_rad(pitch_speed * pitch_speed_factor) * delta
 	_barrel_current_pitch = move_toward(_barrel_current_pitch, target_pitch, max_p)
 	barrel_mount.quaternion = _barrel_rest_quaternion * Quaternion(_barrel_pitch_axis_local.normalized(), -_barrel_current_pitch)
 	barrel_mount.scale = _barrel_rest_scale
+
+func _get_low_error_speed_factor(angle_error_rad: float) -> float:
+	var slowdown_range_rad: float = deg_to_rad(maxf(low_error_slowdown_range_deg, 0.001))
+	var error_t: float = clampf(absf(angle_error_rad) / slowdown_range_rad, 0.0, 1.0)
+	var smooth_t: float = error_t * error_t * (3.0 - 2.0 * error_t)
+	return lerpf(clampf(low_error_min_speed_factor, 0.05, 1.0), 1.0, smooth_t)
+
+func _clamp_target_yaw_to_arc(target_yaw_rad: float) -> float:
+	if not limit_yaw_arc:
+		return target_yaw_rad
+	var center_rad: float = deg_to_rad(yaw_center_deg)
+	var left_limit_rad: float = deg_to_rad(maxf(yaw_left_limit_deg, 0.0))
+	var right_limit_rad: float = deg_to_rad(maxf(yaw_right_limit_deg, 0.0))
+	var relative_yaw: float = wrapf(target_yaw_rad - center_rad, -PI, PI)
+	relative_yaw = clampf(relative_yaw, -right_limit_rad, left_limit_rad)
+	return center_rad + relative_yaw
+
+func is_point_within_yaw_arc(world_point: Vector3) -> bool:
+	if not limit_yaw_arc:
+		return true
+	var turret_parent := get_parent_node_3d()
+	if turret_parent == null:
+		return true
+	var local_target: Vector3 = turret_parent.to_local(world_point) - position
+	local_target.y = 0.0
+	if local_target.length_squared() <= 0.0001:
+		return true
+	var target_yaw: float = atan2(local_target.x, local_target.z)
+	var center_rad: float = deg_to_rad(yaw_center_deg)
+	var left_limit_rad: float = deg_to_rad(maxf(yaw_left_limit_deg, 0.0))
+	var right_limit_rad: float = deg_to_rad(maxf(yaw_right_limit_deg, 0.0))
+	var relative_yaw: float = wrapf(target_yaw - center_rad, -PI, PI)
+	return relative_yaw >= -right_limit_rad and relative_yaw <= left_limit_rad
 
 func get_aim_angle_to_target() -> float:
 	if not _has_target_position():
@@ -170,17 +216,15 @@ func _get_current_muzzle_transform() -> Transform3D:
 		return valid_points[_current_fire_point_idx % valid_points.size()].global_transform
 
 	if barrel_mount and is_instance_valid(barrel_mount):
-		# Derive barrel forward from turret yaw + current pitch (matches _rotate_towards)
-		var turret_forward: Vector3 = global_transform.basis.z.normalized()
-		var turret_right: Vector3 = global_transform.basis.x.normalized()
-		# Pitch the turret forward direction by _barrel_current_pitch around the turret's right axis
-		var barrel_forward: Vector3 = (turret_forward * cos(_barrel_current_pitch) + Vector3.UP * sin(_barrel_current_pitch)).normalized()
+		# Use the actual configured barrel forward axis in world space.
+		# This is robust for rear-facing turrets and rigs whose muzzle axis is not +Z.
+		var barrel_forward: Vector3 = (barrel_mount.global_basis * _barrel_forward_axis_local).normalized()
 		if barrel_forward.length_squared() <= 0.0001:
-			barrel_forward = turret_forward
+			barrel_forward = global_transform.basis.z.normalized()
 		var up: Vector3 = Vector3.UP
 		var right: Vector3 = up.cross(barrel_forward).normalized()
 		if right.length_squared() <= 0.0001:
-			right = turret_right
+			right = global_transform.basis.x.normalized()
 		var corrected_up: Vector3 = barrel_forward.cross(right).normalized()
 		return Transform3D(Basis(right, corrected_up, barrel_forward), get_fallback_firing_origin())
 

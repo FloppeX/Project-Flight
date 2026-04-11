@@ -33,6 +33,7 @@ extends Node3D
 
 var _aircraft_scene: PackedScene
 var _aircraft_3_scene: PackedScene
+var _aircraft_4_scene: PackedScene
 var _aircraft_5_scene: PackedScene
 var _enemy_aircraft_scene: PackedScene
 var _active_ai_planes: Array[RigidBody3D] = []
@@ -47,6 +48,9 @@ func _ready():
 	_aircraft_3_scene = load("res://Aircraft/Aircraft_3.tscn")
 	if not _aircraft_3_scene:
 		push_error("[EnemyAircraftSpawner] Failed to load Aircraft/Aircraft_3.tscn")
+	_aircraft_4_scene = load("res://Aircraft/Aircraft_4.tscn")
+	if not _aircraft_4_scene:
+		push_error("[EnemyAircraftSpawner] Failed to load Aircraft/Aircraft_4.tscn")
 	_aircraft_5_scene = load("res://Aircraft/Aircraft_5.tscn")
 	if not _aircraft_5_scene:
 		push_error("[EnemyAircraftSpawner] Failed to load Aircraft/Aircraft_5.tscn")
@@ -92,6 +96,9 @@ func _input(event):
 			get_viewport().set_input_as_handled()
 		elif event.keycode == KEY_3:
 			_spawn_friendly_aircraft_3()
+			get_viewport().set_input_as_handled()
+		elif event.keycode == KEY_4:
+			_spawn_friendly_aircraft_4()
 			get_viewport().set_input_as_handled()
 		elif event.keycode == KEY_X:
 			_spawn_enemy_base()
@@ -475,10 +482,11 @@ func _spawn_friendly_debug_flight() -> void:
 		_configure_friendly_cap_pilot(spawned[i], orbit_waypoints, i, friendly_debug_flight_altitude_m)
 
 func _spawn_enemy_debug_flight() -> void:
-	if not _enemy_aircraft_scene:
+	if not _aircraft_3_scene:
 		return
+	var aircraft_4_scene: PackedScene = _aircraft_4_scene if _aircraft_4_scene else _aircraft_3_scene
 	_prune_active_ai_planes()
-	if _active_ai_planes.size() + 3 > max_ai_planes:
+	if _active_ai_planes.size() + 4 > max_ai_planes:
 		print("[EnemyAircraftSpawner] R: max AI planes would be exceeded")
 		return
 
@@ -491,13 +499,14 @@ func _spawn_enemy_debug_flight() -> void:
 	if formation_right.length() < 0.01:
 		formation_right = Vector3.RIGHT
 	var spawned: Array[RigidBody3D] = []
+	var scenes: Array[PackedScene] = [_aircraft_3_scene, _aircraft_3_scene, aircraft_4_scene, aircraft_4_scene]
 
-	for i in range(3):
-		var slot_offset: float = (float(i) - 1.0) * debug_air_spawn_spacing_m
+	for i in range(scenes.size()):
+		var slot_offset: float = (float(i) - 1.5) * debug_air_spawn_spacing_m
 		var spawn_pos := spawn_center + formation_right * slot_offset
 		spawn_pos.y = spawn_center.y
 		var aircraft := await _spawn_ai_fighter(
-			_enemy_aircraft_scene,
+			scenes[i],
 			"EnemyStrike_%d" % (i + 1),
 			2,
 			"enemies",
@@ -510,7 +519,7 @@ func _spawn_enemy_debug_flight() -> void:
 
 	await get_tree().create_timer(0.5).timeout
 	for aircraft in spawned:
-		_configure_enemy_strike_pilot(aircraft, carrier)
+		_configure_enemy_strike_pilot(aircraft, carrier, true)
 
 func _assign_friendly_aircraft_to_shared_flight(aircraft_list: Array[RigidBody3D]) -> void:
 	if aircraft_list.is_empty():
@@ -621,7 +630,37 @@ func _spawn_friendly_cap_flight() -> void:
 	for i in range(spawned.size()):
 		_configure_friendly_cap_pilot(spawned[i], orbit_waypoints, i)
 
-func _configure_enemy_strike_pilot(aircraft: RigidBody3D, carrier: Node3D) -> void:
+func _spawn_friendly_aircraft_4() -> void:
+	if not _aircraft_4_scene:
+		return
+	_prune_active_ai_planes()
+	if _active_ai_planes.size() >= max_ai_planes:
+		print("[EnemyAircraftSpawner] 4: max AI planes reached")
+		return
+
+	var carrier_pos: Vector3 = _get_carrier_position()
+	var orbit_waypoints: Array[Vector3] = _build_carrier_orbit_waypoints(carrier_pos, cap_orbit_radius_m, cap_flight_altitude_m, 9)
+	var forward_flat: Vector3 = _get_carrier_forward()
+	forward_flat.y = 0.0
+	forward_flat = forward_flat.normalized()
+	if forward_flat.length() < 0.01:
+		forward_flat = Vector3.FORWARD
+
+	var spawn_pos: Vector3 = carrier_pos + Vector3(0.0, friendly_debug_flight_altitude_m, 0.0)
+	var aircraft := await _spawn_ai_fighter(
+		_aircraft_4_scene,
+		"FriendlyAC4_%d" % (_active_ai_planes.size() + 1),
+		1,
+		"friendlies",
+		spawn_pos,
+		forward_flat,
+		maxf(spawn_speed, 80.0)
+	)
+	if is_instance_valid(aircraft):
+		await get_tree().create_timer(0.5).timeout
+		_configure_friendly_cap_pilot(aircraft, orbit_waypoints, 0)
+
+func _configure_enemy_strike_pilot(aircraft: RigidBody3D, carrier: Node3D, prefer_air_combat: bool = false) -> void:
 	if not is_instance_valid(aircraft):
 		return
 	var ai_toggle = aircraft.find_child("AIToggle", true, false)
@@ -637,10 +676,12 @@ func _configure_enemy_strike_pilot(aircraft: RigidBody3D, carrier: Node3D) -> vo
 	ai_pilot.target_altitude = strike_flight_altitude_m
 	ai_pilot.patrol_altitude_m = strike_flight_altitude_m
 	ai_pilot.target_speed = maxf(spawn_speed, 90.0)
-	ai_pilot.ground_attack_enabled = true
 	ai_pilot.dogfight_enabled = true
+	ai_pilot.ground_attack_enabled = not prefer_air_combat
 	ai_pilot.waypoints.clear()
-	if carrier and is_instance_valid(carrier):
+	if prefer_air_combat:
+		ai_pilot.change_state(AIPilot.State.SEARCH)
+	elif carrier and is_instance_valid(carrier):
 		ai_pilot.set_target(carrier)
 	else:
 		ai_pilot.change_state(AIPilot.State.SEARCH)

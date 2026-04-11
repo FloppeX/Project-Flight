@@ -1,0 +1,22 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://Aircraft/PilotPose.gd" id="1_pose"]
+[ext_resource type="PackedScene" path="res://Models/Characters/Pilot.glb" id="2_pilot"]
+
+[node name="CockpitPilot" type="Node3D"]
+script = ExtResource("1_pose")
+upper_leg_x = 86.0
+abdomen_pitch = -24.0
+torso_pitch = 12.0
+shoulder_x = -60.0
+shoulder_y = -80.0
+upper_arm_x = 0.0
+upper_arm_y = 90.0
+upper_arm_z = -120.0
+lower_arm_x = 30.0
+lower_arm_y = 60.0
+lower_arm_z = 20.0
+wrist_y = 10.0
+neck_pitch = 20.0
+
+[node name="Pilot" parent="." instance=ExtResource("2_pilot")]

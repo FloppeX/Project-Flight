@@ -941,18 +941,42 @@ func update_lead_reticle() -> void:
 	lead_reticle_v_line.position = hud_pos - Vector2(v_size.x * 0.5, v_size.y * 0.5)
 
 func _get_gun_muzzle_velocity() -> float:
-	"""Return the muzzle velocity of the first autocannon found on the aircraft."""
+	"""Return muzzle velocity for the selected gun, or any available non-missile gun."""
 	var weapon_control = get_weapon_control()
 	if not is_instance_valid(weapon_control):
 		return 0.0
 	if not "hardpoints" in weapon_control:
 		return 0.0
+
+	var selected_type: String = ""
+	if "selected_weapon_type" in weapon_control:
+		selected_type = str(weapon_control.selected_weapon_type)
+
+	var fallback_speed: float = 0.0
 	for hp in weapon_control.hardpoints:
 		if not hp or not hp.weapon_instance:
 			continue
-		if hp.weapon_instance.weapon_name == "Autocannon" and "muzzle_velocity" in hp.weapon_instance:
-			return float(hp.weapon_instance.muzzle_velocity)
-	return 0.0
+		var weapon_name: String = str(hp.weapon_instance.weapon_name)
+		if not _is_lead_reticle_gun_weapon_name(weapon_name):
+			continue
+		var speed_mps: float = 0.0
+		if "muzzle_velocity" in hp.weapon_instance:
+			speed_mps = float(hp.weapon_instance.muzzle_velocity)
+		elif "bullet_speed" in hp.weapon_instance:
+			speed_mps = float(hp.weapon_instance.bullet_speed)
+		speed_mps = maxf(speed_mps, 0.0)
+		if speed_mps <= 0.0:
+			continue
+		if selected_type != "" and weapon_name == selected_type:
+			return speed_mps
+		if fallback_speed <= 0.0:
+			fallback_speed = speed_mps
+	return fallback_speed
+
+func _is_lead_reticle_gun_weapon_name(weapon_name: String) -> bool:
+	if weapon_name.is_empty():
+		return false
+	return weapon_name != "Bomb" and weapon_name != "AAMissile"
 
 func _get_gun_mount_info() -> Dictionary:
 	var mount_info := {
@@ -964,15 +988,32 @@ func _get_gun_mount_info() -> Dictionary:
 	if not "hardpoints" in weapon_control:
 		return mount_info
 
+	var selected_type: String = ""
+	if "selected_weapon_type" in weapon_control:
+		selected_type = str(weapon_control.selected_weapon_type)
+
 	var count: int = 0
 	var avg_origin: Vector3 = Vector3.ZERO
 	for hp in weapon_control.hardpoints:
 		if not hp or not hp.weapon_instance:
 			continue
-		if hp.weapon_instance.weapon_name != "Autocannon":
+		var weapon_name: String = str(hp.weapon_instance.weapon_name)
+		if not _is_lead_reticle_gun_weapon_name(weapon_name):
+			continue
+		if selected_type != "" and weapon_name != selected_type:
 			continue
 		avg_origin += hp.global_position
 		count += 1
+
+	if count <= 0:
+		for hp in weapon_control.hardpoints:
+			if not hp or not hp.weapon_instance:
+				continue
+			var weapon_name_fallback: String = str(hp.weapon_instance.weapon_name)
+			if not _is_lead_reticle_gun_weapon_name(weapon_name_fallback):
+				continue
+			avg_origin += hp.global_position
+			count += 1
 
 	if count > 0:
 		mount_info["origin"] = avg_origin / float(count)

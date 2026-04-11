@@ -121,6 +121,9 @@ func _ready() -> void:
 	add_to_group("ground_vehicles")
 	add_to_group("team_" + str(team))
 	add_to_group("origin_shifter")
+	var livery_node: Node = get_node_or_null("/root/Livery")
+	if livery_node != null and livery_node.has_method("apply"):
+		livery_node.call("apply", self)
 	_resolve_waypoints()
 	_collect_wheel_nodes()
 	_compute_corner_probes()

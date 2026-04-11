@@ -1,0 +1,17 @@
+[gd_resource type="Resource" script_class="GunProfile" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://Weapons/Guns/gun_profile.gd" id="1_profile_script"]
+[ext_resource type="PackedScene" path="res://Projectiles/Bullet/bullet.tscn" id="2_projectile"]
+
+[resource]
+script = ExtResource("1_profile_script")
+profile_name = "15 mm Machine Gun"
+weapon_name = "15 mm Machine Gun"
+rounds_per_minute = 600.0
+muzzle_velocity_mps = 600.0
+spread_angle_deg = 1.0
+recoil_force = 1000.0
+damage_per_shot = 10.0
+max_range_m = 500.0
+projectile_scene = ExtResource("2_projectile")
+use_heavy_auto_sound_set = true
