@@ -18,6 +18,16 @@ class_name Bullet
 var trail_mesh: MeshInstance3D
 var tracer_box_mesh: BoxMesh
 var tracer_physics_frames_elapsed: int = 0
+var _debug_target_node: Node3D = null
+var _debug_target_radius_m: float = 0.0
+var _debug_closest_center_distance_m: float = INF
+var _debug_report_sent: bool = false
+var _debug_age_s: float = 0.0
+var _debug_distance_traveled_m: float = 0.0
+var _debug_speed_time_integral: float = 0.0
+var _debug_initial_speed_mps: float = 0.0
+var _debug_closest_time_s: float = 0.0
+var _debug_peak_speed_mps: float = 0.0
 
 const SCORCH_TEXTURE_PATH: String = "res://Projectiles/Explosion/scorch_mark.png"
 
@@ -93,30 +103,65 @@ func fire(initial_velocity: Vector3, firing_aircraft: Node3D):
 	# Call parent's fire method to get all the base functionality
 	super.fire(initial_velocity, firing_aircraft)
 	tracer_physics_frames_elapsed = 0
+	_setup_debug_target_tracking()
 	
 	# Inherit the firing platform's point velocity at the muzzle so rounds stay
 	# aligned with the gun line during hard turns and rolls.
 	if not firing_aircraft or not is_instance_valid(firing_aircraft):
 		return
 
-	var inherited_velocity = firing_aircraft.get("linear_velocity")
-	if inherited_velocity is Vector3:
-		linear_velocity += inherited_velocity
-	elif firing_aircraft.get("velocity") is Vector3:
-		linear_velocity += firing_aircraft.get("velocity")
-	elif firing_aircraft.has_method("get_linear_velocity"):
-		var getter_velocity = firing_aircraft.call("get_linear_velocity")
-		if getter_velocity is Vector3:
-			linear_velocity += getter_velocity
+	linear_velocity += _get_motion_velocity(firing_aircraft)
 
-	var angular_velocity = firing_aircraft.get("angular_velocity")
-	if angular_velocity is Vector3 and firing_aircraft is Node3D:
+	var angular_velocity: Vector3 = _get_motion_angular_velocity(firing_aircraft)
+	if angular_velocity.length_squared() > 0.000001 and firing_aircraft is Node3D:
 		var r_offset: Vector3 = global_position - (firing_aircraft as Node3D).global_position
-		linear_velocity += (angular_velocity as Vector3).cross(r_offset)
+		linear_velocity += angular_velocity.cross(r_offset)
+	_debug_initial_speed_mps = linear_velocity.length()
+	_debug_peak_speed_mps = _debug_initial_speed_mps
+
+func _get_motion_velocity(node: Node) -> Vector3:
+	if node == null or not is_instance_valid(node):
+		return Vector3.ZERO
+	var linear_variant: Variant = node.get("linear_velocity")
+	if linear_variant is Vector3:
+		return linear_variant
+	var velocity_variant: Variant = node.get("velocity")
+	if velocity_variant is Vector3:
+		return velocity_variant
+	if node.has_method("get_linear_velocity"):
+		var getter_velocity_variant: Variant = node.call("get_linear_velocity")
+		if getter_velocity_variant is Vector3:
+			return getter_velocity_variant
+	if node.has_method("get_velocity_vector"):
+		var vector_velocity_variant: Variant = node.call("get_velocity_vector")
+		if vector_velocity_variant is Vector3:
+			return vector_velocity_variant
+	return Vector3.ZERO
+
+func _get_motion_angular_velocity(node: Node) -> Vector3:
+	if node == null or not is_instance_valid(node):
+		return Vector3.ZERO
+	var angular_variant: Variant = node.get("angular_velocity")
+	if angular_variant is Vector3:
+		return angular_variant
+	if node.has_method("get_angular_velocity"):
+		var getter_angular_variant: Variant = node.call("get_angular_velocity")
+		if getter_angular_variant is Vector3:
+			return getter_angular_variant
+	return Vector3.ZERO
 
 func _physics_process(delta):
+	var prev_pos: Vector3 = global_position
 	# Call parent's physics process first
 	super._physics_process(delta)
+	_debug_age_s += delta
+	var speed_now_mps: float = linear_velocity.length()
+	_debug_distance_traveled_m += speed_now_mps * delta
+	_debug_speed_time_integral += speed_now_mps * delta
+	_debug_peak_speed_mps = maxf(_debug_peak_speed_mps, speed_now_mps)
+	if (_debug_target_node == null or not is_instance_valid(_debug_target_node)):
+		_try_acquire_debug_target_from_meta()
+	_update_debug_closest_center_distance(prev_pos, global_position)
 	
 	# Point projectile in direction of travel
 	if linear_velocity.length() > 0.1:
@@ -128,6 +173,7 @@ func _physics_process(delta):
 	tracer_physics_frames_elapsed += 1
 
 func _on_body_entered(body):
+	_emit_debug_report("impact", body)
 	if is_ground_or_terrain(body):
 		_create_ground_bullet_mark(body)
 		_spawn_ground_impact_particles(body)
@@ -135,6 +181,10 @@ func _on_body_entered(body):
 		_spawn_aircraft_hit_debris(body)
 	# Then run default impact handling (damage, cleanup)
 	super._on_body_entered(body)
+
+func _on_timeout() -> void:
+	_emit_debug_report("timeout", null)
+	super._on_timeout()
 
 func _resolve_impact_surface(body: Object) -> Dictionary:
 	var space_state: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
@@ -291,5 +341,164 @@ func update_tracer_mesh() -> void:
 
 func _should_hide_tracer_for_startup_frames() -> bool:
 	return tracer_physics_frames_elapsed < max(tracer_hidden_physics_frames, 0)
+
+func _setup_debug_target_tracking() -> void:
+	_debug_target_node = null
+	_debug_target_radius_m = 0.0
+	_debug_closest_center_distance_m = INF
+	_debug_report_sent = false
+	_debug_age_s = 0.0
+	_debug_distance_traveled_m = 0.0
+	_debug_speed_time_integral = 0.0
+	_debug_initial_speed_mps = linear_velocity.length()
+	_debug_closest_time_s = 0.0
+	_debug_peak_speed_mps = _debug_initial_speed_mps
+	_try_acquire_debug_target_from_meta()
+
+func _try_acquire_debug_target_from_meta() -> void:
+	if _debug_target_node != null and is_instance_valid(_debug_target_node):
+		return
+
+	var target_variant: Variant = get_meta("debug_target_node", null)
+	if typeof(target_variant) != TYPE_OBJECT:
+		return
+	# Important: do not cast before validity checks. Casting a freed object throws.
+	if not is_instance_valid(target_variant):
+		return
+	if not (target_variant is Node3D):
+		return
+	var target_node: Node3D = target_variant as Node3D
+	_debug_target_node = target_node
+	_debug_target_radius_m = _estimate_debug_target_radius(target_node)
+	_update_debug_closest_center_distance(global_position, global_position)
+
+func _update_debug_closest_center_distance(seg_start: Vector3, seg_end: Vector3) -> void:
+	if _debug_target_node == null or not is_instance_valid(_debug_target_node):
+		return
+	var target_point: Vector3 = _get_debug_target_point(_debug_target_node)
+	var closest_point: Vector3 = _closest_point_on_segment(target_point, seg_start, seg_end)
+	var center_distance: float = target_point.distance_to(closest_point)
+	if center_distance < _debug_closest_center_distance_m:
+		_debug_closest_center_distance_m = center_distance
+		_debug_closest_time_s = _debug_age_s
+
+func _emit_debug_report(reason: String, impact_body: Object) -> void:
+	if _debug_report_sent:
+		return
+	_debug_report_sent = true
+
+	var callback_variant: Variant = get_meta("debug_report_callback", Callable())
+	if not (callback_variant is Callable):
+		return
+	var callback: Callable = callback_variant
+	if not callback.is_valid():
+		return
+
+	var closest_center_m: float = _debug_closest_center_distance_m
+	if not is_finite(closest_center_m):
+		if _debug_target_node != null and is_instance_valid(_debug_target_node):
+			closest_center_m = _get_debug_target_point(_debug_target_node).distance_to(global_position)
+		else:
+			closest_center_m = INF
+
+	var closest_edge_m: float = maxf(closest_center_m - _debug_target_radius_m, 0.0)
+	var hit_target: bool = _did_hit_debug_target(impact_body)
+	var target_name: String = _debug_target_node.name if _debug_target_node != null and is_instance_valid(_debug_target_node) else "<none>"
+	var nominal_speed_variant: Variant = get_meta("debug_nominal_bullet_speed_mps", -1.0)
+	var nominal_speed_mps: float = float(nominal_speed_variant)
+	var nominal_flight_time_variant: Variant = get_meta("debug_nominal_flight_time_s", -1.0)
+	var nominal_flight_time_s: float = float(nominal_flight_time_variant)
+	var max_linear_velocity_variant: Variant = get("max_linear_velocity")
+	var max_linear_velocity_mps: float = float(max_linear_velocity_variant) if typeof(max_linear_velocity_variant) in [TYPE_FLOAT, TYPE_INT] else -1.0
+	var avg_speed_mps: float = _debug_distance_traveled_m / maxf(_debug_age_s, 0.0001)
+	var integrated_avg_speed_mps: float = _debug_speed_time_integral / maxf(_debug_age_s, 0.0001)
+	var speed_now_mps: float = linear_velocity.length()
+	var report: Dictionary = {
+		"target_name": target_name,
+		"closest_center_m": closest_center_m,
+		"closest_edge_m": closest_edge_m,
+		"target_radius_m": _debug_target_radius_m,
+		"hit_target": hit_target,
+		"reason": reason,
+		"bullet_age_s": _debug_age_s,
+		"closest_time_s": _debug_closest_time_s,
+		"bullet_initial_speed_mps": _debug_initial_speed_mps,
+		"bullet_avg_speed_mps": avg_speed_mps,
+		"bullet_avg_speed_integrated_mps": integrated_avg_speed_mps,
+		"bullet_nominal_speed_mps": nominal_speed_mps,
+		"bullet_nominal_flight_time_s": nominal_flight_time_s,
+		"bullet_distance_traveled_m": _debug_distance_traveled_m,
+		"bullet_speed_now_mps": speed_now_mps,
+		"bullet_speed_peak_mps": _debug_peak_speed_mps,
+		"bullet_max_linear_velocity_mps": max_linear_velocity_mps,
+	}
+	callback.call(report)
+
+func _did_hit_debug_target(impact_body: Object) -> bool:
+	if _debug_target_node == null or not is_instance_valid(_debug_target_node):
+		return false
+	if impact_body == null:
+		return false
+	if impact_body == _debug_target_node:
+		return true
+	if impact_body is Node:
+		var node: Node = impact_body as Node
+		while node:
+			if node == _debug_target_node:
+				return true
+			node = node.get_parent()
+	return false
+
+func _get_debug_target_point(target: Node3D) -> Vector3:
+	if target == null or not is_instance_valid(target):
+		return global_position
+	var collision_shape: CollisionShape3D = _find_first_collision_shape(target)
+	if collision_shape != null and is_instance_valid(collision_shape):
+		return collision_shape.global_position
+	return target.global_position
+
+func _estimate_debug_target_radius(target: Node3D) -> float:
+	var radius_m: float = 2.5
+	if target == null or not is_instance_valid(target):
+		return radius_m
+	var collision_shape: CollisionShape3D = _find_first_collision_shape(target)
+	if collision_shape == null or not is_instance_valid(collision_shape) or collision_shape.shape == null:
+		return radius_m
+
+	var shape_scale: Vector3 = collision_shape.global_transform.basis.get_scale().abs()
+	var max_scale: float = maxf(maxf(shape_scale.x, shape_scale.y), shape_scale.z)
+	var shape: Shape3D = collision_shape.shape
+	if shape is SphereShape3D:
+		radius_m = maxf(radius_m, (shape as SphereShape3D).radius * max_scale)
+	elif shape is CapsuleShape3D:
+		var capsule: CapsuleShape3D = shape as CapsuleShape3D
+		radius_m = maxf(radius_m, (capsule.height * 0.5 + capsule.radius) * max_scale)
+	elif shape is BoxShape3D:
+		var box: BoxShape3D = shape as BoxShape3D
+		radius_m = maxf(radius_m, box.size.length() * 0.5 * max_scale)
+	elif shape is CylinderShape3D:
+		var cylinder: CylinderShape3D = shape as CylinderShape3D
+		radius_m = maxf(radius_m, maxf(cylinder.radius, cylinder.height * 0.5) * max_scale)
+	return radius_m
+
+func _find_first_collision_shape(root: Node) -> CollisionShape3D:
+	for child in root.get_children():
+		if child is CollisionShape3D:
+			var collision_shape: CollisionShape3D = child as CollisionShape3D
+			if collision_shape.disabled:
+				continue
+			return collision_shape
+		var nested_shape: CollisionShape3D = _find_first_collision_shape(child)
+		if nested_shape != null:
+			return nested_shape
+	return null
+
+func _closest_point_on_segment(point: Vector3, segment_start: Vector3, segment_end: Vector3) -> Vector3:
+	var segment: Vector3 = segment_end - segment_start
+	var segment_length_sq: float = segment.length_squared()
+	if segment_length_sq <= 0.0001:
+		return segment_start
+	var t: float = clampf((point - segment_start).dot(segment) / segment_length_sq, 0.0, 1.0)
+	return segment_start + segment * t
 
 # _on_timeout is handled by the parent class now

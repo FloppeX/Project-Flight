@@ -1,4 +1,4 @@
-[gd_scene load_steps=42 format=3 uid="uid://b636hr6uxve0k"]
+[gd_scene load_steps=43 format=3 uid="uid://b636hr6uxve0k"]
 
 [ext_resource type="Script" uid="uid://c4ltq2v6fji05" path="res://Aircraft/aircraft.gd" id="1_e8t1h"]
 [ext_resource type="PackedScene" uid="uid://cadi81fcpvmuc" path="res://Projectiles/Explosion/explosion.tscn" id="2_x73up"]
@@ -37,6 +37,8 @@
 [ext_resource type="Script" uid="uid://bwjigrpitv7cm" path="res://AI/AIPilot.gd" id="34_aipil"]
 [ext_resource type="Script" uid="uid://ckyxqpwu5tkkl" path="res://Aircraft/CockpitCanopyVisibility.gd" id="35_canopyvis"]
 [ext_resource type="AudioStream" uid="uid://dqbmuufyl5tn0" path="res://Audio/cockpit_interior_1.wav" id="36_cpit"]
+
+[ext_resource type="PackedScene" path="res://Aircraft/CockpitPilot.tscn" id="90_cpilot"]
 
 [sub_resource type="PhysicsMaterial" id="PhysicsMaterial_lowfriction"]
 friction = 0.1
@@ -170,6 +172,10 @@ cockpit_interior_sound = ExtResource("36_cpit")
 
 [node name="CameraCockpit" parent="." instance=ExtResource("25_lvoxg")]
 transform = Transform3D(-1, 0, -8.74213e-08, 0, 0.999983, 0, 8.74228e-08, 0, -0.999983, 0, 0.92, 1.04)
+
+[node name="CockpitPilot" parent="." instance=ExtResource("90_cpilot")]
+transform = Transform3D(0.999958, 0, -0.00842568, 0, 0.999949, 0, 0.00839809, 0, 0.999921, 0, -0.923738, 0.0247408)
+cockpit_hidden_mesh_names = PackedStringArray("Pilot")
 
 [node name="CameraTarget" type="Node3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.906776, 4.87997)

@@ -1,8 +1,10 @@
-res://desert_scenario.tscn
+res://Aircraft/Aircraft_3.tscn
 res://Buildings/building_enemy_airfield.gdshader
 res://Buildings/building_enemy_runway.gdshader
-res://Aircraft/Aircraft_7.tscn
+res://Aircraft/Aircraft_2.tscn
+res://Aircraft/Aircraft_4.tscn
 res://Aircraft/Aircraft_5.tscn
-res://Audio/AudioManager3D.gd
+res://Aircraft/Aircraft_7.tscn
+res://Aircraft/Aircraft_8.tscn
 res://addons/simplified_flightsim/aircraft_modules/Engine/Engine.gd
-res://Audio/AudioManager3D.tscn
+res://Main_Scene.tscn

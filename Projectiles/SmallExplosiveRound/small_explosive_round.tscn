@@ -1,0 +1,47 @@
+[gd_scene load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://Projectiles/HeavyRound/heavy_round.gd" id="1_heavy_round"]
+[ext_resource type="PackedScene" path="res://Projectiles/Explosion/explosion.tscn" id="2_explosion"]
+
+[sub_resource type="SphereMesh" id="SphereMesh_small_explosive"]
+radius = 0.1
+height = 0.2
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_small_explosive"]
+albedo_color = Color(1, 0.72, 0.24, 1)
+emission_enabled = true
+emission = Color(1, 0.55, 0.08, 1)
+emission_energy_multiplier = 4.5
+
+[sub_resource type="SphereShape3D" id="SphereShape3D_small_explosive"]
+radius = 0.18
+
+[node name="SmallExplosiveRound" type="RigidBody3D"]
+mass = 0.12
+script = ExtResource("1_heavy_round")
+damage_amount = 20.0
+tracer_color = Color(1, 0.72, 0.24, 1)
+tracer_width = 0.13
+tracer_visual_length = 9.0
+ground_mark_size = Vector3(0.6, 0.05, 0.6)
+ground_particle_count = 4
+explosion_scene = ExtResource("2_explosion")
+explosion_blast_radius = 4.0
+explosion_max_damage = 16.0
+explosion_min_damage = 6.0
+air_explosion_blast_radius = 1.8
+air_explosion_max_damage = 10.0
+air_explosion_min_damage = 0.0
+explosion_flash_duration = 0.2
+explosion_effect_duration = 1.5
+explosion_debris_count = 6
+explosion_knockback_impulse_at_center = 400.0
+explosion_knockback_impulse_at_edge = 80.0
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
+transform = Transform3D(0.18, 0, 0, 0, 0.18, 0, 0, 0, 0.85, 0, 0, 0)
+mesh = SubResource("SphereMesh_small_explosive")
+surface_material_override/0 = SubResource("StandardMaterial3D_small_explosive")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+shape = SubResource("SphereShape3D_small_explosive")

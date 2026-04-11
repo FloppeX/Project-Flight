@@ -30,6 +30,18 @@ extends Node
 var insignia_textures: Array[Texture2D] = []
 var insignia_index: int = 0   # Which insignia is active
 var _upper_color_preset_index: int = 0
+var _rng: RandomNumberGenerator = RandomNumberGenerator.new()
+var _team_upper_preset_indices: Dictionary = {}
+var _team_insignia_indices: Dictionary = {}
+var _active_apply_upper_color: Color = Color(0.28, 0.33, 0.38)
+var _active_apply_insignia_index: int = 0
+var _active_apply_has_pilot_colors: bool = false
+var _active_apply_pilot_main_color: Color = Color(0.36, 0.40, 0.44)
+var _active_apply_pilot_main_dark_color: Color = Color(0.17, 0.18, 0.20)
+var _active_apply_pilot_helmet_color_1: Color = Color(0.36, 0.40, 0.44)
+var _active_apply_pilot_helmet_color_2: Color = Color(0.36, 0.40, 0.44)
+const PLAYER_TEAM_ID: int = 1
+const PILOT_LIVERY_META_KEY: StringName = &"pilot_livery_colors"
 
 const PRESET_UPPER_COLORS: Array[Color] = [
 	Color(0.03, 0.03, 0.03),  # Black
@@ -58,12 +70,27 @@ const PRESET_UPPER_COLORS: Array[Color] = [
 	Color(0.36, 0.40, 0.44),  # Steel Grey
 ]
 
+const PILOT_MAIN_COLOR_POOL: Array[Color] = [
+	Color(0.36, 0.40, 0.44),  # Grey
+	Color(0.73, 0.60, 0.44),  # Tan
+	Color(0.16, 0.47, 0.20),  # Green
+	Color(0.09, 0.13, 0.30),  # Dark Blue
+]
+
+const PILOT_MAIN_DARK_COLOR_POOL: Array[Color] = [
+	Color(0.17, 0.18, 0.20),  # Dark Grey
+	Color(0.37, 0.24, 0.15),  # Brown
+	Color(0.09, 0.13, 0.30),  # Dark Blue
+]
+
 func _ready() -> void:
+	_rng.randomize()
 	for path in _find_insignia_paths():
 		var tex := load(path) as Texture2D
 		if tex:
 			insignia_textures.append(tex)
-	_upper_color_preset_index = _nearest_upper_color_preset_index(upper_color)
+	_reset_team_livery_assignments()
+	call_deferred("_reapply_all")
 
 var _c_was_pressed := false
 var _v_was_pressed := false
@@ -108,7 +135,9 @@ func randomize_upper_color() -> void:
 func cycle_upper_color() -> void:
 	if PRESET_UPPER_COLORS.is_empty():
 		return
-	_upper_color_preset_index = (_upper_color_preset_index + 1) % PRESET_UPPER_COLORS.size()
+	_ensure_team_livery(PLAYER_TEAM_ID)
+	_upper_color_preset_index = (int(_team_upper_preset_indices.get(PLAYER_TEAM_ID, 0)) + 1) % PRESET_UPPER_COLORS.size()
+	_team_upper_preset_indices[PLAYER_TEAM_ID] = _upper_color_preset_index
 	upper_color = PRESET_UPPER_COLORS[_upper_color_preset_index]
 	_reapply_all()
 
@@ -131,26 +160,178 @@ func _nearest_upper_color_preset_index(col: Color) -> int:
 func cycle_insignia() -> void:
 	if insignia_textures.is_empty():
 		return
-	insignia_index = (insignia_index + 1) % insignia_textures.size()
+	_ensure_team_livery(PLAYER_TEAM_ID)
+	insignia_index = (int(_team_insignia_indices.get(PLAYER_TEAM_ID, 0)) + 1) % insignia_textures.size()
+	_team_insignia_indices[PLAYER_TEAM_ID] = insignia_index
 	_reapply_all()
 
 func _reapply_all() -> void:
-	var seen := {}
-	for group in ["aircraft", "ai_aircraft", "friendlies", "ground_vehicles"]:
-		for node in get_tree().get_nodes_in_group(group):
-			if node.get("team") == 1 and not seen.has(node):
-				seen[node] = true
+	var seen_ids: Dictionary = {}
+	for group_name in ["aircraft", "ai_aircraft", "friendlies", "ground_vehicles", "enemies", "buildings", "carrier"]:
+		var nodes: Array = get_tree().get_nodes_in_group(group_name)
+		for node_variant in nodes:
+			if not (node_variant is Node):
+				continue
+			var node: Node = node_variant as Node
+			var instance_id: int = node.get_instance_id()
+			if seen_ids.has(instance_id):
+				continue
+			seen_ids[instance_id] = true
+			if _can_apply_to_node(node):
 				apply(node)
-	for carrier in get_tree().get_nodes_in_group("carrier"):
-		apply(carrier)
+
+func _can_apply_to_node(node: Node) -> bool:
+	if node == null or not is_instance_valid(node):
+		return false
+	if node.is_in_group("carrier"):
+		return true
+	if node.has_method("get_team"):
+		return true
+	var team_variant: Variant = node.get("team")
+	return typeof(team_variant) in [TYPE_INT, TYPE_FLOAT]
 
 ## Apply livery colors and insignia to all matching surfaces under `root`.
 func apply(root: Node) -> void:
+	var team_id: int = _resolve_team_id(root)
+	_ensure_team_livery(team_id)
+	_active_apply_upper_color = _get_team_upper_color(team_id)
+	_active_apply_insignia_index = _get_team_insignia_index(team_id)
+	_activate_pilot_colors_for_root(root)
+	if team_id == PLAYER_TEAM_ID:
+		upper_color = _active_apply_upper_color
+		_upper_color_preset_index = int(_team_upper_preset_indices.get(PLAYER_TEAM_ID, _upper_color_preset_index))
+		insignia_index = _active_apply_insignia_index
 	_apply_recursive(root)
 	if root is RigidBody3D and root.get("team") != null:
 		_apply_insignia(root)
 	if root.is_in_group("carrier"):
 		_apply_carrier_insignia(root)
+
+func _reset_team_livery_assignments() -> void:
+	_team_upper_preset_indices.clear()
+	_team_insignia_indices.clear()
+	_ensure_team_livery(PLAYER_TEAM_ID)
+	upper_color = _get_team_upper_color(PLAYER_TEAM_ID)
+	_upper_color_preset_index = int(_team_upper_preset_indices.get(PLAYER_TEAM_ID, 0))
+	insignia_index = _get_team_insignia_index(PLAYER_TEAM_ID)
+
+func _resolve_team_id(node: Node) -> int:
+	if node == null or not is_instance_valid(node):
+		return PLAYER_TEAM_ID
+	if node.has_method("get_team"):
+		return int(node.call("get_team"))
+	var team_variant: Variant = node.get("team")
+	if typeof(team_variant) in [TYPE_INT, TYPE_FLOAT]:
+		return int(team_variant)
+	if node.is_in_group("carrier"):
+		return PLAYER_TEAM_ID
+	var groups: Array[StringName] = node.get_groups()
+	for group_name_variant in groups:
+		var group_name: String = String(group_name_variant)
+		if not group_name.begins_with("team_"):
+			continue
+		var suffix: String = group_name.substr(5)
+		if suffix.is_valid_int():
+			return int(suffix)
+	return PLAYER_TEAM_ID
+
+func _ensure_team_livery(team_id: int) -> void:
+	if not _team_upper_preset_indices.has(team_id):
+		_team_upper_preset_indices[team_id] = _pick_random_unassigned_index(PRESET_UPPER_COLORS.size(), _team_upper_preset_indices)
+	if not _team_insignia_indices.has(team_id):
+		if insignia_textures.is_empty():
+			_team_insignia_indices[team_id] = 0
+		else:
+			_team_insignia_indices[team_id] = _pick_random_unassigned_index(insignia_textures.size(), _team_insignia_indices)
+
+func _pick_random_unassigned_index(pool_size: int, assignments: Dictionary) -> int:
+	if pool_size <= 1:
+		return 0
+	var used_indices: Dictionary = {}
+	for assigned_variant in assignments.values():
+		var assigned_index: int = int(assigned_variant)
+		if assigned_index >= 0 and assigned_index < pool_size:
+			used_indices[assigned_index] = true
+	var available_indices: Array[int] = []
+	for i in range(pool_size):
+		if not used_indices.has(i):
+			available_indices.append(i)
+	if available_indices.is_empty():
+		return _rng.randi_range(0, pool_size - 1)
+	return available_indices[_rng.randi_range(0, available_indices.size() - 1)]
+
+func _get_team_upper_color(team_id: int) -> Color:
+	_ensure_team_livery(team_id)
+	var idx: int = int(_team_upper_preset_indices.get(team_id, 0))
+	idx = clampi(idx, 0, PRESET_UPPER_COLORS.size() - 1)
+	return PRESET_UPPER_COLORS[idx]
+
+func _get_team_insignia_index(team_id: int) -> int:
+	_ensure_team_livery(team_id)
+	if insignia_textures.is_empty():
+		return 0
+	return clampi(int(_team_insignia_indices.get(team_id, 0)), 0, insignia_textures.size() - 1)
+
+func _activate_pilot_colors_for_root(root: Node) -> void:
+	_active_apply_has_pilot_colors = false
+	if root == null or not is_instance_valid(root):
+		return
+	if root.get_node_or_null("CockpitPilot") == null:
+		return
+	var palette: Dictionary = _get_or_assign_pilot_palette(root)
+	if palette.is_empty():
+		return
+
+	var main_variant: Variant = palette.get("main_color", null)
+	var main_dark_variant: Variant = palette.get("main_color_dark", null)
+	var helmet_1_variant: Variant = palette.get("helmet_color_1", null)
+	var helmet_2_variant: Variant = palette.get("helmet_color_2", null)
+	if not (main_variant is Color and main_dark_variant is Color and helmet_1_variant is Color and helmet_2_variant is Color):
+		return
+
+	_active_apply_pilot_main_color = main_variant as Color
+	_active_apply_pilot_main_dark_color = main_dark_variant as Color
+	_active_apply_pilot_helmet_color_1 = helmet_1_variant as Color
+	_active_apply_pilot_helmet_color_2 = helmet_2_variant as Color
+	_active_apply_has_pilot_colors = true
+
+func _get_or_assign_pilot_palette(root: Node) -> Dictionary:
+	var existing_variant: Variant = root.get_meta(PILOT_LIVERY_META_KEY, null)
+	if existing_variant is Dictionary:
+		var existing: Dictionary = existing_variant
+		if _is_valid_pilot_palette(existing):
+			return existing
+
+	var created: Dictionary = _make_random_pilot_palette()
+	root.set_meta(PILOT_LIVERY_META_KEY, created)
+	return created
+
+func _is_valid_pilot_palette(palette: Dictionary) -> bool:
+	var main_variant: Variant = palette.get("main_color", null)
+	var main_dark_variant: Variant = palette.get("main_color_dark", null)
+	var helmet_1_variant: Variant = palette.get("helmet_color_1", null)
+	var helmet_2_variant: Variant = palette.get("helmet_color_2", null)
+	return main_variant is Color and main_dark_variant is Color and helmet_1_variant is Color and helmet_2_variant is Color
+
+func _make_random_pilot_palette() -> Dictionary:
+	var helmet_1: Color = _pick_random_color(PRESET_UPPER_COLORS)
+	var helmet_2: Color = _pick_random_color(PRESET_UPPER_COLORS)
+	if PRESET_UPPER_COLORS.size() > 1:
+		var safety: int = 4
+		while helmet_2 == helmet_1 and safety > 0:
+			helmet_2 = _pick_random_color(PRESET_UPPER_COLORS)
+			safety -= 1
+	return {
+		"main_color": _pick_random_color(PILOT_MAIN_COLOR_POOL),
+		"main_color_dark": _pick_random_color(PILOT_MAIN_DARK_COLOR_POOL),
+		"helmet_color_1": helmet_1,
+		"helmet_color_2": helmet_2,
+	}
+
+func _pick_random_color(pool: Array[Color]) -> Color:
+	if pool.is_empty():
+		return Color.WHITE
+	return pool[_rng.randi_range(0, pool.size() - 1)]
 
 func _apply_insignia(aircraft: Node) -> void:
 	# Remove old decals from the full aircraft subtree.
@@ -158,9 +339,9 @@ func _apply_insignia(aircraft: Node) -> void:
 		if decal is Node and _is_descendant_of(decal as Node, aircraft):
 			(decal as Node).queue_free()
 
-	if insignia_textures.is_empty() or insignia_index < 0:
+	if insignia_textures.is_empty() or _active_apply_insignia_index < 0:
 		return
-	var tex: Texture2D = insignia_textures[insignia_index]
+	var tex: Texture2D = insignia_textures[_active_apply_insignia_index]
 
 	# Compute aspect-correct decal size from texture dimensions
 	var tex_w := float(tex.get_width())
@@ -222,14 +403,18 @@ func _apply_insignia(aircraft: Node) -> void:
 
 			var t_tail := tail_marker.transform
 			t_tail.origin.x *= side
-			var local_y_axis: Vector3 = Vector3.RIGHT * side
-			# Keep decal "up" consistent on both sides so the insignia is not upside down.
-			var local_z_axis: Vector3 = Vector3.UP
-			var local_x_axis: Vector3 = local_y_axis.cross(local_z_axis).normalized()
-			t_tail.basis = Basis(local_x_axis, local_y_axis, local_z_axis)
-			# Godot decal UV orientation on lateral projection needs a 180° roll
+			# Keep the original tail projection orientation, then apply marker rotation as an offset
+			# so small inspector tilts work naturally on angled stabilizers.
+			var marker_basis: Basis = tail_marker.transform.basis.orthonormalized()
+			var base_y_axis: Vector3 = Vector3.RIGHT * side
+			var base_z_axis: Vector3 = Vector3.UP
+			var base_x_axis: Vector3 = base_y_axis.cross(base_z_axis).normalized()
+			var base_basis: Basis = Basis(base_x_axis, base_y_axis, base_z_axis)
+			var decal_basis: Basis = (base_basis * marker_basis).orthonormalized()
+			# Godot decal UV orientation on lateral projection needs a 180-degree roll
 			# around the projection axis to keep the insignia readable.
-			t_tail.basis = t_tail.basis * Basis(local_y_axis.normalized(), PI)
+			decal_basis = (decal_basis * Basis(Vector3.UP, PI)).orthonormalized()
+			t_tail.basis = decal_basis
 			tail_decal.transform = t_tail
 
 func _is_descendant_of(node: Node, ancestor: Node) -> bool:
@@ -399,9 +584,9 @@ func _apply_carrier_insignia(carrier: Node) -> void:
 		if child.is_in_group("livery_carrier_insignia"):
 			child.queue_free()
 
-	if insignia_textures.is_empty() or insignia_index < 0:
+	if insignia_textures.is_empty() or _active_apply_insignia_index < 0:
 		return
-	var tex: Texture2D = insignia_textures[insignia_index]
+	var tex: Texture2D = insignia_textures[_active_apply_insignia_index]
 
 	var tex_w := float(tex.get_width())
 	var tex_h := float(tex.get_height())
@@ -438,18 +623,26 @@ func _apply_recursive(node: Node) -> void:
 				var mat_name: String = mat.resource_name.to_lower()
 				var target_color := Color(-1, 0, 0)  # sentinel
 				if "upper fuselage" in mat_name or "upper_fuselage" in mat_name:
-					target_color = upper_color
+					target_color = _active_apply_upper_color
 				elif "lower fuselage" in mat_name or "lower_fuselage" in mat_name:
 					target_color = lower_color
 				elif "dark blue plasteel" in mat_name:
 					target_color = Color(
-						upper_color.r * carrier_dark_factor,
-						upper_color.g * carrier_dark_factor,
-						upper_color.b * carrier_dark_factor,
-						upper_color.a
+						_active_apply_upper_color.r * carrier_dark_factor,
+						_active_apply_upper_color.g * carrier_dark_factor,
+						_active_apply_upper_color.b * carrier_dark_factor,
+						_active_apply_upper_color.a
 					)
 				elif "blue plasteel" in mat_name:
-					target_color = upper_color
+					target_color = _active_apply_upper_color
+				elif _active_apply_has_pilot_colors and mat_name == "main_color":
+					target_color = _active_apply_pilot_main_color
+				elif _active_apply_has_pilot_colors and mat_name == "main_color_dark":
+					target_color = _active_apply_pilot_main_dark_color
+				elif _active_apply_has_pilot_colors and (mat_name == "helmet_color" or mat_name == "helmet_color_1"):
+					target_color = _active_apply_pilot_helmet_color_1
+				elif _active_apply_has_pilot_colors and mat_name == "helmet_color_2":
+					target_color = _active_apply_pilot_helmet_color_2
 				if target_color.r >= 0.0:
 					var override: StandardMaterial3D
 					if mat is StandardMaterial3D:

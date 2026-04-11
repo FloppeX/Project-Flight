@@ -32,7 +32,7 @@ func fire():
 	
 	return true
 
-func apply_recoil_force(force_magnitude: float):
+func apply_recoil_force(force_magnitude: float, add_shake: bool = true, shake_scale: float = 0.01, shake_duration_s: float = 0.1):
 	if aircraft:
 		# Random force variation ±25%
 		var varied_force = force_magnitude * randf_range(0.75, 1.25)
@@ -51,7 +51,8 @@ func apply_recoil_force(force_magnitude: float):
 		var local_position = global_position - aircraft.global_position
 		aircraft.apply_force(recoil_force, local_position)
 		
-		aircraft.add_shake(varied_force * 0.01, 0.1)  # Scale shake to force magnitude
+		if add_shake and aircraft.has_method("add_shake"):
+			aircraft.add_shake(varied_force * maxf(shake_scale, 0.0), maxf(shake_duration_s, 0.01))
 
 func get_aircraft_velocity() -> Vector3:
 	if aircraft:

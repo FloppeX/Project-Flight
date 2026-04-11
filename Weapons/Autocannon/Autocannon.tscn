@@ -1,15 +1,15 @@
-[gd_scene load_steps=5 format=3 uid="uid://bar7l5uwuwevr"]
+[gd_scene load_steps=6 format=3 uid="uid://bar7l5uwuwevr"]
 
 [ext_resource type="Script" uid="uid://cc5i2s0mvs378" path="res://Weapons/Autocannon/autocannon.gd" id="1_vsd06"]
 [ext_resource type="PackedScene" uid="uid://cvtsgxjlbovb7" path="res://Projectiles/Bullet/bullet.tscn" id="2_8ku1u"]
 [ext_resource type="PackedScene" uid="uid://dr7y73fakllbg" path="res://Models/machine gun low poly.glb" id="2_yrjfh"]
 [ext_resource type="AudioStream" uid="uid://dqxot06c6ine2" path="res://Audio/Heavy machine gun.wav" id="3_8ku1u"]
+[ext_resource type="Resource" path="res://Weapons/Guns/Profiles/15mm_machine_gun.tres" id="5_profile"]
 
 [node name="Autocannon" type="Node3D"]
 script = ExtResource("1_vsd06")
+gun_profile = ExtResource("5_profile")
 bullet_projectile_scene = ExtResource("2_8ku1u")
-rounds_per_minute = 1200.0
-muzzle_velocity = 1000.0
 cannon_sound = ExtResource("3_8ku1u")
 
 [node name="Autocannon_glb" parent="." instance=ExtResource("2_yrjfh")]

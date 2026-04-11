@@ -55,6 +55,18 @@ var current_health: float:
 var internal_world_reference : Node3D
 
 const EARTH_GRAVITY = 9.8 # for g-force calculation
+const DEFAULT_COCKPIT_PILOT_SCENE: PackedScene = preload("res://Models/Characters/Pilot.glb")
+const DEFAULT_COCKPIT_PILOT_POSE_SCRIPT: Script = preload("res://Aircraft/PilotPose.gd")
+const COCKPIT_PILOT_NODE_NAME: StringName = &"CockpitPilot"
+
+@export_group("Cockpit Pilot")
+@export var spawn_cockpit_pilot: bool = true
+@export var cockpit_pilot_scene: PackedScene = DEFAULT_COCKPIT_PILOT_SCENE
+@export var cockpit_pilot_pose_script: Script = DEFAULT_COCKPIT_PILOT_POSE_SCRIPT
+@export var cockpit_pilot_camera_path: NodePath = NodePath("CameraCockpit")
+@export var cockpit_pilot_local_offset: Vector3 = Vector3(0.0, -0.65, 0.05)
+@export var cockpit_pilot_local_rotation_deg: Vector3 = Vector3(0.0, 180.0, 0.0)
+@export var cockpit_pilot_uniform_scale: float = 1.0
 
 ##############################################################################
 #  SYSTEM SETUP
@@ -138,14 +150,49 @@ func _ready():
 	# Preserve the editor-authored loadout, but still bootstrap support modules
 	# that some weapon types depend on to function.
 	_ensure_weapon_support_modules()
+	_ensure_cockpit_pilot()
 	
 	setup()
 
-	# Apply player livery colors to friendly aircraft
-	if team == 1 and Livery:
-		Livery.apply(self)
+	# Apply team livery colors/insignia (player and enemies).
+	var livery_node: Node = get_node_or_null("/root/Livery")
+	if livery_node != null and livery_node.has_method("apply"):
+		livery_node.call("apply", self)
 
 	physics_interpolation_mode = Node3D.PHYSICS_INTERPOLATION_MODE_ON
+
+func _ensure_cockpit_pilot() -> void:
+	if not spawn_cockpit_pilot:
+		return
+	if cockpit_pilot_scene == null:
+		return
+	if get_node_or_null(str(COCKPIT_PILOT_NODE_NAME)) != null:
+		return
+
+	var cockpit_node: Node3D = get_node_or_null(cockpit_pilot_camera_path) as Node3D
+	if cockpit_node == null:
+		cockpit_node = find_child("CameraCockpit", true, false) as Node3D
+	if cockpit_node == null:
+		return
+
+	var pilot_node: Node3D = cockpit_pilot_scene.instantiate() as Node3D
+	if pilot_node == null:
+		return
+
+	pilot_node.name = str(COCKPIT_PILOT_NODE_NAME)
+	if cockpit_pilot_pose_script != null:
+		pilot_node.set_script(cockpit_pilot_pose_script)
+	add_child(pilot_node)
+
+	var uniform_scale: float = maxf(cockpit_pilot_uniform_scale, 0.01)
+	var local_rotation_rad: Vector3 = Vector3(
+		deg_to_rad(cockpit_pilot_local_rotation_deg.x),
+		deg_to_rad(cockpit_pilot_local_rotation_deg.y),
+		deg_to_rad(cockpit_pilot_local_rotation_deg.z)
+	)
+	var local_basis: Basis = Basis.from_euler(local_rotation_rad).scaled(Vector3.ONE * uniform_scale)
+	var local_transform: Transform3D = Transform3D(local_basis, cockpit_pilot_local_offset)
+	pilot_node.global_transform = cockpit_node.global_transform * local_transform
 
 func _ensure_weapon_support_modules() -> void:
 	if _has_weapon_type("AAMissile") and not find_child("ControlTargeting_AAM", true, false):
