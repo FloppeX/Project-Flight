@@ -48,7 +48,7 @@ friction = 0.1
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_kq7no"]
 radius = 0.768754
-height = 8.14684
+height = 7.58891
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_wing_hitbox"]
 size = Vector3(14.4876, 0.26, 2.2)
@@ -72,6 +72,7 @@ center_of_mass = Vector3(0, 0, 0.5)
 contact_monitor = true
 max_contacts_reported = 10
 script = ExtResource("1_e8t1h")
+max_health = 140.0
 explosion_scene = ExtResource("2_x73up")
 wreck_scene = ExtResource("3_x73up")
 wreck_base_impulse = 100.0
@@ -85,10 +86,10 @@ team = 2
 transform = Transform3D(-1, 1.49012e-08, 8.9407e-08, -7.45058e-09, 0.992241, -0.124329, -8.9407e-08, -0.124329, -0.992241, 0.000487457, -0.0480957, -0.037015)
 
 [node name="Aircraft 2 propeller" parent="aircraft_4" instance=ExtResource("4_ii5ys")]
-transform = Transform3D(-1.6, 0, -1.39876e-07, 0, 1.6, 0, 1.39876e-07, 0, -1.6, 0, 0.39287, 4.55876)
+transform = Transform3D(-1.6, 0, -1.39876e-07, 0, 1.6, 0, 1.39876e-07, 0, -1.6, 0, 0.276173, 4.50154)
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, -4.37114e-08, -1, 0, 1, -4.37114e-08, 0, 0.233423, 0.434461)
+transform = Transform3D(1, 0, 0, 0, -4.37114e-08, -1, 0, 1, -4.37114e-08, 0, 0.348533, 0.572592)
 shape = SubResource("CapsuleShape3D_kq7no")
 
 [node name="WingCollider" type="CollisionShape3D" parent="."]
@@ -167,14 +168,14 @@ cinematic_tripod = NodePath("../CameraCinematic")
 cockpit_interior_sound = ExtResource("37_cpit")
 
 [node name="CameraCockpit" parent="." instance=ExtResource("25_lvoxg")]
-transform = Transform3D(-1, 0, -8.74213e-08, 0, 0.999983, 0, 8.74228e-08, 0, -0.999983, 0, 1.3015, 1.04392)
+transform = Transform3D(-1, 0, -8.74213e-08, 0, 0.999983, 0, 8.74228e-08, 0, -0.999983, 0, 1.15, 0.987)
 
 [node name="CockpitPilot" parent="." instance=ExtResource("90_cpilot")]
-transform = Transform3D(0.999958, 0, -0.00842568, 0, 0.999949, 0, 0.00839809, 0, 0.999921, 0, -0.352795, 1.15485)
+transform = Transform3D(0.999958, 0, -0.00842568, 0, 0.999949, 0, 0.00839809, 0, 0.999921, 0, -0.507726, 1.09763)
 cockpit_hidden_mesh_names = PackedStringArray("Pilot")
 
 [node name="CameraTarget" type="Node3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.906776, 4.87997)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -1.1063, 3.26843)
 
 [node name="Camera" type="Camera3D" parent="CameraTarget"]
 transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, 0, 0)
@@ -186,13 +187,13 @@ transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, 0, 
 transform = Transform3D(0.0804371, 0.00133164, 3.19724e-05, -0.00226377, 0.568899, -7.06691e-08, -1.13102, -0.00104375, 2.274e-06, 7729.53, -1105.77, -14248)
 
 [node name="HeadsUpDisplay" parent="." instance=ExtResource("26_0u53p")]
-transform = Transform3D(-0.5, 0, -4.37114e-08, 0, 0.5, 0, 4.37114e-08, 0, -0.5, 0, 1.3015, 2.08725)
+transform = Transform3D(-0.349513, 0, -5.2775e-08, 0, 0.349513, 0, 5.2775e-08, 0, -0.349513, 0, 1.15947, 2.03)
 camera_path = NodePath("../CameraCockpit")
 aircraft_path = NodePath("..")
 hud_glass_size = Vector2(1, 1)
 
 [node name="InstrumentPanel" parent="." instance=ExtResource("27_h17fj")]
-transform = Transform3D(-0.6, 1.79402e-08, -4.92904e-08, 0, 0.563816, 0.205212, 5.24537e-08, 0.205212, -0.563816, 0, 0.801504, 1.93725)
+transform = Transform3D(-0.6, 1.79402e-08, -4.92904e-08, 0, 0.563816, 0.205212, 5.24537e-08, 0.205212, -0.563816, 0, 0.684807, 1.88003)
 aircraft_path = NodePath("..")
 panel_size = Vector2(1, 0.8)
 camera_target_path = NodePath("../CameraTarget")
@@ -218,8 +219,9 @@ transform = Transform3D(-0.5, 0, -4.37114e-08, 0, 0.5, 0, 4.37114e-08, 0, -0.5, 
 max_pitch_up = 90.0
 max_pitch_down = -20.0
 limit_yaw_arc = true
+yaw_center_deg = 180.0
 yaw_left_limit_deg = 110.0
-yaw_right_limit_deg = 100.0
+yaw_right_limit_deg = 110.0
 
 [node name="TailHook" parent="." instance=ExtResource("31_3f4kl")]
 transform = Transform3D(1, 0, 0, 0, 0.5, -0.866025, 0, 0.866025, 0.5, 0, -1.11709, -2.77791)

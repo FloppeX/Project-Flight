@@ -3,7 +3,7 @@
 [ext_resource type="Script" uid="uid://c4ltq2v6fji05" path="res://Aircraft/aircraft.gd" id="1_e8t1h"]
 [ext_resource type="PackedScene" uid="uid://cadi81fcpvmuc" path="res://Projectiles/Explosion/explosion.tscn" id="2_x73up"]
 [ext_resource type="PackedScene" uid="uid://djtbinx1svo2u" path="res://Aircraft/Aircraft wreck/aircraft_1_wreck.tscn" id="3_x73up"]
-[ext_resource type="PackedScene" uid="uid://bi2dmxhb21p11" path="res://Models/Aircraft_2/Aircraft 2 body.glb" id="4_fx6wc"]
+[ext_resource type="PackedScene" uid="uid://byx6gtcy8ggbm" path="res://Models/Aircraft_2/Aircraft 2 body.glb" id="4_fx6wc"]
 [ext_resource type="PackedScene" uid="uid://p831mbxhqubt" path="res://Models/Aircraft_1/aircraft 2 propeller.glb" id="4_ii5ys"]
 [ext_resource type="Script" uid="uid://cyxrx2cid1gt" path="res://Aircraft/SimpleAero.gd" id="5_8vbcf"]
 [ext_resource type="PackedScene" uid="uid://diddm04vtjnny" path="res://addons/simplified_flightsim/aircraft_modules/EnergyContainer/EnergyContainer.tscn" id="9_n2s36"]
@@ -179,13 +179,13 @@ transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, 0, 
 transform = Transform3D(0.0804371, 0.00133164, 3.19724e-05, -0.00226377, 0.568899, -7.06691e-08, -1.13102, -0.00104375, 2.274e-06, 7729.53, -1105.77, -14248)
 
 [node name="HeadsUpDisplay" parent="." instance=ExtResource("26_0u53p")]
-transform = Transform3D(-0.5, 0, -4.37114e-08, 0, 0.5, 0, 4.37114e-08, 0, -0.5, 0, 0.92, 3.32299)
+transform = Transform3D(-0.4, 0, -6.03983e-08, 0, 0.4, 0, 6.03983e-08, 0, -0.4, 0, 0.894685, 3.32299)
 camera_path = NodePath("../CameraCockpit")
 aircraft_path = NodePath("..")
 hud_glass_size = Vector2(1, 1)
 
 [node name="InstrumentPanel" parent="." instance=ExtResource("27_h17fj")]
-transform = Transform3D(-0.6, 1.79402e-08, -4.92904e-08, 0, 0.563816, 0.205212, 5.24537e-08, 0.205212, -0.563816, 0, 0.42, 3.17299)
+transform = Transform3D(-0.6, 1.79402e-08, -4.92904e-08, 0, 0.563816, 0.205212, 5.24537e-08, 0.205212, -0.563816, 0.000409961, 0.42, 3.15528)
 aircraft_path = NodePath("..")
 panel_size = Vector2(1, 0.8)
 camera_target_path = NodePath("../CameraTarget")

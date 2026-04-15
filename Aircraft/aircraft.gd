@@ -19,6 +19,15 @@ signal destroyed
 @export var team: int = 1
 @export var damage_cooldown_s: float = 0.01  # Reduced from 0.05 to allow more bullet hits
 @export var debug_damage: bool = false
+@export_group("Critical Damage")
+@export var critical_explosion_check_interval_s: float = 1.0
+@export_range(0.0, 1.0, 0.01) var critical_explosion_chance_per_check: float = 0.1
+@export var critical_debris_chunk_min_count: int = 8
+@export var critical_debris_chunk_max_count: int = 14
+@export var critical_debris_chunk_min_size_m: float = 0.25
+@export var critical_debris_chunk_max_size_m: float = 1.25
+@export var critical_debris_chunk_impulse_min_mps: float = 20.0
+@export var critical_debris_chunk_impulse_max_mps: float = 70.0
 @export var prevent_below_terrain: bool = true 
 @export var ground_clearance: float = 0.25
 @export var ground_probe_up: float = 50.0
@@ -58,6 +67,7 @@ const EARTH_GRAVITY = 9.8 # for g-force calculation
 const DEFAULT_COCKPIT_PILOT_SCENE: PackedScene = preload("res://Models/Characters/Pilot.glb")
 const DEFAULT_COCKPIT_PILOT_POSE_SCRIPT: Script = preload("res://Aircraft/PilotPose.gd")
 const COCKPIT_PILOT_NODE_NAME: StringName = &"CockpitPilot"
+const AIRCRAFT_DEBRIS_CHUNK_SCRIPT: Script = preload("res://Aircraft/AircraftDebrisChunk.gd")
 
 @export_group("Cockpit Pilot")
 @export var spawn_cockpit_pilot: bool = true
@@ -98,6 +108,13 @@ var forward_air_speed = 0.0
 var local_altitude = 0.0
 var local_g_force = 1.0
 var local_load_factor = 1.0
+var _critical_damage_active: bool = false
+var _critical_damage_timer_s: float = 0.0
+var _jam_roll_input: float = 0.0
+var _jam_pitch_input: float = 0.0
+var _jam_steering_module: Node = null
+var _jam_simple_aero: Node = null
+var _has_exploded: bool = false
 
 func _ready():
 	await get_tree().process_frame
@@ -153,6 +170,7 @@ func _ready():
 	_ensure_cockpit_pilot()
 	
 	setup()
+	_cache_control_jam_targets()
 
 	# Apply team livery colors/insignia (player and enemies).
 	var livery_node: Node = get_node_or_null("/root/Livery")
@@ -219,6 +237,8 @@ func setup():
 		module.setup(self)
 
 func _unhandled_input(event):
+	if _critical_damage_active:
+		return
 	for module in modules:
 		if module.ReceiveInput:
 			module.receive_input(event)
@@ -232,6 +252,11 @@ func _physics_process(delta):
 	for module in modules:
 		if module.ProcessPhysics:
 			module.process_physic_frame(delta)
+
+	if _critical_damage_active:
+		_update_critical_damage_state(delta)
+		if _has_exploded:
+			return
 	
 	# Safety: never allow aircraft below terrain height (fallback against streaming holes)
 	if prevent_below_terrain:
@@ -594,7 +619,7 @@ func check_movement_state():
 # ----------------------------------------------------------------------------
 
 func take_damage(damage_amount: float):
-	if current_health <= 0:
+	if current_health <= 0 or _critical_damage_active or _has_exploded:
 		return  # Already destroyed
 	# Simple damage cooldown to prevent multiple applications from a single collision frame
 	var now_ms: int = Time.get_ticks_msec()
@@ -614,24 +639,168 @@ func take_damage(damage_amount: float):
 	# emit_signal("damaged", damage_amount, current_health)  # Now handled by setter
 	
 	if current_health <= 0:
-		explode()
+		_begin_critical_damage_sequence()
 
 func explode():
+	if _has_exploded:
+		return
+	_has_exploded = true
+	_critical_damage_active = false
 	emit_signal("destroyed")
-	
-	# Only player aircraft should trigger deathcam cut.
-	# AI aircraft are removed from "aircraft" group by the spawner.
-	if is_in_group("aircraft"):
-		activate_deathcam()
-	
-	# Spawn explosion effect if available
-	if explosion_scene:
-		var explosion_instance = explosion_scene.instantiate()
-		get_parent().add_child(explosion_instance)
-		explosion_instance.global_position = global_position
+	_spawn_critical_damage_chunks()
 
-	# Swap to wreck and free the aircraft body
-	_spawn_wreck_and_free()
+	# Cleanly detach from deck systems
+	if has_meta("arresting_cable"):
+		var cable = get_meta("arresting_cable")
+		if is_instance_valid(cable) and cable.has_method("manual_release"):
+			cable.manual_release()
+
+	queue_free()
+
+func _begin_critical_damage_sequence() -> void:
+	if _critical_damage_active or _has_exploded:
+		return
+	_critical_damage_active = true
+	_critical_damage_timer_s = 0.0
+	_jam_roll_input = 1.0 if randf() >= 0.5 else -1.0
+	_jam_pitch_input = 1.0 if randf() >= 0.5 else -1.0
+	set_meta("player_control_locked", true)
+	set_meta("controls_disabled", true)
+	_disable_player_control_for_critical_damage()
+	_disable_non_jam_control_modules()
+
+func _disable_player_control_for_critical_damage() -> void:
+	if FlightDirector and FlightDirector.has_method("force_release_player_control_for"):
+		FlightDirector.force_release_player_control_for(self)
+
+func _update_critical_damage_state(delta: float) -> void:
+	_apply_jammed_controls()
+	var interval_s: float = maxf(critical_explosion_check_interval_s, 0.05)
+	_critical_damage_timer_s += delta
+	while _critical_damage_timer_s >= interval_s:
+		_critical_damage_timer_s -= interval_s
+		if randf() <= critical_explosion_chance_per_check:
+			explode()
+			return
+
+func _apply_jammed_controls() -> void:
+	_cache_control_jam_targets()
+	if _jam_steering_module and _jam_steering_module.has_method("set_z"):
+		_jam_steering_module.call("set_z", _jam_roll_input)
+	if _jam_steering_module and _jam_steering_module.has_method("set_x"):
+		_jam_steering_module.call("set_x", _jam_pitch_input)
+	if _jam_steering_module and _jam_steering_module.has_method("set_y"):
+		_jam_steering_module.call("set_y", 0.0)
+	if _jam_simple_aero:
+		_jam_simple_aero.roll_input = -_jam_roll_input
+		_jam_simple_aero.pitch_input = _jam_pitch_input
+		_jam_simple_aero.yaw_input = 0.0
+
+func _cache_control_jam_targets() -> void:
+	if _jam_steering_module == null:
+		var steering_modules: Array = find_modules_by_type("steering")
+		if not steering_modules.is_empty():
+			_jam_steering_module = steering_modules[0] as Node
+	if _jam_simple_aero == null:
+		_jam_simple_aero = get_node_or_null("SimpleAero")
+		if _jam_simple_aero == null:
+			_jam_simple_aero = find_child("SimpleAero", true, false)
+
+func _disable_non_jam_control_modules() -> void:
+	var blocked_scripts: Array[String] = [
+		"controlsteering.gd",
+		"controlengine.gd",
+		"controllandinggear.gd",
+		"controlflaps.gd",
+		"controlweapons.gd",
+		"controltargeting.gd",
+		"controltargeting_aam.gd",
+	]
+	for script_name in blocked_scripts:
+		var nodes: Array[Node] = _find_nodes_by_script_suffix(self, script_name)
+		for node in nodes:
+			node.set_process_input(false)
+			node.set_process(false)
+			node.set_physics_process(false)
+
+func _find_nodes_by_script_suffix(root: Node, script_suffix: String) -> Array[Node]:
+	var found_nodes: Array[Node] = []
+	for child in root.get_children():
+		var script_obj: Script = child.get_script()
+		if script_obj != null and script_obj.resource_path.to_lower().ends_with(script_suffix):
+			found_nodes.append(child)
+		found_nodes.append_array(_find_nodes_by_script_suffix(child, script_suffix))
+	return found_nodes
+
+func _spawn_critical_damage_chunks() -> void:
+	var parent_node: Node = get_parent()
+	if not is_instance_valid(parent_node):
+		return
+	var min_count: int = maxi(1, critical_debris_chunk_min_count)
+	var max_count: int = maxi(min_count, critical_debris_chunk_max_count)
+	var chunk_count: int = randi_range(min_count, max_count)
+	var min_size: float = maxf(critical_debris_chunk_min_size_m, 0.05)
+	var max_size: float = maxf(min_size, critical_debris_chunk_max_size_m)
+	var min_impulse: float = maxf(critical_debris_chunk_impulse_min_mps, 0.0)
+	var max_impulse: float = maxf(min_impulse, critical_debris_chunk_impulse_max_mps)
+	var aircraft_velocity: Vector3 = linear_velocity
+	for i in range(chunk_count):
+		var chunk := RigidBody3D.new()
+		chunk.name = "AircraftDebrisChunk_%d" % i
+		chunk.set_script(AIRCRAFT_DEBRIS_CHUNK_SCRIPT)
+		chunk.mass = randf_range(8.0, 28.0)
+		chunk.contact_monitor = true
+		chunk.max_contacts_reported = 4
+		parent_node.add_child(chunk)
+
+		var size := Vector3(
+			randf_range(min_size, max_size),
+			randf_range(min_size, max_size),
+			randf_range(min_size, max_size)
+		)
+		var local_offset := Vector3(
+			randf_range(-2.6, 2.6),
+			randf_range(-0.9, 1.4),
+			randf_range(-3.0, 3.0)
+		)
+		chunk.global_position = global_position + global_transform.basis * local_offset
+		chunk.global_rotation = Vector3(
+			randf_range(-PI, PI),
+			randf_range(-PI, PI),
+			randf_range(-PI, PI)
+		)
+
+		var mesh := MeshInstance3D.new()
+		var box := BoxMesh.new()
+		box.size = size
+		mesh.mesh = box
+		var mat := StandardMaterial3D.new()
+		var shade: float = randf_range(0.10, 0.24)
+		mat.albedo_color = Color(shade, shade, shade)
+		mat.roughness = 0.92
+		mesh.material_override = mat
+		chunk.add_child(mesh)
+
+		var collider := CollisionShape3D.new()
+		var collider_shape := BoxShape3D.new()
+		collider_shape.size = size
+		collider.shape = collider_shape
+		chunk.add_child(collider)
+
+		var outward: Vector3 = (chunk.global_position - global_position).normalized()
+		if outward == Vector3.ZERO:
+			outward = Vector3(
+				randf_range(-1.0, 1.0),
+				randf_range(0.2, 1.0),
+				randf_range(-1.0, 1.0)
+			).normalized()
+		outward.y = maxf(outward.y + randf_range(0.15, 0.65), 0.2)
+		chunk.linear_velocity = aircraft_velocity + outward.normalized() * randf_range(min_impulse, max_impulse)
+		chunk.angular_velocity = Vector3(
+			randf_range(-10.0, 10.0),
+			randf_range(-10.0, 10.0),
+			randf_range(-10.0, 10.0)
+		)
 
 func activate_deathcam():
 	# Prefer independent deathcam scene
@@ -750,6 +919,8 @@ func calculate_ccip_impact_point() -> Dictionary:
 	var control_weapons = find_child("ControlWeapons")
 	if control_weapons and control_weapons.hardpoints:
 		for hardpoint in control_weapons.hardpoints:
+			if not is_instance_valid(hardpoint):
+				continue
 			if (hardpoint.weapon_instance and 
 				hardpoint.weapon_instance.weapon_name == "Bomb"):
 				bomb_hardpoint = hardpoint

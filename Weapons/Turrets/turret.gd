@@ -95,7 +95,9 @@ func _rotate_towards(target_pos: Vector3, delta: float) -> void:
 	if local_target.length() > 0.1:
 		var local_target_yaw: float = atan2(local_target.x, local_target.z)
 		local_target_yaw = _clamp_target_yaw_to_arc(local_target_yaw)
-		var desired_yaw: float = _turret_rest_rotation.y + local_target_yaw
+		# local_target_yaw is already expressed in turret-parent space (absolute yaw).
+		# Adding rest yaw here double-offsets rear-mounted turrets and can invert arcs.
+		var desired_yaw: float = local_target_yaw
 		var yaw_error: float = wrapf(desired_yaw - rotation.y, -PI, PI)
 		var yaw_speed_factor: float = _get_low_error_speed_factor(yaw_error)
 		var max_turn: float = deg_to_rad(turn_speed * yaw_speed_factor) * delta
@@ -153,6 +155,28 @@ func is_point_within_yaw_arc(world_point: Vector3) -> bool:
 	var right_limit_rad: float = deg_to_rad(maxf(yaw_right_limit_deg, 0.0))
 	var relative_yaw: float = wrapf(target_yaw - center_rad, -PI, PI)
 	return relative_yaw >= -right_limit_rad and relative_yaw <= left_limit_rad
+
+func get_point_clamped_to_yaw_arc(world_point: Vector3) -> Vector3:
+	if not limit_yaw_arc:
+		return world_point
+	var turret_parent := get_parent_node_3d()
+	if turret_parent == null:
+		return world_point
+	var local_target: Vector3 = turret_parent.to_local(world_point) - position
+	var horizontal_len: float = Vector2(local_target.x, local_target.z).length()
+	if horizontal_len <= 0.0001:
+		return world_point
+	var target_yaw: float = atan2(local_target.x, local_target.z)
+	var clamped_yaw: float = _clamp_target_yaw_to_arc(target_yaw)
+	var clamped_local_target: Vector3 = Vector3(
+		sin(clamped_yaw) * horizontal_len,
+		local_target.y,
+		cos(clamped_yaw) * horizontal_len
+	)
+	return turret_parent.to_global(position + clamped_local_target)
+
+func get_current_muzzle_transform() -> Transform3D:
+	return _get_current_muzzle_transform()
 
 func get_aim_angle_to_target() -> float:
 	if not _has_target_position():

@@ -1,7 +1,6 @@
 extends Node
-## Autoload - spawns and manages the two enemy bases.
+## Autoload - spawns and manages one enemy base.
 ## Base 0 (Crimson Pact) in the upper-left quadrant.
-## Base 1 (Iron Veil) in the upper-right quadrant.
 ## "Upper" means lower Z values on the map.
 
 const QUADRANT_MIN_REACH := 0.35 # min fraction of bake_half_extent for random target pick
@@ -13,9 +12,23 @@ const MAX_SPAN_M := 28.0         # max height span to accept as "flat enough"
 const MAX_HEIGHT_DELTA_FROM_CARRIER_M := 110.0
 const HEIGHT_MATCH_WEIGHT := 0.22
 const BASE_GROUND_CLEARANCE_M := 1.0
+const EMPLACEMENT_SEARCH_ATTEMPTS := 32
 
 var bases: Array[EnemyBase] = []
+var emplacements: Array[Node3D] = []
 var _rng := RandomNumberGenerator.new()
+
+@export_group("Enemy Emplacements")
+@export var emplacement_scene: PackedScene = preload("res://Buildings/gun_emplacement.tscn")
+@export var emplacement_clumps_per_team_min: int = 4
+@export var emplacement_clumps_per_team_max: int = 5
+@export var emplacements_per_clump_min: int = 1
+@export var emplacements_per_clump_max: int = 3
+@export var emplacement_cluster_spread_min_m: float = 18.0
+@export var emplacement_cluster_spread_max_m: float = 75.0
+@export var emplacement_map_margin_m: float = 500.0
+@export var emplacement_activation_distance_m: float = 1700.0
+@export var emplacement_spawn_debug: bool = false
 
 
 func _ready() -> void:
@@ -29,13 +42,14 @@ func _ready() -> void:
 
 func _spawn_bases() -> void:
 	bases.clear()
+	_clear_managed_emplacements()
 
 	var center: Vector3 = TerrainNavGrid.get_bake_center()
 	var half_ext: float = TerrainNavGrid.bake_half_extent_m
 	var carrier_ground_y: float = _get_carrier_ground_level(center)
 
-	# Base 0 upper-left, base 1 upper-right.
-	for i in range(2):
+	# Base 0 upper-left only.
+	for i in range(1):
 		var x_sign := -1.0 if i == 0 else 1.0
 		var target: Vector2 = _pick_random_upper_quadrant_target(center, half_ext, x_sign)
 
@@ -62,6 +76,8 @@ func _spawn_bases() -> void:
 		print("[EnemyBaseManager] Base %d (%s) -> %.0f, %.0f (ground d=%.1fm)" % [
 			i, EnemyBase.FACTION_NAMES[i], pos.x, pos.z, absf(pos.y - carrier_ground_y)
 		])
+
+	_spawn_enemy_emplacement_clumps(center, half_ext, carrier_ground_y)
 
 
 func _find_flat_ground(cx: float, cz: float, reference_ground_y: float, max_height_delta_m: float) -> Vector3:
@@ -136,6 +152,96 @@ func _get_carrier_ground_level(center: Vector3) -> float:
 	if center_h > TerrainNavGrid.IMPASSABLE * 0.5:
 		return center_h
 	return center.y
+
+
+func _clear_managed_emplacements() -> void:
+	var still_valid: Array[Node3D] = []
+	for emplacement in emplacements:
+		if not is_instance_valid(emplacement):
+			continue
+		if emplacement.has_meta("managed_enemy_emplacement") and bool(emplacement.get_meta("managed_enemy_emplacement")):
+			emplacement.queue_free()
+		else:
+			still_valid.append(emplacement)
+	emplacements = still_valid
+
+	for node in get_tree().get_nodes_in_group("gun_emplacements"):
+		if not (node is Node3D):
+			continue
+		var emplacement := node as Node3D
+		if not is_instance_valid(emplacement):
+			continue
+		if emplacement.has_meta("managed_enemy_emplacement") and bool(emplacement.get_meta("managed_enemy_emplacement")):
+			emplacement.queue_free()
+
+
+func _spawn_enemy_emplacement_clumps(center: Vector3, half_ext: float, carrier_ground_y: float) -> void:
+	if emplacement_scene == null:
+		return
+
+	var clumps_min: int = maxi(0, emplacement_clumps_per_team_min)
+	var clumps_max: int = maxi(clumps_min, emplacement_clumps_per_team_max)
+	var units_min: int = maxi(1, emplacements_per_clump_min)
+	var units_max: int = maxi(units_min, emplacements_per_clump_max)
+	var spread_min: float = maxf(emplacement_cluster_spread_min_m, 0.0)
+	var spread_max: float = maxf(spread_min, emplacement_cluster_spread_max_m)
+
+	for enemy_faction_id in range(1):
+		var clump_count: int = _rng.randi_range(clumps_min, clumps_max)
+		for clump_idx in range(clump_count):
+			var clump_center: Vector3 = _find_random_emplacement_center(center, half_ext, carrier_ground_y)
+			if clump_center == Vector3.INF:
+				continue
+			var units: int = _rng.randi_range(units_min, units_max)
+			for unit_idx in range(units):
+				var unit_position: Vector3 = clump_center
+				if unit_idx > 0:
+					var angle: float = _rng.randf_range(0.0, TAU)
+					var dist: float = _rng.randf_range(spread_min, spread_max)
+					var candidate_x: float = clump_center.x + cos(angle) * dist
+					var candidate_z: float = clump_center.z + sin(angle) * dist
+					var candidate_position: Vector3 = _find_flat_ground(candidate_x, candidate_z, carrier_ground_y, MAX_HEIGHT_DELTA_FROM_CARRIER_M * 1.8)
+					if candidate_position != Vector3.INF:
+						unit_position = candidate_position
+				_spawn_single_emplacement(unit_position, enemy_faction_id)
+				if emplacement_spawn_debug:
+					print("[EnemyBaseManager] Emplacement faction=%d clump=%d unit=%d pos=(%.0f, %.0f)" % [
+						enemy_faction_id, clump_idx, unit_idx, unit_position.x, unit_position.z
+					])
+
+
+func _find_random_emplacement_center(center: Vector3, half_ext: float, carrier_ground_y: float) -> Vector3:
+	var margin: float = clampf(emplacement_map_margin_m, 0.0, maxf(half_ext - SEARCH_STEP_M, 0.0))
+	var range_extent: float = maxf(half_ext - margin, SEARCH_STEP_M)
+	for _attempt in range(EMPLACEMENT_SEARCH_ATTEMPTS):
+		var tx: float = center.x + _rng.randf_range(-range_extent, range_extent)
+		var tz: float = center.z + _rng.randf_range(-range_extent, range_extent)
+		var result: Vector3 = _find_flat_ground(tx, tz, carrier_ground_y, MAX_HEIGHT_DELTA_FROM_CARRIER_M * 1.8)
+		if result != Vector3.INF:
+			return result
+	return Vector3.INF
+
+
+func _spawn_single_emplacement(world_position: Vector3, enemy_faction_id: int) -> void:
+	var instance: Node = emplacement_scene.instantiate()
+	if not (instance is Node3D):
+		instance.queue_free()
+		push_warning("[EnemyBaseManager] emplacement_scene must instantiate Node3D.")
+		return
+
+	var emplacement := instance as Node3D
+	if "team" in emplacement:
+		emplacement.set("team", 2)
+	if "activation_distance_m" in emplacement:
+		emplacement.set("activation_distance_m", maxf(emplacement_activation_distance_m, 50.0))
+	get_tree().current_scene.add_child(emplacement)
+	emplacement.global_position = world_position
+	emplacement.rotation.y = _rng.randf_range(0.0, TAU)
+	if emplacement.has_method("snap_collider_to_ground"):
+		emplacement.call("snap_collider_to_ground")
+	emplacement.set_meta("managed_enemy_emplacement", true)
+	emplacement.set_meta("enemy_faction_id", enemy_faction_id)
+	emplacements.append(emplacement)
 
 
 func get_all_bases() -> Array[EnemyBase]:

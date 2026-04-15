@@ -28,6 +28,7 @@ var _debug_speed_time_integral: float = 0.0
 var _debug_initial_speed_mps: float = 0.0
 var _debug_closest_time_s: float = 0.0
 var _debug_peak_speed_mps: float = 0.0
+var _debug_tracking_enabled: bool = false
 
 const SCORCH_TEXTURE_PATH: String = "res://Projectiles/Explosion/scorch_mark.png"
 
@@ -154,14 +155,15 @@ func _physics_process(delta):
 	var prev_pos: Vector3 = global_position
 	# Call parent's physics process first
 	super._physics_process(delta)
-	_debug_age_s += delta
-	var speed_now_mps: float = linear_velocity.length()
-	_debug_distance_traveled_m += speed_now_mps * delta
-	_debug_speed_time_integral += speed_now_mps * delta
-	_debug_peak_speed_mps = maxf(_debug_peak_speed_mps, speed_now_mps)
-	if (_debug_target_node == null or not is_instance_valid(_debug_target_node)):
-		_try_acquire_debug_target_from_meta()
-	_update_debug_closest_center_distance(prev_pos, global_position)
+	if _debug_tracking_enabled:
+		_debug_age_s += delta
+		var speed_now_mps: float = linear_velocity.length()
+		_debug_distance_traveled_m += speed_now_mps * delta
+		_debug_speed_time_integral += speed_now_mps * delta
+		_debug_peak_speed_mps = maxf(_debug_peak_speed_mps, speed_now_mps)
+		if (_debug_target_node == null or not is_instance_valid(_debug_target_node)):
+			_try_acquire_debug_target_from_meta()
+		_update_debug_closest_center_distance(prev_pos, global_position)
 	
 	# Point projectile in direction of travel
 	if linear_velocity.length() > 0.1:
@@ -333,11 +335,9 @@ func update_tracer_mesh() -> void:
 		trail_mesh.visible = false
 		return
 	trail_mesh.visible = true
-	var speed: float = linear_velocity.length()
-	var visual_length: float = maxf(tracer_visual_length, speed * 0.01)
-	tracer_box_mesh.size = Vector3(tracer_width, tracer_width, visual_length)
+	# Keep tracer geometry static to avoid per-frame mesh updates for high bullet counts.
 	# Node3D.look_at points local -Z toward travel, so place the tracer behind the bullet on +Z.
-	trail_mesh.position = Vector3(0.0, 0.0, visual_length * 0.5)
+	trail_mesh.position = Vector3(0.0, 0.0, tracer_visual_length * 0.5)
 
 func _should_hide_tracer_for_startup_frames() -> bool:
 	return tracer_physics_frames_elapsed < max(tracer_hidden_physics_frames, 0)
@@ -353,6 +353,9 @@ func _setup_debug_target_tracking() -> void:
 	_debug_initial_speed_mps = linear_velocity.length()
 	_debug_closest_time_s = 0.0
 	_debug_peak_speed_mps = _debug_initial_speed_mps
+	_debug_tracking_enabled = has_meta("debug_report_callback") or has_meta("debug_target_node")
+	if not _debug_tracking_enabled:
+		return
 	_try_acquire_debug_target_from_meta()
 
 func _try_acquire_debug_target_from_meta() -> void:

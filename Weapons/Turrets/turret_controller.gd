@@ -23,9 +23,6 @@ const PROJECTILE_SPEED_CAP_SETTING_KEYS: Array = [
 @export var distant_target_search_interval_s: float = 1.0
 @export var detailed_targeting_distance_m: float = 1000.0
 @export var target_aim_height_bias_m: float = 0.75
-@export var debug_enabled: bool = false
-@export var debug_print_each_bullet_result: bool = true
-@export var debug_summary_interval_s: float = 1.0
 @export_group("Air Target Penalties")
 @export var air_target_range_multiplier: float = 1.0
 @export var air_target_aim_skill_multiplier: float = 1.0
@@ -58,14 +55,8 @@ var delay_timer: float = 0.0
 # Instanced component
 var weapon_instance: Weapon = null
 var host_actor: Node3D = null
-var _debug_print_timer: float = 0.0
 var _cached_camera: Camera3D = null
 var _camera_cache_timer: float = 0.0
-var _debug_shots_fired_window: int = 0
-var _debug_reports_window: int = 0
-var _debug_hits_window: int = 0
-var _debug_edge_distance_sum_window: float = 0.0
-var _debug_best_edge_distance_window: float = INF
 
 # Aim noise: updated on a timer so the turret can actually track each position
 # rather than chasing a point that jumps every physics frame.
@@ -177,16 +168,25 @@ func _physics_process(delta: float) -> void:
             _target_acceleration = Vector3.ZERO
         _prev_target_velocity = cur_target_vel
 
-        var lead_position := calculate_lead_position(current_target)
+        var lead_position: Vector3 = calculate_lead_position(current_target)
+        var within_fire_arc: bool = true
+        if turret and is_instance_valid(turret):
+            within_fire_arc = turret.is_point_within_yaw_arc(lead_position)
+            if turret.limit_yaw_arc:
+                lead_position = turret.get_point_clamped_to_yaw_arc(lead_position)
         turret.aim_at_point(lead_position)
         turret.tick(delta, lead_position)
 
         var aim_angle := turret.get_aim_angle_to_target()
         var aimed := aim_angle >= 0.0 and aim_angle <= _get_effective_fire_angle_tolerance_deg(current_target)
         var has_line_of_sight: bool = _has_line_of_sight_to_aim_point(lead_position, current_target)
-
+        var aim_origin: Vector3 = _get_aim_origin()
+        var target_aim_point: Vector3 = _get_target_aim_point(current_target)
+        var target_distance_m: float = aim_origin.distance_to(target_aim_point)
+        var effective_range_m: float = _get_effective_range_for_target(current_target)
+        var in_range: bool = target_distance_m <= effective_range_m
         # 3. Burst firing logic
-        if aimed and has_line_of_sight:
+        if aimed and has_line_of_sight and within_fire_arc and in_range:
             update_burst_firing(delta)
         elif fire_state == FireState.DELAYING:
             update_burst_firing(delta)
@@ -196,43 +196,6 @@ func _physics_process(delta: float) -> void:
                 delay_timer = 0.0
             stop_firing()
 
-        if debug_enabled:
-            # Throttled debug summary per turret
-            _debug_print_timer += delta
-            if _debug_print_timer >= maxf(debug_summary_interval_s, 0.1):
-                _debug_print_timer = 0.0
-                var dist: float = global_position.distance_to(current_target.global_position)
-                var lead_offset: Vector3 = lead_position - current_target.global_position
-                var tgt_vel: Vector3 = cur_target_vel
-                var shooter_vel: Vector3 = _get_point_velocity_at_world_position(_get_aim_origin())
-                var flight_t: float = dist / maxf(_get_weapon_projectile_speed(), 1.0)
-                var avg_edge_m: float = -1.0
-                if _debug_reports_window > 0:
-                    avg_edge_m = _debug_edge_distance_sum_window / float(_debug_reports_window)
-                var best_edge_m: float = _debug_best_edge_distance_window if _debug_reports_window > 0 else -1.0
-                var hit_rate: float = float(_debug_hits_window) / float(maxi(_debug_reports_window, 1))
-                print("[TC %s] tgt=%s dist=%.0fm tVel=(%.0f,%.0f,%.0f) sVel=(%.0f,%.0f,%.0f) accel=(%.1f,%.1f,%.1f) lead_ofs=(%.1f,%.1f,%.1f) flight_t=%.2fs aim=%.2fdeg shots=%d reports=%d hits=%d hit_rate=%.2f best_miss=%.2fm avg_miss=%.2fm state=%s" % [
-                    get_parent().name if get_parent() else name,
-                    current_target.name, dist,
-                    tgt_vel.x, tgt_vel.y, tgt_vel.z,
-                    shooter_vel.x, shooter_vel.y, shooter_vel.z,
-                    _target_acceleration.x, _target_acceleration.y, _target_acceleration.z,
-                    lead_offset.x, lead_offset.y, lead_offset.z,
-                    flight_t,
-                    aim_angle,
-                    _debug_shots_fired_window,
-                    _debug_reports_window,
-                    _debug_hits_window,
-                    hit_rate,
-                    best_edge_m,
-                    avg_edge_m,
-                    FireState.keys()[fire_state]
-                ])
-                _debug_shots_fired_window = 0
-                _debug_reports_window = 0
-                _debug_hits_window = 0
-                _debug_edge_distance_sum_window = 0.0
-                _debug_best_edge_distance_window = INF
     else:
         turret.set_target(null)
         stop_firing()
@@ -269,24 +232,8 @@ func fire_weapon() -> void:
     if not weapon_instance or not turret:
         return
     if weapon_instance.can_fire():
-        if debug_enabled:
-            if current_target and is_instance_valid(current_target):
-                weapon_instance.set_meta("debug_target_node", current_target)
-                var aim_origin: Vector3 = _get_aim_origin()
-                var target_point: Vector3 = _get_target_aim_point(current_target)
-                var muzzle_speed: float = _get_weapon_projectile_speed()
-                weapon_instance.set_meta("debug_nominal_flight_time_s", aim_origin.distance_to(target_point) / maxf(muzzle_speed, 1.0))
-            else:
-                weapon_instance.remove_meta("debug_target_node")
-                weapon_instance.remove_meta("debug_nominal_flight_time_s")
-            weapon_instance.set_meta("debug_report_callback", Callable(self, "_on_bullet_debug_report"))
         turret.fire()
-        var fired_ok: bool = bool(weapon_instance.fire())
-        if debug_enabled and fired_ok:
-            _debug_shots_fired_window += 1
-            # Legacy fallback path; primary metadata handoff now happens before
-            # weapon fire so projectile debug setup sees it immediately.
-            _attach_debug_tracking_to_last_projectile(current_target)
+        weapon_instance.fire()
 
 # --- Advanced targeting ---
 
@@ -401,12 +348,6 @@ func _reset_target_motion_tracking() -> void:
     _measured_target_velocity = Vector3.ZERO
     _last_target_position = Vector3.ZERO
     _last_target_position_valid = false
-    _debug_shots_fired_window = 0
-    _debug_reports_window = 0
-    _debug_hits_window = 0
-    _debug_edge_distance_sum_window = 0.0
-    _debug_best_edge_distance_window = INF
-
 func _get_effective_target_velocity(target: Node3D, delta: float) -> Vector3:
     var reported_velocity: Vector3 = _get_node_velocity(target)
     if not prefer_measured_target_velocity:
@@ -474,65 +415,6 @@ func _get_last_fired_projectile_from_weapon() -> Node:
     if projectile_node == null or not is_instance_valid(projectile_node):
         return null
     return projectile_node
-
-func _attach_debug_tracking_to_last_projectile(target: Node3D) -> void:
-    if not debug_enabled:
-        return
-    if target == null or not is_instance_valid(target):
-        return
-    var projectile_node: Node = _get_last_fired_projectile_from_weapon()
-    if projectile_node == null:
-        return
-    projectile_node.set_meta("debug_target_node", target)
-    projectile_node.set_meta("debug_report_callback", Callable(self, "_on_bullet_debug_report"))
-
-func _on_bullet_debug_report(report: Dictionary) -> void:
-    if not debug_enabled:
-        return
-    _debug_reports_window += 1
-    var hit_target: bool = bool(report.get("hit_target", false))
-    if hit_target:
-        _debug_hits_window += 1
-
-    var closest_edge_m: float = float(report.get("closest_edge_m", INF))
-    if is_finite(closest_edge_m):
-        _debug_edge_distance_sum_window += closest_edge_m
-        _debug_best_edge_distance_window = minf(_debug_best_edge_distance_window, closest_edge_m)
-
-    if debug_print_each_bullet_result:
-        var target_name: String = str(report.get("target_name", "<none>"))
-        var closest_center_m: float = float(report.get("closest_center_m", INF))
-        var reason: String = str(report.get("reason", "unknown"))
-        var bullet_age_s: float = float(report.get("bullet_age_s", -1.0))
-        var closest_time_s: float = float(report.get("closest_time_s", -1.0))
-        var nominal_flight_s: float = float(report.get("bullet_nominal_flight_time_s", -1.0))
-        var speed_nominal_mps: float = float(report.get("bullet_nominal_speed_mps", -1.0))
-        var speed_initial_mps: float = float(report.get("bullet_initial_speed_mps", -1.0))
-        var speed_avg_mps: float = float(report.get("bullet_avg_speed_mps", -1.0))
-        var speed_avg_integrated_mps: float = float(report.get("bullet_avg_speed_integrated_mps", -1.0))
-        var speed_now_mps: float = float(report.get("bullet_speed_now_mps", -1.0))
-        var speed_peak_mps: float = float(report.get("bullet_speed_peak_mps", -1.0))
-        var speed_max_linear_mps: float = float(report.get("bullet_max_linear_velocity_mps", -1.0))
-        var traveled_m: float = float(report.get("bullet_distance_traveled_m", -1.0))
-        print("[TC %s] BULLET target=%s hit=%s closest_center=%.2fm closest_edge=%.2fm reason=%s age=%.2fs t_closest=%.2fs t_nom=%.2fs v_nom=%.0f v_init=%.0f v_avg=%.0f v_int=%.0f v_now=%.0f v_peak=%.0f v_cap=%.0f dist=%.1fm" % [
-            get_parent().name if get_parent() else name,
-            target_name,
-            str(hit_target),
-            closest_center_m,
-            closest_edge_m,
-            reason,
-            bullet_age_s,
-            closest_time_s,
-            nominal_flight_s,
-            speed_nominal_mps,
-            speed_initial_mps,
-            speed_avg_mps,
-            speed_avg_integrated_mps,
-            speed_now_mps,
-            speed_peak_mps,
-            speed_max_linear_mps,
-            traveled_m
-        ])
 
 func _get_node_velocity(node: Node) -> Vector3:
     if not node or not is_instance_valid(node):
@@ -634,6 +516,14 @@ func _get_weapon_projectile_speed() -> float:
     if is_finite(speed_cap_mps):
         return maxf(minf(nominal_speed_mps, speed_cap_mps), 50.0)
     return nominal_speed_mps
+
+func _get_weapon_max_range_m() -> float:
+    if not weapon_instance or not is_instance_valid(weapon_instance):
+        return INF
+    var range_variant: Variant = weapon_instance.get("max_range_m")
+    if typeof(range_variant) in [TYPE_FLOAT, TYPE_INT]:
+        return maxf(float(range_variant), 1.0)
+    return INF
 
 func _get_projectile_linear_speed_cap_mps() -> float:
     if _projectile_speed_cap_cached:
@@ -825,7 +715,11 @@ func _is_air_target(target: Node3D) -> bool:
 
 func _get_effective_range_for_target(target: Node3D) -> float:
     var range_multiplier: float = air_target_range_multiplier if _is_air_target(target) else 1.0
-    return maxf(max_range * range_multiplier, 1.0)
+    var ai_range_m: float = maxf(max_range * range_multiplier, 1.0)
+    var weapon_range_m: float = _get_weapon_max_range_m()
+    if is_finite(weapon_range_m):
+        return minf(ai_range_m, weapon_range_m)
+    return ai_range_m
 
 func _get_effective_aim_skill(target: Node3D) -> float:
     var skill_multiplier: float = air_target_aim_skill_multiplier if _is_air_target(target) else 1.0

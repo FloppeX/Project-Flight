@@ -56,6 +56,8 @@ func categorize_weapons():
 	var weapon_type_set = {}
 	
 	for hardpoint in hardpoints:
+		if not is_instance_valid(hardpoint):
+			continue
 		if hardpoint.weapon_instance:
 			var weapon_name = hardpoint.weapon_instance.weapon_name
 			if not weapon_name in weapon_type_set:
@@ -88,6 +90,8 @@ func fire_selected_weapon_type():
 	
 	var weapons_fired = 0
 	for hardpoint in hardpoints:
+		if not is_instance_valid(hardpoint):
+			continue
 		if hardpoint.weapon_instance and hardpoint.weapon_instance.weapon_name == selected_weapon_type:
 			if hardpoint.fire():
 				weapons_fired += 1
@@ -98,6 +102,8 @@ func fire_selected_weapon_type():
 func fire_automatic_weapons_of_type(weapon_type: String):
 	"""Fire all automatic weapons of the specified type continuously"""
 	for hardpoint in hardpoints:
+		if not is_instance_valid(hardpoint):
+			continue
 		if (hardpoint.weapon_instance and 
 			hardpoint.weapon_instance.weapon_name == weapon_type and 
 			hardpoint.weapon_instance.automatic_fire):
@@ -126,6 +132,8 @@ func cycle_weapon_type():
 	# Count weapons of this type
 	var count = 0
 	for hardpoint in hardpoints:
+		if not is_instance_valid(hardpoint):
+			continue
 		if hardpoint.weapon_instance and hardpoint.weapon_instance.weapon_name == selected_weapon_type:
 			count += 1
 	
@@ -142,6 +150,8 @@ func get_weapon_status() -> Dictionary:
 	
 	# Count weapons of selected type and total ammo
 	for hardpoint in hardpoints:
+		if not is_instance_valid(hardpoint):
+			continue
 		if hardpoint.weapon_instance and hardpoint.weapon_instance.weapon_name == selected_weapon_type:
 			status.weapon_count += 1
 			# Add ammo count if weapon has ammo property

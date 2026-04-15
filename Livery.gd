@@ -107,26 +107,31 @@ func _process(_delta: float) -> void:
 
 func _find_insignia_paths() -> Array[String]:
 	var paths: Array[String] = []
-	var dir := DirAccess.open("res://Images/Insignia")
+	_collect_insignia_paths_recursive("res://Images/Insignia", paths)
+	paths.sort()
+	return paths
+
+func _collect_insignia_paths_recursive(dir_path: String, paths: Array[String]) -> void:
+	var dir := DirAccess.open(dir_path)
 	if dir == null:
-		return paths
+		return
 
 	dir.list_dir_begin()
 	while true:
 		var file_name := dir.get_next()
 		if file_name == "":
 			break
+		if file_name.begins_with("."):
+			continue
+		var full_path := dir_path.path_join(file_name)
 		if dir.current_is_dir():
+			_collect_insignia_paths_recursive(full_path, paths)
 			continue
 		var lower_name := file_name.to_lower()
-		if not lower_name.begins_with("insignia_"):
-			continue
 		if not (lower_name.ends_with(".png") or lower_name.ends_with(".jpg") or lower_name.ends_with(".jpeg") or lower_name.ends_with(".webp")):
 			continue
-		paths.append("res://Images/Insignia/" + file_name)
+		paths.append(full_path)
 	dir.list_dir_end()
-	paths.sort()
-	return paths
 
 func randomize_upper_color() -> void:
 	# Backward-compatible alias: C now cycles fixed presets instead of random.
@@ -237,7 +242,10 @@ func _resolve_team_id(node: Node) -> int:
 
 func _ensure_team_livery(team_id: int) -> void:
 	if not _team_upper_preset_indices.has(team_id):
-		_team_upper_preset_indices[team_id] = _pick_random_unassigned_index(PRESET_UPPER_COLORS.size(), _team_upper_preset_indices)
+		if team_id != PLAYER_TEAM_ID:
+			_team_upper_preset_indices[team_id] = _pick_distant_index_from_player()
+		else:
+			_team_upper_preset_indices[team_id] = _pick_random_unassigned_index(PRESET_UPPER_COLORS.size(), _team_upper_preset_indices)
 	if not _team_insignia_indices.has(team_id):
 		if insignia_textures.is_empty():
 			_team_insignia_indices[team_id] = 0
@@ -332,6 +340,60 @@ func _pick_random_color(pool: Array[Color]) -> Color:
 	if pool.is_empty():
 		return Color.WHITE
 	return pool[_rng.randi_range(0, pool.size() - 1)]
+
+## Public: returns the raw upper fuselage color for a team.
+func get_team_upper_color(team_id: int) -> Color:
+	return _get_team_upper_color(team_id)
+
+## Public: returns a bright, HUD-readable color for a team (same hue, boosted S/V).
+## Useful for map and hologram markers so muted fuselage colors remain legible.
+func get_team_hud_color(team_id: int) -> Color:
+	var col := _get_team_upper_color(team_id)
+	var h := col.h
+	var s := col.s
+	var v := col.v
+	v = maxf(v, 0.75)
+	if s > 0.05:
+		s = maxf(s, 0.45)
+	return Color.from_hsv(h, s, v, 1.0)
+
+func _hue_distance(a: float, b: float) -> float:
+	var d := absf(a - b)
+	if d > 0.5:
+		d = 1.0 - d
+	return d
+
+## Picks the preset index most hue-distant from the player's current color,
+## preferring saturated colors so the enemy has a readable distinct map tint.
+func _pick_distant_index_from_player() -> int:
+	var player_idx: int = int(_team_upper_preset_indices.get(PLAYER_TEAM_ID, 0))
+	var player_col: Color = PRESET_UPPER_COLORS[clampi(player_idx, 0, PRESET_UPPER_COLORS.size() - 1)]
+	var used: Dictionary = {}
+	for tid in _team_upper_preset_indices.keys():
+		used[int(_team_upper_preset_indices[tid])] = true
+
+	var best_idx: int = -1
+	var best_dist: float = -1.0
+	for i in range(PRESET_UPPER_COLORS.size()):
+		if used.has(i):
+			continue
+		var col: Color = PRESET_UPPER_COLORS[i]
+		if col.s < 0.2:   # skip near-greyscale presets for enemy tint
+			continue
+		var dist: float
+		if player_col.s < 0.1:
+			# Player is achromatic — prefer more saturated enemy colors
+			dist = col.s + col.v * 0.2
+		else:
+			dist = _hue_distance(player_col.h, col.h)
+		if dist > best_dist:
+			best_dist = dist
+			best_idx = i
+
+	if best_idx == -1:
+		# Fallback: any unassigned index
+		return _pick_random_unassigned_index(PRESET_UPPER_COLORS.size(), _team_upper_preset_indices)
+	return best_idx
 
 func _apply_insignia(aircraft: Node) -> void:
 	# Remove old decals from the full aircraft subtree.
@@ -622,10 +684,14 @@ func _apply_recursive(node: Node) -> void:
 					continue
 				var mat_name: String = mat.resource_name.to_lower()
 				var target_color := Color(-1, 0, 0)  # sentinel
+				var is_upper_fuselage_surface := false
+				var is_lower_fuselage_surface := false
 				if "upper fuselage" in mat_name or "upper_fuselage" in mat_name:
 					target_color = _active_apply_upper_color
+					is_upper_fuselage_surface = true
 				elif "lower fuselage" in mat_name or "lower_fuselage" in mat_name:
 					target_color = lower_color
+					is_lower_fuselage_surface = true
 				elif "dark blue plasteel" in mat_name:
 					target_color = Color(
 						_active_apply_upper_color.r * carrier_dark_factor,
@@ -650,6 +716,9 @@ func _apply_recursive(node: Node) -> void:
 					else:
 						override = StandardMaterial3D.new()
 					override.albedo_color = target_color
+					if is_upper_fuselage_surface or is_lower_fuselage_surface:
+						# Force backface culling on fuselage shells to reduce overlap artifacts.
+						override.cull_mode = BaseMaterial3D.CULL_BACK
 					mi.set_surface_override_material(i, override)
 	for child in node.get_children():
 		_apply_recursive(child)

@@ -119,25 +119,28 @@ func _ready():
 
 	# Build view targets for cycling (player + AI aircraft)
 	_build_view_targets()
-	
-	# Start with bridge camera if available, otherwise cockpit
-	if _view_targets.is_empty():
-		if cockpit_camera:
-			cockpit_camera.current = true
-	elif bridge_camera:
-		var found := false
-		for i in range(_view_targets.size()):
-			if _view_targets[i].get("mode") == CameraMode.BRIDGE:
-				_current_view_index = i
-				_switch_to_view_target(_view_targets[i])
-				found = true
-				break
-		if not found:
+
+	# Only claim the viewport camera if no camera is currently active.
+	# This prevents newly spawned AI aircraft from stealing the view.
+	if _should_claim_initial_camera():
+		# Start with bridge camera if available, otherwise cockpit
+		if _view_targets.is_empty():
+			if cockpit_camera:
+				cockpit_camera.current = true
+		elif bridge_camera:
+			var found := false
+			for i in range(_view_targets.size()):
+				if _view_targets[i].get("mode") == CameraMode.BRIDGE:
+					_current_view_index = i
+					_switch_to_view_target(_view_targets[i])
+					found = true
+					break
+			if not found:
+				_current_view_index = 0
+				_switch_to_view_target(_view_targets[0])
+		else:
 			_current_view_index = 0
 			_switch_to_view_target(_view_targets[0])
-	else:
-		_current_view_index = 0
-		_switch_to_view_target(_view_targets[0])
 
 func apply_origin_shift(offset: Vector3) -> void:
 	deathcam_target_position -= offset
@@ -253,6 +256,13 @@ func _retry_bridge_camera_setup():
 		return
 	setup_bridge_camera()
 
+func _should_claim_initial_camera() -> bool:
+	var viewport: Viewport = get_viewport()
+	if viewport == null:
+		return true
+	var current_camera: Camera3D = viewport.get_camera_3d()
+	return current_camera == null
+
 func _get_bridge_camera_provider() -> Node:
 	for node in get_tree().get_nodes_in_group("carrier_cam"):
 		if node != null and node.has_method("get_camera"):
@@ -296,7 +306,7 @@ func _process(delta):
 
 func _is_zoom_button_pressed() -> bool:
 	for device in Input.get_connected_joypads():
-		if Input.is_joy_button_pressed(device, JOY_BUTTON_RIGHT_STICK) or Input.is_joy_button_pressed(device, JOY_BUTTON_LEFT_STICK):
+		if Input.is_joy_button_pressed(device, JOY_BUTTON_RIGHT_STICK):
 			return true
 	return false
 

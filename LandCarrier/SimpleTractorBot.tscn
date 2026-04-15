@@ -1,11 +1,43 @@
-[gd_scene load_steps=2 format=3 uid="uid://simple_tractorbot"]
+[gd_scene load_steps=5 format=3 uid="uid://bc6qxmolml7of"]
 
-[ext_resource type="Script" path="res://LandCarrier/SimpleTractorBot.gd" id="1_script"]
+[ext_resource type="Script" uid="uid://nf5styactt15" path="res://LandCarrier/SimpleTractorBot.gd" id="1_script"]
+[ext_resource type="PackedScene" uid="uid://ck88u1imomowx" path="res://Models/LandCarrier/TractorBot/tractorbot.glb" id="2_model"]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_wheel"]
+albedo_color = Color(0.08, 0.08, 0.08, 1)
+metallic = 0.05
+roughness = 0.85
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_wheel"]
+top_radius = 0.07
+bottom_radius = 0.07
+height = 0.06
 
 [node name="SimpleTractorBot" type="Node3D"]
 script = ExtResource("1_script")
 
+[node name="Body" parent="." instance=ExtResource("2_model")]
+transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, 0, 0.0251601)
 
+[node name="Wheels" type="Node3D" parent="."]
+transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, 0, 0.0251601)
 
+[node name="WheelFL" type="MeshInstance3D" parent="Wheels"]
+transform = Transform3D(-9.61651e-08, -2.2, 0, 2.2, -9.61651e-08, 0, 0, 0, 2.2, -0.85, 0.15, 0.339976)
+material_override = SubResource("StandardMaterial3D_wheel")
+mesh = SubResource("CylinderMesh_wheel")
 
+[node name="WheelFR" type="MeshInstance3D" parent="Wheels"]
+transform = Transform3D(-9.61651e-08, -2.2, 0, 2.2, -9.61651e-08, 0, 0, 0, 2.2, 0.85, 0.15, 0.34)
+material_override = SubResource("StandardMaterial3D_wheel")
+mesh = SubResource("CylinderMesh_wheel")
 
+[node name="WheelRL" type="MeshInstance3D" parent="Wheels"]
+transform = Transform3D(-9.61651e-08, -2.2, 0, 2.2, -9.61651e-08, 0, 0, 0, 2.2, -0.85, 0.15, -0.365599)
+material_override = SubResource("StandardMaterial3D_wheel")
+mesh = SubResource("CylinderMesh_wheel")
+
+[node name="WheelRR" type="MeshInstance3D" parent="Wheels"]
+transform = Transform3D(-9.61651e-08, -2.2, 0, 2.2, -9.61651e-08, 0, 0, 0, 2.2, 0.85, 0.15, -0.376)
+material_override = SubResource("StandardMaterial3D_wheel")
+mesh = SubResource("CylinderMesh_wheel")

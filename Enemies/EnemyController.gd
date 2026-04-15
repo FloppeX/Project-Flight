@@ -32,8 +32,8 @@ func _ready():
 	
 	# Load enemy scene if not set
 	if enemy_scene == null:
-		enemy_scene = load("res://Enemies/EnemyBox.tscn") as PackedScene
-	
+		push_warning("[EnemyController] No enemy_scene assigned. Legacy EnemyBox fallback was removed.")
+
 	# Spawn enemies
 	_spawn_enemies()
 

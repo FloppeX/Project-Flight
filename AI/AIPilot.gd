@@ -1315,7 +1315,9 @@ func _state_attack_dive(delta: float):
 		var fwd: Vector3 = aircraft.global_transform.basis.z
 		var to_tgt: Vector3 = (aim_pos - aircraft.global_position).normalized()
 		var dot: float = fwd.dot(to_tgt)
-		if dot > cos(deg_to_rad(6.0)):  # ~6 deg cone - fire a touch earlier on valid runs
+		var gun_max_range_m: float = _get_selected_gun_max_range_m()
+		var in_gun_range: bool = (not is_finite(gun_max_range_m)) or dist_to_target <= gun_max_range_m
+		if dot > cos(deg_to_rad(6.0)) and in_gun_range:  # ~6 deg cone - fire a touch earlier on valid runs
 			_fire_guns()
 		else:
 			_stop_firing()
@@ -2057,6 +2059,26 @@ func _get_selected_gun_muzzle_velocity() -> float:
 			break
 	return _get_effective_projectile_speed_mps(selected_muzzle_velocity_mps)
 
+func _get_selected_gun_max_range_m() -> float:
+	if not control_weapons:
+		return INF
+	var selected: String = _get_selected_control_weapon_type()
+	if selected.is_empty():
+		selected = "Autocannon"
+	var best_range_m: float = -1.0
+	for hp in _get_control_weapon_hardpoints():
+		if not hp or not hp.weapon_instance:
+			continue
+		var wname: String = String(hp.weapon_instance.weapon_name)
+		if wname != selected:
+			continue
+		var range_variant: Variant = hp.weapon_instance.get("max_range_m")
+		if typeof(range_variant) in [TYPE_FLOAT, TYPE_INT]:
+			best_range_m = maxf(best_range_m, maxf(float(range_variant), 1.0))
+	if best_range_m > 0.0:
+		return best_range_m
+	return INF
+
 func _get_effective_projectile_speed_mps(nominal_speed_mps: float) -> float:
 	var speed_cap_mps: float = _get_projectile_linear_speed_cap_mps()
 	if is_finite(speed_cap_mps):
@@ -2301,6 +2323,9 @@ func _dogfight_has_good_fire_solution(
 				return hp.weapon_instance.can_fire()
 		return false
 	
+	var gun_max_range_m: float = _get_selected_gun_max_range_m()
+	if is_finite(gun_max_range_m) and dist_to_target > gun_max_range_m:
+		return false
 	if dist_to_target > dogfight_max_range_m:
 		return false
 	var to_aim: Vector3 = aim_point - shooter_pos

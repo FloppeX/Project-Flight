@@ -44,7 +44,7 @@ func _ready() -> void:
 
 	# --- Background splash ---
 	var bg := TextureRect.new()
-	bg.texture = load("res://Images/Splash/splash image 5.png")
+	bg.texture = load("res://Images/Splash/Splash screen 6.png")
 	bg.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_root.add_child(bg)

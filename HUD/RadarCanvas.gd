@@ -227,16 +227,17 @@ func _draw() -> void:
 			draw_arc(Vector2(epx, epy), 8, 0, TAU, 16, Color.WHITE, 2)
 
 func _draw_heading_triangle(pos: Vector2, heading: Vector2, color: Color) -> void:
-	var tri_size: float = 5.0
+	var tri_size: float = 8.0
 	if heading.length() < 0.001:
 		heading = Vector2(0, -1)
 	else:
 		heading = heading.normalized()
 	var perp: Vector2 = Vector2(heading.y, -heading.x)
 	var tip: Vector2 = pos + heading * tri_size
-	var bl: Vector2 = pos - heading * tri_size * 0.5 + perp * tri_size * 0.5
-	var br: Vector2 = pos - heading * tri_size * 0.5 - perp * tri_size * 0.5
+	var bl: Vector2 = pos - heading * tri_size * 0.5 + perp * tri_size * 0.52
+	var br: Vector2 = pos - heading * tri_size * 0.5 - perp * tri_size * 0.52
 	draw_polygon(PackedVector2Array([tip, bl, br]), PackedColorArray([color]))
+	draw_polyline(PackedVector2Array([tip, bl, br, tip]), Color(1.0, 1.0, 1.0, 0.75), 1.0)
 
 func _rebuild_contact_cache() -> void:
 	if provider == null or not is_instance_valid(provider):

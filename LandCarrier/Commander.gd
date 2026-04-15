@@ -186,7 +186,7 @@ func _update_body_visibility(active_view: bool) -> void:
 
 func _is_zoom_button_pressed() -> bool:
 	for device in Input.get_connected_joypads():
-		if Input.is_joy_button_pressed(device, JOY_BUTTON_RIGHT_STICK) or Input.is_joy_button_pressed(device, JOY_BUTTON_LEFT_STICK):
+		if Input.is_joy_button_pressed(device, JOY_BUTTON_RIGHT_STICK):
 			return true
 	return false
 

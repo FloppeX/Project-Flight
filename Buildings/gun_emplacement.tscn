@@ -1,0 +1,32 @@
+[gd_scene load_steps=7 format=3 uid="uid://bmauvc63rtm4a"]
+
+[ext_resource type="Script" uid="uid://b2fanpn4ocluh" path="res://Buildings/GunEmplacement.gd" id="1_emplacement"]
+[ext_resource type="PackedScene" uid="uid://cpkdstgg3rpes" path="res://Models/Turrets/turret base.glb" id="2_base_model"]
+[ext_resource type="Script" uid="uid://cqw36derm5yh1" path="res://Weapons/Turrets/turret_controller.gd" id="3_turret_controller"]
+[ext_resource type="PackedScene" uid="uid://38xqikpdfhdk" path="res://Weapons/Turrets/turret.tscn" id="4_turret_scene"]
+[ext_resource type="PackedScene" path="res://Weapons/Turrets/bullet_weapon.tscn" id="5_weapon_scene"]
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_x2tn6"]
+size = Vector3(9.62045, 1.98645, 9.7411)
+
+[node name="GunEmplacement" type="StaticBody3D"]
+script = ExtResource("1_emplacement")
+
+[node name="BaseModel" parent="." instance=ExtResource("2_base_model")]
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.0248871, 0.993225, 0.0249405)
+shape = SubResource("BoxShape3D_x2tn6")
+
+[node name="TurretController" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.05, 0)
+script = ExtResource("3_turret_controller")
+weapon_scene = ExtResource("5_weapon_scene")
+max_range = 1400.0
+aim_skill = 0.5
+burst_length = 1.2
+delay_length = 1.5
+fire_angle_tolerance_deg = 14.0
+
+[node name="TurretScene" parent="TurretController" instance=ExtResource("4_turret_scene")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.220869, 0)

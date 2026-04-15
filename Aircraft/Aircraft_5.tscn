@@ -78,7 +78,7 @@ wreck_extra_spin = 15.0
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.123306, 0.707575)
 
 [node name="Aircraft 2 propeller" parent="aircraft_5" instance=ExtResource("4_ii5ys")]
-transform = Transform3D(1.2, 0, 3.57628e-08, 0, 1.2, 0, -3.57628e-08, 0, 1.2, -2.00808e-09, 0.606723, -2.66413)
+transform = Transform3D(1.2, 0, 3.57628e-08, 0, 1.2, 0, -3.57628e-08, 0, 1.2, -2.00808e-09, 0.571747, -2.66413)
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, -4.37114e-08, -1, 0, 1, -4.37114e-08, 0, 0, 1.22583)
@@ -211,7 +211,7 @@ transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, 0, 
 transform = Transform3D(0.0804371, 0.00133164, 3.19724e-05, -0.00226377, 0.568899, -7.06691e-08, -1.13102, -0.00104375, 2.274e-06, 7729.53, -1105.77, -14248)
 
 [node name="HeadsUpDisplay" parent="." instance=ExtResource("26_0u53p")]
-transform = Transform3D(-0.5, 0, -4.37114e-08, 0, 0.5, 0, 4.37114e-08, 0, -0.5, 0, 0.60242, 3.12849)
+transform = Transform3D(-0.4, 0, -6.03983e-08, 0, 0.4, 0, 6.03983e-08, 0, -0.4, 0, 0.571049, 3.12849)
 camera_path = NodePath("../CameraCockpit")
 aircraft_path = NodePath("..")
 hud_glass_size = Vector2(1, 1)
@@ -232,7 +232,7 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.5, -0.8, 0.7)
 mounted_weapon = ExtResource("32_kq7no")
 
 [node name="Hardpoint3" parent="." instance=ExtResource("28_ymevh")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.455841, -0.579426, 2.50435)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.319274, -0.817209, 2.50435)
 mounted_weapon = ExtResource("31_kq7no")
 
 [node name="TailHook" parent="." instance=ExtResource("31_3f4kl")]

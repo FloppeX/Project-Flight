@@ -7,24 +7,32 @@ class_name ProjectileNew
 @export var creates_explosion: bool = true  # Whether this projectile explodes
 @export var explosion_scene: PackedScene  # Reference to explosion scene
 @export var target_mark_lifetime_s: float = 12.0
-@export var target_mark_size: Vector3 = Vector3(0.3, 2.0, 0.3)
+@export var target_mark_size: Vector3 = Vector3(0.9, 8.0, 0.9)
 @export var hit_assist_enabled: bool = false
+@export var hit_assist_check_interval_s: float = 0.05
+@export var hit_assist_max_candidate_distance_m: float = 2500.0
 
 # Preloaded impact sounds to avoid per-hit load() calls
 static var _metal_sounds: Array[AudioStream] = []
 static var _dirt_sounds: Array[AudioStream] = []
 static var _scorch_texture: Texture2D = null
 static var _sounds_loaded: bool = false
-static var hit_assist_radius_m: float = 0.5
+static var hit_assist_radius_m: float = 0.2
 const HIT_ASSIST_MIN_RADIUS_M: float = 0.0
 const HIT_ASSIST_MAX_RADIUS_M: float = 6.0
+const HIT_ASSIST_CANDIDATE_CACHE_MS: int = 200
 const MAX_BULLET_DECALS_PER_AIRCRAFT: int = 15
 const AIRCRAFT_BULLET_DECAL_META_KEY: StringName = &"_bullet_decal_nodes"
 static var _hit_assist_target_radius_cache: Dictionary = {}
+static var _hit_assist_target_shape_cache: Dictionary = {}
+static var _hit_assist_candidate_cache_by_team: Dictionary = {}
+static var _hit_assist_candidate_cache_expire_msec_by_team: Dictionary = {}
 
 var shooter: Node3D  # Reference to whoever fired this
 var last_position: Vector3 = Vector3.ZERO
 var has_impacted: bool = false
+var _hit_assist_time_accum_s: float = 0.0
+var _hit_assist_segment_start: Vector3 = Vector3.ZERO
 
 static func get_hit_assist_radius_m() -> float:
 	return hit_assist_radius_m
@@ -68,6 +76,7 @@ func _ready():
 	
 	# Initialize last position for raycast tunneling detection
 	last_position = global_position
+	_hit_assist_segment_start = global_position
 
 func get_child_collision_shape() -> CollisionShape3D:
 	for child in get_children():
@@ -94,11 +103,20 @@ func _physics_process(delta):
 			# Call _on_body_entered BEFORE setting has_impacted to avoid early return
 			_on_body_entered(result.collider)
 			return
-		var assist_hit: Dictionary = _check_hit_assist(last_position, global_position)
-		if not assist_hit.is_empty() and not has_impacted:
-			global_position = assist_hit.get("position", global_position)
-			_on_body_entered(assist_hit.get("target", null))
-			return
+		if hit_assist_enabled:
+			_hit_assist_time_accum_s += delta
+			var interval_s: float = maxf(hit_assist_check_interval_s, 0.0)
+			if interval_s <= 0.0 or _hit_assist_time_accum_s >= interval_s:
+				var assist_hit: Dictionary = _check_hit_assist(_hit_assist_segment_start, global_position)
+				_hit_assist_segment_start = global_position
+				_hit_assist_time_accum_s = 0.0
+				if not assist_hit.is_empty() and not has_impacted:
+					global_position = assist_hit.get("position", global_position)
+					_on_body_entered(assist_hit.get("target", null))
+					return
+		else:
+			_hit_assist_segment_start = global_position
+			_hit_assist_time_accum_s = 0.0
 		# Fallback for Terrain3D setups where physics collider/raycast may miss:
 		# detect if the projectile segment crossed below terrain height data.
 		var terrain := _get_cached_terrain_node()
@@ -119,6 +137,8 @@ func _physics_process(delta):
 func fire(initial_velocity: Vector3, firing_aircraft: Node3D):
 	shooter = firing_aircraft
 	linear_velocity = initial_velocity
+	_hit_assist_time_accum_s = 0.0
+	_hit_assist_segment_start = global_position
 	
 	# Disable collision with the firing entity initially.
 	# Ground vehicles are CharacterBody3D, not RigidBody3D, and turret bullets can
@@ -150,11 +170,16 @@ func _find_best_hit_assist_target(from_pos: Vector3, to_pos: Vector3, assist_rad
 	var best_t: float = INF
 	var best_target: Node3D = null
 	var best_point: Vector3 = Vector3.ZERO
+	var max_distance_sq: float = INF
+	if hit_assist_max_candidate_distance_m > 0.0:
+		max_distance_sq = hit_assist_max_candidate_distance_m * hit_assist_max_candidate_distance_m
 	for candidate_variant in candidates:
-		if not (candidate_variant is Node3D):
+		var candidate: Node3D = _as_valid_node3d(candidate_variant)
+		if candidate == null:
 			continue
-		var candidate: Node3D = candidate_variant as Node3D
 		if not _is_valid_hit_assist_target(candidate):
+			continue
+		if is_finite(max_distance_sq) and candidate.global_position.distance_squared_to(to_pos) > max_distance_sq:
 			continue
 		var target_center: Vector3 = _get_hit_assist_target_center(candidate)
 		var closest_point: Vector3 = _closest_point_on_segment(target_center, from_pos, to_pos)
@@ -179,34 +204,68 @@ func _get_hit_assist_candidates() -> Array:
 	var tree: SceneTree = get_tree()
 	if tree == null:
 		return []
+	var shooter_team: int = _get_shooter_team()
+	var now_ms: int = Time.get_ticks_msec()
+	var cache_key: int = shooter_team
+	var expiry_variant: Variant = _hit_assist_candidate_cache_expire_msec_by_team.get(cache_key, 0)
+	var cache_expiry_ms: int = int(expiry_variant)
+	var cached_variant: Variant = _hit_assist_candidate_cache_by_team.get(cache_key, [])
+	var cached_nodes: Array = cached_variant if cached_variant is Array else []
+	if now_ms <= cache_expiry_ms and not cached_nodes.is_empty():
+		return _filter_valid_hit_assist_candidates(cached_nodes)
+
+	var rebuilt: Array = _rebuild_hit_assist_candidates(tree, shooter_team)
+	_hit_assist_candidate_cache_by_team[cache_key] = rebuilt
+	_hit_assist_candidate_cache_expire_msec_by_team[cache_key] = now_ms + HIT_ASSIST_CANDIDATE_CACHE_MS
+	return _filter_valid_hit_assist_candidates(rebuilt)
+
+func _rebuild_hit_assist_candidates(tree: SceneTree, shooter_team: int) -> Array:
 	var out: Array = []
 	var seen: Dictionary = {}
-	var shooter_team: int = _get_shooter_team()
 
 	var registry: Node = tree.root.get_node_or_null("EnemyRegistry")
 	if shooter_team != 0 and registry and registry.has_method("get_enemies_for_team"):
-		var registry_targets = registry.call("get_enemies_for_team", shooter_team)
+		var registry_targets: Variant = registry.call("get_enemies_for_team", shooter_team)
 		if registry_targets is Array:
 			for target_variant in registry_targets:
-				if target_variant is Node3D:
-					var target_node: Node3D = target_variant as Node3D
-					var instance_id: int = target_node.get_instance_id()
-					if not seen.has(instance_id):
-						seen[instance_id] = true
-						out.append(target_node)
+				var target_node: Node3D = _as_valid_node3d(target_variant)
+				if target_node == null:
+					continue
+				var instance_id: int = target_node.get_instance_id()
+				if not seen.has(instance_id):
+					seen[instance_id] = true
+					out.append(target_node)
 
 	if out.is_empty():
 		for group_name in ["aircraft", "ai_aircraft", "ground_vehicles", "buildings"]:
 			var group_nodes: Array = tree.get_nodes_in_group(group_name)
 			for target_variant in group_nodes:
-				if target_variant is Node3D:
-					var target_node: Node3D = target_variant as Node3D
-					var instance_id: int = target_node.get_instance_id()
-					if not seen.has(instance_id):
-						seen[instance_id] = true
-						out.append(target_node)
-
+				var target_node: Node3D = _as_valid_node3d(target_variant)
+				if target_node == null:
+					continue
+				var instance_id: int = target_node.get_instance_id()
+				if not seen.has(instance_id):
+					seen[instance_id] = true
+					out.append(target_node)
 	return out
+
+func _filter_valid_hit_assist_candidates(candidates: Array) -> Array:
+	var filtered: Array = []
+	for candidate_variant in candidates:
+		var candidate: Node3D = _as_valid_node3d(candidate_variant)
+		if candidate == null:
+			continue
+		filtered.append(candidate)
+	return filtered
+
+func _as_valid_node3d(value: Variant) -> Node3D:
+	if typeof(value) != TYPE_OBJECT:
+		return null
+	if not is_instance_valid(value):
+		return null
+	if not (value is Node3D):
+		return null
+	return value as Node3D
 
 func _is_valid_hit_assist_target(candidate: Node3D) -> bool:
 	if candidate == null or not is_instance_valid(candidate):
@@ -238,7 +297,7 @@ func _get_shooter_team() -> int:
 	return 0
 
 func _get_hit_assist_target_center(target: Node3D) -> Vector3:
-	var shape_node: CollisionShape3D = _find_first_collision_shape(target)
+	var shape_node: CollisionShape3D = _get_cached_target_collision_shape(target)
 	if shape_node and is_instance_valid(shape_node):
 		return shape_node.global_position
 	return target.global_position
@@ -251,7 +310,7 @@ func _get_hit_assist_target_radius(target: Node3D) -> float:
 		return float(_hit_assist_target_radius_cache[instance_id])
 
 	var radius: float = 2.5
-	var shape_node: CollisionShape3D = _find_first_collision_shape(target)
+	var shape_node: CollisionShape3D = _get_cached_target_collision_shape(target)
 	if shape_node and is_instance_valid(shape_node) and shape_node.shape:
 		var shape_scale: Vector3 = shape_node.global_transform.basis.get_scale().abs()
 		var max_scale: float = maxf(maxf(shape_scale.x, shape_scale.y), shape_scale.z)
@@ -267,6 +326,24 @@ func _get_hit_assist_target_radius(target: Node3D) -> float:
 
 	_hit_assist_target_radius_cache[instance_id] = radius
 	return radius
+
+func _get_cached_target_collision_shape(target: Node3D) -> CollisionShape3D:
+	if target == null or not is_instance_valid(target):
+		return null
+	var instance_id: int = target.get_instance_id()
+	var cached_ref_variant: Variant = _hit_assist_target_shape_cache.get(instance_id, null)
+	if cached_ref_variant is WeakRef:
+		var cached_shape_variant: Variant = (cached_ref_variant as WeakRef).get_ref()
+		if cached_shape_variant is CollisionShape3D:
+			var cached_shape: CollisionShape3D = cached_shape_variant as CollisionShape3D
+			if is_instance_valid(cached_shape) and not cached_shape.disabled:
+				return cached_shape
+		_hit_assist_target_shape_cache.erase(instance_id)
+		_hit_assist_target_radius_cache.erase(instance_id)
+	var discovered_shape: CollisionShape3D = _find_first_collision_shape(target)
+	if discovered_shape != null and is_instance_valid(discovered_shape):
+		_hit_assist_target_shape_cache[instance_id] = weakref(discovered_shape)
+	return discovered_shape
 
 func _find_first_collision_shape(root: Node) -> CollisionShape3D:
 	for child in root.get_children():
@@ -406,14 +483,29 @@ func create_bullet_scorch_mark(aircraft_body: Node) -> void:
 	if hit and hit.has("position") and hit.has("normal"):
 		hit_pos = hit.position
 		hit_normal = (hit.normal as Vector3).normalized()
-	
+	elif aircraft_body is Node3D:
+		# Better fallback: point outward from the aircraft centre toward impact.
+		var ac_center: Vector3 = (aircraft_body as Node3D).global_position
+		var outward: Vector3 = global_position - ac_center
+		if outward.length() > 0.01:
+			hit_normal = outward.normalized()
+
+	# Scale mark size with damage. sqrt keeps heavy rounds from looking absurd.
+	# target_mark_size is calibrated for damage = 10.
+	var dmg_scale: float = sqrt(maxf(damage, 1.0) / 10.0)
+	var scaled_size := Vector3(
+		target_mark_size.x * dmg_scale,
+		target_mark_size.y * dmg_scale,
+		target_mark_size.z * dmg_scale)
+
 	# Create bullet scorch decal
 	var decal: Decal = Decal.new()
 	decal.texture_albedo = _scorch_texture
-	
-	# Make bullet marks smaller than explosion marks, but with enough depth to project onto moving meshes.
-	decal.size = target_mark_size
-	
+	decal.size = scaled_size
+	# Disable distance fade so the mark stays sharp across the whole projection volume.
+	decal.upper_fade = 0.0
+	decal.lower_fade = 0.0
+
 	# Parent first, then set global transform so placement is correct in world space.
 	if aircraft_body and is_instance_valid(aircraft_body):
 		aircraft_body.add_child(decal)
@@ -430,13 +522,15 @@ func create_bullet_scorch_mark(aircraft_body: Node) -> void:
 	var surface_basis: Basis = Basis(x_axis, y_axis, z_axis)
 	var random_spin: Basis = Basis(y_axis, randf() * TAU)
 
-	# Slight offset along normal to avoid z-fighting with the surface.
-	decal.global_position = hit_pos + y_axis * 0.01
+	# Offset along normal to avoid z-fighting.
+	decal.global_position = hit_pos + y_axis * 0.1
 	decal.global_basis = random_spin * surface_basis
-	decal.modulate = Color(0.8, 0.8, 0.8, 1.0)
+	decal.modulate = Color(1.0, 1.0, 1.0, 1.0)
 	_enforce_aircraft_bullet_decal_cap(aircraft_body, decal)
 
-	if target_mark_lifetime_s > 0.0:
+	# Aircraft marks are cleaned up by the cap (last 15 stay permanently).
+	# Only time-expire marks on non-aircraft targets (ground vehicles, etc.).
+	if target_mark_lifetime_s > 0.0 and not is_aircraft(aircraft_body):
 		get_tree().create_timer(target_mark_lifetime_s).timeout.connect(func():
 			if is_instance_valid(decal):
 				decal.queue_free()
