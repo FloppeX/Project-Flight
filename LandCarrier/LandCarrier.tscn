@@ -100,13 +100,13 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.023, 0, -15.619)
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.027, 0, 14.862)
 
 [node name="TractorBot1" parent="." instance=ExtResource("5_olyyp")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -5, 0.7, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -6, -9.3, -8)
 
 [node name="TractorBot2" parent="." instance=ExtResource("5_olyyp")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 5, 0.7, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -9.3, -8)
 
 [node name="TractorBot3" parent="." instance=ExtResource("5_olyyp")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.7, 3)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 6, -9.3, -8)
 
 [node name="Shuttle" type="Node3D" parent="."]
 transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, 0, 73)

@@ -37,6 +37,7 @@ signal deck_state_changed(new_state)
 @export var landing_deck_block_height_margin_m: float = 8.0
 
 const DEFAULT_AIRCRAFT_SCENE_PATH := "res://Aircraft/Aircraft_5.tscn"
+const PRIMARY_TRACTOR_COUNT := 3
 
 enum DeckState {
 	IDLE,
@@ -71,6 +72,8 @@ var _recovery_job_dispatched: bool = false
 var _tractor_cleanup_in_progress: bool = false
 var _tractor_cleanup_batch: Array[Node3D] = []
 var _tractor_cleanup_move_speed: float = 5.0
+var _tractor_elevator_transfer_in_progress: bool = false
+var _tractorbots_in_hangar: bool = false
 var landing_deck_active: bool = false
 var carrier_manager: CarrierManager = null
 
@@ -82,6 +85,8 @@ var _retrieval_ai_land_after_launch: bool = true
 func _ready():
 	if not aircraft_template_scene:
 		aircraft_template_scene = load(DEFAULT_AIRCRAFT_SCENE_PATH) as PackedScene
+	_normalize_primary_tractorbots()
+	_place_primary_tractorbots_in_hangar_at_start()
 	_resolve_carrier_manager()
 	add_to_group("flight_deck_manager")
 	if catapult:
@@ -140,6 +145,61 @@ func _resolve_carrier_manager() -> void:
 	else:
 		push_warning("[FlightDeckManager] CarrierManager not found. Aircraft pilot assignment is unavailable.")
 
+func _get_primary_tractor_bots() -> Array[Node3D]:
+	var primary: Array[Node3D] = []
+	var seen: Dictionary = {}
+	for bot_variant in tractor_bots:
+		if not is_instance_valid(bot_variant) or not (bot_variant is Node3D):
+			continue
+		var bot := bot_variant as Node3D
+		var id := bot.get_instance_id()
+		if seen.has(id):
+			continue
+		seen[id] = true
+		primary.append(bot)
+		if primary.size() >= PRIMARY_TRACTOR_COUNT:
+			break
+	return primary
+
+func _normalize_primary_tractorbots() -> void:
+	var primary := _get_primary_tractor_bots()
+	tractor_bots.clear()
+	for bot in primary:
+		tractor_bots.append(bot)
+	desired_deck_tractor_count = PRIMARY_TRACTOR_COUNT
+	var primary_lookup: Dictionary = {}
+	for bot in primary:
+		primary_lookup[bot.get_instance_id()] = true
+	for node in _get_all_tractor_nodes():
+		if primary_lookup.has(node.get_instance_id()):
+			continue
+		node.queue_free()
+	if primary.size() < PRIMARY_TRACTOR_COUNT:
+		push_warning("[FlightDeckManager] Expected 3 tractorbots, found %d." % primary.size())
+
+func _place_primary_tractorbots_in_hangar_at_start() -> void:
+	var primary := _get_primary_tractor_bots()
+	if primary.is_empty():
+		return
+
+	var hangar_depth: float = 10.0
+	if elevator and "shaft_depth" in elevator:
+		hangar_depth = float(elevator.shaft_depth)
+	var hangar_local_y := _get_deck_local_y() - hangar_depth + 0.2
+	var hangar_slots := _get_tractor_cleanup_hangar_slots_local(primary.size())
+	for i in range(hangar_slots.size()):
+		var slot_local: Vector3 = hangar_slots[i]
+		slot_local.y = hangar_local_y
+		hangar_slots[i] = slot_local
+
+	for i in range(min(primary.size(), hangar_slots.size())):
+		var bot := primary[i]
+		_set_cleanup_idle_for_tractor_bot(bot)
+		bot.position = hangar_slots[i]
+
+	_tractorbots_in_hangar = true
+	_tractor_elevator_transfer_in_progress = false
+
 func _ensure_pilot_assigned_for_data(aircraft_data: Dictionary) -> bool:
 	_resolve_carrier_manager()
 	if not is_instance_valid(carrier_manager):
@@ -173,10 +233,21 @@ func _queue_aircraft_scene_for_retrieval(aircraft_name: String, scene: PackedSce
 func _is_elevator_physically_at_top() -> bool:
 	if not elevator:
 		return false
-	if not ("platform" in elevator) or not ("platform_size" in elevator):
+	if not ("platform_size" in elevator):
+		return false
+	var platform_local_y := _get_elevator_platform_local_y(INF)
+	if platform_local_y == INF:
 		return false
 	var top_y = -float(elevator.platform_size.y) * 0.5
-	return abs(float(elevator.platform.position.y) - top_y) <= 0.15
+	return abs(platform_local_y - top_y) <= 0.15
+
+func _get_elevator_platform_local_y(fallback_y: float = -10.0) -> float:
+	if not elevator or not ("platform" in elevator):
+		return fallback_y
+	var platform_node: Variant = elevator.platform
+	if not is_instance_valid(platform_node) or not (platform_node is Node3D):
+		return fallback_y
+	return float((platform_node as Node3D).position.y)
 
 func _on_elevator_covers_opened() -> void:
 	# Some states can open covers before the platform is fully at deck height.
@@ -379,6 +450,9 @@ func _dispatch_recovery_job() -> void:
 		return
 	
 	_recovery_job_dispatched = true
+	await _prepare_tractorbots_for_recovery_job()
+	if not is_instance_valid(deck_aircraft):
+		return
 	_move_aircraft_to_elevator(deck_aircraft)
 
 # Timed power-down and release sequence
@@ -400,11 +474,26 @@ func _call_power_down_sequence(ac: RigidBody3D) -> void:
 			engine.set_throttle_input(0.0)
 	# Wait additional 3s before releasing cable
 	await get_tree().create_timer(3.0).timeout
+	if not is_instance_valid(ac):
+		_recovery_powerdown_in_progress = false
+		_recovery_release_done = true
+		return
 	_perform_cable_release(ac)
 	_recovery_powerdown_in_progress = false
 	_recovery_release_done = true
 
-func _perform_cable_release(ac: RigidBody3D) -> void:
+func _perform_cable_release(ac_variant: Variant) -> void:
+	if not is_instance_valid(ac_variant):
+		return
+	var ac_obj: Object = ac_variant as Object
+	if ac_obj == null:
+		return
+	var ac_node: Node = ac_obj as Node
+	if ac_node == null:
+		return
+	if not (ac_node is RigidBody3D):
+		return
+	var ac: RigidBody3D = ac_node as RigidBody3D
 	if not is_instance_valid(ac):
 		return
 	ac.set_meta("parking_brake", true)
@@ -754,6 +843,8 @@ func start_hangar_retrieval():
 	"""Start retrieving aircraft from hangar"""
 	if stored_aircraft.is_empty():
 		return
+	while _tractor_elevator_transfer_in_progress:
+		await get_tree().process_frame
 
 	current_state = DeckState.RETRIEVING_FROM_HANGAR
 	_retrieval_top_handled = false
@@ -937,10 +1028,11 @@ func _return_tractors_to_staging():
 			# Drop any active connections
 			if bot.has_method("_tick_uncoupling"):
 				bot._tick_uncoupling(0.0)
-			# Force state to returning
-			bot.set("_state", TractorBot.BotState.RETURNING_TO_STAGING)
-			if bot.has_method("_plan_move_to") and is_instance_valid(bot.staging_marker):
-				bot._plan_move_to(bot.staging_marker.global_position)
+			# Legacy TractorBot retreat path (SimpleTractorBot does not expose these members).
+			if bot is TractorBot:
+				bot.set("_state", TractorBot.BotState.RETURNING_TO_STAGING)
+				if bot.has_method("_plan_move_to") and is_instance_valid(bot.staging_marker):
+					bot._plan_move_to(bot.staging_marker.global_position)
 
 func _disable_tractor_bot_movement():
 	"""Disable tractorbot movement logic during elevator sequence"""
@@ -1311,7 +1403,7 @@ func _get_tractor_cleanup_elevator_slots_local(count: int) -> Array[Vector3]:
 
 func _get_tractor_cleanup_hangar_slots_local(count: int) -> Array[Vector3]:
 	var slots: Array[Vector3] = []
-	var hangar_local_y: float = _get_deck_local_y() + (float(elevator.platform.position.y) if elevator and "platform" in elevator else -10.0) + 0.2
+	var hangar_local_y: float = _get_deck_local_y() + _get_elevator_platform_local_y(-10.0) + 0.2
 	var slot_offsets: Array[Vector3] = [
 		Vector3(-6.0, 0.0, -8.0),
 		Vector3(0.0, 0.0, -8.0),
@@ -1510,7 +1602,7 @@ func _create_aircraft_at_hangar_level() -> RigidBody3D:
 
 	# Position aircraft on elevator platform at hangar level (where elevator currently is)
 	var elevator_hangar_pos = elevator_pickup_marker.global_position
-	elevator_hangar_pos.y = _get_deck_height_y() + elevator.platform.position.y + 0.2
+	elevator_hangar_pos.y = _get_deck_height_y() + _get_elevator_platform_local_y(-10.0) + 0.2
 	aircraft.global_position = elevator_hangar_pos
 
 	# Face aircraft toward deck forward (carrier's +Z) during retrieval
@@ -1556,6 +1648,7 @@ func _spawn_tractorbots_at_aircraft(aircraft: RigidBody3D):
 			if bot.has_method("activate"):
 				var wheel_offset = gear_collider.global_position - aircraft.global_position
 				bot.activate(aircraft, wheel_offset, gear_collider)
+	_tractorbots_in_hangar = false
 
 func _start_elevator_sequence(aircraft: RigidBody3D):
 	"""Start the elevator sequence - aircraft and tractorbots follow elevator down"""
@@ -1613,7 +1706,7 @@ func _follow_elevator_down(aircraft: RigidBody3D):
 	while is_instance_valid(aircraft) and is_instance_valid(elevator) and elevator.current_state != elevator.ElevatorState.AT_BOTTOM:
 		# Refresh deck height each frame so carrier movement is tracked
 		var current_deck_height = _get_deck_height_y()
-		var elevator_local_y = elevator.platform.position.y
+		var elevator_local_y = _get_elevator_platform_local_y(-10.0)
 		var elevator_global_y = current_deck_height + elevator_local_y
 
 		# Calculate aircraft position so its lowest gear is 0.2m above elevator platform
@@ -1750,7 +1843,7 @@ func _follow_elevator_up_for_retrieval(aircraft: RigidBody3D):
 	while is_instance_valid(aircraft) and is_instance_valid(elevator) and not _is_elevator_physically_at_top():
 		# Refresh deck height each frame so carrier movement is tracked
 		var current_deck_height = _get_deck_height_y()
-		var elevator_local_y = elevator.platform.position.y
+		var elevator_local_y = _get_elevator_platform_local_y(-10.0)
 		var elevator_global_y = current_deck_height + elevator_local_y
 
 		# Calculate aircraft position so its lowest gear is 0.2m above elevator platform
@@ -1838,6 +1931,7 @@ func _complete_retrieval_sequence():
 	# Automatically start launch sequence
 	
 	request_launch_sequence(aircraft)
+	_send_primary_tractorbots_to_hangar.call_deferred()
 
 func _move_aircraft_horizontally(aircraft: RigidBody3D, target_position: Vector3):
 	"""Move aircraft horizontally to target position with tractorbots following"""
@@ -1936,6 +2030,117 @@ func _move_tractorbots_to_staging():
 	for i in range(moving_bots.size()):
 		moving_bots[i].global_position = target_positions[i]
 
+func _get_primary_elevator_slots_local(count: int, platform_local_y: float) -> Array[Vector3]:
+	var slots := _get_tractor_cleanup_elevator_slots_local(count)
+	for i in range(slots.size()):
+		var slot_local: Vector3 = slots[i]
+		slot_local.y = platform_local_y
+		slots[i] = slot_local
+	return slots
+
+func _wait_for_tractor_elevator_transfer() -> void:
+	while _tractor_elevator_transfer_in_progress:
+		await get_tree().process_frame
+
+func _wait_for_elevator_bottom() -> void:
+	while is_instance_valid(elevator) and elevator.current_state != elevator.ElevatorState.AT_BOTTOM:
+		await get_tree().process_frame
+
+func _follow_cleanup_tractors_with_elevator_up(nodes: Array[Node3D], local_slots: Array[Vector3]) -> void:
+	if nodes.is_empty() or not elevator or not ("platform" in elevator):
+		return
+	var deck_local_y := _get_deck_local_y()
+	while is_instance_valid(elevator) and not _is_elevator_physically_at_top():
+		var bot_local_y := deck_local_y + _get_elevator_platform_local_y(-10.0) + 0.2
+		for i in range(min(nodes.size(), local_slots.size())):
+			if not is_instance_valid(nodes[i]):
+				continue
+			var target_local := local_slots[i]
+			target_local.y = bot_local_y
+			nodes[i].position = target_local
+		await get_tree().process_frame
+	var final_local_y := deck_local_y + _get_elevator_platform_local_y(-10.0) + 0.2
+	for i in range(min(nodes.size(), local_slots.size())):
+		if not is_instance_valid(nodes[i]):
+			continue
+		var final_local := local_slots[i]
+		final_local.y = final_local_y
+		nodes[i].position = final_local
+
+func _prepare_tractorbots_for_recovery_job() -> void:
+	await _wait_for_tractor_elevator_transfer()
+	var primary_bots := _get_primary_tractor_bots()
+	if primary_bots.is_empty() or not is_instance_valid(elevator_pickup_marker) or not elevator:
+		return
+
+	for bot in primary_bots:
+		_set_cleanup_idle_for_tractor_bot(bot)
+
+	if _tractorbots_in_hangar and _is_elevator_physically_at_top():
+		if elevator.has_method("move_platform_down"):
+			elevator.move_platform_down()
+		await _wait_for_elevator_bottom()
+	if not is_instance_valid(elevator):
+		return
+
+	var platform_local_y := _get_deck_local_y() + _get_elevator_platform_local_y(-10.0) + 0.2
+	var elevator_slots := _get_primary_elevator_slots_local(primary_bots.size(), platform_local_y)
+	await _move_nodes_to_local_targets(primary_bots, elevator_slots, _tractor_cleanup_move_speed)
+	if not is_instance_valid(elevator):
+		return
+
+	if not _is_elevator_physically_at_top():
+		if elevator.has_method("move_platform_up"):
+			elevator.move_platform_up()
+		await _follow_cleanup_tractors_with_elevator_up(primary_bots, elevator_slots)
+		await _wait_for_elevator_top()
+
+	for bot in primary_bots:
+		if bot.has_method("enable_movement"):
+			bot.enable_movement()
+
+	_tractorbots_in_hangar = false
+
+func _send_primary_tractorbots_to_hangar() -> void:
+	if _tractor_elevator_transfer_in_progress:
+		return
+	if not is_instance_valid(elevator_pickup_marker) or not elevator:
+		return
+
+	var primary_bots := _get_primary_tractor_bots()
+	if primary_bots.size() < PRIMARY_TRACTOR_COUNT:
+		return
+
+	_tractor_elevator_transfer_in_progress = true
+	for bot in primary_bots:
+		_set_cleanup_idle_for_tractor_bot(bot)
+
+	if not _is_elevator_physically_at_top():
+		if elevator.has_method("move_platform_up"):
+			elevator.move_platform_up()
+		await _wait_for_elevator_top()
+	if not is_instance_valid(elevator):
+		_tractor_elevator_transfer_in_progress = false
+		return
+
+	var top_slot_y := _get_deck_local_y() + 0.2
+	var elevator_slots := _get_primary_elevator_slots_local(primary_bots.size(), top_slot_y)
+	await _move_nodes_to_local_targets(primary_bots, elevator_slots, _tractor_cleanup_move_speed)
+	if not is_instance_valid(elevator):
+		_tractor_elevator_transfer_in_progress = false
+		return
+
+	if elevator.has_method("move_platform_down"):
+		elevator.move_platform_down()
+	await _follow_cleanup_tractors_with_elevator_down(primary_bots, elevator_slots)
+	await _wait_for_elevator_bottom()
+
+	for bot in primary_bots:
+		_set_cleanup_idle_for_tractor_bot(bot)
+
+	_tractorbots_in_hangar = true
+	_tractor_elevator_transfer_in_progress = false
+
 func _set_cleanup_idle_for_tractor_bot(bot: Node3D) -> void:
 	if not is_instance_valid(bot):
 		return
@@ -1953,6 +2158,9 @@ func _move_nodes_to_local_targets(nodes: Array[Node3D], local_targets: Array[Vec
 	var start_positions: Array[Vector3] = []
 	for i in range(nodes.size()):
 		var node := nodes[i]
+		if not is_instance_valid(node):
+			start_positions.append(Vector3.ZERO)
+			continue
 		start_positions.append(node.position)
 		if i < local_targets.size():
 			max_distance = maxf(max_distance, node.position.distance_to(local_targets[i]))
@@ -1962,9 +2170,13 @@ func _move_nodes_to_local_targets(nodes: Array[Node3D], local_targets: Array[Vec
 		elapsed += get_process_delta_time()
 		var t := ease_in_out_cubic(clampf(elapsed / duration, 0.0, 1.0))
 		for i in range(min(nodes.size(), local_targets.size())):
+			if not is_instance_valid(nodes[i]):
+				continue
 			nodes[i].position = start_positions[i].lerp(local_targets[i], t)
 		await get_tree().process_frame
 	for i in range(min(nodes.size(), local_targets.size())):
+		if not is_instance_valid(nodes[i]):
+			continue
 		nodes[i].position = local_targets[i]
 
 func _follow_cleanup_tractors_with_elevator_down(nodes: Array[Node3D], local_slots: Array[Vector3]) -> void:
@@ -1972,14 +2184,18 @@ func _follow_cleanup_tractors_with_elevator_down(nodes: Array[Node3D], local_slo
 		return
 	var deck_local_y := _get_deck_local_y()
 	while is_instance_valid(elevator) and elevator.current_state != elevator.ElevatorState.AT_BOTTOM:
-		var bot_local_y := deck_local_y + float(elevator.platform.position.y) + 0.2
+		var bot_local_y := deck_local_y + _get_elevator_platform_local_y(-10.0) + 0.2
 		for i in range(min(nodes.size(), local_slots.size())):
+			if not is_instance_valid(nodes[i]):
+				continue
 			var target_local := local_slots[i]
 			target_local.y = bot_local_y
 			nodes[i].position = target_local
 		await get_tree().process_frame
-	var final_local_y := deck_local_y + float(elevator.platform.position.y) + 0.2
+	var final_local_y := deck_local_y + _get_elevator_platform_local_y(-10.0) + 0.2
 	for i in range(min(nodes.size(), local_slots.size())):
+		if not is_instance_valid(nodes[i]):
+			continue
 		var final_local := local_slots[i]
 		final_local.y = final_local_y
 		nodes[i].position = final_local

@@ -511,6 +511,12 @@ func _refresh_map_hint() -> void:
 	if _selected_asset_kind == AssetKind.FLIGHT and _selected_mission_id == "CAP":
 		_map_hint.text = "Editing CAP route: drag nodes to move, left-click a segment to add a node, right-click a node to remove it, then confirm."
 		return
+	if _selected_mission_id == "RECON":
+		if _draft_points.is_empty():
+			_map_hint.text = "RECON: click on a discovered POI (yellow star) to assign the target, then confirm."
+		else:
+			_map_hint.text = "RECON target set. Confirm to dispatch the platoon."
+		return
 	if _mission_requires_target(_selected_mission_id):
 		if _mission_allows_waypoints(_selected_mission_id):
 			_map_hint.text = "%s draft: left-click to add route points, right-click to remove the last point, then confirm." % _selected_mission_id
@@ -601,7 +607,7 @@ func _confirm_flight_order() -> void:
 
 func _confirm_platoon_order() -> void:
 	match _selected_mission_id:
-		"MOVE":
+		"MOVE", "RECON":
 			if _draft_points.is_empty():
 				return
 			GroundOpsManager.order_move(_selected_asset_name, _draft_points[0])
@@ -638,6 +644,14 @@ func _on_map_gui_input(event: InputEvent) -> void:
 		var mouse_event := event as InputEventMouseButton
 		if mouse_event.button_index == MOUSE_BUTTON_LEFT:
 			if _selected_asset_kind == AssetKind.FLIGHT and _selected_mission_id == "CAP" and not _draft_points.is_empty():
+				return
+			if _selected_mission_id == "RECON":
+				var snapped := _snap_to_poi_world(mouse_event.position)
+				if snapped == Vector3.INF:
+					return  # click not near a POI star
+				_draft_points = [snapped]
+				_refresh_ui()
+				get_viewport().set_input_as_handled()
 				return
 			var world_pos := _map_to_world(mouse_event.position)
 			if _mission_allows_waypoints(_selected_mission_id):
@@ -680,6 +694,7 @@ func _get_selected_mission_specs() -> Array[Dictionary]:
 		AssetKind.PLATOON:
 			return [
 				{"id": "MOVE", "label": "> MOVE", "accent": VECTOR_TEXT_COLOR},
+				{"id": "RECON", "label": "> RECON", "accent": VECTOR_TEXT_COLOR},
 				{"id": "ATTACK", "label": "> ATTACK", "accent": VECTOR_AMBER_COLOR},
 				{"id": "PROTECT", "label": "> PROTECT", "accent": VECTOR_STATUS_COLOR},
 				{"id": "ESCORT", "label": "> ESCORT", "accent": VECTOR_TEXT_COLOR},
@@ -711,7 +726,7 @@ func _can_confirm_draft() -> bool:
 	return true
 
 func _mission_requires_target(mission_id: String) -> bool:
-	return mission_id in ["CAP", "CAS", "INTERDICTION", "STRIKE", "MOVE", "ATTACK", "PROTECT"]
+	return mission_id in ["CAP", "CAS", "INTERDICTION", "STRIKE", "MOVE", "RECON", "ATTACK", "PROTECT"]
 
 func _mission_allows_waypoints(mission_id: String) -> bool:
 	return mission_id == "CAP"
@@ -969,6 +984,20 @@ func _world_to_map_local(world_pos: Vector3) -> Vector2:
 	var u: float = (world_pos.x - TerrainNavGrid._origin_x) / span_x
 	var v: float = (world_pos.z - TerrainNavGrid._origin_z) / span_z
 	return Vector2(u * _map_input.size.x, v * _map_input.size.y)
+
+## Returns the world position of the nearest discovered POI to a map click,
+## or Vector3.INF if no POI is within the snap radius.
+func _snap_to_poi_world(map_click: Vector2) -> Vector3:
+	const SNAP_PX: float = 28.0
+	var best_world := Vector3.INF
+	var best_dist := SNAP_PX
+	for poi_world: Vector3 in POIManager.get_discovered_positions():
+		var mp: Vector2 = _world_to_map_local(poi_world)
+		var dist := map_click.distance_to(mp)
+		if dist < best_dist:
+			best_dist = dist
+			best_world = poi_world
+	return best_world
 
 func _distance_to_segment(point: Vector2, seg_a: Vector2, seg_b: Vector2) -> float:
 	var segment := seg_b - seg_a

@@ -125,7 +125,6 @@ func _input(event):
 
 	if _free_camera_active:
 		if _is_action_pressed_event(event, "toggle_player_control"):
-			_exit_free_camera()
 			toggle_player_control()
 			get_viewport().set_input_as_handled()
 		return
@@ -300,19 +299,11 @@ func toggle_player_control():
 		_return_control_to_ai()
 		return
 
-	var target := _get_toggle_target_aircraft()
+	var target: RigidBody3D = _get_toggle_target_aircraft()
 	if not is_instance_valid(target):
 		return
-
-	var friendlies := _get_friendly_aircraft()
-	var target_index := friendlies.find(target)
-	if target_index == -1:
+	if target.has_meta("player_control_locked") and bool(target.get_meta("player_control_locked")):
 		return
-
-	current_category = Category.FRIENDLY
-	friendly_index = target_index
-	current_viewed_aircraft = target
-	_activate_view()
 
 	var ai_toggle = target.get_node_or_null("AIToggle")
 	if ai_toggle and ai_toggle.has_method("disable_ai"):
@@ -332,14 +323,47 @@ func _return_control_to_ai() -> void:
 	is_player_controlling = false
 	player_controlled_plane = null
 
+func force_release_player_control_for(aircraft: RigidBody3D) -> void:
+	if not is_player_controlling:
+		return
+	if not is_instance_valid(player_controlled_plane):
+		is_player_controlling = false
+		player_controlled_plane = null
+		return
+	if is_instance_valid(aircraft) and player_controlled_plane != aircraft:
+		return
+	is_player_controlling = false
+	player_controlled_plane = null
+
 func _get_toggle_target_aircraft() -> RigidBody3D:
 	if is_instance_valid(player_controlled_plane):
 		return player_controlled_plane
-	if not is_instance_valid(current_viewed_aircraft):
+
+	# current_viewed_aircraft is the authoritative record of what's on screen.
+	# Check it first — camera-based detection returns the camera owner (aircraft 1)
+	# even when the player's camera controller is used to view a different aircraft.
+	if is_instance_valid(current_viewed_aircraft):
+		var friendlies: Array = _get_friendly_aircraft()
+		if current_viewed_aircraft in friendlies:
+			return current_viewed_aircraft
+
+	# Fallback: camera ownership walk (works when aircraft has its own CameraController)
+	var active_camera: Camera3D = _get_current_active_camera()
+	var bridge_camera: Camera3D = _get_bridge_camera()
+	if is_instance_valid(active_camera) and active_camera == bridge_camera:
 		return null
-	var friendlies := _get_friendly_aircraft()
-	if current_viewed_aircraft in friendlies:
-		return current_viewed_aircraft
+	var camera_aircraft: RigidBody3D = _get_aircraft_for_camera(active_camera)
+	if is_instance_valid(camera_aircraft):
+		var visible_friendlies: Array = _get_friendly_aircraft()
+		if camera_aircraft in visible_friendlies:
+			return camera_aircraft
+
+	if current_category == Category.FRIENDLY:
+		var friendlies_from_cycle: Array = _get_friendly_aircraft()
+		if friendlies_from_cycle.is_empty():
+			return null
+		friendly_index = clampi(friendly_index, 0, friendlies_from_cycle.size() - 1)
+		return friendlies_from_cycle[friendly_index] as RigidBody3D
 	return null
 
 func _setup_status_overlay() -> void:
@@ -405,10 +429,16 @@ func _update_pilot_name_overlay() -> void:
 
 	if not _free_camera_active and not _destroyed_plane_linger_active:
 		var active_camera := _get_current_active_camera()
-		var camera_aircraft := _get_aircraft_for_camera(active_camera)
-		if is_instance_valid(camera_aircraft) and _camera_is_in_cockpit_mount(active_camera):
-			display_text = _pilot_display_from_aircraft(camera_aircraft)
-			show_label = display_text != ""
+		if _camera_is_in_cockpit_mount(active_camera):
+			# Use current_viewed_aircraft as authority; fall back to camera tree walk
+			# so the correct pilot name shows even when using the player's camera to
+			# view a different aircraft.
+			var pilot_aircraft: RigidBody3D = current_viewed_aircraft \
+				if is_instance_valid(current_viewed_aircraft) \
+				else _get_aircraft_for_camera(active_camera)
+			if is_instance_valid(pilot_aircraft):
+				display_text = _pilot_display_from_aircraft(pilot_aircraft)
+				show_label = display_text != ""
 
 	_pilot_name_label.visible = show_label
 	if show_label:
@@ -660,6 +690,26 @@ func _get_current_active_camera() -> Camera3D:
 			return viewport_camera as Camera3D
 	return null
 
+func _get_chase_camera_for_viewed_aircraft() -> Camera3D:
+	# Priority 1: the viewed aircraft's own CameraController (has its own chase_camera)
+	if is_instance_valid(current_viewed_aircraft):
+		var ac_cc := current_viewed_aircraft.find_child("CameraController", true, false)
+		if ac_cc and "chase_camera" in ac_cc:
+			var cam := ac_cc.get("chase_camera") as Camera3D
+			if is_instance_valid(cam):
+				return cam
+		# Priority 2: a bare CameraChase tripod (no CC, but camera tripod present)
+		var chase_tripod := current_viewed_aircraft.get_node_or_null("CameraChase")
+		if chase_tripod:
+			var cam := (chase_tripod as Node).find_child("Camera3D", true, false) as Camera3D
+			if is_instance_valid(cam):
+				return cam
+	# Priority 3: the player camera controller (works when player aircraft is viewed)
+	var cc := _get_player_camera_controller()
+	if cc and "chase_camera" in cc:
+		return cc.get("chase_camera") as Camera3D
+	return null
+
 func _toggle_free_camera() -> void:
 	if _free_camera_active:
 		_exit_free_camera()
@@ -674,9 +724,29 @@ func _enter_free_camera() -> void:
 	var source_camera: Camera3D = _get_current_active_camera()
 	var free_camera := _get_or_create_free_camera()
 	if source_camera:
-		free_camera.global_transform = source_camera.global_transform
+		# Cockpit cameras have a very small near plane (inside the aircraft mesh).
+		# Starting free-look there makes the aircraft invisible and hides the pilot.
+		# Instead, snap to the chase camera position so the cockpit is visible from outside.
+		var is_cockpit_cam: bool = source_camera.near < 0.05
+		if is_cockpit_cam:
+			# Find the chase camera for the CURRENTLY VIEWED aircraft specifically.
+			# _get_player_camera_controller() always returns aircraft 1's CC, so it gives
+			# the wrong chase camera when viewing aircraft 2 through its own CameraController.
+			var chase_cam: Camera3D = _get_chase_camera_for_viewed_aircraft()
+			if chase_cam and is_instance_valid(chase_cam):
+				free_camera.global_transform = chase_cam.global_transform
+			elif is_instance_valid(current_viewed_aircraft):
+				var basis: Basis = current_viewed_aircraft.global_transform.basis
+				free_camera.global_position = current_viewed_aircraft.global_position \
+					- basis.z * 15.0 + Vector3.UP * 4.0
+				free_camera.look_at(current_viewed_aircraft.global_position + Vector3.UP * 1.5, Vector3.UP)
+			else:
+				free_camera.global_transform = source_camera.global_transform
+			free_camera.near = 0.1
+		else:
+			free_camera.global_transform = source_camera.global_transform
+			free_camera.near = source_camera.near
 		free_camera.fov = source_camera.fov
-		free_camera.near = source_camera.near
 		free_camera.far = source_camera.far
 		free_camera.keep_aspect = source_camera.keep_aspect
 		free_camera.projection = source_camera.projection
@@ -727,8 +797,14 @@ func _update_free_camera(delta: float) -> void:
 	var forward_input := Input.get_action_strength("pitch_down") - Input.get_action_strength("pitch_up")
 	var strafe_input := Input.get_action_strength("roll_right") - Input.get_action_strength("roll_left")
 	var move_input := Vector2(strafe_input, forward_input)
-	if move_input.length_squared() > 1.0:
-		move_input = move_input.normalized()
+	var raw_len := move_input.length()
+	if raw_len > 1.0:
+		move_input /= raw_len  # clamp to unit circle, then ramp below
+		raw_len = 1.0
+	# Exponential ramp: small deflections → very slow; full stick → full speed.
+	var ramped_len := pow(raw_len, 2.5)
+	var move_dir := move_input / maxf(raw_len, 0.0001)
+	move_input = move_dir * ramped_len
 
 	var move_vector := (_free_camera.global_basis.x * move_input.x) + ((-_free_camera.global_basis.z) * move_input.y)
 	_free_camera.global_position += move_vector * free_camera_max_speed_mps * delta

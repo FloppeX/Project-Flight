@@ -3,6 +3,7 @@
 This document contains version history, session-by-session notes, and archived long-form material extracted from the main project overview. For the short project brief, see [README](../README.md).
 
 ## Version History
+- 2026-04-13: Combat/UI/content expansion pass - project renamed to `Land Carrier`; pause menu rebuilt with Orbitron all-caps styling and untinted overlay; rotating HUD pitch ladder and boxed speed/altitude readouts added; gun-profile weapon framework expanded to 10/15/20/25 mm across hardpoints and turrets; hit-assist radius defaults to `0.5 m` and is runtime-adjustable; carrier and emplacement turret aim/range/LOS/arc behavior hardened with expanded debug telemetry; Aircraft_4 integrated as a heavy rear-turret enemy aircraft (`140 HP`) with debug spawn support; Aircraft_2/7/8/3 loadouts updated; cockpit pilot system standardized with randomized pilot palettes and cockpit hiding; team livery/insignia randomization expanded (24-color cycle, tail/wing projection fixes); critical-damage aircraft death state replaced with jammed controls plus chunk breakup/smoke; gun emplacements added with random weapons, activation-distance sleeping, team colors, and collider-bottom terrain grounding.
 - 2026-04-06: Performance profiling & fog system overhaul — frame spike logger added to ScenarioManager; identified terrain chunk collision rebuild (0.12s timer) and volumetric fog as primary performance culprits; `stream_update_interval_s` raised to 0.5s, initial-fill chunk budget raised to 16 to eliminate pop-in delay while keeping steady-state at 2 builds/tick; switched to volumetric fog for seamless horizon blending; render scale set to 0.5 for 4K performance; fixed `shake_frequency` missing declaration in `aircraft.gd`; shadow cascade splits retuned (`split_1=0.03`, `split_2=0.15`) for better near-geometry resolution; complete day/night palette overhaul — dawn (apricot/dusty salmon), day (bleached ochre glare), dusk (copper/cinnabar/burnt orange), twilight (plum/brown-violet) with per-phase density and anisotropy; `fog_aerial_perspective=1.0` and uniform sky colour prevent horizon seam in all camera orientations.
 - 2026-04-05 (late): Fog/horizon tuning pass — investigated persistent horizon line; identified root causes as missing `fog_aerial_perspective` in active code path and sky gradient visible during bank; zeroed `zenith_darkness` and `sky_ground_darkening` on all phases; `sky_curve`/`ground_curve` widened to 0.45; `fog_depth_begin` and `fog_depth_curve` now explicitly set in the builtin-fog branch to override stale resource values.
 - 2026-04-05: Floating origin system audit & completion — added missing `apply_origin_shift` handlers to 8 scripts (NavGraph, vehicle_enemy_light, vehicle_friendly_light, WorldMapSymbolLayer, RadarCanvas, BridgeHologram, CameraController, DustEffect); fixed AIPilot parse error from bad indentation in `_scan_contacts`; fixed `is` operator crash on freed instances in AIPilot sensor scans by reordering `is_instance_valid` check first; terrain chunk `load_radius_chunks` increased from 4 to 10 so terrain fills the camera view distance; DayNightCycle now forces sky/ground horizon colors to match fog color every frame; day phase fog/sky colors adjusted for desert haze look; fog/sky horizon tuning still in progress.
@@ -41,6 +42,122 @@ This document contains version history, session-by-session notes, and archived l
 ---
 
 ## Project Change Log (latest session)
+
+### Session Summary (2026-04-13) - Combat/UI/Content Integration Pass
+
+**Overview:** This session merged a long chain of combat, vehicle, input, HUD, and presentation work into a single coherent baseline. The project moved from a mostly prototype gun/camera/control stack to a more systemic setup: shared gun profiles across mounts, tighter turret fire gating, standardized cockpit pilot/livery pipelines, and new static defense population behavior around enemy areas.
+
+#### Identity / Project Structure
+- Project name set to `Land Carrier` in `project.godot`.
+- Main-scene flow and docs alignment cleaned up around the Land Carrier naming.
+
+#### Pause Menu / UI / Font Pass
+- Pause menu rebuilt around `Orbitron-VariableFont_wght.ttf` with larger all-caps menu entries and clearer spacing.
+- Pause overlay tint removed (transparent pause background).
+- Pause interaction now supports both keyboard and gamepad navigation/accept/back paths.
+- Controls text in pause now reflects newer targeting/control bindings.
+
+#### HUD / Flight Display
+- Added attitude indicator pitch ladder behavior that rotates with aircraft roll so the ladder stays level to the horizon.
+- Added side tick marks at regular pitch increments and tuned ladder width/placement.
+- Moved speed and altitude readouts upward and wrapped them in dedicated boxes for readability.
+- Added follow-up width tuning to make the pitch ladder slightly narrower.
+
+#### Input / Camera / View Control
+- `Start` handoff now toggles player/AI control for the currently viewed friendly aircraft without forcing target/camera swaps.
+- Shoulder-button spectate cycling remains active in AI-view mode, including bridge-view contexts.
+- Added target lock-to-HUD-center action on `L3`.
+- Added/confirmed target cycling on D-pad left/right.
+- Debug spawn controls extended: `4` spawns friendly Aircraft_4 above carrier; `R` now spawns mixed enemy Aircraft_3/Aircraft_4 flights.
+
+#### Gun Framework / Ballistics / Hit Registration
+- Introduced unified gun-profile families usable by hardpoints and turrets:
+- 10 mm Machine Gun: `800 RPM`, `600 m/s`, high spread, light recoil, standard round, `5` damage, `400 m` range.
+- 15 mm Machine Gun: `600 RPM`, `600 m/s`, medium spread, medium recoil, standard round, `10` damage, `500 m` range.
+- 20 mm Autocannon: `400 RPM`, `500 m/s`, low spread, medium recoil, small explosive round, `20` damage, `550 m` range.
+- 25 mm Autocannon: `300 RPM`, `400 m/s`, low spread, heavy recoil, small explosive round, `30` damage, `600 m` range.
+- Sound routing per gun class added/cleaned:
+- 10 mm uses `gun_lmg_1..9`.
+- 20/25 mm uses `autocannon_1..4`.
+- Projectile hit-assist radius now defaults to `0.5 m` and applies to aircraft, vehicles, and buildings.
+- Runtime tuning hotkeys added: Up Arrow increases hit-assist radius by `0.2 m`, Down Arrow decreases by `0.2 m`; live radius text shown top-left.
+- Turret lead now uses effective projectile speed consistent with in-sim velocity cap behavior.
+- Fire gating now includes effective range checks so units stop firing beyond useful ballistic range.
+
+#### Turret Logic / Debug / Performance
+- Carrier and emplacement turret aim skill tuning:
+- Carrier defense turrets: `aim_skill = 0.8`.
+- Gun emplacements: `aim_skill = 0.5`.
+- Turret fire logic now enforces line-of-sight to aim point before firing.
+- Added extensive turret debug telemetry:
+- per-tick target/lead/range/LOS/arc state logging.
+- per-bullet closest miss tracking (center/edge), timeout/impact reason, and speed diagnostics.
+- Rear-arc turret logic for Aircraft_4 corrected to center around aft heading with symmetric arc:
+- yaw center `180 deg`, yaw limits `+/-110 deg`.
+- pitch limits `+90 deg / -20 deg`.
+- Increased turret angular velocity for better target tracking responsiveness while preserving damped small-angle behavior.
+
+#### Decals / Bullet Marks / Freed-Instance Stability
+- Reworked bullet-mark/decal handling to avoid freed-instance access crashes.
+- Added hard cap of 15 latest bullet decals per aircraft.
+- Fixed multiple freed-instance parser/runtime issues in bullet/decal diagnostic code paths.
+
+#### Aircraft Damage / Death-State Rework
+- Replaced immediate death behavior at `0 HP` with a critical-damage phase:
+- player control disabled.
+- control inputs jammed to random max pitch/roll directions.
+- explosion rolls at `10%` chance each second.
+- Final breakup now uses dark rigid debris chunks (ground-vehicle-style), each with small smoke puffs.
+- Debris chunks self-destroy on terrain contact (plus lifetime fallback).
+
+#### Aircraft / Loadouts / New Aircraft_4
+- Added/integrated `Aircraft_4` into standard aircraft scene conventions and systems.
+- `Aircraft_4` tuned as heavy/slower enemy type with rear turret and `140 HP`.
+- Loadout updates:
+- Aircraft_2 now fields 25 mm autocannon.
+- Aircraft_7 and Aircraft_8 now field 20 mm autocannons.
+- Aircraft_3 gained an additional hardpoint and now mounts dual 10 mm machine guns.
+- Player baseline gun setup moved to 15 mm machine-gun profile.
+
+#### Cockpit Pilot / Livery / Insignia
+- Standardized cockpit pilot scene + pose usage across aircraft.
+- Pilot pose controls exposed and mirrored for practical editor-side tuning.
+- Cockpit visibility behavior finalized so pilot is hidden in cockpit view.
+- Added randomized per-aircraft pilot material palette:
+- Main color pool: grey, tan, green, dark blue.
+- Main dark pool: dark grey, brown, dark blue.
+- Helmet colors: sampled from the 24-color aircraft preset pool.
+- Team livery randomization expanded:
+- each side gets random color and insignia assignment from pools.
+- `C` cycles 24 aircraft color presets (includes black, cream, pink, red variants).
+- Wing/tail insignia projection pipeline improved:
+- wing decal side mapping corrected.
+- tail orientation corrected (including upside-down and 90-degree projection fixes).
+- support for slanted stabilizer placement via editable marker orientation.
+
+#### Propeller Visual Pipeline
+- Replaced older shader/visibility workaround with authored propeller-node behavior.
+- Aircraft propellers now rely on model nodes (`hub`, `blades`, `propeller disc`) so low-speed blades and high-speed disc visibility are controlled directly from asset setup.
+- Fixed transparent-disc artifact regressions (invisible blades and rear-placed quad artifacts).
+
+#### Enemy Bases / Gun Emplacements
+- Expanded enemy-side static defenses beyond runway/barracks:
+- new gun emplacement scene using `turret base.glb` + turret stack.
+- emplacement health set to `150`.
+- random weapon assignment per emplacement: 10 mm, 15 mm, or 20 mm.
+- spawn pattern: `4-5` emplacement clumps per enemy faction, `1-3` emplacements per clump.
+- performance behavior: emplacements stay inactive until hostiles are within activation distance.
+- team livery integration: emplacement/turret materials use faction main color.
+- placement robustness:
+- random placement seeks suitable flat terrain near carrier-relevant ground band.
+- collider-bottom grounding added so spawned emplacements sit correctly on terrain.
+
+#### Stability / Crash Fixes
+- Hardened freed-instance checks in bullet and recovery/deck code paths (including `_perform_cable_release` argument validation issues).
+- Removed deprecated/unused legacy enemy box path.
+- Multiple parser-warning-as-error cleanup passes performed across updated scripts.
+
+---
 
 ### Session Summary (2026-04-06) - Performance Profiling & Fog / Atmosphere Overhaul
 

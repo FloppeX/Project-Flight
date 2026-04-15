@@ -1,28 +1,29 @@
 extends SceneTree
 
 func _init() -> void:
-	var scene: PackedScene = load("res://Models/Aircraft_5/aircraft_5.glb")
-	if scene == null:
-		print("ERROR: Could not load aircraft_5.glb")
-		quit()
+	var packed := load("res://Aircraft/Aircraft_5.tscn") as PackedScene
+	if packed == null:
+		print("FAILED: load Aircraft_5")
+		quit(1)
 		return
-	var root := scene.instantiate()
-	_print_tree(root, "")
-	root.queue_free()
-	quit()
-
-func _print_tree(node: Node, indent: String) -> void:
-	var info := "%s%s [%s]" % [indent, node.name, node.get_class()]
-	if node is MeshInstance3D:
+	var inst := packed.instantiate()
+	if inst == null:
+		print("FAILED: instantiate")
+		quit(1)
+		return
+	root.add_child(inst)
+	print("ROOT:", inst.name)
+	var body_root := inst.get_node_or_null("aircraft_5") as Node3D
+	if body_root == null:
+		print("NO body root")
+		quit(2)
+		return
+	print("BODY ROOT CHILDREN:", body_root.get_child_count())
+	for node in body_root.find_children("*", "MeshInstance3D", true, false):
 		var mi := node as MeshInstance3D
-		if mi.mesh:
-			info += " surfaces=%d" % mi.mesh.get_surface_count()
-			for i in range(mi.mesh.get_surface_count()):
-				var mat := mi.mesh.surface_get_material(i)
-				var mat_name := ""
-				if mat:
-					mat_name = mat.resource_name if mat.resource_name != "" else str(mat)
-				print("%s  surface[%d]: %s" % [indent, i, mat_name])
-	print(info)
-	for child in node.get_children():
-		_print_tree(child, indent + "  ")
+		var mat0: Material = null
+		if mi.mesh != null and mi.mesh.get_surface_count() > 0:
+			mat0 = mi.get_active_material(0)
+		var mat_name := mat0.resource_path if mat0 != null else "<none>"
+		print("MESH:", mi.get_path(), " vis=", mi.visible, " surf=", (mi.mesh.get_surface_count() if mi.mesh else 0), " mat0=", mat_name)
+	quit(0)

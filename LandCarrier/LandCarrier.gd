@@ -455,7 +455,8 @@ func _carry_deck_passengers(current_transform: Transform3D, old_transform: Trans
 			var n := node as Node
 			var has_brake := n.has_meta("parking_brake") and bool(n.get_meta("parking_brake"))
 			var has_transport := n.has_meta("carrier_transport_mode") and bool(n.get_meta("carrier_transport_mode"))
-			var on_carrier := has_brake or has_transport
+			var has_deck_follow := n.has_meta("carrier_deck_follow") and bool(n.get_meta("carrier_deck_follow"))
+			var on_carrier := has_brake or has_transport or has_deck_follow
 			var on_catapult := n.has_meta("controls_disabled") and bool(n.get_meta("controls_disabled")) and not has_brake and not has_transport
 			if on_carrier or on_catapult:
 				(node as Node3D).global_transform = transform_delta * (node as Node3D).global_transform

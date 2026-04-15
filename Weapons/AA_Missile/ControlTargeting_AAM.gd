@@ -24,6 +24,26 @@ func _ready():
 	ModuleType = "targeting"
 
 func receive_input(event):
+	if event != null and event.is_action_pressed("target_lock_center", false, true):
+		lock_target_to_hud_center()
+		return
+
+	if event != null and event.is_action_pressed("target_next", false, true):
+		target_next()
+		return
+	if event != null and event.is_action_pressed("target_prev", false, true):
+		target_prev()
+		return
+
+	if event is InputEventJoypadButton and event.pressed:
+		var button_event: InputEventJoypadButton = event as InputEventJoypadButton
+		if button_event.button_index == JOY_BUTTON_DPAD_RIGHT:
+			target_next()
+			return
+		if button_event.button_index == JOY_BUTTON_DPAD_LEFT:
+			target_prev()
+			return
+
 	if not enable_legacy_keyboard_shortcuts:
 		return
 	if event is InputEventKey and event.pressed and not event.echo:
@@ -78,23 +98,7 @@ func _update_best_target_if_needed():
 	if current_target != null and not is_instance_valid(current_target):
 		current_target = null
 		target_lock_time = 0.0
-	var team_id: int = 1
-	if aircraft and aircraft.has_method("get_team"):
-		team_id = int(aircraft.get_team())
-	var enemies: Array = []
-	var registry: Node = get_node_or_null("/root/EnemyRegistry")
-	if registry and registry.has_method("get_enemies_for_team"):
-		enemies = registry.get_enemies_for_team(1 if team_id != 1 else 2)
-	if enemies.size() == 0:
-		# Fallback: find by group
-		var group_nodes: Array = get_tree().get_nodes_in_group("enemies")
-		for e in group_nodes:
-			if e and is_instance_valid(e) and e != aircraft:
-				if e.has_method("get_team"):
-					if int(e.get_team()) != team_id:
-						enemies.append(e)
-				else:
-					enemies.append(e)
+	var enemies: Array = _get_hostile_enemies()
 	# Filter by cone and range
 	var forward: Vector3 = aircraft.global_transform.basis.z
 	var origin: Vector3 = aircraft.global_position
@@ -188,22 +192,7 @@ func clear_target():
 func _cycle_target(direction: int):
 	if not is_instance_valid(aircraft):
 		return
-	var team_id: int = 1
-	if aircraft and aircraft.has_method("get_team"):
-		team_id = int(aircraft.get_team())
-	var enemies: Array = []
-	var registry: Node = get_node_or_null("/root/EnemyRegistry")
-	if registry and registry.has_method("get_enemies_for_team"):
-		enemies = registry.get_enemies_for_team(1 if team_id != 1 else 2)
-	if enemies.size() == 0:
-		var group_nodes2: Array = get_tree().get_nodes_in_group("enemies")
-		for e2 in group_nodes2:
-			if e2 and is_instance_valid(e2) and e2 != aircraft:
-				if e2.has_method("get_team"):
-					if int(e2.get_team()) != team_id:
-						enemies.append(e2)
-				else:
-					enemies.append(e2)
+	var enemies: Array = _get_hostile_enemies()
 	if enemies.size() == 0:
 		clear_target()
 		return
@@ -233,3 +222,80 @@ func _cycle_target(direction: int):
 	if idx < 0:
 		idx += in_cone.size()
 	set_target(in_cone[idx])
+
+func lock_target_to_hud_center() -> bool:
+	if not is_instance_valid(aircraft):
+		return false
+
+	var enemies: Array = _get_hostile_enemies()
+	if enemies.is_empty():
+		return false
+
+	var origin: Vector3 = aircraft.global_position
+	var forward: Vector3 = aircraft.global_transform.basis.z.normalized()
+	var best_target: Node3D = null
+	var best_alignment: float = -INF
+	var best_dist_m: float = INF
+
+	for enemy_variant in enemies:
+		if not is_instance_valid(enemy_variant):
+			continue
+		var enemy: Node3D = enemy_variant as Node3D
+		if enemy == null or enemy == aircraft:
+			continue
+
+		var to_vec: Vector3 = enemy.global_position - origin
+		var dist_m: float = to_vec.length()
+		if dist_m <= 0.1 or dist_m > max_range_m:
+			continue
+
+		var alignment: float = forward.dot(to_vec / dist_m)
+		if alignment <= 0.0:
+			continue
+
+		if alignment > best_alignment + 0.0001:
+			best_alignment = alignment
+			best_dist_m = dist_m
+			best_target = enemy
+			continue
+		if absf(alignment - best_alignment) <= 0.0001 and dist_m < best_dist_m:
+			best_dist_m = dist_m
+			best_target = enemy
+
+	if not is_instance_valid(best_target):
+		return false
+
+	set_target(best_target)
+	if debug_enabled:
+		print("[Targeting] center lock -> ", best_target.name, " alignment=", "%.3f" % best_alignment)
+	return true
+
+func _get_hostile_enemies() -> Array:
+	var enemies: Array = []
+	if not is_instance_valid(aircraft):
+		return enemies
+
+	var team_id: int = 1
+	if aircraft.has_method("get_team"):
+		team_id = int(aircraft.get_team())
+
+	var registry: Node = get_node_or_null("/root/EnemyRegistry")
+	if registry and registry.has_method("get_enemies_for_team"):
+		enemies = registry.get_enemies_for_team(1 if team_id != 1 else 2)
+	if enemies.size() > 0:
+		return enemies
+
+	var group_nodes: Array = get_tree().get_nodes_in_group("enemies")
+	for enemy_variant in group_nodes:
+		if not is_instance_valid(enemy_variant):
+			continue
+		var enemy: Node3D = enemy_variant as Node3D
+		if enemy == null or enemy == aircraft:
+			continue
+		if enemy.has_method("get_team"):
+			if int(enemy.get_team()) != team_id:
+				enemies.append(enemy)
+		else:
+			enemies.append(enemy)
+
+	return enemies

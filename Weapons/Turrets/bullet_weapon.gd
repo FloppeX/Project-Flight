@@ -74,6 +74,17 @@ func _ready() -> void:
 	if not bullet_scene:
 		bullet_scene = load("res://Projectiles/Bullet/bullet.tscn")
 	_setup_shot_audio()
+	if _is_mounted_in_turret():
+		fire_rate *= 0.5
+
+
+func _is_mounted_in_turret() -> bool:
+	var node: Node = get_parent()
+	while node:
+		if node is Turret:
+			return true
+		node = node.get_parent()
+	return false
 
 func fire() -> bool:
 	if not can_fire():

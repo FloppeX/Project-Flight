@@ -12,6 +12,28 @@ extends Node3D
 @export var ccip_below_horizon_only: bool = true  # Hide CCIP when projected above screen center
 @export var ccip_use_fast: bool = true  # Prefer fast closed-form CCIP
 @export var hud_follow_camera_forward: bool = false  # Debug option; true collimated HUD uses aircraft boresight
+@export_group("Attitude Ladder")
+@export var show_attitude_ladder: bool = true
+@export var attitude_tick_step_deg: float = 10.0
+@export var attitude_ladder_range_deg: float = 60.0
+@export var attitude_ladder_side_margin_px: float = 170.0
+@export var attitude_ladder_tick_length_px: float = 16.0
+@export var attitude_ladder_horizon_tick_length_px: float = 26.0
+@export var attitude_ladder_alpha: float = 0.85
+@export var attitude_ladder_show_labels: bool = true
+@export var attitude_ladder_label_gap_px: float = 7.0
+@export var attitude_ladder_label_width_px: float = 34.0
+@export var attitude_ladder_label_font_size: int = 14
+@export_group("Compass")
+@export var show_compass: bool = true
+@export var compass_px_per_deg: float = 6.0
+@export var compass_alpha: float = 0.85
+@export_group("HUD Data Boxes")
+@export var show_speed_alt_boxes: bool = true
+@export var speed_alt_box_size_px: Vector2 = Vector2(84.0, 34.0)
+@export var speed_alt_box_side_margin_px: float = 14.0
+@export var speed_alt_box_vertical_ratio: float = 0.40
+@export var speed_alt_box_fill_alpha: float = 0.08
 
 var cam: Camera3D
 var aircraft: Node3D
@@ -22,6 +44,10 @@ var aircraft: Node3D
 @onready var hud_mesh: MeshInstance3D = $HUDglass
 @onready var weapon_status: Label = $SubViewport/WeaponStatus
 @onready var speed_altitude: Label = $SubViewport/SpeedAltitude
+var speed_box_panel: Panel
+var speed_box_label: Label
+var altitude_box_panel: Panel
+var altitude_box_label: Label
 
 # CCIP elements
 var ccip_circle: Control
@@ -51,6 +77,31 @@ var fpv_stub_right: ColorRect
 var fpv_dotted_line_segments: Array[ColorRect] = []
 const FPV_DOT_COUNT: int = 12
 const FPV_MIN_SPEED_MPS: float = 15.0
+
+# Attitude ladder (side pitch ticks)
+var attitude_ladder: Control
+var attitude_left_ticks: Array[ColorRect] = []
+var attitude_right_ticks: Array[ColorRect] = []
+var attitude_left_labels: Array[Label] = []
+var attitude_right_labels: Array[Label] = []
+var attitude_tick_values_deg: Array[float] = []
+
+# Compass heading strip
+const _COMPASS_TICK_STEP: float = 5.0
+const _COMPASS_LABEL_STEP: float = 10.0
+const _COMPASS_RANGE: float = 55.0
+const _COMPASS_TOP: float = 8.0
+const _COMPASS_MAJOR_H: float = 16.0
+const _COMPASS_MINOR_H: float = 9.0
+const _COMPASS_LABEL_GAP: float = 3.0
+const _COMPASS_LABEL_H: float = 16.0
+const _COMPASS_LABEL_FONT_SIZE: int = 13
+const _COMPASS_POOL_TICKS: int = 30
+const _COMPASS_POOL_LABELS: int = 16
+var compass_strip: Control
+var compass_ticks: Array[ColorRect] = []
+var compass_labels: Array[Label] = []
+var compass_center_mark: ColorRect
 
 func _opaque(color: Color) -> Color:
 	return Color(color.r, color.g, color.b, 1.0)
@@ -144,6 +195,12 @@ func _ready():
 	# Set up flight path vector
 	setup_fpv()
 
+	# Set up attitude ladder
+	setup_attitude_ladder()
+
+	# Set up compass heading strip
+	setup_compass()
+
 	# Set up a timer to update the CCIP periodically
 	ccip_update_timer = Timer.new()
 	ccip_update_timer.wait_time = 0.1 # Update 10 times per second
@@ -179,31 +236,78 @@ func setup_weapon_status():
 	weapon_status.add_theme_stylebox_override("normal", style_box)
 
 func setup_speed_altitude():
-	"""Set up the speed and altitude display in lower right corner"""
+	"""Set up speed/altitude readout boxes near the upper left/right HUD edges."""
 	if speed_altitude == null:
 		push_error("HUD: SpeedAltitude label not found!")
 		return
-	
-	# Position in lower right corner - move more towards the edge
+	# Keep legacy node hidden; we use separate boxed values now.
+	speed_altitude.visible = false
+
+	if not show_speed_alt_boxes:
+		return
+
+	var speed_data: Dictionary = _build_speed_alt_data_box("SpeedBox")
+	speed_box_panel = speed_data.get("panel") as Panel
+	speed_box_label = speed_data.get("label") as Label
+	viewport.add_child(speed_box_panel)
+
+	var alt_data: Dictionary = _build_speed_alt_data_box("AltitudeBox")
+	altitude_box_panel = alt_data.get("panel") as Panel
+	altitude_box_label = alt_data.get("label") as Label
+	viewport.add_child(altitude_box_panel)
+
+	_layout_speed_alt_boxes()
+
+func _build_speed_alt_data_box(name_text: String) -> Dictionary:
+	var panel := Panel.new()
+	panel.name = name_text
+	panel.custom_minimum_size = speed_alt_box_size_px
+	panel.size = speed_alt_box_size_px
+
+	var border_col: Color = _opaque(hud_primary_color)
+	var panel_style := StyleBoxFlat.new()
+	panel_style.bg_color = Color(0.0, 0.0, 0.0, clampf(speed_alt_box_fill_alpha, 0.0, 1.0))
+	panel_style.draw_center = true
+	panel_style.border_color = border_col
+	panel_style.border_width_left = 2
+	panel_style.border_width_top = 2
+	panel_style.border_width_right = 2
+	panel_style.border_width_bottom = 2
+	panel_style.corner_radius_top_left = 2
+	panel_style.corner_radius_top_right = 2
+	panel_style.corner_radius_bottom_left = 2
+	panel_style.corner_radius_bottom_right = 2
+	panel.add_theme_stylebox_override("panel", panel_style)
+
+	var label := Label.new()
+	label.name = "Value"
+	label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	label.text = "0"
+	label.add_theme_color_override("font_color", border_col)
+	label.add_theme_color_override("font_outline_color", Color.BLACK)
+	label.add_theme_constant_override("outline_size", hud_text_outline_size)
+	label.add_theme_font_size_override("font_size", 24)
+	panel.add_child(label)
+
+	return {"panel": panel, "label": label}
+
+func _layout_speed_alt_boxes() -> void:
+	if not is_instance_valid(viewport):
+		return
+	if not is_instance_valid(speed_box_panel) or not is_instance_valid(altitude_box_panel):
+		return
 	var hud_size: Vector2 = Vector2(viewport.size)
-	speed_altitude.position = Vector2(hud_size.x - 200, hud_size.y - 60)
-	speed_altitude.size = Vector2(190, 50)
-	
-	# Style the text - make it more opaque and larger
-	speed_altitude.text = "SPD: 0\nALT: 0"
-	speed_altitude.add_theme_color_override("font_color", _opaque(hud_primary_color))
-	speed_altitude.add_theme_color_override("font_outline_color", Color.BLACK)
-	speed_altitude.add_theme_constant_override("outline_size", hud_text_outline_size)
-	speed_altitude.add_theme_font_size_override("font_size", 18)
-	
-	# Add background for better visibility
-	var style_box = StyleBoxFlat.new()
-	style_box.bg_color = Color(0, 0, 0, 0.0)  # Completely transparent background
-	style_box.corner_radius_top_left = 5
-	style_box.corner_radius_top_right = 5
-	style_box.corner_radius_bottom_left = 5
-	style_box.corner_radius_bottom_right = 5
-	speed_altitude.add_theme_stylebox_override("normal", style_box)
+	var box_size: Vector2 = speed_alt_box_size_px
+	var y: float = clampf(hud_size.y * speed_alt_box_vertical_ratio, 0.0, maxf(hud_size.y - box_size.y, 0.0))
+	var left_x: float = speed_alt_box_side_margin_px
+	var right_x: float = hud_size.x - box_size.x - speed_alt_box_side_margin_px
+
+	speed_box_panel.position = Vector2(left_x, y)
+	speed_box_panel.size = box_size
+	altitude_box_panel.position = Vector2(right_x, y)
+	altitude_box_panel.size = box_size
 
 func setup_ccip():
 	"""Set up CCIP visual elements"""
@@ -322,7 +426,13 @@ func _process(dt: float) -> void:
 
 	# Update flight path vector
 	update_fpv()
-	
+
+	# Update attitude ladder (pitch ticks on left/right)
+	update_attitude_ladder()
+
+	# Update compass heading strip
+	update_compass()
+
 	# Aircraft in this project are authored facing +Z.
 	var aircraft_forward: Vector3 = aircraft.global_transform.basis.z
 	var camera_forward: Vector3 = -cam.global_transform.basis.z if cam else Vector3.FORWARD
@@ -421,17 +531,31 @@ func update_weapon_status():
 			weapon_status.text = "No Weapons"
 
 func update_speed_altitude():
-	"""Update the speed and altitude display"""
-	if speed_altitude == null or aircraft == null:
+	"""Update boxed speed/altitude readouts."""
+	if aircraft == null:
 		return
-	
-	# Get aircraft velocity and position
-	var velocity = aircraft.linear_velocity
-	var speed = velocity.length()
-	var altitude = aircraft.global_position.y
-	
-	# Format the display
-	speed_altitude.text = "SPD: " + str(int(speed)) + "\nALT: " + str(int(altitude))
+
+	var velocity: Vector3 = aircraft.linear_velocity
+	var speed_mps: int = int(round(velocity.length()))
+	var altitude_m: int = int(round(aircraft.global_position.y))
+
+	if speed_altitude != null:
+		speed_altitude.visible = false
+
+	if not show_speed_alt_boxes:
+		if is_instance_valid(speed_box_panel):
+			speed_box_panel.visible = false
+		if is_instance_valid(altitude_box_panel):
+			altitude_box_panel.visible = false
+		return
+
+	if is_instance_valid(speed_box_panel) and is_instance_valid(speed_box_label):
+		speed_box_panel.visible = true
+		speed_box_label.text = str(speed_mps)
+	if is_instance_valid(altitude_box_panel) and is_instance_valid(altitude_box_label):
+		altitude_box_panel.visible = true
+		altitude_box_label.text = str(altitude_m)
+	_layout_speed_alt_boxes()
 
 func update_ccip():
 	"""Update CCIP display - only show when bombs are selected"""
@@ -1105,3 +1229,276 @@ func _get_aa_targeting() -> Node:
 			if grandchild is AircraftModule_ControlTargeting_AAM:
 				return grandchild
 	return null
+
+func setup_attitude_ladder() -> void:
+	attitude_ladder = Control.new()
+	attitude_ladder.name = "AttitudeLadder"
+	attitude_ladder.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	attitude_ladder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	attitude_ladder.visible = show_attitude_ladder
+	viewport.add_child(attitude_ladder)
+
+	attitude_left_ticks.clear()
+	attitude_right_ticks.clear()
+	attitude_left_labels.clear()
+	attitude_right_labels.clear()
+	attitude_tick_values_deg.clear()
+
+	var step_deg: float = maxf(attitude_tick_step_deg, 1.0)
+	var range_deg: float = maxf(attitude_ladder_range_deg, step_deg)
+	var tick_each_side: int = int(floor(range_deg / step_deg))
+	var tick_color: Color = Color(
+		hud_primary_color.r,
+		hud_primary_color.g,
+		hud_primary_color.b,
+		clampf(attitude_ladder_alpha, 0.0, 1.0)
+	)
+
+	for i in range(-tick_each_side, tick_each_side + 1):
+		var tick_deg: float = float(i) * step_deg
+		attitude_tick_values_deg.append(tick_deg)
+
+		var left_tick: ColorRect = ColorRect.new()
+		left_tick.color = tick_color
+		left_tick.visible = false
+		attitude_ladder.add_child(left_tick)
+		attitude_left_ticks.append(left_tick)
+
+		var left_label: Label = Label.new()
+		left_label.text = str(int(round(tick_deg)))
+		left_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		left_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		left_label.add_theme_color_override("font_color", tick_color)
+		left_label.add_theme_color_override("font_outline_color", Color.BLACK)
+		left_label.add_theme_constant_override("outline_size", hud_text_outline_size)
+		left_label.add_theme_font_size_override("font_size", attitude_ladder_label_font_size)
+		left_label.visible = false
+		attitude_ladder.add_child(left_label)
+		attitude_left_labels.append(left_label)
+
+		var right_tick: ColorRect = ColorRect.new()
+		right_tick.color = tick_color
+		right_tick.visible = false
+		attitude_ladder.add_child(right_tick)
+		attitude_right_ticks.append(right_tick)
+
+		var right_label: Label = Label.new()
+		right_label.text = str(int(round(tick_deg)))
+		right_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		right_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		right_label.add_theme_color_override("font_color", tick_color)
+		right_label.add_theme_color_override("font_outline_color", Color.BLACK)
+		right_label.add_theme_constant_override("outline_size", hud_text_outline_size)
+		right_label.add_theme_font_size_override("font_size", attitude_ladder_label_font_size)
+		right_label.visible = false
+		attitude_ladder.add_child(right_label)
+		attitude_right_labels.append(right_label)
+
+func update_attitude_ladder() -> void:
+	if not is_instance_valid(attitude_ladder):
+		return
+	if not show_attitude_ladder or not is_instance_valid(viewport) or not is_instance_valid(aircraft):
+		attitude_ladder.visible = false
+		attitude_ladder.rotation = 0.0
+		return
+	if attitude_tick_values_deg.is_empty():
+		attitude_ladder.visible = false
+		attitude_ladder.rotation = 0.0
+		return
+	attitude_ladder.visible = true
+
+	var hud_size_px: Vector2 = Vector2(viewport.size)
+	attitude_ladder.pivot_offset = hud_size_px * 0.5
+	# Keep the ladder world-level: rotate opposite aircraft bank.
+	attitude_ladder.rotation = -_get_aircraft_roll_rad()
+
+	var center_y: float = hud_size_px.y * 0.5
+	var line_thickness: float = hud_line_thickness_px
+	var pitch_deg: float = _get_aircraft_pitch_deg()
+	var fov_deg: float = 75.0
+	if is_instance_valid(cam):
+		fov_deg = maxf(cam.fov, 1.0)
+	var pixels_per_degree: float = hud_size_px.y / fov_deg
+
+	for idx in range(attitude_tick_values_deg.size()):
+		var tick_deg: float = attitude_tick_values_deg[idx]
+		var y: float = center_y + (pitch_deg - tick_deg) * pixels_per_degree
+		var on_hud: bool = y >= -4.0 and y <= hud_size_px.y + 4.0
+		var left_tick: ColorRect = attitude_left_ticks[idx]
+		var right_tick: ColorRect = attitude_right_ticks[idx]
+		var left_label: Label = attitude_left_labels[idx]
+		var right_label: Label = attitude_right_labels[idx]
+		if not on_hud:
+			left_tick.visible = false
+			right_tick.visible = false
+			left_label.visible = false
+			right_label.visible = false
+			continue
+
+		var is_horizon_tick: bool = is_zero_approx(tick_deg)
+		var tick_len: float = attitude_ladder_horizon_tick_length_px if is_horizon_tick else attitude_ladder_tick_length_px
+		var alpha_scale: float = 1.0 if is_horizon_tick else 0.72
+		var tick_color: Color = Color(
+			hud_primary_color.r,
+			hud_primary_color.g,
+			hud_primary_color.b,
+			clampf(attitude_ladder_alpha * alpha_scale, 0.0, 1.0)
+		)
+
+		left_tick.color = tick_color
+		right_tick.color = tick_color
+
+		left_tick.visible = true
+		left_tick.position = Vector2(attitude_ladder_side_margin_px, y - line_thickness * 0.5)
+		left_tick.size = Vector2(tick_len, line_thickness)
+
+		var right_end_x: float = hud_size_px.x - attitude_ladder_side_margin_px
+		right_tick.visible = true
+		right_tick.position = Vector2(right_end_x - tick_len, y - line_thickness * 0.5)
+		right_tick.size = Vector2(tick_len, line_thickness)
+
+		if attitude_ladder_show_labels:
+			var label_height: float = float(attitude_ladder_label_font_size) + 6.0
+			var label_size: Vector2 = Vector2(attitude_ladder_label_width_px, label_height)
+			left_label.visible = true
+			right_label.visible = true
+			left_label.size = label_size
+			right_label.size = label_size
+			left_label.position = Vector2(
+				attitude_ladder_side_margin_px - attitude_ladder_label_gap_px - label_size.x,
+				y - label_size.y * 0.5
+			)
+			right_label.position = Vector2(
+				right_end_x + attitude_ladder_label_gap_px,
+				y - label_size.y * 0.5
+			)
+			left_label.add_theme_color_override("font_color", tick_color)
+			right_label.add_theme_color_override("font_color", tick_color)
+		else:
+			left_label.visible = false
+			right_label.visible = false
+
+func _get_aircraft_pitch_deg() -> float:
+	if not is_instance_valid(aircraft):
+		return 0.0
+	var nose_dir: Vector3 = aircraft.global_transform.basis.z.normalized()
+	var pitch_rad: float = asin(clampf(nose_dir.y, -1.0, 1.0))
+	return rad_to_deg(pitch_rad)
+
+func _get_aircraft_roll_rad() -> float:
+	if not is_instance_valid(aircraft):
+		return 0.0
+	var basis: Basis = aircraft.global_transform.basis.orthonormalized()
+	var forward: Vector3 = basis.z.normalized()
+	var up: Vector3 = basis.y.normalized()
+	var world_up: Vector3 = Vector3.UP
+	var ref_right: Vector3 = forward.cross(world_up)
+	if ref_right.length_squared() < 0.000001:
+		return 0.0
+	ref_right = ref_right.normalized()
+	var ref_up: Vector3 = ref_right.cross(forward).normalized()
+	var sinv: float = forward.dot(ref_up.cross(up))
+	var cosv: float = clampf(ref_up.dot(up), -1.0, 1.0)
+	return atan2(sinv, cosv)
+
+func _get_aircraft_heading_deg() -> float:
+	if not is_instance_valid(aircraft):
+		return 0.0
+	var fwd: Vector3 = aircraft.global_transform.basis.z
+	return fposmod(rad_to_deg(atan2(fwd.x, -fwd.z)), 360.0)
+
+func setup_compass() -> void:
+	compass_strip = Control.new()
+	compass_strip.name = "CompassStrip"
+	compass_strip.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	compass_strip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	compass_strip.visible = show_compass
+	viewport.add_child(compass_strip)
+
+	var tick_col := Color(hud_primary_color.r, hud_primary_color.g, hud_primary_color.b, compass_alpha)
+	for _i in range(_COMPASS_POOL_TICKS):
+		var t := ColorRect.new()
+		t.color = tick_col
+		t.visible = false
+		compass_strip.add_child(t)
+		compass_ticks.append(t)
+
+	for _i in range(_COMPASS_POOL_LABELS):
+		var lbl := Label.new()
+		lbl.add_theme_font_size_override("font_size", _COMPASS_LABEL_FONT_SIZE)
+		lbl.add_theme_color_override("font_color", tick_col)
+		lbl.add_theme_color_override("font_outline_color", Color.BLACK)
+		lbl.add_theme_constant_override("outline_size", hud_text_outline_size)
+		lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		lbl.visible = false
+		compass_strip.add_child(lbl)
+		compass_labels.append(lbl)
+
+	# Bright center reference mark
+	compass_center_mark = ColorRect.new()
+	compass_center_mark.color = _opaque(hud_primary_color)
+	compass_strip.add_child(compass_center_mark)
+
+func update_compass() -> void:
+	if not is_instance_valid(compass_strip):
+		return
+	if not show_compass or not is_instance_valid(viewport) or not is_instance_valid(aircraft):
+		compass_strip.visible = false
+		return
+	compass_strip.visible = true
+
+	var hud_w: float = float(viewport.size.x)
+	var cx: float = hud_w * 0.5
+	var lt: float = hud_line_thickness_px
+	var px: float = compass_px_per_deg
+	var tick_top: float = _COMPASS_TOP
+	var label_top: float = tick_top + _COMPASS_MAJOR_H + _COMPASS_LABEL_GAP
+	var label_w: float = 38.0
+
+	# Center mark (always at cx, slightly wider than a normal tick)
+	compass_center_mark.size = Vector2(lt + 2.0, _COMPASS_MAJOR_H)
+	compass_center_mark.position = Vector2(cx - (lt + 2.0) * 0.5, tick_top)
+
+	var hdg: float = _get_aircraft_heading_deg()
+
+	# --- Ticks ---
+	var t_start: float = floor((hdg - _COMPASS_RANGE) / _COMPASS_TICK_STEP) * _COMPASS_TICK_STEP
+	for i in range(_COMPASS_POOL_TICKS):
+		var tv: float = t_start + float(i) * _COMPASS_TICK_STEP
+		var delta: float = fposmod(tv - hdg + 180.0, 360.0) - 180.0
+		var x: float = cx + delta * px
+		var t: ColorRect = compass_ticks[i]
+		if absf(delta) > _COMPASS_RANGE + _COMPASS_TICK_STEP:
+			t.visible = false
+			continue
+		var is_major: bool = is_zero_approx(fposmod(tv, _COMPASS_LABEL_STEP))
+		var th: float = _COMPASS_MAJOR_H if is_major else _COMPASS_MINOR_H
+		var ty: float = tick_top if is_major else tick_top + (_COMPASS_MAJOR_H - _COMPASS_MINOR_H)
+		t.visible = true
+		t.size = Vector2(lt, th)
+		t.position = Vector2(x - lt * 0.5, ty)
+
+	# --- Labels ---
+	var l_start: float = floor((hdg - _COMPASS_RANGE) / _COMPASS_LABEL_STEP) * _COMPASS_LABEL_STEP
+	for i in range(_COMPASS_POOL_LABELS):
+		var lv: float = l_start + float(i) * _COMPASS_LABEL_STEP
+		var delta: float = fposmod(lv - hdg + 180.0, 360.0) - 180.0
+		var x: float = cx + delta * px
+		var lbl: Label = compass_labels[i]
+		if absf(delta) > _COMPASS_RANGE + _COMPASS_LABEL_STEP:
+			lbl.visible = false
+			continue
+		var hn: int = int(fposmod(lv, 360.0))
+		var txt: String
+		var is_cardinal: bool = hn == 0 or hn == 90 or hn == 180 or hn == 270
+		match hn:
+			0:   txt = "N"
+			90:  txt = "E"
+			180: txt = "S"
+			270: txt = "W"
+			_:   txt = str(hn)
+		lbl.text = txt
+		lbl.add_theme_font_size_override("font_size", 20 if is_cardinal else _COMPASS_LABEL_FONT_SIZE)
+		lbl.size = Vector2(label_w, _COMPASS_LABEL_H)
+		lbl.position = Vector2(x - label_w * 0.5, label_top)
+		lbl.visible = true

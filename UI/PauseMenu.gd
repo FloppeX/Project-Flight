@@ -39,9 +39,7 @@ func _ready() -> void:
 
 
 func _input(event: InputEvent) -> void:
-	if event.is_action_pressed("pause_game", false) \
-			or (event is InputEventKey and event.pressed and not event.echo
-				and (event as InputEventKey).physical_keycode == KEY_P):
+	if event.is_action_pressed("pause_game", false):
 		if not visible:
 			_open()
 		else:
@@ -312,7 +310,8 @@ func _controls_bbcode() -> String:
 [color=#{w}][b]COMBAT[/b][/color]
 [color=#{d}]A / X[/color]            FIRE WEAPON
 [color=#{d}]X / SQUARE[/color]       CYCLE WEAPON
-[color=#{d}]D-PAD UP/DOWN[/color]    NEXT / PREVIOUS TARGET
+[color=#{d}]D-PAD LEFT/RIGHT[/color] NEXT / PREVIOUS TARGET
+[color=#{d}]L-STICK CLICK[/color]    LOCK TARGET AT HUD CENTER
 
 [color=#{w}][b]CAMERA[/b][/color]
 [color=#{d}]Y / TRIANGLE[/color]     CYCLE CAMERA VIEW

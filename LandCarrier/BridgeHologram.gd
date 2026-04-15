@@ -52,12 +52,15 @@ class_name BridgeHologram
 @onready var waypoint_dots: MultiMeshInstance3D = $WaypointDots
 @onready var waypoint_lines: MultiMeshInstance3D = $WaypointLines
 
+var _building_dots: MultiMeshInstance3D = null  # created in code — separate mesh for buildings
 var _carrier: Node3D = null
 var _terrain_provider: Node3D = null
+var _plate_material: ShaderMaterial = null
 var _terrain_built: bool = false
 var _terrain_retry_timer: float = 0.0
 var _terrain_refresh_timer: float = 0.0
 var _contact_refresh_timer: float = 0.0
+var _waypoint_refresh_timer: float = 0.0
 var _last_terrain_center_world: Vector3 = Vector3.INF
 var _last_terrain_heading_yaw: float = 0.0
 var _was_recently_observed: bool = false
@@ -120,10 +123,12 @@ func _physics_process(delta: float) -> void:
 		_terrain_refresh_timer = 0.0
 		_try_build_terrain()
 
-	# Contacts are refreshed with the terrain rebuild (see _rebuild_terrain_step).
-	# Waypoints must update every frame — the carrier moves continuously so the
-	# stored transforms go stale immediately if only refreshed on terrain rebuild.
-	_update_waypoint_display()
+	# Waypoints are throttled like contacts — at hologram scale the carrier's
+	# movement between updates is sub-millimetre so 1 Hz is more than enough.
+	_waypoint_refresh_timer += delta
+	if _waypoint_refresh_timer >= maxf(waypoint_refresh_interval_s, 0.1):
+		_waypoint_refresh_timer = 0.0
+		_update_waypoint_display()
 
 func _setup_visuals() -> void:
 	terrain_dots.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -154,13 +159,25 @@ func _setup_visuals() -> void:
 	contact_multimesh.use_colors = true
 	contact_multimesh.mesh = contact_mesh
 	contact_dots.multimesh = contact_multimesh
+	# Ground vehicles — hemisphere (dome facing up, flat base on terrain)
 	ground_dots.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	ground_dots.material_override = _make_hologram_shader_material(2.2, 0.34, 6.5)
 	var ground_multimesh := MultiMesh.new()
 	ground_multimesh.transform_format = MultiMesh.TRANSFORM_3D
 	ground_multimesh.use_colors = true
-	ground_multimesh.mesh = _create_ground_contact_square_mesh()
+	ground_multimesh.mesh = _create_hemisphere_mesh()
 	ground_dots.multimesh = ground_multimesh
+
+	# Buildings — box (square in 3D), created in code
+	_building_dots = MultiMeshInstance3D.new()
+	_building_dots.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_building_dots.material_override = _make_hologram_shader_material(2.2, 0.34, 6.5)
+	var building_multimesh := MultiMesh.new()
+	building_multimesh.transform_format = MultiMesh.TRANSFORM_3D
+	building_multimesh.use_colors = true
+	building_multimesh.mesh = _create_ground_contact_square_mesh()
+	_building_dots.multimesh = building_multimesh
+	add_child(_building_dots)
 
 	_setup_carrier_plate()
 	_setup_waypoint_visuals()
@@ -268,6 +285,9 @@ func _update_contact_dots() -> void:
 	if not is_instance_valid(_carrier):
 		return
 
+	if _plate_material != null:
+		_plate_material.set_shader_parameter("tint_color", Livery.get_team_hud_color(Livery.PLAYER_TEAM_ID))
+
 	var air_multimesh := contact_dots.multimesh
 	var ground_multimesh := ground_dots.multimesh
 	if air_multimesh == null or ground_multimesh == null:
@@ -275,17 +295,19 @@ func _update_contact_dots() -> void:
 
 	var air_contacts: Array[Dictionary] = []
 	var ground_contacts: Array[Dictionary] = []
+	var friendly_hud := Livery.get_team_hud_color(Livery.PLAYER_TEAM_ID)
+	var enemy_hud    := Livery.get_team_hud_color(2)
 	_collect_contacts_for_group(
 		"friendlies",
-		Color(0.18, 0.72, 1.0, 1.0),
-		Color(0.18, 0.72, 1.0, 1.0),
+		friendly_hud,
+		friendly_hud,
 		air_contacts,
 		ground_contacts
 	)
 	_collect_contacts_for_group(
 		"enemies",
-		Color(1.0, 0.22, 0.22, 1.0),
-		Color(1.0, 0.22, 0.22, 1.0),
+		enemy_hud,
+		enemy_hud,
 		air_contacts,
 		ground_contacts
 	)
@@ -311,27 +333,39 @@ func _update_contact_dots() -> void:
 		air_multimesh.set_instance_transform(i, Transform3D(marker_basis, hologram_pos))
 		air_multimesh.set_instance_color(i, entry["color"])
 
-	var ground_visible_count := mini(ground_contacts.size(), max_contacts)
-	ground_multimesh.instance_count = max_contacts
-	ground_multimesh.visible_instance_count = ground_visible_count
-	for i in range(ground_visible_count):
-		var entry := ground_contacts[i]
-		var rel_local: Vector3 = entry["local_position"]
-		var terrain_y := _sample_terrain_height_at_local_offset(rel_local.x, rel_local.z)
-		var surface_y := _world_height_to_hologram_surface_y(terrain_y, base_height)
-		var scale_m: float = float(entry.get("scale_m", ground_contact_scale_m))
-		var marker_half_height := 0.5 * scale_m
-		var marker_y := surface_y + terrain_wire_height_offset_m + marker_half_height + ground_contact_hover_m
-		if is_nan(terrain_y) or is_nan(base_height):
-			marker_y = 0.03
-		var hologram_pos := table_center_local + Vector3(
-			(rel_local.x / maxf(coverage_radius_m, 1.0)) * (table_size_m * 0.5),
-			marker_y,
-			(rel_local.z / maxf(coverage_radius_m, 1.0)) * (table_size_m * 0.5)
-		)
-		var square_basis := Basis().scaled(Vector3.ONE * scale_m)
-		ground_multimesh.set_instance_transform(i, Transform3D(square_basis, hologram_pos))
-		ground_multimesh.set_instance_color(i, entry["color"])
+	var vehicle_contacts: Array[Dictionary] = []
+	var building_contacts: Array[Dictionary] = []
+	for entry in ground_contacts:
+		if bool(entry.get("is_building", false)):
+			building_contacts.append(entry)
+		else:
+			vehicle_contacts.append(entry)
+
+	# half_height_factor: 0.0 for hemisphere (flat base at origin), 0.5 for box (centered at origin)
+	var _place_ground := func(contacts: Array[Dictionary], mm: MultiMesh, half_height_factor: float) -> void:
+		var visible_count := mini(contacts.size(), max_contacts)
+		mm.instance_count = max_contacts
+		mm.visible_instance_count = visible_count
+		for i in range(visible_count):
+			var entry := contacts[i]
+			var rel_local: Vector3 = entry["local_position"]
+			var terrain_y := _sample_terrain_height_at_local_offset(rel_local.x, rel_local.z)
+			var surface_y := _world_height_to_hologram_surface_y(terrain_y, base_height)
+			var scale_m: float = float(entry.get("scale_m", ground_contact_scale_m))
+			var marker_y := surface_y + terrain_wire_height_offset_m + scale_m * half_height_factor + ground_contact_hover_m
+			if is_nan(terrain_y) or is_nan(base_height):
+				marker_y = 0.03
+			var hologram_pos := table_center_local + Vector3(
+				(rel_local.x / maxf(coverage_radius_m, 1.0)) * (table_size_m * 0.5),
+				marker_y,
+				(rel_local.z / maxf(coverage_radius_m, 1.0)) * (table_size_m * 0.5)
+			)
+			mm.set_instance_transform(i, Transform3D(Basis().scaled(Vector3.ONE * scale_m), hologram_pos))
+			mm.set_instance_color(i, entry["color"])
+
+	_place_ground.call(vehicle_contacts, ground_multimesh, 0.0)
+	if _building_dots != null and _building_dots.multimesh != null:
+		_place_ground.call(building_contacts, _building_dots.multimesh, 0.5)
 
 func _collect_contacts_for_group(group_name: String, air_color: Color, ground_color: Color, air_contacts: Array[Dictionary], ground_contacts: Array[Dictionary]) -> void:
 	for node in get_tree().get_nodes_in_group(group_name):
@@ -355,6 +389,7 @@ func _collect_contacts_for_group(group_name: String, air_color: Color, ground_co
 		if _is_ground_contact(node_3d):
 			entry["color"] = Color.WHITE if node_3d is Building else ground_color
 			entry["scale_m"] = ground_contact_scale_m
+			entry["is_building"] = node_3d is Building
 			ground_contacts.append(entry)
 		else:
 			air_contacts.append(entry)
@@ -377,7 +412,7 @@ func _collect_enemy_platoon_contacts(ground_contacts: Array[Dictionary]) -> void
 		ground_contacts.append({
 			"local_position": rel_local,
 			"distance_sq": rel_local.x * rel_local.x + rel_local.z * rel_local.z,
-			"color": platoon_contact_color,
+			"color": Livery.get_team_hud_color(2),
 			"scale_m": platoon_contact_scale_m,
 		})
 
@@ -520,9 +555,9 @@ func _setup_carrier_plate() -> void:
 	_update_carrier_plate_height(NAN, NAN)
 	carrier_plate.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 
-	var plate_material := _make_hologram_shader_material(1.6, 0.18, 4.2)
-	plate_material.set_shader_parameter("tint_color", Color(0.2, 0.78, 1.0, 1.0))
-	carrier_plate.material_override = plate_material
+	_plate_material = _make_hologram_shader_material(1.6, 0.18, 4.2)
+	_plate_material.set_shader_parameter("tint_color", Livery.get_team_hud_color(Livery.PLAYER_TEAM_ID))
+	carrier_plate.material_override = _plate_material
 
 func _update_carrier_plate_height(base_height: float, carrier_surface_height: float) -> void:
 	if carrier_plate == null:
@@ -640,6 +675,61 @@ func _create_contact_arrowhead_mesh() -> ArrayMesh:
 		4, 5,
 	])
 	return _create_wireframe_mesh(points, edges, contact_wire_thickness_m)
+
+func _create_hemisphere_mesh() -> ArrayMesh:
+	const SEGS := 8
+	const RINGS := 4
+	const R := 0.5
+	var verts := PackedVector3Array()
+	var norms := PackedVector3Array()
+	var idx   := PackedInt32Array()
+	# Dome: rings from equator (φ=0) up to near-pole
+	for ri in range(RINGS):
+		var phi := (PI * 0.5) * float(ri) / float(RINGS)
+		var y := sin(phi) * R
+		var cr := cos(phi) * R
+		for si in range(SEGS):
+			var theta := TAU * float(si) / float(SEGS)
+			var v := Vector3(cos(theta) * cr, y, sin(theta) * cr)
+			verts.append(v)
+			norms.append(v.normalized())
+	# Pole vertex
+	var pole := verts.size()
+	verts.append(Vector3(0.0, R, 0.0))
+	norms.append(Vector3(0.0, 1.0, 0.0))
+	# Ring quads
+	for ri in range(RINGS - 1):
+		for si in range(SEGS):
+			var ns := (si + 1) % SEGS
+			var a := ri * SEGS + si
+			var b := ri * SEGS + ns
+			var c := (ri + 1) * SEGS + si
+			var d := (ri + 1) * SEGS + ns
+			idx.append(a); idx.append(c); idx.append(d)
+			idx.append(a); idx.append(d); idx.append(b)
+	# Triangle fan to pole
+	var last := (RINGS - 1) * SEGS
+	for si in range(SEGS):
+		idx.append(last + si); idx.append(pole); idx.append(last + (si + 1) % SEGS)
+	# Flat bottom cap at y=0
+	var cap_c := verts.size()
+	verts.append(Vector3(0.0, 0.0, 0.0))
+	norms.append(Vector3(0.0, -1.0, 0.0))
+	var cap_s := verts.size()
+	for si in range(SEGS):
+		var theta := TAU * float(si) / float(SEGS)
+		verts.append(Vector3(cos(theta) * R, 0.0, sin(theta) * R))
+		norms.append(Vector3(0.0, -1.0, 0.0))
+	for si in range(SEGS):
+		idx.append(cap_c); idx.append(cap_s + (si + 1) % SEGS); idx.append(cap_s + si)
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_NORMAL] = norms
+	arrays[Mesh.ARRAY_INDEX]  = idx
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	return mesh
 
 func _create_ground_contact_square_mesh() -> Mesh:
 	var box_mesh := BoxMesh.new()

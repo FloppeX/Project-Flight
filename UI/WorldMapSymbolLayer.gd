@@ -20,7 +20,7 @@ const CORNER_BRACKET_INSET_PX: float = 7.0
 @export var building_color: Color = Color(0.64, 0.96, 0.70, 1.0)
 @export var ground_marker_size_px: float = 5.0
 @export var platoon_marker_size_px: float = 10.0
-@export var aircraft_marker_size_px: float = 7.0
+@export var aircraft_marker_size_px: float = 13.0
 @export var carrier_marker_length_px: float = 18.0
 @export var carrier_marker_width_px: float = 12.0
 @export var platoon_reveal_observer_height_m: float = 12.0
@@ -106,7 +106,7 @@ func _draw() -> void:
 				continue
 			if node_3d == carrier:
 				continue
-			if node_3d.is_in_group("ground_vehicles") or node_3d is Building:
+			if node_3d.is_in_group("ground_vehicles") or node_3d is Building or node_3d.is_in_group("buildings"):
 				_draw_ground_marker(node_3d)
 			else:
 				_draw_air_marker(node_3d)
@@ -127,6 +127,8 @@ func _draw() -> void:
 		var map_pos: Vector2 = _world_to_map(platoon_pos)
 		_draw_square_marker(map_pos, platoon_marker_size_px, platoon_color, true)
 	_draw_enemy_bases()
+	_draw_enemy_virtual_platoons()
+	_draw_poi_markers()
 	_draw_selection_route()
 	_draw_command_draft()
 	_draw_selection_focus()
@@ -192,7 +194,8 @@ func _draw_carrier_marker(carrier: Node3D) -> void:
 	var p1: Vector2 = center + right * half_width - forward * half_length
 	var p2: Vector2 = center + right * half_width + forward * half_length
 	var p3: Vector2 = center - right * half_width + forward * half_length
-	draw_polygon(PackedVector2Array([p0, p1, p2, p3]), PackedColorArray([carrier_color]))
+	var c_color := Livery.get_team_hud_color(Livery.PLAYER_TEAM_ID)
+	draw_polygon(PackedVector2Array([p0, p1, p2, p3]), PackedColorArray([c_color]))
 	draw_polyline(PackedVector2Array([p0, p1, p2, p3, p0]), Color(0.92, 0.98, 1.0, 1.0), 1.5)
 
 func _draw_air_marker(node_3d: Node3D) -> void:
@@ -206,17 +209,22 @@ func _draw_air_marker(node_3d: Node3D) -> void:
 	else:
 		heading = heading.normalized()
 	var perp := Vector2(heading.y, -heading.x)
-	var tip: Vector2 = map_pos + heading * aircraft_marker_size_px
-	var bl: Vector2 = map_pos - heading * (aircraft_marker_size_px * 0.55) + perp * (aircraft_marker_size_px * 0.45)
-	var br: Vector2 = map_pos - heading * (aircraft_marker_size_px * 0.55) - perp * (aircraft_marker_size_px * 0.45)
+	var s := aircraft_marker_size_px * 1.55
+	var tip: Vector2 = map_pos + heading * s
+	var bl: Vector2 = map_pos - heading * (s * 0.55) + perp * (s * 0.52)
+	var br: Vector2 = map_pos - heading * (s * 0.55) - perp * (s * 0.52)
 	draw_polygon(PackedVector2Array([tip, bl, br]), PackedColorArray([team_color]))
+	draw_polyline(PackedVector2Array([tip, bl, br, tip]), Color(1.0, 1.0, 1.0, 0.85), 1.0)
 
 func _draw_ground_marker(node_3d: Node3D) -> void:
 	if not _is_world_in_map_bounds(node_3d.global_position):
 		return
 	var map_pos: Vector2 = _world_to_map(node_3d.global_position)
 	var color := _color_for_team_node(node_3d)
-	_draw_square_marker(map_pos, ground_marker_size_px, color, false)
+	if node_3d is Building or node_3d.is_in_group("buildings"):
+		_draw_square_marker(map_pos, ground_marker_size_px, color, false)
+	else:
+		draw_circle(map_pos, ground_marker_size_px * 0.55, color)
 
 func _draw_square_marker(center: Vector2, size_px: float, color: Color, outline: bool) -> void:
 	var rect := Rect2(center - Vector2.ONE * size_px * 0.5, Vector2.ONE * size_px)
@@ -309,40 +317,13 @@ func _basis_to_map_forward(basis: Basis) -> Vector2:
 	return Vector2(forward_3d.x, forward_3d.z)
 
 func _color_for_team_node(node_3d: Node3D) -> Color:
-	# Player aircraft — distinct yellow
-	if node_3d.is_in_group("aircraft") and not node_3d.is_in_group("ai_aircraft") and not node_3d.is_in_group("enemies"):
-		return player_color
-	# Enemy — faction color if available
 	if node_3d.has_method("get_team") and int(node_3d.call("get_team")) == 2:
-		return _faction_color_for_enemy_node(node_3d)
-	return friendly_color
+		return Livery.get_team_hud_color(2)
+	return Livery.get_team_hud_color(Livery.PLAYER_TEAM_ID)
 
 
-func _faction_color_for_enemy_node(node_3d: Node3D) -> Color:
-	# Aircraft materialized from a virtual flight carry faction_color meta
-	if node_3d.has_meta("faction_color"):
-		return node_3d.get_meta("faction_color") as Color
-	# Buildings/vehicles that are children of EnemyBase
-	var n: Node = node_3d.get_parent()
-	while n != null:
-		if n is EnemyBase:
-			return (n as EnemyBase).get_faction_color()
-		n = n.get_parent()
-	# Nearest base fallback
-	return _nearest_base_color(node_3d.global_position)
-
-
-func _nearest_base_color(pos: Vector3) -> Color:
-	var best_dist_sq := INF
-	var best_color   := enemy_color
-	for base in EnemyBaseManager.get_all_bases():
-		if not is_instance_valid(base):
-			continue
-		var d_sq := pos.distance_squared_to(base.global_position)
-		if d_sq < best_dist_sq:
-			best_dist_sq = d_sq
-			best_color   = base.get_faction_color()
-	return best_color
+func _nearest_base_color(_pos: Vector3) -> Color:
+	return Livery.get_team_hud_color(2)
 
 func _is_enemy_platoon_revealed(target_world_pos: Vector3) -> bool:
 	var carrier := get_tree().get_first_node_in_group("carrier") as Node3D
@@ -430,7 +411,7 @@ func _draw_enemy_bases() -> void:
 		if not _is_world_in_map_bounds(base_pos):
 			continue
 		var mp    := _world_to_map(base_pos)
-		var color := base.get_faction_color()
+		var color := Livery.get_team_hud_color(2)
 
 		# Filled diamond
 		var s := 9.0
@@ -455,13 +436,48 @@ func _draw_enemy_bases() -> void:
 				fh = Vector2(0.0, -1.0)
 			fh = fh.normalized()
 			var perp := Vector2(fh.y, -fh.x)
-			var tip  := fmp + fh * 6.0
-			var bl   := fmp - fh * 3.5 + perp * 3.5
-			var br   := fmp - fh * 3.5 - perp * 3.5
+			var fs   := aircraft_marker_size_px * 1.55
+			var tip  := fmp + fh * fs
+			var bl   := fmp - fh * (fs * 0.55) + perp * (fs * 0.52)
+			var br   := fmp - fh * (fs * 0.55) - perp * (fs * 0.52)
 			var alpha := 0.50 if flight.vstate == EnemyVirtualFlight.VState.VIRTUAL else 1.0
 			var fc    := Color(color.r, color.g, color.b, alpha)
 			draw_colored_polygon(PackedVector2Array([tip, bl, br]), fc)
 
+
+func _draw_enemy_virtual_platoons() -> void:
+	var color := Livery.get_team_hud_color(2)
+	for base in EnemyBaseManager.get_all_bases():
+		if not is_instance_valid(base):
+			continue
+		for platoon: EnemyVirtualPlatoon in EnemyOpsManager._get_platoons(base):
+			if platoon.vehicle_count <= 0:
+				continue
+			if not _is_world_in_map_bounds(platoon.position):
+				continue
+			var mp    := _world_to_map(platoon.position)
+			var alpha := 0.50 if platoon.vstate == EnemyVirtualPlatoon.VState.VIRTUAL else 1.0
+			var pc    := Color(color.r, color.g, color.b, alpha)
+			_draw_square_marker(mp, platoon_marker_size_px, pc, true)
+
+
+func _draw_poi_markers() -> void:
+	for pos: Vector3 in POIManager.get_discovered_positions():
+		if not _is_world_in_map_bounds(pos):
+			continue
+		_draw_star(_world_to_map(pos), 7.0, Color(1.0, 0.92, 0.28, 1.0))
+
+func _draw_star(center: Vector2, radius: float, color: Color) -> void:
+	var pts := PackedVector2Array()
+	var inner := radius * 0.42
+	for i in range(10):
+		var angle := -PI * 0.5 + i * (PI / 5.0)
+		var r := radius if i % 2 == 0 else inner
+		pts.append(center + Vector2(cos(angle), sin(angle)) * r)
+	draw_colored_polygon(pts, color)
+	draw_polyline(PackedVector2Array([pts[0], pts[1], pts[2], pts[3], pts[4],
+		pts[5], pts[6], pts[7], pts[8], pts[9], pts[0]]),
+		Color(1.0, 1.0, 1.0, 0.40), 1.0)
 
 func _draw_selection_focus() -> void:
 	if not _is_world_in_map_bounds(_selection_world_pos):
