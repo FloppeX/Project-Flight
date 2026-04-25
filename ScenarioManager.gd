@@ -1,5 +1,7 @@
 extends Node3D
 
+const WIND_TURBINE_PROXY_SCRIPT: Script = preload("res://Buildings/WindTurbineProxy.gd")
+
 var restart_timer: Timer
 
 @export var auto_place_carrier_on_flat_ground: bool = false
@@ -14,8 +16,37 @@ var restart_timer: Timer
 @export var carrier_ground_clearance_m: float = 40.0  # Carrier root floats 40m above terrain (tread ride height)
 @export var carrier_placement_debug: bool = false
 
+@export_group("Wind Turbines")
+@export var spawn_wind_turbines_on_startup: bool = true
+@export var wind_turbine_scene: PackedScene = preload("res://Buildings/building_wind_turbine.tscn")
+@export var wind_turbine_team: int = 2
+@export var wind_turbine_total_count: int = 25
+@export var wind_turbine_group_min_size: int = 3
+@export var wind_turbine_group_max_size: int = 4
+@export var wind_turbine_activation_distance_m: float = 3000.0
+@export var wind_turbine_deactivation_distance_m: float = 4000.0
+@export var wind_turbine_activation_check_interval_s: float = 1.5
+@export var wind_turbine_map_margin_m: float = 1200.0
+@export var wind_turbine_min_start_distance_m: float = 2200.0
+@export var wind_turbine_min_elevation_above_low_m: float = 160.0
+@export var wind_turbine_max_group_height_span_m: float = 90.0
+@export var wind_turbine_max_slope_delta_m: float = 55.0
+@export var wind_turbine_min_neighbor_spacing_m: float = 80.0
+@export var wind_turbine_max_neighbor_spacing_m: float = 120.0
+@export var wind_turbine_group_search_attempts: int = 180
+@export var wind_turbine_guard_emplacement_scene: PackedScene = preload("res://Buildings/gun_emplacement.tscn")
+@export var wind_turbine_guard_emplacements_min: int = 2
+@export var wind_turbine_guard_emplacements_max: int = 3
+@export var wind_turbine_guard_min_distance_m: float = 140.0
+@export var wind_turbine_guard_max_distance_m: float = 280.0
+@export var wind_turbine_guard_activation_distance_m: float = 1700.0
+@export var wind_turbine_guard_search_attempts: int = 32
+@export var wind_turbine_spawn_debug: bool = false
+
 var _scenario_play_area_center: Vector3 = Vector3.ZERO
 var _scenario_play_area_center_valid: bool = false
+var _wind_turbines_spawned: bool = false
+var _wind_turbine_rng := RandomNumberGenerator.new()
 
 func _enter_tree() -> void:
 	_configure_play_area_for_run()
@@ -43,6 +74,8 @@ func _ready():
 			aircraft.crashed.connect(_on_aircraft_crashed)
 	if auto_place_carrier_on_flat_ground:
 		call_deferred("_place_carrier_on_flat_ground")
+	if spawn_wind_turbines_on_startup:
+		_schedule_startup_wind_turbines()
 
 
 func _input(_event):
@@ -146,6 +179,338 @@ func _configure_play_area_for_run() -> void:
 
 	if play_area_randomization_debug:
 		print("[ScenarioManager] Play area center set to ", center)
+
+
+func _schedule_startup_wind_turbines() -> void:
+	if _wind_turbines_spawned:
+		return
+	if TerrainNavGrid.is_ready():
+		call_deferred("_spawn_startup_wind_turbine_groups")
+	elif not TerrainNavGrid.bake_complete.is_connected(_spawn_startup_wind_turbine_groups):
+		TerrainNavGrid.bake_complete.connect(_spawn_startup_wind_turbine_groups, CONNECT_ONE_SHOT)
+
+
+func _spawn_startup_wind_turbine_groups() -> void:
+	if _wind_turbines_spawned or wind_turbine_scene == null or not TerrainNavGrid.is_ready():
+		return
+	_wind_turbines_spawned = true
+	_wind_turbine_rng.randomize()
+
+	var root := get_tree().current_scene
+	if root == null:
+		return
+
+	var container := root.get_node_or_null("WindTurbines") as Node3D
+	if container == null:
+		container = Node3D.new()
+		container.name = "WindTurbines"
+		root.add_child(container)
+
+	var group_sizes: Array[int] = _build_wind_turbine_group_sizes(
+		wind_turbine_total_count,
+		wind_turbine_group_min_size,
+		wind_turbine_group_max_size
+	)
+	var avoid_pos: Vector3 = _get_wind_turbine_start_avoid_position()
+	var group_centers: Array[Vector3] = []
+	var spawned_count: int = 0
+
+	for group_size in group_sizes:
+		var positions: Array[Vector3] = _find_wind_turbine_group_positions(group_size, avoid_pos, group_centers)
+		if positions.is_empty():
+			push_warning("[ScenarioManager] Could not find elevated ground for wind turbine group of %d" % group_size)
+			continue
+
+		var center := Vector3.ZERO
+		for pos in positions:
+			center += pos
+		center /= float(positions.size())
+		group_centers.append(center)
+
+		for pos in positions:
+			var proxy := WIND_TURBINE_PROXY_SCRIPT.new() as Node3D
+			if proxy == null:
+				continue
+			proxy.name = "WindTurbineProxy_%02d" % spawned_count
+			var yaw: float = _wind_turbine_rng.randf_range(-PI, PI)
+			proxy.set("turbine_scene", wind_turbine_scene)
+			proxy.set("team", wind_turbine_team)
+			proxy.set("activation_distance_m", wind_turbine_activation_distance_m)
+			proxy.set("deactivation_distance_m", wind_turbine_deactivation_distance_m)
+			proxy.set("check_interval_s", wind_turbine_activation_check_interval_s)
+			container.add_child(proxy)
+			proxy.global_transform = Transform3D(Basis(Vector3.UP, yaw), pos)
+			spawned_count += 1
+
+		_spawn_wind_turbine_guard_emplacements(container, center, positions)
+
+	if wind_turbine_spawn_debug:
+		print("[ScenarioManager] Wind turbine proxies placed: %d/%d in %d groups" % [
+			spawned_count,
+			wind_turbine_total_count,
+			group_centers.size()
+		])
+
+
+func _build_wind_turbine_group_sizes(total_count: int, min_size: int, max_size: int) -> Array[int]:
+	var sizes: Array[int] = []
+	var total: int = maxi(total_count, 0)
+	if total <= 0:
+		return sizes
+
+	var group_min: int = maxi(min_size, 1)
+	var group_max: int = maxi(max_size, group_min)
+	if total < group_min:
+		sizes.append(total)
+		return sizes
+
+	var group_count: int = maxi(1, int(ceil(float(total) / float(group_max))))
+	while group_count > 1 and group_count * group_min > total:
+		group_count -= 1
+
+	for _i in range(group_count):
+		sizes.append(group_min)
+
+	var assigned: int = group_count * group_min
+	var safety: int = 0
+	while assigned < total and safety < 10000:
+		safety += 1
+		var index: int = _wind_turbine_rng.randi_range(0, sizes.size() - 1)
+		if sizes[index] >= group_max:
+			continue
+		sizes[index] += 1
+		assigned += 1
+
+	sizes.shuffle()
+	return sizes
+
+
+func _find_wind_turbine_group_positions(group_size: int, avoid_pos: Vector3, existing_centers: Array[Vector3]) -> Array[Vector3]:
+	var attempts: int = maxi(wind_turbine_group_search_attempts, 1)
+	var best_positions: Array[Vector3] = []
+	var best_score: float = -INF
+
+	for _attempt in range(attempts):
+		var center_xz: Vector2 = _pick_wind_turbine_group_center_xz()
+		if center_xz == Vector2.INF:
+			continue
+		var center_height: float = TerrainNavGrid.sample_height(center_xz.x, center_xz.y)
+		if center_height <= TerrainNavGrid.IMPASSABLE * 0.5:
+			continue
+
+		var center := Vector3(center_xz.x, center_height, center_xz.y)
+		if _is_wind_turbine_group_too_close(center, avoid_pos, existing_centers):
+			continue
+
+		var candidate_positions: Array[Vector3] = _make_wind_turbine_cluster_ring(center, group_size)
+		var result: Dictionary = _evaluate_wind_turbine_group(candidate_positions, avoid_pos)
+		if not bool(result.get("valid", false)):
+			continue
+
+		var score: float = float(result.get("score", -INF))
+		var placed_positions: Array[Vector3] = result.get("positions", [])
+		if score > best_score:
+			best_score = score
+			best_positions = placed_positions
+
+	return best_positions
+
+
+func _pick_wind_turbine_group_center_xz() -> Vector2:
+	if TerrainNavGrid._cols <= 1 or TerrainNavGrid._rows <= 1:
+		return Vector2.INF
+
+	var span_x: float = float(TerrainNavGrid._cols - 1) * TerrainNavGrid.cell_size_m
+	var span_z: float = float(TerrainNavGrid._rows - 1) * TerrainNavGrid.cell_size_m
+	var margin: float = clampf(wind_turbine_map_margin_m, 0.0, minf(span_x, span_z) * 0.45)
+	var min_x: float = TerrainNavGrid._origin_x + margin
+	var max_x: float = TerrainNavGrid._origin_x + span_x - margin
+	var min_z: float = TerrainNavGrid._origin_z + margin
+	var max_z: float = TerrainNavGrid._origin_z + span_z - margin
+	if min_x >= max_x or min_z >= max_z:
+		return Vector2.INF
+
+	return Vector2(
+		_wind_turbine_rng.randf_range(min_x, max_x),
+		_wind_turbine_rng.randf_range(min_z, max_z)
+	)
+
+
+func _is_wind_turbine_group_too_close(center: Vector3, avoid_pos: Vector3, existing_centers: Array[Vector3]) -> bool:
+	var min_start_dist: float = maxf(wind_turbine_min_start_distance_m, wind_turbine_activation_distance_m + 200.0)
+	if avoid_pos != Vector3.INF and _xz_distance(center, avoid_pos) < min_start_dist:
+		return true
+
+	var min_group_spacing: float = maxf(wind_turbine_activation_distance_m * 0.35, 500.0)
+	for existing in existing_centers:
+		if _xz_distance(center, existing) < min_group_spacing:
+			return true
+	return false
+
+
+func _make_wind_turbine_cluster_ring(center: Vector3, group_size: int) -> Array[Vector3]:
+	var positions: Array[Vector3] = []
+	var count: int = maxi(group_size, 1)
+	if count == 1:
+		positions.append(center)
+		return positions
+
+	var min_spacing: float = maxf(wind_turbine_min_neighbor_spacing_m, 1.0)
+	var max_spacing: float = maxf(wind_turbine_max_neighbor_spacing_m, min_spacing)
+	var forward_angle: float = _wind_turbine_rng.randf_range(-PI, PI)
+	var forward := Vector3(cos(forward_angle), 0.0, sin(forward_angle))
+	var right := Vector3(-forward.z, 0.0, forward.x)
+	var chain_offsets: Array[float] = []
+	var total_length: float = 0.0
+	for i in range(count):
+		chain_offsets.append(total_length)
+		if i < count - 1:
+			total_length += _wind_turbine_rng.randf_range(min_spacing, max_spacing)
+	var center_offset: float = total_length * 0.5
+	var bend_step: float = _wind_turbine_rng.randf_range(-18.0, 18.0)
+	for i in range(count):
+		var along: float = chain_offsets[i] - center_offset
+		var lateral: float = (float(i) - float(count - 1) * 0.5) * bend_step
+		positions.append(center + forward * along + right * lateral)
+	return positions
+
+
+func _evaluate_wind_turbine_group(positions: Array[Vector3], avoid_pos: Vector3) -> Dictionary:
+	if positions.is_empty():
+		return {"valid": false}
+
+	var placed_positions: Array[Vector3] = []
+	var min_h: float = INF
+	var max_h: float = -INF
+	var sum_h: float = 0.0
+	var min_allowed_h: float = TerrainNavGrid._h_min_passable + maxf(wind_turbine_min_elevation_above_low_m, 0.0)
+
+	for pos in positions:
+		if avoid_pos != Vector3.INF and _xz_distance(pos, avoid_pos) < wind_turbine_min_start_distance_m:
+			return {"valid": false}
+
+		var h: float = TerrainNavGrid.sample_height(pos.x, pos.z)
+		if h <= TerrainNavGrid.IMPASSABLE * 0.5:
+			return {"valid": false}
+
+		var grid: Vector2i = _wind_turbine_world_to_grid(pos)
+		if TerrainNavGrid.is_cell_near_steep_slope(grid.x, grid.y, wind_turbine_max_slope_delta_m, 1):
+			return {"valid": false}
+
+		min_h = minf(min_h, h)
+		max_h = maxf(max_h, h)
+		sum_h += h
+		placed_positions.append(Vector3(pos.x, h, pos.z))
+
+	if min_h < min_allowed_h:
+		return {"valid": false}
+	if max_h - min_h > wind_turbine_max_group_height_span_m:
+		return {"valid": false}
+	if not _wind_turbine_group_spacing_is_valid(placed_positions):
+		return {"valid": false}
+
+	var avg_h: float = sum_h / float(placed_positions.size())
+	return {
+		"valid": true,
+		"positions": placed_positions,
+		"score": avg_h - (max_h - min_h) * 0.25,
+	}
+
+
+func _wind_turbine_group_spacing_is_valid(positions: Array[Vector3]) -> bool:
+	var min_spacing: float = maxf(wind_turbine_min_neighbor_spacing_m, 1.0)
+	var max_spacing: float = maxf(wind_turbine_max_neighbor_spacing_m, min_spacing)
+	for i in range(positions.size()):
+		var nearest_dist: float = INF
+		for j in range(i + 1, positions.size()):
+			var dist: float = _xz_distance(positions[i], positions[j])
+			nearest_dist = minf(nearest_dist, dist)
+		for j in range(0, i):
+			var dist: float = _xz_distance(positions[i], positions[j])
+			nearest_dist = minf(nearest_dist, dist)
+		if nearest_dist < min_spacing or nearest_dist > max_spacing:
+			return false
+	return true
+
+
+func _spawn_wind_turbine_guard_emplacements(container: Node3D, group_center: Vector3, turbine_positions: Array[Vector3]) -> void:
+	if wind_turbine_guard_emplacement_scene == null:
+		return
+	var min_count: int = maxi(wind_turbine_guard_emplacements_min, 0)
+	var max_count: int = maxi(wind_turbine_guard_emplacements_max, min_count)
+	var guard_count: int = _wind_turbine_rng.randi_range(min_count, max_count)
+	for guard_idx in range(guard_count):
+		var guard_pos: Vector3 = _find_wind_turbine_guard_position(group_center, turbine_positions, guard_idx, guard_count)
+		if guard_pos == Vector3.INF:
+			continue
+		var guard := wind_turbine_guard_emplacement_scene.instantiate() as Node3D
+		if guard == null:
+			continue
+		guard.name = "WindFarmGuard_%02d" % guard_idx
+		if "team" in guard:
+			guard.set("team", wind_turbine_team)
+		if "activation_distance_m" in guard:
+			guard.set("activation_distance_m", wind_turbine_guard_activation_distance_m)
+		container.add_child(guard)
+		var yaw: float = _wind_turbine_rng.randf_range(-PI, PI)
+		guard.global_transform = Transform3D(Basis(Vector3.UP, yaw), guard_pos)
+		if guard.has_method("snap_collider_to_ground"):
+			guard.call_deferred("snap_collider_to_ground")
+
+
+func _find_wind_turbine_guard_position(group_center: Vector3, turbine_positions: Array[Vector3], guard_idx: int, guard_count: int) -> Vector3:
+	var attempts: int = maxi(wind_turbine_guard_search_attempts, 1)
+	var base_angle: float = TAU * float(guard_idx) / float(maxi(guard_count, 1)) + _wind_turbine_rng.randf_range(-0.45, 0.45)
+	for attempt in range(attempts):
+		var angle: float = base_angle + _wind_turbine_rng.randf_range(-0.9, 0.9)
+		var dist: float = _wind_turbine_rng.randf_range(
+			maxf(wind_turbine_guard_min_distance_m, 20.0),
+			maxf(wind_turbine_guard_max_distance_m, wind_turbine_guard_min_distance_m)
+		)
+		var candidate := Vector3(
+			group_center.x + cos(angle) * dist,
+			group_center.y,
+			group_center.z + sin(angle) * dist
+		)
+		var h: float = TerrainNavGrid.sample_height(candidate.x, candidate.z)
+		if h <= TerrainNavGrid.IMPASSABLE * 0.5:
+			continue
+		candidate.y = h
+		var grid: Vector2i = _wind_turbine_world_to_grid(candidate)
+		if TerrainNavGrid.is_cell_near_steep_slope(grid.x, grid.y, wind_turbine_max_slope_delta_m, 1):
+			continue
+		if _is_guard_too_close_to_turbines(candidate, turbine_positions):
+			continue
+		return candidate
+	return Vector3.INF
+
+
+func _is_guard_too_close_to_turbines(candidate: Vector3, turbine_positions: Array[Vector3]) -> bool:
+	var min_clearance: float = maxf(wind_turbine_min_neighbor_spacing_m * 0.75, 55.0)
+	for turbine_pos in turbine_positions:
+		if _xz_distance(candidate, turbine_pos) < min_clearance:
+			return true
+	return false
+
+
+func _wind_turbine_world_to_grid(world_pos: Vector3) -> Vector2i:
+	return Vector2i(
+		int(round((world_pos.x - TerrainNavGrid._origin_x) / TerrainNavGrid.cell_size_m)),
+		int(round((world_pos.z - TerrainNavGrid._origin_z) / TerrainNavGrid.cell_size_m))
+	)
+
+
+func _get_wind_turbine_start_avoid_position() -> Vector3:
+	var carrier := get_node_or_null(carrier_node_path) as Node3D
+	if carrier != null and is_instance_valid(carrier):
+		return carrier.global_position
+	if _scenario_play_area_center_valid:
+		return _scenario_play_area_center
+	return Vector3.INF
+
+
+func _xz_distance(a: Vector3, b: Vector3) -> float:
+	return Vector2(a.x - b.x, a.z - b.z).length()
 
 func _pick_random_play_area_center(terrain: Node3D) -> Vector3:
 	var quads_x_variant = terrain.get("quads_x")

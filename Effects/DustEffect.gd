@@ -204,8 +204,6 @@ func _should_emit_for_camera(delta: float) -> bool:
 		return false
 	if _parent_node.global_position.distance_squared_to(camera.global_position) > max_effect_distance_m * max_effect_distance_m:
 		return false
-	if camera.is_position_behind(_parent_node.global_position):
-		return false
 	return true
 
 func _sample_ground_color() -> void:
@@ -261,14 +259,15 @@ func _spawn_dust_puff(index: int, speed_ratio: float) -> void:
 	params.collision_mask = 1
 	params.exclude = _exclude_rids
 	var hit := space.intersect_ray(params)
-	if not _is_terrain_hit(hit):
-		return
+	var puff_pos: Vector3 = emit_world  # fallback when raycast misses
+	if _is_terrain_hit(hit):
+		puff_pos = hit.position
 
 	var puff := _acquire_pooled_puff()
 	if puff == null:
 		return
 	puff.visible = true
-	puff.global_position = hit.position
+	puff.global_position = puff_pos
 
 	# Reuse shared mesh — only vary scale per puff
 	var r: float = lerpf(puff_scale_min, puff_scale_max, speed_ratio) * randf_range(0.7, 1.3)

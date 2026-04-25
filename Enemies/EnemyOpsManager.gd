@@ -3,18 +3,18 @@ extends Node
 ##
 ## Tactical brain for all enemy forces. Bases register themselves here
 ## on spawn. EnemyOpsManager handles:
-##   - Deploying ~50% of each base's aircraft and vehicle inventory
+##   - Deploying most of each base's aircraft and vehicle inventory
 ##   - Ticking all virtual units (EnemyVirtualFlight / EnemyVirtualPlatoon)
 ##   - Receiving delayed intel from virtual units and decaying stale contacts
 ##   - Threat assessment and mission reassignment based on received intel only
 ##   - Restoring patrol status when threats fade
 
-const TARGET_DEPLOY_FRACTION := 0.50   # aim for ~half of inventory deployed at all times
+const TARGET_DEPLOY_FRACTION := 0.75   # aim for ~3/4 of inventory deployed at all times
 const EVALUATION_INTERVAL_S  := 15.0   # how often to check deployment balance
 const THREAT_SCAN_INTERVAL_S :=  8.0   # how often to assess threats and reassign missions
 
-const VEHICLES_PER_PLATOON   := 5
-const AIRCRAFT_PER_FLIGHT    := 2
+const VEHICLES_PER_PLATOON   := 7
+const AIRCRAFT_PER_FLIGHT    := 2  # Smaller flights create more patrol routes without raising total aircraft.
 
 ## Carrier within this range of the base triggers a ground attack platoon.
 const CARRIER_THREAT_RANGE_M := 14000.0

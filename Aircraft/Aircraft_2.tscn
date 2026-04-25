@@ -1,4 +1,4 @@
-[gd_scene load_steps=44 format=3 uid="uid://cm31u7j3tfjxt"]
+[gd_scene load_steps=45 format=3 uid="uid://cm31u7j3tfjxt"]
 
 [ext_resource type="Script" uid="uid://c4ltq2v6fji05" path="res://Aircraft/aircraft.gd" id="1_e8t1h"]
 [ext_resource type="PackedScene" uid="uid://cadi81fcpvmuc" path="res://Projectiles/Explosion/explosion.tscn" id="2_x73up"]
@@ -28,7 +28,7 @@
 [ext_resource type="PackedScene" uid="uid://b4xm8v23opqrs" path="res://HUD/InstrumentPanel.tscn" id="27_h17fj"]
 [ext_resource type="PackedScene" uid="uid://dsnc8jllg42ph" path="res://Weapons/hardpoint.tscn" id="28_ymevh"]
 [ext_resource type="PackedScene" uid="uid://ds5dlvtqfa7tv" path="res://Aircraft/tail_hook.tscn" id="31_3f4kl"]
-[ext_resource type="PackedScene" uid="uid://idqmpbpg2jul" path="res://Weapons/Bomb/bomb.tscn" id="32_kq7no"]
+[ext_resource type="PackedScene" uid="uid://bc6wrpt4b3m41" path="res://Weapons/Bomb/bomb_rack.tscn" id="32_kq7no"]
 [ext_resource type="Script" uid="uid://ov07c02ulmhl" path="res://Aircraft/AIToggle.gd" id="33_aitgl"]
 [ext_resource type="Script" uid="uid://bwjigrpitv7cm" path="res://AI/AIPilot.gd" id="34_aipil"]
 [ext_resource type="PackedScene" uid="uid://c2skyi8tilc13" path="res://Models/Aircraft_1/Aircraft nose gear.glb" id="35_rqmgi"]
@@ -37,6 +37,7 @@
 [ext_resource type="PackedScene" uid="uid://bifk2d4o2un2l" path="res://Models/Aircraft_1/Aircraft main gear.glb" id="36_ondnd"]
 [ext_resource type="AudioStream" uid="uid://c0ax7nrniu8x3" path="res://Audio/cockpit_interior_2.wav" id="37_cpit"]
 [ext_resource type="PackedScene" path="res://Weapons/Guns/Hardpoint/25mm_autocannon_hardpoint.tscn" id="38_25mm"]
+[ext_resource type="PackedScene" path="res://Weapons/RocketPod/rocket_pod.tscn" id="33_rocket"]
 [ext_resource type="PackedScene" path="res://Aircraft/CockpitPilot.tscn" id="90_cpilot"]
 
 [sub_resource type="PhysicsMaterial" id="PhysicsMaterial_lowfriction"]
@@ -198,6 +199,10 @@ mounted_weapon = ExtResource("38_25mm")
 [node name="Hardpoint2" parent="." instance=ExtResource("28_ymevh")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2.659, -0.386, -0.2)
 mounted_weapon = ExtResource("32_kq7no")
+
+[node name="Hardpoint3" parent="." instance=ExtResource("28_ymevh")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2.659, -0.386, 0.8)
+mounted_weapon = ExtResource("33_rocket")
 
 [node name="TailHook" parent="." instance=ExtResource("31_3f4kl")]
 transform = Transform3D(1, 0, 0, 0, 0.5, -0.866025, 0, 0.866025, 0.5, 0, -1.728, -4.1272)

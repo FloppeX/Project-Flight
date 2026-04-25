@@ -94,9 +94,12 @@ func take_damage(damage_amount: float) -> void:
 
 func explode() -> void:
 	emit_signal("destroyed", self)
-	var explosion_res = load("res://Projectiles/Explosion/explosion.tscn")
+	var explosion_res: PackedScene = explosion_scene
+	if explosion_res == null:
+		explosion_res = load("res://Projectiles/Explosion/explosion.tscn")
 	if explosion_res:
 		var exp = explosion_res.instantiate()
 		get_parent().add_child(exp)
 		exp.global_position = global_position
+	VehicleWreck.spawn(get_parent(), global_transform, linear_velocity)
 	queue_free()

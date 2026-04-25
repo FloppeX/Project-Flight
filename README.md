@@ -32,10 +32,29 @@ The player pushes into enemy-controlled territory, launches and recovers aircraf
 
 ## Current Status
 
-**Last Updated:** 2026-04-13
+**Last Updated:** 2026-04-23
 **Godot Version:** 4.4.1.stable.official.49a5bc7b6
 **Project Health:** PLAYABLE
 **Control Mode:** AI-by-default with viewed-aircraft player/AI toggle (game controller + keyboard parity in pause/menu flows)
+
+### Recent Changes (2026-04-23)
+
+- AI strike behavior / telemetry: attack debug output was redesigned so pilots now log state transitions, weapon releases, 1 Hz updates during attack runs, and only sparse background status outside combat; strike release ranges were tightened so bombs and rockets are delivered closer to the target; bomb drops are now staggered instead of dumping the full rack at once, and attack aiming was simplified toward the carrier center for a cheaper, more stable release reference.
+- AI stability / performance: multiple freed-instance crashes during aircraft destruction and target churn were hardened in `AIPilot.gd` and related support paths; dogfight/contact loops now validate references more defensively; contact scans, collision-avoidance checks, RTB checks, and attack-solution style calculations are throttled/cached more aggressively to reduce attack-time CPU spikes.
+- Enemy air operations: enemy `Aircraft_3` now strips all external stores and acts as a clean fighter/dogfighter; enemy patrol density increased by splitting patrol flights into smaller elements.
+- Pilot map / radar: the cockpit terrain map was zoomed in and now samples the same terrain bounds/origin convention as the full `M` tactical map, preventing the old drift/out-of-sync behavior after origin shifts.
+- Wind turbines / defended sites: enemy wind turbines were added as destructible infrastructure with spinning rotors, exploded-part behavior, map visibility, main-color-only team tinting, distant markerization, and proximity-based activation; startup now places grouped wind farms on elevated ground with nearby gun emplacements, and free-look debug placement uses `W`.
+- Aircraft 6: new `Aircraft_6` mesh/scene added; key `6` now spawns a friendly `Aircraft_6` 200 m above the carrier at 60 m/s; the new aircraft is tuned as a slow, stable, high-rudder-authority, low-stall, high-durability type.
+
+### Recent Changes (2026-04-18)
+
+- AI ground attack: fixed multiple compounding issues that prevented enemy strike aircraft from ever firing weapons in attack runs.
+  - Overshoot detection in `ATTACK_POSITIONING` was firing every physics frame (no cooldown); added 10 s recompute cooldown so aircraft don't spiral on stale approach directions.
+  - Added 30 s hard timeout in `ATTACK_POSITIONING` that forces a fresh setup-waypoint recompute from the aircraft's current position, unsticking aircraft in wide orbits.
+  - "Too slow" speed gate used `stall + margin + 10 m/s = 58 m/s` as the threshold, causing aircraft that cruise at 57 m/s to take the early-return path every frame and never reach the distance check that transitions to `ATTACK_DIVE`; threshold lowered to `stall + margin = 48 m/s`.
+  - Low-altitude pitch guardrail (ground + 300 m band → forced climb VS) applied in all states including `ATTACK_DIVE`; it was overriding dive commands with a +2.7 m/s climb demand and holding pitch at max nose-up; `ATTACK_DIVE` is now excluded from the guardrail.
+  - Collision avoidance miss threshold (80 m) was aborting dives when multiple aircraft attacked the same target simultaneously; threshold tightened to 25 m during `ATTACK_DIVE` only.
+  - Attack parameters loosened across the board: setup distances reduced, altitude offsets lowered, pull-up distances reduced, bomb CCIP "still-improving" wait gate removed, rocket alignment widened to 40°, rocket alignment check switched from CCIP-corrected aim point to raw target position, bomb min dive angle dropped from 12° to 3°, bomb fallback altitude raised, break-off distance reduced.
 
 ### Recent Changes (2026-04-13)
 
@@ -75,7 +94,7 @@ Example project launch from this repo root:
 | System | Status | Notes |
 |--------|--------|-------|
 | Flight Physics | Working | SimpleAero integration complete; aircraft thrust has been bumped across the roster and shared forward drag reduced so dives and acceleration feel less artificially capped; aircraft now also use per-type pitch/roll self-righting plus grounded rudder assist so takeoff, landing, and general hand-flying feel less "nose goes wherever I point it"; engine throttle response now ramps through spool-up/down lag instead of snapping instantly; low-speed sideslip damping increased so the velocity vector tracks the nose more tightly during normal maneuvering |
-| AI Pilot | Working | Full carrier cycle exists; path-follower carrier recovery remains the default; hierarchy-of-needs safety layer (terrain avoidance > collision avoidance > state machine); terrain fan avoidance with directional escape sampling; dogfight proximity override breaks off ground attack when enemies close; close-pass breakaway logic now reduces merge collisions; CCIP ballistic sim throttled via caching |
+| AI Pilot | Working | Full carrier cycle exists; path-follower carrier recovery remains the default; hierarchy-of-needs safety layer (terrain avoidance > collision avoidance > state machine); terrain fan avoidance with directional escape sampling; dogfight proximity override breaks off ground attack when enemies close; close-pass breakaway logic now reduces merge collisions; CCIP ballistic sim throttled via caching; ground attack state machine fixed: overshoot cooldown, positioning timeout, speed gate, pitch guardrail exclusion in dive, and collision avoidance threshold reduction during dive runs; attack telemetry now logs state changes / weapon release / 1 Hz attack-run status with sparse background reporting; attack releases are closer and bomb drops are staggered; dogfight and contact handling were hardened against freed-instance crashes; contact scans, collision avoidance, and RTB checks are further throttled for CPU cost |
 | Catapult | Working | Launches AI and player aircraft |
 | Arresting Cables | Working | Roll stabilization, mass-adaptive braking |
 | Landing Gear | Working | Suspension/damping implemented; Aircraft 1, 2, and 5 now use animated gear pivots instead of pop-in/out, with stowed visuals/shadows suppressed; nosewheel taxi steering now follows rudder at low speed, and rebound damping/deadband were retuned to reduce "pumping" on rollout |
@@ -89,19 +108,19 @@ Example project launch from this repo root:
 | AI Control | Working | All vehicles default to AI; `Start` toggles only the currently viewed friendly aircraft between player and AI control without forcing camera/target changes; bottom-center `AI` indicator remains when viewing AI-controlled aircraft; shoulder buttons cycle viewed units (including bridge view); Space exits free camera to spectator; `L` assigns the next eligible friendly aircraft to landing; viewed-aircraft HUD/instruments remain active while AI is flying |
 | Weapons | Working | Shared gun-profile stack now supports 10/15/20/25 mm gun families across hardpoints and turrets (stats, projectile type, spread, recoil, sound set); bullets inherit muzzle-point velocity and are oriented to actual spawn velocity; runtime hit-assist radius defaults to `0.5 m` and can be adjusted with Up/Down arrow keys; AA missile launchers can still be intentionally fielded empty |
 | Targeting | Working | HUD target box, sensor cone |
-| HUD | Working | Radar, instruments, CCIP, terrain map overlay on radar; cockpit radar scope remains circular and masked correctly; main gunsight uses HUD-glass collimation/boresight projection; FPV symbol shows actual velocity vector with dotted boresight linkage; rotating attitude pitch ladder (horizon-level) with side ticks is now integrated, and boxed speed/altitude readouts were repositioned upward for better readability |
+| HUD | Working | Radar, instruments, CCIP, terrain map overlay on radar; cockpit radar scope remains circular and masked correctly; main gunsight uses HUD-glass collimation/boresight projection; FPV symbol shows actual velocity vector with dotted boresight linkage; rotating attitude pitch ladder (horizon-level) with side ticks is now integrated, and boxed speed/altitude readouts were repositioned upward for better readability; the cockpit terrain map now uses the same live terrain bounds/origin convention as the `M` tactical map and a tighter 3.5 km range so it no longer drifts out of sync |
 | Camera System | Working | Multiple camera modes, free-fly debug camera, delayed death-camera handoff; chase camera now orbits the aircraft on a level horizontal plane; the old bridge cam has been replaced by a first-person commander view inside the carrier bridge; stick-click zoom is available in commander view and in the cockpit camera, including while viewing an AI-controlled aircraft |
 | Cockpit Audio | Partial | Each aircraft now has its own interior loop plus cockpit-only wind / air-rush layers with crash-aware shutdown, reduced in-cockpit stereo spread, and stronger interior filtering; the overall cockpit/exterior balance is still being tuned |
 | Destruction | Working | Aircraft now enter a critical-damage death state at `0 HP`: player control is disabled, stick inputs jam to random max directions, and each second rolls explosion chance (`10%` default); final breakup now emits dark rigid debris chunks with smoke trails that self-clean on terrain contact; ParticleManager still manages smoke lifecycle |
 | Damage Effects | Working | 3-tier progressive damage system: hydraulic/fuel/flap failures, engine cap/control loss/HUD flicker, engine sputter/structural failure/HUD blackout; escalating smoke trails |
-| Aircraft Roster | Working | `Aircraft_4` added as a heavy/slower enemy aircraft with rear turret; `Aircraft_7` and `Aircraft_8` remain fast interceptors; weapon assignments were reworked (Aircraft 2: 25 mm, Aircraft 7/8: 20 mm, Aircraft 3: extra hardpoint + dual 10 mm); pressing `7`/`8` retrieves those variants and `4` debug-spawns a friendly Aircraft_4 above the carrier |
+| Aircraft Roster | Working | `Aircraft_4` added as a heavy/slower enemy aircraft with rear turret; `Aircraft_7` and `Aircraft_8` remain fast interceptors; `Aircraft_6` is now a slow, stable, rugged low-speed aircraft with a friendly airborne debug spawn on `6`; weapon assignments were reworked (Aircraft 2: 25 mm, Aircraft 7/8: 20 mm, Aircraft 3: extra hardpoint + dual 10 mm); enemy Aircraft 3 now spawns clean with no external stores and serves as a fighter; pressing `7`/`8` retrieves those variants and `4` debug-spawns a friendly Aircraft_4 above the carrier |
 
 ### Carrier Systems
 
 | System | Status | Notes |
 |--------|--------|-------|
 | Flight Deck Manager | Partial | Orchestrates deck/hangar/catapult/recovery flow, scramble queues, and runtime aircraft persistence; now supports last-leg wave-offs when the deck is occupied, bolter/go-around recovery retries, and cleanup of extra tractor bots by sending them below via the elevator |
-| Air Operations Manager | Working | Autoload (Citadel). Commands four named flights (Archer, Bulldog, Crimson, Dingo); intercept/CAS vectoring; player-facing tactical-map orders now support CAP routes, CAS tasking, and RTB; empty flights auto-scramble from the hangar when manually ordered; radio comms throughout |
+| Air Operations Manager | Working | Autoload (Citadel). Commands four named flights (Archer, Bulldog, Crimson, Dingo); intercept/CAS vectoring; player-facing tactical-map orders now support CAP routes, CAS tasking, and RTB; empty flights auto-scramble from the hangar when manually ordered; radio comms throughout; enemy patrol density is higher now because hostile patrol aircraft are split into smaller flights |
 | Wing Fold (Aircraft 2) | Working | Wings fold in hangar/transport, unfold at catapult; instant-snap on spawn |
 | Wing Fold (Aircraft 5) | Working | Multi-phase fold: lateral slide, then overlapping X/Y rotations with smoothstep easing; mirrored left-wing geometry handled with flipped X sign |
 | Elevator | Working | Hangar <-> deck transit; aircraft tracks carrier horizontally |
@@ -142,10 +161,10 @@ Example project launch from this repo root:
 | Weapons | Working | Enemy and friendly weapons now share the same profile-driven gun framework (10/15/20/25 mm families, projectile/sound/profile variance); turrets and hardpoints both consume the same ballistic data, and engagement now respects weapon effective range for firing decisions |
 | Ballistics | Working | Lead calculation with gravity compensation now uses real effective projectile speed and measured target velocity in turret controllers; bullet telemetry debug was added to inspect closest miss distances and lead quality in live combat |
 | Enemy Bases | Working | Two enemy bases are placed on suitable flat terrain near carrier ground level, with floating-origin-safe placement logic and associated base assets (runway + structures + support hooks) |
-| Gun Emplacements | Working | Enemy teams receive random emplacement clumps (`4-5` groups/team, `1-3` guns/group); each emplacement has `150 HP`, random 10/15/20 mm turret weapon, activation-distance sleeping for performance, team-color livery, and collider-bottom ground snapping |
+| Gun Emplacements | Working | Enemy teams receive random emplacement clumps (`4-5` groups/team, `1-3` guns/group); each emplacement has `150 HP`, random 10/15/20 mm turret weapon, activation-distance sleeping for performance, collider-bottom ground snapping, and main-color-only team tinting; wind-turbine groups now also get `2-3` nearby enemy gun emplacements as local defenses |
 | Ground Snapping | Working | StaticBody3D terrain alignment plus collider-aware ground placement for spawned emplacements/buildings |
 | Movement | Working | Aircraft behavior solid; ground vehicles use spring-damper suspension with chassis floating above ground and all wheels in contact (works on terrain and carrier ramp); forward-axis velocity projection; larger turn radii; elliptical carrier avoidance with tangential flow steering; enemy/friendly platoon and vehicle staging validates carrier-reachable flat ground with larger margins from steep terrain; enemy vehicles now anchor destinations more carefully and reject direct segments that would climb steep slopes; abstract platoon contacts follow nav-safe representative routes instead of tunneling through mountains; movement/combat stance still being tuned |
-| AI Behavior | Working | Carrier-centered patrol, dogfight, missile/gun choice, RTB/landing, lost-sight variation, and platoon-based ground vehicle objectives implemented; ground vehicles hold position once arrived (30m hysteresis), avoid siblings during retrieval rally, and use formation/rejoin behavior for platoon travel; escort positions prioritize front corners; friendly debug-spawned aircraft can now be kept in a shared flight; close-pass breakaway logic now reduces head-on air-to-air collisions; enemy vehicle gunnery is intentionally inaccurate but permissive, so they shoot often without feeling too dead-eye; sensor scans now use cached group nodes with periodic refresh and guard against freed instances; still being tuned |
+| AI Behavior | Working | Carrier-centered patrol, dogfight, missile/gun choice, RTB/landing, lost-sight variation, and platoon-based ground vehicle objectives implemented; ground vehicles hold position once arrived (30m hysteresis), avoid siblings during retrieval rally, and use formation/rejoin behavior for platoon travel; escort positions prioritize front corners; friendly debug-spawned aircraft can now be kept in a shared flight; close-pass breakaway logic now reduces head-on air-to-air collisions; enemy vehicle gunnery is intentionally inaccurate but permissive, so they shoot often without feeling too dead-eye; sensor scans now use cached group nodes with periodic refresh and guard against freed instances; enemy Aircraft_3 now behaves as a storeless fighter, and strike runs release closer to target with staggered bomb drops; still being tuned |
 
 ### Environment
 
@@ -155,6 +174,7 @@ Example project launch from this repo root:
 | Terrain Shaping | Working | Flat areas now include subtle undulation/detail noise; cliffs/canyons deepened for stronger relief |
 | Terrain Shader | Working | Slope-based coloring; sharp sand-to-grey border (`steep_slope_band`); per-face independent tint (no spatial bleeding) |
 | Rock Scatter | Working | MultiMesh rocks are embedded more firmly into the terrain, use actual mesh bounds for placement, avoid steep/unsupported cliff-edge placements, and still use atomic swap to prevent popping |
+| Wind Turbines | Working | Enemy wind farms now spawn at startup in elevated `3-4` turbine groups with `80-120 m` spacing, `2-3` nearby guard emplacements, map markers at distance, and `3000 m` pop-in / `4000 m` pop-out behavior similar to platoons; turbines use main-color-only enemy tinting on intact and exploded variants, have `200 HP`, spinning rotors, aircraft-style exploded debris behavior, and support free-look debug placement on `W` |
 | Lighting | Working | Directional + deck SpotLights; soft shadows, 8K atlas, blended cascade splits, normal bias; shadow acne fixed |
 | Post-Processing | Working | Filmic, glow, SSAO, volumetric fog |
 | Floating Origin | Working | Shifts the world when the camera exceeds 4000 m from origin to prevent float32 precision loss; all systems that cache world-space positions (AI pilots, carrier waypoints, nav graph, ground vehicles, flights, terrain grid, UI overlays, cameras, dust effects) implement `apply_origin_shift` via the `origin_shifter` group |
@@ -181,6 +201,13 @@ Example project launch from this repo root:
 - **Plasteel** — salvage resource harvested from wrecks and old buildings; used for structural fabrication
 - **Corium** — ambient deposits leeching from the ground; renewable but rate-limited; used for electronics and advanced parts
 - Build order: `ResourceManager` autoload → `ResourceNode` scene → wreck/death hooks → HUD counters → procedural Corium scatter → ground vehicle collection orders → fabricator UI
+
+### Structural Damage / Part Breakoff
+- Named `Area3D` hit zones on aircraft (left wing, right wing, tail, engine, canopy, etc.)
+- At health ≤ 0, any projectile hit on a zone detaches that part: hides the corresponding intact-model mesh(es) and spawns the matching Voronoi fracture piece(s) from `aircraft_N_exploded.glb` as individual physics objects with the aircraft's current velocity + outward impulse
+- Secondary trigger: `breaks_on_collision` flag on a zone causes breakoff from hard impacts regardless of health (useful for ground collisions, near-miss blasts)
+- Generalises to ground vehicles, the carrier, and buildings — anything with a fractured model variant
+- Prerequisite: intact-model GLBs need separately named submesh nodes per breakable zone for clean visual holes; Voronoi piece names in the exploded GLBs already exist and are suitable for mapping
 
 ### Codex
 - In-game encyclopedia accessible from the pause menu

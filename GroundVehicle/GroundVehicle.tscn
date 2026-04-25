@@ -1,8 +1,8 @@
 [gd_scene load_steps=8 format=3 uid="uid://dh00dgifqscm7"]
 
 [ext_resource type="Script" uid="uid://dqqkx5fyusdg3" path="res://GroundVehicle/vehicle_enemy_light.gd" id="1"]
-[ext_resource type="PackedScene" uid="uid://qusnij72f2xr" path="res://Models/ground vehicle.glb" id="2"]
-[ext_resource type="PackedScene" uid="uid://t65yrhatlm8e" path="res://Models/Ground vehicle wheel.glb" id="3"]
+[ext_resource type="PackedScene" uid="uid://qusnij72f2xr" path="res://Models/Vehicles/ground vehicle.glb" id="2"]
+[ext_resource type="PackedScene" uid="uid://t65yrhatlm8e" path="res://Models/Vehicles/Ground vehicle wheel.glb" id="3"]
 [ext_resource type="Script" uid="uid://cqw36derm5yh1" path="res://Weapons/Turrets/turret_controller.gd" id="4_tctrl"]
 [ext_resource type="PackedScene" uid="uid://38xqikpdfhdk" path="res://Weapons/Turrets/turret.tscn" id="5_tscn"]
 [ext_resource type="PackedScene" path="res://Weapons/Turrets/bullet_weapon.tscn" id="6_bwpn"]

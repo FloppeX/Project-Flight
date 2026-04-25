@@ -15,7 +15,7 @@ func mount_weapon_from_scene(weapon_scene: PackedScene):
 	if weapon_instance:
 		weapon_instance.queue_free()
 	
-	weapon_instance = weapon_scene.instantiate()
+	weapon_instance = weapon_scene.instantiate() as Weapon
 	add_child(weapon_instance)
 	
 	aircraft = get_parent() as RigidBody3D

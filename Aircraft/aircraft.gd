@@ -20,12 +20,14 @@ signal destroyed
 @export var damage_cooldown_s: float = 0.01  # Reduced from 0.05 to allow more bullet hits
 @export var debug_damage: bool = false
 @export_group("Critical Damage")
-@export var critical_explosion_check_interval_s: float = 1.0
-@export_range(0.0, 1.0, 0.01) var critical_explosion_chance_per_check: float = 0.1
-@export var critical_debris_chunk_min_count: int = 8
-@export var critical_debris_chunk_max_count: int = 14
-@export var critical_debris_chunk_min_size_m: float = 0.25
-@export var critical_debris_chunk_max_size_m: float = 1.25
+@export var bleed_damage_min_per_s: float = 10.0
+@export var bleed_damage_max_per_s: float = 20.0
+@export var explosion_health_threshold: float = -100.0
+@export var exploded_model_scene: PackedScene = null
+@export var critical_debris_chunk_min_count: int = 6
+@export var critical_debris_chunk_max_count: int = 10
+@export var critical_debris_chunk_min_size_m: float = 0.55
+@export var critical_debris_chunk_max_size_m: float = 2.0
 @export var critical_debris_chunk_impulse_min_mps: float = 20.0
 @export var critical_debris_chunk_impulse_max_mps: float = 70.0
 @export var prevent_below_terrain: bool = true 
@@ -110,6 +112,9 @@ var local_g_force = 1.0
 var local_load_factor = 1.0
 var _critical_damage_active: bool = false
 var _critical_damage_timer_s: float = 0.0
+var _payload_mass_initialized: bool = false
+var _base_mass_kg: float = 0.0
+var _payload_mass_by_source: Dictionary = {}
 var _jam_roll_input: float = 0.0
 var _jam_pitch_input: float = 0.0
 var _jam_steering_module: Node = null
@@ -235,6 +240,37 @@ func _has_weapon_type(weapon_name: String) -> bool:
 func setup():
 	for module in modules:
 		module.setup(self)
+
+func _ensure_payload_mass_tracking() -> void:
+	if _payload_mass_initialized:
+		return
+	_base_mass_kg = mass
+	_payload_mass_by_source.clear()
+	_payload_mass_initialized = true
+
+func _refresh_payload_mass() -> void:
+	var total_payload_mass_kg: float = 0.0
+	for payload_mass in _payload_mass_by_source.values():
+		total_payload_mass_kg += float(payload_mass)
+	mass = _base_mass_kg + total_payload_mass_kg
+
+func set_payload_mass(source: Object, payload_mass_kg: float) -> void:
+	if source == null:
+		return
+	_ensure_payload_mass_tracking()
+	var key: int = source.get_instance_id()
+	var clamped_mass_kg: float = maxf(payload_mass_kg, 0.0)
+	if clamped_mass_kg <= 0.0:
+		_payload_mass_by_source.erase(key)
+	else:
+		_payload_mass_by_source[key] = clamped_mass_kg
+	_refresh_payload_mass()
+
+func clear_payload_mass(source: Object) -> void:
+	if not _payload_mass_initialized or source == null:
+		return
+	_payload_mass_by_source.erase(source.get_instance_id())
+	_refresh_payload_mass()
 
 func _unhandled_input(event):
 	if _critical_damage_active:
@@ -647,7 +683,9 @@ func explode():
 	_has_exploded = true
 	_critical_damage_active = false
 	emit_signal("destroyed")
+	_spawn_destruction_explosion()
 	_spawn_critical_damage_chunks()
+	_spawn_exploded_model()
 
 	# Cleanly detach from deck systems
 	if has_meta("arresting_cable"):
@@ -657,6 +695,34 @@ func explode():
 
 	queue_free()
 
+func _spawn_destruction_explosion() -> void:
+	var exp_scene: PackedScene = explosion_scene
+	if exp_scene == null:
+		exp_scene = load("res://Projectiles/Explosion/explosion.tscn")
+	if exp_scene == null:
+		return
+	var scene_root: Node = get_tree().current_scene if get_tree() != null else null
+	if scene_root == null:
+		scene_root = get_parent()
+	if scene_root == null:
+		return
+	var exp := exp_scene.instantiate()
+	scene_root.add_child(exp)
+	if exp is Node3D:
+		(exp as Node3D).global_position = global_position
+	var blast_radius_value: Variant = exp.get("blast_radius")
+	if blast_radius_value != null:
+		exp.set("blast_radius", maxf(float(blast_radius_value), 30.0))
+	var max_damage_value: Variant = exp.get("max_damage")
+	if max_damage_value != null:
+		exp.set("max_damage", maxf(float(max_damage_value), 140.0))
+	var min_damage_value: Variant = exp.get("min_damage")
+	if min_damage_value != null:
+		exp.set("min_damage", maxf(float(min_damage_value), 20.0))
+	var los_value: Variant = exp.get("use_line_of_sight")
+	if los_value != null:
+		exp.set("use_line_of_sight", false)
+
 func _begin_critical_damage_sequence() -> void:
 	if _critical_damage_active or _has_exploded:
 		return
@@ -665,9 +731,25 @@ func _begin_critical_damage_sequence() -> void:
 	_jam_roll_input = 1.0 if randf() >= 0.5 else -1.0
 	_jam_pitch_input = 1.0 if randf() >= 0.5 else -1.0
 	set_meta("player_control_locked", true)
-	set_meta("controls_disabled", true)
+	if has_meta("controls_disabled"):
+		remove_meta("controls_disabled")
+	_disable_ai_for_critical_damage()
 	_disable_player_control_for_critical_damage()
 	_disable_non_jam_control_modules()
+
+func _disable_ai_for_critical_damage() -> void:
+	var ai_toggle := get_node_or_null("AIToggle")
+	if ai_toggle != null and "ai_active" in ai_toggle:
+		ai_toggle.ai_active = false
+
+	var ai_pilot := find_child("AIPilot", true, false)
+	if ai_pilot == null:
+		return
+	if ai_pilot.has_method("deinitialize"):
+		ai_pilot.deinitialize()
+	ai_pilot.set_process(false)
+	ai_pilot.set_physics_process(false)
+	ai_pilot.set_process_input(false)
 
 func _disable_player_control_for_critical_damage() -> void:
 	if FlightDirector and FlightDirector.has_method("force_release_player_control_for"):
@@ -675,13 +757,12 @@ func _disable_player_control_for_critical_damage() -> void:
 
 func _update_critical_damage_state(delta: float) -> void:
 	_apply_jammed_controls()
-	var interval_s: float = maxf(critical_explosion_check_interval_s, 0.05)
 	_critical_damage_timer_s += delta
-	while _critical_damage_timer_s >= interval_s:
-		_critical_damage_timer_s -= interval_s
-		if randf() <= critical_explosion_chance_per_check:
+	if _critical_damage_timer_s >= 1.0:
+		_critical_damage_timer_s -= 1.0
+		current_health -= randf_range(bleed_damage_min_per_s, bleed_damage_max_per_s)
+		if current_health <= explosion_health_threshold:
 			explode()
-			return
 
 func _apply_jammed_controls() -> void:
 	_cache_control_jam_targets()
@@ -710,6 +791,7 @@ func _disable_non_jam_control_modules() -> void:
 	var blocked_scripts: Array[String] = [
 		"controlsteering.gd",
 		"controlengine.gd",
+		"controlenergycontainer.gd",
 		"controllandinggear.gd",
 		"controlflaps.gd",
 		"controlweapons.gd",
@@ -748,15 +830,15 @@ func _spawn_critical_damage_chunks() -> void:
 		var chunk := RigidBody3D.new()
 		chunk.name = "AircraftDebrisChunk_%d" % i
 		chunk.set_script(AIRCRAFT_DEBRIS_CHUNK_SCRIPT)
-		chunk.mass = randf_range(8.0, 28.0)
+		chunk.mass = randf_range(18.0, 60.0)
 		chunk.contact_monitor = true
 		chunk.max_contacts_reported = 4
 		parent_node.add_child(chunk)
 
 		var size := Vector3(
-			randf_range(min_size, max_size),
-			randf_range(min_size, max_size),
-			randf_range(min_size, max_size)
+			randf_range(min_size * 0.7, max_size * 1.15),
+			randf_range(min_size * 0.45, max_size * 0.8),
+			randf_range(min_size * 0.9, max_size * 1.35)
 		)
 		var local_offset := Vector3(
 			randf_range(-2.6, 2.6),
@@ -770,21 +852,19 @@ func _spawn_critical_damage_chunks() -> void:
 			randf_range(-PI, PI)
 		)
 
+		var assets := VehicleWreck.create_angular_chunk_assets(size)
 		var mesh := MeshInstance3D.new()
-		var box := BoxMesh.new()
-		box.size = size
-		mesh.mesh = box
+		mesh.mesh = assets["mesh"] as ArrayMesh
 		var mat := StandardMaterial3D.new()
 		var shade: float = randf_range(0.10, 0.24)
-		mat.albedo_color = Color(shade, shade, shade)
-		mat.roughness = 0.92
+		var warmth: float = randf_range(0.0, 0.05)
+		mat.albedo_color = Color(shade + warmth, shade, shade * randf_range(0.9, 1.15))
+		mat.roughness = 0.96
 		mesh.material_override = mat
 		chunk.add_child(mesh)
 
 		var collider := CollisionShape3D.new()
-		var collider_shape := BoxShape3D.new()
-		collider_shape.size = size
-		collider.shape = collider_shape
+		collider.shape = assets["shape"] as Shape3D
 		chunk.add_child(collider)
 
 		var outward: Vector3 = (chunk.global_position - global_position).normalized()
@@ -801,6 +881,10 @@ func _spawn_critical_damage_chunks() -> void:
 			randf_range(-10.0, 10.0),
 			randf_range(-10.0, 10.0)
 		)
+
+		var fire_trail := FireTrail.new()
+		fire_trail.duration = randf_range(4.0, 7.0)
+		chunk.add_child(fire_trail)
 
 func activate_deathcam():
 	# Prefer independent deathcam scene
@@ -880,6 +964,111 @@ func _spawn_wreck_and_free():
 	# Remove original aircraft
 	queue_free()
 
+func _spawn_exploded_model() -> void:
+	if exploded_model_scene == null:
+		return
+	var parent: Node = get_parent()
+	if not is_instance_valid(parent):
+		return
+	var root: Node3D = exploded_model_scene.instantiate() as Node3D
+	if root == null:
+		return
+	# Add to scene so children have valid global transforms
+	parent.add_child(root)
+	root.global_transform = global_transform
+
+	var aircraft_vel: Vector3 = linear_velocity
+	var aircraft_ang: Vector3 = angular_velocity
+	var aircraft_origin: Vector3 = global_position
+
+	# Collect materials from the living aircraft before it's freed
+	var mats: Array[Material] = _collect_mesh_materials()
+
+	var parts: Array[MeshInstance3D] = []
+	for child in root.get_children():
+		if child is MeshInstance3D:
+			parts.append(child as MeshInstance3D)
+
+	var part_mass: float = maxf(mass / maxf(parts.size(), 1), 5.0)
+
+	for mesh_inst in parts:
+		var world_xform: Transform3D = mesh_inst.global_transform
+		var aabb: AABB = mesh_inst.get_aabb()
+
+		root.remove_child(mesh_inst)
+
+		var rb := RigidBody3D.new()
+		rb.mass = part_mass
+		rb.collision_layer = 0
+		rb.collision_mask = 513  # Layer 1 (default) + layer 10 (terrain)
+		var phys_mat := PhysicsMaterial.new()
+		phys_mat.bounce = 0.6
+		phys_mat.friction = 0.3
+		rb.physics_material_override = phys_mat
+
+		var col := CollisionShape3D.new()
+		var box := BoxShape3D.new()
+		box.size = aabb.size.abs()
+		col.shape = box
+		rb.add_child(col)
+
+		mesh_inst.transform = Transform3D.IDENTITY
+		if not mats.is_empty():
+			mesh_inst.material_override = mats[randi() % mats.size()]
+		rb.add_child(mesh_inst)
+
+		parent.add_child(rb)
+		rb.global_transform = world_xform
+
+		# Scatter outward from aircraft center
+		var outward: Vector3 = (world_xform.origin - aircraft_origin).normalized()
+		if outward.length_squared() < 0.001:
+			outward = Vector3(randf_range(-1.0, 1.0), 1.0, randf_range(-1.0, 1.0)).normalized()
+		outward.y += 0.3
+		outward = outward.normalized()
+
+		rb.linear_velocity = aircraft_vel + outward * randf_range(5.0, 25.0)
+		rb.angular_velocity = aircraft_ang + Vector3(
+			randf_range(-8.0, 8.0),
+			randf_range(-8.0, 8.0),
+			randf_range(-8.0, 8.0)
+		)
+
+		var fire_trail := FireTrail.new()
+		fire_trail.duration = randf_range(5.0, 9.0)
+		rb.add_child(fire_trail)
+
+		var t := get_tree().create_timer(12.0)
+		t.timeout.connect(func(): if is_instance_valid(rb): rb.queue_free())
+
+	root.queue_free()
+
+
+func _collect_mesh_materials() -> Array[Material]:
+	var result: Array[Material] = []
+	_collect_materials_from_node(self, result)
+	return result
+
+
+func _collect_materials_from_node(node: Node, result: Array[Material]) -> void:
+	if node is MeshInstance3D:
+		var mi := node as MeshInstance3D
+		# material_override is what Livery applies — prefer it
+		if mi.material_override != null and not result.has(mi.material_override):
+			result.append(mi.material_override)
+		else:
+			for i in range(mi.get_surface_override_material_count()):
+				var mat := mi.get_surface_override_material(i)
+				if mat != null and not result.has(mat):
+					result.append(mat)
+			if mi.mesh != null:
+				for i in range(mi.mesh.get_surface_count()):
+					var mat := mi.mesh.surface_get_material(i)
+					if mat != null and not result.has(mat):
+						result.append(mat)
+	for child in node.get_children():
+		_collect_materials_from_node(child, result)
+
 ##############################################################################
 #  UTILITY FUNCTIONS
 # ----------------------------------------------------------------------------
@@ -936,13 +1125,16 @@ func calculate_ccip_impact_point() -> Dictionary:
 	if "drop_force" in bomb_hardpoint.weapon_instance:
 		drop_force = float(bomb_hardpoint.weapon_instance.drop_force)
 
-	# Start from bomb hardpoint position
-	var start_pos = bomb_hardpoint.global_position
-	var aircraft_velocity = linear_velocity
-	# Include angular velocity contribution: v = ω × r
-	var r_offset: Vector3 = start_pos - global_position
-	var angular_vel_component: Vector3 = angular_velocity.cross(r_offset)
-	var initial_velocity = Vector3.DOWN * drop_force + aircraft_velocity + angular_vel_component
+	# Match the real bomb weapon scripts: release inherits aircraft linear velocity
+	# plus any explicit downward drop force, with no extra angular-velocity term.
+	var release_transform: Transform3D = bomb_hardpoint.global_transform
+	if bomb_hardpoint.weapon_instance.has_method("get_predicted_release_transform"):
+		release_transform = bomb_hardpoint.weapon_instance.get_predicted_release_transform()
+	var start_pos: Vector3 = release_transform.origin
+
+	var initial_velocity: Vector3 = Vector3.DOWN * drop_force + linear_velocity
+	if bomb_hardpoint.weapon_instance.has_method("get_predicted_initial_velocity"):
+		initial_velocity = bomb_hardpoint.weapon_instance.get_predicted_initial_velocity(self)
 	
 	# Get bomb physics properties dynamically from the projectile scene
 	var bomb_instance = bomb_projectile_scene.instantiate()
@@ -1004,5 +1196,111 @@ func calculate_ccip_impact_point() -> Dictionary:
 			break
 		
 		current_pos = next_pos
-	
+
+	return result
+
+
+func calculate_rocket_ccip_impact_point() -> Dictionary:
+	"""Calculate where a rocket would hit if fired right now"""
+	var result = {
+		"has_impact": false,
+		"impact_position": Vector3.ZERO,
+		"time_to_impact": 0.0
+	}
+
+	# Find the first active rocket hardpoint
+	var rocket_hardpoint = null
+	var rocket_scene = null
+	var control_weapons = find_child("ControlWeapons")
+	if control_weapons and control_weapons.hardpoints:
+		for hardpoint in control_weapons.hardpoints:
+			if not is_instance_valid(hardpoint):
+				continue
+			if hardpoint.weapon_instance and hardpoint.weapon_instance.weapon_name == "Rocket Pod":
+				rocket_hardpoint = hardpoint
+				if "rocket_scene" in hardpoint.weapon_instance:
+					rocket_scene = hardpoint.weapon_instance.rocket_scene
+				break
+
+	if not rocket_hardpoint:
+		return result
+
+	if rocket_scene == null:
+		rocket_scene = load("res://Projectiles/Rocket/rocket.tscn")
+	if rocket_scene == null:
+		return result
+
+	var muzzle_velocity: float = 220.0
+	if "muzzle_velocity" in rocket_hardpoint.weapon_instance:
+		muzzle_velocity = float(rocket_hardpoint.weapon_instance.muzzle_velocity)
+
+	var release_transform: Transform3D = rocket_hardpoint.global_transform
+	if rocket_hardpoint.weapon_instance.has_method("get_predicted_release_transform"):
+		release_transform = rocket_hardpoint.weapon_instance.get_predicted_release_transform()
+	var start_pos: Vector3 = release_transform.origin
+
+	var initial_velocity: Vector3 = release_transform.basis.z * muzzle_velocity
+	if rocket_hardpoint.weapon_instance.has_method("get_predicted_initial_velocity"):
+		initial_velocity = rocket_hardpoint.weapon_instance.get_predicted_initial_velocity(self)
+
+	# Read physics from rocket scene
+	var rocket_instance = rocket_scene.instantiate()
+	var linear_damp := 0.06
+	if "linear_damp" in rocket_instance:
+		var ld = float(rocket_instance.linear_damp)
+		if ld >= 0.0:
+			linear_damp = ld
+	var gravity_scale := 1.0
+	if "gravity_scale" in rocket_instance:
+		gravity_scale = float(rocket_instance.gravity_scale)
+	var motor_acceleration_mps2 := 0.0
+	if "motor_acceleration_mps2" in rocket_instance:
+		motor_acceleration_mps2 = float(rocket_instance.motor_acceleration_mps2)
+	var motor_additional_speed_mps := 0.0
+	if "motor_additional_speed_mps" in rocket_instance:
+		motor_additional_speed_mps = float(rocket_instance.motor_additional_speed_mps)
+	rocket_instance.queue_free()
+
+	var gravity_dir: Vector3 = ProjectSettings.get_setting("physics/3d/default_gravity_vector", Vector3(0, -1, 0))
+	var gravity_mag: float = float(ProjectSettings.get_setting("physics/3d/default_gravity", 9.8))
+	var gravity_vec: Vector3 = gravity_dir * gravity_mag
+
+	var time_step := 0.02
+	var max_time := 15.0
+	var current_pos := start_pos
+	var current_vel := initial_velocity
+	var launch_reference_speed_mps: float = initial_velocity.length()
+	var space_state = get_world_3d().direct_space_state
+
+	for step in int(max_time / time_step):
+		var target_speed_mps: float = launch_reference_speed_mps + maxf(motor_additional_speed_mps, 0.0)
+		var current_speed_mps: float = current_vel.length()
+		if motor_acceleration_mps2 > 0.0 and current_speed_mps < target_speed_mps:
+			var forward_dir: Vector3 = current_vel.normalized()
+			if forward_dir.length_squared() < 0.001:
+				forward_dir = release_transform.basis.z.normalized()
+			if forward_dir.length_squared() < 0.001:
+				forward_dir = Vector3.FORWARD
+			current_vel += forward_dir * minf(motor_acceleration_mps2 * time_step, target_speed_mps - current_speed_mps)
+
+		current_vel += gravity_vec * gravity_scale * time_step
+		if linear_damp > 0.0:
+			current_vel /= (1.0 + linear_damp * time_step)
+		var next_pos := current_pos + current_vel * time_step
+
+		var query = PhysicsRayQueryParameters3D.create(current_pos, next_pos)
+		query.exclude = [self]
+		query.collision_mask = 0xFFFFFFFF
+		var hit_result = space_state.intersect_ray(query)
+		if hit_result:
+			result.has_impact = true
+			result.impact_position = hit_result.position
+			result.time_to_impact = step * time_step
+			break
+
+		if next_pos.y < -1000:
+			break
+
+		current_pos = next_pos
+
 	return result

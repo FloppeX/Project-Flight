@@ -1,0 +1,9 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="PackedScene" path="res://Models/Buildings/wind turbine exploded.glb" id="1_mesh"]
+[ext_resource type="Script" path="res://Buildings/WindTurbineDestroyed.gd" id="2_script"]
+
+[node name="BuildingWindTurbineDestroyed" type="Node3D"]
+script = ExtResource("2_script")
+
+[node name="Mesh" parent="." instance=ExtResource("1_mesh")]

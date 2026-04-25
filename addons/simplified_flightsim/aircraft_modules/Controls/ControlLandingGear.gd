@@ -5,6 +5,7 @@ class_name AircraftModule_ControlLandingGear
 @export var SearchTag: String = ""
 @export var ControlActive: bool = true
 @export var UseToggleAction: bool = true
+@export var LockGearDeployed: bool = false
 @export var debug_enabled: bool = false
 
 # Optional direct gear collider control (assign in editor)
@@ -125,6 +126,11 @@ func _physics_process(delta: float) -> void:
 	if UseToggleAction and Input.is_action_just_pressed("gear_toggle"):
 		if debug_enabled:
 			print("[GEAR] toggle pressed; gears=", landing_gear_modules.size(), " hooks=", tailhook_modules.size(), "/", tailhook_simple_nodes.size())
+		if LockGearDeployed:
+			send_to_landing_gears("deploy")
+			_set_collider_disabled(false)
+			gear_down_state = true
+			return
 		if gear_down_state:
 			send_to_landing_gears("stow")
 			send_to_tailhooks("stow")
@@ -151,6 +157,11 @@ func _physics_process(delta: float) -> void:
 	if Input.is_action_just_pressed("gear_stow"):
 		if debug_enabled:
 			print("[GEAR] stow; gears=", landing_gear_modules.size())
+		if LockGearDeployed:
+			send_to_landing_gears("deploy")
+			_set_collider_disabled(false)
+			gear_down_state = true
+			return
 		send_to_landing_gears("stow")
 		send_to_tailhooks("stow")
 		send_to_tailhook_simple(false)

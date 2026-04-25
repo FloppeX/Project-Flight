@@ -2,7 +2,7 @@
 
 [ext_resource type="Script" path="res://Weapons/Autocannon/autocannon.gd" id="1_script"]
 [ext_resource type="Resource" path="res://Weapons/Guns/Profiles/10mm_machine_gun.tres" id="2_profile"]
-[ext_resource type="PackedScene" path="res://Models/machine gun low poly.glb" id="3_model"]
+[ext_resource type="PackedScene" path="res://Models/Weapons/machine gun low poly.glb" id="3_model"]
 
 [node name="10mmMachineGunHardpoint" type="Node3D"]
 script = ExtResource("1_script")

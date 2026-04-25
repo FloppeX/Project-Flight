@@ -3,6 +3,7 @@
 This document contains version history, session-by-session notes, and archived long-form material extracted from the main project overview. For the short project brief, see [README](../README.md).
 
 ## Version History
+- 2026-04-23: AI attack / wind-farm / aircraft roster pass - ground-attack debug telemetry was rebuilt around state-change, weapon-release, 1 Hz attack-run, and sparse background logs; strike release ranges were tightened and bomb drops staggered so aircraft attack closer and retain stores for later passes; multiple freed-instance crash paths around AIPilot targeting/UI cleanup were hardened; AI contact, collision-avoidance, RTB, and release-solution work was throttled/cached for better performance; cockpit radar terrain view was zoomed in and synchronized to the same terrain bounds/origin logic as the `M` tactical map; enemy Aircraft_3 now spawns storeless as a clean fighter and patrol density increased via smaller patrol flights; enemy wind-turbine sites were added with grouped startup placement, distance markerization/activation, team-main-color tinting, guard gun emplacements, spinning/exploded rotor behavior, and debug placement; Aircraft_6 was added as a new slow, stable, rugged aircraft type with airborne debug spawn on key `6`.
 - 2026-04-13: Combat/UI/content expansion pass - project renamed to `Land Carrier`; pause menu rebuilt with Orbitron all-caps styling and untinted overlay; rotating HUD pitch ladder and boxed speed/altitude readouts added; gun-profile weapon framework expanded to 10/15/20/25 mm across hardpoints and turrets; hit-assist radius defaults to `0.5 m` and is runtime-adjustable; carrier and emplacement turret aim/range/LOS/arc behavior hardened with expanded debug telemetry; Aircraft_4 integrated as a heavy rear-turret enemy aircraft (`140 HP`) with debug spawn support; Aircraft_2/7/8/3 loadouts updated; cockpit pilot system standardized with randomized pilot palettes and cockpit hiding; team livery/insignia randomization expanded (24-color cycle, tail/wing projection fixes); critical-damage aircraft death state replaced with jammed controls plus chunk breakup/smoke; gun emplacements added with random weapons, activation-distance sleeping, team colors, and collider-bottom terrain grounding.
 - 2026-04-06: Performance profiling & fog system overhaul — frame spike logger added to ScenarioManager; identified terrain chunk collision rebuild (0.12s timer) and volumetric fog as primary performance culprits; `stream_update_interval_s` raised to 0.5s, initial-fill chunk budget raised to 16 to eliminate pop-in delay while keeping steady-state at 2 builds/tick; switched to volumetric fog for seamless horizon blending; render scale set to 0.5 for 4K performance; fixed `shake_frequency` missing declaration in `aircraft.gd`; shadow cascade splits retuned (`split_1=0.03`, `split_2=0.15`) for better near-geometry resolution; complete day/night palette overhaul — dawn (apricot/dusty salmon), day (bleached ochre glare), dusk (copper/cinnabar/burnt orange), twilight (plum/brown-violet) with per-phase density and anisotropy; `fog_aerial_perspective=1.0` and uniform sky colour prevent horizon seam in all camera orientations.
 - 2026-04-05 (late): Fog/horizon tuning pass — investigated persistent horizon line; identified root causes as missing `fog_aerial_perspective` in active code path and sky gradient visible during bank; zeroed `zenith_darkness` and `sky_ground_darkening` on all phases; `sky_curve`/`ground_curve` widened to 0.45; `fog_depth_begin` and `fog_depth_curve` now explicitly set in the builtin-fog branch to override stale resource values.
@@ -42,6 +43,47 @@ This document contains version history, session-by-session notes, and archived l
 ---
 
 ## Project Change Log (latest session)
+
+### Session Summary (2026-04-23) - AI Attack, Wind Farms, and Aircraft 6
+
+**Overview:** This session concentrated on practical combat behavior and content integration rather than new command systems. The main themes were making strike aircraft actually usable and debuggable under load, hardening stale-reference crashes during aircraft death/retargeting, adding enemy wind-farm infrastructure that behaves like the rest of the world simulation, and folding a new aircraft type into the roster/debug-spawn flow.
+
+#### AI Strike Behavior / Weapon Release / Telemetry
+- Reworked AIPilot debug output cadence so pilots now report every state transition, every weapon release event, once per second during attack runs, and only occasionally (`~10 s`) outside attack-critical phases.
+- Tightened release behavior so bombs and rockets are committed closer to the target instead of from overly conservative ranges.
+- Bomb release logic now staggers drops rather than dumping the entire rack at once, and retains some stores for follow-up passes.
+- Ground-attack aiming was simplified toward the carrier center as a cheap, stable default aimpoint while broader precision work continues.
+- Enemy strike aircraft that had been diving aggressively without releasing ordnance now complete weapon delivery much more consistently.
+
+#### AI Stability / Freed-Instance Hardening / Performance
+- Hardened multiple stale-reference crash paths tied to aircraft destruction and retargeting, including dogfight enemy scans, ground-attack target sanitation, cockpit/instrument target lookups, and virtual flight/platoon support paths.
+- Fixed several `is Node3D` checks that were touching previously freed instances before validating them.
+- Reduced AI cost during busy air combat by throttling or caching contact filtering / sensor scans, collision-avoidance prediction, RTB trigger checks, repeated dogfight missile-targeting node lookups, and attack-run CCIP-equivalent / release-solution work.
+
+#### Pilot Radar / Tactical Map Consistency
+- Zoomed the cockpit terrain/radar map in from the old wide view to a tighter `3.5 km` range.
+- Switched the cockpit map to the same terrain image/origin/span convention used by the full `M` tactical map.
+- Removed the old floating-origin drift behavior so the cockpit map no longer wanders out of sync with the actual world terrain.
+
+#### Enemy Air Operations
+- Enemy `Aircraft_3` is now treated as a clean fighter: external stores are stripped so it can focus on dogfighting rather than carrier strike behavior.
+- Enemy patrol presence increased by reducing hostile flight size, which yields more patrol elements in the world without increasing total deployed aircraft much.
+
+#### Wind Turbines / Enemy Infrastructure
+- Added a wind-turbine building asset, moved it into the proper model folder, and created a dedicated scene with health and destruction behavior.
+- Wind turbines have `200 HP`, a spinning rotor around the rotor assembly's local Z axis, exploded replacement behavior that preserves rotor orientation, and aircraft-like exploded-part cleanup timing.
+- Exploded turbine pieces and rotor segments are initially held together; parts disconnect when they hit the ground, and the exploded rotor continues spinning.
+- Startup world generation now places `25` enemy wind turbines in elevated groups of `3-4`, with nearest-neighbor spacing around `80-120 m`.
+- Wind farms remain cheap at long range by existing as distant markers until the player gets closer, then pop in around `3000 m` and collapse back to marker form beyond `4000 m`.
+- Wind turbines appear on the map as buildings, are treated as enemy structures, and only their `main color` material parameter is switched to team color on both intact and exploded variants.
+- Added `2-3` nearby enemy gun emplacements around turbine groups, with the same main-color-only tint rule applied to emplacement visuals.
+- Debug placement flow was also added so free-look `W` can place a wind turbine at the looked-at ground point.
+
+#### Aircraft 6
+- Added the new aircraft asset as `Models/Aircraft_6/aircraft_6.glb` and created `Aircraft/Aircraft_6.tscn` using Aircraft 3's scene structure as the starting point.
+- Wired key `6` into the debug air-spawn flow so it spawns a friendly `Aircraft_6` at `60 m/s`, `200 m` above the carrier, already airborne.
+- Tuned `Aircraft_6` to be a very forgiving low-speed aircraft with slower top speed, lower stall speed, much stronger rudder authority, much higher passive stability/damping, and substantially higher durability.
+- Left custom exploded-model hookup for later because no Aircraft 6-specific exploded mesh exists yet.
 
 ### Session Summary (2026-04-13) - Combat/UI/Content Integration Pass
 

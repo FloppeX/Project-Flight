@@ -23,10 +23,13 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.05, 0)
 script = ExtResource("3_turret_controller")
 weapon_scene = ExtResource("5_weapon_scene")
 max_range = 1400.0
-aim_skill = 0.5
-burst_length = 1.2
-delay_length = 1.5
-fire_angle_tolerance_deg = 14.0
+aim_skill = 0.2
+burst_length = 1.8
+delay_length = 2.0
+fire_angle_tolerance_deg = 22.0
+air_target_range_multiplier = 0.65
+air_target_aim_skill_multiplier = 0.7
+air_target_extra_spread_m = 18.0
 
 [node name="TurretScene" parent="TurretController" instance=ExtResource("4_turret_scene")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.220869, 0)

@@ -143,6 +143,10 @@ func _process(delta: float) -> void:
 		var current_fuel = aircraft.available_energy["fuel"]
 		
 		for container in aircraft.energy_containers:
+			if container == null:
+				continue
+			if container is Object and not is_instance_valid(container):
+				continue
 			if container.EnergyType == "fuel":
 				total_capacity += container.MaxCapacity
 		
@@ -164,7 +168,12 @@ func _process(delta: float) -> void:
 	var gear_modules = aircraft.find_modules_by_type("landing_gear")
 	if gear_modules.size() > 0:
 		var gear = gear_modules[0]
-		if gear.is_deployed:
+		if gear == null or (gear is Object and not is_instance_valid(gear)):
+			gear = null
+		if gear == null:
+			gear_label.text = "GEAR\nN/A"
+			gear_label.modulate = Color.GRAY
+		elif gear.is_deployed:
 			gear_label.text = "GEAR\nDOWN"
 			gear_label.modulate = Color.GREEN
 		elif gear.is_stowed:
@@ -184,7 +193,12 @@ func _process(delta: float) -> void:
 	var engine_modules = aircraft.find_modules_by_type("engine")
 	if engine_modules.size() > 0:
 		var engine = engine_modules[0]
-		if engine.is_engine_working:
+		if engine == null or (engine is Object and not is_instance_valid(engine)):
+			engine = null
+		if engine == null:
+			engine_label.text = "ENG\nN/A"
+			engine_label.modulate = Color.GRAY
+		elif engine.is_engine_working:
 			var power_percent = int(engine.current_power * 100)
 			engine_label.text = "ENG\n" + str(power_percent) + "%"
 			engine_label.modulate = Color.GREEN
@@ -274,16 +288,17 @@ func _process(delta: float) -> void:
 		else:
 			# Fallback: derive from targeting module if available, else look forward
 			var targeting = _find_targeting_module()
-			if targeting and targeting.current_target and is_instance_valid(targeting.current_target):
+			var tracked_target := _get_targeting_current_target(targeting)
+			if tracked_target and is_instance_valid(tracked_target):
 				var cam_pos = aircraft.global_position + aircraft.global_transform.basis.z * 1.0 + Vector3(0, 0.3, 0)
 				target_camera.global_position = cam_pos
-				target_camera.look_at(targeting.current_target.global_position, Vector3.UP)
+				target_camera.look_at(tracked_target.global_position, Vector3.UP)
 				if target_placeholder:
 					target_placeholder.visible = false
 				# Update target info label for targeting module target
 				if target_info_label:
-					var distance = aircraft.global_position.distance_to(targeting.current_target.global_position)
-					target_info_label.text = targeting.current_target.name + "\n" + str(int(distance)) + "m"
+					var distance = aircraft.global_position.distance_to(tracked_target.global_position)
+					target_info_label.text = tracked_target.name + "\n" + str(int(distance)) + "m"
 			else:
 				# Idle: look forward
 				var cam_pos2 = aircraft.global_position + aircraft.global_transform.basis.z * 1.0 + Vector3(0, 0.3, 0)
@@ -511,13 +526,30 @@ func _find_targeting_module():
 	if aircraft == null:
 		return null
 	var modules = aircraft.find_modules_by_type("targeting")
-	return modules[0] if modules.size() > 0 else null
+	for module in modules:
+		if module != null and (not (module is Object) or is_instance_valid(module)):
+			return module
+	return null
+
+func _get_targeting_current_target(targeting) -> Node3D:
+	if targeting == null:
+		return null
+	if targeting is Object and not is_instance_valid(targeting):
+		return null
+	if not ("current_target" in targeting):
+		return null
+	var raw_target = targeting.current_target
+	if raw_target == null or not is_instance_valid(raw_target):
+		if raw_target != null:
+			targeting.current_target = null
+		return null
+	if not (raw_target is Node3D):
+		return null
+	return raw_target as Node3D
 
 func _get_enemy_target_node() -> Node3D:
 	var targeting = _find_targeting_module()
-	if targeting and targeting.current_target and is_instance_valid(targeting.current_target):
-		return targeting.current_target
-	return null
+	return _get_targeting_current_target(targeting)
 
 func is_target_camera_focusing_node(node: Node3D) -> bool:
 	if node == null or not is_instance_valid(node):

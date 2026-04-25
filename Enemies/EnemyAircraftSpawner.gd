@@ -12,7 +12,7 @@ extends Node3D
 @export var cap_flight_altitude_m: float = 600.0
 @export var cap_orbit_radius_m: float = 1200.0
 @export var friendly_debug_flight_altitude_m: float = 500.0
-@export var enemy_debug_flight_range_from_carrier_m: float = 10000.0
+@export var enemy_debug_flight_range_from_carrier_m: float = 4000.0
 @export var debug_air_spawn_spacing_m: float = 180.0
 @export var debug_air_spawn_map_margin_m: float = 500.0
 @export var debug_air_spawn_direction_attempts: int = 24
@@ -35,6 +35,7 @@ var _aircraft_scene: PackedScene
 var _aircraft_3_scene: PackedScene
 var _aircraft_4_scene: PackedScene
 var _aircraft_5_scene: PackedScene
+var _aircraft_6_scene: PackedScene
 var _enemy_aircraft_scene: PackedScene
 var _active_ai_planes: Array[RigidBody3D] = []
 var _enemy_vehicle_scenes: Array[PackedScene] = []
@@ -54,6 +55,9 @@ func _ready():
 	_aircraft_5_scene = load("res://Aircraft/Aircraft_5.tscn")
 	if not _aircraft_5_scene:
 		push_error("[EnemyAircraftSpawner] Failed to load Aircraft/Aircraft_5.tscn")
+	_aircraft_6_scene = load("res://Aircraft/Aircraft_6.tscn")
+	if not _aircraft_6_scene:
+		push_error("[EnemyAircraftSpawner] Failed to load Aircraft/Aircraft_6.tscn")
 	_enemy_aircraft_scene = _aircraft_3_scene
 	_enemy_vehicle_scenes.clear()
 	for vehicle_path in [
@@ -99,6 +103,9 @@ func _input(event):
 			get_viewport().set_input_as_handled()
 		elif event.keycode == KEY_4:
 			_spawn_friendly_aircraft_4()
+			get_viewport().set_input_as_handled()
+		elif event.keycode == KEY_6:
+			_spawn_friendly_aircraft_6()
 			get_viewport().set_input_as_handled()
 		elif event.keycode == KEY_X:
 			_spawn_enemy_base()
@@ -519,7 +526,7 @@ func _spawn_enemy_debug_flight() -> void:
 
 	await get_tree().create_timer(0.5).timeout
 	for aircraft in spawned:
-		_configure_enemy_strike_pilot(aircraft, carrier, true)
+		_configure_enemy_strike_pilot(aircraft, carrier, false)
 
 func _assign_friendly_aircraft_to_shared_flight(aircraft_list: Array[RigidBody3D]) -> void:
 	if aircraft_list.is_empty():
@@ -660,9 +667,76 @@ func _spawn_friendly_aircraft_4() -> void:
 		await get_tree().create_timer(0.5).timeout
 		_configure_friendly_cap_pilot(aircraft, orbit_waypoints, 0)
 
+func _spawn_friendly_aircraft_6() -> void:
+	if not _aircraft_6_scene:
+		return
+	_prune_active_ai_planes()
+	if _active_ai_planes.size() >= max_ai_planes:
+		print("[EnemyAircraftSpawner] 6: max AI planes reached")
+		return
+
+	var carrier_pos: Vector3 = _get_carrier_position()
+	var orbit_waypoints: Array[Vector3] = _build_carrier_orbit_waypoints(carrier_pos, cap_orbit_radius_m, cap_flight_altitude_m, 9)
+	var forward_flat: Vector3 = _get_carrier_forward()
+	forward_flat.y = 0.0
+	forward_flat = forward_flat.normalized()
+	if forward_flat.length() < 0.01:
+		forward_flat = Vector3.FORWARD
+
+	var spawn_pos: Vector3 = carrier_pos + Vector3(0.0, 200.0, 0.0)
+	var aircraft := await _spawn_ai_fighter(
+		_aircraft_6_scene,
+		"FriendlyAC6_%d" % (_active_ai_planes.size() + 1),
+		1,
+		"friendlies",
+		spawn_pos,
+		forward_flat,
+		60.0
+	)
+	if is_instance_valid(aircraft):
+		await get_tree().create_timer(0.5).timeout
+		_configure_friendly_cap_pilot(aircraft, orbit_waypoints, 0)
+
+func _is_aircraft_3(aircraft: Node) -> bool:
+	if aircraft == null:
+		return false
+	if aircraft.has_meta("source_scene_path") and String(aircraft.get_meta("source_scene_path")) == "res://Aircraft/Aircraft_3.tscn":
+		return true
+	return String(aircraft.scene_file_path) == "res://Aircraft/Aircraft_3.tscn"
+
+func _is_strike_or_missile_weapon(weapon_name: String) -> bool:
+	return weapon_name == "Bomb" or weapon_name == "Rocket Pod" or "Missile" in weapon_name
+
+func _strip_enemy_aircraft_3_stores(aircraft: Node3D) -> void:
+	if not _is_aircraft_3(aircraft):
+		return
+	for hp in aircraft.find_children("*", "Hardpoint", true, false):
+		var hardpoint := hp as Hardpoint
+		if hardpoint == null or hardpoint.weapon_instance == null:
+			continue
+		var weapon_name := String(hardpoint.weapon_instance.weapon_name)
+		if not _is_strike_or_missile_weapon(weapon_name):
+			continue
+		hardpoint.weapon_instance.queue_free()
+		hardpoint.weapon_instance = null
+		hardpoint.mounted_weapon = null
+
+	var cw := aircraft.find_child("ControlWeapons", true, false) as ControlWeapons
+	if cw:
+		cw.find_hardpoints()
+		cw.categorize_weapons()
+		var gun_idx := cw.weapon_types.find("Autocannon")
+		if gun_idx == -1:
+			gun_idx = 0
+		if cw.weapon_types.size() > 0:
+			cw.selected_weapon_type_index = gun_idx
+			cw.selected_weapon_type = cw.weapon_types[gun_idx]
+
 func _configure_enemy_strike_pilot(aircraft: RigidBody3D, carrier: Node3D, prefer_air_combat: bool = false) -> void:
 	if not is_instance_valid(aircraft):
 		return
+	_strip_enemy_aircraft_3_stores(aircraft)
+	var is_clean_aircraft_3 := _is_aircraft_3(aircraft)
 	var ai_toggle = aircraft.find_child("AIToggle", true, false)
 	if ai_toggle and ai_toggle.has_method("enable_ai"):
 		ai_toggle.enable_ai()
@@ -670,16 +744,22 @@ func _configure_enemy_strike_pilot(aircraft: RigidBody3D, carrier: Node3D, prefe
 	if not ai_pilot:
 		print("[EnemyAircraftSpawner] R: missing AIPilot on strike aircraft")
 		return
-	ai_pilot.skill = AIPilot.AIPilotSkill.ROOKIE
+	# Temporary high-skill baseline while tuning bomb accuracy. Once the ceiling feels
+	# right, enemy strike skill can be lowered without weakening friendly pilots.
+	ai_pilot.skill = AIPilot.AIPilotSkill.ACE
 	ai_pilot.apply_skill_preset()
 	ai_pilot.carrier_position = _get_carrier_position()
 	ai_pilot.target_altitude = strike_flight_altitude_m
 	ai_pilot.patrol_altitude_m = strike_flight_altitude_m
 	ai_pilot.target_speed = maxf(spawn_speed, 90.0)
-	ai_pilot.dogfight_enabled = true
-	ai_pilot.ground_attack_enabled = not prefer_air_combat
+	ai_pilot.dogfight_enabled = prefer_air_combat or is_clean_aircraft_3
+	ai_pilot.dogfight_proximity_override_m = 0.0  # never break off a carrier attack run
+	ai_pilot.ground_attack_enabled = not prefer_air_combat and not is_clean_aircraft_3
+	# Strike aircraft press the attack until destroyed — no RTB for damage or fuel
+	ai_pilot.rtb_health_threshold = 0.0
+	ai_pilot.rtb_fuel_threshold = 0.0
 	ai_pilot.waypoints.clear()
-	if prefer_air_combat:
+	if prefer_air_combat or is_clean_aircraft_3:
 		ai_pilot.change_state(AIPilot.State.SEARCH)
 	elif carrier and is_instance_valid(carrier):
 		ai_pilot.set_target(carrier)
@@ -833,6 +913,7 @@ func _spawn_ai_fighter(scene: PackedScene, display_name: String, team_id: int, e
 	var aircraft := scene.instantiate() as RigidBody3D
 	if not aircraft:
 		return null
+	aircraft.set_meta("source_scene_path", scene.resource_path)
 	aircraft.name = display_name
 	if "team" in aircraft:
 		aircraft.team = team_id
@@ -853,6 +934,8 @@ func _spawn_ai_fighter(scene: PackedScene, display_name: String, team_id: int, e
 	aircraft.add_to_group("ai_aircraft")
 	if not extra_group.is_empty():
 		aircraft.add_to_group(extra_group)
+	if team_id == 2:
+		_strip_enemy_aircraft_3_stores(aircraft)
 
 	# Disable player-only UI/camera controller/targeting.
 	for node_name in ["CameraController", "HeadsUpDisplay", "InstrumentPanel", "ControlTargeting"]:

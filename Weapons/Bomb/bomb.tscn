@@ -1,15 +1,8 @@
-[gd_scene load_steps=4 format=3 uid="uid://idqmpbpg2jul"]
+[gd_scene load_steps=2 format=3 uid="uid://bphkjx4otmve7"]
 
-[ext_resource type="Script" uid="uid://cnnj4ryshwws5" path="res://Weapons/Bomb/bomb.gd" id="1_573fp"]
 [ext_resource type="PackedScene" uid="uid://cbpsn8r87hlrc" path="res://Weapons/bomb.glb" id="2_4fn8o"]
-[ext_resource type="PackedScene" uid="uid://bjh4sid7u0lyk" path="res://Projectiles/BombNew/bomb_new.tscn" id="2_clhcb"]
 
 [node name="Bomb" type="Node3D"]
 transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, 0, 0)
-script = ExtResource("1_573fp")
-bomb_projectile_scene = ExtResource("2_clhcb")
-blast_radius = 30.0
-ammo_count = 136
 
 [node name="bomb" parent="." instance=ExtResource("2_4fn8o")]
-transform = Transform3D(-0.4, 0, 0, 0, 0.4, 0, 0, 0, -0.4, 0.214822, -0.191889, 0.0663526)

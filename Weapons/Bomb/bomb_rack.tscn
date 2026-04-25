@@ -1,0 +1,46 @@
+[gd_scene load_steps=5 format=3 uid="uid://bc6wrpt4b3m41"]
+
+[ext_resource type="Script" uid="uid://nqac1r8yv7a8" path="res://Weapons/Bomb/bomb_rack.gd" id="1_brkscript"]
+[ext_resource type="PackedScene" uid="uid://cwjbsa4m2ft3f" path="res://Weapons/bomb rack.glb" id="2_rackglb"]
+[ext_resource type="PackedScene" uid="uid://cbpsn8r87hlrc" path="res://Weapons/bomb.glb" id="3_bombglb"]
+[ext_resource type="PackedScene" uid="uid://bjh4sid7u0lyk" path="res://Projectiles/BombNew/bomb_new.tscn" id="4_bombnew"]
+
+[node name="BombRack" type="Node3D"]
+script = ExtResource("1_brkscript")
+bomb_projectile_scene = ExtResource("4_bombnew")
+
+[node name="bomb rack" parent="." instance=ExtResource("2_rackglb")]
+
+[node name="BombSlot1" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.282, -0.284, 0.54)
+
+[node name="bomb" parent="BombSlot1" instance=ExtResource("3_bombglb")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.013, 0, 0)
+
+[node name="BombSlot3" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.308, -0.284, 0.54)
+
+[node name="bomb" parent="BombSlot3" instance=ExtResource("3_bombglb")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.013, 0, 0)
+
+[node name="BombSlot2" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.443, 0.54)
+
+[node name="bomb" parent="BombSlot2" instance=ExtResource("3_bombglb")]
+
+[node name="BombSlot4" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.282, -0.284, -0.54)
+
+[node name="bomb" parent="BombSlot4" instance=ExtResource("3_bombglb")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.013, 0, 0)
+
+[node name="BombSlot5" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.308, -0.284, -0.54)
+
+[node name="bomb" parent="BombSlot5" instance=ExtResource("3_bombglb")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.013, 0, 0)
+
+[node name="BombSlot6" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.443, -0.54)
+
+[node name="bomb" parent="BombSlot6" instance=ExtResource("3_bombglb")]

@@ -13,7 +13,7 @@ config_version=5
 config/name="Land Carrier"
 run/main_scene="res://Main_Scene.tscn"
 config/features=PackedStringArray("4.4")
-boot_splash/image="res://Images/Splash/Splash screen 6.png"
+boot_splash/image="res://Images/Splash/splash screen 8.png"
 config/icon="res://Images/icon.png"
 
 [audio]

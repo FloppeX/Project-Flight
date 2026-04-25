@@ -1,4 +1,4 @@
-[gd_scene load_steps=46 format=3 uid="uid://b27lalggxf8ui"]
+[gd_scene load_steps=47 format=3 uid="uid://b27lalggxf8ui"]
 
 [ext_resource type="Script" uid="uid://c4ltq2v6fji05" path="res://Aircraft/aircraft.gd" id="1_e8t1h"]
 [ext_resource type="PackedScene" uid="uid://cadi81fcpvmuc" path="res://Projectiles/Explosion/explosion.tscn" id="2_x73up"]
@@ -31,15 +31,16 @@
 [ext_resource type="PackedScene" uid="uid://dsnc8jllg42ph" path="res://Weapons/hardpoint.tscn" id="28_ymevh"]
 [ext_resource type="PackedScene" uid="uid://ds5dlvtqfa7tv" path="res://Aircraft/tail_hook.tscn" id="31_3f4kl"]
 [ext_resource type="PackedScene" uid="uid://bar7l5uwuwevr" path="res://Weapons/Autocannon/Autocannon.tscn" id="31_kq7no"]
-[ext_resource type="PackedScene" uid="uid://yjaa3lj4xxb3" path="res://Weapons/AG_Missile/ag_missile_launcher.tscn" id="31_xldsk"]
-[ext_resource type="PackedScene" uid="uid://idqmpbpg2jul" path="res://Weapons/Bomb/bomb.tscn" id="32_kq7no"]
+[ext_resource type="PackedScene" uid="uid://bc6wrpt4b3m41" path="res://Weapons/Bomb/bomb_rack.tscn" id="32_kq7no"]
 [ext_resource type="Script" uid="uid://ov07c02ulmhl" path="res://Aircraft/AIToggle.gd" id="33_aitgl"]
+[ext_resource type="PackedScene" uid="uid://cn0n757m62w08" path="res://Weapons/RocketPod/rocket_pod.tscn" id="33_rocket"]
 [ext_resource type="Script" uid="uid://bwjigrpitv7cm" path="res://AI/AIPilot.gd" id="34_aipil"]
 [ext_resource type="Script" uid="uid://ckyxqpwu5tkkl" path="res://Aircraft/CockpitCanopyVisibility.gd" id="35_canopyvis"]
 [ext_resource type="Script" uid="uid://dkrq0ip0i4pq4" path="res://Aircraft/DamageEffects.gd" id="36_dmgfx"]
 [ext_resource type="Script" uid="uid://b308dhuj4e8a" path="res://Aircraft/WingFold5.gd" id="37_wf5"]
 [ext_resource type="AudioStream" uid="uid://o2xkkc5oyh4w" path="res://Audio/cockpit_interior_4.wav" id="38_cpit"]
 [ext_resource type="PackedScene" path="res://Aircraft/CockpitPilot.tscn" id="90_cpilot"]
+[ext_resource type="PackedScene" uid="uid://cwh4cxdgqbvdd" path="res://Models/Aircraft_5/aircraft_5_exploded.glb" id="91_exploded"]
 
 [sub_resource type="PhysicsMaterial" id="PhysicsMaterial_lowfriction"]
 friction = 0.1
@@ -73,6 +74,7 @@ wreck_scene = ExtResource("3_x73up")
 wreck_base_impulse = 100.0
 wreck_random_spread = 1.0
 wreck_extra_spin = 15.0
+exploded_model_scene = ExtResource("91_exploded")
 
 [node name="aircraft_5" parent="." instance=ExtResource("3_kq7no")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.123306, 0.707575)
@@ -190,6 +192,9 @@ cinematic_tripod = NodePath("../CameraCinematic")
 
 [node name="AudioManager3D" parent="." instance=ExtResource("24_wyvhj")]
 cockpit_interior_sound = ExtResource("38_cpit")
+interior_lowpass_cutoff = 4500.0
+interior_secondary_lowpass_cutoff = 2800.0
+interior_volume_reduction = -2.0
 
 [node name="CameraCockpit" parent="." instance=ExtResource("25_lvoxg")]
 transform = Transform3D(-1, 0, -8.74213e-08, 0, 0.999983, 0, 8.74228e-08, 0, -0.999983, 0, 0.563369, 2.09922)
@@ -225,7 +230,7 @@ zoom_distance = 100.0
 
 [node name="Hardpoint1" parent="." instance=ExtResource("28_ymevh")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.5, -0.8, 0.7)
-mounted_weapon = ExtResource("31_xldsk")
+mounted_weapon = ExtResource("33_rocket")
 
 [node name="Hardpoint2" parent="." instance=ExtResource("28_ymevh")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.5, -0.8, 0.7)

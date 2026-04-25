@@ -1,0 +1,21 @@
+[gd_scene load_steps=5 format=3 uid="uid://ct7mmtfdkdv43"]
+
+[ext_resource type="Script" uid="uid://d2tcsb6gkpxmv" path="res://Projectiles/Rocket/rocket.gd" id="1_rocket_script"]
+[ext_resource type="PackedScene" uid="uid://cadi81fcpvmuc" path="res://Projectiles/Explosion/explosion.tscn" id="2_explosion"]
+[ext_resource type="PackedScene" uid="uid://cqpecrkv0s0h6" path="res://Projectiles/Rocket/rocket.glb" id="3_rocket_model"]
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_rocket"]
+size = Vector3(0.18, 0.18, 1.1)
+
+[node name="Rocket" type="RigidBody3D"]
+mass = 8.0
+contact_monitor = true
+max_contacts_reported = 4
+script = ExtResource("1_rocket_script")
+lifetime = 10.0
+explosion_scene = ExtResource("2_explosion")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+shape = SubResource("BoxShape3D_rocket")
+
+[node name="rocket" parent="." instance=ExtResource("3_rocket_model")]

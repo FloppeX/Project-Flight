@@ -1,5 +1,47 @@
 extends Node3D
 
+class CCIPSymbol:
+	extends Control
+
+	var symbol_color: Color = Color.GREEN
+	var ring_radius_px: float = 20.0
+	var ring_width_px: float = 3.0
+	var dot_radius_px: float = 3.0
+	var tick_length_px: float = 7.0
+	var tick_gap_px: float = 3.0
+
+	func _ready() -> void:
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	func configure(
+		color: Color,
+		radius_px: float,
+		width_px: float,
+		center_dot_radius_px: float,
+		cardinal_tick_length_px: float,
+		cardinal_tick_gap_px: float
+	) -> void:
+		symbol_color = color
+		ring_radius_px = radius_px
+		ring_width_px = width_px
+		dot_radius_px = center_dot_radius_px
+		tick_length_px = cardinal_tick_length_px
+		tick_gap_px = cardinal_tick_gap_px
+		var extent: float = ceil(ring_radius_px + ring_width_px + tick_gap_px + tick_length_px)
+		size = Vector2.ONE * (extent * 2.0)
+		queue_redraw()
+
+	func _draw() -> void:
+		var center: Vector2 = size * 0.5
+		draw_arc(center, ring_radius_px, 0.0, TAU, 64, symbol_color, ring_width_px, true)
+		draw_circle(center, dot_radius_px, symbol_color)
+		var tick_start: float = ring_radius_px + tick_gap_px
+		var tick_end: float = tick_start + tick_length_px
+		draw_line(center + Vector2(0.0, -tick_start), center + Vector2(0.0, -tick_end), symbol_color, ring_width_px, true)
+		draw_line(center + Vector2(tick_start, 0.0), center + Vector2(tick_end, 0.0), symbol_color, ring_width_px, true)
+		draw_line(center + Vector2(0.0, tick_start), center + Vector2(0.0, tick_end), symbol_color, ring_width_px, true)
+		draw_line(center + Vector2(-tick_start, 0.0), center + Vector2(-tick_end, 0.0), symbol_color, ring_width_px, true)
+
 @export var camera_path: NodePath
 @export var aircraft_path: NodePath
 @export var crosshair_color: Color = Color.GREEN
@@ -51,7 +93,6 @@ var altitude_box_label: Label
 
 # CCIP elements
 var ccip_circle: Control
-var ccip_dot: ColorRect
 var ccip_update_timer: Timer
 
 # Target overlay elements
@@ -102,6 +143,12 @@ var compass_strip: Control
 var compass_ticks: Array[ColorRect] = []
 var compass_labels: Array[Label] = []
 var compass_center_mark: ColorRect
+
+# HUD mode system
+enum HUDMode { NAV, GUN, ROCKETS, BOMBS }
+var hud_mode: HUDMode = HUDMode.NAV
+var hud_mode_label: Label
+var ccip_line: ColorRect
 
 func _opaque(color: Color) -> Color:
 	return Color(color.r, color.g, color.b, 1.0)
@@ -200,6 +247,10 @@ func _ready():
 
 	# Set up compass heading strip
 	setup_compass()
+
+	# Set up HUD mode label and CCIP line
+	setup_hud_mode_label()
+	setup_ccip_line()
 
 	# Set up a timer to update the CCIP periodically
 	ccip_update_timer = Timer.new()
@@ -311,51 +362,16 @@ func _layout_speed_alt_boxes() -> void:
 
 func setup_ccip():
 	"""Set up CCIP visual elements"""
-	# Create CCIP circle container
-	ccip_circle = Control.new()
-	ccip_circle.size = Vector2(32, 32)  # 32px container
+	ccip_circle = CCIPSymbol.new()
+	var ring_color: Color = _opaque(hud_primary_color)
+	var ring_width: float = maxf(hud_line_thickness_px, 2.0)
+	var ring_radius: float = 20.0
+	var center_dot_radius: float = maxf(ring_width * 0.9, 2.5)
+	var tick_length: float = maxf(ring_width * 2.0, 6.0)
+	var tick_gap: float = maxf(ring_width * 0.8, 2.5)
+	ccip_circle.configure(ring_color, ring_radius, ring_width, center_dot_radius, tick_length, tick_gap)
 	ccip_circle.visible = false
 	viewport.add_child(ccip_circle)
-	
-	# Create circle outline using 4 ColorRect segments (top, bottom, left, right)
-	var circle_color: Color = _opaque(hud_primary_color)
-	var line_thickness: float = hud_line_thickness_px
-	var radius = 14.0
-	
-	# Top arc (approximate with rectangle)
-	var top_line = ColorRect.new()
-	top_line.color = circle_color
-	top_line.size = Vector2(radius * 1.4, line_thickness)  # Approximate arc width
-	top_line.position = Vector2(radius * 0.3, 0)
-	ccip_circle.add_child(top_line)
-	
-	# Bottom arc
-	var bottom_line = ColorRect.new()
-	bottom_line.color = circle_color
-	bottom_line.size = Vector2(radius * 1.4, line_thickness)
-	bottom_line.position = Vector2(radius * 0.3, radius * 2 - line_thickness)
-	ccip_circle.add_child(bottom_line)
-	
-	# Left arc
-	var left_line = ColorRect.new()
-	left_line.color = circle_color
-	left_line.size = Vector2(line_thickness, radius * 1.4)
-	left_line.position = Vector2(0, radius * 0.3)
-	ccip_circle.add_child(left_line)
-	
-	# Right arc
-	var right_line = ColorRect.new()
-	right_line.color = circle_color
-	right_line.size = Vector2(line_thickness, radius * 1.4)
-	right_line.position = Vector2(radius * 2 - line_thickness, radius * 0.3)
-	ccip_circle.add_child(right_line)
-	
-	# Create CCIP dot (center)
-	ccip_dot = ColorRect.new()
-	ccip_dot.color = _opaque(hud_primary_color)
-	ccip_dot.size = Vector2(6, 6)
-	ccip_dot.visible = false
-	viewport.add_child(ccip_dot)
 
 func setup_target_overlay():
 	"""Set up target overlay elements for drawing green targeting box"""
@@ -408,7 +424,11 @@ func setup_lock_diamond():
 func _process(dt: float) -> void:
 	if cam == null or aircraft == null:
 		return
-	
+
+	# Handle HUD mode cycling
+	if Input.is_action_just_pressed("change_weapon"):
+		_cycle_hud_mode()
+
 	# Update weapon status display
 	update_weapon_status()
 	
@@ -452,7 +472,7 @@ func _process(dt: float) -> void:
 		reticle.visible = false
 		return
 
-	reticle.visible = true
+	reticle.visible = (hud_mode == HUDMode.GUN)
 	reticle.position = (hud_projection.get("hud_pos", Vector2.ZERO) as Vector2) - reticle.pivot_offset
 
 func _project_world_to_hud(world_pos: Vector3, allow_off_glass: bool = false) -> Dictionary:
@@ -557,40 +577,38 @@ func update_speed_altitude():
 		altitude_box_label.text = str(altitude_m)
 	_layout_speed_alt_boxes()
 
+func _hide_ccip() -> void:
+	if is_instance_valid(ccip_circle):
+		ccip_circle.visible = false
+	if is_instance_valid(ccip_line):
+		ccip_line.visible = false
+
 func update_ccip():
-	"""Update CCIP display - only show when bombs are selected"""
-	if ccip_circle == null or ccip_dot == null or aircraft == null or cam == null:
+	"""Update CCIP display based on current HUD mode."""
+	if ccip_circle == null or aircraft == null or cam == null:
+		_hide_ccip()
 		return
-	
-	# Check if bombs are currently selected
-	var weapon_control = get_weapon_control()
-	var bombs_selected = false
-	
-	if weapon_control and weapon_control.has_method("get_weapon_status"):
-		var status = weapon_control.get_weapon_status()
-		var selected_type = status.get("selected_type", "")
-		bombs_selected = (selected_type == "Bomb")
-	
-	if not bombs_selected:
-		ccip_circle.visible = false
-		ccip_dot.visible = false
+
+	if hud_mode != HUDMode.ROCKETS and hud_mode != HUDMode.BOMBS:
+		_hide_ccip()
 		return
-	
-	# Calculate CCIP impact point
-	var ccip_data = aircraft.calculate_ccip_impact_point()
-	
+
+	# Calculate CCIP impact point using the appropriate function
+	var ccip_data: Dictionary
+	if hud_mode == HUDMode.ROCKETS:
+		ccip_data = aircraft.calculate_rocket_ccip_impact_point()
+	else:
+		ccip_data = aircraft.calculate_ccip_impact_point()
+
 	if not ccip_data.has_impact:
-		ccip_circle.visible = false
-		ccip_dot.visible = false
+		_hide_ccip()
 		return
-	
+
 	var impact_world: Vector3 = ccip_data.impact_position
 
-	# --- Replicate working projection logic from target box ---
 	var hud_projection: Dictionary = _project_world_to_hud(impact_world)
 	if not bool(hud_projection.get("visible", false)):
-		ccip_circle.visible = false
-		ccip_dot.visible = false
+		_hide_ccip()
 		return
 
 	var hud_size_px := Vector2(viewport.size)
@@ -598,18 +616,26 @@ func update_ccip():
 
 	# Optional filter: hide CCIP if above approximate horizon (screen center)
 	if ccip_below_horizon_only and hud_pos.y < (hud_size_px.y * 0.5 - 4.0):
-		ccip_circle.visible = false
-		ccip_dot.visible = false
+		_hide_ccip()
 		return
 	
 	ccip_circle.visible = true
-	ccip_dot.visible = true
-	
-	# Position circle and dot at impact point
 	ccip_circle.position = hud_pos - ccip_circle.size * 0.5
-	# Center the dot precisely in the middle of the circle
-	var circle_center = ccip_circle.position + ccip_circle.size * 0.5
-	ccip_dot.position = circle_center - ccip_dot.size * 0.5
+
+	# Draw line from HUD center to CCIP marker
+	if is_instance_valid(ccip_line):
+		var hud_center: Vector2 = hud_size_px * 0.5
+		var to_ccip: Vector2 = hud_pos - hud_center
+		var line_dist: float = to_ccip.length()
+		if line_dist < 5.0:
+			ccip_line.visible = false
+		else:
+			var t: float = hud_line_thickness_px
+			ccip_line.size = Vector2(line_dist, t)
+			ccip_line.pivot_offset = Vector2(0.0, t * 0.5)
+			ccip_line.position = hud_center
+			ccip_line.rotation = atan2(to_ccip.y, to_ccip.x)
+			ccip_line.visible = true
 
 func get_weapon_control():
 	"""Get the weapon control module - always from our own aircraft only."""
@@ -876,6 +902,9 @@ func setup_fpv() -> void:
 func update_fpv() -> void:
 	if not is_instance_valid(fpv_container):
 		return
+	if hud_mode != HUDMode.NAV:
+		fpv_container.visible = false
+		return
 	if not is_instance_valid(cam) or not is_instance_valid(aircraft) or not is_instance_valid(hud_mesh):
 		fpv_container.visible = false
 		return
@@ -1004,6 +1033,9 @@ func setup_lead_reticle() -> void:
 func update_lead_reticle() -> void:
 	"""Compute and display the lead-aim point for the current gun/target pair."""
 	if not is_instance_valid(lead_reticle):
+		return
+	if hud_mode != HUDMode.GUN:
+		lead_reticle.visible = false
 		return
 	if not is_instance_valid(cam) or not is_instance_valid(aircraft) or not is_instance_valid(hud_mesh):
 		lead_reticle.visible = false
@@ -1442,7 +1474,7 @@ func setup_compass() -> void:
 func update_compass() -> void:
 	if not is_instance_valid(compass_strip):
 		return
-	if not show_compass or not is_instance_valid(viewport) or not is_instance_valid(aircraft):
+	if hud_mode != HUDMode.NAV or not show_compass or not is_instance_valid(viewport) or not is_instance_valid(aircraft):
 		compass_strip.visible = false
 		return
 	compass_strip.visible = true
@@ -1502,3 +1534,74 @@ func update_compass() -> void:
 		lbl.size = Vector2(label_w, _COMPASS_LABEL_H)
 		lbl.position = Vector2(x - label_w * 0.5, label_top)
 		lbl.visible = true
+
+func setup_hud_mode_label() -> void:
+	hud_mode_label = Label.new()
+	hud_mode_label.name = "HUDModeLabel"
+	hud_mode_label.add_theme_color_override("font_color", _opaque(hud_primary_color))
+	hud_mode_label.add_theme_color_override("font_outline_color", Color.BLACK)
+	hud_mode_label.add_theme_constant_override("outline_size", hud_text_outline_size)
+	hud_mode_label.add_theme_font_size_override("font_size", 20)
+	hud_mode_label.text = "NAV"
+	hud_mode_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hud_mode_label.size = Vector2(100, 30)
+	var hud_size: Vector2 = Vector2(viewport.size)
+	hud_mode_label.position = Vector2(hud_size.x * 0.5 - 50.0, 50.0)
+	viewport.add_child(hud_mode_label)
+
+func setup_ccip_line() -> void:
+	ccip_line = ColorRect.new()
+	ccip_line.name = "CCIPLine"
+	ccip_line.color = _opaque(hud_primary_color)
+	ccip_line.visible = false
+	viewport.add_child(ccip_line)
+
+func _cycle_hud_mode() -> void:
+	var available: Array = _available_hud_modes()
+	if available.is_empty():
+		return
+	var current_idx: int = available.find(hud_mode)
+	if current_idx == -1:
+		current_idx = 0
+	else:
+		current_idx = (current_idx + 1) % available.size()
+	hud_mode = available[current_idx]
+
+	# Sync selected weapon type in ControlWeapons
+	var weapon_control = get_weapon_control()
+	if is_instance_valid(weapon_control):
+		match hud_mode:
+			HUDMode.GUN:
+				for wt in weapon_control.weapon_types:
+					if wt != "Bomb" and wt != "AAMissile" and wt != "Rocket Pod":
+						weapon_control.selected_weapon_type = wt
+						break
+			HUDMode.ROCKETS:
+				weapon_control.selected_weapon_type = "Rocket Pod"
+			HUDMode.BOMBS:
+				weapon_control.selected_weapon_type = "Bomb"
+			_:
+				pass
+
+	# Update mode label
+	if is_instance_valid(hud_mode_label):
+		hud_mode_label.text = HUDMode.keys()[hud_mode]
+
+func _available_hud_modes() -> Array:
+	var modes: Array = [HUDMode.NAV]
+	var weapon_control = get_weapon_control()
+	if not is_instance_valid(weapon_control):
+		return modes
+	var types: Array = weapon_control.weapon_types
+	var has_gun := false
+	for wt in types:
+		if wt != "Bomb" and wt != "AAMissile" and wt != "Rocket Pod":
+			has_gun = true
+			break
+	if has_gun:
+		modes.append(HUDMode.GUN)
+	if "Rocket Pod" in types:
+		modes.append(HUDMode.ROCKETS)
+	if "Bomb" in types:
+		modes.append(HUDMode.BOMBS)
+	return modes

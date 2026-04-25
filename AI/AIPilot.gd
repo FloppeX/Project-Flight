@@ -64,6 +64,7 @@ var simple_aero: Node     # SimpleAero module
 var engine: Node          # Engine module
 var control_gear: Node    # ControlLandingGear module
 var control_weapons: Node # ControlWeapons module (for ground attack)
+var control_targeting_aam: Node # Cached AAM targeting module for dogfight missile support
 var cached_hardpoints: Array = []  # Cached hardpoints list
 
 # Saved SimpleAero values for restoration when AI is disabled
@@ -82,13 +83,19 @@ var cached_hostile_nodes: Array[Node3D] = []  # Cached raw hostile group nodes
 var cached_friendly_nodes: Array[Node3D] = []  # Cached raw friendly group nodes
 var sensor_update_counter: int = 0
 @export var sensor_update_interval: int = 10  # Update cached groups every N frames
+@export var contact_scan_interval_s: float = 0.18  # Filter cached contacts at low frequency; group lookup is still frame-staggered.
 var _terrain_check_counter: int = 0
 @export var terrain_check_interval: int = 3  # Update terrain fan/ahead every N physics frames (~20 Hz at 60 Hz physics)
+@export var collision_avoidance_interval_s: float = 0.10
+@export var rtb_check_interval_s: float = 1.0
+var _contact_scan_timer_s: float = 0.0
+var _collision_avoidance_timer_s: float = 0.0
+var _rtb_check_timer_s: float = 0.0
 var _smoothed_ground_height: float = NAN  # Smoothed ground height for stable low-level flight
-# Terrain fan avoidance — directional escape sampling
+# Terrain fan avoidance â€” directional escape sampling
 var _terrain_fan_clearances: PackedFloat32Array = PackedFloat32Array([INF, INF, INF, INF, INF])
 var _terrain_fan_best_idx: int = 2  # Index into fan angles; 2 = forward
-var _terrain_height_callable: Callable  # Cached get_height callable — resolved once on first use
+var _terrain_height_callable: Callable  # Cached get_height callable â€” resolved once on first use
 var _safety_override_active: bool = false  # True when terrain/collision override is controlling
 
 @export var sensor_range: float = 5000.0  # How far AI can "see"
@@ -136,18 +143,67 @@ var maneuver_waypoint: Vector3 = Vector3.ZERO  # Short-term maneuvering target
 # Ground attack parameters
 @export var attack_run_distance_m: float = 800.0   # Waypoint ~800m in front of target
 @export var attack_run_altitude_offset_m: float = 300.0  # Waypoint 300m above target
-@export var bomb_run_setup_distance_m: float = 1400.0  # Bomb run setup distance from target
-@export var bomb_run_setup_altitude_offset_m: float = 650.0  # Bomb run setup altitude above target
+@export var bomb_run_setup_distance_m: float = 1100.0  # Bomb run setup distance from target
+@export var bomb_run_setup_altitude_offset_m: float = 350.0  # Bomb run setup altitude above target
+@export var bomb_run_setup_max_altitude_offset_m: float = 460.0
+@export var rocket_run_setup_distance_m: float = 900.0
+@export var rocket_run_altitude_offset_m: float = 180.0
 @export var bomb_dive_start_distance_m: float = 800.0  # Start bomb dive at this HORIZONTAL range
+@export var bomb_dive_start_altitude_factor: float = 2.25
 @export var attack_pull_up_distance_m: float = 150.0  # Break off when this close to target (gun runs)
 @export var bomb_pull_up_distance_m: float = 250.0   # Break off distance for bomb runs
+@export var rocket_pull_up_distance_m: float = 120.0
 @export var bomb_dive_aim_height_m: float = 0.0      # Aim this many metres above the target during bomb dive
-@export var bomb_release_altitude_window_m: float = 600.0  # Max altitude above target at which bomb can be released
-@export var bomb_ccip_release_tolerance_m: float = 30.0   # Release when predicted impact is within this distance of target
-@export var bomb_ccip_fallback_alt_m: float = 80.0        # Release regardless of CCIP if below this altitude above target
-@export var attack_break_off_distance_m: float = 700.0  # Must fly this far from target before lining up new run
+@export var rocket_dive_aim_height_m: float = 3.0
+@export var bomb_release_altitude_window_m: float = 650.0  # Max altitude above target at which bomb can be released
+@export var bomb_ccip_release_tolerance_m: float = 140.0  # Fallback release tolerance if skill-specific bombing is disabled
+@export var bomb_rookie_release_tolerance_m: float = 120.0
+@export var bomb_experienced_release_tolerance_m: float = 70.0
+@export var bomb_veteran_release_tolerance_m: float = 40.0
+@export var bomb_ace_release_tolerance_m: float = 20.0
+@export var bomb_release_best_miss_slack_m: float = 6.0
+@export var bomb_ccip_fallback_alt_m: float = 320.0       # Legacy tuning value; bomb release now requires a valid CCIP solution
+@export var bomb_release_min_range_m: float = 260.0       # Do not salvage bad bomb runs with very close drops
+@export var bomb_ccip_aim_correction_max_m: float = 260.0
+@export var bomb_ccip_aim_correction_close_range_m: float = 450.0
+@export var bomb_ccip_aim_correction_close_scale: float = 0.55
+@export var bomb_ccip_use_moving_target_plane: bool = true
+@export var bomb_dive_pitch_los_gain: float = 4.0
+@export var bomb_min_dive_angle_deg: float = 3.0          # Minimum flight path angle (degrees nose-down) to release bombs
+@export var bomb_ccip_recompute_interval_s: float = 0.08
+@export var bomb_ccip_time_step_s: float = 0.04
+@export var bomb_ccip_max_time_s: float = 10.0
+@export var bomb_salvo_per_run: int = 2
+@export var carrier_bomb_salvo_per_run: int = 3
+@export var rocket_release_min_range_m: float = 120.0
+@export var rocket_release_max_range_m: float = 520.0
+@export var rocket_ccip_release_tolerance_m: float = 45.0
+@export var rocket_min_dive_angle_deg: float = 8.0
+@export var rocket_fire_alignment_deg: float = 22.0
+@export var rocket_release_spacing_s: float = 0.35
+@export var rocket_ccip_recompute_interval_s: float = 0.15
+@export var rocket_shots_per_run: int = 6
+@export var attack_break_off_distance_m: float = 500.0  # Must fly this far from target before lining up new run
 @export var attack_aim_lead_time_s: float = 0.25  # Small lead for moving targets during dive
-@export var bomb_release_spacing_s: float = 0.2   # Time spacing between bombs
+@export var bomb_target_lead_max_s: float = 8.0
+@export var bomb_target_lead_scale: float = 1.0
+@export var rocket_target_lead_max_s: float = 4.0
+@export var rocket_target_lead_scale: float = 1.0
+@export var bomb_release_spacing_s: float = 0.35   # Time spacing between bombs
+@export var weapon_release_stability_hold_s: float = 0.18
+@export var bomb_rookie_release_hold_s: float = 0.18
+@export var bomb_experienced_release_hold_s: float = 0.12
+@export var bomb_veteran_release_hold_s: float = 0.08
+@export var bomb_ace_release_hold_s: float = 0.04
+@export var bomb_release_max_bank_deg: float = 45.0
+@export var rocket_release_max_bank_deg: float = 14.0
+@export var attack_terrain_sample_refresh_s: float = 0.25
+@export var attack_terrain_sample_reuse_distance_m: float = 60.0
+@export var attack_positioning_direct_entry_after_s: float = 4.0
+@export var attack_positioning_direct_entry_range_buffer_m: float = 250.0
+@export var attack_positioning_direct_entry_min_dot: float = 0.55
+@export var bomb_direct_entry_max_cross_track_m: float = 90.0
+@export var bomb_direct_entry_max_altitude_overshoot_m: float = 120.0
 @export var ground_attack_enabled: bool = true  # True = autonomous ground attack when valid targets appear
 @export var dogfight_enabled: bool = true
 @export var dogfight_proximity_override_m: float = 500.0  # Break off ground attack if enemy aircraft within this range
@@ -249,15 +305,36 @@ var _run_weapon_type: String = "Autocannon"
 var _bombs_to_drop_this_run: int = 0
 var _bombs_dropped_this_run: int = 0
 var _last_bomb_drop_time_s: float = -INF
+var _rockets_to_fire_this_run: int = 0
+var _rockets_fired_this_run: int = 0
+var _last_rocket_fire_time_s: float = -INF
+var _prev_run_was_failed_bomb: bool = false  # True if last bomb run dropped nothing
 var _bomb_run_altitude_m: float = 0.0
+var _attack_setup_wp_xz: Vector2 = Vector2.ZERO   # Fixed setup-point XZ (set once per run)
+var _attack_setup_target_pos: Vector3 = Vector3.ZERO  # Carrier pos when setup was planned
+var _overshoot_recompute_cooldown_s: float = 0.0     # Prevents recomputing every frame after overshoot
+var _positioning_time_s: float = 0.0                  # Time spent in ATTACK_POSITIONING; recompute if too long
 var _prev_ccip_miss: float = INF  # Tracks CCIP miss from last frame to detect improving accuracy
 var _ccip_cache_timer: float = 0.0  # Throttle CCIP to avoid per-frame ballistic sim
 var _ccip_cached_result: Vector3 = Vector3.ZERO
+var _ccip_cached_tof_s: float = -1.0
 var _cached_bomb_linear_damp: float = -1.0  # -1 = not yet cached
 var _cached_bomb_gravity_scale: float = 1.0
+var _best_bomb_ccip_miss_this_run: float = INF
+var _attack_terrain_sample_cache_until_s: float = -INF
+var _attack_terrain_sample_cache_from: Vector3 = Vector3.ZERO
+var _attack_terrain_sample_cache_to: Vector3 = Vector3.ZERO
+var _attack_terrain_sample_cache_samples: int = -1
+var _attack_terrain_sample_cache_value: float = NAN
+var _release_solution_stable_time_s: float = 0.0
+var _release_solution_last_update_s: float = -INF
 var _attack_recovery_until_s: float = 0.0  # After emergency, hold egress before next run
 var _dive_precise_aim: bool = false  # When true, use tighter bank for steadier final approach
 var _dive_entry_time_s: float = -INF  # When we entered ATTACK_DIVE (for soft dive entry)
+@export var attack_debug_summary_interval_s: float = 1.0
+@export var general_debug_summary_interval_s: float = 10.0
+var _periodic_debug_timer_s: float = 0.0
+var _player_periodic_debug_timer_s: float = 0.0
 var _dogfight_burst_timer_s: float = 0.0
 var _dogfight_burst_cooldown_timer_s: float = 0.0
 var _dogfight_burst_active: bool = false
@@ -280,7 +357,7 @@ var _projectile_speed_cap_cached: bool = false
 var _projectile_speed_cap_mps: float = INF
 
 # Landing approach
-var _landing_phase: int = 0  # 0=to approach_1, 1=to approach_2, thenÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢LANDING state
+var _landing_phase: int = 0  # 0=to approach_1, 1=to approach_2, thenÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢LANDING state
 var _approach_wp: Array = []  # [Node3D approach_1, Node3D approach_2, Node3D approach_3]
 var _takeoff_wp: Node3D = null
 @export var approach_phase0_alt_above_deck_m: float = 450.0
@@ -338,7 +415,15 @@ var throttle_input: float = 0.5 # 0 to 1
 @export var rtb_health_threshold: float = 0.3  # Return to base below this health %
 @export var rtb_fuel_threshold: float = 0.2    # Return to base below this fuel %
 @export var debug_enabled: bool = true
+@export var show_waypoint_markers: bool = false  # Show green pillar markers at nav waypoints
 @export var verbose_debug_enabled: bool = false  # Extra non-attack telemetry spam
+@export var bomb_debug_markers_enabled: bool = true
+@export var bomb_debug_print_enabled: bool = true
+@export var bomb_debug_print_interval_s: float = 0.5
+@export var bomb_debug_marker_height_m: float = 350.0
+@export var bomb_debug_line_thickness_m: float = 3.0
+@export var ai_checkin_enabled: bool = false     # Periodic combat status checkin
+@export var ai_checkin_interval_s: float = 4.0  # Seconds between checkins
 @export var cap_route_debug_enabled: bool = true
 @export var cap_route_debug_interval_s: float = 1.0
 @export var cap_route_debug_progress_epsilon_m: float = 8.0
@@ -385,6 +470,9 @@ var _cap_route_debug_last_distance_m: float = INF
 var _cap_route_debug_timer_s: float = 0.0
 var _cap_route_debug_no_progress_s: float = 0.0
 var _passive_debug_only: bool = false
+var _ai_checkin_timer: float = 0.0
+var _bomb_debug_nodes: Dictionary = {}
+var _bomb_debug_print_timer_s: float = 0.0
 
 # Health monitoring
 var max_health: float = 100.0
@@ -442,7 +530,7 @@ var _smoothed_yaw_input: float = 0.0
 # Arrest debug
 var _arrest_engaged_prev: bool = false  # Detect wire-catch transition
 var _arrest_debug_timer: float = 0.0    # Accumulates time since last print
-var _arrest_debug_interval: float = 0.1 # Print 10ÃƒÆ’Ã¢â‚¬â€/s
+var _arrest_debug_interval: float = 0.1 # Print 10ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â/s
 var _arrest_prev_vel: Vector3 = Vector3.ZERO
 var _arrest_start_pos: Vector3 = Vector3.ZERO
 var _arrest_stopped_reported: bool = false
@@ -607,6 +695,7 @@ func initialize(aircraft_node: RigidBody3D):
 		control_weapons = _find_module(aircraft, "control_weapons")
 	if not control_weapons:
 		control_weapons = aircraft.find_child("ControlWeapons", true, false)
+	control_targeting_aam = aircraft.find_child("ControlTargeting_AAM", true, false)
 
 	if not control_engine or not simple_aero:
 		push_error("[AIPilot] Failed to find required control modules!")
@@ -646,7 +735,8 @@ func initialize(aircraft_node: RigidBody3D):
 			print("[AIPilot] Created NavTarget node")
 
 	# Create waypoint marker: lime green box 1x1m footprint, 1000m tall
-	_create_waypoint_marker()
+	if show_waypoint_markers:
+		_create_waypoint_marker()
 
 	set_physics_process(true)
 
@@ -671,6 +761,7 @@ func deinitialize():
 	if _waypoint_marker and is_instance_valid(_waypoint_marker):
 		_waypoint_marker.queue_free()
 		_waypoint_marker = null
+	_clear_bomb_debug_visuals()
 	_flight_path_alignment_debug_timer_s = 0.0
 	_passive_debug_only = player_control_debug_passthrough_enabled and debug_enabled
 	set_physics_process(_passive_debug_only)
@@ -683,20 +774,22 @@ func _physics_process(delta: float):
 		return
 
 	# Yield control to FlightDeckManager / catapult during deck sequences.
-	# Do NOT call _apply_controls() here ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the catapult owns the engine and
+	# Do NOT call _apply_controls() here ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â the catapult owns the engine and
 	# set_target_power(0) would trigger engine_stop(), killing the spool-up.
 	if aircraft.get_meta("controls_disabled", false):
 		return
 
 	# Update sensors - AI's view of the world
-	_update_sensors()
+	_update_sensors(delta)
 
 	if _passive_debug_only:
 		_emit_player_debug_telemetry(delta)
 		return
 
-	# Update health and fuel monitoring for RTB
-	_check_rtb_triggers()
+	# Update health and fuel monitoring for RTB. This walks aircraft resource state,
+	# so keep it low-frequency and skip it entirely for pilots with RTB disabled.
+	if _should_run_rtb_check(delta):
+		_check_rtb_triggers()
 
 	# === HIERARCHY OF NEEDS ===
 	# 1. Don't fly into terrain (highest priority)
@@ -705,11 +798,11 @@ func _physics_process(delta: float):
 	_safety_override_active = false
 	if _check_terrain_avoidance(delta):
 		_safety_override_active = true
-	elif _check_collision_avoidance(delta):
+	elif _should_run_collision_avoidance(delta) and _check_collision_avoidance(delta):
 		_safety_override_active = true
 
 	if not _safety_override_active:
-		# State machine — only runs when safety is not overriding
+		# State machine â€” only runs when safety is not overriding
 		match current_state:
 			State.IDLE:
 				_state_idle(delta)
@@ -742,26 +835,77 @@ func _physics_process(delta: float):
 			State.MISSED_APPROACH:
 				_state_missed_approach(delta)
 
-	# Periodic telemetry (~2 per second at 60fps)
-	if debug_enabled and Engine.get_process_frames() % 30 == 0:
-		var spd: float = aircraft.linear_velocity.length()
-		var alt: float = aircraft.global_position.y
-		var vs: float = aircraft.linear_velocity.y
-		var pitch_deg: float = rad_to_deg(_get_forward_pitch_rad())
-		var h_spd: float = Vector2(aircraft.linear_velocity.x, aircraft.linear_velocity.z).length()
-		var fpa_deg: float = rad_to_deg(atan2(-aircraft.linear_velocity.y, max(h_spd, 1.0)))
-		var state_name: String = State.keys()[current_state]
-		var pos: Vector3 = aircraft.global_position
-		var override_str: String = "  [SAFETY]" if _safety_override_active else ""
-		print("[AIPilot TEL] state=", state_name, override_str, "  pos=(", snapped(pos.x, 1), ",", snapped(pos.y, 1), ",", snapped(pos.z, 1), ")  alt=", snapped(alt, 1), "  AGL=", snapped(altitude_agl, 1), "  spd=", snapped(spd, 1), "m/s  VS=", snapped(vs, 1), "  pitch=", snapped(pitch_deg, 0.1), "Ãƒâ€šÃ‚Â°  fpa=", snapped(fpa_deg, 0.1), "Ãƒâ€šÃ‚Â°")
+	_emit_periodic_ai_debug(delta)
 
 	_debug_flight_path_alignment(delta)
+	_update_ai_checkin(delta)
 
 	# Update waypoint marker position
 	_update_waypoint_marker()
 
 	# Apply computed control inputs to aircraft
 	_apply_controls()
+
+# ============================================================================
+# DEBUG HELPERS
+# ============================================================================
+
+func _is_attack_debug_state(state_value: int = -1) -> bool:
+	var effective_state: int = current_state if state_value < 0 else state_value
+	return effective_state in [
+		State.ATTACK_POSITIONING,
+		State.ATTACK_INBOUND,
+		State.ATTACK_DIVE,
+		State.ATTACK_BREAK_OFF
+	]
+
+func _get_debug_summary_interval_s(state_value: int = -1) -> float:
+	return attack_debug_summary_interval_s if _is_attack_debug_state(state_value) else general_debug_summary_interval_s
+
+func _emit_periodic_ai_debug(delta: float) -> void:
+	if not debug_enabled or aircraft == null:
+		return
+	_periodic_debug_timer_s -= delta
+	if _periodic_debug_timer_s > 0.0:
+		return
+	_periodic_debug_timer_s = maxf(_get_debug_summary_interval_s(), 0.25)
+
+	var spd: float = aircraft.linear_velocity.length()
+	var pos: Vector3 = aircraft.global_position
+	var vs: float = aircraft.linear_velocity.y
+	var pitch_deg: float = rad_to_deg(_get_forward_pitch_rad())
+	var h_spd: float = Vector2(aircraft.linear_velocity.x, aircraft.linear_velocity.z).length()
+	var fpa_deg: float = rad_to_deg(atan2(-aircraft.linear_velocity.y, max(h_spd, 1.0)))
+	var state_name: String = State.keys()[current_state]
+	var target_name: String = combat_target.name if combat_target and is_instance_valid(combat_target) else "-"
+	var target_range: float = aircraft.global_position.distance_to(combat_target.global_position) if combat_target and is_instance_valid(combat_target) else -1.0
+	var safety_str: String = " safety=ON" if _safety_override_active else ""
+	var weapon_str: String = ""
+	if _is_attack_debug_state():
+		weapon_str = " weapon=%s" % _run_weapon_type
+		if _run_weapon_type == "Bomb":
+			weapon_str += " bombs=%d/%d" % [_bombs_dropped_this_run, _bombs_to_drop_this_run]
+		elif _run_weapon_type == "Rocket Pod":
+			weapon_str += " rockets=%d/%d" % [_rockets_fired_this_run, _rockets_to_fire_this_run]
+		if _prev_ccip_miss < INF:
+			weapon_str += " ccip_miss=%.0fm" % _prev_ccip_miss
+
+	print("[AIPilot STATUS] %s state=%s%s%s pos=(%.0f,%.0f,%.0f) AGL=%.0f spd=%.1f VS=%.1f pitch=%.1fdeg fpa=%.1fdeg target=%s range=%.0f" % [
+		aircraft.name,
+		state_name,
+		safety_str,
+		weapon_str,
+		pos.x,
+		pos.y,
+		pos.z,
+		altitude_agl,
+		spd,
+		vs,
+		pitch_deg,
+		fpa_deg,
+		target_name,
+		target_range
+	])
 
 # ============================================================================
 # STATE HANDLERS
@@ -774,7 +918,7 @@ func _state_idle(delta: float):
 
 func _state_launching(delta: float):
 	"""In catapult sequence"""
-	# Maintain near-level flight ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â gentle pitch-up keeps us from descending into the water
+	# Maintain near-level flight ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â gentle pitch-up keeps us from descending into the water
 	# while we clear the deck, but avoid aggressive pull-up at catapult speed.
 	# Pull hard until we have a healthy climb rate; taper slightly once climbing
 	# but never drop below a minimum to prevent terrain impact after catapult.
@@ -793,7 +937,7 @@ func _state_launching(delta: float):
 	yaw_input = 0.0
 	throttle_input = 1.0  # Full throttle
 
-	# Don't climb-state until distance AND AGL are both safe — low-AGL turns kill.
+	# Don't climb-state until distance AND AGL are both safe â€” low-AGL turns kill.
 	if _is_airborne():
 		var distance_from_launch = aircraft.global_position.distance_to(launch_position)
 		if distance_from_launch > deck_clearance_distance and altitude_agl > 60.0:
@@ -802,7 +946,7 @@ func _state_launching(delta: float):
 			if land_after_launch:
 				land_after_launch = false
 				_land_after_climb = true
-				print("[AIPilot] Clear of deck ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â climbing to pattern altitude before approach")
+				print("[AIPilot] Clear of deck ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â climbing to pattern altitude before approach")
 			else:
 				if debug_enabled and verbose_debug_enabled:
 					print("[AIPilot] Clear of deck (", distance_from_launch, "m), starting climb")
@@ -821,8 +965,8 @@ func _state_climbing(delta: float):
 
 	# Fixed climb waypoint: 600 m ahead of the carrier along the launch heading, 200 m above it.
 	# Computed from fixed inputs (carrier_position, target_heading) so it is the same 3D
-	# point every frame ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the aircraft can actually reach and clear it.
-	# Waypoint anchored to aircraft's OWN position, not the carrier's — the carrier
+	# point every frame ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â the aircraft can actually reach and clear it.
+	# Waypoint anchored to aircraft's OWN position, not the carrier's â€” the carrier
 	# turns and its position drifts sideways relative to the launch track, which
 	# causes navigation to command a bank to chase it. Pointing 2000 m straight
 	# ahead in the fixed launch heading keeps the heading error near zero.
@@ -852,7 +996,7 @@ func _state_climbing(delta: float):
 		pitch_input = minf(pitch_input, -0.16)
 	_smoothed_pitch_input = pitch_input
 
-	# No banking below 150m AGL — turns at low altitude after launch are fatal.
+	# No banking below 150m AGL â€” turns at low altitude after launch are fatal.
 	# Taper bank in gradually between 150 m and 300 m AGL.
 	var bank_agl_limit := clampf((altitude_agl - 150.0) / 150.0, 0.0, 1.0) * 0.3
 	roll_input = clamp(roll_input, -bank_agl_limit, bank_agl_limit)
@@ -866,13 +1010,13 @@ func _state_climbing(delta: float):
 	if aircraft.global_position.y >= nav_waypoint.y - 20.0:
 		if _land_after_climb:
 			_land_after_climb = false
-			print("[AIPilot] Climb waypoint cleared ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â starting landing approach")
+			print("[AIPilot] Climb waypoint cleared ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â starting landing approach")
 			start_landing()
 		elif waypoints.size() > 0:
 			change_state(State.TRANSIT)
 		else:
 			set_patrol_altitude(nav_waypoint.y)
-			print("[AIPilot] Climb altitude reached — entering patrol")
+			print("[AIPilot] Climb altitude reached â€” entering patrol")
 			change_state(State.SEARCH)
 
 func _state_transit(delta: float):
@@ -984,16 +1128,142 @@ func _find_ground_attack_target() -> Node3D:
 			continue
 		if _is_enemy_aircraft_target(enemy):
 			continue
-		if not _is_valid_ground_attack_target(enemy):
+		var normalized_enemy: Node3D = _normalize_ground_attack_target(enemy)
+		if not _is_valid_ground_attack_target(normalized_enemy):
 			continue
-		var d: float = aircraft.global_position.distance_to(enemy.global_position)
-		var score: float = d + _get_ground_target_priority_penalty(enemy)
+		var d: float = aircraft.global_position.distance_to(normalized_enemy.global_position)
+		var score: float = d + _get_ground_target_priority_penalty(normalized_enemy)
 		if score < best_score:
 			best_score = score
-			nearest = enemy
+			nearest = normalized_enemy
 	return nearest
 
-func _is_valid_ground_attack_target(node: Node3D) -> bool:
+func _normalize_ground_attack_target(node: Variant) -> Node3D:
+	if node == null or not is_instance_valid(node):
+		return null
+	if not (node is Node3D):
+		return null
+	var current: Node = node as Node
+	var best_match: Node3D = node as Node3D
+	while current != null:
+		if not is_instance_valid(current):
+			break
+		if not (current is Node3D):
+			break
+		var current_3d: Node3D = current as Node3D
+		if current_3d.is_in_group("carrier") or current_3d.is_in_group("ground_vehicles"):
+			best_match = current_3d
+		current = current.get_parent()
+	return best_match if best_match and is_instance_valid(best_match) else null
+
+func _sanitize_ground_attack_target(node: Variant) -> Node3D:
+	if node == null or not is_instance_valid(node):
+		return null
+	if not (node is Node3D):
+		return null
+	var normalized: Node3D = _normalize_ground_attack_target(node)
+	if not normalized or not is_instance_valid(normalized):
+		return null
+	return normalized
+
+func _resolve_current_ground_attack_target() -> Node3D:
+	var resolved_target: Node3D = _sanitize_ground_attack_target(combat_target)
+	if resolved_target == null:
+		combat_target = null
+		return null
+	if combat_target != resolved_target:
+		combat_target = resolved_target
+	return resolved_target
+
+func _get_target_linear_velocity(target: Variant) -> Vector3:
+	if target == null or not is_instance_valid(target):
+		return Vector3.ZERO
+	if not (target is Node3D):
+		return Vector3.ZERO
+	if "linear_velocity" in target:
+		return target.linear_velocity
+	if target.has_method("get_velocity_vector"):
+		var velocity_variant: Variant = target.call("get_velocity_vector")
+		if velocity_variant is Vector3:
+			return velocity_variant
+	if "velocity" in target:
+		var velocity_value: Variant = target.velocity
+		if velocity_value is Vector3:
+			return velocity_value
+	return Vector3.ZERO
+
+func _sample_attack_path_terrain_max_cached(from_pos: Vector3, to_pos: Vector3, num_samples: int) -> float:
+	if num_samples <= 0:
+		return NAN
+	var now_s: float = Time.get_ticks_msec() / 1000.0
+	var reuse_distance_sq: float = attack_terrain_sample_reuse_distance_m * attack_terrain_sample_reuse_distance_m
+	var cache_valid: bool = now_s < _attack_terrain_sample_cache_until_s
+	cache_valid = cache_valid and _attack_terrain_sample_cache_samples == num_samples
+	cache_valid = cache_valid and from_pos.distance_squared_to(_attack_terrain_sample_cache_from) <= reuse_distance_sq
+	cache_valid = cache_valid and to_pos.distance_squared_to(_attack_terrain_sample_cache_to) <= reuse_distance_sq
+	if cache_valid:
+		return _attack_terrain_sample_cache_value
+	var sampled_height: float = _sample_max_terrain_height_along_path(from_pos, to_pos, num_samples)
+	_attack_terrain_sample_cache_until_s = now_s + maxf(attack_terrain_sample_refresh_s, 0.0)
+	_attack_terrain_sample_cache_from = from_pos
+	_attack_terrain_sample_cache_to = to_pos
+	_attack_terrain_sample_cache_samples = num_samples
+	_attack_terrain_sample_cache_value = sampled_height
+	return sampled_height
+
+func _get_current_bank_angle_deg() -> float:
+	if aircraft == null or not is_instance_valid(aircraft):
+		return 0.0
+	var basis: Basis = aircraft.global_transform.basis
+	var current_roll_rad: float = atan2(basis.x.y, basis.y.y)
+	return absf(rad_to_deg(current_roll_rad))
+
+func _reset_release_solution_stability() -> void:
+	_release_solution_stable_time_s = 0.0
+	_release_solution_last_update_s = -INF
+
+func _is_release_solution_stable_enough(now_s: float, is_stable_now: bool, hold_s: float = -1.0) -> bool:
+	var dt_s: float = 0.0
+	if is_finite(_release_solution_last_update_s):
+		dt_s = clampf(now_s - _release_solution_last_update_s, 0.0, 0.25)
+	_release_solution_last_update_s = now_s
+	if is_stable_now:
+		_release_solution_stable_time_s += dt_s
+	else:
+		_release_solution_stable_time_s = 0.0
+	var required_hold_s: float = weapon_release_stability_hold_s if hold_s < 0.0 else maxf(hold_s, 0.0)
+	return _release_solution_stable_time_s >= required_hold_s
+
+func _get_effective_bomb_release_tolerance_m() -> float:
+	match skill:
+		AIPilotSkill.ROOKIE:
+			return bomb_rookie_release_tolerance_m
+		AIPilotSkill.EXPERIENCED:
+			return bomb_experienced_release_tolerance_m
+		AIPilotSkill.VETERAN:
+			return bomb_veteran_release_tolerance_m
+		AIPilotSkill.ACE:
+			return bomb_ace_release_tolerance_m
+	return bomb_ccip_release_tolerance_m
+
+func _get_effective_bomb_release_hold_s() -> float:
+	match skill:
+		AIPilotSkill.ROOKIE:
+			return bomb_rookie_release_hold_s
+		AIPilotSkill.EXPERIENCED:
+			return bomb_experienced_release_hold_s
+		AIPilotSkill.VETERAN:
+			return bomb_veteran_release_hold_s
+		AIPilotSkill.ACE:
+			return bomb_ace_release_hold_s
+	return weapon_release_stability_hold_s
+
+func _is_carrier_attack_target(node: Variant) -> bool:
+	var normalized: Node3D = _sanitize_ground_attack_target(node)
+	return normalized != null and is_instance_valid(normalized) and normalized.is_in_group("carrier")
+
+func _is_valid_ground_attack_target(node: Variant) -> bool:
+	node = _sanitize_ground_attack_target(node)
 	if not node or not is_instance_valid(node):
 		return false
 	if node == aircraft:
@@ -1004,7 +1274,8 @@ func _is_valid_ground_attack_target(node: Node3D) -> bool:
 		return true
 	return false
 
-func _get_ground_target_priority_penalty(node: Node3D) -> float:
+func _get_ground_target_priority_penalty(node: Variant) -> float:
+	node = _sanitize_ground_attack_target(node)
 	if not node or not is_instance_valid(node):
 		return 100000.0
 	if node.is_in_group("ground_vehicles"):
@@ -1013,8 +1284,10 @@ func _get_ground_target_priority_penalty(node: Node3D) -> float:
 		return 450.0
 	return 300.0
 
-func _is_enemy_aircraft_target(node: Node3D) -> bool:
-	if not node or not is_instance_valid(node):
+func _is_enemy_aircraft_target(node: Variant) -> bool:
+	if node == null or not is_instance_valid(node):
+		return false
+	if not (node is Node3D):
 		return false
 	if node == aircraft:
 		return false
@@ -1033,7 +1306,7 @@ func _find_nearest_enemy_aircraft_target() -> Node3D:
 	var nearest: Node3D = null
 	var nearest_dist: float = INF
 	for enemy in known_enemies:
-		if not (enemy is Node3D):
+		if not is_instance_valid(enemy) or not (enemy is Node3D):
 			continue
 		var enemy_node: Node3D = enemy as Node3D
 		if not _is_enemy_aircraft_target(enemy_node):
@@ -1052,7 +1325,7 @@ func _check_air_threat_proximity() -> bool:
 	if not dogfight_enabled or dogfight_proximity_override_m <= 0.0:
 		return false
 	for enemy in known_enemies:
-		if not (enemy is Node3D) or not is_instance_valid(enemy):
+		if not is_instance_valid(enemy) or not (enemy is Node3D):
 			continue
 		if not _is_enemy_aircraft_target(enemy as Node3D):
 			continue
@@ -1061,7 +1334,7 @@ func _check_air_threat_proximity() -> bool:
 			combat_target = enemy as Node3D
 			change_state(State.DOGFIGHT)
 			if debug_enabled:
-				print("[AIPilot] Air threat at %.0fm — breaking off ground attack to dogfight %s" % [d, combat_target.name])
+				print("[AIPilot] Air threat at %.0fm â€” breaking off ground attack to dogfight %s" % [d, combat_target.name])
 			return true
 	return false
 
@@ -1091,8 +1364,10 @@ func _evaluate_combat_objective() -> bool:
 
 	return false
 
-func _is_within_engagement_radius(target: Node3D, radius_m: float = -1.0) -> bool:
-	if not target or not is_instance_valid(target):
+func _is_within_engagement_radius(target: Variant, radius_m: float = -1.0) -> bool:
+	if target == null or not is_instance_valid(target):
+		return false
+	if not (target is Node3D):
 		return false
 	var radius: float = radius_m if radius_m > 0.0 else engagement_radius_from_carrier_m
 	if radius <= 0.0:
@@ -1104,22 +1379,30 @@ func _is_within_engagement_radius(target: Node3D, radius_m: float = -1.0) -> boo
 
 func _setup_attack_run_waypoint():
 	"""Set nav_waypoint to the weapon setup point, honoring the mission altitude floor."""
-	if not combat_target or not is_instance_valid(combat_target):
+	var active_target: Node3D = _resolve_current_ground_attack_target()
+	if active_target == null:
 		return
 	_plan_attack_run_weapon()
-	var target_pos: Vector3 = _get_surface_target_position(combat_target)
+	var target_pos: Vector3 = _get_surface_target_position(active_target)
 	var to_target: Vector3 = target_pos - aircraft.global_position
 	to_target.y = 0.0
 	var horiz_dir: Vector3 = to_target.normalized() if to_target.length() > 1.0 else aircraft.global_transform.basis.z
-	var setup_dist: float = bomb_run_setup_distance_m if _run_weapon_type == "Bomb" else attack_run_distance_m
+	var setup_dist: float = _get_attack_setup_distance_m()
 	nav_waypoint = target_pos - horiz_dir * setup_dist
+	# Lock XZ now â€” _state_attack_positioning must NOT recompute from aircraft position.
+	_attack_setup_wp_xz = Vector2(nav_waypoint.x, nav_waypoint.z)
+	_attack_setup_target_pos = target_pos
 	# Survey the highest terrain between setup point and target to guarantee adequate clearance.
-	var terrain_max: float = _sample_max_terrain_height_along_path(nav_waypoint, target_pos, 8)
+	var terrain_max: float = _sample_attack_path_terrain_max_cached(nav_waypoint, target_pos, 8)
 	var setup_altitude_m: float = _get_attack_setup_altitude_m(target_pos, terrain_max)
 	if _run_weapon_type == "Bomb":
 		_bomb_run_altitude_m = setup_altitude_m
+		_best_bomb_ccip_miss_this_run = INF
 	nav_waypoint.y = setup_altitude_m
 	maneuver_waypoint = nav_waypoint
+	_overshoot_recompute_cooldown_s = 0.0  # fresh setup â€” allow overshoot check immediately next frame
+	_positioning_time_s = 0.0
+	_committed_turn_sign = 0.0
 	if debug_enabled:
 		print("[AIPilot ATTACK] Run setup waypoint: ", nav_waypoint, "  target=", target_pos, "  weapon=", _run_weapon_type, "  bombs=", _bombs_to_drop_this_run)
 
@@ -1130,13 +1413,14 @@ func _state_attack_positioning(delta: float):
 	if not ground_attack_enabled:
 		change_state(State.SEARCH)
 		return
-	if not combat_target or not is_instance_valid(combat_target):
+	var active_target: Node3D = _resolve_current_ground_attack_target()
+	if active_target == null:
 		change_state(State.SEARCH)
 		return
 
-	# Don't attempt attack maneuvers at dangerously low speed ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â build energy first
+	# Don't attempt attack maneuvers at dangerously low speed ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â build energy first
 	var cur_speed: float = aircraft.linear_velocity.length()
-	if cur_speed < stall_speed_mps + stall_margin_mps + 10.0:
+	if cur_speed < stall_speed_mps + stall_margin_mps:
 		# Too slow: fly straight, nose slightly down, build speed
 		nav_waypoint = aircraft.global_position + aircraft.global_transform.basis.z * 500.0
 		nav_waypoint.y = aircraft.global_position.y - 20.0
@@ -1146,13 +1430,26 @@ func _state_attack_positioning(delta: float):
 		return
 
 	target_speed = 100.0
-	var target_pos: Vector3 = _get_surface_target_position(combat_target)
-	var to_tgt: Vector3 = target_pos - aircraft.global_position
-	to_tgt.y = 0.0
-	var dir: Vector3 = to_tgt.normalized() if to_tgt.length() > 1.0 else aircraft.global_transform.basis.z
-	var setup_dist: float = bomb_run_setup_distance_m if _run_weapon_type == "Bomb" else attack_run_distance_m
-	nav_waypoint = target_pos - dir * setup_dist
-	var terrain_max: float = _sample_max_terrain_height_along_path(nav_waypoint, target_pos, 8)
+	_positioning_time_s += delta
+
+	var target_pos: Vector3 = _get_surface_target_position(active_target)
+
+	# Hard timeout: if we've been positioning for too long, recompute the approach
+	# from the current position. This unsticks aircraft that got a bad setup_wp.
+	if _positioning_time_s > 30.0:
+		if debug_enabled:
+			print("[AIPilot ATTACK] Positioning timeout (%.0fs), recomputing setup waypoint" % _positioning_time_s)
+		_setup_attack_run_waypoint()
+		# _setup_attack_run_waypoint resets _positioning_time_s to 0
+
+	# Use the approach direction computed at setup time (stored in _attack_setup_wp_xz).
+	# Only drift XZ for carrier movement â€” never recompute from current aircraft position,
+	# which would cause the waypoint to spiral away as the aircraft moves.
+	var carrier_drift := target_pos - _attack_setup_target_pos
+	nav_waypoint.x = _attack_setup_wp_xz.x + carrier_drift.x
+	nav_waypoint.z = _attack_setup_wp_xz.y + carrier_drift.z
+
+	var terrain_max: float = _sample_attack_path_terrain_max_cached(nav_waypoint, target_pos, 8)
 	var setup_altitude_m: float = _get_attack_setup_altitude_m(target_pos, terrain_max)
 	if _run_weapon_type == "Bomb":
 		_bomb_run_altitude_m = setup_altitude_m
@@ -1166,11 +1463,34 @@ func _state_attack_positioning(delta: float):
 	var terrain_floor: float = (ground_h + 220.0) if not is_nan(ground_h) else nav_waypoint.y
 	nav_waypoint.y = max(nav_waypoint.y, terrain_floor, aircraft.global_position.y - 60.0)
 
+	# Overshoot detection: if the setup waypoint is more than 120 deg behind our velocity
+	# vector, we've clearly flown past it. Recompute from current position so we don't
+	# spend 30+ seconds completing a wide arc back to a stale approach direction.
+	# Cooldown prevents re-triggering every frame while the aircraft turns.
+	_overshoot_recompute_cooldown_s = maxf(0.0, _overshoot_recompute_cooldown_s - delta)
+	if _overshoot_recompute_cooldown_s <= 0.0:
+		var vel_xz := Vector2(aircraft.linear_velocity.x, aircraft.linear_velocity.z)
+		if vel_xz.length_squared() > 100.0:  # need meaningful airspeed to test direction
+			var to_wp_xz := Vector2(nav_waypoint.x - aircraft.global_position.x,
+									nav_waypoint.z - aircraft.global_position.z)
+			if to_wp_xz.length_squared() > 400.0:  # don't trigger when almost there
+				var dot := vel_xz.normalized().dot(to_wp_xz.normalized())
+				if dot < -0.5:  # > 120 deg off â€” clear overshoot
+					if debug_enabled:
+						print("[AIPilot ATTACK] Overshoot detected (dot=%.2f), recomputing setup waypoint" % dot)
+					_setup_attack_run_waypoint()
+					_overshoot_recompute_cooldown_s = 10.0  # wait 10s before checking again
+
 	_update_maneuver_waypoint()
 	_navigate_to_waypoint(delta)
 
 	var dist_to_wp: float = aircraft.global_position.distance_to(nav_waypoint)
-	if dist_to_wp < 150.0:
+	var reached_setup_point: bool = dist_to_wp < 150.0
+	if reached_setup_point and _run_weapon_type == "Bomb":
+		var planned_bomb_altitude: float = _bomb_run_altitude_m if _bomb_run_altitude_m > 0.0 else nav_waypoint.y
+		var altitude_overshoot: float = aircraft.global_position.y - planned_bomb_altitude
+		reached_setup_point = altitude_overshoot <= maxf(bomb_direct_entry_max_altitude_overshoot_m, 0.0)
+	if reached_setup_point or _can_enter_attack_run_from_current_geometry(target_pos):
 		# Reached setup point: bombs go level-inbound first, guns can start dive immediately
 		if _run_weapon_type == "Bomb":
 			change_state(State.ATTACK_INBOUND)
@@ -1180,6 +1500,65 @@ func _state_attack_positioning(delta: float):
 		if debug_enabled:
 			print("[AIPilot ATTACK] Reached setup point, next phase: ", State.keys()[current_state])
 
+func _can_enter_attack_run_from_current_geometry(target_pos: Vector3) -> bool:
+	if _positioning_time_s < maxf(attack_positioning_direct_entry_after_s, 0.0):
+		return false
+
+	var to_target: Vector3 = target_pos - aircraft.global_position
+	var to_target_flat := Vector3(to_target.x, 0.0, to_target.z)
+	var horiz_dist: float = to_target_flat.length()
+	if horiz_dist < 1.0:
+		return false
+
+	var setup_dist: float = _get_attack_setup_distance_m()
+	var range_buffer: float = maxf(attack_positioning_direct_entry_range_buffer_m, 0.0)
+	if horiz_dist > setup_dist + range_buffer:
+		return false
+	if _run_weapon_type == "Bomb":
+		var min_bomb_entry_range: float = maxf(bomb_dive_start_distance_m + 150.0, setup_dist - 150.0)
+		if horiz_dist < min_bomb_entry_range:
+			return false
+		var planned_altitude: float = _bomb_run_altitude_m if _bomb_run_altitude_m > 0.0 else target_pos.y + bomb_run_setup_altitude_offset_m
+		var altitude_overshoot: float = aircraft.global_position.y - planned_altitude
+		if altitude_overshoot > maxf(bomb_direct_entry_max_altitude_overshoot_m, 0.0):
+			return false
+		var setup_wp_flat := Vector3(_attack_setup_wp_xz.x, 0.0, _attack_setup_wp_xz.y)
+		var target_flat := Vector3(target_pos.x, 0.0, target_pos.z)
+		var attack_line: Vector3 = target_flat - setup_wp_flat
+		if attack_line.length_squared() > 1.0:
+			var attack_dir: Vector3 = attack_line.normalized()
+			var aircraft_flat := Vector3(aircraft.global_position.x, 0.0, aircraft.global_position.z)
+			var from_setup: Vector3 = aircraft_flat - setup_wp_flat
+			var along_track: float = from_setup.dot(attack_dir)
+			var closest_on_line: Vector3 = setup_wp_flat + attack_dir * along_track
+			var cross_track_m: float = aircraft_flat.distance_to(closest_on_line)
+			if cross_track_m > maxf(bomb_direct_entry_max_cross_track_m, 0.0):
+				return false
+
+	var forward_flat := Vector3(aircraft.global_transform.basis.z.x, 0.0, aircraft.global_transform.basis.z.z)
+	if forward_flat.length_squared() <= 0.0001:
+		return false
+
+	var target_dot: float = forward_flat.normalized().dot(to_target_flat.normalized())
+	if target_dot < clampf(attack_positioning_direct_entry_min_dot, -1.0, 1.0):
+		return false
+	if _run_weapon_type == "Bomb":
+		var planned_setup_flat := Vector3(_attack_setup_wp_xz.x, 0.0, _attack_setup_wp_xz.y)
+		var planned_target_flat := Vector3(target_pos.x, 0.0, target_pos.z)
+		var planned_attack_line: Vector3 = planned_target_flat - planned_setup_flat
+		if planned_attack_line.length_squared() > 1.0:
+			var attack_dot: float = forward_flat.normalized().dot(planned_attack_line.normalized())
+			if attack_dot < 0.75:
+				return false
+
+	if debug_enabled:
+		print("[AIPilot ATTACK] Entering run from geometry: range=%.0fm dot=%.2f weapon=%s" % [
+			horiz_dist,
+			target_dot,
+			_run_weapon_type
+		])
+	return true
+
 func _state_attack_inbound(delta: float):
 	"""Bomb run inbound leg: fly level toward target at setup altitude, then dive at bomb_dive_start_distance_m."""
 	if _check_air_threat_proximity():
@@ -1187,10 +1566,11 @@ func _state_attack_inbound(delta: float):
 	if not ground_attack_enabled:
 		change_state(State.SEARCH)
 		return
-	if not combat_target or not is_instance_valid(combat_target):
+	var active_target: Node3D = _resolve_current_ground_attack_target()
+	if active_target == null:
 		change_state(State.SEARCH)
 		return
-	var target_pos: Vector3 = _get_surface_target_position(combat_target)
+	var target_pos: Vector3 = _get_surface_target_position(active_target)
 	var to_target: Vector3 = target_pos - aircraft.global_position
 	var horiz_dist_to_target: float = Vector2(to_target.x, to_target.z).length()
 	target_speed = 105.0
@@ -1201,7 +1581,7 @@ func _state_attack_inbound(delta: float):
 	var ground_h: float = _smoothed_ground_height if not is_nan(_smoothed_ground_height) else _get_ground_height_at_position(aircraft.global_position)
 	if not is_nan(ground_h):
 		inbound_alt = max(inbound_alt, ground_h + 220.0)
-	var ahead_h: float = _sample_max_terrain_height_along_path(aircraft.global_position, target_pos, 4)
+	var ahead_h: float = _sample_attack_path_terrain_max_cached(aircraft.global_position, target_pos, 4)
 	if not is_nan(ahead_h):
 		inbound_alt = max(inbound_alt, ahead_h + 180.0)
 	nav_waypoint = target_pos
@@ -1216,15 +1596,22 @@ func _state_attack_inbound(delta: float):
 
 	# Only start the dive if we're at or above the planned inbound altitude (within tolerance).
 	# If we're still climbing over high terrain, hold the inbound leg until we have altitude.
+	var alt_above: float = aircraft.global_position.y - target_pos.y
+	var effective_dive_start_dist: float = bomb_dive_start_distance_m
+	if _run_weapon_type == "Bomb":
+		effective_dive_start_dist = clampf(
+			maxf(bomb_dive_start_distance_m, alt_above * maxf(bomb_dive_start_altitude_factor, 0.1)),
+			bomb_dive_start_distance_m,
+			bomb_run_setup_distance_m + 200.0
+		)
 	var alt_ready: bool = aircraft.global_position.y >= (_bomb_run_altitude_m - 50.0)
-	if horiz_dist_to_target <= bomb_dive_start_distance_m and alt_ready:
+	if horiz_dist_to_target <= effective_dive_start_dist and alt_ready:
 		change_state(State.ATTACK_DIVE)
 		_committed_turn_sign = 0.0
 		if debug_enabled:
-			var alt_above: float = aircraft.global_position.y - target_pos.y
-			print("[AIPilot ATTACK] Dive start: target=", combat_target.name, "  horiz_range=", snapped(horiz_dist_to_target, 1.0), "m  alt_above=", snapped(alt_above, 1.0), "m  aim_height=", bomb_dive_aim_height_m, "m")
+			print("[AIPilot ATTACK] Dive start: target=", active_target.name, "  horiz_range=", snapped(horiz_dist_to_target, 1.0), "m  alt_above=", snapped(alt_above, 1.0), "m  aim_height=", bomb_dive_aim_height_m, "m")
 	elif horiz_dist_to_target <= bomb_dive_start_distance_m * 0.4:
-		# Abort: we're way too close and still too low ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â can't set up a proper dive
+		# Abort: we're way too close and still too low ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â can't set up a proper dive
 		change_state(State.ATTACK_BREAK_OFF)
 		_committed_turn_sign = 0.0
 		if debug_enabled:
@@ -1237,15 +1624,16 @@ func _state_attack_dive(delta: float):
 	if not ground_attack_enabled:
 		change_state(State.SEARCH)
 		return
-	if not combat_target or not is_instance_valid(combat_target):
+	var active_target: Node3D = _resolve_current_ground_attack_target()
+	if active_target == null:
 		change_state(State.SEARCH)
 		return
 
-	var target_pos: Vector3 = _get_surface_target_position(combat_target)
+	var target_pos: Vector3 = _get_surface_target_position(active_target)
 	var dist_to_target: float = aircraft.global_position.distance_to(target_pos)
 
-	# Bomb runs need a much larger break-off margin ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â they dive from high altitude and need room to recover.
-	var pull_up_dist: float = bomb_pull_up_distance_m if _run_weapon_type == "Bomb" else attack_pull_up_distance_m
+	# Bomb runs need a much larger break-off margin ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â they dive from high altitude and need room to recover.
+	var pull_up_dist: float = _get_attack_pull_up_distance_m()
 
 	# Break off when we've dropped all planned bombs (3 for bomb runs)
 	if _run_weapon_type == "Bomb" and _bombs_dropped_this_run >= _bombs_to_drop_this_run:
@@ -1254,8 +1642,15 @@ func _state_attack_dive(delta: float):
 		if debug_enabled:
 			print("[AIPilot ATTACK] Break-off: dropped ", _bombs_dropped_this_run, " bombs, pulling up")
 		return
-	# Break off when too close (for bomb runs, only after dropping or when critically close for safety)
-	var min_safe_dist: float = 120.0 if _run_weapon_type == "Bomb" else pull_up_dist
+	if _run_weapon_type == "Rocket Pod" and _rockets_to_fire_this_run > 0 and _rockets_fired_this_run >= _rockets_to_fire_this_run:
+		change_state(State.ATTACK_BREAK_OFF)
+		_committed_turn_sign = 0.0
+		if debug_enabled:
+			print("[AIPilot ATTACK] Break-off: fired ", _rockets_fired_this_run, " rockets, pulling up")
+		return
+	# Break off when too close. Bomb runs should not be salvaged with last-second drops;
+	# if CCIP was not good by the pull-up range, keep the bombs and try another pass.
+	var min_safe_dist: float = pull_up_dist
 	if dist_to_target < min_safe_dist:
 		change_state(State.ATTACK_BREAK_OFF)
 		_committed_turn_sign = 0.0
@@ -1268,39 +1663,84 @@ func _state_attack_dive(delta: float):
 	# optimal CCIP release geometry, allowing CCIP to cross zero during the approach.
 	# Raise the aim point only if terrain on the approach path requires it.
 	var aim_height: float = 1.5
+	var target_velocity: Vector3 = _get_target_linear_velocity(active_target)
+	var is_carrier_bomb_target: bool = _run_weapon_type == "Bomb" and _is_carrier_attack_target(active_target)
+	var release_target_pos: Vector3 = target_pos
 	if _run_weapon_type == "Bomb":
 		aim_height = bomb_dive_aim_height_m
-		var highest_terrain: float = _sample_max_terrain_height_along_path(aircraft.global_position, target_pos, 6)
+		var highest_terrain: float = _sample_attack_path_terrain_max_cached(aircraft.global_position, target_pos, 6)
 		if not is_nan(highest_terrain):
 			var min_aim_y: float = highest_terrain + 25.0
 			aim_height = max(aim_height, min_aim_y - target_pos.y)
+	elif _run_weapon_type == "Rocket Pod":
+		aim_height = rocket_dive_aim_height_m
 	var aim_pos: Vector3 = target_pos + Vector3(0.0, aim_height, 0.0)
-	if "linear_velocity" in combat_target:
-		aim_pos += combat_target.linear_velocity * attack_aim_lead_time_s
+	if target_velocity != Vector3.ZERO and not is_carrier_bomb_target:
+		aim_pos += target_velocity * attack_aim_lead_time_s
 
-	# Bomb runs: refine aim using predicted impact ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â steer to put the bullseye on target
+	# Bomb runs: refine aim using predicted impact ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â steer to put the bullseye on target
 	var horiz_dist: float = Vector2(aircraft.global_position.x - target_pos.x, aircraft.global_position.z - target_pos.z).length()
 	var alt_above: float = aircraft.global_position.y - target_pos.y
 	var ccip_impact: Vector3 = Vector3.ZERO  # Shared between aim correction and release check
 	if _run_weapon_type == "Bomb":
-		# Throttle CCIP calculation — ballistic sim is expensive (~500 iterations + raycasts)
+		# Throttle CCIP calculation â€” ballistic sim is expensive (~500 iterations + raycasts)
 		_ccip_cache_timer -= delta
 		if _ccip_cache_timer <= 0.0:
-			_ccip_cache_timer = 0.1  # Recalculate every ~6 physics frames
-			_ccip_cached_result = _predict_bomb_impact_point()
+			_ccip_cache_timer = maxf(bomb_ccip_recompute_interval_s, 0.05)
+			var use_moving_target_ccip: bool = bomb_ccip_use_moving_target_plane \
+				and target_velocity.length_squared() > 1.0 \
+				and not is_carrier_bomb_target
+			var bomb_ccip_solution: Dictionary = _predict_bomb_impact_solution(false, target_pos, target_velocity, use_moving_target_ccip)
+			var impact_variant: Variant = bomb_ccip_solution.get("impact_position", Vector3.ZERO)
+			_ccip_cached_result = impact_variant if impact_variant is Vector3 else Vector3.ZERO
+			_ccip_cached_tof_s = float(bomb_ccip_solution.get("time_of_flight", -1.0))
 		ccip_impact = _ccip_cached_result
+		if target_velocity != Vector3.ZERO and not is_carrier_bomb_target:
+			var lead_time_s: float = attack_aim_lead_time_s
+			if ccip_impact != Vector3.ZERO and _ccip_cached_tof_s > 0.0:
+				lead_time_s = clampf(_ccip_cached_tof_s * bomb_target_lead_scale, attack_aim_lead_time_s, bomb_target_lead_max_s)
+			release_target_pos += target_velocity * lead_time_s
 		if ccip_impact != Vector3.ZERO:
-			var err_h: Vector3 = Vector3(target_pos.x - ccip_impact.x, 0.0, target_pos.z - ccip_impact.z)
-			var correction_strength: float = clamp(0.6 + 0.6 * (1.0 - horiz_dist / 500.0), 0.6, 1.2)
+			var err_h: Vector3 = Vector3(release_target_pos.x - ccip_impact.x, 0.0, release_target_pos.z - ccip_impact.z)
+			var max_correction_m: float = maxf(bomb_ccip_aim_correction_max_m, 0.0)
+			if err_h.length() > max_correction_m and max_correction_m > 0.0:
+				err_h = err_h.normalized() * max_correction_m
+			var correction_strength: float = 0.8
+			if horiz_dist < bomb_ccip_aim_correction_close_range_m:
+				var close_t: float = 1.0 - clampf(horiz_dist / maxf(bomb_ccip_aim_correction_close_range_m, 1.0), 0.0, 1.0)
+				correction_strength = lerpf(correction_strength, bomb_ccip_aim_correction_close_scale, close_t)
 			aim_pos += err_h * correction_strength
 		# In release window: aim closer to target and use precise steering
-		# Smooth transition 600ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢400m to avoid abrupt aim-height jump that causes pitch oscillation
+		# Smooth transition 600ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢400m to avoid abrupt aim-height jump that causes pitch oscillation
 		var release_t: float = clamp(1.0 - (horiz_dist - 400.0) / 200.0, 0.0, 1.0) if alt_above < 400.0 else 0.0
 		var aim_height_close: float = lerp(aim_height, 15.0, release_t)
-		aim_pos.y = target_pos.y + aim_height_close
+		aim_pos.y = release_target_pos.y + aim_height_close
 		_dive_precise_aim = horiz_dist < 500.0 and alt_above < 400.0
+	elif _run_weapon_type == "Rocket Pod":
+		_ccip_cache_timer -= delta
+		if _ccip_cache_timer <= 0.0:
+			_ccip_cache_timer = maxf(rocket_ccip_recompute_interval_s, 0.05)
+			var rocket_ccip_solution: Dictionary = _predict_rocket_impact_solution()
+			var rocket_impact_variant: Variant = rocket_ccip_solution.get("impact_position", Vector3.ZERO)
+			_ccip_cached_result = rocket_impact_variant if rocket_impact_variant is Vector3 else Vector3.ZERO
+			_ccip_cached_tof_s = float(rocket_ccip_solution.get("time_to_impact", -1.0))
+		ccip_impact = _ccip_cached_result
+		if target_velocity != Vector3.ZERO:
+			var rocket_lead_time_s: float = attack_aim_lead_time_s
+			if ccip_impact != Vector3.ZERO and _ccip_cached_tof_s > 0.0:
+				rocket_lead_time_s = clampf(_ccip_cached_tof_s * rocket_target_lead_scale, attack_aim_lead_time_s, rocket_target_lead_max_s)
+			release_target_pos += target_velocity * rocket_lead_time_s
+		if ccip_impact != Vector3.ZERO:
+			var rocket_err_h: Vector3 = Vector3(release_target_pos.x - ccip_impact.x, 0.0, release_target_pos.z - ccip_impact.z)
+			var rocket_correction_strength: float = clampf(0.35 + 0.45 * (1.0 - horiz_dist / maxf(rocket_release_max_range_m, 1.0)), 0.35, 0.8)
+			aim_pos += rocket_err_h * rocket_correction_strength
+		_dive_precise_aim = horiz_dist < rocket_release_max_range_m and alt_above < 320.0
 	else:
 		_dive_precise_aim = false
+		_hide_bomb_debug_visuals()
+
+	if _run_weapon_type == "Bomb":
+		_update_bomb_debug_visuals(aim_pos, release_target_pos, ccip_impact, target_velocity, horiz_dist, alt_above, delta)
 
 	nav_waypoint = aim_pos
 	maneuver_waypoint = aim_pos
@@ -1309,9 +1749,11 @@ func _state_attack_dive(delta: float):
 	_navigate_to_waypoint(delta)
 
 	if _run_weapon_type == "Bomb":
-		_handle_bomb_release_run(aim_pos, target_pos, ccip_impact)
+		_handle_bomb_release_run(aim_pos, release_target_pos, ccip_impact)
+	elif _run_weapon_type == "Rocket Pod":
+		_handle_rocket_release_run(aim_pos, release_target_pos, ccip_impact)
 	else:
-		# Fire guns only when precisely aimed (within ~5Ãƒâ€šÃ‚Â° cone)
+		# Fire guns only when precisely aimed (within ~5ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â° cone)
 		var fwd: Vector3 = aircraft.global_transform.basis.z
 		var to_tgt: Vector3 = (aim_pos - aircraft.global_position).normalized()
 		var dot: float = fwd.dot(to_tgt)
@@ -1322,7 +1764,7 @@ func _state_attack_dive(delta: float):
 		else:
 			_stop_firing()
 
-	target_speed = 120.0  # Faster during attack run
+	target_speed = 110.0 if _run_weapon_type == "Rocket Pod" else 120.0  # Faster during attack run
 
 func _state_attack_break_off(delta: float):
 	"""Fly away from target until far enough, then return to SEARCH to set up new run."""
@@ -1331,11 +1773,12 @@ func _state_attack_break_off(delta: float):
 	if not ground_attack_enabled:
 		change_state(State.SEARCH)
 		return
-	if not combat_target or not is_instance_valid(combat_target):
+	var active_target: Node3D = _resolve_current_ground_attack_target()
+	if active_target == null:
 		change_state(State.SEARCH)
 		return
 
-	var target_pos: Vector3 = _get_surface_target_position(combat_target)
+	var target_pos: Vector3 = _get_surface_target_position(active_target)
 	var dist_to_target: float = aircraft.global_position.distance_to(target_pos)
 	var now_s: float = Time.get_ticks_msec() / 1000.0
 	var recovery_ready: bool = now_s >= _attack_recovery_until_s and altitude_agl > (emergency_min_agl_m + 80.0)
@@ -1361,7 +1804,8 @@ func _state_attack_break_off(delta: float):
 	away.y = 0.0
 	var away_dir: Vector3 = away.normalized() if away.length() > 1.0 else aircraft.global_transform.basis.z
 	nav_waypoint = aircraft.global_position + away_dir * 1000.0
-	nav_waypoint.y = maxf(aircraft.global_position.y + 150.0, patrol_altitude_m)  # Climb back toward mission altitude while egressing
+	# Egress at current altitude or patrol altitude â€” don't force a steep climb that bleeds airspeed.
+	nav_waypoint.y = maxf(aircraft.global_position.y + 30.0, patrol_altitude_m)
 	_update_maneuver_waypoint()
 	_navigate_to_waypoint(delta)
 
@@ -1524,7 +1968,7 @@ func _state_dogfight(delta: float):
 				yaw_err_rad = atan2(local_x, maxf(local_z, 0.05))
 			pitch_err_rad = atan2(local_y, maxf(absf(local_z), 0.05))
 			aim_err_rad = sqrt(yaw_err_rad * yaw_err_rad + pitch_err_rad * pitch_err_rad)
-			# Don't recompute precise_aim_t here — that creates a feedback loop where
+			# Don't recompute precise_aim_t here â€” that creates a feedback loop where
 			# the aim point shifting to ballistic undermines control authority just when
 			# it's needed most. Keep the value computed from the initial aim error.
 
@@ -1618,7 +2062,7 @@ func _state_dogfight(delta: float):
 	# --- Single-path precision aiming: when precise_aim_t is significant, skip the
 	#     layered blend chain and compute one authoritative command directly. ---
 	if precise_aim_t > 0.2 and not inverted_recover:
-		# Direct high-authority aiming: error × gain, minimal damping.
+		# Direct high-authority aiming: error Ã— gain, minimal damping.
 		var direct_roll: float = clampf(bank_error * 14.0 - roll_rate * 0.08, -1.0, 1.0)
 		var direct_pitch: float = clampf(pitch_err_rad * dogfight_precision_direct_pitch_gain - pitch_rate_up * 0.05, -0.90, low_speed_pitch_cap)
 		var direct_yaw: float = clampf(
@@ -1723,7 +2167,7 @@ func _state_dogfight(delta: float):
 	else:
 		_stop_firing()
 
-	if debug_enabled and Engine.get_process_frames() % 30 == 0 and is_instance_valid(combat_target):
+	if debug_enabled and verbose_debug_enabled and Engine.get_process_frames() % 30 == 0 and is_instance_valid(combat_target):
 		var mode_str: String = "REJOIN" if in_rejoin else "FIGHT"
 		var bank_deg_signed: float = rad_to_deg(current_roll)
 		var pitch_deg: float = rad_to_deg(asin(clamp(-b.y.z, -1.0, 1.0)))
@@ -1828,7 +2272,7 @@ func _find_alternate_dogfight_target() -> Node3D:
 	var best_target: Node3D = null
 	var best_distance: float = INF
 	for enemy in known_enemies:
-		if not (enemy is Node3D):
+		if not is_instance_valid(enemy) or not (enemy is Node3D):
 			continue
 		var enemy_node: Node3D = enemy as Node3D
 		if enemy_node == combat_target:
@@ -1843,15 +2287,17 @@ func _find_alternate_dogfight_target() -> Node3D:
 			best_target = enemy_node
 	return best_target
 
-func _should_switch_dogfight_target(current_target: Node3D, candidate: Node3D) -> bool:
-	if not candidate or not is_instance_valid(candidate):
+func _should_switch_dogfight_target(current_target: Variant, candidate: Variant) -> bool:
+	if candidate == null or not is_instance_valid(candidate) or not (candidate is Node3D):
 		return false
-	if not current_target or not is_instance_valid(current_target):
+	if current_target == null or not is_instance_valid(current_target) or not (current_target is Node3D):
 		return true
 	if candidate == current_target:
 		return false
-	var current_dist: float = aircraft.global_position.distance_to(current_target.global_position)
-	var candidate_dist: float = aircraft.global_position.distance_to(candidate.global_position)
+	var current_node := current_target as Node3D
+	var candidate_node := candidate as Node3D
+	var current_dist: float = aircraft.global_position.distance_to(current_node.global_position)
+	var candidate_dist: float = aircraft.global_position.distance_to(candidate_node.global_position)
 	return candidate_dist + maxf(dogfight_retarget_advantage_m, 0.0) < current_dist
 
 func _compute_dogfight_collision_avoidance(target_pos: Vector3, target_vel: Vector3, own_pos: Vector3, own_vel: Vector3) -> Vector3:
@@ -2002,7 +2448,10 @@ func _sync_dogfight_missile_target(target_node) -> void:
 		return
 	if not target_node or not is_instance_valid(target_node):
 		return
-	var aam_targeting: Node = aircraft.find_child("ControlTargeting_AAM", true, false)
+	var aam_targeting: Node = control_targeting_aam
+	if not aam_targeting or not is_instance_valid(aam_targeting):
+		aam_targeting = aircraft.find_child("ControlTargeting_AAM", true, false)
+		control_targeting_aam = aam_targeting
 	if not aam_targeting or not is_instance_valid(aam_targeting):
 		return
 	aam_targeting.set("auto_replace_target", false)
@@ -2406,6 +2855,9 @@ func _fire_guns():
 		control_weapons.fire_selected_weapon_type()
 
 func _fire_one_weapon_of_type(weapon_type: String) -> void:
+	_fire_one_weapon_of_type_with_result(weapon_type)
+
+func _fire_one_weapon_of_type_with_result(weapon_type: String) -> bool:
 	for hp in _get_control_weapon_hardpoints():
 		if not hp or not hp.weapon_instance:
 			continue
@@ -2416,28 +2868,73 @@ func _fire_one_weapon_of_type(weapon_type: String) -> void:
 				var launched_missile = hp.weapon_instance.get("last_fired_missile")
 				if launched_missile != null and is_instance_valid(launched_missile):
 					_dogfight_active_missile = launched_missile as Node3D
-			return
+			return true
+	return false
 
 func _plan_attack_run_weapon() -> void:
 	"""Choose one weapon profile for this run. Prefer bombs when available."""
+	# Capture outcome of the previous run before resetting
+	var just_failed_bomb_run: bool = (_run_weapon_type == "Bomb" and _bombs_dropped_this_run == 0 and _bombs_to_drop_this_run > 0)
+	# One-run skip after a failed bomb run; reset after a non-bomb run so bombs get another chance
+	if _run_weapon_type != "Bomb":
+		_prev_run_was_failed_bomb = false
+	elif just_failed_bomb_run:
+		_prev_run_was_failed_bomb = true
+	else:
+		_prev_run_was_failed_bomb = false
+
 	_run_weapon_type = "Autocannon"
 	_bombs_to_drop_this_run = 0
 	_bombs_dropped_this_run = 0
 	_last_bomb_drop_time_s = -INF
+	_rockets_to_fire_this_run = 0
+	_rockets_fired_this_run = 0
+	_last_rocket_fire_time_s = -INF
 	_prev_ccip_miss = INF
 	_ccip_cache_timer = 0.0
 	_ccip_cached_result = Vector3.ZERO
+	_ccip_cached_tof_s = -1.0
+	_best_bomb_ccip_miss_this_run = INF
+	_reset_release_solution_stability()
 	if not control_weapons:
 		return
 
 	var bomb_ready: int = _count_ready_bombs()
-	if bomb_ready > 0:
+	var rockets_ready: int = _count_ready_rockets()
+
+	if debug_enabled:
+		var hps: Array = _get_control_weapon_hardpoints()
+		print("[WEAPON SELECT] %s  hardpoints=%d  bomb_ready=%d  rockets_ready=%d  prev_failed_bomb=%s" % [
+			aircraft.name, hps.size(), bomb_ready, rockets_ready, str(_prev_run_was_failed_bomb)])
+		for hp in hps:
+			if hp and hp.weapon_instance:
+				print("  hp: %s  weapon=%s  ammo=%s  can_fire=%s" % [
+					hp.name, hp.weapon_instance.weapon_name,
+					str(hp.weapon_instance.get("ammo_count")),
+					str(hp.weapon_instance.can_fire())])
+
+	# Keep preferring bombs against the carrier so strike aircraft actually shed their heavy payloads.
+	# For non-carrier targets, still allow a one-run fallback to rockets after a failed bomb pass.
+	var force_bombs_for_target: bool = _is_carrier_attack_target(combat_target)
+	var allow_bomb_run: bool = bomb_ready > 0 and (force_bombs_for_target or not _prev_run_was_failed_bomb)
+	if allow_bomb_run:
 		_run_weapon_type = "Bomb"
 		var total_ammo: int = _get_total_bomb_ammo()
-		_bombs_to_drop_this_run = min(3, total_ammo)
+		var planned_bomb_count: int = maxi(bomb_salvo_per_run, 1)
+		if force_bombs_for_target:
+			planned_bomb_count = maxi(carrier_bomb_salvo_per_run, planned_bomb_count)
+		_bombs_to_drop_this_run = min(planned_bomb_count, total_ammo)
 	else:
-		_run_weapon_type = _choose_non_bomb_weapon_type()
+		if rockets_ready > 0:
+			_run_weapon_type = "Rocket Pod"
+			var total_rocket_ammo: int = _get_total_rocket_ammo()
+			_rockets_to_fire_this_run = min(maxi(rocket_shots_per_run, 1), total_rocket_ammo)
+		else:
+			_run_weapon_type = _choose_non_bomb_weapon_type()
 
+	if debug_enabled:
+		print("[WEAPON SELECT] -> %s  bombs_planned=%d  rockets_planned=%d  force_bombs=%s" % [
+			_run_weapon_type, _bombs_to_drop_this_run, _rockets_to_fire_this_run, str(force_bombs_for_target)])
 	_set_selected_control_weapon_type(_run_weapon_type)
 
 func _choose_non_bomb_weapon_type() -> String:
@@ -2452,6 +2949,8 @@ func _choose_non_bomb_weapon_type() -> String:
 		if weapon_type == "Bomb":
 			continue
 		if weapon_type == "AAMissile":
+			continue
+		if weapon_type == "Rocket Pod":
 			continue
 		if weapon_type.to_lower().find("autocannon") != -1:
 			return weapon_type
@@ -2491,6 +2990,28 @@ func _get_total_bomb_ammo() -> int:
 			total += int(hp.weapon_instance.ammo_count)
 	return total
 
+func _count_ready_rockets() -> int:
+	var count: int = 0
+	for hp in _get_control_weapon_hardpoints():
+		if not hp or not hp.weapon_instance:
+			continue
+		if hp.weapon_instance.weapon_name != "Rocket Pod":
+			continue
+		if hp.weapon_instance.can_fire():
+			count += 1
+	return count
+
+func _get_total_rocket_ammo() -> int:
+	var total: int = 0
+	for hp in _get_control_weapon_hardpoints():
+		if not hp or not hp.weapon_instance:
+			continue
+		if hp.weapon_instance.weapon_name != "Rocket Pod":
+			continue
+		if "ammo_count" in hp.weapon_instance:
+			total += int(hp.weapon_instance.ammo_count)
+	return total
+
 func _handle_bomb_release_run(aim_pos: Vector3, target_pos: Vector3, ccip_predicted: Vector3 = Vector3.ZERO) -> void:
 	if _bombs_to_drop_this_run <= 0:
 		return
@@ -2501,62 +3022,149 @@ func _handle_bomb_release_run(aim_pos: Vector3, target_pos: Vector3, ccip_predic
 		return
 
 	var alt_above_target: float = aircraft.global_position.y - target_pos.y
-	# Safety window: never release outside 5ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“600m above target
-	if alt_above_target > bomb_release_altitude_window_m or alt_above_target < 5.0:
+	var horiz_dist_to_target: float = Vector2(aircraft.global_position.x - target_pos.x, aircraft.global_position.z - target_pos.z).length()
+	# Safety window: never release outside 5ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ600m above target
+	if alt_above_target > bomb_release_altitude_window_m or alt_above_target < 5.0 or horiz_dist_to_target < bomb_release_min_range_m:
+		_is_release_solution_stable_enough(now_s, false)
 		return
 	# Must be descending
 	var horiz_speed: float = Vector2(aircraft.linear_velocity.x, aircraft.linear_velocity.z).length()
 	var fpa_deg: float = rad_to_deg(atan2(-aircraft.linear_velocity.y, max(horiz_speed, 1.0)))
-	if fpa_deg < 30.0:
-		return  # Not in a real dive yet ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â CCIP is unreliable at shallow angles
+	if fpa_deg < bomb_min_dive_angle_deg:
+		_is_release_solution_stable_enough(now_s, false)
+		return  # Not in a real dive yet ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â CCIP is unreliable at shallow angles
 
-	# CCIP release: hold until predicted impact is close enough to target,
-	# unless we're very low (fallback ensures we always release before breaking off).
-	# If CCIP failed (Vector3.ZERO ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â no terrain found), release immediately.
-	if ccip_predicted != Vector3.ZERO and alt_above_target > bomb_ccip_fallback_alt_m:
-		var pred_err_h: float = Vector2(target_pos.x - ccip_predicted.x, target_pos.z - ccip_predicted.z).length()
-		var improving: bool = pred_err_h < _prev_ccip_miss - 0.5  # Still getting noticeably better
+	# CCIP release: hold until predicted impact is close enough to target.
+	# If CCIP failed (Vector3.ZERO ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â no terrain found), release immediately.
+	var pred_err_h: float = -1.0
+	var ccip_good: bool = false
+	if ccip_predicted != Vector3.ZERO:
+		pred_err_h = Vector2(target_pos.x - ccip_predicted.x, target_pos.z - ccip_predicted.z).length()
 		_prev_ccip_miss = pred_err_h
-		if pred_err_h > bomb_ccip_release_tolerance_m:
-			return  # Not accurate enough yet
-		if improving and pred_err_h > 8.0:
-			return  # Accuracy still improving ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â wait for the peak
+		_best_bomb_ccip_miss_this_run = minf(_best_bomb_ccip_miss_this_run, pred_err_h)
+		var release_tolerance_m: float = _get_effective_bomb_release_tolerance_m()
+		var near_best_solution: bool = pred_err_h <= _best_bomb_ccip_miss_this_run + maxf(bomb_release_best_miss_slack_m, 0.0)
+		ccip_good = pred_err_h <= release_tolerance_m and near_best_solution
+	var bank_ok: bool = _get_current_bank_angle_deg() <= bomb_release_max_bank_deg
+	if not _is_release_solution_stable_enough(now_s, ccip_good and bank_ok, _get_effective_bomb_release_hold_s()):
+		return
 
-	var dropped_bomb: BombProjectile = _drop_one_bomb()
-	if dropped_bomb:
+	var bomb_released: bool = _drop_one_bomb(target_pos, ccip_predicted)
+	if bomb_released:
 		_bombs_dropped_this_run += 1
 		_last_bomb_drop_time_s = now_s
 
-		var hdist: float = Vector2(aircraft.global_position.x - target_pos.x, aircraft.global_position.z - target_pos.z).length()
-		var pred_err_h: float = Vector2(target_pos.x - ccip_predicted.x, target_pos.z - ccip_predicted.z).length() if ccip_predicted != Vector3.ZERO else -1.0
-		var spd: float = aircraft.linear_velocity.length()
-		var fpa_at_drop: float = rad_to_deg(atan2(-aircraft.linear_velocity.y, max(horiz_speed, 1.0)))
-		print("ÃƒÂ¢Ã¢â‚¬ÂÃ‚ÂÃƒÂ¢Ã¢â‚¬ÂÃ‚ÂÃƒÂ¢Ã¢â‚¬ÂÃ‚ÂÃƒÂ¢Ã¢â‚¬ÂÃ‚Â BOMB RELEASE ÃƒÂ¢Ã¢â‚¬ÂÃ‚ÂÃƒÂ¢Ã¢â‚¬ÂÃ‚ÂÃƒÂ¢Ã¢â‚¬ÂÃ‚ÂÃƒÂ¢Ã¢â‚¬ÂÃ‚Â")
-		print("  aircraft  pos=", snapped(aircraft.global_position, Vector3.ONE * 0.1), "  spd=", snapped(spd, 0.1), " m/s  fpa=", snapped(fpa_at_drop, 0.1), "Ãƒâ€šÃ‚Â°")
-		print("  target    pos=", snapped(target_pos, Vector3.ONE * 0.1), "  alt_above=", snapped(alt_above_target, 0.1), "m  hdist=", snapped(hdist, 0.1), "m")
-		if ccip_predicted != Vector3.ZERO:
-			print("  predicted pos=", snapped(ccip_predicted, Vector3.ONE * 0.1), "  miss_from_target=", snapped(pred_err_h, 0.1), "m")
-		else:
-			print("  predicted pos=N/A (fallback release ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â no terrain in CCIP)")
+		if debug_enabled:
+			var hdist: float = Vector2(aircraft.global_position.x - target_pos.x, aircraft.global_position.z - target_pos.z).length()
+			var pred_err_h_debug: float = Vector2(target_pos.x - ccip_predicted.x, target_pos.z - ccip_predicted.z).length() if ccip_predicted != Vector3.ZERO else -1.0
+			var spd: float = aircraft.linear_velocity.length()
+			var fpa_at_drop: float = rad_to_deg(atan2(-aircraft.linear_velocity.y, max(horiz_speed, 1.0)))
+			var miss_str: String = " miss=%.1fm" % pred_err_h_debug if ccip_predicted != Vector3.ZERO else " miss=no-ccip"
+			var target_range_now: float = aircraft.global_position.distance_to(_get_surface_target_position(combat_target)) if combat_target and is_instance_valid(combat_target) else hdist
+			print("[AIPilot RELEASE] %s type=Bomb count=%d/%d alt_above=%.1fm hdist=%.1fm current_range=%.1fm spd=%.1fm/s fpa=%.1fdeg%s" % [
+				aircraft.name,
+				_bombs_dropped_this_run,
+				_bombs_to_drop_this_run,
+				alt_above_target,
+				hdist,
+				target_range_now,
+				spd,
+				fpa_at_drop,
+				miss_str
+			])
 
-		# Tag the bomb with the intended target so it can report miss at impact
-		dropped_bomb.set_meta("debug_aim_target", target_pos)
-		dropped_bomb.set_meta("debug_predicted_impact", ccip_predicted)
-
-func _drop_one_bomb() -> BombProjectile:
+func _drop_one_bomb(target_pos: Vector3 = Vector3.ZERO, ccip_predicted: Vector3 = Vector3.ZERO) -> bool:
 	for hp in _get_control_weapon_hardpoints():
 		if not hp or not hp.weapon_instance:
 			continue
 		if hp.weapon_instance.weapon_name != "Bomb":
 			continue
-		if hp.weapon_instance.can_fire() and hp.fire():
-			return hp.weapon_instance.get("last_bomb_dropped") as BombProjectile
-	return null
+		if not hp.weapon_instance.can_fire():
+			continue
+		var attach_bomb_debug_metadata: bool = debug_enabled and verbose_debug_enabled
+		if attach_bomb_debug_metadata and hp.weapon_instance.has_method("set_next_bomb_debug_metadata"):
+			hp.weapon_instance.set_next_bomb_debug_metadata(target_pos, ccip_predicted)
+		if hp.fire():
+			var dropped_bomb_variant: Variant = hp.weapon_instance.get("last_bomb_dropped")
+			if attach_bomb_debug_metadata and dropped_bomb_variant != null and dropped_bomb_variant is Object and is_instance_valid(dropped_bomb_variant) and dropped_bomb_variant is BombProjectile:
+				var dropped_bomb: BombProjectile = dropped_bomb_variant
+				dropped_bomb.set_meta("debug_aim_target", target_pos)
+				dropped_bomb.set_meta("debug_predicted_impact", ccip_predicted)
+			return true
+	return false
 
-func _predict_bomb_impact_point(log_debug: bool = false) -> Vector3:
-	"""Estimate bomb impact point using ballistic simulation.
+func _handle_rocket_release_run(aim_pos: Vector3, target_pos: Vector3, ccip_predicted: Vector3 = Vector3.ZERO) -> void:
+	if _rockets_to_fire_this_run <= 0:
+		return
+	if _rockets_fired_this_run >= _rockets_to_fire_this_run:
+		return
+
+	var now_s: float = Time.get_ticks_msec() / 1000.0
+	if now_s - _last_rocket_fire_time_s < rocket_release_spacing_s:
+		return
+
+	var horiz_dist: float = Vector2(aircraft.global_position.x - target_pos.x, aircraft.global_position.z - target_pos.z).length()
+	if horiz_dist > rocket_release_max_range_m or horiz_dist < rocket_release_min_range_m:
+		_is_release_solution_stable_enough(now_s, false)
+		return
+
+	var fwd: Vector3 = aircraft.global_transform.basis.z.normalized()
+	# Use raw target direction for alignment â€” CCIP correction on aim_pos can be large for
+	# a moving target, which would falsely fail alignment even when pointing at the carrier.
+	var to_target_dir: Vector3 = (target_pos - aircraft.global_position).normalized()
+	var required_dot: float = cos(deg_to_rad(maxf(rocket_fire_alignment_deg, 1.0)))
+	var alignment_ok: bool = fwd.dot(to_target_dir) >= required_dot
+	if ccip_predicted == Vector3.ZERO:
+		_is_release_solution_stable_enough(now_s, false)
+		return
+	var pred_err_h: float = Vector2(target_pos.x - ccip_predicted.x, target_pos.z - ccip_predicted.z).length()
+	_prev_ccip_miss = pred_err_h
+	var ccip_ok: bool = pred_err_h <= rocket_ccip_release_tolerance_m
+	var bank_ok: bool = _get_current_bank_angle_deg() <= rocket_release_max_bank_deg
+	if not _is_release_solution_stable_enough(now_s, alignment_ok and ccip_ok and bank_ok):
+		return
+
+	if _fire_one_weapon_of_type_with_result("Rocket Pod"):
+		_rockets_fired_this_run += 1
+		_last_rocket_fire_time_s = now_s
+		if debug_enabled:
+			var pred_err_h_debug: float = Vector2(target_pos.x - ccip_predicted.x, target_pos.z - ccip_predicted.z).length() if ccip_predicted != Vector3.ZERO else -1.0
+			var miss_str: String = " miss=%.1fm" % pred_err_h_debug if ccip_predicted != Vector3.ZERO else " miss=n/a"
+			print("[AIPilot RELEASE] %s type=Rocket count=%d/%d range=%.0fm%s" % [
+				aircraft.name,
+				_rockets_fired_this_run,
+				_rockets_to_fire_this_run,
+				horiz_dist,
+				miss_str
+			])
+
+func _predict_rocket_impact_solution() -> Dictionary:
+	if aircraft == null or not is_instance_valid(aircraft):
+		return {}
+	if not aircraft.has_method("calculate_rocket_ccip_impact_point"):
+		return {}
+	var result: Variant = aircraft.calculate_rocket_ccip_impact_point()
+	if result is Dictionary:
+		return result
+	return {}
+
+func _predict_rocket_impact_point() -> Vector3:
+	var result: Dictionary = _predict_rocket_impact_solution()
+	if bool(result.get("has_impact", false)):
+		var impact_variant: Variant = result.get("impact_position", Vector3.ZERO)
+		if impact_variant is Vector3:
+			return impact_variant
+	return Vector3.ZERO
+
+func _predict_bomb_impact_solution(
+	log_debug: bool = false,
+	moving_target_pos: Vector3 = Vector3.ZERO,
+	moving_target_velocity: Vector3 = Vector3.ZERO,
+	use_moving_target_plane: bool = false
+) -> Dictionary:
+	"""Estimate bomb impact point and time of flight using ballistic simulation.
 	The Terrain3D plugin doesn't register physics collision for raycasts,
-	so we use Terrain3D.get_height() as the primary detection method ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â
+	so we use Terrain3D.get_height() as the primary detection method ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â
 	the same fallback used by projectile_new.gd."""
 	var start_pos: Vector3 = aircraft.global_position
 	var drop_force: float = 0.0
@@ -2568,12 +3176,18 @@ func _predict_bomb_impact_point(log_debug: bool = false) -> Vector3:
 				drop_force = float(hp.weapon_instance.drop_force)
 			if "bomb_projectile_scene" in hp.weapon_instance and hp.weapon_instance.bomb_projectile_scene:
 				bomb_projectile_scene = hp.weapon_instance.bomb_projectile_scene
-				start_pos = hp.global_position
+				if hp.weapon_instance.has_method("get_predicted_release_transform"):
+					start_pos = hp.weapon_instance.get_predicted_release_transform().origin
+				else:
+					start_pos = hp.global_position
 			break
 
-	var r_offset: Vector3 = start_pos - aircraft.global_position
-	var angular_vel_component: Vector3 = aircraft.angular_velocity.cross(r_offset)
-	var current_vel: Vector3 = Vector3.DOWN * drop_force + aircraft.linear_velocity + angular_vel_component
+	var current_vel: Vector3 = Vector3.DOWN * drop_force + aircraft.linear_velocity
+	for hp in _get_control_weapon_hardpoints():
+		if hp and hp.weapon_instance and hp.weapon_instance.weapon_name == "Bomb":
+			if hp.weapon_instance.has_method("get_predicted_initial_velocity"):
+				current_vel = hp.weapon_instance.get_predicted_initial_velocity(aircraft)
+			break
 
 	var linear_damp: float = 0.0
 	var gravity_scale: float = 1.0
@@ -2597,8 +3211,8 @@ func _predict_bomb_impact_point(log_debug: bool = false) -> Vector3:
 	var gravity_mag: float = float(ProjectSettings.get_setting("physics/3d/default_gravity", 9.8))
 	var gravity_vec: Vector3 = gravity_dir * gravity_mag
 
-	var time_step: float = 0.05
-	var max_time: float = 15.0
+	var time_step: float = maxf(bomb_ccip_time_step_s, 0.02)
+	var max_time: float = maxf(bomb_ccip_max_time_s, time_step)
 	var current_pos: Vector3 = start_pos
 	var space_state: PhysicsDirectSpaceState3D = aircraft.get_world_3d().direct_space_state
 	var terrain: Node = _get_cached_terrain_node()
@@ -2614,18 +3228,46 @@ func _predict_bomb_impact_point(log_debug: bool = false) -> Vector3:
 		if linear_damp > 0.0:
 			current_vel /= (1.0 + linear_damp * time_step)
 		var next_pos: Vector3 = current_pos + current_vel * time_step
+		var segment_start_t: float = float(step) * time_step
+
+		if use_moving_target_plane:
+			var target_y: float = moving_target_pos.y
+			var crosses_target_plane: bool = current_pos.y >= target_y and next_pos.y <= target_y
+			if crosses_target_plane:
+				var y_span: float = current_pos.y - next_pos.y
+				var t: float = (current_pos.y - target_y) / maxf(y_span, 0.001)
+				t = clampf(t, 0.0, 1.0)
+				var hit_time_s: float = segment_start_t + time_step * t
+				var bomb_at_target_y: Vector3 = current_pos.lerp(next_pos, t)
+				var future_target_pos: Vector3 = moving_target_pos + moving_target_velocity * hit_time_s
+				var moving_miss_m: float = Vector2(future_target_pos.x - bomb_at_target_y.x, future_target_pos.z - bomb_at_target_y.z).length()
+				if log_debug:
+					print("[CCIP] moving target plane t=", snapped(hit_time_s, 0.01), "s bomb=", snapped(bomb_at_target_y, Vector3.ONE * 0.1), " target=", snapped(future_target_pos, Vector3.ONE * 0.1), " miss=", snapped(moving_miss_m, 0.1))
+				return {
+					"impact_position": bomb_at_target_y,
+					"time_of_flight": hit_time_s,
+					"moving_target_position": future_target_pos,
+					"moving_target_miss_m": moving_miss_m
+				}
 
 		# Primary: physics raycast (works for standard StaticBody3D terrain)
 		var query: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(current_pos, next_pos)
-		query.exclude = [aircraft]
+		query.exclude = [aircraft.get_rid()] if aircraft is CollisionObject3D else []
 		query.collision_mask = 0xFFFFFFFF
 		var hit: Dictionary = space_state.intersect_ray(query)
 		if hit and hit.has("position"):
+			var hit_pos: Vector3 = hit.position
+			var segment_len: float = current_pos.distance_to(next_pos)
+			var segment_fraction: float = current_pos.distance_to(hit_pos) / maxf(segment_len, 0.001)
+			var hit_time_s: float = segment_start_t + time_step * clampf(segment_fraction, 0.0, 1.0)
 			if log_debug:
-				print("[CCIP] raycast HIT at t=", snapped(step * time_step, 0.01), "s  pos=", snapped(hit["position"], Vector3.ONE * 0.1))
-			return hit.position
+				print("[CCIP] raycast HIT at t=", snapped(hit_time_s, 0.01), "s  pos=", snapped(hit_pos, Vector3.ONE * 0.1))
+			return {
+				"impact_position": hit_pos,
+				"time_of_flight": hit_time_s
+			}
 
-		# Fallback: Terrain3D height API ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â mirrors projectile_new.gd tunneling detection
+		# Fallback: Terrain3D height API ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â mirrors projectile_new.gd tunneling detection
 		if terrain:
 			var h_prev: float = _get_ground_height_at_position(current_pos)
 			var h_next: float = _get_ground_height_at_position(next_pos)
@@ -2638,19 +3280,34 @@ func _predict_bomb_impact_point(log_debug: bool = false) -> Vector3:
 					var impact: Vector3 = current_pos.lerp(next_pos, t)
 					var h_impact: float = _get_ground_height_at_position(impact)
 					impact.y = h_impact if not is_nan(h_impact) else lerp(h_prev, h_next, t)
+					var hit_time_s: float = segment_start_t + time_step * clampf(t, 0.0, 1.0)
 					if log_debug:
-						print("[CCIP] Terrain3D HIT at t=", snapped(step * time_step, 0.01), "s  pos=", snapped(impact, Vector3.ONE * 0.1))
-					return impact
+						print("[CCIP] Terrain3D HIT at t=", snapped(hit_time_s, 0.01), "s  pos=", snapped(impact, Vector3.ONE * 0.1))
+					return {
+						"impact_position": impact,
+						"time_of_flight": hit_time_s
+					}
 
 		if next_pos.y < -1000.0:
 			if log_debug:
 				print("[CCIP] fell off world at t=", snapped(step * time_step, 0.01), "s")
-			return Vector3.ZERO
+			return {
+				"impact_position": Vector3.ZERO,
+				"time_of_flight": -1.0
+			}
 		current_pos = next_pos
 
 	if log_debug:
 		print("[CCIP] ran out of steps, final_pos=", snapped(current_pos, Vector3.ONE * 0.1))
-	return Vector3.ZERO
+	return {
+		"impact_position": Vector3.ZERO,
+		"time_of_flight": -1.0
+	}
+
+func _predict_bomb_impact_point(log_debug: bool = false) -> Vector3:
+	var solution: Dictionary = _predict_bomb_impact_solution(log_debug)
+	var impact_variant: Variant = solution.get("impact_position", Vector3.ZERO)
+	return impact_variant if impact_variant is Vector3 else Vector3.ZERO
 
 func _stop_firing():
 	"""Stop weapon fire - ControlWeapons uses is_trigger_held which we don't set."""
@@ -3082,7 +3739,7 @@ func _get_landing_path_target() -> Dictionary:
 	}
 
 func _state_approach(delta: float):
-	"""Carrier approach: phase 0ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢3 (approach_0ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢3) then LANDING toward approach_4."""
+	"""Carrier approach: phase 0ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢3 (approach_0ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢3) then LANDING toward approach_4."""
 	if approach_guidance_mode == ApproachGuidanceMode.PATH_FOLLOWER:
 		_state_approach_path_follower(delta)
 		return
@@ -3252,7 +3909,7 @@ func _state_landing(delta: float):
 	var ang_vel: Vector3 = aircraft.angular_velocity
 
 	# Wire caught: kill engine, release pitch/yaw, but keep wings-level roll command
-	# (mirrors real pilot behaviour ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â hold aileron to stay upright through the arrest)
+	# (mirrors real pilot behaviour ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â hold aileron to stay upright through the arrest)
 	var arrest_engaged: bool = aircraft.get_meta("arresting_engaged", false)
 	if arrest_engaged:
 		throttle_input = 0.0
@@ -3267,7 +3924,7 @@ func _state_landing(delta: float):
 		roll_input = lerp(_smoothed_roll_input, raw_roll, 0.25)
 		_smoothed_roll_input = roll_input
 
-		# ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Arrest debug ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+		# ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ Arrest debug ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬
 		var delta_time: float = get_physics_process_delta_time()
 		if not _arrest_engaged_prev:
 			# First frame of engagement
@@ -3275,7 +3932,7 @@ func _state_landing(delta: float):
 			_arrest_prev_vel = vel
 			_arrest_debug_timer = 0.0
 			_arrest_stopped_reported = false
-			print("ÃƒÂ¢Ã¢â‚¬ÂÃ‚ÂÃƒÂ¢Ã¢â‚¬ÂÃ‚ÂÃƒÂ¢Ã¢â‚¬ÂÃ‚ÂÃƒÂ¢Ã¢â‚¬ÂÃ‚Â WIRE CAUGHT ÃƒÂ¢Ã¢â‚¬ÂÃ‚ÂÃƒÂ¢Ã¢â‚¬ÂÃ‚ÂÃƒÂ¢Ã¢â‚¬ÂÃ‚ÂÃƒÂ¢Ã¢â‚¬ÂÃ‚Â  pos=", snapped(aircraft.global_position, Vector3.ONE * 0.1),
+			print("ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â WIRE CAUGHT ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â  pos=", snapped(aircraft.global_position, Vector3.ONE * 0.1),
 				"  speed=", snapped(speed, 0.1), " m/s")
 		_arrest_engaged_prev = true
 
@@ -3306,15 +3963,15 @@ func _state_landing(delta: float):
 
 		if speed < 2.0 and not _arrest_stopped_reported:
 			var run: float = aircraft.global_position.distance_to(_arrest_start_pos)
-			print("ÃƒÂ¢Ã¢â‚¬ÂÃ‚ÂÃƒÂ¢Ã¢â‚¬ÂÃ‚ÂÃƒÂ¢Ã¢â‚¬ÂÃ‚ÂÃƒÂ¢Ã¢â‚¬ÂÃ‚Â STOPPED  run=", snapped(run, 0.1), " m ÃƒÂ¢Ã¢â‚¬ÂÃ‚ÂÃƒÂ¢Ã¢â‚¬ÂÃ‚ÂÃƒÂ¢Ã¢â‚¬ÂÃ‚ÂÃƒÂ¢Ã¢â‚¬ÂÃ‚Â")
+			print("ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â STOPPED  run=", snapped(run, 0.1), " m ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â")
 			_arrest_stopped_reported = true
-		# ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+		# ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬
 		return
-	# Cable just released ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â go idle and hand aircraft to FlightDeckManager
+	# Cable just released ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â go idle and hand aircraft to FlightDeckManager
 	if _arrest_engaged_prev:
 		_arrest_engaged_prev = false
 		_arrest_stopped_reported = false
-		print("[AIPilot] Arrest ended ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â transitioning to IDLE and requesting recovery")
+		print("[AIPilot] Arrest ended ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â transitioning to IDLE and requesting recovery")
 		change_state(State.IDLE)
 		_request_carrier_recovery()
 		return
@@ -3342,7 +3999,7 @@ func _state_landing(delta: float):
 	# === ROLL: wings level on short final (< 200 m), bearing-based further out ===
 	var current_roll: float = atan2(b.x.y, b.y.y)
 	var roll_rate: float = ang_vel.dot(b.z)
-	# Bearing error computed always ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â needed for rudder correction throughout final approach
+	# Bearing error computed always ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â needed for rudder correction throughout final approach
 	var bearing_err_final: float = 0.0
 	var horiz_to_target_flat: Vector3 = Vector3(to_target.x, 0.0, to_target.z)
 	if horiz_to_target_flat.length() > 1.0:
@@ -3354,7 +4011,7 @@ func _state_landing(delta: float):
 		desired_bank = clamp(bearing_err_final * 2.5, -deg_to_rad(30.0), deg_to_rad(30.0))
 		if flip_roll_direction:
 			desired_bank = -desired_bank
-	# desired_bank stays 0.0 inside 200 m ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â command wings level
+	# desired_bank stays 0.0 inside 200 m ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â command wings level
 	var bank_error: float = desired_bank - current_roll
 	var raw_roll: float = clamp(bank_error * 11.0 - roll_rate * 0.3, -1.0, 1.0)
 	roll_input = lerp(_smoothed_roll_input, raw_roll, 0.25)
@@ -3409,7 +4066,7 @@ func _state_landing(delta: float):
 	pitch_input = lerp(_smoothed_pitch_input, raw_pitch, 0.15)
 	_smoothed_pitch_input = pitch_input
 
-	# === THROTTLE: maintain approach speed (min 0.1 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â lower than normal nav's 0.4) ===
+	# === THROTTLE: maintain approach speed (min 0.1 ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â lower than normal nav's 0.4) ===
 	var commanded_target_speed: float = _get_effective_target_speed()
 	var speed_err: float = commanded_target_speed - speed
 	throttle_input = clamp(throttle_input + clamp(speed_err * 0.01, -0.05, 0.05), 0.1, 1.0)
@@ -3436,8 +4093,8 @@ func _state_landing(delta: float):
 	yaw_input = lerpf(_smoothed_yaw_input, aligned_raw_yaw, lerpf(input_smoothing, 0.4, close_alignment_t))
 	_smoothed_yaw_input = yaw_input
 
-	if debug_enabled and Engine.get_process_frames() % 30 == 0:
-		print("[AIPilot FINAL] dist=%.0fm  ÃƒÅ½Ã¢â‚¬Âalt=%.1fm  fpa: want=%.1fÃƒâ€šÃ‚Â°  act=%.1fÃƒâ€šÃ‚Â°  err=%.1fÃƒâ€šÃ‚Â°  pitch=%.2f  thr=%.2f  spd=%.0f" % [
+	if debug_enabled and verbose_debug_enabled and Engine.get_process_frames() % 30 == 0:
+		print("[AIPilot FINAL] dist=%.0fm  ÃƒÆ’Ã…Â½ÃƒÂ¢Ã¢â€šÂ¬Ã‚Âalt=%.1fm  fpa: want=%.1fÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â°  act=%.1fÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â°  err=%.1fÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â°  pitch=%.2f  thr=%.2f  spd=%.0f" % [
 			horiz_dist, to_target.y,
 			rad_to_deg(desired_fpa), rad_to_deg(current_fpa), rad_to_deg(fpa_err),
 			pitch_input, throttle_input, speed])
@@ -3487,8 +4144,8 @@ func _navigate_to_waypoint(delta: float):
 	var current_roll: float = atan2(aircraft.global_transform.basis.x.y, aircraft.global_transform.basis.y.y)
 	var bank_rad: float = abs(current_roll)
 	var aircraft_up_y: float = aircraft.global_transform.basis.y.y
-	# In dogfight, the aircraft intentionally banks up to dogfight_bank_cmd_limit_deg (e.g. 85Ãƒâ€šÃ‚Â°).
-	# cos(85Ãƒâ€šÃ‚Â°) = 0.087 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â below the normal 0.3 threshold ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â so we raise the limit only in states
+	# In dogfight, the aircraft intentionally banks up to dogfight_bank_cmd_limit_deg (e.g. 85ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â°).
+	# cos(85ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â°) = 0.087 ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â below the normal 0.3 threshold ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â so we raise the limit only in states
 	# that deliberately command steep banks, to avoid fighting the roll controller.
 	var is_upright: bool = current_state == State.DOGFIGHT or aircraft_up_y > 0.3
 
@@ -3507,7 +4164,7 @@ func _navigate_to_waypoint(delta: float):
 	# === DESCENDING SPIRAL RECOVERY ===
 	# If we're banked significantly and descending fast, the turn is bleeding altitude.
 	# Pulling back in a steep bank just tightens the spiral. Level wings first, then climb.
-	# Approach/Landing are also intentional descents ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â don't interfere with spiral recovery
+	# Approach/Landing are also intentional descents ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â don't interfere with spiral recovery
 	var in_dive_or_attack: bool = current_state in [State.DOGFIGHT, State.ATTACK_DIVE, State.APPROACH, State.LANDING]
 	if not in_dive_or_attack and bank_rad > deg_to_rad(25.0) and vel.y < -15.0:
 		var roll_to_level: float = _normalize_angle(0.0 - current_roll)
@@ -3693,14 +4350,14 @@ func _navigate_to_waypoint(delta: float):
 	var in_dogfight: bool = current_state == State.DOGFIGHT
 	var in_carrier_approach: bool = current_state == State.APPROACH
 	var in_landing: bool = current_state == State.LANDING
-	# Continuous ramp 0ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢1 as alt deficit grows 0ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢80m. Replaces the old binary in_attack_climb
+	# Continuous ramp 0ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢1 as alt deficit grows 0ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢80m. Replaces the old binary in_attack_climb
 	# switch at 30m which caused an abrupt gain step and drove oscillation.
 	var attack_climb_t: float = clamp(alt_err / 80.0, 0.0, 1.0) if in_attack_approach else 0.0
 	var needs_high_authority: bool = in_dive_state or in_break_off or in_landing or in_carrier_approach
 	var vs_limit: float
 	var vs_gain: float
 	if in_landing:
-		# Carrier final: need enough descent (150m over ~540m) ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â default 10 m/s cap is too low
+		# Carrier final: need enough descent (150m over ~540m) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â default 10 m/s cap is too low
 		vs_limit = 18.0
 		vs_gain = 0.18
 	elif in_carrier_approach:
@@ -3714,7 +4371,7 @@ func _navigate_to_waypoint(delta: float):
 		vs_limit = lerp(18.0, 55.0, entry_t)
 		vs_gain = lerp(0.12, 0.25, entry_t)
 	elif in_attack_approach:
-		# Smoothly blend authority as altitude deficit grows ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â no abrupt step at any threshold
+		# Smoothly blend authority as altitude deficit grows ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â no abrupt step at any threshold
 		vs_limit = lerp(10.0, 18.0, attack_climb_t)
 		vs_gain  = lerp(0.08, 0.12, attack_climb_t)
 	elif in_dogfight:
@@ -3733,7 +4390,7 @@ func _navigate_to_waypoint(delta: float):
 		vs_limit = 10.0
 		vs_gain = 0.08
 	var desired_vs: float = clamp(alt_err * vs_gain, -vs_limit, vs_limit)
-	# Deadband: settle when close to target altitude ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â applies in all non-dive/break-off states
+	# Deadband: settle when close to target altitude ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â applies in all non-dive/break-off states
 	if not needs_high_authority and abs(alt_err) < pitch_deadband_m and abs(vel.y) < 2.0:
 		desired_vs = 0.0
 	# During dive: deadband near aim altitude to prevent pitch hunting/oscillation
@@ -3762,7 +4419,8 @@ func _navigate_to_waypoint(delta: float):
 		if _dogfight_recovery_timer_s > 0.0:
 			desired_vs = maxf(desired_vs, dogfight_ground_protect_min_climb_vs_mps + 4.0)
 	# General low-altitude guardrail: bias toward a climb before we hit hard safety override.
-	if current_state not in [State.APPROACH, State.LANDING, State.IDLE]:
+	# ATTACK_DIVE excluded: the dive has its own break-off logic; guardrail was canceling dive command.
+	if current_state not in [State.APPROACH, State.LANDING, State.IDLE, State.ATTACK_DIVE]:
 		var low_agl_guard_band_m: float = emergency_min_agl_m + 120.0
 		if altitude_agl < low_agl_guard_band_m:
 			var low_guard_t: float = clampf((low_agl_guard_band_m - altitude_agl) / maxf(low_agl_guard_band_m, 1.0), 0.0, 1.0)
@@ -3791,10 +4449,22 @@ func _navigate_to_waypoint(delta: float):
 		pitch_gain = lerpf(pitch_gain, pitch_gain * formation_close_pitch_gain_scale, formation_soft_t)
 	var pitch_rate_damping: float = 0.45 if in_dive_state or in_dogfight else 0.5  # Stronger damping in combat
 	var raw_pitch: float = clamp(vs_err * pitch_gain * bank_compensation - pitch_rate_up * pitch_rate_damping, -pitch_limit, pitch_limit)
+	if in_dive_state:
+		var aim_vector: Vector3 = maneuver_waypoint - aircraft.global_position
+		if aim_vector.length_squared() > 1.0:
+			var aim_dir: Vector3 = aim_vector.normalized()
+			var local_y_to_aim: float = aim_dir.dot(b.y)
+			var local_z_to_aim: float = aim_dir.dot(b.z)
+			var pitch_los_err_rad: float = atan2(local_y_to_aim, maxf(absf(local_z_to_aim), 0.05))
+			raw_pitch = clampf(
+				pitch_los_err_rad * maxf(bomb_dive_pitch_los_gain, 0.1) - pitch_rate_up * 0.22,
+				-pitch_limit,
+				pitch_limit
+			)
 	# Min pitch prevents dead-zone but must not fight the controller when it is already correcting
 	# correctly. Only enforce the floor when vs_err agrees with the altitude error direction.
 	var min_pitch_threshold: float = 60.0 if in_dive_state else 40.0
-	if not in_dogfight and abs(alt_err) > min_pitch_threshold:
+	if not in_dogfight and not in_dive_state and abs(alt_err) > min_pitch_threshold:
 		var min_pitch: float = (0.10 if needs_high_authority else 0.04) * sign(alt_err)
 		if sign(vs_err) == sign(alt_err) and abs(raw_pitch) < abs(min_pitch):
 			raw_pitch = min_pitch
@@ -3811,13 +4481,13 @@ func _navigate_to_waypoint(delta: float):
 	pitch_input = lerp(_smoothed_pitch_input, raw_pitch, effective_pitch_smoothing)
 	_smoothed_pitch_input = pitch_input
 	
-	if debug_enabled and Engine.get_process_frames() % 30 == 0:
+	if debug_enabled and verbose_debug_enabled and Engine.get_process_frames() % 30 == 0:
 		var gh: float = _smoothed_ground_height if not is_nan(_smoothed_ground_height) else _get_ground_height_at_position(aircraft.global_position)
 		print("[AIPilot PITCH] Alt: %.1f (Tgt: %.1f, Err: %.1f) | VS: %.1f (Des: %.1f, Err: %.1f) | Pitch: %.3f (Raw: %.3f) | Gnd: %.1f" % [aircraft.global_position.y, nav_waypoint.y, alt_err, vel.y, desired_vs, vs_err, pitch_input, raw_pitch, gh])
 
-	# Dogfight controller internals ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â shows bank/roll PD details every 30 frames
-	if debug_enabled and current_state == State.DOGFIGHT and Engine.get_process_frames() % 30 == 0:
-		print("  [ROLL_CTL] desired=%+5.0fÃƒâ€šÃ‚Â°  cur=%+5.0fÃƒâ€šÃ‚Â°  err=%+5.1fÃƒâ€šÃ‚Â°  p_gain=%.1f  d=%.2f  raw=%+5.2f  out=%+5.2f  rate=%.2f" % [
+	# Dogfight controller internals ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â shows bank/roll PD details every 30 frames
+	if debug_enabled and verbose_debug_enabled and current_state == State.DOGFIGHT and Engine.get_process_frames() % 30 == 0:
+		print("  [ROLL_CTL] desired=%+5.0fÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â°  cur=%+5.0fÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â°  err=%+5.1fÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â°  p_gain=%.1f  d=%.2f  raw=%+5.2f  out=%+5.2f  rate=%.2f" % [
 			rad_to_deg(desired_bank), rad_to_deg(current_roll), rad_to_deg(bank_error),
 			roll_p_gain, roll_rate_damping, raw_roll, roll_input, roll_rate])
 		print("  [PITCH_CTL] vs_des=%+5.1f  vs_err=%+5.1f  gain=%.2f  bank_comp=%.2f  dV=%.1f  raw=%+5.2f  out=%+5.2f" % [
@@ -3861,7 +4531,7 @@ func _navigate_to_waypoint(delta: float):
 		throttle_input = minf(throttle_input, approach_post_gate_throttle_cut)
 	throttle_input = clamp(throttle_input, 0.0, 1.0)
 	
-	# Low speed protection ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â full throttle, limit pitch-up to avoid bleeding more energy
+	# Low speed protection ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â full throttle, limit pitch-up to avoid bleeding more energy
 	if speed < stall_speed_mps + stall_margin_mps:
 		if current_state == State.DOGFIGHT:
 			var speed_shortfall: float = maxf((stall_speed_mps + stall_margin_mps) - speed, 0.0)
@@ -3894,11 +4564,11 @@ func _navigate_to_waypoint(delta: float):
 		var bearing_err := _normalize_angle(deg_to_rad(bearing_to_wp - heading_deg)) if horiz_len > 0.1 else 0.0
 		print("=== [AIPilot %s] STEERING ===" % aircraft.name)
 		print("  WAYPOINT: nav=(%.0f,%.0f,%.0f)  maneuver=(%.0f,%.0f,%.0f)" % [nav_waypoint.x, nav_waypoint.y, nav_waypoint.z, maneuver_waypoint.x, maneuver_waypoint.y, maneuver_waypoint.z])
-		print("  TARGET: %s  dist=%.0fm  bearing=%.0fÃƒâ€šÃ‚Â°  heading=%.0fÃƒâ€šÃ‚Â°  err=%.0fÃƒâ€šÃ‚Â° (pos=turn R)" % [target_pos, to_target.length(), bearing_to_wp, heading_deg, rad_to_deg(bearing_err)])
+		print("  TARGET: %s  dist=%.0fm  bearing=%.0fÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â°  heading=%.0fÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â°  err=%.0fÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â° (pos=turn R)" % [target_pos, to_target.length(), bearing_to_wp, heading_deg, rad_to_deg(bearing_err)])
 		var vel_fwd: float = vel.dot(aircraft.global_transform.basis.z)
 		var vel_right: float = vel.dot(aircraft.global_transform.basis.x)
 		var turning: String = "RIGHT" if vel_right > 5 else ("LEFT" if vel_right < -5 else "STRAIGHT")
-		print("  TURN: %s  desired_bank=%.1fÃƒâ€šÃ‚Â°  current_roll=%.1fÃƒâ€šÃ‚Â°  bank_err=%.1fÃƒâ€šÃ‚Â°  commit=%.0f  flip=%s" % [turn_dir, rad_to_deg(desired_bank), rad_to_deg(current_roll), rad_to_deg(bank_error), _committed_turn_sign, flip_roll_direction])
+		print("  TURN: %s  desired_bank=%.1fÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â°  current_roll=%.1fÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â°  bank_err=%.1fÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â°  commit=%.0f  flip=%s" % [turn_dir, rad_to_deg(desired_bank), rad_to_deg(current_roll), rad_to_deg(bank_error), _committed_turn_sign, flip_roll_direction])
 		print("  ACTUAL: turning=%s (vel_right=%.1f)  vel_fwd=%.1f" % [turning, vel_right, vel_fwd])
 		print("  LOCAL: lx=%.2f (right+)  lz=%.2f (ahead+)  lateral_ratio=%.2f" % [lateral_norm, ahead_norm, lateral_norm])
 		print("  CMD: roll=%.2f  pitch=%.2f  yaw=%.2f  thr=%.2f" % [roll_input, pitch_input, yaw_input, throttle_input])
@@ -3909,7 +4579,7 @@ func _update_maneuver_waypoint():
 	if nav_waypoint == Vector3.ZERO:
 		return
 	
-	# LANDING: always steer directly at approach_4 (touchdown point). No lookahead ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â we must
+	# LANDING: always steer directly at approach_4 (touchdown point). No lookahead ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â we must
 	# fly to the deck, not past it. The general lookahead helps turning but causes overfly on final.
 	if current_state == State.LANDING:
 		maneuver_waypoint = nav_waypoint
@@ -3974,6 +4644,183 @@ func _update_waypoint_marker():
 	# Box extends from y=0 to y=1000 (center at y=500)
 	_waypoint_marker.global_position = Vector3(marker_world.x, 500, marker_world.z)
 
+func _get_bomb_debug_node(key: String, color: Color) -> MeshInstance3D:
+	if _bomb_debug_nodes.has(key):
+		var existing: Variant = _bomb_debug_nodes[key]
+		if existing is MeshInstance3D and is_instance_valid(existing):
+			return existing
+	var scene_root: Node = get_tree().current_scene if get_tree() else null
+	if scene_root == null:
+		return null
+	var box := BoxMesh.new()
+	box.size = Vector3.ONE
+	var mat := StandardMaterial3D.new()
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.albedo_color = color
+	mat.emission_enabled = true
+	mat.emission = Color(color.r, color.g, color.b, color.a)
+	mat.emission_energy_multiplier = 2.5
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	var node := MeshInstance3D.new()
+	node.name = "BombDebug_%s_%s" % [key, aircraft.name if aircraft else "AI"]
+	node.mesh = box
+	node.material_override = mat
+	scene_root.add_child(node)
+	_bomb_debug_nodes[key] = node
+	return node
+
+func _set_bomb_debug_column(key: String, pos: Vector3, color: Color, footprint_m: float, height_m: float) -> void:
+	var node := _get_bomb_debug_node(key, color)
+	if node == null:
+		return
+	var box := node.mesh as BoxMesh
+	if box:
+		box.size = Vector3(footprint_m, height_m, footprint_m)
+	node.visible = true
+	node.global_transform = Transform3D(Basis.IDENTITY, pos + Vector3.UP * height_m * 0.5)
+
+func _set_bomb_debug_line(key: String, start_pos: Vector3, end_pos: Vector3, color: Color, thickness_m: float) -> void:
+	var node := _get_bomb_debug_node(key, color)
+	if node == null:
+		return
+	var length: float = start_pos.distance_to(end_pos)
+	if length < 1.0:
+		node.visible = false
+		return
+	var box := node.mesh as BoxMesh
+	if box:
+		box.size = Vector3(thickness_m, thickness_m, length)
+	var z_axis: Vector3 = (end_pos - start_pos) / length
+	var x_axis: Vector3 = Vector3.UP.cross(z_axis)
+	if x_axis.length_squared() <= 0.0001:
+		x_axis = Vector3.RIGHT.cross(z_axis)
+	x_axis = x_axis.normalized()
+	var y_axis: Vector3 = z_axis.cross(x_axis).normalized()
+	node.visible = true
+	node.global_transform = Transform3D(Basis(x_axis, y_axis, z_axis).orthonormalized(), start_pos.lerp(end_pos, 0.5))
+
+func _hide_bomb_debug_visuals() -> void:
+	for node_variant in _bomb_debug_nodes.values():
+		if node_variant is Node3D and is_instance_valid(node_variant):
+			(node_variant as Node3D).visible = false
+
+func _clear_bomb_debug_visuals() -> void:
+	for node_variant in _bomb_debug_nodes.values():
+		if node_variant is Node and is_instance_valid(node_variant):
+			(node_variant as Node).queue_free()
+	_bomb_debug_nodes.clear()
+
+func _update_bomb_debug_visuals(
+	aim_pos: Vector3,
+	release_target_pos: Vector3,
+	ccip_impact: Vector3,
+	target_velocity: Vector3,
+	horiz_dist: float,
+	alt_above: float,
+	delta: float
+) -> void:
+	if not debug_enabled:
+		_hide_bomb_debug_visuals()
+		return
+	if bomb_debug_markers_enabled:
+		var marker_height: float = maxf(bomb_debug_marker_height_m, 20.0)
+		var line_thickness: float = maxf(bomb_debug_line_thickness_m, 0.5)
+		_set_bomb_debug_column("Target", release_target_pos, Color(1.0, 0.1, 0.1, 0.35), 12.0, marker_height)
+		_set_bomb_debug_column("Aim", aim_pos, Color(1.0, 0.9, 0.1, 0.32), 8.0, marker_height * 0.55)
+		_set_bomb_debug_line("AircraftToAim", aircraft.global_position, aim_pos, Color(1.0, 0.9, 0.1, 0.45), line_thickness)
+		if ccip_impact != Vector3.ZERO:
+			_set_bomb_debug_column("CCIP", ccip_impact, Color(0.1, 0.7, 1.0, 0.35), 10.0, marker_height)
+			_set_bomb_debug_line("CCIPMiss", ccip_impact + Vector3.UP * 8.0, release_target_pos + Vector3.UP * 8.0, Color(1.0, 0.0, 1.0, 0.55), line_thickness)
+		else:
+			for key in ["CCIP", "CCIPMiss"]:
+				if _bomb_debug_nodes.has(key):
+					var node_variant: Variant = _bomb_debug_nodes[key]
+					if node_variant is Node3D and is_instance_valid(node_variant):
+						(node_variant as Node3D).visible = false
+	else:
+		_hide_bomb_debug_visuals()
+
+	if not bomb_debug_print_enabled:
+		return
+	_bomb_debug_print_timer_s -= delta
+	if _bomb_debug_print_timer_s > 0.0:
+		return
+	_bomb_debug_print_timer_s = maxf(bomb_debug_print_interval_s, 0.1)
+	var ccip_miss: float = Vector2(release_target_pos.x - ccip_impact.x, release_target_pos.z - ccip_impact.z).length() if ccip_impact != Vector3.ZERO else -1.0
+	var release_tolerance_m: float = _get_effective_bomb_release_tolerance_m()
+	var displayed_best_miss: float = _best_bomb_ccip_miss_this_run
+	if ccip_impact != Vector3.ZERO:
+		displayed_best_miss = minf(displayed_best_miss, ccip_miss)
+	var near_best_solution: bool = ccip_impact != Vector3.ZERO and ccip_miss <= displayed_best_miss + maxf(bomb_release_best_miss_slack_m, 0.0)
+	var horiz_speed: float = Vector2(aircraft.linear_velocity.x, aircraft.linear_velocity.z).length()
+	var fpa_deg: float = rad_to_deg(atan2(-aircraft.linear_velocity.y, max(horiz_speed, 1.0)))
+	var bank_deg: float = _get_current_bank_angle_deg()
+	var release_hold_s: float = _get_effective_bomb_release_hold_s()
+	var stable_ready: bool = _release_solution_stable_time_s >= release_hold_s
+	var release_geometry_ok: bool = ccip_impact != Vector3.ZERO \
+		and ccip_miss <= release_tolerance_m \
+		and near_best_solution \
+		and bank_deg <= bomb_release_max_bank_deg \
+		and alt_above <= bomb_release_altitude_window_m \
+		and alt_above >= 5.0 \
+		and horiz_dist >= bomb_release_min_range_m \
+		and fpa_deg >= bomb_min_dive_angle_deg
+	var release_now: bool = release_geometry_ok and stable_ready
+	var release_block: String = "ok"
+	if ccip_impact == Vector3.ZERO:
+		release_block = "no_ccip"
+	elif ccip_miss > release_tolerance_m:
+		release_block = "ccip_miss"
+	elif not near_best_solution:
+		release_block = "past_best"
+	elif bank_deg > bomb_release_max_bank_deg:
+		release_block = "bank"
+	elif alt_above > bomb_release_altitude_window_m:
+		release_block = "high"
+	elif alt_above < 5.0:
+		release_block = "low"
+	elif horiz_dist < bomb_release_min_range_m:
+		release_block = "close"
+	elif fpa_deg < bomb_min_dive_angle_deg:
+		release_block = "shallow"
+	elif not stable_ready:
+		release_block = "hold"
+	var aim_err_deg: float = 0.0
+	var to_aim: Vector3 = aim_pos - aircraft.global_position
+	if to_aim.length_squared() > 1.0:
+		aim_err_deg = rad_to_deg(acos(clampf(aircraft.global_transform.basis.z.normalized().dot(to_aim.normalized()), -1.0, 1.0)))
+	var miss_forward_m: float = 0.0
+	var miss_side_m: float = 0.0
+	if ccip_impact != Vector3.ZERO:
+		var miss_vec: Vector3 = Vector3(release_target_pos.x - ccip_impact.x, 0.0, release_target_pos.z - ccip_impact.z)
+		var forward_ref: Vector3 = Vector3(target_velocity.x, 0.0, target_velocity.z)
+		if forward_ref.length_squared() <= 0.01:
+			forward_ref = Vector3(aircraft.global_transform.basis.z.x, 0.0, aircraft.global_transform.basis.z.z)
+		forward_ref = forward_ref.normalized() if forward_ref.length_squared() > 0.01 else Vector3.FORWARD
+		var right_ref: Vector3 = Vector3.UP.cross(forward_ref).normalized()
+		miss_forward_m = miss_vec.dot(forward_ref)
+		miss_side_m = miss_vec.dot(right_ref)
+	print("[AIPilot BOMBDBG] %s hdist=%.0fm alt=%.0fm fpa=%.1fdeg bank=%.1fdeg aim_err=%.1fdeg ccip=%s miss=%.0fm best=%.0fm tol=%.0fm fwd=%.0fm side=%.0fm release=%s block=%s stable=%.2fs hold=%.2fs tof=%.2fs target_vel=%.1f" % [
+		aircraft.name if aircraft else "AI",
+		horiz_dist,
+		alt_above,
+		fpa_deg,
+		bank_deg,
+		aim_err_deg,
+		str(ccip_impact != Vector3.ZERO),
+		ccip_miss,
+		displayed_best_miss,
+		release_tolerance_m,
+		miss_forward_m,
+		miss_side_m,
+		str(release_now),
+		release_block,
+		_release_solution_stable_time_s,
+		release_hold_s,
+		_ccip_cached_tof_s,
+		target_velocity.length()
+	])
+
 func _apply_turn_controls(desired_pitch: float, desired_roll: float, delta: float):
 	"""Apply control inputs to execute a coordinated turn"""
 
@@ -4001,8 +4848,8 @@ func _apply_turn_controls(desired_pitch: float, desired_roll: float, delta: floa
 	if debug_enabled and verbose_debug_enabled and Engine.get_process_frames() % 60 == 0:
 		var current_alt = aircraft.global_position.y
 		var vertical_speed = aircraft.linear_velocity.y
-		print("[AIPilot TURN] Bank: ", snapped(rad_to_deg(current_roll), 0.1), "Ãƒâ€šÃ‚Â° Pitch: ", snapped(rad_to_deg(current_pitch), 0.1),
-			  "Ãƒâ€šÃ‚Â° Alt: ", snapped(current_alt, 0.1), " VS: ", snapped(vertical_speed, 0.1))
+		print("[AIPilot TURN] Bank: ", snapped(rad_to_deg(current_roll), 0.1), "ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â° Pitch: ", snapped(rad_to_deg(current_pitch), 0.1),
+			  "ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â° Alt: ", snapped(current_alt, 0.1), " VS: ", snapped(vertical_speed, 0.1))
 
 func _navigate_to_altitude_and_speed(delta: float):
 	"""Navigate to target altitude and speed (waypoint-based)"""
@@ -4129,12 +4976,12 @@ func _check_terrain_avoidance(_delta: float) -> bool:
 	var lateral_is_better: bool = best_clearance > forward_clearance + lateral_advantage_margin and best_idx != 2
 
 	if lateral_is_better and not emergency_escape and altitude_agl > emergency_min_agl_m + 40.0:
-		# A lateral direction has more clearance — full bank toward it.
+		# A lateral direction has more clearance â€” full bank toward it.
 		var bank_sign: float = signf(escape_angle_deg)
 		roll_input = bank_sign * 0.9
 		pitch_input = 0.95
 	else:
-		# No good lateral escape — wings level, full pull up.
+		# No good lateral escape â€” wings level, full pull up.
 		roll_input = 0.0
 		pitch_input = 1.0
 
@@ -4150,10 +4997,23 @@ func _check_terrain_avoidance(_delta: float) -> bool:
 		_attack_recovery_until_s = maxf(_attack_recovery_until_s, Time.get_ticks_msec() / 1000.0 + 4.0)
 		change_state(State.ATTACK_BREAK_OFF)
 
-	if debug_enabled and Engine.get_process_frames() % 30 == 0:
+	if debug_enabled and verbose_debug_enabled and Engine.get_process_frames() % 30 == 0:
 		var action: String = ("TURN %.0f deg" % escape_angle_deg) if lateral_is_better else "CLIMB"
-		print("[AIPilot TERRAIN] AGL=%.0fm fwd_clr=%.0fm need=%.0fm tti=%.1fs best_dir=%.0f° best_clr=%.0fm — %s" % [
+		print("[AIPilot TERRAIN] AGL=%.0fm fwd_clr=%.0fm need=%.0fm tti=%.1fs best_dir=%.0fÂ° best_clr=%.0fm â€” %s" % [
 			altitude_agl, forward_clearance, dynamic_margin, tti, escape_angle_deg, best_clearance, action])
+	return true
+
+func _should_run_collision_avoidance(delta: float) -> bool:
+	if current_state in [State.LAUNCHING, State.LANDING, State.IDLE]:
+		_collision_avoidance_timer_s = 0.0
+		return false
+	_collision_avoidance_timer_s -= delta
+	if _collision_avoidance_timer_s > 0.0:
+		return false
+	var interval_s: float = maxf(collision_avoidance_interval_s, 0.02)
+	if current_state in [State.ATTACK_DIVE, State.DOGFIGHT]:
+		interval_s *= 0.5
+	_collision_avoidance_timer_s = interval_s
 	return true
 
 func _check_collision_avoidance(_delta: float) -> bool:
@@ -4177,15 +5037,14 @@ func _check_collision_avoidance(_delta: float) -> bool:
 	all_contacts.append_array(known_friendlies)
 
 	for contact in all_contacts:
-		if not (contact is Node3D) or not is_instance_valid(contact):
+		if not is_instance_valid(contact) or not (contact is Node3D):
 			continue
 		var cnode := contact as Node3D
 		# Only worry about things near our altitude (skip ground vehicles etc)
 		if absf(cnode.global_position.y - my_pos.y) > 200.0:
 			continue
 		var rel_pos: Vector3 = cnode.global_position - my_pos
-		var dist: float = rel_pos.length()
-		if dist > 400.0:
+		if rel_pos.length_squared() > 160000.0:
 			continue
 		# Get contact velocity
 		var contact_vel := Vector3.ZERO
@@ -4207,7 +5066,8 @@ func _check_collision_avoidance(_delta: float) -> bool:
 		# Miss distance at closest approach
 		var miss_vec: Vector3 = rel_pos + rel_vel * tca
 		var miss_dist: float = miss_vec.length()
-		if miss_dist < 80.0 and tca < closest_tca:
+		var coll_miss_threshold: float = 25.0 if current_state == State.ATTACK_DIVE else 80.0
+		if miss_dist < coll_miss_threshold and tca < closest_tca:
 			closest_tca = tca
 			closest_miss = miss_dist
 			closest_threat = cnode
@@ -4226,7 +5086,7 @@ func _check_collision_avoidance(_delta: float) -> bool:
 	var right: Vector3 = aircraft.global_transform.basis.x
 	var bank_sign: float = signf(away_horiz.dot(right))
 
-	# Proportional evasion — firm but not violent, so formation flight is possible
+	# Proportional evasion â€” firm but not violent, so formation flight is possible
 	var urgency: float = clampf(1.0 - closest_tca / 3.0, 0.3, 0.7)
 	roll_input = bank_sign * urgency
 	pitch_input = 0.3 * urgency
@@ -4236,8 +5096,8 @@ func _check_collision_avoidance(_delta: float) -> bool:
 	_smoothed_pitch_input = pitch_input
 	_smoothed_yaw_input = 0.0
 
-	if debug_enabled and Engine.get_process_frames() % 30 == 0:
-		print("[AIPilot COLLISION] threat=%s tca=%.1fs miss=%.0fm — EVADING" % [
+	if debug_enabled and verbose_debug_enabled and Engine.get_process_frames() % 30 == 0:
+		print("[AIPilot COLLISION] threat=%s tca=%.1fs miss=%.0fm â€” EVADING" % [
 			closest_threat.name, closest_tca, closest_miss])
 	return true
 
@@ -4254,32 +5114,90 @@ func _apply_controls():
 	if control_engine and control_engine.has_method("set_target_power"):
 		control_engine.set_target_power(throttle_input)
 
+func _update_ai_checkin(delta: float) -> void:
+	if not ai_checkin_enabled or not aircraft:
+		return
+	_ai_checkin_timer -= delta
+	if _ai_checkin_timer > 0.0:
+		return
+	_ai_checkin_timer = ai_checkin_interval_s
+
+	var state_name: String = State.keys()[current_state]
+	var pos: Vector3 = snapped(aircraft.global_position, Vector3.ONE)
+	var spd: float = snapped(aircraft.linear_velocity.length(), 1.0)
+
+	# Enemies in sensor range â€” list names, cap at 4
+	var enemy_names: Array[String] = []
+	for e in known_enemies:
+		if is_instance_valid(e):
+			enemy_names.append(e.name)
+		if enemy_names.size() >= 4:
+			break
+	var enemy_str: String = "%d [%s]" % [known_enemies.size(), ", ".join(enemy_names)] if not enemy_names.is_empty() else "0"
+
+	# Current target
+	var target_str: String = combat_target.name if combat_target and is_instance_valid(combat_target) else "none"
+
+	# Weapon readiness
+	var bombs: int = _count_ready_bombs()
+	var rockets: int = _count_ready_rockets()
+	var bomb_ammo: int = _get_total_bomb_ammo()
+	var rocket_ammo: int = _get_total_rocket_ammo()
+	var weapon_str: String = _run_weapon_type if not _run_weapon_type.is_empty() else "none"
+
+	# Health
+	var hp_str: String = "%.0f%%" % (_get_health_fraction() * 100.0) if _get_health_fraction() >= 0.0 else "?"
+
+	print("[CHECKIN] %s  state=%-22s pos=(%d,%d,%d)  spd=%.0fm/s  AGL=%.0f" % [
+		aircraft.name, state_name, pos.x, pos.y, pos.z, spd, altitude_agl])
+	print("          target=%-20s enemies=%s" % [target_str, enemy_str])
+	print("          weapon=%-12s bombs=%d(x%d)  rockets=%d(x%d)  health=%s  prev_failed_bomb=%s" % [
+		weapon_str, bombs, bomb_ammo, rockets, rocket_ammo, hp_str, str(_prev_run_was_failed_bomb)])
+
+
 func _emit_player_debug_telemetry(delta: float) -> void:
 	if not debug_enabled or aircraft == null:
 		return
-	if Engine.get_process_frames() % 30 == 0:
-		var spd: float = aircraft.linear_velocity.length()
-		var alt: float = aircraft.global_position.y
-		var vs: float = aircraft.linear_velocity.y
-		var pitch_deg: float = rad_to_deg(_get_forward_pitch_rad())
-		var h_spd: float = Vector2(aircraft.linear_velocity.x, aircraft.linear_velocity.z).length()
-		var fpa_deg: float = rad_to_deg(atan2(-aircraft.linear_velocity.y, max(h_spd, 1.0)))
-		var pos: Vector3 = aircraft.global_position
-		var player_pitch_cmd: float = 0.0
-		var est_lift_ratio: float = 0.0
-		var est_aoa_deg: float = 0.0
-		if simple_aero:
-			if "pitch_input" in simple_aero:
-				player_pitch_cmd = float(simple_aero.pitch_input)
-			if simple_aero.has_method("get_estimated_lift_ratio"):
-				est_lift_ratio = float(simple_aero.call("get_estimated_lift_ratio"))
-			if simple_aero.has_method("get_estimated_angle_of_attack_deg"):
-				est_aoa_deg = float(simple_aero.call("get_estimated_angle_of_attack_deg"))
-		print("[AIPilot TEL] state=PLAYER  [PLAYER]  pos=(", snapped(pos.x, 1), ",", snapped(pos.y, 1), ",", snapped(pos.z, 1), ")  alt=", snapped(alt, 1), "  AGL=", snapped(altitude_agl, 1), "  spd=", snapped(spd, 1), "m/s  VS=", snapped(vs, 1), "  pitch=", snapped(pitch_deg, 0.1), "ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â°  fpa=", snapped(fpa_deg, 0.1), "ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â°  cmdP=", snapped(player_pitch_cmd, 0.01), "  aoa=", snapped(est_aoa_deg, 0.1), "ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â°  liftRatio=", snapped(est_lift_ratio, 0.01))
-	_debug_flight_path_alignment(delta, "PLAYER")
+	_player_periodic_debug_timer_s -= delta
+	if _player_periodic_debug_timer_s > 0.0:
+		if verbose_debug_enabled:
+			_debug_flight_path_alignment(delta, "PLAYER")
+		return
+	_player_periodic_debug_timer_s = maxf(general_debug_summary_interval_s, 0.25)
+	var spd: float = aircraft.linear_velocity.length()
+	var pos: Vector3 = aircraft.global_position
+	var vs: float = aircraft.linear_velocity.y
+	var pitch_deg: float = rad_to_deg(_get_forward_pitch_rad())
+	var h_spd: float = Vector2(aircraft.linear_velocity.x, aircraft.linear_velocity.z).length()
+	var fpa_deg: float = rad_to_deg(atan2(-aircraft.linear_velocity.y, max(h_spd, 1.0)))
+	var player_pitch_cmd: float = 0.0
+	var est_lift_ratio: float = 0.0
+	var est_aoa_deg: float = 0.0
+	if simple_aero:
+		if "pitch_input" in simple_aero:
+			player_pitch_cmd = float(simple_aero.pitch_input)
+		if simple_aero.has_method("get_estimated_lift_ratio"):
+			est_lift_ratio = float(simple_aero.call("get_estimated_lift_ratio"))
+		if simple_aero.has_method("get_estimated_angle_of_attack_deg"):
+			est_aoa_deg = float(simple_aero.call("get_estimated_angle_of_attack_deg"))
+	print("[AIPilot STATUS] PLAYER pos=(%.0f,%.0f,%.0f) AGL=%.0f spd=%.1f VS=%.1f pitch=%.1fdeg fpa=%.1fdeg cmdP=%.2f aoa=%.1fdeg lift=%.2f" % [
+		pos.x,
+		pos.y,
+		pos.z,
+		altitude_agl,
+		spd,
+		vs,
+		pitch_deg,
+		fpa_deg,
+		player_pitch_cmd,
+		est_aoa_deg,
+		est_lift_ratio
+	])
+	if verbose_debug_enabled:
+		_debug_flight_path_alignment(delta, "PLAYER")
 
 func _debug_flight_path_alignment(delta: float, state_override: String = "") -> void:
-	if not debug_enabled or not flight_path_alignment_debug_enabled or aircraft == null:
+	if not debug_enabled or not verbose_debug_enabled or not flight_path_alignment_debug_enabled or aircraft == null:
 		return
 	if not _is_airborne():
 		_flight_path_alignment_debug_timer_s = 0.0
@@ -4289,7 +5207,8 @@ func _debug_flight_path_alignment(delta: float, state_override: String = "") -> 
 	if speed < maxf(flight_path_alignment_debug_min_speed_mps, 1.0):
 		return
 	_flight_path_alignment_debug_timer_s += delta
-	if _flight_path_alignment_debug_timer_s < maxf(flight_path_alignment_debug_interval_s, 0.25):
+	var debug_interval_s: float = maxf(flight_path_alignment_debug_interval_s, _get_debug_summary_interval_s())
+	if _flight_path_alignment_debug_timer_s < maxf(debug_interval_s, 0.25):
 		return
 	_flight_path_alignment_debug_timer_s = 0.0
 
@@ -4321,7 +5240,7 @@ func _is_airborne() -> bool:
 	# Simple check: altitude > 5m and speed > 30 m/s
 	return aircraft.global_position.y > 5.0 and aircraft.linear_velocity.length() > 30.0
 
-func _update_sensors():
+func _update_sensors(delta: float):
 	"""Update AI's limited view of the world"""
 	_terrain_check_counter += 1
 	var dynamic_terrain_interval: int = max(terrain_check_interval, 1)
@@ -4332,7 +5251,7 @@ func _update_sensors():
 		dynamic_terrain_interval = min(dynamic_terrain_interval, 2)
 	var run_terrain_checks: bool = (_terrain_check_counter % dynamic_terrain_interval) == 0
 
-	# Update smoothed ground height and AGL every frame (cheap — uses cached terrain node)
+	# Update smoothed ground height and AGL every frame (cheap â€” uses cached terrain node)
 	var gh: float = _get_ground_height_at_position(aircraft.global_position)
 	if not is_nan(gh):
 		if is_nan(_smoothed_ground_height):
@@ -4343,13 +5262,20 @@ func _update_sensors():
 	# Update altitude above ground
 	_update_agl()
 
-	# Terrain-ahead and fan checks are expensive (many noise evals) — throttle to ~20 Hz
+	# Terrain-ahead and fan checks are expensive (many noise evals) â€” throttle to ~20 Hz
 	if run_terrain_checks:
 		_check_terrain_ahead()
 		_evaluate_terrain_fan()
 
-	# Scan for enemies and friendlies within sensor range
-	_scan_contacts()
+	# Contact filtering walks every cached sensor contact, so run it on a short timer
+	# instead of every physics frame. Dogfights and attack runs keep a snappier cadence.
+	_contact_scan_timer_s -= delta
+	if _contact_scan_timer_s <= 0.0:
+		var scan_interval_s: float = maxf(contact_scan_interval_s, 0.03)
+		if current_state in [State.DOGFIGHT, State.ATTACK_POSITIONING, State.ATTACK_INBOUND, State.ATTACK_DIVE, State.ATTACK_BREAK_OFF]:
+			scan_interval_s *= 0.5
+		_contact_scan_timer_s = scan_interval_s
+		_scan_contacts()
 
 func _update_agl():
 	"""Raycast down to find altitude above ground"""
@@ -4464,14 +5390,36 @@ func _sample_max_terrain_height_along_path(from_pos: Vector3, to_pos: Vector3, n
 func _get_attack_setup_altitude_m(target_pos: Vector3, terrain_max: float = NAN) -> float:
 	var setup_altitude_m: float = patrol_altitude_m
 	if _run_weapon_type == "Bomb":
-		setup_altitude_m = maxf(setup_altitude_m, target_pos.y + bomb_run_setup_altitude_offset_m)
+		setup_altitude_m = target_pos.y + bomb_run_setup_altitude_offset_m
 		if not is_nan(terrain_max):
 			setup_altitude_m = maxf(setup_altitude_m, terrain_max + bomb_run_setup_altitude_offset_m)
+		var max_bomb_setup_altitude: float = target_pos.y + maxf(bomb_run_setup_max_altitude_offset_m, bomb_run_setup_altitude_offset_m)
+		if not is_nan(terrain_max):
+			max_bomb_setup_altitude = maxf(max_bomb_setup_altitude, terrain_max + 220.0)
+		setup_altitude_m = minf(setup_altitude_m, max_bomb_setup_altitude)
+	elif _run_weapon_type == "Rocket Pod":
+		setup_altitude_m = maxf(setup_altitude_m, target_pos.y + rocket_run_altitude_offset_m)
+		if not is_nan(terrain_max):
+			setup_altitude_m = maxf(setup_altitude_m, terrain_max + rocket_run_altitude_offset_m)
 	else:
 		setup_altitude_m = maxf(setup_altitude_m, target_pos.y + attack_run_altitude_offset_m)
 		if not is_nan(terrain_max):
 			setup_altitude_m = maxf(setup_altitude_m, terrain_max + attack_run_altitude_offset_m)
 	return setup_altitude_m
+
+func _get_attack_setup_distance_m() -> float:
+	if _run_weapon_type == "Bomb":
+		return bomb_run_setup_distance_m
+	if _run_weapon_type == "Rocket Pod":
+		return rocket_run_setup_distance_m
+	return attack_run_distance_m
+
+func _get_attack_pull_up_distance_m() -> float:
+	if _run_weapon_type == "Bomb":
+		return bomb_pull_up_distance_m
+	if _run_weapon_type == "Rocket Pod":
+		return rocket_pull_up_distance_m
+	return attack_pull_up_distance_m
 
 func _terrain_safe_altitude_for_segment(from_pos: Vector3, to_pos: Vector3, requested_altitude_m: float, minimum_agl_m: float) -> float:
 	var safe_altitude_m: float = requested_altitude_m
@@ -4503,6 +5451,7 @@ func _scan_contacts():
 	if my_team != 1:
 		hostile_groups = ["friendlies", "aircraft", "ai_aircraft", "carrier", "ground_vehicles"]
 		friendly_groups = ["enemies", "ai_aircraft", "ground_vehicles"]
+	var sensor_range_sq: float = sensor_range * sensor_range
 
 	# Update cached group nodes periodically
 	if sensor_update_counter % sensor_update_interval == 0:
@@ -4520,8 +5469,8 @@ func _scan_contacts():
 		if node.has_method("get_team") and int(node.get_team()) == my_team:
 			continue
 		var enemy_node := node as Node3D
-		var distance: float = aircraft.global_position.distance_to(enemy_node.global_position)
-		if distance <= sensor_range and not known_enemies.has(enemy_node):
+		var distance_sq: float = aircraft.global_position.distance_squared_to(enemy_node.global_position)
+		if distance_sq <= sensor_range_sq and not known_enemies.has(enemy_node):
 			known_enemies.append(enemy_node)
 
 	# Scan cached friendly nodes
@@ -4531,9 +5480,21 @@ func _scan_contacts():
 		if node.has_method("get_team") and int(node.get_team()) != my_team:
 			continue
 		var friendly_node := node as Node3D
-		var distance: float = aircraft.global_position.distance_to(friendly_node.global_position)
-		if distance <= sensor_range and not known_friendlies.has(friendly_node):
+		var distance_sq: float = aircraft.global_position.distance_squared_to(friendly_node.global_position)
+		if distance_sq <= sensor_range_sq and not known_friendlies.has(friendly_node):
 			known_friendlies.append(friendly_node)
+
+func _should_run_rtb_check(delta: float) -> bool:
+	if rtb_health_threshold <= 0.0 and rtb_fuel_threshold <= 0.0:
+		return false
+	if current_state in [State.RTB, State.APPROACH, State.LANDING, State.MISSED_APPROACH]:
+		_rtb_check_timer_s = maxf(_rtb_check_timer_s, rtb_check_interval_s)
+		return false
+	_rtb_check_timer_s -= delta
+	if _rtb_check_timer_s > 0.0:
+		return false
+	_rtb_check_timer_s = maxf(rtb_check_interval_s, 0.1)
+	return true
 
 func _check_rtb_triggers():
 	"""Monitor health and fuel, trigger RTB if critical"""
@@ -4640,7 +5601,7 @@ func _setup_patrol_waypoints():
 	current_waypoint_index = 0
 	waypoints_follow_carrier = true
 
-	var half: float = 1000.0  # half-side → 2 km sides
+	var half: float = 1000.0  # half-side â†’ 2 km sides
 	var patrol_points: Array[Vector3] = [
 		carrier_position + Vector3( half, 0.0,  half),
 		carrier_position + Vector3(-half, 0.0,  half),
@@ -4700,8 +5661,18 @@ func _refresh_carrier_position(shift_patrol_waypoints: bool) -> void:
 
 func change_state(new_state: State):
 	"""Change AI state with logging"""
-	if debug_enabled and verbose_debug_enabled:
-		print("[AIPilot] State change: ", State.keys()[current_state], " -> ", State.keys()[new_state])
+	if debug_enabled and current_state != new_state:
+		var target_name: String = combat_target.name if combat_target and is_instance_valid(combat_target) else "-"
+		print("[AIPilot STATE] %s %s -> %s target=%s weapon=%s" % [
+			aircraft.name if aircraft else "AI",
+			State.keys()[current_state],
+			State.keys()[new_state],
+			target_name,
+			_run_weapon_type
+		])
+		_periodic_debug_timer_s = 0.0
+	if current_state != new_state:
+		_reset_release_solution_stability()
 	if current_state == State.DOGFIGHT and new_state != State.DOGFIGHT:
 		_dogfight_burst_active = false
 		_dogfight_burst_timer_s = 0.0
@@ -4721,7 +5692,10 @@ func change_state(new_state: State):
 		_stop_firing()
 	if new_state == State.ATTACK_DIVE:
 		_dive_entry_time_s = Time.get_ticks_msec() / 1000.0
-	elif new_state == State.DOGFIGHT:
+		_best_bomb_ccip_miss_this_run = INF
+	if current_state == State.ATTACK_DIVE and new_state != State.ATTACK_DIVE:
+		_hide_bomb_debug_visuals()
+	if new_state == State.DOGFIGHT:
 		_dogfight_retarget_timer_s = 0.0
 		_dogfight_weapon_commit_timer_s = 0.0
 		_dogfight_active_missile = null
@@ -4914,18 +5888,26 @@ func add_waypoint(waypoint: Vector3):
 	"""Add waypoint to list"""
 	waypoints.append(waypoint)
 
-func set_target(target: Node3D):
+func set_target(target: Variant):
 	"""Set combat target and engage"""
-	combat_target = target
-	if target and _is_enemy_aircraft_target(target):
+	if target == null or not is_instance_valid(target):
+		combat_target = null
+		change_state(State.SEARCH)
+		return
+	var ground_target: Node3D = _sanitize_ground_attack_target(target)
+	if _is_enemy_aircraft_target(target):
+		combat_target = target as Node3D
 		change_state(State.DOGFIGHT)
-	elif target and _is_valid_ground_attack_target(target) and ground_attack_enabled:
+	elif ground_target and _is_valid_ground_attack_target(ground_target) and ground_attack_enabled:
+		combat_target = ground_target
 		_setup_attack_run_waypoint()
 		change_state(State.ATTACK_POSITIONING)
 	else:
+		combat_target = target as Node3D if target is Node3D else null
 		change_state(State.ENGAGE)
 
-func _get_surface_target_position(target: Node3D) -> Vector3:
+func _get_surface_target_position(target: Variant) -> Vector3:
+	target = _sanitize_ground_attack_target(target)
 	if not target or not is_instance_valid(target):
 		return aircraft.global_position
 	var collision_shape: CollisionShape3D = _find_target_collision_shape(target)
@@ -4951,14 +5933,29 @@ func _get_shape_vertical_half_extent(collision_shape: CollisionShape3D) -> float
 		return 1.2
 	var shape: Shape3D = collision_shape.shape
 	if shape is BoxShape3D:
-		return (shape as BoxShape3D).size.y * 0.5
+		var box: BoxShape3D = shape as BoxShape3D
+		var half_size: Vector3 = box.size * 0.5
+		var basis: Basis = collision_shape.global_transform.basis
+		var max_y: float = 0.0
+		for x_sign in [-1.0, 1.0]:
+			for y_sign in [-1.0, 1.0]:
+				for z_sign in [-1.0, 1.0]:
+					var local_corner := Vector3(half_size.x * x_sign, half_size.y * y_sign, half_size.z * z_sign)
+					max_y = maxf(max_y, absf((basis * local_corner).y))
+		return max_y
 	if shape is CapsuleShape3D:
 		var capsule: CapsuleShape3D = shape as CapsuleShape3D
-		return capsule.height * 0.5 + capsule.radius
+		var capsule_scale_vec: Vector3 = collision_shape.global_transform.basis.get_scale().abs()
+		var capsule_scale: float = maxf(capsule_scale_vec.x, maxf(capsule_scale_vec.y, capsule_scale_vec.z))
+		return (capsule.height * 0.5 + capsule.radius) * maxf(capsule_scale, 0.001)
 	if shape is SphereShape3D:
-		return (shape as SphereShape3D).radius
+		var sphere_scale_vec: Vector3 = collision_shape.global_transform.basis.get_scale().abs()
+		var sphere_scale: float = maxf(sphere_scale_vec.x, maxf(sphere_scale_vec.y, sphere_scale_vec.z))
+		return (shape as SphereShape3D).radius * maxf(sphere_scale, 0.001)
 	if shape is CylinderShape3D:
-		return (shape as CylinderShape3D).height * 0.5
+		var cylinder_scale_vec: Vector3 = collision_shape.global_transform.basis.get_scale().abs()
+		var cylinder_scale: float = maxf(cylinder_scale_vec.x, maxf(cylinder_scale_vec.y, cylinder_scale_vec.z))
+		return (shape as CylinderShape3D).height * 0.5 * maxf(cylinder_scale, 0.001)
 	return 1.2
 
 func set_target_altitude(meters: float) -> void:

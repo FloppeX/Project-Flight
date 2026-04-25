@@ -40,7 +40,7 @@ const SUPPORT_SAMPLE_DIRECTIONS := [
 ## 15 m keeps rocks well clear of quantized cliff edges.
 @export var support_check_margin_m: float = 15.0
 ## Maximum allowed terrain drop around a placed rock before it is rejected.
-@export var max_support_drop_m: float = 0.9
+@export var max_support_drop_m: float = 12.0
 @export var preload_margin_m: float = 100.0
 ## Minimum cell movement before rebuilding the rock set
 @export var cells_threshold: int = 2
@@ -56,6 +56,7 @@ var _rock_local_height: float = 0.0
 var _rock_local_planform_radius: float = 0.5
 
 func _ready() -> void:
+	add_to_group("origin_shifter")
 	_mmi = MultiMeshInstance3D.new()
 	add_child(_mmi)
 	_mm = MultiMesh.new()
@@ -70,6 +71,10 @@ func _ready() -> void:
 	_cache_rock_bounds()
 	# Terrain lookup — find via group set in LowPolyTerrain._ready()
 	_terrain = get_tree().get_first_node_in_group("terrain_provider") as LowPolyTerrain
+
+func apply_origin_shift(_offset: Vector3) -> void:
+	# Force a full rebuild on the next _process — the camera's cell will have changed
+	_last_center_cell = Vector2i(1_000_000, 1_000_000)
 
 func _process(_delta: float) -> void:
 	if _terrain == null:
@@ -113,6 +118,7 @@ func _rebuild(center: Vector3) -> void:
 	var transforms: Array[Transform3D] = []
 	transforms.resize(max_instances)
 	var count := 0
+	var _dbg_nan := 0; var _dbg_slope := 0; var _dbg_support := 0; var _dbg_density := 0
 
 	for gx in range(-eff_cells_radius, eff_cells_radius + 1):
 		for gz in range(-eff_cells_radius, eff_cells_radius + 1):
@@ -127,7 +133,7 @@ func _rebuild(center: Vector3) -> void:
 			var h_val := _hash2i(int(world_x / cell_size_m), int(world_z / cell_size_m)) ^ seed
 			rng.seed = h_val
 			if rng.randf() > density_per_cell:
-				continue
+				_dbg_density += 1; continue
 
 			# Random offset within cell for organic scatter
 			var offx := rng.randf_range(-cell_size_m * 0.45, cell_size_m * 0.45)
@@ -141,7 +147,7 @@ func _rebuild(center: Vector3) -> void:
 			# Height lookup directly from terrain — no raycasts needed
 			var h: float = _terrain.get_height(Vector3(px, 0.0, pz))
 			if is_nan(h):
-				continue  # Outside terrain bounds
+				_dbg_nan += 1; continue  # Outside terrain bounds
 
 			# Slope check via central neighbouring samples so one-sided cliffs and
 			# rim transitions are rejected more reliably.
@@ -154,7 +160,7 @@ func _rebuild(center: Vector3) -> void:
 			var slope_x: float = abs(hx_pos - hx_neg) / maxf(slope_sample_m * 2.0, 0.001)
 			var slope_z: float = abs(hz_pos - hz_neg) / maxf(slope_sample_m * 2.0, 0.001)
 			if maxf(slope_x, slope_z) > max_slope_tan:
-				continue  # Too steep — cliff face, no rocks
+				_dbg_slope += 1; continue  # Too steep — cliff face, no rocks
 
 			# Also reject placements that sit near a sharp edge within the rock's
 			# footprint, otherwise the center point can be grounded while the mesh
@@ -175,17 +181,22 @@ func _rebuild(center: Vector3) -> void:
 			if not support_valid:
 				continue
 			if h - min_support_h > max_support_drop_m:
-				continue
+				_dbg_support += 1; continue
 
 			var basis := Basis().rotated(Vector3.UP, yaw).scaled(Vector3(s, s, s))
 			var embed: float = embed_depth_m + _rock_local_height * s * embed_depth_fraction_of_height
 			var rock_y: float = h - _rock_local_min_y * s - embed
-			transforms[count] = Transform3D(basis, Vector3(px, rock_y, pz))
+			# Store in RockStream local space so the MultiMesh stays correct after origin shifts
+			var local_pos := Vector3(px, rock_y, pz) - global_position
+			transforms[count] = Transform3D(basis, local_pos)
 			count += 1
 			if count >= max_instances:
 				break
 		if count >= max_instances:
 			break
+
+	print("[RockStream] placed=%d  nan=%d  density=%d  slope=%d  support=%d  terrain_null=%s" % [
+		count, _dbg_nan, _dbg_density, _dbg_slope, _dbg_support, str(_terrain == null)])
 
 	# Build into a fresh MultiMesh and swap atomically — avoids a one-frame
 	# flash to world-origin that happens when setting instance_count in-place.
