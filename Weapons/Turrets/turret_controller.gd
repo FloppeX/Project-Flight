@@ -23,6 +23,10 @@ const PROJECTILE_SPEED_CAP_SETTING_KEYS: Array = [
 @export var distant_target_search_interval_s: float = 1.0
 @export var detailed_targeting_distance_m: float = 1000.0
 @export var target_aim_height_bias_m: float = 0.75
+@export var aim_solution_update_interval_s: float = 0.05
+@export var distant_aim_solution_update_interval_s: float = 0.12
+@export var line_of_sight_check_interval_s: float = 0.12
+@export var distant_line_of_sight_check_interval_s: float = 0.35
 @export_group("Air Target Penalties")
 @export var air_target_range_multiplier: float = 1.0
 @export var air_target_aim_skill_multiplier: float = 1.0
@@ -76,6 +80,14 @@ var _last_target_position: Vector3 = Vector3.ZERO
 var _last_target_position_valid: bool = false
 var _projectile_speed_cap_cached: bool = false
 var _projectile_speed_cap_mps: float = INF
+var _line_of_sight_timer: float = 0.0
+var _cached_has_line_of_sight: bool = false
+var _cached_line_of_sight_target: Node3D = null
+var _cached_line_of_sight_aim_point: Vector3 = Vector3.ZERO
+var _aim_solution_timer: float = 0.0
+var _aim_solution_velocity_delta_s: float = 0.0
+var _cached_lead_position: Vector3 = Vector3.ZERO
+var _cached_lead_position_valid: bool = false
 
 func _ready() -> void:
     if not turret:
@@ -95,6 +107,12 @@ func _ready() -> void:
 
     if weapon_scene:
         mount_weapon(weapon_scene)
+
+    # Stagger recurring scans across instances so turret fields do not all query
+    # targets and LOS on the same physics frame.
+    target_search_timer = randf_range(0.0, maxf(_get_effective_target_search_interval(0.0), 0.05))
+    _line_of_sight_timer = randf_range(0.0, maxf(line_of_sight_check_interval_s, 0.05))
+    _aim_solution_timer = randf_range(0.0, maxf(aim_solution_update_interval_s, 0.02))
 
 func mount_weapon(scene: PackedScene) -> void:
     if weapon_instance:
@@ -151,24 +169,9 @@ func _physics_process(delta: float) -> void:
     # 2. Target Tracking + Rotation
     if current_target and is_instance_valid(current_target):
         turret.set_target(current_target)
-        # Estimate actual world-space target velocity from position deltas (with
-        # fallback to reported linear_velocity/velocity). This avoids wrappers
-        # or stale properties causing systematic under-lead.
-        var cur_target_vel: Vector3 = _get_effective_target_velocity(current_target, delta)
-        _current_target_velocity = cur_target_vel
-        _current_target_velocity_valid = true
 
-        # Update acceleration estimate from velocity changes between frames.
-        if _accel_tracking_active:
-            var raw_accel: Vector3 = (cur_target_vel - _prev_target_velocity) / maxf(delta, 0.001)
-            # Smooth to avoid jitter from single-frame spikes.
-            _target_acceleration = _target_acceleration.lerp(raw_accel, clampf(4.0 * delta, 0.0, 1.0))
-        else:
-            _accel_tracking_active = true
-            _target_acceleration = Vector3.ZERO
-        _prev_target_velocity = cur_target_vel
-
-        var lead_position: Vector3 = calculate_lead_position(current_target)
+        var target_aim_point: Vector3 = _get_target_aim_point(current_target)
+        var lead_position: Vector3 = _get_cached_lead_position(delta, current_target, target_aim_point)
         var within_fire_arc: bool = true
         if turret and is_instance_valid(turret):
             within_fire_arc = turret.is_point_within_yaw_arc(lead_position)
@@ -179,9 +182,8 @@ func _physics_process(delta: float) -> void:
 
         var aim_angle := turret.get_aim_angle_to_target()
         var aimed := aim_angle >= 0.0 and aim_angle <= _get_effective_fire_angle_tolerance_deg(current_target)
-        var has_line_of_sight: bool = _has_line_of_sight_to_aim_point(lead_position, current_target)
+        var has_line_of_sight: bool = _get_cached_line_of_sight(delta, lead_position, current_target)
         var aim_origin: Vector3 = _get_aim_origin()
-        var target_aim_point: Vector3 = _get_target_aim_point(current_target)
         var target_distance_m: float = aim_origin.distance_to(target_aim_point)
         var effective_range_m: float = _get_effective_range_for_target(current_target)
         var in_range: bool = target_distance_m <= effective_range_m
@@ -348,6 +350,88 @@ func _reset_target_motion_tracking() -> void:
     _measured_target_velocity = Vector3.ZERO
     _last_target_position = Vector3.ZERO
     _last_target_position_valid = false
+    _line_of_sight_timer = 0.0
+    _cached_has_line_of_sight = false
+    _cached_line_of_sight_target = null
+    _cached_line_of_sight_aim_point = Vector3.ZERO
+    _aim_solution_timer = 0.0
+    _aim_solution_velocity_delta_s = 0.0
+    _cached_lead_position = Vector3.ZERO
+    _cached_lead_position_valid = false
+
+func _get_cached_lead_position(delta: float, target: Node3D, target_aim_point: Vector3) -> Vector3:
+    _aim_solution_timer -= delta
+    _aim_solution_velocity_delta_s += delta
+    if _cached_lead_position_valid and _aim_solution_timer > 0.0:
+        return _cached_lead_position
+
+    var velocity_delta: float = maxf(_aim_solution_velocity_delta_s, delta)
+    _aim_solution_velocity_delta_s = 0.0
+
+    # Estimate actual world-space target velocity from position deltas (with
+    # fallback to reported linear_velocity/velocity). This avoids wrappers
+    # or stale properties causing systematic under-lead.
+    var cur_target_vel: Vector3 = _get_effective_target_velocity(target, velocity_delta)
+    _current_target_velocity = cur_target_vel
+    _current_target_velocity_valid = true
+
+    # Update acceleration estimate from velocity changes between aim-solution
+    # samples. The turret still rotates every frame toward the cached solution.
+    if _accel_tracking_active:
+        var raw_accel: Vector3 = (cur_target_vel - _prev_target_velocity) / maxf(velocity_delta, 0.001)
+        _target_acceleration = _target_acceleration.lerp(raw_accel, clampf(4.0 * velocity_delta, 0.0, 1.0))
+    else:
+        _accel_tracking_active = true
+        _target_acceleration = Vector3.ZERO
+    _prev_target_velocity = cur_target_vel
+
+    _cached_lead_position = calculate_lead_position(target, target_aim_point)
+    _cached_lead_position_valid = true
+    _aim_solution_timer = _get_effective_aim_solution_update_interval(delta)
+    return _cached_lead_position
+
+func _get_effective_aim_solution_update_interval(delta: float) -> float:
+    var near_interval: float = maxf(aim_solution_update_interval_s, 0.02)
+    var far_interval: float = maxf(distant_aim_solution_update_interval_s, near_interval)
+    var camera := _get_active_camera(delta)
+    if camera == null or not is_instance_valid(camera):
+        return far_interval
+    var focus_node: Node3D = host_actor if host_actor and is_instance_valid(host_actor) else self
+    if focus_node.global_position.distance_squared_to(camera.global_position) <= detailed_targeting_distance_m * detailed_targeting_distance_m:
+        return near_interval
+    return far_interval
+
+func _get_cached_line_of_sight(delta: float, aim_point: Vector3, target: Node3D) -> bool:
+    if not require_line_of_sight_to_fire:
+        return true
+    if target == null or not is_instance_valid(target):
+        _cached_has_line_of_sight = false
+        _cached_line_of_sight_target = null
+        return false
+
+    _line_of_sight_timer -= delta
+    var aim_point_changed: bool = _cached_line_of_sight_aim_point.distance_squared_to(aim_point) > 36.0
+    var target_changed: bool = _cached_line_of_sight_target != target
+    if _line_of_sight_timer > 0.0 and not target_changed and not aim_point_changed:
+        return _cached_has_line_of_sight
+
+    _cached_has_line_of_sight = _has_line_of_sight_to_aim_point(aim_point, target)
+    _cached_line_of_sight_target = target
+    _cached_line_of_sight_aim_point = aim_point
+    _line_of_sight_timer = _get_effective_line_of_sight_check_interval(delta)
+    return _cached_has_line_of_sight
+
+func _get_effective_line_of_sight_check_interval(delta: float) -> float:
+    var near_interval: float = maxf(line_of_sight_check_interval_s, 0.02)
+    var far_interval: float = maxf(distant_line_of_sight_check_interval_s, near_interval)
+    var camera := _get_active_camera(delta)
+    if camera == null or not is_instance_valid(camera):
+        return far_interval
+    var focus_node: Node3D = host_actor if host_actor and is_instance_valid(host_actor) else self
+    if focus_node.global_position.distance_squared_to(camera.global_position) <= detailed_targeting_distance_m * detailed_targeting_distance_m:
+        return near_interval
+    return far_interval
+
 func _get_effective_target_velocity(target: Node3D, delta: float) -> Vector3:
     var reported_velocity: Vector3 = _get_node_velocity(target)
     if not prefer_measured_target_velocity:
@@ -654,8 +738,7 @@ func _predict_ballistic_aim_point(
     var aim_dist: float = maxf((best_intercept - shooter_pos).length(), 50.0)
     return shooter_pos + launch_dir * aim_dist
 
-func calculate_lead_position(target: Node3D) -> Vector3:
-    var target_pos: Vector3 = _get_target_aim_point(target)
+func calculate_lead_position(target: Node3D, target_pos: Vector3) -> Vector3:
     var target_velocity: Vector3 = _get_node_velocity(target)
     if target == current_target and _current_target_velocity_valid:
         target_velocity = _current_target_velocity

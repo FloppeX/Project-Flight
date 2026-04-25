@@ -11,15 +11,20 @@ class_name BombProjectile
 @export var explosion_damage_multiplier: float = 2.0  # Multiplier for max damage
 
 var arming_timer: float = 0.0
+var _debug_elapsed: float = 0.0
+
+func _init():
+	# Bombs should keep their release velocity and only curve due to gravity.
+	# Set damping at construction time so AI prediction sees the same values.
+	linear_damp_mode = RigidBody3D.DAMP_MODE_REPLACE
+	linear_damp = 0.0
 
 func _ready():
 	super._ready()
-	# Set base damage to match AG missile
+	mass = 50.0
 	damage = 200.0
-	# Failsafe: ensure explosion scene is loaded, matching missile behavior
 	if explosion_scene == null:
 		explosion_scene = load("res://Projectiles/Explosion/explosion.tscn")
-	# Override the base class collision detection
 	body_entered.disconnect(_on_body_entered)
 	body_entered.connect(_on_body_entered)
 
@@ -29,7 +34,20 @@ func _physics_process(delta):
 		arming_timer += delta
 		if arming_timer >= arming_delay:
 			arm_bomb()
-	
+
+	# Debug tracking — prints every 0.5s while the bomb is falling
+	if has_meta("_debug_track"):
+		_debug_elapsed += delta
+		if fmod(_debug_elapsed, 0.5) < delta:
+			var speed := linear_velocity.length()
+			var dir := linear_velocity.normalized() if speed > 0.01 else Vector3.ZERO
+			print("  [bomb t=%.2f]  pos=%s  vel=%.1f m/s  dir=%s" % [
+				_debug_elapsed,
+				snapped(global_position, Vector3.ONE * 0.1),
+				speed,
+				snapped(dir, Vector3.ONE * 0.01)
+			])
+
 	# Call parent physics process for tunneling detection
 	super._physics_process(delta)
 

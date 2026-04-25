@@ -1,0 +1,21 @@
+[gd_scene load_steps=4 format=3 uid="uid://b5sace17d7rw6"]
+
+[ext_resource type="PackedScene" uid="uid://bu6fyd0h110ey" path="res://Models/Buildings/wind turbine.glb" id="1_mesh"]
+[ext_resource type="Script" uid="uid://lyy0eey1wxr5" path="res://Buildings/WindTurbine.gd" id="2_script"]
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_1"]
+size = Vector3(8.2694, 100.737, 10.0959)
+
+[node name="BuildingWindTurbine" type="StaticBody3D"]
+script = ExtResource("2_script")
+max_health = 200.0
+destroyed_scene_path = "res://Buildings/building_wind_turbine_destroyed.tscn"
+
+[node name="Mesh" parent="." instance=ExtResource("1_mesh")]
+
+[node name="RotorPivot" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 96.8898, -11.6461)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.197651, 50.3685, -0.838013)
+shape = SubResource("BoxShape3D_1")

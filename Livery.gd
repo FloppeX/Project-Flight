@@ -23,8 +23,8 @@ extends Node
 @export var tail_insignia_width := 0.65
 @export var tail_insignia_depth := 0.35
 ## Carrier hull insignia scale (much larger than wing insignia).
-@export var carrier_insignia_width := 3.0
-@export var carrier_insignia_depth := 2.0
+@export var carrier_insignia_width := 6.0
+@export var carrier_insignia_depth := 4.0
 
 ## Insignia textures — loaded at startup.
 var insignia_textures: Array[Texture2D] = []

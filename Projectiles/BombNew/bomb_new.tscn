@@ -6,10 +6,9 @@
 [ext_resource type="Script" uid="uid://5yh6urw441iw" path="res://Projectiles/BombNew/bomb_new.gd" id="4_bomb_script"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_q8txw"]
-size = Vector3(0.580933, 0.569213, 1.9632)
+size = Vector3(0.258781, 0.271698, 1.02425)
 
 [node name="BombNew" instance=ExtResource("1_gufam")]
-transform = Transform3D(0.4, 0, 0, 0, 0.4, 0, 0, 0, 0.4, -0.109316, 0.436059, -0.186679)
 mass = 200.0
 contact_monitor = true
 max_contacts_reported = 10
@@ -24,8 +23,6 @@ lifetime = 80.0
 explosion_scene = ExtResource("2_s0eg3")
 
 [node name="CollisionShape3D" parent="." index="0"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.259875, -1.12029, 0.339495)
 shape = SubResource("BoxShape3D_q8txw")
 
 [node name="bomb" parent="." index="2" instance=ExtResource("3_q8txw")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.261153, -1.12174, 0.458329)

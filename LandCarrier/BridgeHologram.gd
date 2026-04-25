@@ -387,9 +387,10 @@ func _collect_contacts_for_group(group_name: String, air_color: Color, ground_co
 			"color": air_color,
 		}
 		if _is_ground_contact(node_3d):
-			entry["color"] = Color.WHITE if node_3d is Building else ground_color
+			var is_building: bool = node_3d is Building or node_3d.is_in_group("buildings")
+			entry["color"] = Livery.get_team_hud_color(2) if is_building and group_name == "enemies" else ground_color
 			entry["scale_m"] = ground_contact_scale_m
-			entry["is_building"] = node_3d is Building
+			entry["is_building"] = is_building
 			ground_contacts.append(entry)
 		else:
 			air_contacts.append(entry)
@@ -737,7 +738,7 @@ func _create_ground_contact_square_mesh() -> Mesh:
 	return box_mesh
 
 func _is_ground_contact(node: Node3D) -> bool:
-	return node.is_in_group("ground_vehicles") or node is Building
+	return node.is_in_group("ground_vehicles") or node is Building or node.is_in_group("buildings")
 
 func _create_wire_box_mesh(size: Vector3, thickness: float) -> ArrayMesh:
 	var half := size * 0.5

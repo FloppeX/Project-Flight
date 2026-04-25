@@ -8,8 +8,11 @@ extends Node
 ##   Y (switch_camera) - cycle cockpit / chase / cinematic for the viewed aircraft
 ##   Start             - toggle player / AI control for the viewed aircraft
 ##   Spacebar          - enter free camera / cycle free camera anchor target
+##   W                 - place a wind turbine at the free camera position
 
 enum Category { BRIDGE, FRIENDLY, ENEMY }
+
+const WIND_TURBINE_SCENE: PackedScene = preload("res://Buildings/building_wind_turbine.tscn")
 
 var current_category: Category = Category.BRIDGE
 var friendly_index: int = 0
@@ -120,10 +123,23 @@ func _input(event):
 		get_viewport().set_input_as_handled()
 		return
 
+	if _is_refill_ordnance_key_event(event):
+		if _refill_player_plane_ordnance():
+			get_viewport().set_input_as_handled()
+		return
+
 	if _destroyed_plane_linger_active:
 		return
 
 	if _free_camera_active:
+		if event is InputEventKey and event.pressed and not event.echo and event.physical_keycode == KEY_W:
+			_spawn_wind_turbine_at_free_camera()
+			get_viewport().set_input_as_handled()
+			return
+		if _is_action_pressed_event(event, "change_weapon"):
+			_spawn_debug_exploded_aircraft5()
+			get_viewport().set_input_as_handled()
+			return
 		if _is_action_pressed_event(event, "toggle_player_control"):
 			toggle_player_control()
 			get_viewport().set_input_as_handled()
@@ -156,6 +172,57 @@ func _input(event):
 
 func _is_action_pressed_event(event: InputEvent, action: StringName) -> bool:
 	return event != null and event.is_action_pressed(action, false, true)
+
+func _is_refill_ordnance_key_event(event: InputEvent) -> bool:
+	if not (event is InputEventKey):
+		return false
+	var key_event := event as InputEventKey
+	if not key_event.pressed or key_event.echo:
+		return false
+	return key_event.unicode == 229 or key_event.unicode == 197
+
+func _refill_player_plane_ordnance() -> bool:
+	if not is_instance_valid(player_controlled_plane):
+		return false
+
+	var control_weapons := player_controlled_plane.find_child("ControlWeapons", true, false) as ControlWeapons
+	if control_weapons == null:
+		return false
+
+	control_weapons.find_hardpoints()
+	var previous_weapon_type: String = control_weapons.selected_weapon_type
+	var refilled_any: bool = false
+
+	for hardpoint in control_weapons.hardpoints:
+		if not is_instance_valid(hardpoint):
+			continue
+		if hardpoint.mounted_weapon == null:
+			continue
+		var weapon := hardpoint.weapon_instance
+		if weapon == null:
+			continue
+		if weapon is BombRack or weapon is BombHolder or weapon is RocketPod:
+			hardpoint.mount_weapon_from_scene(hardpoint.mounted_weapon)
+			refilled_any = true
+
+	if not refilled_any:
+		return false
+
+	control_weapons.find_hardpoints()
+	control_weapons.categorize_weapons()
+
+	if previous_weapon_type != "" and control_weapons.weapon_types.has(previous_weapon_type):
+		control_weapons.selected_weapon_type = previous_weapon_type
+		control_weapons.selected_weapon_type_index = control_weapons.weapon_types.find(previous_weapon_type)
+	elif not control_weapons.weapon_types.is_empty():
+		control_weapons.selected_weapon_type_index = clampi(control_weapons.selected_weapon_type_index, 0, control_weapons.weapon_types.size() - 1)
+		control_weapons.selected_weapon_type = control_weapons.weapon_types[control_weapons.selected_weapon_type_index]
+	else:
+		control_weapons.selected_weapon_type = ""
+		control_weapons.selected_weapon_type_index = 0
+
+	print("[FlightDirector] Refilled bombs and rockets on ", player_controlled_plane.name)
+	return true
 
 func _get_friendly_aircraft() -> Array:
 	var result: Array = []
@@ -970,3 +1037,100 @@ func _find_nodes_of_type(node: Node, type_name: String) -> Array[String]:
 	for child in node.get_children():
 		result.append_array(_find_nodes_of_type(child, type_name))
 	return result
+
+func _spawn_wind_turbine_at_free_camera() -> void:
+	if not is_instance_valid(_free_camera):
+		return
+	if WIND_TURBINE_SCENE == null:
+		push_error("FlightDirector: could not load wind turbine scene")
+		return
+
+	var scene_root: Node = get_tree().current_scene if get_tree().current_scene != null else self
+	var turbine := WIND_TURBINE_SCENE.instantiate() as Node3D
+	if turbine == null:
+		return
+	scene_root.add_child(turbine)
+	var spawn_pos: Vector3 = _get_ground_position_below(_free_camera.global_position)
+	turbine.global_position = spawn_pos
+	print("[FlightDirector] Spawned wind turbine at grounded free camera position %s" % str(turbine.global_position))
+
+func _get_ground_position_below(world_pos: Vector3) -> Vector3:
+	var grounded_pos: Vector3 = world_pos
+	var viewport := get_viewport()
+	if viewport != null and viewport.world_3d != null:
+		var world_3d: World3D = viewport.world_3d
+		var space_state: PhysicsDirectSpaceState3D = world_3d.direct_space_state
+		var ray_from: Vector3 = world_pos + Vector3.UP * 2000.0
+		var ray_to: Vector3 = world_pos - Vector3.UP * 4000.0
+		var params := PhysicsRayQueryParameters3D.create(ray_from, ray_to)
+		params.collide_with_areas = false
+		var hit: Dictionary = space_state.intersect_ray(params)
+		if not hit.is_empty():
+			var hit_pos: Variant = hit.get("position", world_pos)
+			if hit_pos is Vector3:
+				return hit_pos
+	if TerrainNavGrid.is_ready():
+		var terrain_y: float = TerrainNavGrid.sample_height(world_pos.x, world_pos.z)
+		if terrain_y > TerrainNavGrid.IMPASSABLE * 0.5:
+			grounded_pos.y = terrain_y
+	return grounded_pos
+
+func _spawn_debug_exploded_aircraft5() -> void:
+	if not is_instance_valid(_free_camera):
+		return
+	var packed := load("res://Models/Aircraft_5/aircraft_5_exploded.glb") as PackedScene
+	if packed == null:
+		push_error("FlightDirector: could not load aircraft_5_exploded.glb")
+		return
+
+	var root := packed.instantiate() as Node3D
+	if root == null:
+		return
+
+	# Spawn 10m in front of the free camera
+	var spawn_pos: Vector3 = _free_camera.global_position + (-_free_camera.global_basis.z) * 25.0
+	var scene_root := get_tree().current_scene
+	scene_root.add_child(root)
+	root.global_position = spawn_pos
+
+	var parts: Array[MeshInstance3D] = []
+	for child in root.get_children():
+		if child is MeshInstance3D:
+			parts.append(child as MeshInstance3D)
+
+	var part_mass: float = maxf(900.0 / maxf(parts.size(), 1), 5.0)
+
+	for mesh_inst in parts:
+		var world_xform: Transform3D = mesh_inst.global_transform
+		var aabb: AABB = mesh_inst.get_aabb()
+
+		root.remove_child(mesh_inst)
+
+		var rb := RigidBody3D.new()
+		rb.mass = part_mass
+		rb.collision_layer = 0
+		rb.collision_mask = 513  # layer 1 (default) + layer 10 (terrain)
+		var phys_mat := PhysicsMaterial.new()
+		phys_mat.bounce = 0.6
+		phys_mat.friction = 0.3
+		rb.physics_material_override = phys_mat
+
+		var col := CollisionShape3D.new()
+		var box := BoxShape3D.new()
+		box.size = aabb.size.abs()
+		col.shape = box
+		rb.add_child(col)
+
+		mesh_inst.transform = Transform3D.IDENTITY
+		rb.add_child(mesh_inst)
+
+		scene_root.add_child(rb)
+		rb.global_transform = world_xform
+
+		rb.linear_velocity = Vector3(randf_range(-2.0, 2.0), randf_range(0.5, 3.0), randf_range(-2.0, 2.0))
+		rb.angular_velocity = Vector3(randf_range(-3.0, 3.0), randf_range(-3.0, 3.0), randf_range(-3.0, 3.0))
+
+		var t := get_tree().create_timer(30.0)
+		t.timeout.connect(func(): if is_instance_valid(rb): rb.queue_free())
+
+	root.queue_free()

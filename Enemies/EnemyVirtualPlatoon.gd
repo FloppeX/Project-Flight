@@ -57,8 +57,15 @@ func setup(home_pos: Vector3, scenes: Array[PackedScene], start_angle: float = 0
 	_rng.randomize()
 	_generate_patrol_waypoints(start_angle)
 	_patrol_wp_idx = _rng.randi() % maxi(_patrol_waypoints.size(), 1)
-	position = _patrol_waypoints[_patrol_wp_idx] if not _patrol_waypoints.is_empty() else \
-		Vector3(home_pos.x + cos(start_angle) * patrol_radius, home_pos.y, home_pos.z + sin(start_angle) * patrol_radius)
+	if not _patrol_waypoints.is_empty():
+		position = _patrol_waypoints[_patrol_wp_idx]
+	else:
+		var ix := home_pos.x + cos(start_angle) * patrol_radius
+		var iz := home_pos.z + sin(start_angle) * patrol_radius
+		var iy := TerrainNavGrid.sample_height(ix, iz)
+		if iy <= TerrainNavGrid.IMPASSABLE * 0.5:
+			iy = home_pos.y
+		position = Vector3(ix, iy, iz)
 	heading = Vector3(-sin(start_angle), 0.0, cos(start_angle)).normalized()
 	_detection_timer = _rng.randf_range(0.0, DETECTION_SCAN_INTERVAL_S)
 
@@ -68,11 +75,12 @@ func _generate_patrol_waypoints(start_angle: float) -> void:
 	for i in range(PATROL_WP_COUNT):
 		var angle := start_angle + float(i) * TAU / float(PATROL_WP_COUNT) + _rng.randf_range(-0.3, 0.3)
 		var r     := patrol_radius * _rng.randf_range(0.45, 0.95)
-		_patrol_waypoints.append(Vector3(
-			home_position.x + cos(angle) * r,
-			home_position.y,
-			home_position.z + sin(angle) * r
-		))
+		var wx    := home_position.x + cos(angle) * r
+		var wz    := home_position.z + sin(angle) * r
+		var wy    := TerrainNavGrid.sample_height(wx, wz)
+		if wy <= TerrainNavGrid.IMPASSABLE * 0.5:
+			wy = home_position.y
+		_patrol_waypoints.append(Vector3(wx, wy, wz))
 	_patrol_wp_idx = 0
 
 
@@ -184,7 +192,7 @@ func _scan_for_contacts(immediate: bool) -> void:
 	var friendly_gnd_pos   := Vector3.ZERO
 	var friendly_gnd_count := 0
 	for node in tree.get_nodes_in_group("ground_vehicles"):
-		if not (node is Node3D) or not is_instance_valid(node as Node3D):
+		if not is_instance_valid(node) or not (node is Node3D):
 			continue
 		if (node as Node3D).is_in_group("enemies"):
 			continue
@@ -364,7 +372,7 @@ func _nearest_friendly_distance() -> float:
 	for aircraft in _get_friendly_air_nodes():
 		best_sq = minf(best_sq, position.distance_squared_to(aircraft.global_position))
 	for node in tree.get_nodes_in_group("ground_vehicles"):
-		if not (node is Node3D) or not is_instance_valid(node as Node3D):
+		if not is_instance_valid(node) or not (node is Node3D):
 			continue
 		if (node as Node3D).is_in_group("enemies"):
 			continue
@@ -380,7 +388,7 @@ func _get_friendly_air_nodes() -> Array[Node3D]:
 	var seen: Dictionary = {}
 	for group_name in ["aircraft", "ai_aircraft", "friendlies"]:
 		for node in tree.get_nodes_in_group(group_name):
-			if not (node is Node3D) or not is_instance_valid(node as Node3D):
+			if not is_instance_valid(node) or not (node is Node3D):
 				continue
 			var aircraft := node as Node3D
 			if aircraft.is_in_group("enemies"):

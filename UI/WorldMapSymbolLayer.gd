@@ -19,6 +19,7 @@ const CORNER_BRACKET_INSET_PX: float = 7.0
 @export var carrier_color: Color = Color(0.72, 1.0, 0.78, 1.0)
 @export var building_color: Color = Color(0.64, 0.96, 0.70, 1.0)
 @export var ground_marker_size_px: float = 5.0
+@export var building_marker_size_px: float = 8.5
 @export var platoon_marker_size_px: float = 10.0
 @export var aircraft_marker_size_px: float = 13.0
 @export var carrier_marker_length_px: float = 18.0
@@ -222,7 +223,7 @@ func _draw_ground_marker(node_3d: Node3D) -> void:
 	var map_pos: Vector2 = _world_to_map(node_3d.global_position)
 	var color := _color_for_team_node(node_3d)
 	if node_3d is Building or node_3d.is_in_group("buildings"):
-		_draw_square_marker(map_pos, ground_marker_size_px, color, false)
+		_draw_square_marker(map_pos, building_marker_size_px, color, false)
 	else:
 		draw_circle(map_pos, ground_marker_size_px * 0.55, color)
 

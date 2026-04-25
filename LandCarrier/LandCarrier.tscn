@@ -3,12 +3,12 @@
 [ext_resource type="Script" uid="uid://dqly5yht3qjks" path="res://LandCarrier/LandCarrier.gd" id="1_landcarrier"]
 [ext_resource type="PackedScene" uid="uid://pfnx57rs2d41" path="res://LandCarrier/CarrierTread.tscn" id="3_tread"]
 [ext_resource type="Script" uid="uid://bdcuxticnrnfj" path="res://LandCarrier/FlightDeckManager.gd" id="4_6n087"]
-[ext_resource type="PackedScene" path="res://LandCarrier/SimpleTractorBot.tscn" id="5_olyyp"]
+[ext_resource type="PackedScene" uid="uid://bc6qxmolml7of" path="res://LandCarrier/SimpleTractorBot.tscn" id="5_olyyp"]
 [ext_resource type="PackedScene" uid="uid://1rhdvhlj0sl1" path="res://Models/LandCarrier/Land carrier body.glb" id="6_carrier_model"]
-[ext_resource type="Script" path="res://LandCarrier/TreadPositionHelper.gd" id="7_tread_helper"]
+[ext_resource type="Script" uid="uid://1dc3wqfq3v2j" path="res://LandCarrier/TreadPositionHelper.gd" id="7_tread_helper"]
 [ext_resource type="Script" uid="uid://byhupfh0501o1" path="res://LandCarrier/Catapult.gd" id="8_0rqhh"]
-[ext_resource type="PackedScene" path="res://LandCarrier/CarrierElevator.tscn" id="8_elevator"]
-[ext_resource type="Script" path="res://LandCarrier/CarrierCollisionSetup.gd" id="9_collision"]
+[ext_resource type="PackedScene" uid="uid://jd7fjuhmfvd4" path="res://LandCarrier/CarrierElevator.tscn" id="8_elevator"]
+[ext_resource type="Script" uid="uid://cwglf226m425r" path="res://LandCarrier/CarrierCollisionSetup.gd" id="9_collision"]
 [ext_resource type="Script" uid="uid://b6ioeynvc7a1n" path="res://LandCarrier/LandCarrierInput.gd" id="10_input"]
 [ext_resource type="PackedScene" uid="uid://ci74apimqcahq" path="res://LandCarrier/Commander.tscn" id="11_eyg35"]
 [ext_resource type="Script" uid="uid://bfg081xviy2ej" path="res://LandCarrier/StandaloneCameraSwitcher.gd" id="11_standalone_cam"]
@@ -261,6 +261,6 @@ shape = SubResource("BoxShape3D_1sulk")
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -34.3519, 5.85398, 0.197454)
 
 [node name="InsigniaHullR" type="Marker3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -24.2785, 5.85398, -0.0404381)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -24.7722, 5.85398, -0.0404381)
 
 [connection signal="launch_sequence_complete" from="Catapult" to="FlightDeckManager" method="_on_catapult_launch_sequence_complete"]

@@ -1,4 +1,4 @@
-[gd_scene load_steps=44 format=3 uid="uid://cb0aydc8l6c7b"]
+[gd_scene load_steps=45 format=3 uid="uid://cb0aydc8l6c7b"]
 
 [ext_resource type="Script" uid="uid://c4ltq2v6fji05" path="res://Aircraft/aircraft.gd" id="1_e8t1h"]
 [ext_resource type="PackedScene" uid="uid://cadi81fcpvmuc" path="res://Projectiles/Explosion/explosion.tscn" id="2_x73up"]
@@ -30,14 +30,15 @@
 [ext_resource type="PackedScene" uid="uid://b4xm8v23opqrs" path="res://HUD/InstrumentPanel.tscn" id="27_h17fj"]
 [ext_resource type="PackedScene" uid="uid://dsnc8jllg42ph" path="res://Weapons/hardpoint.tscn" id="28_ymevh"]
 [ext_resource type="PackedScene" uid="uid://ds5dlvtqfa7tv" path="res://Aircraft/tail_hook.tscn" id="31_3f4kl"]
-[ext_resource type="PackedScene" uid="uid://yjaa3lj4xxb3" path="res://Weapons/AG_Missile/ag_missile_launcher.tscn" id="31_xldsk"]
 [ext_resource type="Script" uid="uid://ov07c02ulmhl" path="res://Aircraft/AIToggle.gd" id="33_aitgl"]
+[ext_resource type="PackedScene" uid="uid://cn0n757m62w08" path="res://Weapons/RocketPod/rocket_pod.tscn" id="33_rocket"]
 [ext_resource type="Script" uid="uid://bwjigrpitv7cm" path="res://AI/AIPilot.gd" id="34_aipil"]
 [ext_resource type="Script" uid="uid://ckyxqpwu5tkkl" path="res://Aircraft/CockpitCanopyVisibility.gd" id="35_canopyvis"]
 [ext_resource type="Script" uid="uid://dkrq0ip0i4pq4" path="res://Aircraft/DamageEffects.gd" id="36_dmgfx"]
 [ext_resource type="AudioStream" uid="uid://bbrf4t56r5uti" path="res://Audio/cockpit_interior_3.wav" id="37_cpit"]
 [ext_resource type="PackedScene" path="res://Weapons/Guns/Hardpoint/10mm_machine_gun_hardpoint.tscn" id="38_10mm"]
 [ext_resource type="PackedScene" path="res://Aircraft/CockpitPilot.tscn" id="90_cpilot"]
+[ext_resource type="PackedScene" uid="uid://iuo5xchdjfn5" path="res://Models/Aircraft_3/Aircraft_3_exploded.glb" id="91_exploded"]
 
 [sub_resource type="PhysicsMaterial" id="PhysicsMaterial_lowfriction"]
 friction = 0.1
@@ -71,6 +72,7 @@ wreck_scene = ExtResource("3_x73up")
 wreck_base_impulse = 100.0
 wreck_random_spread = 1.0
 wreck_extra_spin = 15.0
+exploded_model_scene = ExtResource("91_exploded")
 
 [node name="Aircraft 3" parent="." instance=ExtResource("3_ac3md")]
 
@@ -145,6 +147,7 @@ ProcessPhysics = true
 FlapSoundLoop = SubResource("Resource_qvmvr")
 
 [node name="LandingGear" parent="." node_paths=PackedStringArray("gear_collision_shapes", "gear_visuals") instance=ExtResource("15_bwm4r")]
+lock_deployed = true
 gear_collision_shapes = [NodePath("../CenterGearCollider"), NodePath("../RightGearCollider"), NodePath("../LeftGearCollider")]
 gear_visuals = [null, null, null]
 gear_stowed_rotations_degrees = Array[Vector3]([Vector3(90, 0, 0), Vector3(90, 90, -45), Vector3(90, -90, 45)])
@@ -160,6 +163,7 @@ max_compression = 0.4
 [node name="ControlSteering" parent="." instance=ExtResource("19_ubuxl")]
 
 [node name="ControlLandingGear" parent="." instance=ExtResource("20_gd71x")]
+LockGearDeployed = true
 nose_gear_collider_path = NodePath("../CenterGearCollider")
 left_main_gear_collider_path = NodePath("../RightGearCollider")
 right_main_gear_collider_path = NodePath("../LeftGearCollider")
@@ -169,7 +173,7 @@ gear_visual_root_paths = Array[NodePath]([NodePath("../CenterGearCollider/nose g
 
 [node name="ControlWeapons" type="Node" parent="." node_paths=PackedStringArray("hardpoints")]
 script = ExtResource("22_fi8sb")
-hardpoints = [NodePath("../Hardpoint1"), NodePath(""), NodePath("../Hardpoint2"), NodePath("../Hardpoint3")]
+hardpoints = [NodePath("../Hardpoint1"), null, NodePath("../Hardpoint2"), NodePath("../Hardpoint3"), null]
 metadata/_custom_type_script = "uid://5l6s62uv3p3a"
 
 [node name="ControlTargeting" type="Node" parent="."]
@@ -220,8 +224,8 @@ camera_target_path = NodePath("../CameraTarget")
 zoom_distance = 100.0
 
 [node name="Hardpoint1" parent="." instance=ExtResource("28_ymevh")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.938307, 0.623572)
-mounted_weapon = ExtResource("31_xldsk")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.97537, 0.623572)
+mounted_weapon = ExtResource("33_rocket")
 
 [node name="Hardpoint2" parent="." instance=ExtResource("28_ymevh")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.38, 0.39613, 1.57861)

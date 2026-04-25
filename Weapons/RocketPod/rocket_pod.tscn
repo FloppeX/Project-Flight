@@ -1,0 +1,10 @@
+[gd_scene load_steps=3 format=3 uid="uid://cn0n757m62w08"]
+
+[ext_resource type="Script" uid="uid://cb3wjh1t75o32" path="res://Weapons/RocketPod/rocket_pod.gd" id="1_script"]
+[ext_resource type="PackedScene" uid="uid://cgaapny53wu15" path="res://Weapons/RocketPod/rocket pod.glb" id="2_model"]
+
+[node name="RocketPod" type="Node3D"]
+script = ExtResource("1_script")
+ammo_count = 16
+
+[node name="RocketPodModel" parent="." instance=ExtResource("2_model")]

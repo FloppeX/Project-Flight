@@ -1075,5 +1075,5 @@ func explode() -> void:
 		var exp = explosion_res.instantiate()
 		get_parent().add_child(exp)
 		exp.global_position = global_position
-	VehicleWreck.spawn(get_parent(), global_transform)
+	VehicleWreck.spawn(get_parent(), global_transform, velocity)
 	queue_free()

@@ -40,6 +40,7 @@ func _ready() -> void:
 	call_deferred("_apply_team_main_color")
 	if inactive_when_no_targets:
 		_set_turret_active(false)
+		_activation_timer_s = randf_range(0.0, maxf(activation_check_interval_s, 0.1))
 	set_process(true)
 
 func _process(delta: float) -> void:
@@ -175,24 +176,45 @@ func _apply_main_color_to_mesh(mesh_instance: MeshInstance3D, team_color: Color)
 			continue
 
 		var override_material: Material = source_material.duplicate()
-		if override_material is StandardMaterial3D:
+		if override_material is StandardMaterial3D and _is_main_color_material(source_material):
 			var standard_material: StandardMaterial3D = override_material as StandardMaterial3D
 			standard_material.albedo_color = team_color
 		elif override_material is ShaderMaterial:
 			var shader_material: ShaderMaterial = override_material as ShaderMaterial
-			_set_shader_color_if_declared(shader_material, "Main_Color", team_color)
-			_set_shader_color_if_declared(shader_material, "main_color", team_color)
-			_set_shader_color_if_declared(shader_material, "Main_Color_Dark", team_color.darkened(0.35))
-			_set_shader_color_if_declared(shader_material, "main_color_dark", team_color.darkened(0.35))
+			var changed_shader: bool = false
+			changed_shader = _set_shader_color_if_declared(shader_material, "Main_Color", team_color) or changed_shader
+			changed_shader = _set_shader_color_if_declared(shader_material, "main_color", team_color) or changed_shader
+			changed_shader = _set_shader_color_if_declared(shader_material, "Main_Color_Dark", team_color.darkened(0.35)) or changed_shader
+			changed_shader = _set_shader_color_if_declared(shader_material, "main_color_dark", team_color.darkened(0.35)) or changed_shader
+			if not changed_shader:
+				continue
+		else:
+			continue
 		mesh_instance.set_surface_override_material(surface_idx, override_material)
 
-func _set_shader_color_if_declared(shader_material: ShaderMaterial, parameter_name: String, value: Color) -> void:
+func _is_main_color_material(material: Material) -> bool:
+	if material == null:
+		return false
+	var material_name: String = String(material.resource_name).to_lower().replace("_", " ").replace("-", " ")
+	if "main color" in material_name:
+		return true
+	if material is StandardMaterial3D:
+		var standard_material := material as StandardMaterial3D
+		var albedo_texture: Texture2D = standard_material.albedo_texture
+		if albedo_texture != null:
+			var texture_name: String = String(albedo_texture.resource_name).to_lower().replace("_", " ").replace("-", " ")
+			var texture_path: String = String(albedo_texture.resource_path).to_lower().replace("_", " ").replace("-", " ")
+			return "main color" in texture_name or "main color" in texture_path
+	return false
+
+func _set_shader_color_if_declared(shader_material: ShaderMaterial, parameter_name: String, value: Color) -> bool:
 	if shader_material == null or shader_material.shader == null:
-		return
+		return false
 	var shader_code: String = shader_material.shader.code
 	if shader_code.find(parameter_name) == -1:
-		return
+		return false
 	shader_material.set_shader_parameter(parameter_name, value)
+	return true
 
 func snap_collider_to_ground() -> void:
 	var terrain_y: float = TerrainNavGrid.sample_height(global_position.x, global_position.z)

@@ -2,7 +2,7 @@
 
 [ext_resource type="Script" uid="uid://dqqkx5fyusdg3" path="res://GroundVehicle/vehicle_enemy_light.gd" id="1_enemy"]
 [ext_resource type="PackedScene" uid="uid://5lw4li0uds08" path="res://Models/Vehicles/vehicle enemy buggy.glb" id="2_body"]
-[ext_resource type="PackedScene" uid="uid://defg5afi6cn7v" path="res://Models/Vehicle wheel small.glb" id="3_fgdwh"]
+[ext_resource type="PackedScene" uid="uid://defg5afi6cn7v" path="res://Models/Vehicles/Vehicle wheel small.glb" id="3_fgdwh"]
 [ext_resource type="Script" uid="uid://cqw36derm5yh1" path="res://Weapons/Turrets/turret_controller.gd" id="4_tctrl"]
 [ext_resource type="PackedScene" path="res://Weapons/Turrets/vehicle_lmg_turret.tscn" id="5_lmg"]
 [ext_resource type="PackedScene" path="res://Weapons/Turrets/bullet_weapon.tscn" id="6_weapon"]

@@ -31,11 +31,9 @@ var _snapped: bool = false
 # Total animation length
 var _total_duration: float
 
+
 func _ready() -> void:
 	_total_duration = phase1_duration + phase3_delay + phase3_duration
-	# phase2 runs from phase1_duration to phase1_duration + phase2_duration
-	# phase3 runs from phase1_duration + phase3_delay to phase1_duration + phase3_delay + phase3_duration
-	# total is the max end time of all phases
 
 	var body := get_parent().get_node_or_null("aircraft_5") as Node3D
 	if body:
@@ -98,13 +96,13 @@ func _apply_pose() -> void:
 	var x_angle := deg_to_rad(x_fold_deg) * rot_x_t
 	var y_angle := deg_to_rad(y_fold_deg) * rot_y_t
 
-	# Left wing: +X, +Y (mesh is mirrored)
-	_left_wing.position = _left_rest_pos + Vector3(slide_distance * slide_t, 0.0, 0.0)
-	_left_wing.quaternion = _left_rest_quat * Quaternion(Vector3.RIGHT, x_angle) * Quaternion(Vector3.UP, -y_angle)
-
-	# Right wing: -X, -Y
+	# Right wing
 	_right_wing.position = _right_rest_pos + Vector3(-slide_distance * slide_t, 0.0, 0.0)
 	_right_wing.quaternion = _right_rest_quat * Quaternion(Vector3.RIGHT, -x_angle) * Quaternion(Vector3.UP, -y_angle)
+
+	var rq := _right_wing.quaternion
+	_left_wing.position = _left_rest_pos + Vector3(slide_distance * slide_t, 0.0, 0.0)
+	_left_wing.quaternion = Quaternion(rq.x, -rq.y, -rq.z, rq.w) * _right_rest_quat
 
 func _smooth(t: float) -> float:
 	return t * t * (3.0 - 2.0 * t)

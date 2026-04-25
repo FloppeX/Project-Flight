@@ -2,7 +2,7 @@
 
 [ext_resource type="Script" uid="uid://cc5i2s0mvs378" path="res://Weapons/Autocannon/autocannon.gd" id="1_vsd06"]
 [ext_resource type="PackedScene" uid="uid://cvtsgxjlbovb7" path="res://Projectiles/Bullet/bullet.tscn" id="2_8ku1u"]
-[ext_resource type="PackedScene" uid="uid://dr7y73fakllbg" path="res://Models/machine gun low poly.glb" id="2_yrjfh"]
+[ext_resource type="PackedScene" uid="uid://dr7y73fakllbg" path="res://Models/Weapons/machine gun low poly.glb" id="2_yrjfh"]
 [ext_resource type="AudioStream" uid="uid://dqxot06c6ine2" path="res://Audio/Heavy machine gun.wav" id="3_8ku1u"]
 [ext_resource type="Resource" path="res://Weapons/Guns/Profiles/15mm_machine_gun.tres" id="5_profile"]
 

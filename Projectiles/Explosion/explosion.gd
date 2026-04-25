@@ -206,9 +206,6 @@ func _spawn_smoke_puff(progress: float, origin: Vector3) -> void:
 func trigger_explosion():
 	if debug_enabled:
 		print("=== TRIGGERING EXPLOSION ===")
-	# Start smoke puffs
-	_start_smoke_puffs()
-	
 	# Play explosion sound
 	if sfx_explosion:
 		sfx_explosion.play()

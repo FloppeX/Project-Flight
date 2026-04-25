@@ -106,6 +106,12 @@ func _cache_modules() -> void:
 func _on_aircraft_damaged(_damage_amount: float, current_health: float) -> void:
 	var health_fraction: float = current_health / _aircraft.max_health
 
+	# Fire phase: health at or below zero
+	if current_health <= 0.0:
+		if _smoke_active_tier < 4:
+			_smoke_active_tier = 4
+		return
+
 	# Check each tier threshold (only trigger once per tier)
 	if _tier1_effect == -1 and health_fraction < TIER_1_THRESHOLD:
 		_trigger_tier1()
@@ -218,7 +224,11 @@ func _apply_hud_blackout() -> void:
 # ─── PER-FRAME UPDATES ───────────────────────────────────────────────────────
 
 func _process(delta: float) -> void:
-	if not _aircraft or _aircraft.current_health <= 0:
+	if not _aircraft:
+		return
+
+	if _aircraft.current_health <= 0:
+		_update_smoke_trail(delta)
 		return
 
 	_update_gear_lock()
@@ -318,6 +328,7 @@ func _update_smoke_trail(delta: float) -> void:
 	var interval: float
 	var puff_scale: float
 	var puff_count_per_spawn: int
+	var fire_mode := false
 	match _smoke_active_tier:
 		1:
 			interval = 0.25
@@ -327,16 +338,24 @@ func _update_smoke_trail(delta: float) -> void:
 			interval = 0.15
 			puff_scale = 2.5
 			puff_count_per_spawn = 1
-		_:
+		3:
 			interval = 0.08
 			puff_scale = 3.5
 			puff_count_per_spawn = 2
+		4:
+			interval = 0.05
+			puff_scale = 3.0
+			puff_count_per_spawn = 2
+			fire_mode = true
 
 	_smoke_timer -= delta
 	if _smoke_timer <= 0.0:
 		_smoke_timer = interval
 		for i in puff_count_per_spawn:
-			_spawn_damage_smoke(puff_scale)
+			if fire_mode:
+				_spawn_fire_puff(puff_scale)
+			else:
+				_spawn_damage_smoke(puff_scale)
 
 
 func _spawn_damage_smoke(base_scale: float) -> void:
@@ -366,10 +385,61 @@ func _spawn_damage_smoke(base_scale: float) -> void:
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	var grey := randf_range(0.15, 0.35)
-	mat.albedo_color = Color(grey, grey, grey, 0.85)
+	mat.albedo_color = Color(grey, grey, grey, 0.25)
 	puff.material_override = mat
 
 	ParticleManager.add_rising_smoke(puff, randf_range(2.0, 4.0), puff.scale, randf_range(2.0, 4.0), randf_range(-0.3, 0.3))
+
+
+func _spawn_fire_puff(base_scale: float) -> void:
+	var puff := MeshInstance3D.new()
+	get_tree().current_scene.add_child(puff)
+
+	var offset := _aircraft.global_transform.basis.z * randf_range(1.5, 5.0)
+	puff.global_position = _aircraft.global_position - offset + Vector3(
+		randf_range(-1.5, 1.5),
+		randf_range(-0.5, 1.0),
+		randf_range(-1.5, 1.5)
+	)
+
+	var sphere := SphereMesh.new()
+	sphere.radial_segments = 6
+	sphere.rings = 4
+	var r := randf_range(0.6, 1.2)
+	sphere.radius = r
+	sphere.height = r * 2.0
+	puff.mesh = sphere
+
+	var s := randf_range(0.8, 1.2) * base_scale
+	puff.scale = Vector3(s, s, s)
+
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+
+	var roll := randf()
+	var expand := true
+	if roll < 0.35:
+		var col := Color(randf_range(0.9, 1.0), randf_range(0.45, 0.75), 0.05, 0.8)
+		mat.albedo_color = col
+		mat.emission_enabled = true
+		mat.emission = Color(col.r * 0.5, col.g * 0.2, 0.0)
+		mat.emission_energy_multiplier = 1.5
+		expand = false
+	elif roll < 0.65:
+		var col := Color(randf_range(0.75, 1.0), randf_range(0.2, 0.45), 0.02, 0.65)
+		mat.albedo_color = col
+		mat.emission_enabled = true
+		mat.emission = Color(col.r * 0.3, 0.05, 0.0)
+		mat.emission_energy_multiplier = 1.0
+		expand = false
+	else:
+		var v := randf_range(0.03, 0.12)
+		mat.albedo_color = Color(v, v * 0.85, v * 0.75, 0.55)
+	puff.material_override = mat
+
+	ParticleManager.add_rising_smoke(puff, randf_range(0.8, 1.8), puff.scale,
+		randf_range(4.0, 9.0), randf_range(-0.5, 0.5), {"expand": expand})
 
 
 # ─── QUERY ────────────────────────────────────────────────────────────────────

@@ -14,6 +14,7 @@ class_name Bullet
 @export var ground_particle_lifetime_s: float = 0.75
 @export var hit_debris_count: int = 4
 @export var hit_debris_lifetime_s: float = 0.6
+@export var use_manual_ballistics: bool = false
 
 var trail_mesh: MeshInstance3D
 var tracer_box_mesh: BoxMesh
@@ -31,6 +32,9 @@ var _debug_peak_speed_mps: float = 0.0
 var _debug_tracking_enabled: bool = false
 
 const SCORCH_TEXTURE_PATH: String = "res://Projectiles/Explosion/scorch_mark.png"
+static var _tracer_mesh_cache: Dictionary = {}
+static var _tracer_material_cache: Dictionary = {}
+static var _bullet_material_cache: Dictionary = {}
 
 func _ready():
 	hit_assist_enabled = true
@@ -54,6 +58,9 @@ func _ready():
 	max_contacts_reported = 0
 	if body_entered.is_connected(_on_body_entered):
 		body_entered.disconnect(_on_body_entered)
+	if use_manual_ballistics:
+		freeze_mode = RigidBody3D.FREEZE_MODE_KINEMATIC
+		freeze = true
 	
 	# This projectile should not create an explosion on impact
 	creates_explosion = false
@@ -71,13 +78,7 @@ func make_bullet_glowy():
 	# Make bullet bigger and glowing
 	if has_node("MeshInstance3D"):
 		var mesh_node = get_node("MeshInstance3D")
-		var material = StandardMaterial3D.new()
-		material.flags_unshaded = true
-		material.emission_enabled = true
-		material.emission = tracer_color
-		material.emission_energy = 3.0
-		material.albedo_color = tracer_color
-		mesh_node.material_override = material
+		mesh_node.material_override = _get_cached_bullet_material()
 		
 		# Make bullet slightly bigger
 		mesh_node.scale = Vector3(0.5, 0.5, 0.5)
@@ -86,23 +87,59 @@ func create_tracer_mesh():
 	trail_mesh = MeshInstance3D.new()
 	add_child(trail_mesh)
 
-	tracer_box_mesh = BoxMesh.new()
-	tracer_box_mesh.size = Vector3(tracer_width, tracer_width, tracer_visual_length)
+	tracer_box_mesh = _get_cached_tracer_mesh()
 	trail_mesh.mesh = tracer_box_mesh
-	
-	var trail_material = StandardMaterial3D.new()
-	trail_material.flags_unshaded = true
-	trail_material.emission_enabled = true
-	trail_material.emission = tracer_color
-	trail_material.emission_energy = 2.0
-	trail_material.flags_transparent = true
-	trail_material.albedo_color = tracer_color
-	trail_mesh.material_override = trail_material
+	trail_mesh.material_override = _get_cached_tracer_material()
 	trail_mesh.position = Vector3(0.0, 0.0, tracer_visual_length * 0.5)
+
+func _get_cached_bullet_material() -> StandardMaterial3D:
+	var key: String = _color_cache_key(tracer_color)
+	var cached_variant: Variant = _bullet_material_cache.get(key, null)
+	if cached_variant is StandardMaterial3D:
+		return cached_variant as StandardMaterial3D
+	var material := StandardMaterial3D.new()
+	material.flags_unshaded = true
+	material.emission_enabled = true
+	material.emission = tracer_color
+	material.emission_energy = 3.0
+	material.albedo_color = tracer_color
+	_bullet_material_cache[key] = material
+	return material
+
+func _get_cached_tracer_mesh() -> BoxMesh:
+	var key: String = "%.3f|%.3f" % [tracer_width, tracer_visual_length]
+	var cached_variant: Variant = _tracer_mesh_cache.get(key, null)
+	if cached_variant is BoxMesh:
+		return cached_variant as BoxMesh
+	var mesh := BoxMesh.new()
+	mesh.size = Vector3(tracer_width, tracer_width, tracer_visual_length)
+	_tracer_mesh_cache[key] = mesh
+	return mesh
+
+func _get_cached_tracer_material() -> StandardMaterial3D:
+	var key: String = _color_cache_key(tracer_color)
+	var cached_variant: Variant = _tracer_material_cache.get(key, null)
+	if cached_variant is StandardMaterial3D:
+		return cached_variant as StandardMaterial3D
+	var material := StandardMaterial3D.new()
+	material.flags_unshaded = true
+	material.emission_enabled = true
+	material.emission = tracer_color
+	material.emission_energy = 2.0
+	material.flags_transparent = true
+	material.albedo_color = tracer_color
+	_tracer_material_cache[key] = material
+	return material
+
+func _color_cache_key(color: Color) -> String:
+	return "%.3f|%.3f|%.3f|%.3f" % [color.r, color.g, color.b, color.a]
 
 func fire(initial_velocity: Vector3, firing_aircraft: Node3D):
 	# Call parent's fire method to get all the base functionality
 	super.fire(initial_velocity, firing_aircraft)
+	if use_manual_ballistics:
+		freeze_mode = RigidBody3D.FREEZE_MODE_KINEMATIC
+		freeze = true
 	tracer_physics_frames_elapsed = 0
 	_setup_debug_target_tracking()
 	
@@ -153,6 +190,8 @@ func _get_motion_angular_velocity(node: Node) -> Vector3:
 
 func _physics_process(delta):
 	var prev_pos: Vector3 = global_position
+	if use_manual_ballistics and not has_impacted:
+		_apply_manual_ballistics(delta)
 	# Call parent's physics process first
 	super._physics_process(delta)
 	if _debug_tracking_enabled:
@@ -173,6 +212,13 @@ func _physics_process(delta):
 	if tracer_enabled:
 		update_tracer_mesh()
 	tracer_physics_frames_elapsed += 1
+
+func _apply_manual_ballistics(delta: float) -> void:
+	var gravity: Vector3 = ProjectSettings.get_setting("physics/3d/default_gravity_vector", Vector3(0.0, -1.0, 0.0))
+	var gravity_magnitude: float = float(ProjectSettings.get_setting("physics/3d/default_gravity", 9.8))
+	var gravity_vec: Vector3 = gravity.normalized() * gravity_magnitude * gravity_scale
+	global_position += linear_velocity * delta + 0.5 * gravity_vec * delta * delta
+	linear_velocity += gravity_vec * delta
 
 func _on_body_entered(body):
 	_emit_debug_report("impact", body)
@@ -197,9 +243,7 @@ func _resolve_impact_surface(body: Object) -> Dictionary:
 	var from: Vector3 = global_position - dir * 1.0
 	var to: Vector3 = global_position + dir * 0.5
 	var params: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(from, to)
-	params.exclude = [self]
-	if shooter and is_instance_valid(shooter):
-		params.exclude.append(shooter)
+	params.exclude = _get_projectile_query_excludes()
 	var hit: Dictionary = space_state.intersect_ray(params)
 	var hit_pos: Vector3 = global_position
 	var hit_normal: Vector3 = -dir
@@ -225,7 +269,7 @@ func _create_ground_bullet_mark(body: Object) -> void:
 
 	# Build decal aligned to the surface
 	var decal: Decal = Decal.new()
-	decal.texture_albedo = load(SCORCH_TEXTURE_PATH)
+	decal.texture_albedo = _scorch_texture if _scorch_texture != null else load(SCORCH_TEXTURE_PATH)
 	decal.size = ground_mark_size
 	# Offset slightly along normal to avoid z-fighting
 	decal.global_position = hit_pos + hit_normal * 0.01

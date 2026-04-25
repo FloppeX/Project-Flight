@@ -9,6 +9,7 @@ class_name AircraftModule_LandingGear
 signal update_interface(values)
 
 @export var GearCollisionShape: NodePath
+@export var lock_deployed: bool = false
 @export var gear_collision_shapes: Array[CollisionShape3D] = []  # Array for wheel collision shapes
 @export var gear_visuals: Array[Node3D] = []  # Array for visual gear meshes
 @export var gear_rotation_axes: Array[Vector3] = []  # Rotation axis for each gear (empty = no rotation)
@@ -563,6 +564,9 @@ func deploy():
 
 func stow():
 	"""Stow the landing gear"""
+	if lock_deployed:
+		deploy()
+		return
 	if current_state == LandingGearInitialStates.STOWED and is_equal_approx(_gear_animation_target, 0.0):
 		return
 	

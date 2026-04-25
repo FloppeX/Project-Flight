@@ -182,7 +182,7 @@ func _scan_for_contacts(immediate: bool) -> void:
 	var friendly_gnd_pos := Vector3.ZERO
 	var friendly_gnd_count := 0
 	for node in tree.get_nodes_in_group("ground_vehicles"):
-		if not (node is Node3D) or not is_instance_valid(node as Node3D):
+		if not is_instance_valid(node) or not (node is Node3D):
 			continue
 		if (node as Node3D).is_in_group("enemies"):
 			continue
@@ -263,17 +263,36 @@ func _materialize() -> void:
 		flight_name, aircraft_count, position.x, position.z])
 
 
-func _strip_missiles(ac: Node3D) -> void:
+func _is_aircraft_3(ac: Node3D) -> bool:
+	if ac == null:
+		return false
+	if _aircraft_scene and String(_aircraft_scene.resource_path) == "res://Aircraft/Aircraft_3.tscn":
+		return true
+	return String(ac.scene_file_path) == "res://Aircraft/Aircraft_3.tscn"
+
+
+func _is_strike_or_missile_weapon(weapon_name: String) -> bool:
+	return weapon_name == "Bomb" or weapon_name == "Rocket Pod" or "Missile" in weapon_name
+
+
+func _strip_enemy_external_stores(ac: Node3D) -> void:
+	var strip_strike_stores := _is_aircraft_3(ac)
 	for hp in ac.find_children("*", "Hardpoint", true, false):
 		var hardpoint := hp as Hardpoint
 		if hardpoint == null or hardpoint.weapon_instance == null:
 			continue
-		if "Missile" in hardpoint.weapon_instance.weapon_name:
+		var weapon_name := String(hardpoint.weapon_instance.weapon_name)
+		var should_strip := "Missile" in weapon_name
+		if strip_strike_stores and _is_strike_or_missile_weapon(weapon_name):
+			should_strip = true
+		if should_strip:
 			hardpoint.weapon_instance.queue_free()
 			hardpoint.weapon_instance = null
+			hardpoint.mounted_weapon = null
 	# Re-categorise so ControlWeapons doesn't try to select the removed weapons
 	var cw := ac.find_child("ControlWeapons", true, false) as ControlWeapons
 	if cw:
+		cw.find_hardpoints()
 		cw.categorize_weapons()
 		# Default to the gun if available
 		var gun_idx := cw.weapon_types.find("Autocannon")
@@ -306,7 +325,8 @@ func _configure_materialized_enemy_aircraft(ac: Node3D) -> void:
 		elif node is Node3D:
 			(node as Node3D).visible = false
 
-	_strip_missiles(ac)
+	_strip_enemy_external_stores(ac)
+	var is_clean_fighter := role == AircraftRole.FIGHTER and _is_aircraft_3(ac)
 
 	var ai_toggle: Node = ac.find_child("AIToggle", true, false)
 	if ai_toggle and ai_toggle.has_method("enable_ai"):
@@ -325,15 +345,23 @@ func _configure_materialized_enemy_aircraft(ac: Node3D) -> void:
 			AircraftRole.FIGHTER:
 				ai_pilot.skill                = AIPilot.AIPilotSkill.ROOKIE
 				ai_pilot.dogfight_enabled     = true
-				ai_pilot.ground_attack_enabled = false
+				ai_pilot.ground_attack_enabled = not is_clean_fighter
 			AircraftRole.BOMBER:
 				ai_pilot.skill                = AIPilot.AIPilotSkill.ROOKIE
 				ai_pilot.dogfight_enabled     = false
 				ai_pilot.ground_attack_enabled = true
 		ai_pilot.apply_skill_preset()
-		# Fighters on INTERCEPT go straight to dogfight; everything else starts searching
+		# If the aircraft is carrying bombs or rockets, override to full strike behaviour:
+		# ignore air threats and press the attack regardless of assigned role.
+		if _has_strike_weapons(ac):
+			ai_pilot.dogfight_enabled = false
+			ai_pilot.dogfight_proximity_override_m = 0.0
+			ai_pilot.ground_attack_enabled = true
+		# Strike aircraft always start searching for ground targets.
+		# Fighters on INTERCEPT (no strike weapons) go straight to dogfight.
 		var initial_state := AIPilot.State.DOGFIGHT \
-			if (role == AircraftRole.FIGHTER and mission == Mission.INTERCEPT) \
+			if (role == AircraftRole.FIGHTER and mission == Mission.INTERCEPT \
+				and not _has_strike_weapons(ac)) \
 			else AIPilot.State.SEARCH
 		ai_pilot.change_state(initial_state)
 
@@ -346,6 +374,18 @@ func dematerialize() -> void:
 	vstate = VState.VIRTUAL
 	mission = Mission.RTB
 	print("[EnemyVirtualFlight] %s dematerialized → RTB" % flight_name)
+
+
+# ── Loadout helpers ───────────────────────────────────────────────────────────
+
+func _has_strike_weapons(ac: Node3D) -> bool:
+	var cw: Node = ac.find_child("ControlWeapons", true, false)
+	if cw == null or not ("weapon_types" in cw):
+		return false
+	for wt in cw.weapon_types:
+		if wt in ["Bomb", "Rocket Pod"]:
+			return true
+	return false
 
 
 # ── Proximity helpers ─────────────────────────────────────────────────────────
@@ -361,7 +401,7 @@ func _nearest_friendly_distance() -> float:
 	for aircraft in _get_friendly_air_nodes():
 		best_sq = minf(best_sq, position.distance_squared_to(aircraft.global_position))
 	for node in tree.get_nodes_in_group("ground_vehicles"):
-		if not (node is Node3D) or not is_instance_valid(node as Node3D):
+		if not is_instance_valid(node) or not (node is Node3D):
 			continue
 		if (node as Node3D).is_in_group("enemies"):
 			continue
@@ -388,7 +428,7 @@ func _get_friendly_air_nodes() -> Array[Node3D]:
 	var seen: Dictionary = {}
 	for group_name in ["aircraft", "ai_aircraft", "friendlies"]:
 		for node in tree.get_nodes_in_group(group_name):
-			if not (node is Node3D) or not is_instance_valid(node as Node3D):
+			if not is_instance_valid(node) or not (node is Node3D):
 				continue
 			var aircraft := node as Node3D
 			if aircraft.is_in_group("enemies"):

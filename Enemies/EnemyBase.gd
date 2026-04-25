@@ -15,7 +15,7 @@ const ENEMY_LIVERY_TEAM_ID: int = 2
 
 const PAD_COLOR    := Color(0.16, 0.11, 0.09, 1.0)
 const PAD_RADIUS_M := 420.0
-const PATROL_RADIUS_M := 4500.0
+const PATROL_RADIUS_M := 9000.0
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
@@ -25,12 +25,12 @@ const PATROL_RADIUS_M := 4500.0
 # ── Inventory ─────────────────────────────────────────────────────────────────
 
 ## Total aircraft the base can ever field (permanent losses reduce this).
-@export var aircraft_max: int = 15
+@export var aircraft_max: int = 24
 ## Aircraft currently at base, available for deployment.
 var aircraft_reserve: int = 0
 
 ## Total vehicles the base can ever field.
-@export var vehicle_max: int = 30
+@export var vehicle_max: int = 56
 ## Vehicles currently at base, available for deployment.
 var vehicle_reserve: int = 0
 

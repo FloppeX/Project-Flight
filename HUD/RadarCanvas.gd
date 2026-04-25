@@ -7,7 +7,7 @@ var provider: Node = null
 var debug_enabled: bool = false
 @export var show_terrain_map: bool = true
 @export var terrain_map_opacity: float = 0.72
-@export var terrain_map_range_m: float = 5000.0
+@export var terrain_map_range_m: float = 3500.0
 @export var refresh_interval_s: float = 0.05
 
 var _terrain_bounds_xz: Rect2 = Rect2()
@@ -27,9 +27,10 @@ const CONTACT_CACHE_INTERVAL_S: float = 0.2
 func _ready() -> void:
 	add_to_group("origin_shifter")
 
-func apply_origin_shift(offset: Vector3) -> void:
-	if _terrain_map_ready:
-		_terrain_bounds_xz.position -= Vector2(offset.x, offset.z)
+func apply_origin_shift(_offset: Vector3) -> void:
+	# TerrainNavGrid owns map-origin shifting. The radar samples that live origin
+	# directly so it stays aligned with the tactical M map after floating-origin shifts.
+	pass
 
 func set_provider(p: Node) -> void:
 	provider = p
@@ -101,7 +102,8 @@ func _draw() -> void:
 
 	draw_arc(center, radius, 0, TAU, 64, Color(0.0, 0.6, 0.0), 2)
 
-	# Draw carrier as oriented blue rectangle
+	# Draw carrier as oriented rectangle (matches tactical map color)
+	var carrier_hud_color: Color = Livery.get_team_hud_color(Livery.PLAYER_TEAM_ID)
 	if has_carrier:
 		var carrier: Node3D = carrier_nodes[0] as Node3D
 		if carrier and is_instance_valid(carrier):
@@ -137,8 +139,8 @@ func _draw() -> void:
 				var p1: Vector2 = center_pt + ( right2d * half_w) + (-dir2d * half_h)
 				var p2: Vector2 = center_pt + ( right2d * half_w) + ( dir2d * half_h)
 				var p3: Vector2 = center_pt + (-right2d * half_w) + ( dir2d * half_h)
-				draw_polygon(PackedVector2Array([p0, p1, p2, p3]), PackedColorArray([Color(0.2, 0.4, 1.0)]))
-				draw_polyline(PackedVector2Array([p0, p1, p2, p3, p0]), Color(0.5, 0.7, 1.0), 1.0)
+				draw_polygon(PackedVector2Array([p0, p1, p2, p3]), PackedColorArray([carrier_hud_color]))
+				draw_polyline(PackedVector2Array([p0, p1, p2, p3, p0]), Color(0.92, 0.98, 1.0, 1.0), 1.5)
 
 	# FOV cone lines
 	var fov_cone_deg: float = 60.0
@@ -165,7 +167,11 @@ func _draw() -> void:
 			elif raw_target != null:
 				targeting_module.current_target = null
 
-	# Draw aircraft contacts as heading-pointing triangles (blue=friendly, red=enemy)
+	# Shared colors matching the tactical map (WorldMapSymbolLayer)
+	var friendly_hud_color: Color = Livery.get_team_hud_color(Livery.PLAYER_TEAM_ID)
+	var enemy_hud_color: Color = Livery.get_team_hud_color(2)
+
+	# Draw aircraft contacts as heading-pointing triangles
 	for ac in air_contacts:
 		if not is_instance_valid(ac):
 			continue
@@ -189,12 +195,12 @@ func _draw() -> void:
 			-ac_flat_fwd.dot(flat_forward)
 		).normalized()
 		var ac_team: int = int(ac.get_team()) if ac.has_method("get_team") else -1
-		var tri_color: Color = Color(1.0, 0.2, 0.2) if ac_team != team_id else Color(0.3, 0.6, 1.0)
+		var tri_color: Color = enemy_hud_color if ac_team != team_id else friendly_hud_color
 		_draw_heading_triangle(blip_pos, heading_2d, tri_color)
 		if ac == current_target:
 			draw_arc(blip_pos, 8, 0, TAU, 16, Color.WHITE, 2)
 
-	# Draw ground contacts as coloured dots (buildings as white squares)
+	# Draw ground contacts as coloured dots (buildings as filled squares)
 	for e in ground_enemies + ground_enemy_contacts:
 		if not is_instance_valid(e):
 			continue
@@ -205,10 +211,10 @@ func _draw() -> void:
 			continue
 		var epx: float = center.x + (ex / range_m) * radius
 		var epy: float = center.y - (ez / range_m) * radius
-		if e is Building:
-			draw_rect(Rect2(epx - 3, epy - 3, 6, 6), Color.WHITE)
+		if e is Building or e.is_in_group("buildings"):
+			draw_rect(Rect2(epx - 4, epy - 4, 8, 8), enemy_hud_color)
 		else:
-			draw_circle(Vector2(epx, epy), 3, Color.RED)
+			draw_circle(Vector2(epx, epy), 3, enemy_hud_color)
 		if e == current_target:
 			draw_arc(Vector2(epx, epy), 8, 0, TAU, 16, Color.WHITE, 2)
 
@@ -222,9 +228,13 @@ func _draw() -> void:
 			continue
 		var epx: float = center.x + (ex / range_m) * radius
 		var epy: float = center.y - (ez / range_m) * radius
-		draw_circle(Vector2(epx, epy), 3, Color(0.3, 0.6, 1.0))
+		draw_circle(Vector2(epx, epy), 3, friendly_hud_color)
 		if e == current_target:
 			draw_arc(Vector2(epx, epy), 8, 0, TAU, 16, Color.WHITE, 2)
+
+	# Draw own aircraft as yellow triangle at center, always pointing up (heading-up display)
+	var own_color: Color = Color(1.0, 1.0, 0.40, 1.0)
+	_draw_heading_triangle(center, Vector2(0.0, -1.0), own_color)
 
 func _draw_heading_triangle(pos: Vector2, heading: Vector2, color: Color) -> void:
 	var tri_size: float = 8.0
@@ -304,51 +314,65 @@ func _ensure_terrain_map_cache() -> void:
 	var img := WorldMapTextureBuilder.build_image()
 	if img == null:
 		return
-	# RadarCanvas expects a vertically flipped source image for its existing crop math.
-	img.flip_y()
 	_terrain_map_texture = ImageTexture.create_from_image(img)
 	_terrain_map_ready = _terrain_map_texture != null
 
 func _draw_terrain_map(center: Vector2, radius: float, origin: Vector3, flat_forward: Vector3, range_m: float) -> void:
 	if not show_terrain_map or _terrain_map_texture == null or not _terrain_map_ready:
 		return
-	if _terrain_bounds_xz.size.x <= 1.0 or _terrain_bounds_xz.size.y <= 1.0:
+	if not TerrainNavGrid.is_ready():
 		return
-	var tex_size: Vector2 = Vector2(_terrain_map_texture.get_width(), _terrain_map_texture.get_height())
-	var origin_u: float = (origin.x - _terrain_bounds_xz.position.x) / _terrain_bounds_xz.size.x
-	var origin_v: float = (origin.z - _terrain_bounds_xz.position.y) / _terrain_bounds_xz.size.y
-	var half_u: float = range_m / _terrain_bounds_xz.size.x
-	var half_v: float = range_m / _terrain_bounds_xz.size.y
-	var region_left: float = clampf(origin_u - half_u, 0.0, 1.0)
-	var region_right: float = clampf(origin_u + half_u, 0.0, 1.0)
-	var region_top: float = clampf((1.0 - origin_v) - half_v, 0.0, 1.0)
-	var region_bottom: float = clampf((1.0 - origin_v) + half_v, 0.0, 1.0)
-	var region := Rect2(
-		Vector2(region_left * tex_size.x, region_top * tex_size.y),
-		Vector2(maxf((region_right - region_left) * tex_size.x, 1.0), maxf((region_bottom - region_top) * tex_size.y, 1.0))
-	)
-	var heading_rad: float = atan2(flat_forward.x, flat_forward.z)
+	var span_x: float = float(TerrainNavGrid._cols - 1) * TerrainNavGrid.cell_size_m
+	var span_z: float = float(TerrainNavGrid._rows - 1) * TerrainNavGrid.cell_size_m
+	if span_x <= 1.0 or span_z <= 1.0:
+		return
 	var draw_radius: float = maxf(radius - TERRAIN_MAP_EDGE_INSET_PX, 1.0)
-	# Contacts are projected in a mirrored horizontal basis, so the terrain slice
-	# needs the same mirror but the opposite rotation sign to stay heading-up.
-	draw_set_transform(center, -heading_rad, Vector2(-1.0, 1.0))
-	_draw_textured_circle_region(_terrain_map_texture, region, draw_radius, Color(1.0, 1.0, 1.0, terrain_map_opacity))
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	var flat_right: Vector3 = flat_forward.cross(Vector3.UP)
+	if flat_right.length_squared() < 0.0001:
+		flat_right = Vector3.LEFT
+	else:
+		flat_right = flat_right.normalized()
+	_draw_textured_world_circle_region(
+		_terrain_map_texture,
+		center,
+		draw_radius,
+		origin,
+		flat_forward,
+		flat_right,
+		range_m,
+		span_x,
+		span_z,
+		Color(1.0, 1.0, 1.0, terrain_map_opacity)
+	)
 
-func _draw_textured_circle_region(texture: Texture2D, region: Rect2, radius: float, modulate: Color) -> void:
+func _draw_textured_world_circle_region(
+	texture: Texture2D,
+	center: Vector2,
+	radius: float,
+	origin: Vector3,
+	flat_forward: Vector3,
+	flat_right: Vector3,
+	range_m: float,
+	span_x: float,
+	span_z: float,
+	modulate: Color
+) -> void:
 	if texture == null:
 		return
 	var segments: int = 64
 	var points: PackedVector2Array = PackedVector2Array()
 	var uvs: PackedVector2Array = PackedVector2Array()
-	var tex_size: Vector2 = Vector2(texture.get_width(), texture.get_height())
-	if tex_size.x <= 0.0 or tex_size.y <= 0.0:
+	if texture.get_width() <= 0 or texture.get_height() <= 0:
 		return
 	for i in range(segments + 1):
 		var angle: float = -PI * 0.5 + (TAU * float(i) / float(segments))
 		var dir: Vector2 = Vector2(cos(angle), sin(angle))
-		points.append(dir * radius)
-		var unit_uv: Vector2 = Vector2(dir.x * 0.5 + 0.5, dir.y * 0.5 + 0.5)
-		var texel_uv: Vector2 = region.position + Vector2(unit_uv.x * region.size.x, unit_uv.y * region.size.y)
-		uvs.append(Vector2(texel_uv.x / tex_size.x, texel_uv.y / tex_size.y))
+		var local_point: Vector2 = dir * radius
+		points.append(center + local_point)
+		var world_offset_x: float = (local_point.x / radius) * range_m
+		var world_offset_z: float = (-local_point.y / radius) * range_m
+		var sample_world: Vector3 = origin + flat_right * world_offset_x + flat_forward * world_offset_z
+		var u: float = (sample_world.x - TerrainNavGrid._origin_x) / span_x
+		var v: float = (sample_world.z - TerrainNavGrid._origin_z) / span_z
+		uvs.append(Vector2(clampf(u, 0.0, 1.0), clampf(v, 0.0, 1.0)))
 	draw_colored_polygon(points, modulate, uvs, texture)

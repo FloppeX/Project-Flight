@@ -11,7 +11,7 @@ class_name AudioManager3D
 @export var exterior_audio_bus: String = "Master"
 @export var cockpit_interior_sound: AudioStream
 @export var cockpit_interior_bus: String = "Interior"
-@export var cockpit_interior_volume_db: float = -10.0
+@export var cockpit_interior_volume_db: float = -18.0
 @export var cockpit_interior_pitch_scale: float = 1.0
 @export var cockpit_interior_silence_db: float = -80.0
 @export var bridge_interior_sound: AudioStream = preload("res://Audio/wind_sound_cockpit.wav")
@@ -25,10 +25,10 @@ class_name AudioManager3D
 @export var bridge_wind_full_speed_mps: float = 10.0
 
 # Audio filtering settings
-@export var interior_lowpass_cutoff: float = 2300.0  # Hz - cockpit damping without over-muffling cannon transients
-@export var interior_secondary_lowpass_cutoff: float = 1400.0  # Hz - gentler second-stage rolloff
+@export var interior_lowpass_cutoff: float = 4500.0  # Hz - cockpit damping without over-muffling cannon transients
+@export var interior_secondary_lowpass_cutoff: float = 2800.0  # Hz - gentler second-stage rolloff
 @export var interior_highpass_cutoff: float = 60.0   # Hz - keep low engine body present
-@export var interior_volume_reduction: float = -4.0  # dB reduction when inside
+@export var interior_volume_reduction: float = -2.0  # dB reduction when inside
 @export var interior_panning_strength: float = 0.18  # Keep cockpit sources mostly centered with only subtle stereo movement
 @export var bridge_lowpass_cutoff: float = 3200.0  # Hz - stronger window damping than open-air deck audio
 @export var bridge_secondary_lowpass_cutoff: float = 1850.0  # Hz - extra rolloff so the bridge feels enclosed

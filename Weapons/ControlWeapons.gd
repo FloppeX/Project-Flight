@@ -75,10 +75,6 @@ func _input(event):
 		is_trigger_held = false
 
 func process_physic_frame(delta):
-	# Check for weapon switching
-	if Input.is_action_just_pressed("change_weapon"):
-		cycle_weapon_type()
-	
 	# Continuous firing only for automatic weapons of selected type
 	if is_trigger_held:
 		fire_automatic_weapons_of_type(selected_weapon_type)

@@ -11,6 +11,9 @@ class_name ProjectileNew
 @export var hit_assist_enabled: bool = false
 @export var hit_assist_check_interval_s: float = 0.05
 @export var hit_assist_max_candidate_distance_m: float = 2500.0
+@export var hit_assist_use_physics_broadphase: bool = true
+@export var hit_assist_broadphase_extra_radius_m: float = 20.0
+@export var hit_assist_broadphase_max_results: int = 32
 
 # Preloaded impact sounds to avoid per-hit load() calls
 static var _metal_sounds: Array[AudioStream] = []
@@ -33,6 +36,7 @@ var last_position: Vector3 = Vector3.ZERO
 var has_impacted: bool = false
 var _hit_assist_time_accum_s: float = 0.0
 var _hit_assist_segment_start: Vector3 = Vector3.ZERO
+var _hit_assist_broadphase_shape: SphereShape3D = null
 
 static func get_hit_assist_radius_m() -> float:
 	return hit_assist_radius_m
@@ -77,6 +81,7 @@ func _ready():
 	# Initialize last position for raycast tunneling detection
 	last_position = global_position
 	_hit_assist_segment_start = global_position
+	_hit_assist_broadphase_shape = SphereShape3D.new()
 
 func get_child_collision_shape() -> CollisionShape3D:
 	for child in get_children():
@@ -91,9 +96,7 @@ func _physics_process(delta):
 	if last_position != Vector3.ZERO:
 		var space_state: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
 		var query: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(last_position, global_position)
-		query.exclude = [self]
-		if shooter:
-			query.exclude.append(shooter)
+		query.exclude = _get_projectile_query_excludes()
 		# Use all layers so projectile collision works with project-specific Terrain3D setup.
 		query.collision_mask = 0xFFFFFFFF
 			
@@ -138,6 +141,10 @@ func fire(initial_velocity: Vector3, firing_aircraft: Node3D):
 	shooter = firing_aircraft
 	linear_velocity = initial_velocity
 	_hit_assist_time_accum_s = 0.0
+	# Weapons may offset the projectile after _ready() so it starts clear of the
+	# muzzle. Start impact raycasts from the final launch position, not the
+	# original instantiation point inside the firing rig.
+	last_position = global_position
 	_hit_assist_segment_start = global_position
 	
 	# Disable collision with the firing entity initially.
@@ -151,6 +158,14 @@ func fire(initial_velocity: Vector3, firing_aircraft: Node3D):
 				remove_collision_exception_with(firing_aircraft)
 		)
 
+func _get_projectile_query_excludes() -> Array:
+	var excludes: Array = []
+	if self is CollisionObject3D:
+		excludes.append(get_rid())
+	if shooter and is_instance_valid(shooter) and shooter is CollisionObject3D:
+		excludes.append((shooter as CollisionObject3D).get_rid())
+	return excludes
+
 func _check_hit_assist(from_pos: Vector3, to_pos: Vector3) -> Dictionary:
 	if not hit_assist_enabled:
 		return {}
@@ -163,7 +178,7 @@ func _check_hit_assist(from_pos: Vector3, to_pos: Vector3) -> Dictionary:
 	return target_data
 
 func _find_best_hit_assist_target(from_pos: Vector3, to_pos: Vector3, assist_radius: float) -> Dictionary:
-	var candidates: Array = _get_hit_assist_candidates()
+	var candidates: Array = _get_hit_assist_candidates_for_segment(from_pos, to_pos, assist_radius)
 	if candidates.is_empty():
 		return {}
 
@@ -199,6 +214,65 @@ func _find_best_hit_assist_target(from_pos: Vector3, to_pos: Vector3, assist_rad
 		"target": best_target,
 		"position": best_point,
 	}
+
+func _get_hit_assist_candidates_for_segment(from_pos: Vector3, to_pos: Vector3, assist_radius: float) -> Array:
+	if hit_assist_use_physics_broadphase:
+		return _get_hit_assist_candidates_from_physics(from_pos, to_pos, assist_radius)
+	return _get_hit_assist_candidates()
+
+func _get_hit_assist_candidates_from_physics(from_pos: Vector3, to_pos: Vector3, assist_radius: float) -> Array:
+	if _hit_assist_broadphase_shape == null:
+		_hit_assist_broadphase_shape = SphereShape3D.new()
+	var segment: Vector3 = to_pos - from_pos
+	var midpoint: Vector3 = from_pos + segment * 0.5
+	var segment_half_len: float = segment.length() * 0.5
+	_hit_assist_broadphase_shape.radius = maxf(segment_half_len + assist_radius + hit_assist_broadphase_extra_radius_m, assist_radius)
+
+	var query := PhysicsShapeQueryParameters3D.new()
+	query.shape = _hit_assist_broadphase_shape
+	query.transform = Transform3D(Basis.IDENTITY, midpoint)
+	query.collision_mask = 0xFFFFFFFF
+	query.collide_with_bodies = true
+	query.collide_with_areas = true
+	query.exclude = [get_rid()]
+	if shooter and shooter is CollisionObject3D:
+		query.exclude.append((shooter as CollisionObject3D).get_rid())
+
+	var results: Array = get_world_3d().direct_space_state.intersect_shape(query, max(hit_assist_broadphase_max_results, 1))
+	if results.is_empty():
+		return []
+
+	var out: Array = []
+	var seen: Dictionary = {}
+	for hit in results:
+		if not (hit is Dictionary):
+			continue
+		var collider_variant: Variant = (hit as Dictionary).get("collider", null)
+		if typeof(collider_variant) != TYPE_OBJECT or not is_instance_valid(collider_variant):
+			continue
+		var candidate: Node3D = _resolve_hit_assist_candidate_from_collider(collider_variant as Object)
+		if candidate == null:
+			continue
+		var instance_id: int = candidate.get_instance_id()
+		if seen.has(instance_id):
+			continue
+		seen[instance_id] = true
+		out.append(candidate)
+	return out
+
+func _resolve_hit_assist_candidate_from_collider(collider_obj: Object) -> Node3D:
+	if collider_obj == null:
+		return null
+	if collider_obj is Node3D and _is_hit_assist_target_node(collider_obj as Node3D):
+		return collider_obj as Node3D
+	if not (collider_obj is Node):
+		return null
+	var node: Node = collider_obj as Node
+	while node != null:
+		if node is Node3D and _is_hit_assist_target_node(node as Node3D):
+			return node as Node3D
+		node = node.get_parent()
+	return null
 
 func _get_hit_assist_candidates() -> Array:
 	var tree: SceneTree = get_tree()
