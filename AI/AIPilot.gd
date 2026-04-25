@@ -143,17 +143,20 @@ var maneuver_waypoint: Vector3 = Vector3.ZERO  # Short-term maneuvering target
 # Ground attack parameters
 @export var attack_run_distance_m: float = 800.0   # Waypoint ~800m in front of target
 @export var attack_run_altitude_offset_m: float = 300.0  # Waypoint 300m above target
-@export var bomb_run_setup_distance_m: float = 1100.0  # Bomb run setup distance from target
-@export var bomb_run_setup_altitude_offset_m: float = 350.0  # Bomb run setup altitude above target
-@export var bomb_run_setup_max_altitude_offset_m: float = 460.0
+@export var bomb_run_setup_distance_m: float = 1350.0  # Bomb run setup distance from target
+@export var bomb_run_setup_altitude_offset_m: float = 360.0  # Bomb run setup altitude above target
+@export var bomb_run_setup_max_altitude_offset_m: float = 480.0
 @export var rocket_run_setup_distance_m: float = 900.0
 @export var rocket_run_altitude_offset_m: float = 180.0
-@export var bomb_dive_start_distance_m: float = 800.0  # Start bomb dive at this HORIZONTAL range
-@export var bomb_dive_start_altitude_factor: float = 2.25
+@export var bomb_dive_start_distance_m: float = 1150.0  # Start bomb dive at this HORIZONTAL range
+@export var bomb_dive_start_altitude_factor: float = 3.2
+@export var bomb_dive_start_min_target_dot: float = 0.82
+@export var bomb_dive_start_max_bank_deg: float = 25.0
 @export var attack_pull_up_distance_m: float = 150.0  # Break off when this close to target (gun runs)
 @export var bomb_pull_up_distance_m: float = 250.0   # Break off distance for bomb runs
 @export var rocket_pull_up_distance_m: float = 120.0
-@export var bomb_dive_aim_height_m: float = 0.0      # Aim this many metres above the target during bomb dive
+@export var bomb_dive_aim_height_m: float = 90.0     # Aim this many metres above the target during bomb dive
+@export var bomb_dive_close_aim_height_m: float = 75.0
 @export var rocket_dive_aim_height_m: float = 3.0
 @export var bomb_release_altitude_window_m: float = 650.0  # Max altitude above target at which bomb can be released
 @export var bomb_ccip_release_tolerance_m: float = 140.0  # Fallback release tolerance if skill-specific bombing is disabled
@@ -162,14 +165,19 @@ var maneuver_waypoint: Vector3 = Vector3.ZERO  # Short-term maneuvering target
 @export var bomb_veteran_release_tolerance_m: float = 40.0
 @export var bomb_ace_release_tolerance_m: float = 20.0
 @export var bomb_release_best_miss_slack_m: float = 6.0
+@export var bomb_release_after_best_worsen_m: float = 3.0
+@export var bomb_release_after_best_grace_m: float = 20.0
+@export var bomb_release_best_solution_tolerance_multiplier: float = 6.0
 @export var bomb_ccip_fallback_alt_m: float = 320.0       # Legacy tuning value; bomb release now requires a valid CCIP solution
-@export var bomb_release_min_range_m: float = 260.0       # Do not salvage bad bomb runs with very close drops
+@export var bomb_release_min_range_m: float = 180.0       # Do not salvage bad bomb runs with very close drops
 @export var bomb_ccip_aim_correction_max_m: float = 260.0
 @export var bomb_ccip_aim_correction_close_range_m: float = 450.0
 @export var bomb_ccip_aim_correction_close_scale: float = 0.55
 @export var bomb_ccip_use_moving_target_plane: bool = true
-@export var bomb_dive_pitch_los_gain: float = 4.0
+@export var bomb_dive_pitch_los_gain: float = 3.2
 @export var bomb_min_dive_angle_deg: float = 3.0          # Minimum flight path angle (degrees nose-down) to release bombs
+@export var bomb_preferred_dive_angle_deg: float = 16.0
+@export var bomb_dive_pullback_gain: float = 0.035
 @export var bomb_ccip_recompute_interval_s: float = 0.08
 @export var bomb_ccip_time_step_s: float = 0.04
 @export var bomb_ccip_max_time_s: float = 10.0
@@ -187,6 +195,11 @@ var maneuver_waypoint: Vector3 = Vector3.ZERO  # Short-term maneuvering target
 @export var attack_aim_lead_time_s: float = 0.25  # Small lead for moving targets during dive
 @export var bomb_target_lead_max_s: float = 8.0
 @export var bomb_target_lead_scale: float = 1.0
+@export var carrier_bomb_setup_along_motion: bool = false
+@export var carrier_bomb_setup_min_speed_mps: float = 2.0
+@export var carrier_bomb_target_lead_scale: float = 1.0
+@export var carrier_bomb_target_lead_max_s: float = 7.0
+@export var carrier_bomb_forward_bias_m: float = 35.0
 @export var rocket_target_lead_max_s: float = 4.0
 @export var rocket_target_lead_scale: float = 1.0
 @export var bomb_release_spacing_s: float = 0.35   # Time spacing between bombs
@@ -1258,6 +1271,19 @@ func _get_effective_bomb_release_hold_s() -> float:
 			return bomb_ace_release_hold_s
 	return weapon_release_stability_hold_s
 
+func _is_bomb_best_solution_release_moment(current_miss_m: float, previous_miss_m: float, best_miss_m: float, release_tolerance_m: float) -> bool:
+	if current_miss_m < 0.0 or not is_finite(previous_miss_m) or not is_finite(best_miss_m):
+		return false
+	var grace_m: float = maxf(bomb_release_after_best_grace_m, 0.0)
+	var worsen_m: float = maxf(bomb_release_after_best_worsen_m, 0.0)
+	var max_best_solution_m: float = release_tolerance_m * maxf(bomb_release_best_solution_tolerance_multiplier, 1.0)
+	var best_was_good_enough: bool = best_miss_m <= max_best_solution_m
+	var previous_was_near_best: bool = previous_miss_m <= best_miss_m + grace_m
+	var current_is_still_near_best: bool = current_miss_m <= best_miss_m + grace_m
+	var solution_is_worsening: bool = current_miss_m > previous_miss_m + worsen_m
+	var solution_has_left_best: bool = current_miss_m >= best_miss_m + worsen_m
+	return best_was_good_enough and previous_was_near_best and current_is_still_near_best and (solution_is_worsening or solution_has_left_best)
+
 func _is_carrier_attack_target(node: Variant) -> bool:
 	var normalized: Node3D = _sanitize_ground_attack_target(node)
 	return normalized != null and is_instance_valid(normalized) and normalized.is_in_group("carrier")
@@ -1387,6 +1413,11 @@ func _setup_attack_run_waypoint():
 	var to_target: Vector3 = target_pos - aircraft.global_position
 	to_target.y = 0.0
 	var horiz_dir: Vector3 = to_target.normalized() if to_target.length() > 1.0 else aircraft.global_transform.basis.z
+	if _run_weapon_type == "Bomb" and _is_carrier_attack_target(active_target) and carrier_bomb_setup_along_motion:
+		var target_velocity: Vector3 = _get_target_linear_velocity(active_target)
+		var target_motion: Vector3 = Vector3(target_velocity.x, 0.0, target_velocity.z)
+		if target_motion.length() >= maxf(carrier_bomb_setup_min_speed_mps, 0.0):
+			horiz_dir = target_motion.normalized()
 	var setup_dist: float = _get_attack_setup_distance_m()
 	nav_waypoint = target_pos - horiz_dir * setup_dist
 	# Lock XZ now â€” _state_attack_positioning must NOT recompute from aircraft position.
@@ -1605,7 +1636,13 @@ func _state_attack_inbound(delta: float):
 			bomb_run_setup_distance_m + 200.0
 		)
 	var alt_ready: bool = aircraft.global_position.y >= (_bomb_run_altitude_m - 50.0)
-	if horiz_dist_to_target <= effective_dive_start_dist and alt_ready:
+	var forward_flat := Vector3(aircraft.global_transform.basis.z.x, 0.0, aircraft.global_transform.basis.z.z)
+	var target_flat := Vector3(to_target.x, 0.0, to_target.z)
+	var target_aligned: bool = false
+	if forward_flat.length_squared() > 0.0001 and target_flat.length_squared() > 1.0:
+		target_aligned = forward_flat.normalized().dot(target_flat.normalized()) >= clampf(bomb_dive_start_min_target_dot, -1.0, 1.0)
+	var bank_ready: bool = _get_current_bank_angle_deg() <= maxf(bomb_dive_start_max_bank_deg, 1.0)
+	if horiz_dist_to_target <= effective_dive_start_dist and alt_ready and target_aligned and bank_ready:
 		change_state(State.ATTACK_DIVE)
 		_committed_turn_sign = 0.0
 		if debug_enabled:
@@ -1681,6 +1718,17 @@ func _state_attack_dive(delta: float):
 	# Bomb runs: refine aim using predicted impact ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â steer to put the bullseye on target
 	var horiz_dist: float = Vector2(aircraft.global_position.x - target_pos.x, aircraft.global_position.z - target_pos.z).length()
 	var alt_above: float = aircraft.global_position.y - target_pos.y
+	if _run_weapon_type == "Bomb" and _bombs_dropped_this_run == 0:
+		var target_flat_dir := Vector3(target_pos.x - aircraft.global_position.x, 0.0, target_pos.z - aircraft.global_position.z)
+		var forward_flat_dir := Vector3(aircraft.global_transform.basis.z.x, 0.0, aircraft.global_transform.basis.z.z)
+		if target_flat_dir.length_squared() > 1.0 and forward_flat_dir.length_squared() > 0.0001:
+			var nose_to_target_dot: float = forward_flat_dir.normalized().dot(target_flat_dir.normalized())
+			if nose_to_target_dot < -0.15 and horiz_dist > maxf(bomb_pull_up_distance_m, 1.0):
+				if debug_enabled:
+					print("[AIPilot ATTACK] Bomb dive invalid: target behind nose (dot=%.2f), resetting run" % nose_to_target_dot)
+				_setup_attack_run_waypoint()
+				change_state(State.ATTACK_POSITIONING)
+				return
 	var ccip_impact: Vector3 = Vector3.ZERO  # Shared between aim correction and release check
 	if _run_weapon_type == "Bomb":
 		# Throttle CCIP calculation â€” ballistic sim is expensive (~500 iterations + raycasts)
@@ -1695,11 +1743,23 @@ func _state_attack_dive(delta: float):
 			_ccip_cached_result = impact_variant if impact_variant is Vector3 else Vector3.ZERO
 			_ccip_cached_tof_s = float(bomb_ccip_solution.get("time_of_flight", -1.0))
 		ccip_impact = _ccip_cached_result
-		if target_velocity != Vector3.ZERO and not is_carrier_bomb_target:
+		if target_velocity != Vector3.ZERO:
 			var lead_time_s: float = attack_aim_lead_time_s
 			if ccip_impact != Vector3.ZERO and _ccip_cached_tof_s > 0.0:
-				lead_time_s = clampf(_ccip_cached_tof_s * bomb_target_lead_scale, attack_aim_lead_time_s, bomb_target_lead_max_s)
-			release_target_pos += target_velocity * lead_time_s
+				if is_carrier_bomb_target:
+					lead_time_s = clampf(
+						_ccip_cached_tof_s * carrier_bomb_target_lead_scale,
+						0.0,
+						carrier_bomb_target_lead_max_s
+					)
+				else:
+					lead_time_s = clampf(_ccip_cached_tof_s * bomb_target_lead_scale, attack_aim_lead_time_s, bomb_target_lead_max_s)
+			if not is_carrier_bomb_target or lead_time_s > 0.0:
+				release_target_pos += target_velocity * lead_time_s
+			if is_carrier_bomb_target:
+				var carrier_forward: Vector3 = Vector3(target_velocity.x, 0.0, target_velocity.z)
+				if carrier_forward.length_squared() > 0.01:
+					release_target_pos += carrier_forward.normalized() * maxf(carrier_bomb_forward_bias_m, 0.0)
 		if ccip_impact != Vector3.ZERO:
 			var err_h: Vector3 = Vector3(release_target_pos.x - ccip_impact.x, 0.0, release_target_pos.z - ccip_impact.z)
 			var max_correction_m: float = maxf(bomb_ccip_aim_correction_max_m, 0.0)
@@ -1712,10 +1772,10 @@ func _state_attack_dive(delta: float):
 			aim_pos += err_h * correction_strength
 		# In release window: aim closer to target and use precise steering
 		# Smooth transition 600ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢400m to avoid abrupt aim-height jump that causes pitch oscillation
-		var release_t: float = clamp(1.0 - (horiz_dist - 400.0) / 200.0, 0.0, 1.0) if alt_above < 400.0 else 0.0
-		var aim_height_close: float = lerp(aim_height, 15.0, release_t)
+		var release_t: float = clamp(1.0 - (horiz_dist - 650.0) / 350.0, 0.0, 1.0) if alt_above < 450.0 else 0.0
+		var aim_height_close: float = lerp(aim_height, bomb_dive_close_aim_height_m, release_t)
 		aim_pos.y = release_target_pos.y + aim_height_close
-		_dive_precise_aim = horiz_dist < 500.0 and alt_above < 400.0
+		_dive_precise_aim = horiz_dist < 750.0 and alt_above < 450.0
 	elif _run_weapon_type == "Rocket Pod":
 		_ccip_cache_timer -= delta
 		if _ccip_cache_timer <= 0.0:
@@ -1740,7 +1800,7 @@ func _state_attack_dive(delta: float):
 		_hide_bomb_debug_visuals()
 
 	if _run_weapon_type == "Bomb":
-		_update_bomb_debug_visuals(aim_pos, release_target_pos, ccip_impact, target_velocity, horiz_dist, alt_above, delta)
+		_update_bomb_debug_visuals(aim_pos, release_target_pos, ccip_impact, target_velocity, horiz_dist, alt_above, delta, target_pos)
 
 	nav_waypoint = aim_pos
 	maneuver_waypoint = aim_pos
@@ -1749,7 +1809,7 @@ func _state_attack_dive(delta: float):
 	_navigate_to_waypoint(delta)
 
 	if _run_weapon_type == "Bomb":
-		_handle_bomb_release_run(aim_pos, release_target_pos, ccip_impact)
+		_handle_bomb_release_run(aim_pos, release_target_pos, ccip_impact, target_pos)
 	elif _run_weapon_type == "Rocket Pod":
 		_handle_rocket_release_run(aim_pos, release_target_pos, ccip_impact)
 	else:
@@ -3012,14 +3072,13 @@ func _get_total_rocket_ammo() -> int:
 			total += int(hp.weapon_instance.ammo_count)
 	return total
 
-func _handle_bomb_release_run(aim_pos: Vector3, target_pos: Vector3, ccip_predicted: Vector3 = Vector3.ZERO) -> void:
+func _handle_bomb_release_run(aim_pos: Vector3, target_pos: Vector3, ccip_predicted: Vector3 = Vector3.ZERO, current_target_pos: Vector3 = Vector3.ZERO) -> void:
 	if _bombs_to_drop_this_run <= 0:
 		return
 	if _bombs_dropped_this_run >= _bombs_to_drop_this_run:
 		return
 	var now_s: float = Time.get_ticks_msec() / 1000.0
-	if now_s - _last_bomb_drop_time_s < bomb_release_spacing_s:
-		return
+	var drop_spacing_ready: bool = now_s - _last_bomb_drop_time_s >= bomb_release_spacing_s
 
 	var alt_above_target: float = aircraft.global_position.y - target_pos.y
 	var horiz_dist_to_target: float = Vector2(aircraft.global_position.x - target_pos.x, aircraft.global_position.z - target_pos.z).length()
@@ -3037,16 +3096,32 @@ func _handle_bomb_release_run(aim_pos: Vector3, target_pos: Vector3, ccip_predic
 	# CCIP release: hold until predicted impact is close enough to target.
 	# If CCIP failed (Vector3.ZERO ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â no terrain found), release immediately.
 	var pred_err_h: float = -1.0
+	var led_pred_err_h: float = -1.0
+	var current_pred_err_h: float = -1.0
 	var ccip_good: bool = false
+	var release_at_best_solution: bool = false
 	if ccip_predicted != Vector3.ZERO:
-		pred_err_h = Vector2(target_pos.x - ccip_predicted.x, target_pos.z - ccip_predicted.z).length()
-		_prev_ccip_miss = pred_err_h
-		_best_bomb_ccip_miss_this_run = minf(_best_bomb_ccip_miss_this_run, pred_err_h)
+		led_pred_err_h = Vector2(target_pos.x - ccip_predicted.x, target_pos.z - ccip_predicted.z).length()
+		if current_target_pos == Vector3.ZERO:
+			current_target_pos = target_pos
+		current_pred_err_h = Vector2(current_target_pos.x - ccip_predicted.x, current_target_pos.z - ccip_predicted.z).length()
+		pred_err_h = led_pred_err_h
+		if _is_carrier_attack_target(combat_target):
+			pred_err_h = minf(led_pred_err_h, current_pred_err_h)
 		var release_tolerance_m: float = _get_effective_bomb_release_tolerance_m()
-		var near_best_solution: bool = pred_err_h <= _best_bomb_ccip_miss_this_run + maxf(bomb_release_best_miss_slack_m, 0.0)
-		ccip_good = pred_err_h <= release_tolerance_m and near_best_solution
+		var previous_miss_m: float = _prev_ccip_miss
+		var previous_best_miss_m: float = _best_bomb_ccip_miss_this_run
+		release_at_best_solution = _is_bomb_best_solution_release_moment(pred_err_h, previous_miss_m, previous_best_miss_m, release_tolerance_m)
+		var best_with_current_m: float = minf(previous_best_miss_m, pred_err_h)
+		var near_best_solution: bool = pred_err_h <= best_with_current_m + maxf(bomb_release_best_miss_slack_m, 0.0)
+		ccip_good = (pred_err_h <= release_tolerance_m and near_best_solution) or release_at_best_solution
+		_prev_ccip_miss = pred_err_h
+		_best_bomb_ccip_miss_this_run = best_with_current_m
 	var bank_ok: bool = _get_current_bank_angle_deg() <= bomb_release_max_bank_deg
-	if not _is_release_solution_stable_enough(now_s, ccip_good and bank_ok, _get_effective_bomb_release_hold_s()):
+	if not drop_spacing_ready:
+		return
+	var release_hold_s: float = 0.0 if release_at_best_solution else _get_effective_bomb_release_hold_s()
+	if not _is_release_solution_stable_enough(now_s, ccip_good and bank_ok, release_hold_s):
 		return
 
 	var bomb_released: bool = _drop_one_bomb(target_pos, ccip_predicted)
@@ -3056,10 +3131,9 @@ func _handle_bomb_release_run(aim_pos: Vector3, target_pos: Vector3, ccip_predic
 
 		if debug_enabled:
 			var hdist: float = Vector2(aircraft.global_position.x - target_pos.x, aircraft.global_position.z - target_pos.z).length()
-			var pred_err_h_debug: float = Vector2(target_pos.x - ccip_predicted.x, target_pos.z - ccip_predicted.z).length() if ccip_predicted != Vector3.ZERO else -1.0
 			var spd: float = aircraft.linear_velocity.length()
 			var fpa_at_drop: float = rad_to_deg(atan2(-aircraft.linear_velocity.y, max(horiz_speed, 1.0)))
-			var miss_str: String = " miss=%.1fm" % pred_err_h_debug if ccip_predicted != Vector3.ZERO else " miss=no-ccip"
+			var miss_str: String = " miss=%.1fm led=%.1fm cur=%.1fm" % [pred_err_h, led_pred_err_h, current_pred_err_h] if ccip_predicted != Vector3.ZERO else " miss=no-ccip"
 			var target_range_now: float = aircraft.global_position.distance_to(_get_surface_target_position(combat_target)) if combat_target and is_instance_valid(combat_target) else hdist
 			print("[AIPilot RELEASE] %s type=Bomb count=%d/%d alt_above=%.1fm hdist=%.1fm current_range=%.1fm spd=%.1fm/s fpa=%.1fdeg%s" % [
 				aircraft.name,
@@ -3072,6 +3146,13 @@ func _handle_bomb_release_run(aim_pos: Vector3, target_pos: Vector3, ccip_predic
 				fpa_at_drop,
 				miss_str
 			])
+	elif debug_enabled:
+		print("[AIPilot RELEASE_FAIL] %s type=Bomb reason=no_ready_bomb miss=%.1fm desired=%d dropped=%d" % [
+			aircraft.name,
+			pred_err_h,
+			_bombs_to_drop_this_run,
+			_bombs_dropped_this_run
+		])
 
 func _drop_one_bomb(target_pos: Vector3 = Vector3.ZERO, ccip_predicted: Vector3 = Vector3.ZERO) -> bool:
 	for hp in _get_control_weapon_hardpoints():
@@ -4461,6 +4542,12 @@ func _navigate_to_waypoint(delta: float):
 				-pitch_limit,
 				pitch_limit
 			)
+		if _run_weapon_type == "Bomb":
+			var horiz_speed_for_fpa: float = Vector2(vel.x, vel.z).length()
+			var fpa_deg: float = rad_to_deg(atan2(-vel.y, maxf(horiz_speed_for_fpa, 1.0)))
+			if fpa_deg > bomb_preferred_dive_angle_deg:
+				var pullback_pitch: float = (fpa_deg - bomb_preferred_dive_angle_deg) * maxf(bomb_dive_pullback_gain, 0.0)
+				raw_pitch = maxf(raw_pitch, clampf(pullback_pitch, 0.0, pitch_limit))
 	# Min pitch prevents dead-zone but must not fight the controller when it is already correcting
 	# correctly. Only enforce the floor when vs_err agrees with the altitude error direction.
 	var min_pitch_threshold: float = 60.0 if in_dive_state else 40.0
@@ -4717,7 +4804,8 @@ func _update_bomb_debug_visuals(
 	target_velocity: Vector3,
 	horiz_dist: float,
 	alt_above: float,
-	delta: float
+	delta: float,
+	current_target_pos: Vector3 = Vector3.ZERO
 ) -> void:
 	if not debug_enabled:
 		_hide_bomb_debug_visuals()
@@ -4747,19 +4835,25 @@ func _update_bomb_debug_visuals(
 		return
 	_bomb_debug_print_timer_s = maxf(bomb_debug_print_interval_s, 0.1)
 	var ccip_miss: float = Vector2(release_target_pos.x - ccip_impact.x, release_target_pos.z - ccip_impact.z).length() if ccip_impact != Vector3.ZERO else -1.0
+	var current_ccip_miss: float = Vector2(current_target_pos.x - ccip_impact.x, current_target_pos.z - ccip_impact.z).length() if ccip_impact != Vector3.ZERO else -1.0
+	var target_lead_m: float = Vector2(release_target_pos.x - current_target_pos.x, release_target_pos.z - current_target_pos.z).length()
+	var release_ccip_miss: float = ccip_miss
+	if current_ccip_miss >= 0.0 and target_lead_m > 1.0:
+		release_ccip_miss = minf(ccip_miss, current_ccip_miss)
 	var release_tolerance_m: float = _get_effective_bomb_release_tolerance_m()
 	var displayed_best_miss: float = _best_bomb_ccip_miss_this_run
 	if ccip_impact != Vector3.ZERO:
-		displayed_best_miss = minf(displayed_best_miss, ccip_miss)
-	var near_best_solution: bool = ccip_impact != Vector3.ZERO and ccip_miss <= displayed_best_miss + maxf(bomb_release_best_miss_slack_m, 0.0)
+		displayed_best_miss = minf(displayed_best_miss, release_ccip_miss)
+	var near_best_solution: bool = ccip_impact != Vector3.ZERO and release_ccip_miss <= displayed_best_miss + maxf(bomb_release_best_miss_slack_m, 0.0)
+	var release_at_best_solution: bool = ccip_impact != Vector3.ZERO and _is_bomb_best_solution_release_moment(release_ccip_miss, _prev_ccip_miss, _best_bomb_ccip_miss_this_run, release_tolerance_m)
 	var horiz_speed: float = Vector2(aircraft.linear_velocity.x, aircraft.linear_velocity.z).length()
 	var fpa_deg: float = rad_to_deg(atan2(-aircraft.linear_velocity.y, max(horiz_speed, 1.0)))
 	var bank_deg: float = _get_current_bank_angle_deg()
-	var release_hold_s: float = _get_effective_bomb_release_hold_s()
-	var stable_ready: bool = _release_solution_stable_time_s >= release_hold_s
+	var release_hold_s: float = 0.0 if release_at_best_solution else _get_effective_bomb_release_hold_s()
+	var stable_ready: bool = release_at_best_solution or _release_solution_stable_time_s >= release_hold_s
+	var miss_gate_ok: bool = (release_ccip_miss <= release_tolerance_m and near_best_solution) or release_at_best_solution
 	var release_geometry_ok: bool = ccip_impact != Vector3.ZERO \
-		and ccip_miss <= release_tolerance_m \
-		and near_best_solution \
+		and miss_gate_ok \
 		and bank_deg <= bomb_release_max_bank_deg \
 		and alt_above <= bomb_release_altitude_window_m \
 		and alt_above >= 5.0 \
@@ -4769,10 +4863,6 @@ func _update_bomb_debug_visuals(
 	var release_block: String = "ok"
 	if ccip_impact == Vector3.ZERO:
 		release_block = "no_ccip"
-	elif ccip_miss > release_tolerance_m:
-		release_block = "ccip_miss"
-	elif not near_best_solution:
-		release_block = "past_best"
 	elif bank_deg > bomb_release_max_bank_deg:
 		release_block = "bank"
 	elif alt_above > bomb_release_altitude_window_m:
@@ -4783,6 +4873,12 @@ func _update_bomb_debug_visuals(
 		release_block = "close"
 	elif fpa_deg < bomb_min_dive_angle_deg:
 		release_block = "shallow"
+	elif release_at_best_solution:
+		release_block = "best"
+	elif release_ccip_miss > release_tolerance_m:
+		release_block = "ccip_miss"
+	elif not near_best_solution:
+		release_block = "past_best"
 	elif not stable_ready:
 		release_block = "hold"
 	var aim_err_deg: float = 0.0
@@ -4791,16 +4887,23 @@ func _update_bomb_debug_visuals(
 		aim_err_deg = rad_to_deg(acos(clampf(aircraft.global_transform.basis.z.normalized().dot(to_aim.normalized()), -1.0, 1.0)))
 	var miss_forward_m: float = 0.0
 	var miss_side_m: float = 0.0
+	var current_miss_m: float = -1.0
+	var current_forward_m: float = 0.0
+	var current_side_m: float = 0.0
 	if ccip_impact != Vector3.ZERO:
-		var miss_vec: Vector3 = Vector3(release_target_pos.x - ccip_impact.x, 0.0, release_target_pos.z - ccip_impact.z)
 		var forward_ref: Vector3 = Vector3(target_velocity.x, 0.0, target_velocity.z)
 		if forward_ref.length_squared() <= 0.01:
 			forward_ref = Vector3(aircraft.global_transform.basis.z.x, 0.0, aircraft.global_transform.basis.z.z)
 		forward_ref = forward_ref.normalized() if forward_ref.length_squared() > 0.01 else Vector3.FORWARD
 		var right_ref: Vector3 = Vector3.UP.cross(forward_ref).normalized()
+		var miss_vec: Vector3 = Vector3(release_target_pos.x - ccip_impact.x, 0.0, release_target_pos.z - ccip_impact.z)
 		miss_forward_m = miss_vec.dot(forward_ref)
 		miss_side_m = miss_vec.dot(right_ref)
-	print("[AIPilot BOMBDBG] %s hdist=%.0fm alt=%.0fm fpa=%.1fdeg bank=%.1fdeg aim_err=%.1fdeg ccip=%s miss=%.0fm best=%.0fm tol=%.0fm fwd=%.0fm side=%.0fm release=%s block=%s stable=%.2fs hold=%.2fs tof=%.2fs target_vel=%.1f" % [
+		var current_vec: Vector3 = Vector3(current_target_pos.x - ccip_impact.x, 0.0, current_target_pos.z - ccip_impact.z)
+		current_miss_m = Vector2(current_vec.x, current_vec.z).length()
+		current_forward_m = current_vec.dot(forward_ref)
+		current_side_m = current_vec.dot(right_ref)
+	print("[AIPilot BOMBDBG] %s hdist=%.0fm alt=%.0fm fpa=%.1fdeg bank=%.1fdeg aim_err=%.1fdeg ccip=%s miss=%.0fm best=%.0fm tol=%.0fm fwd=%.0fm side=%.0fm cur_miss=%.0fm cur_fwd=%.0fm cur_side=%.0fm lead=%.0fm release=%s block=%s stable=%.2fs hold=%.2fs tof=%.2fs target_vel=%.1f" % [
 		aircraft.name if aircraft else "AI",
 		horiz_dist,
 		alt_above,
@@ -4813,6 +4916,10 @@ func _update_bomb_debug_visuals(
 		release_tolerance_m,
 		miss_forward_m,
 		miss_side_m,
+		current_miss_m,
+		current_forward_m,
+		current_side_m,
+		target_lead_m,
 		str(release_now),
 		release_block,
 		_release_solution_stable_time_s,

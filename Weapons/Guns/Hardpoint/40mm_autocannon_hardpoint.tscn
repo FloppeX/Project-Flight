@@ -1,0 +1,17 @@
+[gd_scene load_steps=4 format=3 uid="uid://d1a4ljrkfqcq2"]
+
+[ext_resource type="Script" uid="uid://cc5i2s0mvs378" path="res://Weapons/Autocannon/autocannon.gd" id="1_script"]
+[ext_resource type="Resource" path="res://Weapons/Guns/Profiles/40mm_autocannon.tres" id="2_profile"]
+[ext_resource type="PackedScene" uid="uid://b83rkkamha1oc" path="res://autocannon 40 mm.glb" id="3_model"]
+
+[node name="40mmAutocannonHardpoint" type="Node3D"]
+script = ExtResource("1_script")
+gun_profile = ExtResource("2_profile")
+cockpit_judder_shake_intensity = 1.1
+cockpit_judder_shake_duration_s = 0.09
+
+[node name="GunModel" parent="." instance=ExtResource("3_model")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.0475906, -0.00304407, 0.0692896)
+
+[node name="BulletSpawnPoint" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 3.70729)

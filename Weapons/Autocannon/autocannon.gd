@@ -63,6 +63,7 @@ var _sfx_player_index: int = 0
 var _last_shot_sound_index: int = -1
 var _projectile_speed_cap_cached: bool = false
 var _projectile_speed_cap_mps: float = INF
+var _bullet_spawn_point: Node3D = null
 
 func _ready():
 	_apply_gun_profile()
@@ -99,10 +100,9 @@ func fire() -> bool:
 	_play_cannon_sound()
 
 	var bullet = bullet_projectile_scene.instantiate()
-	# Set transform BEFORE adding to tree so first-frame visuals don't flash at the origin
-	bullet.position = global_position
-	bullet.rotation = global_rotation
+	var spawn_transform: Transform3D = _get_bullet_spawn_transform()
 	get_tree().current_scene.add_child(bullet)
+	bullet.global_transform = spawn_transform
 
 	var spread := Vector3(
 		randf_range(-spread_angle, spread_angle),
@@ -113,15 +113,30 @@ func fire() -> bool:
 	bullet.rotate_object_local(Vector3.UP, deg_to_rad(spread.y))
 	_configure_projectile_instance(bullet)
 
-	var aircraft = hardpoint.aircraft
-	var muzzle_vel = hardpoint.get_hardpoint_forward_direction() * muzzle_velocity
+	var aircraft = hardpoint.aircraft if hardpoint else null
+	var muzzle_vel = bullet.global_transform.basis.z.normalized() * muzzle_velocity
 	bullet.fire(muzzle_vel, aircraft)
 
-	hardpoint.apply_recoil_force(get_recoil_force(), false)
+	if hardpoint:
+		hardpoint.apply_recoil_force(get_recoil_force(), false)
 	_apply_cockpit_judder(aircraft)
 
 	ammo_count -= 1
 	return true
+
+func _get_bullet_spawn_transform() -> Transform3D:
+	var spawn_point := _get_bullet_spawn_point()
+	if spawn_point != null and is_instance_valid(spawn_point):
+		return spawn_point.global_transform
+	return global_transform
+
+func _get_bullet_spawn_point() -> Node3D:
+	if _bullet_spawn_point != null and is_instance_valid(_bullet_spawn_point):
+		return _bullet_spawn_point
+	var found := find_child("BulletSpawnPoint", true, false) as Node3D
+	if found != null:
+		_bullet_spawn_point = found
+	return _bullet_spawn_point
 
 func _apply_gun_profile() -> void:
 	if gun_profile == null:

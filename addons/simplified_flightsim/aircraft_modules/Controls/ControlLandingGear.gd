@@ -18,6 +18,7 @@ class_name AircraftModule_ControlLandingGear
 
 var landing_gear_modules: Array = []
 var gear_down_state: bool = true  # tracked locally for the toggle (true = gear deployed)
+var tailhook_down_state: bool = false
 var tailhook_modules: Array = []
 var tailhook_simple_nodes: Array = []
 var _rescan_timer_s: float = 0.0
@@ -79,6 +80,7 @@ func setup(aircraft_node: Node) -> void:
 	# Force tailhook stowed at startup regardless of gear state
 	send_to_tailhooks("stow")
 	send_to_tailhook_simple(false)
+	tailhook_down_state = false
 
 func _discover_modules() -> void:
 	# Discover landing gear modules (optionally filtered by tag)
@@ -130,6 +132,14 @@ func _physics_process(delta: float) -> void:
 			send_to_landing_gears("deploy")
 			_set_collider_disabled(false)
 			gear_down_state = true
+			if tailhook_down_state:
+				send_to_tailhooks("stow")
+				send_to_tailhook_simple(false)
+				tailhook_down_state = false
+			else:
+				send_to_tailhooks("deploy")
+				send_to_tailhook_simple(true)
+				tailhook_down_state = true
 			return
 		if gear_down_state:
 			send_to_landing_gears("stow")
@@ -137,12 +147,14 @@ func _physics_process(delta: float) -> void:
 			send_to_tailhook_simple(false)
 			_set_collider_disabled(true)
 			gear_down_state = false
+			tailhook_down_state = false
 		else:
 			send_to_landing_gears("deploy")
 			send_to_tailhooks("deploy")
 			send_to_tailhook_simple(true)
 			_set_collider_disabled(false)
 			gear_down_state = true
+			tailhook_down_state = true
 
 	# Direct commands (work alongside toggle)
 	if Input.is_action_just_pressed("gear_deploy"):
@@ -153,20 +165,25 @@ func _physics_process(delta: float) -> void:
 		send_to_tailhook_simple(true)
 		_set_collider_disabled(false)
 		gear_down_state = true
+		tailhook_down_state = true
 
 	if Input.is_action_just_pressed("gear_stow"):
 		if debug_enabled:
 			print("[GEAR] stow; gears=", landing_gear_modules.size())
 		if LockGearDeployed:
 			send_to_landing_gears("deploy")
+			send_to_tailhooks("stow")
+			send_to_tailhook_simple(false)
 			_set_collider_disabled(false)
 			gear_down_state = true
+			tailhook_down_state = false
 			return
 		send_to_landing_gears("stow")
 		send_to_tailhooks("stow")
 		send_to_tailhook_simple(false)
 		_set_collider_disabled(true)
 		gear_down_state = false
+		tailhook_down_state = false
 
 func receive_input(_event: InputEvent) -> void:
 	# Polling mode; keep stub for framework compatibility

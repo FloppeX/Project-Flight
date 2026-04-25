@@ -51,6 +51,10 @@ const AUTOCANNON_SHOT_STREAMS = [
 @export var recoil_force: float = 1000.0
 @export var max_range_m: float = 500.0
 @export var infinite_ammo: bool = true
+@export var turret_fire_rate_multiplier: float = 0.5
+@export var host_recoil_enabled: bool = false
+@export var host_recoil_impulse_scale: float = 0.001
+@export var host_recoil_speed_cap_mps: float = 4.0
 @export var use_lmg_sound_set: bool = false
 @export var use_autocannon_sound_set: bool = false
 @export var use_heavy_auto_sound_set: bool = true
@@ -64,6 +68,7 @@ var _last_shot_sound_index: int = -1
 var last_fired_projectile: Node = null
 var _projectile_speed_cap_cached: bool = false
 var _projectile_speed_cap_mps: float = INF
+var _bullet_spawn_point: Node3D = null
 
 func _ready() -> void:
 	_apply_gun_profile()
@@ -75,7 +80,7 @@ func _ready() -> void:
 		bullet_scene = load("res://Projectiles/Bullet/bullet.tscn")
 	_setup_shot_audio()
 	if _is_mounted_in_turret():
-		fire_rate *= 0.5
+		fire_rate *= maxf(turret_fire_rate_multiplier, 0.0)
 
 
 func _is_mounted_in_turret() -> bool:
@@ -117,12 +122,47 @@ func fire() -> bool:
 			break
 		parent = parent.get_parent()
 
+	spawn_transform = _get_bullet_spawn_transform(spawn_transform)
 	_spawn_bullet(spawn_transform, firing_entity)
 	var mounted_hardpoint: Hardpoint = _find_parent_hardpoint()
 	if mounted_hardpoint != null and is_instance_valid(mounted_hardpoint):
 		mounted_hardpoint.apply_recoil_force(recoil_force, false)
+	else:
+		_apply_host_recoil(spawn_transform, firing_entity)
 	_play_shot_sound(spawn_transform.origin)
 	return true
+
+func _apply_host_recoil(spawn_transform: Transform3D, firing_entity: Node3D) -> void:
+	if not host_recoil_enabled:
+		return
+	if firing_entity == null or not is_instance_valid(firing_entity):
+		return
+	var recoil_direction: Vector3 = -spawn_transform.basis.z.normalized()
+	if recoil_direction.length_squared() <= 0.0001:
+		return
+	var recoil_impulse: Vector3 = recoil_direction * recoil_force * maxf(host_recoil_impulse_scale, 0.0)
+	if firing_entity is RigidBody3D:
+		(firing_entity as RigidBody3D).apply_central_impulse(recoil_impulse)
+	elif firing_entity is CharacterBody3D:
+		var character_body := firing_entity as CharacterBody3D
+		var planar_impulse := Vector3(recoil_impulse.x, 0.0, recoil_impulse.z)
+		if planar_impulse.length_squared() <= 0.0001:
+			return
+		character_body.velocity += planar_impulse.limit_length(maxf(host_recoil_speed_cap_mps, 0.0))
+
+func _get_bullet_spawn_transform(fallback_transform: Transform3D) -> Transform3D:
+	var spawn_point := _get_bullet_spawn_point()
+	if spawn_point != null and is_instance_valid(spawn_point):
+		return spawn_point.global_transform
+	return fallback_transform
+
+func _get_bullet_spawn_point() -> Node3D:
+	if _bullet_spawn_point != null and is_instance_valid(_bullet_spawn_point):
+		return _bullet_spawn_point
+	var found := find_child("BulletSpawnPoint", true, false) as Node3D
+	if found != null:
+		_bullet_spawn_point = found
+	return _bullet_spawn_point
 
 func _resolve_firing_entity_from_turret(turret_node: Turret) -> Node3D:
 	if turret_node == null or not is_instance_valid(turret_node):

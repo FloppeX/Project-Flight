@@ -1,8 +1,8 @@
-[gd_scene load_steps=4 format=3]
+[gd_scene load_steps=4 format=3 uid="uid://dnnvag1uycwye"]
 
-[ext_resource type="Script" path="res://Weapons/Autocannon/autocannon.gd" id="1_script"]
+[ext_resource type="Script" uid="uid://cc5i2s0mvs378" path="res://Weapons/Autocannon/autocannon.gd" id="1_script"]
 [ext_resource type="Resource" path="res://Weapons/Guns/Profiles/20mm_autocannon.tres" id="2_profile"]
-[ext_resource type="PackedScene" path="res://Models/Weapons/machine gun low poly.glb" id="3_model"]
+[ext_resource type="PackedScene" uid="uid://dr7y73fakllbg" path="res://Models/Weapons/machine gun low poly.glb" id="3_model"]
 
 [node name="20mmAutocannonHardpoint" type="Node3D"]
 script = ExtResource("1_script")
@@ -10,3 +10,9 @@ gun_profile = ExtResource("2_profile")
 
 [node name="GunModel" parent="." instance=ExtResource("3_model")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.182019, -0.146, 0.605749)
+
+[node name="BulletSpawnPoint" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.182019, -0.146, 1.35)
+
+[node name="BulletSpawnPoint2" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1.4658)

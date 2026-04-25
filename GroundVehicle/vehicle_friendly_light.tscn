@@ -2,10 +2,10 @@
 
 [ext_resource type="Script" uid="uid://cont4fpva1hw" path="res://GroundVehicle/vehicle_friendly_light.gd" id="1_hhiab"]
 [ext_resource type="PackedScene" uid="uid://derhabj65mpc6" path="res://Models/Vehicles/ground vehicle new friendly.glb" id="2_wkhwc"]
-[ext_resource type="PackedScene" uid="uid://t65yrhatlm8e" path="res://Models/Vehicles/Ground vehicle wheel.glb" id="3_gysuo"]
 [ext_resource type="Script" uid="uid://cqw36derm5yh1" path="res://Weapons/Turrets/turret_controller.gd" id="4_tctrl"]
 [ext_resource type="PackedScene" uid="uid://38xqikpdfhdk" path="res://Weapons/Turrets/turret.tscn" id="5_tscn"]
 [ext_resource type="PackedScene" path="res://Weapons/Turrets/bullet_weapon.tscn" id="6_bwpn"]
+[ext_resource type="PackedScene" uid="uid://duc1jx1m3f54d" path="res://Models/Vehicles/Vehicle wheel medium.glb" id="6_emsyh"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_emsyh"]
 size = Vector3(3.31549, 2.94196, 9.35474)
@@ -24,7 +24,6 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.44265, 0)
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0)
 script = ExtResource("4_tctrl")
 weapon_scene = ExtResource("6_bwpn")
-debug_enabled = true
 
 [node name="TurretScene" parent="Body/TurretController" instance=ExtResource("5_tscn")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.0161427, 0)
@@ -32,31 +31,35 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.0161427, 0)
 [node name="wheel_right_1" type="Node3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.50686, 0, 2.5443)
 
-[node name="Mesh" parent="wheel_right_1" instance=ExtResource("3_gysuo")]
-
 [node name="ground_contact_point" type="Node3D" parent="wheel_right_1"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -1.00317, 0)
+
+[node name="Vehicle wheel medium" parent="wheel_right_1" instance=ExtResource("6_emsyh")]
+transform = Transform3D(-1.3, 0, -1.1365e-07, 0, 1.3, 0, 1.1365e-07, 0, -1.3, -0.0103002, 0, 0)
 
 [node name="wheel_right_2" type="Node3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.50686, 0, -0.964473)
 
-[node name="Mesh" parent="wheel_right_2" instance=ExtResource("3_gysuo")]
-
 [node name="ground_contact_point" type="Node3D" parent="wheel_right_2"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -1.00317, 0)
+
+[node name="Vehicle wheel medium" parent="wheel_right_2" instance=ExtResource("6_emsyh")]
+transform = Transform3D(-1.3, 0, -1.1365e-07, 0, 1.3, 0, 1.1365e-07, 0, -1.3, -0.0103002, 0, 0)
 
 [node name="wheel_right_3" type="Node3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.50686, 0, -3.08061)
 
-[node name="Mesh" parent="wheel_right_3" instance=ExtResource("3_gysuo")]
-
 [node name="ground_contact_point" type="Node3D" parent="wheel_right_3"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -1.00317, 0)
+
+[node name="Vehicle wheel medium" parent="wheel_right_3" instance=ExtResource("6_emsyh")]
+transform = Transform3D(-1.3, 0, -1.1365e-07, 0, 1.3, 0, 1.1365e-07, 0, -1.3, -0.0103002, 0, 0)
 
 [node name="wheel_left_1" type="Node3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.44218, 0, 2.544)
 
-[node name="Mesh" parent="wheel_left_1" instance=ExtResource("3_gysuo")]
+[node name="Vehicle wheel medium" parent="wheel_left_1" instance=ExtResource("6_emsyh")]
+transform = Transform3D(1.3, 0, 0, 0, 1.3, 0, 0, 0, 1.3, -0.0103002, 0, 0)
 
 [node name="ground_contact_point" type="Node3D" parent="wheel_left_1"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -1.00317, 0)
@@ -64,7 +67,8 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -1.00317, 0)
 [node name="wheel_left_2" type="Node3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.507, 0, -0.964)
 
-[node name="Mesh" parent="wheel_left_2" instance=ExtResource("3_gysuo")]
+[node name="Vehicle wheel medium" parent="wheel_left_2" instance=ExtResource("6_emsyh")]
+transform = Transform3D(1.3, 0, 0, 0, 1.3, 0, 0, 0, 1.3, -0.0103002, 0, 0)
 
 [node name="ground_contact_point" type="Node3D" parent="wheel_left_2"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -1.00317, 0)
@@ -72,7 +76,8 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -1.00317, 0)
 [node name="wheel_left_3" type="Node3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.507, 0, -3.081)
 
-[node name="Mesh" parent="wheel_left_3" instance=ExtResource("3_gysuo")]
-
 [node name="ground_contact_point" type="Node3D" parent="wheel_left_3"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -1.00317, 0)
+
+[node name="Vehicle wheel medium" parent="wheel_left_3" instance=ExtResource("6_emsyh")]
+transform = Transform3D(1.3, 0, 0, 0, 1.3, 0, 0, 0, 1.3, -0.0103002, 0, 0)
