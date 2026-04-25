@@ -13,4 +13,7 @@ bullet_projectile_scene = ExtResource("2_8ku1u")
 cannon_sound = ExtResource("3_8ku1u")
 
 [node name="Autocannon_glb" parent="." instance=ExtResource("2_yrjfh")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.182019, -0.146, 0.605749)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.182019, -0.151164, 0.605749)
+
+[node name="BulletSpawnPoint" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1.4658)

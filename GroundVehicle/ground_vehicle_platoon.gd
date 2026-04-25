@@ -436,14 +436,19 @@ func _find_nearest_hostile(origin: Vector3, range_limit: float, excluded_node: N
 				continue
 			if excluded_node and node == excluded_node:
 				continue
+			var node3d := node as Node3D
+			if _is_air_movement_target(node3d):
+				continue
 			if node.has_method("get_team") and int(node.get_team()) == team:
 				continue
-			var node3d := node as Node3D
 			var dist: float = origin.distance_to(node3d.global_position)
 			if dist < best_distance:
 				best_distance = dist
 				best_target = node3d
 	return best_target
+
+func _is_air_movement_target(target: Node3D) -> bool:
+	return target != null and (target.is_in_group("aircraft") or target.is_in_group("ai_aircraft"))
 
 func _get_escort_corner_position(vehicle: Node3D) -> Vector3:
 	var members: Array[Node3D] = get_members()

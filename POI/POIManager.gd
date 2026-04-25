@@ -8,6 +8,9 @@ const GROUND_REVEAL_RADIUS_M := 200.0
 const POLL_INTERVAL_S := 0.5
 const LOS_SAMPLE_STEP_M := 100.0
 const LOS_TERRAIN_CLEARANCE_M := 4.0
+const STARTING_DISCOVERED_POI_COUNT := 3
+const STARTING_REVEAL_RETRY_COUNT := 12
+const STARTING_REVEAL_RETRY_INTERVAL_S := 0.25
 
 class POIInstance:
 	var id: int = 0
@@ -21,6 +24,8 @@ var _rng := RandomNumberGenerator.new()
 var _poll_timer: float = 0.0
 var _active_card: Node = null
 var _debug_card_index: int = 0
+var _starting_reveal_done: bool = false
+var _starting_reveal_attempts: int = 0
 
 signal poi_discovered(poi_id: int)
 
@@ -71,6 +76,7 @@ func _place_pois() -> void:
 		inst.world_pos = pos
 		inst.data = _make_data(inst.id)
 		_pois.append(inst)
+	call_deferred("_reveal_starting_pois")
 
 func _make_data(index: int) -> POIData:
 	var def: Array = _DEFINITIONS[index % _DEFINITIONS.size()]
@@ -119,6 +125,50 @@ func _check_aircraft_discovery() -> void:
 			poi.discovered = true
 			poi_discovered.emit(poi.id)
 			break
+
+func _reveal_starting_pois() -> void:
+	if _starting_reveal_done:
+		return
+	if _pois.is_empty():
+		return
+	var origin_node := _get_starting_reveal_origin_node()
+	if origin_node == null:
+		_starting_reveal_attempts += 1
+		if _starting_reveal_attempts <= STARTING_REVEAL_RETRY_COUNT:
+			await get_tree().create_timer(STARTING_REVEAL_RETRY_INTERVAL_S, false).timeout
+			_reveal_starting_pois()
+		return
+
+	var origin: Vector3 = origin_node.global_position
+	var revealed_count: int = 0
+	while revealed_count < STARTING_DISCOVERED_POI_COUNT:
+		var nearest: POIInstance = null
+		var nearest_dist_sq: float = INF
+		for poi: POIInstance in _pois:
+			if poi.discovered:
+				continue
+			var dx: float = poi.world_pos.x - origin.x
+			var dz: float = poi.world_pos.z - origin.z
+			var dist_sq: float = dx * dx + dz * dz
+			if dist_sq < nearest_dist_sq:
+				nearest_dist_sq = dist_sq
+				nearest = poi
+		if nearest == null:
+			break
+		nearest.discovered = true
+		poi_discovered.emit(nearest.id)
+		revealed_count += 1
+
+	_starting_reveal_done = true
+
+func _get_starting_reveal_origin_node() -> Node3D:
+	var carrier := get_tree().get_first_node_in_group("carrier") as Node3D
+	if carrier and is_instance_valid(carrier):
+		return carrier
+	for ac in get_tree().get_nodes_in_group("aircraft"):
+		if ac is Node3D and is_instance_valid(ac) and (ac as Node3D).is_in_group("friendlies"):
+			return ac as Node3D
+	return null
 
 func _has_terrain_line_of_sight(observer_pos: Vector3, target_pos: Vector3) -> bool:
 	var from_pos := observer_pos + Vector3.UP * 2.0  # observer eye height

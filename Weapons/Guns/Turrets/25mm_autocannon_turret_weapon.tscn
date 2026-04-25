@@ -1,9 +1,8 @@
-[gd_scene load_steps=3 format=3]
+[gd_scene load_steps=3 format=3 uid="uid://dicrymmmmdxw4"]
 
-[ext_resource type="Script" path="res://Weapons/Turrets/bullet_weapon.gd" id="1_script"]
+[ext_resource type="Script" uid="uid://u5n72n3ofgnt" path="res://Weapons/Turrets/bullet_weapon.gd" id="1_script"]
 [ext_resource type="Resource" path="res://Weapons/Guns/Profiles/25mm_autocannon.tres" id="2_profile"]
 
 [node name="25mmAutocannonTurretWeapon" type="Node3D"]
 script = ExtResource("1_script")
 gun_profile = ExtResource("2_profile")
-infinite_ammo = true

@@ -1313,7 +1313,7 @@ func _apply_platoon_cohesion(base_destination: Vector3) -> Vector3:
 	return platoon.get_formation_destination_for(self, base_destination)
 
 func _update_shoot_and_scoot(delta: float) -> void:
-	if not shoot_and_scoot_enabled or not current_target or not is_instance_valid(current_target):
+	if not shoot_and_scoot_enabled or not _has_combat_target():
 		_combat_hold_timer_s = 0.0
 		_combat_is_scooting = false
 		_combat_scoot_destination = Vector3.ZERO
@@ -1350,10 +1350,13 @@ func _apply_combat_mobility(base_destination: Vector3) -> Vector3:
 	return global_position
 
 func _has_combat_target() -> bool:
-	return current_target != null and is_instance_valid(current_target)
+	return current_target != null and is_instance_valid(current_target) and not _is_air_target(current_target)
 
 func _should_hold_combat_position() -> bool:
 	return _has_combat_target()
+
+func _is_air_target(target: Node3D) -> bool:
+	return target != null and (target.is_in_group("aircraft") or target.is_in_group("ai_aircraft"))
 
 func _choose_scoot_destination() -> Vector3:
 	if not current_target or not is_instance_valid(current_target):
