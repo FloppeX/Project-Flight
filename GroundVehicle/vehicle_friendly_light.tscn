@@ -1,4 +1,4 @@
-[gd_scene load_steps=8 format=3 uid="uid://c6onmabbqcjtc"]
+[gd_scene format=3 uid="uid://c6onmabbqcjtc"]
 
 [ext_resource type="Script" uid="uid://cont4fpva1hw" path="res://GroundVehicle/vehicle_friendly_light.gd" id="1_hhiab"]
 [ext_resource type="PackedScene" uid="uid://derhabj65mpc6" path="res://Models/Vehicles/ground vehicle new friendly.glb" id="2_wkhwc"]
@@ -10,74 +10,74 @@
 [sub_resource type="BoxShape3D" id="BoxShape3D_emsyh"]
 size = Vector3(3.31549, 2.94196, 9.35474)
 
-[node name="VehicleFriendlyLight" type="CharacterBody3D"]
+[node name="VehicleFriendlyLight" type="CharacterBody3D" unique_id=1766993156]
 script = ExtResource("1_hhiab")
 
-[node name="CollisionShape3D2" type="CollisionShape3D" parent="."]
+[node name="CollisionShape3D2" type="CollisionShape3D" parent="." unique_id=323669555]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.01474, 1.48076, 0.0170863)
 shape = SubResource("BoxShape3D_emsyh")
 
-[node name="Body" parent="." instance=ExtResource("2_wkhwc")]
+[node name="Body" parent="." unique_id=1967313403 instance=ExtResource("2_wkhwc")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.44265, 0)
 
-[node name="TurretController" type="Node3D" parent="Body"]
+[node name="TurretController" type="Node3D" parent="Body" unique_id=1167359541]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0)
 script = ExtResource("4_tctrl")
 weapon_scene = ExtResource("6_bwpn")
 
-[node name="TurretScene" parent="Body/TurretController" instance=ExtResource("5_tscn")]
+[node name="TurretScene" parent="Body/TurretController" unique_id=1445362255 instance=ExtResource("5_tscn")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.0161427, 0)
 
-[node name="wheel_right_1" type="Node3D" parent="."]
+[node name="wheel_right_1" type="Node3D" parent="." unique_id=895482433]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.50686, 0, 2.5443)
 
-[node name="ground_contact_point" type="Node3D" parent="wheel_right_1"]
+[node name="ground_contact_point" type="Node3D" parent="wheel_right_1" unique_id=1046615421]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -1.00317, 0)
 
-[node name="Vehicle wheel medium" parent="wheel_right_1" instance=ExtResource("6_emsyh")]
+[node name="Vehicle wheel medium" parent="wheel_right_1" unique_id=1488484033 instance=ExtResource("6_emsyh")]
 transform = Transform3D(-1.3, 0, -1.1365e-07, 0, 1.3, 0, 1.1365e-07, 0, -1.3, -0.0103002, 0, 0)
 
-[node name="wheel_right_2" type="Node3D" parent="."]
+[node name="wheel_right_2" type="Node3D" parent="." unique_id=1868511821]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.50686, 0, -0.964473)
 
-[node name="ground_contact_point" type="Node3D" parent="wheel_right_2"]
+[node name="ground_contact_point" type="Node3D" parent="wheel_right_2" unique_id=447010920]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -1.00317, 0)
 
-[node name="Vehicle wheel medium" parent="wheel_right_2" instance=ExtResource("6_emsyh")]
+[node name="Vehicle wheel medium" parent="wheel_right_2" unique_id=1084307306 instance=ExtResource("6_emsyh")]
 transform = Transform3D(-1.3, 0, -1.1365e-07, 0, 1.3, 0, 1.1365e-07, 0, -1.3, -0.0103002, 0, 0)
 
-[node name="wheel_right_3" type="Node3D" parent="."]
+[node name="wheel_right_3" type="Node3D" parent="." unique_id=1069871903]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.50686, 0, -3.08061)
 
-[node name="ground_contact_point" type="Node3D" parent="wheel_right_3"]
+[node name="ground_contact_point" type="Node3D" parent="wheel_right_3" unique_id=1507198892]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -1.00317, 0)
 
-[node name="Vehicle wheel medium" parent="wheel_right_3" instance=ExtResource("6_emsyh")]
+[node name="Vehicle wheel medium" parent="wheel_right_3" unique_id=404670078 instance=ExtResource("6_emsyh")]
 transform = Transform3D(-1.3, 0, -1.1365e-07, 0, 1.3, 0, 1.1365e-07, 0, -1.3, -0.0103002, 0, 0)
 
-[node name="wheel_left_1" type="Node3D" parent="."]
+[node name="wheel_left_1" type="Node3D" parent="." unique_id=763999695]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.44218, 0, 2.544)
 
-[node name="Vehicle wheel medium" parent="wheel_left_1" instance=ExtResource("6_emsyh")]
+[node name="Vehicle wheel medium" parent="wheel_left_1" unique_id=327628135 instance=ExtResource("6_emsyh")]
 transform = Transform3D(1.3, 0, 0, 0, 1.3, 0, 0, 0, 1.3, -0.0103002, 0, 0)
 
-[node name="ground_contact_point" type="Node3D" parent="wheel_left_1"]
+[node name="ground_contact_point" type="Node3D" parent="wheel_left_1" unique_id=1421502996]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -1.00317, 0)
 
-[node name="wheel_left_2" type="Node3D" parent="."]
+[node name="wheel_left_2" type="Node3D" parent="." unique_id=443348487]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.507, 0, -0.964)
 
-[node name="Vehicle wheel medium" parent="wheel_left_2" instance=ExtResource("6_emsyh")]
+[node name="Vehicle wheel medium" parent="wheel_left_2" unique_id=682843402 instance=ExtResource("6_emsyh")]
 transform = Transform3D(1.3, 0, 0, 0, 1.3, 0, 0, 0, 1.3, -0.0103002, 0, 0)
 
-[node name="ground_contact_point" type="Node3D" parent="wheel_left_2"]
+[node name="ground_contact_point" type="Node3D" parent="wheel_left_2" unique_id=1175620621]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -1.00317, 0)
 
-[node name="wheel_left_3" type="Node3D" parent="."]
+[node name="wheel_left_3" type="Node3D" parent="." unique_id=1752747629]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.507, 0, -3.081)
 
-[node name="ground_contact_point" type="Node3D" parent="wheel_left_3"]
+[node name="ground_contact_point" type="Node3D" parent="wheel_left_3" unique_id=404414445]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -1.00317, 0)
 
-[node name="Vehicle wheel medium" parent="wheel_left_3" instance=ExtResource("6_emsyh")]
+[node name="Vehicle wheel medium" parent="wheel_left_3" unique_id=377651688 instance=ExtResource("6_emsyh")]
 transform = Transform3D(1.3, 0, 0, 0, 1.3, 0, 0, 0, 1.3, -0.0103002, 0, 0)

@@ -11,6 +11,8 @@ const CENTER_RETICLE_COLOR: Color = Color(0.48, 1.0, 0.56, 0.34)
 const SCANLINE_STEP_PX: float = 4.0
 const CORNER_BRACKET_LEN_PX: float = 18.0
 const CORNER_BRACKET_INSET_PX: float = 7.0
+const POI_ACTIVE_COLOR: Color = Color(1.0, 0.92, 0.28, 1.0)
+const POI_USED_COLOR: Color = Color(0.52, 0.56, 0.52, 0.95)
 
 @export var player_color: Color = Color(1.0, 1.0, 0.40, 1.0)
 @export var friendly_color: Color = Color(0.58, 1.0, 0.64, 1.0)
@@ -463,10 +465,12 @@ func _draw_enemy_virtual_platoons() -> void:
 
 
 func _draw_poi_markers() -> void:
-	for pos: Vector3 in POIManager.get_discovered_positions():
+	for marker: Dictionary in POIManager.get_discovered_map_markers():
+		var pos: Vector3 = marker.get("position", Vector3.INF)
 		if not _is_world_in_map_bounds(pos):
 			continue
-		_draw_star(_world_to_map(pos), 7.0, Color(1.0, 0.92, 0.28, 1.0))
+		var color := POI_USED_COLOR if bool(marker.get("revealed", false)) else POI_ACTIVE_COLOR
+		_draw_star(_world_to_map(pos), 7.0, color)
 
 func _draw_star(center: Vector2, radius: float, color: Color) -> void:
 	var pts := PackedVector2Array()

@@ -180,6 +180,23 @@ func order_escort(platoon_name: String, distance_m: float = 100.0) -> void:
 	if debug_print:
 		print("[GroundOps] %s — escort carrier at %.0fm" % [platoon_name, distance_m])
 
+## Return to base: recall a deployed platoon to a carrier-side rally area.
+func order_rtb(platoon_name: String, distance_m: float = 90.0) -> void:
+	var p := _get_platoon(platoon_name)
+	if not p:
+		return
+	_refresh_carrier()
+	if not _carrier:
+		push_warning("[GroundOps] No carrier found for RTB order")
+		return
+	if not p.has_members():
+		if debug_print:
+			print("[GroundOps] %s has no deployed vehicles to return" % platoon_name)
+		return
+	p.set_return_to_base(_carrier, distance_m)
+	if debug_print:
+		print("[GroundOps] %s - return to base" % platoon_name)
+
 ## High-level request: find or deploy a platoon to escort the carrier.
 ## Prefers a deployed platoon not already escorting. If none available, deploys one.
 func request_escort() -> void:

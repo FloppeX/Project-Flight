@@ -94,7 +94,7 @@ const FORMATION_LEAD_MAX_SLOWDOWN_MPS: float = 24.0
 const FORMATION_LEAD_MIN_SPEED_MPS: float = 62.0
 const CAP_ROUTE_ENTRY_SKIP_DISTANCE_M: float = 140.0
 
-var _members_clean_frame: int = -1  # Frame when _members was last pruned
+var _members_clean_frame: int = -1  # Last frame when _members was pruned, for diagnostics/invalidation only
 
 func _ready() -> void:
 	add_to_group("origin_shifter")
@@ -116,8 +116,6 @@ func _physics_process(_delta: float) -> void:
 
 func _prune_members_once() -> void:
 	var frame := Engine.get_physics_frames()
-	if _members_clean_frame == frame:
-		return
 	_members_clean_frame = frame
 	_members = _members.filter(func(a): return a and is_instance_valid(a))
 
@@ -622,9 +620,21 @@ func get_center_position() -> Vector3:
 			return _cap_route_points[0]
 		return Vector3.ZERO
 	var sum := Vector3.ZERO
+	var live_count := 0
 	for member in members:
+		if not member or not is_instance_valid(member):
+			continue
 		sum += member.global_position
-	return sum / float(members.size())
+		live_count += 1
+	if live_count <= 0:
+		if mission == Mission.CAS:
+			return _cas_area_center
+		if _cap_carrier and is_instance_valid(_cap_carrier):
+			return _cap_carrier.global_position
+		if not _cap_route_points.is_empty():
+			return _cap_route_points[0]
+		return Vector3.ZERO
+	return sum / float(live_count)
 
 func get_active_waypoints() -> Array[Vector3]:
 	var active_waypoints: Array[Vector3] = []

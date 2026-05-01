@@ -32,10 +32,17 @@ The player pushes into enemy-controlled territory, launches and recovers aircraf
 
 ## Current Status
 
-**Last Updated:** 2026-04-23
+**Last Updated:** 2026-04-29
 **Godot Version:** 4.4.1.stable.official.49a5bc7b6
 **Project Health:** PLAYABLE
 **Control Mode:** AI-by-default with viewed-aircraft player/AI toggle (game controller + keyboard parity in pause/menu flows)
+
+### Recent Changes (2026-04-29)
+
+- Landing debug snap system: `_landing_snap()` now prints heading and nose pitch in addition to existing fields; an `extra` parameter carries wire/lateral/score data for outcome lines; distance-triggered snaps fire at 400 m, 200 m, and 100 m from touchdown per approach so each attempt produces a trace of the full approach, not just the outcome.
+- Landing points scoring: Wire 2 (middle cable by Z order) = 10 pt base; Wire 1 and Wire 3 = 5 pt base; score is multiplied by a lateral factor (`1 − |lateral_m| / 24.8`) so a centered catch on wire 2 gives exactly 10 pts; `ArrestingCable` exposes `get_wire_number()` and `get_engage_lateral_m()`; `FlightDeckManager` tracks a rolling average across all attempts in a test session and prints it after every outcome (catch, bolter, wave-off, and crash all count, with 0 pts for non-catches).
+- FPA descent cap raised from 10° to 25° for both the approach and final-approach phases; pitch input limits raised from 0.52/0.55 to 0.65 so the FPA controller can command steeper descents without saturating.
+- Known gap: minimum glideslope enforcement (preventing too-shallow approaches) is still unresolved. A glideslope-path carrot caused violent altitude oscillation and was reverted; a minimum FPA floor was also tried and reverted. The `landing_glideslope_deg` export var (4.5°) exists in `AIPilot` but is currently unused.
 
 ### Recent Changes (2026-04-23)
 
@@ -185,7 +192,7 @@ Example project launch from this repo root:
 1. Validate the new interactive `M`-map workflow in live play: asset selection, mission drafting, confirm/cancel flow, and readability under pressure.
 2. Expand mission authoring beyond the first slice, especially richer waypoint editing and more flight directives than the current CAP / CAS / RTB set.
 3. Continue tuning AI precision control in dogfights so aircraft point more authoritatively at gun solutions, align the pipper with the real gun line, and waste fewer shots while still breaking off unsafe close merges.
-4. Validate the default path-follower landing mode, especially touchdown wings-level behavior, wave-offs, and bolter/go-around retries.
+4. Solve minimum glideslope enforcement so planes cannot approach at a dangerously shallow angle; scoring and debug instrumentation are complete but the approach-path quality problem is open (glideslope carrot and FPA floor both reverted).
 5. Continue tuning ground vehicle movement, steep-slope avoidance, spotting, and pathing performance, especially with multiple active platoons.
 6. Recheck terrain streaming and far-edge cases so delayed terrain/collision chunks do not reopen "edge of the world" failures.
 7. Continue expanding bridge/commander command features and allow AirOps/GroundOps AI to create and manage missions through the same order model the player uses.
@@ -214,7 +221,7 @@ Example project launch from this repo root:
 - 3D rotating model viewer per entry with description text below
 - Covers vehicles and weapons
 
-**Current focus:** As of 2026-04-13, the project remains centered on tactical command readability and emergent carrier warfare, but the active polish lane has shifted to combat readability and consistency: shared gun profiles across units, trustworthy turret lead/LOS behavior, cockpit/HUD usability, aircraft death-state feedback, and performant static-defense population around enemy territory.
+**Current focus:** As of 2026-04-29, landing scoring and per-approach debug instrumentation are complete. The open problem is minimum glideslope enforcement — planes can arrive too shallow with no penalty. Both a glideslope-path carrot and a minimum-FPA floor were implemented and reverted; a different approach is needed before closing out the landing validation lane.
 
 ## Working Style Notes
 

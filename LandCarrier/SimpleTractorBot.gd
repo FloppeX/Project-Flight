@@ -48,6 +48,7 @@ var _axis2_dir: Vector3 = Vector3.ZERO
 var _axis2_target: Vector3 = Vector3.ZERO
 var _has_axis1: bool = false
 var _has_axis2: bool = false
+var _last_blocked_by_peer: bool = false
 
 func _ready():
 	add_to_group("tractor_bot")
@@ -87,6 +88,35 @@ func deactivate():
 func is_positioned_at_gear() -> bool:
 	"""Check if this tractorbot is positioned at its target gear"""
 	return is_positioned
+
+func get_recovery_debug_status() -> Dictionary:
+	var goal := _resolve_wheel_target_position()
+	if external_target_set:
+		goal = target_position
+	elif not is_positioned:
+		match _approach_phase:
+			ApproachPhase.AXIS_MOVE_1:
+				goal = _axis1_target
+			ApproachPhase.AXIS_MOVE_2:
+				goal = _axis2_target
+			ApproachPhase.ROTATE_TO_GEAR, ApproachPhase.DRIVE_TO_GEAR:
+				goal = _resolve_wheel_target_position()
+	goal.y = global_position.y
+	var to_goal := goal - global_position
+	to_goal.y = 0.0
+	return {
+		"name": name,
+		"active": is_active,
+		"positioned": is_positioned,
+		"phase": _approach_phase_name(),
+		"role": _approach_role_name(),
+		"distance": to_goal.length(),
+		"blocked": _last_blocked_by_peer,
+		"movement_disabled": movement_disabled,
+		"external_target": external_target_set,
+		"target_aircraft": target_aircraft.name if is_instance_valid(target_aircraft) else "none",
+		"target_wheel": target_wheel_node.name if is_instance_valid(target_wheel_node) else "none",
+	}
 
 func set_external_target(new_target: Vector3):
 	"""Set target position externally (e.g., by elevator)"""
@@ -307,6 +337,7 @@ func _rotate_toward_point_yaw(goal: Vector3, delta: float) -> bool:
 	return absf(diff) <= deg_to_rad(maxf(rotation_align_tolerance_deg, 0.1))
 
 func _would_overlap_peer(candidate_position: Vector3) -> bool:
+	_last_blocked_by_peer = false
 	if separation_radius <= 0.0 or not is_inside_tree():
 		return false
 	for node in get_tree().get_nodes_in_group("tractor_bot"):
@@ -318,8 +349,35 @@ func _would_overlap_peer(candidate_position: Vector3) -> bool:
 		var away: Vector3 = candidate_position - other.global_position
 		away.y = 0.0
 		if away.length() < separation_radius:
+			_last_blocked_by_peer = true
 			return true
 	return false
+
+func _approach_phase_name() -> String:
+	match _approach_phase:
+		ApproachPhase.AXIS_MOVE_1:
+			return "AXIS_MOVE_1"
+		ApproachPhase.AXIS_MOVE_2:
+			return "AXIS_MOVE_2"
+		ApproachPhase.ROTATE_TO_GEAR:
+			return "ROTATE_TO_GEAR"
+		ApproachPhase.DRIVE_TO_GEAR:
+			return "DRIVE_TO_GEAR"
+		ApproachPhase.FOLLOW:
+			return "FOLLOW"
+		_:
+			return "UNKNOWN"
+
+func _approach_role_name() -> String:
+	match _approach_role:
+		ApproachRole.CENTER:
+			return "CENTER"
+		ApproachRole.LEFT:
+			return "LEFT"
+		ApproachRole.RIGHT:
+			return "RIGHT"
+		_:
+			return "UNKNOWN"
 
 func _resolve_wheel_target_position() -> Vector3:
 	if is_instance_valid(target_wheel_node):

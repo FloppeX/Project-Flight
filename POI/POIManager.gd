@@ -241,6 +241,26 @@ func get_discovered_positions() -> Array[Vector3]:
 			result.append(poi.world_pos)
 	return result
 
+## Returns discovered POIs with display state for maps.
+func get_discovered_map_markers() -> Array[Dictionary]:
+	var result: Array[Dictionary] = []
+	for poi: POIInstance in _pois:
+		if poi.discovered:
+			result.append({
+				"position": poi.world_pos,
+				"revealed": poi.revealed,
+				"id": poi.id,
+			})
+	return result
+
+## Returns POIs that are discovered but not yet consumed/revealed.
+func get_active_discovered_positions() -> Array[Vector3]:
+	var result: Array[Vector3] = []
+	for poi: POIInstance in _pois:
+		if poi.discovered and not poi.revealed:
+			result.append(poi.world_pos)
+	return result
+
 func apply_origin_shift(offset: Vector3) -> void:
 	for poi: POIInstance in _pois:
 		poi.world_pos -= offset

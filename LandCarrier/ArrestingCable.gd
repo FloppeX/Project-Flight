@@ -49,6 +49,7 @@ var _area: Area3D
 var _left_anchor: Node3D
 var _right_anchor: Node3D
 var _engaged := false
+var _engage_lateral_m: float = 0.0
 var _aircraft: RigidBody3D
 var _hook_node: Node
 var _engage_point: Vector3
@@ -209,6 +210,13 @@ func _on_area_entered(area: Area3D) -> void:
 			_aircraft.set_meta("arresting_cable", self)
 			_hook_node = area
 			_engage_point = area.global_position
+			# Compute signed lateral offset from cable centre at moment of engagement
+			var _anchor_mid_e := _anchor_midpoint()
+			if _left_anchor and _right_anchor:
+				var lat_axis := (_right_anchor.global_position - _left_anchor.global_position).normalized()
+				_engage_lateral_m = (area.global_position - _anchor_mid_e).dot(lat_axis)
+			else:
+				_engage_lateral_m = 0.0
 			_pay_out_used = 0.0
 			_engaged = true
 			_engaged_elapsed = 0.0
@@ -274,6 +282,21 @@ func _cut_aircraft_engine(ac: RigidBody3D) -> void:
 				n.set_target_power(0.0)
 			elif n.has_method("set_throttle_input"):
 				n.set_throttle_input(0.0)
+
+func get_engage_lateral_m() -> float:
+	return _engage_lateral_m
+
+func get_wire_number() -> int:
+	# Sort same-script siblings by local Z; return 1-based index of this cable.
+	var cables: Array = []
+	for sibling in get_parent().get_children():
+		if sibling.get_script() == get_script():
+			cables.append(sibling)
+	cables.sort_custom(func(a, b): return a.position.z < b.position.z)
+	for i in cables.size():
+		if cables[i] == self:
+			return i + 1
+	return 1
 
 # --- Helpers ---
 func _find_aircraft(from_node: Node) -> RigidBody3D:

@@ -25,6 +25,9 @@ const FLIGHT_NAMES := ["Archer", "Bulldog", "Crimson", "Dingo"]
 ## Aircraft to launch per scramble when a flight has no members.
 @export var scramble_flight_size: int = 2
 
+## Keep at least one dedicated flight patrolling over the carrier.
+@export var maintain_carrier_cap: bool = true
+
 var flights: Array[Flight] = []
 
 var _carrier: Node3D = null
@@ -33,6 +36,7 @@ var _threat_timer: float = 0.0
 var _next_flight_idx: int = 0
 
 ## Currently assigned missions. Null means no flight holds that role.
+var _cap_flight: Flight = null
 var _intercept_flight: Flight = null
 var _cas_flight: Flight = null
 
@@ -67,6 +71,7 @@ func _process(delta: float) -> void:
 		_assign_timer = assignment_interval_s
 		_refresh_carrier()
 		_auto_assign_unassigned()
+		_ensure_carrier_cap()
 
 	_threat_timer -= delta
 	if _threat_timer <= 0.0:
@@ -165,6 +170,7 @@ func print_status() -> void:
 		var role := ""
 		if f == _intercept_flight: role = " [INTERCEPT]"
 		elif f == _cas_flight: role = " [CAS]"
+		elif f == _cap_flight: role = " [CAP]"
 		print("  [%s] %d aircraft  mission=%s%s" % [
 			f.flight_name, f.strength(), Flight.Mission.keys()[f.mission], role
 		])
@@ -199,9 +205,17 @@ func _update_intercept() -> void:
 func _vector_intercept(threat: Node3D) -> void:
 	var best := _pick_flight(_cas_flight)
 	if not best:
+		var empty := _pick_empty_flight(_cas_flight)
+		if empty:
+			empty.set_cap(_carrier, default_cap_altitude_m)
+			_intercept_flight = empty
+			if empty == _cap_flight:
+				_cap_flight = null
+			_scramble_flight(empty, "intercept")
 		return
 	if best.strength() == 0:
-		_scramble_flight(best)
+		best.set_cap(_carrier, default_cap_altitude_m)
+		_scramble_flight(best, "intercept")
 		return
 
 	# If this flight was on CAS, release that role
@@ -209,6 +223,8 @@ func _vector_intercept(threat: Node3D) -> void:
 		_cas_flight = null
 
 	_intercept_flight = best
+	if best == _cap_flight:
+		_cap_flight = null
 	var fname := best.flight_name
 
 	RadioComms.transmit("Citadel", "%s flight" % fname, RadioComms._pick([
@@ -251,9 +267,18 @@ func _update_cas() -> void:
 func _vector_cas(threat: Node3D) -> void:
 	var best := _pick_flight(_intercept_flight)
 	if not best:
+		var empty := _pick_empty_flight(_intercept_flight)
+		if empty:
+			empty.set_cas(threat.global_position, 3000.0, default_cas_altitude_m)
+			_cas_flight = empty
+			if empty == _cap_flight:
+				_cap_flight = null
+			_scramble_flight(empty, "cas")
 		return
 	if best.strength() == 0:
-		_scramble_flight(best)
+		var center_for_scramble := threat.global_position if (threat and is_instance_valid(threat)) else Vector3.ZERO
+		best.set_cas(center_for_scramble, 3000.0, default_cas_altitude_m)
+		_scramble_flight(best, "cas")
 		return
 
 	# If this flight was on intercept, release that role
@@ -261,6 +286,8 @@ func _vector_cas(threat: Node3D) -> void:
 		_intercept_flight = null
 
 	_cas_flight = best
+	if best == _cap_flight:
+		_cap_flight = null
 	var fname := best.flight_name
 	_refresh_carrier()
 	var center := threat.global_position if (threat and is_instance_valid(threat)) else Vector3.ZERO
@@ -284,6 +311,8 @@ func _vector_cas(threat: Node3D) -> void:
 func _recall_to_cap(f: Flight, line_a: String, line_b: String, line_c: String) -> void:
 	_refresh_carrier()
 	f.set_cap(_carrier, default_cap_altitude_m)
+	if _cap_flight == null and _flight_can_hold_cap(f):
+		_cap_flight = f
 	var fname := f.flight_name
 	RadioComms.transmit("Citadel", "%s flight" % fname, RadioComms._pick([
 		line_a % fname, line_b % fname, line_c % fname,
@@ -303,7 +332,7 @@ func _on_flight_lost(f: Flight, role: String) -> void:
 
 # ── Internal ───────────────────────────────────────────────────────────────────
 
-func _scramble_flight(f: Flight) -> void:
+func _scramble_flight(f: Flight, reason: String = "intercept") -> void:
 	## Launch aircraft from the hangar and assign them to flight f.
 	## AirOpsManager acts as the callback target so launched pilots get registered.
 	var fdm := get_tree().get_first_node_in_group("flight_deck_manager")
@@ -316,12 +345,25 @@ func _scramble_flight(f: Flight) -> void:
 		return
 	_scrambling_flight = f
 	print("[AirOpsManager] Scrambling %s flight (%d aircraft)" % [f.flight_name, scramble_flight_size])
-	RadioComms.transmit("Citadel", "%s flight" % f.flight_name, RadioComms._pick([
-		"%s flight, scramble. Threat inbound." % f.flight_name,
-		"%s, launch immediately. Threat on scope." % f.flight_name,
-		"All hands, scramble %s flight. Weapons free." % f.flight_name,
-	]))
-	fdm.queue_ai_flight(scramble_flight_size, self)
+	if reason == "cap":
+		RadioComms.transmit("Citadel", "%s flight" % f.flight_name, RadioComms._pick([
+			"%s flight, launch for carrier CAP." % f.flight_name,
+			"%s, launch and establish patrol over the carrier." % f.flight_name,
+			"%s flight, launch to maintain air cover." % f.flight_name,
+		]))
+	elif reason == "cas":
+		RadioComms.transmit("Citadel", "%s flight" % f.flight_name, RadioComms._pick([
+			"%s flight, launch for close air support." % f.flight_name,
+			"%s, launch immediately. Ground targets marked." % f.flight_name,
+			"%s flight, scramble for CAS. Cleared hot after departure." % f.flight_name,
+		]))
+	else:
+		RadioComms.transmit("Citadel", "%s flight" % f.flight_name, RadioComms._pick([
+			"%s flight, scramble. Threat inbound." % f.flight_name,
+			"%s, launch immediately. Threat on scope." % f.flight_name,
+			"All hands, scramble %s flight. Weapons free." % f.flight_name,
+		]))
+	fdm.queue_ai_flight(scramble_flight_size, self, _loadout_profile_for_scramble_reason(reason))
 
 ## Called by FlightDeckManager after each aircraft launches during a scramble.
 func notify_aircraft_launched(pilot: AIPilot) -> void:
@@ -381,8 +423,93 @@ func _pick_flight(exclude: Flight = null) -> Flight:
 
 	return best
 
+func _ensure_carrier_cap() -> void:
+	if not maintain_carrier_cap:
+		return
+	_refresh_carrier()
+	if not _carrier or not is_instance_valid(_carrier):
+		return
+
+	if _cap_flight != null \
+			and is_instance_valid(_cap_flight) \
+			and _cap_flight == _scrambling_flight \
+			and _cap_flight.mission == Flight.Mission.CAP:
+		return
+
+	if _flight_can_hold_cap(_cap_flight):
+		return
+	_cap_flight = null
+
+	var best := _pick_cap_candidate()
+	if best:
+		_cap_flight = best
+		if best.mission != Flight.Mission.CAP:
+			best.set_cap(_carrier, default_cap_altitude_m)
+		if debug_print:
+			print("[AirOpsManager] %s flight assigned carrier CAP" % best.flight_name)
+		return
+
+	if _scrambling_flight != null:
+		return
+
+	var empty := _pick_empty_flight()
+	if empty:
+		_cap_flight = empty
+		empty.set_cap(_carrier, default_cap_altitude_m)
+		_scramble_flight(empty, "cap")
+
+func _flight_can_hold_cap(f: Flight) -> bool:
+	return f != null \
+		and is_instance_valid(f) \
+		and _flight_is_active(f) \
+		and f.mission == Flight.Mission.CAP \
+		and f != _intercept_flight \
+		and f != _cas_flight
+
+func _pick_cap_candidate() -> Flight:
+	_refresh_carrier()
+	var origin := _carrier.global_position if (_carrier and is_instance_valid(_carrier)) else Vector3.ZERO
+	var best: Flight = null
+	var best_score := INF
+	for f in flights:
+		if not _flight_is_active(f):
+			continue
+		if f.mission == Flight.Mission.RTB:
+			continue
+		if f == _intercept_flight or f == _cas_flight:
+			continue
+		var score := _flight_center(f).distance_to(origin)
+		if f.mission != Flight.Mission.CAP:
+			score += 2000.0
+		if f.is_engaged():
+			score += 5000.0
+		if score < best_score:
+			best_score = score
+			best = f
+	return best
+
+func _pick_empty_flight(exclude: Flight = null) -> Flight:
+	for f in flights:
+		if f == exclude:
+			continue
+		if f == _intercept_flight or f == _cas_flight:
+			continue
+		if f.strength() > 0:
+			continue
+		if f.mission == Flight.Mission.RTB:
+			continue
+		return f
+	return null
+
+func _loadout_profile_for_scramble_reason(reason: String) -> String:
+	if reason == "cas":
+		return "strike"
+	return "cap"
+
 func _clear_role(f: Flight) -> void:
 	## When a flight is manually ordered, release any automatic role it held.
+	if f == _cap_flight:
+		_cap_flight = null
 	if f == _intercept_flight:
 		_intercept_flight = null
 	if f == _cas_flight:
@@ -393,7 +520,12 @@ func _ensure_flight_can_execute(f: Flight) -> void:
 		return
 	if f.strength() > 0:
 		return
-	_scramble_flight(f)
+	var reason := "intercept"
+	if f.mission == Flight.Mission.CAP:
+		reason = "cap"
+	elif f.mission == Flight.Mission.CAS:
+		reason = "cas"
+	_scramble_flight(f, reason)
 
 func _refresh_carrier() -> void:
 	if not _carrier or not is_instance_valid(_carrier):
@@ -404,6 +536,8 @@ func _get_role_name(f: Flight) -> String:
 		return "INTERCEPT"
 	if f == _cas_flight:
 		return "CAS"
+	if f == _cap_flight:
+		return "CAP"
 	return "STANDBY"
 
 func _auto_assign_unassigned() -> void:

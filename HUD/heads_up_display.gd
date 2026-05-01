@@ -557,7 +557,11 @@ func update_speed_altitude():
 
 	var velocity: Vector3 = aircraft.linear_velocity
 	var speed_mps: int = int(round(velocity.length()))
-	var altitude_m: int = int(round(aircraft.global_position.y))
+	var altitude_value: float = aircraft.global_position.y
+	var local_altitude_value: Variant = aircraft.get("local_altitude")
+	if local_altitude_value != null:
+		altitude_value = float(local_altitude_value)
+	var altitude_m: int = int(round(altitude_value))
 
 	if speed_altitude != null:
 		speed_altitude.visible = false
@@ -662,6 +666,35 @@ func _set_target_box_visible(p_visible: bool):
 		if is_instance_valid(line):
 			line.visible = p_visible
 
+func _is_gear_down() -> bool:
+	if not is_instance_valid(aircraft):
+		return false
+	for child in aircraft.get_children():
+		if "gear_down_state" in child:
+			return bool(child.get("gear_down_state"))
+		for grandchild in child.get_children():
+			if "gear_down_state" in grandchild:
+				return bool(grandchild.get("gear_down_state"))
+	return false
+
+func _get_nearest_landing_target() -> Node3D:
+	var best: Node3D = null
+	var best_dist: float = INF
+	var pos: Vector3 = aircraft.global_position
+	for node in get_tree().get_nodes_in_group("carrier"):
+		if node is Node3D:
+			var d: float = (node as Node3D).global_position.distance_to(pos)
+			if d < best_dist:
+				best_dist = d
+				best = node as Node3D
+	for node in get_tree().get_nodes_in_group("runway"):
+		if node is Node3D:
+			var d: float = (node as Node3D).global_position.distance_to(pos)
+			if d < best_dist:
+				best_dist = d
+				best = node as Node3D
+	return best
+
 func update_target_overlay():
 	"""Update the green target box overlay when target is visible in HUD"""
 	# Ensure all required nodes are valid before proceeding
@@ -671,13 +704,18 @@ func update_target_overlay():
 			_set_target_box_visible(false)
 			return
 
-	# Get current target from the targeting system
-	var targeting_system = get_targeting_system()
+	# Gear down: landing target always takes priority over combat target.
 	var target: Node3D = null
-	if is_instance_valid(targeting_system) and "current_target" in targeting_system:
-		var raw_target = targeting_system.current_target
-		if is_instance_valid(raw_target):
-			target = raw_target
+	if _is_gear_down():
+		target = _get_nearest_landing_target()
+
+	# Fall back to combat target when gear is up.
+	if not is_instance_valid(target):
+		var targeting_system = get_targeting_system()
+		if is_instance_valid(targeting_system) and "current_target" in targeting_system:
+			var raw_target = targeting_system.current_target
+			if is_instance_valid(raw_target):
+				target = raw_target
 
 	# Hide overlay if no valid target exists
 	if not is_instance_valid(target):

@@ -3,6 +3,7 @@
 This document contains version history, session-by-session notes, and archived long-form material extracted from the main project overview. For the short project brief, see [README](../README.md).
 
 ## Version History
+- 2026-04-29: Landing scoring and debug instrumentation pass — `_landing_snap()` expanded with heading/pitch/score fields; distance-triggered snaps at 400 m / 200 m / 100 m per approach; wire scoring (Wire 2 = 10 pt base, Wire 1/3 = 5 pt base, lateral factor); `get_wire_number()` and `get_engage_lateral_m()` added to `ArrestingCable`; rolling average tracked in `FlightDeckManager`; FPA descent cap raised from 10° to 25° and pitch input limits raised to 0.65; minimum glideslope enforcement (glideslope carrot and FPA floor) attempted and reverted — still open.
 - 2026-04-23: AI attack / wind-farm / aircraft roster pass - ground-attack debug telemetry was rebuilt around state-change, weapon-release, 1 Hz attack-run, and sparse background logs; strike release ranges were tightened and bomb drops staggered so aircraft attack closer and retain stores for later passes; multiple freed-instance crash paths around AIPilot targeting/UI cleanup were hardened; AI contact, collision-avoidance, RTB, and release-solution work was throttled/cached for better performance; cockpit radar terrain view was zoomed in and synchronized to the same terrain bounds/origin logic as the `M` tactical map; enemy Aircraft_3 now spawns storeless as a clean fighter and patrol density increased via smaller patrol flights; enemy wind-turbine sites were added with grouped startup placement, distance markerization/activation, team-main-color tinting, guard gun emplacements, spinning/exploded rotor behavior, and debug placement; Aircraft_6 was added as a new slow, stable, rugged aircraft type with airborne debug spawn on key `6`.
 - 2026-04-13: Combat/UI/content expansion pass - project renamed to `Land Carrier`; pause menu rebuilt with Orbitron all-caps styling and untinted overlay; rotating HUD pitch ladder and boxed speed/altitude readouts added; gun-profile weapon framework expanded to 10/15/20/25 mm across hardpoints and turrets; hit-assist radius defaults to `0.5 m` and is runtime-adjustable; carrier and emplacement turret aim/range/LOS/arc behavior hardened with expanded debug telemetry; Aircraft_4 integrated as a heavy rear-turret enemy aircraft (`140 HP`) with debug spawn support; Aircraft_2/7/8/3 loadouts updated; cockpit pilot system standardized with randomized pilot palettes and cockpit hiding; team livery/insignia randomization expanded (24-color cycle, tail/wing projection fixes); critical-damage aircraft death state replaced with jammed controls plus chunk breakup/smoke; gun emplacements added with random weapons, activation-distance sleeping, team colors, and collider-bottom terrain grounding.
 - 2026-04-06: Performance profiling & fog system overhaul — frame spike logger added to ScenarioManager; identified terrain chunk collision rebuild (0.12s timer) and volumetric fog as primary performance culprits; `stream_update_interval_s` raised to 0.5s, initial-fill chunk budget raised to 16 to eliminate pop-in delay while keeping steady-state at 2 builds/tick; switched to volumetric fog for seamless horizon blending; render scale set to 0.5 for 4K performance; fixed `shake_frequency` missing declaration in `aircraft.gd`; shadow cascade splits retuned (`split_1=0.03`, `split_2=0.15`) for better near-geometry resolution; complete day/night palette overhaul — dawn (apricot/dusty salmon), day (bleached ochre glare), dusk (copper/cinnabar/burnt orange), twilight (plum/brown-violet) with per-phase density and anisotropy; `fog_aerial_perspective=1.0` and uniform sky colour prevent horizon seam in all camera orientations.
@@ -43,6 +44,34 @@ This document contains version history, session-by-session notes, and archived l
 ---
 
 ## Project Change Log (latest session)
+
+### Session Summary (2026-04-29) — Landing Scoring and Debug Instrumentation
+
+**Overview:** Added a wire-based landing points system, expanded per-approach debug telemetry, and raised the FPA descent cap so aircraft can actually descend steeply enough to land. Minimum glideslope enforcement (preventing too-shallow approaches) was attempted twice and reverted; that problem remains open.
+
+#### Landing Points Scoring
+- Wire 2 (the middle arresting cable, sorted by local Z ascending) gives a 10 pt base score. Wires 1 and 3 give 5 pts.
+- Score is multiplied by a lateral factor: `clamp(1 − |lateral_m| / 24.8, 0, 1)`. Catching the center of Wire 2 dead-center gives exactly 10 pts.
+- `ArrestingCable` gained two public methods: `get_wire_number()` (sorts all sibling cables by Z and returns 1-based index) and `get_engage_lateral_m()` (lateral offset in meters from cable midpoint at hook engagement).
+- `FlightDeckManager` tracks `_landing_score_total` and `_landing_attempt_count` across the test session. A rolling average is printed after every outcome — catches score their wire/lateral result; bolters, wave-offs, and crashes score 0. The F1 toggle resets both counters.
+
+#### Landing Debug Snap System
+- `_landing_snap(label, extra)` in `AIPilot.gd` now includes heading and nose pitch in addition to speed, altitude, vertical speed, FPA, bank, and gear state.
+- The `extra` parameter carries wire/lateral/score data on CAUGHT lines and `pts=0.0` on BOLTER/WAVE-OFF/DESTROYED lines.
+- Three distance-triggered snaps fire at 400 m, 200 m, and 100 m from the touchdown point during each approach, giving a four-line trace per landing attempt (three distance snaps + outcome).
+- One-shot flags (`_land_snap_400_done`, `_land_snap_200_done`, `_land_snap_100_done`, `_land_snap_touch_done`) prevent duplicate fires and reset in `start_landing()`.
+
+#### FPA Descent Cap
+- Both `landing_approach_max_descent_fpa_deg` and `landing_final_max_descent_fpa_deg` raised from 10° to 25°.
+- `landing_approach_fpa_pitch_input_limit` and `landing_final_pitch_input_limit` raised from 0.52/0.55 to 0.65.
+- This fixed an issue where aircraft on a deep approach could not pitch down fast enough to reach the deck before overshooting.
+
+#### Minimum Glideslope Enforcement (attempted, reverted)
+- A glideslope-path carrot was implemented: the carrot was placed on the ideal 4.5° glideslope line rather than directly at the touchdown point. An aircraft 400 m out at −3 m altitude received a carrot 25 m above it, commanding a steep climb followed immediately by a steep descent. This caused pitch oscillation to ±40° and most test aircraft were destroyed. Reverted.
+- A minimum FPA floor was then tried: `desired_fpa = min(desired_fpa, -deg_to_rad(glideslope_deg))` gated on `dist > 50 m and alt > 5 m`. Reverted at user request.
+- The `landing_glideslope_deg` export var (4.5°) remains in `AIPilot.gd` but is currently unused. Approach path quality is the main open problem for the landing lane.
+
+---
 
 ### Session Summary (2026-04-23) - AI Attack, Wind Farms, and Aircraft 6
 

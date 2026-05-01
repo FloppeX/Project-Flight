@@ -8,8 +8,8 @@ class_name LandCarrierInput
 # =============================================================================
 
 @export var land_carrier: LandCarrier
-@export var speed_increment: float = 5.0  # m/s speed change per key press
-@export var max_speed: float = 20.0  # m/s maximum speed
+@export var speed_increment: float = 10.0  # m/s speed change per key press
+@export var max_speed: float = 100.0  # m/s maximum speed
 @export var min_speed: float = 0.0   # m/s minimum speed
 @export var enable_legacy_keyboard_controls: bool = false
 
@@ -38,6 +38,7 @@ func _ready():
 		return
 
 	print("Land Carrier Input Controls Ready!")
+	print("  PageUp/PageDown - Adjust carrier speed by %.0f m/s" % speed_increment)
 	print("  T - Cycle tread debug view")
 	print("  Shift+T - Freeze/unfreeze tread scroll")
 	if enable_legacy_keyboard_controls:
@@ -55,16 +56,14 @@ func _input(event):
 	if not land_carrier:
 		return
 
-	# Arrow Up/Down always adjust max_speed regardless of legacy mode.
+	# PageUp/PageDown adjust max_speed regardless of legacy mode.
 	if event is InputEventKey and event.pressed and not event.echo:
 		match event.keycode:
-			KEY_UP:
-				land_carrier.max_speed = clamp(land_carrier.max_speed + 8.0, min_speed, 40.0)
-				print("[Carrier] Speed -> %.0f m/s" % land_carrier.max_speed)
+			KEY_PAGEUP:
+				_adjust_carrier_speed(speed_increment)
 				return
-			KEY_DOWN:
-				land_carrier.max_speed = clamp(land_carrier.max_speed - 8.0, min_speed, 40.0)
-				print("[Carrier] Speed -> %.0f m/s" % land_carrier.max_speed)
+			KEY_PAGEDOWN:
+				_adjust_carrier_speed(-speed_increment)
 				return
 			KEY_T:
 				if event.shift_pressed:
@@ -127,16 +126,24 @@ func _input(event):
 
 func increase_speed():
 	"""Increase carrier speed"""
-	land_carrier.increase_speed(speed_increment)
+	_adjust_carrier_speed(speed_increment)
 	current_speed = land_carrier.get_speed()
 	print("Speed increased to: ", current_speed, " m/s")
 
 
 func decrease_speed():
 	"""Decrease carrier speed"""
-	land_carrier.decrease_speed(speed_increment)
+	_adjust_carrier_speed(-speed_increment)
 	current_speed = land_carrier.get_speed()
 	print("Speed decreased to: ", current_speed, " m/s")
+
+
+func _adjust_carrier_speed(delta_mps: float) -> void:
+	if not land_carrier:
+		return
+	land_carrier.max_speed = clampf(land_carrier.max_speed + delta_mps, min_speed, max_speed)
+	current_speed = land_carrier.max_speed
+	print("[Carrier] Speed -> %.0f m/s" % land_carrier.max_speed)
 
 
 func turn_left():
