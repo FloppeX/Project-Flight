@@ -32,7 +32,8 @@
       "Bash(python -c \":*)",
       "Bash(ls \"C:\\\\Users\\\\jonto\\\\.claude\\\\projects\\\\c--Godot-projects-Project-Flight\\\\memory\"\" 2>/dev/null || echo \"Directory empty or missing \")",
       "Read(//c/Godot projects/Project-Flight/$APPDATA/**)",
-      "Bash(ls -lt captures/*.mp4)"
+      "Bash(ls -lt captures/*.mp4)",
+      "Bash(xargs grep *)"
     ],
     "deny": [],
     "ask": []

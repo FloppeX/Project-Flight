@@ -237,7 +237,7 @@ func _process(delta: float) -> void:
 				source_xform = camera_target_cam.global_transform
 			# Default: copy source pose
 			target_camera.global_transform = source_xform
-			var enemy_tgt := _get_enemy_target_node()
+			var enemy_tgt := _get_active_display_target()
 			if enemy_tgt and is_instance_valid(enemy_tgt):
 				# Rotate the CameraTarget mount toward the target
 				camera_target.look_at(enemy_tgt.global_position, Vector3.UP)
@@ -287,8 +287,7 @@ func _process(delta: float) -> void:
 					target_info_label.text = "NO TARGET"
 		else:
 			# Fallback: derive from targeting module if available, else look forward
-			var targeting = _find_targeting_module()
-			var tracked_target := _get_targeting_current_target(targeting)
+			var tracked_target := _get_active_display_target()
 			if tracked_target and is_instance_valid(tracked_target):
 				var cam_pos = aircraft.global_position + aircraft.global_transform.basis.z * 1.0 + Vector3(0, 0.3, 0)
 				target_camera.global_position = cam_pos
@@ -311,7 +310,7 @@ func _process(delta: float) -> void:
 					target_info_label.text = "NO TARGET"
 
 		# Auto-zoom to fit target width assuming ~assumed_target_width_m across
-		var tgt = _get_enemy_target_node()
+		var tgt = _get_active_display_target()
 		if tgt and is_instance_valid(tgt):
 			var dist: float = max(0.1, target_camera.global_position.distance_to(tgt.global_position))
 			var aspect: float = float(viewport_resolution.x) / float(viewport_resolution.y)
@@ -550,6 +549,37 @@ func _get_targeting_current_target(targeting) -> Node3D:
 func _get_enemy_target_node() -> Node3D:
 	var targeting = _find_targeting_module()
 	return _get_targeting_current_target(targeting)
+
+func _is_gear_down() -> bool:
+	if aircraft == null or not is_instance_valid(aircraft):
+		return false
+	var gear_modules = aircraft.find_modules_by_type("landing_gear")
+	if gear_modules.size() > 0:
+		var gear = gear_modules[0]
+		if gear != null and is_instance_valid(gear) and "is_deployed" in gear:
+			return bool(gear.is_deployed)
+	return false
+
+func _get_nearest_landing_target() -> Node3D:
+	if aircraft == null or not is_instance_valid(aircraft):
+		return null
+	var best: Node3D = null
+	var best_dist: float = INF
+	var pos: Vector3 = aircraft.global_position
+	for node in get_tree().get_nodes_in_group("carrier"):
+		if node is Node3D:
+			var d: float = (node as Node3D).global_position.distance_to(pos)
+			if d < best_dist:
+				best_dist = d
+				best = node as Node3D
+	return best
+
+func _get_active_display_target() -> Node3D:
+	if _is_gear_down():
+		var landing_tgt := _get_nearest_landing_target()
+		if landing_tgt != null:
+			return landing_tgt
+	return _get_enemy_target_node()
 
 func is_target_camera_focusing_node(node: Node3D) -> bool:
 	if node == null or not is_instance_valid(node):

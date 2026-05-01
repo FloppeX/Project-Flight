@@ -10,6 +10,7 @@ enum ObjectiveType {
 	ESCORT_CARRIER,
 	PROTECT_POSITION,
 	ATTACK_POSITION,
+	RETURN_TO_BASE,
 }
 
 @export var platoon_id: String = ""
@@ -256,6 +257,13 @@ func set_escort_carrier(carrier: Node3D, distance_m: float = 100.0) -> void:
 	protected_node = null
 	attack_node = null
 
+func set_return_to_base(carrier: Node3D, distance_m: float = 90.0) -> void:
+	objective_type = ObjectiveType.RETURN_TO_BASE
+	escort_node = carrier
+	escort_distance_m = maxf(distance_m, 20.0)
+	protected_node = null
+	attack_node = null
+
 func get_objective_name() -> String:
 	match objective_type:
 		ObjectiveType.NONE:
@@ -270,6 +278,8 @@ func get_objective_name() -> String:
 			return "ATTACK"
 		ObjectiveType.ESCORT_CARRIER:
 			return "ESCORT"
+		ObjectiveType.RETURN_TO_BASE:
+			return "RTB"
 		_:
 			return "UNKNOWN"
 
@@ -322,6 +332,10 @@ func get_destination_for(vehicle: Node3D) -> Vector3:
 					return corner_pos.lerp(threat.global_position, 0.15)
 				return nav_pos
 			return get_center_position()
+		ObjectiveType.RETURN_TO_BASE:
+			if escort_node and is_instance_valid(escort_node):
+				return _get_return_to_base_position(vehicle)
+			return get_center_position()
 		_:
 			return get_center_position()
 
@@ -363,6 +377,9 @@ func _get_formation_anchor(fallback_destination: Vector3) -> Vector3:
 			if attack_defender:
 				return objective_position.lerp(attack_defender.global_position, 0.35)
 			return objective_position
+		ObjectiveType.RETURN_TO_BASE:
+			if escort_node and is_instance_valid(escort_node):
+				return _get_return_to_base_position(null)
 		_:
 			pass
 	return fallback_destination
@@ -518,6 +535,19 @@ func _escort_local_to_world(local_pos: Vector3) -> Vector3:
 	if terrain_y > -9000.0:
 		world_pos.y = terrain_y
 	return world_pos
+
+func _get_return_to_base_position(vehicle: Node3D) -> Vector3:
+	if escort_node == null or not is_instance_valid(escort_node):
+		return get_center_position()
+	var members: Array[Node3D] = get_members()
+	var slot_index: int = members.find(vehicle) if vehicle != null else 0
+	if slot_index < 0:
+		slot_index = 0
+	var lateral_slots: Array[float] = [-36.0, -12.0, 12.0, 36.0]
+	var lateral: float = lateral_slots[slot_index % lateral_slots.size()]
+	var rank: int = int(slot_index / lateral_slots.size())
+	var rear_distance: float = 58.0 + escort_distance_m + float(rank) * formation_rank_spacing_m
+	return _escort_local_to_world(Vector3(lateral, 0.0, -rear_distance))
 
 func _get_slot_position_around(anchor: Vector3, vehicle: Node3D, radius_m: float) -> Vector3:
 	var members: Array[Node3D] = get_members()
@@ -721,11 +751,14 @@ func _get_route_preview_goal() -> Vector3:
 		ObjectiveType.ESCORT_CARRIER:
 			if escort_node and is_instance_valid(escort_node):
 				return _project_contact_to_ground(escort_node.global_position)
+		ObjectiveType.RETURN_TO_BASE:
+			if escort_node and is_instance_valid(escort_node):
+				return _project_contact_to_ground(_get_return_to_base_position(null))
 	return Vector3.INF
 
 func _is_route_preview_goal_dynamic() -> bool:
 	match objective_type:
-		ObjectiveType.PURSUE_ENEMIES, ObjectiveType.PROTECT_NODE, ObjectiveType.ATTACK_NODE, ObjectiveType.PROTECT_POSITION, ObjectiveType.ATTACK_POSITION, ObjectiveType.ESCORT_CARRIER:
+		ObjectiveType.PURSUE_ENEMIES, ObjectiveType.PROTECT_NODE, ObjectiveType.ATTACK_NODE, ObjectiveType.PROTECT_POSITION, ObjectiveType.ATTACK_POSITION, ObjectiveType.ESCORT_CARRIER, ObjectiveType.RETURN_TO_BASE:
 			return true
 		_:
 			return false

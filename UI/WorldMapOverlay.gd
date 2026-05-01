@@ -623,8 +623,8 @@ func _confirm_platoon_order() -> void:
 			GroundOpsManager.order_escort(_selected_asset_name)
 		"HOLD":
 			GroundOpsManager.order_hold(_selected_asset_name)
-		"RETRIEVE":
-			GroundOpsManager.retrieve(_selected_asset_name)
+		"RTB":
+			GroundOpsManager.order_rtb(_selected_asset_name)
 
 func _cancel_draft() -> void:
 	_selected_mission_id = ""
@@ -698,8 +698,8 @@ func _get_selected_mission_specs() -> Array[Dictionary]:
 				{"id": "ATTACK", "label": "> ATTACK", "accent": VECTOR_AMBER_COLOR},
 				{"id": "PROTECT", "label": "> PROTECT", "accent": VECTOR_STATUS_COLOR},
 				{"id": "ESCORT", "label": "> ESCORT", "accent": VECTOR_TEXT_COLOR},
+				{"id": "RTB", "label": "> RTB", "accent": VECTOR_AMBER_COLOR},
 				{"id": "HOLD", "label": "> HOLD", "accent": VECTOR_STATUS_COLOR},
-				{"id": "RETRIEVE", "label": "> RETRIEVE", "accent": VECTOR_AMBER_COLOR},
 			]
 		_:
 			return []
@@ -712,8 +712,6 @@ func _is_mission_enabled(spec: Dictionary, status: Dictionary) -> bool:
 	var mission_id: String = spec.get("id", "")
 	match mission_id:
 		"RTB":
-			return int(status.get("strength", 0)) > 0
-		"RETRIEVE":
 			return int(status.get("strength", 0)) > 0
 		_:
 			return true
@@ -991,7 +989,7 @@ func _snap_to_poi_world(map_click: Vector2) -> Vector3:
 	const SNAP_PX: float = 28.0
 	var best_world := Vector3.INF
 	var best_dist := SNAP_PX
-	for poi_world: Vector3 in POIManager.get_discovered_positions():
+	for poi_world: Vector3 in POIManager.get_active_discovered_positions():
 		var mp: Vector2 = _world_to_map_local(poi_world)
 		var dist := map_click.distance_to(mp)
 		if dist < best_dist:

@@ -2,6 +2,8 @@ extends Control
 
 const WorldMapTextureBuilder = preload("res://UI/WorldMapTextureBuilder.gd")
 const TERRAIN_MAP_EDGE_INSET_PX: float = 2.0
+const POI_ACTIVE_COLOR: Color = Color(1.0, 0.92, 0.28, 1.0)
+const POI_USED_COLOR: Color = Color(0.52, 0.56, 0.52, 0.95)
 
 var provider: Node = null
 var debug_enabled: bool = false
@@ -142,6 +144,8 @@ func _draw() -> void:
 				draw_polygon(PackedVector2Array([p0, p1, p2, p3]), PackedColorArray([carrier_hud_color]))
 				draw_polyline(PackedVector2Array([p0, p1, p2, p3, p0]), Color(0.92, 0.98, 1.0, 1.0), 1.5)
 
+	_draw_poi_markers(center, radius, origin, flat_right, flat_forward, range_m)
+
 	# FOV cone lines
 	var fov_cone_deg: float = 60.0
 	if aircraft.has_method("find_child"):
@@ -248,6 +252,38 @@ func _draw_heading_triangle(pos: Vector2, heading: Vector2, color: Color) -> voi
 	var br: Vector2 = pos - heading * tri_size * 0.5 - perp * tri_size * 0.52
 	draw_polygon(PackedVector2Array([tip, bl, br]), PackedColorArray([color]))
 	draw_polyline(PackedVector2Array([tip, bl, br, tip]), Color(1.0, 1.0, 1.0, 0.75), 1.0)
+
+func _draw_poi_markers(center: Vector2, radius: float, origin: Vector3, flat_right: Vector3, flat_forward: Vector3, range_m: float) -> void:
+	if not is_instance_valid(POIManager):
+		return
+	for marker: Dictionary in POIManager.get_discovered_map_markers():
+		var poi_world: Vector3 = marker.get("position", Vector3.INF)
+		if not is_finite(poi_world.x) or not is_finite(poi_world.y) or not is_finite(poi_world.z):
+			continue
+		var rel: Vector3 = poi_world - origin
+		var px: float = rel.dot(flat_right)
+		var pz: float = rel.dot(flat_forward)
+		if sqrt(px * px + pz * pz) > range_m:
+			continue
+		var map_pos := Vector2(
+			center.x + (px / range_m) * radius,
+			center.y - (pz / range_m) * radius
+		)
+		var color := POI_USED_COLOR if bool(marker.get("revealed", false)) else POI_ACTIVE_COLOR
+		_draw_poi_star(map_pos, 5.5, color)
+
+func _draw_poi_star(center: Vector2, radius: float, color: Color) -> void:
+	var points := PackedVector2Array()
+	var inner := radius * 0.42
+	for i in range(10):
+		var angle := -PI * 0.5 + float(i) * (PI / 5.0)
+		var r := radius if i % 2 == 0 else inner
+		points.append(center + Vector2(cos(angle), sin(angle)) * r)
+	draw_colored_polygon(points, color)
+	draw_polyline(PackedVector2Array([
+		points[0], points[1], points[2], points[3], points[4],
+		points[5], points[6], points[7], points[8], points[9], points[0]
+	]), Color(1.0, 1.0, 1.0, 0.35), 1.0)
 
 func _rebuild_contact_cache() -> void:
 	if provider == null or not is_instance_valid(provider):
