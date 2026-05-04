@@ -32,10 +32,26 @@ The player pushes into enemy-controlled territory, launches and recovers aircraf
 
 ## Current Status
 
-**Last Updated:** 2026-04-29
+**Last Updated:** 2026-05-03
 **Godot Version:** 4.4.1.stable.official.49a5bc7b6
 **Project Health:** PLAYABLE
 **Control Mode:** AI-by-default with viewed-aircraft player/AI toggle (game controller + keyboard parity in pause/menu flows)
+
+### Recent Changes (2026-05-03)
+
+- Mission-return recovery framework: AI aircraft returning to the carrier now have a marshal / hold / recovery-approach sequence before the existing straight-in landing controller. They fly to a high carrier-relative gate behind the carrier, request landing clearance from `FlightDeckManager`, hold behind the carrier if the deck is unavailable, then step through tunable descent gates before handing off to the proven final landing mode. The gate altitudes are intentionally exposed for later steep-descent tuning in canyon terrain.
+- Landing deck clearance reservation: `FlightDeckManager` can now reserve the landing deck for one requesting aircraft, reject other landing requests while the reservation is active, and release the reservation on catch, missed approach, crash/destruction, recovery start, or reset paths.
+- Recovery test controls: `F3` commands the closest eligible airborne AI aircraft to return via the new recovery framework; aircraft that overshoot the wires now leave final landing immediately and enter missed-approach navigation instead of continuing to fly the landing carrot.
+- Recovery gate spacing: the default carrier-relative recovery gates were moved farther aft, with the marshal point now 2000 m behind the carrier and final handoff around 1000 m, giving aircraft more room to settle before final landing.
+
+### Recent Changes (2026-05-02)
+
+- Carrier recovery validation pass: landing test spawns now run continuously at fixed intervals with ordered names (`LandingTest_001`, etc.), and debug outcome lines distinguish catches, bolters, wave-offs / go-arounds, and crashes so harmless missed recoveries are not mixed with aircraft-loss failures.
+- AI carrier landing tuning: landing control now favors rudder/yaw for lineup with only light visual banking; pitch/FPA damping was softened to reduce oscillation; standing-carrier landings are generally reliable, and moving-carrier landings now compensate for the carrier's scripted 10 m/s motion, though this remains an active tuning area rather than a fully solved system.
+- Arresting cable and rollout tuning: wire extension was shortened and arrest deceleration was smoothed over roughly 16 m so aircraft stop closer to the landing area and are less likely to be dragged over the elevator.
+- Tractorbot / elevator recovery flow: the elevator defaults down when idle; bots ride up with the elevator for retrieval, tow landed aircraft to the elevator, rotate them forward on the platform, descend with the aircraft, and stay below. Tractor bots now re-check live wheel positions during pickup so recently landed aircraft can move without making the bots chase stale wheel targets.
+- Debug recovery spawn: `F2` creates a `RecoveryDebug_###` aircraft about 1000 m behind the carrier at about 100 m altitude in landing mode, intended for repeatedly testing landing and post-arrest retrieval.
+- Cockpit audio balance: cockpit air-rush / wind layers were reduced relative to propeller/interior engine sound; this is improved but still worth listening for during flight-feel passes because wind can still dominate depending on context.
 
 ### Recent Changes (2026-04-29)
 
@@ -101,9 +117,9 @@ Example project launch from this repo root:
 | System | Status | Notes |
 |--------|--------|-------|
 | Flight Physics | Working | SimpleAero integration complete; aircraft thrust has been bumped across the roster and shared forward drag reduced so dives and acceleration feel less artificially capped; aircraft now also use per-type pitch/roll self-righting plus grounded rudder assist so takeoff, landing, and general hand-flying feel less "nose goes wherever I point it"; engine throttle response now ramps through spool-up/down lag instead of snapping instantly; low-speed sideslip damping increased so the velocity vector tracks the nose more tightly during normal maneuvering |
-| AI Pilot | Working | Full carrier cycle exists; path-follower carrier recovery remains the default; hierarchy-of-needs safety layer (terrain avoidance > collision avoidance > state machine); terrain fan avoidance with directional escape sampling; dogfight proximity override breaks off ground attack when enemies close; close-pass breakaway logic now reduces merge collisions; CCIP ballistic sim throttled via caching; ground attack state machine fixed: overshoot cooldown, positioning timeout, speed gate, pitch guardrail exclusion in dive, and collision avoidance threshold reduction during dive runs; attack telemetry now logs state changes / weapon release / 1 Hz attack-run status with sparse background reporting; attack releases are closer and bomb drops are staggered; dogfight and contact handling were hardened against freed-instance crashes; contact scans, collision avoidance, and RTB checks are further throttled for CPU cost |
+| AI Pilot | Working | Full carrier cycle exists; path-follower carrier recovery remains the default; landing mode now favors yaw/rudder lineup with only light bank for visual readability, includes smoother pitch/FPA response, and has a 10 m/s scripted-carrier compensation path that is promising but still being tuned; hierarchy-of-needs safety layer (terrain avoidance > collision avoidance > state machine); terrain fan avoidance with directional escape sampling; dogfight proximity override breaks off ground attack when enemies close; close-pass breakaway logic now reduces merge collisions; CCIP ballistic sim throttled via caching; ground attack state machine fixed: overshoot cooldown, positioning timeout, speed gate, pitch guardrail exclusion in dive, and collision avoidance threshold reduction during dive runs; attack telemetry now logs state changes / weapon release / 1 Hz attack-run status with sparse background reporting; attack releases are closer and bomb drops are staggered; dogfight and contact handling were hardened against freed-instance crashes; contact scans, collision avoidance, and RTB checks are further throttled for CPU cost |
 | Catapult | Working | Launches AI and player aircraft |
-| Arresting Cables | Working | Roll stabilization, mass-adaptive braking |
+| Arresting Cables | Working | Roll stabilization and mass-adaptive braking; extension is currently constrained to a short stop distance with smoother deceleration so caught aircraft remain near the landing area instead of stretching wires across the elevator |
 | Landing Gear | Working | Suspension/damping implemented; Aircraft 1, 2, and 5 now use animated gear pivots instead of pop-in/out, with stowed visuals/shadows suppressed; nosewheel taxi steering now follows rudder at low speed, and rebound damping/deadband were retuned to reduce "pumping" on rollout |
 | Tailhook | Working | Auto-deploy/stow functional |
 
@@ -117,7 +133,7 @@ Example project launch from this repo root:
 | Targeting | Working | HUD target box, sensor cone |
 | HUD | Working | Radar, instruments, CCIP, terrain map overlay on radar; cockpit radar scope remains circular and masked correctly; main gunsight uses HUD-glass collimation/boresight projection; FPV symbol shows actual velocity vector with dotted boresight linkage; rotating attitude pitch ladder (horizon-level) with side ticks is now integrated, and boxed speed/altitude readouts were repositioned upward for better readability; the cockpit terrain map now uses the same live terrain bounds/origin convention as the `M` tactical map and a tighter 3.5 km range so it no longer drifts out of sync |
 | Camera System | Working | Multiple camera modes, free-fly debug camera, delayed death-camera handoff; chase camera now orbits the aircraft on a level horizontal plane; the old bridge cam has been replaced by a first-person commander view inside the carrier bridge; stick-click zoom is available in commander view and in the cockpit camera, including while viewing an AI-controlled aircraft |
-| Cockpit Audio | Partial | Each aircraft now has its own interior loop plus cockpit-only wind / air-rush layers with crash-aware shutdown, reduced in-cockpit stereo spread, and stronger interior filtering; the overall cockpit/exterior balance is still being tuned |
+| Cockpit Audio | Partial | Each aircraft now has its own interior loop plus cockpit-only wind / air-rush layers with crash-aware shutdown, reduced in-cockpit stereo spread, and stronger interior filtering; air-rush/wind gain has been reduced so propeller/interior sound is more audible, but the cockpit/exterior balance is still being tuned |
 | Destruction | Working | Aircraft now enter a critical-damage death state at `0 HP`: player control is disabled, stick inputs jam to random max directions, and each second rolls explosion chance (`10%` default); final breakup now emits dark rigid debris chunks with smoke trails that self-clean on terrain contact; ParticleManager still manages smoke lifecycle |
 | Damage Effects | Working | 3-tier progressive damage system: hydraulic/fuel/flap failures, engine cap/control loss/HUD flicker, engine sputter/structural failure/HUD blackout; escalating smoke trails |
 | Aircraft Roster | Working | `Aircraft_4` added as a heavy/slower enemy aircraft with rear turret; `Aircraft_7` and `Aircraft_8` remain fast interceptors; `Aircraft_6` is now a slow, stable, rugged low-speed aircraft with a friendly airborne debug spawn on `6`; weapon assignments were reworked (Aircraft 2: 25 mm, Aircraft 7/8: 20 mm, Aircraft 3: extra hardpoint + dual 10 mm); enemy Aircraft 3 now spawns clean with no external stores and serves as a fighter; pressing `7`/`8` retrieves those variants and `4` debug-spawns a friendly Aircraft_4 above the carrier |
@@ -126,12 +142,12 @@ Example project launch from this repo root:
 
 | System | Status | Notes |
 |--------|--------|-------|
-| Flight Deck Manager | Partial | Orchestrates deck/hangar/catapult/recovery flow, scramble queues, and runtime aircraft persistence; now supports last-leg wave-offs when the deck is occupied, bolter/go-around recovery retries, and cleanup of extra tractor bots by sending them below via the elevator |
+| Flight Deck Manager | Partial | Orchestrates deck/hangar/catapult/recovery flow, scramble queues, and runtime aircraft persistence; now supports continuous landing-test spawning, named recovery-debug aircraft, last-leg wave-offs when the deck is occupied, bolter/go-around recovery retries, crash-vs-go-around debug classification, and post-arrest tractor/elevator retrieval |
 | Air Operations Manager | Working | Autoload (Citadel). Commands four named flights (Archer, Bulldog, Crimson, Dingo); intercept/CAS vectoring; player-facing tactical-map orders now support CAP routes, CAS tasking, and RTB; empty flights auto-scramble from the hangar when manually ordered; radio comms throughout; enemy patrol density is higher now because hostile patrol aircraft are split into smaller flights |
 | Wing Fold (Aircraft 2) | Working | Wings fold in hangar/transport, unfold at catapult; instant-snap on spawn |
 | Wing Fold (Aircraft 5) | Working | Multi-phase fold: lateral slide, then overlapping X/Y rotations with smoothstep easing; mirrored left-wing geometry handled with flipped X sign |
-| Elevator | Working | Hangar <-> deck transit; aircraft tracks carrier horizontally |
-| Tractor Bots | Working | Aircraft towing system; follow carrier as carrier children and now use shared wheel-node lookup instead of brittle hard-coded wheel names |
+| Elevator | Working | Hangar <-> deck transit; aircraft tracks carrier horizontally; idle default is down so retrieval can bring tractor bots up from below instead of leaving an empty platform at deck level |
+| Tractor Bots | Working | Aircraft towing system; follow carrier as carrier children, ride the elevator for launch/recovery tasks, rotate recovered aircraft forward on the elevator, and use live wheel-node lookup during pickup instead of brittle or stale hard-coded wheel positions |
 | Deck Lights | Working | Procedural SpotLight3D placement (downward-facing, no bleed into dust/sky); center elevator-adjacent strips retuned and recolored yellow |
 | Arresting Cables | Working | Multi-cable support |
 | Carrier Movement Tracking | Working | All deck objects (parked, transport, catapult) move with carrier each frame |
@@ -192,7 +208,7 @@ Example project launch from this repo root:
 1. Validate the new interactive `M`-map workflow in live play: asset selection, mission drafting, confirm/cancel flow, and readability under pressure.
 2. Expand mission authoring beyond the first slice, especially richer waypoint editing and more flight directives than the current CAP / CAS / RTB set.
 3. Continue tuning AI precision control in dogfights so aircraft point more authoritatively at gun solutions, align the pipper with the real gun line, and waste fewer shots while still breaking off unsafe close merges.
-4. Solve minimum glideslope enforcement so planes cannot approach at a dangerously shallow angle; scoring and debug instrumentation are complete but the approach-path quality problem is open (glideslope carrot and FPA floor both reverted).
+4. Continue tuning moving-carrier landings at the current scripted 10 m/s carrier speed; aircraft can now get onto the deck, but arrest/recovery behavior and carrier-relative speed handling still need live validation.
 5. Continue tuning ground vehicle movement, steep-slope avoidance, spotting, and pathing performance, especially with multiple active platoons.
 6. Recheck terrain streaming and far-edge cases so delayed terrain/collision chunks do not reopen "edge of the world" failures.
 7. Continue expanding bridge/commander command features and allow AirOps/GroundOps AI to create and manage missions through the same order model the player uses.
@@ -221,7 +237,7 @@ Example project launch from this repo root:
 - 3D rotating model viewer per entry with description text below
 - Covers vehicles and weapons
 
-**Current focus:** As of 2026-04-29, landing scoring and per-approach debug instrumentation are complete. The open problem is minimum glideslope enforcement — planes can arrive too shallow with no penalty. Both a glideslope-path carrot and a minimum-FPA floor were implemented and reverted; a different approach is needed before closing out the landing validation lane.
+**Current focus:** As of 2026-05-02, the main lane is carrier recovery under real operating conditions: moving-carrier landings at the scripted 10 m/s speed, believable arresting-wire stops, and reliable tractorbot pickup of aircraft whose live wheel positions may still be shifting after touchdown. The system is working much better than before, but it is not proven enough to treat as finished.
 
 ## Working Style Notes
 

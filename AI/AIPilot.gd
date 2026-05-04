@@ -28,6 +28,9 @@ enum State {
 	DOGFIGHT,       # Air-to-air gun combat with lead pursuit + burst fire
 	ENGAGE,         # Attacking target (legacy/air combat)
 	RTB,            # Returning to base
+	RECOVERY_MARSHAL,  # Fly to a high carrier-relative recovery gate and request clearance
+	RECOVERY_HOLD,     # Hold behind the carrier until the deck is clear
+	RECOVERY_APPROACH, # Step down through carrier-relative gates before final landing
 	APPROACH,       # Carrier approach pattern
 	LANDING,        # Final approach and landing
 	MISSED_APPROACH # Bolter/go-around back to takeoff_0
@@ -376,6 +379,9 @@ var _approach_wp: Array = []  # [Node3D approach_1, Node3D approach_2, Node3D ap
 var _takeoff_wp: Node3D = null
 var _approach_path_along_m: float = 0.0
 var _carrot_along_m: float = 0.0  # Rolling carrot progress along approach polyline
+var _recovery_phase: int = 0
+var _recovery_hold_side: float = 1.0
+var _recovery_clearance_granted: bool = false
 @export var approach_phase0_alt_above_deck_m: float = 450.0
 @export var approach_phase1_alt_above_deck_m: float = 350.0
 @export var approach_phase2_alt_above_deck_m: float = 200.0
@@ -406,6 +412,21 @@ var _carrot_along_m: float = 0.0  # Rolling carrot progress along approach polyl
 @export var approach_carrot_terrain_clearance_m: float = 60.0
 @export var approach_carrot_funnel_half_angle_deg: float = 60.0
 @export var approach_carrot_funnel_max_dist_m: float = 2200.0
+@export var recovery_marshal_behind_m: float = 2000.0
+@export var recovery_marshal_alt_above_deck_m: float = 600.0
+@export var recovery_hold_lateral_m: float = 450.0
+@export var recovery_clearance_request_distance_m: float = 180.0
+@export var recovery_gate_capture_m: float = 130.0
+@export var recovery_final_gate_capture_m: float = 120.0
+@export var recovery_gate_speed_mps: float = 68.0
+@export var recovery_final_gate_speed_mps: float = 58.0
+@export var recovery_gate_min_terrain_clearance_m: float = 80.0
+@export var recovery_mid_gate_behind_m: float = 1600.0
+@export var recovery_mid_gate_alt_above_deck_m: float = 300.0
+@export var recovery_low_gate_behind_m: float = 1300.0
+@export var recovery_low_gate_alt_above_deck_m: float = 160.0
+@export var recovery_final_gate_behind_m: float = 1000.0
+@export var recovery_final_gate_alt_above_deck_m: float = 120.0
 @export var landing_path_lookahead_time_s: float = 2.0
 @export var landing_path_min_lookahead_m: float = 35.0
 @export var landing_path_max_lookahead_m: float = 120.0
@@ -424,7 +445,7 @@ var _carrot_along_m: float = 0.0  # Rolling carrot progress along approach polyl
 @export var landing_use_deck_start_catch_zone: bool = true
 @export var landing_deck_start_node_name: String = "deck_start"
 @export var landing_aim_wire_number: int = 2
-@export var landing_aim_forward_offset_m: float = 12.0
+@export var landing_aim_forward_offset_m: float = 4.0
 @export_range(0.0, 1.0, 0.05) var landing_catch_zone_target_t: float = 0.5
 @export var landing_short_final_bank_distance_m: float = 200.0
 @export var landing_short_final_bank_limit_deg: float = 12.0
@@ -432,6 +453,11 @@ var _carrot_along_m: float = 0.0  # Rolling carrot progress along approach polyl
 @export var landing_touchdown_level_distance_m: float = 110.0
 @export var landing_touchdown_bank_limit_deg: float = 8.0
 @export var landing_short_final_yaw_gain: float = 2.5
+@export var landing_carrier_motion_compensation_enabled: bool = true
+@export var landing_carrier_motion_min_speed_mps: float = 1.0
+@export var landing_carrier_motion_velocity_smoothing: float = 0.18
+@export var landing_carrier_motion_max_speed_mps: float = 20.0
+@export var landing_carrier_speed_compensation_scale: float = 1.0
 @export var landing_waveoff_check_distance_m: float = 220.0
 @export var landing_bolter_past_target_m: float = 25.0
 @export var landing_bolter_rejoin_distance_m: float = 180.0
@@ -476,7 +502,7 @@ var _carrot_along_m: float = 0.0  # Rolling carrot progress along approach polyl
 @export var landing_final_lateral_smoothing_near: float = 0.42
 @export var landing_final_lateral_slew_deg_per_s: float = 18.0
 @export var landing_final_runway_yaw_gain: float = 2.4
-@export var landing_final_rudder_lateral_gain: float = 1.0
+@export var landing_final_rudder_lateral_gain: float = 1.12
 @export var landing_final_lateral_pd_lookahead_m: float = 130.0
 @export var landing_final_lateral_velocity_damping_s: float = 2.0
 @export var landing_final_lateral_pd_limit_deg: float = 10.0
@@ -487,8 +513,8 @@ var _carrot_along_m: float = 0.0  # Rolling carrot progress along approach polyl
 @export var landing_final_rudder_primary_bank_scale: float = 0.35
 @export var landing_final_low_path_waveoff_m: float = 6.0
 @export var landing_final_low_path_waveoff_remaining_m: float = 125.0
-@export var landing_final_low_path_throttle_floor: float = 0.68
-@export var landing_final_sink_throttle_floor: float = 0.78
+@export var landing_final_low_path_throttle_floor: float = 0.76
+@export var landing_final_sink_throttle_floor: float = 0.84
 @export var landing_final_pitch_gain: float = 1.65
 @export var landing_final_pitch_rate_damping: float = 1.35
 @export var landing_final_pitch_input_limit: float = 0.55
@@ -637,6 +663,9 @@ var _bolter_go_around: bool = false   # True while carrot is guiding the climb-o
 var _bolter_dir: Vector3 = Vector3.ZERO  # Flat forward direction at the moment of bolter detection
 var _landing_carrot_active: bool = false
 var _landing_carrot_remaining_m: float = INF
+var _landing_measured_carrier_velocity: Vector3 = Vector3.ZERO
+var _landing_carrier_motion_last_ref: Vector3 = Vector3.ZERO
+var _landing_carrier_motion_has_ref: bool = false
 var _land_snap_400_done: bool = false
 var _land_snap_200_done: bool = false
 var _land_snap_100_done: bool = false
@@ -659,6 +688,8 @@ func apply_origin_shift(offset: Vector3) -> void:
 	carrier_position -= offset
 	_dogfight_variation_waypoint -= offset
 	_dogfight_recovery_waypoint -= offset
+	if _landing_carrier_motion_has_ref:
+		_landing_carrier_motion_last_ref -= offset
 	for i in range(waypoints.size()):
 		waypoints[i] -= offset
 
@@ -897,6 +928,8 @@ func _physics_process(delta: float):
 	if aircraft.get_meta("controls_disabled", false):
 		return
 
+	_update_landing_carrier_motion_estimate(delta)
+
 	# Update sensors - AI's view of the world
 	_update_sensors(delta)
 
@@ -946,6 +979,12 @@ func _physics_process(delta: float):
 				_state_engage(delta)
 			State.RTB:
 				_state_rtb(delta)
+			State.RECOVERY_MARSHAL:
+				_state_recovery_marshal(delta)
+			State.RECOVERY_HOLD:
+				_state_recovery_hold(delta)
+			State.RECOVERY_APPROACH:
+				_state_recovery_approach(delta)
 			State.APPROACH:
 				_state_approach(delta)
 			State.LANDING:
@@ -1050,8 +1089,10 @@ func _landing_debug_event(message: String) -> void:
 	print("[LAND] %s %s" % [aircraft_name, message])
 
 func _on_aircraft_destroyed() -> void:
+	if current_state in [State.RECOVERY_MARSHAL, State.RECOVERY_HOLD, State.RECOVERY_APPROACH, State.LANDING, State.MISSED_APPROACH]:
+		_release_landing_clearance_from_deck()
 	if current_state == State.LANDING:
-		_landing_snap("DESTROYED", "pts=0.0")
+		_landing_snap("CRASH", "destroyed=true  pts=0.0")
 
 func _record_landing_test_failure(label: String) -> void:
 	var fdm = get_tree().get_first_node_in_group("flight_deck_manager")
@@ -1059,7 +1100,7 @@ func _record_landing_test_failure(label: String) -> void:
 		fdm.record_landing_test_outcome(aircraft, label, 0.0)
 
 func _landing_snap(label: String, extra: String = "") -> void:
-	if label in ["BOLTER", "WAVE-OFF", "DESTROYED"] and is_instance_valid(aircraft):
+	if label in ["BOLTER", "WAVE-OFF", "CRASH", "DESTROYED"] and is_instance_valid(aircraft):
 		_record_landing_test_failure(label)
 	if not _landing_debug_enabled() or not is_instance_valid(aircraft):
 		return
@@ -3656,8 +3697,163 @@ func _state_rtb(delta: float):
 	# Start landing approach when within 4000m
 	if h_dist < 4000.0:
 		if debug_enabled:
-			print("[AIPilot RTB] Reached carrier vicinity (", h_dist, "m), starting approach sequence.")
-		start_landing()
+			print("[AIPilot RTB] Reached carrier vicinity (", h_dist, "m), starting recovery sequence.")
+		if not start_recovery():
+			start_landing()
+
+func _get_carrier_node() -> Node3D:
+	var carriers = get_tree().get_nodes_in_group("carrier")
+	if not carriers.is_empty() and carriers[0] is Node3D:
+		return carriers[0] as Node3D
+	return null
+
+func _get_recovery_carrier_frame() -> Dictionary:
+	_refresh_carrier_position(false)
+	_ensure_carrier_position()
+	var carrier := _get_carrier_node()
+	var origin: Vector3 = carrier.global_position if is_instance_valid(carrier) else carrier_position
+	var forward: Vector3 = Vector3.FORWARD
+	var right: Vector3 = Vector3.RIGHT
+	if is_instance_valid(carrier):
+		forward = carrier.global_transform.basis.z
+		right = carrier.global_transform.basis.x
+	forward.y = 0.0
+	right.y = 0.0
+	if forward.length_squared() <= 0.001:
+		forward = Vector3.FORWARD
+	else:
+		forward = forward.normalized()
+	if right.length_squared() <= 0.001:
+		right = forward.cross(Vector3.UP).normalized()
+	else:
+		right = right.normalized()
+	return {
+		"valid": true,
+		"origin": origin,
+		"forward": forward,
+		"right": right,
+		"deck_y": _get_approach_deck_y()
+	}
+
+func _get_recovery_point(behind_m: float, right_m: float, alt_above_deck_m: float) -> Vector3:
+	var frame: Dictionary = _get_recovery_carrier_frame()
+	var origin: Vector3 = frame.get("origin", carrier_position)
+	var forward: Vector3 = frame.get("forward", Vector3.FORWARD)
+	var right: Vector3 = frame.get("right", Vector3.RIGHT)
+	var deck_y: float = float(frame.get("deck_y", carrier_position.y + approach_deck_height_fallback_m))
+	var point: Vector3 = origin - forward * behind_m + right * right_m
+	point.y = deck_y + alt_above_deck_m
+	if is_instance_valid(aircraft):
+		point.y = _terrain_safe_altitude_for_segment(
+			aircraft.global_position,
+			point,
+			point.y,
+			recovery_gate_min_terrain_clearance_m
+		)
+	return point
+
+func _get_recovery_approach_gate(phase: int) -> Dictionary:
+	match phase:
+		0:
+			return {
+				"behind_m": recovery_mid_gate_behind_m,
+				"alt_above_deck_m": recovery_mid_gate_alt_above_deck_m,
+				"label": "mid"
+			}
+		1:
+			return {
+				"behind_m": recovery_low_gate_behind_m,
+				"alt_above_deck_m": recovery_low_gate_alt_above_deck_m,
+				"label": "low"
+			}
+		_:
+			return {
+				"behind_m": recovery_final_gate_behind_m,
+				"alt_above_deck_m": recovery_final_gate_alt_above_deck_m,
+				"label": "final"
+			}
+
+func _request_landing_clearance_from_deck() -> bool:
+	var fdm = get_tree().get_first_node_in_group("flight_deck_manager")
+	if fdm and fdm.has_method("request_landing_clearance"):
+		return bool(fdm.request_landing_clearance(aircraft))
+	if fdm and fdm.has_method("can_accept_landing"):
+		return bool(fdm.can_accept_landing(aircraft))
+	return true
+
+func _release_landing_clearance_from_deck() -> void:
+	var fdm = get_tree().get_first_node_in_group("flight_deck_manager")
+	if fdm and fdm.has_method("release_landing_clearance"):
+		fdm.release_landing_clearance(aircraft)
+
+func _state_recovery_marshal(delta: float) -> void:
+	"""Fly to the high recovery gate and ask the deck for landing clearance."""
+	_stop_firing()
+	target_speed = recovery_gate_speed_mps
+	nav_waypoint = _get_recovery_point(recovery_marshal_behind_m, 0.0, recovery_marshal_alt_above_deck_m)
+	_update_maneuver_waypoint()
+	_navigate_to_waypoint(delta)
+	_landing_debug_tick(delta, "RECOVERY_MARSHAL", nav_waypoint)
+
+	var dist_to_gate: float = aircraft.global_position.distance_to(nav_waypoint)
+	if dist_to_gate <= recovery_clearance_request_distance_m:
+		if _request_landing_clearance_from_deck():
+			_recovery_clearance_granted = true
+			_recovery_phase = 0
+			_landing_debug_event("recovery clearance granted; stepping down to approach gates")
+			change_state(State.RECOVERY_APPROACH)
+		else:
+			_recovery_clearance_granted = false
+			_landing_debug_event("recovery clearance denied; entering hold")
+			change_state(State.RECOVERY_HOLD)
+
+func _state_recovery_hold(delta: float) -> void:
+	"""Simple carrier-relative hold behind the ship until clearance opens."""
+	_stop_firing()
+	target_speed = recovery_gate_speed_mps
+	nav_waypoint = _get_recovery_point(
+		recovery_marshal_behind_m,
+		_recovery_hold_side * recovery_hold_lateral_m,
+		recovery_marshal_alt_above_deck_m
+	)
+	_update_maneuver_waypoint()
+	_navigate_to_waypoint(delta)
+	_landing_debug_tick(delta, "RECOVERY_HOLD", nav_waypoint)
+
+	if aircraft.global_position.distance_to(nav_waypoint) <= recovery_gate_capture_m:
+		_recovery_hold_side *= -1.0
+
+	if _request_landing_clearance_from_deck():
+		_recovery_clearance_granted = true
+		_recovery_phase = 0
+		_landing_debug_event("recovery clearance granted from hold; stepping down to approach gates")
+		change_state(State.RECOVERY_APPROACH)
+
+func _state_recovery_approach(delta: float) -> void:
+	"""Fly the clearance-owned carrier-relative descent gates, then hand off to final landing."""
+	target_speed = recovery_final_gate_speed_mps if _recovery_phase >= 2 else recovery_gate_speed_mps
+	_deploy_landing_gear()
+	var gate: Dictionary = _get_recovery_approach_gate(_recovery_phase)
+	nav_waypoint = _get_recovery_point(
+		float(gate.get("behind_m", recovery_final_gate_behind_m)),
+		0.0,
+		float(gate.get("alt_above_deck_m", recovery_final_gate_alt_above_deck_m))
+	)
+	_update_maneuver_waypoint()
+	_navigate_to_waypoint(delta)
+	_landing_debug_tick(delta, "RECOVERY_APPROACH", nav_waypoint, "gate=%s" % str(gate.get("label", "final")))
+
+	var capture_m: float = recovery_final_gate_capture_m if _recovery_phase >= 2 else recovery_gate_capture_m
+	if aircraft.global_position.distance_to(nav_waypoint) > capture_m:
+		return
+	if _recovery_phase < 2:
+		_recovery_phase += 1
+		_landing_debug_event("recovery gate reached; next gate phase=%d" % _recovery_phase)
+		return
+	_landing_debug_event("recovery final gate reached; starting straight-in landing")
+	if not start_landing():
+		_release_landing_clearance_from_deck()
+		change_state(State.RTB)
 
 func _get_approach_deck_y() -> float:
 	"""Deck reference for approach phase altitudes."""
@@ -4536,7 +4732,14 @@ func _state_landing(delta: float):
 			_bolter_dir = vf.normalized() if vf.length_squared() > 0.5 else b.z
 			if not _land_snap_touch_done:
 				_land_snap_touch_done = true
-				_landing_snap("WAVE-OFF", "low_path=%+.1fm  pts=0.0" % glide_vertical_error_m)
+				var own_deck_alt_waveoff: float = aircraft.global_position.y - _get_approach_deck_y()
+				if own_deck_alt_waveoff < 0.0:
+					_landing_snap("CRASH", "low_path=%+.1fm  below_deck=%+.1fm  pts=0.0" % [
+						glide_vertical_error_m,
+						own_deck_alt_waveoff
+					])
+				else:
+					_landing_snap("WAVE-OFF", "low_path=%+.1fm  pts=0.0" % glide_vertical_error_m)
 		elif _should_wave_off_for_busy_deck(horiz_dist_to_touch):
 			_bolter_go_around = true
 			var vf := Vector3(vel.x, 0.0, vel.z)
@@ -4545,12 +4748,13 @@ func _state_landing(delta: float):
 				_land_snap_touch_done = true
 				_landing_snap("WAVE-OFF", "pts=0.0")
 		elif _should_start_missed_approach():
-			_bolter_go_around = true
 			var vf := Vector3(vel.x, 0.0, vel.z)
 			_bolter_dir = vf.normalized() if vf.length_squared() > 0.5 else b.z
 			if not _land_snap_touch_done:
 				_land_snap_touch_done = true
 				_landing_snap("BOLTER", "pts=0.0")
+			_begin_missed_approach()
+			return
 
 	var target_pos: Vector3
 	if _bolter_go_around:
@@ -4597,16 +4801,27 @@ func _state_landing(delta: float):
 	if _landing_carrot_active:
 		var aircraft_remaining_dbg: float = 0.0
 		var gap_dbg: float = 0.0
+		var deck_axis_speed_dbg: float = 0.0
+		var rel_axis_speed_dbg: float = speed
 		var landing_geom_dbg: Dictionary = _get_landing_line_geometry()
 		if bool(landing_geom_dbg.get("valid", false)):
 			aircraft_remaining_dbg = maxf(_landing_remaining_to_touchdown(aircraft.global_position, landing_geom_dbg), 0.0)
 			gap_dbg = aircraft_remaining_dbg - _landing_carrot_remaining_m
+			var dbg_axis: Vector3 = landing_geom_dbg.get("axis", Vector3.ZERO)
+			dbg_axis.y = 0.0
+			if dbg_axis.length_squared() > 0.001:
+				dbg_axis = dbg_axis.normalized()
+				var deck_vel_dbg: Vector3 = _get_carrier_velocity()
+				deck_axis_speed_dbg = deck_vel_dbg.dot(dbg_axis)
+				rel_axis_speed_dbg = (vel - deck_vel_dbg).dot(dbg_axis)
 		_landing_debug_tick(delta, "LANDING_CARROT", target_pos,
-			"air=%.0fm carrot=%.0fm gap=%.0fm line_v=%+.1fm" % [
+			"air=%.0fm carrot=%.0fm gap=%.0fm line_v=%+.1fm deck_v=%+.1f rel_v=%.1f" % [
 				aircraft_remaining_dbg,
 				_landing_carrot_remaining_m,
 				gap_dbg,
-				glide_vertical_error_m
+				glide_vertical_error_m,
+				deck_axis_speed_dbg,
+				rel_axis_speed_dbg
 			])
 
 	# Wire caught: kill engine, release pitch/yaw, but keep wings-level roll command
@@ -4652,14 +4867,16 @@ func _state_landing(delta: float):
 
 	# Speed target: bleed off as we close in (gear+flap drag assists; skip during go-around)
 	if not _bolter_go_around:
+		var base_landing_speed: float = 62.0
 		if horiz_dist < 80.0:
-			target_speed = 50.0
+			base_landing_speed = 50.0
 		elif horiz_dist < 150.0:
-			target_speed = 53.0
+			base_landing_speed = 53.0
 		elif horiz_dist < 250.0:
-			target_speed = 57.0
+			base_landing_speed = 57.0
 		else:
-			target_speed = 62.0
+			base_landing_speed = 62.0
+		target_speed = base_landing_speed + _get_landing_carrier_speed_compensation(landing_geom)
 
 	# === ROLL: wings level on short final (< 200 m), bearing-based further out ===
 	var current_roll: float = atan2(b.x.y, b.y.y)
@@ -5077,7 +5294,7 @@ func _navigate_to_waypoint(delta: float):
 	# If we're banked significantly and descending fast, the turn is bleeding altitude.
 	# Pulling back in a steep bank just tightens the spiral. Level wings first, then climb.
 	# Approach/Landing are also intentional descents ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â don't interfere with spiral recovery
-	var in_dive_or_attack: bool = current_state in [State.DOGFIGHT, State.ATTACK_DIVE, State.APPROACH, State.LANDING]
+	var in_dive_or_attack: bool = current_state in [State.DOGFIGHT, State.ATTACK_DIVE, State.RECOVERY_APPROACH, State.APPROACH, State.LANDING]
 	if not in_dive_or_attack and bank_rad > deg_to_rad(25.0) and vel.y < -15.0:
 		var roll_to_level: float = _normalize_angle(0.0 - current_roll)
 		roll_input = clamp(roll_to_level * 3.0, -1.0, 1.0)
@@ -5585,7 +5802,7 @@ func _update_waypoint_marker():
 	if not _waypoint_marker:
 		return
 	# Only show when actively navigating/attacking
-	if current_state not in [State.TRANSIT, State.SEARCH, State.ATTACK_POSITIONING, State.ATTACK_INBOUND, State.ATTACK_DIVE, State.ATTACK_BREAK_OFF, State.ENGAGE, State.APPROACH, State.LANDING, State.MISSED_APPROACH]:
+	if current_state not in [State.TRANSIT, State.SEARCH, State.ATTACK_POSITIONING, State.ATTACK_INBOUND, State.ATTACK_DIVE, State.ATTACK_BREAK_OFF, State.ENGAGE, State.RECOVERY_MARSHAL, State.RECOVERY_HOLD, State.RECOVERY_APPROACH, State.APPROACH, State.LANDING, State.MISSED_APPROACH]:
 		_waypoint_marker.visible = false
 		return
 	var marker_world: Vector3 = nav_waypoint
@@ -6464,7 +6681,7 @@ func _scan_contacts():
 func _should_run_rtb_check(delta: float) -> bool:
 	if rtb_health_threshold <= 0.0 and rtb_fuel_threshold <= 0.0:
 		return false
-	if current_state in [State.RTB, State.APPROACH, State.LANDING, State.MISSED_APPROACH]:
+	if current_state in [State.RTB, State.RECOVERY_MARSHAL, State.RECOVERY_HOLD, State.RECOVERY_APPROACH, State.APPROACH, State.LANDING, State.MISSED_APPROACH]:
 		_rtb_check_timer_s = maxf(_rtb_check_timer_s, rtb_check_interval_s)
 		return false
 	_rtb_check_timer_s -= delta
@@ -6475,7 +6692,7 @@ func _should_run_rtb_check(delta: float) -> bool:
 
 func _check_rtb_triggers():
 	"""Monitor health and fuel, trigger RTB if critical"""
-	if current_state in [State.RTB, State.APPROACH, State.LANDING, State.MISSED_APPROACH]:
+	if current_state in [State.RTB, State.RECOVERY_MARSHAL, State.RECOVERY_HOLD, State.RECOVERY_APPROACH, State.APPROACH, State.LANDING, State.MISSED_APPROACH]:
 		return
 		
 	var needs_rtb: bool = false
@@ -6498,7 +6715,8 @@ func _check_rtb_triggers():
 	if needs_rtb:
 		if debug_enabled:
 			print("[AIPilot] Triggering RTB: ", rtb_reason)
-		change_state(State.RTB)
+		if not start_recovery():
+			change_state(State.RTB)
 
 func _get_health_fraction() -> float:
 	if not aircraft:
@@ -6648,7 +6866,7 @@ func change_state(new_state: State):
 			_run_weapon_type
 		])
 		_periodic_debug_timer_s = 0.0
-		if new_state in [State.APPROACH, State.LANDING, State.MISSED_APPROACH]:
+		if new_state in [State.RECOVERY_MARSHAL, State.RECOVERY_HOLD, State.RECOVERY_APPROACH, State.APPROACH, State.LANDING, State.MISSED_APPROACH]:
 			_landing_debug_timer_s = 0.0
 	if current_state != new_state:
 		_reset_release_solution_stability()
@@ -6976,7 +7194,24 @@ func launch():
 
 func return_to_base():
 	"""Command to return to carrier"""
-	change_state(State.RTB)
+	if not start_recovery():
+		change_state(State.RTB)
+
+func start_recovery() -> bool:
+	"""Enter the mission-return recovery framework before final landing."""
+	if not _find_approach_waypoints():
+		_landing_debug_event("recovery start failed: missing approach_4")
+		return false
+	_find_takeoff_waypoint()
+	_stop_firing()
+	_recovery_phase = 0
+	_recovery_hold_side = 1.0
+	_recovery_clearance_granted = false
+	_landing_debug_timer_s = 0.0
+	_reset_landing_carrier_motion_estimate()
+	_stow_landing_config()
+	change_state(State.RECOVERY_MARSHAL)
+	return true
 
 func _request_carrier_recovery() -> void:
 	"""After arrest, ask FlightDeckManager to move aircraft to hangar."""
@@ -7020,6 +7255,7 @@ func start_landing() -> bool:
 	_landing_smoothed_desired_fpa = NAN
 	_landing_smoothed_bearing_error = NAN
 	_landing_smoothed_runway_heading_error = NAN
+	_reset_landing_carrier_motion_estimate()
 	_land_snap_400_done = false
 	_land_snap_200_done = false
 	_land_snap_100_done = false
@@ -7050,7 +7286,58 @@ func _find_approach_waypoints() -> bool:
 	_approach_wp = [wp0, wp1, wp2, wp3, wp4]
 	return true
 
+func _reset_landing_carrier_motion_estimate() -> void:
+	_landing_measured_carrier_velocity = Vector3.ZERO
+	_landing_carrier_motion_last_ref = Vector3.ZERO
+	_landing_carrier_motion_has_ref = false
+
+func _get_landing_carrier_motion_reference() -> Dictionary:
+	if _approach_wp.size() >= 5 and is_instance_valid(_approach_wp[4]):
+		var touchdown_ref: Dictionary = _get_landing_touchdown_reference()
+		if bool(touchdown_ref.get("valid", false)):
+			return {
+				"valid": true,
+				"position": touchdown_ref.get("position", (_approach_wp[4] as Node3D).global_position)
+			}
+		return {
+			"valid": true,
+			"position": (_approach_wp[4] as Node3D).global_position
+		}
+	return {"valid": false}
+
+func _update_landing_carrier_motion_estimate(delta: float) -> void:
+	if not landing_carrier_motion_compensation_enabled:
+		_reset_landing_carrier_motion_estimate()
+		return
+	if not (current_state in [State.RECOVERY_MARSHAL, State.RECOVERY_HOLD, State.RECOVERY_APPROACH, State.APPROACH, State.LANDING, State.MISSED_APPROACH]):
+		_reset_landing_carrier_motion_estimate()
+		return
+	if delta <= 0.0:
+		return
+	var ref: Dictionary = _get_landing_carrier_motion_reference()
+	if not bool(ref.get("valid", false)):
+		_reset_landing_carrier_motion_estimate()
+		return
+	var ref_pos: Vector3 = ref.get("position", Vector3.ZERO)
+	if not _landing_carrier_motion_has_ref:
+		_landing_carrier_motion_last_ref = ref_pos
+		_landing_carrier_motion_has_ref = true
+		_landing_measured_carrier_velocity = Vector3.ZERO
+		return
+	var raw_velocity: Vector3 = (ref_pos - _landing_carrier_motion_last_ref) / maxf(delta, 0.001)
+	raw_velocity.y = 0.0
+	var max_speed: float = maxf(landing_carrier_motion_max_speed_mps, 1.0)
+	if raw_velocity.length() > max_speed:
+		raw_velocity = raw_velocity.normalized() * max_speed
+	var smoothing: float = clampf(landing_carrier_motion_velocity_smoothing, 0.01, 1.0)
+	_landing_measured_carrier_velocity = _landing_measured_carrier_velocity.lerp(raw_velocity, smoothing)
+	_landing_carrier_motion_last_ref = ref_pos
+
 func _get_carrier_velocity() -> Vector3:
+	if landing_carrier_motion_compensation_enabled \
+	and _landing_carrier_motion_has_ref \
+	and _landing_measured_carrier_velocity.length() >= maxf(landing_carrier_motion_min_speed_mps, 0.0):
+		return _landing_measured_carrier_velocity
 	if _approach_wp.is_empty() or not is_instance_valid(_approach_wp[0]):
 		return Vector3.ZERO
 	var carrier: Node = (_approach_wp[0] as Node3D).get_parent()
@@ -7061,6 +7348,21 @@ func _get_carrier_velocity() -> Vector3:
 	if "linear_velocity" in carrier:
 		return carrier.get("linear_velocity")
 	return Vector3.ZERO
+
+func _get_landing_carrier_speed_compensation(landing_geom: Dictionary) -> float:
+	if not landing_carrier_motion_compensation_enabled or not bool(landing_geom.get("valid", false)):
+		return 0.0
+	var carrier_vel: Vector3 = _get_carrier_velocity()
+	if carrier_vel.length() < maxf(landing_carrier_motion_min_speed_mps, 0.0):
+		return 0.0
+	var axis: Vector3 = landing_geom.get("axis", Vector3.ZERO)
+	axis.y = 0.0
+	if axis.length_squared() < 0.001:
+		return 0.0
+	axis = axis.normalized()
+	var compensation: float = carrier_vel.dot(axis) * landing_carrier_speed_compensation_scale
+	var max_compensation: float = maxf(landing_carrier_motion_max_speed_mps, 0.0)
+	return clampf(compensation, -max_compensation, max_compensation)
 
 func _find_takeoff_waypoint() -> bool:
 	var root: Node = get_tree().current_scene
@@ -7095,6 +7397,7 @@ func _should_start_missed_approach() -> bool:
 	return past_target_m >= landing_bolter_past_target_m
 
 func _begin_missed_approach() -> void:
+	_release_landing_clearance_from_deck()
 	if not is_instance_valid(_takeoff_wp) and not _find_takeoff_waypoint():
 		_landing_debug_event("missed approach failed: could not find takeoff_0")
 		push_warning("[AIPilot] Missed approach: could not find takeoff_0")

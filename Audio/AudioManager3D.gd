@@ -11,7 +11,7 @@ class_name AudioManager3D
 @export var exterior_audio_bus: String = "Master"
 @export var cockpit_interior_sound: AudioStream
 @export var cockpit_interior_bus: String = "Interior"
-@export var cockpit_interior_volume_db: float = -18.0
+@export var cockpit_interior_volume_db: float = -36.0
 @export var cockpit_interior_pitch_scale: float = 1.0
 @export var cockpit_interior_silence_db: float = -80.0
 @export var bridge_interior_sound: AudioStream = preload("res://Audio/wind_sound_cockpit.wav")
