@@ -3,6 +3,8 @@
 This document contains version history, session-by-session notes, and archived long-form material extracted from the main project overview. For the short project brief, see [README](../README.md).
 
 ## Version History
+- 2026-05-03: Mission-return recovery framework - AI aircraft returning to the carrier now enter a carrier-relative marshal/hold/approach sequence before the existing straight-in landing controller; returning aircraft request landing clearance from `FlightDeckManager`, hold behind the carrier if the deck is busy, and fly tunable descent gates intended for later steep-approach testing in canyon terrain; the deck manager now reserves the landing deck for one cleared aircraft and releases that reservation on catch, missed approach, crash/destruction, recovery start, or reset; `F3` commands the closest eligible airborne AI aircraft to return, wire overshoots now enter missed-approach navigation instead of continuing in final landing mode, and default recovery gate spacing now starts at 2000 m behind the carrier with final handoff around 1000 m.
+- 2026-05-02: Carrier recovery / tractorbot / moving-landing pass - landing-test aircraft now spawn continuously with ordered names and clearer outcome types; landing debug distinguishes catches, bolters, wave-offs/go-arounds, and crashes; AI landing control was retuned toward yaw-dominant lineup with light visual bank and smoother pitch/FPA response; `F2` spawns a recovery-debug aircraft behind the carrier on the landing path; moving-carrier landings now compensate for the carrier's scripted 10 m/s motion, though this remains an active tuning target; arresting cable extension was shortened and stop distance smoothed to keep aircraft near the landing area; the elevator now defaults down when idle; tractor bots ride the elevator for launch/recovery, retrieve landed aircraft, rotate them forward on the platform, descend with the aircraft, and use live wheel positions during pickup; cockpit air-rush/wind was reduced relative to propeller/interior sound.
 - 2026-04-29: Landing scoring and debug instrumentation pass — `_landing_snap()` expanded with heading/pitch/score fields; distance-triggered snaps at 400 m / 200 m / 100 m per approach; wire scoring (Wire 2 = 10 pt base, Wire 1/3 = 5 pt base, lateral factor); `get_wire_number()` and `get_engage_lateral_m()` added to `ArrestingCable`; rolling average tracked in `FlightDeckManager`; FPA descent cap raised from 10° to 25° and pitch input limits raised to 0.65; minimum glideslope enforcement (glideslope carrot and FPA floor) attempted and reverted — still open.
 - 2026-04-23: AI attack / wind-farm / aircraft roster pass - ground-attack debug telemetry was rebuilt around state-change, weapon-release, 1 Hz attack-run, and sparse background logs; strike release ranges were tightened and bomb drops staggered so aircraft attack closer and retain stores for later passes; multiple freed-instance crash paths around AIPilot targeting/UI cleanup were hardened; AI contact, collision-avoidance, RTB, and release-solution work was throttled/cached for better performance; cockpit radar terrain view was zoomed in and synchronized to the same terrain bounds/origin logic as the `M` tactical map; enemy Aircraft_3 now spawns storeless as a clean fighter and patrol density increased via smaller patrol flights; enemy wind-turbine sites were added with grouped startup placement, distance markerization/activation, team-main-color tinting, guard gun emplacements, spinning/exploded rotor behavior, and debug placement; Aircraft_6 was added as a new slow, stable, rugged aircraft type with airborne debug spawn on key `6`.
 - 2026-04-13: Combat/UI/content expansion pass - project renamed to `Land Carrier`; pause menu rebuilt with Orbitron all-caps styling and untinted overlay; rotating HUD pitch ladder and boxed speed/altitude readouts added; gun-profile weapon framework expanded to 10/15/20/25 mm across hardpoints and turrets; hit-assist radius defaults to `0.5 m` and is runtime-adjustable; carrier and emplacement turret aim/range/LOS/arc behavior hardened with expanded debug telemetry; Aircraft_4 integrated as a heavy rear-turret enemy aircraft (`140 HP`) with debug spawn support; Aircraft_2/7/8/3 loadouts updated; cockpit pilot system standardized with randomized pilot palettes and cockpit hiding; team livery/insignia randomization expanded (24-color cycle, tail/wing projection fixes); critical-damage aircraft death state replaced with jammed controls plus chunk breakup/smoke; gun emplacements added with random weapons, activation-distance sleeping, team colors, and collider-bottom terrain grounding.
@@ -44,6 +46,62 @@ This document contains version history, session-by-session notes, and archived l
 ---
 
 ## Project Change Log (latest session)
+
+### Session Summary (2026-05-03) - Mission Return Recovery Framework
+
+**Overview:** Added the first framework pass for aircraft that have completed a mission and need to recover aboard the carrier. This does not claim the final descent geometry is solved; the point is to give us a controllable structure where marshal altitude, step-down gates, and final handoff distance can be tuned safely.
+
+#### AI Mission Return
+- `return_to_base()` now enters `start_recovery()` first, falling back to the old RTB/final-landing path only if the recovery framework cannot initialize.
+- New AI states were added: `RECOVERY_MARSHAL`, `RECOVERY_HOLD`, and `RECOVERY_APPROACH`.
+- Recovery gates are carrier-relative, so they follow the moving carrier rather than relying on fixed world positions.
+- The default framework uses a high marshal point behind the carrier, a hold offset to the side, and three tunable descent gates before handing off to the existing straight-in landing controller.
+- `F3` now commands the closest eligible airborne AI aircraft to return through this recovery framework.
+- Aircraft that overshoot the wires now leave final landing immediately and enter missed-approach navigation, rather than continuing to follow the final landing carrot.
+- The default gate spacing was moved aft: marshal at 2000 m, mid at 1600 m, low at 1300 m, and final landing handoff at 1000 m behind the carrier.
+
+#### Deck Clearance
+- `FlightDeckManager` now has a simple landing-clearance reservation: one aircraft can hold the deck while approaching, and other aircraft are denied until the reservation is released.
+- Reservations release on catch, missed approach / wave-off, crash/destruction, post-arrest recovery start, and reset/abort paths.
+
+### Session Summary (2026-05-02) - Carrier Recovery, Tractorbots, and Moving Landings
+
+**Overview:** This session focused on turning carrier recovery from a debug-friendly landing test into a more complete deck cycle. The strongest improvements are in landing telemetry, tractorbot/elevator behavior, and the recovery path for aircraft that have just landed. Moving-carrier landings now have an initial 10 m/s compensation path and can get aircraft onto the deck, but they are still under active tuning and should not be considered fully solved yet.
+
+#### Landing Test / Debug Flow
+- Landing mode now spawns test aircraft continuously at fixed intervals rather than waiting for the previous aircraft to despawn before starting the next timer.
+- Test aircraft are named in spawn order (`LandingTest_001`, `LandingTest_002`, etc.) so long debug logs are traceable.
+- Recovery debug spawns are separate (`RecoveryDebug_###`): `F2` creates an aircraft roughly 1000 m behind the carrier at about 100 m altitude in landing mode for repeatable landing/retrieval testing.
+- Landing outcome logs now include a `type=` field so catches, bolters, wave-offs/go-arounds, and crashes can be separated. This matters because a go-around is acceptable behavior, while a crash is a serious failure.
+
+#### AI Landing Behavior
+- Landing lineup was retuned toward rudder/yaw correction, with only light banking for readability.
+- Pitch/FPA control was damped to reduce the oscillation seen in the 400 m / 200 m / 100 m landing traces.
+- Aim point and wire scoring were tuned after many catches clustered on Wire 3; the current baseline favors Wire 2 more often, though landing scores still vary with lateral error and touchdown distance.
+- Moving-carrier landings now account for the carrier's scripted 10 m/s motion even though the carrier itself is not a physics body with a real velocity. This is working enough for deck contact, but carrier-relative speed and arrest behavior remain live-test risks.
+
+#### Arresting Cable / Rollout
+- Arresting wire extension was reduced so caught aircraft do not stretch the cables far enough to end up over the elevator.
+- Stop behavior was changed from an abrupt clamp to a smoother deceleration over roughly 16 m, which looks less jarring while keeping aircraft close to the landing area.
+- Cable disconnect / rollout behavior was tightened so aircraft do not keep rolling gradually after the cable releases.
+
+#### Tractorbot / Elevator Recovery
+- The elevator now defaults to the down position when idle instead of rising empty and resting at deck level.
+- Tractor bots ride up with the elevator when an aircraft needs retrieval, move to the landed aircraft, tow it back to the elevator, rotate it to face forward on the platform, descend with the aircraft, and stay below.
+- Bots were adjusted to stay on the elevator/deck floor rather than floating high above it, and carrier/elevator-relative placement was tightened to reduce flicker during vertical travel.
+- Tractor pickup now uses live wheel positions during the approach and final drive-to-gear phase. Cached pickup targets are only a planning seed and are refreshed when the aircraft/wheels have moved, which is important because recently landed aircraft may still be settling.
+- Tractor positioning timeouts were relaxed so bots get more time to reach their assigned live wheel before recovery falls back or snaps.
+
+#### Cockpit Audio
+- Cockpit air-rush and wind layers were reduced so the propeller/interior engine sound is audible again.
+- There are still multiple wind sources, including air-rush and outside-wind-dependent wind, so cockpit balance should be revisited after more flight testing.
+
+#### Remaining Risks
+- Moving-carrier landing is improved but not proven; the carrier's scripted motion means aircraft, cables, and recovery code must agree on an artificial carrier-relative velocity.
+- Tractor bots now look for live wheel positions, but this still needs in-game validation across off-center landings, aircraft settling, and deck/elevator motion.
+- The current arrest stop distance is deliberately short for deck operations; it may need retuning if the visual stop feels too compressed.
+
+---
 
 ### Session Summary (2026-04-29) — Landing Scoring and Debug Instrumentation
 

@@ -27,9 +27,14 @@ signal cable_released(aircraft: RigidBody3D)
 @export var lateral_centering_stiffness_n_per_m: float = 1500.0
 @export var lateral_damping_n_s_per_m: float = 5000.0
 
-@export var mass_adaptive_quadratic_damping_factor: float = 0.03 # kg/m, scales quadratic damping with mass
+@export var mass_adaptive_quadratic_damping_factor: float = 0.008 # kg/m, scales quadratic damping with mass
 
-@export var max_pay_out: float = 30.0           # Max extension before hard stop (m)
+@export var max_pay_out: float = 16.0           # Desired arresting stroke before the hard-stop spring ramps up (m)
+@export var braking_planned_stop_enabled: bool = true
+@export var braking_min_remaining_distance_m: float = 2.0
+@export var hard_stop_stiffness_n_per_m: float = 8000.0
+@export var hard_stop_enforce_position: bool = true
+@export var hard_stop_position_slack_m: float = 2.0
 @export var auto_release_speed: float = 2.0     # Release when near stop (m/s)
 @export var force_smoothing: float = 0.03       # Smooth force changes (s) — fast engagement
 @export var visualize_cable: bool = true        # Enable simple cable visuals
@@ -96,31 +101,47 @@ func _physics_process(delta: float) -> void:
 		return
 	_engaged_elapsed += delta
 	# Velocity along deck axis (+Z or legacy deck_direction)
+	var deck_velocity: Vector3 = _get_deck_velocity()
 	var v = _aircraft.linear_velocity
+	var rel_v = v - deck_velocity
 	var fwd = deck_direction
 	if deck_forward_is_plus_z:
 		fwd = Vector3(0, 0, 1)
 	var axis = (global_transform.basis * fwd).normalized()
-	var v_along = v.dot(axis)
+	var v_along = rel_v.dot(axis)
 	# Signed extension along axis from cable midline to hook
 	var hook_pos = _hook_global_position()
 	var anchor_mid = _anchor_midpoint()
 	var rel = hook_pos - anchor_mid
 	var x = rel.dot(axis)
+	x = _enforce_max_payout(axis, x, v_along, deck_velocity)
+	v = _aircraft.linear_velocity
+	rel_v = v - deck_velocity
+	v_along = rel_v.dot(axis)
 
-	# Anti-rubber-band: Release if pulling back (rollback)
-	if x > 0.5 and v_along < -0.1:
+	# Anti-rubber-band: release unmanaged arrests if they start pulling backward.
+	# Managed carrier recovery holds the cable until FlightDeckManager releases it.
+	if not _requires_manual_release() and x > 0.5 and v_along < -0.1:
 		if debug_enabled:
 			print("[Cable] RELEASE by rollback: v_along=", v_along, " x=", x)
 		_release()
 		return
 
-	# Spring-damper braking: high linear damping clamps to max_tension at high speed (constant braking);
-	# spring takes over at low speed to maintain tension until auto-release.
-	var spring_term = braking_spring_stiffness_n_per_m * min(abs(x), max_pay_out)
+	# Planned braking: spend the available payout distance smoothly instead of
+	# waiting for the hard stop to chop the aircraft velocity at the end.
+	var abs_x: float = absf(x)
+	var spring_term: float = braking_spring_stiffness_n_per_m * min(abs_x, max_pay_out)
+	if abs_x > max_pay_out:
+		spring_term += hard_stop_stiffness_n_per_m * (abs_x - max_pay_out)
 	var sign_x = 1.0 if x >= 0.0 else -1.0
-	var damping_force = braking_damping_n_s_per_m * v_along
-	var force_along_target = -(damping_force + spring_term * sign_x)
+	var quadratic_damping: float = mass_adaptive_quadratic_damping_factor * _aircraft.mass * v_along * absf(v_along)
+	var damping_force = braking_damping_n_s_per_m * v_along + quadratic_damping
+	var planned_stop_force: float = 0.0
+	var outward_speed: float = sign_x * v_along
+	if braking_planned_stop_enabled and outward_speed > 0.0:
+		var remaining_stop_m: float = maxf(max_pay_out - abs_x, braking_min_remaining_distance_m)
+		planned_stop_force = _aircraft.mass * outward_speed * outward_speed / (2.0 * remaining_stop_m)
+	var force_along_target = -(damping_force + spring_term * sign_x + planned_stop_force * signf(v_along))
 
 	var alpha = clamp(delta / max(force_smoothing, 0.001), 0.0, 1.0)
 	var force_along = lerp(_force_along_prev, force_along_target, alpha)
@@ -133,7 +154,7 @@ func _physics_process(delta: float) -> void:
 	# Lateral centering applied at CG — avoids the roll/yaw torque that the hook's tail
 	# offset creates when lateral force is applied there (~2.4m behind, ~1.7m below CG).
 	var lateral_rel = rel - axis * rel.dot(axis)
-	var v_lat_vec = v - axis * v_along
+	var v_lat_vec = rel_v - axis * v_along
 	var f_lat_vec = -(lateral_centering_stiffness_n_per_m * lateral_rel + lateral_damping_n_s_per_m * v_lat_vec)
 	var f_lat_limit = max_tension * 0.25
 	if f_lat_vec.length() > f_lat_limit:
@@ -187,10 +208,10 @@ func _physics_process(delta: float) -> void:
 			for c in _gear_module.gear_compressions:
 				parts.append(str(snapped(c, 0.001)))
 			gear_str = " gear=[" + ", ".join(parts) + "] m"
-		print("[Cable] engaged: x=", snapped(x, 0.1), " v=", snapped(v_along, 0.1), " F=", snapped(force_along, 1), gear_str)
-	if _engaged_elapsed > 0.3 and v.length() < auto_release_speed:
+		print("[Cable] engaged: x=", snapped(x, 0.1), " rel_v=", snapped(v_along, 0.1), " deck_v=", snapped(deck_velocity.length(), 0.1), " F=", snapped(force_along, 1), gear_str)
+	if not _requires_manual_release() and _engaged_elapsed > 0.3 and rel_v.length() < auto_release_speed:
 		if debug_enabled:
-			print("[Cable] RELEASE by speed: v=", v.length(), " x=", x)
+			print("[Cable] RELEASE by speed: rel_v=", rel_v.length(), " x=", x)
 		_release()
 
 func _on_area_entered(area: Area3D) -> void:
@@ -251,6 +272,8 @@ func _release():
 		_aircraft.set_meta("arresting_engaged", false)
 		if _aircraft.has_meta("arresting_cable"):
 			_aircraft.remove_meta("arresting_cable")
+		if _aircraft.has_meta("arresting_hold_until_manual_release"):
+			_aircraft.remove_meta("arresting_hold_until_manual_release")
 	_aircraft = null
 	_hook_node = null
 	print("[Cable] RELEASED")
@@ -316,6 +339,40 @@ func _hook_global_position() -> Vector3:
 	if _hook_node and _hook_node is Node3D:
 		return (_hook_node as Node3D).global_position
 	return _engage_point
+
+func _requires_manual_release() -> bool:
+	return is_instance_valid(_aircraft) \
+		and _aircraft.has_meta("arresting_hold_until_manual_release") \
+		and bool(_aircraft.get_meta("arresting_hold_until_manual_release"))
+
+func _get_deck_velocity() -> Vector3:
+	var node: Node = self
+	while node:
+		if node.has_method("get_velocity_vector"):
+			var velocity_variant: Variant = node.call("get_velocity_vector")
+			if velocity_variant is Vector3:
+				return velocity_variant
+		if "linear_velocity" in node:
+			var linear_velocity_variant: Variant = node.get("linear_velocity")
+			if linear_velocity_variant is Vector3:
+				return linear_velocity_variant
+		if node is CharacterBody3D:
+			return (node as CharacterBody3D).velocity
+		node = node.get_parent()
+	return Vector3.ZERO
+
+func _enforce_max_payout(axis: Vector3, x: float, rel_v_along: float, deck_velocity: Vector3) -> float:
+	var position_limit: float = max_pay_out + maxf(hard_stop_position_slack_m, 0.0)
+	if not hard_stop_enforce_position or max_pay_out <= 0.0 or absf(x) <= position_limit:
+		return x
+	var clamped_x: float = clampf(x, -position_limit, position_limit)
+	var correction: Vector3 = axis * (clamped_x - x)
+	_aircraft.global_position += correction
+
+	var sign_x: float = 1.0 if x >= 0.0 else -1.0
+	if sign_x * rel_v_along > 0.0:
+		_aircraft.linear_velocity -= axis * rel_v_along
+	return clamped_x
 
 # --- Cable visuals ---
 func _create_cable_visuals() -> void:

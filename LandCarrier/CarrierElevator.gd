@@ -12,6 +12,7 @@ signal covers_opened
 @export var platform_size: Vector3 = Vector3(20, 1, 20)
 @export var cover_size: Vector3 = Vector3(20, 0.2, 10)
 @export var shaft_depth: float = 10.0
+@export var start_at_bottom: bool = true
 @export var move_speed: float = 2.0
 @export var cover_slide_speed: float = 3.0
 @export var moving_sound: AudioStream = preload("res://Audio/Carrier/elevator_moving_mono.wav")
@@ -118,10 +119,24 @@ func create_cover(name: String) -> Node3D:
 	return cover_node
 
 func set_initial_state():
+	if start_at_bottom:
+		platform.position.y = -shaft_depth
+		platform_target_y = -shaft_depth
+		left_cover.position.x = -5.0
+		right_cover.position.x = 5.0
+		current_state = ElevatorState.AT_BOTTOM
+		covers_started_closing = true
+		covers_started_opening = false
+		_last_platform_y = platform.position.y
+		left_cover_target_x = left_cover.position.x
+		right_cover_target_x = right_cover.position.x
+		print("Elevator initialized at bottom")
+		return
+
 	# Platform starts at top (flush with deck)
 	platform.position.y = -platform_size.y / 2.0
 	platform_target_y = -platform_size.y / 2.0
-	
+
 	# Covers start open (retracted)
 	left_cover.position.x = -15.0
 	right_cover.position.x = 15.0

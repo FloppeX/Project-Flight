@@ -1,5 +1,5 @@
 63f7b34db8d8cdea90c76aacccf841ec
-::res://::1777653224
+::res://::1777799966
 autocannon 40 mm.glb::PackedScene::4761505673466033718::1777149561::1777149562::1::::<><><>0<>0<>b805405541b2abe25e0e4faa2bf7d21a<>res://.godot/imported/autocannon 40 mm.glb-21fac967928a6d9237be7e018432a319.scn::
 desert_scenario.tscn::PackedScene/PackedScene::7439753302024619050::1775893213::0::1::::<><><>0<>0<><>::uid://di4mmbdu6qiv1::::res://Main_Scene.tscn
 FlightDirector.gd::GDScript/GDScript::5643928265913984941::1776703986::0::1::::<>Node<><>0<>0<><>::
@@ -7,7 +7,7 @@ FloatingOrigin.gd::GDScript/GDScript::5866524305602968463::1775307883::0::1::::<
 Livery.gd::GDScript/GDScript::4731253780550172796::1776599980::0::1::::<>Node<><>0<>0<><>::
 Main_Scene.tscn::PackedScene::7781389846599889204::1777140789::0::1::::<><><>0<>0<><>::uid://dhif0k7fphvot::::res://ScenarioManager.gd<>uid://dsel16gi76dnm::::res://UI/UIEnergyContainer/UIFuelLevel.tscn<>uid://bu2hixfhu8ndm::::res://UI/UIEnginePower/UIEnginePower.tscn<>uid://cfbnb1h25pmhu::::res://LandCarrier/LandCarrier.tscn<>uid://bmut2y2xaqj6x::::res://UI/UIAltSpeed/UIAltSpeed.tscn<>uid://c4dncgm8qjt7u::::res://UI/UIFlaps/UIFlaps.tscn<>uid://b8s77ar81hq22::::res://UI/UILandingGear/UILandingGear.tscn<>uid://dhg4sb4ifrvh8::::res://UI/UIAttitude/UIAttitude.tscn<>uid://c2s8c25rpg1df::::res://Weather/ContinuousTurbulence.tscn<>uid://b2gfgs7ytoexe::::res://Enemies/EnemyAircraftSpawner.gd<>uid://db4ow6u1r6kce::::res://Environment/LowPolyTerrainPrototype.tscn<>res://Environment/RockStream.tscn<>uid://cnyht8dc3kewe::::res://Environment/DayNightCycle.gd
 NavGraph.gd::GDScript/GDScript::3803325592299370820::1775345275::0::1::::<>Node<><>0<>0<><>::
-README.md::TextFile::-1::1777480363::0::1::::<><><>0<>0<><>::
+README.md::TextFile::-1::1777761640::0::1::::<><><>0<>0<><>::
 ScenarioManager.gd::GDScript/GDScript::7667447783304227595::1776810329::0::1::::<>Node3D<><>0<>0<><>::
 TerrainNavGrid.gd::GDScript/GDScript::477604685679309266::1775307885::0::1::::<>Node<><>0<>0<><>::
 TerrainReference.gd::GDScript/GDScript::9211500157739315878::1775303988::0::1::::<>Node<><>0<>0<><>::
@@ -56,7 +56,7 @@ Steering.tscn::PackedScene/PackedScene::8527055622510865275::1756034488::0::1:::
 ::res://addons/simplified_flightsim/aircraft_modules/Tailhook/::1757704917
 Tailhook.gd::GDScript/GDScript::7437139618737804471::1758370564::0::1::::AircraftModule_Tailhook<>AircraftModuleSpatial<><>0<>0<><>::
 ::res://AI/::1777413693
-AIPilot.gd::GDScript::3949652010680667496::1777640209::0::1::::AIPilot<>Node<><>0<>0<><>::
+AIPilot.gd::GDScript::3949652010680667496::1777761595::0::1::::AIPilot<>Node<><>0<>0<><>::
 PIDController.gd::GDScript/GDScript::544009418448571083::1759580000::0::1::::PIDController<>RefCounted<><>0<>0<><>::
 ::res://Aircraft/::1777407543
 AeroForces.gd::GDScript/GDScript::1135991637474094000::1758962403::0::1::::AeroForces<>Node<><>0<>0<><>::
@@ -118,7 +118,7 @@ airplane_propeller 2.wav::AudioStreamWAV/AudioStreamWAV::4254876979589980608::17
 airplane_propeller 3.wav::AudioStreamWAV/AudioStreamWAV::6760836640592173242::1775772740::1776250870::1::::<><><>0<>0<>52113b907e90f97cd5f1acea23783d22<>res://.godot/imported/airplane_propeller 3.wav-3cb715cafd3d0e2effdcf0ce4be24a73.sample::
 airplane_propeller 4.wav::AudioStreamWAV/AudioStreamWAV::5126994607089629277::1774907089::1776250870::1::::<><><>0<>0<>ea827a871bcf9d3a5005948a12b47172<>res://.godot/imported/airplane_propeller 4.wav-812f4773cbc0c42053ac2072e4049ae3.sample::
 AudioDebug.gd::GDScript/GDScript::3333354915971447590::1764319345::0::1::::AudioDebug<>Node<><>0<>0<><>::
-AudioManager3D.gd::GDScript/GDScript::6191947622854845770::1776283778::0::1::::AudioManager3D<>Node3D<><>0<>0<><>::
+AudioManager3D.gd::GDScript::6191947622854845770::1777741434::0::1::::AudioManager3D<>Node3D<><>0<>0<><>::
 AudioManager3D.tscn::PackedScene/PackedScene::8368404052090506585::1775773084::0::1::::<><><>0<>0<><>::res://Audio/AudioManager3D.gd
 autocannon.wav::AudioStreamWAV/AudioStreamWAV::6196762410729624697::1756738483::1776250869::1::::<><><>0<>0<>1aa929efa1af88b52f0d5f7ea900fb3d<>res://.godot/imported/autocannon.wav-8d6cf9e40808594426f613d01d3a0b17.sample::
 bullet_impact_dirt_01.wav::AudioStreamWAV/AudioStreamWAV::441254424789864774::1757276897::1776250869::1::::<><><>0<>0<>5e6c5f1dced4a5693de3888ab58bf458<>res://.godot/imported/bullet_impact_dirt_01.wav-41156aa83cb6c251da13129399f2a5d2.sample::
@@ -241,7 +241,7 @@ callsigns.txt::TextFile/TextFile::-1::1775313793::0::1::::<><><>0<>0<><>::
 CONTROLLER_GUIDE.md::TextFile/TextFile::-1::1773787444::0::1::::<><><>0<>0<><>::
 drag_point.png::CompressedTexture2D/CompressedTexture2D::2740083161763301754::1755622869::1776250865::1::::<><><>0<>0<>d7172418b7212f07e31234beb94c6321<>res://.godot/imported/drag_point.png-40b5f6e5e4a70b9a10d51b438ebc208d.ctex::
 Land Carrier Bridge Jitter Problem.md::TextFile/TextFile::-1::1774098466::0::1::::<><><>0<>0<><>::
-Land Carrier Changelog.md::TextFile::-1::1777480401::0::1::::<><><>0<>0<><>::
+Land Carrier Changelog.md::TextFile::-1::1777761654::0::1::::<><><>0<>0<><>::
 Land Carrier Track Mapping Problem.md::TextFile/TextFile::-1::1774096005::0::1::::<><><>0<>0<><>::
 lift_point.png::CompressedTexture2D/CompressedTexture2D::3532052721646673062::1755622869::1776250865::1::::<><><>0<>0<>7b23a7993058e0aaf3540fbc82607b96<>res://.godot/imported/lift_point.png-24300e48b62b3c2a8df8bd885f33267d.ctex::
 modules_control_diagram.png::CompressedTexture2D/CompressedTexture2D::5636873141287871067::1755622869::1776250865::1::::<><><>0<>0<>827052f5884c61d765b75d9f5a283d12<>res://.godot/imported/modules_control_diagram.png-e41ee9c562125fbfe1749be1ac7cbcd6.ctex::
@@ -422,15 +422,15 @@ Splash screen 6.png::CompressedTexture2D/CompressedTexture2D::508035744083421914
 Splash screen 7.png::CompressedTexture2D/CompressedTexture2D::8848559577869302916::1776359345::1776359348::1::::<><><>0<>0<>e91431a47717d4ee24e7f7e014712fec<>res://.godot/imported/Splash screen 7.png-9f544ff89e16a107e2b832aaa09ff6c5.ctex::
 splash screen 8.png::CompressedTexture2D/CompressedTexture2D::6250282083780853285::1776513789::1776515658::1::::<><><>0<>0<>5a7afecbefa620a56423fca94defd127<>res://.godot/imported/splash screen 8.png-af8fe98c98af8618240cf72b14f576cc.ctex::
 ::res://LandCarrier/::1777570913
-ArrestingCable.gd::GDScript::7114306349065449813::1777409700::0::1::::<>Node3D<><>0<>0<><>::
-arresting_cable.tscn::PackedScene/PackedScene::6792489386864408584::1772552370::0::1::::<><><>0<>0<><>::uid://c8mht6ujj024x::::res://LandCarrier/ArrestingCable.gd
+ArrestingCable.gd::GDScript::7114306349065449813::1777740005::0::1::::<>Node3D<><>0<>0<><>::
+arresting_cable.tscn::PackedScene::6792489386864408584::1777740019::0::1::::<><><>0<>0<><>::uid://c8mht6ujj024x::::res://LandCarrier/ArrestingCable.gd
 Bridge.gd::GDScript/GDScript::6010355149200313446::1759786546::0::1::::Bridge<>Node3D<><>0<>0<><>::
 BridgeCamera.gd::GDScript/GDScript::7009146807122035210::1774036293::0::1::::BridgeCamera<>Node3D<><>0<>0<><>::
 BridgeHologram.gd::GDScript/GDScript::8143390557703684822::1776805957::0::1::::BridgeHologram<>Node3D<><>0<>0<><>::
 BridgeHologram.tscn::PackedScene/PackedScene::-1::1774105514::0::1::::<><><>0<>0<><>::res://LandCarrier/BridgeHologram.gd
 CarrierCollisionSetup.gd::GDScript/GDScript::6330060471103108161::1759786546::0::1::::CarrierCollisionSetup<>Node3D<><>0<>0<><>::
 CarrierDefenseTurret.tscn::PackedScene/PackedScene::3355462021495427910::1776068367::0::1::::<><><>0<>0<><>::uid://dxg5vk5ah7gb8::::res://Models/LandCarrier/Land carrier turret base.glb<>uid://cqw36derm5yh1::::res://Weapons/Turrets/turret_controller.gd<>uid://38xqikpdfhdk::::res://Weapons/Turrets/turret.tscn<>res://Weapons/Turrets/bullet_weapon.tscn
-CarrierElevator.gd::GDScript/GDScript::5881161200272027211::1775306514::0::1::::CarrierElevator<>Node3D<><>0<>0<><>::
+CarrierElevator.gd::GDScript::5881161200272027211::1777740274::0::1::::CarrierElevator<>Node3D<><>0<>0<><>::
 CarrierElevator.tscn::PackedScene/PackedScene::639845102683066655::1772985118::0::1::::<><><>0<>0<><>::res://LandCarrier/CarrierElevator.gd
 CarrierManager.gd::GDScript/GDScript::5552812512671343580::1775344589::0::1::::CarrierManager<>Node<><>0<>0<><>::
 CarrierPathfinder.gd::GDScript/GDScript::6790620073226475721::1773080559::0::1::::CarrierPathfinder<>RefCounted<><>0<>0<><>::
@@ -441,12 +441,12 @@ Commander.gd::GDScript/GDScript::6277292916130117920::1776030031::0::1::::Comman
 Commander.tscn::PackedScene/PackedScene::5402173798185974286::1775203644::0::1::::<><><>0<>0<><>::uid://cvo1dkmsekwhk::::res://LandCarrier/Commander.gd
 DeckLights.gd::GDScript/GDScript::4728596478209612037::1774388792::0::1::::<>Node3D<><>0<>0<><>::
 DeckLights.tscn::PackedScene/PackedScene::-1::1759786547::0::1::::<><><>0<>0<><>::res://LandCarrier/DeckLights.gd
-FlightDeckManager.gd::GDScript::2602372393641474303::1777653210::0::1::::FlightDeckManager<>Node<><>0<>0<><>::
+FlightDeckManager.gd::GDScript::2602372393641474303::1777761568::0::1::::FlightDeckManager<>Node<><>0<>0<><>::
 GroundShape.tres::BoxShape3D/BoxShape3D::-1::1759786546::0::1::::<><><>0<>0<><>::
 LandCarrier.gd::GDScript/GDScript::8306503758501385322::1776087481::0::1::::LandCarrier<>CharacterBody3D<><>0<>0<><>::
 LandCarrier.tscn::PackedScene::5126642447718477610::1777570913::0::1::::<><><>0<>0<><>::uid://dqly5yht3qjks::::res://LandCarrier/LandCarrier.gd<>uid://pfnx57rs2d41::::res://LandCarrier/CarrierTread.tscn<>uid://bdcuxticnrnfj::::res://LandCarrier/FlightDeckManager.gd<>uid://bc6qxmolml7of::::res://LandCarrier/SimpleTractorBot.tscn<>uid://1rhdvhlj0sl1::::res://Models/LandCarrier/Land carrier body.glb<>uid://1dc3wqfq3v2j::::res://LandCarrier/TreadPositionHelper.gd<>uid://byhupfh0501o1::::res://LandCarrier/Catapult.gd<>uid://jd7fjuhmfvd4::::res://LandCarrier/CarrierElevator.tscn<>uid://cwglf226m425r::::res://LandCarrier/CarrierCollisionSetup.gd<>uid://b6ioeynvc7a1n::::res://LandCarrier/LandCarrierInput.gd<>uid://ci74apimqcahq::::res://LandCarrier/Commander.tscn<>uid://bfg081xviy2ej::::res://LandCarrier/StandaloneCameraSwitcher.gd<>uid://c31lkp3a7sq3a::::res://LandCarrier/arresting_cable.tscn<>res://LandCarrier/DeckLights.tscn<>res://LandCarrier/BridgeHologram.tscn<>uid://bn2n77puha7py::::res://LandCarrier/CarrierDefenseTurret.tscn<>uid://b27lalggxf8ui::::res://Aircraft/Aircraft_5.tscn<>uid://d2j0ldfmxq1m6::::res://Aircraft/Aircraft_7.tscn<>uid://cld3amq1vrrs3::::res://LandCarrier/CarrierManager.gd
 LandCarrierInput.gd::GDScript::4579648321179869313::1777632963::0::1::::LandCarrierInput<>Node3D<><>0<>0<><>::
-SimpleTractorBot.gd::GDScript::924631545160402966::1777153549::0::1::::SimpleTractorBot<>Node3D<><>0<>0<><>::
+SimpleTractorBot.gd::GDScript::924631545160402966::1777753784::0::1::::SimpleTractorBot<>Node3D<><>0<>0<><>::
 SimpleTractorBot.tscn::PackedScene/PackedScene::2591807278912853977::1776214164::0::1::::<><><>0<>0<><>::uid://nf5styactt15::::res://LandCarrier/SimpleTractorBot.gd<>uid://ck88u1imomowx::::res://Models/LandCarrier/TractorBot/tractorbot.glb
 StandaloneCameraSwitcher.gd::GDScript/GDScript::2751329426529059357::1773867771::0::1::::StandaloneCameraSwitcher<>Node<><>0<>0<><>::
 TractorBot.gd::GDScript/GDScript::4238033733722391690::1758370564::0::1::::TractorBot<>Node3D<><>0<>0<><>::
@@ -715,6 +715,6 @@ upgrade_vehicles.gd::GDScript/GDScript::7158462799066328443::1773172165::0::1:::
 vehicle_heavy_gun_turret.tscn::PackedScene/PackedScene::3740716511483839885::1775306501::0::1::::<><><>0<>0<><>::uid://c1jwpg25tydnr::::res://Weapons/Turrets/turret.gd<>uid://bt7a4yvnwp3ug::::res://Models/Vehicles/Vehicle heavy gun.glb
 vehicle_lmg_turret.tscn::PackedScene/PackedScene::-1::1775306501::0::1::::<><><>0<>0<><>::uid://c1jwpg25tydnr::::res://Weapons/Turrets/turret.gd<>uid://cyf6h1u6ckoja::::res://Models/Vehicles/Vehicle LMG.glb
 ::res://Weather/::1775599897
-ContinuousTurbulence.gd::GDScript/GDScript::7739179474742295100::1775599897::0::1::::ContinuousTurbulence<>Node3D<><>0<>0<><>::
+ContinuousTurbulence.gd::GDScript::7739179474742295100::1777741434::0::1::::ContinuousTurbulence<>Node3D<><>0<>0<><>::
 ContinuousTurbulence.tscn::PackedScene/PackedScene::6707107642802555155::1772986024::0::1::::<><><>0<>0<><>::uid://dii6fjpt1sxl1::::res://Weather/ContinuousTurbulence.gd<>uid://fw6styeqfphy::::res://Audio/wind_sound_cockpit.wav
 TurbulenceVolume.tscn::PackedScene/PackedScene::6779879481060331732::1757105757::0::1::::<><><>0<>0<><>::
