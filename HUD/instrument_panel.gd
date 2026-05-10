@@ -23,6 +23,7 @@ var struct_label: Label
 
 # Radar/Target UI
 var radar_panel: PanelContainer
+var radar_canvas: Control
 var target_panel: Control
 var target_texture_rect: TextureRect
 var target_viewport: SubViewport
@@ -45,7 +46,15 @@ var camera_target_cam: Camera3D
 @export var scan_thickness_px: float = 1.0
 @export var scan_strength: float = 0.35
 @export var grayscale_strength: float = 1.0
+@export var destroyed_target_hold_s: float = 10.0
 var target_effect_material: ShaderMaterial
+var nv_mode_enabled: bool = false
+var _watched_display_target: Node3D = null
+var _last_display_target_position: Vector3 = Vector3.ZERO
+var _last_display_target_name: String = ""
+var _destroyed_target_hold_position: Vector3 = Vector3.ZERO
+var _destroyed_target_hold_name: String = ""
+var _destroyed_target_hold_until_s: float = -INF
 
 func _ready():
 	# Set up the panel screen mesh
@@ -230,6 +239,7 @@ func _process(delta: float) -> void:
 		if missile_camera_mode and is_instance_valid(tracked_missile):
 			_update_missile_camera()
 			return  # Skip normal target camera logic
+		var target_focus := _get_target_camera_focus()
 		# Prefer explicit CameraTarget provided on the aircraft
 		if camera_target and is_instance_valid(camera_target):
 			var source_xform: Transform3D = camera_target.global_transform
@@ -237,24 +247,25 @@ func _process(delta: float) -> void:
 				source_xform = camera_target_cam.global_transform
 			# Default: copy source pose
 			target_camera.global_transform = source_xform
-			var enemy_tgt := _get_active_display_target()
-			if enemy_tgt and is_instance_valid(enemy_tgt):
+			if not target_focus.is_empty():
 				# Rotate the CameraTarget mount toward the target
-				camera_target.look_at(enemy_tgt.global_position, Vector3.UP)
+				var focus_pos: Vector3 = target_focus["position"]
+				camera_target.look_at(focus_pos, Vector3.UP)
 				# Compute clear line of sight from mount to target
 				var mount_pos: Vector3 = source_xform.origin
-				var tgt_pos: Vector3 = enemy_tgt.global_position
+				var tgt_pos: Vector3 = focus_pos
 				var space_state: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
 				var ray_params: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(mount_pos, tgt_pos)
 				ray_params.exclude = [aircraft]
 				var hit: Dictionary = space_state.intersect_ray(ray_params)
-				var dir: Vector3 = (tgt_pos - mount_pos).normalized()
+				var to_target: Vector3 = tgt_pos - mount_pos
+				var dir: Vector3 = to_target.normalized() if to_target.length_squared() > 0.0001 else -source_xform.basis.z.normalized()
 				var desired_pos: Vector3 = tgt_pos - dir * zoom_distance
 				# If unobstructed or the only obstruction is the target itself, move camera along path
 				var can_move: bool = false
 				if not hit:
 					can_move = true
-				elif hit.has("collider") and hit.collider == enemy_tgt:
+				elif target_focus.get("target", null) != null and hit.has("collider") and hit.collider == target_focus["target"]:
 					can_move = true
 				# Apply camera position
 				if can_move:
@@ -275,8 +286,9 @@ func _process(delta: float) -> void:
 					target_placeholder.visible = false
 				# Update target info label
 				if target_info_label:
-					var distance = aircraft.global_position.distance_to(enemy_tgt.global_position)
-					target_info_label.text = enemy_tgt.name + "\n" + str(int(distance)) + "m"
+					var distance = aircraft.global_position.distance_to(focus_pos)
+					var suffix := " DESTROYED" if bool(target_focus.get("destroyed", false)) else ""
+					target_info_label.text = String(target_focus["name"]) + suffix + "\n" + str(int(distance)) + "m"
 			else:
 				# No target: reset camera to source and show placeholder
 				target_camera.global_transform = source_xform
@@ -287,17 +299,18 @@ func _process(delta: float) -> void:
 					target_info_label.text = "NO TARGET"
 		else:
 			# Fallback: derive from targeting module if available, else look forward
-			var tracked_target := _get_active_display_target()
-			if tracked_target and is_instance_valid(tracked_target):
+			if not target_focus.is_empty():
+				var focus_pos: Vector3 = target_focus["position"]
 				var cam_pos = aircraft.global_position + aircraft.global_transform.basis.z * 1.0 + Vector3(0, 0.3, 0)
 				target_camera.global_position = cam_pos
-				target_camera.look_at(tracked_target.global_position, Vector3.UP)
+				target_camera.look_at(focus_pos, Vector3.UP)
 				if target_placeholder:
 					target_placeholder.visible = false
 				# Update target info label for targeting module target
 				if target_info_label:
-					var distance = aircraft.global_position.distance_to(tracked_target.global_position)
-					target_info_label.text = tracked_target.name + "\n" + str(int(distance)) + "m"
+					var distance = aircraft.global_position.distance_to(focus_pos)
+					var suffix := " DESTROYED" if bool(target_focus.get("destroyed", false)) else ""
+					target_info_label.text = String(target_focus["name"]) + suffix + "\n" + str(int(distance)) + "m"
 			else:
 				# Idle: look forward
 				var cam_pos2 = aircraft.global_position + aircraft.global_transform.basis.z * 1.0 + Vector3(0, 0.3, 0)
@@ -310,9 +323,8 @@ func _process(delta: float) -> void:
 					target_info_label.text = "NO TARGET"
 
 		# Auto-zoom to fit target width assuming ~assumed_target_width_m across
-		var tgt = _get_active_display_target()
-		if tgt and is_instance_valid(tgt):
-			var dist: float = max(0.1, target_camera.global_position.distance_to(tgt.global_position))
+		if not target_focus.is_empty():
+			var dist: float = max(0.1, target_camera.global_position.distance_to(target_focus["position"]))
 			var aspect: float = float(viewport_resolution.x) / float(viewport_resolution.y)
 			var desired_vfov_rad: float = 2.0 * atan( (assumed_target_width_m) / (2.0 * dist * aspect) )
 			var desired_vfov_deg: float = rad_to_deg(desired_vfov_rad)
@@ -355,7 +367,14 @@ func _setup_lower_displays() -> void:
 		var radar = preload("res://HUD/RadarCanvas.gd").new()
 		radar.name = "RadarCanvas"
 		radar_panel.add_child(radar)
+		radar_canvas = radar
 		radar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		radar.set_anchors_preset(Control.PRESET_FULL_RECT)
+		radar.offset_left = 0.0
+		radar.offset_top = 0.0
+		radar.offset_right = 0.0
+		radar.offset_bottom = 0.0
+		radar.custom_minimum_size = radar_panel.size
 		radar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		radar.size_flags_vertical = Control.SIZE_EXPAND_FILL
 		radar.set_provider(self)
@@ -404,6 +423,7 @@ func _setup_lower_displays() -> void:
 		target_effect_material.set_shader_parameter("scan_thickness_px", scan_thickness_px)
 		target_effect_material.set_shader_parameter("scan_strength", scan_strength)
 		target_effect_material.set_shader_parameter("grayscale_strength", grayscale_strength)
+		target_effect_material.set_shader_parameter("nv_enabled", nv_mode_enabled)
 		target_texture_rect.material = target_effect_material
 		target_panel.add_child(target_texture_rect)
 		# Placeholder test pattern when no target
@@ -451,6 +471,8 @@ func _update_lower_layout_sizes() -> void:
 		radar_panel.position = Vector2(0, 0)
 		radar_panel.custom_minimum_size = Vector2(195, 195)
 		radar_panel.size = Vector2(195, 195)
+	if radar_canvas:
+		radar_canvas.custom_minimum_size = Vector2(195, 195)
 	if target_panel:
 		target_panel.position = Vector2(205, 0)  # 195 + 10 separation
 		target_panel.custom_minimum_size = Vector2(195, 195)
@@ -581,6 +603,112 @@ func _get_active_display_target() -> Node3D:
 			return landing_tgt
 	return _get_enemy_target_node()
 
+func _get_target_camera_focus() -> Dictionary:
+	var now_s: float = Time.get_ticks_msec() / 1000.0
+	var live_target := _get_active_display_target()
+	if live_target != null and is_instance_valid(live_target):
+		_clear_destroyed_target_hold()
+		_watch_display_target(live_target)
+		_last_display_target_position = live_target.global_position
+		_last_display_target_name = live_target.name
+		return {
+			"target": live_target,
+			"position": live_target.global_position,
+			"name": live_target.name,
+			"destroyed": false,
+		}
+
+	if _watched_display_target != null and not is_instance_valid(_watched_display_target):
+		_begin_destroyed_target_hold(_last_display_target_position, _last_display_target_name)
+		_watched_display_target = null
+
+	if _is_destroyed_target_hold_active(now_s):
+		return {
+			"target": null,
+			"position": _destroyed_target_hold_position,
+			"name": _destroyed_target_hold_name,
+			"destroyed": true,
+		}
+
+	if _destroyed_target_hold_until_s > -INF:
+		_clear_destroyed_target_hold()
+		_advance_target_after_destroy_hold()
+	return {}
+
+func _watch_display_target(target: Node3D) -> void:
+	if target == null or not is_instance_valid(target):
+		return
+	if target == _watched_display_target:
+		return
+	_unwatch_display_target()
+	_watched_display_target = target
+	if target.has_signal("destroyed"):
+		var destroyed_cb := _on_display_target_destroyed.bind(target)
+		if not target.destroyed.is_connected(destroyed_cb):
+			target.destroyed.connect(destroyed_cb)
+	var exiting_cb := _on_display_target_tree_exiting.bind(target)
+	if not target.tree_exiting.is_connected(exiting_cb):
+		target.tree_exiting.connect(exiting_cb)
+
+func _unwatch_display_target() -> void:
+	if _watched_display_target == null or not is_instance_valid(_watched_display_target):
+		_watched_display_target = null
+		return
+	if _watched_display_target.has_signal("destroyed"):
+		var destroyed_cb := _on_display_target_destroyed.bind(_watched_display_target)
+		if _watched_display_target.destroyed.is_connected(destroyed_cb):
+			_watched_display_target.destroyed.disconnect(destroyed_cb)
+	var exiting_cb := _on_display_target_tree_exiting.bind(_watched_display_target)
+	if _watched_display_target.tree_exiting.is_connected(exiting_cb):
+		_watched_display_target.tree_exiting.disconnect(exiting_cb)
+	_watched_display_target = null
+
+func _on_display_target_destroyed(arg0: Variant = null, arg1: Variant = null) -> void:
+	var watched_target: Node3D = null
+	if arg1 is Node3D:
+		watched_target = arg1 as Node3D
+	elif arg0 is Node3D:
+		watched_target = arg0 as Node3D
+	var target := watched_target if watched_target != null and is_instance_valid(watched_target) else _watched_display_target
+	var hold_position := _last_display_target_position
+	var hold_name := _last_display_target_name
+	if target != null and is_instance_valid(target):
+		hold_position = target.global_position
+		hold_name = target.name
+	_begin_destroyed_target_hold(hold_position, hold_name)
+
+func _on_display_target_tree_exiting(watched_target: Node3D = null) -> void:
+	if _is_destroyed_target_hold_active():
+		return
+	var target := watched_target if watched_target != null and is_instance_valid(watched_target) else _watched_display_target
+	var hold_position := _last_display_target_position
+	var hold_name := _last_display_target_name
+	if target != null and is_instance_valid(target):
+		hold_position = target.global_position
+		hold_name = target.name
+	_begin_destroyed_target_hold(hold_position, hold_name)
+
+func _begin_destroyed_target_hold(position: Vector3, target_name: String) -> void:
+	if target_name.is_empty():
+		target_name = "TARGET"
+	_destroyed_target_hold_position = position
+	_destroyed_target_hold_name = target_name
+	_destroyed_target_hold_until_s = Time.get_ticks_msec() / 1000.0 + maxf(destroyed_target_hold_s, 0.0)
+
+func _is_destroyed_target_hold_active(now_s: float = NAN) -> bool:
+	if is_nan(now_s):
+		now_s = Time.get_ticks_msec() / 1000.0
+	return _destroyed_target_hold_until_s > now_s
+
+func _clear_destroyed_target_hold() -> void:
+	_destroyed_target_hold_until_s = -INF
+	_destroyed_target_hold_name = ""
+
+func _advance_target_after_destroy_hold() -> void:
+	var targeting = _find_targeting_module()
+	if targeting != null and is_instance_valid(targeting) and targeting.has_method("target_next"):
+		targeting.target_next()
+
 func is_target_camera_focusing_node(node: Node3D) -> bool:
 	if node == null or not is_instance_valid(node):
 		return false
@@ -628,22 +756,47 @@ uniform float scan_spacing_px = 3.0;
 uniform float scan_thickness_px = 1.0;
 uniform float scan_strength = 0.35;
 uniform float grayscale_strength = 1.0;
+uniform bool nv_enabled = false;
+uniform float nv_gain = 8.0;
+uniform float nv_gamma = 0.45;
+uniform float nv_noise = 0.10;
+
+float nv_hash(vec2 p) {
+	return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+}
+
 void fragment() {
 	vec4 c = texture(TEXTURE, UV);
-	float gray = dot(c.rgb, vec3(0.299, 0.587, 0.114));
-	c.rgb = mix(c.rgb, vec3(gray), grayscale_strength);
 	float y_px = UV.y * texture_size.y;
 	float spacing = max(scan_spacing_px, 0.0001);
 	float tr = clamp(scan_thickness_px / spacing, 0.0, 1.0);
 	float f = fract(y_px / spacing);
 	float band = 1.0 - step(tr, f);
-	c.rgb = mix(c.rgb, c.rgb * (1.0 - scan_strength), band);
-	COLOR = c;
+	if (nv_enabled) {
+		float lum = dot(c.rgb, vec3(0.299, 0.587, 0.114));
+		lum = 1.0 - exp(-lum * nv_gain);
+		lum = pow(lum, nv_gamma);
+		lum *= mix(1.0, 1.0 - scan_strength, band);
+		float grain = nv_hash(UV + vec2(TIME * 0.013, TIME * 0.007));
+		lum += (grain * 2.0 - 1.0) * nv_noise;
+		lum = max(lum, 0.0);
+		COLOR = vec4(lum * 0.10, lum * 1.00, lum * 0.18, c.a);
+	} else {
+		float gray = dot(c.rgb, vec3(0.299, 0.587, 0.114));
+		c.rgb = mix(c.rgb, vec3(gray), grayscale_strength);
+		c.rgb = mix(c.rgb, c.rgb * (1.0 - scan_strength), band);
+		COLOR = c;
+	}
 }
 """
 	var sh := Shader.new()
 	sh.code = code
 	return sh
+
+func set_nv_mode(enabled: bool) -> void:
+	nv_mode_enabled = enabled
+	if target_effect_material != null:
+		target_effect_material.set_shader_parameter("nv_enabled", nv_mode_enabled)
 
 func _update_missile_camera() -> void:
 	"""Update camera to use missile's built-in nose camera"""

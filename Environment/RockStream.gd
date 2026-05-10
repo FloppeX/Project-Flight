@@ -28,19 +28,32 @@ const SUPPORT_SAMPLE_DIRECTIONS := [
 @export var max_instances: int = 2000
 @export var min_scale: float = 0.6
 @export var max_scale: float = 1.6
+## Final placement uses the actual terrain collision surface, because the
+## rendered stream mesh may be post-processed after get_height() sampling.
+@export var snap_to_collision_surface: bool = true
+@export var collision_snap_probe_up_m: float = 80.0
+@export var collision_snap_probe_down_m: float = 140.0
 ## Sink rocks slightly into the terrain so tiny sampling/pivot mismatches do not leave them hovering.
 @export var embed_depth_fraction_of_height: float = 0.14
 ## Small constant embed as an extra hedge against visible floating.
-@export var embed_depth_m: float = 0.12
+@export var embed_depth_m: float = 0.20
 ## Maximum terrain slope in degrees — steeper faces get no rocks
 @export var max_slope_deg: float = 30.0
 ## Distance used to sample slope from neighbouring height points
 @export var slope_sample_m: float = 3.0
 ## Extra ring around the rock footprint to check for cliff-edge overhangs.
-## 15 m keeps rocks well clear of quantized cliff edges.
-@export var support_check_margin_m: float = 15.0
+## Keeps rocks well clear of quantized cliff edges.
+@export var support_check_margin_m: float = 20.0
 ## Maximum allowed terrain drop around a placed rock before it is rejected.
-@export var max_support_drop_m: float = 12.0
+@export var max_support_drop_m: float = 4.0
+## Maximum height variation across the sampled footprint. This rejects nearby
+## cliff lips even when the exact sample under the rock center is flat.
+@export var max_support_height_variation_m: float = 8.0
+## Number of concentric footprint rings to sample when checking cliff clearance.
+@export var support_check_rings: int = 2
+## Limit sampled directions for streaming cost. The first 8 directions cover
+## cardinal and diagonal footprint checks.
+@export var support_check_direction_count: int = 8
 @export var preload_margin_m: float = 100.0
 ## Minimum cell movement before rebuilding the rock set
 @export var cells_threshold: int = 2
@@ -165,27 +178,13 @@ func _rebuild(center: Vector3) -> void:
 			# Also reject placements that sit near a sharp edge within the rock's
 			# footprint, otherwise the center point can be grounded while the mesh
 			# visibly hangs out into empty space.
-			var support_radius: float = _rock_local_planform_radius * s + support_check_margin_m
-			var min_support_h: float = h
-			var support_valid: bool = true
-			for dir in SUPPORT_SAMPLE_DIRECTIONS:
-				var sample_h: float = _terrain.get_height(Vector3(
-					px + dir.x * support_radius,
-					0.0,
-					pz + dir.y * support_radius
-				))
-				if is_nan(sample_h):
-					support_valid = false
-					break
-				min_support_h = minf(min_support_h, sample_h)
-			if not support_valid:
-				continue
-			if h - min_support_h > max_support_drop_m:
+			if not _has_stable_terrain_support(h, px, pz, s):
 				_dbg_support += 1; continue
 
+			var placement_h: float = _get_collision_surface_height(px, pz, h)
 			var basis := Basis().rotated(Vector3.UP, yaw).scaled(Vector3(s, s, s))
 			var embed: float = embed_depth_m + _rock_local_height * s * embed_depth_fraction_of_height
-			var rock_y: float = h - _rock_local_min_y * s - embed
+			var rock_y: float = placement_h - _rock_local_min_y * s - embed
 			# Store in RockStream local space so the MultiMesh stays correct after origin shifts
 			var local_pos := Vector3(px, rock_y, pz) - global_position
 			transforms[count] = Transform3D(basis, local_pos)
@@ -213,6 +212,65 @@ func _hash2i(x: int, y: int) -> int:
 	var n := int(x) * 374761393 + int(y) * 668265263
 	n = (n ^ (n >> 13)) * 1274126177
 	return n ^ (n >> 16)
+
+func _get_collision_surface_height(px: float, pz: float, fallback_h: float) -> float:
+	if not snap_to_collision_surface:
+		return fallback_h
+	var world := get_world_3d()
+	if world == null:
+		return fallback_h
+	var from := Vector3(px, fallback_h + maxf(collision_snap_probe_up_m, 1.0), pz)
+	var to := Vector3(px, fallback_h - maxf(collision_snap_probe_down_m, 1.0), pz)
+	var params := PhysicsRayQueryParameters3D.create(from, to)
+	params.collision_mask = 0xFFFFFFFF
+	var hit: Dictionary = world.direct_space_state.intersect_ray(params)
+	if not hit or not hit.has("position"):
+		return fallback_h
+	var body = hit.get("collider")
+	if body is Node:
+		var body_node := body as Node
+		if body_node.is_in_group("terrain") or body_node.is_in_group("ground") or "terrain" in body_node.name.to_lower():
+			return float(hit.position.y)
+	return fallback_h
+
+func _has_stable_terrain_support(center_h: float, px: float, pz: float, rock_scale: float) -> bool:
+	if _terrain == null:
+		return false
+	var rock_radius: float = _rock_local_planform_radius * rock_scale
+	var outer_radius: float = rock_radius + support_check_margin_m
+	if TerrainNavGrid.has_query_grid():
+		return TerrainNavGrid.is_stable_footprint(
+			px,
+			pz,
+			outer_radius,
+			max_support_drop_m,
+			max_support_height_variation_m
+		)
+	var ring_count: int = maxi(support_check_rings, 1)
+	var inner_radius: float = maxf(minf(rock_radius, slope_sample_m), 1.0)
+	outer_radius = maxf(outer_radius, inner_radius)
+	var min_h: float = center_h
+	var max_h: float = center_h
+	for ring_idx in range(ring_count):
+		var t: float = 1.0 if ring_count == 1 else float(ring_idx) / float(ring_count - 1)
+		var sample_radius: float = lerpf(inner_radius, outer_radius, t)
+		var direction_count: int = clampi(support_check_direction_count, 4, SUPPORT_SAMPLE_DIRECTIONS.size())
+		for dir_idx in range(direction_count):
+			var dir: Vector2 = SUPPORT_SAMPLE_DIRECTIONS[dir_idx]
+			var sample_h: float = _terrain.get_height(Vector3(
+				px + dir.x * sample_radius,
+				0.0,
+				pz + dir.y * sample_radius
+			))
+			if is_nan(sample_h):
+				return false
+			min_h = minf(min_h, sample_h)
+			max_h = maxf(max_h, sample_h)
+			if center_h - sample_h > max_support_drop_m:
+				return false
+			if max_h - min_h > max_support_height_variation_m:
+				return false
+	return true
 
 func _load_mesh_from_scene(path: String) -> Mesh:
 	var res := ResourceLoader.load(path)

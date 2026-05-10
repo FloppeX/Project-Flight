@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://dm76g7aw1f30s"
+path="res://.godot/imported/Citadel - Weapons free on ground targets Watch your altitude.wav-0265dfd7db7ba56e53b61ddfb46e8f9e.sample"
+
+[deps]
+
+source_file="res://Audio/Citadel - Weapons free on ground targets Watch your altitude.wav"
+dest_files=["res://.godot/imported/Citadel - Weapons free on ground targets Watch your altitude.wav-0265dfd7db7ba56e53b61ddfb46e8f9e.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

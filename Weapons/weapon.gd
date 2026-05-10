@@ -2,6 +2,9 @@ extends Node3D
 class_name Weapon
 
 @export var weapon_name: String = "Generic Weapon"
+## Broad category used for grouping (e.g. "Guns"). When set, selection and firing
+## use this instead of weapon_name so all guns fire together regardless of calibre.
+var weapon_category: String = ""
 @export var ammo_count: int = 100
 @export var weight: float = 50.0
 @export var delete_when_empty: bool = false

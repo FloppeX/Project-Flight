@@ -142,6 +142,11 @@ func _ready():
 			_current_view_index = 0
 			_switch_to_view_target(_view_targets[0])
 
+	# Night vision overlay — player aircraft only
+	if aircraft != null and not aircraft.is_in_group("ai_aircraft"):
+		var nv_overlay := preload("res://Camera/NightVisionOverlay.gd").new()
+		add_child(nv_overlay)
+
 func apply_origin_shift(offset: Vector3) -> void:
 	deathcam_target_position -= offset
 

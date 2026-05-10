@@ -51,8 +51,29 @@ var faction_name:  String = ""
 
 var _rng := RandomNumberGenerator.new()
 var _fighter_scene:        PackedScene = null   # Aircraft_3 — nimble fighter
-var _bomber_scene:         PackedScene = null   # Aircraft_4 — ground-attack bomber
+var _bomber_scene:         PackedScene = null   # Aircraft_4 — heavy strike bomber
+var _attack_scene:         PackedScene = null   # Aircraft_6 — multirole attacker
 var _enemy_vehicle_scenes: Array[PackedScene] = []
+
+## Patrol compositions: each entry is [group_a_slots, group_b_slots].
+## Each slot is [aircraft_key, loadout]. Total aircraft per patrol: 4–6.
+## aircraft_key: "fighter"=AC3, "bomber"=AC4, "attack"=AC6
+const PATROL_COMPOSITIONS: Array = [
+	# Pure fighter sweep — 4 total
+	[[["fighter","guns"],["fighter","guns"]], [["fighter","guns"],["fighter","guns"]]],
+	# Escort + strike bombers — 4 total
+	[[["fighter","guns"],["fighter","guns"]], [["bomber","bombs"],["bomber","bombs"]]],
+	# Attacker rockets + strike bombers — 4 total
+	[[["attack","rockets"],["attack","rockets"]], [["bomber","bombs"],["bomber","bombs"]]],
+	# Fighter cover + rocket attackers — 5 total
+	[[["fighter","guns"],["fighter","guns"],["fighter","guns"]], [["attack","rockets"],["attack","rockets"]]],
+	# Heavy bombing raid with gun escort — 5 total
+	[[["bomber","bombs"],["bomber","bombs"],["bomber","bombs"]], [["fighter","guns"],["fighter","guns"]]],
+	# Full strike package — 6 total
+	[[["attack","rockets"],["attack","rockets"],["attack","rockets"]], [["bomber","bombs"],["bomber","bombs"],["bomber","bombs"]]],
+	# Mixed attacker pair — 4 total
+	[[["attack","guns"],["attack","guns"]], [["attack","rockets"],["attack","rockets"]]],
+]
 
 
 # ── Lifecycle ─────────────────────────────────────────────────────────────────
@@ -70,6 +91,7 @@ func _ready() -> void:
 
 	_fighter_scene = load("res://Aircraft/Aircraft_3.tscn") as PackedScene
 	_bomber_scene  = load("res://Aircraft/Aircraft_4.tscn") as PackedScene
+	_attack_scene  = load("res://Aircraft/Aircraft_6.tscn") as PackedScene
 
 	# Vehicle scenes — load all available enemy vehicle types
 	for path in [
@@ -209,28 +231,72 @@ func _terrain_offset(local_x: float, local_z: float) -> float:
 
 # ── Deployment API ────────────────────────────────────────────────────────────
 
-## Deploy a virtual flight from reserve. Returns null if reserve is insufficient.
-func deploy_flight(count: int, flight_role: EnemyVirtualFlight.AircraftRole = EnemyVirtualFlight.AircraftRole.FIGHTER) -> EnemyVirtualFlight:
-	count = mini(count, aircraft_reserve)
-	var scene := _bomber_scene if flight_role == EnemyVirtualFlight.AircraftRole.BOMBER else _fighter_scene
-	if count <= 0 or scene == null:
-		# Fall back to whichever scene is available
-		scene = _fighter_scene if scene == null else scene
-		if scene == null:
-			return null
+## Deploy a patrol as two paired virtual flights. Returns [] if reserve is insufficient.
+func deploy_patrol_pair() -> Array[EnemyVirtualFlight]:
+	# Pick a composition, fall back to smallest if reserve is low
+	var comp_idx := _rng.randi() % PATROL_COMPOSITIONS.size()
+	var comp: Array = PATROL_COMPOSITIONS[comp_idx]
+	var total: int = (comp[0] as Array).size() + (comp[1] as Array).size()
 
-	aircraft_reserve -= count
+	if aircraft_reserve < total:
+		# Find smallest composition that fits
+		var best_idx := -1
+		var best_size := 9999
+		for ci in range(PATROL_COMPOSITIONS.size()):
+			var c: Array = PATROL_COMPOSITIONS[ci]
+			var n: int = (c[0] as Array).size() + (c[1] as Array).size()
+			if n <= aircraft_reserve and n < best_size:
+				best_size = n
+				best_idx  = ci
+		if best_idx == -1:
+			return []
+		comp_idx = best_idx
+		comp     = PATROL_COMPOSITIONS[comp_idx]
+		total    = best_size
+
+	aircraft_reserve -= total
 	_flight_counter  += 1
-
-	var f := EnemyVirtualFlight.new()
-	f.flight_name    = "%s-%02d" % [faction_name.left(3).to_upper(), _flight_counter]
-	f.aircraft_count = count
-	f.patrol_radius  = PATROL_RADIUS_M
-	f.faction_color  = faction_color
-	f.role           = flight_role
 	var start_angle  := _rng.randf_range(0.0, TAU)
-	f.setup(global_position, scene, start_angle)
-	return f
+	var result: Array[EnemyVirtualFlight] = []
+
+	# Weighted patrol radius: ~50% standard, ~30% extended, ~20% deep ranging
+	var radius_roll := _rng.randf()
+	var patrol_radius: float
+	if radius_roll < 0.50:
+		patrol_radius = _rng.randf_range(5000.0, 10000.0)   # standard CAP
+	elif radius_roll < 0.80:
+		patrol_radius = _rng.randf_range(10000.0, 18000.0)  # extended patrol
+	else:
+		patrol_radius = _rng.randf_range(18000.0, 30000.0)  # deep ranging
+
+	for gi in range(2):
+		var group_def: Array = comp[gi]
+		var f := EnemyVirtualFlight.new()
+		f.flight_name   = "%s-%02d%s" % [faction_name.left(3).to_upper(), _flight_counter, "A" if gi == 0 else "B"]
+		f.patrol_radius = patrol_radius
+		f.faction_color = faction_color
+
+		var scenes:   Array[PackedScene] = []
+		var loadouts: Array[String]      = []
+		var has_strike := false
+		for slot in group_def:
+			scenes.append(_resolve_aircraft_scene(slot[0] as String))
+			loadouts.append(slot[1] as String)
+			if (slot[1] as String) in ["bombs", "rockets"]:
+				has_strike = true
+		f.role = EnemyVirtualFlight.AircraftRole.BOMBER if has_strike else EnemyVirtualFlight.AircraftRole.FIGHTER
+		f.setup(global_position, scenes, loadouts, start_angle + float(gi) * PI * 0.5)
+		result.append(f)
+
+	return result
+
+
+func _resolve_aircraft_scene(key: String) -> PackedScene:
+	match key:
+		"fighter": return _fighter_scene
+		"bomber":  return _bomber_scene
+		"attack":  return _attack_scene if _attack_scene != null else _fighter_scene
+	return _fighter_scene
 
 
 ## Deploy a virtual platoon from reserve. Returns null if reserve is insufficient.
@@ -242,10 +308,19 @@ func deploy_platoon(count: int) -> EnemyVirtualPlatoon:
 	vehicle_reserve -= count
 	_platoon_counter += 1
 
+	var radius_roll := _rng.randf()
+	var platoon_radius: float
+	if radius_roll < 0.50:
+		platoon_radius = _rng.randf_range(3000.0, 8000.0)    # close patrol
+	elif radius_roll < 0.80:
+		platoon_radius = _rng.randf_range(8000.0, 15000.0)   # extended patrol
+	else:
+		platoon_radius = _rng.randf_range(15000.0, 24000.0)  # deep ranging
+
 	var p := EnemyVirtualPlatoon.new()
 	p.platoon_name   = "%s-P%02d" % [faction_name.left(3).to_upper(), _platoon_counter]
 	p.vehicle_count  = count
-	p.patrol_radius  = PATROL_RADIUS_M * 0.8
+	p.patrol_radius  = platoon_radius
 	p.faction_color  = faction_color
 	var start_angle  := _rng.randf_range(0.0, TAU)
 	p.setup(global_position, _enemy_vehicle_scenes, start_angle)

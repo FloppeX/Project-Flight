@@ -21,6 +21,17 @@ const FLIGHT_NAMES := ["Archer", "Bulldog", "Crimson", "Dingo"]
 @export var default_mission: Flight.Mission = Flight.Mission.CAP
 @export var default_cap_altitude_m: float = 800.0
 @export var default_cas_altitude_m: float = 300.0
+@export var carrier_air_threat_radius_m: float = 10000.0
+@export var carrier_air_threat_close_radius_m: float = 3500.0
+@export var carrier_air_threat_min_closing_speed_mps: float = 25.0
+@export var carrier_air_threat_heading_dot: float = 0.25
+@export var strike_target_scan_radius_m: float = 12000.0
+@export var reported_contact_timeout_s: float = 12.0
+@export var sensor_picture_update_interval_s: float = 1.0
+@export var carrier_radar_enabled: bool = true
+@export var carrier_radar_range_m: float = 5000.0
+@export var ground_vehicle_radar_enabled: bool = true
+@export var ground_vehicle_radar_range_m: float = 3500.0
 
 ## Aircraft to launch per scramble when a flight has no members.
 @export var scramble_flight_size: int = 2
@@ -33,6 +44,7 @@ var flights: Array[Flight] = []
 var _carrier: Node3D = null
 var _assign_timer: float = 0.0
 var _threat_timer: float = 0.0
+var _sensor_picture_timer: float = 0.0
 var _next_flight_idx: int = 0
 
 ## Currently assigned missions. Null means no flight holds that role.
@@ -42,6 +54,7 @@ var _cas_flight: Flight = null
 
 ## Flight currently being scrambled from the hangar (waiting for launches).
 var _scrambling_flight: Flight = null
+var _reported_contacts: Dictionary = {}  # Node3D target -> contact report dictionary
 
 # ── Lifecycle ──────────────────────────────────────────────────────────────────
 
@@ -66,6 +79,11 @@ func _apply_default_missions() -> void:
 			order_cas(f.flight_name)
 
 func _process(delta: float) -> void:
+	_sensor_picture_timer -= delta
+	if _sensor_picture_timer <= 0.0:
+		_sensor_picture_timer = maxf(sensor_picture_update_interval_s, 0.1)
+		_update_friendly_sensor_picture()
+
 	_assign_timer -= delta
 	if _assign_timer <= 0.0:
 		_assign_timer = assignment_interval_s
@@ -135,6 +153,39 @@ func reassign(aircraft: Node3D, fname: String) -> void:
 	if target:
 		target.register(aircraft)
 
+func report_contact(reporter: Node3D, target: Node3D) -> void:
+	if not reporter or not is_instance_valid(reporter):
+		return
+	if not target or not is_instance_valid(target):
+		return
+	var reporter_team: int = _get_node_team(reporter, 1)
+	if reporter_team != 1:
+		return
+	if not _is_valid_report_target_for_team(target, reporter_team):
+		return
+	_reported_contacts[target] = {
+		"reporter": reporter,
+		"team": reporter_team,
+		"position": target.global_position,
+		"last_seen_s": Time.get_ticks_msec() / 1000.0,
+	}
+
+func get_reported_ground_targets(center: Vector3 = Vector3.ZERO, radius_m: float = -1.0) -> Array[Node3D]:
+	_prune_reported_contacts()
+	var result: Array[Node3D] = []
+	for target_ref in _reported_contacts.keys():
+		if not is_instance_valid(target_ref) or not (target_ref is Node3D):
+			continue
+		var target := target_ref as Node3D
+		if not _is_enemy_ground_target(target):
+			continue
+		if radius_m > 0.0:
+			var flat_dist: float = Vector2(target.global_position.x - center.x, target.global_position.z - center.z).length()
+			if flat_dist > radius_m:
+				continue
+		result.append(target)
+	return result
+
 func get_flight_of(aircraft: Node3D) -> Flight:
 	for f in flights:
 		if f.get_members().has(aircraft):
@@ -179,7 +230,7 @@ func print_status() -> void:
 # ── Intercept management ───────────────────────────────────────────────────────
 
 func _update_intercept() -> void:
-	var threats := _get_enemy_aircraft()
+	var threats := _get_inbound_enemy_aircraft()
 
 	# Check if the assigned intercept flight is still viable
 	if _intercept_flight != null:
@@ -205,16 +256,18 @@ func _update_intercept() -> void:
 func _vector_intercept(threat: Node3D) -> void:
 	var best := _pick_flight(_cas_flight)
 	if not best:
+		if _scrambling_flight != null:
+			return
 		var empty := _pick_empty_flight(_cas_flight)
 		if empty:
-			empty.set_cap(_carrier, default_cap_altitude_m)
+			empty.set_intercept(threat, _carrier, default_cap_altitude_m)
 			_intercept_flight = empty
 			if empty == _cap_flight:
 				_cap_flight = null
 			_scramble_flight(empty, "intercept")
 		return
 	if best.strength() == 0:
-		best.set_cap(_carrier, default_cap_altitude_m)
+		best.set_intercept(threat, _carrier, default_cap_altitude_m)
 		_scramble_flight(best, "intercept")
 		return
 
@@ -226,6 +279,7 @@ func _vector_intercept(threat: Node3D) -> void:
 	if best == _cap_flight:
 		_cap_flight = null
 	var fname := best.flight_name
+	best.set_intercept(threat, _carrier, default_cap_altitude_m)
 
 	RadioComms.transmit("Citadel", "%s flight" % fname, RadioComms._pick([
 		"%s flight, radar contact. Intercept and engage. Weapons free." % fname,
@@ -241,7 +295,7 @@ func _vector_intercept(threat: Node3D) -> void:
 # ── CAS management ────────────────────────────────────────────────────────────
 
 func _update_cas() -> void:
-	var threats := _get_enemy_ground_vehicles()
+	var threats := _get_enemy_ground_targets()
 
 	# Check if the assigned CAS flight is still viable
 	if _cas_flight != null:
@@ -267,6 +321,8 @@ func _update_cas() -> void:
 func _vector_cas(threat: Node3D) -> void:
 	var best := _pick_flight(_intercept_flight)
 	if not best:
+		if _scrambling_flight != null:
+			return
 		var empty := _pick_empty_flight(_intercept_flight)
 		if empty:
 			empty.set_cas(threat.global_position, 3000.0, default_cas_altitude_m)
@@ -492,6 +548,8 @@ func _pick_empty_flight(exclude: Flight = null) -> Flight:
 	for f in flights:
 		if f == exclude:
 			continue
+		if f == _scrambling_flight:
+			continue
 		if f == _intercept_flight or f == _cas_flight:
 			continue
 		if f.strength() > 0:
@@ -502,6 +560,8 @@ func _pick_empty_flight(exclude: Flight = null) -> Flight:
 	return null
 
 func _loadout_profile_for_scramble_reason(reason: String) -> String:
+	if reason == "intercept":
+		return "intercept"
 	if reason == "cas":
 		return "strike"
 	return "cap"
@@ -530,6 +590,78 @@ func _ensure_flight_can_execute(f: Flight) -> void:
 func _refresh_carrier() -> void:
 	if not _carrier or not is_instance_valid(_carrier):
 		_carrier = get_tree().get_first_node_in_group("carrier") as Node3D
+
+func _update_friendly_sensor_picture() -> void:
+	_refresh_carrier()
+	var target_candidates := _collect_contact_candidates()
+	if carrier_radar_enabled and _carrier and is_instance_valid(_carrier):
+		_report_contacts_seen_by_sensor(_carrier, carrier_radar_range_m, target_candidates)
+	if ground_vehicle_radar_enabled:
+		for sensor_ref in get_tree().get_nodes_in_group("ground_vehicles"):
+			if not is_instance_valid(sensor_ref) or not (sensor_ref is Node3D):
+				continue
+			var sensor := sensor_ref as Node3D
+			if _get_node_team(sensor, 0) != 1:
+				continue
+			if bool(sensor.get_meta("carrier_transport_mode", false)):
+				continue
+			_report_contacts_seen_by_sensor(sensor, ground_vehicle_radar_range_m, target_candidates)
+	_prune_reported_contacts()
+
+func _collect_contact_candidates() -> Array[Node3D]:
+	var result: Array[Node3D] = []
+	for group_name in ["enemies", "enemy_bases", "aircraft", "ai_aircraft", "ground_vehicles", "gun_emplacements", "buildings"]:
+		for node_ref in get_tree().get_nodes_in_group(group_name):
+			if not is_instance_valid(node_ref) or not (node_ref is Node3D):
+				continue
+			var node := node_ref as Node3D
+			if result.has(node):
+				continue
+			result.append(node)
+	return result
+
+func _report_contacts_seen_by_sensor(sensor: Node3D, range_m: float, candidates: Array[Node3D]) -> void:
+	if sensor == null or not is_instance_valid(sensor):
+		return
+	var sensor_team: int = _get_node_team(sensor, 1)
+	if sensor_team != 1:
+		return
+	var range_sq: float = maxf(range_m, 1.0) * maxf(range_m, 1.0)
+	for target in candidates:
+		if target == null or not is_instance_valid(target):
+			continue
+		if target == sensor:
+			continue
+		if not _is_valid_report_target_for_team(target, sensor_team):
+			continue
+		if sensor.global_position.distance_squared_to(target.global_position) > range_sq:
+			continue
+		report_contact(sensor, target)
+
+func _get_node_team(node: Node, fallback_team: int = 0) -> int:
+	if node == null or not is_instance_valid(node):
+		return fallback_team
+	if node.has_method("get_team"):
+		return int(node.call("get_team"))
+	if node.is_in_group("team_1") or node.is_in_group("friendlies") or node.is_in_group("carrier"):
+		return 1
+	if node.is_in_group("team_2") or node.is_in_group("enemies") or node.is_in_group("enemy_bases"):
+		return 2
+	return fallback_team
+
+func _is_valid_report_target_for_team(target: Node3D, reporter_team: int) -> bool:
+	if target == null or not is_instance_valid(target):
+		return false
+	if target.is_in_group("carrier"):
+		return false
+	var target_team: int = _get_node_team(target, 0)
+	if target_team == reporter_team:
+		return false
+	if reporter_team == 1:
+		if target_team > 0:
+			return true
+		return target.is_in_group("enemies") or target.is_in_group("enemy_bases")
+	return target_team == 1 or target.is_in_group("friendlies") or target.is_in_group("carrier")
 
 func _get_role_name(f: Flight) -> String:
 	if f == _intercept_flight:
@@ -564,22 +696,78 @@ func _auto_assign_unassigned() -> void:
 		f.register(aircraft)
 		_next_flight_idx += 1
 
-func _get_enemy_ground_vehicles() -> Array:
+func _get_enemy_ground_targets() -> Array:
 	var result: Array = []
-	for node in get_tree().get_nodes_in_group("ground_vehicles"):
-		if node and is_instance_valid(node) and node.has_method("get_team") \
-				and int(node.get_team()) != 1:
-			result.append(node)
+	_refresh_carrier()
+	_prune_reported_contacts()
+	for target_ref in _reported_contacts.keys():
+		if not is_instance_valid(target_ref) or not (target_ref is Node3D):
+			continue
+		var node_3d := target_ref as Node3D
+		if not _is_enemy_ground_target(node_3d):
+			continue
+		if _carrier and is_instance_valid(_carrier) \
+				and _carrier.global_position.distance_to(node_3d.global_position) > strike_target_scan_radius_m:
+			continue
+		result.append(node_3d)
 	return result
 
-func _get_enemy_aircraft() -> Array:
+func _get_inbound_enemy_aircraft() -> Array:
 	var result: Array = []
-	for node in get_tree().get_nodes_in_group("enemies"):
-		if node and is_instance_valid(node) \
-				and node is RigidBody3D \
-				and not node.is_in_group("ground_vehicles"):
-			result.append(node)
+	_refresh_carrier()
+	if not _carrier or not is_instance_valid(_carrier):
+		return result
+	_prune_reported_contacts()
+	for target_ref in _reported_contacts.keys():
+		if not is_instance_valid(target_ref) or not (target_ref is RigidBody3D):
+			continue
+		var aircraft := target_ref as RigidBody3D
+		if not aircraft.is_in_group("ground_vehicles") and _is_aircraft_threatening_carrier(aircraft):
+			result.append(aircraft)
 	return result
+
+func _is_enemy_ground_target(node: Node3D) -> bool:
+	if node == null or not is_instance_valid(node):
+		return false
+	if node.is_in_group("carrier"):
+		return false
+	if (node.is_in_group("aircraft") or node.is_in_group("ai_aircraft")) and not node.is_in_group("ground_vehicles"):
+		return false
+	return _is_valid_report_target_for_team(node, 1)
+
+func _is_aircraft_threatening_carrier(aircraft: RigidBody3D) -> bool:
+	if aircraft == null or not is_instance_valid(aircraft) or not _carrier or not is_instance_valid(_carrier):
+		return false
+	var to_carrier: Vector3 = _carrier.global_position - aircraft.global_position
+	to_carrier.y = 0.0
+	var distance_m: float = to_carrier.length()
+	if distance_m > carrier_air_threat_radius_m:
+		return false
+	if distance_m <= carrier_air_threat_close_radius_m:
+		return true
+	var velocity: Vector3 = aircraft.linear_velocity
+	velocity.y = 0.0
+	var speed_mps: float = velocity.length()
+	if speed_mps < maxf(carrier_air_threat_min_closing_speed_mps, 1.0):
+		return false
+	var to_carrier_dir: Vector3 = to_carrier / maxf(distance_m, 0.001)
+	var heading_dot: float = velocity.normalized().dot(to_carrier_dir)
+	var closing_speed_mps: float = velocity.dot(to_carrier_dir)
+	return heading_dot >= carrier_air_threat_heading_dot and closing_speed_mps >= carrier_air_threat_min_closing_speed_mps
+
+func _prune_reported_contacts() -> void:
+	var now_s: float = Time.get_ticks_msec() / 1000.0
+	var timeout_s: float = maxf(reported_contact_timeout_s, 0.5)
+	var stale: Array = []
+	for target_ref in _reported_contacts.keys():
+		if not is_instance_valid(target_ref) or not (target_ref is Node3D):
+			stale.append(target_ref)
+			continue
+		var report: Dictionary = _reported_contacts.get(target_ref, {})
+		if now_s - float(report.get("last_seen_s", -INF)) > timeout_s:
+			stale.append(target_ref)
+	for target_ref in stale:
+		_reported_contacts.erase(target_ref)
 
 func _flight_center(f: Flight) -> Vector3:
 	var members := f.get_members()

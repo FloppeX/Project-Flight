@@ -43,8 +43,10 @@ signal deck_state_changed(new_state)
 
 const DEFAULT_AIRCRAFT_SCENE_PATH := "res://Aircraft/Aircraft_5.tscn"
 const LOADOUT_CAP := "cap"
+const LOADOUT_INTERCEPT := "intercept"
 const LOADOUT_STRIKE := "strike"
 const WEAPON_SCENE_20MM := "res://Weapons/Guns/Hardpoint/20mm_autocannon_hardpoint.tscn"
+const WEAPON_SCENE_AA_MISSILE := "res://Weapons/AA_Missile/aa_missile_launcher.tscn"
 const WEAPON_SCENE_ROCKET_POD := "res://Weapons/RocketPod/rocket_pod.tscn"
 const WEAPON_SCENE_BOMB_RACK := "res://Weapons/Bomb/bomb_rack.tscn"
 const PRIMARY_TRACTOR_COUNT := 3
@@ -306,7 +308,7 @@ func _normalize_primary_tractorbots() -> void:
 
 func _get_primary_staging_slots_local(count: int) -> Array[Vector3]:
 	var slots: Array[Vector3] = []
-	var deck_local_y: float = _get_deck_local_y() + 0.2
+	var deck_local_y: float = _get_deck_local_y()
 	var slot_offsets: Array[Vector3] = [
 		Vector3(12.0, 0.0, -6.0),
 		Vector3(16.0, 0.0, -6.0),
@@ -1919,7 +1921,7 @@ func _get_extra_deck_tractor_bots() -> Array[Node3D]:
 
 func _get_tractor_cleanup_elevator_slots_local(count: int) -> Array[Vector3]:
 	var slots: Array[Vector3] = []
-	var deck_local_y: float = _get_deck_local_y() + 0.2
+	var deck_local_y: float = _get_deck_local_y()
 	var slot_offsets: Array[Vector3] = [
 		Vector3(-4.0, 0.0, -3.0),
 		Vector3(0.0, 0.0, -3.0),
@@ -2064,6 +2066,10 @@ func _apply_ai_loadout_profile(aircraft: RigidBody3D, profile: String) -> void:
 	_refresh_weapon_controller_after_loadout(aircraft, normalized_profile)
 
 func _choose_ai_loadout_weapon_scene(hardpoint: Hardpoint, hardpoint_index: int, profile: String) -> String:
+	if profile == LOADOUT_INTERCEPT:
+		if hardpoint_index == 0:
+			return WEAPON_SCENE_20MM
+		return WEAPON_SCENE_AA_MISSILE
 	if profile == LOADOUT_CAP:
 		var current_weapon_name := _get_hardpoint_weapon_name(hardpoint)
 		if _is_gun_weapon_name(current_weapon_name):
@@ -2087,6 +2093,10 @@ func _mount_weapon_scene_on_hardpoint(hardpoint: Hardpoint, weapon_scene_path: S
 		hardpoint.weapon_instance = null
 	hardpoint.mounted_weapon = weapon_scene
 	hardpoint.mount_weapon_from_scene(weapon_scene)
+	if is_instance_valid(hardpoint.weapon_instance) and hardpoint.weapon_instance is AAMissileLauncher:
+		var launcher := hardpoint.weapon_instance as AAMissileLauncher
+		launcher.max_ammo = max(launcher.max_ammo, 1)
+		launcher.ammo_count = max(launcher.ammo_count, launcher.max_ammo)
 
 func _get_hardpoint_weapon_name(hardpoint: Hardpoint) -> String:
 	if hardpoint == null or not is_instance_valid(hardpoint.weapon_instance):
@@ -2111,7 +2121,9 @@ func _refresh_weapon_controller_after_loadout(aircraft: RigidBody3D, profile: St
 		control_weapons.categorize_weapons()
 	if not ("weapon_types" in control_weapons):
 		return
-	var preferred_type := "Bomb" if (profile == LOADOUT_STRIKE or profile == "cas") else "Autocannon"
+	var preferred_type := "Bomb" if (profile == LOADOUT_STRIKE or profile == "cas") else "AAMissile"
+	if profile == LOADOUT_CAP:
+		preferred_type = "Autocannon"
 	var selected_idx := -1
 	for i in range(control_weapons.weapon_types.size()):
 		var weapon_type := str(control_weapons.weapon_types[i])

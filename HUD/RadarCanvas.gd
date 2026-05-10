@@ -236,8 +236,8 @@ func _draw() -> void:
 		if e == current_target:
 			draw_arc(Vector2(epx, epy), 8, 0, TAU, 16, Color.WHITE, 2)
 
-	# Draw own aircraft as yellow triangle at center, always pointing up (heading-up display)
-	var own_color: Color = Color(1.0, 1.0, 0.40, 1.0)
+	# Draw own aircraft at center, always pointing up (heading-up display).
+	var own_color: Color = Livery.get_team_hud_color(team_id)
 	_draw_heading_triangle(center, Vector2(0.0, -1.0), own_color)
 
 func _draw_heading_triangle(pos: Vector2, heading: Vector2, color: Color) -> void:
@@ -400,15 +400,43 @@ func _draw_textured_world_circle_region(
 	var uvs: PackedVector2Array = PackedVector2Array()
 	if texture.get_width() <= 0 or texture.get_height() <= 0:
 		return
-	for i in range(segments + 1):
-		var angle: float = -PI * 0.5 + (TAU * float(i) / float(segments))
-		var dir: Vector2 = Vector2(cos(angle), sin(angle))
-		var local_point: Vector2 = dir * radius
-		points.append(center + local_point)
-		var world_offset_x: float = (local_point.x / radius) * range_m
-		var world_offset_z: float = (-local_point.y / radius) * range_m
-		var sample_world: Vector3 = origin + flat_right * world_offset_x + flat_forward * world_offset_z
-		var u: float = (sample_world.x - TerrainNavGrid._origin_x) / span_x
-		var v: float = (sample_world.z - TerrainNavGrid._origin_z) / span_z
-		uvs.append(Vector2(clampf(u, 0.0, 1.0), clampf(v, 0.0, 1.0)))
-	draw_colored_polygon(points, modulate, uvs, texture)
+	var center_uv := _terrain_uv_for_radar_point(
+		Vector2.ZERO,
+		radius,
+		origin,
+		flat_forward,
+		flat_right,
+		range_m,
+		span_x,
+		span_z
+	)
+	for i in range(segments):
+		var angle_a: float = -PI * 0.5 + (TAU * float(i) / float(segments))
+		var angle_b: float = -PI * 0.5 + (TAU * float(i + 1) / float(segments))
+		var local_a: Vector2 = Vector2(cos(angle_a), sin(angle_a)) * radius
+		var local_b: Vector2 = Vector2(cos(angle_b), sin(angle_b)) * radius
+		points = PackedVector2Array([center, center + local_a, center + local_b])
+		uvs = PackedVector2Array([
+			center_uv,
+			_terrain_uv_for_radar_point(local_a, radius, origin, flat_forward, flat_right, range_m, span_x, span_z),
+			_terrain_uv_for_radar_point(local_b, radius, origin, flat_forward, flat_right, range_m, span_x, span_z),
+		])
+		draw_colored_polygon(points, modulate, uvs, texture)
+
+func _terrain_uv_for_radar_point(
+	local_point: Vector2,
+	radius: float,
+	origin: Vector3,
+	flat_forward: Vector3,
+	flat_right: Vector3,
+	range_m: float,
+	span_x: float,
+	span_z: float
+) -> Vector2:
+	var safe_radius: float = maxf(radius, 1.0)
+	var world_offset_x: float = (local_point.x / safe_radius) * range_m
+	var world_offset_z: float = (-local_point.y / safe_radius) * range_m
+	var sample_world: Vector3 = origin + flat_right * world_offset_x + flat_forward * world_offset_z
+	var u: float = (sample_world.x - TerrainNavGrid._origin_x) / span_x
+	var v: float = (sample_world.z - TerrainNavGrid._origin_z) / span_z
+	return Vector2(clampf(u, 0.0, 1.0), clampf(v, 0.0, 1.0))

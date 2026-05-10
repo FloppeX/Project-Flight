@@ -18,11 +18,17 @@ extends Node
 const PLATOON_NAMES := ["Ember", "Ferret", "Grizzly", "Hammer"]
 
 @export var debug_print: bool = true
+@export var maintain_carrier_escort: bool = true
+@export var carrier_escort_min_vehicles: int = 2
+@export var carrier_escort_desired_vehicles: int = 4
+@export var carrier_escort_check_interval_s: float = 5.0
+@export var carrier_escort_distance_m: float = 100.0
 
 var platoons: Dictionary = {}  # name → GroundVehiclePlatoon
 
 var _carrier: Node3D = null
 var _vehicle_bay: VehicleBayManager = null
+var _escort_check_timer_s: float = 0.0
 
 # Deploy queue — platoon names waiting to be deployed
 var _deploy_queue: Array[String] = []
@@ -45,6 +51,11 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	_process_deploy_queue()
+	if maintain_carrier_escort:
+		_escort_check_timer_s -= delta
+		if _escort_check_timer_s <= 0.0:
+			_escort_check_timer_s = carrier_escort_check_interval_s
+			_ensure_carrier_escort()
 
 # ── Carrier / Bay references ─────────────────────────────────────────────────
 
@@ -233,6 +244,75 @@ func request_escort() -> void:
 		print("[GroundOps] No platoons available for escort")
 
 ## Clear orders — platoon holds position.
+func _ensure_carrier_escort() -> void:
+	_refresh_carrier()
+	if not _carrier:
+		return
+	var desired_count: int = maxi(carrier_escort_desired_vehicles, carrier_escort_min_vehicles)
+	var escort_count: int = _count_escort_vehicles()
+	if escort_count >= desired_count:
+		return
+	if _has_pending_escort_deploy():
+		return
+
+	var undeployed := _find_undeployed_platoon_name()
+	if undeployed != "":
+		var p: GroundVehiclePlatoon = platoons[undeployed]
+		p.set_escort_carrier(_carrier, carrier_escort_distance_m)
+		deploy(undeployed)
+		if debug_print:
+			print("[GroundOps] Maintaining carrier escort: deploying %s (%d/%d vehicles)" % [undeployed, escort_count, desired_count])
+		return
+
+	if escort_count >= carrier_escort_min_vehicles:
+		return
+
+	var fallback := _find_reassignable_platoon_name()
+	if fallback != "":
+		order_escort(fallback, carrier_escort_distance_m)
+		if debug_print:
+			print("[GroundOps] Maintaining minimum escort: reassigning %s (%d/%d vehicles)" % [fallback, escort_count, carrier_escort_min_vehicles])
+
+func _count_escort_vehicles() -> int:
+	var count: int = 0
+	for pname in PLATOON_NAMES:
+		var p: GroundVehiclePlatoon = platoons[pname]
+		if p.objective_type == GroundVehiclePlatoon.ObjectiveType.ESCORT_CARRIER:
+			count += p.get_members().size()
+	return count
+
+func _has_pending_escort_deploy() -> bool:
+	if _deploying_platoon_name != "":
+		var deploying: GroundVehiclePlatoon = platoons.get(_deploying_platoon_name, null)
+		if deploying and deploying.objective_type == GroundVehiclePlatoon.ObjectiveType.ESCORT_CARRIER:
+			return true
+	for pname in _deploy_queue:
+		var p: GroundVehiclePlatoon = platoons.get(pname, null)
+		if p and p.objective_type == GroundVehiclePlatoon.ObjectiveType.ESCORT_CARRIER:
+			return true
+	return false
+
+func _find_undeployed_platoon_name() -> String:
+	for pname in PLATOON_NAMES:
+		var p: GroundVehiclePlatoon = platoons[pname]
+		if p.has_members():
+			continue
+		if pname in _deploy_queue or _deploying_platoon_name == pname:
+			continue
+		return pname
+	return ""
+
+func _find_reassignable_platoon_name() -> String:
+	for pname in PLATOON_NAMES:
+		var p: GroundVehiclePlatoon = platoons[pname]
+		if not p.has_members():
+			continue
+		if p.objective_type == GroundVehiclePlatoon.ObjectiveType.ESCORT_CARRIER:
+			continue
+		if p.objective_type in [GroundVehiclePlatoon.ObjectiveType.NONE, GroundVehiclePlatoon.ObjectiveType.RETURN_TO_BASE]:
+			return pname
+	return ""
+
 func order_hold(platoon_name: String) -> void:
 	var p := _get_platoon(platoon_name)
 	if not p:

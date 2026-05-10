@@ -46,6 +46,14 @@ const PROJECTILE_SPEED_CAP_SETTING_KEYS: Array = [
 @export var stop_firing_if_target_lost: bool = true
 @export var fire_angle_tolerance_deg: float = 18.0
 @export var require_line_of_sight_to_fire: bool = true
+@export_group("Night Combat Penalties")
+@export_range(0.1, 1.0, 0.05) var night_detection_range_multiplier: float = 0.65
+@export_range(0.1, 1.0, 0.05) var night_aim_skill_multiplier: float = 0.58
+@export_range(1.0, 4.0, 0.05) var night_target_search_interval_multiplier: float = 1.8
+@export_range(1.0, 4.0, 0.05) var night_aim_solution_interval_multiplier: float = 1.6
+@export_range(1.0, 4.0, 0.05) var night_line_of_sight_interval_multiplier: float = 1.45
+@export_range(1.0, 5.0, 0.05) var night_noise_interval_multiplier: float = 1.4
+@export_group("")
 
 # State
 var current_target: Node3D = null
@@ -61,6 +69,9 @@ var weapon_instance: Weapon = null
 var host_actor: Node3D = null
 var _cached_camera: Camera3D = null
 var _camera_cache_timer: float = 0.0
+var _cached_day_night_cycle: Node = null
+var _cached_ai_darkness_factor: float = 0.0
+var _ai_darkness_cache_at_ms: int = -100000
 
 # Aim noise: updated on a timer so the turret can actually track each position
 # rather than chasing a point that jumps every physics frame.
@@ -149,7 +160,7 @@ func _physics_process(delta: float) -> void:
     # Per-frame randomness causes 60 Hz jitter that the turret physically cannot track.
     _noise_timer -= delta
     if _noise_timer <= 0.0:
-        _noise_timer = maxf(noise_update_interval_s, 0.05)
+        _noise_timer = maxf(noise_update_interval_s * lerpf(1.0, night_noise_interval_multiplier, _get_ai_darkness_factor()), 0.05)
         if current_target and is_instance_valid(current_target):
             var effective_aim_skill: float = _get_effective_aim_skill(current_target)
             var spread: float = (1.0 - effective_aim_skill) * 15.0
@@ -244,7 +255,7 @@ func find_and_set_best_target() -> void:
     var best_priority: int = 999999
     var best_distance: float = INF
 
-    var candidates = _get_hostile_targets_in_range(max_range)
+    var candidates = _get_hostile_targets_in_range(_get_effective_detection_range_m())
     for enemy in candidates:
         var enemy_node := enemy as Node3D
         if enemy_node == null or not is_instance_valid(enemy_node):
@@ -393,13 +404,14 @@ func _get_cached_lead_position(delta: float, target: Node3D, target_aim_point: V
 func _get_effective_aim_solution_update_interval(delta: float) -> float:
     var near_interval: float = maxf(aim_solution_update_interval_s, 0.02)
     var far_interval: float = maxf(distant_aim_solution_update_interval_s, near_interval)
+    var night_multiplier: float = lerpf(1.0, night_aim_solution_interval_multiplier, _get_ai_darkness_factor())
     var camera := _get_active_camera(delta)
     if camera == null or not is_instance_valid(camera):
-        return far_interval
+        return far_interval * night_multiplier
     var focus_node: Node3D = host_actor if host_actor and is_instance_valid(host_actor) else self
     if focus_node.global_position.distance_squared_to(camera.global_position) <= detailed_targeting_distance_m * detailed_targeting_distance_m:
-        return near_interval
-    return far_interval
+        return near_interval * night_multiplier
+    return far_interval * night_multiplier
 
 func _get_cached_line_of_sight(delta: float, aim_point: Vector3, target: Node3D) -> bool:
     if not require_line_of_sight_to_fire:
@@ -424,13 +436,14 @@ func _get_cached_line_of_sight(delta: float, aim_point: Vector3, target: Node3D)
 func _get_effective_line_of_sight_check_interval(delta: float) -> float:
     var near_interval: float = maxf(line_of_sight_check_interval_s, 0.02)
     var far_interval: float = maxf(distant_line_of_sight_check_interval_s, near_interval)
+    var night_multiplier: float = lerpf(1.0, night_line_of_sight_interval_multiplier, _get_ai_darkness_factor())
     var camera := _get_active_camera(delta)
     if camera == null or not is_instance_valid(camera):
-        return far_interval
+        return far_interval * night_multiplier
     var focus_node: Node3D = host_actor if host_actor and is_instance_valid(host_actor) else self
     if focus_node.global_position.distance_squared_to(camera.global_position) <= detailed_targeting_distance_m * detailed_targeting_distance_m:
-        return near_interval
-    return far_interval
+        return near_interval * night_multiplier
+    return far_interval * night_multiplier
 
 func _get_effective_target_velocity(target: Node3D, delta: float) -> Vector3:
     var reported_velocity: Vector3 = _get_node_velocity(target)
@@ -683,13 +696,14 @@ func _get_active_camera(delta: float) -> Camera3D:
 func _get_effective_target_search_interval(delta: float) -> float:
     var near_interval: float = maxf(target_search_interval_s, 0.05)
     var far_interval: float = maxf(distant_target_search_interval_s, near_interval)
+    var night_multiplier: float = lerpf(1.0, night_target_search_interval_multiplier, _get_ai_darkness_factor())
     var camera := _get_active_camera(delta)
     if camera == null or not is_instance_valid(camera):
-        return far_interval
+        return far_interval * night_multiplier
     var focus_node: Node3D = host_actor if host_actor and is_instance_valid(host_actor) else self
     if focus_node.global_position.distance_squared_to(camera.global_position) <= detailed_targeting_distance_m * detailed_targeting_distance_m:
-        return near_interval
-    return far_interval
+        return near_interval * night_multiplier
+    return far_interval * night_multiplier
 
 func _predict_ballistic_aim_point(
     shooter_pos: Vector3,
@@ -798,7 +812,7 @@ func _is_air_target(target: Node3D) -> bool:
 
 func _get_effective_range_for_target(target: Node3D) -> float:
     var range_multiplier: float = air_target_range_multiplier if _is_air_target(target) else 1.0
-    var ai_range_m: float = maxf(max_range * range_multiplier, 1.0)
+    var ai_range_m: float = maxf(_get_effective_detection_range_m() * range_multiplier, 1.0)
     var weapon_range_m: float = _get_weapon_max_range_m()
     if is_finite(weapon_range_m):
         return minf(ai_range_m, weapon_range_m)
@@ -806,8 +820,26 @@ func _get_effective_range_for_target(target: Node3D) -> float:
 
 func _get_effective_aim_skill(target: Node3D) -> float:
     var skill_multiplier: float = air_target_aim_skill_multiplier if _is_air_target(target) else 1.0
+    skill_multiplier *= lerpf(1.0, night_aim_skill_multiplier, _get_ai_darkness_factor())
     return clampf(aim_skill * skill_multiplier, 0.0, 1.0)
 
 func _get_effective_fire_angle_tolerance_deg(target: Node3D) -> float:
     var tolerance_multiplier: float = air_target_fire_angle_tolerance_multiplier if _is_air_target(target) else 1.0
     return maxf(fire_angle_tolerance_deg * tolerance_multiplier, 0.5)
+
+func _get_ai_darkness_factor() -> float:
+    var now_ms: int = Time.get_ticks_msec()
+    if now_ms - _ai_darkness_cache_at_ms <= 500:
+        return _cached_ai_darkness_factor
+    _ai_darkness_cache_at_ms = now_ms
+    if not is_instance_valid(_cached_day_night_cycle):
+        _cached_day_night_cycle = get_tree().get_first_node_in_group("day_night_cycle")
+    var cycle := _cached_day_night_cycle
+    if cycle != null and cycle.has_method("get_ai_darkness_factor"):
+        _cached_ai_darkness_factor = clampf(float(cycle.call("get_ai_darkness_factor")), 0.0, 1.0)
+    else:
+        _cached_ai_darkness_factor = 0.0
+    return _cached_ai_darkness_factor
+
+func _get_effective_detection_range_m() -> float:
+    return maxf(max_range * lerpf(1.0, night_detection_range_multiplier, _get_ai_darkness_factor()), 1.0)

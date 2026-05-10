@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://u5mabowr5kyk"
+path="res://.godot/imported/Citadel - Archer, hostiles on the deck Prosecute ground attack Weapons free.wav-409a93c23be12780d50b092ab880ec29.sample"
+
+[deps]
+
+source_file="res://Audio/Citadel - Archer, hostiles on the deck Prosecute ground attack Weapons free.wav"
+dest_files=["res://.godot/imported/Citadel - Archer, hostiles on the deck Prosecute ground attack Weapons free.wav-409a93c23be12780d50b092ab880ec29.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

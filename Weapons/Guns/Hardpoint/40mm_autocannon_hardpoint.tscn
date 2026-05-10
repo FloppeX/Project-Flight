@@ -1,17 +1,13 @@
-[gd_scene load_steps=4 format=3 uid="uid://d1a4ljrkfqcq2"]
+[gd_scene format=3 uid="uid://d1a4ljrkfqcq2"]
 
-[ext_resource type="Script" uid="uid://cc5i2s0mvs378" path="res://Weapons/Autocannon/autocannon.gd" id="1_script"]
-[ext_resource type="Resource" path="res://Weapons/Guns/Profiles/40mm_autocannon.tres" id="2_profile"]
-[ext_resource type="PackedScene" uid="uid://b83rkkamha1oc" path="res://autocannon 40 mm.glb" id="3_model"]
+[ext_resource type="Script" uid="uid://cb3wjh1t75o32" path="res://Weapons/RocketPod/rocket_pod.gd" id="1_gnqlx"]
+[ext_resource type="PackedScene" uid="uid://cgaapny53wu15" path="res://Weapons/RocketPod/rocket pod.glb" id="2_ccyiv"]
 
-[node name="40mmAutocannonHardpoint" type="Node3D"]
-script = ExtResource("1_script")
-gun_profile = ExtResource("2_profile")
-cockpit_judder_shake_intensity = 1.1
-cockpit_judder_shake_duration_s = 0.09
+[node name="RocketPod" type="Node3D" unique_id=262664900]
+script = ExtResource("1_gnqlx")
+ammo_count = 16
 
-[node name="GunModel" parent="." instance=ExtResource("3_model")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.0475906, -0.00304407, 0.0692896)
+[node name="RocketPodModel" parent="." unique_id=1729600456 instance=ExtResource("2_ccyiv")]
 
-[node name="BulletSpawnPoint" type="Node3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 3.70729)
+[node name="AttachmentPoint" type="Node3D" parent="." unique_id=297406181]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.17888433, 0)

@@ -1,2 +1,3 @@
-res://AI/AIPilot.gd
-res://LandCarrier/FlightDeckManager.gd
+res://addons/simplified_flightsim/aircraft_modules/Controls/ControlTargeting.gd
+res://AirOps/AirOpsManager.gd
+res://HUD/instrument_panel.gd
