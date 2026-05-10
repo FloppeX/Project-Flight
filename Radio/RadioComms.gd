@@ -1,6 +1,8 @@
 extends Node
 
 const RADIO_TEST_STREAM_PATH := "res://Audio/Citadel voice test.mp3"
+const CITADEL_AUDIO_DIR := "res://Audio"
+const CITADEL_AUDIO_PREFIX := "Citadel - "
 const RADIO_BUS_NAME := "Radio"
 
 ## RadioComms — autoload singleton.
@@ -35,6 +37,7 @@ const RADIO_BUS_NAME := "Radio"
 @export var radio_dropout_max_s: float = 0.09
 @export var radio_dropout_volume_db: float = -22.0
 @export var radio_pitch_jitter: float = 0.035
+@export var use_citadel_voice_clips: bool = true
 
 # ── Signals ────────────────────────────────────────────────────────────────────
 
@@ -54,6 +57,8 @@ var _radio_voice_player: AudioStreamPlayer
 var _radio_static_player: AudioStreamPlayer
 var _radio_static_playback: AudioStreamGeneratorPlayback
 var _radio_test_stream: AudioStream
+var _citadel_voice_streams: Dictionary = {}
+var _citadel_voice_queue: Array[AudioStream] = []
 var _radio_rng := RandomNumberGenerator.new()
 var _radio_static_until_s: float = 0.0
 var _radio_static_mix: float = 0.0
@@ -68,6 +73,7 @@ func _ready() -> void:
 	_build_display()
 	_radio_rng.randomize()
 	_setup_radio_audio()
+	_build_citadel_voice_library()
 
 func _process(delta: float) -> void:
 	_expire_messages()
@@ -88,6 +94,7 @@ func _input(event: InputEvent) -> void:
 ## Send a radio transmission immediately.
 func transmit(sender: String, recipient: String, body: String) -> void:
 	_enqueue(sender, recipient, body)
+	_queue_citadel_voice_clip(sender, recipient, body)
 	transmitted.emit(sender, recipient, body)
 	print("[Radio] %s → %s: %s" % [sender, recipient, body])
 
@@ -148,9 +155,9 @@ func say_cas_order(flight_name: String) -> void:
 
 func say_rtb_order(flight_name: String) -> void:
 	var bodies := [
-		"RTB. Good hunting.",
+		"Return to base. Good hunting.",
 		"Return to base. The deck is ready.",
-		"Break off and RTB. Nice work.",
+		"Break off and return to base. Nice work.",
 	]
 	transmit("Citadel", "%s flight" % flight_name, _pick(bodies))
 	transmit_delayed("%s lead" % flight_name, "Citadel", _pick([
@@ -189,6 +196,100 @@ func say_taking_fire(callsign: String) -> void:
 	transmit(callsign, "Citadel", _pick(bodies))
 
 # ── Internal: message management ──────────────────────────────────────────────
+
+func _build_citadel_voice_library() -> void:
+	_citadel_voice_streams.clear()
+	var dir := DirAccess.open(CITADEL_AUDIO_DIR)
+	if dir == null:
+		push_warning("Citadel voice directory is unavailable: %s" % CITADEL_AUDIO_DIR)
+		return
+
+	for file_name in dir.get_files():
+		if not file_name.begins_with(CITADEL_AUDIO_PREFIX):
+			continue
+		var extension := file_name.get_extension().to_lower()
+		if extension != "wav" and extension != "ogg" and extension != "mp3":
+			continue
+		var base_name := file_name.get_basename()
+		var phrase := base_name.substr(CITADEL_AUDIO_PREFIX.length())
+		var key := _normalize_citadel_phrase(phrase)
+		var stream := load(CITADEL_AUDIO_DIR.path_join(file_name)) as AudioStream
+		if stream != null and not key.is_empty():
+			_citadel_voice_streams[key] = stream
+
+func _queue_citadel_voice_clip(sender: String, recipient: String, body: String) -> void:
+	if not use_citadel_voice_clips:
+		return
+	if sender != "Citadel":
+		return
+	var stream := _find_citadel_voice_stream(recipient, body)
+	if stream == null:
+		return
+	_citadel_voice_queue.append(stream)
+	_play_next_citadel_voice_clip()
+
+func _find_citadel_voice_stream(recipient: String, body: String) -> AudioStream:
+	var key := _normalize_citadel_phrase(body)
+	if _citadel_voice_streams.has(key):
+		return _citadel_voice_streams[key] as AudioStream
+
+	var flight_suffix := " flight"
+	if recipient.ends_with(flight_suffix):
+		var flight_name := recipient.substr(0, recipient.length() - flight_suffix.length())
+		if not flight_name.is_empty():
+			key = _normalize_citadel_phrase(body.replace(flight_name, "Archer"))
+			if _citadel_voice_streams.has(key):
+				return _citadel_voice_streams[key] as AudioStream
+
+	return null
+
+func _normalize_citadel_phrase(phrase: String) -> String:
+	var text := phrase.to_lower()
+	for punctuation in [".", ",", "!", "?", ":", ";", "-", "_", "'", "\""]:
+		text = text.replace(punctuation, " ")
+	text = text.replace("rtb", "return to base")
+
+	var input_tokens := text.split(" ", false)
+	var output_tokens := PackedStringArray()
+	var i := 0
+	while i < input_tokens.size():
+		var token := input_tokens[i]
+		if token == "angels" and i + 1 < input_tokens.size() and input_tokens[i + 1].is_valid_int():
+			i += 2
+			continue
+		if (token == "cap" or token == "cas" or token == "intercept") \
+				and i + 1 < input_tokens.size() and input_tokens[i + 1] == "mission":
+			i += 1
+			continue
+		if i + 1 < input_tokens.size() and input_tokens[i + 1] == "flight":
+			output_tokens.append("archer")
+		else:
+			output_tokens.append(token)
+		i += 1
+	return " ".join(output_tokens)
+
+func _play_next_citadel_voice_clip() -> void:
+	if _radio_voice_player == null:
+		return
+	if _radio_voice_player.playing:
+		return
+	if _citadel_voice_queue.is_empty():
+		return
+
+	var stream: AudioStream = _citadel_voice_queue.pop_front()
+	var stream_length := stream.get_length()
+	if stream_length <= 0.0:
+		stream_length = 2.5
+	_start_radio_static_for(radio_static_pre_roll_s + stream_length + radio_static_post_roll_s)
+
+	var pre_roll_timer := get_tree().create_timer(radio_static_pre_roll_s)
+	pre_roll_timer.timeout.connect(func() -> void:
+		if _radio_voice_player == null or _radio_voice_player.playing:
+			_citadel_voice_queue.push_front(stream)
+			return
+		_radio_voice_player.stream = stream
+		_radio_voice_player.play()
+	)
 
 func _enqueue(sender: String, recipient: String, body: String) -> void:
 	_messages.append({
@@ -356,6 +457,9 @@ func _estimate_radio_test_length() -> float:
 func _on_radio_voice_finished() -> void:
 	_radio_dropout_until_s = 0.0
 	_start_radio_static_for(radio_static_post_roll_s)
+	if not _citadel_voice_queue.is_empty():
+		var post_roll_timer := get_tree().create_timer(radio_static_post_roll_s)
+		post_roll_timer.timeout.connect(_play_next_citadel_voice_clip)
 
 # ── Internal: display construction ────────────────────────────────────────────
 
