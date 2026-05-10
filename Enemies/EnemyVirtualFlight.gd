@@ -41,7 +41,8 @@ var mission:         Mission = Mission.PATROL
 var vstate:          VState  = VState.VIRTUAL
 var active_aircraft: Array[Node3D] = []
 
-var _aircraft_scene:    PackedScene = null
+var _aircraft_slots:  Array[PackedScene] = []
+var _loadout_slots:   Array[String] = []     # "guns", "bombs", or "rockets" per slot
 var _patrol_waypoints:  Array[Vector3] = []
 var _patrol_wp_idx:     int = 0
 var _detection_timer:   float = 0.0
@@ -50,9 +51,11 @@ var _pending_reports:   Array[Dictionary] = []
 var _rng:               RandomNumberGenerator = RandomNumberGenerator.new()
 
 
-func setup(home_pos: Vector3, scene: PackedScene, start_angle: float = 0.0) -> void:
-	home_position  = home_pos
-	_aircraft_scene = scene
+func setup(home_pos: Vector3, aircraft_scenes: Array[PackedScene], loadouts: Array[String], start_angle: float = 0.0) -> void:
+	home_position   = home_pos
+	_aircraft_slots = aircraft_scenes.duplicate()
+	_loadout_slots  = loadouts.duplicate()
+	aircraft_count  = _aircraft_slots.size()
 	_rng.randomize()
 	_generate_patrol_waypoints(start_angle)
 	_patrol_wp_idx = _rng.randi() % maxi(_patrol_waypoints.size(), 1)
@@ -225,7 +228,7 @@ func _process_pending_reports(delta: float) -> void:
 # ── Materialize / dematerialize ───────────────────────────────────────────────
 
 func _check_materialize() -> void:
-	if _aircraft_scene == null or vstate == VState.ACTIVE:
+	if _aircraft_slots.is_empty() or vstate == VState.ACTIVE:
 		return
 	if _nearest_friendly_distance() <= ACTIVATE_RANGE_M:
 		_materialize()
@@ -237,73 +240,76 @@ func _check_dematerialize() -> void:
 
 
 func _materialize() -> void:
-	if _aircraft_scene == null or vstate == VState.ACTIVE:
+	if _aircraft_slots.is_empty() or vstate == VState.ACTIVE:
 		return
 	vstate = VState.ACTIVE
 	var scene_root := get_tree().current_scene
-	for i in range(aircraft_count):
-		var ac := _aircraft_scene.instantiate() as Node3D
+	var slot_count := _aircraft_slots.size()
+	for i in range(slot_count):
+		var scene := _aircraft_slots[i]
+		if scene == null:
+			continue
+		var ac := scene.instantiate() as Node3D
 		if ac == null:
 			continue
 		scene_root.add_child(ac)
 		ac.set_meta("faction_color", faction_color)
 		var spread := Vector3(
-			cos(float(i) * TAU / float(maxi(aircraft_count, 1))) * 110.0,
+			cos(float(i) * TAU / float(maxi(slot_count, 1))) * 110.0,
 			float(i) * 30.0,
-			sin(float(i) * TAU / float(maxi(aircraft_count, 1))) * 110.0
+			sin(float(i) * TAU / float(maxi(slot_count, 1))) * 110.0
 		)
 		ac.global_position = position + spread
 		if "linear_velocity" in ac:
 			ac.set("linear_velocity", heading * 75.0)
-		_configure_materialized_enemy_aircraft(ac)
+		var loadout := _loadout_slots[i] if i < _loadout_slots.size() else "guns"
+		_configure_materialized_enemy_aircraft(ac, loadout)
 		active_aircraft.append(ac)
-	# Immediate intel — we can see the player from here
 	_scan_for_contacts(true)
 	print("[EnemyVirtualFlight] %s materialized (%d ac) at %.0f,%.0f" % [
-		flight_name, aircraft_count, position.x, position.z])
+		flight_name, active_aircraft.size(), position.x, position.z])
 
 
-func _is_aircraft_3(ac: Node3D) -> bool:
-	if ac == null:
-		return false
-	if _aircraft_scene and String(_aircraft_scene.resource_path) == "res://Aircraft/Aircraft_3.tscn":
-		return true
-	return String(ac.scene_file_path) == "res://Aircraft/Aircraft_3.tscn"
-
-
-func _is_strike_or_missile_weapon(weapon_name: String) -> bool:
-	return weapon_name == "Bomb" or weapon_name == "Rocket Pod" or "Missile" in weapon_name
-
-
-func _strip_enemy_external_stores(ac: Node3D) -> void:
-	var strip_strike_stores := _is_aircraft_3(ac)
+func _strip_enemy_external_stores(ac: Node3D, loadout: String = "guns") -> void:
 	for hp in ac.find_children("*", "Hardpoint", true, false):
 		var hardpoint := hp as Hardpoint
 		if hardpoint == null or hardpoint.weapon_instance == null:
 			continue
-		var weapon_name := String(hardpoint.weapon_instance.weapon_name)
-		var should_strip := "Missile" in weapon_name
-		if strip_strike_stores and _is_strike_or_missile_weapon(weapon_name):
-			should_strip = true
+		var wname := String(hardpoint.weapon_instance.weapon_name)
+		var is_bomb   := wname == "Bomb"
+		var is_rocket := wname == "Rocket Pod"
+		var is_missile := "Missile" in wname
+		var should_strip := false
+		match loadout:
+			"guns":    should_strip = is_bomb or is_rocket or is_missile
+			"bombs":   should_strip = is_rocket or is_missile
+			"rockets": should_strip = is_bomb or is_missile
 		if should_strip:
 			hardpoint.weapon_instance.queue_free()
 			hardpoint.weapon_instance = null
 			hardpoint.mounted_weapon = null
-	# Re-categorise so ControlWeapons doesn't try to select the removed weapons
 	var cw := ac.find_child("ControlWeapons", true, false) as ControlWeapons
 	if cw:
 		cw.find_hardpoints()
 		cw.categorize_weapons()
-		# Default to the gun if available
-		var gun_idx := cw.weapon_types.find("Autocannon")
-		if gun_idx == -1:
-			gun_idx = 0
 		if cw.weapon_types.size() > 0:
-			cw.selected_weapon_type_index = gun_idx
-			cw.selected_weapon_type = cw.weapon_types[gun_idx]
+			var preferred: String
+			match loadout:
+				"bombs":   preferred = "Bomb"
+				"rockets": preferred = "Rocket Pod"
+				_:         preferred = "Guns"
+			var idx := cw.weapon_types.find(preferred)
+			if idx == -1:
+				idx = cw.weapon_types.find("Guns")
+			if idx == -1:
+				idx = cw.weapon_types.find("Autocannon")
+			if idx == -1:
+				idx = 0
+			cw.selected_weapon_type_index = idx
+			cw.selected_weapon_type = cw.weapon_types[idx]
 
 
-func _configure_materialized_enemy_aircraft(ac: Node3D) -> void:
+func _configure_materialized_enemy_aircraft(ac: Node3D, loadout: String = "guns") -> void:
 	if ac == null or not is_instance_valid(ac):
 		return
 	if ac.is_in_group("aircraft"):
@@ -325,8 +331,7 @@ func _configure_materialized_enemy_aircraft(ac: Node3D) -> void:
 		elif node is Node3D:
 			(node as Node3D).visible = false
 
-	_strip_enemy_external_stores(ac)
-	var is_clean_fighter := role == AircraftRole.FIGHTER and _is_aircraft_3(ac)
+	_strip_enemy_external_stores(ac, loadout)
 
 	var ai_toggle: Node = ac.find_child("AIToggle", true, false)
 	if ai_toggle and ai_toggle.has_method("enable_ai"):
@@ -334,34 +339,21 @@ func _configure_materialized_enemy_aircraft(ac: Node3D) -> void:
 
 	var ai_pilot := ac.find_child("AIPilot", true, false) as AIPilot
 	if ai_pilot:
-		# Enemy AI must patrol/engage relative to their own base, not the player carrier.
-		# enable_ai() incorrectly sets carrier_position to the player's Land Carrier
-		# (only node in the "carrier" group), which breaks patrol centres and engagement
-		# radius checks when the player is more than 4500 m from their own carrier.
 		ai_pilot.carrier_position = home_position
-		ai_pilot.waypoints.clear()           # force patrol to regenerate around home_position
-		ai_pilot.engagement_radius_from_carrier_m = 0.0  # no radius cap — chase freely
-		match role:
-			AircraftRole.FIGHTER:
-				ai_pilot.skill                = AIPilot.AIPilotSkill.ROOKIE
-				ai_pilot.dogfight_enabled     = true
-				ai_pilot.ground_attack_enabled = not is_clean_fighter
-			AircraftRole.BOMBER:
-				ai_pilot.skill                = AIPilot.AIPilotSkill.ROOKIE
-				ai_pilot.dogfight_enabled     = false
-				ai_pilot.ground_attack_enabled = true
-		ai_pilot.apply_skill_preset()
-		# If the aircraft is carrying bombs or rockets, override to full strike behaviour:
-		# ignore air threats and press the attack regardless of assigned role.
-		if _has_strike_weapons(ac):
+		ai_pilot.waypoints.clear()
+		ai_pilot.engagement_radius_from_carrier_m = 0.0
+		ai_pilot.skill = AIPilot.AIPilotSkill.ROOKIE
+		var is_strike := loadout in ["bombs", "rockets"]
+		if is_strike:
 			ai_pilot.dogfight_enabled = false
 			ai_pilot.dogfight_proximity_override_m = 0.0
 			ai_pilot.ground_attack_enabled = true
-		# Strike aircraft always start searching for ground targets.
-		# Fighters on INTERCEPT (no strike weapons) go straight to dogfight.
+		else:
+			ai_pilot.dogfight_enabled = true
+			ai_pilot.ground_attack_enabled = false
+		ai_pilot.apply_skill_preset()
 		var initial_state := AIPilot.State.DOGFIGHT \
-			if (role == AircraftRole.FIGHTER and mission == Mission.INTERCEPT \
-				and not _has_strike_weapons(ac)) \
+			if (not is_strike and mission == Mission.INTERCEPT) \
 			else AIPilot.State.SEARCH
 		ai_pilot.change_state(initial_state)
 

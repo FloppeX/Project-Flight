@@ -10,6 +10,7 @@ enum Mission {
 	NONE,
 	CAP,    ## Combat Air Patrol — orbit carrier, engage air threats only
 	CAS,    ## Close Air Support — attack ground targets in assigned area
+	INTERCEPT,
 	RTB,    ## Return all aircraft to carrier
 }
 
@@ -35,6 +36,10 @@ var _cap_route_lead_revision: int = -1
 var _cas_area_center: Vector3 = Vector3.ZERO
 var _cas_area_radius: float = 3000.0
 var _cas_altitude_m: float = 300.0
+
+var _intercept_target: Node3D = null
+var _intercept_carrier: Node3D = null
+var _intercept_altitude_m: float = 800.0
 
 signal mission_changed(new_mission: Mission)
 
@@ -208,6 +213,25 @@ func set_cas(area_center: Vector3, area_radius: float = 3000.0, altitude_m: floa
 	mission_changed.emit(mission)
 	print("[Flight %s] CAS  center=(%.0f,%.0f)  r=%.0fm" % [flight_name, area_center.x, area_center.z, area_radius])
 
+func set_intercept(target: Node3D, carrier: Node3D, altitude_m: float = 800.0) -> void:
+	mission = Mission.INTERCEPT
+	_mark_mission_dirty()
+	_intercept_target = target
+	_intercept_carrier = carrier
+	_intercept_altitude_m = altitude_m
+	_cap_carrier = carrier
+	_cap_altitude_m = altitude_m
+	_cap_route_points.clear()
+	_cap_route_lead = null
+	_cap_route_revision += 1
+	_cap_route_lead_revision = -1
+	_claimed_targets.clear()
+	for aircraft in get_members():
+		_apply_intercept(aircraft)
+	mission_changed.emit(mission)
+	var target_name: String = target.name if target and is_instance_valid(target) else "unknown"
+	print("[Flight %s] INTERCEPT  target=%s  alt=%.0fm" % [flight_name, target_name, altitude_m])
+
 func set_rtb() -> void:
 	mission = Mission.RTB
 	_mark_mission_dirty()
@@ -230,6 +254,8 @@ func _apply_current_mission(aircraft: Node3D) -> bool:
 			applied = _apply_cap(aircraft)
 		Mission.CAS:
 			applied = _apply_cas(aircraft)
+		Mission.INTERCEPT:
+			applied = _apply_intercept(aircraft)
 		Mission.RTB:
 			applied = _apply_rtb(aircraft)
 		_:
@@ -262,6 +288,21 @@ func _apply_cas(aircraft: Node3D) -> bool:
 	pilot.dogfight_enabled = true  # still defend themselves
 	pilot.set_patrol_altitude(_cas_altitude_m)
 	_clear_navigation_waypoints(pilot)
+	return true
+
+func _apply_intercept(aircraft: Node3D) -> bool:
+	var pilot := _get_pilot(aircraft)
+	if not pilot or _is_deck_busy(pilot):
+		return false
+	pilot.ground_attack_enabled = false
+	pilot.dogfight_enabled = true
+	pilot.set_patrol_altitude(_intercept_altitude_m)
+	if _intercept_target and is_instance_valid(_intercept_target):
+		pilot.set_target(_intercept_target)
+	else:
+		_clear_navigation_waypoints(pilot, true)
+		if pilot.current_state not in [AIPilot.State.SEARCH]:
+			pilot.change_state(AIPilot.State.SEARCH)
 	return true
 
 func _apply_rtb(aircraft: Node3D) -> bool:
@@ -305,11 +346,11 @@ func _update_cas_assignments() -> void:
 func _pick_unclaimed_target(from_pos: Vector3) -> Node3D:
 	var best: Node3D = null
 	var best_dist: float = INF
-	for node in get_tree().get_nodes_in_group("ground_vehicles"):
+	for node in _get_cas_target_nodes():
 		if not is_instance_valid(node):
 			continue
-		if node.has_method("get_team") and int(node.get_team()) == 1:
-			continue  # skip friendlies
+		if not _is_valid_cas_target(node):
+			continue
 		if _claimed_targets.has(node):
 			continue  # already claimed by a flight-mate
 		var flat_dist := Vector2(node.global_position.x - _cas_area_center.x,
@@ -321,6 +362,36 @@ func _pick_unclaimed_target(from_pos: Vector3) -> Node3D:
 			best_dist = d
 			best = node
 	return best
+
+func _get_cas_target_nodes() -> Array[Node3D]:
+	if AirOpsManager != null and is_instance_valid(AirOpsManager) and AirOpsManager.has_method("get_reported_ground_targets"):
+		var reported: Array = AirOpsManager.get_reported_ground_targets(_cas_area_center, _cas_area_radius)
+		var reported_targets: Array[Node3D] = []
+		for node in reported:
+			if node is Node3D and is_instance_valid(node as Node3D):
+				reported_targets.append(node as Node3D)
+		return reported_targets
+	var result: Array[Node3D] = []
+	for group_name in ["ground_vehicles", "gun_emplacements", "buildings", "enemy_bases"]:
+		for node in get_tree().get_nodes_in_group(group_name):
+			if node is Node3D and is_instance_valid(node as Node3D) and not result.has(node):
+				result.append(node as Node3D)
+	return result
+
+func _is_valid_cas_target(node: Node3D) -> bool:
+	if node == null or not is_instance_valid(node):
+		return false
+	if node.has_method("get_team") and int(node.get_team()) == 1:
+		return false
+	if node.is_in_group("carrier"):
+		return false
+	if node.is_in_group("ground_vehicles"):
+		return true
+	if node.is_in_group("gun_emplacements") or node.is_in_group("buildings") or node.is_in_group("enemy_bases"):
+		if node.has_method("get_team"):
+			return int(node.get_team()) != 1
+		return node.is_in_group("enemies") or node.is_in_group("enemy_bases")
+	return false
 
 func _prune_stale_claims(report_splashes: bool) -> void:
 	var stale_claims: Array = []
@@ -661,6 +732,12 @@ func get_mission_map_points() -> Array[Vector3]:
 			return []
 		Mission.CAS:
 			return [_cas_area_center]
+		Mission.INTERCEPT:
+			if _intercept_target and is_instance_valid(_intercept_target):
+				return [_intercept_target.global_position]
+			if _intercept_carrier and is_instance_valid(_intercept_carrier):
+				return [_intercept_carrier.global_position]
+			return []
 		Mission.RTB:
 			if _cap_carrier and is_instance_valid(_cap_carrier):
 				return [_cap_carrier.global_position]

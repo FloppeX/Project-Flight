@@ -19,6 +19,22 @@ func _ready():
 	ModuleType = "targeting"
 
 func receive_input(event):
+	if event != null and event.is_action_pressed("target_next", false, true):
+		target_next()
+		return
+	if event != null and event.is_action_pressed("target_prev", false, true):
+		target_prev()
+		return
+
+	if event is InputEventJoypadButton and event.pressed:
+		var button_event: InputEventJoypadButton = event as InputEventJoypadButton
+		if button_event.button_index == JOY_BUTTON_DPAD_RIGHT:
+			target_next()
+			return
+		if button_event.button_index == JOY_BUTTON_DPAD_LEFT:
+			target_prev()
+			return
+
 	if not enable_legacy_keyboard_shortcuts:
 		return
 	if event is InputEventKey and event.pressed and not event.echo:
@@ -90,7 +106,7 @@ func _update_best_target_if_needed():
 					best_dist = d2
 					nearest = e2
 		if nearest:
-			current_target = nearest
+			set_target(nearest)
 			if debug_enabled:
 				print("[Targeting] relaxed selected ", current_target.name, " dist=", int(best_dist))
 		return
@@ -174,29 +190,28 @@ func _cycle_target(direction: int):
 	if enemies.size() == 0:
 		clear_target()
 		return
-	# Build list in-cone for cycling
-	var forward: Vector3 = aircraft.global_transform.basis.z
+	# Cycle through all hostiles in range; manual switching should not require nose-on aspect.
 	var origin: Vector3 = aircraft.global_position
-	var cos_half := cos(deg_to_rad(fov_cone_deg * 0.5))
-	var in_cone := []
+	var candidates := []
 	for e in enemies:
 		if e and is_instance_valid(e):
 			var to_vec: Vector3 = e.global_position - origin
-			if to_vec.length() <= max_range_m and to_vec.length() > 0.1:
-				var dir: Vector3 = to_vec.normalized()
-				if forward.dot(dir) >= cos_half:
-					in_cone.append(e)
-	if in_cone.size() == 0:
+			var dist: float = to_vec.length()
+			if dist <= max_range_m and dist > 0.1:
+				candidates.append({"node": e, "dist": dist})
+	if candidates.size() == 0:
 		clear_target()
 		return
+	candidates.sort_custom(func(a, b): return a["dist"] < b["dist"])
+	var sorted: Array = candidates.map(func(c): return c["node"])
 	if not current_target or not is_instance_valid(current_target):
-		set_target(in_cone[0])
+		set_target(sorted[0])
 		return
-	var idx := in_cone.find(current_target)
+	var idx := sorted.find(current_target)
 	if idx == -1:
-		set_target(in_cone[0])
+		set_target(sorted[0])
 		return
-	idx = (idx + direction) % in_cone.size()
+	idx = (idx + direction) % sorted.size()
 	if idx < 0:
-		idx += in_cone.size()
-	set_target(in_cone[idx])
+		idx += sorted.size()
+	set_target(sorted[idx])

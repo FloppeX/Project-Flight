@@ -16,6 +16,7 @@ var current_look: Vector3 = Vector3.ZERO
 var base_position: Vector3
 var g_force_offset: Vector3 = Vector3.ZERO
 var last_velocity: Vector3 = Vector3.ZERO
+var nv_active: bool = false
 
 func _ready():
 	base_position = position
@@ -67,6 +68,10 @@ func _physics_process(delta: float):
 
 	# Clamp maximum offset
 	target_offset = target_offset.limit_length(max_g_offset)
+
+	# Suppress g-force displacement while NV is active so the HUD overlay stays locked
+	if nv_active:
+		target_offset = Vector3.ZERO
 
 	# Smooth camera movement independently by axis
 	g_force_offset.x = lerp(g_force_offset.x, target_offset.x, g_force_smoothing_horizontal * delta)

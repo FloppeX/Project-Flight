@@ -38,6 +38,9 @@ enum ObjectiveType {
 @export var contact_anchor_distance_m: float = 220.0
 @export var contact_anchor_search_samples: int = 12
 @export var route_preview_repath_interval_s: float = 2.5
+@export_group("Night Combat Penalties")
+@export_range(0.1, 1.0, 0.05) var night_hostile_search_range_multiplier: float = 0.65
+@export_group("")
 
 var protected_node: Node3D = null
 var attack_node: Node3D = null
@@ -53,6 +56,9 @@ var _member_combat_cache: bool = false
 var _member_combat_cache_at_ms: int = 0
 var _member_speed_cache_mps: float = 0.0
 var _member_speed_cache_at_ms: int = 0
+var _cached_day_night_cycle: Node = null
+var _cached_ai_darkness_factor: float = 0.0
+var _ai_darkness_cache_at_ms: int = -100000
 var _contact_world_position: Vector3 = Vector3.INF
 var _contact_path_positions: Array[Vector3] = []
 var _contact_path_index: int = 0
@@ -445,6 +451,7 @@ func _find_shared_hostile(cache_key: String, origin: Vector3, range_limit: float
 	return _shared_hostile_cache_target
 
 func _find_nearest_hostile(origin: Vector3, range_limit: float, excluded_node: Node3D = null) -> Node3D:
+	range_limit *= _get_night_hostile_search_range_multiplier()
 	var best_target: Node3D = null
 	var best_distance: float = maxf(range_limit, 1.0)
 	for group_name in ["ground_vehicles", "aircraft", "ai_aircraft", "friendlies", "enemies", "carrier"]:
@@ -463,6 +470,23 @@ func _find_nearest_hostile(origin: Vector3, range_limit: float, excluded_node: N
 				best_distance = dist
 				best_target = node3d
 	return best_target
+
+func _get_ai_darkness_factor() -> float:
+	var now_ms: int = Time.get_ticks_msec()
+	if now_ms - _ai_darkness_cache_at_ms <= 500:
+		return _cached_ai_darkness_factor
+	_ai_darkness_cache_at_ms = now_ms
+	if not is_instance_valid(_cached_day_night_cycle):
+		_cached_day_night_cycle = get_tree().get_first_node_in_group("day_night_cycle")
+	var cycle := _cached_day_night_cycle
+	if cycle != null and cycle.has_method("get_ai_darkness_factor"):
+		_cached_ai_darkness_factor = clampf(float(cycle.call("get_ai_darkness_factor")), 0.0, 1.0)
+	else:
+		_cached_ai_darkness_factor = 0.0
+	return _cached_ai_darkness_factor
+
+func _get_night_hostile_search_range_multiplier() -> float:
+	return lerpf(1.0, night_hostile_search_range_multiplier, _get_ai_darkness_factor())
 
 func _is_air_movement_target(target: Node3D) -> bool:
 	return target != null and (target.is_in_group("aircraft") or target.is_in_group("ai_aircraft"))

@@ -34,6 +34,12 @@ signal destroyed
 @export var ground_clearance: float = 0.25
 @export var ground_probe_up: float = 50.0
 @export var ground_probe_down: float = 2000.0
+## Heightmap safety is disabled near abrupt cliff lips so canyon entries do not
+## falsely crash while the visible/physical terrain is still clear.
+@export var terrain_safety_cliff_guard_radius_m: float = 24.0
+@export var terrain_safety_max_height_variation_m: float = 18.0
+@export var terrain_safety_cliff_guard_cache_frames: int = 6
+@export var terrain_safety_cliff_guard_cache_distance_m: float = 18.0
 @export var belly_land_max_vertical_speed: float = 6.0
 @export var belly_land_max_total_speed: float = 80.0
 @export var belly_align_tolerance_deg: float = 25.0
@@ -70,6 +76,16 @@ const DEFAULT_COCKPIT_PILOT_SCENE: PackedScene = preload("res://Models/Character
 const DEFAULT_COCKPIT_PILOT_POSE_SCRIPT: Script = preload("res://Aircraft/PilotPose.gd")
 const COCKPIT_PILOT_NODE_NAME: StringName = &"CockpitPilot"
 const AIRCRAFT_DEBRIS_CHUNK_SCRIPT: Script = preload("res://Aircraft/AircraftDebrisChunk.gd")
+const TERRAIN_SAFETY_SAMPLE_DIRECTIONS := [
+	Vector2(1.0, 0.0),
+	Vector2(-1.0, 0.0),
+	Vector2(0.0, 1.0),
+	Vector2(0.0, -1.0),
+	Vector2(0.70710678, 0.70710678),
+	Vector2(-0.70710678, 0.70710678),
+	Vector2(0.70710678, -0.70710678),
+	Vector2(-0.70710678, -0.70710678),
+]
 
 @export_group("Cockpit Pilot")
 @export var spawn_cockpit_pilot: bool = true
@@ -120,6 +136,10 @@ var _jam_pitch_input: float = 0.0
 var _jam_steering_module: Node = null
 var _jam_simple_aero: Node = null
 var _has_exploded: bool = false
+var _terrain_safety_cache_frame: int = -1000000
+var _terrain_safety_cache_pos: Vector3 = Vector3.INF
+var _terrain_safety_cache_center_ground_y: float = NAN
+var _terrain_safety_cache_result: bool = true
 
 func _ready():
 	await get_tree().process_frame
@@ -370,7 +390,9 @@ func _is_below_terrain() -> bool:
 	var ground_y: float = _get_ground_height_at_position(global_position)
 	if is_nan(ground_y):
 		return false
-	return global_position.y < ground_y - 0.01
+	if global_position.y >= ground_y - 0.01:
+		return false
+	return _is_heightmap_ground_stable_for_safety(global_position, ground_y)
 
 func _evaluate_terrain_impact_normal() -> Vector3:
 	# Try to get terrain normal beneath aircraft by raycast down
@@ -438,6 +460,8 @@ func _enforce_above_terrain():
 		return
 	var min_y: float = ground_y + ground_clearance
 	if global_position.y < min_y:
+		if not _is_heightmap_ground_stable_for_safety(global_position, ground_y):
+			return
 		# Aircraft penetrated terrain - crash (no more rescuing by snapping back up)
 		explode()
 
@@ -449,14 +473,9 @@ func _get_ground_height_at_position(world_pos: Vector3) -> float:
 	# then fallback to a raycast.
 	var terrain: Node = _get_cached_terrain_node()
 	if terrain:
-		if terrain.has_method("get_height"):
-			var h = terrain.get_height(world_pos)
-			if typeof(h) == TYPE_FLOAT and not is_nan(float(h)):
-				return float(h)
-		if "data" in terrain and terrain.data and terrain.data.has_method("get_height"):
-			var h2 = terrain.data.get_height(world_pos)
-			if typeof(h2) == TYPE_FLOAT and not is_nan(float(h2)):
-				return float(h2)
+		var terrain_h: float = _get_terrain_height_api(terrain, world_pos)
+		if not is_nan(terrain_h):
+			return terrain_h
 
 	var space_state: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
 	var from: Vector3 = world_pos + Vector3.UP * ground_probe_up
@@ -468,6 +487,69 @@ func _get_ground_height_at_position(world_pos: Vector3) -> float:
 	if hit and hit.has("position"):
 		return float(hit.position.y)
 	return NAN
+
+func _get_terrain_height_api(terrain: Node, world_pos: Vector3) -> float:
+	if terrain == null:
+		return NAN
+	if terrain.has_method("get_height"):
+		var h = terrain.get_height(world_pos)
+		if (typeof(h) == TYPE_FLOAT or typeof(h) == TYPE_INT) and not is_nan(float(h)):
+			return float(h)
+	if "data" in terrain and terrain.data and terrain.data.has_method("get_height"):
+		var h2 = terrain.data.get_height(world_pos)
+		if (typeof(h2) == TYPE_FLOAT or typeof(h2) == TYPE_INT) and not is_nan(float(h2)):
+			return float(h2)
+	return NAN
+
+func _is_heightmap_ground_stable_for_safety(world_pos: Vector3, center_ground_y: float) -> bool:
+	var radius: float = maxf(terrain_safety_cliff_guard_radius_m, 0.0)
+	if radius <= 0.0:
+		return true
+	var terrain: Node = _get_cached_terrain_node()
+	if terrain == null:
+		return true
+	var frame: int = Engine.get_physics_frames()
+	var cache_frames: int = maxi(terrain_safety_cliff_guard_cache_frames, 0)
+	var cache_dist_sq: float = terrain_safety_cliff_guard_cache_distance_m * terrain_safety_cliff_guard_cache_distance_m
+	if frame - _terrain_safety_cache_frame <= cache_frames:
+		var dx: float = world_pos.x - _terrain_safety_cache_pos.x
+		var dz: float = world_pos.z - _terrain_safety_cache_pos.z
+		if dx * dx + dz * dz <= cache_dist_sq and absf(center_ground_y - _terrain_safety_cache_center_ground_y) <= terrain_safety_max_height_variation_m:
+			return _terrain_safety_cache_result
+	if TerrainNavGrid.has_query_grid():
+		var result_from_query: bool = TerrainNavGrid.is_heightmap_safe_for_aircraft(
+			world_pos.x,
+			world_pos.z,
+			terrain_safety_max_height_variation_m
+		)
+		_terrain_safety_cache_frame = frame
+		_terrain_safety_cache_pos = world_pos
+		_terrain_safety_cache_center_ground_y = center_ground_y
+		_terrain_safety_cache_result = result_from_query
+		return result_from_query
+	var min_h: float = center_ground_y
+	var max_h: float = center_ground_y
+	var result: bool = true
+	for dir in TERRAIN_SAFETY_SAMPLE_DIRECTIONS:
+		var sample_pos := Vector3(
+			world_pos.x + dir.x * radius,
+			world_pos.y,
+			world_pos.z + dir.y * radius
+		)
+		var sample_h: float = _get_terrain_height_api(terrain, sample_pos)
+		if is_nan(sample_h):
+			result = false
+			break
+		min_h = minf(min_h, sample_h)
+		max_h = maxf(max_h, sample_h)
+		if max_h - min_h > terrain_safety_max_height_variation_m:
+			result = false
+			break
+	_terrain_safety_cache_frame = frame
+	_terrain_safety_cache_pos = world_pos
+	_terrain_safety_cache_center_ground_y = center_ground_y
+	_terrain_safety_cache_result = result
+	return result
 
 func _get_carrier_reference_ground_y() -> float:
 	var carrier: Node3D = get_tree().get_first_node_in_group("carrier") as Node3D

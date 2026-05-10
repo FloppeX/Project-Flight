@@ -32,10 +32,23 @@ The player pushes into enemy-controlled territory, launches and recovers aircraf
 
 ## Current Status
 
-**Last Updated:** 2026-05-03
+**Last Updated:** 2026-05-10
 **Godot Version:** 4.4.1.stable.official.49a5bc7b6
 **Project Health:** PLAYABLE
 **Control Mode:** AI-by-default with viewed-aircraft player/AI toggle (game controller + keyboard parity in pause/menu flows)
+
+### Recent Changes (2026-05-10)
+
+- Night vision overlay lock: the cockpit NV `CanvasLayer` projection now uses the camera and HUD glass interpolated render transforms instead of raw physics transforms, addressing the high-G HUDglass-relative drift seen with physics interpolation enabled. NV now also only activates the cockpit camera's `nv_active` stabilizer while the player's own cockpit camera is the active viewport camera, preventing stale player-cockpit overlay/stabilizer state when cycling to other views. This still needs a live high-G visual pass to fully validate.
+- Night vision target-feed sync: `I` is now handled only by the currently active cockpit overlay, and that overlay drives the instrument panel attached to the same aircraft instead of whichever panel happens to be first in the global `instrument_panel` group. The target-camera shader also remembers pending NV state before its material exists, so the HUD overlay and target feed should toggle together reliably.
+- Night combat penalties: `DayNightCycle` now exposes an AI darkness factor derived from sun/ambient/sky energy. AI pilots have reduced sensor range, slower contact refresh, shorter effective dogfight range, stricter gun/rocket fire gates, and less tolerance for stale long-time-of-flight shots as darkness increases. Turret controllers now search and solve aim more slowly at night, detect at shorter range, and apply lower effective aim skill/noisier tracking. Ground platoons also shorten hostile pursuit/search radius at night.
+
+### Recent Changes (2026-05-08)
+
+- Night vision overlay: pressing `I` in cockpit view enables a green NV mode rendered as a `CanvasLayer` `Polygon2D` projected onto the HUDglass mesh; the shader applies luminance gain, gamma, heavy scanlines, fine per-frame grain, smooth value-noise coarse grain (no rectangular artefacts), vignette falloff, and occasional horizontal scan-line artefacts for a worn-tube feel; NV is cockpit-only and hides in all other camera modes.
+- Instrument panel target camera NV: the existing target-display `ShaderMaterial` was extended with `nv_enabled`, `nv_gain`, `nv_gamma`, and `nv_noise` uniforms; toggling NV also switches the instrument panel target feed to the same green NV look.
+- `CockpitCamera.gd`: added `nv_active` flag; when set, the g-force position offset smoothly returns to zero so the cockpit camera stays at its base position during NV use.
+- Previous known issue: NV overlay position relative to the HUD glass was not fully stable during high-G manoeuvres; this has been patched by projecting from interpolated render transforms, but should be live-tested before treating it as fully proven.
 
 ### Recent Changes (2026-05-03)
 
@@ -133,6 +146,7 @@ Example project launch from this repo root:
 | Targeting | Working | HUD target box, sensor cone |
 | HUD | Working | Radar, instruments, CCIP, terrain map overlay on radar; cockpit radar scope remains circular and masked correctly; main gunsight uses HUD-glass collimation/boresight projection; FPV symbol shows actual velocity vector with dotted boresight linkage; rotating attitude pitch ladder (horizon-level) with side ticks is now integrated, and boxed speed/altitude readouts were repositioned upward for better readability; the cockpit terrain map now uses the same live terrain bounds/origin convention as the `M` tactical map and a tighter 3.5 km range so it no longer drifts out of sync |
 | Camera System | Working | Multiple camera modes, free-fly debug camera, delayed death-camera handoff; chase camera now orbits the aircraft on a level horizontal plane; the old bridge cam has been replaced by a first-person commander view inside the carrier bridge; stick-click zoom is available in commander view and in the cockpit camera, including while viewing an AI-controlled aircraft |
+| Night Vision / Night Combat | Partial | `I` toggles NV in cockpit view; green phosphor shader with scanlines, grain, vignette, and scan artefacts; instrument panel target feed also switches to NV; high-G overlay drift has been addressed by projecting from interpolated render transforms, but still needs live visual validation; AI pilots, turrets, and ground platoons now take moderate darkness penalties to detection, tracking, and firing |
 | Cockpit Audio | Partial | Each aircraft now has its own interior loop plus cockpit-only wind / air-rush layers with crash-aware shutdown, reduced in-cockpit stereo spread, and stronger interior filtering; air-rush/wind gain has been reduced so propeller/interior sound is more audible, but the cockpit/exterior balance is still being tuned |
 | Destruction | Working | Aircraft now enter a critical-damage death state at `0 HP`: player control is disabled, stick inputs jam to random max directions, and each second rolls explosion chance (`10%` default); final breakup now emits dark rigid debris chunks with smoke trails that self-clean on terrain contact; ParticleManager still manages smoke lifecycle |
 | Damage Effects | Working | 3-tier progressive damage system: hydraulic/fuel/flap failures, engine cap/control loss/HUD flicker, engine sputter/structural failure/HUD blackout; escalating smoke trails |

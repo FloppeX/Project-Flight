@@ -1,10 +1,13 @@
-[gd_scene load_steps=3 format=3 uid="uid://cn0n757m62w08"]
+[gd_scene format=3 uid="uid://cn0n757m62w08"]
 
 [ext_resource type="Script" uid="uid://cb3wjh1t75o32" path="res://Weapons/RocketPod/rocket_pod.gd" id="1_script"]
 [ext_resource type="PackedScene" uid="uid://cgaapny53wu15" path="res://Weapons/RocketPod/rocket pod.glb" id="2_model"]
 
-[node name="RocketPod" type="Node3D"]
+[node name="RocketPod" type="Node3D" unique_id=262664900]
 script = ExtResource("1_script")
 ammo_count = 16
 
-[node name="RocketPodModel" parent="." instance=ExtResource("2_model")]
+[node name="RocketPodModel" parent="." unique_id=1729600456 instance=ExtResource("2_model")]
+
+[node name="AttachmentPoint" type="Node3D" parent="." unique_id=297406181]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.17888433, 0)

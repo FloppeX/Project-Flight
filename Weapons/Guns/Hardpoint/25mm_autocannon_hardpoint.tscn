@@ -1,18 +1,21 @@
-[gd_scene load_steps=4 format=3 uid="uid://cldno3ei7eqts"]
+[gd_scene format=3 uid="uid://cldno3ei7eqts"]
 
 [ext_resource type="Script" uid="uid://cc5i2s0mvs378" path="res://Weapons/Autocannon/autocannon.gd" id="1_script"]
 [ext_resource type="Resource" path="res://Weapons/Guns/Profiles/25mm_autocannon.tres" id="2_profile"]
 [ext_resource type="PackedScene" uid="uid://dr7y73fakllbg" path="res://Models/Weapons/machine gun low poly.glb" id="3_model"]
 
-[node name="25mmAutocannonHardpoint" type="Node3D"]
+[node name="25mmAutocannonHardpoint" type="Node3D" unique_id=2112356839]
 script = ExtResource("1_script")
 gun_profile = ExtResource("2_profile")
 
-[node name="GunModel" parent="." instance=ExtResource("3_model")]
+[node name="GunModel" parent="." unique_id=1441835832 instance=ExtResource("3_model")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.182019, -0.146, 0.605749)
 
-[node name="BulletSpawnPoint" type="Node3D" parent="."]
+[node name="BulletSpawnPoint" type="Node3D" parent="." unique_id=1593924948]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.182019, -0.146, 1.35)
 
-[node name="BulletSpawnPoint2" type="Node3D" parent="."]
+[node name="BulletSpawnPoint2" type="Node3D" parent="." unique_id=1280458994]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1.4658)
+
+[node name="AttachmentPoint" type="Node3D" parent="." unique_id=1248075757]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.092087016, 0)

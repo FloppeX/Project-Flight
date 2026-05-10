@@ -11,5 +11,7 @@ gun_profile = ExtResource("2_profile")
 [node name="GunModel" parent="." instance=ExtResource("3_model")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.182019, -0.146, 0.605749)
 
+[node name="AttachmentPoint" type="Node3D" parent="."]
+
 [node name="BulletSpawnPoint" type="Node3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.182019, -0.146, 1.35)

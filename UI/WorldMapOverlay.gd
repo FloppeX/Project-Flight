@@ -41,7 +41,10 @@ enum AssetKind {
 	NONE,
 	FLIGHT,
 	PLATOON,
+	CARRIER,
 }
+
+const VECTOR_CARRIER_COLOR: Color = Color(0.62, 0.92, 1.0, 1.0)
 
 var _root: Control
 var _backdrop: ColorRect
@@ -50,6 +53,7 @@ var _header_title: Label
 var _header_subtitle: Label
 
 var _left_panel: ColorRect
+var _carrier_button: Button
 var _asset_title: Label
 var _asset_scroll: ScrollContainer
 var _asset_sections: VBoxContainer
@@ -153,6 +157,9 @@ func _build_ui() -> void:
 
 	_left_panel = _make_panel(VECTOR_PANEL_BG)
 	_root.add_child(_left_panel)
+	_carrier_button = _make_button("CARRIER", VECTOR_CARRIER_COLOR, ASSET_BUTTON_HEIGHT_PX, 16)
+	_carrier_button.pressed.connect(_select_asset.bind(AssetKind.CARRIER, "Carrier"))
+	_left_panel.add_child(_carrier_button)
 	_asset_title = _make_label("FLIGHTS", 16, VECTOR_AMBER_COLOR)
 	_left_panel.add_child(_asset_title)
 	_asset_scroll = ScrollContainer.new()
@@ -271,22 +278,23 @@ func _layout_ui() -> void:
 	var left_inner_x: float = 18.0
 	var left_inner_w: float = _left_panel.size.x - left_inner_x * 2.0
 	var left_y: float = 16.0
+	_carrier_button.position = Vector2(left_inner_x, left_y)
+	_carrier_button.size = Vector2(left_inner_w, ASSET_BUTTON_HEIGHT_PX)
+	left_y += ASSET_BUTTON_HEIGHT_PX + SECTION_GAP_PX
 	_asset_title.position = Vector2(left_inner_x, left_y)
 	_asset_title.size = Vector2(left_inner_w, 20.0)
 	left_y += 28.0
 	var show_mission_panel: bool = _selected_asset_kind != AssetKind.NONE
 	_mission_title.visible = show_mission_panel
 	_mission_list.visible = show_mission_panel
-	var asset_height: float = clampf(_left_panel.size.y * 0.42, 180.0, 340.0)
+	var draft_reserved: float = 24.0 + 56.0 + BUTTON_HEIGHT_PX * 2.0 + 18.0 + SECTION_GAP_PX
+	var asset_height: float
 	if show_mission_panel:
 		var mission_height: float = _get_mission_panel_height()
-		var mission_min_top: float = left_y + 180.0 + SECTION_GAP_PX
-		var mission_target_top: float = maxf(_left_panel.size.y * 0.5, mission_min_top)
-		var draft_reserved_height: float = 24.0 + 56.0 + BUTTON_HEIGHT_PX * 2.0 + 18.0
-		var mission_reserved_height: float = 28.0 + mission_height + SECTION_GAP_PX
-		var mission_max_top: float = _left_panel.size.y - mission_reserved_height - draft_reserved_height
-		var mission_top: float = clampf(mission_target_top, mission_min_top, maxf(mission_min_top, mission_max_top))
-		asset_height = maxf(180.0, mission_top - left_y - SECTION_GAP_PX)
+		var mission_reserved: float = 28.0 + mission_height + SECTION_GAP_PX
+		asset_height = maxf(_left_panel.size.y - left_y - mission_reserved - draft_reserved - SECTION_GAP_PX, 180.0)
+	else:
+		asset_height = maxf(_left_panel.size.y - left_y - draft_reserved - SECTION_GAP_PX, 180.0)
 	_asset_scroll.position = Vector2(left_inner_x, left_y)
 	_asset_scroll.size = Vector2(left_inner_w, asset_height)
 	_asset_sections.custom_minimum_size = Vector2(left_inner_w - 12.0, 0.0)
@@ -418,6 +426,12 @@ func _refresh_ui(force_rebuild: bool = false) -> void:
 	_refresh_map_overlays()
 
 func _refresh_asset_button_states() -> void:
+	if _carrier_button != null:
+		var carrier_selected := _selected_asset_kind == AssetKind.CARRIER
+		var carrier_status := _get_asset_status(AssetKind.CARRIER, "Carrier")
+		_carrier_button.text = _format_asset_button_text(carrier_status) if not carrier_status.is_empty() else "CARRIER"
+		_carrier_button.disabled = carrier_status.is_empty()
+		_style_button(_carrier_button, VECTOR_CARRIER_COLOR, carrier_selected, carrier_status.is_empty())
 	for entry in _asset_buttons:
 		var kind: AssetKind = entry["kind"]
 		var name: String = entry["name"]
@@ -455,7 +469,7 @@ func _refresh_mission_button_states() -> void:
 func _refresh_info_panel() -> void:
 	var status := _get_selected_asset_status()
 	if status.is_empty():
-		_info_body.text = "No asset selected.\n\nPick a flight or platoon on the left, then choose a mission and use the map to place its target."
+		_info_body.text = "No asset selected.\n\nPick the Carrier, a flight, or a platoon on the left, then choose a mission and use the map to place its target."
 		_command_prompt.text = "CMD> SELECT ASSET"
 		return
 	_info_body.text = _format_asset_info(status)
@@ -500,7 +514,7 @@ func _refresh_map_hint() -> void:
 		_ensure_map_texture()
 	var status := _get_selected_asset_status()
 	if _selected_asset_kind == AssetKind.NONE:
-		_map_hint.text = "Select a flight or platoon to issue a command."
+		_map_hint.text = "Select the Carrier, a flight, or a platoon to issue a command."
 		return
 	if _selected_asset_kind == AssetKind.FLIGHT and String(status.get("mission", "")) == "CAP" and _selected_mission_id.is_empty():
 		_map_hint.text = "Selected CAP route: drag nodes to move, left-click a route segment to add a node, right-click a node to remove it."
@@ -538,7 +552,7 @@ func _refresh_map_overlays() -> void:
 	var selection_accent := VECTOR_TEXT_COLOR if _selected_asset_kind == AssetKind.FLIGHT else VECTOR_AMBER_COLOR
 	_symbol_layer.call("set_selection_focus", position, selection_accent)
 	var editing_flight_route: bool = _selected_asset_kind == AssetKind.FLIGHT and _selected_mission_id == "CAP" and not _draft_points.is_empty()
-	if _selected_asset_kind == AssetKind.FLIGHT and not editing_flight_route:
+	if (_selected_asset_kind == AssetKind.FLIGHT and not editing_flight_route) or _selected_asset_kind == AssetKind.CARRIER:
 		var mission_points_variant = status.get("mission_map_points", [])
 		var mission_points: Array = mission_points_variant if mission_points_variant is Array else []
 		if not mission_points.is_empty():
@@ -587,6 +601,8 @@ func _confirm_draft() -> void:
 			_confirm_flight_order()
 		AssetKind.PLATOON:
 			_confirm_platoon_order()
+		AssetKind.CARRIER:
+			_confirm_carrier_order()
 		_:
 			return
 	_selected_mission_id = ""
@@ -625,6 +641,21 @@ func _confirm_platoon_order() -> void:
 			GroundOpsManager.order_hold(_selected_asset_name)
 		"RTB":
 			GroundOpsManager.order_rtb(_selected_asset_name)
+
+func _confirm_carrier_order() -> void:
+	var carrier := get_tree().get_first_node_in_group("carrier") as Node3D
+	if carrier == null or not is_instance_valid(carrier):
+		return
+	match _selected_mission_id:
+		"MOVE":
+			if _draft_points.is_empty():
+				return
+			if carrier.has_method("set_patrol_waypoints"):
+				carrier.call("set_patrol_waypoints", _draft_points.duplicate())
+		"HOLD":
+			if carrier.has_method("set_patrol_waypoints"):
+				carrier.call("set_patrol_waypoints", [carrier.global_position])
+
 
 func _cancel_draft() -> void:
 	_selected_mission_id = ""
@@ -678,6 +709,21 @@ func _get_asset_status(kind: AssetKind, asset_name: String) -> Dictionary:
 			return AirOpsManager.get_flight_status(asset_name)
 		AssetKind.PLATOON:
 			return GroundOpsManager.get_platoon_status(asset_name)
+		AssetKind.CARRIER:
+			var carrier := get_tree().get_first_node_in_group("carrier") as Node3D
+			if carrier == null or not is_instance_valid(carrier):
+				return {}
+			var waypoints: Array[Vector3] = []
+			if carrier.has_method("get_active_waypoints"):
+				waypoints = carrier.call("get_active_waypoints")
+			return {
+				"name": "Carrier",
+				"kind": "carrier",
+				"position": carrier.global_position,
+				"active_waypoints": waypoints,
+				"mission_map_points": waypoints,
+				"mission_map_closed_loop": false,
+			}
 		_:
 			return {}
 
@@ -700,6 +746,11 @@ func _get_selected_mission_specs() -> Array[Dictionary]:
 				{"id": "ESCORT", "label": "> ESCORT", "accent": VECTOR_TEXT_COLOR},
 				{"id": "RTB", "label": "> RTB", "accent": VECTOR_AMBER_COLOR},
 				{"id": "HOLD", "label": "> HOLD", "accent": VECTOR_STATUS_COLOR},
+			]
+		AssetKind.CARRIER:
+			return [
+				{"id": "MOVE", "label": "> NAVIGATE TO", "accent": VECTOR_CARRIER_COLOR},
+				{"id": "HOLD", "label": "> HOLD POSITION", "accent": VECTOR_AMBER_COLOR},
 			]
 		_:
 			return []
@@ -801,6 +852,19 @@ func _format_asset_button_text(status: Dictionary) -> String:
 func _format_asset_info(status: Dictionary) -> String:
 	var lines: Array[String] = []
 	lines.append(status.get("name", "UNIT").to_upper())
+	if status.get("kind", "") == "carrier":
+		lines.append("TYPE: LAND CARRIER")
+		var waypoints_variant = status.get("active_waypoints", [])
+		var wp_count: int = waypoints_variant.size() if waypoints_variant is Array else 0
+		lines.append("WAYPOINTS: %d" % wp_count)
+		var pos: Vector3 = status.get("position", Vector3.ZERO)
+		lines.append("COORDS: %.0f / %.0f" % [pos.x, pos.z])
+		if not _selected_mission_id.is_empty():
+			lines.append("")
+			lines.append("PENDING: %s" % _selected_mission_id)
+			if not _draft_points.is_empty():
+				lines.append("TARGET STAGED")
+		return "\n".join(lines)
 	if status.get("kind", "") == "flight":
 		lines.append("TYPE: FLIGHT")
 		lines.append("MISSION: %s" % status.get("mission", "NONE"))

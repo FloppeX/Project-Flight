@@ -210,7 +210,7 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -39.9283)
 linear_c = 100.0
 
 [node name="DeckCenterStart" type="Marker3D" parent="." unique_id=696677929]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, -72.9282)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -72.9282)
 
 [node name="DeckCenterEnd" type="Marker3D" parent="." unique_id=230425015]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 72.5944)

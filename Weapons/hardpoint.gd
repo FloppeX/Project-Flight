@@ -17,7 +17,11 @@ func mount_weapon_from_scene(weapon_scene: PackedScene):
 	
 	weapon_instance = weapon_scene.instantiate() as Weapon
 	add_child(weapon_instance)
-	
+
+	var attachment_point := weapon_instance.get_node_or_null("AttachmentPoint") as Node3D
+	if attachment_point:
+		weapon_instance.position = -attachment_point.position
+
 	aircraft = get_parent() as RigidBody3D
 	while aircraft and not (aircraft is RigidBody3D):
 		aircraft = aircraft.get_parent()

@@ -13,6 +13,8 @@ func _ready() -> void:
 func apply_origin_shift(offset: Vector3) -> void:
 	_origin_x -= offset.x
 	_origin_z -= offset.z
+	_query_origin_x -= offset.x
+	_query_origin_z -= offset.z
 	_bake_center_x -= offset.x
 	_bake_center_z -= offset.z
 	if _bake_center_override_enabled:
@@ -38,6 +40,13 @@ func apply_origin_shift(offset: Vector3) -> void:
 ## Raise this if the lowest plateau has internal variation > 80m.
 @export var low_level_tolerance_m: float = 80.0
 
+@export_group("Query Grid")
+## Finer, non-A* grid used for cheap terrain safety/footprint checks.
+@export var query_grid_enabled: bool = true
+@export var query_cell_size_m: float = 24.0
+## Radius, in query cells, used to bake local height variation / edge risk.
+@export_range(1, 4) var query_edge_radius_cells: int = 1
+
 # --- Baked grid ---
 const IMPASSABLE: float = -1e6  # sentinel for out-of-bounds / NAN cells
 
@@ -53,6 +62,14 @@ var _h_min_passable: float = INF  # lowest height among all baked passable cells
 var _bake_center_override_enabled: bool = false
 var _bake_center_override_x: float = 0.0
 var _bake_center_override_z: float = 0.0
+
+var _query_heights: PackedFloat32Array
+var _query_height_variation: PackedFloat32Array
+var _query_cols: int = 0
+var _query_rows: int = 0
+var _query_origin_x: float = 0.0
+var _query_origin_z: float = 0.0
+var _query_is_baked: bool = false
 
 # --- Bake state ---
 var _bake_terrain: Node3D = null
@@ -130,6 +147,66 @@ func sample_height(wx: float, wz: float) -> float:
 	return lerp(lerp(h00, h10, tx), lerp(h01, h11, tx), tz)
 
 
+func has_query_grid() -> bool:
+	return _query_is_baked
+
+
+func sample_query_height(wx: float, wz: float) -> float:
+	if not _query_is_baked:
+		return IMPASSABLE
+	return _sample_query_height_from_array(_query_heights, wx, wz, false)
+
+
+func sample_query_edge_risk(wx: float, wz: float) -> float:
+	if not _query_is_baked:
+		return INF
+	return _sample_query_height_from_array(_query_height_variation, wx, wz, true)
+
+
+func is_heightmap_safe_for_aircraft(wx: float, wz: float, max_height_variation_m: float) -> bool:
+	if not _query_is_baked:
+		return false
+	var edge_risk: float = sample_query_edge_risk(wx, wz)
+	return edge_risk < INF and edge_risk <= max_height_variation_m
+
+
+func is_stable_footprint(wx: float, wz: float, radius_m: float, max_center_drop_m: float, max_height_variation_m: float) -> bool:
+	if not _query_is_baked:
+		return false
+	var center_h: float = sample_query_height(wx, wz)
+	if center_h <= IMPASSABLE * 0.5:
+		return false
+	var center_g := _to_query_grid(wx, wz)
+	var radius_cells: int = maxi(int(ceil(maxf(radius_m, 0.0) / maxf(query_cell_size_m, 1.0))), 1)
+	var min_h: float = center_h
+	var max_h: float = center_h
+	var sample_radius_sq: float = pow(radius_m + query_cell_size_m * 0.75, 2.0)
+	for dz in range(-radius_cells, radius_cells + 1):
+		for dx in range(-radius_cells, radius_cells + 1):
+			var nx: int = center_g.x + dx
+			var nz: int = center_g.y + dz
+			if nx < 0 or nx >= _query_cols or nz < 0 or nz >= _query_rows:
+				return false
+			var sample_dx: float = float(dx) * query_cell_size_m
+			var sample_dz: float = float(dz) * query_cell_size_m
+			if sample_dx * sample_dx + sample_dz * sample_dz > sample_radius_sq:
+				continue
+			var idx: int = nz * _query_cols + nx
+			var h: float = _query_heights[idx]
+			if h <= IMPASSABLE * 0.5:
+				return false
+			if center_h - h > max_center_drop_m:
+				return false
+			var variation: float = _query_height_variation[idx]
+			if variation >= INF or variation > max_height_variation_m:
+				return false
+			min_h = minf(min_h, h)
+			max_h = maxf(max_h, h)
+			if max_h - min_h > max_height_variation_m:
+				return false
+	return true
+
+
 func is_ready() -> bool:
 	return _is_baked
 
@@ -156,6 +233,13 @@ func _reset_bake_state() -> void:
 	_origin_z = 0.0
 	_bake_center_x = 0.0
 	_bake_center_z = 0.0
+	_query_heights = PackedFloat32Array()
+	_query_height_variation = PackedFloat32Array()
+	_query_cols = 0
+	_query_rows = 0
+	_query_origin_x = 0.0
+	_query_origin_z = 0.0
+	_query_is_baked = false
 	_h_min_passable = INF
 	_is_baked = false
 	_bake_terrain = null
@@ -184,6 +268,8 @@ func _try_start_bake() -> void:
 	_bake_center_z = cz
 	_origin_x = cx - bake_half_extent_m
 	_origin_z = cz - bake_half_extent_m
+	_query_origin_x = _origin_x
+	_query_origin_z = _origin_z
 	_cols = int(bake_half_extent_m * 2.0 / cell_size_m) + 1
 	_rows = int(bake_half_extent_m * 2.0 / cell_size_m) + 1
 	_heights.resize(_cols * _rows)
@@ -212,6 +298,7 @@ func _bake_rows() -> void:
 			# else stays IMPASSABLE
 	_bake_gz = end_gz
 	if _bake_gz >= _rows:
+		_bake_query_grid(t)
 		_is_baked = true
 		_bake_terrain = null
 		_h_min_passable = INF
@@ -219,6 +306,65 @@ func _bake_rows() -> void:
 			if h > IMPASSABLE * 0.5:
 				_h_min_passable = minf(_h_min_passable, h)
 		bake_complete.emit()
+
+
+func _bake_query_grid(t: Node3D) -> void:
+	_query_is_baked = false
+	_query_heights = PackedFloat32Array()
+	_query_height_variation = PackedFloat32Array()
+	_query_cols = 0
+	_query_rows = 0
+	if not query_grid_enabled or not is_instance_valid(t):
+		return
+	var q_cell: float = maxf(query_cell_size_m, 1.0)
+	_query_origin_x = _bake_center_x - bake_half_extent_m
+	_query_origin_z = _bake_center_z - bake_half_extent_m
+	_query_cols = int(bake_half_extent_m * 2.0 / q_cell) + 1
+	_query_rows = int(bake_half_extent_m * 2.0 / q_cell) + 1
+	_query_heights.resize(_query_cols * _query_rows)
+	_query_heights.fill(IMPASSABLE)
+	var ty: float = t.global_position.y
+	for gz in range(_query_rows):
+		for gx in range(_query_cols):
+			var wx := _query_origin_x + gx * q_cell
+			var wz := _query_origin_z + gz * q_cell
+			var h = t.call("get_height", Vector3(wx, ty, wz))
+			if (typeof(h) == TYPE_FLOAT or typeof(h) == TYPE_INT) and not is_nan(float(h)):
+				_query_heights[gz * _query_cols + gx] = float(h)
+	_compute_query_height_variation()
+	_query_is_baked = true
+
+
+func _compute_query_height_variation() -> void:
+	_query_height_variation.resize(_query_cols * _query_rows)
+	_query_height_variation.fill(INF)
+	var r: int = maxi(query_edge_radius_cells, 1)
+	for gz in range(_query_rows):
+		for gx in range(_query_cols):
+			var idx: int = gz * _query_cols + gx
+			var h: float = _query_heights[idx]
+			if h <= IMPASSABLE * 0.5:
+				continue
+			var min_h: float = h
+			var max_h: float = h
+			var valid: bool = true
+			for dz in range(-r, r + 1):
+				for dx in range(-r, r + 1):
+					var nx: int = gx + dx
+					var nz: int = gz + dz
+					if nx < 0 or nx >= _query_cols or nz < 0 or nz >= _query_rows:
+						valid = false
+						break
+					var nh: float = _query_heights[nz * _query_cols + nx]
+					if nh <= IMPASSABLE * 0.5:
+						valid = false
+						break
+					min_h = minf(min_h, nh)
+					max_h = maxf(max_h, nh)
+				if not valid:
+					break
+			if valid:
+				_query_height_variation[idx] = max_h - min_h
 
 
 # --- A* ---
@@ -610,6 +756,38 @@ func is_cell_near_steep_slope(gx: int, gz: int, max_slope_m: float, radius_cells
 func _to_grid(world: Vector3) -> Vector2i:
 	return Vector2i(int((world.x - _origin_x) / cell_size_m),
 					int((world.z - _origin_z) / cell_size_m))
+
+
+func _to_query_grid(wx: float, wz: float) -> Vector2i:
+	return Vector2i(
+		int((wx - _query_origin_x) / maxf(query_cell_size_m, 1.0)),
+		int((wz - _query_origin_z) / maxf(query_cell_size_m, 1.0))
+	)
+
+
+func _sample_query_height_from_array(values: PackedFloat32Array, wx: float, wz: float, use_max_corners: bool) -> float:
+	if values.is_empty() or _query_cols <= 0 or _query_rows <= 0:
+		return INF if use_max_corners else IMPASSABLE
+	var q_cell: float = maxf(query_cell_size_m, 1.0)
+	var fx := (wx - _query_origin_x) / q_cell
+	var fz := (wz - _query_origin_z) / q_cell
+	var gx0 := int(fx)
+	var gz0 := int(fz)
+	if gx0 < 0 or gx0 >= _query_cols - 1 or gz0 < 0 or gz0 >= _query_rows - 1:
+		var gx := clampi(gx0, 0, _query_cols - 1)
+		var gz := clampi(gz0, 0, _query_rows - 1)
+		return values[gz * _query_cols + gx]
+	var tx := fx - gx0
+	var tz := fz - gz0
+	var v00 := values[gz0 * _query_cols + gx0]
+	var v10 := values[gz0 * _query_cols + (gx0 + 1)]
+	var v01 := values[(gz0 + 1) * _query_cols + gx0]
+	var v11 := values[(gz0 + 1) * _query_cols + (gx0 + 1)]
+	if use_max_corners:
+		return maxf(maxf(v00, v10), maxf(v01, v11))
+	if v00 <= IMPASSABLE * 0.5 or v10 <= IMPASSABLE * 0.5 or v01 <= IMPASSABLE * 0.5 or v11 <= IMPASSABLE * 0.5:
+		return v00 if v00 > IMPASSABLE * 0.5 else IMPASSABLE
+	return lerp(lerp(v00, v10, tx), lerp(v01, v11, tx), tz)
 
 
 func _h(a: Vector2i, b: Vector2i) -> float:

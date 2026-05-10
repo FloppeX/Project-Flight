@@ -46,11 +46,6 @@ func _unhandled_input(event: InputEvent) -> void:
 			else:
 				deploy_platoon()
 			get_viewport().set_input_as_handled()
-		elif event.keycode == KEY_N:
-			var gom := _get_ground_ops()
-			if gom:
-				gom.request_escort()
-			get_viewport().set_input_as_handled()
 		elif event.keycode == KEY_B:
 			var gom := _get_ground_ops()
 			if gom:

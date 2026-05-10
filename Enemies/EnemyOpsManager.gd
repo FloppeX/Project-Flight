@@ -13,8 +13,8 @@ const TARGET_DEPLOY_FRACTION := 0.75   # aim for ~3/4 of inventory deployed at a
 const EVALUATION_INTERVAL_S  := 15.0   # how often to check deployment balance
 const THREAT_SCAN_INTERVAL_S :=  8.0   # how often to assess threats and reassign missions
 
-const VEHICLES_PER_PLATOON   := 7
-const AIRCRAFT_PER_FLIGHT    := 2  # Smaller flights create more patrol routes without raising total aircraft.
+const VEHICLES_PER_PLATOON   := 4
+const MIN_PATROL_PAIR_SIZE   := 4  # minimum aircraft needed to launch a patrol pair
 
 ## Carrier within this range of the base triggers a ground attack platoon.
 const CARRIER_THREAT_RANGE_M := 14000.0
@@ -85,6 +85,22 @@ func register_base(base: EnemyBase) -> void:
 		print("[EnemyOps] Base registered: %s" % base.faction_name)
 
 
+# ── Turbine degradation ───────────────────────────────────────────────────────
+
+func on_turbine_destroyed() -> void:
+	for base in bases:
+		if not is_instance_valid(base):
+			continue
+		base.aircraft_max             = maxi(floori(float(base.aircraft_max) * 0.98), 1)
+		base.aircraft_reserve         = mini(base.aircraft_reserve, base.aircraft_max)
+		base.vehicle_max              = maxi(floori(float(base.vehicle_max) * 0.98), 1)
+		base.vehicle_reserve          = mini(base.vehicle_reserve, base.vehicle_max)
+		base.aircraft_replenish_interval_s *= 1.02
+		base.vehicle_replenish_interval_s  *= 1.02
+	if debug_print:
+		print("[EnemyOps] Turbine destroyed — enemy capacity and production degraded by 2%%")
+
+
 # ── Deployment ────────────────────────────────────────────────────────────────
 
 func _evaluate_deployment() -> void:
@@ -100,18 +116,19 @@ func _evaluate_air(base: EnemyBase) -> void:
 	var deployed := _count_deployed_aircraft(base)
 	var target   := int(float(base.aircraft_max) * TARGET_DEPLOY_FRACTION)
 
-	while deployed < target and base.aircraft_reserve >= AIRCRAFT_PER_FLIGHT:
-		var role := _pick_next_flight_role(base)
-		var f := base.deploy_flight(AIRCRAFT_PER_FLIGHT, role)
-		if f == null:
+	while deployed < target and base.aircraft_reserve >= MIN_PATROL_PAIR_SIZE:
+		var pair := base.deploy_patrol_pair()
+		if pair.is_empty():
 			break
-		_base_flights[base].append(f)
-		get_tree().current_scene.add_child(f)
-		deployed += AIRCRAFT_PER_FLIGHT
-		if debug_print:
-			print("[EnemyOps] Launched %s flight %s (reserve now %d)" % [
-				"BOMBER" if role == EnemyVirtualFlight.AircraftRole.BOMBER else "FIGHTER",
-				f.flight_name, base.aircraft_reserve])
+		for f: EnemyVirtualFlight in pair:
+			_base_flights[base].append(f)
+			get_tree().current_scene.add_child(f)
+			deployed += f.aircraft_count
+		if debug_print and pair.size() >= 2:
+			print("[EnemyOps] Patrol %s/%s launched (%d+%d ac, reserve now %d)" % [
+				pair[0].flight_name, pair[1].flight_name,
+				pair[0].aircraft_count, pair[1].aircraft_count,
+				base.aircraft_reserve])
 
 
 func _evaluate_ground(base: EnemyBase) -> void:
@@ -128,21 +145,6 @@ func _evaluate_ground(base: EnemyBase) -> void:
 		deployed += VEHICLES_PER_PLATOON
 		if debug_print:
 			print("[EnemyOps] Deployed platoon %s (reserve now %d)" % [p.platoon_name, base.vehicle_reserve])
-
-
-## Deploy roughly 3 fighters for every 1 bomber.
-func _pick_next_flight_role(base: EnemyBase) -> EnemyVirtualFlight.AircraftRole:
-	var fighter_count := 0
-	var bomber_count  := 0
-	for f: EnemyVirtualFlight in _get_flights(base):
-		if f.role == EnemyVirtualFlight.AircraftRole.BOMBER:
-			bomber_count += 1
-		else:
-			fighter_count += 1
-	# Add a bomber when we have ≥2 fighters and no bombers, then return to fighters
-	if fighter_count >= 2 and bomber_count == 0:
-		return EnemyVirtualFlight.AircraftRole.BOMBER
-	return EnemyVirtualFlight.AircraftRole.FIGHTER
 
 
 func _count_deployed_aircraft(base: EnemyBase) -> int:

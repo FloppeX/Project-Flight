@@ -71,6 +71,7 @@ func _ready():
 	ammo_count = 1000  # Large gun ammo pool for sustained air combat
 	hardpoint = get_parent() as Hardpoint
 	automatic_fire = true
+	weapon_category = "Guns"
 	if weapon_name.is_empty() or weapon_name == "Generic Weapon":
 		weapon_name = "Autocannon"
 	if bullet_projectile_scene == null:

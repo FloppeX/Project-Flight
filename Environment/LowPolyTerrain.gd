@@ -13,13 +13,13 @@ class_name LowPolyTerrain
 ## Maximum canyon depth carved below the plateau
 @export var canyon_max_depth_m: float = 300.0
 ## Fraction of ridge-noise range that becomes flat canyon floor (wider = broader floors)
-@export var canyon_floor_width: float = 0.12
+@export var canyon_floor_width: float = 0.15
 ## Width of the cliff transition zone (smaller = more vertical walls)
 @export var canyon_cliff_width: float = 0.09
 ## Cliff wall steepness exponent — higher values approach true vertical cliffs
 @export var canyon_cliff_power: float = 12.0
 ## Spatial frequency of the main canyon network
-@export var main_canyon_frequency: float = 0.00013
+@export var main_canyon_frequency: float = 0.00018
 ## Spatial frequency of tributary canyons (should be 1.5–2× main)
 @export var tributary_frequency: float = 0.00024
 ## Domain warp amplitude for organic canyon meandering

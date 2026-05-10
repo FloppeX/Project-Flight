@@ -16,6 +16,8 @@ var _env: Environment
 var _sky: ProceduralSkyMaterial
 var _t: float = 0.0  # normalized 0..1 over full cycle
 var _update_acc: float = 0.0
+var _night_mode: bool = false
+var _ai_darkness_factor: float = 0.0
 
 const _KF := [
 	{ # DAWN — apricot/dusty salmon sky, smoky mauve ambient
@@ -68,6 +70,7 @@ const _KF := [
 ]
 
 func _ready() -> void:
+	add_to_group("day_night_cycle")
 	if _we == null or _we.environment == null:
 		push_warning("[DayNightCycle] WorldEnvironment/environment not found.")
 		set_process(false)
@@ -86,8 +89,23 @@ func _ready() -> void:
 	_t = float(start_phase) / float(_KF.size())
 	_update(_t)
 
+func get_ai_darkness_factor() -> float:
+	"""0.0 in good daylight, 1.0 in the darkest twilight/night phase."""
+	return _ai_darkness_factor
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventKey and (event as InputEventKey).pressed \
+			and not (event as InputEventKey).echo \
+			and (event as InputEventKey).keycode == KEY_N:
+		_night_mode = not _night_mode
+		_t = 0.875 if _night_mode else 0.375  # TWILIGHT mid vs DAY mid
+		_update(_t)
+		get_viewport().set_input_as_handled()
+
+
 func _process(delta: float) -> void:
-	_t = fmod(_t + delta / (phase_duration_s * float(_KF.size())), 1.0)
+	if not _night_mode:
+		_t = fmod(_t + delta / (phase_duration_s * float(_KF.size())), 1.0)
 	_update_acc += delta
 	if _update_acc < update_interval_s:
 		return
@@ -107,11 +125,13 @@ func _update(t: float) -> void:
 	_apply_sun_direction(t)
 
 	if is_instance_valid(_sun):
-		_sun.light_energy = lerpf(float(a.sun_energy), float(b.sun_energy), f)
+		var current_sun_energy := lerpf(float(a.sun_energy), float(b.sun_energy), f)
+		_sun.light_energy = current_sun_energy
 		_sun.light_color = (a.sun_color as Color).lerp(b.sun_color as Color, f)
 
 	_env.ambient_light_color = (a.ambient_color as Color).lerp(b.ambient_color as Color, f)
-	_env.ambient_light_energy = lerpf(float(a.ambient_energy), float(b.ambient_energy), f)
+	var current_ambient_energy := lerpf(float(a.ambient_energy), float(b.ambient_energy), f)
+	_env.ambient_light_energy = current_ambient_energy
 
 	var dust_col: Color = (a.dust_color as Color).lerp(b.dust_color as Color, f)
 	var zenith_darkness := lerpf(float(a.zenith_darkness), float(b.zenith_darkness), f)
@@ -134,7 +154,13 @@ func _update(t: float) -> void:
 		_sky.ground_bottom_color = sky_ground
 		_sky.sky_curve = 0.45
 		_sky.ground_curve = 0.45
-		_sky.sky_energy_multiplier = lerpf(float(a.sky_energy), float(b.sky_energy), f)
+		var current_sky_energy := lerpf(float(a.sky_energy), float(b.sky_energy), f)
+		_sky.sky_energy_multiplier = current_sky_energy
+
+	var sun_energy_for_ai := lerpf(float(a.sun_energy), float(b.sun_energy), f)
+	var sky_energy_for_ai := lerpf(float(a.sky_energy), float(b.sky_energy), f)
+	var light_score := sun_energy_for_ai * 0.35 + current_ambient_energy * 0.55 + sky_energy_for_ai * 0.10
+	_ai_darkness_factor = clampf(1.0 - smoothstep(0.16, 0.75, light_score), 0.0, 1.0)
 
 func _apply_sun_direction(t: float) -> void:
 	if not is_instance_valid(_sun):

@@ -27,6 +27,7 @@ func _process(delta: float) -> void:
 
 func _destroy() -> void:
 	is_destroyed = true
+	EnemyOpsManager.on_turbine_destroyed()
 
 	if destroyed_scene_path != "":
 		var destroyed_scene: PackedScene = load(destroyed_scene_path)

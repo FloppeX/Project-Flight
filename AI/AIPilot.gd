@@ -87,14 +87,19 @@ var cached_friendly_nodes: Array[Node3D] = []  # Cached raw friendly group nodes
 var sensor_update_counter: int = 0
 @export var sensor_update_interval: int = 10  # Update cached groups every N frames
 @export var contact_scan_interval_s: float = 0.18  # Filter cached contacts at low frequency; group lookup is still frame-staggered.
+@export var contact_report_interval_s: float = 1.5
 var _terrain_check_counter: int = 0
 @export var terrain_check_interval: int = 3  # Update terrain fan/ahead every N physics frames (~20 Hz at 60 Hz physics)
 @export var collision_avoidance_interval_s: float = 0.10
 @export var rtb_check_interval_s: float = 1.0
 var _contact_scan_timer_s: float = 0.0
+var _contact_report_timer_s: float = 0.0
 var _collision_avoidance_timer_s: float = 0.0
 var _rtb_check_timer_s: float = 0.0
 var _smoothed_ground_height: float = NAN  # Smoothed ground height for stable low-level flight
+var _cached_day_night_cycle: Node = null
+var _cached_ai_darkness_factor: float = 0.0
+var _ai_darkness_cache_at_ms: int = -100000
 # Terrain fan avoidance â€” directional escape sampling
 var _terrain_fan_clearances: PackedFloat32Array = PackedFloat32Array([INF, INF, INF, INF, INF])
 var _terrain_fan_best_idx: int = 2  # Index into fan angles; 2 = forward
@@ -102,11 +107,27 @@ var _terrain_height_callable: Callable  # Cached get_height callable â€” re
 var _safety_override_active: bool = false  # True when terrain/collision override is controlling
 
 @export var sensor_range: float = 5000.0  # How far AI can "see"
+@export_group("Night Combat Penalties")
+@export_range(0.1, 1.0, 0.05) var night_sensor_range_multiplier: float = 0.58
+@export_range(1.0, 4.0, 0.05) var night_contact_scan_interval_multiplier: float = 1.65
+@export_range(0.1, 1.0, 0.05) var night_dogfight_max_range_multiplier: float = 0.72
+@export_range(0.0, 0.5, 0.01) var night_fire_hit_chance_bonus: float = 0.16
+@export_range(0.1, 1.0, 0.05) var night_fire_max_tof_multiplier: float = 0.72
+@export_range(1.0, 12.0, 0.25) var night_ground_gun_alignment_deg: float = 3.75
+@export_range(0.1, 1.0, 0.05) var night_rocket_release_tolerance_multiplier: float = 0.70
+@export_group("")
 @export var ground_check_distance: float = 10000.0  # Max distance for AGL raycast
 @export var terrain_ahead_check_distance: float = 2000.0  # How far ahead to check for terrain
 @export var terrain_warning_distance: float = 500.0  # Pull up if terrain closer than this
 @export var emergency_min_agl_m: float = 180.0  # Emergency override if below this AGL
 @export var emergency_tti_s: float = 3.0  # Emergency override if terrain time-to-impact is below this
+@export var terrain_escape_low_speed_pitch_input: float = 0.18  # Pull-up authority near stall speed
+@export var terrain_escape_max_pitch_input: float = 0.68  # Pull-up authority with healthy energy
+@export var terrain_escape_full_pull_speed_margin_mps: float = 45.0
+@export var terrain_escape_min_target_pitch_deg: float = 6.0
+@export var terrain_escape_max_target_pitch_deg: float = 18.0
+@export var terrain_escape_critical_pitch_bonus_deg: float = 7.0
+@export var terrain_escape_lateral_roll_input: float = 0.65
 
 # ============================================================================
 # PID CONTROLLERS - Smooth human-like control
@@ -1432,7 +1453,11 @@ func _normalize_ground_attack_target(node: Variant) -> Node3D:
 		if not (current is Node3D):
 			break
 		var current_3d: Node3D = current as Node3D
-		if current_3d.is_in_group("carrier") or current_3d.is_in_group("ground_vehicles"):
+		if current_3d.is_in_group("carrier") \
+				or current_3d.is_in_group("ground_vehicles") \
+				or current_3d.is_in_group("gun_emplacements") \
+				or current_3d.is_in_group("buildings") \
+				or current_3d.is_in_group("enemy_bases"):
 			best_match = current_3d
 		current = current.get_parent()
 	return best_match if best_match and is_instance_valid(best_match) else null
@@ -1562,9 +1587,14 @@ func _is_valid_ground_attack_target(node: Variant) -> bool:
 		return false
 	if node == aircraft:
 		return false
+	if node.has_method("get_team") and aircraft and aircraft.has_method("get_team"):
+		if int(node.get_team()) == int(aircraft.get_team()):
+			return false
 	if node.is_in_group("carrier"):
 		return true
 	if node.is_in_group("ground_vehicles"):
+		return true
+	if node.is_in_group("gun_emplacements") or node.is_in_group("buildings") or node.is_in_group("enemy_bases"):
 		return true
 	return false
 
@@ -1574,6 +1604,10 @@ func _get_ground_target_priority_penalty(node: Variant) -> float:
 		return 100000.0
 	if node.is_in_group("ground_vehicles"):
 		return 0.0
+	if node.is_in_group("gun_emplacements"):
+		return 80.0
+	if node.is_in_group("buildings") or node.is_in_group("enemy_bases"):
+		return 180.0
 	if node.is_in_group("carrier"):
 		return 450.0
 	return 300.0
@@ -2087,7 +2121,8 @@ func _state_attack_dive(delta: float):
 		var dot: float = fwd.dot(to_tgt)
 		var gun_max_range_m: float = _get_selected_gun_max_range_m()
 		var in_gun_range: bool = (not is_finite(gun_max_range_m)) or dist_to_target <= gun_max_range_m
-		if dot > cos(deg_to_rad(6.0)) and in_gun_range:  # ~6 deg cone - fire a touch earlier on valid runs
+		var ground_gun_alignment_deg: float = lerpf(6.0, night_ground_gun_alignment_deg, _get_ai_darkness_factor())
+		if dot > cos(deg_to_rad(ground_gun_alignment_deg)) and in_gun_range:
 			_fire_guns()
 		else:
 			_stop_firing()
@@ -3103,7 +3138,9 @@ func _dogfight_has_good_fire_solution(
 	var gun_max_range_m: float = _get_selected_gun_max_range_m()
 	if is_finite(gun_max_range_m) and dist_to_target > gun_max_range_m:
 		return false
-	if dist_to_target > dogfight_max_range_m:
+	var darkness: float = _get_ai_darkness_factor()
+	var effective_dogfight_max_range_m: float = dogfight_max_range_m * lerpf(1.0, night_dogfight_max_range_multiplier, darkness)
+	if dist_to_target > effective_dogfight_max_range_m:
 		return false
 	var to_aim: Vector3 = aim_point - shooter_pos
 	var aim_dist: float = to_aim.length()
@@ -3125,6 +3162,7 @@ func _dogfight_has_good_fire_solution(
 		clampf(dogfight_fire_close_relax_min_hit_chance, 0.0, 1.0),
 		close_t
 	)
+	required_hit_chance = clampf(required_hit_chance + night_fire_hit_chance_bonus * darkness, 0.0, 0.98)
 	var dot: float = clampf(fwd.dot(aim_dir), -1.0, 1.0)
 	if dot < required_dot:
 		return false
@@ -3142,7 +3180,7 @@ func _dogfight_has_good_fire_solution(
 	var hit_chance: float = clampf(1.0 - (miss_radius / maxf(hit_envelope, 0.1)), 0.0, 1.0)
 
 	# Also require finite bullet time-of-flight to avoid very stale lead.
-	var max_tof: float = maxf(dogfight_fire_max_tof_s, 0.1)
+	var max_tof: float = maxf(dogfight_fire_max_tof_s * lerpf(1.0, night_fire_max_tof_multiplier, darkness), 0.1)
 	return hit_chance >= required_hit_chance and tof <= max_tof
 
 func _update_dogfight_burst_timers(delta: float, fire_solution_good: bool) -> void:
@@ -3468,7 +3506,9 @@ func _handle_rocket_release_run(aim_pos: Vector3, target_pos: Vector3, ccip_pred
 		return
 	var pred_err_h: float = Vector2(target_pos.x - ccip_predicted.x, target_pos.z - ccip_predicted.z).length()
 	_prev_ccip_miss = pred_err_h
-	var ccip_ok: bool = pred_err_h <= rocket_ccip_release_tolerance_m
+	var effective_rocket_tolerance_m: float = rocket_ccip_release_tolerance_m \
+		* lerpf(1.0, night_rocket_release_tolerance_multiplier, _get_ai_darkness_factor())
+	var ccip_ok: bool = pred_err_h <= effective_rocket_tolerance_m
 	var bank_ok: bool = _get_current_bank_angle_deg() <= rocket_release_max_bank_deg
 	if not _is_release_solution_stable_enough(now_s, alignment_ok and ccip_ok and bank_ok):
 		return
@@ -6168,19 +6208,47 @@ func _check_terrain_avoidance(_delta: float) -> bool:
 	var emergency_escape: bool = altitude_agl < emergency_min_agl_m or critical_terrain or forward_clearance < dynamic_margin * 0.6
 	var lateral_advantage_margin: float = 20.0 if emergency_escape else 30.0
 	var lateral_is_better: bool = best_clearance > forward_clearance + lateral_advantage_margin and best_idx != 2
+	var stall_floor_speed: float = maxf(stall_speed_mps + stall_margin_mps, 1.0)
+	var speed_margin: float = forward_speed - stall_floor_speed
+	var energy_t: float = clampf(speed_margin / maxf(terrain_escape_full_pull_speed_margin_mps, 1.0), 0.0, 1.0)
+	var pitch_cap: float = lerpf(
+		maxf(terrain_escape_low_speed_pitch_input, 0.0),
+		maxf(terrain_escape_max_pitch_input, terrain_escape_low_speed_pitch_input),
+		energy_t
+	)
+	if critical_terrain:
+		pitch_cap = minf(pitch_cap + 0.12 * energy_t, 0.78)
+	var target_pitch_deg: float = lerpf(
+		terrain_escape_min_target_pitch_deg,
+		terrain_escape_max_target_pitch_deg,
+		energy_t
+	)
+	if critical_terrain:
+		target_pitch_deg += terrain_escape_critical_pitch_bonus_deg * energy_t
+	var current_pitch_rad: float = _get_forward_pitch_rad()
+	var pitch_rate_up: float = -aircraft.angular_velocity.dot(aircraft.global_transform.basis.x)
+	var escape_pitch_input: float = clampf(
+		(deg_to_rad(target_pitch_deg) - current_pitch_rad) * 2.8 - pitch_rate_up * 0.35,
+		-0.12,
+		pitch_cap
+	)
+	var sink_pull_floor: float = lerpf(0.0, minf(pitch_cap, 0.45), clampf(sink_mps / 18.0, 0.0, 1.0) * energy_t)
+	escape_pitch_input = maxf(escape_pitch_input, sink_pull_floor)
 
 	if lateral_is_better and not emergency_escape and altitude_agl > emergency_min_agl_m + 40.0:
-		# A lateral direction has more clearance â€” full bank toward it.
+		# A lateral direction has more clearance; turn toward it without bleeding all energy.
 		var bank_sign: float = signf(escape_angle_deg)
-		roll_input = bank_sign * 0.9
-		pitch_input = 0.95
+		var lateral_roll_t: float = clampf(energy_t, 0.25, 1.0)
+		roll_input = bank_sign * terrain_escape_lateral_roll_input * lateral_roll_t
+		pitch_input = escape_pitch_input
 	else:
-		# No good lateral escape â€” wings level, full pull up.
+		# No good lateral escape; level the wings and climb without over-rotating.
 		roll_input = 0.0
-		pitch_input = 1.0
+		pitch_input = escape_pitch_input
 
 	yaw_input = 0.0
 	throttle_input = 1.0
+	target_speed = maxf(target_speed, stall_floor_speed + 35.0)
 	# Slam smoothed values so the state machine doesn't fight the override next frame.
 	_smoothed_roll_input = roll_input
 	_smoothed_pitch_input = pitch_input
@@ -6193,8 +6261,8 @@ func _check_terrain_avoidance(_delta: float) -> bool:
 
 	if debug_enabled and verbose_debug_enabled and Engine.get_process_frames() % 30 == 0:
 		var action: String = ("TURN %.0f deg" % escape_angle_deg) if lateral_is_better else "CLIMB"
-		print("[AIPilot TERRAIN] AGL=%.0fm fwd_clr=%.0fm need=%.0fm tti=%.1fs best_dir=%.0fÂ° best_clr=%.0fm â€” %s" % [
-			altitude_agl, forward_clearance, dynamic_margin, tti, escape_angle_deg, best_clearance, action])
+		print("[AIPilot TERRAIN] AGL=%.0fm fwd_clr=%.0fm need=%.0fm tti=%.1fs spd=%.0fmps margin=%.0fmps pitch=%.2f cap=%.2f best_dir=%.0fdeg best_clr=%.0fm -- %s" % [
+			altitude_agl, forward_clearance, dynamic_margin, tti, forward_speed, speed_margin, pitch_input, pitch_cap, escape_angle_deg, best_clearance, action])
 	return true
 
 func _should_run_collision_avoidance(delta: float) -> bool:
@@ -6468,8 +6536,10 @@ func _update_sensors(delta: float):
 		var scan_interval_s: float = maxf(contact_scan_interval_s, 0.03)
 		if current_state in [State.DOGFIGHT, State.ATTACK_POSITIONING, State.ATTACK_INBOUND, State.ATTACK_DIVE, State.ATTACK_BREAK_OFF]:
 			scan_interval_s *= 0.5
+		scan_interval_s *= lerpf(1.0, night_contact_scan_interval_multiplier, _get_ai_darkness_factor())
 		_contact_scan_timer_s = scan_interval_s
 		_scan_contacts()
+	_report_contacts_to_air_ops(delta)
 
 func _update_agl():
 	"""Raycast down to find altitude above ground"""
@@ -6640,12 +6710,13 @@ func _scan_contacts():
 	known_enemies.clear()
 	known_friendlies.clear()
 	var my_team: int = aircraft.get_team() if aircraft.has_method("get_team") else 1
-	var hostile_groups: Array[String] = ["enemies", "ai_aircraft", "ground_vehicles"]
-	var friendly_groups: Array[String] = ["friendlies", "aircraft", "ai_aircraft", "carrier", "ground_vehicles"]
+	var hostile_groups: Array[String] = ["enemies", "ai_aircraft", "ground_vehicles", "gun_emplacements", "buildings", "enemy_bases"]
+	var friendly_groups: Array[String] = ["friendlies", "aircraft", "ai_aircraft", "carrier", "ground_vehicles", "gun_emplacements", "buildings"]
 	if my_team != 1:
-		hostile_groups = ["friendlies", "aircraft", "ai_aircraft", "carrier", "ground_vehicles"]
-		friendly_groups = ["enemies", "ai_aircraft", "ground_vehicles"]
-	var sensor_range_sq: float = sensor_range * sensor_range
+		hostile_groups = ["friendlies", "aircraft", "ai_aircraft", "carrier", "ground_vehicles", "gun_emplacements", "buildings"]
+		friendly_groups = ["enemies", "ai_aircraft", "ground_vehicles", "gun_emplacements", "buildings", "enemy_bases"]
+	var effective_sensor_range: float = sensor_range * _get_night_sensor_range_multiplier()
+	var sensor_range_sq: float = effective_sensor_range * effective_sensor_range
 
 	# Update cached group nodes periodically
 	if sensor_update_counter % sensor_update_interval == 0:
@@ -6677,6 +6748,42 @@ func _scan_contacts():
 		var distance_sq: float = aircraft.global_position.distance_squared_to(friendly_node.global_position)
 		if distance_sq <= sensor_range_sq and not known_friendlies.has(friendly_node):
 			known_friendlies.append(friendly_node)
+
+func _report_contacts_to_air_ops(delta: float) -> void:
+	if aircraft == null or not is_instance_valid(aircraft):
+		return
+	if aircraft.has_method("get_team") and int(aircraft.get_team()) != 1:
+		return
+	if known_enemies.is_empty():
+		return
+	_contact_report_timer_s -= delta
+	if _contact_report_timer_s > 0.0:
+		return
+	_contact_report_timer_s = maxf(contact_report_interval_s, 0.2)
+	if AirOpsManager == null or not is_instance_valid(AirOpsManager):
+		return
+	if not AirOpsManager.has_method("report_contact"):
+		return
+	for enemy in known_enemies:
+		if enemy and is_instance_valid(enemy):
+			AirOpsManager.report_contact(aircraft, enemy)
+
+func _get_ai_darkness_factor() -> float:
+	var now_ms: int = Time.get_ticks_msec()
+	if now_ms - _ai_darkness_cache_at_ms <= 500:
+		return _cached_ai_darkness_factor
+	_ai_darkness_cache_at_ms = now_ms
+	if not is_instance_valid(_cached_day_night_cycle):
+		_cached_day_night_cycle = get_tree().get_first_node_in_group("day_night_cycle")
+	var cycle := _cached_day_night_cycle
+	if cycle != null and cycle.has_method("get_ai_darkness_factor"):
+		_cached_ai_darkness_factor = clampf(float(cycle.call("get_ai_darkness_factor")), 0.0, 1.0)
+	else:
+		_cached_ai_darkness_factor = 0.0
+	return _cached_ai_darkness_factor
+
+func _get_night_sensor_range_multiplier() -> float:
+	return lerpf(1.0, night_sensor_range_multiplier, _get_ai_darkness_factor())
 
 func _should_run_rtb_check(delta: float) -> bool:
 	if rtb_health_threshold <= 0.0 and rtb_fuel_threshold <= 0.0:

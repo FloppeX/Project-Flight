@@ -1,46 +1,51 @@
-[gd_scene load_steps=5 format=3 uid="uid://bc6wrpt4b3m41"]
+[gd_scene format=3 uid="uid://bc6wrpt4b3m41"]
 
 [ext_resource type="Script" uid="uid://nqac1r8yv7a8" path="res://Weapons/Bomb/bomb_rack.gd" id="1_brkscript"]
-[ext_resource type="PackedScene" uid="uid://cwjbsa4m2ft3f" path="res://Weapons/bomb rack.glb" id="2_rackglb"]
+[ext_resource type="PackedScene" uid="uid://de3lvcwdbpkbs" path="res://Weapons/bomb rack.glb" id="2_rackglb"]
 [ext_resource type="PackedScene" uid="uid://cbpsn8r87hlrc" path="res://Weapons/bomb.glb" id="3_bombglb"]
 [ext_resource type="PackedScene" uid="uid://bjh4sid7u0lyk" path="res://Projectiles/BombNew/bomb_new.tscn" id="4_bombnew"]
 
-[node name="BombRack" type="Node3D"]
+[node name="BombRack" type="Node3D" unique_id=1079932325]
 script = ExtResource("1_brkscript")
 bomb_projectile_scene = ExtResource("4_bombnew")
 
-[node name="bomb rack" parent="." instance=ExtResource("2_rackglb")]
+[node name="AttachmentPoint" type="Node3D" parent="." unique_id=994370502]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.009829305, 0)
 
-[node name="BombSlot1" type="Node3D" parent="."]
+[node name="bomb rack" parent="." unique_id=937471997 instance=ExtResource("2_rackglb")]
+
+[node name="BombSlot1" type="Node3D" parent="." unique_id=1605346979]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.282, -0.284, 0.54)
 
-[node name="bomb" parent="BombSlot1" instance=ExtResource("3_bombglb")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.013, 0, 0)
+[node name="bomb" parent="BombSlot1" unique_id=202666100 instance=ExtResource("3_bombglb")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.12862334, 0.165, -0.1128239)
 
-[node name="BombSlot3" type="Node3D" parent="."]
+[node name="BombSlot3" type="Node3D" parent="." unique_id=1572921457]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.308, -0.284, 0.54)
 
-[node name="bomb" parent="BombSlot3" instance=ExtResource("3_bombglb")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.013, 0, 0)
+[node name="bomb" parent="BombSlot3" unique_id=2066190615 instance=ExtResource("3_bombglb")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.15305686, 0.16482718, -0.1128239)
 
-[node name="BombSlot2" type="Node3D" parent="."]
+[node name="BombSlot2" type="Node3D" parent="." unique_id=1546628806]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.443, 0.54)
 
-[node name="bomb" parent="BombSlot2" instance=ExtResource("3_bombglb")]
+[node name="bomb" parent="BombSlot2" unique_id=1134301083 instance=ExtResource("3_bombglb")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.18566474, -0.1128239)
 
-[node name="BombSlot4" type="Node3D" parent="."]
+[node name="BombSlot4" type="Node3D" parent="." unique_id=184962106]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.282, -0.284, -0.54)
 
-[node name="bomb" parent="BombSlot4" instance=ExtResource("3_bombglb")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.013, 0, 0)
+[node name="bomb" parent="BombSlot4" unique_id=1082603641 instance=ExtResource("3_bombglb")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.12862334, 0.165, 0.110000014)
 
-[node name="BombSlot5" type="Node3D" parent="."]
+[node name="BombSlot5" type="Node3D" parent="." unique_id=183311065]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.308, -0.284, -0.54)
 
-[node name="bomb" parent="BombSlot5" instance=ExtResource("3_bombglb")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.013, 0, 0)
+[node name="bomb" parent="BombSlot5" unique_id=631587866 instance=ExtResource("3_bombglb")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.15, 0.165, 0.11)
 
-[node name="BombSlot6" type="Node3D" parent="."]
+[node name="BombSlot6" type="Node3D" parent="." unique_id=1129675115]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.443, -0.54)
 
-[node name="bomb" parent="BombSlot6" instance=ExtResource("3_bombglb")]
+[node name="bomb" parent="BombSlot6" unique_id=1550626767 instance=ExtResource("3_bombglb")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.18566474, 0.110000014)
