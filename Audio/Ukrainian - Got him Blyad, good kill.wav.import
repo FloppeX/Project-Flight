@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://4gye1qgd5ifk"
+path="res://.godot/imported/Ukrainian - Got him Blyad, good kill.wav-ffd34b8f8e77d618242a7b93e3b42859.sample"
+
+[deps]
+
+source_file="res://Audio/Ukrainian - Got him Blyad, good kill.wav"
+dest_files=["res://.godot/imported/Ukrainian - Got him Blyad, good kill.wav-ffd34b8f8e77d618242a7b93e3b42859.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

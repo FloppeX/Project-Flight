@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://bw4v78oy21a8u"
+path="res://.godot/imported/Ukrainian - Wilco Flight, form up Back on the clock.wav-47e9616b0a61e581b4c435de9a8decf2.sample"
+
+[deps]
+
+source_file="res://Audio/Ukrainian - Wilco Flight, form up Back on the clock.wav"
+dest_files=["res://.godot/imported/Ukrainian - Wilco Flight, form up Back on the clock.wav-47e9616b0a61e581b4c435de9a8decf2.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://ekj3n44bjjdl"
+path="res://.godot/imported/Ukrainian - Understood Tally Stay sharp out there.wav-13c1b62dba202b43db9d1790cc78d6c2.sample"
+
+[deps]
+
+source_file="res://Audio/Ukrainian - Understood Tally Stay sharp out there.wav"
+dest_files=["res://.godot/imported/Ukrainian - Understood Tally Stay sharp out there.wav-13c1b62dba202b43db9d1790cc78d6c2.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

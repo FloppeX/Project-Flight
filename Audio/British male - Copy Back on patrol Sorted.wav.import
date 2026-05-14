@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://xxyxoxwvnv3s"
+path="res://.godot/imported/British male - Copy Back on patrol Sorted.wav-e32d91bbe0a0cd379737b1394ed74897.sample"
+
+[deps]
+
+source_file="res://Audio/British male - Copy Back on patrol Sorted.wav"
+dest_files=["res://.godot/imported/British male - Copy Back on patrol Sorted.wav-e32d91bbe0a0cd379737b1394ed74897.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://dcxcaxdge6qhq"
+path="res://.godot/imported/British male - Running dry 'eading back Cover my slot cheers.wav-32e077efeeddf468ec90576bc35ba7ac.sample"
+
+[deps]
+
+source_file="res://Audio/British male - Running dry 'eading back Cover my slot cheers.wav"
+dest_files=["res://.godot/imported/British male - Running dry 'eading back Cover my slot cheers.wav-32e077efeeddf468ec90576bc35ba7ac.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

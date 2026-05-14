@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://caosudiamsg8s"
+path="res://.godot/imported/British male - Copy Going after 'em — bloody hell let's go.wav-3ffe34b1154a08a47ff3683d821c3a3c.sample"
+
+[deps]
+
+source_file="res://Audio/British male - Copy Going after 'em — bloody hell let's go.wav"
+dest_files=["res://.godot/imported/British male - Copy Going after 'em — bloody hell let's go.wav-3ffe34b1154a08a47ff3683d821c3a3c.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2
