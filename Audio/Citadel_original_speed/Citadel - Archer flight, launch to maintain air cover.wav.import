@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://bpfuvgosn237v"
+path="res://.godot/imported/Citadel - Archer flight, launch to maintain air cover.wav-54d949a3e27520a2d7953de7acfa7ccf.sample"
+
+[deps]
+
+source_file="res://Audio/Citadel_original_speed/Citadel - Archer flight, launch to maintain air cover.wav"
+dest_files=["res://.godot/imported/Citadel - Archer flight, launch to maintain air cover.wav-54d949a3e27520a2d7953de7acfa7ccf.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

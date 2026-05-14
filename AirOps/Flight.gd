@@ -288,6 +288,15 @@ func _apply_cas(aircraft: Node3D) -> bool:
 	pilot.dogfight_enabled = true  # still defend themselves
 	pilot.set_patrol_altitude(_cas_altitude_m)
 	_clear_navigation_waypoints(pilot)
+	if pilot.current_state not in [
+		AIPilot.State.SEARCH,
+		AIPilot.State.ATTACK_POSITIONING,
+		AIPilot.State.ATTACK_INBOUND,
+		AIPilot.State.ATTACK_DIVE,
+		AIPilot.State.ATTACK_BREAK_OFF,
+		AIPilot.State.DOGFIGHT,
+	]:
+		pilot.change_state(AIPilot.State.SEARCH)
 	return true
 
 func _apply_intercept(aircraft: Node3D) -> bool:

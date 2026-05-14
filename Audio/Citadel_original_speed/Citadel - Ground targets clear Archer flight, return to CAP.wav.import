@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://pnm81ieu0e56"
+path="res://.godot/imported/Citadel - Ground targets clear Archer flight, return to CAP.wav-3981e277d4c41b461ff3feec731fd2cc.sample"
+
+[deps]
+
+source_file="res://Audio/Citadel_original_speed/Citadel - Ground targets clear Archer flight, return to CAP.wav"
+dest_files=["res://.godot/imported/Citadel - Ground targets clear Archer flight, return to CAP.wav-3981e277d4c41b461ff3feec731fd2cc.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

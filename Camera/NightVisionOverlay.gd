@@ -6,7 +6,6 @@ var _hud_glass: MeshInstance3D = null
 var _cockpit_cam: Camera3D = null
 var _aircraft: Node3D = null
 var _instrument_panel: Node = null
-var _cockpit_nv_applied: bool = false
 
 func _ready() -> void:
 	layer = 96
@@ -57,7 +56,6 @@ func _process(_delta: float) -> void:
 
 func _update_visibility() -> void:
 	var should_show := _enabled and _is_player_cockpit_view_active()
-	_set_cockpit_nv(should_show)
 	if not should_show:
 		visible = false
 		return
@@ -70,17 +68,6 @@ func _is_player_cockpit_view_active() -> bool:
 	if int(get_parent().get("current_mode")) != 0:  # COCKPIT only
 		return false
 	return get_viewport().get_camera_3d() == _cockpit_cam
-
-
-func _set_cockpit_nv(enabled: bool) -> void:
-	if _cockpit_nv_applied == enabled:
-		return
-	_cockpit_nv_applied = enabled
-	if not is_instance_valid(_cockpit_cam):
-		return
-	var tripod := _cockpit_cam.get_parent() as Node3D
-	if tripod != null:
-		tripod.set("nv_active", enabled)
 
 
 func _apply_instrument_nv() -> void:
@@ -146,4 +133,4 @@ func _update_polygon() -> void:
 
 
 func _exit_tree() -> void:
-	_set_cockpit_nv(false)
+	pass

@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://csytj7ppy0mq3"
+path="res://.godot/imported/Citadel - Archer flight, bogeys inbound Vector to intercept.wav-cfee4d9ddb5af05092410c6867b18dfb.sample"
+
+[deps]
+
+source_file="res://Audio/Citadel_original_speed/Citadel - Archer flight, bogeys inbound Vector to intercept.wav"
+dest_files=["res://.godot/imported/Citadel - Archer flight, bogeys inbound Vector to intercept.wav-cfee4d9ddb5af05092410c6867b18dfb.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

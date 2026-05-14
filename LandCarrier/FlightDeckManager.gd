@@ -571,7 +571,7 @@ func request_launch_sequence(aircraft: RigidBody3D):
 	else:
 		pass
 
-func queue_ai_flight(count: int, ops: Node, loadout_profile: String = "") -> void:
+func queue_ai_flight(count: int, ops: Node, loadout_profile: String = "") -> int:
 	"""Request FlightOps to launch `count` AI aircraft one after another.
 	Each successful launch calls ops.notify_aircraft_launched(pilot)."""
 	if _landing_test_active:
@@ -579,17 +579,18 @@ func queue_ai_flight(count: int, ops: Node, loadout_profile: String = "") -> voi
 		_pending_flight_ops = null
 		_retrieval_ai_land_after_launch = true
 		_pending_ai_loadout_profile = ""
-		return
+		return 0
 	var available := mini(count, stored_aircraft.size())
 	if available <= 0:
 		push_warning("[FlightDeckManager] queue_ai_flight: hangar empty")
-		return
+		return 0
 	_ai_launch_queue = available
 	_pending_flight_ops = ops
 	_retrieval_ai_land_after_launch = false
 	_pending_ai_loadout_profile = loadout_profile
 	if current_state == DeckState.IDLE:
 		_launch_next_queued_ai()
+	return available
 
 func _launch_next_queued_ai() -> void:
 	if _landing_test_active:
