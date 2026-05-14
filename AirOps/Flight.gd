@@ -652,16 +652,16 @@ func _say_cas_assignment(aircraft: Node3D, target: Node3D) -> void:
 	if member_index == 0:
 		RadioComms.transmit(callsign, "%s flight" % flight_name,
 			RadioComms._pick([
-				"Target acquired. Rolling in on the %s." % target_type,
-				"Lead's on the %s. Flight, find your targets." % target_type,
-				"Engaging the %s. Tally." % target_type,
+				"Lead's in on target. Committing.",
+				"Tally. Rolling in hot. Flight, find your marks.",
+				"Target acquired. I'm going in. Cover my six.",
 			]))
 	else:
 		RadioComms.transmit(callsign, "%s lead" % flight_name,
 			RadioComms._pick([
-				"Two, tally. On the %s." % target_type,
-				"%s, engaging the %s." % [suffix, target_type],
-				"Copy. I've got the %s." % target_type,
+				"Two, tally. Target is mine.",
+				"In on target. Engaging.",
+				"Copy lead. Pickle is hot.",
 			]))
 
 func _member_suffix(index: int) -> String:

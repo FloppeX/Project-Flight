@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://p8c15pj85gct"
+path="res://.godot/imported/British male - Copy Orbiting Keeping watch.wav-205c79fd17334b4d887f21c4e5ef1f2a.sample"
+
+[deps]
+
+source_file="res://Audio/British male - Copy Orbiting Keeping watch.wav"
+dest_files=["res://.godot/imported/British male - Copy Orbiting Keeping watch.wav-205c79fd17334b4d887f21c4e5ef1f2a.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

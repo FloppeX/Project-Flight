@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://bmw0bs3hfk1ne"
+path="res://.godot/imported/Ukrainian - Up and away Blyad — Flight, form on my wing.wav-2bee22ce30e2ac87e23d4321efbd9814.sample"
+
+[deps]
+
+source_file="res://Audio/Ukrainian - Up and away Blyad — Flight, form on my wing.wav"
+dest_files=["res://.godot/imported/Ukrainian - Up and away Blyad — Flight, form on my wing.wav-2bee22ce30e2ac87e23d4321efbd9814.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

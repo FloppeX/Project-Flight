@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://b22xpqra4kqvb"
+path="res://.godot/imported/British male - Roger Cleared hot I see my line yeah.wav-78d55d750ec4cc29a92c4c1302ca250a.sample"
+
+[deps]
+
+source_file="res://Audio/British male - Roger Cleared hot I see my line yeah.wav"
+dest_files=["res://.godot/imported/British male - Roger Cleared hot I see my line yeah.wav-78d55d750ec4cc29a92c4c1302ca250a.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

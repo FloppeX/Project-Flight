@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://dldp5ekod7ims"
+path="res://.godot/imported/Ukrainian - Hit I'm hit Disengaging Assessing damage.wav-aa84b6821e9a2069cec75dde4a867b24.sample"
+
+[deps]
+
+source_file="res://Audio/Ukrainian - Hit I'm hit Disengaging Assessing damage.wav"
+dest_files=["res://.godot/imported/Ukrainian - Hit I'm hit Disengaging Assessing damage.wav-aa84b6821e9a2069cec75dde4a867b24.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

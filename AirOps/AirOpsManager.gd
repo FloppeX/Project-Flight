@@ -291,9 +291,9 @@ func _vector_intercept(threat: Node3D) -> void:
 		"%s, bandits on scope. Intercept. Weapons free." % fname,
 	]))
 	RadioComms.transmit_delayed("%s lead" % fname, "Citadel", RadioComms._pick([
-		"Copy. Going to intercept.",
-		"Roger. Tally. Engaging.",
-		"Wilco. Flight, weapons free.",
+		"Copy. Going after them. Bozhe miy, here we go.",
+		"Tally. I'm in. Engaging.",
+		"Wilco. Flight. Weapons free. Call your targets.",
 	]), randf_range(1.0, 2.2))
 
 # ── CAS management ────────────────────────────────────────────────────────────
@@ -364,9 +364,9 @@ func _vector_cas(threat: Node3D) -> void:
 		"%s, hostiles on the deck. Prosecute ground attack. Weapons free." % fname,
 	]))
 	RadioComms.transmit_delayed("%s lead" % fname, "Citadel", RadioComms._pick([
-		"Copy. Rolling in.",
-		"Roger. Selecting targets.",
-		"Wilco. Flight, going for the deck.",
+		"Copy. Nosing over. Committing.",
+		"Roger. Got targets. Flight, sort yourselves out.",
+		"Wilco. Flight. Push it low. Watch for ground fire.",
 	]), randf_range(1.0, 2.2))
 
 # ── Recall ────────────────────────────────────────────────────────────────────
@@ -381,9 +381,9 @@ func _recall_to_cap(f: Flight, line_a: String, line_b: String, line_c: String) -
 		line_a % fname, line_b % fname, line_c % fname,
 	]))
 	RadioComms.transmit_delayed("%s lead" % fname, "Citadel", RadioComms._pick([
-		"Copy. Resuming CAP.",
-		"Roger. Back on patrol.",
-		"Wilco. Flight, form up.",
+		"Copy. Back on patrol.",
+		"Roger. Back on station. Stay sharp.",
+		"Wilco. Flight, form up. Back on the clock.",
 	]), randf_range(0.8, 1.8))
 
 func _on_flight_lost(f: Flight, role: String) -> void:
@@ -450,7 +450,11 @@ func notify_aircraft_launched(pilot: AIPilot) -> void:
 	var expected_count := maxi(_scrambling_expected_count, 1)
 	if _scrambling_flight.strength() >= expected_count:
 		RadioComms.transmit_delayed("%s lead" % _scrambling_flight.flight_name, "Citadel",
-			RadioComms._pick(["Airborne. Climbing to station.", "Off the deck. Coming around.", "Up and away."]),
+			RadioComms._pick([
+				"Off the deck. Gear up, climbing to station.",
+				"Airborne. Coming around. What is the picture?",
+				"Up and away. Blyad. Flight, form on my wing.",
+			]),
 			randf_range(1.5, 3.0))
 		_scrambling_flight = null
 		_scrambling_expected_count = 0

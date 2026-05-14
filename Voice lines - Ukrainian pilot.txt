@@ -1,0 +1,72 @@
+CAP
+
+"Copy. Orbiting. Keeping watch."
+"Roger. On station. Sky is quiet."
+"Wilco. Climbing to altitude. Watch your spacing."
+
+CAS
+
+"[excited] Copy. Breaking off. Blyad, let's go get them!"
+"[excited] Roger. Cleared hot. I see my line!"
+"[excited] Understood. Tally. Stay sharp out there."
+
+RTB
+
+"Copy. Turning for home."
+"Roger. Flight, on me. Time to find the boat."
+"Wilco. Close it up. Good work today. Good work."
+
+Intercept
+
+"[excited] Copy. Going after them — Bozhe miy, here we go!"
+"[excited] Tally! I'm in. Engaging!"
+"[excited] Wilco. Flight — weapons free. Call your targets!"
+
+CAS Vector
+
+"Copy. Nosing over. Committing."
+"Roger. Got targets. Flight, sort yourselves out."
+"Wilco. Flight — push it low. Watch for ground fire."
+
+Recall to CAP
+
+"Copy. Back on patrol."
+"Roger. Back on station. Stay sharp."
+"Wilco. Flight, form up. Back on the clock."
+
+Launch / Scramble
+
+"Off the deck. Gear up, climbing to station."
+"Airborne. Coming around. What is the picture?"
+"Up and away. Blyad — Flight, form on my wing."
+
+Flight Lead Callouts
+
+"Lead's in on target. Committing."
+"[excited] Tally! Rolling in hot — Flight, find your marks!"
+"Target acquired. I'm going in. Cover my six."
+
+Wingman Callouts
+
+"Two, tally. Target is mine."
+"[shouting] In on target! Engaging!"
+"Copy lead. Pickle is hot."
+
+Splash / Kill
+
+"[excited] Splash one! Slava Ukraini!"
+"[excited] Got him! Blyad, good kill!"
+"[shouting] He's down! Chort vozmy!"
+"[shouting] Confirmed kill! Yes! Yes!"
+
+Bingo Fuel
+
+"Bingo fuel. RTB. Hold my spot."
+"Running dry. Heading back. Cover my slot."
+
+Taking Fire
+
+"[panicked] Taking hits! Blyad! Breaking off, breaking off!"
+"[panicked] I'm taking fire! Chort!"
+"[shouting] Ground fire! Yob tvoyu mat — taking evasive!"
+"[strained] Hit. I'm hit. Disengaging. Assessing damage."

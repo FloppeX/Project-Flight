@@ -1,6 +1,4 @@
-res://Aircraft/Visuals/LandingGear/NoseGearRig.gd
 res://Radio/RadioComms.gd
 res://AirOps/AirOpsManager.gd
 res://AirOps/Flight.gd
-res://Camera/CockpitCamera.gd
-res://Camera/NightVisionOverlay.gd
+res://AI/AIPilot.gd

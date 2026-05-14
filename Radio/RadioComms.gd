@@ -3,7 +3,9 @@ extends Node
 const RADIO_TEST_STREAM_PATH := "res://Audio/Citadel voice test.mp3"
 const CITADEL_AUDIO_DIR := "res://Audio"
 const CITADEL_AUDIO_PREFIX := "Citadel - "
+const PILOT_AUDIO_PREFIXES := ["Ukrainian - ", "British male - "]
 const RADIO_BUS_NAME := "Radio"
+const RADIO_STATIC_MIX_RATE := 22050
 
 ## RadioComms — autoload singleton.
 ##
@@ -32,12 +34,15 @@ const RADIO_BUS_NAME := "Radio"
 @export var radio_static_noise_gain: float = 0.022
 @export var radio_static_crackle_gain: float = 0.18
 @export var radio_crackle_chance_per_frame: float = 0.014
+@export var radio_squelch_burst_s: float = 0.055
+@export var radio_squelch_burst_gain: float = 0.55
 @export var radio_dropout_chance_per_frame: float = 0.01
 @export var radio_dropout_min_s: float = 0.02
 @export var radio_dropout_max_s: float = 0.09
 @export var radio_dropout_volume_db: float = -22.0
 @export var radio_pitch_jitter: float = 0.035
 @export var use_citadel_voice_clips: bool = true
+@export var use_pilot_voice_clips: bool = true
 
 # ── Signals ────────────────────────────────────────────────────────────────────
 
@@ -58,12 +63,16 @@ var _radio_static_player: AudioStreamPlayer
 var _radio_static_playback: AudioStreamGeneratorPlayback
 var _radio_test_stream: AudioStream
 var _citadel_voice_streams: Dictionary = {}
+var _pilot_voice_streams: Dictionary = {}
 var _citadel_voice_queue: Array[AudioStream] = []
 var _radio_rng := RandomNumberGenerator.new()
 var _radio_static_until_s: float = 0.0
 var _radio_static_mix: float = 0.0
 var _radio_crackle_frames_left: int = 0
 var _radio_crackle_level: float = 0.0
+var _radio_squelch_frames_left: int = 0
+var _radio_squelch_total_frames: int = 0
+var _radio_squelch_gain: float = 0.0
 var _radio_request_serial: int = 0
 var _radio_dropout_until_s: float = 0.0
 
@@ -74,6 +83,7 @@ func _ready() -> void:
 	_radio_rng.randomize()
 	_setup_radio_audio()
 	_build_citadel_voice_library()
+	_build_pilot_voice_library()
 
 func _process(delta: float) -> void:
 	_expire_messages()
@@ -94,7 +104,7 @@ func _input(event: InputEvent) -> void:
 ## Send a radio transmission immediately.
 func transmit(sender: String, recipient: String, body: String) -> void:
 	_enqueue(sender, recipient, body)
-	_queue_citadel_voice_clip(sender, recipient, body)
+	_queue_radio_voice_clip(sender, recipient, body)
 	transmitted.emit(sender, recipient, body)
 	print("[Radio] %s → %s: %s" % [sender, recipient, body])
 
@@ -114,6 +124,7 @@ func play_citadel_test() -> void:
 	var request_serial := _radio_request_serial
 	_radio_voice_player.stop()
 	_start_radio_static_for(radio_static_pre_roll_s + _estimate_radio_test_length() + radio_static_post_roll_s)
+	_trigger_radio_squelch_burst()
 
 	var pre_roll_timer := get_tree().create_timer(radio_static_pre_roll_s)
 	pre_roll_timer.timeout.connect(func() -> void:
@@ -136,9 +147,9 @@ func say_cap_order(flight_name: String, altitude_m: float) -> void:
 	]
 	transmit("Citadel", "%s flight" % flight_name, _pick(bodies))
 	transmit_delayed("%s lead" % flight_name, "Citadel", _pick([
-		"Copy. Wilco.",
-		"Roger. On station.",
-		"Understood. Climbing to angels %d." % angels,
+		"Copy. Orbiting. Keeping watch.",
+		"Roger. On station. Sky is quiet.",
+		"Wilco. Climbing to altitude. Watch your spacing.",
 	]), randf_range(1.2, 2.5))
 
 func say_cas_order(flight_name: String) -> void:
@@ -149,9 +160,9 @@ func say_cas_order(flight_name: String) -> void:
 	]
 	transmit("Citadel", "%s flight" % flight_name, _pick(bodies))
 	transmit_delayed("%s lead" % flight_name, "Citadel", _pick([
-		"Copy. Rolling in.",
-		"Roger. Cleared hot.",
-		"Understood. Selecting target.",
+		"Copy. Breaking off. Blyad, let's go get them.",
+		"Roger. Cleared hot. I see my line.",
+		"Understood. Tally. Stay sharp out there.",
 	]), randf_range(1.0, 2.2))
 
 func say_rtb_order(flight_name: String) -> void:
@@ -162,9 +173,9 @@ func say_rtb_order(flight_name: String) -> void:
 	]
 	transmit("Citadel", "%s flight" % flight_name, _pick(bodies))
 	transmit_delayed("%s lead" % flight_name, "Citadel", _pick([
-		"Copy. RTB.",
-		"Roger. Heading home.",
-		"Wilco. Flight, form up.",
+		"Copy. Turning for home.",
+		"Roger. Flight, on me. Time to find the boat.",
+		"Wilco. Close it up. Good work today. Good work.",
 	]), randf_range(1.0, 2.0))
 
 func say_target_assignment(lead_callsign: String, wingman_callsign: String,
@@ -180,19 +191,24 @@ func say_target_assignment(lead_callsign: String, wingman_callsign: String,
 func say_splash(callsign: String) -> void:
 	var bodies := [
 		"Splash one.",
-		"Target destroyed. Searching.",
-		"Kill. Continuing attack.",
+		"Got him. Blyad, good kill.",
+		"He's down. Chort vozmy.",
+		"Confirmed kill. Yes. Yes.",
 	]
 	transmit(callsign, "Citadel", _pick(bodies))
 
 func say_bingo(callsign: String) -> void:
-	transmit(callsign, "Citadel", "Bingo fuel. Returning to base.")
+	transmit(callsign, "Citadel", _pick([
+		"Bingo fuel. RTB. Hold my spot.",
+		"Running dry. Heading back. Cover my slot.",
+	]))
 
 func say_taking_fire(callsign: String) -> void:
 	var bodies := [
-		"Taking hits. Breaking off.",
-		"Taking fire. Evading.",
-		"Hit. Disengaging.",
+		"Taking hits. Blyad. Breaking off, breaking off.",
+		"I'm taking fire. Chort.",
+		"Ground fire. Yob tvoyu mat. Taking evasive.",
+		"Hit. I'm hit. Disengaging. Assessing damage.",
 	]
 	transmit(callsign, "Citadel", _pick(bodies))
 
@@ -229,6 +245,40 @@ func _queue_citadel_voice_clip(sender: String, recipient: String, body: String) 
 	_citadel_voice_queue.append(stream)
 	_play_next_citadel_voice_clip()
 
+func _build_pilot_voice_library() -> void:
+	_pilot_voice_streams.clear()
+	var dir := DirAccess.open(CITADEL_AUDIO_DIR)
+	if dir == null:
+		push_warning("Pilot voice directory is unavailable: %s" % CITADEL_AUDIO_DIR)
+		return
+
+	for file_name in dir.get_files():
+		var voice_prefix := _pilot_voice_prefix_for_file(file_name)
+		if voice_prefix == "":
+			continue
+		var extension := file_name.get_extension().to_lower()
+		if extension != "wav" and extension != "ogg" and extension != "mp3":
+			continue
+		var base_name := file_name.get_basename()
+		var phrase := base_name.substr(voice_prefix.length())
+		var key := _canonical_pilot_voice_key(phrase)
+		var stream := load(CITADEL_AUDIO_DIR.path_join(file_name)) as AudioStream
+		if stream != null and not key.is_empty():
+			if not _pilot_voice_streams.has(key):
+				_pilot_voice_streams[key] = []
+			(_pilot_voice_streams[key] as Array).append(stream)
+
+func _queue_radio_voice_clip(sender: String, recipient: String, body: String) -> void:
+	var stream: AudioStream = null
+	if sender == "Citadel" and use_citadel_voice_clips:
+		stream = _find_citadel_voice_stream(recipient, body)
+	elif use_pilot_voice_clips:
+		stream = _find_pilot_voice_stream(sender, body)
+	if stream == null:
+		return
+	_citadel_voice_queue.append(stream)
+	_play_next_citadel_voice_clip()
+
 func _find_citadel_voice_stream(recipient: String, body: String) -> AudioStream:
 	var key := _normalize_citadel_phrase(body)
 	if _citadel_voice_streams.has(key):
@@ -243,6 +293,43 @@ func _find_citadel_voice_stream(recipient: String, body: String) -> AudioStream:
 				return _citadel_voice_streams[key] as AudioStream
 
 	return null
+
+func _find_pilot_voice_stream(sender: String, body: String) -> AudioStream:
+	if not _is_pilot_sender(sender):
+		return null
+
+	var direct_key := _normalize_pilot_phrase(body)
+	if _pilot_voice_streams.has(direct_key):
+		return _pick_pilot_voice_stream(direct_key)
+
+	var alias_key := _pilot_voice_alias_key(body)
+	if alias_key != "" and _pilot_voice_streams.has(alias_key):
+		return _pick_pilot_voice_stream(alias_key)
+
+	return null
+
+func _pick_pilot_voice_stream(key: String) -> AudioStream:
+	var streams: Array = _pilot_voice_streams.get(key, [])
+	if streams.is_empty():
+		return null
+	return streams[randi() % streams.size()] as AudioStream
+
+func _pilot_voice_prefix_for_file(file_name: String) -> String:
+	var lower_name := file_name.to_lower()
+	for prefix in PILOT_AUDIO_PREFIXES:
+		if lower_name.begins_with(prefix.to_lower()):
+			return file_name.substr(0, prefix.length())
+	return ""
+
+func _is_pilot_sender(sender: String) -> bool:
+	if sender == "Citadel":
+		return false
+	var sender_lc := sender.to_lower()
+	return sender_lc.ends_with(" lead") \
+		or sender_lc.contains(" two") \
+		or sender_lc.contains(" three") \
+		or sender_lc.contains(" four") \
+		or sender_lc.contains(" flight")
 
 func _normalize_citadel_phrase(phrase: String) -> String:
 	var text := phrase.to_lower()
@@ -269,6 +356,158 @@ func _normalize_citadel_phrase(phrase: String) -> String:
 		i += 1
 	return " ".join(output_tokens)
 
+func _normalize_pilot_phrase(phrase: String) -> String:
+	var text := phrase.to_lower()
+	for punctuation in [".", ",", "!", "?", ":", ";", "-", "_", "'", "\"", "[", "]", "—", "–"]:
+		text = text.replace(punctuation, " ")
+	text = text.replace("rtb", "returning to base")
+
+	var input_tokens := text.split(" ", false)
+	var output_tokens := PackedStringArray()
+	for token in input_tokens:
+		if token.is_empty():
+			continue
+		output_tokens.append(token)
+	return " ".join(output_tokens)
+
+func _canonical_pilot_voice_key(phrase: String) -> String:
+	var key := _normalize_pilot_phrase(phrase)
+
+	match key:
+		"roger on station nothing up ere":
+			return _normalize_pilot_phrase("Roger. On station. Sky is quiet.")
+		"wilco climbing to altitude watch your spacing yeah":
+			return _normalize_pilot_phrase("Wilco. Climbing to altitude. Watch your spacing.")
+		"copy breaking off let s ave it":
+			return _normalize_pilot_phrase("Copy. Breaking off. Blyad, let's go get them.")
+		"roger cleared hot i see my line yeah":
+			return _normalize_pilot_phrase("Roger. Cleared hot. I see my line.")
+		"copy turning for ome":
+			return _normalize_pilot_phrase("Copy. Turning for home.")
+		"roger flight on me time to find the boat innit":
+			return _normalize_pilot_phrase("Roger. Flight, on me. Time to find the boat.")
+		"wilco close it up good work today proper good work":
+			return _normalize_pilot_phrase("Wilco. Close it up. Good work today. Good work.")
+		"copy going after em bloody hell let s go":
+			return _normalize_pilot_phrase("Copy. Going after them. Bozhe miy, here we go.")
+		"copy back on patrol sorted":
+			return _normalize_pilot_phrase("Copy. Back on patrol.")
+		"wilco flight get down low watch for ground fire yeah":
+			return _normalize_pilot_phrase("Wilco. Flight. Push it low. Watch for ground fire.")
+		"off the deck gear up climbing to station":
+			return _normalize_pilot_phrase("Off the deck. Gear up, climbing to station.")
+		"airborne coming around what s the picture":
+			return _normalize_pilot_phrase("Airborne. Coming around. What is the picture?")
+		"up and away flight close on me yeah":
+			return _normalize_pilot_phrase("Up and away. Blyad. Flight, form on my wing.")
+		"target acquired going in cover my six":
+			return _normalize_pilot_phrase("Target acquired. I'm going in. Cover my six.")
+		"two tally target s mine":
+			return _normalize_pilot_phrase("Two, tally. Target is mine.")
+		"copy lead pickle s ot":
+			return _normalize_pilot_phrase("Copy lead. Pickle is hot.")
+		"splash one get in":
+			return _normalize_pilot_phrase("Splash one. Slava Ukraini.")
+		"got im bloody hell good kill":
+			return _normalize_pilot_phrase("Got him. Blyad, good kill.")
+		"e s down yeah":
+			return _normalize_pilot_phrase("He's down. Chort vozmy.")
+		"confirmed kill ave that":
+			return _normalize_pilot_phrase("Confirmed kill. Yes. Yes.")
+		"bingo fuel returning to base old my spot":
+			return _normalize_pilot_phrase("Bingo fuel. RTB. Hold my spot.")
+		"running dry eading back cover my slot cheers":
+			return _normalize_pilot_phrase("Running dry. Heading back. Cover my slot.")
+		"taking its bollocks breaking off breaking off":
+			return _normalize_pilot_phrase("Taking hits. Blyad. Breaking off, breaking off.")
+		"i m taking fire sod it":
+			return _normalize_pilot_phrase("I'm taking fire. Chort.")
+		"ground fire bloody hell taking evasive":
+			return _normalize_pilot_phrase("Ground fire. Yob tvoyu mat. Taking evasive.")
+		"i m it falling back checking systems":
+			return _normalize_pilot_phrase("Hit. I'm hit. Disengaging. Assessing damage.")
+
+	return key
+
+func _pilot_voice_alias_key(body: String) -> String:
+	var key := _normalize_pilot_phrase(body)
+
+	if key.begins_with("understood climbing"):
+		return _normalize_pilot_phrase("Wilco. Climbing to altitude. Watch your spacing.")
+	if key == "copy wilco":
+		return _normalize_pilot_phrase("Copy. Orbiting. Keeping watch.")
+	if key == "roger on station":
+		return _normalize_pilot_phrase("Roger. On station. Sky is quiet.")
+
+	if key == "copy rolling in":
+		return _normalize_pilot_phrase("Copy. Breaking off. Blyad, let's go get them.")
+	if key == "roger cleared hot":
+		return _normalize_pilot_phrase("Roger. Cleared hot. I see my line.")
+	if key == "understood selecting target":
+		return _normalize_pilot_phrase("Understood. Tally. Stay sharp out there.")
+
+	if key == "copy rtb" or key == "roger heading home":
+		return _normalize_pilot_phrase("Copy. Turning for home.")
+	if key == "wilco flight form up":
+		return _normalize_pilot_phrase("Wilco. Close it up. Good work today. Good work.")
+
+	if key == "copy going to intercept":
+		return _normalize_pilot_phrase("Copy. Going after them. Bozhe miy, here we go.")
+	if key == "roger tally engaging":
+		return _normalize_pilot_phrase("Tally. I'm in. Engaging.")
+	if key == "wilco flight weapons free":
+		return _normalize_pilot_phrase("Wilco. Flight. Weapons free. Call your targets.")
+
+	if key == "copy resuming cap":
+		return _normalize_pilot_phrase("Copy. Back on patrol.")
+	if key == "roger back on patrol":
+		return _normalize_pilot_phrase("Roger. Back on station. Stay sharp.")
+	if key == "wilco flight form up back on the clock":
+		return _normalize_pilot_phrase("Wilco. Flight, form up. Back on the clock.")
+
+	if key == "roger selecting targets":
+		return _normalize_pilot_phrase("Roger. Got targets. Flight, sort yourselves out.")
+	if key == "wilco flight going for the deck":
+		return _normalize_pilot_phrase("Wilco. Flight. Push it low. Watch for ground fire.")
+
+	if key == "airborne climbing to station":
+		return _normalize_pilot_phrase("Airborne. Coming around. What is the picture?")
+	if key == "off the deck coming around":
+		return _normalize_pilot_phrase("Off the deck. Gear up, climbing to station.")
+	if key == "up and away":
+		return _normalize_pilot_phrase("Up and away. Blyad. Flight, form on my wing.")
+
+	if key.begins_with("target acquired rolling in"):
+		return _normalize_pilot_phrase("Target acquired. I'm going in. Cover my six.")
+	if key.begins_with("lead s on"):
+		return _normalize_pilot_phrase("Lead's in on target. Committing.")
+	if key.begins_with("engaging"):
+		return _normalize_pilot_phrase("Tally. Rolling in hot. Flight, find your marks.")
+	if key.begins_with("two tally"):
+		return _normalize_pilot_phrase("Two, tally. Target is mine.")
+	if key.contains("engaging the"):
+		return _normalize_pilot_phrase("In on target. Engaging.")
+	if key.begins_with("copy i ve got"):
+		return _normalize_pilot_phrase("Copy lead. Pickle is hot.")
+
+	if key == "splash one":
+		return _normalize_pilot_phrase("Splash one. Slava Ukraini.")
+	if key == "target destroyed searching":
+		return _normalize_pilot_phrase("He's down. Chort vozmy.")
+	if key == "kill continuing attack":
+		return _normalize_pilot_phrase("Got him. Blyad, good kill.")
+
+	if key == "bingo fuel returning to base":
+		return _normalize_pilot_phrase("Bingo fuel. RTB. Hold my spot.")
+	if key == "taking hits breaking off":
+		return _normalize_pilot_phrase("Taking hits. Blyad. Breaking off, breaking off.")
+	if key == "taking fire evading":
+		return _normalize_pilot_phrase("Ground fire. Yob tvoyu mat. Taking evasive.")
+	if key == "hit disengaging":
+		return _normalize_pilot_phrase("Hit. I'm hit. Disengaging. Assessing damage.")
+
+	return ""
+
 func _play_next_citadel_voice_clip() -> void:
 	if _radio_voice_player == null:
 		return
@@ -282,6 +521,7 @@ func _play_next_citadel_voice_clip() -> void:
 	if stream_length <= 0.0:
 		stream_length = 2.5
 	_start_radio_static_for(radio_static_pre_roll_s + stream_length + radio_static_post_roll_s)
+	_trigger_radio_squelch_burst()
 
 	var pre_roll_timer := get_tree().create_timer(radio_static_pre_roll_s)
 	pre_roll_timer.timeout.connect(func() -> void:
@@ -354,7 +594,7 @@ func _setup_radio_audio() -> void:
 	add_child(_radio_voice_player)
 
 	var static_generator := AudioStreamGenerator.new()
-	static_generator.mix_rate = 22050
+	static_generator.mix_rate = RADIO_STATIC_MIX_RATE
 	static_generator.buffer_length = 0.12
 
 	_radio_static_player = AudioStreamPlayer.new()
@@ -444,11 +684,29 @@ func _next_radio_static_sample() -> float:
 		crackle += _radio_rng.randf_range(-1.0, 1.0) * (radio_static_crackle_gain * 0.35) * _radio_static_mix
 		_radio_crackle_frames_left -= 1
 
-	return clampf(hiss + crackle, -1.0, 1.0)
+	var squelch := 0.0
+	if _radio_squelch_frames_left > 0:
+		var elapsed_frames := _radio_squelch_total_frames - _radio_squelch_frames_left
+		var t := float(elapsed_frames) / maxf(float(_radio_squelch_total_frames), 1.0)
+		var attack := clampf(t / 0.18, 0.0, 1.0)
+		var release := 1.0 - clampf((t - 0.45) / 0.55, 0.0, 1.0)
+		var envelope := attack * release
+		squelch = _radio_rng.randf_range(-1.0, 1.0) * _radio_squelch_gain * envelope
+		_radio_squelch_frames_left -= 1
+
+	return clampf(hiss + crackle + squelch, -1.0, 1.0)
 
 func _start_radio_static_for(duration_s: float) -> void:
 	var now_s := Time.get_ticks_msec() / 1000.0
 	_radio_static_until_s = maxf(_radio_static_until_s, now_s + duration_s)
+
+func _trigger_radio_squelch_burst(duration_s: float = -1.0, gain: float = -1.0) -> void:
+	var burst_s := radio_squelch_burst_s if duration_s < 0.0 else duration_s
+	if burst_s <= 0.0:
+		return
+	_radio_squelch_total_frames = maxi(1, ceili(float(RADIO_STATIC_MIX_RATE) * burst_s))
+	_radio_squelch_frames_left = _radio_squelch_total_frames
+	_radio_squelch_gain = maxf(radio_squelch_burst_gain if gain < 0.0 else gain, 0.0)
 
 func _estimate_radio_test_length() -> float:
 	if _radio_test_stream == null:
@@ -459,6 +717,7 @@ func _estimate_radio_test_length() -> float:
 func _on_radio_voice_finished() -> void:
 	_radio_dropout_until_s = 0.0
 	_start_radio_static_for(radio_static_post_roll_s)
+	_trigger_radio_squelch_burst(radio_squelch_burst_s * 0.8, radio_squelch_burst_gain * 0.75)
 	if not _citadel_voice_queue.is_empty():
 		var post_roll_timer := get_tree().create_timer(radio_static_post_roll_s)
 		post_roll_timer.timeout.connect(_play_next_citadel_voice_clip)

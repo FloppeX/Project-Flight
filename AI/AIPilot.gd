@@ -92,10 +92,20 @@ var _terrain_check_counter: int = 0
 @export var terrain_check_interval: int = 3  # Update terrain fan/ahead every N physics frames (~20 Hz at 60 Hz physics)
 @export var collision_avoidance_interval_s: float = 0.10
 @export var rtb_check_interval_s: float = 1.0
+@export_group("Radio Callouts")
+@export var radio_damage_call_min_damage: float = 8.0
+@export var radio_damage_call_cooldown_s: float = 10.0
+@export var radio_kill_call_cooldown_s: float = 4.0
+@export var radio_bingo_call_cooldown_s: float = 30.0
+@export_group("")
 var _contact_scan_timer_s: float = 0.0
 var _contact_report_timer_s: float = 0.0
 var _collision_avoidance_timer_s: float = 0.0
 var _rtb_check_timer_s: float = 0.0
+var _radio_last_damage_call_s: float = -INF
+var _radio_last_kill_call_s: float = -INF
+var _radio_last_bingo_call_s: float = -INF
+var _radio_observed_target: Node3D = null
 var _smoothed_ground_height: float = NAN  # Smoothed ground height for stable low-level flight
 var _cached_day_night_cycle: Node = null
 var _cached_ai_darkness_factor: float = 0.0
@@ -876,6 +886,8 @@ func initialize(aircraft_node: RigidBody3D):
 
 	if aircraft.has_signal("destroyed") and not aircraft.is_connected("destroyed", _on_aircraft_destroyed):
 		aircraft.connect("destroyed", _on_aircraft_destroyed)
+	if aircraft.has_signal("damaged") and not aircraft.is_connected("damaged", _on_aircraft_damaged):
+		aircraft.connect("damaged", _on_aircraft_damaged)
 
 	# Disable stability (auto-levels aircraft, fights AI's intentional banking)
 	# and auto_rudder (AI manages yaw explicitly based on desired bank angle).
@@ -1019,6 +1031,7 @@ func _physics_process(delta: float):
 			State.MISSED_APPROACH:
 				_state_missed_approach(delta)
 
+	_sync_radio_target_watch()
 	_emit_periodic_ai_debug(delta)
 
 	_debug_flight_path_alignment(delta)
@@ -1116,10 +1129,133 @@ func _landing_debug_event(message: String) -> void:
 	print("[LAND] %s %s" % [aircraft_name, message])
 
 func _on_aircraft_destroyed() -> void:
+	_clear_radio_target_watch()
 	if current_state in [State.RECOVERY_MARSHAL, State.RECOVERY_HOLD, State.RECOVERY_APPROACH, State.LANDING, State.MISSED_APPROACH]:
 		_release_landing_clearance_from_deck()
 	if current_state == State.LANDING:
 		_landing_snap("CRASH", "destroyed=true  pts=0.0")
+
+func _on_aircraft_damaged(damage_amount: float, new_health: float) -> void:
+	if damage_amount < radio_damage_call_min_damage:
+		return
+	if new_health <= 0.0:
+		return
+	_say_taking_fire_once()
+
+func _sync_radio_target_watch() -> void:
+	if not _should_watch_radio_combat_target():
+		_clear_radio_target_watch()
+		return
+	if combat_target == _radio_observed_target:
+		return
+	_clear_radio_target_watch()
+	_radio_observed_target = combat_target
+	var callback := _radio_target_destroyed_callable(_radio_observed_target)
+	if _radio_observed_target.has_signal("destroyed") and not _radio_observed_target.is_connected("destroyed", callback):
+		_radio_observed_target.connect("destroyed", callback)
+
+func _clear_radio_target_watch() -> void:
+	if _radio_observed_target and is_instance_valid(_radio_observed_target):
+		var callback := _radio_target_destroyed_callable(_radio_observed_target)
+		if _radio_observed_target.has_signal("destroyed") and _radio_observed_target.is_connected("destroyed", callback):
+			_radio_observed_target.disconnect("destroyed", callback)
+	_radio_observed_target = null
+
+func _radio_target_destroyed_callable(target: Node3D) -> Callable:
+	return Callable(self, "_on_radio_combat_target_destroyed").bind(target)
+
+func _on_radio_combat_target_destroyed(_signal_arg: Variant = null, _bound_target: Node3D = null) -> void:
+	if not _is_combat_radio_state():
+		_clear_radio_target_watch()
+		return
+	_say_splash_once()
+	_clear_radio_target_watch()
+
+func _should_watch_radio_combat_target() -> bool:
+	if not _is_combat_radio_state():
+		return false
+	if combat_target == null or not is_instance_valid(combat_target):
+		return false
+	if not _should_make_pilot_radio_call():
+		return false
+	return combat_target.has_signal("destroyed")
+
+func _is_combat_radio_state() -> bool:
+	return current_state in [
+		State.ATTACK_POSITIONING,
+		State.ATTACK_INBOUND,
+		State.ATTACK_DIVE,
+		State.ATTACK_BREAK_OFF,
+		State.DOGFIGHT,
+		State.ENGAGE
+	]
+
+func _say_taking_fire_once() -> void:
+	if not _should_make_pilot_radio_call():
+		return
+	var now_s := Time.get_ticks_msec() * 0.001
+	if now_s - _radio_last_damage_call_s < radio_damage_call_cooldown_s:
+		return
+	_radio_last_damage_call_s = now_s
+	RadioComms.say_taking_fire(_get_radio_callsign())
+
+func _say_bingo_once() -> void:
+	if not _should_make_pilot_radio_call():
+		return
+	var now_s := Time.get_ticks_msec() * 0.001
+	if now_s - _radio_last_bingo_call_s < radio_bingo_call_cooldown_s:
+		return
+	_radio_last_bingo_call_s = now_s
+	RadioComms.say_bingo(_get_radio_callsign())
+
+func _say_splash_once() -> void:
+	if not _should_make_pilot_radio_call():
+		return
+	var now_s := Time.get_ticks_msec() * 0.001
+	if now_s - _radio_last_kill_call_s < radio_kill_call_cooldown_s:
+		return
+	_radio_last_kill_call_s = now_s
+	RadioComms.say_splash(_get_radio_callsign())
+
+func _should_make_pilot_radio_call() -> bool:
+	if aircraft == null or not is_instance_valid(aircraft):
+		return false
+	if aircraft.has_method("get_team") and int(aircraft.get_team()) != 1:
+		return false
+	if current_state in [State.IDLE, State.LAUNCHING, State.RECOVERY_MARSHAL, State.RECOVERY_HOLD, State.RECOVERY_APPROACH, State.APPROACH, State.LANDING, State.MISSED_APPROACH]:
+		return false
+	if _get_radio_callsign() == "":
+		return false
+	return true
+
+func _get_radio_callsign() -> String:
+	if aircraft == null or not is_instance_valid(aircraft):
+		return ""
+	if AirOpsManager == null or not is_instance_valid(AirOpsManager):
+		return ""
+	if not AirOpsManager.has_method("get_flight_of"):
+		return ""
+	var flight: Flight = AirOpsManager.get_flight_of(aircraft)
+	if flight == null:
+		return ""
+	var members := flight.get_members()
+	var member_index := members.find(aircraft)
+	if member_index < 0:
+		return ""
+	return "%s %s" % [flight.flight_name, _radio_member_suffix(member_index)]
+
+func _radio_member_suffix(index: int) -> String:
+	match index:
+		0:
+			return "lead"
+		1:
+			return "two"
+		2:
+			return "three"
+		3:
+			return "four"
+		_:
+			return str(index + 1)
 
 func _record_landing_test_failure(label: String) -> void:
 	var fdm = get_tree().get_first_node_in_group("flight_deck_manager")
@@ -6878,6 +7014,10 @@ func _check_rtb_triggers():
 			rtb_reason = "Fuel low (%.1f%%)" % (fuel_percent * 100.0)
 
 	if needs_rtb:
+		if rtb_reason.begins_with("Fuel low"):
+			_say_bingo_once()
+		elif rtb_reason.begins_with("Health low"):
+			_say_taking_fire_once()
 		if debug_enabled:
 			print("[AIPilot] Triggering RTB: ", rtb_reason)
 		if not start_recovery():

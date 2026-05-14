@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://dtgm3a5ilc2ml"
+path="res://.godot/imported/British male - Confirmed kill 'ave that.wav-62ec93473ca2ad57683a8f7a03d709cf.sample"
+
+[deps]
+
+source_file="res://Audio/British male - Confirmed kill 'ave that.wav"
+dest_files=["res://.godot/imported/British male - Confirmed kill 'ave that.wav-62ec93473ca2ad57683a8f7a03d709cf.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2
