@@ -1,0 +1,9 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://Aircraft/Visuals/LandingGear/NoseGearRig.gd" id="1_gear"]
+[ext_resource type="PackedScene" uid="uid://bnhjjw02k581p" path="res://Models/Aircraft_1/Aircraft gear new.glb" id="2_model"]
+
+[node name="NoseGearRig" type="Node3D"]
+script = ExtResource("1_gear")
+
+[node name="Aircraft gear new" parent="." instance=ExtResource("2_model")]

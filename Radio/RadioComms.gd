@@ -120,6 +120,7 @@ func play_citadel_test() -> void:
 		if request_serial != _radio_request_serial:
 			return
 		_radio_voice_player.stream = _radio_test_stream
+		_radio_voice_player.pitch_scale = 1.0
 		_radio_voice_player.play()
 	)
 
@@ -288,6 +289,7 @@ func _play_next_citadel_voice_clip() -> void:
 			_citadel_voice_queue.push_front(stream)
 			return
 		_radio_voice_player.stream = stream
+		_radio_voice_player.pitch_scale = 1.0
 		_radio_voice_player.play()
 	)
 

@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://digx2s03kqqql"
+path="res://.godot/imported/Citadel - Archer, launch and establish patrol over the carrier.wav-ac3d9861edb1de84c4003c0a700044b4.sample"
+
+[deps]
+
+source_file="res://Audio/Citadel_original_speed/Citadel - Archer, launch and establish patrol over the carrier.wav"
+dest_files=["res://.godot/imported/Citadel - Archer, launch and establish patrol over the carrier.wav-ac3d9861edb1de84c4003c0a700044b4.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

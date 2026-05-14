@@ -128,6 +128,12 @@ var _safety_override_active: bool = false  # True when terrain/collision overrid
 @export var terrain_escape_max_target_pitch_deg: float = 18.0
 @export var terrain_escape_critical_pitch_bonus_deg: float = 7.0
 @export var terrain_escape_lateral_roll_input: float = 0.65
+@export var rocket_attack_commit_extra_range_m: float = 140.0
+@export var rocket_attack_commit_min_agl_m: float = 55.0
+@export var rocket_attack_commit_critical_tti_s: float = 1.15
+@export var gun_attack_commit_extra_range_m: float = 120.0
+@export var gun_attack_commit_min_agl_m: float = 45.0
+@export var gun_attack_commit_critical_tti_s: float = 1.0
 
 # ============================================================================
 # PID CONTROLLERS - Smooth human-like control
@@ -6187,6 +6193,11 @@ func _check_terrain_avoidance(_delta: float) -> bool:
 	dynamic_margin += clampf(sink_mps * 5.0, 0.0, 80.0)
 	var imminent_terrain: bool = terrain_ahead_distance < INF and tti <= (emergency_tti_s + 0.8)
 	var critical_terrain: bool = terrain_ahead_distance < INF and tti <= emergency_tti_s
+	if _is_committed_direct_fire_attack_run(tti):
+		imminent_terrain = false
+		critical_terrain = false
+		var commit_min_agl: float = rocket_attack_commit_min_agl_m if _run_weapon_type == "Rocket Pod" else gun_attack_commit_min_agl_m
+		dynamic_margin = minf(dynamic_margin, maxf(commit_min_agl, 20.0))
 	if terrain_ahead_distance < INF and tti < 2.8:
 		forward_clearance = minf(forward_clearance, terrain_ahead_distance * 0.5)
 
@@ -6264,6 +6275,53 @@ func _check_terrain_avoidance(_delta: float) -> bool:
 		print("[AIPilot TERRAIN] AGL=%.0fm fwd_clr=%.0fm need=%.0fm tti=%.1fs spd=%.0fmps margin=%.0fmps pitch=%.2f cap=%.2f best_dir=%.0fdeg best_clr=%.0fm -- %s" % [
 			altitude_agl, forward_clearance, dynamic_margin, tti, forward_speed, speed_margin, pitch_input, pitch_cap, escape_angle_deg, best_clearance, action])
 	return true
+
+func _is_committed_rocket_attack_run(terrain_tti_s: float) -> bool:
+	if current_state != State.ATTACK_DIVE:
+		return false
+	if _run_weapon_type != "Rocket Pod":
+		return false
+	if _rockets_to_fire_this_run <= 0 or _rockets_fired_this_run >= _rockets_to_fire_this_run:
+		return false
+	if combat_target == null or not is_instance_valid(combat_target):
+		return false
+	if altitude_agl < maxf(rocket_attack_commit_min_agl_m, 1.0):
+		return false
+	if terrain_tti_s < maxf(rocket_attack_commit_critical_tti_s, 0.2):
+		return false
+	var target_pos: Vector3 = _get_surface_target_position(combat_target)
+	var horiz_dist: float = Vector2(
+		aircraft.global_position.x - target_pos.x,
+		aircraft.global_position.z - target_pos.z
+	).length()
+	if horiz_dist < maxf(rocket_pull_up_distance_m, rocket_release_min_range_m * 0.75):
+		return false
+	return horiz_dist <= rocket_release_max_range_m + maxf(rocket_attack_commit_extra_range_m, 0.0)
+
+func _is_committed_direct_fire_attack_run(terrain_tti_s: float) -> bool:
+	if _is_committed_rocket_attack_run(terrain_tti_s):
+		return true
+	if current_state != State.ATTACK_DIVE:
+		return false
+	if _run_weapon_type == "Bomb" or _run_weapon_type == "Rocket Pod" or _run_weapon_type == "AAMissile":
+		return false
+	if combat_target == null or not is_instance_valid(combat_target):
+		return false
+	if altitude_agl < maxf(gun_attack_commit_min_agl_m, 1.0):
+		return false
+	if terrain_tti_s < maxf(gun_attack_commit_critical_tti_s, 0.2):
+		return false
+	var target_pos: Vector3 = _get_surface_target_position(combat_target)
+	var horiz_dist: float = Vector2(
+		aircraft.global_position.x - target_pos.x,
+		aircraft.global_position.z - target_pos.z
+	).length()
+	if horiz_dist < maxf(attack_pull_up_distance_m, 1.0):
+		return false
+	var gun_range_m: float = _get_selected_gun_max_range_m()
+	if not is_finite(gun_range_m):
+		gun_range_m = 700.0
+	return horiz_dist <= gun_range_m + maxf(gun_attack_commit_extra_range_m, 0.0)
 
 func _should_run_collision_avoidance(delta: float) -> bool:
 	if current_state in [State.LAUNCHING, State.LANDING, State.IDLE]:

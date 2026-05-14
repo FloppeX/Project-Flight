@@ -1,4 +1,6 @@
-res://addons/simplified_flightsim/aircraft_modules/Controls/ControlTargeting.gd
-res://AirOps/AirOpsManager.gd
-res://HUD/instrument_panel.gd
+res://Aircraft/Visuals/LandingGear/NoseGearRig.gd
 res://Radio/RadioComms.gd
+res://AirOps/AirOpsManager.gd
+res://AirOps/Flight.gd
+res://Camera/CockpitCamera.gd
+res://Camera/NightVisionOverlay.gd
