@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://dlc0unp113e4f"
+path="res://.godot/imported/Scottish male - Wilco. Flight. Weapons free. Call your targets.wav-d9e303bc3cca17d3e68c62c455f17702.sample"
+
+[deps]
+
+source_file="res://Audio/Scottish male - Wilco. Flight. Weapons free. Call your targets.wav"
+dest_files=["res://.godot/imported/Scottish male - Wilco. Flight. Weapons free. Call your targets.wav-d9e303bc3cca17d3e68c62c455f17702.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

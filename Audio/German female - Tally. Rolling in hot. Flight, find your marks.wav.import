@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://n6nkq0dwy6v6"
+path="res://.godot/imported/German female - Tally. Rolling in hot. Flight, find your marks.wav-5563bcf9b364249eaa9d1dfd4f925fc2.sample"
+
+[deps]
+
+source_file="res://Audio/German female - Tally. Rolling in hot. Flight, find your marks.wav"
+dest_files=["res://.godot/imported/German female - Tally. Rolling in hot. Flight, find your marks.wav-5563bcf9b364249eaa9d1dfd4f925fc2.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

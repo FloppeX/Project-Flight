@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://8ys5psxm5v8l"
+path="res://.godot/imported/Citadel - Area clear. Crimson flight, resume patrol.wav-72d9c7169f449de944d371ea5f752364.sample"
+
+[deps]
+
+source_file="res://Audio/Citadel - Area clear. Crimson flight, resume patrol.wav"
+dest_files=["res://.godot/imported/Citadel - Area clear. Crimson flight, resume patrol.wav-72d9c7169f449de944d371ea5f752364.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

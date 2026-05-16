@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://dqjr67o1jaynb"
+path="res://.godot/imported/Citadel - Ground targets clear. Crimson flight, return to CAP.wav-c188b56f2353573d0b747e8c8238431d.sample"
+
+[deps]
+
+source_file="res://Audio/Citadel - Ground targets clear. Crimson flight, return to CAP.wav"
+dest_files=["res://.godot/imported/Citadel - Ground targets clear. Crimson flight, return to CAP.wav-c188b56f2353573d0b747e8c8238431d.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

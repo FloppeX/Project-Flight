@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://bx0shynlqnhk8"
+path="res://.godot/imported/Filipino - Wilco. Climbing to altitude. Watch your spacing.wav-7b5ee2507984bc768e4cf6f90cad47cd.sample"
+
+[deps]
+
+source_file="res://Audio/Filipino - Wilco. Climbing to altitude. Watch your spacing.wav"
+dest_files=["res://.godot/imported/Filipino - Wilco. Climbing to altitude. Watch your spacing.wav-7b5ee2507984bc768e4cf6f90cad47cd.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

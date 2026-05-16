@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://beytupwbt8122"
+path="res://.godot/imported/Scottish male - Bingo fuel. RTB. Hold my spot.wav-1f0ad30156ac006a4d618abc850832f1.sample"
+
+[deps]
+
+source_file="res://Audio/Scottish male - Bingo fuel. RTB. Hold my spot.wav"
+dest_files=["res://.godot/imported/Scottish male - Bingo fuel. RTB. Hold my spot.wav-1f0ad30156ac006a4d618abc850832f1.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

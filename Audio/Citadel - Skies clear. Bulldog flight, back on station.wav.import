@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://bp5ey8narsn4q"
+path="res://.godot/imported/Citadel - Skies clear. Bulldog flight, back on station.wav-147af10c460d3c0eb4290a5ef6408ee3.sample"
+
+[deps]
+
+source_file="res://Audio/Citadel - Skies clear. Bulldog flight, back on station.wav"
+dest_files=["res://.godot/imported/Citadel - Skies clear. Bulldog flight, back on station.wav-147af10c460d3c0eb4290a5ef6408ee3.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

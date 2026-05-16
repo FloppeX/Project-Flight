@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://bnac27cf3t02h"
+path="res://.godot/imported/Scottish male - Wilco. Flight. Push it low. Watch for ground fire.wav-0764bcdc207943ca16598eb8a8d7cb6a.sample"
+
+[deps]
+
+source_file="res://Audio/Scottish male - Wilco. Flight. Push it low. Watch for ground fire.wav"
+dest_files=["res://.godot/imported/Scottish male - Wilco. Flight. Push it low. Watch for ground fire.wav-0764bcdc207943ca16598eb8a8d7cb6a.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://bg1kbdi76wfm5"
+path="res://.godot/imported/Citadel - Dingo flight, good work. Return to patrol.wav-21fdb813c1b44ce2ad76f6f4dc22ce43.sample"
+
+[deps]
+
+source_file="res://Audio/Citadel - Dingo flight, good work. Return to patrol.wav"
+dest_files=["res://.godot/imported/Citadel - Dingo flight, good work. Return to patrol.wav-21fdb813c1b44ce2ad76f6f4dc22ce43.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2
