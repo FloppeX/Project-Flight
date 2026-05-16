@@ -220,13 +220,18 @@ mounted_weapon = ExtResource("33_rocket")
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.92, 1.15)
 script = ExtResource("39_tctrl")
 weapon_scene = ExtResource("41_tweapon")
-max_range = 700.0
-fire_angle_tolerance_deg = 20.0
+max_range = 520.0
+aim_skill = 0.35
+air_target_aim_skill_multiplier = 0.65
+air_target_fire_angle_tolerance_multiplier = 0.6
+air_target_extra_spread_m = 10.0
+fire_angle_tolerance_deg = 12.0
+block_targets_below_host_plane = true
 
 [node name="TurretScene" parent="TurretController" instance=ExtResource("40_tscene")]
 transform = Transform3D(-0.5, 0, -4.37114e-08, 0, 0.5, 0, 4.37114e-08, 0, -0.5, -1.47859e-07, -0.231051, -1.70357)
 max_pitch_up = 90.0
-max_pitch_down = -20.0
+max_pitch_down = 0.0
 limit_yaw_arc = true
 yaw_center_deg = 180.0
 yaw_left_limit_deg = 110.0

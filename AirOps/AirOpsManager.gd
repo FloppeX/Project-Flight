@@ -56,6 +56,7 @@ var _cas_flight: Flight = null
 var _scrambling_flight: Flight = null
 var _scrambling_expected_count: int = 0
 var _reported_contacts: Dictionary = {}  # Node3D target -> contact report dictionary
+var _acknowledged_order_keys: Dictionary = {}  # flight name -> last order key that already got a reply
 
 # ── Lifecycle ──────────────────────────────────────────────────────────────────
 
@@ -108,7 +109,8 @@ func order_cap(fname: String, altitude_m: float = 800.0) -> void:
 	_clear_role(f)
 	_refresh_carrier()
 	f.set_cap(_carrier, altitude_m)
-	RadioComms.say_cap_order(fname, altitude_m)
+	if _mark_order_acknowledgement_needed(f, "manual_cap"):
+		RadioComms.say_cap_order(fname, altitude_m)
 	_ensure_flight_can_execute(f)
 
 func order_cap_route(fname: String, route_points: Array[Vector3], altitude_m: float = 800.0) -> void:
@@ -119,7 +121,8 @@ func order_cap_route(fname: String, route_points: Array[Vector3], altitude_m: fl
 	_clear_role(f)
 	_refresh_carrier()
 	f.set_cap_route(_carrier, route_points, altitude_m)
-	RadioComms.say_cap_order(fname, altitude_m)
+	if _mark_order_acknowledgement_needed(f, "manual_cap_route"):
+		RadioComms.say_cap_order(fname, altitude_m)
 	_ensure_flight_can_execute(f)
 
 func order_cas(fname: String, area_center: Vector3 = Vector3.ZERO, area_radius: float = 3000.0, altitude_m: float = -1.0) -> void:
@@ -135,7 +138,8 @@ func order_cas(fname: String, area_center: Vector3 = Vector3.ZERO, area_radius: 
 		if _carrier and is_instance_valid(_carrier):
 			center = _carrier.global_position
 	f.set_cas(center, area_radius, mission_altitude)
-	RadioComms.say_cas_order(fname)
+	if _mark_order_acknowledgement_needed(f, "manual_cas"):
+		RadioComms.say_cas_order(fname)
 	_ensure_flight_can_execute(f)
 
 func order_rtb(fname: String) -> void:
@@ -145,7 +149,8 @@ func order_rtb(fname: String) -> void:
 		return
 	_clear_role(f)
 	f.set_rtb()
-	RadioComms.say_rtb_order(fname)
+	if _mark_order_acknowledgement_needed(f, "manual_rtb"):
+		RadioComms.say_rtb_order(fname)
 
 func reassign(aircraft: Node3D, fname: String) -> void:
 	for f in flights:
@@ -241,7 +246,7 @@ func _update_intercept() -> void:
 		elif threats.is_empty() and not _intercept_flight.is_engaged():
 			# Threat cleared — recall
 			_recall_to_cap(_intercept_flight,
-				"Threat neutralised. %s flight, resume CAP.",
+				"Threat neutralised. %s flight, resume patrol.",
 				"%s flight, good work. Return to patrol.",
 				"Skies clear. %s flight, back on station.")
 			_intercept_flight = null
@@ -285,16 +290,17 @@ func _vector_intercept(threat: Node3D) -> void:
 	var fname := best.flight_name
 	best.set_intercept(threat, _carrier, default_cap_altitude_m)
 
-	RadioComms.transmit("Citadel", "%s flight" % fname, RadioComms._pick([
-		"%s flight, radar contact. Intercept and engage. Weapons free." % fname,
-		"%s flight, bogeys inbound. Vector to intercept." % fname,
-		"%s, bandits on scope. Intercept. Weapons free." % fname,
-	]))
-	RadioComms.transmit_delayed("%s lead" % fname, "Citadel", RadioComms._pick([
-		"Copy. Going after them. Bozhe miy, here we go.",
-		"Tally. I'm in. Engaging.",
-		"Wilco. Flight. Weapons free. Call your targets.",
-	]), randf_range(1.0, 2.2))
+	if _mark_order_acknowledgement_needed(best, "auto_intercept"):
+		RadioComms.transmit("Citadel", "%s flight" % fname, RadioComms._pick([
+			"%s flight, radar contact. Intercept and engage. Weapons free." % fname,
+			"%s flight, bogeys inbound. Vector to intercept." % fname,
+			"%s flight, bandits on scope. Intercept. Weapons free." % fname,
+		]))
+		RadioComms.transmit_delayed("%s lead" % fname, "Citadel", RadioComms._pick([
+			"Copy. Going after them. Bozhe miy, here we go.",
+			"Tally. I'm in. Engaging.",
+			"Wilco. Flight. Weapons free. Call your targets.",
+		]), randf_range(1.0, 2.2))
 
 # ── CAS management ────────────────────────────────────────────────────────────
 
@@ -358,16 +364,17 @@ func _vector_cas(threat: Node3D) -> void:
 		center = _carrier.global_position
 	best.set_cas(center, 3000.0, default_cas_altitude_m)
 
-	RadioComms.transmit("Citadel", "%s flight" % fname, RadioComms._pick([
-		"%s flight, enemy ground forces spotted. Cleared hot. Attack at will." % fname,
-		"%s flight, ground targets acquired. CAS mission. Cleared hot." % fname,
-		"%s, hostiles on the deck. Prosecute ground attack. Weapons free." % fname,
-	]))
-	RadioComms.transmit_delayed("%s lead" % fname, "Citadel", RadioComms._pick([
-		"Copy. Nosing over. Committing.",
-		"Roger. Got targets. Flight, sort yourselves out.",
-		"Wilco. Flight. Push it low. Watch for ground fire.",
-	]), randf_range(1.0, 2.2))
+	if _mark_order_acknowledgement_needed(best, "auto_cas"):
+		RadioComms.transmit("Citadel", "%s flight" % fname, RadioComms._pick([
+			"%s flight, enemy ground forces spotted. Cleared hot. Attack at will." % fname,
+			"%s flight, ground targets acquired. CAS mission. Cleared hot." % fname,
+			"Hostiles on the deck. %s flight, prosecute ground attack. Don't go in the sand." % fname,
+		]))
+		RadioComms.transmit_delayed("%s lead" % fname, "Citadel", RadioComms._pick([
+			"Copy. Nosing over. Committing.",
+			"Roger. Got targets. Flight, sort yourselves out.",
+			"Wilco. Flight. Push it low. Watch for ground fire.",
+		]), randf_range(1.0, 2.2))
 
 # ── Recall ────────────────────────────────────────────────────────────────────
 
@@ -377,21 +384,22 @@ func _recall_to_cap(f: Flight, line_a: String, line_b: String, line_c: String) -
 	if _cap_flight == null and _flight_can_hold_cap(f):
 		_cap_flight = f
 	var fname := f.flight_name
-	RadioComms.transmit("Citadel", "%s flight" % fname, RadioComms._pick([
-		line_a % fname, line_b % fname, line_c % fname,
-	]))
-	RadioComms.transmit_delayed("%s lead" % fname, "Citadel", RadioComms._pick([
-		"Copy. Back on patrol.",
-		"Roger. Back on station. Stay sharp.",
-		"Wilco. Flight, form up. Back on the clock.",
-	]), randf_range(0.8, 1.8))
+	if _mark_order_acknowledgement_needed(f, "auto_recall_cap"):
+		RadioComms.transmit("Citadel", "%s flight" % fname, RadioComms._pick([
+			line_a % fname, line_b % fname, line_c % fname,
+		]))
+		RadioComms.transmit_delayed("%s lead" % fname, "Citadel", RadioComms._pick([
+			"Copy. Back on patrol.",
+			"Roger. Back on station. Stay sharp.",
+			"Wilco. Flight, form up. Back on the clock.",
+		]), randf_range(0.8, 1.8))
 
 func _on_flight_lost(f: Flight, role: String) -> void:
 	## Called when a flight assigned to a role has been wiped out.
 	if debug_print:
 		print("[AirOpsManager] %s flight lost while on %s. Reassigning." % [f.flight_name, role])
 	RadioComms.transmit("Citadel", "All flights",
-		"%s flight is down. Reassigning %s mission." % [f.flight_name, role])
+		"%s flight is down. Reassigning mission." % f.flight_name)
 
 # ── Internal ───────────────────────────────────────────────────────────────────
 
@@ -417,23 +425,26 @@ func _scramble_flight(f: Flight, reason: String = "intercept"):
 	_scrambling_expected_count = accepted_count
 	print("[AirOpsManager] Scrambling %s flight (%d aircraft)" % [f.flight_name, accepted_count])
 	if reason == "cap":
-		RadioComms.transmit("Citadel", "%s flight" % f.flight_name, RadioComms._pick([
-			"%s flight, launch for carrier CAP." % f.flight_name,
-			"%s, launch and establish patrol over the carrier." % f.flight_name,
-			"%s flight, launch to maintain air cover." % f.flight_name,
-		]))
+		if _mark_order_acknowledgement_needed(f, "scramble_cap"):
+			RadioComms.transmit("Citadel", "%s flight" % f.flight_name, RadioComms._pick([
+				"%s flight, launch for carrier CAP." % f.flight_name,
+				"%s, launch and establish patrol over the carrier." % f.flight_name,
+				"%s flight, launch to maintain air cover." % f.flight_name,
+			]))
 	elif reason == "cas":
-		RadioComms.transmit("Citadel", "%s flight" % f.flight_name, RadioComms._pick([
-			"%s flight, launch for close air support." % f.flight_name,
-			"%s, launch immediately. Ground targets marked." % f.flight_name,
-			"%s flight, scramble for CAS. Cleared hot after departure." % f.flight_name,
-		]))
+		if _mark_order_acknowledgement_needed(f, "scramble_cas"):
+			RadioComms.transmit("Citadel", "%s flight" % f.flight_name, RadioComms._pick([
+				"%s flight, launch for close air support." % f.flight_name,
+				"%s, launch immediately. Ground targets marked." % f.flight_name,
+				"%s flight, scramble for CAS. Cleared hot after departure." % f.flight_name,
+			]))
 	else:
-		RadioComms.transmit("Citadel", "%s flight" % f.flight_name, RadioComms._pick([
-			"%s flight, scramble. Threat inbound." % f.flight_name,
-			"%s, launch immediately. Threat on scope." % f.flight_name,
-			"All hands, scramble %s flight. Weapons free." % f.flight_name,
-		]))
+		if _mark_order_acknowledgement_needed(f, "scramble_intercept"):
+			RadioComms.transmit("Citadel", "%s flight" % f.flight_name, RadioComms._pick([
+				"%s flight, scramble. Threat inbound." % f.flight_name,
+				"%s, launch immediately. Threat on scope." % f.flight_name,
+				"All hands, scramble %s flight. Weapons free." % f.flight_name,
+			]))
 	return true
 
 ## Called by FlightDeckManager after each aircraft launches during a scramble.
@@ -634,6 +645,17 @@ func _clear_role(f: Flight) -> void:
 		_intercept_flight = null
 	if f == _cas_flight:
 		_cas_flight = null
+	if f != null and is_instance_valid(f):
+		_acknowledged_order_keys.erase(f.flight_name)
+
+func _mark_order_acknowledgement_needed(f: Flight, order_key: String) -> bool:
+	if f == null or not is_instance_valid(f):
+		return false
+	var previous_key: String = str(_acknowledged_order_keys.get(f.flight_name, ""))
+	if previous_key == order_key:
+		return false
+	_acknowledged_order_keys[f.flight_name] = order_key
+	return true
 
 func _ensure_flight_can_execute(f: Flight) -> void:
 	if f == null or not is_instance_valid(f):

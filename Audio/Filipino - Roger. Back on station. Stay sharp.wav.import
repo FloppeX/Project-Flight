@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://ubo244fjvm0"
+path="res://.godot/imported/Filipino - Roger. Back on station. Stay sharp.wav-899a08c9ad4bd22d6e81e6b91f98af7f.sample"
+
+[deps]
+
+source_file="res://Audio/Filipino - Roger. Back on station. Stay sharp.wav"
+dest_files=["res://.godot/imported/Filipino - Roger. Back on station. Stay sharp.wav-899a08c9ad4bd22d6e81e6b91f98af7f.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

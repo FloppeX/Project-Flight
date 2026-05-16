@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://milushusul4v"
+path="res://.godot/imported/Filipino - Wilco. Flight. Weapons free. Call your targets.wav-87f1b80893b356315c5ed86ca61ad7d4.sample"
+
+[deps]
+
+source_file="res://Audio/Filipino - Wilco. Flight. Weapons free. Call your targets.wav"
+dest_files=["res://.godot/imported/Filipino - Wilco. Flight. Weapons free. Call your targets.wav-87f1b80893b356315c5ed86ca61ad7d4.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

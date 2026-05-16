@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://bvg1mbf8b7gu"
+path="res://.godot/imported/Filipino - Running dry. Heading back. Cover my slot.wav-53404ba8e6d08f10f5f5108517ad4c9a.sample"
+
+[deps]
+
+source_file="res://Audio/Filipino - Running dry. Heading back. Cover my slot.wav"
+dest_files=["res://.godot/imported/Filipino - Running dry. Heading back. Cover my slot.wav-53404ba8e6d08f10f5f5108517ad4c9a.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

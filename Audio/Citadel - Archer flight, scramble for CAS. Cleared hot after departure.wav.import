@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://xy5cu34gaur8"
+path="res://.godot/imported/Citadel - Archer flight, scramble for CAS. Cleared hot after departure.wav-a8e20a9dc77591cb28b31cd0587a5a5b.sample"
+
+[deps]
+
+source_file="res://Audio/Citadel - Archer flight, scramble for CAS. Cleared hot after departure.wav"
+dest_files=["res://.godot/imported/Citadel - Archer flight, scramble for CAS. Cleared hot after departure.wav-a8e20a9dc77591cb28b31cd0587a5a5b.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://bpg1d2oaqq010"
+path="res://.godot/imported/Filipino - I'm taking fire. Chort.wav-02fa4606b7bed10b1b02721f494edec8.sample"
+
+[deps]
+
+source_file="res://Audio/Filipino - I'm taking fire. Chort.wav"
+dest_files=["res://.godot/imported/Filipino - I'm taking fire. Chort.wav-02fa4606b7bed10b1b02721f494edec8.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

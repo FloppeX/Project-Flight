@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://bbkko0iaejpoe"
+path="res://.godot/imported/Arabic female - Wilco. Flight, form up. Back on the clock.wav-463d1818793a9d86b48ac6f8f19bda7c.sample"
+
+[deps]
+
+source_file="res://Audio/Arabic female - Wilco. Flight, form up. Back on the clock.wav"
+dest_files=["res://.godot/imported/Arabic female - Wilco. Flight, form up. Back on the clock.wav-463d1818793a9d86b48ac6f8f19bda7c.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

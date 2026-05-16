@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://8paui4j462rl"
+path="res://.godot/imported/Arabic female - Copy. Going after them. Bozhe miy, here we go.wav-dd4c517abedd15985517e1b59a80b44c.sample"
+
+[deps]
+
+source_file="res://Audio/Arabic female - Copy. Going after them. Bozhe miy, here we go.wav"
+dest_files=["res://.godot/imported/Arabic female - Copy. Going after them. Bozhe miy, here we go.wav-dd4c517abedd15985517e1b59a80b44c.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

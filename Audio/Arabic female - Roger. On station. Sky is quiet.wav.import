@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://d26ds4o4nh1wy"
+path="res://.godot/imported/Arabic female - Roger. On station. Sky is quiet.wav-e9c00b23cd6520684f5fae30083b37ff.sample"
+
+[deps]
+
+source_file="res://Audio/Arabic female - Roger. On station. Sky is quiet.wav"
+dest_files=["res://.godot/imported/Arabic female - Roger. On station. Sky is quiet.wav-e9c00b23cd6520684f5fae30083b37ff.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

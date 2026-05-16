@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://bfgo2xumtxrfl"
+path="res://.godot/imported/Citadel - Dingo flight is down. Reassigning mission.wav-1d4648051a01fc9a03a6e322e213fbda.sample"
+
+[deps]
+
+source_file="res://Audio/Citadel - Dingo flight is down. Reassigning mission.wav"
+dest_files=["res://.godot/imported/Citadel - Dingo flight is down. Reassigning mission.wav-1d4648051a01fc9a03a6e322e213fbda.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

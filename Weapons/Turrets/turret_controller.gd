@@ -32,6 +32,9 @@ const PROJECTILE_SPEED_CAP_SETTING_KEYS: Array = [
 @export var air_target_aim_skill_multiplier: float = 1.0
 @export var air_target_fire_angle_tolerance_multiplier: float = 1.0
 @export var air_target_extra_spread_m: float = 0.0
+@export_group("Host Aircraft Limits")
+@export var block_targets_below_host_plane: bool = false
+@export var host_plane_fire_margin_m: float = 0.0
 @export_group("Lead Estimation")
 @export var prefer_measured_target_velocity: bool = true
 @export var prefer_reported_velocity_for_physics_targets: bool = true
@@ -194,12 +197,13 @@ func _physics_process(delta: float) -> void:
         var aim_angle := turret.get_aim_angle_to_target()
         var aimed := aim_angle >= 0.0 and aim_angle <= _get_effective_fire_angle_tolerance_deg(current_target)
         var has_line_of_sight: bool = _get_cached_line_of_sight(delta, lead_position, current_target)
+        var above_host_plane: bool = _is_target_above_host_plane(lead_position)
         var aim_origin: Vector3 = _get_aim_origin()
         var target_distance_m: float = aim_origin.distance_to(target_aim_point)
         var effective_range_m: float = _get_effective_range_for_target(current_target)
         var in_range: bool = target_distance_m <= effective_range_m
         # 3. Burst firing logic
-        if aimed and has_line_of_sight and within_fire_arc and in_range:
+        if aimed and has_line_of_sight and above_host_plane and within_fire_arc and in_range:
             update_burst_firing(delta)
         elif fire_state == FireState.DELAYING:
             update_burst_firing(delta)
@@ -262,6 +266,8 @@ func find_and_set_best_target() -> void:
             continue
         var d: float = global_position.distance_to(enemy_node.global_position)
         if d > _get_effective_range_for_target(enemy_node):
+            continue
+        if not _is_target_above_host_plane(enemy_node.global_position):
             continue
         if turret and is_instance_valid(turret) and not turret.is_point_within_yaw_arc(enemy_node.global_position):
             continue
@@ -332,6 +338,14 @@ func _is_within_targeting_fov(target: Node3D) -> bool:
         return true
     var cos_half_fov: float = cos(deg_to_rad(clamped_fov * 0.5))
     return forward.dot(to_target) >= cos_half_fov
+
+func _is_target_above_host_plane(world_point: Vector3) -> bool:
+    if not block_targets_below_host_plane:
+        return true
+    if host_actor == null or not is_instance_valid(host_actor):
+        return true
+    var local_point: Vector3 = host_actor.to_local(world_point)
+    return local_point.y >= host_plane_fire_margin_m
 
 func _get_target_priority(target: Node3D) -> int:
     if target == null or not is_instance_valid(target):

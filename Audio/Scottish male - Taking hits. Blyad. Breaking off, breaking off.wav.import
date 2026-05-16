@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://rcdukg6sapmi"
+path="res://.godot/imported/Scottish male - Taking hits. Blyad. Breaking off, breaking off.wav-544be126c0452ca74248311a5ece9999.sample"
+
+[deps]
+
+source_file="res://Audio/Scottish male - Taking hits. Blyad. Breaking off, breaking off.wav"
+dest_files=["res://.godot/imported/Scottish male - Taking hits. Blyad. Breaking off, breaking off.wav-544be126c0452ca74248311a5ece9999.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

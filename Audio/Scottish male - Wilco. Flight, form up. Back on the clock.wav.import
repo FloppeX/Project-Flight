@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://bkv10ii3lri6l"
+path="res://.godot/imported/Scottish male - Wilco. Flight, form up. Back on the clock.wav-8b60d36bfc0bc07f15f186b0b5c5b905.sample"
+
+[deps]
+
+source_file="res://Audio/Scottish male - Wilco. Flight, form up. Back on the clock.wav"
+dest_files=["res://.godot/imported/Scottish male - Wilco. Flight, form up. Back on the clock.wav-8b60d36bfc0bc07f15f186b0b5c5b905.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

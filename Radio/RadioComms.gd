@@ -3,7 +3,26 @@ extends Node
 const RADIO_TEST_STREAM_PATH := "res://Audio/Citadel voice test.mp3"
 const CITADEL_AUDIO_DIR := "res://Audio"
 const CITADEL_AUDIO_PREFIX := "Citadel - "
-const PILOT_AUDIO_PREFIXES := ["Ukrainian - ", "British male - "]
+const CITADEL_FLIGHT_NAME_ALIASES := ["Archer", "Bulldog", "Crimson", "Dingo"]
+const PILOT_AUDIO_PREFIXES := ["Ukrainian - ", "British male - ", "Filipino - ", "Arabic female - ", "German female - ", "Scottish male - "]
+const DEFAULT_PILOT_VOICE_ASSIGNMENTS := {
+	"archer lead": "Ukrainian - ",
+	"archer two": "British male - ",
+	"archer three": "Filipino - ",
+	"archer four": "Arabic female - ",
+	"bulldog lead": "Scottish male - ",
+	"bulldog two": "Filipino - ",
+	"bulldog three": "Arabic female - ",
+	"bulldog four": "German female - ",
+	"crimson lead": "Filipino - ",
+	"crimson two": "Scottish male - ",
+	"crimson three": "German female - ",
+	"crimson four": "Ukrainian - ",
+	"dingo lead": "Arabic female - ",
+	"dingo two": "German female - ",
+	"dingo three": "Ukrainian - ",
+	"dingo four": "Scottish male - ",
+}
 const RADIO_BUS_NAME := "Radio"
 const RADIO_STATIC_MIX_RATE := 22050
 
@@ -28,21 +47,24 @@ const RADIO_STATIC_MIX_RATE := 22050
 @export var radio_static_pre_roll_s: float = 0.08
 @export var radio_static_post_roll_s: float = 0.20
 @export var radio_voice_gain_db: float = -2.5
-@export var radio_highpass_cutoff_hz: float = 900.0
+@export var radio_highpass_cutoff_hz: float = 1050.0
 @export var radio_lowpass_cutoff_hz: float = 1850.0
-@export var radio_filter_resonance: float = 1.2
-@export var radio_static_noise_gain: float = 0.022
+@export var radio_filter_resonance: float = 1.15
+@export var radio_static_noise_gain: float = 0.034
 @export var radio_static_crackle_gain: float = 0.18
 @export var radio_crackle_chance_per_frame: float = 0.014
 @export var radio_squelch_burst_s: float = 0.055
 @export var radio_squelch_burst_gain: float = 0.55
-@export var radio_dropout_chance_per_frame: float = 0.01
+@export var radio_dropout_chance_per_frame: float = 0.002
 @export var radio_dropout_min_s: float = 0.02
-@export var radio_dropout_max_s: float = 0.09
-@export var radio_dropout_volume_db: float = -22.0
-@export var radio_pitch_jitter: float = 0.035
+@export var radio_dropout_max_s: float = 0.055
+@export var radio_dropout_volume_db: float = -12.0
+@export var radio_pitch_jitter: float = 0.006
+@export var radio_voice_flutter_update_s: float = 0.16
 @export var use_citadel_voice_clips: bool = true
 @export var use_pilot_voice_clips: bool = true
+@export var radio_voice_queue_max_age_s: float = 4.0
+@export var lock_pilot_voice_to_callsign: bool = true
 
 # ── Signals ────────────────────────────────────────────────────────────────────
 
@@ -64,7 +86,9 @@ var _radio_static_playback: AudioStreamGeneratorPlayback
 var _radio_test_stream: AudioStream
 var _citadel_voice_streams: Dictionary = {}
 var _pilot_voice_streams: Dictionary = {}
-var _citadel_voice_queue: Array[AudioStream] = []
+var _pilot_voice_prefixes_available: Dictionary = {}
+var _pilot_sender_voice_prefixes: Dictionary = {}
+var _citadel_voice_queue: Array = []
 var _radio_rng := RandomNumberGenerator.new()
 var _radio_static_until_s: float = 0.0
 var _radio_static_mix: float = 0.0
@@ -75,6 +99,9 @@ var _radio_squelch_total_frames: int = 0
 var _radio_squelch_gain: float = 0.0
 var _radio_request_serial: int = 0
 var _radio_dropout_until_s: float = 0.0
+var _radio_voice_flutter_timer_s: float = 0.0
+var _radio_voice_volume_offset_db: float = 0.0
+var _radio_voice_pitch_offset: float = 0.0
 
 # ── Lifecycle ──────────────────────────────────────────────────────────────────
 
@@ -138,12 +165,11 @@ func play_citadel_test() -> void:
 # ── Standard phrase helpers ────────────────────────────────────────────────────
 ## Call these from AirOpsManager / Flight to get consistent phrasing.
 
-func say_cap_order(flight_name: String, altitude_m: float) -> void:
-	var angels := roundi(altitude_m / 300.0)  # rough feet/300 ≈ angels
+func say_cap_order(flight_name: String, _altitude_m: float) -> void:
 	var bodies := [
-		"Maintain combat air patrol. Angels %d. Engage any bandits." % angels,
-		"Hold CAP station. Angels %d. Weapons free on bandits." % angels,
-		"Combat air patrol. Angels %d. Clear the skies." % angels,
+		"%s flight, maintain combat air patrol. Engage any bandits." % flight_name,
+		"%s flight, hold CAP station. Weapons free on bandits." % flight_name,
+		"%s flight, combat air patrol. Clear the skies." % flight_name,
 	]
 	transmit("Citadel", "%s flight" % flight_name, _pick(bodies))
 	transmit_delayed("%s lead" % flight_name, "Citadel", _pick([
@@ -154,9 +180,9 @@ func say_cap_order(flight_name: String, altitude_m: float) -> void:
 
 func say_cas_order(flight_name: String) -> void:
 	var bodies := [
-		"Ground attack. Cleared hot on enemy armor.",
-		"Weapons free on ground targets. Watch your altitude.",
-		"Engage ground targets. Cleared hot. Keep it tight.",
+		"%s flight, execute ground attack. Cleared hot on enemy armor." % flight_name,
+		"%s flight, weapons free on ground targets. Watch your altitude." % flight_name,
+		"%s flight, engage ground targets. Cleared hot. Keep it tight." % flight_name,
 	]
 	transmit("Citadel", "%s flight" % flight_name, _pick(bodies))
 	transmit_delayed("%s lead" % flight_name, "Citadel", _pick([
@@ -167,9 +193,9 @@ func say_cas_order(flight_name: String) -> void:
 
 func say_rtb_order(flight_name: String) -> void:
 	var bodies := [
-		"Return to base. Good hunting.",
-		"Return to base. The deck is ready.",
-		"Break off and return to base. Nice work.",
+		"%s flight, return to base. Good hunting." % flight_name,
+		"%s flight, return to base. The deck is ready." % flight_name,
+		"%s flight, break off and return to base. Nice work." % flight_name,
 	]
 	transmit("Citadel", "%s flight" % flight_name, _pick(bodies))
 	transmit_delayed("%s lead" % flight_name, "Citadel", _pick([
@@ -242,11 +268,13 @@ func _queue_citadel_voice_clip(sender: String, recipient: String, body: String) 
 	var stream := _find_citadel_voice_stream(recipient, body)
 	if stream == null:
 		return
-	_citadel_voice_queue.append(stream)
+	_enqueue_radio_voice_stream(stream)
 	_play_next_citadel_voice_clip()
 
 func _build_pilot_voice_library() -> void:
 	_pilot_voice_streams.clear()
+	_pilot_voice_prefixes_available.clear()
+	_pilot_sender_voice_prefixes.clear()
 	var dir := DirAccess.open(CITADEL_AUDIO_DIR)
 	if dir == null:
 		push_warning("Pilot voice directory is unavailable: %s" % CITADEL_AUDIO_DIR)
@@ -265,8 +293,12 @@ func _build_pilot_voice_library() -> void:
 		var stream := load(CITADEL_AUDIO_DIR.path_join(file_name)) as AudioStream
 		if stream != null and not key.is_empty():
 			if not _pilot_voice_streams.has(key):
-				_pilot_voice_streams[key] = []
-			(_pilot_voice_streams[key] as Array).append(stream)
+				_pilot_voice_streams[key] = {}
+			var streams_by_prefix: Dictionary = _pilot_voice_streams[key]
+			if not streams_by_prefix.has(voice_prefix):
+				streams_by_prefix[voice_prefix] = []
+			(streams_by_prefix[voice_prefix] as Array).append(stream)
+			_pilot_voice_prefixes_available[voice_prefix] = true
 
 func _queue_radio_voice_clip(sender: String, recipient: String, body: String) -> void:
 	var stream: AudioStream = null
@@ -276,7 +308,7 @@ func _queue_radio_voice_clip(sender: String, recipient: String, body: String) ->
 		stream = _find_pilot_voice_stream(sender, body)
 	if stream == null:
 		return
-	_citadel_voice_queue.append(stream)
+	_enqueue_radio_voice_stream(stream)
 	_play_next_citadel_voice_clip()
 
 func _find_citadel_voice_stream(recipient: String, body: String) -> AudioStream:
@@ -292,6 +324,14 @@ func _find_citadel_voice_stream(recipient: String, body: String) -> AudioStream:
 			if _citadel_voice_streams.has(key):
 				return _citadel_voice_streams[key] as AudioStream
 
+	for flight_name in CITADEL_FLIGHT_NAME_ALIASES:
+		if flight_name == "Archer":
+			continue
+		if body.contains(flight_name):
+			key = _normalize_citadel_phrase(body.replace(flight_name, "Archer"))
+			if _citadel_voice_streams.has(key):
+				return _citadel_voice_streams[key] as AudioStream
+
 	return null
 
 func _find_pilot_voice_stream(sender: String, body: String) -> AudioStream:
@@ -300,19 +340,70 @@ func _find_pilot_voice_stream(sender: String, body: String) -> AudioStream:
 
 	var direct_key := _normalize_pilot_phrase(body)
 	if _pilot_voice_streams.has(direct_key):
-		return _pick_pilot_voice_stream(direct_key)
+		return _pick_pilot_voice_stream(sender, direct_key)
 
 	var alias_key := _pilot_voice_alias_key(body)
 	if alias_key != "" and _pilot_voice_streams.has(alias_key):
-		return _pick_pilot_voice_stream(alias_key)
+		return _pick_pilot_voice_stream(sender, alias_key)
 
 	return null
 
-func _pick_pilot_voice_stream(key: String) -> AudioStream:
-	var streams: Array = _pilot_voice_streams.get(key, [])
+func _pick_pilot_voice_stream(sender: String, key: String) -> AudioStream:
+	var streams_by_prefix: Dictionary = _pilot_voice_streams.get(key, {})
+	if streams_by_prefix.is_empty():
+		return null
+	if lock_pilot_voice_to_callsign:
+		var voice_prefix := _get_pilot_voice_prefix_for_sender(sender)
+		if streams_by_prefix.has(voice_prefix):
+			var locked_streams: Array = streams_by_prefix[voice_prefix]
+			if not locked_streams.is_empty():
+				return locked_streams[randi() % locked_streams.size()] as AudioStream
+		if voice_prefix != "":
+			return null
+
+	for prefix in PILOT_AUDIO_PREFIXES:
+		if streams_by_prefix.has(prefix):
+			var streams_for_prefix: Array = streams_by_prefix[prefix]
+			if not streams_for_prefix.is_empty():
+				return streams_for_prefix[randi() % streams_for_prefix.size()] as AudioStream
+
+	var fallback_prefixes := streams_by_prefix.keys()
+	if fallback_prefixes.is_empty():
+		return null
+	var streams: Array = streams_by_prefix[fallback_prefixes[0]]
 	if streams.is_empty():
 		return null
 	return streams[randi() % streams.size()] as AudioStream
+
+func _get_pilot_voice_prefix_for_sender(sender: String) -> String:
+	var sender_key := sender.strip_edges().to_lower()
+	if sender_key.is_empty():
+		return ""
+	if _pilot_sender_voice_prefixes.has(sender_key):
+		return str(_pilot_sender_voice_prefixes[sender_key])
+	var available_prefixes := _get_available_pilot_voice_prefixes()
+	if available_prefixes.is_empty():
+		return ""
+	var assigned_prefix := str(DEFAULT_PILOT_VOICE_ASSIGNMENTS.get(sender_key, ""))
+	if not available_prefixes.has(assigned_prefix):
+		assigned_prefix = available_prefixes[_stable_sender_index(sender_key, available_prefixes.size())]
+	_pilot_sender_voice_prefixes[sender_key] = assigned_prefix
+	return assigned_prefix
+
+func _get_available_pilot_voice_prefixes() -> Array[String]:
+	var result: Array[String] = []
+	for prefix in PILOT_AUDIO_PREFIXES:
+		if bool(_pilot_voice_prefixes_available.get(prefix, false)):
+			result.append(prefix)
+	return result
+
+func _stable_sender_index(sender_key: String, modulo: int) -> int:
+	if modulo <= 0:
+		return 0
+	var hash_value: int = 0
+	for byte in sender_key.to_utf8_buffer():
+		hash_value = int((hash_value * 31 + int(byte)) % 2147483647)
+	return hash_value % modulo
 
 func _pilot_voice_prefix_for_file(file_name: String) -> String:
 	var lower_name := file_name.to_lower()
@@ -508,15 +599,39 @@ func _pilot_voice_alias_key(body: String) -> String:
 
 	return ""
 
+func _enqueue_radio_voice_stream(stream: AudioStream) -> void:
+	if stream == null:
+		return
+	var now_s := Time.get_ticks_msec() / 1000.0
+	_citadel_voice_queue.append({
+		stream = stream,
+		expire_at = now_s + maxf(radio_voice_queue_max_age_s, 0.1),
+	})
+	_prune_expired_radio_voice_queue(now_s)
+
+func _prune_expired_radio_voice_queue(now_s: float = -1.0) -> void:
+	if now_s < 0.0:
+		now_s = Time.get_ticks_msec() / 1000.0
+	_citadel_voice_queue = _citadel_voice_queue.filter(func(entry): return _is_radio_voice_entry_valid(entry, now_s))
+
+func _is_radio_voice_entry_valid(entry, now_s: float) -> bool:
+	if typeof(entry) != TYPE_DICTIONARY:
+		return false
+	if not entry.has("stream") or not (entry.stream is AudioStream):
+		return false
+	return float(entry.get("expire_at", 0.0)) > now_s
+
 func _play_next_citadel_voice_clip() -> void:
 	if _radio_voice_player == null:
 		return
 	if _radio_voice_player.playing:
 		return
+	_prune_expired_radio_voice_queue()
 	if _citadel_voice_queue.is_empty():
 		return
 
-	var stream: AudioStream = _citadel_voice_queue.pop_front()
+	var entry: Dictionary = _citadel_voice_queue.pop_front()
+	var stream: AudioStream = entry.stream as AudioStream
 	var stream_length := stream.get_length()
 	if stream_length <= 0.0:
 		stream_length = 2.5
@@ -525,8 +640,11 @@ func _play_next_citadel_voice_clip() -> void:
 
 	var pre_roll_timer := get_tree().create_timer(radio_static_pre_roll_s)
 	pre_roll_timer.timeout.connect(func() -> void:
+		if not _is_radio_voice_entry_valid(entry, Time.get_ticks_msec() / 1000.0):
+			_play_next_citadel_voice_clip()
+			return
 		if _radio_voice_player == null or _radio_voice_player.playing:
-			_citadel_voice_queue.push_front(stream)
+			_citadel_voice_queue.push_front(entry)
 			return
 		_radio_voice_player.stream = stream
 		_radio_voice_player.pitch_scale = 1.0
@@ -631,9 +749,9 @@ func _ensure_radio_bus() -> void:
 
 	var distortion := AudioEffectDistortion.new()
 	distortion.mode = AudioEffectDistortion.MODE_CLIP
-	distortion.drive = 0.22
-	distortion.pre_gain = 1.5
-	distortion.keep_hf_hz = 1200.0
+	distortion.drive = 0.42
+	distortion.pre_gain = 2.1
+	distortion.keep_hf_hz = 650.0
 	AudioServer.add_bus_effect(bus_index, distortion)
 
 func _update_radio_static(delta: float) -> void:
@@ -645,30 +763,39 @@ func _update_radio_static(delta: float) -> void:
 	var now_s := Time.get_ticks_msec() / 1000.0
 	var target_mix := 1.0 if now_s < _radio_static_until_s else 0.0
 	_radio_static_mix = move_toward(_radio_static_mix, target_mix, delta * 10.0)
-	_update_radio_voice_damage(now_s)
+	_update_radio_voice_damage(delta, now_s)
 
 	var frames_available := _radio_static_playback.get_frames_available()
 	for i in range(frames_available):
 		var sample := _next_radio_static_sample()
 		_radio_static_playback.push_frame(Vector2(sample, sample))
 
-func _update_radio_voice_damage(now_s: float) -> void:
+func _update_radio_voice_damage(delta: float, now_s: float) -> void:
 	if _radio_voice_player == null:
 		return
 	if not _radio_voice_player.playing:
 		_radio_voice_player.volume_db = radio_voice_gain_db
 		_radio_voice_player.pitch_scale = 1.0
+		_radio_voice_flutter_timer_s = 0.0
+		_radio_voice_volume_offset_db = 0.0
+		_radio_voice_pitch_offset = 0.0
 		return
 
 	if now_s >= _radio_dropout_until_s and _radio_rng.randf() < radio_dropout_chance_per_frame:
 		_radio_dropout_until_s = now_s + _radio_rng.randf_range(radio_dropout_min_s, radio_dropout_max_s)
 
+	_radio_voice_flutter_timer_s -= delta
+	if _radio_voice_flutter_timer_s <= 0.0:
+		_radio_voice_flutter_timer_s = maxf(radio_voice_flutter_update_s, 0.04)
+		_radio_voice_volume_offset_db = _radio_rng.randf_range(-0.45, 0.25)
+		_radio_voice_pitch_offset = _radio_rng.randf_range(-radio_pitch_jitter, radio_pitch_jitter)
+
 	if now_s < _radio_dropout_until_s:
 		_radio_voice_player.volume_db = radio_dropout_volume_db
 	else:
-		_radio_voice_player.volume_db = radio_voice_gain_db + _radio_rng.randf_range(-1.5, 0.8)
+		_radio_voice_player.volume_db = radio_voice_gain_db + _radio_voice_volume_offset_db
 
-	_radio_voice_player.pitch_scale = 1.0 + _radio_rng.randf_range(-radio_pitch_jitter, radio_pitch_jitter)
+	_radio_voice_player.pitch_scale = 1.0 + _radio_voice_pitch_offset
 
 func _next_radio_static_sample() -> float:
 	var hiss := _radio_rng.randf_range(-1.0, 1.0) * radio_static_noise_gain * _radio_static_mix
