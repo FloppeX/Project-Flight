@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://ojgc8rvqwf1v"
+path="res://.godot/imported/Nigerian male - Wilco. Flight. Weapons free. Call your targets.wav-24b7a4be4548007bb24403a2ae92b1cc.sample"
+
+[deps]
+
+source_file="res://Audio/Nigerian male - Wilco. Flight. Weapons free. Call your targets.wav"
+dest_files=["res://.godot/imported/Nigerian male - Wilco. Flight. Weapons free. Call your targets.wav-24b7a4be4548007bb24403a2ae92b1cc.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

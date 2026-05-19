@@ -40,6 +40,9 @@ var camera_target_cam: Camera3D
 @export var min_fov_deg: float = 10.0
 @export var max_fov_deg: float = 60.0
 @export var fov_lerp_speed: float = 8.0
+@export var idle_fov_deg: float = 30.0
+@export var target_camera_slew_deg_s: float = 120.0
+@export var target_camera_zoom_lerp_speed: float = 6.0
 @export var zoom_distance: float = 50.0
 @export var obstacle_margin: float = 1.0
 @export var scan_spacing_px: float = 3.0
@@ -55,6 +58,9 @@ var _last_display_target_name: String = ""
 var _destroyed_target_hold_position: Vector3 = Vector3.ZERO
 var _destroyed_target_hold_name: String = ""
 var _destroyed_target_hold_until_s: float = -INF
+var _target_camera_pose_initialized: bool = false
+var _camera_target_rest_transform: Transform3D = Transform3D.IDENTITY
+var _camera_target_cam_rest_transform: Transform3D = Transform3D.IDENTITY
 
 func _ready():
 	# Set up the panel screen mesh
@@ -88,8 +94,10 @@ func _ready():
 			camera_target = aircraft.find_child("CameraTarget", true, false) as Node3D
 		# If CameraTarget has a child Camera3D, use it as source pose (but do not make it current)
 		if camera_target:
+			_camera_target_rest_transform = camera_target.transform
 			camera_target_cam = camera_target.find_child("Camera3D", true, false) as Camera3D
 			if camera_target_cam:
+				_camera_target_cam_rest_transform = camera_target_cam.transform
 				camera_target_cam.current = false
 	_update_lower_layout_sizes()
 	# Auto-bind aircraft if not provided via export, so radar works by default
@@ -119,9 +127,12 @@ func bind_to_aircraft(new_aircraft: Node3D) -> void:
 	var ct := new_aircraft.get_node_or_null("CameraTarget") as Node3D
 	if ct:
 		camera_target = ct
+		_camera_target_rest_transform = camera_target.transform
 		camera_target_cam = ct.find_child("Camera3D", true, false) as Camera3D
 		if camera_target_cam:
+			_camera_target_cam_rest_transform = camera_target_cam.transform
 			camera_target_cam.current = false
+	_target_camera_pose_initialized = false
 
 
 func _physics_process(delta: float) -> void:
@@ -242,15 +253,11 @@ func _process(delta: float) -> void:
 		var target_focus := _get_target_camera_focus()
 		# Prefer explicit CameraTarget provided on the aircraft
 		if camera_target and is_instance_valid(camera_target):
-			var source_xform: Transform3D = camera_target.global_transform
+			var source_xform: Transform3D = _get_target_camera_rest_global_transform()
 			if camera_target_cam and is_instance_valid(camera_target_cam):
-				source_xform = camera_target_cam.global_transform
-			# Default: copy source pose
-			target_camera.global_transform = source_xform
+				source_xform = source_xform * _camera_target_cam_rest_transform
 			if not target_focus.is_empty():
-				# Rotate the CameraTarget mount toward the target
 				var focus_pos: Vector3 = target_focus["position"]
-				camera_target.look_at(focus_pos, Vector3.UP)
 				# Compute clear line of sight from mount to target
 				var mount_pos: Vector3 = source_xform.origin
 				var tgt_pos: Vector3 = focus_pos
@@ -273,27 +280,25 @@ func _process(delta: float) -> void:
 					var seg_len = (tgt_pos - mount_pos).length()
 					var dist_from_mount = max(0.0, seg_len - zoom_distance)
 					desired_pos = mount_pos + dir * dist_from_mount
-					target_camera.global_position = desired_pos
-					# Look at target
-					target_camera.look_at(tgt_pos, Vector3.UP)
+					_slew_target_camera_look_at(desired_pos, tgt_pos, delta)
 				else:
 					# Stay at mount if obstructed, still look at target
-					target_camera.global_transform = source_xform
-					target_camera.look_at(tgt_pos, Vector3.UP)
+					_slew_target_camera_look_at(source_xform.origin, tgt_pos, delta)
 				# Ensure the camera is active for the viewport
 				target_camera.current = true
 				if target_placeholder:
 					target_placeholder.visible = false
 				# Update target info label
 				if target_info_label:
-					var distance = aircraft.global_position.distance_to(focus_pos)
+					var distance = _get_node_visual_position(aircraft).distance_to(focus_pos)
 					var suffix := " DESTROYED" if bool(target_focus.get("destroyed", false)) else ""
 					target_info_label.text = String(target_focus["name"]) + suffix + "\n" + str(int(distance)) + "m"
 			else:
-				# No target: reset camera to source and show placeholder
-				target_camera.global_transform = source_xform
+				# No target: slew the target feed back to the aircraft's forward camera mount.
+				_slew_target_camera_to_transform(source_xform, delta)
+				target_camera.current = true
 				if target_placeholder:
-					target_placeholder.visible = true
+					target_placeholder.visible = false
 				# Update target info label for no target
 				if target_info_label:
 					target_info_label.text = "NO TARGET"
@@ -301,23 +306,24 @@ func _process(delta: float) -> void:
 			# Fallback: derive from targeting module if available, else look forward
 			if not target_focus.is_empty():
 				var focus_pos: Vector3 = target_focus["position"]
-				var cam_pos = aircraft.global_position + aircraft.global_transform.basis.z * 1.0 + Vector3(0, 0.3, 0)
-				target_camera.global_position = cam_pos
-				target_camera.look_at(focus_pos, Vector3.UP)
+				var aircraft_xform := _get_node_visual_transform(aircraft)
+				var cam_pos = aircraft_xform.origin + aircraft_xform.basis.z * 1.0 + Vector3(0, 0.3, 0)
+				_slew_target_camera_look_at(cam_pos, focus_pos, delta)
 				if target_placeholder:
 					target_placeholder.visible = false
 				# Update target info label for targeting module target
 				if target_info_label:
-					var distance = aircraft.global_position.distance_to(focus_pos)
+					var distance = aircraft_xform.origin.distance_to(focus_pos)
 					var suffix := " DESTROYED" if bool(target_focus.get("destroyed", false)) else ""
 					target_info_label.text = String(target_focus["name"]) + suffix + "\n" + str(int(distance)) + "m"
 			else:
 				# Idle: look forward
-				var cam_pos2 = aircraft.global_position + aircraft.global_transform.basis.z * 1.0 + Vector3(0, 0.3, 0)
-				target_camera.global_position = cam_pos2
-				target_camera.global_transform.basis = Basis(aircraft.global_transform.basis)
+				var aircraft_xform := _get_node_visual_transform(aircraft)
+				var cam_pos2 = aircraft_xform.origin + aircraft_xform.basis.z * 1.0 + Vector3(0, 0.3, 0)
+				var forward_xform := Transform3D(aircraft_xform.basis, cam_pos2)
+				_slew_target_camera_to_transform(forward_xform, delta)
 				if target_placeholder:
-					target_placeholder.visible = true
+					target_placeholder.visible = false
 				# Update target info label for no target (idle state)
 				if target_info_label:
 					target_info_label.text = "NO TARGET"
@@ -329,9 +335,9 @@ func _process(delta: float) -> void:
 			var desired_vfov_rad: float = 2.0 * atan( (assumed_target_width_m) / (2.0 * dist * aspect) )
 			var desired_vfov_deg: float = rad_to_deg(desired_vfov_rad)
 			desired_vfov_deg = clamp(desired_vfov_deg, min_fov_deg, max_fov_deg)
-			target_camera.fov = desired_vfov_deg
+			_slew_target_camera_fov(desired_vfov_deg, delta)
 		else:
-			target_camera.fov = 30.0
+			_slew_target_camera_fov(idle_fov_deg, delta)
 	
 
 func _setup_lower_displays() -> void:
@@ -497,6 +503,65 @@ func _compute_top_row_content_width() -> float:
 func _draw_radar():
 	pass
 
+func _get_target_camera_rest_global_transform() -> Transform3D:
+	if aircraft != null and is_instance_valid(aircraft):
+		return _get_node_visual_transform(aircraft) * _camera_target_rest_transform
+	if camera_target != null and is_instance_valid(camera_target):
+		return _get_node_visual_transform(camera_target)
+	return Transform3D.IDENTITY
+
+func _get_node_visual_transform(node: Node3D) -> Transform3D:
+	if node == null or not is_instance_valid(node):
+		return Transform3D.IDENTITY
+	return node.get_global_transform_interpolated()
+
+func _get_node_visual_position(node: Node3D) -> Vector3:
+	return _get_node_visual_transform(node).origin
+
+func _slew_target_camera_look_at(desired_pos: Vector3, focus_pos: Vector3, delta: float) -> void:
+	if target_camera == null or not is_instance_valid(target_camera):
+		return
+	if desired_pos.distance_squared_to(focus_pos) <= 0.0001:
+		return
+	var desired_xform := Transform3D(Basis(), desired_pos).looking_at(focus_pos, Vector3.UP)
+	_slew_target_camera_to_transform(desired_xform, delta)
+
+func _slew_target_camera_to_transform(desired_xform: Transform3D, delta: float) -> void:
+	if target_camera == null or not is_instance_valid(target_camera):
+		return
+	if not _target_camera_pose_initialized:
+		target_camera.global_transform = desired_xform
+		_target_camera_pose_initialized = true
+		return
+	# Position must stay rigid to the aircraft/mount; smoothing it causes the
+	# target feed to lag into the plane during hard manoeuvres.
+	target_camera.global_position = desired_xform.origin
+	target_camera.global_transform.basis = _slew_basis_toward(
+		target_camera.global_transform.basis,
+		desired_xform.basis,
+		target_camera_slew_deg_s,
+		delta
+	)
+
+func _slew_basis_toward(from_basis: Basis, to_basis: Basis, max_deg_s: float, delta: float) -> Basis:
+	var from_q := from_basis.orthonormalized().get_rotation_quaternion()
+	var to_q := to_basis.orthonormalized().get_rotation_quaternion()
+	var angle := from_q.angle_to(to_q)
+	if angle <= 0.0001:
+		return to_basis.orthonormalized()
+	var max_step := deg_to_rad(maxf(max_deg_s, 1.0)) * maxf(delta, 0.0)
+	var blend := clampf(max_step / angle, 0.0, 1.0)
+	return Basis(from_q.slerp(to_q, blend)).orthonormalized()
+
+func _slew_target_camera_fov(desired_fov_deg: float, delta: float) -> void:
+	if target_camera == null or not is_instance_valid(target_camera):
+		return
+	var blend := _smooth_blend(target_camera_zoom_lerp_speed, delta)
+	target_camera.fov = lerpf(target_camera.fov, desired_fov_deg, blend)
+
+func _smooth_blend(speed: float, delta: float) -> float:
+	return clampf(1.0 - exp(-maxf(speed, 0.0) * maxf(delta, 0.0)), 0.0, 1.0)
+
 
 func _relayout_top_row() -> void:
 	var display := $SubViewport/InstrumentDisplay as Control
@@ -609,11 +674,12 @@ func _get_target_camera_focus() -> Dictionary:
 	if live_target != null and is_instance_valid(live_target):
 		_clear_destroyed_target_hold()
 		_watch_display_target(live_target)
-		_last_display_target_position = live_target.global_position
+		var live_target_pos := _get_node_visual_position(live_target)
+		_last_display_target_position = live_target_pos
 		_last_display_target_name = live_target.name
 		return {
 			"target": live_target,
-			"position": live_target.global_position,
+			"position": live_target_pos,
 			"name": live_target.name,
 			"destroyed": false,
 		}
@@ -673,7 +739,7 @@ func _on_display_target_destroyed(arg0: Variant = null, arg1: Variant = null) ->
 	var hold_position := _last_display_target_position
 	var hold_name := _last_display_target_name
 	if target != null and is_instance_valid(target):
-		hold_position = target.global_position
+		hold_position = _get_node_visual_position(target)
 		hold_name = target.name
 	_begin_destroyed_target_hold(hold_position, hold_name)
 
@@ -684,7 +750,7 @@ func _on_display_target_tree_exiting(watched_target: Node3D = null) -> void:
 	var hold_position := _last_display_target_position
 	var hold_name := _last_display_target_name
 	if target != null and is_instance_valid(target):
-		hold_position = target.global_position
+		hold_position = _get_node_visual_position(target)
 		hold_name = target.name
 	_begin_destroyed_target_hold(hold_position, hold_name)
 

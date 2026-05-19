@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://6uhfxd1vde8n"
+path="res://.godot/imported/French Canadian female - Wilco. Flight. Push it low. Watch for ground fire.wav-dd1aa7e4fd6669fd27de1957e8c283bb.sample"
+
+[deps]
+
+source_file="res://Audio/French Canadian female - Wilco. Flight. Push it low. Watch for ground fire.wav"
+dest_files=["res://.godot/imported/French Canadian female - Wilco. Flight. Push it low. Watch for ground fire.wav-dd1aa7e4fd6669fd27de1957e8c283bb.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

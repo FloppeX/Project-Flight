@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://owto3hakrnfy"
+path="res://.godot/imported/Scottish female - Tally. I'm in. Engaging.wav-44bcac2ad3fe4228217072eedd2cf561.sample"
+
+[deps]
+
+source_file="res://Audio/Scottish female - Tally. I'm in. Engaging.wav"
+dest_files=["res://.godot/imported/Scottish female - Tally. I'm in. Engaging.wav-44bcac2ad3fe4228217072eedd2cf561.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

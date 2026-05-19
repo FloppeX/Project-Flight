@@ -38,6 +38,8 @@ signal update_interface(values)
 # assigning the node just once 
 @export var UINode: NodePath
 @onready var ui_node = get_node_or_null(UINode)
+@export var StartupInterlockNode: NodePath
+@onready var startup_interlock_node = get_node_or_null(StartupInterlockNode)
 
 var sfx_engine_loop = null
 var sfx_engine_start = null
@@ -141,20 +143,26 @@ func engine_start():
 		return
 	
 	is_engine_changing_state = true
+
+	if startup_interlock_node != null and startup_interlock_node.has_method("prepare_for_engine_start"):
+		await startup_interlock_node.prepare_for_engine_start()
 	
 	if not is_engine_working:
-		sfx_engine_loop.volume_db = -40
-		sfx_engine_loop.pitch_scale = 0.2
+		if sfx_engine_loop:
+			sfx_engine_loop.volume_db = -40
+			sfx_engine_loop.pitch_scale = 0.2
 		
 	
-	if sfx_tween:
-		sfx_tween.kill()
-	sfx_tween = create_tween()
-	sfx_tween.tween_property(sfx_engine_loop, "volume_db", EngineLoopTargetVolumeDb, 1.0)
-	sfx_tween.tween_property(sfx_engine_loop, "pitch_scale", power_to_pitch(current_power), 1.0)
-	sfx_engine_loop.play()
+	if sfx_engine_loop:
+		if sfx_tween:
+			sfx_tween.kill()
+		sfx_tween = create_tween()
+		sfx_tween.tween_property(sfx_engine_loop, "volume_db", EngineLoopTargetVolumeDb, 1.0)
+		sfx_tween.tween_property(sfx_engine_loop, "pitch_scale", power_to_pitch(current_power), 1.0)
+		sfx_engine_loop.play()
 	
-	sfx_engine_start.play()
+	if sfx_engine_start:
+		sfx_engine_start.play()
 	
 	await get_tree().create_timer(1.0).timeout
 	
@@ -178,18 +186,20 @@ func engine_stop():
 	
 	request_update_interface()
 	
-	if sfx_tween:
-		sfx_tween.kill()
-	sfx_tween = create_tween()
-	sfx_tween.tween_property(sfx_engine_loop, "pitch_scale", power_to_pitch(0.0), 1.0)
-	
-	await sfx_tween.finished
-	
-	sfx_tween = create_tween()
-	sfx_tween.tween_property(sfx_engine_loop, "volume_db", EngineLoopTargetVolumeDb, 1.0)
+	if sfx_engine_loop:
+		if sfx_tween:
+			sfx_tween.kill()
+		sfx_tween = create_tween()
+		sfx_tween.tween_property(sfx_engine_loop, "pitch_scale", power_to_pitch(0.0), 1.0)
+		
+		await sfx_tween.finished
+		
+		sfx_tween = create_tween()
+		sfx_tween.tween_property(sfx_engine_loop, "volume_db", EngineLoopTargetVolumeDb, 1.0)
 	
 	await get_tree().create_timer(1.0).timeout
-	sfx_engine_loop.stop()
+	if sfx_engine_loop:
+		sfx_engine_loop.stop()
 	request_update_interface()
 	
 	is_engine_changing_state = false

@@ -15,7 +15,7 @@ var vehicle_registry: Dictionary = {}
 const DEFAULT_PILOT_NAMES: Array[String] = ["Smith", "Johnson", "Williams", "Brown", "Jones"]
 const DEFAULT_PILOT_CALLSIGNS: Array[String] = ["Skipper", "Goose", "Rook", "Falcon", "Hound"]
 const PILOT_RANK_WEIGHTS: Array[String] = [
-	"Fo", "Fo", "Fo", "Fo", "Fo",
+	"FO", "FO", "FO", "FO", "FO",
 	"Lt", "Lt", "Lt", "Lt",
 	"Cpt", "Cpt", "Cpt",
 	"Maj", "Maj",
@@ -81,6 +81,7 @@ func bind_pilot_to_live_aircraft(aircraft: RigidBody3D, aircraft_data: Dictionar
 	_write_pilot_metadata(metadata, pilot_id)
 	aircraft_data["metadata"] = metadata
 	_apply_metadata_to_aircraft(aircraft, metadata)
+	_sync_pilot_roster_assignment(aircraft, metadata)
 
 	var aircraft_id := aircraft.get_instance_id()
 	_active_pilot_by_aircraft_id[aircraft_id] = pilot_id
@@ -107,6 +108,7 @@ func mark_aircraft_stored(aircraft: RigidBody3D, aircraft_data: Dictionary) -> v
 
 	if is_instance_valid(aircraft):
 		_active_pilot_by_aircraft_id.erase(aircraft.get_instance_id())
+		_release_pilot_roster_assignment(aircraft)
 
 func get_pilot_roster_snapshot() -> Array[Dictionary]:
 	ensure_initialized()
@@ -196,7 +198,7 @@ func _generate_unique_values(source: Array[String], fallback: Array[String], nee
 
 func _pick_weighted_rank() -> String:
 	if PILOT_RANK_WEIGHTS.is_empty():
-		return "Fo"
+		return "FO"
 	return PILOT_RANK_WEIGHTS[_pilot_rng.randi_range(0, PILOT_RANK_WEIGHTS.size() - 1)]
 
 func _pick_available_pilot_id() -> int:
@@ -237,8 +239,8 @@ func _write_pilot_metadata(metadata: Dictionary, pilot_id: int) -> void:
 		return
 	var pilot: Dictionary = _pilot_records[pilot_id]
 	metadata["pilot_id"] = pilot_id
-	metadata["pilot_rank"] = str(pilot.get("rank", "Fo"))
-	metadata["pilot_skill"] = str(pilot.get("skill", metadata.get("pilot_rank", "Fo")))
+	metadata["pilot_rank"] = str(pilot.get("rank", "FO"))
+	metadata["pilot_skill"] = str(pilot.get("skill", metadata.get("pilot_rank", "FO")))
 	metadata["pilot_callsign"] = str(pilot.get("callsign", "Rook"))
 	metadata["pilot_name"] = str(pilot.get("name", "Unknown"))
 	metadata["pilot_display_name"] = _format_pilot_display(pilot)
@@ -256,8 +258,29 @@ func _apply_metadata_to_aircraft(aircraft: RigidBody3D, metadata: Dictionary) ->
 		if metadata.has(key):
 			aircraft.set_meta(key, metadata[key])
 
+func _sync_pilot_roster_assignment(aircraft: RigidBody3D, metadata: Dictionary) -> void:
+	if not is_instance_valid(aircraft):
+		return
+	if PilotRoster == null or not is_instance_valid(PilotRoster):
+		return
+	if not PilotRoster.has_method("assign_aircraft_to_callsign"):
+		return
+	var callsign := str(metadata.get("pilot_callsign", ""))
+	if callsign == "":
+		callsign = "Carrier %d" % int(metadata.get("pilot_id", aircraft.get_instance_id()))
+	PilotRoster.assign_aircraft_to_callsign(aircraft, callsign)
+
+func _release_pilot_roster_assignment(aircraft: RigidBody3D) -> void:
+	if PilotRoster == null or not is_instance_valid(PilotRoster):
+		return
+	if not PilotRoster.has_method("release_callsign"):
+		return
+	var callsign := str(aircraft.get_meta("pilot_callsign", ""))
+	if callsign != "":
+		PilotRoster.release_callsign(callsign)
+
 func _format_pilot_display(pilot: Dictionary) -> String:
-	var rank := str(pilot.get("rank", "Fo"))
+	var rank := str(pilot.get("rank", "FO"))
 	var callsign := str(pilot.get("callsign", "Rook"))
 	var surname := str(pilot.get("name", "Unknown"))
 	return "%s \"%s\" %s" % [rank, callsign, surname]

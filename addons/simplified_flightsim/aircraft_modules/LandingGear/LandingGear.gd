@@ -74,6 +74,7 @@ enum LandingGearInitialStates {
 @export var nose_wheel_taxi_full_effect_speed_mps: float = 4.0
 @export var nose_wheel_taxi_cutoff_speed_mps: float = 10.0
 @export var carrier_deck_touch_margin_m: float = 0.03
+@export var carrier_deck_follow_min_wheels: int = 3
 
 var current_state: LandingGearInitialStates
 var deploy_timer: Timer
@@ -96,6 +97,7 @@ var _gear_animation_progress: float = 1.0
 var _gear_animation_target: float = 1.0
 var _gear_animation_active: bool = false
 var _wheel_on_carrier_surface: Array[bool] = []
+var _wheel_carrier_surfaces: Array = []
 
 # Debug state
 var _debug_timer: float = 0.0
@@ -185,6 +187,9 @@ func apply_spring_physics(collision_shape: CollisionShape3D, gear_index: int, de
 		if _wheel_on_carrier_surface.size() <= gear_index:
 			_wheel_on_carrier_surface.resize(gear_index + 1)
 		_wheel_on_carrier_surface[gear_index] = false
+		if _wheel_carrier_surfaces.size() <= gear_index:
+			_wheel_carrier_surfaces.resize(gear_index + 1)
+		_wheel_carrier_surfaces[gear_index] = null
 		return
 		
 	# Cast ray downward from collision shape to detect ground
@@ -214,6 +219,9 @@ func apply_spring_physics(collision_shape: CollisionShape3D, gear_index: int, de
 		if _wheel_on_carrier_surface.size() <= gear_index:
 			_wheel_on_carrier_surface.resize(gear_index + 1)
 		_wheel_on_carrier_surface[gear_index] = carrier_surface != null and distance_to_ground <= (effective_rest_height + touch_margin)
+		if _wheel_carrier_surfaces.size() <= gear_index:
+			_wheel_carrier_surfaces.resize(gear_index + 1)
+		_wheel_carrier_surfaces[gear_index] = carrier_surface if _wheel_on_carrier_surface[gear_index] else null
 		# Store for external readers (e.g. debug logging)
 		if gear_compressions.size() <= gear_index:
 			gear_compressions.resize(gear_index + 1)
@@ -267,6 +275,9 @@ func apply_spring_physics(collision_shape: CollisionShape3D, gear_index: int, de
 		if _wheel_on_carrier_surface.size() <= gear_index:
 			_wheel_on_carrier_surface.resize(gear_index + 1)
 		_wheel_on_carrier_surface[gear_index] = false
+		if _wheel_carrier_surfaces.size() <= gear_index:
+			_wheel_carrier_surfaces.resize(gear_index + 1)
+		_wheel_carrier_surfaces[gear_index] = null
 		if gear_compressions.size() <= gear_index:
 			gear_compressions.resize(gear_index + 1)
 		gear_compressions[gear_index] = 0.0
@@ -280,32 +291,25 @@ func _update_carrier_deck_follow_state(force_clear: bool = false) -> void:
 		return
 
 	var should_follow: bool = false
+	var carrier_surface: Node = null
 	if not force_clear:
-		var required_indices: Array[int] = []
-		if nose_gear_index >= 0 and nose_gear_index < gear_collision_shapes.size():
-			required_indices.append(nose_gear_index)
-		for idx in rear_gear_indices:
-			if required_indices.size() >= 3:
-				break
-			if idx >= 0 and idx < gear_collision_shapes.size() and not required_indices.has(idx):
-				required_indices.append(idx)
-		if required_indices.size() < 3:
-			required_indices.clear()
-			for i in range(mini(3, gear_collision_shapes.size())):
-				required_indices.append(i)
-
-		if required_indices.size() >= 3:
-			should_follow = true
-			for idx in required_indices:
-				if idx < 0 or idx >= _wheel_on_carrier_surface.size() or not _wheel_on_carrier_surface[idx]:
-					should_follow = false
-					break
+		var required_count: int = clampi(carrier_deck_follow_min_wheels, 1, maxi(1, gear_collision_shapes.size()))
+		var touching_count: int = 0
+		for idx in range(_wheel_on_carrier_surface.size()):
+			if _wheel_on_carrier_surface[idx]:
+				touching_count += 1
+				if carrier_surface == null and idx < _wheel_carrier_surfaces.size():
+					carrier_surface = _wheel_carrier_surfaces[idx] as Node
+		should_follow = touching_count >= required_count
 
 	if should_follow:
 		aircraft.set_meta("carrier_deck_follow", true)
+		if carrier_surface:
+			VelocityFrame.set_reference_node(aircraft, carrier_surface)
 	else:
 		if aircraft.has_meta("carrier_deck_follow"):
 			aircraft.remove_meta("carrier_deck_follow")
+		VelocityFrame.clear_reference(aircraft)
 
 func _update_accel_lean(delta: float) -> void:
 	if not use_accel_lean or not aircraft:
@@ -651,14 +655,12 @@ func apply_wheel_friction(collision_shape: CollisionShape3D, gear_index: int, co
 	
 	# Get aircraft velocity relative to any carrier it sits on, so friction brakes
 	# toward deck-relative zero rather than world zero (carrier is a moving platform).
-	var world_velocity = aircraft.linear_velocity
+	var relative_velocity = aircraft.linear_velocity
 	if on_carrier_surface:
-		var carrier_velocity: Variant = carrier_surface.get("velocity")
-		if typeof(carrier_velocity) == TYPE_VECTOR3:
-			world_velocity -= carrier_velocity as Vector3
+		relative_velocity = VelocityFrame.get_relative_velocity(aircraft)
 
 	if nose_wheel_taxi_steering_enabled and gear_index == nose_gear_index and nose_wheel_taxi_cutoff_speed_mps > 0.0:
-		var surface_velocity: Vector3 = world_velocity - contact_normal * world_velocity.dot(contact_normal)
+		var surface_velocity: Vector3 = relative_velocity - contact_normal * relative_velocity.dot(contact_normal)
 		var ground_speed_mps: float = surface_velocity.length()
 		var steer_blend: float = 1.0 - _smoothstep(
 			nose_wheel_taxi_full_effect_speed_mps,
@@ -673,8 +675,8 @@ func apply_wheel_friction(collision_shape: CollisionShape3D, gear_index: int, co
 				wheel_right = _project_axis_onto_surface(collision_shape.global_transform.basis.x, contact_normal, aircraft.global_transform.basis.x)
 
 	# Project velocity onto aircraft's local axes
-	var forward_velocity = world_velocity.dot(wheel_forward)
-	var sideways_velocity = world_velocity.dot(wheel_right)
+	var forward_velocity = relative_velocity.dot(wheel_forward)
+	var sideways_velocity = relative_velocity.dot(wheel_right)
 	
 	# Calculate friction forces
 	var forward_friction_force = -forward_velocity * forward_friction * friction_force_multiplier * compression

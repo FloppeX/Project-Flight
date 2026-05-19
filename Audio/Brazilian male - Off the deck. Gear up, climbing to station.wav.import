@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://le2o3ecs3pm"
+path="res://.godot/imported/Brazilian male - Off the deck. Gear up, climbing to station.wav-2a42f4b835ebd5817ef7e6cb39a95013.sample"
+
+[deps]
+
+source_file="res://Audio/Brazilian male - Off the deck. Gear up, climbing to station.wav"
+dest_files=["res://.godot/imported/Brazilian male - Off the deck. Gear up, climbing to station.wav-2a42f4b835ebd5817ef7e6cb39a95013.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

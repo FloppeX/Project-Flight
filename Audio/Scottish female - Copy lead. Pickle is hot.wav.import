@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://yoqyk4kje0tg"
+path="res://.godot/imported/Scottish female - Copy lead. Pickle is hot.wav-e5c7ddbb7c2d11270b0041f951a4ef7a.sample"
+
+[deps]
+
+source_file="res://Audio/Scottish female - Copy lead. Pickle is hot.wav"
+dest_files=["res://.godot/imported/Scottish female - Copy lead. Pickle is hot.wav-e5c7ddbb7c2d11270b0041f951a4ef7a.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

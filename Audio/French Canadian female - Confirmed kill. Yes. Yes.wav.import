@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://dsb42arkmg55g"
+path="res://.godot/imported/French Canadian female - Confirmed kill. Yes. Yes.wav-7053ae640af04d8950767a7e9ff6f1ea.sample"
+
+[deps]
+
+source_file="res://Audio/French Canadian female - Confirmed kill. Yes. Yes.wav"
+dest_files=["res://.godot/imported/French Canadian female - Confirmed kill. Yes. Yes.wav-7053ae640af04d8950767a7e9ff6f1ea.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

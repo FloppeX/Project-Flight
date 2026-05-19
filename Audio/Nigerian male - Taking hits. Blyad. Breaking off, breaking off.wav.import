@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://dhesdaroeg7o6"
+path="res://.godot/imported/Nigerian male - Taking hits. Blyad. Breaking off, breaking off.wav-2d3dbc484744c572d12663b3ff162be7.sample"
+
+[deps]
+
+source_file="res://Audio/Nigerian male - Taking hits. Blyad. Breaking off, breaking off.wav"
+dest_files=["res://.godot/imported/Nigerian male - Taking hits. Blyad. Breaking off, breaking off.wav-2d3dbc484744c572d12663b3ff162be7.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

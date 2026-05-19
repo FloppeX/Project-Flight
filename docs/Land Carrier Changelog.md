@@ -3,6 +3,11 @@
 This document contains version history, session-by-session notes, and archived long-form material extracted from the main project overview. For the short project brief, see [README](../README.md).
 
 ## Version History
+- 2026-05-20: Helicopter deck operations / pilot roster pass - Aircraft 9 received a more usable heavy arcade helicopter tuning pass with cyclic lag, yaw inertia, simple ground effect, speed-dependent weather-vane help, retractable four-point gear, one-line `HELI_DEBUG` telemetry, and deck takeoff/landing fixes. The carrier remains a scripted/kinematic moving platform; `VelocityFrame` now makes deck-relative velocity explicit so helicopters can inherit carrier speed on takeoff and avoid double-counting carrier motion on touchdown. Rotor fold/unfold state was hardened so the authored two coaxial three-blade rotor sets deploy before spool-up instead of appearing as one overlapped blade per rotor. The carrier pilot roster now tracks pilot identity, skill, experience, mission time, kills, Ace status, rest/wound hooks, temperament, and voice assignment, with the `,` roster overlay showing best pilots first. Voice assets were expanded/imported with Brazilian male, French Canadian female, Nigerian male, and Scottish female sets while the disliked Scottish male set was removed; radio barks now suppress recent exact repeats.
+- 2026-05-19: Aircraft 9 rescue helicopter placeholder - moved the new helicopter GLB into `Models/Aircraft_9`, imported it, and added `Aircraft/Aircraft_9.tscn` with common aircraft damage/camera/HUD systems, four fixed landing-gear contact points, and a first arcade helicopter flight model. `HelicopterFlight.gd` maps shared pitch/roll/yaw inputs and engine power into cyclic disc tilt, collective rotor lift, body-hanging alignment torque, yaw authority, drag, translational lift, and simple ground effect; Aircraft 9 is intentionally far heavier than the rest of the aircraft roster and currently tuned toward stable/heavy with responsive cyclic authority and slower rotor-disc lag. The visual rotor now uses the new blade GLB as two counter-rotating three-blade rotors centered on the model's rotor shaft; top blades are flipped along their length for the opposite rotor pitch, and blades start folded aft before unfolding through an engine-start interlock. The old placeholder helicopter prop/sound hookup was removed from the scene. Key `9` now retrieves Aircraft 9 from the hangar; helicopter retrieval skips the catapult and parks at a forward deck takeoff spot halfway between the elevator and bow. Helicopters are currently forced to remain human-controlled, so AI cannot spool them up or take off on its own; the old deck-state reset shortcut moved to `F9`.
+- 2026-05-17: Radio / voice / AirOps integration pass - `RadioComms` now supports sticky per-callsign pilot voice assignment across Ukrainian, British male, Filipino, Arabic female, German female, and Scottish male sets; Citadel has converted/imported flight-specific line sets for Archer, Bulldog, Crimson, and Dingo; radio playback uses heavier long-distance telephone-style filtering, static, distortion, stale queue expiry, and one-shot order acknowledgements to reduce chatter spam. Source performances are still being regenerated/tuned, so the pipeline is stronger than the final voice direction.
+- 2026-05-17: AirOps and attack behavior follow-through - Citadel orders were tightened so interceptor/CAS announcements correspond more closely to actual flight assignments, empty flights can be scrambled into role, and duplicate confirmations are suppressed; AI gun/rocket ground-attack runs are less likely to be aborted by low-altitude avoidance before firing, while the low-altitude failsafe avoids the old hard-pull stall trap by considering speed/energy.
+- 2026-05-17: Aircraft 4 turret and Aircraft 5 gear pass - Aircraft 4's turret was nerfed and constrained so it cannot fire downward through the aircraft plane; the new Aircraft 5 gear rig was split into reusable nose/left/right gear scenes with linkage, lower-leg compression, wheel/axle steering, and multi-stage retract animation.
 - 2026-05-10: Night vision overlay lock pass - cockpit NV now projects the HUDglass polygon from interpolated camera/HUDglass render transforms instead of raw physics transforms, addressing the high-G drift expected when physics interpolation is enabled; the cockpit `nv_active` stabilizer is now applied only while the player's own cockpit camera is the active viewport camera, avoiding stale NV state when cycling away from the player cockpit. Needs a live high-G visual pass before calling the drift fix fully proven.
 - 2026-05-10: Night vision target-feed sync - `I` toggles are now accepted only by the currently active cockpit overlay, preventing duplicate overlay instances from flipping state independently; the overlay now resolves the instrument panel from its own aircraft instead of the first global `instrument_panel`, and the target display stores the requested NV state so late material creation still inherits the toggle.
 - 2026-05-10: Night combat penalty pass - `DayNightCycle` now publishes an AI darkness factor from sun/ambient/sky energy. `AIPilot` applies darkness-scaled reductions to sensor range, contact refresh cadence, effective dogfight range, gun/rocket firing gates, and stale long-time-of-flight shot tolerance; `TurretController` applies darkness-scaled detection range, search cadence, aim-solution cadence, LOS cadence, noise cadence, and effective aim-skill penalties; `GroundVehiclePlatoon` shortens hostile search/pursuit range at night.
@@ -50,6 +55,82 @@ This document contains version history, session-by-session notes, and archived l
 ---
 
 ## Project Change Log (latest session)
+
+### Session Summary (2026-05-20) - Helicopter Deck Operations and Pilot Roster
+
+**Overview:** This session moved Aircraft 9 from "model integrated" toward a testable playable helicopter. The flight model is still deliberately arcade and still needs visual attitude tuning, but takeoff from the carrier, carrier-speed handoff, and carrier landing now work in live testing without the previous bow shove.
+
+#### Aircraft 9 Helicopter
+- Added a heavier-feeling helicopter control pass: cyclic lag, yaw inertia, speed-sensitive yaw/weather-vane behavior, simple ground effect, and reduced auto-power assumptions so the player can spool up and lift off deliberately.
+- Added one-line `HELI_DEBUG` output for filtering logs while tuning speed, deck-relative speed, climb, body pitch/roll, disc tilt, yaw input/rate, collective, ground effect, and max speed.
+- Added retractable four-point visual landing gear controlled through the normal gear path.
+- The helicopter still tends to require more nose-down attitude than desired in forward flight; this is a tuning issue rather than considered finished behavior.
+
+#### Carrier-Relative Deck Motion
+- Kept the carrier as a scripted/kinematic moving platform rather than converting it to a `RigidBody3D`.
+- Added/used explicit carrier deck reference velocity so a helicopter staged on deck can inherit the carrier's velocity on takeoff.
+- Fixed the parked/frozen deck-ready state so debug and release logic do not treat a stationary-on-deck helicopter as sliding backward at carrier speed.
+- Fixed touchdown behavior by preventing helicopters from being transform-carried by the carrier while also moving under physics with carrier-relative wheel contact. Parked/staged helicopters are still carried; live landing gear contact relies on physics plus `VelocityFrame`.
+- Result from live testing: takeoff is better but still not perfectly smooth; carrier landing now works without the helicopter being pushed off the front.
+
+#### Rotor Visuals
+- Confirmed Aircraft 9 has three blade instances per rotor and hardened the fold/unfold state so the unfold request persists through engine-start interlock.
+- This addresses the symptom where each rotor could appear to have only one blade because the three folded blades were overlapped and not reliably deploying before spool-up.
+- The rotor system continues to ignore deprecated old helicopter assets and uses the authored coaxial blade setup.
+
+#### Pilot Roster and Voice Work
+- Added a carrier pilot roster model with pilot identity fields: name, gender, national origin, language/voice set, temperament, skill level, experience, mission time, air kills, ground kills, Ace status, and rest/wound hooks.
+- Pilots are assigned from the carrier roster to available aircraft/flights rather than permanently belonging to specific aircraft.
+- Added a roster overlay bound to `,`, sorted with stronger pilots toward the top.
+- Kill credit now tracks contributors so pilot stats can credit kills more fairly than pure last-hit behavior, including support for shared/assisted credit and damaged-enemy crash follow-through.
+- Added/imported newer pilot voice sets including Brazilian male, French Canadian female, Nigerian male, and Scottish female; removed the Scottish male set.
+- Added recent-bark repeat suppression so the same line is not replayed within a few seconds.
+
+#### Validation / Caveats
+- `Aircraft_9.tscn` loads headless with `GODOT_EXIT:0`; existing canopy/livery warnings remain.
+- Helicopter carrier landing was live-tested successfully after the carrier-relative velocity fix.
+- The helicopter is now playable enough for iteration, but flight attitude, forward-speed drag/trim, landing smoothness, and any future AI helicopter behavior remain open tuning areas.
+
+### Session Summary (2026-05-17) - Radio Voices, AirOps Follow-Through, and Gear/Turret Polish
+
+**Overview:** This session focused on making the carrier command loop more believable: Citadel should issue orders that map to actual flight behavior, pilots should respond without endlessly repeating themselves, and radio voice playback should feel like one coherent comms system even while the generated source clips are still uneven. Several supporting gameplay fixes also landed around ground-attack commitment, Aircraft 4 turret balance, and the new Aircraft 5 landing gear rig.
+
+#### AirOps / Flight Orders
+- Citadel order chatter was tightened so flights do not repeatedly acknowledge the same attack/intercept/CAP assignment.
+- AirOps now tracks order acknowledgement keys and clears them when a role/task is cleared, reducing stale repeated "attack target" confirmation loops.
+- The current design remains sensor-picture driven: Citadel acts on carrier radar and friendly aircraft/ground vehicle reports rather than omniscient world state.
+- Enemy aircraft reports can trigger air-to-air interceptor scrambles, while reported ground vehicles/structures can trigger CAS/ground-attack tasking.
+- This still needs pressure testing: flights should not just acknowledge orders, they should visibly switch to and prosecute the assigned task.
+
+#### AI Attack / Safety Behavior
+- Ground-attack behavior was adjusted so aircraft are less likely to pull away from turret/ground targets before they can fire rockets or guns.
+- Low-altitude failsafe behavior was softened from the old "pull full back and stall" pattern; it now considers speed/energy before demanding aggressive escape pitch.
+- Gun attacks now follow the same committed-attack idea as rocket attacks, avoiding some premature crash-avoidance cancellations during the attack window.
+- This is improved in testing, but should still be watched around cliffs, turrets, and very low attack runs.
+
+#### Radio Voice System
+- Pilot voice playback now groups clips by voice prefix and assigns a sticky voice set to each callsign, so a given pilot does not randomly change actor/accent between barks.
+- Current pilot voice prefixes are Ukrainian, British male, Filipino, Arabic female, German female, and Scottish male.
+- The Scottish and regenerated German sets were converted from numbered MP3 source folders into normalized PCM WAVs with the canonical pilot bark filenames, then imported through Godot.
+- Citadel line folders for Archer, Bulldog, Crimson, and Dingo were converted/imported so flight-specific orders can be played as full lines rather than stitched fragments.
+- Radio queue entries now expire after a short age limit, so delayed clips that no longer match the situation are dropped instead of playing late.
+- The radio bus was pushed toward a heavier long-distance telephone/radio sound: narrower bandpass, stronger filtering/resonance, more static bed, and more clipping/distortion.
+- Voice performance quality is still a content risk. The technical pipeline is in place, but some generated voices still need stronger direction and better acting choices before they fully sell the fiction.
+
+#### Aircraft 4 Turret Balance
+- Aircraft 4's turret was constrained so it cannot fire down through the aircraft's own plane.
+- Its effectiveness was reduced separately from ground turrets, so it should no longer feel like a flying ground-emplacement turret.
+
+#### Aircraft 5 Landing Gear Rig
+- The new landing gear model was split into reusable gear scenes and wired into Aircraft 5.
+- Nose gear steering now pivots below the rotation linkage so only the lower assembly/wheel turns on the ground.
+- Gear retract animation now uses staged mechanical motion: linkage rotation, lower-leg compression into the upper leg, then main assembly fold.
+- Left/right gear received mirrored/centerline/forward-folding animation passes, with the final current setup using linkage rotation plus lower-leg compression before the upper leg rotates forward.
+
+#### Validation / Caveats
+- Godot import successfully processed newly converted audio assets after re-exporting them as PCM WAV where needed.
+- `--check-only` runs continue to load scripts and then hit the known headless dummy-renderer/material crash on exit; no new radio script parse errors were observed before that crash.
+- The radio voice set is technically wired, but source performances remain subjective and should be judged in actual combat context.
 
 ### Session Summary (2026-05-03) - Mission Return Recovery Framework
 
@@ -1720,13 +1801,13 @@ AI & Pathfinding
 	  Aircraft AI landing logic still open: should they use full carrier approach patterns, or simplified  snap  behaviors?
 	  Ground vehicle pathfinding over rugged terrain may need navmesh + off-mesh links.
 Vehicle ideas
-	  Helicopters
+	  Helicopters: flyable light helicopter family with auto-governed rotor RPM, analog collective, cyclic/yaw controls, stability assist, and armed scout / attack / rescue variants.
 	  Hovercraft
 	  Artillery (stationary and self propelled)
 Pilot Ejection & Rescue
 	  Pilot Ejection: A pilot can eject before an aircraft explodes. The canopy shoots off, and the pilot in his seat is propelled upward. The seat then detaches, and the parachute opens. The pilot floats to the ground.
 
-	  Rescue: Ejected pilots wait on the ground to be rescued either by a ground vehicle or a rescue helicopter.
+	  Rescue: Ejected pilots wait on the ground to be rescued either by a ground vehicle or a rescue helicopter. Ground rescue should handle pathable terrain; mesa tops, canyon ledges, and other unreachable landing sites should become air-rescue tasks.
 
 Session Summary (2025-09-14)
 	Catapult

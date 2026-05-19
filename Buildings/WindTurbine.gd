@@ -27,6 +27,7 @@ func _process(delta: float) -> void:
 
 func _destroy() -> void:
 	is_destroyed = true
+	destroyed.emit(self)
 	EnemyOpsManager.on_turbine_destroyed()
 
 	if destroyed_scene_path != "":

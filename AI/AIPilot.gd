@@ -50,10 +50,11 @@ enum ApproachGuidanceMode {
 }
 
 enum AIPilotSkill {
+	RECRUIT,
 	ROOKIE,
 	EXPERIENCED,
 	VETERAN,
-	ACE
+	ELITE
 }
 
 var current_state: State = State.IDLE
@@ -756,6 +757,17 @@ func _ready():
 
 func apply_skill_preset() -> void:
 	match skill:
+		AIPilotSkill.RECRUIT:
+			dogfight_precision_direct_pitch_gain = 7.0
+			dogfight_precision_direct_yaw_gain   = 4.0
+			dogfight_precision_pid_scale         = 0.10
+			dogfight_min_hit_chance              = 0.42
+			dogfight_fire_precise_min_blend      = 0.55
+			dogfight_fire_burst_s                = 0.25
+			dogfight_burst_cooldown_s            = 0.55
+			dogfight_missile_use_chance          = 0.12
+			dogfight_corner_speed_mps            = 74.0
+			dogfight_retarget_interval_s         = 1.7
 		AIPilotSkill.ROOKIE:
 			dogfight_precision_direct_pitch_gain = 10.0
 			dogfight_precision_direct_yaw_gain   = 6.0
@@ -789,7 +801,7 @@ func apply_skill_preset() -> void:
 			dogfight_missile_use_chance          = 0.75
 			dogfight_corner_speed_mps            = 92.0
 			dogfight_retarget_interval_s         = 0.25
-		AIPilotSkill.ACE:
+		AIPilotSkill.ELITE:
 			dogfight_precision_direct_pitch_gain = 36.0
 			dogfight_precision_direct_yaw_gain   = 22.0
 			dogfight_precision_pid_scale         = 0.80
@@ -800,15 +812,31 @@ func apply_skill_preset() -> void:
 			dogfight_missile_use_chance          = 0.80
 			dogfight_corner_speed_mps            = 95.0
 			dogfight_retarget_interval_s         = 0.20
+	_apply_air_ace_bonus()
+
+func _apply_air_ace_bonus() -> void:
+	if aircraft == null or not is_instance_valid(aircraft):
+		return
+	var air_kills := int(aircraft.get_meta("pilot_air_kills", 0))
+	var ace_steps := clampi(air_kills / 5, 0, 3)
+	if ace_steps <= 0:
+		return
+	dogfight_min_hit_chance = clampf(dogfight_min_hit_chance + 0.03 * ace_steps, 0.0, 0.96)
+	dogfight_fire_precise_min_blend = clampf(dogfight_fire_precise_min_blend + 0.015 * ace_steps, 0.0, 0.99)
+	dogfight_burst_cooldown_s = maxf(dogfight_burst_cooldown_s - 0.025 * ace_steps, 0.08)
+	dogfight_retarget_interval_s = maxf(dogfight_retarget_interval_s - 0.05 * ace_steps, 0.15)
+	dogfight_missile_use_chance = clampf(dogfight_missile_use_chance + 0.04 * ace_steps, 0.0, 0.92)
 
 
 func _get_dogfight_max_upward_aim_deg() -> float:
 	match skill:
+		AIPilotSkill.RECRUIT:
+			return 18.0
 		AIPilotSkill.ROOKIE:
 			return 25.0
 		AIPilotSkill.EXPERIENCED, AIPilotSkill.VETERAN:
 			return 35.0
-		AIPilotSkill.ACE:
+		AIPilotSkill.ELITE:
 			return 45.0
 	return 35.0
 
@@ -871,6 +899,8 @@ func initialize(aircraft_node: RigidBody3D):
 	# Find control modules
 	control_engine = _find_module(aircraft, "ControlEngine")
 	simple_aero = _find_module(aircraft, "SimpleAero")
+	if not simple_aero:
+		simple_aero = _find_module(aircraft, "HelicopterFlight")
 	engine = _find_module(aircraft, "Engine")
 	control_gear = _find_module(aircraft, "ControlLandingGear")
 	control_weapons = _find_module(aircraft, "ControlWeapons")
@@ -1684,25 +1714,29 @@ func _is_release_solution_stable_enough(now_s: float, is_stable_now: bool, hold_
 
 func _get_effective_bomb_release_tolerance_m() -> float:
 	match skill:
+		AIPilotSkill.RECRUIT:
+			return bomb_rookie_release_tolerance_m * 1.35
 		AIPilotSkill.ROOKIE:
 			return bomb_rookie_release_tolerance_m
 		AIPilotSkill.EXPERIENCED:
 			return bomb_experienced_release_tolerance_m
 		AIPilotSkill.VETERAN:
 			return bomb_veteran_release_tolerance_m
-		AIPilotSkill.ACE:
+		AIPilotSkill.ELITE:
 			return bomb_ace_release_tolerance_m
 	return bomb_ccip_release_tolerance_m
 
 func _get_effective_bomb_release_hold_s() -> float:
 	match skill:
+		AIPilotSkill.RECRUIT:
+			return bomb_rookie_release_hold_s * 1.35
 		AIPilotSkill.ROOKIE:
 			return bomb_rookie_release_hold_s
 		AIPilotSkill.EXPERIENCED:
 			return bomb_experienced_release_hold_s
 		AIPilotSkill.VETERAN:
 			return bomb_veteran_release_hold_s
-		AIPilotSkill.ACE:
+		AIPilotSkill.ELITE:
 			return bomb_ace_release_hold_s
 	return weapon_release_stability_hold_s
 
@@ -7648,11 +7682,7 @@ func _get_carrier_velocity() -> Vector3:
 	var carrier: Node = (_approach_wp[0] as Node3D).get_parent()
 	if not is_instance_valid(carrier):
 		return Vector3.ZERO
-	if carrier is CharacterBody3D:
-		return (carrier as CharacterBody3D).velocity
-	if "linear_velocity" in carrier:
-		return carrier.get("linear_velocity")
-	return Vector3.ZERO
+	return VelocityFrame.get_node_velocity(carrier)
 
 func _get_landing_carrier_speed_compensation(landing_geom: Dictionary) -> float:
 	if not landing_carrier_motion_compensation_enabled or not bool(landing_geom.get("valid", false)):

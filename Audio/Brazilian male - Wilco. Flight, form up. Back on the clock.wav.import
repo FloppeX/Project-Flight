@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://dl43j6kruqvr7"
+path="res://.godot/imported/Brazilian male - Wilco. Flight, form up. Back on the clock.wav-18c6e1b859b5c8ddf0bf5ce26632dad9.sample"
+
+[deps]
+
+source_file="res://Audio/Brazilian male - Wilco. Flight, form up. Back on the clock.wav"
+dest_files=["res://.godot/imported/Brazilian male - Wilco. Flight, form up. Back on the clock.wav-18c6e1b859b5c8ddf0bf5ce26632dad9.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

@@ -746,7 +746,7 @@ func _configure_enemy_strike_pilot(aircraft: RigidBody3D, carrier: Node3D, prefe
 		return
 	# Temporary high-skill baseline while tuning bomb accuracy. Once the ceiling feels
 	# right, enemy strike skill can be lowered without weakening friendly pilots.
-	ai_pilot.skill = AIPilot.AIPilotSkill.ACE
+	ai_pilot.skill = AIPilot.AIPilotSkill.ELITE
 	ai_pilot.apply_skill_preset()
 	ai_pilot.carrier_position = _get_carrier_position()
 	ai_pilot.target_altitude = strike_flight_altitude_m

@@ -456,7 +456,9 @@ func _carry_deck_passengers(current_transform: Transform3D, old_transform: Trans
 			var has_brake := n.has_meta("parking_brake") and bool(n.get_meta("parking_brake"))
 			var has_transport := n.has_meta("carrier_transport_mode") and bool(n.get_meta("carrier_transport_mode"))
 			var has_deck_follow := n.has_meta("carrier_deck_follow") and bool(n.get_meta("carrier_deck_follow"))
-			var on_carrier := has_brake or has_transport or has_deck_follow
+			var helicopter_deck_ready := n.has_meta("helicopter_deck_takeoff_ready") and bool(n.get_meta("helicopter_deck_takeoff_ready"))
+			var is_helicopter := bool(n.get_meta("is_helicopter", false)) or n.name.to_lower().find("aircraft_9") != -1
+			var on_carrier := has_transport or helicopter_deck_ready or (has_deck_follow and not is_helicopter)
 			var on_catapult := n.has_meta("controls_disabled") and bool(n.get_meta("controls_disabled")) and not has_brake and not has_transport
 			if on_carrier or on_catapult:
 				(node as Node3D).global_transform = transform_delta * (node as Node3D).global_transform
@@ -708,6 +710,15 @@ func get_velocity_vector() -> Vector3:
 	forward.y = 0.0
 	forward = forward.normalized()
 	return forward * _last_planar_speed_mps
+
+func get_deck_reference_velocity_vector() -> Vector3:
+	var actual_velocity := get_velocity_vector()
+	if actual_velocity.length_squared() > 0.0001:
+		return actual_velocity
+	var forward: Vector3 = global_transform.basis.z
+	forward.y = 0.0
+	forward = forward.normalized() if forward.length_squared() > 0.0001 else Vector3.FORWARD
+	return forward * max_speed
 
 func _setup_deck_audio() -> void:
 	if deck_sound == null:

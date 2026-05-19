@@ -17,6 +17,23 @@ func _ready():
 		push_error("[AIToggle] Parent must be a RigidBody3D aircraft!")
 		return
 
+	# Find all player control modules
+	_find_player_controls()
+
+	if _is_helicopter_aircraft():
+		ai_pilot = get_node_or_null("../AIPilot") as AIPilot
+		_apply_player_aircraft_groups()
+		if ai_pilot:
+			ai_pilot.set_process(false)
+			ai_pilot.set_physics_process(false)
+		if ai_enabled_at_start:
+			enable_ai()
+		else:
+			disable_ai()
+		if FlightDirector.has_method("register_aircraft"):
+			FlightDirector.register_aircraft(aircraft)
+		return
+
 	# Find or create AI pilot
 	ai_pilot = get_node_or_null("../AIPilot") as AIPilot
 	if not ai_pilot:
@@ -26,9 +43,6 @@ func _ready():
 
 	# Initialize AI pilot
 	ai_pilot.initialize(aircraft)
-
-	# Find all player control modules
-	_find_player_controls()
 
 	# Set initial state
 	if ai_enabled_at_start:
@@ -56,13 +70,25 @@ func toggle_ai():
 
 func enable_ai():
 	"""Enable AI control, disable player controls"""
+	if _is_helicopter_aircraft():
+		_apply_player_aircraft_groups()
+		ai_active = true
+		_set_player_controls_enabled(false)
+		if bool(aircraft.get_meta("helicopter_deck_takeoff_ready", false)):
+			aircraft.set_meta("parking_brake", true)
+			aircraft.linear_velocity = Vector3.ZERO
+			aircraft.angular_velocity = Vector3.ZERO
+			aircraft.freeze = true
+		if ai_pilot:
+			ai_pilot.deinitialize()
+			ai_pilot.set_process(false)
+			ai_pilot.set_physics_process(false)
+		return
+
 	ai_active = true
 
 	# Disable player control modules
-	for control in player_controls:
-		control.set_process_input(false)
-		control.set_process(false)
-		control.set_physics_process(false)
+	_set_player_controls_enabled(false)
 
 	# Enable AI (re-initialize to override SimpleAero settings)
 	if ai_pilot:
@@ -106,14 +132,25 @@ func disable_ai():
 	ai_active = false
 
 	# Enable player control modules
-	for control in player_controls:
-		control.set_process_input(true)
-		control.set_process(true)
-		control.set_physics_process(true)
+	_set_player_controls_enabled(true)
 
 	# Disable AI and restore SimpleAero player settings
 	if ai_pilot:
 		ai_pilot.deinitialize()
+	if _is_helicopter_aircraft():
+		# Keep helicopter deck brakes armed until the flight model sees enough
+		# collective for an actual takeoff. Otherwise the first throttle nudge
+		# can wake the body and let it roll off the carrier.
+		if bool(aircraft.get_meta("helicopter_deck_takeoff_ready", false)):
+			aircraft.set_meta("parking_brake", true)
+		elif aircraft.has_meta("parking_brake"):
+			aircraft.remove_meta("parking_brake")
+		aircraft.freeze = false
+		aircraft.sleeping = false
+		if ai_pilot:
+			ai_pilot.set_process(false)
+			ai_pilot.set_physics_process(false)
+		return
 
 	pass
 
@@ -147,3 +184,37 @@ func _find_nodes_by_script(root: Node, script_name: String) -> Array[Node]:
 			found_nodes.append(child)
 		found_nodes.append_array(_find_nodes_by_script(child, script_name))
 	return found_nodes
+
+func _is_helicopter_aircraft() -> bool:
+	if not is_instance_valid(aircraft):
+		return false
+	if bool(aircraft.get_meta("is_helicopter", false)):
+		return true
+	var role := str(aircraft.get_meta("aircraft_role", "")).to_lower()
+	return role.find("helicopter") >= 0
+
+func _apply_player_aircraft_groups() -> void:
+	if not is_instance_valid(aircraft):
+		return
+	if not aircraft.is_in_group("aircraft"):
+		aircraft.add_to_group("aircraft")
+	if aircraft.is_in_group("ai_aircraft"):
+		aircraft.remove_from_group("ai_aircraft")
+
+	var my_team: int = aircraft.get_team() if aircraft.has_method("get_team") else 1
+	if my_team == 1:
+		if not aircraft.is_in_group("friendlies"):
+			aircraft.add_to_group("friendlies")
+		if aircraft.is_in_group("enemies"):
+			aircraft.remove_from_group("enemies")
+	else:
+		if not aircraft.is_in_group("enemies"):
+			aircraft.add_to_group("enemies")
+		if aircraft.is_in_group("friendlies"):
+			aircraft.remove_from_group("friendlies")
+
+func _set_player_controls_enabled(enabled: bool) -> void:
+	for control in player_controls:
+		control.set_process_input(enabled)
+		control.set_process(enabled)
+		control.set_physics_process(enabled)

@@ -1,6 +1,8 @@
 extends StaticBody3D
 class_name GunEmplacement
 
+signal destroyed(emplacement)
+
 @export var max_health: float = 150.0
 @export var team: int = 2
 @export var destroyed_scene_path: String = ""
@@ -68,6 +70,7 @@ func _destroy() -> void:
 	if is_destroyed:
 		return
 	is_destroyed = true
+	destroyed.emit(self)
 
 	if destroyed_scene_path != "":
 		var destroyed_scene: PackedScene = load(destroyed_scene_path)
