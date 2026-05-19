@@ -17,6 +17,7 @@ class_name Explosion
 
 var debris_particles: GPUParticles3D
 var sfx_explosion: AudioStreamPlayer3D
+var source_attacker: Node = null
 
 func _ready():
 	# Only create the effects we want - NO SPHERES
@@ -430,6 +431,7 @@ func deal_explosion_damage():
 		var damage_ratio: float = clamp(1.0 - (distance / blast_radius), 0.0, 1.0)
 		var damage_amount: float = lerp(min_damage, max_damage, damage_ratio)
 		if target.has_method("take_damage"):
+			_report_damage_credit(target, damage_amount)
 			target.take_damage(damage_amount)
 			targets_hit += 1
 			if debug_enabled:
@@ -449,6 +451,15 @@ func deal_explosion_damage():
 	
 	# Create visual blast wave
 	create_blast_wave()
+
+func _report_damage_credit(damage_target: Node, damage_amount: float) -> void:
+	if source_attacker == null or not is_instance_valid(source_attacker):
+		return
+	if PilotRoster == null or not is_instance_valid(PilotRoster):
+		return
+	if not PilotRoster.has_method("report_damage"):
+		return
+	PilotRoster.report_damage(source_attacker, damage_target, damage_amount)
 
 func create_blast_wave():
 	"""Create a visual blast wave ring to show the damage area"""

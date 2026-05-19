@@ -4,25 +4,7 @@ const RADIO_TEST_STREAM_PATH := "res://Audio/Citadel voice test.mp3"
 const CITADEL_AUDIO_DIR := "res://Audio"
 const CITADEL_AUDIO_PREFIX := "Citadel - "
 const CITADEL_FLIGHT_NAME_ALIASES := ["Archer", "Bulldog", "Crimson", "Dingo"]
-const PILOT_AUDIO_PREFIXES := ["Ukrainian - ", "British male - ", "Filipino - ", "Arabic female - ", "German female - ", "Scottish male - "]
-const DEFAULT_PILOT_VOICE_ASSIGNMENTS := {
-	"archer lead": "Ukrainian - ",
-	"archer two": "British male - ",
-	"archer three": "Filipino - ",
-	"archer four": "Arabic female - ",
-	"bulldog lead": "Scottish male - ",
-	"bulldog two": "Filipino - ",
-	"bulldog three": "Arabic female - ",
-	"bulldog four": "German female - ",
-	"crimson lead": "Filipino - ",
-	"crimson two": "Scottish male - ",
-	"crimson three": "German female - ",
-	"crimson four": "Ukrainian - ",
-	"dingo lead": "Arabic female - ",
-	"dingo two": "German female - ",
-	"dingo three": "Ukrainian - ",
-	"dingo four": "Scottish male - ",
-}
+const PILOT_AUDIO_PREFIXES := ["Ukrainian - ", "British male - ", "Filipino - ", "Arabic female - ", "German female - ", "Scottish female - ", "Brazilian male - ", "French Canadian female - ", "Nigerian male - "]
 const RADIO_BUS_NAME := "Radio"
 const RADIO_STATIC_MIX_RATE := 22050
 
@@ -64,6 +46,7 @@ const RADIO_STATIC_MIX_RATE := 22050
 @export var use_citadel_voice_clips: bool = true
 @export var use_pilot_voice_clips: bool = true
 @export var radio_voice_queue_max_age_s: float = 4.0
+@export var radio_bark_repeat_cooldown_s: float = 10.0
 @export var lock_pilot_voice_to_callsign: bool = true
 
 # ── Signals ────────────────────────────────────────────────────────────────────
@@ -102,6 +85,7 @@ var _radio_dropout_until_s: float = 0.0
 var _radio_voice_flutter_timer_s: float = 0.0
 var _radio_voice_volume_offset_db: float = 0.0
 var _radio_voice_pitch_offset: float = 0.0
+var _recent_radio_bark_times: Dictionary = {}
 
 # ── Lifecycle ──────────────────────────────────────────────────────────────────
 
@@ -268,7 +252,7 @@ func _queue_citadel_voice_clip(sender: String, recipient: String, body: String) 
 	var stream := _find_citadel_voice_stream(recipient, body)
 	if stream == null:
 		return
-	_enqueue_radio_voice_stream(stream)
+	_enqueue_radio_voice_stream(stream, _radio_bark_cooldown_key(sender, body))
 	_play_next_citadel_voice_clip()
 
 func _build_pilot_voice_library() -> void:
@@ -308,7 +292,7 @@ func _queue_radio_voice_clip(sender: String, recipient: String, body: String) ->
 		stream = _find_pilot_voice_stream(sender, body)
 	if stream == null:
 		return
-	_enqueue_radio_voice_stream(stream)
+	_enqueue_radio_voice_stream(stream, _radio_bark_cooldown_key(sender, body))
 	_play_next_citadel_voice_clip()
 
 func _find_citadel_voice_stream(recipient: String, body: String) -> AudioStream:
@@ -384,7 +368,12 @@ func _get_pilot_voice_prefix_for_sender(sender: String) -> String:
 	var available_prefixes := _get_available_pilot_voice_prefixes()
 	if available_prefixes.is_empty():
 		return ""
-	var assigned_prefix := str(DEFAULT_PILOT_VOICE_ASSIGNMENTS.get(sender_key, ""))
+	if PilotRoster != null and is_instance_valid(PilotRoster) and PilotRoster.has_method("get_voice_prefix_for_callsign"):
+		var roster_prefix := str(PilotRoster.get_voice_prefix_for_callsign(sender_key))
+		if available_prefixes.has(roster_prefix):
+			_pilot_sender_voice_prefixes[sender_key] = roster_prefix
+			return roster_prefix
+	var assigned_prefix := ""
 	if not available_prefixes.has(assigned_prefix):
 		assigned_prefix = available_prefixes[_stable_sender_index(sender_key, available_prefixes.size())]
 	_pilot_sender_voice_prefixes[sender_key] = assigned_prefix
@@ -599,12 +588,19 @@ func _pilot_voice_alias_key(body: String) -> String:
 
 	return ""
 
-func _enqueue_radio_voice_stream(stream: AudioStream) -> void:
+func _enqueue_radio_voice_stream(stream: AudioStream, cooldown_key: String = "") -> void:
 	if stream == null:
 		return
 	var now_s := Time.get_ticks_msec() / 1000.0
+	_prune_recent_radio_barks(now_s)
+	if cooldown_key != "":
+		if _is_radio_bark_on_cooldown(cooldown_key, now_s):
+			return
+		if _radio_voice_queue_has_bark(cooldown_key):
+			return
 	_citadel_voice_queue.append({
 		stream = stream,
+		cooldown_key = cooldown_key,
 		expire_at = now_s + maxf(radio_voice_queue_max_age_s, 0.1),
 	})
 	_prune_expired_radio_voice_queue(now_s)
@@ -621,6 +617,45 @@ func _is_radio_voice_entry_valid(entry, now_s: float) -> bool:
 		return false
 	return float(entry.get("expire_at", 0.0)) > now_s
 
+func _radio_voice_queue_has_bark(cooldown_key: String) -> bool:
+	if cooldown_key == "":
+		return false
+	for entry in _citadel_voice_queue:
+		if typeof(entry) == TYPE_DICTIONARY and str(entry.get("cooldown_key", "")) == cooldown_key:
+			return true
+	return false
+
+func _is_radio_bark_on_cooldown(cooldown_key: String, now_s: float) -> bool:
+	if radio_bark_repeat_cooldown_s <= 0.0:
+		return false
+	if not _recent_radio_bark_times.has(cooldown_key):
+		return false
+	var last_played_s := float(_recent_radio_bark_times[cooldown_key])
+	return now_s - last_played_s < radio_bark_repeat_cooldown_s
+
+func _mark_radio_bark_played(cooldown_key: String, now_s: float) -> void:
+	if cooldown_key == "":
+		return
+	_recent_radio_bark_times[cooldown_key] = now_s
+	_prune_recent_radio_barks(now_s)
+
+func _prune_recent_radio_barks(now_s: float) -> void:
+	var keep_for_s := maxf(radio_bark_repeat_cooldown_s, 0.0) + maxf(radio_voice_queue_max_age_s, 0.1)
+	if keep_for_s <= 0.0:
+		_recent_radio_bark_times.clear()
+		return
+	var stale_keys := []
+	for key in _recent_radio_bark_times.keys():
+		if now_s - float(_recent_radio_bark_times[key]) > keep_for_s:
+			stale_keys.append(key)
+	for key in stale_keys:
+		_recent_radio_bark_times.erase(key)
+
+func _radio_bark_cooldown_key(sender: String, body: String) -> String:
+	if sender == "Citadel":
+		return "citadel:" + _normalize_citadel_phrase(body)
+	return "pilot:" + _normalize_pilot_phrase(body)
+
 func _play_next_citadel_voice_clip() -> void:
 	if _radio_voice_player == null:
 		return
@@ -632,6 +667,11 @@ func _play_next_citadel_voice_clip() -> void:
 
 	var entry: Dictionary = _citadel_voice_queue.pop_front()
 	var stream: AudioStream = entry.stream as AudioStream
+	var cooldown_key := str(entry.get("cooldown_key", ""))
+	var now_s := Time.get_ticks_msec() / 1000.0
+	if _is_radio_bark_on_cooldown(cooldown_key, now_s):
+		_play_next_citadel_voice_clip()
+		return
 	var stream_length := stream.get_length()
 	if stream_length <= 0.0:
 		stream_length = 2.5
@@ -648,6 +688,7 @@ func _play_next_citadel_voice_clip() -> void:
 			return
 		_radio_voice_player.stream = stream
 		_radio_voice_player.pitch_scale = 1.0
+		_mark_radio_bark_played(cooldown_key, Time.get_ticks_msec() / 1000.0)
 		_radio_voice_player.play()
 	)
 

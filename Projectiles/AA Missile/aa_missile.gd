@@ -414,8 +414,11 @@ func _trigger_explosion(hit_body: Node = null):
 		explosion.min_damage = explosion_damage_splash
 		explosion.blast_radius = explosion_radius
 		explosion.use_line_of_sight = false
+		if "source_attacker" in explosion:
+			explosion.source_attacker = shooter
 		
 	if hit_body and hit_body.has_method("take_damage"):
+		_report_damage_credit(hit_body, damage_direct_hit)
 		hit_body.take_damage(damage_direct_hit)
 	
 	# Mark as impacted and cleanup

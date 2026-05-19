@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://bjn8aoh3c6vb7"
+path="res://.godot/imported/Scottish female - Copy. Back on patrol.wav-5a2f6cfc8c7ab830809d90443f1fd18b.sample"
+
+[deps]
+
+source_file="res://Audio/Scottish female - Copy. Back on patrol.wav"
+dest_files=["res://.godot/imported/Scottish female - Copy. Back on patrol.wav-5a2f6cfc8c7ab830809d90443f1fd18b.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

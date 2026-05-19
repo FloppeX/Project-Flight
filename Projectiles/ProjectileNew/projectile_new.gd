@@ -469,6 +469,8 @@ func _on_body_entered(body):
 		# Create scorch mark if we hit the ground
 		if hit_ground:
 			explosion.create_scorch_mark()
+		if "source_attacker" in explosion:
+			explosion.source_attacker = shooter
 	
 	# Fallback to old impact effect if no explosion
 	elif impact_effect:
@@ -484,8 +486,18 @@ func _on_body_entered(body):
 	
 	# Apply damage if target has health
 	if damage_target and damage_target.has_method("take_damage"):
+		_report_damage_credit(damage_target, damage)
 		damage_target.take_damage(damage)
 	queue_free()
+
+func _report_damage_credit(damage_target: Node, damage_amount: float) -> void:
+	if shooter == null or not is_instance_valid(shooter):
+		return
+	if PilotRoster == null or not is_instance_valid(PilotRoster):
+		return
+	if not PilotRoster.has_method("report_damage"):
+		return
+	PilotRoster.report_damage(shooter, damage_target, damage_amount)
 
 func _get_cached_terrain_node() -> Node:
 	return TerrainReference.get_terrain_node()

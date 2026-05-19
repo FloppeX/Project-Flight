@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://1k4pyikd03ha"
+path="res://.godot/imported/Nigerian male - In on target. Engaging.wav-31cc649cd05b4af27a5556b3120afce7.sample"
+
+[deps]
+
+source_file="res://Audio/Nigerian male - In on target. Engaging.wav"
+dest_files=["res://.godot/imported/Nigerian male - In on target. Engaging.wav-31cc649cd05b4af27a5556b3120afce7.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

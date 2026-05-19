@@ -38,6 +38,7 @@ const FLIGHT_NAMES := ["Archer", "Bulldog", "Crimson", "Dingo"]
 
 ## Keep at least one dedicated flight patrolling over the carrier.
 @export var maintain_carrier_cap: bool = true
+@export var carrier_cap_overhead_radius_m: float = 4500.0
 
 var flights: Array[Flight] = []
 
@@ -109,6 +110,7 @@ func order_cap(fname: String, altitude_m: float = 800.0) -> void:
 	_clear_role(f)
 	_refresh_carrier()
 	f.set_cap(_carrier, altitude_m)
+	_cap_flight = f
 	if _mark_order_acknowledgement_needed(f, "manual_cap"):
 		RadioComms.say_cap_order(fname, altitude_m)
 	_ensure_flight_can_execute(f)
@@ -158,6 +160,7 @@ func reassign(aircraft: Node3D, fname: String) -> void:
 	var target := get_flight(fname)
 	if target:
 		target.register(aircraft)
+		_assign_pilot_identity(aircraft, target)
 
 func report_contact(reporter: Node3D, target: Node3D) -> void:
 	if not reporter or not is_instance_valid(reporter):
@@ -209,6 +212,13 @@ func get_flight_names() -> Array[String]:
 	for flight_name in FLIGHT_NAMES:
 		result.append(flight_name)
 	return result
+
+func get_carrier_pilot_roster() -> Array[Dictionary]:
+	if PilotRoster == null or not is_instance_valid(PilotRoster):
+		return []
+	if not PilotRoster.has_method("get_carrier_roster"):
+		return []
+	return PilotRoster.get_carrier_roster()
 
 func get_flight_status(fname: String) -> Dictionary:
 	var f := get_flight(fname)
@@ -561,17 +571,16 @@ func _ensure_carrier_cap() -> void:
 			and _cap_flight.mission == Flight.Mission.CAP:
 		return
 
-	if _flight_can_hold_cap(_cap_flight):
+	if _flight_can_hold_carrier_cap(_cap_flight):
 		return
-	_cap_flight = null
 
-	var best := _pick_cap_candidate()
-	if best:
-		_cap_flight = best
-		if best.mission != Flight.Mission.CAP:
-			best.set_cap(_carrier, default_cap_altitude_m)
+	var overhead := _pick_cap_candidate(true)
+	if overhead:
+		_cap_flight = overhead
+		if overhead.mission != Flight.Mission.CAP:
+			overhead.set_cap(_carrier, default_cap_altitude_m)
 		if debug_print:
-			print("[AirOpsManager] %s flight assigned carrier CAP" % best.flight_name)
+			print("[AirOpsManager] %s flight assigned overhead carrier CAP" % overhead.flight_name)
 		return
 
 	if _scrambling_flight != null:
@@ -582,6 +591,15 @@ func _ensure_carrier_cap() -> void:
 		if _scramble_flight(empty, "cap"):
 			_cap_flight = empty
 			empty.set_cap(_carrier, default_cap_altitude_m)
+			return
+
+	var best := _pick_cap_candidate()
+	if best:
+		_cap_flight = best
+		if best.mission != Flight.Mission.CAP:
+			best.set_cap(_carrier, default_cap_altitude_m)
+		if debug_print:
+			print("[AirOpsManager] %s flight assigned carrier CAP" % best.flight_name)
 
 func _flight_can_hold_cap(f: Flight) -> bool:
 	return f != null \
@@ -591,9 +609,27 @@ func _flight_can_hold_cap(f: Flight) -> bool:
 		and f != _intercept_flight \
 		and f != _cas_flight
 
-func _pick_cap_candidate() -> Flight:
+func _flight_can_hold_carrier_cap(f: Flight) -> bool:
+	return _flight_can_hold_cap(f) and _flight_is_over_carrier(f)
+
+func _flight_is_over_carrier(f: Flight) -> bool:
+	if not _flight_is_active(f):
+		return false
 	_refresh_carrier()
-	var origin := _carrier.global_position if (_carrier and is_instance_valid(_carrier)) else Vector3.ZERO
+	if not _carrier or not is_instance_valid(_carrier):
+		return false
+	return _flight_flat_distance_to_carrier(f) <= carrier_cap_overhead_radius_m
+
+func _flight_flat_distance_to_carrier(f: Flight) -> float:
+	_refresh_carrier()
+	if f == null or not is_instance_valid(f) or not _carrier or not is_instance_valid(_carrier):
+		return INF
+	var center := _flight_center(f)
+	var carrier_pos := _carrier.global_position
+	return Vector2(center.x - carrier_pos.x, center.z - carrier_pos.z).length()
+
+func _pick_cap_candidate(require_overhead: bool = false) -> Flight:
+	_refresh_carrier()
 	var best: Flight = null
 	var best_score := INF
 	for f in flights:
@@ -605,7 +641,9 @@ func _pick_cap_candidate() -> Flight:
 			continue
 		if f == _intercept_flight or f == _cas_flight:
 			continue
-		var score := _flight_center(f).distance_to(origin)
+		var score := _flight_flat_distance_to_carrier(f)
+		if require_overhead and score > carrier_cap_overhead_radius_m:
+			continue
 		if f.mission != Flight.Mission.CAP:
 			score += 2000.0
 		if f.is_engaged():
@@ -636,6 +674,33 @@ func _loadout_profile_for_scramble_reason(reason: String) -> String:
 	if reason == "cas":
 		return "strike"
 	return "cap"
+
+func _assign_pilot_identity(aircraft: Node3D, flight: Flight) -> void:
+	if not is_instance_valid(aircraft) or flight == null or not is_instance_valid(flight):
+		return
+	if PilotRoster == null or not is_instance_valid(PilotRoster):
+		return
+	if not PilotRoster.has_method("assign_aircraft_to_callsign"):
+		return
+	var members := flight.get_members()
+	var member_index := members.find(aircraft)
+	if member_index < 0:
+		return
+	var callsign := "%s %s" % [flight.flight_name, _callsign_suffix_for_member_index(member_index)]
+	PilotRoster.assign_aircraft_to_callsign(aircraft, callsign)
+
+func _callsign_suffix_for_member_index(index: int) -> String:
+	match index:
+		0:
+			return "lead"
+		1:
+			return "two"
+		2:
+			return "three"
+		3:
+			return "four"
+		_:
+			return str(index + 1)
 
 func _clear_role(f: Flight) -> void:
 	## When a flight is manually ordered, release any automatic role it held.

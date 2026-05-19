@@ -1,0 +1,43 @@
+[gd_scene load_steps=6 format=3]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_strut"]
+albedo_color = Color(0.62, 0.62, 0.58, 1)
+roughness = 0.82
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_tire"]
+albedo_color = Color(0.025, 0.024, 0.022, 1)
+roughness = 0.9
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_hub"]
+albedo_color = Color(0.42, 0.42, 0.39, 1)
+roughness = 0.72
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_strut"]
+material = SubResource("StandardMaterial3D_strut")
+top_radius = 0.055
+bottom_radius = 0.065
+height = 0.9
+radial_segments = 12
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_wheel"]
+material = SubResource("StandardMaterial3D_tire")
+top_radius = 0.28
+bottom_radius = 0.28
+height = 0.22
+radial_segments = 18
+
+[node name="HelicopterWheelGear" type="Node3D"]
+
+[node name="Strut" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.42, 0)
+mesh = SubResource("CylinderMesh_strut")
+
+[node name="Wheel" type="MeshInstance3D" parent="."]
+transform = Transform3D(-4.37114e-08, -1, 0, 1, -4.37114e-08, 0, 0, 0, 1, 0, -0.08, 0)
+mesh = SubResource("CylinderMesh_wheel")
+
+[node name="Hub" type="MeshInstance3D" parent="Wheel"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0)
+material_override = SubResource("StandardMaterial3D_hub")
+mesh = SubResource("CylinderMesh_wheel")
+scale = Vector3(0.45, 1.08, 0.45)

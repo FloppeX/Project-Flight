@@ -119,7 +119,6 @@ connector_stowed_rotation_degrees = Vector3(0, 0, 0)
 transform = Transform3D(-1.2, 0, -1.04907365e-07, 0, 1.2, 0, 1.04907365e-07, 0, -1.2, -2.433, -0.5, 0.298)
 steering_enabled = false
 gear_index = 1
-stowed_rotation_degrees = Vector3(90, 0, 0)
 linkage_stowed_rotation_degrees = Vector3(0, -90, 0)
 connector_stowed_rotation_degrees = Vector3(0, 0, 0)
 

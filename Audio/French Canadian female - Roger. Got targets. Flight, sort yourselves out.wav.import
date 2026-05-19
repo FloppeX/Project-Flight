@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://cwsho7layk0sm"
+path="res://.godot/imported/French Canadian female - Roger. Got targets. Flight, sort yourselves out.wav-ba6d67c2245caebd68ca8c9a4a5233bd.sample"
+
+[deps]
+
+source_file="res://Audio/French Canadian female - Roger. Got targets. Flight, sort yourselves out.wav"
+dest_files=["res://.godot/imported/French Canadian female - Roger. Got targets. Flight, sort yourselves out.wav-ba6d67c2245caebd68ca8c9a4a5233bd.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

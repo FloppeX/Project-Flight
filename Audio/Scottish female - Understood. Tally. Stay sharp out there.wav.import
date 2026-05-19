@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://dn0bkkgcmw2fj"
+path="res://.godot/imported/Scottish female - Understood. Tally. Stay sharp out there.wav-491a787a56449667925da84f7e053ad6.sample"
+
+[deps]
+
+source_file="res://Audio/Scottish female - Understood. Tally. Stay sharp out there.wav"
+dest_files=["res://.godot/imported/Scottish female - Understood. Tally. Stay sharp out there.wav-491a787a56449667925da84f7e053ad6.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

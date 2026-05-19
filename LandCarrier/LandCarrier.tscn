@@ -18,6 +18,7 @@
 [ext_resource type="PackedScene" uid="uid://bn2n77puha7py" path="res://LandCarrier/CarrierDefenseTurret.tscn" id="15_center_turret"]
 [ext_resource type="PackedScene" uid="uid://b27lalggxf8ui" path="res://Aircraft/Aircraft_5.tscn" id="16_default_aircraft"]
 [ext_resource type="PackedScene" uid="uid://d2j0ldfmxq1m6" path="res://Aircraft/Aircraft_7.tscn" id="17_aircraft_7"]
+[ext_resource type="PackedScene" path="res://Aircraft/Aircraft_9.tscn" id="18_aircraft_9"]
 [ext_resource type="Script" uid="uid://cld3amq1vrrs3" path="res://LandCarrier/CarrierManager.gd" id="18_carrier_manager"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_main_carrier"]
@@ -87,6 +88,7 @@ deck_marker = NodePath("../DeckCenterStart")
 tractor_bots = [NodePath("../TractorBot1"), NodePath("../TractorBot2"), NodePath("../TractorBot3")]
 aircraft_template_scene = ExtResource("16_default_aircraft")
 aircraft_7_scene = ExtResource("17_aircraft_7")
+aircraft_9_scene = ExtResource("18_aircraft_9")
 
 [node name="plane_start_marker" type="Node3D" parent="FlightDeckManager" unique_id=124603853]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 14.273)

@@ -180,6 +180,7 @@ func _on_body_entered(body: Node) -> void:
 	play_impact_sound(body)
 
 	if damage_target and damage_target.has_method("take_damage"):
+		_report_damage_credit(damage_target, damage)
 		damage_target.take_damage(damage)
 	queue_free()
 
@@ -204,6 +205,7 @@ func _spawn_custom_explosion(hit_ground: bool, hit_aircraft: bool) -> void:
 	explosion_node.knockback_impulse_at_center = explosion_knockback_impulse_at_center
 	explosion_node.knockback_impulse_at_edge = explosion_knockback_impulse_at_edge
 	explosion_node.use_line_of_sight = false
+	explosion_node.source_attacker = shooter
 	if hit_ground:
 		explosion_node.create_scorch_mark()
 

@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://dor1lxyplgtao"
+path="res://.godot/imported/Brazilian male - Wilco. Climbing to altitude. Watch your spacing.wav-aca78de06ab3a5937d75476614c1bf87.sample"
+
+[deps]
+
+source_file="res://Audio/Brazilian male - Wilco. Climbing to altitude. Watch your spacing.wav"
+dest_files=["res://.godot/imported/Brazilian male - Wilco. Climbing to altitude. Watch your spacing.wav-aca78de06ab3a5937d75476614c1bf87.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

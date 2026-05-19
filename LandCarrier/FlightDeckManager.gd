@@ -22,6 +22,7 @@ signal deck_state_changed(new_state)
 @export var aircraft_2_scene: PackedScene         # Aircraft 2 template
 @export var aircraft_7_scene: PackedScene         # Aircraft 7 template
 @export var aircraft_8_scene: PackedScene         # Aircraft 8 template
+@export var aircraft_9_scene: PackedScene         # Rescue helicopter placeholder template
 @export var carrier_manager_path: NodePath = NodePath("../CarrierManager")
 @export var auto_recovery_enabled: bool = true
 @export var auto_recovery_speed_threshold_mps: float = 1.5
@@ -495,8 +496,17 @@ func _input(event):
 			if scene:
 				_queue_aircraft_scene_for_retrieval("Aircraft_8", scene)
 
-	# Debug key to force reset state (key "9")
+	# Spawn Aircraft 9 rescue helicopter from hangar (key "9")
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_9:
+		if current_state == DeckState.IDLE:
+			var scene := aircraft_9_scene
+			if not scene:
+				scene = load("res://Aircraft/Aircraft_9.tscn")
+			if scene:
+				_queue_aircraft_scene_for_retrieval("Aircraft_9", scene)
+
+	# Debug key to force reset state (F9)
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_F9:
 		current_state = DeckState.IDLE
 		_pending_store_aircraft = null
 		_landing_clearance_aircraft = null
@@ -2511,6 +2521,9 @@ func _complete_retrieval_sequence():
 		deck_aircraft = null
 		current_state = DeckState.IDLE
 		return
+	if _is_helicopter_aircraft(aircraft):
+		await _complete_helicopter_retrieval_sequence(aircraft)
+		return
 
 	# Move aircraft to catapult latch marker
 	var target_position = Vector3.ZERO
@@ -2573,6 +2586,100 @@ func _complete_retrieval_sequence():
 	
 	request_launch_sequence(aircraft)
 	_send_primary_tractorbots_to_hangar.call_deferred()
+
+
+func _complete_helicopter_retrieval_sequence(aircraft: RigidBody3D) -> void:
+	"""Move helicopters to a deck takeoff spot and skip the catapult launch."""
+	var target_position := _get_helicopter_takeoff_position()
+
+	var active_bots: Array[Node] = []
+	for bot in tractor_bots:
+		if bot and bool(bot.get("is_active")):
+			active_bots.append(bot)
+	if active_bots.is_empty():
+		await _prepare_tractorbots_for_recovery_job()
+		active_bots = _activate_tractor_bots(aircraft)
+		if not active_bots.is_empty():
+			await _wait_for_tractor_bots_positioned(active_bots)
+
+	var deck_height := _get_deck_height_y()
+	var gear_colliders := _find_gear_colliders(aircraft)
+	var target_gear_height := deck_height + _aircraft_lift_height
+	if not gear_colliders.is_empty():
+		var lowest_gear_local_y := INF
+		for gear in gear_colliders:
+			var local_y := aircraft.to_local(gear.global_position).y
+			if local_y < lowest_gear_local_y:
+				lowest_gear_local_y = local_y
+		var lift_aircraft_y := target_gear_height - lowest_gear_local_y
+		await _move_aircraft_horizontally(aircraft, Vector3(target_position.x, lift_aircraft_y, target_position.z))
+	else:
+		await _move_aircraft_smoothly(aircraft, target_position)
+
+	await _restore_aircraft_physics(aircraft, true)
+	var landing_gear_nodes := _get_launch_wheel_nodes(aircraft)
+	_settle_launch_aircraft_on_wheels(aircraft, landing_gear_nodes, deck_height)
+
+	_configure_retrieved_aircraft_as_player(aircraft)
+	if not aircraft.is_in_group("friendlies"):
+		aircraft.add_to_group("friendlies")
+	if aircraft.is_in_group("ai_aircraft"):
+		aircraft.remove_from_group("ai_aircraft")
+	var ai_toggle = aircraft.find_child("AIToggle", true, false)
+	if ai_toggle and ai_toggle.has_method("enable_ai"):
+		ai_toggle.enable_ai()
+	if aircraft.has_meta("controls_disabled"):
+		aircraft.remove_meta("controls_disabled")
+	if aircraft.has_meta("physics_ready_for_launch"):
+		aircraft.remove_meta("physics_ready_for_launch")
+	aircraft.set_meta("parking_brake", true)
+	aircraft.set_meta("helicopter_deck_takeoff_ready", true)
+	var carrier_node := get_parent() as Node
+	if carrier_node == null or not carrier_node.has_method("get_deck_reference_velocity_vector"):
+		carrier_node = get_tree().get_first_node_in_group("carrier")
+	if carrier_node != null:
+		aircraft.set_meta("helicopter_deck_reference_node", carrier_node)
+		VelocityFrame.set_reference_node(aircraft, carrier_node)
+	aircraft.freeze = true
+	aircraft.linear_velocity = Vector3.ZERO
+	aircraft.angular_velocity = Vector3.ZERO
+
+	current_state = DeckState.AIRCRAFT_ON_DECK
+	deck_aircraft = aircraft
+	_send_primary_tractorbots_to_hangar.call_deferred()
+
+
+func _get_helicopter_takeoff_position() -> Vector3:
+	var carrier := get_parent() as Node3D
+	if carrier == null:
+		return (elevator_pickup_marker.global_position + Vector3(0, 0, 36.0)) if elevator_pickup_marker else Vector3.ZERO
+
+	var elevator_local := Vector3.ZERO
+	if elevator_pickup_marker and elevator_pickup_marker is Node3D:
+		elevator_local = carrier.to_local((elevator_pickup_marker as Node3D).global_position)
+
+	var front_local_z := 72.0
+	var deck_end := carrier.get_node_or_null("DeckCenterEnd") as Node3D
+	if deck_end != null:
+		front_local_z = carrier.to_local(deck_end.global_position).z
+
+	var target_local := elevator_local
+	target_local.x = 0.0
+	target_local.y = _get_deck_local_y()
+	target_local.z = lerpf(elevator_local.z, front_local_z, 0.5)
+	return carrier.to_global(target_local)
+
+
+func _is_helicopter_aircraft(aircraft: RigidBody3D) -> bool:
+	if not is_instance_valid(aircraft):
+		return false
+	if aircraft.get_meta("is_helicopter", false):
+		return true
+	if str(aircraft.get_meta("aircraft_role", "")).to_lower().find("helicopter") != -1:
+		return true
+	if aircraft.scene_file_path.to_lower().find("aircraft_9") != -1:
+		return true
+	return aircraft.name.to_lower().find("aircraft_9") != -1
 
 func _move_aircraft_horizontally(aircraft: RigidBody3D, target_position: Vector3):
 	"""Move aircraft horizontally to target position with tractorbots following"""

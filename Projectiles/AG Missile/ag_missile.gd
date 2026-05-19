@@ -312,7 +312,9 @@ func _trigger_explosion(hit_body: Node = null):
 		explosion.min_damage = damage * 0.5
 		explosion.blast_radius = explosion_radius
 		explosion.use_line_of_sight = false
-		
+		if "source_attacker" in explosion:
+			explosion.source_attacker = shooter
+
 		# Always create scorch mark for missile explosions since they detonate near ground
 		explosion.create_scorch_mark()
 	

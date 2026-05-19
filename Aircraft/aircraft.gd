@@ -45,6 +45,11 @@ signal destroyed
 @export var belly_align_tolerance_deg: float = 25.0
 @export var hard_crash_vertical_speed: float = 10.0
 @export var steep_slope_min_up_dot: float = 0.7
+@export_group("Safe Gear Landing")
+@export var safe_gear_terrain_land_max_vertical_speed: float = 8.0
+@export var safe_gear_terrain_land_max_total_speed: float = 35.0
+@export var safe_gear_terrain_hard_vertical_speed: float = 14.0
+@export var safe_gear_terrain_damage_per_mps: float = 8.0
 
 var _last_damage_ms: int = 0
 var _current_health: float
@@ -349,6 +354,8 @@ func _on_Aircraft_body_shape_entered(body_rid, body, body_shape_index, local_sha
 		return
 	# Terrain-specific handling
 	if _is_ground_or_terrain(body):
+		if collider_shape in safe_colliders and _handle_safe_gear_terrain_contact():
+			return
 		_evaluate_terrain_impact()
 		return
 	
@@ -372,6 +379,21 @@ func unregister_safe_collider(collider: CollisionShape3D):
 func land(landing_velocity: float, impact_velocity: float):
 	if landing_velocity > max_landing_force:
 		crash(landing_velocity)
+
+func _handle_safe_gear_terrain_contact() -> bool:
+	var vertical_speed_down: float = -linear_velocity.dot(Vector3.UP)
+	var total_speed: float = linear_velocity.length()
+	if vertical_speed_down > safe_gear_terrain_hard_vertical_speed:
+		explode()
+		return true
+	if vertical_speed_down <= safe_gear_terrain_land_max_vertical_speed and total_speed <= safe_gear_terrain_land_max_total_speed:
+		return true
+	var excess_vertical: float = maxf(vertical_speed_down - safe_gear_terrain_land_max_vertical_speed, 0.0)
+	var excess_total: float = maxf(total_speed - safe_gear_terrain_land_max_total_speed, 0.0)
+	var damage_amount: float = (excess_vertical + excess_total * 0.35) * safe_gear_terrain_damage_per_mps
+	if damage_amount > 0.0:
+		take_damage(damage_amount)
+	return true
 
 func crash(impact_velocity: float):
 	emit_signal("crashed", impact_velocity)

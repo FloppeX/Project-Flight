@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://vxj4e61ecndi"
+path="res://.godot/imported/Nigerian male - Copy. Turning for home.wav-94cae2f82049377bf7f2127f3c492fe9.sample"
+
+[deps]
+
+source_file="res://Audio/Nigerian male - Copy. Turning for home.wav"
+dest_files=["res://.godot/imported/Nigerian male - Copy. Turning for home.wav-94cae2f82049377bf7f2127f3c492fe9.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

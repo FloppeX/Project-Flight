@@ -12,6 +12,7 @@ class_name AircraftModule_ControlLandingGear
 @export var nose_gear_collider_path: NodePath
 @export var left_main_gear_collider_path: NodePath
 @export var right_main_gear_collider_path: NodePath
+@export var extra_gear_collider_paths: Array[NodePath] = []
 
 # Optional additional visual roots (assign any Node3D that should hide/show with gear)
 @export var gear_visual_root_paths: Array[NodePath] = []
@@ -27,6 +28,7 @@ var _rescan_timer_s: float = 0.0
 var _nose_cs: CollisionShape3D
 var _left_cs: CollisionShape3D
 var _right_cs: CollisionShape3D
+var _extra_cs: Array[CollisionShape3D] = []
 var _visual_roots: Array = []   # resolved Node3D roots for visuals
 
 func _ready() -> void:
@@ -41,6 +43,11 @@ func setup(aircraft_node: Node) -> void:
 	_nose_cs = aircraft.get_node_or_null(nose_gear_collider_path) as CollisionShape3D
 	_left_cs = aircraft.get_node_or_null(left_main_gear_collider_path) as CollisionShape3D
 	_right_cs = aircraft.get_node_or_null(right_main_gear_collider_path) as CollisionShape3D
+	_extra_cs.clear()
+	for p in extra_gear_collider_paths:
+		var cs := aircraft.get_node_or_null(p) as CollisionShape3D
+		if cs:
+			_extra_cs.append(cs)
 	# Fallback: resolve by common node names if not assigned
 	if _nose_cs == null:
 		_nose_cs = _find_node_by_name(aircraft, "CenterGearCollider") as CollisionShape3D
@@ -49,7 +56,7 @@ func setup(aircraft_node: Node) -> void:
 	if _right_cs == null:
 		_right_cs = _find_node_by_name(aircraft, "RightGearCollider") as CollisionShape3D
 	if debug_enabled:
-		print("[GEAR] collider refs: nose=", _nose_cs, " left=", _left_cs, " right=", _right_cs)
+		print("[GEAR] collider refs: nose=", _nose_cs, " left=", _left_cs, " right=", _right_cs, " extra=", _extra_cs.size())
 	# Resolve optional visual roots
 	_visual_roots.clear()
 	for p in gear_visual_root_paths:
@@ -157,7 +164,7 @@ func _physics_process(delta: float) -> void:
 			tailhook_down_state = true
 
 	# Direct commands (work alongside toggle)
-	if Input.is_action_just_pressed("gear_deploy"):
+	if InputMap.has_action("gear_deploy") and Input.is_action_just_pressed("gear_deploy"):
 		if debug_enabled:
 			print("[GEAR] deploy; gears=", landing_gear_modules.size())
 		send_to_landing_gears("deploy")
@@ -167,7 +174,7 @@ func _physics_process(delta: float) -> void:
 		gear_down_state = true
 		tailhook_down_state = true
 
-	if Input.is_action_just_pressed("gear_stow"):
+	if InputMap.has_action("gear_stow") and Input.is_action_just_pressed("gear_stow"):
 		if debug_enabled:
 			print("[GEAR] stow; gears=", landing_gear_modules.size())
 		if LockGearDeployed:
@@ -252,6 +259,11 @@ func _set_collider_disabled(disabled: bool) -> void:
 		_right_cs.disabled = disabled
 		if debug_enabled:
 			print("[GEAR] right collider ", ("DISABLED" if disabled else "ENABLED"), ": ", _right_cs)
+	for cs in _extra_cs:
+		if cs and is_instance_valid(cs):
+			cs.disabled = disabled
+			if debug_enabled:
+				print("[GEAR] extra collider ", ("DISABLED" if disabled else "ENABLED"), ": ", cs)
 	if debug_enabled and not _visual_roots.is_empty():
 		print("[GEAR] visual roots managed by LandingGear module: ", _visual_roots.size())
 
