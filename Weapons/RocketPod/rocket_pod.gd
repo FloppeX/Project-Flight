@@ -2,7 +2,7 @@ extends Weapon
 class_name RocketPod
 
 @export var rocket_scene: PackedScene
-@export var muzzle_velocity: float = 0.0
+@export var muzzle_velocity: float = 220.0
 @export var fire_cooldown_s: float = 0.35
 @export var pod_empty_mass_kg: float = 80.0
 @export var rocket_mass_kg: float = 5.0
