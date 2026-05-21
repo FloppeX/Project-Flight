@@ -1,0 +1,13 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://Aircraft/Visuals/LandingGear/HelicopterRearGearRig.gd" id="1_rear_gear"]
+[ext_resource type="PackedScene" path="res://Models/Aircraft_9/Aircraft gear helicopter.glb" id="2_model"]
+
+[node name="HelicopterRearGearRig" type="Node3D"]
+script = ExtResource("1_rear_gear")
+gear_model_path = NodePath("Aircraft gear helicopter")
+steering_enabled = false
+stowed_rotation_degrees = Vector3(0, 0, 0)
+connector_stowed_rotation_degrees = Vector3(0, 0, 0)
+
+[node name="Aircraft gear helicopter" parent="." instance=ExtResource("2_model")]

@@ -9,6 +9,7 @@ extends Node
 ## Insignia decals use markers in aircraft scenes:
 ## - "InsigniaWing" (mirrored to left/right wings)
 ## - "InsigniaTail" (mirrored to left/right tail sides)
+## - "InsigniaNose" (projected down and back from the nose)
 ## Adjust marker position in the editor per aircraft.
 
 @export var upper_color := Color(0.28, 0.33, 0.38)   # Dark blue-grey
@@ -22,6 +23,9 @@ extends Node
 ## Tail insignia size (smaller than wing insignia).
 @export var tail_insignia_width := 0.65
 @export var tail_insignia_depth := 0.35
+## Nose insignia size (front fuselage decal).
+@export var nose_insignia_width := 0.55
+@export var nose_insignia_depth := 0.55
 ## Carrier hull insignia scale (much larger than wing insignia).
 @export var carrier_insignia_width := 6.0
 @export var carrier_insignia_depth := 4.0
@@ -411,45 +415,44 @@ func _apply_insignia(aircraft: Node) -> void:
 	var aspect := tex_h / maxf(tex_w, 1.0)
 	var decal_size := Vector3(insignia_width, insignia_depth, insignia_width * aspect)
 
-	# Single marker "InsigniaWing" — placed on one wing, mirrored to the other via X flip
-	var marker: Marker3D = aircraft.get_node_or_null("InsigniaWing") as Marker3D
-	if marker == null:
-		return
-
 	var aircraft_3d: Node3D = aircraft as Node3D
 	if aircraft_3d == null:
 		return
-	var wing_hosts := _resolve_wing_hosts(aircraft)
-	var right_wing_host: Node3D = wing_hosts["right"] as Node3D
-	var left_wing_host: Node3D = wing_hosts["left"] as Node3D
-	var x_sorted_hosts := _resolve_wing_hosts_by_aircraft_x(aircraft_3d, left_wing_host, right_wing_host)
-	var positive_x_host: Node3D = x_sorted_hosts["positive"] as Node3D
-	var negative_x_host: Node3D = x_sorted_hosts["negative"] as Node3D
 
-	for side in [1.0, -1.0]:
-		var t_local_to_aircraft := marker.transform
-		t_local_to_aircraft.origin.x *= side
-		t_local_to_aircraft.basis = t_local_to_aircraft.basis * Basis(Vector3.UP, PI)
+	# Single marker "InsigniaWing" — placed on one wing, mirrored to the other via X flip
+	var marker: Marker3D = aircraft.get_node_or_null("InsigniaWing") as Marker3D
+	if marker != null:
+		var wing_hosts := _resolve_wing_hosts(aircraft)
+		var right_wing_host: Node3D = wing_hosts["right"] as Node3D
+		var left_wing_host: Node3D = wing_hosts["left"] as Node3D
+		var x_sorted_hosts := _resolve_wing_hosts_by_aircraft_x(aircraft_3d, left_wing_host, right_wing_host)
+		var positive_x_host: Node3D = x_sorted_hosts["positive"] as Node3D
+		var negative_x_host: Node3D = x_sorted_hosts["negative"] as Node3D
 
-		# Place +X marker copy on whichever wing is actually at +X in aircraft space.
-		# This avoids left/right swaps on aircraft whose node names don't match X sign.
-		var side_host: Node3D = positive_x_host if side > 0.0 else negative_x_host
-		if side_host == null:
-			side_host = right_wing_host if side > 0.0 else left_wing_host
-		if side_host == null:
-			side_host = aircraft_3d
+		for side in [1.0, -1.0]:
+			var t_local_to_aircraft := marker.transform
+			t_local_to_aircraft.origin.x *= side
+			t_local_to_aircraft.basis = t_local_to_aircraft.basis * Basis(Vector3.UP, PI)
 
-		var decal := Decal.new()
-		decal.name = "InsigniaWingDecal_R" if side > 0.0 else "InsigniaWingDecal_L"
-		decal.add_to_group("livery_insignia")
-		decal.texture_albedo = tex
-		decal.size = decal_size
-		side_host.add_child(decal)
+			# Place +X marker copy on whichever wing is actually at +X in aircraft space.
+			# This avoids left/right swaps on aircraft whose node names don't match X sign.
+			var side_host: Node3D = positive_x_host if side > 0.0 else negative_x_host
+			if side_host == null:
+				side_host = right_wing_host if side > 0.0 else left_wing_host
+			if side_host == null:
+				side_host = aircraft_3d
 
-		# Convert marker-based transform (authored in aircraft space) into host-local
-		# so decals follow folding wing parts when applicable.
-		var wing_local_t := _marker_transform_to_host_local(aircraft_3d, side_host, t_local_to_aircraft)
-		decal.transform = wing_local_t
+			var decal := Decal.new()
+			decal.name = "InsigniaWingDecal_R" if side > 0.0 else "InsigniaWingDecal_L"
+			decal.add_to_group("livery_insignia")
+			decal.texture_albedo = tex
+			decal.size = decal_size
+			side_host.add_child(decal)
+
+			# Convert marker-based transform (authored in aircraft space) into host-local
+			# so decals follow folding wing parts when applicable.
+			var wing_local_t := _marker_transform_to_host_local(aircraft_3d, side_host, t_local_to_aircraft)
+			decal.transform = wing_local_t
 
 	# Optional tail insignia marker (mirrored and projected laterally into tail section).
 	var tail_marker: Marker3D = aircraft.get_node_or_null("InsigniaTail") as Marker3D
@@ -478,6 +481,31 @@ func _apply_insignia(aircraft: Node) -> void:
 			decal_basis = (decal_basis * Basis(Vector3.UP, PI)).orthonormalized()
 			t_tail.basis = decal_basis
 			tail_decal.transform = t_tail
+
+	# Optional nose insignia marker. Decals project along local -Y, so this basis
+	# aims the decal down and back into the nose at roughly 45 degrees.
+	var nose_marker: Marker3D = aircraft.get_node_or_null("InsigniaNose") as Marker3D
+	if nose_marker != null:
+		var nose_decal := Decal.new()
+		nose_decal.name = "InsigniaNoseDecal"
+		nose_decal.add_to_group("livery_insignia")
+		nose_decal.texture_albedo = tex
+		nose_decal.size = Vector3(nose_insignia_width, nose_insignia_depth, nose_insignia_width * aspect)
+		aircraft_3d.add_child(nose_decal)
+
+		var t_nose := nose_marker.transform
+		var projection_dir := Vector3(0.0, -1.0, -1.0).normalized()
+		t_nose.basis = _make_decal_basis_from_projection(projection_dir, Vector3.UP)
+		nose_decal.transform = t_nose
+
+func _make_decal_basis_from_projection(projection_dir: Vector3, up_hint: Vector3) -> Basis:
+	var y_axis := (-projection_dir).normalized()
+	var z_axis := up_hint - y_axis * up_hint.dot(y_axis)
+	if z_axis.length_squared() < 0.0001:
+		z_axis = Vector3.FORWARD - y_axis * Vector3.FORWARD.dot(y_axis)
+	z_axis = z_axis.normalized()
+	var x_axis := y_axis.cross(z_axis).normalized()
+	return Basis(x_axis, y_axis, z_axis).orthonormalized()
 
 func _is_descendant_of(node: Node, ancestor: Node) -> bool:
 	var cur: Node = node

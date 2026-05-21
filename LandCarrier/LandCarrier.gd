@@ -457,8 +457,7 @@ func _carry_deck_passengers(current_transform: Transform3D, old_transform: Trans
 			var has_transport := n.has_meta("carrier_transport_mode") and bool(n.get_meta("carrier_transport_mode"))
 			var has_deck_follow := n.has_meta("carrier_deck_follow") and bool(n.get_meta("carrier_deck_follow"))
 			var helicopter_deck_ready := n.has_meta("helicopter_deck_takeoff_ready") and bool(n.get_meta("helicopter_deck_takeoff_ready"))
-			var is_helicopter := bool(n.get_meta("is_helicopter", false)) or n.name.to_lower().find("aircraft_9") != -1
-			var on_carrier := has_transport or helicopter_deck_ready or (has_deck_follow and not is_helicopter)
+			var on_carrier := has_transport or helicopter_deck_ready or has_deck_follow
 			var on_catapult := n.has_meta("controls_disabled") and bool(n.get_meta("controls_disabled")) and not has_brake and not has_transport
 			if on_carrier or on_catapult:
 				(node as Node3D).global_transform = transform_delta * (node as Node3D).global_transform
