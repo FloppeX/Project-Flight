@@ -37,6 +37,7 @@ enum LandingGearInitialStates {
 @export var spring_velocity_deadband_mps: float = 0.05  # Ignore tiny contact-normal velocity noise that can cause chatter
 @export var wheel_rest_height: float = 1.2     # Normal wheel height above ground
 @export var max_compression: float = 0.8       # Maximum compression distance
+@export var deck_contact_visual_offset_m: float = 0.0  # Height from collider origin down to visible wheel contact for deck placement helpers
 @export var use_accel_lean: bool = true        # Programmatic fore/aft weight transfer
 @export var nose_gear_index: int = 0           # Index in gear_collision_shapes for nose gear
 @export var rear_gear_indices: Array[int] = [1, 2]  # Indices for main/rear gears

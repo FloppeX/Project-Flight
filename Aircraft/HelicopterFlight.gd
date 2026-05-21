@@ -10,6 +10,7 @@ class_name HelicopterFlight
 @export var max_lift_multiplier: float = 1.85
 @export var translational_lift_bonus: float = 0.12
 @export var translational_lift_full_speed_mps: float = 45.0
+@export var horizontal_thrust_bias: float = 1.0
 
 @export_group("Cyclic")
 @export var pitch_power: float = 1.0
@@ -152,7 +153,18 @@ func _apply_rotor_lift(rotor_dir: Vector3, collective: float, speed_t: float) ->
 		min_lift_multiplier,
 		max_lift_multiplier
 	)
-	rb.apply_central_force(rotor_dir * hover_thrust * lift_multiplier)
+	var thrust_dir := _get_biased_thrust_direction(rotor_dir)
+	rb.apply_central_force(thrust_dir * hover_thrust * lift_multiplier)
+
+
+func _get_biased_thrust_direction(rotor_dir: Vector3) -> Vector3:
+	var vertical: float = rotor_dir.dot(Vector3.UP)
+	var horizontal: Vector3 = rotor_dir - Vector3.UP * vertical
+	var bias: float = maxf(horizontal_thrust_bias, 0.0)
+	var thrust_dir: Vector3 = Vector3.UP * vertical + horizontal * bias
+	if thrust_dir.length_squared() <= 0.0001:
+		return rotor_dir
+	return thrust_dir.normalized()
 
 
 func _apply_hanging_attitude(rotor_dir: Vector3, collective: float, speed_t: float) -> void:

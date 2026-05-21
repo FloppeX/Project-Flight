@@ -12,6 +12,7 @@ class_name NoseGearRigVisual
 @export var wheel_pivot_position: Vector3 = Vector3(0.0, -0.9817924, 0.00375247)
 
 @export var stowed_rotation_degrees: Vector3 = Vector3(90.0, 0.0, 0.0)
+@export var stowed_rotation_direction: float = 1.0
 @export var compression_axis: Vector3 = Vector3.UP
 @export var compression_visual_scale: float = 0.75
 @export var max_visual_compression_m: float = 0.28
@@ -129,7 +130,7 @@ func _update_pose() -> void:
 	var steering_yaw := _read_steering_yaw()
 	var lower_leg_offset := compression * compression_visual_scale + stowed_lower_leg_retraction_m * tuck_alpha
 
-	_front_pivot.rotation = _base_front_rotation + _deg_vec_to_rad(stowed_rotation_degrees) * main_rotation_alpha
+	_front_pivot.rotation = _base_front_rotation + _deg_vec_to_rad(stowed_rotation_degrees) * stowed_rotation_direction * main_rotation_alpha
 	_lower_leg_slide.position = _base_slide_position + compression_axis.normalized() * lower_leg_offset
 	_linkage_pivot.rotation = _base_linkage_rotation + Vector3(0.0, steering_yaw, 0.0) + _deg_vec_to_rad(linkage_compression_rotation_degrees) * compression_alpha + _deg_vec_to_rad(linkage_stowed_rotation_degrees) * tuck_alpha
 	_connector_pivot.rotation = _base_connector_rotation + _deg_vec_to_rad(connector_compression_rotation_degrees) * compression_alpha + _deg_vec_to_rad(connector_stowed_rotation_degrees) * tuck_alpha

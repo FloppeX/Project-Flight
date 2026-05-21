@@ -20,6 +20,7 @@
 [ext_resource type="PackedScene" uid="uid://d2j0ldfmxq1m6" path="res://Aircraft/Aircraft_7.tscn" id="17_aircraft_7"]
 [ext_resource type="PackedScene" path="res://Aircraft/Aircraft_9.tscn" id="18_aircraft_9"]
 [ext_resource type="Script" uid="uid://cld3amq1vrrs3" path="res://LandCarrier/CarrierManager.gd" id="18_carrier_manager"]
+[ext_resource type="PackedScene" path="res://Aircraft/Aircraft_10.tscn" id="19_aircraft_10"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_main_carrier"]
 size = Vector3(2.51178, 4.34025, 4.92171)
@@ -89,6 +90,7 @@ tractor_bots = [NodePath("../TractorBot1"), NodePath("../TractorBot2"), NodePath
 aircraft_template_scene = ExtResource("16_default_aircraft")
 aircraft_7_scene = ExtResource("17_aircraft_7")
 aircraft_9_scene = ExtResource("18_aircraft_9")
+aircraft_10_scene = ExtResource("19_aircraft_10")
 
 [node name="plane_start_marker" type="Node3D" parent="FlightDeckManager" unique_id=124603853]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 14.273)

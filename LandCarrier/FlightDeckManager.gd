@@ -23,6 +23,7 @@ signal deck_state_changed(new_state)
 @export var aircraft_7_scene: PackedScene         # Aircraft 7 template
 @export var aircraft_8_scene: PackedScene         # Aircraft 8 template
 @export var aircraft_9_scene: PackedScene         # Rescue helicopter placeholder template
+@export var aircraft_10_scene: PackedScene        # Scout helicopter template
 @export var carrier_manager_path: NodePath = NodePath("../CarrierManager")
 @export var auto_recovery_enabled: bool = true
 @export var auto_recovery_speed_threshold_mps: float = 1.5
@@ -51,6 +52,9 @@ const WEAPON_SCENE_AA_MISSILE := "res://Weapons/AA_Missile/aa_missile_launcher.t
 const WEAPON_SCENE_ROCKET_POD := "res://Weapons/RocketPod/rocket_pod.tscn"
 const WEAPON_SCENE_BOMB_RACK := "res://Weapons/Bomb/bomb_rack.tscn"
 const PRIMARY_TRACTOR_COUNT := 3
+const MOTION_REFERENCE_NODE_META := "motion_reference_node"
+const MOTION_REFERENCE_VELOCITY_META := "motion_reference_velocity"
+const LEGACY_CARRIER_VELOCITY_META := "carrier_deck_velocity"
 
 enum DeckState {
 	IDLE,
@@ -505,6 +509,15 @@ func _input(event):
 			if scene:
 				_queue_aircraft_scene_for_retrieval("Aircraft_9", scene)
 
+	# Spawn Aircraft 10 scout helicopter from hangar (key "0")
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_0:
+		if current_state == DeckState.IDLE:
+			var scene := aircraft_10_scene
+			if not scene:
+				scene = load("res://Aircraft/Aircraft_10.tscn")
+			if scene:
+				_queue_aircraft_scene_for_retrieval("Aircraft_10", scene)
+
 	# Debug key to force reset state (F9)
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_F9:
 		current_state = DeckState.IDLE
@@ -894,6 +907,10 @@ func _find_stopped_aircraft_in_recovery_zone() -> RigidBody3D:
 				continue
 			if aircraft.has_meta("carrier_transport_mode") and bool(aircraft.get_meta("carrier_transport_mode")):
 				continue
+			if _is_helicopter_aircraft(aircraft):
+				if _is_helicopter_ready_for_deck_recovery(aircraft):
+					return aircraft
+				continue
 			var controls_disabled := aircraft.has_meta("controls_disabled") and bool(aircraft.get_meta("controls_disabled"))
 			var arresting_engaged := aircraft.has_meta("arresting_engaged") and bool(aircraft.get_meta("arresting_engaged"))
 			var parking_brake := aircraft.has_meta("parking_brake") and bool(aircraft.get_meta("parking_brake"))
@@ -911,6 +928,91 @@ func _find_stopped_aircraft_in_recovery_zone() -> RigidBody3D:
 				])
 				return aircraft
 	return null
+
+func _is_helicopter_ready_for_deck_recovery(aircraft: RigidBody3D) -> bool:
+	if not is_instance_valid(aircraft):
+		return false
+	if aircraft.has_meta("helicopter_deck_takeoff_ready") and bool(aircraft.get_meta("helicopter_deck_takeoff_ready")):
+		return false
+	if aircraft.has_meta("controls_disabled") and bool(aircraft.get_meta("controls_disabled")):
+		return false
+	if not _is_aircraft_blocking_landing_deck(aircraft):
+		return false
+	if not _is_helicopter_engine_stopped(aircraft):
+		return false
+	var relative_speed := _get_aircraft_carrier_relative_speed(aircraft)
+	if relative_speed > auto_recovery_speed_threshold_mps:
+		return false
+	var carrier := get_parent() as Node3D
+	var local_pos := carrier.to_local(aircraft.global_position) if carrier else aircraft.global_position
+	_recovery_debug("helicopter ready for deck recovery %s rel_speed=%.2f local=%s" % [
+		_aircraft_debug_name(aircraft),
+		relative_speed,
+		_fmt_vec3(local_pos)
+	])
+	return true
+
+func _is_helicopter_engine_stopped(aircraft: RigidBody3D) -> bool:
+	var engine := aircraft.find_child("Engine", true, false)
+	if engine == null:
+		return aircraft.has_meta("parking_brake") and bool(aircraft.get_meta("parking_brake"))
+	var working = engine.get("is_engine_working")
+	if working != null and bool(working):
+		return false
+	var target_power = engine.get("target_power")
+	if target_power != null and float(target_power) > 0.01:
+		return false
+	return true
+
+func _get_aircraft_carrier_relative_speed(aircraft: RigidBody3D) -> float:
+	var reference_velocity := _get_aircraft_reference_velocity(aircraft)
+	if reference_velocity.length_squared() <= 0.0001:
+		var carrier := get_parent()
+		if carrier is Node:
+			reference_velocity = _get_node_velocity(carrier as Node)
+	var relative_velocity := aircraft.linear_velocity - reference_velocity
+	return Vector2(relative_velocity.x, relative_velocity.z).length()
+
+func _get_aircraft_reference_velocity(aircraft: RigidBody3D) -> Vector3:
+	if aircraft.has_meta(MOTION_REFERENCE_NODE_META):
+		var reference = aircraft.get_meta(MOTION_REFERENCE_NODE_META)
+		if reference is Node and is_instance_valid(reference):
+			return _get_node_velocity(reference as Node)
+	if aircraft.has_meta(MOTION_REFERENCE_VELOCITY_META):
+		var velocity = aircraft.get_meta(MOTION_REFERENCE_VELOCITY_META)
+		if typeof(velocity) == TYPE_VECTOR3:
+			return velocity as Vector3
+	if aircraft.has_meta(LEGACY_CARRIER_VELOCITY_META):
+		var legacy_velocity = aircraft.get_meta(LEGACY_CARRIER_VELOCITY_META)
+		if typeof(legacy_velocity) == TYPE_VECTOR3:
+			return legacy_velocity as Vector3
+	return Vector3.ZERO
+
+func _set_aircraft_reference_node(aircraft: RigidBody3D, reference_node: Node) -> void:
+	if not is_instance_valid(aircraft) or not is_instance_valid(reference_node):
+		return
+	var reference_velocity := _get_node_velocity(reference_node)
+	aircraft.set_meta(MOTION_REFERENCE_NODE_META, reference_node)
+	aircraft.set_meta(MOTION_REFERENCE_VELOCITY_META, reference_velocity)
+	aircraft.set_meta(LEGACY_CARRIER_VELOCITY_META, reference_velocity)
+
+func _get_node_velocity(node: Node) -> Vector3:
+	if node is RigidBody3D:
+		return (node as RigidBody3D).linear_velocity
+	if node.has_method("get_deck_reference_velocity_vector"):
+		var deck_velocity = node.call("get_deck_reference_velocity_vector")
+		if typeof(deck_velocity) == TYPE_VECTOR3:
+			return deck_velocity as Vector3
+	if node is CharacterBody3D:
+		return (node as CharacterBody3D).velocity
+	if node.has_method("get_velocity_vector"):
+		var velocity = node.call("get_velocity_vector")
+		if typeof(velocity) == TYPE_VECTOR3:
+			return velocity as Vector3
+	var property_velocity = node.get("velocity")
+	if typeof(property_velocity) == TYPE_VECTOR3:
+		return property_velocity as Vector3
+	return Vector3.ZERO
 
 func _is_aircraft_in_auto_recovery_zone(aircraft: RigidBody3D) -> bool:
 	var carrier := get_parent() as Node3D
@@ -1782,12 +1884,22 @@ func _lower_launch_wheels_to_deck(aircraft: RigidBody3D, wheel_nodes: Array[Node
 		aircraft.global_position.y = deck_y
 		return
 
+	var contact_offset: float = _get_deck_contact_visual_offset(aircraft)
 	var lowest_world_y: float = INF
 	for gear in wheel_nodes:
-		var gear_world_y: float = gear.global_position.y
+		var gear_world_y: float = gear.global_position.y - contact_offset
 		if gear_world_y < lowest_world_y:
 			lowest_world_y = gear_world_y
 	aircraft.global_position.y += deck_y - lowest_world_y
+
+func _get_deck_contact_visual_offset(aircraft: RigidBody3D) -> float:
+	var landing_gear_module := _find_landing_gear_module(aircraft)
+	if landing_gear_module == null:
+		return 0.0
+	var offset = landing_gear_module.get("deck_contact_visual_offset_m")
+	if offset == null:
+		return 0.0
+	return maxf(float(offset), 0.0)
 
 func _settle_launch_aircraft_on_wheels(aircraft: RigidBody3D, wheel_nodes: Array[Node3D], deck_y: float) -> void:
 	if wheel_nodes.is_empty():
@@ -2639,7 +2751,7 @@ func _complete_helicopter_retrieval_sequence(aircraft: RigidBody3D) -> void:
 		carrier_node = get_tree().get_first_node_in_group("carrier")
 	if carrier_node != null:
 		aircraft.set_meta("helicopter_deck_reference_node", carrier_node)
-		VelocityFrame.set_reference_node(aircraft, carrier_node)
+		_set_aircraft_reference_node(aircraft, carrier_node)
 	aircraft.freeze = true
 	aircraft.linear_velocity = Vector3.ZERO
 	aircraft.angular_velocity = Vector3.ZERO

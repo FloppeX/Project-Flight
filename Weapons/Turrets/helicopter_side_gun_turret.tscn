@@ -1,0 +1,37 @@
+[gd_scene load_steps=4 format=3 uid="uid://x4bqvteq35p5"]
+
+[ext_resource type="Script" uid="uid://c1jwpg25tydnr" path="res://Weapons/Turrets/turret.gd" id="1_turret"]
+[ext_resource type="PackedScene" uid="uid://b1jansp2l3cm5" path="res://Models/Aircraft_9/Helicopter side gun.glb" id="2_model"]
+[ext_resource type="Script" path="res://Weapons/Turrets/helicopter_side_gun_visual_rig.gd" id="3_visual_rig"]
+
+[node name="HelicopterSideGunTurret" type="Node3D" unique_id=1825392616 node_paths=PackedStringArray("yaw_mount", "barrel_mount", "firing_points")]
+script = ExtResource("1_turret")
+turn_speed = 120.0
+pitch_speed = 120.0
+max_pitch_up = 60.0
+max_pitch_down = -60.0
+limit_yaw_arc = true
+yaw_left_limit_deg = 90.0
+yaw_right_limit_deg = 90.0
+yaw_mount = NodePath("GunYawPivot")
+barrel_mount = NodePath("GunYawPivot/BarrelMount")
+firing_points = [NodePath("GunYawPivot/BarrelMount/Muzzle")]
+derive_forward_from_muzzle = true
+barrel_forward_axis_local = Vector3(0, 0, 1)
+
+[node name="SideGunModel" parent="." unique_id=1844548177 instance=ExtResource("2_model")]
+
+[node name="GunYawPivot" type="Node3D" parent="." unique_id=2045286144]
+
+[node name="BarrelMount" type="Node3D" parent="GunYawPivot" unique_id=1293271322]
+transform = Transform3D(1, 0, 0, 0, 1.0000002, 0, 0, 0, 1.0000002, 0, 0.797724, 0)
+
+[node name="Muzzle" type="Node3D" parent="GunYawPivot/BarrelMount" unique_id=13914519]
+transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, -0.020005167, 1.0816424)
+
+[node name="VisualRig" type="Node" parent="." node_paths=PackedStringArray("yaw_pivot", "barrel_mount", "shaft_mesh", "gun_mesh")]
+script = ExtResource("3_visual_rig")
+yaw_pivot = NodePath("../GunYawPivot")
+barrel_mount = NodePath("../GunYawPivot/BarrelMount")
+shaft_mesh = NodePath("../SideGunModel/lmg vertical rotation shaft")
+gun_mesh = NodePath("../SideGunModel/machine gun")

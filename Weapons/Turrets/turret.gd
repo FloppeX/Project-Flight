@@ -22,11 +22,13 @@ signal fired()
 
 @export_group("References")
 @export var base_mesh: Node3D # The Y-axis rotation part (visual only)
+@export var yaw_mount: Node3D # Optional Y-axis rotation pivot. Defaults to this turret node.
 @export var barrel_mount: Node3D # The X-axis pitch part (child of base)
 @export var firing_points: Array[Node3D] = [] # Where projectiles spawn
 @export var enable_barrel_recoil: bool = false
 @export_group("Rig Axes")
 @export var auto_detect_barrel_axes: bool = false
+@export var derive_forward_from_muzzle: bool = false
 @export var barrel_forward_axis_local: Vector3 = Vector3.UP
 @export var barrel_pitch_axis_local: Vector3 = Vector3.RIGHT
 
@@ -37,6 +39,7 @@ var is_aiming_at_point: bool = false
 
 var _current_fire_point_idx: int = 0
 var _turret_rest_rotation: Vector3 = Vector3.ZERO
+var _yaw_mount_rest_rotation: Vector3 = Vector3.ZERO
 var _barrel_rest_rotation: Vector3 = Vector3.ZERO
 var _barrel_rest_basis: Basis = Basis.IDENTITY
 var _barrel_rest_scale: Vector3 = Vector3.ONE
@@ -48,6 +51,8 @@ var _barrel_current_pitch: float = 0.0
 
 func _ready() -> void:
 	_turret_rest_rotation = rotation
+	var yaw_node := _get_yaw_mount()
+	_yaw_mount_rest_rotation = yaw_node.rotation
 	if not barrel_mount:
 		push_warning("Turret %s: barrel_mount not assigned!" % name)
 	else:
@@ -85,12 +90,13 @@ func tick(delta: float, target_pos: Vector3) -> void:
 	_rotate_towards(desired_target, delta)
 
 func _rotate_towards(target_pos: Vector3, delta: float) -> void:
-	# 1. Yaw: rotate self around world Y so barrel faces target horizontally.
-	# The turret base only yaws in its own local space. No local pitch/roll.
-	var turret_parent := get_parent_node_3d()
-	if turret_parent == null:
+	# 1. Yaw: rotate the configured yaw pivot so the barrel faces target horizontally.
+	# The yaw pivot only yaws in its own local space. No local pitch/roll.
+	var yaw_node := _get_yaw_mount()
+	var yaw_parent := yaw_node.get_parent_node_3d()
+	if yaw_parent == null:
 		return
-	var local_target: Vector3 = turret_parent.to_local(target_pos) - position
+	var local_target: Vector3 = yaw_parent.to_local(target_pos) - yaw_node.position
 	local_target.y = 0.0
 	if local_target.length() > 0.1:
 		var local_target_yaw: float = atan2(local_target.x, local_target.z)
@@ -98,18 +104,18 @@ func _rotate_towards(target_pos: Vector3, delta: float) -> void:
 		# local_target_yaw is already expressed in turret-parent space (absolute yaw).
 		# Adding rest yaw here double-offsets rear-mounted turrets and can invert arcs.
 		var desired_yaw: float = local_target_yaw
-		var yaw_error: float = wrapf(desired_yaw - rotation.y, -PI, PI)
+		var yaw_error: float = wrapf(desired_yaw - yaw_node.rotation.y, -PI, PI)
 		var yaw_speed_factor: float = _get_low_error_speed_factor(yaw_error)
 		var max_turn: float = deg_to_rad(turn_speed * yaw_speed_factor) * delta
-		var new_yaw: float = rotation.y + clampf(yaw_error, -max_turn, max_turn)
-		rotation = Vector3(_turret_rest_rotation.x, new_yaw, _turret_rest_rotation.z)
+		var new_yaw: float = yaw_node.rotation.y + clampf(yaw_error, -max_turn, max_turn)
+		yaw_node.rotation = Vector3(_yaw_mount_rest_rotation.x, new_yaw, _yaw_mount_rest_rotation.z)
 
 	# 2. Pitch: compute elevation angle in the turret's own frame, then apply
 	#    as rotation around the barrel's pitch axis from its rest pose.
 	var dir_world: Vector3 = target_pos - barrel_mount.global_position
 	if dir_world.length_squared() < 0.01:
 		return
-	var dir_local: Vector3 = global_transform.basis.inverse() * dir_world
+	var dir_local: Vector3 = yaw_node.global_transform.basis.inverse() * dir_world
 	var target_pitch: float = atan2(dir_local.y, Vector2(dir_local.x, dir_local.z).length())
 	target_pitch = clamp(
 		target_pitch,
@@ -142,10 +148,11 @@ func _clamp_target_yaw_to_arc(target_yaw_rad: float) -> float:
 func is_point_within_yaw_arc(world_point: Vector3) -> bool:
 	if not limit_yaw_arc:
 		return true
-	var turret_parent := get_parent_node_3d()
-	if turret_parent == null:
+	var yaw_node := _get_yaw_mount()
+	var yaw_parent := yaw_node.get_parent_node_3d()
+	if yaw_parent == null:
 		return true
-	var local_target: Vector3 = turret_parent.to_local(world_point) - position
+	var local_target: Vector3 = yaw_parent.to_local(world_point) - yaw_node.position
 	local_target.y = 0.0
 	if local_target.length_squared() <= 0.0001:
 		return true
@@ -159,10 +166,11 @@ func is_point_within_yaw_arc(world_point: Vector3) -> bool:
 func get_point_clamped_to_yaw_arc(world_point: Vector3) -> Vector3:
 	if not limit_yaw_arc:
 		return world_point
-	var turret_parent := get_parent_node_3d()
-	if turret_parent == null:
+	var yaw_node := _get_yaw_mount()
+	var yaw_parent := yaw_node.get_parent_node_3d()
+	if yaw_parent == null:
 		return world_point
-	var local_target: Vector3 = turret_parent.to_local(world_point) - position
+	var local_target: Vector3 = yaw_parent.to_local(world_point) - yaw_node.position
 	var horizontal_len: float = Vector2(local_target.x, local_target.z).length()
 	if horizontal_len <= 0.0001:
 		return world_point
@@ -173,7 +181,7 @@ func get_point_clamped_to_yaw_arc(world_point: Vector3) -> Vector3:
 		local_target.y,
 		cos(clamped_yaw) * horizontal_len
 	)
-	return turret_parent.to_global(position + clamped_local_target)
+	return yaw_parent.to_global(yaw_node.position + clamped_local_target)
 
 func get_current_muzzle_transform() -> Transform3D:
 	return _get_current_muzzle_transform()
@@ -237,22 +245,39 @@ func _get_current_muzzle_transform() -> Transform3D:
 			valid_points.append(point)
 
 	if not valid_points.is_empty():
-		return valid_points[_current_fire_point_idx % valid_points.size()].global_transform
+		var point := valid_points[_current_fire_point_idx % valid_points.size()]
+		if derive_forward_from_muzzle and barrel_mount and is_instance_valid(barrel_mount):
+			var pivot_to_muzzle: Vector3 = point.global_position - barrel_mount.global_position
+			if pivot_to_muzzle.length_squared() > 0.0001:
+				return _build_forward_transform(point.global_position, pivot_to_muzzle.normalized())
+		return _get_barrel_forward_transform(point.global_position)
 
 	if barrel_mount and is_instance_valid(barrel_mount):
-		# Use the actual configured barrel forward axis in world space.
-		# This is robust for rear-facing turrets and rigs whose muzzle axis is not +Z.
-		var barrel_forward: Vector3 = (barrel_mount.global_basis * _barrel_forward_axis_local).normalized()
-		if barrel_forward.length_squared() <= 0.0001:
-			barrel_forward = global_transform.basis.z.normalized()
-		var up: Vector3 = Vector3.UP
-		var right: Vector3 = up.cross(barrel_forward).normalized()
-		if right.length_squared() <= 0.0001:
-			right = global_transform.basis.x.normalized()
-		var corrected_up: Vector3 = barrel_forward.cross(right).normalized()
-		return Transform3D(Basis(right, corrected_up, barrel_forward), get_fallback_firing_origin())
+		return _get_barrel_forward_transform(get_fallback_firing_origin())
 
 	return global_transform
+
+func _get_barrel_forward_transform(origin: Vector3) -> Transform3D:
+	# Use the actual configured barrel forward axis in world space. Muzzle marker
+	# transforms are easy to orient incorrectly in imported rigs; the marker should
+	# provide position, while the barrel mount defines where the weapon is aiming.
+	var barrel_forward: Vector3 = Vector3.ZERO
+	if barrel_mount and is_instance_valid(barrel_mount):
+		barrel_forward = (barrel_mount.global_basis * _barrel_forward_axis_local).normalized()
+	if barrel_forward.length_squared() <= 0.0001:
+		barrel_forward = global_transform.basis.z.normalized()
+	return _build_forward_transform(origin, barrel_forward)
+
+func _build_forward_transform(origin: Vector3, forward: Vector3) -> Transform3D:
+	var forward_n := forward.normalized()
+	if forward_n.length_squared() <= 0.0001:
+		forward_n = global_transform.basis.z.normalized()
+	var up: Vector3 = Vector3.UP
+	var right: Vector3 = up.cross(forward_n).normalized()
+	if right.length_squared() <= 0.0001:
+		right = global_transform.basis.x.normalized()
+	var corrected_up: Vector3 = forward_n.cross(right).normalized()
+	return Transform3D(Basis(right, corrected_up, forward_n), origin)
 
 func fire() -> void:
 	emit_signal("fired")
@@ -271,6 +296,11 @@ func _get_target_position() -> Vector3:
 	if current_target and is_instance_valid(current_target):
 		return current_target.global_position
 	return Vector3.ZERO
+
+func _get_yaw_mount() -> Node3D:
+	if yaw_mount and is_instance_valid(yaw_mount):
+		return yaw_mount
+	return self
 
 func _determine_barrel_forward_axis_local() -> Vector3:
 	if not (barrel_mount is MeshInstance3D):
