@@ -213,7 +213,10 @@ func _apply_structural_failure() -> void:
 		_roll_bias = 0.3 if randf() > 0.5 else -0.3
 	_drag_penalty = 0.3
 	if _aero_module:
-		_aero_module.forward_drag_strength += _drag_penalty
+		if "forward_drag_strength" in _aero_module:
+			_aero_module.set("forward_drag_strength", float(_aero_module.get("forward_drag_strength")) + _drag_penalty)
+		elif "horizontal_drag_strength" in _aero_module:
+			_aero_module.set("horizontal_drag_strength", float(_aero_module.get("horizontal_drag_strength")) + _drag_penalty)
 
 
 func _apply_hud_blackout() -> void:

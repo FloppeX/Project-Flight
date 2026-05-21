@@ -216,8 +216,8 @@ nose_wheel_taxi_steering_enabled = false
 carrier_deck_follow_min_wheels = 1
 
 [node name="ControlEngine" parent="." unique_id=1520295740 instance=ExtResource("16_ctl_engine")]
-AutoStartPowerLimit = 0.33
-AutoStartLimitRequiresThrottleRelease = true
+AutoStartPowerLimit = 1.0
+AutoStartLimitRequiresThrottleRelease = false
 
 [node name="ControlSteering" parent="." unique_id=1257143787 instance=ExtResource("17_ctl_steering")]
 
@@ -330,10 +330,10 @@ script = ExtResource("30_damage")
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -1.1, 0.1)
 
 [node name="InsigniaSide" type="Marker3D" parent="." unique_id=1137083662]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.7, 0.35, -0.45)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.3624146, 0.6425961, -1.3172371)
 
-[node name="InsigniaTail" type="Marker3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.35, 0.65, -3.85)
+[node name="InsigniaTail" type="Marker3D" parent="." unique_id=749541890]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.739895, 0.65, -5.113805)
 
-[node name="InsigniaNose" type="Marker3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.45, 3.65)
+[node name="InsigniaNose" type="Marker3D" parent="." unique_id=818750703]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.20737785, 4.074005)

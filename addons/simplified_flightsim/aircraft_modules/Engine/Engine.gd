@@ -15,6 +15,7 @@ signal update_interface(values)
 @export var EngineSoundLoop: AudioStream
 @export var EngineSoundStart: AudioStream
 @export var EngineSoundStop: AudioStream
+@export var GovernPropellerVisualSpeed: bool = false
 
 @export var FuelRate: float = 1.0 # Fuel units per second, at max power
 @export var ThrottleSpoolUpRate: float = 0.55 # Power units per second when increasing throttle
@@ -118,8 +119,9 @@ func process_physic_frame(delta):
 		aircraft.apply_force(force_vector, engine_rotated_position)
 		
 	# Spin propeller directly
-		if propeller and current_power > 0.0:
-			var prop_speed = current_power * 50.0 + 5.0  # RPM based on power
+		if propeller and (current_power > 0.0 or (GovernPropellerVisualSpeed and is_engine_working)):
+			var visual_power: float = 1.0 if GovernPropellerVisualSpeed else current_power
+			var prop_speed = visual_power * 50.0 + 5.0  # RPM based on power
 			propeller.rotate_z(prop_speed * delta)  # Adjust axis as needed
 
 		_update_engine_sound(delta)

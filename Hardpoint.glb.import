@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://dqa4u8bibws3"
-path="res://.godot/imported/aircraft 10.glb-606c9d596f89b8e3442125a4ca75055b.scn"
+uid="uid://dl7uh52xawyni"
+path="res://.godot/imported/Hardpoint.glb-3504e540dce1a9cb4131f3cb94427d6a.scn"
 
 [deps]
 
-source_file="res://aircraft 10.glb"
-dest_files=["res://.godot/imported/aircraft 10.glb-606c9d596f89b8e3442125a4ca75055b.scn"]
+source_file="res://Hardpoint.glb"
+dest_files=["res://.godot/imported/Hardpoint.glb-3504e540dce1a9cb4131f3cb94427d6a.scn"]
 
 [params]
 
