@@ -40,6 +40,8 @@
 [ext_resource type="AudioStream" uid="uid://o2xkkc5oyh4w" path="res://Audio/cockpit_interior_4.wav" id="38_cpit"]
 [ext_resource type="PackedScene" path="res://Aircraft/CockpitPilot.tscn" id="90_cpilot"]
 [ext_resource type="PackedScene" uid="uid://cwh4cxdgqbvdd" path="res://Models/Aircraft_5/aircraft_5_exploded.glb" id="91_exploded"]
+[ext_resource type="PackedScene" path="res://Aircraft/Visuals/EjectionSeat.tscn" id="92_ejection_seat"]
+[ext_resource type="Script" uid="uid://baexawx30vqgf" path="res://Aircraft/EjectionSequence.gd" id="93_ejection_sequence"]
 
 [sub_resource type="PhysicsMaterial" id="PhysicsMaterial_lowfriction"]
 friction = 0.1
@@ -75,7 +77,7 @@ wreck_random_spread = 1.0
 wreck_extra_spin = 15.0
 exploded_model_scene = ExtResource("91_exploded")
 
-[node name="aircraft_5" parent="." unique_id=1084612872 instance=ExtResource("3_kq7no")]
+[node name="aircraft_5" parent="." unique_id=173885334 instance=ExtResource("3_kq7no")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.123306, 0.707575)
 
 [node name="Aircraft 2 propeller" parent="aircraft_5" unique_id=199105519 instance=ExtResource("4_ii5ys")]
@@ -207,6 +209,12 @@ transform = Transform3D(-1, 0, -8.74213e-08, 0, 0.999983, 0, 8.74228e-08, 0, -0.
 transform = Transform3D(0.999958, 0, -0.00842568, 0, 0.999949, 0, 0.00839809, 0, 0.999921, 0, -1.09001, 2.22481)
 cockpit_hidden_mesh_names = PackedStringArray("Pilot")
 
+[node name="EjectionSeat" parent="." unique_id=1682896568 instance=ExtResource("92_ejection_seat")]
+transform = Transform3D(0.999958, 0, -0.00842568, 0, 0.999949, 0, 0.00839809, 0, 0.999921, 0, -0.6577295, 2.2826686)
+
+[node name="EjectionSequence" type="Node" parent="." unique_id=112869440]
+script = ExtResource("93_ejection_sequence")
+
 [node name="CameraTarget" type="Node3D" parent="." unique_id=1976920087]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.906776, 5.25211)
 
@@ -251,8 +259,10 @@ spring_damping = 1000.0
 
 [node name="CockpitCanopyVisibility" type="Node" parent="." unique_id=1000105093]
 script = ExtResource("35_canopyvis")
-canopy_node_paths = Array[NodePath]([NodePath("../aircraft_5/world_001/canopy")])
+canopy_node_paths = Array[NodePath]([])
 canopy_surface_indices = PackedInt32Array()
+material_scan_root_paths = Array[NodePath]([NodePath("../aircraft_5/world_001/body"), NodePath("../aircraft_5/world_001/canopy")])
+hidden_material_names = PackedStringArray("glass")
 cockpit_shadow_disable_paths = Array[NodePath]([NodePath("../aircraft_5/world_001/body"), NodePath("../aircraft_5/world_001/canopy")])
 
 [node name="WingFold5" type="Node" parent="." unique_id=585190040]

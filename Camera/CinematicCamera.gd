@@ -7,6 +7,7 @@ class_name CinematicCamera
 @export var look_smoothing: float = 8.0
 
 var aircraft: RigidBody3D
+var focus_target: Node3D
 var current_rotation: Vector3
 
 func _ready():
@@ -15,7 +16,18 @@ func _ready():
 	current_rotation = rotation
 
 func setup_aircraft(aircraft_node: RigidBody3D):
+	setup_follow_target(aircraft_node, null)
+
+func setup_follow_target(aircraft_node: RigidBody3D, target_node: Node3D = null) -> void:
 	aircraft = aircraft_node
+	focus_target = target_node
+
+func _get_focus_position() -> Vector3:
+	if focus_target != null and is_instance_valid(focus_target):
+		return focus_target.global_position
+	if aircraft != null and is_instance_valid(aircraft):
+		return aircraft.global_position
+	return global_position
 
 func _process(delta):
 	if aircraft and is_instance_valid(aircraft):
@@ -25,7 +37,7 @@ func setup_shot():
 	if not aircraft:
 		return
 		
-	var aircraft_pos = aircraft.global_position
+	var aircraft_pos = _get_focus_position()
 	var aircraft_forward = aircraft.global_transform.basis.z
 	var aircraft_right = aircraft.global_transform.basis.x
 	var aircraft_up = aircraft.global_transform.basis.y
@@ -44,6 +56,7 @@ func setup_shot():
 	global_position = cinematic_pos
 
 func update_look():
-	if aircraft.global_position.is_equal_approx(global_position):
+	var focus_position := _get_focus_position()
+	if focus_position.is_equal_approx(global_position):
 		return
-	look_at(aircraft.global_position, Vector3.UP)
+	look_at(focus_position, Vector3.UP)

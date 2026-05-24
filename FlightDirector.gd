@@ -68,7 +68,7 @@ func _initial_view():
 func register_aircraft(ac: RigidBody3D):
 	if ac not in active_aircraft:
 		active_aircraft.append(ac)
-		if not ac.is_connected("destroyed", Callable(self, "_on_aircraft_destroyed").bind(ac)):
+		if ac.has_signal("destroyed") and not ac.is_connected("destroyed", Callable(self, "_on_aircraft_destroyed").bind(ac)):
 			ac.connect("destroyed", Callable(self, "_on_aircraft_destroyed").bind(ac))
 
 func unregister_aircraft(ac: RigidBody3D):
@@ -81,6 +81,20 @@ func unregister_aircraft(ac: RigidBody3D):
 		_activate_view()
 
 func _on_aircraft_destroyed(ac: RigidBody3D):
+	if _aircraft_camera_was_replaced(ac):
+		active_aircraft.erase(ac)
+		if ac == player_controlled_plane:
+			is_player_controlling = false
+			player_controlled_plane = null
+		if ac == current_viewed_aircraft:
+			var replacement := _get_ejected_pilot_replacement(ac)
+			current_viewed_aircraft = replacement
+			if is_instance_valid(replacement):
+				current_category = Category.FRIENDLY
+				_select_friendly_index_for(replacement)
+				_activate_view()
+		return
+
 	var was_viewed := ac == current_viewed_aircraft
 	if ac == current_viewed_aircraft:
 		current_viewed_aircraft = null
@@ -90,6 +104,31 @@ func _on_aircraft_destroyed(ac: RigidBody3D):
 			_activate_view()
 		else:
 			_begin_destroyed_plane_linger(ac)
+
+func replace_aircraft_with_ejected_pilot(old_aircraft: RigidBody3D, ejected_body: RigidBody3D) -> void:
+	if not is_instance_valid(ejected_body):
+		return
+	ejected_body.add_to_group("ejected_pilots")
+	ejected_body.set_meta("ejected_pilot_camera_target", true)
+	ejected_body.set_meta("player_control_locked", true)
+	register_aircraft(ejected_body)
+
+	if is_instance_valid(old_aircraft):
+		old_aircraft.set_meta("camera_abandoned", true)
+		old_aircraft.set_meta("camera_replaced_by_ejected_pilot", true)
+		old_aircraft.set_meta("ejected_pilot_body", ejected_body.get_path())
+
+	is_player_controlling = false
+	if player_controlled_plane == old_aircraft:
+		player_controlled_plane = null
+
+	current_category = Category.FRIENDLY
+	current_viewed_aircraft = ejected_body
+	_select_friendly_index_for(ejected_body)
+	aircraft_cam_mode = 0
+	_destroyed_plane_linger_active = false
+	_cleanup_destroyed_plane_linger_camera()
+	_activate_view()
 
 var _audio_debug_timer: float = 0.0
 var _audio_test_player: AudioStreamPlayer = null
@@ -227,18 +266,44 @@ func _refill_player_plane_ordnance() -> bool:
 func _get_friendly_aircraft() -> Array:
 	var result: Array = []
 	for node in get_tree().get_nodes_in_group("friendlies"):
-		if node is RigidBody3D and is_instance_valid(node) and _node_has_cameras(node):
+		if node is RigidBody3D and is_instance_valid(node) and not _is_camera_cycle_excluded(node) and _node_has_cameras(node):
+			result.append(node)
+	for node in get_tree().get_nodes_in_group("ejected_pilots"):
+		if node is RigidBody3D and is_instance_valid(node) and not result.has(node) and _node_has_cameras(node):
 			result.append(node)
 	return result
 
 func _get_enemy_aircraft() -> Array:
 	var result: Array = []
 	for node in get_tree().get_nodes_in_group("enemies"):
-		if node is RigidBody3D and is_instance_valid(node) and _node_has_cameras(node):
+		if node is RigidBody3D and is_instance_valid(node) and not _is_camera_cycle_excluded(node) and _node_has_cameras(node):
 			result.append(node)
 	return result
 
+func _is_camera_cycle_excluded(node: Node) -> bool:
+	return node != null and bool(node.get_meta("camera_abandoned", false))
+
+func _select_friendly_index_for(target: RigidBody3D) -> void:
+	var friendlies := _get_friendly_aircraft()
+	var idx := friendlies.find(target)
+	if idx >= 0:
+		friendly_index = idx
+
+func _aircraft_camera_was_replaced(ac: RigidBody3D) -> bool:
+	return is_instance_valid(ac) and bool(ac.get_meta("camera_replaced_by_ejected_pilot", false))
+
+func _get_ejected_pilot_replacement(ac: RigidBody3D) -> RigidBody3D:
+	if not is_instance_valid(ac) or not ac.has_meta("ejected_pilot_body"):
+		return null
+	var replacement_path := NodePath(str(ac.get_meta("ejected_pilot_body")))
+	var replacement := get_node_or_null(replacement_path) as RigidBody3D
+	if is_instance_valid(replacement):
+		return replacement
+	return null
+
 func _node_has_cameras(node: Node) -> bool:
+	if node != null and bool(node.get_meta("ejected_pilot_camera_target", false)):
+		return true
 	return node.get_node_or_null("CameraChase") != null \
 		or node.get_node_or_null("CameraCockpit") != null \
 		or node.find_child("CameraController", true, false) != null
@@ -286,6 +351,12 @@ func _cycle_aircraft_view():
 	if current_category == Category.BRIDGE:
 		return
 	aircraft_cam_mode = (aircraft_cam_mode + 1) % 3
+	if is_instance_valid(current_viewed_aircraft) and current_viewed_aircraft.is_in_group("ejected_pilots"):
+		var cc := _get_player_camera_controller()
+		if cc != null and cc.has_method("switch_to_aircraft_and_mode"):
+			cc.switch_to_aircraft_and_mode(current_viewed_aircraft, aircraft_cam_mode)
+			active_controller_camera_system = cc
+			return
 	_activate_view()
 
 func _activate_view():
@@ -357,6 +428,15 @@ func _view_aircraft(ac: RigidBody3D):
 
 func _get_player_camera_controller() -> Node:
 	var ccs := get_tree().get_nodes_in_group("camera_controller")
+	if is_instance_valid(current_viewed_aircraft):
+		for cc in ccs:
+			if cc != null and "aircraft" in cc and cc.get("aircraft") == current_viewed_aircraft:
+				return cc
+	for cc in ccs:
+		if cc != null and "aircraft" in cc:
+			var controller_aircraft := cc.get("aircraft") as Node
+			if is_instance_valid(controller_aircraft) and not controller_aircraft.is_in_group("ai_aircraft") and not controller_aircraft.is_in_group("enemies"):
+				return cc
 	if ccs.size() > 0:
 		return ccs[0]
 	return null
@@ -675,7 +755,7 @@ func _get_focus_position() -> Vector3:
 	var cc := _get_player_camera_controller()
 	if cc and cc.has_method("get_current_camera"):
 		var cam = cc.get_current_camera()
-		if cam and cam is Camera3D:
+		if is_instance_valid(cam) and cam is Camera3D:
 			return (cam as Camera3D).global_position
 
 	return Vector3.ZERO
@@ -734,26 +814,27 @@ func _get_current_active_camera() -> Camera3D:
 	if _free_camera_active and is_instance_valid(_free_camera) and _free_camera.current:
 		return _free_camera
 
-	var bridge_cam := _get_bridge_camera()
-	if bridge_cam and bridge_cam.current:
+	var bridge_cam: Camera3D = _get_bridge_camera()
+	if is_instance_valid(bridge_cam) and bridge_cam.current:
 		return bridge_cam
 
 	for node in get_tree().get_nodes_in_group("camera_controller"):
-		if node and node.has_method("get_current_camera"):
-			var cam: Camera3D = node.get_current_camera()
-			if cam and cam is Camera3D:
-				return cam as Camera3D
+		if not is_instance_valid(node) or not node.has_method("get_current_camera"):
+			continue
+		var cam_variant: Variant = node.call("get_current_camera")
+		if is_instance_valid(cam_variant) and cam_variant is Camera3D:
+			return cam_variant as Camera3D
 
 	if is_instance_valid(current_viewed_aircraft):
 		for tripod_name in ["CameraCockpit", "CameraChase", "CameraCinematic"]:
 			var cam: Camera3D = _get_aircraft_camera(current_viewed_aircraft, tripod_name)
-			if cam and cam.current:
+			if is_instance_valid(cam) and cam.current:
 				return cam
 
 	var viewport := get_viewport()
 	if viewport:
-		var viewport_camera := viewport.get_camera_3d()
-		if viewport_camera and viewport_camera is Camera3D:
+		var viewport_camera: Variant = viewport.get_camera_3d()
+		if is_instance_valid(viewport_camera) and viewport_camera is Camera3D:
 			return viewport_camera as Camera3D
 	return null
 
@@ -762,9 +843,9 @@ func _get_chase_camera_for_viewed_aircraft() -> Camera3D:
 	if is_instance_valid(current_viewed_aircraft):
 		var ac_cc := current_viewed_aircraft.find_child("CameraController", true, false)
 		if ac_cc and "chase_camera" in ac_cc:
-			var cam := ac_cc.get("chase_camera") as Camera3D
-			if is_instance_valid(cam):
-				return cam
+			var cam_variant: Variant = ac_cc.get("chase_camera")
+			if is_instance_valid(cam_variant) and cam_variant is Camera3D:
+				return cam_variant as Camera3D
 		# Priority 2: a bare CameraChase tripod (no CC, but camera tripod present)
 		var chase_tripod := current_viewed_aircraft.get_node_or_null("CameraChase")
 		if chase_tripod:
@@ -774,7 +855,9 @@ func _get_chase_camera_for_viewed_aircraft() -> Camera3D:
 	# Priority 3: the player camera controller (works when player aircraft is viewed)
 	var cc := _get_player_camera_controller()
 	if cc and "chase_camera" in cc:
-		return cc.get("chase_camera") as Camera3D
+		var cam_variant: Variant = cc.get("chase_camera")
+		if is_instance_valid(cam_variant) and cam_variant is Camera3D:
+			return cam_variant as Camera3D
 	return null
 
 func _toggle_free_camera() -> void:
@@ -951,7 +1034,7 @@ func _get_bridge_camera() -> Camera3D:
 	for node in get_tree().get_nodes_in_group("carrier_cam"):
 		if node != null and node.has_method("get_camera"):
 			var cam = node.call("get_camera")
-			if cam is Camera3D:
+			if is_instance_valid(cam) and cam is Camera3D:
 				return cam as Camera3D
 	return null
 

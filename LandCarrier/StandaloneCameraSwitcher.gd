@@ -75,12 +75,12 @@ func _switch_to_next_live_plane():
 
 func _get_active_camera() -> Camera3D:
 	for cam in _cameras:
-		if cam is Camera3D and is_instance_valid(cam) and cam.current:
+		if is_instance_valid(cam) and cam is Camera3D and cam.current:
 			return cam
 	# Rebuild and try again in case list is stale.
 	_build_camera_list()
 	for cam in _cameras:
-		if cam is Camera3D and is_instance_valid(cam) and cam.current:
+		if is_instance_valid(cam) and cam is Camera3D and cam.current:
 			return cam
 	return null
 
@@ -96,8 +96,9 @@ func _input(event):
 	if not Input.is_action_just_pressed("switch_camera"):
 		return
 	
-	# Only handle when there's no player aircraft - otherwise CameraController on aircraft handles it
-	if get_tree().get_first_node_in_group("aircraft"):
+	# Only handle when there's no player aircraft - otherwise CameraController on aircraft handles it.
+	# An ejected player pilot is also an aircraft camera target.
+	if get_tree().get_first_node_in_group("aircraft") or get_tree().get_first_node_in_group("ejected_pilots"):
 		return
 	
 	# Don't allow manual switching during explosion linger.
@@ -174,6 +175,6 @@ func _get_bridge_camera() -> Camera3D:
 	for node in get_tree().get_nodes_in_group("carrier_cam"):
 		if node != null and node.has_method("get_camera"):
 			var cam = node.call("get_camera")
-			if cam is Camera3D:
+			if is_instance_valid(cam) and cam is Camera3D:
 				return cam as Camera3D
 	return null

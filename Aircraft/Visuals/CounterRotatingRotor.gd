@@ -15,6 +15,10 @@ extends Node3D
 @export var resting_blade_segment_angle_deg: float = 3.0
 @export var powered_blade_segment_angle_deg: float = 0.0
 @export var blade_segment_flat_power: float = 0.85
+@export var medium_collective_negative_droop_threshold: float = 0.5
+@export var high_collective_negative_droop_threshold: float = 0.75
+@export var medium_collective_negative_droop_deg: float = 1.0
+@export var high_collective_negative_droop_deg: float = 2.0
 @export var debug_console_enabled: bool = false
 @export var debug_interval_s: float = 1.0
 
@@ -244,7 +248,13 @@ func _update_blade_segments() -> void:
 
 func _get_current_blade_segment_angle_deg() -> float:
 	var power_t := _smoothstep(0.0, maxf(blade_segment_flat_power, 0.001), _power)
-	return lerpf(resting_blade_segment_angle_deg, powered_blade_segment_angle_deg, power_t)
+	var segment_angle := lerpf(resting_blade_segment_angle_deg, powered_blade_segment_angle_deg, power_t)
+	var collective := clampf(_collective_power, 0.0, 1.0)
+	if collective > high_collective_negative_droop_threshold:
+		segment_angle -= high_collective_negative_droop_deg
+	elif collective > medium_collective_negative_droop_threshold:
+		segment_angle -= medium_collective_negative_droop_deg
+	return segment_angle
 
 
 func _get_stowed_stack_offset(index: int, blade_count: int, unfold_t: float) -> float:

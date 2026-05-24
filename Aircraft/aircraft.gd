@@ -77,7 +77,7 @@ var current_health: float:
 var internal_world_reference : Node3D
 
 const EARTH_GRAVITY = 9.8 # for g-force calculation
-const DEFAULT_COCKPIT_PILOT_SCENE: PackedScene = preload("res://Models/Characters/Pilot.glb")
+const DEFAULT_COCKPIT_PILOT_SCENE: PackedScene = preload("res://Aircraft/CockpitPilot.tscn")
 const DEFAULT_COCKPIT_PILOT_POSE_SCRIPT: Script = preload("res://Aircraft/PilotPose.gd")
 const COCKPIT_PILOT_NODE_NAME: StringName = &"CockpitPilot"
 const AIRCRAFT_DEBRIS_CHUNK_SCRIPT: Script = preload("res://Aircraft/AircraftDebrisChunk.gd")

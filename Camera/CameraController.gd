@@ -30,6 +30,8 @@ var cockpit_script: CockpitCamera
 var chase_script: ChaseCamera
 var cinematic_script: CinematicCamera
 var bridge_script: Node
+var _ejected_pilot_focus: Node3D
+var _pilot_ejected: bool = false
 
 enum CameraMode { COCKPIT, CHASE, CINEMATIC, BRIDGE, DEATHCAM }
 var current_mode: CameraMode = CameraMode.COCKPIT
@@ -55,6 +57,7 @@ var _carrier_center: Node3D
 var _carrier_yaw: float = 0.0
 var _carrier_pitch: float = 0.0
 var _zoom_button_prev_pressed: bool = false
+var _pending_forced_camera: Camera3D = null
 
 func _ready():
 	# Add to camera controller group for easy finding
@@ -177,6 +180,8 @@ func _build_view_targets():
 	_view_targets.append({"aircraft": aircraft, "mode": CameraMode.COCKPIT})
 	_view_targets.append({"aircraft": aircraft, "mode": CameraMode.CHASE})
 	_view_targets.append({"aircraft": aircraft, "mode": CameraMode.CINEMATIC})
+	if _pilot_ejected:
+		return
 	
 	# Bridge (static view)
 	if bridge_camera:
@@ -194,13 +199,81 @@ func _build_view_targets():
 			if _get_camera_for(ac, CameraMode.CINEMATIC):
 				_view_targets.append({"aircraft": ac, "mode": CameraMode.CINEMATIC})
 
+func focus_ejected_pilot(ejected_body: RigidBody3D, pilot_focus: Node3D) -> void:
+	if ejected_body == null or not is_instance_valid(ejected_body):
+		return
+	if _is_ai_or_enemy_aircraft(aircraft) and not bool(aircraft.get_meta("player_ejection_camera_takeover", false)):
+		return
+
+	_detach_camera_nodes_for_ejection()
+	aircraft = ejected_body
+	_ejected_pilot_focus = pilot_focus
+	if cockpit_tripod != null and is_instance_valid(cockpit_tripod):
+		cockpit_camera = cockpit_tripod.find_child("Camera3D", true, false) as Camera3D
+		_apply_cockpit_camera_settings(cockpit_camera)
+	if chase_script:
+		chase_script.setup_follow_target(ejected_body, pilot_focus)
+	if cinematic_script:
+		cinematic_script.setup_follow_target(ejected_body, pilot_focus)
+		cinematic_script.setup_shot()
+	if bridge_script and bridge_script.has_method("set_aircraft_reference"):
+		bridge_script.call("set_aircraft_reference", pilot_focus if pilot_focus != null else ejected_body)
+
+	_pilot_ejected = true
+	_build_view_targets()
+	for i in range(_view_targets.size()):
+		var target: Dictionary = _view_targets[i] as Dictionary
+		if target.get("aircraft", null) == ejected_body and target.get("mode", null) == CameraMode.COCKPIT:
+			_current_view_index = i
+			_switch_to_view_target(target)
+			return
+	_current_view_index = 0 if not _view_targets.is_empty() else -1
+	if _current_view_index >= 0:
+		_switch_to_view_target(_view_targets[_current_view_index])
+
+
+func _detach_camera_nodes_for_ejection() -> void:
+	_reparent_to_camera_survival_parent(self)
+	_reparent_to_camera_survival_parent(chase_tripod)
+	if not _use_external_cinematic:
+		_reparent_to_camera_survival_parent(cinematic_tripod)
+
+
+func _reparent_to_camera_survival_parent(node: Node) -> void:
+	if node == null or not is_instance_valid(node):
+		return
+	var new_parent := get_tree().current_scene
+	if new_parent == null:
+		new_parent = get_tree().root
+	if new_parent == null or node.get_parent() == new_parent:
+		return
+	var old_parent := node.get_parent()
+	if old_parent == null:
+		return
+	if node is Node3D:
+		var node_3d := node as Node3D
+		var saved_global := node_3d.global_transform
+		old_parent.remove_child(node)
+		new_parent.add_child(node)
+		node_3d.global_transform = saved_global
+	else:
+		old_parent.remove_child(node)
+		new_parent.add_child(node)
+
+
+func _is_ai_or_enemy_aircraft(aircraft_node: Node) -> bool:
+	if aircraft_node == null:
+		return false
+	return aircraft_node.is_in_group("ai_aircraft") or aircraft_node.is_in_group("enemies")
+
+
 func _get_camera_for(ac: RigidBody3D, mode: CameraMode) -> Camera3D:
 	"""Get the Camera3D for an aircraft and mode. Works for player or AI aircraft."""
 	if ac == aircraft:
 		match mode:
-			CameraMode.COCKPIT: return cockpit_camera
-			CameraMode.CHASE: return chase_camera
-			CameraMode.CINEMATIC: return cinematic_camera
+			CameraMode.COCKPIT: return _valid_camera(cockpit_camera)
+			CameraMode.CHASE: return _valid_camera(chase_camera)
+			CameraMode.CINEMATIC: return _valid_camera(cinematic_camera)
 			_: return null
 	
 	var tripod_name := ""
@@ -354,43 +427,69 @@ func _switch_to_view_target(target: Dictionary):
 	if mode == CameraMode.CHASE:
 		var ch = _get_chase_script_for(ac)
 		if ch:
-			ch.setup_aircraft(ac)
+			if ac == aircraft and _ejected_pilot_focus != null and is_instance_valid(_ejected_pilot_focus):
+				ch.setup_follow_target(ac, _ejected_pilot_focus)
+			else:
+				ch.setup_aircraft(ac)
 			ch.reset_look()
 	elif mode == CameraMode.CINEMATIC:
-		var tripod = ac.get_node_or_null("CameraCinematic") as Node3D
-		if tripod and not tripod.get_script():
-			tripod.set_script(preload("res://Camera/CinematicCamera.gd"))
-			var ci = tripod as CinematicCamera
-			if ci:
-				ci.setup_aircraft(ac)
-		var ci = tripod as CinematicCamera if tripod else null
+		var ci: CinematicCamera = cinematic_script if ac == aircraft else null
+		if ci == null:
+			var tripod = ac.get_node_or_null("CameraCinematic") as Node3D
+			if tripod and not tripod.get_script():
+				tripod.set_script(preload("res://Camera/CinematicCamera.gd"))
+				ci = tripod as CinematicCamera
+				if ci:
+					ci.setup_aircraft(ac)
+			else:
+				ci = tripod as CinematicCamera if tripod else null
 		if ci:
-			ci.setup_aircraft(ac)
+			if ac == aircraft and _ejected_pilot_focus != null and is_instance_valid(_ejected_pilot_focus):
+				ci.setup_follow_target(ac, _ejected_pilot_focus)
+			else:
+				ci.setup_aircraft(ac)
 			ci.setup_shot()
 	
-	cam.current = true
+	_force_current_camera(cam)
 	if mode == CameraMode.COCKPIT:
 		update_camera_zoom(true, cockpit_camera)
 	else:
 		cam.fov = normal_fov
 
 func _deactivate_all_cameras():
-	"""Deactivate all cameras from player, bridge, and AI aircraft."""
-	if cockpit_camera:
-		cockpit_camera.current = false
-	if chase_camera:
-		chase_camera.current = false
-	if cinematic_camera:
-		cinematic_camera.current = false
-	if bridge_camera:
-		bridge_camera.current = false
-	for enemy in get_tree().get_nodes_in_group("enemies"):
-		if enemy is RigidBody3D and is_instance_valid(enemy):
-			var ac = enemy as RigidBody3D
-			for m in [CameraMode.COCKPIT, CameraMode.CHASE, CameraMode.CINEMATIC]:
-				var c = _get_camera_for(ac, m)
-				if c:
-					c.current = false
+	"""Deactivate every known Camera3D, including stale cameras on abandoned aircraft."""
+	var root := get_tree().root
+	if root == null:
+		return
+	_deactivate_cameras_recursive(root)
+
+
+func _deactivate_cameras_recursive(node: Node) -> void:
+	if node is Camera3D:
+		(node as Camera3D).current = false
+	for child in node.get_children():
+		_deactivate_cameras_recursive(child)
+
+
+func _force_current_camera(camera: Camera3D) -> void:
+	if not is_instance_valid(camera):
+		return
+	var viewport := get_viewport()
+	if viewport:
+		viewport.audio_listener_enable_3d = true
+	_pending_forced_camera = camera
+	camera.current = false
+	camera.current = true
+	call_deferred("_force_current_camera_deferred", camera)
+
+
+func _force_current_camera_deferred(camera: Camera3D) -> void:
+	if not is_instance_valid(camera):
+		return
+	if camera != _pending_forced_camera:
+		return
+	camera.current = false
+	camera.current = true
 
 func switch_to_camera(mode):
 	## Accepts either a CameraMode enum value or an int (0=COCKPIT,1=CHASE,2=CINEMATIC,3=BRIDGE).
@@ -468,16 +567,22 @@ func get_current_camera() -> Camera3D:
 		var ac = t.get("aircraft", null)
 		var mode: CameraMode = t.get("mode", CameraMode.COCKPIT)
 		if mode == CameraMode.BRIDGE:
-			return bridge_camera
+			return _valid_camera(bridge_camera)
 		var c = _get_camera_for(ac, mode)
-		if c:
+		if is_instance_valid(c):
 			return c
 	match current_mode:
-		CameraMode.COCKPIT: return cockpit_camera
-		CameraMode.CHASE: return chase_camera
-		CameraMode.CINEMATIC: return cinematic_camera
-		CameraMode.BRIDGE: return bridge_camera
-		_: return cockpit_camera
+		CameraMode.COCKPIT: return _valid_camera(cockpit_camera)
+		CameraMode.CHASE: return _valid_camera(chase_camera)
+		CameraMode.CINEMATIC: return _valid_camera(cinematic_camera)
+		CameraMode.BRIDGE: return _valid_camera(bridge_camera)
+		_: return _valid_camera(cockpit_camera)
+
+
+func _valid_camera(camera: Variant) -> Camera3D:
+	if is_instance_valid(camera):
+		return camera as Camera3D
+	return null
 
 func update_camera_zoom(instant: bool = false, camera_override: Camera3D = null):
 	var target_camera: Camera3D = camera_override
@@ -499,6 +604,8 @@ func update_camera_zoom(instant: bool = false, camera_override: Camera3D = null)
 		fov_tween.tween_property(target_camera, "fov", target_fov, 0.2).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 
 func activate_deathcam(target_pos: Vector3):
+	if _pilot_ejected:
+		return
 	deathcam_active = true
 	deathcam_target_position = target_pos
 	deathcam_time = 0.0
@@ -557,8 +664,8 @@ func update_deathcam(delta):
 		cleanup_deathcam()
 
 func cleanup_deathcam():
-	# Remove the destroyed aircraft
-	if aircraft:
+	# Remove the destroyed aircraft (not the ejected pilot body)
+	if not _pilot_ejected and aircraft:
 		aircraft.queue_free()
 	
 	# Reset camera controller
@@ -570,7 +677,9 @@ func cleanup_deathcam():
 func update_carrier_cinematic(delta: float) -> void:
 	if not cinematic_camera:
 		return
-	if not _carrier_center:
+	if _ejected_pilot_focus != null and not is_instance_valid(_ejected_pilot_focus):
+		_ejected_pilot_focus = null
+	if not _carrier_center and _ejected_pilot_focus == null:
 		# Without a center, just keep current placement
 		if carrier_orbit_speed != 0.0:
 			_carrier_yaw += carrier_orbit_speed * delta
@@ -581,7 +690,7 @@ func update_carrier_cinematic(delta: float) -> void:
 		_carrier_yaw += carrier_orbit_speed * delta
 	
 	# Compute orbit position around center on horizontal plane at desired height
-	var center_pos = _carrier_center.global_position
+	var center_pos = _ejected_pilot_focus.global_position if _ejected_pilot_focus != null else _carrier_center.global_position
 	var offset = Vector3(cos(_carrier_yaw) * carrier_orbit_radius, carrier_orbit_height, sin(_carrier_yaw) * carrier_orbit_radius)
 	var cam_pos = center_pos + offset
 	cinematic_camera.global_position = cam_pos

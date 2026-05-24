@@ -1,0 +1,15 @@
+[gd_scene format=3 uid="uid://bpp7y7xl7585y"]
+
+[ext_resource type="Script" uid="uid://c5p7knajxhkg6" path="res://Aircraft/PilotPose.gd" id="1_pose"]
+[ext_resource type="PackedScene" uid="uid://b61x60dssbo1w" path="res://pilot 2 rigged.glb" id="2_pilot"]
+
+[node name="CockpitPilot2" type="Node3D" unique_id=1811223366]
+script = ExtResource("1_pose")
+upper_leg_x = 0.0
+lower_leg_x = 0.0
+upper_leg_spread = 0.0
+hide_head_in_cockpit = true
+cockpit_hidden_mesh_names = PackedStringArray("Pilot", "PilotMesh_002")
+
+[node name="Pilot" parent="." unique_id=1351064058 instance=ExtResource("2_pilot")]
+transform = Transform3D(-4.3711385e-08, 0, -0.99999994, 0, 1, 0, 0.99999994, 0, -4.3711385e-08, -0.039, 0, 0)

@@ -1,0 +1,7 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="PackedScene" uid="uid://cxrxexemcmxew" path="res://ejection seat.glb" id="1_seat_model"]
+
+[node name="EjectionSeat" type="Node3D"]
+
+[node name="Model" parent="." instance=ExtResource("1_seat_model")]

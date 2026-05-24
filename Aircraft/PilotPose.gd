@@ -95,6 +95,9 @@ extends Node3D
 @export var hide_head_in_cockpit: bool = true
 @export var cockpit_camera_path: NodePath = NodePath("../CameraCockpit/Camera3D")
 @export var cockpit_hidden_mesh_names: PackedStringArray = PackedStringArray(["Pilot"])
+@export_group("Ejection Poses")
+@export var initial_pose_name: StringName = &"sitting"
+@export var pose_blend_time_s: float = 0.18
 
 var _skeleton: Skeleton3D = null
 var _ready_done: bool = false
@@ -102,6 +105,37 @@ var _foot_links: Array[Dictionary] = []
 var _cockpit_camera: Camera3D = null
 var _cockpit_hidden_nodes: Array[Node3D] = []
 var _last_head_hidden: bool = false
+var _pose_tween: Tween = null
+
+const BONE_ALIASES := {
+	"Abdomen": ["mixamorig_Spine", "Waist", "Spine01"],
+	"Torso": ["mixamorig_Spine1", "mixamorig_Spine2", "Spine01", "Spine02"],
+	"Chest": ["mixamorig_Spine2", "Spine02"],
+	"Neck": ["mixamorig_Neck", "NeckTwist01", "NeckTwist02"],
+	"Head": ["mixamorig_Head", "Head"],
+	"Shoulder.L": ["mixamorig_LeftShoulder", "L_Clavicle"],
+	"Shoulder.R": ["mixamorig_RightShoulder", "R_Clavicle"],
+	"UpperArm.L": ["mixamorig_LeftArm", "L_Upperarm"],
+	"UpperArm.R": ["mixamorig_RightArm", "R_Upperarm"],
+	"LowerArm.L": ["mixamorig_LeftForeArm", "L_Forearm"],
+	"LowerArm.R": ["mixamorig_RightForeArm", "R_Forearm"],
+	"Wrist.L": ["mixamorig_LeftHand", "L_Hand"],
+	"Wrist.R": ["mixamorig_RightHand", "R_Hand"],
+	"UpperLeg.L": ["mixamorig_LeftUpLeg", "L_Thigh"],
+	"UpperLeg.R": ["mixamorig_RightUpLeg", "R_Thigh"],
+	"LowerLeg.L": ["mixamorig_LeftLeg", "L_Calf"],
+	"LowerLeg.R": ["mixamorig_RightLeg", "R_Calf"],
+	"Foot.L": ["mixamorig_LeftFoot", "L_Foot"],
+	"Foot.R": ["mixamorig_RightFoot", "R_Foot"],
+	"Index1.L": ["mixamorig_LeftHandIndex1"],
+	"Index2.L": ["mixamorig_LeftHandIndex2"],
+	"Index3.L": ["mixamorig_LeftHandIndex3"],
+	"Index4.L": ["mixamorig_LeftHandIndex4"],
+	"Index1.R": ["mixamorig_RightHandIndex1"],
+	"Index2.R": ["mixamorig_RightHandIndex2"],
+	"Index3.R": ["mixamorig_RightHandIndex3"],
+	"Index4.R": ["mixamorig_RightHandIndex4"],
+}
 
 
 func _ready() -> void:
@@ -113,7 +147,24 @@ func _ready() -> void:
 	_disable_animation_players(self)
 	_build_foot_links()
 	_ready_done = true
-	_apply_pose()
+	process_priority = 1
+	if OS.is_debug_build():
+		var names: Array[String] = []
+		for i in range(_skeleton.get_bone_count()):
+			names.append(_skeleton.get_bone_name(i))
+		print("[PilotPose] Skeleton bones (", _skeleton.get_bone_count(), "): ", names)
+		var ul_idx := _find_bone_index("UpperLeg.L")
+		if ul_idx >= 0:
+			print("[PilotPose] L_Thigh rest pose: ", _skeleton.get_bone_rest(ul_idx))
+			print("[PilotPose] L_Thigh global rest: ", _skeleton.get_bone_global_rest(ul_idx))
+	if initial_pose_name != &"":
+		var values := _get_pose_values(initial_pose_name)
+		if not values.is_empty():
+			_apply_pose_values(values, 0.0)
+		else:
+			_apply_pose()
+	else:
+		_apply_pose()
 	_cache_cockpit_visibility_nodes()
 	_update_head_visibility(true)
 	set_process(not Engine.is_editor_hint())
@@ -122,6 +173,7 @@ func _ready() -> void:
 func _process(_delta: float) -> void:
 	if Engine.is_editor_hint():
 		return
+	_apply_pose()
 	_update_head_visibility(false)
 
 
@@ -166,10 +218,99 @@ func _apply_pose() -> void:
 	_set_rot("Head", head_pitch, 0.0, 0.0)
 
 
+func set_ejection_pose(pose_name: StringName, blend_time_s: float = -1.0) -> void:
+	var values := _get_pose_values(pose_name)
+	if values.is_empty():
+		return
+	var duration := pose_blend_time_s if blend_time_s < 0.0 else blend_time_s
+	_apply_pose_values(values, maxf(duration, 0.0))
+
+
+func _get_pose_values(pose_name: StringName) -> Dictionary:
+	match pose_name:
+		&"sitting":
+			return _make_pose(0.0, 0.0, 0.0, 3.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 65.0, 0.0, 0.0, 2.0, 0.0, 20.0, 0.0, 0.0)
+		&"seat_firing":
+			return _make_pose(70.0, 72.0, 4.0, -6.0, -10.0, -8.0, 8.0, 4.0, -12.0, 18.0, -10.0, 92.0, 8.0, -6.0, 0.0, 0.0, 55.0, -3.0, -7.0)
+		&"falling":
+			return _make_pose(20.0, 18.0, 10.0, 4.0, 8.0, 18.0, 28.0, -16.0, 34.0, 42.0, -28.0, 34.0, 8.0, 8.0, 6.0, 8.0, 24.0, 4.0, 8.0)
+		&"parachute":
+			if _is_pilot2_rig():
+				# Rest pose is sitting; negative leg values counteract it to hang straight down.
+				return _make_pose(-65.0, -55.0, 15.0, 5.0, -5.0, -25.0, 0.0, 0.0, -60.0, 25.0, 0.0, 55.0, 0.0, 0.0, 0.0, 0.0, 65.0, -10.0, -8.0)
+			if _is_mixamo_rig():
+				return _make_pose(180.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 135.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+			return _make_pose(90.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 45.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+		&"grounded":
+			# Standing, slightly slumped, waiting for rescue. Tune visually.
+			return _make_pose(0.0, 0.0, 8.0, 5.0, 4.0, -10.0, 6.0, 0.0, 15.0, 0.0, 38.0, 22.0, 0.0, 0.0, 0.0, 0.0, 12.0, 8.0, 0.0)
+		_:
+			return {}
+
+
+func _make_pose(
+	new_upper_leg_x: float,
+	new_lower_leg_x: float,
+	new_upper_leg_spread: float,
+	new_abdomen_pitch: float,
+	new_torso_pitch: float,
+	new_shoulder_x: float,
+	new_shoulder_y: float,
+	new_shoulder_z: float,
+	new_upper_arm_x: float,
+	new_upper_arm_y: float,
+	new_upper_arm_z: float,
+	new_lower_arm_x: float,
+	new_lower_arm_y: float,
+	new_lower_arm_z: float,
+	new_wrist_x: float,
+	new_wrist_y: float,
+	new_finger_curl: float,
+	new_neck_pitch: float,
+	new_head_pitch: float
+) -> Dictionary:
+	return {
+		"upper_leg_x": new_upper_leg_x,
+		"lower_leg_x": new_lower_leg_x,
+		"upper_leg_spread": new_upper_leg_spread,
+		"abdomen_pitch": new_abdomen_pitch,
+		"torso_pitch": new_torso_pitch,
+		"shoulder_x": new_shoulder_x,
+		"shoulder_y": new_shoulder_y,
+		"shoulder_z": new_shoulder_z,
+		"upper_arm_x": new_upper_arm_x,
+		"upper_arm_y": new_upper_arm_y,
+		"upper_arm_z": new_upper_arm_z,
+		"lower_arm_x": new_lower_arm_x,
+		"lower_arm_y": new_lower_arm_y,
+		"lower_arm_z": new_lower_arm_z,
+		"wrist_x": new_wrist_x,
+		"wrist_y": new_wrist_y,
+		"finger_curl": new_finger_curl,
+		"neck_pitch": new_neck_pitch,
+		"head_pitch": new_head_pitch,
+	}
+
+
+func _apply_pose_values(values: Dictionary, blend_time_s: float) -> void:
+	if _pose_tween != null and _pose_tween.is_valid():
+		_pose_tween.kill()
+	if blend_time_s <= 0.0 or Engine.is_editor_hint():
+		for key_variant in values.keys():
+			set(String(key_variant), float(values[key_variant]))
+		_apply_pose()
+		return
+
+	_pose_tween = create_tween()
+	for key_variant in values.keys():
+		var property_name := String(key_variant)
+		_pose_tween.parallel().tween_property(self, property_name, float(values[key_variant]), blend_time_s).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+
+
 func _set_rot(bone_name: String, x_deg: float, y_deg: float, z_deg: float) -> void:
 	if _skeleton == null:
 		return
-	var idx: int = _skeleton.find_bone(bone_name)
+	var idx: int = _find_bone_index(bone_name)
 	if idx < 0:
 		return
 	var q: Quaternion = Quaternion.from_euler(Vector3(
@@ -178,6 +319,33 @@ func _set_rot(bone_name: String, x_deg: float, y_deg: float, z_deg: float) -> vo
 		deg_to_rad(z_deg)
 	))
 	_skeleton.set_bone_pose_rotation(idx, q)
+
+
+func _find_bone_index(bone_name: String) -> int:
+	if _skeleton == null:
+		return -1
+
+	var idx: int = _skeleton.find_bone(bone_name)
+	if idx >= 0:
+		return idx
+
+	var aliases_variant: Variant = BONE_ALIASES.get(bone_name, [])
+	if aliases_variant is Array:
+		for alias_variant in aliases_variant:
+			var alias := String(alias_variant)
+			idx = _skeleton.find_bone(alias)
+			if idx >= 0:
+				return idx
+
+	return -1
+
+
+func _is_mixamo_rig() -> bool:
+	return _skeleton != null and _skeleton.find_bone("mixamorig_Hips") >= 0
+
+
+func _is_pilot2_rig() -> bool:
+	return _skeleton != null and _skeleton.find_bone("L_Thigh") >= 0 and _skeleton.find_bone("R_Thigh") >= 0
 
 
 func _build_foot_links() -> void:
@@ -190,8 +358,8 @@ func _add_foot_link(lower_leg_end_name: String, foot_name: String, pt_name: Stri
 	if _skeleton == null:
 		return
 
-	var lower_leg_end_idx: int = _skeleton.find_bone(lower_leg_end_name)
-	var foot_idx: int = _skeleton.find_bone(foot_name)
+	var lower_leg_end_idx: int = _find_bone_index(lower_leg_end_name)
+	var foot_idx: int = _find_bone_index(foot_name)
 	if lower_leg_end_idx < 0 or foot_idx < 0:
 		return
 
@@ -208,7 +376,7 @@ func _add_foot_link(lower_leg_end_name: String, foot_name: String, pt_name: Stri
 		"foot_offset": lower_leg_end_rest.affine_inverse() * foot_rest
 	}
 
-	var pt_idx: int = _skeleton.find_bone(pt_name)
+	var pt_idx: int = _find_bone_index(pt_name)
 	if pt_idx >= 0:
 		var pt_parent_idx: int = _skeleton.get_bone_parent(pt_idx)
 		if pt_parent_idx >= 0:
@@ -280,9 +448,9 @@ func _find_skeleton(node: Node) -> Skeleton3D:
 func _disable_animation_players(node: Node) -> void:
 	if node is AnimationPlayer:
 		var ap: AnimationPlayer = node as AnimationPlayer
-		ap.stop()
-		if not Engine.is_editor_hint():
-			ap.active = false
+		print("[PilotPose] Disabling AnimationPlayer: ", ap.name, " autoplay='", ap.autoplay, "'")
+		ap.stop(false)
+		ap.active = false
 	for child_variant in node.get_children():
 		var child: Node = child_variant as Node
 		if child != null:

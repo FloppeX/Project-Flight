@@ -1,4 +1,4 @@
-[gd_scene load_steps=46 format=3 uid="uid://cyi3y5qogjcud"]
+[gd_scene load_steps=48 format=3 uid="uid://cyi3y5qogjcud"]
 
 [ext_resource type="Script" uid="uid://c4ltq2v6fji05" path="res://Aircraft/aircraft.gd" id="1_e8t1h"]
 [ext_resource type="PackedScene" uid="uid://cadi81fcpvmuc" path="res://Projectiles/Explosion/explosion.tscn" id="2_x73up"]
@@ -40,6 +40,8 @@
 [ext_resource type="Script" uid="uid://dkrq0ip0i4pq4" path="res://Aircraft/DamageEffects.gd" id="36_dmgfx"]
 [ext_resource type="AudioStream" uid="uid://o2xkkc5oyh4w" path="res://Audio/cockpit_interior_4.wav" id="38_cpit"]
 [ext_resource type="PackedScene" path="res://Aircraft/CockpitPilot.tscn" id="90_cpilot"]
+[ext_resource type="PackedScene" path="res://Aircraft/Visuals/EjectionSeat.tscn" id="92_ejection_seat"]
+[ext_resource type="Script" uid="uid://baexawx30vqgf" path="res://Aircraft/EjectionSequence.gd" id="93_ejection_sequence"]
 
 [sub_resource type="PhysicsMaterial" id="PhysicsMaterial_lowfriction"]
 friction = 0.1
@@ -209,6 +211,12 @@ transform = Transform3D(-1, 0, -8.74213e-08, 0, 0.999983, 0, 8.74228e-08, 0, -0.
 [node name="CockpitPilot" parent="." instance=ExtResource("90_cpilot")]
 transform = Transform3D(0.999958, 0, -0.00842568, 0, 0.999949, 0, 0.00839809, 0, 0.999921, 0, -0.8102, 2.55929)
 cockpit_hidden_mesh_names = PackedStringArray("Pilot")
+
+[node name="EjectionSeat" parent="." instance=ExtResource("92_ejection_seat")]
+transform = Transform3D(0.999958, 0, -0.00842568, 0, 0.999949, 0, 0.00839809, 0, 0.999921, 0, -0.3779195, 2.6171486)
+
+[node name="EjectionSequence" type="Node" parent="."]
+script = ExtResource("93_ejection_sequence")
 
 [node name="CameraTarget" type="Node3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.906776, 4.87997)
