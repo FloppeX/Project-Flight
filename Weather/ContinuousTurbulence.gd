@@ -440,17 +440,17 @@ func get_active_camera() -> Camera3D:
 			continue
 		if camera_controller.has_method("get_current_camera"):
 			var current_camera = camera_controller.get_current_camera()
-			if current_camera is Camera3D and (current_camera as Camera3D).current:
+			if is_instance_valid(current_camera) and current_camera is Camera3D and (current_camera as Camera3D).current:
 				return current_camera as Camera3D
-		if camera_controller.cockpit_camera and camera_controller.cockpit_camera.current:
+		if is_instance_valid(camera_controller.cockpit_camera) and camera_controller.cockpit_camera.current:
 			return camera_controller.cockpit_camera
-		elif camera_controller.chase_camera and camera_controller.chase_camera.current:
+		elif is_instance_valid(camera_controller.chase_camera) and camera_controller.chase_camera.current:
 			return camera_controller.chase_camera
-		elif camera_controller.cinematic_camera and camera_controller.cinematic_camera.current:
+		elif is_instance_valid(camera_controller.cinematic_camera) and camera_controller.cinematic_camera.current:
 			return camera_controller.cinematic_camera
 
 	for camera in get_tree().get_nodes_in_group("camera"):
-		if camera is Camera3D and camera.current:
+		if is_instance_valid(camera) and camera is Camera3D and camera.current:
 			return camera as Camera3D
 
 	return null

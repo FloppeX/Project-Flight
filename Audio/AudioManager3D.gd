@@ -54,6 +54,7 @@ var cockpit_interior_player: AudioStreamPlayer
 var bridge_interior_player: AudioStreamPlayer
 var carrier: Node3D
 var _aircraft_audio_destroyed: bool = false
+var _ejected_pilot_audio_active: bool = false
 
 func _ready():
 	add_to_group("audio_manager_3d")
@@ -64,9 +65,9 @@ func _ready():
 			aircraft = get_tree().get_first_node_in_group("aircraft")
 
 	if not camera_controller:
-		camera_controller = get_parent().find_child("CameraController", true, false)
+		camera_controller = get_parent().find_child("CameraController", true, false) as CameraController
 		if not camera_controller:
-			camera_controller = get_tree().get_first_node_in_group("camera_controller")
+			camera_controller = get_tree().get_first_node_in_group("camera_controller") as CameraController
 
 	if not aircraft or not camera_controller:
 		return
@@ -189,6 +190,12 @@ func _process(delta):
 	if not has_authority:
 		return
 
+	if _ejected_pilot_audio_active:
+		if current_audio_bus != exterior_audio_bus:
+			switch_to_exterior_audio()
+		_sync_dynamic_audio_sources()
+		return
+
 	if current_camera:
 		# Check bridge camera separately - it gets its own audio environment
 		if camera_controller and camera_controller.bridge_camera == current_camera:
@@ -216,12 +223,16 @@ func _process(delta):
 	_sync_dynamic_audio_sources()
 
 func is_cockpit_camera_active() -> bool:
+	if _ejected_pilot_audio_active:
+		return false
 	if not camera_controller or not camera_controller.cockpit_camera:
 		return false
 
 	return camera_controller.cockpit_camera.current and _is_aircraft_audio_alive()
 
 func is_bridge_camera_active() -> bool:
+	if _ejected_pilot_audio_active:
+		return false
 	if not camera_controller or not camera_controller.bridge_camera:
 		return false
 
@@ -320,6 +331,8 @@ func get_current_camera() -> Camera3D:
 	return current_camera
 
 func is_camera_inside_aircraft(camera: Camera3D) -> bool:
+	if _ejected_pilot_audio_active:
+		return false
 	if not aircraft or not camera:
 		return false
 
@@ -464,6 +477,17 @@ func force_interior_audio():
 
 func force_exterior_audio():
 	switch_to_exterior_audio()
+
+func set_ejected_pilot_audio_active(active: bool = true) -> void:
+	_ejected_pilot_audio_active = active
+	if active:
+		if cockpit_interior_player:
+			cockpit_interior_player.volume_db = cockpit_interior_silence_db
+			if cockpit_interior_player.playing:
+				cockpit_interior_player.stop()
+		if bridge_interior_player:
+			bridge_interior_player.volume_db = bridge_interior_silence_db
+		switch_to_exterior_audio()
 
 func is_currently_inside() -> bool:
 	return is_inside_aircraft

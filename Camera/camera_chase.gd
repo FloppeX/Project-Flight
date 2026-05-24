@@ -10,6 +10,7 @@ class_name ChaseCamera
 @export var orbit_pitch_deg: float = 0.0
 
 var aircraft: RigidBody3D
+var focus_target: Node3D
 var orbit_yaw: float = 0.0
 var current_offset: Vector3 = Vector3.ZERO
 
@@ -27,6 +28,8 @@ func _get_horizontal_forward() -> Vector3:
 	return Vector3.FORWARD
 
 func _get_orbit_center() -> Vector3:
+	if focus_target != null and is_instance_valid(focus_target):
+		return focus_target.global_position
 	return aircraft.global_position
 
 func _ready():
@@ -34,7 +37,11 @@ func _ready():
 	top_level = true
 
 func setup_aircraft(aircraft_node: RigidBody3D):
+	setup_follow_target(aircraft_node, null)
+
+func setup_follow_target(aircraft_node: RigidBody3D, target_node: Node3D = null) -> void:
 	aircraft = aircraft_node
+	focus_target = target_node
 	if aircraft:
 		var forward_flat: Vector3 = _get_horizontal_forward()
 		orbit_yaw = atan2(-forward_flat.x, -forward_flat.z)
