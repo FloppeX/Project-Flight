@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://n52lxcva22h3"
-path="res://.godot/imported/Pilot 2 - slow Run.fbx-327bbb6e292614e0180fb090ebc9b29a.scn"
+uid="uid://dvbxm5b660wol"
+path="res://.godot/imported/Officer female.fbx-a727775e63512c24656ea3e2d7ff8198.scn"
 
 [deps]
 
-source_file="res://Pilot 2 - slow Run.fbx"
-dest_files=["res://.godot/imported/Pilot 2 - slow Run.fbx-327bbb6e292614e0180fb090ebc9b29a.scn"]
+source_file="res://Officer female.fbx"
+dest_files=["res://.godot/imported/Officer female.fbx-a727775e63512c24656ea3e2d7ff8198.scn"]
 
 [params]
 

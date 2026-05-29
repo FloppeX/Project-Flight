@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://bm5tai8s7fvf"
-path="res://.godot/imported/Pilot 2 - Salute.fbx-e371c73e7e7a29fe55078de53ec3c01a.scn"
+uid="uid://c3qbdi3q3yl34"
+path="res://.godot/imported/pilot - idle.fbx-d9c8e3a3ec4beaf5dcd53bf11e96a967.scn"
 
 [deps]
 
-source_file="res://Pilot 2 - Salute.fbx"
-dest_files=["res://.godot/imported/Pilot 2 - Salute.fbx-e371c73e7e7a29fe55078de53ec3c01a.scn"]
+source_file="res://pilot - idle.fbx"
+dest_files=["res://.godot/imported/pilot - idle.fbx-d9c8e3a3ec4beaf5dcd53bf11e96a967.scn"]
 
 [params]
 

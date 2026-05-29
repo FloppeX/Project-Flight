@@ -448,22 +448,38 @@ func _carry_deck_passengers(current_transform: Transform3D, old_transform: Trans
 	if current_transform.is_equal_approx(old_transform):
 		return
 	var transform_delta: Transform3D = current_transform * old_transform.affine_inverse()
+	var carried_nodes: Dictionary = {}
 	for group in ["aircraft", "ai_aircraft", "tractor_bot"]:
 		for node in get_tree().get_nodes_in_group(group):
 			if not is_instance_valid(node) or not node is Node3D:
 				continue
-			var n := node as Node
-			var has_brake := n.has_meta("parking_brake") and bool(n.get_meta("parking_brake"))
-			var has_transport := n.has_meta("carrier_transport_mode") and bool(n.get_meta("carrier_transport_mode"))
-			var has_deck_follow := n.has_meta("carrier_deck_follow") and bool(n.get_meta("carrier_deck_follow"))
-			var helicopter_deck_ready := n.has_meta("helicopter_deck_takeoff_ready") and bool(n.get_meta("helicopter_deck_takeoff_ready"))
-			var on_carrier := has_transport or helicopter_deck_ready or has_deck_follow
-			var on_catapult := n.has_meta("controls_disabled") and bool(n.get_meta("controls_disabled")) and not has_brake and not has_transport
+			var instance_id: int = node.get_instance_id()
+			if carried_nodes.has(instance_id):
+				continue
+			carried_nodes[instance_id] = true
+			var n: Node = node as Node
+			var has_brake: bool = n.has_meta("parking_brake") and bool(n.get_meta("parking_brake"))
+			var has_transport: bool = n.has_meta("carrier_transport_mode") and bool(n.get_meta("carrier_transport_mode"))
+			var has_deck_follow: bool = n.has_meta("carrier_deck_follow") and bool(n.get_meta("carrier_deck_follow"))
+			var helicopter_deck_ready: bool = n.has_meta("helicopter_deck_takeoff_ready") and bool(n.get_meta("helicopter_deck_takeoff_ready"))
+			var is_helicopter: bool = _is_helicopter_deck_passenger(n)
+			var on_carrier: bool = has_transport or helicopter_deck_ready or has_deck_follow
+			if is_helicopter:
+				on_carrier = has_transport or helicopter_deck_ready or has_brake
+			var on_catapult: bool = n.has_meta("controls_disabled") and bool(n.get_meta("controls_disabled")) and not has_brake and not has_transport
 			if on_carrier or on_catapult:
 				(node as Node3D).global_transform = transform_delta * (node as Node3D).global_transform
-		for joint in get_tree().get_nodes_in_group("carrier_pin_joint"):
-			if is_instance_valid(joint) and joint is Node3D:
-				(joint as Node3D).global_transform = transform_delta * (joint as Node3D).global_transform
+	for joint in get_tree().get_nodes_in_group("carrier_pin_joint"):
+		if is_instance_valid(joint) and joint is Node3D:
+			(joint as Node3D).global_transform = transform_delta * (joint as Node3D).global_transform
+
+func _is_helicopter_deck_passenger(node: Node) -> bool:
+	if node == null:
+		return false
+	if bool(node.get_meta("is_helicopter", false)):
+		return true
+	var role: String = str(node.get_meta("aircraft_role", "")).to_lower()
+	return role.find("helicopter") >= 0
 
 func _update_tread_visuals(delta: float) -> void:
 	_tread_steer = lerp(_tread_steer, _current_steer, delta * 1.5)

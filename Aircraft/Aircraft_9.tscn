@@ -37,6 +37,7 @@
 [ext_resource type="Script" uid="uid://cqw36derm5yh1" path="res://Weapons/Turrets/turret_controller.gd" id="37_turret_controller"]
 [ext_resource type="PackedScene" uid="uid://x4bqvteq35p5" path="res://Weapons/Turrets/helicopter_side_gun_turret.tscn" id="38_side_gun_turret"]
 [ext_resource type="PackedScene" path="res://Weapons/Guns/Turrets/10mm_machine_gun_turret_weapon.tscn" id="39_side_gun_weapon"]
+[ext_resource type="Script" path="res://AI/HelicopterPilot.gd" id="40_heli_ai"]
 
 [sub_resource type="PhysicsMaterial" id="PhysicsMaterial_lowfriction"]
 friction = 0.75
@@ -320,8 +321,12 @@ cockpit_shadow_disable_paths = Array[NodePath]([NodePath("../aircraft_9/Fuselage
 [node name="AIPilot" type="Node" parent="." unique_id=1924980879]
 script = ExtResource("28_ai_pilot")
 
+[node name="HelicopterPilot" type="Node" parent="."]
+script = ExtResource("40_heli_ai")
+
 [node name="AIToggle" type="Node" parent="." unique_id=611990186]
 script = ExtResource("27_ai_toggle")
+ai_enabled_at_start = false
 
 [node name="DamageEffects" type="Node" parent="." unique_id=1773106404]
 script = ExtResource("30_damage")

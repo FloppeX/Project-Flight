@@ -1,15 +1,14 @@
-[gd_scene load_steps=3 format=3]
+[gd_scene format=3 uid="uid://ba1hsntx8a01y"]
 
-[ext_resource type="Script" path="res://Aircraft/PilotPose.gd" id="1_pose"]
-[ext_resource type="PackedScene" path="res://pilot 2 rigged.glb" id="2_pilot"]
+[ext_resource type="Script" uid="uid://c5p7knajxhkg6" path="res://Aircraft/PilotPose.gd" id="1_pose"]
+[ext_resource type="PackedScene" uid="uid://bnxo3mvh7eqk2" path="res://pilot 2 - sitting in cockpit.glb" id="2_pilot"]
 
-[node name="CockpitPilot" type="Node3D"]
+[node name="CockpitPilot" type="Node3D" unique_id=1638122682]
+process_priority = 1
 script = ExtResource("1_pose")
 upper_leg_x = 0.0
 lower_leg_x = 0.0
 upper_leg_spread = 0.0
-hide_head_in_cockpit = true
-cockpit_hidden_mesh_names = PackedStringArray("Pilot", "PilotMesh_002")
+cockpit_hidden_mesh_names = PackedStringArray()
 
-[node name="Pilot" parent="." instance=ExtResource("2_pilot")]
-transform = Transform3D(-4.371139e-08, 0, -1, 0, 1, 0, 1, 0, -4.371139e-08, 0, 0, 0)
+[node name="Pilot" parent="." unique_id=1845964379 instance=ExtResource("2_pilot")]

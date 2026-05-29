@@ -205,7 +205,8 @@ func _spawn_custom_explosion(hit_ground: bool, hit_aircraft: bool) -> void:
 	explosion_node.knockback_impulse_at_center = explosion_knockback_impulse_at_center
 	explosion_node.knockback_impulse_at_edge = explosion_knockback_impulse_at_edge
 	explosion_node.use_line_of_sight = false
-	explosion_node.source_attacker = shooter
+	if is_instance_valid(shooter):
+		explosion_node.source_attacker = shooter
 	if hit_ground:
 		explosion_node.create_scorch_mark()
 

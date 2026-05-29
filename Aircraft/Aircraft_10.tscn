@@ -35,6 +35,7 @@
 [ext_resource type="PackedScene" uid="uid://dsnc8jllg42ph" path="res://Weapons/hardpoint.tscn" id="40_hardpoint"]
 [ext_resource type="PackedScene" uid="uid://cn0n757m62w08" path="res://Weapons/RocketPod/rocket_pod.tscn" id="41_rocket"]
 [ext_resource type="PackedScene" path="res://Weapons/Guns/Hardpoint/15mm_machine_gun_hardpoint.tscn" id="42_15mm"]
+[ext_resource type="Script" path="res://AI/HelicopterPilot.gd" id="43_heli_ai"]
 
 [sub_resource type="PhysicsMaterial" id="PhysicsMaterial_lowfriction"]
 friction = 0.75
@@ -282,8 +283,12 @@ zoom_distance = 100.0
 [node name="AIPilot" type="Node" parent="." unique_id=1924980879]
 script = ExtResource("28_ai_pilot")
 
+[node name="HelicopterPilot" type="Node" parent="."]
+script = ExtResource("43_heli_ai")
+
 [node name="AIToggle" type="Node" parent="." unique_id=611990186]
 script = ExtResource("27_ai_toggle")
+ai_enabled_at_start = false
 
 [node name="DamageEffects" type="Node" parent="." unique_id=1773106404]
 script = ExtResource("30_damage")
