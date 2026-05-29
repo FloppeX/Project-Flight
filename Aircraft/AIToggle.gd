@@ -7,6 +7,7 @@ extends Node
 
 var aircraft: RigidBody3D
 var ai_pilot: AIPilot
+var helicopter_pilot: HelicopterPilot
 var player_controls: Array[Node] = []
 var ai_active: bool = false
 
@@ -22,10 +23,16 @@ func _ready():
 
 	if _is_helicopter_aircraft():
 		ai_pilot = get_node_or_null("../AIPilot") as AIPilot
-		_apply_player_aircraft_groups()
+		helicopter_pilot = get_node_or_null("../HelicopterPilot") as HelicopterPilot
+		if not helicopter_pilot:
+			helicopter_pilot = HelicopterPilot.new()
+			helicopter_pilot.name = "HelicopterPilot"
+			aircraft.add_child(helicopter_pilot)
 		if ai_pilot:
 			ai_pilot.set_process(false)
 			ai_pilot.set_physics_process(false)
+		helicopter_pilot.set_process(false)
+		helicopter_pilot.set_physics_process(false)
 		if ai_enabled_at_start:
 			enable_ai()
 		else:
@@ -49,7 +56,7 @@ func _ready():
 		enable_ai()
 	else:
 		disable_ai()
-		
+
 	# Register with global FlightDirector
 	if FlightDirector.has_method("register_aircraft"):
 		FlightDirector.register_aircraft(aircraft)
@@ -71,7 +78,6 @@ func toggle_ai():
 func enable_ai():
 	"""Enable AI control, disable player controls"""
 	if _is_helicopter_aircraft():
-		_apply_player_aircraft_groups()
 		ai_active = true
 		_set_player_controls_enabled(false)
 		if bool(aircraft.get_meta("helicopter_deck_takeoff_ready", false)):
@@ -83,6 +89,9 @@ func enable_ai():
 			ai_pilot.deinitialize()
 			ai_pilot.set_process(false)
 			ai_pilot.set_physics_process(false)
+		if helicopter_pilot:
+			helicopter_pilot.initialize(aircraft)
+			helicopter_pilot.set_physics_process(true)
 		return
 
 	ai_active = true
@@ -150,6 +159,11 @@ func disable_ai():
 		if ai_pilot:
 			ai_pilot.set_process(false)
 			ai_pilot.set_physics_process(false)
+		if helicopter_pilot:
+			helicopter_pilot.deinitialize()
+			helicopter_pilot.set_process(false)
+			helicopter_pilot.set_physics_process(false)
+		_apply_player_aircraft_groups()
 		return
 
 	pass

@@ -32,10 +32,28 @@ The player pushes into enemy-controlled territory, launches and recovers aircraf
 
 ## Current Status
 
-**Last Updated:** 2026-05-20
+**Last Updated:** 2026-05-29
 **Godot Version:** 4.4.1.stable.official.49a5bc7b6
 **Project Health:** PLAYABLE
 **Control Mode:** AI-by-default with viewed-aircraft player/AI toggle (game controller + keyboard parity in pause/menu flows)
+
+### Recent Changes (2026-05-29)
+
+- Helicopter AI first pass: `AI/HelicopterPilot.gd` adds a dedicated rotorcraft controller for Aircraft 9 and Aircraft 10 with takeoff, low-level transit, hover, and landing states. It samples terrain height through `TerrainNavGrid`/terrain references and uses a local corridor planner rather than the fixed-wing recovery/attack controller.
+- Helicopter AI takeoff tuning: the takeoff state now commands enough collective to clear the helicopter deck brake release threshold instead of hovering just below liftoff. The floor is exposed through `takeoff_collective_min` and `takeoff_deck_release_margin` for in-game tuning.
+- AI toggle routing: helicopters now use `HelicopterPilot` when switched to AI control, while their old fixed-wing `AIPilot` node stays disabled. Aircraft 9 and Aircraft 10 have the helicopter AI scene node wired in, but their scene defaults no longer auto-enable AI on startup.
+- Flight-deck carry fix: the carrier's scripted deck transform carry now deduplicates aircraft that appear in multiple groups, moves carrier pin joints once per carrier update, and avoids transform-carrying live helicopters just because their gear is touching the deck. Parked, braked, transport-mode, and explicitly staged helicopters still ride with the carrier.
+
+### Recent Changes (2026-05-28)
+
+- Ejection-seat sequence: player aircraft with an authored `EjectionSeat` now support triple D-pad-up ejection. The canopy is jettisoned first, the seat fires after a short delay, the pilot/cockpit camera ride the seat, the parachute deploys, and the seat separates and falls away. Enemy aircraft and aircraft without ejection seats do not use this path.
+- Parachuting pilot camera flow: once the player ejects, the ejected pilot becomes the active camera target for cockpit, chase, and cinematic views. View cycling should remain on the parachuting pilot rather than snapping back to the abandoned aircraft or another plane. The abandoned aircraft is expected to continue crashing independently.
+- Editable parachute authoring scene: `Aircraft/Visuals/Parachute.tscn` now contains editor-facing `PilotMount` and `HeadCameraMount/HeadCameraPreview/Camera3D` markers. Runtime placement reads those markers so the hanging pilot and parachute cockpit camera can be adjusted directly in the scene.
+- Pilot 2 rig integration: the shared cockpit pilot now uses the rigged Pilot 2 model, with a common yaw correction and a conservative zeroed pose baseline while the rig/pose workflow is still being sorted out. Current pose work is explicitly in-progress, especially parachute hanging posture and cockpit seating.
+- Cockpit visibility: the pilot model is hidden when the cockpit/head camera is current, including while parachuting, so first-person views are not blocked by the pilot mesh. External views still show the pilot.
+- Aircraft 10 scout helicopter: a smaller single-rotor helicopter scene has been added with two hardpoints, front/rear landing gear layout, tail-rotor propeller visuals, rockets and a 15 mm gun, and lighter scout-helicopter tuning. It is still being tuned for power, yaw authority, lag, and forward-flight feel.
+- Helicopter rotor visuals: segmented rotor blades now support rest droop, subtle stowed vertical separation, fold/stow behavior, spin-up/spin-down transitions, and thrust-dependent negative droop at high thrust. The rotor debug pass exposed and fixed the large vertical blade-offset bug that was moving blades meters above/below the helicopter.
+- Hardpoint asset refresh: the shared hardpoint scene now uses the authored root `Hardpoint.glb` model.
 
 ### Recent Changes (2026-05-20)
 
@@ -171,13 +189,13 @@ Example project launch from this repo root:
 | Weapons | Working | Shared gun-profile stack now supports 10/15/20/25 mm gun families across hardpoints and turrets (stats, projectile type, spread, recoil, sound set); bullets inherit muzzle-point velocity and are oriented to actual spawn velocity; runtime hit-assist radius defaults to `0.5 m` and can be adjusted with Up/Down arrow keys; AA missile launchers can still be intentionally fielded empty |
 | Targeting | Working | HUD target box, sensor cone, `L3` target lock, and D-pad left/right cycling through available hostile targets; destroyed targets can remain on the cockpit target camera briefly so the player can watch the impact/explosion before auto-switching |
 | HUD | Working | Radar, instruments, CCIP, terrain map overlay on radar; cockpit radar scope remains circular and masked correctly; main gunsight uses HUD-glass collimation/boresight projection; FPV symbol shows actual velocity vector with dotted boresight linkage; rotating attitude pitch ladder (horizon-level) with side ticks is now integrated, and boxed speed/altitude readouts were repositioned upward for better readability; the cockpit terrain map now uses the same live terrain bounds/origin convention as the `M` tactical map and was flattened/stabilized to stop the old bulging/distorted surface feel |
-| Camera System | Working | Multiple camera modes, free-fly debug camera, delayed death-camera handoff; chase camera now orbits the aircraft on a level horizontal plane; the old bridge cam has been replaced by a first-person commander view inside the carrier bridge; stick-click zoom is available in commander view and in the cockpit camera, including while viewing an AI-controlled aircraft |
+| Camera System | Working | Multiple camera modes, free-fly debug camera, delayed death-camera handoff, and ejected-pilot camera handoff; chase camera now orbits the aircraft or parachuting pilot on a level horizontal plane; the old bridge cam has been replaced by a first-person commander view inside the carrier bridge; stick-click zoom is available in commander view and in the cockpit camera, including while viewing an AI-controlled aircraft |
 | Night Vision / Night Combat | Partial | `I` toggles NV in cockpit view; green phosphor shader with scanlines, grain, vignette, and scan artefacts; instrument panel target feed also switches to NV; high-G overlay drift has been addressed by projecting from interpolated render transforms, but still needs live visual validation; AI pilots, turrets, and ground platoons now take moderate darkness penalties to detection, tracking, and firing |
 | Cockpit Audio | Partial | Each aircraft now has its own interior loop plus cockpit-only wind / air-rush layers with crash-aware shutdown, reduced in-cockpit stereo spread, and stronger interior filtering; air-rush/wind gain has been reduced so propeller/interior sound is more audible, but the cockpit/exterior balance is still being tuned |
 | Radio Comms | Working | Text radio log plus optional OS TTS; Citadel and pilot voice clips can be added by placing files in `res://Audio` with the expected `Citadel - <line>` or `<voice prefix> - <pilot line>` names; matching clips play through a heavier long-distance-radio bus with static, filtering, distortion, dropout, stale-queue expiry, and recent-bark repeat suppression. Citadel has flight-specific Archer/Bulldog/Crimson/Dingo line sets, and pilots now draw sticky assigned voice sets from the carrier roster |
-| Destruction | Working | Aircraft now enter a critical-damage death state at `0 HP`: player control is disabled, stick inputs jam to random max directions, and each second rolls explosion chance (`10%` default); final breakup now emits dark rigid debris chunks with smoke trails that self-clean on terrain contact; ParticleManager still manages smoke lifecycle |
+| Destruction / Ejection | Partial | Aircraft now enter a critical-damage death state at `0 HP`: player control is disabled, stick inputs jam to random max directions, and each second rolls explosion chance (`10%` default); final breakup emits dark rigid debris chunks with smoke trails that self-clean on terrain contact. Aircraft with ejection seats support canopy jettison, seat launch, parachute deployment, seat separation, and ejected-pilot camera takeover, but pilot poses, parachute camera placement, and downed-pilot gameplay still need live tuning |
 | Damage Effects | Working | 3-tier progressive damage system: hydraulic/fuel/flap failures, engine cap/control loss/HUD flicker, engine sputter/structural failure/HUD blackout; escalating smoke trails |
-| Aircraft Roster | Working | `Aircraft_4` added as a heavy/slower enemy aircraft with rear turret; `Aircraft_7` and `Aircraft_8` remain fast interceptors; `Aircraft_6` is now a slow, stable, rugged low-speed aircraft; `Aircraft_9` is a player-flyable rescue helicopter first pass with authored dual counter-rotating rotor visuals, fold/unfold behavior, retractable gear, and explicit carrier-relative deck velocity handling; weapon assignments were reworked (Aircraft 2: 25 mm, Aircraft 7/8: 20 mm, Aircraft 3: extra hardpoint + dual 10 mm); enemy Aircraft 3 now spawns clean with no external stores and serves as a fighter; pressing `7`/`8`/`9` retrieves those variants and `4` debug-spawns a friendly Aircraft_4 above the carrier |
+| Aircraft Roster | Working | `Aircraft_4` added as a heavy/slower enemy aircraft with rear turret; `Aircraft_7` and `Aircraft_8` remain fast interceptors; `Aircraft_6` is now a slow, stable, rugged low-speed aircraft; `Aircraft_9` is a player-flyable rescue helicopter with authored dual counter-rotating rotor visuals, fold/unfold behavior, retractable gear, and explicit carrier-relative deck velocity handling; `Aircraft_10` is a smaller armed scout helicopter with two hardpoints, rockets, 15 mm gun, front/rear landing gear, and tail-rotor propeller visual. Weapon assignments were reworked (Aircraft 2: 25 mm, Aircraft 7/8: 20 mm, Aircraft 3: extra hardpoint + dual 10 mm); enemy Aircraft 3 now spawns clean with no external stores and serves as a fighter; pressing `7`/`8`/`9` retrieves those variants and `4` debug-spawns a friendly Aircraft_4 above the carrier |
 
 ### Carrier Systems
 
@@ -246,15 +264,17 @@ Example project launch from this repo root:
 
 ## Current Agenda
 
-1. Live-test the Citadel/AirOps loop under pressure: reported contacts, carrier radar range, interceptor loadouts, CAS tasking, radio line frequency, and whether flights actually execute the orders they acknowledge.
-2. Validate the new interactive `M`-map workflow in live play: asset selection, mission drafting, confirm/cancel flow, and readability under pressure.
-3. Expand mission authoring beyond the first slice, especially richer waypoint editing and more flight directives than the current CAP / CAS / RTB set.
-4. Continue tuning AI precision control in dogfights so aircraft point more authoritatively at gun solutions, align the pipper with the real gun line, and waste fewer shots while still breaking off unsafe close merges.
-5. Continue tuning moving-carrier landings at the current scripted 10 m/s carrier speed; aircraft can now get onto the deck, but arrest/recovery behavior and carrier-relative speed handling still need live validation.
-6. Continue tuning ground vehicle movement, steep-slope avoidance, spotting, and pathing performance, especially with multiple active platoons.
-7. Keep watching terrain edge cases: floating rocks, cliff-edge altitude checks, terrain streaming gaps, and delayed collision/chunk loading.
-8. Continue expanding bridge/commander command features and allow AirOps/GroundOps AI to create and manage missions through the same order model the player uses.
-9. Continue regenerating and judging radio performances; the technical pipeline is solid, but several voices still need better source direction/energy before the chatter fully sells the fiction.
+1. Stabilize ejection/parachute flow: Pilot 2 pose authoring, parachute cockpit camera placement, first-person pilot hiding, view cycling, landing/downed-pilot persistence, and making sure abandoned-aircraft destruction never steals camera focus back.
+2. Continue tuning helicopter feel: Aircraft 9 heavy rescue handling, Aircraft 10 scout-helicopter lag/power/yaw balance, rotor stow/spin/droop visuals, and carrier-deck sliding/retrieval behavior.
+3. Live-test the Citadel/AirOps loop under pressure: reported contacts, carrier radar range, interceptor loadouts, CAS tasking, radio line frequency, and whether flights actually execute the orders they acknowledge.
+4. Validate the new interactive `M`-map workflow in live play: asset selection, mission drafting, confirm/cancel flow, and readability under pressure.
+5. Expand mission authoring beyond the first slice, especially richer waypoint editing and more flight directives than the current CAP / CAS / RTB set.
+6. Continue tuning AI precision control in dogfights so aircraft point more authoritatively at gun solutions, align the pipper with the real gun line, and waste fewer shots while still breaking off unsafe close merges.
+7. Continue tuning moving-carrier landings at the current scripted 10 m/s carrier speed; aircraft can now get onto the deck, but arrest/recovery behavior and carrier-relative speed handling still need live validation.
+8. Continue tuning ground vehicle movement, steep-slope avoidance, spotting, and pathing performance, especially with multiple active platoons.
+9. Keep watching terrain edge cases: floating rocks, cliff-edge altitude checks, terrain streaming gaps, and delayed collision/chunk loading.
+10. Continue expanding bridge/commander command features and allow AirOps/GroundOps AI to create and manage missions through the same order model the player uses.
+11. Continue regenerating and judging radio performances; the technical pipeline is solid, but several voices still need better source direction/energy before the chatter fully sells the fiction.
 
 ## Planned Features
 
@@ -276,21 +296,21 @@ Example project launch from this repo root:
 - Prerequisite: intact-model GLBs need separately named submesh nodes per breakable zone for clean visual holes; Voronoi piece names in the exploded GLBs already exist and are suitable for mapping
 
 ### Pilot Ejection / Rescue
-- Damaged aircraft should eventually allow pilot ejection: canopy separation, seat launch, chute deployment, and a landed downed-pilot marker.
-- Downed pilots become rescue objectives. Ground vehicles can recover pilots on pathable terrain; inaccessible mesa tops, cliff shelves, or canyon ledges should require air rescue.
-- Future rescue flow should tie into pilot roster survival, wounded/rest states, and career continuity rather than treating aircraft loss as the only consequence.
+- Ejection is now in-game for aircraft with seats, but needs pose/camera polish and broader live testing.
+- Downed pilots should become rescue objectives. Ground vehicles can recover pilots on pathable terrain; inaccessible mesa tops, cliff shelves, or canyon ledges should require air rescue.
+- Rescue flow should tie into pilot roster survival, wounded/rest states, and career continuity rather than treating aircraft loss as the only consequence.
 
 ### Helicopters
-- Add a flyable light helicopter family with arcade-stable rotorcraft physics: auto-governed rotor RPM, player collective, cyclic, yaw, and strong stability assist.
+- Continue building out the helicopter family around the existing Aircraft 9 rescue helicopter and Aircraft 10 scout helicopter.
 - First useful roles: rescue/winch pickup for downed pilots, armed scout/attack helicopter, and gunship support.
-- Controls to explore: triggers for analog collective, left stick for cyclic, right stick for look/aim or yaw depending mode, and existing weapon inputs where possible.
+- Controls and feel to keep tuning: analog collective, cyclic lag, yaw authority, rotor governor behavior, forward-flight trim, deck handling, and existing weapon inputs where possible.
 
 ### Codex
 - In-game encyclopedia accessible from the pause menu
 - 3D rotating model viewer per entry with description text below
 - Covers vehicles and weapons
 
-**Current focus:** As of 2026-05-20, the active lane is keeping carrier operations coherent while Aircraft 9 becomes a real playable helicopter: deck-relative velocity should remain explicit, helicopter takeoff/landing needs more smoothness and forward-flight trim tuning, and Citadel/radio should keep improving without becoming noisy. Carrier recovery, ground movement, helicopter feel, and radio performance quality are still active tuning areas rather than finished systems.
+**Current focus:** As of 2026-05-28, the active lane is pilot survival and rotorcraft polish: ejection/parachute camera and pose behavior should become dependable, Aircraft 9 and Aircraft 10 need continued helicopter-feel tuning, and carrier deck operations must stay coherent while helicopters, tractor bots, and recovered/downed pilots interact with the moving carrier. Citadel/radio, carrier recovery, ground movement, and radio performance quality remain active tuning areas rather than finished systems.
 
 ## Working Style Notes
 

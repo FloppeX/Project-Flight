@@ -469,7 +469,7 @@ func _on_body_entered(body):
 		# Create scorch mark if we hit the ground
 		if hit_ground:
 			explosion.create_scorch_mark()
-		if "source_attacker" in explosion:
+		if "source_attacker" in explosion and is_instance_valid(shooter):
 			explosion.source_attacker = shooter
 	
 	# Fallback to old impact effect if no explosion

@@ -414,7 +414,7 @@ func _trigger_explosion(hit_body: Node = null):
 		explosion.min_damage = explosion_damage_splash
 		explosion.blast_radius = explosion_radius
 		explosion.use_line_of_sight = false
-		if "source_attacker" in explosion:
+		if "source_attacker" in explosion and is_instance_valid(shooter):
 			explosion.source_attacker = shooter
 		
 	if hit_body and hit_body.has_method("take_damage"):

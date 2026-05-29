@@ -416,6 +416,7 @@ func _update_parachute_descent(delta: float) -> void:
 		-rel_z * parachute_horizontal_drag_n_per_mps,
 	)
 	_pilot_body.apply_force(force, canopy_offset)
+	_correct_parachute_body_upright()
 	_apply_gust_impulse(delta)
 	_check_parachute_landing(delta)
 
@@ -432,6 +433,29 @@ func _check_parachute_landing(delta: float) -> void:
 	var ground_y := _sample_landing_height(seat_pos)
 	if _is_valid_landing_height(ground_y) and seat_pos.y <= ground_y + pilot_landing_clearance_m:
 		_land_pilot(Vector3(seat_pos.x, ground_y, seat_pos.z))
+
+
+func _correct_parachute_body_upright() -> void:
+	var body_up := _pilot_body.global_transform.basis.y
+	var dot := body_up.dot(Vector3.UP)
+	if dot >= 0.99:
+		return
+	if dot < -0.95:
+		# Near exactly inverted — cross product is ~zero so torque fails.
+		# Snap directly to upright and kill angular velocity.
+		var z := _pilot_body.global_transform.basis.z
+		z.y = 0.0
+		if z.length_squared() < 0.001:
+			z = Vector3.BACK
+		_pilot_body.global_transform.basis = Basis.looking_at(z.normalized(), Vector3.UP)
+		_pilot_body.angular_velocity = Vector3.ZERO
+		return
+	# Tilted but recoverable: apply a strong restoring angular velocity.
+	var upright_axis := body_up.cross(Vector3.UP)
+	_pilot_body.angular_velocity += upright_axis * parachute_upright_smoothing * (1.0 - dot)
+	# Cancel any tilt angular velocity — only allow yaw rotation.
+	var av := _pilot_body.angular_velocity
+	_pilot_body.angular_velocity = Vector3.UP * av.dot(Vector3.UP) + upright_axis.normalized() * av.dot(upright_axis.normalized())
 
 
 func _apply_gust_impulse(delta: float) -> void:

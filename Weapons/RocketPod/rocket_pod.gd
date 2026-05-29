@@ -4,11 +4,15 @@ class_name RocketPod
 @export var rocket_scene: PackedScene
 @export var muzzle_velocity: float = 220.0
 @export var fire_cooldown_s: float = 0.35
+@export var burst_count: int = 4
+@export var burst_interval_s: float = 0.07
 @export var pod_empty_mass_kg: float = 80.0
 @export var rocket_mass_kg: float = 5.0
 
 var hardpoint: Hardpoint
 var _fire_timer: float = 0.0
+var _burst_remaining: int = 0
+var _burst_timer: float = 0.0
 var _payload_aircraft: RigidBody3D = null
 
 func _ready() -> void:
@@ -55,23 +59,34 @@ func get_predicted_initial_velocity(aircraft: RigidBody3D) -> Vector3:
 func _process(delta: float) -> void:
 	if _fire_timer > 0.0:
 		_fire_timer -= delta
+	if _burst_remaining > 0:
+		_burst_timer -= delta
+		if _burst_timer <= 0.0:
+			_fire_one_rocket()
+			_burst_remaining -= 1
+			_burst_timer = burst_interval_s
 
 func can_fire() -> bool:
-	return ammo_count > 0 and _fire_timer <= 0.0
+	return ammo_count > 0 and _fire_timer <= 0.0 and _burst_remaining == 0
 
 func fire() -> bool:
 	if not can_fire():
 		return false
 	_fire_timer = fire_cooldown_s
+	_fire_one_rocket()
+	_burst_remaining = mini(burst_count - 1, ammo_count)
+	_burst_timer = burst_interval_s
+	return true
 
+func _fire_one_rocket() -> void:
+	if ammo_count <= 0:
+		_burst_remaining = 0
+		return
 	var rocket = rocket_scene.instantiate()
 	rocket.position = global_position
 	rocket.rotation = global_rotation
 	get_tree().current_scene.add_child(rocket)
-
 	var muzzle_vel := hardpoint.get_hardpoint_forward_direction() * muzzle_velocity
 	rocket.fire(muzzle_vel, hardpoint.aircraft)
-
 	ammo_count -= 1
 	_refresh_aircraft_payload_mass()
-	return true
