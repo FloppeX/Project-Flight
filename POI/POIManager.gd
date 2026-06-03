@@ -23,6 +23,7 @@ var _pois: Array[POIInstance] = []
 var _rng := RandomNumberGenerator.new()
 var _poll_timer: float = 0.0
 var _active_card: Node = null
+var reveals_disabled: bool = false
 var _debug_card_index: int = 0
 var _starting_reveal_done: bool = false
 var _starting_reveal_attempts: int = 0
@@ -201,6 +202,8 @@ func _check_ground_reveal() -> void:
 				return  # one reveal at a time
 
 func _reveal_poi(poi: POIInstance) -> void:
+	if reveals_disabled:
+		return
 	poi.revealed = true
 	var card := POICard.new()
 	card.setup(poi.data)

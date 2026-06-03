@@ -205,6 +205,11 @@ func _input(event):
 		get_viewport().set_input_as_handled()
 		return
 
+	if event is InputEventKey and event.pressed and not event.echo and event.physical_keycode == KEY_H:
+		if command_viewed_helicopter_to_return_to_carrier():
+			get_viewport().set_input_as_handled()
+		return
+
 	if _is_action_pressed_event(event, "toggle_player_control"):
 		toggle_player_control()
 		get_viewport().set_input_as_handled()
@@ -262,6 +267,31 @@ func _refill_player_plane_ordnance() -> bool:
 
 	print("[FlightDirector] Refilled bombs and rockets on ", player_controlled_plane.name)
 	return true
+
+
+func command_viewed_helicopter_to_return_to_carrier() -> bool:
+	var target: RigidBody3D = player_controlled_plane if is_instance_valid(player_controlled_plane) else current_viewed_aircraft
+	if not is_instance_valid(target):
+		target = _get_toggle_target_aircraft()
+	if not is_instance_valid(target):
+		return false
+	var ai_toggle: Node = target.get_node_or_null("AIToggle")
+	if ai_toggle != null and ai_toggle.has_method("command_helicopter_return_to_carrier_and_land"):
+		var commanded: bool = bool(ai_toggle.call("command_helicopter_return_to_carrier_and_land"))
+		if commanded:
+			is_player_controlling = false
+			if player_controlled_plane == target:
+				player_controlled_plane = null
+			print("[FlightDirector] Commanded helicopter RTB landing: ", target.name)
+		return commanded
+	var helicopter_pilot: Node = target.find_child("HelicopterPilot", true, false)
+	if helicopter_pilot != null and helicopter_pilot.has_method("command_return_to_carrier_and_land"):
+		var commanded_direct: bool = bool(helicopter_pilot.call("command_return_to_carrier_and_land"))
+		if commanded_direct:
+			print("[FlightDirector] Commanded helicopter RTB landing: ", target.name)
+		return commanded_direct
+	return false
+
 
 func _get_friendly_aircraft() -> Array:
 	var result: Array = []

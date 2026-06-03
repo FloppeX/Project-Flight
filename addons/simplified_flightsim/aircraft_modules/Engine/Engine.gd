@@ -24,7 +24,7 @@ signal update_interface(values)
 @export var EngineLoopTargetVolumeDb: float = 4.0 # Propeller loop loudness at steady running power
 @export_group("Propeller Blur")
 @export var enable_propeller_blur: bool = true
-@export var propeller_spin_axis_local: Vector3 = Vector3.FORWARD
+@export var propeller_spin_axis_local: Vector3 = Vector3.BACK
 @export var blur_start_power: float = 0.35
 @export var blur_full_power: float = 0.85
 @export var blur_response_hz: float = 10.0
@@ -119,10 +119,14 @@ func process_physic_frame(delta):
 		aircraft.apply_force(force_vector, engine_rotated_position)
 		
 	# Spin propeller directly
-		if propeller and (current_power > 0.0 or (GovernPropellerVisualSpeed and is_engine_working)):
+		if propeller is Node3D and (current_power > 0.0 or (GovernPropellerVisualSpeed and is_engine_working)):
 			var visual_power: float = 1.0 if GovernPropellerVisualSpeed else current_power
 			var prop_speed = visual_power * 50.0 + 5.0  # RPM based on power
-			propeller.rotate_z(prop_speed * delta)  # Adjust axis as needed
+			var spin_axis: Vector3 = propeller_spin_axis_local
+			if spin_axis.length_squared() <= 0.0001:
+				spin_axis = Vector3.BACK
+			var propeller_node_3d := propeller as Node3D
+			propeller_node_3d.rotate_object_local(spin_axis.normalized(), prop_speed * delta)
 
 		_update_engine_sound(delta)
 

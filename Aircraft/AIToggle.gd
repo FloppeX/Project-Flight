@@ -33,6 +33,11 @@ func _ready():
 			ai_pilot.set_physics_process(false)
 		helicopter_pilot.set_process(false)
 		helicopter_pilot.set_physics_process(false)
+		print("HELI_AI event=aitoggle_ready craft=%s ai_enabled_at_start=%s pilot_node=%s" % [
+			aircraft.name,
+			str(ai_enabled_at_start),
+			str(helicopter_pilot != null),
+		])
 		if ai_enabled_at_start:
 			enable_ai()
 		else:
@@ -75,6 +80,19 @@ func toggle_ai():
 	else:
 		enable_ai()
 
+
+func command_helicopter_return_to_carrier_and_land() -> bool:
+	if not _is_helicopter_aircraft():
+		return false
+	if not ai_active:
+		enable_ai()
+	if helicopter_pilot == null:
+		return false
+	if not helicopter_pilot.has_method("command_return_to_carrier_and_land"):
+		return false
+	return bool(helicopter_pilot.call("command_return_to_carrier_and_land"))
+
+
 func enable_ai():
 	"""Enable AI control, disable player controls"""
 	if _is_helicopter_aircraft():
@@ -82,7 +100,15 @@ func enable_ai():
 		_set_player_controls_enabled(false)
 		if bool(aircraft.get_meta("helicopter_deck_takeoff_ready", false)):
 			aircraft.set_meta("parking_brake", true)
-			aircraft.linear_velocity = Vector3.ZERO
+			var deck_velocity := VelocityFrame.get_reference_velocity(aircraft)
+			if deck_velocity.length_squared() <= 0.0001:
+				var carrier := get_tree().get_first_node_in_group("carrier")
+				if carrier is Node:
+					deck_velocity = VelocityFrame.get_node_velocity(carrier as Node)
+			var velocity := aircraft.linear_velocity
+			velocity.x = deck_velocity.x
+			velocity.z = deck_velocity.z
+			aircraft.linear_velocity = velocity
 			aircraft.angular_velocity = Vector3.ZERO
 			aircraft.freeze = true
 		if ai_pilot:
@@ -90,6 +116,7 @@ func enable_ai():
 			ai_pilot.set_process(false)
 			ai_pilot.set_physics_process(false)
 		if helicopter_pilot:
+			print("HELI_AI event=aitoggle_enable craft=%s" % aircraft.name)
 			helicopter_pilot.initialize(aircraft)
 			helicopter_pilot.set_physics_process(true)
 		return

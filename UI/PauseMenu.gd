@@ -27,14 +27,19 @@ const COLOR_PANEL   := Color(0.04, 0.04, 0.04, 0.88)
 const COLOR_AMBER   := Color(0.90, 0.75, 0.20, 1.0)
 const COLOR_BODY    := Color(0.82, 0.82, 0.80, 1.0)
 
+const SETTINGS_PATH := "user://settings.cfg"
+const SETTINGS_SECTION := "audio"
+
 var _screens: Dictionary = {}
 var _current_screen: String = ""
+var _volume_slider: HSlider = null
 
 
 func _ready() -> void:
 	layer = 98
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	visible = false
+	_load_settings()
 	_build_ui()
 
 
@@ -101,6 +106,7 @@ func _first_button(node: Node) -> Button:
 
 func _build_ui() -> void:
 	_screens["main"]     = _build_main_screen()
+	_screens["options"]  = _build_options_screen()
 	_screens["controls"] = _build_controls_screen()
 	_screens["codex"]    = _build_codex_screen()
 
@@ -130,6 +136,7 @@ func _build_main_screen() -> Control:
 
 	var entries = [
 		["Resume",   func(): _close()],
+		["Options",  func(): _show_screen("options")],
 		["Controls", func(): _show_screen("controls")],
 		["Codex",    func(): _show_screen("codex")],
 		["Restart",  func(): _on_restart()],
@@ -143,6 +150,91 @@ func _build_main_screen() -> Control:
 		root.add_child(btn)
 
 	return root
+
+
+func _build_options_screen() -> Control:
+	var root = Control.new()
+	root.set_anchors_preset(Control.PRESET_FULL_RECT)
+
+	var overlay = ColorRect.new()
+	overlay.color = COLOR_OVERLAY
+	overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	root.add_child(overlay)
+
+	var panel = ColorRect.new()
+	panel.color = COLOR_PANEL
+	panel.position = Vector2(MARGIN_X - 20, 60)
+	panel.size = Vector2(560, 280)
+	root.add_child(panel)
+
+	var back = _make_back_button(Vector2(MARGIN_X, 76))
+	back.pressed.connect(func(): _show_screen("main"))
+	root.add_child(back)
+
+	var title = Label.new()
+	title.text = "OPTIONS"
+	title.position = Vector2(MARGIN_X, 108)
+	title.add_theme_color_override("font_color", COLOR_WHITE)
+	title.add_theme_font_override("font", MENU_FONT)
+	title.add_theme_font_size_override("font_size", 40)
+	root.add_child(title)
+
+	# Volume label
+	var vol_label = Label.new()
+	vol_label.text = "MASTER VOLUME"
+	vol_label.position = Vector2(MARGIN_X, 188)
+	vol_label.add_theme_color_override("font_color", Color(1, 1, 1, 0.7))
+	vol_label.add_theme_font_override("font", MENU_FONT)
+	vol_label.add_theme_font_size_override("font_size", 26)
+	root.add_child(vol_label)
+
+	# Slider
+	var slider = HSlider.new()
+	slider.min_value = 0.0
+	slider.max_value = 1.0
+	slider.step = 0.01
+	slider.value = db_to_linear(AudioServer.get_bus_volume_db(AudioServer.get_bus_index("Master")))
+	slider.position = Vector2(MARGIN_X, 232)
+	slider.size = Vector2(460, 40)
+	slider.focus_mode = Control.FOCUS_ALL
+	slider.value_changed.connect(_on_volume_changed)
+	root.add_child(slider)
+	_volume_slider = slider
+
+	# Percentage label
+	var pct_label = Label.new()
+	pct_label.name = "VolumePct"
+	pct_label.text = "%d%%" % roundi(slider.value * 100.0)
+	pct_label.position = Vector2(MARGIN_X + 470, 232)
+	pct_label.add_theme_color_override("font_color", Color(1, 1, 1, 0.55))
+	pct_label.add_theme_font_override("font", MENU_FONT)
+	pct_label.add_theme_font_size_override("font_size", 26)
+	root.add_child(pct_label)
+	slider.value_changed.connect(func(v: float): pct_label.text = "%d%%" % roundi(v * 100.0))
+
+	return root
+
+
+func _on_volume_changed(value: float) -> void:
+	var db := linear_to_db(maxf(value, 0.0001))
+	AudioServer.set_bus_volume_db(AudioServer.get_bus_index("Master"), db)
+	_save_settings()
+
+
+func _load_settings() -> void:
+	var cfg := ConfigFile.new()
+	if cfg.load(SETTINGS_PATH) != OK:
+		return
+	var vol: float = cfg.get_value(SETTINGS_SECTION, "master_volume", 1.0)
+	vol = clampf(vol, 0.0, 1.0)
+	AudioServer.set_bus_volume_db(AudioServer.get_bus_index("Master"), linear_to_db(maxf(vol, 0.0001)))
+
+
+func _save_settings() -> void:
+	var vol := db_to_linear(AudioServer.get_bus_volume_db(AudioServer.get_bus_index("Master")))
+	var cfg := ConfigFile.new()
+	cfg.set_value(SETTINGS_SECTION, "master_volume", clampf(vol, 0.0, 1.0))
+	cfg.save(SETTINGS_PATH)
 
 
 func _build_controls_screen() -> Control:

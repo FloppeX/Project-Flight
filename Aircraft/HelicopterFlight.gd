@@ -43,7 +43,7 @@ class_name HelicopterFlight
 @export var lateral_drag_strength: float = 0.85
 @export var vertical_damping_strength: float = 0.08
 @export var high_speed_nose_drag_strength: float = 0.015
-@export var max_forward_speed_mps: float = 92.0
+@export var max_forward_speed_mps: float = 150.0
 
 @export_group("Ground Effect")
 @export var ground_effect_height_m: float = 8.0
@@ -418,8 +418,6 @@ func _update_engine_stopped_brake() -> void:
 			if rb.has_meta("parking_brake"):
 				rb.remove_meta("parking_brake")
 			rb.remove_meta("helicopter_deck_takeoff_ready")
-			if rb.has_meta("helicopter_deck_reference_node"):
-				rb.remove_meta("helicopter_deck_reference_node")
 			rb.freeze = false
 			rb.sleeping = false
 			rb.linear_velocity = release_velocity
@@ -444,6 +442,9 @@ func _hold_deck_ready_helicopter() -> void:
 	vel.z = deck_velocity.z
 	rb.linear_velocity = vel
 	rb.angular_velocity = Vector3.ZERO
+	target_disc_tilt = Vector2.ZERO
+	current_disc_tilt = Vector2.ZERO
+	current_yaw_input = 0.0
 	rb.freeze = true
 	rb.sleeping = false
 
