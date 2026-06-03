@@ -32,6 +32,7 @@ const POI_USED_COLOR: Color = Color(0.52, 0.56, 0.52, 0.95)
 @export var platoon_reveal_terrain_clearance_m: float = 4.0
 @export var platoon_reveal_max_range_m: float = 5000.0
 @export var carrier_waypoint_color: Color = Color(0.72, 1.0, 0.78, 0.9)
+@export var helicopter_waypoint_color: Color = Color(0.44, 0.86, 1.0, 0.9)
 @export var platoon_waypoint_color: Color = Color(1.0, 0.24, 0.78, 0.9)
 @export var waypoint_line_width_px: float = 1.6
 @export var waypoint_dot_size_px: float = 4.0
@@ -112,6 +113,9 @@ func _draw() -> void:
 			if node_3d.is_in_group("ground_vehicles") or node_3d is Building or node_3d.is_in_group("buildings"):
 				_draw_ground_marker(node_3d)
 			else:
+				var air_route := _get_active_route_points(node_3d)
+				if not air_route.is_empty():
+					_draw_route_from_points(node_3d.global_position, air_route, helicopter_waypoint_color, true)
 				_draw_air_marker(node_3d)
 
 	for node in get_tree().get_nodes_in_group("ground_vehicle_platoons"):
@@ -289,9 +293,16 @@ func clear_command_draft() -> void:
 
 func _get_active_route_points(node: Node) -> Array[Vector3]:
 	var route_points: Array[Vector3] = []
-	if node == null or not is_instance_valid(node) or not node.has_method("get_active_waypoints"):
+	if node == null or not is_instance_valid(node):
 		return route_points
-	var points_variant = node.call("get_active_waypoints")
+	var route_provider: Node = node if node.has_method("get_active_waypoints") else null
+	if route_provider == null:
+		route_provider = node.find_child("HelicopterPilot", true, false)
+	if route_provider == null:
+		route_provider = node.find_child("AIPilot", true, false)
+	if route_provider == null or not route_provider.has_method("get_active_waypoints"):
+		return route_points
+	var points_variant = route_provider.call("get_active_waypoints")
 	if not (points_variant is Array):
 		return route_points
 	for point in points_variant:

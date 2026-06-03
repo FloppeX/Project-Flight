@@ -646,7 +646,7 @@ func _face_up_normal(v0: Vector3, v1: Vector3, v2: Vector3) -> Vector3:
 	if n.y < 0.0:
 		n = -n
 	return n
-
+	
 func _build_material() -> StandardMaterial3D:
 	var mat := StandardMaterial3D.new()
 	mat.vertex_color_use_as_albedo = true

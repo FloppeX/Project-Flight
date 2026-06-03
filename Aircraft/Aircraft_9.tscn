@@ -82,7 +82,6 @@ script = ExtResource("35_sliding_doors")
 
 [node name="RotorAssembly" type="Node3D" parent="." unique_id=1697660502]
 script = ExtResource("6_rotor_script")
-debug_console_enabled = true
 
 [node name="UpperRotor" type="Node3D" parent="RotorAssembly" unique_id=410168063]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3.847, 0)
@@ -119,7 +118,7 @@ disabled = true
 [node name="SimpleAero" type="Node" parent="." unique_id=291227423]
 script = ExtResource("5_aero")
 hover_collective = 0.78
-max_lift_multiplier = 1.25
+max_lift_multiplier = 1.85
 translational_lift_bonus = 0.06
 horizontal_thrust_bias = 2.05
 max_disc_tilt_deg = 20.0
@@ -141,8 +140,6 @@ vertical_stabilizer_full_speed_mps = 42.0
 horizontal_drag_strength = 0.1
 lateral_drag_strength = 0.55
 ground_effect_strength = 0.12
-debug_overlay_enabled = true
-debug_console_enabled = true
 deck_takeoff_brake_release_collective = 0.72
 
 [node name="MovingParts" type="Node3D" parent="." unique_id=3248557]
@@ -323,6 +320,15 @@ script = ExtResource("28_ai_pilot")
 
 [node name="HelicopterPilot" type="Node" parent="."]
 script = ExtResource("40_heli_ai")
+cruise_speed_mps = 150.0
+max_speed_mps = 150.0
+transit_collective_min = 1.0
+max_yaw_input = 0.08
+cyclic_rate = 0.65
+yaw_gain = 0.08
+yaw_rate_damping = 0.65
+yaw_command_rate = 0.3
+debug_enabled = true
 
 [node name="AIToggle" type="Node" parent="." unique_id=611990186]
 script = ExtResource("27_ai_toggle")
@@ -341,4 +347,4 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.3624146, 0.6425961, -1.3172
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.739895, 0.65, -5.113805)
 
 [node name="InsigniaNose" type="Marker3D" parent="." unique_id=818750703]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.20737785, 4.074005)
+transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, 0.20737785, 4.074005)

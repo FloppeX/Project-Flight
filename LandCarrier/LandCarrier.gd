@@ -13,7 +13,10 @@ const VEHICLE_BAY_SCRIPT := preload("res://LandCarrier/VehicleBayManager.gd")
 # --- Movement ---
 @export var max_speed: float = 10.0
 @export var acceleration: float = 1.5
+@export var deceleration: float = 2.5
 @export var turn_speed: float = 0.25
+@export var turn_rate_response: float = 1.4
+@export_range(0.0, 0.9, 0.05) var turn_speed_slowdown: float = 0.45
 @export var steer_response: float = 2.5
 @export var steer_deadzone: float = 0.03
 @export var settle_turn_angle_deg: float = 1.5
@@ -23,6 +26,15 @@ const VEHICLE_BAY_SCRIPT := preload("res://LandCarrier/VehicleBayManager.gd")
 @export var height_smoothing: float = 2.5  # height tracking speed (higher = snappier)
 @export var height_deadband_m: float = 0.35
 @export var height_target_response: float = 2.0
+@export var tread_ground_sample_half_length_m: float = 16.0
+@export var tread_ground_follow_response: float = 5.0
+@export var tread_pitch_response: float = 5.0
+@export var tread_pitch_sign: float = -1.0
+
+# --- Deck carry ---
+@export var helicopter_deck_carry_half_width_m: float = 90.0
+@export var helicopter_deck_carry_half_length_m: float = 160.0
+@export var helicopter_deck_carry_height_margin_m: float = 130.0
 
 # --- Terrain feeler avoidance ---
 @export var feeler_height_threshold_m: float = 15.0  # terrain rise above carrier base that counts as obstacle
@@ -40,7 +52,7 @@ const VEHICLE_BAY_SCRIPT := preload("res://LandCarrier/VehicleBayManager.gd")
 @export var route_setup_debug: bool = false
 
 const BODY_RIDE_HEIGHT: float = 40.0
-const TREAD_GROUND_OFFSET: float = 8.0
+const TREAD_GROUND_OFFSET: float = 9.0
 const MAX_TREAD_STEER: float = 0.4
 
 @export var deck_sound: AudioStream = preload("res://Audio/Carrier/carrier_deck_sound_mono.wav")
@@ -69,6 +81,8 @@ var _prev_wp_dist: float = INF
 var _no_path_timer: float = 0.0
 var _replan_attempts: int = 0
 var _last_planar_speed_mps: float = 0.0
+var _current_planar_speed_mps: float = 0.0
+var _current_yaw_rate_rad_s: float = 0.0
 var _smoothed_desired_y: float = NAN
 var _using_default_cross_map_route: bool = false
 var _default_cross_map_route_completed: bool = false
@@ -77,6 +91,7 @@ var elevator: Node3D
 var vehicle_ramp: Node3D
 var vehicle_bay: Node3D
 var _deck_audio_player: AudioStreamPlayer3D
+var _terrain_provider: Node = null
 const TEAM_ID: int = 1
 
 func _ready():
@@ -292,7 +307,6 @@ func _compute_path_to_destination() -> void:
 			_waypoint_positions.clear()
 			_waypoint_index = 0
 			_default_cross_map_route_completed = true
-			_last_planar_speed_mps = 0.0
 			return
 		else:
 			_pick_new_patrol_destination()
@@ -438,7 +452,7 @@ func _is_tread_node(node: Node) -> bool:
 func _physics_process(delta: float) -> void:
 	var transform_before := global_transform
 	_drive_to_waypoint(delta)
-	_update_tread_visuals(delta)
+	_update_tread_visuals(delta, transform_before)
 	if elevator and elevator.has_method("update"):
 		elevator.update(delta)
 	_carry_deck_passengers(global_transform, transform_before)
@@ -460,12 +474,15 @@ func _carry_deck_passengers(current_transform: Transform3D, old_transform: Trans
 			var n: Node = node as Node
 			var has_brake: bool = n.has_meta("parking_brake") and bool(n.get_meta("parking_brake"))
 			var has_transport: bool = n.has_meta("carrier_transport_mode") and bool(n.get_meta("carrier_transport_mode"))
+			var manual_transport: bool = n.has_meta("carrier_manual_transport") and bool(n.get_meta("carrier_manual_transport"))
+			if manual_transport:
+				continue
 			var has_deck_follow: bool = n.has_meta("carrier_deck_follow") and bool(n.get_meta("carrier_deck_follow"))
 			var helicopter_deck_ready: bool = n.has_meta("helicopter_deck_takeoff_ready") and bool(n.get_meta("helicopter_deck_takeoff_ready"))
 			var is_helicopter: bool = _is_helicopter_deck_passenger(n)
 			var on_carrier: bool = has_transport or helicopter_deck_ready or has_deck_follow
 			if is_helicopter:
-				on_carrier = has_transport or helicopter_deck_ready or has_brake
+				on_carrier = has_transport or helicopter_deck_ready or has_deck_follow or (has_brake and _is_node_in_helicopter_deck_carry_zone(node as Node3D))
 			var on_catapult: bool = n.has_meta("controls_disabled") and bool(n.get_meta("controls_disabled")) and not has_brake and not has_transport
 			if on_carrier or on_catapult:
 				(node as Node3D).global_transform = transform_delta * (node as Node3D).global_transform
@@ -481,35 +498,79 @@ func _is_helicopter_deck_passenger(node: Node) -> bool:
 	var role: String = str(node.get_meta("aircraft_role", "")).to_lower()
 	return role.find("helicopter") >= 0
 
-func _update_tread_visuals(delta: float) -> void:
+func _is_node_in_helicopter_deck_carry_zone(node: Node3D) -> bool:
+	if node == null:
+		return false
+	var local_pos: Vector3 = to_local(node.global_position)
+	if absf(local_pos.x) > maxf(helicopter_deck_carry_half_width_m, 0.0):
+		return false
+	if absf(local_pos.z) > maxf(helicopter_deck_carry_half_length_m, 0.0):
+		return false
+	var deck_y: float = global_position.y
+	var fdm := find_child("FlightDeckManager", true, false)
+	if fdm != null and fdm.has_method("get_deck_height"):
+		deck_y = float(fdm.call("get_deck_height"))
+	return absf(node.global_position.y - deck_y) <= maxf(helicopter_deck_carry_height_margin_m, 0.0)
+
+func _update_tread_visuals(delta: float, transform_before: Transform3D) -> void:
 	_tread_steer = lerp(_tread_steer, _current_steer, delta * 1.5)
 
-	if not TerrainNavGrid.is_ready():
+	if not TerrainNavGrid.is_ready() and _get_precise_terrain_provider() == null:
 		return
 
 	var world_heights: Array[float] = []
+	var old_forward := transform_before.basis.z
+	old_forward.y = 0.0
+	old_forward = old_forward.normalized() if old_forward.length_squared() > 0.0001 else Vector3.FORWARD
+	var new_forward := global_transform.basis.z
+	new_forward.y = 0.0
+	new_forward = new_forward.normalized() if new_forward.length_squared() > 0.0001 else old_forward
+	var origin_delta := global_position - transform_before.origin
+	var forward_delta := origin_delta.dot(old_forward)
+	var yaw_delta := old_forward.signed_angle_to(new_forward, Vector3.UP)
+	var tread_world_positions: Array[Vector3] = []
+	var tread_current_y: Array[float] = []
+	var tread_yaws: Array[float] = []
+	var tread_pitch_targets: Array[float] = []
+	var tread_signed_speeds: Array[float] = []
+	var tread_signed_travels: Array[float] = []
 
 	for i in _tread_nodes.size():
 		var xz: Vector2 = _tread_local_xz[i]
 		var world_xz := to_global(Vector3(xz.x, 0.0, xz.y))
 
-		var terrain_y: float = TerrainNavGrid.sample_height(world_xz.x, world_xz.z)
-		if terrain_y <= TerrainNavGrid.IMPASSABLE * 0.5:
-			terrain_y = global_position.y - BODY_RIDE_HEIGHT
-
-		world_heights.append(terrain_y)
-
 		var tread := _tread_nodes[i] as Node3D
-		var tread_target_y: float = terrain_y + TREAD_GROUND_OFFSET
-		var tread_current_y: float = tread.global_position.y
-		var tread_smooth_y: float = lerp(tread_current_y, tread_target_y, clampf(3.0 * delta, 0.0, 1.0))
-		tread.global_position = Vector3(world_xz.x, tread_smooth_y, world_xz.z)
 		var steer_offset: float = 0.0
 		if xz.y > 20.0:
 			steer_offset = _tread_steer * MAX_TREAD_STEER
 		elif xz.y < -20.0:
 			steer_offset = -_tread_steer * MAX_TREAD_STEER
-		tread.rotation.y = _tread_initial_rot_y[i] + steer_offset
+		var yaw_target: float = _tread_initial_rot_y[i] + steer_offset
+		tread.rotation.y = yaw_target
+
+		var tread_forward := tread.global_transform.basis.z
+		tread_forward.y = 0.0
+		tread_forward = tread_forward.normalized() if tread_forward.length_squared() > 0.0001 else new_forward
+		var sample_half_length := maxf(tread_ground_sample_half_length_m, 0.1)
+		var rear_sample := world_xz - tread_forward * sample_half_length
+		var front_sample := world_xz + tread_forward * sample_half_length
+		var rear_terrain_y := _sample_precise_terrain_y(rear_sample.x, rear_sample.z)
+		var front_terrain_y := _sample_precise_terrain_y(front_sample.x, front_sample.z)
+		var rear_target_y := rear_terrain_y + TREAD_GROUND_OFFSET
+		var front_target_y := front_terrain_y + TREAD_GROUND_OFFSET
+		var tread_target_y := (rear_target_y + front_target_y) * 0.5
+
+		world_heights.append((rear_terrain_y + front_terrain_y) * 0.5)
+
+		var pitch_target := atan2(front_target_y - rear_target_y, sample_half_length * 2.0) * tread_pitch_sign
+		var signed_tread_travel := forward_delta - xz.x * yaw_delta
+		var signed_tread_speed := signed_tread_travel / delta if delta > 0.0 else 0.0
+		tread_world_positions.append(Vector3(world_xz.x, tread_target_y, world_xz.z))
+		tread_current_y.append(tread.global_position.y)
+		tread_yaws.append(yaw_target)
+		tread_pitch_targets.append(pitch_target)
+		tread_signed_speeds.append(signed_tread_speed)
+		tread_signed_travels.append(signed_tread_travel)
 
 	if not world_heights.is_empty():
 		var avg_y: float = 0.0
@@ -531,12 +592,41 @@ func _update_tread_visuals(delta: float) -> void:
 				)
 		global_position.y = lerp(global_position.y, _smoothed_desired_y, clampf(height_smoothing * delta, 0.0, 1.0))
 
+	for i in tread_world_positions.size():
+		var tread := _tread_nodes[i] as Node3D
+		var target_position := tread_world_positions[i]
+		var smooth_y: float = lerp(tread_current_y[i], target_position.y, clampf(tread_ground_follow_response * delta, 0.0, 1.0))
+		tread.global_position = Vector3(target_position.x, smooth_y, target_position.z)
+		tread.rotation.y = tread_yaws[i]
+		tread.rotation.x = lerp_angle(tread.rotation.x, tread_pitch_targets[i], clampf(tread_pitch_response * delta, 0.0, 1.0))
+		if tread.has_method("update_scroll_speed"):
+			tread.update_scroll_speed(delta, tread_signed_speeds[i])
+		elif tread.has_method("update_from_carrier"):
+			tread.update_from_carrier(delta, tread_signed_travels[i])
+
 
 func _sample_terrain_y(wx: float, wz: float) -> float:
 	var h: float = TerrainNavGrid.sample_height(wx, wz)
 	if h <= TerrainNavGrid.IMPASSABLE * 0.5:
 		return global_position.y - BODY_RIDE_HEIGHT
 	return h
+
+
+func _sample_precise_terrain_y(wx: float, wz: float) -> float:
+	_terrain_provider = _get_precise_terrain_provider()
+	if _terrain_provider != null and _terrain_provider.has_method("get_height"):
+		var height_variant: Variant = _terrain_provider.call("get_height", Vector3(wx, 0.0, wz))
+		if height_variant is float:
+			var terrain_h := float(height_variant)
+			if not is_nan(terrain_h):
+				return terrain_h
+	return _sample_terrain_y(wx, wz)
+
+
+func _get_precise_terrain_provider() -> Node:
+	if _terrain_provider == null or not is_instance_valid(_terrain_provider):
+		_terrain_provider = get_tree().get_first_node_in_group("terrain_provider")
+	return _terrain_provider
 
 func _get_avoidance_steer() -> float:
 	# Multi-range terrain feelers: sample heights at various offsets around the
@@ -608,10 +698,10 @@ func _drive_to_waypoint(delta: float) -> void:
 			_no_path_timer = 0.0
 			_replan_attempts = 0
 			_current_steer = move_toward(_current_steer, 0.0, steer_response * delta)
-			_last_planar_speed_mps = 0.0
+			_apply_drive_motion(delta, 0.0, 0.0)
 			return
 		_no_path_timer += delta
-		_last_planar_speed_mps = 0.0
+		_apply_drive_motion(delta, 0.0, 0.0)
 		if use_waypoint_pathfinding and _no_path_timer > 4.0:
 			_no_path_timer = 0.0
 			_replan_attempts += 1
@@ -636,7 +726,7 @@ func _drive_to_waypoint(delta: float) -> void:
 		if _waypoint_index >= _waypoint_positions.size():
 			_advance_waypoint_or_replan()
 		_current_steer = move_toward(_current_steer, 0.0, steer_response * delta)
-		_last_planar_speed_mps = 0.0
+		_apply_drive_motion(delta, 0.0, 0.0)
 		return
 
 	if wp_dist > _prev_wp_dist:
@@ -687,15 +777,40 @@ func _drive_to_waypoint(delta: float) -> void:
 	var effective_turn_speed := turn_speed
 	if turn_angle_deg > turn_in_place_angle_deg:
 		effective_turn_speed = turn_speed * 2.0
-	rotate_y(_current_steer * effective_turn_speed * delta)
+	var target_yaw_rate := _current_steer * effective_turn_speed
 
-	var throttle: float = clamp((dot + 1.0) * 0.5, 0.0, 1.0) * (1.0 - abs(_current_steer) * 0.3)
+	var turn_speed_factor := clampf(1.0 - absf(_current_steer) * turn_speed_slowdown, 0.2, 1.0)
+	var throttle: float = clamp((dot + 1.0) * 0.5, 0.0, 1.0) * turn_speed_factor
 	if turn_angle_deg > turn_in_place_angle_deg:
 		throttle = 0.0
+	_apply_drive_motion(delta, throttle * max_speed, target_yaw_rate)
+
+
+func _apply_drive_motion(delta: float, target_speed_mps: float, target_yaw_rate_rad_s: float) -> void:
+	if delta <= 0.0:
+		return
+
+	var speed_rate := acceleration if target_speed_mps > _current_planar_speed_mps else deceleration
+	_current_planar_speed_mps = move_toward(
+		_current_planar_speed_mps,
+		target_speed_mps,
+		maxf(speed_rate, 0.0) * delta
+	)
+	_current_yaw_rate_rad_s = move_toward(
+		_current_yaw_rate_rad_s,
+		target_yaw_rate_rad_s,
+		maxf(turn_rate_response, 0.0) * delta
+	)
+
+	if absf(_current_yaw_rate_rad_s) > 0.00001:
+		rotate_y(_current_yaw_rate_rad_s * delta)
+
 	var forward: Vector3 = global_transform.basis.z
-	global_position.x += forward.x * throttle * max_speed * delta
-	global_position.z += forward.z * throttle * max_speed * delta
-	_last_planar_speed_mps = throttle * max_speed
+	forward.y = 0.0
+	forward = forward.normalized() if forward.length_squared() > 0.0001 else Vector3.FORWARD
+	global_position.x += forward.x * _current_planar_speed_mps * delta
+	global_position.z += forward.z * _current_planar_speed_mps * delta
+	_last_planar_speed_mps = _current_planar_speed_mps
 
 # --- Speed / direction API (kept for LandCarrierInput compatibility) ---
 

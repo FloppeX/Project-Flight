@@ -17,6 +17,7 @@ var _sky: ProceduralSkyMaterial
 var _t: float = 0.0  # normalized 0..1 over full cycle
 var _update_acc: float = 0.0
 var _night_mode: bool = false
+var freeze_daytime: bool = false
 var _ai_darkness_factor: float = 0.0
 
 const _KF := [
@@ -104,7 +105,9 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _process(delta: float) -> void:
-	if not _night_mode:
+	if freeze_daytime:
+		_t = 0.375
+	elif not _night_mode:
 		_t = fmod(_t + delta / (phase_duration_s * float(_KF.size())), 1.0)
 	_update_acc += delta
 	if _update_acc < update_interval_s:

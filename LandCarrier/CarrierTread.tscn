@@ -1,37 +1,50 @@
-[gd_scene load_steps=6 format=3 uid="uid://pfnx57rs2d41"]
+[gd_scene format=3 uid="uid://pfnx57rs2d41"]
 
 [ext_resource type="Script" uid="uid://drt6k2pyqc1pn" path="res://LandCarrier/CarrierTread.gd" id="1_script"]
-[ext_resource type="PackedScene" uid="uid://kj0rqaukibhl" path="res://Models/LandCarrier/carrier track tread.glb" id="2_mtwxr"]
 [ext_resource type="PackedScene" uid="uid://dv8clvbts5mhw" path="res://Models/LandCarrier/carrier track wheel.glb" id="3_r01ng"]
 
-[sub_resource type="PhysicsMaterial" id="PhysicsMaterial_tread"]
-friction = 0.8
-
-[sub_resource type="BoxShape3D" id="BoxShape3D_tread"]
-size = Vector3(12.1176, 11.4878, 32.7458)
-
-[node name="CarrierTread" type="StaticBody3D"]
-physics_material_override = SubResource("PhysicsMaterial_tread")
+[node name="CarrierTread" type="StaticBody3D" unique_id=382987775]
 script = ExtResource("1_script")
 
-[node name="TreadCollision" type="CollisionShape3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.0450191, -3.18909, 0.207926)
-shape = SubResource("BoxShape3D_tread")
+[node name="TrackPath" type="Path3D" parent="." unique_id=202353790]
 
-[node name="carrier track tread" parent="." instance=ExtResource("2_mtwxr")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -10.4511, 11.337, 0.129011)
+[node name="TrackGuide" type="Node3D" parent="." unique_id=698900716]
 
-[node name="carrier track wheel" parent="." instance=ExtResource("3_r01ng")]
+[node name="curve_start_1" type="Marker3D" parent="TrackGuide" unique_id=952088870]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.026431084, 10.974494, 7.6424837)
+
+[node name="curve_end_1" type="Marker3D" parent="TrackGuide" unique_id=2105030228]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.026431084, 9.311049, 11.20014)
+
+[node name="curve_start_2" type="Marker3D" parent="TrackGuide" unique_id=1442499119]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.026431084, -1.9539605, 19.695688)
+
+[node name="curve_end_2" type="Marker3D" parent="TrackGuide" unique_id=829807335]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.026431084, -8.487117, 15.777107)
+
+[node name="curve_start_3" type="Marker3D" parent="TrackGuide" unique_id=1482853439]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.026431084, -8.511816, -15.631404)
+
+[node name="curve_end_3" type="Marker3D" parent="TrackGuide" unique_id=273179710]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.026431084, -2.0188127, -19.593782)
+
+[node name="curve_start_4" type="Marker3D" parent="TrackGuide" unique_id=593728233]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.026431084, 9.071911, -11.560546)
+
+[node name="curve_end_4" type="Marker3D" parent="TrackGuide" unique_id=1196060164]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.026431084, 10.880936, -7.898396)
+
+[node name="carrier track wheel" parent="." unique_id=1317861125 instance=ExtResource("3_r01ng")]
 transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, -4.00431, 0)
 
-[node name="carrier track wheel2" parent="." instance=ExtResource("3_r01ng")]
+[node name="carrier track wheel2" parent="." unique_id=326771598 instance=ExtResource("3_r01ng")]
 transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, -3.98866, 15.6213)
 
-[node name="carrier track wheel3" parent="." instance=ExtResource("3_r01ng")]
+[node name="carrier track wheel3" parent="." unique_id=116009572 instance=ExtResource("3_r01ng")]
 transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, -3.9963, -15.4274)
 
-[node name="carrier track wheel4" parent="." instance=ExtResource("3_r01ng")]
+[node name="carrier track wheel4" parent="." unique_id=1356684679 instance=ExtResource("3_r01ng")]
 transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, 6.49421, 7.61009)
 
-[node name="carrier track wheel5" parent="." instance=ExtResource("3_r01ng")]
+[node name="carrier track wheel5" parent="." unique_id=1399714592 instance=ExtResource("3_r01ng")]
 transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, 6.31181, -7.90697)

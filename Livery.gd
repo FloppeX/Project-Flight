@@ -496,6 +496,9 @@ func _apply_insignia(aircraft: Node) -> void:
 		var t_nose := nose_marker.transform
 		var projection_dir := Vector3(0.0, -1.0, -1.0).normalized()
 		t_nose.basis = _make_decal_basis_from_projection(projection_dir, Vector3.UP)
+		# Roll around the decal projection axis so nose emblems read correctly
+		# to someone looking at the helicopter head-on.
+		t_nose.basis = (t_nose.basis * Basis(Vector3.UP, PI)).orthonormalized()
 		nose_decal.transform = t_nose
 
 func _make_decal_basis_from_projection(projection_dir: Vector3, up_hint: Vector3) -> Basis:

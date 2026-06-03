@@ -18,9 +18,9 @@
 [ext_resource type="PackedScene" uid="uid://bn2n77puha7py" path="res://LandCarrier/CarrierDefenseTurret.tscn" id="15_center_turret"]
 [ext_resource type="PackedScene" uid="uid://b27lalggxf8ui" path="res://Aircraft/Aircraft_5.tscn" id="16_default_aircraft"]
 [ext_resource type="PackedScene" uid="uid://d2j0ldfmxq1m6" path="res://Aircraft/Aircraft_7.tscn" id="17_aircraft_7"]
-[ext_resource type="PackedScene" path="res://Aircraft/Aircraft_9.tscn" id="18_aircraft_9"]
+[ext_resource type="PackedScene" uid="uid://ct4jod4xjuu2p" path="res://Aircraft/Aircraft_9.tscn" id="18_aircraft_9"]
 [ext_resource type="Script" uid="uid://cld3amq1vrrs3" path="res://LandCarrier/CarrierManager.gd" id="18_carrier_manager"]
-[ext_resource type="PackedScene" path="res://Aircraft/Aircraft_10.tscn" id="19_aircraft_10"]
+[ext_resource type="PackedScene" uid="uid://iajmne1rqhv0" path="res://Aircraft/Aircraft_10.tscn" id="19_aircraft_10"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_main_carrier"]
 size = Vector3(2.51178, 4.34025, 4.92171)
@@ -233,6 +233,12 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 120, -600)
 
 [node name="approach_4" type="Marker3D" parent="." unique_id=1585641662]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, -47.2995)
+
+[node name="Helicopter Landing Point" type="Marker3D" parent="." unique_id=1707043462]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, -52.596)
+
+[node name="Helicopter Approach Point" type="Marker3D" parent="." unique_id=1599441034]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 15, -100)
 
 [node name="takeoff_0" type="Marker3D" parent="." unique_id=879659569]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 600, 2000)
