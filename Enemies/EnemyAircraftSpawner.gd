@@ -41,8 +41,10 @@ var _active_ai_planes: Array[RigidBody3D] = []
 var _enemy_vehicle_scenes: Array[PackedScene] = []
 var _friendly_vehicle_scene: PackedScene
 var _ground_platoon_counter: int = 0
+var _disabled_for_heli_test: bool = false
 
 func _ready():
+	add_to_group("enemy_aircraft_spawner")
 	_aircraft_scene = load("res://Aircraft/Aircraft_1.tscn")
 	if not _aircraft_scene:
 		push_error("[EnemyAircraftSpawner] Failed to load Aircraft_1.tscn")
@@ -73,6 +75,8 @@ func _ready():
 	_friendly_vehicle_scene = load("res://GroundVehicle/vehicle_friendly_light.tscn")
 
 func _input(event):
+	if _disabled_for_heli_test:
+		return
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_O:
 			_toggle_ai_attack_mode()
@@ -112,6 +116,8 @@ func _input(event):
 			get_viewport().set_input_as_handled()
 
 func _spawn_ground_vehicles(scene: PackedScene, count: int) -> void:
+	if _disabled_for_heli_test:
+		return
 	if not scene:
 		return
 	var carrier_pos: Vector3 = _get_carrier_position()
@@ -127,6 +133,8 @@ func _spawn_ground_vehicles(scene: PackedScene, count: int) -> void:
 	_spawn_ground_vehicle_wave(scenes, count, team_id, carrier_pos, base_pos, carrier_node)
 
 func _spawn_enemy_vehicle_mix(count: int) -> void:
+	if _disabled_for_heli_test:
+		return
 	if _enemy_vehicle_scenes.is_empty():
 		print("[EnemyAircraftSpawner] E: no enemy vehicle scenes loaded")
 		return
@@ -1083,6 +1091,26 @@ func _schedule_respawn(aircraft: RigidBody3D):
 
 func _prune_active_ai_planes():
 	_active_ai_planes = _active_ai_planes.filter(func(p): return is_instance_valid(p))
+
+
+func disable_for_heli_test() -> void:
+	_disabled_for_heli_test = true
+	for aircraft in _active_ai_planes:
+		if is_instance_valid(aircraft):
+			aircraft.queue_free()
+	_active_ai_planes.clear()
+	for group_name in ["enemies", "enemy_bases", "ground_vehicles", "gun_emplacements"]:
+		for node in get_tree().get_nodes_in_group(group_name):
+			if node is Node and is_instance_valid(node) and _is_enemy_test_cleanup_node(node as Node):
+				(node as Node).queue_free()
+	print("[EnemyAircraftSpawner] disabled for helicopter test")
+
+
+func _is_enemy_test_cleanup_node(node: Node) -> bool:
+	return node.is_in_group("enemies") \
+			or node.is_in_group("enemy_bases") \
+			or node.is_in_group("team_2")
+
 
 func _spawn_on_approach():
 	"""U key: spawn an AI plane at approach_0 (alt 450 m), pointed at approach_1, already in landing mode."""

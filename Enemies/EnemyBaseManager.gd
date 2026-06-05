@@ -17,6 +17,7 @@ const EMPLACEMENT_SEARCH_ATTEMPTS := 32
 var bases: Array[EnemyBase] = []
 var emplacements: Array[Node3D] = []
 var _rng := RandomNumberGenerator.new()
+var _disabled_for_test: bool = false
 
 @export_group("Enemy Emplacements")
 @export var emplacement_scene: PackedScene = preload("res://Buildings/gun_emplacement.tscn")
@@ -41,6 +42,8 @@ func _ready() -> void:
 
 
 func _spawn_bases() -> void:
+	if _disabled_for_test:
+		return
 	bases.clear()
 	_clear_managed_emplacements()
 
@@ -173,6 +176,19 @@ func _clear_managed_emplacements() -> void:
 			continue
 		if emplacement.has_meta("managed_enemy_emplacement") and bool(emplacement.get_meta("managed_enemy_emplacement")):
 			emplacement.queue_free()
+
+
+func disable_for_heli_test() -> void:
+	_disabled_for_test = true
+	if TerrainNavGrid.bake_complete.is_connected(_spawn_bases):
+		TerrainNavGrid.bake_complete.disconnect(_spawn_bases)
+	for base in bases:
+		if is_instance_valid(base):
+			base.queue_free()
+	bases.clear()
+	_clear_managed_emplacements()
+	emplacements.clear()
+	print("[EnemyBaseManager] disabled for helicopter test")
 
 
 func _spawn_enemy_emplacement_clumps(center: Vector3, half_ext: float, carrier_ground_y: float) -> void:

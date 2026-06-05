@@ -40,6 +40,7 @@ var _known_contacts: Array[Dictionary] = []
 
 var _eval_timer:   float = 3.0   # slight delay so bases finish spawning first
 var _threat_timer: float = 5.0
+var _disabled_for_test: bool = false
 
 
 func _ready() -> void:
@@ -49,6 +50,8 @@ func _ready() -> void:
 
 
 func _physics_process(delta: float) -> void:
+	if _disabled_for_test:
+		return
 	# Tick all virtual units every frame (they self-regulate internally)
 	for base in bases:
 		if not is_instance_valid(base):
@@ -76,6 +79,10 @@ func _physics_process(delta: float) -> void:
 # ── Base registration ─────────────────────────────────────────────────────────
 
 func register_base(base: EnemyBase) -> void:
+	if _disabled_for_test:
+		if is_instance_valid(base):
+			base.queue_free()
+		return
 	if bases.has(base):
 		return
 	bases.append(base)
@@ -323,6 +330,25 @@ func _get_platoons(base: EnemyBase) -> Array[EnemyVirtualPlatoon]:
 		if item is EnemyVirtualPlatoon and is_instance_valid(item as EnemyVirtualPlatoon):
 			result.append(item as EnemyVirtualPlatoon)
 	return result
+
+
+func disable_for_heli_test() -> void:
+	_disabled_for_test = true
+	set_physics_process(false)
+	_known_contacts.clear()
+	for base in bases:
+		if not is_instance_valid(base):
+			continue
+		for f: EnemyVirtualFlight in _get_flights(base):
+			f.dematerialize()
+			f.queue_free()
+		for p: EnemyVirtualPlatoon in _get_platoons(base):
+			p.dematerialize()
+			p.queue_free()
+	_base_flights.clear()
+	_base_platoons.clear()
+	bases.clear()
+	print("[EnemyOps] disabled for helicopter test")
 
 
 # ── Origin shift ──────────────────────────────────────────────────────────────

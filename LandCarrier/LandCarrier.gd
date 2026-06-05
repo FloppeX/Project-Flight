@@ -21,6 +21,8 @@ const VEHICLE_BAY_SCRIPT := preload("res://LandCarrier/VehicleBayManager.gd")
 @export var steer_deadzone: float = 0.03
 @export var settle_turn_angle_deg: float = 1.5
 @export var settle_steer_deadzone: float = 0.08
+@export var recovery_constraint_default_speed_limit_mps: float = 0.0
+@export var recovery_constraint_log_interval_s: float = 2.0
 
 # --- Height ---
 @export var height_smoothing: float = 2.5  # height tracking speed (higher = snappier)
@@ -83,6 +85,7 @@ var _replan_attempts: int = 0
 var _last_planar_speed_mps: float = 0.0
 var _current_planar_speed_mps: float = 0.0
 var _current_yaw_rate_rad_s: float = 0.0
+var _recovery_constraint_log_s: float = 0.0
 var _smoothed_desired_y: float = NAN
 var _using_default_cross_map_route: bool = false
 var _default_cross_map_route_completed: bool = false
@@ -482,7 +485,12 @@ func _carry_deck_passengers(current_transform: Transform3D, old_transform: Trans
 			var is_helicopter: bool = _is_helicopter_deck_passenger(n)
 			var on_carrier: bool = has_transport or helicopter_deck_ready or has_deck_follow
 			if is_helicopter:
-				on_carrier = has_transport or helicopter_deck_ready or has_deck_follow or (has_brake and _is_node_in_helicopter_deck_carry_zone(node as Node3D))
+				var frozen_body := node is RigidBody3D and (node as RigidBody3D).freeze
+				on_carrier = frozen_body and (
+					has_transport
+					or helicopter_deck_ready
+					or (has_brake and _is_node_in_helicopter_deck_carry_zone(node as Node3D))
+				)
 			var on_catapult: bool = n.has_meta("controls_disabled") and bool(n.get_meta("controls_disabled")) and not has_brake and not has_transport
 			if on_carrier or on_catapult:
 				(node as Node3D).global_transform = transform_delta * (node as Node3D).global_transform
@@ -789,6 +797,9 @@ func _drive_to_waypoint(delta: float) -> void:
 func _apply_drive_motion(delta: float, target_speed_mps: float, target_yaw_rate_rad_s: float) -> void:
 	if delta <= 0.0:
 		return
+	var constrained_motion := _apply_recovery_motion_constraint(target_speed_mps, target_yaw_rate_rad_s, delta)
+	target_speed_mps = float(constrained_motion.get("speed", target_speed_mps))
+	target_yaw_rate_rad_s = float(constrained_motion.get("yaw_rate", target_yaw_rate_rad_s))
 
 	var speed_rate := acceleration if target_speed_mps > _current_planar_speed_mps else deceleration
 	_current_planar_speed_mps = move_toward(
@@ -812,6 +823,33 @@ func _apply_drive_motion(delta: float, target_speed_mps: float, target_yaw_rate_
 	global_position.z += forward.z * _current_planar_speed_mps * delta
 	_last_planar_speed_mps = _current_planar_speed_mps
 
+
+func _apply_recovery_motion_constraint(target_speed_mps: float, target_yaw_rate_rad_s: float, delta: float) -> Dictionary:
+	_recovery_constraint_log_s = maxf(_recovery_constraint_log_s - delta, 0.0)
+	var deck_manager := find_child("FlightDeckManager", true, false)
+	if deck_manager == null or not deck_manager.has_method("is_carrier_recovery_constraint_active"):
+		return {"speed": target_speed_mps, "yaw_rate": target_yaw_rate_rad_s}
+	if not bool(deck_manager.call("is_carrier_recovery_constraint_active")):
+		return {"speed": target_speed_mps, "yaw_rate": target_yaw_rate_rad_s}
+
+	var speed_limit := maxf(recovery_constraint_default_speed_limit_mps, 0.0)
+	if deck_manager.has_method("get_carrier_recovery_speed_limit_mps"):
+		var configured_limit := float(deck_manager.call("get_carrier_recovery_speed_limit_mps"))
+		if configured_limit < INF:
+			speed_limit = maxf(configured_limit, 0.0)
+	var constrained_speed := minf(target_speed_mps, speed_limit)
+	if _recovery_constraint_log_s <= 0.0:
+		_recovery_constraint_log_s = maxf(recovery_constraint_log_interval_s, 0.1)
+		print("[LandCarrier] recovery constraint active: speed %.1f->%.1f yaw %.3f->0" % [
+			target_speed_mps,
+			constrained_speed,
+			target_yaw_rate_rad_s,
+		])
+	return {
+		"speed": constrained_speed,
+		"yaw_rate": 0.0,
+	}
+
 # --- Speed / direction API (kept for LandCarrierInput compatibility) ---
 
 func set_speed(_speed: float) -> void:
@@ -833,7 +871,7 @@ func turn_right(_amount: float = 30.0) -> void:
 	pass
 
 func get_speed() -> float:
-	return max_speed
+	return _last_planar_speed_mps
 
 func get_velocity_vector() -> Vector3:
 	var forward: Vector3 = global_transform.basis.z
@@ -842,13 +880,7 @@ func get_velocity_vector() -> Vector3:
 	return forward * _last_planar_speed_mps
 
 func get_deck_reference_velocity_vector() -> Vector3:
-	var actual_velocity := get_velocity_vector()
-	if actual_velocity.length_squared() > 0.0001:
-		return actual_velocity
-	var forward: Vector3 = global_transform.basis.z
-	forward.y = 0.0
-	forward = forward.normalized() if forward.length_squared() > 0.0001 else Vector3.FORWARD
-	return forward * max_speed
+	return get_velocity_vector()
 
 func _setup_deck_audio() -> void:
 	if deck_sound == null:

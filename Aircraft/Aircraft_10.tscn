@@ -208,7 +208,7 @@ max_compression = 0.28
 deck_contact_visual_offset_m = 0.25
 use_accel_lean = false
 nose_wheel_taxi_steering_enabled = false
-carrier_deck_follow_min_wheels = 1
+carrier_deck_follow_min_wheels = 3
 
 [node name="ControlEngine" parent="." unique_id=1520295740 instance=ExtResource("16_ctl_engine")]
 

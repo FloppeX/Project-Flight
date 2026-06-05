@@ -8,7 +8,7 @@ signal deck_state_changed(new_state)
 @export var elevator_pickup_marker: Node3D
 @export var elevator: Node
 @export var deck_marker: Node3D  # Marker on deck to derive deck world height
-@export var tractor_bots: Array[Node] = []  # Array of 3 SimpleTractorBot nodes
+@export var tractor_bots: Array[Node] = []  # Array of SimpleTractorBot nodes
 @export var hangar_spawn_points: Array[Vector3] = [
 	Vector3(-8, 0, 0),
 	Vector3(-4, 0, 0), 
@@ -32,11 +32,16 @@ signal deck_state_changed(new_state)
 @export var auto_recovery_zone_max_local_z: float = -15.0
 @export var auto_recovery_zone_height_margin_m: float = 6.0
 @export var launch_deck_pitch_contact_max_deg: float = 4.0
-@export var desired_deck_tractor_count: int = 3
+@export var desired_deck_tractor_count: int = 4
 @export var landing_deck_block_half_width_m: float = 24.0
 @export var landing_deck_block_min_local_z: float = -95.0
 @export var landing_deck_block_max_local_z: float = 95.0
 @export var landing_deck_block_height_margin_m: float = 8.0
+@export var landing_clearance_abandon_radius_m: float = 6000.0
+@export var landing_clearance_timeout_s: float = 30.0
+@export var landing_clearance_retry_cooldown_s: float = 12.0
+@export var carrier_recovery_speed_limit_mps: float = 0.0
+@export var carrier_recovery_constraint_requires_active_clearance: bool = true
 @export var tractor_recovery_debug: bool = true
 @export var tractor_recovery_debug_interval_s: float = 1.0
 @export var tractor_position_timeout_s: float = 16.0
@@ -51,7 +56,7 @@ const WEAPON_SCENE_20MM := "res://Weapons/Guns/Hardpoint/20mm_autocannon_hardpoi
 const WEAPON_SCENE_AA_MISSILE := "res://Weapons/AA_Missile/aa_missile_launcher.tscn"
 const WEAPON_SCENE_ROCKET_POD := "res://Weapons/RocketPod/rocket_pod.tscn"
 const WEAPON_SCENE_BOMB_RACK := "res://Weapons/Bomb/bomb_rack.tscn"
-const PRIMARY_TRACTOR_COUNT := 3
+const PRIMARY_TRACTOR_COUNT := 4
 const MOTION_REFERENCE_NODE_META := "motion_reference_node"
 const MOTION_REFERENCE_VELOCITY_META := "motion_reference_velocity"
 const LEGACY_CARRIER_VELOCITY_META := "carrier_deck_velocity"
@@ -94,6 +99,9 @@ var _tractor_elevator_transfer_in_progress: bool = false
 var _tractorbots_in_hangar: bool = false
 var landing_deck_active: bool = false
 var _landing_clearance_aircraft: RigidBody3D = null
+var _landing_clearance_queue: Array[RigidBody3D] = []
+var _landing_clearance_elapsed_s: float = 0.0
+var _landing_clearance_retry_after_s: Dictionary = {}
 var carrier_manager: CarrierManager = null
 
 # --- Landing test mode ---
@@ -113,6 +121,7 @@ const LANDING_WIRE_HALF_WIDTH_M: float = 24.8  # ±24.8 m = full wire width
 # --- Helicopter test mode (F12) ---
 var _heli_test_active: bool = false
 var _heli_test_timer: float = 0.0
+var _heli_test_spawn_index: int = 0
 const HELI_TEST_INTERVAL_S: float = 60.0
 const HELI_TEST_MAX_COUNT: int = 4
 const HELI_TEST_SPAWN_DIST_M: float = 200.0
@@ -318,15 +327,16 @@ func _normalize_primary_tractorbots() -> void:
 			continue
 		node.queue_free()
 	if primary.size() < PRIMARY_TRACTOR_COUNT:
-		push_warning("[FlightDeckManager] Expected 3 tractorbots, found %d." % primary.size())
+		push_warning("[FlightDeckManager] Expected %d tractorbots, found %d." % [PRIMARY_TRACTOR_COUNT, primary.size()])
 
 func _get_primary_staging_slots_local(count: int) -> Array[Vector3]:
 	var slots: Array[Vector3] = []
 	var deck_local_y: float = _get_deck_local_y()
 	var slot_offsets: Array[Vector3] = [
-		Vector3(12.0, 0.0, -6.0),
-		Vector3(16.0, 0.0, -6.0),
-		Vector3(20.0, 0.0, -6.0)
+		Vector3(10.0, 0.0, -6.0),
+		Vector3(14.0, 0.0, -6.0),
+		Vector3(18.0, 0.0, -6.0),
+		Vector3(22.0, 0.0, -6.0)
 	]
 	var base_local: Vector3 = elevator_pickup_marker.position if is_instance_valid(elevator_pickup_marker) else Vector3.ZERO
 	for i in range(min(count, slot_offsets.size())):
@@ -384,6 +394,13 @@ func _queue_aircraft_scene_for_retrieval(aircraft_name: String, scene: PackedSce
 	if entry.is_empty():
 		return
 	stored_aircraft.push_front(entry)
+	if _heli_test_active:
+		_log_heli_test("retrieval queued state=%s stored=%d elevator_top=%s bottom=%s" % [
+			_deck_state_name(),
+			stored_aircraft.size(),
+			str(_is_elevator_physically_at_top()),
+			str(elevator != null and "current_state" in elevator and elevator.current_state == elevator.ElevatorState.AT_BOTTOM),
+		])
 	start_hangar_retrieval()
 
 func _is_elevator_physically_at_top() -> bool:
@@ -532,6 +549,7 @@ func _input(event):
 		current_state = DeckState.IDLE
 		_pending_store_aircraft = null
 		_landing_clearance_aircraft = null
+		_landing_clearance_queue.clear()
 
 	# F1 — toggle landing test mode
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_F1:
@@ -545,6 +563,8 @@ func _input(event):
 				if is_instance_valid(ac):
 					ac.queue_free()
 			_landing_test_aircraft.clear()
+			_landing_clearance_aircraft = null
+			_landing_clearance_queue.clear()
 			_landing_test_spawn_index = 0
 			_landing_score_total = 0.0
 			_landing_attempt_count = 0
@@ -562,6 +582,12 @@ func _input(event):
 		_toggle_heli_test_mode()
 
 func request_launch_sequence(aircraft: RigidBody3D):
+	if not is_instance_valid(aircraft):
+		_recovery_debug("launch request ignored: invalid aircraft")
+		return
+	if _is_non_aircraft_body(aircraft):
+		_recovery_debug("launch request ignored for non-aircraft body %s" % _aircraft_debug_name(aircraft))
+		return
 	if _landing_test_active and not _landing_test_aircraft.has(aircraft):
 		return
 	if not catapult:
@@ -586,6 +612,12 @@ func request_launch_sequence(aircraft: RigidBody3D):
 		
 	else:
 		await _restore_aircraft_physics(aircraft)
+		if not is_instance_valid(aircraft):
+			_recovery_debug("launch request aborted after restore: aircraft invalid")
+			return
+		if _is_non_aircraft_body(aircraft):
+			_recovery_debug("launch request aborted after restore for non-aircraft body %s" % _aircraft_debug_name(aircraft))
+			return
 
 	current_state = DeckState.LAUNCH_IN_PROGRESS
 	deck_aircraft = aircraft
@@ -606,6 +638,13 @@ func request_launch_sequence(aircraft: RigidBody3D):
 				ai_pilot.launch()
 	else:
 		pass
+
+func _is_non_aircraft_body(node: Node) -> bool:
+	if not is_instance_valid(node):
+		return true
+	return bool(node.get_meta("non_aircraft_body", false)) \
+			or bool(node.get_meta("ejected_pilot_camera_target", false)) \
+			or node.is_in_group("ejected_pilots")
 
 func queue_ai_flight(count: int, ops: Node, loadout_profile: String = "") -> int:
 	"""Request FlightOps to launch `count` AI aircraft one after another.
@@ -825,19 +864,25 @@ func _physics_process(_delta: float) -> void:
 					deck_aircraft.remove_meta("controls_disabled")
 				_abort_current_sequence()
 
+	_prune_landing_clearance_queue()
+	_prune_landing_clearance_aircraft()
+	_update_landing_clearance_timeout(_delta)
 	var deck_blocked_by_aircraft: bool = false
 	if current_state in [DeckState.IDLE, DeckState.AIRCRAFT_ON_DECK]:
 		for aircraft in _get_all_aircraft_nodes():
 			if _is_aircraft_blocking_landing_deck(aircraft):
 				deck_blocked_by_aircraft = true
 				break
-		landing_deck_active = deck_blocked_by_aircraft
+		landing_deck_active = deck_blocked_by_aircraft \
+				or is_instance_valid(_landing_clearance_aircraft) \
+				or not _landing_clearance_queue.is_empty()
 		if deck_blocked_by_aircraft and current_state == DeckState.IDLE:
 			current_state = DeckState.AIRCRAFT_ON_DECK
 		elif not deck_blocked_by_aircraft and current_state == DeckState.AIRCRAFT_ON_DECK:
 			current_state = DeckState.IDLE
 	else:
 		landing_deck_active = true
+	_grant_next_landing_clearance_if_possible()
 
 	# 2. Polling for unmanaged arrests
 	if current_state != DeckState.RECOVERY_IN_PROGRESS and not _recovery_powerdown_in_progress:
@@ -895,7 +940,7 @@ func _physics_process(_delta: float) -> void:
 			if live_count < HELI_TEST_MAX_COUNT:
 				_spawn_heli_test_aircraft()
 			else:
-				print("[HeliTest] at max count (%d), skipping spawn" % HELI_TEST_MAX_COUNT)
+				_log_heli_test("at max count (%d), skipping spawn" % HELI_TEST_MAX_COUNT)
 
 func _abort_current_sequence() -> void:
 	# Called when a safety check fails (plane destroyed or fell off)
@@ -906,6 +951,7 @@ func _abort_current_sequence() -> void:
 	deck_aircraft = null
 	_pending_store_aircraft = null
 	_landing_clearance_aircraft = null
+	_landing_clearance_queue.clear()
 	if catapult and catapult.has_method("_reset_state"):
 		catapult._reset_state()
 	current_state = DeckState.IDLE
@@ -1076,6 +1122,8 @@ func _get_all_aircraft_nodes() -> Array[RigidBody3D]:
 			var aircraft := node as RigidBody3D
 			if not is_instance_valid(aircraft):
 				continue
+			if _is_non_aircraft_body(aircraft):
+				continue
 			var id := aircraft.get_instance_id()
 			if seen.has(id):
 				continue
@@ -1085,6 +1133,8 @@ func _get_all_aircraft_nodes() -> Array[RigidBody3D]:
 
 func _is_aircraft_blocking_landing_deck(aircraft: RigidBody3D, requester: RigidBody3D = null) -> bool:
 	if not is_instance_valid(aircraft) or aircraft == requester:
+		return false
+	if _is_landing_clearance_aircraft_stale(aircraft):
 		return false
 	if aircraft.has_meta("carrier_transport_mode") and bool(aircraft.get_meta("carrier_transport_mode")):
 		return false
@@ -1099,51 +1149,239 @@ func _is_aircraft_blocking_landing_deck(aircraft: RigidBody3D, requester: RigidB
 		return false
 	return local_pos.z >= landing_deck_block_min_local_z and local_pos.z <= landing_deck_block_max_local_z
 
-func _is_landing_deck_busy(requester: RigidBody3D = null) -> bool:
-	if is_instance_valid(_landing_clearance_aircraft):
-		if requester == null or _landing_clearance_aircraft != requester:
-			return true
-	else:
-		_landing_clearance_aircraft = null
-	if current_state in [
+func _landing_deck_state_busy_for_clearance() -> bool:
+	return current_state in [
 		DeckState.LAUNCH_IN_PROGRESS,
 		DeckState.RECOVERY_IN_PROGRESS,
 		DeckState.STORING_IN_HANGAR,
 		DeckState.RETRIEVING_FROM_HANGAR,
 		DeckState.TRACTOR_CLEANUP
-	]:
-		return true
+	]
+
+func _can_grant_landing_clearance_to(requester: RigidBody3D = null) -> bool:
+	if _landing_deck_state_busy_for_clearance():
+		return false
 	for aircraft in _get_all_aircraft_nodes():
 		if _is_aircraft_blocking_landing_deck(aircraft, requester):
+			return false
+	return true
+
+func _is_landing_deck_busy(requester: RigidBody3D = null) -> bool:
+	_prune_landing_clearance_queue()
+	_prune_landing_clearance_aircraft()
+	if is_instance_valid(_landing_clearance_aircraft):
+		if requester == null or _landing_clearance_aircraft != requester:
+			return true
+	else:
+		_landing_clearance_aircraft = null
+		if not _landing_clearance_queue.is_empty() \
+				and (requester == null or _landing_clearance_queue[0] != requester):
+			return true
+	return not _can_grant_landing_clearance_to(requester)
+
+func can_accept_landing(requester: RigidBody3D = null) -> bool:
+	var busy := _is_landing_deck_busy(requester)
+	landing_deck_active = busy \
+			or is_instance_valid(_landing_clearance_aircraft) \
+			or not _landing_clearance_queue.is_empty()
+	return not busy
+
+func is_carrier_recovery_constraint_active() -> bool:
+	_prune_landing_clearance_queue()
+	_prune_landing_clearance_aircraft()
+	return current_state == DeckState.RECOVERY_IN_PROGRESS \
+			or (carrier_recovery_constraint_requires_active_clearance and _landing_clearance_aircraft_needs_carrier_constraint())
+
+func _landing_clearance_aircraft_needs_carrier_constraint() -> bool:
+	if not is_instance_valid(_landing_clearance_aircraft):
+		return false
+	return _landing_clearance_aircraft.has_meta("carrier_landing_final_active") \
+			and bool(_landing_clearance_aircraft.get_meta("carrier_landing_final_active"))
+
+func get_carrier_recovery_speed_limit_mps() -> float:
+	if not is_carrier_recovery_constraint_active():
+		return INF
+	return maxf(carrier_recovery_speed_limit_mps, 0.0)
+
+func has_landing_clearance(requester: RigidBody3D) -> bool:
+	_prune_landing_clearance_aircraft()
+	return is_instance_valid(requester) \
+			and is_instance_valid(_landing_clearance_aircraft) \
+			and _landing_clearance_aircraft == requester
+
+func _queue_landing_clearance_request(requester: RigidBody3D) -> void:
+	if _is_landing_clearance_aircraft_stale(requester):
+		return
+	if _landing_clearance_queue.has(requester):
+		return
+	_landing_clearance_queue.append(requester)
+	_recovery_debug("landing clearance queued for %s" % _aircraft_debug_name(requester))
+
+func _remove_landing_clearance_request(requester: RigidBody3D) -> void:
+	if requester == null:
+		return
+	for i in range(_landing_clearance_queue.size() - 1, -1, -1):
+		if _landing_clearance_queue[i] == requester:
+			_landing_clearance_queue.remove_at(i)
+
+func _prune_landing_clearance_queue() -> void:
+	_prune_landing_clearance_retry_cooldowns()
+	for i in range(_landing_clearance_queue.size() - 1, -1, -1):
+		if _is_landing_clearance_aircraft_stale(_landing_clearance_queue[i]):
+			_recovery_debug("landing clearance removed stale queued aircraft %s" % _aircraft_debug_name(_landing_clearance_queue[i]))
+			_landing_clearance_queue.remove_at(i)
+
+func _prune_landing_clearance_retry_cooldowns() -> void:
+	if _landing_clearance_retry_after_s.is_empty():
+		return
+	var now_s := Time.get_ticks_msec() / 1000.0
+	for key in _landing_clearance_retry_after_s.keys():
+		if float(_landing_clearance_retry_after_s[key]) <= now_s:
+			_landing_clearance_retry_after_s.erase(key)
+
+func _is_landing_clearance_request_on_cooldown(requester: RigidBody3D) -> bool:
+	if not is_instance_valid(requester):
+		return false
+	var key := requester.get_instance_id()
+	if not _landing_clearance_retry_after_s.has(key):
+		return false
+	return float(_landing_clearance_retry_after_s[key]) > Time.get_ticks_msec() / 1000.0
+
+func _set_landing_clearance_retry_cooldown(requester: RigidBody3D) -> void:
+	if not is_instance_valid(requester):
+		return
+	var cooldown_s := maxf(landing_clearance_retry_cooldown_s, 0.0)
+	if cooldown_s <= 0.0:
+		return
+	_landing_clearance_retry_after_s[requester.get_instance_id()] = Time.get_ticks_msec() / 1000.0 + cooldown_s
+
+func _prune_landing_clearance_aircraft() -> void:
+	if _landing_clearance_aircraft == null:
+		_landing_clearance_elapsed_s = 0.0
+		return
+	if not _is_landing_clearance_aircraft_stale(_landing_clearance_aircraft):
+		return
+	_recovery_debug("landing clearance released stale holder %s" % _aircraft_debug_name(_landing_clearance_aircraft))
+	_landing_clearance_aircraft = null
+	_landing_clearance_elapsed_s = 0.0
+
+func _update_landing_clearance_timeout(delta: float) -> void:
+	if not is_instance_valid(_landing_clearance_aircraft):
+		_landing_clearance_aircraft = null
+		_landing_clearance_elapsed_s = 0.0
+		return
+	var timeout_s := maxf(landing_clearance_timeout_s, 0.0)
+	if timeout_s <= 0.0:
+		return
+	_landing_clearance_elapsed_s += maxf(delta, 0.0)
+	if _landing_clearance_elapsed_s < timeout_s:
+		return
+	if _is_aircraft_blocking_landing_deck(_landing_clearance_aircraft):
+		_landing_clearance_elapsed_s = timeout_s
+		return
+	var bumped := _landing_clearance_aircraft
+	_landing_clearance_aircraft = null
+	_landing_clearance_elapsed_s = 0.0
+	if _landing_clearance_queue.is_empty():
+		_set_landing_clearance_retry_cooldown(bumped)
+		_recovery_debug("landing clearance timed out for %s; released (no queue waiting)" % _aircraft_debug_name(bumped))
+	elif not _is_landing_clearance_aircraft_stale(bumped) and not _landing_clearance_queue.has(bumped):
+		_landing_clearance_queue.append(bumped)
+		_recovery_debug("landing clearance timed out for %s; moved to back of queue (%d waiting)" % [
+			_aircraft_debug_name(bumped),
+			_landing_clearance_queue.size(),
+		])
+	landing_deck_active = _is_landing_deck_busy()
+	_grant_next_landing_clearance_if_possible()
+
+func _is_landing_clearance_aircraft_stale(aircraft: RigidBody3D) -> bool:
+	if not is_instance_valid(aircraft):
+		return true
+	if aircraft.is_queued_for_deletion():
+		return true
+	if _is_non_aircraft_body(aircraft):
+		return true
+	if not aircraft.is_inside_tree():
+		return true
+	if aircraft.has_meta("non_aircraft_body") and bool(aircraft.get_meta("non_aircraft_body")):
+		return true
+	if "current_health" in aircraft and float(aircraft.get("current_health")) <= 0.0:
+		return true
+	if "_has_exploded" in aircraft and bool(aircraft.get("_has_exploded")):
+		return true
+	var carrier := get_parent() as Node3D
+	if is_instance_valid(carrier) and maxf(landing_clearance_abandon_radius_m, 0.0) > 0.0:
+		var carrier_to_aircraft := aircraft.global_position - carrier.global_position
+		carrier_to_aircraft.y = 0.0
+		if carrier_to_aircraft.length() > landing_clearance_abandon_radius_m:
 			return true
 	return false
 
-func can_accept_landing(requester: RigidBody3D = null) -> bool:
-	landing_deck_active = _is_landing_deck_busy(requester)
-	return not landing_deck_active
+func _grant_landing_clearance(requester: RigidBody3D) -> void:
+	if _is_landing_clearance_aircraft_stale(requester):
+		return
+	_landing_clearance_aircraft = requester
+	_landing_clearance_elapsed_s = 0.0
+	_remove_landing_clearance_request(requester)
+	landing_deck_active = true
+	_recovery_debug("landing clearance granted to %s" % _aircraft_debug_name(requester))
+
+func _grant_next_landing_clearance_if_possible() -> void:
+	_prune_landing_clearance_queue()
+	_prune_landing_clearance_aircraft()
+	if is_instance_valid(_landing_clearance_aircraft):
+		return
+	if _landing_clearance_queue.is_empty():
+		return
+	var requester := _landing_clearance_queue[0]
+	if not is_instance_valid(requester):
+		_landing_clearance_queue.remove_at(0)
+		return
+	if _can_grant_landing_clearance_to(requester):
+		_grant_landing_clearance(requester)
 
 func request_landing_clearance(requester: RigidBody3D) -> bool:
 	if not is_instance_valid(requester):
 		return false
-	if is_instance_valid(_landing_clearance_aircraft) and _landing_clearance_aircraft != requester:
+	_prune_landing_clearance_queue()
+	_prune_landing_clearance_aircraft()
+	if _is_landing_clearance_request_on_cooldown(requester):
+		landing_deck_active = _is_landing_deck_busy()
+		return false
+	if has_landing_clearance(requester):
+		return true
+	if is_instance_valid(_landing_clearance_aircraft):
+		_queue_landing_clearance_request(requester)
 		landing_deck_active = true
 		return false
-	if not can_accept_landing(requester):
+	if not _landing_clearance_queue.is_empty():
+		if not _landing_clearance_queue.has(requester):
+			_queue_landing_clearance_request(requester)
+		if _landing_clearance_queue[0] != requester:
+			landing_deck_active = true
+			return false
+	if not _can_grant_landing_clearance_to(requester):
+		_queue_landing_clearance_request(requester)
+		landing_deck_active = true
 		return false
-	_landing_clearance_aircraft = requester
-	landing_deck_active = true
-	_recovery_debug("landing clearance granted to %s" % _aircraft_debug_name(requester))
+	_grant_landing_clearance(requester)
 	return true
 
 func release_landing_clearance(requester: RigidBody3D) -> void:
+	if requester != null:
+		_remove_landing_clearance_request(requester)
 	if not is_instance_valid(_landing_clearance_aircraft):
 		_landing_clearance_aircraft = null
+		_landing_clearance_elapsed_s = 0.0
 		landing_deck_active = _is_landing_deck_busy()
+		_grant_next_landing_clearance_if_possible()
 		return
 	if requester == null or _landing_clearance_aircraft == requester:
 		_recovery_debug("landing clearance released for %s" % _aircraft_debug_name(_landing_clearance_aircraft))
 		_landing_clearance_aircraft = null
+		_landing_clearance_elapsed_s = 0.0
 		landing_deck_active = _is_landing_deck_busy()
+		_grant_next_landing_clearance_if_possible()
 
 func start_post_arrest_recovery(aircraft_variant: Variant) -> void:
 	"""Called by AIPilot when the arresting cable has already auto-released.
@@ -1374,6 +1612,7 @@ func _on_elevator_at_bottom():
 		deck_aircraft = null
 		_pending_store_aircraft = null
 		_landing_clearance_aircraft = null
+		_landing_clearance_queue.clear()
 		return
 	match current_state:
 		DeckState.STORING_IN_HANGAR:
@@ -1391,6 +1630,7 @@ func _store_aircraft_in_hangar():
 		_pending_store_aircraft = null
 		_recovery_debug("store aircraft skipped: no pending store aircraft")
 		_landing_clearance_aircraft = null
+		_landing_clearance_queue.clear()
 		current_state = DeckState.IDLE
 		return
 
@@ -1415,6 +1655,7 @@ func _store_aircraft_in_hangar():
 	_recovery_release_done = false
 	_recovery_job_dispatched = false
 	_landing_clearance_aircraft = null
+	_landing_clearance_queue.clear()
 	current_state = DeckState.IDLE
 
 func _spawn_aircraft_at_hangar_level():
@@ -1452,6 +1693,13 @@ func _spawn_aircraft_at_hangar_level():
 
 func _on_elevator_at_top():
 	"""Handle elevator reaching top"""
+	if _heli_test_active:
+		_log_heli_test("elevator top callback state=%s handled=%s physical_top=%s aircraft=%s" % [
+			_deck_state_name(),
+			str(_retrieval_top_handled),
+			str(_is_elevator_physically_at_top()),
+			_aircraft_debug_name(deck_aircraft),
+		])
 	if _landing_test_active and current_state in [DeckState.STORING_IN_HANGAR, DeckState.RETRIEVING_FROM_HANGAR]:
 		current_state = DeckState.IDLE
 		deck_aircraft = null
@@ -1518,7 +1766,7 @@ func _move_aircraft_to_elevator(aircraft: RigidBody3D):
 	_start_aircraft_movement(aircraft, elevator_pickup_marker.global_position)
 
 func _activate_tractor_bots(aircraft: RigidBody3D) -> Array[Node]:
-	"""Activate the 3 tractorbots to position at aircraft wheels"""
+	"""Activate tractorbots to position at aircraft wheels"""
 	var active_bots: Array[Node] = []
 	var gear_colliders: Array[Node3D] = _get_launch_wheel_nodes(aircraft)
 	if gear_colliders.is_empty():
@@ -1688,8 +1936,14 @@ func _start_aircraft_movement(aircraft: RigidBody3D, target_position: Vector3):
 	else:
 		await _move_aircraft_smoothly(aircraft, target_position)
 	
+	if not is_instance_valid(aircraft):
+		current_state = DeckState.IDLE
+		return
 	await _align_aircraft_forward_on_elevator(aircraft)
 
+	if not is_instance_valid(aircraft):
+		current_state = DeckState.IDLE
+		return
 	# Wait 1 second after aircraft is in position before starting elevator
 	await get_tree().create_timer(1.0).timeout
 
@@ -2086,9 +2340,10 @@ func _get_tractor_cleanup_elevator_slots_local(count: int) -> Array[Vector3]:
 	var slots: Array[Vector3] = []
 	var deck_local_y: float = _get_deck_local_y()
 	var slot_offsets: Array[Vector3] = [
-		Vector3(-4.0, 0.0, -3.0),
-		Vector3(0.0, 0.0, -3.0),
-		Vector3(4.0, 0.0, -3.0)
+		Vector3(-6.0, 0.0, -3.0),
+		Vector3(-2.0, 0.0, -3.0),
+		Vector3(2.0, 0.0, -3.0),
+		Vector3(6.0, 0.0, -3.0)
 	]
 	var base_local: Vector3 = elevator_pickup_marker.position if is_instance_valid(elevator_pickup_marker) else Vector3.ZERO
 	for i in range(min(count, slot_offsets.size())):
@@ -2101,9 +2356,10 @@ func _get_tractor_cleanup_hangar_slots_local(count: int) -> Array[Vector3]:
 	var slots: Array[Vector3] = []
 	var hangar_local_y: float = _get_elevator_platform_top_local_y(-10.0) + tractor_elevator_floor_offset_m
 	var slot_offsets: Array[Vector3] = [
-		Vector3(-6.0, 0.0, -8.0),
-		Vector3(0.0, 0.0, -8.0),
-		Vector3(6.0, 0.0, -8.0)
+		Vector3(-9.0, 0.0, -8.0),
+		Vector3(-3.0, 0.0, -8.0),
+		Vector3(3.0, 0.0, -8.0),
+		Vector3(9.0, 0.0, -8.0)
 	]
 	var base_local: Vector3 = elevator_pickup_marker.position if is_instance_valid(elevator_pickup_marker) else Vector3.ZERO
 	for i in range(min(count, slot_offsets.size())):
@@ -2469,6 +2725,8 @@ func _follow_elevator_down(aircraft: RigidBody3D):
 	
 	# Store reference to aircraft for elevator following
 	_pending_store_aircraft = aircraft
+	var aircraft_name := _aircraft_debug_name(aircraft)
+	var last_aircraft_position := aircraft.global_position
 	
 	# Get initial positions relative to deck level (not elevator platform)
 	var deck_height = _get_deck_height_y()
@@ -2512,6 +2770,7 @@ func _follow_elevator_down(aircraft: RigidBody3D):
 			aircraft.global_position = aircraft_position
 		else:
 			aircraft.global_position.y = target_aircraft_y
+		last_aircraft_position = aircraft.global_position
 		for i in range(min(active_bots.size(), active_bot_offsets.size())):
 			if is_instance_valid(active_bots[i]):
 				var bot_position: Vector3 = aircraft.global_position + active_bot_offsets[i]
@@ -2520,7 +2779,13 @@ func _follow_elevator_down(aircraft: RigidBody3D):
 		await get_tree().process_frame
 
 	if not is_instance_valid(aircraft):
-		_recovery_debug("aircraft became invalid while following elevator down")
+		_recovery_debug("aircraft became invalid while following elevator down name=%s last_pos=%s elevator_state=%s elevator_y=%.1f active_bots=%d" % [
+			aircraft_name,
+			_fmt_vec3(last_aircraft_position),
+			str(elevator.current_state) if is_instance_valid(elevator) else "invalid",
+			_get_elevator_platform_top_global_y(-10.0) if is_instance_valid(elevator) else NAN,
+			active_bots.size(),
+		])
 		for bot in active_bots:
 			_set_manual_transport(bot, false)
 		return
@@ -2537,10 +2802,14 @@ func _follow_elevator_down(aircraft: RigidBody3D):
 
 	_recovery_debug("elevator reached bottom")
 
-func _restore_aircraft_physics(aircraft: RigidBody3D, keep_frozen: bool = false):
+func _restore_aircraft_physics(aircraft_ref: Variant, keep_frozen: bool = false):
 	"""Restore aircraft physics for launch.
 	keep_frozen=true restores collisions/gravity but skips the unfreeze,
 	used by the retrieval path where the aircraft is already correctly positioned."""
+	if not is_instance_valid(aircraft_ref) or not (aircraft_ref is RigidBody3D):
+		_recovery_debug("restore aircraft physics skipped: invalid aircraft")
+		return
+	var aircraft := aircraft_ref as RigidBody3D
 
 	# Force aircraft to be completely still first
 	aircraft.freeze = true
@@ -2556,6 +2825,9 @@ func _restore_aircraft_physics(aircraft: RigidBody3D, keep_frozen: bool = false)
 
 	# Short frame-based settle to avoid long pauses during retrieval->launch handoff
 	await get_tree().process_frame
+	if not is_instance_valid(aircraft):
+		_recovery_debug("restore aircraft physics aborted after first frame: invalid aircraft")
+		return
 
 	# Clear again after waiting
 	aircraft.linear_velocity = Vector3.ZERO
@@ -2566,6 +2838,9 @@ func _restore_aircraft_physics(aircraft: RigidBody3D, keep_frozen: bool = false)
 
 	# Let gravity/physics state apply for a frame
 	await get_tree().process_frame
+	if not is_instance_valid(aircraft):
+		_recovery_debug("restore aircraft physics aborted after gravity frame: invalid aircraft")
+		return
 
 	# Clear velocities one more time before unfreezing
 	aircraft.linear_velocity = Vector3.ZERO
@@ -2581,7 +2856,7 @@ func _restore_aircraft_physics(aircraft: RigidBody3D, keep_frozen: bool = false)
 		aircraft.set_gravity_scale(1.0)
 		aircraft.collision_layer = _aircraft_original_collision_layer if _aircraft_original_collision_layer != 0 else default_layer
 		aircraft.collision_mask  = _aircraft_original_collision_mask  if _aircraft_original_collision_mask  != 0 else default_mask
-		if aircraft.has_meta("carrier_transport_mode"):
+		if aircraft.has_meta("carrier_transport_mode") and not _is_helicopter_aircraft(aircraft):
 			aircraft.remove_meta("carrier_transport_mode")
 		return
 
@@ -2592,6 +2867,9 @@ func _restore_aircraft_physics(aircraft: RigidBody3D, keep_frozen: bool = false)
 	aircraft.angular_velocity = Vector3.ZERO
 
 	await get_tree().process_frame
+	if not is_instance_valid(aircraft):
+		_recovery_debug("restore aircraft physics aborted after unfreeze frame: invalid aircraft")
+		return
 
 	aircraft.linear_velocity = Vector3.ZERO
 	aircraft.angular_velocity = Vector3.ZERO
@@ -2626,6 +2904,12 @@ func _follow_elevator_up_for_retrieval(aircraft: RigidBody3D):
 	"""Make aircraft and tractorbots follow the elevator up during retrieval"""
 	if not is_instance_valid(aircraft):
 		return
+
+	# Disable collisions for the entire elevator ride — the aircraft passes through
+	# the carrier structure and must not take damage from it.
+	aircraft.collision_layer = 0
+	aircraft.collision_mask = 0
+	aircraft.freeze = true
 
 	# Get initial positions relative to deck level
 	var deck_height = _get_deck_height_y()
@@ -2756,6 +3040,9 @@ func _complete_retrieval_sequence():
 	# Re-enable physics at launch position. Keep the body frozen so the moving
 	# deck doesn't push it before the catapult takes over.
 	await _restore_aircraft_physics(aircraft, true)
+	if not is_instance_valid(aircraft):
+		_recovery_debug("retrieval completion aborted after restore: aircraft invalid")
+		return
 
 	# Lower the frozen aircraft so its wheels sit on the flight deck.
 	# Must happen before tractor bots leave so they can support the aircraft.
@@ -2777,6 +3064,13 @@ func _complete_retrieval_sequence():
 func _complete_helicopter_retrieval_sequence(aircraft: RigidBody3D) -> void:
 	"""Move helicopters to a deck takeoff spot and skip the catapult launch."""
 	var target_position := _get_helicopter_takeoff_position()
+	if _heli_test_active:
+		_log_heli_test("helicopter retrieval begin aircraft=%s pos=%s target=%s active_bots=%d" % [
+			_aircraft_debug_name(aircraft),
+			_fmt_vec3(aircraft.global_position) if is_instance_valid(aircraft) else "?",
+			_fmt_vec3(target_position),
+			tractor_bots.filter(func(bot): return bot and bool(bot.get("is_active"))).size(),
+		])
 
 	var active_bots: Array[Node] = []
 	for bot in tractor_bots:
@@ -2808,6 +3102,11 @@ func _complete_helicopter_retrieval_sequence(aircraft: RigidBody3D) -> void:
 
 	if not is_instance_valid(aircraft):
 		return
+	if _heli_test_active:
+		_log_heli_test("helicopter retrieval moved to deck spot aircraft=%s pos=%s" % [
+			_aircraft_debug_name(aircraft),
+			_fmt_vec3(aircraft.global_position),
+		])
 	await _restore_aircraft_physics(aircraft, true)
 	if not is_instance_valid(aircraft):
 		return
@@ -2829,6 +3128,8 @@ func _complete_helicopter_retrieval_sequence(aircraft: RigidBody3D) -> void:
 		aircraft.remove_meta("physics_ready_for_launch")
 	aircraft.set_meta("parking_brake", true)
 	aircraft.set_meta("helicopter_deck_takeoff_ready", true)
+	if aircraft.has_meta("carrier_transport_mode"):
+		aircraft.remove_meta("carrier_transport_mode")
 	var carrier_node := get_parent() as Node
 	if carrier_node == null or not carrier_node.has_method("get_deck_reference_velocity_vector"):
 		carrier_node = get_tree().get_first_node_in_group("carrier")
@@ -2847,6 +3148,15 @@ func _complete_helicopter_retrieval_sequence(aircraft: RigidBody3D) -> void:
 
 	current_state = DeckState.AIRCRAFT_ON_DECK
 	deck_aircraft = aircraft
+	if _heli_test_active:
+		_log_heli_test("helicopter retrieval complete aircraft=%s freeze=%s brake=%s ready=%s transport=%s pos=%s" % [
+			_aircraft_debug_name(aircraft),
+			str(aircraft.freeze),
+			str(bool(aircraft.get_meta("parking_brake", false))),
+			str(bool(aircraft.get_meta("helicopter_deck_takeoff_ready", false))),
+			str(bool(aircraft.get_meta("carrier_transport_mode", false))),
+			_fmt_vec3(aircraft.global_position),
+		])
 	_send_primary_tractorbots_to_hangar.call_deferred()
 
 
@@ -2916,6 +3226,15 @@ func _move_aircraft_horizontally(aircraft: RigidBody3D, target_position: Vector3
 
 	var distance = start_local.distance_to(target_local)
 	var duration = distance / _aircraft_move_speed
+	if _heli_test_active:
+		_log_heli_test("move horizontal begin aircraft=%s dist=%.1f duration=%.1f start=%s target=%s active_bots=%d" % [
+			_aircraft_debug_name(aircraft),
+			distance,
+			duration,
+			_fmt_vec3(aircraft.global_position),
+			_fmt_vec3(target_position),
+			tractor_bots.filter(func(bot): return bot and bool(bot.get("is_active"))).size(),
+		])
 
 
 	var elapsed_time = 0.0
@@ -2948,6 +3267,11 @@ func _move_aircraft_horizontally(aircraft: RigidBody3D, target_position: Vector3
 
 	aircraft.global_position = carrier.to_global(target_local) if carrier else target_position
 	aircraft.global_rotation = target_rotation
+	if _heli_test_active:
+		_log_heli_test("move horizontal complete aircraft=%s pos=%s" % [
+			_aircraft_debug_name(aircraft),
+			_fmt_vec3(aircraft.global_position),
+		])
 
 	# Final tractorbot positions
 	for i in range(min(tractor_bots.size(), bot_offsets.size())):
@@ -3250,6 +3574,7 @@ func _enter_landing_test_isolation() -> void:
 	_pending_store_aircraft = null
 	deck_aircraft = null
 	_landing_clearance_aircraft = null
+	_landing_clearance_queue.clear()
 	current_state = DeckState.IDLE
 	if catapult and catapult.has_method("_reset_state"):
 		catapult._reset_state()
@@ -3475,9 +3800,9 @@ func _spawn_landing_test_aircraft() -> void:
 
 func _toggle_heli_test_mode() -> void:
 	_heli_test_active = not _heli_test_active
-	print("[HeliTest] mode %s" % ("ON" if _heli_test_active else "OFF"))
 
 	if not _heli_test_active:
+		_log_heli_test("mode OFF")
 		# Despawn all live helicopters
 		for node in get_tree().get_nodes_in_group("aircraft"):
 			if node is RigidBody3D and _is_helicopter_aircraft(node as RigidBody3D):
@@ -3497,33 +3822,53 @@ func _toggle_heli_test_mode() -> void:
 			if is_instance_valid(ac):
 				ac.queue_free()
 		_landing_test_aircraft.clear()
+	_disable_enemies_for_heli_test()
 
-	# Despawn all non-helicopter aircraft (live in scene tree)
-	for node in get_tree().get_nodes_in_group("aircraft"):
-		if not (node is RigidBody3D):
-			continue
-		var ac := node as RigidBody3D
-		if _is_helicopter_aircraft(ac):
-			continue
-		if ac == deck_aircraft:
-			deck_aircraft = null
-		ac.queue_free()
+	# Despawn all non-helicopter aircraft across all relevant groups
+	var seen: Array[RigidBody3D] = []
+	for group in ["aircraft", "ai_aircraft", "friendlies", "enemies"]:
+		for node in get_tree().get_nodes_in_group(group):
+			if not (node is RigidBody3D):
+				continue
+			var ac := node as RigidBody3D
+			if seen.has(ac):
+				continue
+			seen.append(ac)
+			if _is_helicopter_aircraft(ac):
+				continue
+			if ac == deck_aircraft:
+				deck_aircraft = null
+			ac.queue_free()
 
 	# Clear any queued/stored fixed-wing aircraft so they don't pop out of the hangar
 	stored_aircraft.clear()
 	_pending_store_aircraft = null
 	_landing_clearance_aircraft = null
+	_landing_clearance_queue.clear()
 	current_state = DeckState.IDLE
 
-	# Wipe crash logs so this test session starts clean
-	for filename in ["heli_crash_report_Aircraft_10.log", "heli_crash_report_Aircraft_10_Retrieved.log",
-			"heli_crash_report_Aircraft_9.log", "heli_crash_report_Aircraft_9_Retrieved.log"]:
-		var path: String = "user://" + filename
-		if FileAccess.file_exists(path):
-			var f := FileAccess.open(path, FileAccess.WRITE)
-			if f:
-				f.close()
-	print("[HeliTest] crash logs cleared")
+	# Wipe helicopter logs so this test session starts clean, including retrieved-name variants.
+	var user_dir := DirAccess.open("user://")
+	if user_dir:
+		user_dir.list_dir_begin()
+		var filename := user_dir.get_next()
+		while not filename.is_empty():
+			if not user_dir.current_is_dir() and filename.begins_with("heli_crash_report") and filename.ends_with(".log"):
+				user_dir.remove(filename)
+			filename = user_dir.get_next()
+		user_dir.list_dir_end()
+	var aggregate_log := FileAccess.open("user://heli_crash_report.log", FileAccess.WRITE)
+	if aggregate_log:
+		aggregate_log.store_line("=" .repeat(72))
+		aggregate_log.store_line("HELICOPTER TEST LOG")
+		aggregate_log.store_line("Started: %s" % Time.get_datetime_string_from_system())
+		aggregate_log.store_line("Includes compact flight summaries from Aircraft_9/Aircraft_10 helicopter pilots.")
+		aggregate_log.store_line("Crash/fault reports include the last few seconds of HELI_AI output.")
+		aggregate_log.store_line("=" .repeat(72))
+		aggregate_log.store_line("")
+		aggregate_log.close()
+	_log_heli_test("mode ON")
+	_log_heli_test("crash logs cleared: user://heli_crash_report.log")
 
 	var poi_mgr := get_node_or_null("/root/POIManager")
 	if poi_mgr and "reveals_disabled" in poi_mgr:
@@ -3533,14 +3878,67 @@ func _toggle_heli_test_mode() -> void:
 		dnc.set("freeze_daytime", true)
 
 	_heli_test_timer = 0.0  # trigger first spawn immediately
+	_heli_test_spawn_index = 0
+
+
+func _disable_enemies_for_heli_test() -> void:
+	var enemy_ops := get_node_or_null("/root/EnemyOpsManager")
+	if enemy_ops and enemy_ops.has_method("disable_for_heli_test"):
+		enemy_ops.disable_for_heli_test()
+
+	var base_manager := get_node_or_null("/root/EnemyBaseManager")
+	if base_manager and base_manager.has_method("disable_for_heli_test"):
+		base_manager.disable_for_heli_test()
+
+	for spawner in get_tree().get_nodes_in_group("enemy_aircraft_spawner"):
+		if spawner and spawner.has_method("disable_for_heli_test"):
+			spawner.disable_for_heli_test()
+	var scene_root := get_tree().current_scene
+	if scene_root:
+		var named_spawner := scene_root.find_child("EnemyAircraftSpawner", true, false)
+		if named_spawner and named_spawner.has_method("disable_for_heli_test"):
+			named_spawner.disable_for_heli_test()
+
+	var cleaned := 0
+	var seen: Dictionary = {}
+	for group_name in ["enemies", "enemy_bases", "gun_emplacements", "ground_vehicles", "ai_aircraft"]:
+		for node in get_tree().get_nodes_in_group(group_name):
+			if not (node is Node) or not is_instance_valid(node):
+				continue
+			var id := (node as Node).get_instance_id()
+			if seen.has(id):
+				continue
+			seen[id] = true
+			if not _is_enemy_cleanup_node(node as Node):
+				continue
+			(node as Node).queue_free()
+			cleaned += 1
+	_log_heli_test("enemies disabled; cleaned %d live enemy nodes" % cleaned)
+
+
+func _is_enemy_cleanup_node(node: Node) -> bool:
+	return node.is_in_group("enemies") \
+			or node.is_in_group("enemy_bases") \
+			or node.is_in_group("team_2")
 
 
 func _spawn_heli_test_aircraft() -> void:
+	var use_aircraft_9 := _heli_test_spawn_index % 2 == 0
+	_heli_test_spawn_index += 1
+	var aircraft_name := "Aircraft_10"
 	var scene: PackedScene = aircraft_10_scene
+	if use_aircraft_9:
+		aircraft_name = "Aircraft_9"
+		scene = aircraft_9_scene
 	if not scene:
-		scene = load("res://Aircraft/Aircraft_10.tscn")
+		scene = load("res://Aircraft/%s.tscn" % aircraft_name)
 	if not scene:
-		push_warning("[HeliTest] Aircraft_10.tscn not found")
+		push_warning("[HeliTest] %s.tscn not found" % aircraft_name)
 		return
-	_queue_aircraft_scene_for_retrieval("Aircraft_10", scene)
-	print("[HeliTest] queued Aircraft_10 retrieval")
+	_queue_aircraft_scene_for_retrieval(aircraft_name, scene)
+	_log_heli_test("queued %s retrieval" % aircraft_name)
+
+
+func _log_heli_test(message: String) -> void:
+	var line := "[HeliTest] %s" % message
+	print(line)

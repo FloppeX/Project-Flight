@@ -92,6 +92,9 @@ var sensor_update_counter: int = 0
 var _terrain_check_counter: int = 0
 @export var terrain_check_interval: int = 3  # Update terrain fan/ahead every N physics frames (~20 Hz at 60 Hz physics)
 @export var collision_avoidance_interval_s: float = 0.10
+@export var airborne_safe_distance_m: float = 40.0
+@export var airborne_safe_vertical_m: float = 45.0
+@export var airborne_safe_lookahead_s: float = 3.0
 @export var rtb_check_interval_s: float = 1.0
 @export_group("Radio Callouts")
 @export var radio_damage_call_min_damage: float = 8.0
@@ -160,6 +163,8 @@ var pitch_controller: PIDController  # For precise pitch control
 var target_altitude: float = 300.0
 var target_heading: float = 0.0  # Radians
 var target_speed: float = 80.0   # m/s
+@export var default_waypoint_speed_mps: float = 80.0
+var _manual_target_speed_mps: float = NAN
 var target_waypoint: Vector3 = Vector3.ZERO
 var combat_target: Node3D = null
 var formation_anchor_active: bool = false
@@ -602,6 +607,7 @@ var waypoint_threshold: float = 50.0  # Distance to consider waypoint reached
 @export var on_station_radius_m: float = 400.0  # Arrival radius for TRANSIT rally point
 var _committed_turn_sign: float = 0.0  # Locks turn direction when target is behind
 var waypoints: Array[Vector3] = []
+var waypoint_speeds_mps: Array[float] = []
 var current_waypoint_index: int = 0
 var waypoints_follow_carrier: bool = false
 var carrier_position: Vector3 = Vector3.ZERO  # Home carrier position
@@ -1496,7 +1502,7 @@ func _state_climbing(delta: float):
 func _state_transit(delta: float):
 	"""Flying to a specific nav_waypoint (e.g. FlightOps rally point).
 	Notifies flight_ops_ref when on station, then enters patrol."""
-	target_speed = 80.0
+	target_speed = _get_default_target_speed_mps()
 
 	if formation_anchor_active:
 		nav_waypoint = formation_anchor
@@ -1525,7 +1531,7 @@ func _state_search(delta: float):
 	if should_sync_patrol_altitude and target_altitude != patrol_altitude_m:
 		set_patrol_altitude(patrol_altitude_m)
 	# Speed policy for patrol
-	target_speed = 80.0
+	target_speed = _get_default_target_speed_mps()
 
 	if formation_anchor_active:
 		_reset_cap_route_debug()
@@ -1547,6 +1553,7 @@ func _state_search(delta: float):
 	# Set navigation waypoint to current patrol waypoint
 	if waypoints.size() > 0:
 		nav_waypoint = waypoints[current_waypoint_index]
+		_apply_active_waypoint_targets()
 		
 		# Update maneuvering waypoint to lead toward navigation waypoint
 		_update_maneuver_waypoint()
@@ -6525,13 +6532,24 @@ func _check_collision_avoidance(_delta: float) -> bool:
 	var all_contacts: Array = []
 	all_contacts.append_array(known_enemies)
 	all_contacts.append_array(known_friendlies)
+	for group_name in ["aircraft", "ai_aircraft"]:
+		all_contacts.append_array(get_tree().get_nodes_in_group(group_name))
 
+	var seen: Dictionary = {}
 	for contact in all_contacts:
 		if not is_instance_valid(contact) or not (contact is Node3D):
 			continue
 		var cnode := contact as Node3D
+		if cnode == aircraft:
+			continue
+		var id := cnode.get_instance_id()
+		if seen.has(id):
+			continue
+		seen[id] = true
+		if not _is_airborne_for_separation(cnode):
+			continue
 		# Only worry about things near our altitude (skip ground vehicles etc)
-		if absf(cnode.global_position.y - my_pos.y) > 200.0:
+		if absf(cnode.global_position.y - my_pos.y) > maxf(airborne_safe_vertical_m, 1.0):
 			continue
 		var rel_pos: Vector3 = cnode.global_position - my_pos
 		if rel_pos.length_squared() > 160000.0:
@@ -6545,18 +6563,30 @@ func _check_collision_avoidance(_delta: float) -> bool:
 			var v = cnode.get("velocity")
 			if v is Vector3:
 				contact_vel = v
+		var horizontal_dist := Vector2(rel_pos.x, rel_pos.z).length()
+		var safe_distance := maxf(airborne_safe_distance_m, 0.0)
+		if safe_distance > 0.0 and horizontal_dist < safe_distance:
+			if horizontal_dist < closest_miss:
+				closest_tca = 0.0
+				closest_miss = horizontal_dist
+				closest_threat = cnode
+				closest_rel_pos = rel_pos
+			continue
 		var rel_vel: Vector3 = contact_vel - my_vel
 		var rel_speed_sq: float = rel_vel.length_squared()
 		if rel_speed_sq < 1.0:
 			continue
 		# Time to closest approach
 		var tca: float = -rel_pos.dot(rel_vel) / rel_speed_sq
-		if tca < 0.0 or tca > 3.0:
+		if tca < 0.0 or tca > maxf(airborne_safe_lookahead_s, 0.1):
 			continue
 		# Miss distance at closest approach
 		var miss_vec: Vector3 = rel_pos + rel_vel * tca
 		var miss_dist: float = miss_vec.length()
-		var coll_miss_threshold: float = 25.0 if current_state == State.ATTACK_DIVE else 80.0
+		var coll_miss_threshold: float = maxf(
+			maxf(airborne_safe_distance_m, 0.0),
+			25.0 if current_state == State.ATTACK_DIVE else 80.0
+		)
 		if miss_dist < coll_miss_threshold and tca < closest_tca:
 			closest_tca = tca
 			closest_miss = miss_dist
@@ -6589,6 +6619,25 @@ func _check_collision_avoidance(_delta: float) -> bool:
 	if debug_enabled and verbose_debug_enabled and Engine.get_process_frames() % 30 == 0:
 		print("[AIPilot COLLISION] threat=%s tca=%.1fs miss=%.0fm â€” EVADING" % [
 			closest_threat.name, closest_tca, closest_miss])
+	return true
+
+func _is_airborne_for_separation(node: Node) -> bool:
+	if not is_instance_valid(node) or not (node is Node3D):
+		return false
+	if node.has_meta("carrier_transport_mode") and bool(node.get_meta("carrier_transport_mode")):
+		return false
+	if node.has_meta("parking_brake") and bool(node.get_meta("parking_brake")):
+		return false
+	if node.has_meta("controls_disabled") and bool(node.get_meta("controls_disabled")):
+		return false
+	if node is RigidBody3D:
+		var rb := node as RigidBody3D
+		if rb.freeze:
+			return false
+		var ground_h := _get_ground_height_at_position(rb.global_position)
+		if not is_nan(ground_h) and rb.global_position.y - ground_h < 8.0:
+			return false
+		return rb.linear_velocity.length() > 2.0 or rb.global_position.y > 8.0
 	return true
 
 func _apply_controls():
@@ -7132,6 +7181,7 @@ func _normalize_angle(angle: float) -> float:
 func _setup_patrol_waypoints():
 	"""Create 2 km square patrol around carrier"""
 	waypoints.clear()
+	waypoint_speeds_mps.clear()
 	current_waypoint_index = 0
 	waypoints_follow_carrier = true
 
@@ -7146,6 +7196,7 @@ func _setup_patrol_waypoints():
 		var waypoint := point
 		waypoint.y = _resolve_effective_altitude_world_y(waypoint, patrol_altitude_m)
 		waypoints.append(waypoint)
+		waypoint_speeds_mps.append(default_waypoint_speed_mps)
 
 	if debug_enabled and verbose_debug_enabled:
 		print("[AIPilot] Figure-eight patrol with ", waypoints.size(), " waypoints around carrier at: ", carrier_position)
@@ -7247,9 +7298,10 @@ func change_state(new_state: State):
 # PUBLIC API - For external control
 # ============================================================================
 
-func set_waypoints(new_waypoints: Array[Vector3], follow_carrier: bool = false):
+func set_waypoints(new_waypoints: Array[Vector3], follow_carrier: bool = false, target_speeds_mps: Array = []):
 	"""Set waypoint list for navigation"""
 	waypoints = new_waypoints
+	waypoint_speeds_mps = _normalize_waypoint_speeds(target_speeds_mps, waypoints.size())
 	current_waypoint_index = 0
 	waypoints_follow_carrier = follow_carrier
 	_reset_cap_route_debug()
@@ -7262,6 +7314,31 @@ func set_waypoints(new_waypoints: Array[Vector3], follow_carrier: bool = false):
 			first.x, first.y, first.z,
 			second.x, second.y, second.z
 		])
+
+func set_waypoint_legs(legs: Array, follow_carrier: bool = false) -> void:
+	"""Set waypoint legs from dictionaries containing position and optional speed_mps."""
+	var new_waypoints: Array[Vector3] = []
+	var new_speeds: Array = []
+	for leg_variant in legs:
+		if leg_variant is Vector3:
+			new_waypoints.append(leg_variant)
+			new_speeds.append(NAN)
+			continue
+		if not (leg_variant is Dictionary):
+			continue
+		var leg := leg_variant as Dictionary
+		var pos_value: Variant = leg.get("position", leg.get("waypoint", Vector3.INF))
+		if not (pos_value is Vector3):
+			continue
+		var position := Vector3.ZERO
+		position = pos_value
+		new_waypoints.append(position)
+		var speed_value: Variant = leg.get("speed_mps", leg.get("target_speed_mps", NAN))
+		var speed := NAN
+		if typeof(speed_value) == TYPE_FLOAT or typeof(speed_value) == TYPE_INT:
+			speed = float(speed_value)
+		new_speeds.append(speed)
+	set_waypoints(new_waypoints, follow_carrier, new_speeds)
 
 func set_formation_anchor(anchor_world: Vector3) -> void:
 	formation_anchor = anchor_world
@@ -7353,6 +7430,41 @@ func _debug_cap_route_following(delta: float, distance_to_waypoint: float) -> vo
 		_cap_route_debug_no_progress_s = cap_route_debug_stuck_time_s * 0.5
 	_cap_route_debug_last_distance_m = distance_to_waypoint
 
+func _get_waypoint_speed_mps(index: int, fallback_speed_mps: float = -1.0) -> float:
+	var fallback := _get_default_target_speed_mps()
+	if fallback_speed_mps > 0.0:
+		fallback = fallback_speed_mps
+	if index < 0 or index >= waypoint_speeds_mps.size():
+		return fallback
+	var speed := waypoint_speeds_mps[index]
+	if is_nan(speed) or speed <= 0.0:
+		return fallback
+	return speed
+
+func _get_default_target_speed_mps() -> float:
+	if not is_nan(_manual_target_speed_mps) and _manual_target_speed_mps > 0.0:
+		return _manual_target_speed_mps
+	return default_waypoint_speed_mps
+
+func _apply_active_waypoint_targets() -> void:
+	if waypoints.is_empty():
+		return
+	var index := clampi(current_waypoint_index, 0, waypoints.size() - 1)
+	var waypoint := waypoints[index]
+	target_altitude = waypoint.y
+	target_speed = _get_waypoint_speed_mps(index, _get_default_target_speed_mps())
+
+func _normalize_waypoint_speeds(source_speeds: Array, target_count: int) -> Array[float]:
+	var normalized: Array[float] = []
+	for i in range(target_count):
+		var speed := NAN
+		if i < source_speeds.size():
+			var value: Variant = source_speeds[i]
+			if typeof(value) == TYPE_FLOAT or typeof(value) == TYPE_INT:
+				speed = float(value)
+		normalized.append(speed)
+	return normalized
+
 func _get_effective_target_speed() -> float:
 	var effective_target_speed: float = target_speed + formation_speed_bias_mps
 	if formation_speed_cap_mps > 0.0:
@@ -7423,6 +7535,29 @@ func build_effective_altitude_waypoints(new_waypoints: Array[Vector3], minimum_a
 func add_waypoint(waypoint: Vector3):
 	"""Add waypoint to list"""
 	waypoints.append(waypoint)
+	waypoint_speeds_mps.append(NAN)
+
+func add_waypoint_leg(waypoint: Vector3, speed_mps: float = -1.0) -> void:
+	"""Add waypoint with an optional target speed for the leg to that waypoint."""
+	waypoints.append(waypoint)
+	var stored_speed := NAN
+	if speed_mps > 0.0:
+		stored_speed = speed_mps
+	waypoint_speeds_mps.append(stored_speed)
+
+func set_target_speed(speed_mps: float) -> void:
+	"""Set the current commanded target speed."""
+	if speed_mps > 0.0:
+		_manual_target_speed_mps = speed_mps
+		target_speed = speed_mps
+		if not waypoints.is_empty():
+			while waypoint_speeds_mps.size() < waypoints.size():
+				waypoint_speeds_mps.append(NAN)
+			var index := clampi(current_waypoint_index, 0, waypoints.size() - 1)
+			waypoint_speeds_mps[index] = speed_mps
+
+func clear_target_speed() -> void:
+	_manual_target_speed_mps = NAN
 
 func set_target(target: Variant):
 	"""Set combat target and engage"""
@@ -7519,6 +7654,18 @@ func set_patrol_altitude(meters: float) -> void:
 
 func launch():
 	"""Begin launch sequence"""
+	if not is_instance_valid(aircraft):
+		var parent_aircraft := get_parent() as RigidBody3D
+		if is_instance_valid(parent_aircraft):
+			initialize(parent_aircraft)
+	if not is_instance_valid(aircraft):
+		push_error("[AIPilot] launch ignored: aircraft reference is not initialized")
+		return
+	if bool(aircraft.get_meta("non_aircraft_body", false)) \
+			or bool(aircraft.get_meta("ejected_pilot_camera_target", false)) \
+			or aircraft.is_in_group("ejected_pilots"):
+		push_warning("[AIPilot] launch ignored for non-aircraft body: %s" % aircraft.name)
+		return
 	# Save launch position for deck clearance check
 	launch_position = aircraft.global_position
 	# Save current carrier center for patrol / RTB logic.
