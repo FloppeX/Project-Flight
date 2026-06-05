@@ -404,9 +404,9 @@ func _get_engine_target_power() -> float:
 func _update_engine_stopped_brake() -> void:
 	if not wheel_brake_when_engine_stopped or rb == null or engine == null:
 		return
-	if bool(rb.get_meta("carrier_transport_mode", false)):
-		return
 	if bool(rb.get_meta("helicopter_deck_takeoff_ready", false)):
+		if rb.has_meta("carrier_transport_mode"):
+			rb.remove_meta("carrier_transport_mode")
 		var collective := _get_collective()
 		var release_collective: float = clampf(deck_takeoff_brake_release_collective, 0.0, 1.0)
 		var planar_speed := 0.0 if rb.freeze else VelocityFrame.planar_speed(VelocityFrame.get_relative_velocity(rb))
@@ -418,6 +418,8 @@ func _update_engine_stopped_brake() -> void:
 			if rb.has_meta("parking_brake"):
 				rb.remove_meta("parking_brake")
 			rb.remove_meta("helicopter_deck_takeoff_ready")
+			if rb.has_meta("carrier_transport_mode"):
+				rb.remove_meta("carrier_transport_mode")
 			rb.freeze = false
 			rb.sleeping = false
 			rb.linear_velocity = release_velocity
@@ -428,6 +430,8 @@ func _update_engine_stopped_brake() -> void:
 			_hold_deck_ready_helicopter()
 		return
 
+	if bool(rb.get_meta("carrier_transport_mode", false)):
+		return
 	if _is_engine_running():
 		if rb.has_meta("parking_brake"):
 			rb.remove_meta("parking_brake")

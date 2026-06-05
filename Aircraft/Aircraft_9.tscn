@@ -211,7 +211,7 @@ deck_contact_visual_offset_m = 0.35
 use_accel_lean = false
 rear_gear_indices = Array[int]([2, 3])
 nose_wheel_taxi_steering_enabled = false
-carrier_deck_follow_min_wheels = 1
+carrier_deck_follow_min_wheels = 3
 
 [node name="ControlEngine" parent="." unique_id=1520295740 instance=ExtResource("16_ctl_engine")]
 AutoStartPowerLimit = 1.0
@@ -323,7 +323,7 @@ script = ExtResource("40_heli_ai")
 cruise_speed_mps = 150.0
 max_speed_mps = 150.0
 transit_collective_min = 1.0
-max_yaw_input = 0.08
+max_yaw_input = 0.55
 cyclic_rate = 0.65
 yaw_gain = 0.08
 yaw_rate_damping = 0.65

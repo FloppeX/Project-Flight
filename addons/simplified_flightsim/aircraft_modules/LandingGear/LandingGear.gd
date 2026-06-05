@@ -76,6 +76,9 @@ enum LandingGearInitialStates {
 @export var nose_wheel_taxi_cutoff_speed_mps: float = 10.0
 @export var carrier_deck_touch_margin_m: float = 0.03
 @export var carrier_deck_follow_min_wheels: int = 3
+@export var carrier_deck_follow_engage_time_s: float = 0.12
+@export var carrier_deck_follow_release_time_s: float = 0.35
+@export var carrier_deck_velocity_match_accel_mps2: float = 45.0
 
 var current_state: LandingGearInitialStates
 var deploy_timer: Timer
@@ -99,6 +102,8 @@ var _gear_animation_target: float = 1.0
 var _gear_animation_active: bool = false
 var _wheel_on_carrier_surface: Array[bool] = []
 var _wheel_carrier_surfaces: Array = []
+var _carrier_deck_follow_engage_timer_s: float = 0.0
+var _carrier_deck_follow_release_timer_s: float = 0.0
 
 # Debug state
 var _debug_timer: float = 0.0
@@ -146,7 +151,7 @@ func process_physic_frame(delta: float):
 	"""Apply spring physics to each wheel"""
 	_update_gear_animation(delta)
 	if current_state != LandingGearInitialStates.DEPLOYED:
-		_update_carrier_deck_follow_state(true)
+		_update_carrier_deck_follow_state(true, delta)
 		return
 
 	_update_accel_lean(delta)
@@ -156,9 +161,9 @@ func process_physic_frame(delta: float):
 		# Apply spring forces to each collision shape
 		for i in range(gear_collision_shapes.size()):
 			apply_spring_physics(gear_collision_shapes[i], i, delta)
-		_update_carrier_deck_follow_state()
+		_update_carrier_deck_follow_state(false, delta)
 	else:
-		_update_carrier_deck_follow_state(true)
+		_update_carrier_deck_follow_state(true, delta)
 	_update_lean_geometry()
 
 	if not debug_enabled:
@@ -287,21 +292,38 @@ func apply_spring_physics(collision_shape: CollisionShape3D, gear_index: int, de
 		if _wheel_was_grounded.size() > gear_index:
 			_wheel_was_grounded[gear_index] = false
 
-func _update_carrier_deck_follow_state(force_clear: bool = false) -> void:
+func _update_carrier_deck_follow_state(force_clear: bool = false, delta: float = 0.0) -> void:
 	if not is_instance_valid(aircraft):
 		return
 
 	var should_follow: bool = false
 	var carrier_surface: Node = null
+	var contact_ready: bool = false
+	var touching_count: int = 0
+	var required_count: int = clampi(carrier_deck_follow_min_wheels, 1, maxi(1, gear_collision_shapes.size()))
 	if not force_clear:
-		var required_count: int = clampi(carrier_deck_follow_min_wheels, 1, maxi(1, gear_collision_shapes.size()))
-		var touching_count: int = 0
 		for idx in range(_wheel_on_carrier_surface.size()):
 			if _wheel_on_carrier_surface[idx]:
 				touching_count += 1
 				if carrier_surface == null and idx < _wheel_carrier_surfaces.size():
 					carrier_surface = _wheel_carrier_surfaces[idx] as Node
-		should_follow = touching_count >= required_count
+		contact_ready = touching_count >= required_count
+		if contact_ready:
+			_carrier_deck_follow_engage_timer_s += maxf(delta, 0.0)
+			_carrier_deck_follow_release_timer_s = maxf(carrier_deck_follow_release_time_s, 0.0)
+		else:
+			_carrier_deck_follow_engage_timer_s = 0.0
+			_carrier_deck_follow_release_timer_s = maxf(
+				_carrier_deck_follow_release_timer_s - maxf(delta, 0.0),
+				0.0
+			)
+		should_follow = _carrier_deck_follow_engage_timer_s >= maxf(carrier_deck_follow_engage_time_s, 0.0) \
+				or (aircraft.has_meta("carrier_deck_follow") and _carrier_deck_follow_release_timer_s > 0.0)
+		if touching_count > 0:
+			_match_helicopter_carrier_velocity(carrier_surface, touching_count, required_count, delta)
+	else:
+		_carrier_deck_follow_engage_timer_s = 0.0
+		_carrier_deck_follow_release_timer_s = 0.0
 
 	if should_follow:
 		aircraft.set_meta("carrier_deck_follow", true)
@@ -310,7 +332,49 @@ func _update_carrier_deck_follow_state(force_clear: bool = false) -> void:
 	else:
 		if aircraft.has_meta("carrier_deck_follow"):
 			aircraft.remove_meta("carrier_deck_follow")
-		VelocityFrame.clear_reference(aircraft)
+		if not bool(aircraft.get_meta("carrier_transport_mode", false)) \
+				and not bool(aircraft.get_meta("helicopter_deck_takeoff_ready", false)) \
+				and not aircraft.has_meta("helicopter_deck_reference_node"):
+			VelocityFrame.clear_reference(aircraft)
+
+
+func get_gear_count() -> int:
+	return gear_collision_shapes.size()
+
+
+func get_carrier_surface_wheel_count() -> int:
+	var count := 0
+	for idx in range(gear_collision_shapes.size()):
+		if idx < _wheel_on_carrier_surface.size() and bool(_wheel_on_carrier_surface[idx]):
+			count += 1
+	return count
+
+
+func are_all_wheels_on_carrier_surface() -> bool:
+	var gear_count := get_gear_count()
+	return gear_count > 0 and get_carrier_surface_wheel_count() >= gear_count
+
+
+func _match_helicopter_carrier_velocity(carrier_surface: Node, touching_count: int, required_count: int, delta: float) -> void:
+	if not _is_aircraft_helicopter():
+		return
+	if not (aircraft is RigidBody3D):
+		return
+	if aircraft.freeze:
+		return
+	if bool(aircraft.get_meta("carrier_transport_mode", false)):
+		return
+	if bool(aircraft.get_meta("helicopter_deck_takeoff_ready", false)):
+		return
+	if carrier_surface == null or not is_instance_valid(carrier_surface):
+		return
+
+	var deck_velocity := VelocityFrame.get_node_velocity(carrier_surface)
+	var vel: Vector3 = aircraft.linear_velocity
+	var target_velocity := Vector3(deck_velocity.x, vel.y, deck_velocity.z)
+	var grounded_t := clampf(float(touching_count) / float(maxi(required_count, 1)), 0.0, 1.0)
+	var max_step := maxf(carrier_deck_velocity_match_accel_mps2, 0.0) * grounded_t * maxf(delta, 0.0)
+	aircraft.linear_velocity = vel.move_toward(target_velocity, max_step)
 
 func _update_accel_lean(delta: float) -> void:
 	if not use_accel_lean or not aircraft:
@@ -647,6 +711,15 @@ func apply_wheel_friction(collision_shape: CollisionShape3D, gear_index: int, co
 	var parking_brake: bool = aircraft.has_meta("parking_brake") and bool(aircraft.get_meta("parking_brake"))
 	var controls_disabled: bool = aircraft.has_meta("controls_disabled") and bool(aircraft.get_meta("controls_disabled"))
 	var arresting_engaged: bool = aircraft.has_meta("arresting_engaged") and bool(aircraft.get_meta("arresting_engaged"))
+	var deck_follow: bool = aircraft.has_meta("carrier_deck_follow") and bool(aircraft.get_meta("carrier_deck_follow"))
+	var transport_mode: bool = aircraft.has_meta("carrier_transport_mode") and bool(aircraft.get_meta("carrier_transport_mode"))
+	if on_carrier_surface and _is_aircraft_helicopter() \
+			and not deck_follow \
+			and not transport_mode \
+			and not parking_brake \
+			and not arresting_engaged \
+			and not controls_disabled:
+		return
 	contact_normal = contact_normal.normalized() if contact_normal.length_squared() > 0.0001 else Vector3.UP
 	
 	# Build wheel axes along the contact plane so steering works on ground without
@@ -697,6 +770,15 @@ func apply_wheel_friction(collision_shape: CollisionShape3D, gear_index: int, co
 	# Apply friction force at wheel position
 	var force_position = collision_shape.global_position - aircraft.global_position
 	aircraft.apply_force(total_friction, force_position)
+
+
+func _is_aircraft_helicopter() -> bool:
+	if not is_instance_valid(aircraft):
+		return false
+	if bool(aircraft.get_meta("is_helicopter", false)):
+		return true
+	var role: String = str(aircraft.get_meta("aircraft_role", "")).to_lower()
+	return role.find("helicopter") >= 0
 
 func _project_axis_onto_surface(axis: Vector3, normal: Vector3, fallback: Vector3) -> Vector3:
 	var projected: Vector3 = axis - normal * axis.dot(normal)

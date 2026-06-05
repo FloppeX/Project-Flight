@@ -741,6 +741,10 @@ func _prepare_ejected_pilot_camera_target(aircraft: Node, ejected_body: RigidBod
 	ejected_body.add_to_group("ejected_pilots")
 	ejected_body.set_meta("ejected_pilot_camera_target", true)
 	ejected_body.set_meta("player_control_locked", true)
+	ejected_body.set_meta("non_aircraft_body", true)
+	for group_name in ["aircraft", "ai_aircraft", "friendlies", "enemies"]:
+		if ejected_body.is_in_group(group_name):
+			ejected_body.remove_from_group(group_name)
 	if aircraft == null:
 		return
 	aircraft.set_meta("player_ejection_camera_takeover", true)

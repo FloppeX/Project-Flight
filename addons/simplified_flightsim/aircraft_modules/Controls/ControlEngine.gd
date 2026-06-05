@@ -46,7 +46,7 @@ func _physics_process(delta: float) -> void:
 	target_power = clamp(target_power + inc, 0.0, 1.0)
 
 	# Absolute throttle (e.g., RT trigger mapped to 0..1)
-	if UseAbsoluteThrottle:
+	if UseAbsoluteThrottle and InputMap.has_action("throttle_abs"):
 		var abs_throttle: float = Input.get_action_strength("throttle_abs")
 		if abs_throttle > 0.01:
 			var t: float = clamp(AbsoluteSmoothing * delta, 0.0, 1.0)
@@ -103,7 +103,7 @@ func _apply_auto_start_power_limit() -> void:
 
 	if _any_engine_working():
 		var throttle_released := Input.get_action_strength("throttle_up") <= 0.01
-		if UseAbsoluteThrottle:
+		if UseAbsoluteThrottle and InputMap.has_action("throttle_abs"):
 			throttle_released = throttle_released and Input.get_action_strength("throttle_abs") <= 0.01
 		if not AutoStartLimitRequiresThrottleRelease or throttle_released:
 			_auto_start_power_limited = false

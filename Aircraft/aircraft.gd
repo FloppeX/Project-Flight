@@ -50,6 +50,10 @@ signal destroyed
 @export var safe_gear_terrain_land_max_total_speed: float = 35.0
 @export var safe_gear_terrain_hard_vertical_speed: float = 14.0
 @export var safe_gear_terrain_damage_per_mps: float = 8.0
+@export_group("Carrier Contact Damage")
+@export var carrier_body_contact_min_damage: float = 35.0
+@export var carrier_body_contact_damage_per_mps: float = 3.0
+@export var carrier_body_contact_destroy_speed_mps: float = 28.0
 
 var _last_damage_ms: int = 0
 var _current_health: float
@@ -352,6 +356,13 @@ func _on_Aircraft_body_shape_entered(body_rid, body, body_shape_index, local_sha
 		else:
 			_evaluate_terrain_impact()
 		return
+	if _is_carrier_body(body):
+		if collider_shape in safe_colliders:
+			var landing_force = linear_velocity.dot(global_transform.basis.y)
+			land(landing_force, impact_force)
+		else:
+			_handle_carrier_body_contact(body)
+		return
 	# Terrain-specific handling
 	if _is_ground_or_terrain(body):
 		if collider_shape in safe_colliders and _handle_safe_gear_terrain_contact():
@@ -379,6 +390,55 @@ func unregister_safe_collider(collider: CollisionShape3D):
 func land(landing_velocity: float, impact_velocity: float):
 	if landing_velocity > max_landing_force:
 		crash(landing_velocity)
+
+func _handle_carrier_body_contact(body: Node) -> void:
+	if _is_managed_by_carrier_deck_ops():
+		if debug_damage:
+			print("[Aircraft] ignored carrier body contact during deck ops body=", body.name if body != null else "?")
+		return
+	var carrier_velocity := _get_carrier_contact_velocity(body)
+	var relative_speed := (linear_velocity - carrier_velocity).length()
+	emit_signal("crashed", relative_speed)
+	if relative_speed >= maxf(carrier_body_contact_destroy_speed_mps, 0.0):
+		explode()
+		return
+	var damage_amount := maxf(carrier_body_contact_min_damage, 0.0) \
+			+ relative_speed * maxf(carrier_body_contact_damage_per_mps, 0.0)
+	if damage_amount > 0.0:
+		take_damage(damage_amount)
+	if debug_damage:
+		print("[Aircraft] carrier body contact body=", body.name if body != null else "?",
+				" rel_speed=", snapped(relative_speed, 0.1),
+				" damage=", snapped(damage_amount, 0.1))
+
+
+func _is_managed_by_carrier_deck_ops() -> bool:
+	if has_meta("carrier_transport_mode") and bool(get_meta("carrier_transport_mode")):
+		return true
+	if has_meta("helicopter_deck_takeoff_ready") and bool(get_meta("helicopter_deck_takeoff_ready")):
+		return true
+	if has_meta("controls_disabled") and bool(get_meta("controls_disabled")):
+		var fdm := get_tree().get_first_node_in_group("flight_deck_manager")
+		if fdm != null:
+			return true
+	return false
+
+
+func _get_carrier_contact_velocity(body: Node) -> Vector3:
+	var carrier_node := _find_carrier_ancestor(body)
+	if carrier_node != null:
+		return VelocityFrame.get_node_velocity(carrier_node)
+	return Vector3.ZERO
+
+
+func _find_carrier_ancestor(body: Node) -> Node:
+	var node := body
+	while node != null:
+		if node.is_in_group("carrier") or node.name.to_lower().find("landcarrier") != -1:
+			return node
+		node = node.get_parent()
+	return null
+
 
 func _handle_safe_gear_terrain_contact() -> bool:
 	var vertical_speed_down: float = -linear_velocity.dot(Vector3.UP)
@@ -458,6 +518,9 @@ func _evaluate_terrain_impact():
 
 func _is_runway_surface(body: Node) -> bool:
 	return body != null and body.is_in_group("runway_surface")
+
+func _is_carrier_body(body: Node) -> bool:
+	return _find_carrier_ancestor(body) != null
 
 func _is_ground_or_terrain(body: Node) -> bool:
 	if body.name == "Aircraft" or "aircraft" in body.name.to_lower():
