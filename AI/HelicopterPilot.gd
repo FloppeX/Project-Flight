@@ -1,6 +1,8 @@
 extends Node
 class_name HelicopterPilot
 
+const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
+
 enum State {
 	IDLE,
 	TAKEOFF,
@@ -25,7 +27,7 @@ enum MissionPhase {
 @export var lz_distance_min_m: float = 4000.0
 @export var lz_distance_max_m: float = 7000.0
 @export var lz_candidate_attempts: int = 80
-@export var lz_route_candidate_limit: int = 4
+@export var lz_route_candidate_limit: int = 0
 @export var lz_flat_radius_m: float = 18.0
 @export var lz_max_center_drop_m: float = 1.5
 @export var lz_max_height_variation_m: float = 2.5
@@ -34,27 +36,30 @@ enum MissionPhase {
 @export var lz_dwell_time_s: float = 12.0
 @export var carrier_dwell_time_s: float = 20.0
 @export var carrier_approach_radius_m: float = 80.0
-@export var carrier_approach_point_name: String = "Helicopter Approach Point"
+@export var carrier_approach_point_name: String = "Helicopter Approach Point 1"
+@export var carrier_approach_point_2_name: String = "Helicopter Approach Point 2"
 @export var carrier_landing_point_name: String = "Helicopter Landing Point"
 @export var carrier_approach_gate_radius_m: float = 120.0
 @export var carrier_approach_capture_radius_m: float = 28.0
 @export var carrier_approach_cleared_capture_radius_m: float = 45.0
-@export var carrier_approach_capture_height_m: float = 8.0
+@export var carrier_approach_capture_height_m: float = 20.0
 @export var carrier_approach_capture_relative_speed_mps: float = 4.0
 @export var carrier_approach_capture_heading_deg: float = 12.0
 @export var carrier_approach_cleared_relative_speed_mps: float = 8.0
+@export var carrier_approach_cleared_forced_final_relative_speed_mps: float = 10.0
 @export var carrier_approach_cleared_heading_deg: float = 25.0
 @export var carrier_approach_wait_log_interval_s: float = 2.0
 @export var carrier_approach_clearance_request_radius_m: float = 140.0
 @export var carrier_approach_clearance_request_interval_s: float = 1.0
 @export var carrier_approach_capture_decel_mps2: float = 5.0
 @export var carrier_approach_capture_min_closure_mps: float = 4.0
+@export var carrier_approach_arrival_relative_speed_mps: float = 2.0
 @export var carrier_approach_capture_lateral_gain: float = 0.08
 @export var carrier_approach_capture_along_gain: float = 0.08
 @export var carrier_approach_capture_max_lateral_mps: float = 18.0
 @export var carrier_approach_heading_align_distance_m: float = 700.0
 @export var carrier_approach_gate_prediction_s: float = 2.5
-@export var carrier_approach_arrival_decel_mps2: float = 3.0
+@export var carrier_approach_arrival_decel_mps2: float = 4.0
 @export var carrier_approach_speed_match_distance_m: float = 1200.0
 @export var carrier_approach_brake_distance_margin: float = 1.2
 @export var carrier_approach_speed_log_interval_s: float = 2.0
@@ -70,14 +75,29 @@ enum MissionPhase {
 @export var carrier_landing_touchdown_radius_m: float = 3.0
 @export var carrier_landing_hover_height_m: float = 10.0
 @export var carrier_landing_final_leg_radius_m: float = 650.0
-@export var carrier_landing_descent_start_radius_m: float = 3.0
+@export var carrier_landing_descent_start_radius_m: float = 70.0
+@export var carrier_landing_descent_start_ahead_m: float = 95.0
+@export var carrier_landing_descent_start_lateral_m: float = 24.0
 @export var carrier_landing_position_speed_gain: float = 0.35
+@export var carrier_landing_descent_correction_speed_mps: float = 4.0
+@export var carrier_landing_descend_relative_speed_mps: float = 6.0
+@export var carrier_landing_min_sink_mps: float = 0.9
+@export var carrier_landing_touchdown_sink_mps: float = 0.45
+@export var carrier_landing_ground_effect_collective_cap: float = 0.62
+@export var carrier_landing_final_timeout_s: float = 30.0
 @export var carrier_landing_touchdown_relative_speed_mps: float = 1.0
 @export var carrier_landing_touchdown_min_deck_agl_m: float = -0.25
+@export var carrier_landing_abort_below_deck_m: float = 1.0
+@export var carrier_landing_abort_forward_m: float = 120.0
+@export var carrier_landing_abort_lateral_m: float = 80.0
+@export var carrier_landing_abort_distance_m: float = 180.0
 @export var carrier_goal_repath_threshold_m: float = 150.0
+@export var carrier_inbound_no_progress_timeout_s: float = 7.0
+@export var carrier_inbound_progress_min_m: float = 40.0
+@export var carrier_inbound_direct_recovery_s: float = 8.0
 @export var terrain_landing_approach_radius_m: float = 120.0
 @export var terrain_landing_descent_radius_m: float = 35.0
-@export var terrain_landing_touchdown_radius_m: float = 20.0
+@export var terrain_landing_touchdown_radius_m: float = 40.0
 @export var landed_ground_planar_brake_mps2: float = 18.0
 @export var landed_ground_angular_brake_radps2: float = 4.0
 @export var landed_ground_snap_speed_mps: float = 0.12
@@ -87,10 +107,10 @@ enum MissionPhase {
 @export var terrain_landing_ground_contact_speed_mps: float = 2.0
 @export var terrain_landing_ground_contact_compression_m: float = 0.025
 @export var terrain_landing_ground_contact_min_wheels: int = 2
-@export var terrain_landing_settled_agl_m: float = 3.0
-@export var terrain_landing_settled_speed_mps: float = 0.6
-@export var terrain_landing_settled_vertical_mps: float = 0.25
-@export var terrain_landing_settled_time_s: float = 0.8
+@export var terrain_landing_settled_agl_m: float = 6.0
+@export var terrain_landing_settled_speed_mps: float = 3.0
+@export var terrain_landing_settled_vertical_mps: float = 1.0
+@export var terrain_landing_settled_time_s: float = 1.5
 
 @export_group("Low-Level Navigation")
 @export var cruise_agl_m: float = 55.0
@@ -109,9 +129,14 @@ enum MissionPhase {
 @export var use_heightmap_pathfinding: bool = true
 @export var heightmap_path_recompute_s: float = 60.0
 @export var heightmap_path_async_enabled: bool = true
-@export var heightmap_path_async_iterations_per_frame: int = 220
+@export var heightmap_path_async_iterations_per_frame: int = 4000
+@export var heightmap_path_postprocess_steps_per_frame: int = 8
 @export var heightmap_path_target_agl_m: float = 50.0
 @export var heightmap_path_insert_spacing_m: float = 180.0
+@export var heightmap_path_simplify_enabled: bool = true
+@export var heightmap_path_simplify_turn_deg: float = 10.0
+@export var heightmap_path_simplify_altitude_error_m: float = 8.0
+@export var heightmap_path_simplify_steps_per_frame: int = 3
 @export var heightmap_path_descent_rate_mps: float = 15.0
 @export var heightmap_path_descent_margin_m: float = 8.0
 @export var heightmap_path_advance_radius_m: float = 120.0
@@ -120,19 +145,19 @@ enum MissionPhase {
 @export var heightmap_path_corner_blend_strength: float = 0.65
 @export var heightmap_path_goal_move_recompute_m: float = 900.0
 @export var destination_path_reset_threshold_m: float = 120.0
-@export var heightmap_path_search_padding_m: float = 1600.0
-@export var heightmap_path_max_terrain_above_reference_m: float = 270.0
-@export var heightmap_path_max_flight_above_reference_m: float = 400.0
+@export var heightmap_path_search_padding_m: float = 600.0
+@export var heightmap_path_max_terrain_above_reference_m: float = 420.0
+@export var heightmap_path_max_flight_above_reference_m: float = 480.0
 @export var heightmap_path_carrier_deck_ground_offset_m: float = 50.0
-@export var heightmap_path_ground_level_band_m: float = 80.0
-@export var heightmap_path_first_plateau_min_m: float = 85.0
-@export var heightmap_path_first_plateau_max_m: float = 250.0
-@export var heightmap_path_ground_route_penalty: float = 120.0
-@export var heightmap_path_low_route_penalty: float = 1.35
-@export var heightmap_path_top_level_penalty: float = 0.75
-@export var heightmap_path_upper_level_penalty: float = 0.02
+@export var heightmap_path_ground_level_band_m: float = 35.0
+@export var heightmap_path_first_plateau_min_m: float = 40.0
+@export var heightmap_path_first_plateau_max_m: float = 180.0
+@export var heightmap_path_ground_route_penalty: float = 80.0
+@export var heightmap_path_low_route_penalty: float = 0.8
+@export var heightmap_path_top_level_penalty: float = 2.5
+@export var heightmap_path_upper_level_penalty: float = 80.0
 @export var heightmap_path_level_change_penalty: float = 2.0
-@export var heightmap_path_mountain_avoidance_m: float = 270.0
+@export var heightmap_path_mountain_avoidance_m: float = 185.0
 @export var heightmap_path_max_step_climb_m: float = 0.0
 @export var heightmap_path_mountain_buffer_cells: int = 2
 @export var heightmap_path_max_edge_risk_m: float = 5.0
@@ -164,7 +189,7 @@ enum MissionPhase {
 @export var path_turn_speed_log_interval_s: float = 2.0
 @export var terrain_navgrid_path_slope_m: float = 12.0
 @export var terrain_lookahead_m: float = 260.0
-@export var terrain_sample_spacing_m: float = 45.0
+@export var terrain_sample_spacing_m: float = 120.0
 @export var corridor_angle_deg: float = 35.0
 @export var waypoint_accept_radius_m: float = 35.0
 @export var replan_interval_s: float = 0.35
@@ -201,6 +226,7 @@ enum MissionPhase {
 @export var collective_climb_urgency_full_mps: float = 5.0
 @export var transit_collective_min: float = 1.0
 @export var energy_management_min_collective: float = 0.35
+@export var transit_target_sink_mps: float = 5.0
 @export var energy_management_speed_band_mps: float = 18.0
 @export var energy_management_altitude_band_m: float = 35.0
 @export var landing_flare_agl_m: float = 8.0
@@ -249,7 +275,7 @@ enum MissionPhase {
 @export var sink_guard_mps: float = 1.5
 @export var coordinated_turn_gain: float = 0.08
 @export var horizontal_guidance_deadzone_m: float = 12.0
-@export var decel_distance_m: float = 600.0
+@export var decel_distance_m: float = 1000.0
 @export var transit_speed_target_accel_mps2: float = 18.0
 @export var transit_speed_target_decel_mps2: float = 18.0
 @export var yaw_gain: float = 0.08
@@ -302,12 +328,17 @@ enum MissionPhase {
 @export var transit_bank_pullback_full_mps: float = 90.0
 @export var terrain_recovery_max_bank_scale: float = 0.30
 @export var transit_cruise_forward_lean: float = 0.50
+@export var transit_descent_lean_bonus: float = 0.30
+@export var transit_descent_lean_alt_full_m: float = 80.0
 @export var transit_sharp_turn_lean_scale: float = 0.20
 @export var lateral_obstacle_probe_dist_m: float = 120.0
+@export var lateral_obstacle_probe_speed_scale: float = 3.0
+@export var lateral_obstacle_probe_max_dist_m: float = 400.0
 @export var lateral_obstacle_probe_angle_deg: float = 30.0
-@export var lateral_obstacle_margin_m: float = 30.0
-@export var lateral_obstacle_roll_gain: float = 0.12
-@export var lateral_obstacle_yaw_gain: float = 0.20
+@export var lateral_obstacle_margin_m: float = 45.0
+@export var lateral_obstacle_roll_gain: float = 0.45
+@export var lateral_obstacle_yaw_gain: float = 0.60
+@export var lateral_obstacle_forward_speed_scale: float = 0.35
 
 @export_group("Debug")
 @export var debug_enabled: bool = true
@@ -368,6 +399,10 @@ var _prev_fwd_speed: float = 0.0
 var _prev_lat_speed: float = 0.0
 var _prev_vertical_speed: float = 0.0
 var _prev_forward_lean: float = 0.0
+var _feeler_net_left_risk: float = 0.0
+var _feeler_net_right_risk: float = 0.0
+var _feeler_forward_penalty: float = 0.0
+var _feeler_timer_s: float = 0.0
 var _collective_cmd: float = 0.0
 var _physics_delta: float = 0.016
 var _speed_target_mps: float = 0.0
@@ -401,6 +436,9 @@ var _last_path_source: String = "none"
 var _path_fail_escape_timer_s: float = 0.0
 var _path_fail_escape_altitude_m: float = NAN
 var _path_fail_escape_reason: String = ""
+var _inbound_best_distance_m: float = INF
+var _inbound_no_progress_s: float = 0.0
+var _inbound_direct_recovery_s: float = 0.0
 var _terrain_climb_speed_log_s: float = 0.0
 var _path_turn_speed_log_s: float = 0.0
 var _debug_canvas: CanvasLayer = null
@@ -637,6 +675,7 @@ func command_return_to_carrier_and_land() -> bool:
 		return true
 
 	_clear_heightmap_path("manual_return")
+	_reset_inbound_progress_watchdog()
 	mission_phase = MissionPhase.INBOUND
 	_landing_on_carrier = false
 	_carrier_approach_phase = CarrierApproachPhase.NONE
@@ -682,13 +721,17 @@ func _physics_process(delta: float) -> void:
 	if not is_instance_valid(aircraft):
 		set_physics_process(false)
 		return
+	var _profiler_start: int = FrameProfiler.begin("HelicopterPilot.physics")
 	if aircraft.get_meta("controls_disabled", false):
+		FrameProfiler.end("HelicopterPilot.physics", _profiler_start)
 		return
 	_physics_delta = delta
 	_terrain_climb_speed_log_s = maxf(_terrain_climb_speed_log_s - delta, 0.0)
 	_path_turn_speed_log_s = maxf(_path_turn_speed_log_s - delta, 0.0)
 	_update_path_fail_escape_timer(delta)
+	var _path_profiler_start: int = FrameProfiler.begin("HelicopterPilot.path_job")
 	_step_heightmap_path_job()
+	FrameProfiler.end("HelicopterPilot.path_job", _path_profiler_start)
 
 	if _is_deck_takeoff_context() and state != State.TAKEOFF:
 		change_state(State.TAKEOFF)
@@ -741,6 +784,8 @@ func _physics_process(delta: float) -> void:
 			transit_speed = _get_terrain_climb_speed_limit(transit_speed)
 			transit_speed = _get_path_turn_speed_limit(transit_speed)
 			if mission_phase == MissionPhase.INBOUND:
+				if _update_inbound_progress_watchdog(delta):
+					_update_navigation_plan()
 				transit_speed = minf(transit_speed, _get_carrier_approach_arrival_speed_limit(transit_speed))
 			_fly_toward(_nav_waypoint, transit_speed, delta)
 			if mission_phase == MissionPhase.INBOUND:
@@ -772,6 +817,7 @@ func _physics_process(delta: float) -> void:
 
 	_emit_debug(delta)
 	_check_recorder_faults(delta)
+	FrameProfiler.end("HelicopterPilot.physics", _profiler_start)
 
 
 func _advance_mission() -> void:
@@ -781,6 +827,7 @@ func _advance_mission() -> void:
 			_flight_departed_lz_s = _elapsed_s()
 			_clear_ground_landing_hold()
 			_clear_heightmap_path("inbound_start")
+			_reset_inbound_progress_watchdog()
 			mission_phase = MissionPhase.INBOUND
 			_carrier_approach_phase = CarrierApproachPhase.NONE
 			_carrier_final_timer_s = 0.0
@@ -860,6 +907,7 @@ func _clear_heightmap_path(reason: String = "unspecified") -> void:
 
 
 func _pick_random_lz() -> void:
+	var _profiler_start: int = FrameProfiler.begin("HelicopterPilot.lz_pick")
 	var start_ms := Time.get_ticks_msec()
 	var rng := RandomNumberGenerator.new()
 	rng.randomize()
@@ -891,6 +939,7 @@ func _pick_random_lz() -> void:
 						candidates.size(),
 						i + 1,
 					])
+					FrameProfiler.end("HelicopterPilot.lz_pick", _profiler_start)
 					return
 			if not candidates.is_empty():
 				# Prefer a verified flat/clear LZ over a blind fallback even if the
@@ -901,6 +950,7 @@ func _pick_random_lz() -> void:
 					candidates.size(),
 					route_checks,
 				])
+				FrameProfiler.end("HelicopterPilot.lz_pick", _profiler_start)
 				return
 	var angle: float = rng.randf_range(-PI, PI)
 	var dist: float = rng.randf_range(lz_distance_min_m, lz_distance_max_m)
@@ -912,6 +962,7 @@ func _pick_random_lz() -> void:
 	_has_destination = true
 	_clear_heightmap_path("fallback_lz")
 	_debug_event("lz_pick_time", "ms=%d candidates=0 route_checks=0" % [Time.get_ticks_msec() - start_ms])
+	FrameProfiler.end("HelicopterPilot.lz_pick", _profiler_start)
 
 
 func _set_lz_destination(candidate: Vector3, method: String, score: float = NAN) -> void:
@@ -938,7 +989,7 @@ func _score_lz_candidate(candidate: Vector3, current_pos: Vector3) -> float:
 	var ground_h := _sample_lz_ground_height(candidate, nav_grid)
 	if ground_h <= _terrain_impassable_threshold(nav_grid):
 		return INF
-	if ground_h > _get_heightmap_reference_ground_y() + maxf(heightmap_path_max_terrain_above_reference_m, 0.0):
+	if ground_h > _get_heightmap_max_route_terrain_y():
 		return INF
 	candidate.y = ground_h
 
@@ -1294,7 +1345,10 @@ func _update_navigation_plan() -> void:
 					str(path_point.snapped(Vector3.ONE * 0.1)),
 				])
 		_apply_forward_terrain_hazard(current_pos, path_point)
-		_nav_waypoint = Vector3(path_point.x, _desired_altitude_m, path_point.z)
+		# Use carrot_alt as the waypoint Y so the heli flies a 3D path toward the
+		# next point's altitude, rather than always targeting current cruise altitude.
+		# _desired_altitude_m still governs terrain hazard guards above.
+		_nav_waypoint = Vector3(path_point.x, carrot_alt, path_point.z)
 		return
 
 	if state == State.LOW_LEVEL_TRANSIT and _is_path_fail_escape_active():
@@ -1339,6 +1393,57 @@ func _get_flat_direction_to_goal(current_pos: Vector3, goal: Vector3) -> Vector3
 	var forward := aircraft.global_transform.basis.z if is_instance_valid(aircraft) else Vector3.FORWARD
 	forward.y = 0.0
 	return forward.normalized() if forward.length_squared() > 0.001 else Vector3.FORWARD
+
+
+func _reset_inbound_progress_watchdog() -> void:
+	_inbound_best_distance_m = INF
+	_inbound_no_progress_s = 0.0
+	_inbound_direct_recovery_s = 0.0
+
+
+func _update_inbound_progress_watchdog(delta: float) -> bool:
+	if state != State.LOW_LEVEL_TRANSIT or mission_phase != MissionPhase.INBOUND or not _has_destination:
+		_reset_inbound_progress_watchdog()
+		return false
+	if not is_instance_valid(aircraft):
+		return false
+
+	_inbound_direct_recovery_s = maxf(_inbound_direct_recovery_s - maxf(delta, 0.0), 0.0)
+	var current_pos := aircraft.global_position
+	var dist := _flat_distance(current_pos, destination)
+	if dist <= maxf(carrier_approach_gate_radius_m, 5.0) * 2.0:
+		_inbound_best_distance_m = dist
+		_inbound_no_progress_s = 0.0
+		return false
+
+	var required_progress := maxf(carrier_inbound_progress_min_m, 1.0)
+	if _inbound_best_distance_m == INF or dist < _inbound_best_distance_m - required_progress:
+		_inbound_best_distance_m = dist
+		_inbound_no_progress_s = 0.0
+		return false
+
+	_inbound_no_progress_s += maxf(delta, 0.0)
+	if _inbound_no_progress_s < maxf(carrier_inbound_no_progress_timeout_s, 0.1):
+		return false
+
+	_debug_event("carrier_inbound_recover", "reason=no_progress dist=%.0f best=%.0f cphase=%s wp=%s path=%d/%d" % [
+		dist,
+		_inbound_best_distance_m,
+		_carrier_approach_phase_name(),
+		str(_nav_waypoint.snapped(Vector3.ONE)),
+		_heightmap_path_index,
+		_heightmap_path.size(),
+	])
+	_clear_heightmap_path("inbound_no_progress")
+	_inbound_best_distance_m = dist
+	_inbound_no_progress_s = 0.0
+	_inbound_direct_recovery_s = maxf(carrier_inbound_direct_recovery_s, 0.0)
+	_heightmap_path_timer_s = maxf(_inbound_direct_recovery_s, _heightmap_path_timer_s)
+	var direct_alt := _desired_altitude_m
+	if is_nan(direct_alt):
+		direct_alt = current_pos.y
+	_nav_waypoint = Vector3(destination.x, direct_alt, destination.z)
+	return true
 
 
 func _choose_low_level_corridor(current_pos: Vector3, goal: Vector3) -> Vector3:
@@ -1452,21 +1557,25 @@ func _get_heightmap_route_point(current_pos: Vector3, goal: Vector3) -> Vector3:
 		return Vector3.INF
 	if not _terrain_pathfinding_ready():
 		return Vector3.INF
+	if _inbound_direct_recovery_s > 0.0 and mission_phase == MissionPhase.INBOUND:
+		return Vector3.INF
 
 	_heightmap_path_timer_s -= _physics_delta
 	var goal_repath_threshold: float = maxf(heightmap_path_goal_move_recompute_m, 1.0)
 	if mission_phase == MissionPhase.INBOUND:
 		goal_repath_threshold = maxf(carrier_goal_repath_threshold_m, 1.0)
 	if not _heightmap_path.is_empty() and _flat_distance(_heightmap_path_goal, goal) > goal_repath_threshold:
-		_clear_heightmap_path("goal_moved")
+		if not _should_keep_inbound_heightmap_route_for_moving_goal():
+			_clear_heightmap_path("goal_moved")
 	if not _heightmap_path_job.is_empty():
 		var job_goal_value: Variant = _heightmap_path_job.get("goal", Vector3.INF)
 		if job_goal_value is Vector3:
 			var job_goal := Vector3.INF
 			job_goal = job_goal_value
 			if _flat_distance(job_goal, goal) > goal_repath_threshold:
-				_heightmap_path_job.clear()
-				_heightmap_path_timer_s = 0.0
+				if not _should_keep_inbound_heightmap_route_for_moving_goal():
+					_heightmap_path_job.clear()
+					_heightmap_path_timer_s = 0.0
 	if _heightmap_path.is_empty() and _heightmap_path_timer_s <= 0.0:
 		if heightmap_path_async_enabled:
 			if _heightmap_path_job.is_empty():
@@ -1503,12 +1612,54 @@ func _get_heightmap_route_point(current_pos: Vector3, goal: Vector3) -> Vector3:
 	return _get_heightmap_path_carrot_point(current_pos)
 
 
+func _should_keep_inbound_heightmap_route_for_moving_goal() -> bool:
+	return mission_phase == MissionPhase.INBOUND \
+			and state == State.LOW_LEVEL_TRANSIT \
+			and not _landing_on_carrier
+
+
 func _advance_heightmap_path_to_clear_point(current_pos: Vector3) -> void:
 	if _heightmap_path.is_empty() or _heightmap_path_index >= _heightmap_path.size() - 1:
 		return
 	var original_index := _heightmap_path_index
+	# Don't skip past waypoints that represent significant turns — the helicopter
+	# needs them to navigate safely around obstacles.
+	var max_skip_turn_deg := 25.0
 	for i in range(_heightmap_path.size() - 1, _heightmap_path_index, -1):
-		if _has_clear_transit_segment(current_pos, _heightmap_path[i]):
+		if not _has_clear_transit_segment(current_pos, _heightmap_path[i]):
+			continue
+		# Check if any intermediate waypoint represents a significant turn or altitude change.
+		var skip_ok := true
+		var prev_dir := (_heightmap_path[_heightmap_path_index] - current_pos)
+		prev_dir.y = 0.0
+		var skip_start := _heightmap_path[_heightmap_path_index]
+		var skip_end := _heightmap_path[i]
+		var skip_span := _flat_distance(skip_start, skip_end)
+		var alt_error_limit := maxf(heightmap_path_simplify_altitude_error_m, 0.0)
+		for j in range(_heightmap_path_index + 1, i):
+			var leg_in := (_heightmap_path[j] - _heightmap_path[j - 1])
+			leg_in.y = 0.0
+			var leg_out := (_heightmap_path[j + 1] - _heightmap_path[j]) if j + 1 < _heightmap_path.size() else leg_in
+			leg_out.y = 0.0
+			if leg_in.length_squared() < 1.0 or leg_out.length_squared() < 1.0:
+				continue
+			var turn_angle := rad_to_deg(leg_in.normalized().angle_to(leg_out.normalized()))
+			if turn_angle > max_skip_turn_deg:
+				skip_ok = false
+				break
+			# Don't skip past waypoints with significant altitude deviation from the
+			# straight-line interpolation — the heli needs them as climb cues.
+			if skip_span > 1.0:
+				var mid := _heightmap_path[j]
+				var t := clampf(_flat_distance(skip_start, mid) / skip_span, 0.0, 1.0)
+				var expected_alt := lerpf(skip_start.y, skip_end.y, t)
+				if absf(mid.y - expected_alt) > alt_error_limit:
+					skip_ok = false
+					break
+				if mid.y > maxf(skip_start.y, skip_end.y) + alt_error_limit:
+					skip_ok = false
+					break
+		if skip_ok:
 			_heightmap_path_index = i
 			break
 	if _heightmap_path_index != original_index:
@@ -1720,8 +1871,28 @@ func _get_carrier_reference_ground_y() -> float:
 	return deck_y - maxf(heightmap_path_carrier_deck_ground_offset_m, 0.0)
 
 
+func _get_heightmap_route_agl_m() -> float:
+	return maxf(heightmap_path_target_agl_m, maxf(min_terrain_clearance_m, 0.0))
+
+
+func _get_heightmap_flight_ceiling_m(reference_ground: float = NAN) -> float:
+	var ref_ground := reference_ground
+	if is_nan(ref_ground):
+		ref_ground = _get_heightmap_reference_ground_y()
+	return ref_ground + maxf(heightmap_path_max_flight_above_reference_m, 0.0)
+
+
+func _get_heightmap_max_route_terrain_y(reference_ground: float = NAN) -> float:
+	var ref_ground := reference_ground
+	if is_nan(ref_ground):
+		ref_ground = _get_heightmap_reference_ground_y()
+	var configured_ceiling := ref_ground + maxf(heightmap_path_max_terrain_above_reference_m, 0.0)
+	var flight_limited_ceiling := _get_heightmap_flight_ceiling_m(ref_ground) - _get_heightmap_route_agl_m()
+	return minf(configured_ceiling, flight_limited_ceiling)
+
+
 func _clamp_heightmap_flight_altitude(altitude_m: float) -> float:
-	var max_altitude := _get_heightmap_reference_ground_y() + maxf(heightmap_path_max_flight_above_reference_m, 0.0)
+	var max_altitude := _get_heightmap_flight_ceiling_m()
 	return minf(altitude_m, max_altitude)
 
 
@@ -1734,8 +1905,23 @@ func _rebuild_heightmap_path(current_pos: Vector3, goal: Vector3) -> void:
 
 
 func _apply_heightmap_path_result(current_pos: Vector3, goal: Vector3, path_array: Array[Vector3], start_ms: int) -> void:
-	var new_path: Array[Vector3] = []
 	var elevated_path := _elevate_aerial_path_points(current_pos, path_array)
+	var elevated_count := elevated_path.size()
+	elevated_path = _simplify_elevated_path_points(elevated_path)
+	var simplified_count := elevated_path.size()
+	_commit_heightmap_path_result(current_pos, goal, path_array, elevated_path, elevated_count, simplified_count, start_ms)
+
+
+func _commit_heightmap_path_result(
+		current_pos: Vector3,
+		goal: Vector3,
+		path_array: Array[Vector3],
+		elevated_path: Array[Vector3],
+		elevated_count: int,
+		simplified_count: int,
+		start_ms: int
+) -> void:
+	var new_path: Array[Vector3] = []
 	for point_variant in elevated_path:
 		if point_variant is Vector3:
 			var point := point_variant as Vector3
@@ -1770,9 +1956,12 @@ func _apply_heightmap_path_result(current_pos: Vector3, goal: Vector3, path_arra
 	_transit_cruise_altitude_m = route_altitude
 	var reference_ground := _get_heightmap_reference_ground_y()
 	var level_counts := _count_heightmap_path_levels(reference_ground)
-	_debug_event("path", "source=%s ms=%d points=%d ground=%d first=%d upper=%d pref=%.0f/%.2f/%.2f wall=%.1f/%.0f ref=%.1f terrain_ceiling=%.1f flight_ceiling=%.1f goal=%s first_pt=%s" % [
+	_debug_event("path", "source=%s ms=%d raw=%d elevated=%d simplified=%d points=%d ground=%d first=%d upper=%d pref=%.0f/%.2f/%.2f wall=%.1f/%.0f ref=%.1f terrain_ceiling=%.1f flight_ceiling=%.1f goal=%s first_pt=%s" % [
 		_last_path_source,
 		Time.get_ticks_msec() - start_ms,
+		path_array.size(),
+		elevated_count,
+		simplified_count,
 		_heightmap_path.size(),
 		int(level_counts.get("ground", 0)),
 		int(level_counts.get("first", 0)),
@@ -1783,11 +1972,244 @@ func _apply_heightmap_path_result(current_pos: Vector3, goal: Vector3, path_arra
 		heightmap_path_same_level_wall_risk_start_m,
 		heightmap_path_same_level_wall_penalty,
 		reference_ground,
-		reference_ground + maxf(heightmap_path_max_terrain_above_reference_m, 0.0),
-		reference_ground + maxf(heightmap_path_max_flight_above_reference_m, 0.0),
+		_get_heightmap_max_route_terrain_y(reference_ground),
+		_get_heightmap_flight_ceiling_m(reference_ground),
 		str(goal.snapped(Vector3.ONE * 0.1)),
 		str(_heightmap_path[0].snapped(Vector3.ONE * 0.1)),
 	])
+	if debug_enabled:
+		var craft_name: String = aircraft.name if is_instance_valid(aircraft) else "?"
+		var ref_g: float = _get_heightmap_reference_ground_y()
+		var levels: Dictionary = _count_heightmap_path_levels(ref_g)
+		print("[helipath] craft=%s pts=%d ref=%.0f gnd=%d plt1=%d plt2=%d goal=(%.0f,%.0f,%.0f)" % [
+			craft_name, _heightmap_path.size(), ref_g,
+			int(levels.get("ground", 0)), int(levels.get("first", 0)), int(levels.get("upper", 0)),
+			goal.x, goal.y, goal.z])
+
+
+func _start_heightmap_path_postprocess_job(current_pos: Vector3, goal: Vector3, path_array: Array[Vector3], start_ms: int) -> void:
+	if path_array.is_empty():
+		_commit_heightmap_path_result(current_pos, goal, path_array, [], 0, 0, start_ms)
+		return
+	_heightmap_path_job = {
+		"phase": "postprocess",
+		"current_pos": current_pos,
+		"goal": goal,
+		"raw_path": path_array,
+		"raw_count": path_array.size(),
+		"raw_index": 0,
+		"step_index": 1,
+		"segment_start": current_pos,
+		"previous_sample": current_pos,
+		"elevated_path": [],
+		"start_ms": start_ms,
+		"route_agl": _get_heightmap_route_agl_m(),
+		"flight_ceiling": _get_heightmap_flight_ceiling_m(),
+		"route_terrain_ceiling": _get_heightmap_max_route_terrain_y(),
+	}
+
+
+func _step_heightmap_path_postprocess_job() -> void:
+	var _profiler_start: int = FrameProfiler.begin("HelicopterPilot.path_postprocess")
+	var raw_variant: Variant = _heightmap_path_job.get("raw_path", [])
+	if not (raw_variant is Array):
+		_heightmap_path_job.clear()
+		FrameProfiler.end("HelicopterPilot.path_postprocess", _profiler_start)
+		return
+	var raw_path: Array = raw_variant as Array
+	var raw_index := int(_heightmap_path_job.get("raw_index", 0))
+	var step_index := int(_heightmap_path_job.get("step_index", 1))
+	var segment_start: Vector3 = _heightmap_path_job.get("segment_start", Vector3.ZERO)
+	var previous_sample: Vector3 = _heightmap_path_job.get("previous_sample", segment_start)
+	var elevated_variant: Variant = _heightmap_path_job.get("elevated_path", [])
+	var elevated_path: Array[Vector3] = []
+	if elevated_variant is Array:
+		for entry: Variant in elevated_variant as Array:
+			if entry is Vector3:
+				elevated_path.append(entry as Vector3)
+	var route_agl := float(_heightmap_path_job.get("route_agl", maxf(heightmap_path_target_agl_m, min_terrain_clearance_m)))
+	var flight_ceiling := float(_heightmap_path_job.get("flight_ceiling", _get_heightmap_flight_ceiling_m()))
+	var route_terrain_ceiling := float(_heightmap_path_job.get("route_terrain_ceiling", _get_heightmap_max_route_terrain_y()))
+	var used := 0
+	var budget := maxi(heightmap_path_postprocess_steps_per_frame, 1)
+	while raw_index < raw_path.size() and used < budget:
+		var point_variant: Variant = raw_path[raw_index]
+		if not (point_variant is Vector3):
+			raw_index += 1
+			step_index = 1
+			continue
+		var point := point_variant as Vector3
+		var flat_segment := Vector3(point.x - segment_start.x, 0.0, point.z - segment_start.z)
+		var segment_len := flat_segment.length()
+		var steps := maxi(int(ceil(segment_len / maxf(heightmap_path_insert_spacing_m, 1.0))), 1)
+		if step_index > steps:
+			segment_start = point
+			previous_sample = segment_start
+			raw_index += 1
+			step_index = 1
+			continue
+		var t := float(step_index) / float(steps)
+		var sample_pos := segment_start.lerp(point, t)
+		var terrain_height := _get_ground_height_at_position(sample_pos)
+		if is_nan(terrain_height):
+			terrain_height = lerpf(segment_start.y, point.y, t)
+		var corridor_height := _sample_max_terrain_height_along_path(previous_sample, sample_pos)
+		if not is_nan(corridor_height):
+			terrain_height = maxf(terrain_height, corridor_height)
+		if terrain_height > route_terrain_ceiling + 0.5 or terrain_height + route_agl > flight_ceiling + 0.5:
+			var reject_current_pos_value: Variant = _heightmap_path_job.get("current_pos", aircraft.global_position if is_instance_valid(aircraft) else Vector3.ZERO)
+			var reject_current_pos := Vector3.ZERO
+			if reject_current_pos_value is Vector3:
+				reject_current_pos = reject_current_pos_value as Vector3
+			var reject_goal_value: Variant = _heightmap_path_job.get("goal", reject_current_pos)
+			var reject_goal := reject_current_pos
+			if reject_goal_value is Vector3:
+				reject_goal = reject_goal_value as Vector3
+			var reject_start_ms := int(_heightmap_path_job.get("start_ms", Time.get_ticks_msec()))
+			var reject_raw_typed: Array[Vector3] = []
+			for entry: Variant in raw_path:
+				if entry is Vector3:
+					reject_raw_typed.append(entry as Vector3)
+			_heightmap_path_job.clear()
+			FrameProfiler.end("HelicopterPilot.path_postprocess", _profiler_start)
+			_commit_heightmap_path_result(reject_current_pos, reject_goal, reject_raw_typed, [], elevated_path.size(), 0, reject_start_ms)
+			return
+		var elevated_point := Vector3(
+			sample_pos.x,
+			_clamp_heightmap_flight_altitude(terrain_height + route_agl),
+			sample_pos.z
+		)
+		if elevated_path.is_empty() or _flat_distance(elevated_path[elevated_path.size() - 1], elevated_point) > 1.0:
+			elevated_path.append(elevated_point)
+		previous_sample = sample_pos
+		step_index += 1
+		used += 1
+
+	_heightmap_path_job["raw_index"] = raw_index
+	_heightmap_path_job["step_index"] = step_index
+	_heightmap_path_job["segment_start"] = segment_start
+	_heightmap_path_job["previous_sample"] = previous_sample
+	_heightmap_path_job["elevated_path"] = elevated_path
+	if raw_index < raw_path.size():
+		FrameProfiler.end("HelicopterPilot.path_postprocess", _profiler_start)
+		return
+
+	var current_pos_value: Variant = _heightmap_path_job.get("current_pos", aircraft.global_position if is_instance_valid(aircraft) else Vector3.ZERO)
+	var current_pos := Vector3.ZERO
+	if current_pos_value is Vector3:
+		current_pos = current_pos_value as Vector3
+	var goal_value: Variant = _heightmap_path_job.get("goal", current_pos)
+	var goal := current_pos
+	if goal_value is Vector3:
+		goal = goal_value as Vector3
+	var start_ms := int(_heightmap_path_job.get("start_ms", Time.get_ticks_msec()))
+	var raw_typed: Array[Vector3] = []
+	for entry: Variant in raw_path:
+		if entry is Vector3:
+			raw_typed.append(entry as Vector3)
+	_heightmap_path_job.clear()
+	FrameProfiler.end("HelicopterPilot.path_postprocess", _profiler_start)
+	_start_heightmap_path_simplify_job(current_pos, goal, raw_typed, elevated_path, start_ms)
+
+
+func _start_heightmap_path_simplify_job(current_pos: Vector3, goal: Vector3, raw_path: Array[Vector3], elevated_path: Array[Vector3], start_ms: int) -> void:
+	if not heightmap_path_simplify_enabled or elevated_path.size() <= 2:
+		_commit_heightmap_path_result(current_pos, goal, raw_path, elevated_path, elevated_path.size(), elevated_path.size(), start_ms)
+		return
+	_heightmap_path_job = {
+		"phase": "simplify",
+		"current_pos": current_pos,
+		"goal": goal,
+		"raw_path": raw_path,
+		"elevated_path": elevated_path,
+		"elevated_count": elevated_path.size(),
+		"simplified_path": [elevated_path[0]],
+		"simplify_anchor_index": 0,
+		"simplify_candidate_index": elevated_path.size() - 1,
+		"start_ms": start_ms,
+	}
+
+
+func _step_heightmap_path_simplify_job() -> void:
+	var _profiler_start: int = FrameProfiler.begin("HelicopterPilot.path_simplify")
+	var elevated_variant: Variant = _heightmap_path_job.get("elevated_path", [])
+	if not (elevated_variant is Array):
+		_heightmap_path_job.clear()
+		FrameProfiler.end("HelicopterPilot.path_simplify", _profiler_start)
+		return
+	var elevated_path: Array = elevated_variant as Array
+	if elevated_path.size() <= 2:
+		_finish_heightmap_path_simplify_job(elevated_path)
+		FrameProfiler.end("HelicopterPilot.path_simplify", _profiler_start)
+		return
+
+	var simplified_variant: Variant = _heightmap_path_job.get("simplified_path", [])
+	var simplified_path: Array[Vector3] = []
+	if simplified_variant is Array:
+		for entry: Variant in simplified_variant as Array:
+			if entry is Vector3:
+				simplified_path.append(entry as Vector3)
+	if simplified_path.is_empty() and elevated_path[0] is Vector3:
+		simplified_path.append(elevated_path[0] as Vector3)
+
+	var anchor_index := int(_heightmap_path_job.get("simplify_anchor_index", 0))
+	var candidate_index := int(_heightmap_path_job.get("simplify_candidate_index", elevated_path.size() - 1))
+	var budget := maxi(heightmap_path_simplify_steps_per_frame, 1)
+	var used := 0
+	while anchor_index < elevated_path.size() - 1 and used < budget:
+		if candidate_index <= anchor_index:
+			candidate_index = anchor_index + 1
+		if candidate_index >= elevated_path.size():
+			candidate_index = elevated_path.size() - 1
+
+		var can_use_candidate := candidate_index == anchor_index + 1 \
+				or _can_skip_elevated_path_range(elevated_path, anchor_index, candidate_index)
+		used += 1
+		if can_use_candidate:
+			var candidate_variant: Variant = elevated_path[candidate_index]
+			if candidate_variant is Vector3:
+				var candidate := candidate_variant as Vector3
+				if simplified_path.is_empty() or _flat_distance(simplified_path[simplified_path.size() - 1], candidate) > 1.0:
+					simplified_path.append(candidate)
+			anchor_index = candidate_index
+			candidate_index = elevated_path.size() - 1
+		else:
+			candidate_index -= 1
+
+	_heightmap_path_job["simplified_path"] = simplified_path
+	_heightmap_path_job["simplify_anchor_index"] = anchor_index
+	_heightmap_path_job["simplify_candidate_index"] = candidate_index
+	if anchor_index < elevated_path.size() - 1:
+		FrameProfiler.end("HelicopterPilot.path_simplify", _profiler_start)
+		return
+
+	_finish_heightmap_path_simplify_job(simplified_path)
+	FrameProfiler.end("HelicopterPilot.path_simplify", _profiler_start)
+
+
+func _finish_heightmap_path_simplify_job(simplified_path: Array) -> void:
+	var current_pos_value: Variant = _heightmap_path_job.get("current_pos", aircraft.global_position if is_instance_valid(aircraft) else Vector3.ZERO)
+	var current_pos := Vector3.ZERO
+	if current_pos_value is Vector3:
+		current_pos = current_pos_value as Vector3
+	var goal_value: Variant = _heightmap_path_job.get("goal", current_pos)
+	var goal := current_pos
+	if goal_value is Vector3:
+		goal = goal_value as Vector3
+	var raw_variant: Variant = _heightmap_path_job.get("raw_path", [])
+	var raw_path: Array[Vector3] = []
+	if raw_variant is Array:
+		for entry: Variant in raw_variant as Array:
+			if entry is Vector3:
+				raw_path.append(entry as Vector3)
+	var final_path: Array[Vector3] = []
+	for entry: Variant in simplified_path:
+		if entry is Vector3:
+			final_path.append(entry as Vector3)
+	var elevated_count := int(_heightmap_path_job.get("elevated_count", final_path.size()))
+	var start_ms := int(_heightmap_path_job.get("start_ms", Time.get_ticks_msec()))
+	_heightmap_path_job.clear()
+	_commit_heightmap_path_result(current_pos, goal, raw_path, final_path, elevated_count, final_path.size(), start_ms)
 
 
 func _count_heightmap_path_levels(reference_ground: float) -> Dictionary:
@@ -1844,7 +2266,7 @@ func _start_heightmap_path_job(current_pos: Vector3, goal: Vector3) -> void:
 	)
 	if start == end:
 		var direct_path: Array[Vector3] = [goal]
-		_apply_heightmap_path_result(current_pos, goal, direct_path, Time.get_ticks_msec())
+		_start_heightmap_path_postprocess_job(current_pos, goal, direct_path, Time.get_ticks_msec())
 		return
 
 	var reference_ground := _get_heightmap_reference_ground_y()
@@ -1870,9 +2292,10 @@ func _start_heightmap_path_job(current_pos: Vector3, goal: Vector3) -> void:
 		"g_score": { start: 0.0 },
 		"came_from": {},
 		"iterations": 0,
+		"phase": "search",
 		"max_iterations": maxi((gx_max - gx_min + 1) * (gz_max - gz_min + 1), 1),
 		"reference_ground": reference_ground,
-		"max_route_terrain_y": reference_ground + maxf(heightmap_path_max_terrain_above_reference_m, 0.0),
+		"max_route_terrain_y": _get_heightmap_max_route_terrain_y(reference_ground),
 		"route_floor": reference_ground,
 		"max_step_climb": maxf(heightmap_path_max_step_climb_m, 0.0),
 		"ground_band_ceiling": reference_ground + maxf(heightmap_path_ground_level_band_m, 0.0),
@@ -1890,15 +2313,25 @@ func _start_heightmap_path_job(current_pos: Vector3, goal: Vector3) -> void:
 func _step_heightmap_path_job() -> void:
 	if _heightmap_path_job.is_empty():
 		return
+	var phase := str(_heightmap_path_job.get("phase", "search"))
+	match phase:
+		"postprocess":
+			_step_heightmap_path_postprocess_job()
+			return
+		"simplify":
+			_step_heightmap_path_simplify_job()
+			return
 	var open: Array = _heightmap_path_job.get("open", [])
 	var iterations: int = int(_heightmap_path_job.get("iterations", 0))
 	var max_iterations: int = int(_heightmap_path_job.get("max_iterations", 1))
 	var budget: int = maxi(heightmap_path_async_iterations_per_frame, 1)
 	var used := 0
+	var _profiler_start: int = FrameProfiler.begin("HelicopterPilot.path_search")
 	while not open.is_empty() and iterations < max_iterations and used < budget:
 		iterations += 1
 		used += 1
 		if _step_heightmap_path_job_node():
+			FrameProfiler.end("HelicopterPilot.path_search", _profiler_start)
 			return
 		open = _heightmap_path_job.get("open", [])
 		_heightmap_path_job["iterations"] = iterations
@@ -1916,7 +2349,8 @@ func _step_heightmap_path_job() -> void:
 		var empty_path: Array[Vector3] = []
 		_heightmap_path_job.clear()
 		_last_path_source = "aerial_async"
-		_apply_heightmap_path_result(current_pos, goal, empty_path, start_ms)
+		_start_heightmap_path_postprocess_job(current_pos, goal, empty_path, start_ms)
+	FrameProfiler.end("HelicopterPilot.path_search", _profiler_start)
 
 
 func _step_heightmap_path_job_node() -> bool:
@@ -1957,7 +2391,7 @@ func _step_heightmap_path_job_node() -> bool:
 		var path := _rebuild_aerial_heightmap_path(came_from, cur, heights, cols, origin_x, origin_z, cell_size)
 		_heightmap_path_job.clear()
 		_last_path_source = "aerial_async"
-		_apply_heightmap_path_result(current_pos, goal, path, start_ms)
+		_start_heightmap_path_postprocess_job(current_pos, goal, path, start_ms)
 		return true
 
 	var cur_h := _heightmap_cell_height(heights, cols, cur.x, cur.y, impassable)
@@ -2113,7 +2547,9 @@ func _get_path_fail_escape_altitude(current_pos: Vector3, goal: Vector3, fallbac
 func _elevate_aerial_path_points(current_pos: Vector3, path: Array[Vector3]) -> Array[Vector3]:
 	var elevated: Array[Vector3] = []
 	var segment_start := current_pos
-	var route_agl := maxf(heightmap_path_target_agl_m, min_terrain_clearance_m)
+	var route_agl := _get_heightmap_route_agl_m()
+	var flight_ceiling := _get_heightmap_flight_ceiling_m()
+	var route_terrain_ceiling := _get_heightmap_max_route_terrain_y()
 	for point in path:
 		var flat_segment := Vector3(point.x - segment_start.x, 0.0, point.z - segment_start.z)
 		var segment_len := flat_segment.length()
@@ -2128,6 +2564,8 @@ func _elevate_aerial_path_points(current_pos: Vector3, path: Array[Vector3]) -> 
 			var corridor_height := _sample_max_terrain_height_along_path(previous_sample, sample_pos)
 			if not is_nan(corridor_height):
 				terrain_height = maxf(terrain_height, corridor_height)
+			if terrain_height > route_terrain_ceiling + 0.5 or terrain_height + route_agl > flight_ceiling + 0.5:
+				return []
 			var elevated_point := Vector3(
 				sample_pos.x,
 				_clamp_heightmap_flight_altitude(terrain_height + route_agl),
@@ -2138,6 +2576,62 @@ func _elevate_aerial_path_points(current_pos: Vector3, path: Array[Vector3]) -> 
 			previous_sample = sample_pos
 		segment_start = point
 	return elevated
+
+
+func _simplify_elevated_path_points(path: Array[Vector3]) -> Array[Vector3]:
+	if not heightmap_path_simplify_enabled or path.size() <= 2:
+		return path
+	var simplified: Array[Vector3] = [path[0]]
+	var anchor_index := 0
+	while anchor_index < path.size() - 1:
+		var selected_index := anchor_index + 1
+		for candidate_index in range(path.size() - 1, anchor_index, -1):
+			if candidate_index == anchor_index + 1 or _can_skip_elevated_path_range(path, anchor_index, candidate_index):
+				selected_index = candidate_index
+				break
+		simplified.append(path[selected_index])
+		anchor_index = selected_index
+	return simplified
+
+
+func _can_skip_elevated_path_range(path: Array, start_index: int, end_index: int) -> bool:
+	if end_index <= start_index + 1:
+		return true
+	if start_index < 0 or end_index >= path.size():
+		return false
+	var start_variant: Variant = path[start_index]
+	var end_variant: Variant = path[end_index]
+	if not (start_variant is Vector3) or not (end_variant is Vector3):
+		return false
+	var start_point := start_variant as Vector3
+	var end_point := end_variant as Vector3
+	if not _has_clear_transit_segment(start_point, end_point):
+		return false
+
+	var span := _flat_distance(start_point, end_point)
+	if span <= 1.0:
+		return true
+
+	# Keep waypoints at significant altitude changes — the helicopter needs
+	# them to know it must climb before flying toward the next point.
+	# Check if any intermediate waypoint is significantly higher than the
+	# linear interpolation between start and end — that means there's a hill
+	# that requires a dedicated climb waypoint.
+	var altitude_error_limit := maxf(heightmap_path_simplify_altitude_error_m, 0.0)
+	for i in range(start_index + 1, end_index):
+		var middle_variant: Variant = path[i]
+		if not (middle_variant is Vector3):
+			return false
+		var middle := middle_variant as Vector3
+		var t := clampf(_flat_distance(start_point, middle) / span, 0.0, 1.0)
+		var expected_altitude := lerpf(start_point.y, end_point.y, t)
+		if absf(middle.y - expected_altitude) > altitude_error_limit:
+			return false
+		# Keep the waypoint if it is higher than both endpoints —
+		# it marks a ridge that requires a dedicated climb.
+		if middle.y > maxf(start_point.y, end_point.y) + altitude_error_limit:
+			return false
+	return true
 
 
 func _find_low_terrain_navgrid_path(nav_grid: Node, current_pos: Vector3, goal: Vector3) -> Array[Vector3]:
@@ -2202,7 +2696,7 @@ func _find_aerial_heightmap_path(current_pos: Vector3, goal: Vector3) -> Array[V
 		return [goal]
 
 	var reference_ground := _get_heightmap_reference_ground_y()
-	var max_route_terrain_y := reference_ground + maxf(heightmap_path_max_terrain_above_reference_m, 0.0)
+	var max_route_terrain_y := _get_heightmap_max_route_terrain_y(reference_ground)
 	var route_floor := reference_ground
 	var max_step_climb := maxf(heightmap_path_max_step_climb_m, 0.0)
 	var ground_band_ceiling := reference_ground + maxf(heightmap_path_ground_level_band_m, 0.0)
@@ -2422,7 +2916,7 @@ func _rebuild_aerial_heightmap_path(
 		path.append(Vector3(wx, heights[cur.y * cols + cur.x], wz))
 		cur = came_from[cur]
 	path.reverse()
-	return _smooth_aerial_heightmap_path(path)
+	return path
 
 
 func _smooth_aerial_heightmap_path(path: Array[Vector3]) -> Array[Vector3]:
@@ -2445,7 +2939,7 @@ func _aerial_segment_reasonable(a: Vector3, b: Vector3) -> bool:
 	var max_h := _sample_max_terrain_height_along_path(a, b)
 	if is_nan(max_h):
 		return false
-	if max_h > _get_heightmap_reference_ground_y() + maxf(heightmap_path_max_terrain_above_reference_m, 0.0):
+	if max_h > _get_heightmap_max_route_terrain_y():
 		return false
 	var endpoint_h := maxf(a.y, b.y)
 	var has_edge_clearance := endpoint_h >= max_h + _get_edge_risk_clearance_m()
@@ -2454,14 +2948,14 @@ func _aerial_segment_reasonable(a: Vector3, b: Vector3) -> bool:
 		var max_allowed_risk := maxf(heightmap_path_max_edge_risk_m, 0.0)
 		if max_edge_risk > max_allowed_risk:
 			return false
-	return max_h <= endpoint_h + min_terrain_clearance_m + terrain_escape_margin_m
+	return max_h + _get_path_segment_clearance_m() <= endpoint_h
 
 
 func _has_clear_transit_segment(a: Vector3, b: Vector3) -> bool:
 	var max_h := _sample_max_terrain_height_along_path(a, b)
 	if is_nan(max_h):
 		return false
-	if max_h > _get_heightmap_reference_ground_y() + maxf(heightmap_path_max_terrain_above_reference_m, 0.0):
+	if max_h > _get_heightmap_max_route_terrain_y():
 		return false
 	var segment_altitude := maxf(a.y, b.y)
 	var has_edge_clearance := segment_altitude >= max_h + _get_edge_risk_clearance_m()
@@ -2474,10 +2968,9 @@ func _has_clear_transit_segment(a: Vector3, b: Vector3) -> bool:
 
 
 func _get_path_segment_clearance_m() -> float:
-	return maxf(
-		_get_transit_clearance_agl(),
-		maxf(min_terrain_clearance_m, 0.0) + maxf(terrain_escape_margin_m, 0.0)
-	)
+	# Use the same AGL margin the path elevation step uses, not the larger
+	# cruise clearance — otherwise the simplifier always fails on valid segments.
+	return _get_heightmap_route_agl_m()
 
 
 func _get_edge_risk_clearance_m() -> float:
@@ -2534,10 +3027,14 @@ func _fly_transit_vector(target: Vector3, desired_speed: float, delta: float) ->
 			(absf(turn_error_early) - deg_to_rad(maxf(transit_sharp_turn_angle_deg, 0.0)))
 			/ deg_to_rad(maxf(transit_sharp_turn_full_angle_deg - transit_sharp_turn_angle_deg, 1.0)),
 			0.0, 1.0)
-		var effective_decel_dist := maxf(decel_distance_m, 1.0) * (1.0 - turn_suppression)
+		# Speed-dependent braking distance: scale with actual speed so fast helis
+		# start braking earlier and don't overshoot.
+		var speed_ratio := horizontal_speed / maxf(cruise_speed_mps, 1.0)
+		var effective_decel_dist := maxf(decel_distance_m, 1.0) * speed_ratio * (1.0 - turn_suppression)
 		if dest_dist < effective_decel_dist:
 			var approach_t := 1.0 - clampf(dest_dist / maxf(effective_decel_dist, 1.0), 0.0, 1.0)
-			# Squared: gentle at first, firms up only close in. Avoids hard yank-back at speed.
+			# Squared ease-in: braking builds gradually from the start of the window,
+			# bleeding speed early so there's no aggressive last-second nose-up.
 			approach_lean_scale = 1.0 - approach_t * approach_t
 	forward_lean *= approach_lean_scale
 	if desired_speed < cruise_speed_mps and horizontal_speed > desired_speed:
@@ -2579,19 +3076,70 @@ func _fly_transit_vector(target: Vector3, desired_speed: float, delta: float) ->
 	# risk = 0 when terrain is more than wall_margin below helicopter; 1.0 when at or above.
 	var lateral_wall_roll := 0.0
 	var lateral_wall_yaw := 0.0
-	var _probe_dist := maxf(lateral_obstacle_probe_dist_m, 1.0)
 	var _wall_margin := maxf(lateral_obstacle_margin_m, 1.0)
-	var _probe_fwd := cos(deg_to_rad(clampf(lateral_obstacle_probe_angle_deg, 0.0, 89.9)))
-	var _probe_side := sin(deg_to_rad(clampf(lateral_obstacle_probe_angle_deg, 0.0, 89.9)))
-	var _left_dir := (forward * _probe_fwd - right * _probe_side).normalized()
-	var _right_dir := (forward * _probe_fwd + right * _probe_side).normalized()
-	var _left_h := _get_ground_height_at_position(current_pos + _left_dir * _probe_dist)
-	var _right_h := _get_ground_height_at_position(current_pos + _right_dir * _probe_dist)
-	var _left_risk := 0.0 if is_nan(_left_h) else clampf(1.0 + (_left_h - current_pos.y) / _wall_margin, 0.0, 1.0)
-	var _right_risk := 0.0 if is_nan(_right_h) else clampf(1.0 + (_right_h - current_pos.y) / _wall_margin, 0.0, 1.0)
-	if _left_risk > 0.0 or _right_risk > 0.0:
-		lateral_wall_roll = (_left_risk - _right_risk) * maxf(lateral_obstacle_roll_gain, 0.0)
-		lateral_wall_yaw = (_left_risk - _right_risk) * maxf(lateral_obstacle_yaw_gain, 0.0)
+	# Speed-scaled probe distance: faster = longer lookahead
+	var _probe_dist := clampf(
+		maxf(lateral_obstacle_probe_dist_m, 1.0) + horizontal_speed * maxf(lateral_obstacle_probe_speed_scale, 0.0),
+		lateral_obstacle_probe_dist_m,
+		maxf(lateral_obstacle_probe_max_dist_m, lateral_obstacle_probe_dist_m)
+	)
+	# 5-feeler fan — recomputed every 0.1s, cached between frames.
+	_feeler_timer_s -= _physics_delta
+	if _feeler_timer_s <= 0.0:
+		_feeler_timer_s = 0.1
+		_feeler_net_left_risk = 0.0
+		_feeler_net_right_risk = 0.0
+		_feeler_forward_penalty = 0.0
+	var _feeler_forward_speed_penalty := _feeler_forward_penalty
+	var _net_left_risk := _feeler_net_left_risk
+	var _net_right_risk := _feeler_net_right_risk
+	# Only recompute samples on the reset frame — cached otherwise.
+	if _feeler_timer_s >= 0.099:
+		const FEELER_ANGLES := [0.0, 20.0, -20.0, 50.0, -50.0]
+		const FEELER_BASE_WEIGHTS := [1.2, 1.0, 1.0, 0.6, 0.6]
+		const FEELER_DIST_SCALES := [1.0, 1.0, 1.0, 0.7, 0.7]
+		const FEELER_NEAR_WEIGHT := 2.5
+		const FEELER_NEAR_FRAC := 0.33
+		for _fi in range(FEELER_ANGLES.size()):
+			var _angle_deg: float = FEELER_ANGLES[_fi]
+			var _base_weight: float = FEELER_BASE_WEIGHTS[_fi]
+			var _angle_rad := deg_to_rad(_angle_deg)
+			var _dir := (forward * cos(_angle_rad) + right * sin(_angle_rad)).normalized()
+			var _far_dist: float = float(FEELER_DIST_SCALES[_fi]) * _probe_dist
+			var _near_dist: float = _far_dist * FEELER_NEAR_FRAC
+			for _sample in range(2):
+				var _sdist: float = _near_dist if _sample == 0 else _far_dist
+				var _dist_weight := FEELER_NEAR_WEIGHT if _sample == 0 else 1.0
+				var _h := _get_ground_height_at_position(current_pos + _dir * _sdist)
+				if is_nan(_h):
+					continue
+				var _dist_t := 1.0 - clampf(_sdist / maxf(_far_dist, 1.0), 0.0, 1.0) * 0.5
+				var _risk := clampf(1.0 + (_h - current_pos.y) / _wall_margin, 0.0, 1.0) \
+					* _base_weight * _dist_weight * _dist_t
+				if _risk <= 0.0:
+					continue
+				if _angle_deg == 0.0:
+					_feeler_forward_speed_penalty = maxf(_feeler_forward_speed_penalty, _risk)
+				elif _angle_deg > 0.0:
+					_net_right_risk = maxf(_net_right_risk, _risk)
+				else:
+					_net_left_risk = maxf(_net_left_risk, _risk)
+		# Store back to cache
+		_feeler_forward_penalty = _feeler_forward_speed_penalty
+		_feeler_net_left_risk = _net_left_risk
+		_feeler_net_right_risk = _net_right_risk
+	if _net_left_risk > 0.0 or _net_right_risk > 0.0:
+		lateral_wall_roll = (_net_left_risk - _net_right_risk) * maxf(lateral_obstacle_roll_gain, 0.0)
+		lateral_wall_yaw = (_net_left_risk - _net_right_risk) * maxf(lateral_obstacle_yaw_gain, 0.0)
+	# Forward obstacle: only slow down if the path is asymmetrically blocked.
+	# If both sides have similar risk it's a corridor — let them fly through.
+	# Slow down only when one side is significantly more blocked than the other,
+	# or when the forward feeler sees something and the sides are clear.
+	if _feeler_forward_speed_penalty > 0.0:
+		var side_balance := absf(_net_left_risk - _net_right_risk)
+		var corridor_t := 1.0 - clampf(side_balance / maxf(_feeler_forward_speed_penalty, 0.001), 0.0, 1.0)
+		var effective_penalty := _feeler_forward_speed_penalty * (1.0 - corridor_t * 0.85)
+		forward_lean *= 1.0 - effective_penalty * maxf(lateral_obstacle_forward_speed_scale, 0.0)
 	var bank_speed_start: float = maxf(transit_low_speed_bank_start_mps, 0.0)
 	var bank_speed_full: float = maxf(transit_low_speed_bank_full_mps, bank_speed_start + 1.0)
 	var bank_speed_t: float = clampf(
@@ -2680,6 +3228,18 @@ func _fly_transit_vector(target: Vector3, desired_speed: float, delta: float) ->
 				var terrain_speed_scale := 1.0 / overload
 				forward_lean = minf(forward_lean, maxf(transit_cruise_forward_lean, 0.0) * terrain_speed_scale)
 				forward_lean = maxf(forward_lean, min_forward_lean)
+
+	# Descent lean: when above the target altitude and below cruise speed, add forward
+	# lean to nose over and trade altitude for speed rather than hovering down.
+	# Suppressed during turns — a banked rotor needs its thrust for lift, not speed.
+	var alt_surplus := current_pos.y - target.y
+	if alt_surplus > 0.0 and horizontal_speed < maxf(cruise_speed_mps, 1.0) \
+			and sharp_turn <= 0.0 and pedal_turn <= 0.0:
+		var surplus_t := clampf(alt_surplus / maxf(transit_descent_lean_alt_full_m, 1.0), 0.0, 1.0)
+		var speed_t := clampf(horizontal_speed / maxf(cruise_speed_mps, 1.0), 0.0, 1.0)
+		var turn_suppress := clampf(absolute_turn_error / deg_to_rad(maxf(transit_sharp_turn_angle_deg, 10.0)), 0.0, 1.0)
+		var descent_lean := maxf(transit_descent_lean_bonus, 0.0) * surplus_t * (1.0 - speed_t) * (1.0 - turn_suppress)
+		forward_lean = minf(forward_lean + descent_lean, 1.0)
 
 	var lookahead_s := maxf(cyclic_altitude_rate_lookahead_s, 0.0)
 	var predicted_alt_error := target.y - (current_pos.y + vertical_speed * lookahead_s)
@@ -2923,9 +3483,13 @@ func _fly_toward(target: Vector3, desired_speed: float, delta: float) -> void:
 	# Speed profile. Transit waypoints steer the route; they are not brake points.
 	var spd: float
 	if state == State.LANDING and _landing_on_carrier:
-		# Deck-relative creeping speed: stay matched to the carrier while trimming
-		# the last few meters instead of accepting a loose hover radius.
-		spd = clampf(dist * maxf(carrier_landing_position_speed_gain, 0.0), 0.0, hover_speed_mps)
+		# Carrier landing uses deck-relative control velocity, so this is the
+		# amount above carrier speed. FINAL should creep from the approach point
+		# to the landing point at carrier speed + carrier_final_speed_offset_mps.
+		if _carrier_approach_phase == CarrierApproachPhase.FINAL:
+			spd = maxf(carrier_final_speed_offset_mps, 0.0)
+		else:
+			spd = clampf(dist * maxf(carrier_landing_position_speed_gain, 0.0), 0.0, hover_speed_mps)
 	elif state == State.HOVER or state == State.LANDING:
 		var dist_t := clampf(dist / maxf(waypoint_accept_radius_m * 2.0, 1.0), 0.0, 1.0)
 		spd = lerpf(1.0, hover_speed_mps, dist_t)
@@ -3414,6 +3978,27 @@ func _calculate_transit_collective(base_collective: float, alt_error: float, hor
 	alt_boost_t = maxf(alt_boost_t, urgency_alt_t * maxf(shortfall_t, sink_t))
 	var alt_boosted := lerpf(feedback_collective, 1.0, alt_boost_t)
 
+	# When above target altitude, nudge collective down to encourage descent.
+	# "Rolling downhill" mode: if below cruise speed, don't touch collective — just
+	# pitch forward and let gravity convert altitude into speed. Only reduce collective
+	# when already at cruise speed and the actual sink rate is below the target.
+	var trim := _get_collective_trim()
+	if alt_error < 0.0:
+		var speed_fraction := clampf(horizontal_speed / maxf(cruise_speed_mps, 1.0), 0.0, 1.0)
+		# At full cruise speed, target sink = transit_target_sink_mps.
+		# Below cruise speed, target sink scales toward zero — pitch handles it.
+		# Only nudge collective down if actually descending (not still climbing through target altitude).
+		if vertical_speed <= 0.5:
+			var desired_sink := maxf(transit_target_sink_mps, 0.0) * speed_fraction
+			var actual_sink := maxf(-vertical_speed, 0.0)  # positive = descending; clamp to 0 if levelling
+			var sink_shortfall := desired_sink - actual_sink
+			if sink_shortfall > 0.0:
+				var reduction_t := clampf(sink_shortfall / maxf(transit_target_sink_mps, 0.1), 0.0, 1.0)
+				reduction_t *= speed_fraction
+				var descent_collective := lerpf(trim, maxf(energy_management_min_collective, 0.0), reduction_t)
+				feedback_collective = minf(feedback_collective, descent_collective)
+				alt_boosted = minf(alt_boosted, descent_collective)
+
 	# Speed management: if already at or above speed target, allow collective to settle back.
 	var speed_target := maxf(_speed_target_mps, 0.0)
 	var speed_excess := horizontal_speed - speed_target
@@ -3426,10 +4011,13 @@ func _calculate_transit_collective(base_collective: float, alt_error: float, hor
 		var urgency_floor_t := maxf(urgency_alt_t * shortfall_t, sink_t)
 		minimum_collective = maxf(
 			minimum_collective,
-			lerpf(_get_collective_trim(), clampf(collective_climb_urgency_min, 0.0, 1.0), urgency_floor_t)
+			lerpf(trim, clampf(collective_climb_urgency_min, 0.0, 1.0), urgency_floor_t)
 		)
 	var speed_managed_collective := lerpf(alt_boosted, minimum_collective, speed_t)
-	return clampf(maxf(speed_managed_collective, feedback_collective), minimum_collective, 1.0)
+	# When descending (above target alt), don't enforce the minimum floor — doing so
+	# would undo the descent nudge. Use zero as the safety floor instead.
+	var return_floor := minimum_collective if alt_error >= 0.0 else 0.0
+	return clampf(maxf(speed_managed_collective, feedback_collective), return_floor, 1.0)
 
 
 func _get_collective_trim() -> float:
@@ -3540,36 +4128,33 @@ func _get_carrier_approach_arrival_speed_limit(desired_speed_mps: float = -1.0) 
 		return desired_speed
 	var dist_to_gate := _flat_distance(aircraft.global_position, approach_world)
 	var carrier_speed := _get_carrier_velocity_world().length()
-	var arrival_speed := maxf(carrier_speed, 0.0)
+	var arrival_speed := maxf(carrier_speed, 0.0) + maxf(carrier_approach_arrival_relative_speed_mps, 0.0)
 	desired_speed = maxf(desired_speed, arrival_speed)
 	var capture_radius := maxf(carrier_approach_capture_radius_m, 5.0)
-	var decel := maxf(carrier_approach_arrival_decel_mps2, 0.1)
-	var speed_to_shed_sq := maxf(desired_speed * desired_speed - arrival_speed * arrival_speed, 0.0)
-	var required_brake_distance := speed_to_shed_sq / (2.0 * decel)
-	var minimum_match_distance := maxf(carrier_approach_speed_match_distance_m, capture_radius + 300.0)
-	var braking_match_distance := capture_radius + required_brake_distance * maxf(carrier_approach_brake_distance_margin, 1.0)
-	var match_distance := maxf(minimum_match_distance, braking_match_distance)
+	# Use decel_distance_m (the same knob as transit braking) as the speed match window.
+	# This keeps carrier approach tuning unified with general transit decel per aircraft type.
+	var match_distance := maxf(decel_distance_m, capture_radius + 300.0)
+	# Implied decel rate from decel_distance_m: a = v²/2d
+	var implied_decel := maxf(desired_speed * desired_speed / (2.0 * maxf(decel_distance_m, 1.0)), 0.1)
 	var ramp_t := clampf((dist_to_gate - capture_radius) / maxf(match_distance - capture_radius, 1.0), 0.0, 1.0)
-	ramp_t = ramp_t * ramp_t * (3.0 - 2.0 * ramp_t)
 	var ramp_limit := lerpf(arrival_speed, desired_speed, ramp_t)
 	var brake_distance := maxf(dist_to_gate - capture_radius, 0.0)
-	var decel_limit := sqrt(arrival_speed * arrival_speed + 2.0 * decel * brake_distance)
+	var decel_limit := sqrt(arrival_speed * arrival_speed + 2.0 * implied_decel * brake_distance)
 	var limit := minf(ramp_limit, decel_limit)
 	limit = clampf(limit, arrival_speed, desired_speed)
 
 	_carrier_approach_speed_log_s -= _physics_delta
 	if debug_enabled and _carrier_approach_speed_log_s <= 0.0 and dist_to_gate < maxf(match_distance * 1.25, 1000.0):
 		_carrier_approach_speed_log_s = maxf(carrier_approach_speed_log_interval_s, 0.25)
-		_debug_event("carrier_approach_speed_plan", "dist=%.1f limit=%.1f desired=%.1f carrier=%.1f ramp=%.2f decel_limit=%.1f req_brake=%.1f match_dist=%.1f decel=%.1f" % [
+		_debug_event("carrier_approach_speed_plan", "dist=%.1f limit=%.1f desired=%.1f carrier=%.1f ramp=%.2f decel_limit=%.1f match_dist=%.1f implied_decel=%.1f" % [
 			dist_to_gate,
 			limit,
 			desired_speed,
 			carrier_speed,
 			ramp_t,
 			decel_limit,
-			required_brake_distance,
 			match_distance,
-			decel,
+			implied_decel,
 		])
 	return limit
 
@@ -3579,6 +4164,7 @@ func _fly_carrier_approach_gate(
 		carrier_fwd: Vector3,
 		carrier_right: Vector3,
 		carrier_vel: Vector3,
+		speed_limit_mps: float,
 		delta: float
 ) -> void:
 	var current_pos := aircraft.global_position
@@ -3587,7 +4173,7 @@ func _fly_carrier_approach_gate(
 	var to_gate_now := approach_world - current_pos
 	to_gate_now.y = 0.0
 	var dist_now := to_gate_now.length()
-	var max_closure := maxf(minf(cruise_speed_mps, max_speed_mps), 0.0)
+	var max_closure := minf(maxf(minf(cruise_speed_mps, max_speed_mps), 0.0), maxf(speed_limit_mps, 0.0))
 	var stop_distance := maxf(dist_now - maxf(carrier_approach_capture_radius_m, 1.0), 0.0)
 	var planned_closure := sqrt(2.0 * maxf(carrier_approach_capture_decel_mps2, 0.1) * stop_distance)
 	planned_closure = clampf(planned_closure, 0.0, max_closure)
@@ -3712,7 +4298,11 @@ func _fly_carrier_approach_gate(
 	_debug_vertical_priority = 0.0
 
 	_set_helicopter_input(_pitch_cmd, _roll_cmd, _yaw_cmd)
-	var collective_target := _calculate_collective(approach_world.y)
+	# Gentle altitude hold — avoid the full LANDING boost which causes 40m oscillations.
+	var gate_alt_error := approach_world.y - current_pos.y
+	var gate_desired_climb := clampf(gate_alt_error * altitude_to_climb_gain * 1.5, -max_descent_mps, max_climb_mps)
+	var gate_climb_error := gate_desired_climb - vertical_speed
+	var collective_target := clampf(_get_collective_trim() + gate_climb_error * collective_climb_gain * 1.5, 0.0, 1.0)
 	_debug_collective_target = collective_target
 	_apply_collective(collective_target)
 
@@ -3737,6 +4327,28 @@ func _has_carrier_landing_clearance_from_deck() -> bool:
 	return false
 
 
+func _get_carrier_queue_hold_position(approach_world: Vector3, _carrier_fwd: Vector3) -> Vector3:
+	var fdm = get_tree().get_first_node_in_group("flight_deck_manager")
+	# 0 = cleared (active landing slot), 1+ = queue position, -1 = not tracked.
+	var queue_pos := -1
+	if fdm and is_instance_valid(aircraft):
+		if fdm.has_method("get_landing_queue_position"):
+			queue_pos = int(fdm.call("get_landing_queue_position", aircraft))
+		# If not in the queue array but already has clearance, treat as cleared (0).
+		if queue_pos < 0 and fdm.has_method("has_landing_clearance") \
+				and bool(fdm.call("has_landing_clearance", aircraft)):
+			queue_pos = 0
+	# Cleared or unknown — fly to AP1.
+	if queue_pos <= 0:
+		return approach_world
+	# Waiting in queue — fly to Hold Point N (1-indexed, capped at 4).
+	var marker_name := "Helicopter Hold Point %d" % mini(queue_pos, 4)
+	var hold := _get_carrier_marker_world_pos(marker_name)
+	if hold != Vector3.INF:
+		return hold
+	return approach_world
+
+
 func _release_carrier_landing_clearance_from_deck() -> void:
 	if not is_instance_valid(aircraft):
 		return
@@ -3755,6 +4367,54 @@ func _set_carrier_landing_final_active(active: bool) -> void:
 		aircraft.remove_meta("carrier_landing_final_active")
 
 
+func _get_carrier_landing_abort_reason(
+		pos: Vector3,
+		carrier: Node3D,
+		carrier_fwd: Vector3,
+		carrier_right: Vector3,
+		_approach_world: Vector3,
+		landing_world: Vector3
+) -> String:
+	if _carrier_approach_phase != CarrierApproachPhase.FINAL \
+			and _carrier_approach_phase != CarrierApproachPhase.DESCEND:
+		return ""
+	if carrier == null:
+		return ""
+	var deck_y := _get_carrier_deck_y(carrier)
+	if pos.y < deck_y - maxf(carrier_landing_abort_below_deck_m, 0.0):
+		return "below_deck"
+	var to_landing := landing_world - pos
+	to_landing.y = 0.0
+	var flat_dist := to_landing.length()
+	var past_forward := -to_landing.dot(carrier_fwd)
+	var lateral_error := absf(to_landing.dot(carrier_right))
+	if past_forward > maxf(carrier_landing_abort_forward_m, 0.0):
+		return "too_far_forward"
+	if lateral_error > maxf(carrier_landing_abort_lateral_m, 0.0):
+		return "too_far_lateral"
+	if flat_dist > maxf(carrier_landing_abort_distance_m, 1.0):
+		return "too_far_from_landing_point"
+	return ""
+
+
+func _abort_carrier_landing_attempt(reason: String, approach_world: Vector3) -> void:
+	_debug_event("carrier_landing_abort", "reason=%s cphase=%s pos=%s approach=%s" % [
+		reason,
+		_carrier_approach_phase_name(),
+		str(aircraft.global_position.snapped(Vector3.ONE)) if is_instance_valid(aircraft) else "?",
+		str(approach_world.snapped(Vector3.ONE)),
+	])
+	_release_carrier_landing_clearance_from_deck()
+	_carrier_approach_phase = CarrierApproachPhase.TO_APPROACH_POINT
+	_carrier_final_timer_s = 0.0
+	_carrier_landing_clearance_wait_logged = false
+	_carrier_approach_clearance_request_s = 0.0
+	_set_carrier_landing_final_active(false)
+	if is_instance_valid(aircraft):
+		_desired_altitude_m = maxf(approach_world.y, aircraft.global_position.y)
+		_nav_waypoint = Vector3(approach_world.x, _desired_altitude_m, approach_world.z)
+
+
 # Returns true while it is handling the approach and has set _pitch_cmd/_roll_cmd/_yaw_cmd
 # and called _apply_collective. Returns false if markers are missing and caller should fall back.
 func _run_scripted_carrier_approach(delta: float) -> bool:
@@ -3762,8 +4422,9 @@ func _run_scripted_carrier_approach(delta: float) -> bool:
 	if carrier == null:
 		return false
 	var approach_world := _get_carrier_approach_point_world_pos()
+	var approach2_world := _get_carrier_marker_world_pos(carrier_approach_point_2_name)
 	var landing_world := _get_carrier_marker_world_pos(carrier_landing_point_name)
-	if approach_world == Vector3.INF or landing_world == Vector3.INF:
+	if approach_world == Vector3.INF or approach2_world == Vector3.INF or landing_world == Vector3.INF:
 		return false
 
 	var pos := aircraft.global_position
@@ -3776,11 +4437,28 @@ func _run_scripted_carrier_approach(delta: float) -> bool:
 	carrier_right.y = 0.0
 	carrier_right = carrier_right.normalized() if carrier_right.length_squared() > 0.001 else Vector3.RIGHT
 
+	var abort_reason := _get_carrier_landing_abort_reason(pos, carrier, carrier_fwd, carrier_right, approach_world, landing_world)
+	if abort_reason != "":
+		_abort_carrier_landing_attempt(abort_reason, approach_world)
+
 	# Phase transitions
 	match _carrier_approach_phase:
 		CarrierApproachPhase.NONE, CarrierApproachPhase.TO_APPROACH_POINT:
 			_carrier_approach_phase = CarrierApproachPhase.TO_APPROACH_POINT
-			var dist_to_gate := _flat_distance(pos, approach_world)
+			var hold_point := _get_carrier_queue_hold_position(approach_world, carrier_fwd)
+			var dist_to_gate := _flat_distance(pos, hold_point)
+			# If too far from the gate and receding, drop back to transit so the
+			# helicopter can chase it at cruise speed instead of crawling at hover speed.
+			if dist_to_gate > maxf(carrier_approach_gate_radius_m, 5.0) * 3.0:
+				var to_hold := hold_point - pos
+				to_hold.y = 0.0
+				var closing := (aircraft.linear_velocity - carrier_vel).dot(to_hold.normalized() if to_hold.length_squared() > 0.1 else carrier_fwd)
+				if closing < 2.0:
+					_carrier_approach_phase = CarrierApproachPhase.NONE
+					_landing_on_carrier = false
+					change_state(State.LOW_LEVEL_TRANSIT)
+					_debug_event("carrier_approach", "dropped back to transit: dist=%.0f closing=%.1f" % [dist_to_gate, closing])
+					return true
 			var has_landing_clearance := _has_carrier_landing_clearance_from_deck()
 			var clearance_request_radius := maxf(
 				carrier_approach_clearance_request_radius_m,
@@ -3805,12 +4483,18 @@ func _run_scripted_carrier_approach(delta: float) -> bool:
 					_carrier_landing_clearance_wait_logged = true
 				elif has_landing_clearance:
 					_carrier_landing_clearance_wait_logged = false
-			var height_ok := absf(pos.y - approach_world.y) < maxf(carrier_approach_capture_height_m, 1.0)
+			var height_ok := absf(pos.y - hold_point.y) < maxf(carrier_approach_capture_height_m, 1.0)
 			var relative_speed_limit := maxf(carrier_approach_capture_relative_speed_mps, 0.1)
 			if has_landing_clearance:
 				relative_speed_limit = maxf(relative_speed_limit, carrier_approach_cleared_relative_speed_mps)
 			var relative_speed := (aircraft.linear_velocity - carrier_vel).length()
 			var relative_speed_ok := relative_speed <= relative_speed_limit
+			var forced_final_speed_limit := maxf(
+				relative_speed_limit,
+				carrier_approach_cleared_forced_final_relative_speed_mps
+			)
+			var forced_final_ok := has_landing_clearance \
+					and relative_speed <= forced_final_speed_limit
 			var forward := aircraft.global_transform.basis.z
 			forward.y = 0.0
 			forward = forward.normalized() if forward.length_squared() > 0.001 else carrier_fwd
@@ -3824,16 +4508,26 @@ func _run_scripted_carrier_approach(delta: float) -> bool:
 				capture_radius = maxf(capture_radius, carrier_approach_cleared_capture_radius_m)
 			if dist_to_gate < capture_radius \
 					and height_ok \
-					and relative_speed_ok \
+					and (relative_speed_ok or forced_final_ok) \
 					and heading_ok:
 				if has_landing_clearance:
 					_carrier_landing_clearance_wait_logged = false
-					_carrier_approach_phase = CarrierApproachPhase.FINAL
-					_carrier_final_timer_s = 0.0
-					_debug_event("carrier_approach", "phase=FINAL gate_dist=%.1f rel_speed=%.1f/%.1f heading=%.1f/%.1f clearance=%s" % [
+					# If already past the landing point, skip FINAL and go straight to DESCEND
+					var to_landing_check: Vector3 = landing_world - pos
+					to_landing_check.y = 0.0
+					var already_past: bool = to_landing_check.dot(carrier_fwd) < 0.0 \
+						and _flat_distance(pos, landing_world) < 60.0
+					if already_past:
+						_carrier_approach_phase = CarrierApproachPhase.DESCEND
+						_debug_event("carrier_approach", "phase=DESCEND (skipped FINAL: already past landing point)")
+					else:
+						_carrier_approach_phase = CarrierApproachPhase.FINAL
+						_carrier_final_timer_s = 0.0
+					_debug_event("carrier_approach", "phase=FINAL gate_dist=%.1f rel_speed=%.1f/%.1f forced=%s heading=%.1f/%.1f clearance=%s" % [
 						dist_to_gate,
 						relative_speed,
 						relative_speed_limit,
+						str(not relative_speed_ok and forced_final_ok),
 						heading_error_deg,
 						heading_limit,
 						str(has_landing_clearance),
@@ -3849,18 +4543,29 @@ func _run_scripted_carrier_approach(delta: float) -> bool:
 						clearance_request_radius,
 						str(height_ok),
 						relative_speed,
-						relative_speed_limit,
+						forced_final_speed_limit if has_landing_clearance else relative_speed_limit,
 						heading_error_deg,
 						heading_limit,
 					])
 		CarrierApproachPhase.FINAL:
-			# Transition to DESCEND once over or past the landing point
-			var to_landing := landing_world - pos
-			to_landing.y = 0.0
-			var ahead_of_landing := to_landing.dot(carrier_fwd) < 15.0
-			if ahead_of_landing and _flat_distance(pos, landing_world) < 30.0:
+			_carrier_final_timer_s += delta
+			# Transition to DESCEND once hovering at AP2: close, at altitude, slow relative to carrier.
+			var dist_to_ap2 := _flat_distance(pos, approach2_world)
+			var relative_speed := (aircraft.linear_velocity - carrier_vel).length()
+			var speed_ok := relative_speed <= maxf(carrier_landing_descend_relative_speed_mps, 0.1)
+			var alt_ok := absf(pos.y - approach2_world.y) <= 8.0
+			var close_enough := dist_to_ap2 <= 20.0
+			var timed_out := _carrier_final_timer_s > maxf(carrier_landing_final_timeout_s, 0.1)
+			if close_enough and speed_ok and alt_ok:
 				_carrier_approach_phase = CarrierApproachPhase.DESCEND
-				_debug_event("carrier_approach", "phase=DESCEND")
+				_debug_event("carrier_approach", "phase=DESCEND dist_ap2=%.1f rel_speed=%.1f/%.1f alt_err=%.1f" % [
+					dist_to_ap2,
+					relative_speed,
+					carrier_landing_descend_relative_speed_mps,
+					pos.y - approach2_world.y,
+				])
+			elif timed_out:
+				_abort_carrier_landing_attempt("final_timeout", approach_world)
 		CarrierApproachPhase.DESCEND:
 			pass  # stays in DESCEND until _try_finish_landing fires
 
@@ -3876,32 +4581,227 @@ func _run_scripted_carrier_approach(delta: float) -> bool:
 
 	match _carrier_approach_phase:
 		CarrierApproachPhase.TO_APPROACH_POINT:
-			target_pos = approach_world
+			var hold_pos := _get_carrier_queue_hold_position(approach_world, carrier_fwd)
+			target_pos = hold_pos
+			target_altitude = hold_pos.y
 			target_speed = _get_carrier_approach_arrival_speed_limit(_get_current_leg_target_speed_mps(cruise_speed_mps))
-			target_altitude = approach_world.y
 
 		CarrierApproachPhase.FINAL:
-			# Fly forward along carrier heading at carrier speed + offset, hold approach altitude
-			target_pos = landing_world
-			target_speed = carrier_speed + maxf(carrier_final_speed_offset_mps, 0.0)
-			target_altitude = approach_world.y  # same height as approach gate throughout final
+			# Fly to AP2 (directly above landing point) at hover height, matching carrier speed.
+			target_pos = approach2_world
+			target_speed = carrier_speed
+			target_altitude = approach2_world.y
 
 		CarrierApproachPhase.DESCEND:
+			# Straight down from AP2 to the deck; hold carrier speed horizontally.
 			target_pos = landing_world
 			target_speed = carrier_speed
-			target_altitude = landing_world.y  # descend to landing point
+			target_altitude = landing_world.y
 
 	# Update destination so _try_finish_landing and other systems see the right point
 	destination = landing_world
 	_has_destination = true
 	_desired_altitude_m = target_altitude
 
+	# Per-phase landing debug: only FINAL and DESCEND, once per 3s
+	if debug_enabled and _carrier_approach_phase != CarrierApproachPhase.TO_APPROACH_POINT:
+		_carrier_approach_speed_log_s -= delta
+		if _carrier_approach_speed_log_s <= 0.0:
+			_carrier_approach_speed_log_s = maxf(carrier_approach_speed_log_interval_s * 1.5, 0.5)
+			var abs_spd := aircraft.linear_velocity.length() if is_instance_valid(aircraft) else 0.0
+			var rel_spd := (aircraft.linear_velocity - carrier_vel).length() if is_instance_valid(aircraft) else 0.0
+			var alt_err := pos.y - target_altitude
+			var dist_landing := _flat_distance(pos, landing_world)
+			var dist_ap2 := _flat_distance(pos, approach2_world)
+			var phase_str := ""
+			match _carrier_approach_phase:
+				CarrierApproachPhase.TO_APPROACH_POINT: phase_str = "GATE"
+				CarrierApproachPhase.FINAL: phase_str = "FINAL"
+				CarrierApproachPhase.DESCEND: phase_str = "DESCEND"
+			_debug_event("land_debug", "phase=%s spd=%.1f rel=%.1f alt_err=%+.1f dist_land=%.0f dist_ap2=%.0f col=%.2f vs=%.1f" % [
+				phase_str,
+				abs_spd,
+				rel_spd,
+				alt_err,
+				dist_landing,
+				dist_ap2,
+				_collective_cmd,
+				aircraft.linear_velocity.y if is_instance_valid(aircraft) else 0.0,
+			])
+
 	var fly_target := Vector3(target_pos.x, target_altitude, target_pos.z)
 	if _carrier_approach_phase == CarrierApproachPhase.TO_APPROACH_POINT:
-		_fly_carrier_approach_gate(approach_world, carrier_fwd, carrier_right, carrier_vel, delta)
+		var hold_target := _get_carrier_queue_hold_position(approach_world, carrier_fwd)
+		_fly_carrier_approach_gate(hold_target, carrier_fwd, carrier_right, carrier_vel, target_speed, delta)
+	elif _carrier_approach_phase == CarrierApproachPhase.FINAL:
+		_fly_carrier_final(approach2_world, approach_world, approach2_world.y, carrier_fwd, carrier_vel, delta)
+	elif _carrier_approach_phase == CarrierApproachPhase.DESCEND:
+		_fly_carrier_descent(landing_world, approach2_world, carrier_fwd, delta)
 	else:
 		_fly_toward(fly_target, target_speed, delta)
 	return true
+
+
+func _fly_carrier_final(
+		landing_world: Vector3,
+		approach_world: Vector3,
+		target_altitude: float,
+		carrier_fwd_fallback: Vector3,
+		carrier_vel: Vector3,
+		delta: float
+) -> void:
+	if not is_instance_valid(aircraft):
+		return
+	var pos := aircraft.global_position
+	var world_vel := aircraft.linear_velocity
+
+	var final_fwd := landing_world - approach_world
+	final_fwd.y = 0.0
+	if final_fwd.length_squared() > 0.001:
+		final_fwd = final_fwd.normalized()
+	else:
+		final_fwd = carrier_fwd_fallback
+		final_fwd.y = 0.0
+		final_fwd = final_fwd.normalized() if final_fwd.length_squared() > 0.001 else Vector3.FORWARD
+	var final_right := Vector3.UP.cross(final_fwd)
+	final_right.y = 0.0
+	final_right = final_right.normalized() if final_right.length_squared() > 0.001 else Vector3.RIGHT
+
+	# Target world velocity = carrier velocity + small position correction toward AP2.
+	var pos_err := landing_world - pos
+	pos_err.y = 0.0
+	var along_pos := pos_err.dot(final_fwd)
+	var lat_pos := pos_err.dot(final_right)
+	var speed_cap := maxf(carrier_final_speed_offset_mps, 0.0)
+	var target_fwd_world := carrier_vel.dot(final_fwd) + clampf(
+		along_pos * maxf(carrier_landing_position_speed_gain, 0.0), -speed_cap, speed_cap)
+	var target_lat_world := carrier_vel.dot(final_right) + clampf(
+		lat_pos * maxf(carrier_landing_position_speed_gain, 0.0), -speed_cap, speed_cap)
+
+	var fwd_speed := world_vel.dot(final_fwd)
+	var lat_speed := world_vel.dot(final_right)
+	var vertical_speed := world_vel.y - carrier_vel.y
+	var fwd_err := target_fwd_world - fwd_speed
+	var lat_err := target_lat_world - lat_speed
+
+	var pitch_cmd := clampf(-fwd_err * 0.18, -0.55, 0.55)
+	var roll_cmd := clampf(lat_err * 0.18, -0.45, 0.45)
+
+	var nose_fwd := aircraft.global_transform.basis.z
+	nose_fwd.y = 0.0
+	if nose_fwd.length_squared() > 0.001:
+		nose_fwd = nose_fwd.normalized()
+	var yaw_err := nose_fwd.signed_angle_to(final_fwd, Vector3.UP)
+	var yaw_cmd := clampf(yaw_err * 0.55 - aircraft.angular_velocity.y * 0.45, -0.8, 0.8)
+
+	_pitch_cmd = pitch_cmd
+	_roll_cmd = roll_cmd
+	_yaw_cmd = move_toward(_yaw_cmd, yaw_cmd, maxf(yaw_command_rate, 0.01) * delta)
+	_set_helicopter_input(_pitch_cmd, _roll_cmd, _yaw_cmd)
+
+	_speed_target_mps = carrier_vel.length()
+	_debug_forward_error_mps = fwd_err
+	_debug_lateral_error_mps = lat_err
+	_debug_speed_pitch = pitch_cmd
+	_debug_altitude_pitch = 0.0
+	_debug_turn_roll = roll_cmd
+	_debug_sharp_turn = 0.0
+	_debug_target_yaw = yaw_cmd
+	_debug_vertical_rate_error_mps = 0.0 - vertical_speed
+
+	# Use a dedicated gentle altitude hold for the gate — avoids the big collective
+	# swings from the full LANDING boost that cause 40m altitude oscillations.
+	var gate_alt_error := target_altitude - aircraft.global_position.y
+	var gate_desired_climb := clampf(gate_alt_error * altitude_to_climb_gain * 1.5, -max_descent_mps, max_climb_mps)
+	var gate_climb_error := gate_desired_climb - vertical_speed
+	var collective_target := _get_collective_trim() + gate_climb_error * collective_climb_gain * 1.5
+	collective_target = clampf(collective_target, 0.0, 1.0)
+	_debug_collective_target = collective_target
+	_apply_collective(collective_target)
+
+
+func _fly_carrier_descent(landing_world: Vector3, approach_world: Vector3, carrier_fwd_fallback: Vector3, delta: float) -> void:
+	if not is_instance_valid(aircraft):
+		return
+	var pos := aircraft.global_position
+	var control_vel := _get_control_velocity()
+	var deck_y := landing_world.y
+
+	var final_fwd := landing_world - approach_world
+	final_fwd.y = 0.0
+	if final_fwd.length_squared() > 0.001:
+		final_fwd = final_fwd.normalized()
+	else:
+		final_fwd = carrier_fwd_fallback
+		final_fwd.y = 0.0
+		final_fwd = final_fwd.normalized() if final_fwd.length_squared() > 0.001 else Vector3.FORWARD
+	var final_right := Vector3.UP.cross(final_fwd)
+	final_right.y = 0.0
+	final_right = final_right.normalized() if final_right.length_squared() > 0.001 else Vector3.RIGHT
+
+	# Correct any XZ drift relative to the landing point; control_vel is carrier-relative.
+	var pos_err := landing_world - pos
+	pos_err.y = 0.0
+	var along_pos := pos_err.dot(final_fwd)
+	var lat_pos := pos_err.dot(final_right)
+	var correction_cap := maxf(carrier_landing_descent_correction_speed_mps, 0.0)
+	var target_fwd_speed := clampf(along_pos * maxf(carrier_landing_position_speed_gain, 0.0), -correction_cap, correction_cap)
+	var target_lat_speed := clampf(lat_pos * maxf(carrier_landing_position_speed_gain, 0.0), -correction_cap, correction_cap)
+
+	var fwd_speed := control_vel.dot(final_fwd)
+	var lat_speed := control_vel.dot(final_right)
+	var fwd_err := target_fwd_speed - fwd_speed
+	var lat_err := target_lat_speed - lat_speed
+
+	var alt_error := deck_y - pos.y
+	var height_above_deck := -alt_error
+
+	# Scale down pitch authority near the deck.
+	var deck_proximity_t := clampf(1.0 - height_above_deck / maxf(landing_flare_agl_m * 3.0, 1.0), 0.0, 1.0)
+	var pitch_limit := lerpf(0.25, 0.08, deck_proximity_t)
+	var pitch_cmd := clampf(-fwd_err * 0.06, -pitch_limit, pitch_limit)
+	var roll_cmd := clampf(lat_err * 0.06 + lat_pos * 0.003, -0.3, 0.3)
+
+	var nose_fwd := aircraft.global_transform.basis.z
+	nose_fwd.y = 0.0
+	if nose_fwd.length_squared() > 0.001:
+		nose_fwd = nose_fwd.normalized()
+	var yaw_err := nose_fwd.signed_angle_to(final_fwd, Vector3.UP)
+	var yaw_cmd := clampf(yaw_err * 0.5 - aircraft.angular_velocity.y * 0.4, -0.6, 0.6)
+
+	_pitch_cmd = move_toward(_pitch_cmd, pitch_cmd, maxf(cyclic_rate, 0.01) * delta)
+	_roll_cmd = move_toward(_roll_cmd, roll_cmd, maxf(cyclic_rate, 0.01) * delta)
+	_yaw_cmd = move_toward(_yaw_cmd, yaw_cmd, maxf(yaw_command_rate, 0.01) * delta)
+	_set_helicopter_input(_pitch_cmd, _roll_cmd, _yaw_cmd)
+
+	var descent_limit := maxf(max_descent_mps, carrier_landing_min_sink_mps)
+	var min_sink := maxf(carrier_landing_min_sink_mps, 0.0)
+	if height_above_deck <= maxf(landing_flare_agl_m, 1.0):
+		min_sink = maxf(carrier_landing_touchdown_sink_mps, 0.0)
+	var descent_gain := altitude_to_climb_gain * 3.0
+	var desired_climb := clampf(alt_error * descent_gain, -descent_limit, 0.0)
+	if height_above_deck > maxf(carrier_landing_touchdown_min_deck_agl_m, -0.25):
+		desired_climb = minf(desired_climb, -min_sink)
+	var climb_error := desired_climb - control_vel.y
+	var collective := _get_collective_trim() + climb_error * collective_climb_gain * 2.0
+	if height_above_deck <= maxf(landing_flare_agl_m, 1.0):
+		collective = minf(collective, maxf(carrier_landing_ground_effect_collective_cap, 0.0))
+	collective = clampf(collective, 0.0, 1.0)
+	_debug_collective_target = collective
+	_apply_collective(collective)
+	if debug_enabled and _debug_timer_s <= 0.0:
+		_debug_event("descend", "h_above_deck=%+.1f desired_vs=%.2f actual_vs=%.2f fwd_err=%.1f lat_err=%.1f lat_pos=%.1f col=%.2f->%.2f pitch=%.2f roll=%.2f" % [
+			height_above_deck,
+			desired_climb,
+			control_vel.y,
+			_collective_cmd,
+			collective,
+			fwd_err,
+			lat_err,
+			lat_pos,
+			_pitch_cmd,
+			_roll_cmd,
+		])
 
 
 func _get_carrier_landing_approach_altitude() -> float:
@@ -4128,10 +5028,15 @@ func _try_finish_landing() -> void:
 			maxf(carrier_landing_descent_start_radius_m, 0.5)
 		)
 		var gear_landed := _all_landing_gear_on_carrier_deck()
-		is_landed = gear_landed or (flat_dist <= touchdown_radius \
-				and carrier_rel_speed < maxf(carrier_landing_touchdown_relative_speed_mps, 0.1) \
-				and deck_agl >= carrier_landing_touchdown_min_deck_agl_m \
-				and deck_agl <= 6.0)
+		var on_deck := deck_agl >= carrier_landing_touchdown_min_deck_agl_m and deck_agl <= 6.0
+		var any_gear_count := _get_carrier_surface_gear_count()
+		# Gear contact + on deck = landed regardless of horizontal speed.
+		# Also accept slow positional touchdown for a clean hover-land.
+		is_landed = gear_landed \
+				or (on_deck and any_gear_count >= 1) \
+				or (flat_dist <= touchdown_radius \
+					and carrier_rel_speed < maxf(carrier_landing_touchdown_relative_speed_mps, 0.1) \
+					and on_deck)
 		if gear_landed:
 			_debug_event("carrier_touchdown_gear", "gear=%d/%d flat=%.1f rel=%.2f deck_agl=%.2f" % [
 				_get_carrier_surface_gear_count(),
@@ -4710,10 +5615,11 @@ func _emit_debug(delta: float) -> void:
 	var abs_speed: float = aircraft.linear_velocity.length()
 	var dist_to_dest: float = _flat_distance(aircraft.global_position, destination) if _has_destination else NAN
 
-	var debug_line := "HELI_AI craft=%s %s/%s pos=%s agl=%.1f tgt=%.1f onc=%s spd=%.1f vs=%.1f/%+.1f col=%.2f/%.2f lean=%.2f pa=%.2f st=%.2f tr=%.2f sep=%.0f/%.1f ctl=(%.2f,%.2f,%.2f) dist=%.0f" % [
+	var debug_line := "HELI_AI craft=%s %s/%s cphase=%s pos=%s agl=%.1f tgt=%.1f onc=%s spd=%.1f vs=%.1f/%+.1f col=%.2f/%.2f lean=%.2f pa=%.2f st=%.2f tr=%.2f sep=%.0f/%.1f ctl=(%.2f,%.2f,%.2f) dist=%.0f" % [
 			aircraft.name,
 			_state_name(),
 			_mission_name(),
+			_carrier_approach_phase_name(),
 			str(aircraft.global_position.snapped(Vector3.ONE)),
 			agl,
 			_desired_altitude_m,
@@ -4838,6 +5744,15 @@ func _mission_name() -> String:
 	return "UNKNOWN"
 
 
+func _carrier_approach_phase_name() -> String:
+	match _carrier_approach_phase:
+		CarrierApproachPhase.NONE: return "NONE"
+		CarrierApproachPhase.TO_APPROACH_POINT: return "TO_APPROACH_POINT"
+		CarrierApproachPhase.FINAL: return "FINAL"
+		CarrierApproachPhase.DESCEND: return "DESCEND"
+	return "UNKNOWN"
+
+
 func _elapsed_s() -> float:
 	return Time.get_ticks_msec() / 1000.0 - _flight_start_time_s
 
@@ -4895,7 +5810,10 @@ func _write_flight_summary_report(outcome: String) -> void:
 			lines.append(m)
 	lines.append("=" .repeat(72))
 	lines.append("")
-	_append_lines_to_log(crash_log_aggregate_path, lines, "aggregate helicopter log")
+	var duration_note := ""
+	if not is_nan(_flight_departed_carrier_s):
+		duration_note = "duration=%.0fs lz=%s" % [_elapsed_s() - _flight_departed_carrier_s, "YES" if _flight_landed_lz else "NO"]
+	_write_compact_log_entry(outcome, duration_note, 0)
 	_flight_terminal_report_written = true
 
 
@@ -4929,7 +5847,8 @@ func _write_incomplete_flight_report(reason: String) -> void:
 			lines.append(m)
 	lines.append("=" .repeat(72))
 	lines.append("")
-	_append_lines_to_log(crash_log_aggregate_path, lines, "aggregate helicopter log")
+	var pos_note := "reason=%s pos=%s state=%s/%s" % [reason, pos_str, _state_name(), _mission_name()]
+	_write_compact_log_entry("INCOMPLETE", pos_note, 0)
 	_flight_terminal_report_written = true
 
 
@@ -4985,7 +5904,8 @@ func _on_aircraft_destroyed_flight_recorder() -> void:
 	lines.append("")
 
 	_append_lines_to_log("user://heli_crash_report_%s.log" % craft_name.replace(" ", "_"), lines, "crash log")
-	_append_lines_to_log(crash_log_aggregate_path, lines, "aggregate helicopter log")
+	var pos_note := "pos=%s agl=%s state=%s/%s" % [pos_str, agl_str, _state_name(), _mission_name()]
+	_write_compact_log_entry("CRASHED", pos_note, 3)
 	_flight_terminal_report_written = true
 	print("[HelicopterPilot] Crash log written for: %s" % craft_name)
 
@@ -5034,6 +5954,30 @@ func _write_flight_recorder_report(report_type: String, details: String = "") ->
 	if report_type != "POSITION JUMP":
 		_append_lines_to_log(crash_log_aggregate_path, lines, "aggregate helicopter log")
 	print("[HelicopterPilot] Flight recorder report written for: %s" % craft_name)
+
+
+func _get_aircraft_type_label() -> String:
+	if not is_instance_valid(aircraft):
+		return "unknown"
+	var scene_path: String = aircraft.scene_file_path
+	if scene_path.is_empty():
+		return aircraft.name
+	return scene_path.get_file().get_basename()
+
+
+func _write_compact_log_entry(outcome: String, notes: String, last_debug_lines: int) -> void:
+	if crash_log_aggregate_path.is_empty():
+		return
+	var craft_name: String = aircraft.name if is_instance_valid(aircraft) else "unknown"
+	var type_label := _get_aircraft_type_label()
+	var lines: PackedStringArray = PackedStringArray()
+	lines.append("%-20s  %-30s  %-10s  %s" % [craft_name, type_label, outcome, notes])
+	if last_debug_lines > 0 and not _flight_log.is_empty():
+		var start := maxi(_flight_log.size() - last_debug_lines, 0)
+		var t0: float = _flight_log[start][0]
+		for i in range(start, _flight_log.size()):
+			lines.append("  [%+.1fs]  %s" % [_flight_log[i][0] - t0, _flight_log[i][1]])
+	_append_lines_to_log(crash_log_aggregate_path, lines, "aggregate helicopter log")
 
 
 func _append_lines_to_log(path: String, lines: PackedStringArray, description: String) -> void:

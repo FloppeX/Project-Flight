@@ -1,6 +1,7 @@
 extends Node3D
 
 const WIND_TURBINE_PROXY_SCRIPT: Script = preload("res://Buildings/WindTurbineProxy.gd")
+const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
 
 var restart_timer: Timer
 
@@ -15,6 +16,13 @@ var restart_timer: Timer
 @export var carrier_flat_probe_radius_m: float = 140.0
 @export var carrier_ground_clearance_m: float = 40.0  # Carrier root floats 40m above terrain (tread ride height)
 @export var carrier_placement_debug: bool = false
+
+@export_group("Frame Profiler")
+@export var frame_profiler_enabled: bool = false
+@export var frame_profiler_report_interval_s: float = 1.0
+@export var frame_profiler_summary_interval_s: float = 10.0
+@export var frame_profiler_spike_threshold_ms: float = 8.0
+@export var frame_profiler_top_count: int = 8
 
 @export_group("Wind Turbines")
 @export var spawn_wind_turbines_on_startup: bool = true
@@ -53,6 +61,9 @@ func _enter_tree() -> void:
 
 func _ready():
 	add_to_group("origin_shifter")
+	_reset_helicopter_log()
+	FrameProfiler.configure(frame_profiler_report_interval_s, frame_profiler_spike_threshold_ms, frame_profiler_top_count, frame_profiler_summary_interval_s)
+	FrameProfiler.set_enabled(frame_profiler_enabled, "ScenarioManager")
 	if not _scenario_play_area_center_valid:
 		_configure_play_area_for_run()
 	# Find any player aircraft (Aircraft_1, Aircraft_3, Aircraft_5, etc.)
@@ -81,6 +92,11 @@ func _ready():
 func _input(_event):
 	if Input.is_action_just_pressed("ui_cancel"):
 		get_tree().quit()
+
+
+func _process(delta: float) -> void:
+	FrameProfiler.configure(frame_profiler_report_interval_s, frame_profiler_spike_threshold_ms, frame_profiler_top_count, frame_profiler_summary_interval_s)
+	FrameProfiler.tick(delta)
 
 
 func apply_origin_shift(offset: Vector3) -> void:
@@ -598,3 +614,14 @@ func _sample_terrain_world_height(terrain: Node3D, world_x: float, world_z: floa
 	if is_nan(world_height):
 		return NAN
 	return world_height
+
+
+func _reset_helicopter_log() -> void:
+	var log_path := "user://heli_crash_report.log"
+	var f := FileAccess.open(log_path, FileAccess.WRITE)
+	if f == null:
+		return
+	f.store_line("HELICOPTER FLIGHT LOG — session started %s" % Time.get_datetime_string_from_system())
+	f.store_line("%-20s  %-30s  %-10s  %s" % ["Aircraft", "Type", "Outcome", "Notes"])
+	f.store_line("-".repeat(100))
+	f.close()

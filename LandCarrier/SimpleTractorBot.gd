@@ -1,6 +1,8 @@
 class_name SimpleTractorBot
 extends Node3D
 
+const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
+
 # Simple tractorbot that follows aircraft movement for visual effect
 # The actual aircraft movement is handled by FlightDeckManager
 
@@ -194,14 +196,17 @@ func _get_deck_height() -> float:
 func _physics_process(delta: float):
 	if not is_active or movement_disabled:
 		return
+	var _profiler_start: int = FrameProfiler.begin("SimpleTractorBot.physics")
 
 	var deck_height: float = _get_deck_height()
 	if external_target_set:
 		target_position.y = deck_height
 		_drive_toward_point(target_position, move_speed, delta, wheel_arrive_tolerance_m)
+		FrameProfiler.end("SimpleTractorBot.physics", _profiler_start)
 		return
 
 	if not is_instance_valid(target_aircraft):
+		FrameProfiler.end("SimpleTractorBot.physics", _profiler_start)
 		return
 
 	if not is_positioned:
@@ -212,6 +217,7 @@ func _physics_process(delta: float):
 		target_position = live_target
 		_approach_phase = ApproachPhase.FOLLOW
 		_drive_toward_point(target_position, move_speed, delta, wheel_arrive_tolerance_m)
+	FrameProfiler.end("SimpleTractorBot.physics", _profiler_start)
 
 func _tick_axis_approach(deck_height: float, delta: float) -> void:
 	if _approach_phase == ApproachPhase.AXIS_MOVE_1 or _approach_phase == ApproachPhase.AXIS_MOVE_2:

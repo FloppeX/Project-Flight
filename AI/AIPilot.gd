@@ -1,6 +1,8 @@
 class_name AIPilot
 extends Node
 
+const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
+
 const PROJECTILE_SPEED_CAP_SETTING_KEYS: Array = [
 	"physics/jolt_3d/simulation/limits/max_linear_velocity",
 	"physics/jolt_physics_3d/simulation/limits/max_linear_velocity",
@@ -996,11 +998,13 @@ func _physics_process(delta: float):
 			_waypoint_marker.queue_free()
 			_waypoint_marker = null
 		return
+	var _profiler_start: int = FrameProfiler.begin("AIPilot.physics")
 
 	# Yield control to FlightDeckManager / catapult during deck sequences.
 	# Do NOT call _apply_controls() here ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â the catapult owns the engine and
 	# set_target_power(0) would trigger engine_stop(), killing the spool-up.
 	if aircraft.get_meta("controls_disabled", false):
+		FrameProfiler.end("AIPilot.physics", _profiler_start)
 		return
 
 	_update_landing_carrier_motion_estimate(delta)
@@ -1010,6 +1014,7 @@ func _physics_process(delta: float):
 
 	if _passive_debug_only:
 		_emit_player_debug_telemetry(delta)
+		FrameProfiler.end("AIPilot.physics", _profiler_start)
 		return
 
 	# Update health and fuel monitoring for RTB. This walks aircraft resource state,
@@ -1078,6 +1083,7 @@ func _physics_process(delta: float):
 
 	# Apply computed control inputs to aircraft
 	_apply_controls()
+	FrameProfiler.end("AIPilot.physics", _profiler_start)
 
 # ============================================================================
 # DEBUG HELPERS

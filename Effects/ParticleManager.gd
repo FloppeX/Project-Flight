@@ -1,13 +1,35 @@
 extends Node
 
+const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
+
 # Global particle manager - handles all types of particles independently of their creators
+@export var particle_update_interval_s: float = 1.0 / 30.0
+@export var particle_max_update_delta_s: float = 0.1
+
 var particles: Array = []
+var _particle_update_accumulator_s: float = 0.0
 
 func _ready():
 	# Make this an autoload singleton
-	set_process(true)
+	set_process(false)
 
 func _process(delta):
+	var _profiler_start: int = FrameProfiler.begin("ParticleManager.process")
+	if particles.is_empty():
+		_particle_update_accumulator_s = 0.0
+		set_process(false)
+		FrameProfiler.end("ParticleManager.process", _profiler_start)
+		return
+
+	_particle_update_accumulator_s += delta
+	var update_interval := maxf(particle_update_interval_s, 0.001)
+	if _particle_update_accumulator_s < update_interval:
+		FrameProfiler.end("ParticleManager.process", _profiler_start)
+		return
+
+	var particle_delta := minf(_particle_update_accumulator_s, maxf(particle_max_update_delta_s, update_interval))
+	_particle_update_accumulator_s = 0.0
+
 	# Update all particles globally
 	for i in range(particles.size() - 1, -1, -1):
 		var particle = particles[i]
@@ -15,18 +37,18 @@ func _process(delta):
 			particles.remove_at(i)
 			continue
 			
-		particle.life_time += delta
+		particle.life_time += particle_delta
 		
 		# Apply particle behaviors based on type
 		match particle.type:
 			"smoke":
-				_update_smoke_particle(particle, delta)
+				_update_smoke_particle(particle, particle_delta)
 			"explosion":
-				_update_explosion_particle(particle, delta)
+				_update_explosion_particle(particle, particle_delta)
 			"spark":
-				_update_spark_particle(particle, delta)
+				_update_spark_particle(particle, particle_delta)
 			_:
-				_update_default_particle(particle, delta)
+				_update_default_particle(particle, particle_delta)
 		
 		# Remove expired particles
 		if particle.life_time >= particle.max_life:
@@ -35,6 +57,7 @@ func _process(delta):
 			else:
 				particle.mesh_instance.queue_free()
 			particles.remove_at(i)
+	FrameProfiler.end("ParticleManager.process", _profiler_start)
 
 func _update_smoke_particle(particle: Dictionary, delta: float):
 	var life_progress: float = particle.life_time / particle.max_life
@@ -109,6 +132,7 @@ func add_particle(mesh_instance: MeshInstance3D, type: String, max_life: float, 
 		particle_data[key] = extra_data[key]
 	
 	particles.append(particle_data)
+	set_process(true)
 
 # Convenience functions for common particle types
 func add_smoke_particle(mesh_instance: MeshInstance3D, max_life: float, initial_scale: Vector3):

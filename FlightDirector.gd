@@ -168,7 +168,22 @@ func _input(event):
 		return
 
 	if _destroyed_plane_linger_active:
-		return
+		# Any view-cycling or camera input cancels the linger so the player
+		# isn't forced to watch the explosion to completion.
+		var cancels := false
+		if event is InputEventJoypadButton and event.pressed:
+			var btn := (event as InputEventJoypadButton).button_index
+			# LB=9 / RB=10 (cycle viewed unit) or Y=3/Triangle (cycle camera mode)
+			cancels = btn in [9, 10, 3]
+		if event is InputEventKey and event.pressed and not event.echo:
+			cancels = (event as InputEventKey).physical_keycode in [KEY_TAB, KEY_C]
+		if _is_action_pressed_event(event, "cycle_camera_mode"):
+			cancels = true
+		if cancels:
+			_finish_destroyed_plane_linger()
+			# Don't return — let the input fall through to normal handling below
+		else:
+			return
 
 	if _free_camera_active:
 		if event is InputEventKey and event.pressed and not event.echo and event.physical_keycode == KEY_W:
@@ -596,6 +611,8 @@ func _update_ai_status_overlay() -> void:
 		return
 	var show_ai := not _free_camera_active and is_instance_valid(current_viewed_aircraft) and _is_aircraft_ai_controlled(current_viewed_aircraft)
 	_ai_status_label.visible = show_ai
+	if show_ai and is_instance_valid(current_viewed_aircraft):
+		_ai_status_label.text = "AI  %s" % current_viewed_aircraft.name
 
 func _update_pilot_name_overlay() -> void:
 	if _pilot_name_label == null:

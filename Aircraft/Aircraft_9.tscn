@@ -208,6 +208,7 @@ spring_damping = 14000.0
 wheel_rest_height = 0.35
 max_compression = 0.35
 deck_contact_visual_offset_m = 0.35
+move_colliders_with_suspension = true
 use_accel_lean = false
 rear_gear_indices = Array[int]([2, 3])
 nose_wheel_taxi_steering_enabled = false
@@ -320,8 +321,15 @@ script = ExtResource("28_ai_pilot")
 
 [node name="HelicopterPilot" type="Node" parent="."]
 script = ExtResource("40_heli_ai")
-cruise_speed_mps = 150.0
-max_speed_mps = 150.0
+cruise_speed_mps = 50.0
+max_speed_mps = 55.0
+transit_cruise_forward_lean = 0.35
+transit_descent_lean_bonus = 0.15
+transit_target_sink_mps = 4.0
+max_climb_mps = 8.0
+max_descent_mps = 5.0
+decel_distance_m = 1400.0
+transit_max_nose_up = 0.08
 transit_collective_min = 1.0
 max_yaw_input = 0.55
 cyclic_rate = 0.65

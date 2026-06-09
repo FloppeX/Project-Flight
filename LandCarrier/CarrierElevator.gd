@@ -193,33 +193,40 @@ func move_platform_up():
 	covers_started_closing = false
 	covers_started_opening = false
 
-func close_covers():
-	current_state = ElevatorState.COVERS_CLOSING
+func _set_covers_closed_target() -> void:
 	left_cover_target_x = -5.0
 	right_cover_target_x = 5.0
 
-func open_covers():
-	current_state = ElevatorState.COVERS_OPENING
+func _set_covers_open_target() -> void:
 	left_cover_target_x = -15.0
 	right_cover_target_x = 15.0
+
+func close_covers():
+	current_state = ElevatorState.COVERS_CLOSING
+	_set_covers_closed_target()
+
+func open_covers():
+	current_state = ElevatorState.COVERS_OPENING
+	_set_covers_open_target()
 
 func check_state_transitions():
 	match current_state:
 		ElevatorState.MOVING_DOWN:
-			# Start closing covers when platform has descended 3 meters
+			# Animate covers during travel without changing out of the moving state.
 			if platform.position.y <= -3.0 - platform_size.y / 2.0 and not covers_started_closing:
-				close_covers()
+				_set_covers_closed_target()
 				covers_started_closing = true
 
 			var target_bottom = -shaft_depth + 0.1  # Simple: -10 + 0.1 = -9.9
-			if platform.position.y <= target_bottom:
+			if platform.position.y <= target_bottom and covers_are_closed():
 				current_state = ElevatorState.AT_BOTTOM
 				emit_signal("elevator_at_bottom")
 		
 		ElevatorState.COVERS_CLOSING:
 			if covers_are_closed():
-				current_state = ElevatorState.COVERS_CLOSED
 				emit_signal("covers_closed")
+				var target_bottom = -shaft_depth + 0.1
+				current_state = ElevatorState.AT_BOTTOM if platform.position.y <= target_bottom else ElevatorState.MOVING_DOWN
 		
 		ElevatorState.COVERS_CLOSED:
 			# Check if we've reached bottom while covers were closing
@@ -230,13 +237,14 @@ func check_state_transitions():
 		
 		ElevatorState.COVERS_OPENING:
 			if covers_are_open():
-				current_state = ElevatorState.AT_TOP
 				emit_signal("covers_opened")
+				var target_top = -platform_size.y / 2.0 - 0.1
+				current_state = ElevatorState.AT_TOP if platform.position.y >= target_top else ElevatorState.MOVING_UP
 		
 		ElevatorState.MOVING_UP:
-			# Start opening covers when platform is 8.5 meters from top
+			# Animate covers during travel without changing out of the moving state.
 			if platform.position.y >= -8.5 - platform_size.y / 2.0 and not covers_started_opening:
-				open_covers()
+				_set_covers_open_target()
 				covers_started_opening = true
 			
 			# Only reach top if covers are fully open

@@ -29,9 +29,9 @@ const RADIO_STATIC_MIX_RATE := 22050
 @export var radio_static_pre_roll_s: float = 0.08
 @export var radio_static_post_roll_s: float = 0.20
 @export var radio_voice_gain_db: float = -2.5
-@export var radio_highpass_cutoff_hz: float = 1050.0
-@export var radio_lowpass_cutoff_hz: float = 1850.0
-@export var radio_filter_resonance: float = 1.15
+@export var radio_highpass_cutoff_hz: float = 800.0
+@export var radio_lowpass_cutoff_hz: float = 2800.0
+@export var radio_filter_resonance: float = 1.4
 @export var radio_static_noise_gain: float = 0.034
 @export var radio_static_crackle_gain: float = 0.18
 @export var radio_crackle_chance_per_frame: float = 0.014
@@ -772,28 +772,50 @@ func _ensure_radio_bus() -> void:
 		AudioServer.set_bus_name(bus_index, RADIO_BUS_NAME)
 		AudioServer.set_bus_send(bus_index, "Master")
 
-	if AudioServer.get_bus_effect_count(bus_index) > 0:
-		return
+	# Always rebuild effects so export var changes take effect on restart.
+	for i in range(AudioServer.get_bus_effect_count(bus_index) - 1, -1, -1):
+		AudioServer.remove_bus_effect(bus_index, i)
 
+	# HPF: cut bass/warmth below 350 Hz
 	var high_pass := AudioEffectHighPassFilter.new()
 	high_pass.cutoff_hz = radio_highpass_cutoff_hz
 	AudioServer.add_bus_effect(bus_index, high_pass)
 
+	# LPF: cut air/clarity above 3400 Hz
 	var low_pass := AudioEffectLowPassFilter.new()
 	low_pass.cutoff_hz = radio_lowpass_cutoff_hz
 	low_pass.resonance = radio_filter_resonance
 	AudioServer.add_bus_effect(bus_index, low_pass)
 
-	var gain := AudioEffectAmplify.new()
-	gain.volume_db = -2.0
-	AudioServer.add_bus_effect(bus_index, gain)
+	# EQ boost: push midrange presence around 1.5 kHz
+	var eq := AudioEffectEQ10.new()
+	eq.set_band_gain_db(3, 4.5)   # ~800 Hz
+	eq.set_band_gain_db(4, 5.5)   # ~1.6 kHz
+	eq.set_band_gain_db(5, 3.0)   # ~3.2 kHz
+	AudioServer.add_bus_effect(bus_index, eq)
 
+	# Compressor: crush dynamics hard
+	var compressor := AudioEffectCompressor.new()
+	compressor.threshold = -24.0
+	compressor.ratio = 12.0
+	compressor.attack_us = 2000.0
+	compressor.release_ms = 60.0
+	compressor.gain = 10.0
+	AudioServer.add_bus_effect(bus_index, compressor)
+
+	# Hard clip / saturation: peaks break up, crushed and dirty
 	var distortion := AudioEffectDistortion.new()
 	distortion.mode = AudioEffectDistortion.MODE_CLIP
-	distortion.drive = 0.42
-	distortion.pre_gain = 2.1
-	distortion.keep_hf_hz = 650.0
+	distortion.drive = 0.65
+	distortion.pre_gain = 8.0
+	distortion.keep_hf_hz = 1800.0
 	AudioServer.add_bus_effect(bus_index, distortion)
+
+	# Limiter
+	var limiter := AudioEffectLimiter.new()
+	limiter.ceiling_db = -2.0
+	limiter.threshold_db = -6.0
+	AudioServer.add_bus_effect(bus_index, limiter)
 
 func _update_radio_static(delta: float) -> void:
 	if _radio_static_playback == null and _radio_static_player != null:

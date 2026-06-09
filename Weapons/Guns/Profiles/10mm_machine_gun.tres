@@ -1,4 +1,4 @@
-[gd_resource type="Resource" script_class="GunProfile" load_steps=3 format=3 uid="uid://b2q4ut617ghjp"]
+[gd_resource type="Resource" script_class="GunProfile" format=3 uid="uid://b2q4ut617ghjp"]
 
 [ext_resource type="Script" uid="uid://codo8j6n80l11" path="res://Weapons/Guns/gun_profile.gd" id="1_profile_script"]
 [ext_resource type="PackedScene" uid="uid://cvtsgxjlbovb7" path="res://Projectiles/Bullet/bullet.tscn" id="2_projectile"]
@@ -15,5 +15,4 @@ damage_per_shot = 5.0
 max_range_m = 400.0
 projectile_scene = ExtResource("2_projectile")
 use_lmg_sound_set = true
-use_autocannon_sound_set = false
 use_heavy_auto_sound_set = false

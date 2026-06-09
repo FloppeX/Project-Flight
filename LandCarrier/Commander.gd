@@ -20,6 +20,8 @@ class_name Commander
 
 var _look_yaw: float = 0.0
 var _look_pitch: float = 0.0
+var _glass_meshes: Array[MeshInstance3D] = []
+var _glass_found: bool = false
 var _anchor_local_position: Vector3 = Vector3.ZERO
 var _bridge_bounds_min: Vector2 = Vector2.ZERO
 var _bridge_bounds_max: Vector2 = Vector2.ZERO
@@ -68,6 +70,9 @@ func _process(delta: float) -> void:
 	_zoom_button_prev_pressed = zoom_button_pressed
 	if active_view and not _was_active_view:
 		_apply_zoom(true)
+		_set_glass_visible(false)
+	elif not active_view and _was_active_view:
+		_set_glass_visible(true)
 	if active_view and (Input.is_action_just_pressed("toggle_zoom") or zoom_button_just_pressed):
 		_is_zoomed = not _is_zoomed
 		_apply_zoom()
@@ -230,3 +235,26 @@ func _update_control_room_audio(delta: float, active_view: bool) -> void:
 
 	if not _control_room_audio_player.playing:
 		_control_room_audio_player.play()
+
+
+func _find_glass_meshes() -> void:
+	_glass_meshes.clear()
+	var root := get_parent()
+	if not is_instance_valid(root):
+		return
+	var stack: Array[Node] = [root]
+	while not stack.is_empty():
+		var node: Node = stack.pop_back() as Node
+		if node is MeshInstance3D and node.name.to_lower() == "glass":
+			_glass_meshes.append(node as MeshInstance3D)
+		for child in node.get_children():
+			stack.append(child)
+	_glass_found = true
+
+
+func _set_glass_visible(visible: bool) -> void:
+	if not _glass_found:
+		_find_glass_meshes()
+	for mi in _glass_meshes:
+		if is_instance_valid(mi):
+			mi.visible = visible

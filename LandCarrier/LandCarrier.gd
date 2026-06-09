@@ -4,6 +4,7 @@ class_name LandCarrier
 const CARRIER_TREAD_SCRIPT := preload("res://LandCarrier/CarrierTread.gd")
 const VEHICLE_RAMP_SCRIPT := preload("res://LandCarrier/VehicleRamp.gd")
 const VEHICLE_BAY_SCRIPT := preload("res://LandCarrier/VehicleBayManager.gd")
+const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
 
 # --- Waypoints ---
 @export var waypoints: Array[NodePath] = []
@@ -453,13 +454,17 @@ func _is_tread_node(node: Node) -> bool:
 	return node is Node3D and node.get_script() == CARRIER_TREAD_SCRIPT
 
 func _physics_process(delta: float) -> void:
+	var _profiler_start: int = FrameProfiler.begin("LandCarrier.physics")
 	var transform_before := global_transform
 	_drive_to_waypoint(delta)
 	_update_tread_visuals(delta, transform_before)
 	if elevator and elevator.has_method("update"):
 		elevator.update(delta)
+	var _carry_profiler_start: int = FrameProfiler.begin("LandCarrier.carry_deck_passengers")
 	_carry_deck_passengers(global_transform, transform_before)
+	FrameProfiler.end("LandCarrier.carry_deck_passengers", _carry_profiler_start)
 	_update_deck_audio(delta)
+	FrameProfiler.end("LandCarrier.physics", _profiler_start)
 
 func _carry_deck_passengers(current_transform: Transform3D, old_transform: Transform3D) -> void:
 	if current_transform.is_equal_approx(old_transform):

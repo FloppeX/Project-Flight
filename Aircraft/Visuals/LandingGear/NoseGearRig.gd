@@ -15,7 +15,10 @@ class_name NoseGearRigVisual
 @export var stowed_rotation_direction: float = 1.0
 @export var compression_axis: Vector3 = Vector3.UP
 @export var compression_visual_scale: float = 0.75
+@export var upper_leg_compression_visual_scale: float = 0.25
 @export var max_visual_compression_m: float = 0.28
+@export var visual_compression_response_s: float = 0.08
+@export var visual_rebound_response_s: float = 0.14
 @export var linkage_compression_rotation_degrees: Vector3 = Vector3(0.0, 0.0, -12.0)
 @export var connector_compression_rotation_degrees: Vector3 = Vector3(0.0, 0.0, 16.0)
 @export var linkage_stowed_rotation_degrees: Vector3 = Vector3.ZERO
@@ -37,7 +40,9 @@ var _base_front_rotation: Vector3 = Vector3.ZERO
 var _base_linkage_rotation: Vector3 = Vector3.ZERO
 var _base_connector_rotation: Vector3 = Vector3.ZERO
 var _base_wheel_rotation: Vector3 = Vector3.ZERO
+var _base_front_position: Vector3 = Vector3.ZERO
 var _base_slide_position: Vector3 = Vector3.ZERO
+var _visual_compression_m: float = 0.0
 var _rig_ready: bool = false
 
 func _ready() -> void:
@@ -54,10 +59,10 @@ func _finish_setup() -> void:
 	_rig_ready = true
 	_update_pose()
 
-func _physics_process(_delta: float) -> void:
+func _physics_process(delta: float) -> void:
 	if not _rig_ready:
 		return
-	_update_pose()
+	_update_pose(delta)
 
 func _build_runtime_hierarchy() -> void:
 	_front_pivot = _make_pivot("FrontGearPivot", front_pivot_position, self)
@@ -72,6 +77,7 @@ func _build_runtime_hierarchy() -> void:
 	_reparent_part("LowerConnectorArm", _connector_pivot)
 	_reparent_part("WheelAndAxle", _wheel_pivot)
 
+	_base_front_position = _front_pivot.position
 	_base_front_rotation = _front_pivot.rotation
 	_base_linkage_rotation = _linkage_pivot.rotation
 	_base_connector_rotation = _connector_pivot.rotation
@@ -118,25 +124,47 @@ func _get_transform_to_ancestor(node: Node3D, ancestor: Node) -> Transform3D:
 		parent = parent.get_parent()
 	return result
 
-func _update_pose() -> void:
+func _update_pose(delta: float = -1.0) -> void:
 	var deploy_progress := _read_deploy_progress()
 	var stow_alpha := 1.0 - deploy_progress
 	var tuck_alpha := clampf(stow_alpha / maxf(stow_tuck_phase, 0.001), 0.0, 1.0)
 	var main_rotation_alpha := clampf((stow_alpha - stow_tuck_phase) / maxf(1.0 - stow_tuck_phase, 0.001), 0.0, 1.0)
-	var compression := _read_compression()
+	var compression := _update_visual_compression(delta, deploy_progress)
 	var compression_alpha := 0.0
 	if max_visual_compression_m > 0.0:
 		compression_alpha = clampf(compression / max_visual_compression_m, 0.0, 1.0)
 	var steering_yaw := _read_steering_yaw()
-	var lower_leg_offset := compression * compression_visual_scale + stowed_lower_leg_retraction_m * tuck_alpha
+	var axis := _compression_axis_normalized()
+	var upper_leg_offset := compression * maxf(upper_leg_compression_visual_scale, 0.0)
+	var lower_leg_offset := compression * maxf(compression_visual_scale, 0.0) + stowed_lower_leg_retraction_m * tuck_alpha
 
+	_front_pivot.position = _base_front_position - axis * upper_leg_offset
 	_front_pivot.rotation = _base_front_rotation + _deg_vec_to_rad(stowed_rotation_degrees) * stowed_rotation_direction * main_rotation_alpha
-	_lower_leg_slide.position = _base_slide_position + compression_axis.normalized() * lower_leg_offset
+	_lower_leg_slide.position = _base_slide_position + axis * lower_leg_offset
 	_linkage_pivot.rotation = _base_linkage_rotation + Vector3(0.0, steering_yaw, 0.0) + _deg_vec_to_rad(linkage_compression_rotation_degrees) * compression_alpha + _deg_vec_to_rad(linkage_stowed_rotation_degrees) * tuck_alpha
 	_connector_pivot.rotation = _base_connector_rotation + _deg_vec_to_rad(connector_compression_rotation_degrees) * compression_alpha + _deg_vec_to_rad(connector_stowed_rotation_degrees) * tuck_alpha
 	_wheel_pivot.rotation = _base_wheel_rotation
 
 	visible = deploy_progress > 0.0 or not hide_when_stowed
+
+func _update_visual_compression(delta: float, deploy_progress: float) -> float:
+	var target := _read_compression() * clampf(deploy_progress, 0.0, 1.0)
+	if delta <= 0.0:
+		_visual_compression_m = target
+		return _visual_compression_m
+	var response_s := visual_compression_response_s
+	if target < _visual_compression_m:
+		response_s = visual_rebound_response_s
+	var alpha := 1.0
+	if response_s > 0.0:
+		alpha = 1.0 - exp(-delta / response_s)
+	_visual_compression_m = lerpf(_visual_compression_m, target, clampf(alpha, 0.0, 1.0))
+	return _visual_compression_m
+
+func _compression_axis_normalized() -> Vector3:
+	if compression_axis.length_squared() <= 0.000001:
+		return Vector3.UP
+	return compression_axis.normalized()
 
 func _read_deploy_progress() -> float:
 	if _landing_gear_module == null or not is_instance_valid(_landing_gear_module):

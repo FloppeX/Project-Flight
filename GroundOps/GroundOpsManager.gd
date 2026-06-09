@@ -1,5 +1,7 @@
 extends Node
 
+const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
+
 ## Ground Operations Manager — autoload singleton.
 ##
 ## Manages four named platoons (Ember, Ferret, Grizzly, Hammer).
@@ -50,12 +52,14 @@ func _ready() -> void:
 	print("[GroundOps] Ready — platoons: %s" % ", ".join(PLATOON_NAMES))
 
 func _process(delta: float) -> void:
+	var _profiler_start: int = FrameProfiler.begin("GroundOpsManager.process")
 	_process_deploy_queue()
 	if maintain_carrier_escort:
 		_escort_check_timer_s -= delta
 		if _escort_check_timer_s <= 0.0:
 			_escort_check_timer_s = carrier_escort_check_interval_s
 			_ensure_carrier_escort()
+	FrameProfiler.end("GroundOpsManager.process", _profiler_start)
 
 # ── Carrier / Bay references ─────────────────────────────────────────────────
 
