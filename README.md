@@ -55,6 +55,26 @@ For AI pilots and vehicle controllers, the expected approach is:
 
 This is especially important for helicopters. They have delayed response and strong coupling between collective, cyclic, speed, lift, and altitude. The AI should fly them by making deliberate control changes based on observed response, not by stacking hidden safety barriers that fight each other.
 
+### Recent Changes (2026-06-07)
+
+- Helicopter carrier approach overhaul: scripted three-phase approach (TO_APPROACH_POINT → FINAL → DESCEND) now uses 4 authored hold points (`Helicopter Hold Point 1–4`) for queue stacking so multiple inbound helicopters don't bunch up. Hold positions step 100 m further behind and 50 m higher per slot. Gate capture tolerance raised to 20 m height, 45 m radius. Approach drops back to LOW_LEVEL_TRANSIT if it can't catch the moving gate.
+- Carrier landing gate collective fix: `_fly_carrier_approach_gate` now uses a dedicated gentle two-loop altitude hold instead of routing through `_calculate_collective` — eliminates the 40 m altitude oscillations caused by the LANDING boost slamming collective to 1.0 and overshooting. Same fix applied to `_fly_carrier_final`.
+- Carrier DESCEND phase: now descends at `max_descent_mps` until within flare height, then switches to gentle flare. Pitch authority reduced near the deck so forward speed correction doesn't tilt the rotor disk and accelerate the sink. Landing detection loosened: any gear contact at deck level triggers touchdown regardless of horizontal speed.
+- FDM landing queue: `get_landing_queue_position()` method added to FlightDeckManager so each helicopter knows its queue slot and flies to the correct hold point.
+- Helicopter pathfinding: A* async job now completes reliably (budget 4000 iterations/frame, 600 m search padding). Path simplifier fixed — clearance check now uses `heightmap_path_target_agl_m` (50 m) not `cruise_agl_m` (55 m), so flat segments actually collapse. Turn waypoints preserved: skip not allowed if any intermediate point involves > 25° turn. `_transit_cruise_altitude_m` bleeds back down at 40%/frame capped at 25 m/s; path descent rate raised to 15 m/s.
+- Helicopter pathfinding penalties retuned: `ground_level_band_m` 80 → 35, `first_plateau_min_m` 85 → 40 so first-plateau terrain is correctly classified and preferred. `max_terrain_above_reference_m` 270 → 190, `mountain_avoidance_m` 220 → 185 to block second-plateau routing. `terrain_sample_spacing_m` 45 → 120 for faster simplification.
+- 5-feeler terrain probe fan: replaced 2 side feelers with 5 (forward 0°, ±20°, ±50°). Each feeler samples at near (33%) and far (100%) distance; near hits weighted 2.5×. Speed-scaled probe distance: `120 + speed × 3 m`, capped at 400 m. Feelers cached and recomputed every 0.1 s. Forward feeler suppresses speed but not in symmetric corridors (canyon pass detection). Gains raised: roll 0.12 → 0.45, yaw 0.20 → 0.60, margin 30 → 45 m.
+- Waypoint skip respects turns: `_advance_heightmap_path_to_clear_point` now checks that no intermediate waypoint involves > 25° turn before allowing a skip, so the helicopter follows corners instead of cutting across them into walls.
+- Aircraft 9 cruise speed set to 50 m/s (was placeholder 150). Aircraft 10 cruise speed set to 60 m/s. Both now decelerate correctly within 600 m of the carrier approach gate.
+- Carrier approach inbound decel: speed governed by `_get_carrier_approach_arrival_speed_limit` (physics-based v²=u²+2as). Turn suppression disabled for INBOUND so the decel zone is never zeroed by heading offset. Decel rate raised to 4 m/s².
+- Destroyed plane linger: pressing LB/RB or Y/Triangle during the explosion linger cancels it immediately so the player isn't forced to watch.
+- Radio filter chain updated: HPF 800 Hz, LPF 2800 Hz, EQ midrange boost, 12:1 compressor, hard clip (drive 0.65, pre-gain 8.0), limiter. Effect chain rebuilt on every game start so export var changes take effect.
+- Bridge glass hidden from commander camera: `Commander.gd` scans the carrier scene tree for `MeshInstance3D` nodes named "glass" and hides them when the commander camera is active, shows them again when switching away.
+- Helicopter gear placement on deck: gear collider offset now computed in global Y (tilt-safe) throughout all tractor bot placement paths. Final safety pass after `_settle_launch_aircraft_on_wheels` pushes aircraft up if any gear collider is below deck surface. Elevator-up ride also uses global Y offset.
+- Machine gun spread reduced: 10 mm 1.25° → 0.4°, 15 mm 1.0° → 0.35°.
+- LZ landing detection loosened: `terrain_landing_settled_agl_m` 3 → 6 m, `terrain_landing_settled_speed_mps` 0.6 → 3.0 m/s, `terrain_landing_touchdown_radius_m` 20 → 40 m so helicopters register as landed without requiring a near-perfect hover touchdown.
+- Altitude collective: when above target altitude in transit, collective now actively reduces below trim proportional to excess height, allowing the helicopter to trade altitude for speed naturally rather than maintaining hover while too high.
+
 ### Recent Changes (2026-06-04)
 
 - Helicopter crash flight recorder: `HelicopterPilot` now maintains a 15-second ring buffer of all HELI_AI debug lines. On the `destroyed` signal it writes `user://heli_crash_report_<name>.log` with a structured post-mortem: flight milestones (landed at LZ, departed, landed at carrier), then the last 15 seconds of debug output, then a CRASH marker. The file is appended on each crash so multiple events accumulate. `crash_log_enabled` and `crash_log_history_s` are exported for tuning.
@@ -309,10 +329,10 @@ Example project launch from this repo root:
 
 ## Current Agenda
 
-1. Fix helicopter inbound approach: they currently decelerate to carrier speed and circle the approach gate rather than capturing it. Need to arrive faster than the carrier and slow to gate speed smoothly without panic braking.
-2. Validate full heli loop under F11 test mode: takeoff → LZ → return → approach gate → scripted final → deck landing → tractor retrieval → hangar → repeat without crashes or stuck states.
+1. Continue tuning carrier landing: gate capture still occasionally fails due to altitude mismatch; DESCEND position hold needs validation; touchdown detection needs live testing across both aircraft types.
+2. Terrain pathfinding: helicopters routing around cliffs and through canyons — validate feeler fan prevents wall strikes while still allowing corridor flight. Watch for path-fail-escape spirals on difficult routes.
 3. Stabilize ejection/parachute flow: Pilot 2 pose authoring, parachute cockpit camera placement, first-person pilot hiding, view cycling, landing/downed-pilot persistence, and making sure abandoned-aircraft destruction never steals camera focus back.
-4. Continue tuning helicopter feel: Aircraft 9 heavy rescue collective/cyclic gains, Aircraft 10 fast-scout yaw authority and high-speed stability, rotor stow/spin/droop visuals.
+4. Continue tuning helicopter feel: Aircraft 9 heavy rescue at 50 m/s cruise, rotor stow/spin/droop visuals, carrier deck takeoff collective threshold.
 5. Live-test the Citadel/AirOps loop under pressure: reported contacts, carrier radar range, interceptor loadouts, CAS tasking, radio line frequency, and whether flights actually execute the orders they acknowledge.
 6. Validate the new interactive `M`-map workflow in live play: asset selection, mission drafting, confirm/cancel flow, and readability under pressure.
 7. Expand mission authoring beyond the first slice, especially richer waypoint editing and more flight directives than the current CAP / CAS / RTB set.
@@ -358,7 +378,7 @@ Example project launch from this repo root:
 - 3D rotating model viewer per entry with description text below
 - Covers vehicles and weapons
 
-**Current focus:** As of 2026-06-04, the helicopter AI carrier approach has been replaced with a scripted two-marker path. Tractor-bot retrieval after carrier landing is working. F11 heli test mode is running. The remaining active issue is the inbound approach decel — helicopters currently circle the approach point at carrier speed rather than slowing and capturing the gate cleanly.
+**Current focus:** As of 2026-06-07, the full helicopter loop (LZ → carrier → gate → FINAL → DESCEND → deck landing → tractor retrieval) is functional under F11 test mode. Active tuning: gate capture reliability (altitude oscillations largely fixed), DESCEND position hold, terrain pathfinding quality (plateau routing, canyon navigation via feeler fan), and Aircraft 9 feel at 50 m/s cruise.
 
 ## Working Style Notes
 

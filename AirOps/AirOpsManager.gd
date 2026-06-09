@@ -1,5 +1,7 @@
 extends Node
 
+const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
+
 ## Air Operations Manager — autoload singleton (Citadel).
 ##
 ## Manages four named flights (Archer, Bulldog, Crimson, Dingo).
@@ -82,6 +84,7 @@ func _apply_default_missions() -> void:
 			order_cas(f.flight_name)
 
 func _process(delta: float) -> void:
+	var _profiler_start: int = FrameProfiler.begin("AirOpsManager.process")
 	_sensor_picture_timer -= delta
 	if _sensor_picture_timer <= 0.0:
 		_sensor_picture_timer = maxf(sensor_picture_update_interval_s, 0.1)
@@ -99,6 +102,7 @@ func _process(delta: float) -> void:
 		_threat_timer = threat_scan_interval_s
 		_update_intercept()
 		_update_cas()
+	FrameProfiler.end("AirOpsManager.process", _profiler_start)
 
 # ── Ordering API ───────────────────────────────────────────────────────────────
 

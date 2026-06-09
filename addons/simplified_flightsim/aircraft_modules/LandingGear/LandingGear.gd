@@ -38,6 +38,10 @@ enum LandingGearInitialStates {
 @export var wheel_rest_height: float = 1.2     # Normal wheel height above ground
 @export var max_compression: float = 0.8       # Maximum compression distance
 @export var deck_contact_visual_offset_m: float = 0.0  # Height from collider origin down to visible wheel contact for deck placement helpers
+@export var move_colliders_with_suspension: bool = false
+@export var suspension_collider_compression_scale: float = 1.0
+@export var suspension_collider_response_s: float = 0.05
+@export var suspension_collider_rebound_response_s: float = 0.10
 @export var use_accel_lean: bool = true        # Programmatic fore/aft weight transfer
 @export var nose_gear_index: int = 0           # Index in gear_collision_shapes for nose gear
 @export var rear_gear_indices: Array[int] = [1, 2]  # Indices for main/rear gears
@@ -88,6 +92,7 @@ var audio_player: AudioStreamPlayer3D
 var is_deployed: bool = false
 var is_stowed: bool = true
 var gear_compressions: Array[float] = []  # Latest compression per gear slot (metres); readable by debug systems
+var _suspension_collider_compressions: Array[float] = []
 var _lean_offsets: Array[float] = []       # Per-wheel rest-height offsets from accel lean
 var _prev_forward_speed_mps: float = 0.0
 var _longitudinal_accel_mps2: float = 0.0
@@ -164,6 +169,7 @@ func process_physic_frame(delta: float):
 		_update_carrier_deck_follow_state(false, delta)
 	else:
 		_update_carrier_deck_follow_state(true, delta)
+	_update_suspension_collider_geometry(delta)
 	_update_lean_geometry()
 
 	if not debug_enabled:
@@ -567,7 +573,7 @@ func _apply_visual_gear_pose() -> void:
 			_set_shadow_casting_recursive(visual, true)
 
 func _update_lean_geometry() -> void:
-	if not animate_lean_visuals:
+	if not animate_lean_visuals and not move_colliders_with_suspension:
 		return
 	if current_state != LandingGearInitialStates.DEPLOYED:
 		return
@@ -580,8 +586,9 @@ func _update_lean_geometry() -> void:
 		if not is_instance_valid(cs):
 			continue
 		var y_off: float = _get_lean_offset_for_gear(i) * visual_lean_scale
+		var suspension_off: float = _get_suspension_collider_offset_for_gear(i)
 		var cs_rest: Vector3 = _collider_rest_positions[i]
-		cs.position = Vector3(cs_rest.x, cs_rest.y + y_off, cs_rest.z)
+		cs.position = Vector3(cs_rest.x, cs_rest.y + y_off + suspension_off, cs_rest.z)
 
 		# If the visual is not parented under the collider, apply the same offset to keep it in sync.
 		if i < gear_visuals.size() and i < _visual_rest_positions.size():
@@ -590,7 +597,40 @@ func _update_lean_geometry() -> void:
 				var parent_is_collider: bool = v.get_parent() == cs
 				if not parent_is_collider:
 					var v_rest: Vector3 = _visual_rest_positions[i]
-					v.position = Vector3(v_rest.x, v_rest.y + y_off, v_rest.z)
+					v.position = Vector3(v_rest.x, v_rest.y + y_off + suspension_off, v_rest.z)
+
+func _update_suspension_collider_geometry(delta: float) -> void:
+	var count: int = gear_collision_shapes.size()
+	if _suspension_collider_compressions.size() < count:
+		_suspension_collider_compressions.resize(count)
+		for i in range(count):
+			_suspension_collider_compressions[i] = 0.0
+	if not move_colliders_with_suspension or current_state != LandingGearInitialStates.DEPLOYED:
+		for i in range(count):
+			_suspension_collider_compressions[i] = 0.0
+		return
+	for i in range(count):
+		var target := 0.0
+		if i < gear_compressions.size():
+			target = clampf(float(gear_compressions[i]), 0.0, max_compression)
+		var response_s := suspension_collider_response_s
+		if target < _suspension_collider_compressions[i]:
+			response_s = suspension_collider_rebound_response_s
+		var alpha := 1.0
+		if response_s > 0.0:
+			alpha = 1.0 - exp(-maxf(delta, 0.0) / response_s)
+		_suspension_collider_compressions[i] = lerpf(
+			_suspension_collider_compressions[i],
+			target,
+			clampf(alpha, 0.0, 1.0)
+		)
+
+func _get_suspension_collider_offset_for_gear(gear_index: int) -> float:
+	if not move_colliders_with_suspension:
+		return 0.0
+	if gear_index < 0 or gear_index >= _suspension_collider_compressions.size():
+		return 0.0
+	return _suspension_collider_compressions[gear_index] * maxf(suspension_collider_compression_scale, 0.0)
 
 func deploy():
 	"""Deploy the landing gear"""

@@ -36,6 +36,10 @@ const POI_USED_COLOR: Color = Color(0.52, 0.56, 0.52, 0.95)
 @export var platoon_waypoint_color: Color = Color(1.0, 0.24, 0.78, 0.9)
 @export var waypoint_line_width_px: float = 1.6
 @export var waypoint_dot_size_px: float = 4.0
+@export var route_display_simplify_enabled: bool = true
+@export var route_display_simplify_turn_deg: float = 8.0
+@export var route_display_simplify_line_error_px: float = 5.0
+@export var route_display_simplify_altitude_error_m: float = 35.0
 @export var draft_waypoint_color: Color = Color(1.0, 0.82, 0.32, 0.95)
 @export var selection_color: Color = Color(0.94, 1.0, 0.64, 1.0)
 @export var selection_marker_radius_px: float = 10.0
@@ -239,12 +243,13 @@ func _draw_square_marker(center: Vector2, size_px: float, color: Color, outline:
 	if outline:
 		draw_rect(rect.grow(1.0), BORDER_COLOR, false, 1.2)
 
-func _draw_route_from_points(origin_world: Vector3, route_points: Array[Vector3], color: Color, outline: bool, closed_loop: bool = false) -> void:
+func _draw_route_from_points(origin_world: Vector3, route_points: Array[Vector3], color: Color, outline: bool, closed_loop: bool = false, simplify_display: bool = true) -> void:
 	if route_points.is_empty() or not _is_world_in_map_bounds(origin_world):
 		return
+	var display_points := _simplify_route_for_display(origin_world, route_points) if simplify_display else route_points
 	var map_points := PackedVector2Array()
 	map_points.append(_world_to_map(origin_world))
-	for world_point in route_points:
+	for world_point in display_points:
 		if not _is_world_in_map_bounds(world_point):
 			continue
 		map_points.append(_world_to_map(world_point))
@@ -255,6 +260,64 @@ func _draw_route_from_points(origin_world: Vector3, route_points: Array[Vector3]
 		_draw_square_marker(map_points[i], waypoint_dot_size_px, color, outline)
 	if closed_loop and map_points.size() >= 3:
 		draw_line(map_points[map_points.size() - 1], map_points[1], color, waypoint_line_width_px, true)
+
+
+func _simplify_route_for_display(origin_world: Vector3, route_points: Array[Vector3]) -> Array[Vector3]:
+	if not route_display_simplify_enabled or route_points.size() <= 2:
+		return route_points
+
+	var full_route: Array[Vector3] = [origin_world]
+	for point in route_points:
+		full_route.append(point)
+
+	var simplified: Array[Vector3] = [full_route[0]]
+	for i in range(1, full_route.size() - 1):
+		var previous: Vector3 = simplified[simplified.size() - 1]
+		var middle: Vector3 = full_route[i]
+		var next_point: Vector3 = full_route[i + 1]
+		if _can_skip_display_route_point(previous, middle, next_point):
+			continue
+		simplified.append(middle)
+	simplified.append(full_route[full_route.size() - 1])
+
+	var result: Array[Vector3] = []
+	for i in range(1, simplified.size()):
+		result.append(simplified[i])
+	return result
+
+
+func _can_skip_display_route_point(previous: Vector3, middle: Vector3, next_point: Vector3) -> bool:
+	var prev_map := _world_to_map(previous)
+	var mid_map := _world_to_map(middle)
+	var next_map := _world_to_map(next_point)
+	var segment := next_map - prev_map
+	var segment_len_sq := segment.length_squared()
+	if segment_len_sq <= 1.0:
+		return true
+
+	var prev_to_mid := mid_map - prev_map
+	var mid_to_next := next_map - mid_map
+	if prev_to_mid.length_squared() > 1.0 and mid_to_next.length_squared() > 1.0:
+		var turn_angle := absf(prev_to_mid.normalized().angle_to(mid_to_next.normalized()))
+		if turn_angle > deg_to_rad(maxf(route_display_simplify_turn_deg, 0.0)):
+			return false
+
+	var line_t := clampf(prev_to_mid.dot(segment) / segment_len_sq, 0.0, 1.0)
+	var closest := prev_map + segment * line_t
+	if mid_map.distance_to(closest) > maxf(route_display_simplify_line_error_px, 0.0):
+		return false
+
+	var altitude_t := clampf(_flat_distance_world(previous, middle) / maxf(_flat_distance_world(previous, next_point), 1.0), 0.0, 1.0)
+	var expected_altitude := lerpf(previous.y, next_point.y, altitude_t)
+	if absf(middle.y - expected_altitude) > maxf(route_display_simplify_altitude_error_m, 0.0):
+		return false
+
+	return true
+
+
+func _flat_distance_world(a: Vector3, b: Vector3) -> float:
+	return Vector2(a.x - b.x, a.z - b.z).length()
+
 
 func set_selection_focus(world_pos: Vector3, color: Color = selection_color) -> void:
 	_selection_world_pos = world_pos
@@ -514,10 +577,11 @@ func _draw_selection_route() -> void:
 		_selection_route_points,
 		_selection_route_color,
 		true,
-		_selection_route_closed_loop
+		_selection_route_closed_loop,
+		false
 	)
 
 func _draw_command_draft() -> void:
 	if _draft_points.is_empty():
 		return
-	_draw_route_from_points(_draft_origin_world, _draft_points, _draft_color, true, _draft_closed_loop)
+	_draw_route_from_points(_draft_origin_world, _draft_points, _draft_color, true, _draft_closed_loop, false)

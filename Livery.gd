@@ -3,8 +3,8 @@ extends Node
 ## and applies them to aircraft and the carrier.
 ##
 ## Aircraft materials "upper fuselage" / "lower fuselage" use the chosen colors.
-## Carrier materials "blue plasteel" / "dark blue plasteel" derive from upper_color
-## so the whole fleet matches.
+## Carrier materials "base color 1/2/3" and legacy "blue plasteel" derive
+## from upper_color so the whole fleet matches.
 ##
 ## Insignia decals use markers in aircraft scenes:
 ## - "InsigniaWing" (mirrored to left/right wings)
@@ -16,6 +16,8 @@ extends Node
 @export var lower_color := Color(0.72, 0.73, 0.74)   # Light grey
 ## How much darker "dark blue plasteel" is relative to the base carrier color.
 @export var carrier_dark_factor := 0.6
+## Hue offset for carrier base color variants 2 and 3.
+@export var carrier_base_color_hue_offset := 0.01
 ## Target width of the insignia on the wing (height adjusts to match aspect ratio).
 @export var insignia_width := 1.0
 ## Decal projection depth — how far into the wing the decal reaches.
@@ -360,6 +362,12 @@ func get_team_hud_color(team_id: int) -> Color:
 	if s > 0.05:
 		s = maxf(s, 0.45)
 	return Color.from_hsv(h, s, v, 1.0)
+
+func _shift_hue(color: Color, hue_offset: float) -> Color:
+	return Color.from_hsv(fposmod(color.h + hue_offset, 1.0), color.s, color.v, color.a)
+
+func _normalized_material_name(material: Material) -> String:
+	return String(material.resource_name).to_lower().replace("_", " ").replace("-", " ").strip_edges()
 
 func _hue_distance(a: float, b: float) -> float:
 	var d := absf(a - b)
@@ -713,16 +721,22 @@ func _apply_recursive(node: Node) -> void:
 				var mat = mesh.surface_get_material(i)
 				if mat == null:
 					continue
-				var mat_name: String = mat.resource_name.to_lower()
+				var mat_name: String = _normalized_material_name(mat)
 				var target_color := Color(-1, 0, 0)  # sentinel
 				var is_upper_fuselage_surface := false
 				var is_lower_fuselage_surface := false
-				if "upper fuselage" in mat_name or "upper_fuselage" in mat_name:
+				if "upper fuselage" in mat_name:
 					target_color = _active_apply_upper_color
 					is_upper_fuselage_surface = true
-				elif "lower fuselage" in mat_name or "lower_fuselage" in mat_name:
+				elif "lower fuselage" in mat_name:
 					target_color = lower_color
 					is_lower_fuselage_surface = true
+				elif "base color 2" in mat_name or "basecolor2" in mat_name:
+					target_color = _shift_hue(_active_apply_upper_color, -carrier_base_color_hue_offset)
+				elif "base color 3" in mat_name or "basecolor3" in mat_name:
+					target_color = _shift_hue(_active_apply_upper_color, carrier_base_color_hue_offset)
+				elif "base color 1" in mat_name or "basecolor1" in mat_name:
+					target_color = _active_apply_upper_color
 				elif "dark blue plasteel" in mat_name:
 					target_color = Color(
 						_active_apply_upper_color.r * carrier_dark_factor,
@@ -732,13 +746,13 @@ func _apply_recursive(node: Node) -> void:
 					)
 				elif "blue plasteel" in mat_name:
 					target_color = _active_apply_upper_color
-				elif _active_apply_has_pilot_colors and mat_name == "main_color":
+				elif _active_apply_has_pilot_colors and mat_name == "main color":
 					target_color = _active_apply_pilot_main_color
-				elif _active_apply_has_pilot_colors and mat_name == "main_color_dark":
+				elif _active_apply_has_pilot_colors and mat_name == "main color dark":
 					target_color = _active_apply_pilot_main_dark_color
-				elif _active_apply_has_pilot_colors and (mat_name == "helmet_color" or mat_name == "helmet_color_1"):
+				elif _active_apply_has_pilot_colors and (mat_name == "helmet color" or mat_name == "helmet color 1"):
 					target_color = _active_apply_pilot_helmet_color_1
-				elif _active_apply_has_pilot_colors and mat_name == "helmet_color_2":
+				elif _active_apply_has_pilot_colors and mat_name == "helmet color 2":
 					target_color = _active_apply_pilot_helmet_color_2
 				if target_color.r >= 0.0:
 					var override: StandardMaterial3D

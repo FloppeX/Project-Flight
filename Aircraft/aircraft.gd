@@ -1,6 +1,8 @@
 class_name Aircraft
 extends RigidBody3D
 
+const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
+
 signal crashed(impact_velocity)
 signal parked
 signal moved
@@ -309,6 +311,7 @@ func _unhandled_input(event):
 			module.receive_input(event)
 
 func _physics_process(delta):
+	var _profiler_start: int = FrameProfiler.begin("Aircraft.physics")
 	prepare_energy_system()
 	apply_shake_forces(delta)
 	calculate_flight_data(delta)
@@ -321,6 +324,7 @@ func _physics_process(delta):
 	if _critical_damage_active:
 		_update_critical_damage_state(delta)
 		if _has_exploded:
+			FrameProfiler.end("Aircraft.physics", _profiler_start)
 			return
 	
 	# Safety: never allow aircraft below terrain height (fallback against streaming holes)
@@ -333,11 +337,14 @@ func _physics_process(delta):
 	
 	last_linear_velocity = linear_velocity
 	last_angular_velocity = angular_velocity
+	FrameProfiler.end("Aircraft.physics", _profiler_start)
 
 func _process(delta):
+	var _profiler_start: int = FrameProfiler.begin("Aircraft.process")
 	for module in modules:
 		if module.ProcessRender:
 			module.process_render_frame(delta)
+	FrameProfiler.end("Aircraft.process", _profiler_start)
 
 ##############################################################################
 #  COLLISION HANDLING

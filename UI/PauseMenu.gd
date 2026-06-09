@@ -217,7 +217,10 @@ func _build_options_screen() -> Control:
 
 func _on_volume_changed(value: float) -> void:
 	var db := linear_to_db(maxf(value, 0.0001))
-	AudioServer.set_bus_volume_db(AudioServer.get_bus_index("Master"), db)
+	var bus_idx := AudioServer.get_bus_index("Master")
+	print("[Volume] slider=%.2f db=%.1f bus_idx=%d buses=%d" % [value, db, bus_idx, AudioServer.bus_count])
+	if bus_idx >= 0:
+		AudioServer.set_bus_volume_db(bus_idx, db)
 	_save_settings()
 
 

@@ -1,4 +1,6 @@
 extends Node
+
+const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
 ## Enemy Operations Manager — autoload singleton.
 ##
 ## Tactical brain for all enemy forces. Bases register themselves here
@@ -52,6 +54,7 @@ func _ready() -> void:
 func _physics_process(delta: float) -> void:
 	if _disabled_for_test:
 		return
+	var _profiler_start: int = FrameProfiler.begin("EnemyOpsManager.physics")
 	# Tick all virtual units every frame (they self-regulate internally)
 	for base in bases:
 		if not is_instance_valid(base):
@@ -74,6 +77,7 @@ func _physics_process(delta: float) -> void:
 	if _threat_timer <= 0.0:
 		_threat_timer = THREAT_SCAN_INTERVAL_S
 		_assess_threats()
+	FrameProfiler.end("EnemyOpsManager.physics", _profiler_start)
 
 
 # ── Base registration ─────────────────────────────────────────────────────────

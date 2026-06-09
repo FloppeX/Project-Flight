@@ -26,8 +26,8 @@ const SUPPORT_SAMPLE_DIRECTIONS := [
 ## Probability [0..1] of a rock appearing in each cell
 @export var density_per_cell: float = 0.4
 @export var max_instances: int = 2000
-@export var min_scale: float = 0.6
-@export var max_scale: float = 1.6
+@export var min_scale: float = 0.35
+@export var max_scale: float = 0.95
 ## Final placement uses the actual terrain collision surface, because the
 ## rendered stream mesh may be post-processed after get_height() sampling.
 @export var snap_to_collision_surface: bool = true
