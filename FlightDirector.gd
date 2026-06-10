@@ -147,13 +147,15 @@ func _process(delta: float) -> void:
 			_print_audio_debug()
 	else:
 		_audio_debug_timer = 0.0
-	if _free_camera_active:
-		_update_free_camera(delta)
 	if not _destroyed_plane_linger_active:
 		return
 	if Time.get_ticks_msec() / 1000.0 < _destroyed_plane_linger_until_s:
 		return
 	_finish_destroyed_plane_linger()
+
+func _physics_process(delta: float) -> void:
+	if _free_camera_active:
+		_update_free_camera(delta)
 
 func _input(event):
 	if event is InputEventKey and event.pressed and not event.echo and event.physical_keycode == KEY_SPACE:
@@ -1004,7 +1006,11 @@ func _update_free_camera(delta: float) -> void:
 	move_input = move_dir * ramped_len
 
 	var move_vector := (_free_camera.global_basis.x * move_input.x) + ((-_free_camera.global_basis.z) * move_input.y)
-	_free_camera.global_position += move_vector * free_camera_max_speed_mps * delta
+	
+	var vertical_input := Input.get_action_strength("yaw_right") - Input.get_action_strength("yaw_left")
+	var vertical_move := Vector3.UP * vertical_input * 10.0
+	
+	_free_camera.global_position += (move_vector * free_camera_max_speed_mps + vertical_move) * delta
 
 func _snap_free_camera_to_target() -> void:
 	if not _free_camera_active or not is_instance_valid(_free_camera):
