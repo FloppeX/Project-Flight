@@ -29,7 +29,7 @@
 [ext_resource type="Script" uid="uid://ckyxqpwu5tkkl" path="res://Aircraft/CockpitCanopyVisibility.gd" id="29_canopy"]
 [ext_resource type="Script" uid="uid://dkrq0ip0i4pq4" path="res://Aircraft/DamageEffects.gd" id="30_damage"]
 [ext_resource type="AudioStream" uid="uid://o2xkkc5oyh4w" path="res://Audio/cockpit_interior_4.wav" id="31_cockpit"]
-[ext_resource type="PackedScene" path="res://Aircraft/CockpitPilot.tscn" id="32_cockpit_pilot"]
+[ext_resource type="PackedScene" uid="uid://ba1hsntx8a01y" path="res://Aircraft/CockpitPilot.tscn" id="32_cockpit_pilot"]
 [ext_resource type="PackedScene" uid="uid://d0r3ka52tjbb4" path="res://Models/Aircraft_9/Rotor blade.glb" id="33_rotor_blade"]
 [ext_resource type="PackedScene" path="res://Aircraft/Visuals/LandingGear/NoseGearRig.tscn" id="34_heli_gear"]
 [ext_resource type="Script" uid="uid://dcpy7d08mhb5d" path="res://Aircraft/Visuals/HeliSlidingDoors.gd" id="35_sliding_doors"]
@@ -37,7 +37,7 @@
 [ext_resource type="Script" uid="uid://cqw36derm5yh1" path="res://Weapons/Turrets/turret_controller.gd" id="37_turret_controller"]
 [ext_resource type="PackedScene" uid="uid://x4bqvteq35p5" path="res://Weapons/Turrets/helicopter_side_gun_turret.tscn" id="38_side_gun_turret"]
 [ext_resource type="PackedScene" path="res://Weapons/Guns/Turrets/10mm_machine_gun_turret_weapon.tscn" id="39_side_gun_weapon"]
-[ext_resource type="Script" path="res://AI/HelicopterPilot.gd" id="40_heli_ai"]
+[ext_resource type="Script" uid="uid://ljqeb30m632d" path="res://AI/HelicopterPilot.gd" id="40_heli_ai"]
 
 [sub_resource type="PhysicsMaterial" id="PhysicsMaterial_lowfriction"]
 friction = 0.75
@@ -118,7 +118,6 @@ disabled = true
 [node name="SimpleAero" type="Node" parent="." unique_id=291227423]
 script = ExtResource("5_aero")
 hover_collective = 0.78
-max_lift_multiplier = 1.85
 translational_lift_bonus = 0.06
 horizontal_thrust_bias = 2.05
 max_disc_tilt_deg = 20.0
@@ -139,6 +138,8 @@ vertical_stabilizer_damping = 0.7
 vertical_stabilizer_full_speed_mps = 42.0
 horizontal_drag_strength = 0.1
 lateral_drag_strength = 0.55
+max_forward_speed_mps = 50.0
+high_speed_nose_drag_strength = 0.08
 ground_effect_strength = 0.12
 deck_takeoff_brake_release_collective = 0.72
 
@@ -164,18 +165,30 @@ shape = SubResource("SphereShape3D_gear")
 transform = Transform3D(1.2, 0, 0, 0, 1.2, 0, 0, 0, 1.2, 0.8, -0.89254427, 3.2)
 steering_enabled = false
 
+[node name="GearPoint" type="Node3D" parent="FrontLeftGearRig" unique_id=1704804809]
+transform = Transform3D(0.99999976, 0, 0, 0, 0.99999976, 0, 0, 0, 0.99999976, 0, -1.1756264, 0)
+
 [node name="FrontRightGearRig" parent="." unique_id=1731049002 instance=ExtResource("34_heli_gear")]
 transform = Transform3D(1.2, 0, 0, 0, 1.2, 0, 0, 0, 1.2, -0.8, -0.89254427, 3.2)
 steering_enabled = false
 gear_index = 1
 
+[node name="GearPoint" type="Node3D" parent="FrontRightGearRig" unique_id=136966178]
+transform = Transform3D(0.99999976, 0, 0, 0, 0.99999976, 0, 0, 0, 0.99999976, 0, -1.1756264, 0)
+
 [node name="RearLeftGearRig" parent="." unique_id=119440710 instance=ExtResource("36_heli_rear_gear")]
 transform = Transform3D(1.2, 0, 0, 0, 1.2, 0, 0, 0, 1.2, 1.9545115, -0.89254427, -1.3383286)
 gear_index = 2
 
+[node name="GearPoint" type="Node3D" parent="RearLeftGearRig" unique_id=1450340879]
+transform = Transform3D(0.99999976, 0, 0, 0, 0.99999976, 0, 0, 0, 0.99999976, 0, -1.2109509, 0)
+
 [node name="RearRightGearRig" parent="." unique_id=1078429736 instance=ExtResource("36_heli_rear_gear")]
 transform = Transform3D(-1.2, 0, -1.8119498e-07, 0, 1.2, 0, 1.8119498e-07, 0, -1.2, -1.955, -0.89254427, -1.33)
 gear_index = 3
+
+[node name="GearPoint" type="Node3D" parent="RearRightGearRig" unique_id=165901867]
+transform = Transform3D(0.99999976, 0, 0, 0, 0.99999976, 0, 0, 0, 0.99999976, 0, -1.2109509, 0)
 
 [node name="EnergyContainer" parent="." unique_id=1127279281 instance=ExtResource("7_energy")]
 
@@ -212,11 +225,8 @@ move_colliders_with_suspension = true
 use_accel_lean = false
 rear_gear_indices = Array[int]([2, 3])
 nose_wheel_taxi_steering_enabled = false
-carrier_deck_follow_min_wheels = 3
 
 [node name="ControlEngine" parent="." unique_id=1520295740 instance=ExtResource("16_ctl_engine")]
-AutoStartPowerLimit = 1.0
-AutoStartLimitRequiresThrottleRelease = false
 
 [node name="ControlSteering" parent="." unique_id=1257143787 instance=ExtResource("17_ctl_steering")]
 
@@ -319,24 +329,17 @@ cockpit_shadow_disable_paths = Array[NodePath]([NodePath("../aircraft_9/Fuselage
 [node name="AIPilot" type="Node" parent="." unique_id=1924980879]
 script = ExtResource("28_ai_pilot")
 
-[node name="HelicopterPilot" type="Node" parent="."]
+[node name="HelicopterPilot" type="Node" parent="." unique_id=1799981244]
 script = ExtResource("40_heli_ai")
-cruise_speed_mps = 50.0
-max_speed_mps = 55.0
-transit_cruise_forward_lean = 0.35
-transit_descent_lean_bonus = 0.15
-transit_target_sink_mps = 4.0
-max_climb_mps = 8.0
+cruise_speed_mps = 40.0
+max_speed_mps = 45.0
+max_climb_mps = 12.0
 max_descent_mps = 5.0
-decel_distance_m = 1400.0
-transit_max_nose_up = 0.08
-transit_collective_min = 1.0
-max_yaw_input = 0.55
-cyclic_rate = 0.65
-yaw_gain = 0.08
-yaw_rate_damping = 0.65
-yaw_command_rate = 0.3
-debug_enabled = true
+transit_target_sink_mps = 4.0
+transit_max_nose_up = 0.18
+decel_distance_m = 1000.0
+transit_cruise_forward_lean = 0.25
+transit_descent_lean_bonus = 0.15
 
 [node name="AIToggle" type="Node" parent="." unique_id=611990186]
 script = ExtResource("27_ai_toggle")

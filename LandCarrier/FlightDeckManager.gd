@@ -130,16 +130,27 @@ const RECOVERY_DEBUG_ALTITUDE_M: float = 100.0
 const LANDING_WIRE_HALF_WIDTH_M: float = 24.8  # ±24.8 m = full wire width
 
 # --- Helicopter test mode (F12) ---
+@export var start_in_heli_test_mode: bool = false
 var _heli_test_active: bool = false
 var _heli_test_timer: float = 0.0
 var _heli_test_spawn_index: int = 0
-const HELI_TEST_INTERVAL_S: float = 60.0
-const HELI_TEST_MAX_COUNT: int = 4
+const HELI_TEST_INTERVAL_S: float = 30.0
+const HELI_TEST_MAX_COUNT: int = 5
 const HELI_TEST_SPAWN_DIST_M: float = 200.0
 const HELI_TEST_ALTITUDE_M: float = 40.0
 
 var _landing_score_total: float = 0.0
 var _landing_attempt_count: int = 0
+
+# --- HELI TEST UI STATS ---
+var _heli_test_stats: Dictionary = {
+	"Aircraft_9": {"spawned": 0, "lz": 0, "carrier": 0, "crash": 0},
+	"Aircraft_10": {"spawned": 0, "lz": 0, "carrier": 0, "crash": 0},
+	"Aircraft_11": {"spawned": 0, "lz": 0, "carrier": 0, "crash": 0},
+}
+var _heli_test_start_time_msec: int = 0
+var _heli_ui_canvas: CanvasLayer = null
+var _heli_ui_label: Label = null
 
 func _landing_test_outcome_type(outcome: String) -> String:
 	match outcome:
@@ -266,6 +277,9 @@ func _ready():
 
 	# Pre-populate hangar with aircraft
 	_initialize_hangar_with_aircraft()
+
+	if start_in_heli_test_mode:
+		_toggle_heli_test_mode()
 
 
 func _on_node_added(node: Node) -> void:
@@ -945,15 +959,44 @@ func _physics_process(_delta: float) -> void:
 	if _heli_test_active:
 		_heli_test_timer -= _delta
 		if _heli_test_timer <= 0.0:
-			_heli_test_timer = HELI_TEST_INTERVAL_S
 			var live_count := get_tree().get_nodes_in_group("aircraft").filter(
 				func(n): return is_instance_valid(n) and _is_helicopter_aircraft(n as RigidBody3D if n is RigidBody3D else null)
 			).size()
-			if live_count < HELI_TEST_MAX_COUNT:
-				_spawn_heli_test_aircraft()
-			else:
-				_log_heli_test("at max count (%d), skipping spawn" % HELI_TEST_MAX_COUNT)
+			var is_deck_free := current_state == DeckState.IDLE and _landing_clearance_queue.is_empty() and not is_instance_valid(_landing_clearance_aircraft)
+			if is_deck_free:
+				if not stored_aircraft.is_empty():
+					_log_heli_test("retrieving stored aircraft from hangar instead of spawning new")
+					start_hangar_retrieval()
+					_heli_test_timer = HELI_TEST_INTERVAL_S
+				elif live_count < HELI_TEST_MAX_COUNT:
+					_spawn_heli_test_aircraft()
+					_heli_test_timer = HELI_TEST_INTERVAL_S
+				else:
+					_heli_test_timer = HELI_TEST_INTERVAL_S
+					_log_heli_test("at max count (%d), skipping spawn" % HELI_TEST_MAX_COUNT)
+				
+		if is_instance_valid(_heli_ui_label):
+			var elapsed_s := (Time.get_ticks_msec() - _heli_test_start_time_msec) / 1000
+			var text := "HELI TEST MODE\nRuntime: %02d:%02d:%02d\n\n" % [elapsed_s / 3600, (elapsed_s / 60) % 60, elapsed_s % 60]
+			text += "%-12s | %-7s | %-2s | %-7s | %-5s\n" % ["AIRCRAFT", "SPAWNED", "LZ", "CARRIER", "CRASH"]
+			text += "------------------------------------------------\n"
+			for key in ["Aircraft_9", "Aircraft_10", "Aircraft_11"]:
+				var st: Dictionary = _heli_test_stats[key]
+				text += "%-12s | %7d | %2d | %7d | %5d\n" % [key, st["spawned"], st["lz"], st["carrier"], st["crash"]]
+			_heli_ui_label.text = text
 	FrameProfiler.end("FlightDeckManager.physics", _profiler_start)
+
+
+func record_heli_stat(craft_name: String, stat: String) -> void:
+	if not _heli_test_active:
+		return
+	var base_name: String = ""
+	for k in _heli_test_stats.keys():
+		if k in craft_name:
+			base_name = k
+			break
+	if base_name != "" and _heli_test_stats[base_name].has(stat):
+		_heli_test_stats[base_name][stat] += 1
 
 func _abort_current_sequence() -> void:
 	# Called when a safety check fails (plane destroyed or fell off)
@@ -1917,6 +1960,11 @@ func _move_aircraft_to_elevator(aircraft: RigidBody3D):
 		await _wait_for_tractor_bots_positioned(active_bots)
 	else:
 		_recovery_debug("no active tractorbots; moving aircraft without visual tractor pickup")
+		
+	if not is_instance_valid(aircraft):
+		current_state = DeckState.IDLE
+		return
+
 	_start_aircraft_movement(aircraft, elevator_pickup_marker.global_position)
 
 func _activate_tractor_bots(aircraft: RigidBody3D) -> Array[Node]:
@@ -2811,7 +2859,7 @@ func _create_aircraft_at_hangar_level() -> RigidBody3D:
 
 	# Position aircraft on elevator platform at hangar level (where elevator currently is)
 	var elevator_hangar_pos = elevator_pickup_marker.global_position
-	elevator_hangar_pos.y = _get_elevator_platform_top_global_y(-10.0) + 0.2
+	elevator_hangar_pos.y = _get_elevator_platform_top_global_y(-10.0) + _get_gear_ground_offset(aircraft)
 	aircraft.global_position = elevator_hangar_pos
 
 	# Face aircraft toward deck forward (carrier's +Z) during retrieval
@@ -3995,6 +4043,12 @@ func _toggle_heli_test_mode() -> void:
 		var dnc_off := get_tree().current_scene.find_child("DayNightCycle", true, false) if get_tree().current_scene else null
 		if dnc_off and "freeze_daytime" in dnc_off:
 			dnc_off.set("freeze_daytime", false)
+			
+		if is_instance_valid(_heli_ui_canvas):
+			_heli_ui_canvas.queue_free()
+			_heli_ui_canvas = null
+			_heli_ui_label = null
+			
 		return
 
 	# Disable other test modes
@@ -4063,6 +4117,28 @@ func _toggle_heli_test_mode() -> void:
 	_heli_test_timer = 0.0  # trigger first spawn immediately
 	_heli_test_spawn_index = 0
 
+	_heli_test_start_time_msec = Time.get_ticks_msec()
+	for key in _heli_test_stats.keys():
+		_heli_test_stats[key] = {"spawned": 0, "lz": 0, "carrier": 0, "crash": 0}
+
+	_heli_ui_canvas = CanvasLayer.new()
+	_heli_ui_canvas.layer = 100
+	var bg := ColorRect.new()
+	bg.color = Color(0, 0, 0, 0.7)
+	bg.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	bg.offset_left = 20.0
+	bg.offset_top = 20.0
+	bg.offset_right = 450.0
+	bg.offset_bottom = 150.0
+	_heli_ui_canvas.add_child(bg)
+	_heli_ui_label = Label.new()
+	_heli_ui_label.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_heli_ui_label.offset_left = 10.0
+	_heli_ui_label.offset_top = 10.0
+	_heli_ui_label.add_theme_font_override("font", ThemeDB.fallback_font)
+	bg.add_child(_heli_ui_label)
+	add_child(_heli_ui_canvas)
+
 
 func _disable_enemies_for_heli_test() -> void:
 	var enemy_ops := get_node_or_null("/root/EnemyOpsManager")
@@ -4120,9 +4196,26 @@ func _spawn_heli_test_aircraft() -> void:
 		push_warning("[HeliTest] %s.tscn not found" % aircraft_name)
 		return
 	_queue_aircraft_scene_for_retrieval(aircraft_name, scene)
+	record_heli_stat(aircraft_name, "spawned")
 	_log_heli_test("queued %s retrieval" % aircraft_name)
 
 
 func _log_heli_test(message: String) -> void:
 	var line := "[HeliTest] %s" % message
 	print(line)
+
+
+# Returns how far the aircraft origin sits above its lowest gear contact point.
+# Add this to any Y placement so gear rests on the surface rather than clipping through it.
+# Falls back to 0.2 if no "gear_ground_point" group nodes are found on the aircraft.
+func _get_gear_ground_offset(aircraft: RigidBody3D) -> float:
+	var lowest_y: float = INF
+	for child in aircraft.find_children("*", "Node3D", true, false):
+		var n := child as Node3D
+		if n.is_in_group("gear_ground_point"):
+			# Convert to aircraft-local space to get the Y offset from the body origin
+			var local_y: float = aircraft.to_local(n.global_position).y
+			lowest_y = minf(lowest_y, local_y)
+	if lowest_y == INF or lowest_y >= 0.0:
+		return 0.2
+	return -lowest_y

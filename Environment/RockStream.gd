@@ -194,8 +194,7 @@ func _rebuild(center: Vector3) -> void:
 		if count >= max_instances:
 			break
 
-	print("[RockStream] placed=%d  nan=%d  density=%d  slope=%d  support=%d  terrain_null=%s" % [
-		count, _dbg_nan, _dbg_density, _dbg_slope, _dbg_support, str(_terrain == null)])
+	pass  # placement stats: placed=%d nan=%d density=%d slope=%d support=%d
 
 	# Build into a fresh MultiMesh and swap atomically — avoids a one-frame
 	# flash to world-origin that happens when setting instance_count in-place.

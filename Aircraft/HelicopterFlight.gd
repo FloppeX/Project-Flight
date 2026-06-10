@@ -5,6 +5,7 @@ class_name HelicopterFlight
 @export var engine_path: NodePath = NodePath("../Engine")
 
 @export_group("Rotor Lift")
+@export var max_rotor_thrust_n: float = 0.0  # Peak thrust in Newtons. 0 = auto (mass * gravity).
 @export var hover_collective: float = 0.56
 @export var min_lift_multiplier: float = 0.0
 @export var max_lift_multiplier: float = 1.85
@@ -145,7 +146,7 @@ func _get_rotor_direction() -> Vector3:
 
 func _apply_rotor_lift(rotor_dir: Vector3, collective: float, speed_t: float) -> void:
 	var gravity_mag: float = float(ProjectSettings.get_setting("physics/3d/default_gravity", 9.8))
-	var hover_thrust: float = rb.mass * gravity_mag * maxf(rb.gravity_scale, 0.0)
+	var hover_thrust: float = max_rotor_thrust_n if max_rotor_thrust_n > 0.0 else rb.mass * gravity_mag * maxf(rb.gravity_scale, 0.0)
 	var collective_ratio: float = collective / maxf(hover_collective, 0.01)
 	var translational_bonus: float = 1.0 + translational_lift_bonus * speed_t
 	var lift_multiplier: float = clampf(
