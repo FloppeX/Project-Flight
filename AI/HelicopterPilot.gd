@@ -775,7 +775,7 @@ func _physics_process(delta: float) -> void:
 	if _rotor_wash_effect and is_instance_valid(_rotor_wash_effect):
 		var ground_h := _get_ground_height_at_position(aircraft.global_position)
 		_rotor_wash_effect.current_agl = aircraft.global_position.y - ground_h if not is_nan(ground_h) else INF
-		_rotor_wash_effect.is_engine_on = control_engine.power_setting > 0.1 if is_instance_valid(control_engine) else true
+		_rotor_wash_effect.is_engine_on = control_engine.target_power > 0.1 if is_instance_valid(control_engine) else true
 		_rotor_wash_effect.rotor_radius = helicopter_flight.rotor_radius if "rotor_radius" in helicopter_flight else 10.0
 
 	match state:
