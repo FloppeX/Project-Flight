@@ -232,11 +232,11 @@ enum MissionPhase {
 @export var landing_flare_agl_m: float = 8.0
 @export var landing_final_slowdown_agl_m: float = 5.0
 @export var landing_final_descent_mps: float = 0.65
-@export var landing_touchdown_descent_mps: float = 0.25
+@export var landing_touchdown_descent_mps: float = 0.15
 @export var landing_flare_collective_floor_margin: float = 0.02
 @export var landing_descent_overspeed_collective_gain: float = 0.08
-@export var landing_settle_collective_gain: float = 0.35
-@export var landing_ground_effect_collective_bias: float = 0.22
+@export var landing_settle_collective_gain: float = 0.10
+@export var landing_ground_effect_collective_bias: float = 0.15
 @export var landing_final_horizontal_hold_radius_m: float = 14.0
 @export var landing_final_horizontal_hold_agl_m: float = 18.0
 @export var landing_final_position_gain: float = 0.006
@@ -349,7 +349,7 @@ enum MissionPhase {
 @export var debug_overlay_enabled: bool = false
 @export var debug_overlay_only_when_viewed: bool = false
 @export var crash_log_enabled: bool = true
-@export var crash_log_history_s: float = 15.0
+@export var crash_log_history_s: float = 8.0
 @export var crash_log_aggregate_path: String = "user://heli_crash_report.log"
 @export var lz_departure_debug_enabled: bool = true
 @export var lz_departure_debug_duration_s: float = 5.0
@@ -361,6 +361,8 @@ enum MissionPhase {
 @export var recorder_fault_cooldown_s: float = 12.0
 @export var recorder_inverted_dot: float = -0.25
 @export var recorder_inverted_time_s: float = 2.0
+@export var recorder_sink_rate_mps: float = 12.0
+@export var recorder_reverse_speed_mps: float = 10.0
 
 var aircraft: RigidBody3D = null
 var helicopter_flight: Node = null
@@ -402,6 +404,7 @@ var _prev_forward_lean: float = 0.0
 var _feeler_net_left_risk: float = 0.0
 var _feeler_net_right_risk: float = 0.0
 var _feeler_forward_penalty: float = 0.0
+var _feeler_forward_obstacle_distance: float = INF
 var _feeler_timer_s: float = 0.0
 var _collective_cmd: float = 0.0
 var _physics_delta: float = 0.016
@@ -425,6 +428,7 @@ var _debug_vertical_priority: float = 0.0
 var _debug_collective_target: float = 0.0
 var _debug_airborne_separation_dist_m: float = INF
 var _debug_airborne_separation_speed_limit_mps: float = INF
+var _airborne_separation_vertical_avoidance_mps: float = 0.0
 var _debug_airborne_separation_log_s: float = 0.0
 var _heightmap_path: Array[Vector3] = []
 var _heightmap_path_index: int = 0
@@ -448,6 +452,8 @@ var _last_debug_line: String = ""
 # Flight recorder: ring buffer of (timestamp_s, line) pairs + milestone log
 var _flight_log: Array = []       # [[time_s, line], ...]
 var _milestone_log: Array = []    # ["2.3s  Landed at LZ", ...]
+
+var _rotor_wash_effect: Node3D = null
 var _flight_start_time_s: float = 0.0
 var _last_recorder_position: Vector3 = Vector3.INF
 var _last_recorder_sample_s: float = 0.0
@@ -472,6 +478,10 @@ var _carrier_approach_wait_log_s: float = 0.0
 var _carrier_approach_clearance_request_s: float = 0.0
 var _missing_carrier_marker_log_once: Dictionary = {}
 
+var _phys_max_bank_deg: float = 30.0
+var _phys_max_nose_up_deg: float = 15.0
+var _phys_max_decel_mps2: float = 4.0
+var _phys_max_climb_mps: float = 5.0
 
 func _ready() -> void:
 	add_to_group("origin_shifter")
@@ -523,6 +533,8 @@ func initialize(aircraft_node: RigidBody3D) -> void:
 		set_physics_process(false)
 		return
 
+	_update_physics_capabilities()
+
 	if debug_enabled:
 		print("[HelicopterPilot] %s initialized — flight=%s engine=%s" \
 			% [aircraft.name, str(helicopter_flight != null), str(control_engine != null)])
@@ -537,6 +549,11 @@ func initialize(aircraft_node: RigidBody3D) -> void:
 	if crash_log_enabled and aircraft.has_signal("destroyed") \
 			and not aircraft.is_connected("destroyed", _on_aircraft_destroyed_flight_recorder):
 		aircraft.connect("destroyed", _on_aircraft_destroyed_flight_recorder)
+
+	var rotor_wash_script = load("res://Effects/RotorWashEffect.gd")
+	if rotor_wash_script:
+		_rotor_wash_effect = rotor_wash_script.new()
+		aircraft.add_child(_rotor_wash_effect)
 
 	_pick_random_lz()
 	mission_phase = MissionPhase.OUTBOUND
@@ -604,7 +621,9 @@ func change_state(new_state: State) -> void:
 			if aircraft.has_meta("helicopter_deck_reference_node"):
 				aircraft.remove_meta("helicopter_deck_reference_node")
 		_set_landing_gear_deployed(false)
-		_transit_cruise_altitude_m = NAN
+		# _transit_cruise_altitude_m is intentionally NOT set to NAN here.
+		# It preserves the takeoff altitude, allowing it to smoothly bleed down
+		# to the local route altitude rather than dropping out instantly.
 	elif new_state == State.LANDING:
 		_set_landing_gear_deployed(true)
 	var previous_state := state
@@ -753,6 +772,12 @@ func _physics_process(delta: float) -> void:
 		_replan_timer_s = maxf(replan_interval_s, 0.05)
 		_update_navigation_plan()
 
+	if _rotor_wash_effect and is_instance_valid(_rotor_wash_effect):
+		var ground_h := _get_ground_height_at_position(aircraft.global_position)
+		_rotor_wash_effect.current_agl = aircraft.global_position.y - ground_h if not is_nan(ground_h) else INF
+		_rotor_wash_effect.is_engine_on = control_engine.power_setting > 0.1 if is_instance_valid(control_engine) else true
+		_rotor_wash_effect.rotor_radius = helicopter_flight.rotor_radius if "rotor_radius" in helicopter_flight else 10.0
+
 	match state:
 		State.IDLE:
 			_collective_cmd = 0.0
@@ -836,6 +861,11 @@ func _advance_mission() -> void:
 			_update_carrier_destination()
 			change_state(State.TAKEOFF)
 		MissionPhase.AT_CARRIER:
+			var fd_mgr := get_tree().get_first_node_in_group("flight_deck_manager")
+			if fd_mgr and fd_mgr.get("auto_recovery_enabled"):
+				_record_milestone("Waiting on deck for tractor recovery")
+				return
+				
 			_record_milestone("Landed back at carrier — picking new LZ")
 			_clear_carrier_landing_hold()
 			_pick_random_lz()
@@ -1123,6 +1153,32 @@ func _find_carrier_arresting_wire(wire_number: int) -> Node3D:
 	return named_fallback
 
 
+func _update_physics_capabilities() -> void:
+	if not is_instance_valid(aircraft) or helicopter_flight == null:
+		return
+	var mass := aircraft.mass if "mass" in aircraft else 2000.0
+	var gravity := 9.81
+	
+	var max_tilt: Variant = helicopter_flight.get("max_disc_tilt_deg")
+	if max_tilt != null:
+		_phys_max_bank_deg = float(max_tilt)
+	
+	_phys_max_nose_up_deg = minf(_phys_max_bank_deg, maxf(transit_max_nose_up * 90.0, 15.0))
+	_phys_max_decel_mps2 = gravity * tan(deg_to_rad(_phys_max_nose_up_deg))
+	
+	var max_thrust: Variant = helicopter_flight.get("max_rotor_thrust_n")
+	var thrust_val := float(max_thrust) if max_thrust != null else 0.0
+	if thrust_val <= 0.0:
+		var mult: Variant = helicopter_flight.get("max_lift_multiplier")
+		if mult != null:
+			thrust_val = mass * gravity * float(mult)
+		else:
+			thrust_val = mass * gravity * 1.5
+	
+	var climb_accel := maxf(thrust_val / mass - gravity, 0.5)
+	_phys_max_climb_mps = climb_accel * 2.5 # Approximate sustainable climb speed
+
+
 func _find_modules() -> void:
 	if helicopter_flight_path != NodePath():
 		helicopter_flight = get_node_or_null(helicopter_flight_path)
@@ -1233,7 +1289,7 @@ func _update_navigation_plan() -> void:
 		if _transit_cruise_altitude_m > local_target_altitude:
 			var bleed := minf(
 				(_transit_cruise_altitude_m - local_target_altitude) * 0.4,
-				25.0
+				maxf(max_descent_mps * 1.5, 4.0)
 			) * _physics_delta
 			_transit_cruise_altitude_m = maxf(_transit_cruise_altitude_m - bleed, local_target_altitude)
 			_desired_altitude_m = _transit_cruise_altitude_m
@@ -1747,10 +1803,14 @@ func _get_terrain_climb_speed_limit(desired_speed: float) -> float:
 	var altitude_deficit := target_altitude - aircraft.global_position.y
 	if altitude_deficit <= 1.0:
 		return desired_speed
-	var climb_capacity := maxf(max_climb_mps * clampf(terrain_climb_capacity_scale, 0.1, 1.5), 1.0)
+	
+	# PHYSICS RULE 3: Dynamic Climb Speed based on helicopter thrust-to-weight capability
+	var climb_capacity := maxf(_phys_max_climb_mps * clampf(terrain_climb_capacity_scale, 0.1, 1.5), 1.0)
 	var time_needed := altitude_deficit / climb_capacity + maxf(terrain_climb_arrival_margin_s, 0.0)
 	var speed_limit := distance / maxf(time_needed, 0.1)
-	speed_limit = clampf(speed_limit, maxf(terrain_climb_speed_floor_mps, 1.0), desired_speed)
+	
+	# Removed static hard floor so big helicopters genuinely slow down if their limits demand it
+	speed_limit = minf(speed_limit, desired_speed)
 	if speed_limit < desired_speed - 1.0 and _terrain_climb_speed_log_s <= 0.0:
 		_terrain_climb_speed_log_s = maxf(terrain_climb_speed_log_interval_s, 0.1)
 		_debug_event("terrain_climb_plan", "dist=%.1f alt=%.1f deficit=%.1f limit=%.1f desired=%.1f climb_cap=%.1f" % [
@@ -1795,9 +1855,15 @@ func _get_path_turn_speed_limit(desired_speed: float) -> float:
 
 	var available_radius := minf(corner_dist, out_len) * clampf(path_turn_radius_fraction, 0.1, 2.0)
 	var turn_radius := maxf(available_radius, maxf(path_turn_min_radius_m, 1.0))
-	var lateral_accel := maxf(path_turn_lateral_accel_mps2, 0.1)
+	
+	# PHYSICS RULE 1: Dynamic Turn Speed based on helicopter bank limits
+	var gravity := 9.81
+	var bank_margin := 0.75 # Don't ride the absolute physical bank limit during a transit turn
+	var lateral_accel := gravity * tan(deg_to_rad(_phys_max_bank_deg * bank_margin))
+	
 	var corner_speed := sqrt(lateral_accel * turn_radius)
-	corner_speed = clampf(corner_speed, maxf(path_turn_speed_floor_mps, 1.0), desired_speed)
+	# Removed static hard floor so big helicopters genuinely slow down if their limits demand it
+	corner_speed = minf(corner_speed, desired_speed)
 
 	var approach_t := 1.0 - clampf(corner_dist / lookahead, 0.0, 1.0)
 	var limit_t := clampf(approach_t * angle_t, 0.0, 1.0)
@@ -3002,6 +3068,13 @@ func _fly_transit_vector(target: Vector3, desired_speed: float, delta: float) ->
 	var vertical_speed := control_vel.y
 	var horizontal_speed := Vector2(control_vel.x, control_vel.z).length()
 	desired_speed = _apply_airborne_separation_speed_limit(desired_speed, control_vel, forward, right, delta)
+	
+	# PHYSICS RULE 2: Dynamic Braking for Obstacles
+	if _feeler_forward_obstacle_distance < 2000.0:
+		var safe_stop_dist := maxf(_feeler_forward_obstacle_distance - lateral_obstacle_margin_m, 1.0)
+		var max_safe_speed := sqrt(2.0 * _phys_max_decel_mps2 * safe_stop_dist)
+		desired_speed = minf(desired_speed, max_safe_speed)
+	
 	var fwd_accel := (fwd_speed - _prev_fwd_speed) / maxf(delta, 0.001)
 	var lat_accel := (lat_speed - _prev_lat_speed) / maxf(delta, 0.001)
 	var vertical_accel: float = (vertical_speed - _prev_vertical_speed) / maxf(delta, 0.001)
@@ -3090,7 +3163,9 @@ func _fly_transit_vector(target: Vector3, desired_speed: float, delta: float) ->
 		_feeler_net_left_risk = 0.0
 		_feeler_net_right_risk = 0.0
 		_feeler_forward_penalty = 0.0
+		_feeler_forward_obstacle_distance = INF
 	var _feeler_forward_speed_penalty := _feeler_forward_penalty
+	var _min_forward_dist := _feeler_forward_obstacle_distance
 	var _net_left_risk := _feeler_net_left_risk
 	var _net_right_risk := _feeler_net_right_risk
 	# Only recompute samples on the reset frame — cached otherwise.
@@ -3120,12 +3195,14 @@ func _fly_transit_vector(target: Vector3, desired_speed: float, delta: float) ->
 					continue
 				if _angle_deg == 0.0:
 					_feeler_forward_speed_penalty = maxf(_feeler_forward_speed_penalty, _risk)
+					_min_forward_dist = minf(_min_forward_dist, _sdist)
 				elif _angle_deg > 0.0:
 					_net_right_risk = maxf(_net_right_risk, _risk)
 				else:
 					_net_left_risk = maxf(_net_left_risk, _risk)
 		# Store back to cache
 		_feeler_forward_penalty = _feeler_forward_speed_penalty
+		_feeler_forward_obstacle_distance = _min_forward_dist
 		_feeler_net_left_risk = _net_left_risk
 		_feeler_net_right_risk = _net_right_risk
 	if _net_left_risk > 0.0 or _net_right_risk > 0.0:
@@ -3259,6 +3336,7 @@ func _fly_transit_vector(target: Vector3, desired_speed: float, delta: float) ->
 			minf(clearance_vertical_rate, maxf(cyclic_target_climb_mps, 0.0))
 		)
 
+	target_vertical_rate += _airborne_separation_vertical_avoidance_mps
 	var vertical_rate_error := target_vertical_rate - vertical_speed
 	var cyclic_limit := clampf(max_cyclic_input, 0.0, 1.0)
 	var speed_pitch := -forward_lean
@@ -3281,9 +3359,16 @@ func _fly_transit_vector(target: Vector3, desired_speed: float, delta: float) ->
 		(horizontal_speed - transit_low_speed_bank_start_mps) / maxf(transit_low_speed_bank_full_mps - transit_low_speed_bank_start_mps, 1.0),
 		0.0, 1.0
 	)
+	
+	var brake_pitch := 0.0
+	if desired_speed < cruise_speed_mps and horizontal_speed > desired_speed:
+		var overspeed := horizontal_speed - desired_speed
+		brake_pitch = clampf(overspeed / 15.0, 0.0, max_cyclic_input * 0.8)
+		target_pitch += brake_pitch
+
 	var min_pitch_floor := -maxf(min_forward_lean, 0.0)
-	var effective_pitch_floor := lerpf(0.0, min_pitch_floor, pitch_floor_speed_t)
-	var effective_nose_up_cap := lerpf(1.0, maxf(transit_max_nose_up, 0.0), pitch_floor_speed_t)
+	var effective_pitch_floor := lerpf(0.0, min_pitch_floor + brake_pitch, pitch_floor_speed_t)
+	var effective_nose_up_cap := lerpf(1.0, maxf(transit_max_nose_up, 0.0) + brake_pitch, pitch_floor_speed_t)
 	target_pitch = clampf(target_pitch, -1.0, effective_nose_up_cap)
 	target_pitch = minf(target_pitch, effective_pitch_floor)
 
@@ -3585,6 +3670,7 @@ func _fly_toward(target: Vector3, desired_speed: float, delta: float) -> void:
 				minf(clearance_vertical_rate, maxf(cyclic_target_climb_mps, 0.0))
 			)
 
+		target_vertical_rate += _airborne_separation_vertical_avoidance_mps
 		vertical_rate_error = target_vertical_rate - vertical_speed
 		altitude_trade_pitch = clampf(
 			vertical_rate_error * cyclic_altitude_rate_gain
@@ -3685,6 +3771,7 @@ func _apply_airborne_separation_speed_limit(requested_speed: float, control_vel:
 	var closest_dist := INF
 	var closest_name := ""
 	var closest_action := ""
+	var vertical_avoidance := 0.0
 	var seen: Dictionary = {}
 	for group_name in ["aircraft", "ai_aircraft"]:
 		for node in get_tree().get_nodes_in_group(group_name):
@@ -3733,6 +3820,12 @@ func _apply_airborne_separation_speed_limit(requested_speed: float, control_vel:
 				if min_dist < safe_distance:
 					var violation_t := 1.0 - clampf(min_dist / maxf(safe_distance, 0.001), 0.0, 1.0)
 					candidate_limit = lerpf(candidate_limit, maxf(airborne_separation_min_speed_mps, 0.0), violation_t)
+					# Vertical avoidance: if we are within safe_distance horizontally and close vertically, push vertically.
+					var vert_diff := my_pos.y - other.global_position.y
+					if vert_diff >= 0.0:
+						vertical_avoidance = maxf(vertical_avoidance, violation_t * maxf(cyclic_target_climb_mps, 3.0))
+					else:
+						vertical_avoidance = minf(vertical_avoidance, -violation_t * maxf(cyclic_target_sink_mps, 3.0))
 				speed_limit = minf(speed_limit, candidate_limit)
 				action = "brake"
 			if behind_corridor and min_dist <= push_start:
@@ -3755,6 +3848,7 @@ func _apply_airborne_separation_speed_limit(requested_speed: float, control_vel:
 
 	if closest_dist < INF:
 		_debug_airborne_separation_dist_m = closest_dist
+		_airborne_separation_vertical_avoidance_mps = vertical_avoidance
 		var adjusted_speed := minf(speed_boost, speed_limit)
 		_debug_airborne_separation_speed_limit_mps = adjusted_speed
 		if debug_enabled and _debug_airborne_separation_log_s <= 0.0:
@@ -3920,8 +4014,20 @@ func _calculate_collective(target_altitude_m: float) -> float:
 	var control_vel := _get_control_velocity()
 	var horizontal_speed := Vector2(control_vel.x, control_vel.z).length()
 	collective += clampf(horizontal_speed / maxf(max_speed_mps, 1.0), 0.0, 1.0) * collective_speed_lift_bias
+
+	# Bank/Pitch compensation: a tilted rotor produces less vertical lift. Add collective to
+	# compensate — without this a low-speed banked turn or deceleration flare loses altitude.
+	# cos(tilt) of the aircraft's up vector vs world up gives the vertical thrust fraction.
+	var tilt_boost := 0.0
+	if is_instance_valid(aircraft):
+		var up_dot := aircraft.global_transform.basis.y.dot(Vector3.UP)
+		var vert_fraction := maxf(up_dot, 0.15)
+		tilt_boost = _get_collective_trim() * (1.0 / vert_fraction - 1.0)
+	
 	if state == State.TAKEOFF or state == State.LOW_LEVEL_TRANSIT:
-		return _calculate_transit_collective(collective, alt_error, horizontal_speed)
+		collective = _calculate_transit_collective(collective, alt_error, horizontal_speed)
+		return clampf(collective + tilt_boost, 0.0, 1.0)
+		
 	if alt_error > altitude_guard_m:
 		var climb_power_t := clampf(
 			alt_error / maxf(collective_full_climb_alt_error_m, 1.0),
@@ -3929,12 +4035,14 @@ func _calculate_collective(target_altitude_m: float) -> float:
 			1.0
 		)
 		collective = maxf(collective, lerpf(_get_collective_trim(), 1.0, climb_power_t))
+		
 	if state == State.TAKEOFF:
 		collective = maxf(collective, _get_takeoff_collective_floor())
+		
 	if state == State.LANDING and (_carrier_approach_phase == CarrierApproachPhase.DESCEND or not _landing_on_carrier):
 		# Flare only during actual descent (carrier) or terrain landing.
 		# Skip during TO_APPROACH_POINT / FINAL — the helicopter may be below deck
-		# height and the flare code would incorrectly suppress collective.
+		# trying to climb to approach altitude, so capping collective causes it to sink.
 		var surface_y := _get_landing_surface_y()
 		var agl := aircraft.global_position.y - surface_y if not is_nan(surface_y) else landing_flare_agl_m
 		var trim := _get_collective_trim()
@@ -3952,21 +4060,12 @@ func _calculate_collective(target_altitude_m: float) -> float:
 					trim - maxf(landing_flare_collective_floor_margin, 0.0)
 							+ descent_overspeed * maxf(landing_descent_overspeed_collective_gain, 0.0)
 				)
-	return clampf(collective, 0.0, 1.0)
+	return clampf(collective + tilt_boost, 0.0, 1.0)
 
 
 func _calculate_transit_collective(base_collective: float, alt_error: float, horizontal_speed: float) -> float:
 	var feedback_collective := clampf(base_collective, 0.0, 1.0)
 	var vertical_speed := aircraft.linear_velocity.y if is_instance_valid(aircraft) else 0.0
-
-	# Bank compensation: a banked rotor produces less vertical lift. Add collective to
-	# compensate — without this a low-speed banked turn loses altitude and crashes.
-	# cos(roll) of the aircraft's up vector vs world up gives the vertical thrust fraction.
-	if is_instance_valid(aircraft):
-		var up_dot := aircraft.global_transform.basis.y.dot(Vector3.UP)
-		var vert_fraction := maxf(up_dot, 0.15)
-		var bank_boost := _get_collective_trim() * (1.0 / vert_fraction - 1.0)
-		feedback_collective = clampf(feedback_collective + bank_boost, 0.0, 1.0)
 
 	# Altitude boost: smoothly blend toward 1.0 as altitude error grows.
 	# No hard thresholds — the gain curve determines how aggressively altitude error increases collective.
@@ -4258,6 +4357,7 @@ func _fly_carrier_approach_gate(
 		-maxf(cyclic_target_sink_mps, 0.0),
 		maxf(cyclic_target_climb_mps, 0.0)
 	)
+	target_vertical_rate += _airborne_separation_vertical_avoidance_mps
 	var vertical_rate_error := target_vertical_rate - vertical_speed
 	var altitude_pitch := clampf(
 		vertical_rate_error * cyclic_altitude_rate_gain
@@ -5099,12 +5199,15 @@ func _try_finish_landing() -> void:
 			mission_phase = MissionPhase.AT_LZ
 			_idle_dwell_timer_s = lz_dwell_time_s
 			_flight_landed_lz = true
+			_record_heli_ui_stat("lz")
 			_flight_landed_lz_s = _elapsed_s()
 			_flight_lz_position = aircraft.global_position if is_instance_valid(aircraft) else Vector3.INF
 			_record_milestone("Landed at LZ — pos=%s" % [str(aircraft.global_position.snapped(Vector3.ONE)) if is_instance_valid(aircraft) else "?"])
+			_write_flight_summary_report("LZ LANDING")
 		MissionPhase.INBOUND:
 			mission_phase = MissionPhase.AT_CARRIER
 			_idle_dwell_timer_s = carrier_dwell_time_s
+			_record_heli_ui_stat("carrier")
 			_record_milestone("Landed back at carrier")
 			_write_flight_summary_report("CARRIER LANDING")
 			_hold_landed_on_carrier()
@@ -5442,7 +5545,11 @@ func _get_ground_height_at_position(world_pos: Vector3) -> float:
 		world_pos + Vector3.UP * 2000.0,
 		world_pos + Vector3.DOWN * 6000.0
 	)
-	query.exclude = [aircraft.get_rid()]
+	var excludes: Array[RID] = [aircraft.get_rid()]
+	var carrier := get_tree().get_first_node_in_group("carrier")
+	if carrier is CollisionObject3D:
+		excludes.append(carrier.get_rid())
+	query.exclude = excludes
 	var result: Dictionary = space_state.intersect_ray(query)
 	if result.has("position"):
 		return result["position"].y
@@ -5615,7 +5722,7 @@ func _emit_debug(delta: float) -> void:
 	var abs_speed: float = aircraft.linear_velocity.length()
 	var dist_to_dest: float = _flat_distance(aircraft.global_position, destination) if _has_destination else NAN
 
-	var debug_line := "HELI_AI craft=%s %s/%s cphase=%s pos=%s agl=%.1f tgt=%.1f onc=%s spd=%.1f vs=%.1f/%+.1f col=%.2f/%.2f lean=%.2f pa=%.2f st=%.2f tr=%.2f sep=%.0f/%.1f ctl=(%.2f,%.2f,%.2f) dist=%.0f" % [
+	var debug_line := "HELI_AI craft=%s %s/%s cphase=%s pos=%s agl=%.1f tgt=%.1f onc=%s spd=%.1f vs=%.1f/%+.1f tvrate=%.1f col=%.2f/%.2f lean=%.2f pa=%.2f st=%.2f tr=%.2f sep=%.0f/%.1f v_avoid=%.1f ctl=(%.2f,%.2f,%.2f) dist=%.0f" % [
 			aircraft.name,
 			_state_name(),
 			_mission_name(),
@@ -5627,6 +5734,7 @@ func _emit_debug(delta: float) -> void:
 			abs_speed,
 			aircraft.linear_velocity.y,
 			_debug_vertical_rate_error_mps,
+			_debug_target_vertical_rate_mps,
 			_collective_cmd,
 			_debug_collective_target,
 			_debug_forward_error_mps,
@@ -5635,6 +5743,7 @@ func _emit_debug(delta: float) -> void:
 			_debug_terrain_recovery,
 			_debug_airborne_separation_dist_m if _debug_airborne_separation_dist_m < INF else -1.0,
 			_debug_airborne_separation_speed_limit_mps if _debug_airborne_separation_speed_limit_mps < INF else -1.0,
+			_airborne_separation_vertical_avoidance_mps,
 			_pitch_cmd,
 			_roll_cmd,
 			_yaw_cmd,
@@ -5697,6 +5806,24 @@ func _check_recorder_faults(delta: float) -> void:
 			_write_flight_recorder_report("POSITION JUMP", "moved_speed=%.1f m/s velocity=%.1f m/s" % [moved_speed, speed])
 	_last_recorder_position = pos
 	_last_recorder_sample_s = now
+
+	var sink_rate := -vel.y
+	if sink_rate >= maxf(recorder_sink_rate_mps, 1.0) and _can_write_fault_report(now):
+		_debug_output("HELI_AI event=high_sink_rate craft=%s sink=%.1f pos=%s" % [
+			aircraft.name,
+			sink_rate,
+			str(pos.snapped(Vector3.ONE * 0.1)),
+		])
+		_write_flight_recorder_report("HIGH SINK RATE", "sink=%.1f m/s" % sink_rate)
+
+	var reverse_speed := vel.dot(aircraft.global_transform.basis.z)
+	if reverse_speed >= maxf(recorder_reverse_speed_mps, 1.0) and _can_write_fault_report(now):
+		_debug_output("HELI_AI event=high_reverse_speed craft=%s reverse=%.1f pos=%s" % [
+			aircraft.name,
+			reverse_speed,
+			str(pos.snapped(Vector3.ONE * 0.1)),
+		])
+		_write_flight_recorder_report("HIGH REVERSE SPEED", "reverse=%.1f m/s" % reverse_speed)
 
 	var up_dot := aircraft.global_transform.basis.y.normalized().dot(Vector3.UP)
 	if up_dot <= recorder_inverted_dot and (state == State.IDLE or mission_phase == MissionPhase.AT_CARRIER):
@@ -5905,6 +6032,7 @@ func _on_aircraft_destroyed_flight_recorder() -> void:
 
 	_append_lines_to_log("user://heli_crash_report_%s.log" % craft_name.replace(" ", "_"), lines, "crash log")
 	var pos_note := "pos=%s agl=%s state=%s/%s" % [pos_str, agl_str, _state_name(), _mission_name()]
+	_record_heli_ui_stat("crash")
 	_write_compact_log_entry("CRASHED", pos_note, 3)
 	_flight_terminal_report_written = true
 	print("[HelicopterPilot] Crash log written for: %s" % craft_name)
@@ -5963,6 +6091,14 @@ func _get_aircraft_type_label() -> String:
 	if scene_path.is_empty():
 		return aircraft.name
 	return scene_path.get_file().get_basename()
+
+
+func _record_heli_ui_stat(stat_name: String) -> void:
+	if not is_instance_valid(aircraft):
+		return
+	var fd_mgr := get_tree().get_first_node_in_group("flight_deck_manager")
+	if fd_mgr and fd_mgr.has_method("record_heli_stat"):
+		fd_mgr.record_heli_stat(aircraft.name, stat_name)
 
 
 func _write_compact_log_entry(outcome: String, notes: String, last_debug_lines: int) -> void:

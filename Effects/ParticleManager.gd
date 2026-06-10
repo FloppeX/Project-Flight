@@ -47,6 +47,8 @@ func _process(delta):
 				_update_explosion_particle(particle, particle_delta)
 			"spark":
 				_update_spark_particle(particle, particle_delta)
+			"outward_dust":
+				_update_outward_dust_particle(particle, particle_delta)
 			_:
 				_update_default_particle(particle, particle_delta)
 		
@@ -81,6 +83,8 @@ func _update_smoke_particle(particle: Dictionary, delta: float):
 		particle.mesh_instance.rotation.y += particle.yaw_speed * delta
 
 	# Fade out — scale from initial alpha, not 1.0
+
+
 	if particle.mesh_instance.material_override:
 		if not "initial_alpha" in particle:
 			particle.initial_alpha = particle.mesh_instance.material_override.albedo_color.a
@@ -92,7 +96,7 @@ func _update_explosion_particle(particle: Dictionary, delta: float):
 	var life_progress = particle.life_time / particle.max_life
 	var scale_factor = 1.0 + life_progress * 2.0  # Grow to 3x size
 	particle.mesh_instance.scale = particle.initial_scale * scale_factor
-	
+
 	# Fade out
 	if particle.mesh_instance.material_override:
 		var alpha = 1.0 - life_progress
@@ -110,6 +114,33 @@ func _update_spark_particle(particle: Dictionary, delta: float):
 	if particle.mesh_instance.material_override:
 		var alpha = 1.0 - life_progress
 		particle.mesh_instance.material_override.albedo_color.a = alpha
+
+func _update_outward_dust_particle(particle: Dictionary, delta: float):
+	var life_progress: float = particle.life_time / particle.max_life
+
+	if "outward_velocity" in particle:
+		particle.mesh_instance.global_position += particle.outward_velocity * delta
+		# Air friction slows outward spread over time
+		particle.outward_velocity *= (1.0 - delta * 1.5)
+
+	if "rise_speed" in particle:
+		particle.mesh_instance.global_position.y += particle.rise_speed * delta
+		# Slow down rise over time
+		particle.rise_speed *= (1.0 - delta * 0.5)
+
+	if "expand" in particle and particle.expand:
+		var expand_factor: float = 1.0 + life_progress * 2.0
+		particle.mesh_instance.scale = particle.initial_scale * expand_factor
+
+	if "yaw_speed" in particle:
+		particle.mesh_instance.rotation.y += particle.yaw_speed * delta
+
+	if particle.mesh_instance.material_override:
+		if not "initial_alpha" in particle:
+			particle.initial_alpha = particle.mesh_instance.material_override.albedo_color.a
+		# Quadratic fade so it lingers slightly then fades
+		var fade: float = 1.0 - (life_progress * life_progress)
+		particle.mesh_instance.material_override.albedo_color.a = particle.initial_alpha * fade
 
 func _update_default_particle(particle: Dictionary, delta: float):
 	# Basic fade out
@@ -153,3 +184,14 @@ func add_explosion_particle(mesh_instance: MeshInstance3D, max_life: float, init
 
 func add_spark_particle(mesh_instance: MeshInstance3D, max_life: float, initial_scale: Vector3, velocity: Vector3):
 	add_particle(mesh_instance, "spark", max_life, initial_scale, {"velocity": velocity})
+
+func add_outward_dust(mesh_instance: MeshInstance3D, max_life: float, initial_scale: Vector3, outward_velocity: Vector3, rise_speed: float = 1.0, yaw_speed: float = 0.0, extra_data: Dictionary = {}):
+	var dust_data := {
+		"outward_velocity": outward_velocity,
+		"rise_speed": rise_speed,
+		"expand": true,
+		"yaw_speed": yaw_speed,
+	}
+	for key in extra_data:
+		dust_data[key] = extra_data[key]
+	add_particle(mesh_instance, "outward_dust", max_life, initial_scale, dust_data)

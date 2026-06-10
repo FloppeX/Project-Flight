@@ -3,6 +3,8 @@ class_name Hardpoint
 
 @export var mounted_weapon: PackedScene  # Drag your weapon scenes here
 @export var hardpoint_id: int = 0
+@export var allowed_weapon_scene_paths: PackedStringArray = PackedStringArray()
+@export var allowed_weapon_names: PackedStringArray = PackedStringArray()
 
 var weapon_instance: Weapon = null
 var aircraft: RigidBody3D = null
@@ -11,11 +13,24 @@ func _ready():
 	if mounted_weapon:
 		mount_weapon_from_scene(mounted_weapon)
 
-func mount_weapon_from_scene(weapon_scene: PackedScene):
+func mount_weapon_from_scene(weapon_scene: PackedScene) -> bool:
+	if not weapon_scene:
+		return false
+
+	var next_weapon := weapon_scene.instantiate() as Weapon
+	if not next_weapon:
+		push_warning("Hardpoint %s rejected a non-Weapon scene." % name)
+		return false
+
+	if not _is_weapon_allowed(weapon_scene, next_weapon):
+		push_warning("Hardpoint %s rejected weapon scene: %s" % [name, weapon_scene.resource_path])
+		next_weapon.queue_free()
+		return false
+
 	if weapon_instance:
 		weapon_instance.queue_free()
-	
-	weapon_instance = weapon_scene.instantiate() as Weapon
+
+	weapon_instance = next_weapon
 	add_child(weapon_instance)
 
 	var attachment_point := weapon_instance.get_node_or_null("AttachmentPoint") as Node3D
@@ -25,6 +40,29 @@ func mount_weapon_from_scene(weapon_scene: PackedScene):
 	aircraft = get_parent() as RigidBody3D
 	while aircraft and not (aircraft is RigidBody3D):
 		aircraft = aircraft.get_parent()
+
+	return true
+
+func _is_weapon_allowed(weapon_scene: PackedScene, candidate_weapon: Weapon) -> bool:
+	if allowed_weapon_scene_paths.size() == 0 and allowed_weapon_names.size() == 0:
+		return true
+
+	var scene_path := weapon_scene.resource_path
+	if not scene_path.is_empty() and allowed_weapon_scene_paths.has(scene_path):
+		return true
+
+	var weapon_name := _get_candidate_weapon_name(candidate_weapon)
+	return not weapon_name.is_empty() and allowed_weapon_names.has(weapon_name)
+
+func _get_candidate_weapon_name(candidate_weapon: Weapon) -> String:
+	if not candidate_weapon.weapon_name.is_empty() and candidate_weapon.weapon_name != "Generic Weapon":
+		return candidate_weapon.weapon_name
+
+	var gun_profile = candidate_weapon.get("gun_profile")
+	if gun_profile and gun_profile.get("weapon_name") != null:
+		return str(gun_profile.get("weapon_name"))
+
+	return candidate_weapon.weapon_name
 
 func fire():
 	if not weapon_instance or not weapon_instance.can_fire():

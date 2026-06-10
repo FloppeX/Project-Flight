@@ -204,12 +204,16 @@ func apply_spring_physics(collision_shape: CollisionShape3D, gear_index: int, de
 		_wheel_carrier_surfaces[gear_index] = null
 		return
 		
-	# Cast ray downward from collision shape to detect ground
+	# Use base position so that suspension-driven collider movement doesn't artificially reduce measured compression
+	var base_global_position: Vector3 = collision_shape.global_position
+	if gear_index < _collider_rest_positions.size():
+		base_global_position = collision_shape.get_parent().to_global(_collider_rest_positions[gear_index])
+		
 	var effective_rest_height: float = maxf(0.05, wheel_rest_height)
 	var space_state = collision_shape.get_world_3d().direct_space_state
 	var query = PhysicsRayQueryParameters3D.create(
-		collision_shape.global_position,
-		collision_shape.global_position + Vector3.DOWN * (effective_rest_height + max_compression)
+		base_global_position,
+		base_global_position + Vector3.DOWN * (effective_rest_height + max_compression)
 	)
 	query.exclude = [aircraft.get_rid()]
 	
@@ -222,7 +226,7 @@ func apply_spring_physics(collision_shape: CollisionShape3D, gear_index: int, de
 
 	if result:
 		# Ground detected - calculate compression
-		var distance_to_ground = collision_shape.global_position.distance_to(result.position)
+		var distance_to_ground = base_global_position.distance_to(result.position)
 		var compression = effective_rest_height - distance_to_ground
 		compression = clamp(compression, 0.0, max_compression)
 		var surface: Variant = result.get("collider", null)

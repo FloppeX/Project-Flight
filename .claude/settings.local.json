@@ -33,7 +33,12 @@
       "Bash(ls \"C:\\\\Users\\\\jonto\\\\.claude\\\\projects\\\\c--Godot-projects-Project-Flight\\\\memory\"\" 2>/dev/null || echo \"Directory empty or missing \")",
       "Read(//c/Godot projects/Project-Flight/$APPDATA/**)",
       "Bash(ls -lt captures/*.mp4)",
-      "Bash(xargs grep *)"
+      "Bash(xargs grep *)",
+      "Read(//c/Users/jonto/AppData/Roaming/Godot/app_userdata/Project Flight/**)",
+      "Read(//c/Users/jonto/AppData/Roaming/Godot/app_userdata/Project-Flight/**)",
+      "Bash(find \"/c/Users/jonto/AppData/Roaming/Godot\" -name \"heli_crash_report.log\" 2>/dev/null)",
+      "Read(//c/Users/jonto/AppData/Roaming/Godot/**)",
+      "Bash(python3 -c ' *)"
     ],
     "deny": [],
     "ask": []

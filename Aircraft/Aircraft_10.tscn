@@ -79,7 +79,7 @@ metadata/is_helicopter = true
 transform = Transform3D(0.9, 0, 0, 0, 0.9, 0, 0, 0, 0.9, 0, -0.5471029, 0)
 script = ExtResource("6_rotor_script")
 upper_blade_yaws_deg = PackedFloat32Array(0, 72, 144, -144, -72)
-debug_console_enabled = true
+debug_console_enabled = false
 
 [node name="UpperRotor" type="Node3D" parent="RotorAssembly" unique_id=410168063]
 transform = Transform3D(0.7, 0, 0, 0, 0.7, 0, 0, 0, 0.7, 0, 2.2319345, 0)
@@ -117,7 +117,6 @@ disabled = true
 [node name="SimpleAero" type="Node" parent="." unique_id=291227423]
 script = ExtResource("5_aero")
 hover_collective = 0.68
-max_lift_multiplier = 1.85
 translational_lift_bonus = 0.035
 horizontal_thrust_bias = 2.15
 max_disc_tilt_deg = 19.0
@@ -140,7 +139,7 @@ horizontal_drag_strength = 0.2
 lateral_drag_strength = 0.82
 vertical_damping_strength = 0.075
 high_speed_nose_drag_strength = 0.01
-max_forward_speed_mps = 150.0
+max_forward_speed_mps = 70.0
 ground_effect_height_m = 5.5
 ground_effect_strength = 0.18
 deck_takeoff_brake_release_collective = 0.72
@@ -155,6 +154,9 @@ shape = SubResource("SphereShape3D_gear")
 transform = Transform3D(0.8, 0, 0, 0, 0.8, 0, 0, 0, 0.8, 0, -0.83170277, 3.3415222)
 steering_enabled = false
 
+[node name="GearPoint" type="Node3D" parent="FrontGearRig" unique_id=1442620197]
+transform = Transform3D(0.9999998, 0, 0, 0, 0.9999998, 0, 0, 0, 0.9999998, 0, -1.1825593, 0)
+
 [node name="RearLeftGearCollider" type="CollisionShape3D" parent="." unique_id=134916724]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.8, -1.4828521, -0.91589236)
 shape = SubResource("SphereShape3D_gear")
@@ -168,10 +170,16 @@ transform = Transform3D(1.2, 0, 0, 0, 1.2, 0, 0, 0, 1.2, 0.8, -0.35279685, -0.91
 steering_enabled = false
 gear_index = 1
 
+[node name="GearPoint" type="Node3D" parent="RearLeftGearRig" unique_id=1711998465]
+transform = Transform3D(0.9999998, 0, 0, 0, 0.9999998, 0, 0, 0, 0.9999998, 0, -1.1825593, 0)
+
 [node name="RearRightGearRig" parent="." unique_id=1731049002 instance=ExtResource("34_heli_gear")]
 transform = Transform3D(1.2, 0, 0, 0, 1.2, 0, 0, 0, 1.2, -0.8, -0.35279685, -0.91589236)
 steering_enabled = false
 gear_index = 2
+
+[node name="GearPoint" type="Node3D" parent="RearRightGearRig" unique_id=730517914]
+transform = Transform3D(0.9999998, 0, 0, 0, 0.9999998, 0, 0, 0, 0.9999998, 0, -1.1825593, 0)
 
 [node name="EnergyContainer" parent="." unique_id=1127279281 instance=ExtResource("7_energy")]
 
@@ -184,7 +192,6 @@ ThrottleSpoolUpRate = 0.48
 ThrottleSpoolDownRate = 0.82
 EngineLoopTargetVolumeDb = -1.0
 enable_propeller_blur = false
-propeller_spin_axis_local = Vector3(0, 0, 1)
 UINode = NodePath("../RotorAssembly")
 StartupInterlockNode = NodePath("../RotorAssembly")
 ProcessPhysics = true
@@ -209,7 +216,6 @@ deck_contact_visual_offset_m = 0.25
 move_colliders_with_suspension = true
 use_accel_lean = false
 nose_wheel_taxi_steering_enabled = false
-carrier_deck_follow_min_wheels = 3
 
 [node name="ControlEngine" parent="." unique_id=1520295740 instance=ExtResource("16_ctl_engine")]
 
@@ -292,27 +298,27 @@ script = ExtResource("28_ai_pilot")
 
 [node name="HelicopterPilot" type="Node" parent="." unique_id=1613759425]
 script = ExtResource("43_heli_ai")
+heightmap_path_corner_blend_radius_m = 180.0
+heightmap_path_corner_blend_strength = 0.8
 cruise_speed_mps = 60.0
 max_speed_mps = 65.0
-transit_cruise_forward_lean = 0.55
+max_climb_mps = 14.0
+max_descent_mps = 10.0
 collective_rate_up = 0.8
+transit_target_sink_mps = 8.0
 cyclic_rate = 1.1
+transit_max_nose_up = 0.35
 cyclic_altitude_rate_gain = 0.075
 cyclic_vertical_accel_damping = 0.03
 cyclic_target_climb_from_alt_error_mps = 0.11
 altitude_guard_m = 15.0
 sink_guard_mps = 3.0
-transit_descent_lean_bonus = 0.35
-transit_target_sink_mps = 8.0
-max_climb_mps = 14.0
-max_descent_mps = 10.0
 decel_distance_m = 1600.0
-heightmap_path_corner_blend_radius_m = 180.0
-heightmap_path_corner_blend_strength = 0.8
 transit_speed_target_accel_mps2 = 11.0
 transit_speed_target_decel_mps2 = 28.0
-transit_max_nose_up = 0.20
-transit_turn_roll_gain = 0.50
+yaw_rate_damping = 0.38
+yaw_command_rate = 1.15
+transit_turn_roll_gain = 0.5
 transit_lateral_velocity_gain = 0.022
 transit_low_speed_bank_start_mps = 8.0
 transit_low_speed_bank_full_mps = 45.0
@@ -321,14 +327,14 @@ transit_low_speed_yaw_gain = 0.65
 transit_low_speed_yaw_input = 0.75
 transit_backward_roll_cut_start_mps = 4.0
 transit_backward_roll_cut_full_mps = 12.0
-yaw_rate_damping = 0.38
-yaw_command_rate = 1.15
 transit_high_speed_roll_scale = 0.75
 transit_high_speed_lateral_roll_scale = 0.45
 transit_high_speed_yaw_gain = 0.85
 transit_high_speed_yaw_input = 0.8
 transit_bank_pullback_gain = 0.18
-debug_interval_s = 1.0
+transit_cruise_forward_lean = 0.55
+transit_descent_lean_bonus = 0.35
+debug_lifecycle_events = true
 
 [node name="AIToggle" type="Node" parent="." unique_id=611990186]
 script = ExtResource("27_ai_toggle")
