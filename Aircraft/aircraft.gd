@@ -165,6 +165,7 @@ func _ready():
 	add_to_group("aircraft")
 	add_to_group("weather_affected")
 	add_to_group("team_" + str(team))
+	add_to_group("origin_shifter")
 	
 	# Create world reference (for compatibility)
 	var internal_world_reference = get_node_or_null("/root/WorldOrientationReference")
@@ -214,6 +215,13 @@ func _ready():
 		livery_node.call("apply", self)
 
 	physics_interpolation_mode = Node3D.PHYSICS_INTERPOLATION_MODE_ON
+
+
+func apply_origin_shift(_offset: Vector3) -> void:
+	if freeze:
+		var rid := get_rid()
+		PhysicsServer3D.body_set_state(rid, PhysicsServer3D.BODY_STATE_TRANSFORM, global_transform)
+
 
 func _ensure_cockpit_pilot() -> void:
 	if not spawn_cockpit_pilot:
@@ -311,6 +319,10 @@ func _unhandled_input(event):
 			module.receive_input(event)
 
 func _physics_process(delta):
+	if freeze:
+		var rid := get_rid()
+		PhysicsServer3D.body_set_state(rid, PhysicsServer3D.BODY_STATE_TRANSFORM, global_transform)
+
 	var _profiler_start: int = FrameProfiler.begin("Aircraft.physics")
 	prepare_energy_system()
 	apply_shake_forces(delta)

@@ -227,6 +227,11 @@ func _input(event):
 			get_viewport().set_input_as_handled()
 		return
 
+	if event is InputEventKey and event.pressed and not event.echo and (event.keycode == KEY_F10 or event.physical_keycode == KEY_F10):
+		if _save_manual_log_for_viewed_aircraft():
+			get_viewport().set_input_as_handled()
+		return
+
 	if _is_action_pressed_event(event, "toggle_player_control"):
 		toggle_player_control()
 		get_viewport().set_input_as_handled()
@@ -307,6 +312,23 @@ func command_viewed_helicopter_to_return_to_carrier() -> bool:
 		if commanded_direct:
 			print("[FlightDirector] Commanded helicopter RTB landing: ", target.name)
 		return commanded_direct
+	return false
+
+
+func _save_manual_log_for_viewed_aircraft() -> bool:
+	var target: RigidBody3D = player_controlled_plane if is_instance_valid(player_controlled_plane) else current_viewed_aircraft
+	if not is_instance_valid(target):
+		target = _get_toggle_target_aircraft()
+	if not is_instance_valid(target):
+		print("[FlightDirector] F10: No active aircraft found to log.")
+		return false
+
+	var helicopter_pilot: Node = target.find_child("HelicopterPilot", true, false)
+	if helicopter_pilot != null and helicopter_pilot.has_method("save_manual_log"):
+		helicopter_pilot.call("save_manual_log", "Manual log triggered by user via F10")
+		return true
+
+	print("[FlightDirector] Viewed aircraft has no HelicopterPilot or save_manual_log method: ", target.name)
 	return false
 
 

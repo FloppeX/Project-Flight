@@ -45,7 +45,7 @@ func apply_origin_shift(offset: Vector3) -> void:
 @export var query_grid_enabled: bool = true
 @export var query_cell_size_m: float = 24.0
 ## Radius, in query cells, used to bake local height variation / edge risk.
-@export_range(1, 4) var query_edge_radius_cells: int = 1
+@export_range(1, 4) var query_edge_radius_cells: int = 2
 
 # --- Baked grid ---
 const IMPASSABLE: float = -1e6  # sentinel for out-of-bounds / NAN cells
@@ -65,6 +65,7 @@ var _bake_center_override_z: float = 0.0
 
 var _query_heights: PackedFloat32Array
 var _query_height_variation: PackedFloat32Array
+var _query_max_heights: PackedFloat32Array
 var _query_cols: int = 0
 var _query_rows: int = 0
 var _query_origin_x: float = 0.0
@@ -163,6 +164,12 @@ func sample_query_edge_risk(wx: float, wz: float) -> float:
 	return _sample_query_height_from_array(_query_height_variation, wx, wz, true)
 
 
+func sample_query_max_height(wx: float, wz: float) -> float:
+	if not _query_is_baked:
+		return INF
+	return _sample_query_height_from_array(_query_max_heights, wx, wz, true)
+
+
 func is_heightmap_safe_for_aircraft(wx: float, wz: float, max_height_variation_m: float) -> bool:
 	if not _query_is_baked:
 		return false
@@ -207,6 +214,32 @@ func is_stable_footprint(wx: float, wz: float, radius_m: float, max_center_drop_
 	return true
 
 
+func get_max_height_in_radius(wx: float, wz: float, radius_m: float) -> float:
+	if not _query_is_baked:
+		return IMPASSABLE
+	var center_g := _to_query_grid(wx, wz)
+	var radius_cells: int = maxi(int(ceil(maxf(radius_m, 0.0) / maxf(query_cell_size_m, 1.0))), 1)
+	var max_h: float = -INF
+	var sample_radius_sq: float = pow(radius_m + query_cell_size_m * 0.75, 2.0)
+	var found := false
+	for dz in range(-radius_cells, radius_cells + 1):
+		for dx in range(-radius_cells, radius_cells + 1):
+			var nx: int = center_g.x + dx
+			var nz: int = center_g.y + dz
+			if nx < 0 or nx >= _query_cols or nz < 0 or nz >= _query_rows:
+				continue
+			var sample_dx: float = float(dx) * query_cell_size_m
+			var sample_dz: float = float(dz) * query_cell_size_m
+			if sample_dx * sample_dx + sample_dz * sample_dz > sample_radius_sq:
+				continue
+			var idx: int = nz * _query_cols + nx
+			var h: float = _query_heights[idx]
+			if h > IMPASSABLE * 0.5:
+				max_h = maxf(max_h, h)
+				found = true
+	return max_h if found else IMPASSABLE
+
+
 func is_ready() -> bool:
 	return _is_baked
 
@@ -235,6 +268,7 @@ func _reset_bake_state() -> void:
 	_bake_center_z = 0.0
 	_query_heights = PackedFloat32Array()
 	_query_height_variation = PackedFloat32Array()
+	_query_max_heights = PackedFloat32Array()
 	_query_cols = 0
 	_query_rows = 0
 	_query_origin_x = 0.0
@@ -312,6 +346,7 @@ func _bake_query_grid(t: Node3D) -> void:
 	_query_is_baked = false
 	_query_heights = PackedFloat32Array()
 	_query_height_variation = PackedFloat32Array()
+	_query_max_heights = PackedFloat32Array()
 	_query_cols = 0
 	_query_rows = 0
 	if not query_grid_enabled or not is_instance_valid(t):
@@ -338,6 +373,8 @@ func _bake_query_grid(t: Node3D) -> void:
 func _compute_query_height_variation() -> void:
 	_query_height_variation.resize(_query_cols * _query_rows)
 	_query_height_variation.fill(INF)
+	_query_max_heights.resize(_query_cols * _query_rows)
+	_query_max_heights.fill(-INF)
 	var r: int = maxi(query_edge_radius_cells, 1)
 	for gz in range(_query_rows):
 		for gx in range(_query_cols):
@@ -365,6 +402,7 @@ func _compute_query_height_variation() -> void:
 					break
 			if valid:
 				_query_height_variation[idx] = max_h - min_h
+				_query_max_heights[idx] = max_h
 
 
 # --- A* ---

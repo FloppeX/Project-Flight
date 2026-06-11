@@ -60,6 +60,7 @@ func _enter_tree() -> void:
 	_configure_play_area_for_run()
 
 func _ready():
+	Engine.time_scale = 1.0
 	add_to_group("origin_shifter")
 	_reset_helicopter_log()
 	FrameProfiler.configure(frame_profiler_report_interval_s, frame_profiler_spike_threshold_ms, frame_profiler_top_count, frame_profiler_summary_interval_s)
