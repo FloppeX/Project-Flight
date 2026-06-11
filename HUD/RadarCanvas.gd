@@ -236,6 +236,9 @@ func _draw() -> void:
 		if e == current_target:
 			draw_arc(Vector2(epx, epy), 8, 0, TAU, 16, Color.WHITE, 2)
 
+	# Draw flight route (waypoints from HelicopterPilot or AIPilot)
+	_draw_flight_route(center, radius, origin, flat_right, flat_forward, range_m)
+
 	# Draw own aircraft at center, always pointing up (heading-up display).
 	var own_color: Color = Livery.get_team_hud_color(team_id)
 	_draw_heading_triangle(center, Vector2(0.0, -1.0), own_color)
@@ -440,3 +443,64 @@ func _terrain_uv_for_radar_point(
 	var u: float = (sample_world.x - TerrainNavGrid._origin_x) / span_x
 	var v: float = (sample_world.z - TerrainNavGrid._origin_z) / span_z
 	return Vector2(clampf(u, 0.0, 1.0), clampf(v, 0.0, 1.0))
+
+
+# --- Flight route drawing ---------------------------------------------------
+
+const ROUTE_COLOR: Color = Color(0.44, 0.86, 1.0, 0.9)  # Light blue, matches tactical map
+const ROUTE_LINE_WIDTH: float = 1.6
+const ROUTE_DOT_SIZE: float = 4.0
+const ROUTE_SIMPLIFY_MIN_PX: float = 4.0  # Skip waypoints closer than this on screen
+
+func _draw_flight_route(center: Vector2, radius: float, origin: Vector3,
+		flat_right: Vector3, flat_forward: Vector3, range_m: float) -> void:
+	if provider == null or not is_instance_valid(provider):
+		return
+	var ac = provider.aircraft if ("aircraft" in provider) else null
+	if ac == null or not is_instance_valid(ac):
+		return
+	# Find a waypoint provider: HelicopterPilot first, then AIPilot
+	var pilot: Node = ac.find_child("HelicopterPilot", true, false)
+	if pilot == null:
+		pilot = ac.find_child("AIPilot", true, false)
+	if pilot == null or not pilot.has_method("get_active_waypoints"):
+		return
+	var waypoints: Array = pilot.get_active_waypoints()
+	if waypoints.is_empty():
+		return
+
+	# Build screen-space polyline: start at own position (center), then each waypoint
+	var map_points: PackedVector2Array = PackedVector2Array()
+	map_points.append(center)  # Own aircraft is always at center
+	for wp in waypoints:
+		var screen_pt := _world_to_radar(wp, origin, flat_right, flat_forward, range_m, center, radius)
+		# Skip points that are too close to the previous one (route simplification)
+		if map_points.size() > 0 and screen_pt.distance_to(map_points[map_points.size() - 1]) < ROUTE_SIMPLIFY_MIN_PX:
+			continue
+		map_points.append(screen_pt)
+
+	if map_points.size() < 2:
+		return
+
+	# Draw route line
+	draw_polyline(map_points, ROUTE_COLOR, ROUTE_LINE_WIDTH, true)
+
+	# Draw square markers at each waypoint (skip index 0 which is own position)
+	for i in range(1, map_points.size()):
+		_draw_square_marker(map_points[i], ROUTE_DOT_SIZE, ROUTE_COLOR)
+
+func _world_to_radar(world_pos: Vector3, origin: Vector3, flat_right: Vector3,
+		flat_forward: Vector3, range_m: float, center: Vector2, radius: float) -> Vector2:
+	var rel: Vector3 = world_pos - origin
+	var rx: float = rel.dot(flat_right)
+	var rz: float = rel.dot(flat_forward)
+	return Vector2(
+		center.x + (rx / range_m) * radius,
+		center.y - (rz / range_m) * radius
+	)
+
+func _draw_square_marker(pos: Vector2, size_px: float, color: Color) -> void:
+	var half: float = size_px * 0.5
+	draw_rect(Rect2(pos.x - half, pos.y - half, size_px, size_px), color)
+	draw_rect(Rect2(pos.x - half, pos.y - half, size_px, size_px), Color(1.0, 1.0, 1.0, 0.5), false, 1.0)
+

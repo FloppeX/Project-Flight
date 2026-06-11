@@ -22,6 +22,8 @@ var _open_target: bool = false
 var _open_t: float = 0.0
 var _initialized: bool = false
 var _toggle_key_was_down: bool = false
+var _is_landed_idle: bool = false
+var _idle_time_s: float = 0.0
 
 
 func _ready() -> void:
@@ -44,13 +46,36 @@ func receive_input(event: InputEvent) -> void:
 		var key_event := event as InputEventKey
 		if key_event.pressed and not key_event.echo and key_event.physical_keycode == toggle_key:
 			_open_target = not _open_target
+			print("[HeliSlidingDoors] %s manual door toggle: open_target=%s" % [aircraft.name, _open_target])
 			get_viewport().set_input_as_handled()
 
 
 func process_render_frame(delta: float) -> void:
 	if not _initialized:
 		return
-	_poll_toggle_key()
+	
+	if _is_this_aircraft_player_controlled():
+		_poll_toggle_key()
+	else:
+		var pilot = aircraft.find_child("HelicopterPilot", true, false) if is_instance_valid(aircraft) else null
+		if is_instance_valid(pilot) and pilot.get("state") == 0: # State.IDLE
+			if not _is_landed_idle:
+				_is_landed_idle = true
+				_idle_time_s = 0.0
+				_open_target = true
+				print("[HeliSlidingDoors] %s doors opening: landing idle detected" % [aircraft.name])
+			else:
+				_idle_time_s += delta
+				if _idle_time_s >= 10.0 and _open_target:
+					_open_target = false
+					print("[HeliSlidingDoors] %s doors closing: idle time limit reached" % [aircraft.name])
+		else:
+			if _is_landed_idle:
+				_is_landed_idle = false
+				if _open_target:
+					_open_target = false
+					print("[HeliSlidingDoors] %s doors closing: takeoff/transition detected" % [aircraft.name])
+				
 	var target_t := 1.0 if _open_target else 0.0
 	_open_t = move_toward(_open_t, target_t, delta / maxf(animation_duration_s, 0.01))
 	_apply_door_pose()
@@ -60,6 +85,7 @@ func _poll_toggle_key() -> void:
 	var key_down := Input.is_physical_key_pressed(toggle_key)
 	if key_down and not _toggle_key_was_down and _is_this_aircraft_player_controlled():
 		_open_target = not _open_target
+		print("[HeliSlidingDoors] %s manual door toggle: open_target=%s" % [aircraft.name, _open_target])
 	_toggle_key_was_down = key_down
 
 
@@ -96,6 +122,7 @@ func _setup_doors() -> void:
 	_right_rear_travel_m = rear_travel
 	_initialized = true
 	_apply_door_pose()
+	print("[HeliSlidingDoors] %s doors setup complete: left=%s, right=%s" % [aircraft.name, _left_door.name, _right_door.name])
 
 
 func _make_door_clone(node_name: String, mesh: Mesh) -> MeshInstance3D:
@@ -277,12 +304,15 @@ func _is_this_aircraft_player_controlled() -> bool:
 	if not is_instance_valid(aircraft):
 		return false
 	var director := get_node_or_null("/root/FlightDirector")
-	if director == null:
-		return true
-	var controlled = director.get("player_controlled_plane")
-	if is_instance_valid(controlled):
-		return controlled == aircraft
-	var viewed = director.get("current_viewed_aircraft")
-	if is_instance_valid(viewed):
-		return viewed == aircraft
+	if director != null:
+		var controlled = director.get("player_controlled_plane")
+		if is_instance_valid(controlled) and controlled == aircraft:
+			return true
+		var viewed = director.get("current_viewed_aircraft")
+		if is_instance_valid(viewed) and viewed == aircraft:
+			return true
+		return false
+	var ai_toggle = aircraft.get_node_or_null("AIToggle")
+	if ai_toggle != null and "ai_active" in ai_toggle:
+		return not ai_toggle.ai_active
 	return true

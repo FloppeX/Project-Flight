@@ -271,6 +271,7 @@ func _create_ground_bullet_mark(body: Object) -> void:
 	var decal: Decal = Decal.new()
 	decal.texture_albedo = _scorch_texture if _scorch_texture != null else load(SCORCH_TEXTURE_PATH)
 	decal.size = ground_mark_size
+	decal.sorting_offset = 20.0
 	# Offset slightly along normal to avoid z-fighting
 	decal.global_position = hit_pos + hit_normal * 0.01
 	

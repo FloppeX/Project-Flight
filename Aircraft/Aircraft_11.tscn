@@ -5,6 +5,7 @@
 [ext_resource type="PackedScene" uid="uid://c3d01hslmb246" path="res://Models/Aircraft_11/aircraft_11.glb" id="3_model"]
 [ext_resource type="PackedScene" uid="uid://djtbinx1svo2u" path="res://Aircraft/Aircraft wreck/aircraft_1_wreck.tscn" id="4_wreck"]
 [ext_resource type="Script" uid="uid://cef6lhgwhvqck" path="res://Aircraft/HelicopterFlight.gd" id="5_aero"]
+[ext_resource type="PackedScene" uid="uid://2iprlcyidpwa" path="res://Models/Aircraft_9/rotor disc.glb" id="6_ns3yf"]
 [ext_resource type="Script" uid="uid://djeo15g2htwka" path="res://Aircraft/Visuals/CounterRotatingRotor.gd" id="6_rotor_script"]
 [ext_resource type="PackedScene" uid="uid://diddm04vtjnny" path="res://addons/simplified_flightsim/aircraft_modules/EnergyContainer/EnergyContainer.tscn" id="7_energy"]
 [ext_resource type="PackedScene" uid="uid://bxmk3xwsygst" path="res://addons/simplified_flightsim/aircraft_modules/Engine/Engine.tscn" id="8_engine"]
@@ -30,10 +31,11 @@
 [ext_resource type="AudioStream" uid="uid://o2xkkc5oyh4w" path="res://Audio/cockpit_interior_4.wav" id="31_cockpit"]
 [ext_resource type="PackedScene" uid="uid://ba1hsntx8a01y" path="res://Aircraft/CockpitPilot.tscn" id="32_cockpit_pilot"]
 [ext_resource type="PackedScene" uid="uid://d0r3ka52tjbb4" path="res://Models/Aircraft_9/Rotor blade.glb" id="33_rotor_blade"]
-[ext_resource type="PackedScene" uid="uid://p831mbxhqubt" path="res://Models/Aircraft_1/aircraft 2 propeller.glb" id="35_tail_propeller"]
+[ext_resource type="PackedScene" uid="uid://8a1uo1i0xu5n" path="res://Models/Aircraft_9/tail rotor.glb" id="35_tail_propeller"]
 [ext_resource type="PackedScene" uid="uid://dsnc8jllg42ph" path="res://Weapons/hardpoint.tscn" id="40_hardpoint"]
 [ext_resource type="PackedScene" uid="uid://cn0n757m62w08" path="res://Weapons/RocketPod/rocket_pod.tscn" id="41_rocket"]
 [ext_resource type="Script" uid="uid://ljqeb30m632d" path="res://AI/HelicopterPilot.gd" id="43_heli_ai"]
+[ext_resource type="Script" uid="uid://q2od5mw1veln" path="res://Aircraft/Visuals/HeliSwingDoors.gd" id="44_swing_doors"]
 
 [sub_resource type="PhysicsMaterial" id="PhysicsMaterial_lowfriction"]
 friction = 0.75
@@ -43,8 +45,8 @@ radius = 1.0224609
 height = 4.612036
 
 [sub_resource type="CylinderShape3D" id="CylinderShape3D_dd2no"]
-height = 0.9
-radius = 4.6
+height = 0.30144042
+radius = 4.868164
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_0gu2e"]
 size = Vector3(0.23223877, 0.21679688, 2.8190918)
@@ -78,8 +80,11 @@ transform = Transform3D(0.9, 0, 0, 0, 0.9, 0, 0, 0, 0.9, 0, -0.5471029, 0)
 script = ExtResource("6_rotor_script")
 upper_blade_yaws_deg = PackedFloat32Array(0, 120, -120)
 
+[node name="rotor disc2" parent="RotorAssembly" unique_id=1135955000 instance=ExtResource("6_ns3yf")]
+transform = Transform3D(0.72, 0, 0, 0, 0.72, 0, 0, 0, 0.72, 0, 2.0831313, 0)
+
 [node name="UpperRotor" type="Node3D" parent="RotorAssembly" unique_id=410168063]
-transform = Transform3D(0.7, 0, 0, 0, 0.7, 0, 0, 0, 0.7, 0, 2.2319345, 0)
+transform = Transform3D(0.70000005, 0, 0, 0, 0.70000005, 0, 0, 0, 0.70000005, 0, 2.0197992, 0)
 
 [node name="Blade0" parent="RotorAssembly/UpperRotor" unique_id=691971732 instance=ExtResource("33_rotor_blade")]
 transform = Transform3D(-1, 0, 0, 0, -1, 0, 0, 0, 1, 0, 0, 0)
@@ -101,7 +106,7 @@ transform = Transform3D(1, 0, 0, 0, -4.37114e-08, -1, 0, 1, -4.37114e-08, 0, -0.
 shape = SubResource("CapsuleShape3D_fuselage")
 
 [node name="RotorClearanceCollider" type="CollisionShape3D" parent="." unique_id=1589625246]
-transform = Transform3D(0.9, 0, 0, 0, 0.9, 0, 0, 0, 0.9, -0.0006971359, 2.1528971, -0.011106968)
+transform = Transform3D(0.9, 0, 0, 0, 0.9, 0, 0, 0, 0.9, -0.0006971359, 1.2300048, -0.011106968)
 shape = SubResource("CylinderShape3D_dd2no")
 disabled = true
 
@@ -175,7 +180,6 @@ FuelRate = 0.006
 ThrottleSpoolUpRate = 0.48
 ThrottleSpoolDownRate = 0.82
 EngineLoopTargetVolumeDb = -1.0
-enable_propeller_blur = false
 UINode = NodePath("../RotorAssembly")
 StartupInterlockNode = NodePath("../RotorAssembly")
 ProcessPhysics = true
@@ -323,6 +327,9 @@ transit_descent_lean_bonus = 0.35
 script = ExtResource("27_ai_toggle")
 ai_enabled_at_start = false
 
+[node name="SwingDoors" type="Node" parent="." unique_id=973064612]
+script = ExtResource("44_swing_doors")
+
 [node name="DamageEffects" type="Node" parent="." unique_id=1773106404]
 script = ExtResource("30_damage")
 
@@ -330,7 +337,7 @@ script = ExtResource("30_damage")
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -1.1, 0.1)
 
 [node name="InsigniaSide" type="Marker3D" parent="." unique_id=1137083662]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.9140955, -0.20554134, -0.82248265)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.1658126, -0.20554134, -0.82248265)
 
 [node name="InsigniaTail" type="Marker3D" parent="." unique_id=934637700]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.3937527, 1.4982497, -6.0211883)
@@ -338,11 +345,11 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.3937527, 1.4982497, -6.0211
 [node name="DoorHingeLeft_1" type="Node3D" parent="." unique_id=1583900778]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.9055862, 0.12220864, 0.45606726)
 
+[node name="DoorHingeRight_2" type="Node3D" parent="." unique_id=712102916]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.9443912, -0.16740716, 0.5245709)
+
 [node name="DoorHingeRight_1" type="Node3D" parent="." unique_id=1821106142]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.90570384, 0.12220864, 0.45606726)
 
 [node name="DoorHingeLeft_2" type="Node3D" parent="." unique_id=1950025628]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.94388896, -0.16740716, 0.5245709)
-
-[node name="DoorHingeRight_2" type="Node3D" parent="." unique_id=712102916]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.9443912, -0.16740716, 0.5245709)

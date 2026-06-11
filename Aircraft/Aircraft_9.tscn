@@ -7,6 +7,7 @@
 [ext_resource type="Script" uid="uid://cef6lhgwhvqck" path="res://Aircraft/HelicopterFlight.gd" id="5_aero"]
 [ext_resource type="Script" uid="uid://djeo15g2htwka" path="res://Aircraft/Visuals/CounterRotatingRotor.gd" id="6_rotor_script"]
 [ext_resource type="PackedScene" uid="uid://diddm04vtjnny" path="res://addons/simplified_flightsim/aircraft_modules/EnergyContainer/EnergyContainer.tscn" id="7_energy"]
+[ext_resource type="PackedScene" uid="uid://2iprlcyidpwa" path="res://Models/Aircraft_9/rotor disc.glb" id="7_ipfui"]
 [ext_resource type="PackedScene" uid="uid://bxmk3xwsygst" path="res://addons/simplified_flightsim/aircraft_modules/Engine/Engine.tscn" id="8_engine"]
 [ext_resource type="PackedScene" uid="uid://dtqtmiqu6tnjn" path="res://addons/simplified_flightsim/aircraft_modules/Steering/Steering.tscn" id="11_steering"]
 [ext_resource type="PackedScene" uid="uid://cjfopuepgkub3" path="res://addons/simplified_flightsim/aircraft_modules/Flaps/Flaps.tscn" id="12_flaps"]
@@ -83,6 +84,12 @@ script = ExtResource("35_sliding_doors")
 [node name="RotorAssembly" type="Node3D" parent="." unique_id=1697660502]
 script = ExtResource("6_rotor_script")
 
+[node name="rotor disc 1" parent="RotorAssembly" unique_id=1135955000 instance=ExtResource("7_ipfui")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3.1544917, 0)
+
+[node name="rotor disc 2" parent="RotorAssembly" unique_id=1458148345 instance=ExtResource("7_ipfui")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3.9504685, 0)
+
 [node name="UpperRotor" type="Node3D" parent="RotorAssembly" unique_id=410168063]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3.847, 0)
 
@@ -138,8 +145,8 @@ vertical_stabilizer_damping = 0.7
 vertical_stabilizer_full_speed_mps = 42.0
 horizontal_drag_strength = 0.1
 lateral_drag_strength = 0.55
-max_forward_speed_mps = 50.0
 high_speed_nose_drag_strength = 0.08
+max_forward_speed_mps = 50.0
 ground_effect_strength = 0.12
 deck_takeoff_brake_release_collective = 0.72
 
@@ -337,7 +344,6 @@ max_climb_mps = 12.0
 max_descent_mps = 5.0
 transit_target_sink_mps = 4.0
 transit_max_nose_up = 0.18
-decel_distance_m = 1000.0
 transit_cruise_forward_lean = 0.25
 transit_descent_lean_bonus = 0.15
 

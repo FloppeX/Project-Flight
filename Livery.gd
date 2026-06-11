@@ -31,6 +31,10 @@ extends Node
 ## Carrier hull insignia scale (much larger than wing insignia).
 @export var carrier_insignia_width := 6.0
 @export var carrier_insignia_depth := 4.0
+@export_group("Test Markings")
+@export var helicopter_upper_pattern_index := 0
+@export var helicopter_upper_pattern_frequency_per_meter := 1.1
+@export_range(0.01, 0.95, 0.01) var helicopter_upper_pattern_width_fraction := 0.18
 
 ## Insignia textures — loaded at startup.
 var insignia_textures: Array[Texture2D] = []
@@ -38,16 +42,48 @@ var insignia_index: int = 0   # Which insignia is active
 var _upper_color_preset_index: int = 0
 var _rng: RandomNumberGenerator = RandomNumberGenerator.new()
 var _team_upper_preset_indices: Dictionary = {}
+var _team_secondary_preset_indices: Dictionary = {}
 var _team_insignia_indices: Dictionary = {}
 var _active_apply_upper_color: Color = Color(0.28, 0.33, 0.38)
+var _active_apply_secondary_color: Color = Color(0.02, 0.02, 0.02)
+var _active_apply_tertiary_color: Color = Color(0.35, 0.42, 0.22)
 var _active_apply_insignia_index: int = 0
 var _active_apply_has_pilot_colors: bool = false
 var _active_apply_pilot_main_color: Color = Color(0.36, 0.40, 0.44)
 var _active_apply_pilot_main_dark_color: Color = Color(0.17, 0.18, 0.20)
 var _active_apply_pilot_helmet_color_1: Color = Color(0.36, 0.40, 0.44)
 var _active_apply_pilot_helmet_color_2: Color = Color(0.36, 0.40, 0.44)
+var _active_apply_is_helicopter: bool = false
 const PLAYER_TEAM_ID: int = 1
 const PILOT_LIVERY_META_KEY: StringName = &"pilot_livery_colors"
+const UPPER_FUSELAGE_TEST_STRIPE_SHADER: Shader = preload("res://Shaders/upper_fuselage_test_stripes.gdshader")
+const HELICOPTER_UPPER_PATTERN_NAMES: Array[String] = [
+	"off",
+	"vertical stripes",
+	"zebra stripes",
+	"tiger stripes",
+	"camo pattern",
+	"horizontal lines",
+	"polka dots",
+	"horizontal lightning",
+	"plaid",
+	"squares",
+	"stars",
+	"digital camo",
+	"chevrons",
+	"wavy vertical",
+	"wavy diagonal",
+	"diamonds",
+	"triangles",
+	"angular shard camo",
+	"angular splinter camo",
+	"faceted camo",
+	"front quarter color 2",
+	"center half color 1",
+	"tail quarter color 2",
+	"quarter thirds",
+	"offset block bands",
+]
 
 const PRESET_UPPER_COLORS: Array[Color] = [
 	Color(0.03, 0.03, 0.03),  # Black
@@ -100,16 +136,26 @@ func _ready() -> void:
 
 var _c_was_pressed := false
 var _v_was_pressed := false
+var _k_was_pressed := false
+var _j_was_pressed := false
 
 func _process(_delta: float) -> void:
 	var c_now := Input.is_key_pressed(KEY_C)
 	var v_now := Input.is_key_pressed(KEY_V)
+	var k_now := Input.is_key_pressed(KEY_K)
+	var j_now := Input.is_key_pressed(KEY_J)
 	if c_now and not _c_was_pressed:
 		cycle_upper_color()
 	if v_now and not _v_was_pressed:
 		cycle_insignia()
+	if k_now and not _k_was_pressed:
+		cycle_helicopter_upper_pattern()
+	if j_now and not _j_was_pressed:
+		cycle_secondary_color()
 	_c_was_pressed = c_now
 	_v_was_pressed = v_now
+	_k_was_pressed = k_now
+	_j_was_pressed = j_now
 
 func _find_insignia_paths() -> Array[String]:
 	var paths: Array[String] = []
@@ -176,6 +222,13 @@ func cycle_insignia() -> void:
 	_team_insignia_indices[PLAYER_TEAM_ID] = insignia_index
 	_reapply_all()
 
+func cycle_helicopter_upper_pattern() -> void:
+	if HELICOPTER_UPPER_PATTERN_NAMES.is_empty():
+		return
+	helicopter_upper_pattern_index = (helicopter_upper_pattern_index + 1) % HELICOPTER_UPPER_PATTERN_NAMES.size()
+	_reapply_all()
+	print("[Livery] Helicopter upper fuselage test pattern: ", HELICOPTER_UPPER_PATTERN_NAMES[helicopter_upper_pattern_index])
+
 func _reapply_all() -> void:
 	var seen_ids: Dictionary = {}
 	for group_name in ["aircraft", "ai_aircraft", "friendlies", "ground_vehicles", "enemies", "buildings", "carrier"]:
@@ -206,12 +259,15 @@ func apply(root: Node) -> void:
 	var team_id: int = _resolve_team_id(root)
 	_ensure_team_livery(team_id)
 	_active_apply_upper_color = _get_team_upper_color(team_id)
+	_active_apply_secondary_color = _get_team_secondary_color(team_id)
+	_active_apply_tertiary_color = _get_team_tertiary_color(team_id)
 	_active_apply_insignia_index = _get_team_insignia_index(team_id)
 	_activate_pilot_colors_for_root(root)
 	if team_id == PLAYER_TEAM_ID:
 		upper_color = _active_apply_upper_color
 		_upper_color_preset_index = int(_team_upper_preset_indices.get(PLAYER_TEAM_ID, _upper_color_preset_index))
 		insignia_index = _active_apply_insignia_index
+	_active_apply_is_helicopter = _is_helicopter_root(root)
 	_apply_recursive(root)
 	if root is RigidBody3D and root.get("team") != null:
 		_apply_insignia(root)
@@ -220,6 +276,7 @@ func apply(root: Node) -> void:
 
 func _reset_team_livery_assignments() -> void:
 	_team_upper_preset_indices.clear()
+	_team_secondary_preset_indices.clear()
 	_team_insignia_indices.clear()
 	_ensure_team_livery(PLAYER_TEAM_ID)
 	upper_color = _get_team_upper_color(PLAYER_TEAM_ID)
@@ -246,12 +303,21 @@ func _resolve_team_id(node: Node) -> int:
 			return int(suffix)
 	return PLAYER_TEAM_ID
 
+func _is_helicopter_root(node: Node) -> bool:
+	if node == null or not is_instance_valid(node):
+		return false
+	if bool(node.get_meta("is_helicopter", false)):
+		return true
+	return node.find_child("HelicopterFlight", true, false) != null
+
 func _ensure_team_livery(team_id: int) -> void:
 	if not _team_upper_preset_indices.has(team_id):
 		if team_id != PLAYER_TEAM_ID:
 			_team_upper_preset_indices[team_id] = _pick_distant_index_from_player()
 		else:
 			_team_upper_preset_indices[team_id] = _pick_random_unassigned_index(PRESET_UPPER_COLORS.size(), _team_upper_preset_indices)
+	if not _team_secondary_preset_indices.has(team_id):
+		_team_secondary_preset_indices[team_id] = _rng.randi_range(0, PRESET_UPPER_COLORS.size() - 1)
 	if not _team_insignia_indices.has(team_id):
 		if insignia_textures.is_empty():
 			_team_insignia_indices[team_id] = 0
@@ -350,6 +416,31 @@ func _pick_random_color(pool: Array[Color]) -> Color:
 ## Public: returns the raw upper fuselage color for a team.
 func get_team_upper_color(team_id: int) -> Color:
 	return _get_team_upper_color(team_id)
+
+func _get_team_secondary_color(team_id: int) -> Color:
+	_ensure_team_livery(team_id)
+	var idx := int(_team_secondary_preset_indices.get(team_id, 0))
+	return PRESET_UPPER_COLORS[clampi(idx, 0, PRESET_UPPER_COLORS.size() - 1)]
+
+func _get_team_tertiary_color(team_id: int) -> Color:
+	return _color_between_hues(_get_team_upper_color(team_id), _get_team_secondary_color(team_id))
+
+func _color_between_hues(primary: Color, secondary: Color) -> Color:
+	var hue_delta := fposmod(secondary.h - primary.h + 0.5, 1.0) - 0.5
+	var midpoint_hue := fposmod(primary.h + hue_delta * 0.5, 1.0)
+	var midpoint_saturation := (primary.s + secondary.s) * 0.5
+	var midpoint_value := (primary.v + secondary.v) * 0.5
+	var midpoint_alpha := (primary.a + secondary.a) * 0.5
+	return Color.from_hsv(midpoint_hue, midpoint_saturation, midpoint_value, midpoint_alpha)
+
+func cycle_secondary_color() -> void:
+	if PRESET_UPPER_COLORS.is_empty():
+		return
+	_ensure_team_livery(PLAYER_TEAM_ID)
+	var index := (int(_team_secondary_preset_indices.get(PLAYER_TEAM_ID, 0)) + 1) % PRESET_UPPER_COLORS.size()
+	_team_secondary_preset_indices[PLAYER_TEAM_ID] = index
+	_reapply_all()
+	print("[Livery] Helicopter pattern secondary color changed to preset index: ", index, " (", PRESET_UPPER_COLORS[index], ")")
 
 ## Public: returns a bright, HUD-readable color for a team (same hue, boosted S/V).
 ## Useful for map and hologram markers so muted fuselage colors remain legible.
@@ -455,6 +546,9 @@ func _apply_insignia(aircraft: Node) -> void:
 			decal.add_to_group("livery_insignia")
 			decal.texture_albedo = tex
 			decal.size = decal_size
+			decal.sorting_offset = 10.0
+			decal.upper_fade = 0.0
+			decal.lower_fade = 0.0
 			side_host.add_child(decal)
 
 			# Convert marker-based transform (authored in aircraft space) into host-local
@@ -472,6 +566,9 @@ func _apply_insignia(aircraft: Node) -> void:
 			tail_decal.add_to_group("livery_insignia")
 			tail_decal.texture_albedo = tex
 			tail_decal.size = tail_size
+			tail_decal.sorting_offset = 10.0
+			tail_decal.upper_fade = 0.0
+			tail_decal.lower_fade = 0.0
 			aircraft_3d.add_child(tail_decal)
 
 			var t_tail := tail_marker.transform
@@ -499,6 +596,9 @@ func _apply_insignia(aircraft: Node) -> void:
 		nose_decal.add_to_group("livery_insignia")
 		nose_decal.texture_albedo = tex
 		nose_decal.size = Vector3(nose_insignia_width, nose_insignia_depth, nose_insignia_width * aspect)
+		nose_decal.sorting_offset = 10.0
+		nose_decal.upper_fade = 0.0
+		nose_decal.lower_fade = 0.0
 		aircraft_3d.add_child(nose_decal)
 
 		var t_nose := nose_marker.transform
@@ -704,6 +804,9 @@ func _apply_carrier_insignia(carrier: Node) -> void:
 			decal.add_to_group("livery_carrier_insignia")
 			decal.texture_albedo = tex
 			decal.size = decal_size
+			decal.sorting_offset = 10.0
+			decal.upper_fade = 0.0
+			decal.lower_fade = 0.0
 			decal.transform.origin = child.transform.origin
 			decal.transform.basis = Basis(
 				Vector3(0, 0, -1),         # decal X → carrier aft
@@ -755,6 +858,10 @@ func _apply_recursive(node: Node) -> void:
 				elif _active_apply_has_pilot_colors and mat_name == "helmet color 2":
 					target_color = _active_apply_pilot_helmet_color_2
 				if target_color.r >= 0.0:
+					var pattern_index := _normalized_helicopter_upper_pattern_index()
+					if is_upper_fuselage_surface and _active_apply_is_helicopter and pattern_index > 0:
+						mi.set_surface_override_material(i, _make_upper_fuselage_test_pattern_material(target_color, mat, pattern_index))
+						continue
 					var override: StandardMaterial3D
 					if mat is StandardMaterial3D:
 						override = mat.duplicate() as StandardMaterial3D
@@ -767,3 +874,27 @@ func _apply_recursive(node: Node) -> void:
 					mi.set_surface_override_material(i, override)
 	for child in node.get_children():
 		_apply_recursive(child)
+
+func _normalized_helicopter_upper_pattern_index() -> int:
+	if HELICOPTER_UPPER_PATTERN_NAMES.is_empty():
+		return 0
+	var size := HELICOPTER_UPPER_PATTERN_NAMES.size()
+	return ((helicopter_upper_pattern_index % size) + size) % size
+
+func _make_upper_fuselage_test_pattern_material(base_color: Color, source_material: Material, pattern_index: int) -> ShaderMaterial:
+	var pattern_material := ShaderMaterial.new()
+	pattern_material.resource_name = "Upper Fuselage Test Pattern"
+	pattern_material.shader = UPPER_FUSELAGE_TEST_STRIPE_SHADER
+	pattern_material.set_shader_parameter("base_color", base_color)
+	pattern_material.set_shader_parameter("pattern_color", _active_apply_secondary_color)
+	pattern_material.set_shader_parameter("tertiary_pattern_color", _active_apply_tertiary_color)
+	pattern_material.set_shader_parameter("pattern_mode", pattern_index)
+	pattern_material.set_shader_parameter("pattern_frequency_per_meter", helicopter_upper_pattern_frequency_per_meter)
+	pattern_material.set_shader_parameter("pattern_width_fraction", helicopter_upper_pattern_width_fraction)
+
+	if source_material is StandardMaterial3D:
+		var standard := source_material as StandardMaterial3D
+		pattern_material.set_shader_parameter("roughness", standard.roughness)
+		pattern_material.set_shader_parameter("metallic", standard.metallic)
+
+	return pattern_material

@@ -591,6 +591,7 @@ func create_bullet_scorch_mark(aircraft_body: Node) -> void:
 	# Disable distance fade so the mark stays sharp across the whole projection volume.
 	decal.upper_fade = 0.0
 	decal.lower_fade = 0.0
+	decal.sorting_offset = 20.0
 
 	# Parent first, then set global transform so placement is correct in world space.
 	if aircraft_body and is_instance_valid(aircraft_body):

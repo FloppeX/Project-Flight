@@ -21,6 +21,8 @@ extends Node3D
 @export var high_collective_negative_droop_deg: float = 2.0
 @export var debug_console_enabled: bool = false
 @export var debug_interval_s: float = 1.0
+@export var blur_start_power: float = 0.5
+@export var blur_full_power: float = 0.9
 
 const ROTOR_VISUAL_RATE_RAD_S: float = 240.0
 
@@ -45,11 +47,14 @@ var _debug_timer_s: float = 0.0
 var _last_blade_segment_angle_deg: float = INF
 var _last_upper_step_rad: float = 0.0
 var _last_lower_step_rad: float = 0.0
+var _upper_disc: Node3D = null
+var _lower_disc: Node3D = null
 
 
 func _ready() -> void:
 	_cache_blade_rest_pose(upper_rotor)
 	_cache_blade_rest_pose(lower_rotor)
+	_setup_rotor_discs()
 	_apply_fold_pose()
 	_print_debug_line("ready")
 
@@ -85,6 +90,7 @@ func _physics_process(delta: float) -> void:
 	_update_fold(delta)
 	var rpm_rate := rotor_spool_up_rate if _target_power >= _power else rotor_spool_down_rate
 	_power = move_toward(_power, _target_power, maxf(rpm_rate, 0.001) * delta)
+	_update_rotor_transparency()
 	_update_blade_segments()
 	if _fold_t > 0.001:
 		_power = 0.0
@@ -156,6 +162,8 @@ func _cache_blade_rest_pose(rotor: Node3D) -> void:
 		return
 	_rotor_rest_transforms[_get_node_cache_key(rotor)] = rotor.transform
 	for child in rotor.get_children():
+		if not child.name.begins_with("Blade"):
+			continue
 		var blade := child as Node3D
 		if blade == null:
 			continue
@@ -167,7 +175,7 @@ func _cache_blade_rest_pose(rotor: Node3D) -> void:
 	if debug_console_enabled:
 		print("ROTOR_DEBUG event=cache rotor=%s child_count=%d cached_total=%d" % [
 			rotor.name,
-			rotor.get_child_count(),
+			_get_blade_count(rotor),
 			_blade_origins.size()
 		])
 
@@ -189,7 +197,10 @@ func _apply_rotor_blade_layout(rotor: Node3D, deployed_yaws_deg: PackedFloat32Ar
 	if rotor == null:
 		return
 	var index := 0
+	var blade_count := _get_blade_count(rotor)
 	for child in rotor.get_children():
+		if not child.name.begins_with("Blade"):
+			continue
 		var blade := child as Node3D
 		if blade == null:
 			continue
@@ -201,7 +212,7 @@ func _apply_rotor_blade_layout(rotor: Node3D, deployed_yaws_deg: PackedFloat32Ar
 		var transform := Transform3D(Basis(Vector3.UP, yaw_delta), Vector3.ZERO) * rest_transform
 		var origin: Vector3 = rest_transform.origin
 		origin.y += clampf(
-			_get_stowed_stack_offset(index, rotor.get_child_count(), unfold_t),
+			_get_stowed_stack_offset(index, blade_count, unfold_t),
 			-absf(stowed_blade_stack_spacing_m),
 			absf(stowed_blade_stack_spacing_m)
 		)
@@ -362,9 +373,11 @@ func _get_rotor_debug_summary(rotor: Node3D) -> String:
 	var rotor_yaw := rad_to_deg(rotor.rotation.y)
 	var rotor_global := rotor.global_position
 	for child in rotor.get_children():
-		if not (child is Node3D):
+		if not child.name.begins_with("Blade"):
 			continue
 		var blade := child as Node3D
+		if blade == null:
+			continue
 		var blade_index := _get_blade_index(blade)
 		var rest_yaw := _get_deployed_yaw_for_blade(blade, blade_index, _get_rotor_deployed_yaws(rotor))
 		var blade_fields := PackedStringArray()
@@ -383,7 +396,7 @@ func _get_rotor_debug_summary(rotor: Node3D) -> String:
 			" ".join(blade_fields)
 		])
 	return "count=%d rotor_yaw=%.1f rotor_global=%s %s" % [
-		rotor.get_child_count(),
+		_get_blade_count(rotor),
 		rotor_yaw,
 		_format_vec3(rotor_global),
 		";".join(parts)
@@ -404,9 +417,19 @@ func _get_blade_index(blade: Node3D) -> int:
 	for child in parent.get_children():
 		if child == blade:
 			return index
-		if child is Node3D:
+		if child is Node3D and child.name.begins_with("Blade"):
 			index += 1
 	return index
+
+
+func _get_blade_count(rotor: Node3D) -> int:
+	if rotor == null:
+		return 0
+	var count := 0
+	for child in rotor.get_children():
+		if child.name.begins_with("Blade"):
+			count += 1
+	return count
 
 
 func _get_blade_visual_tip_fields(rotor: Node3D, blade: Node3D) -> Array:
@@ -489,3 +512,145 @@ func _get_mesh_instances(node: Node) -> Array[MeshInstance3D]:
 	for child in node.get_children():
 		meshes.append_array(_get_mesh_instances(child))
 	return meshes
+
+
+func _setup_rotor_discs() -> void:
+	# 1. Search for manual disc nodes placed in the scene under RotorAssembly (self)
+	var manual_discs: Array[Node3D] = []
+	for child in get_children():
+		if child is Node3D and child.name.to_lower().find("rotor disc") != -1:
+			manual_discs.append(child as Node3D)
+			
+	# 2. Assign/Reparent manual discs to upper/lower rotors if found
+	if not manual_discs.is_empty():
+		if manual_discs.size() >= 2 and upper_rotor != null and lower_rotor != null:
+			# Coaxial setup - sort by Y position to match lower/upper
+			manual_discs.sort_custom(func(a: Node3D, b: Node3D) -> bool:
+				return a.position.y < b.position.y
+			)
+			
+			# Lower disc
+			var lower_disc_node := manual_discs[0]
+			var lower_y_offset := lower_disc_node.position.y - lower_rotor.position.y
+			if lower_disc_node.get_parent() != lower_rotor:
+				lower_disc_node.get_parent().remove_child(lower_disc_node)
+				lower_rotor.add_child(lower_disc_node)
+			lower_disc_node.name = "RotorDisc"
+			lower_disc_node.position = Vector3(0.0, lower_y_offset, 0.0)
+			_lower_disc = lower_disc_node
+			
+			# Upper disc
+			var upper_disc_node := manual_discs[1]
+			var upper_y_offset := upper_disc_node.position.y - upper_rotor.position.y
+			if upper_disc_node.get_parent() != upper_rotor:
+				upper_disc_node.get_parent().remove_child(upper_disc_node)
+				upper_rotor.add_child(upper_disc_node)
+			upper_disc_node.name = "RotorDisc"
+			upper_disc_node.position = Vector3(0.0, upper_y_offset, 0.0)
+			_upper_disc = upper_disc_node
+			
+		elif upper_rotor != null:
+			# Single rotor setup
+			var upper_disc_node := manual_discs[0]
+			var upper_y_offset := upper_disc_node.position.y - upper_rotor.position.y
+			if upper_disc_node.get_parent() != upper_rotor:
+				upper_disc_node.get_parent().remove_child(upper_disc_node)
+				upper_rotor.add_child(upper_disc_node)
+			upper_disc_node.name = "RotorDisc"
+			upper_disc_node.position = Vector3(0.0, upper_y_offset, 0.0)
+			_upper_disc = upper_disc_node
+			
+			# Clean up any other extra manual discs
+			for i in range(1, manual_discs.size()):
+				manual_discs[i].queue_free()
+
+	# 3. Dynamic fallback: instantiate the disc model if no manual discs exist in the scene tree
+	var disc_scene = load("res://Models/Aircraft_9/rotor disc.glb")
+	
+	if upper_rotor != null and _upper_disc == null:
+		_upper_disc = upper_rotor.find_child("RotorDisc", true, false)
+		if _upper_disc == null and disc_scene != null:
+			_upper_disc = disc_scene.instantiate()
+			_upper_disc.name = "RotorDisc"
+			upper_rotor.add_child(_upper_disc)
+			_upper_disc.position = Vector3.ZERO
+			
+	if lower_rotor != null and _lower_disc == null:
+		_lower_disc = lower_rotor.find_child("RotorDisc", true, false)
+		if _lower_disc == null and disc_scene != null:
+			_lower_disc = disc_scene.instantiate()
+			_lower_disc.name = "RotorDisc"
+			lower_rotor.add_child(_lower_disc)
+			_lower_disc.position = Vector3.ZERO
+			
+	# 4. Apply scale and orientation adjustments to the resolved disc nodes
+	if _upper_disc != null:
+		_scale_and_align_disc(_upper_disc, upper_rotor)
+	if _lower_disc != null:
+		_scale_and_align_disc(_lower_disc, lower_rotor)
+
+
+func _scale_and_align_disc(disc: Node3D, rotor: Node3D) -> void:
+	# Keep local position Y offset (clearance), center X and Z
+	disc.position = Vector3(0.0, disc.position.y, 0.0)
+	disc.rotation = Vector3.ZERO
+	
+	# Calculate blade radius
+	var blade_radius := 0.0
+	for child in rotor.get_children():
+		if child != disc and child.name.begins_with("Blade"):
+			for grandchild in child.get_children():
+				if grandchild is MeshInstance3D:
+					var mesh_child := grandchild as MeshInstance3D
+					var aabb := mesh_child.get_aabb()
+					var pos_start: Vector3 = child.transform * (mesh_child.position + aabb.position)
+					var pos_end: Vector3 = child.transform * (mesh_child.position + aabb.position + aabb.size)
+					blade_radius = maxf(blade_radius, Vector3(pos_start.x, 0, pos_start.z).length())
+					blade_radius = maxf(blade_radius, Vector3(pos_end.x, 0, pos_end.z).length())
+					
+	if blade_radius > 0.1:
+		var scale_factor = blade_radius / 6.806614
+		disc.scale = Vector3(scale_factor, 1.0, scale_factor)
+	else:
+		disc.scale = Vector3.ONE
+	
+	# Make sure it starts invisible
+	disc.visible = false
+	_set_node_transparency(disc, 1.0)
+
+
+func _update_rotor_transparency() -> void:
+	# Calculate a normalized visual blend factor t based on the spool speed _power
+	var denom := maxf(blur_full_power - blur_start_power, 0.001)
+	var t := clampf((_power - blur_start_power) / denom, 0.0, 1.0)
+	
+	# Transition variables
+	var disc_transparency := 1.0 - t
+	var blade_transparency := t * 0.8 # 0.0 when stopped, 0.8 (20% opaque) at full speed
+	
+	if _upper_disc != null:
+		_upper_disc.visible = t > 0.001
+		_set_node_transparency(_upper_disc, disc_transparency)
+	if _lower_disc != null:
+		_lower_disc.visible = t > 0.001
+		_set_node_transparency(_lower_disc, disc_transparency)
+		
+	if upper_rotor != null:
+		_set_blade_transparency(upper_rotor, blade_transparency)
+	if lower_rotor != null:
+		_set_blade_transparency(lower_rotor, blade_transparency)
+
+
+func _set_blade_transparency(rotor: Node3D, transparency: float) -> void:
+	if rotor == null:
+		return
+	for child in rotor.get_children():
+		if child.name.begins_with("Blade"):
+			_set_node_transparency(child, transparency)
+
+
+func _set_node_transparency(node: Node, transparency: float) -> void:
+	if node is MeshInstance3D:
+		node.transparency = clampf(transparency, 0.0, 1.0)
+	for child in node.get_children():
+		_set_node_transparency(child, transparency)

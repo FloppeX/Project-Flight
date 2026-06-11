@@ -32,12 +32,15 @@ func shift_origin(offset: Vector3) -> void:
 	if not root:
 		return
 	
+	print("[FloatingOrigin] Shifting world origin by offset: ", offset)
 	# Shift every Node3D child of current_scene
 	for child in root.get_children():
 		if child is Node3D:
+			var old_pos = child.global_position
 			child.global_position -= offset
 			if child.has_method("reset_physics_interpolation"):
 				child.reset_physics_interpolation()
+			print("[FloatingOrigin]   shifted child '%s' from %s to %s" % [child.name, str(old_pos), str(child.global_position)])
 	
 	# Notify all systems that cache global coordinates about the shift
 	origin_shifted.emit(offset)

@@ -331,6 +331,7 @@ func create_scorch_mark():
 		
 		# Size matches blast radius - much larger depth for projection
 		decal.size = Vector3(blast_radius, 10.0, blast_radius)  # Much larger depth
+		decal.sorting_offset = 20.0
 		
 		# Position the decal slightly above the hit point
 		decal.global_position = hit_pos + Vector3(0, 0.1, 0)  # Just 0.1 meter above
@@ -352,6 +353,7 @@ func create_scorch_mark():
 		add_child(decal_fallback)
 		decal_fallback.texture_albedo = preload("res://Projectiles/Explosion/scorch_mark.png")
 		decal_fallback.size = Vector3(blast_radius, 10.0, blast_radius)
+		decal_fallback.sorting_offset = 20.0
 		decal_fallback.global_position = global_position + Vector3.UP * 0.02
 		decal_fallback.rotation.y = randf() * TAU
 
