@@ -466,6 +466,9 @@ func notify_aircraft_launched(pilot: AIPilot) -> void:
 	if not _scrambling_flight:
 		return
 	var aircraft := pilot.aircraft as Node3D
+	# Aircraft_11 is a utility helicopter — never assign it to combat flights.
+	if aircraft and aircraft.name.begins_with("Aircraft_11"):
+		return
 	if aircraft:
 		reassign(aircraft, _scrambling_flight.flight_name)
 		if debug_print:
@@ -725,6 +728,61 @@ func _mark_order_acknowledgement_needed(f: Flight, order_key: String) -> bool:
 		return false
 	_acknowledged_order_keys[f.flight_name] = order_key
 	return true
+
+## Called when a friendly pilot has landed as a downed pilot and needs pickup.
+## Finds the best available friendly helicopter and dispatches it via command_rescue().
+func request_rescue_for(pilot_node: Node3D) -> void:
+	if not is_instance_valid(pilot_node):
+		return
+
+	var best_heli: Node3D = null
+	var best_priority := -1
+	for node in get_tree().get_nodes_in_group("friendlies"):
+		var friendly := node as Node3D
+		if friendly == null or not is_instance_valid(friendly):
+			continue
+		if not (friendly.has_meta("is_helicopter") and bool(friendly.get_meta("is_helicopter"))):
+			continue
+		var heli_pilot := friendly.find_child("HelicopterPilot", true, false)
+		if heli_pilot == null or not heli_pilot.has_method("command_rescue"):
+			continue
+		var phase := int(heli_pilot.get("mission_phase"))
+		# Skip INBOUND (2) and already on a RESCUE (4)
+		if phase == 2 or phase == 4:
+			continue
+		# Aircraft_11 is the dedicated rescue/utility type — strongly prefer it.
+		# Priority bands: 10-13 for Aircraft_11, 0-3 for other helis.
+		var is_utility := friendly.name.begins_with("Aircraft_11")
+		var base := 10 if is_utility else 0
+		var priority := -1
+		if phase == 3:   # AT_CARRIER: on deck, ready to launch
+			priority = base + 3
+		elif phase == 0: # OUTBOUND: airborne, can be rerouted
+			priority = base + 2
+		elif phase == 1: # AT_LZ: on ground elsewhere, reroutable
+			priority = base + 1
+		if priority > best_priority:
+			best_priority = priority
+			best_heli = friendly
+
+	var callsign: String = str(pilot_node.get_meta("pilot_callsign")) if pilot_node.has_meta("pilot_callsign") else "Downed pilot"
+
+	if best_heli != null:
+		var heli_pilot := best_heli.find_child("HelicopterPilot", true, false)
+		heli_pilot.call("command_rescue", pilot_node)
+		RadioComms.transmit("Citadel", callsign, RadioComms._pick([
+			"Rescue helo is on the way. Hold position.",
+			"We have you on scope. Rescue is inbound.",
+			"Hang tight. Rescue helo is en route.",
+		]))
+		print("[AirOpsManager] Dispatched %s on rescue mission for %s" % [best_heli.name, pilot_node.name])
+	else:
+		RadioComms.transmit("Citadel", callsign, RadioComms._pick([
+			"No rescue assets available. Sit tight.",
+			"All rescue assets are tasked. Stay hidden.",
+		]))
+		print("[AirOpsManager] No helicopter available to rescue %s" % pilot_node.name)
+
 
 func _ensure_flight_can_execute(f: Flight) -> void:
 	if f == null or not is_instance_valid(f):

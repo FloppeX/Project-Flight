@@ -1,6 +1,8 @@
 extends Weapon
 class_name BombRack
 
+const HELI_TEST_UNLIMITED_AMMO_META := "heli_test_unlimited_ammo"
+
 @export var bomb_projectile_scene: PackedScene
 @export var drop_force: float = 0.0
 @export var fire_cooldown: float = 0.2
@@ -38,6 +40,16 @@ func _get_parent_rigidbody() -> RigidBody3D:
 	while node and not (node is RigidBody3D):
 		node = node.get_parent()
 	return node as RigidBody3D
+
+func _has_unlimited_test_ammo() -> bool:
+	var aircraft: RigidBody3D = _get_parent_rigidbody()
+	if aircraft == null or not is_instance_valid(aircraft):
+		return false
+	var value: Variant = aircraft.get_meta(HELI_TEST_UNLIMITED_AMMO_META, false)
+	if not (value is bool):
+		return false
+	var enabled: bool = value
+	return enabled
 
 func _refresh_aircraft_payload_mass() -> void:
 	if not is_instance_valid(_payload_aircraft):
@@ -86,24 +98,27 @@ func get_predicted_initial_velocity(aircraft: RigidBody3D) -> Vector3:
 
 func can_fire() -> bool:
 	var t := Time.get_ticks_msec() / 1000.0
-	return ammo_count > 0 and (t - _last_fire_time) >= fire_cooldown
+	return not _slots.is_empty() and (_has_unlimited_test_ammo() or ammo_count > 0) and (t - _last_fire_time) >= fire_cooldown
 
 func fire() -> bool:
 	if not can_fire():
 		return false
 	_last_fire_time = Time.get_ticks_msec() / 1000.0
 
-	var slot: Node3D = _slots.pop_back()
-	slot.visible = false
-	_spawn_bomb_next_physics(slot)
+	var unlimited_ammo: bool = _has_unlimited_test_ammo()
+	var slot: Node3D = _slots[_slots.size() - 1] if unlimited_ammo else _slots.pop_back()
+	if not unlimited_ammo:
+		slot.visible = false
+	_spawn_bomb_next_physics(slot, not unlimited_ammo)
 
-	ammo_count -= 1
-	_refresh_aircraft_payload_mass()
-	if delete_when_empty and ammo_count <= 0:
-		queue_free()
+	if not unlimited_ammo:
+		ammo_count -= 1
+		_refresh_aircraft_payload_mass()
+		if delete_when_empty and ammo_count <= 0:
+			queue_free()
 	return true
 
-func _spawn_bomb_next_physics(slot: Node3D) -> void:
+func _spawn_bomb_next_physics(slot: Node3D, consume_slot: bool = true) -> void:
 	await get_tree().physics_frame
 	if not is_instance_valid(slot):
 		return
@@ -148,4 +163,5 @@ func _spawn_bomb_next_physics(slot: Node3D) -> void:
 		print("  aircraft vel     : ", snapped(aircraft_velocity, Vector3.ONE * 0.01))
 		proj.set_meta("_debug_track", true)
 
-	slot.queue_free()
+	if consume_slot:
+		slot.queue_free()

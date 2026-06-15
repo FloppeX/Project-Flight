@@ -1,6 +1,6 @@
 [gd_scene format=3 uid="uid://fd1dux1lfdj8"]
 
-[ext_resource type="PackedScene" uid="uid://cnmgu8wrl2yjv" path="res://Parachute.glb" id="1_parachute_model"]
+[ext_resource type="PackedScene" uid="uid://cnmgu8wrl2yjv" path="res://Aircraft/Visuals/Parachute.glb" id="1_parachute_model"]
 [ext_resource type="Script" uid="uid://dtb5hlsithp1h" path="res://Aircraft/Visuals/EditorOnlyPreview.gd" id="2_preview_script"]
 [ext_resource type="PackedScene" path="res://Aircraft/CockpitPilot.tscn" id="3_pilot"]
 

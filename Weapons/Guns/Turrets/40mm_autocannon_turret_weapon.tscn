@@ -2,7 +2,7 @@
 
 [ext_resource type="Script" uid="uid://u5n72n3ofgnt" path="res://Weapons/Turrets/bullet_weapon.gd" id="1_script"]
 [ext_resource type="Resource" path="res://Weapons/Guns/Profiles/40mm_autocannon.tres" id="2_profile"]
-[ext_resource type="PackedScene" uid="uid://b83rkkamha1oc" path="res://autocannon 40 mm.glb" id="3_model"]
+[ext_resource type="PackedScene" uid="uid://b83rkkamha1oc" path="res://Models/Turrets/autocannon 40 mm.glb" id="3_model"]
 
 [node name="40mmAutocannonTurretWeapon" type="Node3D"]
 script = ExtResource("1_script")

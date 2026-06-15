@@ -23,6 +23,13 @@ extends Node3D
 @export var debug_interval_s: float = 1.0
 @export var blur_start_power: float = 0.5
 @export var blur_full_power: float = 0.9
+@export var rotor_audio_stream: AudioStream = null
+@export var rotor_audio_volume_db: float = 6.0
+@export var rotor_audio_silent_db: float = -24.0
+@export var rotor_audio_min_pitch: float = 0.82
+@export var rotor_audio_max_pitch: float = 1.12
+@export var rotor_audio_unit_size: float = 38.0
+@export var rotor_audio_max_distance: float = 2200.0
 
 const ROTOR_VISUAL_RATE_RAD_S: float = 240.0
 
@@ -49,12 +56,14 @@ var _last_upper_step_rad: float = 0.0
 var _last_lower_step_rad: float = 0.0
 var _upper_disc: Node3D = null
 var _lower_disc: Node3D = null
+var _rotor_audio_player: AudioStreamPlayer3D = null
 
 
 func _ready() -> void:
 	_cache_blade_rest_pose(upper_rotor)
 	_cache_blade_rest_pose(lower_rotor)
 	_setup_rotor_discs()
+	_setup_rotor_audio()
 	_apply_fold_pose()
 	_print_debug_line("ready")
 
@@ -92,11 +101,14 @@ func _physics_process(delta: float) -> void:
 	_power = move_toward(_power, _target_power, maxf(rpm_rate, 0.001) * delta)
 	_update_rotor_transparency()
 	_update_blade_segments()
+	_update_rotor_audio()
 	if _fold_t > 0.001:
 		_power = 0.0
+		_update_rotor_audio()
 		_maybe_print_debug_line(delta)
 		return
 	if _power <= 0.0:
+		_update_rotor_audio()
 		_maybe_print_debug_line(delta)
 		return
 
@@ -108,6 +120,51 @@ func _physics_process(delta: float) -> void:
 		_last_lower_step_rad = step * lower_rotor_direction
 		lower_rotor.rotate_y(_last_lower_step_rad)
 	_maybe_print_debug_line(delta)
+
+
+func _setup_rotor_audio() -> void:
+	if rotor_audio_stream == null:
+		return
+	_make_stream_loop(rotor_audio_stream)
+	_rotor_audio_player = AudioStreamPlayer3D.new()
+	_rotor_audio_player.name = "RotorAudio"
+	_rotor_audio_player.stream = rotor_audio_stream
+	_rotor_audio_player.bus = "Master"
+	_rotor_audio_player.volume_db = rotor_audio_silent_db
+	_rotor_audio_player.unit_size = maxf(rotor_audio_unit_size, 1.0)
+	_rotor_audio_player.max_distance = maxf(rotor_audio_max_distance, rotor_audio_unit_size)
+	_rotor_audio_player.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE
+	_rotor_audio_player.add_to_group("3d_audio")
+	add_child(_rotor_audio_player)
+
+
+func _make_stream_loop(stream: AudioStream) -> void:
+	if stream is AudioStreamWAV:
+		var wav_stream: AudioStreamWAV = stream as AudioStreamWAV
+		wav_stream.loop_mode = AudioStreamWAV.LOOP_FORWARD
+	elif stream is AudioStreamOggVorbis:
+		var ogg_stream: AudioStreamOggVorbis = stream as AudioStreamOggVorbis
+		ogg_stream.loop = true
+
+
+func _update_rotor_audio() -> void:
+	if _rotor_audio_player == null:
+		return
+	var audio_power: float = clampf(_power, 0.0, 1.0)
+	if audio_power <= 0.01:
+		if _rotor_audio_player.playing:
+			_rotor_audio_player.stop()
+		_rotor_audio_player.volume_db = rotor_audio_silent_db
+		return
+	if not _rotor_audio_player.playing:
+		_rotor_audio_player.play()
+	var audible_power: float = sqrt(audio_power)
+	_rotor_audio_player.volume_db = lerpf(rotor_audio_silent_db, rotor_audio_volume_db, audible_power)
+	_rotor_audio_player.pitch_scale = lerpf(
+		maxf(rotor_audio_min_pitch, 0.01),
+		maxf(rotor_audio_max_pitch, 0.01),
+		audible_power
+	)
 
 
 func _update_targets() -> void:

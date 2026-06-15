@@ -284,8 +284,7 @@ func _process(delta: float) -> void:
 				else:
 					# Stay at mount if obstructed, still look at target
 					_slew_target_camera_look_at(source_xform.origin, tgt_pos, delta)
-				# Ensure the camera is active for the viewport
-				target_camera.current = true
+				_ensure_target_view_camera_current()
 				if target_placeholder:
 					target_placeholder.visible = false
 				# Update target info label
@@ -296,7 +295,7 @@ func _process(delta: float) -> void:
 			else:
 				# No target: slew the target feed back to the aircraft's forward camera mount.
 				_slew_target_camera_to_transform(source_xform, delta)
-				target_camera.current = true
+				_ensure_target_view_camera_current()
 				if target_placeholder:
 					target_placeholder.visible = false
 				# Update target info label for no target
@@ -409,8 +408,8 @@ func _setup_lower_displays() -> void:
 		target_viewport.add_child(vp_container)
 		target_camera = Camera3D.new()
 		target_camera.fov = 20.0
-		target_camera.current = true
 		vp_container.add_child(target_camera)
+		_ensure_target_view_camera_current()
 		# TextureRect to display
 		target_texture_rect = TextureRect.new()
 		target_texture_rect.stretch_mode = TextureRect.STRETCH_SCALE  # Match placeholder stretch mode
@@ -559,6 +558,15 @@ func _slew_target_camera_fov(desired_fov_deg: float, delta: float) -> void:
 	var blend := _smooth_blend(target_camera_zoom_lerp_speed, delta)
 	target_camera.fov = lerpf(target_camera.fov, desired_fov_deg, blend)
 
+func _ensure_target_view_camera_current() -> void:
+	if target_viewport == null or not is_instance_valid(target_viewport):
+		return
+	if target_camera == null or not is_instance_valid(target_camera):
+		return
+	if target_viewport.get_camera_3d() == target_camera:
+		return
+	target_camera.current = true
+
 func _smooth_blend(speed: float, delta: float) -> float:
 	return clampf(1.0 - exp(-maxf(speed, 0.0) * maxf(delta, 0.0)), 0.0, 1.0)
 
@@ -640,12 +648,33 @@ func _get_enemy_target_node() -> Node3D:
 func _is_gear_down() -> bool:
 	if aircraft == null or not is_instance_valid(aircraft):
 		return false
-	var gear_modules = aircraft.find_modules_by_type("landing_gear")
+	var gear_modules: Array = aircraft.find_modules_by_type("landing_gear")
 	if gear_modules.size() > 0:
-		var gear = gear_modules[0]
+		var gear: Node = gear_modules[0] as Node
 		if gear != null and is_instance_valid(gear) and "is_deployed" in gear:
-			return bool(gear.is_deployed)
+			return bool(gear.get("is_deployed"))
 	return false
+
+func _has_retractable_landing_gear() -> bool:
+	if aircraft == null or not is_instance_valid(aircraft):
+		return false
+	var gear_modules: Array = aircraft.find_modules_by_type("landing_gear")
+	for gear_variant in gear_modules:
+		var gear: Node = gear_variant as Node
+		if gear == null or not is_instance_valid(gear):
+			continue
+		if "lock_deployed" in gear and bool(gear.get("lock_deployed")):
+			continue
+		return true
+
+	var control_gear: Node = aircraft.find_child("ControlLandingGear", true, false)
+	if control_gear != null and is_instance_valid(control_gear):
+		if "LockGearDeployed" in control_gear and bool(control_gear.get("LockGearDeployed")):
+			return false
+	return false
+
+func _should_show_landing_camera_target() -> bool:
+	return _is_gear_down() and _has_retractable_landing_gear()
 
 func _get_nearest_landing_target() -> Node3D:
 	if aircraft == null or not is_instance_valid(aircraft):
@@ -662,7 +691,7 @@ func _get_nearest_landing_target() -> Node3D:
 	return best
 
 func _get_active_display_target() -> Node3D:
-	if _is_gear_down():
+	if _should_show_landing_camera_target():
 		var landing_tgt := _get_nearest_landing_target()
 		if landing_tgt != null:
 			return landing_tgt

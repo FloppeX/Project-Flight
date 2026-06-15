@@ -2,6 +2,11 @@ extends Node
 class_name HelicopterPilot
 
 const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
+const AttackPlannerScript = preload("res://AI/AttackPlanner.gd")
+const COMBAT_WEAPON_ROCKET := "rocket"
+const COMBAT_WEAPON_GUN := "gun"
+const COMBAT_WEAPON_BOMB := "bomb"
+const COMBAT_REPORT_RESET_META := "heli_combat_report_reset_done"
 
 enum State {
 	IDLE,
@@ -16,6 +21,7 @@ enum MissionPhase {
 	AT_LZ,       # on ground at LZ, dwell timer running
 	INBOUND,     # returning to carrier
 	AT_CARRIER,  # on carrier, dwell timer running
+	RESCUE,      # flying to pick up a downed pilot
 }
 
 @export_group("References")
@@ -96,7 +102,7 @@ enum MissionPhase {
 @export var carrier_landing_abort_forward_m: float = 120.0
 @export var carrier_landing_abort_lateral_m: float = 80.0
 @export var carrier_landing_abort_distance_m: float = 180.0
-@export var carrier_goal_repath_threshold_m: float = 150.0
+@export var carrier_goal_repath_threshold_m: float = 500.0
 @export var carrier_inbound_no_progress_timeout_s: float = 7.0
 @export var carrier_inbound_progress_min_m: float = 40.0
 @export var carrier_inbound_direct_recovery_s: float = 8.0
@@ -131,6 +137,8 @@ enum MissionPhase {
 @export var terrain_recovery_agl_m: float = 55.0
 @export var terrain_recovery_full_agl_m: float = 25.0
 @export var terrain_recovery_sink_mps: float = 8.0
+@export var terrain_down_feeler_radius_m: float = 18.0
+@export var terrain_down_feeler_extra_clearance_m: float = 8.0
 @export var use_heightmap_pathfinding: bool = true
 @export var heightmap_path_recompute_s: float = 60.0
 @export var heightmap_path_async_enabled: bool = true
@@ -345,6 +353,8 @@ enum MissionPhase {
 @export var lateral_obstacle_margin_m: float = 45.0
 @export var lateral_obstacle_roll_gain: float = 0.25
 @export var lateral_obstacle_yaw_gain: float = 1.10
+@export var lateral_obstacle_side_push_mps: float = 10.0
+@export var lateral_obstacle_rear_forward_lean: float = 0.18
 @export var lateral_obstacle_forward_speed_scale: float = 0.18
 @export var lateral_obstacle_forward_speed_max_penalty: float = 1.0
 
@@ -372,6 +382,105 @@ enum MissionPhase {
 @export var recorder_sink_rate_mps: float = 12.0
 @export var recorder_reverse_speed_mps: float = 10.0
 
+@export_group("Combat")
+@export var combat_enabled: bool = true
+@export var combat_scan_interval_s: float = 2.0
+@export var combat_target_scan_range_m: float = 5500.0
+@export var combat_outbound_only: bool = true
+@export var combat_allow_bombs: bool = false
+@export var combat_min_carrier_distance_m: float = 1800.0
+@export var combat_ingress_reach_radius_m: float = 160.0
+@export var combat_fire_end_radius_m: float = 160.0
+@export var combat_egress_reach_radius_m: float = 220.0
+@export var combat_transit_yaw_gain_scale: float = 1.0
+@export var combat_plan_async_enabled: bool = true
+@export var combat_target_candidate_limit: int = 14
+@export var combat_debug_enabled: bool = true
+@export var combat_report_enabled: bool = true
+@export var combat_report_debug_events_enabled: bool = false
+@export var combat_report_path: String = "user://heli_combat_report.log"
+@export var combat_report_project_mirror_enabled: bool = true
+@export var combat_report_project_mirror_path: String = "res://heli_combat_report.log"
+@export var combat_gun_shot_assess_time_s: float = 0.35
+@export var combat_alternate_hardpoint_guns_enabled: bool = true
+@export var combat_preferred_gun_score_bias: float = 3.6
+@export var combat_route_pathfinding_enabled: bool = true
+@export var combat_route_advance_radius_m: float = 85.0
+@export var combat_route_carrot_distance_m: float = 520.0
+@export var combat_route_fire_corridor_spacing_m: float = 140.0
+@export var combat_aim_enabled: bool = true
+@export var combat_aim_yaw_p: float = 0.85
+@export var combat_aim_yaw_i: float = 0.0
+@export var combat_aim_yaw_d: float = 0.16
+@export var combat_aim_pitch_p: float = 1.35
+@export var combat_aim_pitch_i: float = 0.08
+@export var combat_aim_pitch_d: float = 0.035
+@export var combat_aim_integral_limit: float = 0.35
+@export var combat_aim_max_yaw_input: float = 0.42
+@export var combat_aim_yaw_deadband_deg: float = 0.35
+@export var combat_aim_yaw_correction_rate: float = 0.85
+@export var combat_aim_takeover_max_yaw_input: float = 0.78
+@export var combat_aim_takeover_yaw_gain: float = 1.35
+@export var combat_aim_takeover_yaw_correction_rate: float = 2.4
+@export var combat_aim_max_pitch_input: float = 0.45
+# Nose-down input at which cruise base pitch is fully blended out during an attack
+# (so altitude-hold pitch-up stops fighting the aim controller). Lower = the base
+# pitch yields sooner to a nose-down aim demand.
+@export var combat_aim_attack_nose_down_full_input: float = 0.30
+@export var combat_aim_takeover_max_pitch_input: float = 0.85
+@export var combat_aim_takeover_pitch_control_gain: float = 1.55
+@export var combat_aim_takeover_pitch_rate_scale: float = 2.4
+@export var combat_aim_roll_level_blend: float = 0.35
+@export var combat_gun_pitch_control_gain: float = 3.2
+# Guns need the same nose-down authority rockets get, otherwise the pipper hangs
+# just above the target and the firing window passes before the nose arrives.
+@export var combat_gun_max_pitch_input: float = 0.85
+@export var combat_gun_nose_down_rate_scale: float = 3.0
+@export var combat_rocket_pitch_control_gain: float = 1.70
+@export var combat_rocket_max_pitch_input: float = 1.0
+@export var combat_rocket_nose_down_rate_scale: float = 3.0
+@export var combat_rocket_takeover_nose_down_bias: float = 0.16
+@export var combat_rocket_takeover_min_nose_down_input: float = 0.24
+@export var combat_rocket_takeover_collective_floor: float = 0.64
+@export var combat_rocket_fire_alignment_deg: float = 4.0
+@export var combat_gun_fire_alignment_deg: float = 6.0
+@export var combat_rocket_aim_settle_deg: float = 2.5
+@export var combat_rocket_pitch_aim_settle_deg: float = 2.0
+@export var combat_gun_aim_settle_deg: float = 3.0
+@export var combat_aim_settle_time_s: float = 0.5
+@export var combat_rocket_aim_settle_time_s: float = 1.05
+@export var combat_gun_aim_settle_time_s: float = 0.35
+@export var combat_aim_settle_max_rate_deg_s: float = 12.0
+@export var combat_rocket_aim_settle_max_rate_deg_s: float = 5.0
+@export var combat_rocket_pitch_aim_settle_max_rate_deg_s: float = 6.0
+@export var combat_gun_aim_settle_max_rate_deg_s: float = 16.0
+@export var combat_rocket_min_attack_time_before_fire_s: float = 0.65
+@export var combat_rocket_fallback_fire_after_takeover_s: float = 1.2
+@export var combat_rocket_fallback_fire_angle_deg: float = 3.2
+@export var combat_rocket_fallback_fire_pitch_angle_deg: float = 1.0
+@export var combat_rocket_first_salvo_hold_s: float = 4.0
+@export var combat_aim_takeover_enabled: bool = true
+@export var combat_aim_takeover_range_factor: float = 1.45
+@export var combat_aim_takeover_max_time_s: float = 4.5
+@export var combat_aim_takeover_cooldown_s: float = 0.15
+@export var combat_aim_takeover_speed_mps: float = 22.0
+@export var combat_aim_takeover_roll_level_blend: float = 0.9
+@export var combat_rocket_drop_compensation: float = 0.85
+@export var combat_rocket_motor_speed_bias_mps: float = 160.0
+@export var combat_rocket_ccip_guidance_enabled: bool = true
+@export var combat_rocket_ccip_recompute_interval_s: float = 0.08
+# Proportional gain on the CCIP residual miss. ~1.0 = apply the full residual
+# (drives simulated impact onto target in one step, ignoring nose lag); >1.0
+# over-corrects and can oscillate, <1.0 converges slower but smoother.
+@export var combat_rocket_ccip_aim_correction_strength: float = 1.0
+@export var combat_rocket_ccip_aim_correction_max_m: float = 260.0
+@export var combat_rocket_ccip_fire_tolerance_m: float = 18.0
+@export var combat_rocket_ccip_requires_solution_to_fire: bool = true
+@export var combat_rocket_aim_lower_bias_m: float = 2.0
+@export var combat_rocket_assess_time_s: float = 1.2
+@export var combat_rocket_max_assess_time_s: float = 4.0
+@export var combat_rocket_max_salvos_per_attack: int = 8
+
 var aircraft: RigidBody3D = null
 var helicopter_flight: Node = null
 var control_engine: Node = null
@@ -390,6 +499,8 @@ enum CarrierApproachPhase {
 
 var destination: Vector3 = Vector3.ZERO
 var _has_destination: bool = false
+var _rescue_target: Node3D = null   # downed pilot we are picking up
+var _passengers: int = 0            # pilots on board
 var _nav_waypoint: Vector3 = Vector3.ZERO
 var _desired_altitude_m: float = 0.0
 var _target_speed_mps: float = NAN
@@ -414,6 +525,7 @@ var _feeler_net_left_risk: float = 0.0
 var _feeler_net_right_risk: float = 0.0
 var _feeler_forward_penalty: float = 0.0
 var _feeler_forward_obstacle_distance: float = INF
+var _feeler_rear_penalty: float = 0.0
 var _feeler_timer_s: float = 0.0
 var _collective_cmd: float = 0.0
 var _physics_delta: float = 0.016
@@ -488,6 +600,56 @@ var _carrier_approach_speed_log_s: float = 0.0
 var _carrier_approach_wait_log_s: float = 0.0
 var _carrier_approach_clearance_request_s: float = 0.0
 var _missing_carrier_marker_log_once: Dictionary = {}
+var _combat_scan_timer_s: float = 0.0
+var _combat_plan: Dictionary = {}
+var _combat_phase: String = ""
+var _combat_fire_log_s: float = 0.0
+var _combat_debug_log_s: float = 0.0
+var _combat_task_id: int = -1
+var _combat_job_data: Dictionary = {}
+var _combat_target_nodes_by_id: Dictionary = {}
+var _combat_route_task_id: int = -1
+var _combat_route_job_data: Dictionary = {}
+var _combat_route_points: Array[Vector3] = []
+var _combat_route_phases: PackedStringArray = PackedStringArray()
+var _combat_route_index: int = 0
+var _combat_route_ready: bool = false
+var _combat_phase_started_s: float = 0.0
+var _combat_aim_takeover_active: bool = false
+var _combat_aim_takeover_started_s: float = 0.0
+var _combat_aim_takeover_cooldown_until_s: float = 0.0
+var _combat_aim_yaw_integral: float = 0.0
+var _combat_aim_pitch_integral: float = 0.0
+var _combat_aim_prev_yaw_error: float = NAN
+var _combat_aim_prev_pitch_error: float = NAN
+var _combat_aim_last_yaw_correction: float = 0.0
+var _combat_aim_settle_s: float = 0.0
+var _combat_rocket_assess_until_s: float = 0.0
+var _combat_rocket_salvos_fired: int = 0
+var _combat_rocket_next_hardpoint_index: int = 0
+var _combat_rocket_ccip_cache_time_s: float = -1000000.0
+var _combat_rocket_ccip_cache_target_id: int = -1
+var _combat_rocket_ccip_cache: Dictionary = {}
+var _combat_prefer_hardpoint_guns_next: bool = true
+var _combat_pending_shot_reports: Array[Dictionary] = []
+var _combat_next_shot_report_id: int = 1
+var _combat_attack_run_active: bool = false
+var _combat_attack_run_id: int = 0
+var _combat_next_attack_run_report_id: int = 1
+var _combat_attack_run_started_s: float = 0.0
+var _combat_attack_run_weapon: String = ""
+var _combat_attack_run_target_name: String = ""
+var _combat_attack_run_target_id: int = 0
+var _combat_attack_run_shots: int = 0
+var _combat_attack_run_last_hold_reason: String = "none"
+var _combat_attack_run_last_hold_details: String = ""
+var _combat_attack_run_min_dist_m: float = INF
+var _combat_attack_run_best_aim_dot: float = -1.0
+var _combat_attack_run_last_aim_dot: float = NAN
+var _combat_attack_run_last_yaw_deg: float = NAN
+var _combat_attack_run_last_pitch_deg: float = NAN
+var _combat_attack_run_best_ccip_miss_m: float = INF
+var _combat_attack_run_last_ccip_miss_m: float = INF
 
 var _phys_max_bank_deg: float = 30.0
 var _phys_max_nose_up_deg: float = 15.0
@@ -497,6 +659,7 @@ var _phys_max_climb_mps: float = 5.0
 func _ready() -> void:
 	add_to_group("origin_shifter")
 	set_physics_process(false)
+	_reset_combat_report_for_run_once()
 	_debug_event("loaded", "parent=%s" % [get_parent().name if get_parent() else "?"])
 	if debug_enabled:
 		print("[HelicopterPilot] %s loaded on %s — waiting for initialize(). If you never see a second line, AI was never enabled." \
@@ -507,6 +670,12 @@ func _exit_tree() -> void:
 	if _path_task_id != -1:
 		WorkerThreadPool.wait_for_task_completion(_path_task_id)
 		_path_task_id = -1
+	if _combat_task_id != -1:
+		WorkerThreadPool.wait_for_task_completion(_combat_task_id)
+		_combat_task_id = -1
+	if _combat_route_task_id != -1:
+		WorkerThreadPool.wait_for_task_completion(_combat_route_task_id)
+		_combat_route_task_id = -1
 	if crash_log_enabled and _active_flight_id > 0 and not _flight_terminal_report_written:
 		_write_incomplete_flight_report("NODE EXIT")
 
@@ -522,10 +691,21 @@ func apply_origin_shift(offset: Vector3) -> void:
 		WorkerThreadPool.wait_for_task_completion(_path_task_id)
 		_path_task_id = -1
 		_path_job_data.clear()
+	if _combat_task_id != -1:
+		WorkerThreadPool.wait_for_task_completion(_combat_task_id)
+		_combat_task_id = -1
+		_combat_job_data.clear()
+		_combat_target_nodes_by_id.clear()
+	if _combat_route_task_id != -1:
+		WorkerThreadPool.wait_for_task_completion(_combat_route_task_id)
+		_combat_route_task_id = -1
+		_combat_route_job_data.clear()
 	if not is_nan(_path_fail_escape_altitude_m):
 		_path_fail_escape_altitude_m -= offset.y
 	if not is_nan(_transit_cruise_altitude_m):
 		_transit_cruise_altitude_m -= offset.y
+	for i in range(_combat_route_points.size()):
+		_combat_route_points[i] -= offset
 	if not is_nan(_takeoff_start_altitude_m):
 		_takeoff_start_altitude_m -= offset.y
 	_last_origin_shift_s = Time.get_ticks_msec() / 1000.0
@@ -668,6 +848,10 @@ func change_state(new_state: State) -> void:
 		# to the local route altitude rather than dropping out instantly.
 	elif new_state == State.LANDING:
 		_set_landing_gear_deployed(true)
+	if new_state != State.LOW_LEVEL_TRANSIT:
+		_clear_combat_attack("state_changed")
+		_cancel_combat_plan_job()
+		_cancel_combat_route_job()
 	var previous_state := state
 	state = new_state
 	_debug_event("state", "from=%s to=%s" % [_state_name_for(previous_state), _state_name()])
@@ -762,6 +946,34 @@ func command_return_to_carrier_and_land() -> bool:
 	return true
 
 
+func command_rescue(pilot_node: Node3D) -> void:
+	if not is_instance_valid(pilot_node):
+		return
+	_rescue_target = pilot_node
+	mission_phase = MissionPhase.RESCUE
+	_clear_combat_attack("rescue_commanded")
+	_cancel_combat_plan_job()
+	_clear_heightmap_path("rescue_start")
+	set_destination(pilot_node.global_position)
+	_record_milestone("Rescue mission — heading to downed pilot at %s" % [str(pilot_node.global_position.snapped(Vector3.ONE))])
+	print("[HelicopterPilot] %s dispatched for rescue of %s" % [aircraft.name if is_instance_valid(aircraft) else name, pilot_node.name])
+
+
+func add_passenger(pilot_node: Node3D) -> void:
+	_passengers += 1
+	_rescue_target = null
+	print("[HelicopterPilot] %s picked up passenger — %d on board. Returning to carrier." % [aircraft.name if is_instance_valid(aircraft) else name, _passengers])
+	_clear_heightmap_path("rescue_complete")
+	_reset_inbound_progress_watchdog()
+	mission_phase = MissionPhase.INBOUND
+	_carrier_approach_phase = CarrierApproachPhase.NONE
+	_carrier_final_timer_s = 0.0
+	_carrier_approach_clearance_request_s = 0.0
+	_update_carrier_destination()
+	_clear_ground_landing_hold()
+	change_state(State.TAKEOFF)
+
+
 func get_active_waypoints() -> Array[Vector3]:
 	var route: Array[Vector3] = []
 	if not _heightmap_path.is_empty():
@@ -784,6 +996,7 @@ func _physics_process(delta: float) -> void:
 		set_physics_process(false)
 		return
 	var _profiler_start: int = FrameProfiler.begin("HelicopterPilot.physics")
+	_update_combat_shot_reports()
 	if aircraft.get_meta("controls_disabled", false):
 		FrameProfiler.end("HelicopterPilot.physics", _profiler_start)
 		return
@@ -855,6 +1068,13 @@ func _physics_process(delta: float) -> void:
 					var carrier_dist := _flat_distance(aircraft.global_position, (lz_carrier as Node3D).global_position)
 					if carrier_dist < carrier_clear_distance_m:
 						_idle_dwell_timer_s = 0.0
+			elif mission_phase == MissionPhase.RESCUE:
+				_hold_landed_on_terrain(delta)
+				# Don't tick the timeout while the pilot is still alive and approaching.
+				# Once add_passenger() is called _rescue_target is cleared and we transition
+				# to INBOUND immediately — the timer only fires if no one ever boards.
+				if is_instance_valid(_rescue_target):
+					_idle_dwell_timer_s = 60.0
 			elif mission_phase == MissionPhase.AT_CARRIER:
 				_hold_landed_on_carrier()
 			_idle_dwell_timer_s -= delta
@@ -894,6 +1114,11 @@ func _physics_process(delta: float) -> void:
 			var transit_speed := _get_path_fail_escape_speed(_get_current_leg_target_speed_mps(cruise_speed_mps))
 			transit_speed = _get_terrain_climb_speed_limit(transit_speed)
 			transit_speed = _get_path_turn_speed_limit(transit_speed)
+			if _update_combat_attack(delta, transit_speed):
+				_emit_debug(delta)
+				_check_recorder_faults(delta)
+				FrameProfiler.end("HelicopterPilot.physics", _profiler_start)
+				return
 			if mission_phase == MissionPhase.INBOUND:
 				if _update_inbound_progress_watchdog(delta):
 					_update_navigation_plan()
@@ -946,12 +1171,25 @@ func _advance_mission() -> void:
 			_carrier_approach_clearance_request_s = 0.0
 			_update_carrier_destination()
 			change_state(State.TAKEOFF)
+		MissionPhase.RESCUE:
+			# Dwell timer expired without anyone boarding — give up and return.
+			_rescue_target = null
+			_record_milestone("Rescue pickup timeout — returning to carrier")
+			_clear_ground_landing_hold()
+			_clear_heightmap_path("rescue_timeout")
+			_reset_inbound_progress_watchdog()
+			mission_phase = MissionPhase.INBOUND
+			_carrier_approach_phase = CarrierApproachPhase.NONE
+			_carrier_final_timer_s = 0.0
+			_carrier_approach_clearance_request_s = 0.0
+			_update_carrier_destination()
+			change_state(State.TAKEOFF)
 		MissionPhase.AT_CARRIER:
 			var fd_mgr := get_tree().get_first_node_in_group("flight_deck_manager")
 			if fd_mgr and fd_mgr.get("auto_recovery_enabled"):
 				_record_milestone("Waiting on deck for tractor recovery")
 				return
-				
+
 			_record_milestone("Landed back at carrier — picking new LZ")
 			_clear_carrier_landing_hold()
 			_pick_random_lz()
@@ -1347,6 +1585,13 @@ func _update_navigation_plan() -> void:
 	# Keep tracking the moving carrier while inbound
 	if mission_phase == MissionPhase.INBOUND:
 		_update_carrier_destination()
+
+	# Keep tracking a walking downed pilot
+	if mission_phase == MissionPhase.RESCUE and is_instance_valid(_rescue_target):
+		var new_dest := _rescue_target.global_position
+		if not _has_destination or _flat_distance(destination, new_dest) > 5.0:
+			destination = new_dest
+			_has_destination = true
 
 	if not _has_destination:
 		_pick_random_lz()
@@ -3593,7 +3838,13 @@ func _fly_transit_vector(target: Vector3, desired_speed: float, delta: float) ->
 	var turn_error := forward.signed_angle_to(path_dir, Vector3.UP)
 	var absolute_turn_error := absf(turn_error)
 	var terrain_recovery_t: float = 0.0
-	var ground_h := _get_ground_height_at_position(current_pos)
+	var ground_h := _get_down_feeler_ground_height(current_pos)
+	if not is_nan(ground_h):
+		var down_clearance_floor := maxf(
+			min_terrain_clearance_m + terrain_escape_margin_m + terrain_down_feeler_extra_clearance_m,
+			1.0
+		)
+		target.y = maxf(target.y, ground_h + down_clearance_floor)
 	# Skip terrain recovery during carrier approach — the helicopter is near the
 	# carrier deck at low AGL intentionally. Terrain recovery kills speed and
 	# collective at exactly the wrong moment.
@@ -3627,15 +3878,17 @@ func _fly_transit_vector(target: Vector3, desired_speed: float, delta: float) ->
 		_feeler_net_right_risk = 0.0
 		_feeler_forward_penalty = 0.0
 		_feeler_forward_obstacle_distance = INF
+		_feeler_rear_penalty = 0.0
 	var _feeler_forward_speed_penalty := _feeler_forward_penalty
 	var _min_forward_dist := _feeler_forward_obstacle_distance
+	var _rear_penalty := _feeler_rear_penalty
 	var _net_left_risk := _feeler_net_left_risk
 	var _net_right_risk := _feeler_net_right_risk
 	# Only recompute samples on the reset frame — cached otherwise.
 	if _feeler_timer_s >= 0.099:
-		const FEELER_ANGLES := [0.0, 20.0, -20.0, 50.0, -50.0]
-		const FEELER_BASE_WEIGHTS := [1.2, 1.0, 1.0, 0.6, 0.6]
-		const FEELER_DIST_SCALES := [1.0, 1.0, 1.0, 0.7, 0.7]
+		const FEELER_ANGLES := [0.0, 20.0, -20.0, 50.0, -50.0, 90.0, -90.0, 135.0, -135.0, 180.0]
+		const FEELER_BASE_WEIGHTS := [1.2, 1.0, 1.0, 0.6, 0.6, 0.9, 0.9, 0.65, 0.65, 0.55]
+		const FEELER_DIST_SCALES := [1.0, 1.0, 1.0, 0.7, 0.7, 0.45, 0.45, 0.55, 0.55, 0.4]
 		const FEELER_NEAR_WEIGHT := 2.5
 		const FEELER_NEAR_FRAC := 0.33
 		var feeler_forward := forward
@@ -3666,18 +3919,22 @@ func _fly_transit_vector(target: Vector3, desired_speed: float, delta: float) ->
 					# Only trigger forward obstacle braking if the ground rises above min clearance
 					if _h > current_pos.y - min_terrain_clearance_m:
 						_min_forward_dist = minf(_min_forward_dist, _sdist)
-				elif _angle_deg > 0.0:
+				elif _angle_deg > 0.0 and _angle_deg < 179.0:
 					_net_right_risk = maxf(_net_right_risk, _risk)
-				else:
+				elif _angle_deg < 0.0:
 					_net_left_risk = maxf(_net_left_risk, _risk)
+				if absf(_angle_deg) > 100.0:
+					_rear_penalty = maxf(_rear_penalty, _risk)
 		# Store back to cache
 		_feeler_forward_penalty = _feeler_forward_speed_penalty
 		_feeler_forward_obstacle_distance = _min_forward_dist
+		_feeler_rear_penalty = _rear_penalty
 		_feeler_net_left_risk = _net_left_risk
 		_feeler_net_right_risk = _net_right_risk
 	if _net_left_risk > 0.0 or _net_right_risk > 0.0:
 		lateral_wall_roll = (_net_left_risk - _net_right_risk) * maxf(lateral_obstacle_roll_gain, 0.0)
 		lateral_wall_yaw = (_net_left_risk - _net_right_risk) * maxf(lateral_obstacle_yaw_gain, 0.0)
+		lateral_error += (_net_left_risk - _net_right_risk) * maxf(lateral_obstacle_side_push_mps, 0.0)
 	# Forward obstacle: only slow down if the path is asymmetrically blocked.
 	# If both sides have similar risk it's a corridor — let them fly through.
 	# Slow down only when one side is significantly more blocked than the other,
@@ -3690,6 +3947,8 @@ func _fly_transit_vector(target: Vector3, desired_speed: float, delta: float) ->
 			maxf(lateral_obstacle_forward_speed_max_penalty, 0.0)
 		)
 		forward_lean *= 1.0 - effective_penalty * maxf(lateral_obstacle_forward_speed_scale, 0.0)
+	if _rear_penalty > 0.0 and _feeler_forward_speed_penalty < 0.35:
+		forward_lean = maxf(forward_lean, _rear_penalty * maxf(lateral_obstacle_rear_forward_lean, 0.0))
 	var bank_speed_start: float = maxf(transit_low_speed_bank_start_mps, 0.0)
 	var bank_speed_full: float = maxf(transit_low_speed_bank_full_mps, bank_speed_start + 1.0)
 	var bank_speed_t: float = clampf(
@@ -3893,6 +4152,7 @@ func _fly_transit_vector(target: Vector3, desired_speed: float, delta: float) ->
 	var bank_pullback: float = absf(target_roll) * pullback_speed_t * maxf(transit_bank_pullback_gain, 0.0)
 	target_pitch = clampf(target_pitch + bank_pullback, -cyclic_limit, cyclic_limit)
 	target_pitch = _apply_reverse_avoidance_pitch(target_pitch, fwd_speed)
+	var pitch_rate_scale: float = 1.0
 
 	# Reduce bank when close to terrain so the lift vector stays mostly vertical
 	# and collective can actually arrest descent. terrain_recovery_t goes to 1.0 at
@@ -3949,6 +4209,14 @@ func _fly_transit_vector(target: Vector3, desired_speed: float, delta: float) ->
 			var sideslip := forward.signed_angle_to(vel_horiz.normalized(), Vector3.UP)
 			coordinated_yaw = sideslip * maxf(transit_coordinated_yaw_gain, 0.0)
 	var target_yaw := clampf(heading_yaw - aircraft.angular_velocity.y * yaw_rate_damping + lateral_wall_yaw + coordinated_yaw, -yaw_limit, yaw_limit)
+	var combat_collective_floor: float = -1.0
+	var combat_aim: Dictionary = _get_combat_aim_commands(target_pitch, target_roll, target_yaw, delta, cyclic_limit, yaw_limit)
+	if not combat_aim.is_empty():
+		target_pitch = float(combat_aim.get("pitch", target_pitch))
+		target_roll = float(combat_aim.get("roll", target_roll))
+		target_yaw = float(combat_aim.get("yaw", target_yaw))
+		pitch_rate_scale = maxf(float(combat_aim.get("pitch_rate_scale", 1.0)), 0.01)
+		combat_collective_floor = float(combat_aim.get("collective_floor", -1.0))
 
 	# Emergency sink recovery: if descending fast at low AGL, override everything —
 	# level the nose, flatten roll, and go to full collective immediately.
@@ -3971,7 +4239,7 @@ func _fly_transit_vector(target: Vector3, desired_speed: float, delta: float) ->
 			target_roll = lerpf(target_roll, 0.0, emergency_t)
 			_debug_event("sink_recovery", "t=%.2f agl=%.1f sink=%.1f" % [emergency_t, agl, sink_rate]) if emergency_t > 0.5 else null
 
-	_pitch_cmd = move_toward(_pitch_cmd, target_pitch, maxf(cyclic_rate, 0.01) * delta)
+	_pitch_cmd = move_toward(_pitch_cmd, target_pitch, maxf(cyclic_rate, 0.01) * pitch_rate_scale * delta)
 	_roll_cmd = move_toward(_roll_cmd, target_roll, maxf(cyclic_rate, 0.01) * delta)
 	_yaw_cmd = move_toward(_yaw_cmd, target_yaw, maxf(yaw_command_rate, 0.01) * delta)
 
@@ -3994,6 +4262,8 @@ func _fly_transit_vector(target: Vector3, desired_speed: float, delta: float) ->
 
 	_set_helicopter_input(_pitch_cmd, _roll_cmd, _yaw_cmd)
 	var collective_target := _calculate_collective(target.y)
+	if combat_collective_floor >= 0.0:
+		collective_target = maxf(collective_target, clampf(combat_collective_floor, 0.0, 1.0))
 	if emergency_t > 0.0:
 		collective_target = lerpf(collective_target, 1.0, emergency_t)
 	_debug_collective_target = collective_target
@@ -4114,6 +4384,8 @@ func _fly_toward(target: Vector3, desired_speed: float, delta: float) -> void:
 	var yaw_rate := aircraft.angular_velocity.y
 	var yaw_limit := _get_yaw_limit_for_speed(horizontal_speed)
 	var yaw_heading_gain := 0.0 if state == State.LOW_LEVEL_TRANSIT else yaw_gain
+	if state == State.LOW_LEVEL_TRANSIT and not _combat_plan.is_empty():
+		yaw_heading_gain = yaw_gain * maxf(combat_transit_yaw_gain_scale, 0.0)
 	var target_yaw := clampf(yaw_error * yaw_heading_gain - yaw_rate * yaw_rate_damping, -yaw_limit, yaw_limit)
 	_yaw_cmd = move_toward(_yaw_cmd, target_yaw, maxf(yaw_command_rate, 0.01) * delta)
 
@@ -4945,6 +5217,2530 @@ func _notify_helicopter_landed_on_carrier_deck() -> void:
 		fdm.notify_helicopter_landed_on_carrier(aircraft)
 
 
+func _update_combat_attack(delta: float, fallback_speed_mps: float) -> bool:
+	if not combat_enabled or not is_instance_valid(aircraft):
+		_clear_combat_attack("disabled")
+		_clear_combat_plan_job()
+		_clear_combat_route_job()
+		return false
+	if not _combat_plan.is_empty():
+		# Abort mid-run if the phase changed away from OUTBOUND (e.g. rescue commanded).
+		if combat_outbound_only and mission_phase != MissionPhase.OUTBOUND:
+			_clear_combat_attack("phase_changed")
+			return false
+		return _execute_combat_attack(fallback_speed_mps)
+	if _combat_task_id != -1:
+		var completed_plan := _finish_combat_plan_job_if_ready()
+		if completed_plan:
+			return _execute_combat_attack(fallback_speed_mps)
+		_log_combat_debug("job", "waiting_for_async_plan")
+		return false
+	if not _can_start_combat_attack():
+		return false
+
+	_combat_scan_timer_s -= delta
+	if _combat_scan_timer_s > 0.0:
+		return false
+	_combat_scan_timer_s = maxf(combat_scan_interval_s, 0.1)
+
+	var weapon_options := _get_combat_weapon_options()
+	if weapon_options.is_empty():
+		_log_combat_debug("no_weapons", "")
+		return false
+	var targets := _get_combat_target_candidates()
+	if targets.is_empty():
+		_log_combat_debug("no_targets", "range=%.0f" % combat_target_scan_range_m)
+		return false
+
+	targets = _limit_combat_target_candidates(targets)
+	_log_combat_debug("scan", "targets=%d weapons=%s nearest=%s async=%s" % [
+		targets.size(),
+		_describe_combat_weapon_options(weapon_options),
+		_describe_nearest_combat_target(targets),
+		str(combat_plan_async_enabled),
+	])
+	if combat_plan_async_enabled:
+		if _start_combat_plan_job(targets, weapon_options):
+			return false
+		_log_combat_debug("job", "skipped_async_snapshot")
+		return false
+
+	var plan: Dictionary = AttackPlannerScript.build_air_attack_plan(
+		aircraft,
+		targets,
+		weapon_options,
+		Callable(self, "_get_ground_height_at_position"),
+		_get_combat_plan_params()
+	)
+	if plan.is_empty():
+		_log_combat_debug("no_plan", "targets=%d weapons=%d" % [targets.size(), weapon_options.size()])
+		return false
+
+	return _activate_combat_plan(plan, weapon_options)
+
+
+func _can_start_combat_attack() -> bool:
+	if state != State.LOW_LEVEL_TRANSIT:
+		_log_combat_debug("not_ready", "reason=state current=%s" % _state_name())
+		return false
+	if _landing_on_carrier or _carrier_approach_phase != CarrierApproachPhase.NONE:
+		_log_combat_debug("not_ready", "reason=carrier_landing cphase=%s" % _carrier_approach_phase_name())
+		return false
+	if combat_outbound_only and mission_phase != MissionPhase.OUTBOUND:
+		_log_combat_debug("not_ready", "reason=mission phase=%s outbound_only=%s" % [_mission_name(), str(combat_outbound_only)])
+		return false
+	if mission_phase == MissionPhase.INBOUND:
+		var carrier := get_tree().get_first_node_in_group("carrier") as Node3D
+		if carrier != null and _flat_distance(aircraft.global_position, carrier.global_position) < combat_min_carrier_distance_m:
+			_log_combat_debug("not_ready", "reason=near_carrier dist=%.0f min=%.0f" % [
+				_flat_distance(aircraft.global_position, carrier.global_position),
+				combat_min_carrier_distance_m,
+			])
+			return false
+	return true
+
+
+func _activate_combat_plan(plan: Dictionary, weapon_options: Array) -> bool:
+	if plan.is_empty():
+		return false
+	_combat_plan = plan
+	_reset_combat_aim_controller()
+	_reset_combat_rocket_salvo_state()
+	_reset_combat_route_state()
+	var weapon: Dictionary = {}
+	if not _combat_plan.has("weapon"):
+		weapon = _resolve_combat_weapon_option(String(_combat_plan.get("weapon_kind", "")), weapon_options)
+	else:
+		var weapon_variant: Variant = _combat_plan.get("weapon", {})
+		if weapon_variant is Dictionary:
+			weapon = weapon_variant as Dictionary
+	if weapon.is_empty():
+		_combat_plan.clear()
+		return false
+	_combat_plan["weapon"] = weapon
+	_combat_phase = "ingress"
+	_combat_phase_started_s = _elapsed_s()
+	_combat_fire_log_s = 0.0
+	_start_combat_route_job()
+	var target := _combat_plan_target()
+	var weapon_kind := String(_combat_plan.get("weapon_kind", "unknown"))
+	_update_combat_hardpoint_weapon_preference_after_plan(weapon_kind, weapon)
+	_sync_combat_control_weapon_selection(weapon_kind, weapon)
+	_write_combat_report_plan_start(target, weapon_kind)
+	if target != null:
+		_log_combat_debug("plan", "target=%s weapon=%s dist=%.0f" % [
+			target.name,
+			weapon_kind,
+			_flat_distance(aircraft.global_position, target.global_position),
+		], true)
+	return true
+
+
+func _start_combat_plan_job(targets: Array, weapon_options: Array) -> bool:
+	if _combat_task_id != -1:
+		return true
+	var grid := _build_combat_grid_snapshot()
+	if grid.is_empty():
+		return false
+	var target_snapshot := _build_combat_target_snapshot(targets)
+	if target_snapshot.is_empty():
+		return false
+	var weapon_snapshot := _build_combat_weapon_snapshot(weapon_options)
+	if weapon_snapshot.is_empty():
+		return false
+	_combat_job_data = {
+		"start_ms": Time.get_ticks_msec(),
+		"attacker_pos": aircraft.global_position,
+		"targets": target_snapshot,
+		"weapon_options": weapon_snapshot,
+		"grid": grid,
+		"params": _get_combat_plan_params(),
+		"cancelled": false,
+		"result": {},
+	}
+	_combat_task_id = WorkerThreadPool.add_task(func():
+		_run_threaded_combat_plan_job(_combat_job_data)
+	)
+	_log_combat_debug("job", "started targets=%d weapons=%d" % [target_snapshot.size(), weapon_snapshot.size()])
+	return true
+
+
+func _finish_combat_plan_job_if_ready() -> bool:
+	if _combat_task_id == -1:
+		return false
+	if not WorkerThreadPool.is_task_completed(_combat_task_id):
+		return false
+	WorkerThreadPool.wait_for_task_completion(_combat_task_id)
+	_combat_task_id = -1
+	var data := _combat_job_data
+	_combat_job_data = {}
+	if _combat_variant_truthy(data.get("cancelled", false)):
+		_combat_target_nodes_by_id.clear()
+		return false
+	var result_variant: Variant = data.get("result", {})
+	if not (result_variant is Dictionary):
+		_combat_target_nodes_by_id.clear()
+		return false
+	var plan: Dictionary = result_variant as Dictionary
+	if plan.is_empty():
+		_combat_target_nodes_by_id.clear()
+		var targets_variant: Variant = data.get("targets", [])
+		var target_count := 0
+		if targets_variant is Array:
+			target_count = (targets_variant as Array).size()
+		_log_combat_debug("no_plan", "async targets=%d" % target_count)
+		return false
+	var target_id := int(plan.get("target_instance_id", 0))
+	var target := _combat_node3d_from_variant(_combat_target_nodes_by_id.get(target_id, null))
+	_combat_target_nodes_by_id.clear()
+	if target == null or not _is_valid_combat_target(target):
+		return false
+	plan["target"] = target
+	var weapon_options := _get_combat_weapon_options()
+	return _activate_combat_plan(plan, weapon_options)
+
+
+func _start_combat_route_job() -> bool:
+	if not combat_route_pathfinding_enabled:
+		return false
+	if _combat_route_task_id != -1:
+		return true
+	var grid := _build_combat_grid_snapshot()
+	if grid.is_empty():
+		return false
+	var route_data := _build_combat_route_job_data(grid)
+	if route_data.is_empty():
+		return false
+	_combat_route_job_data = route_data
+	_combat_route_task_id = WorkerThreadPool.add_task(func():
+		_run_threaded_combat_route_job(_combat_route_job_data)
+	)
+	_log_combat_debug("route", "started_threaded")
+	return true
+
+
+func _finish_combat_route_job_if_ready() -> bool:
+	if _combat_route_task_id == -1:
+		return _combat_route_ready
+	if not WorkerThreadPool.is_task_completed(_combat_route_task_id):
+		return false
+	WorkerThreadPool.wait_for_task_completion(_combat_route_task_id)
+	_combat_route_task_id = -1
+	var data := _combat_route_job_data
+	_combat_route_job_data = {}
+	if _combat_variant_truthy(data.get("cancelled", false)):
+		_reset_combat_route_state()
+		return false
+	var result_variant: Variant = data.get("result", {})
+	if not (result_variant is Dictionary):
+		_reset_combat_route_state()
+		return false
+	var result: Dictionary = result_variant as Dictionary
+	if not _combat_variant_truthy(result.get("success", false)):
+		_reset_combat_route_state()
+		_log_combat_debug("route", "failed reason=%s" % String(result.get("reason", "unknown")), true)
+		return false
+	var points_variant: Variant = result.get("points", [])
+	var phases_variant: Variant = result.get("phases", PackedStringArray())
+	if not (points_variant is Array):
+		_reset_combat_route_state()
+		return false
+	var route_points: Array[Vector3] = []
+	var points_array: Array = points_variant as Array
+	for point_variant in points_array:
+		if point_variant is Vector3:
+			route_points.append(point_variant)
+	if route_points.is_empty():
+		_reset_combat_route_state()
+		return false
+	_combat_route_points = route_points
+	_combat_route_phases = PackedStringArray()
+	if phases_variant is PackedStringArray:
+		var packed_phases: PackedStringArray = phases_variant as PackedStringArray
+		_combat_route_phases = packed_phases
+	elif phases_variant is Array:
+		var phases_array: Array = phases_variant as Array
+		for phase_variant in phases_array:
+			_combat_route_phases.append(String(phase_variant))
+	while _combat_route_phases.size() < _combat_route_points.size():
+		_combat_route_phases.append("ingress")
+	_combat_route_index = 0
+	_combat_route_ready = true
+	_log_combat_debug("route", "ready points=%d fallback=%s" % [
+		_combat_route_points.size(),
+		str(_combat_variant_truthy(result.get("used_direct_fallback", false))),
+	], true)
+	return true
+
+
+func _cancel_combat_plan_job() -> void:
+	if _combat_task_id == -1:
+		return
+	_combat_job_data["cancelled"] = true
+
+
+func _clear_combat_plan_job() -> void:
+	if _combat_task_id != -1:
+		_combat_job_data["cancelled"] = true
+		if WorkerThreadPool.is_task_completed(_combat_task_id):
+			WorkerThreadPool.wait_for_task_completion(_combat_task_id)
+			_combat_task_id = -1
+			_combat_job_data.clear()
+			_combat_target_nodes_by_id.clear()
+
+
+func _cancel_combat_route_job() -> void:
+	if _combat_route_task_id == -1:
+		return
+	_combat_route_job_data["cancelled"] = true
+
+
+func _clear_combat_route_job() -> void:
+	if _combat_route_task_id != -1:
+		_combat_route_job_data["cancelled"] = true
+		if WorkerThreadPool.is_task_completed(_combat_route_task_id):
+			WorkerThreadPool.wait_for_task_completion(_combat_route_task_id)
+			_combat_route_task_id = -1
+			_combat_route_job_data.clear()
+	_reset_combat_route_state()
+
+
+func _get_combat_plan_params() -> Dictionary:
+	return {
+		"allow_bombs": combat_allow_bombs,
+		"target_aim_height_m": 1.4,
+		"start_clearance_grace_m": 40.0,
+	}
+
+
+func _build_combat_route_job_data(grid: Dictionary) -> Dictionary:
+	var required_keys := ["ingress", "fire_start", "fire_end", "egress"]
+	for key in required_keys:
+		if _combat_plan_position(key) == Vector3.INF:
+			return {}
+	var reference_ground := _get_heightmap_reference_ground_y()
+	var max_route_terrain_y := _get_heightmap_max_route_terrain_y(reference_ground)
+	var flight_ceiling := _get_heightmap_flight_ceiling_m(reference_ground)
+	var params := _get_threaded_heightmap_path_params(reference_ground, max_route_terrain_y, flight_ceiling)
+	var current_pos := aircraft.global_position
+	var ingress := _combat_plan_position("ingress")
+	var fire_start := _combat_plan_position("fire_start")
+	var fire_end := _combat_plan_position("fire_end")
+	var egress := _combat_plan_position("egress")
+	var legs: Array[Dictionary] = []
+	_append_combat_path_leg(legs, current_pos, ingress, "ingress", grid, params, reference_ground, max_route_terrain_y)
+	_append_combat_path_leg(legs, ingress, fire_start, "ingress", grid, params, reference_ground, max_route_terrain_y)
+	_append_combat_fire_corridor_leg(legs, fire_start, fire_end)
+	_append_combat_path_leg(legs, fire_end, egress, "egress", grid, params, reference_ground, max_route_terrain_y)
+	if legs.is_empty():
+		return {}
+	return {
+		"start_ms": Time.get_ticks_msec(),
+		"legs": legs,
+		"cancelled": false,
+		"result": {},
+	}
+
+
+func _append_combat_path_leg(
+		legs: Array[Dictionary],
+		start: Vector3,
+		goal: Vector3,
+		phase: String,
+		grid: Dictionary,
+		params: Dictionary,
+		reference_ground: float,
+		max_route_terrain_y: float
+) -> void:
+	var leg_data := _make_threaded_path_job_data(start, goal, grid, params, reference_ground, max_route_terrain_y)
+	if leg_data.is_empty():
+		legs.append({"kind": "direct", "start": start, "goal": goal, "phase": phase})
+		return
+	legs.append({"kind": "path", "data": leg_data, "phase": phase, "goal": goal})
+
+
+func _append_combat_fire_corridor_leg(legs: Array[Dictionary], start: Vector3, goal: Vector3) -> void:
+	var spacing := maxf(combat_route_fire_corridor_spacing_m, 10.0)
+	var distance := _flat_distance(start, goal)
+	var steps := maxi(int(ceil(distance / spacing)), 1)
+	for i in range(1, steps + 1):
+		var t := float(i) / float(steps)
+		legs.append({"kind": "direct_point", "point": start.lerp(goal, t), "phase": "attack"})
+
+
+func _get_threaded_heightmap_path_params(reference_ground: float, max_route_terrain_y: float, flight_ceiling: float) -> Dictionary:
+	return {
+		"heightmap_path_max_edge_risk_m": heightmap_path_max_edge_risk_m,
+		"heightmap_path_edge_risk_penalty": heightmap_path_edge_risk_penalty,
+		"heightmap_path_mountain_buffer_cells": heightmap_path_mountain_buffer_cells,
+		"heightmap_path_mountain_avoidance_m": heightmap_path_mountain_avoidance_m,
+		"heightmap_path_max_step_climb_m": heightmap_path_max_step_climb_m,
+		"heightmap_path_altitude_penalty": heightmap_path_altitude_penalty,
+		"heightmap_path_climb_penalty": heightmap_path_climb_penalty,
+		"heightmap_path_high_terrain_penalty": heightmap_path_high_terrain_penalty,
+		"heightmap_path_same_level_wall_risk_start_m": heightmap_path_same_level_wall_risk_start_m,
+		"heightmap_path_same_level_wall_penalty": heightmap_path_same_level_wall_penalty,
+		"heightmap_path_ground_route_penalty": heightmap_path_ground_route_penalty,
+		"heightmap_path_low_route_penalty": heightmap_path_low_route_penalty,
+		"heightmap_path_top_level_penalty": heightmap_path_top_level_penalty,
+		"heightmap_path_upper_level_penalty": heightmap_path_upper_level_penalty,
+		"heightmap_path_level_change_penalty": heightmap_path_level_change_penalty,
+		"heightmap_path_target_agl_m": heightmap_path_target_agl_m,
+		"min_terrain_clearance_m": min_terrain_clearance_m,
+		"heightmap_path_carrot_distance_m": heightmap_path_carrot_distance_m,
+		"heightmap_path_insert_spacing_m": heightmap_path_insert_spacing_m,
+		"heightmap_path_simplify_altitude_error_m": heightmap_path_simplify_altitude_error_m,
+		"terrain_climb_lookahead_m": terrain_climb_lookahead_m,
+		"terrain_sample_spacing_m": terrain_sample_spacing_m,
+		"heightmap_path_simplify_enabled": heightmap_path_simplify_enabled,
+		"min_altitude": -1000.0,
+		"max_altitude": 10000.0,
+		"route_terrain_ceiling": max_route_terrain_y,
+		"flight_ceiling": flight_ceiling,
+	}
+
+
+func _make_threaded_path_job_data(
+		start: Vector3,
+		goal: Vector3,
+		grid: Dictionary,
+		params: Dictionary,
+		reference_ground: float,
+		max_route_terrain_y: float
+) -> Dictionary:
+	var cols := int(grid.get("cols", 0))
+	var rows := int(grid.get("rows", 0))
+	var origin_x := float(grid.get("origin_x", 0.0))
+	var origin_z := float(grid.get("origin_z", 0.0))
+	var cell_size := maxf(float(grid.get("cell_size", 1.0)), 1.0)
+	if cols <= 0 or rows <= 0:
+		return {}
+	var dist_max := maxf(absf(start.x - goal.x), absf(start.z - goal.z))
+	var pad := maxf(heightmap_path_search_padding_m, dist_max * 0.5)
+	var gx_min: int = clampi(int(floor((minf(start.x, goal.x) - pad - origin_x) / cell_size)), 0, cols - 1)
+	var gz_min: int = clampi(int(floor((minf(start.z, goal.z) - pad - origin_z) / cell_size)), 0, rows - 1)
+	var gx_max: int = clampi(int(ceil((maxf(start.x, goal.x) + pad - origin_x) / cell_size)), 0, cols - 1)
+	var gz_max: int = clampi(int(ceil((maxf(start.z, goal.z) + pad - origin_z) / cell_size)), 0, rows - 1)
+	var start_cell := Vector2i(
+		clampi(int((start.x - origin_x) / cell_size), gx_min, gx_max),
+		clampi(int((start.z - origin_z) / cell_size), gz_min, gz_max)
+	)
+	var end_cell := Vector2i(
+		clampi(int((goal.x - origin_x) / cell_size), gx_min, gx_max),
+		clampi(int((goal.z - origin_z) / cell_size), gz_min, gz_max)
+	)
+	var max_iterations := maxi((gx_max - gx_min + 1) * (gz_max - gz_min + 1) * 3, 20000)
+	return {
+		"start_ms": Time.get_ticks_msec(),
+		"current_pos": start,
+		"goal": goal,
+		"gx_min": gx_min,
+		"gz_min": gz_min,
+		"gx_max": gx_max,
+		"gz_max": gz_max,
+		"start_cell": start_cell,
+		"end_cell": end_cell,
+		"reference_ground": reference_ground,
+		"max_route_terrain_y": max_route_terrain_y,
+		"max_iterations": max_iterations,
+		"grid": grid,
+		"params": params,
+		"result": {},
+	}
+
+
+func _limit_combat_target_candidates(targets: Array) -> Array:
+	var limit := maxi(combat_target_candidate_limit, 1)
+	if targets.size() <= limit:
+		return targets
+	var scored: Array = []
+	for target_variant in targets:
+		var target := _combat_node3d_from_variant(target_variant)
+		if target == null:
+			continue
+		scored.append({
+			"target": target,
+			"distance": _flat_distance(aircraft.global_position, target.global_position),
+		})
+	scored.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return float(a.get("distance", INF)) < float(b.get("distance", INF))
+	)
+	var limited: Array = []
+	for i in range(mini(scored.size(), limit)):
+		limited.append(scored[i].get("target"))
+	return limited
+
+
+func _build_combat_target_snapshot(targets: Array) -> Array:
+	_combat_target_nodes_by_id.clear()
+	var out: Array = []
+	for target_variant in targets:
+		var target := _combat_node3d_from_variant(target_variant)
+		if target == null:
+			continue
+		var instance_id := target.get_instance_id()
+		_combat_target_nodes_by_id[instance_id] = target
+		out.append({
+			"instance_id": instance_id,
+			"name": target.name,
+			"position": target.global_position,
+			"aim_position": target.global_position + Vector3.UP * 1.4,
+		})
+	return out
+
+
+func _build_combat_weapon_snapshot(weapon_options: Array) -> Array:
+	var out: Array = []
+	var seen: Dictionary = {}
+	for option_variant in weapon_options:
+		if not (option_variant is Dictionary):
+			continue
+		var option: Dictionary = option_variant as Dictionary
+		var kind := String(option.get("kind", ""))
+		if kind.is_empty() or seen.has(kind):
+			continue
+		seen[kind] = true
+		var snapshot: Dictionary = {"kind": kind}
+		if option.has("score_bias"):
+			snapshot["score_bias"] = float(option.get("score_bias", 0.0))
+		out.append(snapshot)
+	return out
+
+
+func _resolve_combat_weapon_option(kind: String, weapon_options: Array) -> Dictionary:
+	for option_variant in weapon_options:
+		if not (option_variant is Dictionary):
+			continue
+		var option: Dictionary = option_variant as Dictionary
+		if String(option.get("kind", "")) == kind:
+			return option
+	return {}
+
+
+func _build_combat_grid_snapshot() -> Dictionary:
+	var nav_grid := get_node_or_null("/root/TerrainNavGrid")
+	if nav_grid == null:
+		return {}
+	var cols := int(nav_grid.get("_cols"))
+	var rows := int(nav_grid.get("_rows"))
+	var heights := nav_grid.get("_heights") as PackedFloat32Array
+	if cols <= 0 or rows <= 0 or heights.is_empty():
+		return {}
+	return {
+		"cols": cols,
+		"rows": rows,
+		"heights": heights,
+		"origin_x": float(nav_grid.get("_origin_x")),
+		"origin_z": float(nav_grid.get("_origin_z")),
+		"cell_size": maxf(float(nav_grid.get("cell_size_m")), 1.0),
+		"impassable": float(nav_grid.get("IMPASSABLE")),
+		"query_cols": int(nav_grid.get("_query_cols")),
+		"query_rows": int(nav_grid.get("_query_rows")),
+		"query_heights": nav_grid.get("_query_heights") as PackedFloat32Array,
+		"query_height_variation": nav_grid.get("_query_height_variation") as PackedFloat32Array,
+		"query_max_heights": nav_grid.get("_query_max_heights") as PackedFloat32Array,
+		"query_origin_x": float(nav_grid.get("_query_origin_x")),
+		"query_origin_z": float(nav_grid.get("_query_origin_z")),
+		"query_cell_size": maxf(float(nav_grid.get("query_cell_size_m")), 1.0),
+	}
+
+
+static func _run_threaded_combat_plan_job(data: Dictionary) -> void:
+	var attacker_variant: Variant = data.get("attacker_pos", Vector3.ZERO)
+	var attacker_pos: Vector3 = Vector3.ZERO
+	if attacker_variant is Vector3:
+		attacker_pos = attacker_variant
+	var targets_variant: Variant = data.get("targets", [])
+	var targets: Array = []
+	if targets_variant is Array:
+		targets = targets_variant as Array
+	var weapons_variant: Variant = data.get("weapon_options", [])
+	var weapon_options: Array = []
+	if weapons_variant is Array:
+		weapon_options = weapons_variant as Array
+	var grid_variant: Variant = data.get("grid", {})
+	var grid: Dictionary = {}
+	if grid_variant is Dictionary:
+		grid = grid_variant as Dictionary
+	var params_variant: Variant = data.get("params", {})
+	var params: Dictionary = {}
+	if params_variant is Dictionary:
+		params = params_variant as Dictionary
+	data["result"] = AttackPlannerScript.build_air_attack_plan_snapshot(
+		attacker_pos,
+		targets,
+		weapon_options,
+		grid,
+		params
+	)
+
+
+static func _run_threaded_combat_route_job(data: Dictionary) -> void:
+	var route_points: Array[Vector3] = []
+	var route_phases := PackedStringArray()
+	var used_direct_fallback := false
+	var legs_variant: Variant = data.get("legs", [])
+	if not (legs_variant is Array):
+		data["result"] = {"success": false, "reason": "missing legs"}
+		return
+	var legs: Array = legs_variant as Array
+	for leg_variant in legs:
+		if _static_variant_truthy(data.get("cancelled", false)):
+			data["result"] = {"success": false, "reason": "cancelled"}
+			return
+		if not (leg_variant is Dictionary):
+			continue
+		var leg: Dictionary = leg_variant as Dictionary
+		var phase := String(leg.get("phase", "ingress"))
+		var kind := String(leg.get("kind", ""))
+		if kind == "direct_point":
+			var point_variant: Variant = leg.get("point", Vector3.INF)
+			if point_variant is Vector3:
+				_thread_append_combat_route_point(route_points, route_phases, point_variant, phase)
+			continue
+		if kind == "direct":
+			used_direct_fallback = true
+			var direct_goal_variant: Variant = leg.get("goal", Vector3.INF)
+			if direct_goal_variant is Vector3:
+				_thread_append_combat_route_point(route_points, route_phases, direct_goal_variant, phase)
+			continue
+		if kind != "path":
+			continue
+		var leg_data_variant: Variant = leg.get("data", {})
+		if not (leg_data_variant is Dictionary):
+			continue
+		var leg_data: Dictionary = leg_data_variant as Dictionary
+		_run_threaded_pathfinding_job(leg_data)
+		var result_variant: Variant = leg_data.get("result", {})
+		if not (result_variant is Dictionary):
+			used_direct_fallback = true
+			var fallback_goal_variant: Variant = leg.get("goal", Vector3.INF)
+			if fallback_goal_variant is Vector3:
+				_thread_append_combat_route_point(route_points, route_phases, fallback_goal_variant, phase)
+			continue
+		var result: Dictionary = result_variant as Dictionary
+		if not _static_variant_truthy(result.get("success", false)):
+			used_direct_fallback = true
+			var failed_goal_variant: Variant = leg.get("goal", Vector3.INF)
+			if failed_goal_variant is Vector3:
+				_thread_append_combat_route_point(route_points, route_phases, failed_goal_variant, phase)
+			continue
+		var path_variant: Variant = result.get("final_path", [])
+		if not (path_variant is Array):
+			continue
+		var path_array: Array = path_variant as Array
+		for point_variant in path_array:
+			if point_variant is Vector3:
+				_thread_append_combat_route_point(route_points, route_phases, point_variant, phase)
+	if route_points.is_empty():
+		data["result"] = {"success": false, "reason": "empty route"}
+		return
+	data["result"] = {
+		"success": true,
+		"points": route_points,
+		"phases": route_phases,
+		"used_direct_fallback": used_direct_fallback,
+		"elapsed_ms": Time.get_ticks_msec() - int(data.get("start_ms", Time.get_ticks_msec())),
+	}
+
+
+static func _thread_append_combat_route_point(
+		route_points: Array[Vector3],
+		route_phases: PackedStringArray,
+		point: Vector3,
+		phase: String
+) -> void:
+	if point == Vector3.INF:
+		return
+	if not route_points.is_empty() and Vector2(route_points[route_points.size() - 1].x - point.x, route_points[route_points.size() - 1].z - point.z).length() < 1.0:
+		route_points[route_points.size() - 1] = point
+		if route_phases.size() == route_points.size():
+			route_phases[route_phases.size() - 1] = phase
+		return
+	route_points.append(point)
+	route_phases.append(phase)
+
+
+static func _static_variant_truthy(value: Variant) -> bool:
+	if value is bool:
+		return value
+	if value is int or value is float:
+		return float(value) != 0.0
+	if value is String:
+		var text := String(value).strip_edges().to_lower()
+		return text == "true" or text == "1" or text == "yes" or text == "on"
+	return value != null
+
+
+func _execute_combat_attack(fallback_speed_mps: float) -> bool:
+	var target := _combat_plan_target()
+	if target == null or _combat_variant_truthy(target.get("is_destroyed")):
+		_clear_combat_attack("target_lost")
+		return false
+
+	if _combat_route_task_id != -1 and not _finish_combat_route_job_if_ready():
+		var ingress_wait := _combat_plan_position("ingress")
+		if ingress_wait != Vector3.INF:
+			var wait_speed := minf(fallback_speed_mps, float(_combat_plan.get("attack_speed_mps", fallback_speed_mps)))
+			_log_combat_debug("route", "waiting wp_dist=%.0f" % _flat_distance(aircraft.global_position, ingress_wait))
+			_nav_waypoint = ingress_wait
+			_fly_toward(_nav_waypoint, wait_speed, _physics_delta)
+			return true
+		return false
+	if combat_route_pathfinding_enabled and not _combat_route_ready:
+		_start_combat_route_job()
+		if _combat_route_task_id != -1:
+			return true
+	if _combat_route_ready:
+		return _execute_combat_route_attack(target, fallback_speed_mps)
+
+	var current_pos := aircraft.global_position
+	var waypoint := Vector3.INF
+	var speed := fallback_speed_mps
+	match _combat_phase:
+		"ingress":
+			waypoint = _combat_plan_position("ingress")
+			speed = minf(fallback_speed_mps, float(_combat_plan.get("attack_speed_mps", fallback_speed_mps)))
+			var ingress_next := _combat_plan_position("fire_start")
+			if ingress_next == Vector3.INF:
+				ingress_next = _combat_plan_position("fire_end")
+			if waypoint != Vector3.INF \
+					and (_flat_distance(current_pos, waypoint) <= combat_ingress_reach_radius_m \
+					or _has_passed_combat_waypoint(current_pos, waypoint, ingress_next, combat_ingress_reach_radius_m)):
+				_combat_phase = "attack"
+				_combat_phase_started_s = _elapsed_s()
+				_reset_combat_aim_controller()
+				_release_combat_aim_takeover("phase_attack", false)
+				_reset_combat_rocket_salvo_state()
+				_start_combat_attack_run_report(target)
+				_log_combat_debug("phase", "attack target=%s" % target.name, true)
+		"attack":
+			waypoint = _combat_plan_position("fire_end")
+			speed = minf(fallback_speed_mps, float(_combat_plan.get("attack_speed_mps", fallback_speed_mps)))
+			_try_fire_combat_weapon(target)
+			var attack_next := _combat_plan_position("egress")
+			if waypoint != Vector3.INF \
+					and (_flat_distance(current_pos, waypoint) <= combat_fire_end_radius_m \
+					or _has_passed_combat_waypoint(current_pos, waypoint, attack_next, combat_fire_end_radius_m)):
+				if _should_hold_combat_attack_for_first_rocket(target):
+					_log_combat_debug("hold_attack", "first_rocket target=%s dist=%.0f" % [
+						target.name,
+						aircraft.global_position.distance_to(target.global_position),
+					])
+				else:
+					_finish_combat_attack_run_report("left_fire_corridor")
+					_combat_phase = "egress"
+					_combat_phase_started_s = _elapsed_s()
+					_release_combat_aim_takeover("phase_egress", true)
+					_log_combat_debug("phase", "egress target=%s" % target.name, true)
+		"egress":
+			waypoint = _combat_plan_position("egress")
+			speed = maxf(float(_combat_plan.get("egress_speed_mps", fallback_speed_mps)), fallback_speed_mps)
+			var egress_prev := _combat_plan_position("fire_end")
+			var egress_next := Vector3.INF
+			if waypoint != Vector3.INF and egress_prev != Vector3.INF:
+				var egress_dir := waypoint - egress_prev
+				egress_dir.y = 0.0
+				if egress_dir.length_squared() > 1.0:
+					egress_next = waypoint + egress_dir.normalized() * maxf(combat_egress_reach_radius_m, 1.0)
+			if waypoint != Vector3.INF \
+					and (_flat_distance(current_pos, waypoint) <= combat_egress_reach_radius_m \
+					or _has_passed_combat_waypoint(current_pos, waypoint, egress_next, combat_egress_reach_radius_m)):
+				_clear_combat_attack("complete")
+				_update_navigation_plan()
+				return false
+		_:
+			_clear_combat_attack("bad_phase")
+			return false
+
+	if waypoint == Vector3.INF:
+		_clear_combat_attack("bad_waypoint")
+		return false
+	speed = _apply_combat_aim_takeover_speed(speed)
+	_log_combat_debug("run", "phase=%s target=%s wp_dist=%.0f speed=%.1f" % [
+		_combat_phase,
+		target.name,
+		_flat_distance(current_pos, waypoint),
+		speed,
+	])
+	_nav_waypoint = waypoint
+	_fly_toward(_nav_waypoint, speed, _physics_delta)
+	return true
+
+
+func _execute_combat_route_attack(target: Node3D, fallback_speed_mps: float) -> bool:
+	if _combat_route_points.is_empty():
+		return false
+	var current_pos := aircraft.global_position
+	var route_index_before_advance: int = _combat_route_index
+	var phase_before_advance: String = _combat_phase
+	_advance_combat_route(current_pos)
+	if phase_before_advance == "attack" \
+			and route_index_before_advance >= 0 \
+			and route_index_before_advance < _combat_route_points.size() \
+			and _get_combat_route_phase(_combat_route_index) != "attack" \
+			and _should_hold_combat_attack_for_first_rocket(target):
+		_combat_route_index = route_index_before_advance
+		_log_combat_debug("hold_attack", "route_first_rocket target=%s dist=%.0f" % [
+			target.name,
+			aircraft.global_position.distance_to(target.global_position),
+		])
+	if _combat_route_index >= _combat_route_points.size():
+		_clear_combat_attack("complete")
+		_update_navigation_plan()
+		return false
+	if _combat_route_index == _combat_route_points.size() - 1 \
+			and _get_combat_route_phase(_combat_route_index) == "egress" \
+			and _flat_distance(current_pos, _combat_route_points[_combat_route_index]) <= maxf(combat_egress_reach_radius_m, combat_route_advance_radius_m):
+		_clear_combat_attack("complete")
+		_update_navigation_plan()
+		return false
+
+	var route_phase := _get_combat_route_phase(_combat_route_index)
+	if route_phase != _combat_phase:
+		_combat_phase = route_phase
+		_combat_phase_started_s = _elapsed_s()
+		_log_combat_debug("phase", "%s target=%s route=%d/%d" % [
+			_combat_phase,
+			target.name,
+			_combat_route_index,
+			_combat_route_points.size(),
+		], true)
+		if _combat_phase == "attack":
+			_reset_combat_aim_controller()
+			_release_combat_aim_takeover("phase_attack", false)
+			_reset_combat_rocket_salvo_state()
+			_start_combat_attack_run_report(target)
+		else:
+			if phase_before_advance == "attack":
+				_finish_combat_attack_run_report("left_route_attack_segment")
+			_release_combat_aim_takeover("phase_%s" % _combat_phase, true)
+	if _combat_phase == "attack":
+		_try_fire_combat_weapon(target)
+
+	var route_point := _combat_route_points[_combat_route_index]
+	var waypoint := _get_combat_route_carrot_point(current_pos)
+	if waypoint == Vector3.INF:
+		waypoint = route_point
+	var speed := fallback_speed_mps
+	match _combat_phase:
+		"ingress", "attack":
+			speed = minf(fallback_speed_mps, float(_combat_plan.get("attack_speed_mps", fallback_speed_mps)))
+		"egress":
+			speed = maxf(float(_combat_plan.get("egress_speed_mps", fallback_speed_mps)), fallback_speed_mps)
+	speed = _apply_combat_aim_takeover_speed(speed)
+	_nav_waypoint = waypoint
+	_log_combat_debug("run", "phase=%s target=%s route=%d/%d route_dist=%.0f carrot_dist=%.0f speed=%.1f" % [
+		_combat_phase,
+		target.name,
+		_combat_route_index,
+		_combat_route_points.size(),
+		_flat_distance(current_pos, route_point),
+		_flat_distance(current_pos, waypoint),
+		speed,
+	])
+	_fly_toward(_nav_waypoint, speed, _physics_delta)
+	return true
+
+
+func _advance_combat_route(current_pos: Vector3) -> void:
+	var original_index := _combat_route_index
+	var radius := maxf(combat_route_advance_radius_m, 1.0)
+	while _combat_route_index < _combat_route_points.size() - 1 \
+			and _flat_distance(current_pos, _combat_route_points[_combat_route_index]) <= radius:
+		_combat_route_index += 1
+	while _combat_route_index < _combat_route_points.size() - 1:
+		var cur_pt := _combat_route_points[_combat_route_index]
+		var nxt_pt := _combat_route_points[_combat_route_index + 1]
+		var to_next := Vector3(nxt_pt.x - cur_pt.x, 0.0, nxt_pt.z - cur_pt.z)
+		var to_here := Vector3(current_pos.x - cur_pt.x, 0.0, current_pos.z - cur_pt.z)
+		var dist_to_wp := to_here.length()
+		if to_next.length_squared() > 1.0 \
+				and to_here.dot(to_next.normalized()) > 0.0 \
+				and dist_to_wp < maxf(radius * 3.0, 240.0):
+			_combat_route_index += 1
+		else:
+			break
+	if _combat_route_index != original_index:
+		_log_combat_debug("route_advance", "from=%d to=%d/%d" % [
+			original_index,
+			_combat_route_index,
+			_combat_route_points.size(),
+		])
+
+
+func _get_combat_route_carrot_point(current_pos: Vector3) -> Vector3:
+	if _combat_route_points.is_empty() or _combat_route_index >= _combat_route_points.size():
+		return Vector3.INF
+	var carrot_distance := maxf(combat_route_carrot_distance_m, combat_route_advance_radius_m)
+	var previous := current_pos
+	var best := _combat_route_points[_combat_route_index]
+	var traveled := 0.0
+	for i in range(_combat_route_index, _combat_route_points.size()):
+		var point := _combat_route_points[i]
+		var segment_len := _flat_distance(previous, point)
+		if traveled + segment_len >= carrot_distance:
+			var t := 1.0
+			if segment_len > 0.001:
+				t = (carrot_distance - traveled) / segment_len
+			return previous.lerp(point, clampf(t, 0.0, 1.0))
+		traveled += segment_len
+		best = point
+		previous = point
+	return best
+
+
+func _has_passed_combat_waypoint(current_pos: Vector3, waypoint: Vector3, next_point: Vector3, radius: float) -> bool:
+	if waypoint == Vector3.INF or next_point == Vector3.INF:
+		return false
+	var to_next := Vector3(next_point.x - waypoint.x, 0.0, next_point.z - waypoint.z)
+	var to_here := Vector3(current_pos.x - waypoint.x, 0.0, current_pos.z - waypoint.z)
+	if to_next.length_squared() <= 1.0:
+		return false
+	if to_here.dot(to_next.normalized()) <= 0.0:
+		return false
+	return to_here.length() < maxf(radius * 3.0, 240.0)
+
+
+func _get_combat_route_phase(index: int) -> String:
+	if index >= 0 and index < _combat_route_phases.size():
+		var phase := String(_combat_route_phases[index])
+		if not phase.is_empty():
+			return phase
+	return "ingress"
+
+
+func _combat_plan_position(key: String) -> Vector3:
+	var value: Variant = _combat_plan.get(key, Vector3.INF)
+	return value if value is Vector3 else Vector3.INF
+
+
+func _combat_plan_target() -> Node3D:
+	var value: Variant = _combat_plan.get("target", null)
+	return _combat_node3d_from_variant(value)
+
+
+func _get_combat_aim_commands(
+		base_pitch: float,
+		base_roll: float,
+		base_yaw: float,
+		delta: float,
+		cyclic_limit: float,
+		yaw_limit: float
+) -> Dictionary:
+	if not combat_aim_enabled or _combat_phase != "attack" or _combat_plan.is_empty():
+		_reset_combat_aim_controller()
+		return {}
+	var weapon_kind := String(_combat_plan.get("weapon_kind", ""))
+	if weapon_kind != COMBAT_WEAPON_ROCKET and weapon_kind != COMBAT_WEAPON_GUN:
+		_reset_combat_aim_controller()
+		return {}
+	var target := _combat_plan_target()
+	if target == null:
+		_reset_combat_aim_controller()
+		return {}
+	var solution := _get_combat_aim_solution(target)
+	if solution.is_empty():
+		_reset_combat_aim_controller()
+		return {}
+
+	var yaw_error := float(solution.get("yaw_error", 0.0))
+	var pitch_error := float(solution.get("pitch_error", 0.0))
+	var yaw_deadband: float = deg_to_rad(maxf(combat_aim_yaw_deadband_deg, 0.0))
+	var yaw_in_deadband: bool = absf(yaw_error) <= yaw_deadband
+	if yaw_in_deadband:
+		yaw_error = 0.0
+		_combat_aim_yaw_integral *= 0.5
+	var zero_cross_epsilon: float = deg_to_rad(0.2)
+	if not is_nan(_combat_aim_prev_yaw_error) \
+			and absf(yaw_error) > zero_cross_epsilon \
+			and absf(_combat_aim_prev_yaw_error) > zero_cross_epsilon \
+			and (yaw_error > 0.0) != (_combat_aim_prev_yaw_error > 0.0):
+		_combat_aim_yaw_integral *= 0.25
+	if not is_nan(_combat_aim_prev_pitch_error) \
+			and absf(pitch_error) > zero_cross_epsilon \
+			and absf(_combat_aim_prev_pitch_error) > zero_cross_epsilon \
+			and (pitch_error > 0.0) != (_combat_aim_prev_pitch_error > 0.0):
+		_combat_aim_pitch_integral *= 0.5
+	_combat_aim_yaw_integral = clampf(
+		_combat_aim_yaw_integral + yaw_error * delta,
+		-maxf(combat_aim_integral_limit, 0.0),
+		maxf(combat_aim_integral_limit, 0.0)
+	)
+	_combat_aim_pitch_integral = clampf(
+		_combat_aim_pitch_integral + pitch_error * delta,
+		-maxf(combat_aim_integral_limit, 0.0),
+		maxf(combat_aim_integral_limit, 0.0)
+	)
+	var yaw_derivative := 0.0
+	if not is_nan(_combat_aim_prev_yaw_error):
+		yaw_derivative = (yaw_error - _combat_aim_prev_yaw_error) / maxf(delta, 0.001)
+	if yaw_in_deadband:
+		yaw_derivative = 0.0
+	var pitch_derivative := 0.0
+	if not is_nan(_combat_aim_prev_pitch_error):
+		pitch_derivative = (pitch_error - _combat_aim_prev_pitch_error) / maxf(delta, 0.001)
+	_combat_aim_prev_yaw_error = yaw_error
+	_combat_aim_prev_pitch_error = pitch_error
+	_update_combat_aim_settle(weapon_kind, yaw_error, pitch_error, yaw_derivative, pitch_derivative, delta)
+
+	var takeover_active: bool = _is_combat_aim_takeover_active()
+	var yaw_limit_for_aim: float = maxf(combat_aim_max_yaw_input, 0.0)
+	var yaw_correction_rate: float = maxf(combat_aim_yaw_correction_rate, 0.01)
+	if takeover_active:
+		yaw_limit_for_aim = maxf(yaw_limit_for_aim, combat_aim_takeover_max_yaw_input)
+		yaw_correction_rate = maxf(yaw_correction_rate, combat_aim_takeover_yaw_correction_rate)
+	var yaw_p: float = maxf(combat_aim_yaw_p, 0.0)
+	if takeover_active:
+		yaw_p *= maxf(combat_aim_takeover_yaw_gain, 0.0)
+	var raw_yaw_correction: float = clampf(
+		yaw_error * yaw_p
+		+ _combat_aim_yaw_integral * maxf(combat_aim_yaw_i, 0.0)
+		+ yaw_derivative * maxf(combat_aim_yaw_d, 0.0),
+		-yaw_limit_for_aim,
+		yaw_limit_for_aim
+	)
+	var yaw_correction: float = move_toward(
+		_combat_aim_last_yaw_correction,
+		raw_yaw_correction,
+		yaw_correction_rate * delta
+	)
+	if raw_yaw_correction == 0.0:
+		yaw_correction = move_toward(
+			yaw_correction,
+			0.0,
+			yaw_correction_rate * delta
+		)
+	_combat_aim_last_yaw_correction = yaw_correction
+	var pitch_gain: float = 1.0
+	var pitch_limit: float = maxf(combat_aim_max_pitch_input, 0.0)
+	match weapon_kind:
+		COMBAT_WEAPON_ROCKET:
+			pitch_gain = maxf(combat_rocket_pitch_control_gain, 0.0)
+			pitch_limit = maxf(pitch_limit, combat_rocket_max_pitch_input)
+		COMBAT_WEAPON_GUN:
+			pitch_gain = maxf(combat_gun_pitch_control_gain, 0.0)
+			pitch_limit = maxf(pitch_limit, combat_gun_max_pitch_input)
+	if takeover_active:
+		pitch_gain *= maxf(combat_aim_takeover_pitch_control_gain, 0.0)
+		pitch_limit = maxf(pitch_limit, combat_aim_takeover_max_pitch_input)
+	var pitch_correction := clampf(
+		pitch_error * maxf(combat_aim_pitch_p, 0.0) * pitch_gain
+		+ _combat_aim_pitch_integral * maxf(combat_aim_pitch_i, 0.0)
+		+ pitch_derivative * maxf(combat_aim_pitch_d, 0.0),
+		-pitch_limit,
+		pitch_limit
+	)
+	var rocket_nose_down_t: float = 0.0
+	if takeover_active and weapon_kind == COMBAT_WEAPON_ROCKET and pitch_error < -deg_to_rad(0.25):
+		rocket_nose_down_t = clampf(absf(pitch_error) / deg_to_rad(6.0), 0.0, 1.0)
+		pitch_correction = clampf(
+			pitch_correction - maxf(combat_rocket_takeover_nose_down_bias, 0.0) * rocket_nose_down_t,
+			-pitch_limit,
+			pitch_limit
+		)
+	var roll_blend: float = clampf(combat_aim_roll_level_blend, 0.0, 1.0)
+	# When the aim controller is commanding nose-down to put the weapon line on a
+	# target below the flight path, blend out the cruise base pitch (which holds
+	# the nose UP for altitude/forward flight). Otherwise the correction is just
+	# added on top of cruise pitch-up and the nose never actually comes down — the
+	# "pipper sits just above the target" symptom on rocket/gun runs that don't
+	# happen to be in takeover. Blend is proportional to nose-down demand.
+	var nose_down_authority_t: float = 0.0
+	if pitch_correction < 0.0:
+		nose_down_authority_t = clampf(absf(pitch_correction) / maxf(combat_aim_attack_nose_down_full_input, 0.01), 0.0, 1.0)
+	var attack_base_pitch: float = lerpf(base_pitch, 0.0, nose_down_authority_t)
+	var target_pitch: float = clampf(attack_base_pitch + pitch_correction, -cyclic_limit, cyclic_limit)
+	var target_roll: float = lerpf(base_roll, 0.0, roll_blend)
+	var target_yaw: float = clampf(base_yaw + yaw_correction, -yaw_limit, yaw_limit)
+	if takeover_active:
+		target_pitch = clampf(pitch_correction, -cyclic_limit, cyclic_limit)
+		if rocket_nose_down_t > 0.0:
+			target_pitch = minf(
+				target_pitch,
+				-maxf(combat_rocket_takeover_min_nose_down_input, 0.0) * rocket_nose_down_t
+			)
+		target_roll = lerpf(base_roll, 0.0, clampf(combat_aim_takeover_roll_level_blend, 0.0, 1.0))
+		target_yaw = clampf(yaw_correction, -yaw_limit, yaw_limit)
+	var pitch_rate_scale: float = 1.0
+	if weapon_kind == COMBAT_WEAPON_ROCKET and pitch_correction < 0.0:
+		pitch_rate_scale = maxf(combat_rocket_nose_down_rate_scale, 1.0)
+	elif weapon_kind == COMBAT_WEAPON_GUN and pitch_correction < 0.0:
+		# Same nose-down rate boost rockets get: slew the pipper down onto the
+		# target fast enough to fire before the run ends.
+		pitch_rate_scale = maxf(combat_gun_nose_down_rate_scale, 1.0)
+	if takeover_active:
+		pitch_rate_scale = maxf(pitch_rate_scale, combat_aim_takeover_pitch_rate_scale)
+	var collective_floor: float = -1.0
+	if takeover_active and weapon_kind == COMBAT_WEAPON_ROCKET and rocket_nose_down_t > 0.0:
+		collective_floor = maxf(combat_rocket_takeover_collective_floor, _get_collective_trim())
+	var corrected: Dictionary = {
+		"pitch": target_pitch,
+		"roll": target_roll,
+		"yaw": target_yaw,
+		"pitch_rate_scale": pitch_rate_scale,
+		"collective_floor": collective_floor,
+	}
+	if combat_debug_enabled and (absf(yaw_error) > deg_to_rad(3.0) or absf(pitch_error) > deg_to_rad(3.0)):
+		var aim_point: Vector3 = Vector3.ZERO
+		var aim_point_variant: Variant = solution.get("aim_point", Vector3.ZERO)
+		if aim_point_variant is Vector3:
+			aim_point = aim_point_variant
+		_log_combat_debug("aim", "yaw=%.1f pitch=%.1f yaw_cmd=%.2f pitch_cmd=%.2f target_pitch=%.2f pitch_rate=%.1f dot=%.3f takeover=%s aim=%s" % [
+			rad_to_deg(yaw_error),
+			rad_to_deg(pitch_error),
+			yaw_correction,
+			pitch_correction,
+			target_pitch,
+			pitch_rate_scale,
+			float(solution.get("dot", 0.0)),
+			str(takeover_active),
+			str(aim_point.snapped(Vector3.ONE)),
+		])
+	return corrected
+
+
+func _get_combat_aim_solution(target: Node3D) -> Dictionary:
+	var weapon_variant: Variant = _combat_plan.get("weapon", {})
+	if not (weapon_variant is Dictionary):
+		return {}
+	var weapon: Dictionary = weapon_variant as Dictionary
+	var hardpoint := _get_primary_combat_hardpoint(weapon)
+	if hardpoint == null:
+		return {}
+	var aim_point := _get_combat_predicted_aim_point(target, hardpoint)
+	# Aim from the aircraft centerline, not the hardpoint. The controller can only
+	# rotate the body about its center of mass, so measuring the error from an
+	# off-centerline hardpoint leaves a fixed parallax angle the body can never
+	# null out (the persistent yaw/pitch residual seen on every gun pass). At
+	# combat range, pointing the nose correctly is good enough.
+	var launch_pos := aircraft.global_position
+	var to_aim := aim_point - launch_pos
+	if to_aim.length_squared() < 1.0:
+		return {}
+	var desired_dir := to_aim.normalized()
+	var weapon_forward := aircraft.global_transform.basis.z.normalized()
+	if weapon_forward.length_squared() < 0.001:
+		return {}
+	var desired_flat := Vector3(desired_dir.x, 0.0, desired_dir.z)
+	var forward_flat := Vector3(weapon_forward.x, 0.0, weapon_forward.z)
+	if desired_flat.length_squared() < 0.001 or forward_flat.length_squared() < 0.001:
+		return {}
+	desired_flat = desired_flat.normalized()
+	forward_flat = forward_flat.normalized()
+	var yaw_error := forward_flat.signed_angle_to(desired_flat, Vector3.UP)
+	var pitch_error := asin(clampf(desired_dir.y, -1.0, 1.0)) - asin(clampf(weapon_forward.y, -1.0, 1.0))
+	return {
+		"aim_point": aim_point,
+		"desired_dir": desired_dir,
+		"yaw_error": yaw_error,
+		"pitch_error": pitch_error,
+		"dot": weapon_forward.dot(desired_dir),
+		"hardpoint": hardpoint,
+	}
+
+
+func _get_combat_predicted_aim_point(target: Node3D, hardpoint: Hardpoint) -> Vector3:
+	var aim_height := float(_combat_plan.get("target_aim_height_m", 1.4))
+	var target_pos := target.global_position + Vector3.UP * aim_height
+	var weapon_kind := String(_combat_plan.get("weapon_kind", ""))
+	var muzzle_speed := _get_combat_weapon_muzzle_speed(hardpoint)
+	var target_velocity := _get_node_velocity(target)
+	if weapon_kind == COMBAT_WEAPON_ROCKET:
+		target_pos.y -= maxf(combat_rocket_aim_lower_bias_m, 0.0)
+		# Pure CCIP feedback: the impact sim already models the full rocket arc
+		# (gravity, drag, motor) from the current nose attitude, so it tells us
+		# exactly where a rocket fired now would land. We drive the nose so that
+		# simulated impact walks onto the target — the residual (target - impact)
+		# is the only correction needed. No analytic loft is added on top, which
+		# is what previously parked the pipper above the target (double drop comp).
+		var ccip_aim_point: Vector3 = _get_combat_rocket_ccip_feedback_aim_point(target, target_pos, target_velocity)
+		if ccip_aim_point != Vector3.INF:
+			return ccip_aim_point
+		# No CCIP solution yet (target not raycasting to terrain): fall back to the
+		# analytic lofted-launch solver so the nose still leads toward an arc.
+		var launch_velocity: Vector3 = _get_combat_launch_point_velocity(hardpoint.global_position)
+		var rocket_speed: float = muzzle_speed + maxf(combat_rocket_motor_speed_bias_mps, 0.0)
+		return _predict_combat_ballistic_aim_point(
+			hardpoint.global_position,
+			launch_velocity,
+			target_pos,
+			target_velocity,
+			rocket_speed,
+			clampf(combat_rocket_drop_compensation, 0.0, 2.0)
+		)
+	var distance := hardpoint.global_position.distance_to(target_pos)
+	var impact_time := clampf(distance / maxf(muzzle_speed, 1.0), 0.0, 8.0)
+	target_pos += target_velocity * impact_time
+	return target_pos
+
+
+func _get_combat_rocket_ccip_feedback_aim_point(
+		target: Node3D,
+		target_pos: Vector3,
+		target_velocity: Vector3
+) -> Vector3:
+	# Returns a corrected aim point that, when the nose points at it, drives the
+	# simulated rocket impact onto the target. Returns Vector3.INF if there is no
+	# usable CCIP solution, so the caller can fall back to the analytic solver.
+	if not combat_rocket_ccip_guidance_enabled:
+		return Vector3.INF
+	var ccip_solution: Dictionary = _get_combat_rocket_ccip_solution(target)
+	if ccip_solution.is_empty() or not _combat_variant_truthy(ccip_solution.get("has_impact", false)):
+		return Vector3.INF
+	var impact_variant: Variant = ccip_solution.get("impact_position", Vector3.ZERO)
+	if not (impact_variant is Vector3):
+		return Vector3.INF
+	var impact_pos: Vector3 = impact_variant
+	var time_to_impact: float = maxf(float(ccip_solution.get("time_to_impact", 0.0)), 0.0)
+	# Where the target will be when the rocket arrives (lead for a moving target).
+	var target_reference: Vector3 = target_pos + target_velocity * time_to_impact
+	# Residual miss of the current arc. Shifting the aim point by this amount moves
+	# the nose just enough that the simulated impact lands on the target; as the arc
+	# converges, the residual -> 0 and the pipper settles on the target.
+	var miss_correction: Vector3 = target_reference - impact_pos
+	var max_correction: float = maxf(combat_rocket_ccip_aim_correction_max_m, 0.0)
+	if max_correction > 0.0 and miss_correction.length() > max_correction:
+		miss_correction = miss_correction.normalized() * max_correction
+	return target_reference + miss_correction * clampf(combat_rocket_ccip_aim_correction_strength, 0.0, 1.5)
+
+
+func _get_combat_rocket_ccip_solution(target: Node3D, force_refresh: bool = false) -> Dictionary:
+	if not combat_rocket_ccip_guidance_enabled:
+		return {}
+	if not is_instance_valid(aircraft) or not aircraft.has_method("calculate_rocket_ccip_impact_point"):
+		return {}
+	var target_id: int = target.get_instance_id() if target != null and is_instance_valid(target) else 0
+	var now_s: float = _elapsed_s()
+	var cache_age_s: float = now_s - _combat_rocket_ccip_cache_time_s
+	if not force_refresh \
+			and target_id == _combat_rocket_ccip_cache_target_id \
+			and not _combat_rocket_ccip_cache.is_empty() \
+			and cache_age_s < maxf(combat_rocket_ccip_recompute_interval_s, 0.02):
+		return _combat_rocket_ccip_cache
+	var result_variant: Variant = aircraft.call("calculate_rocket_ccip_impact_point")
+	if result_variant is Dictionary:
+		_combat_rocket_ccip_cache = result_variant as Dictionary
+	else:
+		_combat_rocket_ccip_cache = {}
+	_combat_rocket_ccip_cache_time_s = now_s
+	_combat_rocket_ccip_cache_target_id = target_id
+	return _combat_rocket_ccip_cache
+
+
+func _get_combat_rocket_ccip_miss_m(target: Node3D, ccip_solution: Dictionary) -> float:
+	if target == null or not is_instance_valid(target):
+		return INF
+	if ccip_solution.is_empty() or not _combat_variant_truthy(ccip_solution.get("has_impact", false)):
+		return INF
+	var impact_variant: Variant = ccip_solution.get("impact_position", Vector3.ZERO)
+	if not (impact_variant is Vector3):
+		return INF
+	var impact_pos: Vector3 = impact_variant
+	var aim_height: float = float(_combat_plan.get("target_aim_height_m", 1.4))
+	var target_pos: Vector3 = target.global_position + Vector3.UP * aim_height
+	target_pos.y -= maxf(combat_rocket_aim_lower_bias_m, 0.0)
+	var target_velocity: Vector3 = _get_node_velocity(target)
+	var time_to_impact: float = maxf(float(ccip_solution.get("time_to_impact", 0.0)), 0.0)
+	target_pos += target_velocity * time_to_impact
+	return Vector2(target_pos.x - impact_pos.x, target_pos.z - impact_pos.z).length()
+
+
+func _is_combat_rocket_ccip_ready_for_fire(target: Node3D) -> bool:
+	if not combat_rocket_ccip_guidance_enabled:
+		return true
+	var ccip_solution: Dictionary = _get_combat_rocket_ccip_solution(target)
+	var miss_m: float = _get_combat_rocket_ccip_miss_m(target, ccip_solution)
+	var tolerance_m: float = maxf(combat_rocket_ccip_fire_tolerance_m, 0.0)
+	if miss_m <= tolerance_m:
+		return true
+	if ccip_solution.is_empty() or not _combat_variant_truthy(ccip_solution.get("has_impact", false)):
+		if combat_rocket_ccip_requires_solution_to_fire:
+			_log_combat_debug("hold_fire", "rocket_ccip no_solution")
+			return false
+		return true
+	var impact_variant: Variant = ccip_solution.get("impact_position", Vector3.ZERO)
+	var impact_text: String = "?"
+	if impact_variant is Vector3:
+		var impact_pos: Vector3 = impact_variant
+		impact_text = str(impact_pos.snapped(Vector3.ONE))
+	_log_combat_debug("hold_fire", "rocket_ccip miss=%.1f tol=%.1f impact=%s" % [
+		miss_m,
+		tolerance_m,
+		impact_text,
+	])
+	return false
+
+
+func _get_combat_launch_point_velocity(world_pos: Vector3) -> Vector3:
+	if not is_instance_valid(aircraft):
+		return Vector3.ZERO
+	var point_velocity: Vector3 = aircraft.linear_velocity
+	var offset: Vector3 = world_pos - aircraft.global_position
+	point_velocity += aircraft.angular_velocity.cross(offset)
+	return point_velocity
+
+
+func _predict_combat_ballistic_aim_point(
+		shooter_pos: Vector3,
+		shooter_vel: Vector3,
+		target_pos: Vector3,
+		target_vel: Vector3,
+		projectile_speed: float,
+		gravity_scale: float
+) -> Vector3:
+	var muzzle_speed: float = maxf(projectile_speed, 50.0)
+	var gravity_dir_variant: Variant = ProjectSettings.get_setting("physics/3d/default_gravity_vector", Vector3(0, -1, 0))
+	var gravity_dir: Vector3 = Vector3(0, -1, 0)
+	if gravity_dir_variant is Vector3:
+		gravity_dir = gravity_dir_variant.normalized()
+	var gravity_mag: float = float(ProjectSettings.get_setting("physics/3d/default_gravity", 9.8))
+	var gravity_vec: Vector3 = gravity_dir * gravity_mag * maxf(gravity_scale, 0.0)
+	var relative_pos: Vector3 = target_pos - shooter_pos
+	var relative_vel: Vector3 = target_vel - shooter_vel
+	var intercept_t: float = _solve_combat_intercept_time_no_gravity(relative_pos, relative_vel, muzzle_speed)
+	if intercept_t <= 0.0:
+		intercept_t = relative_pos.length() / muzzle_speed
+	intercept_t = clampf(intercept_t, 0.05, 6.0)
+
+	var best_intercept: Vector3 = target_pos + target_vel * intercept_t
+	var best_muzzle_vec: Vector3 = Vector3.ZERO
+	for _i in range(4):
+		var future_target: Vector3 = target_pos + target_vel * intercept_t
+		var required_muzzle_vec: Vector3 = (future_target - shooter_pos - shooter_vel * intercept_t - 0.5 * gravity_vec * intercept_t * intercept_t) / intercept_t
+		var required_speed: float = required_muzzle_vec.length()
+		if required_speed <= 0.0001:
+			break
+		best_intercept = future_target
+		best_muzzle_vec = required_muzzle_vec
+		var speed_error: float = required_speed - muzzle_speed
+		if absf(speed_error) <= 0.5:
+			break
+		intercept_t = clampf(intercept_t * (required_speed / muzzle_speed), 0.05, 6.0)
+
+	if best_muzzle_vec.length_squared() < 0.001:
+		var fallback_t: float = shooter_pos.distance_to(target_pos) / muzzle_speed
+		var fallback_target: Vector3 = target_pos + target_vel * fallback_t
+		var fallback_dir: Vector3 = (fallback_target - shooter_pos).normalized()
+		return shooter_pos + fallback_dir * maxf((fallback_target - shooter_pos).length(), 50.0)
+
+	var launch_dir: Vector3 = best_muzzle_vec.normalized()
+	var aim_dist: float = maxf((best_intercept - shooter_pos).length(), 50.0)
+	return shooter_pos + launch_dir * aim_dist
+
+
+func _solve_combat_intercept_time_no_gravity(relative_pos: Vector3, relative_vel: Vector3, projectile_speed: float) -> float:
+	var speed_sq: float = projectile_speed * projectile_speed
+	var a: float = relative_vel.dot(relative_vel) - speed_sq
+	var b: float = 2.0 * relative_pos.dot(relative_vel)
+	var c: float = relative_pos.dot(relative_pos)
+	if absf(a) < 0.0001:
+		if absf(b) < 0.0001:
+			return 0.0
+		var linear_t: float = -c / b
+		if linear_t > 0.0:
+			return linear_t
+		return 0.0
+	var discriminant: float = b * b - 4.0 * a * c
+	if discriminant < 0.0:
+		return 0.0
+	var sqrt_disc: float = sqrt(discriminant)
+	var t1: float = (-b - sqrt_disc) / (2.0 * a)
+	var t2: float = (-b + sqrt_disc) / (2.0 * a)
+	var best_t: float = INF
+	if t1 > 0.0:
+		best_t = minf(best_t, t1)
+	if t2 > 0.0:
+		best_t = minf(best_t, t2)
+	if best_t < INF:
+		return best_t
+	return 0.0
+
+
+func _get_primary_combat_hardpoint(weapon: Dictionary) -> Hardpoint:
+	var hardpoints_variant: Variant = weapon.get("hardpoints", [])
+	if not (hardpoints_variant is Array):
+		return null
+	var hardpoints: Array = hardpoints_variant as Array
+	for hp_variant in hardpoints:
+		var hp := _combat_hardpoint_from_variant(hp_variant)
+		if hp != null and hp.weapon_instance != null:
+			return hp
+	return null
+
+
+func _get_combat_weapon_muzzle_speed(hardpoint: Hardpoint) -> float:
+	if hardpoint == null or hardpoint.weapon_instance == null:
+		return 250.0
+	var value: Variant = hardpoint.weapon_instance.get("muzzle_velocity")
+	if typeof(value) == TYPE_FLOAT or typeof(value) == TYPE_INT:
+		return maxf(float(value), 1.0)
+	if hardpoint.weapon_instance.has_method("get_predicted_initial_velocity") and is_instance_valid(aircraft):
+		var velocity_variant: Variant = hardpoint.weapon_instance.call("get_predicted_initial_velocity", aircraft)
+		if velocity_variant is Vector3:
+			var velocity: Vector3 = velocity_variant
+			return maxf(velocity.length(), 1.0)
+	return 250.0
+
+
+func _get_combat_fire_alignment_cos(weapon_kind: String, plan_cone_cos: float) -> float:
+	var cone_deg := 0.0
+	match weapon_kind:
+		COMBAT_WEAPON_ROCKET:
+			cone_deg = maxf(combat_rocket_fire_alignment_deg, 0.1)
+		COMBAT_WEAPON_GUN:
+			cone_deg = maxf(combat_gun_fire_alignment_deg, 0.1)
+		_:
+			return plan_cone_cos
+	return maxf(plan_cone_cos, cos(deg_to_rad(cone_deg)))
+
+
+func _get_combat_aim_settle_angle_rad(weapon_kind: String) -> float:
+	match weapon_kind:
+		COMBAT_WEAPON_ROCKET:
+			return deg_to_rad(maxf(combat_rocket_aim_settle_deg, 0.1))
+		COMBAT_WEAPON_GUN:
+			return deg_to_rad(maxf(combat_gun_aim_settle_deg, 0.1))
+	return deg_to_rad(3.0)
+
+
+func _get_combat_pitch_aim_settle_angle_rad(weapon_kind: String) -> float:
+	match weapon_kind:
+		COMBAT_WEAPON_ROCKET:
+			return deg_to_rad(maxf(combat_rocket_pitch_aim_settle_deg, 0.1))
+	return _get_combat_aim_settle_angle_rad(weapon_kind)
+
+
+func _get_combat_aim_settle_time_s(weapon_kind: String) -> float:
+	match weapon_kind:
+		COMBAT_WEAPON_ROCKET:
+			return maxf(combat_rocket_aim_settle_time_s, combat_aim_settle_time_s)
+		COMBAT_WEAPON_GUN:
+			return maxf(combat_gun_aim_settle_time_s, 0.0)
+	return maxf(combat_aim_settle_time_s, 0.0)
+
+
+func _get_combat_aim_settle_max_rate_rad_s(weapon_kind: String) -> float:
+	var default_rate: float = maxf(combat_aim_settle_max_rate_deg_s, 0.1)
+	match weapon_kind:
+		COMBAT_WEAPON_ROCKET:
+			return deg_to_rad(maxf(combat_rocket_aim_settle_max_rate_deg_s, 0.1))
+		COMBAT_WEAPON_GUN:
+			return deg_to_rad(maxf(combat_gun_aim_settle_max_rate_deg_s, 0.1))
+	return deg_to_rad(default_rate)
+
+
+func _get_combat_pitch_aim_settle_max_rate_rad_s(weapon_kind: String) -> float:
+	match weapon_kind:
+		COMBAT_WEAPON_ROCKET:
+			return deg_to_rad(maxf(combat_rocket_pitch_aim_settle_max_rate_deg_s, 0.1))
+	return _get_combat_aim_settle_max_rate_rad_s(weapon_kind)
+
+
+func _update_combat_aim_settle(
+		weapon_kind: String,
+		yaw_error: float,
+		pitch_error: float,
+		yaw_derivative: float,
+		pitch_derivative: float,
+		delta: float
+) -> void:
+	var yaw_settle_angle: float = _get_combat_aim_settle_angle_rad(weapon_kind)
+	var pitch_settle_angle: float = _get_combat_pitch_aim_settle_angle_rad(weapon_kind)
+	var yaw_max_rate: float = _get_combat_aim_settle_max_rate_rad_s(weapon_kind)
+	var pitch_max_rate: float = _get_combat_pitch_aim_settle_max_rate_rad_s(weapon_kind)
+	var error_ok: bool = absf(yaw_error) <= yaw_settle_angle and absf(pitch_error) <= pitch_settle_angle
+	var rate_ok: bool = absf(yaw_derivative) <= yaw_max_rate and absf(pitch_derivative) <= pitch_max_rate
+	if error_ok and rate_ok:
+		_combat_aim_settle_s += delta
+	else:
+		_combat_aim_settle_s = 0.0
+
+
+func _is_combat_aim_settled_for_fire(weapon_kind: String, aim_solution: Dictionary, aim_dot: float, fire_cone_cos: float) -> bool:
+	if aim_solution.is_empty():
+		return false
+	var yaw_settle_angle: float = _get_combat_aim_settle_angle_rad(weapon_kind)
+	var pitch_settle_angle: float = _get_combat_pitch_aim_settle_angle_rad(weapon_kind)
+	var yaw_error := absf(float(aim_solution.get("yaw_error", INF)))
+	var pitch_error := absf(float(aim_solution.get("pitch_error", INF)))
+	var target_settle_s: float = _get_combat_aim_settle_time_s(weapon_kind)
+	var attack_time_s: float = _elapsed_s() - _combat_phase_started_s
+	var min_attack_time_s: float = 0.0
+	if weapon_kind == COMBAT_WEAPON_ROCKET:
+		min_attack_time_s = maxf(combat_rocket_min_attack_time_before_fire_s, 0.0)
+	var ready: bool = aim_dot >= fire_cone_cos \
+			and yaw_error <= yaw_settle_angle \
+			and pitch_error <= pitch_settle_angle \
+			and _combat_aim_settle_s >= target_settle_s \
+			and attack_time_s >= min_attack_time_s
+	if not ready:
+		_log_combat_debug("hold_fire", "settling yaw=%.1f/%.1f pitch=%.1f/%.1f settled=%.2f/%.2f attack=%.2f/%.2f dot=%.3f" % [
+			rad_to_deg(yaw_error),
+			rad_to_deg(yaw_settle_angle),
+			rad_to_deg(pitch_error),
+			rad_to_deg(pitch_settle_angle),
+			_combat_aim_settle_s,
+			target_settle_s,
+			attack_time_s,
+			min_attack_time_s,
+			aim_dot,
+		])
+	return ready
+
+
+func _get_combat_aim_takeover_elapsed_s() -> float:
+	if _combat_aim_takeover_started_s <= 0.0:
+		return 0.0
+	return maxf(_elapsed_s() - _combat_aim_takeover_started_s, 0.0)
+
+
+func _is_combat_rocket_fallback_fire_ready(aim_solution: Dictionary, aim_dot: float) -> bool:
+	if aim_solution.is_empty() or not _is_combat_aim_takeover_active():
+		return false
+	var takeover_elapsed_s: float = _get_combat_aim_takeover_elapsed_s()
+	if takeover_elapsed_s < maxf(combat_rocket_fallback_fire_after_takeover_s, 0.0):
+		return false
+	var fallback_yaw_angle_rad: float = deg_to_rad(maxf(combat_rocket_fallback_fire_angle_deg, 0.1))
+	var fallback_pitch_angle_rad: float = deg_to_rad(maxf(combat_rocket_fallback_fire_pitch_angle_deg, 0.1))
+	var yaw_error: float = absf(float(aim_solution.get("yaw_error", INF)))
+	var pitch_error: float = absf(float(aim_solution.get("pitch_error", INF)))
+	var fallback_cone_cos: float = cos(maxf(fallback_yaw_angle_rad, fallback_pitch_angle_rad))
+	return aim_dot >= fallback_cone_cos and yaw_error <= fallback_yaw_angle_rad and pitch_error <= fallback_pitch_angle_rad
+
+
+func _should_hold_combat_attack_for_first_rocket(target: Node3D) -> bool:
+	if target == null or not is_instance_valid(target):
+		return false
+	if not is_instance_valid(aircraft):
+		return false
+	if String(_combat_plan.get("weapon_kind", "")) != COMBAT_WEAPON_ROCKET:
+		return false
+	if _combat_rocket_salvos_fired > 0:
+		return false
+	var attack_time_s: float = _elapsed_s() - _combat_phase_started_s
+	if attack_time_s >= maxf(combat_rocket_first_salvo_hold_s, 0.0):
+		return false
+	var fire_range: float = float(_combat_plan.get("fire_range_m", 0.0))
+	var dist: float = aircraft.global_position.distance_to(target.global_position)
+	if fire_range <= 1.0 or dist > fire_range * 1.15:
+		return false
+	var aim_solution: Dictionary = _get_combat_aim_solution(target)
+	if aim_solution.is_empty():
+		return false
+	var weapon_variant: Variant = _combat_plan.get("weapon", {})
+	if not (weapon_variant is Dictionary):
+		return false
+	var weapon: Dictionary = weapon_variant as Dictionary
+	var aim_dir_variant: Variant = aim_solution.get("desired_dir", Vector3.ZERO)
+	if not (aim_dir_variant is Vector3):
+		return false
+	var aim_dir: Vector3 = aim_dir_variant
+	var aim_dot: float = _get_best_combat_weapon_alignment_dot(weapon, aim_dir)
+	var hold_cone_cos: float = cos(deg_to_rad(maxf(combat_rocket_fallback_fire_angle_deg + 2.0, 0.1)))
+	return aim_dot >= hold_cone_cos
+
+
+func _request_combat_aim_takeover(weapon_kind: String, dist: float, fire_range: float) -> void:
+	if not combat_aim_takeover_enabled or _combat_phase != "attack":
+		_release_combat_aim_takeover("disabled", false)
+		return
+	if weapon_kind != COMBAT_WEAPON_ROCKET and weapon_kind != COMBAT_WEAPON_GUN:
+		_release_combat_aim_takeover("weapon", false)
+		return
+	var range_limit: float = maxf(fire_range * maxf(combat_aim_takeover_range_factor, 1.0), 1.0)
+	if dist > range_limit:
+		_release_combat_aim_takeover("range", false)
+		return
+	var now_s: float = _elapsed_s()
+	if _combat_aim_takeover_active:
+		if now_s - _combat_aim_takeover_started_s > maxf(combat_aim_takeover_max_time_s, 0.1):
+			_release_combat_aim_takeover("timeout", true)
+		return
+	if now_s < _combat_aim_takeover_cooldown_until_s:
+		return
+	_combat_aim_takeover_active = true
+	_combat_aim_takeover_started_s = now_s
+	_log_combat_debug("aim_takeover", "start weapon=%s dist=%.0f range=%.0f" % [
+		weapon_kind,
+		dist,
+		fire_range,
+	], true)
+
+
+func _release_combat_aim_takeover(reason: String, start_cooldown: bool) -> void:
+	if not _combat_aim_takeover_active:
+		return
+	_combat_aim_takeover_active = false
+	if start_cooldown:
+		_combat_aim_takeover_cooldown_until_s = _elapsed_s() + maxf(combat_aim_takeover_cooldown_s, 0.0)
+	_log_combat_debug("aim_takeover", "release reason=%s" % reason, true)
+
+
+func _is_combat_aim_takeover_active() -> bool:
+	if not _combat_aim_takeover_active:
+		return false
+	var now_s: float = _elapsed_s()
+	if now_s - _combat_aim_takeover_started_s > maxf(combat_aim_takeover_max_time_s, 0.1):
+		_release_combat_aim_takeover("timeout", true)
+		return false
+	return true
+
+
+func _apply_combat_aim_takeover_speed(speed_mps: float) -> float:
+	if not _is_combat_aim_takeover_active():
+		return speed_mps
+	return minf(speed_mps, maxf(combat_aim_takeover_speed_mps, 1.0))
+
+
+func _get_best_combat_weapon_alignment_dot(weapon: Dictionary, aim_dir: Vector3) -> float:
+	if aim_dir.length_squared() < 0.001:
+		return -1.0
+	var hardpoints_variant: Variant = weapon.get("hardpoints", [])
+	if not (hardpoints_variant is Array):
+		return aircraft.global_transform.basis.z.normalized().dot(aim_dir.normalized()) if is_instance_valid(aircraft) else -1.0
+	var best_dot := -1.0
+	var hardpoints: Array = hardpoints_variant as Array
+	for hp_variant in hardpoints:
+		var hp := _combat_hardpoint_from_variant(hp_variant)
+		if hp == null:
+			continue
+		var forward := hp.get_hardpoint_forward_direction().normalized()
+		if forward.length_squared() < 0.001:
+			continue
+		best_dot = maxf(best_dot, forward.dot(aim_dir.normalized()))
+	return best_dot
+
+
+func _try_fire_combat_rocket_salvo(weapon: Dictionary, target: Node3D, dist: float, good_enough_fire: bool, aim_solution: Dictionary, aim_dot: float) -> void:
+	if _combat_variant_truthy(target.get("is_destroyed")):
+		_clear_combat_attack("target_destroyed")
+		return
+	var now := _elapsed_s()
+	if now < _combat_rocket_assess_until_s:
+		_record_combat_attack_run_state("rocket_assess", "wait=%.2f salvos=%d" % [
+			_combat_rocket_assess_until_s - now,
+			_combat_rocket_salvos_fired,
+		], dist, aim_solution, aim_dot)
+		_log_combat_debug("hold_fire", "assessing rocket impact wait=%.2f salvos=%d" % [
+			_combat_rocket_assess_until_s - now,
+			_combat_rocket_salvos_fired,
+		])
+		return
+	if _combat_rocket_salvos_fired >= maxi(combat_rocket_max_salvos_per_attack, 1):
+		_record_combat_attack_run_state("rocket_salvo_cap", "salvos=%d" % _combat_rocket_salvos_fired, dist, aim_solution, aim_dot)
+		_log_combat_debug("hold_fire", "rocket_salvo_cap salvos=%d" % _combat_rocket_salvos_fired, true)
+		return
+
+	var hardpoints := _get_combat_hardpoints_from_weapon(weapon, true)
+	if hardpoints.is_empty():
+		_record_combat_attack_run_state("rocket_no_ready_hardpoint", "", dist, aim_solution, aim_dot)
+		_log_combat_debug("hold_fire", "rocket_no_ready_hardpoint")
+		return
+	var hp: Hardpoint = hardpoints[_combat_rocket_next_hardpoint_index % hardpoints.size()]
+	var salvo_number: int = _combat_rocket_salvos_fired + 1
+	var assess_delay_s: float = _estimate_combat_rocket_assess_time(hp, target, dist)
+	var ccip_solution: Dictionary = _get_combat_rocket_ccip_solution(target)
+	var ccip_miss_m: float = _get_combat_rocket_ccip_miss_m(target, ccip_solution)
+	var ccip_impact_text: String = "?"
+	var ccip_impact_variant: Variant = ccip_solution.get("impact_position", Vector3.ZERO)
+	if ccip_impact_variant is Vector3:
+		var ccip_impact_pos: Vector3 = ccip_impact_variant
+		ccip_impact_text = str(ccip_impact_pos.snapped(Vector3.ONE * 0.1))
+	var fired: bool = hp.fire()
+	if not fired:
+		_record_combat_attack_run_state("rocket_fire_rejected", "hardpoint=%s" % hp.name, dist, aim_solution, aim_dot)
+		_log_combat_debug("hold_fire", "rocket_fire_rejected")
+		return
+	_combat_rocket_salvos_fired += 1
+	_combat_rocket_next_hardpoint_index = (_combat_rocket_next_hardpoint_index + 1) % maxi(hardpoints.size(), 1)
+	_combat_rocket_assess_until_s = now + assess_delay_s
+	if _combat_aim_takeover_active:
+		_combat_aim_takeover_started_s = now
+	_queue_combat_shot_report(COMBAT_WEAPON_ROCKET, hp, target, dist, assess_delay_s, aim_solution, aim_dot, {
+		"salvo": salvo_number,
+		"ccip_miss_m": ccip_miss_m,
+		"ccip_impact": ccip_impact_text,
+		"fallback_fire": good_enough_fire,
+	})
+	# Keep rocket aim takeover active across the assess delay so the pipper
+	# stays near the target for a possible follow-up salvo.
+	if good_enough_fire:
+		_log_combat_debug("fallback_fire", "rocket good_enough elapsed=%.2f dot=%.3f yaw=%.1f pitch=%.1f" % [
+			_get_combat_aim_takeover_elapsed_s(),
+			aim_dot,
+			rad_to_deg(float(aim_solution.get("yaw_error", 0.0))),
+			rad_to_deg(float(aim_solution.get("pitch_error", 0.0))),
+		], true)
+	_log_combat_debug("fire", "target=%s weapon=rocket salvo=%d assess=%.2f dist=%.0f hp=%s dot=%.3f yaw=%.1f pitch=%.1f" % [
+		target.name,
+		_combat_rocket_salvos_fired,
+		_combat_rocket_assess_until_s - now,
+		dist,
+		hp.name,
+		aim_dot,
+		rad_to_deg(float(aim_solution.get("yaw_error", 0.0))),
+		rad_to_deg(float(aim_solution.get("pitch_error", 0.0))),
+	], true)
+
+
+func _estimate_combat_rocket_assess_time(hardpoint: Hardpoint, target: Node3D, fallback_dist: float) -> float:
+	var distance := fallback_dist
+	if hardpoint != null and target != null and is_instance_valid(target):
+		var aim_point := _get_combat_predicted_aim_point(target, hardpoint)
+		distance = hardpoint.global_position.distance_to(aim_point)
+	var speed := _get_combat_weapon_muzzle_speed(hardpoint) + maxf(combat_rocket_motor_speed_bias_mps, 0.0)
+	var flight_time := distance / maxf(speed, 1.0)
+	var base_time := maxf(combat_rocket_assess_time_s, 0.0)
+	var max_time := maxf(combat_rocket_max_assess_time_s, base_time)
+	return clampf(maxf(base_time, flight_time + 0.25), base_time, max_time)
+
+
+func _get_combat_hardpoints_from_weapon(weapon: Dictionary, require_ready: bool) -> Array[Hardpoint]:
+	var out: Array[Hardpoint] = []
+	var hardpoints_variant: Variant = weapon.get("hardpoints", [])
+	if not (hardpoints_variant is Array):
+		return out
+	var hardpoints: Array = hardpoints_variant as Array
+	for hp_variant in hardpoints:
+		var hp := _combat_hardpoint_from_variant(hp_variant)
+		if hp == null or hp.weapon_instance == null:
+			continue
+		if require_ready and not hp.weapon_instance.can_fire():
+			continue
+		out.append(hp)
+	return out
+
+
+func _reset_combat_aim_controller() -> void:
+	_combat_aim_yaw_integral = 0.0
+	_combat_aim_pitch_integral = 0.0
+	_combat_aim_prev_yaw_error = NAN
+	_combat_aim_prev_pitch_error = NAN
+	_combat_aim_last_yaw_correction = 0.0
+	_combat_aim_settle_s = 0.0
+	_combat_aim_takeover_active = false
+	_combat_aim_takeover_started_s = 0.0
+	_combat_aim_takeover_cooldown_until_s = 0.0
+
+
+func _reset_combat_rocket_salvo_state() -> void:
+	_combat_rocket_assess_until_s = 0.0
+	_combat_rocket_salvos_fired = 0
+	_combat_rocket_next_hardpoint_index = 0
+	_combat_rocket_ccip_cache_time_s = -1000000.0
+	_combat_rocket_ccip_cache_target_id = -1
+	_combat_rocket_ccip_cache.clear()
+
+
+func _reset_combat_route_state() -> void:
+	_combat_route_points.clear()
+	_combat_route_phases = PackedStringArray()
+	_combat_route_index = 0
+	_combat_route_ready = false
+
+
+func _clear_combat_attack(reason: String) -> void:
+	if _combat_plan.is_empty():
+		return
+	_finish_combat_attack_run_report(reason)
+	_log_combat_debug("clear", "reason=%s phase=%s" % [reason, _combat_phase], true)
+	_cancel_combat_route_job()
+	_clear_combat_turret_targets()
+	_combat_plan.clear()
+	_combat_phase = ""
+	_combat_phase_started_s = 0.0
+	_reset_combat_aim_controller()
+	_reset_combat_rocket_salvo_state()
+	_reset_combat_route_state()
+
+
+func _start_combat_attack_run_report(target: Node3D) -> void:
+	_finish_combat_attack_run_report("replaced")
+	_combat_attack_run_active = true
+	_combat_attack_run_id = _combat_next_attack_run_report_id
+	_combat_next_attack_run_report_id += 1
+	_combat_attack_run_started_s = _elapsed_s()
+	_combat_attack_run_weapon = String(_combat_plan.get("weapon_kind", "unknown"))
+	_combat_attack_run_target_name = String(target.name) if target != null and is_instance_valid(target) else "unknown"
+	_combat_attack_run_target_id = target.get_instance_id() if target != null and is_instance_valid(target) else 0
+	_combat_attack_run_shots = 0
+	_combat_attack_run_last_hold_reason = "none"
+	_combat_attack_run_last_hold_details = ""
+	_combat_attack_run_min_dist_m = INF
+	_combat_attack_run_best_aim_dot = -1.0
+	_combat_attack_run_last_aim_dot = NAN
+	_combat_attack_run_last_yaw_deg = NAN
+	_combat_attack_run_last_pitch_deg = NAN
+	_combat_attack_run_best_ccip_miss_m = INF
+	_combat_attack_run_last_ccip_miss_m = INF
+
+
+func _record_combat_attack_run_state(
+		reason: String,
+		details: String,
+		dist_m: float = NAN,
+		aim_solution: Dictionary = {},
+		aim_dot: float = NAN,
+		ccip_miss_m: float = INF
+) -> void:
+	if not _combat_attack_run_active:
+		return
+	if not is_nan(dist_m):
+		_combat_attack_run_min_dist_m = minf(_combat_attack_run_min_dist_m, dist_m)
+	if not is_nan(aim_dot):
+		_combat_attack_run_last_aim_dot = aim_dot
+		_combat_attack_run_best_aim_dot = maxf(_combat_attack_run_best_aim_dot, aim_dot)
+	if not aim_solution.is_empty():
+		_combat_attack_run_last_yaw_deg = rad_to_deg(float(aim_solution.get("yaw_error", NAN)))
+		_combat_attack_run_last_pitch_deg = rad_to_deg(float(aim_solution.get("pitch_error", NAN)))
+	if ccip_miss_m < INF:
+		_combat_attack_run_last_ccip_miss_m = ccip_miss_m
+		_combat_attack_run_best_ccip_miss_m = minf(_combat_attack_run_best_ccip_miss_m, ccip_miss_m)
+	_combat_attack_run_last_hold_reason = reason
+	_combat_attack_run_last_hold_details = details
+
+
+func _finish_combat_attack_run_report(reason: String) -> void:
+	if not _combat_attack_run_active:
+		return
+	if _combat_attack_run_shots <= 0:
+		_write_combat_attack_run_no_shot_report(reason)
+	_combat_attack_run_active = false
+	_combat_attack_run_id = 0
+	_combat_attack_run_started_s = 0.0
+	_combat_attack_run_weapon = ""
+	_combat_attack_run_target_name = ""
+	_combat_attack_run_target_id = 0
+	_combat_attack_run_shots = 0
+	_combat_attack_run_last_hold_reason = "none"
+	_combat_attack_run_last_hold_details = ""
+	_combat_attack_run_min_dist_m = INF
+	_combat_attack_run_best_aim_dot = -1.0
+	_combat_attack_run_last_aim_dot = NAN
+	_combat_attack_run_last_yaw_deg = NAN
+	_combat_attack_run_last_pitch_deg = NAN
+	_combat_attack_run_best_ccip_miss_m = INF
+	_combat_attack_run_last_ccip_miss_m = INF
+
+
+func _write_combat_attack_run_no_shot_report(reason: String) -> void:
+	if not combat_report_enabled:
+		return
+	var lines: PackedStringArray = PackedStringArray()
+	lines.append("t=%.2f event=ATTACK_RUN_NO_SHOT run_id=%d craft=%s type=%s weapon=%s target=%s target_id=%d duration=%.2f exit_reason=%s last_hold=%s min_dist=%s best_aim_dot=%s last_aim_dot=%s last_yaw=%s last_pitch=%s best_ccip_miss=%s last_ccip_miss=%s details=\"%s\"" % [
+		_elapsed_s(),
+		_combat_attack_run_id,
+		String(aircraft.name) if is_instance_valid(aircraft) else "unknown",
+		_get_aircraft_type_label(),
+		_combat_attack_run_weapon,
+		_combat_attack_run_target_name,
+		_combat_attack_run_target_id,
+		maxf(_elapsed_s() - _combat_attack_run_started_s, 0.0),
+		reason,
+		_combat_attack_run_last_hold_reason,
+		_format_combat_report_float(_combat_attack_run_min_dist_m),
+		_format_combat_report_float(_combat_attack_run_best_aim_dot),
+		_format_combat_report_float(_combat_attack_run_last_aim_dot),
+		_format_combat_report_float(_combat_attack_run_last_yaw_deg),
+		_format_combat_report_float(_combat_attack_run_last_pitch_deg),
+		_format_combat_report_float(_combat_attack_run_best_ccip_miss_m),
+		_format_combat_report_float(_combat_attack_run_last_ccip_miss_m),
+		_combat_attack_run_last_hold_details.replace("\"", "'"),
+	])
+	_append_lines_to_log(combat_report_path, lines, "helicopter combat report")
+	if combat_report_project_mirror_enabled:
+		_append_lines_to_log(combat_report_project_mirror_path, lines, "project helicopter combat report")
+
+
+func _get_combat_target_candidates() -> Array:
+	var out: Array = []
+	var seen: Dictionary = {}
+	for group_name in ["gun_emplacements", "ground_vehicles", "buildings", "enemies", "dummy_turrets"]:
+		var nodes := get_tree().get_nodes_in_group(group_name)
+		for node_variant in nodes:
+			var node := _combat_node3d_from_variant(node_variant)
+			if node == null:
+				continue
+			var instance_id := node.get_instance_id()
+			if seen.has(instance_id):
+				continue
+			seen[instance_id] = true
+			if _is_valid_combat_target(node):
+				out.append(node)
+	return out
+
+
+func _is_valid_combat_target(target: Node3D) -> bool:
+	if target == aircraft:
+		return false
+	if target.is_in_group("aircraft") or target.is_in_group("ai_aircraft") or target.is_in_group("carrier"):
+		return false
+	if _combat_variant_truthy(target.get("is_destroyed")):
+		return false
+	if _flat_distance(aircraft.global_position, target.global_position) > maxf(combat_target_scan_range_m, 100.0):
+		return false
+	var my_team := 1
+	if aircraft.has_method("get_team"):
+		my_team = int(aircraft.call("get_team"))
+	if target.has_method("get_team"):
+		var target_team: int = int(target.call("get_team"))
+		if target_team == my_team:
+			return false
+	return true
+
+
+func _get_combat_weapon_options() -> Array:
+	var rockets: Array = []
+	var guns: Array = []
+	var bombs: Array = []
+	_collect_combat_hardpoint_weapons(aircraft, rockets, guns, bombs)
+
+	var options: Array = []
+	if not rockets.is_empty():
+		options.append({"kind": COMBAT_WEAPON_ROCKET, "hardpoints": rockets})
+	if not guns.is_empty():
+		var gun_option: Dictionary = {"kind": COMBAT_WEAPON_GUN, "hardpoints": guns}
+		if combat_alternate_hardpoint_guns_enabled and not rockets.is_empty() and _combat_prefer_hardpoint_guns_next:
+			gun_option["score_bias"] = maxf(combat_preferred_gun_score_bias, 0.0)
+		options.append(gun_option)
+	if combat_allow_bombs and not bombs.is_empty():
+		options.append({"kind": COMBAT_WEAPON_BOMB, "hardpoints": bombs})
+	return options
+
+
+func _update_combat_hardpoint_weapon_preference_after_plan(weapon_kind: String, weapon: Dictionary) -> void:
+	if not combat_alternate_hardpoint_guns_enabled:
+		return
+	if _get_combat_hardpoints_from_weapon(weapon, false).is_empty():
+		return
+	match weapon_kind:
+		COMBAT_WEAPON_GUN:
+			_combat_prefer_hardpoint_guns_next = false
+		COMBAT_WEAPON_ROCKET:
+			_combat_prefer_hardpoint_guns_next = true
+
+
+func _describe_combat_weapon_options(weapon_options: Array) -> String:
+	if weapon_options.is_empty():
+		return "none"
+	var parts := PackedStringArray()
+	for option_variant in weapon_options:
+		if not (option_variant is Dictionary):
+			continue
+		var option: Dictionary = option_variant as Dictionary
+		var kind := String(option.get("kind", "unknown"))
+		var hardpoints_variant: Variant = option.get("hardpoints", [])
+		var hardpoint_count := 0
+		if hardpoints_variant is Array:
+			hardpoint_count = (hardpoints_variant as Array).size()
+		var turrets_variant: Variant = option.get("turrets", [])
+		var turret_count := 0
+		if turrets_variant is Array:
+			turret_count = (turrets_variant as Array).size()
+		var score_text := ""
+		if option.has("score_bias"):
+			score_text = "+bias%.1f" % float(option.get("score_bias", 0.0))
+		if turret_count > 0:
+			parts.append("%s:%dhp/%dturret%s" % [kind, hardpoint_count, turret_count, score_text])
+		else:
+			parts.append("%s:%dhp%s" % [kind, hardpoint_count, score_text])
+	return ",".join(parts)
+
+
+func _describe_nearest_combat_target(targets: Array) -> String:
+	if targets.is_empty() or not is_instance_valid(aircraft):
+		return "none"
+	var nearest_name := "none"
+	var nearest_dist := INF
+	for target_variant in targets:
+		var target := _combat_node3d_from_variant(target_variant)
+		if target == null:
+			continue
+		var dist := _flat_distance(aircraft.global_position, target.global_position)
+		if dist < nearest_dist:
+			nearest_dist = dist
+			nearest_name = String(target.name)
+	if nearest_dist >= INF:
+		return "none"
+	return "%s@%.0fm" % [nearest_name, nearest_dist]
+
+
+func _sync_combat_control_weapon_selection(weapon_kind: String, weapon: Dictionary) -> void:
+	if not is_instance_valid(aircraft):
+		return
+	var control_weapons: ControlWeapons = aircraft.find_child("ControlWeapons", true, false) as ControlWeapons
+	if control_weapons == null:
+		return
+	if control_weapons.has_method("categorize_weapons"):
+		control_weapons.categorize_weapons()
+	var selected_type: String = _get_control_weapon_type_for_combat(weapon_kind, weapon, control_weapons)
+	if selected_type.is_empty():
+		return
+	var selected_index: int = control_weapons.weapon_types.find(selected_type)
+	if selected_index == -1:
+		return
+	if control_weapons.selected_weapon_type == selected_type and control_weapons.selected_weapon_type_index == selected_index:
+		return
+	control_weapons.selected_weapon_type_index = selected_index
+	control_weapons.selected_weapon_type = selected_type
+	_log_combat_debug("weapon_select", "kind=%s selected=%s" % [weapon_kind, selected_type], true)
+
+
+func _get_control_weapon_type_for_combat(weapon_kind: String, weapon: Dictionary, control_weapons: ControlWeapons) -> String:
+	var hardpoints_variant: Variant = weapon.get("hardpoints", [])
+	if hardpoints_variant is Array:
+		for hp_variant in hardpoints_variant:
+			var hp: Hardpoint = _combat_hardpoint_from_variant(hp_variant)
+			if hp == null or hp.weapon_instance == null or not is_instance_valid(hp.weapon_instance):
+				continue
+			if _classify_combat_weapon(hp.weapon_instance) == weapon_kind:
+				return _get_control_weapon_effective_type(hp.weapon_instance)
+	var fallback_types: PackedStringArray = _get_control_weapon_fallback_types(weapon_kind)
+	for fallback_type in fallback_types:
+		if control_weapons.weapon_types.has(fallback_type):
+			return fallback_type
+	return ""
+
+
+func _get_control_weapon_effective_type(weapon: Weapon) -> String:
+	if weapon == null or not is_instance_valid(weapon):
+		return ""
+	if not weapon.weapon_category.is_empty():
+		return weapon.weapon_category
+	return weapon.weapon_name
+
+
+func _get_control_weapon_fallback_types(weapon_kind: String) -> PackedStringArray:
+	match weapon_kind:
+		COMBAT_WEAPON_ROCKET:
+			return PackedStringArray(["Rocket Pod"])
+		COMBAT_WEAPON_GUN:
+			return PackedStringArray(["Guns", "Autocannon", "25 mm Autocannon", "30 mm Autocannon", "25 mm Cannon", "30 mm Cannon", "10 mm Machine Gun", "15 mm Machine Gun"])
+		COMBAT_WEAPON_BOMB:
+			return PackedStringArray(["Bomb"])
+	return PackedStringArray()
+
+
+func _collect_combat_hardpoint_weapons(node: Node, rockets: Array, guns: Array, bombs: Array) -> void:
+	if node is Hardpoint:
+		var hp := node as Hardpoint
+		if hp.weapon_instance != null and is_instance_valid(hp.weapon_instance) and hp.weapon_instance.can_fire():
+			match _classify_combat_weapon(hp.weapon_instance):
+				COMBAT_WEAPON_ROCKET:
+					rockets.append(hp)
+				COMBAT_WEAPON_GUN:
+					guns.append(hp)
+				COMBAT_WEAPON_BOMB:
+					bombs.append(hp)
+	for child in node.get_children():
+		_collect_combat_hardpoint_weapons(child, rockets, guns, bombs)
+
+
+func _classify_combat_weapon(weapon: Weapon) -> String:
+	if weapon == null:
+		return ""
+	var parts := PackedStringArray()
+	parts.append(String(weapon.weapon_name).to_lower())
+	parts.append(String(weapon.weapon_category).to_lower())
+	var profile := weapon.get("gun_profile") as Object
+	if profile != null and is_instance_valid(profile):
+		var profile_name = profile.get("weapon_name")
+		if profile_name != null:
+			parts.append(str(profile_name).to_lower())
+	var text := " ".join(parts)
+	if "rocket" in text:
+		return COMBAT_WEAPON_ROCKET
+	if "bomb" in text:
+		return COMBAT_WEAPON_BOMB
+	if "gun" in text or "cannon" in text or "autocannon" in text or "machine" in text:
+		return COMBAT_WEAPON_GUN
+	return ""
+
+
+func _get_combat_turret_controllers() -> Array:
+	var out: Array = []
+	_collect_combat_turret_controllers(aircraft, out)
+	return out
+
+
+func _collect_combat_turret_controllers(node: Node, out: Array) -> void:
+	if node is TurretController:
+		var turret_controller := node as TurretController
+		if turret_controller.weapon_instance != null or turret_controller.weapon_scene != null:
+			out.append(turret_controller)
+	for child in node.get_children():
+		_collect_combat_turret_controllers(child, out)
+
+
+func _try_fire_combat_weapon(target: Node3D) -> void:
+	if _combat_plan.is_empty() or target == null or not is_instance_valid(target):
+		return
+	var weapon_variant: Variant = _combat_plan.get("weapon", {})
+	if not (weapon_variant is Dictionary):
+		return
+	var weapon: Dictionary = weapon_variant as Dictionary
+	var weapon_kind := String(_combat_plan.get("weapon_kind", ""))
+	if weapon_kind == COMBAT_WEAPON_GUN:
+		_focus_combat_turrets(target)
+
+	var aim_solution := _get_combat_aim_solution(target)
+	var target_pos := target.global_position + Vector3.UP * 1.4
+	var aim_dir := Vector3.ZERO
+	if not aim_solution.is_empty():
+		var aim_point_variant: Variant = aim_solution.get("aim_point", target_pos)
+		if aim_point_variant is Vector3:
+			target_pos = aim_point_variant
+		var aim_dir_variant: Variant = aim_solution.get("desired_dir", Vector3.ZERO)
+		if aim_dir_variant is Vector3:
+			aim_dir = aim_dir_variant
+	var actual_target_pos := target.global_position + Vector3.UP * 1.4
+	var to_actual_target := actual_target_pos - aircraft.global_position
+	var dist := to_actual_target.length()
+	var fire_range := float(_combat_plan.get("fire_range_m", 0.0))
+	_request_combat_aim_takeover(weapon_kind, dist, fire_range)
+	if dist > fire_range or dist <= 1.0:
+		_record_combat_attack_run_state("range", "dist=%.1f limit=%.1f" % [dist, fire_range], dist)
+		_log_combat_debug("hold_fire", "range dist=%.0f limit=%.0f" % [dist, fire_range])
+		return
+	if aim_dir.length_squared() < 0.001:
+		aim_dir = (target_pos - aircraft.global_position).normalized()
+	var fire_cone_cos := _get_combat_fire_alignment_cos(weapon_kind, float(_combat_plan.get("fire_cone_cos", 0.98)))
+	var aim_dot := _get_best_combat_weapon_alignment_dot(weapon, aim_dir)
+	var rocket_fallback_ready: bool = false
+	if weapon_kind == COMBAT_WEAPON_ROCKET:
+		rocket_fallback_ready = _is_combat_rocket_fallback_fire_ready(aim_solution, aim_dot)
+	if aim_dot < fire_cone_cos and not rocket_fallback_ready:
+		_record_combat_attack_run_state("aim_alignment", "dot=%.3f need=%.3f" % [aim_dot, fire_cone_cos], dist, aim_solution, aim_dot)
+		_log_combat_debug("hold_fire", "aim dot=%.3f need=%.3f yaw=%.1f pitch=%.1f" % [
+			aim_dot,
+			fire_cone_cos,
+			rad_to_deg(float(aim_solution.get("yaw_error", 0.0))),
+			rad_to_deg(float(aim_solution.get("pitch_error", 0.0))),
+		])
+		return
+	if not rocket_fallback_ready and not _is_combat_aim_settled_for_fire(weapon_kind, aim_solution, aim_dot, fire_cone_cos):
+		_record_combat_attack_run_state("aim_settle", "settled=%.2f dot=%.3f" % [_combat_aim_settle_s, aim_dot], dist, aim_solution, aim_dot)
+		return
+	if weapon_kind == COMBAT_WEAPON_ROCKET:
+		if not _is_combat_rocket_ccip_ready_for_fire(target):
+			var ccip_solution: Dictionary = _get_combat_rocket_ccip_solution(target)
+			var ccip_miss_m: float = _get_combat_rocket_ccip_miss_m(target, ccip_solution)
+			_record_combat_attack_run_state("ccip", "miss=%.1f tol=%.1f" % [ccip_miss_m, combat_rocket_ccip_fire_tolerance_m], dist, aim_solution, aim_dot, ccip_miss_m)
+			return
+		_try_fire_combat_rocket_salvo(weapon, target, dist, rocket_fallback_ready, aim_solution, aim_dot)
+		return
+
+	var fired: bool = false
+	for hp_variant in weapon.get("hardpoints", []):
+		var hp := _combat_hardpoint_from_variant(hp_variant)
+		if hp == null or hp.weapon_instance == null:
+			continue
+		if hp.fire():
+			fired = true
+			_queue_combat_shot_report(weapon_kind, hp, target, dist, maxf(combat_gun_shot_assess_time_s, 0.05), aim_solution, aim_dot)
+	if fired:
+		_release_combat_aim_takeover("fired", true)
+		_log_combat_debug("fire", "target=%s weapon=%s dist=%.0f" % [target.name, weapon_kind, dist], true)
+	else:
+		_record_combat_attack_run_state("weapon_fire_rejected", "no ready hardpoint fired", dist, aim_solution, aim_dot)
+
+
+func _focus_combat_turrets(target: Node3D) -> void:
+	var weapon_variant: Variant = _combat_plan.get("weapon", {})
+	if not (weapon_variant is Dictionary):
+		return
+	var weapon: Dictionary = weapon_variant as Dictionary
+	for turret_variant in weapon.get("turrets", []):
+		var turret_controller := _combat_turret_controller_from_variant(turret_variant)
+		if turret_controller == null:
+			continue
+		turret_controller.current_target = target
+		var turret_node := turret_controller.get("turret") as Object
+		if turret_node != null and is_instance_valid(turret_node) and turret_node.has_method("set_target"):
+			turret_node.call("set_target", target)
+
+
+func _clear_combat_turret_targets() -> void:
+	var weapon_variant: Variant = _combat_plan.get("weapon", {})
+	if not (weapon_variant is Dictionary):
+		return
+	var weapon: Dictionary = weapon_variant as Dictionary
+	for turret_variant in weapon.get("turrets", []):
+		var turret_controller := _combat_turret_controller_from_variant(turret_variant)
+		if turret_controller == null:
+			continue
+		if turret_controller.current_target != null:
+			turret_controller.current_target = null
+		var turret_node := turret_controller.get("turret") as Object
+		if turret_node != null and is_instance_valid(turret_node) and turret_node.has_method("set_target"):
+			turret_node.call("set_target", null)
+
+
+func _reset_combat_report_for_run_once() -> void:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return
+	var root: Window = tree.root
+	if root == null:
+		return
+	if bool(root.get_meta(COMBAT_REPORT_RESET_META, false)):
+		return
+	root.set_meta(COMBAT_REPORT_RESET_META, true)
+	if not combat_report_enabled:
+		return
+	var lines: PackedStringArray = PackedStringArray()
+	lines.append("HELI COMBAT REPORT START t=%.2f ticks=%d" % [_elapsed_s(), Time.get_ticks_msec()])
+	_overwrite_lines_to_log(combat_report_path, lines, "helicopter combat report")
+	if combat_report_project_mirror_enabled:
+		_overwrite_lines_to_log(combat_report_project_mirror_path, lines, "project helicopter combat report")
+
+
+func _queue_combat_shot_report(
+		weapon_kind: String,
+		hardpoint: Hardpoint,
+		target: Node3D,
+		dist: float,
+		assess_delay_s: float,
+		aim_solution: Dictionary,
+		aim_dot: float,
+		extra: Dictionary = {}
+) -> void:
+	if not combat_report_enabled:
+		return
+	var target_state: Dictionary = _capture_combat_target_state(target)
+	var shot_id: int = _combat_next_shot_report_id
+	_combat_next_shot_report_id += 1
+	if _combat_attack_run_active:
+		_combat_attack_run_shots += 1
+	var entry: Dictionary = {
+		"id": shot_id,
+		"weapon": weapon_kind,
+		"hardpoint": String(hardpoint.name) if hardpoint != null and is_instance_valid(hardpoint) else "unknown",
+		"target": target,
+		"target_name": String(target.name) if target != null and is_instance_valid(target) else "unknown",
+		"target_id": target.get_instance_id() if target != null and is_instance_valid(target) else 0,
+		"fire_time_s": _elapsed_s(),
+		"assess_at_s": _elapsed_s() + maxf(assess_delay_s, 0.0),
+		"dist_m": dist,
+		"aim_dot": aim_dot,
+		"yaw_error_deg": rad_to_deg(float(aim_solution.get("yaw_error", NAN))),
+		"pitch_error_deg": rad_to_deg(float(aim_solution.get("pitch_error", NAN))),
+		"before": target_state,
+		"extra": extra,
+	}
+	_combat_pending_shot_reports.append(entry)
+	_write_combat_shot_report("SHOT", entry, {})
+
+
+func _update_combat_shot_reports() -> void:
+	if _combat_pending_shot_reports.is_empty():
+		return
+	var now_s: float = _elapsed_s()
+	var remaining: Array[Dictionary] = []
+	for entry in _combat_pending_shot_reports:
+		if now_s >= float(entry.get("assess_at_s", 0.0)):
+			_finalize_combat_shot_report(entry)
+		else:
+			remaining.append(entry)
+	_combat_pending_shot_reports = remaining
+
+
+func _finalize_combat_shot_report(entry: Dictionary) -> void:
+	var target: Node3D = null
+	var target_variant: Variant = entry.get("target", null)
+	if target_variant != null and typeof(target_variant) == TYPE_OBJECT and is_instance_valid(target_variant) and target_variant is Node3D:
+		target = target_variant as Node3D
+	var before_variant: Variant = entry.get("before", {})
+	var before_state: Dictionary = {}
+	if before_variant is Dictionary:
+		before_state = before_variant as Dictionary
+	var after_state: Dictionary = _capture_combat_target_state(target)
+	var before_health: float = float(before_state.get("health", NAN))
+	var after_health: float = float(after_state.get("health", NAN))
+	var health_delta: float = 0.0
+	if not is_nan(before_health) and not is_nan(after_health):
+		health_delta = maxf(before_health - after_health, 0.0)
+	var before_destroyed: bool = _combat_variant_truthy(before_state.get("destroyed", false))
+	var after_destroyed: bool = _combat_variant_truthy(after_state.get("destroyed", false))
+	var after_valid: bool = _combat_variant_truthy(after_state.get("valid", false))
+	var damaged: bool = health_delta > 0.05 or (not before_destroyed and after_destroyed)
+	if not after_valid and _combat_variant_truthy(before_state.get("valid", false)):
+		damaged = true
+		after_destroyed = true
+	var result: Dictionary = {
+		"after": after_state,
+		"health_delta": health_delta,
+		"damaged": damaged,
+		"destroyed": after_destroyed,
+	}
+	_write_combat_shot_report("RESULT", entry, result)
+
+
+func _capture_combat_target_state(target: Node) -> Dictionary:
+	if target == null or not is_instance_valid(target):
+		return {
+			"valid": false,
+			"health": NAN,
+			"max_health": NAN,
+			"destroyed": false,
+		}
+	var health: float = _combat_float_property(target, "current_health", NAN)
+	var max_health: float = _combat_float_property(target, "max_health", NAN)
+	var destroyed: bool = _combat_variant_truthy(target.get("is_destroyed")) or _combat_variant_truthy(target.get("is_dying"))
+	if not is_nan(health) and health <= 0.0:
+		destroyed = true
+	return {
+		"valid": true,
+		"health": health,
+		"max_health": max_health,
+		"destroyed": destroyed,
+	}
+
+
+func _combat_float_property(node: Object, property_name: String, fallback: float = NAN) -> float:
+	if node == null or not is_instance_valid(node):
+		return fallback
+	var value: Variant = node.get(property_name)
+	if value is int or value is float:
+		return float(value)
+	return fallback
+
+
+func _write_combat_shot_report(event_name: String, entry: Dictionary, result: Dictionary) -> void:
+	if not combat_report_enabled:
+		return
+	var lines: PackedStringArray = PackedStringArray()
+	lines.append(_format_combat_shot_report_line(event_name, entry, result))
+	_append_lines_to_log(combat_report_path, lines, "helicopter combat report")
+	if combat_report_project_mirror_enabled:
+		_append_lines_to_log(combat_report_project_mirror_path, lines, "project helicopter combat report")
+
+
+func _format_combat_shot_report_line(event_name: String, entry: Dictionary, result: Dictionary) -> String:
+	var before_variant: Variant = entry.get("before", {})
+	var before_state: Dictionary = {}
+	if before_variant is Dictionary:
+		before_state = before_variant as Dictionary
+	var after_state: Dictionary = {}
+	if result.has("after"):
+		var after_variant: Variant = result.get("after", {})
+		if after_variant is Dictionary:
+			after_state = after_variant as Dictionary
+	var extra_variant: Variant = entry.get("extra", {})
+	var extra: Dictionary = {}
+	if extra_variant is Dictionary:
+		extra = extra_variant as Dictionary
+	var before_health: float = float(before_state.get("health", NAN))
+	var after_health: float = float(after_state.get("health", NAN))
+	var health_delta: float = float(result.get("health_delta", 0.0))
+	var craft_name: String = String(aircraft.name) if is_instance_valid(aircraft) else "unknown"
+	var extra_text: String = _format_combat_report_dictionary(extra)
+	return "t=%.2f event=%s shot_id=%d craft=%s type=%s weapon=%s hardpoint=%s target=%s target_id=%d dist=%.1f aim_dot=%.3f yaw=%.2f pitch=%.2f before_hp=%s after_hp=%s damage=%.1f damaged=%s destroyed=%s phase=%s extra=\"%s\"" % [
+		_elapsed_s(),
+		event_name,
+		int(entry.get("id", 0)),
+		craft_name,
+		_get_aircraft_type_label(),
+		str(entry.get("weapon", "unknown")),
+		str(entry.get("hardpoint", "unknown")),
+		str(entry.get("target_name", "unknown")),
+		int(entry.get("target_id", 0)),
+		float(entry.get("dist_m", NAN)),
+		float(entry.get("aim_dot", NAN)),
+		float(entry.get("yaw_error_deg", NAN)),
+		float(entry.get("pitch_error_deg", NAN)),
+		_format_combat_report_float(before_health),
+		_format_combat_report_float(after_health),
+		health_delta,
+		str(_combat_variant_truthy(result.get("damaged", false))),
+		str(_combat_variant_truthy(result.get("destroyed", false))),
+		_combat_phase if not _combat_phase.is_empty() else "none",
+		extra_text.replace("\"", "'"),
+	]
+
+
+func _format_combat_report_dictionary(data: Dictionary) -> String:
+	if data.is_empty():
+		return ""
+	var parts: PackedStringArray = PackedStringArray()
+	for key in data.keys():
+		var value: Variant = data[key]
+		if value is float:
+			parts.append("%s=%s" % [str(key), _format_combat_report_float(float(value))])
+		else:
+			parts.append("%s=%s" % [str(key), str(value)])
+	return " ".join(parts)
+
+
+func _format_combat_report_float(value: float) -> String:
+	if is_nan(value):
+		return "?"
+	if absf(value) >= INF * 0.5:
+		return "?"
+	return "%.1f" % value
+
+
+func _log_combat_debug(event_name: String, details: String = "", force: bool = false) -> void:
+	var now: float = _elapsed_s()
+	if not force and now < _combat_debug_log_s:
+		return
+	_combat_debug_log_s = now + 1.0
+	var craft_name: String = "?"
+	if is_instance_valid(aircraft):
+		craft_name = String(aircraft.name)
+	var line: String = "[HELI_COMBAT] event=%s craft=%s state=%s mission=%s combat_phase=%s" % [
+		event_name,
+		craft_name,
+		_state_name(),
+		_mission_name(),
+		_combat_phase if not _combat_phase.is_empty() else "none",
+	]
+	if not details.is_empty():
+		line += " " + details
+	if combat_report_debug_events_enabled:
+		_write_combat_report_event(event_name, details, line)
+	if combat_debug_enabled:
+		_debug_output(line)
+
+
+func _write_combat_report_event(event_name: String, details: String, debug_line: String) -> void:
+	if not combat_report_enabled:
+		return
+	var lines: PackedStringArray = PackedStringArray()
+	lines.append(_format_combat_report_event_line(event_name, details, debug_line))
+	_append_lines_to_log(combat_report_path, lines, "helicopter combat report")
+	if combat_report_project_mirror_enabled:
+		_append_lines_to_log(combat_report_project_mirror_path, lines, "project helicopter combat report")
+
+
+func _write_combat_report_plan_start(target: Node3D, weapon_kind: String) -> void:
+	if not combat_report_enabled:
+		return
+	var craft_name: String = String(aircraft.name) if is_instance_valid(aircraft) else "unknown"
+	var target_name: String = String(target.name) if target != null and is_instance_valid(target) else "none"
+	var target_pos_text: String = "?"
+	if target != null and is_instance_valid(target):
+		target_pos_text = str(target.global_position.snapped(Vector3.ONE * 0.1))
+	var lines: PackedStringArray = PackedStringArray()
+	lines.append("=" .repeat(96))
+	lines.append("COMBAT PLAN START t=%.2f craft=%s type=%s weapon=%s target=%s target_pos=%s state=%s mission=%s" % [
+		_elapsed_s(),
+		craft_name,
+		_get_aircraft_type_label(),
+		weapon_kind,
+		target_name,
+		target_pos_text,
+		_state_name(),
+		_mission_name(),
+	])
+	lines.append("  ingress=%s fire_start=%s fire_end=%s egress=%s route_ready=%s route_task=%d" % [
+		_format_combat_plan_position("ingress"),
+		_format_combat_plan_position("fire_start"),
+		_format_combat_plan_position("fire_end"),
+		_format_combat_plan_position("egress"),
+		str(_combat_route_ready),
+		_combat_route_task_id,
+	])
+	_append_lines_to_log(combat_report_path, lines, "helicopter combat report")
+	if combat_report_project_mirror_enabled:
+		_append_lines_to_log(combat_report_project_mirror_path, lines, "project helicopter combat report")
+
+
+func _format_combat_plan_position(key: String) -> String:
+	var pos: Vector3 = _combat_plan_position(key)
+	if pos == Vector3.INF:
+		return "?"
+	return str(pos.snapped(Vector3.ONE * 0.1))
+
+
+func _format_combat_report_event_line(event_name: String, details: String, debug_line: String) -> String:
+	var craft_name: String = "unknown"
+	var type_label: String = "unknown"
+	var pos_text: String = "?"
+	var vel_text: String = "?"
+	var speed: float = NAN
+	if is_instance_valid(aircraft):
+		craft_name = String(aircraft.name)
+		type_label = _get_aircraft_type_label()
+		pos_text = str(aircraft.global_position.snapped(Vector3.ONE * 0.1))
+		vel_text = str(aircraft.linear_velocity.snapped(Vector3.ONE * 0.1))
+		speed = aircraft.linear_velocity.length()
+	var target_name: String = "none"
+	var target_dist: float = NAN
+	var target: Node3D = _combat_plan_target()
+	if target != null and is_instance_valid(target) and is_instance_valid(aircraft):
+		target_name = String(target.name)
+		target_dist = aircraft.global_position.distance_to(target.global_position)
+	var weapon_kind: String = String(_combat_plan.get("weapon_kind", "none"))
+	var route_text: String = "none"
+	if _combat_route_ready:
+		route_text = "%d/%d" % [_combat_route_index, _combat_route_points.size()]
+	elif _combat_route_task_id != -1:
+		route_text = "building"
+	var takeover_text: String = "on" if _combat_aim_takeover_active else "off"
+	return "t=%.2f craft=%s type=%s event=%s state=%s mission=%s phase=%s weapon=%s target=%s target_dist=%.1f route=%s takeover=%s pos=%s vel=%s speed=%.1f details=\"%s\" raw=\"%s\"" % [
+		_elapsed_s(),
+		craft_name,
+		type_label,
+		event_name,
+		_state_name(),
+		_mission_name(),
+		_combat_phase if not _combat_phase.is_empty() else "none",
+		weapon_kind,
+		target_name,
+		target_dist,
+		route_text,
+		takeover_text,
+		pos_text,
+		vel_text,
+		speed,
+		details.replace("\"", "'"),
+		debug_line.replace("\"", "'"),
+	]
+
+
+func _combat_variant_truthy(value: Variant) -> bool:
+	if value is bool:
+		return value
+	if value is int or value is float:
+		return float(value) != 0.0
+	if value is String:
+		var text := String(value).strip_edges().to_lower()
+		return text == "true" or text == "1" or text == "yes" or text == "on"
+	return value != null
+
+
+func _combat_node3d_from_variant(value: Variant) -> Node3D:
+	if value == null or typeof(value) != TYPE_OBJECT:
+		return null
+	if not is_instance_valid(value):
+		return null
+	if not (value is Node3D):
+		return null
+	return value as Node3D
+
+
+func _combat_hardpoint_from_variant(value: Variant) -> Hardpoint:
+	if value == null or typeof(value) != TYPE_OBJECT:
+		return null
+	if not is_instance_valid(value):
+		return null
+	if not (value is Hardpoint):
+		return null
+	return value as Hardpoint
+
+
+func _combat_turret_controller_from_variant(value: Variant) -> TurretController:
+	if value == null or typeof(value) != TYPE_OBJECT:
+		return null
+	if not is_instance_valid(value):
+		return null
+	if not (value is TurretController):
+		return null
+	return value as TurretController
+
+
 func _set_carrier_landing_final_active(active: bool) -> void:
 	if not is_instance_valid(aircraft):
 		return
@@ -5143,19 +7939,22 @@ func _run_scripted_carrier_approach(delta: float) -> bool:
 			var speed_ok := relative_speed <= maxf(carrier_landing_descend_relative_speed_mps, 0.1)
 			var alt_ok := absf(pos.y - approach2_world.y) <= 8.0
 			var close_enough := dist_to_ap2 <= 20.0
-			var timed_out := _carrier_final_timer_s > maxf(carrier_landing_final_timeout_s, 0.1)
 			if close_enough and speed_ok and alt_ok:
 				_carrier_approach_phase = CarrierApproachPhase.DESCEND
+				_carrier_final_timer_s = 0.0
 				_debug_event("carrier_approach", "phase=DESCEND dist_ap2=%.1f rel_speed=%.1f/%.1f alt_err=%.1f" % [
 					dist_to_ap2,
 					relative_speed,
 					carrier_landing_descend_relative_speed_mps,
 					pos.y - approach2_world.y,
 				])
-			elif timed_out:
+			elif _carrier_final_timer_s > maxf(carrier_landing_final_timeout_s, 0.1):
 				_abort_carrier_landing_attempt("final_timeout", approach_world)
 		CarrierApproachPhase.DESCEND:
-			pass  # stays in DESCEND until _try_finish_landing fires
+			_carrier_final_timer_s += delta
+			var timed_out := _carrier_final_timer_s > maxf(carrier_landing_final_timeout_s, 0.1)
+			if timed_out:
+				_abort_carrier_landing_attempt("descent_timeout", approach_world)
 
 	_set_carrier_landing_final_active(
 		_carrier_approach_phase == CarrierApproachPhase.FINAL
@@ -5371,7 +8170,7 @@ func _fly_carrier_descent(landing_world: Vector3, approach_world: Vector3, carri
 	if height_above_deck > maxf(carrier_landing_touchdown_min_deck_agl_m, -0.25):
 		desired_climb = minf(desired_climb, -descent_limit)
 	if _get_carrier_surface_gear_count() > 0:
-		desired_climb = 0.0
+		desired_climb = -0.15
 	var climb_error := desired_climb - control_vel.y
 	var collective := _get_collective_trim() + climb_error * collective_climb_gain * 2.0
 	if height_above_deck <= maxf(landing_flare_agl_m, 1.0):
@@ -5738,6 +8537,11 @@ func _try_finish_landing() -> void:
 			_flight_lz_position = aircraft.global_position if is_instance_valid(aircraft) else Vector3.INF
 			_record_milestone("Landed at LZ — pos=%s" % [str(aircraft.global_position.snapped(Vector3.ONE)) if is_instance_valid(aircraft) else "?"])
 			_write_flight_summary_report("LZ LANDING")
+		MissionPhase.RESCUE:
+			# Stay in RESCUE phase so HeliSwingDoors can open; pilot's DownedPilot script
+			# will call add_passenger() when it reaches us, which triggers INBOUND.
+			_idle_dwell_timer_s = 60.0  # safety timeout: leave if no one boards within 60 s
+			_record_milestone("Landed for rescue pickup")
 		MissionPhase.INBOUND:
 			mission_phase = MissionPhase.AT_CARRIER
 			_idle_dwell_timer_s = carrier_dwell_time_s
@@ -6047,6 +8851,22 @@ func _debug_bool_property(node: Object, property_name: String) -> bool:
 	if value == null:
 		return false
 	return bool(value)
+
+
+func _get_down_feeler_ground_height(world_pos: Vector3) -> float:
+	var center_h := _get_ground_height_at_position(world_pos)
+	var radius := maxf(terrain_down_feeler_radius_m, 0.0)
+	if radius <= 0.0:
+		return center_h
+	var nav_grid: Node = get_node_or_null("/root/TerrainNavGrid")
+	if nav_grid == null or not nav_grid.has_method("get_max_height_in_radius"):
+		return center_h
+	var radius_h := float(nav_grid.call("get_max_height_in_radius", world_pos.x, world_pos.z, radius))
+	if radius_h <= -500000.0:
+		return center_h
+	if is_nan(center_h):
+		return radius_h
+	return maxf(center_h, radius_h)
 
 
 func _get_ground_height_at_position(world_pos: Vector3) -> float:
@@ -6404,6 +9224,7 @@ func _mission_name() -> String:
 		MissionPhase.AT_LZ: return "AT_LZ"
 		MissionPhase.INBOUND: return "INBOUND"
 		MissionPhase.AT_CARRIER: return "AT_CARRIER"
+		MissionPhase.RESCUE: return "RESCUE"
 	return "UNKNOWN"
 
 
@@ -6707,6 +9528,18 @@ func _append_lines_to_log(path: String, lines: PackedStringArray, description: S
 		push_warning("[HelicopterPilot] Could not open %s: %s" % [description, path])
 		return
 	file.seek_end()
+	for line in lines:
+		file.store_line(line)
+	file.close()
+
+
+func _overwrite_lines_to_log(path: String, lines: PackedStringArray, description: String) -> void:
+	if path.is_empty():
+		return
+	var file: FileAccess = FileAccess.open(path, FileAccess.WRITE)
+	if file == null:
+		push_warning("[HelicopterPilot] Could not reset %s: %s" % [description, path])
+		return
 	for line in lines:
 		file.store_line(line)
 	file.close()

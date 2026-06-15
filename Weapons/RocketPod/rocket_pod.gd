@@ -1,6 +1,8 @@
 extends Weapon
 class_name RocketPod
 
+const HELI_TEST_UNLIMITED_AMMO_META := "heli_test_unlimited_ammo"
+
 @export var rocket_scene: PackedScene
 @export var muzzle_velocity: float = 220.0
 @export var fire_cooldown_s: float = 0.35
@@ -33,6 +35,16 @@ func _get_parent_rigidbody() -> RigidBody3D:
 	while node and not (node is RigidBody3D):
 		node = node.get_parent()
 	return node as RigidBody3D
+
+func _has_unlimited_test_ammo() -> bool:
+	var aircraft: RigidBody3D = _get_parent_rigidbody()
+	if aircraft == null or not is_instance_valid(aircraft):
+		return false
+	var value: Variant = aircraft.get_meta(HELI_TEST_UNLIMITED_AMMO_META, false)
+	if not (value is bool):
+		return false
+	var enabled: bool = value
+	return enabled
 
 func _refresh_aircraft_payload_mass() -> void:
 	if not is_instance_valid(_payload_aircraft):
@@ -67,19 +79,21 @@ func _process(delta: float) -> void:
 			_burst_timer = burst_interval_s
 
 func can_fire() -> bool:
-	return ammo_count > 0 and _fire_timer <= 0.0 and _burst_remaining == 0
+	return (_has_unlimited_test_ammo() or ammo_count > 0) and _fire_timer <= 0.0 and _burst_remaining == 0
 
 func fire() -> bool:
 	if not can_fire():
 		return false
+	var unlimited_ammo: bool = _has_unlimited_test_ammo()
 	_fire_timer = fire_cooldown_s
 	_fire_one_rocket()
-	_burst_remaining = mini(burst_count - 1, ammo_count)
+	_burst_remaining = maxi(burst_count - 1, 0) if unlimited_ammo else mini(maxi(burst_count - 1, 0), ammo_count)
 	_burst_timer = burst_interval_s
 	return true
 
 func _fire_one_rocket() -> void:
-	if ammo_count <= 0:
+	var unlimited_ammo: bool = _has_unlimited_test_ammo()
+	if ammo_count <= 0 and not unlimited_ammo:
 		_burst_remaining = 0
 		return
 	var rocket = rocket_scene.instantiate()
@@ -88,5 +102,6 @@ func _fire_one_rocket() -> void:
 	get_tree().current_scene.add_child(rocket)
 	var muzzle_vel := hardpoint.get_hardpoint_forward_direction() * muzzle_velocity
 	rocket.fire(muzzle_vel, hardpoint.aircraft)
-	ammo_count -= 1
-	_refresh_aircraft_payload_mass()
+	if not unlimited_ammo:
+		ammo_count -= 1
+		_refresh_aircraft_payload_mass()

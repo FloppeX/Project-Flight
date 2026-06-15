@@ -149,6 +149,7 @@ enum HUDMode { NAV, GUN, ROCKETS, BOMBS }
 var hud_mode: HUDMode = HUDMode.NAV
 var hud_mode_label: Label
 var ccip_line: ColorRect
+var _hud_camera_fov_deg: float = 75.0
 
 func _opaque(color: Color) -> Color:
 	return Color(color.r, color.g, color.b, 1.0)
@@ -156,16 +157,17 @@ func _opaque(color: Color) -> Color:
 func _ready():
 	# Manually resolve NodePath references
 	if camera_path != NodePath():
-		var camera_node = get_node(camera_path)
+		var camera_node: Node = get_node_or_null(camera_path)
 		# Try to find a Camera3D within the camera node
 		if camera_node:
-			cam = camera_node.get_node("Camera3D") as Camera3D
-			if not cam:
+			cam = camera_node.get_node_or_null("Camera3D") as Camera3D
+			if cam == null:
 				# Try to find any Camera3D in the scene
 				cam = get_tree().get_first_node_in_group("camera") as Camera3D
 	
 	if aircraft_path != NodePath():
 		aircraft = get_node(aircraft_path) as Node3D
+	_resolve_bound_cockpit_camera()
 	
 	# Exit early if any critical nodes are missing
 	if hud_mesh == null:
@@ -422,6 +424,8 @@ func setup_lock_diamond():
 	lock_diamond.add_child(lock_label)
 
 func _process(dt: float) -> void:
+	if aircraft != null and is_instance_valid(aircraft):
+		_resolve_bound_cockpit_camera()
 	if cam == null or aircraft == null:
 		return
 
@@ -781,12 +785,19 @@ func bind_to_aircraft(new_aircraft: Node3D) -> void:
 	if not is_instance_valid(new_aircraft):
 		return
 	aircraft = new_aircraft
-	# Re-resolve the cockpit camera so the reticle projects correctly for this plane
-	var cockpit_tripod := new_aircraft.get_node_or_null("CameraCockpit") as Node3D
-	if cockpit_tripod:
-		var cockpit_cam := cockpit_tripod.find_child("Camera3D", true, false) as Camera3D
-		if cockpit_cam:
-			cam = cockpit_cam
+	_resolve_bound_cockpit_camera()
+
+
+func _resolve_bound_cockpit_camera() -> void:
+	if not is_instance_valid(aircraft):
+		return
+	var cockpit_tripod := aircraft.get_node_or_null("CameraCockpit") as Node3D
+	if cockpit_tripod == null:
+		return
+	var cockpit_cam := cockpit_tripod.find_child("Camera3D", true, false) as Camera3D
+	if cockpit_cam != null and is_instance_valid(cockpit_cam):
+		cam = cockpit_cam
+		_hud_camera_fov_deg = maxf(cockpit_cam.fov, 1.0)
 
 func update_lock_diamond() -> void:
 	"""Show a diamond over the current AA target: dim while acquiring, bright when locked."""
@@ -1385,9 +1396,10 @@ func update_attitude_ladder() -> void:
 	var center_y: float = hud_size_px.y * 0.5
 	var line_thickness: float = hud_line_thickness_px
 	var pitch_deg: float = _get_aircraft_pitch_deg()
-	var fov_deg: float = 75.0
+	var fov_deg: float = _hud_camera_fov_deg
 	if is_instance_valid(cam):
-		fov_deg = maxf(cam.fov, 1.0)
+		_hud_camera_fov_deg = maxf(cam.fov, 1.0)
+		fov_deg = _hud_camera_fov_deg
 	var pixels_per_degree: float = hud_size_px.y / fov_deg
 
 	for idx in range(attitude_tick_values_deg.size()):

@@ -2,7 +2,7 @@
 
 [ext_resource type="Script" uid="uid://c4ltq2v6fji05" path="res://Aircraft/aircraft.gd" id="1_aircraft"]
 [ext_resource type="PackedScene" uid="uid://cadi81fcpvmuc" path="res://Projectiles/Explosion/explosion.tscn" id="2_explosion"]
-[ext_resource type="PackedScene" uid="uid://dqa4u8bibws3" path="res://aircraft 10.glb" id="3_model"]
+[ext_resource type="PackedScene" uid="uid://dqa4u8bibws3" path="res://Aircraft/aircraft 10.glb" id="3_model"]
 [ext_resource type="PackedScene" uid="uid://djtbinx1svo2u" path="res://Aircraft/Aircraft wreck/aircraft_1_wreck.tscn" id="4_wreck"]
 [ext_resource type="Script" uid="uid://cef6lhgwhvqck" path="res://Aircraft/HelicopterFlight.gd" id="5_aero"]
 [ext_resource type="PackedScene" uid="uid://2iprlcyidpwa" path="res://Models/Aircraft_9/rotor disc.glb" id="6_dt0rw"]
@@ -36,6 +36,7 @@
 [ext_resource type="PackedScene" uid="uid://cn0n757m62w08" path="res://Weapons/RocketPod/rocket_pod.tscn" id="41_rocket"]
 [ext_resource type="PackedScene" path="res://Weapons/Guns/Hardpoint/15mm_machine_gun_hardpoint.tscn" id="42_15mm"]
 [ext_resource type="Script" uid="uid://ljqeb30m632d" path="res://AI/HelicopterPilot.gd" id="43_heli_ai"]
+[ext_resource type="AudioStream" uid="uid://wdbe4uteu61h" path="res://Audio/helicopter_rotor_1.ogg" id="44_rotor_audio"]
 
 [sub_resource type="PhysicsMaterial" id="PhysicsMaterial_lowfriction"]
 friction = 0.75
@@ -162,11 +163,15 @@ deck_takeoff_brake_release_collective = 0.72
 [node name="Engine" parent="." unique_id=1819551411 instance=ExtResource("8_engine")]
 PowerFactor = 0.0
 propeller_node = NodePath("../TailRotor")
+EngineSoundLoop = ExtResource("44_rotor_audio")
 GovernPropellerVisualSpeed = true
 FuelRate = 0.006
 ThrottleSpoolUpRate = 0.48
 ThrottleSpoolDownRate = 0.82
-EngineLoopTargetVolumeDb = -1.0
+EngineLoopTargetVolumeDb = 7.0
+EngineSoundVolumeFollowsPower = true
+EngineLoopInteriorVolumeOffsetDb = -12.0
+EngineSoundPitchFollowsPower = false
 UINode = NodePath("../RotorAssembly")
 StartupInterlockNode = NodePath("../RotorAssembly")
 ProcessPhysics = true
@@ -266,7 +271,7 @@ aircraft_path = NodePath("..")
 hud_glass_size = Vector2(1, 1)
 
 [node name="InstrumentPanel" parent="." unique_id=307414142 instance=ExtResource("26_panel")]
-transform = Transform3D(-0.58, 1.73422e-08, -4.76475e-08, 0, 0.545022, 0.198372, 5.07052e-08, 0.198372, -0.545022, 0.054538995, -0.15783295, 3.1034544)
+transform = Transform3D(-0.58, 1.73422e-08, -4.76475e-08, 0, 0.545022, 0.198372, 5.07052e-08, 0.198372, -0.545022, 0, -0.158, 3.103)
 aircraft_path = NodePath("..")
 panel_size = Vector2(1, 0.8)
 camera_target_path = NodePath("../CameraTarget")
@@ -325,10 +330,10 @@ script = ExtResource("30_damage")
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -1.1, 0.1)
 
 [node name="InsigniaSide" type="Marker3D" parent="." unique_id=1137083662]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.72292924, 0.2225559, 0.0022348762)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.6348971, 0.2225559, -0.84066397)
 
 [node name="InsigniaTail" type="Marker3D" parent="." unique_id=934637700]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.093675256, 1.1280165, -4.883706)
 
 [node name="InsigniaNose" type="Marker3D" parent="." unique_id=1064623045]
-transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, -0.14526689, 3.65)
+transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, -0.14526689, 3.8357344)

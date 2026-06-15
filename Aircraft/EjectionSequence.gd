@@ -1,6 +1,8 @@
 extends Node
 class_name EjectionSequence
 
+const FlightDirectorScript = preload("res://AirOps/FlightDirector.gd")
+
 @export var canopy_path: NodePath
 @export var cockpit_canopy_visibility_path: NodePath
 @export var ejection_seat_path: NodePath
@@ -758,9 +760,9 @@ func _prepare_ejected_pilot_camera_target(aircraft: Node, ejected_body: RigidBod
 
 
 func _notify_flight_director_ejected_pilot_took_over(old_aircraft: RigidBody3D, ejected_body: RigidBody3D) -> void:
-	var flight_director := get_node_or_null("/root/FlightDirector")
-	if flight_director != null and flight_director.has_method("replace_aircraft_with_ejected_pilot"):
-		flight_director.call("replace_aircraft_with_ejected_pilot", old_aircraft, ejected_body)
+	var flight_director := get_node_or_null("/root/FlightDirector") as FlightDirectorScript
+	if flight_director != null:
+		flight_director.replace_aircraft_with_ejected_pilot(old_aircraft, ejected_body)
 
 
 func _should_take_player_view(aircraft: Node) -> bool:
@@ -768,11 +770,11 @@ func _should_take_player_view(aircraft: Node) -> bool:
 		return false
 	if aircraft.is_in_group("enemies"):
 		return false
-	var flight_director := get_node_or_null("/root/FlightDirector")
+	var flight_director := get_node_or_null("/root/FlightDirector") as FlightDirectorScript
 	if flight_director != null:
-		if bool(flight_director.get("is_player_controlling")) and flight_director.get("player_controlled_plane") == aircraft:
+		if flight_director.is_player_controlling and flight_director.player_controlled_plane == aircraft:
 			return true
-		if flight_director.get("current_viewed_aircraft") == aircraft and not aircraft.is_in_group("ai_aircraft"):
+		if flight_director.current_viewed_aircraft == aircraft and not aircraft.is_in_group("ai_aircraft"):
 			return true
 	return not aircraft.is_in_group("ai_aircraft")
 
@@ -783,19 +785,18 @@ func _should_accept_player_ejection_input() -> bool:
 		return false
 	if aircraft.is_in_group("enemies"):
 		return false
-	var flight_director := get_node_or_null("/root/FlightDirector")
+	var flight_director := get_node_or_null("/root/FlightDirector") as FlightDirectorScript
 	if flight_director == null:
 		return _aircraft_has_current_camera(aircraft)
-	var controlled_aircraft: Variant = flight_director.get("player_controlled_plane")
-	if bool(flight_director.get("is_player_controlling")) and is_instance_valid(controlled_aircraft):
+	var controlled_aircraft := flight_director.player_controlled_plane
+	if flight_director.is_player_controlling and is_instance_valid(controlled_aircraft):
 		return controlled_aircraft == aircraft
-	var viewed_aircraft: Variant = flight_director.get("current_viewed_aircraft")
+	var viewed_aircraft := flight_director.current_viewed_aircraft
 	if is_instance_valid(viewed_aircraft) and viewed_aircraft == aircraft:
 		return true
-	if flight_director.has_method("_get_toggle_target_aircraft"):
-		var target: Variant = flight_director.call("_get_toggle_target_aircraft")
-		if is_instance_valid(target):
-			return target == aircraft
+	var target := flight_director._get_toggle_target_aircraft()
+	if is_instance_valid(target):
+		return target == aircraft
 	return _aircraft_has_current_camera(aircraft)
 
 
@@ -810,13 +811,11 @@ func _aircraft_has_current_camera(aircraft: Node) -> bool:
 
 
 func _enable_ejected_pilot_audio(pilot_focus: Node3D) -> void:
-	if pilot_focus != null and is_instance_valid(pilot_focus):
-		_pilot_audio_listener = AudioListener3D.new()
-		_pilot_audio_listener.name = "EjectedPilotAudioListener"
-		pilot_focus.add_child(_pilot_audio_listener)
-		_pilot_audio_listener.transform = Transform3D.IDENTITY
-		_pilot_audio_listener.make_current()
-
+	# Do NOT create an AudioListener3D here. In Godot 4 the active Camera3D already
+	# acts as the 3D audio listener when viewport.audio_listener_enable_3d = true.
+	# A separate AudioListener3D overrides that and positions audio relative to the
+	# listener node rather than the camera — which silences all distant 3D sounds
+	# (carrier engines, wind, etc.) as the seat flies away.
 	var aircraft := get_parent()
 	if aircraft == null:
 		return
@@ -875,10 +874,6 @@ func _land_pilot(surface_position: Variant = null) -> void:
 	_seat_burn_active = false
 	if _pilot_body == null or not is_instance_valid(_pilot_body):
 		return
-	var pilot := _get_ejected_pilot()
-	if pilot == null:
-		return
-	var keep_body_as_camera_target := bool(_pilot_body.get_meta("ejected_pilot_camera_target", false))
 
 	var land_pos := _pilot_body.global_position
 	if surface_position is Vector3:
@@ -893,24 +888,65 @@ func _land_pilot(surface_position: Variant = null) -> void:
 	if scene_root == null:
 		scene_root = get_tree().root
 
-	if keep_body_as_camera_target:
-		_pilot_body.linear_velocity = Vector3.ZERO
-		_pilot_body.angular_velocity = Vector3.ZERO
-		_pilot_body.freeze = true
-		_pilot_body.global_transform = Transform3D(Basis.IDENTITY, land_pos)
+	# Spawn the new DownedPilot character scene
+	var downed_pilot_scene := load("res://Models/Characters/DownedPilot.tscn") as PackedScene
+	var dp: Node3D = null
+	if downed_pilot_scene != null:
+		dp = downed_pilot_scene.instantiate() as Node3D
+		
+	if dp != null:
+		# Copy metadata from pilot body
+		for key in ["ejected_pilot_camera_target", "player_control_locked", "non_aircraft_body", 
+					"pilot_display_name", "pilot_rank", "pilot_callsign", "pilot_name", "source_aircraft_name"]:
+			if _pilot_body.has_meta(key):
+				dp.set_meta(key, _pilot_body.get_meta(key))
+		
+		# Put downed pilot on ground
+		dp.global_transform = Transform3D(Basis.IDENTITY, land_pos)
+		scene_root.add_child(dp)
+		dp.add_to_group("ejected_pilots")
+		dp.add_to_group("downed_pilot")
+		
+		# Transfer camera nodes
+		var camera_rig := _pilot_body.find_child("CameraCockpit", true, false) as Node3D
+		if camera_rig == null:
+			camera_rig = _pilot_body.find_child("CameraChase", true, false) as Node3D
+		if camera_rig != null:
+			_reparent_preserve_global(camera_rig, dp)
+			
+			# Call focus_ejected_pilot on all camera controllers
+			var ccs := get_tree().get_nodes_in_group("camera_controller")
+			for cc in ccs:
+				if cc != null and cc.has_method("focus_ejected_pilot"):
+					cc.call("focus_ejected_pilot", dp, dp)
+		
+		# Exclude the old parachute body from camera cycling before registering dp.
+		# queue_free() doesn't remove it from scene groups immediately, so it would
+		# pollute _get_friendly_aircraft() and push dp's friendly_index out of range.
+		_pilot_body.set_meta("camera_abandoned", true)
+		_pilot_body.remove_from_group("ejected_pilots")
+
+		# Register the downed pilot and clean up the old body from FlightDirector
+		var flight_director := get_node_or_null("/root/FlightDirector") as FlightDirectorScript
+		if flight_director != null:
+			flight_director.register_aircraft(dp)
+			if flight_director.current_viewed_aircraft == _pilot_body:
+				flight_director.current_viewed_aircraft = dp
+				flight_director._select_friendly_index_for(dp)
+			flight_director.unregister_aircraft(_pilot_body)
+			flight_director._activate_view()
+				
+		print("[EjectionSequence] Downed pilot character spawned successfully at: ", land_pos)
+
+		# Ask AirOpsManager to dispatch a rescue helicopter.
+		var air_ops := get_node_or_null("/root/AirOpsManager")
+		if air_ops != null and air_ops.has_method("request_rescue_for"):
+			air_ops.call("request_rescue_for", dp)
 	else:
-		_reparent_preserve_global(pilot, scene_root)
-	pilot.global_transform = Transform3D(Basis.IDENTITY, land_pos)
-	_set_pilot_ejection_pose(pilot, &"grounded", 0.6)
-	pilot.add_to_group("downed_pilot")
+		push_error("[EjectionSequence] Failed to load/instantiate DownedPilot.tscn!")
 
-	if is_instance_valid(_pilot_audio_listener):
-		_reparent_preserve_global(_pilot_audio_listener, pilot)
-
+	# Clean up the old seat/body/parachute
 	var seat_ref := _pilot_body
-	if not keep_body_as_camera_target:
-		_pilot_body = null
-		get_tree().create_timer(0.3).timeout.connect(func() -> void:
-			if is_instance_valid(seat_ref):
-				seat_ref.queue_free()
-		)
+	_pilot_body = null
+	if is_instance_valid(seat_ref):
+		seat_ref.queue_free()

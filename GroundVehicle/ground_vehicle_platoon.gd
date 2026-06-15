@@ -68,6 +68,8 @@ var _route_preview_positions: Array[Vector3] = []
 var _route_preview_goal: Vector3 = Vector3.INF
 var _route_preview_origin: Vector3 = Vector3.INF
 var _route_preview_repath_timer_s: float = 0.0
+var _is_contact_pathfinding: bool = false
+var _is_route_preview_pathfinding: bool = false
 
 func _ready() -> void:
 	add_to_group("origin_shifter")
@@ -621,25 +623,97 @@ func _update_contact_position(delta: float) -> void:
 	_advance_contact_along_path(delta, contact_target)
 
 func _recompute_contact_path(target_world_pos: Vector3) -> void:
-	_contact_repath_timer_s = 0.0
-	_contact_path_goal = target_world_pos
 	if not NavGraph.is_ready():
 		return
+	if _is_contact_pathfinding:
+		return
 
-	var start_world := _get_safe_contact_nav_position(_contact_world_position, target_world_pos)
-	var goal_world := _get_safe_contact_nav_position(target_world_pos, _contact_world_position)
+	_is_contact_pathfinding = true
+	_contact_repath_timer_s = 0.0
+
+	var contact_pos := _contact_world_position
+	var target_pos := target_world_pos
+	var clearance := contact_path_clearance_m
+	var anchor_dist := contact_anchor_distance_m
+	var reach_dist := maxf(contact_waypoint_reach_distance_m, 2.0)
+	var anchor_samples := contact_anchor_search_samples
+
+	WorkerThreadPool.add_task(func() -> void:
+		var get_safe_pos = func(wpos: Vector3, rpos: Vector3) -> Vector3:
+			var projected := wpos
+			var terrain_y := TerrainNavGrid.sample_height(projected.x, projected.z)
+			if terrain_y > TerrainNavGrid.IMPASSABLE * 0.5:
+				projected.y = terrain_y
+			if not (is_finite(projected.x) and is_finite(projected.y) and is_finite(projected.z)):
+				return Vector3.INF
+			if NavGraph.can_anchor(projected, clearance, anchor_dist):
+				return projected
+
+			var ref := rpos if (is_finite(rpos.x) and is_finite(rpos.y) and is_finite(rpos.z)) else projected
+			var search_radius: float = maxf(anchor_dist, reach_dist * 2.0)
+			var sample_count: int = maxi(anchor_samples, 4)
+			var base_vec := Vector2(projected.x - ref.x, projected.z - ref.z)
+			var base_angle: float = atan2(base_vec.y, base_vec.x) if base_vec.length_squared() > 1.0 else 0.0
+			var best_target: Vector3 = Vector3.INF
+			var best_score: float = INF
+			var ring_count: int = 3
+			for ring_idx in range(1, ring_count + 1):
+				var radius: float = search_radius * float(ring_idx) / float(ring_count)
+				for sample_idx in range(sample_count):
+					var angle: float = base_angle + TAU * float(sample_idx) / float(sample_count)
+					var candidate := projected + Vector3(cos(angle) * radius, 0.0, sin(angle) * radius)
+					var cy := TerrainNavGrid.sample_height(candidate.x, candidate.z)
+					if cy > TerrainNavGrid.IMPASSABLE * 0.5:
+						candidate.y = cy
+					if not NavGraph.can_anchor(candidate, clearance, anchor_dist):
+						continue
+					var score: float = Vector2(candidate.x - projected.x, candidate.z - projected.z).length() + Vector2(candidate.x - ref.x, candidate.z - ref.z).length() * 0.1
+					if score < best_score:
+						best_score = score
+						best_target = candidate
+			if is_finite(best_target.x) and is_finite(best_target.y) and is_finite(best_target.z):
+				return best_target
+			return Vector3.INF
+
+		var start_world: Vector3 = get_safe_pos.call(contact_pos, target_pos)
+		var goal_world: Vector3 = get_safe_pos.call(target_pos, contact_pos)
+
+		if not (is_finite(start_world.x) and is_finite(start_world.y) and is_finite(start_world.z)) or not (is_finite(goal_world.x) and is_finite(goal_world.y) and is_finite(goal_world.z)):
+			_on_contact_path_computed.call_deferred([], target_pos, start_world, goal_world, false)
+			return
+
+		if Vector2(start_world.x - goal_world.x, start_world.z - goal_world.z).length() <= reach_dist:
+			_on_contact_path_computed.call_deferred([], target_pos, start_world, goal_world, true)
+			return
+
+		var candidate_path := NavGraph.find_path(start_world, goal_world, clearance)
+		_on_contact_path_computed.call_deferred(candidate_path, target_pos, start_world, goal_world, false)
+	)
+
+func _on_contact_path_computed(candidate_path: Array[Vector3], target_at_request_time: Vector3, start_world: Vector3, goal_world: Vector3, reached_direct: bool) -> void:
+	_is_contact_pathfinding = false
+	if not is_instance_valid(self):
+		return
+
+	var current_contact_target := _get_contact_follow_target()
+	if _flat_distance(target_at_request_time, current_contact_target) > contact_goal_repath_distance_m:
+		_recompute_contact_path(current_contact_target)
+		return
+
 	if not _is_valid_contact_world_position(start_world) or not _is_valid_contact_world_position(goal_world):
 		return
+
 	_contact_world_position = start_world
-	var reach_distance: float = maxf(contact_waypoint_reach_distance_m, 2.0)
-	if _flat_distance(start_world, goal_world) <= reach_distance:
+	_contact_path_goal = target_at_request_time
+
+	if reached_direct:
 		_contact_world_position = goal_world
 		_clear_contact_path()
 		return
 
-	var candidate_path := NavGraph.find_path(start_world, goal_world, contact_path_clearance_m)
 	if candidate_path.is_empty():
 		return
+
 	_contact_path_positions = candidate_path
 	_contact_path_index = 0
 	_consume_reached_contact_waypoints()
@@ -697,36 +771,121 @@ func _update_route_preview(delta: float) -> void:
 		_recompute_route_preview(contact_pos, route_target)
 
 func _recompute_route_preview(start_world_pos: Vector3, target_world_pos: Vector3) -> void:
-	_route_preview_repath_timer_s = 0.0
-	_route_preview_goal = target_world_pos
 	if not NavGraph.is_ready():
 		_route_preview_positions = [_project_contact_to_ground(target_world_pos)]
 		_route_preview_origin = _project_contact_to_ground(start_world_pos)
 		return
-	var start_world := _get_safe_contact_nav_position(start_world_pos, target_world_pos)
-	var goal_world := _get_safe_contact_nav_position(target_world_pos, start_world_pos)
-	if not _is_valid_contact_world_position(start_world) or not _is_valid_contact_world_position(goal_world):
+	if _is_route_preview_pathfinding:
+		return
+
+	_is_route_preview_pathfinding = true
+	_route_preview_repath_timer_s = 0.0
+
+	var start_pos := start_world_pos
+	var target_pos := target_world_pos
+	var clearance := contact_path_clearance_m
+	var anchor_dist := contact_anchor_distance_m
+	var reach_dist := maxf(contact_waypoint_reach_distance_m, 2.0)
+	var anchor_samples := contact_anchor_search_samples
+
+	WorkerThreadPool.add_task(func() -> void:
+		var get_safe_pos = func(wpos: Vector3, rpos: Vector3) -> Vector3:
+			var projected := wpos
+			var terrain_y := TerrainNavGrid.sample_height(projected.x, projected.z)
+			if terrain_y > TerrainNavGrid.IMPASSABLE * 0.5:
+				projected.y = terrain_y
+			if not (is_finite(projected.x) and is_finite(projected.y) and is_finite(projected.z)):
+				return Vector3.INF
+			if NavGraph.can_anchor(projected, clearance, anchor_dist):
+				return projected
+
+			var ref := rpos if (is_finite(rpos.x) and is_finite(rpos.y) and is_finite(rpos.z)) else projected
+			var search_radius: float = maxf(anchor_dist, reach_dist * 2.0)
+			var sample_count: int = maxi(anchor_samples, 4)
+			var base_vec := Vector2(projected.x - ref.x, projected.z - ref.z)
+			var base_angle: float = atan2(base_vec.y, base_vec.x) if base_vec.length_squared() > 1.0 else 0.0
+			var best_target: Vector3 = Vector3.INF
+			var best_score: float = INF
+			var ring_count: int = 3
+			for ring_idx in range(1, ring_count + 1):
+				var radius: float = search_radius * float(ring_idx) / float(ring_count)
+				for sample_idx in range(sample_count):
+					var angle: float = base_angle + TAU * float(sample_idx) / float(sample_count)
+					var candidate := projected + Vector3(cos(angle) * radius, 0.0, sin(angle) * radius)
+					var cy := TerrainNavGrid.sample_height(candidate.x, candidate.z)
+					if cy > TerrainNavGrid.IMPASSABLE * 0.5:
+						candidate.y = cy
+					if not NavGraph.can_anchor(candidate, clearance, anchor_dist):
+						continue
+					var score: float = Vector2(candidate.x - projected.x, candidate.z - projected.z).length() + Vector2(candidate.x - ref.x, candidate.z - ref.z).length() * 0.1
+					if score < best_score:
+						best_score = score
+						best_target = candidate
+			if is_finite(best_target.x) and is_finite(best_target.y) and is_finite(best_target.z):
+				return best_target
+			return Vector3.INF
+
+		var start_world: Vector3 = get_safe_pos.call(start_pos, target_pos)
+		var goal_world: Vector3 = get_safe_pos.call(target_pos, start_pos)
+
+		if not (is_finite(start_world.x) and is_finite(start_world.y) and is_finite(start_world.z)) or not (is_finite(goal_world.x) and is_finite(goal_world.y) and is_finite(goal_world.z)):
+			_on_route_preview_computed.call_deferred([], start_pos, target_pos, start_world, goal_world, 1)
+			return
+
+		if Vector2(start_world.x - goal_world.x, start_world.z - goal_world.z).length() <= reach_dist:
+			_on_route_preview_computed.call_deferred([], start_pos, target_pos, start_world, goal_world, 2)
+			return
+
+		var candidate_path := NavGraph.find_path(start_world, goal_world, clearance)
+		if candidate_path.is_empty():
+			_on_route_preview_computed.call_deferred([], start_pos, target_pos, start_world, goal_world, 3)
+			return
+
+		var preview_pts: Array[Vector3] = []
+		for i in range(candidate_path.size()):
+			var pt := candidate_path[i]
+			var ty := TerrainNavGrid.sample_height(pt.x, pt.z)
+			if ty > TerrainNavGrid.IMPASSABLE * 0.5:
+				pt.y = ty
+			if i == 0 and Vector2(pt.x - start_world.x, pt.z - start_world.z).length() <= reach_dist:
+				continue
+			if not preview_pts.is_empty() and Vector2(preview_pts[preview_pts.size() - 1].x - pt.x, preview_pts[preview_pts.size() - 1].z - pt.z).length() <= 0.5:
+				continue
+			preview_pts.append(pt)
+		if preview_pts.is_empty() or Vector2(preview_pts[preview_pts.size() - 1].x - goal_world.x, preview_pts[preview_pts.size() - 1].z - goal_world.z).length() > reach_dist:
+			preview_pts.append(goal_world)
+
+		_on_route_preview_computed.call_deferred(preview_pts, start_pos, target_pos, start_world, goal_world, 0)
+	)
+
+func _on_route_preview_computed(preview_pts: Array[Vector3], start_at_request: Vector3, target_at_request: Vector3, start_world: Vector3, goal_world: Vector3, status_code: int) -> void:
+	_is_route_preview_pathfinding = false
+	if not is_instance_valid(self):
+		return
+
+	var contact_pos := get_contact_position()
+	var route_target := _get_route_preview_goal()
+	if _flat_distance(target_at_request, route_target) > contact_goal_repath_distance_m or _flat_distance(start_at_request, contact_pos) > contact_goal_repath_distance_m:
+		_recompute_route_preview(contact_pos, route_target)
+		return
+
+	_route_preview_repath_timer_s = 0.0
+	_route_preview_goal = target_at_request
+
+	if status_code == 1:
 		_clear_route_preview()
 		return
+	elif status_code == 2:
+		_route_preview_origin = start_world
+		_route_preview_positions = [goal_world]
+		return
+	elif status_code == 3:
+		_route_preview_origin = start_world
+		_route_preview_positions = [goal_world]
+		return
+
 	_route_preview_origin = start_world
-	var reach_distance: float = maxf(contact_waypoint_reach_distance_m, 2.0)
-	if _flat_distance(start_world, goal_world) <= reach_distance:
-		_route_preview_positions = [goal_world]
-		return
-	var candidate_path := NavGraph.find_path(start_world, goal_world, contact_path_clearance_m)
-	if candidate_path.is_empty():
-		_route_preview_positions = [goal_world]
-		return
-	_route_preview_positions.clear()
-	for i in range(candidate_path.size()):
-		var waypoint := _project_contact_to_ground(candidate_path[i])
-		if i == 0 and _flat_distance(waypoint, start_world) <= reach_distance:
-			continue
-		if not _route_preview_positions.is_empty() and _flat_distance(_route_preview_positions[_route_preview_positions.size() - 1], waypoint) <= 0.5:
-			continue
-		_route_preview_positions.append(waypoint)
-	if _route_preview_positions.is_empty() or _flat_distance(_route_preview_positions[_route_preview_positions.size() - 1], goal_world) > reach_distance:
-		_route_preview_positions.append(goal_world)
+	_route_preview_positions = preview_pts
 
 func _consume_reached_contact_waypoints() -> void:
 	var reach_distance: float = maxf(contact_waypoint_reach_distance_m, 2.0)

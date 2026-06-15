@@ -1,0 +1,26 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://Models/Characters/DownedPilot.gd" id="1_script"]
+[ext_resource type="PackedScene" path="res://Models/Characters/pilot 2 - sitting in cockpit.glb" id="2_model"]
+[ext_resource type="Script" path="res://Aircraft/PilotPose.gd" id="3_pose"]
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_downed_pilot"]
+size = Vector3(1, 1.85, 1)
+
+[node name="DownedPilot" type="RigidBody3D"]
+collision_layer = 1
+collision_mask = 513
+lock_rotation = true
+script = ExtResource("1_script")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.925, 0)
+shape = SubResource("BoxShape3D_downed_pilot")
+
+[node name="Model" parent="." instance=ExtResource("2_model")]
+
+[node name="PilotPose" type="Node3D" parent="."]
+script = ExtResource("3_pose")
+hide_head_in_cockpit = false
+cockpit_hidden_mesh_names = PackedStringArray()
+initial_pose_name = &"grounded"

@@ -1,7 +1,7 @@
 [gd_scene load_steps=3 format=3 uid="uid://dsnc8jllg42ph"]
 
 [ext_resource type="Script" uid="uid://dher5abspdyj6" path="res://Weapons/hardpoint.gd" id="1_o2uqa"]
-[ext_resource type="PackedScene" uid="uid://dl7uh52xawyni" path="res://Hardpoint.glb" id="2_model"]
+[ext_resource type="PackedScene" uid="uid://dl7uh52xawyni" path="res://Weapons/Hardpoint.glb" id="2_model"]
 
 [node name="Hardpoint" type="Node3D"]
 script = ExtResource("1_o2uqa")

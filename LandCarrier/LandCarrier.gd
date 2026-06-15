@@ -90,6 +90,7 @@ var _recovery_constraint_log_s: float = 0.0
 var _smoothed_desired_y: float = NAN
 var _using_default_cross_map_route: bool = false
 var _default_cross_map_route_completed: bool = false
+var _is_pathfinding: bool = false
 var treads: Array[Node3D] = []
 var elevator: Node3D
 var vehicle_ramp: Node3D
@@ -185,120 +186,149 @@ func _set_north_heading() -> void:
 		NavGraph.graph_ready.connect(_start_random_patrol, CONNECT_ONE_SHOT)
 
 func _start_random_patrol() -> void:
+	if _is_pathfinding:
+		return
+	_is_pathfinding = true
+
 	var rng := RandomNumberGenerator.new()
 	rng.randomize()
 	_using_default_cross_map_route = false
 	_default_cross_map_route_completed = false
 
-	if default_cross_map_route:
-		var routed_start := TerrainNavGrid.get_centered_edge_position(
-			"bottom",
-			route_start_edge_margin_m,
-			route_center_search_width_m,
-			route_edge_search_depth_m,
-			path_max_slope_m
-		)
-		if routed_start != Vector3.ZERO:
-			global_position = Vector3(routed_start.x, routed_start.y + BODY_RIDE_HEIGHT, routed_start.z)
-			visible = true
-			var route_plan := _find_shortest_top_edge_route(global_position)
-			if bool(route_plan.get("valid", false)):
-				var routed_destination: Vector3 = route_plan.get("destination", Vector3.ZERO)
-				var routed_path: Array = route_plan.get("path", [])
-				var to_dest := routed_destination - global_position
-				to_dest.y = 0.0
-				if to_dest.length_squared() > 1.0:
-					var dir := to_dest.normalized()
-					rotation.y = atan2(dir.x, dir.z)
-				_raw_waypoints = [routed_destination]
-				_raw_waypoint_index = 0
-				_using_default_cross_map_route = true
-				if route_setup_debug:
-					print(
-						"[LandCarrier] Using shortest top-edge route start=",
-						global_position,
-						" goal=",
-						routed_destination,
-						" edge_depth=",
-						snapped(float(route_plan.get("edge_depth_m", 0.0)), 0.1),
-						" path_length=",
-						snapped(float(route_plan.get("path_length_m", 0.0)), 0.1)
-					)
-				_on_path_ready(routed_path)
-				return
-			if route_setup_debug:
-				print("[LandCarrier] Could not find a reachable shortest route to the top edge; falling back to patrol start.")
-		elif route_setup_debug:
-			print("[LandCarrier] Could not find a suitable bottom-edge start anchor; falling back to patrol start.")
+	var is_default_route := default_cross_map_route
+	var start_margin := route_start_edge_margin_m
+	var search_width := route_center_search_width_m
+	var search_depth := route_edge_search_depth_m
+	var max_slope := path_max_slope_m
+	var goal_margin := route_goal_edge_margin_m
+	var candidate_spacing := route_goal_candidate_spacing_m
+	var setup_debug := route_setup_debug
+	var body_ride_h := BODY_RIDE_HEIGHT
+	var current_pos := global_position
 
-	var start: Vector3 = TerrainNavGrid.get_random_passable_position(rng, path_max_slope_m)
-	if start != Vector3.ZERO:
-		global_position = Vector3(start.x, start.y + BODY_RIDE_HEIGHT, start.z)
+	WorkerThreadPool.add_task(func() -> void:
+		var routed_destination := Vector3.ZERO
+		var routed_path: Array[Vector3] = []
+		var final_pos := current_pos
+		var using_cross_route := false
+		var route_plan_details := {}
 
+		if is_default_route:
+			var routed_start := TerrainNavGrid.get_centered_edge_position(
+				"bottom",
+				start_margin,
+				search_width,
+				search_depth,
+				max_slope
+			)
+			if routed_start != Vector3.ZERO:
+				final_pos = Vector3(routed_start.x, routed_start.y + body_ride_h, routed_start.z)
+
+				# Inline _find_shortest_top_edge_route logic
+				var candidates := TerrainNavGrid.get_edge_position_candidates(
+					"top",
+					goal_margin,
+					candidate_spacing,
+					search_depth,
+					max_slope
+				)
+				if not candidates.is_empty():
+					var best_dest := Vector3.ZERO
+					var best_p: Array[Vector3] = []
+					var best_p_len := INF
+					var best_e_depth := INF
+					var top_edge_z: float = TerrainNavGrid._origin_z
+					for candidate in candidates:
+						var path := NavGraph.find_path(final_pos, candidate, CARRIER_CLEARANCE_M)
+						if path.is_empty():
+							continue
+
+						# Measure path length
+						var path_length_m := 0.0
+						if path.size() >= 2:
+							for i in range(1, path.size()):
+								path_length_m += path[i - 1].distance_to(path[i])
+
+						var edge_depth_m := maxf(candidate.z - top_edge_z, 0.0)
+						var is_better_edge := edge_depth_m < best_e_depth - 0.5
+						var same_edge_band := absf(edge_depth_m - best_e_depth) <= 0.5
+						if is_better_edge or (same_edge_band and path_length_m < best_p_len):
+							best_e_depth = edge_depth_m
+							best_p_len = path_length_m
+							best_dest = candidate
+							best_p = path
+
+					if not best_p.is_empty():
+						routed_destination = best_dest
+						routed_path = best_p
+						using_cross_route = true
+						route_plan_details = {
+							"edge_depth_m": best_e_depth,
+							"path_length_m": best_p_len
+						}
+
+		var fallback_patrol := false
+		if routed_path.is_empty():
+			# Fallback to standard random patrol
+			var start := TerrainNavGrid.get_random_passable_position(rng, max_slope)
+			if start != Vector3.ZERO:
+				final_pos = Vector3(start.x, start.y + body_ride_h, start.z)
+
+			var destination := TerrainNavGrid.get_furthest_edge_position(final_pos, 3, max_slope)
+			routed_destination = destination
+			routed_path = NavGraph.find_path(final_pos, destination, CARRIER_CLEARANCE_M)
+			fallback_patrol = true
+
+		_on_random_patrol_computed.call_deferred(routed_path, routed_destination, final_pos, using_cross_route, fallback_patrol, route_plan_details)
+	)
+
+func _on_random_patrol_computed(routed_path: Array[Vector3], routed_destination: Vector3, final_pos: Vector3, using_cross_route: bool, fallback_patrol: bool, route_plan_details: Dictionary) -> void:
+	_is_pathfinding = false
+	if not is_instance_valid(self):
+		return
+
+	global_position = final_pos
 	visible = true
 
-	var destination: Vector3 = TerrainNavGrid.get_furthest_edge_position(global_position, 3, path_max_slope_m)
-	var to_dest := destination - global_position
-	to_dest.y = 0.0
-	if to_dest.length_squared() > 1.0:
-		var dir := to_dest.normalized()
-		rotation.y = atan2(dir.x, dir.z)
-	_raw_waypoints = [destination]
-	_raw_waypoint_index = 0
-	_compute_path_to_destination()
+	if using_cross_route:
+		var to_dest := routed_destination - global_position
+		to_dest.y = 0.0
+		if to_dest.length_squared() > 1.0:
+			var dir := to_dest.normalized()
+			rotation.y = atan2(dir.x, dir.z)
+		_raw_waypoints = [routed_destination]
+		_raw_waypoint_index = 0
+		_using_default_cross_map_route = true
+		if route_setup_debug:
+			print(
+				"[LandCarrier] Using shortest top-edge route start=",
+				global_position,
+				" goal=",
+				routed_destination,
+				" edge_depth=",
+				snapped(float(route_plan_details.get("edge_depth_m", 0.0)), 0.1),
+				" path_length=",
+				snapped(float(route_plan_details.get("path_length_m", 0.0)), 0.1)
+			)
+		_on_path_ready(routed_path)
+		return
+
+	if fallback_patrol:
+		var to_dest := routed_destination - global_position
+		to_dest.y = 0.0
+		if to_dest.length_squared() > 1.0:
+			var dir := to_dest.normalized()
+			rotation.y = atan2(dir.x, dir.z)
+		_raw_waypoints = [routed_destination]
+		_raw_waypoint_index = 0
+
+		if routed_path.is_empty():
+			# Try standard replan
+			_compute_path_to_destination()
+		else:
+			_on_path_ready(routed_path)
 
 const CARRIER_CLEARANCE_M: float = 120.0
-
-func _find_shortest_top_edge_route(start_world: Vector3) -> Dictionary:
-	var candidates := TerrainNavGrid.get_edge_position_candidates(
-		"top",
-		route_goal_edge_margin_m,
-		route_goal_candidate_spacing_m,
-		route_edge_search_depth_m,
-		path_max_slope_m
-	)
-	if candidates.is_empty():
-		return {"valid": false}
-
-	var best_destination := Vector3.ZERO
-	var best_path: Array = []
-	var best_path_length_m := INF
-	var best_edge_depth_m := INF
-	var top_edge_z: float = TerrainNavGrid._origin_z
-	for candidate in candidates:
-		var path := NavGraph.find_path(start_world, candidate, CARRIER_CLEARANCE_M)
-		if path.is_empty():
-			continue
-		var path_length_m := _measure_path_length(path)
-		var edge_depth_m := maxf(candidate.z - top_edge_z, 0.0)
-		var is_better_edge := edge_depth_m < best_edge_depth_m - 0.5
-		var same_edge_band := absf(edge_depth_m - best_edge_depth_m) <= 0.5
-		if is_better_edge or (same_edge_band and path_length_m < best_path_length_m):
-			best_edge_depth_m = edge_depth_m
-			best_path_length_m = path_length_m
-			best_destination = candidate
-			best_path = path
-
-	if best_path.is_empty():
-		return {"valid": false}
-
-	return {
-		"valid": true,
-		"destination": best_destination,
-		"path": best_path,
-		"edge_depth_m": best_edge_depth_m,
-		"path_length_m": best_path_length_m
-	}
-
-func _measure_path_length(path: Array) -> float:
-	if path.size() < 2:
-		return 0.0
-	var total_length_m := 0.0
-	for i in range(1, path.size()):
-		var prev_point := path[i - 1] as Vector3
-		var next_point := path[i] as Vector3
-		total_length_m += prev_point.distance_to(next_point)
-	return total_length_m
 
 func _compute_path_to_destination() -> void:
 	visible = true
@@ -318,12 +348,28 @@ func _compute_path_to_destination() -> void:
 	if not use_waypoint_pathfinding:
 		_apply_direct_waypoints()
 		return
+	if _is_pathfinding:
+		return
+	_is_pathfinding = true
 
 	var target := _raw_waypoints[_raw_waypoint_index]
-	var path := NavGraph.find_path(global_position, target, CARRIER_CLEARANCE_M)
+	var current_pos := global_position
+
+	WorkerThreadPool.add_task(func() -> void:
+		var path := NavGraph.find_path(current_pos, target, CARRIER_CLEARANCE_M)
+		_on_path_computed.call_deferred(path, target)
+	)
+
+func _on_path_computed(path: Array[Vector3], target_at_request: Vector3) -> void:
+	_is_pathfinding = false
+	if not is_instance_valid(self):
+		return
+
+	if _raw_waypoints.is_empty() or _raw_waypoint_index >= _raw_waypoints.size() or _raw_waypoints[_raw_waypoint_index] != target_at_request:
+		_compute_path_to_destination()
+		return
 
 	if path.is_empty():
-		# Destination unreachable — skip it
 		_raw_waypoint_index += 1
 		if _raw_waypoint_index >= _raw_waypoints.size():
 			_pick_new_patrol_destination()
@@ -334,36 +380,62 @@ func _compute_path_to_destination() -> void:
 	_on_path_ready(path)
 
 func _pick_new_patrol_destination() -> void:
+	if _is_pathfinding:
+		return
+	_is_pathfinding = true
+
 	_using_default_cross_map_route = false
 	_default_cross_map_route_completed = false
-	# Try several candidate destinations, pick the furthest one that
-	# A* can actually reach with full carrier clearance.
-	var best_dest := Vector3.ZERO
-	var best_dist_sq := -1.0
-	for inset in [3, 5, 8]:
-		var dest: Vector3 = TerrainNavGrid.get_furthest_edge_position(global_position, inset, path_max_slope_m)
-		if dest == global_position:
-			continue
-		if not NavGraph.has_nearby_node(dest, CARRIER_CLEARANCE_M):
-			continue
-		# Verify full path exists before committing
-		var test_path := NavGraph.find_path(global_position, dest, CARRIER_CLEARANCE_M)
-		if test_path.is_empty():
-			continue
-		var dsq := Vector2(dest.x - global_position.x, dest.z - global_position.z).length_squared()
-		if dsq > best_dist_sq:
-			best_dist_sq = dsq
-			best_dest = dest
-	if best_dist_sq < 0.0:
-		# Nothing reachable at edges — try a random passable position
-		var rng := RandomNumberGenerator.new()
-		rng.randomize()
-		best_dest = TerrainNavGrid.get_random_passable_position(rng, path_max_slope_m)
-		if best_dest == Vector3.ZERO:
-			best_dest = global_position + global_transform.basis.z * 500.0
-	_raw_waypoints = [best_dest]
+
+	var current_pos := global_position
+	var max_slope := path_max_slope_m
+
+	WorkerThreadPool.add_task(func() -> void:
+		var best_dest := Vector3.ZERO
+		var best_dist_sq := -1.0
+		var best_path: Array[Vector3] = []
+
+		for inset in [3, 5, 8]:
+			var dest: Vector3 = TerrainNavGrid.get_furthest_edge_position(current_pos, inset, max_slope)
+			if dest == current_pos:
+				continue
+			if not NavGraph.has_nearby_node(dest, CARRIER_CLEARANCE_M):
+				continue
+			var test_path := NavGraph.find_path(current_pos, dest, CARRIER_CLEARANCE_M)
+			if test_path.is_empty():
+				continue
+			var dsq := Vector2(dest.x - current_pos.x, dest.z - current_pos.z).length_squared()
+			if dsq > best_dist_sq:
+				best_dist_sq = dsq
+				best_dest = dest
+				best_path = test_path
+
+		var rng_fallback := false
+		if best_dist_sq < 0.0:
+			var rng := RandomNumberGenerator.new()
+			rng.randomize()
+			best_dest = TerrainNavGrid.get_random_passable_position(rng, max_slope)
+			rng_fallback = true
+
+		_on_pick_new_patrol_computed.call_deferred(best_path, best_dest, rng_fallback)
+	)
+
+func _on_pick_new_patrol_computed(best_path: Array[Vector3], best_dest: Vector3, rng_fallback: bool) -> void:
+	_is_pathfinding = false
+	if not is_instance_valid(self):
+		return
+
+	var final_dest := best_dest
+	if rng_fallback and best_dest == Vector3.ZERO:
+		final_dest = global_position + global_transform.basis.z * 500.0
+
+	_raw_waypoints = [final_dest]
 	_raw_waypoint_index = 0
-	_compute_path_to_destination()
+
+	if best_path.is_empty():
+		_compute_path_to_destination()
+	else:
+		_on_path_ready(best_path)
 
 func _on_path_ready(path: Array) -> void:
 	_waypoint_positions.clear()

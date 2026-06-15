@@ -36,6 +36,7 @@
 [ext_resource type="PackedScene" uid="uid://cn0n757m62w08" path="res://Weapons/RocketPod/rocket_pod.tscn" id="41_rocket"]
 [ext_resource type="Script" uid="uid://ljqeb30m632d" path="res://AI/HelicopterPilot.gd" id="43_heli_ai"]
 [ext_resource type="Script" uid="uid://q2od5mw1veln" path="res://Aircraft/Visuals/HeliSwingDoors.gd" id="44_swing_doors"]
+[ext_resource type="AudioStream" uid="uid://bdauoisdbiww5" path="res://Audio/helicopter_rotor_2.ogg" id="45_rotor_audio"]
 
 [sub_resource type="PhysicsMaterial" id="PhysicsMaterial_lowfriction"]
 friction = 0.75
@@ -175,11 +176,15 @@ shape = SubResource("BoxShape3D_0gu2e")
 [node name="Engine" parent="." unique_id=1819551411 instance=ExtResource("8_engine")]
 PowerFactor = 0.0
 propeller_node = NodePath("../TailRotor")
+EngineSoundLoop = ExtResource("45_rotor_audio")
+EngineSoundVolumeFollowsPower = true
+EngineLoopInteriorVolumeOffsetDb = -12.0
+EngineSoundPitchFollowsPower = false
 GovernPropellerVisualSpeed = true
 FuelRate = 0.006
 ThrottleSpoolUpRate = 0.48
 ThrottleSpoolDownRate = 0.82
-EngineLoopTargetVolumeDb = -1.0
+EngineLoopTargetVolumeDb = 7.0
 UINode = NodePath("../RotorAssembly")
 StartupInterlockNode = NodePath("../RotorAssembly")
 ProcessPhysics = true
@@ -342,14 +347,14 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.1658126, -0.20554134, -0.82
 [node name="InsigniaTail" type="Marker3D" parent="." unique_id=934637700]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.3937527, 1.4982497, -6.0211883)
 
-[node name="DoorHingeLeft_1" type="Node3D" parent="." unique_id=1583900778]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.9055862, 0.12220864, 0.45606726)
+[node name="DoorHingeRight_1" type="Node3D" parent="." unique_id=1821106142]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.90570384, 0.12220864, 0.45606726)
 
 [node name="DoorHingeRight_2" type="Node3D" parent="." unique_id=712102916]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.9443912, -0.16740716, 0.5245709)
 
-[node name="DoorHingeRight_1" type="Node3D" parent="." unique_id=1821106142]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.90570384, 0.12220864, 0.45606726)
+[node name="DoorHingeLeft_1" type="Node3D" parent="." unique_id=1583900778]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.9055862, 0.12220864, 0.45606726)
 
 [node name="DoorHingeLeft_2" type="Node3D" parent="." unique_id=1950025628]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.94388896, -0.16740716, 0.5245709)

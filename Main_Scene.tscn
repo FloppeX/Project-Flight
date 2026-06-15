@@ -1,6 +1,6 @@
 [gd_scene load_steps=18 format=3 uid="uid://di4mmbdu6qiv1"]
 
-[ext_resource type="Script" uid="uid://dhif0k7fphvot" path="res://ScenarioManager.gd" id="1"]
+[ext_resource type="Script" uid="uid://dhif0k7fphvot" path="res://Scenario/ScenarioManager.gd" id="1"]
 [ext_resource type="PackedScene" uid="uid://dsel16gi76dnm" path="res://UI/UIEnergyContainer/UIFuelLevel.tscn" id="5"]
 [ext_resource type="PackedScene" uid="uid://bu2hixfhu8ndm" path="res://UI/UIEnginePower/UIEnginePower.tscn" id="10"]
 [ext_resource type="PackedScene" uid="uid://cfbnb1h25pmhu" path="res://LandCarrier/LandCarrier.tscn" id="16_13cwd"]

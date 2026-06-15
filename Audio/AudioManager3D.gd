@@ -92,7 +92,7 @@ func _apply_initial_audio_bus() -> void:
 
 	# Apply initial bus based on which camera is already active
 	if is_bridge_camera_active():
-		switch_to_bridge_audio()
+		switch_to_interior_audio()
 	elif is_cockpit_camera_active():
 		switch_to_interior_audio()
 	else:
@@ -182,9 +182,10 @@ func _process(delta):
 	# Get current camera - this works even without an aircraft
 	var current_camera: Camera3D = get_current_camera()
 	var has_authority: bool = _is_authoritative_for_camera(current_camera)
+	var control_room_active: bool = has_authority and _is_control_room_camera(current_camera)
 
 	_update_cockpit_interior_player(delta, has_authority and is_cockpit_camera_active())
-	_update_bridge_interior_player(delta, has_authority and is_bridge_camera_active())
+	_update_bridge_interior_player(delta, control_room_active)
 
 	# Prevent multiple aircraft audio managers from fighting over the same global buses.
 	if not has_authority:
@@ -197,10 +198,12 @@ func _process(delta):
 		return
 
 	if current_camera:
-		# Check bridge camera separately - it gets its own audio environment
-		if camera_controller and camera_controller.bridge_camera == current_camera:
-			if current_audio_bus != bridge_audio_bus:
-				switch_to_bridge_audio()
+		if _is_control_room_camera(current_camera):
+			if current_audio_bus != interior_audio_bus:
+				switch_to_interior_audio()
+		elif _is_carrier_camera(current_camera):
+			if current_audio_bus != exterior_audio_bus:
+				switch_to_exterior_audio()
 		else:
 			# For all other cameras (including free look), check if inside aircraft
 			var is_inside = false
@@ -233,10 +236,7 @@ func is_cockpit_camera_active() -> bool:
 func is_bridge_camera_active() -> bool:
 	if _ejected_pilot_audio_active:
 		return false
-	if not camera_controller or not camera_controller.bridge_camera:
-		return false
-
-	return camera_controller.bridge_camera.current
+	return _is_control_room_camera(get_current_camera())
 
 func _update_cockpit_interior_player(delta: float, cockpit_active: bool):
 	if not cockpit_interior_player:
@@ -296,7 +296,7 @@ func _on_aircraft_destroyed():
 func _is_aircraft_audio_alive() -> bool:
 	if _aircraft_audio_destroyed or aircraft == null or not is_instance_valid(aircraft):
 		return false
-	var current_health_variant = aircraft.get("current_health") if aircraft.has_method("get") else null
+	var current_health_variant: Variant = aircraft.get("current_health") if aircraft.has_method("get") else null
 	if current_health_variant != null and float(current_health_variant) <= 0.0:
 		return false
 	return true
@@ -343,8 +343,9 @@ func is_camera_inside_aircraft(camera: Camera3D) -> bool:
 	if camera_controller:
 		if camera_controller.cockpit_camera == camera:
 			return true
-		# Bridge camera is NOT inside aircraft - it gets its own audio environment
-		if camera_controller.bridge_camera == camera:
+		if _is_control_room_camera(camera):
+			return true
+		if _is_carrier_camera(camera):
 			return false
 		if camera_controller.chase_camera == camera or camera_controller.cinematic_camera == camera:
 			return false
@@ -468,6 +469,13 @@ func _apply_3d_audio_settings(player: AudioStreamPlayer3D, bus_name: String):
 	if player == null:
 		return
 	player.bus = bus_name
+	var is_own_vehicle_player: bool = aircraft != null \
+		and is_instance_valid(aircraft) \
+		and _node_is_same_or_descendant(player, aircraft)
+	var apply_own_vehicle_interior_audio: bool = bus_name == interior_audio_bus \
+		and is_own_vehicle_player \
+		and is_cockpit_camera_active()
+	player.set_meta("own_vehicle_interior_audio", apply_own_vehicle_interior_audio)
 	# Bridge uses full stereo panning like exterior (not cockpit's muffled panning)
 	player.panning_strength = interior_panning_strength if bus_name == interior_audio_bus else exterior_panning_strength
 
@@ -477,6 +485,26 @@ func force_interior_audio():
 
 func force_exterior_audio():
 	switch_to_exterior_audio()
+
+func _is_control_room_camera(camera: Camera3D) -> bool:
+	if camera == null or camera_controller == null:
+		return false
+	if camera_controller.bridge_script != null and is_instance_valid(camera_controller.bridge_script) and camera_controller.bridge_script.has_method("is_control_room_camera"):
+		var result: Variant = camera_controller.bridge_script.call("is_control_room_camera", camera)
+		return bool(result)
+	if camera_controller.bridge_camera != null and camera_controller.bridge_camera == camera:
+		return true
+	return false
+
+func _is_carrier_camera(camera: Camera3D) -> bool:
+	if camera == null or camera_controller == null:
+		return false
+	if camera_controller.bridge_script != null and is_instance_valid(camera_controller.bridge_script) and camera_controller.bridge_script.has_method("is_carrier_camera"):
+		var result: Variant = camera_controller.bridge_script.call("is_carrier_camera", camera)
+		return bool(result)
+	if camera_controller.bridge_camera != null and camera_controller.bridge_camera == camera:
+		return true
+	return false
 
 func set_ejected_pilot_audio_active(active: bool = true) -> void:
 	_ejected_pilot_audio_active = active
@@ -507,7 +535,7 @@ func _get_bridge_wind_factor() -> float:
 
 	var carrier_speed_mps: float = 0.0
 	if carrier and carrier.has_method("get_velocity_vector"):
-		var velocity_variant = carrier.call("get_velocity_vector")
+		var velocity_variant: Variant = carrier.call("get_velocity_vector")
 		if velocity_variant is Vector3:
 			carrier_speed_mps = (velocity_variant as Vector3).length()
 
@@ -544,11 +572,13 @@ func _authority_rank_for_camera(camera: Camera3D) -> float:
 	if camera_controller:
 		if camera_controller.cockpit_camera == camera:
 			return 0.0
+		if _is_control_room_camera(camera):
+			return 0.5
 		if camera_controller.chase_camera == camera:
 			return 1.0
 		if camera_controller.cinematic_camera == camera:
 			return 2.0
-		if camera_controller.bridge_camera == camera:
+		if _is_carrier_camera(camera):
 			return 3.0
 
 	if aircraft and _node_is_same_or_descendant(camera, aircraft):

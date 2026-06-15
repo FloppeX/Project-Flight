@@ -46,16 +46,15 @@ func find_hardpoints():
 		aircraft = get_parent()
 	if aircraft == null:
 		return
-	# Look for Hardpoint nodes in the aircraft
-	for child in aircraft.get_children():
+	_collect_hardpoints_recursive(aircraft)
+	pass
+
+
+func _collect_hardpoints_recursive(node: Node) -> void:
+	for child in node.get_children():
 		if child is Hardpoint:
 			hardpoints.append(child)
-		# Also check children of children
-		for grandchild in child.get_children():
-			if grandchild is Hardpoint:
-				hardpoints.append(grandchild)
-	
-	pass
+		_collect_hardpoints_recursive(child)
 
 func categorize_weapons():
 	"""Categorize weapons by type and build weapon type list"""
