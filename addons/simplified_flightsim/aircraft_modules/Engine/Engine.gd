@@ -22,6 +22,11 @@ signal update_interface(values)
 @export var ThrottleSpoolDownRate: float = 0.9 # Power units per second when reducing throttle
 @export var EngineSoundResponseRate: float = 7.5 # How quickly loop pitch follows live engine power
 @export var EngineLoopTargetVolumeDb: float = 4.0 # Propeller loop loudness at steady running power
+@export var EngineSoundVolumeFollowsPower: bool = false
+@export var EngineLoopIdleVolumeDb: float = -18.0
+@export var EngineLoopInteriorVolumeOffsetDb: float = 0.0
+@export var EngineSoundPitchFollowsPower: bool = true
+@export var EngineLoopConstantPitchScale: float = 1.0
 @export_group("Propeller Blur")
 @export var enable_propeller_blur: bool = true
 @export var propeller_spin_axis_local: Vector3 = Vector3.BACK
@@ -62,6 +67,9 @@ func _ready():
 	if EngineSoundLoop:
 		if EngineSoundLoop is AudioStreamWAV:
 			EngineSoundLoop.loop_mode = AudioStreamWAV.LOOP_FORWARD
+		elif EngineSoundLoop is AudioStreamOggVorbis:
+			var ogg_stream: AudioStreamOggVorbis = EngineSoundLoop as AudioStreamOggVorbis
+			ogg_stream.loop = true
 		sfx_engine_loop = AudioStreamPlayer3D.new()
 		add_child(sfx_engine_loop)
 		sfx_engine_loop.stream = EngineSoundLoop
@@ -163,8 +171,8 @@ func engine_start():
 		if sfx_tween:
 			sfx_tween.kill()
 		sfx_tween = create_tween()
-		sfx_tween.tween_property(sfx_engine_loop, "volume_db", EngineLoopTargetVolumeDb, 1.0)
-		sfx_tween.tween_property(sfx_engine_loop, "pitch_scale", power_to_pitch(current_power), 1.0)
+		sfx_tween.tween_property(sfx_engine_loop, "volume_db", _get_engine_loop_volume_target(), 1.0)
+		sfx_tween.tween_property(sfx_engine_loop, "pitch_scale", _get_engine_loop_pitch_target(), 1.0)
 		sfx_engine_loop.play()
 	
 	if sfx_engine_start:
@@ -201,7 +209,7 @@ func engine_stop():
 		await sfx_tween.finished
 		
 		sfx_tween = create_tween()
-		sfx_tween.tween_property(sfx_engine_loop, "volume_db", EngineLoopTargetVolumeDb, 1.0)
+		sfx_tween.tween_property(sfx_engine_loop, "volume_db", -40.0, 1.0)
 	
 	await get_tree().create_timer(1.0).timeout
 	if sfx_engine_loop:
@@ -272,7 +280,28 @@ func _update_engine_sound(delta: float) -> void:
 	if sfx_engine_loop == null:
 		return
 	var response_t: float = clampf(EngineSoundResponseRate * delta, 0.0, 1.0)
-	sfx_engine_loop.pitch_scale = lerpf(sfx_engine_loop.pitch_scale, power_to_pitch(current_power), response_t)
+	sfx_engine_loop.pitch_scale = lerpf(sfx_engine_loop.pitch_scale, _get_engine_loop_pitch_target(), response_t)
+	var target_volume_db: float = _get_engine_loop_volume_target()
+	sfx_engine_loop.volume_db = lerpf(sfx_engine_loop.volume_db, target_volume_db, response_t)
+
+func _get_engine_loop_pitch_target() -> float:
+	if EngineSoundPitchFollowsPower:
+		return power_to_pitch(current_power)
+	return maxf(EngineLoopConstantPitchScale, 0.01)
+
+func _get_engine_loop_volume_target() -> float:
+	var target_volume_db: float = EngineLoopTargetVolumeDb
+	if EngineSoundVolumeFollowsPower:
+		var volume_power: float = sqrt(clampf(current_power, 0.0, 1.0))
+		target_volume_db = lerpf(EngineLoopIdleVolumeDb, EngineLoopTargetVolumeDb, volume_power)
+	return target_volume_db + _get_engine_loop_environment_volume_offset()
+
+func _get_engine_loop_environment_volume_offset() -> float:
+	if sfx_engine_loop == null:
+		return 0.0
+	if bool(sfx_engine_loop.get_meta("own_vehicle_interior_audio", false)):
+		return EngineLoopInteriorVolumeOffsetDb
+	return 0.0
 
 func _setup_propeller_blur() -> void:
 	if not enable_propeller_blur:

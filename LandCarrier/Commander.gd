@@ -9,6 +9,12 @@ class_name Commander
 @export var bridge_wall_margin_m: float = 0.55
 @export var normal_fov: float = 75.0
 @export var zoomed_fov: float = 30.0
+@export_group("Carrier Cameras")
+@export var chase_camera_local_position: Vector3 = Vector3(0.0, 42.0, 120.0)
+@export var chase_camera_focus_local_position: Vector3 = Vector3(0.0, 4.0, 0.0)
+@export var cinematic_camera_local_position: Vector3 = Vector3(95.0, 58.0, -125.0)
+@export var cinematic_camera_focus_local_position: Vector3 = Vector3(0.0, 6.0, 0.0)
+@export var external_camera_fov: float = 75.0
 @export var control_room_ambience: AudioStream = preload("res://Audio/Carrier/control_room_ambience.wav")
 @export var control_room_ambience_bus: String = "Master"
 @export var control_room_ambience_volume_db: float = -10.0
@@ -31,6 +37,14 @@ var _zoom_tween: Tween
 var _was_active_view: bool = false
 var _zoom_button_prev_pressed: bool = false
 var _control_room_audio_player: AudioStreamPlayer
+var _active_view_mode: int = 0
+var _chase_camera: Camera3D = null
+var _cinematic_camera: Camera3D = null
+
+const VIEW_CONTROL_ROOM: int = 0
+const VIEW_CHASE: int = 1
+const VIEW_CINEMATIC: int = 2
+const VIEW_MODE_COUNT: int = 3
 
 func _ready() -> void:
 	physics_interpolation_mode = Node3D.PHYSICS_INTERPOLATION_MODE_INHERIT
@@ -79,6 +93,7 @@ func _process(delta: float) -> void:
 	_was_active_view = active_view
 	_update_body_visibility(active_view)
 	_update_control_room_audio(delta, active_view)
+	_update_external_camera_transforms()
 
 func _physics_process(delta: float) -> void:
 	if not _is_active_view():
@@ -132,7 +147,37 @@ func _is_active_view() -> bool:
 	return commander_camera != null and commander_camera.current
 
 func get_camera() -> Camera3D:
-	return commander_camera
+	return get_camera_for_mode(_active_view_mode)
+
+func get_camera_for_mode(mode: int) -> Camera3D:
+	_ensure_external_cameras()
+	match wrapi(mode, 0, VIEW_MODE_COUNT):
+		VIEW_CHASE:
+			return _chase_camera
+		VIEW_CINEMATIC:
+			return _cinematic_camera
+		_:
+			return commander_camera
+
+func activate_view_mode(mode: int) -> Camera3D:
+	_active_view_mode = wrapi(mode, 0, VIEW_MODE_COUNT)
+	_update_external_camera_transforms()
+	return get_camera_for_mode(_active_view_mode)
+
+func get_view_mode_count() -> int:
+	return VIEW_MODE_COUNT
+
+func get_current_view_mode() -> int:
+	return _active_view_mode
+
+func is_control_room_camera(camera: Camera3D) -> bool:
+	return camera != null and commander_camera != null and camera == commander_camera
+
+func is_carrier_camera(camera: Camera3D) -> bool:
+	if camera == null:
+		return false
+	_ensure_external_cameras()
+	return camera == commander_camera or camera == _chase_camera or camera == _cinematic_camera
 
 func set_aircraft_reference(_aircraft_node: Node3D) -> void:
 	pass
@@ -235,6 +280,44 @@ func _update_control_room_audio(delta: float, active_view: bool) -> void:
 
 	if not _control_room_audio_player.playing:
 		_control_room_audio_player.play()
+
+func _ensure_external_cameras() -> void:
+	if _chase_camera != null and _cinematic_camera != null:
+		return
+	var carrier_node := get_parent() as Node3D
+	if carrier_node == null:
+		return
+	if _chase_camera == null:
+		_chase_camera = _make_external_camera("CarrierChaseCamera")
+		carrier_node.add_child(_chase_camera)
+	if _cinematic_camera == null:
+		_cinematic_camera = _make_external_camera("CarrierCinematicCamera")
+		carrier_node.add_child(_cinematic_camera)
+	_update_external_camera_transforms()
+
+func _make_external_camera(camera_name: String) -> Camera3D:
+	var camera := Camera3D.new()
+	camera.name = camera_name
+	camera.fov = external_camera_fov
+	camera.far = 5000.0
+	camera.current = false
+	return camera
+
+func _update_external_camera_transforms() -> void:
+	_ensure_external_cameras()
+	var carrier_node := get_parent() as Node3D
+	if carrier_node == null:
+		return
+	_place_external_camera(_chase_camera, carrier_node, chase_camera_local_position, chase_camera_focus_local_position)
+	_place_external_camera(_cinematic_camera, carrier_node, cinematic_camera_local_position, cinematic_camera_focus_local_position)
+
+func _place_external_camera(camera: Camera3D, carrier_node: Node3D, local_position: Vector3, local_focus: Vector3) -> void:
+	if camera == null:
+		return
+	camera.global_position = carrier_node.global_transform * local_position
+	var focus_position: Vector3 = carrier_node.global_transform * local_focus
+	if not camera.global_position.is_equal_approx(focus_position):
+		camera.look_at(focus_position, Vector3.UP)
 
 
 func _find_glass_meshes() -> void:

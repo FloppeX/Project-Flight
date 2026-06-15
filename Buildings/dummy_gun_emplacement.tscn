@@ -1,0 +1,35 @@
+[gd_scene load_steps=6 format=3 uid="uid://c_dummy_gun_emplacement"]
+
+[ext_resource type="Script" uid="uid://b2fanpn4ocluh" path="res://Buildings/GunEmplacement.gd" id="1_emplacement"]
+[ext_resource type="PackedScene" uid="uid://cpkdstgg3rpes" path="res://Models/Turrets/turret base.glb" id="2_base_model"]
+[ext_resource type="Script" uid="uid://cqw36derm5yh1" path="res://Weapons/Turrets/turret_controller.gd" id="3_turret_controller"]
+[ext_resource type="PackedScene" uid="uid://38xqikpdfhdk" path="res://Weapons/Turrets/turret.tscn" id="4_turret_scene"]
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_x2tn6"]
+size = Vector3(9.62045, 1.98645, 9.7411)
+
+[node name="DummyGunEmplacement" type="StaticBody3D"]
+script = ExtResource("1_emplacement")
+max_health = 1500.0
+is_dummy = true
+
+[node name="BaseModel" parent="." instance=ExtResource("2_base_model")]
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.0248871, 0.993225, 0.0249405)
+shape = SubResource("BoxShape3D_x2tn6")
+
+[node name="TurretController" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.05, 0)
+script = ExtResource("3_turret_controller")
+max_range = 1400.0
+aim_skill = 0.2
+burst_length = 1.8
+delay_length = 2.0
+fire_angle_tolerance_deg = 22.0
+air_target_range_multiplier = 0.65
+air_target_aim_skill_multiplier = 0.7
+air_target_extra_spread_m = 18.0
+
+[node name="TurretScene" parent="TurretController" instance=ExtResource("4_turret_scene")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.220869, 0)

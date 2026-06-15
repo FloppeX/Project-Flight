@@ -82,6 +82,7 @@ var _nav_repath_timer_s: float = 0.0
 var _nav_stuck_timer_s: float = 0.0
 var _nav_prev_wp_distance: float = INF
 var _nav_retry_cooldown_s: float = 0.0
+var _is_pathfinding: bool = false
 
 var _front_wheels: Array[Node3D] = []
 var _body_node: Node3D
@@ -591,61 +592,99 @@ func _advance_patrol_waypoint_if_reached() -> void:
 func _recompute_navigation_path(raw_target: Vector3) -> void:
 	if not NavGraph.is_ready():
 		return
-	if not NavGraph.can_anchor(global_position, path_min_clearance_m):
-		_nav_path_goal = raw_target
-		_nav_repath_timer_s = 0.0
-		_nav_stuck_timer_s = 0.0
-		_nav_prev_wp_distance = INF
-		_nav_retry_cooldown_s = maxf(_nav_retry_cooldown_s, path_no_anchor_retry_cooldown_s)
-		if _nav_path_index >= _nav_path_positions.size():
-			_nav_path_positions.clear()
-			_nav_path_index = 0
+	if _is_pathfinding:
 		return
+
 	var flat := Vector2(raw_target.x - global_position.x, raw_target.z - global_position.z)
 	if flat.length() <= maxf(path_waypoint_reach_distance, waypoint_reach_distance):
 		_clear_navigation_path()
 		_nav_path_goal = raw_target
 		return
 
-	var base_dir := flat.normalized() if flat.length() > 1.0 else Vector2(1.0, 0.0)
-	var seg_len := minf(flat.length(), path_max_segment_m)
-	var best_path: Array[Vector3] = []
-	const ROTATIONS: Array[float] = [0.0, 30.0, -30.0, 60.0, -60.0, 90.0, -90.0, 120.0, -120.0, 150.0, -150.0, 180.0]
+	_is_pathfinding = true
+	var start_pos := global_position
+	var clearance := path_min_clearance_m
+	var max_seg := path_max_segment_m
+	var reach_dist := maxf(path_waypoint_reach_distance, waypoint_reach_distance)
+	var retry_cooldown := path_retry_cooldown_s
+	var no_anchor_retry_cooldown := path_no_anchor_retry_cooldown_s
 
-	for deg in ROTATIONS:
-		var rad := deg_to_rad(deg)
-		var c := cos(rad)
-		var s := sin(rad)
-		var dir := Vector2(base_dir.x * c - base_dir.y * s, base_dir.x * s + base_dir.y * c)
-		var segment_goal := global_position + Vector3(dir.x, 0.0, dir.y) * seg_len
-		var terrain_y := TerrainNavGrid.sample_height(segment_goal.x, segment_goal.z)
-		if terrain_y > TerrainNavGrid.IMPASSABLE * 0.5:
-			segment_goal.y = terrain_y
+	WorkerThreadPool.add_task(func() -> void:
+		var status_code := 0 # 0 = OK, 1 = NO_ANCHOR, 2 = NO_PATH
+		var best_path: Array[Vector3] = []
+		
+		if not NavGraph.can_anchor(start_pos, clearance):
+			status_code = 1
 		else:
-			segment_goal.y = global_position.y
-		var candidate := NavGraph.find_path(global_position, segment_goal, path_min_clearance_m)
-		if candidate.is_empty():
-			continue
-		var candidate_len := _path_length(candidate)
-		if candidate_len > seg_len * 3.0:
-			continue
-		best_path = candidate
-		break
+			var base_dir := flat.normalized() if flat.length() > 1.0 else Vector2(1.0, 0.0)
+			var seg_len := minf(flat.length(), max_seg)
+			const ROTATIONS: Array[float] = [0.0, 30.0, -30.0, 60.0, -60.0, 90.0, -90.0, 120.0, -120.0, 150.0, -150.0, 180.0]
+
+			for deg in ROTATIONS:
+				var rad := deg_to_rad(deg)
+				var c := cos(rad)
+				var s := sin(rad)
+				var dir := Vector2(base_dir.x * c - base_dir.y * s, base_dir.x * s + base_dir.y * c)
+				var segment_goal := start_pos + Vector3(dir.x, 0.0, dir.y) * seg_len
+				var terrain_y := TerrainNavGrid.sample_height(segment_goal.x, segment_goal.z)
+				if terrain_y > TerrainNavGrid.IMPASSABLE * 0.5:
+					segment_goal.y = terrain_y
+				else:
+					segment_goal.y = start_pos.y
+				
+				var candidate := NavGraph.find_path(start_pos, segment_goal, clearance)
+				if candidate.is_empty():
+					continue
+				
+				# Math calculations
+				var candidate_len := 0.0
+				for i in range(1, candidate.size()):
+					candidate_len += Vector2(candidate[i].x - candidate[i - 1].x, candidate[i].z - candidate[i - 1].z).length()
+				
+				if candidate_len > seg_len * 3.0:
+					continue
+				best_path = candidate
+				break
+			
+			if best_path.is_empty():
+				status_code = 2
+
+		# Safely deliver result back to the main thread
+		_on_navigation_path_computed.call_deferred(best_path, raw_target, status_code, no_anchor_retry_cooldown, retry_cooldown)
+	)
+
+func _on_navigation_path_computed(best_path: Array[Vector3], target_at_request_time: Vector3, status_code: int, no_anchor_cooldown: float, path_cooldown: float) -> void:
+	_is_pathfinding = false
+	if not is_instance_valid(self):
+		return
+	
+	# If the target has changed since we started pathfinding, trigger a new pathfinding run immediately
+	var current_target_dest := _get_raw_navigation_destination()
+	if _flat_distance(target_at_request_time, current_target_dest) > 1.0:
+		_recompute_navigation_path(current_target_dest)
+		return
 
 	_nav_repath_timer_s = 0.0
 	_nav_stuck_timer_s = 0.0
 	_nav_prev_wp_distance = INF
 	_nav_retry_cooldown_s = 0.0
-	_nav_path_goal = raw_target
-	if best_path.is_empty():
-		_nav_retry_cooldown_s = maxf(_nav_retry_cooldown_s, path_retry_cooldown_s)
+	_nav_path_goal = target_at_request_time
+
+	if status_code == 1: # NO_ANCHOR
+		_nav_retry_cooldown_s = maxf(_nav_retry_cooldown_s, no_anchor_cooldown)
+		if _nav_path_index >= _nav_path_positions.size():
+			_nav_path_positions.clear()
+			_nav_path_index = 0
+		return
+	elif status_code == 2 or best_path.is_empty(): # NO_PATH
+		_nav_retry_cooldown_s = maxf(_nav_retry_cooldown_s, path_cooldown)
 		if _nav_path_index >= _nav_path_positions.size():
 			_clear_navigation_path()
 		return
 
 	_nav_path_positions = best_path
 	_nav_path_index = 0
-	_consume_reached_nav_waypoints(raw_target, false)
+	_consume_reached_nav_waypoints(target_at_request_time, false)
 
 func _consume_reached_nav_waypoints(raw_target: Vector3, _allow_replan: bool = true) -> void:
 	var reach_dist := maxf(path_waypoint_reach_distance, waypoint_reach_distance)

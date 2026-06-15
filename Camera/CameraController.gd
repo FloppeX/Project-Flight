@@ -232,6 +232,24 @@ func focus_ejected_pilot(ejected_body: RigidBody3D, pilot_focus: Node3D) -> void
 		_switch_to_view_target(_view_targets[_current_view_index])
 
 
+func release_ejected_pilot(new_target: RigidBody3D) -> void:
+	_pilot_ejected = false
+	_ejected_pilot_focus = null
+	if is_instance_valid(new_target):
+		aircraft = new_target
+		if chase_script:
+			chase_script.setup_aircraft(new_target)
+		if cinematic_script:
+			cinematic_script.setup_aircraft(new_target)
+			cinematic_script.setup_shot()
+		if bridge_script and bridge_script.has_method("set_aircraft_reference"):
+			bridge_script.call("set_aircraft_reference", new_target)
+	_build_view_targets()
+	_current_view_index = 0
+	if not _view_targets.is_empty():
+		_switch_to_view_target(_view_targets[0])
+
+
 func _detach_camera_nodes_for_ejection() -> void:
 	_reparent_to_camera_survival_parent(self)
 	_reparent_to_camera_survival_parent(chase_tripod)

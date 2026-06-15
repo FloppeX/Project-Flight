@@ -1,9 +1,15 @@
 extends AircraftModule
 
+const PILOT_STATE_IDLE := 0
+const PILOT_MISSION_AT_LZ := 1
+const PILOT_MISSION_RESCUE := 4
+
 @export var door_left_mesh_path: NodePath = NodePath("aircraft_11/Door Left")
 @export var door_right_mesh_path: NodePath = NodePath("aircraft_11/Door Right")
 @export var hinge_left_path: NodePath = NodePath("DoorHingeLeft_1")
+@export var hinge_left_axis_path: NodePath = NodePath("DoorHingeLeft_2")
 @export var hinge_right_path: NodePath = NodePath("DoorHingeRight_1")
+@export var hinge_right_axis_path: NodePath = NodePath("DoorHingeRight_2")
 @export var swing_angle_deg: float = 90.0
 @export var animation_duration_s: float = 1.2
 @export var toggle_key: Key = KEY_O
@@ -12,14 +18,15 @@ extends AircraftModule
 var _left_door: MeshInstance3D
 var _right_door: MeshInstance3D
 var _left_hinge: Node3D
+var _left_hinge_axis: Vector3 = Vector3.UP
 var _right_hinge: Node3D
+var _right_hinge_axis: Vector3 = Vector3.UP
 
 var _open_target: bool = false
 var _open_t: float = 0.0
 var _initialized: bool = false
 var _toggle_key_was_down: bool = false
 var _is_landed_idle: bool = false
-var _idle_time_s: float = 0.0
 
 
 func _ready() -> void:
@@ -41,8 +48,8 @@ func receive_input(event: InputEvent) -> void:
 	if event is InputEventKey:
 		var key_event := event as InputEventKey
 		if key_event.pressed and not key_event.echo and key_event.physical_keycode == toggle_key:
-			_open_target = not _open_target
-			print("[HeliSwingDoors] %s manual door toggle: open_target=%s" % [aircraft.name, _open_target])
+			toggle_doors("manual")
+			_toggle_key_was_down = true
 			get_viewport().set_input_as_handled()
 
 
@@ -53,23 +60,16 @@ func process_render_frame(delta: float) -> void:
 	if _is_this_aircraft_player_controlled():
 		_poll_toggle_key()
 	else:
-		var pilot = aircraft.find_child("HelicopterPilot", true, false) if is_instance_valid(aircraft) else null
-		if is_instance_valid(pilot) and pilot.get("state") == 0: # State.IDLE
+		if _should_auto_open_at_lz():
 			if not _is_landed_idle:
 				_is_landed_idle = true
-				_idle_time_s = 0.0
-				_open_target = true
+				open_doors("lz_idle")
 				print("[HeliSwingDoors] %s doors opening: landing idle detected" % [aircraft.name])
-			else:
-				_idle_time_s += delta
-				if _idle_time_s >= 10.0 and _open_target:
-					_open_target = false
-					print("[HeliSwingDoors] %s doors closing: idle time limit reached" % [aircraft.name])
 		else:
 			if _is_landed_idle:
 				_is_landed_idle = false
 				if _open_target:
-					_open_target = false
+					close_doors("leaving_lz_idle")
 					print("[HeliSwingDoors] %s doors closing: takeoff/transition detected" % [aircraft.name])
 
 	var target_t := 1.0 if _open_target else 0.0
@@ -80,9 +80,28 @@ func process_render_frame(delta: float) -> void:
 func _poll_toggle_key() -> void:
 	var key_down := Input.is_physical_key_pressed(toggle_key)
 	if key_down and not _toggle_key_was_down and _is_this_aircraft_player_controlled():
-		_open_target = not _open_target
-		print("[HeliSwingDoors] %s manual door toggle: open_target=%s" % [aircraft.name, _open_target])
+		toggle_doors("manual")
 	_toggle_key_was_down = key_down
+
+
+func open_doors(reason: String = "script") -> void:
+	set_doors_open(true, reason)
+
+
+func close_doors(reason: String = "script") -> void:
+	set_doors_open(false, reason)
+
+
+func toggle_doors(reason: String = "script") -> void:
+	set_doors_open(not _open_target, reason)
+
+
+func set_doors_open(open: bool, reason: String = "script") -> void:
+	if _open_target == open:
+		return
+	_open_target = open
+	var craft_name: String = String(aircraft.name) if is_instance_valid(aircraft) else String(name)
+	print("[HeliSwingDoors] %s doors target: open=%s reason=%s" % [craft_name, str(_open_target), reason])
 
 
 func _setup_doors() -> void:
@@ -95,10 +114,22 @@ func _setup_doors() -> void:
 	_right_door = aircraft.get_node_or_null(door_right_mesh_path) as MeshInstance3D
 	_left_hinge = aircraft.get_node_or_null(hinge_left_path) as Node3D
 	_right_hinge = aircraft.get_node_or_null(hinge_right_path) as Node3D
+	var left_axis_node := aircraft.get_node_or_null(hinge_left_axis_path) as Node3D
+	var right_axis_node := aircraft.get_node_or_null(hinge_right_axis_path) as Node3D
 
 	if _left_door == null or _right_door == null or _left_hinge == null or _right_hinge == null:
 		push_warning("HeliSwingDoors: Missing door meshes or hinges on %s" % [aircraft.name])
 		return
+
+	# Compute each hinge axis in the hinge's local space from the two authored marker nodes.
+	if left_axis_node != null:
+		var world_axis := (left_axis_node.global_position - _left_hinge.global_position)
+		if world_axis.length_squared() > 0.0001:
+			_left_hinge_axis = (_left_hinge.global_basis.inverse() * world_axis).normalized()
+	if right_axis_node != null:
+		var world_axis := (right_axis_node.global_position - _right_hinge.global_position)
+		if world_axis.length_squared() > 0.0001:
+			_right_hinge_axis = (_right_hinge.global_basis.inverse() * world_axis).normalized()
 
 	# Reparent Left Door to Left Hinge
 	var left_global_trans = _left_door.global_transform
@@ -124,9 +155,9 @@ func _apply_door_pose() -> void:
 	var angle_rad := deg_to_rad(swing_angle_deg) * t
 
 	if _left_hinge != null:
-		_left_hinge.rotation = Vector3(0.0, angle_rad, 0.0)
+		_left_hinge.basis = Basis(_left_hinge_axis, angle_rad)
 	if _right_hinge != null:
-		_right_hinge.rotation = Vector3(0.0, -angle_rad, 0.0)
+		_right_hinge.basis = Basis(_right_hinge_axis, -angle_rad)
 
 
 func _smoothstep(value: float) -> float:
@@ -151,3 +182,15 @@ func _is_this_aircraft_player_controlled() -> bool:
 	if ai_toggle != null and "ai_active" in ai_toggle:
 		return not ai_toggle.ai_active
 	return true
+
+
+func _should_auto_open_at_lz() -> bool:
+	if not is_instance_valid(aircraft):
+		return false
+	var pilot = aircraft.find_child("HelicopterPilot", true, false)
+	if not is_instance_valid(pilot):
+		return false
+	if int(pilot.get("state")) != PILOT_STATE_IDLE:
+		return false
+	var phase := int(pilot.get("mission_phase"))
+	return phase == PILOT_MISSION_AT_LZ or phase == PILOT_MISSION_RESCUE

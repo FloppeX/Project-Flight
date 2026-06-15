@@ -71,6 +71,7 @@ const LEGACY_CARRIER_VELOCITY_META := "carrier_deck_velocity"
 const MANUAL_TRANSPORT_META := "carrier_manual_transport"
 const HELI_TEST_TYPE_META := "heli_test_aircraft_type"
 const HELI_TEST_STAT_META_PREFIX := "heli_test_stat_recorded_"
+const HELI_TEST_UNLIMITED_AMMO_META := "heli_test_unlimited_ammo"
 
 enum DeckState {
 	IDLE,
@@ -423,6 +424,9 @@ func _queue_aircraft_scene_for_retrieval(aircraft_name: String, scene: PackedSce
 	var entry := _make_stored_aircraft_entry(aircraft_name, scene, scene_file)
 	if entry.is_empty():
 		return
+	if _heli_test_active:
+		entry.metadata[HELI_TEST_TYPE_META] = aircraft_name
+		entry.metadata[HELI_TEST_UNLIMITED_AMMO_META] = true
 	stored_aircraft.push_front(entry)
 	if _heli_test_active:
 		_log_heli_test("retrieval queued state=%s stored=%d elevator_top=%s bottom=%s" % [
@@ -573,6 +577,15 @@ func _input(event):
 				scene = load("res://Aircraft/Aircraft_10.tscn")
 			if scene:
 				_queue_aircraft_scene_for_retrieval("Aircraft_10", scene)
+
+	# Spawn Aircraft 11 utility helicopter from hangar (key "-")
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_MINUS:
+		if current_state == DeckState.IDLE:
+			var scene := aircraft_11_scene
+			if not scene:
+				scene = load("res://Aircraft/Aircraft_11.tscn")
+			if scene:
+				_queue_aircraft_scene_for_retrieval("Aircraft_11", scene)
 
 	# Debug key to force reset state (F9)
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_F9:
@@ -1031,6 +1044,7 @@ func record_heli_stat(craft_ref: Variant, stat: String) -> void:
 			return
 		aircraft.set_meta(stat_meta, true)
 		aircraft.set_meta(HELI_TEST_TYPE_META, base_name)
+		aircraft.set_meta(HELI_TEST_UNLIMITED_AMMO_META, true)
 	_heli_test_stats[base_name][stat] += 1
 
 func _abort_current_sequence() -> void:
@@ -1258,6 +1272,8 @@ func _is_aircraft_physically_in_landing_deck_rectangle(aircraft: RigidBody3D, re
 	if not is_instance_valid(aircraft) or aircraft == requester:
 		return false
 	if _is_landing_clearance_aircraft_stale(aircraft):
+		return false
+	if aircraft.has_meta("carrier_transport_mode") and bool(aircraft.get_meta("carrier_transport_mode")):
 		return false
 	var carrier := get_parent() as Node3D
 	if carrier == null:
@@ -2010,8 +2026,19 @@ func get_hangar_status() -> Dictionary:
 func _initialize_hangar_with_aircraft():
 	"""Pre-populate hangar with aircraft at startup"""
 
-	# Fill hangar to capacity
-	for i in range(max_hangar_capacity):
+	# Prepend a few Aircraft_11 utility helicopters so rescue dispatches work immediately.
+	var a11_scene: PackedScene = aircraft_11_scene
+	if a11_scene == null:
+		a11_scene = load("res://Aircraft/Aircraft_11.tscn") as PackedScene
+	if a11_scene != null:
+		for _j in range(3):
+			var heli_data := _make_stored_aircraft_entry("Aircraft_11", a11_scene)
+			if not heli_data.is_empty():
+				stored_aircraft.append(heli_data)
+
+	# Fill remaining hangar capacity with default jets
+	var remaining := max_hangar_capacity - stored_aircraft.size()
+	for i in range(remaining):
 		var aircraft_data := _make_stored_aircraft_entry(
 			"Aircraft_" + str(i + 1),
 			null,
@@ -4140,6 +4167,15 @@ func _toggle_heli_test_mode() -> void:
 	if not _heli_test_active:
 		_log_heli_test("mode OFF")
 		FrameProfiler.set_enabled(false, "heli test off")
+		for i in range(stored_aircraft.size()):
+			var stored_data: Dictionary = stored_aircraft[i]
+			var metadata_variant: Variant = stored_data.get("metadata", {})
+			if metadata_variant is Dictionary:
+				var metadata: Dictionary = metadata_variant
+				metadata.erase(HELI_TEST_TYPE_META)
+				metadata.erase(HELI_TEST_UNLIMITED_AMMO_META)
+				stored_data["metadata"] = metadata
+			stored_aircraft[i] = stored_data
 		# Despawn all live helicopters
 		for node in get_tree().get_nodes_in_group("aircraft"):
 			if node is RigidBody3D and _is_helicopter_aircraft(node as RigidBody3D):
@@ -4156,6 +4192,11 @@ func _toggle_heli_test_mode() -> void:
 			_heli_ui_canvas = null
 			_heli_ui_label = null
 			
+		# Despawn all dummy turrets
+		for node in get_tree().get_nodes_in_group("dummy_turrets"):
+			if is_instance_valid(node):
+				node.queue_free()
+				
 		return
 
 	# Disable other test modes
@@ -4245,6 +4286,52 @@ func _toggle_heli_test_mode() -> void:
 	_heli_ui_label.add_theme_font_override("font", ThemeDB.fallback_font)
 	bg.add_child(_heli_ui_label)
 	add_child(_heli_ui_canvas)
+	_spawn_dummy_turrets_for_test()
+
+
+func _spawn_dummy_turrets_for_test() -> void:
+	var dummy_scene := load("res://Buildings/dummy_gun_emplacement.tscn") as PackedScene
+	if not dummy_scene:
+		push_error("[HeliTest] Failed to load dummy gun emplacement scene.")
+		return
+
+	var rng := RandomNumberGenerator.new()
+	rng.randomize()
+
+	var scene_root := get_tree().current_scene
+	if not scene_root:
+		return
+
+	var target_count := 80
+	var spawned := 0
+	var attempts := 0
+	var max_attempts := 1000
+
+	while spawned < target_count and attempts < max_attempts:
+		attempts += 1
+		var pos := TerrainNavGrid.get_random_passable_position(rng, 15.0)
+		if pos == Vector3.ZERO:
+			continue
+
+		var dummy := dummy_scene.instantiate() as Node3D
+		if not dummy:
+			continue
+
+		dummy.name = "DummyTurret_HeliTest_%d" % spawned
+		dummy.add_to_group("dummy_turrets")
+
+		scene_root.add_child(dummy)
+		dummy.global_position = pos
+		var yaw := rng.randf_range(-PI, PI)
+		dummy.global_basis = Basis(Vector3.UP, yaw)
+
+		if dummy.has_method("snap_collider_to_ground"):
+			dummy.call_deferred("snap_collider_to_ground")
+
+		spawned += 1
+
+	_log_heli_test("Spawned %d dummy turrets for testing (attempts: %d)" % [spawned, attempts])
+
 
 
 func _disable_enemies_for_heli_test() -> void:

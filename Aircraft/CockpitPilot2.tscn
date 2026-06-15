@@ -1,7 +1,7 @@
 [gd_scene format=3 uid="uid://bpp7y7xl7585y"]
 
 [ext_resource type="Script" uid="uid://c5p7knajxhkg6" path="res://Aircraft/PilotPose.gd" id="1_pose"]
-[ext_resource type="PackedScene" uid="uid://bnxo3mvh7eqk2" path="res://pilot 2 - sitting in cockpit.glb" id="2_pilot"]
+[ext_resource type="PackedScene" uid="uid://bnxo3mvh7eqk2" path="res://Models/Characters/pilot 2 - sitting in cockpit.glb" id="2_pilot"]
 
 [node name="CockpitPilot2" type="Node3D" unique_id=1811223366]
 process_priority = 1

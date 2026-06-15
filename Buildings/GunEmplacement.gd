@@ -11,6 +11,7 @@ signal destroyed(emplacement)
 @export var activation_check_interval_s: float = 0.5
 @export var inactive_when_no_targets: bool = true
 @export var collider_ground_clearance_m: float = 0.0
+@export var is_dummy: bool = false
 @export var weapon_scene_10mm: PackedScene = preload("res://Weapons/Turrets/bullet_weapon.tscn")
 @export var weapon_scene_15mm: PackedScene = preload("res://Weapons/Turrets/bullet_weapon_15mm.tscn")
 @export var weapon_scene_20mm: PackedScene = preload("res://Weapons/Turrets/bullet_weapon_20mm.tscn")
@@ -37,7 +38,10 @@ func _ready() -> void:
 	_turret_controller = get_node_or_null(turret_controller_path) as TurretController
 	if _turret_controller:
 		_turret_controller.team = team
-		_assign_random_weapon_scene()
+		if is_dummy:
+			_turret_controller.weapon_scene = null
+		else:
+			_assign_random_weapon_scene()
 	_apply_team_main_color()
 	call_deferred("_apply_team_main_color")
 	if inactive_when_no_targets:
@@ -87,7 +91,7 @@ func _destroy() -> void:
 	queue_free()
 
 func _assign_random_weapon_scene() -> void:
-	if _turret_controller == null:
+	if is_dummy or _turret_controller == null:
 		return
 	var pool: Array[PackedScene] = []
 	if weapon_scene_10mm != null:

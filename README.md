@@ -32,7 +32,7 @@ The player pushes into enemy-controlled territory, launches and recovers aircraf
 
 ## Current Status
 
-**Last Updated:** 2026-06-01
+**Last Updated:** 2026-06-15
 **Godot Version:** 4.4.1.stable.official.49a5bc7b6
 **Project Health:** PLAYABLE
 **Control Mode:** AI-by-default with viewed-aircraft player/AI toggle (game controller + keyboard parity in pause/menu flows)
@@ -54,6 +54,26 @@ For AI pilots and vehicle controllers, the expected approach is:
 - If a limiter is truly needed, name it honestly, expose it as tuning, print/debug when it activates, and explain why a feedback fix is not enough.
 
 This is especially important for helicopters. They have delayed response and strong coupling between collective, cyclic, speed, lift, and altitude. The AI should fly them by making deliberate control changes based on observed response, not by stacking hidden safety barriers that fight each other.
+
+### Recent Changes (2026-06-15)
+
+- Helicopter combat aiming: `HelicopterPilot` runs a dedicated combat layer for Aircraft 9/10/11 attack runs (gun and rocket). An attack plan authors an ingress → fire-start → fire-end → egress route past the target; during the attack phase a PID aim controller (`_get_combat_aim_commands`) corrects pitch/yaw to put the gun/rocket line on a predicted aim point (lead for guns, ballistic + CCIP correction for rockets), then a fire gate (`_is_combat_aim_settled_for_fire`) holds fire until alignment and settle time are met. A structured `heli_combat_report.log` records every shot, result, and no-shot attack run for diagnosis.
+- Combat aim reference frame fix: the aim error was being measured from each weapon's off-centerline hardpoint position to the target. Because the flight controller can only rotate the airframe about its center of mass, that left a fixed parallax angle the body could never null out — every gun pass showed a persistent ~2-3° yaw/pitch residual and zero hits. Aim error is now measured from the aircraft centerline (`aircraft.global_position` and the aircraft forward axis), consistent with the fire gate; the ballistic/CCIP prediction still uses the real hardpoint muzzle. This removed the systematic bias and guns began landing hits.
+- Gun nose-down authority: guns were starved of the nose-down assistance rockets already had, so the pipper hung just above the target and the firing window passed before the nose arrived. Guns now get a matching pitch-down rate boost (`combat_gun_nose_down_rate_scale`), a higher pitch authority cap (`combat_gun_max_pitch_input`), and a stronger pitch control gain (`combat_gun_pitch_control_gain` 1.65 → 3.2) so the controller actually uses the available authority at the small errors it holds. Per the project rule, these are exposed feedback-loop gains, not hidden limiters.
+
+### Recent Changes (2026-06-10 to 2026-06-12)
+
+- Aircraft 11: new helicopter added (`Aircraft/Aircraft_11.tscn`) with swing doors (`HeliSwingDoors.gd`), animated via hinge nodes, player-toggleable with `O`; doors auto-open after landing idle. Uses the authored Aircraft_11 GLB with tail rotor and rotor disc assets from the Aircraft_9 set.
+- Rotor wash dust effect: `Effects/RotorWashEffect.gd` added — pooled 64-puff particle system using a shared mesh/material; spawns dust puffs at terrain contact below 25 m AGL at a configurable spawn interval; distance-culled at 800 m; samples terrain color from the shader; excluded from carrier raycasts.
+- Free camera fix: jitter eliminated by decoupling physics and render transforms; trigger buttons now control vertical movement in free cam.
+- Helicopter AI: terrain height raycasts now exclude the carrier body so helicopters no longer climb 80–100 m above deck when over the carrier.
+- Airborne separation: `HelicopterPilot` gains a new separation system — helicopters brake and push apart when within `airborne_separation_start_m` (90 m) of another helicopter, with speed-based push authority and vertical offset to prevent stacking.
+- Threaded pathfinding: `HelicopterPilot` A* pathfinding moved to a dedicated thread (`_run_threaded_pathfinding_job` + static helpers); all grid sampling, wall-cost, and simplification logic now runs off the main thread to avoid frame spikes.
+- Turn-speed governor: look-ahead up to 900 m detects sharp turns (> 25° up to 110°) and computes a physics-based speed limit from lateral acceleration budget and turn radius; speed bleeds down before the corner.
+- Radar flight route: `HUD/RadarCanvas.gd` now draws the active AI waypoint path as a light-blue polyline on the cockpit radar scope for both `HelicopterPilot` and `AIPilot` aircraft; simplified to skip waypoints closer than 4 px on screen.
+- Livery / texture shader: `Shaders/upper_fuselage_test_stripes.gdshader` added — spatial shader with base color, stripe/pattern color, tertiary color, and pattern mode (solid/stripe/check); used for helicopter fuselage texture work.
+- FDM landing clearance queue: `FlightDeckManager` now manages a formal `_landing_clearance_queue` so multiple inbound helicopters are serialized; clearance times out after 30 s, retries after 12 s cooldown, and abandons if the requestor flies beyond 6000 m.
+- F11 heli test now tracks Aircraft 11: stat recording and test-mode despawn/spawn cover Aircraft_9, Aircraft_10, and Aircraft_11 by key.
 
 ### Recent Changes (2026-06-07)
 
@@ -260,7 +280,7 @@ Example project launch from this repo root:
 | Radio Comms | Working | Text radio log plus optional OS TTS; Citadel and pilot voice clips can be added by placing files in `res://Audio` with the expected `Citadel - <line>` or `<voice prefix> - <pilot line>` names; matching clips play through a heavier long-distance-radio bus with static, filtering, distortion, dropout, stale-queue expiry, and recent-bark repeat suppression. Citadel has flight-specific Archer/Bulldog/Crimson/Dingo line sets, and pilots now draw sticky assigned voice sets from the carrier roster |
 | Destruction / Ejection | Partial | Aircraft now enter a critical-damage death state at `0 HP`: player control is disabled, stick inputs jam to random max directions, and each second rolls explosion chance (`10%` default); final breakup emits dark rigid debris chunks with smoke trails that self-clean on terrain contact. Aircraft with ejection seats support canopy jettison, seat launch, parachute deployment, seat separation, and ejected-pilot camera takeover, but pilot poses, parachute camera placement, and downed-pilot gameplay still need live tuning |
 | Damage Effects | Working | 3-tier progressive damage system: hydraulic/fuel/flap failures, engine cap/control loss/HUD flicker, engine sputter/structural failure/HUD blackout; escalating smoke trails |
-| Aircraft Roster | Working | `Aircraft_4` added as a heavy/slower enemy aircraft with rear turret; `Aircraft_7` and `Aircraft_8` remain fast interceptors; `Aircraft_6` is now a slow, stable, rugged low-speed aircraft; `Aircraft_9` is a player-flyable rescue helicopter with authored dual counter-rotating rotor visuals, fold/unfold behavior, retractable gear, and explicit carrier-relative deck velocity handling; `Aircraft_10` is a smaller armed scout helicopter with two hardpoints, rockets, 15 mm gun, front/rear landing gear, and tail-rotor propeller visual. Weapon assignments were reworked (Aircraft 2: 25 mm, Aircraft 7/8: 20 mm, Aircraft 3: extra hardpoint + dual 10 mm); enemy Aircraft 3 now spawns clean with no external stores and serves as a fighter; pressing `7`/`8`/`9` retrieves those variants and `4` debug-spawns a friendly Aircraft_4 above the carrier |
+| Aircraft Roster | Working | `Aircraft_4` added as a heavy/slower enemy aircraft with rear turret; `Aircraft_7` and `Aircraft_8` remain fast interceptors; `Aircraft_6` is now a slow, stable, rugged low-speed aircraft; `Aircraft_9` is a player-flyable rescue helicopter with authored dual counter-rotating rotor visuals, fold/unfold behavior, retractable gear, and explicit carrier-relative deck velocity handling; `Aircraft_10` is a smaller armed scout helicopter with two hardpoints, rockets, 15 mm gun, front/rear landing gear, and tail-rotor propeller visual; `Aircraft_11` is a new helicopter in active development with swing doors (`O` key), authored GLB, and tail/rotor disc assets. Weapon assignments were reworked (Aircraft 2: 25 mm, Aircraft 7/8: 20 mm, Aircraft 3: extra hardpoint + dual 10 mm); enemy Aircraft 3 now spawns clean with no external stores and serves as a fighter; pressing `7`/`8`/`9` retrieves those variants and `4` debug-spawns a friendly Aircraft_4 above the carrier |
 
 ### Carrier Systems
 
@@ -329,19 +349,21 @@ Example project launch from this repo root:
 
 ## Current Agenda
 
-1. Continue tuning carrier landing: gate capture still occasionally fails due to altitude mismatch; DESCEND position hold needs validation; touchdown detection needs live testing across both aircraft types.
-2. Terrain pathfinding: helicopters routing around cliffs and through canyons — validate feeler fan prevents wall strikes while still allowing corridor flight. Watch for path-fail-escape spirals on difficult routes.
-3. Stabilize ejection/parachute flow: Pilot 2 pose authoring, parachute cockpit camera placement, first-person pilot hiding, view cycling, landing/downed-pilot persistence, and making sure abandoned-aircraft destruction never steals camera focus back.
-4. Continue tuning helicopter feel: Aircraft 9 heavy rescue at 50 m/s cruise, rotor stow/spin/droop visuals, carrier deck takeoff collective threshold.
-5. Live-test the Citadel/AirOps loop under pressure: reported contacts, carrier radar range, interceptor loadouts, CAS tasking, radio line frequency, and whether flights actually execute the orders they acknowledge.
-6. Validate the new interactive `M`-map workflow in live play: asset selection, mission drafting, confirm/cancel flow, and readability under pressure.
-7. Expand mission authoring beyond the first slice, especially richer waypoint editing and more flight directives than the current CAP / CAS / RTB set.
-8. Continue tuning AI precision control in dogfights so aircraft point more authoritatively at gun solutions, align the pipper with the real gun line, and waste fewer shots while still breaking off unsafe close merges.
-9. Continue tuning moving-carrier landings at the current scripted 10 m/s carrier speed; arrest/recovery behavior and carrier-relative speed handling still need live validation.
-10. Continue tuning ground vehicle movement, steep-slope avoidance, spotting, and pathing performance, especially with multiple active platoons.
-11. Keep watching terrain edge cases: floating rocks, cliff-edge altitude checks, terrain streaming gaps, and delayed collision/chunk loading.
-12. Continue expanding bridge/commander command features and allow AirOps/GroundOps AI to create and manage missions through the same order model the player uses.
-13. Continue regenerating and judging radio performances; the technical pipeline is solid, but several voices still need better source direction/energy before the chatter fully sells the fiction.
+1. Aircraft 11: integrate into full F11 heli test loop, tune flight feel, validate swing door behavior in cockpit vs external views.
+2. Rotor wash dust effect: tune puff scale/lifetime/rise speed and validate distance culling; confirm color sampling from terrain shader is correct for all terrain types.
+3. Terrain pathfinding: validate threaded pathfinding correctness under concurrent requests; watch for turn-speed governor over-braking at shallow bends; confirm feeler fan still prevents canyon wall strikes.
+4. Carrier landing: DESCEND position hold and touchdown detection need live testing across all three helicopter types; airborne separation may need tuning if multiple inbound helis bunch up near hold points.
+5. Stabilize ejection/parachute flow: Pilot 2 pose authoring, parachute cockpit camera placement, first-person pilot hiding, view cycling, landing/downed-pilot persistence, and making sure abandoned-aircraft destruction never steals camera focus back.
+6. Continue tuning helicopter feel: Aircraft 9 heavy rescue at 50 m/s cruise, rotor stow/spin/droop visuals, carrier deck takeoff collective threshold.
+7. Live-test the Citadel/AirOps loop under pressure: reported contacts, carrier radar range, interceptor loadouts, CAS tasking, radio line frequency, and whether flights actually execute the orders they acknowledge.
+8. Validate the new interactive `M`-map workflow in live play: asset selection, mission drafting, confirm/cancel flow, and readability under pressure.
+9. Expand mission authoring beyond the first slice, especially richer waypoint editing and more flight directives than the current CAP / CAS / RTB set.
+10. Continue tuning AI precision control in dogfights so aircraft point more authoritatively at gun solutions, align the pipper with the real gun line, and waste fewer shots while still breaking off unsafe close merges.
+11. Continue tuning moving-carrier landings at the current scripted 10 m/s carrier speed; arrest/recovery behavior and carrier-relative speed handling still need live validation.
+12. Continue tuning ground vehicle movement, steep-slope avoidance, spotting, and pathing performance, especially with multiple active platoons.
+13. Keep watching terrain edge cases: floating rocks, cliff-edge altitude checks, terrain streaming gaps, and delayed collision/chunk loading.
+14. Continue expanding bridge/commander command features and allow AirOps/GroundOps AI to create and manage missions through the same order model the player uses.
+15. Continue regenerating and judging radio performances; the technical pipeline is solid, but several voices still need better source direction/energy before the chatter fully sells the fiction.
 
 ## Planned Features
 
@@ -378,7 +400,7 @@ Example project launch from this repo root:
 - 3D rotating model viewer per entry with description text below
 - Covers vehicles and weapons
 
-**Current focus:** As of 2026-06-07, the full helicopter loop (LZ → carrier → gate → FINAL → DESCEND → deck landing → tractor retrieval) is functional under F11 test mode. Active tuning: gate capture reliability (altitude oscillations largely fixed), DESCEND position hold, terrain pathfinding quality (plateau routing, canyon navigation via feeler fan), and Aircraft 9 feel at 50 m/s cruise.
+**Current focus:** As of 2026-06-12, Aircraft 11 is in active development (swing doors, texture shader work, rotor disc). Threaded pathfinding and airborne separation are wired. Active tuning: Aircraft 11 flight feel and integration into the F11 heli test loop, rotor wash dust effect tuning, and continuing terrain pathfinding validation for all three helicopter types.
 
 ## Working Style Notes
 

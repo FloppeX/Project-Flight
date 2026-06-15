@@ -9,8 +9,10 @@ uniform float pattern_frequency_per_meter = 1.1;
 uniform float pattern_width_fraction = 0.18;
 uniform float roughness = 0.65;
 uniform float metallic = 0.0;
+uniform bool side_projection_enabled = false;
 
 varying vec3 local_position;
+varying vec3 local_normal;
 
 void vertex() {
 	// Calculate the world-space scale of the local axes to make patterns scale-independent
@@ -18,6 +20,7 @@ void vertex() {
 	float scale_y = length(MODEL_MATRIX[1].xyz);
 	float scale_z = length(MODEL_MATRIX[2].xyz);
 	local_position = VERTEX * vec3(scale_x, scale_y, scale_z);
+	local_normal = NORMAL;
 }
 
 float hash21(vec2 p) {
@@ -39,23 +42,39 @@ float band(float value, float width) {
 	return 1.0 - step(width, fract(value));
 }
 
-vec4 apply_pattern(vec3 p) {
-	vec2 side_uv = vec2(p.z, p.y);
+vec4 apply_pattern(vec3 p, vec3 n) {
+	float h = p.z;
+	float v = p.y;
+	if (side_projection_enabled) {
+		vec3 an = abs(n);
+		if (an.y > an.x && an.y > an.z) {
+			h = p.x;
+			v = p.z;
+		} else if (an.x > an.z) {
+			h = p.z;
+			v = p.y;
+		} else {
+			h = p.x;
+			v = p.y;
+		}
+	}
+	vec2 side_uv = vec2(h, v);
 	float freq = max(pattern_frequency_per_meter, 0.05);
 	float width = clamp(pattern_width_fraction, 0.01, 0.95);
+	float length_scale = 0.12 * freq / 1.1;
 
 	if (pattern_mode == 1) {
-		float mask = band(p.z * freq, width);
+		float mask = band(h * freq, width);
 		return mix(base_color, pattern_color, mask);
 	}
 	if (pattern_mode == 2) {
-		float wobble = sin(p.y * 5.0) * 0.22 + sin(p.y * 11.0 + p.z) * 0.08;
-		float mask = band((p.z + wobble) * freq * 1.25, 0.34);
+		float wobble = sin(v * 5.0) * 0.22 + sin(v * 11.0 + h) * 0.08;
+		float mask = band((h + wobble) * freq * 1.25, 0.34);
 		return mix(base_color, pattern_color, mask);
 	}
 	if (pattern_mode == 3) {
-		float wobble = sin(p.y * 6.0 + p.z * 1.4) * 0.24 + sin(p.y * 15.0) * 0.05;
-		float mask = band((p.z + wobble) * freq * 1.45, 0.24);
+		float wobble = sin(v * 6.0 + h * 1.4) * 0.24 + sin(v * 15.0) * 0.05;
+		float mask = band((h + wobble) * freq * 1.45, 0.24);
 		return mix(base_color, pattern_color, mask);
 	}
 	if (pattern_mode == 4) {
@@ -74,7 +93,7 @@ vec4 apply_pattern(vec3 p) {
 		return camo;
 	}
 	if (pattern_mode == 5) {
-		float mask = band(p.y * freq * 1.6, width * 0.75);
+		float mask = band(v * freq * 1.6, width * 0.75);
 		return mix(base_color, pattern_color, mask);
 	}
 	if (pattern_mode == 6) {
@@ -84,15 +103,15 @@ vec4 apply_pattern(vec3 p) {
 		return mix(base_color, pattern_color, dot_mask);
 	}
 	if (pattern_mode == 7) {
-		float zig = abs(fract(p.z * freq * 0.8) * 2.0 - 1.0);
-		float bolt_y = (zig - 0.5) * 0.55 + sin(p.z * freq * 5.0) * 0.06;
-		float repeat_y = fract((p.y - bolt_y) * freq * 0.75);
+		float zig = abs(fract(h * freq * 0.8) * 2.0 - 1.0);
+		float bolt_y = (zig - 0.5) * 0.55 + sin(h * freq * 5.0) * 0.06;
+		float repeat_y = fract((v - bolt_y) * freq * 0.75);
 		float mask = 1.0 - step(width * 0.55, min(repeat_y, 1.0 - repeat_y));
 		return mix(base_color, pattern_color, mask);
 	}
 	if (pattern_mode == 8) {
-		float vertical = band(p.z * freq, width * 0.65);
-		float horizontal = band(p.y * freq * 1.35, width * 0.55);
+		float vertical = band(h * freq, width * 0.65);
+		float horizontal = band(v * freq * 1.35, width * 0.55);
 		vec4 plaid = mix(base_color, pattern_color, max(vertical, horizontal));
 		return mix(plaid, tertiary_pattern_color, vertical * horizontal * 0.55);
 	}
@@ -127,18 +146,18 @@ vec4 apply_pattern(vec3 p) {
 		return digital;
 	}
 	if (pattern_mode == 12) {
-		float zig = abs(p.y) * 0.8;
-		float mask = band((p.z + zig) * freq, width);
+		float zig = abs(v) * 0.8;
+		float mask = band((h + zig) * freq, width);
 		return mix(base_color, pattern_color, mask);
 	}
 	if (pattern_mode == 13) {
-		float wobble = sin(p.y * 8.0) * 0.15;
-		float mask = band((p.z + wobble) * freq, width);
+		float wobble = sin(v * 8.0) * 0.15;
+		float mask = band((h + wobble) * freq, width);
 		return mix(base_color, pattern_color, mask);
 	}
 	if (pattern_mode == 14) {
-		float wave = sin(p.z * 5.0 - p.y * 5.0) * 0.15;
-		float mask = band((p.z + p.y + wave) * freq * 0.707, width);
+		float wave = sin(h * 5.0 - v * 5.0) * 0.15;
+		float mask = band((h + v + wave) * freq * 0.707, width);
 		return mix(base_color, pattern_color, mask);
 	}
 	if (pattern_mode == 15) {
@@ -203,20 +222,20 @@ vec4 apply_pattern(vec3 p) {
 		return base_color;
 	}
 	if (pattern_mode == 20) {
-		float t = clamp(p.z * 0.12 + 0.5, 0.0, 1.0);
+		float t = clamp(h * length_scale + 0.5, 0.0, 1.0);
 		return mix(base_color, pattern_color, 1.0 - step(0.25, t));
 	}
 	if (pattern_mode == 21) {
-		float t = clamp(p.z * 0.12 + 0.5, 0.0, 1.0);
+		float t = clamp(h * length_scale + 0.5, 0.0, 1.0);
 		float middle = step(0.25, t) * (1.0 - step(0.75, t));
 		return mix(pattern_color, base_color, middle);
 	}
 	if (pattern_mode == 22) {
-		float t = clamp(p.z * 0.12 + 0.5, 0.0, 1.0);
+		float t = clamp(h * length_scale + 0.5, 0.0, 1.0);
 		return mix(base_color, pattern_color, step(0.75, t));
 	}
 	if (pattern_mode == 23) {
-		float t = clamp(p.z * 0.12 + 0.5, 0.0, 1.0);
+		float t = clamp(h * length_scale + 0.5, 0.0, 1.0);
 		if (t < 0.25) {
 			return pattern_color;
 		}
@@ -226,7 +245,7 @@ vec4 apply_pattern(vec3 p) {
 		return tertiary_pattern_color;
 	}
 	if (pattern_mode == 24) {
-		float t = clamp(p.z * 0.12 + sin(p.y * 1.7) * 0.035 + 0.5, 0.0, 1.0);
+		float t = clamp(h * length_scale + sin(v * 1.7) * 0.035 + 0.5, 0.0, 1.0);
 		if (t < 0.22) {
 			return pattern_color;
 		}
@@ -240,7 +259,7 @@ vec4 apply_pattern(vec3 p) {
 }
 
 void fragment() {
-	vec4 mixed_color = apply_pattern(local_position);
+	vec4 mixed_color = apply_pattern(local_position, normalize(local_normal));
 	ALBEDO = mixed_color.rgb;
 	ROUGHNESS = roughness;
 	METALLIC = metallic;

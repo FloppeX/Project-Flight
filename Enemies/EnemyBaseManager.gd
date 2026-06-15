@@ -21,6 +21,7 @@ var _disabled_for_test: bool = false
 
 @export_group("Enemy Emplacements")
 @export var emplacement_scene: PackedScene = preload("res://Buildings/gun_emplacement.tscn")
+@export var dummy_emplacement_scene: PackedScene = preload("res://Buildings/dummy_gun_emplacement.tscn")
 @export var emplacement_clumps_per_team_min: int = 4
 @export var emplacement_clumps_per_team_max: int = 5
 @export var emplacements_per_clump_min: int = 1

@@ -1,6 +1,8 @@
 extends Weapon
 class_name BombHolder
 
+const HELI_TEST_UNLIMITED_AMMO_META := "heli_test_unlimited_ammo"
+
 @export var bomb_projectile_scene: PackedScene
 @export var drop_force: float = 0.0
 @export var blast_radius: float = 10.0
@@ -42,6 +44,16 @@ func _get_parent_rigidbody() -> RigidBody3D:
 		node = node.get_parent()
 	return node as RigidBody3D
 
+func _has_unlimited_test_ammo() -> bool:
+	var aircraft: RigidBody3D = _get_parent_rigidbody()
+	if aircraft == null or not is_instance_valid(aircraft):
+		return false
+	var value: Variant = aircraft.get_meta(HELI_TEST_UNLIMITED_AMMO_META, false)
+	if not (value is bool):
+		return false
+	var enabled: bool = value
+	return enabled
+
 func _get_remaining_visible_bombs() -> int:
 	var visible_bomb: Node3D = get_node_or_null("bomb") as Node3D
 	return 1 if visible_bomb and visible_bomb.visible else 0
@@ -68,18 +80,19 @@ func set_next_bomb_debug_metadata(aim_target: Vector3, predicted_impact: Vector3
 
 func can_fire() -> bool:
 	# Check ammo and cooldown
-	var current_time = Time.get_ticks_msec() / 1000.0
-	return ammo_count > 0 and (current_time - last_fire_time) >= fire_cooldown
+	var current_time: float = Time.get_ticks_msec() / 1000.0
+	return (_has_unlimited_test_ammo() or ammo_count > 0) and (current_time - last_fire_time) >= fire_cooldown
 
 func fire() -> bool:
 	if not can_fire():
 		return false
+	var unlimited_ammo: bool = _has_unlimited_test_ammo()
 	
 	# Update last fire time
 	last_fire_time = Time.get_ticks_msec() / 1000.0
 
 	var visible_bomb: Node3D = get_node_or_null("bomb") as Node3D
-	if visible_bomb:
+	if visible_bomb and not unlimited_ammo:
 		visible_bomb.visible = false
 	
 	# Create and drop bomb projectile
@@ -122,11 +135,12 @@ func fire() -> bool:
 		_pending_debug_aim_target = Vector3.ZERO
 		_pending_debug_predicted_impact = Vector3.ZERO
 
-	ammo_count -= 1
-	_refresh_aircraft_payload_mass()
-	
-	# Self-destruct if enabled and empty
-	if delete_when_empty and ammo_count <= 0:
-		queue_free()
+	if not unlimited_ammo:
+		ammo_count -= 1
+		_refresh_aircraft_payload_mass()
+
+		# Self-destruct if enabled and empty
+		if delete_when_empty and ammo_count <= 0:
+			queue_free()
 	
 	return true

@@ -21,7 +21,7 @@ func _ready():
 func _ensure_bridge_active():
 	if get_tree().get_first_node_in_group("aircraft"):
 		return
-	var cam := _get_bridge_camera()
+	var cam := _activate_bridge_camera_mode(0)
 	if cam:
 		cam.current = true
 
@@ -120,10 +120,7 @@ func _input(event):
 func _build_camera_list():
 	_cameras.clear()
 	
-	# Bridge camera
-	var bridge_cam := _get_bridge_camera()
-	if bridge_cam:
-		_cameras.append(bridge_cam)
+	_append_bridge_cameras()
 	
 	# AI aircraft cameras (friendly AI planes)
 	for node in get_tree().get_nodes_in_group("ai_aircraft"):
@@ -151,6 +148,7 @@ func _activate_camera(cam: Camera3D):
 	# Deactivate all known cameras
 	for c in _cameras:
 		c.current = false
+	_sync_bridge_provider_mode_for_camera(cam)
 	cam.current = true
 	
 	# Ensure chase/cinematic scripts run for the activated aircraft
@@ -172,9 +170,52 @@ func _activate_camera(cam: Camera3D):
 					cam_parent.setup_shot()
 
 func _get_bridge_camera() -> Camera3D:
+	var provider := _get_bridge_camera_provider()
+	if provider != null and provider.has_method("get_camera"):
+		var cam: Variant = provider.call("get_camera")
+		if is_instance_valid(cam) and cam is Camera3D:
+			return cam as Camera3D
+	return null
+
+func _get_bridge_camera_provider() -> Node:
 	for node in get_tree().get_nodes_in_group("carrier_cam"):
 		if node != null and node.has_method("get_camera"):
-			var cam = node.call("get_camera")
-			if is_instance_valid(cam) and cam is Camera3D:
-				return cam as Camera3D
+			return node
 	return null
+
+func _append_bridge_cameras() -> void:
+	var provider := _get_bridge_camera_provider()
+	if provider == null:
+		return
+	if provider.has_method("get_view_mode_count") and provider.has_method("get_camera_for_mode"):
+		var mode_count: int = maxi(int(provider.call("get_view_mode_count")), 1)
+		for mode in range(mode_count):
+			var camera: Variant = provider.call("get_camera_for_mode", mode)
+			if is_instance_valid(camera) and camera is Camera3D:
+				_cameras.append(camera as Camera3D)
+		return
+	var bridge_cam := _get_bridge_camera()
+	if bridge_cam:
+		_cameras.append(bridge_cam)
+
+func _activate_bridge_camera_mode(mode: int) -> Camera3D:
+	var provider := _get_bridge_camera_provider()
+	if provider == null:
+		return null
+	if provider.has_method("activate_view_mode"):
+		var activated: Variant = provider.call("activate_view_mode", mode)
+		if is_instance_valid(activated) and activated is Camera3D:
+			return activated as Camera3D
+	return _get_bridge_camera()
+
+func _sync_bridge_provider_mode_for_camera(camera: Camera3D) -> void:
+	var provider := _get_bridge_camera_provider()
+	if provider == null or not provider.has_method("get_view_mode_count") or not provider.has_method("get_camera_for_mode"):
+		return
+	var mode_count: int = maxi(int(provider.call("get_view_mode_count")), 1)
+	for mode in range(mode_count):
+		var mode_camera: Variant = provider.call("get_camera_for_mode", mode)
+		if is_instance_valid(mode_camera) and mode_camera == camera:
+			if provider.has_method("activate_view_mode"):
+				provider.call("activate_view_mode", mode)
+			return

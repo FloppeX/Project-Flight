@@ -1,5 +1,8 @@
 extends AircraftModule
 
+const PILOT_STATE_IDLE := 0
+const PILOT_MISSION_AT_LZ := 1
+
 @export var door_mesh_path: NodePath = NodePath("aircraft_9/Door")
 @export var toggle_key: Key = KEY_O
 @export var lateral_slide_m: float = 0.1
@@ -23,7 +26,6 @@ var _open_t: float = 0.0
 var _initialized: bool = false
 var _toggle_key_was_down: bool = false
 var _is_landed_idle: bool = false
-var _idle_time_s: float = 0.0
 
 
 func _ready() -> void:
@@ -45,8 +47,8 @@ func receive_input(event: InputEvent) -> void:
 	if event is InputEventKey:
 		var key_event := event as InputEventKey
 		if key_event.pressed and not key_event.echo and key_event.physical_keycode == toggle_key:
-			_open_target = not _open_target
-			print("[HeliSlidingDoors] %s manual door toggle: open_target=%s" % [aircraft.name, _open_target])
+			toggle_doors("manual")
+			_toggle_key_was_down = true
 			get_viewport().set_input_as_handled()
 
 
@@ -57,23 +59,16 @@ func process_render_frame(delta: float) -> void:
 	if _is_this_aircraft_player_controlled():
 		_poll_toggle_key()
 	else:
-		var pilot = aircraft.find_child("HelicopterPilot", true, false) if is_instance_valid(aircraft) else null
-		if is_instance_valid(pilot) and pilot.get("state") == 0: # State.IDLE
+		if _should_auto_open_at_lz():
 			if not _is_landed_idle:
 				_is_landed_idle = true
-				_idle_time_s = 0.0
-				_open_target = true
+				open_doors("lz_idle")
 				print("[HeliSlidingDoors] %s doors opening: landing idle detected" % [aircraft.name])
-			else:
-				_idle_time_s += delta
-				if _idle_time_s >= 10.0 and _open_target:
-					_open_target = false
-					print("[HeliSlidingDoors] %s doors closing: idle time limit reached" % [aircraft.name])
 		else:
 			if _is_landed_idle:
 				_is_landed_idle = false
 				if _open_target:
-					_open_target = false
+					close_doors("leaving_lz_idle")
 					print("[HeliSlidingDoors] %s doors closing: takeoff/transition detected" % [aircraft.name])
 				
 	var target_t := 1.0 if _open_target else 0.0
@@ -84,9 +79,28 @@ func process_render_frame(delta: float) -> void:
 func _poll_toggle_key() -> void:
 	var key_down := Input.is_physical_key_pressed(toggle_key)
 	if key_down and not _toggle_key_was_down and _is_this_aircraft_player_controlled():
-		_open_target = not _open_target
-		print("[HeliSlidingDoors] %s manual door toggle: open_target=%s" % [aircraft.name, _open_target])
+		toggle_doors("manual")
 	_toggle_key_was_down = key_down
+
+
+func open_doors(reason: String = "script") -> void:
+	set_doors_open(true, reason)
+
+
+func close_doors(reason: String = "script") -> void:
+	set_doors_open(false, reason)
+
+
+func toggle_doors(reason: String = "script") -> void:
+	set_doors_open(not _open_target, reason)
+
+
+func set_doors_open(open: bool, reason: String = "script") -> void:
+	if _open_target == open:
+		return
+	_open_target = open
+	var craft_name: String = String(aircraft.name) if is_instance_valid(aircraft) else String(name)
+	print("[HeliSlidingDoors] %s doors target: open=%s reason=%s" % [craft_name, str(_open_target), reason])
 
 
 func _setup_doors() -> void:
@@ -316,3 +330,12 @@ func _is_this_aircraft_player_controlled() -> bool:
 	if ai_toggle != null and "ai_active" in ai_toggle:
 		return not ai_toggle.ai_active
 	return true
+
+
+func _should_auto_open_at_lz() -> bool:
+	if not is_instance_valid(aircraft):
+		return false
+	var pilot = aircraft.find_child("HelicopterPilot", true, false)
+	if not is_instance_valid(pilot):
+		return false
+	return int(pilot.get("state")) == PILOT_STATE_IDLE and int(pilot.get("mission_phase")) == PILOT_MISSION_AT_LZ
