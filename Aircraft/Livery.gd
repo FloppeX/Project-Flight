@@ -948,6 +948,9 @@ func _make_test_pattern_material(
 	pattern_material.set_shader_parameter("pattern_mode", pattern_index)
 	pattern_material.set_shader_parameter("pattern_frequency_per_meter", frequency_per_meter)
 	pattern_material.set_shader_parameter("pattern_width_fraction", width_fraction)
+	pattern_material.set_shader_parameter("projection_mode", 1)
+	pattern_material.set_shader_parameter("projection_blend_sharpness", 4.0)
+	pattern_material.set_shader_parameter("box_top_normal_threshold", 0.55)
 	pattern_material.set_shader_parameter("side_projection_enabled", _active_apply_is_carrier)
 
 	if source_material is StandardMaterial3D:

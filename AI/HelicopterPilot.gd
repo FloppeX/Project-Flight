@@ -134,11 +134,18 @@ enum MissionPhase {
 @export var terrain_hazard_min_lookahead_m: float = 220.0
 @export var terrain_hazard_max_lookahead_m: float = 650.0
 @export var terrain_hazard_vertical_margin_m: float = 45.0
-@export var terrain_recovery_agl_m: float = 55.0
-@export var terrain_recovery_full_agl_m: float = 25.0
-@export var terrain_recovery_sink_mps: float = 8.0
+@export var terrain_recovery_agl_m: float = 75.0
+@export var terrain_recovery_full_agl_m: float = 35.0
+@export var terrain_recovery_sink_mps: float = 6.0
 @export var terrain_down_feeler_radius_m: float = 18.0
-@export var terrain_down_feeler_extra_clearance_m: float = 8.0
+@export var terrain_down_feeler_extra_clearance_m: float = 16.0
+@export var terrain_low_agl_collective_enabled: bool = true
+@export var terrain_low_agl_collective_start_m: float = 75.0
+@export var terrain_low_agl_collective_full_m: float = 28.0
+@export var terrain_low_agl_collective_floor: float = 0.82
+@export var terrain_low_agl_collective_full_floor: float = 1.0
+@export var terrain_low_agl_collective_sink_start_mps: float = 0.75
+@export var terrain_low_agl_collective_sink_full_mps: float = 5.0
 @export var use_heightmap_pathfinding: bool = true
 @export var heightmap_path_recompute_s: float = 60.0
 @export var heightmap_path_async_enabled: bool = true
@@ -357,6 +364,17 @@ enum MissionPhase {
 @export var lateral_obstacle_rear_forward_lean: float = 0.18
 @export var lateral_obstacle_forward_speed_scale: float = 0.18
 @export var lateral_obstacle_forward_speed_max_penalty: float = 1.0
+@export var heightmap_safe_direction_enabled: bool = true
+@export var heightmap_safe_direction_samples: int = 16
+@export var heightmap_safe_direction_probe_dist_m: float = 220.0
+@export var heightmap_safe_direction_probe_speed_scale: float = 2.8
+@export var heightmap_safe_direction_probe_max_dist_m: float = 650.0
+@export var heightmap_safe_direction_margin_m: float = 88.0
+@export var heightmap_safe_direction_sample_radius_m: float = 36.0
+@export var heightmap_safe_direction_roll_gain: float = 0.30
+@export var heightmap_safe_direction_yaw_gain: float = 1.85
+@export var heightmap_safe_direction_side_push_mps: float = 18.0
+@export var heightmap_safe_direction_forward_speed_scale: float = 0.55
 
 @export_group("Debug")
 @export var debug_enabled: bool = true
@@ -408,63 +426,94 @@ enum MissionPhase {
 @export var combat_route_advance_radius_m: float = 85.0
 @export var combat_route_carrot_distance_m: float = 520.0
 @export var combat_route_fire_corridor_spacing_m: float = 140.0
+# Runtime safety net: during the committed firing run, abort the attack if terrain
+# rises into the flight path ahead (plan went stale / heli drifted off the
+# validated corridor) instead of flying head-first into a cliff.
+@export var combat_attack_corridor_abort_enabled: bool = true
+@export var combat_attack_corridor_lookahead_time_s: float = 3.5
+@export var combat_attack_corridor_min_lookahead_m: float = 120.0
+@export var combat_attack_corridor_max_lookahead_m: float = 400.0
+@export var combat_attack_corridor_clearance_m: float = 30.0
+@export var combat_route_emergency_corridor_clearance_m: float = 18.0
 @export var combat_aim_enabled: bool = true
 @export var combat_aim_yaw_p: float = 0.85
 @export var combat_aim_yaw_i: float = 0.0
-@export var combat_aim_yaw_d: float = 0.16
+# Yaw derivative (rate) damping. Raised to settle the nose in azimuth instead of
+# hunting/overshooting across the target during attack runs.
+@export var combat_aim_yaw_d: float = 0.30
 @export var combat_aim_pitch_p: float = 1.35
 @export var combat_aim_pitch_i: float = 0.08
 @export var combat_aim_pitch_d: float = 0.035
 @export var combat_aim_integral_limit: float = 0.35
-@export var combat_aim_max_yaw_input: float = 0.42
+@export var combat_aim_max_yaw_input: float = 0.62
 @export var combat_aim_yaw_deadband_deg: float = 0.35
-@export var combat_aim_yaw_correction_rate: float = 0.85
-@export var combat_aim_takeover_max_yaw_input: float = 0.78
-@export var combat_aim_takeover_yaw_gain: float = 1.35
-@export var combat_aim_takeover_yaw_correction_rate: float = 2.4
-@export var combat_aim_max_pitch_input: float = 0.45
+@export var combat_aim_yaw_correction_rate: float = 1.25
+@export var combat_aim_takeover_max_yaw_input: float = 1.0
+@export var combat_aim_takeover_yaw_gain: float = 1.85
+@export var combat_aim_takeover_yaw_correction_rate: float = 4.0
+@export var combat_aim_max_pitch_input: float = 0.65
+@export var combat_aim_takeover_direct_enabled: bool = true
+@export var combat_aim_takeover_direct_yaw_gain: float = 3.2
+@export var combat_aim_takeover_direct_pitch_gain: float = 7.0
+@export var combat_aim_takeover_direct_min_yaw_input: float = 0.14
+@export var combat_aim_takeover_direct_min_pitch_input: float = 0.18
+@export var combat_aim_takeover_direct_min_error_deg: float = 0.45
+@export var combat_aim_takeover_yaw_rate_scale: float = 14.0
 # Nose-down input at which cruise base pitch is fully blended out during an attack
 # (so altitude-hold pitch-up stops fighting the aim controller). Lower = the base
 # pitch yields sooner to a nose-down aim demand.
 @export var combat_aim_attack_nose_down_full_input: float = 0.30
-@export var combat_aim_takeover_max_pitch_input: float = 0.85
-@export var combat_aim_takeover_pitch_control_gain: float = 1.55
-@export var combat_aim_takeover_pitch_rate_scale: float = 2.4
+# How far the altitude reference is lowered at full nose-down demand. Kept very
+# small now that cyclic authority (combat_*_pitch_control_gain) does the work of
+# pointing the nose: the rotor inertia lets a brief cyclic dip the nose and return
+# it without much forward speed or altitude loss, so we barely need to touch
+# collective. This is just a token relief so collective doesn't fight the dip. The
+# terrain-clearance floor at the apply site still bounds it. 0 = no dive.
+@export var combat_aim_attack_dive_depth_m: float = 6.0
+@export var combat_aim_takeover_max_pitch_input: float = 1.0
+@export var combat_aim_takeover_pitch_control_gain: float = 2.0
+@export var combat_aim_takeover_pitch_rate_scale: float = 3.4
 @export var combat_aim_roll_level_blend: float = 0.35
-@export var combat_gun_pitch_control_gain: float = 3.2
+@export var combat_gun_pitch_control_gain: float = 4.5
 # Guns need the same nose-down authority rockets get, otherwise the pipper hangs
 # just above the target and the firing window passes before the nose arrives.
 @export var combat_gun_max_pitch_input: float = 0.85
-@export var combat_gun_nose_down_rate_scale: float = 3.0
-@export var combat_rocket_pitch_control_gain: float = 1.70
+@export var combat_gun_nose_down_rate_scale: float = 4.0
+# Rocket pitch authority. Raised hard: at a few degrees of residual aim error the
+# old gain (1.70) commanded only ~0.12 cyclic, so the pipper sat above the target.
+# The rotor disc has inertia — a brief aggressive cyclic to snap the nose onto the
+# target and back doesn't build much forward speed — so we can afford big stick.
+@export var combat_rocket_pitch_control_gain: float = 4.5
 @export var combat_rocket_max_pitch_input: float = 1.0
-@export var combat_rocket_nose_down_rate_scale: float = 3.0
-@export var combat_rocket_takeover_nose_down_bias: float = 0.16
-@export var combat_rocket_takeover_min_nose_down_input: float = 0.24
+@export var combat_rocket_nose_down_rate_scale: float = 4.0
+@export var combat_rocket_takeover_nose_down_bias: float = 0.24
+@export var combat_rocket_takeover_min_nose_down_input: float = 0.36
 @export var combat_rocket_takeover_collective_floor: float = 0.64
-@export var combat_rocket_fire_alignment_deg: float = 4.0
-@export var combat_gun_fire_alignment_deg: float = 6.0
+@export var combat_rocket_fire_alignment_deg: float = 5.0
+@export var combat_gun_fire_alignment_deg: float = 1.0
 @export var combat_rocket_aim_settle_deg: float = 2.5
 @export var combat_rocket_pitch_aim_settle_deg: float = 2.0
-@export var combat_gun_aim_settle_deg: float = 3.0
+@export var combat_gun_aim_settle_deg: float = 0.8
 @export var combat_aim_settle_time_s: float = 0.5
-@export var combat_rocket_aim_settle_time_s: float = 1.05
+@export var combat_rocket_aim_settle_time_s: float = 0.45
 @export var combat_gun_aim_settle_time_s: float = 0.35
 @export var combat_aim_settle_max_rate_deg_s: float = 12.0
-@export var combat_rocket_aim_settle_max_rate_deg_s: float = 5.0
-@export var combat_rocket_pitch_aim_settle_max_rate_deg_s: float = 6.0
+@export var combat_rocket_aim_settle_max_rate_deg_s: float = 9.0
+@export var combat_rocket_pitch_aim_settle_max_rate_deg_s: float = 10.0
 @export var combat_gun_aim_settle_max_rate_deg_s: float = 16.0
 @export var combat_rocket_min_attack_time_before_fire_s: float = 0.65
 @export var combat_rocket_fallback_fire_after_takeover_s: float = 1.2
 @export var combat_rocket_fallback_fire_angle_deg: float = 3.2
 @export var combat_rocket_fallback_fire_pitch_angle_deg: float = 1.0
 @export var combat_rocket_first_salvo_hold_s: float = 4.0
+@export var combat_attack_min_committed_time_s: float = 3.0
+@export var combat_attack_max_committed_time_s: float = 8.0
 @export var combat_aim_takeover_enabled: bool = true
-@export var combat_aim_takeover_range_factor: float = 1.45
-@export var combat_aim_takeover_max_time_s: float = 4.5
+@export var combat_aim_takeover_range_factor: float = 2.6
+@export var combat_aim_takeover_max_time_s: float = 8.0
 @export var combat_aim_takeover_cooldown_s: float = 0.15
 @export var combat_aim_takeover_speed_mps: float = 22.0
-@export var combat_aim_takeover_roll_level_blend: float = 0.9
+@export var combat_aim_takeover_roll_level_blend: float = 1.0
 @export var combat_rocket_drop_compensation: float = 0.85
 @export var combat_rocket_motor_speed_bias_mps: float = 160.0
 @export var combat_rocket_ccip_guidance_enabled: bool = true
@@ -474,7 +523,11 @@ enum MissionPhase {
 # over-corrects and can oscillate, <1.0 converges slower but smoother.
 @export var combat_rocket_ccip_aim_correction_strength: float = 1.0
 @export var combat_rocket_ccip_aim_correction_max_m: float = 260.0
-@export var combat_rocket_ccip_fire_tolerance_m: float = 18.0
+# Max predicted CCIP impact miss allowed to fire. The impact prediction is
+# accurate, so a loose tolerance literally lets rockets fire when they'll land
+# this many metres beside the target ("shoots beside the target"). Tightened so
+# rockets only loose when the predicted impact is genuinely on the target.
+@export var combat_rocket_ccip_fire_tolerance_m: float = 8.0
 @export var combat_rocket_ccip_requires_solution_to_fire: bool = true
 @export var combat_rocket_aim_lower_bias_m: float = 2.0
 @export var combat_rocket_assess_time_s: float = 1.2
@@ -527,6 +580,8 @@ var _feeler_forward_penalty: float = 0.0
 var _feeler_forward_obstacle_distance: float = INF
 var _feeler_rear_penalty: float = 0.0
 var _feeler_timer_s: float = 0.0
+var _heightmap_safe_direction: Vector3 = Vector3.ZERO
+var _heightmap_safe_direction_strength: float = 0.0
 var _collective_cmd: float = 0.0
 var _physics_delta: float = 0.016
 var _speed_target_mps: float = 0.0
@@ -3879,6 +3934,8 @@ func _fly_transit_vector(target: Vector3, desired_speed: float, delta: float) ->
 		_feeler_forward_penalty = 0.0
 		_feeler_forward_obstacle_distance = INF
 		_feeler_rear_penalty = 0.0
+		_heightmap_safe_direction = Vector3.ZERO
+		_heightmap_safe_direction_strength = 0.0
 	var _feeler_forward_speed_penalty := _feeler_forward_penalty
 	var _min_forward_dist := _feeler_forward_obstacle_distance
 	var _rear_penalty := _feeler_rear_penalty
@@ -3931,10 +3988,31 @@ func _fly_transit_vector(target: Vector3, desired_speed: float, delta: float) ->
 		_feeler_rear_penalty = _rear_penalty
 		_feeler_net_left_risk = _net_left_risk
 		_feeler_net_right_risk = _net_right_risk
+		var safe_direction_result: Dictionary = _sample_heightmap_safe_direction(
+			current_pos,
+			feeler_forward,
+			feeler_right,
+			_probe_dist
+		)
+		if not safe_direction_result.is_empty():
+			var safe_dir_variant: Variant = safe_direction_result.get("direction", Vector3.ZERO)
+			if safe_dir_variant is Vector3:
+				_heightmap_safe_direction = safe_dir_variant
+			_heightmap_safe_direction_strength = clampf(float(safe_direction_result.get("strength", 0.0)), 0.0, 1.0)
 	if _net_left_risk > 0.0 or _net_right_risk > 0.0:
 		lateral_wall_roll = (_net_left_risk - _net_right_risk) * maxf(lateral_obstacle_roll_gain, 0.0)
 		lateral_wall_yaw = (_net_left_risk - _net_right_risk) * maxf(lateral_obstacle_yaw_gain, 0.0)
 		lateral_error += (_net_left_risk - _net_right_risk) * maxf(lateral_obstacle_side_push_mps, 0.0)
+	if _heightmap_safe_direction_strength > 0.0 and _heightmap_safe_direction.length_squared() > 0.001:
+		var safe_side: float = clampf(_heightmap_safe_direction.dot(right), -1.0, 1.0)
+		var safe_forward: float = clampf(_heightmap_safe_direction.dot(forward), -1.0, 1.0)
+		var safe_strength: float = clampf(_heightmap_safe_direction_strength, 0.0, 1.0)
+		lateral_wall_roll += safe_side * safe_strength * maxf(heightmap_safe_direction_roll_gain, 0.0)
+		lateral_wall_yaw += safe_side * safe_strength * maxf(heightmap_safe_direction_yaw_gain, 0.0)
+		lateral_error += safe_side * safe_strength * maxf(heightmap_safe_direction_side_push_mps, 0.0)
+		if safe_forward < 0.65:
+			var unsafe_forward_t: float = clampf((0.65 - safe_forward) / 1.65, 0.0, 1.0)
+			forward_lean *= 1.0 - unsafe_forward_t * safe_strength * maxf(heightmap_safe_direction_forward_speed_scale, 0.0)
 	# Forward obstacle: only slow down if the path is asymmetrically blocked.
 	# If both sides have similar risk it's a corridor — let them fly through.
 	# Slow down only when one side is significantly more blocked than the other,
@@ -4210,13 +4288,17 @@ func _fly_transit_vector(target: Vector3, desired_speed: float, delta: float) ->
 			coordinated_yaw = sideslip * maxf(transit_coordinated_yaw_gain, 0.0)
 	var target_yaw := clampf(heading_yaw - aircraft.angular_velocity.y * yaw_rate_damping + lateral_wall_yaw + coordinated_yaw, -yaw_limit, yaw_limit)
 	var combat_collective_floor: float = -1.0
+	var combat_dive_alt_offset: float = 0.0
+	var yaw_rate_scale: float = 1.0
 	var combat_aim: Dictionary = _get_combat_aim_commands(target_pitch, target_roll, target_yaw, delta, cyclic_limit, yaw_limit)
 	if not combat_aim.is_empty():
 		target_pitch = float(combat_aim.get("pitch", target_pitch))
 		target_roll = float(combat_aim.get("roll", target_roll))
 		target_yaw = float(combat_aim.get("yaw", target_yaw))
 		pitch_rate_scale = maxf(float(combat_aim.get("pitch_rate_scale", 1.0)), 0.01)
+		yaw_rate_scale = maxf(float(combat_aim.get("yaw_rate_scale", 1.0)), 0.01)
 		combat_collective_floor = float(combat_aim.get("collective_floor", -1.0))
+		combat_dive_alt_offset = float(combat_aim.get("dive_alt_offset", 0.0))
 
 	# Emergency sink recovery: if descending fast at low AGL, override everything —
 	# level the nose, flatten roll, and go to full collective immediately.
@@ -4241,7 +4323,7 @@ func _fly_transit_vector(target: Vector3, desired_speed: float, delta: float) ->
 
 	_pitch_cmd = move_toward(_pitch_cmd, target_pitch, maxf(cyclic_rate, 0.01) * pitch_rate_scale * delta)
 	_roll_cmd = move_toward(_roll_cmd, target_roll, maxf(cyclic_rate, 0.01) * delta)
-	_yaw_cmd = move_toward(_yaw_cmd, target_yaw, maxf(yaw_command_rate, 0.01) * delta)
+	_yaw_cmd = move_toward(_yaw_cmd, target_yaw, maxf(yaw_command_rate, 0.01) * yaw_rate_scale * delta)
 
 	_debug_target_vertical_rate_mps = target_vertical_rate
 	_debug_vertical_rate_error_mps = vertical_rate_error
@@ -4261,7 +4343,13 @@ func _fly_transit_vector(target: Vector3, desired_speed: float, delta: float) ->
 	_debug_vertical_priority = vertical_priority
 
 	_set_helicopter_input(_pitch_cmd, _roll_cmd, _yaw_cmd)
-	var collective_target := _calculate_collective(target.y)
+	# Apply the combat shallow-dive, but never let it command an altitude below a
+	# safe clearance above terrain — otherwise the dive can fly the heli into the
+	# ground when the target sits low or terrain is rising.
+	var combat_alt_reference := target.y + combat_dive_alt_offset
+	if combat_dive_alt_offset < 0.0 and not is_nan(ground_h):
+		combat_alt_reference = maxf(combat_alt_reference, ground_h + maxf(min_terrain_clearance_m, 1.0))
+	var collective_target := _calculate_collective(combat_alt_reference)
 	if combat_collective_floor >= 0.0:
 		collective_target = maxf(collective_target, clampf(combat_collective_floor, 0.0, 1.0))
 	if emergency_t > 0.0:
@@ -4765,6 +4853,7 @@ func _calculate_collective(target_altitude_m: float) -> float:
 	var control_vel := _get_control_velocity()
 	var horizontal_speed := Vector2(control_vel.x, control_vel.z).length()
 	collective += clampf(horizontal_speed / maxf(max_speed_mps, 1.0), 0.0, 1.0) * collective_speed_lift_bias
+	var low_agl_collective_floor: float = _get_unintentional_low_agl_collective_floor()
 
 	# Bank/Pitch compensation: a tilted rotor produces less vertical lift. Add collective to
 	# compensate — without this a low-speed banked turn or deceleration flare loses altitude.
@@ -4777,6 +4866,8 @@ func _calculate_collective(target_altitude_m: float) -> float:
 	
 	if state == State.TAKEOFF or state == State.LOW_LEVEL_TRANSIT:
 		collective = _calculate_transit_collective(collective, alt_error, horizontal_speed)
+		if low_agl_collective_floor >= 0.0:
+			collective = maxf(collective, low_agl_collective_floor)
 		return clampf(collective + tilt_boost, 0.4, 1.0)
 		
 	if alt_error > altitude_guard_m:
@@ -4811,7 +4902,36 @@ func _calculate_collective(target_altitude_m: float) -> float:
 					trim - maxf(landing_flare_collective_floor_margin, 0.0)
 							+ descent_overspeed * maxf(landing_descent_overspeed_collective_gain, 0.0)
 				)
+	if low_agl_collective_floor >= 0.0:
+		collective = maxf(collective, low_agl_collective_floor)
 	return clampf(collective + tilt_boost, 0.4, 1.0)
+
+
+func _get_unintentional_low_agl_collective_floor() -> float:
+	if not terrain_low_agl_collective_enabled:
+		return -1.0
+	if not is_instance_valid(aircraft):
+		return -1.0
+	if state == State.LANDING or state == State.IDLE:
+		return -1.0
+	var ground_h: float = _get_down_feeler_ground_height(aircraft.global_position)
+	if is_nan(ground_h):
+		return -1.0
+	var agl: float = aircraft.global_position.y - ground_h
+	var start_agl: float = maxf(terrain_low_agl_collective_start_m, terrain_low_agl_collective_full_m + 0.1)
+	var full_agl: float = maxf(terrain_low_agl_collective_full_m, 0.1)
+	var low_t: float = clampf((start_agl - agl) / maxf(start_agl - full_agl, 0.001), 0.0, 1.0)
+	if low_t <= 0.0:
+		return -1.0
+	var sink_rate: float = maxf(-aircraft.linear_velocity.y, 0.0)
+	var sink_start: float = maxf(terrain_low_agl_collective_sink_start_mps, 0.0)
+	var sink_full: float = maxf(terrain_low_agl_collective_sink_full_mps, sink_start + 0.1)
+	var sink_t: float = clampf((sink_rate - sink_start) / maxf(sink_full - sink_start, 0.001), 0.0, 1.0)
+	var response_t: float = clampf(maxf(low_t, sink_t * 0.85) + low_t * sink_t * 0.35, 0.0, 1.0)
+	var trim: float = _get_collective_trim()
+	var floor_min: float = maxf(trim, clampf(terrain_low_agl_collective_floor, 0.0, 1.0))
+	var floor_full: float = maxf(floor_min, clampf(terrain_low_agl_collective_full_floor, 0.0, 1.0))
+	return lerpf(floor_min, floor_full, response_t)
 
 
 func _calculate_transit_collective(base_collective: float, alt_error: float, horizontal_speed: float) -> float:
@@ -5922,11 +6042,8 @@ func _execute_combat_attack(fallback_speed_mps: float) -> bool:
 			if waypoint != Vector3.INF \
 					and (_flat_distance(current_pos, waypoint) <= combat_fire_end_radius_m \
 					or _has_passed_combat_waypoint(current_pos, waypoint, attack_next, combat_fire_end_radius_m)):
-				if _should_hold_combat_attack_for_first_rocket(target):
-					_log_combat_debug("hold_attack", "first_rocket target=%s dist=%.0f" % [
-						target.name,
-						aircraft.global_position.distance_to(target.global_position),
-					])
+				if _should_keep_combat_attack_segment(target, "fire_end"):
+					pass
 				else:
 					_finish_combat_attack_run_report("left_fire_corridor")
 					_combat_phase = "egress"
@@ -5935,7 +6052,7 @@ func _execute_combat_attack(fallback_speed_mps: float) -> bool:
 					_log_combat_debug("phase", "egress target=%s" % target.name, true)
 		"egress":
 			waypoint = _combat_plan_position("egress")
-			speed = maxf(float(_combat_plan.get("egress_speed_mps", fallback_speed_mps)), fallback_speed_mps)
+			speed = minf(float(_combat_plan.get("egress_speed_mps", fallback_speed_mps)), fallback_speed_mps)
 			var egress_prev := _combat_plan_position("fire_end")
 			var egress_next := Vector3.INF
 			if waypoint != Vector3.INF and egress_prev != Vector3.INF:
@@ -5956,6 +6073,13 @@ func _execute_combat_attack(fallback_speed_mps: float) -> bool:
 	if waypoint == Vector3.INF:
 		_clear_combat_attack("bad_waypoint")
 		return false
+	var direct_corridor_clearance: float = combat_attack_corridor_clearance_m \
+			if _combat_phase == "attack" else combat_route_emergency_corridor_clearance_m
+	if _combat_attack_corridor_hazard_ahead(current_pos, direct_corridor_clearance):
+		_log_combat_debug("abort", "corridor_terrain_hazard phase=%s" % _combat_phase, true)
+		_clear_combat_attack("corridor_terrain_hazard")
+		_update_navigation_plan()
+		return false
 	speed = _apply_combat_aim_takeover_speed(speed)
 	_log_combat_debug("run", "phase=%s target=%s wp_dist=%.0f speed=%.1f" % [
 		_combat_phase,
@@ -5974,7 +6098,8 @@ func _execute_combat_route_attack(target: Node3D, fallback_speed_mps: float) -> 
 	var current_pos := aircraft.global_position
 	var route_index_before_advance: int = _combat_route_index
 	var phase_before_advance: String = _combat_phase
-	_advance_combat_route(current_pos)
+	if _combat_phase != "attack":
+		_advance_combat_route(current_pos)
 	if phase_before_advance == "attack" \
 			and route_index_before_advance >= 0 \
 			and route_index_before_advance < _combat_route_points.size() \
@@ -5997,6 +6122,13 @@ func _execute_combat_route_attack(target: Node3D, fallback_speed_mps: float) -> 
 		return false
 
 	var route_phase := _get_combat_route_phase(_combat_route_index)
+	if route_phase != _combat_phase \
+			and _combat_phase == "attack" \
+			and route_phase != "attack" \
+			and _should_keep_combat_attack_segment(target, "route_phase"):
+		if route_index_before_advance >= 0 and route_index_before_advance < _combat_route_points.size():
+			_combat_route_index = route_index_before_advance
+		route_phase = "attack"
 	if route_phase != _combat_phase:
 		_combat_phase = route_phase
 		_combat_phase_started_s = _elapsed_s()
@@ -6015,8 +6147,54 @@ func _execute_combat_route_attack(target: Node3D, fallback_speed_mps: float) -> 
 			if phase_before_advance == "attack":
 				_finish_combat_attack_run_report("left_route_attack_segment")
 			_release_combat_aim_takeover("phase_%s" % _combat_phase, true)
+	var corridor_clearance: float = combat_attack_corridor_clearance_m \
+			if _combat_phase == "attack" else combat_route_emergency_corridor_clearance_m
+	if _combat_attack_corridor_hazard_ahead(current_pos, corridor_clearance):
+		# Terrain rose into the committed combat route (plan went stale or the heli
+		# drifted off the validated corridor). Break off rather than fly into the
+		# cliff; clearing the attack returns the heli to terrain-following transit.
+		_log_combat_debug("abort", "corridor_terrain_hazard phase=%s" % _combat_phase, true)
+		_clear_combat_attack("corridor_terrain_hazard")
+		_update_navigation_plan()
+		return false
 	if _combat_phase == "attack":
 		_try_fire_combat_weapon(target)
+		var fire_end := _combat_plan_position("fire_end")
+		if fire_end == Vector3.INF:
+			_clear_combat_attack("bad_fire_end")
+			return false
+		var attack_next := _combat_plan_position("egress")
+		var attack_complete := _flat_distance(current_pos, fire_end) <= combat_fire_end_radius_m \
+				or _has_passed_combat_waypoint(current_pos, fire_end, attack_next, combat_fire_end_radius_m)
+		if attack_complete:
+			if _should_keep_combat_attack_segment(target, "route_fire_end"):
+				pass
+			else:
+				_finish_combat_attack_run_report("left_route_attack_segment")
+				_combat_phase = "egress"
+				_combat_phase_started_s = _elapsed_s()
+				_release_combat_aim_takeover("phase_egress", true)
+				var egress_index := _find_combat_route_phase_index("egress", _combat_route_index)
+				if egress_index >= 0:
+					_combat_route_index = egress_index
+				_log_combat_debug("phase", "egress target=%s route=%d/%d" % [
+					target.name,
+					_combat_route_index,
+					_combat_route_points.size(),
+				], true)
+		if _combat_phase == "attack":
+			var attack_speed: float = minf(fallback_speed_mps, float(_combat_plan.get("attack_speed_mps", fallback_speed_mps)))
+			attack_speed = _apply_combat_aim_takeover_speed(attack_speed)
+			_nav_waypoint = fire_end
+			_log_combat_debug("run", "phase=attack target=%s route=%d/%d fire_end_dist=%.0f speed=%.1f committed=true" % [
+				target.name,
+				_combat_route_index,
+				_combat_route_points.size(),
+				_flat_distance(current_pos, fire_end),
+				attack_speed,
+			])
+			_fly_toward(_nav_waypoint, attack_speed, _physics_delta)
+			return true
 
 	var route_point := _combat_route_points[_combat_route_index]
 	var waypoint := _get_combat_route_carrot_point(current_pos)
@@ -6027,7 +6205,7 @@ func _execute_combat_route_attack(target: Node3D, fallback_speed_mps: float) -> 
 		"ingress", "attack":
 			speed = minf(fallback_speed_mps, float(_combat_plan.get("attack_speed_mps", fallback_speed_mps)))
 		"egress":
-			speed = maxf(float(_combat_plan.get("egress_speed_mps", fallback_speed_mps)), fallback_speed_mps)
+			speed = minf(float(_combat_plan.get("egress_speed_mps", fallback_speed_mps)), fallback_speed_mps)
 	speed = _apply_combat_aim_takeover_speed(speed)
 	_nav_waypoint = waypoint
 	_log_combat_debug("run", "phase=%s target=%s route=%d/%d route_dist=%.0f carrot_dist=%.0f speed=%.1f" % [
@@ -6046,12 +6224,28 @@ func _execute_combat_route_attack(target: Node3D, fallback_speed_mps: float) -> 
 func _advance_combat_route(current_pos: Vector3) -> void:
 	var original_index := _combat_route_index
 	var radius := maxf(combat_route_advance_radius_m, 1.0)
+	var crossed_phase_boundary := false
 	while _combat_route_index < _combat_route_points.size() - 1 \
 			and _flat_distance(current_pos, _combat_route_points[_combat_route_index]) <= radius:
+		var current_phase := _get_combat_route_phase(_combat_route_index)
+		var next_phase := _get_combat_route_phase(_combat_route_index + 1)
 		_combat_route_index += 1
+		if current_phase != next_phase:
+			crossed_phase_boundary = true
+			break
+	if crossed_phase_boundary:
+		_log_combat_debug("route_advance", "from=%d to=%d/%d phase_boundary=%s" % [
+			original_index,
+			_combat_route_index,
+			_combat_route_points.size(),
+			_get_combat_route_phase(_combat_route_index),
+		])
+		return
 	while _combat_route_index < _combat_route_points.size() - 1:
 		var cur_pt := _combat_route_points[_combat_route_index]
 		var nxt_pt := _combat_route_points[_combat_route_index + 1]
+		var cur_phase := _get_combat_route_phase(_combat_route_index)
+		var nxt_phase := _get_combat_route_phase(_combat_route_index + 1)
 		var to_next := Vector3(nxt_pt.x - cur_pt.x, 0.0, nxt_pt.z - cur_pt.z)
 		var to_here := Vector3(current_pos.x - cur_pt.x, 0.0, current_pos.z - cur_pt.z)
 		var dist_to_wp := to_here.length()
@@ -6059,6 +6253,8 @@ func _advance_combat_route(current_pos: Vector3) -> void:
 				and to_here.dot(to_next.normalized()) > 0.0 \
 				and dist_to_wp < maxf(radius * 3.0, 240.0):
 			_combat_route_index += 1
+			if cur_phase != nxt_phase:
+				break
 		else:
 			break
 	if _combat_route_index != original_index:
@@ -6110,6 +6306,17 @@ func _get_combat_route_phase(index: int) -> String:
 	return "ingress"
 
 
+func _find_combat_route_phase_index(phase: String, start_index: int = 0) -> int:
+	if _combat_route_points.is_empty():
+		return -1
+	var i: int = clampi(start_index, 0, _combat_route_points.size() - 1)
+	while i < _combat_route_points.size():
+		if _get_combat_route_phase(i) == phase:
+			return i
+		i += 1
+	return -1
+
+
 func _combat_plan_position(key: String) -> Vector3:
 	var value: Variant = _combat_plan.get(key, Vector3.INF)
 	return value if value is Vector3 else Vector3.INF
@@ -6146,6 +6353,10 @@ func _get_combat_aim_commands(
 
 	var yaw_error := float(solution.get("yaw_error", 0.0))
 	var pitch_error := float(solution.get("pitch_error", 0.0))
+	var actual_target_pos: Vector3 = target.global_position + Vector3.UP * 1.4
+	var target_dist: float = aircraft.global_position.distance_to(actual_target_pos) if is_instance_valid(aircraft) else INF
+	var fire_range_for_takeover: float = float(_combat_plan.get("fire_range_m", 0.0))
+	_request_combat_aim_takeover(weapon_kind, target_dist, fire_range_for_takeover)
 	var yaw_deadband: float = deg_to_rad(maxf(combat_aim_yaw_deadband_deg, 0.0))
 	var yaw_in_deadband: bool = absf(yaw_error) <= yaw_deadband
 	if yaw_in_deadband:
@@ -6190,6 +6401,7 @@ func _get_combat_aim_commands(
 	if takeover_active:
 		yaw_limit_for_aim = maxf(yaw_limit_for_aim, combat_aim_takeover_max_yaw_input)
 		yaw_correction_rate = maxf(yaw_correction_rate, combat_aim_takeover_yaw_correction_rate)
+	var yaw_output_limit: float = maxf(yaw_limit, minf(yaw_limit_for_aim, 1.0))
 	var yaw_p: float = maxf(combat_aim_yaw_p, 0.0)
 	if takeover_active:
 		yaw_p *= maxf(combat_aim_takeover_yaw_gain, 0.0)
@@ -6231,6 +6443,25 @@ func _get_combat_aim_commands(
 		-pitch_limit,
 		pitch_limit
 	)
+	if takeover_active and combat_aim_takeover_direct_enabled:
+		var direct_error_floor: float = deg_to_rad(maxf(combat_aim_takeover_direct_min_error_deg, 0.0))
+		yaw_correction = clampf(
+			yaw_error * maxf(combat_aim_takeover_direct_yaw_gain, 0.0),
+			-yaw_limit_for_aim,
+			yaw_limit_for_aim
+		)
+		if absf(yaw_error) > direct_error_floor and absf(yaw_correction) < maxf(combat_aim_takeover_direct_min_yaw_input, 0.0):
+			var yaw_sign: float = 1.0 if yaw_error > 0.0 else -1.0
+			yaw_correction = yaw_sign * maxf(combat_aim_takeover_direct_min_yaw_input, 0.0)
+		_combat_aim_last_yaw_correction = yaw_correction
+		pitch_correction = clampf(
+			pitch_error * maxf(combat_aim_takeover_direct_pitch_gain, 0.0),
+			-pitch_limit,
+			pitch_limit
+		)
+		if absf(pitch_error) > direct_error_floor and absf(pitch_correction) < maxf(combat_aim_takeover_direct_min_pitch_input, 0.0):
+			var pitch_sign: float = 1.0 if pitch_error > 0.0 else -1.0
+			pitch_correction = pitch_sign * maxf(combat_aim_takeover_direct_min_pitch_input, 0.0)
 	var rocket_nose_down_t: float = 0.0
 	if takeover_active and weapon_kind == COMBAT_WEAPON_ROCKET and pitch_error < -deg_to_rad(0.25):
 		rocket_nose_down_t = clampf(absf(pitch_error) / deg_to_rad(6.0), 0.0, 1.0)
@@ -6252,7 +6483,7 @@ func _get_combat_aim_commands(
 	var attack_base_pitch: float = lerpf(base_pitch, 0.0, nose_down_authority_t)
 	var target_pitch: float = clampf(attack_base_pitch + pitch_correction, -cyclic_limit, cyclic_limit)
 	var target_roll: float = lerpf(base_roll, 0.0, roll_blend)
-	var target_yaw: float = clampf(base_yaw + yaw_correction, -yaw_limit, yaw_limit)
+	var target_yaw: float = clampf(base_yaw + yaw_correction, -yaw_output_limit, yaw_output_limit)
 	if takeover_active:
 		target_pitch = clampf(pitch_correction, -cyclic_limit, cyclic_limit)
 		if rocket_nose_down_t > 0.0:
@@ -6261,8 +6492,9 @@ func _get_combat_aim_commands(
 				-maxf(combat_rocket_takeover_min_nose_down_input, 0.0) * rocket_nose_down_t
 			)
 		target_roll = lerpf(base_roll, 0.0, clampf(combat_aim_takeover_roll_level_blend, 0.0, 1.0))
-		target_yaw = clampf(yaw_correction, -yaw_limit, yaw_limit)
+		target_yaw = clampf(yaw_correction, -yaw_output_limit, yaw_output_limit)
 	var pitch_rate_scale: float = 1.0
+	var yaw_rate_scale: float = 1.0
 	if weapon_kind == COMBAT_WEAPON_ROCKET and pitch_correction < 0.0:
 		pitch_rate_scale = maxf(combat_rocket_nose_down_rate_scale, 1.0)
 	elif weapon_kind == COMBAT_WEAPON_GUN and pitch_correction < 0.0:
@@ -6271,15 +6503,31 @@ func _get_combat_aim_commands(
 		pitch_rate_scale = maxf(combat_gun_nose_down_rate_scale, 1.0)
 	if takeover_active:
 		pitch_rate_scale = maxf(pitch_rate_scale, combat_aim_takeover_pitch_rate_scale)
+		yaw_rate_scale = maxf(combat_aim_takeover_yaw_rate_scale, 1.0)
+	# Note: the old rocket-takeover collective_floor (which RAISED collective to keep
+	# the heli from sinking during nose-down) has been removed — it directly fought
+	# the shallow-dive behavior below, which is what actually lets the nose drop in
+	# this flight model. Leaving collective_floor unset (-1) for the aim path.
 	var collective_floor: float = -1.0
-	if takeover_active and weapon_kind == COMBAT_WEAPON_ROCKET and rocket_nose_down_t > 0.0:
-		collective_floor = maxf(combat_rocket_takeover_collective_floor, _get_collective_trim())
+	# Allow a shallow dive onto the target. In this flight model nose-down attitude
+	# is driven by tilting the rotor disc, and the body only follows that tilt while
+	# collective (and thus the pendulum torque) is high enough — yet holding altitude
+	# keeps collective high and the fuselage hanging level, fighting the nose-down.
+	# When the aim controller wants nose-down, drop the altitude reference so
+	# collective eases off, the heli sinks slightly, and the nose can actually pitch
+	# onto the target. Offset is proportional to nose-down demand and bounded.
+	var dive_alt_offset: float = 0.0
+	if pitch_correction < 0.0:
+		var dive_t: float = clampf(absf(pitch_correction) / maxf(combat_aim_attack_nose_down_full_input, 0.01), 0.0, 1.0)
+		dive_alt_offset = -maxf(combat_aim_attack_dive_depth_m, 0.0) * dive_t
 	var corrected: Dictionary = {
 		"pitch": target_pitch,
 		"roll": target_roll,
 		"yaw": target_yaw,
 		"pitch_rate_scale": pitch_rate_scale,
+		"yaw_rate_scale": yaw_rate_scale,
 		"collective_floor": collective_floor,
+		"dive_alt_offset": dive_alt_offset,
 	}
 	if combat_debug_enabled and (absf(yaw_error) > deg_to_rad(3.0) or absf(pitch_error) > deg_to_rad(3.0)):
 		var aim_point: Vector3 = Vector3.ZERO
@@ -6741,6 +6989,43 @@ func _should_hold_combat_attack_for_first_rocket(target: Node3D) -> bool:
 	return aim_dot >= hold_cone_cos
 
 
+func _combat_attack_elapsed_s() -> float:
+	if _combat_phase_started_s <= 0.0:
+		return 0.0
+	return maxf(_elapsed_s() - _combat_phase_started_s, 0.0)
+
+
+func _should_keep_combat_attack_segment(target: Node3D, reason: String) -> bool:
+	var min_time_s: float = maxf(combat_attack_min_committed_time_s, 0.0)
+	var max_time_s: float = maxf(combat_attack_max_committed_time_s, min_time_s)
+	var attack_time_s: float = _combat_attack_elapsed_s()
+	if max_time_s > 0.0 and attack_time_s >= max_time_s:
+		return false
+	var target_name: String = "unknown"
+	var dist_m: float = 0.0
+	if target != null and is_instance_valid(target) and is_instance_valid(aircraft):
+		target_name = String(target.name)
+		dist_m = aircraft.global_position.distance_to(target.global_position)
+	if attack_time_s < min_time_s:
+		_log_combat_debug("hold_attack", "%s commit target=%s elapsed=%.2f/%.2f dist=%.0f" % [
+			reason,
+			target_name,
+			attack_time_s,
+			min_time_s,
+			dist_m,
+		])
+		return true
+	if _should_hold_combat_attack_for_first_rocket(target):
+		_log_combat_debug("hold_attack", "%s first_rocket target=%s elapsed=%.2f dist=%.0f" % [
+			reason,
+			target_name,
+			attack_time_s,
+			dist_m,
+		])
+		return true
+	return false
+
+
 func _request_combat_aim_takeover(weapon_kind: String, dist: float, fire_range: float) -> void:
 	if not combat_aim_takeover_enabled or _combat_phase != "attack":
 		_release_combat_aim_takeover("disabled", false)
@@ -6931,6 +7216,42 @@ func _reset_combat_rocket_salvo_state() -> void:
 	_combat_rocket_ccip_cache_time_s = -1000000.0
 	_combat_rocket_ccip_cache_target_id = -1
 	_combat_rocket_ccip_cache.clear()
+
+
+func _combat_attack_corridor_hazard_ahead(current_pos: Vector3, clearance_m: float = -1.0) -> bool:
+	# Forward terrain feeler for the committed firing run. The planner validates the
+	# corridor when the plan is built, but the target moves, terrain rises, or the
+	# heli drifts off the line — so we re-check the path actually ahead each frame
+	# and abort the run before flying into a cliff.
+	if not combat_attack_corridor_abort_enabled:
+		return false
+	var vel := aircraft.linear_velocity
+	var dir := Vector3(vel.x, 0.0, vel.z)
+	if dir.length_squared() < 1.0:
+		dir = Vector3(aircraft.global_transform.basis.z.x, 0.0, aircraft.global_transform.basis.z.z)
+	if dir.length_squared() < 0.001:
+		return false
+	dir = dir.normalized()
+	var speed := Vector2(vel.x, vel.z).length()
+	var lookahead := clampf(
+		speed * maxf(combat_attack_corridor_lookahead_time_s, 0.0),
+		maxf(combat_attack_corridor_min_lookahead_m, 1.0),
+		maxf(combat_attack_corridor_max_lookahead_m, 1.0)
+	)
+	var requested_clearance: float = combat_attack_corridor_clearance_m if clearance_m <= 0.0 else clearance_m
+	var clearance: float = maxf(requested_clearance, 1.0)
+	var step := 25.0
+	var steps := maxi(int(ceil(lookahead / step)), 2)
+	for i in range(1, steps + 1):
+		var ahead: Vector3 = current_pos + dir * (lookahead * float(i) / float(steps))
+		var ground_h := _get_ground_height_at_position(ahead)
+		if is_nan(ground_h):
+			continue
+		# Compare terrain against the heli's current altitude (the firing run holds
+		# roughly level / gentle descent), demanding the clearance margin.
+		if current_pos.y - ground_h < clearance:
+			return true
+	return false
 
 
 func _reset_combat_route_state() -> void:
@@ -7340,7 +7661,11 @@ func _try_fire_combat_weapon(target: Node3D) -> void:
 			fired = true
 			_queue_combat_shot_report(weapon_kind, hp, target, dist, maxf(combat_gun_shot_assess_time_s, 0.05), aim_solution, aim_dot)
 	if fired:
-		_release_combat_aim_takeover("fired", true)
+		if weapon_kind == COMBAT_WEAPON_GUN:
+			if _combat_aim_takeover_active:
+				_combat_aim_takeover_started_s = _elapsed_s()
+		else:
+			_release_combat_aim_takeover("fired", true)
 		_log_combat_debug("fire", "target=%s weapon=%s dist=%.0f" % [target.name, weapon_kind, dist], true)
 	else:
 		_record_combat_attack_run_state("weapon_fire_rejected", "no ready hardpoint fired", dist, aim_solution, aim_dot)
@@ -8854,14 +9179,17 @@ func _debug_bool_property(node: Object, property_name: String) -> bool:
 
 
 func _get_down_feeler_ground_height(world_pos: Vector3) -> float:
-	var center_h := _get_ground_height_at_position(world_pos)
+	# This is a world-vertical feeler: pitch/roll must never rotate it. The optional
+	# radius is a level X/Z footprint around the aircraft, not a local-space cone.
+	var sample_pos: Vector3 = Vector3(world_pos.x, world_pos.y, world_pos.z)
+	var center_h: float = _get_ground_height_at_position(sample_pos)
 	var radius := maxf(terrain_down_feeler_radius_m, 0.0)
 	if radius <= 0.0:
 		return center_h
 	var nav_grid: Node = get_node_or_null("/root/TerrainNavGrid")
 	if nav_grid == null or not nav_grid.has_method("get_max_height_in_radius"):
 		return center_h
-	var radius_h := float(nav_grid.call("get_max_height_in_radius", world_pos.x, world_pos.z, radius))
+	var radius_h := float(nav_grid.call("get_max_height_in_radius", sample_pos.x, sample_pos.z, radius))
 	if radius_h <= -500000.0:
 		return center_h
 	if is_nan(center_h):
@@ -8895,11 +9223,10 @@ func _get_ground_height_at_position(world_pos: Vector3) -> float:
 					var data_h_variant: Variant = data_object.call("get_height", world_pos)
 					return float(data_h_variant)
 
+	var ray_from: Vector3 = Vector3(world_pos.x, world_pos.y + 2000.0, world_pos.z)
+	var ray_to: Vector3 = Vector3(world_pos.x, world_pos.y - 6000.0, world_pos.z)
 	var space_state: PhysicsDirectSpaceState3D = aircraft.get_world_3d().direct_space_state
-	var query: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(
-		world_pos + Vector3.UP * 2000.0,
-		world_pos + Vector3.DOWN * 6000.0
-	)
+	var query: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(ray_from, ray_to)
 	var excludes: Array[RID] = [aircraft.get_rid()]
 	var carrier := get_tree().get_first_node_in_group("carrier")
 	if carrier is CollisionObject3D:
@@ -8909,6 +9236,81 @@ func _get_ground_height_at_position(world_pos: Vector3) -> float:
 	if result.has("position"):
 		return result["position"].y
 	return NAN
+
+
+func _get_heightmap_safe_direction_sample_height(world_pos: Vector3, radius_m: float) -> float:
+	var center_h: float = _get_ground_height_at_position(world_pos)
+	var radius: float = maxf(radius_m, 0.0)
+	if radius <= 0.0:
+		return center_h
+	var nav_grid: Node = get_node_or_null("/root/TerrainNavGrid")
+	if nav_grid == null or not nav_grid.has_method("get_max_height_in_radius"):
+		return center_h
+	var radius_h: float = float(nav_grid.call("get_max_height_in_radius", world_pos.x, world_pos.z, radius))
+	if radius_h <= -500000.0:
+		return center_h
+	if is_nan(center_h):
+		return radius_h
+	return maxf(center_h, radius_h)
+
+
+func _sample_heightmap_safe_direction(
+		current_pos: Vector3,
+		reference_forward: Vector3,
+		reference_right: Vector3,
+		existing_probe_dist_m: float
+) -> Dictionary:
+	if not heightmap_safe_direction_enabled:
+		return {}
+	if reference_forward.length_squared() < 0.001 or reference_right.length_squared() < 0.001:
+		return {}
+	var sample_count: int = maxi(heightmap_safe_direction_samples, 4)
+	var horizontal_speed: float = 0.0
+	if is_instance_valid(aircraft):
+		horizontal_speed = Vector2(aircraft.linear_velocity.x, aircraft.linear_velocity.z).length()
+	var base_probe_dist: float = maxf(heightmap_safe_direction_probe_dist_m, existing_probe_dist_m)
+	var probe_dist: float = clampf(
+		base_probe_dist + horizontal_speed * maxf(heightmap_safe_direction_probe_speed_scale, 0.0),
+		maxf(heightmap_safe_direction_probe_dist_m, 1.0),
+		maxf(heightmap_safe_direction_probe_max_dist_m, heightmap_safe_direction_probe_dist_m)
+	)
+	var margin: float = maxf(heightmap_safe_direction_margin_m, min_terrain_clearance_m + terrain_escape_margin_m)
+	var sample_radius: float = maxf(heightmap_safe_direction_sample_radius_m, 0.0)
+	var safe_pull: Vector3 = Vector3.ZERO
+	var avoid_push: Vector3 = Vector3.ZERO
+	var strongest_risk: float = 0.0
+	var best_score: float = -INF
+	var best_dir: Vector3 = reference_forward.normalized()
+	for i in range(sample_count):
+		var angle_rad: float = TAU * float(i) / float(sample_count)
+		var dir: Vector3 = (reference_forward * cos(angle_rad) + reference_right * sin(angle_rad)).normalized()
+		var dir_risk: float = 0.0
+		for sample_i in range(2):
+			var sample_frac: float = 0.45 if sample_i == 0 else 1.0
+			var sample_pos: Vector3 = current_pos + dir * (probe_dist * sample_frac)
+			var terrain_h: float = _get_heightmap_safe_direction_sample_height(sample_pos, sample_radius)
+			if is_nan(terrain_h):
+				continue
+			var clearance: float = current_pos.y - terrain_h
+			var sample_risk: float = clampf((margin - clearance) / margin, 0.0, 1.0)
+			dir_risk = maxf(dir_risk, sample_risk)
+		strongest_risk = maxf(strongest_risk, dir_risk)
+		var forward_preference: float = clampf((dir.dot(reference_forward) + 1.0) * 0.5, 0.0, 1.0)
+		var safe_score: float = (1.0 - dir_risk) * (0.35 + forward_preference * 0.65)
+		if safe_score > best_score:
+			best_score = safe_score
+			best_dir = dir
+		safe_pull += dir * safe_score * safe_score
+		avoid_push -= dir * dir_risk * dir_risk * (1.15 + forward_preference * 0.35)
+	if strongest_risk <= 0.0:
+		return {}
+	var combined: Vector3 = avoid_push + safe_pull * 0.25
+	if combined.length_squared() < 0.001:
+		combined = best_dir
+	return {
+		"direction": combined.normalized(),
+		"strength": clampf(strongest_risk * 1.45, 0.0, 1.0),
+	}
 
 
 func _sample_max_terrain_height_along_path(from_pos: Vector3, to_pos: Vector3) -> float:

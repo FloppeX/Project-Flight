@@ -221,6 +221,8 @@ func _apply_manual_ballistics(delta: float) -> void:
 	linear_velocity += gravity_vec * delta
 
 func _on_body_entered(body):
+	if has_impacted or is_shooter_body(body):
+		return
 	_emit_debug_report("impact", body)
 	if is_ground_or_terrain(body):
 		_create_ground_bullet_mark(body)

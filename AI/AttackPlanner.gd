@@ -114,17 +114,14 @@ static func _build_best_lane_for_weapon(
 	var best_score := -INF
 	for dir in lanes:
 		var right := Vector3.UP.cross(dir).normalized()
-		var side_sign := 1.0 if (int(absf(dir.x * 1000.0) + absf(dir.z * 1000.0)) % 2 == 0) else -1.0
 		var ingress := target_pos - dir * ingress_dist
 		var fire_start := target_pos - dir * fire_start_dist
 		var fire_end := target_pos - dir * fire_end_dist
-		var egress := target_pos + dir * egress_dist + right * egress_side * side_sign
 
 		ingress = _with_safe_altitude(ingress, attack_agl, height_sampler)
 		fire_start = _with_safe_altitude(fire_start, attack_agl, height_sampler)
 		fire_end = _with_safe_altitude(fire_end, attack_agl, height_sampler)
-		egress = _with_safe_altitude(egress, egress_agl, height_sampler)
-		if ingress == Vector3.INF or fire_start == Vector3.INF or fire_end == Vector3.INF or egress == Vector3.INF:
+		if ingress == Vector3.INF or fire_start == Vector3.INF or fire_end == Vector3.INF:
 			continue
 
 		var clearance := float(profile.get("terrain_clearance_m", 45.0))
@@ -133,9 +130,12 @@ static func _build_best_lane_for_weapon(
 			continue
 		if not _segment_is_clear(ingress, fire_start, clearance, height_sampler):
 			continue
-		if not _segment_is_clear(fire_start, fire_end, clearance, height_sampler):
+		var corridor_clearance := clearance + float(params.get("fire_corridor_extra_clearance_m", 25.0))
+		if not _corridor_is_clear(fire_start, fire_end, corridor_clearance, height_sampler):
 			continue
-		if not _segment_is_clear(fire_end, egress, clearance, height_sampler):
+		# Turning break-off egress (see snapshot path). Reject lane if no clear break.
+		var egress := _find_clear_break_egress_sampler(fire_end, dir, right, egress_dist, egress_side, egress_agl, clearance, height_sampler)
+		if egress == Vector3.INF:
 			continue
 
 		var alignment := 0.0
@@ -198,17 +198,14 @@ static func _build_best_lane_for_weapon_snapshot(
 	var best_score := -INF
 	for dir in lanes:
 		var right := Vector3.UP.cross(dir).normalized()
-		var side_sign := 1.0 if (int(absf(dir.x * 1000.0) + absf(dir.z * 1000.0)) % 2 == 0) else -1.0
 		var ingress := target_pos - dir * ingress_dist
 		var fire_start := target_pos - dir * fire_start_dist
 		var fire_end := target_pos - dir * fire_end_dist
-		var egress := target_pos + dir * egress_dist + right * egress_side * side_sign
 
 		ingress = _with_safe_altitude_from_grid(ingress, attack_agl, grid)
 		fire_start = _with_safe_altitude_from_grid(fire_start, attack_agl, grid)
 		fire_end = _with_safe_altitude_from_grid(fire_end, attack_agl, grid)
-		egress = _with_safe_altitude_from_grid(egress, egress_agl, grid)
-		if ingress == Vector3.INF or fire_start == Vector3.INF or fire_end == Vector3.INF or egress == Vector3.INF:
+		if ingress == Vector3.INF or fire_start == Vector3.INF or fire_end == Vector3.INF:
 			continue
 
 		var clearance := float(profile.get("terrain_clearance_m", 45.0))
@@ -217,9 +214,20 @@ static func _build_best_lane_for_weapon_snapshot(
 			continue
 		if not _segment_is_clear_from_grid(ingress, fire_start, clearance, grid):
 			continue
-		if not _segment_is_clear_from_grid(fire_start, fire_end, clearance, grid):
+		# The firing corridor is flown as a committed straight line while the heli
+		# pitches down to aim (it can't dodge here). Validate it with finer sampling
+		# and extra clearance so a cliff rising into the run can't be missed between
+		# coarse samples — this is the leg that produces head-first cliff crashes.
+		var corridor_clearance := clearance + float(params.get("fire_corridor_extra_clearance_m", 25.0))
+		if not _corridor_is_clear_from_grid(fire_start, fire_end, corridor_clearance, grid):
 			continue
-		if not _segment_is_clear_from_grid(fire_end, egress, clearance, grid):
+
+		# Egress is a TURNING break-off, not a straight overrun past the target (which
+		# flew the heli into terrain behind defended positions). From fire_end, break
+		# to whichever side is terrain-clear, angled back the way we came. Try both
+		# sides and require the break leg to be clear; reject the lane if neither is.
+		var egress := _find_clear_break_egress(fire_end, dir, right, egress_dist, egress_side, egress_agl, clearance, grid)
+		if egress == Vector3.INF:
 			continue
 
 		var alignment := 0.0
@@ -254,11 +262,11 @@ static func _weapon_profile(weapon_kind: String, params: Dictionary) -> Dictiona
 				"score_bias": 3.0,
 				"min_plan_distance_m": 450.0,
 				"max_plan_distance_m": float(params.get("rocket_max_plan_distance_m", 5200.0)),
-				"ingress_distance_m": 1050.0,
-				"fire_start_distance_m": 720.0,
-				"fire_end_distance_m": 260.0,
-				"egress_distance_m": 1150.0,
-				"egress_side_offset_m": 340.0,
+				"ingress_distance_m": 700.0,
+				"fire_start_distance_m": 480.0,
+				"fire_end_distance_m": 320.0,
+				"egress_distance_m": 700.0,
+				"egress_side_offset_m": 500.0,
 				"attack_agl_m": float(params.get("rocket_attack_agl_m", 90.0)),
 				"egress_agl_m": float(params.get("rocket_egress_agl_m", 125.0)),
 				"terrain_clearance_m": float(params.get("rocket_terrain_clearance_m", 55.0)),
@@ -272,11 +280,11 @@ static func _weapon_profile(weapon_kind: String, params: Dictionary) -> Dictiona
 				"score_bias": 1.0,
 				"min_plan_distance_m": 250.0,
 				"max_plan_distance_m": float(params.get("gun_max_plan_distance_m", 3200.0)),
-				"ingress_distance_m": 720.0,
-				"fire_start_distance_m": 480.0,
-				"fire_end_distance_m": 180.0,
-				"egress_distance_m": 760.0,
-				"egress_side_offset_m": 260.0,
+				"ingress_distance_m": 560.0,
+				"fire_start_distance_m": 400.0,
+				"fire_end_distance_m": 240.0,
+				"egress_distance_m": 600.0,
+				"egress_side_offset_m": 420.0,
 				"attack_agl_m": float(params.get("gun_attack_agl_m", 75.0)),
 				"egress_agl_m": float(params.get("gun_egress_agl_m", 105.0)),
 				"terrain_clearance_m": float(params.get("gun_terrain_clearance_m", 45.0)),
@@ -359,6 +367,49 @@ static func _segment_is_clear(a: Vector3, b: Vector3, clearance_m: float, height
 	return true
 
 
+static func _find_clear_break_egress_sampler(
+		fire_end: Vector3,
+		dir: Vector3,
+		right: Vector3,
+		egress_dist: float,
+		egress_side: float,
+		egress_agl: float,
+		clearance_m: float,
+		height_sampler: Callable
+) -> Vector3:
+	var back := -dir
+	var lateral := maxf(egress_side, 1.0)
+	var behind := maxf(egress_dist * 0.5, 1.0)
+	for side_sign in [1.0, -1.0]:
+		var candidate: Vector3 = fire_end + right * lateral * side_sign + back * behind
+		candidate = _with_safe_altitude(candidate, egress_agl, height_sampler)
+		if candidate == Vector3.INF:
+			continue
+		if _segment_is_clear(fire_end, candidate, clearance_m, height_sampler):
+			return candidate
+	return Vector3.INF
+
+
+static func _corridor_is_clear(a: Vector3, b: Vector3, clearance_m: float, height_sampler: Callable) -> bool:
+	# Finer-sampled (30 m) corridor check for the committed firing run.
+	if not height_sampler.is_valid():
+		return true
+	var distance := _flat_distance(a, b)
+	var steps := maxi(ceili(distance / 30.0), 2)
+	for i in range(steps + 1):
+		var t := float(i) / float(steps)
+		var p := a.lerp(b, t)
+		var height_variant: Variant = height_sampler.call(p)
+		if not (typeof(height_variant) in [TYPE_FLOAT, TYPE_INT]):
+			return false
+		var ground_h := float(height_variant)
+		if is_nan(ground_h):
+			return false
+		if p.y < ground_h + clearance_m:
+			return false
+	return true
+
+
 static func _with_safe_altitude_from_grid(point: Vector3, agl_m: float, grid: Dictionary) -> Vector3:
 	var ground_h := _sample_grid_height(grid, point.x, point.z)
 	if is_nan(ground_h):
@@ -369,6 +420,50 @@ static func _with_safe_altitude_from_grid(point: Vector3, agl_m: float, grid: Di
 static func _segment_is_clear_from_grid(a: Vector3, b: Vector3, clearance_m: float, grid: Dictionary) -> bool:
 	var distance := _flat_distance(a, b)
 	var steps := maxi(ceili(distance / 120.0), 2)
+	for i in range(steps + 1):
+		var t := float(i) / float(steps)
+		var p := a.lerp(b, t)
+		var ground_h := _sample_grid_height(grid, p.x, p.z)
+		if is_nan(ground_h):
+			return false
+		if p.y < ground_h + clearance_m:
+			return false
+	return true
+
+
+static func _find_clear_break_egress(
+		fire_end: Vector3,
+		dir: Vector3,
+		right: Vector3,
+		egress_dist: float,
+		egress_side: float,
+		egress_agl: float,
+		clearance_m: float,
+		grid: Dictionary
+) -> Vector3:
+	# A break-off turn away from the firing direction: mostly lateral, partly back
+	# toward where we came from (negative `dir`), never continuing forward past the
+	# target. Try both sides and pick the first whose break leg is terrain-clear.
+	var back := -dir
+	var lateral := maxf(egress_side, 1.0)
+	var behind := maxf(egress_dist * 0.5, 1.0)
+	for side_sign in [1.0, -1.0]:
+		var candidate: Vector3 = fire_end + right * lateral * side_sign + back * behind
+		candidate = _with_safe_altitude_from_grid(candidate, egress_agl, grid)
+		if candidate == Vector3.INF:
+			continue
+		if _segment_is_clear_from_grid(fire_end, candidate, clearance_m, grid):
+			return candidate
+	return Vector3.INF
+
+
+static func _corridor_is_clear_from_grid(a: Vector3, b: Vector3, clearance_m: float, grid: Dictionary) -> bool:
+	# Like _segment_is_clear_from_grid but with much finer sampling (30 m vs 120 m)
+	# so a thin cliff or sharp rise inside the committed firing run can't slip
+	# between samples. The corridor altitude interpolates a/b, matching the line
+	# the heli actually flies.
+	var distance := _flat_distance(a, b)
+	var steps := maxi(ceili(distance / 30.0), 2)
 	for i in range(steps + 1):
 		var t := float(i) / float(steps)
 		var p := a.lerp(b, t)
