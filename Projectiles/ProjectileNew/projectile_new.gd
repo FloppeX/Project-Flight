@@ -166,6 +166,22 @@ func _get_projectile_query_excludes() -> Array:
 		excludes.append((shooter as CollisionObject3D).get_rid())
 	return excludes
 
+
+func is_shooter_body(body: Node) -> bool:
+	# A physics contact reports the collider that was hit, which may be a child
+	# CollisionShape3D of the shooter, or the shooter's root reached via the parent
+	# chain — a direct `body == shooter` test misses both. Walk up from the hit body
+	# and treat anything belonging to the shooter as self, so the projectile never
+	# damages the aircraft that fired it (the Aircraft_9 self-hit bug).
+	if shooter == null or not is_instance_valid(shooter):
+		return false
+	var node: Node = body
+	while node:
+		if node == shooter:
+			return true
+		node = node.get_parent()
+	return false
+
 func _check_hit_assist(from_pos: Vector3, to_pos: Vector3) -> Dictionary:
 	if not hit_assist_enabled:
 		return {}
@@ -449,7 +465,7 @@ func _segment_fraction_for_point(point: Vector3, seg_start: Vector3, seg_end: Ve
 func _on_body_entered(body):
 	if has_impacted:
 		return
-	if body == shooter:
+	if is_shooter_body(body):
 		return
 
 	var damage_target = find_damage_target(body)

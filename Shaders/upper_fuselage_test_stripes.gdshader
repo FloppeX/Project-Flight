@@ -9,6 +9,9 @@ uniform float pattern_frequency_per_meter = 1.1;
 uniform float pattern_width_fraction = 0.18;
 uniform float roughness = 0.65;
 uniform float metallic = 0.0;
+uniform int projection_mode = 0; // 0 = legacy side, 1 = normal-selected plane, 2 = triplanar blend
+uniform float projection_blend_sharpness = 4.0;
+uniform float box_top_normal_threshold = 0.55;
 uniform bool side_projection_enabled = false;
 
 varying vec3 local_position;
@@ -42,22 +45,7 @@ float band(float value, float width) {
 	return 1.0 - step(width, fract(value));
 }
 
-vec4 apply_pattern(vec3 p, vec3 n) {
-	float h = p.z;
-	float v = p.y;
-	if (side_projection_enabled) {
-		vec3 an = abs(n);
-		if (an.y > an.x && an.y > an.z) {
-			h = p.x;
-			v = p.z;
-		} else if (an.x > an.z) {
-			h = p.z;
-			v = p.y;
-		} else {
-			h = p.x;
-			v = p.y;
-		}
-	}
+vec4 apply_pattern_uv(float h, float v) {
 	vec2 side_uv = vec2(h, v);
 	float freq = max(pattern_frequency_per_meter, 0.05);
 	float width = clamp(pattern_width_fraction, 0.01, 0.95);
@@ -256,6 +244,49 @@ vec4 apply_pattern(vec3 p, vec3 n) {
 	}
 
 	return base_color;
+}
+
+vec2 projection_uv(vec3 p, int axis) {
+	if (axis == 0) {
+		return vec2(p.z, p.y);
+	}
+	if (axis == 1) {
+		return vec2(p.x, p.z);
+	}
+	return vec2(p.x, p.y);
+}
+
+vec4 apply_pattern(vec3 p, vec3 n) {
+	int resolved_projection_mode = projection_mode;
+	if (resolved_projection_mode == 0 && side_projection_enabled) {
+		resolved_projection_mode = 1;
+	}
+
+	if (resolved_projection_mode == 2) {
+		vec3 weights = pow(abs(n), vec3(max(projection_blend_sharpness, 0.001)));
+		weights /= max(weights.x + weights.y + weights.z, 0.001);
+		vec2 uv_x = projection_uv(p, 0);
+		vec2 uv_y = projection_uv(p, 1);
+		vec2 uv_z = projection_uv(p, 2);
+		vec4 color_x = apply_pattern_uv(uv_x.x, uv_x.y);
+		vec4 color_y = apply_pattern_uv(uv_y.x, uv_y.y);
+		vec4 color_z = apply_pattern_uv(uv_z.x, uv_z.y);
+		return color_x * weights.x + color_y * weights.y + color_z * weights.z;
+	}
+
+	if (resolved_projection_mode == 1) {
+		vec3 an = abs(n);
+		vec2 uv = projection_uv(p, 2);
+		if (an.y >= clamp(box_top_normal_threshold, 0.0, 1.0)) {
+			uv = projection_uv(p, 1);
+		} else if (an.x > an.z) {
+			uv = projection_uv(p, 0);
+		}
+		return apply_pattern_uv(uv.x, uv.y);
+	}
+
+	vec2 legacy_uv = projection_uv(p, 0);
+	return apply_pattern_uv(legacy_uv.x, legacy_uv.y);
 }
 
 void fragment() {

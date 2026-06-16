@@ -1250,6 +1250,22 @@ func _get_all_aircraft_nodes() -> Array[RigidBody3D]:
 			all_aircraft.append(aircraft)
 	return all_aircraft
 
+func _is_helicopter_currently_landing_on_carrier(aircraft: RigidBody3D) -> bool:
+	if not is_instance_valid(aircraft):
+		return false
+	if _is_landing_clearance_aircraft_stale(aircraft):
+		return false
+	if aircraft.has_meta("carrier_landing_final_active") and bool(aircraft.get_meta("carrier_landing_final_active")):
+		return true
+	var pilot := aircraft.find_child("HelicopterPilot", true, false)
+	if not is_instance_valid(pilot):
+		return false
+	var landing_on_carrier_variant: Variant = pilot.get("_landing_on_carrier")
+	if landing_on_carrier_variant is bool and bool(landing_on_carrier_variant):
+		return true
+	var carrier_approach_phase_variant: Variant = pilot.get("_carrier_approach_phase")
+	return carrier_approach_phase_variant is int and int(carrier_approach_phase_variant) != 0
+
 func _is_aircraft_blocking_landing_deck(aircraft: RigidBody3D, requester: RigidBody3D = null) -> bool:
 	if not is_instance_valid(aircraft) or aircraft == requester:
 		return false
@@ -1535,6 +1551,9 @@ func _update_landing_clearance_timeout(delta: float) -> void:
 		return
 	_landing_clearance_elapsed_s += maxf(delta, 0.0)
 	if _landing_clearance_elapsed_s < timeout_s:
+		return
+	if _is_helicopter_currently_landing_on_carrier(_landing_clearance_aircraft):
+		_landing_clearance_elapsed_s = 0.0
 		return
 	if _is_aircraft_blocking_landing_deck(_landing_clearance_aircraft):
 		_landing_clearance_elapsed_s = timeout_s

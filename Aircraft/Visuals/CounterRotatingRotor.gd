@@ -23,6 +23,9 @@ extends Node3D
 @export var debug_interval_s: float = 1.0
 @export var blur_start_power: float = 0.5
 @export var blur_full_power: float = 0.9
+@export var disable_fast_rotor_shadows: bool = true
+@export var shadow_disable_power: float = 0.45
+@export var shadow_restore_power: float = 0.30
 @export var rotor_audio_stream: AudioStream = null
 @export var rotor_audio_volume_db: float = 6.0
 @export var rotor_audio_silent_db: float = -24.0
@@ -57,12 +60,15 @@ var _last_lower_step_rad: float = 0.0
 var _upper_disc: Node3D = null
 var _lower_disc: Node3D = null
 var _rotor_audio_player: AudioStreamPlayer3D = null
+var _rotor_shadow_casting: Dictionary = {}
+var _fast_rotor_shadows_disabled: bool = false
 
 
 func _ready() -> void:
 	_cache_blade_rest_pose(upper_rotor)
 	_cache_blade_rest_pose(lower_rotor)
 	_setup_rotor_discs()
+	_cache_rotor_shadow_casting()
 	_setup_rotor_audio()
 	_apply_fold_pose()
 	_print_debug_line("ready")
@@ -696,6 +702,7 @@ func _update_rotor_transparency() -> void:
 		_set_blade_transparency(upper_rotor, blade_transparency)
 	if lower_rotor != null:
 		_set_blade_transparency(lower_rotor, blade_transparency)
+	_update_fast_rotor_shadow_casting()
 
 
 func _set_blade_transparency(rotor: Node3D, transparency: float) -> void:
@@ -711,3 +718,59 @@ func _set_node_transparency(node: Node, transparency: float) -> void:
 		node.transparency = clampf(transparency, 0.0, 1.0)
 	for child in node.get_children():
 		_set_node_transparency(child, transparency)
+
+
+func _cache_rotor_shadow_casting() -> void:
+	_cache_shadow_casting_for_node(upper_rotor)
+	_cache_shadow_casting_for_node(lower_rotor)
+	_cache_shadow_casting_for_node(_upper_disc)
+	_cache_shadow_casting_for_node(_lower_disc)
+
+
+func _cache_shadow_casting_for_node(node: Node) -> void:
+	if node == null:
+		return
+	if node is GeometryInstance3D:
+		var geometry := node as GeometryInstance3D
+		var id: int = geometry.get_instance_id()
+		if not _rotor_shadow_casting.has(id):
+			_rotor_shadow_casting[id] = int(geometry.cast_shadow)
+	for child in node.get_children():
+		_cache_shadow_casting_for_node(child)
+
+
+func _update_fast_rotor_shadow_casting() -> void:
+	if not disable_fast_rotor_shadows:
+		if _fast_rotor_shadows_disabled:
+			_set_fast_rotor_shadows_disabled(false)
+		return
+	if _fast_rotor_shadows_disabled:
+		if _power <= maxf(shadow_restore_power, 0.0):
+			_set_fast_rotor_shadows_disabled(false)
+	elif _power >= maxf(shadow_disable_power, 0.0):
+		_set_fast_rotor_shadows_disabled(true)
+
+
+func _set_fast_rotor_shadows_disabled(disabled: bool) -> void:
+	_fast_rotor_shadows_disabled = disabled
+	_set_rotor_shadow_disabled_for_node(upper_rotor, disabled)
+	_set_rotor_shadow_disabled_for_node(lower_rotor, disabled)
+	_set_rotor_shadow_disabled_for_node(_upper_disc, disabled)
+	_set_rotor_shadow_disabled_for_node(_lower_disc, disabled)
+
+
+func _set_rotor_shadow_disabled_for_node(node: Node, disabled: bool) -> void:
+	if node == null:
+		return
+	if node is GeometryInstance3D:
+		var geometry := node as GeometryInstance3D
+		var id: int = geometry.get_instance_id()
+		if disabled:
+			if not _rotor_shadow_casting.has(id):
+				_rotor_shadow_casting[id] = int(geometry.cast_shadow)
+			geometry.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		else:
+			var original: int = int(_rotor_shadow_casting.get(id, GeometryInstance3D.SHADOW_CASTING_SETTING_ON))
+			geometry.cast_shadow = original
+	for child in node.get_children():
+		_set_rotor_shadow_disabled_for_node(child, disabled)

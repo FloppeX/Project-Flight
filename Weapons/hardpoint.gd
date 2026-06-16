@@ -37,11 +37,17 @@ func mount_weapon_from_scene(weapon_scene: PackedScene) -> bool:
 	if attachment_point:
 		weapon_instance.position = -attachment_point.position
 
-	aircraft = get_parent() as RigidBody3D
-	while aircraft and not (aircraft is RigidBody3D):
-		aircraft = aircraft.get_parent()
+	aircraft = _find_parent_aircraft()
 
 	return true
+
+func _find_parent_aircraft() -> RigidBody3D:
+	var node := get_parent()
+	while node:
+		if node is RigidBody3D:
+			return node as RigidBody3D
+		node = node.get_parent()
+	return null
 
 func _is_weapon_allowed(weapon_scene: PackedScene, candidate_weapon: Weapon) -> bool:
 	if allowed_weapon_scene_paths.size() == 0 and allowed_weapon_names.size() == 0:

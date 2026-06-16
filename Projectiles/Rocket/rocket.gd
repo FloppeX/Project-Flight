@@ -166,7 +166,7 @@ func _emit_smoke_particle() -> void:
 func _on_body_entered(body: Node) -> void:
 	if has_impacted:
 		return
-	if body == shooter:
+	if is_shooter_body(body):
 		return
 	if is_instance_valid(_rocket_audio_player):
 		_rocket_audio_player.stop()

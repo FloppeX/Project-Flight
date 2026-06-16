@@ -83,12 +83,12 @@ metadata/is_helicopter = true
 [node name="aircraft_9" parent="." unique_id=121942449 instance=ExtResource("3_model")]
 
 [node name="Hardpoint1" parent="aircraft_9" unique_id=644820402 instance=ExtResource("5_5ulbv")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.73, -1.3, -0.55)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.776, -1.2679851, -0.55)
 mounted_weapon = ExtResource("6_hucme")
 hardpoint_id = 1
 
 [node name="Hardpoint2" parent="aircraft_9" unique_id=1611232195 instance=ExtResource("5_5ulbv")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.73, -1.3, -0.55)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.775692, -1.2679851, -0.55)
 mounted_weapon = ExtResource("7_px4s7")
 hardpoint_id = 2
 
