@@ -118,9 +118,11 @@ static func _build_best_lane_for_weapon(
 		var fire_start := target_pos - dir * fire_start_dist
 		var fire_end := target_pos - dir * fire_end_dist
 
-		ingress = _with_safe_altitude(ingress, attack_agl, height_sampler)
-		fire_start = _with_safe_altitude(fire_start, attack_agl, height_sampler)
-		fire_end = _with_safe_altitude(fire_end, attack_agl, height_sampler)
+		# Prefer a run-in roughly level with the target, clamped up to terrain clearance.
+		var min_clear := float(profile.get("terrain_clearance_m", 45.0))
+		ingress = _with_target_altitude(ingress, target_pos.y, min_clear, attack_agl, height_sampler)
+		fire_start = _with_target_altitude(fire_start, target_pos.y, min_clear, attack_agl, height_sampler)
+		fire_end = _with_target_altitude(fire_end, target_pos.y, min_clear, attack_agl, height_sampler)
 		if ingress == Vector3.INF or fire_start == Vector3.INF or fire_end == Vector3.INF:
 			continue
 
@@ -202,9 +204,13 @@ static func _build_best_lane_for_weapon_snapshot(
 		var fire_start := target_pos - dir * fire_start_dist
 		var fire_end := target_pos - dir * fire_end_dist
 
-		ingress = _with_safe_altitude_from_grid(ingress, attack_agl, grid)
-		fire_start = _with_safe_altitude_from_grid(fire_start, attack_agl, grid)
-		fire_end = _with_safe_altitude_from_grid(fire_end, attack_agl, grid)
+		# Prefer a run-in roughly LEVEL with the target (fly in at the target's height),
+		# clamped up to terrain clearance so it never drops into a hill. Falls back to
+		# the AGL placement only where terrain forces it higher.
+		var min_clear := float(profile.get("terrain_clearance_m", 45.0))
+		ingress = _with_target_altitude_from_grid(ingress, target_pos.y, min_clear, attack_agl, grid)
+		fire_start = _with_target_altitude_from_grid(fire_start, target_pos.y, min_clear, attack_agl, grid)
+		fire_end = _with_target_altitude_from_grid(fire_end, target_pos.y, min_clear, attack_agl, grid)
 		if ingress == Vector3.INF or fire_start == Vector3.INF or fire_end == Vector3.INF:
 			continue
 
@@ -348,6 +354,27 @@ static func _with_safe_altitude(point: Vector3, agl_m: float, height_sampler: Ca
 	return Vector3(point.x, ground_h + maxf(agl_m, 1.0), point.z)
 
 
+static func _with_target_altitude(point: Vector3, target_y: float, min_clear_m: float, fallback_agl_m: float, height_sampler: Callable) -> Vector3:
+	# Place the waypoint at the target's height (level run-in), but never below the
+	# terrain clearance floor. Where terrain is higher than the target, ride the
+	# fallback AGL above it.
+	if not height_sampler.is_valid():
+		return Vector3(point.x, target_y, point.z)
+	var height_variant: Variant = height_sampler.call(point)
+	if not (typeof(height_variant) in [TYPE_FLOAT, TYPE_INT]):
+		return Vector3.INF
+	var ground_h := float(height_variant)
+	if is_nan(ground_h):
+		return Vector3.INF
+	var floor_y := ground_h + maxf(min_clear_m, 1.0)
+	var y := maxf(target_y, floor_y)
+	# If terrain is so high the clearance floor sits well above the target, ride a bit
+	# higher (fallback AGL) rather than skimming.
+	if floor_y > target_y:
+		y = maxf(y, ground_h + maxf(fallback_agl_m, min_clear_m))
+	return Vector3(point.x, y, point.z)
+
+
 static func _segment_is_clear(a: Vector3, b: Vector3, clearance_m: float, height_sampler: Callable) -> bool:
 	if not height_sampler.is_valid():
 		return true
@@ -415,6 +442,19 @@ static func _with_safe_altitude_from_grid(point: Vector3, agl_m: float, grid: Di
 	if is_nan(ground_h):
 		return Vector3.INF
 	return Vector3(point.x, ground_h + maxf(agl_m, 1.0), point.z)
+
+
+static func _with_target_altitude_from_grid(point: Vector3, target_y: float, min_clear_m: float, fallback_agl_m: float, grid: Dictionary) -> Vector3:
+	# Place the waypoint at the target's height (level run-in), clamped up to terrain
+	# clearance; ride the fallback AGL where terrain rises above the target.
+	var ground_h := _sample_grid_height(grid, point.x, point.z)
+	if is_nan(ground_h):
+		return Vector3.INF
+	var floor_y := ground_h + maxf(min_clear_m, 1.0)
+	var y := maxf(target_y, floor_y)
+	if floor_y > target_y:
+		y = maxf(y, ground_h + maxf(fallback_agl_m, min_clear_m))
+	return Vector3(point.x, y, point.z)
 
 
 static func _segment_is_clear_from_grid(a: Vector3, b: Vector3, clearance_m: float, grid: Dictionary) -> bool:

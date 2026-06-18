@@ -47,6 +47,8 @@ func _input(event: InputEvent) -> void:
 	var key_event: InputEventKey = event as InputEventKey
 	if not key_event.pressed or key_event.echo:
 		return
+	if not key_event.ctrl_pressed:
+		return
 	if key_event.keycode == KEY_UP:
 		var new_radius_up: float = ProjectileNew.adjust_hit_assist_radius_m(0.2)
 		print("[Projectile] Hit assist radius: %.1fm" % new_radius_up)
