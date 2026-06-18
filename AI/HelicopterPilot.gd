@@ -275,6 +275,10 @@ enum MissionPhase {
 @export var max_cyclic_input: float = 1.0
 @export var max_yaw_input: float = 0.85
 @export var cyclic_rate: float = 0.65
+# Expo on AI control demands (pitch/roll/yaw): 0 = linear (no softening), 1 = full
+# cubic. Softens small inputs so the AI flies with gentle stick near centre while
+# keeping full authority at the extremes. ~0.5 ≈ how a human rides small inputs.
+@export_range(0.0, 1.0) var control_input_expo: float = 0.5
 @export var transit_max_nose_up: float = 0.05
 @export var cyclic_speed_gain: float = 0.026
 @export var cyclic_speed_d_gain: float = 0.010
@@ -409,6 +413,15 @@ enum MissionPhase {
 @export var combat_min_carrier_distance_m: float = 1800.0
 @export var combat_ingress_reach_radius_m: float = 160.0
 @export var combat_fire_end_radius_m: float = 160.0
+# Attack run flies straight at the target; it breaks off (ends the run) when within
+# this distance of the target so it doesn't fly into it.
+@export var combat_attack_breakoff_radius_m: float = 300.0
+# Also break off if the velocity-vs-target alignment drops below this (the heli is
+# flying away / has overflown the target). 0.2 ≈ velocity more than ~78° off target.
+@export var combat_attack_breakoff_away_dot: float = 0.2
+# Extra distance behind the ingress point (along the attack line) for the setup
+# waypoint, giving a longer straight run-in to settle onto the attack heading.
+@export var combat_attack_setup_distance_m: float = 900.0
 @export var combat_egress_reach_radius_m: float = 220.0
 @export var combat_transit_yaw_gain_scale: float = 1.0
 @export var combat_plan_async_enabled: bool = true
@@ -416,6 +429,11 @@ enum MissionPhase {
 @export var combat_debug_enabled: bool = true
 @export var combat_report_enabled: bool = true
 @export var combat_report_debug_events_enabled: bool = false
+# Periodic full-state snapshot of the aim/flight controller during attack runs, so
+# we can see exactly what the helicopter is doing (errors, commanded inputs, actual
+# attitude/velocity, phase). Pure logging — no behaviour change.
+@export var combat_report_aim_samples_enabled: bool = true
+@export var combat_report_aim_sample_interval_s: float = 0.2
 @export var combat_report_path: String = "user://heli_combat_report.log"
 @export var combat_report_project_mirror_enabled: bool = true
 @export var combat_report_project_mirror_path: String = "res://heli_combat_report.log"
@@ -426,6 +444,11 @@ enum MissionPhase {
 @export var combat_route_advance_radius_m: float = 85.0
 @export var combat_route_carrot_distance_m: float = 520.0
 @export var combat_route_fire_corridor_spacing_m: float = 140.0
+# Combat route simplification: drop waypoints closer than this and ones that don't
+# bend the path by at least the min-turn angle (removes tight wiggles / clutter).
+# Phase-boundary and endpoint waypoints are always kept.
+@export var combat_route_min_segment_m: float = 350.0
+@export var combat_route_min_turn_deg: float = 30.0
 # Runtime safety net: during the committed firing run, abort the attack if terrain
 # rises into the flight path ahead (plan went stale / heli drifted off the
 # validated corridor) instead of flying head-first into a cliff.
@@ -436,6 +459,12 @@ enum MissionPhase {
 @export var combat_attack_corridor_clearance_m: float = 30.0
 @export var combat_route_emergency_corridor_clearance_m: float = 18.0
 @export var combat_aim_enabled: bool = true
+# Fine yaw correction added on TOP of the path-follower's yaw during attack, to put
+# the crosshair precisely on the target. Tightly bounded + rate-damped so it nudges
+# the aim rather than slamming full pedal and fighting the path-follow.
+@export var combat_aim_fine_yaw_gain: float = 0.8
+@export var combat_aim_fine_yaw_rate_damping: float = 0.5
+@export var combat_aim_fine_yaw_max_input: float = 0.35
 @export var combat_aim_yaw_p: float = 0.85
 @export var combat_aim_yaw_i: float = 0.0
 # Yaw derivative (rate) damping. Raised to settle the nose in azimuth instead of
@@ -445,6 +474,21 @@ enum MissionPhase {
 @export var combat_aim_pitch_i: float = 0.08
 @export var combat_aim_pitch_d: float = 0.035
 @export var combat_aim_integral_limit: float = 0.35
+# --- Simple "point the nose at the enemy" yaw override ---
+# When there's a combat target, override yaw_input at the output with a plain
+# proportional-minus-rate-damping turn toward the target's horizontal bearing.
+# This bypasses ALL the other aim/takeover/maneuver logic for yaw — the one job is
+# to swing the nose onto the enemy and hold it there. Pitch/roll are untouched.
+# DISABLED: the pedal-yaw override fought the normal coordinated turn — it pivoted
+# the nose with the tail rotor (causing sideways slip, no bank) instead of letting
+# the heli bank and fly toward the target the way it turns on any other path. With
+# _nav_waypoint set to the target, the standard flight controller already steers
+# toward the enemy by banking. Leave this off unless that proves insufficient.
+@export var combat_point_nose_enabled: bool = false
+@export var combat_point_nose_yaw_gain: float = 2.0
+@export var combat_point_nose_yaw_rate_damping: float = 0.6
+@export var combat_point_nose_max_yaw_input: float = 1.0
+@export var combat_point_nose_deadband_deg: float = 1.0
 @export var combat_aim_max_yaw_input: float = 0.62
 @export var combat_aim_yaw_deadband_deg: float = 0.35
 @export var combat_aim_yaw_correction_rate: float = 1.25
@@ -679,6 +723,9 @@ var _combat_aim_prev_yaw_error: float = NAN
 var _combat_aim_prev_pitch_error: float = NAN
 var _combat_aim_last_yaw_correction: float = 0.0
 var _combat_aim_settle_s: float = 0.0
+var _combat_aim_sample_next_s: float = 0.0
+var _combat_turn_log_next_s: float = 0.0
+var _combat_point_nose_last_yaw_input: float = NAN
 var _combat_rocket_assess_until_s: float = 0.0
 var _combat_rocket_salvos_fired: int = 0
 var _combat_rocket_next_hardpoint_index: int = 0
@@ -1031,6 +1078,16 @@ func add_passenger(pilot_node: Node3D) -> void:
 
 func get_active_waypoints() -> Array[Vector3]:
 	var route: Array[Vector3] = []
+	# When attacking, show the combat/attack route (setup legs + firing run + egress)
+	# from the helicopter's current point onward, so the attack path is visible on the
+	# map/radar like any other route.
+	if _combat_route_ready and not _combat_route_points.is_empty():
+		var start: int = clampi(_combat_route_index, 0, _combat_route_points.size() - 1)
+		for i in range(start, _combat_route_points.size()):
+			var p := _combat_route_points[i]
+			if route.is_empty() or _flat_distance(route[route.size() - 1], p) > 1.0:
+				route.append(p)
+		return route
 	if not _heightmap_path.is_empty():
 		var start_index: int = clampi(_heightmap_path_index, 0, _heightmap_path.size() - 1)
 		for i in range(start_index, _heightmap_path.size()):
@@ -4278,6 +4335,11 @@ func _fly_transit_vector(target: Vector3, desired_speed: float, delta: float) ->
 		pedal_turn
 	)
 	var heading_yaw := turn_error * transit_yaw_gain
+	if combat_report_enabled and absf(turn_error) > deg_to_rad(20.0) and _elapsed_s() >= _combat_turn_log_next_s:
+		_combat_turn_log_next_s = _elapsed_s() + 0.15
+		var tdetail := "turn_err=%.0f sharp=%.2f pedal=%.2f yaw_gain=%.2f yaw_lim=%.2f heading_yaw=%.2f spd=%.0f" % [
+			rad_to_deg(turn_error), sharp_turn, pedal_turn, transit_yaw_gain, yaw_limit, heading_yaw, horizontal_speed]
+		_write_combat_report_event("TURN", tdetail, "[HELI_COMBAT] event=TURN " + tdetail)
 	# Coordinated turn: measure the sideslip angle between the nose and the velocity
 	# vector and yaw to null it, keeping the flight path vector pointing forward.
 	var coordinated_yaw := 0.0
@@ -4292,13 +4354,24 @@ func _fly_transit_vector(target: Vector3, desired_speed: float, delta: float) ->
 	var yaw_rate_scale: float = 1.0
 	var combat_aim: Dictionary = _get_combat_aim_commands(target_pitch, target_roll, target_yaw, delta, cyclic_limit, yaw_limit)
 	if not combat_aim.is_empty():
+		# Pitch/dive aiming comes from the combat controller.
 		target_pitch = float(combat_aim.get("pitch", target_pitch))
-		target_roll = float(combat_aim.get("roll", target_roll))
-		target_yaw = float(combat_aim.get("yaw", target_yaw))
 		pitch_rate_scale = maxf(float(combat_aim.get("pitch_rate_scale", 1.0)), 0.01)
-		yaw_rate_scale = maxf(float(combat_aim.get("yaw_rate_scale", 1.0)), 0.01)
 		combat_collective_floor = float(combat_aim.get("collective_floor", -1.0))
 		combat_dive_alt_offset = float(combat_aim.get("dive_alt_offset", 0.0))
+		# Yaw: keep the path-follower's yaw as the base (it already turns the body
+		# toward the target as it flies the path) and ADD a small, tightly-bounded
+		# correction to put the crosshair precisely on the target. Bounded + rate-
+		# damped so it fine-tunes the aim instead of slamming full pedal and fighting
+		# the path-follow (which caused the erratic weaving).
+		var aim_yaw_err: float = float(combat_aim.get("yaw_error", 0.0))
+		var aim_yaw_corr: float = clampf(
+			aim_yaw_err * maxf(combat_aim_fine_yaw_gain, 0.0)
+			- aircraft.angular_velocity.y * maxf(combat_aim_fine_yaw_rate_damping, 0.0),
+			-maxf(combat_aim_fine_yaw_max_input, 0.0),
+			maxf(combat_aim_fine_yaw_max_input, 0.0)
+		)
+		target_yaw = clampf(target_yaw + aim_yaw_corr, -yaw_limit, yaw_limit)
 
 	# Emergency sink recovery: if descending fast at low AGL, override everything —
 	# level the nose, flatten roll, and go to full collective immediately.
@@ -4321,6 +4394,13 @@ func _fly_transit_vector(target: Vector3, desired_speed: float, delta: float) ->
 			target_roll = lerpf(target_roll, 0.0, emergency_t)
 			_debug_event("sink_recovery", "t=%.2f agl=%.1f sink=%.1f" % [emergency_t, agl, sink_rate]) if emergency_t > 0.5 else null
 
+	# Encourage small, smooth inputs like a human pilot: expo-soften the command
+	# targets so near-neutral demands stay gentle, while full authority is preserved
+	# at the extremes (expo leaves ±1.0 unchanged). This biases the AI toward riding
+	# near centre and only reaching for big stick when the error is genuinely large.
+	target_pitch = _apply_control_expo(target_pitch)
+	target_roll = _apply_control_expo(target_roll)
+	target_yaw = _apply_control_expo(target_yaw)
 	_pitch_cmd = move_toward(_pitch_cmd, target_pitch, maxf(cyclic_rate, 0.01) * pitch_rate_scale * delta)
 	_roll_cmd = move_toward(_roll_cmd, target_roll, maxf(cyclic_rate, 0.01) * delta)
 	_yaw_cmd = move_toward(_yaw_cmd, target_yaw, maxf(yaw_command_rate, 0.01) * yaw_rate_scale * delta)
@@ -5573,17 +5653,17 @@ func _finish_combat_route_job_if_ready() -> bool:
 	if route_points.is_empty():
 		_reset_combat_route_state()
 		return false
-	_combat_route_points = route_points
-	_combat_route_phases = PackedStringArray()
+	var route_phases := PackedStringArray()
 	if phases_variant is PackedStringArray:
-		var packed_phases: PackedStringArray = phases_variant as PackedStringArray
-		_combat_route_phases = packed_phases
+		route_phases = phases_variant as PackedStringArray
 	elif phases_variant is Array:
-		var phases_array: Array = phases_variant as Array
-		for phase_variant in phases_array:
-			_combat_route_phases.append(String(phase_variant))
-	while _combat_route_phases.size() < _combat_route_points.size():
-		_combat_route_phases.append("ingress")
+		for phase_variant in (phases_variant as Array):
+			route_phases.append(String(phase_variant))
+	while route_phases.size() < route_points.size():
+		route_phases.append("ingress")
+	_simplify_combat_route(route_points, route_phases)
+	_combat_route_points = route_points
+	_combat_route_phases = route_phases
 	_combat_route_index = 0
 	_combat_route_ready = true
 	_log_combat_debug("route", "ready points=%d fallback=%s" % [
@@ -5591,6 +5671,42 @@ func _finish_combat_route_job_if_ready() -> bool:
 		str(_combat_variant_truthy(result.get("used_direct_fallback", false))),
 	], true)
 	return true
+
+
+func _simplify_combat_route(points: Array[Vector3], phases: PackedStringArray) -> void:
+	# Thin out the combat route: enforce a minimum spacing between waypoints and drop
+	# near-collinear ones so turns are spread out (no tight wiggles). Always keep the
+	# first point, the last point, and any phase-boundary point (the run-in/firing/
+	# egress transitions must survive or the phase machine breaks).
+	if points.size() <= 2:
+		return
+	var min_len: float = maxf(combat_route_min_segment_m, 1.0)
+	var min_turn_cos: float = cos(deg_to_rad(clampf(combat_route_min_turn_deg, 0.0, 179.0)))
+	var kept_points: Array[Vector3] = [points[0]]
+	var kept_phases := PackedStringArray([phases[0] if phases.size() > 0 else "ingress"])
+	for i in range(1, points.size() - 1):
+		var phase: String = phases[i] if i < phases.size() else "ingress"
+		var prev_phase: String = kept_phases[kept_phases.size() - 1]
+		var next_phase: String = phases[i + 1] if i + 1 < phases.size() else "ingress"
+		var is_boundary: bool = phase != prev_phase or phase != next_phase
+		var far_enough: bool = _flat_distance(kept_points[kept_points.size() - 1], points[i]) >= min_len
+		# Turn the kept->this->next angle makes; keep the point only if it bends the
+		# path meaningfully (a real corner). Small bends are redundant -> drop.
+		var a := points[i] - kept_points[kept_points.size() - 1]
+		a.y = 0.0
+		var b := points[i + 1] - points[i]
+		b.y = 0.0
+		var is_corner: bool = false
+		if a.length_squared() > 1.0 and b.length_squared() > 1.0:
+			is_corner = a.normalized().dot(b.normalized()) < min_turn_cos
+		if is_boundary or (far_enough and is_corner):
+			kept_points.append(points[i])
+			kept_phases.append(phase)
+	kept_points.append(points[points.size() - 1])
+	kept_phases.append(phases[points.size() - 1] if points.size() - 1 < phases.size() else "ingress")
+	points.assign(kept_points)
+	phases.clear()
+	phases.append_array(kept_phases)
 
 
 func _cancel_combat_plan_job() -> void:
@@ -5647,9 +5763,21 @@ func _build_combat_route_job_data(grid: Dictionary) -> Dictionary:
 	var fire_start := _combat_plan_position("fire_start")
 	var fire_end := _combat_plan_position("fire_end")
 	var egress := _combat_plan_position("egress")
+	# Setup point: further back along the attack line than ingress, so the approach
+	# leg (current -> setup) does the turning via A*, and setup -> ingress -> fire_start
+	# is a straight run flown along the attack heading. This sets the helicopter up
+	# pointed the right way before the firing run, instead of arriving at an angle.
+	var attack_dir_variant: Variant = _combat_plan.get("attack_direction", Vector3.ZERO)
+	var setup: Vector3 = ingress
+	if attack_dir_variant is Vector3 and (attack_dir_variant as Vector3).length_squared() > 0.001:
+		setup = ingress - (attack_dir_variant as Vector3).normalized() * maxf(combat_attack_setup_distance_m, 1.0)
+		setup.y = ingress.y
 	var legs: Array[Dictionary] = []
-	_append_combat_path_leg(legs, current_pos, ingress, "ingress", grid, params, reference_ground, max_route_terrain_y)
-	_append_combat_path_leg(legs, ingress, fire_start, "ingress", grid, params, reference_ground, max_route_terrain_y)
+	# current -> setup: A* around terrain to reach the start of the straight run-in.
+	_append_combat_path_leg(legs, current_pos, setup, "ingress", grid, params, reference_ground, max_route_terrain_y)
+	# setup -> ingress -> fire_start: straight run-in along the attack line (aligns heading).
+	_append_combat_straight_leg(legs, setup, ingress, "ingress")
+	_append_combat_straight_leg(legs, ingress, fire_start, "ingress")
 	_append_combat_fire_corridor_leg(legs, fire_start, fire_end)
 	_append_combat_path_leg(legs, fire_end, egress, "egress", grid, params, reference_ground, max_route_terrain_y)
 	if legs.is_empty():
@@ -5686,6 +5814,17 @@ func _append_combat_fire_corridor_leg(legs: Array[Dictionary], start: Vector3, g
 	for i in range(1, steps + 1):
 		var t := float(i) / float(steps)
 		legs.append({"kind": "direct_point", "point": start.lerp(goal, t), "phase": "attack"})
+
+
+func _append_combat_straight_leg(legs: Array[Dictionary], start: Vector3, goal: Vector3, phase: String) -> void:
+	# Densified straight points so the route follower flies this segment as a line
+	# (a heading-aligning run-in), not a curved A* path that arrives at an angle.
+	var spacing := maxf(combat_route_fire_corridor_spacing_m, 10.0)
+	var distance := _flat_distance(start, goal)
+	var steps := maxi(int(ceil(distance / spacing)), 1)
+	for i in range(1, steps + 1):
+		var t := float(i) / float(steps)
+		legs.append({"kind": "direct_point", "point": start.lerp(goal, t), "phase": phase})
 
 
 func _get_threaded_heightmap_path_params(reference_ground: float, max_route_terrain_y: float, flight_ceiling: float) -> Dictionary:
@@ -5998,6 +6137,18 @@ func _execute_combat_attack(fallback_speed_mps: float) -> bool:
 		_clear_combat_attack("target_lost")
 		return false
 
+	# In the attack phase the rich sample is emitted from _get_combat_aim_commands
+	# (it has the live corrections). For ingress/egress/lineup, emit a lighter sample
+	# here so the whole run is visible — this is where the "sliding around / not lined
+	# up" behaviour lives.
+	if _combat_phase != "attack":
+		var sample_kind := String(_combat_plan.get("weapon_kind", ""))
+		var sample_sol := _get_combat_aim_solution(target)
+		_record_combat_aim_sample(
+			target, sample_sol, sample_kind,
+			float(sample_sol.get("yaw_error", 0.0)),
+			float(sample_sol.get("pitch_error", 0.0)))
+
 	if _combat_route_task_id != -1 and not _finish_combat_route_job_if_ready():
 		var ingress_wait := _combat_plan_position("ingress")
 		if ingress_wait != Vector3.INF:
@@ -6159,13 +6310,19 @@ func _execute_combat_route_attack(target: Node3D, fallback_speed_mps: float) -> 
 		return false
 	if _combat_phase == "attack":
 		_try_fire_combat_weapon(target)
-		var fire_end := _combat_plan_position("fire_end")
-		if fire_end == Vector3.INF:
-			_clear_combat_attack("bad_fire_end")
-			return false
-		var attack_next := _combat_plan_position("egress")
-		var attack_complete := _flat_distance(current_pos, fire_end) <= combat_fire_end_radius_m \
-				or _has_passed_combat_waypoint(current_pos, fire_end, attack_next, combat_fire_end_radius_m)
+		# The attack run flies straight at the target. End it (break off to egress)
+		# when either:
+		#   1. within the breakoff radius (don't fly into the target), OR
+		#   2. the helicopter is now flying AWAY from the target — it has passed/
+		#      overflown it, so chasing the receding bearing is pointless.
+		var target_dist := _flat_distance(current_pos, target.global_position)
+		var to_target := target.global_position - current_pos
+		to_target.y = 0.0
+		var horiz_vel := aircraft.linear_velocity
+		horiz_vel.y = 0.0
+		var flying_away := to_target.length_squared() > 1.0 and horiz_vel.length_squared() > 1.0 \
+				and horiz_vel.normalized().dot(to_target.normalized()) < combat_attack_breakoff_away_dot
+		var attack_complete := target_dist <= maxf(combat_attack_breakoff_radius_m, 1.0) or flying_away
 		if attack_complete:
 			if _should_keep_combat_attack_segment(target, "route_fire_end"):
 				pass
@@ -6185,12 +6342,17 @@ func _execute_combat_route_attack(target: Node3D, fallback_speed_mps: float) -> 
 		if _combat_phase == "attack":
 			var attack_speed: float = minf(fallback_speed_mps, float(_combat_plan.get("attack_speed_mps", fallback_speed_mps)))
 			attack_speed = _apply_combat_aim_takeover_speed(attack_speed)
-			_nav_waypoint = fire_end
-			_log_combat_debug("run", "phase=attack target=%s route=%d/%d fire_end_dist=%.0f speed=%.1f committed=true" % [
+			# Fly straight AT the target during the firing run, not the precomputed
+			# fire_end waypoint. fire_end can end up behind the helicopter when the
+			# approach overshoots, which made it fly away from the target (target_dist
+			# growing) while the nose-aim fought a departing flight path. Flying at the
+			# target keeps the body heading at the enemy, so the nose follows naturally.
+			_nav_waypoint = target.global_position
+			_log_combat_debug("run", "phase=attack target=%s route=%d/%d tgt_dist=%.0f speed=%.1f committed=true" % [
 				target.name,
 				_combat_route_index,
 				_combat_route_points.size(),
-				_flat_distance(current_pos, fire_end),
+				_flat_distance(current_pos, target.global_position),
 				attack_speed,
 			])
 			_fly_toward(_nav_waypoint, attack_speed, _physics_delta)
@@ -6524,11 +6686,15 @@ func _get_combat_aim_commands(
 		"pitch": target_pitch,
 		"roll": target_roll,
 		"yaw": target_yaw,
+		"yaw_error": yaw_error,
 		"pitch_rate_scale": pitch_rate_scale,
 		"yaw_rate_scale": yaw_rate_scale,
 		"collective_floor": collective_floor,
 		"dive_alt_offset": dive_alt_offset,
 	}
+	_record_combat_aim_sample(target, solution, weapon_kind, yaw_error, pitch_error,
+		yaw_derivative, pitch_derivative, yaw_correction, pitch_correction,
+		target_yaw, target_pitch, target_roll, takeover_active, dive_alt_offset)
 	if combat_debug_enabled and (absf(yaw_error) > deg_to_rad(3.0) or absf(pitch_error) > deg_to_rad(3.0)):
 		var aim_point: Vector3 = Vector3.ZERO
 		var aim_point_variant: Variant = solution.get("aim_point", Vector3.ZERO)
@@ -6546,6 +6712,74 @@ func _get_combat_aim_commands(
 			str(aim_point.snapped(Vector3.ONE)),
 		])
 	return corrected
+
+
+func _record_combat_aim_sample(
+		target: Node3D,
+		solution: Dictionary,
+		weapon_kind: String,
+		yaw_error: float,
+		pitch_error: float,
+		yaw_derivative: float = 0.0,
+		pitch_derivative: float = 0.0,
+		yaw_correction: float = 0.0,
+		pitch_correction: float = 0.0,
+		target_yaw: float = NAN,
+		target_pitch: float = NAN,
+		target_roll: float = NAN,
+		takeover_active: bool = false,
+		dive_alt_offset: float = 0.0
+) -> void:
+	if not combat_report_enabled or not combat_report_aim_samples_enabled:
+		return
+	if not is_instance_valid(aircraft) or target == null or not is_instance_valid(target):
+		return
+	var now_s: float = _elapsed_s()
+	if now_s < _combat_aim_sample_next_s:
+		return
+	_combat_aim_sample_next_s = now_s + maxf(combat_report_aim_sample_interval_s, 0.02)
+
+	# --- actual flight state (what the heli is really doing) ---
+	var basis: Basis = aircraft.global_transform.basis.orthonormalized()
+	var fwd: Vector3 = basis.z.normalized()
+	var right: Vector3 = basis.x.normalized()
+	var up: Vector3 = basis.y.normalized()
+	var vel: Vector3 = aircraft.linear_velocity
+	var fwd_speed: float = vel.dot(fwd)
+	var lat_speed: float = vel.dot(right)
+	var climb: float = vel.y
+	var ang: Vector3 = aircraft.angular_velocity
+	var yaw_rate_deg: float = rad_to_deg(ang.dot(up))
+	var pitch_rate_deg: float = rad_to_deg(ang.dot(right))
+	var roll_rate_deg: float = rad_to_deg(ang.dot(fwd))
+	var body_pitch_deg: float = rad_to_deg(asin(clampf(fwd.y, -1.0, 1.0)))
+	var body_roll_deg: float = rad_to_deg(asin(clampf(right.y, -1.0, 1.0)))
+
+	# --- aim / alignment ---
+	var dot: float = float(solution.get("dot", 0.0))
+	var fire_cone_cos: float = _get_combat_fire_alignment_cos(weapon_kind, float(_combat_plan.get("fire_cone_cos", 0.98)))
+	var dist: float = aircraft.global_position.distance_to(target.global_position)
+	var ccip_text: String = "?"
+	if weapon_kind == COMBAT_WEAPON_ROCKET:
+		var ccip_sol: Dictionary = _get_combat_rocket_ccip_solution(target)
+		ccip_text = _format_combat_report_float(_get_combat_rocket_ccip_miss_m(target, ccip_sol))
+
+	# --- the line: errors, corrections, commanded inputs, and the resulting motion ---
+	var details: String = "phase=%s weapon=%s takeover=%s dist=%.0f " % [_combat_phase, weapon_kind, str(takeover_active), dist]
+	details += "yaw_err=%.1f pitch_err=%.1f yaw_deriv=%.1f pitch_deriv=%.1f " % [
+		rad_to_deg(yaw_error), rad_to_deg(pitch_error), rad_to_deg(yaw_derivative), rad_to_deg(pitch_derivative)]
+	details += "yaw_corr=%.2f pitch_corr=%.2f tgt_yaw=%.2f tgt_pitch=%.2f tgt_roll=%.2f " % [
+		yaw_correction, pitch_correction, target_yaw, target_pitch, target_roll]
+	details += "cmd_yaw=%.2f cmd_pitch=%.2f cmd_roll=%.2f coll=%.2f dive_off=%.1f " % [
+		_yaw_cmd, _pitch_cmd, _roll_cmd, _collective_cmd, dive_alt_offset]
+	details += "nose_yaw_in=%s " % _format_combat_report_float(_combat_point_nose_last_yaw_input)
+	details += "fwd_spd=%.1f lat_spd=%.1f climb=%.1f yaw_rate=%.1f pitch_rate=%.1f roll_rate=%.1f " % [
+		fwd_speed, lat_speed, climb, yaw_rate_deg, pitch_rate_deg, roll_rate_deg]
+	details += "body_pitch=%.1f body_roll=%.1f dot=%.4f need=%.4f settle=%.2f attack_t=%.2f" % [
+		body_pitch_deg, body_roll_deg, dot, fire_cone_cos, _combat_aim_settle_s, _combat_attack_elapsed_s()]
+	if weapon_kind == COMBAT_WEAPON_ROCKET:
+		details += " ccip_miss=%s" % ccip_text
+	_write_combat_report_event("AIM_SAMPLE", details, "[HELI_COMBAT] event=AIM_SAMPLE " + details)
 
 
 func _get_combat_aim_solution(target: Node3D) -> Dictionary:
@@ -8667,12 +8901,59 @@ func _get_deck_reference_velocity() -> Vector3:
 	return Vector3.ZERO
 
 
+func _apply_control_expo(value: float) -> float:
+	# Cubic expo blend: out = (1-e)*x + e*x^3, clamped to [-1,1]. Softens small inputs,
+	# leaves ±1.0 unchanged (full authority preserved). e=0 is linear.
+	var e: float = clampf(control_input_expo, 0.0, 1.0)
+	if e <= 0.0:
+		return value
+	var x: float = clampf(value, -1.0, 1.0)
+	return (1.0 - e) * x + e * x * x * x
+
+
 func _set_helicopter_input(pitch: float, roll: float, yaw: float) -> void:
 	if helicopter_flight == null:
 		return
+	yaw = _apply_point_nose_yaw_override(yaw)
 	helicopter_flight.set("pitch_input", clampf(pitch, -1.0, 1.0))
 	helicopter_flight.set("roll_input", clampf(roll, -1.0, 1.0))
 	helicopter_flight.set("yaw_input", clampf(yaw, -1.0, 1.0))
+
+
+func _apply_point_nose_yaw_override(default_yaw: float) -> float:
+	# The one job: turn the nose toward the combat target. Plain proportional yaw on
+	# the horizontal bearing error, minus yaw-rate damping so it stops on target
+	# instead of swinging through. Returns the unchanged input when not in combat.
+	if not combat_point_nose_enabled or _combat_plan.is_empty():
+		return default_yaw
+	# Only point the nose at the enemy during the firing run. In ingress/egress the
+	# route system is flying the body toward/away from the target, and a yaw override
+	# there just fights the flight path and makes the nose sway.
+	if _combat_phase != "attack":
+		return default_yaw
+	if not is_instance_valid(aircraft):
+		return default_yaw
+	var target := _combat_plan_target()
+	if target == null or not is_instance_valid(target):
+		return default_yaw
+	# Horizontal bearing from the nose to the target.
+	var to_target := target.global_position - aircraft.global_position
+	to_target.y = 0.0
+	if to_target.length_squared() < 1.0:
+		return default_yaw
+	var forward := aircraft.global_transform.basis.z
+	forward.y = 0.0
+	if forward.length_squared() < 0.001:
+		return default_yaw
+	var yaw_error := forward.normalized().signed_angle_to(to_target.normalized(), Vector3.UP)
+	if absf(yaw_error) <= deg_to_rad(maxf(combat_point_nose_deadband_deg, 0.0)):
+		yaw_error = 0.0
+	var yaw_rate := aircraft.angular_velocity.y
+	var cmd := yaw_error * maxf(combat_point_nose_yaw_gain, 0.0) \
+			- yaw_rate * maxf(combat_point_nose_yaw_rate_damping, 0.0)
+	cmd = clampf(cmd, -maxf(combat_point_nose_max_yaw_input, 0.0), maxf(combat_point_nose_max_yaw_input, 0.0))
+	_combat_point_nose_last_yaw_input = cmd
+	return cmd
 
 
 func _zero_flight_controls_now() -> void:
