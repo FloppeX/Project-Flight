@@ -603,6 +603,21 @@ func _append_face(
 	var steep_t: float = clampf((steep_slope_min_ny - n.y) / maxf(steep_slope_band, 0.001), 0.0, 1.0) * steep_slope_strength
 	base_color = base_color.lerp(steep_slope_color, steep_t)
 
+	# Large-scale colour patches: low-frequency noise sampled at the world-space face
+	# centre shifts the base brightness by ±color_patch_strength. RGB only, alpha
+	# untouched.
+	var color_var_noise := _noises.get("color_var") as FastNoiseLite
+	if color_var_noise != null:
+		var face_center: Vector3 = (v0 + v1 + v2) / 3.0
+		var patch_noise: float = color_var_noise.get_noise_2d(face_center.x, face_center.z)
+		var patch_mult: float = 1.0 + patch_noise * color_patch_strength
+		base_color = Color(
+			clampf(base_color.r * patch_mult, 0.0, 1.0),
+			clampf(base_color.g * patch_mult, 0.0, 1.0),
+			clampf(base_color.b * patch_mult, 0.0, 1.0),
+			base_color.a
+		)
+
 	# Per-face micro-randomness
 	var tint_rand: float = _hash01(tri_id * 101 + seed * 17)
 	var tint: float = 1.0 + (tint_rand * 2.0 - 1.0) * color_noise_strength

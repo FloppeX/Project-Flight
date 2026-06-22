@@ -4,6 +4,7 @@ extends Node
 ## Press D-pad Up (or keyboard 'A') to toggle AI on/off
 
 @export var ai_enabled_at_start: bool = true
+@export var debug_enabled: bool = false
 
 var aircraft: RigidBody3D
 var ai_pilot: AIPilot
@@ -33,11 +34,12 @@ func _ready():
 			ai_pilot.set_physics_process(false)
 		helicopter_pilot.set_process(false)
 		helicopter_pilot.set_physics_process(false)
-		print("HELI_AI event=aitoggle_ready craft=%s ai_enabled_at_start=%s pilot_node=%s" % [
-			aircraft.name,
-			str(ai_enabled_at_start),
-			str(helicopter_pilot != null),
-		])
+		if debug_enabled:
+			print("HELI_AI event=aitoggle_ready craft=%s ai_enabled_at_start=%s pilot_node=%s" % [
+				aircraft.name,
+				str(ai_enabled_at_start),
+				str(helicopter_pilot != null),
+			])
 		if ai_enabled_at_start:
 			enable_ai()
 		else:
@@ -116,7 +118,8 @@ func enable_ai():
 			ai_pilot.set_process(false)
 			ai_pilot.set_physics_process(false)
 		if helicopter_pilot:
-			print("HELI_AI event=aitoggle_enable craft=%s" % aircraft.name)
+			if debug_enabled:
+				print("HELI_AI event=aitoggle_enable craft=%s" % aircraft.name)
 			helicopter_pilot.initialize(aircraft)
 			helicopter_pilot.set_physics_process(true)
 		return

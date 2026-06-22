@@ -14,6 +14,7 @@ const PILOT_MISSION_RESCUE := 4
 @export var animation_duration_s: float = 1.2
 @export var toggle_key: Key = KEY_O
 @export var only_player_controlled: bool = true
+@export var debug_enabled: bool = false
 
 var _left_door: MeshInstance3D
 var _right_door: MeshInstance3D
@@ -64,13 +65,15 @@ func process_render_frame(delta: float) -> void:
 			if not _is_landed_idle:
 				_is_landed_idle = true
 				open_doors("lz_idle")
-				print("[HeliSwingDoors] %s doors opening: landing idle detected" % [aircraft.name])
+				if debug_enabled:
+					print("[HeliSwingDoors] %s doors opening: landing idle detected" % [aircraft.name])
 		else:
 			if _is_landed_idle:
 				_is_landed_idle = false
 				if _open_target:
 					close_doors("leaving_lz_idle")
-					print("[HeliSwingDoors] %s doors closing: takeoff/transition detected" % [aircraft.name])
+					if debug_enabled:
+						print("[HeliSwingDoors] %s doors closing: takeoff/transition detected" % [aircraft.name])
 
 	var target_t := 1.0 if _open_target else 0.0
 	_open_t = move_toward(_open_t, target_t, delta / maxf(animation_duration_s, 0.01))
@@ -100,8 +103,9 @@ func set_doors_open(open: bool, reason: String = "script") -> void:
 	if _open_target == open:
 		return
 	_open_target = open
-	var craft_name: String = String(aircraft.name) if is_instance_valid(aircraft) else String(name)
-	print("[HeliSwingDoors] %s doors target: open=%s reason=%s" % [craft_name, str(_open_target), reason])
+	if debug_enabled:
+		var craft_name: String = String(aircraft.name) if is_instance_valid(aircraft) else String(name)
+		print("[HeliSwingDoors] %s doors target: open=%s reason=%s" % [craft_name, str(_open_target), reason])
 
 
 func _setup_doors() -> void:
@@ -147,7 +151,8 @@ func _setup_doors() -> void:
 
 	_initialized = true
 	_apply_door_pose()
-	print("[HeliSwingDoors] %s doors setup complete: left=%s, right=%s" % [aircraft.name, _left_door.name, _right_door.name])
+	if debug_enabled:
+		print("[HeliSwingDoors] %s doors setup complete: left=%s, right=%s" % [aircraft.name, _left_door.name, _right_door.name])
 
 
 func _apply_door_pose() -> void:

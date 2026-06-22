@@ -1,0 +1,196 @@
+HELI NAVIGATION REPORT START t=19.0 routes=8 center=(25520.0, 482.0, -28080.0)
+SETUP route=1 carrier=(25520.0, 482.0, -28080.0) LZ=(30220.0, 485.0, -28080.0) distance=4700m terrain_delta_y=3m
+SETUP route=2 carrier=(25520.0, 482.0, -28080.0) LZ=(27620.0, 482.0, -24443.0) distance=4200m terrain_delta_y=0m
+SETUP route=3 carrier=(25520.0, 482.0, -28080.0) LZ=(25520.0, 482.0, -22980.0) distance=5100m terrain_delta_y=0m
+SETUP route=4 carrier=(25520.0, 482.0, -28080.0) LZ=(21834.0, 485.0, -24702.0) distance=5000m terrain_delta_y=3m
+SETUP route=5 carrier=(25520.0, 482.0, -28080.0) LZ=(19825.0, 482.0, -28329.0) distance=5700m terrain_delta_y=0m
+SETUP route=6 carrier=(25520.0, 482.0, -28080.0) LZ=(21686.0, 479.0, -31593.0) distance=5200m terrain_delta_y=-3m
+SETUP route=7 carrier=(25520.0, 482.0, -28080.0) LZ=(23365.0, 485.0, -32702.0) distance=5100m terrain_delta_y=3m
+SETUP route=8 carrier=(25520.0, 482.0, -28080.0) LZ=(30050.0, 482.0, -28879.0) distance=4600m terrain_delta_y=0m
+t=19.0 IDLE_TUNER_REFILL gen=0 results=0/64 remaining=64 active_nav=0 stored_before=0 queued=8 stored_after=8 retrieval_started=true state=RETRIEVING_FROM_HANGAR next_trial=1
+t=19.0 LAUNCH_BLOCKED reason=waiting_no_active_grace active=0 stored=8 no_active_s=0.0 state=RETRIEVING_FROM_HANGAR tractor_cleanup=false elevator_transfer=false deck=none pending=none clearance=none queue=0
+t=34.5 LAUNCH_BLOCKED reason=deck_busy active=1 stored=7 no_active_s=0.0 state=AIRCRAFT_ON_DECK tractor_cleanup=false elevator_transfer=false deck=Aircraft_10_nav_r1_1 pending=none clearance=none queue=0
+t=34.7 SPAWN craft=Aircraft_10_nav_r1_1 route=1 candidate=1 trial=1 t=34.7
+t=49.4 ==== SUMMARY t=49.4 ====
+t=49.4 route=1 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=49.5 route=2 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=49.5 route=3 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=49.5 route=4 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=49.5 route=5 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=49.5 route=6 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=49.5 route=7 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=49.5 route=8 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=49.5 TOTAL laps=0 crashes=0
+t=49.5 TUNER gen=0 results=0/64 pending=2 active=2 remaining=64 next_trial=3 rounds=[1,1,0,0,0,0,0,0]
+t=49.5 LAUNCH_BLOCKED reason=deck_busy active=2 stored=6 no_active_s=0.0 state=AIRCRAFT_ON_DECK tractor_cleanup=false elevator_transfer=true deck=Aircraft_10_nav_r2_2 pending=none clearance=none queue=0
+t=54.8 SPAWN craft=Aircraft_10_nav_r2_2 route=2 candidate=2 trial=2 t=54.8
+t=64.6 LAUNCH_BLOCKED reason=deck_busy active=3 stored=5 no_active_s=0.0 state=RETRIEVING_FROM_HANGAR tractor_cleanup=false elevator_transfer=false deck=Aircraft_10_nav_r3_3 pending=none clearance=none queue=0
+t=74.9 SPAWN craft=Aircraft_10_nav_r3_3 route=3 candidate=3 trial=3 t=74.9
+t=79.5 ==== SUMMARY t=79.5 ====
+t=79.5 route=1 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=79.5 route=2 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=79.5 route=3 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=79.5 route=4 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=79.5 route=5 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=79.5 route=6 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=79.5 route=7 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=79.6 route=8 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=79.6 TOTAL laps=0 crashes=0
+t=79.6 TUNER gen=0 results=0/64 pending=3 active=3 remaining=64 next_trial=4 rounds=[1,1,1,0,0,0,0,0]
+t=79.7 LAUNCH_BLOCKED reason=cleared_unready_nav_deck_aircraft active=3 stored=5 no_active_s=0.0 state=IDLE tractor_cleanup=false elevator_transfer=false deck=Aircraft_10_nav_r3_3 pending=none clearance=none queue=0
+t=94.8 LAUNCH_BLOCKED reason=deck_busy active=4 stored=4 no_active_s=0.0 state=AIRCRAFT_ON_DECK tractor_cleanup=false elevator_transfer=false deck=Aircraft_10_nav_r4_4 pending=none clearance=none queue=0
+t=95.0 SPAWN craft=Aircraft_10_nav_r4_4 route=4 candidate=4 trial=4 t=95.0
+t=109.6 ==== SUMMARY t=109.6 ====
+t=109.6 route=1 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=109.6 route=2 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=109.6 route=3 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=109.6 route=4 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=109.6 route=5 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=109.6 route=6 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=109.6 route=7 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=109.6 route=8 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=109.6 TOTAL laps=0 crashes=0
+t=109.6 TUNER gen=0 results=0/64 pending=5 active=5 remaining=64 next_trial=6 rounds=[1,1,1,1,1,0,0,0]
+t=109.8 LAUNCH_BLOCKED reason=deck_busy active=5 stored=3 no_active_s=0.0 state=AIRCRAFT_ON_DECK tractor_cleanup=false elevator_transfer=true deck=Aircraft_10_nav_r5_5 pending=none clearance=none queue=0
+t=115.1 SPAWN craft=Aircraft_10_nav_r5_5 route=5 candidate=5 trial=5 t=115.1
+t=124.9 LAUNCH_BLOCKED reason=deck_busy active=6 stored=2 no_active_s=0.0 state=RETRIEVING_FROM_HANGAR tractor_cleanup=false elevator_transfer=false deck=Aircraft_10_nav_r6_6 pending=none clearance=none queue=0
+t=135.2 SPAWN craft=Aircraft_10_nav_r6_6 route=6 candidate=6 trial=6 t=135.2
+t=139.7 ==== SUMMARY t=139.7 ====
+t=139.7 route=1 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=139.7 route=2 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=139.7 route=3 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=139.7 route=4 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=139.7 route=5 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=139.7 route=6 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=139.7 route=7 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=139.7 route=8 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=139.7 TOTAL laps=0 crashes=0
+t=139.7 TUNER gen=0 results=0/64 pending=6 active=6 remaining=64 next_trial=7 rounds=[1,1,1,1,1,1,0,0]
+t=140.0 LAUNCH_BLOCKED reason=cleared_unready_nav_deck_aircraft active=6 stored=2 no_active_s=0.0 state=IDLE tractor_cleanup=false elevator_transfer=false deck=Aircraft_10_nav_r6_6 pending=none clearance=none queue=0
+t=155.0 LAUNCH_BLOCKED reason=deck_busy active=7 stored=1 no_active_s=0.0 state=AIRCRAFT_ON_DECK tractor_cleanup=false elevator_transfer=false deck=Aircraft_10_nav_r7_7 pending=none clearance=none queue=0
+t=155.2 SPAWN craft=Aircraft_10_nav_r7_7 route=7 candidate=7 trial=7 t=155.2
+t=169.7 ==== SUMMARY t=169.7 ====
+t=169.8 route=1 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=169.8 route=2 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=169.8 route=3 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=169.8 route=4 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=169.8 route=5 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=169.8 route=6 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=169.8 route=7 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=169.8 route=8 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=169.8 TOTAL laps=0 crashes=0
+t=169.8 TUNER gen=0 results=0/64 pending=8 active=8 remaining=64 next_trial=9 rounds=[1,1,1,1,1,1,1,1]
+t=175.4 SPAWN craft=Aircraft_10_nav_r8_8 route=8 candidate=8 trial=8 t=175.4
+t=177.6 LZ_REACHED craft=Aircraft_10_nav_r1_1 route=1 outbound=142.8s t=177.6
+t=199.7 ==== SUMMARY t=199.7 ====
+t=199.8 route=1 laps=0 crashes=0 avg_out=142.8s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=199.8 route=2 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=199.8 route=3 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=199.8 route=4 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=199.8 route=5 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=199.8 route=6 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=199.8 route=7 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=199.8 route=8 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=199.8 TOTAL laps=0 crashes=0
+t=199.8 TUNER gen=0 results=0/64 pending=8 active=8 remaining=64 next_trial=9 rounds=[1,1,1,1,1,1,1,1]
+t=229.8 ==== SUMMARY t=229.8 ====
+t=229.8 route=1 laps=0 crashes=0 avg_out=142.8s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=229.8 route=2 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=229.8 route=3 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=229.8 route=4 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=229.8 route=5 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=229.8 route=6 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=229.8 route=7 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=229.8 route=8 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=229.8 TOTAL laps=0 crashes=0
+t=229.8 TUNER gen=0 results=0/64 pending=8 active=8 remaining=64 next_trial=9 rounds=[1,1,1,1,1,1,1,1]
+t=234.2 LZ_REACHED craft=Aircraft_10_nav_r2_2 route=2 outbound=179.4s t=234.2
+t=256.8 LZ_REACHED craft=Aircraft_10_nav_r6_6 route=6 outbound=121.7s t=256.8
+t=259.8 ==== SUMMARY t=259.8 ====
+t=259.8 route=1 laps=0 crashes=0 avg_out=142.8s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=259.8 route=2 laps=0 crashes=0 avg_out=179.4s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=259.8 route=3 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=259.8 route=4 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=259.8 route=5 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=259.8 route=6 laps=0 crashes=0 avg_out=121.7s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=259.8 route=7 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=259.8 route=8 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=259.8 TOTAL laps=0 crashes=0
+t=259.8 TUNER gen=0 results=0/64 pending=8 active=8 remaining=64 next_trial=9 rounds=[1,1,1,1,1,1,1,1]
+t=267.7 LZ_REACHED craft=Aircraft_10_nav_r4_4 route=4 outbound=172.7s t=267.7
+t=288.5 LZ_REACHED craft=Aircraft_10_nav_r3_3 route=3 outbound=213.7s t=288.5
+t=289.9 ==== SUMMARY t=289.9 ====
+t=289.9 route=1 laps=0 crashes=0 avg_out=142.8s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=289.9 route=2 laps=0 crashes=0 avg_out=179.4s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=289.9 route=3 laps=0 crashes=0 avg_out=213.7s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=289.9 route=4 laps=0 crashes=0 avg_out=172.7s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=289.9 route=5 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=289.9 route=6 laps=0 crashes=0 avg_out=121.7s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=289.9 route=7 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=289.9 route=8 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=289.9 TOTAL laps=0 crashes=0
+t=290.0 TUNER gen=0 results=0/64 pending=8 active=8 remaining=64 next_trial=9 rounds=[1,1,1,1,1,1,1,1]
+t=317.9 LZ_REACHED craft=Aircraft_10_nav_r7_7 route=7 outbound=162.6s t=317.9
+t=320.0 ==== SUMMARY t=320.0 ====
+t=320.0 route=1 laps=0 crashes=0 avg_out=142.8s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=320.0 route=2 laps=0 crashes=0 avg_out=179.4s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=320.0 route=3 laps=0 crashes=0 avg_out=213.7s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=320.0 route=4 laps=0 crashes=0 avg_out=172.7s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=320.0 route=5 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=320.0 route=6 laps=0 crashes=0 avg_out=121.7s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=320.0 route=7 laps=0 crashes=0 avg_out=162.6s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=320.0 route=8 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=320.0 TOTAL laps=0 crashes=0
+t=320.0 TUNER gen=0 results=0/64 pending=8 active=8 remaining=64 next_trial=9 rounds=[1,1,1,1,1,1,1,1]
+t=344.3 LZ_REACHED craft=Aircraft_10_nav_r8_8 route=8 outbound=168.9s t=344.3
+t=350.0 ==== SUMMARY t=350.0 ====
+t=350.1 route=1 laps=0 crashes=0 avg_out=142.8s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=350.1 route=2 laps=0 crashes=0 avg_out=179.4s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=350.1 route=3 laps=0 crashes=0 avg_out=213.7s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=350.1 route=4 laps=0 crashes=0 avg_out=172.7s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=350.1 route=5 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=350.1 route=6 laps=0 crashes=0 avg_out=121.7s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=350.1 route=7 laps=0 crashes=0 avg_out=162.6s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=350.1 route=8 laps=0 crashes=0 avg_out=168.9s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=350.1 TOTAL laps=0 crashes=0
+t=350.1 TUNER gen=0 results=0/64 pending=8 active=8 remaining=64 next_trial=9 rounds=[1,1,1,1,1,1,1,1]
+t=350.4 LAP_CAPTURE craft=Aircraft_10_nav_r1_1 route=1 return=160.9s lap=315.7s carrier_dist=200m t=350.4
+t=366.4 SPAWN craft=Aircraft_10_nav_r1_9 route=1 candidate=2 trial=9 t=366.4
+t=369.5 LZ_REACHED craft=Aircraft_10_nav_r5_5 route=5 outbound=254.4s t=369.5
+t=380.2 ==== SUMMARY t=380.2 ====
+t=380.2 route=1 laps=1 crashes=0 avg_out=142.8s avg_ret=160.9s avg_lap=315.7s best_lap=315.7
+t=380.2 route=2 laps=0 crashes=0 avg_out=179.4s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=380.2 route=3 laps=0 crashes=0 avg_out=213.7s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=380.2 route=4 laps=0 crashes=0 avg_out=172.7s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=380.2 route=5 laps=0 crashes=0 avg_out=254.4s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=380.2 route=6 laps=0 crashes=0 avg_out=121.7s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=380.2 route=7 laps=0 crashes=0 avg_out=162.6s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=380.2 route=8 laps=0 crashes=0 avg_out=168.9s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=380.2 TOTAL laps=1 crashes=0
+t=380.3 TUNER gen=0 results=1/64 pending=8 active=8 remaining=63 next_trial=10 rounds=[2,1,1,1,1,1,1,1]
+t=408.8 LAP_CAPTURE craft=Aircraft_10_nav_r6_6 route=6 return=140.0s lap=273.6s carrier_dist=200m t=408.8
+t=410.6 ==== SUMMARY t=410.6 ====
+t=410.6 route=1 laps=1 crashes=0 avg_out=142.8s avg_ret=160.9s avg_lap=315.7s best_lap=315.7
+t=410.6 route=2 laps=0 crashes=0 avg_out=179.4s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=410.6 route=3 laps=0 crashes=0 avg_out=213.7s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=410.6 route=4 laps=0 crashes=0 avg_out=172.7s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=410.7 route=5 laps=0 crashes=0 avg_out=254.4s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=410.7 route=6 laps=1 crashes=0 avg_out=121.7s avg_ret=140.0s avg_lap=273.6s best_lap=273.6
+t=410.7 route=7 laps=0 crashes=0 avg_out=162.6s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=410.7 route=8 laps=0 crashes=0 avg_out=168.9s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=410.7 TOTAL laps=2 crashes=0
+t=410.7 TUNER gen=0 results=2/64 pending=7 active=7 remaining=62 next_trial=10 rounds=[2,1,1,1,1,1,1,1]
+t=427.2 SPAWN craft=Aircraft_10_nav_r6_10 route=6 candidate=7 trial=10 t=427.2
+t=432.6 LAP_CAPTURE craft=Aircraft_10_nav_r4_4 route=4 return=152.9s lap=337.6s carrier_dist=200m t=432.6
+t=441.0 ==== SUMMARY t=441.0 ====
+t=441.0 route=1 laps=1 crashes=0 avg_out=142.8s avg_ret=160.9s avg_lap=315.7s best_lap=315.7
+t=441.0 route=2 laps=0 crashes=0 avg_out=179.4s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=441.0 route=3 laps=0 crashes=0 avg_out=213.7s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=441.0 route=4 laps=1 crashes=0 avg_out=172.7s avg_ret=152.9s avg_lap=337.6s best_lap=337.6
+t=441.0 route=5 laps=0 crashes=0 avg_out=254.4s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=441.1 route=6 laps=1 crashes=0 avg_out=121.7s avg_ret=140.0s avg_lap=273.6s best_lap=273.6
+t=441.1 route=7 laps=0 crashes=0 avg_out=162.6s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=441.1 route=8 laps=0 crashes=0 avg_out=168.9s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=441.1 TOTAL laps=3 crashes=0
+t=441.1 TUNER gen=0 results=3/64 pending=7 active=7 remaining=61 next_trial=11 rounds=[2,1,1,1,1,2,1,1]
+t=453.0 SPAWN craft=Aircraft_10_nav_r4_11 route=4 candidate=5 trial=11 t=453.0

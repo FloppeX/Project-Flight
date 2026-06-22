@@ -97,6 +97,7 @@ var vehicle_ramp: Node3D
 var vehicle_bay: Node3D
 var _deck_audio_player: AudioStreamPlayer3D
 var _terrain_provider: Node = null
+var _heli_test_stationary: bool = false
 const TEAM_ID: int = 1
 
 func _ready():
@@ -126,6 +127,24 @@ func apply_origin_shift(offset: Vector3) -> void:
 		_raw_waypoints[i] -= offset
 	for i in range(_waypoint_positions.size()):
 		_waypoint_positions[i] -= offset
+
+
+func set_heli_test_stationary(active: bool) -> void:
+	_heli_test_stationary = active
+	_current_planar_speed_mps = 0.0
+	_last_planar_speed_mps = 0.0
+	_current_yaw_rate_rad_s = 0.0
+	_current_steer = 0.0
+	_tread_steer = 0.0
+	velocity = Vector3.ZERO
+	if active:
+		visible = true
+		_waypoint_positions.clear()
+		_waypoint_index = 0
+		_no_path_timer = 0.0
+		_stuck_timer = 0.0
+	else:
+		call_deferred("_compute_path_to_destination")
 
 func _setup_vehicle_ramp() -> void:
 	var ramp_node := Node3D.new()
@@ -186,6 +205,9 @@ func _set_north_heading() -> void:
 		NavGraph.graph_ready.connect(_start_random_patrol, CONNECT_ONE_SHOT)
 
 func _start_random_patrol() -> void:
+	if _heli_test_stationary:
+		visible = true
+		return
 	if _is_pathfinding:
 		return
 	_is_pathfinding = true
@@ -285,6 +307,9 @@ func _start_random_patrol() -> void:
 func _on_random_patrol_computed(routed_path: Array[Vector3], routed_destination: Vector3, final_pos: Vector3, using_cross_route: bool, fallback_patrol: bool, route_plan_details: Dictionary) -> void:
 	_is_pathfinding = false
 	if not is_instance_valid(self):
+		return
+	if _heli_test_stationary:
+		visible = true
 		return
 
 	global_position = final_pos
@@ -527,6 +552,16 @@ func _is_tread_node(node: Node) -> bool:
 
 func _physics_process(delta: float) -> void:
 	var _profiler_start: int = FrameProfiler.begin("LandCarrier.physics")
+	if _heli_test_stationary:
+		velocity = Vector3.ZERO
+		_current_planar_speed_mps = 0.0
+		_last_planar_speed_mps = 0.0
+		_current_yaw_rate_rad_s = 0.0
+		if elevator and elevator.has_method("update"):
+			elevator.update(delta)
+		_update_deck_audio(delta)
+		FrameProfiler.end("LandCarrier.physics", _profiler_start)
+		return
 	var transform_before := global_transform
 	_drive_to_waypoint(delta)
 	_update_tread_visuals(delta, transform_before)

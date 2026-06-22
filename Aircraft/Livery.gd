@@ -512,107 +512,58 @@ func _apply_insignia(aircraft: Node) -> void:
 	if insignia_textures.is_empty() or _active_apply_insignia_index < 0:
 		return
 	var tex: Texture2D = insignia_textures[_active_apply_insignia_index]
-
-	# Compute aspect-correct decal size from texture dimensions
-	var tex_w := float(tex.get_width())
-	var tex_h := float(tex.get_height())
-	var aspect := tex_h / maxf(tex_w, 1.0)
-	var decal_size := Vector3(insignia_width, insignia_depth, insignia_width * aspect)
+	var aspect := float(tex.get_height()) / maxf(float(tex.get_width()), 1.0)
 
 	var aircraft_3d: Node3D = aircraft as Node3D
 	if aircraft_3d == null:
 		return
 
-	# Single marker "InsigniaWing" — placed on one wing, mirrored to the other via X flip
-	var marker: Marker3D = aircraft.get_node_or_null("InsigniaWing") as Marker3D
-	if marker != null:
-		var wing_hosts := _resolve_wing_hosts(aircraft)
-		var right_wing_host: Node3D = wing_hosts["right"] as Node3D
-		var left_wing_host: Node3D = wing_hosts["left"] as Node3D
-		var x_sorted_hosts := _resolve_wing_hosts_by_aircraft_x(aircraft_3d, left_wing_host, right_wing_host)
-		var positive_x_host: Node3D = x_sorted_hosts["positive"] as Node3D
-		var negative_x_host: Node3D = x_sorted_hosts["negative"] as Node3D
+	# Insignia placement is driven entirely by InsigniaMarker cylinder gizmos placed
+	# in the aircraft scene. Each marker = one decal: the cylinder's transform is the
+	# decal's transform (Decal projects along local -Y, same as the cylinder's axis),
+	# its diameter is the insignia size, its length is the projection depth. The
+	# marker mesh is hidden at runtime. One cylinder per insignia, no mirroring.
+	var markers: Array[Node] = []
+	_collect_insignia_markers(aircraft_3d, markers)
+	for marker_node in markers:
+		var marker := marker_node as Node3D
+		if marker == null:
+			continue
+		# Hide the editor gizmo in-game.
+		marker.visible = false
 
-		for side in [1.0, -1.0]:
-			var t_local_to_aircraft := marker.transform
-			t_local_to_aircraft.origin.x *= side
-			t_local_to_aircraft.basis = t_local_to_aircraft.basis * Basis(Vector3.UP, PI)
+		var decal := Decal.new()
+		decal.name = "InsigniaDecal_%s" % marker.name
+		decal.add_to_group("livery_insignia")
+		decal.texture_albedo = tex
+		decal.sorting_offset = 10.0
+		decal.upper_fade = 0.0
+		decal.lower_fade = 0.0
 
-			# Place +X marker copy on whichever wing is actually at +X in aircraft space.
-			# This avoids left/right swaps on aircraft whose node names don't match X sign.
-			var side_host: Node3D = positive_x_host if side > 0.0 else negative_x_host
-			if side_host == null:
-				side_host = right_wing_host if side > 0.0 else left_wing_host
-			if side_host == null:
-				side_host = aircraft_3d
+		# Size from the marker (diameter / depth), with texture aspect applied.
+		if marker.has_method("get_decal_size"):
+			decal.size = marker.call("get_decal_size", aspect)
+		else:
+			decal.size = Vector3(1.0, 0.6, aspect)
 
-			var decal := Decal.new()
-			decal.name = "InsigniaWingDecal_R" if side > 0.0 else "InsigniaWingDecal_L"
-			decal.add_to_group("livery_insignia")
-			decal.texture_albedo = tex
-			decal.size = decal_size
-			decal.sorting_offset = 10.0
-			decal.upper_fade = 0.0
-			decal.lower_fade = 0.0
-			side_host.add_child(decal)
+		# Parent the decal to the marker's own parent so it inherits the exact same
+		# transform context (and follows folding wing parts, tail sections, etc.).
+		var host: Node = marker.get_parent()
+		if not (host is Node3D):
+			host = aircraft_3d
+		(host as Node3D).add_child(decal)
+		# The decal sits exactly where the cylinder is, projecting along the same -Y.
+		decal.transform = (marker as Node3D).transform
 
-			# Convert marker-based transform (authored in aircraft space) into host-local
-			# so decals follow folding wing parts when applicable.
-			var wing_local_t := _marker_transform_to_host_local(aircraft_3d, side_host, t_local_to_aircraft)
-			decal.transform = wing_local_t
+## Recursively collect every InsigniaMarker under `node`. Detected by duck-typing
+## (the get_decal_size method) so this doesn't depend on the global class_name being
+## registered at parse time.
+func _collect_insignia_markers(node: Node, out: Array[Node]) -> void:
+	for child in node.get_children():
+		if child is Node3D and child.has_method("get_decal_size"):
+			out.append(child)
+		_collect_insignia_markers(child, out)
 
-	# Optional tail insignia marker (mirrored and projected laterally into tail section).
-	var tail_marker: Marker3D = aircraft.get_node_or_null("InsigniaTail") as Marker3D
-	if tail_marker != null:
-		var tail_size := Vector3(tail_insignia_width, tail_insignia_depth, tail_insignia_width * aspect)
-		for side in [1.0, -1.0]:
-			var tail_decal := Decal.new()
-			tail_decal.name = "InsigniaTailDecal_R" if side > 0.0 else "InsigniaTailDecal_L"
-			tail_decal.add_to_group("livery_insignia")
-			tail_decal.texture_albedo = tex
-			tail_decal.size = tail_size
-			tail_decal.sorting_offset = 10.0
-			tail_decal.upper_fade = 0.0
-			tail_decal.lower_fade = 0.0
-			aircraft_3d.add_child(tail_decal)
-
-			var t_tail := tail_marker.transform
-			t_tail.origin.x *= side
-			# Keep the original tail projection orientation, then apply marker rotation as an offset
-			# so small inspector tilts work naturally on angled stabilizers.
-			var marker_basis: Basis = tail_marker.transform.basis.orthonormalized()
-			var base_y_axis: Vector3 = Vector3.RIGHT * side
-			var base_z_axis: Vector3 = Vector3.UP
-			var base_x_axis: Vector3 = base_y_axis.cross(base_z_axis).normalized()
-			var base_basis: Basis = Basis(base_x_axis, base_y_axis, base_z_axis)
-			var decal_basis: Basis = (base_basis * marker_basis).orthonormalized()
-			# Godot decal UV orientation on lateral projection needs a 180-degree roll
-			# around the projection axis to keep the insignia readable.
-			decal_basis = (decal_basis * Basis(Vector3.UP, PI)).orthonormalized()
-			t_tail.basis = decal_basis
-			tail_decal.transform = t_tail
-
-	# Optional nose insignia marker. Decals project along local -Y, so this basis
-	# aims the decal down and back into the nose at roughly 45 degrees.
-	var nose_marker: Marker3D = aircraft.get_node_or_null("InsigniaNose") as Marker3D
-	if nose_marker != null:
-		var nose_decal := Decal.new()
-		nose_decal.name = "InsigniaNoseDecal"
-		nose_decal.add_to_group("livery_insignia")
-		nose_decal.texture_albedo = tex
-		nose_decal.size = Vector3(nose_insignia_width, nose_insignia_depth, nose_insignia_width * aspect)
-		nose_decal.sorting_offset = 10.0
-		nose_decal.upper_fade = 0.0
-		nose_decal.lower_fade = 0.0
-		aircraft_3d.add_child(nose_decal)
-
-		var t_nose := nose_marker.transform
-		var projection_dir := Vector3(0.0, -1.0, -1.0).normalized()
-		t_nose.basis = _make_decal_basis_from_projection(projection_dir, Vector3.UP)
-		# Roll around the decal projection axis so nose emblems read correctly
-		# to someone looking at the helicopter head-on.
-		t_nose.basis = (t_nose.basis * Basis(Vector3.UP, PI)).orthonormalized()
-		nose_decal.transform = t_nose
 
 func _make_decal_basis_from_projection(projection_dir: Vector3, up_hint: Vector3) -> Basis:
 	var y_axis := (-projection_dir).normalized()

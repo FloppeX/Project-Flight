@@ -131,7 +131,7 @@ surface_material_override/0 = SubResource("StandardMaterial3D_yy1ll")
 [node name="Catapult" type="Node3D" parent="." unique_id=1009800316 node_paths=PackedStringArray("shuttle", "shuttle_area", "latch_marker", "release_marker", "deck_ref")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 63.9417)
 script = ExtResource("8_0rqhh")
-debug_enabled = true
+debug_enabled = false
 shuttle = NodePath("../Shuttle")
 shuttle_area = NodePath("../Shuttle/gear_connector")
 latch_marker = NodePath("catapult_latch_marker")
