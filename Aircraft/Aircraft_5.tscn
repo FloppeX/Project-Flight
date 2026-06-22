@@ -70,6 +70,7 @@ center_of_mass = Vector3(0, 0, 0.5)
 contact_monitor = true
 max_contacts_reported = 10
 script = ExtResource("1_e8t1h")
+max_health = 100.0
 explosion_scene = ExtResource("2_x73up")
 wreck_scene = ExtResource("3_x73up")
 wreck_base_impulse = 100.0
