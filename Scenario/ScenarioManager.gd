@@ -2,6 +2,8 @@ extends Node3D
 
 const WIND_TURBINE_PROXY_SCRIPT: Script = preload("res://Buildings/WindTurbineProxy.gd")
 const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
+const TEST_SCENARIO_SETTINGS_PATH := "user://physical_test_scenario.json"
+const HELI_NAVIGATION_TEST_SCENARIO: int = 1
 
 var restart_timer: Timer
 
@@ -11,6 +13,9 @@ var restart_timer: Timer
 @export var randomize_play_area_each_run: bool = true
 @export var play_area_center_edge_margin_m: float = 2000.0
 @export var play_area_randomization_debug: bool = false
+# A known-good, deterministic region for navigation evolution. The terrain seed is
+# already fixed by Main_Scene; fixing the bake center makes the actual test map fixed.
+@export var navigation_test_fixed_play_area_xz := Vector2(25520.0, -27880.0)
 @export var carrier_center_search_radius_m: float = 1400.0
 @export var carrier_search_step_m: float = 120.0
 @export var carrier_flat_probe_radius_m: float = 140.0
@@ -89,6 +94,22 @@ func _ready():
 		call_deferred("_place_carrier_on_flat_ground")
 	if spawn_wind_turbines_on_startup:
 		_schedule_startup_wind_turbines()
+
+
+func disable_structures_for_navigation_test() -> void:
+	# The navigation range measures terrain following, not obstacle avoidance.
+	# Cancel both immediate and bake-deferred turbine generation; scene reload
+	# restores the exported normal-game setting.
+	spawn_wind_turbines_on_startup = false
+	_wind_turbines_spawned = true
+	var spawn_callback := Callable(self, "_spawn_startup_wind_turbine_groups")
+	if TerrainNavGrid.bake_complete.is_connected(spawn_callback):
+		TerrainNavGrid.bake_complete.disconnect(spawn_callback)
+	var root := get_tree().current_scene
+	if root != null:
+		var turbine_container := root.get_node_or_null("WindTurbines")
+		if is_instance_valid(turbine_container):
+			turbine_container.queue_free()
 
 
 func _input(_event):
@@ -181,7 +202,11 @@ func _configure_play_area_for_run() -> void:
 		return
 
 	var center: Vector3 = terrain.global_position
-	if randomize_play_area_each_run:
+	var navigation_test_requested := _is_navigation_test_requested()
+	if navigation_test_requested:
+		center.x = navigation_test_fixed_play_area_xz.x
+		center.z = navigation_test_fixed_play_area_xz.y
+	elif randomize_play_area_each_run:
 		center = _pick_random_play_area_center(terrain)
 	center = _snap_play_area_center_to_nav_grid(center)
 
@@ -197,6 +222,19 @@ func _configure_play_area_for_run() -> void:
 
 	if play_area_randomization_debug:
 		print("[ScenarioManager] Play area center set to ", center)
+	elif navigation_test_requested:
+		print("[ScenarioManager] Navigation test fixed play area center set to ", center)
+
+
+func _is_navigation_test_requested() -> bool:
+	if not FileAccess.file_exists(TEST_SCENARIO_SETTINGS_PATH):
+		return false
+	var file := FileAccess.open(TEST_SCENARIO_SETTINGS_PATH, FileAccess.READ)
+	if file == null:
+		return false
+	var parsed: Variant = JSON.parse_string(file.get_as_text())
+	return parsed is Dictionary \
+			and int((parsed as Dictionary).get("scenario", -1)) == HELI_NAVIGATION_TEST_SCENARIO
 
 
 func _schedule_startup_wind_turbines() -> void:

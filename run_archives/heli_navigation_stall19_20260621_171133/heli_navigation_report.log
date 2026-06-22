@@ -1,0 +1,710 @@
+HELI NAVIGATION REPORT START t=19.4 routes=8 center=(25520.0, 482.0, -28080.0)
+SETUP route=1 carrier=(25520.0, 482.0, -28080.0) LZ=(30220.0, 485.0, -28080.0) distance=4700m terrain_delta_y=3m
+SETUP route=2 carrier=(25520.0, 482.0, -28080.0) LZ=(27620.0, 482.0, -24443.0) distance=4200m terrain_delta_y=0m
+SETUP route=3 carrier=(25520.0, 482.0, -28080.0) LZ=(25520.0, 482.0, -22980.0) distance=5100m terrain_delta_y=0m
+SETUP route=4 carrier=(25520.0, 482.0, -28080.0) LZ=(21834.0, 485.0, -24702.0) distance=5000m terrain_delta_y=3m
+SETUP route=5 carrier=(25520.0, 482.0, -28080.0) LZ=(19825.0, 482.0, -28329.0) distance=5700m terrain_delta_y=0m
+SETUP route=6 carrier=(25520.0, 482.0, -28080.0) LZ=(21686.0, 479.0, -31593.0) distance=5200m terrain_delta_y=-3m
+SETUP route=7 carrier=(25520.0, 482.0, -28080.0) LZ=(23365.0, 485.0, -32702.0) distance=5100m terrain_delta_y=3m
+SETUP route=8 carrier=(25520.0, 482.0, -28080.0) LZ=(30050.0, 482.0, -28879.0) distance=4600m terrain_delta_y=0m
+t=19.4 IDLE_TUNER_REFILL gen=0 results=0/64 remaining=64 active_nav=0 stored_before=0 next_trial=1
+t=19.4 LAUNCH_BLOCKED reason=waiting_no_active_grace active=0 stored=8 no_active_s=0.0 state=IDLE tractor_cleanup=false elevator_transfer=false deck=none pending=none clearance=none queue=0
+t=34.7 LAUNCH_BLOCKED reason=deck_busy active=1 stored=7 no_active_s=0.0 state=AIRCRAFT_ON_DECK tractor_cleanup=false elevator_transfer=false deck=Aircraft_10_nav_r1_1 pending=none clearance=none queue=0
+t=34.9 SPAWN craft=Aircraft_10_nav_r1_1 route=1 candidate=1 trial=1 t=34.9
+t=49.7 ==== SUMMARY t=49.7 ====
+t=49.7 route=1 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=49.7 route=2 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=49.7 route=3 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=49.7 route=4 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=49.7 route=5 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=49.7 route=6 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=49.7 route=7 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=49.7 route=8 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=49.7 TOTAL laps=0 crashes=0
+t=49.7 TUNER gen=0 results=0/64 pending=2 active=2 remaining=64 next_trial=3 rounds=[1,1,0,0,0,0,0,0]
+t=49.8 LAUNCH_BLOCKED reason=deck_busy active=2 stored=6 no_active_s=0.0 state=AIRCRAFT_ON_DECK tractor_cleanup=false elevator_transfer=true deck=Aircraft_10_nav_r2_2 pending=none clearance=none queue=0
+t=55.0 SPAWN craft=Aircraft_10_nav_r2_2 route=2 candidate=2 trial=2 t=55.0
+t=64.9 LAUNCH_BLOCKED reason=deck_busy active=3 stored=5 no_active_s=0.0 state=RETRIEVING_FROM_HANGAR tractor_cleanup=false elevator_transfer=false deck=Aircraft_10_nav_r3_3 pending=none clearance=none queue=0
+t=75.1 SPAWN craft=Aircraft_10_nav_r3_3 route=3 candidate=3 trial=3 t=75.1
+t=79.8 ==== SUMMARY t=79.8 ====
+t=79.8 route=1 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=79.8 route=2 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=79.8 route=3 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=79.8 route=4 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=79.8 route=5 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=79.8 route=6 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=79.8 route=7 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=79.8 route=8 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=79.8 TOTAL laps=0 crashes=0
+t=79.8 TUNER gen=0 results=0/64 pending=3 active=3 remaining=64 next_trial=4 rounds=[1,1,1,0,0,0,0,0]
+t=80.0 LAUNCH_BLOCKED reason=cleared_unready_nav_deck_aircraft active=3 stored=5 no_active_s=0.0 state=IDLE tractor_cleanup=false elevator_transfer=false deck=Aircraft_10_nav_r3_3 pending=none clearance=none queue=0
+t=95.1 LAUNCH_BLOCKED reason=deck_busy active=4 stored=4 no_active_s=0.0 state=AIRCRAFT_ON_DECK tractor_cleanup=false elevator_transfer=false deck=Aircraft_10_nav_r4_4 pending=none clearance=none queue=0
+t=95.3 SPAWN craft=Aircraft_10_nav_r4_4 route=4 candidate=4 trial=4 t=95.3
+t=109.9 ==== SUMMARY t=109.9 ====
+t=109.9 route=1 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=109.9 route=2 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=109.9 route=3 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=109.9 route=4 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=109.9 route=5 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=109.9 route=6 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=109.9 route=7 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=109.9 route=8 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=109.9 TOTAL laps=0 crashes=0
+t=110.0 TUNER gen=0 results=0/64 pending=5 active=5 remaining=64 next_trial=6 rounds=[1,1,1,1,1,0,0,0]
+t=110.2 LAUNCH_BLOCKED reason=deck_busy active=5 stored=3 no_active_s=0.0 state=AIRCRAFT_ON_DECK tractor_cleanup=false elevator_transfer=true deck=Aircraft_10_nav_r5_5 pending=none clearance=none queue=0
+t=115.4 SPAWN craft=Aircraft_10_nav_r5_5 route=5 candidate=5 trial=5 t=115.4
+t=125.2 LAUNCH_BLOCKED reason=deck_busy active=6 stored=2 no_active_s=0.0 state=RETRIEVING_FROM_HANGAR tractor_cleanup=false elevator_transfer=false deck=Aircraft_10_nav_r6_6 pending=none clearance=none queue=0
+t=135.5 SPAWN craft=Aircraft_10_nav_r6_6 route=6 candidate=6 trial=6 t=135.5
+t=139.9 ==== SUMMARY t=139.9 ====
+t=139.9 route=1 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=140.0 route=2 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=140.0 route=3 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=140.0 route=4 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=140.0 route=5 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=140.0 route=6 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=140.0 route=7 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=140.0 route=8 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=140.0 TOTAL laps=0 crashes=0
+t=140.0 TUNER gen=0 results=0/64 pending=6 active=6 remaining=64 next_trial=7 rounds=[1,1,1,1,1,1,0,0]
+t=140.3 LAUNCH_BLOCKED reason=cleared_unready_nav_deck_aircraft active=6 stored=2 no_active_s=0.0 state=IDLE tractor_cleanup=false elevator_transfer=false deck=Aircraft_10_nav_r6_6 pending=none clearance=none queue=0
+t=155.3 LAUNCH_BLOCKED reason=deck_busy active=7 stored=1 no_active_s=0.0 state=AIRCRAFT_ON_DECK tractor_cleanup=false elevator_transfer=false deck=Aircraft_10_nav_r7_7 pending=none clearance=none queue=0
+t=155.6 SPAWN craft=Aircraft_10_nav_r7_7 route=7 candidate=7 trial=7 t=155.6
+t=170.1 ==== SUMMARY t=170.1 ====
+t=170.1 route=1 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=170.1 route=2 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=170.1 route=3 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=170.1 route=4 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=170.1 route=5 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=170.1 route=6 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=170.1 route=7 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=170.1 route=8 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=170.1 TOTAL laps=0 crashes=0
+t=170.1 TUNER gen=0 results=0/64 pending=8 active=8 remaining=64 next_trial=9 rounds=[1,1,1,1,1,1,1,1]
+t=175.8 SPAWN craft=Aircraft_10_nav_r8_8 route=8 candidate=8 trial=8 t=175.8
+t=178.6 LZ_REACHED craft=Aircraft_10_nav_r1_1 route=1 outbound=143.7s t=178.6
+t=200.1 ==== SUMMARY t=200.1 ====
+t=200.1 route=1 laps=0 crashes=0 avg_out=143.7s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=200.1 route=2 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=200.2 route=3 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=200.2 route=4 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=200.2 route=5 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=200.2 route=6 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=200.2 route=7 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=200.2 route=8 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=200.2 TOTAL laps=0 crashes=0
+t=200.2 TUNER gen=0 results=0/64 pending=8 active=8 remaining=64 next_trial=9 rounds=[1,1,1,1,1,1,1,1]
+t=230.2 ==== SUMMARY t=230.2 ====
+t=230.2 route=1 laps=0 crashes=0 avg_out=143.7s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=230.2 route=2 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=230.2 route=3 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=230.2 route=4 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=230.2 route=5 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=230.2 route=6 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=230.2 route=7 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=230.2 route=8 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=230.2 TOTAL laps=0 crashes=0
+t=230.2 TUNER gen=0 results=0/64 pending=8 active=8 remaining=64 next_trial=9 rounds=[1,1,1,1,1,1,1,1]
+t=230.7 LZ_REACHED craft=Aircraft_10_nav_r2_2 route=2 outbound=175.7s t=230.7
+t=257.4 LZ_REACHED craft=Aircraft_10_nav_r6_6 route=6 outbound=121.9s t=257.4
+t=260.2 ==== SUMMARY t=260.2 ====
+t=260.2 route=1 laps=0 crashes=0 avg_out=143.7s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=260.2 route=2 laps=0 crashes=0 avg_out=175.7s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=260.2 route=3 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=260.2 route=4 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=260.2 route=5 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=260.2 route=6 laps=0 crashes=0 avg_out=121.9s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=260.2 route=7 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=260.2 route=8 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=260.2 TOTAL laps=0 crashes=0
+t=260.3 TUNER gen=0 results=0/64 pending=8 active=8 remaining=64 next_trial=9 rounds=[1,1,1,1,1,1,1,1]
+t=262.9 LZ_REACHED craft=Aircraft_10_nav_r4_4 route=4 outbound=167.6s t=262.9
+t=279.2 CRASH craft=Aircraft_10_nav_r2_2 route=2 phase=2 t=279.2
+t=281.9 LZ_REACHED craft=Aircraft_10_nav_r3_3 route=3 outbound=206.8s t=281.9
+t=290.2 ==== SUMMARY t=290.2 ====
+t=290.3 route=1 laps=0 crashes=0 avg_out=143.7s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=290.3 route=2 laps=0 crashes=1 avg_out=175.7s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=290.3 route=3 laps=0 crashes=0 avg_out=206.8s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=290.3 route=4 laps=0 crashes=0 avg_out=167.6s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=290.3 route=5 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=290.3 route=6 laps=0 crashes=0 avg_out=121.9s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=290.3 route=7 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=290.3 route=8 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=290.3 TOTAL laps=0 crashes=1
+t=290.3 TUNER gen=0 results=1/64 pending=8 active=8 remaining=63 next_trial=10 rounds=[1,2,1,1,1,1,1,1]
+t=296.3 SPAWN craft=Aircraft_10_nav_r2_9 route=2 candidate=3 trial=9 t=296.3
+t=320.3 ==== SUMMARY t=320.3 ====
+t=320.3 route=1 laps=0 crashes=0 avg_out=143.7s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=320.3 route=2 laps=0 crashes=1 avg_out=175.7s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=320.3 route=3 laps=0 crashes=0 avg_out=206.8s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=320.3 route=4 laps=0 crashes=0 avg_out=167.6s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=320.3 route=5 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=320.4 route=6 laps=0 crashes=0 avg_out=121.9s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=320.4 route=7 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=320.4 route=8 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=320.4 TOTAL laps=0 crashes=1
+t=320.4 TUNER gen=0 results=1/64 pending=8 active=8 remaining=63 next_trial=10 rounds=[1,2,1,1,1,1,1,1]
+t=322.6 LZ_REACHED craft=Aircraft_10_nav_r7_7 route=7 outbound=166.9s t=322.5
+t=342.3 LZ_REACHED craft=Aircraft_10_nav_r8_8 route=8 outbound=166.5s t=342.3
+t=349.9 LAP_CAPTURE craft=Aircraft_10_nav_r1_1 route=1 return=159.3s lap=315.0s carrier_dist=200m t=349.9
+t=350.4 ==== SUMMARY t=350.4 ====
+t=350.4 route=1 laps=1 crashes=0 avg_out=143.7s avg_ret=159.3s avg_lap=315.0s best_lap=315.0
+t=350.4 route=2 laps=0 crashes=1 avg_out=175.7s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=350.4 route=3 laps=0 crashes=0 avg_out=206.8s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=350.4 route=4 laps=0 crashes=0 avg_out=167.6s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=350.4 route=5 laps=0 crashes=0 avg_out=0.0s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=350.4 route=6 laps=0 crashes=0 avg_out=121.9s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=350.4 route=7 laps=0 crashes=0 avg_out=166.9s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=350.4 route=8 laps=0 crashes=0 avg_out=166.5s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=350.4 TOTAL laps=1 crashes=1
+t=350.4 TUNER gen=0 results=2/64 pending=7 active=7 remaining=62 next_trial=10 rounds=[1,2,1,1,1,1,1,1]
+t=366.5 SPAWN craft=Aircraft_10_nav_r1_10 route=1 candidate=2 trial=10 t=366.5
+t=369.0 LZ_REACHED craft=Aircraft_10_nav_r5_5 route=5 outbound=253.7s t=369.0
+t=380.4 ==== SUMMARY t=380.4 ====
+t=380.4 route=1 laps=1 crashes=0 avg_out=143.7s avg_ret=159.3s avg_lap=315.0s best_lap=315.0
+t=380.4 route=2 laps=0 crashes=1 avg_out=175.7s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=380.4 route=3 laps=0 crashes=0 avg_out=206.8s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=380.4 route=4 laps=0 crashes=0 avg_out=167.6s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=380.4 route=5 laps=0 crashes=0 avg_out=253.7s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=380.4 route=6 laps=0 crashes=0 avg_out=121.9s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=380.4 route=7 laps=0 crashes=0 avg_out=166.9s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=380.4 route=8 laps=0 crashes=0 avg_out=166.5s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=380.5 TOTAL laps=1 crashes=1
+t=380.5 TUNER gen=0 results=2/64 pending=8 active=8 remaining=62 next_trial=11 rounds=[2,2,1,1,1,1,1,1]
+t=410.6 ==== SUMMARY t=410.6 ====
+t=410.6 route=1 laps=1 crashes=0 avg_out=143.7s avg_ret=159.3s avg_lap=315.0s best_lap=315.0
+t=410.6 route=2 laps=0 crashes=1 avg_out=175.7s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=410.6 route=3 laps=0 crashes=0 avg_out=206.8s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=410.6 route=4 laps=0 crashes=0 avg_out=167.6s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=410.6 route=5 laps=0 crashes=0 avg_out=253.7s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=410.6 route=6 laps=0 crashes=0 avg_out=121.9s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=410.6 route=7 laps=0 crashes=0 avg_out=166.9s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=410.6 route=8 laps=0 crashes=0 avg_out=166.5s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=410.6 TOTAL laps=1 crashes=1
+t=410.6 TUNER gen=0 results=2/64 pending=8 active=8 remaining=62 next_trial=11 rounds=[2,2,1,1,1,1,1,1]
+t=416.8 LAP_CAPTURE craft=Aircraft_10_nav_r6_6 route=6 return=147.4s lap=281.3s carrier_dist=200m t=416.8
+t=426.2 LAP_CAPTURE craft=Aircraft_10_nav_r4_4 route=4 return=151.2s lap=330.9s carrier_dist=200m t=426.2
+t=431.7 LAUNCH_BLOCKED reason=deck_busy active=7 stored=1 no_active_s=0.0 state=AIRCRAFT_ON_DECK tractor_cleanup=false elevator_transfer=true deck=Aircraft_10_nav_r6_11 pending=none clearance=none queue=0
+t=436.9 SPAWN craft=Aircraft_10_nav_r6_11 route=6 candidate=7 trial=11 t=436.9
+t=440.6 ==== SUMMARY t=440.6 ====
+t=440.6 route=1 laps=1 crashes=0 avg_out=143.7s avg_ret=159.3s avg_lap=315.0s best_lap=315.0
+t=440.6 route=2 laps=0 crashes=1 avg_out=175.7s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=440.6 route=3 laps=0 crashes=0 avg_out=206.8s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=440.6 route=4 laps=1 crashes=0 avg_out=167.6s avg_ret=151.2s avg_lap=330.9s best_lap=330.9
+t=440.6 route=5 laps=0 crashes=0 avg_out=253.7s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=440.6 route=6 laps=1 crashes=0 avg_out=121.9s avg_ret=147.4s avg_lap=281.3s best_lap=281.3
+t=440.6 route=7 laps=0 crashes=0 avg_out=166.9s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=440.6 route=8 laps=0 crashes=0 avg_out=166.5s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=440.6 TOTAL laps=3 crashes=1
+t=440.6 TUNER gen=0 results=4/64 pending=7 active=7 remaining=60 next_trial=12 rounds=[2,2,1,1,1,2,1,1]
+t=457.1 SPAWN craft=Aircraft_10_nav_r4_12 route=4 candidate=5 trial=12 t=457.1
+t=470.6 ==== SUMMARY t=470.6 ====
+t=470.6 route=1 laps=1 crashes=0 avg_out=143.7s avg_ret=159.3s avg_lap=315.0s best_lap=315.0
+t=470.6 route=2 laps=0 crashes=1 avg_out=175.7s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=470.6 route=3 laps=0 crashes=0 avg_out=206.8s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=470.6 route=4 laps=1 crashes=0 avg_out=167.6s avg_ret=151.2s avg_lap=330.9s best_lap=330.9
+t=470.6 route=5 laps=0 crashes=0 avg_out=253.7s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=470.6 route=6 laps=1 crashes=0 avg_out=121.9s avg_ret=147.4s avg_lap=281.3s best_lap=281.3
+t=470.6 route=7 laps=0 crashes=0 avg_out=166.9s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=470.6 route=8 laps=0 crashes=0 avg_out=166.5s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=470.6 TOTAL laps=3 crashes=1
+t=470.7 TUNER gen=0 results=4/64 pending=8 active=8 remaining=60 next_trial=13 rounds=[2,2,1,2,1,2,1,1]
+t=471.7 LZ_REACHED craft=Aircraft_10_nav_r2_9 route=2 outbound=175.3s t=471.7
+t=481.6 LAP_CAPTURE craft=Aircraft_10_nav_r7_7 route=7 return=147.0s lap=326.0s carrier_dist=200m t=481.6
+t=497.2 SPAWN craft=Aircraft_10_nav_r7_13 route=7 candidate=8 trial=13 t=497.2
+t=500.6 ==== SUMMARY t=500.6 ====
+t=500.6 route=1 laps=1 crashes=0 avg_out=143.7s avg_ret=159.3s avg_lap=315.0s best_lap=315.0
+t=500.6 route=2 laps=0 crashes=1 avg_out=175.5s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=500.6 route=3 laps=0 crashes=0 avg_out=206.8s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=500.6 route=4 laps=1 crashes=0 avg_out=167.6s avg_ret=151.2s avg_lap=330.9s best_lap=330.9
+t=500.6 route=5 laps=0 crashes=0 avg_out=253.7s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=500.6 route=6 laps=1 crashes=0 avg_out=121.9s avg_ret=147.4s avg_lap=281.3s best_lap=281.3
+t=500.7 route=7 laps=1 crashes=0 avg_out=166.9s avg_ret=147.0s avg_lap=326.0s best_lap=326.0
+t=500.7 route=8 laps=0 crashes=0 avg_out=166.5s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=500.7 TOTAL laps=4 crashes=1
+t=500.7 TUNER gen=0 results=5/64 pending=8 active=8 remaining=59 next_trial=14 rounds=[2,2,1,2,1,2,2,1]
+t=507.8 LZ_REACHED craft=Aircraft_10_nav_r1_10 route=1 outbound=141.2s t=507.8
+t=528.8 LAP_CAPTURE craft=Aircraft_10_nav_r8_8 route=8 return=174.5s lap=353.0s carrier_dist=200m t=528.8
+t=530.7 ==== SUMMARY t=530.7 ====
+t=530.7 route=1 laps=1 crashes=0 avg_out=142.5s avg_ret=159.3s avg_lap=315.0s best_lap=315.0
+t=530.7 route=2 laps=0 crashes=1 avg_out=175.5s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=530.7 route=3 laps=0 crashes=0 avg_out=206.8s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=530.7 route=4 laps=1 crashes=0 avg_out=167.6s avg_ret=151.2s avg_lap=330.9s best_lap=330.9
+t=530.7 route=5 laps=0 crashes=0 avg_out=253.7s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=530.7 route=6 laps=1 crashes=0 avg_out=121.9s avg_ret=147.4s avg_lap=281.3s best_lap=281.3
+t=530.7 route=7 laps=1 crashes=0 avg_out=166.9s avg_ret=147.0s avg_lap=326.0s best_lap=326.0
+t=530.7 route=8 laps=1 crashes=0 avg_out=166.5s avg_ret=174.5s avg_lap=353.0s best_lap=353.0
+t=530.7 TOTAL laps=5 crashes=1
+t=530.7 TUNER gen=0 results=6/64 pending=7 active=7 remaining=58 next_trial=14 rounds=[2,2,1,2,1,2,2,1]
+t=535.9 LAP_CAPTURE craft=Aircraft_10_nav_r3_3 route=3 return=241.9s lap=460.7s carrier_dist=200m t=535.9
+t=542.2 LAUNCH_BLOCKED reason=deck_busy active=7 stored=1 no_active_s=0.0 state=AIRCRAFT_ON_DECK tractor_cleanup=false elevator_transfer=true deck=Aircraft_10_nav_r8_14 pending=none clearance=none queue=0
+t=547.3 SPAWN craft=Aircraft_10_nav_r8_14 route=8 candidate=1 trial=14 t=547.3
+t=559.5 LZ_REACHED craft=Aircraft_10_nav_r6_11 route=6 outbound=122.5s t=559.5
+t=560.8 ==== SUMMARY t=560.8 ====
+t=560.8 route=1 laps=1 crashes=0 avg_out=142.5s avg_ret=159.3s avg_lap=315.0s best_lap=315.0
+t=560.8 route=2 laps=0 crashes=1 avg_out=175.5s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=560.8 route=3 laps=1 crashes=0 avg_out=206.8s avg_ret=241.9s avg_lap=460.7s best_lap=460.7
+t=560.8 route=4 laps=1 crashes=0 avg_out=167.6s avg_ret=151.2s avg_lap=330.9s best_lap=330.9
+t=560.8 route=5 laps=0 crashes=0 avg_out=253.7s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=560.8 route=6 laps=1 crashes=0 avg_out=122.2s avg_ret=147.4s avg_lap=281.3s best_lap=281.3
+t=560.8 route=7 laps=1 crashes=0 avg_out=166.9s avg_ret=147.0s avg_lap=326.0s best_lap=326.0
+t=560.8 route=8 laps=1 crashes=0 avg_out=166.5s avg_ret=174.5s avg_lap=353.0s best_lap=353.0
+t=560.8 TOTAL laps=6 crashes=1
+t=560.8 TUNER gen=0 results=7/64 pending=8 active=8 remaining=57 next_trial=16 rounds=[2,2,2,2,1,2,2,2]
+t=567.6 SPAWN craft=Aircraft_10_nav_r3_15 route=3 candidate=4 trial=15 t=567.6
+t=590.9 ==== SUMMARY t=590.9 ====
+t=590.9 route=1 laps=1 crashes=0 avg_out=142.5s avg_ret=159.3s avg_lap=315.0s best_lap=315.0
+t=591.0 route=2 laps=0 crashes=1 avg_out=175.5s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=591.0 route=3 laps=1 crashes=0 avg_out=206.8s avg_ret=241.9s avg_lap=460.7s best_lap=460.7
+t=591.0 route=4 laps=1 crashes=0 avg_out=167.6s avg_ret=151.2s avg_lap=330.9s best_lap=330.9
+t=591.0 route=5 laps=0 crashes=0 avg_out=253.7s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=591.0 route=6 laps=1 crashes=0 avg_out=122.2s avg_ret=147.4s avg_lap=281.3s best_lap=281.3
+t=591.0 route=7 laps=1 crashes=0 avg_out=166.9s avg_ret=147.0s avg_lap=326.0s best_lap=326.0
+t=591.0 route=8 laps=1 crashes=0 avg_out=166.5s avg_ret=174.5s avg_lap=353.0s best_lap=353.0
+t=591.0 TOTAL laps=6 crashes=1
+t=591.0 TUNER gen=0 results=7/64 pending=8 active=8 remaining=57 next_trial=16 rounds=[2,2,2,2,1,2,2,2]
+t=607.4 LAP_CAPTURE craft=Aircraft_10_nav_r5_5 route=5 return=226.3s lap=492.0s carrier_dist=200m t=607.4
+t=621.0 ==== SUMMARY t=621.0 ====
+t=621.0 route=1 laps=1 crashes=0 avg_out=142.5s avg_ret=159.3s avg_lap=315.0s best_lap=315.0
+t=621.0 route=2 laps=0 crashes=1 avg_out=175.5s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=621.0 route=3 laps=1 crashes=0 avg_out=206.8s avg_ret=241.9s avg_lap=460.7s best_lap=460.7
+t=621.0 route=4 laps=1 crashes=0 avg_out=167.6s avg_ret=151.2s avg_lap=330.9s best_lap=330.9
+t=621.0 route=5 laps=1 crashes=0 avg_out=253.7s avg_ret=226.3s avg_lap=492.0s best_lap=492.0
+t=621.0 route=6 laps=1 crashes=0 avg_out=122.2s avg_ret=147.4s avg_lap=281.3s best_lap=281.3
+t=621.0 route=7 laps=1 crashes=0 avg_out=166.9s avg_ret=147.0s avg_lap=326.0s best_lap=326.0
+t=621.0 route=8 laps=1 crashes=0 avg_out=166.5s avg_ret=174.5s avg_lap=353.0s best_lap=353.0
+t=621.0 TOTAL laps=7 crashes=1
+t=621.0 TUNER gen=0 results=8/64 pending=8 active=8 remaining=56 next_trial=17 rounds=[2,2,2,2,2,2,2,2]
+t=622.9 SPAWN craft=Aircraft_10_nav_r5_16 route=5 candidate=6 trial=16 t=622.9
+t=634.1 LZ_REACHED craft=Aircraft_10_nav_r4_12 route=4 outbound=177.0s t=634.1
+t=651.0 ==== SUMMARY t=651.0 ====
+t=651.0 route=1 laps=1 crashes=0 avg_out=142.5s avg_ret=159.3s avg_lap=315.0s best_lap=315.0
+t=651.0 route=2 laps=0 crashes=1 avg_out=175.5s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=651.0 route=3 laps=1 crashes=0 avg_out=206.8s avg_ret=241.9s avg_lap=460.7s best_lap=460.7
+t=651.1 route=4 laps=1 crashes=0 avg_out=172.3s avg_ret=151.2s avg_lap=330.9s best_lap=330.9
+t=651.1 route=5 laps=1 crashes=0 avg_out=253.7s avg_ret=226.3s avg_lap=492.0s best_lap=492.0
+t=651.1 route=6 laps=1 crashes=0 avg_out=122.2s avg_ret=147.4s avg_lap=281.3s best_lap=281.3
+t=651.1 route=7 laps=1 crashes=0 avg_out=166.9s avg_ret=147.0s avg_lap=326.0s best_lap=326.0
+t=651.1 route=8 laps=1 crashes=0 avg_out=166.5s avg_ret=174.5s avg_lap=353.0s best_lap=353.0
+t=651.1 TOTAL laps=7 crashes=1
+t=651.1 TUNER gen=0 results=8/64 pending=8 active=8 remaining=56 next_trial=17 rounds=[2,2,2,2,2,2,2,2]
+t=659.3 LZ_REACHED craft=Aircraft_10_nav_r7_13 route=7 outbound=162.1s t=659.3
+t=681.0 ==== SUMMARY t=681.0 ====
+t=681.0 route=1 laps=1 crashes=0 avg_out=142.5s avg_ret=159.3s avg_lap=315.0s best_lap=315.0
+t=681.0 route=2 laps=0 crashes=1 avg_out=175.5s avg_ret=0.0s avg_lap=0.0s best_lap=-
+t=681.0 route=3 laps=1 crashes=0 avg_out=206.8s avg_ret=241.9s avg_lap=460.7s best_lap=460.7
+t=681.1 route=4 laps=1 crashes=0 avg_out=172.3s avg_ret=151.2s avg_lap=330.9s best_lap=330.9
+t=681.1 route=5 laps=1 crashes=0 avg_out=253.7s avg_ret=226.3s avg_lap=492.0s best_lap=492.0
+t=681.1 route=6 laps=1 crashes=0 avg_out=122.2s avg_ret=147.4s avg_lap=281.3s best_lap=281.3
+t=681.1 route=7 laps=1 crashes=0 avg_out=164.5s avg_ret=147.0s avg_lap=326.0s best_lap=326.0
+t=681.1 route=8 laps=1 crashes=0 avg_out=166.5s avg_ret=174.5s avg_lap=353.0s best_lap=353.0
+t=681.1 TOTAL laps=7 crashes=1
+t=681.1 TUNER gen=0 results=8/64 pending=8 active=8 remaining=56 next_trial=17 rounds=[2,2,2,2,2,2,2,2]
+t=685.0 LAP_CAPTURE craft=Aircraft_10_nav_r2_9 route=2 return=201.4s lap=388.7s carrier_dist=200m t=685.0
+t=685.1 LAP_CAPTURE craft=Aircraft_10_nav_r1_10 route=1 return=165.4s lap=318.6s carrier_dist=200m t=685.1
+t=692.9 LAUNCH_BLOCKED reason=deck_busy active=7 stored=1 no_active_s=0.0 state=RETRIEVING_FROM_HANGAR tractor_cleanup=false elevator_transfer=false deck=Aircraft_10_nav_r1_17 pending=none clearance=none queue=0
+t=703.1 SPAWN craft=Aircraft_10_nav_r1_17 route=1 candidate=3 trial=17 t=703.1
+t=708.0 LAUNCH_BLOCKED reason=cleared_unready_nav_deck_aircraft active=7 stored=1 no_active_s=0.0 state=IDLE tractor_cleanup=false elevator_transfer=false deck=Aircraft_10_nav_r1_17 pending=none clearance=none queue=0
+t=711.0 ==== SUMMARY t=711.0 ====
+t=711.0 route=1 laps=2 crashes=0 avg_out=142.5s avg_ret=162.3s avg_lap=316.8s best_lap=315.0
+t=711.0 route=2 laps=1 crashes=1 avg_out=175.5s avg_ret=201.4s avg_lap=388.7s best_lap=388.7
+t=711.1 route=3 laps=1 crashes=0 avg_out=206.8s avg_ret=241.9s avg_lap=460.7s best_lap=460.7
+t=711.1 route=4 laps=1 crashes=0 avg_out=172.3s avg_ret=151.2s avg_lap=330.9s best_lap=330.9
+t=711.1 route=5 laps=1 crashes=0 avg_out=253.7s avg_ret=226.3s avg_lap=492.0s best_lap=492.0
+t=711.1 route=6 laps=1 crashes=0 avg_out=122.2s avg_ret=147.4s avg_lap=281.3s best_lap=281.3
+t=711.1 route=7 laps=1 crashes=0 avg_out=164.5s avg_ret=147.0s avg_lap=326.0s best_lap=326.0
+t=711.1 route=8 laps=1 crashes=0 avg_out=166.5s avg_ret=174.5s avg_lap=353.0s best_lap=353.0
+t=711.1 TOTAL laps=9 crashes=1
+t=711.1 TUNER gen=0 results=10/64 pending=7 active=7 remaining=54 next_trial=18 rounds=[3,2,2,2,2,2,2,2]
+t=716.7 LAP_CAPTURE craft=Aircraft_10_nav_r6_11 route=6 return=145.1s lap=279.8s carrier_dist=200m t=716.7
+t=719.1 LZ_REACHED craft=Aircraft_10_nav_r8_14 route=8 outbound=171.8s t=719.1
+t=723.0 LAUNCH_BLOCKED reason=deck_busy active=7 stored=1 no_active_s=0.0 state=AIRCRAFT_ON_DECK tractor_cleanup=false elevator_transfer=false deck=Aircraft_10_nav_r2_18 pending=none clearance=none queue=0
+t=723.2 SPAWN craft=Aircraft_10_nav_r2_18 route=2 candidate=4 trial=18 t=723.2
+t=741.1 ==== SUMMARY t=741.1 ====
+t=741.1 route=1 laps=2 crashes=0 avg_out=142.5s avg_ret=162.3s avg_lap=316.8s best_lap=315.0
+t=741.1 route=2 laps=1 crashes=1 avg_out=175.5s avg_ret=201.4s avg_lap=388.7s best_lap=388.7
+t=741.2 route=3 laps=1 crashes=0 avg_out=206.8s avg_ret=241.9s avg_lap=460.7s best_lap=460.7
+t=741.2 route=4 laps=1 crashes=0 avg_out=172.3s avg_ret=151.2s avg_lap=330.9s best_lap=330.9
+t=741.2 route=5 laps=1 crashes=0 avg_out=253.7s avg_ret=226.3s avg_lap=492.0s best_lap=492.0
+t=741.2 route=6 laps=2 crashes=0 avg_out=122.2s avg_ret=146.3s avg_lap=280.6s best_lap=279.8
+t=741.2 route=7 laps=1 crashes=0 avg_out=164.5s avg_ret=147.0s avg_lap=326.0s best_lap=326.0
+t=741.2 route=8 laps=1 crashes=0 avg_out=169.2s avg_ret=174.5s avg_lap=353.0s best_lap=353.0
+t=741.2 TOTAL laps=10 crashes=1
+t=741.2 TUNER gen=0 results=11/64 pending=8 active=8 remaining=53 next_trial=20 rounds=[3,3,2,2,2,3,2,2]
+t=743.4 SPAWN craft=Aircraft_10_nav_r6_19 route=6 candidate=8 trial=19 t=743.4
+t=771.2 ==== SUMMARY t=771.2 ====
+t=771.2 route=1 laps=2 crashes=0 avg_out=142.5s avg_ret=162.3s avg_lap=316.8s best_lap=315.0
+t=771.2 route=2 laps=1 crashes=1 avg_out=175.5s avg_ret=201.4s avg_lap=388.7s best_lap=388.7
+t=771.2 route=3 laps=1 crashes=0 avg_out=206.8s avg_ret=241.9s avg_lap=460.7s best_lap=460.7
+t=771.2 route=4 laps=1 crashes=0 avg_out=172.3s avg_ret=151.2s avg_lap=330.9s best_lap=330.9
+t=771.2 route=5 laps=1 crashes=0 avg_out=253.7s avg_ret=226.3s avg_lap=492.0s best_lap=492.0
+t=771.2 route=6 laps=2 crashes=0 avg_out=122.2s avg_ret=146.3s avg_lap=280.6s best_lap=279.8
+t=771.2 route=7 laps=1 crashes=0 avg_out=164.5s avg_ret=147.0s avg_lap=326.0s best_lap=326.0
+t=771.2 route=8 laps=1 crashes=0 avg_out=169.2s avg_ret=174.5s avg_lap=353.0s best_lap=353.0
+t=771.2 TOTAL laps=10 crashes=1
+t=771.2 TUNER gen=0 results=11/64 pending=8 active=8 remaining=53 next_trial=20 rounds=[3,3,2,2,2,3,2,2]
+t=775.4 LZ_REACHED craft=Aircraft_10_nav_r3_15 route=3 outbound=207.7s t=775.4
+t=797.1 LAP_CAPTURE craft=Aircraft_10_nav_r4_12 route=4 return=150.9s lap=340.0s carrier_dist=200m t=797.1
+t=801.2 ==== SUMMARY t=801.2 ====
+t=801.2 route=1 laps=2 crashes=0 avg_out=142.5s avg_ret=162.3s avg_lap=316.8s best_lap=315.0
+t=801.2 route=2 laps=1 crashes=1 avg_out=175.5s avg_ret=201.4s avg_lap=388.7s best_lap=388.7
+t=801.2 route=3 laps=1 crashes=0 avg_out=207.3s avg_ret=241.9s avg_lap=460.7s best_lap=460.7
+t=801.2 route=4 laps=2 crashes=0 avg_out=172.3s avg_ret=151.1s avg_lap=335.4s best_lap=330.9
+t=801.3 route=5 laps=1 crashes=0 avg_out=253.7s avg_ret=226.3s avg_lap=492.0s best_lap=492.0
+t=801.3 route=6 laps=2 crashes=0 avg_out=122.2s avg_ret=146.3s avg_lap=280.6s best_lap=279.8
+t=801.3 route=7 laps=1 crashes=0 avg_out=164.5s avg_ret=147.0s avg_lap=326.0s best_lap=326.0
+t=801.3 route=8 laps=1 crashes=0 avg_out=169.2s avg_ret=174.5s avg_lap=353.0s best_lap=353.0
+t=801.3 TOTAL laps=11 crashes=1
+t=801.3 TUNER gen=0 results=12/64 pending=7 active=7 remaining=52 next_trial=20 rounds=[3,3,2,2,2,3,2,2]
+t=815.8 LAP_CAPTURE craft=Aircraft_10_nav_r7_13 route=7 return=144.5s lap=318.6s carrier_dist=200m t=815.8
+t=831.2 ==== SUMMARY t=831.2 ====
+t=831.2 route=1 laps=2 crashes=0 avg_out=142.5s avg_ret=162.3s avg_lap=316.8s best_lap=315.0
+t=831.2 route=2 laps=1 crashes=1 avg_out=175.5s avg_ret=201.4s avg_lap=388.7s best_lap=388.7
+t=831.3 route=3 laps=1 crashes=0 avg_out=207.3s avg_ret=241.9s avg_lap=460.7s best_lap=460.7
+t=831.3 route=4 laps=2 crashes=0 avg_out=172.3s avg_ret=151.1s avg_lap=335.4s best_lap=330.9
+t=831.3 route=5 laps=1 crashes=0 avg_out=253.7s avg_ret=226.3s avg_lap=492.0s best_lap=492.0
+t=831.3 route=6 laps=2 crashes=0 avg_out=122.2s avg_ret=146.3s avg_lap=280.6s best_lap=279.8
+t=831.3 route=7 laps=2 crashes=0 avg_out=164.5s avg_ret=145.8s avg_lap=322.3s best_lap=318.6
+t=831.3 route=8 laps=1 crashes=0 avg_out=169.2s avg_ret=174.5s avg_lap=353.0s best_lap=353.0
+t=831.3 TOTAL laps=12 crashes=1
+t=831.3 TUNER gen=0 results=13/64 pending=6 active=6 remaining=51 next_trial=20 rounds=[3,3,2,2,2,3,2,2]
+t=841.4 LZ_REACHED craft=Aircraft_10_nav_r1_17 route=1 outbound=138.3s t=841.4
+t=861.2 ==== SUMMARY t=861.2 ====
+t=861.3 route=1 laps=2 crashes=0 avg_out=141.1s avg_ret=162.3s avg_lap=316.8s best_lap=315.0
+t=861.3 route=2 laps=1 crashes=1 avg_out=175.5s avg_ret=201.4s avg_lap=388.7s best_lap=388.7
+t=861.3 route=3 laps=1 crashes=0 avg_out=207.3s avg_ret=241.9s avg_lap=460.7s best_lap=460.7
+t=861.3 route=4 laps=2 crashes=0 avg_out=172.3s avg_ret=151.1s avg_lap=335.4s best_lap=330.9
+t=861.3 route=5 laps=1 crashes=0 avg_out=253.7s avg_ret=226.3s avg_lap=492.0s best_lap=492.0
+t=861.3 route=6 laps=2 crashes=0 avg_out=122.2s avg_ret=146.3s avg_lap=280.6s best_lap=279.8
+t=861.3 route=7 laps=2 crashes=0 avg_out=164.5s avg_ret=145.8s avg_lap=322.3s best_lap=318.6
+t=861.3 route=8 laps=1 crashes=0 avg_out=169.2s avg_ret=174.5s avg_lap=353.0s best_lap=353.0
+t=861.3 TOTAL laps=12 crashes=1
+t=861.3 TUNER gen=0 results=13/64 pending=6 active=6 remaining=51 next_trial=20 rounds=[3,3,2,2,2,3,2,2]
+t=864.4 LZ_REACHED craft=Aircraft_10_nav_r6_19 route=6 outbound=121.1s t=864.4
+t=876.3 LZ_REACHED craft=Aircraft_10_nav_r5_16 route=5 outbound=253.4s t=876.3
+t=891.3 ==== SUMMARY t=891.3 ====
+t=891.3 route=1 laps=2 crashes=0 avg_out=141.1s avg_ret=162.3s avg_lap=316.8s best_lap=315.0
+t=891.4 route=2 laps=1 crashes=1 avg_out=175.5s avg_ret=201.4s avg_lap=388.7s best_lap=388.7
+t=891.4 route=3 laps=1 crashes=0 avg_out=207.3s avg_ret=241.9s avg_lap=460.7s best_lap=460.7
+t=891.4 route=4 laps=2 crashes=0 avg_out=172.3s avg_ret=151.1s avg_lap=335.4s best_lap=330.9
+t=891.4 route=5 laps=1 crashes=0 avg_out=253.5s avg_ret=226.3s avg_lap=492.0s best_lap=492.0
+t=891.4 route=6 laps=2 crashes=0 avg_out=121.8s avg_ret=146.3s avg_lap=280.6s best_lap=279.8
+t=891.4 route=7 laps=2 crashes=0 avg_out=164.5s avg_ret=145.8s avg_lap=322.3s best_lap=318.6
+t=891.4 route=8 laps=1 crashes=0 avg_out=169.2s avg_ret=174.5s avg_lap=353.0s best_lap=353.0
+t=891.4 TOTAL laps=12 crashes=1
+t=891.4 TUNER gen=0 results=13/64 pending=6 active=6 remaining=51 next_trial=20 rounds=[3,3,2,2,2,3,2,2]
+t=900.8 LZ_REACHED craft=Aircraft_10_nav_r2_18 route=2 outbound=177.6s t=900.8
+t=911.6 LAP_CAPTURE craft=Aircraft_10_nav_r8_14 route=8 return=180.5s lap=364.3s carrier_dist=200m t=911.6
+t=921.3 ==== SUMMARY t=921.3 ====
+t=921.4 route=1 laps=2 crashes=0 avg_out=141.1s avg_ret=162.3s avg_lap=316.8s best_lap=315.0
+t=921.4 route=2 laps=1 crashes=1 avg_out=176.2s avg_ret=201.4s avg_lap=388.7s best_lap=388.7
+t=921.4 route=3 laps=1 crashes=0 avg_out=207.3s avg_ret=241.9s avg_lap=460.7s best_lap=460.7
+t=921.4 route=4 laps=2 crashes=0 avg_out=172.3s avg_ret=151.1s avg_lap=335.4s best_lap=330.9
+t=921.4 route=5 laps=1 crashes=0 avg_out=253.5s avg_ret=226.3s avg_lap=492.0s best_lap=492.0
+t=921.4 route=6 laps=2 crashes=0 avg_out=121.8s avg_ret=146.3s avg_lap=280.6s best_lap=279.8
+t=921.4 route=7 laps=2 crashes=0 avg_out=164.5s avg_ret=145.8s avg_lap=322.3s best_lap=318.6
+t=921.4 route=8 laps=2 crashes=0 avg_out=169.2s avg_ret=177.5s avg_lap=358.6s best_lap=353.0
+t=921.4 TOTAL laps=13 crashes=1
+t=921.4 TUNER gen=0 results=14/64 pending=5 active=5 remaining=50 next_trial=20 rounds=[3,3,2,2,2,3,2,2]
+t=951.4 ==== SUMMARY t=951.4 ====
+t=951.4 route=1 laps=2 crashes=0 avg_out=141.1s avg_ret=162.3s avg_lap=316.8s best_lap=315.0
+t=951.4 route=2 laps=1 crashes=1 avg_out=176.2s avg_ret=201.4s avg_lap=388.7s best_lap=388.7
+t=951.4 route=3 laps=1 crashes=0 avg_out=207.3s avg_ret=241.9s avg_lap=460.7s best_lap=460.7
+t=951.4 route=4 laps=2 crashes=0 avg_out=172.3s avg_ret=151.1s avg_lap=335.4s best_lap=330.9
+t=951.4 route=5 laps=1 crashes=0 avg_out=253.5s avg_ret=226.3s avg_lap=492.0s best_lap=492.0
+t=951.4 route=6 laps=2 crashes=0 avg_out=121.8s avg_ret=146.3s avg_lap=280.6s best_lap=279.8
+t=951.4 route=7 laps=2 crashes=0 avg_out=164.5s avg_ret=145.8s avg_lap=322.3s best_lap=318.6
+t=951.4 route=8 laps=2 crashes=0 avg_out=169.2s avg_ret=177.5s avg_lap=358.6s best_lap=353.0
+t=951.4 TOTAL laps=13 crashes=1
+t=951.4 TUNER gen=0 results=14/64 pending=5 active=5 remaining=50 next_trial=20 rounds=[3,3,2,2,2,3,2,2]
+t=981.4 ==== SUMMARY t=981.4 ====
+t=981.4 route=1 laps=2 crashes=0 avg_out=141.1s avg_ret=162.3s avg_lap=316.8s best_lap=315.0
+t=981.4 route=2 laps=1 crashes=1 avg_out=176.2s avg_ret=201.4s avg_lap=388.7s best_lap=388.7
+t=981.4 route=3 laps=1 crashes=0 avg_out=207.3s avg_ret=241.9s avg_lap=460.7s best_lap=460.7
+t=981.4 route=4 laps=2 crashes=0 avg_out=172.3s avg_ret=151.1s avg_lap=335.4s best_lap=330.9
+t=981.4 route=5 laps=1 crashes=0 avg_out=253.5s avg_ret=226.3s avg_lap=492.0s best_lap=492.0
+t=981.4 route=6 laps=2 crashes=0 avg_out=121.8s avg_ret=146.3s avg_lap=280.6s best_lap=279.8
+t=981.4 route=7 laps=2 crashes=0 avg_out=164.5s avg_ret=145.8s avg_lap=322.3s best_lap=318.6
+t=981.4 route=8 laps=2 crashes=0 avg_out=169.2s avg_ret=177.5s avg_lap=358.6s best_lap=353.0
+t=981.4 TOTAL laps=13 crashes=1
+t=981.4 TUNER gen=0 results=14/64 pending=5 active=5 remaining=50 next_trial=20 rounds=[3,3,2,2,2,3,2,2]
+t=1010.4 LAP_CAPTURE craft=Aircraft_10_nav_r1_17 route=1 return=157.0s lap=307.3s carrier_dist=200m t=1010.4
+t=1011.4 ==== SUMMARY t=1011.4 ====
+t=1011.4 route=1 laps=3 crashes=0 avg_out=141.1s avg_ret=160.6s avg_lap=313.6s best_lap=307.3
+t=1011.4 route=2 laps=1 crashes=1 avg_out=176.2s avg_ret=201.4s avg_lap=388.7s best_lap=388.7
+t=1011.4 route=3 laps=1 crashes=0 avg_out=207.3s avg_ret=241.9s avg_lap=460.7s best_lap=460.7
+t=1011.4 route=4 laps=2 crashes=0 avg_out=172.3s avg_ret=151.1s avg_lap=335.4s best_lap=330.9
+t=1011.4 route=5 laps=1 crashes=0 avg_out=253.5s avg_ret=226.3s avg_lap=492.0s best_lap=492.0
+t=1011.4 route=6 laps=2 crashes=0 avg_out=121.8s avg_ret=146.3s avg_lap=280.6s best_lap=279.8
+t=1011.4 route=7 laps=2 crashes=0 avg_out=164.5s avg_ret=145.8s avg_lap=322.3s best_lap=318.6
+t=1011.4 route=8 laps=2 crashes=0 avg_out=169.2s avg_ret=177.5s avg_lap=358.6s best_lap=353.0
+t=1011.4 TOTAL laps=14 crashes=1
+t=1011.5 TUNER gen=0 results=15/64 pending=4 active=4 remaining=49 next_trial=20 rounds=[3,3,2,2,2,3,2,2]
+t=1012.9 LAP_CAPTURE craft=Aircraft_10_nav_r6_19 route=6 return=136.4s lap=269.5s carrier_dist=200m t=1012.9
+t=1034.9 LAP_CAPTURE craft=Aircraft_10_nav_r3_15 route=3 return=247.5s lap=467.3s carrier_dist=200m t=1034.9
+t=1041.4 ==== SUMMARY t=1041.4 ====
+t=1041.4 route=1 laps=3 crashes=0 avg_out=141.1s avg_ret=160.6s avg_lap=313.6s best_lap=307.3
+t=1041.4 route=2 laps=1 crashes=1 avg_out=176.2s avg_ret=201.4s avg_lap=388.7s best_lap=388.7
+t=1041.4 route=3 laps=2 crashes=0 avg_out=207.3s avg_ret=244.7s avg_lap=464.0s best_lap=460.7
+t=1041.4 route=4 laps=2 crashes=0 avg_out=172.3s avg_ret=151.1s avg_lap=335.4s best_lap=330.9
+t=1041.4 route=5 laps=1 crashes=0 avg_out=253.5s avg_ret=226.3s avg_lap=492.0s best_lap=492.0
+t=1041.4 route=6 laps=3 crashes=0 avg_out=121.8s avg_ret=143.0s avg_lap=276.9s best_lap=269.5
+t=1041.5 route=7 laps=2 crashes=0 avg_out=164.5s avg_ret=145.8s avg_lap=322.3s best_lap=318.6
+t=1041.5 route=8 laps=2 crashes=0 avg_out=169.2s avg_ret=177.5s avg_lap=358.6s best_lap=353.0
+t=1041.5 TOTAL laps=16 crashes=1
+t=1041.5 TUNER gen=0 results=17/64 pending=2 active=2 remaining=47 next_trial=20 rounds=[3,3,2,2,2,3,2,2]
+t=1071.4 ==== SUMMARY t=1071.4 ====
+t=1071.4 route=1 laps=3 crashes=0 avg_out=141.1s avg_ret=160.6s avg_lap=313.6s best_lap=307.3
+t=1071.5 route=2 laps=1 crashes=1 avg_out=176.2s avg_ret=201.4s avg_lap=388.7s best_lap=388.7
+t=1071.5 route=3 laps=2 crashes=0 avg_out=207.3s avg_ret=244.7s avg_lap=464.0s best_lap=460.7
+t=1071.5 route=4 laps=2 crashes=0 avg_out=172.3s avg_ret=151.1s avg_lap=335.4s best_lap=330.9
+t=1071.5 route=5 laps=1 crashes=0 avg_out=253.5s avg_ret=226.3s avg_lap=492.0s best_lap=492.0
+t=1071.5 route=6 laps=3 crashes=0 avg_out=121.8s avg_ret=143.0s avg_lap=276.9s best_lap=269.5
+t=1071.5 route=7 laps=2 crashes=0 avg_out=164.5s avg_ret=145.8s avg_lap=322.3s best_lap=318.6
+t=1071.5 route=8 laps=2 crashes=0 avg_out=169.2s avg_ret=177.5s avg_lap=358.6s best_lap=353.0
+t=1071.5 TOTAL laps=16 crashes=1
+t=1071.5 TUNER gen=0 results=17/64 pending=2 active=2 remaining=47 next_trial=20 rounds=[3,3,2,2,2,3,2,2]
+t=1101.4 ==== SUMMARY t=1101.4 ====
+t=1101.4 route=1 laps=3 crashes=0 avg_out=141.1s avg_ret=160.6s avg_lap=313.6s best_lap=307.3
+t=1101.5 route=2 laps=1 crashes=1 avg_out=176.2s avg_ret=201.4s avg_lap=388.7s best_lap=388.7
+t=1101.5 route=3 laps=2 crashes=0 avg_out=207.3s avg_ret=244.7s avg_lap=464.0s best_lap=460.7
+t=1101.5 route=4 laps=2 crashes=0 avg_out=172.3s avg_ret=151.1s avg_lap=335.4s best_lap=330.9
+t=1101.5 route=5 laps=1 crashes=0 avg_out=253.5s avg_ret=226.3s avg_lap=492.0s best_lap=492.0
+t=1101.5 route=6 laps=3 crashes=0 avg_out=121.8s avg_ret=143.0s avg_lap=276.9s best_lap=269.5
+t=1101.5 route=7 laps=2 crashes=0 avg_out=164.5s avg_ret=145.8s avg_lap=322.3s best_lap=318.6
+t=1101.5 route=8 laps=2 crashes=0 avg_out=169.2s avg_ret=177.5s avg_lap=358.6s best_lap=353.0
+t=1101.5 TOTAL laps=16 crashes=1
+t=1101.5 TUNER gen=0 results=17/64 pending=2 active=2 remaining=47 next_trial=20 rounds=[3,3,2,2,2,3,2,2]
+t=1112.5 LAP_CAPTURE craft=Aircraft_10_nav_r5_16 route=5 return=224.2s lap=489.6s carrier_dist=200m t=1112.5
+t=1131.5 ==== SUMMARY t=1131.5 ====
+t=1131.5 route=1 laps=3 crashes=0 avg_out=141.1s avg_ret=160.6s avg_lap=313.6s best_lap=307.3
+t=1131.5 route=2 laps=1 crashes=1 avg_out=176.2s avg_ret=201.4s avg_lap=388.7s best_lap=388.7
+t=1131.5 route=3 laps=2 crashes=0 avg_out=207.3s avg_ret=244.7s avg_lap=464.0s best_lap=460.7
+t=1131.5 route=4 laps=2 crashes=0 avg_out=172.3s avg_ret=151.1s avg_lap=335.4s best_lap=330.9
+t=1131.5 route=5 laps=2 crashes=0 avg_out=253.5s avg_ret=225.3s avg_lap=490.8s best_lap=489.6
+t=1131.5 route=6 laps=3 crashes=0 avg_out=121.8s avg_ret=143.0s avg_lap=276.9s best_lap=269.5
+t=1131.5 route=7 laps=2 crashes=0 avg_out=164.5s avg_ret=145.8s avg_lap=322.3s best_lap=318.6
+t=1131.5 route=8 laps=2 crashes=0 avg_out=169.2s avg_ret=177.5s avg_lap=358.6s best_lap=353.0
+t=1131.5 TOTAL laps=17 crashes=1
+t=1131.5 TUNER gen=0 results=18/64 pending=1 active=1 remaining=46 next_trial=20 rounds=[3,3,2,2,2,3,2,2]
+t=1146.5 LAP_CAPTURE craft=Aircraft_10_nav_r2_18 route=2 return=233.7s lap=423.3s carrier_dist=200m t=1146.5
+t=1146.6 IDLE_TUNER_REFILL gen=0 results=19/64 remaining=45 active_nav=0 stored_before=0 next_trial=20
+t=1161.5 ==== SUMMARY t=1161.5 ====
+t=1161.5 route=1 laps=3 crashes=0 avg_out=141.1s avg_ret=160.6s avg_lap=313.6s best_lap=307.3
+t=1161.5 route=2 laps=2 crashes=1 avg_out=176.2s avg_ret=217.5s avg_lap=406.0s best_lap=388.7
+t=1161.5 route=3 laps=2 crashes=0 avg_out=207.3s avg_ret=244.7s avg_lap=464.0s best_lap=460.7
+t=1161.5 route=4 laps=2 crashes=0 avg_out=172.3s avg_ret=151.1s avg_lap=335.4s best_lap=330.9
+t=1161.5 route=5 laps=2 crashes=0 avg_out=253.5s avg_ret=225.3s avg_lap=490.8s best_lap=489.6
+t=1161.5 route=6 laps=3 crashes=0 avg_out=121.8s avg_ret=143.0s avg_lap=276.9s best_lap=269.5
+t=1161.5 route=7 laps=2 crashes=0 avg_out=164.5s avg_ret=145.8s avg_lap=322.3s best_lap=318.6
+t=1161.5 route=8 laps=2 crashes=0 avg_out=169.2s avg_ret=177.5s avg_lap=358.6s best_lap=353.0
+t=1161.5 TOTAL laps=18 crashes=1
+t=1161.5 TUNER gen=0 results=19/64 pending=0 active=0 remaining=45 next_trial=20 rounds=[3,3,2,2,2,3,2,2]
+t=1161.6 IDLE_TUNER_REFILL gen=0 results=19/64 remaining=45 active_nav=0 stored_before=0 next_trial=20
+t=1176.6 IDLE_TUNER_REFILL gen=0 results=19/64 remaining=45 active_nav=0 stored_before=0 next_trial=20
+t=1191.5 ==== SUMMARY t=1191.5 ====
+t=1191.5 route=1 laps=3 crashes=0 avg_out=141.1s avg_ret=160.6s avg_lap=313.6s best_lap=307.3
+t=1191.5 route=2 laps=2 crashes=1 avg_out=176.2s avg_ret=217.5s avg_lap=406.0s best_lap=388.7
+t=1191.5 route=3 laps=2 crashes=0 avg_out=207.3s avg_ret=244.7s avg_lap=464.0s best_lap=460.7
+t=1191.5 route=4 laps=2 crashes=0 avg_out=172.3s avg_ret=151.1s avg_lap=335.4s best_lap=330.9
+t=1191.5 route=5 laps=2 crashes=0 avg_out=253.5s avg_ret=225.3s avg_lap=490.8s best_lap=489.6
+t=1191.5 route=6 laps=3 crashes=0 avg_out=121.8s avg_ret=143.0s avg_lap=276.9s best_lap=269.5
+t=1191.5 route=7 laps=2 crashes=0 avg_out=164.5s avg_ret=145.8s avg_lap=322.3s best_lap=318.6
+t=1191.5 route=8 laps=2 crashes=0 avg_out=169.2s avg_ret=177.5s avg_lap=358.6s best_lap=353.0
+t=1191.5 TOTAL laps=18 crashes=1
+t=1191.6 TUNER gen=0 results=19/64 pending=0 active=0 remaining=45 next_trial=20 rounds=[3,3,2,2,2,3,2,2]
+t=1191.6 IDLE_TUNER_REFILL gen=0 results=19/64 remaining=45 active_nav=0 stored_before=0 next_trial=20
+t=1206.6 IDLE_TUNER_REFILL gen=0 results=19/64 remaining=45 active_nav=0 stored_before=0 next_trial=20
+t=1221.5 ==== SUMMARY t=1221.5 ====
+t=1221.5 route=1 laps=3 crashes=0 avg_out=141.1s avg_ret=160.6s avg_lap=313.6s best_lap=307.3
+t=1221.5 route=2 laps=2 crashes=1 avg_out=176.2s avg_ret=217.5s avg_lap=406.0s best_lap=388.7
+t=1221.5 route=3 laps=2 crashes=0 avg_out=207.3s avg_ret=244.7s avg_lap=464.0s best_lap=460.7
+t=1221.5 route=4 laps=2 crashes=0 avg_out=172.3s avg_ret=151.1s avg_lap=335.4s best_lap=330.9
+t=1221.6 route=5 laps=2 crashes=0 avg_out=253.5s avg_ret=225.3s avg_lap=490.8s best_lap=489.6
+t=1221.6 route=6 laps=3 crashes=0 avg_out=121.8s avg_ret=143.0s avg_lap=276.9s best_lap=269.5
+t=1221.6 route=7 laps=2 crashes=0 avg_out=164.5s avg_ret=145.8s avg_lap=322.3s best_lap=318.6
+t=1221.6 route=8 laps=2 crashes=0 avg_out=169.2s avg_ret=177.5s avg_lap=358.6s best_lap=353.0
+t=1221.6 TOTAL laps=18 crashes=1
+t=1221.6 TUNER gen=0 results=19/64 pending=0 active=0 remaining=45 next_trial=20 rounds=[3,3,2,2,2,3,2,2]
+t=1221.6 IDLE_TUNER_REFILL gen=0 results=19/64 remaining=45 active_nav=0 stored_before=0 next_trial=20
+t=1236.6 IDLE_TUNER_REFILL gen=0 results=19/64 remaining=45 active_nav=0 stored_before=0 next_trial=20
+t=1251.5 ==== SUMMARY t=1251.5 ====
+t=1251.6 route=1 laps=3 crashes=0 avg_out=141.1s avg_ret=160.6s avg_lap=313.6s best_lap=307.3
+t=1251.6 route=2 laps=2 crashes=1 avg_out=176.2s avg_ret=217.5s avg_lap=406.0s best_lap=388.7
+t=1251.6 route=3 laps=2 crashes=0 avg_out=207.3s avg_ret=244.7s avg_lap=464.0s best_lap=460.7
+t=1251.6 route=4 laps=2 crashes=0 avg_out=172.3s avg_ret=151.1s avg_lap=335.4s best_lap=330.9
+t=1251.6 route=5 laps=2 crashes=0 avg_out=253.5s avg_ret=225.3s avg_lap=490.8s best_lap=489.6
+t=1251.6 route=6 laps=3 crashes=0 avg_out=121.8s avg_ret=143.0s avg_lap=276.9s best_lap=269.5
+t=1251.6 route=7 laps=2 crashes=0 avg_out=164.5s avg_ret=145.8s avg_lap=322.3s best_lap=318.6
+t=1251.6 route=8 laps=2 crashes=0 avg_out=169.2s avg_ret=177.5s avg_lap=358.6s best_lap=353.0
+t=1251.6 TOTAL laps=18 crashes=1
+t=1251.6 TUNER gen=0 results=19/64 pending=0 active=0 remaining=45 next_trial=20 rounds=[3,3,2,2,2,3,2,2]
+t=1251.7 IDLE_TUNER_REFILL gen=0 results=19/64 remaining=45 active_nav=0 stored_before=0 next_trial=20
+t=1266.7 IDLE_TUNER_REFILL gen=0 results=19/64 remaining=45 active_nav=0 stored_before=0 next_trial=20
+t=1281.5 ==== SUMMARY t=1281.5 ====
+t=1281.6 route=1 laps=3 crashes=0 avg_out=141.1s avg_ret=160.6s avg_lap=313.6s best_lap=307.3
+t=1281.6 route=2 laps=2 crashes=1 avg_out=176.2s avg_ret=217.5s avg_lap=406.0s best_lap=388.7
+t=1281.6 route=3 laps=2 crashes=0 avg_out=207.3s avg_ret=244.7s avg_lap=464.0s best_lap=460.7
+t=1281.6 route=4 laps=2 crashes=0 avg_out=172.3s avg_ret=151.1s avg_lap=335.4s best_lap=330.9
+t=1281.6 route=5 laps=2 crashes=0 avg_out=253.5s avg_ret=225.3s avg_lap=490.8s best_lap=489.6
+t=1281.6 route=6 laps=3 crashes=0 avg_out=121.8s avg_ret=143.0s avg_lap=276.9s best_lap=269.5
+t=1281.6 route=7 laps=2 crashes=0 avg_out=164.5s avg_ret=145.8s avg_lap=322.3s best_lap=318.6
+t=1281.6 route=8 laps=2 crashes=0 avg_out=169.2s avg_ret=177.5s avg_lap=358.6s best_lap=353.0
+t=1281.6 TOTAL laps=18 crashes=1
+t=1281.6 TUNER gen=0 results=19/64 pending=0 active=0 remaining=45 next_trial=20 rounds=[3,3,2,2,2,3,2,2]
+t=1281.7 IDLE_TUNER_REFILL gen=0 results=19/64 remaining=45 active_nav=0 stored_before=0 next_trial=20
+t=1296.7 IDLE_TUNER_REFILL gen=0 results=19/64 remaining=45 active_nav=0 stored_before=0 next_trial=20
+t=1311.6 ==== SUMMARY t=1311.6 ====
+t=1311.6 route=1 laps=3 crashes=0 avg_out=141.1s avg_ret=160.6s avg_lap=313.6s best_lap=307.3
+t=1311.6 route=2 laps=2 crashes=1 avg_out=176.2s avg_ret=217.5s avg_lap=406.0s best_lap=388.7
+t=1311.6 route=3 laps=2 crashes=0 avg_out=207.3s avg_ret=244.7s avg_lap=464.0s best_lap=460.7
+t=1311.6 route=4 laps=2 crashes=0 avg_out=172.3s avg_ret=151.1s avg_lap=335.4s best_lap=330.9
+t=1311.6 route=5 laps=2 crashes=0 avg_out=253.5s avg_ret=225.3s avg_lap=490.8s best_lap=489.6
+t=1311.6 route=6 laps=3 crashes=0 avg_out=121.8s avg_ret=143.0s avg_lap=276.9s best_lap=269.5
+t=1311.6 route=7 laps=2 crashes=0 avg_out=164.5s avg_ret=145.8s avg_lap=322.3s best_lap=318.6
+t=1311.6 route=8 laps=2 crashes=0 avg_out=169.2s avg_ret=177.5s avg_lap=358.6s best_lap=353.0
+t=1311.6 TOTAL laps=18 crashes=1
+t=1311.6 TUNER gen=0 results=19/64 pending=0 active=0 remaining=45 next_trial=20 rounds=[3,3,2,2,2,3,2,2]
+t=1311.7 IDLE_TUNER_REFILL gen=0 results=19/64 remaining=45 active_nav=0 stored_before=0 next_trial=20
+t=1326.7 IDLE_TUNER_REFILL gen=0 results=19/64 remaining=45 active_nav=0 stored_before=0 next_trial=20
+t=1341.6 ==== SUMMARY t=1341.6 ====
+t=1341.6 route=1 laps=3 crashes=0 avg_out=141.1s avg_ret=160.6s avg_lap=313.6s best_lap=307.3
+t=1341.6 route=2 laps=2 crashes=1 avg_out=176.2s avg_ret=217.5s avg_lap=406.0s best_lap=388.7
+t=1341.6 route=3 laps=2 crashes=0 avg_out=207.3s avg_ret=244.7s avg_lap=464.0s best_lap=460.7
+t=1341.6 route=4 laps=2 crashes=0 avg_out=172.3s avg_ret=151.1s avg_lap=335.4s best_lap=330.9
+t=1341.6 route=5 laps=2 crashes=0 avg_out=253.5s avg_ret=225.3s avg_lap=490.8s best_lap=489.6
+t=1341.6 route=6 laps=3 crashes=0 avg_out=121.8s avg_ret=143.0s avg_lap=276.9s best_lap=269.5
+t=1341.6 route=7 laps=2 crashes=0 avg_out=164.5s avg_ret=145.8s avg_lap=322.3s best_lap=318.6
+t=1341.6 route=8 laps=2 crashes=0 avg_out=169.2s avg_ret=177.5s avg_lap=358.6s best_lap=353.0
+t=1341.7 TOTAL laps=18 crashes=1
+t=1341.7 TUNER gen=0 results=19/64 pending=0 active=0 remaining=45 next_trial=20 rounds=[3,3,2,2,2,3,2,2]
+t=1341.7 IDLE_TUNER_REFILL gen=0 results=19/64 remaining=45 active_nav=0 stored_before=0 next_trial=20
+t=1356.7 IDLE_TUNER_REFILL gen=0 results=19/64 remaining=45 active_nav=0 stored_before=0 next_trial=20
+t=1371.6 ==== SUMMARY t=1371.6 ====
+t=1371.6 route=1 laps=3 crashes=0 avg_out=141.1s avg_ret=160.6s avg_lap=313.6s best_lap=307.3
+t=1371.6 route=2 laps=2 crashes=1 avg_out=176.2s avg_ret=217.5s avg_lap=406.0s best_lap=388.7
+t=1371.6 route=3 laps=2 crashes=0 avg_out=207.3s avg_ret=244.7s avg_lap=464.0s best_lap=460.7
+t=1371.6 route=4 laps=2 crashes=0 avg_out=172.3s avg_ret=151.1s avg_lap=335.4s best_lap=330.9
+t=1371.6 route=5 laps=2 crashes=0 avg_out=253.5s avg_ret=225.3s avg_lap=490.8s best_lap=489.6
+t=1371.6 route=6 laps=3 crashes=0 avg_out=121.8s avg_ret=143.0s avg_lap=276.9s best_lap=269.5
+t=1371.6 route=7 laps=2 crashes=0 avg_out=164.5s avg_ret=145.8s avg_lap=322.3s best_lap=318.6
+t=1371.6 route=8 laps=2 crashes=0 avg_out=169.2s avg_ret=177.5s avg_lap=358.6s best_lap=353.0
+t=1371.6 TOTAL laps=18 crashes=1
+t=1371.6 TUNER gen=0 results=19/64 pending=0 active=0 remaining=45 next_trial=20 rounds=[3,3,2,2,2,3,2,2]
+t=1371.8 IDLE_TUNER_REFILL gen=0 results=19/64 remaining=45 active_nav=0 stored_before=0 next_trial=20
+t=1386.8 IDLE_TUNER_REFILL gen=0 results=19/64 remaining=45 active_nav=0 stored_before=0 next_trial=20
+t=1401.6 ==== SUMMARY t=1401.6 ====
+t=1401.6 route=1 laps=3 crashes=0 avg_out=141.1s avg_ret=160.6s avg_lap=313.6s best_lap=307.3
+t=1401.6 route=2 laps=2 crashes=1 avg_out=176.2s avg_ret=217.5s avg_lap=406.0s best_lap=388.7
+t=1401.6 route=3 laps=2 crashes=0 avg_out=207.3s avg_ret=244.7s avg_lap=464.0s best_lap=460.7
+t=1401.6 route=4 laps=2 crashes=0 avg_out=172.3s avg_ret=151.1s avg_lap=335.4s best_lap=330.9
+t=1401.6 route=5 laps=2 crashes=0 avg_out=253.5s avg_ret=225.3s avg_lap=490.8s best_lap=489.6
+t=1401.7 route=6 laps=3 crashes=0 avg_out=121.8s avg_ret=143.0s avg_lap=276.9s best_lap=269.5
+t=1401.7 route=7 laps=2 crashes=0 avg_out=164.5s avg_ret=145.8s avg_lap=322.3s best_lap=318.6
+t=1401.7 route=8 laps=2 crashes=0 avg_out=169.2s avg_ret=177.5s avg_lap=358.6s best_lap=353.0
+t=1401.7 TOTAL laps=18 crashes=1
+t=1401.7 TUNER gen=0 results=19/64 pending=0 active=0 remaining=45 next_trial=20 rounds=[3,3,2,2,2,3,2,2]
+t=1401.8 IDLE_TUNER_REFILL gen=0 results=19/64 remaining=45 active_nav=0 stored_before=0 next_trial=20
+t=1416.8 IDLE_TUNER_REFILL gen=0 results=19/64 remaining=45 active_nav=0 stored_before=0 next_trial=20
+t=1431.6 ==== SUMMARY t=1431.6 ====
+t=1431.7 route=1 laps=3 crashes=0 avg_out=141.1s avg_ret=160.6s avg_lap=313.6s best_lap=307.3
+t=1431.7 route=2 laps=2 crashes=1 avg_out=176.2s avg_ret=217.5s avg_lap=406.0s best_lap=388.7
+t=1431.7 route=3 laps=2 crashes=0 avg_out=207.3s avg_ret=244.7s avg_lap=464.0s best_lap=460.7
+t=1431.7 route=4 laps=2 crashes=0 avg_out=172.3s avg_ret=151.1s avg_lap=335.4s best_lap=330.9
+t=1431.7 route=5 laps=2 crashes=0 avg_out=253.5s avg_ret=225.3s avg_lap=490.8s best_lap=489.6
+t=1431.7 route=6 laps=3 crashes=0 avg_out=121.8s avg_ret=143.0s avg_lap=276.9s best_lap=269.5
+t=1431.7 route=7 laps=2 crashes=0 avg_out=164.5s avg_ret=145.8s avg_lap=322.3s best_lap=318.6
+t=1431.7 route=8 laps=2 crashes=0 avg_out=169.2s avg_ret=177.5s avg_lap=358.6s best_lap=353.0
+t=1431.7 TOTAL laps=18 crashes=1
+t=1431.7 TUNER gen=0 results=19/64 pending=0 active=0 remaining=45 next_trial=20 rounds=[3,3,2,2,2,3,2,2]
+t=1431.8 IDLE_TUNER_REFILL gen=0 results=19/64 remaining=45 active_nav=0 stored_before=0 next_trial=20
+t=1446.8 IDLE_TUNER_REFILL gen=0 results=19/64 remaining=45 active_nav=0 stored_before=0 next_trial=20
+t=1461.6 ==== SUMMARY t=1461.6 ====
+t=1461.7 route=1 laps=3 crashes=0 avg_out=141.1s avg_ret=160.6s avg_lap=313.6s best_lap=307.3
+t=1461.7 route=2 laps=2 crashes=1 avg_out=176.2s avg_ret=217.5s avg_lap=406.0s best_lap=388.7
+t=1461.7 route=3 laps=2 crashes=0 avg_out=207.3s avg_ret=244.7s avg_lap=464.0s best_lap=460.7
+t=1461.7 route=4 laps=2 crashes=0 avg_out=172.3s avg_ret=151.1s avg_lap=335.4s best_lap=330.9
+t=1461.7 route=5 laps=2 crashes=0 avg_out=253.5s avg_ret=225.3s avg_lap=490.8s best_lap=489.6
+t=1461.7 route=6 laps=3 crashes=0 avg_out=121.8s avg_ret=143.0s avg_lap=276.9s best_lap=269.5
+t=1461.7 route=7 laps=2 crashes=0 avg_out=164.5s avg_ret=145.8s avg_lap=322.3s best_lap=318.6
+t=1461.7 route=8 laps=2 crashes=0 avg_out=169.2s avg_ret=177.5s avg_lap=358.6s best_lap=353.0
+t=1461.7 TOTAL laps=18 crashes=1
+t=1461.7 TUNER gen=0 results=19/64 pending=0 active=0 remaining=45 next_trial=20 rounds=[3,3,2,2,2,3,2,2]
+t=1461.8 IDLE_TUNER_REFILL gen=0 results=19/64 remaining=45 active_nav=0 stored_before=0 next_trial=20
+t=1476.8 IDLE_TUNER_REFILL gen=0 results=19/64 remaining=45 active_nav=0 stored_before=0 next_trial=20
+t=1491.7 ==== SUMMARY t=1491.7 ====
+t=1491.7 route=1 laps=3 crashes=0 avg_out=141.1s avg_ret=160.6s avg_lap=313.6s best_lap=307.3
+t=1491.7 route=2 laps=2 crashes=1 avg_out=176.2s avg_ret=217.5s avg_lap=406.0s best_lap=388.7
+t=1491.7 route=3 laps=2 crashes=0 avg_out=207.3s avg_ret=244.7s avg_lap=464.0s best_lap=460.7
+t=1491.7 route=4 laps=2 crashes=0 avg_out=172.3s avg_ret=151.1s avg_lap=335.4s best_lap=330.9
+t=1491.7 route=5 laps=2 crashes=0 avg_out=253.5s avg_ret=225.3s avg_lap=490.8s best_lap=489.6
+t=1491.7 route=6 laps=3 crashes=0 avg_out=121.8s avg_ret=143.0s avg_lap=276.9s best_lap=269.5
+t=1491.7 route=7 laps=2 crashes=0 avg_out=164.5s avg_ret=145.8s avg_lap=322.3s best_lap=318.6
+t=1491.7 route=8 laps=2 crashes=0 avg_out=169.2s avg_ret=177.5s avg_lap=358.6s best_lap=353.0
+t=1491.7 TOTAL laps=18 crashes=1
+t=1491.7 TUNER gen=0 results=19/64 pending=0 active=0 remaining=45 next_trial=20 rounds=[3,3,2,2,2,3,2,2]
+t=1491.9 IDLE_TUNER_REFILL gen=0 results=19/64 remaining=45 active_nav=0 stored_before=0 next_trial=20
+t=1506.9 IDLE_TUNER_REFILL gen=0 results=19/64 remaining=45 active_nav=0 stored_before=0 next_trial=20
+t=1521.7 ==== SUMMARY t=1521.7 ====
+t=1521.7 route=1 laps=3 crashes=0 avg_out=141.1s avg_ret=160.6s avg_lap=313.6s best_lap=307.3
+t=1521.7 route=2 laps=2 crashes=1 avg_out=176.2s avg_ret=217.5s avg_lap=406.0s best_lap=388.7
+t=1521.7 route=3 laps=2 crashes=0 avg_out=207.3s avg_ret=244.7s avg_lap=464.0s best_lap=460.7
+t=1521.7 route=4 laps=2 crashes=0 avg_out=172.3s avg_ret=151.1s avg_lap=335.4s best_lap=330.9
+t=1521.7 route=5 laps=2 crashes=0 avg_out=253.5s avg_ret=225.3s avg_lap=490.8s best_lap=489.6
+t=1521.7 route=6 laps=3 crashes=0 avg_out=121.8s avg_ret=143.0s avg_lap=276.9s best_lap=269.5
+t=1521.7 route=7 laps=2 crashes=0 avg_out=164.5s avg_ret=145.8s avg_lap=322.3s best_lap=318.6
+t=1521.7 route=8 laps=2 crashes=0 avg_out=169.2s avg_ret=177.5s avg_lap=358.6s best_lap=353.0
+t=1521.7 TOTAL laps=18 crashes=1
+t=1521.8 TUNER gen=0 results=19/64 pending=0 active=0 remaining=45 next_trial=20 rounds=[3,3,2,2,2,3,2,2]
+t=1521.9 IDLE_TUNER_REFILL gen=0 results=19/64 remaining=45 active_nav=0 stored_before=0 next_trial=20
+t=1536.9 IDLE_TUNER_REFILL gen=0 results=19/64 remaining=45 active_nav=0 stored_before=0 next_trial=20
+t=1551.7 ==== SUMMARY t=1551.7 ====
+t=1551.7 route=1 laps=3 crashes=0 avg_out=141.1s avg_ret=160.6s avg_lap=313.6s best_lap=307.3
+t=1551.7 route=2 laps=2 crashes=1 avg_out=176.2s avg_ret=217.5s avg_lap=406.0s best_lap=388.7
+t=1551.7 route=3 laps=2 crashes=0 avg_out=207.3s avg_ret=244.7s avg_lap=464.0s best_lap=460.7
+t=1551.7 route=4 laps=2 crashes=0 avg_out=172.3s avg_ret=151.1s avg_lap=335.4s best_lap=330.9
+t=1551.7 route=5 laps=2 crashes=0 avg_out=253.5s avg_ret=225.3s avg_lap=490.8s best_lap=489.6
+t=1551.7 route=6 laps=3 crashes=0 avg_out=121.8s avg_ret=143.0s avg_lap=276.9s best_lap=269.5
+t=1551.7 route=7 laps=2 crashes=0 avg_out=164.5s avg_ret=145.8s avg_lap=322.3s best_lap=318.6
+t=1551.7 route=8 laps=2 crashes=0 avg_out=169.2s avg_ret=177.5s avg_lap=358.6s best_lap=353.0
+t=1551.7 TOTAL laps=18 crashes=1
+t=1551.7 TUNER gen=0 results=19/64 pending=0 active=0 remaining=45 next_trial=20 rounds=[3,3,2,2,2,3,2,2]
+t=1551.9 IDLE_TUNER_REFILL gen=0 results=19/64 remaining=45 active_nav=0 stored_before=0 next_trial=20
+t=1566.9 IDLE_TUNER_REFILL gen=0 results=19/64 remaining=45 active_nav=0 stored_before=0 next_trial=20
+t=1581.7 ==== SUMMARY t=1581.7 ====
+t=1581.7 route=1 laps=3 crashes=0 avg_out=141.1s avg_ret=160.6s avg_lap=313.6s best_lap=307.3
+t=1581.7 route=2 laps=2 crashes=1 avg_out=176.2s avg_ret=217.5s avg_lap=406.0s best_lap=388.7
+t=1581.7 route=3 laps=2 crashes=0 avg_out=207.3s avg_ret=244.7s avg_lap=464.0s best_lap=460.7
+t=1581.7 route=4 laps=2 crashes=0 avg_out=172.3s avg_ret=151.1s avg_lap=335.4s best_lap=330.9
+t=1581.7 route=5 laps=2 crashes=0 avg_out=253.5s avg_ret=225.3s avg_lap=490.8s best_lap=489.6
+t=1581.8 route=6 laps=3 crashes=0 avg_out=121.8s avg_ret=143.0s avg_lap=276.9s best_lap=269.5
+t=1581.8 route=7 laps=2 crashes=0 avg_out=164.5s avg_ret=145.8s avg_lap=322.3s best_lap=318.6
+t=1581.8 route=8 laps=2 crashes=0 avg_out=169.2s avg_ret=177.5s avg_lap=358.6s best_lap=353.0
+t=1581.8 TOTAL laps=18 crashes=1
+t=1581.8 TUNER gen=0 results=19/64 pending=0 active=0 remaining=45 next_trial=20 rounds=[3,3,2,2,2,3,2,2]
+t=1582.0 IDLE_TUNER_REFILL gen=0 results=19/64 remaining=45 active_nav=0 stored_before=0 next_trial=20
+t=1597.0 IDLE_TUNER_REFILL gen=0 results=19/64 remaining=45 active_nav=0 stored_before=0 next_trial=20
+t=1611.7 ==== SUMMARY t=1611.7 ====
+t=1611.8 route=1 laps=3 crashes=0 avg_out=141.1s avg_ret=160.6s avg_lap=313.6s best_lap=307.3
+t=1611.8 route=2 laps=2 crashes=1 avg_out=176.2s avg_ret=217.5s avg_lap=406.0s best_lap=388.7
+t=1611.8 route=3 laps=2 crashes=0 avg_out=207.3s avg_ret=244.7s avg_lap=464.0s best_lap=460.7
+t=1611.8 route=4 laps=2 crashes=0 avg_out=172.3s avg_ret=151.1s avg_lap=335.4s best_lap=330.9
+t=1611.8 route=5 laps=2 crashes=0 avg_out=253.5s avg_ret=225.3s avg_lap=490.8s best_lap=489.6
+t=1611.8 route=6 laps=3 crashes=0 avg_out=121.8s avg_ret=143.0s avg_lap=276.9s best_lap=269.5
+t=1611.8 route=7 laps=2 crashes=0 avg_out=164.5s avg_ret=145.8s avg_lap=322.3s best_lap=318.6
+t=1611.8 route=8 laps=2 crashes=0 avg_out=169.2s avg_ret=177.5s avg_lap=358.6s best_lap=353.0
+t=1611.8 TOTAL laps=18 crashes=1
+t=1611.8 TUNER gen=0 results=19/64 pending=0 active=0 remaining=45 next_trial=20 rounds=[3,3,2,2,2,3,2,2]
+t=1612.0 IDLE_TUNER_REFILL gen=0 results=19/64 remaining=45 active_nav=0 stored_before=0 next_trial=20
+t=1627.0 IDLE_TUNER_REFILL gen=0 results=19/64 remaining=45 active_nav=0 stored_before=0 next_trial=20
+t=1641.7 ==== SUMMARY t=1641.7 ====
+t=1641.8 route=1 laps=3 crashes=0 avg_out=141.1s avg_ret=160.6s avg_lap=313.6s best_lap=307.3
+t=1641.8 route=2 laps=2 crashes=1 avg_out=176.2s avg_ret=217.5s avg_lap=406.0s best_lap=388.7
+t=1641.8 route=3 laps=2 crashes=0 avg_out=207.3s avg_ret=244.7s avg_lap=464.0s best_lap=460.7
+t=1641.8 route=4 laps=2 crashes=0 avg_out=172.3s avg_ret=151.1s avg_lap=335.4s best_lap=330.9
+t=1641.8 route=5 laps=2 crashes=0 avg_out=253.5s avg_ret=225.3s avg_lap=490.8s best_lap=489.6
+t=1641.8 route=6 laps=3 crashes=0 avg_out=121.8s avg_ret=143.0s avg_lap=276.9s best_lap=269.5
+t=1641.8 route=7 laps=2 crashes=0 avg_out=164.5s avg_ret=145.8s avg_lap=322.3s best_lap=318.6
+t=1641.8 route=8 laps=2 crashes=0 avg_out=169.2s avg_ret=177.5s avg_lap=358.6s best_lap=353.0
+t=1641.8 TOTAL laps=18 crashes=1
+t=1641.8 TUNER gen=0 results=19/64 pending=0 active=0 remaining=45 next_trial=20 rounds=[3,3,2,2,2,3,2,2]
+t=1642.0 IDLE_TUNER_REFILL gen=0 results=19/64 remaining=45 active_nav=0 stored_before=0 next_trial=20

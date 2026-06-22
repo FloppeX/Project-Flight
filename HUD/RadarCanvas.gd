@@ -450,7 +450,7 @@ func _terrain_uv_for_radar_point(
 const ROUTE_COLOR: Color = Color(0.44, 0.86, 1.0, 0.9)  # Light blue, matches tactical map
 const ROUTE_LINE_WIDTH: float = 1.6
 const ROUTE_DOT_SIZE: float = 4.0
-const ROUTE_SIMPLIFY_MIN_PX: float = 4.0  # Skip waypoints closer than this on screen
+const ROUTE_SIMPLIFY_MIN_PX: float = 1.0  # Keep dense nav-test breadcrumbs visible on the cockpit radar
 
 func _draw_flight_route(center: Vector2, radius: float, origin: Vector3,
 		flat_right: Vector3, flat_forward: Vector3, range_m: float) -> void:
@@ -503,4 +503,3 @@ func _draw_square_marker(pos: Vector2, size_px: float, color: Color) -> void:
 	var half: float = size_px * 0.5
 	draw_rect(Rect2(pos.x - half, pos.y - half, size_px, size_px), color)
 	draw_rect(Rect2(pos.x - half, pos.y - half, size_px, size_px), Color(1.0, 1.0, 1.0, 0.5), false, 1.0)
-

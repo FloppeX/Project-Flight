@@ -1,6 +1,8 @@
 extends ProjectileNew
 class_name RocketProjectile
 
+signal tuning_impact(position: Vector3)
+
 const DEFAULT_ROCKET_LOOP: AudioStream = preload("res://Audio/rocket.wav")
 
 @export var tracer_enabled: bool = false
@@ -29,6 +31,7 @@ var _flight_age_s: float = 0.0
 var _wobble_phase: float = 0.0
 var _wobble_mix: float = 1.0
 var _rocket_audio_player: AudioStreamPlayer3D = null
+var _tuning_impact_emitted: bool = false
 
 func _ready() -> void:
 	var configured_mass: float = mass
@@ -47,8 +50,16 @@ func _ready() -> void:
 	_setup_rocket_audio()
 
 func _exit_tree() -> void:
+	_emit_tuning_impact(global_position)
 	if is_instance_valid(_rocket_audio_player):
 		_rocket_audio_player.stop()
+
+
+func _emit_tuning_impact(position: Vector3) -> void:
+	if _tuning_impact_emitted:
+		return
+	_tuning_impact_emitted = true
+	tuning_impact.emit(position)
 
 func _setup_rocket_audio() -> void:
 	if rocket_loop_sound == null:
@@ -146,6 +157,7 @@ func _emit_smoke_particle() -> void:
 	box_mesh.size = Vector3(1.0, 1.0, 1.0)
 	smoke_mesh.mesh = box_mesh
 	smoke_mesh.name = "RocketSmoke_" + str(Time.get_ticks_msec())
+	get_tree().current_scene.add_child(smoke_mesh)
 
 	var material := StandardMaterial3D.new()
 	material.albedo_color = Color.WHITE
@@ -160,7 +172,6 @@ func _emit_smoke_particle() -> void:
 		randf() * TAU
 	)
 
-	get_tree().current_scene.add_child(smoke_mesh)
 	ParticleManager.add_smoke_particle(smoke_mesh, 1.5, Vector3(1.0, 1.0, 1.0))
 
 func _on_body_entered(body: Node) -> void:
@@ -175,6 +186,7 @@ func _on_body_entered(body: Node) -> void:
 	var hit_ground: bool = is_ground_or_terrain(body)
 	var hit_aircraft: bool = _is_aircraft_target(damage_target) or _is_aircraft_target(body)
 	has_impacted = true
+	_emit_tuning_impact(global_position)
 
 	_spawn_custom_explosion(hit_ground, hit_aircraft)
 	play_impact_sound(body)

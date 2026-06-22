@@ -16,6 +16,10 @@ var _fire_timer: float = 0.0
 var _burst_remaining: int = 0
 var _burst_timer: float = 0.0
 var _payload_aircraft: RigidBody3D = null
+var _tuning_launch_callback: Callable = Callable()
+var _tuning_impact_callback: Callable = Callable()
+var _tuning_trial_id: int = 0
+var _tuning_target: Node3D = null
 
 func _ready() -> void:
 	weapon_name = "Rocket Pod"
@@ -77,6 +81,27 @@ func _process(delta: float) -> void:
 			_fire_one_rocket()
 			_burst_remaining -= 1
 			_burst_timer = burst_interval_s
+			if _burst_remaining <= 0:
+				_clear_tuning_context()
+
+
+func set_tuning_context(
+		launch_callback: Callable,
+		impact_callback: Callable,
+		trial_id: int,
+		target: Node3D
+) -> void:
+	_tuning_launch_callback = launch_callback
+	_tuning_impact_callback = impact_callback
+	_tuning_trial_id = trial_id
+	_tuning_target = target
+
+
+func _clear_tuning_context() -> void:
+	_tuning_launch_callback = Callable()
+	_tuning_impact_callback = Callable()
+	_tuning_trial_id = 0
+	_tuning_target = null
 
 func can_fire() -> bool:
 	return (_has_unlimited_test_ammo() or ammo_count > 0) and _fire_timer <= 0.0 and _burst_remaining == 0
@@ -89,6 +114,8 @@ func fire() -> bool:
 	_fire_one_rocket()
 	_burst_remaining = maxi(burst_count - 1, 0) if unlimited_ammo else mini(maxi(burst_count - 1, 0), ammo_count)
 	_burst_timer = burst_interval_s
+	if _burst_remaining <= 0:
+		_clear_tuning_context()
 	return true
 
 func _fire_one_rocket() -> void:
@@ -100,6 +127,14 @@ func _fire_one_rocket() -> void:
 	rocket.position = global_position
 	rocket.rotation = global_rotation
 	get_tree().current_scene.add_child(rocket)
+	if _tuning_launch_callback.is_valid() and _tuning_trial_id > 0:
+		_tuning_launch_callback.call(_tuning_trial_id)
+	if _tuning_impact_callback.is_valid() and _tuning_trial_id > 0 and rocket.has_signal("tuning_impact"):
+		rocket.connect(
+			"tuning_impact",
+			_tuning_impact_callback.bind(_tuning_trial_id, _tuning_target),
+			CONNECT_ONE_SHOT
+		)
 	var muzzle_vel := hardpoint.get_hardpoint_forward_direction() * muzzle_velocity
 	rocket.fire(muzzle_vel, hardpoint.aircraft)
 	if not unlimited_ammo:

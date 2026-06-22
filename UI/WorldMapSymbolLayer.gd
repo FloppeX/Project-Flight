@@ -37,6 +37,7 @@ const POI_USED_COLOR: Color = Color(0.52, 0.56, 0.52, 0.95)
 @export var waypoint_line_width_px: float = 1.6
 @export var waypoint_dot_size_px: float = 4.0
 @export var route_display_simplify_enabled: bool = true
+@export var aircraft_route_display_simplify_enabled: bool = false
 @export var route_display_simplify_turn_deg: float = 8.0
 @export var route_display_simplify_line_error_px: float = 5.0
 @export var route_display_simplify_altitude_error_m: float = 35.0
@@ -119,7 +120,7 @@ func _draw() -> void:
 			else:
 				var air_route := _get_active_route_points(node_3d)
 				if not air_route.is_empty():
-					_draw_route_from_points(node_3d.global_position, air_route, helicopter_waypoint_color, true)
+					_draw_route_from_points(node_3d.global_position, air_route, helicopter_waypoint_color, true, false, aircraft_route_display_simplify_enabled)
 				_draw_air_marker(node_3d)
 
 	for node in get_tree().get_nodes_in_group("ground_vehicle_platoons"):

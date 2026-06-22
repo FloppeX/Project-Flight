@@ -6,7 +6,7 @@ extends Node3D
 signal cable_engaged(aircraft: RigidBody3D)
 signal cable_released(aircraft: RigidBody3D)
 
-@export var debug_enabled: bool = true
+@export var debug_enabled: bool = false
 
 @export var cable_area_path: NodePath           # Area3D detecting the tailhook Area3D
 @export var left_anchor_path: NodePath          # Left deck anchor (Node3D)

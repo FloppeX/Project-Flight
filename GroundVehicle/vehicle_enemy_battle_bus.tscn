@@ -34,7 +34,7 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.24, 0)
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.3, -0.3)
 script = ExtResource("4_tctrl")
 weapon_scene = ExtResource("6_weapon")
-debug_enabled = true
+debug_enabled = false
 
 [node name="VehicleLMGTurret" parent="TurretController" instance=ExtResource("5_lmg")]
 transform = Transform3D(0.9, 0, 0, 0, 0.9, 0, 0, 0, 0.9, -0.654678, 0.506386, 1.50081)
@@ -43,7 +43,7 @@ transform = Transform3D(0.9, 0, 0, 0, 0.9, 0, 0, 0, 0.9, -0.654678, 0.506386, 1.
 transform = Transform3D(0.99863, 0, 0.052336, 0, 1, 0, -0.052336, 0, 0.99863, 0, 2.42, 1.45)
 script = ExtResource("4_tctrl")
 weapon_scene = ExtResource("8_hweapon")
-debug_enabled = true
+debug_enabled = false
 max_range = 360.0
 aim_skill = 0.28
 air_target_range_multiplier = 0.75

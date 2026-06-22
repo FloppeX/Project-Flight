@@ -9,6 +9,8 @@ size = Vector3(0.18, 0.18, 1.1)
 
 [node name="Rocket" type="RigidBody3D"]
 mass = 8.0
+linear_damp = 0.06
+angular_damp = 2.0
 contact_monitor = true
 max_contacts_reported = 4
 script = ExtResource("1_rocket_script")

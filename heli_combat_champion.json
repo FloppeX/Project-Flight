@@ -1,0 +1,88 @@
+{
+  "best_fitness": 11377.0582260228,
+  "best_genome": {
+    "atk_aim_yaw_damping": 0.9,
+    "atk_aim_yaw_gain": 2.2,
+    "atk_aim_yaw_max": 0.647095043957233,
+    "atk_breakoff_distance_m": 356.897776961327,
+    "atk_egress_distance_m": 1039.86272525787,
+    "atk_fire_cone_deg": 3.5,
+    "atk_fire_range_m": 807.382278442383,
+    "atk_ingress_distance_m": 1366.9108505249,
+    "atk_pitch_aim_damping": 0.6,
+    "atk_pitch_aim_gain": 2.05854495167732,
+    "atk_pitch_aim_max_input": 0.689764803647995,
+    "atk_run_timeout_s": 20.0,
+    "atk_speed_mps": 39.0966211557388,
+    "combat_rocket_aim_lower_bias_m": 1.53823965787888,
+    "combat_rocket_ccip_aim_correction_strength": 0.932934373617172
+  },
+  "best_result": {
+    "best_trial": 360,
+    "candidate": 2,
+    "damage": 1235.29073119164,
+    "damage_per_rocket": 61.7645365595818,
+    "damaging_trials": 5,
+    "exit_reasons": {
+      "volley_complete": 5
+    },
+    "fire_rate": 1.0,
+    "fired_trials": 5,
+    "fitness": 11377.0582260228,
+    "focus_changes": {
+      "atk_egress_distance_m": 181.313339233399,
+      "atk_fire_range_m": -88.6546249389648,
+      "atk_ingress_distance_m": -82.9247665405273,
+      "atk_speed_mps": 3.69199228286743
+    },
+    "genome": {
+      "atk_aim_yaw_damping": 0.9,
+      "atk_aim_yaw_gain": 2.2,
+      "atk_aim_yaw_max": 0.647095043957233,
+      "atk_breakoff_distance_m": 356.897776961327,
+      "atk_egress_distance_m": 1039.86272525787,
+      "atk_fire_cone_deg": 3.5,
+      "atk_fire_range_m": 807.382278442383,
+      "atk_ingress_distance_m": 1366.9108505249,
+      "atk_pitch_aim_damping": 0.6,
+      "atk_pitch_aim_gain": 2.05854495167732,
+      "atk_pitch_aim_max_input": 0.689764803647995,
+      "atk_run_timeout_s": 20.0,
+      "atk_speed_mps": 39.0966211557388,
+      "combat_rocket_aim_lower_bias_m": 1.53823965787888,
+      "combat_rocket_ccip_aim_correction_strength": 0.932934373617172
+    },
+    "hits": 5,
+    "mean_cycle_time_s": 62.6318000000007,
+    "mean_first_damage": 247.058146238327,
+    "mean_first_damage_per_rocket": 61.7645365595818,
+    "mean_rocket_along_track_m": -6.36965619623661,
+    "mean_rocket_cross_track_m": 0.352673381567001,
+    "mean_rocket_group_radius_m": 3.71403165669178,
+    "mean_rocket_miss_m": 7.37321391701698,
+    "mean_time_to_first_damage_s": 41.8878000000012,
+    "shots": 20,
+    "trial_count": 5,
+    "trial_fitnesses": [
+      442.523645770857,
+      409.058003511213,
+      445.910787548088,
+      332.33458271606,
+      255.46411056771
+    ],
+    "trial_ids": [
+      344,
+      352,
+      360,
+      368,
+      376
+    ]
+  },
+  "evaluation_version": 9,
+  "fitness_version": 6,
+  "focus_aim_controller_only": false,
+  "focus_attack_efficiency_only": true,
+  "focus_ballistic_correction_only": false,
+  "generation": 143,
+  "trials_per_candidate": 5
+}

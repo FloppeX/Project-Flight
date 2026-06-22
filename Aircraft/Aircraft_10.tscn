@@ -37,6 +37,7 @@
 [ext_resource type="PackedScene" path="res://Weapons/Guns/Hardpoint/15mm_machine_gun_hardpoint.tscn" id="42_15mm"]
 [ext_resource type="Script" uid="uid://ljqeb30m632d" path="res://AI/HelicopterPilot.gd" id="43_heli_ai"]
 [ext_resource type="AudioStream" uid="uid://wdbe4uteu61h" path="res://Audio/helicopter_rotor_1.ogg" id="44_rotor_audio"]
+[ext_resource type="PackedScene" path="res://Aircraft/Visuals/InsigniaMarker.tscn" id="45_insignia"]
 
 [sub_resource type="PhysicsMaterial" id="PhysicsMaterial_lowfriction"]
 friction = 0.75
@@ -282,19 +283,19 @@ script = ExtResource("28_ai_pilot")
 
 [node name="HelicopterPilot" type="Node" parent="." unique_id=1613759425]
 script = ExtResource("43_heli_ai")
-heightmap_path_corner_blend_radius_m = 180.0
-heightmap_path_corner_blend_strength = 0.8
+heightmap_path_corner_blend_radius_m = 340.0
+heightmap_path_corner_blend_strength = 0.65
 cruise_speed_mps = 60.0
 max_speed_mps = 65.0
 max_climb_mps = 14.0
 max_descent_mps = 10.0
-collective_rate_up = 0.8
+collective_rate_up = 0.85
 transit_target_sink_mps = 8.0
-cyclic_rate = 1.1
+cyclic_rate = 0.5
 transit_max_nose_up = 0.35
 cyclic_altitude_rate_gain = 0.075
 cyclic_vertical_accel_damping = 0.03
-cyclic_target_climb_from_alt_error_mps = 0.11
+cyclic_target_climb_from_alt_error_mps = 0.18
 altitude_guard_m = 15.0
 sink_guard_mps = 3.0
 decel_distance_m = 1600.0
@@ -302,8 +303,8 @@ transit_speed_target_accel_mps2 = 11.0
 transit_speed_target_decel_mps2 = 28.0
 yaw_rate_damping = 0.38
 yaw_command_rate = 1.15
-transit_turn_roll_gain = 0.5
-transit_lateral_velocity_gain = 0.022
+transit_turn_roll_gain = 1.1
+transit_lateral_velocity_gain = 0.0269994907826185
 transit_low_speed_bank_start_mps = 8.0
 transit_low_speed_bank_full_mps = 45.0
 transit_low_speed_roll_scale = 0.06
@@ -316,7 +317,7 @@ transit_high_speed_lateral_roll_scale = 0.45
 transit_high_speed_yaw_gain = 0.85
 transit_high_speed_yaw_input = 0.8
 transit_bank_pullback_gain = 0.18
-transit_cruise_forward_lean = 0.55
+transit_cruise_forward_lean = 0.5
 transit_descent_lean_bonus = 0.35
 
 [node name="AIToggle" type="Node" parent="." unique_id=611990186]
@@ -329,11 +330,17 @@ script = ExtResource("30_damage")
 [node name="RescueWinchMarker" type="Marker3D" parent="." unique_id=730709132]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -1.1, 0.1)
 
-[node name="InsigniaSide" type="Marker3D" parent="." unique_id=1137083662]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.6348971, 0.2225559, -0.84066397)
+[node name="InsigniaSide" parent="." unique_id=227957892 instance=ExtResource("45_insignia")]
+transform = Transform3D(9.059749e-08, 5, -5.2453668e-08, 0, -2.1855695e-07, -1.2, -1.2, 3.774895e-07, -3.960142e-15, 0.04354155, 0.26001903, 1.1399128)
+diameter = 0.6
+depth = 0.5
 
-[node name="InsigniaTail" type="Marker3D" parent="." unique_id=934637700]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.093675256, 1.1280165, -4.883706)
+[node name="InsigniaTail" parent="." unique_id=1070866709 instance=ExtResource("45_insignia")]
+transform = Transform3D(-5.6824803e-08, 1.3, -5.6824803e-08, 0, -5.6824803e-08, -1.3, -1.3, -5.6824803e-08, 2.483891e-15, 0.021344215, 1.1969264, -4.9540606)
+diameter = 0.4
+depth = 0.4
 
-[node name="InsigniaNose" type="Marker3D" parent="." unique_id=1064623045]
-transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, -0.14526689, 3.8357344)
+[node name="InsigniaNose" parent="." unique_id=190316934 instance=ExtResource("45_insignia")]
+transform = Transform3D(1, 0, 0, 0, 0.91902524, -0.39419866, 0, 0.3941986, 0.91902536, 0, -0.014359057, 3.8831773)
+diameter = 0.45
+depth = 0.5

@@ -94,15 +94,16 @@ shape = SubResource("BoxShape3D_wing_hitbox")
 [node name="SimpleAero" type="Node" parent="." unique_id=2087629910]
 script = ExtResource("5_8vbcf")
 rb_path = NodePath("..")
-pitch_power = 10.0
-roll_power = 20.0
+pitch_power = 7.5
+roll_power = 13.0
+min_control_speed = 95.0
 stability_strength = 2.8
 pitch_stability_factor = 0.8
 stability_torque_scale = 2.1
 pitch_stability_rate_damping = 2.4
 stability_start_speed_mps = 4.0
 stability_full_speed_mps = 18.0
-auto_rudder_strength = 0.5
+auto_rudder_strength = 0.35
 
 [node name="MovingParts" type="Node3D" parent="." unique_id=760134183]
 

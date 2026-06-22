@@ -44,6 +44,14 @@ func ensure_initialized() -> void:
 func ensure_aircraft_data_has_pilot(aircraft_data: Dictionary) -> bool:
 	ensure_initialized()
 	var metadata := _ensure_metadata_dict(aircraft_data)
+	if bool(metadata.get("heli_navigation_test_mode", false)):
+		var reusable_test_pilot_id := _pick_living_pilot_id()
+		if reusable_test_pilot_id <= 0:
+			push_warning("[CarrierManager] No living pilots available for reusable navigation test aircraft")
+			return false
+		_write_pilot_metadata(metadata, reusable_test_pilot_id)
+		aircraft_data["metadata"] = metadata
+		return true
 	var pilot_id := int(metadata.get("pilot_id", -1))
 	if pilot_id > 0 and _pilot_exists_and_alive(pilot_id):
 		_set_pilot_assignment(pilot_id, "hangar")
@@ -86,7 +94,10 @@ func bind_pilot_to_live_aircraft(aircraft: RigidBody3D, aircraft_data: Dictionar
 	var aircraft_id := aircraft.get_instance_id()
 	_active_pilot_by_aircraft_id[aircraft_id] = pilot_id
 	if aircraft.has_signal("destroyed"):
-		var callback := Callable(self, "_on_assigned_aircraft_destroyed").bind(aircraft_id, pilot_id)
+		var recycle_test_pilot := bool(aircraft.get_meta("heli_navigation_test_mode", false))
+		var callback := Callable(self, "_on_assigned_aircraft_destroyed").bind(
+			aircraft_id, pilot_id, recycle_test_pilot
+		)
 		if not aircraft.destroyed.is_connected(callback):
 			aircraft.destroyed.connect(callback, CONNECT_ONE_SHOT)
 	return true
@@ -211,6 +222,16 @@ func _pick_available_pilot_id() -> int:
 		return -1
 	return available[_pilot_rng.randi_range(0, available.size() - 1)]
 
+func _pick_living_pilot_id() -> int:
+	var living: Array[int] = []
+	for pilot_id in _pilot_order:
+		var pilot: Dictionary = _pilot_records.get(pilot_id, {})
+		if bool(pilot.get("alive", false)):
+			living.append(pilot_id)
+	if living.is_empty():
+		return -1
+	return living[_pilot_rng.randi_range(0, living.size() - 1)]
+
 func _pilot_exists_and_alive(pilot_id: int) -> bool:
 	if not _pilot_records.has(pilot_id):
 		return false
@@ -285,9 +306,16 @@ func _format_pilot_display(pilot: Dictionary) -> String:
 	var surname := str(pilot.get("name", "Unknown"))
 	return "%s \"%s\" %s" % [rank, callsign, surname]
 
-func _on_assigned_aircraft_destroyed(aircraft_instance_id: int, pilot_id: int) -> void:
+func _on_assigned_aircraft_destroyed(
+	aircraft_instance_id: int,
+	pilot_id: int,
+	recycle_test_pilot: bool = false
+) -> void:
 	_active_pilot_by_aircraft_id.erase(aircraft_instance_id)
 	if not _pilot_exists_and_alive(pilot_id):
+		return
+	if recycle_test_pilot:
+		_set_pilot_assignment(pilot_id, "available")
 		return
 	_set_pilot_assignment(pilot_id, "kia")
 	var pilot: Dictionary = _pilot_records.get(pilot_id, {})

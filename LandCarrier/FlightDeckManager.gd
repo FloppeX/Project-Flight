@@ -72,6 +72,15 @@ const MANUAL_TRANSPORT_META := "carrier_manual_transport"
 const HELI_TEST_TYPE_META := "heli_test_aircraft_type"
 const HELI_TEST_STAT_META_PREFIX := "heli_test_stat_recorded_"
 const HELI_TEST_UNLIMITED_AMMO_META := "heli_test_unlimited_ammo"
+const HELI_TEST_COMBAT_MODE_META := "heli_test_combat_mode"
+const HELI_NAVIGATION_TEST_META := "heli_navigation_test_mode"
+const HELI_NAVIGATION_ROUTE_SLOT_META := "heli_navigation_route_slot"
+const HELI_NAVIGATION_FIXED_LZ_META := "heli_navigation_fixed_lz"
+const HELI_NAVIGATION_TUNING_ASSIGNMENT_META := "heli_navigation_tuning_assignment"
+const HELI_NAVIGATION_HOME_META := "heli_navigation_home_point"
+const HELI_TEST_FLAT_GROUND_Y_META := "heli_test_flat_ground_y"
+const HELI_TEST_ARENA_CENTER_META := "heli_test_arena_center"
+const HELI_TEST_ARENA_RADIUS_META := "heli_test_arena_radius"
 
 enum DeckState {
 	IDLE,
@@ -135,15 +144,116 @@ const RECOVERY_DEBUG_SPAWN_DIST_M: float = 1000.0
 const RECOVERY_DEBUG_ALTITUDE_M: float = 100.0
 const LANDING_WIRE_HALF_WIDTH_M: float = 24.8  # ±24.8 m = full wire width
 
-# --- Helicopter test mode (F12) ---
-@export var start_in_heli_test_mode: bool = false
+# --- Saved physical test scenarios (F11 / Shift+F11) ---
+enum TestScenario { NORMAL_GAME, HELI_NAVIGATION, HELI_AIMING }
+const TEST_SCENARIO_SETTINGS_PATH := "user://physical_test_scenario.json"
+const TEST_SCENARIO_LABELS := {
+	TestScenario.NORMAL_GAME: "Normal Game",
+	TestScenario.HELI_NAVIGATION: "Helicopter Navigation Loop",
+	TestScenario.HELI_AIMING: "Helicopter Aiming Range",
+}
+@export_enum("Normal Game", "Helicopter Navigation Loop", "Helicopter Aiming Range") \
+		var startup_test_scenario: int = TestScenario.NORMAL_GAME
+@export var remember_test_scenario: bool = true
+var _active_test_scenario: int = TestScenario.NORMAL_GAME
+
+# --- Helicopter aiming range ---
 var _heli_test_active: bool = false
 var _heli_test_timer: float = 0.0
 var _heli_test_spawn_index: int = 0
-const HELI_TEST_INTERVAL_S: float = 30.0
-const HELI_TEST_MAX_COUNT: int = 5
-const HELI_TEST_SPAWN_DIST_M: float = 200.0
-const HELI_TEST_ALTITUDE_M: float = 40.0
+var _heli_test_dummy_retry_s: float = 0.0
+var _heli_test_arena: Node3D = null
+var _heli_test_arena_center: Vector3 = Vector3.ZERO
+var _heli_test_carrier_original_transform: Transform3D = Transform3D.IDENTITY
+var _heli_test_has_carrier_original_transform: bool = false
+var _heli_test_suspended_manager_modes: Dictionary = {}
+const HELI_TEST_INTERVAL_S: float = 5.0
+const HELI_TEST_MAX_COUNT: int = 8
+const HELI_TEST_DUMMY_COUNT: int = 8
+const HELI_TEST_DUMMY_RETRY_S: float = 5.0
+const HELI_TEST_ARENA_SIZE_M: float = 10000.0
+const HELI_TEST_ARENA_SURFACE_Y: float = 1600.0
+const HELI_TEST_TARGET_RING_RADIUS_M: float = 2700.0
+const HELI_TEST_HELICOPTER_RING_RADIUS_M: float = 350.0
+const HELI_TEST_HELICOPTER_AGL_M: float = 100.0
+const HELI_TEST_DUMMY_HEALTH: float = 1000000000.0
+const HELI_TEST_UI_LAYER: int = 1000
+
+# --- Helicopter navigation loop ---
+var _heli_navigation_test_active: bool = false
+var _heli_navigation_test_timer_s: float = 0.0
+var _heli_navigation_lzs: Array[Vector3] = []
+var _heli_navigation_center: Vector3 = Vector3.ZERO
+var _heli_navigation_spawn_serial: int = 0
+# Per-aircraft navigation-loop tracking, keyed by aircraft instance id. Each entry
+# records the current leg, leg start time, and per-route aggregate metrics so we can
+# write lap times / success / crash stats to the navigation report.
+var _navigation_tracked: Dictionary = {}
+var _navigation_route_stats: Array[Dictionary] = []
+var _navigation_report_started: bool = false
+var _navigation_report_summary_timer_s: float = 0.0
+var _navigation_launch_watchdog_log_s: float = 0.0
+var _navigation_no_active_since_s: float = -1.0
+var _navigation_orphan_cleanup_log_s: float = 0.0
+var _navigation_idle_refill_log_s: float = 0.0
+const HELI_NAVIGATION_REPORT_PATH := "res://heli_navigation_report.log"
+const HELI_NAVIGATION_REPORT_SUMMARY_S: float = 30.0
+const HELI_NAVIGATION_RETRY_S: float = 5.0
+const HELI_NAVIGATION_ROUTE_COUNT: int = 8
+const HELI_NAVIGATION_LAUNCH_WATCHDOG_GRACE_S: float = 12.0
+const HELI_NAVIGATION_LAUNCH_WATCHDOG_LOG_S: float = 15.0
+const HELI_NAVIGATION_ORPHAN_CLEANUP_LOG_S: float = 10.0
+const HELI_NAVIGATION_IDLE_REFILL_LOG_S: float = 15.0
+# Test-harness safety valve. A candidate that cannot reduce its distance to the
+# active endpoint should fail promptly instead of consuming a route for 15 minutes.
+const HELI_NAVIGATION_NO_PROGRESS_TIMEOUT_S: float = 120.0
+const HELI_NAVIGATION_PROGRESS_EPSILON_M: float = 60.0
+const HELI_NAVIGATION_PROGRESS_GOAL_RADIUS_M: float = 300.0
+# This test is about navigation/path following, not carrier landing clearance.
+# Once an inbound heli has returned close to the stationary carrier, count the
+# return as a lap and despawn/requeue it instead of entering the landing pattern.
+const HELI_NAVIGATION_RETURN_CAPTURE_RADIUS_M: float = 200.0
+# Navigation test geometry. The carrier is placed on a broad, nearly level patch
+# near map centre; eight fixed LZs fan out from that actual carrier position.
+const HELI_NAVIGATION_MIN_LEG_M: float = 4000.0
+const HELI_NAVIGATION_MAX_LEG_M: float = 7000.0
+const HELI_NAVIGATION_LZ_BASE_RADIUS_M: float = 4300.0
+const HELI_NAVIGATION_LZ_RADIUS_STEP_M: float = 300.0
+const HELI_NAVIGATION_LZ_FLAT_RADIUS_M: float = 24.0
+const HELI_NAVIGATION_LZ_MAX_VARIATION_M: float = 1.5
+# A tiny flat pad can still sit beside a cliff, which turns the LZ into a trap
+# rather than a navigation test. Require a broad low-relief approach/departure
+# area too, but keep it looser than the actual touchdown footprint so normal
+# rolling terrain can still be used.
+const HELI_NAVIGATION_LZ_SURROUNDING_RADIUS_M: float = 260.0
+const HELI_NAVIGATION_LZ_SURROUNDING_MAX_RELIEF_M: float = 45.0
+# Diagnostic route policy: keep LZs near the carrier's terrain level so the
+# navigation tuner can learn basic path following, turning, landing and recovery
+# before we reintroduce large plateau/cliff altitude transitions.
+const HELI_NAVIGATION_LZ_SAME_LEVEL_BAND_M: float = 70.0
+const HELI_NAVIGATION_LZ_FALLBACK_LEVEL_BAND_M: float = 140.0
+# Full A* route previews are useful diagnostics, but too expensive to run across
+# the whole LZ search loop during startup. Keep the helper available, but do not
+# gate scenario setup on it until it is cached or moved off-thread.
+const HELI_NAVIGATION_LZ_PATH_QUALITY_PROBE_ENABLED: bool = false
+const HELI_NAVIGATION_LZ_MAX_PATH_RATIO: float = 1.85
+const HELI_NAVIGATION_LZ_PATH_REJECT_LOG_LIMIT: int = 3
+# Routes 7/8 repeatedly selected technically flat south/southeast LZs whose actual
+# routes were crash-heavy detours. Bias those two test-only slots away from the
+# observed choke, then require a path-quality preview for them before accepting.
+const HELI_NAVIGATION_ROUTE_7_LZ_ANGLE_BIAS_DEG: float = -25.0
+const HELI_NAVIGATION_ROUTE_7_LZ_RADIUS_BIAS_M: float = -1000.0
+const HELI_NAVIGATION_ROUTE_8_LZ_ANGLE_BIAS_DEG: float = 35.0
+const HELI_NAVIGATION_ROUTE_8_LZ_RADIUS_BIAS_M: float = -1200.0
+const HELI_NAVIGATION_CARRIER_FLAT_RADIUS_M: float = 130.0
+const HELI_NAVIGATION_CARRIER_MAX_VARIATION_M: float = 2.5
+# The deck footprint alone can sit on a perfectly flat mesa. Require a broad,
+# low-relief departure area as well so every route does not begin at a cliff wall.
+const HELI_NAVIGATION_CARRIER_SURROUNDING_RADIUS_M: float = 600.0
+const HELI_NAVIGATION_CARRIER_SURROUNDING_MAX_RELIEF_M: float = 115.0
+const HELI_NAVIGATION_CARRIER_GROUND_BAND_M: float = 35.0
+const HELI_NAVIGATION_CARRIER_SEARCH_STEP_M: float = 200.0
+const HELI_NAVIGATION_CARRIER_SEARCH_RADIUS_M: float = 4000.0
 
 var _landing_score_total: float = 0.0
 var _landing_attempt_count: int = 0
@@ -155,7 +265,9 @@ var _heli_test_stats: Dictionary = {
 	"Aircraft_11": {"spawned": 0, "lz": 0, "carrier": 0, "crash": 0},
 }
 var _heli_test_start_time_msec: int = 0
+var _heli_ui_update_accum_s: float = 0.0
 var _heli_ui_canvas: CanvasLayer = null
+var _heli_ui_bg: ColorRect = null
 var _heli_ui_label: Label = null
 
 func _landing_test_outcome_type(outcome: String) -> String:
@@ -269,6 +381,7 @@ func _ready():
 	_place_primary_tractorbots_at_staging_start()
 	_resolve_carrier_manager()
 	add_to_group("flight_deck_manager")
+	add_to_group("origin_shifter")
 	if catapult:
 		if catapult.has_signal("launch_sequence_complete"):
 			catapult.launch_sequence_complete.connect(_on_catapult_sequence_complete)
@@ -284,8 +397,81 @@ func _ready():
 	# Pre-populate hangar with aircraft
 	_initialize_hangar_with_aircraft()
 
-	if start_in_heli_test_mode:
-		_toggle_heli_test_mode()
+	_active_test_scenario = _load_saved_test_scenario() if remember_test_scenario \
+			else clampi(startup_test_scenario, TestScenario.NORMAL_GAME, TestScenario.HELI_AIMING)
+	# Let the main scene and autoload managers finish their own _ready methods.
+	call_deferred("_activate_selected_test_scenario")
+
+
+func apply_origin_shift(offset: Vector3) -> void:
+	_heli_test_arena_center -= offset
+	_heli_navigation_center -= offset
+	for i in range(_heli_navigation_lzs.size()):
+		_heli_navigation_lzs[i] -= offset
+	# Hangar entries are dictionaries rather than Node3Ds, so FloatingOrigin cannot
+	# move their cached route coordinates automatically.
+	for i in range(stored_aircraft.size()):
+		var stored_data: Dictionary = stored_aircraft[i]
+		var metadata_variant: Variant = stored_data.get("metadata", {})
+		if not (metadata_variant is Dictionary):
+			continue
+		var metadata := metadata_variant as Dictionary
+		if metadata.get(HELI_NAVIGATION_FIXED_LZ_META) is Vector3:
+			metadata[HELI_NAVIGATION_FIXED_LZ_META] = \
+				(metadata[HELI_NAVIGATION_FIXED_LZ_META] as Vector3) - offset
+		if metadata.get(HELI_NAVIGATION_HOME_META) is Vector3:
+			metadata[HELI_NAVIGATION_HOME_META] = \
+				(metadata[HELI_NAVIGATION_HOME_META] as Vector3) - offset
+		stored_data["metadata"] = metadata
+		stored_aircraft[i] = stored_data
+	if _heli_test_has_carrier_original_transform:
+		_heli_test_carrier_original_transform.origin -= offset
+
+
+func _activate_selected_test_scenario() -> void:
+	match _active_test_scenario:
+		TestScenario.HELI_NAVIGATION:
+			_enable_heli_navigation_test_mode()
+		TestScenario.HELI_AIMING:
+			if not _heli_test_active:
+				_toggle_heli_test_mode()
+		_:
+			print("[TestScenario] Normal Game (F11: next, Shift+F11: previous)")
+
+
+func _load_saved_test_scenario() -> int:
+	if not FileAccess.file_exists(TEST_SCENARIO_SETTINGS_PATH):
+		return clampi(startup_test_scenario, TestScenario.NORMAL_GAME, TestScenario.HELI_AIMING)
+	var file := FileAccess.open(TEST_SCENARIO_SETTINGS_PATH, FileAccess.READ)
+	if file == null:
+		return clampi(startup_test_scenario, TestScenario.NORMAL_GAME, TestScenario.HELI_AIMING)
+	var parsed: Variant = JSON.parse_string(file.get_as_text())
+	if not (parsed is Dictionary):
+		return clampi(startup_test_scenario, TestScenario.NORMAL_GAME, TestScenario.HELI_AIMING)
+	return clampi(int((parsed as Dictionary).get("scenario", startup_test_scenario)),
+		TestScenario.NORMAL_GAME, TestScenario.HELI_AIMING)
+
+
+func _save_test_scenario(scenario: int) -> void:
+	var file := FileAccess.open(TEST_SCENARIO_SETTINGS_PATH, FileAccess.WRITE)
+	if file == null:
+		push_warning("[TestScenario] Could not save %s" % TEST_SCENARIO_SETTINGS_PATH)
+		return
+	file.store_string(JSON.stringify({"scenario": scenario}, "  "))
+
+
+func _cycle_test_scenario(direction: int) -> void:
+	var scenario_count := TestScenario.size()
+	var next_scenario := posmod(_active_test_scenario + direction, scenario_count)
+	_save_test_scenario(next_scenario)
+	print("[TestScenario] Switching to %s..." % _test_scenario_label(next_scenario))
+	# Reloading is intentional: it restores enemies, managers, carrier state, and
+	# terrain cleanly instead of allowing one scenario's isolation to leak into the next.
+	get_tree().call_deferred("reload_current_scene")
+
+
+func _test_scenario_label(scenario: int = _active_test_scenario) -> String:
+	return String(TEST_SCENARIO_LABELS.get(scenario, "Unknown"))
 
 
 func _on_node_added(node: Node) -> void:
@@ -401,11 +587,11 @@ func _ensure_pilot_assigned_for_data(aircraft_data: Dictionary) -> bool:
 		return false
 	return carrier_manager.ensure_aircraft_data_has_pilot(aircraft_data)
 
-func _make_stored_aircraft_entry(aircraft_name: String, scene: PackedScene, scene_file: String = "") -> Dictionary:
+func _make_stored_aircraft_entry_unassigned(aircraft_name: String, scene: PackedScene, scene_file: String = "") -> Dictionary:
 	var resolved_scene_file := scene_file
 	if resolved_scene_file == "" and scene != null:
 		resolved_scene_file = scene.resource_path
-	var entry := {
+	return {
 		"name": aircraft_name,
 		"scene_file": resolved_scene_file,
 		"scene": scene,
@@ -414,6 +600,9 @@ func _make_stored_aircraft_entry(aircraft_name: String, scene: PackedScene, scen
 		"scale": Vector3.ONE,
 		"metadata": {}
 	}
+
+func _make_stored_aircraft_entry(aircraft_name: String, scene: PackedScene, scene_file: String = "") -> Dictionary:
+	var entry := _make_stored_aircraft_entry_unassigned(aircraft_name, scene, scene_file)
 	if not _ensure_pilot_assigned_for_data(entry):
 		return {}
 	return entry
@@ -427,6 +616,10 @@ func _queue_aircraft_scene_for_retrieval(aircraft_name: String, scene: PackedSce
 	if _heli_test_active:
 		entry.metadata[HELI_TEST_TYPE_META] = aircraft_name
 		entry.metadata[HELI_TEST_UNLIMITED_AMMO_META] = true
+		entry.metadata[HELI_TEST_COMBAT_MODE_META] = true
+		entry.metadata[HELI_TEST_FLAT_GROUND_Y_META] = HELI_TEST_ARENA_SURFACE_Y
+		entry.metadata[HELI_TEST_ARENA_CENTER_META] = _heli_test_arena_center
+		entry.metadata[HELI_TEST_ARENA_RADIUS_META] = HELI_TEST_ARENA_SIZE_M * 0.5
 	stored_aircraft.push_front(entry)
 	if _heli_test_active:
 		_log_heli_test("retrieval queued state=%s stored=%d elevator_top=%s bottom=%s" % [
@@ -620,9 +813,11 @@ func _input(event):
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_F3:
 		_command_closest_aircraft_to_return_to_base()
 
-	# F11 - toggle helicopter test mode: despawn all non-helicopters, spawn one heli/minute up to 4.
+	# F11 cycles saved physical scenarios; Shift+F11 cycles backwards. The scene
+	# reload gives every scenario a pristine world and makes Normal Game truly normal.
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_F11:
-		_toggle_heli_test_mode()
+		_cycle_test_scenario(-1 if event.shift_pressed else 1)
+		get_viewport().set_input_as_handled()
 
 func request_launch_sequence(aircraft: RigidBody3D):
 	if not is_instance_valid(aircraft):
@@ -978,33 +1173,25 @@ func _physics_process(_delta: float) -> void:
 			_spawn_landing_test_aircraft()
 
 	if _heli_test_active:
+		_heli_test_dummy_retry_s -= _delta
+		if _heli_test_dummy_retry_s <= 0.0:
+			_heli_test_dummy_retry_s = HELI_TEST_DUMMY_RETRY_S
+			_ensure_dummy_turrets_for_test()
 		_heli_test_timer -= _delta
 		if _heli_test_timer <= 0.0:
-			var live_count := get_tree().get_nodes_in_group("aircraft").filter(
-				func(n): return is_instance_valid(n) and _is_helicopter_aircraft(n as RigidBody3D if n is RigidBody3D else null)
-			).size()
-			var is_deck_free := current_state == DeckState.IDLE and _landing_clearance_queue.is_empty() and not is_instance_valid(_landing_clearance_aircraft)
-			if is_deck_free:
-				if not stored_aircraft.is_empty():
-					_log_heli_test("retrieving stored aircraft from hangar instead of spawning new")
-					start_hangar_retrieval()
-					_heli_test_timer = HELI_TEST_INTERVAL_S
-				elif live_count < HELI_TEST_MAX_COUNT:
-					_spawn_heli_test_aircraft()
-					_heli_test_timer = HELI_TEST_INTERVAL_S
-				else:
-					_heli_test_timer = HELI_TEST_INTERVAL_S
-					_log_heli_test("at max count (%d), skipping spawn" % HELI_TEST_MAX_COUNT)
-				
-		if is_instance_valid(_heli_ui_label):
-			var elapsed_s := (Time.get_ticks_msec() - _heli_test_start_time_msec) / 1000
-			var text := "HELI TEST MODE\nRuntime: %02d:%02d:%02d\n\n" % [elapsed_s / 3600, (elapsed_s / 60) % 60, elapsed_s % 60]
-			text += "%-12s | %-7s | %-2s | %-7s | %-5s\n" % ["AIRCRAFT", "SPAWNED", "LZ", "CARRIER", "CRASH"]
-			text += "------------------------------------------------\n"
-			for key in ["Aircraft_9", "Aircraft_10", "Aircraft_11"]:
-				var st: Dictionary = _heli_test_stats[key]
-				text += "%-12s | %7d | %2d | %7d | %5d\n" % [key, st["spawned"], st["lz"], st["carrier"], st["crash"]]
-			_heli_ui_label.text = text
+			_heli_test_timer = HELI_TEST_INTERVAL_S
+			_fill_heli_test_population()
+	if _heli_navigation_test_active:
+		_heli_navigation_test_timer_s -= _delta
+		if _heli_navigation_test_timer_s <= 0.0:
+			_heli_navigation_test_timer_s = HELI_NAVIGATION_RETRY_S
+			_ensure_heli_navigation_test_aircraft()
+		_update_navigation_report(_delta)
+	if _heli_test_active or _heli_navigation_test_active:
+		_heli_ui_update_accum_s -= _delta
+		if _heli_ui_update_accum_s <= 0.0:
+			_heli_ui_update_accum_s = 0.25
+			_update_physical_test_ui()
 	FrameProfiler.end("FlightDeckManager.physics", _profiler_start)
 
 
@@ -1030,7 +1217,7 @@ func _get_heli_test_aircraft_key(craft_ref: Variant) -> String:
 
 
 func record_heli_stat(craft_ref: Variant, stat: String) -> void:
-	if not _heli_test_active:
+	if not (_heli_test_active or _heli_navigation_test_active):
 		return
 	var base_name := _get_heli_test_aircraft_key(craft_ref)
 	if base_name == "":
@@ -3474,6 +3661,17 @@ func _complete_helicopter_retrieval_sequence(aircraft: RigidBody3D) -> void:
 
 	var _ai_profiler_start: int = FrameProfiler.begin("FlightDeckManager.heli_retrieval_ai_enable")
 	var heli_pilot := aircraft.find_child("HelicopterPilot", true, false)
+	if heli_pilot != null and bool(aircraft.get_meta(HELI_NAVIGATION_TEST_META, false)):
+		# This scenario measures the real LZ/path/recovery loop. Combat would turn an
+		# outbound navigation trial into a different test entirely.
+		heli_pilot.set("combat_enabled", false)
+		heli_pilot.set("atk_enabled", false)
+		heli_pilot.set("combat_tuning_enabled", false)
+		if not aircraft.has_meta(HELI_NAVIGATION_TUNING_ASSIGNMENT_META):
+			var nav_slot := int(aircraft.get_meta(HELI_NAVIGATION_ROUTE_SLOT_META, -1))
+			var tuning_assignment := _navigation_begin_tuning_trial(aircraft, heli_pilot, nav_slot)
+			if not tuning_assignment.is_empty():
+				aircraft.set_meta(HELI_NAVIGATION_TUNING_ASSIGNMENT_META, tuning_assignment)
 	var ai_heli_landed := heli_pilot != null and heli_pilot.is_physics_processing()
 	if not ai_heli_landed:
 		_configure_retrieved_aircraft_as_player(aircraft)
@@ -4180,11 +4378,1560 @@ func _spawn_landing_test_aircraft() -> void:
 		approach_dir.x, approach_dir.y, approach_dir.z])
 
 
+func _enable_heli_navigation_test_mode() -> void:
+	if _heli_navigation_test_active:
+		return
+	_heli_navigation_test_active = true
+	_active_test_scenario = TestScenario.HELI_NAVIGATION
+	if _landing_test_active:
+		_landing_test_active = false
+		for ac in _landing_test_aircraft:
+			if is_instance_valid(ac):
+				ac.queue_free()
+		_landing_test_aircraft.clear()
+	FrameProfiler.set_enabled(true, "helicopter navigation scenario")
+	_set_heli_test_friendly_ops_suspended(true)
+	_disable_enemies_for_heli_test()
+	var scene_root := get_tree().current_scene
+	if scene_root != null and scene_root.has_method("disable_structures_for_navigation_test"):
+		scene_root.call("disable_structures_for_navigation_test")
+	var poi_mgr := get_node_or_null("/root/POIManager")
+	if poi_mgr and "reveals_disabled" in poi_mgr:
+		poi_mgr.set("reveals_disabled", true)
+	var dnc := scene_root.find_child("DayNightCycle", true, false) if scene_root != null else null
+	if dnc and "freeze_daytime" in dnc:
+		dnc.set("freeze_daytime", true)
+	auto_recovery_enabled = true
+
+	# A clean scene is normally supplied by the selector reload. Keep this cleanup
+	# defensive so direct/editor activation still produces an isolated test.
+	var seen: Dictionary = {}
+	for group_name in ["aircraft", "ai_aircraft", "friendlies", "enemies"]:
+		for node in get_tree().get_nodes_in_group(group_name):
+			if not (node is RigidBody3D) or seen.has(node.get_instance_id()):
+				continue
+			seen[node.get_instance_id()] = true
+			if node == deck_aircraft:
+				deck_aircraft = null
+			(node as RigidBody3D).queue_free()
+	stored_aircraft.clear()
+	_pending_store_aircraft = null
+	_landing_clearance_aircraft = null
+	_landing_clearance_queue.clear()
+	current_state = DeckState.IDLE
+	_clear_navigation_test_world_clutter()
+
+	_reset_heli_test_stats()
+	_ensure_physical_test_ui()
+	_heli_navigation_lzs.clear()
+	_heli_navigation_spawn_serial = 0
+	_heli_navigation_test_timer_s = 0.0
+	# Fresh navigation report for this run.
+	_navigation_report_started = false
+	_navigation_tracked.clear()
+	_navigation_route_stats.clear()
+	_navigation_report_summary_timer_s = HELI_NAVIGATION_REPORT_SUMMARY_S
+	_navigation_launch_watchdog_log_s = 0.0
+	_navigation_no_active_since_s = -1.0
+	_navigation_orphan_cleanup_log_s = 0.0
+	_navigation_idle_refill_log_s = 0.0
+	_log_heli_test("scenario ON: stationary center carrier, 8 fixed terrain routes")
+	call_deferred("_ensure_heli_navigation_test_aircraft")
+
+
+func _ensure_heli_navigation_test_aircraft() -> void:
+	if not _heli_navigation_test_active:
+		return
+	# Defensive cleanup for any structure proxy that finished spawning after the
+	# scenario was activated.
+	_clear_navigation_test_world_clutter()
+	if _heli_navigation_lzs.size() != HELI_NAVIGATION_ROUTE_COUNT:
+		if not _setup_heli_navigation_test_range():
+			return
+	if not _navigation_report_started:
+		_start_navigation_report()
+	_navigation_force_refill_if_tuner_idle()
+
+	var occupied_slots: Dictionary = {}
+	var active_nav_count := 0
+	var seen: Dictionary = {}
+	for group_name in ["aircraft", "ai_aircraft", "friendlies"]:
+		for node in get_tree().get_nodes_in_group(group_name):
+			if not (node is RigidBody3D) or seen.has(node.get_instance_id()):
+				continue
+			seen[node.get_instance_id()] = true
+			if not bool(node.get_meta(HELI_NAVIGATION_TEST_META, false)) \
+					or node.is_queued_for_deletion():
+				continue
+			if _navigation_cleanup_orphaned_test_aircraft(node as RigidBody3D):
+				continue
+			active_nav_count += 1
+			var slot := int(node.get_meta(HELI_NAVIGATION_ROUTE_SLOT_META, -1))
+			if slot >= 0 and slot < HELI_NAVIGATION_ROUTE_COUNT:
+				occupied_slots[slot] = true
+	var launch_refs: Array[RigidBody3D] = [deck_aircraft, _pending_store_aircraft, _landing_clearance_aircraft]
+	for ref: RigidBody3D in launch_refs:
+		if not is_instance_valid(ref) or seen.has(ref.get_instance_id()):
+			continue
+		seen[ref.get_instance_id()] = true
+		if not bool(ref.get_meta(HELI_NAVIGATION_TEST_META, false)) \
+				or ref.is_queued_for_deletion():
+			continue
+		active_nav_count += 1
+		var ref_slot := int(ref.get_meta(HELI_NAVIGATION_ROUTE_SLOT_META, -1))
+		if ref_slot >= 0 and ref_slot < HELI_NAVIGATION_ROUTE_COUNT:
+			occupied_slots[ref_slot] = true
+	var stored_nav_count := 0
+	for stored_data_variant in stored_aircraft:
+		if not (stored_data_variant is Dictionary):
+			continue
+		var stored_data := stored_data_variant as Dictionary
+		var metadata_variant: Variant = stored_data.get("metadata", {})
+		if not (metadata_variant is Dictionary):
+			continue
+		var metadata := metadata_variant as Dictionary
+		if not bool(metadata.get(HELI_NAVIGATION_TEST_META, false)):
+			continue
+		stored_nav_count += 1
+		var stored_slot := int(metadata.get(HELI_NAVIGATION_ROUTE_SLOT_META, -1))
+		if stored_slot >= 0 and stored_slot < HELI_NAVIGATION_ROUTE_COUNT:
+			occupied_slots[stored_slot] = true
+
+	var tuner_status: Dictionary = _navigation_tuner_call("get_status", [], {}) as Dictionary
+	var tuner_required := int(tuner_status.get("required_results", 0))
+	var tuner_scored := int(tuner_status.get("scored_results", 0))
+	var tuner_pending := int(tuner_status.get("pending_scored_trials", 0))
+	var tuner_active := int(tuner_status.get("active_trials", 0))
+	var tuner_population := int(tuner_status.get("population", HELI_NAVIGATION_ROUTE_COUNT))
+	var tuner_route_count := int(tuner_status.get("route_count", HELI_NAVIGATION_ROUTE_COUNT))
+	var tuner_max_concurrent := mini(
+		maxi(tuner_population, 1),
+		maxi(tuner_route_count, 1)
+	)
+	var tuner_inflight := maxi(tuner_pending, tuner_active)
+	var tuner_unstarted_required := maxi(tuner_required - tuner_scored - tuner_pending, 0) \
+			if tuner_required > 0 else HELI_NAVIGATION_ROUTE_COUNT
+	var queue_capacity := maxi(
+		mini(tuner_unstarted_required, tuner_max_concurrent - tuner_inflight - stored_nav_count),
+		0
+	)
+	var queued := 0
+	for slot in range(HELI_NAVIGATION_ROUTE_COUNT):
+		if queued >= queue_capacity:
+			break
+		if occupied_slots.has(slot):
+			continue
+		if _queue_heli_navigation_test_aircraft(slot):
+			occupied_slots[slot] = true
+			queued += 1
+	_log_heli_test("navigation routes accounted=%d/%d newly_queued=%d" % [
+		occupied_slots.size(),
+		HELI_NAVIGATION_ROUTE_COUNT,
+		queued,
+	])
+	var now_s := Time.get_ticks_msec() / 1000.0
+	if active_nav_count > 0 or stored_nav_count <= 0:
+		_navigation_no_active_since_s = -1.0
+	elif _navigation_no_active_since_s < 0.0:
+		_navigation_no_active_since_s = now_s
+	_navigation_test_clear_stale_launch_blockers(active_nav_count, stored_nav_count)
+
+	if not tuner_status.is_empty() \
+			and (tuner_unstarted_required <= 0 or tuner_inflight >= tuner_max_concurrent):
+		_navigation_test_log_launch_blocked(
+			"tuner_capacity_full",
+			active_nav_count,
+			stored_nav_count
+		)
+		return
+
+	# Normal helicopter retrieval is intentionally serial. Wait until the prior
+	# launch has physically cleared the deck, and let recovery traffic go first.
+	if current_state != DeckState.IDLE or _tractor_cleanup_in_progress \
+			or _tractor_elevator_transfer_in_progress:
+		_navigation_test_log_launch_blocked(
+			"deck_busy",
+			active_nav_count,
+			stored_nav_count
+		)
+		return
+	if is_instance_valid(_pending_store_aircraft) or is_instance_valid(_landing_clearance_aircraft) \
+			or not _landing_clearance_queue.is_empty():
+		_navigation_test_log_launch_blocked(
+			"landing_or_storage_busy",
+			active_nav_count,
+			stored_nav_count
+		)
+		return
+	if is_instance_valid(deck_aircraft):
+		if bool(deck_aircraft.get_meta(HELI_NAVIGATION_TEST_META, false)) \
+				and not bool(deck_aircraft.get_meta("helicopter_deck_takeoff_ready", false)):
+			_navigation_test_log_launch_blocked(
+				"cleared_unready_nav_deck_aircraft",
+				active_nav_count,
+				stored_nav_count
+			)
+			deck_aircraft = null
+		else:
+			_navigation_test_log_launch_blocked(
+				"deck_aircraft_present",
+				active_nav_count,
+				stored_nav_count
+			)
+			return
+
+	var next_nav_index := -1
+	for i in range(stored_aircraft.size()):
+		var stored_data: Dictionary = stored_aircraft[i]
+		var metadata_variant: Variant = stored_data.get("metadata", {})
+		if metadata_variant is Dictionary \
+				and bool((metadata_variant as Dictionary).get(HELI_NAVIGATION_TEST_META, false)):
+			next_nav_index = i
+			break
+	if next_nav_index < 0:
+		_navigation_test_log_launch_blocked(
+			"no_stored_nav_aircraft",
+			active_nav_count,
+			stored_nav_count
+		)
+		return
+	if next_nav_index > 0:
+		var next_nav_data: Dictionary = stored_aircraft[next_nav_index]
+		stored_aircraft.remove_at(next_nav_index)
+		stored_aircraft.push_front(next_nav_data)
+	var next_metadata: Dictionary = stored_aircraft[0].get("metadata", {})
+	_log_heli_test("carrier launch queued route=%d stored=%d" % [
+		int(next_metadata.get(HELI_NAVIGATION_ROUTE_SLOT_META, -1)) + 1,
+		stored_aircraft.size(),
+	])
+	start_hangar_retrieval()
+
+
+func _navigation_cleanup_orphaned_test_aircraft(ac: RigidBody3D) -> bool:
+	if not is_instance_valid(ac) or ac.is_queued_for_deletion():
+		return false
+	if _navigation_tracked.has(ac.get_instance_id()):
+		return false
+	if ac == deck_aircraft or ac == _pending_store_aircraft or ac == _landing_clearance_aircraft:
+		return false
+	var carrier_owned := bool(ac.get_meta("controls_disabled", false)) \
+			or bool(ac.get_meta("carrier_transport_mode", false)) \
+			or bool(ac.get_meta("helicopter_deck_takeoff_ready", false))
+	var phase := -1
+	var pilot := ac.find_child("HelicopterPilot", true, false)
+	if pilot != null:
+		phase = int(pilot.get("mission_phase"))
+	if not carrier_owned and phase < 3:
+		return false
+	var now_s := Time.get_ticks_msec() / 1000.0
+	if now_s >= _navigation_orphan_cleanup_log_s:
+		_navigation_orphan_cleanup_log_s = now_s + HELI_NAVIGATION_ORPHAN_CLEANUP_LOG_S
+		var detail := "ORPHAN_NAV_CLEANUP craft=%s phase=%d carrier_owned=%s slot=%d" % [
+			ac.name,
+			phase,
+			str(carrier_owned),
+			int(ac.get_meta(HELI_NAVIGATION_ROUTE_SLOT_META, -1)) + 1,
+		]
+		_log_heli_test(detail)
+		if _navigation_report_started:
+			_write_navigation_line(detail)
+	ac.queue_free()
+	return true
+
+
+func _navigation_force_refill_if_tuner_idle() -> void:
+	if not _heli_navigation_test_active:
+		return
+	if _heli_navigation_lzs.size() != HELI_NAVIGATION_ROUTE_COUNT:
+		return
+	var status_variant: Variant = _navigation_tuner_call("get_status", [], {})
+	if not (status_variant is Dictionary):
+		return
+	var status := status_variant as Dictionary
+	if int(status.get("remaining_results", 0)) <= 0:
+		return
+	if int(status.get("active_trials", 0)) > 0 or int(status.get("pending_scored_trials", 0)) > 0:
+		return
+	var active_nav_count := 0
+	var stored_nav_count := 0
+	var seen: Dictionary = {}
+	for group_name in ["aircraft", "ai_aircraft", "friendlies"]:
+		for node in get_tree().get_nodes_in_group(group_name):
+			if not (node is RigidBody3D) or seen.has(node.get_instance_id()):
+				continue
+			seen[node.get_instance_id()] = true
+			var ac := node as RigidBody3D
+			if not bool(ac.get_meta(HELI_NAVIGATION_TEST_META, false)) or ac.is_queued_for_deletion():
+				continue
+			active_nav_count += 1
+	for stored_data_variant in stored_aircraft:
+		if not (stored_data_variant is Dictionary):
+			continue
+		var metadata_variant: Variant = (stored_data_variant as Dictionary).get("metadata", {})
+		if metadata_variant is Dictionary \
+				and bool((metadata_variant as Dictionary).get(HELI_NAVIGATION_TEST_META, false)):
+			stored_nav_count += 1
+	var now_s := Time.get_ticks_msec() / 1000.0
+	var launch_in_progress := stored_nav_count > 0 \
+			or active_nav_count > 0 \
+			or is_instance_valid(deck_aircraft) \
+			or is_instance_valid(_pending_store_aircraft) \
+			or is_instance_valid(_landing_clearance_aircraft) \
+			or current_state != DeckState.IDLE \
+			or _tractor_cleanup_in_progress \
+			or _tractor_elevator_transfer_in_progress
+	if launch_in_progress:
+		if now_s >= _navigation_idle_refill_log_s:
+			_navigation_idle_refill_log_s = now_s + HELI_NAVIGATION_IDLE_REFILL_LOG_S
+			var wait_detail := "IDLE_TUNER_WAIT gen=%d results=%d/%d remaining=%d active_nav=%d stored=%d state=%s next_trial=%d" % [
+				int(status.get("generation", 0)),
+				int(status.get("scored_results", 0)),
+				int(status.get("required_results", 0)),
+				int(status.get("remaining_results", 0)),
+				active_nav_count,
+				stored_nav_count,
+				_deck_state_name(),
+				int(status.get("next_trial_id", 0)),
+			]
+			_log_heli_test(wait_detail)
+			if _navigation_report_started:
+				_write_navigation_line(wait_detail)
+		return
+	_navigation_tracked.clear()
+	var queued := 0
+	for slot in range(HELI_NAVIGATION_ROUTE_COUNT):
+		if _queue_heli_navigation_test_aircraft(slot):
+			queued += 1
+	var stored_after := stored_aircraft.size()
+	var retrieval_started := false
+	if queued > 0 and current_state == DeckState.IDLE \
+			and not _tractor_cleanup_in_progress \
+			and not _tractor_elevator_transfer_in_progress \
+			and not is_instance_valid(deck_aircraft) \
+			and not is_instance_valid(_pending_store_aircraft) \
+			and not is_instance_valid(_landing_clearance_aircraft):
+		start_hangar_retrieval()
+		retrieval_started = true
+	if now_s >= _navigation_idle_refill_log_s:
+		_navigation_idle_refill_log_s = now_s + HELI_NAVIGATION_IDLE_REFILL_LOG_S
+		var detail := "IDLE_TUNER_REFILL gen=%d results=%d/%d remaining=%d active_nav=%d stored_before=%d queued=%d stored_after=%d retrieval_started=%s state=%s next_trial=%d" % [
+			int(status.get("generation", 0)),
+			int(status.get("scored_results", 0)),
+			int(status.get("required_results", 0)),
+			int(status.get("remaining_results", 0)),
+			active_nav_count,
+			stored_nav_count,
+			queued,
+			stored_after,
+			str(retrieval_started),
+			_deck_state_name(),
+			int(status.get("next_trial_id", 0)),
+		]
+		_log_heli_test(detail)
+		if _navigation_report_started:
+			_write_navigation_line(detail)
+
+
+func _navigation_test_no_active_grace_elapsed() -> bool:
+	if _navigation_no_active_since_s < 0.0:
+		return false
+	var now_s := Time.get_ticks_msec() / 1000.0
+	return now_s - _navigation_no_active_since_s >= HELI_NAVIGATION_LAUNCH_WATCHDOG_GRACE_S
+
+
+func _navigation_test_clear_stale_launch_blockers(active_nav_count: int, stored_nav_count: int) -> void:
+	if not _heli_navigation_test_active:
+		return
+	if active_nav_count > 0 or stored_nav_count <= 0:
+		return
+	if not _navigation_test_no_active_grace_elapsed():
+		_navigation_test_log_launch_blocked("waiting_no_active_grace", active_nav_count, stored_nav_count)
+		return
+	var cleared: PackedStringArray = PackedStringArray()
+	if is_instance_valid(_landing_clearance_aircraft) or not _landing_clearance_queue.is_empty():
+		cleared.append("landing_clearance")
+		_landing_clearance_aircraft = null
+		_landing_clearance_elapsed_s = 0.0
+		_landing_clearance_queue.clear()
+		_landing_clearance_retry_after_s.clear()
+	if not is_instance_valid(deck_aircraft):
+		deck_aircraft = null
+	if not is_instance_valid(_pending_store_aircraft):
+		_pending_store_aircraft = null
+	if _tractor_cleanup_in_progress and not is_instance_valid(deck_aircraft) \
+			and not is_instance_valid(_pending_store_aircraft):
+		cleared.append("tractor_cleanup")
+		_tractor_cleanup_in_progress = false
+		_tractor_cleanup_batch.clear()
+	if _tractor_elevator_transfer_in_progress and not is_instance_valid(deck_aircraft) \
+			and not is_instance_valid(_pending_store_aircraft):
+		cleared.append("tractor_elevator_transfer")
+		_tractor_elevator_transfer_in_progress = false
+	if current_state != DeckState.IDLE and not is_instance_valid(deck_aircraft) \
+			and not is_instance_valid(_pending_store_aircraft):
+		cleared.append("deck_state=%s" % _deck_state_name())
+		current_state = DeckState.IDLE
+		_retrieval_top_handled = false
+		_recovery_powerdown_in_progress = false
+		_recovery_release_done = false
+		_recovery_job_dispatched = false
+	if not cleared.is_empty():
+		var detail := "LAUNCH_WATCHDOG cleared=%s active=%d stored=%d state=%s deck=%s pending=%s clearance=%s queue=%d" % [
+			",".join(cleared),
+			active_nav_count,
+			stored_nav_count,
+			_deck_state_name(),
+			_aircraft_debug_name(deck_aircraft),
+			_aircraft_debug_name(_pending_store_aircraft),
+			_aircraft_debug_name(_landing_clearance_aircraft),
+			_landing_clearance_queue.size(),
+		]
+		_log_heli_test(detail)
+		if _navigation_report_started:
+			_write_navigation_line(detail)
+
+
+func _navigation_test_log_launch_blocked(reason: String, active_nav_count: int, stored_nav_count: int) -> void:
+	if not _heli_navigation_test_active:
+		return
+	if stored_nav_count <= 0:
+		return
+	var now_s := Time.get_ticks_msec() / 1000.0
+	if now_s < _navigation_launch_watchdog_log_s:
+		return
+	_navigation_launch_watchdog_log_s = now_s + HELI_NAVIGATION_LAUNCH_WATCHDOG_LOG_S
+	var no_active_s := 0.0
+	if _navigation_no_active_since_s >= 0.0:
+		no_active_s = now_s - _navigation_no_active_since_s
+	var detail := "LAUNCH_BLOCKED reason=%s active=%d stored=%d no_active_s=%.1f state=%s tractor_cleanup=%s elevator_transfer=%s deck=%s pending=%s clearance=%s queue=%d" % [
+		reason,
+		active_nav_count,
+		stored_nav_count,
+		no_active_s,
+		_deck_state_name(),
+		str(_tractor_cleanup_in_progress),
+		str(_tractor_elevator_transfer_in_progress),
+		_aircraft_debug_name(deck_aircraft),
+		_aircraft_debug_name(_pending_store_aircraft),
+		_aircraft_debug_name(_landing_clearance_aircraft),
+		_landing_clearance_queue.size(),
+	]
+	_log_heli_test(detail)
+	if _navigation_report_started:
+		_write_navigation_line(detail)
+
+
+func _setup_heli_navigation_test_range() -> bool:
+	var nav_grid := get_node_or_null("/root/TerrainNavGrid")
+	if nav_grid == null or not nav_grid.has_method("is_ready") \
+			or not bool(nav_grid.call("is_ready")):
+		return false
+	var carrier_node := get_parent() as Node3D
+	if not is_instance_valid(carrier_node):
+		return false
+
+	var center_variant: Variant = nav_grid.call("get_bake_center")
+	if not (center_variant is Vector3):
+		return false
+	var requested_center := center_variant as Vector3
+	var carrier_site := _find_flat_navigation_carrier_site(nav_grid, requested_center)
+	if is_inf(carrier_site.x):
+		push_warning("[TestScenario] Could not find a carrier-sized flat site near map centre")
+		return false
+	_heli_navigation_center = carrier_site
+
+	# Park the carrier on terrain at its normal body ride height. The carrier remains
+	# visible and uses the ordinary elevator/deck launch and recovery machinery.
+	if carrier_node.has_method("set_heli_test_stationary"):
+		carrier_node.call("set_heli_test_stationary", true)
+	if not _heli_test_has_carrier_original_transform:
+		_heli_test_carrier_original_transform = carrier_node.global_transform
+		_heli_test_has_carrier_original_transform = true
+	carrier_node.global_position = _heli_navigation_center + Vector3.UP * 40.0
+	carrier_node.rotation = Vector3(0.0, carrier_node.rotation.y, 0.0)
+	carrier_node.visible = true
+
+	_heli_navigation_lzs.clear()
+	for slot in range(HELI_NAVIGATION_ROUTE_COUNT):
+		var lz := _find_flat_navigation_test_lz(slot, nav_grid)
+		if is_inf(lz.x):
+			_heli_navigation_lzs.clear()
+			push_warning("[TestScenario] Could not find flat fixed LZ for route %d" % slot)
+			return false
+		_heli_navigation_lzs.append(lz)
+		_log_heli_test("route %d carrier=%s LZ=%s distance=%.0fm terrain_delta_y=%.0fm" % [
+			slot + 1,
+			str(_heli_navigation_center.snapped(Vector3.ONE)),
+			str(lz.snapped(Vector3.ONE)),
+			Vector2(lz.x - _heli_navigation_center.x, lz.z - _heli_navigation_center.z).length(),
+			lz.y - _heli_navigation_center.y,
+		])
+	_log_heli_test("navigation carrier site=%s flat_radius=%.0fm routes=%d" % [
+		str(_heli_navigation_center.snapped(Vector3.ONE)),
+		HELI_NAVIGATION_CARRIER_FLAT_RADIUS_M,
+		_heli_navigation_lzs.size(),
+	])
+	return true
+
+
+func _find_flat_navigation_carrier_site(nav_grid: Node, requested_center: Vector3) -> Vector3:
+	if nav_grid == null or not nav_grid.has_method("is_stable_footprint"):
+		return Vector3.INF
+	var ring_count := maxi(int(ceil(
+		HELI_NAVIGATION_CARRIER_SEARCH_RADIUS_M / HELI_NAVIGATION_CARRIER_SEARCH_STEP_M
+	)), 0)
+	var candidates: Array[Vector3] = []
+	var lowest_sample_y := INF
+	for ring in range(ring_count + 1):
+		var sample_count := 1 if ring == 0 else maxi(ring * 8, 8)
+		var radius := float(ring) * HELI_NAVIGATION_CARRIER_SEARCH_STEP_M
+		for sample_index in range(sample_count):
+			var angle := TAU * float(sample_index) / float(sample_count)
+			var candidate := requested_center + Vector3(cos(angle), 0.0, sin(angle)) * radius
+			var ground_h := _navigation_test_sample_height(nav_grid, candidate)
+			if is_nan(ground_h):
+				continue
+			candidate.y = ground_h
+			candidates.append(candidate)
+			lowest_sample_y = minf(lowest_sample_y, ground_h)
+	if candidates.is_empty():
+		return Vector3.INF
+
+	# Prefer terrain close to the lowest sampled level (the practical meaning of
+	# "ground level" on this stepped terrain). Fall back to any broad flat area only
+	# if the low band contains none.
+	for altitude_band in [HELI_NAVIGATION_CARRIER_GROUND_BAND_M, INF]:
+		for candidate in candidates:
+			if candidate.y > lowest_sample_y + altitude_band:
+				continue
+			if not bool(nav_grid.call(
+				"is_stable_footprint", candidate.x, candidate.z,
+				HELI_NAVIGATION_CARRIER_FLAT_RADIUS_M, 1.5,
+				HELI_NAVIGATION_CARRIER_MAX_VARIATION_M
+			)):
+				continue
+			if not bool(nav_grid.call(
+				"is_stable_footprint", candidate.x, candidate.z,
+				HELI_NAVIGATION_CARRIER_SURROUNDING_RADIUS_M,
+				HELI_NAVIGATION_CARRIER_SURROUNDING_MAX_RELIEF_M,
+				HELI_NAVIGATION_CARRIER_SURROUNDING_MAX_RELIEF_M
+			)):
+				continue
+			_log_heli_test("navigation carrier broad-site accepted ground=%.1f lowest_sample=%.1f surrounding_radius=%.0fm max_relief=%.0fm" % [
+				candidate.y, lowest_sample_y,
+				HELI_NAVIGATION_CARRIER_SURROUNDING_RADIUS_M,
+				HELI_NAVIGATION_CARRIER_SURROUNDING_MAX_RELIEF_M,
+			])
+			return candidate
+	return Vector3.INF
+
+
+func _find_flat_navigation_test_lz(slot: int, nav_grid: Node) -> Vector3:
+	if nav_grid == null or not nav_grid.has_method("is_stable_footprint"):
+		return Vector3.INF
+	var base_angle := TAU * float(slot) / float(HELI_NAVIGATION_ROUTE_COUNT)
+	if slot == 6:
+		base_angle += deg_to_rad(HELI_NAVIGATION_ROUTE_7_LZ_ANGLE_BIAS_DEG)
+	elif slot == 7:
+		base_angle += deg_to_rad(HELI_NAVIGATION_ROUTE_8_LZ_ANGLE_BIAS_DEG)
+	var ideal_radius := clampf(
+		HELI_NAVIGATION_LZ_BASE_RADIUS_M
+				+ HELI_NAVIGATION_LZ_RADIUS_STEP_M * float(slot)
+				+ _navigation_lz_radius_bias_m(slot),
+		HELI_NAVIGATION_MIN_LEG_M,
+		HELI_NAVIGATION_MAX_LEG_M
+	)
+	var path_reject_logs := 0
+	for level_band in [HELI_NAVIGATION_LZ_SAME_LEVEL_BAND_M, HELI_NAVIGATION_LZ_FALLBACK_LEVEL_BAND_M]:
+		for angular_step in range(33):
+			var signed_step := 0
+			if angular_step > 0:
+				signed_step = int((angular_step + 1) / 2)
+				if angular_step % 2 == 0:
+					signed_step = -signed_step
+			var angle := base_angle + deg_to_rad(float(signed_step) * 2.5)
+			var radial := Vector3(cos(angle), 0.0, sin(angle))
+			for radius_step in range(15):
+				var radius_offset := 0.0
+				if radius_step > 0:
+					var magnitude := float(int((radius_step + 1) / 2)) * 200.0
+					radius_offset = magnitude if radius_step % 2 == 1 else -magnitude
+				var radius := clampf(
+					ideal_radius + radius_offset,
+					HELI_NAVIGATION_MIN_LEG_M,
+					HELI_NAVIGATION_MAX_LEG_M
+				)
+				var candidate := _heli_navigation_center + radial * radius
+				var ground_h := _navigation_test_sample_height(nav_grid, candidate)
+				if is_nan(ground_h):
+					continue
+				if absf(ground_h - _heli_navigation_center.y) > level_band:
+					continue
+				candidate.y = ground_h
+				if _navigation_rejects_lz_candidate(slot, candidate):
+					continue
+				if not bool(nav_grid.call(
+					"is_stable_footprint", candidate.x, candidate.z,
+					HELI_NAVIGATION_LZ_FLAT_RADIUS_M, 1.5,
+					HELI_NAVIGATION_LZ_MAX_VARIATION_M
+				)):
+					continue
+				if not bool(nav_grid.call(
+					"is_stable_footprint", candidate.x, candidate.z,
+					HELI_NAVIGATION_LZ_SURROUNDING_RADIUS_M,
+					HELI_NAVIGATION_LZ_SURROUNDING_MAX_RELIEF_M,
+					HELI_NAVIGATION_LZ_SURROUNDING_MAX_RELIEF_M
+				)):
+					continue
+				var route_quality: Dictionary = {}
+				if HELI_NAVIGATION_LZ_PATH_QUALITY_PROBE_ENABLED \
+						or _navigation_lz_path_quality_required(slot):
+					route_quality = _navigation_get_lz_route_quality(nav_grid, _heli_navigation_center, candidate)
+					if route_quality.is_empty():
+						if path_reject_logs < HELI_NAVIGATION_LZ_PATH_REJECT_LOG_LIMIT:
+							path_reject_logs += 1
+							_log_heli_test("route %d rejected LZ path_probe_failed candidate=%s" % [
+								slot + 1,
+								str(candidate.snapped(Vector3.ONE)),
+							])
+						continue
+					var path_ratio := float(route_quality.get("ratio", INF))
+					if path_ratio > HELI_NAVIGATION_LZ_MAX_PATH_RATIO:
+						if path_reject_logs < HELI_NAVIGATION_LZ_PATH_REJECT_LOG_LIMIT:
+							path_reject_logs += 1
+							_log_heli_test("route %d rejected LZ path_ratio=%.2f max=%.2f direct=%.0fm length=%.0fm points=%d candidate=%s" % [
+								slot + 1,
+								path_ratio,
+								HELI_NAVIGATION_LZ_MAX_PATH_RATIO,
+								float(route_quality.get("direct", 0.0)),
+								float(route_quality.get("length", 0.0)),
+								int(route_quality.get("points", 0)),
+								str(candidate.snapped(Vector3.ONE)),
+							])
+						continue
+				if level_band > HELI_NAVIGATION_LZ_SAME_LEVEL_BAND_M:
+					_log_heli_test("route %d using fallback same-level band %.0fm terrain_delta_y=%.0fm" % [
+						slot + 1,
+						level_band,
+						candidate.y - _heli_navigation_center.y,
+					])
+				if not route_quality.is_empty():
+					_log_heli_test("route %d accepted LZ path_ratio=%.2f direct=%.0fm length=%.0fm points=%d" % [
+						slot + 1,
+						float(route_quality.get("ratio", 0.0)),
+						float(route_quality.get("direct", 0.0)),
+						float(route_quality.get("length", 0.0)),
+						int(route_quality.get("points", 0)),
+					])
+				return candidate
+	return Vector3.INF
+
+
+func _navigation_lz_radius_bias_m(slot: int) -> float:
+	if slot == 6:
+		return HELI_NAVIGATION_ROUTE_7_LZ_RADIUS_BIAS_M
+	if slot == 7:
+		return HELI_NAVIGATION_ROUTE_8_LZ_RADIUS_BIAS_M
+	return 0.0
+
+
+func _navigation_lz_path_quality_required(slot: int) -> bool:
+	return slot == 6 or slot == 7
+
+
+func _navigation_rejects_lz_candidate(slot: int, candidate: Vector3) -> bool:
+	var rel := candidate - _heli_navigation_center
+	# Observed bad pocket: routes 7/8 repeatedly selected south/southeast LZs that are
+	# flat enough to pass footprint tests but produce 1.9x-2.1x A* detours through
+	# the same plateau choke. Keep searching for a neighboring flat site instead.
+	if slot == 6:
+		return rel.z < -5000.0 and rel.x > 2500.0
+	if slot == 7:
+		return rel.z < -4300.0 and rel.x > 2500.0
+	return false
+
+
+func _navigation_get_lz_route_quality(nav_grid: Node, start: Vector3, goal: Vector3) -> Dictionary:
+	var grid := _navigation_build_path_preview_grid(nav_grid)
+	if grid.is_empty():
+		return {}
+	var reference_ground := _heli_navigation_center.y
+	var flight_ceiling := reference_ground + 2100.0
+	var max_route_terrain_y := minf(reference_ground + 2000.0, flight_ceiling - 50.0)
+	var params := _navigation_get_path_preview_params(max_route_terrain_y, flight_ceiling)
+	var job_data := _navigation_make_path_preview_job_data(
+		start,
+		goal,
+		grid,
+		params,
+		reference_ground,
+		max_route_terrain_y
+	)
+	if job_data.is_empty():
+		return {}
+	HelicopterPilot._run_threaded_pathfinding_job(job_data)
+	var result_variant: Variant = job_data.get("result", {})
+	if not (result_variant is Dictionary):
+		return {}
+	var result := result_variant as Dictionary
+	if not bool(result.get("success", false)):
+		return {}
+	var path_variant: Variant = result.get("final_path", [])
+	if not (path_variant is Array):
+		return {}
+	var path := path_variant as Array
+	if path.is_empty():
+		return {}
+	var direct := Vector2(start.x - goal.x, start.z - goal.z).length()
+	if direct <= 1.0:
+		return {}
+	var path_length := _navigation_measure_horizontal_path_length(start, path)
+	return {
+		"ratio": path_length / direct,
+		"length": path_length,
+		"direct": direct,
+		"points": path.size(),
+		"elapsed_ms": int(result.get("elapsed_ms", 0)),
+		"reason": String(result.get("reason", "")),
+	}
+
+
+func _navigation_build_path_preview_grid(nav_grid: Node) -> Dictionary:
+	if nav_grid == null:
+		return {}
+	var cols := int(nav_grid.get("_cols"))
+	var rows := int(nav_grid.get("_rows"))
+	var heights := nav_grid.get("_heights") as PackedFloat32Array
+	if cols <= 0 or rows <= 0 or heights.is_empty():
+		return {}
+	return {
+		"cols": cols,
+		"rows": rows,
+		"heights": heights,
+		"origin_x": float(nav_grid.get("_origin_x")),
+		"origin_z": float(nav_grid.get("_origin_z")),
+		"cell_size": maxf(float(nav_grid.get("cell_size_m")), 1.0),
+		"impassable": float(nav_grid.get("IMPASSABLE")),
+		"query_cols": int(nav_grid.get("_query_cols")),
+		"query_rows": int(nav_grid.get("_query_rows")),
+		"query_heights": nav_grid.get("_query_heights") as PackedFloat32Array,
+		"query_height_variation": nav_grid.get("_query_height_variation") as PackedFloat32Array,
+		"query_max_heights": nav_grid.get("_query_max_heights") as PackedFloat32Array,
+		"query_origin_x": float(nav_grid.get("_query_origin_x")),
+		"query_origin_z": float(nav_grid.get("_query_origin_z")),
+		"query_cell_size": maxf(float(nav_grid.get("query_cell_size_m")), 1.0),
+	}
+
+
+func _navigation_get_path_preview_params(max_route_terrain_y: float, flight_ceiling: float) -> Dictionary:
+	return {
+		"heightmap_path_max_edge_risk_m": 5.0,
+		"heightmap_path_edge_risk_penalty": 85.0,
+		"heightmap_path_mountain_buffer_cells": 0,
+		"heightmap_path_mountain_avoidance_m": 185.0,
+		"heightmap_path_max_step_climb_m": 0.0,
+		"heightmap_path_altitude_penalty": 0.035,
+		"heightmap_path_climb_penalty": 1.0,
+		"heightmap_path_high_terrain_penalty": 0.0,
+		"heightmap_path_same_level_wall_risk_start_m": 8.0,
+		"heightmap_path_same_level_wall_penalty": 50.0,
+		"heightmap_path_ground_level_band_m": 35.0,
+		"heightmap_path_first_plateau_min_m": 40.0,
+		"heightmap_path_first_plateau_max_m": 180.0,
+		"heightmap_path_ground_route_penalty": 0.0,
+		"heightmap_path_low_route_penalty": 0.0,
+		"heightmap_path_top_level_penalty": 0.08,
+		"heightmap_path_upper_level_penalty": 10.0,
+		"heightmap_path_level_change_penalty": 2.0,
+		"heightmap_path_same_level_preferred_band_m": 80.0,
+		"heightmap_path_same_level_soft_band_m": 220.0,
+		"heightmap_path_same_level_penalty": 0.8,
+		"heightmap_path_same_level_max_penalty": 180.0,
+		"heightmap_path_same_level_departure_penalty": 75.0,
+		"heightmap_path_target_agl_m": 50.0,
+		"min_terrain_clearance_m": 24.0,
+		"heightmap_path_carrot_distance_m": 520.0,
+		"heightmap_path_insert_spacing_m": 100.0,
+		"heightmap_path_simplify_altitude_error_m": 8.0,
+		"heightmap_path_simplify_max_deviation_m": 900.0,
+		"heightmap_path_pilot_min_segment_m": 170.0,
+		"heightmap_path_pilot_max_turn_angle_deg": 95.0,
+		"heightmap_path_direct_corridor_enabled": false,
+		"heightmap_path_direct_corridor_max_climb_m": 420.0,
+		"terrain_climb_lookahead_m": 900.0,
+		"terrain_climb_capacity_scale": 0.5,
+		"heightmap_path_climb_lead_speed_mps": 30.0,
+		"max_climb_mps": 7.0,
+		"terrain_sample_spacing_m": 120.0,
+		"heightmap_path_simplify_enabled": true,
+		"heightmap_path_heuristic_weight": 1.15,
+		"heightmap_path_turn_soft_angle_deg": 18.0,
+		"heightmap_path_turn_penalty": 420.0,
+		"min_altitude": -1000.0,
+		"max_altitude": 10000.0,
+		"route_terrain_ceiling": max_route_terrain_y,
+		"flight_ceiling": flight_ceiling,
+	}
+
+
+func _navigation_make_path_preview_job_data(
+		start: Vector3,
+		goal: Vector3,
+		grid: Dictionary,
+		params: Dictionary,
+		reference_ground: float,
+		max_route_terrain_y: float
+) -> Dictionary:
+	var cols := int(grid.get("cols", 0))
+	var rows := int(grid.get("rows", 0))
+	var origin_x := float(grid.get("origin_x", 0.0))
+	var origin_z := float(grid.get("origin_z", 0.0))
+	var cell_size := maxf(float(grid.get("cell_size", 1.0)), 1.0)
+	if cols <= 0 or rows <= 0:
+		return {}
+	var dist_max := maxf(absf(start.x - goal.x), absf(start.z - goal.z))
+	var pad := maxf(600.0, dist_max * 0.5)
+	var gx_min: int = clampi(int(floor((minf(start.x, goal.x) - pad - origin_x) / cell_size)), 0, cols - 1)
+	var gz_min: int = clampi(int(floor((minf(start.z, goal.z) - pad - origin_z) / cell_size)), 0, rows - 1)
+	var gx_max: int = clampi(int(ceil((maxf(start.x, goal.x) + pad - origin_x) / cell_size)), 0, cols - 1)
+	var gz_max: int = clampi(int(ceil((maxf(start.z, goal.z) + pad - origin_z) / cell_size)), 0, rows - 1)
+	var start_cell := Vector2i(
+		clampi(int((start.x - origin_x) / cell_size), gx_min, gx_max),
+		clampi(int((start.z - origin_z) / cell_size), gz_min, gz_max)
+	)
+	var end_cell := Vector2i(
+		clampi(int((goal.x - origin_x) / cell_size), gx_min, gx_max),
+		clampi(int((goal.z - origin_z) / cell_size), gz_min, gz_max)
+	)
+	var max_iterations := maxi((gx_max - gx_min + 1) * (gz_max - gz_min + 1) * 3, 20000)
+	return {
+		"start_ms": Time.get_ticks_msec(),
+		"current_pos": start,
+		"goal": goal,
+		"gx_min": gx_min,
+		"gz_min": gz_min,
+		"gx_max": gx_max,
+		"gz_max": gz_max,
+		"start_cell": start_cell,
+		"end_cell": end_cell,
+		"reference_ground": reference_ground,
+		"max_route_terrain_y": max_route_terrain_y,
+		"max_iterations": max_iterations,
+		"grid": grid,
+		"params": params,
+		"result": {},
+	}
+
+
+func _navigation_measure_horizontal_path_length(start: Vector3, path: Array) -> float:
+	var total := 0.0
+	var previous := start
+	for point_variant in path:
+		if not (point_variant is Vector3):
+			continue
+		var point := point_variant as Vector3
+		total += Vector2(point.x - previous.x, point.z - previous.z).length()
+		previous = point
+	return total
+
+
+
+
+func _navigation_test_sample_height(nav_grid: Node, world_pos: Vector3) -> float:
+	if nav_grid == null or not nav_grid.has_method("sample_height"):
+		return NAN
+	var height := float(nav_grid.call("sample_height", world_pos.x, world_pos.z))
+	return height if height > -500000.0 and not is_nan(height) else NAN
+
+
+# --- Navigation report -----------------------------------------------------------
+# Polls each navigation-test helicopter's mission_phase to time legs and laps, and
+# writes per-event + periodic-summary metrics to res://heli_navigation_report.log.
+# A "lap" = OUTBOUND -> reach/land at LZ -> INBOUND -> reach/land at carrier.
+
+func _navigation_report_now_s() -> float:
+	return float(Time.get_ticks_msec() - _heli_test_start_time_msec) / 1000.0
+
+
+func _ensure_navigation_route_stats() -> void:
+	if _navigation_route_stats.size() == HELI_NAVIGATION_ROUTE_COUNT:
+		return
+	_navigation_route_stats.clear()
+	for _i in range(HELI_NAVIGATION_ROUTE_COUNT):
+		_navigation_route_stats.append({
+			"laps": 0, "crashes": 0,
+			"lz_reached": 0, "close_calls": 0,
+			"last_fitness": 0.0, "best_fitness": -INF,
+			"outbound_sum_s": 0.0, "outbound_n": 0,
+			"return_sum_s": 0.0, "return_n": 0,
+			"lap_sum_s": 0.0, "lap_n": 0,
+			"best_lap_s": INF,
+		})
+
+
+func _update_navigation_report(_delta: float) -> void:
+	# Route geometry is not available until the terrain grid has baked and the
+	# carrier-sized flat site has been selected.
+	if _heli_navigation_lzs.size() != HELI_NAVIGATION_ROUTE_COUNT:
+		return
+	if not _navigation_report_started:
+		_start_navigation_report()
+	_navigation_force_refill_if_tuner_idle()
+	_ensure_navigation_route_stats()
+	var now := _navigation_report_now_s()
+
+	# Build the set of currently-alive tracked nav helicopters and detect transitions.
+	var alive: Dictionary = {}
+	var seen: Dictionary = {}
+	for group_name in ["aircraft", "ai_aircraft", "friendlies"]:
+		for node in get_tree().get_nodes_in_group(group_name):
+			if not (node is RigidBody3D) or seen.has(node.get_instance_id()):
+				continue
+			seen[node.get_instance_id()] = true
+			var ac := node as RigidBody3D
+			if not bool(ac.get_meta(HELI_NAVIGATION_TEST_META, false)) or ac.is_queued_for_deletion():
+				continue
+			var id := ac.get_instance_id()
+			# Retrieval time is carrier logistics, not navigation-leg time. Begin
+			# tracking only after the helicopter has actually released from deck. Once
+			# a nav-test helicopter is already tracked, keep watching it through carrier
+			# recovery so the AT_CARRIER transition can be counted as a lap.
+			var carrier_owned := bool(ac.get_meta("controls_disabled", false)) \
+					or bool(ac.get_meta("carrier_transport_mode", false)) \
+					or bool(ac.get_meta("helicopter_deck_takeoff_ready", false))
+			if carrier_owned and not _navigation_tracked.has(id):
+				continue
+			var pilot := ac.find_child("HelicopterPilot", true, false)
+			if pilot == null:
+				continue
+			alive[id] = true
+			var slot := int(ac.get_meta(HELI_NAVIGATION_ROUTE_SLOT_META, -1))
+			var phase := int(pilot.get("mission_phase"))
+			if _navigation_complete_return_near_carrier(id, ac, now):
+				continue
+			_navigation_track_phase(id, ac, pilot, slot, phase, now)
+			if not _navigation_tracked.has(id):
+				continue
+			if _navigation_update_progress_watchdog(id, ac, pilot, now):
+				continue
+			_navigation_record_tuning_sample(id, ac, pilot, _delta)
+
+	# Any tracked heli no longer alive (and not cleanly recovered) counts as a crash.
+	for id in _navigation_tracked.keys():
+		if not alive.has(id):
+			_navigation_on_lost(id, now)
+
+	_navigation_report_summary_timer_s -= _delta
+	if _navigation_report_summary_timer_s <= 0.0:
+		_navigation_report_summary_timer_s = HELI_NAVIGATION_REPORT_SUMMARY_S
+		_write_navigation_summary(now)
+
+
+func _navigation_track_phase(id: int, ac: RigidBody3D, pilot: Node, slot: int, phase: int, now: float) -> void:
+	# MissionPhase: 0=OUTBOUND 1=AT_LZ 2=INBOUND 3=AT_CARRIER 4=RESCUE.
+	if not _navigation_tracked.has(id):
+		var tuning_assignment: Dictionary = {}
+		var cached_assignment_variant: Variant = ac.get_meta(HELI_NAVIGATION_TUNING_ASSIGNMENT_META, {})
+		if cached_assignment_variant is Dictionary:
+			tuning_assignment = cached_assignment_variant as Dictionary
+		if ac.has_meta(HELI_NAVIGATION_TUNING_ASSIGNMENT_META):
+			ac.remove_meta(HELI_NAVIGATION_TUNING_ASSIGNMENT_META)
+		if tuning_assignment.is_empty():
+			tuning_assignment = _navigation_begin_tuning_trial(ac, pilot, slot)
+		slot = int(tuning_assignment.get("route_slot", slot))
+		if slot >= 0 and slot < _heli_navigation_lzs.size():
+			ac.set_meta(HELI_NAVIGATION_ROUTE_SLOT_META, slot)
+			ac.set_meta(HELI_NAVIGATION_FIXED_LZ_META, _heli_navigation_lzs[slot])
+		_navigation_tracked[id] = {
+			"name": ac.name, "slot": slot, "phase": phase,
+			"leg_start_s": now, "outbound_start_s": now,
+			"progress_best_distance_m": INF, "progress_last_s": now,
+			"tuning_trial_id": int(tuning_assignment.get("trial_id", 0)),
+			"tuning_candidate": int(tuning_assignment.get("candidate", -1)),
+			"tuning_sample_accum_s": 0.0,
+		}
+		_write_navigation_line("SPAWN craft=%s route=%d candidate=%d trial=%d t=%.1f" % [
+			ac.name, slot + 1, int(tuning_assignment.get("candidate", -1)) + 1,
+			int(tuning_assignment.get("trial_id", 0)), now])
+		return
+	var t: Dictionary = _navigation_tracked[id]
+	var prev := int(t["phase"])
+	if phase == prev:
+		return
+	var craft_name := ac.name
+	# Transitions we care about.
+	if prev == 0 and phase == 1:
+		# Reached / landed at the LZ — end of outbound leg.
+		var outbound_s := now - float(t["outbound_start_s"])
+		t["outbound_s"] = outbound_s
+		_record_navigation_leg(slot, "outbound", outbound_s)
+		if slot >= 0 and slot < _navigation_route_stats.size():
+			_navigation_route_stats[slot]["lz_reached"] = int(_navigation_route_stats[slot].get("lz_reached", 0)) + 1
+		_navigation_tuner_call("mark_lz_reached", [int(t.get("tuning_trial_id", 0)), outbound_s])
+		_write_navigation_line("LZ_REACHED craft=%s route=%d outbound=%.1fs t=%.1f" % [craft_name, slot + 1, outbound_s, now])
+	elif phase == 2:
+		# Departed LZ, heading home — start of return leg.
+		t["return_start_s"] = now
+	elif phase == 3:
+		# Back at the carrier — lap complete.
+		var return_s := now - float(t.get("return_start_s", now))
+		var lap_s := now - float(t["outbound_start_s"])
+		_record_navigation_leg(slot, "return", return_s)
+		_record_navigation_lap(slot, lap_s)
+		var lap_result: Variant = _navigation_tuner_call("end_trial", [int(t.get("tuning_trial_id", 0)), "lap"], {})
+		if lap_result is Dictionary:
+			_navigation_capture_tuning_result(slot, lap_result as Dictionary)
+		t["tuning_trial_id"] = 0
+		_write_navigation_line("LAP craft=%s route=%d return=%.1fs lap=%.1fs t=%.1f" % [craft_name, slot + 1, return_s, lap_s, now])
+		# Navigation tuning is not testing deck recovery. If a heli slips past the
+		# near-carrier capture gate and reaches AT_CARRIER, count the lap and remove
+		# it before landing/recovery machinery can block the next launch.
+		t["terminal_reason"] = "lap"
+		_navigation_tracked.erase(id)
+		ac.queue_free()
+		return
+	elif prev == 3 and phase == 0:
+		# Some recovered aircraft remain instantiated and launch again. Give the new
+		# lap a fresh candidate only when it actually departs.
+		var assignment := _navigation_begin_tuning_trial(ac, pilot, slot)
+		t["tuning_trial_id"] = int(assignment.get("trial_id", 0))
+		t["tuning_candidate"] = int(assignment.get("candidate", -1))
+		t["tuning_sample_accum_s"] = 0.0
+		t["outbound_start_s"] = now
+	t["phase"] = phase
+	t["leg_start_s"] = now
+	t["progress_best_distance_m"] = INF
+	t["progress_last_s"] = now
+
+
+func _navigation_update_progress_watchdog(
+		id: int,
+		ac: RigidBody3D,
+		pilot: Node,
+		now: float
+) -> bool:
+	if not _navigation_tracked.has(id):
+		return false
+	var tracked: Dictionary = _navigation_tracked[id]
+	var phase := int(tracked.get("phase", -1))
+	if phase != 0 and phase != 2:
+		tracked["progress_best_distance_m"] = INF
+		tracked["progress_last_s"] = now
+		return false
+	var destination_variant: Variant = pilot.get("destination")
+	if not (destination_variant is Vector3):
+		return false
+	var destination := destination_variant as Vector3
+	var distance_m := Vector2(
+		ac.global_position.x - destination.x,
+		ac.global_position.z - destination.z
+	).length()
+	if distance_m <= HELI_NAVIGATION_PROGRESS_GOAL_RADIUS_M:
+		tracked["progress_best_distance_m"] = distance_m
+		tracked["progress_last_s"] = now
+		return false
+	var best_distance := float(tracked.get("progress_best_distance_m", INF))
+	if not is_finite(best_distance) \
+			or distance_m <= best_distance - HELI_NAVIGATION_PROGRESS_EPSILON_M:
+		tracked["progress_best_distance_m"] = distance_m
+		tracked["progress_last_s"] = now
+		return false
+	if now - float(tracked.get("progress_last_s", now)) < HELI_NAVIGATION_NO_PROGRESS_TIMEOUT_S:
+		return false
+
+	var trial_id := int(tracked.get("tuning_trial_id", 0))
+	if trial_id > 0:
+		var result: Variant = _navigation_tuner_call("end_trial", [trial_id, "stuck"], {})
+		if result is Dictionary:
+			_navigation_capture_tuning_result(int(tracked.get("slot", -1)), result as Dictionary)
+	tracked["tuning_trial_id"] = 0
+	tracked["terminal_reason"] = "stuck"
+	_write_navigation_line("STUCK craft=%s route=%d phase=%d dist=%.0fm best=%.0fm idle=%.0fs t=%.1f" % [
+		ac.name,
+		int(tracked.get("slot", -1)) + 1,
+		phase,
+		distance_m,
+		best_distance,
+		now - float(tracked.get("progress_last_s", now)),
+		now,
+	])
+	_navigation_tracked.erase(id)
+	ac.queue_free()
+	return true
+
+
+func _navigation_complete_return_near_carrier(id: int, ac: RigidBody3D, now: float) -> bool:
+	if not _navigation_tracked.has(id):
+		return false
+	var tracked: Dictionary = _navigation_tracked[id]
+	if int(tracked.get("phase", -1)) != 2:
+		return false
+	var carrier_node := get_parent() as Node3D
+	var carrier_pos := _heli_navigation_center
+	if is_instance_valid(carrier_node):
+		carrier_pos = carrier_node.global_position
+	var carrier_dist := Vector2(
+		ac.global_position.x - carrier_pos.x,
+		ac.global_position.z - carrier_pos.z
+	).length()
+	if carrier_dist > maxf(HELI_NAVIGATION_RETURN_CAPTURE_RADIUS_M, 1.0):
+		return false
+
+	var slot := int(tracked.get("slot", -1))
+	var return_s := now - float(tracked.get("return_start_s", tracked.get("leg_start_s", now)))
+	var lap_s := now - float(tracked.get("outbound_start_s", now))
+	_record_navigation_leg(slot, "return", return_s)
+	_record_navigation_lap(slot, lap_s)
+	var trial_id := int(tracked.get("tuning_trial_id", 0))
+	if trial_id > 0:
+		var lap_result: Variant = _navigation_tuner_call("end_trial", [trial_id, "lap"], {})
+		if lap_result is Dictionary:
+			_navigation_capture_tuning_result(slot, lap_result as Dictionary)
+	tracked["tuning_trial_id"] = 0
+	tracked["terminal_reason"] = "lap_capture"
+	_write_navigation_line("LAP_CAPTURE craft=%s route=%d return=%.1fs lap=%.1fs carrier_dist=%.0fm t=%.1f" % [
+		ac.name,
+		slot + 1,
+		return_s,
+		lap_s,
+		carrier_dist,
+		now,
+	])
+	_navigation_tracked.erase(id)
+	ac.queue_free()
+	return true
+
+
+func _navigation_on_lost(id: int, now: float) -> void:
+	var t: Dictionary = _navigation_tracked.get(id, {})
+	_navigation_tracked.erase(id)
+	if t.is_empty():
+		return
+	var slot := int(t.get("slot", -1))
+	if String(t.get("terminal_reason", "")) == "stuck":
+		return
+	# Lost while AT_CARRIER (phase 3) is a clean recovery/replacement, not a crash.
+	if int(t.get("phase", 0)) == 3:
+		return
+	if slot >= 0 and slot < _navigation_route_stats.size():
+		_navigation_route_stats[slot]["crashes"] = int(_navigation_route_stats[slot]["crashes"]) + 1
+	var tuning_trial_id := int(t.get("tuning_trial_id", 0))
+	if tuning_trial_id > 0:
+		var crash_result: Variant = _navigation_tuner_call("end_trial", [tuning_trial_id, "crash"], {})
+		if crash_result is Dictionary:
+			_navigation_capture_tuning_result(slot, crash_result as Dictionary)
+	_write_navigation_line("CRASH craft=%s route=%d phase=%d t=%.1f" % [str(t.get("name", "?")), slot + 1, int(t.get("phase", 0)), now])
+
+
+func _navigation_begin_tuning_trial(ac: RigidBody3D, pilot: Node, slot: int) -> Dictionary:
+	var result: Variant = _navigation_tuner_call("begin_trial", [pilot.get_instance_id(), ac.name, slot])
+	if not (result is Dictionary):
+		return {}
+	var assignment := result as Dictionary
+	var assigned_slot := int(assignment.get("route_slot", slot))
+	if assigned_slot >= 0 and assigned_slot < _heli_navigation_lzs.size():
+		ac.set_meta(HELI_NAVIGATION_ROUTE_SLOT_META, assigned_slot)
+		ac.set_meta(HELI_NAVIGATION_FIXED_LZ_META, _heli_navigation_lzs[assigned_slot])
+		if assigned_slot != slot:
+			_write_navigation_line("TUNING_REASSIGN craft=%s requested_route=%d assigned_route=%d" % [
+				ac.name, slot + 1, assigned_slot + 1
+			])
+	var genome_variant: Variant = assignment.get("genome", {})
+	if genome_variant is Dictionary and pilot.has_method("apply_navigation_tuning_genome"):
+		pilot.call("apply_navigation_tuning_genome", genome_variant as Dictionary)
+	return assignment
+
+
+func _navigation_record_tuning_sample(
+		id: int,
+		ac: RigidBody3D,
+		pilot: Node,
+		delta: float
+) -> void:
+	if not _navigation_tracked.has(id):
+		return
+	var tracked: Dictionary = _navigation_tracked[id]
+	var trial_id := int(tracked.get("tuning_trial_id", 0))
+	if trial_id <= 0:
+		return
+	var accumulator := float(tracked.get("tuning_sample_accum_s", 0.0)) + delta
+	if accumulator < 0.25:
+		tracked["tuning_sample_accum_s"] = accumulator
+		return
+	tracked["tuning_sample_accum_s"] = 0.0
+	if pilot.has_method("get_navigation_tuning_sample"):
+		var sample_variant: Variant = pilot.call("get_navigation_tuning_sample")
+		if sample_variant is Dictionary:
+			_navigation_tuner_call("record_sample", [trial_id, sample_variant as Dictionary, accumulator])
+	var timed_out := bool(_navigation_tuner_call("is_trial_timed_out", [trial_id], false))
+	if timed_out:
+		var timeout_result: Variant = _navigation_tuner_call("end_trial", [trial_id, "timeout"], {})
+		if timeout_result is Dictionary:
+			_navigation_capture_tuning_result(int(tracked.get("slot", -1)), timeout_result as Dictionary)
+		tracked["tuning_trial_id"] = 0
+		_write_navigation_line("TUNING_TIMEOUT craft=%s route=%d trial=%d" % [ac.name, int(tracked.get("slot", -1)) + 1, trial_id])
+		ac.queue_free()
+
+
+func _navigation_tuner_call(method: StringName, args: Array = [], fallback: Variant = null) -> Variant:
+	var tuner := get_node_or_null("/root/HelicopterNavigationTuner")
+	if tuner == null or not tuner.has_method(method):
+		return fallback
+	return tuner.callv(method, args)
+
+
+func _navigation_capture_tuning_result(slot: int, result: Dictionary) -> void:
+	if slot < 0 or slot >= _navigation_route_stats.size() or result.is_empty():
+		return
+	var stats: Dictionary = _navigation_route_stats[slot]
+	stats["close_calls"] = int(stats.get("close_calls", 0)) + int(result.get("close_calls", 0))
+	var fitness := float(result.get("fitness", 0.0))
+	stats["last_fitness"] = fitness
+	stats["best_fitness"] = maxf(float(stats.get("best_fitness", -INF)), fitness)
+
+
+func _record_navigation_leg(slot: int, leg: String, seconds: float) -> void:
+	if slot < 0 or slot >= _navigation_route_stats.size():
+		return
+	var s: Dictionary = _navigation_route_stats[slot]
+	s["%s_sum_s" % leg] = float(s["%s_sum_s" % leg]) + seconds
+	s["%s_n" % leg] = int(s["%s_n" % leg]) + 1
+
+
+func _record_navigation_lap(slot: int, lap_s: float) -> void:
+	if slot < 0 or slot >= _navigation_route_stats.size():
+		return
+	var s: Dictionary = _navigation_route_stats[slot]
+	s["laps"] = int(s["laps"]) + 1
+	s["lap_sum_s"] = float(s["lap_sum_s"]) + lap_s
+	s["lap_n"] = int(s["lap_n"]) + 1
+	s["best_lap_s"] = minf(float(s["best_lap_s"]), lap_s)
+
+
+func _start_navigation_report() -> void:
+	_navigation_report_started = true
+	_navigation_tracked.clear()
+	_ensure_navigation_route_stats()
+	var header := "HELI NAVIGATION REPORT START t=%.1f routes=%d center=%s\n" % [
+		_navigation_report_now_s(), HELI_NAVIGATION_ROUTE_COUNT, str(_heli_navigation_center.snapped(Vector3.ONE))]
+	for slot in range(_heli_navigation_lzs.size()):
+		var lz: Vector3 = _heli_navigation_lzs[slot]
+		header += "SETUP route=%d carrier=%s LZ=%s distance=%.0fm terrain_delta_y=%.0fm\n" % [
+			slot + 1,
+			str(_heli_navigation_center.snapped(Vector3.ONE)),
+			str(lz.snapped(Vector3.ONE)),
+			Vector2(lz.x - _heli_navigation_center.x, lz.z - _heli_navigation_center.z).length(),
+			lz.y - _heli_navigation_center.y,
+		]
+	var f := FileAccess.open(HELI_NAVIGATION_REPORT_PATH, FileAccess.WRITE)
+	if f != null:
+		f.store_string(header)
+		f.close()
+
+
+func _write_navigation_line(line: String) -> void:
+	var f := FileAccess.open(HELI_NAVIGATION_REPORT_PATH, FileAccess.READ_WRITE)
+	if f == null:
+		f = FileAccess.open(HELI_NAVIGATION_REPORT_PATH, FileAccess.WRITE)
+	if f == null:
+		return
+	f.seek_end()
+	f.store_string("t=%.1f %s\n" % [_navigation_report_now_s(), line])
+	f.close()
+
+
+func _write_navigation_summary(now: float) -> void:
+	var total_laps := 0
+	var total_crashes := 0
+	var lines: PackedStringArray = PackedStringArray()
+	lines.append("==== SUMMARY t=%.1f ====" % now)
+	for slot in range(_navigation_route_stats.size()):
+		var s: Dictionary = _navigation_route_stats[slot]
+		var laps := int(s["laps"])
+		var crashes := int(s["crashes"])
+		total_laps += laps
+		total_crashes += crashes
+		var avg_out := (float(s["outbound_sum_s"]) / float(s["outbound_n"])) if int(s["outbound_n"]) > 0 else 0.0
+		var avg_ret := (float(s["return_sum_s"]) / float(s["return_n"])) if int(s["return_n"]) > 0 else 0.0
+		var avg_lap := (float(s["lap_sum_s"]) / float(s["lap_n"])) if int(s["lap_n"]) > 0 else 0.0
+		var best := float(s["best_lap_s"])
+		var best_text := "%.1f" % best if is_finite(best) else "-"
+		lines.append("route=%d laps=%d crashes=%d avg_out=%.1fs avg_ret=%.1fs avg_lap=%.1fs best_lap=%s" % [
+			slot + 1, laps, crashes, avg_out, avg_ret, avg_lap, best_text])
+	lines.append("TOTAL laps=%d crashes=%d" % [total_laps, total_crashes])
+	var tuner_status_variant: Variant = _navigation_tuner_call("get_status", [], {})
+	if tuner_status_variant is Dictionary:
+		var tuner_status := tuner_status_variant as Dictionary
+		var route_rounds_parts := PackedStringArray()
+		var route_rounds_variant: Variant = tuner_status.get("route_rounds", [])
+		if route_rounds_variant is Array:
+			for round_variant in route_rounds_variant:
+				route_rounds_parts.append(str(int(round_variant)))
+		var route_rounds_text := ",".join(route_rounds_parts)
+		lines.append("TUNER gen=%d results=%d/%d pending=%d active=%d remaining=%d next_trial=%d rounds=[%s]" % [
+			int(tuner_status.get("generation", 0)),
+			int(tuner_status.get("scored_results", 0)),
+			int(tuner_status.get("required_results", 0)),
+			int(tuner_status.get("pending_scored_trials", 0)),
+			int(tuner_status.get("active_trials", 0)),
+			int(tuner_status.get("remaining_results", 0)),
+			int(tuner_status.get("next_trial_id", 0)),
+			route_rounds_text,
+		])
+	for line in lines:
+		_write_navigation_line(line)
+
+
+func _queue_heli_navigation_test_aircraft(slot: int) -> bool:
+	if slot < 0 or slot >= _heli_navigation_lzs.size():
+		return false
+	var scene: PackedScene = aircraft_11_scene
+	if scene == null:
+		scene = load("res://Aircraft/Aircraft_11.tscn") as PackedScene
+	if scene == null:
+		push_warning("[TestScenario] Aircraft_11.tscn not found for navigation range")
+		return false
+	var entry := _make_stored_aircraft_entry_unassigned("Aircraft_11_nav_r%d" % (slot + 1), scene)
+	var metadata: Dictionary = entry.get("metadata", {})
+	metadata[HELI_TEST_TYPE_META] = "Aircraft_11"
+	metadata[HELI_NAVIGATION_TEST_META] = true
+	metadata[HELI_NAVIGATION_ROUTE_SLOT_META] = slot
+	metadata[HELI_NAVIGATION_FIXED_LZ_META] = _heli_navigation_lzs[slot]
+	metadata["pilot_livery_colors"] = {
+		"main_color": Color.from_hsv(float(slot) / float(HELI_NAVIGATION_ROUTE_COUNT), 0.55, 0.65),
+		"main_color_dark": Color(0.06, 0.08, 0.11),
+		"helmet_color_1": Color(0.80, 0.80, 0.72),
+		"helmet_color_2": Color(0.18, 0.23, 0.28),
+	}
+	entry["metadata"] = metadata
+	if not _ensure_pilot_assigned_for_data(entry):
+		push_warning("[TestScenario] Could not allocate reusable test pilot for route %d" % (slot + 1))
+		return false
+	stored_aircraft.append(entry)
+	_log_heli_test("hangar queued Aircraft_11 route=%d LZ=%s" % [
+		slot + 1,
+		str(_heli_navigation_lzs[slot].snapped(Vector3.ONE)),
+	])
+	return true
+
+
+func _clear_navigation_test_world_clutter() -> void:
+	var cleaned := 0
+	var seen: Dictionary = {}
+	for group_name in ["buildings", "enemy_bases", "gun_emplacements", "ground_vehicles"]:
+		for node in get_tree().get_nodes_in_group(group_name):
+			if not is_instance_valid(node) or node == get_parent():
+				continue
+			var instance_id := node.get_instance_id()
+			if seen.has(instance_id):
+				continue
+			seen[instance_id] = true
+			node.queue_free()
+			cleaned += 1
+	if cleaned > 0:
+		_log_heli_test("navigation clutter removed=%d" % cleaned)
+
+
+func _reset_heli_test_stats() -> void:
+	_heli_test_start_time_msec = Time.get_ticks_msec()
+	_heli_ui_update_accum_s = 0.0
+	for key in _heli_test_stats.keys():
+		_heli_test_stats[key] = {"spawned": 0, "lz": 0, "carrier": 0, "crash": 0}
+
+
+func _ensure_physical_test_ui() -> void:
+	if is_instance_valid(_heli_ui_canvas):
+		_heli_ui_canvas.layer = HELI_TEST_UI_LAYER
+		if is_instance_valid(_heli_ui_bg):
+			_heli_ui_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		if is_instance_valid(_heli_ui_label):
+			_heli_ui_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		return
+	_heli_ui_canvas = CanvasLayer.new()
+	_heli_ui_canvas.layer = HELI_TEST_UI_LAYER
+	var bg := ColorRect.new()
+	bg.color = Color(0, 0, 0, 0.82)
+	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	bg.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	bg.offset_left = -1460.0
+	bg.offset_top = 20.0
+	bg.offset_right = -20.0
+	bg.offset_bottom = 740.0
+	_heli_ui_canvas.add_child(bg)
+	_heli_ui_bg = bg
+	_heli_ui_label = Label.new()
+	_heli_ui_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_heli_ui_label.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_heli_ui_label.offset_left = 18.0
+	_heli_ui_label.offset_top = 18.0
+	_heli_ui_label.offset_right = -18.0
+	_heli_ui_label.offset_bottom = -18.0
+	var ui_font := SystemFont.new()
+	ui_font.font_names = PackedStringArray(["Consolas", "Courier New"])
+	_heli_ui_label.add_theme_font_override("font", ui_font)
+	_heli_ui_label.add_theme_font_size_override("font_size", 20)
+	bg.add_child(_heli_ui_label)
+	add_child(_heli_ui_canvas)
+
+
+func _update_physical_test_ui() -> void:
+	if not is_instance_valid(_heli_ui_label):
+		return
+	var elapsed_s := maxi((Time.get_ticks_msec() - _heli_test_start_time_msec) / 1000, 0)
+	var title := "HELICOPTER AIMING RANGE" if _heli_test_active else "HELICOPTER NAVIGATION LOOP"
+	var subtitle := "8 aircraft / 8 unlimited-health targets" if _heli_test_active \
+			else "%d fixed terrain routes / crash replacement enabled" % HELI_NAVIGATION_ROUTE_COUNT
+	var text := "%s\n%s\nRuntime: %02d:%02d:%02d  |  F11 next / Shift+F11 previous\n\n" % [
+		title, subtitle, elapsed_s / 3600, (elapsed_s / 60) % 60, elapsed_s % 60,
+	]
+	if _heli_navigation_test_active:
+		text += _get_navigation_scoreboard_text()
+		_heli_ui_label.text = text
+		return
+	text += "%-12s | %-7s | %-2s | %-7s | %-5s\n" % ["AIRCRAFT", "SPAWNED", "LZ", "CARRIER", "CRASH"]
+	text += "------------------------------------------------\n"
+	for key in ["Aircraft_9", "Aircraft_10", "Aircraft_11"]:
+		var st: Dictionary = _heli_test_stats[key]
+		text += "%-12s | %7d | %2d | %7d | %5d\n" % [key, st["spawned"], st["lz"], st["carrier"], st["crash"]]
+	_heli_ui_label.text = text
+
+
+func _get_navigation_tuner_ui_text() -> String:
+	var tuner_status_variant: Variant = _navigation_tuner_call("get_status", [], {})
+	if not (tuner_status_variant is Dictionary):
+		return "TUNER unavailable\n\n"
+	var tuner_status := tuner_status_variant as Dictionary
+	var route_rounds_parts := PackedStringArray()
+	var route_rounds_variant: Variant = tuner_status.get("route_rounds", [])
+	if route_rounds_variant is Array:
+		for round_variant in route_rounds_variant:
+			route_rounds_parts.append(str(int(round_variant)))
+	var route_rounds_text := ",".join(route_rounds_parts)
+	var best_trial_text := _format_navigation_best_trial_text(tuner_status.get("generation_best_trial", {}))
+	var champion_text := _format_navigation_champion_text(tuner_status.get("all_time_best", {}))
+	var required := int(tuner_status.get("required_results", 0))
+	var scored := int(tuner_status.get("scored_results", 0))
+	var percent := 0.0
+	if required > 0:
+		percent = float(scored) * 100.0 / float(required)
+	return "TUNER gen=%d  trials=%d/%d (%3.0f%%)  pending=%d  active=%d  remaining=%d  next=T%d\nrounds=[%s]\nBEST TRIAL %s\nCHAMPION   %s\n\n" % [
+		int(tuner_status.get("generation", 0)),
+		scored,
+		required,
+		percent,
+		int(tuner_status.get("pending_scored_trials", 0)),
+		int(tuner_status.get("active_trials", 0)),
+		int(tuner_status.get("remaining_results", 0)),
+		int(tuner_status.get("next_trial_id", 0)),
+		route_rounds_text,
+		best_trial_text,
+		champion_text,
+	]
+
+
+func _format_navigation_best_trial_text(summary_variant: Variant) -> String:
+	if not (summary_variant is Dictionary):
+		return "-"
+	var summary := summary_variant as Dictionary
+	if summary.is_empty():
+		return "-"
+	var candidate := int(summary.get("candidate", -1))
+	var candidate_text := "C%d" % (candidate + 1) if candidate >= 0 else "C?"
+	var route := int(summary.get("route", 0))
+	var route_text := "R%d" % route if route > 0 else "R?"
+	var exit_text := "lap" if bool(summary.get("lap_completed", false)) else String(summary.get("exit_reason", "?"))
+	return "%s %s T%d fit=%+.0f xtrk=%.0fm fpv=%.1f/%.1fdeg slalom=%d close=%d nopth=%.0fs %s" % [
+		candidate_text,
+		route_text,
+		int(summary.get("trial_id", 0)),
+		float(summary.get("fitness", 0.0)),
+		float(summary.get("mean_path_cross_track_m", 0.0)),
+		float(summary.get("mean_path_fpv_error_deg", 0.0)),
+		float(summary.get("mean_path_fpv_vertical_error_deg", 0.0)),
+		int(summary.get("path_slalom_crossings", 0)),
+		int(summary.get("close_calls", 0)),
+		float(summary.get("no_path_time_s", 0.0)),
+		exit_text,
+	]
+
+
+func _format_navigation_champion_text(summary_variant: Variant) -> String:
+	if not (summary_variant is Dictionary):
+		return "-"
+	var summary := summary_variant as Dictionary
+	if summary.is_empty():
+		return "-"
+	var candidate := int(summary.get("candidate", -1))
+	var candidate_text := "C%d" % (candidate + 1) if candidate >= 0 else "C?"
+	return "%s fit=%+.0f trials=%d laps=%d lz=%d crash=%d xtrk=%.0fm hdg=%.1fdeg slalom=%.1f" % [
+		candidate_text,
+		float(summary.get("fitness", 0.0)),
+		int(summary.get("trials", 0)),
+		int(summary.get("laps", 0)),
+		int(summary.get("lz_reached", 0)),
+		int(summary.get("crashes", 0)),
+		float(summary.get("mean_path_cross_track_m", 0.0)),
+		float(summary.get("mean_path_heading_error_deg", 0.0)),
+		float(summary.get("mean_path_slalom_crossings", 0.0)),
+	]
+
+
+func _get_navigation_scoreboard_text() -> String:
+	_ensure_navigation_route_stats()
+	var tracked_by_slot: Dictionary = {}
+	for tracked_variant in _navigation_tracked.values():
+		if not (tracked_variant is Dictionary):
+			continue
+		var tracked := tracked_variant as Dictionary
+		var slot := int(tracked.get("slot", -1))
+		if slot >= 0 and slot < HELI_NAVIGATION_ROUTE_COUNT:
+			tracked_by_slot[slot] = tracked
+	var text := _get_navigation_tuner_ui_text()
+	text += "%-4s %-5s %-7s %6s %4s %5s %9s %9s %6s %5s %7s\n" % [
+		"HELI", "CAND", "PHASE", "CLOSE", "LZ", "CRASH", "FIT NOW", "BEST", "XTRK", "NOPTH", "MINCLR"]
+	text += "--------------------------------------------------------------------------------------\n"
+	for slot in range(HELI_NAVIGATION_ROUTE_COUNT):
+		var stats: Dictionary = _navigation_route_stats[slot]
+		var tracked: Dictionary = tracked_by_slot.get(slot, {})
+		var trial_id := int(tracked.get("tuning_trial_id", 0))
+		var snapshot: Dictionary = {}
+		if trial_id > 0:
+			var snapshot_variant: Variant = _navigation_tuner_call("get_trial_snapshot", [trial_id], {})
+			if snapshot_variant is Dictionary:
+				snapshot = snapshot_variant as Dictionary
+		var candidate := int(snapshot.get("candidate", tracked.get("tuning_candidate", -1)))
+		var candidate_text := "C%d" % (candidate + 1) if candidate >= 0 else "-"
+		var phase := int(tracked.get("phase", -1))
+		var phase_text := "WAIT"
+		match phase:
+			0: phase_text = "OUT"
+			1: phase_text = "AT LZ"
+			2: phase_text = "IN"
+			3: phase_text = "HOME"
+			4: phase_text = "RESCUE"
+		var close_calls := int(stats.get("close_calls", 0)) + int(snapshot.get("close_calls", 0))
+		var fitness := float(snapshot.get("fitness", stats.get("last_fitness", 0.0)))
+		var best_fitness := float(stats.get("best_fitness", -INF))
+		var best_text := "%+.0f" % best_fitness if is_finite(best_fitness) else "-"
+		var mean_cross_track := float(snapshot.get("mean_path_cross_track_m", 0.0))
+		var no_path_time := float(snapshot.get("no_path_time_s", 0.0))
+		var min_clearance := float(snapshot.get("min_clearance_m", -1.0))
+		var min_clearance_text := "%.0fm" % min_clearance if min_clearance >= 0.0 else "-"
+		text += "H%-3d %-5s %-7s %6d %4d %5d %+9.0f %9s %5.0fm %5.0fs %7s\n" % [
+			slot + 1, candidate_text, phase_text, close_calls,
+			int(stats.get("lz_reached", 0)), int(stats.get("crashes", 0)),
+			fitness, best_text, mean_cross_track, no_path_time, min_clearance_text]
+	text += "\nFIT NOW = live trial score; XTRK = mean route error; NOPTH = unscored no-path time"
+	return text
+
+
 func _toggle_heli_test_mode() -> void:
 	_heli_test_active = not _heli_test_active
 
 	if not _heli_test_active:
 		_log_heli_test("mode OFF")
+		_heli_test_dummy_retry_s = 0.0
+		_set_heli_test_friendly_ops_suspended(false)
 		FrameProfiler.set_enabled(false, "heli test off")
 		for i in range(stored_aircraft.size()):
 			var stored_data: Dictionary = stored_aircraft[i]
@@ -4193,6 +5940,10 @@ func _toggle_heli_test_mode() -> void:
 				var metadata: Dictionary = metadata_variant
 				metadata.erase(HELI_TEST_TYPE_META)
 				metadata.erase(HELI_TEST_UNLIMITED_AMMO_META)
+				metadata.erase(HELI_TEST_COMBAT_MODE_META)
+				metadata.erase(HELI_TEST_FLAT_GROUND_Y_META)
+				metadata.erase(HELI_TEST_ARENA_CENTER_META)
+				metadata.erase(HELI_TEST_ARENA_RADIUS_META)
 				stored_data["metadata"] = metadata
 			stored_aircraft[i] = stored_data
 		# Despawn all live helicopters
@@ -4209,15 +5960,27 @@ func _toggle_heli_test_mode() -> void:
 		if is_instance_valid(_heli_ui_canvas):
 			_heli_ui_canvas.queue_free()
 			_heli_ui_canvas = null
+			_heli_ui_bg = null
 			_heli_ui_label = null
 			
 		# Despawn all dummy turrets
 		for node in get_tree().get_nodes_in_group("dummy_turrets"):
 			if is_instance_valid(node):
 				node.queue_free()
+		if is_instance_valid(_heli_test_arena):
+			_heli_test_arena.queue_free()
+		_heli_test_arena = null
+		var carrier_off := get_parent() as Node3D
+		if is_instance_valid(carrier_off):
+			if _heli_test_has_carrier_original_transform:
+				carrier_off.global_transform = _heli_test_carrier_original_transform
+			if carrier_off.has_method("set_heli_test_stationary"):
+				carrier_off.call("set_heli_test_stationary", false)
+		_heli_test_has_carrier_original_transform = false
 				
 		return
 
+	_active_test_scenario = TestScenario.HELI_AIMING
 	# Disable other test modes
 	if _landing_test_active:
 		_landing_test_active = false
@@ -4226,9 +5989,11 @@ func _toggle_heli_test_mode() -> void:
 				ac.queue_free()
 		_landing_test_aircraft.clear()
 	FrameProfiler.set_enabled(true, "heli test")
+	_set_heli_test_friendly_ops_suspended(true)
 	_disable_enemies_for_heli_test()
 
-	# Despawn all non-helicopter aircraft across all relevant groups
+	# Start from a clean population. The range spawns eight standardized test helicopters
+	# directly into the air after the flat arena and target ring are ready.
 	var seen: Array[RigidBody3D] = []
 	for group in ["aircraft", "ai_aircraft", "friendlies", "enemies"]:
 		for node in get_tree().get_nodes_in_group(group):
@@ -4238,8 +6003,6 @@ func _toggle_heli_test_mode() -> void:
 			if seen.has(ac):
 				continue
 			seen.append(ac)
-			if _is_helicopter_aircraft(ac):
-				continue
 			if ac == deck_aircraft:
 				deck_aircraft = null
 			ac.queue_free()
@@ -4281,30 +6044,118 @@ func _toggle_heli_test_mode() -> void:
 	if dnc and "freeze_daytime" in dnc:
 		dnc.set("freeze_daytime", true)
 
-	_heli_test_timer = 5.0  # Allow carrier to initialize, teleport, and shift first
+	_heli_test_timer = HELI_TEST_INTERVAL_S
 	_heli_test_spawn_index = 0
+	_heli_test_dummy_retry_s = 0.0
 
-	_heli_test_start_time_msec = Time.get_ticks_msec()
-	for key in _heli_test_stats.keys():
-		_heli_test_stats[key] = {"spawned": 0, "lz": 0, "carrier": 0, "crash": 0}
+	_reset_heli_test_stats()
+	_ensure_physical_test_ui()
+	_setup_heli_test_range()
+	_ensure_dummy_turrets_for_test()
+	call_deferred("_fill_heli_test_population")
 
-	_heli_ui_canvas = CanvasLayer.new()
-	_heli_ui_canvas.layer = 100
-	var bg := ColorRect.new()
-	bg.color = Color(0, 0, 0, 0.7)
-	bg.set_anchors_preset(Control.PRESET_TOP_LEFT)
-	bg.offset_left = 20.0
-	bg.offset_top = 20.0
-	bg.offset_right = 450.0
-	bg.offset_bottom = 150.0
-	_heli_ui_canvas.add_child(bg)
-	_heli_ui_label = Label.new()
-	_heli_ui_label.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_heli_ui_label.offset_left = 10.0
-	_heli_ui_label.offset_top = 10.0
-	_heli_ui_label.add_theme_font_override("font", ThemeDB.fallback_font)
-	bg.add_child(_heli_ui_label)
-	add_child(_heli_ui_canvas)
+
+func _setup_heli_test_range() -> void:
+	if not _heli_test_active or is_instance_valid(_heli_test_arena):
+		return
+	var scene_root := get_tree().current_scene
+	var carrier_node := get_parent() as Node3D
+	if scene_root == null or carrier_node == null:
+		push_warning("[HeliTest] Cannot create flat range without scene root and carrier")
+		return
+
+	_heli_test_carrier_original_transform = carrier_node.global_transform
+	_heli_test_has_carrier_original_transform = true
+	if carrier_node.has_method("set_heli_test_stationary"):
+		carrier_node.call("set_heli_test_stationary", true)
+	_heli_test_arena_center = Vector3(
+		carrier_node.global_position.x,
+		HELI_TEST_ARENA_SURFACE_Y,
+		carrier_node.global_position.z
+	)
+	carrier_node.global_position = Vector3(
+		_heli_test_arena_center.x,
+		HELI_TEST_ARENA_SURFACE_Y + 40.0,
+		_heli_test_arena_center.z
+	)
+	carrier_node.rotation = Vector3(0.0, carrier_node.rotation.y, 0.0)
+
+	var arena_body := StaticBody3D.new()
+	arena_body.name = "HeliTestFlatArena"
+	arena_body.collision_layer = 1
+	arena_body.collision_mask = 1
+	scene_root.add_child(arena_body)
+	arena_body.global_position = _heli_test_arena_center - Vector3.UP
+
+	var box := BoxShape3D.new()
+	box.size = Vector3(HELI_TEST_ARENA_SIZE_M, 2.0, HELI_TEST_ARENA_SIZE_M)
+	var collider := CollisionShape3D.new()
+	collider.name = "CollisionShape3D"
+	collider.shape = box
+	arena_body.add_child(collider)
+
+	var mesh_box := BoxMesh.new()
+	mesh_box.size = box.size
+	var material := ShaderMaterial.new()
+	var range_shader := Shader.new()
+	range_shader.code = """
+shader_type spatial;
+render_mode unshaded, cull_disabled;
+
+varying vec3 world_position;
+
+void vertex() {
+	world_position = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+}
+
+void fragment() {
+	vec2 cell = floor(world_position.xz / 100.0);
+	float checker = mod(cell.x + cell.y, 2.0);
+	vec3 dark_green = vec3(0.055, 0.12, 0.075);
+	vec3 light_green = vec3(0.20, 0.34, 0.20);
+	vec3 base = mix(dark_green, light_green, checker);
+
+	vec2 edge = abs(fract(world_position.xz / 100.0) - vec2(0.5));
+	float minor_line = smoothstep(0.46, 0.495, max(edge.x, edge.y));
+	vec2 major_edge = abs(fract(world_position.xz / 500.0) - vec2(0.5));
+	float major_line = smoothstep(0.485, 0.499, max(major_edge.x, major_edge.y));
+	ALBEDO = mix(base, vec3(0.65, 0.82, 0.42), minor_line * 0.55);
+	ALBEDO = mix(ALBEDO, vec3(0.95, 0.80, 0.20), major_line);
+	ROUGHNESS = 1.0;
+}
+"""
+	material.shader = range_shader
+	mesh_box.material = material
+	var mesh := MeshInstance3D.new()
+	mesh.name = "RangeSurface"
+	mesh.mesh = mesh_box
+	arena_body.add_child(mesh)
+
+	_heli_test_arena = arena_body
+	_log_heli_test("flat range ready center=%s surface_y=%.0f size=%.0fm" % [
+		str(_heli_test_arena_center.snapped(Vector3.ONE)),
+		HELI_TEST_ARENA_SURFACE_Y,
+		HELI_TEST_ARENA_SIZE_M,
+	])
+
+
+func _get_heli_test_dummy_count() -> int:
+	var count := 0
+	for node in get_tree().get_nodes_in_group("dummy_turrets"):
+		if is_instance_valid(node) and not node.is_queued_for_deletion():
+			count += 1
+	return count
+
+
+func _ensure_dummy_turrets_for_test() -> void:
+	if not _heli_test_active:
+		return
+	if not is_instance_valid(_heli_test_arena):
+		_setup_heli_test_range()
+	if not is_instance_valid(_heli_test_arena):
+		return
+	if _get_heli_test_dummy_count() >= HELI_TEST_DUMMY_COUNT:
+		return
 	_spawn_dummy_turrets_for_test()
 
 
@@ -4314,42 +6165,45 @@ func _spawn_dummy_turrets_for_test() -> void:
 		push_error("[HeliTest] Failed to load dummy gun emplacement scene.")
 		return
 
-	var rng := RandomNumberGenerator.new()
-	rng.randomize()
-
 	var scene_root := get_tree().current_scene
 	if not scene_root:
 		return
 
-	var target_count := 80
+	var existing_count := _get_heli_test_dummy_count()
+	var target_count := HELI_TEST_DUMMY_COUNT
 	var spawned := 0
-	var attempts := 0
-	var max_attempts := 1000
 
-	while spawned < target_count and attempts < max_attempts:
-		attempts += 1
-		var pos := TerrainNavGrid.get_random_passable_position(rng, 15.0)
-		if pos == Vector3.ZERO:
-			continue
+	while existing_count + spawned < target_count:
+		var ring_index := existing_count + spawned
+		var angle := TAU * float(ring_index) / float(maxi(target_count, 1))
+		var radial := Vector3(cos(angle), 0.0, sin(angle))
+		var pos := _heli_test_arena_center + radial * HELI_TEST_TARGET_RING_RADIUS_M
+		pos.y = HELI_TEST_ARENA_SURFACE_Y
 
 		var dummy := dummy_scene.instantiate() as Node3D
 		if not dummy:
 			continue
 
-		dummy.name = "DummyTurret_HeliTest_%d" % spawned
+		var name_index := existing_count + spawned
+		var dummy_name := "DummyTurret_HeliTest_%d" % name_index
+		while scene_root.get_node_or_null(NodePath(dummy_name)) != null:
+			name_index += 1
+			dummy_name = "DummyTurret_HeliTest_%d" % name_index
+		dummy.name = dummy_name
 		dummy.add_to_group("dummy_turrets")
+		dummy.set_meta("heli_test_range_target", true)
+		if "max_health" in dummy:
+			dummy.set("max_health", HELI_TEST_DUMMY_HEALTH)
 
 		scene_root.add_child(dummy)
 		dummy.global_position = pos
-		var yaw := rng.randf_range(-PI, PI)
-		dummy.global_basis = Basis(Vector3.UP, yaw)
-
-		if dummy.has_method("snap_collider_to_ground"):
-			dummy.call_deferred("snap_collider_to_ground")
+		dummy.global_basis = Basis(Vector3.UP, angle + PI)
 
 		spawned += 1
 
-	_log_heli_test("Spawned %d dummy turrets for testing (attempts: %d)" % [spawned, attempts])
+	_log_heli_test("spawned %d unlimited-health ring targets; total=%d/%d radius=%.0fm" % [
+		spawned, existing_count + spawned, target_count, HELI_TEST_TARGET_RING_RADIUS_M,
+	])
 
 
 
@@ -4388,28 +6242,110 @@ func _disable_enemies_for_heli_test() -> void:
 	_log_heli_test("enemies disabled; cleaned %d live enemy nodes" % cleaned)
 
 
+func _set_heli_test_friendly_ops_suspended(suspended: bool) -> void:
+	for manager_path in ["/root/AirOpsManager", "/root/GroundOpsManager"]:
+		var manager := get_node_or_null(manager_path)
+		if manager == null:
+			continue
+		if suspended:
+			if not _heli_test_suspended_manager_modes.has(manager_path):
+				_heli_test_suspended_manager_modes[manager_path] = manager.process_mode
+			manager.process_mode = Node.PROCESS_MODE_DISABLED
+		else:
+			var previous_mode := int(_heli_test_suspended_manager_modes.get(
+				manager_path, Node.PROCESS_MODE_INHERIT
+			))
+			manager.process_mode = previous_mode as Node.ProcessMode
+	if not suspended:
+		_heli_test_suspended_manager_modes.clear()
+	_log_heli_test("friendly air/ground operations %s" % ("suspended" if suspended else "restored"))
+
+
 func _is_enemy_cleanup_node(node: Node) -> bool:
 	return node.is_in_group("enemies") \
 			or node.is_in_group("enemy_bases") \
 			or node.is_in_group("team_2")
 
 
-func _spawn_heli_test_aircraft() -> void:
-	var roster: Array[String] = ["Aircraft_9", "Aircraft_10", "Aircraft_11"]
-	var aircraft_name: String = roster[_heli_test_spawn_index % roster.size()]
-	_heli_test_spawn_index += 1
-	var scene: PackedScene
-	match aircraft_name:
-		"Aircraft_9":  scene = aircraft_9_scene
-		"Aircraft_10": scene = aircraft_10_scene
-		"Aircraft_11": scene = aircraft_11_scene
-	if not scene:
-		scene = load("res://Aircraft/%s.tscn" % aircraft_name)
-	if not scene:
-		push_warning("[HeliTest] %s.tscn not found" % aircraft_name)
+func _get_live_heli_test_aircraft_count() -> int:
+	var count := 0
+	for node in get_tree().get_nodes_in_group("aircraft"):
+		if node is RigidBody3D and is_instance_valid(node) and not node.is_queued_for_deletion() \
+				and bool(node.get_meta(HELI_TEST_COMBAT_MODE_META, false)):
+			count += 1
+	return count
+
+
+func _fill_heli_test_population() -> void:
+	if not _heli_test_active or not is_instance_valid(_heli_test_arena):
 		return
-	_queue_aircraft_scene_for_retrieval(aircraft_name, scene)
-	_log_heli_test("queued %s retrieval" % aircraft_name)
+	var live_count := _get_live_heli_test_aircraft_count()
+	while live_count < HELI_TEST_MAX_COUNT:
+		if not _spawn_heli_test_aircraft():
+			break
+		live_count += 1
+	_log_heli_test("combat population=%d/%d" % [live_count, HELI_TEST_MAX_COUNT])
+
+
+func _spawn_heli_test_aircraft() -> bool:
+	var scene: PackedScene = aircraft_10_scene
+	if not scene:
+		scene = load("res://Aircraft/Aircraft_10.tscn")
+	if not scene:
+		push_warning("[HeliTest] Aircraft_10.tscn not found")
+		return false
+	var scene_root := get_tree().current_scene
+	if scene_root == null:
+		return false
+
+	var slot := _heli_test_spawn_index % HELI_TEST_MAX_COUNT
+	var angle := TAU * float(slot) / float(HELI_TEST_MAX_COUNT)
+	var radial := Vector3(cos(angle), 0.0, sin(angle))
+	var spawn_pos := _heli_test_arena_center + radial * HELI_TEST_HELICOPTER_RING_RADIUS_M
+	spawn_pos.y = HELI_TEST_ARENA_SURFACE_Y + HELI_TEST_HELICOPTER_AGL_M
+
+	var aircraft := scene.instantiate() as RigidBody3D
+	if not is_instance_valid(aircraft):
+		return false
+	_heli_test_spawn_index += 1
+	aircraft.name = "Aircraft_10_%d" % _heli_test_spawn_index
+	aircraft.set_meta(HELI_TEST_TYPE_META, "Aircraft_10")
+	aircraft.set_meta(HELI_TEST_UNLIMITED_AMMO_META, true)
+	aircraft.set_meta(HELI_TEST_COMBAT_MODE_META, true)
+	aircraft.set_meta(HELI_TEST_FLAT_GROUND_Y_META, HELI_TEST_ARENA_SURFACE_Y)
+	aircraft.set_meta(HELI_TEST_ARENA_CENTER_META, _heli_test_arena_center)
+	aircraft.set_meta(HELI_TEST_ARENA_RADIUS_META, HELI_TEST_ARENA_SIZE_M * 0.5)
+	# Livery normally receives this metadata from the carrier retrieval path. Direct
+	# test spawning bypasses that path, so provide a complete deterministic palette.
+	aircraft.set_meta("pilot_livery_colors", {
+		"main_color": Color(0.18, 0.24, 0.30),
+		"main_color_dark": Color(0.06, 0.08, 0.11),
+		"helmet_color_1": Color(0.80, 0.80, 0.72),
+		"helmet_color_2": Color(0.18, 0.23, 0.28),
+	})
+	aircraft.transform = Transform3D(Basis.looking_at(-radial, Vector3.UP), spawn_pos)
+	aircraft.linear_velocity = radial * 8.0
+	aircraft.angular_velocity = Vector3.ZERO
+	scene_root.add_child(aircraft)
+	aircraft.global_transform = Transform3D(Basis.looking_at(-radial, Vector3.UP), spawn_pos)
+	aircraft.freeze = false
+	aircraft.sleeping = false
+
+	var ai_toggle := aircraft.find_child("AIToggle", true, false)
+	if ai_toggle != null and ai_toggle.has_method("enable_ai"):
+		ai_toggle.call("enable_ai")
+	var pilot := aircraft.find_child("HelicopterPilot", true, false)
+	if pilot != null:
+		pilot.set("combat_tuning_enabled", true)
+	if pilot != null and pilot.has_method("set_combat_hunt_mode"):
+		pilot.call("set_combat_hunt_mode", true)
+	record_heli_stat(aircraft, "spawned")
+	_log_heli_test("spawned %s slot=%d pos=%s" % [
+		aircraft.name,
+		slot,
+		str(spawn_pos.snapped(Vector3.ONE)),
+	])
+	return true
 
 
 func _log_heli_test(message: String) -> void:

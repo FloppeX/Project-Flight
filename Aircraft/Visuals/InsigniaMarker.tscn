@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://dtt1kql6leel1"]
+
+[ext_resource type="Script" path="res://Aircraft/Visuals/InsigniaMarker.gd" id="1_insmark"]
+
+[node name="InsigniaMarker" type="Node3D"]
+script = ExtResource("1_insmark")

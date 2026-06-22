@@ -293,7 +293,7 @@ func animate_cube_rotation(cube: MeshInstance3D, rotation_speed: Vector3, durati
 	
 	rotation_tween.tween_property(cube, "rotation", target_rotation, duration)
 
-func set_cube_intensity(cube: MeshInstance3D, intensity: float):
+func set_cube_intensity(intensity: float, cube: MeshInstance3D):
 	if cube and cube.material_override:
 		var material = cube.material_override as StandardMaterial3D
 		material.emission_energy = intensity
@@ -502,7 +502,7 @@ func create_blast_wave():
 	# Clean up
 	blast_tween.tween_callback(blast_ring.queue_free)
 
-func set_blast_wave_alpha(blast_ring: MeshInstance3D, alpha: float):
+func set_blast_wave_alpha(alpha: float, blast_ring: MeshInstance3D):
 	"""Helper function to fade the blast wave"""
 	if blast_ring and blast_ring.material_override:
 		var material = blast_ring.material_override as StandardMaterial3D
