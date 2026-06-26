@@ -3,6 +3,8 @@ extends Node3D
 ## Applies a seated, forward-looking cockpit pose to the pilot rig.
 ## Attach to the root node of the pilot character instance.
 
+const PilotVisualMaterials = preload("res://Models/Characters/PilotVisualMaterials.gd")
+
 @export_group("Legs")
 @export var upper_leg_x: float = 66.0:
 	set(v):
@@ -92,6 +94,8 @@ extends Node3D
 		_apply_pose()
 
 @export_group("Cockpit Visibility")
+@export var pose_target_path: NodePath = NodePath(".")
+@export var flat_shade_pilot_visual: bool = true
 @export var hide_head_in_cockpit: bool = true
 @export var cockpit_camera_path: NodePath = NodePath("../CameraCockpit/Camera3D")
 @export var cockpit_hidden_mesh_names: PackedStringArray = PackedStringArray(["Pilot"])
@@ -111,6 +115,10 @@ var _last_head_hidden: bool = false
 var _pose_tween: Tween = null
 var _anim_player: AnimationPlayer = null
 var _mixamo_anim_active: bool = false
+var _pose_target_root: Node = null
+var _locomotion_active: bool = false
+var _locomotion_speed_mps: float = 0.0
+var _locomotion_time_s: float = 0.0
 
 const BONE_ALIASES := {
 	"Abdomen": ["mixamorig_Spine", "mixamorig:Spine", "spine_01.x", "Waist", "Spine01", "DEF-spine"],
@@ -118,18 +126,18 @@ const BONE_ALIASES := {
 	"Chest": ["mixamorig_Spine2", "mixamorig:Spine2", "Spine02", "DEF-spine.004"],
 	"Neck": ["mixamorig_Neck", "mixamorig:Neck", "neck.x", "NeckTwist01", "NeckTwist02", "DEF-spine.005"],
 	"Head": ["mixamorig_Head", "mixamorig:Head", "head.x", "Head", "DEF-spine.006"],
-	"Shoulder.L": ["mixamorig_LeftShoulder", "mixamorig:LeftShoulder", "shoulder.l", "L_Clavicle", "DEF-shoulder.L"],
-	"Shoulder.R": ["mixamorig_RightShoulder", "mixamorig:RightShoulder", "shoulder.r", "R_Clavicle", "DEF-shoulder.R"],
-	"UpperArm.L": ["mixamorig_LeftArm", "mixamorig:LeftArm", "arm_stretch.l", "L_Upperarm", "DEF-upper_arm.L"],
-	"UpperArm.R": ["mixamorig_RightArm", "mixamorig:RightArm", "arm_stretch.r", "R_Upperarm", "DEF-upper_arm.R"],
-	"LowerArm.L": ["mixamorig_LeftForeArm", "mixamorig:LeftForeArm", "forearm_stretch.l", "L_Forearm", "DEF-forearm.L"],
-	"LowerArm.R": ["mixamorig_RightForeArm", "mixamorig:RightForeArm", "forearm_stretch.r", "R_Forearm", "DEF-forearm.R"],
+	"Shoulder.L": ["mixamorig_LeftShoulder", "mixamorig:LeftShoulder", "shoulder.l", "c_shoulder.l", "L_Clavicle", "DEF-shoulder.L"],
+	"Shoulder.R": ["mixamorig_RightShoulder", "mixamorig:RightShoulder", "shoulder.r", "c_shoulder.r", "R_Clavicle", "DEF-shoulder.R"],
+	"UpperArm.L": ["mixamorig_LeftArm", "mixamorig:LeftArm", "arm_fk.l", "arm.l", "arm_stretch.l", "L_Upperarm", "DEF-upper_arm.L"],
+	"UpperArm.R": ["mixamorig_RightArm", "mixamorig:RightArm", "arm_fk.r", "arm.r", "arm_stretch.r", "R_Upperarm", "DEF-upper_arm.R"],
+	"LowerArm.L": ["mixamorig_LeftForeArm", "mixamorig:LeftForeArm", "forearm_fk.l", "forearm.l", "forearm_stretch.l", "L_Forearm", "DEF-forearm.L"],
+	"LowerArm.R": ["mixamorig_RightForeArm", "mixamorig:RightForeArm", "forearm_fk.r", "forearm.r", "forearm_stretch.r", "R_Forearm", "DEF-forearm.R"],
 	"Wrist.L": ["mixamorig_LeftHand", "mixamorig:LeftHand", "hand.l", "L_Hand", "DEF-hand.L"],
 	"Wrist.R": ["mixamorig_RightHand", "mixamorig:RightHand", "hand.r", "R_Hand", "DEF-hand.R"],
-	"UpperLeg.L": ["mixamorig_LeftUpLeg", "mixamorig:LeftUpLeg", "thigh_stretch.l", "L_Thigh", "DEF-thigh.L"],
-	"UpperLeg.R": ["mixamorig_RightUpLeg", "mixamorig:RightUpLeg", "thigh_stretch.r", "R_Thigh", "DEF-thigh.R"],
-	"LowerLeg.L": ["mixamorig_LeftLeg", "mixamorig:LeftLeg", "leg_stretch.l", "L_Calf", "DEF-shin.L"],
-	"LowerLeg.R": ["mixamorig_RightLeg", "mixamorig:RightLeg", "leg_stretch.r", "R_Calf", "DEF-shin.R"],
+	"UpperLeg.L": ["mixamorig_LeftUpLeg", "mixamorig:LeftUpLeg", "thigh_fk.l", "thigh.l", "thigh_stretch.l", "L_Thigh", "DEF-thigh.L"],
+	"UpperLeg.R": ["mixamorig_RightUpLeg", "mixamorig:RightUpLeg", "thigh_fk.r", "thigh.r", "thigh_stretch.r", "R_Thigh", "DEF-thigh.R"],
+	"LowerLeg.L": ["mixamorig_LeftLeg", "mixamorig:LeftLeg", "leg_fk.l", "leg.l", "leg_stretch.l", "L_Calf", "DEF-shin.L"],
+	"LowerLeg.R": ["mixamorig_RightLeg", "mixamorig:RightLeg", "leg_fk.r", "leg.r", "leg_stretch.r", "R_Calf", "DEF-shin.R"],
 	"Foot.L": ["mixamorig_LeftFoot", "mixamorig:LeftFoot", "foot.l", "L_Foot", "DEF-foot.L"],
 	"Foot.R": ["mixamorig_RightFoot", "mixamorig:RightFoot", "foot.r", "R_Foot", "DEF-foot.R"],
 	"Index1.L": ["mixamorig_LeftHandIndex1", "mixamorig:LeftHandIndex1", "index1.l", "DEF-f_index.01.L"],
@@ -156,20 +164,25 @@ const BONE_ALIASES := {
 
 
 func _ready() -> void:
-	_skeleton = _find_skeleton(self)
+	_pose_target_root = _get_pose_target_root()
+	if flat_shade_pilot_visual:
+		PilotVisualMaterials.apply_flat_shading(_pose_target_root)
+
+	_skeleton = _find_skeleton(_pose_target_root)
 	if _skeleton == null:
 		push_warning("PilotPose: No Skeleton3D found in children")
 		return
 
-	_hide_control_shapes(self)
+	_hide_control_shapes(_pose_target_root)
 
-	if (_is_mixamo_rig() or _is_arp_rig()) and not Engine.is_editor_hint():
+	var use_imported_animation := not (_is_rigify_rig() or _is_pilot2_rig()) and (_is_mixamo_rig() or _is_arp_rig())
+	if use_imported_animation and not Engine.is_editor_hint():
 		_setup_mixamo_animation()
 	else:
 		if not Engine.is_editor_hint() and not _is_rigify_rig() and not _is_pilot2_rig():
 			var bone0 := _skeleton.get_bone_name(0) if _skeleton.get_bone_count() > 0 else "none"
 			print("PilotPose: unrecognised rig. bone[0]='%s', total bones=%d" % [bone0, _skeleton.get_bone_count()])
-		_disable_animation_players(self)
+		_disable_animation_players(_pose_target_root)
 
 	_build_foot_links()
 	_ready_done = true
@@ -191,7 +204,7 @@ func _ready() -> void:
 
 
 func _setup_mixamo_animation() -> void:
-	_anim_player = _find_first_animation_player(self)
+	_anim_player = _find_first_animation_player(_pose_target_root)
 	if _anim_player == null:
 		push_warning("PilotPose: Mixamo rig detected but no AnimationPlayer found")
 		return
@@ -211,7 +224,7 @@ func _setup_mixamo_animation() -> void:
 		print("PilotPose: mixamo_cockpit_animation not set, auto-playing '%s'" % anim_to_play)
 
 	if anim_to_play == &"" or initial_pose_name != &"sitting":
-		_disable_animation_players(self)
+		_disable_animation_players(_pose_target_root)
 		return
 
 	var resolved := _resolve_mixamo_anim(anim_to_play)
@@ -249,6 +262,10 @@ func _process(_delta: float) -> void:
 	if Engine.is_editor_hint():
 		return
 	if _mixamo_anim_active:
+		_update_head_visibility(false)
+		return
+	if _locomotion_active:
+		_apply_locomotion_pose(_delta)
 		_update_head_visibility(false)
 		return
 	_apply_pose()
@@ -296,7 +313,55 @@ func _apply_pose() -> void:
 	_set_rot("Head", head_pitch, 0.0, 0.0)
 
 
+func _apply_locomotion_pose(delta: float) -> void:
+	if not _ready_done or _skeleton == null:
+		return
+	_locomotion_time_s += delta
+	_skeleton.reset_bone_poses()
+
+	var values := _get_pose_values(&"grounded")
+	var speed_ratio := clampf(_locomotion_speed_mps / 5.5, 0.35, 1.25)
+	var phase := _locomotion_time_s * lerpf(5.5, 8.5, speed_ratio)
+	var stride := lerpf(16.0, 38.0, speed_ratio)
+	var arm_swing := lerpf(10.0, 30.0, speed_ratio)
+	var leg_sin := sin(phase)
+	var leg_cos := cos(phase)
+	var left_knee := maxf(0.0, -leg_sin) * lerpf(18.0, 48.0, speed_ratio)
+	var right_knee := maxf(0.0, leg_sin) * lerpf(18.0, 48.0, speed_ratio)
+
+	_set_rot("Abdomen", _pose_value(values, "abdomen_pitch", 5.0) + leg_cos * 1.5, 0.0, 0.0)
+	_set_rot("Torso", _pose_value(values, "torso_pitch", 4.0) - leg_cos * 1.0, 0.0, 0.0)
+	_set_rot("Shoulder.L", _pose_value(values, "shoulder_x", -10.0), _pose_value(values, "shoulder_y", 6.0), _pose_value(values, "shoulder_z", 0.0))
+	_set_rot("Shoulder.R", _pose_value(values, "shoulder_x", -10.0), -_pose_value(values, "shoulder_y", 6.0), -_pose_value(values, "shoulder_z", 0.0))
+
+	_set_rot("UpperLeg.L", _pose_value(values, "upper_leg_x", 0.0) + leg_sin * stride, 0.0, -_pose_value(values, "upper_leg_spread", 8.0))
+	_set_rot("UpperLeg.R", _pose_value(values, "upper_leg_x", 0.0) - leg_sin * stride, 0.0, _pose_value(values, "upper_leg_spread", 8.0))
+	_set_rot("LowerLeg.L", _pose_value(values, "lower_leg_x", 0.0) + left_knee, 0.0, 0.0)
+	_set_rot("LowerLeg.R", _pose_value(values, "lower_leg_x", 0.0) + right_knee, 0.0, 0.0)
+	_reattach_feet_to_legs()
+
+	_set_rot("UpperArm.L", _pose_value(values, "upper_arm_x", 15.0) - leg_sin * arm_swing, _pose_value(values, "upper_arm_y", 0.0), _pose_value(values, "upper_arm_z", 38.0))
+	_set_rot("UpperArm.R", _pose_value(values, "upper_arm_x", 15.0) + leg_sin * arm_swing, -_pose_value(values, "upper_arm_y", 0.0), -_pose_value(values, "upper_arm_z", 38.0))
+	_set_rot("LowerArm.L", _pose_value(values, "lower_arm_x", 22.0) + maxf(0.0, leg_sin) * 18.0, _pose_value(values, "lower_arm_y", 0.0), _pose_value(values, "lower_arm_z", 0.0))
+	_set_rot("LowerArm.R", _pose_value(values, "lower_arm_x", 22.0) + maxf(0.0, -leg_sin) * 18.0, -_pose_value(values, "lower_arm_y", 0.0), -_pose_value(values, "lower_arm_z", 0.0))
+	_set_rot("Wrist.L", _pose_value(values, "wrist_x", 0.0), _pose_value(values, "wrist_y", 0.0), 0.0)
+	_set_rot("Wrist.R", _pose_value(values, "wrist_x", 0.0), -_pose_value(values, "wrist_y", 0.0), 0.0)
+
+	var curl := _pose_value(values, "finger_curl", 12.0)
+	for side in ["L", "R"]:
+		for finger in ["Index", "Middle", "Ring", "Pinky"]:
+			for joint in ["1", "2", "3", "4"]:
+				_set_rot("%s%s.%s" % [finger, joint, side], curl, 0.0, 0.0)
+		_set_rot("Thumb1.%s" % side, curl * 0.6, 10.0, 0.0)
+		_set_rot("Thumb2.%s" % side, curl * 0.8, 0.0, 0.0)
+		_set_rot("Thumb3.%s" % side, curl * 0.7, 0.0, 0.0)
+
+	_set_rot("Neck", _pose_value(values, "neck_pitch", 8.0) - leg_cos * 1.5, 0.0, 0.0)
+	_set_rot("Head", _pose_value(values, "head_pitch", 0.0) + leg_cos * 1.2, 0.0, 0.0)
+
+
 func set_ejection_pose(pose_name: StringName, blend_time_s: float = -1.0) -> void:
+	set_locomotion_pose(false)
 	if _mixamo_anim_active:
 		_mixamo_anim_active = false
 		if _anim_player != null and is_instance_valid(_anim_player):
@@ -306,6 +371,19 @@ func set_ejection_pose(pose_name: StringName, blend_time_s: float = -1.0) -> voi
 		return
 	var duration := pose_blend_time_s if blend_time_s < 0.0 else blend_time_s
 	_apply_pose_values(values, maxf(duration, 0.0))
+
+
+func set_locomotion_pose(active: bool, speed_mps: float = 0.0) -> void:
+	_locomotion_active = active
+	_locomotion_speed_mps = maxf(speed_mps, 0.0)
+	if _mixamo_anim_active:
+		_mixamo_anim_active = false
+		if _anim_player != null and is_instance_valid(_anim_player):
+			_anim_player.stop()
+	if active:
+		set_process(true)
+	else:
+		_apply_pose()
 
 
 func _get_pose_values(pose_name: StringName) -> Dictionary:
@@ -325,8 +403,9 @@ func _get_pose_values(pose_name: StringName) -> Dictionary:
 				# Rest pose is sitting; negative leg values counteract it to hang straight down.
 				return _make_pose(-65.0, -55.0, 15.0, 5.0, -5.0, -25.0, 0.0, 0.0, -60.0, 25.0, 0.0, 55.0, 0.0, 0.0, 0.0, 0.0, 65.0, -10.0, -8.0)
 			if _is_rigify_rig():
-				# Rigify rest = arms UP. Parachute: legs down (+180), arms near rest (0) to reach risers.
-				return _make_pose(180.0, 0.0, 10.0, 5.0, -5.0, -25.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 45.0, -10.0, -8.0)
+				# The pilot 2 GLB is a Rigify export whose useful rest is already close to seated.
+				# Counteract the seated legs instead of forcing a 180-degree leg flip.
+				return _make_pose(-65.0, -55.0, 15.0, 5.0, -5.0, -25.0, 0.0, 0.0, -60.0, 25.0, 0.0, 55.0, 0.0, 0.0, 0.0, 0.0, 65.0, -10.0, -8.0)
 			if _is_mixamo_rig():
 				# Mixamo T-pose: legs already hang down at rest (upper_leg_x=0). Arms start horizontal.
 				return _make_pose(0.0, 0.0, 5.0, 5.0, -5.0, -25.0, 0.0, 0.0, 90.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 45.0, 0.0, 0.0)
@@ -385,6 +464,10 @@ func _make_pose(
 	}
 
 
+func _pose_value(values: Dictionary, key: String, fallback: float) -> float:
+	return float(values.get(key, fallback))
+
+
 func _apply_pose_values(values: Dictionary, blend_time_s: float) -> void:
 	if _pose_tween != null and _pose_tween.is_valid():
 		_pose_tween.kill()
@@ -433,6 +516,11 @@ func _find_bone_index(bone_name: String) -> int:
 	return -1
 
 
+func _get_pose_target_root() -> Node:
+	var target := get_node_or_null(pose_target_path)
+	return target if target != null else self
+
+
 func _is_mixamo_rig() -> bool:
 	if _skeleton == null:
 		return false
@@ -456,7 +544,10 @@ func _is_pilot2_rig() -> bool:
 
 
 func _is_rigify_rig() -> bool:
-	return _skeleton != null and _skeleton.find_bone("DEF-thigh.L") >= 0
+	return _skeleton != null and (
+		_skeleton.find_bone("DEF-thigh.L") >= 0
+		or (_skeleton.find_bone("c_pos") >= 0 and _skeleton.find_bone("thigh_fk.l") >= 0)
+	)
 
 
 func _build_foot_links() -> void:
@@ -595,7 +686,7 @@ func _cache_cockpit_visibility_nodes() -> void:
 	_cockpit_camera = get_node_or_null(cockpit_camera_path) as Camera3D
 	if cockpit_hidden_mesh_names.is_empty():
 		return
-	for child_variant in get_children():
+	for child_variant in _pose_target_root.get_children():
 		var child: Node = child_variant as Node
 		if child == null:
 			continue

@@ -3,6 +3,7 @@ extends Node3D
 const WIND_TURBINE_PROXY_SCRIPT: Script = preload("res://Buildings/WindTurbineProxy.gd")
 const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
 const TEST_SCENARIO_SETTINGS_PATH := "user://physical_test_scenario.json"
+const FRAME_PROFILER_OVERRIDE_PATH := "user://frame_profiler_override.json"
 const HELI_NAVIGATION_TEST_SCENARIO: int = 1
 
 var restart_timer: Timer
@@ -69,8 +70,14 @@ func _ready():
 	Engine.time_scale = 1.0
 	add_to_group("origin_shifter")
 	_reset_helicopter_log()
-	FrameProfiler.configure(frame_profiler_report_interval_s, frame_profiler_spike_threshold_ms, frame_profiler_top_count, frame_profiler_summary_interval_s)
-	FrameProfiler.set_enabled(frame_profiler_enabled, "ScenarioManager")
+	var profiler_override := _load_frame_profiler_override()
+	var profiler_enabled := frame_profiler_enabled or bool(profiler_override.get("enabled", false))
+	var profiler_interval := float(profiler_override.get("report_interval_s", frame_profiler_report_interval_s))
+	var profiler_summary := float(profiler_override.get("summary_interval_s", frame_profiler_summary_interval_s))
+	var profiler_spike := float(profiler_override.get("spike_threshold_ms", frame_profiler_spike_threshold_ms))
+	var profiler_top := int(profiler_override.get("top_count", frame_profiler_top_count))
+	FrameProfiler.configure(profiler_interval, profiler_spike, profiler_top, profiler_summary)
+	FrameProfiler.set_enabled(profiler_enabled, "ScenarioManager")
 	if not _scenario_play_area_center_valid:
 		_configure_play_area_for_run()
 	# Find any player aircraft (Aircraft_1, Aircraft_3, Aircraft_5, etc.)
@@ -235,6 +242,18 @@ func _is_navigation_test_requested() -> bool:
 	var parsed: Variant = JSON.parse_string(file.get_as_text())
 	return parsed is Dictionary \
 			and int((parsed as Dictionary).get("scenario", -1)) == HELI_NAVIGATION_TEST_SCENARIO
+
+
+func _load_frame_profiler_override() -> Dictionary:
+	if not FileAccess.file_exists(FRAME_PROFILER_OVERRIDE_PATH):
+		return {}
+	var file := FileAccess.open(FRAME_PROFILER_OVERRIDE_PATH, FileAccess.READ)
+	if file == null:
+		return {}
+	var parsed: Variant = JSON.parse_string(file.get_as_text())
+	if parsed is Dictionary:
+		return parsed as Dictionary
+	return {}
 
 
 func _schedule_startup_wind_turbines() -> void:

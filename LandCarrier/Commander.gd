@@ -20,6 +20,15 @@ class_name Commander
 @export var control_room_ambience_volume_db: float = -10.0
 @export var control_room_ambience_pitch_scale: float = 1.0
 @export var control_room_ambience_silence_db: float = -80.0
+@export_group("Control Room Wind")
+@export var control_room_wind: AudioStream = preload("res://Audio/wind_sound_cockpit.wav")
+@export var control_room_wind_bus: String = "Master"
+@export var control_room_wind_idle_volume_db: float = -34.0
+@export var control_room_wind_max_volume_db: float = -22.0
+@export var control_room_wind_pitch_min: float = 0.72
+@export var control_room_wind_pitch_max: float = 1.02
+@export var control_room_wind_full_speed_mps: float = 12.0
+@export var control_room_wind_silence_db: float = -80.0
 
 @onready var commander_camera: Camera3D = $Camera3D
 @onready var body_mesh: MeshInstance3D = $BodyMesh
@@ -37,6 +46,7 @@ var _zoom_tween: Tween
 var _was_active_view: bool = false
 var _zoom_button_prev_pressed: bool = false
 var _control_room_audio_player: AudioStreamPlayer
+var _control_room_wind_player: AudioStreamPlayer
 var _active_view_mode: int = 0
 var _chase_camera: Camera3D = null
 var _cinematic_camera: Camera3D = null
@@ -72,6 +82,7 @@ func _ready() -> void:
 	else:
 		print("[Commander] WARNING: No commander_camera found!")
 	_setup_control_room_audio()
+	_setup_control_room_wind_audio()
 
 func _activate_initial_camera() -> void:
 	if commander_camera:
@@ -93,6 +104,7 @@ func _process(delta: float) -> void:
 	_was_active_view = active_view
 	_update_body_visibility(active_view)
 	_update_control_room_audio(delta, active_view)
+	_update_control_room_wind_audio(delta, active_view)
 	_update_external_camera_transforms()
 
 func _physics_process(delta: float) -> void:
@@ -268,6 +280,22 @@ func _setup_control_room_audio() -> void:
 	add_child(_control_room_audio_player)
 	_control_room_audio_player.play()
 
+func _setup_control_room_wind_audio() -> void:
+	if control_room_wind == null:
+		return
+
+	if control_room_wind is AudioStreamWAV:
+		control_room_wind.loop_mode = AudioStreamWAV.LOOP_FORWARD
+
+	_control_room_wind_player = AudioStreamPlayer.new()
+	_control_room_wind_player.name = "ControlRoomMuffledWind"
+	_control_room_wind_player.stream = control_room_wind
+	_control_room_wind_player.bus = control_room_wind_bus
+	_control_room_wind_player.pitch_scale = control_room_wind_pitch_min
+	_control_room_wind_player.volume_db = control_room_wind_silence_db
+	add_child(_control_room_wind_player)
+	_control_room_wind_player.play()
+
 func _update_control_room_audio(delta: float, active_view: bool) -> void:
 	if _control_room_audio_player == null:
 		return
@@ -280,6 +308,29 @@ func _update_control_room_audio(delta: float, active_view: bool) -> void:
 
 	if not _control_room_audio_player.playing:
 		_control_room_audio_player.play()
+
+func _update_control_room_wind_audio(delta: float, active_view: bool) -> void:
+	if _control_room_wind_player == null:
+		return
+
+	var carrier_speed: float = 0.0
+	var carrier_node := get_parent()
+	if carrier_node != null and carrier_node.has_method("get_speed"):
+		carrier_speed = absf(float(carrier_node.call("get_speed")))
+
+	var speed_factor := clampf(carrier_speed / maxf(control_room_wind_full_speed_mps, 0.01), 0.0, 1.0)
+	speed_factor = speed_factor * speed_factor * (3.0 - 2.0 * speed_factor)
+	var moving_volume := lerpf(control_room_wind_idle_volume_db, control_room_wind_max_volume_db, speed_factor)
+	var target_volume := moving_volume if active_view else control_room_wind_silence_db
+	var target_pitch := lerpf(control_room_wind_pitch_min, control_room_wind_pitch_max, speed_factor)
+	var blend := clampf(delta * 3.0, 0.0, 1.0)
+	_control_room_wind_player.volume_db = lerpf(_control_room_wind_player.volume_db, target_volume, blend)
+	_control_room_wind_player.pitch_scale = lerpf(_control_room_wind_player.pitch_scale, target_pitch, blend)
+	if absf(_control_room_wind_player.volume_db - target_volume) < 0.05:
+		_control_room_wind_player.volume_db = target_volume
+
+	if not _control_room_wind_player.playing:
+		_control_room_wind_player.play()
 
 func _ensure_external_cameras() -> void:
 	if _chase_camera != null and _cinematic_camera != null:

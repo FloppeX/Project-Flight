@@ -94,11 +94,8 @@ func _draw() -> void:
 	var has_carrier: bool = carrier_nodes.size() > 0
 
 	if not has_contacts and not has_carrier:
-		var bars: Array = [Color.WHITE, Color(1,1,0), Color(0,1,1), Color(0,1,0), Color(1,0,1), Color(1,0,0), Color(0,0,1), Color.BLACK]
-		var bar_w: float = (radius * 2.0) / float(bars.size())
-		for i in range(bars.size()):
-			var x0: float = center.x - radius + i * bar_w
-			draw_rect(Rect2(Vector2(x0, center.y - radius), Vector2(bar_w, radius * 2.0)), bars[i])
+		draw_circle(center, radius, radar_bg)
+		draw_string(get_theme_default_font(), center + Vector2(-28, 4), "NO DATA", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.18, 0.75, 0.18, 0.75))
 		draw_arc(center, radius, 0, TAU, 64, Color(0.0, 0.6, 0.0), 2)
 		return
 

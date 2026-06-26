@@ -1590,8 +1590,11 @@ func _physics_process(delta: float) -> void:
 
 	if _rotor_wash_effect and is_instance_valid(_rotor_wash_effect):
 		var ground_h := _get_ground_height_at_position(aircraft.global_position)
+		var wash_rotor_power := _get_rotor_wash_power()
+		var control_target := _debug_float_property(control_engine, "target_power")
 		_rotor_wash_effect.current_agl = aircraft.global_position.y - ground_h if not is_nan(ground_h) else INF
-		_rotor_wash_effect.is_engine_on = control_engine.target_power > 0.1 if is_instance_valid(control_engine) else true
+		_rotor_wash_effect.rotor_power = wash_rotor_power
+		_rotor_wash_effect.is_engine_on = wash_rotor_power > 0.03 or (not is_nan(control_target) and control_target > 0.03)
 		_rotor_wash_effect.rotor_radius = helicopter_flight.rotor_radius if "rotor_radius" in helicopter_flight else 10.0
 
 	match state:
@@ -12100,6 +12103,17 @@ func _debug_float_property(node: Object, property_name: String) -> float:
 	if typeof(value) == TYPE_FLOAT or typeof(value) == TYPE_INT:
 		return float(value)
 	return NAN
+
+
+func _get_rotor_wash_power() -> float:
+	var power := _debug_float_property(engine, "current_power")
+	if is_nan(power):
+		power = _debug_float_property(control_engine, "current_power")
+	if is_nan(power):
+		power = _debug_float_property(control_engine, "target_power")
+	if is_nan(power):
+		return 0.0
+	return clampf(power, 0.0, 1.0)
 
 
 func _debug_bool_property(node: Object, property_name: String) -> bool:

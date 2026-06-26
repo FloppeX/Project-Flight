@@ -135,66 +135,65 @@ func _physics_process(delta: float) -> void:
 	if UseToggleAction and Input.is_action_just_pressed("gear_toggle"):
 		if debug_enabled:
 			print("[GEAR] toggle pressed; gears=", landing_gear_modules.size(), " hooks=", tailhook_modules.size(), "/", tailhook_simple_nodes.size())
-		if LockGearDeployed:
-			send_to_landing_gears("deploy")
-			_set_collider_disabled(false)
-			gear_down_state = true
-			if tailhook_down_state:
-				send_to_tailhooks("stow")
-				send_to_tailhook_simple(false)
-				tailhook_down_state = false
-			else:
-				send_to_tailhooks("deploy")
-				send_to_tailhook_simple(true)
-				tailhook_down_state = true
-			return
-		if gear_down_state:
-			send_to_landing_gears("stow")
-			send_to_tailhooks("stow")
-			send_to_tailhook_simple(false)
-			_set_collider_disabled(true)
-			gear_down_state = false
-			tailhook_down_state = false
-		else:
-			send_to_landing_gears("deploy")
-			send_to_tailhooks("deploy")
-			send_to_tailhook_simple(true)
-			_set_collider_disabled(false)
-			gear_down_state = true
-			tailhook_down_state = true
+		toggle_gear()
 
 	# Direct commands (work alongside toggle)
 	if InputMap.has_action("gear_deploy") and Input.is_action_just_pressed("gear_deploy"):
 		if debug_enabled:
 			print("[GEAR] deploy; gears=", landing_gear_modules.size())
-		send_to_landing_gears("deploy")
-		send_to_tailhooks("deploy")
-		send_to_tailhook_simple(true)
-		_set_collider_disabled(false)
-		gear_down_state = true
-		tailhook_down_state = true
+		deploy_gear()
 
 	if InputMap.has_action("gear_stow") and Input.is_action_just_pressed("gear_stow"):
 		if debug_enabled:
 			print("[GEAR] stow; gears=", landing_gear_modules.size())
-		if LockGearDeployed:
-			send_to_landing_gears("deploy")
-			send_to_tailhooks("stow")
-			send_to_tailhook_simple(false)
-			_set_collider_disabled(false)
-			gear_down_state = true
-			tailhook_down_state = false
-			return
-		send_to_landing_gears("stow")
-		send_to_tailhooks("stow")
-		send_to_tailhook_simple(false)
-		_set_collider_disabled(true)
-		gear_down_state = false
-		tailhook_down_state = false
+		stow_gear()
 
 func receive_input(_event: InputEvent) -> void:
 	# Polling mode; keep stub for framework compatibility
 	pass
+
+func toggle_gear() -> void:
+	if LockGearDeployed:
+		send_to_landing_gears("deploy")
+		_set_collider_disabled(false)
+		gear_down_state = true
+		if tailhook_down_state:
+			send_to_tailhooks("stow")
+			send_to_tailhook_simple(false)
+			tailhook_down_state = false
+		else:
+			send_to_tailhooks("deploy")
+			send_to_tailhook_simple(true)
+			tailhook_down_state = true
+		return
+	if gear_down_state:
+		stow_gear()
+	else:
+		deploy_gear()
+
+func deploy_gear() -> void:
+	send_to_landing_gears("deploy")
+	send_to_tailhooks("deploy")
+	send_to_tailhook_simple(true)
+	_set_collider_disabled(false)
+	gear_down_state = true
+	tailhook_down_state = true
+
+func stow_gear() -> void:
+	if LockGearDeployed:
+		send_to_landing_gears("deploy")
+		send_to_tailhooks("stow")
+		send_to_tailhook_simple(false)
+		_set_collider_disabled(false)
+		gear_down_state = true
+		tailhook_down_state = false
+		return
+	send_to_landing_gears("stow")
+	send_to_tailhooks("stow")
+	send_to_tailhook_simple(false)
+	_set_collider_disabled(true)
+	gear_down_state = false
+	tailhook_down_state = false
 
 func send_to_landing_gears(method_name: String, arguments: Array = []) -> void:
 	for gear in landing_gear_modules:

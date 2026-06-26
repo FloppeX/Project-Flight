@@ -59,6 +59,9 @@ var _rope_anchor: Node3D
 var _rope_active: bool = true
 var _tow_phase: int = 0	# 0: to A, 1: to B
 var _latched: bool = false
+var _carrier_node: Node3D = null
+var _aircraft_carrier_local_basis: Basis = Basis.IDENTITY
+var _has_aircraft_carrier_local_basis: bool = false
 
 enum BotState {
 	IDLE,
@@ -80,6 +83,7 @@ var _current_speed: float = 0.0
 
 func _ready():
 	add_to_group("tractor_bot")
+	physics_interpolation_mode = Node3D.PHYSICS_INTERPOLATION_MODE_ON
 	if not nav_agent:
 		nav_agent = get_node_or_null("NavAgent") as NavigationAgent3D
 	_arm_node = get_node_or_null(arm_node_path) as Node3D
@@ -183,6 +187,7 @@ func _tick_coupling(_delta: float) -> void:
 		if not use_rope_mode:
 			_create_hitch_joint()
 		_latched = true
+		_capture_aircraft_carrier_rotation()
 	_state = BotState.TOWING_TO_DESTINATION
 	_reverse_mode = true
 	_tow_elapsed = 0.0
@@ -195,6 +200,7 @@ func _tick_towing(delta: float) -> void:
 	if not is_instance_valid(_job_aircraft) or not is_instance_valid(_job_destination):
 		_abort_job("Invalid towing references")
 		return
+	_sync_aircraft_rotation_to_carrier()
 	# Tractor target each tick per phase
 	var tractor_goal = _get_tow_tractor_target()
 	_set_nav_target(tractor_goal)
@@ -238,6 +244,7 @@ func _tick_towing(delta: float) -> void:
 			_state = BotState.UNCOUPLING
 
 func _tick_disconnecting(delta: float) -> void:
+	_sync_aircraft_rotation_to_carrier()
 	# Smoothly come to a stop, disconnect, then resume towing toward phase B
 	_current_speed = max(0.0, _current_speed - accel_mps2 * delta)
 	# Face approach B for clean egress
@@ -264,6 +271,7 @@ func _tick_disconnecting(delta: float) -> void:
 		_set_nav_target(_get_tow_tractor_target())
 
 func _tick_uncoupling(_delta: float) -> void:
+	_sync_aircraft_rotation_to_carrier()
 	if is_instance_valid(_job_aircraft):
 		_job_aircraft.remove_meta("controls_disabled")
 	_reverse_mode = false
@@ -473,6 +481,8 @@ func _clear_job() -> void:
 	_job_aircraft = null
 	_job_destination = null
 	_nose_gear = null
+	_carrier_node = null
+	_has_aircraft_carrier_local_basis = false
 
 # --- Helpers (reused patterns from catapult) ---
 func _find_engine_controller(root: Node) -> Node:
@@ -511,3 +521,36 @@ func _abort_job(reason: String) -> void:
 		print("[TractorBot] Aborting job: ", reason)
 	_state = BotState.IDLE
 	_clear_job()
+
+
+func _capture_aircraft_carrier_rotation() -> void:
+	if not is_instance_valid(_job_aircraft):
+		return
+	_carrier_node = _find_carrier_node()
+	if not is_instance_valid(_carrier_node):
+		_has_aircraft_carrier_local_basis = false
+		return
+	_aircraft_carrier_local_basis = _carrier_node.global_transform.basis.inverse() * _job_aircraft.global_transform.basis
+	_has_aircraft_carrier_local_basis = true
+
+
+func _sync_aircraft_rotation_to_carrier() -> void:
+	if not _has_aircraft_carrier_local_basis or not is_instance_valid(_job_aircraft) or not is_instance_valid(_carrier_node):
+		return
+	var transform := _job_aircraft.global_transform
+	transform.basis = (_carrier_node.global_transform.basis * _aircraft_carrier_local_basis).orthonormalized()
+	_job_aircraft.global_transform = transform
+	PhysicsServer3D.body_set_state(_job_aircraft.get_rid(), PhysicsServer3D.BODY_STATE_TRANSFORM, _job_aircraft.global_transform)
+	# Deck towing owns the aircraft attitude; avoid residual physics torque
+	# slowly winding it out of carrier-relative alignment.
+	_job_aircraft.angular_velocity = Vector3.ZERO
+
+
+func _find_carrier_node() -> Node3D:
+	var node: Node = self
+	while node != null:
+		if node is Node3D and (node.is_in_group("carrier") or node.name.to_lower().find("landcarrier") != -1):
+			return node as Node3D
+		node = node.get_parent()
+	var carrier := get_tree().get_first_node_in_group("carrier")
+	return carrier as Node3D

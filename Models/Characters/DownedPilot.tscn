@@ -21,6 +21,7 @@ shape = SubResource("BoxShape3D_downed_pilot")
 
 [node name="PilotPose" type="Node3D" parent="."]
 script = ExtResource("3_pose")
+pose_target_path = NodePath("../Model")
 hide_head_in_cockpit = false
 cockpit_hidden_mesh_names = PackedStringArray()
 initial_pose_name = &"grounded"

@@ -64,6 +64,7 @@ var _debug_last_live_replan_delta_m: float = 0.0
 func _ready():
 	add_to_group("tractor_bot")
 	add_to_group("simple_tractor_bot")
+	physics_interpolation_mode = Node3D.PHYSICS_INTERPOLATION_MODE_ON
 
 func activate(aircraft: RigidBody3D, wheel_offset: Vector3, wheel_node: Node3D = null):
 	"""Activate this tractorbot to position at a specific aircraft wheel"""

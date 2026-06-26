@@ -32,8 +32,8 @@ The player pushes into enemy-controlled territory, launches and recovers aircraf
 
 ## Current Status
 
-**Last Updated:** 2026-06-15
-**Godot Version:** 4.4.1.stable.official.49a5bc7b6
+**Last Updated:** 2026-06-25
+**Godot Version:** 4.6.2.stable.official.71f334935
 **Project Health:** PLAYABLE
 **Control Mode:** AI-by-default with viewed-aircraft player/AI toggle (game controller + keyboard parity in pause/menu flows)
 
@@ -54,6 +54,18 @@ For AI pilots and vehicle controllers, the expected approach is:
 - If a limiter is truly needed, name it honestly, expose it as tuning, print/debug when it activates, and explain why a feedback fix is not enough.
 
 This is especially important for helicopters. They have delayed response and strong coupling between collective, cyclic, speed, lift, and altitude. The AI should fly them by making deliberate control changes based on observed response, not by stacking hidden safety barriers that fight each other.
+
+### Recent Changes (2026-06-25)
+
+- Carrier performance pass: rear track marks now use a capped `MultiMeshInstance3D` path instead of many individual nodes. Only the rear two treads generate marks, active marks are capped at 240, and marks are opaque/darker with slower stepped fading. Carrier tread plates were reduced to 20 per track and skip plate animation when not on screen.
+- Carrier steering pass: the carrier no longer pivots only around its center for turning. Steering now approximates front and rear axle steering with a rear-axle steering ratio and crawl speed for hard turns.
+- Dust optimization and behavior: dust and rotor-wash effects are camera/frustum gated so they do less work when unseen. Rotor wash dust now ramps with rotor power rather than spawning at zero/low rotor speed, and dust opacity was increased slightly.
+- Modular cockpit instrument panel: `HUD/InstrumentPanel.tscn` now builds its cockpit display from reusable instrument modules. Modules include MFDs, readouts, warning lights, a gear/flap status area, stall and missile-lock indicators, and a first-pass slip ball. Aircraft 5 has an explicit test layout assigned in its `InstrumentPanel.module_layout`.
+- Cockpit panel interaction: in cockpit view, looking at the instrument panel projects a small press-dot cursor onto the panel texture. Pressing D-pad down uses that projected point to interact with modules, including cycling MFD modes. Instrument-panel rendering and module updates are view-gated so only the currently viewed aircraft keeps its live panel/target-camera feed active.
+- Pilot/ejection visual direction: the active plan is to keep the Rigify/GLB pilot model as the canonical pilot visual. Temporary mismatched FBX visual swaps for parachute hanging and running were removed from the active flow. `PilotPose.gd` now recognizes the current Rigify-style export (`c_pos`, `thigh_fk.l`, etc.) and drives parachute/ground/locomotion poses procedurally on that rig.
+- Downed pilot movement: the downed pilot now keeps the original GLB model visible and calls `PilotPose.set_locomotion_pose()` while moving. The current procedural jog/run is a rough placeholder and is expected to need visual tuning.
+- Low-poly visual consistency: cockpit pilots and ejection seats now pass through a cached flat-normal conversion path so they better match the project's flat-shaded visual direction. This is implemented via `PilotVisualMaterials.gd`, `PilotPose.gd`, and `FlatShadedVisual.gd`.
+- Diagnostics: `tools/run_perf_diagnostic_direct.ps1` can run startup/performance smoke checks with track-mark override settings and frame-profiler override support. Current runs still show existing terrain/render shutdown noise on forced quit; those errors are not yet resolved.
 
 ### Recent Changes (2026-06-15)
 
@@ -243,15 +255,14 @@ This is especially important for helicopters. They have delayed response and str
 
 ### Local Godot Install
 
-Portable Godot 4.4.1 is available on this machine for project checks and local runs:
+Portable Godot 4.6.2 is available on this machine for project checks and local runs:
 
-- `C:\Users\jonto\tools\godot-4.4.1\Godot_v4.4.1-stable_win64.exe`
-- `C:\Users\jonto\tools\godot-4.4.1\Godot_v4.4.1-stable_win64_console.exe`
+- `C:\Godot\Godot_v4.6.2-stable_win64_console.exe`
 
 Example project launch from this repo root:
 
 ```powershell
-& "C:\Users\jonto\tools\godot-4.4.1\Godot_v4.4.1-stable_win64_console.exe" --path "C:\Godot projects\Project-Flight"
+& "C:\Godot\Godot_v4.6.2-stable_win64_console.exe" --path "C:\Godot projects\Project-Flight"
 ```
 
 ### Core Systems
@@ -273,7 +284,7 @@ Example project launch from this repo root:
 | AI Control | Working | All fixed-wing vehicles default to AI; `Start` toggles only the currently viewed friendly aircraft between player and AI control without forcing camera/target changes; helicopters route through the dedicated `HelicopterPilot` when toggled to AI, but Aircraft 9/10 scene defaults are currently player/manual on startup while the rotorcraft AI is tuned; bottom-center `AI` indicator remains when viewing AI-controlled aircraft; shoulder buttons cycle viewed units (including bridge view); Space exits free camera to spectator; `L` assigns the next eligible friendly aircraft to landing; viewed-aircraft HUD/instruments remain active while AI is flying |
 | Weapons | Working | Shared gun-profile stack now supports 10/15/20/25 mm gun families across hardpoints and turrets (stats, projectile type, spread, recoil, sound set); bullets inherit muzzle-point velocity and are oriented to actual spawn velocity; runtime hit-assist radius defaults to `0.5 m` and can be adjusted with Up/Down arrow keys; AA missile launchers can still be intentionally fielded empty |
 | Targeting | Working | HUD target box, sensor cone, `L3` target lock, and D-pad left/right cycling through available hostile targets; destroyed targets can remain on the cockpit target camera briefly so the player can watch the impact/explosion before auto-switching |
-| HUD | Working | Radar, instruments, CCIP, terrain map overlay on radar; cockpit radar scope remains circular and masked correctly; main gunsight uses HUD-glass collimation/boresight projection; FPV symbol shows actual velocity vector with dotted boresight linkage; rotating attitude pitch ladder (horizon-level) with side ticks is now integrated, and boxed speed/altitude readouts were repositioned upward for better readability; the cockpit terrain map now uses the same live terrain bounds/origin convention as the `M` tactical map and was flattened/stabilized to stop the old bulging/distorted surface feel |
+| HUD | Working | Radar, instruments, CCIP, terrain map overlay on radar; cockpit radar scope remains circular and masked correctly; main gunsight uses HUD-glass collimation/boresight projection; FPV symbol shows actual velocity vector with dotted boresight linkage; rotating attitude pitch ladder (horizon-level) with side ticks is now integrated, and boxed speed/altitude readouts were repositioned upward for better readability; the cockpit terrain map now uses the same live terrain bounds/origin convention as the `M` tactical map and was flattened/stabilized to stop the old bulging/distorted surface feel. The cockpit instrument panel now supports modular MFD/readout/warning/slip-ball layouts, D-pad-down panel interaction with a projected cursor dot, and view-gated panel/target-camera updates so only the currently viewed cockpit panel renders live |
 | Camera System | Working | Multiple camera modes, free-fly debug camera, delayed death-camera handoff, and ejected-pilot camera handoff; chase camera now orbits the aircraft or parachuting pilot on a level horizontal plane; the old bridge cam has been replaced by a first-person commander view inside the carrier bridge; stick-click zoom is available in commander view and in the cockpit camera, including while viewing an AI-controlled aircraft |
 | Night Vision / Night Combat | Partial | `I` toggles NV in cockpit view; green phosphor shader with scanlines, grain, vignette, and scan artefacts; instrument panel target feed also switches to NV; high-G overlay drift has been addressed by projecting from interpolated render transforms, but still needs live visual validation; AI pilots, turrets, and ground platoons now take moderate darkness penalties to detection, tracking, and firing |
 | Cockpit Audio | Partial | Each aircraft now has its own interior loop plus cockpit-only wind / air-rush layers with crash-aware shutdown, reduced in-cockpit stereo spread, and stronger interior filtering; air-rush/wind gain has been reduced so propeller/interior sound is more audible, but the cockpit/exterior balance is still being tuned |
@@ -281,6 +292,22 @@ Example project launch from this repo root:
 | Destruction / Ejection | Partial | Aircraft now enter a critical-damage death state at `0 HP`: player control is disabled, stick inputs jam to random max directions, and each second rolls explosion chance (`10%` default); final breakup emits dark rigid debris chunks with smoke trails that self-clean on terrain contact. Aircraft with ejection seats support canopy jettison, seat launch, parachute deployment, seat separation, and ejected-pilot camera takeover, but pilot poses, parachute camera placement, and downed-pilot gameplay still need live tuning |
 | Damage Effects | Working | 3-tier progressive damage system: hydraulic/fuel/flap failures, engine cap/control loss/HUD flicker, engine sputter/structural failure/HUD blackout; escalating smoke trails |
 | Aircraft Roster | Working | `Aircraft_4` added as a heavy/slower enemy aircraft with rear turret; `Aircraft_7` and `Aircraft_8` remain fast interceptors; `Aircraft_6` is now a slow, stable, rugged low-speed aircraft; `Aircraft_9` is a player-flyable rescue helicopter with authored dual counter-rotating rotor visuals, fold/unfold behavior, retractable gear, and explicit carrier-relative deck velocity handling; `Aircraft_10` is a smaller armed scout helicopter with two hardpoints, rockets, 15 mm gun, front/rear landing gear, and tail-rotor propeller visual; `Aircraft_11` is a new helicopter in active development with swing doors (`O` key), authored GLB, and tail/rotor disc assets. Weapon assignments were reworked (Aircraft 2: 25 mm, Aircraft 7/8: 20 mm, Aircraft 3: extra hardpoint + dual 10 mm); enemy Aircraft 3 now spawns clean with no external stores and serves as a fighter; pressing `7`/`8`/`9` retrieves those variants and `4` debug-spawns a friendly Aircraft_4 above the carrier |
+
+### Instrument Panel Layouts
+
+The cockpit instrument panel is still the same scene, `HUD/InstrumentPanel.tscn`, but it now has an exported `module_layout` array. If the array is empty and `auto_build_default_modules` is enabled, `HUD/instrument_panel.gd` builds the default two-MFD layout. To give an aircraft its own cockpit, edit that aircraft scene's `InstrumentPanel.module_layout` in the Inspector. Aircraft 5 currently has an explicit layout assigned for testing.
+
+Each layout entry is a dictionary. Coordinates are panel texture pixels in the panel viewport, currently `800 x 600`. Common keys:
+
+- `type`: module type, usually `mfd`, `readout`, `warning_lights`, or `slip_ball`
+- `id`: stable local id for the module
+- `title`: short label shown on the module
+- `rect`: `Rect2(x, y, width, height)` in panel pixels
+- `instrument`: readout source for `readout` modules
+- `modes`: MFD mode list, such as `["MAP", "TARGET", "WEAPONS", "DAMAGE", "SYSTEMS"]`
+- `lights`: warning-light ids for `warning_lights` modules
+
+Supported readout instruments currently include `speed`, `altitude`, `vertical_speed`, `fuel`, `gear`, `flaps`, `stall`, `missile_lock`, `engine`, `damage`, `g_force`, and `weapons`. MFDs can cycle between map, target camera, weapons, damage, and systems-style pages. The interaction model is intentionally simple for now: aim the cockpit camera at the panel, use the projected dot to choose a point, and press D-pad down. The slip ball is a rough first-pass sideslip indicator based on local lateral velocity rather than a fully simulated mechanical ball.
 
 ### Carrier Systems
 

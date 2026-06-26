@@ -20,6 +20,8 @@ func setup(aircraft_node: Node) -> void:
 func _physics_process(delta: float) -> void:
 	if (not ControlActive) or (flaps_module == null):
 		return
+	if _cockpit_interaction_consumed_this_press():
+		return
 
 	# Increment flaps down (B or gamepad button)
 	if Input.is_action_pressed("flaps_down"):
@@ -32,3 +34,14 @@ func _physics_process(delta: float) -> void:
 func receive_input(_event: InputEvent) -> void:
 	# Polling mode, keep stub for framework compatibility
 	pass
+
+
+func _cockpit_interaction_consumed_this_press() -> bool:
+	if aircraft == null or not is_instance_valid(aircraft):
+		return false
+	if not Input.is_action_pressed("flaps_down"):
+		return false
+	if not aircraft.has_meta("cockpit_interaction_consumed_physics_frame"):
+		return false
+	var consumed_frame := int(aircraft.get_meta("cockpit_interaction_consumed_physics_frame"))
+	return Engine.get_physics_frames() - consumed_frame <= 1

@@ -9,11 +9,16 @@ const VISUAL_FOCUS_HELPER = preload("res://Effects/VisualFocus.gd")
 @export var spawn_interval_s: float = 0.25
 @export var puff_scale_min: float = 0.6
 @export var puff_scale_max: float = 2.0
+@export var puff_opacity_multiplier: float = 1.35
 @export var full_speed_mps: float = 20.0
 @export var puff_lifetime_s: float = 5.0
 @export var puff_rise_speed: float = 7.0
 @export var max_effect_distance_m: float = 800.0
+@export var require_camera_frustum: bool = true
+@export var camera_frustum_padding_m: float = 25.0
 @export var pooled_puff_count: int = 16
+@export var auto_size_pool: bool = true
+@export var max_pooled_puff_count: int = 128
 
 var _emit_offsets: Array[Vector3] = []
 var _timers: Array[float] = []
@@ -25,12 +30,28 @@ var _cached_camera: Camera3D = null
 var _camera_cache_timer_s: float = 0.0
 var _puff_pool: Array[MeshInstance3D] = []
 var _available_puff_indices: Array[int] = []
+var _pool_target_count: int = 0
 
 # Shared across all instances
 static var _shared_dust_color: Color = Color(0.55, 0.30, 0.18, 1.0)
 static var _shared_mesh: SphereMesh = null
 static var _shared_color_sample_cooldown: float = 0.0
 static var dust_enabled: bool = true
+
+static func _sanitize_dust_color(color: Color) -> Color:
+	var clean := Color(
+		clampf(color.r, 0.18, 0.72),
+		clampf(color.g, 0.14, 0.60),
+		clampf(color.b, 0.08, 0.46),
+		1.0
+	)
+	var luma := clean.get_luminance()
+	if luma > 0.55:
+		var scale := 0.55 / maxf(luma, 0.0001)
+		clean.r *= scale
+		clean.g *= scale
+		clean.b *= scale
+	return clean
 
 func _is_terrain_hit(hit: Dictionary) -> bool:
 	if hit.is_empty():
@@ -121,27 +142,45 @@ func _setup_vehicle_wheels() -> void:
 		_timers.append(0.0)
 
 func _initialize_puff_pool() -> void:
+	_shared_mesh.radius = 1.0
+	_shared_mesh.height = 2.0
+	_pool_target_count = _get_target_pool_count()
+	var initial_count := mini(maxi(pooled_puff_count, 1), _pool_target_count)
+	for i in range(initial_count):
+		_create_pooled_puff()
+
+func _get_target_pool_count() -> int:
+	var requested_count := maxi(pooled_puff_count, 1)
+	if not auto_size_pool:
+		return requested_count
+	var emit_count := maxi(_emit_offsets.size(), 1)
+	var fastest_interval := maxf(spawn_interval_s * 0.5, 0.02)
+	var needed_for_lifetime := int(ceil(float(emit_count) * maxf(puff_lifetime_s, fastest_interval) / fastest_interval)) + emit_count
+	var capped_max := maxi(max_pooled_puff_count, requested_count)
+	return mini(maxi(requested_count, needed_for_lifetime), capped_max)
+
+func _create_pooled_puff() -> void:
 	var scene_root := get_tree().current_scene
 	if scene_root == null:
 		return
-	_shared_mesh.radius = 1.0
-	_shared_mesh.height = 2.0
-	for i in range(maxi(pooled_puff_count, 1)):
-		var puff := MeshInstance3D.new()
-		puff.visible = false
-		puff.mesh = _shared_mesh
-		var mat := StandardMaterial3D.new()
-		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
-		mat.albedo_color = Color(1.0, 1.0, 1.0, 0.0)
-		puff.material_override = mat
-		puff.set_meta("dust_pool_index", i)
-		scene_root.add_child(puff)
-		_puff_pool.append(puff)
-		_available_puff_indices.append(i)
+	var pool_index := _puff_pool.size()
+	var puff := MeshInstance3D.new()
+	puff.visible = false
+	puff.mesh = _shared_mesh
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.blend_mode = BaseMaterial3D.BLEND_MODE_MIX
+	mat.albedo_color = Color(_shared_dust_color.r, _shared_dust_color.g, _shared_dust_color.b, 0.0)
+	puff.material_override = mat
+	puff.set_meta("dust_pool_index", pool_index)
+	scene_root.add_child(puff)
+	_puff_pool.append(puff)
+	_available_puff_indices.append(pool_index)
 
 func _acquire_pooled_puff() -> MeshInstance3D:
+	if _available_puff_indices.is_empty() and _puff_pool.size() < _pool_target_count:
+		_create_pooled_puff()
 	if _available_puff_indices.is_empty():
 		return null
 	var pool_index: int = _available_puff_indices.pop_back()
@@ -204,12 +243,23 @@ func _should_emit_for_camera(delta: float) -> bool:
 		return false
 	if _parent_node.global_position.distance_squared_to(camera.global_position) > max_effect_distance_m * max_effect_distance_m:
 		return false
+	if require_camera_frustum and not _is_effect_in_camera_frustum(camera):
+		return false
 	return true
 
+func _is_effect_in_camera_frustum(camera: Camera3D) -> bool:
+	var base_pos := _parent_node.global_position
+	if camera.is_position_in_frustum(base_pos):
+		return true
+	for offset in _emit_offsets:
+		var emit_pos := _parent_node.to_global(offset)
+		if camera.is_position_in_frustum(emit_pos):
+			return true
+		if camera.is_position_in_frustum(emit_pos + Vector3.UP * maxf(camera_frustum_padding_m, 0.0)):
+			return true
+	return false
+
 func _sample_ground_color() -> void:
-	var camera := _get_active_camera(0.0)
-	if camera == null:
-		return
 	var space := _parent_node.get_world_3d().direct_space_state
 	var origin := _parent_node.global_position
 
@@ -227,6 +277,15 @@ func _sample_ground_color() -> void:
 	if not _is_terrain_hit(hit):
 		return
 	var ground_pos: Vector3 = hit.position
+
+	var terrain_color: Variant = _get_terrain_surface_color(ground_pos)
+	if terrain_color is Color:
+		_shared_dust_color = _shared_dust_color.lerp(_sanitize_dust_color(terrain_color), 0.3)
+		return
+
+	var camera := _get_active_camera(0.0)
+	if camera == null:
+		return
 	if camera.is_position_behind(ground_pos):
 		return
 
@@ -244,7 +303,15 @@ func _sample_ground_color() -> void:
 	if pixel.get_luminance() < 0.15:
 		return
 	# Blend toward new sample gradually
-	_shared_dust_color = _shared_dust_color.lerp(pixel, 0.3)
+	_shared_dust_color = _shared_dust_color.lerp(_sanitize_dust_color(pixel), 0.3)
+
+func _get_terrain_surface_color(world_pos: Vector3) -> Variant:
+	var terrain := TerrainReference.get_terrain_node()
+	if terrain != null and terrain.has_method("get_surface_color"):
+		var color_variant: Variant = terrain.call("get_surface_color", world_pos)
+		if color_variant is Color:
+			return color_variant
+	return null
 
 func _spawn_dust_puff(index: int, speed_ratio: float) -> void:
 	var emit_world: Vector3 = _parent_node.to_global(_emit_offsets[index])
@@ -279,12 +346,12 @@ func _spawn_dust_puff(index: int, speed_ratio: float) -> void:
 	if mat == null:
 		return
 	var variation: float = randf_range(-0.04, 0.04)
-	var base_color: Color = _shared_dust_color
+	var base_color: Color = _sanitize_dust_color(_shared_dust_color)
 	mat.albedo_color = Color(
-		base_color.r + variation,
-		base_color.g + variation,
-		base_color.b + variation,
-		lerpf(0.05, 0.12, speed_ratio)
+		clampf(base_color.r + variation, 0.0, 1.0),
+		clampf(base_color.g + variation, 0.0, 1.0),
+		clampf(base_color.b + variation, 0.0, 1.0),
+		clampf(lerpf(0.05, 0.12, speed_ratio) * maxf(puff_opacity_multiplier, 0.0), 0.0, 1.0)
 	)
 
 	var yaw_speed: float = randf_range(-0.5, 0.5)

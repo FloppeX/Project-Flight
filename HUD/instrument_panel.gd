@@ -1,9 +1,28 @@
 extends Node3D
 # InstrumentPanel.gd - Virtual cockpit instrument display
 
+const MFD_MODULE_SCRIPT := preload("res://HUD/Instruments/MFDModule.gd")
+const TEXT_MODULE_SCRIPT := preload("res://HUD/Instruments/TextInstrumentModule.gd")
+const WARNING_LIGHT_MODULE_SCRIPT := preload("res://HUD/Instruments/WarningLightModule.gd")
+const SLIP_BALL_MODULE_SCRIPT := preload("res://HUD/Instruments/SlipBallModule.gd")
+
 @export var aircraft_path: NodePath
 @export var panel_size: Vector2 = Vector2(0.4, 0.3)  # Size in meters (40cm x 30cm)
-@export var viewport_resolution: Vector2i = Vector2i(400, 300)
+@export var viewport_resolution: Vector2i = Vector2i(800, 600)
+@export var auto_build_default_modules: bool = true
+@export var update_only_when_viewed: bool = true
+@export var module_layout: Array[Dictionary] = []
+@export var show_interaction_cursor: bool = true
+@export var interaction_cursor_radius_px: float = 4.0
+@export var interaction_cursor_color: Color = Color(0.75, 1.0, 0.85, 0.95)
+@export var interaction_cursor_outline_color: Color = Color(0.0, 0.0, 0.0, 0.8)
+@export var render_to_model_surface: bool = false
+@export var model_panel_mesh_path: NodePath
+@export var model_panel_mesh_name: String = "instrument panel"
+@export var model_panel_material_names: PackedStringArray = PackedStringArray(["Instrument panel material"])
+@export var hide_panel_quad_when_rendering_to_model: bool = true
+@export var auto_fit_model_panel_local_rect: bool = true
+@export var model_panel_local_rect: Rect2 = Rect2(-0.5, -0.5, 1.0, 1.0)
 
 @onready var aircraft: Aircraft = get_node(aircraft_path) as Aircraft
 @onready var viewport: SubViewport = $SubViewport
@@ -61,6 +80,13 @@ var _destroyed_target_hold_until_s: float = -INF
 var _target_camera_pose_initialized: bool = false
 var _camera_target_rest_transform: Transform3D = Transform3D.IDENTITY
 var _camera_target_cam_rest_transform: Transform3D = Transform3D.IDENTITY
+var module_root: Control = null
+var instrument_modules: Array[InstrumentModule] = []
+var mfd_modules: Array[MFDModule] = []
+var interaction_cursor: Panel = null
+var _panel_updates_active: bool = true
+var model_panel_mesh: MeshInstance3D = null
+var model_panel_surface_indices: PackedInt32Array = PackedInt32Array()
 
 func _ready():
 	# Set up the panel screen mesh
@@ -74,18 +100,16 @@ func _ready():
 	viewport.transparent_bg = false
 	
 	# Create material for the panel screen
-	var material = StandardMaterial3D.new()
-	material.flags_unshaded = true
-	material.cull_mode = BaseMaterial3D.CULL_DISABLED
-	material.albedo_texture = viewport.get_texture()
-	material.emission_enabled = true
-	material.emission_texture = viewport.get_texture()
-	material.emission_energy = 2.0
+	var material := _create_panel_material()
 	panel_mesh.material_override = material
+	_bind_model_panel_surface(material)
 	
 	# Create a top row container and move the five value labels into it
 	_relayout_top_row()
 	_setup_lower_displays()
+	if auto_build_default_modules:
+		_build_module_panel()
+	_ensure_interaction_cursor()
 	# Resolve camera target on aircraft
 	if aircraft:
 		if camera_target_path != NodePath():
@@ -111,6 +135,140 @@ func _ready():
 	
 	pass
 
+func _create_panel_material() -> ShaderMaterial:
+	var shader := Shader.new()
+	shader.code = """
+shader_type spatial;
+render_mode unshaded, cull_disabled;
+
+uniform sampler2D panel_texture : source_color;
+uniform bool use_local_panel_projection = false;
+uniform vec4 panel_local_rect = vec4(-0.5, -0.5, 1.0, 1.0);
+uniform float emission_energy = 2.0;
+varying vec3 local_position;
+
+void vertex() {
+	local_position = VERTEX;
+}
+
+void fragment() {
+	vec2 sample_uv = UV;
+	if (use_local_panel_projection) {
+		vec2 rect_size = vec2(max(panel_local_rect.z, 0.0001), max(panel_local_rect.w, 0.0001));
+		sample_uv = vec2(
+			(local_position.x - panel_local_rect.x) / rect_size.x,
+			1.0 - ((local_position.y - panel_local_rect.y) / rect_size.y)
+		);
+	}
+	sample_uv = clamp(sample_uv, vec2(0.0), vec2(1.0));
+	vec4 tex = texture(panel_texture, sample_uv);
+	ALBEDO = tex.rgb;
+	EMISSION = tex.rgb * emission_energy;
+	ALPHA = tex.a;
+}
+"""
+	var material := ShaderMaterial.new()
+	material.shader = shader
+	material.set_shader_parameter("panel_texture", viewport.get_texture())
+	_apply_panel_material_local_rect(material, model_panel_local_rect)
+	material.set_shader_parameter("use_local_panel_projection", false)
+	return material
+
+
+func _apply_panel_material_local_rect(material: Material, local_rect: Rect2) -> void:
+	var shader_material := material as ShaderMaterial
+	if shader_material == null:
+		return
+	var rect_size := Vector2(maxf(local_rect.size.x, 0.0001), maxf(local_rect.size.y, 0.0001))
+	shader_material.set_shader_parameter(
+		"panel_local_rect",
+		Vector4(local_rect.position.x, local_rect.position.y, rect_size.x, rect_size.y)
+	)
+
+
+func _bind_model_panel_surface(material: Material) -> void:
+	model_panel_mesh = null
+	model_panel_surface_indices = PackedInt32Array()
+	if not render_to_model_surface:
+		return
+	var mesh_instance := _resolve_model_panel_mesh()
+	if mesh_instance == null:
+		push_warning("[InstrumentPanel] render_to_model_surface enabled, but no model panel mesh was found.")
+		return
+	var mesh := mesh_instance.mesh
+	if mesh == null:
+		push_warning("[InstrumentPanel] model panel mesh has no mesh resource: %s" % mesh_instance.name)
+		return
+	for surface_index in range(mesh.get_surface_count()):
+		if _surface_material_matches(mesh_instance, surface_index):
+			model_panel_surface_indices.append(surface_index)
+	if model_panel_surface_indices.is_empty():
+		push_warning("[InstrumentPanel] no matching model panel material found on mesh %s." % mesh_instance.name)
+		return
+	if auto_fit_model_panel_local_rect:
+		model_panel_local_rect = _calculate_surface_local_xy_bounds(mesh, model_panel_surface_indices)
+		_apply_panel_material_local_rect(material, model_panel_local_rect)
+	var shader_material := material as ShaderMaterial
+	if shader_material != null:
+		shader_material.set_shader_parameter("use_local_panel_projection", true)
+	for surface_index in model_panel_surface_indices:
+		mesh_instance.set_surface_override_material(surface_index, material)
+	model_panel_mesh = mesh_instance
+	if hide_panel_quad_when_rendering_to_model and panel_mesh != null:
+		panel_mesh.visible = false
+
+
+func _calculate_surface_local_xy_bounds(mesh: Mesh, surface_indices: PackedInt32Array) -> Rect2:
+	var found_vertex := false
+	var min_xy := Vector2.ZERO
+	var max_xy := Vector2.ZERO
+	for surface_index in surface_indices:
+		var arrays := mesh.surface_get_arrays(surface_index)
+		var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		for vertex in vertices:
+			var xy := Vector2(vertex.x, vertex.y)
+			if not found_vertex:
+				min_xy = xy
+				max_xy = xy
+				found_vertex = true
+			else:
+				min_xy = Vector2(minf(min_xy.x, xy.x), minf(min_xy.y, xy.y))
+				max_xy = Vector2(maxf(max_xy.x, xy.x), maxf(max_xy.y, xy.y))
+	if not found_vertex:
+		return Rect2(-0.5, -0.5, 1.0, 1.0)
+	return Rect2(min_xy, max_xy - min_xy)
+
+
+func _resolve_model_panel_mesh() -> MeshInstance3D:
+	if model_panel_mesh_path != NodePath():
+		var explicit_node := get_node_or_null(model_panel_mesh_path) as MeshInstance3D
+		if explicit_node != null:
+			return explicit_node
+	if aircraft != null and is_instance_valid(aircraft):
+		var named := aircraft.find_child(model_panel_mesh_name, true, false) as MeshInstance3D
+		if named != null:
+			return named
+	var root := get_parent()
+	if root != null:
+		return root.find_child(model_panel_mesh_name, true, false) as MeshInstance3D
+	return null
+
+
+func _surface_material_matches(mesh_instance: MeshInstance3D, surface_index: int) -> bool:
+	if model_panel_material_names.is_empty():
+		return true
+	var material := mesh_instance.get_surface_override_material(surface_index)
+	if material == null and mesh_instance.mesh != null:
+		material = mesh_instance.mesh.surface_get_material(surface_index)
+	if material == null:
+		return false
+	var material_name := material.resource_name.strip_edges()
+	for expected_name in model_panel_material_names:
+		if material_name == expected_name.strip_edges():
+			return true
+	return false
+
+
 func _ensure_aircraft_bound() -> void:
 	if aircraft == null or not is_instance_valid(aircraft):
 		var a := get_tree().get_first_node_in_group("aircraft") as Aircraft
@@ -133,9 +291,14 @@ func bind_to_aircraft(new_aircraft: Node3D) -> void:
 			_camera_target_cam_rest_transform = camera_target_cam.transform
 			camera_target_cam.current = false
 	_target_camera_pose_initialized = false
+	for module in instrument_modules:
+		if module != null and is_instance_valid(module):
+			module.set_aircraft_reference(aircraft)
 
 
 func _physics_process(delta: float) -> void:
+	if not _should_update_panel_this_frame():
+		return
 	# Update missile camera in physics process for better sync with missile movement
 	if missile_camera_mode and is_instance_valid(tracked_missile):
 		_update_missile_camera()
@@ -145,7 +308,14 @@ func _process(delta: float) -> void:
 	if aircraft == null or not is_instance_valid(aircraft):
 		_ensure_aircraft_bound()
 	if aircraft == null or not is_instance_valid(aircraft):
+		_set_interaction_cursor_visible(false)
+		_set_panel_updates_active(false)
 		return
+	if not _should_update_panel_this_frame():
+		_set_interaction_cursor_visible(false)
+		_set_panel_updates_active(false)
+		return
+	_set_panel_updates_active(true)
 
 	# Update altitude display
 	var altitude = aircraft.local_altitude
@@ -244,6 +414,9 @@ func _process(delta: float) -> void:
 		else:
 			struct_label.modulate = Color.DARK_RED
 
+	_update_instrument_modules(delta)
+	_update_interaction_cursor()
+
 	# Update target camera to look at current target if module present
 	if target_camera and is_instance_valid(target_camera):
 		# MISSILE CAMERA MODE: Follow missile if one is being tracked
@@ -258,32 +431,11 @@ func _process(delta: float) -> void:
 				source_xform = source_xform * _camera_target_cam_rest_transform
 			if not target_focus.is_empty():
 				var focus_pos: Vector3 = target_focus["position"]
-				# Compute clear line of sight from mount to target
-				var mount_pos: Vector3 = source_xform.origin
-				var tgt_pos: Vector3 = focus_pos
-				var space_state: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
-				var ray_params: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(mount_pos, tgt_pos)
-				ray_params.exclude = [aircraft]
-				var hit: Dictionary = space_state.intersect_ray(ray_params)
-				var to_target: Vector3 = tgt_pos - mount_pos
-				var dir: Vector3 = to_target.normalized() if to_target.length_squared() > 0.0001 else -source_xform.basis.z.normalized()
-				var desired_pos: Vector3 = tgt_pos - dir * zoom_distance
-				# If unobstructed or the only obstruction is the target itself, move camera along path
-				var can_move: bool = false
-				if not hit:
-					can_move = true
-				elif target_focus.get("target", null) != null and hit.has("collider") and hit.collider == target_focus["target"]:
-					can_move = true
-				# Apply camera position
-				if can_move:
-					# Clamp so we don't go past the mount
-					var seg_len = (tgt_pos - mount_pos).length()
-					var dist_from_mount = max(0.0, seg_len - zoom_distance)
-					desired_pos = mount_pos + dir * dist_from_mount
-					_slew_target_camera_look_at(desired_pos, tgt_pos, delta)
-				else:
-					# Stay at mount if obstructed, still look at target
-					_slew_target_camera_look_at(source_xform.origin, tgt_pos, delta)
+				# Keep the target feed as a true aircraft-mounted sensor.
+				# Earlier versions slid the camera toward the target for zoom/composition,
+				# which made the feed feel like it was lagging behind the aircraft and could
+				# jitter when obstruction tests changed frame-to-frame.
+				_slew_target_camera_look_at(source_xform.origin, focus_pos, delta)
 				_ensure_target_view_camera_current()
 				if target_placeholder:
 					target_placeholder.visible = false
@@ -338,6 +490,24 @@ func _process(delta: float) -> void:
 		else:
 			_slew_target_camera_fov(idle_fov_deg, delta)
 	
+
+func _should_update_panel_this_frame() -> bool:
+	if not update_only_when_viewed:
+		return true
+	return _is_panel_aircraft_currently_viewed()
+
+
+func _set_panel_updates_active(active: bool) -> void:
+	if _panel_updates_active == active:
+		return
+	_panel_updates_active = active
+	if not active and target_placeholder != null and is_instance_valid(target_placeholder):
+		target_placeholder.visible = false
+	if viewport != null and is_instance_valid(viewport):
+		viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS if active else SubViewport.UPDATE_DISABLED
+	if target_viewport != null and is_instance_valid(target_viewport):
+		target_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS if active else SubViewport.UPDATE_DISABLED
+
 
 func _setup_lower_displays() -> void:
 	if display_root == null:
@@ -431,8 +601,9 @@ func _setup_lower_displays() -> void:
 		target_effect_material.set_shader_parameter("nv_enabled", nv_mode_enabled)
 		target_texture_rect.material = target_effect_material
 		target_panel.add_child(target_texture_rect)
-		# Placeholder test pattern when no target
-		test_pattern_tex = _generate_test_pattern_texture(viewport_resolution)
+		# Dark placeholder avoids flashing debug color bars if the panel texture
+		# captures an early frame before the target camera has updated.
+		test_pattern_tex = _generate_dark_placeholder_texture(viewport_resolution)
 		target_placeholder = TextureRect.new()
 		target_placeholder.stretch_mode = TextureRect.STRETCH_SCALE  # Keep consistent with live feed
 		target_placeholder.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -442,7 +613,7 @@ func _setup_lower_displays() -> void:
 		target_placeholder.add_theme_constant_override("margin_top", 0)
 		target_placeholder.add_theme_constant_override("margin_bottom", 0)
 		target_placeholder.texture = test_pattern_tex
-		target_placeholder.visible = true
+		target_placeholder.visible = false
 		target_panel.add_child(target_placeholder)
 		# Ensure placeholder sits behind/over depending on visibility ordering
 		target_panel.move_child(target_placeholder, 0)
@@ -466,6 +637,8 @@ func _setup_lower_displays() -> void:
 	call_deferred("_update_lower_layout_sizes")
 
 func _update_lower_layout_sizes() -> void:
+	if module_root != null:
+		return
 	# MANUAL LAYOUT: Fixed positioning, no dynamic calculations
 	var lower := display_root.get_node_or_null("LowerRow") as Control
 	if lower == null:
@@ -482,6 +655,388 @@ func _update_lower_layout_sizes() -> void:
 		target_panel.position = Vector2(205, 0)  # 195 + 10 separation
 		target_panel.custom_minimum_size = Vector2(195, 195)
 		target_panel.size = Vector2(195, 195)
+
+
+func _build_module_panel() -> void:
+	if display_root == null:
+		return
+
+	for child in display_root.get_children():
+		var control := child as Control
+		if control != null and control.name != "Background":
+			control.visible = false
+
+	if module_root != null and is_instance_valid(module_root):
+		module_root.queue_free()
+	module_root = Control.new()
+	module_root.name = "ModulePanelRoot"
+	module_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	display_root.add_child(module_root)
+	module_root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	module_root.visible = true
+
+	instrument_modules.clear()
+	mfd_modules.clear()
+
+	var layout := module_layout
+	if layout.is_empty():
+		layout = _default_module_layout()
+
+	for entry in layout:
+		var module := _create_module_from_layout(entry)
+		if module == null:
+			continue
+		module_root.add_child(module)
+		_position_module(module, entry)
+		module.set_context(self, aircraft)
+		instrument_modules.append(module)
+		if module is MFDModule:
+			mfd_modules.append(module as MFDModule)
+
+	_attach_existing_display_views_to_mfds()
+	_ensure_interaction_cursor()
+	_update_instrument_modules(0.0)
+
+
+func _ensure_interaction_cursor() -> void:
+	if display_root == null:
+		return
+	if interaction_cursor != null and is_instance_valid(interaction_cursor):
+		display_root.move_child(interaction_cursor, display_root.get_child_count() - 1)
+		return
+
+	interaction_cursor = Panel.new()
+	interaction_cursor.name = "InteractionCursor"
+	interaction_cursor.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	interaction_cursor.visible = false
+	interaction_cursor.z_index = 100
+	display_root.add_child(interaction_cursor)
+	_update_interaction_cursor_style()
+
+
+func _update_interaction_cursor_style() -> void:
+	if interaction_cursor == null:
+		return
+	var radius := maxf(interaction_cursor_radius_px, 1.0)
+	var style := StyleBoxFlat.new()
+	style.bg_color = interaction_cursor_color
+	style.border_color = interaction_cursor_outline_color
+	style.border_width_left = 1
+	style.border_width_top = 1
+	style.border_width_right = 1
+	style.border_width_bottom = 1
+	style.corner_radius_top_left = int(radius)
+	style.corner_radius_top_right = int(radius)
+	style.corner_radius_bottom_left = int(radius)
+	style.corner_radius_bottom_right = int(radius)
+	interaction_cursor.add_theme_stylebox_override("panel", style)
+	interaction_cursor.size = Vector2.ONE * radius * 2.0
+
+
+func _update_interaction_cursor() -> void:
+	if not show_interaction_cursor:
+		_set_interaction_cursor_visible(false)
+		return
+	if interaction_cursor == null or not is_instance_valid(interaction_cursor):
+		_ensure_interaction_cursor()
+	if interaction_cursor == null:
+		return
+
+	var active_camera := get_viewport().get_camera_3d()
+	if active_camera == null or not is_instance_valid(active_camera):
+		_set_interaction_cursor_visible(false)
+		return
+	if not _is_panel_aircraft_currently_viewed():
+		_set_interaction_cursor_visible(false)
+		return
+
+	var point_variant: Variant = _project_camera_to_panel_point(active_camera, 2.5)
+	if point_variant == null:
+		_set_interaction_cursor_visible(false)
+		return
+	var point: Vector2 = point_variant
+
+	var radius := maxf(interaction_cursor_radius_px, 1.0)
+	interaction_cursor.size = Vector2.ONE * radius * 2.0
+	interaction_cursor.position = Vector2(
+		clampf(point.x - radius, 0.0, maxf(float(viewport_resolution.x) - radius * 2.0, 0.0)),
+		clampf(point.y - radius, 0.0, maxf(float(viewport_resolution.y) - radius * 2.0, 0.0))
+	)
+	_set_interaction_cursor_visible(true)
+
+
+func _set_interaction_cursor_visible(is_visible: bool) -> void:
+	if interaction_cursor != null and is_instance_valid(interaction_cursor):
+		interaction_cursor.visible = is_visible
+
+
+func _default_module_layout() -> Array[Dictionary]:
+	return [
+		{
+			"type": "warning_lights",
+			"id": "warning_strip",
+			"title": "WARNINGS",
+			"rect": Rect2(10, 8, 780, 54),
+			"lights": ["ENGINE", "WEAPONS", "CONTROLS", "GEAR", "STALL", "MISSILE"],
+		},
+		{
+			"type": "mfd",
+			"id": "mfd_left",
+			"title": "MFD L",
+			"rect": Rect2(10, 72, 270, 270),
+			"modes": ["MAP", "WEAPONS", "DAMAGE", "SYSTEMS"],
+		},
+		{
+			"type": "mfd",
+			"id": "mfd_right",
+			"title": "MFD R",
+			"rect": Rect2(520, 72, 270, 270),
+			"modes": ["TARGET", "MAP", "WEAPONS", "DAMAGE", "SYSTEMS"],
+		},
+		{"type": "readout", "id": "speed", "title": "SPEED", "instrument": "speed", "rect": Rect2(294, 72, 100, 62)},
+		{"type": "readout", "id": "altitude", "title": "ALT", "instrument": "altitude", "rect": Rect2(406, 72, 100, 62)},
+		{"type": "readout", "id": "vertical_speed", "title": "V/S", "instrument": "vertical_speed", "rect": Rect2(294, 144, 100, 62)},
+		{"type": "readout", "id": "fuel", "title": "FUEL", "instrument": "fuel", "rect": Rect2(406, 144, 100, 62)},
+		{"type": "readout", "id": "gear", "title": "GEAR", "instrument": "gear", "rect": Rect2(294, 216, 100, 62)},
+		{"type": "readout", "id": "flaps", "title": "FLAPS", "instrument": "flaps", "rect": Rect2(406, 216, 100, 62)},
+		{"type": "readout", "id": "stall", "title": "STALL", "instrument": "stall", "rect": Rect2(294, 288, 100, 54)},
+		{"type": "readout", "id": "missile_lock", "title": "M LOCK", "instrument": "missile_lock", "rect": Rect2(406, 288, 100, 54)},
+		{"type": "slip_ball", "id": "slip_ball", "title": "BALL", "rect": Rect2(10, 356, 270, 78)},
+		{"type": "readout", "id": "engine", "title": "ENGINE", "instrument": "engine", "rect": Rect2(294, 356, 100, 78)},
+		{"type": "readout", "id": "damage", "title": "STRUCT", "instrument": "damage", "rect": Rect2(406, 356, 100, 78)},
+		{"type": "readout", "id": "g_force", "title": "G", "instrument": "g_force", "rect": Rect2(520, 356, 128, 78)},
+		{"type": "readout", "id": "weapons", "title": "WEAPONS", "instrument": "weapons", "rect": Rect2(662, 356, 128, 78)},
+	]
+
+
+func _create_module_from_layout(entry: Dictionary) -> InstrumentModule:
+	var module_type := str(entry.get("type", "readout"))
+	var module: InstrumentModule = null
+	match module_type:
+		"mfd":
+			module = MFD_MODULE_SCRIPT.new()
+		"warning_lights":
+			module = WARNING_LIGHT_MODULE_SCRIPT.new()
+		"slip_ball":
+			module = SLIP_BALL_MODULE_SCRIPT.new()
+		"readout":
+			module = TEXT_MODULE_SCRIPT.new()
+		_:
+			push_warning("Unknown instrument module type: %s" % module_type)
+			return null
+	module.configure(entry)
+	return module
+
+
+func _position_module(module: Control, entry: Dictionary) -> void:
+	var rect := Rect2(Vector2.ZERO, Vector2(100.0, 60.0))
+	if entry.has("rect"):
+		rect = entry.get("rect")
+	module.position = rect.position
+	module.custom_minimum_size = rect.size
+	module.size = rect.size
+
+
+func _attach_existing_display_views_to_mfds() -> void:
+	if mfd_modules.is_empty():
+		return
+
+	var map_attached := false
+	if radar_panel != null and is_instance_valid(radar_panel):
+		for mfd in mfd_modules:
+			if mfd.available_modes.has("MAP"):
+				mfd.add_mode_view("MAP", radar_panel)
+				map_attached = true
+				break
+	if not map_attached and radar_panel != null:
+		radar_panel.visible = false
+
+	var target_attached := false
+	if target_panel != null and is_instance_valid(target_panel):
+		for mfd in mfd_modules:
+			if mfd.module_id == "mfd_right" and mfd.available_modes.has("TARGET"):
+				mfd.add_mode_view("TARGET", target_panel)
+				target_attached = true
+				break
+		if not target_attached:
+			for mfd in mfd_modules:
+				if mfd.available_modes.has("TARGET"):
+					mfd.add_mode_view("TARGET", target_panel)
+					target_attached = true
+					break
+	if not target_attached and target_panel != null:
+		target_panel.visible = false
+
+
+func _update_instrument_modules(delta: float) -> void:
+	for module in instrument_modules:
+		if module != null and is_instance_valid(module):
+			module.update_from_aircraft(delta)
+
+
+func interact_from_camera(camera: Camera3D, max_distance_m: float = 2.5) -> bool:
+	if camera == null or not is_instance_valid(camera):
+		return false
+	var point_variant: Variant = _project_camera_to_panel_point(camera, max_distance_m)
+	if point_variant == null:
+		return false
+	var point: Vector2 = point_variant
+	return interact_at_panel_point(point)
+
+
+func interact_from_ray(ray_origin: Vector3, ray_direction: Vector3, max_distance_m: float = 2.5) -> bool:
+	var point_variant: Variant = _project_ray_to_panel_point(ray_origin, ray_direction, max_distance_m)
+	if point_variant == null:
+		return false
+	var point: Vector2 = point_variant
+	return interact_at_panel_point(point)
+
+
+func _project_camera_to_panel_point(camera: Camera3D, max_distance_m: float = 2.5) -> Variant:
+	if camera == null or not is_instance_valid(camera):
+		return null
+	return _project_ray_to_panel_point(
+		camera.global_position,
+		-camera.global_transform.basis.z.normalized(),
+		max_distance_m
+	)
+
+
+func _project_ray_to_panel_point(ray_origin: Vector3, ray_direction: Vector3, max_distance_m: float = 2.5) -> Variant:
+	if ray_direction.length_squared() <= 0.0001:
+		return null
+	if render_to_model_surface and model_panel_mesh != null and is_instance_valid(model_panel_mesh):
+		var model_point: Variant = _project_ray_to_model_panel_point(ray_origin, ray_direction, max_distance_m)
+		if model_point != null:
+			return model_point
+	var inv := global_transform.affine_inverse()
+	var local_origin := inv * ray_origin
+	var local_dir := inv.basis * ray_direction.normalized()
+	if absf(local_dir.z) <= 0.0001:
+		return null
+	var t := -local_origin.z / local_dir.z
+	if t < 0.0:
+		return null
+	var hit := local_origin + local_dir * t
+	var world_hit := global_transform * hit
+	if ray_origin.distance_to(world_hit) > max_distance_m:
+		return null
+	if absf(hit.x) > panel_size.x * 0.5 or absf(hit.y) > panel_size.y * 0.5:
+		return null
+	var uv := Vector2((hit.x / panel_size.x) + 0.5, 0.5 - (hit.y / panel_size.y))
+	return Vector2(
+		clampf(uv.x, 0.0, 1.0) * float(viewport_resolution.x),
+		clampf(uv.y, 0.0, 1.0) * float(viewport_resolution.y)
+	)
+
+
+func _project_ray_to_model_panel_point(ray_origin: Vector3, ray_direction: Vector3, max_distance_m: float) -> Variant:
+	var mesh_instance := model_panel_mesh
+	if mesh_instance == null or not is_instance_valid(mesh_instance):
+		return null
+	var mesh := mesh_instance.mesh
+	if mesh == null:
+		return null
+	var inv := mesh_instance.global_transform.affine_inverse()
+	var local_origin := inv * ray_origin
+	var local_dir := inv.basis * ray_direction.normalized()
+	if local_dir.length_squared() <= 0.0001:
+		return null
+	local_dir = local_dir.normalized()
+	var closest_t := INF
+	var found := false
+	for surface_index in model_panel_surface_indices:
+		var arrays := mesh.surface_get_arrays(surface_index)
+		var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		if vertices.is_empty():
+			continue
+		var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+		if indices.is_empty():
+			for vertex_index in range(0, vertices.size() - 2, 3):
+				var direct_t := _ray_triangle_t(local_origin, local_dir, vertices, vertex_index, vertex_index + 1, vertex_index + 2)
+				if is_inf(direct_t):
+					continue
+				if direct_t < closest_t:
+					closest_t = direct_t
+					found = true
+		else:
+			for index_offset in range(0, indices.size() - 2, 3):
+				var indexed_t := _ray_triangle_t(local_origin, local_dir, vertices, indices[index_offset], indices[index_offset + 1], indices[index_offset + 2])
+				if is_inf(indexed_t):
+					continue
+				if indexed_t < closest_t:
+					closest_t = indexed_t
+					found = true
+	if not found:
+		return null
+	var local_hit := local_origin + local_dir * closest_t
+	var world_hit := mesh_instance.global_transform * local_hit
+	if ray_origin.distance_to(world_hit) > max_distance_m:
+		return null
+	var rect_size := Vector2(maxf(model_panel_local_rect.size.x, 0.0001), maxf(model_panel_local_rect.size.y, 0.0001))
+	var panel_uv := Vector2(
+		(local_hit.x - model_panel_local_rect.position.x) / rect_size.x,
+		1.0 - ((local_hit.y - model_panel_local_rect.position.y) / rect_size.y)
+	)
+	return Vector2(
+		clampf(panel_uv.x, 0.0, 1.0) * float(viewport_resolution.x),
+		clampf(panel_uv.y, 0.0, 1.0) * float(viewport_resolution.y)
+	)
+
+
+func _ray_triangle_t(
+	origin: Vector3,
+	direction: Vector3,
+	vertices: PackedVector3Array,
+	i0: int,
+	i1: int,
+	i2: int
+) -> float:
+	if i0 < 0 or i1 < 0 or i2 < 0:
+		return INF
+	if i0 >= vertices.size() or i1 >= vertices.size() or i2 >= vertices.size():
+		return INF
+	var a := vertices[i0]
+	var b := vertices[i1]
+	var c := vertices[i2]
+	var edge1 := b - a
+	var edge2 := c - a
+	var pvec := direction.cross(edge2)
+	var det := edge1.dot(pvec)
+	if absf(det) <= 0.000001:
+		return INF
+	var inv_det := 1.0 / det
+	var tvec := origin - a
+	var u := tvec.dot(pvec) * inv_det
+	if u < 0.0 or u > 1.0:
+		return INF
+	var qvec := tvec.cross(edge1)
+	var v := direction.dot(qvec) * inv_det
+	if v < 0.0 or u + v > 1.0:
+		return INF
+	var t := edge2.dot(qvec) * inv_det
+	if t < 0.0:
+		return INF
+	return t
+
+
+func interact_at_panel_uv(uv: Vector2) -> bool:
+	var point := Vector2(
+		clampf(uv.x, 0.0, 1.0) * float(viewport_resolution.x),
+		clampf(uv.y, 0.0, 1.0) * float(viewport_resolution.y)
+	)
+	return interact_at_panel_point(point)
+
+
+func interact_at_panel_point(point_px: Vector2) -> bool:
+	for i in range(instrument_modules.size() - 1, -1, -1):
+		var module := instrument_modules[i]
+		if module == null or not is_instance_valid(module) or not module.visible:
+			continue
+		var rect := Rect2(module.position, module.size)
+		if rect.has_point(point_px):
+			return module.interact(point_px - module.position)
+	return false
 
 func _compute_top_row_content_width() -> float:
 	var tr := display_root.get_node_or_null("TopRow") as HBoxContainer
@@ -974,26 +1529,9 @@ func _on_missile_destroyed():
 	tracked_missile = null
 	# Target info will be updated in normal _process loop
 
-func _generate_test_pattern_texture(size_px: Vector2i) -> Texture2D:
+func _generate_dark_placeholder_texture(size_px: Vector2i) -> Texture2D:
 	var width: int = max(8, size_px.x)
 	var height: int = max(8, size_px.y)
 	var img := Image.create(width, height, false, Image.FORMAT_RGBA8)
-	# SMPTE-like vertical color bars
-	var bars: Array = [
-		Color(1,1,1),   # White
-		Color(1,1,0),   # Yellow
-		Color(0,1,1),   # Cyan
-		Color(0,1,0),   # Green
-		Color(1,0,1),   # Magenta
-		Color(1,0,0),   # Red
-		Color(0,0,1),   # Blue
-		Color(0,0,0)    # Black
-	]
-	var bar_count: int = bars.size()
-	var bar_w: int = max(1, width / bar_count)
-	for x in range(width):
-		var idx: int = clamp(x / bar_w, 0, bar_count - 1)
-		var col: Color = bars[idx]
-		for y in range(height):
-			img.set_pixel(x, y, col)
+	img.fill(Color(0.01, 0.035, 0.018, 1.0))
 	return ImageTexture.create_from_image(img)
