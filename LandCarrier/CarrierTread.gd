@@ -12,7 +12,7 @@ const DEBUG_MODE_NAMES := [
 @export var carrier_offset: Vector3 = Vector3.ZERO
 
 @export_group("Track Plates")
-@export var plate_count: int = 30:
+@export var plate_count: int = 20:
 	set(value):
 		plate_count = maxi(value, 1)
 		if is_inside_tree():
@@ -31,6 +31,8 @@ const DEBUG_MODE_NAMES := [
 @export var plate_local_rotation_degrees: Vector3 = Vector3.ZERO
 @export var plate_local_scale: Vector3 = Vector3.ONE
 @export var visual_direction_sign: float = 1.0
+@export var skip_offscreen_plate_animation: bool = true
+@export var visibility_bounds_padding_m: float = 6.0
 
 @export_group("Generated Loop")
 @export var auto_build_path: bool = true
@@ -83,6 +85,9 @@ var _last_carrier_origin: Vector3 = Vector3.ZERO
 var _last_carrier_forward: Vector3 = Vector3.FORWARD
 var _last_external_update_msec: int = 0
 var _rolling_audio_player: AudioStreamPlayer3D = null
+var _visibility_notifier: VisibleOnScreenNotifier3D = null
+var _track_visuals_on_screen: bool = true
+var _track_visual_refresh_required: bool = true
 
 
 func _ready() -> void:
@@ -104,6 +109,7 @@ func _ready() -> void:
 	_collect_wheels()
 	_ensure_path()
 	_rebuild_track_multimesh()
+	_setup_visibility_notifier()
 	_setup_rolling_audio()
 
 
@@ -129,6 +135,20 @@ func set_scroll_speed(speed_mps: float) -> void:
 
 func set_track_speed(speed_mps: float) -> void:
 	set_scroll_speed(speed_mps)
+
+
+func get_plate_spacing_m() -> float:
+	if _path_length_m > 0.001:
+		return _path_length_m / float(maxi(plate_count, 1))
+	return maxf(fallback_plate_size.z + maxf(plate_gap_m, 0.0), 0.05)
+
+
+func get_plate_length_m() -> float:
+	return _plate_length_for_spacing(get_plate_spacing_m())
+
+
+func get_plate_width_m() -> float:
+	return maxf(plate_target_width_m, fallback_plate_size.x)
 
 
 func update_scroll_speed(delta: float, speed_mps: float) -> void:
@@ -293,6 +313,7 @@ func _rebuild_track_multimesh() -> void:
 	multimesh.instance_count = plate_count
 	_track_multimesh.multimesh = multimesh
 	_update_multimesh_transforms()
+	_update_visibility_notifier_bounds()
 
 	_apply_debug_mode()
 
@@ -360,12 +381,67 @@ func _advance_tracks(signed_travel_m: float) -> void:
 	if _path_length_m <= 0.001:
 		return
 	if belt_debug_freeze_scroll:
-		_rotate_wheels(signed_travel_m)
+		if _should_update_track_visuals():
+			_rotate_wheels(signed_travel_m)
 		return
 
 	_travel_m = _wrap_distance(_travel_m + signed_travel_m * _scroll_sign * visual_direction_sign)
-	_update_multimesh_transforms()
-	_rotate_wheels(signed_travel_m)
+	if _should_update_track_visuals():
+		_update_multimesh_transforms()
+		_rotate_wheels(signed_travel_m)
+
+
+func _should_update_track_visuals() -> bool:
+	if not skip_offscreen_plate_animation:
+		_track_visual_refresh_required = false
+		return true
+	if _visibility_notifier == null or not is_instance_valid(_visibility_notifier) or not _visibility_notifier.is_inside_tree():
+		_track_visual_refresh_required = false
+		return true
+	var visible_to_camera := _visibility_notifier.is_on_screen()
+	if visible_to_camera:
+		_track_visuals_on_screen = true
+	if visible_to_camera or _track_visual_refresh_required:
+		_track_visual_refresh_required = false
+		return true
+	_track_visuals_on_screen = false
+	return false
+
+
+func _setup_visibility_notifier() -> void:
+	_visibility_notifier = get_node_or_null("TrackVisibility") as VisibleOnScreenNotifier3D
+	if _visibility_notifier == null:
+		_visibility_notifier = VisibleOnScreenNotifier3D.new()
+		_visibility_notifier.name = "TrackVisibility"
+		add_child(_visibility_notifier)
+	_update_visibility_notifier_bounds()
+	if not _visibility_notifier.screen_entered.is_connected(_on_track_screen_entered):
+		_visibility_notifier.screen_entered.connect(_on_track_screen_entered)
+	if not _visibility_notifier.screen_exited.is_connected(_on_track_screen_exited):
+		_visibility_notifier.screen_exited.connect(_on_track_screen_exited)
+	_track_visuals_on_screen = _visibility_notifier.is_on_screen()
+	_track_visual_refresh_required = true
+
+
+func _update_visibility_notifier_bounds() -> void:
+	if _visibility_notifier == null:
+		return
+	var padding := maxf(visibility_bounds_padding_m, 0.0)
+	var half_width := maxf(plate_target_width_m, fallback_plate_size.x) * 0.5 + padding
+	var half_length := maxf(top_run_length_m, bottom_run_length_m) * 0.5 + maxf(front_slope_extension_m, back_slope_extension_m) + padding
+	var half_height := maxf(loop_height_m, fallback_plate_size.y) * 0.5 + padding
+	var center := Vector3(path_side_offset_m, path_vertical_offset_m - loop_height_m * 0.5, 0.0)
+	var size := Vector3(half_width * 2.0, half_height * 2.0, half_length * 2.0)
+	_visibility_notifier.aabb = AABB(center - size * 0.5, size)
+
+
+func _on_track_screen_entered() -> void:
+	_track_visuals_on_screen = true
+	_track_visual_refresh_required = true
+
+
+func _on_track_screen_exited() -> void:
+	_track_visuals_on_screen = false
 
 
 func _apply_scroll_speed(delta: float, speed_mps: float) -> void:

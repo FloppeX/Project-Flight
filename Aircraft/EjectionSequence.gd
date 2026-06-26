@@ -2,7 +2,6 @@ extends Node
 class_name EjectionSequence
 
 const FlightDirectorScript = preload("res://AirOps/FlightDirector.gd")
-
 @export var canopy_path: NodePath
 @export var cockpit_canopy_visibility_path: NodePath
 @export var ejection_seat_path: NodePath

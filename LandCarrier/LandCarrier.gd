@@ -5,6 +5,7 @@ const CARRIER_TREAD_SCRIPT := preload("res://LandCarrier/CarrierTread.gd")
 const VEHICLE_RAMP_SCRIPT := preload("res://LandCarrier/VehicleRamp.gd")
 const VEHICLE_BAY_SCRIPT := preload("res://LandCarrier/VehicleBayManager.gd")
 const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
+const PERF_OVERRIDE_PATH := "user://land_carrier_perf_override.json"
 
 # --- Waypoints ---
 @export var waypoints: Array[NodePath] = []
@@ -18,6 +19,9 @@ const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
 @export var turn_speed: float = 0.25
 @export var turn_rate_response: float = 1.4
 @export_range(0.0, 0.9, 0.05) var turn_speed_slowdown: float = 0.45
+@export var steering_axle_half_wheelbase_m: float = 48.0
+@export_range(0.0, 1.5, 0.05) var rear_axle_steer_ratio: float = 1.0
+@export var hard_turn_crawl_speed_mps: float = 2.0
 @export var steer_response: float = 2.5
 @export var steer_deadzone: float = 0.03
 @export var settle_turn_angle_deg: float = 1.5
@@ -69,6 +73,22 @@ const MAX_TREAD_STEER: float = 0.4
 @export var deck_sound_unit_size_m: float = 55.0
 @export var deck_sound_max_distance_m: float = 420.0
 
+@export_group("Ground Track Marks")
+@export var track_marks_enabled: bool = true
+@export var track_mark_lifetime_s: float = 30.0
+@export var track_mark_min_speed_mps: float = 0.75
+@export var track_mark_spawn_spacing_m: float = 0.0
+@export var track_mark_width_m: float = 0.0
+@export var track_mark_length_m: float = 0.0
+@export var track_mark_thickness_m: float = 0.035
+@export var track_mark_ground_offset_m: float = 0.06
+@export_range(0.0, 1.0, 0.01) var track_mark_darken_factor: float = 0.34
+@export_range(0.0, 1.0, 0.01) var track_mark_fade_floor_darken_factor: float = 0.72
+@export_range(0.0, 1.0, 0.01) var track_mark_max_luminance: float = 0.22
+@export var track_mark_fallback_color: Color = Color(0.025, 0.023, 0.018, 1.0)
+@export var track_mark_max_active: int = 240
+@export var track_mark_fade_update_rate_hz: float = 5.0
+
 # --- State ---
 var _raw_waypoints: Array[Vector3] = []
 var _raw_waypoint_index: int = 0
@@ -96,6 +116,16 @@ var elevator: Node3D
 var vehicle_ramp: Node3D
 var vehicle_bay: Node3D
 var _deck_audio_player: AudioStreamPlayer3D
+var _track_mark_root: MultiMeshInstance3D = null
+var _track_mark_multimesh: MultiMesh = null
+var _track_mark_mesh: BoxMesh = null
+var _track_mark_material: StandardMaterial3D = null
+var _track_mark_entries: Array[Dictionary] = []
+var _track_mark_distance_accum_m: float = 0.0
+var _track_mark_debug_log_interval_s: float = 0.0
+var _track_mark_debug_log_timer_s: float = 0.0
+var _track_mark_multimesh_dirty: bool = false
+var _track_mark_fade_update_timer_s: float = 0.0
 var _terrain_provider: Node = null
 var _heli_test_stationary: bool = false
 const TEAM_ID: int = 1
@@ -104,6 +134,7 @@ func _ready():
 	add_to_group("carrier")
 	add_to_group("origin_shifter")
 	visible = false
+	_apply_perf_override()
 	_resolve_waypoints()
 	_collect_tread_nodes()
 	find_treads()
@@ -122,11 +153,55 @@ func _ready():
 	else:
 		call_deferred("_compute_path_to_destination")
 
+func _apply_perf_override() -> void:
+	if not FileAccess.file_exists(PERF_OVERRIDE_PATH):
+		return
+	var file := FileAccess.open(PERF_OVERRIDE_PATH, FileAccess.READ)
+	if file == null:
+		return
+	var parsed: Variant = JSON.parse_string(file.get_as_text())
+	if not parsed is Dictionary:
+		return
+	var data: Dictionary = parsed
+	if data.has("track_marks_enabled"):
+		track_marks_enabled = bool(data.get("track_marks_enabled"))
+	if data.has("track_mark_max_active"):
+		track_mark_max_active = maxi(int(data.get("track_mark_max_active")), 0)
+	if data.has("track_mark_lifetime_s"):
+		track_mark_lifetime_s = maxf(float(data.get("track_mark_lifetime_s")), 0.01)
+	if data.has("track_mark_spawn_spacing_m"):
+		track_mark_spawn_spacing_m = maxf(float(data.get("track_mark_spawn_spacing_m")), 0.0)
+	if data.has("track_mark_min_speed_mps"):
+		track_mark_min_speed_mps = maxf(float(data.get("track_mark_min_speed_mps")), 0.0)
+	if data.has("track_mark_fade_update_rate_hz"):
+		track_mark_fade_update_rate_hz = maxf(float(data.get("track_mark_fade_update_rate_hz")), 0.0)
+	if data.has("track_mark_debug_log_interval_s"):
+		_track_mark_debug_log_interval_s = maxf(float(data.get("track_mark_debug_log_interval_s")), 0.0)
+		_track_mark_debug_log_timer_s = _track_mark_debug_log_interval_s
+	print("[LandCarrierPerfOverride] track_marks_enabled=%s max_active=%d lifetime=%.1f spacing=%.2f min_speed=%.2f fade_hz=%.1f debug_interval=%.1f" % [
+		str(track_marks_enabled),
+		track_mark_max_active,
+		track_mark_lifetime_s,
+		track_mark_spawn_spacing_m,
+		track_mark_min_speed_mps,
+		track_mark_fade_update_rate_hz,
+		_track_mark_debug_log_interval_s,
+	])
+
 func apply_origin_shift(offset: Vector3) -> void:
 	for i in range(_raw_waypoints.size()):
 		_raw_waypoints[i] -= offset
 	for i in range(_waypoint_positions.size()):
 		_waypoint_positions[i] -= offset
+	for i in _track_mark_entries.size():
+		var entry: Dictionary = _track_mark_entries[i]
+		var transform_variant: Variant = entry.get("transform", Transform3D.IDENTITY)
+		var mark_transform: Transform3D = transform_variant if transform_variant is Transform3D else Transform3D.IDENTITY
+		mark_transform.origin -= offset
+		entry["transform"] = mark_transform
+		_track_mark_entries[i] = entry
+	_track_mark_multimesh_dirty = true
+	_sync_track_mark_multimesh(true)
 
 
 func set_heli_test_stationary(active: bool) -> void:
@@ -558,19 +633,37 @@ func _physics_process(delta: float) -> void:
 		_last_planar_speed_mps = 0.0
 		_current_yaw_rate_rad_s = 0.0
 		if elevator and elevator.has_method("update"):
+			var _stationary_elevator_profiler_start: int = FrameProfiler.begin("LandCarrier.elevator_update")
 			elevator.update(delta)
+			FrameProfiler.end("LandCarrier.elevator_update", _stationary_elevator_profiler_start)
+		var _stationary_audio_profiler_start: int = FrameProfiler.begin("LandCarrier.deck_audio")
 		_update_deck_audio(delta)
+		FrameProfiler.end("LandCarrier.deck_audio", _stationary_audio_profiler_start)
+		var _stationary_track_marks_profiler_start: int = FrameProfiler.begin("LandCarrier.track_marks")
+		_update_track_marks(delta, global_transform)
+		FrameProfiler.end("LandCarrier.track_marks", _stationary_track_marks_profiler_start)
 		FrameProfiler.end("LandCarrier.physics", _profiler_start)
 		return
 	var transform_before := global_transform
+	var _drive_profiler_start: int = FrameProfiler.begin("LandCarrier.drive_to_waypoint")
 	_drive_to_waypoint(delta)
+	FrameProfiler.end("LandCarrier.drive_to_waypoint", _drive_profiler_start)
+	var _tread_visuals_profiler_start: int = FrameProfiler.begin("LandCarrier.tread_visuals")
 	_update_tread_visuals(delta, transform_before)
+	FrameProfiler.end("LandCarrier.tread_visuals", _tread_visuals_profiler_start)
+	var _track_marks_profiler_start: int = FrameProfiler.begin("LandCarrier.track_marks")
+	_update_track_marks(delta, transform_before)
+	FrameProfiler.end("LandCarrier.track_marks", _track_marks_profiler_start)
 	if elevator and elevator.has_method("update"):
+		var _elevator_profiler_start: int = FrameProfiler.begin("LandCarrier.elevator_update")
 		elevator.update(delta)
+		FrameProfiler.end("LandCarrier.elevator_update", _elevator_profiler_start)
 	var _carry_profiler_start: int = FrameProfiler.begin("LandCarrier.carry_deck_passengers")
 	_carry_deck_passengers(global_transform, transform_before)
 	FrameProfiler.end("LandCarrier.carry_deck_passengers", _carry_profiler_start)
+	var _audio_profiler_start: int = FrameProfiler.begin("LandCarrier.deck_audio")
 	_update_deck_audio(delta)
+	FrameProfiler.end("LandCarrier.deck_audio", _audio_profiler_start)
 	FrameProfiler.end("LandCarrier.physics", _profiler_start)
 
 func _carry_deck_passengers(current_transform: Transform3D, old_transform: Transform3D) -> void:
@@ -655,6 +748,7 @@ func _update_tread_visuals(delta: float, transform_before: Transform3D) -> void:
 	var tread_signed_speeds: Array[float] = []
 	var tread_signed_travels: Array[float] = []
 
+	var _tread_sample_profiler_start: int = FrameProfiler.begin("LandCarrier.tread_sample_terrain")
 	for i in _tread_nodes.size():
 		var xz: Vector2 = _tread_local_xz[i]
 		var world_xz := to_global(Vector3(xz.x, 0.0, xz.y))
@@ -664,7 +758,7 @@ func _update_tread_visuals(delta: float, transform_before: Transform3D) -> void:
 		if xz.y > 20.0:
 			steer_offset = _tread_steer * MAX_TREAD_STEER
 		elif xz.y < -20.0:
-			steer_offset = -_tread_steer * MAX_TREAD_STEER
+			steer_offset = -_tread_steer * MAX_TREAD_STEER * clampf(rear_axle_steer_ratio, 0.0, 1.5)
 		var yaw_target: float = _tread_initial_rot_y[i] + steer_offset
 		tread.rotation.y = yaw_target
 
@@ -691,6 +785,7 @@ func _update_tread_visuals(delta: float, transform_before: Transform3D) -> void:
 		tread_pitch_targets.append(pitch_target)
 		tread_signed_speeds.append(signed_tread_speed)
 		tread_signed_travels.append(signed_tread_travel)
+	FrameProfiler.end("LandCarrier.tread_sample_terrain", _tread_sample_profiler_start)
 
 	if not world_heights.is_empty():
 		var avg_y: float = 0.0
@@ -712,6 +807,7 @@ func _update_tread_visuals(delta: float, transform_before: Transform3D) -> void:
 				)
 		global_position.y = lerp(global_position.y, _smoothed_desired_y, clampf(height_smoothing * delta, 0.0, 1.0))
 
+	var _tread_apply_profiler_start: int = FrameProfiler.begin("LandCarrier.tread_apply_nodes")
 	for i in tread_world_positions.size():
 		var tread := _tread_nodes[i] as Node3D
 		var target_position := tread_world_positions[i]
@@ -723,6 +819,283 @@ func _update_tread_visuals(delta: float, transform_before: Transform3D) -> void:
 			tread.update_scroll_speed(delta, tread_signed_speeds[i])
 		elif tread.has_method("update_from_carrier"):
 			tread.update_from_carrier(delta, tread_signed_travels[i])
+	FrameProfiler.end("LandCarrier.tread_apply_nodes", _tread_apply_profiler_start)
+
+
+func _update_track_marks(delta: float, transform_before: Transform3D) -> void:
+	_update_track_mark_lifetimes(delta)
+	_update_track_mark_debug_log(delta)
+	if not track_marks_enabled or _tread_nodes.is_empty():
+		return
+
+	var travel := Vector2(
+		global_position.x - transform_before.origin.x,
+		global_position.z - transform_before.origin.z
+	).length()
+	if delta <= 0.0 or travel / delta < maxf(track_mark_min_speed_mps, 0.0):
+		_track_mark_distance_accum_m = minf(_track_mark_distance_accum_m, _get_track_mark_spacing_m())
+		return
+
+	var spacing := _get_track_mark_spacing_m()
+	_track_mark_distance_accum_m += travel
+	while _track_mark_distance_accum_m >= spacing:
+		_track_mark_distance_accum_m -= spacing
+		_spawn_track_mark_set()
+
+
+func _update_track_mark_debug_log(delta: float) -> void:
+	if _track_mark_debug_log_interval_s <= 0.0:
+		return
+	_track_mark_debug_log_timer_s -= delta
+	if _track_mark_debug_log_timer_s > 0.0:
+		return
+	_track_mark_debug_log_timer_s = _track_mark_debug_log_interval_s
+	print("[LandCarrierTrackMarks] active=%d max=%d enabled=%s" % [
+		_track_mark_entries.size(),
+		track_mark_max_active,
+		str(track_marks_enabled),
+	])
+
+
+func _update_track_mark_lifetimes(delta: float) -> void:
+	var removed_any := false
+	for i in range(_track_mark_entries.size() - 1, -1, -1):
+		var entry: Dictionary = _track_mark_entries[i]
+		var age := float(entry.get("age", 0.0)) + delta
+		entry["age"] = age
+		_track_mark_entries[i] = entry
+
+		var lifetime := maxf(float(entry.get("lifetime", track_mark_lifetime_s)), 0.01)
+		if age >= lifetime:
+			_track_mark_entries.remove_at(i)
+			removed_any = true
+	var update_fade := _should_update_track_mark_fade(delta)
+	if removed_any or _track_mark_multimesh_dirty or update_fade:
+		_sync_track_mark_multimesh(removed_any or _track_mark_multimesh_dirty, update_fade or removed_any or _track_mark_multimesh_dirty)
+
+
+func _should_update_track_mark_fade(delta: float) -> bool:
+	var update_rate := maxf(track_mark_fade_update_rate_hz, 0.0)
+	if update_rate <= 0.0:
+		return false
+	var interval := 1.0 / update_rate
+	_track_mark_fade_update_timer_s -= delta
+	if _track_mark_fade_update_timer_s > 0.0:
+		return false
+	_track_mark_fade_update_timer_s = interval
+	return true
+
+
+func _spawn_track_mark_set() -> void:
+	_ensure_track_mark_resources()
+	if _track_mark_root == null or _track_mark_multimesh == null:
+		return
+
+	for tread in _get_track_mark_treads():
+		_spawn_track_mark_for_tread(tread)
+
+	while _track_mark_entries.size() > maxi(track_mark_max_active, 0):
+		_track_mark_entries.pop_front()
+	_track_mark_multimesh_dirty = true
+	_sync_track_mark_multimesh(true)
+
+
+func _get_track_mark_treads() -> Array[Node3D]:
+	var valid_treads: Array[Node3D] = []
+	for tread_variant in _tread_nodes:
+		var tread := tread_variant as Node3D
+		if is_instance_valid(tread):
+			valid_treads.append(tread)
+	valid_treads.sort_custom(func(a: Node3D, b: Node3D) -> bool:
+		return a.position.z < b.position.z
+	)
+	var selected: Array[Node3D] = []
+	for i in mini(valid_treads.size(), 2):
+		selected.append(valid_treads[i])
+	return selected
+
+
+func _spawn_track_mark_for_tread(tread: Node3D) -> void:
+	if _track_mark_entries.size() >= maxi(track_mark_max_active, 0):
+		return
+	var forward := tread.global_transform.basis.z
+	forward.y = 0.0
+	if forward.length_squared() < 0.0001:
+		forward = global_transform.basis.z
+		forward.y = 0.0
+	forward = forward.normalized() if forward.length_squared() > 0.0001 else Vector3.FORWARD
+	var right := Vector3.UP.cross(forward)
+	right = right.normalized() if right.length_squared() > 0.0001 else Vector3.RIGHT
+
+	var terrain_y := _sample_precise_terrain_y(tread.global_position.x, tread.global_position.z)
+	var ground_color := _get_track_mark_ground_color(Vector3(tread.global_position.x, terrain_y, tread.global_position.z))
+	var mark_color := _get_track_mark_color_from_ground(ground_color)
+	var basis := Basis(right, Vector3.UP, forward)
+	var origin := Vector3(
+		tread.global_position.x,
+		terrain_y + maxf(track_mark_ground_offset_m, 0.0) + maxf(track_mark_thickness_m, 0.001) * 0.5,
+		tread.global_position.z
+	)
+	_track_mark_entries.append({
+		"transform": Transform3D(basis, origin),
+		"age": 0.0,
+		"lifetime": maxf(track_mark_lifetime_s, 0.01),
+		"color": mark_color,
+		"ground_color": ground_color,
+	})
+
+
+func _ensure_track_mark_resources() -> void:
+	if _track_mark_root == null or not is_instance_valid(_track_mark_root):
+		var parent_node := get_parent()
+		if parent_node == null:
+			parent_node = get_tree().current_scene
+		if parent_node == null:
+			return
+		_track_mark_root = MultiMeshInstance3D.new()
+		_track_mark_root.name = "CarrierTrackMarks"
+		_track_mark_root.top_level = true
+		_track_mark_root.global_transform = Transform3D.IDENTITY
+		_track_mark_root.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		parent_node.add_child(_track_mark_root)
+
+	var width := _get_track_mark_width_m()
+	var length := _get_track_mark_length_m()
+	var thickness := maxf(track_mark_thickness_m, 0.001)
+	if _track_mark_mesh == null:
+		_track_mark_mesh = BoxMesh.new()
+	_track_mark_mesh.size = Vector3(width, thickness, length)
+
+	if _track_mark_material == null:
+		_track_mark_material = StandardMaterial3D.new()
+		_track_mark_material.transparency = BaseMaterial3D.TRANSPARENCY_DISABLED
+		_track_mark_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		_track_mark_material.cull_mode = BaseMaterial3D.CULL_DISABLED
+		_track_mark_material.roughness = 1.0
+		_track_mark_material.vertex_color_use_as_albedo = true
+	_track_mark_material.albedo_color = Color(1.0, 1.0, 1.0, 1.0)
+	_track_mark_root.material_override = _track_mark_material
+
+	var capacity := maxi(track_mark_max_active, 0)
+	if _track_mark_multimesh == null or _track_mark_multimesh.instance_count != capacity:
+		_track_mark_multimesh = MultiMesh.new()
+		_track_mark_multimesh.transform_format = MultiMesh.TRANSFORM_3D
+		_track_mark_multimesh.use_colors = true
+		_track_mark_multimesh.mesh = _track_mark_mesh
+		_track_mark_multimesh.instance_count = capacity
+		_track_mark_multimesh.visible_instance_count = _track_mark_entries.size()
+		_track_mark_root.multimesh = _track_mark_multimesh
+		_track_mark_multimesh_dirty = true
+
+
+func _sync_track_mark_multimesh(rebuild_transforms: bool = false, update_colors: bool = true) -> void:
+	if _track_mark_entries.is_empty():
+		if _track_mark_multimesh != null:
+			_track_mark_multimesh.visible_instance_count = 0
+		_track_mark_multimesh_dirty = false
+		return
+	if not rebuild_transforms and not update_colors:
+		return
+	_ensure_track_mark_resources()
+	if _track_mark_multimesh == null:
+		return
+	var count := mini(_track_mark_entries.size(), _track_mark_multimesh.instance_count)
+	_track_mark_multimesh.visible_instance_count = count
+	for i in count:
+		var entry: Dictionary = _track_mark_entries[i]
+		if rebuild_transforms:
+			var transform_variant: Variant = entry.get("transform", Transform3D.IDENTITY)
+			var mark_transform: Transform3D = transform_variant if transform_variant is Transform3D else Transform3D.IDENTITY
+			_track_mark_multimesh.set_instance_transform(i, mark_transform)
+		if not update_colors:
+			continue
+		var lifetime := maxf(float(entry.get("lifetime", track_mark_lifetime_s)), 0.01)
+		var age := maxf(float(entry.get("age", 0.0)), 0.0)
+		var fade := clampf(1.0 - age / lifetime, 0.0, 1.0)
+		var ground_color_variant: Variant = entry.get("ground_color", track_mark_fallback_color)
+		var mark_color_variant: Variant = entry.get("color", track_mark_fallback_color)
+		var ground_color: Color = ground_color_variant if ground_color_variant is Color else track_mark_fallback_color
+		var mark_color: Color = mark_color_variant if mark_color_variant is Color else track_mark_fallback_color
+		var fade_floor := _get_track_mark_fade_floor_color(ground_color)
+		mark_color = _limit_track_mark_luminance(mark_color)
+		_track_mark_multimesh.set_instance_color(i, fade_floor.lerp(mark_color, fade))
+	_track_mark_multimesh_dirty = false
+
+
+func _get_track_mark_ground_color(world_pos: Vector3) -> Color:
+	var ground_color := track_mark_fallback_color
+	var terrain := _get_precise_terrain_provider()
+	if terrain != null and terrain.has_method("get_surface_color"):
+		var color_variant: Variant = terrain.call("get_surface_color", world_pos)
+		if color_variant is Color:
+			ground_color = color_variant
+	ground_color.a = 1.0
+	return _limit_track_mark_luminance(ground_color)
+
+
+func _get_track_mark_color_from_ground(ground_color: Color) -> Color:
+	var darken := clampf(track_mark_darken_factor, 0.0, 1.0)
+	return _limit_track_mark_luminance(Color(
+		clampf(ground_color.r * darken, 0.0, 1.0),
+		clampf(ground_color.g * darken, 0.0, 1.0),
+		clampf(ground_color.b * darken, 0.0, 1.0),
+		1.0
+	))
+
+
+func _get_track_mark_fade_floor_color(ground_color: Color) -> Color:
+	var darken := clampf(track_mark_fade_floor_darken_factor, 0.0, 1.0)
+	return _limit_track_mark_luminance(Color(
+		clampf(ground_color.r * darken, 0.0, 1.0),
+		clampf(ground_color.g * darken, 0.0, 1.0),
+		clampf(ground_color.b * darken, 0.0, 1.0),
+		1.0
+	))
+
+
+func _limit_track_mark_luminance(color: Color) -> Color:
+	var limited := color
+	limited.a = 1.0
+	var max_luma := maxf(track_mark_max_luminance, 0.0)
+	if max_luma <= 0.0:
+		return Color(0.0, 0.0, 0.0, 1.0)
+	var luma := limited.get_luminance()
+	if luma > max_luma and luma > 0.0001:
+		var scale := max_luma / luma
+		limited.r *= scale
+		limited.g *= scale
+		limited.b *= scale
+	return limited
+
+
+func _get_track_mark_spacing_m() -> float:
+	if track_mark_spawn_spacing_m > 0.01:
+		return track_mark_spawn_spacing_m
+	for tread_variant in _tread_nodes:
+		var tread := tread_variant as Node
+		if is_instance_valid(tread) and tread.has_method("get_plate_spacing_m"):
+			return maxf(float(tread.call("get_plate_spacing_m")), 0.05)
+	return 3.0
+
+
+func _get_track_mark_width_m() -> float:
+	if track_mark_width_m > 0.01:
+		return track_mark_width_m
+	for tread_variant in _tread_nodes:
+		var tread := tread_variant as Node
+		if is_instance_valid(tread) and tread.has_method("get_plate_width_m"):
+			return maxf(float(tread.call("get_plate_width_m")), 0.05)
+	return 12.0
+
+
+func _get_track_mark_length_m() -> float:
+	if track_mark_length_m > 0.01:
+		return track_mark_length_m
+	for tread_variant in _tread_nodes:
+		var tread := tread_variant as Node
+		if is_instance_valid(tread) and tread.has_method("get_plate_length_m"):
+			return maxf(float(tread.call("get_plate_length_m")), 0.05)
+	return 2.8
 
 
 func _sample_terrain_y(wx: float, wz: float) -> float:
@@ -902,7 +1275,7 @@ func _drive_to_waypoint(delta: float) -> void:
 	var turn_speed_factor := clampf(1.0 - absf(_current_steer) * turn_speed_slowdown, 0.2, 1.0)
 	var throttle: float = clamp((dot + 1.0) * 0.5, 0.0, 1.0) * turn_speed_factor
 	if turn_angle_deg > turn_in_place_angle_deg:
-		throttle = 0.0
+		throttle = maxf(throttle, maxf(hard_turn_crawl_speed_mps, 0.0) / maxf(max_speed, 0.01))
 	_apply_drive_motion(delta, throttle * max_speed, target_yaw_rate)
 
 
@@ -919,21 +1292,41 @@ func _apply_drive_motion(delta: float, target_speed_mps: float, target_yaw_rate_
 		target_speed_mps,
 		maxf(speed_rate, 0.0) * delta
 	)
+	var target_axle_yaw_rate := _get_axle_steering_yaw_rate(_current_planar_speed_mps, target_yaw_rate_rad_s)
 	_current_yaw_rate_rad_s = move_toward(
 		_current_yaw_rate_rad_s,
-		target_yaw_rate_rad_s,
+		target_axle_yaw_rate,
 		maxf(turn_rate_response, 0.0) * delta
 	)
 
-	if absf(_current_yaw_rate_rad_s) > 0.00001:
-		rotate_y(_current_yaw_rate_rad_s * delta)
-
+	var yaw_delta := _current_yaw_rate_rad_s * delta
+	if absf(yaw_delta) > 0.00001:
+		rotate_y(yaw_delta)
 	var forward: Vector3 = global_transform.basis.z
 	forward.y = 0.0
 	forward = forward.normalized() if forward.length_squared() > 0.0001 else Vector3.FORWARD
 	global_position.x += forward.x * _current_planar_speed_mps * delta
 	global_position.z += forward.z * _current_planar_speed_mps * delta
 	_last_planar_speed_mps = _current_planar_speed_mps
+
+
+func _get_axle_steering_yaw_rate(speed_mps: float, requested_yaw_rate_rad_s: float) -> float:
+	var yaw_limit := absf(requested_yaw_rate_rad_s)
+	if yaw_limit <= 0.00001 or absf(speed_mps) <= 0.001:
+		return 0.0
+	var steer_input := clampf(_current_steer, -1.0, 1.0)
+	if absf(steer_input) <= steer_deadzone:
+		return 0.0
+	var half_wheelbase := maxf(steering_axle_half_wheelbase_m, 0.1)
+	var wheelbase := half_wheelbase * 2.0
+	var front_angle := steer_input * MAX_TREAD_STEER
+	var rear_angle := -front_angle * clampf(rear_axle_steer_ratio, 0.0, 1.5)
+	var curvature := (tan(front_angle) - tan(rear_angle)) / wheelbase
+	var yaw_rate := speed_mps * curvature
+	yaw_rate = clampf(yaw_rate, -yaw_limit, yaw_limit)
+	if signf(yaw_rate) != 0.0 and signf(requested_yaw_rate_rad_s) != 0.0 and signf(yaw_rate) != signf(requested_yaw_rate_rad_s):
+		return 0.0
+	return yaw_rate
 
 
 func _apply_recovery_motion_constraint(target_speed_mps: float, target_yaw_rate_rad_s: float, delta: float) -> Dictionary:

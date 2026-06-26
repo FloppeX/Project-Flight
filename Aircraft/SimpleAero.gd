@@ -1,6 +1,8 @@
 extends Node
 class_name SimpleAero
 
+const AIRFLOW_FEEDBACK_SCRIPT := preload("res://Aircraft/AirflowFeedback.gd")
+
 @export var rb_path: NodePath
 var rb: RigidBody3D = null
 
@@ -9,6 +11,9 @@ var rb: RigidBody3D = null
 @export var roll_power: float = 12.0         # Aileron strength
 @export var yaw_power: float = 3.0           # Rudder strength
 @export var min_control_speed: float = 80.0  # Speed where controls start working
+@export var control_slip_speed_blend: float = 0.55  # Arcade assist: let some total airspeed count for controls while slipping/skidding
+@export var stall_control_loss_strength: float = 0.35  # How much stall/high-AoA reduces control response
+@export var speed_stall_control_curve: float = 1.0  # Higher = control loss comes in less abruptly near stall speed
 @export var ground_rudder_assist_enabled: bool = true
 @export var ground_rudder_assist_power: float = 1.0
 @export var ground_rudder_assist_start_speed_mps: float = 8.0
@@ -16,6 +21,8 @@ var rb: RigidBody3D = null
 @export var ground_rudder_ground_compression_threshold_m: float = 0.02
 @export var alignment_strength: float = 2.5   # High-speed horizontal sideslip damping in 1/s (mass-scaled below)
 @export var alignment_low_speed_strength: float = 1.2   # Moderate low-speed horizontal alignment for tighter slip damping
+@export var alignment_max_lateral_accel_mps2: float = 6.0  # Cap sideways slip-cleanup so it helps coordination without becoming a hidden thruster
+@export var alignment_max_vertical_accel_mps2: float = 5.0  # Cap vertical flight-path alignment for the same reason
 @export var angular_damping_strength: float = 16.0  # How quickly rotations stop
 @export var drag_base_multiplier: float = 0.8  # Base multiplier on combined forward+lateral drag
 @export var forward_drag_scale: float = 0.40  # Global fixed-wing forward drag reduction; top speed scales roughly with sqrt(1 / drag).
@@ -45,19 +52,24 @@ var rb: RigidBody3D = null
 @export var aoa_lift_bonus_factor: float = 0.6  # Extra lift multiplier from positive AoA in slow flight
 @export var aoa_negative_lift_penalty_factor: float = 0.35  # Reduce lift when the nose sits below the flight path
 @export var max_lift_ratio: float = 1.35  # Prevent extreme pitch-up from generating unrealistic excess lift
-@export var aoa_stall_start_deg: float = 16.0  # Start bleeding lift/control when the wing is asked for a silly angle of attack
-@export var aoa_stall_full_deg: float = 32.0   # High-AoA stall penalty reaches full strength here
-@export var aoa_stall_lift_loss: float = 0.45  # Extra lift loss at full high-AoA stall
-@export var aoa_stall_control_loss: float = 0.45  # Extra control loss at full high-AoA stall
-@export var aoa_stall_drag_strength: float = 0.25  # Extra drag from high AoA; applied along the airflow vector
+@export var aoa_stall_start_deg: float = 26.0  # Start bleeding lift/control when the wing is asked for a silly angle of attack
+@export var aoa_stall_full_deg: float = 55.0   # High-AoA stall penalty reaches full strength here
+@export var aoa_stall_lift_loss: float = 0.24  # Extra lift loss at full high-AoA stall
+@export var aoa_stall_control_loss: float = 0.12  # Extra control loss at full high-AoA stall
+@export var aoa_stall_drag_strength: float = 0.14  # Extra drag from high AoA; applied along the airflow vector
 
 # Keep a tiny support near knife-edge (optional safety net)
-@export var min_vertical_lift_frac: float = 0.01
+@export var min_vertical_lift_frac: float = 0.0
 
 # Simplified stall parameters
 @export var stall_nose_drop_force: float = 5.0  # Downward force strength at nose
 @export var stall_lift_loss: float = 0.2      # Fraction of lift lost at full stall (0.0 to 1.0)
-@export var stall_shake_intensity: float = 3.0  # How intense stall shake is
+@export var stall_shake_intensity: float = 0.45  # Physical buffet; player-facing feedback is handled separately by AirflowFeedback
+
+@export_group("Airflow Feedback")
+@export var airflow_feedback_enabled: bool = true
+@export var airflow_feedback_only_player: bool = true
+@export_group("")
 
 # Drag tuning
 @export var forward_drag_strength: float = 0.22
@@ -88,6 +100,7 @@ var current_stall_severity: float = 0.0
 @onready var _gear_controller: Node = null
 @onready var _flaps_module: Node = null
 var _engine_modules: Array = []
+var _airflow_feedback: Node = null
 var _aero_report_timer_s: float = 0.0
 var _aero_report_prepared: bool = false
 
@@ -105,6 +118,7 @@ func _ready() -> void:
 			if not found.is_empty():
 				_flaps_module = found[0]
 			_engine_modules = rb.find_modules_by_type("engine")
+	_setup_airflow_feedback()
 
 func _physics_process(delta: float) -> void:
 	if rb == null:
@@ -128,6 +142,7 @@ func _physics_process(delta: float) -> void:
 	var forward_drag_force: Vector3 = Vector3.ZERO
 	var lateral_drag_force: Vector3 = Vector3.ZERO
 	var total_drag_force: Vector3 = Vector3.ZERO
+	var alignment_force: Vector3 = Vector3.ZERO
 	var lift_force: Vector3 = Vector3.ZERO
 	var alpha_deg: float = 0.0
 	var aoa_stall_severity: float = 0.0
@@ -208,16 +223,33 @@ func _physics_process(delta: float) -> void:
 	if stall_severity > 0.1:  # Start shake at 10% stall
 		var shake_intensity = stall_shake_intensity * stall_severity
 		rb.add_shake(shake_intensity)
+
+	_update_airflow_feedback(
+		delta,
+		alpha_deg,
+		stall_severity,
+		forward_speed,
+		lateral_speed,
+		effective_stall_speed
+	)
 	
-	# --- Control effectiveness based on forward speed ---
-	control_authority = clamp(forward_speed / min_control_speed, 0.0, 1.0)
+	# --- Control effectiveness based on airspeed ---
+	# Mostly use nose-aligned speed, but allow some total airspeed to count so
+	# a fast slipping/skidding aircraft still feels responsive enough for an
+	# arcade-friendly recovery.
+	var control_speed: float = lerpf(
+		forward_speed,
+		speed,
+		clampf(control_slip_speed_blend, 0.0, 1.0)
+	)
+	control_authority = clamp(control_speed / min_control_speed, 0.0, 1.0)
 	
 	# Reduce control authority in stall
 	var stall_control_loss = maxf(
-		pow(speed_stall_severity, 0.3),
+		pow(speed_stall_severity, maxf(speed_stall_control_curve, 0.01)),
 		aoa_stall_severity * aoa_stall_control_loss
 	)
-	control_authority *= (1.0 - 0.9 * stall_control_loss)
+	control_authority *= (1.0 - clampf(stall_control_loss_strength, 0.0, 1.0) * stall_control_loss)
 
 	# --- Flight controls ---
 	if control_authority > 0.0:
@@ -261,7 +293,20 @@ func _physics_process(delta: float) -> void:
 			0.0
 		)
 		# Scale by mass so the response time is consistent across aircraft weights.
-		var alignment_force: Vector3 = rb.global_transform.basis * (-slip_velocity_local * rb.mass)
+		var alignment_accel_local: Vector3 = -slip_velocity_local
+		if alignment_max_lateral_accel_mps2 > 0.0:
+			alignment_accel_local.x = clampf(
+				alignment_accel_local.x,
+				-alignment_max_lateral_accel_mps2,
+				alignment_max_lateral_accel_mps2
+			)
+		if alignment_max_vertical_accel_mps2 > 0.0:
+			alignment_accel_local.y = clampf(
+				alignment_accel_local.y,
+				-alignment_max_vertical_accel_mps2,
+				alignment_max_vertical_accel_mps2
+			)
+		alignment_force = rb.global_transform.basis * (alignment_accel_local * rb.mass)
 		rb.apply_central_force(alignment_force)
 
 	# --- Angular damping ---
@@ -294,6 +339,7 @@ func _physics_process(delta: float) -> void:
 		forward_drag_force,
 		lateral_drag_force,
 		total_drag_force,
+		alignment_force,
 		lift_force
 	)
 
@@ -427,6 +473,7 @@ func _update_aero_report(
 		forward_drag_force: Vector3,
 		lateral_drag_force: Vector3,
 		total_drag_force: Vector3,
+		alignment_force: Vector3,
 		lift_force: Vector3
 ) -> void:
 	if not aero_report_enabled or rb == null:
@@ -451,6 +498,7 @@ func _update_aero_report(
 		forward_drag_force,
 		lateral_drag_force,
 		total_drag_force,
+		alignment_force,
 		lift_force
 	)
 	_append_aero_report_line(aero_report_path, line)
@@ -471,6 +519,7 @@ func _build_aero_report_line(
 		forward_drag_force: Vector3,
 		lateral_drag_force: Vector3,
 		total_drag_force: Vector3,
+		alignment_force: Vector3,
 		lift_force: Vector3
 ) -> String:
 	var pos := rb.global_position
@@ -488,6 +537,7 @@ func _build_aero_report_line(
 	var thrust_n := _get_aero_report_thrust_n()
 	var forward_thrust_n := _get_aero_report_forward_thrust_n(fwd)
 	var flap_position := _get_flap_position()
+	var local_alignment_force: Vector3 = basis.inverse() * alignment_force
 	return ",".join([
 		_fmt_float(Time.get_ticks_msec() / 1000.0, 3),
 		_csv_name(rb.name),
@@ -525,6 +575,9 @@ func _build_aero_report_line(
 		_fmt_float(forward_drag_force.length(), 1),
 		_fmt_float(lateral_drag_force.length(), 1),
 		_fmt_float(total_drag_force.length(), 1),
+		_fmt_float(alignment_force.length(), 1),
+		_fmt_float(local_alignment_force.x, 1),
+		_fmt_float(local_alignment_force.y, 1),
 		_fmt_float(lift_force.length(), 1),
 		_fmt_float(rb.angular_velocity.x, 3),
 		_fmt_float(rb.angular_velocity.y, 3),
@@ -571,6 +624,9 @@ func _aero_report_header() -> String:
 		"forward_drag_n",
 		"lateral_drag_n",
 		"total_drag_n",
+		"alignment_force_n",
+		"alignment_lateral_force_n",
+		"alignment_vertical_force_n",
 		"lift_n",
 		"ang_vel_x",
 		"ang_vel_y",
@@ -650,6 +706,39 @@ func _should_write_aero_report() -> bool:
 	if ai_toggle != null and "ai_active" in ai_toggle:
 		return not bool(ai_toggle.get("ai_active"))
 	return false
+
+
+func _setup_airflow_feedback() -> void:
+	if not airflow_feedback_enabled or rb == null:
+		return
+	_airflow_feedback = AIRFLOW_FEEDBACK_SCRIPT.new()
+	_airflow_feedback.name = "AirflowFeedback"
+	add_child(_airflow_feedback)
+	_airflow_feedback.setup(rb)
+
+
+func _update_airflow_feedback(
+		delta: float,
+		alpha_deg: float,
+		stall_severity: float,
+		forward_speed: float,
+		lateral_speed: float,
+		effective_stall_speed: float
+) -> void:
+	if _airflow_feedback == null:
+		return
+	var active := true
+	if airflow_feedback_only_player:
+		active = _should_write_aero_report()
+	_airflow_feedback.update_airflow_feedback(
+		delta,
+		active,
+		alpha_deg,
+		stall_severity,
+		forward_speed,
+		lateral_speed,
+		effective_stall_speed
+	)
 
 
 func _get_aero_report_throttle_command() -> float:

@@ -1,0 +1,19 @@
+[remap]
+
+importer="csv_translation"
+type="Translation"
+uid="uid://cn23dlpmjwcmt"
+
+[deps]
+
+files=["res://captures/perf_diagnostics/process_samples_20260625_091532.elapsed.translation", "res://captures/perf_diagnostics/process_samples_20260625_091532.en.translation", "res://captures/perf_diagnostics/process_samples_20260625_091532.en.translation", "res://captures/perf_diagnostics/process_samples_20260625_091532.en.translation", "res://captures/perf_diagnostics/process_samples_20260625_091532.en.translation", "res://captures/perf_diagnostics/process_samples_20260625_091532.en.translation", "res://captures/perf_diagnostics/process_samples_20260625_091532.en.translation", "res://captures/perf_diagnostics/process_samples_20260625_091532.en.translation", "res://captures/perf_diagnostics/process_samples_20260625_091532.top.translation"]
+
+source_file="res://captures/perf_diagnostics/process_samples_20260625_091532.csv"
+dest_files=["res://captures/perf_diagnostics/process_samples_20260625_091532.elapsed.translation", "res://captures/perf_diagnostics/process_samples_20260625_091532.en.translation", "res://captures/perf_diagnostics/process_samples_20260625_091532.en.translation", "res://captures/perf_diagnostics/process_samples_20260625_091532.en.translation", "res://captures/perf_diagnostics/process_samples_20260625_091532.en.translation", "res://captures/perf_diagnostics/process_samples_20260625_091532.en.translation", "res://captures/perf_diagnostics/process_samples_20260625_091532.en.translation", "res://captures/perf_diagnostics/process_samples_20260625_091532.en.translation", "res://captures/perf_diagnostics/process_samples_20260625_091532.top.translation"]
+
+[params]
+
+compress=1
+delimiter=0
+unescape_keys=false
+unescape_translations=true

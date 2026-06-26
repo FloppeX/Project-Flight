@@ -1388,6 +1388,11 @@ func _set_manual_transport(node: Node, enabled: bool) -> void:
 	elif node.has_meta(MANUAL_TRANSPORT_META):
 		node.remove_meta(MANUAL_TRANSPORT_META)
 
+func _sync_rigidbody_transform_state(body: RigidBody3D) -> void:
+	if not is_instance_valid(body):
+		return
+	PhysicsServer3D.body_set_state(body.get_rid(), PhysicsServer3D.BODY_STATE_TRANSFORM, body.global_transform)
+
 func _get_node_velocity(node: Node) -> Vector3:
 	if node is RigidBody3D:
 		return (node as RigidBody3D).linear_velocity
@@ -2079,7 +2084,7 @@ func start_hangar_retrieval():
 	if stored_aircraft.is_empty():
 		return
 	while _tractor_elevator_transfer_in_progress:
-		await get_tree().process_frame
+		await get_tree().physics_frame
 
 	current_state = DeckState.RETRIEVING_FROM_HANGAR
 	_retrieval_top_handled = false
@@ -2354,7 +2359,7 @@ func _wait_for_tractor_bots_positioned(active_bots: Array[Node]):
 			_snap_active_tractor_bots_to_targets(active_bots)
 			break
 		
-		var delta := get_process_delta_time()
+		var delta := get_physics_process_delta_time()
 		wait_time += delta
 		if wait_time >= next_debug_time:
 			_recovery_debug("waiting for tractorbots %.1fs: %s" % [
@@ -2362,7 +2367,7 @@ func _wait_for_tractor_bots_positioned(active_bots: Array[Node]):
 				_get_tractor_wait_status(active_bots)
 			])
 			next_debug_time += maxf(tractor_recovery_debug_interval_s, 0.1)
-		await get_tree().process_frame
+		await get_tree().physics_frame
 
 func _snap_active_tractor_bots_to_targets(active_bots: Array[Node]) -> void:
 	var deck_y := _get_deck_height_y()
@@ -2520,9 +2525,6 @@ func _move_aircraft_smoothly(aircraft: RigidBody3D, target_position: Vector3):
 	var carrier := get_parent() as Node3D
 	if carrier:
 		carrier.force_update_transform()
-	var start_rotation = aircraft.global_rotation
-	var target_rotation = aircraft.global_rotation  # Keep same rotation for now
-
 	# Calculate target position - maintain gear at 20cm above deck
 	var deck_height = _get_deck_height_y()
 	var target_gear_height = deck_height + _aircraft_lift_height
@@ -2542,6 +2544,7 @@ func _move_aircraft_smoothly(aircraft: RigidBody3D, target_position: Vector3):
 	# Convert to carrier-local space
 	var start_local: Vector3 = carrier.to_local(aircraft.global_position) if carrier else aircraft.global_position
 	var target_local: Vector3 = carrier.to_local(final_position) if carrier else final_position
+	var aircraft_carrier_local_basis: Basis = carrier.global_transform.basis.inverse() * aircraft.global_transform.basis if carrier else aircraft.global_transform.basis
 
 	var distance = start_local.distance_to(target_local)
 	var duration = distance / _aircraft_move_speed
@@ -2550,21 +2553,32 @@ func _move_aircraft_smoothly(aircraft: RigidBody3D, target_position: Vector3):
 	var elapsed_time = 0.0
 
 	while elapsed_time < duration and is_instance_valid(aircraft):
-		elapsed_time += get_process_delta_time()
+		elapsed_time += get_physics_process_delta_time()
 		var t = ease_in_out_cubic(clamp(elapsed_time / duration, 0.0, 1.0))
 
 		# Lerp in carrier-local space, convert back to world — tracks carrier movement
 		var current_local = start_local.lerp(target_local, t)
-		aircraft.global_position = carrier.to_global(current_local) if carrier else current_local
+		if carrier:
+			var aircraft_transform := aircraft.global_transform
+			aircraft_transform.origin = carrier.to_global(current_local)
+			aircraft_transform.basis = (carrier.global_transform.basis * aircraft_carrier_local_basis).orthonormalized()
+			aircraft.global_transform = aircraft_transform
+			_sync_rigidbody_transform_state(aircraft)
+		else:
+			aircraft.global_position = current_local
+			_sync_rigidbody_transform_state(aircraft)
+		aircraft.angular_velocity = Vector3.ZERO
 
-		# Interpolate rotation (smooth rotation towards target)
-		aircraft.global_rotation = start_rotation.slerp(target_rotation, t)
-
-		await get_tree().process_frame
+		await get_tree().physics_frame
 
 	# Final position — snap to carrier-relative target
 	aircraft.global_position = carrier.to_global(target_local) if carrier else final_position
-	aircraft.global_rotation = target_rotation
+	if carrier:
+		var final_transform := aircraft.global_transform
+		final_transform.basis = (carrier.global_transform.basis * aircraft_carrier_local_basis).orthonormalized()
+		aircraft.global_transform = final_transform
+	_sync_rigidbody_transform_state(aircraft)
+	aircraft.angular_velocity = Vector3.ZERO
 
 	# Don't deactivate tractorbots yet - they need to follow the elevator
 
@@ -2589,21 +2603,23 @@ func _align_aircraft_forward_on_elevator(aircraft: RigidBody3D) -> void:
 	_recovery_debug("aligning aircraft forward on elevator")
 
 	while elapsed < duration and is_instance_valid(aircraft):
-		elapsed += get_process_delta_time()
+		elapsed += get_physics_process_delta_time()
 		var t := ease_in_out_cubic(clampf(elapsed / duration, 0.0, 1.0))
 		aircraft.global_rotation = Vector3(
 			lerp_angle(start_rotation.x, 0.0, t),
 			lerp_angle(start_rotation.y, target_yaw, t),
 			lerp_angle(start_rotation.z, 0.0, t)
 		)
+		_sync_rigidbody_transform_state(aircraft)
 		_snap_active_bots_to_aircraft_wheels(active_bots, fallback_offsets, aircraft)
-		await get_tree().process_frame
+		await get_tree().physics_frame
 
 	if not is_instance_valid(aircraft):
 		return
 	aircraft.global_rotation = Vector3(0.0, target_yaw, 0.0)
 	aircraft.linear_velocity = Vector3.ZERO
 	aircraft.angular_velocity = Vector3.ZERO
+	_sync_rigidbody_transform_state(aircraft)
 	_snap_active_bots_to_aircraft_wheels(active_bots, fallback_offsets, aircraft)
 
 func _snap_active_bots_to_aircraft_wheels(active_bots: Array[Node3D], fallback_offsets: Array[Vector3], aircraft: RigidBody3D) -> void:
@@ -3275,6 +3291,7 @@ func _follow_elevator_down(aircraft: RigidBody3D):
 		_set_manual_transport(bot, true)
 	var carrier := get_parent() as Node3D
 	var aircraft_carrier_local: Vector3 = carrier.to_local(aircraft.global_position) if carrier else aircraft.global_position
+	var aircraft_carrier_local_basis: Basis = carrier.global_transform.basis.inverse() * aircraft.global_transform.basis if carrier else aircraft.global_transform.basis
 	
 	# Calculate the aircraft's gear offset from its center
 	var gear_colliders = _find_gear_colliders(aircraft)
@@ -3298,18 +3315,23 @@ func _follow_elevator_down(aircraft: RigidBody3D):
 
 		# Only update Y — carrier delta (LandCarrier._carry_deck_passengers) handles XZ
 		if carrier:
-			var aircraft_position := carrier.to_global(aircraft_carrier_local)
-			aircraft_position.y = target_aircraft_y
-			aircraft.global_position = aircraft_position
+			var aircraft_transform := aircraft.global_transform
+			aircraft_transform.origin = carrier.to_global(aircraft_carrier_local)
+			aircraft_transform.origin.y = target_aircraft_y
+			aircraft_transform.basis = (carrier.global_transform.basis * aircraft_carrier_local_basis).orthonormalized()
+			aircraft.global_transform = aircraft_transform
+			_sync_rigidbody_transform_state(aircraft)
 		else:
 			aircraft.global_position.y = target_aircraft_y
+			_sync_rigidbody_transform_state(aircraft)
+		aircraft.angular_velocity = Vector3.ZERO
 		last_aircraft_position = aircraft.global_position
 		for i in range(min(active_bots.size(), active_bot_offsets.size())):
 			if is_instance_valid(active_bots[i]):
 				var bot_position: Vector3 = aircraft.global_position + active_bot_offsets[i]
 				bot_position.y = elevator_top_y + tractor_elevator_floor_offset_m
 				active_bots[i].global_position = bot_position
-		await get_tree().process_frame
+		await get_tree().physics_frame
 
 	if not is_instance_valid(aircraft):
 		_recovery_debug("aircraft became invalid while following elevator down name=%s last_pos=%s elevator_state=%s elevator_y=%.1f active_bots=%d" % [
@@ -3357,7 +3379,7 @@ func _restore_aircraft_physics(aircraft_ref: Variant, keep_frozen: bool = false)
 	aircraft.constant_torque = Vector3.ZERO
 
 	# Short frame-based settle to avoid long pauses during retrieval->launch handoff
-	await get_tree().process_frame
+	await get_tree().physics_frame
 	if not is_instance_valid(aircraft):
 		_recovery_debug("restore aircraft physics aborted after first frame: invalid aircraft")
 		return
@@ -3370,7 +3392,7 @@ func _restore_aircraft_physics(aircraft_ref: Variant, keep_frozen: bool = false)
 	aircraft.set_gravity_scale(1.0)
 
 	# Let gravity/physics state apply for a frame
-	await get_tree().process_frame
+	await get_tree().physics_frame
 	if not is_instance_valid(aircraft):
 		_recovery_debug("restore aircraft physics aborted after gravity frame: invalid aircraft")
 		return
@@ -3399,7 +3421,7 @@ func _restore_aircraft_physics(aircraft_ref: Variant, keep_frozen: bool = false)
 	aircraft.linear_velocity = Vector3.ZERO
 	aircraft.angular_velocity = Vector3.ZERO
 
-	await get_tree().process_frame
+	await get_tree().physics_frame
 	if not is_instance_valid(aircraft):
 		_recovery_debug("restore aircraft physics aborted after unfreeze frame: invalid aircraft")
 		return
@@ -3457,6 +3479,7 @@ func _follow_elevator_up_for_retrieval(aircraft: RigidBody3D):
 		_set_manual_transport(bot, true)
 	var carrier := get_parent() as Node3D
 	var aircraft_carrier_local: Vector3 = carrier.to_local(aircraft.global_position) if carrier else aircraft.global_position
+	var aircraft_carrier_local_basis: Basis = carrier.global_transform.basis.inverse() * aircraft.global_transform.basis if carrier else aircraft.global_transform.basis
 
 	# Calculate gear offset from aircraft center using global Y (tilt-safe).
 	# gear_to_body_offset = how far the aircraft body is above its lowest gear.
@@ -3478,18 +3501,23 @@ func _follow_elevator_up_for_retrieval(aircraft: RigidBody3D):
 
 		# Only update Y — carrier delta (LandCarrier._carry_deck_passengers) handles XZ
 		if carrier:
-			var aircraft_position := carrier.to_global(aircraft_carrier_local)
-			aircraft_position.y = target_aircraft_y
-			aircraft.global_position = aircraft_position
+			var aircraft_transform := aircraft.global_transform
+			aircraft_transform.origin = carrier.to_global(aircraft_carrier_local)
+			aircraft_transform.origin.y = target_aircraft_y
+			aircraft_transform.basis = (carrier.global_transform.basis * aircraft_carrier_local_basis).orthonormalized()
+			aircraft.global_transform = aircraft_transform
+			_sync_rigidbody_transform_state(aircraft)
 		else:
 			aircraft.global_position.y = target_aircraft_y
+			_sync_rigidbody_transform_state(aircraft)
+		aircraft.angular_velocity = Vector3.ZERO
 		for i in range(min(active_bots.size(), active_bot_offsets.size())):
 			if is_instance_valid(active_bots[i]):
 				var bot_position: Vector3 = aircraft.global_position + active_bot_offsets[i]
 				bot_position.y = elevator_top_y + tractor_elevator_floor_offset_m
 				active_bots[i].global_position = bot_position
 
-		await get_tree().process_frame
+		await get_tree().physics_frame
 
 	if not is_instance_valid(aircraft):
 		for bot in active_bots:
@@ -3788,9 +3816,7 @@ func _move_aircraft_horizontally(aircraft: RigidBody3D, target_position: Vector3
 		carrier.force_update_transform()
 	var start_local: Vector3 = carrier.to_local(aircraft.global_position) if carrier else aircraft.global_position
 	var target_local: Vector3 = carrier.to_local(target_position) if carrier else target_position
-
-	var start_rotation = aircraft.global_rotation
-	var target_rotation = aircraft.global_rotation  # Keep same rotation
+	var aircraft_carrier_local_basis: Basis = carrier.global_transform.basis.inverse() * aircraft.global_transform.basis if carrier else aircraft.global_transform.basis
 
 	# Get initial tractorbot offsets from aircraft
 	var bot_offsets: Array[Vector3] = []
@@ -3820,12 +3846,21 @@ func _move_aircraft_horizontally(aircraft: RigidBody3D, target_position: Vector3
 	var elapsed_time = 0.0
 
 	while elapsed_time < duration and is_instance_valid(aircraft):
-		elapsed_time += get_process_delta_time()
+		elapsed_time += get_physics_process_delta_time()
 		var t = ease_in_out_cubic(clamp(elapsed_time / duration, 0.0, 1.0))
 
 		# Lerp in carrier-local space, convert back to world — tracks carrier movement
 		var current_local = start_local.lerp(target_local, t)
-		aircraft.global_position = carrier.to_global(current_local) if carrier else current_local
+		if carrier:
+			var aircraft_transform := aircraft.global_transform
+			aircraft_transform.origin = carrier.to_global(current_local)
+			aircraft_transform.basis = (carrier.global_transform.basis * aircraft_carrier_local_basis).orthonormalized()
+			aircraft.global_transform = aircraft_transform
+			_sync_rigidbody_transform_state(aircraft)
+		else:
+			aircraft.global_position = current_local
+			_sync_rigidbody_transform_state(aircraft)
+		aircraft.angular_velocity = Vector3.ZERO
 
 		# Move tractorbots to maintain relative positions
 		for i in range(min(tractor_bots.size(), bot_offsets.size())):
@@ -3833,10 +3868,7 @@ func _move_aircraft_horizontally(aircraft: RigidBody3D, target_position: Vector3
 			if bot and bot.is_active:
 				bot.global_position = aircraft.global_position + bot_offsets[i]
 
-		# Interpolate rotation
-		aircraft.global_rotation = start_rotation.slerp(target_rotation, t)
-
-		await get_tree().process_frame
+		await get_tree().physics_frame
 
 	# Final position — snap to carrier-relative target
 	if not is_instance_valid(aircraft):
@@ -3846,7 +3878,12 @@ func _move_aircraft_horizontally(aircraft: RigidBody3D, target_position: Vector3
 		return
 
 	aircraft.global_position = carrier.to_global(target_local) if carrier else target_position
-	aircraft.global_rotation = target_rotation
+	if carrier:
+		var final_transform := aircraft.global_transform
+		final_transform.basis = (carrier.global_transform.basis * aircraft_carrier_local_basis).orthonormalized()
+		aircraft.global_transform = final_transform
+	_sync_rigidbody_transform_state(aircraft)
+	aircraft.angular_velocity = Vector3.ZERO
 	if _heli_test_active:
 		_log_heli_test("move horizontal complete aircraft=%s pos=%s" % [
 			_aircraft_debug_name(aircraft),
@@ -3887,11 +3924,11 @@ func _get_primary_elevator_slots_local(count: int, platform_local_y: float) -> A
 
 func _wait_for_tractor_elevator_transfer() -> void:
 	while _tractor_elevator_transfer_in_progress:
-		await get_tree().process_frame
+		await get_tree().physics_frame
 
 func _wait_for_elevator_bottom() -> void:
 	while is_instance_valid(elevator) and elevator.current_state != elevator.ElevatorState.AT_BOTTOM:
-		await get_tree().process_frame
+		await get_tree().physics_frame
 
 func _follow_cleanup_tractors_with_elevator_up(nodes: Array[Node3D], local_slots: Array[Vector3]) -> void:
 	if nodes.is_empty() or not elevator or not ("platform" in elevator):
@@ -3904,7 +3941,7 @@ func _follow_cleanup_tractors_with_elevator_up(nodes: Array[Node3D], local_slots
 			var target_local := local_slots[i]
 			target_local.y = bot_local_y
 			nodes[i].position = target_local
-		await get_tree().process_frame
+		await get_tree().physics_frame
 	var final_local_y := _get_elevator_platform_top_local_y(-0.5) + tractor_elevator_floor_offset_m
 	for i in range(min(nodes.size(), local_slots.size())):
 		if not is_instance_valid(nodes[i]):
@@ -4040,13 +4077,13 @@ func _move_nodes_to_local_targets(nodes: Array[Node3D], local_targets: Array[Vec
 	var duration: float = maxf(max_distance / maxf(speed, 0.1), 0.01)
 	var elapsed: float = 0.0
 	while elapsed < duration:
-		elapsed += get_process_delta_time()
+		elapsed += get_physics_process_delta_time()
 		var t := ease_in_out_cubic(clampf(elapsed / duration, 0.0, 1.0))
 		for i in range(min(nodes.size(), local_targets.size())):
 			if not is_instance_valid(nodes[i]):
 				continue
 			nodes[i].position = start_positions[i].lerp(local_targets[i], t)
-		await get_tree().process_frame
+		await get_tree().physics_frame
 	for i in range(min(nodes.size(), local_targets.size())):
 		if not is_instance_valid(nodes[i]):
 			continue
@@ -4063,7 +4100,7 @@ func _follow_cleanup_tractors_with_elevator_down(nodes: Array[Node3D], local_slo
 			var target_local := local_slots[i]
 			target_local.y = bot_local_y
 			nodes[i].position = target_local
-		await get_tree().process_frame
+		await get_tree().physics_frame
 	var final_local_y := _get_elevator_platform_top_local_y(-10.0) + tractor_elevator_floor_offset_m
 	for i in range(min(nodes.size(), local_slots.size())):
 		if not is_instance_valid(nodes[i]):
@@ -4074,7 +4111,7 @@ func _follow_cleanup_tractors_with_elevator_down(nodes: Array[Node3D], local_slo
 
 func _wait_for_elevator_top() -> void:
 	while is_instance_valid(elevator) and not _is_elevator_physically_at_top():
-		await get_tree().process_frame
+		await get_tree().physics_frame
 
 func _run_extra_tractor_cleanup() -> void:
 	if _tractor_cleanup_batch.is_empty():
@@ -4446,11 +4483,16 @@ func _ensure_heli_navigation_test_aircraft() -> void:
 	# scenario was activated.
 	_clear_navigation_test_world_clutter()
 	if _heli_navigation_lzs.size() != HELI_NAVIGATION_ROUTE_COUNT:
-		if not _setup_heli_navigation_test_range():
+		var _nav_range_profiler_start: int = FrameProfiler.begin("FlightDeckManager.nav_setup_range")
+		var nav_range_ready := _setup_heli_navigation_test_range()
+		FrameProfiler.end("FlightDeckManager.nav_setup_range", _nav_range_profiler_start)
+		if not nav_range_ready:
 			return
 	if not _navigation_report_started:
 		_start_navigation_report()
+	var _nav_refill_profiler_start: int = FrameProfiler.begin("FlightDeckManager.nav_force_refill")
 	_navigation_force_refill_if_tuner_idle()
+	FrameProfiler.end("FlightDeckManager.nav_force_refill", _nav_refill_profiler_start)
 
 	var occupied_slots: Dictionary = {}
 	var active_nav_count := 0
@@ -4699,9 +4741,11 @@ func _navigation_force_refill_if_tuner_idle() -> void:
 		return
 	_navigation_tracked.clear()
 	var queued := 0
+	var _queue_profiler_start: int = FrameProfiler.begin("FlightDeckManager.nav_refill_queue")
 	for slot in range(HELI_NAVIGATION_ROUTE_COUNT):
 		if _queue_heli_navigation_test_aircraft(slot):
 			queued += 1
+	FrameProfiler.end("FlightDeckManager.nav_refill_queue", _queue_profiler_start)
 	var stored_after := stored_aircraft.size()
 	var retrieval_started := false
 	if queued > 0 and current_state == DeckState.IDLE \
@@ -4710,7 +4754,9 @@ func _navigation_force_refill_if_tuner_idle() -> void:
 			and not is_instance_valid(deck_aircraft) \
 			and not is_instance_valid(_pending_store_aircraft) \
 			and not is_instance_valid(_landing_clearance_aircraft):
+		var _retrieval_profiler_start: int = FrameProfiler.begin("FlightDeckManager.nav_refill_start_retrieval")
 		start_hangar_retrieval()
+		FrameProfiler.end("FlightDeckManager.nav_refill_start_retrieval", _retrieval_profiler_start)
 		retrieval_started = true
 	if now_s >= _navigation_idle_refill_log_s:
 		_navigation_idle_refill_log_s = now_s + HELI_NAVIGATION_IDLE_REFILL_LOG_S
@@ -4834,7 +4880,9 @@ func _setup_heli_navigation_test_range() -> bool:
 	if not (center_variant is Vector3):
 		return false
 	var requested_center := center_variant as Vector3
+	var _carrier_site_profiler_start: int = FrameProfiler.begin("FlightDeckManager.nav_find_carrier_site")
 	var carrier_site := _find_flat_navigation_carrier_site(nav_grid, requested_center)
+	FrameProfiler.end("FlightDeckManager.nav_find_carrier_site", _carrier_site_profiler_start)
 	if is_inf(carrier_site.x):
 		push_warning("[TestScenario] Could not find a carrier-sized flat site near map centre")
 		return false
@@ -4852,9 +4900,11 @@ func _setup_heli_navigation_test_range() -> bool:
 	carrier_node.visible = true
 
 	_heli_navigation_lzs.clear()
+	var _lz_profiler_start: int = FrameProfiler.begin("FlightDeckManager.nav_find_lzs")
 	for slot in range(HELI_NAVIGATION_ROUTE_COUNT):
 		var lz := _find_flat_navigation_test_lz(slot, nav_grid)
 		if is_inf(lz.x):
+			FrameProfiler.end("FlightDeckManager.nav_find_lzs", _lz_profiler_start)
 			_heli_navigation_lzs.clear()
 			push_warning("[TestScenario] Could not find flat fixed LZ for route %d" % slot)
 			return false
@@ -4866,6 +4916,7 @@ func _setup_heli_navigation_test_range() -> bool:
 			Vector2(lz.x - _heli_navigation_center.x, lz.z - _heli_navigation_center.z).length(),
 			lz.y - _heli_navigation_center.y,
 		])
+	FrameProfiler.end("FlightDeckManager.nav_find_lzs", _lz_profiler_start)
 	_log_heli_test("navigation carrier site=%s flat_radius=%.0fm routes=%d" % [
 		str(_heli_navigation_center.snapped(Vector3.ONE)),
 		HELI_NAVIGATION_CARRIER_FLAT_RADIUS_M,
@@ -4986,7 +5037,9 @@ func _find_flat_navigation_test_lz(slot: int, nav_grid: Node) -> Vector3:
 				var route_quality: Dictionary = {}
 				if HELI_NAVIGATION_LZ_PATH_QUALITY_PROBE_ENABLED \
 						or _navigation_lz_path_quality_required(slot):
+					var _path_quality_profiler_start: int = FrameProfiler.begin("FlightDeckManager.nav_lz_path_quality")
 					route_quality = _navigation_get_lz_route_quality(nav_grid, _heli_navigation_center, candidate)
+					FrameProfiler.end("FlightDeckManager.nav_lz_path_quality", _path_quality_profiler_start)
 					if route_quality.is_empty():
 						if path_reject_logs < HELI_NAVIGATION_LZ_PATH_REJECT_LOG_LIMIT:
 							path_reject_logs += 1
@@ -5276,7 +5329,9 @@ func _update_navigation_report(_delta: float) -> void:
 		return
 	if not _navigation_report_started:
 		_start_navigation_report()
+	var _nav_refill_profiler_start: int = FrameProfiler.begin("FlightDeckManager.nav_force_refill")
 	_navigation_force_refill_if_tuner_idle()
+	FrameProfiler.end("FlightDeckManager.nav_force_refill", _nav_refill_profiler_start)
 	_ensure_navigation_route_stats()
 	var now := _navigation_report_now_s()
 

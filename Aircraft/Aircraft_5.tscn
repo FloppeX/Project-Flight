@@ -96,14 +96,15 @@ script = ExtResource("5_8vbcf")
 rb_path = NodePath("..")
 pitch_power = 7.5
 roll_power = 13.0
-min_control_speed = 95.0
+yaw_power = 2.0
+min_control_speed = 85.0
 stability_strength = 2.8
 pitch_stability_factor = 0.8
 stability_torque_scale = 2.1
 pitch_stability_rate_damping = 2.4
 stability_start_speed_mps = 4.0
 stability_full_speed_mps = 18.0
-auto_rudder_strength = 0.35
+auto_rudder_strength = 0.15
 
 [node name="MovingParts" type="Node3D" parent="." unique_id=760134183]
 
@@ -144,7 +145,7 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.1597, -0.137423)
 
 [node name="Engine" parent="." unique_id=2062552982 instance=ExtResource("10_jemhm")]
 transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, 0, 0)
-PowerFactor = 10000.0
+PowerFactor = 12500.0
 propeller_node = NodePath("../aircraft_5/Aircraft 2 propeller")
 EngineSoundLoop = ExtResource("11_btnkm")
 EngineSoundStart = ExtResource("12_sqfht")
@@ -240,6 +241,105 @@ aircraft_path = NodePath("..")
 panel_size = Vector2(1, 0.8)
 camera_target_path = NodePath("../CameraTarget")
 zoom_distance = 100.0
+viewport_resolution = Vector2i(1000, 480)
+render_to_model_surface = true
+model_panel_mesh_path = NodePath("../aircraft_5/world_001/instrument panel")
+module_layout = Array[Dictionary]([{
+"type": "warning_lights",
+"id": "warning_strip",
+"title": "WARNINGS",
+"rect": Rect2(28, 20, 944, 48),
+"lights": ["ENGINE", "WEAPONS", "CONTROLS", "GEAR", "STALL", "MISSILE"]
+}, {
+"type": "mfd",
+"id": "mfd_left",
+"title": "MFD L",
+"rect": Rect2(40, 92, 260, 260),
+"modes": ["MAP", "WEAPONS", "DAMAGE", "SYSTEMS"]
+}, {
+"type": "mfd",
+"id": "mfd_right",
+"title": "MFD R",
+"rect": Rect2(700, 92, 260, 260),
+"modes": ["TARGET", "MAP", "WEAPONS", "DAMAGE", "SYSTEMS"]
+}, {
+"type": "readout",
+"id": "speed",
+"title": "SPEED",
+"instrument": "speed",
+"rect": Rect2(330, 92, 150, 58)
+}, {
+"type": "readout",
+"id": "altitude",
+"title": "ALT",
+"instrument": "altitude",
+"rect": Rect2(520, 92, 150, 58)
+}, {
+"type": "readout",
+"id": "vertical_speed",
+"title": "V/S",
+"instrument": "vertical_speed",
+"rect": Rect2(330, 164, 150, 58)
+}, {
+"type": "readout",
+"id": "fuel",
+"title": "FUEL",
+"instrument": "fuel",
+"rect": Rect2(520, 164, 150, 58)
+}, {
+"type": "readout",
+"id": "gear",
+"title": "GEAR",
+"instrument": "gear",
+"rect": Rect2(330, 236, 150, 58)
+}, {
+"type": "readout",
+"id": "flaps",
+"title": "FLAPS",
+"instrument": "flaps",
+"rect": Rect2(520, 236, 150, 58)
+}, {
+"type": "readout",
+"id": "stall",
+"title": "STALL",
+"instrument": "stall",
+"rect": Rect2(330, 308, 150, 48)
+}, {
+"type": "readout",
+"id": "missile_lock",
+"title": "M LOCK",
+"instrument": "missile_lock",
+"rect": Rect2(520, 308, 150, 48)
+}, {
+"type": "slip_ball",
+"id": "slip_ball",
+"title": "BALL",
+"rect": Rect2(40, 372, 260, 72)
+}, {
+"type": "readout",
+"id": "engine",
+"title": "ENGINE",
+"instrument": "engine",
+"rect": Rect2(330, 372, 150, 72)
+}, {
+"type": "readout",
+"id": "damage",
+"title": "STRUCT",
+"instrument": "damage",
+"rect": Rect2(520, 372, 150, 72)
+}, {
+"type": "readout",
+"id": "g_force",
+"title": "G",
+"instrument": "g_force",
+"rect": Rect2(700, 372, 120, 72)
+}, {
+"type": "readout",
+"id": "weapons",
+"title": "WEAPONS",
+"instrument": "weapons",
+"rect": Rect2(840, 372, 120, 72)
+}])
 
 [node name="Hardpoint1" parent="." unique_id=1440858794 instance=ExtResource("28_ymevh")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.5, -0.6882263, 0.7)

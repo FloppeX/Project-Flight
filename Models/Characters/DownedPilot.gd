@@ -19,11 +19,9 @@ enum Phase {
 var _phase: Phase = Phase.FIND_CLEARING
 var _model_node: Node3D = null
 var _pilot_pose: Node = null        # PilotPose node
-var _anim_player: AnimationPlayer = null
-var _running_anim_name: String = ""
 var _clearing_target: Vector3 = Vector3.ZERO
 var _rescue_heli: Node3D = null
-var _is_running: bool = false
+var _locomotion_active: bool = false
 
 
 func _ready() -> void:
@@ -35,34 +33,7 @@ func _ready() -> void:
 
 	_model_node = get_node_or_null("Model")
 	_pilot_pose = get_node_or_null("PilotPose")
-
-	# Load the running animation into the model's AnimationPlayer so PilotPose
-	# can play it. The sitting GLB shares the same Mixamo skeleton as the running FBX.
-	_anim_player = find_child("AnimationPlayer", true, false) as AnimationPlayer
-	var run_fbx_path := "res://Models/Characters/Pilot 2 - running.fbx"
-	if _anim_player != null and ResourceLoader.exists(run_fbx_path):
-		var run_scene := load(run_fbx_path) as PackedScene
-		if run_scene != null:
-			var run_inst := run_scene.instantiate()
-			var run_ap := run_inst.find_child("AnimationPlayer", true, false) as AnimationPlayer
-			if run_ap != null:
-				for lib_name in run_ap.get_animation_library_list():
-					var lib := run_ap.get_animation_library(lib_name)
-					if not _anim_player.has_animation_library(lib_name):
-						_anim_player.add_animation_library(lib_name, lib)
-					else:
-						var existing := _anim_player.get_animation_library(lib_name)
-						for anim_name in lib.get_animation_list():
-							if not existing.has_animation(anim_name):
-								existing.add_animation(anim_name, lib.get_animation(anim_name))
-				# Find a run/jog animation name
-				for lib_name in _anim_player.get_animation_library_list():
-					var lib2 := _anim_player.get_animation_library(lib_name)
-					for anim_name in lib2.get_animation_list():
-						var full := (str(lib_name) + "/" + str(anim_name)) if str(lib_name) != "" else str(anim_name)
-						if _running_anim_name == "" or "run" in full.to_lower() or "jog" in full.to_lower():
-							_running_anim_name = full
-			run_inst.queue_free()
+	_set_locomotion(false)
 
 	_clearing_target = _find_clearing()
 	print("[DownedPilot] %s spawned — walking to clearing at %s" % [name, str(_clearing_target.snapped(Vector3.ONE))])
@@ -78,11 +49,11 @@ func _physics_process(delta: float) -> void:
 			var flat_dist := Vector2(global_position.x - _clearing_target.x, global_position.z - _clearing_target.z).length()
 			if flat_dist < 2.0:
 				_phase = Phase.WAIT_RESCUE
-				_set_running(false)
+				_set_locomotion(false)
 				print("[DownedPilot] %s reached clearing — waiting for rescue" % name)
 
 		Phase.WAIT_RESCUE:
-			_set_running(false)
+			_set_locomotion(false)
 			var heli := _find_rescue_heli_with_open_doors()
 			if heli != null:
 				_rescue_heli = heli
@@ -113,7 +84,7 @@ func _walk_toward(target: Vector3, speed: float, delta: float) -> void:
 	var diff_xz := Vector3(target.x - global_position.x, 0.0, target.z - global_position.z)
 	var dist := diff_xz.length()
 	if dist < 0.5:
-		_set_running(false)
+		_set_locomotion(false)
 		return
 	var dir := diff_xz / dist
 	global_position.x += dir.x * speed * delta
@@ -121,34 +92,19 @@ func _walk_toward(target: Vector3, speed: float, delta: float) -> void:
 	if _model_node != null:
 		var target_basis := Basis.looking_at(dir, Vector3.UP) * Basis(Vector3.UP, PI)
 		_model_node.quaternion = _model_node.quaternion.slerp(target_basis.get_rotation_quaternion(), 8.0 * delta)
-	_set_running(true)
+	_set_locomotion(true, speed)
 
 
-func _set_running(running: bool) -> void:
-	if running == _is_running:
+func _set_locomotion(active: bool, speed: float = 0.0) -> void:
+	if active == _locomotion_active and not active:
 		return
-	_is_running = running
-	if _anim_player == null:
-		return
-	if running:
-		if _running_anim_name != "":
-			_anim_player.active = true
-			_anim_player.play(_running_anim_name)
-			var anim := _anim_player.get_animation(_running_anim_name)
-			if anim:
-				anim.loop_mode = Animation.LOOP_LINEAR
-		# Stop PilotPose from fighting the animation
-		if _pilot_pose != null and _pilot_pose.has_method("set_process"):
-			_pilot_pose.set_process(false)
-	else:
-		_anim_player.stop()
-		_anim_player.active = false
-		# Restore PilotPose so it holds the grounded pose
-		if _pilot_pose != null:
-			if _pilot_pose.has_method("set_process"):
-				_pilot_pose.set_process(true)
-			if _pilot_pose.has_method("set_ejection_pose"):
-				_pilot_pose.call("set_ejection_pose", &"grounded", 0.3)
+	_locomotion_active = active
+	if _model_node != null:
+		_model_node.visible = true
+	if _pilot_pose != null and _pilot_pose.has_method("set_locomotion_pose"):
+		_pilot_pose.call("set_locomotion_pose", active, speed)
+	elif _pilot_pose != null and not active and _pilot_pose.has_method("set_ejection_pose"):
+		_pilot_pose.call("set_ejection_pose", &"grounded", 0.3)
 
 
 func _snap_to_terrain() -> void:

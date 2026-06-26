@@ -1,0 +1,12 @@
+﻿exit_code=
+stamp=20260625_093426
+avg_godot_cpu_one_core_percent=0
+max_godot_working_set_mb=0
+godot_stdout=C:\Godot projects\Project-Flight\captures\perf_diagnostics\godot_stdout_20260625_093426.log
+godot_stderr=C:\Godot projects\Project-Flight\captures\perf_diagnostics\godot_stderr_20260625_093426.log
+godot_engine_log=C:\Godot projects\Project-Flight\captures\perf_diagnostics\godot_engine_20260625_093426.log
+process_samples=C:\Godot projects\Project-Flight\captures\perf_diagnostics\process_samples_20260625_093426.csv
+
+--- profiler tail ---
+
+--- fps/profile/search tail stdout ---

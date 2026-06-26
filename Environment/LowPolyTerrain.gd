@@ -74,6 +74,32 @@ class_name LowPolyTerrain
 ## Width of the sand→grey transition in n.y units (smaller = sharper border, e.g. 0.05)
 @export var steep_slope_band: float = 0.08
 
+@export_group("Color Variation")
+## Broad rusty ground patches on flat terrain.
+@export var ground_patch_color: Color = Color(0.58, 0.31, 0.17)
+@export var ground_patch_frequency: float = 0.00032
+@export_range(0.0, 1.0) var ground_patch_strength: float = 0.12
+## Pale dust flats that break up the orange floor without becoming noisy.
+@export var pale_dust_color: Color = Color(0.89, 0.66, 0.42)
+@export var pale_dust_frequency: float = 0.00046
+@export_range(0.0, 1.0) var pale_dust_strength: float = 0.13
+## Darker sediment in low basins and canyon floors.
+@export var basin_dark_color: Color = Color(0.24, 0.12, 0.07)
+@export var basin_dark_frequency: float = 0.00038
+@export_range(0.0, 1.0) var basin_dark_strength: float = 0.16
+## Subtle cooler tone for shadowed/distant-looking recesses.
+@export var cool_shadow_color: Color = Color(0.34, 0.30, 0.27)
+@export_range(0.0, 1.0) var cool_shadow_strength: float = 0.08
+## Extra horizontal tinting on canyon walls, separate from geometric strata.
+@export var cliff_band_dark_color: Color = Color(0.43, 0.27, 0.18)
+@export_range(0.0, 1.0) var cliff_band_strength: float = 0.14
+## Vertical erosion streaks on steep faces.
+@export var cliff_streak_color: Color = Color(0.22, 0.15, 0.12)
+@export var cliff_streak_frequency: float = 0.00075
+@export_range(0.0, 1.0) var cliff_streak_strength: float = 0.15
+## Deterministic per-triangle polygonal surface texture. Keep low.
+@export_range(0.0, 0.2) var face_texture_strength: float = 0.035
+
 @export_group("Output")
 @export var generate_on_ready: bool = true
 @export var generate_collision: bool = true
@@ -226,6 +252,32 @@ func get_height(world_pos: Vector3) -> float:
 	if quant_step_m > 0.1:
 		h = round(h / quant_step_m) * quant_step_m
 	return h + global_position.y
+
+func get_surface_color(world_pos: Vector3) -> Color:
+	if _noises.is_empty():
+		_refresh_layout()
+		_noises = _build_noises()
+	var local: Vector3 = to_local(world_pos)
+	var h: float = _sample_height(local.x, local.z, _noises)
+	if quant_step_m > 0.1:
+		h = round(h / quant_step_m) * quant_step_m
+	var face_center := Vector3(local.x, h, local.z)
+	var sample_step := maxf(cell_size_m, 1.0)
+	var hx0 := _sample_height(local.x - sample_step, local.z, _noises)
+	var hx1 := _sample_height(local.x + sample_step, local.z, _noises)
+	var hz0 := _sample_height(local.x, local.z - sample_step, _noises)
+	var hz1 := _sample_height(local.x, local.z + sample_step, _noises)
+	if quant_step_m > 0.1:
+		hx0 = round(hx0 / quant_step_m) * quant_step_m
+		hx1 = round(hx1 / quant_step_m) * quant_step_m
+		hz0 = round(hz0 / quant_step_m) * quant_step_m
+		hz1 = round(hz1 / quant_step_m) * quant_step_m
+	var dx := Vector3(sample_step * 2.0, hx1 - hx0, 0.0)
+	var dz := Vector3(0.0, hz1 - hz0, sample_step * 2.0)
+	var normal := dz.cross(dx).normalized()
+	if normal.y < 0.0:
+		normal = -normal
+	return _surface_color_for_sample(face_center, normal, _terrain_color_sample_id(local.x, local.z))
 
 func _refresh_layout() -> void:
 	_size_x = max(quads_x, 2)
@@ -580,9 +632,23 @@ func _append_face(
 		colors: PackedColorArray) -> void:
 	var n: Vector3 = _face_up_normal(v0, v1, v2)
 
+	var face_center: Vector3 = (v0 + v1 + v2) / 3.0
+	var c := _surface_color_for_sample(face_center, n, tri_id)
+
+	vertices.push_back(v0)
+	vertices.push_back(v1)
+	vertices.push_back(v2)
+	normals.push_back(n)
+	normals.push_back(n)
+	normals.push_back(n)
+	colors.push_back(c)
+	colors.push_back(c)
+	colors.push_back(c)
+
+func _surface_color_for_sample(face_center: Vector3, n: Vector3, sample_id: int) -> Color:
 	# Altitude-based coloring — geological strata like Colorado Plateau / Grand Canyon.
 	# Four color bands from canyon floor up to plateau top.
-	var face_y: float = (v0.y + v1.y + v2.y) / 3.0
+	var face_y: float = face_center.y
 	var floor_y: float = base_height_offset_m + (plateau_height_m - canyon_max_depth_m)
 	var top_y: float = base_height_offset_m + plateau_height_m + plateau_surface_amplitude_m * 0.5
 	var height_t: float = clampf((face_y - floor_y) / maxf(top_y - floor_y, 1.0), 0.0, 1.0)
@@ -598,17 +664,56 @@ func _append_face(
 		# Upper wall → plateau (orange-tan to cream)
 		base_color = canyon_upper_color.lerp(plateau_color, (height_t - 0.72) / 0.28)
 
-	# Steep-slope grey: n.y=1 is flat, n.y=0 is vertical wall.
-	# Grey starts at steep_slope_min_ny and ramps to full at n.y=0.
+	# Layer broad procedural color masks before the final steep-face and tint pass.
+	var flat_t: float = _smoothstep(0.74, 0.98, n.y)
+	var cliff_t: float = _smoothstep(0.18, 0.82, 1.0 - n.y)
+	var floor_t: float = _smoothstep(0.72, 1.0, 1.0 - height_t) * flat_t
+	var plateau_t: float = _smoothstep(0.64, 1.0, height_t) * flat_t
+	var wall_t: float = _smoothstep(0.20, 0.86, 1.0 - n.y) * _smoothstep(0.08, 0.55, height_t) * (1.0 - _smoothstep(0.64, 0.96, height_t))
+
+	var ground_patch_noise := _noises.get("ground_patch") as FastNoiseLite
+	if ground_patch_noise != null:
+		var patch_t: float = _smoothstep(0.52, 0.86, _noise01(ground_patch_noise, face_center.x, face_center.z)) * flat_t
+		base_color = base_color.lerp(ground_patch_color, patch_t * ground_patch_strength)
+
+	var pale_dust_noise := _noises.get("pale_dust") as FastNoiseLite
+	if pale_dust_noise != null:
+		var dust_t: float = _smoothstep(0.54, 0.88, _noise01(pale_dust_noise, face_center.x, face_center.z)) * maxf(plateau_t, flat_t * 0.35)
+		base_color = base_color.lerp(pale_dust_color, dust_t * pale_dust_strength)
+
+	var basin_dark_noise := _noises.get("basin_dark") as FastNoiseLite
+	if basin_dark_noise != null:
+		var basin_t: float = _smoothstep(0.52, 0.88, _noise01(basin_dark_noise, face_center.x, face_center.z)) * floor_t
+		base_color = base_color.lerp(basin_dark_color, basin_t * basin_dark_strength)
+
+	if cool_shadow_strength > 0.0:
+		var recess_t: float = clampf(floor_t * 0.45 + wall_t * 0.35 + cliff_t * 0.20, 0.0, 1.0)
+		base_color = base_color.lerp(cool_shadow_color, recess_t * cool_shadow_strength)
+
+	if cliff_band_strength > 0.0 and wall_t > 0.0:
+		var local_step: float = maxf(strata_step_m, 1.0)
+		var band_phase: float = fposmod(face_y - floor_y, local_step) / local_step
+		var band_t: float = (1.0 - _smoothstep(0.20, 0.62, band_phase)) * wall_t
+		base_color = base_color.lerp(cliff_band_dark_color, band_t * cliff_band_strength)
+
+	var cliff_streak_noise := _noises.get("cliff_streak") as FastNoiseLite
+	if cliff_streak_noise != null:
+		var streak_x: float = face_center.x * 0.35 + face_center.z * 0.08
+		var streak_y: float = face_y * 2.4
+		var streak_t: float = _smoothstep(0.58, 0.90, _noise01(cliff_streak_noise, streak_x, streak_y)) * wall_t
+		base_color = base_color.lerp(cliff_streak_color, streak_t * cliff_streak_strength)
+
 	var steep_t: float = clampf((steep_slope_min_ny - n.y) / maxf(steep_slope_band, 0.001), 0.0, 1.0) * steep_slope_strength
-	base_color = base_color.lerp(steep_slope_color, steep_t)
+	var steep_mask: float = 1.0
+	if ground_patch_noise != null:
+		steep_mask = lerpf(0.62, 1.0, _noise01(ground_patch_noise, face_center.x + 1700.0, face_center.z - 900.0))
+	base_color = base_color.lerp(steep_slope_color, steep_t * steep_mask)
 
 	# Large-scale colour patches: low-frequency noise sampled at the world-space face
 	# centre shifts the base brightness by ±color_patch_strength. RGB only, alpha
 	# untouched.
 	var color_var_noise := _noises.get("color_var") as FastNoiseLite
 	if color_var_noise != null:
-		var face_center: Vector3 = (v0 + v1 + v2) / 3.0
 		var patch_noise: float = color_var_noise.get_noise_2d(face_center.x, face_center.z)
 		var patch_mult: float = 1.0 + patch_noise * color_patch_strength
 		base_color = Color(
@@ -619,24 +724,16 @@ func _append_face(
 		)
 
 	# Per-face micro-randomness
-	var tint_rand: float = _hash01(tri_id * 101 + seed * 17)
-	var tint: float = 1.0 + (tint_rand * 2.0 - 1.0) * color_noise_strength
-	var c := Color(
+	var tint_rand: float = _hash01(sample_id * 101 + seed * 17)
+	var poly_rand: float = _hash01(sample_id * 389 + seed * 31)
+	var poly_strength: float = face_texture_strength * lerpf(0.65, 1.35, clampf(wall_t + floor_t, 0.0, 1.0))
+	var tint: float = 1.0 + (tint_rand * 2.0 - 1.0) * color_noise_strength + (poly_rand * 2.0 - 1.0) * poly_strength
+	return Color(
 		clampf(base_color.r * tint, 0.0, 1.0),
 		clampf(base_color.g * tint, 0.0, 1.0),
 		clampf(base_color.b * tint, 0.0, 1.0),
 		1.0
 	)
-
-	vertices.push_back(v0)
-	vertices.push_back(v1)
-	vertices.push_back(v2)
-	normals.push_back(n)
-	normals.push_back(n)
-	normals.push_back(n)
-	colors.push_back(c)
-	colors.push_back(c)
-	colors.push_back(c)
 
 func _should_use_alternate_diagonal(
 		v00: Vector3,
@@ -759,6 +856,42 @@ func _build_noises() -> Dictionary:
 	cliff_jitter.fractal_lacunarity = 2.0
 	cliff_jitter.fractal_gain = 0.5
 
+	var ground_patch := FastNoiseLite.new()
+	ground_patch.seed = seed + 601
+	ground_patch.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	ground_patch.frequency = maxf(ground_patch_frequency, 0.000001)
+	ground_patch.fractal_type = FastNoiseLite.FRACTAL_FBM
+	ground_patch.fractal_octaves = 2
+	ground_patch.fractal_lacunarity = 2.0
+	ground_patch.fractal_gain = 0.5
+
+	var pale_dust := FastNoiseLite.new()
+	pale_dust.seed = seed + 617
+	pale_dust.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	pale_dust.frequency = maxf(pale_dust_frequency, 0.000001)
+	pale_dust.fractal_type = FastNoiseLite.FRACTAL_FBM
+	pale_dust.fractal_octaves = 3
+	pale_dust.fractal_lacunarity = 2.0
+	pale_dust.fractal_gain = 0.48
+
+	var basin_dark := FastNoiseLite.new()
+	basin_dark.seed = seed + 631
+	basin_dark.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	basin_dark.frequency = maxf(basin_dark_frequency, 0.000001)
+	basin_dark.fractal_type = FastNoiseLite.FRACTAL_FBM
+	basin_dark.fractal_octaves = 2
+	basin_dark.fractal_lacunarity = 2.0
+	basin_dark.fractal_gain = 0.52
+
+	var cliff_streak := FastNoiseLite.new()
+	cliff_streak.seed = seed + 647
+	cliff_streak.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	cliff_streak.frequency = maxf(cliff_streak_frequency, 0.000001)
+	cliff_streak.fractal_type = FastNoiseLite.FRACTAL_FBM
+	cliff_streak.fractal_octaves = 3
+	cliff_streak.fractal_lacunarity = 2.25
+	cliff_streak.fractal_gain = 0.52
+
 	return {
 		"canyon_warp": canyon_warp,
 		"main_canyon": main_canyon,
@@ -769,6 +902,10 @@ func _build_noises() -> Dictionary:
 		"strata_var": strata_var,
 		"cliff_jitter": cliff_jitter,
 		"color_var": color_var,
+		"ground_patch": ground_patch,
+		"pale_dust": pale_dust,
+		"basin_dark": basin_dark,
+		"cliff_streak": cliff_streak,
 	}
 
 func _sample_height(world_x: float, world_z: float, noises: Dictionary) -> float:
@@ -1113,6 +1250,14 @@ func _sample_grid_bilinear(heights: PackedFloat32Array, cols: int, rows: int, gx
 func _smoothstep(edge0: float, edge1: float, x: float) -> float:
 	var t: float = clampf((x - edge0) / maxf(edge1 - edge0, 0.00001), 0.0, 1.0)
 	return t * t * (3.0 - 2.0 * t)
+
+func _noise01(noise: FastNoiseLite, x: float, y: float) -> float:
+	return clampf(noise.get_noise_2d(x, y) * 0.5 + 0.5, 0.0, 1.0)
+
+func _terrain_color_sample_id(local_x: float, local_z: float) -> int:
+	var gx := int(floor((local_x - _x0) / maxf(cell_size_m, 0.001)))
+	var gz := int(floor((local_z - _z0) / maxf(cell_size_m, 0.001)))
+	return gx * 73856093 ^ gz * 19349663
 
 func _hash01(v: int) -> float:
 	var n: int = v

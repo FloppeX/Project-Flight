@@ -1,0 +1,19 @@
+[remap]
+
+importer="csv_translation"
+type="Translation"
+uid="uid://b55gnt8twrq0f"
+
+[deps]
+
+files=["res://captures/perf_diagnostics/process_samples_direct_20260625_175455.elapsed.translation", "res://captures/perf_diagnostics/process_samples_direct_20260625_175455.pid.translation", "res://captures/perf_diagnostics/process_samples_direct_20260625_175455.process.translation", "res://captures/perf_diagnostics/process_samples_direct_20260625_175455.cpu.translation", "res://captures/perf_diagnostics/process_samples_direct_20260625_175455.delta.translation", "res://captures/perf_diagnostics/process_samples_direct_20260625_175455.working.translation", "res://captures/perf_diagnostics/process_samples_direct_20260625_175455.private.translation", "res://captures/perf_diagnostics/process_samples_direct_20260625_175455.threads.translation", "res://captures/perf_diagnostics/process_samples_direct_20260625_175455.top.translation"]
+
+source_file="res://captures/perf_diagnostics/process_samples_direct_20260625_175455.csv"
+dest_files=["res://captures/perf_diagnostics/process_samples_direct_20260625_175455.elapsed.translation", "res://captures/perf_diagnostics/process_samples_direct_20260625_175455.pid.translation", "res://captures/perf_diagnostics/process_samples_direct_20260625_175455.process.translation", "res://captures/perf_diagnostics/process_samples_direct_20260625_175455.cpu.translation", "res://captures/perf_diagnostics/process_samples_direct_20260625_175455.delta.translation", "res://captures/perf_diagnostics/process_samples_direct_20260625_175455.working.translation", "res://captures/perf_diagnostics/process_samples_direct_20260625_175455.private.translation", "res://captures/perf_diagnostics/process_samples_direct_20260625_175455.threads.translation", "res://captures/perf_diagnostics/process_samples_direct_20260625_175455.top.translation"]
+
+[params]
+
+compress=1
+delimiter=0
+unescape_keys=false
+unescape_translations=true

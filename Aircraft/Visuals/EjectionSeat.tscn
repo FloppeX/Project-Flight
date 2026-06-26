@@ -1,7 +1,9 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=3 format=3]
 
 [ext_resource type="PackedScene" uid="uid://cxrxexemcmxew" path="res://Aircraft/Visuals/ejection_seat.glb" id="1_seat_model"]
+[ext_resource type="Script" path="res://Aircraft/Visuals/FlatShadedVisual.gd" id="2_flat_shaded"]
 
 [node name="EjectionSeat" type="Node3D"]
+script = ExtResource("2_flat_shaded")
 
 [node name="Model" parent="." instance=ExtResource("1_seat_model")]

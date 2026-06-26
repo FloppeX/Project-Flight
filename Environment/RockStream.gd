@@ -24,10 +24,23 @@ const SUPPORT_SAMPLE_DIRECTIONS := [
 @export var radius_m: float = 400.0
 @export var cell_size_m: float = 25.0
 ## Probability [0..1] of a rock appearing in each cell
-@export var density_per_cell: float = 0.4
+@export var density_per_cell: float = 0.28
 @export var max_instances: int = 2000
 @export var min_scale: float = 0.35
 @export var max_scale: float = 0.95
+@export_group("Distribution")
+## Low-frequency mask that clusters rocks instead of spreading them evenly.
+@export var detail_mask_frequency: float = 0.0011
+@export_range(0.0, 1.0) var detail_mask_strength: float = 0.55
+## Keep only the stronger portions of the mask so detail appears in patches.
+@export_range(0.0, 1.0) var detail_cluster_threshold: float = 0.42
+## Extra placement chance in lower canyon-floor areas.
+@export_range(0.0, 1.0) var basin_density_bonus: float = 0.20
+## Extra placement chance near gentle broken slopes and cliff bases.
+@export_range(0.0, 1.0) var broken_ground_density_bonus: float = 0.18
+@export var detail_seed_offset: int = 913
+
+@export_group("Placement")
 ## Final placement uses the actual terrain collision surface, because the
 ## rendered stream mesh may be post-processed after get_height() sampling.
 @export var snap_to_collision_surface: bool = true
@@ -67,6 +80,7 @@ var _last_center_cell: Vector2i = Vector2i(1_000_000, 1_000_000)
 var _rock_local_min_y: float = 0.0
 var _rock_local_height: float = 0.0
 var _rock_local_planform_radius: float = 0.5
+var _detail_mask: FastNoiseLite
 
 func _ready() -> void:
 	add_to_group("origin_shifter")
@@ -82,6 +96,7 @@ func _ready() -> void:
 		_rock_mesh = fallback
 	_mm.mesh = _rock_mesh
 	_cache_rock_bounds()
+	_build_detail_mask()
 	# Terrain lookup — find via group set in LowPolyTerrain._ready()
 	_terrain = get_tree().get_first_node_in_group("terrain_provider") as LowPolyTerrain
 
@@ -145,8 +160,6 @@ func _rebuild(center: Vector3) -> void:
 			# Deterministic per-cell random — same result every time for same cell
 			var h_val := _hash2i(int(world_x / cell_size_m), int(world_z / cell_size_m)) ^ seed
 			rng.seed = h_val
-			if rng.randf() > density_per_cell:
-				_dbg_density += 1; continue
 
 			# Random offset within cell for organic scatter
 			var offx := rng.randf_range(-cell_size_m * 0.45, cell_size_m * 0.45)
@@ -172,12 +185,17 @@ func _rebuild(center: Vector3) -> void:
 				continue
 			var slope_x: float = abs(hx_pos - hx_neg) / maxf(slope_sample_m * 2.0, 0.001)
 			var slope_z: float = abs(hz_pos - hz_neg) / maxf(slope_sample_m * 2.0, 0.001)
+			var slope_amount: float = maxf(slope_x, slope_z)
 			if maxf(slope_x, slope_z) > max_slope_tan:
 				_dbg_slope += 1; continue  # Too steep — cliff face, no rocks
 
 			# Also reject placements that sit near a sharp edge within the rock's
 			# footprint, otherwise the center point can be grounded while the mesh
 			# visibly hangs out into empty space.
+			var local_density: float = _terrain_detail_density(px, pz, h, slope_amount)
+			if rng.randf() > local_density:
+				_dbg_density += 1; continue
+
 			if not _has_stable_terrain_support(h, px, pz, s):
 				_dbg_support += 1; continue
 
@@ -211,6 +229,45 @@ func _hash2i(x: int, y: int) -> int:
 	var n := int(x) * 374761393 + int(y) * 668265263
 	n = (n ^ (n >> 13)) * 1274126177
 	return n ^ (n >> 16)
+
+func _build_detail_mask() -> void:
+	_detail_mask = FastNoiseLite.new()
+	_detail_mask.seed = seed + detail_seed_offset
+	_detail_mask.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	_detail_mask.frequency = maxf(detail_mask_frequency, 0.000001)
+	_detail_mask.fractal_type = FastNoiseLite.FRACTAL_FBM
+	_detail_mask.fractal_octaves = 3
+	_detail_mask.fractal_lacunarity = 2.0
+	_detail_mask.fractal_gain = 0.5
+
+func _terrain_detail_density(px: float, pz: float, h: float, slope_amount: float) -> float:
+	var mask_t: float = 1.0
+	if _detail_mask != null:
+		var raw: float = clampf(_detail_mask.get_noise_2d(px, pz) * 0.5 + 0.5, 0.0, 1.0)
+		var clustered: float = _smoothstep(detail_cluster_threshold, 1.0, raw)
+		mask_t = lerpf(1.0 - detail_mask_strength, 1.0 + detail_mask_strength, clustered)
+
+	var basin_t: float = 0.0
+	if _terrain != null:
+		var floor_y: float = (_terrain.base_height_offset_m
+			+ _terrain.plateau_height_m - _terrain.canyon_max_depth_m
+			+ _terrain.global_position.y)
+		var top_y: float = (_terrain.base_height_offset_m
+			+ _terrain.plateau_height_m
+			+ _terrain.plateau_surface_amplitude_m * 0.5
+			+ _terrain.global_position.y)
+		var height_t: float = clampf((h - floor_y) / maxf(top_y - floor_y, 1.0), 0.0, 1.0)
+		basin_t = _smoothstep(0.78, 1.0, 1.0 - height_t)
+
+	var slope_t: float = _smoothstep(0.04, 0.28, slope_amount) * (1.0 - _smoothstep(0.38, 0.75, slope_amount))
+	var density: float = density_per_cell * mask_t
+	density += basin_t * basin_density_bonus
+	density += slope_t * broken_ground_density_bonus
+	return clampf(density, 0.0, 0.95)
+
+func _smoothstep(edge0: float, edge1: float, x: float) -> float:
+	var t: float = clampf((x - edge0) / maxf(edge1 - edge0, 0.00001), 0.0, 1.0)
+	return t * t * (3.0 - 2.0 * t)
 
 func _get_collision_surface_height(px: float, pz: float, fallback_h: float) -> float:
 	if not snap_to_collision_surface:

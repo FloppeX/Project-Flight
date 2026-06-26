@@ -1,0 +1,187 @@
+﻿exit_code=-1073741819
+stamp=20260625_195848
+avg_godot_cpu_one_core_percent=84.7
+max_godot_working_set_mb=2580.3
+godot_output=C:\Godot projects\Project-Flight\captures\perf_diagnostics\godot_direct_20260625_195848.log
+process_samples=C:\Godot projects\Project-Flight\captures\perf_diagnostics\process_samples_direct_20260625_195848.csv
+track_marks=Enabled
+track_mark_max_active=240
+track_mark_lifetime_s=90
+track_mark_fade_update_rate_hz=5
+
+--- selected runtime output ---
+WARNING: Godot 3.x SpatialMaterial remapped parameter not found: unshaded
+WARNING: Godot 3.x SpatialMaterial remapped parameter not found: unshaded
+WARNING: Godot 3.x SpatialMaterial remapped parameter not found: unshaded
+WARNING: Godot 3.x SpatialMaterial remapped parameter not found: unshaded
+WARNING: Godot 3.x SpatialMaterial remapped parameter not found: unshaded
+WARNING: Godot 3.x SpatialMaterial remapped parameter not found: unshaded
+WARNING: Godot 3.x SpatialMaterial remapped parameter not found: unshaded
+WARNING: Godot 3.x SpatialMaterial remapped parameter not found: unshaded
+WARNING: Godot 3.x SpatialMaterial remapped parameter not found: unshaded
+WARNING: Godot 3.x SpatialMaterial remapped parameter not found: unshaded
+WARNING: Godot 3.x SpatialMaterial remapped parameter not found: unshaded
+WARNING: Godot 3.x SpatialMaterial remapped parameter not found: unshaded
+WARNING: Godot 3.x SpatialMaterial remapped parameter not found: unshaded
+WARNING: Godot 3.x SpatialMaterial remapped parameter not found: unshaded
+WARNING: Godot 3.x SpatialMaterial remapped parameter not found: unshaded
+WARNING: Godot 3.x SpatialMaterial remapped parameter not found: unshaded
+WARNING: Godot 3.x SpatialMaterial remapped parameter not found: unshaded
+WARNING: Godot 3.x SpatialMaterial remapped parameter not found: unshaded
+WARNING: Godot 3.x SpatialMaterial remapped parameter not found: unshaded
+WARNING: Godot 3.x SpatialMaterial remapped parameter not found: unshaded
+WARNING: Godot 3.x SpatialMaterial remapped parameter not found: unshaded
+WARNING: Godot 3.x SpatialMaterial remapped parameter not found: unshaded
+WARNING: Godot 3.x SpatialMaterial remapped parameter not found: unshaded
+WARNING: Godot 3.x SpatialMaterial remapped parameter not found: unshaded
+WARNING: Godot 3.x SpatialMaterial remapped parameter not found: unshaded
+WARNING: Godot 3.x SpatialMaterial remapped parameter not found: unshaded
+WARNING: Godot 3.x SpatialMaterial remapped parameter not found: unshaded
+WARNING: Godot 3.x SpatialMaterial remapped parameter not found: unshaded
+WARNING: Godot 3.x SpatialMaterial remapped parameter not found: unshaded
+WARNING: Godot 3.x SpatialMaterial remapped parameter not found: unshaded
+[LandCarrierPerfOverride] track_marks_enabled=true max_active=240 lifetime=90.0 spacing=0.00 min_speed=0.75 fade_hz=5.0 debug_interval=5.0
+WARNING: Godot 3.x SpatialMaterial remapped parameter not found: specular
+WARNING: res://Aircraft/Aircraft_1.tscn:7 - ext_resource, invalid UID: uid://bpfxucj3ypbxu - using text path instead: res://Models/Aircraft_1/Aircraft 2 propeller.glb
+       [0] _ready (res://Enemies/EnemyAircraftSpawner.gd:48)
+[FrameProfiler] enabled (ScenarioManager)
+ERROR: The object does not have any 'meta' values with the key 'pilot_livery_colors'.
+[FrameProfiler] frame_spike labeled=19.34ms top=LandCarrier.physics 5.97ms; FlightDeckManager.physics 3.87ms; LandCarrier.tread_visuals 3.42ms; LandCarrier.tread_sample_terrain 1.73ms; LandCarrier.drive_to_waypoint 1.39ms; LandCarrier.tread_apply_nodes 1.11ms; AirOpsManager.process 0.63ms; LandCarrier.carry_deck_passengers 0.41ms
+[FrameProfiler] 1.0s top=LandCarrier.physics total=21.81ms avg=0.363ms max=0.74ms n=60; LandCarrier.tread_visuals total=12.57ms avg=0.209ms max=0.57ms n=60; LandCarrier.tread_sample_terrain total=7.01ms avg=0.117ms max=0.18ms n=60; FlightDeckManager.physics total=5.70ms avg=0.095ms max=0.59ms n=60; Aircraft.physics total=4.94ms avg=0.095ms max=0.29ms n=52; LandCarrier.drive_to_waypoint total=4.92ms avg=0.082ms max=0.16ms n=60; LandCarrier.tread_apply_nodes total=3.34ms avg=0.056ms max=0.39ms n=60; Aircraft.process total=2.06ms avg=0.159ms max=0.19ms n=13
+Project FPS: 18 (55.55 mspf)
+[FrameProfiler] 1.0s top=LandCarrier.physics total=20.65ms avg=0.344ms max=0.59ms n=60; LandCarrier.tread_visuals total=11.98ms avg=0.200ms max=0.34ms n=60; LandCarrier.tread_sample_terrain total=6.94ms avg=0.116ms max=0.21ms n=60; Aircraft.physics total=6.03ms avg=0.100ms max=0.26ms n=60; LandCarrier.drive_to_waypoint total=4.57ms avg=0.076ms max=0.16ms n=60; LandCarrier.tread_apply_nodes total=2.94ms avg=0.049ms max=0.08ms n=60; Aircraft.process total=2.74ms avg=0.152ms max=0.17ms n=18; FlightDeckManager.physics total=2.33ms avg=0.039ms max=0.07ms n=60
+Project FPS: 18 (55.55 mspf)
+[FrameProfiler] 1.0s top=LandCarrier.physics total=21.51ms avg=0.347ms max=0.52ms n=62; LandCarrier.tread_visuals total=12.61ms avg=0.203ms max=0.37ms n=62; LandCarrier.tread_sample_terrain total=7.23ms avg=0.117ms max=0.15ms n=62; Aircraft.physics total=6.45ms avg=0.104ms max=0.23ms n=62; LandCarrier.drive_to_waypoint total=4.77ms avg=0.077ms max=0.15ms n=62; LandCarrier.tread_apply_nodes total=3.18ms avg=0.051ms max=0.21ms n=62; Aircraft.process total=2.84ms avg=0.150ms max=0.17ms n=19; ParticleManager.process total=2.80ms avg=0.148ms max=0.26ms n=19
+[VehicleDeploy] Started — spawn_local=(0.0, -23.4, -55.0) hinge_z=-67.0 phase=ON_DECK
+[VehicleBay] Vehicle spawned, 3 remaining in queue, 15 in bay
+ERROR: Error calling deferred method: 'Node3D(ground_vehicle_platoon.gd)::_on_route_preview_computed': Cannot convert argument 1 from Array to Array.
+[FloatingOrigin]   shifted child 'EnemyAircraftSpawner' from (0.0, 0.0, 0.0) to (25201.1, 0.0, -14442.88)
+ERROR: Error calling deferred method: 'Node3D(ground_vehicle_platoon.gd)::_on_contact_path_computed': Cannot convert argument 1 from Array to Array.
+[FrameProfiler] frame_spike labeled=12.44ms top=LandCarrier.physics 3.52ms; LandCarrier.tread_visuals 2.24ms; EnemyOpsManager.physics 2.04ms; LandCarrier.tread_apply_nodes 1.21ms; Aircraft.physics 1.05ms; LandCarrier.tread_sample_terrain 0.79ms; LandCarrier.drive_to_waypoint 0.78ms; FlightDeckManager.physics 0.29ms
+Project FPS: 20 (50.00 mspf)
+[FrameProfiler] frame_spike labeled=11.45ms top=LandCarrier.physics 3.29ms; LandCarrier.tread_visuals 2.21ms; EnemyOpsManager.physics 1.72ms; LandCarrier.tread_apply_nodes 1.13ms; LandCarrier.tread_sample_terrain 0.87ms; Aircraft.physics 0.79ms; LandCarrier.drive_to_waypoint 0.65ms; FlightDeckManager.physics 0.28ms
+[FrameProfiler] 1.1s top=LandCarrier.physics total=22.76ms avg=0.350ms max=0.55ms n=65; EnemyOpsManager.physics total=15.63ms avg=0.241ms max=0.42ms n=65; LandCarrier.tread_visuals total=13.93ms avg=0.214ms max=0.42ms n=65; Aircraft.physics total=7.15ms avg=0.110ms max=0.31ms n=65; LandCarrier.tread_sample_terrain total=7.09ms avg=0.109ms max=0.24ms n=65; LandCarrier.drive_to_waypoint total=5.34ms avg=0.082ms max=0.16ms n=65; LandCarrier.tread_apply_nodes total=4.69ms avg=0.072ms max=0.19ms n=65; Aircraft.process total=2.78ms avg=0.154ms max=0.18ms n=18
+[FrameProfiler] frame_spike labeled=8.86ms top=LandCarrier.physics 2.36ms; LandCarrier.tread_visuals 1.56ms; EnemyOpsManager.physics 1.49ms; LandCarrier.tread_apply_nodes 0.86ms; Aircraft.physics 0.86ms; LandCarrier.tread_sample_terrain 0.54ms; LandCarrier.drive_to_waypoint 0.49ms; FlightDeckManager.physics 0.19ms
+Project FPS: 33 (30.30 mspf)
+[LandCarrierTrackMarks] active=0 max=240 enabled=true
+[FrameProfiler] 1.0s top=LandCarrier.physics total=33.80ms avg=0.554ms max=0.77ms n=61; LandCarrier.tread_visuals total=20.83ms avg=0.341ms max=0.49ms n=61; EnemyOpsManager.physics total=17.68ms avg=0.290ms max=0.50ms n=61; Aircraft.physics total=14.72ms avg=0.241ms max=0.41ms n=61; LandCarrier.tread_apply_nodes total=11.18ms avg=0.183ms max=0.27ms n=61; LandCarrier.drive_to_waypoint total=8.38ms avg=0.137ms max=0.19ms n=61; LandCarrier.tread_sample_terrain total=7.43ms avg=0.122ms max=0.17ms n=61; Aircraft.process total=6.07ms avg=0.110ms max=0.17ms n=55
+Project FPS: 55 (18.18 mspf)
+[FrameProfiler] 1.0s top=LandCarrier.physics total=34.36ms avg=0.563ms max=0.79ms n=61; LandCarrier.tread_visuals total=21.35ms avg=0.350ms max=0.53ms n=61; EnemyOpsManager.physics total=17.67ms avg=0.290ms max=0.42ms n=61; Aircraft.physics total=15.03ms avg=0.246ms max=0.45ms n=61; LandCarrier.tread_apply_nodes total=11.51ms avg=0.189ms max=0.29ms n=61; LandCarrier.drive_to_waypoint total=8.43ms avg=0.138ms max=0.19ms n=61; LandCarrier.tread_sample_terrain total=7.57ms avg=0.124ms max=0.19ms n=61; Aircraft.process total=6.18ms avg=0.108ms max=0.17ms n=57
+[FrameProfiler] frame_spike labeled=18.57ms top=LandCarrier.physics 8.85ms; LandCarrier.track_marks 8.43ms; LandCarrier.tread_visuals 0.25ms; Aircraft.physics 0.21ms; EnemyOpsManager.physics 0.21ms; LandCarrier.tread_apply_nodes 0.14ms; Aircraft.process 0.13ms; LandCarrier.drive_to_waypoint 0.11ms
+Project FPS: 57 (17.54 mspf)
+[VehicleDeploy] Started — spawn_local=(0.0, -23.4, -55.0) hinge_z=-67.0 phase=ON_DECK
+[VehicleBay] Vehicle spawned, 2 remaining in queue, 14 in bay
+[FrameProfiler] 1.0s top=LandCarrier.physics total=44.02ms avg=0.722ms max=8.85ms n=61; LandCarrier.tread_visuals total=21.87ms avg=0.359ms max=0.53ms n=61; EnemyOpsManager.physics total=19.74ms avg=0.324ms max=0.58ms n=61; Aircraft.physics total=15.37ms avg=0.252ms max=0.43ms n=61; LandCarrier.tread_apply_nodes total=11.78ms avg=0.193ms max=0.29ms n=61; LandCarrier.track_marks total=9.37ms avg=0.154ms max=8.43ms n=61; LandCarrier.drive_to_waypoint total=8.76ms avg=0.144ms max=0.20ms n=61; LandCarrier.tread_sample_terrain total=7.76ms avg=0.127ms max=0.19ms n=61
+Project FPS: 55 (18.18 mspf)
+[FrameProfiler] frame_spike labeled=35.91ms top=FlightDeckManager.heli_retrieval_ai_enable 28.68ms; FlightDeckManager.heli_retrieval_settle 3.90ms; HelicopterPilot.lz_pick 1.50ms; LandCarrier.physics 0.51ms; LandCarrier.tread_visuals 0.29ms; EnemyOpsManager.physics 0.27ms; LandCarrier.tread_apply_nodes 0.16ms; Aircraft.physics 0.13ms
+[FrameProfiler] 1.0s top=LandCarrier.physics total=34.61ms avg=0.577ms max=0.86ms n=60; FlightDeckManager.heli_retrieval_ai_enable total=28.68ms avg=28.677ms max=28.68ms n=1; LandCarrier.tread_visuals total=20.74ms avg=0.346ms max=0.50ms n=60; EnemyOpsManager.physics total=19.59ms avg=0.327ms max=0.51ms n=60; Aircraft.physics total=12.98ms avg=0.216ms max=0.36ms n=60; LandCarrier.tread_apply_nodes total=11.19ms avg=0.187ms max=0.27ms n=60; LandCarrier.drive_to_waypoint total=8.27ms avg=0.138ms max=0.24ms n=60; LandCarrier.tread_sample_terrain total=7.31ms avg=0.122ms max=0.18ms n=60
+Project FPS: 54 (18.51 mspf)
+[FrameProfiler] frame_spike labeled=9.25ms top=LandCarrier.physics 2.56ms; EnemyOpsManager.physics 1.66ms; LandCarrier.tread_visuals 1.56ms; LandCarrier.tread_apply_nodes 0.86ms; Aircraft.physics 0.58ms; LandCarrier.drive_to_waypoint 0.55ms; LandCarrier.tread_sample_terrain 0.52ms; FlightDeckManager.physics 0.27ms
+[FrameProfiler] 1.0s top=LandCarrier.physics total=38.47ms avg=0.631ms max=0.89ms n=61; LandCarrier.tread_visuals total=22.33ms avg=0.366ms max=0.50ms n=61; EnemyOpsManager.physics total=22.21ms avg=0.364ms max=0.51ms n=61; LandCarrier.tread_apply_nodes total=12.11ms avg=0.199ms max=0.27ms n=61; Aircraft.physics total=9.88ms avg=0.162ms max=0.31ms n=61; LandCarrier.drive_to_waypoint total=8.76ms avg=0.144ms max=0.20ms n=61; LandCarrier.tread_sample_terrain total=7.79ms avg=0.128ms max=0.18ms n=61; Aircraft.process total=6.25ms avg=0.112ms max=0.25ms n=56
+[FrameProfiler] frame_spike labeled=8.85ms top=LandCarrier.physics 2.28ms; LandCarrier.tread_visuals 1.43ms; EnemyOpsManager.physics 1.35ms; LandCarrier.tread_apply_nodes 0.80ms; AirOpsManager.process 0.66ms; LandCarrier.tread_sample_terrain 0.48ms; Aircraft.physics 0.43ms; LandCarrier.drive_to_waypoint 0.43ms
+Project FPS: 54 (18.51 mspf)
+[VehicleDeploy] Started — spawn_local=(0.0, -23.4, -55.0) hinge_z=-67.0 phase=ON_DECK
+[VehicleBay] Vehicle spawned, 1 remaining in queue, 13 in bay
+[FrameProfilerReport] 10.0s worst=LandCarrier.physics total=302.60ms avg=0.504ms max=8.85ms n=600; LandCarrier.tread_visuals total=176.17ms avg=0.294ms max=0.57ms n=600; EnemyOpsManager.physics total=132.88ms avg=0.221ms max=0.85ms n=600; Aircraft.physics total=99.58ms avg=0.168ms max=0.45ms n=592; LandCarrier.tread_apply_nodes total=81.74ms avg=0.136ms max=0.39ms n=600; LandCarrier.tread_sample_terrain total=72.31ms avg=0.121ms max=0.24ms n=600; LandCarrier.drive_to_waypoint total=69.05ms avg=0.115ms max=0.24ms n=600; Aircraft.process total=46.01ms avg=0.119ms max=0.25ms n=388
+[LandCarrierTrackMarks] active=10 max=240 enabled=true
+[FrameProfiler] 1.0s top=LandCarrier.physics total=36.40ms avg=0.607ms max=0.93ms n=60; EnemyOpsManager.physics total=21.25ms avg=0.354ms max=0.62ms n=60; LandCarrier.tread_visuals total=21.17ms avg=0.353ms max=0.57ms n=60; LandCarrier.tread_apply_nodes total=11.58ms avg=0.193ms max=0.31ms n=60; Aircraft.physics total=8.59ms avg=0.143ms max=0.29ms n=60; LandCarrier.drive_to_waypoint total=8.35ms avg=0.139ms max=0.22ms n=60; LandCarrier.tread_sample_terrain total=7.29ms avg=0.122ms max=0.21ms n=60; ParticleManager.process total=7.12ms avg=0.132ms max=0.39ms n=54
+Project FPS: 54 (18.51 mspf)
+[FrameProfiler] frame_spike labeled=10.56ms top=LandCarrier.physics 2.97ms; EnemyOpsManager.physics 1.91ms; LandCarrier.tread_visuals 1.72ms; LandCarrier.tread_apply_nodes 0.94ms; LandCarrier.drive_to_waypoint 0.62ms; Aircraft.physics 0.59ms; LandCarrier.tread_sample_terrain 0.58ms; ParticleManager.process 0.33ms
+WARNING: [Physics interpolation] Interpolated Camera3D triggered from outside physics process: "/root/Main_Scene/LandCarrier/CarrierCinematicCamera" (possibly benign).
+[FrameProfiler] 1.0s top=LandCarrier.physics total=37.42ms avg=0.613ms max=1.10ms n=61; EnemyOpsManager.physics total=23.33ms avg=0.382ms max=0.63ms n=61; LandCarrier.tread_visuals total=21.39ms avg=0.351ms max=0.62ms n=61; LandCarrier.tread_apply_nodes total=11.55ms avg=0.189ms max=0.33ms n=61; Aircraft.physics total=8.89ms avg=0.146ms max=0.44ms n=61; LandCarrier.drive_to_waypoint total=8.71ms avg=0.143ms max=0.29ms n=61; ParticleManager.process total=7.87ms avg=0.143ms max=0.50ms n=55; LandCarrier.tread_sample_terrain total=7.52ms avg=0.123ms max=0.20ms n=61
+[FrameProfiler] frame_spike labeled=8.29ms top=LandCarrier.physics 2.19ms; EnemyOpsManager.physics 1.60ms; LandCarrier.tread_visuals 1.36ms; LandCarrier.tread_apply_nodes 0.74ms; LandCarrier.tread_sample_terrain 0.49ms; Aircraft.physics 0.45ms; LandCarrier.drive_to_waypoint 0.42ms; ParticleManager.process 0.41ms
+Project FPS: 52 (19.23 mspf)
+[FrameProfiler] frame_spike labeled=8.25ms top=LandCarrier.physics 2.12ms; EnemyOpsManager.physics 1.68ms; LandCarrier.tread_visuals 1.30ms; LandCarrier.tread_apply_nodes 0.69ms; ParticleManager.process 0.51ms; LandCarrier.tread_sample_terrain 0.48ms; LandCarrier.drive_to_waypoint 0.42ms; Aircraft.physics 0.42ms
+[FrameProfiler] 1.0s top=LandCarrier.physics total=35.08ms avg=0.585ms max=0.91ms n=60; EnemyOpsManager.physics total=22.35ms avg=0.373ms max=0.59ms n=60; LandCarrier.tread_visuals total=20.28ms avg=0.338ms max=0.59ms n=60; LandCarrier.tread_apply_nodes total=10.98ms avg=0.183ms max=0.34ms n=60; Aircraft.physics total=8.35ms avg=0.139ms max=0.34ms n=60; ParticleManager.process total=8.35ms avg=0.161ms max=0.51ms n=52; LandCarrier.drive_to_waypoint total=7.92ms avg=0.132ms max=0.21ms n=60; LandCarrier.tread_sample_terrain total=7.19ms avg=0.120ms max=0.21ms n=60
+Project FPS: 53 (18.86 mspf)
+[VehicleDeploy] Started — spawn_local=(0.0, -23.4, -55.0) hinge_z=-67.0 phase=ON_DECK
+[VehicleBay] Vehicle spawned, 0 remaining in queue, 12 in bay
+[FrameProfiler] 1.0s top=LandCarrier.physics total=39.74ms avg=0.651ms max=1.02ms n=61; EnemyOpsManager.physics total=25.73ms avg=0.422ms max=0.80ms n=61; LandCarrier.tread_visuals total=21.89ms avg=0.359ms max=0.51ms n=61; LandCarrier.tread_apply_nodes total=11.92ms avg=0.195ms max=0.27ms n=61; LandCarrier.drive_to_waypoint total=9.60ms avg=0.157ms max=0.21ms n=61; ParticleManager.process total=9.59ms avg=0.178ms max=0.58ms n=54; Aircraft.physics total=9.34ms avg=0.153ms max=0.32ms n=61; LandCarrier.tread_sample_terrain total=7.70ms avg=0.126ms max=0.20ms n=61
+[FrameProfiler] frame_spike labeled=9.67ms top=LandCarrier.physics 2.40ms; EnemyOpsManager.physics 1.59ms; LandCarrier.tread_visuals 1.37ms; AirOpsManager.process 1.09ms; LandCarrier.tread_apply_nodes 0.73ms; LandCarrier.tread_sample_terrain 0.50ms; LandCarrier.drive_to_waypoint 0.42ms; Aircraft.physics 0.39ms
+Project FPS: 54 (18.51 mspf)
+[FrameProfiler] 1.0s top=LandCarrier.physics total=38.66ms avg=0.634ms max=0.92ms n=61; EnemyOpsManager.physics total=25.93ms avg=0.425ms max=0.82ms n=61; LandCarrier.tread_visuals total=21.42ms avg=0.351ms max=0.55ms n=61; LandCarrier.tread_apply_nodes total=11.57ms avg=0.190ms max=0.32ms n=61; Aircraft.physics total=9.85ms avg=0.161ms max=0.31ms n=61; LandCarrier.drive_to_waypoint total=9.19ms avg=0.151ms max=0.21ms n=61; ParticleManager.process total=9.17ms avg=0.180ms max=0.57ms n=51; LandCarrier.tread_sample_terrain total=7.55ms avg=0.124ms max=0.18ms n=61
+[FrameProfiler] frame_spike labeled=9.58ms top=LandCarrier.physics 2.12ms; AirOpsManager.process 1.53ms; EnemyOpsManager.physics 1.45ms; LandCarrier.tread_visuals 1.29ms; LandCarrier.tread_apply_nodes 0.77ms; Aircraft.physics 0.52ms; LandCarrier.drive_to_waypoint 0.44ms; ParticleManager.process 0.41ms
+Project FPS: 52 (19.23 mspf)
+[LandCarrierTrackMarks] active=30 max=240 enabled=true
+[FrameProfiler] 1.0s top=LandCarrier.physics total=39.51ms avg=0.659ms max=1.17ms n=60; EnemyOpsManager.physics total=25.15ms avg=0.419ms max=0.75ms n=60; LandCarrier.tread_visuals total=21.83ms avg=0.364ms max=0.56ms n=60; LandCarrier.tread_apply_nodes total=11.93ms avg=0.199ms max=0.34ms n=60; Aircraft.physics total=11.26ms avg=0.188ms max=0.36ms n=60; ParticleManager.process total=9.73ms avg=0.174ms max=0.57ms n=56; LandCarrier.drive_to_waypoint total=9.28ms avg=0.155ms max=0.22ms n=60; LandCarrier.tread_sample_terrain total=7.61ms avg=0.127ms max=0.21ms n=60
+[FrameProfiler] frame_spike labeled=8.41ms top=LandCarrier.physics 1.74ms; EnemyOpsManager.physics 1.31ms; LandCarrier.tread_visuals 0.99ms; AirOpsManager.process 0.91ms; Aircraft.physics 0.57ms; LandCarrier.tread_apply_nodes 0.53ms; ParticleManager.process 0.52ms; LandCarrier.drive_to_waypoint 0.41ms
+Project FPS: 55 (18.18 mspf)
+[FrameProfiler] frame_spike labeled=8.61ms top=LandCarrier.physics 2.07ms; EnemyOpsManager.physics 1.55ms; LandCarrier.tread_visuals 1.22ms; LandCarrier.tread_apply_nodes 0.66ms; Aircraft.physics 0.55ms; LandCarrier.drive_to_waypoint 0.48ms; HelicopterPilot.physics 0.44ms; LandCarrier.tread_sample_terrain 0.43ms
+[FrameProfiler] 1.0s top=LandCarrier.physics total=37.02ms avg=0.617ms max=1.02ms n=60; EnemyOpsManager.physics total=24.64ms avg=0.411ms max=0.66ms n=60; LandCarrier.tread_visuals total=20.51ms avg=0.342ms max=0.47ms n=60; LandCarrier.tread_apply_nodes total=11.11ms avg=0.185ms max=0.25ms n=60; Aircraft.physics total=10.93ms avg=0.182ms max=0.37ms n=60; ParticleManager.process total=9.55ms avg=0.177ms max=0.63ms n=54; LandCarrier.drive_to_waypoint total=9.18ms avg=0.153ms max=0.23ms n=60; LandCarrier.tread_sample_terrain total=7.22ms avg=0.120ms max=0.18ms n=60
+[FrameProfiler] frame_spike labeled=12.16ms top=LandCarrier.physics 2.61ms; EnemyOpsManager.physics 2.06ms; LandCarrier.tread_visuals 1.59ms; AirOpsManager.process 1.47ms; LandCarrier.tread_apply_nodes 0.85ms; LandCarrier.tread_sample_terrain 0.59ms; Aircraft.physics 0.57ms; FlightDeckManager.physics 0.51ms
+Project FPS: 49 (20.40 mspf)
+[FrameProfiler] frame_spike labeled=11.07ms top=LandCarrier.physics 2.60ms; EnemyOpsManager.physics 1.94ms; LandCarrier.tread_visuals 1.57ms; FlightDeckManager.physics 1.07ms; LandCarrier.tread_apply_nodes 0.80ms; Aircraft.physics 0.70ms; LandCarrier.tread_sample_terrain 0.61ms; LandCarrier.drive_to_waypoint 0.52ms
+[FrameProfiler] 1.0s top=LandCarrier.physics total=39.88ms avg=0.654ms max=0.98ms n=61; EnemyOpsManager.physics total=27.02ms avg=0.443ms max=0.76ms n=61; LandCarrier.tread_visuals total=22.39ms avg=0.367ms max=0.57ms n=61; FlightDeckManager.physics total=17.68ms avg=0.290ms max=1.04ms n=61; LandCarrier.tread_apply_nodes total=12.19ms avg=0.200ms max=0.32ms n=61; Aircraft.physics total=10.88ms avg=0.178ms max=0.38ms n=61; LandCarrier.drive_to_waypoint total=9.45ms avg=0.155ms max=0.25ms n=61; ParticleManager.process total=8.29ms avg=0.173ms max=0.63ms n=48
+[FrameProfiler] frame_spike labeled=12.61ms top=FlightDeckManager.physics 2.37ms; LandCarrier.physics 2.34ms; EnemyOpsManager.physics 1.89ms; LandCarrier.tread_visuals 1.39ms; AirOpsManager.process 0.97ms; LandCarrier.tread_apply_nodes 0.75ms; Aircraft.physics 0.61ms; LandCarrier.drive_to_waypoint 0.52ms
+Project FPS: 52 (19.23 mspf)
+[FrameProfiler] frame_spike labeled=13.90ms top=FlightDeckManager.physics 2.80ms; LandCarrier.physics 2.75ms; EnemyOpsManager.physics 2.30ms; LandCarrier.tread_visuals 1.65ms; LandCarrier.tread_apply_nodes 0.89ms; Aircraft.physics 0.71ms; ParticleManager.process 0.58ms; LandCarrier.tread_sample_terrain 0.58ms
+[FrameProfiler] frame_spike labeled=8.38ms top=LandCarrier.physics 1.78ms; FlightDeckManager.physics 1.48ms; EnemyOpsManager.physics 1.27ms; LandCarrier.tread_visuals 0.95ms; LandCarrier.tread_apply_nodes 0.54ms; ParticleManager.process 0.50ms; LandCarrier.drive_to_waypoint 0.40ms; Aircraft.physics 0.38ms
+[FrameProfiler] 1.0s top=LandCarrier.physics total=40.77ms avg=0.679ms max=1.00ms n=60; FlightDeckManager.physics total=37.10ms avg=0.618ms max=0.93ms n=60; EnemyOpsManager.physics total=27.37ms avg=0.456ms max=0.70ms n=60; LandCarrier.tread_visuals total=22.51ms avg=0.375ms max=0.58ms n=60; LandCarrier.tread_apply_nodes total=12.14ms avg=0.202ms max=0.32ms n=60; Aircraft.physics total=11.52ms avg=0.192ms max=0.35ms n=60; ParticleManager.process total=10.39ms avg=0.192ms max=0.61ms n=54; LandCarrier.drive_to_waypoint total=9.89ms avg=0.165ms max=0.23ms n=60
+[FrameProfiler] frame_spike labeled=13.96ms top=FlightDeckManager.physics 2.68ms; LandCarrier.physics 2.50ms; EnemyOpsManager.physics 2.01ms; LandCarrier.tread_visuals 1.47ms; AirOpsManager.process 1.13ms; Aircraft.physics 0.87ms; LandCarrier.tread_apply_nodes 0.80ms; LandCarrier.tread_sample_terrain 0.51ms
+[FrameProfiler] frame_spike labeled=8.16ms top=FlightDeckManager.physics 1.43ms; HelicopterPilot.physics 1.40ms; LandCarrier.physics 1.39ms; EnemyOpsManager.physics 0.96ms; LandCarrier.tread_visuals 0.79ms; ParticleManager.process 0.47ms; Aircraft.physics 0.44ms; LandCarrier.tread_apply_nodes 0.41ms
+Project FPS: 53 (18.86 mspf)
+[FrameProfiler] frame_spike labeled=9.42ms top=FlightDeckManager.physics 1.99ms; LandCarrier.physics 1.77ms; EnemyOpsManager.physics 1.30ms; LandCarrier.tread_visuals 1.06ms; Aircraft.physics 0.57ms; ParticleManager.process 0.57ms; LandCarrier.tread_apply_nodes 0.56ms; HelicopterPilot.physics 0.45ms
+[FrameProfiler] 1.0s top=LandCarrier.physics total=37.84ms avg=0.631ms max=0.86ms n=60; FlightDeckManager.physics total=35.99ms avg=0.600ms max=0.99ms n=60; EnemyOpsManager.physics total=25.34ms avg=0.422ms max=0.75ms n=60; LandCarrier.tread_visuals total=20.98ms avg=0.350ms max=0.49ms n=60; Aircraft.physics total=11.89ms avg=0.198ms max=0.40ms n=60; LandCarrier.tread_apply_nodes total=11.31ms avg=0.188ms max=0.26ms n=60; HelicopterPilot.physics total=10.33ms avg=0.172ms max=1.29ms n=60; ParticleManager.process total=9.39ms avg=0.174ms max=0.61ms n=54
+[FrameProfiler] frame_spike labeled=12.33ms top=FlightDeckManager.physics 2.48ms; LandCarrier.physics 2.43ms; EnemyOpsManager.physics 1.99ms; LandCarrier.tread_visuals 1.43ms; LandCarrier.tread_apply_nodes 0.79ms; Aircraft.physics 0.68ms; HelicopterPilot.physics 0.63ms; LandCarrier.drive_to_waypoint 0.50ms
+ERROR: Parameter "material" is null.
+ERROR: Parameter "material" is null.
+ERROR: Parameter "material" is null.
+ERROR: Parameter "material" is null.
+ERROR: Parameter "material" is null.
+ERROR: Parameter "material" is null.
+ERROR: Parameter "material" is null.
+ERROR: Parameter "material" is null.
+ERROR: Parameter "material" is null.
+ERROR: Parameter "material" is null.
+ERROR: Parameter "material" is null.
+ERROR: Parameter "material" is null.
+ERROR: Pages in use exist at exit in PagedAllocator: N33RendererSceneRenderImplementation22RenderForwardClustered32GeometryInstanceSurfaceDataCacheE
+ERROR: Pages in use exist at exit in PagedAllocator: N33RendererSceneRenderImplementation22RenderForwardClustered32GeometryInstanceForwardClusteredE
+ERROR: 1 shaders of type SceneForwardClusteredShaderRD were never freed
+ERROR: 2 RID allocations of type 'N10RendererRD11MeshStorage4MeshE' were leaked at exit.
+WARNING: Leaked instance dependency: Bug - did not call instance_notify_deleted when freeing.
+ERROR: 1 RID allocations of type 'N10RendererRD15MaterialStorage8MaterialE' were leaked at exit.
+WARNING: Leaked instance dependency: Bug - did not call instance_notify_deleted when freeing.
+ERROR: 1 RID allocations of type 'N10RendererRD15MaterialStorage6ShaderE' were leaked at exit.
+ERROR: 1 RID allocations of type 'N10RendererRD14TextureStorage7TextureE' were leaked at exit.
+ERROR: 1 RID allocations of type 'N17RendererSceneCull8InstanceE' were leaked at exit.
+WARNING: 1 RID of type "UniformBuffer" was leaked.
+WARNING: 6 RIDs of type "IndexArray" were leaked.
+WARNING: 6 RIDs of type "IndexBuffer" were leaked.
+WARNING: 2 RIDs of type "VertexArray" were leaked.
+WARNING: 3 RIDs of type "VertexBuffer" were leaked.
+WARNING: 2 RIDs of type "Texture" were leaked.
+[1] error(-1): no debug info in PE/COFF executable
+[2] error(-1): no debug info in PE/COFF executable
+[3] error(-1): no debug info in PE/COFF executable
+[4] error(-1): no debug info in PE/COFF executable
+[5] error(-1): no debug info in PE/COFF executable
+[6] error(-1): no debug info in PE/COFF executable
+[7] error(-1): no debug info in PE/COFF executable
+[8] error(-1): no debug info in PE/COFF executable
+[9] error(-1): no debug info in PE/COFF executable
+[10] error(-1): no debug info in PE/COFF executable
+[11] error(-1): no debug info in PE/COFF executable
+[12] error(-1): no debug info in PE/COFF executable
+[13] error(-1): no debug info in PE/COFF executable
+[14] error(-1): no debug info in PE/COFF executable
+[15] error(-1): no debug info in PE/COFF executable
+[16] error(-1): no debug info in PE/COFF executable
+[17] error(-1): no debug info in PE/COFF executable
+[18] error(-1): no debug info in PE/COFF executable
+[19] error(-1): no debug info in PE/COFF executable
+
+--- heli_navigation_report tail ---
+HELI NAVIGATION REPORT START t=18.8 routes=8 center=(25520.0, 482.0, -28080.0)
+SETUP route=1 carrier=(25520.0, 482.0, -28080.0) LZ=(30220.0, 485.0, -28080.0) distance=4700m terrain_delta_y=3m
+SETUP route=2 carrier=(25520.0, 482.0, -28080.0) LZ=(27620.0, 482.0, -24443.0) distance=4200m terrain_delta_y=0m
+SETUP route=3 carrier=(25520.0, 482.0, -28080.0) LZ=(25520.0, 482.0, -22980.0) distance=5100m terrain_delta_y=0m
+SETUP route=4 carrier=(25520.0, 482.0, -28080.0) LZ=(21834.0, 485.0, -24702.0) distance=5000m terrain_delta_y=3m
+SETUP route=5 carrier=(25520.0, 482.0, -28080.0) LZ=(19825.0, 482.0, -28329.0) distance=5700m terrain_delta_y=0m
+SETUP route=6 carrier=(25520.0, 482.0, -28080.0) LZ=(21686.0, 479.0, -31593.0) distance=5200m terrain_delta_y=-3m
+SETUP route=7 carrier=(25520.0, 482.0, -28080.0) LZ=(23365.0, 485.0, -32702.0) distance=5100m terrain_delta_y=3m
+SETUP route=8 carrier=(25520.0, 482.0, -28080.0) LZ=(30050.0, 482.0, -28879.0) distance=4600m terrain_delta_y=0m
+t=18.8 IDLE_TUNER_REFILL gen=6 results=0/64 remaining=64 active_nav=0 stored_before=0 queued=8 stored_after=8 retrieval_started=true state=RETRIEVING_FROM_HANGAR next_trial=1
+t=18.8 LAUNCH_BLOCKED reason=waiting_no_active_grace active=0 stored=8 no_active_s=0.0 state=RETRIEVING_FROM_HANGAR tractor_cleanup=false elevator_transfer=false deck=none pending=none clearance=none queue=0
+t=34.2 LAUNCH_BLOCKED reason=deck_busy active=1 stored=7 no_active_s=0.0 state=AIRCRAFT_ON_DECK tractor_cleanup=false elevator_transfer=false deck=Aircraft_11_nav_r1_1 pending=none clearance=none queue=0
+t=34.4 SPAWN craft=Aircraft_11_nav_r1_1 route=1 candidate=1 trial=1 t=34.4

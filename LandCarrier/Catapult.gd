@@ -66,8 +66,13 @@ var _wheel_latches: Array[PinJoint3D] = [] # kept for cleanup of any legacy join
 var _saved_freeze_state: bool = false
 var _launch_acceleration: float = 0.0
 var _shuttle_current_velocity: Vector3 = Vector3.ZERO
+var _last_shuttle_global_position: Vector3 = Vector3.ZERO
+var _actual_shuttle_velocity: Vector3 = Vector3.ZERO
 var _spool_fallback_timer: float = 0.0
 var _effective_tow_force_max: float = 0.0  # Computed from aircraft mass at latch time
+var _carrier_node: Node3D = null
+var _aircraft_carrier_local_basis: Basis = Basis.IDENTITY
+var _has_aircraft_carrier_local_basis: bool = false
 
 var _is_ready: bool = false
 
@@ -87,6 +92,7 @@ func _ready():
 		
 	# Start shuttle at the latch/connect point so the next aircraft can hook up quickly.
 	shuttle.global_position = latch_marker.global_position
+	_last_shuttle_global_position = shuttle.global_position
 	_pin_at_connect_point = true
 	
 	# Calculate the required acceleration for the launch sequence
@@ -134,6 +140,7 @@ func _physics_process(delta: float):
 		
 	# State machine
 	if _settling and is_instance_valid(_aircraft):
+		_sync_aircraft_rotation_to_carrier()
 		_settle_timer -= delta
 		if _settle_timer <= 0.0:
 			if debug_enabled: print("[CATAPULT] Settle timer finished.")
@@ -146,6 +153,7 @@ func _physics_process(delta: float):
 	if _pin_at_connect_point:
 		if is_instance_valid(shuttle) and is_instance_valid(latch_marker):
 			shuttle.global_position = latch_marker.global_position
+			_last_shuttle_global_position = shuttle.global_position
 		return
 
 	if _returning_to_connect:
@@ -154,6 +162,7 @@ func _physics_process(delta: float):
 		shuttle.global_position = shuttle.global_position.move_toward(latch_marker.global_position, return_speed_mps * delta)
 		if shuttle.global_position.distance_to(latch_marker.global_position) <= 0.05:
 			shuttle.global_position = latch_marker.global_position
+			_last_shuttle_global_position = shuttle.global_position
 			_returning_to_connect = false
 			_pin_at_connect_point = true
 		return
@@ -163,6 +172,7 @@ func _physics_process(delta: float):
 
 	# If not settling and not pinned, proceed with approach or launch logic.
 	if _moving_to_latch and not _latched:
+		_sync_aircraft_rotation_to_carrier()
 		# Track latch_marker live so the target follows the moving carrier.
 		_latch_target_position = latch_marker.global_position
 		
@@ -192,6 +202,7 @@ func _physics_process(delta: float):
 			_abort_launch()
 	
 	elif _engine_starting:
+		_sync_aircraft_rotation_to_carrier()
 		# Waiting for the engine to physically start up before spooling
 		_engine_start_timer -= delta
 		if _engine_start_timer <= 0.0:
@@ -201,6 +212,7 @@ func _physics_process(delta: float):
 			_spool_timer = 0.0
 			
 	elif _spooling_up and not _launching:
+		_sync_aircraft_rotation_to_carrier()
 			# Gradually increase throttle over _spool_duration
 		_spool_timer += delta
 		var throttle_ratio = min(_spool_timer / spool_duration_s, 1.0)
@@ -213,6 +225,7 @@ func _physics_process(delta: float):
 			_hold_timer = hold_duration_s
 
 	elif _hold_at_power and not _launching:
+		_sync_aircraft_rotation_to_carrier()
 		# Hold at full power for a few seconds before launch
 		_hold_timer -= delta
 		if _hold_timer <= 0.0:
@@ -221,10 +234,12 @@ func _physics_process(delta: float):
 			_release_wheels()
 			_launching = true
 			_shuttle_current_velocity = Vector3.ZERO
+			_last_shuttle_global_position = shuttle.global_position
 			# No position reset needed — shuttle is a child of the carrier and already
 			# sits at the nose gear position it stopped at when latching.
 			
 	elif _launching and _latched:
+		_sync_aircraft_rotation_to_carrier()
 		# Move shuttle with constant acceleration
 		var launch_direction = (release_marker.global_position - latch_marker.global_position).normalized()
 		_shuttle_current_velocity += launch_direction * _launch_acceleration * delta
@@ -254,6 +269,7 @@ func _input(event):
 		_launching = true
 		_shuttle_current_velocity = Vector3.ZERO
 		shuttle.global_position = _latch_target_position
+		_last_shuttle_global_position = shuttle.global_position
 	# -- The following is now handled by FlightDeckManager --
 	# elif Input.is_action_just_pressed(align_action):
 	# 	var ac = _get_aircraft()
@@ -264,6 +280,7 @@ func _input(event):
 func begin_sequence(aircraft: RigidBody3D) -> void:
 	if debug_enabled: print("[CATAPULT] Begin sequence called. Unpinning shuttle and starting approach.")
 	_aircraft = aircraft
+	_capture_aircraft_carrier_rotation()
 	_latched = false
 	_launching = false
 	_moving_to_latch = true
@@ -277,6 +294,7 @@ func begin_sequence(aircraft: RigidBody3D) -> void:
 	# Set an initial value now.
 	_latch_target_position = latch_marker.global_position
 	_latch_target_position.y = shuttle.global_position.y
+	_last_shuttle_global_position = shuttle.global_position
 	if debug_enabled: print("[CATAPULT] Shuttle approaching latch_marker. Will abort if no latch by then.")
 
 
@@ -318,6 +336,7 @@ func _try_latch() -> void:
 	_aircraft.set_meta("controls_disabled", true) # Disable player throttle input
 	_latched = true
 	_moving_to_latch = false
+	_capture_aircraft_carrier_rotation()
 	_immobilize_wheels()
 
 	# Scale tow force to the aircraft's mass so heavier planes get the same
@@ -361,6 +380,9 @@ func _command_throttle(throttle_value: float):
 
 func _drag_aircraft_to_shuttle() -> void:
 	if not _aircraft or not shuttle: return
+	var dt := maxf(get_physics_process_delta_time(), 0.001)
+	_actual_shuttle_velocity = (shuttle.global_position - _last_shuttle_global_position) / dt
+	_last_shuttle_global_position = shuttle.global_position
 
 	# Stiff tow-bar style pull:
 	# match shuttle velocity plus a position-error correction so nose gear is
@@ -368,10 +390,10 @@ func _drag_aircraft_to_shuttle() -> void:
 	var nose_gear = _find_nose_gear_collider(_aircraft)
 	if is_instance_valid(nose_gear):
 		var position_error: Vector3 = shuttle.global_position - nose_gear.global_position
-		var desired_velocity: Vector3 = _shuttle_current_velocity + position_error * tow_position_gain
+		var desired_velocity: Vector3 = _actual_shuttle_velocity + position_error * tow_position_gain
 		var current_velocity: Vector3 = _aircraft.linear_velocity
 		var velocity_error: Vector3 = desired_velocity - current_velocity
-		var force: Vector3 = velocity_error * _aircraft.mass / maxf(get_physics_process_delta_time(), 0.001)
+		var force: Vector3 = velocity_error * _aircraft.mass / dt
 		var cap := _effective_tow_force_max if _effective_tow_force_max > 0.0 else tow_force_max
 		if cap > 0.0 and force.length() > cap:
 			force = force.normalized() * cap
@@ -379,10 +401,10 @@ func _drag_aircraft_to_shuttle() -> void:
 		_aircraft.apply_force(force, force_position)
 	else:
 		# Fallback to applying a central force if the nose gear isn't found
-		var desired_velocity: Vector3 = _shuttle_current_velocity
+		var desired_velocity: Vector3 = _actual_shuttle_velocity
 		var current_velocity: Vector3 = _aircraft.linear_velocity
 		var velocity_error: Vector3 = desired_velocity - current_velocity
-		var force: Vector3 = velocity_error * _aircraft.mass / maxf(get_physics_process_delta_time(), 0.001)
+		var force: Vector3 = velocity_error * _aircraft.mass / dt
 		var cap := _effective_tow_force_max if _effective_tow_force_max > 0.0 else tow_force_max
 		if cap > 0.0 and force.length() > cap:
 			force = force.normalized() * cap
@@ -392,6 +414,7 @@ func _drag_aircraft_to_shuttle() -> void:
 func _release() -> void:
 	if debug_enabled: print("[CATAPULT] Releasing aircraft.")
 	if is_instance_valid(_aircraft):
+		_sync_aircraft_rotation_to_carrier()
 		# Perform a clean handover to the aircraft's own engine controller.
 		# Set its target power to 1.0 so it doesn't immediately shut down the engine.
 		var engine_controller = _find_engine_controller(_aircraft)
@@ -400,11 +423,14 @@ func _release() -> void:
 			if debug_enabled: print("[CATAPULT] Handed over throttle control to ControlEngine module.")
 		
 		_aircraft.remove_meta("controls_disabled") # Restore player throttle input
+		_aircraft.angular_velocity = Vector3.ZERO
 		
 	# The aircraft will continue with the velocity it had on the last frame.
 	_latched = false
 	_launching = false
 	_aircraft = null
+	_has_aircraft_carrier_local_basis = false
+	_carrier_node = null
 	_return_shuttle_to_connect()
 	emit_signal("launch_sequence_complete")
 	
@@ -501,6 +527,7 @@ func align_aircraft(ac: RigidBody3D) -> void:
 		return
 
 	_aircraft = ac
+	_capture_aircraft_carrier_rotation()
 
 	# Lock controls immediately so AIPilot/ControlEngine can't run the engine
 	# before the shuttle connects. Released on launch (line with remove_meta).
@@ -550,6 +577,8 @@ func align_aircraft(ac: RigidBody3D) -> void:
 			final_transform.origin.y = hit.position.y + deck_clearance
 
 	ac.global_transform = final_transform
+	PhysicsServer3D.body_set_state(ac.get_rid(), PhysicsServer3D.BODY_STATE_TRANSFORM, ac.global_transform)
+	_capture_aircraft_carrier_rotation()
 	if debug_enabled: print("[CATAPULT] Aircraft transform AFTER teleport: ", ac.global_transform)
 	
 	if debug_enabled: print("[CATAPULT] Aircraft teleported by manager. Flagging for finalize on next frame.")
@@ -598,6 +627,8 @@ func _abort_launch() -> void:
 	_hold_at_power = false
 	_engine_starting = false
 	_aircraft = null
+	_has_aircraft_carrier_local_basis = false
+	_carrier_node = null
 	_return_shuttle_to_connect()
 	emit_signal("launch_sequence_aborted")
 
@@ -623,8 +654,41 @@ func _reset_state():
 	_pin_at_connect_point = true
 	_returning_to_connect = false
 	_effective_tow_force_max = 0.0
+	_has_aircraft_carrier_local_basis = false
+	_carrier_node = null
 
 # --- Helpers ---
+
+func _capture_aircraft_carrier_rotation() -> void:
+	if not is_instance_valid(_aircraft):
+		return
+	_carrier_node = _find_carrier_node()
+	if not is_instance_valid(_carrier_node):
+		_has_aircraft_carrier_local_basis = false
+		return
+	_aircraft_carrier_local_basis = _carrier_node.global_transform.basis.inverse() * _aircraft.global_transform.basis
+	_has_aircraft_carrier_local_basis = true
+
+
+func _sync_aircraft_rotation_to_carrier() -> void:
+	if not _has_aircraft_carrier_local_basis or not is_instance_valid(_aircraft) or not is_instance_valid(_carrier_node):
+		return
+	var transform := _aircraft.global_transform
+	transform.basis = (_carrier_node.global_transform.basis * _aircraft_carrier_local_basis).orthonormalized()
+	_aircraft.global_transform = transform
+	PhysicsServer3D.body_set_state(_aircraft.get_rid(), PhysicsServer3D.BODY_STATE_TRANSFORM, _aircraft.global_transform)
+	_aircraft.angular_velocity = Vector3.ZERO
+
+
+func _find_carrier_node() -> Node3D:
+	var node: Node = self
+	while node != null:
+		if node is Node3D and (node.is_in_group("carrier") or node.name.to_lower().find("landcarrier") != -1):
+			return node as Node3D
+		node = node.get_parent()
+	var carrier := get_tree().get_first_node_in_group("carrier")
+	return carrier as Node3D
+
 
 func _get_deck_forward_vector() -> Vector3:
 	if not is_instance_valid(deck_ref):
