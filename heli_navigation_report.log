@@ -1,4 +1,4 @@
-HELI NAVIGATION REPORT START t=18.8 routes=8 center=(25520.0, 482.0, -28080.0)
+HELI NAVIGATION REPORT START t=21.2 routes=8 center=(25520.0, 482.0, -28080.0)
 SETUP route=1 carrier=(25520.0, 482.0, -28080.0) LZ=(30220.0, 485.0, -28080.0) distance=4700m terrain_delta_y=3m
 SETUP route=2 carrier=(25520.0, 482.0, -28080.0) LZ=(27620.0, 482.0, -24443.0) distance=4200m terrain_delta_y=0m
 SETUP route=3 carrier=(25520.0, 482.0, -28080.0) LZ=(25520.0, 482.0, -22980.0) distance=5100m terrain_delta_y=0m
@@ -7,7 +7,5 @@ SETUP route=5 carrier=(25520.0, 482.0, -28080.0) LZ=(19825.0, 482.0, -28329.0) d
 SETUP route=6 carrier=(25520.0, 482.0, -28080.0) LZ=(21686.0, 479.0, -31593.0) distance=5200m terrain_delta_y=-3m
 SETUP route=7 carrier=(25520.0, 482.0, -28080.0) LZ=(23365.0, 485.0, -32702.0) distance=5100m terrain_delta_y=3m
 SETUP route=8 carrier=(25520.0, 482.0, -28080.0) LZ=(30050.0, 482.0, -28879.0) distance=4600m terrain_delta_y=0m
-t=18.8 IDLE_TUNER_REFILL gen=6 results=0/64 remaining=64 active_nav=0 stored_before=0 queued=8 stored_after=8 retrieval_started=true state=RETRIEVING_FROM_HANGAR next_trial=1
-t=18.8 LAUNCH_BLOCKED reason=waiting_no_active_grace active=0 stored=8 no_active_s=0.0 state=RETRIEVING_FROM_HANGAR tractor_cleanup=false elevator_transfer=false deck=none pending=none clearance=none queue=0
-t=34.2 LAUNCH_BLOCKED reason=deck_busy active=1 stored=7 no_active_s=0.0 state=AIRCRAFT_ON_DECK tractor_cleanup=false elevator_transfer=false deck=Aircraft_11_nav_r1_1 pending=none clearance=none queue=0
-t=34.4 SPAWN craft=Aircraft_11_nav_r1_1 route=1 candidate=1 trial=1 t=34.4
+t=21.2 IDLE_TUNER_REFILL gen=6 results=0/64 remaining=64 active_nav=0 stored_before=0 queued=8 stored_after=8 retrieval_started=true state=RETRIEVING_FROM_HANGAR next_trial=1
+t=21.2 LAUNCH_BLOCKED reason=waiting_no_active_grace active=0 stored=8 no_active_s=0.0 state=RETRIEVING_FROM_HANGAR tractor_cleanup=false elevator_transfer=false deck=none pending=none clearance=none queue=0

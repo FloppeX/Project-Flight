@@ -37,6 +37,9 @@ func add_mode_view(mode: String, view: Control) -> void:
 	view.offset_top = 0.0
 	view.offset_right = 0.0
 	view.offset_bottom = 0.0
+	view.custom_minimum_size = Vector2.ZERO
+	view.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	view.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_apply_mode_visibility()
 
 
@@ -78,27 +81,41 @@ func _build_mfd() -> void:
 	for child in body.get_children():
 		child.queue_free()
 
+	if title_label != null:
+		title_label.visible = false
+		title_label.custom_minimum_size = Vector2.ZERO
+	body.clip_contents = true
+
+	custom_view_root = Control.new()
+	custom_view_root.name = "ModeViewRoot"
+	custom_view_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	custom_view_root.anchor_left = 0.015
+	custom_view_root.anchor_top = 0.015
+	custom_view_root.anchor_right = 0.985
+	custom_view_root.anchor_bottom = 0.985
+	custom_view_root.offset_left = 0.0
+	custom_view_root.offset_top = 0.0
+	custom_view_root.offset_right = 0.0
+	custom_view_root.offset_bottom = 0.0
+	custom_view_root.clip_contents = true
+	body.add_child(custom_view_root)
+
 	mode_label = Label.new()
 	mode_label.name = "Mode"
 	mode_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	mode_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	mode_label.add_theme_color_override("font_color", COLOR_TEXT)
-	mode_label.add_theme_font_size_override("font_size", 13)
+	mode_label.add_theme_color_override("font_outline_color", Color.BLACK)
+	mode_label.add_theme_constant_override("outline_size", 2)
+	mode_label.add_theme_font_size_override("font_size", 10)
 	mode_label.anchor_left = 0.0
 	mode_label.anchor_right = 1.0
 	mode_label.anchor_top = 0.0
 	mode_label.anchor_bottom = 0.0
-	mode_label.offset_bottom = 20.0
+	mode_label.offset_bottom = 14.0
+	mode_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	mode_label.z_index = 20
 	body.add_child(mode_label)
-
-	custom_view_root = Control.new()
-	custom_view_root.name = "ModeViewRoot"
-	custom_view_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	custom_view_root.anchor_left = 0.04
-	custom_view_root.anchor_top = 0.16
-	custom_view_root.anchor_right = 0.96
-	custom_view_root.anchor_bottom = 0.96
-	body.add_child(custom_view_root)
 
 	content_label = Label.new()
 	content_label.name = "Content"

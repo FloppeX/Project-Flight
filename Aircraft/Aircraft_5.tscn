@@ -38,7 +38,7 @@
 [ext_resource type="Script" uid="uid://dkrq0ip0i4pq4" path="res://Aircraft/DamageEffects.gd" id="36_dmgfx"]
 [ext_resource type="Script" uid="uid://b308dhuj4e8a" path="res://Aircraft/WingFold5.gd" id="37_wf5"]
 [ext_resource type="AudioStream" uid="uid://o2xkkc5oyh4w" path="res://Audio/cockpit_interior_4.wav" id="38_cpit"]
-[ext_resource type="PackedScene" path="res://Aircraft/CockpitPilot.tscn" id="90_cpilot"]
+[ext_resource type="PackedScene" uid="uid://ba1hsntx8a01y" path="res://Aircraft/CockpitPilot.tscn" id="90_cpilot"]
 [ext_resource type="PackedScene" uid="uid://cwh4cxdgqbvdd" path="res://Models/Aircraft_5/aircraft_5_exploded.glb" id="91_exploded"]
 [ext_resource type="PackedScene" path="res://Aircraft/Visuals/EjectionSeat.tscn" id="92_ejection_seat"]
 [ext_resource type="Script" uid="uid://baexawx30vqgf" path="res://Aircraft/EjectionSequence.gd" id="93_ejection_sequence"]
@@ -209,6 +209,12 @@ transform = Transform3D(-1, 0, -8.74213e-08, 0, 0.999983, 0, 8.74228e-08, 0, -0.
 
 [node name="CockpitPilot" parent="." unique_id=1290883956 instance=ExtResource("90_cpilot")]
 transform = Transform3D(0.999958, 0, -0.00842568, 0, 0.999949, 0, 0.00839809, 0, 0.999921, 0, -1.09001, 2.22481)
+upper_leg_x = 100.0
+upper_leg_spread = 5.0
+abdomen_pitch = -20.0
+torso_pitch = -5.0
+upper_arm_x = 150.0
+wrist_x = 0.0
 cockpit_hidden_mesh_names = PackedStringArray("Pilot")
 
 [node name="EjectionSeat" parent="." unique_id=1682896568 instance=ExtResource("92_ejection_seat")]
@@ -239,107 +245,107 @@ hud_glass_size = Vector2(1, 1)
 transform = Transform3D(-0.6, 1.79402e-08, -4.92904e-08, 0, 0.563816, 0.205212, 5.24537e-08, 0.205212, -0.563816, 0, 0.0633691, 2.97849)
 aircraft_path = NodePath("..")
 panel_size = Vector2(1, 0.8)
-camera_target_path = NodePath("../CameraTarget")
-zoom_distance = 100.0
 viewport_resolution = Vector2i(1000, 480)
+module_layout = Array[Dictionary]([{
+"id": "warning_strip",
+"lights": ["ENGINE", "WEAPONS", "CONTROLS", "GEAR", "STALL", "MISSILE"],
+"rect": Rect2(125, 75, 750, 40),
+"title": "WARNINGS",
+"type": "warning_lights"
+}, {
+"id": "mfd_left",
+"modes": ["MAP", "WEAPONS", "DAMAGE", "SYSTEMS"],
+"rect": Rect2(125, 125, 300, 235),
+"title": "MFD L",
+"type": "mfd"
+}, {
+"id": "mfd_right",
+"modes": ["TARGET", "MAP", "WEAPONS", "DAMAGE", "SYSTEMS"],
+"rect": Rect2(575, 125, 300, 235),
+"title": "MFD R",
+"type": "mfd"
+}, {
+"id": "speed",
+"instrument": "speed",
+"rect": Rect2(590, 25, 120, 45),
+"title": "SPEED",
+"type": "readout"
+}, {
+"id": "altitude",
+"instrument": "altitude",
+"rect": Rect2(290, 25, 120, 45),
+"title": "ALT",
+"type": "readout"
+}, {
+"id": "vertical_speed",
+"instrument": "vertical_speed",
+"rect": Rect2(795, 25, 75, 45),
+"title": "V/S",
+"type": "readout"
+}, {
+"id": "fuel",
+"instrument": "fuel",
+"rect": Rect2(440, 185, 125, 54),
+"title": "FUEL",
+"type": "readout"
+}, {
+"id": "gear",
+"instrument": "gear",
+"rect": Rect2(440, 245, 125, 54),
+"title": "GEAR",
+"type": "readout"
+}, {
+"id": "flaps",
+"instrument": "flaps",
+"rect": Rect2(440, 305, 125, 54),
+"title": "FLAPS",
+"type": "readout"
+}, {
+"id": "aoa",
+"rect": Rect2(165, 25, 120, 45),
+"title": "AOA",
+"type": "aoa"
+}, {
+"id": "missile_lock",
+"instrument": "missile_lock",
+"rect": Rect2(440, 370, 125, 50),
+"title": "M LOCK",
+"type": "readout"
+}, {
+"id": "slip_ball",
+"rect": Rect2(415, 25, 170, 45),
+"title": "BALL",
+"type": "slip_ball"
+}, {
+"id": "engine",
+"instrument": "engine",
+"rect": Rect2(440, 125, 125, 55),
+"title": "ENGINE",
+"type": "readout"
+}, {
+"id": "damage",
+"instrument": "damage",
+"rect": Rect2(575, 370, 125, 50),
+"title": "STRUCT",
+"type": "readout"
+}, {
+"id": "g_force",
+"instrument": "g_force",
+"rect": Rect2(715, 25, 75, 45),
+"title": "G",
+"type": "readout"
+}, {
+"id": "weapons",
+"instrument": "weapons",
+"rect": Rect2(300, 370, 125, 50),
+"title": "WEAPONS",
+"type": "readout"
+}])
 render_to_model_surface = true
 model_panel_mesh_path = NodePath("../aircraft_5/world_001/instrument panel")
-module_layout = Array[Dictionary]([{
-"type": "warning_lights",
-"id": "warning_strip",
-"title": "WARNINGS",
-"rect": Rect2(28, 20, 944, 48),
-"lights": ["ENGINE", "WEAPONS", "CONTROLS", "GEAR", "STALL", "MISSILE"]
-}, {
-"type": "mfd",
-"id": "mfd_left",
-"title": "MFD L",
-"rect": Rect2(40, 92, 260, 260),
-"modes": ["MAP", "WEAPONS", "DAMAGE", "SYSTEMS"]
-}, {
-"type": "mfd",
-"id": "mfd_right",
-"title": "MFD R",
-"rect": Rect2(700, 92, 260, 260),
-"modes": ["TARGET", "MAP", "WEAPONS", "DAMAGE", "SYSTEMS"]
-}, {
-"type": "readout",
-"id": "speed",
-"title": "SPEED",
-"instrument": "speed",
-"rect": Rect2(330, 92, 150, 58)
-}, {
-"type": "readout",
-"id": "altitude",
-"title": "ALT",
-"instrument": "altitude",
-"rect": Rect2(520, 92, 150, 58)
-}, {
-"type": "readout",
-"id": "vertical_speed",
-"title": "V/S",
-"instrument": "vertical_speed",
-"rect": Rect2(330, 164, 150, 58)
-}, {
-"type": "readout",
-"id": "fuel",
-"title": "FUEL",
-"instrument": "fuel",
-"rect": Rect2(520, 164, 150, 58)
-}, {
-"type": "readout",
-"id": "gear",
-"title": "GEAR",
-"instrument": "gear",
-"rect": Rect2(330, 236, 150, 58)
-}, {
-"type": "readout",
-"id": "flaps",
-"title": "FLAPS",
-"instrument": "flaps",
-"rect": Rect2(520, 236, 150, 58)
-}, {
-"type": "readout",
-"id": "stall",
-"title": "STALL",
-"instrument": "stall",
-"rect": Rect2(330, 308, 150, 48)
-}, {
-"type": "readout",
-"id": "missile_lock",
-"title": "M LOCK",
-"instrument": "missile_lock",
-"rect": Rect2(520, 308, 150, 48)
-}, {
-"type": "slip_ball",
-"id": "slip_ball",
-"title": "BALL",
-"rect": Rect2(40, 372, 260, 72)
-}, {
-"type": "readout",
-"id": "engine",
-"title": "ENGINE",
-"instrument": "engine",
-"rect": Rect2(330, 372, 150, 72)
-}, {
-"type": "readout",
-"id": "damage",
-"title": "STRUCT",
-"instrument": "damage",
-"rect": Rect2(520, 372, 150, 72)
-}, {
-"type": "readout",
-"id": "g_force",
-"title": "G",
-"instrument": "g_force",
-"rect": Rect2(700, 372, 120, 72)
-}, {
-"type": "readout",
-"id": "weapons",
-"title": "WEAPONS",
-"instrument": "weapons",
-"rect": Rect2(840, 372, 120, 72)
-}])
+model_panel_flip_x = true
+camera_target_path = NodePath("../CameraTarget")
+zoom_distance = 100.0
 
 [node name="Hardpoint1" parent="." unique_id=1440858794 instance=ExtResource("28_ymevh")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.5, -0.6882263, 0.7)

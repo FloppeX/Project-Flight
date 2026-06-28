@@ -5,6 +5,7 @@ const MFD_MODULE_SCRIPT := preload("res://HUD/Instruments/MFDModule.gd")
 const TEXT_MODULE_SCRIPT := preload("res://HUD/Instruments/TextInstrumentModule.gd")
 const WARNING_LIGHT_MODULE_SCRIPT := preload("res://HUD/Instruments/WarningLightModule.gd")
 const SLIP_BALL_MODULE_SCRIPT := preload("res://HUD/Instruments/SlipBallModule.gd")
+const AOA_MODULE_SCRIPT := preload("res://HUD/Instruments/AoAModule.gd")
 
 @export var aircraft_path: NodePath
 @export var panel_size: Vector2 = Vector2(0.4, 0.3)  # Size in meters (40cm x 30cm)
@@ -23,6 +24,7 @@ const SLIP_BALL_MODULE_SCRIPT := preload("res://HUD/Instruments/SlipBallModule.g
 @export var hide_panel_quad_when_rendering_to_model: bool = true
 @export var auto_fit_model_panel_local_rect: bool = true
 @export var model_panel_local_rect: Rect2 = Rect2(-0.5, -0.5, 1.0, 1.0)
+@export var model_panel_flip_x: bool = false
 
 @onready var aircraft: Aircraft = get_node(aircraft_path) as Aircraft
 @onready var viewport: SubViewport = $SubViewport
@@ -144,6 +146,7 @@ render_mode unshaded, cull_disabled;
 uniform sampler2D panel_texture : source_color;
 uniform bool use_local_panel_projection = false;
 uniform vec4 panel_local_rect = vec4(-0.5, -0.5, 1.0, 1.0);
+uniform bool panel_flip_x = false;
 uniform float emission_energy = 2.0;
 varying vec3 local_position;
 
@@ -160,6 +163,9 @@ void fragment() {
 			1.0 - ((local_position.y - panel_local_rect.y) / rect_size.y)
 		);
 	}
+	if (panel_flip_x) {
+		sample_uv.x = 1.0 - sample_uv.x;
+	}
 	sample_uv = clamp(sample_uv, vec2(0.0), vec2(1.0));
 	vec4 tex = texture(panel_texture, sample_uv);
 	ALBEDO = tex.rgb;
@@ -172,6 +178,7 @@ void fragment() {
 	material.set_shader_parameter("panel_texture", viewport.get_texture())
 	_apply_panel_material_local_rect(material, model_panel_local_rect)
 	material.set_shader_parameter("use_local_panel_projection", false)
+	material.set_shader_parameter("panel_flip_x", model_panel_flip_x)
 	return material
 
 
@@ -211,6 +218,7 @@ func _bind_model_panel_surface(material: Material) -> void:
 	var shader_material := material as ShaderMaterial
 	if shader_material != null:
 		shader_material.set_shader_parameter("use_local_panel_projection", true)
+		shader_material.set_shader_parameter("panel_flip_x", model_panel_flip_x)
 	for surface_index in model_panel_surface_indices:
 		mesh_instance.set_surface_override_material(surface_index, material)
 	model_panel_mesh = mesh_instance
@@ -585,6 +593,11 @@ func _setup_lower_displays() -> void:
 		target_texture_rect.stretch_mode = TextureRect.STRETCH_SCALE  # Match placeholder stretch mode
 		target_texture_rect.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		target_texture_rect.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		target_texture_rect.set_anchors_preset(Control.PRESET_FULL_RECT)
+		target_texture_rect.offset_left = 0.0
+		target_texture_rect.offset_top = 0.0
+		target_texture_rect.offset_right = 0.0
+		target_texture_rect.offset_bottom = 0.0
 		target_texture_rect.add_theme_constant_override("margin_left", 0)
 		target_texture_rect.add_theme_constant_override("margin_right", 0)
 		target_texture_rect.add_theme_constant_override("margin_top", 0)
@@ -608,6 +621,11 @@ func _setup_lower_displays() -> void:
 		target_placeholder.stretch_mode = TextureRect.STRETCH_SCALE  # Keep consistent with live feed
 		target_placeholder.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		target_placeholder.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		target_placeholder.set_anchors_preset(Control.PRESET_FULL_RECT)
+		target_placeholder.offset_left = 0.0
+		target_placeholder.offset_top = 0.0
+		target_placeholder.offset_right = 0.0
+		target_placeholder.offset_bottom = 0.0
 		target_placeholder.add_theme_constant_override("margin_left", 0)
 		target_placeholder.add_theme_constant_override("margin_right", 0)
 		target_placeholder.add_theme_constant_override("margin_top", 0)
@@ -622,8 +640,14 @@ func _setup_lower_displays() -> void:
 		target_info_label = Label.new()
 		target_info_label.name = "TargetInfoLabel"
 		target_info_label.text = "NO TARGET"
-		target_info_label.position = Vector2(5, 5)  # Top-left corner with small margin
-		target_info_label.size = Vector2(185, 40)  # Fit within panel width, allow for 2 lines
+		target_info_label.anchor_left = 0.0
+		target_info_label.anchor_top = 0.0
+		target_info_label.anchor_right = 1.0
+		target_info_label.anchor_bottom = 0.0
+		target_info_label.offset_left = 4.0
+		target_info_label.offset_top = 4.0
+		target_info_label.offset_right = -4.0
+		target_info_label.offset_bottom = 34.0
 		target_info_label.add_theme_color_override("font_color", Color.WHITE)
 		target_info_label.add_theme_font_size_override("font_size", 12)
 		target_info_label.vertical_alignment = VERTICAL_ALIGNMENT_TOP
@@ -819,6 +843,8 @@ func _create_module_from_layout(entry: Dictionary) -> InstrumentModule:
 			module = WARNING_LIGHT_MODULE_SCRIPT.new()
 		"slip_ball":
 			module = SLIP_BALL_MODULE_SCRIPT.new()
+		"aoa":
+			module = AOA_MODULE_SCRIPT.new()
 		"readout":
 			module = TEXT_MODULE_SCRIPT.new()
 		_:
@@ -978,6 +1004,8 @@ func _project_ray_to_model_panel_point(ray_origin: Vector3, ray_direction: Vecto
 		(local_hit.x - model_panel_local_rect.position.x) / rect_size.x,
 		1.0 - ((local_hit.y - model_panel_local_rect.position.y) / rect_size.y)
 	)
+	if model_panel_flip_x:
+		panel_uv.x = 1.0 - panel_uv.x
 	return Vector2(
 		clampf(panel_uv.x, 0.0, 1.0) * float(viewport_resolution.x),
 		clampf(panel_uv.y, 0.0, 1.0) * float(viewport_resolution.y)

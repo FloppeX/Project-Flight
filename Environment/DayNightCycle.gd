@@ -28,15 +28,27 @@ extends Node
 @export_range(0.0, 1.0) var dust_layer_red_blend: float = 0.55
 @export var dust_deck_enabled: bool = true
 @export_range(0.0, 1.0) var dust_deck_alpha_above: float = 0.88
-@export_range(0.0, 1.0) var dust_deck_alpha_below: float = 0.0
-@export var dust_deck_vertical_offset_m: float = -80.0
+@export_range(0.0, 1.0) var dust_deck_alpha_below: float = 1.0
+@export var dust_deck_vertical_offset_m: float = -850.0
+@export var dust_deck_upper_vertical_offset_m: float = -80.0
+@export_range(8, 160, 1) var dust_deck_grid_cells: int = 128
+@export var dust_deck_height_variation_m: float = 520.0
+@export var dust_deck_mesh_noise_frequency: float = 0.00055
+@export_range(0.0, 1.0) var dust_deck_face_color_variation: float = 0.72
+@export_range(0, 24, 1) var dust_deck_break_count: int = 0
+@export var dust_deck_break_min_radius_m: float = 450.0
+@export var dust_deck_break_max_radius_m: float = 1250.0
+@export_range(0.0, 1.0) var dust_deck_break_edge_jitter: float = 0.42
+@export var dust_deck_vertex_motion_amplitude_m: float = 90.0
+@export var dust_deck_vertex_motion_speed: float = 0.055
+@export var dust_deck_vertex_motion_frequency: float = 0.00125
 @export var clear_air_sky_top_color: Color = Color(0.24, 0.46, 0.78)
 @export var clear_air_sky_horizon_color: Color = Color(0.55, 0.72, 0.92)
 @export var clear_air_ground_horizon_dust_blend: float = 0.65
 
 @export_group("Sun Breaks")
-@export var sun_breaks_enabled: bool = true
-@export_range(0, 24) var sun_break_count: int = 8
+@export var sun_breaks_enabled: bool = false
+@export_range(0, 24) var sun_break_count: int = 0
 @export var sun_break_seed: int = 9031
 @export var sun_break_spawn_radius_m: float = 10000.0
 @export var sun_break_min_radius_m: float = 280.0
@@ -62,7 +74,12 @@ var _dust_top_noise: FastNoiseLite
 var _dust_volume: FogVolume
 var _dust_volume_material: FogMaterial
 var _dust_deck: MeshInstance3D
-var _dust_deck_material: StandardMaterial3D
+var _dust_deck_upper: MeshInstance3D
+var _dust_deck_walls: MeshInstance3D
+var _dust_deck_material: ShaderMaterial
+var _dust_deck_upper_material: ShaderMaterial
+var _dust_deck_wall_material: ShaderMaterial
+var _dust_deck_breaks: Array[Dictionary] = []
 var _sun_break_root: Node3D
 var _sun_breaks: Array[Dictionary] = []
 var _sun_break_material: StandardMaterial3D
@@ -274,27 +291,303 @@ func _ensure_dust_volume() -> void:
 		add_child.call_deferred(_dust_volume)
 
 func _ensure_dust_deck() -> void:
-	if _dust_deck != null and is_instance_valid(_dust_deck):
+	if _dust_deck != null and is_instance_valid(_dust_deck) \
+			and _dust_deck_upper != null and is_instance_valid(_dust_deck_upper) \
+			and _dust_deck_walls != null and is_instance_valid(_dust_deck_walls):
 		return
+	var mesh := _build_dust_deck_mesh()
+	var wall_mesh := _build_dust_deck_wall_mesh()
 	_dust_deck = MeshInstance3D.new()
-	_dust_deck.name = "DustLayerDeck"
-	var plane := PlaneMesh.new()
-	plane.size = Vector2(maxf(dust_layer_horizontal_size_m, 1.0), maxf(dust_layer_horizontal_size_m, 1.0))
-	plane.subdivide_width = 24
-	plane.subdivide_depth = 24
-	_dust_deck.mesh = plane
-	_dust_deck_material = StandardMaterial3D.new()
-	_dust_deck_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	_dust_deck_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	_dust_deck_material.cull_mode = BaseMaterial3D.CULL_DISABLED
-	_dust_deck_material.no_depth_test = false
-	_dust_deck_material.albedo_color = Color(0.7, 0.22, 0.1, 0.6)
+	_dust_deck.name = "DustLayerDeckLower"
+	_dust_deck.mesh = mesh
+	_dust_deck.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_dust_deck_material = _make_dust_deck_material()
 	_dust_deck.material_override = _dust_deck_material
+	_dust_deck_upper = MeshInstance3D.new()
+	_dust_deck_upper.name = "DustLayerDeckUpper"
+	_dust_deck_upper.mesh = mesh
+	_dust_deck_upper.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_dust_deck_upper_material = _make_dust_deck_material()
+	_dust_deck_upper.material_override = _dust_deck_upper_material
+	_dust_deck_walls = MeshInstance3D.new()
+	_dust_deck_walls.name = "DustLayerDeckHoleWalls"
+	_dust_deck_walls.mesh = wall_mesh
+	_dust_deck_walls.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_dust_deck_wall_material = _make_dust_deck_material()
+	_dust_deck_walls.material_override = _dust_deck_wall_material
 	var scene_root := get_tree().current_scene
 	if scene_root != null:
 		scene_root.add_child.call_deferred(_dust_deck)
+		scene_root.add_child.call_deferred(_dust_deck_upper)
+		scene_root.add_child.call_deferred(_dust_deck_walls)
 	else:
 		add_child.call_deferred(_dust_deck)
+		add_child.call_deferred(_dust_deck_upper)
+		add_child.call_deferred(_dust_deck_walls)
+
+func _make_dust_deck_material() -> ShaderMaterial:
+	var mat := ShaderMaterial.new()
+	mat.shader = _create_dust_deck_shader()
+	mat.set_shader_parameter("tint", Color(0.7, 0.22, 0.1, 0.6))
+	mat.set_shader_parameter("motion_amplitude_m", dust_deck_vertex_motion_amplitude_m)
+	mat.set_shader_parameter("motion_speed", dust_deck_vertex_motion_speed)
+	mat.set_shader_parameter("motion_frequency", dust_deck_vertex_motion_frequency)
+	mat.set_shader_parameter("motion_phase", 0.0)
+	return mat
+
+func _create_dust_deck_shader() -> Shader:
+	var code := """
+shader_type spatial;
+render_mode blend_mix, cull_disabled, depth_prepass_alpha, diffuse_burley;
+
+uniform vec4 tint : source_color = vec4(0.70, 0.22, 0.10, 0.85);
+uniform float motion_amplitude_m = 90.0;
+uniform float motion_speed = 0.055;
+uniform float motion_frequency = 0.00125;
+uniform float motion_phase = 0.0;
+
+void vertex() {
+	float t = TIME * motion_speed + motion_phase;
+	float wave_a = sin((VERTEX.x + VERTEX.z * 0.37) * motion_frequency + t);
+	float wave_b = sin((VERTEX.z - VERTEX.x * 0.41) * motion_frequency * 1.73 - t * 1.41);
+	float wave_c = sin((VERTEX.x * 0.31 - VERTEX.z * 0.29) * motion_frequency * 2.67 + t * 0.73);
+	VERTEX.y += (wave_a * 0.52 + wave_b * 0.32 + wave_c * 0.16) * motion_amplitude_m;
+}
+
+void fragment() {
+	ALBEDO = COLOR.rgb * tint.rgb;
+	ROUGHNESS = 1.0;
+	ALPHA = tint.a;
+}
+"""
+	var shader := Shader.new()
+	shader.code = code
+	return shader
+
+func _build_dust_deck_mesh() -> ArrayMesh:
+	var size_m := maxf(dust_layer_horizontal_size_m, 1.0)
+	var cells := clampi(dust_deck_grid_cells, 8, 160)
+	var cell_size := size_m / float(cells)
+	var half_size := size_m * 0.5
+	var noise := FastNoiseLite.new()
+	noise.seed = dust_layer_noise_seed + 331
+	noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	noise.frequency = maxf(dust_deck_mesh_noise_frequency, 0.000001)
+	noise.fractal_type = FastNoiseLite.FRACTAL_FBM
+	noise.fractal_octaves = 3
+	noise.fractal_lacunarity = 2.0
+	noise.fractal_gain = 0.45
+
+	var breaks := _build_dust_deck_breaks(size_m)
+	_dust_deck_breaks = breaks
+	var vertices := PackedVector3Array()
+	var normals := PackedVector3Array()
+	var colors := PackedColorArray()
+	var tri_id := 0
+
+	for z in range(cells):
+		for x in range(cells):
+			var x0 := -half_size + float(x) * cell_size
+			var x1 := x0 + cell_size
+			var z0 := -half_size + float(z) * cell_size
+			var z1 := z0 + cell_size
+			var center := Vector2((x0 + x1) * 0.5, (z0 + z1) * 0.5)
+			if _is_inside_dust_deck_break(center, breaks):
+				continue
+
+			var v00 := Vector3(x0, _sample_dust_deck_height(noise, x0, z0), z0)
+			var v10 := Vector3(x1, _sample_dust_deck_height(noise, x1, z0), z0)
+			var v01 := Vector3(x0, _sample_dust_deck_height(noise, x0, z1), z1)
+			var v11 := Vector3(x1, _sample_dust_deck_height(noise, x1, z1), z1)
+			var alternate := _hash01(float(x * 928371 + z * 364479 + dust_layer_noise_seed)) > 0.5
+			if alternate:
+				_append_dust_deck_face(v00, v10, v01, tri_id, vertices, normals, colors)
+				tri_id += 1
+				_append_dust_deck_face(v10, v11, v01, tri_id, vertices, normals, colors)
+				tri_id += 1
+			else:
+				_append_dust_deck_face(v00, v10, v11, tri_id, vertices, normals, colors)
+				tri_id += 1
+				_append_dust_deck_face(v00, v11, v01, tri_id, vertices, normals, colors)
+				tri_id += 1
+
+	var arrays: Array = []
+	arrays.resize(Mesh.ARRAY_MAX)
+	if vertices.is_empty():
+		return ArrayMesh.new()
+	arrays[Mesh.ARRAY_VERTEX] = vertices
+	arrays[Mesh.ARRAY_NORMAL] = normals
+	arrays[Mesh.ARRAY_COLOR] = colors
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	return mesh
+
+func _build_dust_deck_wall_mesh() -> ArrayMesh:
+	var size_m := maxf(dust_layer_horizontal_size_m, 1.0)
+	var cells := clampi(dust_deck_grid_cells, 8, 160)
+	var cell_size := size_m / float(cells)
+	var half_size := size_m * 0.5
+	var noise := FastNoiseLite.new()
+	noise.seed = dust_layer_noise_seed + 331
+	noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	noise.frequency = maxf(dust_deck_mesh_noise_frequency, 0.000001)
+	noise.fractal_type = FastNoiseLite.FRACTAL_FBM
+	noise.fractal_octaves = 3
+	noise.fractal_lacunarity = 2.0
+	noise.fractal_gain = 0.45
+
+	var vertices := PackedVector3Array()
+	var normals := PackedVector3Array()
+	var colors := PackedColorArray()
+	var tri_id := 0
+
+	for z in range(cells):
+		for x in range(cells):
+			var x0 := -half_size + float(x) * cell_size
+			var x1 := x0 + cell_size
+			var z0 := -half_size + float(z) * cell_size
+			var z1 := z0 + cell_size
+			var center := Vector2((x0 + x1) * 0.5, (z0 + z1) * 0.5)
+			if _is_inside_dust_deck_break(center, _dust_deck_breaks):
+				continue
+			var north_is_hole := _is_dust_deck_cell_hole(x, z - 1, cells, cell_size, half_size)
+			var south_is_hole := _is_dust_deck_cell_hole(x, z + 1, cells, cell_size, half_size)
+			var west_is_hole := _is_dust_deck_cell_hole(x - 1, z, cells, cell_size, half_size)
+			var east_is_hole := _is_dust_deck_cell_hole(x + 1, z, cells, cell_size, half_size)
+			if north_is_hole:
+				_append_dust_deck_wall_edge(Vector2(x0, z0), Vector2(x1, z0), noise, tri_id, vertices, normals, colors)
+				tri_id += 2
+			if south_is_hole:
+				_append_dust_deck_wall_edge(Vector2(x1, z1), Vector2(x0, z1), noise, tri_id, vertices, normals, colors)
+				tri_id += 2
+			if west_is_hole:
+				_append_dust_deck_wall_edge(Vector2(x0, z1), Vector2(x0, z0), noise, tri_id, vertices, normals, colors)
+				tri_id += 2
+			if east_is_hole:
+				_append_dust_deck_wall_edge(Vector2(x1, z0), Vector2(x1, z1), noise, tri_id, vertices, normals, colors)
+				tri_id += 2
+
+	var arrays: Array = []
+	arrays.resize(Mesh.ARRAY_MAX)
+	if vertices.is_empty():
+		return ArrayMesh.new()
+	arrays[Mesh.ARRAY_VERTEX] = vertices
+	arrays[Mesh.ARRAY_NORMAL] = normals
+	arrays[Mesh.ARRAY_COLOR] = colors
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	return mesh
+
+func _is_dust_deck_cell_hole(x: int, z: int, cells: int, cell_size: float, half_size: float) -> bool:
+	if x < 0 or z < 0 or x >= cells or z >= cells:
+		return false
+	var x0 := -half_size + float(x) * cell_size
+	var z0 := -half_size + float(z) * cell_size
+	var center := Vector2(x0 + cell_size * 0.5, z0 + cell_size * 0.5)
+	return _is_inside_dust_deck_break(center, _dust_deck_breaks)
+
+func _append_dust_deck_wall_edge(
+		p0: Vector2,
+		p1: Vector2,
+		noise: FastNoiseLite,
+		tri_id: int,
+		vertices: PackedVector3Array,
+		normals: PackedVector3Array,
+		colors: PackedColorArray) -> void:
+	var h0 := _sample_dust_deck_height(noise, p0.x, p0.y)
+	var h1 := _sample_dust_deck_height(noise, p1.x, p1.y)
+	var lower0 := Vector3(p0.x, dust_deck_vertical_offset_m + h0, p0.y)
+	var lower1 := Vector3(p1.x, dust_deck_vertical_offset_m + h1, p1.y)
+	var upper0 := Vector3(p0.x, dust_deck_upper_vertical_offset_m + h0, p0.y)
+	var upper1 := Vector3(p1.x, dust_deck_upper_vertical_offset_m + h1, p1.y)
+	_append_dust_deck_face(lower0, upper0, upper1, tri_id, vertices, normals, colors)
+	_append_dust_deck_face(lower0, upper1, lower1, tri_id + 1, vertices, normals, colors)
+
+func _build_dust_deck_breaks(size_m: float) -> Array[Dictionary]:
+	var breaks: Array[Dictionary] = []
+	var rng := RandomNumberGenerator.new()
+	rng.seed = sun_break_seed + dust_layer_noise_seed + 911
+	var count := clampi(dust_deck_break_count, 0, 24)
+	var usable_radius := minf(size_m * 0.38, maxf(sun_break_spawn_radius_m, 1.0))
+	for i in range(count):
+		var angle := rng.randf() * TAU
+		var dist := sqrt(rng.randf()) * usable_radius
+		var radius := rng.randf_range(
+			minf(dust_deck_break_min_radius_m, dust_deck_break_max_radius_m),
+			maxf(dust_deck_break_min_radius_m, dust_deck_break_max_radius_m)
+		)
+		breaks.append({
+			"center": Vector2(cos(angle), sin(angle)) * dist,
+			"radius": radius,
+			"phase": rng.randf() * TAU,
+		})
+	return breaks
+
+func _sample_dust_deck_height(noise: FastNoiseLite, x: float, z: float) -> float:
+	var broad := noise.get_noise_2d(x, z)
+	var ridge := noise.get_noise_2d(x * 2.35 + 913.0, z * 2.35 - 407.0)
+	var height := broad * 0.78 + ridge * 0.22
+	return height * maxf(dust_deck_height_variation_m, 0.0)
+
+func _is_inside_dust_deck_break(point: Vector2, breaks: Array[Dictionary]) -> bool:
+	for entry in breaks:
+		var center := entry.get("center", Vector2.ZERO) as Vector2
+		var radius := float(entry.get("radius", 1.0))
+		var phase := float(entry.get("phase", 0.0))
+		var rel := point - center
+		var dist := rel.length()
+		if dist <= 0.001:
+			return true
+		var angle := atan2(rel.y, rel.x)
+		var wobble := sin(angle * 5.0 + phase) * 0.65 + sin(angle * 9.0 + phase * 1.71) * 0.35
+		var jagged_radius := radius * (1.0 + wobble * clampf(dust_deck_break_edge_jitter, 0.0, 1.0) * 0.32)
+		if dist < jagged_radius:
+			return true
+	return false
+
+func _append_dust_deck_face(
+		v0: Vector3,
+		v1: Vector3,
+		v2: Vector3,
+		tri_id: int,
+		vertices: PackedVector3Array,
+		normals: PackedVector3Array,
+		colors: PackedColorArray) -> void:
+	var n := (v1 - v0).cross(v2 - v0).normalized()
+	if n.y < 0.0:
+		var swap := v1
+		v1 = v2
+		v2 = swap
+		n = (v1 - v0).cross(v2 - v0).normalized()
+	var c := _dust_deck_face_color((v0 + v1 + v2) / 3.0, n, tri_id)
+	vertices.push_back(v0)
+	vertices.push_back(v1)
+	vertices.push_back(v2)
+	normals.push_back(n)
+	normals.push_back(n)
+	normals.push_back(n)
+	colors.push_back(c)
+	colors.push_back(c)
+	colors.push_back(c)
+
+func _dust_deck_face_color(face_center: Vector3, normal: Vector3, tri_id: int) -> Color:
+	var height_t := clampf((face_center.y / maxf(dust_deck_height_variation_m, 1.0)) * 0.5 + 0.5, 0.0, 1.0)
+	var slope_t := clampf(1.0 - normal.y, 0.0, 1.0)
+	var hash_t := _hash01(float(tri_id) * 17.23 + face_center.x * 0.013 + face_center.z * 0.017)
+	var shade := lerpf(0.58, 1.28, hash_t)
+	shade *= lerpf(0.86, 1.18, height_t)
+	shade *= lerpf(1.08, 0.56, slope_t)
+	shade = lerpf(1.0, shade, clampf(dust_deck_face_color_variation, 0.0, 1.0))
+	return Color(
+		shade,
+		shade * lerpf(0.86, 1.04, height_t),
+		shade * lerpf(0.74, 0.94, height_t),
+		1.0
+	)
+
+func _hash01(v: float) -> float:
+	var h := sin(v * 12.9898 + 78.233) * 43758.5453
+	return h - floor(h)
 
 func _update_dust_volume(dust_color: Color, clear_t: float) -> void:
 	_ensure_dust_volume()
@@ -323,19 +616,48 @@ func _update_dust_deck(dust_color: Color, clear_t: float) -> void:
 	_ensure_dust_deck()
 	if _dust_deck == null or not is_instance_valid(_dust_deck):
 		return
+	if _dust_deck_upper == null or not is_instance_valid(_dust_deck_upper):
+		return
+	if _dust_deck_walls == null or not is_instance_valid(_dust_deck_walls):
+		return
 	if not _dust_deck.is_inside_tree():
 		return
+	if not _dust_deck_upper.is_inside_tree():
+		return
+	if not _dust_deck_walls.is_inside_tree():
+		return
 	_dust_deck.visible = dust_deck_enabled
+	_dust_deck_upper.visible = dust_deck_enabled
+	_dust_deck_walls.visible = dust_deck_enabled
 	if not dust_deck_enabled:
 		return
 	if _dust_deck_material == null:
-		_dust_deck_material = StandardMaterial3D.new()
+		_dust_deck_material = _make_dust_deck_material()
 		_dust_deck.material_override = _dust_deck_material
+	if _dust_deck_upper_material == null:
+		_dust_deck_upper_material = _make_dust_deck_material()
+		_dust_deck_upper.material_override = _dust_deck_upper_material
+	if _dust_deck_wall_material == null:
+		_dust_deck_wall_material = _make_dust_deck_material()
+		_dust_deck_walls.material_override = _dust_deck_wall_material
 	var sample_pos := _get_weather_sample_position()
 	var layer_top := _get_dust_layer_top_for_position(sample_pos)
 	_dust_deck.global_position = Vector3(sample_pos.x, layer_top + dust_deck_vertical_offset_m, sample_pos.z)
+	_dust_deck_upper.global_position = Vector3(sample_pos.x, layer_top + dust_deck_upper_vertical_offset_m, sample_pos.z)
+	_dust_deck_walls.global_position = Vector3(sample_pos.x, layer_top, sample_pos.z)
 	var alpha := lerpf(dust_deck_alpha_below, dust_deck_alpha_above, clear_t)
-	_dust_deck_material.albedo_color = Color(dust_color.r, dust_color.g, dust_color.b, alpha)
+	_apply_dust_deck_material(_dust_deck_material, dust_color, alpha, 0.0)
+	_apply_dust_deck_material(_dust_deck_upper_material, dust_color.lerp(Color(1.0, 0.72, 0.48), 0.12), alpha * 0.92, 11.7)
+	_apply_dust_deck_material(_dust_deck_wall_material, dust_color.darkened(0.12), minf(alpha + 0.08, 1.0), 5.35)
+
+func _apply_dust_deck_material(mat: ShaderMaterial, dust_color: Color, alpha: float, phase: float) -> void:
+	if mat == null:
+		return
+	mat.set_shader_parameter("tint", Color(dust_color.r, dust_color.g, dust_color.b, clampf(alpha, 0.0, 1.0)))
+	mat.set_shader_parameter("motion_amplitude_m", maxf(dust_deck_vertex_motion_amplitude_m, 0.0))
+	mat.set_shader_parameter("motion_speed", maxf(dust_deck_vertex_motion_speed, 0.0))
+	mat.set_shader_parameter("motion_frequency", maxf(dust_deck_vertex_motion_frequency, 0.0))
+	mat.set_shader_parameter("motion_phase", phase)
 
 func _ensure_sun_breaks() -> void:
 	if _sun_break_root == null or not is_instance_valid(_sun_break_root):
@@ -365,12 +687,24 @@ func _ensure_sun_breaks() -> void:
 	var count: int = maxi(sun_break_count, 0)
 	var sides: int = clampi(sun_break_polygon_sides, 3, 12)
 	for i in count:
-		var radius := rng.randf_range(
-			minf(sun_break_min_radius_m, sun_break_max_radius_m),
-			maxf(sun_break_min_radius_m, sun_break_max_radius_m)
-		)
-		var angle := rng.randf() * TAU
-		var dist := sqrt(rng.randf()) * maxf(sun_break_spawn_radius_m, 1.0)
+		var radius: float
+		var offset: Vector2
+		if i < _dust_deck_breaks.size():
+			var break_entry := _dust_deck_breaks[i]
+			offset = break_entry.get("center", Vector2.ZERO) as Vector2
+			radius = clampf(
+				float(break_entry.get("radius", sun_break_max_radius_m)) * 0.55,
+				minf(sun_break_min_radius_m, sun_break_max_radius_m),
+				maxf(sun_break_min_radius_m, sun_break_max_radius_m)
+			)
+		else:
+			radius = rng.randf_range(
+				minf(sun_break_min_radius_m, sun_break_max_radius_m),
+				maxf(sun_break_min_radius_m, sun_break_max_radius_m)
+			)
+			var angle := rng.randf() * TAU
+			var dist := sqrt(rng.randf()) * maxf(sun_break_spawn_radius_m, 1.0)
+			offset = Vector2(cos(angle), sin(angle)) * dist
 		var shaft := MeshInstance3D.new()
 		shaft.name = "SunShaft%02d" % i
 		shaft.mesh = _build_sun_shaft_mesh(radius, maxf(sun_break_max_length_m, 1.0), sides)
@@ -384,7 +718,7 @@ func _ensure_sun_breaks() -> void:
 		highlight.material_override = highlight_material
 		_sun_break_root.add_child(highlight)
 		_sun_breaks.append({
-			"offset": Vector2(cos(angle), sin(angle)) * dist,
+			"offset": offset,
 			"radius": radius,
 			"phase": rng.randf() * TAU,
 			"strength": rng.randf_range(0.55, 1.0),
