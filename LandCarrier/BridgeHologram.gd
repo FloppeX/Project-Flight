@@ -44,6 +44,7 @@ class_name BridgeHologram
 @export var waypoint_color: Color = Color(1.0, 0.95, 0.8, 0.9)
 @export var waypoint_refresh_interval_s: float = 1.0
 @export var active_camera_update_distance_m: float = 35.0
+@export var active_camera_render_distance_m: float = 100.0
 @onready var terrain_dots: MultiMeshInstance3D = $TerrainDots
 @onready var terrain_lines: MultiMeshInstance3D = $TerrainLines
 @onready var contact_dots: MultiMeshInstance3D = $ContactDots
@@ -88,6 +89,7 @@ func _ready() -> void:
 	_setup_visuals()
 	call_deferred("_try_build_terrain")
 	_update_contact_dots()
+	_set_hologram_render_visible(_get_active_camera_distance_m() <= maxf(active_camera_render_distance_m, 1.0))
 
 func apply_origin_shift(offset: Vector3) -> void:
 	if _last_terrain_center_world != Vector3.INF:
@@ -99,7 +101,11 @@ func _physics_process(delta: float) -> void:
 		if _carrier == null:
 			return
 
-	var is_observed := _is_active_camera_near_hologram()
+	var camera_distance := _get_active_camera_distance_m()
+	var is_render_visible := camera_distance <= maxf(active_camera_render_distance_m, 1.0)
+	_set_hologram_render_visible(is_render_visible)
+
+	var is_observed := camera_distance <= maxf(active_camera_update_distance_m, 1.0)
 	if not is_observed:
 		_was_recently_observed = false
 		return
@@ -621,14 +627,36 @@ func _carrier_world_to_planar_local(world_pos: Vector3) -> Vector3:
 	)
 
 func _is_active_camera_near_hologram() -> bool:
+	return _get_active_camera_distance_m() <= maxf(active_camera_update_distance_m, 1.0)
+
+func _get_active_camera_distance_m() -> float:
 	var viewport := get_viewport()
 	if viewport == null:
-		return true
+		return INF
 	var active_camera := viewport.get_camera_3d()
 	if active_camera == null or not is_instance_valid(active_camera):
-		return true
-	var max_distance := maxf(active_camera_update_distance_m, 1.0)
-	return active_camera.global_position.distance_squared_to(global_position) <= max_distance * max_distance
+		return INF
+	return active_camera.global_position.distance_to(global_position)
+
+func _set_hologram_render_visible(is_visible: bool) -> void:
+	visible = is_visible
+	if terrain_dots != null:
+		terrain_dots.visible = false
+	if terrain_lines != null:
+		terrain_lines.visible = is_visible and _terrain_built
+	if contact_dots != null:
+		contact_dots.visible = is_visible
+	if ground_dots != null:
+		ground_dots.visible = is_visible
+	if _building_dots != null:
+		_building_dots.visible = is_visible
+	if carrier_plate != null:
+		carrier_plate.visible = is_visible
+	if not is_visible:
+		if waypoint_dots != null:
+			waypoint_dots.visible = false
+		if waypoint_lines != null:
+			waypoint_lines.visible = false
 
 func _make_hologram_shader_material(emission_strength: float, flicker_strength: float, flicker_speed: float) -> ShaderMaterial:
 	var shader := Shader.new()

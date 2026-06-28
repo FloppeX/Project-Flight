@@ -1,0 +1,113 @@
+[gd_scene format=3 uid="uid://0xp5tv3wsml4"]
+
+[ext_resource type="Script" uid="uid://cskp1ls6pv3p7" path="res://HUD/Instruments/InstrumentPanelLayoutPreview.gd" id="1_preview"]
+
+[node name="InstrumentPanelLayoutPreview" type="Control" unique_id=354029069]
+custom_minimum_size = Vector2(1000, 480)
+layout_mode = 3
+offset_right = 1000.0
+offset_bottom = 480.0
+focus_mode = 2
+script = ExtResource("1_preview")
+module_layout = Array[Dictionary]([{
+"id": "warning_strip",
+"lights": ["ENGINE", "WEAPONS", "CONTROLS", "GEAR", "STALL", "MISSILE"],
+"rect": Rect2(135, 26, 730, 44),
+"title": "WARNINGS",
+"type": "warning_lights"
+}, {
+"id": "mfd_left",
+"modes": ["MAP", "WEAPONS", "DAMAGE", "SYSTEMS"],
+"rect": Rect2(92, 92, 235, 235),
+"title": "MFD L",
+"type": "mfd"
+}, {
+"id": "mfd_right",
+"modes": ["TARGET", "MAP", "WEAPONS", "DAMAGE", "SYSTEMS"],
+"rect": Rect2(673, 92, 235, 235),
+"title": "MFD R",
+"type": "mfd"
+}, {
+"id": "speed",
+"instrument": "speed",
+"rect": Rect2(360, 92, 125, 54),
+"title": "SPEED",
+"type": "readout"
+}, {
+"id": "altitude",
+"instrument": "altitude",
+"rect": Rect2(515, 92, 125, 54),
+"title": "ALT",
+"type": "readout"
+}, {
+"id": "vertical_speed",
+"instrument": "vertical_speed",
+"rect": Rect2(360, 158, 125, 54),
+"title": "V/S",
+"type": "readout"
+}, {
+"id": "fuel",
+"instrument": "fuel",
+"rect": Rect2(515, 158, 125, 54),
+"title": "FUEL",
+"type": "readout"
+}, {
+"id": "gear",
+"instrument": "gear",
+"rect": Rect2(360, 224, 125, 54),
+"title": "GEAR",
+"type": "readout"
+}, {
+"id": "flaps",
+"instrument": "flaps",
+"rect": Rect2(515, 224, 125, 54),
+"title": "FLAPS",
+"type": "readout"
+}, {
+"id": "aoa",
+"rect": Rect2(360, 290, 125, 84),
+"title": "AOA",
+"type": "aoa"
+}, {
+"id": "stall",
+"instrument": "stall",
+"rect": Rect2(515, 290, 125, 40),
+"title": "STALL",
+"type": "readout"
+}, {
+"id": "missile_lock",
+"instrument": "missile_lock",
+"rect": Rect2(515, 338, 125, 36),
+"title": "M LOCK",
+"type": "readout"
+}, {
+"id": "slip_ball",
+"rect": Rect2(120, 376, 220, 68),
+"title": "BALL",
+"type": "slip_ball"
+}, {
+"id": "engine",
+"instrument": "engine",
+"rect": Rect2(370, 376, 120, 68),
+"title": "ENGINE",
+"type": "readout"
+}, {
+"id": "damage",
+"instrument": "damage",
+"rect": Rect2(510, 376, 120, 68),
+"title": "STRUCT",
+"type": "readout"
+}, {
+"id": "g_force",
+"instrument": "g_force",
+"rect": Rect2(660, 376, 110, 68),
+"title": "G",
+"type": "readout"
+}, {
+"id": "weapons",
+"instrument": "weapons",
+"rect": Rect2(790, 376, 110, 68),
+"title": "WEAPONS",
+"type": "readout"
+}])
+panel_polygon = PackedVector2Array(120, 20, 880, 20, 960, 444, 40, 444)
