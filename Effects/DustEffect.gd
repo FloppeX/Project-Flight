@@ -33,21 +33,23 @@ var _available_puff_indices: Array[int] = []
 var _pool_target_count: int = 0
 
 # Shared across all instances
-static var _shared_dust_color: Color = Color(0.55, 0.30, 0.18, 1.0)
+static var _shared_dust_color: Color = Color(0.78, 0.46, 0.26, 1.0)
 static var _shared_mesh: SphereMesh = null
 static var _shared_color_sample_cooldown: float = 0.0
 static var dust_enabled: bool = true
 
 static func _sanitize_dust_color(color: Color) -> Color:
 	var clean := Color(
-		clampf(color.r, 0.18, 0.72),
-		clampf(color.g, 0.14, 0.60),
-		clampf(color.b, 0.08, 0.46),
+		clampf(color.r, 0.38, 0.95),
+		clampf(color.g, 0.24, 0.78),
+		clampf(color.b, 0.12, 0.58),
 		1.0
 	)
 	var luma := clean.get_luminance()
-	if luma > 0.55:
-		var scale := 0.55 / maxf(luma, 0.0001)
+	if luma < 0.42:
+		clean = clean.lerp(Color(0.82, 0.50, 0.28, 1.0), 0.55)
+	elif luma > 0.72:
+		var scale := 0.72 / maxf(luma, 0.0001)
 		clean.r *= scale
 		clean.g *= scale
 		clean.b *= scale
@@ -170,7 +172,7 @@ func _create_pooled_puff() -> void:
 	var mat := StandardMaterial3D.new()
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mat.blend_mode = BaseMaterial3D.BLEND_MODE_MIX
+	mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
 	mat.albedo_color = Color(_shared_dust_color.r, _shared_dust_color.g, _shared_dust_color.b, 0.0)
 	puff.material_override = mat
 	puff.set_meta("dust_pool_index", pool_index)

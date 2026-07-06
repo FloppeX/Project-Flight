@@ -24,7 +24,7 @@ func apply_origin_shift(offset: Vector3) -> void:
 
 # --- Config (set in Inspector on the autoload node) ---
 @export var cell_size_m: float = 40.0          ## Grid resolution in metres
-@export var bake_half_extent_m: float = 12500.0 ## Half-side of baked square around terrain centre
+@export var bake_half_extent_m: float = 9000.0 ## Half-side of baked square around terrain centre
 @export var search_padding_m: float = 400.0    ## Extra A* search area beyond start→goal bbox
 @export_range(1, 20) var rows_per_frame: int = 4 ## Terrain rows sampled per frame while baking
 ## Clearance radius in cells required around each path node.
@@ -43,7 +43,7 @@ func apply_origin_shift(offset: Vector3) -> void:
 @export_group("Query Grid")
 ## Finer, non-A* grid used for cheap terrain safety/footprint checks.
 @export var query_grid_enabled: bool = true
-@export var query_cell_size_m: float = 24.0
+@export var query_cell_size_m: float = 32.0
 ## Radius, in query cells, used to bake local height variation / edge risk.
 @export_range(1, 4) var query_edge_radius_cells: int = 2
 

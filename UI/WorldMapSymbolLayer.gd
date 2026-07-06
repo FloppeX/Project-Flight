@@ -13,6 +13,8 @@ const CORNER_BRACKET_LEN_PX: float = 18.0
 const CORNER_BRACKET_INSET_PX: float = 7.0
 const POI_ACTIVE_COLOR: Color = Color(1.0, 0.92, 0.28, 1.0)
 const POI_USED_COLOR: Color = Color(0.52, 0.56, 0.52, 0.95)
+const PLANT_PATCH_COLOR: Color = Color(0.42, 0.68, 0.34, 0.62)
+const PLANT_PATCH_OUTLINE_COLOR: Color = Color(0.74, 0.92, 0.58, 0.38)
 
 @export var player_color: Color = Color(1.0, 1.0, 0.40, 1.0)
 @export var friendly_color: Color = Color(0.58, 1.0, 0.64, 1.0)
@@ -47,6 +49,8 @@ const POI_USED_COLOR: Color = Color(0.52, 0.56, 0.52, 0.95)
 @export var counter_margin_px: float = 12.0
 @export var counter_font_size_px: int = 14
 @export var show_contact_counters: bool = true
+@export var show_plant_patches: bool = true
+@export var plant_patch_marker_size_px: float = 12.0
 
 var _counts_label: Label
 var _selection_world_pos: Vector3 = Vector3.INF
@@ -101,6 +105,7 @@ func _draw() -> void:
 	if not TerrainNavGrid.is_ready():
 		return
 	_draw_vector_decor()
+	_draw_plant_patch_markers()
 	var carrier := get_tree().get_first_node_in_group("carrier") as Node3D
 	if carrier and is_instance_valid(carrier):
 		_draw_route_from_points(carrier.global_position, _get_active_route_points(carrier), carrier_waypoint_color, true)
@@ -237,6 +242,40 @@ func _draw_ground_marker(node_3d: Node3D) -> void:
 		_draw_square_marker(map_pos, building_marker_size_px, color, false)
 	else:
 		draw_circle(map_pos, ground_marker_size_px * 0.55, color)
+
+
+func _draw_plant_patch_markers() -> void:
+	if not show_plant_patches:
+		return
+	for streamer in get_tree().get_nodes_in_group("plant_patch_streamer"):
+		if streamer == null or not is_instance_valid(streamer):
+			continue
+		if not streamer.has_method("get_patch_map_markers"):
+			continue
+		var markers: Array = streamer.call("get_patch_map_markers")
+		for marker in markers:
+			if not (marker is Dictionary):
+				continue
+			var world_pos: Vector3 = marker.get("position", Vector3.INF)
+			if not _is_world_in_map_bounds(world_pos):
+				continue
+			_draw_plant_patch_marker(_world_to_map(world_pos))
+
+
+func _draw_plant_patch_marker(center: Vector2) -> void:
+	var s := plant_patch_marker_size_px
+	var half := s * 0.5
+	var diamond := PackedVector2Array([
+		center + Vector2(0.0, -half),
+		center + Vector2(half, 0.0),
+		center + Vector2(0.0, half),
+		center + Vector2(-half, 0.0),
+	])
+	draw_colored_polygon(diamond, PLANT_PATCH_COLOR)
+	draw_polyline(PackedVector2Array([diamond[0], diamond[1], diamond[2], diamond[3], diamond[0]]), PLANT_PATCH_OUTLINE_COLOR, 1.0)
+	draw_line(center + Vector2(-half * 0.55, 0.0), center + Vector2(half * 0.55, 0.0), PLANT_PATCH_OUTLINE_COLOR, 1.0)
+	draw_line(center + Vector2(0.0, -half * 0.55), center + Vector2(0.0, half * 0.55), PLANT_PATCH_OUTLINE_COLOR, 1.0)
+
 
 func _draw_square_marker(center: Vector2, size_px: float, color: Color, outline: bool) -> void:
 	var rect := Rect2(center - Vector2.ONE * size_px * 0.5, Vector2.ONE * size_px)

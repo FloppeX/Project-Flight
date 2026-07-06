@@ -50,6 +50,8 @@ signal deck_state_changed(new_state)
 @export var helicopter_recent_landing_clearance_hold_s: float = 15.0
 @export var carrier_recovery_speed_limit_mps: float = 0.0
 @export var carrier_recovery_constraint_requires_active_clearance: bool = true
+@export var launch_carrier_turn_yaw_rate_limit_deg_s: float = 0.6
+@export var launch_carrier_turn_steer_limit: float = 0.06
 @export var tractor_recovery_debug: bool = true
 @export var tractor_recovery_debug_interval_s: float = 1.0
 @export var tractor_position_timeout_s: float = 16.0
@@ -104,8 +106,8 @@ var _recovery_release_done: bool = false
 var stored_aircraft: Array[Dictionary] = []  # Store aircraft data instead of references
 var _pending_store_aircraft: RigidBody3D = null
 var _aircraft_lift_height: float = 0.2  # Height to lift aircraft when moving
-var _aircraft_move_speed: float = 7.0  # Speed to move aircraft around deck
-var _tractor_staging_speed: float = 18.0  # Bot retreat speed to staging (m/s)
+var _aircraft_move_speed: float = 5.5  # Speed to move aircraft around deck
+var _tractor_staging_speed: float = 12.0  # Bot retreat speed to staging (m/s)
 var _retrieval_spawn_settle_s: float = 0.15
 var _flight_deck_local_offset_y: float = 0.5  # Fallback local offset if no marker
 var _aircraft_original_collision_layer: int = 0
@@ -114,7 +116,7 @@ var _retrieval_top_handled: bool = false
 var _recovery_job_dispatched: bool = false
 var _tractor_cleanup_in_progress: bool = false
 var _tractor_cleanup_batch: Array[Node3D] = []
-var _tractor_cleanup_move_speed: float = 5.0
+var _tractor_cleanup_move_speed: float = 3.75
 var _tractor_elevator_transfer_in_progress: bool = false
 var _tractorbots_in_hangar: bool = false
 var landing_deck_active: bool = false
@@ -127,6 +129,7 @@ var _recent_helicopter_landing_hold_until_s: float = 0.0
 var _landing_blocker_aircraft: RigidBody3D = null
 var _landing_blocker_elapsed_s: float = 0.0
 var _landing_blocker_cleanup_dispatched: bool = false
+var _launch_turn_block_log_s: float = 0.0
 var carrier_manager: CarrierManager = null
 
 # --- Landing test mode ---
@@ -373,6 +376,24 @@ func _recovery_debug(message: String) -> void:
 		str(_tractorbots_in_hangar),
 		message
 	])
+
+func _is_carrier_turning_for_launch(log_block: bool = false) -> bool:
+	var carrier := get_parent()
+	if carrier == null:
+		return false
+	var yaw_limit := deg_to_rad(maxf(launch_carrier_turn_yaw_rate_limit_deg_s, 0.0))
+	var steer_limit := maxf(launch_carrier_turn_steer_limit, 0.0)
+	var turning := false
+	if carrier.has_method("is_turning_for_launch"):
+		turning = bool(carrier.call("is_turning_for_launch", yaw_limit, steer_limit))
+	elif carrier.has_method("get_yaw_rate_rad_s"):
+		turning = absf(float(carrier.call("get_yaw_rate_rad_s"))) > yaw_limit
+	if turning and log_block:
+		var now_s := Time.get_ticks_msec() / 1000.0
+		if now_s >= _launch_turn_block_log_s:
+			_launch_turn_block_log_s = now_s + 2.0
+			_recovery_debug("launch held: carrier is turning")
+	return turning
 
 func _ready():
 	if not aircraft_template_scene:
@@ -830,6 +851,8 @@ func request_launch_sequence(aircraft: RigidBody3D):
 		return
 	if not catapult:
 		return
+	if _is_carrier_turning_for_launch(true):
+		return
 
 	# Clear parking brake but keep controls_disabled set until catapult latch/release.
 	# This prevents AIPilot/ControlEngine from spooling before shuttle connection.
@@ -1144,6 +1167,10 @@ func _physics_process(_delta: float) -> void:
 
 	if current_state == DeckState.IDLE and not _tractor_cleanup_in_progress:
 		_maybe_dispatch_extra_tractor_cleanup()
+
+	if current_state == DeckState.IDLE and _ai_launch_queue > 0 and not _tractor_cleanup_in_progress \
+			and not _tractor_elevator_transfer_in_progress:
+		_launch_next_queued_ai()
 
 	# Landing test mode: spawn on a fixed cadence; older attempts may still be airborne.
 	if _landing_test_active:
@@ -3615,8 +3642,12 @@ func _complete_retrieval_sequence():
 	# Retrieved aircraft stay AI-controlled until the player explicitly takes over.
 	_configure_retrieved_aircraft_as_ai(aircraft, _retrieval_ai_land_after_launch)
 
+	while is_instance_valid(aircraft) and _is_carrier_turning_for_launch(true):
+		await get_tree().physics_frame
+	if not is_instance_valid(aircraft):
+		return
+
 	# Automatically start launch sequence
-	
 	request_launch_sequence(aircraft)
 	_send_primary_tractorbots_to_hangar.call_deferred()
 

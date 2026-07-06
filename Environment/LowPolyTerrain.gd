@@ -64,29 +64,44 @@ class_name LowPolyTerrain
 ## Spatial frequency of smooth color gradient patches
 @export var color_patch_frequency: float = 0.0012
 ## Strength of the smooth color gradient (0 = off)
-@export var color_patch_strength: float = 0.20
+@export var color_patch_strength: float = 0.28
 ## Grey applied to steep cliff faces
-@export var steep_slope_color: Color = Color(0.28, 0.27, 0.25)
+@export var steep_slope_color: Color = Color(0.36, 0.37, 0.36)
 ## Blend strength toward grey on steep faces (0 = off, 1 = fully grey)
 @export var steep_slope_strength: float = 1.0
 ## n.y threshold where grey begins (n.y=1 flat, n.y=0 vertical); higher = grey starts on shallower slopes
 @export var steep_slope_min_ny: float = 0.88
 ## Width of the sand→grey transition in n.y units (smaller = sharper border, e.g. 0.05)
 @export var steep_slope_band: float = 0.08
+## Slate-blue variation on cliff walls so steep faces range from pale grey to cold dark rock.
+@export var cliff_light_grey_color: Color = Color(0.58, 0.58, 0.54)
+@export var cliff_blue_slate_color: Color = Color(0.18, 0.23, 0.29)
+@export var cliff_slate_frequency: float = 0.00028
+@export_range(0.0, 1.0) var cliff_slate_strength: float = 0.46
 
 @export_group("Color Variation")
 ## Broad rusty ground patches on flat terrain.
 @export var ground_patch_color: Color = Color(0.58, 0.31, 0.17)
 @export var ground_patch_frequency: float = 0.00032
-@export_range(0.0, 1.0) var ground_patch_strength: float = 0.12
+@export_range(0.0, 1.0) var ground_patch_strength: float = 0.18
 ## Pale dust flats that break up the orange floor without becoming noisy.
 @export var pale_dust_color: Color = Color(0.89, 0.66, 0.42)
 @export var pale_dust_frequency: float = 0.00046
-@export_range(0.0, 1.0) var pale_dust_strength: float = 0.13
+@export_range(0.0, 1.0) var pale_dust_strength: float = 0.20
 ## Darker sediment in low basins and canyon floors.
 @export var basin_dark_color: Color = Color(0.24, 0.12, 0.07)
 @export var basin_dark_frequency: float = 0.00038
 @export_range(0.0, 1.0) var basin_dark_strength: float = 0.16
+## Larger regional color zones, kept broad so the low-poly terrain still reads cleanly.
+@export var ochre_region_color: Color = Color(0.82, 0.58, 0.25)
+@export var ochre_region_frequency: float = 0.00018
+@export_range(0.0, 1.0) var ochre_region_strength: float = 0.16
+@export var red_oxide_region_color: Color = Color(0.63, 0.22, 0.12)
+@export var red_oxide_region_frequency: float = 0.00022
+@export_range(0.0, 1.0) var red_oxide_region_strength: float = 0.18
+@export var chalk_flat_color: Color = Color(0.93, 0.78, 0.56)
+@export var chalk_flat_frequency: float = 0.00026
+@export_range(0.0, 1.0) var chalk_flat_strength: float = 0.18
 ## Subtle cooler tone for shadowed/distant-looking recesses.
 @export var cool_shadow_color: Color = Color(0.34, 0.30, 0.27)
 @export_range(0.0, 1.0) var cool_shadow_strength: float = 0.08
@@ -187,6 +202,10 @@ func _ready() -> void:
 	if generate_on_ready:
 		rebuild()
 	set_process(use_streaming)
+
+
+func _exit_tree() -> void:
+	_clear_chunks()
 
 func _process(delta: float) -> void:
 	if not use_streaming:
@@ -686,6 +705,21 @@ func _surface_color_for_sample(face_center: Vector3, n: Vector3, sample_id: int)
 		var basin_t: float = _smoothstep(0.52, 0.88, _noise01(basin_dark_noise, face_center.x, face_center.z)) * floor_t
 		base_color = base_color.lerp(basin_dark_color, basin_t * basin_dark_strength)
 
+	var ochre_region_noise := _noises.get("ochre_region") as FastNoiseLite
+	if ochre_region_noise != null:
+		var ochre_t: float = _smoothstep(0.48, 0.86, _noise01(ochre_region_noise, face_center.x, face_center.z)) * maxf(flat_t * 0.85, wall_t * 0.35)
+		base_color = base_color.lerp(ochre_region_color, ochre_t * ochre_region_strength)
+
+	var red_oxide_region_noise := _noises.get("red_oxide_region") as FastNoiseLite
+	if red_oxide_region_noise != null:
+		var red_t: float = _smoothstep(0.56, 0.92, _noise01(red_oxide_region_noise, face_center.x + 5100.0, face_center.z - 2400.0)) * maxf(wall_t, flat_t * 0.45)
+		base_color = base_color.lerp(red_oxide_region_color, red_t * red_oxide_region_strength)
+
+	var chalk_flat_noise := _noises.get("chalk_flat") as FastNoiseLite
+	if chalk_flat_noise != null:
+		var chalk_t: float = _smoothstep(0.62, 0.93, _noise01(chalk_flat_noise, face_center.x - 3400.0, face_center.z + 6200.0)) * maxf(plateau_t, floor_t * 0.65)
+		base_color = base_color.lerp(chalk_flat_color, chalk_t * chalk_flat_strength)
+
 	if cool_shadow_strength > 0.0:
 		var recess_t: float = clampf(floor_t * 0.45 + wall_t * 0.35 + cliff_t * 0.20, 0.0, 1.0)
 		base_color = base_color.lerp(cool_shadow_color, recess_t * cool_shadow_strength)
@@ -707,7 +741,13 @@ func _surface_color_for_sample(face_center: Vector3, n: Vector3, sample_id: int)
 	var steep_mask: float = 1.0
 	if ground_patch_noise != null:
 		steep_mask = lerpf(0.62, 1.0, _noise01(ground_patch_noise, face_center.x + 1700.0, face_center.z - 900.0))
-	base_color = base_color.lerp(steep_slope_color, steep_t * steep_mask)
+	var cliff_rock_color := steep_slope_color
+	var cliff_slate_noise := _noises.get("cliff_slate") as FastNoiseLite
+	if cliff_slate_noise != null:
+		var slate_t: float = _smoothstep(0.18, 0.88, _noise01(cliff_slate_noise, face_center.x, face_center.z + face_y * 4.0))
+		cliff_rock_color = cliff_light_grey_color.lerp(cliff_blue_slate_color, slate_t)
+		cliff_rock_color = steep_slope_color.lerp(cliff_rock_color, clampf(cliff_slate_strength, 0.0, 1.0))
+	base_color = base_color.lerp(cliff_rock_color, steep_t * steep_mask)
 
 	# Large-scale colour patches: low-frequency noise sampled at the world-space face
 	# centre shifts the base brightness by ±color_patch_strength. RGB only, alpha
@@ -837,6 +877,15 @@ func _build_noises() -> Dictionary:
 	color_var.fractal_lacunarity = 2.0
 	color_var.fractal_gain = 0.5
 
+	var cliff_slate := FastNoiseLite.new()
+	cliff_slate.seed = seed + 547
+	cliff_slate.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	cliff_slate.frequency = maxf(cliff_slate_frequency, 0.000001)
+	cliff_slate.fractal_type = FastNoiseLite.FRACTAL_FBM
+	cliff_slate.fractal_octaves = 2
+	cliff_slate.fractal_lacunarity = 2.0
+	cliff_slate.fractal_gain = 0.5
+
 	# Strata variation: very low frequency so band heights shift gradually across the map
 	var strata_var := FastNoiseLite.new()
 	strata_var.seed = seed + 419
@@ -883,6 +932,33 @@ func _build_noises() -> Dictionary:
 	basin_dark.fractal_lacunarity = 2.0
 	basin_dark.fractal_gain = 0.52
 
+	var ochre_region := FastNoiseLite.new()
+	ochre_region.seed = seed + 641
+	ochre_region.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	ochre_region.frequency = maxf(ochre_region_frequency, 0.000001)
+	ochre_region.fractal_type = FastNoiseLite.FRACTAL_FBM
+	ochre_region.fractal_octaves = 2
+	ochre_region.fractal_lacunarity = 2.0
+	ochre_region.fractal_gain = 0.48
+
+	var red_oxide_region := FastNoiseLite.new()
+	red_oxide_region.seed = seed + 643
+	red_oxide_region.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	red_oxide_region.frequency = maxf(red_oxide_region_frequency, 0.000001)
+	red_oxide_region.fractal_type = FastNoiseLite.FRACTAL_FBM
+	red_oxide_region.fractal_octaves = 2
+	red_oxide_region.fractal_lacunarity = 2.0
+	red_oxide_region.fractal_gain = 0.50
+
+	var chalk_flat := FastNoiseLite.new()
+	chalk_flat.seed = seed + 645
+	chalk_flat.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	chalk_flat.frequency = maxf(chalk_flat_frequency, 0.000001)
+	chalk_flat.fractal_type = FastNoiseLite.FRACTAL_FBM
+	chalk_flat.fractal_octaves = 2
+	chalk_flat.fractal_lacunarity = 2.0
+	chalk_flat.fractal_gain = 0.46
+
 	var cliff_streak := FastNoiseLite.new()
 	cliff_streak.seed = seed + 647
 	cliff_streak.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
@@ -902,9 +978,13 @@ func _build_noises() -> Dictionary:
 		"strata_var": strata_var,
 		"cliff_jitter": cliff_jitter,
 		"color_var": color_var,
+		"cliff_slate": cliff_slate,
 		"ground_patch": ground_patch,
 		"pale_dust": pale_dust,
 		"basin_dark": basin_dark,
+		"ochre_region": ochre_region,
+		"red_oxide_region": red_oxide_region,
+		"chalk_flat": chalk_flat,
 		"cliff_streak": cliff_streak,
 	}
 

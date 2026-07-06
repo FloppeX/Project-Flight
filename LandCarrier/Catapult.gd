@@ -22,9 +22,9 @@ signal launch_sequence_aborted
 @export var latch_proximity_m: float = 0.1    # Distance at which shuttle latches nose gear (proximity fallback)
 @export var tow_position_gain: float = 12.0   # Converts nose-position error to corrective target velocity
 @export var tow_force_max: float = 250000.0   # Caps tow force to avoid instability (overridden by mass-based calc)
-@export var engine_start_wait_s: float = 0.5  # Time to wait for engine to fire before spooling
-@export var spool_duration_s: float = 1.5     # Time to ramp throttle from 0 → 100%
-@export var hold_duration_s: float = 0.5      # Time to hold at full power before stroke
+@export var engine_start_wait_s: float = 0.75 # Time to wait for engine to fire before spooling
+@export var spool_duration_s: float = 2.0     # Time to ramp throttle from 0 → 100%
+@export var hold_duration_s: float = 2.5      # Time to hold at full power before stroke
 @export var settle_duration_s: float = 0.2    # Physics settle time after alignment
 
 # Input

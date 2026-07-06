@@ -33,11 +33,46 @@ var _terrain_done    := false
 var _fps_stable_acc  := 0.0    # cumulative seconds above FPS_TARGET
 
 var _terrain_node: Node = null
+var _nav_grid: Node = null
+var _active := false
 
 
 func _ready() -> void:
 	layer = 100
+	visible = false
+	set_process(false)
+	if not get_tree().node_added.is_connected(_on_node_added):
+		get_tree().node_added.connect(_on_node_added)
+	call_deferred("_try_activate")
 
+
+func _on_node_added(_node: Node) -> void:
+	if not _active:
+		call_deferred("_try_activate")
+
+
+func _try_activate() -> void:
+	if _active:
+		return
+	_terrain_node = get_tree().get_first_node_in_group("terrain_provider")
+	if not is_instance_valid(_terrain_node):
+		return
+	_active = true
+	visible = true
+	set_process(true)
+	_build_ui()
+	_nav_grid = get_node_or_null("/root/TerrainNavGrid")
+	if _nav_grid != null and _nav_grid.has_method("is_ready") and bool(_nav_grid.call("is_ready")):
+		_navgrid_done = true
+	elif _nav_grid != null:
+		var bake_done_callback := Callable(self, "_on_navgrid_bake_complete")
+		if not _nav_grid.is_connected("bake_complete", bake_done_callback):
+			_nav_grid.connect("bake_complete", bake_done_callback)
+
+
+func _build_ui() -> void:
+	if _root != null:
+		return
 	_root = Control.new()
 	_root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(_root)
@@ -91,10 +126,10 @@ func _ready() -> void:
 	_label.add_theme_constant_override("shadow_offset_y", 1)
 	_root.add_child(_label)
 
-	TerrainNavGrid.bake_complete.connect(_on_navgrid_bake_complete)
-
 
 func _process(delta: float) -> void:
+	if not _active:
+		return
 	_elapsed += delta
 
 	if _fading:
@@ -123,7 +158,9 @@ func _process(delta: float) -> void:
 		fps_fraction = clampf(_fps_stable_acc / FPS_STABLE_S, 0.0, 1.0)
 
 	# --- Compute overall bar value ---
-	var navgrid_p  := TerrainNavGrid.get_bake_progress()
+	var navgrid_p := 0.0
+	if _nav_grid != null and _nav_grid.has_method("get_bake_progress"):
+		navgrid_p = float(_nav_grid.call("get_bake_progress"))
 	var terrain_p  := 0.0
 	if _terrain_done:
 		terrain_p = 1.0

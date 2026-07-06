@@ -222,6 +222,8 @@ script = ExtResource("35_wingfold")
 
 [node name="CockpitCanopyVisibility" type="Node" parent="." unique_id=1792768989]
 script = ExtResource("36_canopyvis")
+canopy_surface_mesh_paths = Array[NodePath]([NodePath("../Aircraft 2 body/canopy")])
+canopy_surface_indices = PackedInt32Array(0)
 cockpit_shadow_disable_paths = Array[NodePath]([NodePath("../Aircraft 2 body/main fuselage"), NodePath("../Aircraft 2 body/canopy")])
 
 [node name="AIPilot" type="Node" parent="." unique_id=1548785717]

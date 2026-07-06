@@ -209,12 +209,11 @@ transform = Transform3D(-1, 0, -8.74213e-08, 0, 0.999983, 0, 8.74228e-08, 0, -0.
 
 [node name="CockpitPilot" parent="." unique_id=1290883956 instance=ExtResource("90_cpilot")]
 transform = Transform3D(0.999958, 0, -0.00842568, 0, 0.999949, 0, 0.00839809, 0, 0.999921, 0, -1.09001, 2.22481)
-upper_leg_x = 100.0
-upper_leg_spread = 5.0
-abdomen_pitch = -20.0
-torso_pitch = -5.0
-upper_arm_x = 150.0
+abdomen_pitch = 0.0
+torso_pitch = 0.0
+lower_arm_x = 0.0
 wrist_x = 0.0
+finger_curl = 0.0
 cockpit_hidden_mesh_names = PackedStringArray("Pilot")
 
 [node name="EjectionSeat" parent="." unique_id=1682896568 instance=ExtResource("92_ejection_seat")]
@@ -366,9 +365,8 @@ spring_damping = 1000.0
 
 [node name="CockpitCanopyVisibility" type="Node" parent="." unique_id=1000105093]
 script = ExtResource("35_canopyvis")
-canopy_node_paths = Array[NodePath]([])
-canopy_surface_indices = PackedInt32Array()
-material_scan_root_paths = Array[NodePath]([NodePath("../aircraft_5/world_001/body"), NodePath("../aircraft_5/world_001/canopy")])
+canopy_surface_mesh_paths = Array[NodePath]([NodePath("../aircraft_5/world_001/body"), NodePath("../aircraft_5/world_001/canopy")])
+canopy_surface_indices = PackedInt32Array(4, 2)
 hidden_material_names = PackedStringArray("glass")
 cockpit_shadow_disable_paths = Array[NodePath]([NodePath("../aircraft_5/world_001/body"), NodePath("../aircraft_5/world_001/canopy")])
 

@@ -143,8 +143,13 @@ func _ready():
 		elevator.setup(self)
 	_setup_deck_audio()
 	_setup_vehicle_ramp()
-	if Livery:
-		Livery.apply(self)
+	var session := get_node_or_null("/root/GameSession")
+	if session != null and session.has_method("apply_to_carrier"):
+		session.call("apply_to_carrier", self)
+	else:
+		var livery := get_node_or_null("/root/Livery")
+		if livery != null and livery.has_method("apply"):
+			livery.call("apply", self)
 	if not use_waypoint_pathfinding:
 		_apply_direct_waypoints()
 		visible = true
@@ -1377,6 +1382,13 @@ func turn_right(_amount: float = 30.0) -> void:
 
 func get_speed() -> float:
 	return _last_planar_speed_mps
+
+func get_yaw_rate_rad_s() -> float:
+	return _current_yaw_rate_rad_s
+
+func is_turning_for_launch(max_yaw_rate_rad_s: float = 0.01, max_steer: float = 0.06) -> bool:
+	return absf(_current_yaw_rate_rad_s) > maxf(max_yaw_rate_rad_s, 0.0) \
+			or absf(_current_steer) > maxf(max_steer, 0.0)
 
 func get_velocity_vector() -> Vector3:
 	var forward: Vector3 = global_transform.basis.z

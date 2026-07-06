@@ -1,4 +1,4 @@
-[gd_scene load_steps=18 format=3 uid="uid://di4mmbdu6qiv1"]
+[gd_scene load_steps=19 format=3 uid="uid://di4mmbdu6qiv1"]
 
 [ext_resource type="Script" uid="uid://dhif0k7fphvot" path="res://Scenario/ScenarioManager.gd" id="1"]
 [ext_resource type="PackedScene" uid="uid://dsel16gi76dnm" path="res://UI/UIEnergyContainer/UIFuelLevel.tscn" id="5"]
@@ -12,6 +12,7 @@
 [ext_resource type="Script" uid="uid://b2gfgs7ytoexe" path="res://Enemies/EnemyAircraftSpawner.gd" id="70_enemyair"]
 [ext_resource type="PackedScene" uid="uid://db4ow6u1r6kce" path="res://Environment/LowPolyTerrainPrototype.tscn" id="71_lowpoly"]
 [ext_resource type="PackedScene" path="res://Environment/RockStream.tscn" id="72_rockstream"]
+[ext_resource type="PackedScene" path="res://Environment/Plants/PlantPatchStreamer.tscn" id="73_plantpatch"]
 [ext_resource type="Script" uid="uid://cnyht8dc3kewe" path="res://Environment/DayNightCycle.gd" id="80_daynightcycle"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_ryrq1"]
@@ -72,10 +73,12 @@ base_height_offset_m = 220.0
 canyon_wall_color = Color(0.667926, 0.427286, 0.274156, 1)
 canyon_upper_color = Color(0.744223, 0.61311, 0.439865, 1)
 steep_slope_color = Color(0.338234, 0.326747, 0.303773, 1)
-load_radius_chunks = 8
+load_radius_chunks = 4
 unload_margin_chunks = 2
 stream_update_interval_s = 0.5
-stream_preload_ahead_m = 2200.0
+stream_preload_ahead_m = 1200.0
+
+[node name="PlantPatchStreamer" parent="." instance=ExtResource("73_plantpatch")]
 
 [node name="FuelArea" type="Area3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -217.504)
