@@ -191,9 +191,11 @@ func _physics_process(delta: float) -> void:
 	if forward_speed < effective_stall_speed and speed > 5.0:
 		speed_stall_severity = 1.0 - (forward_speed / effective_stall_speed)
 	var stall_severity: float = maxf(speed_stall_severity, aoa_stall_severity)
-	current_stall_severity = stall_severity
+	var airborne_for_stall_effects: bool = _is_airborne_for_stall_effects()
+	var feedback_stall_severity: float = stall_severity if airborne_for_stall_effects else 0.0
+	current_stall_severity = feedback_stall_severity
 
-	if aoa_stall_severity > 0.0 and speed > 5.0:
+	if airborne_for_stall_effects and aoa_stall_severity > 0.0 and speed > 5.0:
 		var high_aoa_drag_force: Vector3 = -v_dir * aoa_stall_drag_strength * aoa_stall_severity * speed * speed
 		rb.apply_central_force(high_aoa_drag_force)
 		total_drag_force += high_aoa_drag_force
@@ -214,23 +216,24 @@ func _physics_process(delta: float) -> void:
 	rb.apply_central_force(lift_force)
 
 	# Apply nose-down force when stalled
-	if stall_severity > 0.1 and speed > 5.0:  # Only when flying and stalled
+	if airborne_for_stall_effects and stall_severity > 0.1 and speed > 5.0:
 		var nose_position = fwd * 2.0  # 2 meters forward of center (adjust to your aircraft)
 		var nose_down_force = Vector3.DOWN * stall_nose_drop_force * stall_severity * rb.mass
 		rb.apply_force(nose_down_force, nose_position)
 		
 	# Add stall shake
-	if stall_severity > 0.1:  # Start shake at 10% stall
+	if airborne_for_stall_effects and stall_severity > 0.1:
 		var shake_intensity = stall_shake_intensity * stall_severity
 		rb.add_shake(shake_intensity)
 
 	_update_airflow_feedback(
 		delta,
 		alpha_deg,
-		stall_severity,
+		feedback_stall_severity,
 		forward_speed,
 		lateral_speed,
-		effective_stall_speed
+		effective_stall_speed,
+		airborne_for_stall_effects
 	)
 	
 	# --- Control effectiveness based on airspeed ---
@@ -723,13 +726,15 @@ func _update_airflow_feedback(
 		stall_severity: float,
 		forward_speed: float,
 		lateral_speed: float,
-		effective_stall_speed: float
+		effective_stall_speed: float,
+		airborne_for_stall_effects: bool
 ) -> void:
 	if _airflow_feedback == null:
 		return
 	var active := true
 	if airflow_feedback_only_player:
 		active = _should_write_aero_report()
+	active = active and airborne_for_stall_effects
 	_airflow_feedback.update_airflow_feedback(
 		delta,
 		active,
@@ -951,6 +956,23 @@ func _get_ground_rudder_assist_strength(forward_speed: float) -> float:
 	)
 	var grounded_factor: float = clampf(float(grounded_wheels - 1) / 2.0, 0.0, 1.0)
 	return speed_factor * grounded_factor
+
+func _is_airborne_for_stall_effects() -> bool:
+	if rb == null:
+		return false
+	if _has_grounded_gear():
+		return false
+	if rb.has_meta("parking_brake") and bool(rb.get_meta("parking_brake")):
+		return false
+	if rb.has_meta("carrier_transport_mode") and bool(rb.get_meta("carrier_transport_mode")):
+		return false
+	if rb.has_meta("controls_disabled") and bool(rb.get_meta("controls_disabled")):
+		return false
+	if rb.has_meta("arresting_engaged") and bool(rb.get_meta("arresting_engaged")):
+		return false
+	if rb.has_meta("helicopter_deck_takeoff_ready") and bool(rb.get_meta("helicopter_deck_takeoff_ready")):
+		return false
+	return true
 
 func _has_grounded_gear() -> bool:
 	if not _is_gear_deployed() or _landing_gear_node == null:
