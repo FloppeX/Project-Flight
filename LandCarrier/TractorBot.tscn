@@ -9,7 +9,7 @@ size = Vector3(0.10498, 1, 2.5)
 
 [node name="TractorBot" type="Node3D"]
 script = ExtResource("1")
-tow_speed_mps = 2.0
+tow_speed_mps = 1.6
 arm_node_path = NodePath("")
 arm_length_m = 2.0
 

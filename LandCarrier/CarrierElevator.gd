@@ -13,8 +13,8 @@ signal covers_opened
 @export var cover_size: Vector3 = Vector3(20, 0.2, 10)
 @export var shaft_depth: float = 10.0
 @export var start_at_bottom: bool = true
-@export var move_speed: float = 2.0
-@export var cover_slide_speed: float = 3.0
+@export var move_speed: float = 1.5
+@export var cover_slide_speed: float = 2.25
 @export var moving_sound: AudioStream = preload("res://Audio/Carrier/elevator_moving_mono.wav")
 @export var moving_sound_bus: String = "Master"
 @export var moving_sound_min_volume_db: float = -20.0

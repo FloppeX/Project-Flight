@@ -21,16 +21,12 @@
 [ext_resource type="PackedScene" uid="uid://ct4jod4xjuu2p" path="res://Aircraft/Aircraft_9.tscn" id="18_aircraft_9"]
 [ext_resource type="Script" uid="uid://cld3amq1vrrs3" path="res://LandCarrier/CarrierManager.gd" id="18_carrier_manager"]
 [ext_resource type="PackedScene" uid="uid://iajmne1rqhv0" path="res://Aircraft/Aircraft_10.tscn" id="19_aircraft_10"]
+[ext_resource type="PackedScene" uid="uid://bg86eyrsmule2" path="res://Models/LandCarrier/Catapult/catapult shuttle.glb" id="20_catapult_shuttle"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_main_carrier"]
 size = Vector3(2.51178, 4.34025, 4.92171)
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_dnvtn"]
-
-[sub_resource type="BoxMesh" id="BoxMesh_q2nwn"]
-
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_yy1ll"]
-albedo_color = Color(1, 0.566667, 0, 1)
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_bridge_floor"]
 size = Vector3(11.209, 1, 12.3867)
@@ -124,9 +120,8 @@ transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, 0, 
 transform = Transform3D(1, 0, 0, 0, 0.5, 0, 0, 0, 0.5, 0, 0.25, 0.710272)
 shape = SubResource("BoxShape3D_dnvtn")
 
-[node name="gear_connector_mesh" type="MeshInstance3D" parent="Shuttle" unique_id=1545389477]
-mesh = SubResource("BoxMesh_q2nwn")
-surface_material_override/0 = SubResource("StandardMaterial3D_yy1ll")
+[node name="ShuttleModel" parent="Shuttle" unique_id=1545389477 instance=ExtResource("20_catapult_shuttle")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.35, 0)
 
 [node name="Catapult" type="Node3D" parent="." unique_id=1009800316 node_paths=PackedStringArray("shuttle", "shuttle_area", "latch_marker", "release_marker", "deck_ref")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 63.9417)
@@ -140,6 +135,9 @@ deck_ref = NodePath("../FlightDeckManager/plane_start_marker")
 shuttle_speed = 40.0
 approach_speed_mps = 30.0
 return_speed_mps = 45.0
+engine_start_wait_s = 0.75
+spool_duration_s = 2.0
+hold_duration_s = 2.5
 
 [node name="catapult_release_marker" type="Marker3D" parent="Catapult" unique_id=2131180593]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4.20515e-06, 0, 9.15757)
@@ -154,8 +152,8 @@ sphere_radius = 0.5
 sphere_color = Color(1, 0, 0, 0.5)
 
 [node name="Elevator" parent="." unique_id=1634191661 instance=ExtResource("8_elevator")]
-move_speed = 4.0
-cover_slide_speed = 6.0
+move_speed = 3.0
+cover_slide_speed = 4.5
 
 [node name="CollisionSetup" type="Node3D" parent="." unique_id=449688237]
 script = ExtResource("9_collision")

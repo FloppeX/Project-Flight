@@ -690,7 +690,7 @@ func _recompute_contact_path(target_world_pos: Vector3) -> void:
 		_on_contact_path_computed.call_deferred(candidate_path, target_pos, start_world, goal_world, false)
 	)
 
-func _on_contact_path_computed(candidate_path: Array[Vector3], target_at_request_time: Vector3, start_world: Vector3, goal_world: Vector3, reached_direct: bool) -> void:
+func _on_contact_path_computed(candidate_path: Array, target_at_request_time: Vector3, start_world: Vector3, goal_world: Vector3, reached_direct: bool) -> void:
 	_is_contact_pathfinding = false
 	if not is_instance_valid(self):
 		return
@@ -714,7 +714,10 @@ func _on_contact_path_computed(candidate_path: Array[Vector3], target_at_request
 	if candidate_path.is_empty():
 		return
 
-	_contact_path_positions = candidate_path
+	_contact_path_positions.clear()
+	for point in candidate_path:
+		if point is Vector3:
+			_contact_path_positions.append(point as Vector3)
 	_contact_path_index = 0
 	_consume_reached_contact_waypoints()
 
@@ -858,7 +861,7 @@ func _recompute_route_preview(start_world_pos: Vector3, target_world_pos: Vector
 		_on_route_preview_computed.call_deferred(preview_pts, start_pos, target_pos, start_world, goal_world, 0)
 	)
 
-func _on_route_preview_computed(preview_pts: Array[Vector3], start_at_request: Vector3, target_at_request: Vector3, start_world: Vector3, goal_world: Vector3, status_code: int) -> void:
+func _on_route_preview_computed(preview_pts: Array, start_at_request: Vector3, target_at_request: Vector3, start_world: Vector3, goal_world: Vector3, status_code: int) -> void:
 	_is_route_preview_pathfinding = false
 	if not is_instance_valid(self):
 		return
@@ -885,7 +888,12 @@ func _on_route_preview_computed(preview_pts: Array[Vector3], start_at_request: V
 		return
 
 	_route_preview_origin = start_world
-	_route_preview_positions = preview_pts
+	_route_preview_positions.clear()
+	for point in preview_pts:
+		if point is Vector3:
+			_route_preview_positions.append(point as Vector3)
+	if _route_preview_positions.is_empty():
+		_route_preview_positions = [goal_world]
 
 func _consume_reached_contact_waypoints() -> void:
 	var reach_distance: float = maxf(contact_waypoint_reach_distance_m, 2.0)

@@ -2,7 +2,7 @@ extends Node
 class_name CockpitCanopyVisibility
 
 @export var cockpit_camera_path: NodePath = NodePath("../CameraCockpit/Camera3D")
-@export var canopy_node_paths: Array[NodePath] = [NodePath("../Aircraft 2 body/canopy")]
+@export var canopy_node_paths: Array[NodePath] = []
 @export var canopy_surface_mesh_paths: Array[NodePath] = []
 @export var canopy_surface_indices: PackedInt32Array = PackedInt32Array()
 @export var material_scan_root_paths: Array[NodePath] = []

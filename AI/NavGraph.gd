@@ -63,6 +63,11 @@ func rebuild_from_current_navgrid() -> void:
 	elif not TerrainNavGrid.bake_complete.is_connected(_init_graph):
 		TerrainNavGrid.bake_complete.connect(_init_graph, CONNECT_ONE_SHOT)
 
+func reset_until_navgrid_bakes() -> void:
+	_reset_graph()
+	if not TerrainNavGrid.bake_complete.is_connected(_init_graph):
+		TerrainNavGrid.bake_complete.connect(_init_graph, CONNECT_ONE_SHOT)
+
 # ── Public API ──────────────────────────────────────────────────────────────
 
 ## Synchronous path find. Returns [] if no path exists.

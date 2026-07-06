@@ -887,6 +887,8 @@ func _auto_assign_unassigned() -> void:
 		for node in get_tree().get_nodes_in_group(group):
 			if not (node is Node3D) or not is_instance_valid(node):
 				continue
+			if not _is_aircraft_candidate_for_flight(node):
+				continue
 			if not node.has_method("get_team") or int(node.get_team()) != 1:
 				continue
 			if get_flight_of(node) != null:
@@ -904,6 +906,16 @@ func _auto_assign_unassigned() -> void:
 		var f := flights[_next_flight_idx % flights.size()]
 		f.register(aircraft)
 		_next_flight_idx += 1
+
+func _is_aircraft_candidate_for_flight(node: Node) -> bool:
+	if node == null or not is_instance_valid(node):
+		return false
+	if node.is_in_group("ground_vehicles"):
+		return false
+	if node.is_in_group("aircraft") or node.is_in_group("ai_aircraft"):
+		return true
+	return node.find_child("AIPilot", true, false) != null \
+		or node.find_child("HelicopterPilot", true, false) != null
 
 func _get_enemy_ground_targets() -> Array:
 	var result: Array = []

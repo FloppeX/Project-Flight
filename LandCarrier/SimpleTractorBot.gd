@@ -10,8 +10,8 @@ const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
 @export var target_wheel_node: Node3D
 @export var wheel_position_offset: Vector3 = Vector3.ZERO  # Offset from aircraft center to wheel
 @export var follow_height: float = 0.0  # Keep tractorbot centered on deck height (Y offset from deck)
-@export var move_speed: float = 15.0  # Speed to follow aircraft
-@export var positioning_speed: float = 6.0  # Speed when initially positioning at gear
+@export var move_speed: float = 11.0  # Speed to follow aircraft
+@export var positioning_speed: float = 4.5  # Speed when initially positioning at gear
 @export var rotation_speed: float = 360.0  # Degrees per second to rotate
 @export var separation_radius: float = 1.2  # Keep this much space from sibling tractor bots
 @export var blocked_grace_s: float = 0.35

@@ -15,7 +15,7 @@ compatibility/default_parent_skeleton_in_mesh_instance_3d=true
 [application]
 
 config/name="Land Carrier"
-run/main_scene="res://Main_Scene.tscn"
+run/main_scene="res://UI/MainMenu.tscn"
 config/features=PackedStringArray("4.6")
 boot_splash/image="res://Images/Splash/splash screen 8.png"
 config/icon="res://Images/icon.png"
@@ -31,6 +31,7 @@ ControllerDebug="*res://tools/ControllerDebug.gd"
 TerrainNavGrid="*res://Environment/TerrainNavGrid.gd"
 TerrainReference="*res://Environment/TerrainReference.gd"
 VelocityFrame="*res://Environment/VelocityFrame.gd"
+GameSession="*res://GameSession.gd"
 LoadingScreen="*res://UI/LoadingScreen.gd"
 PauseMenu="*res://UI/PauseMenu.gd"
 WorldMapOverlay="*res://UI/WorldMapOverlay.gd"
@@ -54,9 +55,11 @@ POIManager="*res://POI/POIManager.gd"
 
 [display]
 
-window/size/mode=3
-window/stretch/mode="2d"
-window/stretch/aspect="keep_height"
+window/size/viewport_width=1920
+window/size/viewport_height=1080
+window/size/mode=4
+window/stretch/mode="viewport"
+window/stretch/aspect="keep"
 window/vsync/vsync_mode=0
 
 [editor_plugins]
@@ -285,6 +288,6 @@ gi/use_sdfgi=false
 volumetric_fog/enabled=false
 lights_and_shadows/directional_shadow/max_distance=800.0
 lights_and_shadows/shadow_atlas/size=8192
-quality/3d/render_scale=0.5
+quality/3d/render_scale=1.0
 lights_and_shadows/directional_shadow/stabilize=true
 lights_and_shadows/directional_shadow/blend_splits=true

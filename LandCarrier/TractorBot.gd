@@ -8,8 +8,8 @@ class_name TractorBot
 
 @export var staging_marker: Node3D
 @export var approach_distance_m: float = 1.5
-@export var cruise_speed_mps: float = 7.0
-@export var tow_speed_mps: float = 3.5
+@export var cruise_speed_mps: float = 5.5
+@export var tow_speed_mps: float = 2.75
 @export var accel_mps2: float = 10.0
 @export var turn_speed_deg_s: float = 200.0
 @export var turn_in_place_deg: float = 25.0

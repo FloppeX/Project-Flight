@@ -115,6 +115,7 @@ var _last_head_hidden: bool = false
 var _pose_tween: Tween = null
 var _anim_player: AnimationPlayer = null
 var _mixamo_anim_active: bool = false
+var _baked_sitting_pose_active: bool = false
 var _pose_target_root: Node = null
 var _locomotion_active: bool = false
 var _locomotion_speed_mps: float = 0.0
@@ -182,13 +183,14 @@ func _ready() -> void:
 		if not Engine.is_editor_hint() and not _is_rigify_rig() and not _is_pilot2_rig():
 			var bone0 := _skeleton.get_bone_name(0) if _skeleton.get_bone_count() > 0 else "none"
 			print("PilotPose: unrecognised rig. bone[0]='%s', total bones=%d" % [bone0, _skeleton.get_bone_count()])
-		_disable_animation_players(_pose_target_root)
+		if not _try_apply_baked_sitting_pose():
+			_disable_animation_players(_pose_target_root)
 
 	_build_foot_links()
 	_ready_done = true
 	process_priority = 1
 
-	if not _mixamo_anim_active:
+	if not _mixamo_anim_active and not _baked_sitting_pose_active:
 		if initial_pose_name != &"":
 			var values := _get_pose_values(initial_pose_name)
 			if not values.is_empty():
@@ -258,10 +260,40 @@ func _find_first_animation_player(node: Node) -> AnimationPlayer:
 	return null
 
 
+func _try_apply_baked_sitting_pose() -> bool:
+	if Engine.is_editor_hint() or initial_pose_name != &"sitting" or not _is_rigify_rig():
+		return false
+	_anim_player = _find_first_animation_player(_pose_target_root)
+	if _anim_player == null:
+		return false
+
+	var pose_anim := _resolve_mixamo_anim(&"rigAction")
+	if pose_anim == &"":
+		var all_anims: PackedStringArray = []
+		for lib in _anim_player.get_animation_library_list():
+			for anim in _anim_player.get_animation_library(lib).get_animation_list():
+				all_anims.append((lib + "/" + anim) if lib != "" else anim)
+		if all_anims.size() == 1:
+			pose_anim = StringName(all_anims[0])
+	if pose_anim == &"":
+		return false
+
+	_anim_player.active = true
+	_anim_player.play(pose_anim)
+	_anim_player.advance(0.0)
+	_anim_player.stop(true)
+	_anim_player.active = false
+	_baked_sitting_pose_active = true
+	return true
+
+
 func _process(_delta: float) -> void:
 	if Engine.is_editor_hint():
 		return
 	if _mixamo_anim_active:
+		_update_head_visibility(false)
+		return
+	if _baked_sitting_pose_active:
 		_update_head_visibility(false)
 		return
 	if _locomotion_active:
@@ -361,6 +393,7 @@ func _apply_locomotion_pose(delta: float) -> void:
 
 
 func set_ejection_pose(pose_name: StringName, blend_time_s: float = -1.0) -> void:
+	_baked_sitting_pose_active = false
 	set_locomotion_pose(false)
 	if _mixamo_anim_active:
 		_mixamo_anim_active = false
@@ -374,6 +407,8 @@ func set_ejection_pose(pose_name: StringName, blend_time_s: float = -1.0) -> voi
 
 
 func set_locomotion_pose(active: bool, speed_mps: float = 0.0) -> void:
+	if active:
+		_baked_sitting_pose_active = false
 	_locomotion_active = active
 	_locomotion_speed_mps = maxf(speed_mps, 0.0)
 	if _mixamo_anim_active:
@@ -390,9 +425,9 @@ func _get_pose_values(pose_name: StringName) -> Dictionary:
 	match pose_name:
 		&"sitting":
 			if _is_rigify_rig():
-				# Rigify rest = UP for limbs. Sitting: legs horizontal (+90 hip flexion from UP).
-				# Spine leans back -25deg total; neck compensates to keep head level.
-				return _make_pose(100.0, 0.0, 5.0, -20.0, -5.0, 0.0, 0.0, 0.0, 150.0, 0.0, 0.0, 65.0, 0.0, 0.0, 0.0, 0.0, 20.0, 0.0, 0.0)
+				# The cockpit Rigify asset stores its seated pose in a one-frame baked animation.
+				# Leave procedural offsets neutral after that pose is sampled.
+				return _make_pose(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
 			return _make_pose(0.0, 0.0, 0.0, 3.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 65.0, 0.0, 0.0, 2.0, 0.0, 20.0, 0.0, 0.0)
 		&"seat_firing":
 			return _make_pose(70.0, 72.0, 4.0, -6.0, -10.0, -8.0, 8.0, 4.0, -12.0, 18.0, -10.0, 92.0, 8.0, -6.0, 0.0, 0.0, 55.0, -3.0, -7.0)
