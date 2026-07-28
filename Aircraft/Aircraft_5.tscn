@@ -97,14 +97,17 @@ rb_path = NodePath("..")
 pitch_power = 7.5
 roll_power = 13.0
 yaw_power = 2.0
-min_control_speed = 85.0
+min_control_speed = 60.0
 stability_strength = 2.8
 pitch_stability_factor = 0.8
 stability_torque_scale = 2.1
 pitch_stability_rate_damping = 2.4
 stability_start_speed_mps = 4.0
 stability_full_speed_mps = 18.0
+stall_speed = 42.0
 auto_rudder_strength = 0.15
+flaps_drag_multiplier = 3.55
+flaps_lift_bonus = 0.13
 
 [node name="MovingParts" type="Node3D" parent="." unique_id=760134183]
 

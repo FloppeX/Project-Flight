@@ -238,22 +238,7 @@ var _k_was_pressed := false
 var _j_was_pressed := false
 
 func _process(_delta: float) -> void:
-	var c_now := Input.is_key_pressed(KEY_C)
-	var v_now := Input.is_key_pressed(KEY_V)
-	var k_now := Input.is_key_pressed(KEY_K)
-	var j_now := Input.is_key_pressed(KEY_J)
-	if c_now and not _c_was_pressed:
-		cycle_upper_color()
-	if v_now and not _v_was_pressed:
-		cycle_insignia()
-	if k_now and not _k_was_pressed:
-		cycle_aircraft_upper_pattern()
-	if j_now and not _j_was_pressed:
-		cycle_secondary_color()
-	_c_was_pressed = c_now
-	_v_was_pressed = v_now
-	_k_was_pressed = k_now
-	_j_was_pressed = j_now
+	pass
 
 func _find_insignia_paths() -> Array[String]:
 	var paths: Array[String] = []

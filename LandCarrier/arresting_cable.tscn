@@ -1,11 +1,11 @@
-[gd_scene load_steps=3 format=3 uid="uid://c31lkp3a7sq3a"]
+[gd_scene format=3 uid="uid://c31lkp3a7sq3a"]
 
 [ext_resource type="Script" uid="uid://c8mht6ujj024x" path="res://LandCarrier/ArrestingCable.gd" id="1_1e4gy"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_eyg35"]
 size = Vector3(1, 1, 1.02039)
 
-[node name="Arresting Cable 1" type="Node3D"]
+[node name="Arresting Cable 1" type="Node3D" unique_id=2033494264]
 script = ExtResource("1_1e4gy")
 cable_area_path = NodePath("cable_area")
 left_anchor_path = NodePath("left_cable_anchor")
@@ -13,34 +13,21 @@ right_anchor_path = NodePath("right_cable_anchor")
 max_tension = 850000.0
 linear_k = 1000.0
 linear_c = 3000.0
-lateral_k = 1500.0
-lateral_c = 5000.0
-braking_spring_stiffness_n_per_m = 1000.0
 braking_damping_n_s_per_m = 3000.0
-lateral_centering_stiffness_n_per_m = 1500.0
-lateral_damping_n_s_per_m = 5000.0
-mass_adaptive_quadratic_damping_factor = 0.008
-max_pay_out = 16.0
-braking_planned_stop_enabled = true
-braking_min_remaining_distance_m = 2.0
-hard_stop_stiffness_n_per_m = 8000.0
-hard_stop_position_slack_m = 2.0
-auto_release_speed = 2.0
-force_smoothing = 0.03
 roll_stabilize_gain = 2.0
 roll_level_gain = 10.0
 engaged_downforce_g = 2.0
 
-[node name="cable_area" type="Area3D" parent="."]
-transform = Transform3D(4982.27, 0, 0, 0, 55.0841, 0, 0, 0, 71.7317, 0, 0, -1.58627)
+[node name="cable_area" type="Area3D" parent="." unique_id=1321572212]
+transform = Transform3D(4982.27, 0, 0, 0, 100, 0, 0, 0, 120, 0, 0.2, -1.58627)
 collision_layer = 17
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="cable_area"]
+[node name="CollisionShape3D" type="CollisionShape3D" parent="cable_area" unique_id=511986245]
 transform = Transform3D(0.01, 0, 0, 0, 0.01, 0, 0, 0, 0.01, 0, 0, 0.0101929)
 shape = SubResource("BoxShape3D_eyg35")
 
-[node name="left_cable_anchor" type="Node3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -24.8, 0.2, 0)
+[node name="left_cable_anchor" type="Node3D" parent="." unique_id=2036417851]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -20, 0.2, 0)
 
-[node name="right_cable_anchor" type="Node3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 24.8, 0.2, 0)
+[node name="right_cable_anchor" type="Node3D" parent="." unique_id=20979700]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 20, 0.2, 0)

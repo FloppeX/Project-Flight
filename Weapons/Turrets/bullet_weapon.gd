@@ -208,10 +208,10 @@ func _spawn_bullet(spawn_transform: Transform3D, firing_entity: Node3D) -> void:
 		return
 
 	bullet.transform = spawn_transform
+	_configure_projectile_instance(bullet)
 	root.add_child(bullet)
 	last_fired_projectile = bullet
 	bullet.global_position += bullet.global_transform.basis.z * 2.5
-	_configure_projectile_instance(bullet)
 
 	# Propagate optional debug metadata from turret controller before bullet.fire()
 	# runs, so projectile-side debug setup can pick up the assigned target/callback.

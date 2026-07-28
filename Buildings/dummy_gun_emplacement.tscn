@@ -10,7 +10,6 @@ size = Vector3(9.62045, 1.98645, 9.7411)
 
 [node name="DummyGunEmplacement" type="StaticBody3D"]
 script = ExtResource("1_emplacement")
-max_health = 1500.0
 is_dummy = true
 
 [node name="BaseModel" parent="." instance=ExtResource("2_base_model")]

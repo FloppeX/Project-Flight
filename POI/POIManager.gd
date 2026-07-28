@@ -219,6 +219,7 @@ func _on_card_confirmed(_choice_idx: int) -> void:
 	get_tree().paused = false
 
 func _input(event: InputEvent) -> void:
+	return
 	if event is InputEventKey and (event as InputEventKey).pressed \
 			and not (event as InputEventKey).echo \
 			and (event as InputEventKey).physical_keycode == KEY_P:

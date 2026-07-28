@@ -95,7 +95,7 @@ rb_path = NodePath("..")
 pitch_power = 8.8
 roll_power = 17.0
 yaw_power = 2.4
-min_control_speed = 88.0
+min_control_speed = 68.0
 alignment_strength = 2.2
 drag_base_multiplier = 0.74
 stability_strength = 1.45
@@ -106,7 +106,7 @@ roll_stability_rate_damping = 2.2
 pitch_stability_rate_damping = 1.6
 stability_start_speed_mps = 10.0
 stability_full_speed_mps = 34.0
-stall_speed = 44.0
+stall_speed = 48.0
 auto_rudder_strength = 0.22
 aligned_level_speed_mps = 68.0
 forward_drag_strength = 0.18
@@ -150,7 +150,7 @@ transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 1.4083
 
 [node name="Engine" parent="." unique_id=1197450454 instance=ExtResource("10_jemhm")]
 transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, 0, 0)
-PowerFactor = 12800.0
+PowerFactor = 15000.0
 propeller_node = NodePath("../aircraft_7/Aircraft 2 propeller")
 EngineSoundLoop = ExtResource("11_btnkm")
 EngineSoundStart = ExtResource("12_sqfht")

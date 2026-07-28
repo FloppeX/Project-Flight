@@ -149,20 +149,27 @@ func create_single_fire_debris(index: int):
 	# Animate the debris movement - slower and longer
 	var debris_tween = create_tween()
 	debris_tween.tween_property(debris_container, "position", target_position, 4.0)  # Slower movement
-	debris_tween.tween_callback(func(): 
-		if debug_enabled:
-			print("Debris piece finished flying: ", debris_container.name)
-		debris_container.queue_free()
+	var debris_ref: WeakRef = weakref(debris_container)
+	var debris_name: String = debris_container.name
+	var debug_was_enabled: bool = debug_enabled
+	debris_tween.tween_callback(func() -> void:
+		var debris_obj: Object = debris_ref.get_ref()
+		if debug_was_enabled:
+			print("Debris piece finished flying: ", debris_name)
+		if debris_obj is Node and is_instance_valid(debris_obj):
+			(debris_obj as Node).queue_free()
 	)
 
 func _start_smoke_puffs() -> void:
 	var puff_count := 20
 	var captured_pos := global_position
+	var explosion_ref: WeakRef = weakref(self)
 	for i in range(puff_count):
 		var progress := float(i) / float(puff_count - 1)
 		get_tree().create_timer(i * 0.18).timeout.connect(func():
-			if is_instance_valid(self):
-				_spawn_smoke_puff(progress, captured_pos)
+			var explosion_obj: Object = explosion_ref.get_ref()
+			if explosion_obj is Explosion and is_instance_valid(explosion_obj):
+				(explosion_obj as Explosion)._spawn_smoke_puff(progress, captured_pos)
 		)
 
 func _spawn_smoke_puff(progress: float, origin: Vector3) -> void:

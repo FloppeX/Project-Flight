@@ -167,6 +167,7 @@ func get_ai_darkness_factor() -> float:
 	return _ai_darkness_factor
 
 func _unhandled_input(event: InputEvent) -> void:
+	return
 	if event is InputEventKey and (event as InputEventKey).pressed \
 			and not (event as InputEventKey).echo \
 			and (event as InputEventKey).keycode == KEY_N:

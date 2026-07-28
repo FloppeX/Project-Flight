@@ -3,8 +3,8 @@ class_name WindTurbineProxy
 
 @export var turbine_scene: PackedScene
 @export var team: int = 2
-@export var activation_distance_m: float = 3000.0
-@export var deactivation_distance_m: float = 4000.0
+@export var activation_distance_m: float = 1200.0
+@export var deactivation_distance_m: float = 1800.0
 @export var check_interval_s: float = 1.5
 
 var _check_timer_s: float = 0.0
@@ -14,6 +14,7 @@ var _saved_health: float = -1.0
 
 
 func _ready() -> void:
+	add_to_group("wind_turbine_proxies")
 	_set_marker_groups_enabled(true)
 	_check_timer_s = randf_range(0.0, maxf(check_interval_s, 0.25))
 
@@ -78,6 +79,10 @@ func _deactivate() -> void:
 
 func get_team() -> int:
 	return team
+
+
+func is_activated() -> bool:
+	return _activated
 
 
 func _nearest_player_distance() -> float:

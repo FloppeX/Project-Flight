@@ -483,6 +483,17 @@ enum MissionPhase {
 @export var control_update_precision_hz: float = 30.0
 @export var control_update_attack_hz: float = 30.0
 @export var control_update_emergency_hz: float = 60.0
+
+@export_group("Performance Budget")
+@export var budget_noncritical_updates: bool = true
+@export var rotor_wash_update_interval_s: float = 0.25
+@export var carrier_floor_check_interval_s: float = 0.25
+@export var path_job_poll_interval_s: float = 0.10
+@export var combat_shot_report_update_interval_s: float = 0.20
+@export var recorder_fault_check_interval_s: float = 0.25
+@export var transit_speed_limit_update_interval_s: float = 0.10
+
+@export_group("Controls")
 @export var transit_max_nose_up: float = 0.05
 @export var cyclic_speed_gain: float = 0.026
 @export var cyclic_speed_d_gain: float = 0.010
@@ -885,6 +896,14 @@ var _yaw_cmd: float = 0.0
 var _control_update_accumulator_s: float = 0.0
 var _control_update_last_state: int = -1
 var _control_cached_collective_target: float = 0.0
+var _rotor_wash_update_timer_s: float = 0.0
+var _rotor_wash_cached_ground_h: float = NAN
+var _carrier_floor_check_timer_s: float = 0.0
+var _path_job_poll_timer_s: float = 0.0
+var _combat_shot_report_timer_s: float = 0.0
+var _recorder_fault_timer_s: float = 0.0
+var _transit_speed_limit_timer_s: float = 0.0
+var _transit_speed_limit_cached_mps: float = NAN
 var _replan_timer_s: float = 0.0
 var _debug_timer_s: float = 0.0
 var _idle_dwell_timer_s: float = 0.0
@@ -1269,6 +1288,14 @@ func deinitialize() -> void:
 	_control_update_accumulator_s = 0.0
 	_control_update_last_state = -1
 	_control_cached_collective_target = 0.0
+	_rotor_wash_update_timer_s = 0.0
+	_rotor_wash_cached_ground_h = NAN
+	_carrier_floor_check_timer_s = 0.0
+	_path_job_poll_timer_s = 0.0
+	_combat_shot_report_timer_s = 0.0
+	_recorder_fault_timer_s = 0.0
+	_transit_speed_limit_timer_s = 0.0
+	_transit_speed_limit_cached_mps = NAN
 	_landing_on_carrier = false
 	_carrier_landing_clearance_wait_logged = false
 	_carrier_approach_clearance_request_s = 0.0
@@ -1520,7 +1547,7 @@ func _physics_process(delta: float) -> void:
 		set_physics_process(false)
 		return
 	var _profiler_start: int = FrameProfiler.begin("HelicopterPilot.physics")
-	_update_combat_shot_reports()
+	_update_combat_shot_reports_budgeted(delta)
 	if aircraft.get_meta("controls_disabled", false):
 		FrameProfiler.end("HelicopterPilot.physics", _profiler_start)
 		return
@@ -1529,7 +1556,7 @@ func _physics_process(delta: float) -> void:
 	_path_turn_speed_log_s = maxf(_path_turn_speed_log_s - delta, 0.0)
 	_path_active_collapse_log_s = maxf(_path_active_collapse_log_s - delta, 0.0)
 	_update_path_fail_escape_timer(delta)
-	if _path_task_id != -1:
+	if _path_task_id != -1 and _should_poll_path_job(delta):
 		var _path_profiler_start: int = FrameProfiler.begin("HelicopterPilot.path_job")
 		if WorkerThreadPool.is_task_completed(_path_task_id):
 			WorkerThreadPool.wait_for_task_completion(_path_task_id)
@@ -1575,27 +1602,16 @@ func _physics_process(delta: float) -> void:
 
 	# Hard altitude floor near the carrier. If within 400 m and not actively
 	# landing or taking off, force desired altitude to at least carrier + 70 m.
-	if state == State.LOW_LEVEL_TRANSIT or state == State.HOVER:
-		var _carrier_floor := get_tree().get_first_node_in_group("carrier") as Node3D
-		if _carrier_floor != null and _flat_distance(aircraft.global_position, _carrier_floor.global_position) < 400.0:
-			var _floor_y := _get_carrier_deck_y(_carrier_floor) + 70.0
-			if aircraft.global_position.y < _floor_y:
-				_desired_altitude_m = maxf(_desired_altitude_m, _floor_y)
-				_transit_cruise_altitude_m = maxf(_transit_cruise_altitude_m if not is_nan(_transit_cruise_altitude_m) else 0.0, _floor_y)
+	_update_carrier_altitude_floor_budgeted(delta)
 
 	_replan_timer_s -= delta
 	if _replan_timer_s <= 0.0:
 		_replan_timer_s = maxf(replan_interval_s, 0.05)
+		var _nav_profiler_start: int = FrameProfiler.begin("HelicopterPilot.navigation_plan")
 		_update_navigation_plan()
+		FrameProfiler.end("HelicopterPilot.navigation_plan", _nav_profiler_start)
 
-	if _rotor_wash_effect and is_instance_valid(_rotor_wash_effect):
-		var ground_h := _get_ground_height_at_position(aircraft.global_position)
-		var wash_rotor_power := _get_rotor_wash_power()
-		var control_target := _debug_float_property(control_engine, "target_power")
-		_rotor_wash_effect.current_agl = aircraft.global_position.y - ground_h if not is_nan(ground_h) else INF
-		_rotor_wash_effect.rotor_power = wash_rotor_power
-		_rotor_wash_effect.is_engine_on = wash_rotor_power > 0.03 or (not is_nan(control_target) and control_target > 0.03)
-		_rotor_wash_effect.rotor_radius = helicopter_flight.rotor_radius if "rotor_radius" in helicopter_flight else 10.0
+	_update_rotor_wash_budgeted(delta)
 
 	match state:
 		State.IDLE:
@@ -1638,6 +1654,7 @@ func _physics_process(delta: float) -> void:
 				_apply_collective(1.0)
 				_set_helicopter_input(0.0, 0.0, 0.0)
 				_update_lz_departure_debug(delta)
+				FrameProfiler.end("HelicopterPilot.physics", _profiler_start)
 				return
 			
 			if not _is_deck_takeoff_context() and is_instance_valid(aircraft) and aircraft.freeze:
@@ -1649,24 +1666,32 @@ func _physics_process(delta: float) -> void:
 				
 			if _should_hold_vertical_takeoff():
 				_nav_waypoint = Vector3(aircraft.global_position.x, _desired_altitude_m, aircraft.global_position.z)
+			var _fly_profiler_start: int = FrameProfiler.begin("HelicopterPilot.fly_toward")
 			_fly_toward(_nav_waypoint, _get_takeoff_speed_limit(), delta)
+			FrameProfiler.end("HelicopterPilot.fly_toward", _fly_profiler_start)
 			_update_lz_departure_debug(delta)
 			if _takeoff_is_clear():
 				change_state(State.LOW_LEVEL_TRANSIT)
 		State.LOW_LEVEL_TRANSIT:
 			var transit_speed := _get_path_fail_escape_speed(_get_current_leg_target_speed_mps(cruise_speed_mps))
-			transit_speed = _get_terrain_climb_speed_limit(transit_speed)
-			transit_speed = _get_path_turn_speed_limit(transit_speed)
+			transit_speed = _apply_transit_speed_limits_budgeted(transit_speed, delta)
+			var _combat_profiler_start: int = FrameProfiler.begin("HelicopterPilot.combat")
 			if _update_combat_attack(delta, transit_speed):
 				_emit_debug(delta)
-				_check_recorder_faults(delta)
+				_update_recorder_faults_budgeted(delta)
+				FrameProfiler.end("HelicopterPilot.combat", _combat_profiler_start)
 				FrameProfiler.end("HelicopterPilot.physics", _profiler_start)
 				return
+			FrameProfiler.end("HelicopterPilot.combat", _combat_profiler_start)
 			if mission_phase == MissionPhase.INBOUND and not _is_navigation_shuttle():
 				if _update_inbound_progress_watchdog(delta):
+					var _inbound_nav_profiler_start: int = FrameProfiler.begin("HelicopterPilot.navigation_plan")
 					_update_navigation_plan()
+					FrameProfiler.end("HelicopterPilot.navigation_plan", _inbound_nav_profiler_start)
 				transit_speed = minf(transit_speed, _get_carrier_approach_arrival_speed_limit(transit_speed))
+			var _transit_fly_profiler_start: int = FrameProfiler.begin("HelicopterPilot.fly_toward")
 			_fly_toward(_nav_waypoint, transit_speed, delta)
+			FrameProfiler.end("HelicopterPilot.fly_toward", _transit_fly_profiler_start)
 			if _combat_hunt_mode:
 				# Combat-test aircraft never transition into the terrain landing/LZ loop.
 				# When a patrol point or stale target is reached, immediately hunt again.
@@ -1690,20 +1715,146 @@ func _physics_process(delta: float) -> void:
 					_landing_on_carrier = false
 					change_state(State.LANDING)
 		State.HOVER:
+			var _hover_fly_profiler_start: int = FrameProfiler.begin("HelicopterPilot.fly_toward")
 			_fly_toward(destination if _has_destination else aircraft.global_position, hover_speed_mps, delta)
+			FrameProfiler.end("HelicopterPilot.fly_toward", _hover_fly_profiler_start)
 		State.LANDING:
 			if _landing_on_carrier:
+				var _carrier_approach_profiler_start: int = FrameProfiler.begin("HelicopterPilot.carrier_approach")
 				_run_scripted_carrier_approach(delta)
+				FrameProfiler.end("HelicopterPilot.carrier_approach", _carrier_approach_profiler_start)
 			else:
+				var _landing_nav_profiler_start: int = FrameProfiler.begin("HelicopterPilot.navigation_plan")
 				_update_navigation_plan()
+				FrameProfiler.end("HelicopterPilot.navigation_plan", _landing_nav_profiler_start)
 				var landing_fly_target := destination if _has_destination else aircraft.global_position
 				landing_fly_target = Vector3(landing_fly_target.x, _desired_altitude_m, landing_fly_target.z)
+				var _landing_fly_profiler_start: int = FrameProfiler.begin("HelicopterPilot.fly_toward")
 				_fly_toward(landing_fly_target, hover_speed_mps, delta)
+				FrameProfiler.end("HelicopterPilot.fly_toward", _landing_fly_profiler_start)
 			_try_finish_landing()
 
 	_emit_debug(delta)
-	_check_recorder_faults(delta)
+	_update_recorder_faults_budgeted(delta)
 	FrameProfiler.end("HelicopterPilot.physics", _profiler_start)
+
+
+func _budget_interval(interval_s: float, fallback_s: float) -> float:
+	return maxf(interval_s if interval_s > 0.0 else fallback_s, 0.02)
+
+
+func _should_poll_path_job(delta: float) -> bool:
+	if not budget_noncritical_updates:
+		return true
+	_path_job_poll_timer_s -= delta
+	if _path_job_poll_timer_s > 0.0:
+		return false
+	_path_job_poll_timer_s = _budget_interval(path_job_poll_interval_s, 0.10)
+	return true
+
+
+func _update_combat_shot_reports_budgeted(delta: float) -> void:
+	if _combat_pending_shot_reports.is_empty():
+		return
+	var _reports_profiler_start: int = FrameProfiler.begin("HelicopterPilot.combat_reports")
+	if not budget_noncritical_updates:
+		_update_combat_shot_reports()
+		FrameProfiler.end("HelicopterPilot.combat_reports", _reports_profiler_start)
+		return
+	_combat_shot_report_timer_s -= delta
+	if _combat_shot_report_timer_s <= 0.0:
+		_combat_shot_report_timer_s = _budget_interval(combat_shot_report_update_interval_s, 0.20)
+		_update_combat_shot_reports()
+	FrameProfiler.end("HelicopterPilot.combat_reports", _reports_profiler_start)
+
+
+func _update_carrier_altitude_floor_budgeted(delta: float) -> void:
+	if state != State.LOW_LEVEL_TRANSIT and state != State.HOVER:
+		return
+	if not budget_noncritical_updates:
+		_apply_carrier_altitude_floor()
+		return
+	_carrier_floor_check_timer_s -= delta
+	if _carrier_floor_check_timer_s > 0.0:
+		return
+	_carrier_floor_check_timer_s = _budget_interval(carrier_floor_check_interval_s, 0.25)
+	var _carrier_profiler_start: int = FrameProfiler.begin("HelicopterPilot.carrier_floor")
+	_apply_carrier_altitude_floor()
+	FrameProfiler.end("HelicopterPilot.carrier_floor", _carrier_profiler_start)
+
+
+func _apply_carrier_altitude_floor() -> void:
+	if not is_instance_valid(aircraft):
+		return
+	var carrier_node: Node = get_tree().get_first_node_in_group("carrier")
+	if not (carrier_node is Node3D):
+		return
+	var carrier_floor: Node3D = carrier_node as Node3D
+	if not is_instance_valid(carrier_floor):
+		return
+	if _flat_distance(aircraft.global_position, carrier_floor.global_position) >= 400.0:
+		return
+	var floor_y: float = _get_carrier_deck_y(carrier_floor) + 70.0
+	if aircraft.global_position.y < floor_y:
+		_desired_altitude_m = maxf(_desired_altitude_m, floor_y)
+		_transit_cruise_altitude_m = maxf(_transit_cruise_altitude_m if not is_nan(_transit_cruise_altitude_m) else 0.0, floor_y)
+
+
+func _update_rotor_wash_budgeted(delta: float) -> void:
+	if _rotor_wash_effect == null or not is_instance_valid(_rotor_wash_effect):
+		return
+	var _wash_profiler_start: int = FrameProfiler.begin("HelicopterPilot.rotor_wash")
+	if budget_noncritical_updates:
+		_rotor_wash_update_timer_s -= delta
+		if _rotor_wash_update_timer_s <= 0.0:
+			_rotor_wash_update_timer_s = _budget_interval(rotor_wash_update_interval_s, 0.25)
+			_rotor_wash_cached_ground_h = _get_ground_height_at_position(aircraft.global_position)
+	else:
+		_rotor_wash_cached_ground_h = _get_ground_height_at_position(aircraft.global_position)
+	var wash_rotor_power: float = _get_rotor_wash_power()
+	var control_target: float = _debug_float_property(control_engine, "target_power")
+	_rotor_wash_effect.current_agl = aircraft.global_position.y - _rotor_wash_cached_ground_h if not is_nan(_rotor_wash_cached_ground_h) else INF
+	_rotor_wash_effect.rotor_power = wash_rotor_power
+	_rotor_wash_effect.is_engine_on = wash_rotor_power > 0.03 or (not is_nan(control_target) and control_target > 0.03)
+	var rotor_radius: float = 10.0
+	if is_instance_valid(helicopter_flight) and "rotor_radius" in helicopter_flight:
+		var rotor_radius_value: Variant = helicopter_flight.get("rotor_radius")
+		if typeof(rotor_radius_value) == TYPE_FLOAT or typeof(rotor_radius_value) == TYPE_INT:
+			rotor_radius = float(rotor_radius_value)
+	_rotor_wash_effect.rotor_radius = rotor_radius
+	FrameProfiler.end("HelicopterPilot.rotor_wash", _wash_profiler_start)
+
+
+func _apply_transit_speed_limits_budgeted(desired_speed: float, delta: float) -> float:
+	if state != State.LOW_LEVEL_TRANSIT:
+		return desired_speed
+	if not budget_noncritical_updates:
+		var direct_speed: float = _get_terrain_climb_speed_limit(desired_speed)
+		return _get_path_turn_speed_limit(direct_speed)
+	_transit_speed_limit_timer_s -= delta
+	if _transit_speed_limit_timer_s <= 0.0 or is_nan(_transit_speed_limit_cached_mps):
+		_transit_speed_limit_timer_s = _budget_interval(transit_speed_limit_update_interval_s, 0.10)
+		var _speed_profiler_start: int = FrameProfiler.begin("HelicopterPilot.speed_limits")
+		var limited_speed: float = _get_terrain_climb_speed_limit(desired_speed)
+		limited_speed = _get_path_turn_speed_limit(limited_speed)
+		_transit_speed_limit_cached_mps = limited_speed
+		FrameProfiler.end("HelicopterPilot.speed_limits", _speed_profiler_start)
+	return minf(desired_speed, _transit_speed_limit_cached_mps)
+
+
+func _update_recorder_faults_budgeted(delta: float) -> void:
+	if not crash_log_enabled:
+		return
+	if not budget_noncritical_updates:
+		_check_recorder_faults(delta)
+		return
+	_recorder_fault_timer_s -= delta
+	if _recorder_fault_timer_s > 0.0:
+		return
+	_recorder_fault_timer_s = _budget_interval(recorder_fault_check_interval_s, 0.25)
+	var _recorder_profiler_start: int = FrameProfiler.begin("HelicopterPilot.recorder_faults")
+	_check_recorder_faults(delta)
+	FrameProfiler.end("HelicopterPilot.recorder_faults", _recorder_profiler_start)
 
 
 func _advance_mission() -> void:
@@ -3974,6 +4125,60 @@ static func _run_threaded_pathfinding_job(data: Dictionary) -> void:
 		}
 		return
 
+	if bool(params.get("heightmap_path_honor_goal_altitude", false)) and not elevated_path.is_empty():
+		var route_agl_m: float = float(params.get("heightmap_path_target_agl_m", 50.0))
+		var goal_clearance_m: float = clampf(
+			float(params.get("heightmap_path_goal_clearance_m", route_agl_m)),
+			0.0,
+			route_agl_m
+		)
+		var descent_gradient: float = tan(deg_to_rad(clampf(
+			float(params.get("aircraft_route_max_descent_angle_deg", 8.0)),
+			1.0,
+			25.0
+		)))
+		var taper_distance_m: float = maxf(
+			(route_agl_m - goal_clearance_m) / maxf(descent_gradient, 0.01),
+			1.0
+		)
+		var remaining_m: PackedFloat32Array = PackedFloat32Array()
+		remaining_m.resize(elevated_path.size())
+		for reverse_index in range(elevated_path.size() - 2, -1, -1):
+			remaining_m[reverse_index] = remaining_m[reverse_index + 1] + Vector2(
+				elevated_path[reverse_index].x - elevated_path[reverse_index + 1].x,
+				elevated_path[reverse_index].z - elevated_path[reverse_index + 1].z
+			).length()
+		for point_index in range(elevated_path.size()):
+			var profile_point: Vector3 = elevated_path[point_index]
+			var terrain_y: float = _thread_get_ground_height_at_position(grid, profile_point)
+			if is_nan(terrain_y):
+				continue
+			var local_clearance_m: float = lerpf(
+				goal_clearance_m,
+				route_agl_m,
+				clampf(remaining_m[point_index] / taper_distance_m, 0.0, 1.0)
+			)
+			profile_point.y = terrain_y + local_clearance_m
+			if point_index == elevated_path.size() - 1:
+				profile_point.y = maxf(profile_point.y, goal.y)
+			elevated_path[point_index] = profile_point
+		var next_descent_point: Vector3 = elevated_path[elevated_path.size() - 1]
+		for point_index in range(elevated_path.size() - 2, -1, -1):
+			var descent_point: Vector3 = elevated_path[point_index]
+			var descent_run_m: float = Vector2(
+				descent_point.x - next_descent_point.x,
+				descent_point.z - next_descent_point.z
+			).length()
+			if descent_point.y > next_descent_point.y + descent_run_m * descent_gradient + 0.5:
+				data.result = {
+					"success": false,
+					"reason": "threaded path cannot descend to 3D goal",
+					"start_ms": data.start_ms,
+					"elapsed_ms": Time.get_ticks_msec() - start_time,
+				}
+				return
+			next_descent_point = descent_point
+
 	_thread_spread_elevated_climb_cues(elevated_path, params)
 
 	var final_path: Array[Vector3] = []
@@ -4043,6 +4248,20 @@ static func _thread_build_direct_aerial_corridor(
 	var max_allowed_target_y := reference_ground + max_direct_climb + route_agl
 	var spacing: float = maxf(float(params.get("heightmap_path_terrain_sample_spacing_m", 120.0)), 40.0)
 	var steps := maxi(int(ceil(distance / spacing)), 1)
+	var taper_goal_clearance: bool = bool(params.get("heightmap_path_taper_goal_clearance", false))
+	var goal_clearance_m: float = maxf(
+		float(params.get("heightmap_path_goal_clearance_m", route_agl)),
+		0.0
+	)
+	var descent_gradient: float = tan(deg_to_rad(clampf(
+		float(params.get("aircraft_route_max_descent_angle_deg", 8.0)),
+		1.0,
+		25.0
+	)))
+	var clearance_taper_distance_m: float = maxf(
+		(route_agl - goal_clearance_m) / maxf(descent_gradient, 0.01),
+		1.0
+	)
 	var previous_sample := current_pos
 	for step in range(1, steps + 1):
 		var t := float(step) / float(steps)
@@ -4061,7 +4280,15 @@ static func _thread_build_direct_aerial_corridor(
 			result.clear()
 			return result
 		var max_h_50m := _thread_get_max_height_in_radius(grid, sample_pos.x, sample_pos.z, 50.0)
-		var target_y := terrain_height + route_agl
+		var local_clearance_m: float = route_agl
+		if taper_goal_clearance:
+			var remaining_m: float = distance * (1.0 - t)
+			local_clearance_m = lerpf(
+				goal_clearance_m,
+				route_agl,
+				clampf(remaining_m / clearance_taper_distance_m, 0.0, 1.0)
+			)
+		var target_y := terrain_height + local_clearance_m
 		if max_h_50m > -500000.0:
 			target_y = maxf(target_y, max_h_50m + 25.0)
 			if target_y > max_allowed_target_y + 0.5:
@@ -4077,6 +4304,43 @@ static func _thread_build_direct_aerial_corridor(
 		var elevated_point := Vector3(sample_pos.x, target_y, sample_pos.z)
 		result.append(elevated_point)
 		previous_sample = sample_pos
+	# Most aerial routes historically followed terrain+AGL all the way to the
+	# endpoint. A fixed-wing recovery instead supplies a real 3D acquisition gate;
+	# retain that requested altitude when it is no lower than the sampled safe floor.
+	# The subsequent pilot-friendly simplifier samples every shortcut, so lowering
+	# this endpoint cannot silently cut through intervening terrain.
+	if bool(params.get("heightmap_path_honor_goal_altitude", false)) and not result.is_empty():
+		var final_point: Vector3 = result[result.size() - 1]
+		# final_point already used the tapered endpoint clearance above. Preserve
+		# whichever is higher: the authored gate or its sampled terrain floor.
+		final_point.y = maxf(goal.y, final_point.y)
+		result[result.size() - 1] = final_point
+		# A terrain-safe straight line is not necessarily a landable arrival: a ridge
+		# close to the gate can leave insufficient distance to descend. Reject that
+		# corridor so the lateral planner can find a longer/lower way around it.
+		var next_descent_point: Vector3 = result[result.size() - 1]
+		for point_index in range(result.size() - 2, -1, -1):
+			var descent_point: Vector3 = result[point_index]
+			var descent_run_m: float = Vector2(
+				descent_point.x - next_descent_point.x,
+				descent_point.z - next_descent_point.z
+			).length()
+			if descent_point.y > next_descent_point.y + descent_run_m * descent_gradient + 0.5:
+				probe["reason"] = "insufficient_descent_room point=%d excess=%.1fm" % [
+					point_index,
+					descent_point.y - (next_descent_point.y + descent_run_m * descent_gradient),
+				]
+				result.clear()
+				return result
+			next_descent_point = descent_point
+		var start_descent_run_m: float = Vector2(
+			current_pos.x - next_descent_point.x,
+			current_pos.z - next_descent_point.z
+		).length()
+		if current_pos.y > next_descent_point.y + start_descent_run_m * descent_gradient + 0.5:
+			probe["reason"] = "insufficient_descent_room_from_start"
+			result.clear()
+			return result
 	_thread_spread_elevated_climb_cues(result, params)
 	var final_path: Array[Vector3] = _thread_make_path_pilot_friendly(grid, params, result)
 	return _thread_finalize_heightmap_path_for_pilot(params, final_path)

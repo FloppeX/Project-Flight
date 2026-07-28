@@ -5,7 +5,7 @@
 
 [node name="RocketPod" type="Node3D" unique_id=262664900]
 script = ExtResource("1_script")
-ammo_count = 16
+ammo_count = 24
 
 [node name="RocketPodModel" parent="." unique_id=1729600456 instance=ExtResource("2_model")]
 

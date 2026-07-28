@@ -4,6 +4,7 @@ class_name VehicleEnemyLight
 signal destroyed(vehicle)
 
 const VISUAL_FOCUS_HELPER = preload("res://Effects/VisualFocus.gd")
+const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
 
 # --- Movement ---
 @export var max_speed: float = 15.0
@@ -243,7 +244,9 @@ func apply_origin_shift(offset: Vector3) -> void:
 		_combat_scoot_destination -= offset
 
 func _physics_process(delta: float) -> void:
+	var _profiler_start: int = FrameProfiler.begin("VehicleEnemyLight.physics")
 	if is_dying:
+		FrameProfiler.end("VehicleEnemyLight.physics", _profiler_start)
 		return
 
 	if turret_controller:
@@ -255,6 +258,7 @@ func _physics_process(delta: float) -> void:
 
 	_drive_to_waypoint(delta)
 	_update_wheel_visuals()
+	FrameProfiler.end("VehicleEnemyLight.physics", _profiler_start)
 
 # --- Wheel Visuals / Chassis Support ---
 
@@ -546,6 +550,9 @@ func _update_navigation_path(delta: float) -> void:
 		_clear_navigation_path()
 		_nav_safe_target = Vector3.INF
 		return
+	if _use_platoon_shared_route_navigation():
+		_clear_navigation_path()
+		return
 	if not NavGraph.is_ready():
 		return
 	var raw_target: Vector3 = _get_raw_navigation_destination()
@@ -568,7 +575,7 @@ func _update_navigation_path(delta: float) -> void:
 	var needs_repath: bool = _nav_path_positions.is_empty() or _nav_path_index >= _nav_path_positions.size()
 	if _nav_retry_cooldown_s > 0.0:
 		return
-	if goal_shifted:
+	if goal_shifted and _nav_repath_timer_s >= repath_interval_s:
 		_recompute_navigation_path(safe_target)
 	elif needs_repath and _nav_repath_timer_s >= repath_interval_s:
 		_recompute_navigation_path(safe_target)
@@ -609,7 +616,7 @@ func _recompute_navigation_path(raw_target: Vector3) -> void:
 	var retry_cooldown := path_retry_cooldown_s
 	var no_anchor_retry_cooldown := path_no_anchor_retry_cooldown_s
 
-	WorkerThreadPool.add_task(func() -> void:
+	var work: Callable = func() -> Dictionary:
 		var status_code := 0 # 0 = OK, 1 = NO_ANCHOR, 2 = NO_PATH
 		var best_path: Array[Vector3] = []
 		
@@ -649,19 +656,41 @@ func _recompute_navigation_path(raw_target: Vector3) -> void:
 			if best_path.is_empty():
 				status_code = 2
 
-		# Safely deliver result back to the main thread
-		_on_navigation_path_computed.call_deferred(best_path, raw_target, status_code, no_anchor_retry_cooldown, retry_cooldown)
-	)
+		return {
+			"best_path": best_path,
+			"target": raw_target,
+			"status_code": status_code,
+			"no_anchor_cooldown": no_anchor_retry_cooldown,
+			"path_cooldown": retry_cooldown,
+		}
+
+	var job_id: int = NavPathScheduler.request_work(work, _on_navigation_path_job_result, 0, "EnemyVehicle.navigation")
+	if job_id < 0:
+		_is_pathfinding = false
+		_nav_retry_cooldown_s = maxf(_nav_retry_cooldown_s, retry_cooldown)
+
+func _on_navigation_path_job_result(result: Variant) -> void:
+	if not result is Dictionary:
+		_is_pathfinding = false
+		_nav_retry_cooldown_s = maxf(_nav_retry_cooldown_s, path_retry_cooldown_s)
+		return
+	var data: Dictionary = result as Dictionary
+	_on_navigation_path_computed(
+		data.get("best_path", []),
+		data.get("target", Vector3.INF),
+		int(data.get("status_code", 2)),
+		float(data.get("no_anchor_cooldown", path_no_anchor_retry_cooldown_s)),
+		float(data.get("path_cooldown", path_retry_cooldown_s)))
 
 func _on_navigation_path_computed(best_path: Array[Vector3], target_at_request_time: Vector3, status_code: int, no_anchor_cooldown: float, path_cooldown: float) -> void:
 	_is_pathfinding = false
 	if not is_instance_valid(self):
 		return
 	
-	# If the target has changed since we started pathfinding, trigger a new pathfinding run immediately
+	# If the target changed while queued/running, wait for the regular repath cadence.
 	var current_target_dest := _get_raw_navigation_destination()
 	if _flat_distance(target_at_request_time, current_target_dest) > 1.0:
-		_recompute_navigation_path(current_target_dest)
+		_nav_repath_timer_s = 0.0
 		return
 
 	_nav_repath_timer_s = 0.0
@@ -709,6 +738,8 @@ func _clear_navigation_path() -> void:
 func _get_raw_navigation_destination() -> Vector3:
 	if platoon and is_instance_valid(platoon) and platoon.has_active_objective():
 		var platoon_destination: Vector3 = platoon.get_destination_for(self)
+		if _use_platoon_shared_route_navigation():
+			return platoon.get_shared_route_destination_for(self, platoon_destination)
 		if not platoon.has_any_member_in_combat():
 			return platoon.get_formation_destination_for(self, platoon_destination)
 		return platoon_destination
@@ -718,6 +749,8 @@ func _get_raw_navigation_destination() -> Vector3:
 
 func _get_follow_navigation_destination() -> Vector3:
 	var raw_target := _get_raw_navigation_destination()
+	if _use_platoon_shared_route_navigation():
+		return raw_target
 	if not use_waypoint_pathfinding or not NavGraph.is_ready():
 		return raw_target
 	if _nav_path_index < _nav_path_positions.size():
@@ -725,6 +758,11 @@ func _get_follow_navigation_destination() -> Vector3:
 	if _is_valid_navigation_target(_nav_safe_target) and _is_direct_navigation_segment_safe(global_position, _nav_safe_target):
 		return _nav_safe_target
 	return global_position
+
+func _use_platoon_shared_route_navigation() -> bool:
+	return platoon != null \
+		and is_instance_valid(platoon) \
+		and platoon.should_vehicle_use_shared_route(self)
 
 func _has_dynamic_navigation_goal() -> bool:
 	if platoon == null or not is_instance_valid(platoon) or not platoon.has_active_objective():
@@ -741,6 +779,10 @@ func _get_navigation_replan_interval_s() -> float:
 	return maxf(path_replan_interval_s, 0.1)
 
 func _update_path_stuck_state(delta: float, follow_destination: Vector3) -> void:
+	if _use_platoon_shared_route_navigation():
+		_nav_stuck_timer_s = 0.0
+		_nav_prev_wp_distance = INF
+		return
 	if not use_waypoint_pathfinding or _nav_path_index >= _nav_path_positions.size():
 		_nav_stuck_timer_s = 0.0
 		_nav_prev_wp_distance = INF
@@ -1013,6 +1055,8 @@ func _apply_platoon_cohesion(base_destination: Vector3) -> Vector3:
 	if _has_combat_target():
 		return global_position
 	if not platoon or not is_instance_valid(platoon):
+		return base_destination
+	if _use_platoon_shared_route_navigation():
 		return base_destination
 	if platoon.has_any_member_in_combat():
 		return base_destination

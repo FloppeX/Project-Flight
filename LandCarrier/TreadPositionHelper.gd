@@ -84,6 +84,7 @@ func set_tread_positions(positions: Array[Vector3]):
 
 func _input(event):
 	"""Handle input for adding tread positions"""
+	return
 	if event is InputEventMouseButton and event.pressed:
 		if event.button_index == MOUSE_BUTTON_LEFT and Input.is_key_pressed(KEY_CTRL):
 			# Ctrl+Click to add tread position at mouse position

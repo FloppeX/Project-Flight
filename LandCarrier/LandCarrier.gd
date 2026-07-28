@@ -1,6 +1,8 @@
 extends CharacterBody3D
 class_name LandCarrier
 
+signal initial_placement_completed
+
 const CARRIER_TREAD_SCRIPT := preload("res://LandCarrier/CarrierTread.gd")
 const VEHICLE_RAMP_SCRIPT := preload("res://LandCarrier/VehicleRamp.gd")
 const VEHICLE_BAY_SCRIPT := preload("res://LandCarrier/VehicleBayManager.gd")
@@ -28,6 +30,7 @@ const PERF_OVERRIDE_PATH := "user://land_carrier_perf_override.json"
 @export var settle_steer_deadzone: float = 0.08
 @export var recovery_constraint_default_speed_limit_mps: float = 0.0
 @export var recovery_constraint_log_interval_s: float = 2.0
+@export var launch_constraint_min_speed_mps: float = 8.0  # keep the deck moving straight (not dead-stopped) while launching
 
 # --- Height ---
 @export var height_smoothing: float = 2.5  # height tracking speed (higher = snappier)
@@ -37,6 +40,11 @@ const PERF_OVERRIDE_PATH := "user://land_carrier_perf_override.json"
 @export var tread_ground_follow_response: float = 5.0
 @export var tread_pitch_response: float = 5.0
 @export var tread_pitch_sign: float = -1.0
+
+@export_group("Carrier Visual Budget")
+@export var tread_detail_budget_enabled: bool = true
+@export var tread_detail_distance_m: float = 1200.0
+@export var tread_far_update_interval_s: float = 0.5
 
 # --- Deck carry ---
 @export var helicopter_deck_carry_half_width_m: float = 90.0
@@ -56,6 +64,11 @@ const PERF_OVERRIDE_PATH := "user://land_carrier_perf_override.json"
 @export var route_center_search_width_m: float = 4200.0
 @export var route_edge_search_depth_m: float = 3200.0
 @export var route_goal_candidate_spacing_m: float = 1200.0
+@export var spawn_clearance_radius_m: float = 320.0
+@export var spawn_clearance_max_height_variation_m: float = 30.0
+@export var aircraft_launch_corridor_distance_m: float = 1400.0
+@export var aircraft_launch_corridor_half_width_m: float = 140.0
+@export var aircraft_launch_corridor_max_terrain_rise_m: float = 80.0
 @export var route_setup_debug: bool = false
 
 const BODY_RIDE_HEIGHT: float = 40.0
@@ -128,6 +141,9 @@ var _track_mark_multimesh_dirty: bool = false
 var _track_mark_fade_update_timer_s: float = 0.0
 var _terrain_provider: Node = null
 var _heli_test_stationary: bool = false
+var _tread_detail_enabled: bool = true
+var _tread_far_update_timer_s: float = 0.0
+var _initial_placement_completed: bool = false
 const TEAM_ID: int = 1
 
 func _ready():
@@ -153,10 +169,25 @@ func _ready():
 	if not use_waypoint_pathfinding:
 		_apply_direct_waypoints()
 		visible = true
+		_mark_initial_placement_completed()
 	elif _raw_waypoints.is_empty():
 		call_deferred("_set_north_heading")
 	else:
+		# Authored waypoints keep the carrier at its authored start position; only
+		# the no-waypoint random-patrol branch relocates it asynchronously.
+		_mark_initial_placement_completed()
 		call_deferred("_compute_path_to_destination")
+
+
+func is_initial_placement_complete() -> bool:
+	return _initial_placement_completed
+
+
+func _mark_initial_placement_completed() -> void:
+	if _initial_placement_completed:
+		return
+	_initial_placement_completed = true
+	initial_placement_completed.emit()
 
 func _apply_perf_override() -> void:
 	if not FileAccess.file_exists(PERF_OVERRIDE_PATH):
@@ -287,6 +318,7 @@ func _set_north_heading() -> void:
 func _start_random_patrol() -> void:
 	if _heli_test_stationary:
 		visible = true
+		_mark_initial_placement_completed()
 		return
 	if _is_pathfinding:
 		return
@@ -304,11 +336,16 @@ func _start_random_patrol() -> void:
 	var max_slope := path_max_slope_m
 	var goal_margin := route_goal_edge_margin_m
 	var candidate_spacing := route_goal_candidate_spacing_m
+	var spawn_clear_radius := maxf(spawn_clearance_radius_m, 0.0)
+	var spawn_clear_variation := maxf(spawn_clearance_max_height_variation_m, 0.1)
+	var launch_corridor_distance := maxf(aircraft_launch_corridor_distance_m, 0.0)
+	var launch_corridor_half_width := maxf(aircraft_launch_corridor_half_width_m, 0.0)
+	var launch_corridor_max_rise := maxf(aircraft_launch_corridor_max_terrain_rise_m, 0.0)
 	var setup_debug := route_setup_debug
 	var body_ride_h := BODY_RIDE_HEIGHT
 	var current_pos := global_position
 
-	WorkerThreadPool.add_task(func() -> void:
+	var work: Callable = func() -> Dictionary:
 		var routed_destination := Vector3.ZERO
 		var routed_path: Array[Vector3] = []
 		var final_pos := current_pos
@@ -321,7 +358,9 @@ func _start_random_patrol() -> void:
 				start_margin,
 				search_width,
 				search_depth,
-				max_slope
+				max_slope,
+				spawn_clear_radius,
+				spawn_clear_variation
 			)
 			if routed_start != Vector3.ZERO:
 				final_pos = Vector3(routed_start.x, routed_start.y + body_ride_h, routed_start.z)
@@ -341,6 +380,18 @@ func _start_random_patrol() -> void:
 					var best_e_depth := INF
 					var top_edge_z: float = TerrainNavGrid._origin_z
 					for candidate in candidates:
+						var departure_dir: Vector3 = candidate - final_pos
+						departure_dir.y = 0.0
+						if launch_corridor_distance > 0.0 and not TerrainNavGrid.is_directional_launch_corridor_clear(
+								final_pos.x,
+								final_pos.z,
+								departure_dir.x,
+								departure_dir.z,
+								launch_corridor_distance,
+								launch_corridor_half_width,
+								launch_corridor_max_rise
+						):
+							continue
 						var path := NavGraph.find_path(final_pos, candidate, CARRIER_CLEARANCE_M)
 						if path.is_empty():
 							continue
@@ -371,18 +422,65 @@ func _start_random_patrol() -> void:
 
 		var fallback_patrol := false
 		if routed_path.is_empty():
-			# Fallback to standard random patrol
-			var start := TerrainNavGrid.get_random_passable_position(rng, max_slope)
-			if start != Vector3.ZERO:
-				final_pos = Vector3(start.x, start.y + body_ride_h, start.z)
+			# Fallback to standard random patrol, but do not discard the launch-lane
+			# guarantee merely because the preferred cross-map route was unavailable.
+			for _attempt in range(32):
+				var start := TerrainNavGrid.get_random_passable_position(
+					rng, max_slope, 4000, spawn_clear_radius, spawn_clear_variation)
+				if start == Vector3.ZERO:
+					continue
+				var fallback_pos := Vector3(start.x, start.y + body_ride_h, start.z)
+				var destination := TerrainNavGrid.get_furthest_edge_position(fallback_pos, 3, max_slope)
+				var departure_dir: Vector3 = destination - fallback_pos
+				departure_dir.y = 0.0
+				if launch_corridor_distance > 0.0 and not TerrainNavGrid.is_directional_launch_corridor_clear(
+						fallback_pos.x,
+						fallback_pos.z,
+						departure_dir.x,
+						departure_dir.z,
+						launch_corridor_distance,
+						launch_corridor_half_width,
+						launch_corridor_max_rise
+				):
+					continue
+				var fallback_path: Array[Vector3] = NavGraph.find_path(fallback_pos, destination, CARRIER_CLEARANCE_M)
+				if fallback_path.is_empty():
+					continue
+				final_pos = fallback_pos
+				routed_destination = destination
+				routed_path = fallback_path
+				fallback_patrol = true
+				break
 
-			var destination := TerrainNavGrid.get_furthest_edge_position(final_pos, 3, max_slope)
-			routed_destination = destination
-			routed_path = NavGraph.find_path(final_pos, destination, CARRIER_CLEARANCE_M)
-			fallback_patrol = true
+		return {
+			"routed_path": routed_path,
+			"routed_destination": routed_destination,
+			"final_pos": final_pos,
+			"using_cross_route": using_cross_route,
+			"fallback_patrol": fallback_patrol,
+			"route_plan_details": route_plan_details,
+		}
 
-		_on_random_patrol_computed.call_deferred(routed_path, routed_destination, final_pos, using_cross_route, fallback_patrol, route_plan_details)
-	)
+	var job_id: int = NavPathScheduler.request_work(work, _on_random_patrol_job_result, 1, "LandCarrier.random_patrol")
+	if job_id < 0:
+		_is_pathfinding = false
+		visible = true
+		_mark_initial_placement_completed()
+
+func _on_random_patrol_job_result(result: Variant) -> void:
+	if not result is Dictionary:
+		_is_pathfinding = false
+		visible = true
+		_mark_initial_placement_completed()
+		return
+	var data: Dictionary = result as Dictionary
+	_on_random_patrol_computed(
+		data.get("routed_path", []),
+		data.get("routed_destination", Vector3.ZERO),
+		data.get("final_pos", global_position),
+		bool(data.get("using_cross_route", false)),
+		bool(data.get("fallback_patrol", false)),
+		data.get("route_plan_details", {}))
 
 func _on_random_patrol_computed(routed_path: Array[Vector3], routed_destination: Vector3, final_pos: Vector3, using_cross_route: bool, fallback_patrol: bool, route_plan_details: Dictionary) -> void:
 	_is_pathfinding = false
@@ -394,6 +492,7 @@ func _on_random_patrol_computed(routed_path: Array[Vector3], routed_destination:
 
 	global_position = final_pos
 	visible = true
+	_mark_initial_placement_completed()
 
 	if using_cross_route:
 		var to_dest := routed_destination - global_position
@@ -460,10 +559,11 @@ func _compute_path_to_destination() -> void:
 	var target := _raw_waypoints[_raw_waypoint_index]
 	var current_pos := global_position
 
-	WorkerThreadPool.add_task(func() -> void:
-		var path := NavGraph.find_path(current_pos, target, CARRIER_CLEARANCE_M)
-		_on_path_computed.call_deferred(path, target)
-	)
+	var callback: Callable = func(path: Array[Vector3]) -> void:
+		_on_path_computed(path, target)
+	var job_id: int = NavPathScheduler.request_find_path(current_pos, target, CARRIER_CLEARANCE_M, callback, 1, "LandCarrier.path")
+	if job_id < 0:
+		_is_pathfinding = false
 
 func _on_path_computed(path: Array[Vector3], target_at_request: Vector3) -> void:
 	_is_pathfinding = false
@@ -495,7 +595,7 @@ func _pick_new_patrol_destination() -> void:
 	var current_pos := global_position
 	var max_slope := path_max_slope_m
 
-	WorkerThreadPool.add_task(func() -> void:
+	var work: Callable = func() -> Dictionary:
 		var best_dest := Vector3.ZERO
 		var best_dist_sq := -1.0
 		var best_path: Array[Vector3] = []
@@ -522,8 +622,25 @@ func _pick_new_patrol_destination() -> void:
 			best_dest = TerrainNavGrid.get_random_passable_position(rng, max_slope)
 			rng_fallback = true
 
-		_on_pick_new_patrol_computed.call_deferred(best_path, best_dest, rng_fallback)
-	)
+		return {
+			"best_path": best_path,
+			"best_dest": best_dest,
+			"rng_fallback": rng_fallback,
+		}
+
+	var job_id: int = NavPathScheduler.request_work(work, _on_pick_new_patrol_job_result, 1, "LandCarrier.pick_patrol")
+	if job_id < 0:
+		_is_pathfinding = false
+
+func _on_pick_new_patrol_job_result(result: Variant) -> void:
+	if not result is Dictionary:
+		_is_pathfinding = false
+		return
+	var data: Dictionary = result as Dictionary
+	_on_pick_new_patrol_computed(
+		data.get("best_path", []),
+		data.get("best_dest", Vector3.ZERO),
+		bool(data.get("rng_fallback", false)))
 
 func _on_pick_new_patrol_computed(best_path: Array[Vector3], best_dest: Vector3, rng_fallback: bool) -> void:
 	_is_pathfinding = false
@@ -732,6 +849,8 @@ func _is_node_in_helicopter_deck_carry_zone(node: Node3D) -> bool:
 
 func _update_tread_visuals(delta: float, transform_before: Transform3D) -> void:
 	_tread_steer = lerp(_tread_steer, _current_steer, delta * 1.5)
+	var tread_detail_enabled := _should_enable_tread_detail_budget()
+	_set_tread_detail_enabled(tread_detail_enabled)
 
 	if not TerrainNavGrid.is_ready() and _get_precise_terrain_provider() == null:
 		return
@@ -812,6 +931,9 @@ func _update_tread_visuals(delta: float, transform_before: Transform3D) -> void:
 				)
 		global_position.y = lerp(global_position.y, _smoothed_desired_y, clampf(height_smoothing * delta, 0.0, 1.0))
 
+	if not _should_apply_tread_node_update(tread_detail_enabled, delta):
+		return
+
 	var _tread_apply_profiler_start: int = FrameProfiler.begin("LandCarrier.tread_apply_nodes")
 	for i in tread_world_positions.size():
 		var tread := _tread_nodes[i] as Node3D
@@ -825,6 +947,63 @@ func _update_tread_visuals(delta: float, transform_before: Transform3D) -> void:
 		elif tread.has_method("update_from_carrier"):
 			tread.update_from_carrier(delta, tread_signed_travels[i])
 	FrameProfiler.end("LandCarrier.tread_apply_nodes", _tread_apply_profiler_start)
+
+
+func _should_enable_tread_detail_budget() -> bool:
+	if not tread_detail_budget_enabled:
+		return true
+	var camera := _get_active_camera()
+	if camera == null or not is_instance_valid(camera):
+		return true
+	if _is_ancestor_of(self, camera):
+		return true
+	return global_position.distance_squared_to(camera.global_position) <= tread_detail_distance_m * tread_detail_distance_m
+
+
+func _should_apply_tread_node_update(detail_enabled: bool, delta: float) -> bool:
+	if detail_enabled:
+		_tread_far_update_timer_s = 0.0
+		return true
+	_tread_far_update_timer_s -= maxf(delta, 0.0)
+	if _tread_far_update_timer_s > 0.0:
+		return false
+	_tread_far_update_timer_s = maxf(tread_far_update_interval_s, 0.05)
+	return true
+
+
+func _set_tread_detail_enabled(enabled: bool) -> void:
+	if _tread_detail_enabled == enabled:
+		return
+	_tread_detail_enabled = enabled
+	for tread in _tread_nodes:
+		if is_instance_valid(tread) and tread.has_method("set_visual_budget_enabled"):
+			tread.call("set_visual_budget_enabled", enabled)
+
+
+func get_visual_budget_report_stats() -> Dictionary:
+	return {
+		"tread_detail_budget_enabled": tread_detail_budget_enabled,
+		"tread_detail_active": _tread_detail_enabled,
+		"tread_detail_distance_m": tread_detail_distance_m,
+		"tread_far_update_interval_s": tread_far_update_interval_s,
+		"tread_count": _tread_nodes.size(),
+	}
+
+
+func _get_active_camera() -> Camera3D:
+	var viewport := get_viewport()
+	if viewport == null:
+		return null
+	return viewport.get_camera_3d()
+
+
+func _is_ancestor_of(root: Node, possible_child: Node) -> bool:
+	var current := possible_child
+	while current != null:
+		if current == root:
+			return true
+		current = current.get_parent()
+	return false
 
 
 func _update_track_marks(delta: float, transform_before: Transform3D) -> void:
@@ -1348,12 +1527,22 @@ func _apply_recovery_motion_constraint(target_speed_mps: float, target_yaw_rate_
 		if configured_limit < INF:
 			speed_limit = maxf(configured_limit, 0.0)
 	var constrained_speed := minf(target_speed_mps, speed_limit)
+	# Zero the STEER input too, not just the yaw rate. is_turning_for_launch() checks _current_steer, so
+	# leaving residual steer (still aimed at the patrol waypoint) makes the carrier read "turning" forever
+	# even while stopped -> the launch never fires. Forcing steer to 0 settles it onto a straight heading.
+	_current_steer = move_toward(_current_steer, 0.0, 4.0 * delta)
+	# For a LAUNCH constraint, keep moving straight (a moving straight deck is a valid launch platform and
+	# avoids a dead stop that can't change heading). For a recovery/landing constraint, keep the low cap.
+	var launch_constraint: bool = deck_manager.has_method("is_launch_constraint_active") \
+			and bool(deck_manager.call("is_launch_constraint_active"))
+	if launch_constraint:
+		constrained_speed = maxf(constrained_speed, maxf(launch_constraint_min_speed_mps, 0.0))
 	if _recovery_constraint_log_s <= 0.0:
 		_recovery_constraint_log_s = maxf(recovery_constraint_log_interval_s, 0.1)
-		print("[LandCarrier] recovery constraint active: speed %.1f->%.1f yaw %.3f->0" % [
+		print("[LandCarrier] %s constraint: speed %.1f->%.1f steer->0 yaw->0" % [
+			"launch" if launch_constraint else "recovery",
 			target_speed_mps,
 			constrained_speed,
-			target_yaw_rate_rad_s,
 		])
 	return {
 		"speed": constrained_speed,

@@ -1,5 +1,7 @@
 class_name EnemyVirtualFlight
 extends Node
+
+const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
 ## Abstract representation of an enemy flight on the tactical map.
 ## Moves as data until a friendly asset comes within ACTIVATE_RANGE_M,
 ## then spawns real aircraft. When they retreat beyond DEACTIVATE_RANGE_M
@@ -11,20 +13,22 @@ extends Node
 ## sent to EnemyOpsManager.receive_intel() when the timer fires.
 
 enum Mission      { PATROL, RTB, LANDED, INTERCEPT }
-enum VState       { VIRTUAL, ACTIVE }
+enum VState       { VIRTUAL, MATERIALIZING, ACTIVE }
 enum AircraftRole { FIGHTER, BOMBER }
 
-const ACTIVATE_RANGE_M        := 2000.0
-const DEACTIVATE_RANGE_M      := 3500.0
+const ACTIVATE_RANGE_M        := 5500.0
+const DEACTIVATE_RANGE_M      := 8000.0
 const PATROL_SPEED_MPS        := 82.0
 const RTB_SPEED_MPS           := 95.0
 const PATROL_ALTITUDE_M       := 680.0
 const PATROL_WP_REACH_M       := 350.0   # distance to advance to next waypoint
-const PATROL_WP_COUNT         := 4       # waypoints generated per patrol route
+const PATROL_WP_COUNT         := 6       # waypoints generated per patrol route
 const DETECTION_RANGE_M       := 8000.0  # how far the flight can see
 const DETECTION_SCAN_INTERVAL_S := 5.0
 const REPORT_DELAY_MIN_S      := 25.0    # radio delay range
 const REPORT_DELAY_MAX_S      := 75.0
+const ACTIVE_CONTACT_SCAN_INTERVAL_S := 2.0
+const MAX_MATERIALIZE_SPAWNS_PER_TICK := 1
 
 # Configuration (set before adding to tree)
 @export var flight_name:    String       = "XX-01"
@@ -43,9 +47,13 @@ var active_aircraft: Array[Node3D] = []
 
 var _aircraft_slots:  Array[PackedScene] = []
 var _loadout_slots:   Array[String] = []     # "guns", "bombs", or "rockets" per slot
+var _active_slot_indices: Array[int] = []
 var _patrol_waypoints:  Array[Vector3] = []
 var _patrol_wp_idx:     int = 0
 var _detection_timer:   float = 0.0
+var _active_scan_timer: float = 0.0
+var _materialize_next_slot_idx: int = 0
+var _materialize_spawned_count: int = 0
 # Each report: { "type": String, "position": Vector3, "strength": int, "countdown": float }
 var _pending_reports:   Array[Dictionary] = []
 var _rng:               RandomNumberGenerator = RandomNumberGenerator.new()
@@ -58,18 +66,19 @@ func setup(home_pos: Vector3, aircraft_scenes: Array[PackedScene], loadouts: Arr
 	aircraft_count  = _aircraft_slots.size()
 	_rng.randomize()
 	_generate_patrol_waypoints(start_angle)
-	_patrol_wp_idx = _rng.randi() % maxi(_patrol_waypoints.size(), 1)
+	_randomize_initial_patrol_waypoint()
 	position = _patrol_waypoints[_patrol_wp_idx] if not _patrol_waypoints.is_empty() else \
 		Vector3(home_pos.x + cos(start_angle) * patrol_radius, home_pos.y + PATROL_ALTITUDE_M, home_pos.z + sin(start_angle) * patrol_radius)
-	heading = Vector3(-sin(start_angle), 0.0, cos(start_angle)).normalized()
+	_update_heading_toward_next_patrol_waypoint(start_angle)
 	_detection_timer = _rng.randf_range(0.0, DETECTION_SCAN_INTERVAL_S)
+	_active_scan_timer = _rng.randf_range(0.0, ACTIVE_CONTACT_SCAN_INTERVAL_S)
 
 
 func _generate_patrol_waypoints(start_angle: float) -> void:
 	_patrol_waypoints.clear()
 	for i in range(PATROL_WP_COUNT):
-		var angle := start_angle + float(i) * TAU / float(PATROL_WP_COUNT) + _rng.randf_range(-0.25, 0.25)
-		var r     := patrol_radius * _rng.randf_range(0.55, 1.0)
+		var angle := start_angle + float(i) * TAU / float(PATROL_WP_COUNT) + _rng.randf_range(-0.38, 0.38)
+		var r     := patrol_radius * _rng.randf_range(0.65, 1.15)
 		_patrol_waypoints.append(Vector3(
 			home_position.x + cos(angle) * r,
 			home_position.y + PATROL_ALTITUDE_M,
@@ -78,21 +87,58 @@ func _generate_patrol_waypoints(start_angle: float) -> void:
 	_patrol_wp_idx = 0
 
 
+func _randomize_initial_patrol_waypoint() -> void:
+	if _patrol_waypoints.is_empty():
+		_patrol_wp_idx = 0
+		return
+	_patrol_wp_idx = _rng.randi() % _patrol_waypoints.size()
+
+
+func _update_heading_toward_next_patrol_waypoint(fallback_angle: float) -> void:
+	if _patrol_waypoints.size() <= 1:
+		heading = Vector3(-sin(fallback_angle), 0.0, cos(fallback_angle)).normalized()
+		return
+	var next_idx: int = (_patrol_wp_idx + 1) % _patrol_waypoints.size()
+	var to_next: Vector3 = _patrol_waypoints[next_idx] - position
+	to_next.y = 0.0
+	if to_next.length_squared() <= 1.0:
+		heading = Vector3(-sin(fallback_angle), 0.0, cos(fallback_angle)).normalized()
+		return
+	heading = to_next.normalized()
+
+
 func tick(delta: float) -> void:
-	active_aircraft = active_aircraft.filter(func(a): return is_instance_valid(a))
+	var _profiler_start: int = FrameProfiler.begin("EnemyVirtualFlight.tick")
+	_prune_active_aircraft()
 
 	if vstate == VState.ACTIVE:
 		if active_aircraft.is_empty():
 			vstate = VState.VIRTUAL
 			aircraft_count = 0
+			FrameProfiler.end("EnemyVirtualFlight.tick", _profiler_start)
 			return
-		position = (active_aircraft[0] as Node3D).global_position
+		position = _active_aircraft_centroid()
 		_check_dematerialize()
+		if vstate != VState.ACTIVE:
+			FrameProfiler.end("EnemyVirtualFlight.tick", _profiler_start)
+			return
 		# Materialized units report immediately — pilots can see and talk
-		_scan_for_contacts(true)
+		_tick_active_contact_scan(delta)
+		FrameProfiler.end("EnemyVirtualFlight.tick", _profiler_start)
+		return
+
+	if vstate == VState.MATERIALIZING:
+		if _nearest_player_relevance_distance() > DEACTIVATE_RANGE_M:
+			dematerialize()
+			FrameProfiler.end("EnemyVirtualFlight.tick", _profiler_start)
+			return
+		_tick_materialize_step()
+		_process_pending_reports(delta)
+		FrameProfiler.end("EnemyVirtualFlight.tick", _profiler_start)
 		return
 
 	if aircraft_count <= 0:
+		FrameProfiler.end("EnemyVirtualFlight.tick", _profiler_start)
 		return
 
 	match mission:
@@ -103,6 +149,7 @@ func tick(delta: float) -> void:
 
 	_check_materialize()
 	_tick_detection(delta)
+	FrameProfiler.end("EnemyVirtualFlight.tick", _profiler_start)
 
 
 # ── Movement ──────────────────────────────────────────────────────────────────
@@ -228,46 +275,88 @@ func _process_pending_reports(delta: float) -> void:
 # ── Materialize / dematerialize ───────────────────────────────────────────────
 
 func _check_materialize() -> void:
-	if _aircraft_slots.is_empty() or vstate == VState.ACTIVE:
+	if _aircraft_slots.is_empty() or vstate != VState.VIRTUAL:
 		return
-	if _nearest_friendly_distance() <= ACTIVATE_RANGE_M:
-		_materialize()
+	if _should_materialize():
+		_begin_materialize()
 
 
 func _check_dematerialize() -> void:
-	if _nearest_friendly_distance() > DEACTIVATE_RANGE_M:
+	if _nearest_player_relevance_distance() > DEACTIVATE_RANGE_M:
 		dematerialize()
 
 
-func _materialize() -> void:
-	if _aircraft_slots.is_empty() or vstate == VState.ACTIVE:
+func _should_materialize() -> bool:
+	var player_dist: float = _nearest_player_relevance_distance()
+	if player_dist <= ACTIVATE_RANGE_M:
+		return true
+	if player_dist <= DEACTIVATE_RANGE_M and _nearest_friendly_distance() <= ACTIVATE_RANGE_M:
+		return true
+	return false
+
+
+func _begin_materialize() -> void:
+	if _aircraft_slots.is_empty() or vstate != VState.VIRTUAL:
 		return
-	vstate = VState.ACTIVE
-	var scene_root := get_tree().current_scene
-	var slot_count := _aircraft_slots.size()
-	for i in range(slot_count):
-		var scene := _aircraft_slots[i]
+	vstate = VState.MATERIALIZING
+	_materialize_next_slot_idx = 0
+	_materialize_spawned_count = 0
+	active_aircraft.clear()
+	_active_slot_indices.clear()
+
+
+func _tick_materialize_step() -> void:
+	if vstate != VState.MATERIALIZING:
+		return
+	var _materialize_profiler_start: int = FrameProfiler.begin("EnemyVirtualFlight.materialize_step")
+	var scene_root: Node = get_tree().current_scene
+	if scene_root == null:
+		FrameProfiler.end("EnemyVirtualFlight.materialize_step", _materialize_profiler_start)
+		return
+	var spawned_this_tick: int = 0
+	var slot_count: int = _aircraft_slots.size()
+	while _materialize_next_slot_idx < slot_count and spawned_this_tick < MAX_MATERIALIZE_SPAWNS_PER_TICK:
+		var slot_idx: int = _materialize_next_slot_idx
+		_materialize_next_slot_idx += 1
+		var scene: PackedScene = _aircraft_slots[slot_idx]
 		if scene == null:
 			continue
-		var ac := scene.instantiate() as Node3D
+		var ac: Node3D = scene.instantiate() as Node3D
 		if ac == null:
 			continue
 		scene_root.add_child(ac)
 		ac.set_meta("faction_color", faction_color)
 		var spread := Vector3(
-			cos(float(i) * TAU / float(maxi(slot_count, 1))) * 110.0,
-			float(i) * 30.0,
-			sin(float(i) * TAU / float(maxi(slot_count, 1))) * 110.0
+			cos(float(slot_idx) * TAU / float(maxi(slot_count, 1))) * 110.0,
+			float(slot_idx) * 30.0,
+			sin(float(slot_idx) * TAU / float(maxi(slot_count, 1))) * 110.0
 		)
 		ac.global_position = position + spread
 		if "linear_velocity" in ac:
 			ac.set("linear_velocity", heading * 75.0)
-		var loadout := _loadout_slots[i] if i < _loadout_slots.size() else "guns"
+		var loadout: String = _loadout_slots[slot_idx] if slot_idx < _loadout_slots.size() else "guns"
 		_configure_materialized_enemy_aircraft(ac, loadout)
 		active_aircraft.append(ac)
-	_scan_for_contacts(true)
-	print("[EnemyVirtualFlight] %s materialized (%d ac) at %.0f,%.0f" % [
-		flight_name, active_aircraft.size(), position.x, position.z])
+		_active_slot_indices.append(slot_idx)
+		_materialize_spawned_count += 1
+		spawned_this_tick += 1
+	if _materialize_next_slot_idx >= slot_count:
+		_finish_materialize()
+	FrameProfiler.end("EnemyVirtualFlight.materialize_step", _materialize_profiler_start)
+
+
+func _finish_materialize() -> void:
+	_prune_active_aircraft()
+	if active_aircraft.is_empty():
+		aircraft_count = 0
+		vstate = VState.VIRTUAL
+		return
+	position = _active_aircraft_centroid()
+	vstate = VState.ACTIVE
+	_active_scan_timer = 0.0
+	_tick_active_contact_scan(ACTIVE_CONTACT_SCAN_INTERVAL_S)
+	print("[EnemyVirtualFlight] %s materialized (%d/%d ac) at %.0f,%.0f" % [
+		flight_name, active_aircraft.size(), _aircraft_slots.size(), position.x, position.z])
 
 
 func _strip_enemy_external_stores(ac: Node3D, loadout: String = "guns") -> void:
@@ -359,10 +448,28 @@ func _configure_materialized_enemy_aircraft(ac: Node3D, loadout: String = "guns"
 
 
 func dematerialize() -> void:
+	var was_materializing: bool = vstate == VState.MATERIALIZING
+	_prune_active_aircraft()
+	var remaining_scenes: Array[PackedScene] = []
+	var remaining_loadouts: Array[String] = []
+	for slot_idx: int in _active_slot_indices:
+		if slot_idx >= 0 and slot_idx < _aircraft_slots.size():
+			remaining_scenes.append(_aircraft_slots[slot_idx])
+			remaining_loadouts.append(_loadout_slots[slot_idx] if slot_idx < _loadout_slots.size() else "guns")
+	if not active_aircraft.is_empty():
+		position = _active_aircraft_centroid()
 	for ac in active_aircraft:
 		if is_instance_valid(ac):
 			ac.queue_free()
 	active_aircraft.clear()
+	_active_slot_indices.clear()
+	if vstate != VState.VIRTUAL:
+		if not was_materializing:
+			_aircraft_slots = remaining_scenes
+			_loadout_slots = remaining_loadouts
+		aircraft_count = _aircraft_slots.size()
+	_materialize_next_slot_idx = 0
+	_materialize_spawned_count = 0
 	vstate = VState.VIRTUAL
 	mission = Mission.RTB
 	print("[EnemyVirtualFlight] %s dematerialized → RTB" % flight_name)
@@ -399,6 +506,88 @@ func _nearest_friendly_distance() -> float:
 			continue
 		best_sq = minf(best_sq, position.distance_squared_to((node as Node3D).global_position))
 	return sqrt(best_sq)
+
+
+func _nearest_player_relevance_distance() -> float:
+	var player_node: Node3D = _get_player_relevance_node()
+	if player_node != null and is_instance_valid(player_node):
+		return position.distance_to(player_node.global_position)
+	return _nearest_friendly_distance()
+
+
+func _get_player_relevance_node() -> Node3D:
+	var camera_node: Node3D = _get_active_camera_relevance_node()
+	if camera_node != null and is_instance_valid(camera_node):
+		return camera_node
+	var flight_director: Node = get_node_or_null("/root/FlightDirector")
+	if flight_director != null:
+		var controlled_value: Variant = flight_director.get("player_controlled_plane")
+		if controlled_value is Node3D and is_instance_valid(controlled_value):
+			return controlled_value as Node3D
+		var viewed_value: Variant = flight_director.get("current_viewed_aircraft")
+		if viewed_value is Node3D and is_instance_valid(viewed_value):
+			return viewed_value as Node3D
+	return null
+
+
+func _get_active_camera_relevance_node() -> Node3D:
+	var viewport: Viewport = get_viewport()
+	if viewport != null:
+		var camera: Camera3D = viewport.get_camera_3d()
+		if camera != null and is_instance_valid(camera):
+			var node: Node = camera
+			while node != null:
+				if node is Node3D and _is_player_relevance_root(node):
+					return node as Node3D
+				node = node.get_parent()
+			return camera
+	return null
+
+
+func _is_player_relevance_root(node: Node) -> bool:
+	return node.is_in_group("aircraft") \
+		or node.is_in_group("ai_aircraft") \
+		or node.is_in_group("ground_vehicles") \
+		or node.is_in_group("carrier") \
+		or node.is_in_group("friendlies")
+
+
+func _tick_active_contact_scan(delta: float) -> void:
+	_active_scan_timer -= delta
+	if _active_scan_timer > 0.0:
+		return
+	_active_scan_timer = ACTIVE_CONTACT_SCAN_INTERVAL_S
+	_scan_for_contacts(true)
+
+
+func _prune_active_aircraft() -> void:
+	if active_aircraft.is_empty():
+		_active_slot_indices.clear()
+		return
+	var kept_aircraft: Array[Node3D] = []
+	var kept_slots: Array[int] = []
+	for i in range(active_aircraft.size()):
+		var aircraft: Node3D = active_aircraft[i]
+		if not is_instance_valid(aircraft):
+			continue
+		kept_aircraft.append(aircraft)
+		if i < _active_slot_indices.size():
+			kept_slots.append(_active_slot_indices[i])
+	active_aircraft = kept_aircraft
+	_active_slot_indices = kept_slots
+
+
+func _active_aircraft_centroid() -> Vector3:
+	var count: int = 0
+	var sum: Vector3 = Vector3.ZERO
+	for aircraft: Node3D in active_aircraft:
+		if not is_instance_valid(aircraft):
+			continue
+		sum += aircraft.global_position
+		count += 1
+	if count <= 0:
+		return position
+	return sum / float(count)
 
 
 func _nearest_friendly_aircraft_position() -> Vector3:

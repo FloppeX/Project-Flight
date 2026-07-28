@@ -368,7 +368,14 @@ func order_pursue(platoon_name: String, range_m: float = 1200.0) -> void:
 # ── Queries ──────────────────────────────────────────────────────────────────
 
 func get_platoon(platoon_name: String) -> GroundVehiclePlatoon:
-	return platoons.get(platoon_name, null)
+	# Dictionaries can retain a reference after a test scenario frees the platoon node.
+	# Validate as Variant before the typed return; returning the stale object itself is
+	# what produces "Trying to return a previously freed instance".
+	var candidate: Variant = platoons.get(platoon_name, null)
+	if not is_instance_valid(candidate):
+		platoons.erase(platoon_name)
+		return null
+	return candidate as GroundVehiclePlatoon
 
 func get_platoon_names() -> Array[String]:
 	var result: Array[String] = []

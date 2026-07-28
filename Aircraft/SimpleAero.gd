@@ -10,9 +10,13 @@ var rb: RigidBody3D = null
 @export var pitch_power: float = 6.0         # Elevator strength
 @export var roll_power: float = 12.0         # Aileron strength
 @export var yaw_power: float = 3.0           # Rudder strength
-@export var min_control_speed: float = 80.0  # Speed where controls start working
+@export var min_control_speed: float = 55.0  # (legacy) kept for compatibility; authority now scales off stall speed
+@export var control_authority_full_stall_margin: float = 1.35  # Full control authority at/above this multiple of stall speed (crisp across the whole normal envelope)
+@export var control_authority_taper_stall_margin: float = 1.05  # Authority starts tapering below this multiple of stall speed (i.e. only right near the stall)
+@export var control_authority_stall_floor: float = 0.35  # Minimum authority retained at the stall so it can still be flown out
+@export var control_authority_curve: float = 1.0  # Shape of the taper between the two margins (1 = linear)
 @export var control_slip_speed_blend: float = 0.55  # Arcade assist: let some total airspeed count for controls while slipping/skidding
-@export var stall_control_loss_strength: float = 0.35  # How much stall/high-AoA reduces control response
+@export var stall_control_loss_strength: float = 0.60  # How much stall/high-AoA reduces control response (raised: departed controls feel genuinely mushy)
 @export var speed_stall_control_curve: float = 1.0  # Higher = control loss comes in less abruptly near stall speed
 @export var ground_rudder_assist_enabled: bool = true
 @export var ground_rudder_assist_power: float = 1.0
@@ -48,15 +52,30 @@ var rb: RigidBody3D = null
 @export var slow_flight_alignment_release_speed_mps: float = 60.0  # Keep the stronger alignment mostly out of medium-speed handling below this speed
 @export var vertical_alignment_low_speed_strength: float = 0.08  # Light low-speed vertical path alignment
 @export var vertical_alignment_high_speed_strength: float = 0.95  # Vertical path alignment at speed so fast flight feels planted without becoming sticky
-@export var aoa_lift_full_deg: float = 10.0  # Positive AoA needed to unlock the full slow-flight lift bonus
-@export var aoa_lift_bonus_factor: float = 0.6  # Extra lift multiplier from positive AoA in slow flight
+## Raised from 10 -- this, combined with aoa_lift_bonus_factor below, was the REAL ceiling on turn
+## g, not max_lift_ratio (see that constant's own comment for the full history of chasing this).
+## aoa_lift_scale = 1.0 + positive_alpha_t * aoa_lift_bonus_factor, and positive_alpha_t caps at
+## 1.0 once AoA reaches aoa_lift_full_deg -- so lift topped out at 1.6g (1.0 base + 0.6 bonus)
+## REGARDLESS of how much further AoA/pitch_input was commanded beyond 10deg, independent of
+## max_lift_ratio's much higher headroom. User watched the AI pull hard and measured exactly 1.6g
+## in-game, confirming this is the actual binding constraint. Set below aoa_stall_start_deg (22deg)
+## so full lift bonus is reached before the stall penalty starts biting, not after.
+@export var aoa_lift_full_deg: float = 18.0  # Positive AoA needed to unlock the full slow-flight lift bonus
+## Raised from 0.6 -- see aoa_lift_full_deg's comment. At full AoA this now gives ~1.0+2.4=3.4g,
+## leaving max_lift_ratio (4.5g) as a real, higher ceiling instead of this factor binding first.
+@export var aoa_lift_bonus_factor: float = 2.4  # Extra lift multiplier from positive AoA in slow flight
 @export var aoa_negative_lift_penalty_factor: float = 0.35  # Reduce lift when the nose sits below the flight path
-@export var max_lift_ratio: float = 1.35  # Prevent extreme pitch-up from generating unrealistic excess lift
-@export var aoa_stall_start_deg: float = 26.0  # Start bleeding lift/control when the wing is asked for a silly angle of attack
-@export var aoa_stall_full_deg: float = 55.0   # High-AoA stall penalty reaches full strength here
-@export var aoa_stall_lift_loss: float = 0.24  # Extra lift loss at full high-AoA stall
-@export var aoa_stall_control_loss: float = 0.12  # Extra control loss at full high-AoA stall
+## Raised from 1.35 to give real headroom above the aoa_lift_bonus_factor ceiling above (~3.4g), so
+## a fully-committed hard pull isn't double-capped by two independent mechanisms.
+@export var max_lift_ratio: float = 4.5  # Prevent extreme pitch-up from generating unrealistic excess lift
+@export var aoa_stall_start_deg: float = 22.0  # Start bleeding lift/control when the wing is asked for too much AoA (harsher: bites earlier on a hard pull)
+@export var aoa_stall_full_deg: float = 48.0   # High-AoA stall penalty reaches full strength here (harsher: departs sooner)
+@export var aoa_stall_lift_loss: float = 0.42  # Extra lift loss at full high-AoA stall (harsher wing drop)
+@export var aoa_stall_control_loss: float = 0.30  # Extra control loss at full high-AoA stall (mushy/departed controls when over-pulling)
 @export var aoa_stall_drag_strength: float = 0.14  # Extra drag from high AoA; applied along the airflow vector
+@export var induced_drag_strength: float = 0.20   # Energy bleed from maneuvering (induced drag ~ load_factor^2); higher = harder to sustain hard turns/climbs. Raised from 0.09: at 0.09 full-throttle thrust cancelled it and specific energy stayed FLAT through a dogfight (planes turned for free), so nobody ever fell behind and rounds stalemated. Must exceed thrust in a hard turn.
+@export var induced_drag_turn_rate_scale: float = 1.2  # Modest fallback when body-rate changes precede measured aerodynamic load
+@export var induced_drag_pull_scale: float = 0.35  # Small control-effort fallback; actual lift ratio is the primary load factor
 
 # Keep a tiny support near knife-edge (optional safety net)
 @export var min_vertical_lift_frac: float = 0.0
@@ -75,8 +94,9 @@ var rb: RigidBody3D = null
 @export var forward_drag_strength: float = 0.22
 @export var lateral_drag_strength: float = 1.2
 @export var gear_drag_multiplier: float = 1.5
-@export var flaps_drag_multiplier: float = 1.25  # When flaps deployed (approach config: gear+flaps together)
-@export var flaps_stall_speed_factor: float = 0.85  # Stall speed multiplier when flaps deployed (0.85 = 15% lower)
+@export var flaps_drag_multiplier: float = 1.4   # When flaps deployed (approach config: gear+flaps together)
+@export var flaps_stall_speed_factor: float = 0.78  # Stall speed multiplier when flaps deployed (0.78 = 22% lower -> slower approach)
+@export var flaps_lift_bonus: float = 0.25       # Extra lift ratio when flaps deployed (more lift per speed -> slower, higher-AoA approach)
 
 # Low-rate fixed-wing flight recorder. This intentionally lives in SimpleAero so
 # it records what the aircraft physics model actually sees/applies, not just what
@@ -178,10 +198,14 @@ func _physics_process(delta: float) -> void:
 	var positive_alpha_t: float = clampf(alpha_deg / maxf(aoa_lift_full_deg, 0.1), 0.0, 1.0)
 	var negative_alpha_t: float = clampf(-alpha_deg / maxf(aoa_lift_full_deg, 0.1), 0.0, 1.0)
 	var aoa_lift_scale: float = 1.0 + positive_alpha_t * aoa_lift_bonus_factor - negative_alpha_t * aoa_negative_lift_penalty_factor
+	# Flaps: extra lift coefficient when deployed -> more lift at a given speed, so the aircraft can fly a
+	# slower approach at higher AoA. Raise the lift ceiling too so the bonus isn't immediately clamped.
+	var flap_lift_scale: float = (1.0 + flaps_lift_bonus) if _is_flaps_deployed() else 1.0
+	var lift_ceiling: float = maxf(max_lift_ratio, 0.1) * flap_lift_scale
 	commanded_lift_ratio = clampf(
-		zero_aoa_lift_ratio * maxf(aoa_lift_scale, 0.0),
+		zero_aoa_lift_ratio * maxf(aoa_lift_scale, 0.0) * flap_lift_scale,
 		0.0,
-		maxf(max_lift_ratio, 0.1)
+		lift_ceiling
 	)
 	var gravity_mag: float = float(ProjectSettings.get_setting("physics/3d/default_gravity", 9.8))
 	var base_lift_mag: float = rb.mass * gravity_mag * maxf(rb.gravity_scale, 0.0) * commanded_lift_ratio
@@ -215,6 +239,39 @@ func _physics_process(delta: float) -> void:
 	# Apply lift at center of mass
 	rb.apply_central_force(lift_force)
 
+	# --- Induced drag (energy bleed from maneuvering / pulling G) ---
+	# In this arcade model the velocity vector tracks the nose, so angle of attack stays near zero
+	# even in a hard turn -- an AoA-based induced drag never fires and the aircraft can turn/climb for
+	# free (it was ending up higher and higher). Instead model the energy cost of MANEUVERING directly
+	# from the load factor: how hard the aircraft is turning its velocity vector plus how hard it's
+	# being commanded to pull. A high turn rate (tight turn or a hard pull-up) generates a lot of lift,
+	# which costs induced drag ~ (load factor)^2. This is what forces honest energy management.
+	if airborne_for_stall_effects and speed > 8.0:
+		# Turn rate of the velocity vector: |a_perp| / v, where a_perp is the change in velocity
+		# direction. Approximate via angular velocity magnitude perpendicular to the flight path.
+		var body_right: Vector3 = right
+		var body_up: Vector3 = up
+		var pitch_rate: float = absf(rb.angular_velocity.dot(body_right))   # pull/push rate
+		var yaw_rate: float = absf(rb.angular_velocity.dot(body_up))        # flat-turn rate
+		var maneuver_rate: float = sqrt(pitch_rate * pitch_rate + yaw_rate * yaw_rate)
+		# Small transient proxy lets drag begin as the maneuver develops, before lift fully responds.
+		var pull_effort: float = absf(pitch_input) * control_authority
+		# Actual wing load is authoritative. The old formula ADDED large body-rate and raw-control
+		# terms, then squared them, so even a measured ~1g turn could be charged as a 3-5g maneuver
+		# and lose tens of m/s in seconds. Use the transient proxy only when it exceeds measured load.
+		var transient_load_proxy: float = 1.0 \
+			+ maneuver_rate * induced_drag_turn_rate_scale \
+			+ pull_effort * induced_drag_pull_scale
+		var load_factor: float = maxf(maxf(actual_lift_ratio, 1.0), transient_load_proxy)
+		var induced_mag: float = induced_drag_strength * (load_factor * load_factor - 1.0) * rb.mass * gravity_mag
+		# Scale mildly with dynamic pressure so it's bounded and doesn't explode at high speed. Floor kept
+		# high (0.7) so a SLOW hard turn -- the low-speed scissors where a plane should bleed energy fastest
+		# -- still costs; otherwise low-speed turning was nearly free and fed the stalemate.
+		induced_mag *= clampf(speed / 90.0, 0.7, 1.7)
+		if induced_mag > 0.0:
+			rb.apply_central_force(-v_dir * induced_mag)
+			total_drag_force += -v_dir * induced_mag
+
 	# Apply nose-down force when stalled
 	if airborne_for_stall_effects and stall_severity > 0.1 and speed > 5.0:
 		var nose_position = fwd * 2.0  # 2 meters forward of center (adjust to your aircraft)
@@ -245,8 +302,19 @@ func _physics_process(delta: float) -> void:
 		speed,
 		clampf(control_slip_speed_blend, 0.0, 1.0)
 	)
-	control_authority = clamp(control_speed / min_control_speed, 0.0, 1.0)
-	
+	# Control authority vs speed. The aircraft should feel crisp across the whole normal envelope --
+	# authority stays ~full down to just above the stall, then falls off only in the last stretch
+	# before the stall. The stall ITSELF (buffet/shake/lift loss/nose drop, handled separately) is
+	# what signals the edge; controls only go mushy right at it, not at reasonable cruise/combat speed.
+	# Keyed off stall speed so it scales per-aircraft: full authority at/above authority_full_margin
+	# times the stall speed, tapering to a floor as it approaches the stall.
+	var effective_stall_for_control: float = maxf(effective_stall_speed, 1.0)
+	var authority_full_speed: float = effective_stall_for_control * maxf(control_authority_full_stall_margin, 1.05)
+	var authority_taper_speed: float = effective_stall_for_control * clampf(control_authority_taper_stall_margin, 1.0, control_authority_full_stall_margin - 0.01)
+	var authority_t: float = clamp((control_speed - authority_taper_speed) / maxf(authority_full_speed - authority_taper_speed, 0.1), 0.0, 1.0)
+	# Floor keeps a little authority even at the stall so it can still be flown out of it.
+	control_authority = lerpf(control_authority_stall_floor, 1.0, pow(authority_t, maxf(control_authority_curve, 0.1)))
+
 	# Reduce control authority in stall
 	var stall_control_loss = maxf(
 		pow(speed_stall_severity, maxf(speed_stall_control_curve, 0.01)),

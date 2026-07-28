@@ -59,6 +59,14 @@ enum AIPilotSkill {
 	ELITE
 }
 
+# How the aircraft treats enemy aircraft. DOGFIGHTER = air combat is the mission, engage freely (fighters
+# / interceptors). DEFENSIVE = the mission (ground attack, egress, RTB) comes first -- don't break off to
+# dogfight; only jink/evade a close air threat while pressing on (attackers / bombers / fleeing planes).
+enum AirCombatPosture {
+	DOGFIGHTER,
+	DEFENSIVE
+}
+
 var current_state: State = State.IDLE
 
 # ============================================================================
@@ -70,6 +78,7 @@ var simple_aero: Node     # SimpleAero module
 var engine: Node          # Engine module
 var control_gear: Node    # ControlLandingGear module
 var control_weapons: Node # ControlWeapons module (for ground attack)
+var control_targeting: Node # Ordinary targeting module read by the HUD/instruments
 var control_targeting_aam: Node # Cached AAM targeting module for dogfight missile support
 var cached_hardpoints: Array = []  # Cached hardpoints list
 
@@ -77,6 +86,41 @@ var cached_hardpoints: Array = []  # Cached hardpoints list
 var _saved_stability_strength: float = -1.0
 var _saved_auto_rudder_strength: float = -1.0
 var _ai_control_overrides_applied: bool = false
+
+@export_group("AI Flight Coordination")
+@export var navigation_auto_rudder_enabled: bool = true
+# AIPilot is the SOLE rudder authority for AI aircraft -- SimpleAero.auto_rudder_strength is
+# zeroed out for every AI-controlled aircraft in initialize() (see that function's comment), since
+# it's tuned around a human's direct stick input and the AI's roll_input is a PD-controller output
+# that isn't a compatible signal for it. strength is the sin(bank) feedforward that primes the
+# initial direction; sideslip_gain is the reactive term against the true measured slip (see the
+# use site below for the full history of what NOT to do here -- two earlier attempts both made the
+# ball worse by either saturating on the feedforward alone or under-damping the reactive term).
+@export var navigation_auto_rudder_strength: float = 0.65
+@export var navigation_auto_rudder_sideslip_gain: float = 0.75
+@export var navigation_auto_rudder_rate_damping: float = 0.12
+@export var navigation_auto_rudder_zero_manual_yaw: bool = false
+@export var navigation_turn_backpressure_enabled: bool = true
+@export var navigation_turn_backpressure_start_bank_deg: float = 18.0
+@export var navigation_turn_backpressure_full_bank_deg: float = 68.0
+@export var navigation_turn_backpressure_pitch_input: float = 0.18
+@export var navigation_turn_backpressure_speed_cut_mps: float = 0.0
+@export var navigation_turn_backpressure_throttle_cut: float = 1.0
+@export var navigation_turn_backpressure_alt_error_release_m: float = 120.0
+@export var navigation_forward_frame_pitch_enabled: bool = true
+@export var navigation_forward_frame_pitch_path_lookahead_m: float = 620.0
+@export var navigation_forward_frame_pitch_min_path_lookahead_m: float = 260.0
+@export var navigation_forward_frame_pitch_altitude_lookahead_release_m: float = 500.0
+@export var navigation_forward_frame_pitch_gain: float = 1.35
+@export var navigation_forward_frame_pitch_rate_damping: float = 0.20
+@export var navigation_forward_frame_pitch_blend: float = 0.82
+@export var navigation_forward_frame_pitch_limit: float = 0.46
+@export var navigation_forward_frame_min_forward_dot: float = 0.18
+@export var navigation_forward_frame_altitude_trim_limit: float = 0.08
+@export var navigation_forward_frame_above_path_unload_start_m: float = 80.0
+@export var navigation_forward_frame_above_path_unload_full_m: float = 360.0
+@export var navigation_forward_frame_above_path_unload_pitch: float = 0.42
+@export_group("")
 
 # ============================================================================
 # SENSORS - AI's limited view of the world
@@ -94,7 +138,14 @@ var sensor_update_counter: int = 0
 var _terrain_check_counter: int = 0
 @export var terrain_check_interval: int = 3  # Update terrain fan/ahead every N physics frames (~20 Hz at 60 Hz physics)
 @export var collision_avoidance_interval_s: float = 0.10
-@export var airborne_safe_distance_m: float = 40.0
+# Raised from 40 -- a fast gun pass on another aircraft (air-to-air strafing, not the dedicated
+# DOGFIGHT merge-and-break logic) closes at 70-90 m/s. At the old 40m hard floor that left well
+# under a second to react, and the TCA-based predictive check above it doesn't fire when relative
+# velocity is near zero (a co-speed chase closing gradually), so two aircraft closed to
+# closest_edge=0.00m over several seconds of mutual gunfire and then physically collided --
+# the same failure mode dogfight_collision_hard_floor_m (60m) was already raised to fix, just in
+# this general (non-dogfight-state) collision check.
+@export var airborne_safe_distance_m: float = 70.0
 @export var airborne_safe_vertical_m: float = 45.0
 @export var airborne_safe_lookahead_s: float = 3.0
 @export var rtb_check_interval_s: float = 1.0
@@ -136,6 +187,7 @@ var _safety_override_active: bool = false  # True when terrain/collision overrid
 @export var terrain_ahead_check_distance: float = 2000.0  # How far ahead to check for terrain
 @export var terrain_warning_distance: float = 500.0  # Pull up if terrain closer than this
 @export var emergency_min_agl_m: float = 180.0  # Emergency override if below this AGL
+@export var attack_positioning_hard_floor_agl_m: float = 120.0
 @export var emergency_tti_s: float = 3.0  # Emergency override if terrain time-to-impact is below this
 @export var terrain_escape_low_speed_pitch_input: float = 0.18  # Pull-up authority near stall speed
 @export var terrain_escape_max_pitch_input: float = 0.68  # Pull-up authority with healthy energy
@@ -145,11 +197,37 @@ var _safety_override_active: bool = false  # True when terrain/collision overrid
 @export var terrain_escape_critical_pitch_bonus_deg: float = 7.0
 @export var terrain_escape_lateral_roll_input: float = 0.65
 @export var rocket_attack_commit_extra_range_m: float = 140.0
-@export var rocket_attack_commit_min_agl_m: float = 55.0
-@export var rocket_attack_commit_critical_tti_s: float = 1.15
+@export var rocket_attack_commit_min_agl_m: float = 90.0  # Raised from 45 -- a dive committed all the way to 45m left ~1s to react once break-off began (observed: 68.8m AGL -> crash in 1.1s). The planned route's terrain clearance doesn't account for how far a fast strafing dive actually descends below the planned line before firing/breaking off.
+@export var rocket_attack_commit_critical_tti_s: float = 1.6  # Raised from 1.0 to match the wider AGL floor -- still short enough not to abort a legitimate strafing pass early.
 @export var gun_attack_commit_extra_range_m: float = 120.0
-@export var gun_attack_commit_min_agl_m: float = 45.0
-@export var gun_attack_commit_critical_tti_s: float = 1.0
+@export var gun_attack_commit_min_agl_m: float = 90.0  # Raised from 45, same reasoning as rocket_attack_commit_min_agl_m above.
+@export var gun_attack_commit_critical_tti_s: float = 1.6
+@export var gun_attack_coarse_aim_angle_deg: float = 14.0
+@export var gun_attack_fine_aim_angle_deg: float = 5.0
+@export var ground_gun_fire_alignment_deg: float = 14.0  # Ground strafing favors taking a coarse shot over silently withholding fire
+@export var gun_attack_coarse_bank_gain: float = 4.2
+@export var gun_attack_fine_bank_gain: float = 2.0
+@export var gun_attack_roll_response: float = 0.72
+@export var gun_attack_pitch_los_gain: float = 4.8
+@export var gun_attack_pitch_rate_damping: float = 0.24
+@export var gun_attack_pitch_response: float = 0.62
+@export var gun_attack_yaw_gain: float = 0.45
+@export var gun_attack_yaw_rate_damping: float = 0.12
+@export var gun_attack_max_yaw_input: float = 0.18
+@export var gun_attack_yaw_response: float = 0.38
+@export var gun_ccip_enabled: bool = true
+@export var gun_ccip_recompute_interval_s: float = 0.08
+@export var gun_ccip_aim_correction_max_m: float = 360.0
+@export var gun_ccip_aim_correction_strength: float = 0.85
+@export var gun_ccip_fire_tolerance_m: float = 180.0
+@export var gun_ccip_blocked_fire_tolerance_m: float = 22.0
+@export var gun_ccip_abort_enabled: bool = false  # Accuracy is advisory; terrain/recovery logic owns safety aborts
+@export var gun_ccip_abort_settle_s: float = 1.2
+@export var gun_ccip_abort_miss_m: float = 900.0
+@export var gun_ccip_abort_miss_range_fraction: float = 0.75
+@export var gun_ccip_abort_low_agl_m: float = 190.0
+@export var gun_ccip_abort_min_range_m: float = 250.0
+@export var gun_ccip_abort_recovery_s: float = 4.0
 
 # ============================================================================
 # PID CONTROLLERS - Smooth human-like control
@@ -158,6 +236,7 @@ var altitude_controller: PIDController
 var heading_controller: PIDController
 var speed_controller: PIDController
 var pitch_controller: PIDController  # For precise pitch control
+var _landing_fpv_yaw_controller: PIDController
 
 # ============================================================================
 # TARGETS - What the AI wants to achieve
@@ -180,6 +259,156 @@ var formation_ahead_hold_t: float = 0.0
 var nav_waypoint: Vector3 = Vector3.ZERO  # High-level navigation goal
 var maneuver_waypoint: Vector3 = Vector3.ZERO  # Short-term maneuvering target
 @export var maneuver_lookahead_distance: float = 800.0  # How far ahead to place maneuver waypoint
+@export var aircraft_flight_plan_enabled: bool = true
+@export var aircraft_flight_plan_capture_radius_m: float = 120.0
+@export var aircraft_flight_plan_terrain_clearance_m: float = 260.0
+@export var aircraft_heightmap_pathfinding_enabled: bool = true
+@export var aircraft_heightmap_path_recompute_s: float = 18.0
+@export var aircraft_heightmap_path_goal_move_recompute_m: float = 650.0
+@export var aircraft_heightmap_path_search_padding_m: float = 900.0
+@export var aircraft_heightmap_path_target_agl_m: float = 220.0
+@export var aircraft_heightmap_path_terrain_sample_spacing_m: float = 160.0
+@export var aircraft_heightmap_path_insert_spacing_m: float = 700.0
+@export var aircraft_heightmap_path_simplify_enabled: bool = true
+@export var aircraft_heightmap_path_pilot_min_segment_m: float = 260.0
+@export var aircraft_heightmap_path_max_turn_angle_deg: float = 75.0
+@export var aircraft_heightmap_path_max_edge_risk_m: float = 12.0
+@export var aircraft_heightmap_path_edge_risk_penalty: float = 90.0
+@export var aircraft_heightmap_path_direct_corridor_enabled: bool = true
+@export var aircraft_heightmap_path_direct_corridor_max_climb_m: float = 520.0
+@export var aircraft_heightmap_path_replan_jitter_s: float = 3.0
+@export var aircraft_heightmap_turn_smoothing_enabled: bool = true
+@export var aircraft_heightmap_turn_min_angle_deg: float = 12.0
+@export var aircraft_heightmap_turn_tangent_fraction: float = 0.48
+@export var aircraft_heightmap_turn_min_radius_fraction: float = 0.78
+@export var aircraft_heightmap_turn_arc_spacing_m: float = 140.0
+@export var aircraft_heightmap_turn_max_arc_points: int = 10
+@export var aircraft_turn_radius_safety_factor: float = 1.35
+@export var aircraft_turn_radius_min_m: float = 350.0
+@export var aircraft_turn_radius_max_m: float = 2600.0
+@export var aircraft_route_min_planning_bank_deg: float = 25.0
+@export var aircraft_route_max_planning_bank_deg: float = 78.0
+@export var aircraft_route_capture_radius_fraction: float = 0.18
+@export var aircraft_route_lookahead_radius_fraction: float = 0.65
+@export var aircraft_route_polyline_carrot_enabled: bool = true
+@export var attack_route_direct_waypoint_steering: bool = false
+@export var attack_route_lookahead_radius_fraction: float = 0.35
+@export var attack_route_capture_radius_scale: float = 1.0
+@export var attack_route_projection_blend: float = 0.72
+@export var attack_route_projection_gain: float = 1.55
+@export var attack_route_bank_limit_deg: float = 82.0
+@export var attack_inbound_bank_limit_deg: float = 35.0
+## Route feedback is frame-rate independent. Track rate is filtered because it
+## is differentiated from measured velocity. The compatible bank/vertical-speed
+## guidance target gets a modest first-order filter; the control surfaces remain
+## responsive to the resulting target so this does not add actuator phase lag.
+@export var attack_turn_track_rate_response_hz: float = 2.5
+@export var attack_route_guidance_target_time_s: float = 0.20
+@export var attack_route_control_input_response_hz: float = 7.0
+## Ground-attack positioning chooses an assertive target bank. Elevator and rudder are supplied by
+## the shared load/vertical-speed/sideslip feedback controller rather than fixed inputs.
+@export var attack_assertive_turn_enabled: bool = true
+@export var attack_assertive_turn_bank_deg: float = 82.0
+@export var attack_assertive_turn_entry_error_deg: float = 5.0
+## Small heading corrections should produce small banks. Full combat bank is
+## reserved for a real course reversal instead of switching on at the entry error.
+@export var attack_assertive_turn_min_bank_deg: float = 12.0
+@export var attack_assertive_turn_full_bank_error_deg: float = 55.0
+## Rolling beyond knife-edge is a large-error roll-onto maneuver, never an
+## altitude-control substitute for a small course correction.
+@export var attack_assertive_turn_overbank_min_error_deg: float = 75.0
+## If the aircraft is climbing faster than the requested attack path, roll beyond knife-edge
+## instead of cancelling the turn with forward stick. At the full 120-degree target, positive
+## wing lift points partly downward: this converts an unwanted climb into a hard descending
+## turn. It is a transient target driven by climb rate, not a sustained-bank restriction; as
+## the climb disappears the target continuously returns to attack_assertive_turn_bank_deg.
+@export var attack_assertive_turn_overbank_max_deg: float = 120.0
+@export var attack_assertive_turn_overbank_start_error_mps: float = 2.0
+@export var attack_assertive_turn_overbank_full_error_mps: float = 20.0
+## Accumulated excess height also rotates the lift vector downward even when the
+## remaining climb rate is modest. These are continuous response scales, not mode
+## gates: the commanded bank interpolates between the normal and overbank targets.
+@export var attack_assertive_turn_overbank_altitude_start_m: float = 30.0
+@export var attack_assertive_turn_overbank_altitude_full_m: float = 180.0
+## Once the aircraft is genuinely descending, progressively remove the altitude
+## contribution so it rolls upright before a useful correction becomes a dive.
+@export var attack_assertive_turn_overbank_descent_release_mps: float = 4.0
+@export_range(0.0, 1.0, 0.05) var attack_positioning_max_nose_down_pitch_input: float = 0.20
+@export_range(0.0, 1.0, 0.05) var attack_positioning_climb_arrest_max_nose_down_pitch_input: float = 0.75
+@export var attack_positioning_climb_arrest_full_error_mps: float = 20.0
+@export var attack_positioning_max_descent_angle_deg: float = 12.0
+@export var attack_positioning_descent_soft_margin_deg: float = 4.0
+@export_range(0.0, 1.0, 0.05) var attack_positioning_descent_recovery_pitch_input: float = 0.35
+@export_range(0.0, 1.0, 0.05) var attack_dive_max_nose_down_pitch_input: float = 0.30
+@export var attack_dive_envelope_soft_margin_deg: float = 10.0
+@export_range(0.0, 1.0, 0.05) var attack_dive_envelope_recovery_pitch_input: float = 0.65
+@export var attack_ingress_turn_altitude_reserve_m: float = 180.0
+@export var attack_route_initial_capture_radius_fraction: float = 0.5
+@export var attack_route_initial_capture_radius_max_m: float = 650.0
+@export var attack_route_flyby_enabled: bool = true
+@export var aircraft_route_flyby_enabled: bool = true
+@export var aircraft_route_flyby_start_radius_fraction: float = 1.0
+@export var aircraft_route_flyby_lookahead_fraction: float = 0.55
+@export var aircraft_route_flyby_advance_max_yaw_deg: float = 95.0
+@export var aircraft_route_curvature_feedforward_gain: float = 1.0
+@export var navigation_point_tracking_bank_gain: float = 3.2
+# Widened cap on bank_compensation (the 1/cos(bank) lift-loss multiplier) so a steep, sustained turn gets
+# real extra pull once bank is near the limit, not just enough lift to hold altitude. Ramped in by
+# bank_util^2, and it only matters when vs_err is nonzero (altitude-hold already wants a correction) --
+# so it can't create a runaway climb once the aircraft is on its target altitude.
+@export var general_turn_compensation_max: float = 2.4
+@export var navigation_roll_p_gain: float = 11.0
+@export var navigation_roll_high_bank_p_gain: float = 4.5
+@export var navigation_roll_rate_damping: float = 0.30
+@export var navigation_roll_min_input: float = 0.45
+@export var aircraft_route_async_join_enabled: bool = true
+@export var aircraft_route_async_join_min_forward_dot: float = -0.10
+@export var aircraft_route_async_join_max_skip_legs: int = 8
+@export var aircraft_route_async_join_capture_radius_fraction: float = 1.20
+@export var aircraft_route_async_join_capture_radius_max_m: float = 700.0
+@export var aircraft_route_forward_projection_enabled: bool = true
+@export var aircraft_route_forward_projection_blend: float = 0.72
+@export var aircraft_route_forward_projection_gain: float = 1.55
+@export var aircraft_route_forward_projection_max_error_deg: float = 105.0
+@export var aircraft_route_cross_track_capture_enabled: bool = true
+@export var aircraft_route_cross_track_capture_radius_scale: float = 1.0
+@export var aircraft_route_cross_track_capture_max_angle_deg: float = 45.0
+@export var aircraft_route_cross_track_capture_max_projection_blend: float = 0.90
+@export var aircraft_route_fpv_yaw_enabled: bool = true
+@export var aircraft_route_fpv_yaw_blend: float = 0.55
+@export var aircraft_route_fpv_yaw_min_speed_mps: float = 30.0
+@export var aircraft_route_cross_track_recovery_start_m: float = 180.0
+@export var aircraft_route_cross_track_recovery_full_m: float = 720.0
+@export var aircraft_route_cross_track_recovery_lookahead_scale: float = 0.24
+@export var aircraft_route_cross_track_recovery_speed_cut_mps: float = 18.0
+@export var aircraft_route_projection_advance_t: float = 1.0
+@export var aircraft_route_projection_advance_max_cross_track_m: float = 460.0
+@export var aircraft_route_segment_resync_enabled: bool = true
+@export var aircraft_route_resync_hysteresis_m: float = 160.0
+@export var aircraft_route_resync_forward_segments: int = 5
+@export var aircraft_route_resync_backward_segments: int = 1
+@export var aircraft_route_resync_backward_penalty_m: float = 900.0
+@export var aircraft_route_resync_heading_penalty_m: float = 450.0
+@export var aircraft_route_bad_projection_recovery_enabled: bool = true
+@export var aircraft_route_bad_projection_recovery_margin_m: float = 220.0
+@export var aircraft_route_turn_speed_control_enabled: bool = true
+@export var aircraft_route_turn_min_angle_deg: float = 35.0
+@export var aircraft_route_turn_tangent_fraction: float = 0.62
+@export var aircraft_route_turn_capture_fraction: float = 0.85
+@export var aircraft_route_turn_capture_max_m: float = 900.0
+@export var aircraft_route_turn_speed_min_mps: float = 82.0
+@export var aircraft_route_turn_speed_bank_deg: float = 68.0
+@export var aircraft_route_turn_speed_slowdown_factor: float = 2.4
+@export var aircraft_route_turn_speed_time_horizon_s: float = 9.0
+@export var aircraft_route_turn_speed_margin_mps: float = 4.0
+@export var aircraft_route_turn_speed_throttle_min: float = 0.08
+@export var aircraft_route_turn_speed_throttle_cut: float = 0.0
+@export_range(0.0, 1.0, 0.05) var airborne_min_throttle: float = 0.40
+@export var aircraft_route_turn_speed_cut_range_mps: float = 12.0
+@export var aircraft_route_turn_speed_bank_throttle_scale: float = 0.25
+@export var aircraft_route_radius_constraint_enabled: bool = true
+@export var aircraft_route_radius_constraint_margin: float = 0.85
+@export var aircraft_route_departure_turn_enabled: bool = true
 @export var formation_close_bank_limit_deg: float = 30.0
 @export var formation_close_pitch_limit_deg: float = 12.0
 @export var formation_close_vs_limit_mps: float = 4.0
@@ -189,7 +418,17 @@ var maneuver_waypoint: Vector3 = Vector3.ZERO  # Short-term maneuvering target
 @export var formation_turnaround_bearing_soften_deg: float = 35.0
 
 # Ground attack parameters
-@export var attack_run_distance_m: float = 800.0   # Waypoint ~800m in front of target
+# Soft target-deconfliction: added to a candidate's score if a known friendly already has it as their
+# active combat_target, so a pilot prefers a different target when one's comparably available instead
+# of piling onto the same one a flightmate already committed to. Not a hard exclusion -- a target that's
+# closer or higher-priority by more than this margin still wins regardless of who else is on it.
+@export var ground_target_friendly_claim_penalty_m: float = 350.0
+# A ground target at or above this remaining-health fraction gets the bomb-preference path forced on,
+# same as the existing carrier-target special case. Below it, health no longer overrides the normal
+# bomb-then-rocket-fallback preference (a worn-down target is a good fit for a faster gun/rocket finish).
+@export_range(0.0, 1.0, 0.05) var ground_target_bomb_health_frac_threshold: float = 0.6
+@export var attack_run_distance_m: float = 800.0   # Waypoint ~800m in front of target (floor; see attack_setup_distance_turn_radius_scale)
+@export var attack_setup_distance_turn_radius_scale: float = 2.5  # Setup distance also scales to this many turn radii at current speed
 @export var attack_run_altitude_offset_m: float = 300.0  # Waypoint 300m above target
 @export var bomb_run_setup_distance_m: float = 1350.0  # Bomb run setup distance from target
 @export var bomb_run_setup_altitude_offset_m: float = 360.0  # Bomb run setup altitude above target
@@ -200,9 +439,9 @@ var maneuver_waypoint: Vector3 = Vector3.ZERO  # Short-term maneuvering target
 @export var bomb_dive_start_altitude_factor: float = 3.2
 @export var bomb_dive_start_min_target_dot: float = 0.82
 @export var bomb_dive_start_max_bank_deg: float = 25.0
-@export var attack_pull_up_distance_m: float = 150.0  # Break off when this close to target (gun runs)
+@export var attack_pull_up_distance_m: float = 250.0  # Horizontal range to break off from gun runs
 @export var bomb_pull_up_distance_m: float = 250.0   # Break off distance for bomb runs
-@export var rocket_pull_up_distance_m: float = 120.0
+@export var rocket_pull_up_distance_m: float = 250.0
 @export var bomb_dive_aim_height_m: float = 90.0     # Aim this many metres above the target during bomb dive
 @export var bomb_dive_close_aim_height_m: float = 75.0
 @export var rocket_dive_aim_height_m: float = 3.0
@@ -215,31 +454,130 @@ var maneuver_waypoint: Vector3 = Vector3.ZERO  # Short-term maneuvering target
 @export var bomb_release_best_miss_slack_m: float = 6.0
 @export var bomb_release_after_best_worsen_m: float = 3.0
 @export var bomb_release_after_best_grace_m: float = 20.0
-@export var bomb_release_best_solution_tolerance_multiplier: float = 6.0
+@export var bomb_release_best_solution_tolerance_multiplier: float = 1.25
+@export var bomb_gameplay_release_enabled: bool = true
+@export var bomb_gameplay_release_range_m: float = 650.0
+@export var bomb_gameplay_release_tolerance_m: float = 120.0
+@export var bomb_gameplay_force_release_range_m: float = 500.0
+@export var bomb_gameplay_release_without_ccip: bool = true
 @export var bomb_ccip_fallback_alt_m: float = 320.0       # Legacy tuning value; bomb release now requires a valid CCIP solution
 @export var bomb_release_min_range_m: float = 180.0       # Do not salvage bad bomb runs with very close drops
 @export var bomb_ccip_aim_correction_max_m: float = 260.0
 @export var bomb_ccip_aim_correction_close_range_m: float = 450.0
-@export var bomb_ccip_aim_correction_close_scale: float = 0.55
+@export var bomb_ccip_aim_correction_close_scale: float = 0.90
+## Unsigned longitudinal CCIP feedback gain. A short impact has positive
+## local-forward error and must command positive (nose-up) pitch so the bomb stays
+## airborne longer; an impact beyond the target commands nose-down pitch.
+@export var bomb_ccip_pitch_gain: float = 0.25
+@export var bomb_ccip_yaw_gain: float = 0.55
+@export var bomb_ccip_pitch_rate_damping: float = 0.08
+@export var bomb_ccip_yaw_rate_damping: float = 0.08
+@export var bomb_ccip_max_pitch_input: float = 0.14
+@export var bomb_ccip_max_yaw_input: float = 0.22
+@export var bomb_ccip_aim_smoothing: float = 0.40
+@export var bomb_ccip_precision_bank_limit_deg: float = 35.0
 @export var bomb_ccip_use_moving_target_plane: bool = true
 @export var bomb_dive_pitch_los_gain: float = 3.2
 @export var bomb_min_dive_angle_deg: float = 3.0          # Minimum flight path angle (degrees nose-down) to release bombs
 @export var bomb_preferred_dive_angle_deg: float = 16.0
 @export var bomb_dive_pullback_gain: float = 0.035
+# Hard ceiling on dive steepness for ALL attack weapons. The line-of-sight aim can otherwise flip
+# the aircraft into a near-vertical dive at a low target with no room to pull out. Beyond this
+# flight-path angle the aim command is overridden with a firm pull-up.
+@export var attack_max_dive_angle_deg: float = 30.0
+@export var attack_max_dive_pullback_gain: float = 0.10
 @export var bomb_ccip_recompute_interval_s: float = 0.08
 @export var bomb_ccip_time_step_s: float = 0.04
 @export var bomb_ccip_max_time_s: float = 10.0
 @export var bomb_salvo_per_run: int = 2
 @export var carrier_bomb_salvo_per_run: int = 3
 @export var rocket_release_min_range_m: float = 120.0
-@export var rocket_release_max_range_m: float = 520.0
-@export var rocket_ccip_release_tolerance_m: float = 45.0
+@export var rocket_release_max_range_m: float = 700.0  # Widened toward gun range: rockets are a strafing-style pass, not precision dive-bombing
+@export var rocket_ccip_release_tolerance_m: float = 120.0  # Loosened from 45m toward gun CCIP tolerance so rockets fire during the dive like guns do
+@export var rocket_ccip_best_solution_max_m: float = 85.0
+@export var rocket_ccip_best_miss_slack_m: float = 10.0
+@export var rocket_ccip_release_after_best_worsen_m: float = 6.0
+@export var rocket_ccip_release_after_best_grace_m: float = 18.0
+@export var rocket_ccip_last_chance_tolerance_m: float = 300.0
+@export var rocket_ccip_last_chance_range_margin_m: float = 300.0
 @export var rocket_min_dive_angle_deg: float = 8.0
 @export var rocket_fire_alignment_deg: float = 22.0
 @export var rocket_release_spacing_s: float = 0.35
+@export var rocket_release_hold_s: float = 0.08
 @export var rocket_ccip_recompute_interval_s: float = 0.15
-@export var rocket_shots_per_run: int = 6
+# This counts trigger pulls, not individual projectiles. RocketPod.fire() emits one
+# six-rocket volley, so one trigger pull per pass gives four attack volleys from
+# the pod's 24-round canister.
+@export var rocket_shots_per_run: int = 1
+@export var rocket_ccip_aim_overlay_enabled: bool = true
+## Unsigned response magnitude for longitudinal rocket CCIP error. A predicted impact
+## beyond the target has a negative local-forward error and must command negative
+## (nose-down) pitch. absf() at the controller preserves that relationship for old
+## GA genomes which stored this value with the obsolete negative sign convention.
+@export var rocket_ccip_pitch_gain: float = 0.55
+@export var rocket_ccip_yaw_gain: float = 0.55
+@export var rocket_ccip_pitch_rate_damping: float = 0.14
+@export var rocket_ccip_yaw_rate_damping: float = 0.12
+@export var rocket_ccip_max_pitch_input: float = 0.22
+@export var rocket_ccip_max_yaw_input: float = 0.18
+@export var rocket_ccip_aim_smoothing: float = 0.35
+## Distance before the maximum release range reserved for acquiring and settling
+## the rocket CCIP solution. This also defines the minimum useful committed lane.
+@export var rocket_ccip_aim_acquisition_margin_m: float = 350.0
 @export var attack_break_off_distance_m: float = 500.0  # Must fly this far from target before lining up new run
+@export var attack_egress_distance_m: float = 1500.0
+@export var attack_egress_side_offset_m: float = 1200.0
+@export var attack_egress_backtrack_m: float = 500.0
+@export var attack_egress_forward_m: float = 450.0
+@export var attack_egress_capture_radius_m: float = 240.0
+@export var attack_breakoff_min_recover_agl_m: float = 420.0
+@export var attack_breakoff_min_climb_rate_mps: float = 1.0
+@export var attack_breakoff_min_time_s: float = 3.0
+@export var attack_breakoff_egress_altitude_gain_m: float = 220.0
+@export var attack_breakoff_completion_radius_m: float = 700.0
+@export var attack_breakoff_max_time_s: float = 18.0
+@export var attack_breakoff_direct_fire_min_recover_agl_m: float = 170.0
+@export var attack_breakoff_target_speed_mps: float = 110.0
+@export var attack_breakoff_direct_fire_target_speed_mps: float = 118.0
+@export var attack_breakoff_max_climb_angle_deg: float = 30.0
+@export var attack_breakoff_low_energy_unload_angle_deg: float = 10.0
+@export var attack_breakoff_fpa_pitch_gain: float = 1.4
+@export var attack_breakoff_fpa_pitch_rate_damping: float = 0.35
+## Maximum forward-stick authority used to arrest an egress climb after the
+## terrain-safe recovery flight path has been acquired.
+@export var attack_breakoff_fpa_max_push_input: float = 0.25
+@export var attack_run_heading_candidates: int = 24
+@export var attack_run_corridor_samples: int = 12
+@export var attack_run_corridor_clearance_m: float = 120.0
+@export var attack_run_post_target_probe_m: float = 900.0
+@export var attack_run_obstruction_penalty: float = 10.0
+@export var attack_structure_min_half_height_m: float = 12.0
+@export var attack_structure_overflight_margin_m: float = 80.0
+@export var attack_structure_guard_range_m: float = 650.0
+@export var attack_run_preferred_heading_penalty: float = 180.0
+@export var direct_fire_heading_penalty_scale: float = 6.0  # Guns/rockets are strafing passes: strongly prefer the current bearing to the target over a terrain-optimal detour heading
+@export var attack_ingress_lineup_distance_m: float = 900.0  # Proven minimum straight rollout for settling the 3D attack corridor after the joining turn
+@export var attack_ingress_lineup_turn_radii: float = 1.25
+@export var attack_ingress_reach_turn_distance_scale: float = 1.20
+@export var attack_ingress_reach_reserve_radii: float = 0.65
+@export var attack_ingress_heading_penalty: float = 240.0
+@export var attack_setup_capture_radius_m: float = 260.0
+@export var attack_ingress_departure_turn_radii: float = 1.5
+@export var attack_ingress_max_descent_angle_deg: float = 14.0  # Steeper allowed descent = shorter, more direct ingress (was 8deg, which forced long shallow spirals that left rockets circling 2400m+ out)
+@export var attack_ingress_descent_complete_before_setup_m: float = 850.0
+@export var attack_lineup_retry_extension_m: float = 1200.0
+@export var attack_lineup_retry_max_count: int = 2
+@export var attack_ingress_arc_samples: int = 3
+@export var attack_ingress_arc_handle_radii: float = 0.9
+@export var attack_ingress_arc_end_radii_before_setup: float = 0.75
+@export var attack_ingress_max_path_detour_ratio: float = 1.3  # Collapse winding multi-leg approaches to a direct staging leg sooner (was 1.8) so rockets fly straight to the setup instead of a long arc
+@export var attack_ingress_max_path_extra_m: float = 1400.0
+@export var attack_ingress_route_clearance_m: float = 400.0
+@export var attack_prepare_async_departure_enabled: bool = true
+@export var attack_positioning_replan_timeout_s: float = 65.0
+@export var attack_positioning_route_timeout_scale: float = 1.3
+@export var attack_positioning_route_timeout_margin_s: float = 15.0
+@export var attack_positioning_route_timeout_max_s: float = 150.0
 @export var attack_aim_lead_time_s: float = 0.25  # Small lead for moving targets during dive
 @export var bomb_target_lead_max_s: float = 8.0
 @export var bomb_target_lead_scale: float = 1.0
@@ -256,18 +594,83 @@ var maneuver_waypoint: Vector3 = Vector3.ZERO  # Short-term maneuvering target
 @export var bomb_experienced_release_hold_s: float = 0.12
 @export var bomb_veteran_release_hold_s: float = 0.08
 @export var bomb_ace_release_hold_s: float = 0.04
-@export var bomb_release_max_bank_deg: float = 45.0
-@export var rocket_release_max_bank_deg: float = 14.0
+## Raised from 45 -- same regression pattern as ground_attack_direct_fire_intercept_max_bank_deg
+## (see its comment): this session's turn-authority tuning now settles positioning/inbound turns
+## around 50-70deg bank, and residual bank carrying into the CCIP release window was repeatedly
+## blocking bomb release (release_block="bank") on runs that were otherwise correctly lined up,
+## forcing repeated re-attack passes. attack_inbound_bank_limit_deg still caps the inbound leg
+## itself lower (scenario sets 35deg) -- this only widens the terminal release gate to match.
+@export var bomb_release_max_bank_deg: float = 60.0
+@export var rocket_release_max_bank_deg: float = 35.0  # Relaxed from 14deg: a diving strafing pass rolls to track the target; don't gate rockets on near-level wings
 @export var attack_terrain_sample_refresh_s: float = 0.25
 @export var attack_terrain_sample_reuse_distance_m: float = 60.0
 @export var attack_positioning_direct_entry_after_s: float = 4.0
 @export var attack_positioning_direct_entry_range_buffer_m: float = 250.0
 @export var attack_positioning_direct_entry_min_dot: float = 0.55
+@export var attack_positioning_direct_entry_max_cross_track_m: float = 260.0
+@export var attack_positioning_direct_entry_min_planned_dot: float = 0.68
+@export var attack_corridor_lock_target_enabled: bool = true
+@export var attack_corridor_reuse_axis_enabled: bool = true
+@export var attack_corridor_projected_path_enabled: bool = true
+## POSITIONING may maneuver as hard as required, but it should not hand a steep residual
+## bank to the precision inbound phase. This is a state-transition margin above the
+## inbound controller's bank envelope, not a limit on the positioning turn itself.
+@export var attack_positioning_commit_bank_margin_deg: float = 10.0
+@export var attack_dive_abort_min_target_dot: float = -0.35  # Aggressive: keep pressing the run until the target is well behind (~110deg), not the instant it goes abeam
+@export var attack_commit_replan_cooldown_s: float = 2.0
+@export var attack_recovery_clearance_margin_m: float = 70.0
+@export var attack_recovery_probe_time_s: float = 4.0
+@export var attack_recovery_reaction_time_s: float = 1.0
+@export var attack_recovery_heading_hold_min_agl_m: float = 220.0
+@export var attack_full_throttle_enabled: bool = true
+@export var attack_energy_recovery_start_margin_mps: float = 38.0
+@export var attack_energy_recovery_full_margin_mps: float = 8.0
+@export var attack_energy_recovery_roll_scale: float = 0.25
+@export var attack_energy_recovery_pitch_cap: float = 0.05
+## Energy recovery must not leave the aircraft steeply banked with almost no lift. Blend toward a
+## wings-level roll command as recovery becomes urgent and retain enough pitch to support the wing
+## until the bank is actually reduced; only then may the old near-zero unload cap take over.
+@export var attack_energy_recovery_level_roll_response: float = 0.90
+@export var attack_energy_recovery_banked_pitch_floor: float = 0.34
+@export var attack_energy_recovery_yaw_scale: float = 0.20
+@export var attack_direct_fire_energy_recovery_start_margin_mps: float = 20.0  # Shared direct-intercept recovery: preserve enough roll authority for a prompt reversal
+@export var attack_direct_fire_energy_recovery_roll_scale: float = 0.55
+@export var attack_direct_fire_energy_recovery_yaw_scale: float = 0.45
 @export var bomb_direct_entry_max_cross_track_m: float = 90.0
 @export var bomb_direct_entry_max_altitude_overshoot_m: float = 120.0
+@export var bomb_positioning_commit_min_lane_m: float = 900.0
 @export var ground_attack_enabled: bool = true  # True = autonomous ground attack when valid targets appear
+@export var ground_attack_reacquire_after_breakoff: bool = true
+# Don't fixate on the first ground target: while still POSITIONING/lining up (not yet committed to the
+# dive), periodically re-check for a clearly better target and switch to it. A target already destroyed
+# by allies is dropped by the per-frame resolve; this handles "a higher-priority/much-closer one appeared".
+@export var ground_attack_smart_retarget_enabled: bool = true
+@export var ground_attack_retarget_interval_s: float = 1.0
+@export var ground_attack_retarget_switch_advantage_m: float = 600.0  # candidate must beat current score by this to switch mid-setup
+var _ground_retarget_timer_s: float = 0.0
+@export var ground_attack_forced_weapon_type: String = ""  # Test harness override: "Bomb", "Rocket Pod", or direct-fire weapon name
+@export var ground_attack_weapon_rotation: PackedStringArray = PackedStringArray()  # Optional per-pass order, e.g. Bomb -> Rocket Pod -> Guns
+@export var ground_attack_direct_intercept_enabled: bool = false
+@export var ground_attack_direct_fire_intercept_enabled: bool = false  # Compatibility alias; direct-intercept maneuvering now applies to every ground weapon
+@export var ground_attack_compact_ingress_enabled: bool = false
+@export var ground_attack_direct_intercept_commit_range_m: float = 1400.0
+@export var ground_attack_direct_intercept_min_target_dot: float = 0.94
+@export var ground_attack_direct_fire_intercept_max_bank_deg: float = 15.0
+@export var bomb_direct_intercept_commit_range_m: float = 1800.0
+@export var bomb_direct_intercept_min_target_dot: float = 0.94
+@export var bomb_direct_intercept_min_fpv_dot: float = 0.90
 @export var dogfight_enabled: bool = true
-@export var dogfight_proximity_override_m: float = 500.0  # Break off ground attack if enemy aircraft within this range
+@export var air_combat_posture: AirCombatPosture = AirCombatPosture.DOGFIGHTER
+@export var dogfight_proximity_override_m: float = 500.0  # Break off ground attack if enemy aircraft within this range (DOGFIGHTER posture only)
+# DEFENSIVE posture: how close an air threat must be (and roughly behind us) before we start jinking to
+# throw off its aim -- WITHOUT abandoning the mission. We keep flying the attack run / egress and add a
+# defensive weave; we do NOT enter DOGFIGHT unless truly cornered (see dogfight_defensive_last_ditch_m).
+@export var defensive_evade_threat_range_m: float = 900.0
+@export var defensive_evade_rear_dot: float = 0.2      # threat is "behind" us if our nose-to-threat dot < this
+@export var dogfight_defensive_last_ditch_m: float = 250.0  # only a threat THIS close forces a real dogfight even when defensive
+@export var defensive_evade_weave_m: float = 180.0     # lateral amplitude of the defensive jink
+var _defensive_evade_timer_s: float = 0.0
+var _defensive_evade_dir: float = 1.0
 @export var engagement_radius_from_carrier_m: float = 4500.0
 @export var disengage_radius_from_carrier_m: float = 6000.0
 @export var dogfight_max_range_m: float = 1800.0
@@ -275,8 +678,23 @@ var maneuver_waypoint: Vector3 = Vector3.ZERO  # Short-term maneuvering target
 @export var dogfight_min_hit_chance: float = 0.72
 @export var dogfight_fire_burst_s: float = 0.55
 @export var dogfight_burst_cooldown_s: float = 0.22
+# Hold the trigger: when the hit chance is at or above this, DON'T impose the post-burst cooldown --
+# keep firing continuously as long as the solution stays strong. The burst/cooldown discipline then
+# only applies to MARGINAL shots (a jinking target), where short controlled bursts make sense.
+@export var dogfight_sustained_fire_hit_chance: float = 0.55
+var _dogfight_last_hit_chance: float = 0.0
+var _dogfight_fire_block_reason: String = "not_evaluated"
+var _dogfight_fire_range_m: float = INF
+var _dogfight_fire_aim_dot: float = -1.0
+var _dogfight_fire_required_dot: float = 1.0
+var _dogfight_fire_miss_radius_m: float = INF
+var _dogfight_fire_hit_envelope_m: float = 0.0
+var _dogfight_fire_hit_chance: float = 0.0
+var _dogfight_fire_required_hit_chance: float = 1.0
+var _dogfight_fire_tof_s: float = INF
+var _dogfight_fire_max_tof_s: float = 0.0
 @export var dogfight_min_aim_dot: float = 0.9982  # ~3.4 deg
-@export var dogfight_fire_max_tof_s: float = 0.85
+@export var dogfight_fire_max_tof_s: float = 1.3  # Max bullet time-of-flight to still fire (was 0.85 which rejected perfect solutions). Balance: too high and a jinking target dodges the 1.5s+ bullet flight; too low and it rarely fires.
 @export var dogfight_fire_precise_min_blend: float = 0.90
 @export var dogfight_fire_precise_close_range_m: float = 300.0
 @export var dogfight_fire_fallback_range_m: float = 220.0
@@ -296,7 +714,91 @@ var maneuver_waypoint: Vector3 = Vector3.ZERO  # Short-term maneuvering target
 @export var dogfight_default_muzzle_velocity_mps: float = 500.0
 @export var dogfight_retarget_interval_s: float = 0.5
 @export var dogfight_retarget_advantage_m: float = 150.0
+# Threat/opportunity-aware target switching: don't fixate on the first bandit. Score every candidate by
+# tactical value (a THREAT on our tail, or an OPPORTUNITY dead ahead at low deflection) -- not just raw
+# distance -- and switch when a candidate clearly beats the current one. Hysteresis stops flip-flopping.
+# Knife-fight range: within this distance you CAN'T lose track of an enemy (too close to miss), so the
+# awareness gate is bypassed for acquisition. Stops the "blind in a close 1v1 -> target=none -> stalemate"
+# case where an attacker diving on you sits in your upper/rear arc and awareness never rebuilds.
+@export var dogfight_knife_fight_range_m: float = 1200.0
+@export var dogfight_smart_retarget_enabled: bool = true
+@export var dogfight_retarget_threat_weight: float = 1400.0    # score bonus (in "equivalent metres closer") for an enemy on OUR tail
+@export var dogfight_retarget_opportunity_weight: float = 1000.0  # bonus for an enemy dead ahead in our gun arc
+@export var dogfight_retarget_switch_hysteresis: float = 350.0  # candidate must beat current by this (equivalent metres) to switch
 @export var dogfight_bank_cmd_limit_deg: float = 90.0
+# Simple pursuit keeps maneuver steering separate from the weapon solution: fly primarily toward the
+# target's current position, add only a short bounded lead while it is ahead, and reserve full ballistic
+# steering for an already-close, nearly aligned gun solution.
+@export var dogfight_simple_pursuit_enabled: bool = true
+@export var dogfight_simple_pursuit_max_lead_s: float = 0.75
+@export var dogfight_simple_pursuit_max_lead_m: float = 180.0
+@export var dogfight_simple_ballistic_steering_range_m: float = 650.0
+@export var dogfight_simple_ballistic_steering_min_forward_dot: float = 0.85
+@export_range(0.0, 1.0, 0.05) var dogfight_simple_ballistic_steering_min_precision: float = 0.65
+# Assertive combat steering chooses a steep target bank. The shared feedback controller then asks
+# the wing for the load needed to make that bank turn effectively while controlling vertical speed.
+# Rudder normally removes sideslip, but may deliberately accept some slip when its banked control
+# axis can help regulate the world-vertical flight path.
+@export var dogfight_assertive_turn_enabled: bool = true
+@export var dogfight_assertive_turn_bank_deg: float = 82.0
+@export var dogfight_assertive_turn_entry_error_deg: float = 5.0
+@export var dogfight_assertive_turn_exit_error_deg: float = 2.0
+# Turn-rate bank scheduler. Heading error supplies the corrective term; world-space
+# line-of-sight rate supplies feed-forward so a correctly aimed fighter retains the
+# steep bank required to follow a turning target. The bank itself is derived from
+# lateral acceleration (v * omega), rather than selected from a binary error band.
+@export var dogfight_turn_rate_bank_scheduler_enabled: bool = true
+@export var dogfight_turn_rate_heading_gain: float = 0.45
+@export var dogfight_turn_rate_los_feedforward: float = 1.0
+@export var dogfight_turn_rate_limit_deg_s: float = 40.0
+@export var dogfight_los_rate_filter_hz: float = 3.0
+@export var dogfight_los_bearing_jump_reset_deg: float = 20.0
+## Close the scheduler around measured ground-track rate. Without this feedback,
+## bank was only feed-forward: the pilot kept turning hard until the target crossed
+## the nose, then reversed and repeated the same overshoot in the other direction.
+@export var dogfight_turn_rate_feedback_gain: float = 0.85
+@export var dogfight_track_rate_filter_hz: float = 5.0
+# Optional target-command damping. Zero preserves the immediate scheduler response;
+# positive values low-pass the requested bank without damping the aircraft controls.
+@export var dogfight_turn_rate_bank_response_hz: float = 2.5
+# Closed-loop coordinated-turn controller. Bank is the maneuver command; elevator regulates measured
+# wing load and vertical speed, while rudder regulates measured sideslip. These are response gains,
+# not canned control positions.
+@export var coordinated_turn_load_kp: float = 0.74211577
+@export var coordinated_turn_load_ki: float = 0.32882861
+@export var coordinated_turn_vertical_accel_gain: float = 5.0
+@export var coordinated_turn_vertical_accel_damping: float = 5.0
+# Flight-path response for a sustained combat turn. This converts vertical-speed
+# error into requested world-vertical acceleration. The result is subsequently
+# limited by the wing's real zero-AoA and useful-AoA load capability, rather than
+# by a canned G band.
+@export var coordinated_turn_vertical_path_response: float = 0.45
+@export var coordinated_turn_target_load_response_hz: float = 1.25
+# The simple load equation covers wing lift and gravity.  Engine thrust, airflow
+# alignment and other forces also bend the world-space flight path.  Estimate
+# their combined vertical acceleration from the rigid body's measured response,
+# then let the same flight-path law compensate it instead of tuning a fixed bias.
+@export var coordinated_turn_nonwing_accel_observer_response_hz: float = 1.25
+@export var coordinated_turn_pitch_rate_damping: float = 0.105681
+@export var coordinated_turn_aoa_soft_deg: float = 18.16582181
+@export var coordinated_turn_aoa_hard_deg: float = 21.42927714
+@export var coordinated_turn_aoa_relief_gain: float = 0.0609993
+@export var coordinated_turn_aoa_hold_kp: float = 0.055
+@export var coordinated_turn_aoa_hold_ki: float = 0.018
+@export var coordinated_turn_aoa_rate_damping: float = 0.025
+@export var coordinated_turn_load_start_bank_deg: float = 12.0
+@export var coordinated_turn_load_full_bank_deg: float = 70.0
+@export var coordinated_turn_sideslip_kp: float = 4.0
+@export var coordinated_turn_sideslip_kd: float = 0.25
+## Rudder command per m/s of vertical-speed error, projected through the rudder's
+## actual world-vertical authority. It naturally fades to zero at wings-level and
+## changes sign with bank direction; the sideslip loop remains a soft counterweight.
+@export var coordinated_turn_vertical_rudder_gain: float = 0.07
+# Keep the simple combat-turn law upright: establish the selected 75-degree bank, then pull.
+# Letting this path roll to 179 degrees turned ordinary pursuit commands into inverted pull-throughs
+# and near-vertical dives, which is not the assertive horizontal turn this controller is meant to fly.
+@export var dogfight_unrestricted_maneuvering: bool = false
+@export var dogfight_unrestricted_max_bank_deg: float = 179.0  # effectively unlimited roll while fighting
 @export var dogfight_min_speed_mps: float = 60.0
 @export var dogfight_max_speed_mps: float = 130.0
 @export var dogfight_closure_speed_boost_mps: float = 15.0
@@ -307,8 +809,25 @@ var maneuver_waypoint: Vector3 = Vector3.ZERO  # Short-term maneuvering target
 @export var dogfight_ground_protect_agl_m: float = 260.0
 @export var dogfight_ground_protect_min_bank_deg: float = 30.0
 @export var dogfight_ground_protect_min_climb_vs_mps: float = 8.0
+# Forward terrain-floor lookahead: refreshed on this interval (not every frame -- target moves fast
+# enough that anything more elaborate than a direct sample would already be stale), samples terrain
+# along the line toward the target's predicted position out to this distance, and floors the merge
+# aim point at that height plus dogfight_ground_protect_agl_m. Gives the merge real forward terrain
+# knowledge instead of relying solely on the short reactive fan-cast in _check_terrain_avoidance.
+@export var dogfight_terrain_floor_refresh_s: float = 0.5
+@export var dogfight_terrain_floor_lookahead_s: float = 4.0
 @export var dogfight_collision_check_horizon_s: float = 3.0
 @export var dogfight_collision_min_sep_m: float = 130.0
+# Required miss distance scales with closure speed (seconds of lead): a fast head-on merge needs a much
+# bigger safety bubble to break clear than a slow tail chase. 1.5s * 200 m/s closure => break at ~300m.
+@export var dogfight_collision_closure_lead_s: float = 1.5
+# Hard proximity floor, checked independent of relative velocity. The closure-speed-scaled check above
+# is purely predictive (projects rel_pos + rel_vel * t_cpa) and never fires when relative velocity is
+# near zero -- e.g. a co-speed tail chase or scissors where both aircraft curve into contact over several
+# seconds rather than closing in a straight line. That let two aircraft sit at closest_edge=0.00m for 4+
+# seconds of mutual gunfire and then physically collide. This floor breaks them apart on ACTUAL distance
+# alone, regardless of what the linear velocity projection predicts.
+@export var dogfight_collision_hard_floor_m: float = 60.0
 @export var dogfight_collision_escape_distance_m: float = 700.0
 @export var dogfight_collision_escape_vertical_m: float = 260.0
 @export var dogfight_stalemate_trigger_s: float = 6.0
@@ -331,6 +850,24 @@ var maneuver_waypoint: Vector3 = Vector3.ZERO  # Short-term maneuvering target
 @export var dogfight_unload_speed_margin_mps: float = 8.0
 @export var dogfight_unload_descent_gain: float = 0.18
 @export var dogfight_low_speed_pitch_cap: float = 0.45
+@export var dogfight_high_speed_pitch_cap: float = 1.0  # max pitch pull at/above corner speed (was 0.85, which saturated during tracking and couldn't close the shot)
+## Shared turn-load law: once a dogfight bank is committed, ask the wing for real load instead of
+## relying on target elevation error plus the old 0.22 pitch nudge. The demand ramps smoothly with
+## bank, receives feedback from SimpleAero's estimated lift ratio, and is still bounded later by the
+## existing low-speed/energy/terrain protections.
+@export var dogfight_turn_load_target_g: float = 4.5
+@export var dogfight_turn_load_start_bank_deg: float = 12.0
+@export var dogfight_turn_load_full_bank_deg: float = 75.0
+@export var dogfight_turn_load_pitch_max: float = 1.0
+@export_range(0.0, 1.0, 0.05) var dogfight_turn_load_feedback_gain: float = 1.0
+@export_range(0.0, 1.0, 0.05) var dogfight_turn_load_pitch_floor_ratio: float = 1.0
+# Energy discipline: the pull cap ramps from full (at corner speed) down to low_speed_pitch_cap by the
+# time speed reaches this fraction of corner speed. Keeps a hard turn SUSTAINABLE near corner instead of
+# bleeding to a stall in one pull (which caused symmetric merges to end in a stalled mutual gun-kill).
+@export_range(0.5, 0.98, 0.01) var dogfight_sustain_turn_speed_frac: float = 0.88
+# Pull cap for a plane going FAST (well above corner): limit max-G so it holds a sustainable turn and
+# doesn't bleed 110->8 m/s in one pull. Full pull is reserved for near corner speed where it's efficient.
+@export_range(0.3, 1.0, 0.05) var dogfight_sustain_high_speed_pitch_cap: float = 0.6
 @export var dogfight_lead_pursuit_blend: float = 1.0
 @export var dogfight_ballistic_aim_blend: float = 0.95
 @export var dogfight_precise_ballistic_aim_blend: float = 1.0
@@ -338,6 +875,109 @@ var maneuver_waypoint: Vector3 = Vector3.ZERO  # Short-term maneuvering target
 @export var dogfight_rejoin_speed_mps: float = 110.0
 @export var dogfight_rejoin_bank_limit_deg: float = 45.0
 @export var dogfight_lost_sight_cone_deg: float = 120.0
+
+# --- Situational awareness (detection by arc) ---
+# Each pilot tracks a 0..1 awareness of each enemy that rises when the enemy sits in an easy-to-see
+# arc (front) and decays when it's hard/impossible to see (behind, below). Skill scales it: aces gain
+# awareness faster and lose it slower ("intuit" where the enemy went); novices lose sight easily.
+# Below dogfight_awareness_engage_threshold the enemy is effectively "lost" and not engaged.
+@export var dogfight_situational_awareness_enabled: bool = true
+@export var dogfight_awareness_engage_threshold: float = 0.35  # awareness needed to actively track/engage an enemy
+@export var dogfight_awareness_drop_threshold: float = 0.15    # below this we've fully lost it (must re-spot)
+# Per-arc awareness GAIN rate (units/sec at full detectability). Arcs are in the pilot's local frame.
+@export var dogfight_awareness_gain_front: float = 2.5   # dead ahead, easy
+@export var dogfight_awareness_gain_side: float = 1.1    # left/right, peripheral
+@export var dogfight_awareness_gain_above: float = 0.8   # up through the canopy, craning
+@export var dogfight_awareness_gain_behind: float = 0.12 # aft, almost can't see
+@export var dogfight_awareness_gain_below: float = 0.05  # under the belly, nearly impossible
+@export var dogfight_awareness_decay_rate: float = 0.6   # how fast awareness fades when the enemy is out of the good arcs
+@export var dogfight_awareness_range_full_m: float = 900.0   # within this range, awareness gain is easiest
+@export var dogfight_awareness_range_max_m: float = 5000.0   # beyond this, very hard to pick out visually
+# Skill scaling (RECRUIT..ELITE): multiplies gain and divides decay, so aces keep track far better.
+@export var dogfight_awareness_skill_gain_min: float = 0.6   # RECRUIT gain multiplier
+@export var dogfight_awareness_skill_gain_max: float = 1.8   # ELITE gain multiplier
+@export var dogfight_awareness_skill_decay_min: float = 1.6  # RECRUIT decay multiplier (loses sight fast)
+@export var dogfight_awareness_skill_decay_max: float = 0.4  # ELITE decay multiplier (holds the picture)
+var _enemy_awareness: Dictionary = {}  # enemy Node3D -> awareness float 0..1
+
+# --- Energy management (boom-and-zoom) ---
+# Specific energy E = altitude + v^2/(2g). When we hold an energy advantage over the target we use
+# the vertical: dive to attack, zoom-climb to reset, and refuse to bleed down into a low/slow
+# target's turning arena. Set dogfight_energy_tactics_enabled false to restore pure turn-fighting.
+@export var dogfight_energy_tactics_enabled: bool = true
+# Energy margin (metres of specific energy) above the target beyond which we prefer vertical tactics.
+@export var dogfight_energy_advantage_margin_m: float = 250.0
+# After a diving pass, once we're this much faster than the target we zoom-climb to regain altitude.
+@export var dogfight_zoom_speed_margin_mps: float = 45.0
+# Perch altitude we try to sit at above the target when energy-rich (metres above the target).
+@export var dogfight_perch_height_m: float = 450.0
+# Never descend to within this height of a lower/slower target while pressing it (the "don't follow
+# a helicopter into the canyon" floor). We make diving passes from above instead.
+@export var dogfight_min_pursuit_height_m: float = 200.0
+# Target is "low and slow" (helicopter-like) when at least this much slower than us.
+@export var dogfight_slow_target_speed_margin_mps: float = 40.0
+# Zoom climb ends and we re-attack once we've regained this height above the target, or slowed to
+# near corner speed (whichever first), so we don't zoom into a stall.
+@export var dogfight_zoom_reset_height_m: float = 350.0
+# During a diving attack, once inside this range we commit to the gun: lift the descent floor so the
+# nose tracks straight onto the target for the shot, then zoom-reset on the exit.
+@export var dogfight_dive_gun_commit_range_m: float = 700.0
+
+# --- Scissors reset, bug-out, and keep-it-low ---
+# If we've been stuck in a neutral co-energy turn fight this long without developing an advantage,
+# break off and EXTEND to reset separation, then re-attack (turns a flat scissors back into a bounce).
+@export var dogfight_scissors_timeout_s: float = 14.0
+@export var dogfight_scissors_extend_s: float = 5.0    # how long to extend before re-engaging
+# A plane that's behind on energy will EXTEND_REBUILD to run and rebuild -- but in a bounded 1v1 it can
+# run FOREVER (never turns to fight), stalemating the round. Cap continuous extend time: past this, turn
+# in and fight from the deficit rather than keep running.
+@export var dogfight_max_extend_s: float = 8.0
+var _dogfight_extend_run_timer_s: float = 0.0
+# Bug-out: if we're losing badly (low health, or enemy has a big energy edge and is on our tail),
+# disengage and run. run_health_frac: below this fraction we consider bugging out.
+@export var dogfight_bugout_enabled: bool = true
+@export var dogfight_bugout_health_frac: float = 0.3
+@export var dogfight_bugout_energy_deficit_m: float = 500.0  # enemy energy advantage that (with a rear threat) triggers a run
+# Keep fights low & close: prefer to fight below this AGL. Above it, tactics bias toward diving/not
+# climbing, so fights stay near the deck where they're readable rather than spiralling to altitude.
+@export var dogfight_preferred_ceiling_agl_m: float = 1400.0
+# Hard floor (AGL) for ANY dogfight aim point. A committed dive at 150 m/s can outrun the normal
+# ground-avoidance and fly into terrain (crashed a friendly at hits_taken=1). This clamps every aim
+# point so a pressed pass always pulls out with room to spare. Larger than the generic attack floor
+# because dogfight closure speeds are higher.
+@export var dogfight_min_agl_floor_m: float = 250.0
+# Extra altitude margin (beyond the physics-projected pullout drop) required before a dive aim point
+# is allowed through _clamp_dogfight_suicide_dive. Pure safety buffer for reaction lag/estimation error.
+@export var dogfight_dive_recovery_margin_m: float = 60.0
+# A fighter may dive to attack, but pursuit steering must not point it almost vertically at a target.
+# This limits the commanded line; the final flight-path envelope below catches momentum/overshoot.
+@export var dogfight_max_commanded_dive_angle_deg: float = 35.0
+# FINISH THE KILL: against a slow, low-energy, non-threatening bandit (one that has disengaged and is
+# fleeing/loitering slow & low), boom-and-zoom is wrong -- it makes endless slashing passes and never
+# converts. Instead settle into a patient sustained tail-chase gun pass: match the bandit's speed so we
+# don't overshoot, hold the nose on it, keep firing. This is what closes out the draws.
+@export var dogfight_finish_kill_enabled: bool = true
+@export var dogfight_finish_speed_margin_mps: float = 25.0   # target this much slower than us => "slow bandit"
+@export var dogfight_finish_energy_advantage_m: float = 400.0  # our energy edge to qualify as dominant
+@export var dogfight_finish_max_range_m: float = 1100.0        # only settle into the tracking pass inside this
+var _dogfight_scissors_timer_s: float = 0.0
+var _dogfight_extend_timer_s: float = 0.0
+# Once a diving attack presses inside this range with the nose roughly on target, COMMIT: lock into
+# pressing the pass (hold the nose on the target, keep firing) and don't allow a zoom-away until the
+# target has actually gone abeam/behind. Prevents bailing out of a good bounce into a stalemate.
+@export var dogfight_commit_range_m: float = 900.0
+@export var dogfight_commit_min_aim_dot: float = 0.55  # how roughly-aligned (nose-to-target) to trigger the commit
+@export var dogfight_commit_break_dot: float = -0.1    # target this far behind the nose ends the committed pass
+@export var dogfight_commit_max_s: float = 4.0         # safety cap so a committed pass can't latch forever
+# Closure management on the committed pass (stops overshooting to the target's 6 o'clock).
+@export var dogfight_lag_pursuit_distance_m: float = 120.0  # aim this far behind the target (toward its tail) when lagging
+@export var dogfight_lag_pursuit_strength: float = 0.7      # how strongly to bias toward the tail point (0..1)
+@export var dogfight_overtake_throttle_ease_mps: float = 40.0  # overtake above this at close range eases throttle to reduce closure
+
+enum DogfightEnergyTactic { NEUTRAL, DIVING_ATTACK, ZOOM_RESET, EXTEND_REBUILD, COMMITTED_ATTACK }
+var _dogfight_energy_tactic: int = DogfightEnergyTactic.NEUTRAL
+var _dogfight_tactic_hold_s: float = 0.0
+var _dogfight_commit_timer_s: float = 0.0
 @export var dogfight_lost_sight_pursue_chance: float = 0.5
 @export var dogfight_lost_sight_behavior_min_s: float = 0.9
 @export var dogfight_lost_sight_behavior_max_s: float = 1.8
@@ -346,7 +986,18 @@ var maneuver_waypoint: Vector3 = Vector3.ZERO  # Short-term maneuvering target
 
 var cached_ballistic_solution: Dictionary = {}
 var ballistic_cache_time: float = 0.0
-@export var ballistic_cache_duration: float = 0.1
+@export var ballistic_cache_duration: float = 0.03  # was 0.1 -- during a high-crossing merge a 100ms-stale lead solution lags the maneuvering target; recompute ~every frame
+# --- Turn-rate (curved) lead: track the current target's velocity so we can estimate its angular
+# turn rate and propagate its future position along an ARC instead of a straight line. Straight-line
+# lead misses a jinking bandit over the ~1s bullet flight -- this is the main dogfight gunnery gap. ---
+@export var dogfight_curved_lead_enabled: bool = true
+@export var dogfight_curved_lead_max_turn_rate: float = 1.2   # cap estimated turn rate (rad/s) to avoid wild extrapolation
+@export var dogfight_curved_lead_smoothing: float = 0.35      # low-pass on the estimated turn (0..1 per sample)
+var _lead_track_target: Node3D = null
+var _lead_track_prev_vel: Vector3 = Vector3.ZERO
+var _lead_track_turn_axis: Vector3 = Vector3.ZERO
+var _lead_track_turn_rate: float = 0.0
+var _lead_track_valid: bool = false
 @export var dogfight_straight_level_yaw_deg: float = 5.0
 @export var dogfight_straight_level_bank_blend: float = 0.25
 @export var dogfight_straight_level_pitch_blend: float = 0.15
@@ -359,29 +1010,88 @@ var ballistic_cache_time: float = 0.0
 @export var dogfight_precise_aim_full_deg: float = 1.5
 @export var dogfight_precise_aim_max_range_m: float = 1800.0
 @export var dogfight_precise_pid_blend: float = 1.0
+# Shapes how quickly local-frame pitch/rudder aiming takes authority from the
+# coordinated-turn baseline. One preserves the existing linear blend.
+@export var dogfight_precision_axis_authority_power: float = 1.0
 @export var dogfight_precise_roll_response: float = 1.0
 @export var dogfight_precise_pitch_response: float = 1.0
 @export var dogfight_precise_yaw_response: float = 1.0
 var _run_weapon_type: String = "Autocannon"
+var _ground_attack_weapon_rotation_index: int = 0
 var _bombs_to_drop_this_run: int = 0
 var _bombs_dropped_this_run: int = 0
 var _last_bomb_drop_time_s: float = -INF
 var _rockets_to_fire_this_run: int = 0
 var _rockets_fired_this_run: int = 0
 var _last_rocket_fire_time_s: float = -INF
+var _rocket_volley_control_hold_active: bool = false
+var _ground_gun_firing_run_active: bool = false
+var _rocket_volley_hold_pitch_input: float = 0.0
+var _rocket_volley_hold_roll_input: float = 0.0
+var _rocket_volley_hold_yaw_input: float = 0.0
 var _prev_run_was_failed_bomb: bool = false  # True if last bomb run dropped nothing
 var _bomb_run_altitude_m: float = 0.0
 var _attack_setup_wp_xz: Vector2 = Vector2.ZERO   # Fixed setup-point XZ (set once per run)
+var _attack_setup_altitude_m: float = NAN         # Fixed setup altitude selected with the attack corridor
+var _attack_release_waypoint: Vector3 = Vector3.INF # Terrain-derived rocket firing gate
 var _attack_setup_target_pos: Vector3 = Vector3.ZERO  # Carrier pos when setup was planned
+var _attack_locked_setup_distance_m: float = 0.0
+var _attack_corridor_axis: Vector3 = Vector3.ZERO
+var _attack_corridor_target_instance_id: int = 0
+var _attack_corridor_target_pos: Vector3 = Vector3.INF
 var _overshoot_recompute_cooldown_s: float = 0.0     # Prevents recomputing every frame after overshoot
+var _attack_lineup_retry_count: int = 0
 var _positioning_time_s: float = 0.0                  # Time spent in ATTACK_POSITIONING; recompute if too long
+var _attack_positioning_route_timeout_s: float = 90.0
+var _direct_intercept_extension_waypoint: Vector3 = Vector3.INF
 var _prev_ccip_miss: float = INF  # Tracks CCIP miss from last frame to detect improving accuracy
+var _prev_rocket_ccip_miss: float = INF
 var _ccip_cache_timer: float = 0.0  # Throttle CCIP to avoid per-frame ballistic sim
 var _ccip_cached_result: Vector3 = Vector3.ZERO
 var _ccip_cached_tof_s: float = -1.0
+var _ccip_cached_blocked: bool = false
+var _ccip_cached_block_reason: String = ""
+var _rocket_ccip_cached_hit_target: bool = false
+var _rocket_ccip_cached_damage_radius_m: float = 0.0
 var _cached_bomb_linear_damp: float = -1.0  # -1 = not yet cached
 var _cached_bomb_gravity_scale: float = 1.0
 var _best_bomb_ccip_miss_this_run: float = INF
+var _best_rocket_ccip_miss_this_run: float = INF
+var _last_rocket_release_reason: String = ""
+var _last_rocket_release_block_reason: String = ""
+var _last_rocket_release_miss_m: float = INF
+var _last_rocket_release_best_miss_m: float = INF
+var _last_bomb_release_block_reason: String = ""
+var _last_bomb_release_miss_m: float = INF
+var _last_bomb_release_best_miss_m: float = INF
+var _last_bomb_release_alt_above_m: float = INF
+var _last_bomb_release_range_m: float = INF
+var _last_bomb_release_bank_deg: float = 0.0
+var _last_bomb_release_fpa_deg: float = 0.0
+var _last_bomb_release_has_ccip: bool = false
+var _last_bomb_release_stable_s: float = 0.0
+var _bomb_ccip_aim_active: bool = false
+var _bomb_ccip_local_right_m: float = 0.0
+var _bomb_ccip_local_forward_m: float = 0.0
+var _bomb_ccip_range_m: float = 1.0
+var _bomb_ccip_pitch_cmd: float = 0.0
+var _bomb_ccip_yaw_cmd: float = 0.0
+var _rocket_ccip_aim_active: bool = false
+var _rocket_ccip_local_right_m: float = 0.0
+var _rocket_ccip_local_forward_m: float = 0.0
+var _rocket_ccip_miss_m: float = INF
+var _rocket_ccip_range_m: float = 1.0
+var _rocket_ccip_pitch_cmd: float = 0.0
+var _rocket_ccip_yaw_cmd: float = 0.0
+var _gun_ccip_aim_active: bool = false
+var _gun_ccip_local_right_m: float = 0.0
+var _gun_ccip_local_forward_m: float = 0.0
+var _gun_ccip_miss_m: float = INF
+var _gun_ccip_range_m: float = 1.0
+var _gun_ccip_pitch_cmd: float = 0.0
+var _gun_ccip_yaw_cmd: float = 0.0
+var _gun_ccip_blocked: bool = false
+var _gun_ccip_block_reason: String = ""
 var _attack_terrain_sample_cache_until_s: float = -INF
 var _attack_terrain_sample_cache_from: Vector3 = Vector3.ZERO
 var _attack_terrain_sample_cache_to: Vector3 = Vector3.ZERO
@@ -392,6 +1102,19 @@ var _release_solution_last_update_s: float = -INF
 var _attack_recovery_until_s: float = 0.0  # After emergency, hold egress before next run
 var _dive_precise_aim: bool = false  # When true, use tighter bank for steadier final approach
 var _dive_entry_time_s: float = -INF  # When we entered ATTACK_DIVE (for soft dive entry)
+var _attack_breakoff_entry_time_s: float = -INF
+var _attack_breakoff_egress_y_m: float = -INF
+var _attack_recovery_waypoint: Vector3 = Vector3.INF
+var _attack_recovery_heading_dir: Vector3 = Vector3.ZERO
+var _direct_fire_breakoff_dir: Vector3 = Vector3.ZERO
+# A destroyed target can leave the scene before the next pilot tick. Preserve
+# the position of the pass we are actually recovering from so target deletion
+# cannot turn ATTACK_DIVE into SEARCH and immediately assign a new attack.
+var _attack_breakoff_reference_pos: Vector3 = Vector3.INF
+var _attack_breakoff_reference_locked: bool = false
+var _attack_last_commit_reason: String = "not_evaluated"
+var _attack_last_end_reason: String = "pending"
+var _attack_commit_count: int = 0
 @export var attack_debug_summary_interval_s: float = 1.0
 @export var general_debug_summary_interval_s: float = 10.0
 var _periodic_debug_timer_s: float = 0.0
@@ -410,6 +1133,29 @@ var _dogfight_variation_waypoint: Vector3 = Vector3.ZERO
 var _dogfight_prev_target_distance_m: float = INF
 var _dogfight_recovery_timer_s: float = 0.0
 var _dogfight_recovery_waypoint: Vector3 = Vector3.ZERO
+var _dogfight_assertive_turn_active: bool = false
+var _dogfight_assertive_turn_yaw_error_deg: float = 0.0
+var _dogfight_rear_turn_sign: float = 0.0
+var _dogfight_los_rate_initialized: bool = false
+var _dogfight_los_rate_target_id: int = 0
+var _dogfight_previous_los_bearing_rad: float = 0.0
+var _dogfight_filtered_los_rate_rad_s: float = 0.0
+var _dogfight_commanded_turn_rate_deg_s: float = 0.0
+var _dogfight_los_rate_deg_s: float = 0.0
+var _dogfight_actual_track_rate_deg_s: float = 0.0
+var _dogfight_bank_command_rate_deg_s: float = 0.0
+var _dogfight_track_rate_initialized: bool = false
+var _dogfight_previous_track_bearing_rad: float = 0.0
+var _dogfight_filtered_track_rate_rad_s: float = 0.0
+var _dogfight_precise_aim_blend: float = 0.0
+var _dogfight_scheduled_bank_rad: float = 0.0
+var _dogfight_scheduled_bank_initialized: bool = false
+# Forward terrain awareness for the merge/chase line, refreshed on a timer rather than every frame
+# (target moves fast enough that a full threaded route would be stale before it returned; this is a
+# cheap direct sample, not a planned path). Gives the aim point real knowledge of what's ahead instead
+# of relying solely on the short reactive fan-cast in _check_terrain_avoidance.
+var _dogfight_terrain_floor_timer_s: float = 0.0
+var _dogfight_terrain_floor_y: float = -INF
 var _dogfight_precise_yaw_controller: PIDController
 var _dogfight_precise_pitch_controller: PIDController
 var _dogfight_lost_sight_behavior: DogfightLostSightBehavior = DogfightLostSightBehavior.EFFICIENT
@@ -472,6 +1218,47 @@ var _recovery_clearance_granted: bool = false
 @export var recovery_low_gate_alt_above_deck_m: float = 160.0
 @export var recovery_final_gate_behind_m: float = 1000.0
 @export var recovery_final_gate_alt_above_deck_m: float = 120.0
+# --- New streamlined recovery (circle-only-if-busy -> threaded approach -> steep straight-in) ---
+# If the deck grants clearance right away, skip circling and go straight to the approach. Otherwise
+# orbit the carrier at circle_radius/alt until it opens. Then fly a (threaded) route to an approach
+# point ~approach_point_behind_m behind the ship at an altitude set by approach_descent_angle_deg, at
+# approach_speed_mps, and descend straight-in onto the touchdown -- steeper + quicker than the old gates.
+@export var approach_point_behind_m: float = 350.0
+@export var approach_descent_angle_deg: float = 6.0     # entry altitude = deck + behind*tan(angle); matches the ~5.9deg final
+@export var approach_speed_mps: float = 60.0  # flaps down (gear+flaps) lower the stall, so a slower approach works
+@export var approach_point_capture_m: float = 90.0      # how close to the approach point before committing straight-in
+@export var approach_join_distance_m: float = 400.0     # phase-1 transit ends when within this of the join point behind the carrier
+@export var approach_join_lead_m: float = 400.0         # join point sits this much further behind the carrier than the approach point
+@export var recovery_pattern_alt_above_deck_m: float = 400.0  # descend to this above the deck first, then transit in
+@export var recovery_pattern_alt_capture_m: float = 60.0      # "at pattern altitude" tolerance
+@export var recovery_entry_bank_guard_deg: float = 35.0   # if still this banked when RECOVERY_APPROACH begins (e.g. straight out of DOGFIGHT), level wings before trusting the normal glideslope law
+@export var recovery_entry_bank_guard_agl_m: float = 220.0  # ...but only when close enough to the ground that a slow bank-tracking recovery would be risky
+@export var recovery_pattern_alt_below_capture_m: float = 160.0 # a banked inbound turn may sag; final guidance safely recaptures the slope
+# --- Glideslope intercept: line up position + heading + speed BEFORE the final descent ---
+@export var glide_intercept_margin_m: float = 300.0     # intercept point sits this far beyond where the 6deg slope meets pattern altitude
+@export var glide_intercept_capture_m: float = 400.0    # close enough to the intercept point to consider turning inbound
+@export var approach_align_min_dot: float = 0.87        # velocity·deck-forward needed to commit down the slope (~30deg cone)
+@export var glide_commit_min_behind_m: float = 2800.0   # too close to descend 400m comfortably -> extend outbound instead of committing
+@export var recovery_outbound_extension_m: float = 2200.0 # room beyond the intercept for the inbound turn to finish
+@export var recovery_axis_capture_lookahead_m: float = 1800.0 # moving centerline carrot, instead of pure-pursuing one fixed point
+@export var recovery_axis_cross_track_lookahead_scale: float = 2.5 # prevents an excessively steep centerline intercept
+@export var recovery_descent_max_fpa_deg: float = 10.0  # never demand a descent steeper than this in the pattern (dive guard)
+## Recovery navigation uses the ordinary vertical-speed pitch loop, whose bank compensation remains
+## physically effective through roughly 40 degrees. Asking that loop for the generic 75-degree
+## navigation bank produced the observed 0G -> 3G pitch cycle while descending to the pattern.
+@export var recovery_navigation_bank_limit_deg: float = 40.0
+@export var recovery_glideslope_bank_limit_deg: float = 25.0
+@export var glide_lookahead_m: float = 350.0            # slope carrot distance ahead along the deck axis
+@export var start_landing_behind_m: float = 1500.0      # give the FPA-carrot final enough distance to settle onto the wire-target line
+@export var gear_deploy_behind_m: float = 2000.0        # deploy gear+flaps only inside this (clean/fast until close)
+@export var recovery_frame_sanity_max_m: float = 12000.0      # if the carrier frame reads farther than this, treat it as an origin-shift glitch and hold (spawns are 5-6km, so real recoveries are well under this)
+@export var recovery_circle_radius_m: float = 1400.0    # orbit radius while waiting for a busy deck
+@export var recovery_circle_alt_above_deck_m: float = 400.0
+@export var recovery_circle_speed_mps: float = 90.0
+@export var approach_route_threaded: bool = true        # terrain-route the arrival to the authored final corridor; only the short marked final is assumed clear
+var _approach_route_point: Vector3 = Vector3.INF        # cached approach point (carrier-relative, recomputed)
+var _recovery_route_request_debugged: bool = false
+var _circle_theta: float = 0.0                          # orbit angle while circling
 @export var landing_path_lookahead_time_s: float = 2.0
 @export var landing_path_min_lookahead_m: float = 35.0
 @export var landing_path_max_lookahead_m: float = 120.0
@@ -479,8 +1266,8 @@ var _recovery_clearance_granted: bool = false
 @export var landing_moving_carrot_enabled: bool = true
 @export var landing_carrot_speed_mps: float = 48.0
 @export var landing_carrot_initial_gap_m: float = 300.0
-@export var landing_carrot_min_gap_m: float = 45.0
-@export var landing_carrot_final_max_gap_m: float = 120.0
+@export var landing_carrot_min_gap_m: float = 28.0
+@export var landing_carrot_final_max_gap_m: float = 180.0
 @export var landing_carrot_touchdown_gap_m: float = 8.0
 @export var landing_carrot_final_max_gap_start_m: float = 650.0
 @export var landing_carrot_gap_taper_distance_m: float = 180.0
@@ -497,6 +1284,10 @@ var _recovery_clearance_granted: bool = false
 @export var landing_short_final_min_bank_deg: float = 4.0
 @export var landing_touchdown_level_distance_m: float = 110.0
 @export var landing_touchdown_bank_limit_deg: float = 8.0
+## Let a displaced aircraft turn firmly at first, then progressively reduce commanded bank before
+## the strict capture gate so it has time to remove lateral velocity and establish a stable track.
+@export var landing_final_bank_settle_start_remaining_m: float = 650.0
+@export_range(0.1, 1.0, 0.05) var landing_final_bank_scale_at_gate: float = 0.45
 @export var landing_short_final_yaw_gain: float = 2.5
 @export var landing_carrier_motion_compensation_enabled: bool = true
 @export var landing_carrier_motion_min_speed_mps: float = 1.0
@@ -504,6 +1295,35 @@ var _recovery_clearance_granted: bool = false
 @export var landing_carrier_motion_max_speed_mps: float = 20.0
 @export var landing_carrier_speed_compensation_scale: float = 1.0
 @export var landing_waveoff_check_distance_m: float = 220.0
+## Tapered final-approach capture envelope. At `remaining_m`, each radius is
+## `apex_m + remaining_m * tan(half_angle_deg)`, producing an elliptical cone whose
+## point is the touchdown reference. The aircraft must remain position- and flight-path-
+## aligned inside it long enough to pass the gate, or it waves off and uses the existing
+## go-around/re-entry path for another attempt.
+@export var landing_final_capture_gate_remaining_m: float = 350.0
+@export var landing_final_capture_stable_time_s: float = 0.5
+@export var landing_final_capture_lateral_apex_m: float = 3.0
+@export var landing_final_capture_lateral_half_angle_deg: float = 4.0
+## Upper half can remain broad enough to descend into; the lower half is deliberately tight so
+## an aircraft cannot be "inside the cone" while tracking toward the carrier's vertical deck lip.
+@export var landing_final_capture_vertical_apex_m: float = 2.0
+@export var landing_final_capture_vertical_half_angle_deg: float = 2.0
+@export var landing_final_capture_low_apex_m: float = 0.35
+@export var landing_final_capture_low_half_angle_deg: float = 0.4
+@export var landing_final_capture_max_track_yaw_deg: float = 8.0
+@export var landing_final_capture_max_fpa_error_deg: float = 6.0
+@export var landing_final_capture_max_bank_deg: float = 12.0
+## Maximum change from the normal glideslope while intercepting the ideal path at the capture gate.
+## This is deliberately a correction limit, not a fixed climb angle: an aircraft only a few metres
+## low should fly slightly shallower, rather than climbing through the upper side of the cone.
+@export var landing_final_low_cone_intercept_max_correction_deg: float = 2.8
+@export var landing_final_low_cone_rescue_throttle_floor: float = 0.90
+## Separate strict diagnostic for the exact point where the lateral turn is genuinely finished.
+## It does not control the wave-off gate; it records the first continuously settled point.
+@export var landing_final_settled_lateral_m: float = 10.0
+@export var landing_final_settled_track_yaw_deg: float = 5.0
+@export var landing_final_settled_bank_deg: float = 5.0
+@export var landing_final_settled_stable_time_s: float = 0.5
 @export var landing_bolter_past_target_m: float = 25.0
 @export var landing_bolter_rejoin_distance_m: float = 180.0
 @export var landing_bolter_rejoin_altitude_margin_m: float = 80.0
@@ -512,6 +1332,12 @@ var _recovery_clearance_granted: bool = false
 @export var landing_bolter_speed_recovery_mps: float = 72.0
 @export var landing_bolter_initial_climb_margin_m: float = 80.0
 @export var landing_bolter_climb_step_m: float = 35.0
+# A bolter must demonstrate a REAL climb (this rate, sustained this long) before Phase 1's escape climb
+# hands off to Phase 2 navigation -- see _state_missed_approach. Previously exited on a single frame of
+# vel.y >= 0.0, which could be satisfied almost immediately after the bolter with no altitude actually
+# gained, letting a go-around fly essentially level (or gently sinking) into terrain.
+@export var landing_bolter_escape_climb_rate_mps: float = 3.0
+@export var landing_bolter_escape_climb_hold_s: float = 1.5
 @export var landing_approach_vs_limit_mps: float = 14.0
 @export var landing_approach_vs_gain: float = 0.07
 @export var landing_approach_pitch_gain: float = 0.07
@@ -527,7 +1353,7 @@ var _recovery_clearance_granted: bool = false
 @export var landing_final_high_waveoff_remaining_m: float = 260.0
 @export var landing_final_max_descent_fpa_deg: float = 25.0
 @export var landing_final_max_climb_fpa_deg: float = 8.0
-@export var landing_final_glide_error_fpa_gain: float = 0.01
+@export var landing_final_glide_error_fpa_gain: float = 0.0146
 @export var landing_final_glide_error_limit_deg: float = 11.0
 @export var landing_final_glide_vs_damping_gain: float = 0.024
 @export var landing_final_glide_vs_damping_limit_deg: float = 7.0
@@ -545,25 +1371,52 @@ var _recovery_clearance_granted: bool = false
 @export var landing_final_lateral_gain_scale_far: float = 0.55
 @export var landing_final_lateral_smoothing_far: float = 0.16
 @export var landing_final_lateral_smoothing_near: float = 0.42
-@export var landing_final_lateral_slew_deg_per_s: float = 18.0
+@export var landing_final_lateral_slew_deg_per_s: float = 27.0
 @export var landing_final_runway_yaw_gain: float = 2.4
+@export var landing_final_fpv_pid_kp: float = 9.7
+@export var landing_final_fpv_pid_ki: float = 0.30
+@export var landing_final_fpv_pid_kd: float = 0.17
+@export var landing_final_fpv_pid_integral_limit: float = 0.35
+@export var landing_final_fpv_pid_output_limit: float = 0.91
 @export var landing_final_rudder_lateral_gain: float = 1.12
-@export var landing_final_lateral_pd_lookahead_m: float = 130.0
-@export var landing_final_lateral_velocity_damping_s: float = 2.0
-@export var landing_final_lateral_pd_limit_deg: float = 10.0
-@export var landing_final_lateral_bank_gain: float = 0.22
-@export var landing_final_lateral_bank_limit_deg: float = 3.0
-@export var landing_final_rudder_rate_damping: float = 0.7
+@export var landing_final_lateral_pd_lookahead_m: float = 103.0
+@export var landing_final_lateral_velocity_damping_s: float = 1.9
+@export var landing_final_lateral_pd_limit_deg: float = 9.0
+## Blend from carrot pursuit to a runway-axis/cross-track solution before the capture gate. Pure
+## pursuit reaches the centerline but keeps crossing it; the axis solution damps that lateral track.
+@export var landing_final_axis_track_blend_start_m: float = 845.0
+@export var landing_final_axis_track_blend_full_m: float = 460.0
+@export var landing_final_lateral_bank_gain: float = 0.55
+@export var landing_final_lateral_bank_limit_deg: float = 7.8
+@export var landing_final_rudder_rate_damping: float = 0.58
 @export var landing_final_bank_yaw_mix: float = 0.18
-@export var landing_final_rudder_primary_bank_scale: float = 0.35
+@export var landing_final_rudder_primary_bank_scale: float = 0.40
 @export var landing_final_low_path_waveoff_m: float = 6.0
 @export var landing_final_low_path_waveoff_remaining_m: float = 125.0
 @export var landing_final_low_path_throttle_floor: float = 0.76
 @export var landing_final_sink_throttle_floor: float = 0.84
-@export var landing_final_pitch_gain: float = 1.65
-@export var landing_final_pitch_rate_damping: float = 1.35
+@export var landing_final_sink_guard_fade_high_m: float = 18.0
+@export var landing_final_sink_guard_full_low_m: float = -2.0
+## Final approach controls two different angles: FPV follows the glideslope while AoA keeps
+## the nose above that descending velocity vector. Blend it in gradually to avoid a pitch step.
+@export var landing_final_target_aoa_deg: float = 7.4
+@export var landing_final_aoa_blend_start_remaining_m: float = 1100.0
+@export var landing_final_aoa_blend_full_remaining_m: float = 950.0
+@export var landing_final_aoa_gain: float = 4.0
+@export var landing_final_aoa_error_limit_deg: float = 12.0
+@export var landing_final_aoa_fpa_priority_full_error_deg: float = 0.5
+@export var landing_final_aoa_fpa_priority_release_error_deg: float = 1.5
+@export var landing_final_speed_far_mps: float = 52.0
+@export var landing_final_speed_touchdown_mps: float = 42.0
+@export var landing_final_speed_taper_distance_m: float = 800.0
+@export var landing_final_effective_stall_margin_mps: float = 7.0
+@export var landing_final_high_path_idle_remaining_m: float = 550.0
+@export var landing_final_high_path_idle_error_m: float = 1.0
+@export var landing_final_high_path_throttle_min: float = 0.03
+@export var landing_final_pitch_gain: float = 1.52
+@export var landing_final_pitch_rate_damping: float = 1.48
 @export var landing_final_pitch_input_limit: float = 0.55
-@export var landing_final_pitch_smoothing: float = 0.34
+@export var landing_final_pitch_smoothing: float = 0.22
 
 # ============================================================================
 # CONTROL OUTPUTS - Fed to aircraft control system
@@ -601,17 +1454,75 @@ var throttle_input: float = 0.5 # 0 to 1
 @export var player_control_debug_passthrough_enabled: bool = false
 
 # Flight limits
-@export var max_pitch_angle: float = deg_to_rad(30.0)  # Maximum pitch up/down
-@export var max_roll_angle: float = deg_to_rad(30.0)   # Maximum roll left/right
+@export var max_pitch_angle: float = deg_to_rad(75.0)  # Legacy nav pitch input scaling ceiling
+@export var max_roll_angle: float = deg_to_rad(90.0)   # Legacy turn-control yaw normalization ceiling
 
 # Navigation
 var waypoint_threshold: float = 50.0  # Distance to consider waypoint reached
 @export var on_station_radius_m: float = 400.0  # Arrival radius for TRANSIT rally point
 var _committed_turn_sign: float = 0.0  # Locks turn direction when target is behind
+var _attack_turn_track_heading_rad: float = 0.0
+var _attack_turn_track_heading_valid: bool = false
+var _attack_turn_track_rate_rad_s: float = 0.0
+var _attack_route_smoothed_target_bank_rad: float = 0.0
+var _attack_route_smoothed_target_bank_valid: bool = false
+var _attack_route_smoothed_target_bank_last_frame: int = -1000000
+var _attack_route_smoothed_desired_vs_mps: float = 0.0
+var _attack_route_smoothed_desired_vs_valid: bool = false
+var _attack_route_smoothed_desired_vs_last_frame: int = -1000000
 var waypoints: Array[Vector3] = []
 var waypoint_speeds_mps: Array[float] = []
 var current_waypoint_index: int = 0
 var waypoints_follow_carrier: bool = false
+var _flight_plan_name: String = ""
+var _flight_plan_legs: Array[Dictionary] = []
+var _flight_plan_loop: bool = false
+var _flight_plan_capture_radius_m: float = 120.0
+var _attack_egress_waypoint: Vector3 = Vector3.INF
+var _attack_egress_offset_from_target: Vector3 = Vector3.ZERO
+var _aircraft_heightmap_route_serial: int = 0
+var _aircraft_heightmap_route_job_active: bool = false
+var _aircraft_heightmap_route_next_request_s: float = 0.0
+var _aircraft_heightmap_route_signature: String = ""
+var _aircraft_heightmap_route_plan_name: String = ""
+var _aircraft_heightmap_route_last_smoothing_stats: Dictionary = {}
+var _flight_plan_revision: int = 0
+var _route_turn_speed_limit_active: bool = false
+var _route_turn_speed_cap_mps: float = INF
+var _route_turn_speed_brake_t: float = 0.0
+var _attack_energy_recovery_active: bool = false
+var _route_forward_projection_active: bool = false
+var _route_forward_projection_dir: Vector3 = Vector3.ZERO
+var _route_curvature_feedforward_bank_rad: float = 0.0
+var _route_cross_track_m: float = 0.0
+var _route_cross_track_signed_m: float = 0.0
+var _route_fpv_pitch_error_rad: float = 0.0
+var _navigation_turn_pull_command: float = 0.0
+var _route_capture_angle_rad: float = 0.0
+var _route_arc_progress_index: int = -1
+var _route_arc_progress_rad: float = 0.0
+var _route_arc_remaining_m: float = INF
+var _route_arc_radial_error_m: float = INF
+var _route_arc_controller_bank_sign: float = 0.0
+var _route_arc_endpoint_plane_armed: bool = false
+var _route_fpv_yaw_error_rad: float = 0.0
+var _route_guidance_yaw_error_rad: float = 0.0
+var _navigation_desired_bank_rad_debug: float = 0.0
+var _navigation_current_bank_rad_debug: float = 0.0
+var _navigation_raw_roll_debug: float = 0.0
+var _recovery_straight_cross_track_m_debug: float = NAN
+var _recovery_straight_cross_track_rate_mps_debug: float = NAN
+var _recovery_straight_lateral_accel_mps2_debug: float = NAN
+var _route_fpv_pitch_target_active: bool = false
+var _route_fpv_pitch_target: Vector3 = Vector3.ZERO
+var _route_fpv_pitch_horizon_m: float = 0.0
+var _route_suggested_advance_index: int = -1
+var _route_suggested_advance_reason: String = ""
+var _route_last_advance_reason: String = "hold"
+var _route_last_resync_reason: String = "none"
+var _route_pending_advance_reason: String = ""
+var _route_pending_resync_reason: String = ""
+var _route_follow_debug: Dictionary = {}
 var carrier_position: Vector3 = Vector3.ZERO  # Home carrier position
 
 # Launch safety
@@ -628,6 +1539,8 @@ var _land_after_climb: bool = false         # Set internally when land_after_lau
 @export var climb_aggressive_alt_margin_m: float = 120.0  # Stay aggressive until near climb target
 @export var climb_max_pitch_deg: float = 30.0
 @export var climb_vs_limit_mps: float = 14.0
+@export var launch_climb_height_above_carrier_m: float = 600.0
+@export var launch_climb_capture_vertical_speed_mps: float = 5.0
 
 # Waypoint marker (visual)
 var _waypoint_marker: MeshInstance3D = null
@@ -651,8 +1564,10 @@ var current_health: float = 100.0
 # =========================================================================
 @export var patrol_altitude_m: float = 300.0
 @export var figure_eight_radius_m: float = 600.0
-@export var bank_cmd_limit_deg: float = 60.0
+@export var bank_cmd_limit_deg: float = 75.0
 @export var attack_bank_cmd_limit_deg: float = 75.0  # Extra bank authority while attacking
+@export var attack_terminal_fpv_guidance_blend: float = 0.85
+@export var attack_terminal_fpv_bank_gain: float = 2.8
 @export var bank_limit_when_low_deg: float = 25.0
 @export var climb_rate_limit_mps: float = 12.0
 @export var descend_rate_limit_mps: float = 10.0
@@ -681,8 +1596,19 @@ var nav_target: Node3D = null
 @export var normal_flight_vs_gain: float = 0.055
 @export var normal_flight_pitch_gain: float = 0.065
 @export var normal_flight_pitch_rate_damping: float = 0.95
-@export var normal_flight_pitch_input_limit: float = 0.35
 @export var normal_flight_pitch_smoothing: float = 0.32
+## Bank angle (via 1/cos(bank)) implying this g-load reaches full turn-pitch pull. 2.2g at 60deg
+## bank -- the AI regularly commits to 45-60deg banks in practice, and a 3.0g/70.5deg target left
+## the pull barely started (~0.25 of max) at those angles. Still leaves real margin under the
+## airframe's max_lift_ratio=4.5g ceiling (SimpleAero.gd).
+@export var normal_flight_turn_target_g: float = 4.5
+## Pitch input commanded once the bank angle implies normal_flight_turn_target_g -- this is what
+## actually decides how hard the AI pulls in a turn, separate from altitude-hold.
+@export var normal_flight_turn_pitch_max: float = 1.0
+## Prevent vertical-path/altitude corrections later in the controller from erasing a committed
+## turn's back-pressure. Safety and energy recovery still run after this floor and may unload it.
+@export_range(0.0, 1.0, 0.05) var normal_flight_turn_load_feedback_gain: float = 0.75
+@export_range(0.0, 1.0, 0.05) var normal_flight_turn_pitch_floor_ratio: float = 1.0
 @export var high_bank_start_ratio: float = 0.75  # Start extra damping above this % of bank limit
 @export var high_bank_roll_damping_gain: float = 0.45  # Extra roll-rate damping near max bank
 @export var high_bank_yaw_scale: float = 0.7  # Reduce rudder at high bank to avoid waggle
@@ -700,11 +1626,53 @@ var nav_target: Node3D = null
 var _smoothed_roll_input: float = 0.0
 var _smoothed_pitch_input: float = 0.0
 var _smoothed_yaw_input: float = 0.0
+var _coordinated_turn_pitch_trim: float = 0.0
+var _coordinated_turn_previous_sideslip: float = 0.0
+var _coordinated_turn_previous_vertical_speed_mps: float = 0.0
+var _coordinated_turn_filtered_vertical_accel_mps2: float = 0.0
+var _coordinated_turn_nonwing_vertical_accel_mps2: float = 0.0
+var _coordinated_turn_previous_aoa_deg: float = 0.0
+var _coordinated_turn_filtered_aoa_rate_deg_s: float = 0.0
+var _coordinated_turn_last_frame: int = -1000
+var _coordinated_turn_target_g: float = 1.0
+var _coordinated_turn_available_g: float = 1.0
+var _coordinated_turn_target_aoa_deg: float = 0.0
+var _coordinated_turn_measured_aoa_deg: float = 0.0
+var _coordinated_turn_measured_g: float = 1.0
+var _coordinated_turn_pitch_command: float = 0.0
+var _coordinated_turn_sideslip: float = 0.0
+var _coordinated_turn_vertical_rudder: float = 0.0
+var _coordinated_turn_rate_deg_s: float = 0.0
+var _coordinated_turn_vertical_lift_fraction: float = 1.0
+var _coordinated_turn_target_bank_deg: float = 0.0
+var _coordinated_turn_smoothed_target_g: float = 1.0
+var _coordinated_turn_desired_vertical_speed_mps: float = 0.0
+var _positive_turn_load_guard_active: bool = false
 var _smoothed_fpa_pitch: float = 0.0  # FPA controller's own smoother state; kept separate from VS controller to prevent cross-contamination oscillation
 var _landing_smoothed_desired_fpa: float = NAN
 var _landing_smoothed_bearing_error: float = NAN
 var _landing_smoothed_runway_heading_error: float = NAN
+var _landing_fpv_pid_active: bool = false
+var _landing_fpv_yaw_error_deg: float = NAN
+var _landing_fpv_pitch_error_deg: float = NAN
+var _landing_predictive_fpv_yaw_error_deg: float = NAN
+var _landing_track_rate_deg_s: float = NAN
+var _landing_commanded_bank_deg: float = NAN
+var _landing_bank_settle_scale: float = 1.0
+var _landing_capture_cone_status: Dictionary = {}
+var _landing_capture_cone_stable_s: float = 0.0
+var _landing_capture_cone_captured: bool = false
+var _landing_capture_cone_gate_checked: bool = false
+var _landing_capture_cone_gate_passed: bool = false
+var _landing_capture_cone_capture_remaining_m: float = NAN
+var _landing_capture_cone_capture_behind_m: float = NAN
+var _landing_capture_cone_waveoff_reason: String = ""
+var _landing_final_settled_stable_s: float = 0.0
+var _landing_final_settled: bool = false
+var _landing_final_settled_remaining_m: float = NAN
+var _landing_final_settled_behind_m: float = NAN
 var _ma_escape_complete: bool = false  # True once wings-level escape climb finishes; gates Phase 2 navigation
+var _ma_escape_climb_timer_s: float = 0.0  # Time spent at/above the established-climb rate; must hold before Phase 2 hand-off
 var _bolter_go_around: bool = false   # True while carrot is guiding the climb-out after a bolter
 var _bolter_dir: Vector3 = Vector3.ZERO  # Flat forward direction at the moment of bolter detection
 var _landing_carrot_active: bool = false
@@ -734,10 +1702,43 @@ func apply_origin_shift(offset: Vector3) -> void:
 	carrier_position -= offset
 	_dogfight_variation_waypoint -= offset
 	_dogfight_recovery_waypoint -= offset
+	# Ground-attack route legs were already shifted below, but the commit validator
+	# also keeps its own copy of the setup/target line. Leaving those copies in the
+	# old floating-origin frame corrupts cross-track and range tests on later passes.
+	_attack_setup_wp_xz -= Vector2(offset.x, offset.z)
+	_attack_setup_target_pos -= offset
+	if _attack_egress_waypoint != Vector3.INF:
+		_attack_egress_waypoint -= offset
+	if _attack_recovery_waypoint != Vector3.INF:
+		_attack_recovery_waypoint -= offset
+	if _direct_intercept_extension_waypoint != Vector3.INF:
+		_direct_intercept_extension_waypoint -= offset
+	if _ccip_cached_result != Vector3.ZERO:
+		_ccip_cached_result -= offset
+	_attack_terrain_sample_cache_from -= offset
+	_attack_terrain_sample_cache_to -= offset
 	if _landing_carrier_motion_has_ref:
 		_landing_carrier_motion_last_ref -= offset
+	if _route_fpv_pitch_target_active:
+		_route_fpv_pitch_target -= offset
 	for i in range(waypoints.size()):
 		waypoints[i] -= offset
+	for i in range(_flight_plan_legs.size()):
+		var leg: Dictionary = _flight_plan_legs[i]
+		var position_value: Variant = leg.get("position", Vector3.INF)
+		if position_value is Vector3:
+			leg["position"] = (position_value as Vector3) - offset
+		# Arc centres are world-space geometry just like leg positions. Leaving them
+		# in the pre-shift frame made every primitive after a floating-origin rebase
+		# appear several kilometres away even though its endpoint moved correctly.
+		var arc_center_value: Variant = leg.get("arc_center_xz", null)
+		if arc_center_value is Vector2:
+			leg["arc_center_xz"] = (arc_center_value as Vector2) \
+				- Vector2(offset.x, offset.z)
+		_flight_plan_legs[i] = leg
+	_aircraft_heightmap_route_serial += 1
+	_aircraft_heightmap_route_job_active = false
+	_aircraft_heightmap_route_signature = ""
 
 func _ready():
 	add_to_group("origin_shifter")
@@ -755,6 +1756,12 @@ func _ready():
 
 	# Pitch: Very gentle control to prevent loops and oscillation
 	pitch_controller = PIDController.new(0.5, 0.0, 0.3)
+	_landing_fpv_yaw_controller = PIDController.new(
+		landing_final_fpv_pid_kp,
+		landing_final_fpv_pid_ki,
+		landing_final_fpv_pid_kd
+	)
+	_landing_fpv_yaw_controller.integral_limit = landing_final_fpv_pid_integral_limit
 	_dogfight_precise_yaw_controller = PIDController.new(8.0, 2.5, 0.10)
 	_dogfight_precise_yaw_controller.integral_limit = 1.5
 	_dogfight_precise_pitch_controller = PIDController.new(7.5, 2.2, 0.08)
@@ -885,6 +1892,55 @@ func _clamp_dogfight_upward_aim_point(origin: Vector3, target_point: Vector3) ->
 	return origin + to_target
 
 
+func _clamp_dogfight_suicide_dive(own_pos: Vector3, own_vel: Vector3, target_point: Vector3) -> Vector3:
+	# First cap the commanded pursuit line to a deliberate combat dive. The old version allowed any
+	# angle, including almost straight down, whenever a theoretical pullout fit below the aircraft.
+	# That made a transient target position capable of commanding a suicidal-looking 90-degree dive.
+	# The terrain/pullout calculation then has a second chance to make this shallower.
+	if _safety_override_active:
+		return target_point
+	var to_target: Vector3 = target_point - own_pos
+	var horiz_len: float = Vector2(to_target.x, to_target.z).length()
+	if to_target.y >= 0.0 or horiz_len < 1.0:
+		return target_point
+
+	var dive_angle_rad: float = atan2(-to_target.y, horiz_len)
+	var commanded_dive_limit_rad: float = deg_to_rad(clampf(
+		dogfight_max_commanded_dive_angle_deg,
+		1.0,
+		80.0
+	))
+	if dive_angle_rad > commanded_dive_limit_rad:
+		to_target.y = -tan(commanded_dive_limit_rad) * horiz_len
+		target_point = own_pos + to_target
+		dive_angle_rad = commanded_dive_limit_rad
+	var speed_mps: float = maxf(own_vel.length(), dogfight_min_speed_mps)
+	var pullout_radius_m: float = _estimate_aircraft_turn_radius_m(speed_mps, "dogfight")
+	var projected_drop_m: float = pullout_radius_m * (1.0 - cos(dive_angle_rad))
+
+	var ground_y: float = _get_ground_height_at_position(own_pos)
+	var probe_dir: Vector3 = Vector3(to_target.x, 0.0, to_target.z).normalized()
+	var probe_distance_m: float = maxf(horiz_len, pullout_radius_m * sin(dive_angle_rad))
+	var probe_end: Vector3 = own_pos + probe_dir * probe_distance_m
+	var terrain_max_m: float = _sample_max_terrain_height_along_path(own_pos, probe_end, 6)
+	if not is_nan(terrain_max_m):
+		ground_y = maxf(ground_y, terrain_max_m)
+
+	var available_clearance_m: float = own_pos.y - ground_y
+	var required_clearance_m: float = projected_drop_m + maxf(dogfight_dive_recovery_margin_m, 0.0)
+	if available_clearance_m >= required_clearance_m:
+		return target_point
+
+	# Not enough room to pull out on this line: shallow the dive to the steepest angle that still clears,
+	# rather than banning the dive outright. Solve for the angle where projected_drop_m == available margin.
+	var safe_drop_m: float = maxf(available_clearance_m - maxf(dogfight_dive_recovery_margin_m, 0.0), 0.0)
+	var cos_arg: float = clampf(1.0 - safe_drop_m / maxf(pullout_radius_m, 1.0), -1.0, 1.0)
+	var safe_dive_angle_rad: float = acos(cos_arg)
+	var safe_y: float = -tan(safe_dive_angle_rad) * horiz_len
+	to_target.y = safe_y
+	return own_pos + to_target
+
+
 func initialize(aircraft_node: RigidBody3D):
 	"""Setup AI pilot with aircraft reference"""
 	aircraft = aircraft_node
@@ -916,6 +1972,7 @@ func initialize(aircraft_node: RigidBody3D):
 		control_weapons = _find_module(aircraft, "control_weapons")
 	if not control_weapons:
 		control_weapons = aircraft.find_child("ControlWeapons", true, false)
+	control_targeting = _find_module(aircraft, "ControlTargeting")
 	control_targeting_aam = aircraft.find_child("ControlTargeting_AAM", true, false)
 
 	if not control_engine or not simple_aero:
@@ -927,8 +1984,10 @@ func initialize(aircraft_node: RigidBody3D):
 	if aircraft.has_signal("damaged") and not aircraft.is_connected("damaged", _on_aircraft_damaged):
 		aircraft.connect("damaged", _on_aircraft_damaged)
 
-	# Disable stability (auto-levels aircraft, fights AI's intentional banking)
-	# and auto_rudder (AI manages yaw explicitly based on desired bank angle).
+	# Disable stability (auto-levels aircraft, fights AI's intentional banking).
+	# SimpleAero's built-in auto-rudder is based on roll_input, which is a human
+	# stick-like signal. The AI roll signal is a PD controller and can reverse
+	# during roll damping, so AI coordination belongs in AIPilot's yaw law instead.
 	if simple_aero:
 		if not _ai_control_overrides_applied and "stability_strength" in simple_aero:
 			_saved_stability_strength = simple_aero.stability_strength
@@ -940,7 +1999,7 @@ func initialize(aircraft_node: RigidBody3D):
 			simple_aero.auto_rudder_strength = 0.0
 		_ai_control_overrides_applied = true
 		if debug_enabled and verbose_debug_enabled:
-			print("[AIPilot] Disabled stability and auto_rudder for AI control")
+			print("[AIPilot] Disabled stability and SimpleAero auto_rudder for AI control")
 
 	# Get initial health if aircraft has it
 	if aircraft.has_meta("max_health"):
@@ -1071,8 +2130,12 @@ func _physics_process(delta: float):
 				_state_landing(delta)
 			State.MISSED_APPROACH:
 				_state_missed_approach(delta)
+		_apply_attack_energy_recovery()
+	else:
+		_attack_energy_recovery_active = false
 
 	_sync_radio_target_watch()
+	_sync_ai_combat_selection_to_aircraft()
 	_emit_periodic_ai_debug(delta)
 
 	_debug_flight_path_alignment(delta)
@@ -1084,6 +2147,86 @@ func _physics_process(delta: float):
 	# Apply computed control inputs to aircraft
 	_apply_controls()
 	FrameProfiler.end("AIPilot.physics", _profiler_start)
+
+func _apply_attack_energy_recovery() -> void:
+	_attack_energy_recovery_active = false
+	if current_state not in [
+		State.ATTACK_POSITIONING,
+		State.ATTACK_INBOUND,
+		State.ATTACK_DIVE,
+		State.ATTACK_BREAK_OFF,
+	]:
+		return
+	var direct_fire_positioning: bool = current_state == State.ATTACK_POSITIONING \
+		and _uses_direct_ground_attack_intercept()
+	var recovery_start_margin_mps: float = attack_energy_recovery_start_margin_mps
+	var recovery_roll_scale: float = attack_energy_recovery_roll_scale
+	var recovery_yaw_scale: float = attack_energy_recovery_yaw_scale
+	if direct_fire_positioning:
+		recovery_start_margin_mps = attack_direct_fire_energy_recovery_start_margin_mps
+		recovery_roll_scale = attack_direct_fire_energy_recovery_roll_scale
+		recovery_yaw_scale = attack_direct_fire_energy_recovery_yaw_scale
+	var speed_mps: float = aircraft.linear_velocity.length()
+	var stall_floor_mps: float = stall_speed_mps + stall_margin_mps
+	if current_state == State.ATTACK_POSITIONING and attack_assertive_turn_enabled:
+		var actual_attack_stall: float = 0.0
+		var effective_attack_stall_speed: float = stall_speed_mps
+		if simple_aero != null and is_instance_valid(simple_aero):
+			if simple_aero.has_method("get_stall_severity"):
+				actual_attack_stall = float(simple_aero.call("get_stall_severity"))
+			if simple_aero.has_method("get_effective_stall_speed_mps"):
+				effective_attack_stall_speed = float(simple_aero.call("get_effective_stall_speed_mps"))
+		# Do not level the wings merely because the broad mission-planning speed margin was
+		# crossed. Assertive positioning retains authority until the wing is genuinely stalling.
+		if actual_attack_stall < 0.05 and speed_mps > effective_attack_stall_speed + 2.0:
+			return
+	var recovery_start_mps: float = stall_floor_mps + maxf(recovery_start_margin_mps, 1.0)
+	if speed_mps >= recovery_start_mps:
+		return
+	var recovery_full_mps: float = stall_floor_mps + clampf(
+		attack_energy_recovery_full_margin_mps,
+		0.0,
+		maxf(recovery_start_margin_mps - 1.0, 0.0)
+	)
+	var recovery_t: float = 1.0 - clampf(
+		(speed_mps - recovery_full_mps) / maxf(recovery_start_mps - recovery_full_mps, 1.0),
+		0.0,
+		1.0
+	)
+	_attack_energy_recovery_active = true
+	var recovery_basis: Basis = aircraft.global_transform.basis
+	var recovery_roll_rad: float = atan2(recovery_basis.x.y, recovery_basis.y.y)
+	var recovery_roll_rate: float = aircraft.angular_velocity.dot(recovery_basis.z)
+	var level_roll_input: float = clampf(
+		-recovery_roll_rad * 8.0 - recovery_roll_rate * 0.30,
+		-1.0,
+		1.0
+	)
+	var level_roll_blend: float = recovery_t * clampf(
+		attack_energy_recovery_level_roll_response,
+		0.0,
+		1.0
+	)
+	roll_input = lerpf(
+		roll_input * lerpf(1.0, clampf(recovery_roll_scale, 0.0, 1.0), recovery_t),
+		level_roll_input,
+		level_roll_blend
+	)
+	var pitch_cap: float = lerpf(0.30, attack_energy_recovery_pitch_cap, recovery_t)
+	var recovery_bank_deg: float = absf(rad_to_deg(recovery_roll_rad))
+	var bank_support_t: float = clampf((recovery_bank_deg - 15.0) / 35.0, 0.0, 1.0)
+	bank_support_t = bank_support_t * bank_support_t * (3.0 - 2.0 * bank_support_t)
+	pitch_cap = maxf(
+		pitch_cap,
+		bank_support_t * maxf(attack_energy_recovery_banked_pitch_floor, 0.0)
+	)
+	pitch_input = minf(pitch_input, pitch_cap)
+	yaw_input *= lerpf(1.0, clampf(recovery_yaw_scale, 0.0, 1.0), recovery_t)
+	throttle_input = 1.0
+	target_speed = maxf(target_speed, recovery_start_mps)
+	_smoothed_roll_input = roll_input
+	_smoothed_pitch_input = pitch_input
+	_smoothed_yaw_input = yaw_input
 
 # ============================================================================
 # DEBUG HELPERS
@@ -1178,6 +2321,28 @@ func _on_aircraft_destroyed() -> void:
 		_landing_snap("CRASH", "destroyed=true  pts=0.0")
 
 func _on_aircraft_damaged(damage_amount: float, new_health: float) -> void:
+	# BOUNCED FROM BEHIND: getting shot tells you where the enemy is (tracers/impacts). If we're
+	# dogfighting but blind (no valid target -- e.g. our target was killed and someone slid onto our 6),
+	# snap awareness of the nearest enemy up so we re-acquire and react instead of flying straight and
+	# being gunned down. Without this, a plane whose target dies sits at target=none and gets picked off.
+	if dogfight_enabled and new_health > 0.0:
+		var have_target: bool = combat_target != null and is_instance_valid(combat_target) \
+				and _is_enemy_aircraft_target(combat_target as Node3D)
+		if not have_target:
+			var nearest: Node3D = null
+			var nd: float = INF
+			for enemy in known_enemies:
+				if not is_instance_valid(enemy) or not (enemy is Node3D):
+					continue
+				if not _is_enemy_aircraft_target(enemy as Node3D):
+					continue
+				var d: float = aircraft.global_position.distance_to((enemy as Node3D).global_position)
+				if d < nd:
+					nd = d
+					nearest = enemy as Node3D
+			if nearest != null:
+				# Force awareness above the engage threshold so _find_nearest_enemy_aircraft_target picks it up.
+				_enemy_awareness[nearest] = maxf(float(_enemy_awareness.get(nearest, 0.0)), dogfight_awareness_engage_threshold + 0.25)
 	if damage_amount < radio_damage_call_min_damage:
 		return
 	if new_health <= 0.0:
@@ -1456,12 +2621,13 @@ func _state_climbing(delta: float):
 	# turns and its position drifts sideways relative to the launch track, which
 	# causes navigation to command a bank to chase it. Pointing 2000 m straight
 	# ahead in the fixed launch heading keeps the heading error near zero.
-	# Y: 600 m above carrier deck so the aircraft climbs well clear before patrolling.
+	# The height is configurable so short-range strike launches can level off before
+	# reaching a nearby target instead of carrying a large climb rate into the turn.
 	_refresh_carrier_position(false)
 	_ensure_carrier_position()
 	var launch_fwd := Vector3(sin(target_heading), 0.0, cos(target_heading))
 	nav_waypoint = aircraft.global_position + launch_fwd * 2000.0
-	nav_waypoint.y = carrier_position.y + 600.0
+	nav_waypoint.y = carrier_position.y + maxf(launch_climb_height_above_carrier_m, 60.0)
 
 	_update_maneuver_waypoint()
 	_navigate_to_waypoint(delta)
@@ -1492,8 +2658,13 @@ func _state_climbing(delta: float):
 			  " Target: ", snapped(nav_waypoint.y, 1.0), " Dist: ",
 			  snapped(aircraft.global_position.distance_to(nav_waypoint), 1.0))
 
-	# Transition once we reach the target altitude
-	if aircraft.global_position.y >= nav_waypoint.y - 20.0:
+	# Capture both altitude and vertical speed before handing control to the mission.
+	# Reaching the altitude with +15-20 m/s still in hand caused every first turn to
+	# balloon hundreds of metres even after the elevator began correcting.
+	var climb_altitude_captured: bool = aircraft.global_position.y >= nav_waypoint.y - 20.0
+	var climb_rate_captured: bool = absf(aircraft.linear_velocity.y) \
+			<= maxf(launch_climb_capture_vertical_speed_mps, 0.5)
+	if climb_altitude_captured and climb_rate_captured:
 		if _land_after_climb:
 			_land_after_climb = false
 			print("[AIPilot] Climb waypoint cleared ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â starting landing approach")
@@ -1531,6 +2702,15 @@ func _state_transit(delta: float):
 
 func _state_search(delta: float):
 	"""Looking for targets - fly rectangular patrol pattern around carrier"""
+	# DOGFIGHT RE-MERGE: if we're a dogfighter who has lost the target (dropped to SEARCH because
+	# awareness of every enemy decayed below the engage threshold), don't fly an aimless patrol box --
+	# turn back toward the nearest known enemy to put it in our front arc so awareness rebuilds and we
+	# re-engage. Without this, once all planes lose sight they patrol separate boxes forever and the
+	# round stalemates to a draw. Awareness still gates SHOOTING; this only steers us back to the fight.
+	if dogfight_enabled and _dogfight_search_remerge(delta):
+		if _evaluate_combat_objective():
+			return
+		return
 	# Carrier-centered patrols should stay synced to patrol altitude, but
 	# externally authored routes may carry their own per-waypoint altitudes.
 	var should_sync_patrol_altitude := waypoints_follow_carrier or waypoints.is_empty()
@@ -1552,46 +2732,18 @@ func _state_search(delta: float):
 	_refresh_carrier_position(waypoints_follow_carrier)
 	_ensure_carrier_position()
 
+	if _flight_plan_name == "ground_attack":
+		_clear_attack_flight_plan()
+
 	# Set up patrol waypoints if not already done
 	if waypoints.is_empty():
 		_setup_patrol_waypoints()
 
-	# Set navigation waypoint to current patrol waypoint
 	if waypoints.size() > 0:
-		nav_waypoint = waypoints[current_waypoint_index]
-		_apply_active_waypoint_targets()
-		
-		# Update maneuvering waypoint to lead toward navigation waypoint
-		_update_maneuver_waypoint()
-		
-		# Navigate using maneuvering waypoint
-		_navigate_to_waypoint(delta)
-
-		# Check if reached waypoint (within 100m)
-		var distance_to_waypoint = aircraft.global_position.distance_to(nav_waypoint)
-		_debug_cap_route_following(delta, distance_to_waypoint)
-		if distance_to_waypoint < 100.0:
-			var reached_index: int = current_waypoint_index
-			# Move to next waypoint
-			current_waypoint_index += 1
-			if current_waypoint_index >= waypoints.size():
-				current_waypoint_index = 0
-
-			if debug_enabled and verbose_debug_enabled:
-				print("[AIPilot SEARCH] Reached waypoint ", current_waypoint_index, "/", waypoints.size())
-			if _is_debugging_custom_cap_route():
-				print("[AIPilot CAPDBG %s] reached wp %d/%d (dist=%.0fm) -> next %d/%d" % [
-					aircraft.name,
-					reached_index + 1,
-					waypoints.size(),
-					distance_to_waypoint,
-					current_waypoint_index + 1,
-					waypoints.size()
-				])
-				_cap_route_debug_last_index = current_waypoint_index
-				_cap_route_debug_last_distance_m = INF
-				_cap_route_debug_no_progress_s = 0.0
-				_cap_route_debug_timer_s = cap_route_debug_interval_s
+		var loop_route: bool = _flight_plan_loop or waypoints_follow_carrier
+		var route_complete: bool = _follow_waypoint_route(delta, loop_route)
+		if route_complete and not loop_route:
+			current_waypoint_index = 0
 	else:
 		_reset_cap_route_debug()
 
@@ -1602,6 +2754,37 @@ func _state_search(delta: float):
 	if debug_enabled and verbose_debug_enabled and Engine.get_process_frames() % 60 == 0:
 		var dist_to_wp = aircraft.global_position.distance_to(nav_waypoint) if waypoints.size() > 0 else 0
 		print("[AIPilot SEARCH] WP %d/%d  dist=%.0fm  nav=(%.0f,%.0f,%.0f)" % [current_waypoint_index, waypoints.size(), dist_to_wp, nav_waypoint.x, nav_waypoint.y, nav_waypoint.z])
+
+func _dogfight_search_remerge(delta: float) -> bool:
+	"""While searching in a dogfight, steer toward the nearest known enemy aircraft to force a re-merge
+	(rebuilds awareness so we can re-engage). Returns true if it took over navigation this frame."""
+	# Find nearest known enemy AIRCRAFT, ignoring awareness (we're deliberately turning back to LOOK).
+	var nearest: Node3D = null
+	var nearest_dist: float = INF
+	for enemy in known_enemies:
+		if not is_instance_valid(enemy) or not (enemy is Node3D):
+			continue
+		var enemy_node: Node3D = enemy as Node3D
+		if not _is_enemy_aircraft_target(enemy_node):
+			continue
+		var d: float = aircraft.global_position.distance_to(enemy_node.global_position)
+		if d < nearest_dist:
+			nearest_dist = d
+			nearest = enemy_node
+	if nearest == null:
+		return false
+	# Head straight at the enemy at combat speed, holding a sane altitude (clamped to the keep-it-low
+	# ceiling and a terrain floor so the re-merge itself stays low and safe).
+	target_speed = _get_default_target_speed_mps()
+	var aim: Vector3 = nearest.global_position
+	var ground_y: float = _get_ground_height_at_position(aircraft.global_position)
+	var floor_y: float = ground_y + dogfight_min_agl_floor_m
+	var ceil_y: float = ground_y + dogfight_preferred_ceiling_agl_m
+	aim.y = clampf(aim.y, floor_y, ceil_y)
+	nav_waypoint = aim
+	_update_maneuver_waypoint()
+	_navigate_to_waypoint(delta)
+	return true
 
 func _find_ground_attack_target() -> Node3D:
 	"""Find nearest hostile ground or surface target within sensor range. Excludes same-team."""
@@ -1619,11 +2802,45 @@ func _find_ground_attack_target() -> Node3D:
 		if not _is_valid_ground_attack_target(normalized_enemy):
 			continue
 		var d: float = aircraft.global_position.distance_to(normalized_enemy.global_position)
-		var score: float = d + _get_ground_target_priority_penalty(normalized_enemy)
+		var score: float = d + _get_ground_target_priority_penalty(normalized_enemy) \
+			+ _get_ground_target_friendly_claim_penalty(normalized_enemy)
 		if score < best_score:
 			best_score = score
 			nearest = normalized_enemy
 	return nearest
+
+func _ground_attack_target_requires_egress(target: Node3D) -> bool:
+	# Do not begin a fresh attack plan from a target that is already inside the
+	# turn-and-lineup distance implied by the aircraft's present flight path.  A
+	# nearest-target-only choice here used to ask the planner for an immediate
+	# reversal after a wave-off; that created the long, high return loops seen in
+	# the ground-attack telemetry.  The distance is derived from the actual turn
+	# radius, heading change, and selected attack setup length rather than a fixed
+	# exclusion bubble.
+	if target == null or not is_instance_valid(target) or aircraft == null or not is_instance_valid(aircraft):
+		return false
+	var target_pos: Vector3 = _get_surface_target_position(target)
+	var to_target: Vector3 = target_pos - aircraft.global_position
+	to_target.y = 0.0
+	var range_m: float = to_target.length()
+	if range_m <= 1.0:
+		return true
+	var flight_dir: Vector3 = aircraft.linear_velocity
+	flight_dir.y = 0.0
+	if flight_dir.length_squared() <= 1.0:
+		flight_dir = aircraft.global_transform.basis.z
+		flight_dir.y = 0.0
+	if flight_dir.length_squared() <= 0.001:
+		return false
+	flight_dir = flight_dir.normalized()
+	var target_dir: Vector3 = to_target / range_m
+	var heading_change_rad: float = acos(clampf(flight_dir.dot(target_dir), -1.0, 1.0))
+	var turn_radius_m: float = _estimate_aircraft_turn_radius_m(
+		aircraft.linear_velocity.length(),
+		"attack_approach"
+	)
+	var required_entry_distance_m: float = turn_radius_m * heading_change_rad + _get_attack_setup_distance_m()
+	return range_m < required_entry_distance_m
 
 func _normalize_ground_attack_target(node: Variant) -> Node3D:
 	if node == null or not is_instance_valid(node):
@@ -1659,7 +2876,7 @@ func _sanitize_ground_attack_target(node: Variant) -> Node3D:
 
 func _resolve_current_ground_attack_target() -> Node3D:
 	var resolved_target: Node3D = _sanitize_ground_attack_target(combat_target)
-	if resolved_target == null:
+	if resolved_target == null or not _is_valid_ground_attack_target(resolved_target):
 		combat_target = null
 		return null
 	if combat_target != resolved_target:
@@ -1723,7 +2940,7 @@ func _is_release_solution_stable_enough(now_s: float, is_stable_now: bool, hold_
 	else:
 		_release_solution_stable_time_s = 0.0
 	var required_hold_s: float = weapon_release_stability_hold_s if hold_s < 0.0 else maxf(hold_s, 0.0)
-	return _release_solution_stable_time_s >= required_hold_s
+	return is_stable_now and _release_solution_stable_time_s >= required_hold_s
 
 func _get_effective_bomb_release_tolerance_m() -> float:
 	match skill:
@@ -1766,6 +2983,18 @@ func _is_bomb_best_solution_release_moment(current_miss_m: float, previous_miss_
 	var solution_has_left_best: bool = current_miss_m >= best_miss_m + worsen_m
 	return best_was_good_enough and previous_was_near_best and current_is_still_near_best and (solution_is_worsening or solution_has_left_best)
 
+func _is_rocket_best_solution_release_moment(current_miss_m: float, previous_miss_m: float, best_miss_m: float, release_tolerance_m: float) -> bool:
+	if current_miss_m < 0.0 or not is_finite(previous_miss_m) or not is_finite(best_miss_m):
+		return false
+	var grace_m: float = maxf(rocket_ccip_release_after_best_grace_m, 0.0)
+	var worsen_m: float = maxf(rocket_ccip_release_after_best_worsen_m, 0.0)
+	var best_was_good_enough: bool = best_miss_m <= maxf(release_tolerance_m, 0.0)
+	var previous_was_near_best: bool = previous_miss_m <= best_miss_m + grace_m
+	var current_is_still_near_best: bool = current_miss_m <= best_miss_m + grace_m
+	var solution_is_worsening: bool = current_miss_m > previous_miss_m + worsen_m
+	var solution_has_left_best: bool = current_miss_m >= best_miss_m + worsen_m
+	return best_was_good_enough and previous_was_near_best and current_is_still_near_best and (solution_is_worsening or solution_has_left_best)
+
 func _is_carrier_attack_target(node: Variant) -> bool:
 	var normalized: Node3D = _sanitize_ground_attack_target(node)
 	return normalized != null and is_instance_valid(normalized) and normalized.is_in_group("carrier")
@@ -1773,6 +3002,8 @@ func _is_carrier_attack_target(node: Variant) -> bool:
 func _is_valid_ground_attack_target(node: Variant) -> bool:
 	node = _sanitize_ground_attack_target(node)
 	if not node or not is_instance_valid(node):
+		return false
+	if not _is_combat_target_alive(node):
 		return false
 	if node == aircraft:
 		return false
@@ -1786,6 +3017,25 @@ func _is_valid_ground_attack_target(node: Variant) -> bool:
 	if node.is_in_group("gun_emplacements") or node.is_in_group("buildings") or node.is_in_group("enemy_bases"):
 		return true
 	return false
+
+
+func _is_combat_target_alive(node: Variant) -> bool:
+	# Damageable targets are often left in the tree briefly for explosions, debris,
+	# signals, and test bookkeeping. Instance validity therefore does not mean the
+	# target can still be attacked. Prefer current_health, with health as the fallback
+	# used by simpler test/legacy targets; unknown health remains eligible.
+	if node == null or not is_instance_valid(node):
+		return false
+	if node is Node and not (node as Node).is_node_ready():
+		return true
+	for property_name in ["current_health", "health"]:
+		if property_name not in node:
+			continue
+		var health_value: Variant = node.get(property_name)
+		if typeof(health_value) in [TYPE_FLOAT, TYPE_INT]:
+			return float(health_value) > 0.0
+	return true
+
 
 func _get_ground_target_priority_penalty(node: Variant) -> float:
 	node = _sanitize_ground_attack_target(node)
@@ -1801,10 +3051,30 @@ func _get_ground_target_priority_penalty(node: Variant) -> float:
 		return 450.0
 	return 300.0
 
+func _get_ground_target_friendly_claim_penalty(node: Node3D) -> float:
+	# Soft preference, not a hard rule: if a known friendly already has this target as its active
+	# combat_target, nudge target selection toward a different one instead when a comparable option
+	# exists nearby. Distance still dominates the score for anything meaningfully closer, so this only
+	# breaks near-ties -- it won't send a pilot far out of their way just to avoid overlap.
+	if node == null or not is_instance_valid(node):
+		return 0.0
+	for friendly in known_friendlies:
+		if not is_instance_valid(friendly) or friendly == aircraft:
+			continue
+		var friendly_pilot: Node = friendly.find_child("AIPilot", true, false)
+		if friendly_pilot == null:
+			continue
+		var friendly_target: Variant = friendly_pilot.get("combat_target")
+		if friendly_target == node:
+			return maxf(ground_target_friendly_claim_penalty_m, 0.0)
+	return 0.0
+
 func _is_enemy_aircraft_target(node: Variant) -> bool:
 	if node == null or not is_instance_valid(node):
 		return false
 	if not (node is Node3D):
+		return false
+	if not _is_combat_target_alive(node):
 		return false
 	if node == aircraft:
 		return false
@@ -1831,33 +3101,85 @@ func _find_nearest_enemy_aircraft_target() -> Node3D:
 		if not _is_within_engagement_radius(enemy_node):
 			continue
 		var d: float = aircraft.global_position.distance_to(enemy_node.global_position)
+		# Situational awareness: only engage an enemy we're actually aware of. One we haven't spotted
+		# (in a blind arc, or just entered) isn't a valid target until awareness builds -- this is what
+		# lets an attacker bounce a pilot who has lost sight. EXCEPTION: within knife-fight range you can't
+		# lose track of it, so acquire regardless (prevents a blind close 1v1 from stalemating).
+		if dogfight_situational_awareness_enabled and d > dogfight_knife_fight_range_m \
+				and _get_enemy_awareness(enemy_node) < dogfight_awareness_engage_threshold:
+			continue
 		if d < nearest_dist:
 			nearest_dist = d
 			nearest = enemy_node
 	return nearest
 
 func _check_air_threat_proximity() -> bool:
-	"""During ground attack, check if an enemy aircraft is dangerously close.
-	If so, break off and engage it in a dogfight."""
-	if not dogfight_enabled or dogfight_proximity_override_m <= 0.0:
+	"""During a mission (ground attack / egress), check if an enemy aircraft is dangerously close.
+	DOGFIGHTER posture: break off and engage it. DEFENSIVE posture: keep the mission, only break off to a
+	dogfight if it's truly cornering us (last-ditch); otherwise flag evasion and press on."""
+	if not dogfight_enabled:
 		return false
+	var defensive: bool = air_combat_posture == AirCombatPosture.DEFENSIVE
+	var break_range: float = dogfight_defensive_last_ditch_m if defensive else dogfight_proximity_override_m
+	if break_range <= 0.0 and not defensive:
+		return false
+	# Find the nearest air threat and whether it's a rear threat.
+	var nearest: Node3D = null
+	var nearest_d: float = INF
 	for enemy in known_enemies:
 		if not is_instance_valid(enemy) or not (enemy is Node3D):
 			continue
 		if not _is_enemy_aircraft_target(enemy as Node3D):
 			continue
 		var d: float = aircraft.global_position.distance_to((enemy as Node3D).global_position)
-		if d <= dogfight_proximity_override_m:
-			combat_target = enemy as Node3D
-			change_state(State.DOGFIGHT)
-			if debug_enabled:
-				print("[AIPilot] Air threat at %.0fm â€” breaking off ground attack to dogfight %s" % [d, combat_target.name])
-			return true
+		if d < nearest_d:
+			nearest_d = d
+			nearest = enemy as Node3D
+	if nearest == null:
+		return false
+	# Cornered -> full dogfight (both postures, at their respective ranges).
+	if nearest_d <= break_range:
+		combat_target = nearest
+		change_state(State.DOGFIGHT)
+		if debug_enabled:
+			print("[AIPilot] Air threat at %.0fm -> dogfight %s (%s)" % [nearest_d, nearest.name, "last-ditch" if defensive else "break-off"])
+		return true
+	# DEFENSIVE: a mid-range threat -- keep the mission but start jinking if it's close-ish AND behind us.
+	if defensive and nearest_d <= defensive_evade_threat_range_m:
+		var to_threat: Vector3 = (nearest.global_position - aircraft.global_position)
+		var nose_dot: float = aircraft.global_transform.basis.z.normalized().dot(to_threat.normalized()) if to_threat.length() > 1.0 else 1.0
+		if nose_dot < defensive_evade_rear_dot:
+			_defensive_evade_timer_s = 1.2   # keep weaving for a bit after the trigger
 	return false
 
+func _check_air_threat_evade_only() -> void:
+	"""Set the defensive-evade jink if an air threat is close and roughly behind us. Never changes state
+	-- used while fleeing/RTB where we stay committed to egress but still want to spoil an attacker's aim."""
+	if not dogfight_enabled:
+		return
+	var nearest_d: float = INF
+	var nearest: Node3D = null
+	for enemy in known_enemies:
+		if not is_instance_valid(enemy) or not (enemy is Node3D):
+			continue
+		if not _is_enemy_aircraft_target(enemy as Node3D):
+			continue
+		var d: float = aircraft.global_position.distance_to((enemy as Node3D).global_position)
+		if d < nearest_d:
+			nearest_d = d
+			nearest = enemy as Node3D
+	if nearest == null or nearest_d > defensive_evade_threat_range_m:
+		return
+	var to_threat: Vector3 = nearest.global_position - aircraft.global_position
+	var nose_dot: float = aircraft.global_transform.basis.z.normalized().dot(to_threat.normalized()) if to_threat.length() > 1.0 else 1.0
+	if nose_dot < defensive_evade_rear_dot:
+		_defensive_evade_timer_s = 1.2
+
 func _evaluate_combat_objective() -> bool:
-	# Air defense has priority over ground attack.
-	if dogfight_enabled:
+	# Air defense has priority over ground attack -- but ONLY for DOGFIGHTER-posture aircraft. A DEFENSIVE
+	# aircraft (attacker/bomber/fleeing) does NOT go hunting air targets; it keeps to its mission (ground
+	# attack / RTB / patrol) and only reacts to a close threat via evasion (see _check_air_threat_proximity).
+	if dogfight_enabled and air_combat_posture == AirCombatPosture.DOGFIGHTER:
 		var air_target: Node3D = _find_nearest_enemy_aircraft_target()
 		if air_target and is_instance_valid(air_target):
 			combat_target = air_target
@@ -1870,6 +3192,13 @@ func _evaluate_combat_objective() -> bool:
 	if ground_attack_enabled:
 		var ground_target: Node3D = _find_ground_attack_target()
 		if ground_target and is_instance_valid(ground_target):
+			if _ground_attack_target_requires_egress(ground_target):
+				combat_target = ground_target
+				_attack_last_commit_reason = "egress_before_reacquire"
+				_attack_last_end_reason = "reposition_for_attack_entry"
+				_prime_attack_straight_ahead_breakoff(_get_surface_target_position(ground_target))
+				change_state(State.ATTACK_BREAK_OFF)
+				return true
 			combat_target = ground_target
 			_setup_attack_run_waypoint()
 			change_state(State.ATTACK_POSITIONING)
@@ -1894,39 +3223,3938 @@ func _is_within_engagement_radius(target: Variant, radius_m: float = -1.0) -> bo
 		return aircraft.global_position.distance_to(target.global_position) <= radius
 	return carrier_position.distance_to(target.global_position) <= radius
 
-func _setup_attack_run_waypoint():
+func _has_attack_egress_waypoint() -> bool:
+	return _attack_egress_waypoint != Vector3.INF
+
+func _get_planned_attack_heading(target_pos: Vector3) -> Vector3:
+	if _attack_corridor_axis.length_squared() > 0.001:
+		return _attack_corridor_axis.normalized()
+	var setup_pos: Vector3 = Vector3(_attack_setup_wp_xz.x, target_pos.y, _attack_setup_wp_xz.y)
+	var attack_dir: Vector3 = target_pos - setup_pos
+	attack_dir.y = 0.0
+	if attack_dir.length_squared() <= 1.0:
+		attack_dir = aircraft.linear_velocity
+		attack_dir.y = 0.0
+	if attack_dir.length_squared() <= 1.0:
+		attack_dir = aircraft.global_transform.basis.z
+		attack_dir.y = 0.0
+	return attack_dir.normalized() if attack_dir.length_squared() > 0.001 else Vector3.FORWARD
+
+func _prime_attack_recovery_waypoint(target_pos: Vector3, preferred_dir: Vector3 = Vector3.ZERO) -> void:
+	var recovery_dir: Vector3 = Vector3(preferred_dir.x, 0.0, preferred_dir.z)
+	if recovery_dir.length_squared() <= 0.001:
+		recovery_dir = _get_planned_attack_heading(target_pos)
+	if recovery_dir.length_squared() <= 0.001:
+		recovery_dir = Vector3.FORWARD
+	recovery_dir = recovery_dir.normalized()
+	_attack_recovery_heading_dir = recovery_dir
+
+	var recovery: Dictionary = _evaluate_attack_recovery_clearance()
+	var horizontal_speed_mps: float = Vector2(aircraft.linear_velocity.x, aircraft.linear_velocity.z).length()
+	var pullout_horizontal_m: float = float(recovery.get("pullout_horizontal_m", 0.0))
+	var reaction_distance_m: float = horizontal_speed_mps * maxf(attack_recovery_reaction_time_s, 0.0)
+	var recovery_distance_m: float = maxf(
+		maxf(attack_breakoff_completion_radius_m, pullout_horizontal_m + reaction_distance_m),
+		horizontal_speed_mps * maxf(attack_recovery_probe_time_s, 1.0)
+	)
+	var recovery_point: Vector3 = aircraft.global_position + recovery_dir * recovery_distance_m
+	var requested_y: float = maxf(
+		aircraft.global_position.y + attack_breakoff_egress_altitude_gain_m,
+		target_pos.y + maxf(attack_recovery_heading_hold_min_agl_m, attack_positioning_hard_floor_agl_m)
+	)
+	recovery_point.y = _terrain_safe_altitude_for_segment(
+		aircraft.global_position,
+		recovery_point,
+		requested_y,
+		maxf(attack_recovery_heading_hold_min_agl_m, attack_positioning_hard_floor_agl_m)
+	)
+	_attack_recovery_waypoint = recovery_point
+
+func _prime_attack_breakoff_egress(target_pos: Vector3) -> void:
+	_attack_breakoff_reference_pos = target_pos
+	var egress_point: Vector3 = _attack_egress_waypoint
+	if egress_point == Vector3.INF:
+		var away: Vector3 = aircraft.global_position - target_pos
+		away.y = 0.0
+		var away_dir: Vector3 = away.normalized() if away.length() > 1.0 else aircraft.global_transform.basis.z
+		egress_point = aircraft.global_position + away_dir * maxf(attack_egress_distance_m, attack_break_off_distance_m * 2.0)
+	elif _attack_egress_offset_from_target != Vector3.ZERO:
+		var horizontal_offset: Vector3 = Vector3(_attack_egress_offset_from_target.x, 0.0, _attack_egress_offset_from_target.z)
+		egress_point = target_pos + horizontal_offset
+	var requested_y: float = maxf(egress_point.y, _attack_breakoff_egress_y_m) if is_finite(_attack_breakoff_egress_y_m) else maxf(egress_point.y, aircraft.global_position.y + attack_breakoff_egress_altitude_gain_m)
+	requested_y = maxf(requested_y, patrol_altitude_m)
+	var active_target: Node3D = _resolve_current_ground_attack_target()
+	if active_target != null:
+		var structure_top_y: float = _get_target_structure_top_y(active_target)
+		if is_finite(structure_top_y):
+			requested_y = maxf(requested_y, structure_top_y + maxf(attack_structure_overflight_margin_m, 0.0))
+	egress_point.y = _terrain_safe_altitude_for_segment(
+		aircraft.global_position,
+		egress_point,
+		requested_y,
+		aircraft_flight_plan_terrain_clearance_m
+	)
+	_attack_egress_waypoint = egress_point
+	_attack_breakoff_egress_y_m = egress_point.y
+	if _attack_egress_offset_from_target == Vector3.ZERO:
+		_attack_egress_offset_from_target = Vector3(egress_point.x - target_pos.x, 0.0, egress_point.z - target_pos.z)
+	_prime_attack_recovery_waypoint(target_pos, _get_planned_attack_heading(target_pos))
+	nav_waypoint = _attack_egress_waypoint
+	maneuver_waypoint = nav_waypoint
+	if nav_target:
+		nav_target.global_position = maneuver_waypoint
+
+func _prime_attack_straight_ahead_breakoff(target_pos: Vector3, preferred_escape_dir: Vector3 = Vector3.ZERO) -> void:
+	_attack_breakoff_reference_pos = target_pos
+	var escape_dir: Vector3 = Vector3(preferred_escape_dir.x, 0.0, preferred_escape_dir.z)
+	if escape_dir.length_squared() < 1.0:
+		escape_dir = aircraft.linear_velocity
+		escape_dir.y = 0.0
+	if escape_dir.length_squared() < 1.0:
+		escape_dir = aircraft.global_transform.basis.z
+		escape_dir.y = 0.0
+	escape_dir = escape_dir.normalized() if escape_dir.length_squared() > 0.001 else Vector3.FORWARD
+	var escape_distance_m: float = maxf(attack_egress_distance_m, attack_break_off_distance_m * 2.0)
+	var egress_point: Vector3 = aircraft.global_position + escape_dir * escape_distance_m
+	var requested_y: float = maxf(
+		aircraft.global_position.y + attack_breakoff_egress_altitude_gain_m,
+		patrol_altitude_m
+	)
+	var active_target: Node3D = _resolve_current_ground_attack_target()
+	if active_target != null:
+		var structure_top_y: float = _get_target_structure_top_y(active_target)
+		if is_finite(structure_top_y):
+			requested_y = maxf(requested_y, structure_top_y + maxf(attack_structure_overflight_margin_m, 0.0))
+	egress_point.y = _terrain_safe_climb_endpoint_altitude(
+		aircraft.global_position,
+		egress_point,
+		requested_y,
+		aircraft_flight_plan_terrain_clearance_m
+	)
+	_attack_egress_waypoint = egress_point
+	_attack_breakoff_egress_y_m = egress_point.y
+	_attack_egress_offset_from_target = egress_point - target_pos
+	_prime_attack_recovery_waypoint(target_pos, escape_dir)
+	if _attack_recovery_waypoint != Vector3.INF:
+		_attack_recovery_waypoint.y = _terrain_safe_climb_endpoint_altitude(
+			aircraft.global_position,
+			_attack_recovery_waypoint,
+			maxf(_attack_recovery_waypoint.y, requested_y),
+			maxf(attack_recovery_heading_hold_min_agl_m, attack_positioning_hard_floor_agl_m)
+		)
+	nav_waypoint = egress_point
+	maneuver_waypoint = egress_point
+	if nav_target:
+		nav_target.global_position = maneuver_waypoint
+
+func _set_direct_fire_breakoff_extend_waypoint(target_pos: Vector3, min_recover_agl_m: float) -> void:
+	if _direct_fire_breakoff_dir.length_squared() <= 0.001:
+		var escape_dir: Vector3 = aircraft.linear_velocity
+		escape_dir.y = 0.0
+		if escape_dir.length_squared() < 1.0:
+			escape_dir = aircraft.global_transform.basis.z
+			escape_dir.y = 0.0
+		_direct_fire_breakoff_dir = escape_dir.normalized() if escape_dir.length_squared() > 0.001 else Vector3.FORWARD
+	var extend_distance_m: float = maxf(attack_egress_distance_m, attack_break_off_distance_m * 2.0)
+	nav_waypoint = aircraft.global_position + _direct_fire_breakoff_dir * extend_distance_m
+	var requested_direct_y: float = maxf(aircraft.global_position.y, target_pos.y + min_recover_agl_m)
+	# This waypoint begins at the aircraft's current altitude, so a single safe
+	# endpoint altitude is not enough: the straight climb profile itself must clear
+	# every terrain sample. The old code also used the 90 m firing floor here even
+	# though breakoff recovery requires a substantially larger AGL margin.
+	var recovery_clearance_m: float = maxf(min_recover_agl_m, maxf(gun_attack_commit_min_agl_m, 20.0))
+	nav_waypoint.y = _terrain_safe_climb_endpoint_altitude(
+		aircraft.global_position,
+		nav_waypoint,
+		requested_direct_y,
+		recovery_clearance_m
+	)
+	maneuver_waypoint = nav_waypoint
+	if nav_target:
+		nav_target.global_position = maneuver_waypoint
+
+func _fly_direct_fire_breakoff_recovery(min_recover_agl_m: float) -> void:
+	var roll_rad: float = atan2(aircraft.global_transform.basis.x.y, aircraft.global_transform.basis.y.y)
+	var level_roll_input: float = clampf(-roll_rad * 1.8 - aircraft.angular_velocity.dot(aircraft.global_transform.basis.z) * 0.18, -0.55, 0.55)
+	var climb_need_m: float = maxf(min_recover_agl_m - altitude_agl, 0.0)
+	var climb_t: float = clampf(climb_need_m / maxf(min_recover_agl_m, 1.0), 0.0, 1.0)
+	var speed_mps: float = aircraft.linear_velocity.length()
+	var horizontal_speed_mps: float = Vector2(aircraft.linear_velocity.x, aircraft.linear_velocity.z).length()
+	var stall_floor_mps: float = stall_speed_mps + stall_margin_mps
+	var speed_t: float = clampf((speed_mps - stall_floor_mps) / 40.0, 0.0, 1.0)
+	# Track both the local AGL recovery demand and the actual 3D flight path to the
+	# terrain-cleared egress waypoint. Previously this controller ignored waypoint.y,
+	# unloaded near its local AGL target, and flew level into terrain rising farther
+	# along the straight egress.
+	var max_recovery_fpa_rad: float = deg_to_rad(maxf(attack_breakoff_max_climb_angle_deg, 0.0))
+	var local_recovery_fpa_rad: float = max_recovery_fpa_rad * climb_t
+	var to_recovery_waypoint: Vector3 = nav_waypoint - aircraft.global_position
+	var waypoint_horizontal_m: float = Vector2(to_recovery_waypoint.x, to_recovery_waypoint.z).length()
+	var waypoint_recovery_fpa_rad: float = atan2(
+		maxf(to_recovery_waypoint.y, 0.0),
+		maxf(waypoint_horizontal_m, 1.0)
+	)
+	var desired_recovery_fpa_rad: float = clampf(
+		maxf(local_recovery_fpa_rad, waypoint_recovery_fpa_rad),
+		0.0,
+		max_recovery_fpa_rad
+	)
+	var current_recovery_fpa_rad: float = atan2(aircraft.linear_velocity.y, maxf(horizontal_speed_mps, 1.0))
+	var recovery_fpa_error_rad: float = desired_recovery_fpa_rad - current_recovery_fpa_rad
+	var pitch_rate_up: float = -aircraft.angular_velocity.dot(aircraft.global_transform.basis.x)
+	var climb_pitch_input: float = clampf(
+		recovery_fpa_error_rad * maxf(attack_breakoff_fpa_pitch_gain, 0.0)
+			- pitch_rate_up * maxf(attack_breakoff_fpa_pitch_rate_damping, 0.0),
+		-maxf(attack_breakoff_fpa_max_push_input, 0.0),
+		maxf(terrain_escape_max_pitch_input, 0.0)
+	)
+	# Near stall speed, preserve positive recovery authority but do not suppress the
+	# forward-stick command that arrests an already-established climb.
+	if climb_pitch_input > 0.0:
+		climb_pitch_input *= lerpf(0.45, 1.0, speed_t)
+	roll_input = level_roll_input
+	# WINGS-LEVEL PRIORITY: positive pitch_input only climbs when close to upright -- past a steep bank
+	# (let alone inverted, entirely plausible right after a strafing dive-and-pull), commanding "pull up"
+	# in the aircraft's local frame partially or fully points the nose AT the ground instead of away from
+	# it. This mirrors the fix already applied to the general _check_terrain_avoidance escape logic, which
+	# does NOT cover this separate direct-fire break-off recovery path. Without it a break-off entered
+	# still steeply banked/inverted from the preceding dive can pitch itself straight into terrain at
+	# near-zero indicated bank once level_roll_input has rolled it back upright moments too late.
+	var upright_factor_y: float = aircraft.global_transform.basis.y.y  # 1.0 level, 0.0 knife-edge, -1.0 inverted
+	pitch_input = climb_pitch_input * clampf(upright_factor_y, 0.15, 1.0)
+	yaw_input = 0.0
+	throttle_input = 1.0
+	target_speed = maxf(attack_breakoff_direct_fire_target_speed_mps, stall_floor_mps + 35.0)
+	_smoothed_roll_input = roll_input
+	_smoothed_pitch_input = pitch_input
+	_smoothed_yaw_input = 0.0
+
+func _direct_fire_breakoff_exit_ready(min_recover_agl_m: float, vertical_speed_mps: float, breakoff_age_s: float) -> bool:
+	if altitude_agl >= min_recover_agl_m:
+		return true
+	var absolute_floor_m: float = maxf(gun_attack_commit_min_agl_m, emergency_min_agl_m + 80.0)
+	if altitude_agl >= absolute_floor_m and vertical_speed_mps >= attack_breakoff_min_climb_rate_mps:
+		return true
+	return breakoff_age_s >= attack_breakoff_max_time_s \
+		and altitude_agl >= absolute_floor_m \
+		and vertical_speed_mps > -2.0
+
+func _pick_attack_egress_waypoint(target_pos: Vector3, setup_pos: Vector3, setup_altitude_m: float) -> Vector3:
+	var attack_line: Vector3 = target_pos - setup_pos
+	attack_line.y = 0.0
+	var attack_dir: Vector3 = attack_line.normalized() if attack_line.length() > 1.0 else aircraft.global_transform.basis.z
+	attack_dir.y = 0.0
+	if attack_dir.length_squared() <= 0.0001:
+		attack_dir = Vector3.FORWARD
+	attack_dir = attack_dir.normalized()
+	var egress_dist_m: float = maxf(attack_egress_distance_m, attack_break_off_distance_m * 2.0)
+	var base_altitude_m: float = maxf(maxf(setup_altitude_m, patrol_altitude_m), aircraft.global_position.y + 80.0)
+	var recovery_altitude_gain_m: float = maxf(base_altitude_m - (target_pos.y + _get_attack_run_aim_height_m()), 0.0)
+	var max_climb_angle_rad: float = deg_to_rad(clampf(attack_breakoff_max_climb_angle_deg, 1.0, 60.0))
+	var climb_limited_distance_m: float = recovery_altitude_gain_m / maxf(tan(max_climb_angle_rad), 0.01)
+	egress_dist_m = maxf(egress_dist_m, climb_limited_distance_m + _get_attack_pull_up_distance_m())
+	var egress_point: Vector3 = target_pos + attack_dir * egress_dist_m
+	egress_point.y = _terrain_safe_altitude_for_segment(
+		target_pos,
+		egress_point,
+		base_altitude_m,
+		aircraft_flight_plan_terrain_clearance_m
+	)
+	return egress_point
+
+func _get_attack_ingress_join_waypoint(setup_pos: Vector3, target_pos: Vector3) -> Vector3:
+	var attack_dir: Vector3 = target_pos - setup_pos
+	attack_dir.y = 0.0
+	if attack_dir.length_squared() <= 1.0:
+		attack_dir = Vector3(aircraft.global_transform.basis.z.x, 0.0, aircraft.global_transform.basis.z.z)
+	if attack_dir.length_squared() <= 0.0001:
+		attack_dir = Vector3.FORWARD
+	attack_dir = attack_dir.normalized()
+	var turn_radius_m: float = _estimate_aircraft_turn_radius_m(100.0, "attack_setup")
+	var lineup_distance_m: float = maxf(
+		attack_ingress_lineup_distance_m,
+		turn_radius_m * maxf(attack_ingress_lineup_turn_radii, 1.0)
+	)
+	# Do not put the join point behind an aircraft that is already between the
+	# nominal join and setup points. That creates an artificial hairpin: the
+	# route first reverses to capture the join, then reverses again onto the
+	# attack corridor. Use all of the along-corridor distance that is genuinely
+	# available before setup, but never manufacture distance behind the aircraft.
+	# This keeps the requested long lineup when there is room for it and naturally
+	# shortens it when the aircraft is already established closer to the target.
+	# Every ground weapon needs the same genuine straight corridor before setup.
+	# Formerly bombs collapsed this leg whenever setup was abeam, while guns kept
+	# the full corridor. That made bomb routing approach sideways and left the
+	# terminal controller to repair the heading at the last moment. The approach
+	# pathfinder owns the turn needed to reach the far end for every weapon; release
+	# geometry remains weapon-specific after setup.
+	lineup_distance_m = maxf(lineup_distance_m, 0.0)
+	var join_pos: Vector3 = setup_pos - attack_dir * lineup_distance_m
+	join_pos.y = setup_pos.y
+	return join_pos
+
+func _shape_direct_fire_ingress_descent(
+		ingress_join_pos: Vector3,
+		setup_pos: Vector3,
+		target_pos: Vector3
+) -> Vector3:
+	# The final lineup and firing leg are one physical sight line. Reaching setup
+	# level and only then pitching onto that line creates a vertical tangent step:
+	# the route follower has no descent to acquire until the last possible moment.
+	# Every weapon shares the horizontal gun corridor, but only guns extend their
+	# sightline backward. A shallow rocket slope extrapolated through the entire
+	# lineup raises its join point by hundreds of metres; rocket ballistics own the
+	# setup-to-release segment instead. Bomb CCIP similarly owns its terminal descent.
+	if not _is_direct_fire_attack_weapon_type(_run_weapon_type):
+		ingress_join_pos.y = setup_pos.y
+		return ingress_join_pos
+	var terminal_pos: Vector3 = target_pos
+	var setup_to_terminal_m: float = Vector2(
+		setup_pos.x - terminal_pos.x,
+		setup_pos.z - terminal_pos.z
+	).length()
+	var join_to_setup_m: float = Vector2(
+		ingress_join_pos.x - setup_pos.x,
+		ingress_join_pos.z - setup_pos.z
+	).length()
+	if setup_to_terminal_m <= 1.0 or join_to_setup_m <= 1.0:
+		ingress_join_pos.y = setup_pos.y
+		return ingress_join_pos
+
+	var terminal_y: float = target_pos.y + _get_attack_run_aim_height_m()
+	var attack_slope: float = (setup_pos.y - terminal_y) / setup_to_terminal_m
+	ingress_join_pos.y = setup_pos.y + attack_slope * join_to_setup_m
+
+	# Preserve terrain clearance on the newly descending lineup without flattening
+	# the whole leg.  Solve the join altitude required by each point on the linear
+	# join -> setup profile. In ordinary open terrain this leaves the exact backward
+	# extension above unchanged; a ridge only raises the end that must clear it.
+	var samples: int = maxi(attack_run_corridor_samples, 4)
+	var clearance_m: float = maxf(
+		attack_ingress_route_clearance_m,
+		aircraft_flight_plan_terrain_clearance_m
+	)
+	var solved_join_y: float = ingress_join_pos.y
+	for i in range(samples):
+		var t: float = float(i + 1) / float(samples + 1)
+		var sample_pos: Vector3 = ingress_join_pos.lerp(setup_pos, t)
+		var terrain_y: float = _get_ground_height_at_position(sample_pos)
+		if is_nan(terrain_y):
+			continue
+		var required_sample_y: float = terrain_y + clearance_m
+		# lerp(join_y, setup_y, t) >= required_sample_y
+		var required_join_y: float = setup_pos.y \
+			+ (required_sample_y - setup_pos.y) / maxf(1.0 - t, 0.001)
+		solved_join_y = maxf(solved_join_y, required_join_y)
+	ingress_join_pos.y = solved_join_y
+	return ingress_join_pos
+
+func _evaluate_attack_ingress_reachability(ingress_join_pos: Vector3, attack_dir: Vector3) -> Dictionary:
+	var to_join: Vector3 = ingress_join_pos - aircraft.global_position
+	to_join.y = 0.0
+	var available_distance_m: float = to_join.length()
+	if available_distance_m <= 1.0:
+		return {"reachable": false, "required_m": INF, "available_m": available_distance_m, "heading_rad": PI, "arrival_rad": PI}
+	var approach_dir: Vector3 = to_join / available_distance_m
+	var current_dir: Vector3 = Vector3(aircraft.linear_velocity.x, 0.0, aircraft.linear_velocity.z)
+	if current_dir.length_squared() <= 1.0:
+		current_dir = Vector3(aircraft.global_transform.basis.z.x, 0.0, aircraft.global_transform.basis.z.z)
+	if current_dir.length_squared() <= 0.0001:
+		current_dir = approach_dir
+	current_dir = current_dir.normalized()
+	var flat_attack_dir: Vector3 = Vector3(attack_dir.x, 0.0, attack_dir.z).normalized()
+	var heading_change_rad: float = acos(clampf(current_dir.dot(approach_dir), -1.0, 1.0))
+	var arrival_change_rad: float = acos(clampf(approach_dir.dot(flat_attack_dir), -1.0, 1.0))
+	var speed_mps: float = maxf(aircraft.linear_velocity.length(), 100.0)
+	var turn_radius_m: float = _estimate_aircraft_turn_radius_m(speed_mps, "attack_approach")
+	var required_distance_m: float = turn_radius_m * (
+		(heading_change_rad + arrival_change_rad) * maxf(attack_ingress_reach_turn_distance_scale, 0.1)
+		+ maxf(attack_ingress_reach_reserve_radii, 0.0)
+	)
+	return {
+		"reachable": available_distance_m >= required_distance_m,
+		"required_m": required_distance_m,
+		"available_m": available_distance_m,
+		"heading_rad": heading_change_rad,
+		"arrival_rad": arrival_change_rad,
+		"turn_radius_m": turn_radius_m,
+	}
+
+func _choose_attack_run_geometry(target_pos: Vector3, preferred_dir: Vector3, setup_dist: float, initial_setup_altitude_m: float) -> Dictionary:
+	var preferred_flat: Vector3 = Vector3(preferred_dir.x, 0.0, preferred_dir.z)
+	if preferred_flat.length_squared() <= 0.0001:
+		preferred_flat = Vector3(aircraft.global_transform.basis.z.x, 0.0, aircraft.global_transform.basis.z.z)
+	if preferred_flat.length_squared() <= 0.0001:
+		preferred_flat = Vector3.FORWARD
+	preferred_flat = preferred_flat.normalized()
+
+	var candidate_dirs: Array[Vector3] = _build_attack_heading_candidates(preferred_flat)
+	var best_geometry: Dictionary = {}
+	var best_score: float = INF
+	var best_is_clear: bool = false
+	var best_rocket_attack_angle_rad: float = INF
+	var best_rocket_ingress_turn_rad: float = INF
+	for candidate_dir in candidate_dirs:
+		var attack_dir: Vector3 = Vector3(candidate_dir.x, 0.0, candidate_dir.z)
+		if attack_dir.length_squared() <= 0.0001:
+			continue
+		attack_dir = attack_dir.normalized()
+		var candidate_setup_distance_m: float = setup_dist
+		var direct_capture_reachable: bool = false
+		var direct_capture_required_m: float = INF
+		var current_to_target: Vector3 = target_pos - aircraft.global_position
+		current_to_target.y = 0.0
+		var remaining_along_line_m: float = current_to_target.dot(attack_dir)
+		var direct_weapon_profile: bool = _is_direct_fire_attack_weapon_type(_run_weapon_type) \
+			or _run_weapon_type == "Rocket Pod"
+		if direct_weapon_profile and remaining_along_line_m > 0.0:
+			var line_offset: Vector3 = current_to_target - attack_dir * remaining_along_line_m
+			var current_heading: Vector3 = Vector3(aircraft.linear_velocity.x, 0.0, aircraft.linear_velocity.z)
+			if current_heading.length_squared() <= 1.0:
+				current_heading = Vector3(aircraft.global_transform.basis.z.x, 0.0, aircraft.global_transform.basis.z.z)
+			if current_heading.length_squared() > 0.0001:
+				current_heading = current_heading.normalized()
+				var heading_change_rad: float = acos(clampf(current_heading.dot(attack_dir), -1.0, 1.0))
+				var current_speed_mps: float = maxf(aircraft.linear_velocity.length(), 60.0)
+				var current_turn_radius_m: float = _estimate_aircraft_turn_radius_m(current_speed_mps, "attack_setup")
+				direct_capture_required_m = current_turn_radius_m * (
+					heading_change_rad * maxf(attack_ingress_reach_turn_distance_scale, 0.1)
+					+ maxf(attack_ingress_reach_reserve_radii, 0.0)
+				) + line_offset.length()
+				var usable_run_distance_m: float = maxf(
+					remaining_along_line_m - _get_attack_pull_up_distance_m(),
+					0.0
+				)
+				direct_capture_reachable = usable_run_distance_m >= direct_capture_required_m
+				# If the nominal setup is already behind us but this line can be
+				# captured before pull-up, put setup at the predicted completion of
+				# that capture. The aircraft then rolls out with the remaining lane
+				# available for precise aiming instead of flying outbound to reverse.
+				if direct_capture_reachable and remaining_along_line_m < setup_dist:
+					candidate_setup_distance_m = remaining_along_line_m - direct_capture_required_m
+		var setup_pos: Vector3 = target_pos - attack_dir * candidate_setup_distance_m
+		var ingress_join_pos: Vector3 = _get_attack_ingress_join_waypoint(setup_pos, target_pos)
+		var egress_pos: Vector3 = _pick_attack_egress_waypoint(target_pos, setup_pos, initial_setup_altitude_m)
+		var corridor_samples: int = maxi(attack_run_corridor_samples, 4)
+		var lineup_terrain_max: float = _sample_max_terrain_height_along_path(ingress_join_pos, setup_pos, corridor_samples)
+		var ingress_terrain_max: float = _sample_max_terrain_height_along_path(setup_pos, target_pos, corridor_samples)
+		var egress_terrain_max: float = _sample_max_terrain_height_along_path(target_pos, egress_pos, corridor_samples)
+		# The lineup leg is part of the final 3D attack corridor. The threaded path
+		# only solves as far as ingress_join; it does not own the direct
+		# ingress_join -> setup segment appended below. Ignoring terrain on that leg
+		# let setup remain hundreds of metres below an intervening ridge, so the
+		# follower was faithfully commanded into a 20-30 m/s descent through it.
+		# Include both sides of setup when solving its altitude so the final corridor
+		# itself is geometrically clear instead of relying on a reactive abort.
+		var approach_terrain_max: float = lineup_terrain_max
+		var setup_terrain_max: float = _max_valid_height(lineup_terrain_max, ingress_terrain_max)
+		var terrain_max: float = _max_valid_height(approach_terrain_max, egress_terrain_max)
+		terrain_max = _max_valid_height(terrain_max, setup_terrain_max)
+		var rocket_profile: Dictionary = {}
+		var setup_altitude_m: float = _get_attack_setup_altitude_m(target_pos, setup_terrain_max)
+		if _run_weapon_type == "Rocket Pod":
+			rocket_profile = _solve_rocket_shallow_attack_profile(setup_pos, target_pos)
+			setup_altitude_m = float(rocket_profile.get("setup_y", setup_altitude_m))
+		setup_pos.y = setup_altitude_m
+		ingress_join_pos.y = setup_altitude_m
+		egress_pos = _pick_attack_egress_waypoint(target_pos, setup_pos, setup_altitude_m)
+		egress_pos.y = _terrain_safe_altitude_for_segment(
+			target_pos,
+			egress_pos,
+			maxf(setup_altitude_m, egress_pos.y),
+			aircraft_flight_plan_terrain_clearance_m
+		)
+		egress_terrain_max = _sample_max_terrain_height_along_path(target_pos, egress_pos, corridor_samples)
+		terrain_max = _max_valid_height(_max_valid_height(approach_terrain_max, setup_terrain_max), egress_terrain_max)
+		if _run_weapon_type == "Rocket Pod":
+			rocket_profile = _solve_rocket_shallow_attack_profile(setup_pos, target_pos)
+			setup_altitude_m = float(rocket_profile.get("setup_y", setup_altitude_m))
+		elif _is_direct_fire_attack_weapon_type(_run_weapon_type):
+			setup_altitude_m = _solve_direct_fire_corridor_setup_altitude_m(
+				setup_pos,
+				target_pos,
+				egress_pos,
+				setup_altitude_m
+			)
+		else:
+			setup_altitude_m = _get_attack_setup_altitude_m(target_pos, setup_terrain_max)
+		# Setup is still part of the terrain-routed ingress. Preserve the route's
+		# own clearance contract through ingress_join -> setup; the following
+		# attack_target leg is the place where the solved firing line begins its
+		# descent. Previously setup used only the weapon altitude offset, so a route
+		# planned at 400 m clearance collapsed toward 200 m AGL at its handoff and
+		# triggered predictive recovery before it could use the valid target line.
+		setup_altitude_m = _terrain_safe_altitude_for_segment(
+			ingress_join_pos,
+			setup_pos,
+			setup_altitude_m,
+			maxf(attack_ingress_route_clearance_m, aircraft_flight_plan_terrain_clearance_m)
+		)
+		setup_pos.y = setup_altitude_m
+		ingress_join_pos.y = setup_altitude_m
+		egress_pos.y = maxf(egress_pos.y, setup_altitude_m)
+
+		# A terrain-clear gun corridor is not necessarily a flyable gun corridor. The
+		# clearance solve above may raise setup hundreds of metres while its horizontal
+		# distance remains fixed, turning the final leg into a steep dive which the
+		# aircraft cannot acquire after rolling out of the approach turn. Extend setup
+		# along the selected attack axis until the same configured 3D descent envelope
+		# used by the ingress can contain the solved sight line. Re-solve terrain after
+		# every extension because moving setup can expose a different ridge; the sample
+		# count is also a natural finite bound for this discrete terrain solve.
+		var direct_fire_attack_angle_rad: float = NAN
+		if _is_direct_fire_attack_weapon_type(_run_weapon_type):
+			var aim_y: float = target_pos.y + _get_attack_run_aim_height_m()
+			var max_attack_angle_rad: float = deg_to_rad(clampf(
+				minf(attack_ingress_max_descent_angle_deg, attack_max_dive_angle_deg),
+				1.0,
+				89.0
+			))
+			var max_attack_slope: float = maxf(tan(max_attack_angle_rad), 0.001)
+			for _solve_iteration in range(corridor_samples):
+				var current_setup_range_m: float = Vector2(
+					setup_pos.x - target_pos.x,
+					setup_pos.z - target_pos.z
+				).length()
+				var required_setup_range_m: float = maxf(setup_altitude_m - aim_y, 0.0) \
+					/ max_attack_slope
+				direct_fire_attack_angle_rad = atan2(
+					maxf(setup_altitude_m - aim_y, 0.0),
+					maxf(current_setup_range_m, 1.0)
+				)
+				if required_setup_range_m <= current_setup_range_m \
+						or is_equal_approx(required_setup_range_m, current_setup_range_m):
+					break
+
+				candidate_setup_distance_m = required_setup_range_m
+				setup_pos = target_pos - attack_dir * candidate_setup_distance_m
+				ingress_join_pos = _get_attack_ingress_join_waypoint(setup_pos, target_pos)
+				lineup_terrain_max = _sample_max_terrain_height_along_path(
+					ingress_join_pos,
+					setup_pos,
+					corridor_samples
+				)
+				ingress_terrain_max = _sample_max_terrain_height_along_path(
+					setup_pos,
+					target_pos,
+					corridor_samples
+				)
+				approach_terrain_max = lineup_terrain_max
+				setup_terrain_max = _max_valid_height(lineup_terrain_max, ingress_terrain_max)
+				setup_altitude_m = _get_attack_setup_altitude_m(target_pos, setup_terrain_max)
+				setup_pos.y = setup_altitude_m
+				ingress_join_pos.y = setup_altitude_m
+				egress_pos = _pick_attack_egress_waypoint(
+					target_pos,
+					setup_pos,
+					setup_altitude_m
+				)
+				setup_altitude_m = _solve_direct_fire_corridor_setup_altitude_m(
+					setup_pos,
+					target_pos,
+					egress_pos,
+					setup_altitude_m
+				)
+				setup_altitude_m = _terrain_safe_altitude_for_segment(
+					ingress_join_pos,
+					setup_pos,
+					setup_altitude_m,
+					maxf(attack_ingress_route_clearance_m, aircraft_flight_plan_terrain_clearance_m)
+				)
+				setup_pos.y = setup_altitude_m
+				ingress_join_pos.y = setup_altitude_m
+				egress_pos.y = maxf(egress_pos.y, setup_altitude_m)
+				egress_terrain_max = _sample_max_terrain_height_along_path(
+					target_pos,
+					egress_pos,
+					corridor_samples
+				)
+				terrain_max = _max_valid_height(
+					_max_valid_height(approach_terrain_max, setup_terrain_max),
+					egress_terrain_max
+				)
+				# The earlier direct-capture estimate described the shorter candidate.
+				# Once geometry extends setup, let the route reachability solve own the join.
+				direct_capture_reachable = false
+		# Guns keep one continuous 3D sightline through lineup and target. Rockets
+		# and bombs share the same horizontal corridor but retain their weapon-specific
+		# vertical terminal segment.
+		ingress_join_pos = _shape_direct_fire_ingress_descent(
+			ingress_join_pos,
+			setup_pos,
+			target_pos
+		)
+
+		var obstruction_penalty: float = _score_attack_run_corridor_obstruction(setup_pos, target_pos, egress_pos)
+		var corridor_is_clear: bool = obstruction_penalty <= 0.0
+		var rocket_attack_angle_rad: float = INF
+		if _run_weapon_type == "Rocket Pod" and not rocket_profile.is_empty():
+			# This is the shallowest terrain-clear rocket sight line on this heading.
+			# Compare that geometry directly instead of hiding it in weighted scores.
+			rocket_attack_angle_rad = float(rocket_profile.get("attack_angle_rad", INF))
+			corridor_is_clear = bool(rocket_profile.get("valid", false))
+			if corridor_is_clear:
+				obstruction_penalty = 0.0
+		var ingress_reachability: Dictionary = _evaluate_attack_ingress_reachability(ingress_join_pos, attack_dir)
+		var ingress_is_reachable: bool = bool(ingress_reachability.get("reachable", false)) \
+			or direct_capture_reachable
+		var ingress_turn_rad: float = float(ingress_reachability.get("heading_rad", PI)) \
+			+ float(ingress_reachability.get("arrival_rad", PI))
+		var heading_dot: float = clampf(preferred_flat.dot(attack_dir), -1.0, 1.0)
+		# Use the successful gun-corridor policy for every weapon: prefer a clear,
+		# reachable line close to the heading the aircraft already owns instead of
+		# choosing a marginally cheaper compass direction that requires another large
+		# repositioning turn. Weapon-specific release geometry remains a later concern.
+		var heading_penalty_weight: float = maxf(attack_run_preferred_heading_penalty, 0.0)
+		heading_penalty_weight *= direct_fire_heading_penalty_scale
+		var heading_penalty: float = acos(heading_dot) / PI * heading_penalty_weight
+		var reach_penalty: float = aircraft.global_position.distance_to(setup_pos) * 0.035
+		var reach_required_m: float = float(ingress_reachability.get("required_m", INF))
+		var reach_available_m: float = float(ingress_reachability.get("available_m", 0.0))
+		# This is a direct-join estimate; the threaded route can often make a turn that
+		# it labels unreachable. Penalize the fractional shortfall without allowing the
+		# estimate to override an otherwise good attack heading outright.
+		var reach_shortfall_fraction: float = 1.0
+		if direct_capture_reachable:
+			reach_shortfall_fraction = 0.0
+		elif is_finite(reach_required_m):
+			reach_shortfall_fraction = clampf(
+				(reach_required_m - reach_available_m) / maxf(reach_required_m, 1.0),
+				0.0,
+				1.0
+			)
+		reach_penalty += reach_shortfall_fraction * maxf(attack_run_preferred_heading_penalty, 0.0)
+		var terrain_penalty: float = 0.0 if is_nan(terrain_max) else maxf(terrain_max - target_pos.y, 0.0) * 0.22
+		var score: float = setup_altitude_m * 0.20 + egress_pos.y * 0.12 + obstruction_penalty + heading_penalty + reach_penalty + terrain_penalty
+		# A firing corridor that intersects terrain is not a usable attack path, even
+		# when its setup point is easy to join. Prefer physical corridor clearance
+		# first, then use the aircraft's turn-radius reachability to choose among
+		# equally clear candidates. The threaded route can create a longer departure
+		# to reach a clear reciprocal line; choosing the obstructed near line merely
+		# guarantees a late rejection followed by that same longer departure anyway.
+		# Neither property is an absolute filter: if every candidate is obstructed or
+		# conservatively labelled unreachable, retain the best available fallback.
+		var candidate_rank: bool = ingress_is_reachable
+		var best_rank: bool = best_geometry.get("ingress_reachable", false)
+		var same_primary_tier: bool = corridor_is_clear == best_is_clear and candidate_rank == best_rank
+		var better_within_tier: bool = score < best_score
+		if _run_weapon_type == "Rocket Pod" and same_primary_tier:
+			# A shallow sight line is only useful if the aircraft can establish it.
+			# Compare the actual two turns required by the route (current heading into
+			# the approach, then approach into the firing axis) before comparing attack
+			# angle. This selects the least-curved terrain-clear reachable corridor and
+			# uses the shallowest ballistic profile when two corridors are equally easy
+			# to join, without a weighted score or an arbitrary heading cutoff.
+			better_within_tier = ingress_turn_rad < best_rocket_ingress_turn_rad \
+				or (is_equal_approx(ingress_turn_rad, best_rocket_ingress_turn_rad) \
+					and (rocket_attack_angle_rad < best_rocket_attack_angle_rad \
+						or (is_equal_approx(rocket_attack_angle_rad, best_rocket_attack_angle_rad) and score < best_score)))
+		var better: bool = (corridor_is_clear and not best_is_clear) \
+			or (corridor_is_clear == best_is_clear and candidate_rank and not best_rank) \
+			or (same_primary_tier and better_within_tier)
+		if better:
+			best_score = score
+			best_is_clear = corridor_is_clear
+			best_rocket_attack_angle_rad = rocket_attack_angle_rad
+			best_rocket_ingress_turn_rad = ingress_turn_rad
+			best_geometry = {
+				"ingress_join": ingress_join_pos,
+				"setup": setup_pos,
+				"target": target_pos,
+				"egress": egress_pos,
+				"terrain_max": terrain_max,
+				"setup_terrain_max": setup_terrain_max,
+				"score": score,
+				"obstruction_penalty": obstruction_penalty,
+				"corridor_clear": corridor_is_clear,
+				"ingress_reachable": ingress_is_reachable,
+				"ingress_required_m": reach_required_m,
+				"ingress_available_m": reach_available_m,
+				"ingress_shortfall_fraction": reach_shortfall_fraction,
+				"direct_capture_reachable": direct_capture_reachable,
+				"direct_capture_required_m": direct_capture_required_m,
+				"attack_dir": attack_dir,
+				"setup_altitude_m": setup_altitude_m,
+				"direct_fire_attack_angle_deg": rad_to_deg(direct_fire_attack_angle_rad) if is_finite(direct_fire_attack_angle_rad) else NAN,
+				"rocket_attack_angle_deg": rad_to_deg(rocket_attack_angle_rad) if is_finite(rocket_attack_angle_rad) else NAN,
+				"rocket_release_y": float(rocket_profile.get("release_y", NAN)),
+				"rocket_release_pos": rocket_profile.get("release_pos", Vector3.INF),
+			}
+
+	if best_geometry.is_empty():
+		var fallback_setup: Vector3 = target_pos - preferred_flat * setup_dist
+		var fallback_egress: Vector3 = _pick_attack_egress_waypoint(target_pos, fallback_setup, initial_setup_altitude_m)
+		return {
+			"setup": fallback_setup,
+			"target": target_pos,
+			"egress": fallback_egress,
+			"terrain_max": NAN,
+			"score": INF,
+			"obstruction_penalty": INF,
+			"attack_dir": preferred_flat,
+		}
+	return best_geometry
+
+func _solve_direct_fire_corridor_setup_altitude_m(
+	setup_pos: Vector3,
+	target_pos: Vector3,
+	egress_pos: Vector3,
+	base_setup_y: float
+) -> float:
+	# Solve the same piecewise-linear corridor tested by
+	# _score_attack_run_corridor_obstruction(). A maximum terrain height alone is
+	# insufficient for a descending line: terrain near the target consumes much
+	# more of the available slope than equally high terrain near setup. Rearrange
+	# each interpolation inequality to obtain the minimum setup altitude that
+	# satisfies that sample, then take the maximum of those physical requirements.
+	var samples: int = maxi(attack_run_corridor_samples, 4)
+	var clearance_m: float = maxf(attack_run_corridor_clearance_m, 0.0)
+	var aim_y: float = target_pos.y + _get_attack_run_aim_height_m()
+	var solved_setup_y: float = base_setup_y
+	for i in range(samples):
+		var t: float = float(i + 1) / float(samples + 1)
+		var sample_pos: Vector3 = setup_pos.lerp(target_pos, t)
+		var terrain_y: float = _get_ground_height_at_position(sample_pos)
+		if is_nan(terrain_y):
+			continue
+		var required_clearance_m: float = lerpf(clearance_m, 20.0, t)
+		var required_sample_y: float = terrain_y + required_clearance_m
+		var required_setup_y: float = aim_y \
+			+ (required_sample_y - aim_y) / maxf(1.0 - t, 0.001)
+		solved_setup_y = maxf(solved_setup_y, required_setup_y)
+
+	# The validator also requires a straight-through recovery corridor. Its end
+	# altitude is at least setup altitude, so solve the reciprocal interpolation
+	# inequality for that common height rather than adding a separate safety bump.
+	var attack_line: Vector3 = target_pos - setup_pos
+	attack_line.y = 0.0
+	var attack_dir: Vector3 = attack_line.normalized() \
+		if attack_line.length_squared() > 1.0 else Vector3.FORWARD
+	var post_target_m: float = maxf(attack_run_post_target_probe_m, attack_break_off_distance_m)
+	var post_end: Vector3 = target_pos + attack_dir * post_target_m
+	post_end.y = maxf(egress_pos.y, solved_setup_y)
+	for i in range(samples):
+		var t_post: float = float(i + 1) / float(samples + 1)
+		var post_sample: Vector3 = target_pos.lerp(post_end, t_post)
+		var post_terrain_y: float = _get_ground_height_at_position(post_sample)
+		if is_nan(post_terrain_y):
+			continue
+		var post_clearance_m: float = lerpf(35.0, clearance_m, t_post)
+		var required_post_y: float = post_terrain_y + post_clearance_m
+		var required_end_y: float = aim_y \
+			+ (required_post_y - aim_y) / maxf(t_post, 0.001)
+		solved_setup_y = maxf(solved_setup_y, required_end_y)
+	return solved_setup_y
+
+func _solve_rocket_shallow_attack_profile(setup_pos: Vector3, target_pos: Vector3) -> Dictionary:
+	# Solve the vertical geometry instead of assigning the whole corridor an
+	# altitude based on its single highest terrain point. First find the lowest
+	# release point whose rocket ray reaches the target without terrain impact,
+	# while retaining the existing recovery-AGL requirement. Then find the lowest
+	# setup point whose straight approach to that release point clears terrain.
+	var attack_flat: Vector3 = target_pos - setup_pos
+	attack_flat.y = 0.0
+	var setup_range_m: float = attack_flat.length()
+	if setup_range_m <= 1.0:
+		return {"valid": false}
+	var attack_dir: Vector3 = attack_flat / setup_range_m
+	var release_range_m: float = minf(maxf(rocket_release_max_range_m, 1.0), setup_range_m)
+	var release_pos: Vector3 = target_pos - attack_dir * release_range_m
+	var aim_y: float = target_pos.y + rocket_dive_aim_height_m
+	var samples: int = maxi(attack_run_corridor_samples, 4)
+	var release_y: float = aim_y
+	var release_ground_y: float = _get_ground_height_at_position(release_pos)
+	if not is_nan(release_ground_y):
+		release_y = maxf(release_y, release_ground_y + maxf(rocket_attack_commit_min_agl_m, 0.0))
+
+	# Raise the release point only as much as the terrain under the rocket ray
+	# demands. Touching terrain is the obstruction being solved, so this ray needs
+	# no arbitrary extra clearance term.
+	for i in range(1, samples):
+		var t: float = float(i) / float(samples)
+		var ray_sample: Vector3 = release_pos.lerp(target_pos, t)
+		var terrain_y: float = _get_ground_height_at_position(ray_sample)
+		if is_nan(terrain_y):
+			continue
+		var remaining_fraction: float = 1.0 - t
+		release_y = maxf(release_y, aim_y + (terrain_y - aim_y) / remaining_fraction)
+
+	release_pos.y = release_y
+	var setup_y: float = release_y
+	var approach_length_m: float = maxf(setup_range_m - release_range_m, 0.0)
+	if approach_length_m > 1.0:
+		var setup_flat_pos: Vector3 = setup_pos
+		setup_flat_pos.y = release_y
+		for i in range(samples):
+			var t: float = float(i) / float(samples)
+			var approach_sample: Vector3 = setup_flat_pos.lerp(release_pos, t)
+			var terrain_y: float = _get_ground_height_at_position(approach_sample)
+			if is_nan(terrain_y):
+				continue
+			var required_agl_m: float = lerpf(
+				maxf(attack_run_corridor_clearance_m, 0.0),
+				maxf(rocket_attack_commit_min_agl_m, 0.0),
+				t
+			)
+			var remaining_fraction: float = 1.0 - t
+			setup_y = maxf(setup_y, release_y + (terrain_y + required_agl_m - release_y) / remaining_fraction)
+	else:
+		var setup_ground_y: float = _get_ground_height_at_position(setup_pos)
+		if not is_nan(setup_ground_y):
+			setup_y = maxf(setup_y, setup_ground_y + maxf(attack_run_corridor_clearance_m, 0.0))
+
+	return {
+		"valid": is_finite(setup_y) and is_finite(release_y),
+		"setup_y": setup_y,
+		"release_y": release_y,
+		"release_pos": release_pos,
+		"release_range_m": release_range_m,
+		"attack_angle_rad": absf(atan2(release_y - aim_y, maxf(release_range_m, 1.0))),
+	}
+
+func _build_attack_heading_candidates(preferred_dir: Vector3) -> Array[Vector3]:
+	var candidates: Array[Vector3] = []
+	var count: int = clampi(attack_run_heading_candidates, 4, 24)
+	_append_unique_attack_heading(candidates, preferred_dir)
+	var forward_flat: Vector3 = Vector3(aircraft.global_transform.basis.z.x, 0.0, aircraft.global_transform.basis.z.z)
+	if forward_flat.length_squared() > 0.0001:
+		_append_unique_attack_heading(candidates, forward_flat.normalized())
+	for i in range(count):
+		var angle_rad: float = TAU * float(i) / float(count)
+		_append_unique_attack_heading(candidates, _rotate_flat_direction(preferred_dir, angle_rad))
+	return candidates
+
+func _append_unique_attack_heading(candidates: Array[Vector3], direction: Vector3) -> void:
+	var flat_dir: Vector3 = Vector3(direction.x, 0.0, direction.z)
+	if flat_dir.length_squared() <= 0.0001:
+		return
+	flat_dir = flat_dir.normalized()
+	for existing in candidates:
+		if existing.dot(flat_dir) > 0.985:
+			return
+	candidates.append(flat_dir)
+
+func _rotate_flat_direction(direction: Vector3, angle_rad: float) -> Vector3:
+	var flat: Vector2 = Vector2(direction.x, direction.z)
+	if flat.length_squared() <= 0.0001:
+		return Vector3.FORWARD
+	flat = flat.normalized().rotated(angle_rad)
+	return Vector3(flat.x, 0.0, flat.y).normalized()
+
+func _max_valid_height(a: float, b: float) -> float:
+	if is_nan(a):
+		return b
+	if is_nan(b):
+		return a
+	return maxf(a, b)
+
+func _score_attack_run_corridor_obstruction(setup_pos: Vector3, target_pos: Vector3, egress_pos: Vector3) -> float:
+	var samples: int = maxi(attack_run_corridor_samples, 4)
+	var clearance_m: float = maxf(attack_run_corridor_clearance_m, 0.0)
+	var penalty_scale: float = maxf(attack_run_obstruction_penalty, 0.0)
+	var score: float = 0.0
+	var aim_y: float = target_pos.y + _get_attack_run_aim_height_m()
+	for i in range(samples):
+		var t: float = float(i + 1) / float(samples + 1)
+		var sample_pos: Vector3 = setup_pos.lerp(target_pos, t)
+		var terrain_h: float = _get_ground_height_at_position(sample_pos)
+		if is_nan(terrain_h):
+			continue
+		var expected_y: float = lerpf(setup_pos.y, aim_y, t)
+		var required_clearance: float = lerpf(clearance_m, 20.0, t)
+		var deficit: float = terrain_h + required_clearance - expected_y
+		if deficit > 0.0:
+			score += deficit * penalty_scale * lerpf(0.8, 1.6, t)
+
+	var attack_line: Vector3 = target_pos - setup_pos
+	attack_line.y = 0.0
+	var attack_dir: Vector3 = attack_line.normalized() if attack_line.length_squared() > 1.0 else Vector3.FORWARD
+	var post_target_m: float = maxf(attack_run_post_target_probe_m, attack_break_off_distance_m)
+	var post_end: Vector3 = target_pos + attack_dir * post_target_m
+	post_end.y = maxf(egress_pos.y, setup_pos.y)
+	for i in range(samples):
+		var t_post: float = float(i + 1) / float(samples + 1)
+		var post_sample: Vector3 = target_pos.lerp(post_end, t_post)
+		var post_h: float = _get_ground_height_at_position(post_sample)
+		if is_nan(post_h):
+			continue
+		var post_expected_y: float = lerpf(aim_y, post_end.y, t_post)
+		var post_clearance: float = lerpf(35.0, clearance_m, t_post)
+		var post_deficit: float = post_h + post_clearance - post_expected_y
+		if post_deficit > 0.0:
+			score += post_deficit * penalty_scale * lerpf(1.4, 0.8, t_post)
+	return score
+
+func _score_rocket_attack_corridor_obstruction(from_pos: Vector3, target_pos: Vector3) -> float:
+	# Rocket geometry is deliberately two-part: the aircraft descends to the
+	# release point with normal flight clearance, then the unguided rocket ray is
+	# allowed to pass close to terrain on its way to the aim point. Reusing the
+	# generic aircraft-through-target corridor scorer here demanded 120 m of
+	# aircraft clearance under the rocket ray. That contradicted the shallow
+	# profile accepted by _solve_rocket_shallow_attack_profile and rejected valid
+	# runs as soon as the aircraft entered the terminal leg.
+	var profile: Dictionary = _solve_rocket_shallow_attack_profile(from_pos, target_pos)
+	if not bool(profile.get("valid", false)):
+		return INF
+	var required_from_y: float = float(profile.get("setup_y", INF))
+	if not is_finite(required_from_y):
+		return INF
+	return maxf(required_from_y - from_pos.y, 0.0) * maxf(attack_run_obstruction_penalty, 0.0)
+
+func _get_attack_run_aim_height_m() -> float:
+	if _run_weapon_type == "Bomb":
+		return bomb_dive_aim_height_m
+	if _run_weapon_type == "Rocket Pod":
+		return rocket_dive_aim_height_m
+	return 1.5
+
+func _set_ground_attack_flight_plan(
+		setup_pos: Vector3,
+		target_pos: Vector3,
+		egress_pos: Vector3,
+		ingress_join_override: Vector3 = Vector3.INF
+) -> void:
+	if not aircraft_flight_plan_enabled:
+		return
+	var attack_terminal_pos: Vector3 = _get_attack_route_terminal_waypoint(target_pos)
+	var ingress_join_pos: Vector3 = ingress_join_override
+	if ingress_join_pos == Vector3.INF:
+		ingress_join_pos = _get_attack_ingress_join_waypoint(setup_pos, target_pos)
+	ingress_join_pos = _shape_direct_fire_ingress_descent(
+		ingress_join_pos,
+		setup_pos,
+		target_pos
+	)
+	# Terrain-sample the transition at the same clearance used by the rest of the
+	# attack route. A former blanket turn reserve raised the whole Dubins path by
+	# hundreds of metres, forcing a climb through a maximum-bank turn followed by
+	# an immediate dive back to setup altitude. The coordinated load controller now
+	# observes non-wing vertical forces and holds the requested path during the turn,
+	# so an additional fixed altitude layer is neither necessary nor flyable.
+	ingress_join_pos.y = _terrain_safe_altitude_for_segment(
+		aircraft.global_position,
+		ingress_join_pos,
+		maxf(maxf(ingress_join_pos.y, setup_pos.y), aircraft.global_position.y),
+		maxf(attack_ingress_route_clearance_m, aircraft_flight_plan_terrain_clearance_m)
+	)
+	# Build the return turn for the speed the aircraft is actually carrying into it.
+	# Passing the 100 m/s leg command here enlarged the geometric radius even when
+	# launch/attack entry was only 65-72 m/s, so faithfully following the path could
+	# never ask for an aggressive load factor.
+	var ingress_entry_speed_mps: float = aircraft.linear_velocity.length() \
+		if aircraft != null and is_instance_valid(aircraft) else _get_effective_target_speed()
+	var ingress_turn_radius_m: float = _estimate_aircraft_turn_radius_m(
+		ingress_entry_speed_mps,
+		"attack_approach"
+	)
+	var ingress_capture_radius_m: float = clampf(
+		ingress_turn_radius_m * maxf(attack_route_initial_capture_radius_fraction, 0.05),
+		220.0,
+		maxf(attack_route_initial_capture_radius_max_m, 220.0)
+	)
+	var attack_legs: Array = []
+	var join_to_setup_flat_m: float = Vector2(
+		ingress_join_pos.x - setup_pos.x,
+		ingress_join_pos.z - setup_pos.z
+	).length()
+	if not ground_attack_compact_ingress_enabled:
+		# Preserve the route's origin so the join point is a real corner with an
+		# incoming and outgoing segment. Without this anchor the fly-by controller
+		# cannot construct a tangent turn for waypoint zero; the point tracker can
+		# then orbit the join indefinitely while trying to hit its exact centre.
+		attack_legs.append({
+			"position": aircraft.global_position,
+			"role": "attack_approach",
+			"speed_mps": 100.0,
+			"capture_radius_m": 50.0,
+			"turn_radius_m": ingress_turn_radius_m,
+			"debug_tag": "attack_corridor_origin",
+		})
+		# Join the current aircraft pose to the attack-axis pose with a continuous
+		# curvature path. Unlike sampled departure arcs, this preserves heading at both
+		# ends and gives the follower real circle geometry to track.
+		var departure_forward: Vector3 = Vector3(
+			aircraft.linear_velocity.x,
+			0.0,
+			aircraft.linear_velocity.z
+		)
+		if departure_forward.length_squared() <= 1.0:
+			departure_forward = Vector3(
+				aircraft.global_transform.basis.z.x,
+				0.0,
+				aircraft.global_transform.basis.z.z
+			)
+		var attack_axis: Vector3 = target_pos - setup_pos
+		attack_axis.y = 0.0
+		var pose_transition_added: bool = false
+		if departure_forward.length_squared() > 0.0001:
+			departure_forward = departure_forward.normalized()
+			var ingress_arrival_slope: float = NAN
+			if _is_direct_fire_attack_weapon_type(_run_weapon_type) and join_to_setup_flat_m > 1.0:
+				ingress_arrival_slope = (setup_pos.y - ingress_join_pos.y) / join_to_setup_flat_m
+			var departure_transition: Array[Dictionary] = _build_attack_pose_transition_legs(
+				aircraft.global_position,
+				departure_forward,
+				ingress_join_pos,
+				attack_axis.normalized() if attack_axis.length_squared() > 0.0001 else departure_forward,
+				ingress_turn_radius_m,
+				ingress_arrival_slope
+			)
+			attack_legs.append_array(departure_transition)
+			pose_transition_added = not departure_transition.is_empty()
+		# When available lineup collapses to zero, join and setup are the same
+		# physical point. Keep the origin but omit that duplicate: origin -> setup
+		# gives the fly-by controller the incoming tangent it needs, whereas
+		# origin -> join/setup -> setup creates a zero-length corner.
+		if join_to_setup_flat_m > 1.0 and not pose_transition_added:
+			attack_legs.append({
+				"position": ingress_join_pos,
+				"role": "attack_approach",
+				"speed_mps": 100.0,
+				"capture_radius_m": ingress_capture_radius_m,
+				"turn_radius_m": ingress_turn_radius_m,
+				"debug_tag": "attack_corridor_join",
+			})
+	attack_legs.append_array([
+		{
+			"position": setup_pos,
+			"role": "attack_setup",
+			"speed_mps": 100.0,
+			"capture_radius_m": 150.0
+		},
+		{
+			"position": attack_terminal_pos,
+			"role": "attack_target",
+			"speed_mps": 110.0,
+			"capture_radius_m": _get_attack_route_terminal_capture_radius_m()
+		},
+		{
+			"position": egress_pos,
+			"role": "attack_egress",
+			"speed_mps": 100.0,
+			"capture_radius_m": attack_egress_capture_radius_m
+		}
+	])
+	set_flight_plan_legs("ground_attack", attack_legs, false, false, 150.0)
+	_attack_positioning_route_timeout_s = _estimate_attack_positioning_route_timeout_s(attack_legs)
+	_request_ground_attack_heightmap_route(setup_pos, attack_terminal_pos, egress_pos, ingress_join_pos)
+	if aircraft_heightmap_pathfinding_enabled:
+		_set_attack_route_pending_departure()
+
+func _get_attack_route_terminal_waypoint(target_pos: Vector3) -> Vector3:
+	if _run_weapon_type == "Rocket Pod" and _attack_release_waypoint != Vector3.INF:
+		return _attack_release_waypoint
+	if _is_direct_fire_attack_weapon_type(_run_weapon_type) \
+			and is_finite(_attack_setup_altitude_m):
+		var setup_pos := Vector3(
+			_attack_setup_wp_xz.x,
+			_attack_setup_altitude_m,
+			_attack_setup_wp_xz.y
+		)
+		var attack_line_flat: Vector3 = target_pos - setup_pos
+		attack_line_flat.y = 0.0
+		var setup_range_m: float = attack_line_flat.length()
+		if setup_range_m > 1.0:
+			var attack_dir: Vector3 = attack_line_flat / setup_range_m
+			var terminal_range_m: float = minf(
+				_get_attack_pull_up_distance_m(),
+				setup_range_m
+			)
+			var terminal_pos: Vector3 = target_pos - attack_dir * terminal_range_m
+			var aim_y: float = target_pos.y + _get_attack_run_aim_height_m()
+			terminal_pos.y = lerpf(
+				aim_y,
+				setup_pos.y,
+				terminal_range_m / setup_range_m
+			)
+			return terminal_pos
+	return target_pos
+
+func _get_attack_route_terminal_capture_radius_m() -> float:
+	if _is_direct_fire_attack_weapon_type(_run_weapon_type):
+		# The gun endpoint is already placed at the pull-up plane, so applying the
+		# pull-up distance again as a capture sphere would wave off one full pull-up
+		# distance early. Use the route's ordinary positional tolerance instead.
+		return maxf(aircraft_flight_plan_capture_radius_m, 1.0)
+	return maxf(_get_attack_pull_up_distance_m(), aircraft_flight_plan_capture_radius_m)
+
+func _set_attack_route_pending_departure() -> void:
+	var departure_dir: Vector3 = Vector3(aircraft.linear_velocity.x, 0.0, aircraft.linear_velocity.z)
+	if departure_dir.length_squared() <= 1.0:
+		departure_dir = Vector3(aircraft.global_transform.basis.z.x, 0.0, aircraft.global_transform.basis.z.z)
+	if departure_dir.length_squared() <= 0.0001:
+		departure_dir = Vector3.FORWARD
+	departure_dir = departure_dir.normalized()
+	var departure_distance_m: float = maxf(
+		_estimate_aircraft_turn_radius_m(maxf(aircraft.linear_velocity.length(), 100.0), "attack_approach"),
+		900.0
+	)
+	var first_departure_pos: Vector3 = aircraft.global_position + departure_dir * departure_distance_m
+	first_departure_pos.y = _terrain_safe_altitude_for_segment(
+		aircraft.global_position,
+		first_departure_pos,
+		aircraft.global_position.y,
+		maxf(attack_ingress_route_clearance_m, aircraft_flight_plan_terrain_clearance_m)
+	)
+	var second_departure_pos: Vector3 = aircraft.global_position + departure_dir * departure_distance_m * 1.8
+	second_departure_pos.y = _terrain_safe_altitude_for_segment(
+		first_departure_pos,
+		second_departure_pos,
+		first_departure_pos.y,
+		maxf(attack_ingress_route_clearance_m, aircraft_flight_plan_terrain_clearance_m)
+	)
+	set_flight_plan_legs("ground_attack", [
+		{
+			"position": first_departure_pos,
+			"role": "attack_approach",
+			"speed_mps": 100.0,
+			"capture_radius_m": 220.0,
+		},
+		{
+			"position": second_departure_pos,
+			"role": "attack_approach",
+			"speed_mps": 100.0,
+			"capture_radius_m": 220.0,
+		},
+	], false, false, 150.0)
+	maneuver_waypoint = first_departure_pos
+
+func _request_ground_attack_heightmap_route(
+		setup_pos: Vector3,
+		target_pos: Vector3,
+		egress_pos: Vector3,
+		ingress_join_override: Vector3 = Vector3.INF
+) -> void:
+	if not aircraft_heightmap_pathfinding_enabled:
+		return
+	var ingress_join_pos: Vector3 = ingress_join_override
+	if ingress_join_pos == Vector3.INF:
+		ingress_join_pos = _get_attack_ingress_join_waypoint(setup_pos, target_pos)
+	var segments: Array = [
+		_make_aircraft_route_path_segment(aircraft.global_position, ingress_join_pos, "attack_approach", 100.0, 220.0),
+		_make_aircraft_route_direct_segment(setup_pos, "attack_setup", 100.0, 150.0),
+		_make_aircraft_route_direct_segment(target_pos, "attack_target", 110.0, _get_attack_route_terminal_capture_radius_m()),
+		_make_aircraft_route_direct_segment(egress_pos, "attack_egress", 100.0, attack_egress_capture_radius_m),
+	]
+	_request_aircraft_heightmap_route("ground_attack", segments, 20)
+
+func _make_aircraft_route_direct_segment(goal: Vector3, role: String, speed_mps: float, capture_radius_m: float) -> Dictionary:
+	var turn_radius_m: float = _estimate_aircraft_turn_radius_m(speed_mps, role)
+	return {
+		"kind": "direct",
+		"goal": goal,
+		"role": role,
+		"speed_mps": speed_mps,
+		"capture_radius_m": _get_aircraft_route_capture_radius_m(speed_mps, role, capture_radius_m),
+		"turn_radius_m": turn_radius_m,
+	}
+
+func _make_aircraft_route_path_segment(start: Vector3, goal: Vector3, role: String, speed_mps: float, capture_radius_m: float) -> Dictionary:
+	var turn_radius_m: float = _estimate_aircraft_turn_radius_m(speed_mps, role)
+	var route_capture_radius_m: float = _get_aircraft_route_capture_radius_m(speed_mps, role, capture_radius_m)
+	var grid: Dictionary = _get_aircraft_heightmap_grid_snapshot()
+	var data: Dictionary = {}
+	if not grid.is_empty():
+		data = _make_aircraft_heightmap_path_job_data(start, goal, grid, speed_mps, role, turn_radius_m)
+	return {
+		"kind": "path" if not data.is_empty() else "direct",
+		"start": start,
+		"goal": goal,
+		"role": role,
+		"speed_mps": speed_mps,
+		"capture_radius_m": route_capture_radius_m,
+		"turn_radius_m": turn_radius_m,
+		"data": data,
+	}
+
+func _get_aircraft_route_planning_bank_limit_deg(role: String) -> float:
+	var bank_limit_deg: float = bank_cmd_limit_deg
+	if role == "attack_setup" or role == "attack_approach":
+		bank_limit_deg = attack_route_bank_limit_deg
+	elif role in ["attack_target", "attack_egress"]:
+		bank_limit_deg = attack_bank_cmd_limit_deg
+	elif role in ["recovery_transit", "recovery_arrival"]:
+		# Terrain transit and the explicit turn onto the final corridor are still
+		# normal maneuvering flight. Size their curved primitives from ordinary aircraft
+		# authority; the coordinated controller supplies compatible G and vertical
+		# acceleration. The straight lineup/glideslope retains its gentler limit.
+		bank_limit_deg = bank_cmd_limit_deg
+	elif role == "recovery_lineup":
+		bank_limit_deg = recovery_glideslope_bank_limit_deg
+	elif role == "dogfight":
+		bank_limit_deg = dogfight_bank_cmd_limit_deg
+	return clampf(bank_limit_deg, aircraft_route_min_planning_bank_deg, aircraft_route_max_planning_bank_deg)
+
+func _estimate_roll_control_authority() -> float:
+	if aircraft == null or not is_instance_valid(aircraft) \
+			or simple_aero == null or not is_instance_valid(simple_aero):
+		return 0.0
+	# SimpleAero's control_authority is a per-physics-frame local, not a property
+	# that can be read with Object.get(). Reconstruct its speed schedule from the
+	# same exported values here. The residual stall/AoA loss can only reduce this
+	# estimate, so this remains the optimistic (maximum) acceleration appropriate
+	# for deciding how early an arc must begin rolling out.
+	var effective_stall_speed_mps: float = stall_speed_mps
+	if simple_aero.has_method("get_effective_stall_speed_mps"):
+		effective_stall_speed_mps = float(simple_aero.call("get_effective_stall_speed_mps"))
+	var full_authority_margin: float = maxf(
+		float(simple_aero.get("control_authority_full_stall_margin")),
+		1.05
+	)
+	var taper_authority_margin: float = clampf(
+		float(simple_aero.get("control_authority_taper_stall_margin")),
+		1.0,
+		full_authority_margin - 0.01
+	)
+	var full_authority_speed_mps: float = maxf(effective_stall_speed_mps, 1.0) \
+		* full_authority_margin
+	var taper_authority_speed_mps: float = maxf(effective_stall_speed_mps, 1.0) \
+		* taper_authority_margin
+	var authority_t: float = clampf(
+		(aircraft.linear_velocity.length() - taper_authority_speed_mps) \
+			/ maxf(full_authority_speed_mps - taper_authority_speed_mps, 0.1),
+		0.0,
+		1.0
+	)
+	return lerpf(
+		clampf(float(simple_aero.get("control_authority_stall_floor")), 0.0, 1.0),
+		1.0,
+		pow(authority_t, maxf(float(simple_aero.get("control_authority_curve")), 0.1))
+	)
+
+
+func _estimate_maximum_roll_accel_rad_s2() -> float:
+	if aircraft == null or not is_instance_valid(aircraft) \
+			or simple_aero == null or not is_instance_valid(simple_aero):
+		return 0.0
+	var roll_axis: Vector3 = aircraft.global_transform.basis.z.normalized()
+	if roll_axis.length_squared() <= 0.0001:
+		return 0.0
+	var roll_power_value: Variant = simple_aero.get("roll_power")
+	if not (roll_power_value is float or roll_power_value is int):
+		return 0.0
+	var control_authority: float = _estimate_roll_control_authority()
+	# SimpleAero applies roll_power * control_authority * mass as its full aileron
+	# torque. Resolve that torque through the rigid body's actual inverse inertia
+	# tensor so the estimate automatically follows aircraft type, payload mass,
+	# collision geometry, damage and low-speed control loss.
+	var maximum_roll_torque_nm: float = absf(float(roll_power_value)) \
+		* control_authority \
+		* maxf(aircraft.mass, 0.0)
+	if maximum_roll_torque_nm <= 0.001:
+		return 0.0
+	var angular_accel_world: Vector3 = aircraft.get_inverse_inertia_tensor() \
+		* (roll_axis * maximum_roll_torque_nm)
+	return absf(angular_accel_world.dot(roll_axis))
+
+
+func _estimate_maximum_roll_rate_rad_s() -> float:
+	if aircraft == null or not is_instance_valid(aircraft) \
+			or simple_aero == null or not is_instance_valid(simple_aero):
+		return 0.0
+	var roll_axis: Vector3 = aircraft.global_transform.basis.z.normalized()
+	if roll_axis.length_squared() <= 0.0001:
+		return 0.0
+	var roll_accel_rad_s2: float = _estimate_maximum_roll_accel_rad_s2()
+	var angular_damping_value: Variant = simple_aero.get("angular_damping_strength")
+	if roll_accel_rad_s2 <= 0.001 \
+			or not (angular_damping_value is float or angular_damping_value is int):
+		return 0.0
+	# At a steady roll rate the full aileron torque is balanced by SimpleAero's
+	# angular damping torque. Resolve both through the same live inertia tensor;
+	# their ratio is the achievable rate and automatically follows the airframe.
+	var control_authority: float = _estimate_roll_control_authority()
+	var damping_factor: float = maxf(control_authority, 0.3)
+	var damping_torque_per_rad_s_nm: float = absf(float(angular_damping_value)) \
+		* maxf(aircraft.mass, 0.0) \
+		* damping_factor
+	if damping_torque_per_rad_s_nm <= 0.001:
+		return 0.0
+	var damping_accel_per_rad_s: float = absf(
+		(aircraft.get_inverse_inertia_tensor() * (roll_axis * damping_torque_per_rad_s_nm)) \
+			.dot(roll_axis)
+	)
+	if damping_accel_per_rad_s <= 0.001:
+		return 0.0
+	return roll_accel_rad_s2 / damping_accel_per_rad_s
+
+
+func _estimate_aircraft_turn_radius_m(speed_mps: float, role: String = "waypoint") -> float:
+	var planned_speed_mps: float = speed_mps
+	if not is_finite(planned_speed_mps) or planned_speed_mps <= 0.0:
+		planned_speed_mps = _get_effective_target_speed()
+	if aircraft != null and is_instance_valid(aircraft):
+		planned_speed_mps = maxf(planned_speed_mps, aircraft.linear_velocity.length())
+	planned_speed_mps = maxf(planned_speed_mps, stall_speed_mps + stall_margin_mps + 8.0)
+	var bank_deg: float = _get_aircraft_route_planning_bank_limit_deg(role)
+	var bank_rad: float = maxf(deg_to_rad(bank_deg), deg_to_rad(1.0))
+	var lateral_accel_mps2: float = 9.80665 * tan(bank_rad)
+	var is_combat_attack_leg: bool = role in ["attack_approach", "attack_setup", "attack_target", "attack_egress"]
+	var is_load_limited_maneuver_leg: bool = is_combat_attack_leg \
+		or role in ["recovery_transit", "recovery_arrival"]
+	if is_load_limited_maneuver_leg:
+		# Bank angle alone can imply more lift than the aircraft can make at this
+		# speed. Size combat turns from the same useful-AoA aerodynamic load model as
+		# the production coordinated-turn controller, then resolve that load into its
+		# level-flight lateral component: n^2 = 1^2 + lateral_g^2. Previously this used
+		# normal_flight_turn_target_g directly (4.5 G) even when the live controller
+		# could make only about 3.4 G. The planner consequently emitted an impossible
+		# radius and the follower saturated while cutting outside/inside its own arc.
+		var available_planning_load_g: float = _estimate_aircraft_useful_load_g(
+			planned_speed_mps,
+			normal_flight_turn_target_g
+		)
+		var load_limited_lateral_g: float = sqrt(maxf(
+			available_planning_load_g * available_planning_load_g - 1.0,
+			0.01
+		))
+		lateral_accel_mps2 = minf(lateral_accel_mps2, 9.80665 * load_limited_lateral_g)
+	var radius_m: float = (planned_speed_mps * planned_speed_mps) / maxf(lateral_accel_mps2, 0.1)
+	radius_m *= maxf(aircraft_turn_radius_safety_factor, 0.1)
+	if is_combat_attack_leg:
+		return minf(radius_m, aircraft_turn_radius_max_m)
+	return clampf(radius_m, aircraft_turn_radius_min_m, aircraft_turn_radius_max_m)
+
+
+func _estimate_aircraft_useful_load_g(speed_mps: float, requested_maximum_load_g: float) -> float:
+	var available_load_g: float = maxf(requested_maximum_load_g, 0.1)
+	if simple_aero == null or not is_instance_valid(simple_aero):
+		return available_load_g
+	var aligned_level_speed_mps: float = maxf(float(simple_aero.get("aligned_level_speed_mps")), 1.0)
+	var useful_aoa_full_deg: float = maxf(float(simple_aero.get("aoa_lift_full_deg")), 0.1)
+	var useful_aoa_t: float = clampf(
+		maxf(coordinated_turn_aoa_soft_deg, 0.0) / useful_aoa_full_deg,
+		0.0,
+		1.0
+	)
+	var lift_bonus_factor: float = maxf(float(simple_aero.get("aoa_lift_bonus_factor")), 0.0)
+	var zero_aoa_load_g: float = minf(pow(maxf(speed_mps, 0.0) / aligned_level_speed_mps, 2.0), 1.0)
+	available_load_g = zero_aoa_load_g * (1.0 + useful_aoa_t * lift_bonus_factor)
+	available_load_g = minf(
+		available_load_g,
+		minf(
+			maxf(float(simple_aero.get("max_lift_ratio")), 0.1),
+			maxf(requested_maximum_load_g, 0.1)
+		)
+	)
+	return maxf(available_load_g, 0.1)
+
+func _get_aircraft_route_capture_radius_m(speed_mps: float, role: String, fallback_radius_m: float) -> float:
+	var fallback_m: float = fallback_radius_m
+	if not is_finite(fallback_m) or fallback_m <= 0.0:
+		fallback_m = aircraft_flight_plan_capture_radius_m
+	if role == "attack_target":
+		return maxf(fallback_m, 1.0)
+	if role in ["recovery_arrival", "recovery_lineup"]:
+		# These are gates into and along the short verified landing corridor. Do not
+		# let a generic turn-radius bubble accept them hundreds of metres off-axis.
+		return maxf(fallback_m, 1.0)
+	var turn_radius_m: float = _estimate_aircraft_turn_radius_m(speed_mps, role)
+	if role == "attack_setup":
+		var setup_capture_m: float = clampf(
+			turn_radius_m * maxf(aircraft_route_capture_radius_fraction, 0.75),
+			280.0,
+			900.0
+		)
+		return maxf(fallback_m, setup_capture_m)
+	var radius_capture_m: float = clampf(
+		turn_radius_m * maxf(aircraft_route_capture_radius_fraction, 0.01),
+		120.0,
+		520.0
+	)
+	if role == "attack_egress" or role == "rtb":
+		radius_capture_m = minf(radius_capture_m, 650.0)
+	return maxf(fallback_m, radius_capture_m)
+
+func _request_aircraft_heightmap_route(plan_name: String, segments: Array, priority: int = 0) -> void:
+	if not aircraft_heightmap_pathfinding_enabled:
+		return
+	if segments.is_empty() or _aircraft_heightmap_route_job_active:
+		return
+	var now_s: float = Time.get_ticks_msec() / 1000.0
+	if now_s < _aircraft_heightmap_route_next_request_s and priority < 20:
+		return
+	var signature: String = _make_aircraft_route_signature(plan_name, segments)
+	if signature == _aircraft_heightmap_route_signature:
+		return
+	var work_segments: Array = []
+	var has_path_segment: bool = false
+	for segment_variant in segments:
+		if not (segment_variant is Dictionary):
+			continue
+		var segment: Dictionary = (segment_variant as Dictionary).duplicate(true)
+		work_segments.append(segment)
+		if str(segment.get("kind", "direct")) == "path":
+			has_path_segment = true
+	if not has_path_segment:
+		return
+	_aircraft_heightmap_route_serial += 1
+	var serial: int = _aircraft_heightmap_route_serial
+	var request: Dictionary = {
+		"serial": serial,
+		"plan_name": plan_name,
+		"segments": work_segments,
+		"signature": signature,
+	}
+	var work: Callable = func() -> Dictionary:
+		return AIPilot._run_aircraft_heightmap_route_job(request)
+	var callback: Callable = Callable(self, "_on_aircraft_heightmap_route_result")
+	var job_id: int = NavPathScheduler.request_work(work, callback, priority, "AIPilot.%s" % plan_name)
+	if job_id < 0:
+		return
+	if plan_name == "recovery_approach":
+		print("[AIPilot ROUTE] recovery job accepted id=%d scheduler_pending=%d scheduler_running=%d" % [
+			job_id,
+			NavPathScheduler.get_pending_count(),
+			NavPathScheduler.get_running_count(),
+		])
+	_aircraft_heightmap_route_job_active = true
+	_aircraft_heightmap_route_signature = signature
+	_aircraft_heightmap_route_plan_name = plan_name
+	_aircraft_heightmap_route_next_request_s = now_s + maxf(aircraft_heightmap_path_recompute_s, 1.0) + randf() * maxf(aircraft_heightmap_path_replan_jitter_s, 0.0)
+
+static func _run_aircraft_heightmap_route_job(request: Dictionary) -> Dictionary:
+	var result_legs: Array = []
+	var egress_point: Vector3 = Vector3.INF
+	var smoothing_input_points: int = 0
+	var smoothing_output_points: int = 0
+	var smoothed_path_segments: int = 0
+	var segments: Array = request.get("segments", [])
+	for segment_variant in segments:
+		if not (segment_variant is Dictionary):
+			continue
+		var segment: Dictionary = segment_variant
+		var goal_value: Variant = segment.get("goal", Vector3.INF)
+		if not (goal_value is Vector3):
+			continue
+		var goal: Vector3 = goal_value
+		var role: String = str(segment.get("role", "waypoint"))
+		var speed_mps: float = float(segment.get("speed_mps", NAN))
+		var capture_radius_m: float = float(segment.get("capture_radius_m", NAN))
+		var turn_radius_m: float = float(segment.get("turn_radius_m", NAN))
+		var kind: String = str(segment.get("kind", "direct"))
+		var appended_path: bool = false
+		if kind == "path":
+			var data_value: Variant = segment.get("data", {})
+			if data_value is Dictionary:
+				var path_data: Dictionary = (data_value as Dictionary).duplicate(true)
+				HelicopterPilot._run_threaded_pathfinding_job(path_data)
+				var path_result_value: Variant = path_data.get("result", {})
+				if path_result_value is Dictionary:
+					var path_result: Dictionary = path_result_value
+					var final_value: Variant = path_result.get("final_path", [])
+					if bool(path_result.get("success", false)) and final_value is Array:
+						var final_path: Array[Vector3] = []
+						for point_variant in final_value as Array:
+							if point_variant is Vector3:
+								final_path.append(point_variant as Vector3)
+						smoothing_input_points += final_path.size()
+						var smoothed_path: Array[Vector3] = _thread_smooth_aircraft_heightmap_path(path_data, final_path, turn_radius_m)
+						smoothing_output_points += smoothed_path.size()
+						if smoothed_path.size() != final_path.size():
+							smoothed_path_segments += 1
+						for point: Vector3 in smoothed_path:
+							result_legs.append({
+								"position": point,
+								"role": role,
+								"speed_mps": speed_mps,
+								"capture_radius_m": capture_radius_m,
+								"turn_radius_m": turn_radius_m,
+							})
+							egress_point = point if role == "attack_egress" else egress_point
+							appended_path = true
+		if not appended_path:
+			result_legs.append({
+				"position": goal,
+				"role": role,
+				"speed_mps": speed_mps,
+				"capture_radius_m": capture_radius_m,
+				"turn_radius_m": turn_radius_m,
+			})
+			egress_point = goal if role == "attack_egress" else egress_point
+	return {
+		"serial": int(request.get("serial", 0)),
+		"plan_name": str(request.get("plan_name", "")),
+		"signature": str(request.get("signature", "")),
+		"legs": result_legs,
+		"egress": egress_point,
+		"smoothing_input_points": smoothing_input_points,
+		"smoothing_output_points": smoothing_output_points,
+		"smoothed_path_segments": smoothed_path_segments,
+		"success": not result_legs.is_empty(),
+	}
+
+static func _thread_smooth_aircraft_heightmap_path(path_data: Dictionary, path: Array[Vector3], turn_radius_m: float) -> Array[Vector3]:
+	if path.size() <= 1:
+		return path
+	var params_value: Variant = path_data.get("params", {})
+	var grid_value: Variant = path_data.get("grid", {})
+	if not (params_value is Dictionary) or not (grid_value is Dictionary):
+		return path
+	var params: Dictionary = params_value as Dictionary
+	var grid: Dictionary = grid_value as Dictionary
+	if not bool(params.get("aircraft_turn_smoothing_enabled", true)):
+		return path
+	var safe_turn_radius_m: float = turn_radius_m
+	if not is_finite(safe_turn_radius_m) or safe_turn_radius_m <= 1.0:
+		safe_turn_radius_m = float(params.get("heightmap_path_corner_blend_radius_m", 0.0))
+	if not is_finite(safe_turn_radius_m) or safe_turn_radius_m <= 1.0:
+		return path
+
+	var route: Array[Vector3] = []
+	var start_value: Variant = path_data.get("current_pos", Vector3.INF)
+	if start_value is Vector3 and start_value != Vector3.INF:
+		route.append(start_value as Vector3)
+	for point: Vector3 in path:
+		if route.is_empty() or _thread_aircraft_flat_distance(route[route.size() - 1], point) > 1.0:
+			route.append(point)
+	if route.size() <= 2:
+		return path
+
+	route = _thread_simplify_aircraft_turn_constraints(grid, params, route, safe_turn_radius_m)
+	var smoothed: Array[Vector3] = [route[0]]
+	for corner_index in range(1, route.size() - 1):
+		var arc: Array[Vector3] = _thread_build_aircraft_turn_arc(
+			params,
+			route[corner_index - 1],
+			route[corner_index],
+			route[corner_index + 1],
+			safe_turn_radius_m
+		)
+		if arc.is_empty():
+			_thread_append_aircraft_route_point(smoothed, route[corner_index])
+			continue
+		for arc_point: Vector3 in arc:
+			_thread_append_aircraft_route_point(smoothed, arc_point)
+	_thread_append_aircraft_route_point(smoothed, route[route.size() - 1])
+	_thread_raise_aircraft_route_over_terrain(grid, params, smoothed)
+	HelicopterPilot._thread_spread_elevated_climb_cues(smoothed, params)
+	_thread_limit_aircraft_route_descent(smoothed, params)
+
+	if not smoothed.is_empty() and start_value is Vector3:
+		var start_pos: Vector3 = start_value as Vector3
+		if _thread_aircraft_flat_distance(smoothed[0], start_pos) <= 1.0:
+			smoothed.remove_at(0)
+	return smoothed if not smoothed.is_empty() else path
+
+static func _thread_simplify_aircraft_turn_constraints(
+		grid: Dictionary,
+		params: Dictionary,
+		path: Array[Vector3],
+		turn_radius_m: float
+) -> Array[Vector3]:
+	var result: Array[Vector3] = path.duplicate()
+	var tangent_fraction: float = clampf(float(params.get("aircraft_turn_tangent_fraction", 0.48)), 0.1, 0.49)
+	var min_radius_fraction: float = clampf(float(params.get("aircraft_turn_min_radius_fraction", 0.78)), 0.25, 1.0)
+	var min_turn_rad: float = deg_to_rad(maxf(float(params.get("aircraft_turn_min_angle_deg", 12.0)), 0.0))
+	var changed: bool = true
+	var pass_count: int = 0
+	while changed and pass_count < 6 and result.size() > 2:
+		changed = false
+		pass_count += 1
+		var corner_index: int = 1
+		while corner_index < result.size() - 1:
+			var incoming: Vector2 = _thread_aircraft_flat_direction(result[corner_index - 1], result[corner_index])
+			var outgoing: Vector2 = _thread_aircraft_flat_direction(result[corner_index], result[corner_index + 1])
+			if incoming.length_squared() <= 0.001 or outgoing.length_squared() <= 0.001:
+				corner_index += 1
+				continue
+			var turn_angle_rad: float = acos(clampf(incoming.dot(outgoing), -1.0, 1.0))
+			if turn_angle_rad < min_turn_rad:
+				corner_index += 1
+				continue
+			var tan_half_angle: float = tan(minf(turn_angle_rad, deg_to_rad(175.0)) * 0.5)
+			if tan_half_angle <= 0.01:
+				corner_index += 1
+				continue
+			var incoming_length_m: float = _thread_aircraft_flat_distance(result[corner_index - 1], result[corner_index])
+			var outgoing_length_m: float = _thread_aircraft_flat_distance(result[corner_index], result[corner_index + 1])
+			var available_radius_m: float = minf(incoming_length_m, outgoing_length_m) * tangent_fraction / tan_half_angle
+			if available_radius_m >= turn_radius_m * min_radius_fraction:
+				corner_index += 1
+				continue
+			if HelicopterPilot._thread_has_clear_transit_segment(
+				grid,
+				params,
+				result[corner_index - 1],
+				result[corner_index + 1]
+			):
+				result.remove_at(corner_index)
+				changed = true
+				continue
+			corner_index += 1
+	return result
+
+static func _thread_build_aircraft_turn_arc(
+		params: Dictionary,
+		previous: Vector3,
+		corner: Vector3,
+		next: Vector3,
+		turn_radius_m: float
+) -> Array[Vector3]:
+	var arc: Array[Vector3] = []
+	var incoming_vec: Vector2 = Vector2(corner.x - previous.x, corner.z - previous.z)
+	var outgoing_vec: Vector2 = Vector2(next.x - corner.x, next.z - corner.z)
+	var incoming_length_m: float = incoming_vec.length()
+	var outgoing_length_m: float = outgoing_vec.length()
+	if incoming_length_m <= 1.0 or outgoing_length_m <= 1.0:
+		return arc
+	var incoming_dir: Vector2 = incoming_vec / incoming_length_m
+	var outgoing_dir: Vector2 = outgoing_vec / outgoing_length_m
+	var turn_angle_rad: float = acos(clampf(incoming_dir.dot(outgoing_dir), -1.0, 1.0))
+	var min_turn_rad: float = deg_to_rad(maxf(float(params.get("aircraft_turn_min_angle_deg", 12.0)), 0.0))
+	if turn_angle_rad < min_turn_rad or turn_angle_rad >= deg_to_rad(175.0):
+		return arc
+	var turn_cross: float = incoming_dir.x * outgoing_dir.y - incoming_dir.y * outgoing_dir.x
+	if absf(turn_cross) <= 0.0001:
+		return arc
+	var tan_half_angle: float = tan(turn_angle_rad * 0.5)
+	if tan_half_angle <= 0.01:
+		return arc
+	var tangent_fraction: float = clampf(float(params.get("aircraft_turn_tangent_fraction", 0.48)), 0.1, 0.49)
+	var max_tangent_m: float = minf(incoming_length_m, outgoing_length_m) * tangent_fraction
+	var desired_tangent_m: float = turn_radius_m * tan_half_angle
+	var tangent_m: float = minf(desired_tangent_m, max_tangent_m)
+	var actual_radius_m: float = tangent_m / tan_half_angle
+	var min_radius_fraction: float = clampf(float(params.get("aircraft_turn_min_radius_fraction", 0.78)), 0.25, 1.0)
+	if actual_radius_m < turn_radius_m * min_radius_fraction:
+		return arc
+
+	var entry_t: float = tangent_m / incoming_length_m
+	var exit_t: float = tangent_m / outgoing_length_m
+	var entry: Vector3 = corner.lerp(previous, entry_t)
+	var exit: Vector3 = corner.lerp(next, exit_t)
+	var turn_sign: float = 1.0 if turn_cross > 0.0 else -1.0
+	var inward_normal: Vector2 = Vector2(-incoming_dir.y, incoming_dir.x) * turn_sign
+	var center: Vector2 = Vector2(entry.x, entry.z) + inward_normal * actual_radius_m
+	var start_angle: float = atan2(entry.z - center.y, entry.x - center.x)
+	var end_angle: float = atan2(exit.z - center.y, exit.x - center.x)
+	var arc_angle: float = fposmod(end_angle - start_angle, TAU) if turn_sign > 0.0 else -fposmod(start_angle - end_angle, TAU)
+	if absf(arc_angle) > PI:
+		return arc
+	var arc_spacing_m: float = maxf(float(params.get("aircraft_turn_arc_spacing_m", 140.0)), 25.0)
+	var max_arc_points: int = maxi(int(params.get("aircraft_turn_max_arc_points", 10)), 2)
+	var sample_count: int = clampi(int(ceil(absf(arc_angle) * actual_radius_m / arc_spacing_m)), 2, max_arc_points)
+	for sample_index in range(sample_count + 1):
+		var t: float = float(sample_index) / float(sample_count)
+		var angle: float = start_angle + arc_angle * t
+		arc.append(Vector3(
+			center.x + cos(angle) * actual_radius_m,
+			lerpf(entry.y, exit.y, t),
+			center.y + sin(angle) * actual_radius_m
+		))
+	return arc
+
+static func _thread_raise_aircraft_route_over_terrain(grid: Dictionary, params: Dictionary, route: Array[Vector3]) -> void:
+	if route.is_empty():
+		return
+	var clearance_m: float = maxf(
+		float(params.get("min_terrain_clearance_m", 0.0)),
+		float(params.get("heightmap_path_target_agl_m", 0.0))
+	)
+	var taper_goal_clearance: bool = bool(params.get("heightmap_path_taper_goal_clearance", false))
+	var goal_clearance_m: float = clampf(
+		float(params.get("heightmap_path_goal_clearance_m", clearance_m)),
+		0.0,
+		clearance_m
+	)
+	var max_descent_gradient: float = tan(deg_to_rad(clampf(
+		float(params.get("aircraft_route_max_descent_angle_deg", 8.0)),
+		1.0,
+		25.0
+	)))
+	var clearance_taper_distance_m: float = maxf(
+		(clearance_m - goal_clearance_m) / maxf(max_descent_gradient, 0.01),
+		1.0
+	)
+	var remaining_route_m: PackedFloat32Array = PackedFloat32Array()
+	remaining_route_m.resize(route.size())
+	for reverse_index in range(route.size() - 2, -1, -1):
+		remaining_route_m[reverse_index] = remaining_route_m[reverse_index + 1] \
+			+ _thread_aircraft_flat_distance(route[reverse_index], route[reverse_index + 1])
+	var point_clearances_m: PackedFloat32Array = PackedFloat32Array()
+	point_clearances_m.resize(route.size())
+	for point_index in range(route.size()):
+		point_clearances_m[point_index] = clearance_m
+		if taper_goal_clearance:
+			point_clearances_m[point_index] = lerpf(
+				goal_clearance_m,
+				clearance_m,
+				clampf(remaining_route_m[point_index] / clearance_taper_distance_m, 0.0, 1.0)
+			)
+	var flight_ceiling_m: float = float(params.get("flight_ceiling", 10000.0))
+	for point_index in range(route.size()):
+		var point: Vector3 = route[point_index]
+		var terrain_height_m: float = HelicopterPilot._thread_get_ground_height_at_position(grid, point)
+		if not is_nan(terrain_height_m):
+			point.y = maxf(point.y, terrain_height_m + point_clearances_m[point_index])
+		route[point_index] = point
+	if taper_goal_clearance:
+		# The direct-corridor builder already samples terrain densely and its
+		# simplifier validates every retained shortcut. Applying one maximum terrain
+		# height to both ends of a long segment here destroys the intentional descent
+		# taper by lifting the low acquisition gate to the tallest earlier ridge.
+		return
+	for segment_index in range(1, route.size()):
+		var max_terrain_m: float = HelicopterPilot._thread_sample_max_terrain_height_along_path(
+			grid,
+			params,
+			route[segment_index - 1],
+			route[segment_index]
+		)
+		if is_nan(max_terrain_m):
+			continue
+		var segment_clearance_m: float = minf(
+			point_clearances_m[segment_index - 1],
+			point_clearances_m[segment_index]
+		)
+		var required_y_m: float = minf(max_terrain_m + segment_clearance_m, flight_ceiling_m)
+		var previous_point: Vector3 = route[segment_index - 1]
+		var next_point: Vector3 = route[segment_index]
+		previous_point.y = maxf(previous_point.y, required_y_m)
+		next_point.y = maxf(next_point.y, required_y_m)
+		route[segment_index - 1] = previous_point
+		route[segment_index] = next_point
+
+static func _thread_limit_aircraft_route_descent(route: Array[Vector3], params: Dictionary) -> void:
+	if route.size() <= 1:
+		return
+	var max_descent_angle_deg: float = clampf(
+		float(params.get("aircraft_route_max_descent_angle_deg", 8.0)),
+		1.0,
+		25.0
+	)
+	var max_descent_gradient: float = tan(deg_to_rad(max_descent_angle_deg))
+	for point_index in range(1, route.size()):
+		var previous_point: Vector3 = route[point_index - 1]
+		var point: Vector3 = route[point_index]
+		var horizontal_distance_m: float = _thread_aircraft_flat_distance(previous_point, point)
+		point.y = maxf(point.y, previous_point.y - horizontal_distance_m * max_descent_gradient)
+		route[point_index] = point
+
+static func _thread_append_aircraft_route_point(route: Array[Vector3], point: Vector3) -> void:
+	if route.is_empty() or _thread_aircraft_flat_distance(route[route.size() - 1], point) > 1.0:
+		route.append(point)
+
+static func _thread_aircraft_flat_direction(from_point: Vector3, to_point: Vector3) -> Vector2:
+	var direction: Vector2 = Vector2(to_point.x - from_point.x, to_point.z - from_point.z)
+	return direction.normalized() if direction.length_squared() > 0.001 else Vector2.ZERO
+
+static func _thread_aircraft_flat_distance(a: Vector3, b: Vector3) -> float:
+	return Vector2(a.x - b.x, a.z - b.z).length()
+
+func _route_primitive_legs_have_terrain_clearance(
+		start_pos: Vector3,
+		legs: Array[Dictionary],
+		clearance_m: float,
+		goal_clearance_m: float = -1.0,
+		max_descent_angle_deg: float = 8.0,
+		diagnostic_candidate_rank: int = -1,
+		failure_out: Dictionary = {}
+) -> bool:
+	## Validate the actual curved primitive, not merely the chord between its endpoints.
+	## This lets recovery use turn-constrained geometry without weakening terrain safety.
+	var leg_lengths_m: PackedFloat32Array = PackedFloat32Array()
+	leg_lengths_m.resize(legs.size())
+	var total_length_m: float = 0.0
+	var previous_pos: Vector3 = start_pos
+	for leg_index in range(legs.size()):
+		var leg: Dictionary = legs[leg_index]
+		var endpoint: Vector3 = leg.get("position", Vector3.INF)
+		if endpoint == Vector3.INF:
+			return false
+		var leg_length_m: float = _thread_aircraft_flat_distance(previous_pos, endpoint)
+		if str(leg.get("route_primitive", "straight")) == "arc":
+			leg_length_m = maxf(float(leg.get("arc_sweep_rad", 0.0)), 0.0) \
+				* maxf(float(leg.get("turn_radius_m", 0.0)), 1.0)
+		leg_lengths_m[leg_index] = leg_length_m
+		total_length_m += leg_length_m
+		previous_pos = endpoint
+	var terminal_clearance_m: float = clearance_m \
+		if goal_clearance_m < 0.0 else clampf(goal_clearance_m, 0.0, clearance_m)
+	var descent_gradient: float = tan(deg_to_rad(clampf(max_descent_angle_deg, 1.0, 25.0)))
+	var clearance_taper_distance_m: float = maxf(
+		(clearance_m - terminal_clearance_m) / maxf(descent_gradient, 0.01),
+		1.0
+	)
+	var traversed_m: float = 0.0
+	previous_pos = start_pos
+	var sample_spacing_m: float = maxf(aircraft_heightmap_turn_arc_spacing_m, 40.0)
+	var worst_margin_m: float = INF
+	var worst_failure: Dictionary = {}
+	for leg_index in range(legs.size()):
+		var leg: Dictionary = legs[leg_index]
+		var endpoint_value: Variant = leg.get("position", Vector3.INF)
+		if not (endpoint_value is Vector3) or endpoint_value == Vector3.INF:
+			return false
+		var endpoint: Vector3 = endpoint_value
+		var leg_length_m: float = leg_lengths_m[leg_index]
+		var primitive: String = str(leg.get("route_primitive", "straight"))
+		if primitive == "arc":
+			var center_value: Variant = leg.get("arc_center_xz", Vector2.ZERO)
+			if not (center_value is Vector2):
+				return false
+			var center: Vector2 = center_value
+			var radius_m: float = maxf(float(leg.get("turn_radius_m", 0.0)), 1.0)
+			var start_angle: float = float(leg.get("arc_start_angle_rad", 0.0))
+			var sweep_rad: float = maxf(float(leg.get("arc_sweep_rad", 0.0)), 0.0)
+			var turn_sign: float = signf(float(leg.get("arc_turn_sign", 1.0)))
+			if turn_sign == 0.0:
+				return false
+			var sample_count: int = maxi(
+				int(ceil(sweep_rad * radius_m / sample_spacing_m)),
+				2
+			)
+			for sample_index in range(sample_count + 1):
+				var sample_t: float = float(sample_index) / float(sample_count)
+				var angle: float = start_angle + turn_sign * sweep_rad * sample_t
+				var sample_pos := Vector3(
+					center.x + cos(angle) * radius_m,
+					lerpf(previous_pos.y, endpoint.y, sample_t),
+					center.y + sin(angle) * radius_m
+				)
+				var terrain_y: float = _get_ground_height_at_position(sample_pos)
+				var remaining_m: float = maxf(
+					total_length_m - (traversed_m + leg_length_m * sample_t),
+					0.0
+				)
+				var required_clearance_m: float = lerpf(
+					terminal_clearance_m,
+					clearance_m,
+					clampf(remaining_m / clearance_taper_distance_m, 0.0, 1.0)
+				)
+				if not is_nan(terrain_y):
+					var margin_m: float = sample_pos.y - terrain_y - required_clearance_m
+					if margin_m < worst_margin_m:
+						worst_margin_m = margin_m
+						worst_failure = {
+							"leg_index": leg_index,
+							"sample_t": sample_t,
+							"primitive": "arc",
+							"remaining_m": remaining_m,
+							"margin_m": margin_m,
+							"position": sample_pos,
+							"terrain_y": terrain_y,
+							"required_clearance_m": required_clearance_m,
+						}
+		else:
+			var sample_count: int = maxi(int(ceil(leg_length_m / sample_spacing_m)), 2)
+			for sample_index in range(sample_count + 1):
+				var sample_t: float = float(sample_index) / float(sample_count)
+				var sample_pos: Vector3 = previous_pos.lerp(endpoint, sample_t)
+				var terrain_y: float = _get_ground_height_at_position(sample_pos)
+				var remaining_m: float = maxf(
+					total_length_m - (traversed_m + leg_length_m * sample_t),
+					0.0
+				)
+				var required_clearance_m: float = lerpf(
+					terminal_clearance_m,
+					clearance_m,
+					clampf(remaining_m / clearance_taper_distance_m, 0.0, 1.0)
+				)
+				if not is_nan(terrain_y):
+					var margin_m: float = sample_pos.y - terrain_y - required_clearance_m
+					if margin_m < worst_margin_m:
+						worst_margin_m = margin_m
+						worst_failure = {
+							"leg_index": leg_index,
+							"sample_t": sample_t,
+							"primitive": "straight",
+							"remaining_m": remaining_m,
+							"margin_m": margin_m,
+							"position": sample_pos,
+							"terrain_y": terrain_y,
+							"required_clearance_m": required_clearance_m,
+						}
+		traversed_m += leg_length_m
+		previous_pos = endpoint
+	failure_out.clear()
+	if worst_margin_m < 0.0:
+		failure_out.merge(worst_failure, true)
+		if diagnostic_candidate_rank >= 0:
+			var failure_pos: Vector3 = worst_failure.get("position", Vector3.ZERO)
+			print("[AIPilot ROUTE] recovery curve reject candidate=%d leg=%d primitive=%s remaining=%.0fm margin=%.1fm t=%.2f pos=(%.0f,%.0f,%.0f) terrain=%.0f required=%.0f" % [
+				diagnostic_candidate_rank,
+				int(worst_failure.get("leg_index", -1)),
+				str(worst_failure.get("primitive", "")),
+				float(worst_failure.get("remaining_m", NAN)),
+				worst_margin_m,
+				float(worst_failure.get("sample_t", NAN)),
+				failure_pos.x,
+				failure_pos.y,
+				failure_pos.z,
+				float(worst_failure.get("terrain_y", NAN)),
+				float(worst_failure.get("required_clearance_m", NAN)),
+			])
+		return false
+	return true
+
+func _recovery_primitive_vertical_profile_is_flyable(
+		start_pos: Vector3,
+		legs: Array[Dictionary],
+		max_descent_angle_deg: float,
+		diagnostic_candidate_rank: int = -1,
+		allow_climb: bool = false
+) -> bool:
+	## Recovery arrival begins at its terrain-cleared high point and should descend
+	## monotonically toward final. A terrain fit that requires another climb belongs
+	## on a different horizontal route, not in a roller-coaster landing profile.
+	var maximum_descent_gradient: float = tan(deg_to_rad(clampf(
+		max_descent_angle_deg,
+		1.0,
+		25.0
+	)))
+	var previous_pos: Vector3 = start_pos
+	for leg_index in range(legs.size()):
+		var leg: Dictionary = legs[leg_index]
+		var endpoint: Vector3 = leg.get("position", Vector3.INF)
+		if endpoint == Vector3.INF:
+			return false
+		var vertical_change_m: float = endpoint.y - previous_pos.y
+		if vertical_change_m > 0.01 and not allow_climb:
+			if diagnostic_candidate_rank >= 0:
+				print("[AIPilot ROUTE] recovery curve vertical reject candidate=%d leg=%d climb=%.1fm" % [
+					diagnostic_candidate_rank,
+					leg_index,
+					vertical_change_m,
+				])
+			return false
+		var horizontal_length_m: float = _thread_aircraft_flat_distance(previous_pos, endpoint)
+		if str(leg.get("route_primitive", "straight")) == "arc":
+			horizontal_length_m = maxf(float(leg.get("arc_sweep_rad", 0.0)), 0.0) \
+				* maxf(float(leg.get("turn_radius_m", 0.0)), 1.0)
+		var maximum_vertical_change_m: float = horizontal_length_m * maximum_descent_gradient
+		if absf(vertical_change_m) > maximum_vertical_change_m + 0.01:
+			if diagnostic_candidate_rank >= 0:
+				print("[AIPilot ROUTE] recovery curve vertical reject candidate=%d leg=%d change=%.1fm max=%.1fm" % [
+					diagnostic_candidate_rank,
+					leg_index,
+					vertical_change_m,
+					maximum_vertical_change_m,
+				])
+			return false
+		previous_pos = endpoint
+	return true
+
+func _find_recovery_pose_transition(
+		start_pos: Vector3,
+		incoming_dir: Vector3,
+		join_pos: Vector3,
+		final_dir: Vector3,
+		turn_radius_m: float,
+		arrival_speed_mps: float,
+		arrival_capture_m: float,
+		recovery_clearance_m: float,
+		recovery_goal_clearance_m: float,
+		recovery_taper_descent_deg: float,
+		route_role: String = "recovery_arrival",
+		allow_climb: bool = false,
+		destination_vertical_slope: float = NAN
+) -> Dictionary:
+	for candidate_rank in range(8):
+		var candidate_transition: Array[Dictionary] = _build_attack_pose_transition_legs(
+			start_pos,
+			incoming_dir,
+			join_pos,
+			final_dir,
+			turn_radius_m,
+			destination_vertical_slope,
+			route_role,
+			arrival_speed_mps,
+			arrival_capture_m,
+			recovery_clearance_m,
+			candidate_rank,
+			false
+		)
+		if candidate_transition.is_empty():
+			break
+		var candidate_end: Vector3 = candidate_transition[-1].get("position", Vector3.INF)
+		if candidate_end == Vector3.INF \
+				or _thread_aircraft_flat_distance(candidate_end, join_pos) > 2.0:
+			continue
+		# Chord-based endpoint lifting is conservative for an arc. Restore the authored
+		# join, then fit and validate samples on the actual curved primitive.
+		candidate_end.y = join_pos.y
+		candidate_transition[-1]["position"] = candidate_end
+		var terrain_clear: bool = false
+		var terrain_adjustments: int = 0
+		var terrain_failure: Dictionary = {}
+		for _adjustment_iteration in range(candidate_transition.size() * 4 + 1):
+			if _route_primitive_legs_have_terrain_clearance(
+					start_pos,
+					candidate_transition,
+					recovery_clearance_m,
+					recovery_goal_clearance_m,
+					recovery_taper_descent_deg,
+					-1,
+					terrain_failure
+			):
+				terrain_clear = true
+				break
+			var failed_leg_index: int = int(terrain_failure.get("leg_index", -1))
+			var failed_t: float = float(terrain_failure.get("sample_t", NAN))
+			var required_raise_m: float = -float(terrain_failure.get("margin_m", 0.0))
+			if failed_leg_index < 0 or not is_finite(failed_t) or required_raise_m <= 0.0:
+				break
+			var endpoint_to_raise_index: int = failed_leg_index
+			var interpolation_weight: float = failed_t
+			if failed_leg_index == candidate_transition.size() - 1:
+				endpoint_to_raise_index = failed_leg_index - 1
+				interpolation_weight = 1.0 - failed_t
+			if endpoint_to_raise_index < 0 or interpolation_weight <= 0.001:
+				break
+			var raised_endpoint: Vector3 = candidate_transition[endpoint_to_raise_index].get(
+				"position",
+				Vector3.INF
+			)
+			if raised_endpoint == Vector3.INF:
+				break
+			raised_endpoint.y += required_raise_m / interpolation_weight
+			candidate_transition[endpoint_to_raise_index]["position"] = raised_endpoint
+			terrain_adjustments += 1
+		if not terrain_clear:
+			continue
+		if not _recovery_primitive_vertical_profile_is_flyable(
+				start_pos,
+				candidate_transition,
+				recovery_taper_descent_deg,
+				-1,
+				allow_climb
+		):
+			continue
+		return {
+			"legs": candidate_transition,
+			"candidate_rank": candidate_rank,
+			"terrain_adjustments": terrain_adjustments,
+		}
+	return {}
+
+func _prepare_recovery_route_turn(raw_legs: Array) -> Array:
+	## Replace a single point-pursuit reversal with a continuous-curvature pose transition.
+	## Multi-leg arrival paths mean terrain forced a detour; preserve those verbatim.
+	var arrival_indices: Array[int] = []
+	var lineup_index: int = -1
+	for leg_index in range(raw_legs.size()):
+		var leg_value: Variant = raw_legs[leg_index]
+		if not (leg_value is Dictionary):
+			continue
+		var role: String = str((leg_value as Dictionary).get("role", ""))
+		if role == "recovery_arrival":
+			arrival_indices.append(leg_index)
+		elif role == "recovery_lineup" and lineup_index < 0:
+			lineup_index = leg_index
+	if arrival_indices.size() != 1 or lineup_index < 0:
+		print("[AIPilot ROUTE] recovery turn fallback: arrival_legs=%d lineup_index=%d" % [
+			arrival_indices.size(),
+			lineup_index,
+		])
+		return raw_legs
+	var arrival_index: int = arrival_indices[0]
+	if arrival_index < 2 or lineup_index <= arrival_index:
+		print("[AIPilot ROUTE] recovery turn fallback: unusable indices arrival=%d lineup=%d" % [
+			arrival_index,
+			lineup_index,
+		])
+		return raw_legs
+	var arrival_leg_value: Variant = raw_legs[arrival_index]
+	var lineup_leg_value: Variant = raw_legs[lineup_index]
+	if not (arrival_leg_value is Dictionary) \
+			or not (lineup_leg_value is Dictionary):
+		return raw_legs
+	var join_pos: Vector3 = (arrival_leg_value as Dictionary).get("position", Vector3.INF)
+	var handoff_pos: Vector3 = (lineup_leg_value as Dictionary).get("position", Vector3.INF)
+	if join_pos == Vector3.INF or handoff_pos == Vector3.INF:
+		return raw_legs
+	var final_dir: Vector3 = handoff_pos - join_pos
+	final_dir.y = 0.0
+	if final_dir.length_squared() <= 1.0:
+		print("[AIPilot ROUTE] recovery turn fallback: degenerate final heading")
+		return raw_legs
+	final_dir = final_dir.normalized()
+	var arrival_leg: Dictionary = arrival_leg_value as Dictionary
+	var arrival_speed_mps: float = float(arrival_leg.get("speed_mps", recovery_gate_speed_mps))
+	var arrival_capture_m: float = float(arrival_leg.get("capture_radius_m", recovery_gate_capture_m))
+	var turn_radius_m: float = float(arrival_leg.get("turn_radius_m", NAN))
+	if not is_finite(turn_radius_m) or turn_radius_m <= 1.0:
+		turn_radius_m = _estimate_aircraft_turn_radius_m(arrival_speed_mps, "recovery_arrival")
+	var recovery_clearance_m: float = maxf(
+		recovery_gate_min_terrain_clearance_m,
+		aircraft_flight_plan_terrain_clearance_m
+	)
+	# The heightmap recovery route already tapers from cruise clearance down to the
+	# clearance independently verified around the final corridor. Apply that same
+	# distance/flight-path-angle taper while checking curved primitives; requiring
+	# cruise clearance at the join would reject every valid approach transition.
+	var recovery_goal_clearance_m: float = minf(
+		recovery_clearance_m,
+		maxf(recovery_gate_min_terrain_clearance_m, 0.0)
+	)
+	var flight_deck_manager := get_tree().get_first_node_in_group("flight_deck_manager")
+	if flight_deck_manager != null:
+		var verified_clearance_value: Variant = flight_deck_manager.get("landing_terrain_clearance_m")
+		if verified_clearance_value is float or verified_clearance_value is int:
+			recovery_goal_clearance_m = clampf(
+				float(verified_clearance_value),
+				0.0,
+				recovery_clearance_m
+			)
+	var recovery_taper_descent_deg: float = minf(
+		recovery_descent_max_fpa_deg,
+		approach_descent_angle_deg
+	)
+	var transition: Array[Dictionary] = []
+	var accepted_candidate_rank: int = -1
+	var accepted_terrain_adjustments: int = 0
+	var chosen_start_index: int = -1
+	var chosen_start_pos: Vector3 = Vector3.INF
+	var start_raise_m: float = 0.0
+	var last_heading_dot: float = NAN
+	# Start at the authored outbound point. If terrain makes every continuous turn
+	# from there vertically unusable, walk backward along the already-safe transit
+	# and use the latest point that admits a safe pose transition. This keeps as much
+	# of the terrain solution as possible while avoiding point-recapture loops.
+	for splice_index in range(arrival_index - 1, 0, -1):
+		var splice_leg_value: Variant = raw_legs[splice_index]
+		var splice_previous_value: Variant = raw_legs[splice_index - 1]
+		if not (splice_leg_value is Dictionary) or not (splice_previous_value is Dictionary):
+			continue
+		if str((splice_leg_value as Dictionary).get("role", "")) != "recovery_transit" \
+				or str((splice_previous_value as Dictionary).get("role", "")) != "recovery_transit":
+			continue
+		var candidate_start: Vector3 = (splice_leg_value as Dictionary).get("position", Vector3.INF)
+		var candidate_previous: Vector3 = (splice_previous_value as Dictionary).get("position", Vector3.INF)
+		if candidate_start == Vector3.INF or candidate_previous == Vector3.INF:
+			continue
+		var incoming_dir: Vector3 = candidate_start - candidate_previous
+		incoming_dir.y = 0.0
+		if incoming_dir.length_squared() <= 1.0:
+			continue
+		incoming_dir = incoming_dir.normalized()
+		last_heading_dot = incoming_dir.dot(final_dir)
+		var unraised_start_y: float = candidate_start.y
+		var start_terrain_y: float = _get_ground_height_at_position(candidate_start)
+		if not is_nan(start_terrain_y):
+			candidate_start.y = maxf(
+				candidate_start.y,
+				start_terrain_y + recovery_clearance_m
+			)
+		var transition_result: Dictionary = _find_recovery_pose_transition(
+			candidate_start,
+			incoming_dir,
+			join_pos,
+			final_dir,
+			turn_radius_m,
+			arrival_speed_mps,
+			arrival_capture_m,
+			recovery_clearance_m,
+			recovery_goal_clearance_m,
+			recovery_taper_descent_deg
+		)
+		if transition_result.is_empty():
+			continue
+		transition = transition_result.get("legs", []) as Array[Dictionary]
+		accepted_candidate_rank = int(transition_result.get("candidate_rank", -1))
+		accepted_terrain_adjustments = int(transition_result.get("terrain_adjustments", 0))
+		chosen_start_index = splice_index
+		chosen_start_pos = candidate_start
+		start_raise_m = candidate_start.y - unraised_start_y
+		break
+	if transition.is_empty():
+		print("[AIPilot ROUTE] recovery turn fallback: no terrain-clear pose solution transit_legs=%d radius=%.0fm last_heading_dot=%.2f" % [
+			arrival_index,
+			turn_radius_m,
+			last_heading_dot,
+		])
+		return raw_legs
+	var shaped_legs: Array = []
+	for kept_index in range(chosen_start_index + 1):
+		var kept_leg: Variant = raw_legs[kept_index]
+		if kept_index == chosen_start_index and kept_leg is Dictionary and start_raise_m > 0.01:
+			var raised_start_leg: Dictionary = (kept_leg as Dictionary).duplicate(true)
+			raised_start_leg["position"] = chosen_start_pos
+			shaped_legs.append(raised_start_leg)
+		else:
+			shaped_legs.append(kept_leg)
+	shaped_legs.append_array(transition)
+	for kept_index in range(arrival_index + 1, raw_legs.size()):
+		shaped_legs.append(raw_legs[kept_index])
+	print("[AIPilot ROUTE] recovery arrival shaped point_leg=1 primitives=%d radius=%.0fm candidate=%d start_raise=%.0fm transit_trim=%d altitude_adjustments=%d" % [
+		transition.size(),
+		turn_radius_m,
+		accepted_candidate_rank,
+		start_raise_m,
+		arrival_index - 1 - chosen_start_index,
+		accepted_terrain_adjustments,
+	])
+	return shaped_legs
+
+func _get_recovery_departure_turn_radius_m(
+		base_radius_m: float,
+		speed_mps: float
+) -> float:
+	## Sustained bank determines the minimum circle radius, but a live-pose departure
+	## starts without that bank. Add the distance consumed by a maximum-authority
+	## wings-level-to-circle roll so the planned first arc includes the airframe's
+	## curvature-acquisition scale rather than assuming an instantaneous lift vector.
+	var radius_m: float = maxf(base_radius_m, 1.0)
+	var horizontal_speed_mps: float = maxf(speed_mps, 1.0)
+	var gravity_mps2: float = float(ProjectSettings.get_setting(
+		"physics/3d/default_gravity",
+		9.8
+	))
+	var target_bank_rad: float = atan2(
+		horizontal_speed_mps * horizontal_speed_mps / radius_m,
+		gravity_mps2
+	)
+	var maximum_roll_accel_rad_s2: float = _estimate_maximum_roll_accel_rad_s2()
+	var maximum_roll_rate_rad_s: float = _estimate_maximum_roll_rate_rad_s()
+	if target_bank_rad <= 0.001 \
+			or maximum_roll_accel_rad_s2 <= 0.001 \
+			or maximum_roll_rate_rad_s <= 0.001:
+		return radius_m
+	var rate_limited_angle_rad: float = maximum_roll_rate_rad_s \
+		* maximum_roll_rate_rad_s / maximum_roll_accel_rad_s2
+	var roll_time_s: float = 0.0
+	if target_bank_rad <= rate_limited_angle_rad:
+		roll_time_s = 2.0 * sqrt(target_bank_rad / maximum_roll_accel_rad_s2)
+	else:
+		roll_time_s = target_bank_rad / maximum_roll_rate_rad_s \
+			+ maximum_roll_rate_rad_s / maximum_roll_accel_rad_s2
+	return radius_m + horizontal_speed_mps * roll_time_s
+
+func _estimate_recovery_roll_transition_distance_m(
+		from_bank_rad: float,
+		to_bank_rad: float,
+		speed_mps: float
+) -> float:
+	## Minimum straight-line distance required to change curvature without pretending
+	## the aircraft can reverse bank instantaneously at a tangent. The time comes from
+	## the live roll acceleration and damping-limited rate used by the flight controller.
+	var roll_angle_change_rad: float = absf(_normalize_angle(to_bank_rad - from_bank_rad))
+	if roll_angle_change_rad <= 0.001:
+		return 0.0
+	var maximum_roll_accel_rad_s2: float = _estimate_maximum_roll_accel_rad_s2()
+	var maximum_roll_rate_rad_s: float = _estimate_maximum_roll_rate_rad_s()
+	if maximum_roll_accel_rad_s2 <= 0.001 or maximum_roll_rate_rad_s <= 0.001:
+		return INF
+	var rate_limited_angle_rad: float = maximum_roll_rate_rad_s \
+		* maximum_roll_rate_rad_s / maximum_roll_accel_rad_s2
+	var roll_time_s: float
+	if roll_angle_change_rad <= rate_limited_angle_rad:
+		roll_time_s = 2.0 * sqrt(roll_angle_change_rad / maximum_roll_accel_rad_s2)
+	else:
+		roll_time_s = roll_angle_change_rad / maximum_roll_rate_rad_s \
+			+ maximum_roll_rate_rad_s / maximum_roll_accel_rad_s2
+	return maxf(speed_mps, 1.0) * roll_time_s
+
+
+func _recovery_departure_has_curvature_transition_room(
+		transition: Array[Dictionary],
+		raw_legs: Array,
+		continuation_index: int,
+		join_pos: Vector3,
+		speed_mps: float
+) -> bool:
+	## Departure and arrival are independently solved pose transitions. The shortest
+	## combination can put opposite-signed arcs back-to-back at their shared tangent;
+	## position and heading are continuous, but bank is not. Preserve enough of the
+	## intervening straight for the real airframe to perform that bank change.
+	var gravity_mps2: float = float(ProjectSettings.get_setting(
+		"physics/3d/default_gravity",
+		9.8
+	))
+	var horizontal_speed_mps: float = maxf(speed_mps, 1.0)
+	var departure_exit_bank_rad: float = 0.0
+	for index in range(transition.size() - 1, -1, -1):
+		var transition_leg: Dictionary = transition[index]
+		var primitive: String = str(transition_leg.get("route_primitive", ""))
+		if primitive == "arc":
+			var radius_m: float = maxf(float(transition_leg.get("turn_radius_m", 0.0)), 1.0)
+			var turn_sign: float = signf(float(transition_leg.get("arc_turn_sign", 0.0)))
+			departure_exit_bank_rad = turn_sign * atan2(
+				horizontal_speed_mps * horizontal_speed_mps / radius_m,
+				gravity_mps2
+			)
+			break
+		if primitive == "straight":
+			break
+
+	var available_straight_m: float = 0.0
+	var previous_pos: Vector3 = join_pos
+	var arrival_entry_bank_rad: float = 0.0
+	var found_arrival_arc: bool = false
+	for index in range(clampi(continuation_index, 0, raw_legs.size()), raw_legs.size()):
+		var leg_value: Variant = raw_legs[index]
+		if not (leg_value is Dictionary):
+			continue
+		var leg: Dictionary = leg_value as Dictionary
+		var leg_pos: Vector3 = leg.get("position", previous_pos)
+		var primitive: String = str(leg.get("route_primitive", ""))
+		if primitive == "arc":
+			var radius_m: float = maxf(float(leg.get("turn_radius_m", 0.0)), 1.0)
+			var turn_sign: float = signf(float(leg.get("arc_turn_sign", 0.0)))
+			arrival_entry_bank_rad = turn_sign * atan2(
+				horizontal_speed_mps * horizontal_speed_mps / radius_m,
+				gravity_mps2
+			)
+			found_arrival_arc = true
+			break
+		available_straight_m += _thread_aircraft_flat_distance(previous_pos, leg_pos)
+		previous_pos = leg_pos
+	if not found_arrival_arc:
+		return true
+	var required_straight_m: float = _estimate_recovery_roll_transition_distance_m(
+		departure_exit_bank_rad,
+		arrival_entry_bank_rad,
+		horizontal_speed_mps
+	)
+	return available_straight_m >= required_straight_m
+
+
+func _evaluate_recovery_departure_join(
+		raw_legs: Array,
+		current_pos: Vector3,
+		forward_dir: Vector3,
+		join_pos: Vector3,
+		destination_forward: Vector3,
+		continuation_index: int,
+		route_speed_mps: float,
+		route_capture_m: float,
+		turn_radius_m: float,
+		recovery_clearance_m: float,
+		recovery_vertical_angle_deg: float,
+		destination_vertical_slope: float
+) -> Dictionary:
+	var transition_result: Dictionary = _find_recovery_pose_transition(
+		current_pos,
+		forward_dir,
+		join_pos,
+		destination_forward,
+		turn_radius_m,
+		route_speed_mps,
+		route_capture_m,
+		recovery_clearance_m,
+		recovery_clearance_m,
+		recovery_vertical_angle_deg,
+		"recovery_transit",
+		true,
+		destination_vertical_slope
+	)
+	if transition_result.is_empty():
+		return {}
+	var transition: Array[Dictionary] = transition_result.get("legs", []) as Array[Dictionary]
+	var initial_roll_in_required: bool = not transition.is_empty() \
+		and str(transition[0].get("route_primitive", "")) == "arc"
+	var initial_roll_in_added: bool = not initial_roll_in_required
+	# A pose transition can begin with an arc at the aircraft's exact position, but
+	# mathematical curvature assumes the required bank and load exist instantly.
+	# Supply a forward roll-in leg sized from the live airframe dynamics, then solve
+	# the pose transition again from its endpoint. An explicit zero-distance origin
+	# makes that first straight a real finite segment for the route controller.
+	if not transition.is_empty() \
+			and str(transition[0].get("route_primitive", "")) == "arc":
+		var first_arc_turn_sign: float = signf(float(
+			transition[0].get("arc_turn_sign", 0.0)
+		))
+		var first_arc_radius_m: float = maxf(float(
+			transition[0].get("turn_radius_m", turn_radius_m)
+		), 1.0)
+		if absf(first_arc_turn_sign) > 0.5:
+			var horizontal_speed_mps: float = maxf(
+				Vector2(aircraft.linear_velocity.x, aircraft.linear_velocity.z).length(),
+				route_speed_mps
+			)
+			var gravity_mps2: float = float(ProjectSettings.get_setting(
+				"physics/3d/default_gravity",
+				9.8
+			))
+			var first_arc_bank_rad: float = first_arc_turn_sign * atan2(
+				horizontal_speed_mps * horizontal_speed_mps / first_arc_radius_m,
+				gravity_mps2
+			)
+			var current_bank_rad: float = atan2(
+				aircraft.global_transform.basis.x.y,
+				aircraft.global_transform.basis.y.y
+			)
+			var roll_angle_change_rad: float = absf(_normalize_angle(
+				first_arc_bank_rad - current_bank_rad
+			))
+			var maximum_roll_accel_rad_s2: float = _estimate_maximum_roll_accel_rad_s2()
+			var maximum_roll_rate_rad_s: float = _estimate_maximum_roll_rate_rad_s()
+			if roll_angle_change_rad > 0.001 \
+					and maximum_roll_accel_rad_s2 > 0.001 \
+					and maximum_roll_rate_rad_s > 0.001:
+				var rate_limited_angle_rad: float = maximum_roll_rate_rad_s \
+					* maximum_roll_rate_rad_s / maximum_roll_accel_rad_s2
+				var roll_time_s: float = 0.0
+				if roll_angle_change_rad <= rate_limited_angle_rad:
+					roll_time_s = 2.0 * sqrt(
+						roll_angle_change_rad / maximum_roll_accel_rad_s2
+					)
+				else:
+					roll_time_s = roll_angle_change_rad / maximum_roll_rate_rad_s \
+						+ maximum_roll_rate_rad_s / maximum_roll_accel_rad_s2
+				var roll_in_distance_m: float = horizontal_speed_mps * roll_time_s
+				var roll_in_pos: Vector3 = current_pos + forward_dir * roll_in_distance_m
+				roll_in_pos.y = _terrain_safe_altitude_for_segment(
+					current_pos,
+					roll_in_pos,
+					current_pos.y,
+					recovery_clearance_m
+				)
+				var roll_in_vertical_change_m: float = absf(roll_in_pos.y - current_pos.y)
+				var roll_in_max_vertical_change_m: float = roll_in_distance_m * tan(
+					deg_to_rad(clampf(recovery_vertical_angle_deg, 1.0, 25.0))
+				)
+				if roll_in_distance_m > 1.0 \
+						and roll_in_vertical_change_m <= roll_in_max_vertical_change_m:
+					var rolled_transition_result: Dictionary = _find_recovery_pose_transition(
+						roll_in_pos,
+						forward_dir,
+						join_pos,
+						destination_forward,
+						turn_radius_m,
+						route_speed_mps,
+						route_capture_m,
+						recovery_clearance_m,
+						recovery_clearance_m,
+						recovery_vertical_angle_deg,
+						"recovery_transit",
+						true,
+						destination_vertical_slope
+					)
+					if not rolled_transition_result.is_empty():
+						var rolled_transition: Array[Dictionary] = rolled_transition_result.get(
+							"legs",
+							[]
+						) as Array[Dictionary]
+						transition = [
+							{
+								"position": current_pos,
+								"role": "recovery_transit",
+								"speed_mps": route_speed_mps,
+								"capture_radius_m": route_capture_m,
+								"turn_radius_m": turn_radius_m,
+								"debug_tag": "recovery_departure_origin",
+							},
+							{
+								"position": roll_in_pos,
+								"role": "recovery_transit",
+								"speed_mps": route_speed_mps,
+								"capture_radius_m": route_capture_m,
+								"turn_radius_m": turn_radius_m,
+								"route_primitive": "straight",
+								"debug_tag": "recovery_roll_in",
+							},
+						]
+						transition.append_array(rolled_transition)
+						transition_result = rolled_transition_result
+						initial_roll_in_added = true
+	if not initial_roll_in_added:
+		return {}
+	if not _recovery_departure_has_curvature_transition_room(
+			transition,
+			raw_legs,
+			continuation_index,
+			join_pos,
+			route_speed_mps
+	):
+		return {}
+	var score_m: float = 0.0
+	var previous_pos: Vector3 = current_pos
+	for transition_leg: Dictionary in transition:
+		var endpoint: Vector3 = transition_leg.get("position", previous_pos)
+		if str(transition_leg.get("route_primitive", "")) == "arc":
+			score_m += maxf(float(transition_leg.get("arc_sweep_rad", 0.0)), 0.0) \
+				* maxf(float(transition_leg.get("turn_radius_m", 0.0)), 1.0)
+		else:
+			score_m += _thread_aircraft_flat_distance(previous_pos, endpoint)
+		previous_pos = endpoint
+	for remaining_index in range(continuation_index, raw_legs.size()):
+		var remaining_value: Variant = raw_legs[remaining_index]
+		if not (remaining_value is Dictionary):
+			continue
+		var remaining_leg: Dictionary = remaining_value as Dictionary
+		var remaining_pos: Vector3 = remaining_leg.get("position", previous_pos)
+		if str(remaining_leg.get("route_primitive", "")) == "arc":
+			score_m += maxf(float(remaining_leg.get("arc_sweep_rad", 0.0)), 0.0) \
+				* maxf(float(remaining_leg.get("turn_radius_m", 0.0)), 1.0)
+		else:
+			score_m += _thread_aircraft_flat_distance(previous_pos, remaining_pos)
+		previous_pos = remaining_pos
+	return {
+		"legs": transition,
+		"score_m": score_m,
+		"candidate_rank": int(transition_result.get("candidate_rank", -1)),
+		"continuation_index": continuation_index,
+	}
+
+func _prepare_recovery_route_departure(raw_legs: Array) -> Array:
+	## Join the asynchronous terrain route from the aircraft's live 3D pose. Candidate
+	## joins include interior points along safe transit segments, not just waypoint
+	## endpoints; this avoids imposing an unnecessary pose constraint that can turn a
+	## short intercept into a near-complete Dubins orbit.
+	if aircraft == null or not is_instance_valid(aircraft) or raw_legs.size() < 2:
+		return raw_legs
+	var forward_dir := Vector3(aircraft.linear_velocity.x, 0.0, aircraft.linear_velocity.z)
+	if forward_dir.length_squared() <= 25.0:
+		forward_dir = Vector3(
+			aircraft.global_transform.basis.z.x,
+			0.0,
+			aircraft.global_transform.basis.z.z
+		)
+	if forward_dir.length_squared() <= 0.001:
+		return raw_legs
+	forward_dir = forward_dir.normalized()
+	var current_pos: Vector3 = aircraft.global_position
+	var recovery_clearance_m: float = maxf(
+		recovery_gate_min_terrain_clearance_m,
+		aircraft_flight_plan_terrain_clearance_m
+	)
+	var recovery_vertical_angle_deg: float = minf(
+		recovery_descent_max_fpa_deg,
+		approach_descent_angle_deg
+	)
+	var best_result: Dictionary = {}
+	var best_label: String = ""
+
+	# Endpoint joins remain useful at the last transit point because the following
+	# primitive may be an arc whose entry tangent is not represented by a chord.
+	for splice_index in range(raw_legs.size() - 1):
+		var splice_value: Variant = raw_legs[splice_index]
+		var next_value: Variant = raw_legs[splice_index + 1]
+		if not (splice_value is Dictionary) or not (next_value is Dictionary):
+			continue
+		var splice_leg: Dictionary = splice_value as Dictionary
+		var next_leg: Dictionary = next_value as Dictionary
+		if str(splice_leg.get("role", "")) != "recovery_transit":
+			break
+		var splice_pos: Vector3 = splice_leg.get("position", Vector3.INF)
+		var next_pos: Vector3 = next_leg.get("position", Vector3.INF)
+		if splice_pos == Vector3.INF or next_pos == Vector3.INF:
+			continue
+		var destination_forward: Vector3 = Vector3.ZERO
+		var next_horizontal_length_m: float = _thread_aircraft_flat_distance(splice_pos, next_pos)
+		if str(next_leg.get("route_primitive", "")) == "arc":
+			var start_angle: float = float(next_leg.get("arc_start_angle_rad", NAN))
+			var turn_sign: float = signf(float(next_leg.get("arc_turn_sign", 0.0)))
+			if is_finite(start_angle) and absf(turn_sign) > 0.5:
+				var start_radial := Vector2(cos(start_angle), sin(start_angle))
+				var tangent_2d: Vector2 = _circle_tangent_direction_2d(start_radial, turn_sign)
+				destination_forward = Vector3(tangent_2d.x, 0.0, tangent_2d.y)
+			next_horizontal_length_m = maxf(float(next_leg.get("arc_sweep_rad", 0.0)), 0.0) \
+				* maxf(float(next_leg.get("turn_radius_m", 0.0)), 1.0)
+		if destination_forward.length_squared() <= 0.001:
+			destination_forward = next_pos - splice_pos
+			destination_forward.y = 0.0
+		if destination_forward.length_squared() <= 0.001:
+			continue
+		destination_forward = destination_forward.normalized()
+		var route_speed_mps: float = float(splice_leg.get("speed_mps", recovery_gate_speed_mps))
+		var route_capture_m: float = float(splice_leg.get("capture_radius_m", 180.0))
+		var turn_radius_m: float = float(splice_leg.get("turn_radius_m", NAN))
+		if not is_finite(turn_radius_m) or turn_radius_m <= 1.0:
+			turn_radius_m = _estimate_aircraft_turn_radius_m(route_speed_mps, "recovery_transit")
+		turn_radius_m = _get_recovery_departure_turn_radius_m(
+			turn_radius_m,
+			maxf(route_speed_mps, aircraft.linear_velocity.length())
+		)
+		var result: Dictionary = _evaluate_recovery_departure_join(
+			raw_legs,
+			current_pos,
+			forward_dir,
+			splice_pos,
+			destination_forward,
+			splice_index + 1,
+			route_speed_mps,
+			route_capture_m,
+			turn_radius_m,
+			recovery_clearance_m,
+			recovery_vertical_angle_deg,
+			(next_pos.y - splice_pos.y) / maxf(next_horizontal_length_m, 1.0)
+		)
+		if not result.is_empty() and float(result.get("score_m", INF)) < float(best_result.get("score_m", INF)):
+			best_result = result
+			best_label = "point_%d" % (splice_index + 1)
+
+	# Intercept the interior of each terrain-safe transit segment. Sampling density
+	# comes from the existing arc-spacing/capture scales, so precision follows the
+	# route geometry rather than a landing-specific distance constant.
+	for segment_start_index in range(raw_legs.size() - 1):
+		var start_value: Variant = raw_legs[segment_start_index]
+		var end_value: Variant = raw_legs[segment_start_index + 1]
+		if not (start_value is Dictionary) or not (end_value is Dictionary):
+			continue
+		var start_leg: Dictionary = start_value as Dictionary
+		var end_leg: Dictionary = end_value as Dictionary
+		if str(start_leg.get("role", "")) != "recovery_transit" \
+				or str(end_leg.get("role", "")) != "recovery_transit":
+			continue
+		var segment_start: Vector3 = start_leg.get("position", Vector3.INF)
+		var segment_end: Vector3 = end_leg.get("position", Vector3.INF)
+		if segment_start == Vector3.INF or segment_end == Vector3.INF:
+			continue
+		var segment_direction: Vector3 = segment_end - segment_start
+		segment_direction.y = 0.0
+		var segment_length_m: float = segment_direction.length()
+		if segment_length_m <= 1.0:
+			continue
+		segment_direction /= segment_length_m
+		var route_speed_mps: float = float(end_leg.get("speed_mps", recovery_gate_speed_mps))
+		var route_capture_m: float = float(end_leg.get("capture_radius_m", 180.0))
+		var turn_radius_m: float = float(end_leg.get("turn_radius_m", NAN))
+		if not is_finite(turn_radius_m) or turn_radius_m <= 1.0:
+			turn_radius_m = _estimate_aircraft_turn_radius_m(route_speed_mps, "recovery_transit")
+		turn_radius_m = _get_recovery_departure_turn_radius_m(
+			turn_radius_m,
+			maxf(route_speed_mps, aircraft.linear_velocity.length())
+		)
+		var sample_spacing_m: float = maxf(
+			aircraft_heightmap_turn_arc_spacing_m,
+			route_capture_m
+		)
+		var sample_count: int = maxi(int(ceil(segment_length_m / maxf(sample_spacing_m, 1.0))), 2)
+		for sample_index in range(1, sample_count):
+			var sample_t: float = float(sample_index) / float(sample_count)
+			var join_pos: Vector3 = segment_start.lerp(segment_end, sample_t)
+			var result: Dictionary = _evaluate_recovery_departure_join(
+				raw_legs,
+				current_pos,
+				forward_dir,
+				join_pos,
+				segment_direction,
+				segment_start_index + 1,
+				route_speed_mps,
+				route_capture_m,
+				turn_radius_m,
+				recovery_clearance_m,
+				recovery_vertical_angle_deg,
+				(segment_end.y - segment_start.y) / segment_length_m
+			)
+			if not result.is_empty() and float(result.get("score_m", INF)) < float(best_result.get("score_m", INF)):
+				best_result = result
+				best_label = "segment_%d_t%.2f" % [segment_start_index + 1, sample_t]
+
+	if best_result.is_empty():
+		print("[AIPilot ROUTE] recovery departure fallback: no terrain-clear pose solution")
+		return raw_legs
+	var best_transition: Array[Dictionary] = best_result.get("legs", []) as Array[Dictionary]
+	var continuation_index: int = int(best_result.get("continuation_index", 0))
+	var prepared_legs: Array = []
+	prepared_legs.append_array(best_transition)
+	for kept_index in range(continuation_index, raw_legs.size()):
+		prepared_legs.append(raw_legs[kept_index])
+	print("[AIPilot ROUTE] recovery departure shaped primitives=%d join=%s skipped=%d candidate=%d score=%.0fm" % [
+		best_transition.size(),
+		best_label,
+		continuation_index,
+		int(best_result.get("candidate_rank", -1)),
+		float(best_result.get("score_m", INF)),
+	])
+	return prepared_legs
+
+func _on_aircraft_heightmap_route_result(result_variant: Variant) -> void:
+	_aircraft_heightmap_route_job_active = false
+	if not (result_variant is Dictionary):
+		return
+	var result: Dictionary = result_variant
+	var serial: int = int(result.get("serial", 0))
+	if serial != _aircraft_heightmap_route_serial:
+		return
+	if not bool(result.get("success", false)):
+		if str(result.get("plan_name", "")) == "recovery_approach":
+			print("[AIPilot ROUTE] recovery job failed")
+		return
+	var plan_name: String = str(result.get("plan_name", ""))
+	var legs_value: Variant = result.get("legs", [])
+	if not (legs_value is Array):
+		return
+	var legs: Array = legs_value
+	var async_join_input_count: int = legs.size()
+	var async_join_skipped_legs: int = 0
+	var departure_input_count: int = legs.size()
+	if plan_name in ["ground_attack", "recovery_approach"]:
+		legs = _trim_stale_aircraft_route_start(legs)
+		async_join_skipped_legs = async_join_input_count - legs.size()
+		departure_input_count = legs.size()
+		if plan_name == "ground_attack" and attack_prepare_async_departure_enabled:
+			legs = _prepare_attack_route_departure(legs)
+		elif plan_name == "recovery_approach":
+			legs = _prepare_recovery_route_turn(legs)
+			legs = _prepare_recovery_route_departure(legs)
+	var departure_leg_delta: int = legs.size() - departure_input_count
+	_aircraft_heightmap_route_last_smoothing_stats = {
+		"plan_name": plan_name,
+		"input_points": int(result.get("smoothing_input_points", 0)),
+		"output_points": int(result.get("smoothing_output_points", 0)),
+		"smoothed_segments": int(result.get("smoothed_path_segments", 0)),
+		"async_join_skipped_legs": async_join_skipped_legs,
+		"departure_leg_delta": departure_leg_delta,
+		"route_legs": legs.size(),
+	}
+	if debug_enabled:
+		print("[AIPilot ROUTE] threaded plan=%s raw_points=%d smoothed_points=%d smoothed_segments=%d join_skipped=%d departure_delta=%d legs=%d" % [
+			plan_name,
+			int(_aircraft_heightmap_route_last_smoothing_stats.get("input_points", 0)),
+			int(_aircraft_heightmap_route_last_smoothing_stats.get("output_points", 0)),
+			int(_aircraft_heightmap_route_last_smoothing_stats.get("smoothed_segments", 0)),
+			async_join_skipped_legs,
+			departure_leg_delta,
+			legs.size(),
+		])
+	if plan_name == "ground_attack":
+		if current_state not in [State.ATTACK_POSITIONING, State.ATTACK_INBOUND, State.ATTACK_DIVE, State.ATTACK_BREAK_OFF]:
+			return
+		var egress_value: Variant = result.get("egress", Vector3.INF)
+		if egress_value is Vector3 and egress_value != Vector3.INF:
+			_attack_egress_waypoint = egress_value
+			var active_target: Node3D = _resolve_current_ground_attack_target()
+			if active_target != null:
+				_attack_egress_offset_from_target = _attack_egress_waypoint - _get_surface_target_position(active_target)
+			if current_state != State.ATTACK_POSITIONING:
+				if waypoints.size() >= 3:
+					waypoints[waypoints.size() - 1] = _attack_egress_waypoint
+				return
+		if current_state == State.ATTACK_POSITIONING:
+			set_flight_plan_legs("ground_attack", legs, false, false, 150.0)
+			_attack_positioning_route_timeout_s = _estimate_attack_positioning_route_timeout_s(legs)
+	elif plan_name == "rtb":
+		if current_state == State.RTB:
+			set_flight_plan_legs("rtb", legs, false, false, on_station_radius_m)
+	elif plan_name == "recovery_approach":
+		# Terrain-safe route to the approach point (opt-in). Follow it as a flight plan; the state's
+		# capture check on the approach point still ends the approach.
+		if current_state == State.RECOVERY_APPROACH:
+			var recovery_role_counts: Dictionary = {}
+			var recovery_first_pos: Vector3 = Vector3.ZERO
+			var recovery_last_pos: Vector3 = Vector3.ZERO
+			var recovery_position_seen: bool = false
+			for leg_variant in legs:
+				if leg_variant is Dictionary:
+					var recovery_leg: Dictionary = leg_variant
+					var recovery_pos: Vector3 = recovery_leg.get("position", Vector3.ZERO)
+					var recovery_role: String = str(recovery_leg.get("role", "unknown"))
+					recovery_role_counts[recovery_role] = int(recovery_role_counts.get(recovery_role, 0)) + 1
+					if not recovery_position_seen:
+						recovery_first_pos = recovery_pos
+						recovery_position_seen = true
+					recovery_last_pos = recovery_pos
+			print("[AIPilot ROUTE] recovery legs=%d roles=%s first=(%.0f,%.0f,%.0f) last=(%.0f,%.0f,%.0f)" % [
+				legs.size(),
+				JSON.stringify(recovery_role_counts),
+				recovery_first_pos.x,
+				recovery_first_pos.y,
+				recovery_first_pos.z,
+				recovery_last_pos.x,
+				recovery_last_pos.y,
+				recovery_last_pos.z,
+			])
+			set_flight_plan_legs("recovery_approach", legs, false, false, approach_point_capture_m)
+
+func _trim_stale_aircraft_route_start(raw_legs: Array) -> Array:
+	if not aircraft_route_async_join_enabled or raw_legs.size() <= 1:
+		return raw_legs
+	if aircraft == null or not is_instance_valid(aircraft):
+		return raw_legs
+	var forward: Vector3 = Vector3(aircraft.linear_velocity.x, 0.0, aircraft.linear_velocity.z)
+	if forward.length_squared() <= 25.0:
+		forward = Vector3(aircraft.global_transform.basis.z.x, 0.0, aircraft.global_transform.basis.z.z)
+	if forward.length_squared() <= 0.001:
+		return raw_legs
+	forward = forward.normalized()
+	var first_value: Variant = (raw_legs[0] as Dictionary).get("position", Vector3.INF) if raw_legs[0] is Dictionary else Vector3.INF
+	if not (first_value is Vector3):
+		return raw_legs
+	var first_pos: Vector3 = first_value as Vector3
+	var to_first: Vector3 = first_pos - aircraft.global_position
+	to_first.y = 0.0
+	var min_forward_dot: float = clampf(aircraft_route_async_join_min_forward_dot, -1.0, 1.0)
+	if to_first.length_squared() <= 1.0 or forward.dot(to_first.normalized()) >= min_forward_dot:
+		return raw_legs
+
+	var last_candidate_index: int = mini(raw_legs.size() - 1, maxi(aircraft_route_async_join_max_skip_legs, 1))
+	for candidate_index in range(1, last_candidate_index + 1):
+		var candidate_value: Variant = raw_legs[candidate_index]
+		if not (candidate_value is Dictionary):
+			continue
+		var candidate_leg: Dictionary = candidate_value as Dictionary
+		if str(candidate_leg.get("role", "waypoint")) != "attack_approach":
+			break
+		var position_value: Variant = candidate_leg.get("position", Vector3.INF)
+		if not (position_value is Vector3):
+			continue
+		var candidate_pos: Vector3 = position_value as Vector3
+		var to_candidate: Vector3 = candidate_pos - aircraft.global_position
+		to_candidate.y = 0.0
+		if to_candidate.length_squared() <= 1.0:
+			continue
+		if forward.dot(to_candidate.normalized()) < min_forward_dot:
+			continue
+		if not _attack_route_segment_has_clearance(aircraft.global_position, candidate_pos):
+			continue
+		var trimmed_legs: Array = []
+		for kept_index in range(candidate_index, raw_legs.size()):
+			var kept_value: Variant = raw_legs[kept_index]
+			if kept_index == candidate_index and kept_value is Dictionary:
+				var join_leg: Dictionary = (kept_value as Dictionary).duplicate(true)
+				var turn_radius_m: float = float(join_leg.get("turn_radius_m", aircraft_turn_radius_min_m))
+				var existing_capture_m: float = float(join_leg.get("capture_radius_m", 0.0))
+				join_leg["capture_radius_m"] = maxf(
+					existing_capture_m,
+					minf(
+						turn_radius_m * maxf(aircraft_route_async_join_capture_radius_fraction, 0.1),
+						maxf(aircraft_route_async_join_capture_radius_max_m, 1.0)
+					)
+				)
+				trimmed_legs.append(join_leg)
+			else:
+				trimmed_legs.append(kept_value)
+		return trimmed_legs
+	return raw_legs
+
+func _prepare_attack_route_departure(raw_legs: Array) -> Array:
+	if aircraft == null or not is_instance_valid(aircraft) or raw_legs.is_empty():
+		return raw_legs
+	var current_pos: Vector3 = aircraft.global_position
+	var forward_dir: Vector3 = Vector3(aircraft.linear_velocity.x, 0.0, aircraft.linear_velocity.z)
+	if forward_dir.length_squared() <= 1.0:
+		forward_dir = Vector3(aircraft.global_transform.basis.z.x, 0.0, aircraft.global_transform.basis.z.z)
+	if forward_dir.length_squared() <= 0.0001:
+		return raw_legs
+	forward_dir = forward_dir.normalized()
+	var speed_mps: float = maxf(aircraft.linear_velocity.length(), 100.0)
+	var turn_radius_m: float = _estimate_aircraft_turn_radius_m(speed_mps, "attack_approach")
+	var departure_distance_m: float = maxf(
+		turn_radius_m * maxf(attack_ingress_departure_turn_radii, 1.0),
+		600.0
+	)
+	var departure_pos: Vector3 = current_pos + forward_dir * departure_distance_m
+	departure_pos.y = current_pos.y
+	var departure_leg: Dictionary = {
+		"position": departure_pos,
+		"role": "attack_approach",
+		"speed_mps": 100.0,
+		"capture_radius_m": 180.0,
+		"turn_radius_m": turn_radius_m,
+	}
+	var approach_legs: Array[Dictionary] = []
+	var attack_legs: Array[Dictionary] = []
+	var accepted_approach_point: bool = false
+	var descent_tangent: float = tan(deg_to_rad(clampf(attack_ingress_max_descent_angle_deg, 1.0, 20.0)))
+	for leg_variant in raw_legs:
+		if not (leg_variant is Dictionary):
+			continue
+		var leg: Dictionary = (leg_variant as Dictionary).duplicate(true)
+		var role: String = str(leg.get("role", "waypoint"))
+		var position_value: Variant = leg.get("position", Vector3.INF)
+		if not (position_value is Vector3):
+			continue
+		var position: Vector3 = position_value
+		if role == "attack_approach":
+			if not accepted_approach_point:
+				var from_departure: Vector3 = position - departure_pos
+				from_departure.y = 0.0
+				var available_m: float = from_departure.length()
+				if available_m <= 1.0:
+					continue
+				var heading_change_rad: float = acos(clampf(forward_dir.dot(from_departure / available_m), -1.0, 1.0))
+				var required_m: float = turn_radius_m * (
+					heading_change_rad * maxf(attack_ingress_reach_turn_distance_scale, 0.1)
+					+ maxf(attack_ingress_reach_reserve_radii, 0.0)
+				)
+				if available_m < required_m:
+					continue
+				accepted_approach_point = true
+			var horizontal_from_start_m: float = Vector2(position.x - current_pos.x, position.z - current_pos.z).length()
+			position.y = maxf(position.y, current_pos.y - horizontal_from_start_m * descent_tangent)
+			leg["position"] = position
+			approach_legs.append(leg)
+		else:
+			attack_legs.append(leg)
+	# Heightmap pathfinding already balances terrain and turn radius. The generic
+	# line-of-sight simplifier only checks clearance, so it can collapse a flyable
+	# curved join into one impossible reversal. Preserve the threaded path here.
+	var simplified_approach: Array[Dictionary] = approach_legs
+	if _attack_approach_is_excessive_detour(departure_pos, simplified_approach):
+		simplified_approach = _make_direct_attack_staging_approach(departure_pos, simplified_approach)
+	var setup_pos: Vector3 = Vector3.INF
+	var target_pos: Vector3 = Vector3.INF
+	for attack_leg: Dictionary in attack_legs:
+		var attack_role: String = str(attack_leg.get("role", ""))
+		if attack_role == "attack_setup":
+			setup_pos = attack_leg.get("position", Vector3.INF)
+		elif attack_role == "attack_target":
+			target_pos = attack_leg.get("position", Vector3.INF)
+	if setup_pos != Vector3.INF:
+		simplified_approach = _shape_attack_approach_descent(current_pos, simplified_approach, setup_pos)
+	# The terrain job is asynchronous. By the time it returns, the aircraft can
+	# already have flown most of the original route and acquired a safe, reachable
+	# line to setup. Re-check from the *current* position before installing an old
+	# detour; otherwise a late result can replace a short final with a kilometre-long
+	# reversal just as the pilot is ready to aim.
+	if setup_pos != Vector3.INF and target_pos != Vector3.INF:
+		var direct_attack_dir: Vector3 = target_pos - setup_pos
+		direct_attack_dir.y = 0.0
+		if direct_attack_dir.length_squared() > 1.0:
+			var current_direct_reachability: Dictionary = _evaluate_attack_ingress_reachability(
+				setup_pos,
+				direct_attack_dir.normalized()
+			)
+			if bool(current_direct_reachability.get("reachable", false)) \
+					and _attack_route_segment_has_clearance(current_pos, setup_pos):
+				simplified_approach.clear()
+	# Finish the terrain-planned approach with the turn-radius-aware tangent join
+	# that was already designed for this route, but was never connected to the
+	# result assembly. Without it, the heightmap path can arrive at ingress_join
+	# from any heading and the next frame switches directly to attack_setup. That
+	# discontinuity asks for maximum bank, carries the aircraft through the attack
+	# line, and leaves the terminal controller correcting the overshoot.
+	#
+	# The cubic join uses the actual incoming route direction and ends parallel to
+	# setup -> target. Its length and handles come from the aircraft's estimated
+	# turn radius, so this is geometry-derived lead rather than a special bank cap.
+	if not simplified_approach.is_empty() \
+			and setup_pos != Vector3.INF \
+			and target_pos != Vector3.INF:
+		var staging_leg: Dictionary = simplified_approach[simplified_approach.size() - 1]
+		var staging_pos_value: Variant = staging_leg.get("position", Vector3.INF)
+		if staging_pos_value is Vector3 and staging_pos_value != Vector3.INF:
+			var staging_pos: Vector3 = staging_pos_value
+			var arrival_origin: Vector3 = current_pos
+			if simplified_approach.size() >= 2:
+				var previous_leg: Dictionary = simplified_approach[simplified_approach.size() - 2]
+				var previous_pos_value: Variant = previous_leg.get("position", Vector3.INF)
+				if previous_pos_value is Vector3 and previous_pos_value != Vector3.INF:
+					arrival_origin = previous_pos_value
+			var arrival_dir: Vector3 = staging_pos - arrival_origin
+			arrival_dir.y = 0.0
+			if arrival_dir.length_squared() > 1.0:
+				var turn_radius_value: Variant = staging_leg.get("turn_radius_m", NAN)
+				var join_turn_radius_m: float = float(turn_radius_value) \
+					if turn_radius_value is float or turn_radius_value is int else NAN
+				if not is_finite(join_turn_radius_m) or join_turn_radius_m <= 1.0:
+					join_turn_radius_m = _estimate_aircraft_turn_radius_m(100.0, "attack_approach")
+				var tangent_join_legs: Array[Dictionary] = _build_attack_ingress_arc_legs(
+					staging_pos,
+					arrival_dir.normalized(),
+					setup_pos,
+					target_pos,
+					join_turn_radius_m
+				)
+				if not tangent_join_legs.is_empty():
+					simplified_approach.append_array(tangent_join_legs)
+	var prepared_legs: Array = []
+	if simplified_approach.is_empty():
+		# A zero-length/trimmed approach commonly means the aircraft is already on
+		# the chosen attack axis. In that case an unconditional forward departure
+		# leg can carry it beyond setup and create the very reversal the route was
+		# meant to avoid. Keep the departure only when the same turn-radius model
+		# used by attack geometry says setup cannot be reached directly.
+		var attack_dir: Vector3 = target_pos - setup_pos if target_pos != Vector3.INF and setup_pos != Vector3.INF else Vector3.ZERO
+		attack_dir.y = 0.0
+		var direct_setup_reachable: bool = false
+		if setup_pos != Vector3.INF and attack_dir.length_squared() > 1.0:
+			var direct_reachability: Dictionary = _evaluate_attack_ingress_reachability(setup_pos, attack_dir.normalized())
+			direct_setup_reachable = bool(direct_reachability.get("reachable", false))
+		if direct_setup_reachable:
+			# Keep a zero-distance origin as geometric context. It is captured on the
+			# first route update, then becomes the previous point that defines the
+			# setup corner's incoming tangent.
+			prepared_legs.append({
+				"position": current_pos,
+				"role": "attack_approach",
+				"speed_mps": 100.0,
+				"capture_radius_m": 50.0,
+				"turn_radius_m": turn_radius_m,
+				"debug_tag": "attack_direct_origin",
+			})
+		else:
+			prepared_legs.append(departure_leg)
+	for approach_leg: Dictionary in simplified_approach:
+		prepared_legs.append(approach_leg)
+	# The threaded path already terminates at the turn-radius-aware ingress join.
+	# Keep the final setup corridor immutable: adding another departure or Bezier
+	# arc here can cross the attack line and put the target behind the aircraft.
+	for attack_leg: Dictionary in attack_legs:
+		prepared_legs.append(attack_leg)
+	return prepared_legs
+
+func _shape_attack_approach_descent(
+		start_pos: Vector3,
+		approach_legs: Array[Dictionary],
+		setup_pos: Vector3
+) -> Array[Dictionary]:
+	if approach_legs.is_empty() or setup_pos == Vector3.INF:
+		return approach_legs
+	var total_horizontal_m: float = 0.0
+	var previous_pos: Vector3 = start_pos
+	for leg: Dictionary in approach_legs:
+		var point: Vector3 = leg.get("position", previous_pos)
+		total_horizontal_m += Vector2(point.x - previous_pos.x, point.z - previous_pos.z).length()
+		previous_pos = point
+	total_horizontal_m += Vector2(setup_pos.x - previous_pos.x, setup_pos.z - previous_pos.z).length()
+	var descent_end_m: float = maxf(
+		total_horizontal_m - maxf(attack_ingress_descent_complete_before_setup_m, 0.0),
+		1.0
+	)
+	var descent_tangent: float = tan(deg_to_rad(clampf(attack_ingress_max_descent_angle_deg, 1.0, 20.0)))
+	var distance_flown_m: float = 0.0
+	previous_pos = start_pos
+	for leg_index in range(approach_legs.size()):
+		var leg: Dictionary = approach_legs[leg_index]
+		var point: Vector3 = leg.get("position", previous_pos)
+		distance_flown_m += Vector2(point.x - previous_pos.x, point.z - previous_pos.z).length()
+		var descent_progress: float = clampf(distance_flown_m / descent_end_m, 0.0, 1.0)
+		var profile_altitude_m: float = lerpf(start_pos.y, setup_pos.y, descent_progress)
+		var max_descent_floor_m: float = start_pos.y - distance_flown_m * descent_tangent
+		var requested_altitude_m: float = maxf(profile_altitude_m, max_descent_floor_m)
+		point.y = _terrain_safe_altitude_for_segment(
+			previous_pos,
+			point,
+			requested_altitude_m,
+			maxf(attack_ingress_route_clearance_m, aircraft_flight_plan_terrain_clearance_m)
+		)
+		leg["position"] = point
+		approach_legs[leg_index] = leg
+		previous_pos = point
+	return approach_legs
+
+func _directed_circle_sweep_rad(from_angle: float, to_angle: float, turn_sign: float) -> float:
+	return fposmod(to_angle - from_angle, TAU) \
+		if turn_sign > 0.0 else fposmod(from_angle - to_angle, TAU)
+
+func _circle_tangent_direction_2d(radial: Vector2, turn_sign: float) -> Vector2:
+	if radial.length_squared() <= 0.0001:
+		return Vector2.ZERO
+	var unit_radial: Vector2 = radial.normalized()
+	return Vector2(-unit_radial.y, unit_radial.x) * turn_sign
+
+func _attack_pose_candidate_route_altitude(
+		candidate: Dictionary,
+		start_y: float,
+		end_y: float,
+		radius_m: float
+) -> float:
+	var highest_ground_m: float = -INF
+	var sample_spacing_m: float = maxf(aircraft_heightmap_turn_arc_spacing_m, 40.0)
+	var primitives_value: Variant = candidate.get("primitives", [])
+	if not (primitives_value is Array):
+		return maxf(start_y, end_y)
+	for primitive_value in primitives_value as Array:
+		if not (primitive_value is Dictionary):
+			continue
+		var primitive: Dictionary = primitive_value
+		var kind: String = str(primitive.get("kind", ""))
+		if kind == "arc":
+			var center_value: Variant = primitive.get("center", Vector2.ZERO)
+			if not (center_value is Vector2):
+				continue
+			var center: Vector2 = center_value
+			var start_angle: float = float(primitive.get("start_angle", 0.0))
+			var sweep_rad: float = float(primitive.get("sweep_rad", 0.0))
+			var turn_sign: float = float(primitive.get("turn_sign", 1.0))
+			var samples: int = maxi(int(ceil(sweep_rad * radius_m / sample_spacing_m)), 2)
+			for sample_index in range(samples + 1):
+				var sample_t: float = float(sample_index) / float(samples)
+				var angle: float = start_angle + turn_sign * sweep_rad * sample_t
+				var sample_pos := Vector3(
+					center.x + cos(angle) * radius_m,
+					start_y,
+					center.y + sin(angle) * radius_m
+				)
+				var ground_y: float = _get_ground_height_at_position(sample_pos)
+				if not is_nan(ground_y):
+					highest_ground_m = maxf(highest_ground_m, ground_y)
+		elif kind == "straight":
+			var from_value: Variant = primitive.get("from", Vector2.ZERO)
+			var to_value: Variant = primitive.get("to", Vector2.ZERO)
+			if not (from_value is Vector2) or not (to_value is Vector2):
+				continue
+			var from_2d: Vector2 = from_value
+			var to_2d: Vector2 = to_value
+			var samples: int = maxi(int(ceil(from_2d.distance_to(to_2d) / sample_spacing_m)), 2)
+			for sample_index in range(samples + 1):
+				var sample_2d: Vector2 = from_2d.lerp(to_2d, float(sample_index) / float(samples))
+				var ground_y: float = _get_ground_height_at_position(Vector3(sample_2d.x, start_y, sample_2d.y))
+				if not is_nan(ground_y):
+					highest_ground_m = maxf(highest_ground_m, ground_y)
+	var route_y: float = maxf(start_y, end_y)
+	if is_finite(highest_ground_m):
+		route_y = maxf(
+			route_y,
+			highest_ground_m + maxf(attack_ingress_route_clearance_m, aircraft_flight_plan_terrain_clearance_m)
+		)
+	return route_y
+
+func _build_attack_pose_transition_legs(
+		current_pos: Vector3,
+		forward_dir: Vector3,
+		destination_pos: Vector3,
+		destination_forward: Vector3,
+		turn_radius_m: float,
+		destination_vertical_slope: float = NAN,
+		route_role: String = "attack_approach",
+		route_speed_mps: float = 100.0,
+		route_capture_fallback_m: float = 180.0,
+		route_clearance_m: float = NAN,
+		candidate_rank: int = 0,
+		apply_chord_terrain_clearance: bool = true
+) -> Array[Dictionary]:
+	var result: Array[Dictionary] = []
+	var start_2d := Vector2(current_pos.x, current_pos.z)
+	var goal_2d := Vector2(destination_pos.x, destination_pos.z)
+	var start_heading := Vector2(forward_dir.x, forward_dir.z)
+	var goal_heading := Vector2(destination_forward.x, destination_forward.z)
+	if start_heading.length_squared() <= 0.0001 or goal_heading.length_squared() <= 0.0001:
+		return result
+	start_heading = start_heading.normalized()
+	goal_heading = goal_heading.normalized()
+	var radius_m: float = maxf(turn_radius_m, 1.0)
+	var start_left := Vector2(-start_heading.y, start_heading.x)
+	var goal_left := Vector2(-goal_heading.y, goal_heading.x)
+	var best_candidate: Dictionary = {}
+	var best_length_m: float = INF
+	var pose_candidates: Array[Dictionary] = []
+
+	for start_sign: float in [-1.0, 1.0]:
+		var start_center: Vector2 = start_2d + start_left * start_sign * radius_m
+		for goal_sign: float in [-1.0, 1.0]:
+			var goal_center: Vector2 = goal_2d + goal_left * goal_sign * radius_m
+			var center_delta: Vector2 = goal_center - start_center
+			var center_distance_sq: float = center_delta.length_squared()
+			if center_distance_sq <= 0.001:
+				continue
+			var signed_goal_radius: float = radius_m if start_sign == goal_sign else -radius_m
+			var radius_delta: float = radius_m - signed_goal_radius
+			var tangent_height_sq: float = center_distance_sq - radius_delta * radius_delta
+			if tangent_height_sq < 0.0:
+				continue
+			var perpendicular_delta := Vector2(-center_delta.y, center_delta.x)
+			for tangent_side: float in [-1.0, 1.0]:
+				var tangent_normal: Vector2 = (
+					center_delta * radius_delta
+					+ perpendicular_delta * sqrt(maxf(tangent_height_sq, 0.0)) * tangent_side
+				) / center_distance_sq
+				var start_tangent: Vector2 = start_center + tangent_normal * radius_m
+				var goal_tangent: Vector2 = goal_center + tangent_normal * signed_goal_radius
+				var straight_delta: Vector2 = goal_tangent - start_tangent
+				var straight_length_m: float = straight_delta.length()
+				if straight_length_m <= 0.001:
+					continue
+				var straight_dir: Vector2 = straight_delta / straight_length_m
+				var start_radial: Vector2 = start_2d - start_center
+				var start_tangent_radial: Vector2 = start_tangent - start_center
+				var goal_tangent_radial: Vector2 = goal_tangent - goal_center
+				var goal_radial: Vector2 = goal_2d - goal_center
+				if _circle_tangent_direction_2d(start_tangent_radial, start_sign).dot(straight_dir) < 0.999:
+					continue
+				if _circle_tangent_direction_2d(goal_tangent_radial, goal_sign).dot(straight_dir) < 0.999:
+					continue
+				var start_angle: float = atan2(start_radial.y, start_radial.x)
+				var start_tangent_angle: float = atan2(start_tangent_radial.y, start_tangent_radial.x)
+				var goal_tangent_angle: float = atan2(goal_tangent_radial.y, goal_tangent_radial.x)
+				var goal_angle: float = atan2(goal_radial.y, goal_radial.x)
+				var start_sweep: float = _directed_circle_sweep_rad(start_angle, start_tangent_angle, start_sign)
+				var goal_sweep: float = _directed_circle_sweep_rad(goal_tangent_angle, goal_angle, goal_sign)
+				var total_length_m: float = (start_sweep + goal_sweep) * radius_m + straight_length_m
+				var candidate := {
+					"length_m": total_length_m,
+					"primitives": [
+						{
+							"kind": "arc",
+							"center": start_center,
+							"from": start_2d,
+							"to": start_tangent,
+							"start_angle": start_angle,
+							"sweep_rad": start_sweep,
+							"turn_sign": start_sign,
+						},
+						{
+							"kind": "straight",
+							"from": start_tangent,
+							"to": goal_tangent,
+						},
+						{
+							"kind": "arc",
+							"center": goal_center,
+							"from": goal_tangent,
+							"to": goal_2d,
+							"start_angle": goal_tangent_angle,
+							"sweep_rad": goal_sweep,
+							"turn_sign": goal_sign,
+						},
+					],
+				}
+				pose_candidates.append(candidate)
+				if total_length_m < best_length_m:
+					best_length_m = total_length_m
+					best_candidate = candidate
+
+	if pose_candidates.is_empty():
+		return result
+	if candidate_rank > 0:
+		pose_candidates.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+			return float(a.get("length_m", INF)) < float(b.get("length_m", INF))
+		)
+		if candidate_rank >= pose_candidates.size():
+			return result
+		best_candidate = pose_candidates[candidate_rank]
+	var route_capture_m: float = _get_aircraft_route_capture_radius_m(
+		route_speed_mps,
+		route_role,
+		route_capture_fallback_m
+	)
+	var effective_route_clearance_m: float = route_clearance_m
+	if not is_finite(effective_route_clearance_m):
+		effective_route_clearance_m = maxf(
+			attack_ingress_route_clearance_m,
+			aircraft_flight_plan_terrain_clearance_m
+		)
+	var primitives_value: Variant = best_candidate.get("primitives", [])
+	var total_path_length_m: float = 0.0
+	for primitive_value in primitives_value as Array:
+		if not (primitive_value is Dictionary):
+			continue
+		var length_primitive: Dictionary = primitive_value
+		if str(length_primitive.get("kind", "")) == "arc":
+			total_path_length_m += float(length_primitive.get("sweep_rad", 0.0)) * radius_m
+		else:
+			var length_from: Variant = length_primitive.get("from", Vector2.ZERO)
+			var length_to: Variant = length_primitive.get("to", Vector2.ZERO)
+			if length_from is Vector2 and length_to is Vector2:
+				total_path_length_m += (length_to as Vector2).distance_to(length_from as Vector2)
+	var traversed_path_length_m: float = 0.0
+	var previous_route_point: Vector3 = current_pos
+	for primitive_value in primitives_value as Array:
+		if not (primitive_value is Dictionary):
+			continue
+		var primitive: Dictionary = primitive_value
+		var kind: String = str(primitive.get("kind", ""))
+		var end_value: Variant = primitive.get("to", Vector2.ZERO)
+		if not (end_value is Vector2):
+			continue
+		var end_2d: Vector2 = end_value
+		if kind == "arc" and float(primitive.get("sweep_rad", 0.0)) <= 0.001:
+			continue
+		if kind == "straight":
+			var from_value: Variant = primitive.get("from", Vector2.ZERO)
+			if from_value is Vector2 and (from_value as Vector2).distance_to(end_2d) <= 1.0:
+				continue
+		var primitive_length_m: float = float(primitive.get("sweep_rad", 0.0)) * radius_m \
+			if kind == "arc" else 0.0
+		if kind == "straight":
+			var primitive_from: Variant = primitive.get("from", Vector2.ZERO)
+			if primitive_from is Vector2:
+				primitive_length_m = (end_2d as Vector2).distance_to(primitive_from as Vector2)
+		traversed_path_length_m += primitive_length_m
+		# Assign altitude by distance *along* the solved horizontal path.  The former
+		# implementation put every Dubins primitive at one maximum terrain height,
+		# making a descending ingress first climb around a flat high orbit.  Each leg
+		# is now a real 3D endpoint; terrain may raise that endpoint only where its
+		# own sampled segment genuinely needs clearance.
+		var altitude_progress: float = clampf(
+			traversed_path_length_m / maxf(total_path_length_m, 1.0),
+			0.0,
+			1.0
+		)
+		var requested_y: float = lerpf(current_pos.y, destination_pos.y, altitude_progress)
+		if is_finite(destination_vertical_slope):
+			# Match the next segment's vertical tangent as well as its horizontal
+			# heading. A linear altitude interpolation can only arrive climbing when
+			# join is above the aircraft, even when the following firing line descends.
+			# Cubic Hermite interpolation lets the path crest naturally and arrive at
+			# the exact slope of join -> setup -> target. Its starting tangent is the
+			# aircraft's measured flight path, so this remains a continuous 3D route
+			# derived from the current state and adjacent leg geometry.
+			var horizontal_speed_mps: float = Vector2(
+				aircraft.linear_velocity.x,
+				aircraft.linear_velocity.z
+			).length() if aircraft != null and is_instance_valid(aircraft) else 0.0
+			var start_vertical_slope: float = aircraft.linear_velocity.y / horizontal_speed_mps \
+				if horizontal_speed_mps > 1.0 else 0.0
+			var t2: float = altitude_progress * altitude_progress
+			var t3: float = t2 * altitude_progress
+			var h00: float = 2.0 * t3 - 3.0 * t2 + 1.0
+			var h10: float = t3 - 2.0 * t2 + altitude_progress
+			var h01: float = -2.0 * t3 + 3.0 * t2
+			var h11: float = t3 - t2
+			requested_y = h00 * current_pos.y \
+				+ h10 * start_vertical_slope * total_path_length_m \
+				+ h01 * destination_pos.y \
+				+ h11 * destination_vertical_slope * total_path_length_m
+		var endpoint := Vector3(end_2d.x, requested_y, end_2d.y)
+		if apply_chord_terrain_clearance:
+			endpoint.y = _terrain_safe_altitude_for_segment(
+				previous_route_point,
+				endpoint,
+				requested_y,
+				effective_route_clearance_m
+			)
+		var leg: Dictionary = {
+			"position": endpoint,
+			"role": route_role,
+			"speed_mps": route_speed_mps,
+			"capture_radius_m": route_capture_m,
+			"turn_radius_m": radius_m,
+			"route_primitive": kind,
+			"debug_tag": "dubins_%s" % kind,
+		}
+		if kind == "arc":
+			leg["arc_center_xz"] = primitive.get("center", Vector2.ZERO)
+			leg["arc_start_angle_rad"] = float(primitive.get("start_angle", 0.0))
+			leg["arc_sweep_rad"] = float(primitive.get("sweep_rad", 0.0))
+			leg["arc_turn_sign"] = float(primitive.get("turn_sign", 1.0))
+		result.append(leg)
+		previous_route_point = endpoint
+	return result
+
+func _build_attack_departure_transition_legs(
+		current_pos: Vector3,
+		forward_dir: Vector3,
+		destination_pos: Vector3,
+		turn_radius_m: float
+) -> Array[Dictionary]:
+	var result: Array[Dictionary] = []
+	var start_2d: Vector2 = Vector2(current_pos.x, current_pos.z)
+	var destination_2d: Vector2 = Vector2(destination_pos.x, destination_pos.z)
+	var heading_2d: Vector2 = Vector2(forward_dir.x, forward_dir.z)
+	if heading_2d.length_squared() <= 0.0001 or start_2d.distance_to(destination_2d) <= 1.0:
+		return result
+	heading_2d = heading_2d.normalized()
+	var radius_m: float = maxf(turn_radius_m, 1.0)
+	var left_normal: Vector2 = Vector2(-heading_2d.y, heading_2d.x)
+	var max_arc_points: int = maxi(aircraft_heightmap_turn_max_arc_points, 2)
+	var route_capture_m: float = _get_aircraft_route_capture_radius_m(
+		100.0,
+		"attack_approach",
+		180.0
+	)
+	var best_score_m: float = INF
+
+	for turn_sign: float in [-1.0, 1.0]:
+		var center: Vector2 = start_2d + left_normal * turn_sign * radius_m
+		var center_to_destination: Vector2 = destination_2d - center
+		var center_distance_m: float = center_to_destination.length()
+		if center_distance_m <= radius_m + 1.0:
+			continue
+		var destination_angle: float = atan2(center_to_destination.y, center_to_destination.x)
+		var tangent_offset: float = acos(clampf(radius_m / center_distance_m, -1.0, 1.0))
+		for tangent_branch: float in [-1.0, 1.0]:
+			var tangent_angle: float = destination_angle + tangent_offset * tangent_branch
+			var tangent_radial: Vector2 = Vector2(cos(tangent_angle), sin(tangent_angle))
+			var tangent_pos_2d: Vector2 = center + tangent_radial * radius_m
+			var straight_to_destination: Vector2 = destination_2d - tangent_pos_2d
+			var straight_distance_m: float = straight_to_destination.length()
+			if straight_distance_m <= 1.0:
+				continue
+			var turn_tangent_dir: Vector2 = Vector2(-tangent_radial.y, tangent_radial.x) * turn_sign
+			if turn_tangent_dir.dot(straight_to_destination / straight_distance_m) < 0.995:
+				continue
+
+			var start_radial: Vector2 = start_2d - center
+			var start_angle: float = atan2(start_radial.y, start_radial.x)
+			var arc_angle: float = (
+				fposmod(tangent_angle - start_angle, TAU)
+				if turn_sign > 0.0
+				else -fposmod(start_angle - tangent_angle, TAU)
+			)
+			var arc_length_m: float = absf(arc_angle) * radius_m
+			# Use only enough chords to keep the circle-to-polyline sagitta inside
+			# the route's own capture tolerance. Spacing the arc by a fixed distance
+			# produced ten tiny corners that the generic fly-by controller rounded
+			# again, so the aircraft advanced through a route it never captured.
+			var capture_to_radius: float = clampf(route_capture_m / radius_m, 0.0, 2.0)
+			var max_chord_angle_rad: float = 2.0 * acos(clampf(1.0 - capture_to_radius, -1.0, 1.0))
+			# A capture radius larger than the turn radius makes the sagitta test alone
+			# accept a chord spanning most of a circle. Such a chord points behind the
+			# aircraft even though every point on the underlying circle is reachable.
+			# A quarter-circle is the largest chord whose direction stays within 45
+			# degrees of the tangent at both ends, so it remains forward-followable.
+			max_chord_angle_rad = minf(max_chord_angle_rad, PI * 0.5)
+			var sample_count: int = clampi(
+				int(ceil(absf(arc_angle) / maxf(max_chord_angle_rad, 0.001))),
+				2,
+				max_arc_points
+			)
+			var candidate: Array[Dictionary] = []
+			var previous_pos: Vector3 = current_pos
+			var has_clearance: bool = true
+			for sample_index in range(1, sample_count + 1):
+				var sample_t: float = float(sample_index) / float(sample_count)
+				var sample_angle: float = start_angle + arc_angle * sample_t
+				var sample_pos: Vector3 = Vector3(
+					center.x + cos(sample_angle) * radius_m,
+					current_pos.y,
+					center.y + sin(sample_angle) * radius_m
+				)
+				if not _attack_route_segment_has_clearance(previous_pos, sample_pos):
+					has_clearance = false
+					break
+				candidate.append({
+					"position": sample_pos,
+					"role": "attack_approach",
+					"speed_mps": 100.0,
+					"capture_radius_m": route_capture_m,
+					"turn_radius_m": radius_m,
+					"debug_tag": "departure_turn",
+				})
+				previous_pos = sample_pos
+			if not has_clearance or not _attack_route_segment_has_clearance(previous_pos, destination_pos):
+				continue
+			var score_m: float = arc_length_m + straight_distance_m
+			if score_m < best_score_m:
+				best_score_m = score_m
+				result = candidate
+	return result
+
+func _simplify_attack_approach_legs(start_pos: Vector3, approach_legs: Array[Dictionary]) -> Array[Dictionary]:
+	if approach_legs.size() <= 1:
+		return approach_legs
+	var simplified: Array[Dictionary] = []
+	var anchor_pos: Vector3 = start_pos
+	var search_start: int = 0
+	while search_start < approach_legs.size():
+		var selected_index: int = search_start
+		for candidate_index in range(approach_legs.size() - 1, search_start - 1, -1):
+			var candidate_pos: Vector3 = approach_legs[candidate_index].get("position", Vector3.INF)
+			if candidate_pos == Vector3.INF:
+				continue
+			if _attack_route_segment_has_clearance(anchor_pos, candidate_pos):
+				selected_index = candidate_index
+				break
+		var selected_leg: Dictionary = approach_legs[selected_index].duplicate(true)
+		simplified.append(selected_leg)
+		anchor_pos = selected_leg.get("position", anchor_pos)
+		search_start = selected_index + 1
+	return simplified
+
+func _attack_approach_is_excessive_detour(start_pos: Vector3, approach_legs: Array[Dictionary]) -> bool:
+	if approach_legs.is_empty():
+		return false
+	var final_pos: Vector3 = approach_legs[-1].get("position", Vector3.INF)
+	if final_pos == Vector3.INF:
+		return false
+	var direct_distance_m: float = Vector2(final_pos.x - start_pos.x, final_pos.z - start_pos.z).length()
+	if direct_distance_m <= 1.0:
+		return true
+	var path_distance_m: float = 0.0
+	var previous_pos: Vector3 = start_pos
+	for leg: Dictionary in approach_legs:
+		var position: Vector3 = leg.get("position", previous_pos)
+		path_distance_m += Vector2(position.x - previous_pos.x, position.z - previous_pos.z).length()
+		previous_pos = position
+	var ratio_limit_m: float = direct_distance_m * maxf(attack_ingress_max_path_detour_ratio, 1.0)
+	var extra_limit_m: float = direct_distance_m + maxf(attack_ingress_max_path_extra_m, 0.0)
+	return path_distance_m > minf(ratio_limit_m, extra_limit_m)
+
+func _make_direct_attack_staging_approach(start_pos: Vector3, approach_legs: Array[Dictionary]) -> Array[Dictionary]:
+	if approach_legs.is_empty():
+		return approach_legs
+	var staging_leg: Dictionary = approach_legs[-1].duplicate(true)
+	var staging_pos: Vector3 = staging_leg.get("position", Vector3.INF)
+	if staging_pos == Vector3.INF:
+		return approach_legs
+	var horizontal_distance_m: float = Vector2(staging_pos.x - start_pos.x, staging_pos.z - start_pos.z).length()
+	var terrain_samples: int = clampi(int(ceil(horizontal_distance_m / 250.0)), 6, 32)
+	var terrain_max_m: float = _sample_max_terrain_height_along_path(start_pos, staging_pos, terrain_samples)
+	var cruise_altitude_m: float = maxf(start_pos.y, staging_pos.y)
+	if not is_nan(terrain_max_m):
+		cruise_altitude_m = maxf(cruise_altitude_m, terrain_max_m + maxf(attack_ingress_route_clearance_m, 0.0))
+	staging_pos.y = cruise_altitude_m
+	staging_leg["position"] = staging_pos
+	return [staging_leg]
+
+func _attack_route_segment_has_clearance(start_pos: Vector3, end_pos: Vector3) -> bool:
+	var horizontal_distance_m: float = Vector2(end_pos.x - start_pos.x, end_pos.z - start_pos.z).length()
+	var samples: int = clampi(int(ceil(horizontal_distance_m / 250.0)), 4, 24)
+	for sample_index in range(1, samples):
+		var t: float = float(sample_index) / float(samples)
+		var sample_pos: Vector3 = start_pos.lerp(end_pos, t)
+		var terrain_h: float = _get_ground_height_at_position(sample_pos)
+		if not is_nan(terrain_h) and sample_pos.y < terrain_h + maxf(attack_ingress_route_clearance_m, 0.0):
+			return false
+	return true
+
+
+func _build_attack_ingress_arc_legs(staging_pos: Vector3, arrival_dir: Vector3, setup_pos: Vector3, target_pos: Vector3, turn_radius_m: float) -> Array[Dictionary]:
+	var attack_dir: Vector3 = target_pos - setup_pos
+	attack_dir.y = 0.0
+	if attack_dir.length_squared() <= 1.0:
+		return []
+	attack_dir = attack_dir.normalized()
+	var lane_distance_m: float = Vector2(setup_pos.x - staging_pos.x, setup_pos.z - staging_pos.z).length()
+	var arc_end_distance_m: float = minf(
+		turn_radius_m * maxf(attack_ingress_arc_end_radii_before_setup, 0.25),
+		lane_distance_m * 0.45
+	)
+	var arc_end: Vector3 = setup_pos - attack_dir * arc_end_distance_m
+	arc_end.y = setup_pos.y
+	var chord_distance_m: float = Vector2(arc_end.x - staging_pos.x, arc_end.z - staging_pos.z).length()
+	if chord_distance_m <= 100.0:
+		return []
+	var handle_m: float = minf(
+		turn_radius_m * maxf(attack_ingress_arc_handle_radii, 0.1),
+		chord_distance_m * 0.45
+	)
+	var control_1: Vector3 = staging_pos + arrival_dir.normalized() * handle_m
+	var control_2: Vector3 = arc_end - attack_dir * handle_m
+	control_1.y = lerpf(staging_pos.y, arc_end.y, 0.33)
+	control_2.y = lerpf(staging_pos.y, arc_end.y, 0.67)
+	var points: Array[Vector3] = []
+	var sample_count: int = clampi(attack_ingress_arc_samples, 1, 6)
+	for sample_index in range(1, sample_count + 1):
+		var t: float = float(sample_index) / float(sample_count + 1)
+		var one_minus_t: float = 1.0 - t
+		points.append(
+			staging_pos * one_minus_t * one_minus_t * one_minus_t
+			+ control_1 * 3.0 * one_minus_t * one_minus_t * t
+			+ control_2 * 3.0 * one_minus_t * t * t
+			+ arc_end * t * t * t
+		)
+	points.append(arc_end)
+	var previous_pos: Vector3 = staging_pos
+	for point: Vector3 in points:
+		if not _attack_route_segment_has_clearance(previous_pos, point):
+			return []
+		previous_pos = point
+	var arc_legs: Array[Dictionary] = []
+	for point: Vector3 in points:
+		arc_legs.append({
+			"position": point,
+			"role": "attack_approach",
+			"speed_mps": 100.0,
+			"capture_radius_m": 180.0,
+			"turn_radius_m": turn_radius_m,
+		})
+	return arc_legs
+
+func _estimate_attack_positioning_route_timeout_s(legs: Array) -> float:
+	var previous_pos: Vector3 = aircraft.global_position
+	var estimated_travel_s: float = 0.0
+	var first_positioning_leg: bool = true
+	var current_horizontal_speed_mps: float = maxf(Vector2(aircraft.linear_velocity.x, aircraft.linear_velocity.z).length(), 60.0)
+	var current_heading: Vector3 = Vector3(aircraft.linear_velocity.x, 0.0, aircraft.linear_velocity.z)
+	if current_heading.length_squared() <= 1.0:
+		current_heading = Vector3(aircraft.global_transform.basis.z.x, 0.0, aircraft.global_transform.basis.z.z)
+	if current_heading.length_squared() > 0.001:
+		current_heading = current_heading.normalized()
+	for leg_variant in legs:
+		if not (leg_variant is Dictionary):
+			continue
+		var leg: Dictionary = leg_variant
+		var role: String = str(leg.get("role", "waypoint"))
+		if role == "attack_target" or role == "attack_egress":
+			break
+		var position_value: Variant = leg.get("position", Vector3.INF)
+		if not (position_value is Vector3):
+			continue
+		var position: Vector3 = position_value
+		var speed_value: Variant = leg.get("speed_mps", 100.0)
+		var leg_speed_mps: float = float(speed_value) if (speed_value is float or speed_value is int) else 100.0
+		# Route speeds are commands, not guaranteed performance. Aircraft_5 typically
+		# sustains about 74 m/s during this turn, so do not estimate the timeout at a
+		# fictional 100 m/s when it entered the route substantially slower.
+		var timeout_speed_mps: float = minf(maxf(leg_speed_mps, 60.0), current_horizontal_speed_mps)
+		if first_positioning_leg and current_heading.length_squared() > 0.001:
+			var to_first: Vector3 = Vector3(position.x - previous_pos.x, 0.0, position.z - previous_pos.z)
+			if to_first.length_squared() > 1.0:
+				var heading_change_rad: float = acos(clampf(current_heading.dot(to_first.normalized()), -1.0, 1.0))
+				var turn_radius_value: Variant = leg.get("turn_radius_m", NAN)
+				var turn_radius_m: float = float(turn_radius_value) if (turn_radius_value is float or turn_radius_value is int) else NAN
+				if not is_finite(turn_radius_m) or turn_radius_m <= 0.0:
+					turn_radius_m = _estimate_aircraft_turn_radius_m(leg_speed_mps, role)
+				# Straight-line distance only measures the chord. A large heading reversal
+				# needs substantial additional time to fly the actual turn arc.
+				estimated_travel_s += turn_radius_m * heading_change_rad / timeout_speed_mps
+		first_positioning_leg = false
+		estimated_travel_s += Vector2(position.x - previous_pos.x, position.z - previous_pos.z).length() / timeout_speed_mps
+		previous_pos = position
+	return clampf(
+		estimated_travel_s * maxf(attack_positioning_route_timeout_scale, 1.0)
+			+ maxf(attack_positioning_route_timeout_margin_s, 0.0),
+		maxf(attack_positioning_replan_timeout_s, 30.0),
+		maxf(attack_positioning_route_timeout_max_s, attack_positioning_replan_timeout_s)
+	)
+
+func _make_aircraft_route_signature(plan_name: String, segments: Array) -> String:
+	var parts: Array[String] = [plan_name]
+	for segment_variant in segments:
+		if not (segment_variant is Dictionary):
+			continue
+		var segment: Dictionary = segment_variant
+		var goal_value: Variant = segment.get("goal", Vector3.INF)
+		if goal_value is Vector3:
+			var goal: Vector3 = goal_value
+			parts.append("%s:%d:%d:%d" % [
+				str(segment.get("role", "waypoint")),
+				int(round(goal.x / 50.0)),
+				int(round(goal.y / 50.0)),
+				int(round(goal.z / 50.0)),
+			])
+			parts.append("s%d:r%d" % [
+				int(round(float(segment.get("speed_mps", 0.0)) / 10.0)),
+				int(round(float(segment.get("turn_radius_m", 0.0)) / 100.0)),
+			])
+	return "|".join(parts)
+
+func _get_aircraft_heightmap_grid_snapshot() -> Dictionary:
+	if not aircraft_heightmap_pathfinding_enabled:
+		return {}
+	var nav_grid: Node = get_node_or_null("/root/TerrainNavGrid")
+	if nav_grid == null:
+		return {}
+	if nav_grid.has_method("is_ready") and not bool(nav_grid.call("is_ready")):
+		return {}
+	var cols: int = int(nav_grid.get("_cols"))
+	var rows: int = int(nav_grid.get("_rows"))
+	var heights: PackedFloat32Array = nav_grid.get("_heights") as PackedFloat32Array
+	if cols <= 0 or rows <= 0 or heights.is_empty():
+		return {}
+	return {
+		"cols": cols,
+		"rows": rows,
+		"heights": heights,
+		"origin_x": float(nav_grid.get("_origin_x")),
+		"origin_z": float(nav_grid.get("_origin_z")),
+		"cell_size": maxf(float(nav_grid.get("cell_size_m")), 1.0),
+		"impassable": float(nav_grid.get("IMPASSABLE")),
+		"query_cols": int(nav_grid.get("_query_cols")),
+		"query_rows": int(nav_grid.get("_query_rows")),
+		"query_heights": nav_grid.get("_query_heights") as PackedFloat32Array,
+		"query_height_variation": nav_grid.get("_query_height_variation") as PackedFloat32Array,
+		"query_max_heights": nav_grid.get("_query_max_heights") as PackedFloat32Array,
+		"query_origin_x": float(nav_grid.get("_query_origin_x")),
+		"query_origin_z": float(nav_grid.get("_query_origin_z")),
+		"query_cell_size": maxf(float(nav_grid.get("query_cell_size_m")), 1.0),
+		"h_min_passable": float(nav_grid.get("_h_min_passable")),
+	}
+
+func _make_aircraft_heightmap_path_job_data(start: Vector3, goal: Vector3, grid: Dictionary, speed_mps: float, role: String, turn_radius_m: float) -> Dictionary:
+	var cols: int = int(grid.get("cols", 0))
+	var rows: int = int(grid.get("rows", 0))
+	var origin_x: float = float(grid.get("origin_x", 0.0))
+	var origin_z: float = float(grid.get("origin_z", 0.0))
+	var cell_size: float = maxf(float(grid.get("cell_size", 1.0)), 1.0)
+	if cols <= 0 or rows <= 0:
+		return {}
+	var dist_max: float = maxf(absf(start.x - goal.x), absf(start.z - goal.z))
+	var pad: float = maxf(aircraft_heightmap_path_search_padding_m, dist_max * 0.5)
+	if role in ["recovery_transit", "recovery_arrival"]:
+		# A time-critical recovery search needs enough room for a flyable turn and
+		# a normal configured detour, not a square whose padding grows to half of
+		# every long arrival leg. The latter made a 5 km recovery explore most of the map.
+		pad = maxf(aircraft_heightmap_path_search_padding_m, turn_radius_m)
+	var gx_min: int = clampi(int(floor((minf(start.x, goal.x) - pad - origin_x) / cell_size)), 0, cols - 1)
+	var gz_min: int = clampi(int(floor((minf(start.z, goal.z) - pad - origin_z) / cell_size)), 0, rows - 1)
+	var gx_max: int = clampi(int(ceil((maxf(start.x, goal.x) + pad - origin_x) / cell_size)), 0, cols - 1)
+	var gz_max: int = clampi(int(ceil((maxf(start.z, goal.z) + pad - origin_z) / cell_size)), 0, rows - 1)
+	var start_cell := Vector2i(
+		clampi(int((start.x - origin_x) / cell_size), gx_min, gx_max),
+		clampi(int((start.z - origin_z) / cell_size), gz_min, gz_max)
+	)
+	var end_cell := Vector2i(
+		clampi(int((goal.x - origin_x) / cell_size), gx_min, gx_max),
+		clampi(int((goal.z - origin_z) / cell_size), gz_min, gz_max)
+	)
+	var reference_ground: float = float(grid.get("h_min_passable", 0.0))
+	if not is_finite(reference_ground):
+		reference_ground = 0.0
+	var start_ground: float = _sample_grid_snapshot_height(grid, start)
+	var goal_ground: float = _sample_grid_snapshot_height(grid, goal)
+	var terrain_anchor: float = reference_ground
+	if start_ground > -500000.0:
+		terrain_anchor = maxf(terrain_anchor, start_ground)
+	if goal_ground > -500000.0:
+		terrain_anchor = maxf(terrain_anchor, goal_ground)
+	var max_route_terrain_y: float = maxf(reference_ground + 1800.0, terrain_anchor + 650.0)
+	var flight_ceiling: float = maxf(max_route_terrain_y + aircraft_heightmap_path_target_agl_m + 500.0, maxf(start.y, goal.y) + 500.0)
+	return {
+		"start_ms": Time.get_ticks_msec(),
+		"current_pos": start,
+		"goal": goal,
+		"gx_min": gx_min,
+		"gz_min": gz_min,
+		"gx_max": gx_max,
+		"gz_max": gz_max,
+		"start_cell": start_cell,
+		"end_cell": end_cell,
+		"reference_ground": reference_ground,
+		"max_route_terrain_y": max_route_terrain_y,
+		"max_iterations": maxi((gx_max - gx_min + 1) * (gz_max - gz_min + 1) * 3, 20000),
+		"grid": grid,
+		"params": _get_aircraft_heightmap_path_params(reference_ground, max_route_terrain_y, flight_ceiling, speed_mps, role, turn_radius_m),
+		"result": {},
+	}
+
+func _sample_grid_snapshot_height(grid: Dictionary, point: Vector3) -> float:
+	var heights: PackedFloat32Array = grid.get("heights", PackedFloat32Array()) as PackedFloat32Array
+	var cols: int = int(grid.get("cols", 0))
+	var rows: int = int(grid.get("rows", 0))
+	if heights.is_empty() or cols <= 0 or rows <= 0:
+		return -INF
+	var cell_size: float = maxf(float(grid.get("cell_size", 1.0)), 1.0)
+	var gx: int = clampi(int((point.x - float(grid.get("origin_x", 0.0))) / cell_size), 0, cols - 1)
+	var gz: int = clampi(int((point.z - float(grid.get("origin_z", 0.0))) / cell_size), 0, rows - 1)
+	return heights[gz * cols + gx]
+
+func _get_aircraft_heightmap_path_params(reference_ground: float, max_route_terrain_y: float, flight_ceiling: float, speed_mps: float, role: String, turn_radius_m: float) -> Dictionary:
+	var safe_turn_radius_m: float = turn_radius_m
+	if not is_finite(safe_turn_radius_m) or safe_turn_radius_m <= 0.0:
+		safe_turn_radius_m = _estimate_aircraft_turn_radius_m(speed_mps, role)
+	safe_turn_radius_m = clampf(safe_turn_radius_m, aircraft_turn_radius_min_m, aircraft_turn_radius_max_m)
+	var path_lookahead_m: float = maxf(maneuver_lookahead_distance, safe_turn_radius_m * maxf(aircraft_route_lookahead_radius_fraction, 0.1))
+	var insert_spacing_m: float = clampf(
+		maxf(aircraft_heightmap_path_insert_spacing_m, safe_turn_radius_m * 0.55),
+		260.0,
+		1400.0
+	)
+	var min_segment_m: float = clampf(
+		maxf(aircraft_heightmap_path_pilot_min_segment_m, safe_turn_radius_m * 0.42),
+		aircraft_heightmap_path_pilot_min_segment_m,
+		1200.0
+	)
+	var corner_spacing_m: float = clampf(
+		maxf(aircraft_heightmap_path_pilot_min_segment_m, safe_turn_radius_m * 0.32),
+		aircraft_heightmap_path_pilot_min_segment_m,
+		900.0
+	)
+	var route_clearance_m: float = aircraft_flight_plan_terrain_clearance_m
+	if role == "attack_approach":
+		route_clearance_m = maxf(route_clearance_m, attack_ingress_route_clearance_m)
+	var direct_corridor_max_climb_m: float = aircraft_heightmap_path_direct_corridor_max_climb_m
+	var goal_clearance_m: float = route_clearance_m
+	var route_max_descent_angle_deg: float = attack_ingress_max_descent_angle_deg
+	if role in ["recovery_transit", "recovery_arrival"]:
+		# Recovery is free to overfly terrain before joining the short final. Let the
+		# fast sampled 3D corridor use the same terrain envelope already judged
+		# flyable by this route job; lateral A* remains the fallback for terrain above it.
+		direct_corridor_max_climb_m = maxf(
+			direct_corridor_max_climb_m,
+			max_route_terrain_y - reference_ground
+		)
+	if role == "recovery_arrival":
+		var flight_deck_manager := get_tree().get_first_node_in_group("flight_deck_manager")
+		if flight_deck_manager != null:
+			var verified_clearance_value: Variant = flight_deck_manager.get("landing_terrain_clearance_m")
+			if verified_clearance_value is float or verified_clearance_value is int:
+				goal_clearance_m = maxf(float(verified_clearance_value), 0.0)
+		route_max_descent_angle_deg = minf(
+			recovery_descent_max_fpa_deg,
+			approach_descent_angle_deg
+		)
+	return {
+		"heightmap_path_max_edge_risk_m": aircraft_heightmap_path_max_edge_risk_m,
+		"heightmap_path_edge_risk_penalty": aircraft_heightmap_path_edge_risk_penalty,
+		"heightmap_path_mountain_buffer_cells": 0,
+		"heightmap_path_mountain_avoidance_m": 220.0,
+		"heightmap_path_max_step_climb_m": 0.0,
+		"heightmap_path_altitude_penalty": 0.03,
+		"heightmap_path_climb_penalty": 0.8,
+		"heightmap_path_high_terrain_penalty": 0.03,
+		"heightmap_path_same_level_wall_risk_start_m": 8.0,
+		"heightmap_path_same_level_wall_penalty": 70.0,
+		"heightmap_path_ground_level_band_m": 35.0,
+		"heightmap_path_first_plateau_min_m": 60.0,
+		"heightmap_path_first_plateau_max_m": 240.0,
+		"heightmap_path_ground_route_penalty": 0.0,
+		"heightmap_path_low_route_penalty": 0.0,
+		"heightmap_path_top_level_penalty": 0.04,
+		"heightmap_path_upper_level_penalty": 2.0,
+		"heightmap_path_level_change_penalty": 1.5,
+		"heightmap_path_same_level_preferred_band_m": 120.0,
+		"heightmap_path_same_level_soft_band_m": 300.0,
+		"heightmap_path_same_level_penalty": 0.25,
+		"heightmap_path_same_level_max_penalty": 120.0,
+		"heightmap_path_same_level_departure_penalty": 30.0,
+		"heightmap_path_target_agl_m": aircraft_heightmap_path_target_agl_m,
+		"min_terrain_clearance_m": route_clearance_m,
+		"heightmap_path_carrot_distance_m": path_lookahead_m,
+		"heightmap_path_terrain_sample_spacing_m": aircraft_heightmap_path_terrain_sample_spacing_m,
+		"heightmap_path_insert_spacing_m": insert_spacing_m,
+		"heightmap_path_corner_blend_radius_m": safe_turn_radius_m,
+		"heightmap_path_corner_blend_strength": 0.0 if aircraft_heightmap_turn_smoothing_enabled else 0.70,
+		"heightmap_path_corner_min_point_spacing_m": corner_spacing_m,
+		"aircraft_turn_smoothing_enabled": aircraft_heightmap_turn_smoothing_enabled,
+		"aircraft_turn_min_angle_deg": aircraft_heightmap_turn_min_angle_deg,
+		"aircraft_turn_tangent_fraction": aircraft_heightmap_turn_tangent_fraction,
+		"aircraft_turn_min_radius_fraction": aircraft_heightmap_turn_min_radius_fraction,
+		"aircraft_turn_arc_spacing_m": aircraft_heightmap_turn_arc_spacing_m,
+		"aircraft_turn_max_arc_points": aircraft_heightmap_turn_max_arc_points,
+		"aircraft_route_max_descent_angle_deg": route_max_descent_angle_deg,
+		"heightmap_path_simplify_altitude_error_m": 18.0,
+		"heightmap_path_simplify_max_deviation_m": 900.0,
+		"heightmap_path_pilot_min_segment_m": min_segment_m,
+		"heightmap_path_pilot_max_turn_angle_deg": aircraft_heightmap_path_max_turn_angle_deg,
+		"heightmap_path_direct_corridor_enabled": aircraft_heightmap_path_direct_corridor_enabled,
+		"heightmap_path_direct_corridor_max_climb_m": direct_corridor_max_climb_m,
+		"heightmap_path_honor_goal_altitude": role == "recovery_arrival",
+		"heightmap_path_goal_clearance_m": goal_clearance_m,
+		"heightmap_path_taper_goal_clearance": role == "recovery_arrival",
+		"terrain_climb_lookahead_m": 1200.0,
+		"terrain_climb_capacity_scale": 0.85,
+		"heightmap_path_climb_lead_speed_mps": maxf(default_waypoint_speed_mps, 60.0),
+		"max_climb_mps": 28.0,
+		"terrain_sample_spacing_m": aircraft_heightmap_path_terrain_sample_spacing_m,
+		"heightmap_path_simplify_enabled": aircraft_heightmap_path_simplify_enabled,
+		"heightmap_path_heuristic_weight": 2.0 if role in ["recovery_transit", "recovery_arrival"] else 1.12,
+		"heightmap_path_turn_soft_angle_deg": 12.0,
+		"heightmap_path_turn_penalty": 520.0,
+		"min_altitude": -1000.0,
+		"max_altitude": 10000.0,
+		"route_terrain_ceiling": max_route_terrain_y,
+		"flight_ceiling": flight_ceiling,
+	}
+
+func _setup_attack_run_waypoint(plan_new_weapon: bool = true):
 	"""Set nav_waypoint to the weapon setup point, honoring the mission altitude floor."""
 	var active_target: Node3D = _resolve_current_ground_attack_target()
 	if active_target == null:
 		return
-	_plan_attack_run_weapon()
+	_attack_lineup_retry_count = 0
+	if plan_new_weapon:
+		_plan_attack_run_weapon()
 	var target_pos: Vector3 = _get_surface_target_position(active_target)
+	var structure_abort: Dictionary = _evaluate_target_structure_clearance(active_target, target_pos)
+	if bool(structure_abort.get("abort", false)):
+		_attack_last_end_reason = str(structure_abort.get("reason", "structure_clearance"))
+		_stop_firing()
+		_prime_attack_straight_ahead_breakoff(target_pos)
+		change_state(State.ATTACK_BREAK_OFF)
+		_committed_turn_sign = 0.0
+		if debug_enabled:
+			print("[AIPilot ATTACK] Structure waveoff while positioning: range=%.0fm top=%.0fm aircraft_y=%.0fm" % [
+				float(structure_abort.get("range_m", INF)),
+				float(structure_abort.get("structure_top_y", NAN)),
+				aircraft.global_position.y,
+			])
+		return
+	if _uses_direct_ground_attack_intercept():
+		_setup_direct_ground_attack_intercept(target_pos)
+		return
 	var to_target: Vector3 = target_pos - aircraft.global_position
 	to_target.y = 0.0
 	var horiz_dir: Vector3 = to_target.normalized() if to_target.length() > 1.0 else aircraft.global_transform.basis.z
+	# After a pass against the same target, reuse the terrain-vetted physical
+	# corridor in the reciprocal direction. The aircraft is already at its far end,
+	# so it can reverse there and attack back along the same line. Nearby emplacements
+	# in one compact target area can share that physical corridor; a relocated target
+	# area cannot. Use the planner's existing setup-capture radius to distinguish those
+	# cases, rather than treating either every target or every mission as equivalent.
+	var active_target_instance_id: int = active_target.get_instance_id()
+	var previous_target_separation_m: float = INF
+	if _attack_corridor_target_pos != Vector3.INF:
+		previous_target_separation_m = Vector2(
+			target_pos.x - _attack_corridor_target_pos.x,
+			target_pos.z - _attack_corridor_target_pos.z
+		).length()
+	var same_corridor_area: bool = _attack_corridor_target_instance_id == active_target_instance_id \
+		or previous_target_separation_m <= maxf(attack_setup_capture_radius_m, 1.0)
+	if attack_corridor_reuse_axis_enabled \
+			and _attack_corridor_axis.length_squared() > 0.001 \
+			and same_corridor_area:
+		horiz_dir = -_attack_corridor_axis.normalized()
 	if _run_weapon_type == "Bomb" and _is_carrier_attack_target(active_target) and carrier_bomb_setup_along_motion:
 		var target_velocity: Vector3 = _get_target_linear_velocity(active_target)
 		var target_motion: Vector3 = Vector3(target_velocity.x, 0.0, target_velocity.z)
 		if target_motion.length() >= maxf(carrier_bomb_setup_min_speed_mps, 0.0):
 			horiz_dir = target_motion.normalized()
 	var setup_dist: float = _get_attack_setup_distance_m()
-	nav_waypoint = target_pos - horiz_dir * setup_dist
+	var initial_setup_altitude_m: float = _get_attack_setup_altitude_m(target_pos)
+	var attack_geometry: Dictionary = _choose_attack_run_geometry(target_pos, horiz_dir, setup_dist, initial_setup_altitude_m)
+	var setup_value: Variant = attack_geometry.get("setup", target_pos - horiz_dir * setup_dist)
+	var egress_value: Variant = attack_geometry.get("egress", Vector3.INF)
+	var ingress_join_value: Variant = attack_geometry.get("ingress_join", Vector3.INF)
+	var release_waypoint_value: Variant = attack_geometry.get("rocket_release_pos", Vector3.INF)
+	_attack_release_waypoint = release_waypoint_value if release_waypoint_value is Vector3 else Vector3.INF
+	nav_waypoint = setup_value if setup_value is Vector3 else target_pos - horiz_dir * setup_dist
 	# Lock XZ now â€” _state_attack_positioning must NOT recompute from aircraft position.
 	_attack_setup_wp_xz = Vector2(nav_waypoint.x, nav_waypoint.z)
 	_attack_setup_target_pos = target_pos
-	# Survey the highest terrain between setup point and target to guarantee adequate clearance.
-	var terrain_max: float = _sample_attack_path_terrain_max_cached(nav_waypoint, target_pos, 8)
-	var setup_altitude_m: float = _get_attack_setup_altitude_m(target_pos, terrain_max)
+	var locked_attack_line: Vector3 = target_pos - nav_waypoint
+	locked_attack_line.y = 0.0
+	_attack_locked_setup_distance_m = locked_attack_line.length()
+	if locked_attack_line.length_squared() > 1.0:
+		_attack_corridor_axis = locked_attack_line.normalized()
+		_attack_corridor_target_instance_id = active_target_instance_id
+		_attack_corridor_target_pos = target_pos
+	_attack_egress_waypoint = egress_value if egress_value is Vector3 else _pick_attack_egress_waypoint(target_pos, nav_waypoint, initial_setup_altitude_m)
+	_attack_egress_offset_from_target = _attack_egress_waypoint - target_pos
+	var terrain_value: Variant = attack_geometry.get("setup_terrain_max", attack_geometry.get("terrain_max", NAN))
+	var terrain_max: float = float(terrain_value) if (terrain_value is float or terrain_value is int) else NAN
+	var planned_altitude_value: Variant = attack_geometry.get("setup_altitude_m", nav_waypoint.y)
+	var setup_altitude_m: float = float(planned_altitude_value) \
+		if (planned_altitude_value is float or planned_altitude_value is int) \
+		else _get_attack_setup_altitude_m(target_pos, terrain_max)
 	if _run_weapon_type == "Bomb":
 		_bomb_run_altitude_m = setup_altitude_m
 		_best_bomb_ccip_miss_this_run = INF
 	nav_waypoint.y = setup_altitude_m
+	_attack_setup_altitude_m = setup_altitude_m
+	_attack_egress_waypoint.y = _terrain_safe_altitude_for_segment(
+		target_pos,
+		_attack_egress_waypoint,
+		maxf(setup_altitude_m, _attack_egress_waypoint.y),
+		aircraft_flight_plan_terrain_clearance_m
+	)
+	_attack_egress_offset_from_target = _attack_egress_waypoint - target_pos
+	var selected_ingress_join: Vector3 = ingress_join_value if ingress_join_value is Vector3 else Vector3.INF
+	_set_ground_attack_flight_plan(nav_waypoint, target_pos, _attack_egress_waypoint, selected_ingress_join)
 	maneuver_waypoint = nav_waypoint
 	_overshoot_recompute_cooldown_s = 0.0  # fresh setup â€” allow overshoot check immediately next frame
 	_positioning_time_s = 0.0
+	if _flight_plan_name != "ground_attack":
+		_attack_positioning_route_timeout_s = maxf(attack_positioning_replan_timeout_s, 30.0)
 	_committed_turn_sign = 0.0
 	if debug_enabled:
-		print("[AIPilot ATTACK] Run setup waypoint: ", nav_waypoint, "  target=", target_pos, "  weapon=", _run_weapon_type, "  bombs=", _bombs_to_drop_this_run)
+		var obstruction_value: Variant = attack_geometry.get("obstruction_penalty", NAN)
+		var obstruction_score: float = float(obstruction_value) if (obstruction_value is float or obstruction_value is int) else NAN
+		var direct_angle_value: Variant = attack_geometry.get("direct_fire_attack_angle_deg", NAN)
+		var direct_angle_deg: float = float(direct_angle_value) if (direct_angle_value is float or direct_angle_value is int) else NAN
+		var rocket_angle_value: Variant = attack_geometry.get("rocket_attack_angle_deg", NAN)
+		var rocket_angle_deg: float = float(rocket_angle_value) if (rocket_angle_value is float or rocket_angle_value is int) else NAN
+		print("[AIPilot ATTACK] Run setup waypoint: ", nav_waypoint, "  target=", target_pos, "  egress=", _attack_egress_waypoint, "  weapon=", _run_weapon_type, "  obstruction=", snapped(obstruction_score, 0.1), "  direct_angle=", snapped(direct_angle_deg, 0.1), "deg  rocket_angle=", snapped(rocket_angle_deg, 0.1), "deg  bombs=", _bombs_to_drop_this_run)
+
+func _retry_attack_lineup(target_pos: Vector3, failure_reason: String) -> bool:
+	if failure_reason not in [
+		"altitude_overshoot",
+		"bad_target_heading",
+		"bad_attack_line_heading",
+		"cross_track",
+		"insufficient_attack_lane",
+	]:
+		return false
+	if _attack_lineup_retry_count >= maxi(attack_lineup_retry_max_count, 0):
+		return false
+	var setup_pos: Vector3 = Vector3(_attack_setup_wp_xz.x, nav_waypoint.y, _attack_setup_wp_xz.y)
+	var carrier_drift: Vector3 = target_pos - _attack_setup_target_pos
+	setup_pos.x += carrier_drift.x
+	setup_pos.z += carrier_drift.z
+	var attack_dir: Vector3 = target_pos - setup_pos
+	attack_dir.y = 0.0
+	if attack_dir.length_squared() <= 1.0:
+		return false
+	attack_dir = attack_dir.normalized()
+	var normal_join_pos: Vector3 = _get_attack_ingress_join_waypoint(setup_pos, target_pos)
+	var retry_join_pos: Vector3 = normal_join_pos - attack_dir * maxf(attack_lineup_retry_extension_m, 0.0)
+	retry_join_pos = _shape_direct_fire_ingress_descent(
+		retry_join_pos,
+		setup_pos,
+		target_pos
+	)
+	_attack_setup_wp_xz = Vector2(setup_pos.x, setup_pos.z)
+	_attack_setup_target_pos = target_pos
+	_set_ground_attack_flight_plan(setup_pos, target_pos, _attack_egress_waypoint, retry_join_pos)
+	_attack_lineup_retry_count += 1
+	_positioning_time_s = 0.0
+	_attack_last_commit_reason = "lineup_retry_%s" % failure_reason
+	_overshoot_recompute_cooldown_s = maxf(attack_commit_replan_cooldown_s, 0.0)
+	if debug_enabled:
+		print("[AIPilot ATTACK] Extending lineup on the same heading after %s (retry %d/%d)" % [
+			failure_reason,
+			_attack_lineup_retry_count,
+			maxi(attack_lineup_retry_max_count, 0),
+		])
+	return true
 
 func _state_attack_positioning(delta: float):
 	"""Fly to attack run setup waypoint (800m offset; altitude depends on weapon plan)."""
@@ -1939,6 +7167,24 @@ func _state_attack_positioning(delta: float):
 	if active_target == null:
 		change_state(State.SEARCH)
 		return
+
+	# SMART RETARGET (positioning only -- safe to switch before committing to the dive): if a clearly
+	# better ground target has appeared (higher priority and/or much closer), switch to it instead of
+	# grinding out the run on the original pick.
+	if ground_attack_smart_retarget_enabled and not attack_corridor_lock_target_enabled:
+		_ground_retarget_timer_s -= delta
+		if _ground_retarget_timer_s <= 0.0:
+			_ground_retarget_timer_s = maxf(ground_attack_retarget_interval_s, 0.2)
+			var candidate: Node3D = _find_ground_attack_target()
+			if candidate and is_instance_valid(candidate) and candidate != active_target:
+				var own_p: Vector3 = aircraft.global_position
+				var cur_score: float = own_p.distance_to(_get_surface_target_position(active_target)) + _get_ground_target_priority_penalty(active_target)
+				var cand_score: float = own_p.distance_to(_get_surface_target_position(candidate)) + _get_ground_target_priority_penalty(candidate)
+				if cand_score + maxf(ground_attack_retarget_switch_advantage_m, 0.0) < cur_score:
+					if debug_enabled:
+						print("[AIPilot ATTACK] Switching ground target -> better option (%.0f < %.0f)" % [cand_score, cur_score])
+					combat_target = candidate
+					active_target = candidate
 
 	# Don't attempt attack maneuvers at dangerously low speed ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â build energy first
 	var cur_speed: float = aircraft.linear_velocity.length()
@@ -1955,13 +7201,16 @@ func _state_attack_positioning(delta: float):
 	_positioning_time_s += delta
 
 	var target_pos: Vector3 = _get_surface_target_position(active_target)
+	if _uses_direct_ground_attack_intercept():
+		_state_direct_ground_attack_intercept(delta, active_target, target_pos)
+		return
 
-	# Hard timeout: if we've been positioning for too long, recompute the approach
-	# from the current position. This unsticks aircraft that got a bad setup_wp.
-	if _positioning_time_s > 30.0:
+	# A threaded transit to ingress can legitimately take a while. Only discard it
+	# after a sustained positioning timeout, rather than rebuilding every 30 seconds.
+	if _positioning_time_s > maxf(_attack_positioning_route_timeout_s, 30.0):
 		if debug_enabled:
 			print("[AIPilot ATTACK] Positioning timeout (%.0fs), recomputing setup waypoint" % _positioning_time_s)
-		_setup_attack_run_waypoint()
+		_setup_attack_run_waypoint(false)
 		# _setup_attack_run_waypoint resets _positioning_time_s to 0
 
 	# Use the approach direction computed at setup time (stored in _attack_setup_wp_xz).
@@ -1971,48 +7220,137 @@ func _state_attack_positioning(delta: float):
 	nav_waypoint.x = _attack_setup_wp_xz.x + carrier_drift.x
 	nav_waypoint.z = _attack_setup_wp_xz.y + carrier_drift.z
 
-	var terrain_max: float = _sample_attack_path_terrain_max_cached(nav_waypoint, target_pos, 8)
-	var setup_altitude_m: float = _get_attack_setup_altitude_m(target_pos, terrain_max)
+	var setup_altitude_m: float = _attack_setup_altitude_m \
+		if is_finite(_attack_setup_altitude_m) \
+		else _get_attack_setup_altitude_m(
+			target_pos,
+			_sample_attack_path_terrain_max_cached(nav_waypoint, target_pos, 8)
+		)
 	if _run_weapon_type == "Bomb":
 		_bomb_run_altitude_m = setup_altitude_m
 	nav_waypoint.y = setup_altitude_m
 
-	# Never let the positioning waypoint sit lower than our current altitude minus a gentle
-	# descent allowance. This prevents the plane from descending steeply through hilly terrain
-	# just to reach the ideal setup altitude. It will level off and approach the altitude
-	# gradually rather than punching into the terrain beneath it.
-	var ground_h: float = _smoothed_ground_height if not is_nan(_smoothed_ground_height) else _get_ground_height_at_position(aircraft.global_position)
-	var terrain_floor: float = (ground_h + 220.0) if not is_nan(ground_h) else nav_waypoint.y
-	nav_waypoint.y = max(nav_waypoint.y, terrain_floor, aircraft.global_position.y - 60.0)
+	# Keep the altitude selected with the terrain-vetted corridor. Bomb positioning
+	# formerly moved this point every frame with a current-altitude descent clamp,
+	# so the 3D route being followed no longer matched the route that was scored.
+	# Terrain safety is already represented by the approach legs and setup solve.
+	if _has_attack_egress_waypoint():
+		_attack_egress_waypoint = target_pos + _attack_egress_offset_from_target
+		_attack_egress_waypoint.y = maxf(_attack_egress_waypoint.y, nav_waypoint.y)
+		if _ground_attack_route_is_direct_three_leg_plan():
+			var attack_terminal_pos: Vector3 = _get_attack_route_terminal_waypoint(target_pos)
+			_flight_plan_legs[0]["position"] = nav_waypoint
+			_flight_plan_legs[1]["position"] = attack_terminal_pos
+			_flight_plan_legs[2]["position"] = _attack_egress_waypoint
+			if waypoints.size() >= 3:
+				waypoints[0] = nav_waypoint
+				waypoints[1] = attack_terminal_pos
+				waypoints[2] = _attack_egress_waypoint
+	var final_setup_waypoint: Vector3 = nav_waypoint
+	var followed_attack_route: bool = _flight_plan_name == "ground_attack" and waypoints.size() > 1
 
 	# Overshoot detection: if the setup waypoint is more than 120 deg behind our velocity
 	# vector, we've clearly flown past it. Recompute from current position so we don't
 	# spend 30+ seconds completing a wide arc back to a stale approach direction.
-	# Cooldown prevents re-triggering every frame while the aircraft turns.
+	# A planned multi-waypoint route may intentionally begin behind the aircraft to make
+	# a flyable turn, so only apply this fallback to direct waypoint navigation.
 	_overshoot_recompute_cooldown_s = maxf(0.0, _overshoot_recompute_cooldown_s - delta)
-	if _overshoot_recompute_cooldown_s <= 0.0:
+	if _overshoot_recompute_cooldown_s <= 0.0 and not followed_attack_route:
+		var overshoot_waypoint: Vector3 = nav_waypoint
 		var vel_xz := Vector2(aircraft.linear_velocity.x, aircraft.linear_velocity.z)
 		if vel_xz.length_squared() > 100.0:  # need meaningful airspeed to test direction
-			var to_wp_xz := Vector2(nav_waypoint.x - aircraft.global_position.x,
-									nav_waypoint.z - aircraft.global_position.z)
+			var to_wp_xz := Vector2(overshoot_waypoint.x - aircraft.global_position.x,
+									overshoot_waypoint.z - aircraft.global_position.z)
 			if to_wp_xz.length_squared() > 400.0:  # don't trigger when almost there
 				var dot := vel_xz.normalized().dot(to_wp_xz.normalized())
 				if dot < -0.5:  # > 120 deg off â€” clear overshoot
 					if debug_enabled:
 						print("[AIPilot ATTACK] Overshoot detected (dot=%.2f), recomputing setup waypoint" % dot)
-					_setup_attack_run_waypoint()
+					_setup_attack_run_waypoint(false)
 					_overshoot_recompute_cooldown_s = 10.0  # wait 10s before checking again
 
-	_update_maneuver_waypoint()
-	_navigate_to_waypoint(delta)
+	if followed_attack_route:
+		_follow_waypoint_route(delta, false)
+	else:
+		_update_maneuver_waypoint()
+		_navigate_to_waypoint(delta)
+	# If the target leg has already advanced to egress without a valid commit, the
+	# corridor was missed. Continue straight through the planned egress and try the
+	# racetrack again; rebuilding a new approach here creates the close-in loops seen
+	# in telemetry.
+	if followed_attack_route and _ground_attack_route_is_at_egress_leg():
+		_attack_last_commit_reason = "corridor_missed"
+		_attack_last_end_reason = "corridor_waveoff"
+		_prime_attack_breakoff_egress(target_pos)
+		change_state(State.ATTACK_BREAK_OFF)
+		_committed_turn_sign = 0.0
+		return
 
-	var dist_to_wp: float = aircraft.global_position.distance_to(nav_waypoint)
+	var dist_to_wp: float = aircraft.global_position.distance_to(final_setup_waypoint)
 	var reached_setup_point: bool = dist_to_wp < 150.0
+	var route_at_target_leg: bool = followed_attack_route and _ground_attack_route_is_at_target_leg()
+	var commit_evaluation: Dictionary = _evaluate_attack_commit(target_pos)
+	if route_at_target_leg:
+		reached_setup_point = bool(commit_evaluation.get("ok", false))
+		if not reached_setup_point:
+			_attack_last_commit_reason = str(commit_evaluation.get("reason", "unknown"))
+			# Alignment and range failures are transient while flying the already
+			# selected target leg. Keep tracking that line instead of replacing the
+			# entire corridor. Safety failures wave off through the existing egress.
+			if _attack_last_commit_reason in [
+				"insufficient_attack_lane",
+				"egress_missing",
+			]:
+				_attack_last_end_reason = "corridor_waveoff_%s" % _attack_last_commit_reason
+				_prime_attack_breakoff_egress(target_pos)
+				change_state(State.ATTACK_BREAK_OFF)
+				_committed_turn_sign = 0.0
+			return
+	elif reached_setup_point and not bool(commit_evaluation.get("ok", false)):
+		_attack_last_commit_reason = str(commit_evaluation.get("reason", "unknown"))
+		# The setup capture sphere can overlap the end of a connected Dubins
+		# primitive. Entering that sphere is not evidence that the approach has
+		# failed: keep flying the solved curve and let its tangent endpoint perform
+		# the handoff. Replanning here discarded a nearly-complete seven-leg route
+		# while the aircraft was still rolling out of its final arc.
+		if followed_attack_route and _active_route_leg_role() == "attack_approach":
+			return
+		if _attack_last_commit_reason in ["bank_unsettled", "turn_unsettled"]:
+			return
+		# The setup capture sphere is deliberately generous, but entering it does
+		# not mean the aircraft has reached the setup plane. A terrain ray or turn
+		# forecast taken from the near edge can still be invalid even though the
+		# planned setup->target corridor is valid. Keep following the existing 3D
+		# route until the aircraft actually crosses setup; only then is failure
+		# evidence that the selected corridor needs a new lineup.
+		if _active_route_leg_role() == "attack_setup":
+			var locked_setup_pos: Vector3 = Vector3(
+				_attack_setup_wp_xz.x,
+				nav_waypoint.y,
+				_attack_setup_wp_xz.y
+			)
+			var locked_attack_dir: Vector3 = target_pos - locked_setup_pos
+			locked_attack_dir.y = 0.0
+			if locked_attack_dir.length_squared() > 1.0:
+				locked_attack_dir = locked_attack_dir.normalized()
+				var setup_plane_progress_m: float = (
+					aircraft.global_position - locked_setup_pos
+				).dot(locked_attack_dir)
+				if setup_plane_progress_m <= 0.0:
+					return
+		if _overshoot_recompute_cooldown_s <= 0.0:
+			if not _retry_attack_lineup(target_pos, _attack_last_commit_reason):
+				_setup_attack_run_waypoint(false)
+				_overshoot_recompute_cooldown_s = maxf(attack_commit_replan_cooldown_s, 0.0)
+		return
 	if reached_setup_point and _run_weapon_type == "Bomb":
 		var planned_bomb_altitude: float = _bomb_run_altitude_m if _bomb_run_altitude_m > 0.0 else nav_waypoint.y
 		var altitude_overshoot: float = aircraft.global_position.y - planned_bomb_altitude
 		reached_setup_point = altitude_overshoot <= maxf(bomb_direct_entry_max_altitude_overshoot_m, 0.0)
 	if reached_setup_point or _can_enter_attack_run_from_current_geometry(target_pos):
+		_attack_last_commit_reason = "committed"
+		_attack_last_end_reason = "attack_in_progress"
+		_attack_commit_count += 1
 		# Reached setup point: bombs go level-inbound first, guns can start dive immediately
 		if _run_weapon_type == "Bomb":
 			change_state(State.ATTACK_INBOUND)
@@ -2022,61 +7360,637 @@ func _state_attack_positioning(delta: float):
 		if debug_enabled:
 			print("[AIPilot ATTACK] Reached setup point, next phase: ", State.keys()[current_state])
 
+func _setup_direct_ground_attack_intercept(target_pos: Vector3) -> void:
+	# Short-range targets do not need a bomber-style join/setup/target route. Keep
+	# the payload choice, but point the aircraft at a terrain-safe intercept over
+	# the target and let ATTACK_DIVE handle CCIP firing and the break-away.
+	_clear_flight_plan()
+	waypoints.clear()
+	waypoint_speeds_mps.clear()
+	current_waypoint_index = 0
+	var to_target_flat: Vector3 = target_pos - aircraft.global_position
+	to_target_flat.y = 0.0
+	var attack_dir: Vector3 = to_target_flat.normalized() if to_target_flat.length_squared() > 1.0 else Vector3.FORWARD
+	_attack_setup_wp_xz = Vector2(aircraft.global_position.x, aircraft.global_position.z)
+	_attack_setup_target_pos = target_pos
+	_attack_egress_waypoint = _pick_attack_egress_waypoint(target_pos, aircraft.global_position, aircraft.global_position.y)
+	_attack_egress_offset_from_target = _attack_egress_waypoint - target_pos
+	_direct_intercept_extension_waypoint = Vector3.INF
+	# Ensure the fallback egress remains broadly straight through the target.
+	if attack_dir.length_squared() > 0.001:
+		_attack_egress_waypoint.x = target_pos.x + attack_dir.x * maxf(attack_egress_distance_m, attack_break_off_distance_m * 2.0)
+		_attack_egress_waypoint.z = target_pos.z + attack_dir.z * maxf(attack_egress_distance_m, attack_break_off_distance_m * 2.0)
+		_attack_egress_offset_from_target = _attack_egress_waypoint - target_pos
+	_positioning_time_s = 0.0
+	_attack_last_commit_reason = "direct_intercept"
+	_committed_turn_sign = 0.0
+	var terrain_max_m: float = _sample_max_terrain_height_along_path(aircraft.global_position, target_pos, 8)
+	if _run_weapon_type == "Bomb":
+		_bomb_run_altitude_m = _get_attack_setup_altitude_m(target_pos, terrain_max_m)
+		_best_bomb_ccip_miss_this_run = INF
+	else:
+		_bomb_run_altitude_m = maxf(
+			target_pos.y + maxf(rocket_run_altitude_offset_m, 220.0),
+			terrain_max_m + maxf(attack_positioning_hard_floor_agl_m, 220.0)
+				if not is_nan(terrain_max_m) else -INF
+		)
+	nav_waypoint = target_pos
+	nav_waypoint.y = _bomb_run_altitude_m
+	maneuver_waypoint = nav_waypoint
+
+
+func _uses_direct_ground_attack_intercept() -> bool:
+	# Maneuvering is an airframe policy, not a weapon policy. Either compatibility
+	# switch enables the same direct-intercept geometry for every ground weapon;
+	# only the release/aim calculation differs by weapon after commit.
+	return ground_attack_direct_intercept_enabled or ground_attack_direct_fire_intercept_enabled
+
+func _evaluate_direct_intercept_turn_reachability(target_pos: Vector3) -> Dictionary:
+	var to_target_flat: Vector3 = target_pos - aircraft.global_position
+	to_target_flat.y = 0.0
+	var available_distance_m: float = to_target_flat.length()
+	if available_distance_m <= 1.0:
+		return {
+			"reachable": false,
+			"available_m": available_distance_m,
+			"required_m": INF,
+			"heading_rad": PI,
+			"turn_radius_m": INF,
+		}
+	var target_dir: Vector3 = to_target_flat / available_distance_m
+	var current_dir: Vector3 = aircraft.linear_velocity
+	current_dir.y = 0.0
+	if current_dir.length_squared() <= 1.0:
+		current_dir = aircraft.global_transform.basis.z
+		current_dir.y = 0.0
+	if current_dir.length_squared() <= 0.0001:
+		current_dir = target_dir
+	current_dir = current_dir.normalized()
+	var heading_rad: float = acos(clampf(current_dir.dot(target_dir), -1.0, 1.0))
+	# A steeply banked aircraft also needs distance to arrest its turn and settle
+	# onto the firing line, even when its nose happens to pass across the target.
+	var bank_rad: float = deg_to_rad(_get_current_bank_angle_deg())
+	var maneuver_rad: float = maxf(heading_rad, bank_rad)
+	# Use the airspeed the aircraft actually has for close-intercept geometry.
+	# Using the desired 110 m/s attack speed inflated a 75 m/s aircraft's required
+	# reversal radius and sent the extension hundreds of metres past the point
+	# where it already had enough room to turn.
+	var speed_mps: float = aircraft.linear_velocity.length()
+	var turn_radius_m: float = _estimate_aircraft_turn_radius_m(speed_mps, "attack_approach")
+	var required_distance_m: float = turn_radius_m * (
+		maneuver_rad * maxf(attack_ingress_reach_turn_distance_scale, 0.1)
+		+ maxf(attack_ingress_reach_reserve_radii, 0.0)
+	)
+	return {
+		"reachable": available_distance_m >= required_distance_m,
+		"available_m": available_distance_m,
+		"required_m": required_distance_m,
+		"heading_rad": heading_rad,
+		"bank_rad": bank_rad,
+		"turn_radius_m": turn_radius_m,
+	}
+
+func _state_direct_ground_attack_intercept(delta: float, active_target: Node3D, target_pos: Vector3) -> void:
+	target_speed = 110.0
+	_positioning_time_s += delta
+	var structure_abort: Dictionary = _evaluate_target_structure_clearance(active_target, target_pos)
+	if bool(structure_abort.get("abort", false)):
+		_attack_last_end_reason = str(structure_abort.get("reason", "structure_clearance"))
+		_prime_attack_straight_ahead_breakoff(target_pos)
+		change_state(State.ATTACK_BREAK_OFF)
+		return
+	# Hold the terrain-safe altitude chosen when this attack was set up. Re-sampling
+	# the direct path from the aircraft's current position on every frame made a
+	# circling aircraft intersect unrelated distant hills; the supposedly fixed
+	# waypoint then ratcheted upward by hundreds of metres. Immediate terrain
+	# protection remains handled by the normal lookahead/avoidance layer.
+	var safe_intercept_y: float = _bomb_run_altitude_m
+	if safe_intercept_y <= 0.0:
+		var terrain_max_m: float = _sample_attack_path_terrain_max_cached(aircraft.global_position, target_pos, 8)
+		safe_intercept_y = _get_attack_setup_altitude_m(target_pos, terrain_max_m)
+		if not is_nan(terrain_max_m):
+			safe_intercept_y = maxf(
+				safe_intercept_y,
+				terrain_max_m + maxf(attack_positioning_hard_floor_agl_m, 220.0)
+			)
+		_bomb_run_altitude_m = safe_intercept_y
+	var target_dot: float = _get_attack_target_heading_dot(target_pos)
+	var required_target_dot: float = clampf(ground_attack_direct_intercept_min_target_dot, -1.0, 1.0)
+	var bank_deg: float = _get_current_bank_angle_deg()
+	var commit_bank_deg: float = maxf(ground_attack_direct_fire_intercept_max_bank_deg, 1.0)
+	if _direct_intercept_extension_waypoint != Vector3.INF:
+		nav_waypoint = _direct_intercept_extension_waypoint
+		maneuver_waypoint = nav_waypoint
+		if nav_target:
+			nav_target.global_position = maneuver_waypoint
+		_navigate_to_waypoint(delta)
+		var extension_capture_m: float = _get_aircraft_route_capture_radius_m(
+			aircraft.linear_velocity.length(),
+			"attack_approach",
+			1.0
+		)
+		var extension_horizontal_m: float = Vector2(
+			aircraft.global_position.x - _direct_intercept_extension_waypoint.x,
+			aircraft.global_position.z - _direct_intercept_extension_waypoint.z
+		).length()
+		if extension_horizontal_m <= extension_capture_m:
+			_direct_intercept_extension_waypoint = Vector3.INF
+			_positioning_time_s = 0.0
+			_attack_last_commit_reason = "direct_intercept_extension_complete"
+		return
+		_attack_last_commit_reason = "direct_intercept_extending"
+		return
+	var turn_reachability: Dictionary = _evaluate_direct_intercept_turn_reachability(target_pos)
+	var commit_attitude_unsettled: bool = target_dot < required_target_dot or bank_deg > commit_bank_deg
+	if commit_attitude_unsettled and not bool(turn_reachability.get("reachable", true)):
+		# The target is inside the distance needed to finish this turn. Continuing
+		# to point-navigation here creates a perpetual orbit: pull, overshoot,
+		# roll out, and repeat. Extend along the current flight path until there is
+		# enough room for even a full reversal, then re-enter direct interception.
+		var escape_dir: Vector3 = aircraft.linear_velocity
+		escape_dir.y = 0.0
+		if escape_dir.length_squared() <= 1.0:
+			escape_dir = aircraft.global_transform.basis.z
+			escape_dir.y = 0.0
+		escape_dir = escape_dir.normalized() if escape_dir.length_squared() > 0.001 else Vector3.FORWARD
+		var turn_radius_m: float = float(turn_reachability.get("turn_radius_m", aircraft_turn_radius_min_m))
+		var full_reversal_range_m: float = turn_radius_m * (
+			PI * maxf(attack_ingress_reach_turn_distance_scale, 0.1)
+			+ maxf(attack_ingress_reach_reserve_radii, 0.0)
+		)
+		var relative_to_target: Vector3 = aircraft.global_position - target_pos
+		relative_to_target.y = 0.0
+		var ray_projection_m: float = relative_to_target.dot(escape_dir)
+		var extension_discriminant: float = maxf(
+			ray_projection_m * ray_projection_m
+				- (relative_to_target.length_squared() - full_reversal_range_m * full_reversal_range_m),
+			0.0
+		)
+		var extension_distance_m: float = maxf(
+			-ray_projection_m + sqrt(extension_discriminant),
+			turn_radius_m
+		)
+		extension_distance_m += _get_aircraft_route_capture_radius_m(
+			aircraft.linear_velocity.length(),
+			"attack_approach",
+			1.0
+		)
+		_direct_intercept_extension_waypoint = aircraft.global_position + escape_dir * extension_distance_m
+		_direct_intercept_extension_waypoint.y = _terrain_safe_altitude_for_segment(
+			aircraft.global_position,
+			_direct_intercept_extension_waypoint,
+			safe_intercept_y,
+			aircraft_flight_plan_terrain_clearance_m
+		)
+		nav_waypoint = _direct_intercept_extension_waypoint
+		maneuver_waypoint = nav_waypoint
+		if nav_target:
+			nav_target.global_position = maneuver_waypoint
+		_attack_last_commit_reason = "direct_intercept_extending"
+		if debug_enabled:
+			print("[AIPilot ATTACK] Direct intercept inside turn geometry: available=%.0fm required=%.0fm heading=%.0fdeg bank=%.0fdeg; extending for direct re-entry" % [
+				float(turn_reachability.get("available_m", 0.0)),
+				float(turn_reachability.get("required_m", INF)),
+				rad_to_deg(float(turn_reachability.get("heading_rad", 0.0))),
+				bank_deg,
+			])
+		_navigate_to_waypoint(delta)
+		return
+	nav_waypoint = Vector3(target_pos.x, safe_intercept_y, target_pos.z)
+	maneuver_waypoint = nav_waypoint
+	if nav_target:
+		nav_target.global_position = maneuver_waypoint
+	_navigate_to_waypoint(delta)
+	var horiz_range_m: float = Vector2(
+		aircraft.global_position.x - target_pos.x,
+		aircraft.global_position.z - target_pos.z
+	).length()
+	var commit_range_m: float = maxf(ground_attack_direct_intercept_commit_range_m, 1.0)
+	if horiz_range_m > commit_range_m:
+		_attack_last_commit_reason = "direct_intercept_range"
+		return
+	if target_dot < required_target_dot:
+		_attack_last_commit_reason = "direct_intercept_heading"
+		return
+	if bank_deg > commit_bank_deg:
+		_attack_last_commit_reason = "direct_intercept_bank"
+		return
+	# The final line begins here, after the turn has settled. Keeping the acquisition
+	# point as the setup origin makes the inbound validator measure cross-track
+	# against a stale several-kilometre line and can bounce between POSITIONING and
+	# INBOUND on every update.
+	_attack_setup_wp_xz = Vector2(aircraft.global_position.x, aircraft.global_position.z)
+	_attack_setup_target_pos = target_pos
+	_attack_locked_setup_distance_m = horiz_range_m
+	var committed_attack_dir: Vector3 = target_pos - aircraft.global_position
+	committed_attack_dir.y = 0.0
+	if committed_attack_dir.length_squared() > 1.0:
+		committed_attack_dir = committed_attack_dir.normalized()
+		_attack_corridor_axis = committed_attack_dir
+		_attack_corridor_target_instance_id = active_target.get_instance_id() \
+			if active_target != null else 0
+		_attack_corridor_target_pos = target_pos
+		_attack_egress_waypoint.x = target_pos.x + committed_attack_dir.x * maxf(attack_egress_distance_m, attack_break_off_distance_m * 2.0)
+		_attack_egress_waypoint.z = target_pos.z + committed_attack_dir.z * maxf(attack_egress_distance_m, attack_break_off_distance_m * 2.0)
+		_attack_egress_offset_from_target = _attack_egress_waypoint - target_pos
+	_attack_last_commit_reason = "committed_direct"
+	_attack_last_end_reason = "attack_in_progress"
+	_attack_commit_count += 1
+	# A direct intercept always commits into the same final-attack state. Bombs no
+	# longer receive an extra maneuvering leg that rockets and guns do not.
+	change_state(State.ATTACK_DIVE)
+	_committed_turn_sign = 0.0
+
+func _ground_attack_route_is_at_target_leg() -> bool:
+	if _flight_plan_name != "ground_attack" or _flight_plan_legs.is_empty():
+		return false
+	var index: int = clampi(current_waypoint_index, 0, _flight_plan_legs.size() - 1)
+	var leg: Dictionary = _flight_plan_legs[index]
+	return str(leg.get("role", "")) == "attack_target"
+
+func _ground_attack_route_is_at_egress_leg() -> bool:
+	if _flight_plan_name != "ground_attack" or _flight_plan_legs.is_empty():
+		return false
+	var index: int = clampi(current_waypoint_index, 0, _flight_plan_legs.size() - 1)
+	var leg: Dictionary = _flight_plan_legs[index]
+	return str(leg.get("role", "")) == "attack_egress"
+
+func _ground_attack_route_is_direct_three_leg_plan() -> bool:
+	if _flight_plan_name != "ground_attack" or _flight_plan_legs.size() < 3:
+		return false
+	var second_leg: Dictionary = _flight_plan_legs[1]
+	return str(second_leg.get("role", "")) == "attack_target"
+
+func _get_attack_target_heading_dot(target_pos: Vector3) -> float:
+	var to_target_flat: Vector3 = Vector3(
+		target_pos.x - aircraft.global_position.x,
+		0.0,
+		target_pos.z - aircraft.global_position.z
+	)
+	var forward_flat: Vector3 = Vector3(
+		aircraft.global_transform.basis.z.x,
+		0.0,
+		aircraft.global_transform.basis.z.z
+	)
+	if to_target_flat.length_squared() <= 1.0 or forward_flat.length_squared() <= 0.0001:
+		return -1.0
+	return forward_flat.normalized().dot(to_target_flat.normalized())
+
+func _evaluate_attack_recovery_clearance() -> Dictionary:
+	var velocity: Vector3 = aircraft.linear_velocity
+	var speed_mps: float = velocity.length()
+	var horizontal_speed_mps: float = Vector2(velocity.x, velocity.z).length()
+	var dive_angle_rad: float = maxf(-atan2(velocity.y, maxf(horizontal_speed_mps, 1.0)), 0.0)
+	var pullout_radius_m: float = _estimate_aircraft_turn_radius_m(speed_mps, "attack_egress")
+	var projected_drop_m: float = pullout_radius_m * (1.0 - cos(dive_angle_rad))
+	# The aircraft continues descending while the controller recognises the gate,
+	# rolls toward upright, and develops useful positive lift.  The old predictor
+	# accounted for that delay horizontally but treated it as zero vertical loss,
+	# which was optimistic precisely on the steep, fast gun runs that crashed.
+	var reaction_time_s: float = maxf(attack_recovery_reaction_time_s, 0.0)
+	var reaction_drop_m: float = maxf(-velocity.y, 0.0) * reaction_time_s
+	projected_drop_m += reaction_drop_m
+	# A banked pull-up doesn't convert full pitch authority into climb -- the same wings-level
+	# principle applied to _check_terrain_avoidance and _fly_direct_fire_breakoff_recovery. This
+	# predictive safety check assumed a wings-level pull-up even when entering break-off steeply
+	# banked (observed: abort correctly fired at bank=69.1deg but the actual recovery still lost
+	# the aircraft to terrain while rolling level first). Derate available clearance by how banked
+	# the aircraft currently is so a steep-bank abort demands a bigger real margin.
+	var bank_basis: Basis = aircraft.global_transform.basis
+	var upright_factor_y: float = clampf(bank_basis.y.y, 0.15, 1.0)
+	projected_drop_m /= upright_factor_y
+	var pullout_horizontal_m: float = pullout_radius_m * sin(dive_angle_rad)
+	var reaction_distance_m: float = horizontal_speed_mps * reaction_time_s
+	var probe_dir: Vector3 = Vector3(velocity.x, 0.0, velocity.z)
+	if probe_dir.length_squared() <= 0.001:
+		probe_dir = Vector3(aircraft.global_transform.basis.z.x, 0.0, aircraft.global_transform.basis.z.z)
+	probe_dir = probe_dir.normalized() if probe_dir.length_squared() > 0.001 else Vector3.FORWARD
+	var probe_distance_m: float = maxf(
+		_get_attack_pull_up_distance_m(),
+		horizontal_speed_mps * maxf(attack_recovery_probe_time_s, 0.1)
+	)
+	var probe_end: Vector3 = aircraft.global_position + probe_dir * probe_distance_m
+	var terrain_max_m: float = _sample_max_terrain_height_along_path(aircraft.global_position, probe_end, 8)
+	var available_clearance_m: float = altitude_agl
+	if not is_nan(terrain_max_m):
+		available_clearance_m = aircraft.global_position.y - terrain_max_m
+	var required_clearance_m: float = projected_drop_m + maxf(attack_recovery_clearance_margin_m, 0.0)
+	return {
+		"safe": available_clearance_m >= required_clearance_m,
+		"available_m": available_clearance_m,
+		"required_m": required_clearance_m,
+		"projected_drop_m": projected_drop_m,
+		"reaction_drop_m": reaction_drop_m,
+		"predicted_min_agl_m": available_clearance_m - projected_drop_m,
+		"pullout_horizontal_m": pullout_horizontal_m,
+		"reaction_distance_m": reaction_distance_m,
+		"dynamic_pull_up_m": pullout_horizontal_m + reaction_distance_m,
+		"dive_angle_deg": rad_to_deg(dive_angle_rad),
+	}
+
+func _evaluate_attack_commit(target_pos: Vector3, minimum_lane_override_m: float = -1.0) -> Dictionary:
+	var result: Dictionary = {
+		"ok": false,
+		"reason": "unknown",
+		"range_m": INF,
+		"target_dot": -1.0,
+		"planned_dot": -1.0,
+		"cross_track_m": INF,
+	}
+	if aircraft == null or not is_instance_valid(aircraft):
+		result["reason"] = "aircraft_invalid"
+		return result
+	var to_target_flat: Vector3 = Vector3(
+		target_pos.x - aircraft.global_position.x,
+		0.0,
+		target_pos.z - aircraft.global_position.z
+	)
+	var horiz_dist_m: float = to_target_flat.length()
+	result["range_m"] = horiz_dist_m
+	if horiz_dist_m < 1.0:
+		result["reason"] = "target_too_close"
+		return result
+	var stall_floor_mps: float = stall_speed_mps + stall_margin_mps
+	if aircraft.linear_velocity.length() < stall_floor_mps:
+		result["reason"] = "low_energy"
+		return result
+	var current_bank_deg: float = _get_current_bank_angle_deg()
+	result["bank_deg"] = current_bank_deg
+	var commit_bank_envelope_deg: float = clampf(
+		attack_inbound_bank_limit_deg + maxf(attack_positioning_commit_bank_margin_deg, 0.0),
+		0.0,
+		89.0
+	)
+	if _run_weapon_type == "Bomb" and current_bank_deg > commit_bank_envelope_deg:
+		result["reason"] = "bank_unsettled"
+		return result
+	# The setup length belongs to the selected corridor. Re-estimating it from live
+	# speed here made the acceptance boundary move after the route had been built.
+	var setup_dist_m: float = _attack_locked_setup_distance_m \
+		if _attack_locked_setup_distance_m > 1.0 else _get_attack_setup_distance_m()
+	if horiz_dist_m > setup_dist_m + maxf(attack_positioning_direct_entry_range_buffer_m, 0.0):
+		result["reason"] = "outside_setup_range"
+		return result
+	var min_lane_m: float = maxf(_get_attack_pull_up_distance_m() * 1.35, 1.0)
+	if minimum_lane_override_m >= 0.0:
+		min_lane_m = maxf(minimum_lane_override_m, 1.0)
+	elif _run_weapon_type == "Bomb":
+		# POSITIONING only needs enough lane to establish ATTACK_INBOUND. The
+		# inbound state separately enforces dive attitude, recovery clearance,
+		# and pull-up distance. Requiring dive_start + 150 here left only a tiny
+		# capture window when the setup point itself was close to that range.
+		min_lane_m = maxf(min_lane_m, bomb_positioning_commit_min_lane_m)
+	elif _run_weapon_type == "Rocket Pod":
+		# The acquisition margin defines where precise CCIP steering begins; it is
+		# not a minimum range. Treating release_max + acquisition_margin as the
+		# lower commit bound rejected the run precisely as it entered the aiming
+		# window, leaving a high aircraft to fly past without ever lowering its
+		# nose. The shared pull-up-derived lane above is the real minimum here.
+		min_lane_m = maxf(min_lane_m, rocket_pull_up_distance_m)
+	if horiz_dist_m < min_lane_m:
+		result["reason"] = "insufficient_attack_lane"
+		return result
+	var target_dot: float = _get_attack_target_heading_dot(target_pos)
+	result["target_dot"] = target_dot
+	if target_dot < clampf(attack_positioning_direct_entry_min_dot, -1.0, 1.0):
+		result["reason"] = "bad_target_heading"
+		return result
+	# Precision aiming belongs to the target leg. Requiring the setup leg to point
+	# the nose at the surface target creates contradictory pitch demands: setup owns
+	# the terrain-clear 3D path, while the aim gate asks it to descend before that path
+	# is complete. Validate setup using corridor/track geometry, then let the target
+	# leg acquire the full 3D firing line before committing to ATTACK_DIVE.
+	# The release waypoint is where the aircraft should be when it fires, not where
+	# its nose should point.  Coarse acquisition therefore uses the surface target
+	# itself.  Reuse the existing coarse/fine aim boundary rather than inventing a
+	# second arbitrary commit tolerance.
+	if _ground_attack_route_is_at_target_leg() \
+			and (_run_weapon_type == "Rocket Pod" or _is_direct_fire_attack_weapon_type(_run_weapon_type)):
+		var coarse_aim_point: Vector3 = target_pos
+		var coarse_aim_vec: Vector3 = coarse_aim_point - aircraft.global_position
+		if coarse_aim_vec.length_squared() > 1.0:
+			var coarse_aim_dot: float = clampf(
+				coarse_aim_vec.normalized().dot(aircraft.global_transform.basis.z),
+				-1.0,
+				1.0
+			)
+			result["coarse_aim_dot"] = coarse_aim_dot
+			var coarse_aim_min_dot: float = cos(deg_to_rad(maxf(gun_attack_coarse_aim_angle_deg, 0.1)))
+			if coarse_aim_dot < coarse_aim_min_dot:
+				result["reason"] = "coarse_aim_unsettled"
+				return result
+	var planned_setup_flat: Vector3 = Vector3(_attack_setup_wp_xz.x, 0.0, _attack_setup_wp_xz.y)
+	var planned_target_flat: Vector3 = Vector3(target_pos.x, 0.0, target_pos.z)
+	var planned_attack_line: Vector3 = planned_target_flat - planned_setup_flat
+	if planned_attack_line.length_squared() > 1.0:
+		var planned_attack_dir: Vector3 = planned_attack_line.normalized()
+		var forward_flat: Vector3 = Vector3(
+			aircraft.global_transform.basis.z.x,
+			0.0,
+			aircraft.global_transform.basis.z.z
+		).normalized()
+		var planned_dot: float = forward_flat.dot(planned_attack_dir)
+		result["planned_dot"] = planned_dot
+		if planned_dot < clampf(attack_positioning_direct_entry_min_planned_dot, -1.0, 1.0):
+			result["reason"] = "bad_attack_line_heading"
+			return result
+		var aircraft_flat: Vector3 = Vector3(aircraft.global_position.x, 0.0, aircraft.global_position.z)
+		var from_setup: Vector3 = aircraft_flat - planned_setup_flat
+		var along_track_m: float = from_setup.dot(planned_attack_dir)
+		var closest_on_line: Vector3 = planned_setup_flat + planned_attack_dir * along_track_m
+		var cross_track_m: float = aircraft_flat.distance_to(closest_on_line)
+		result["cross_track_m"] = cross_track_m
+		var max_cross_track_m: float = bomb_direct_entry_max_cross_track_m \
+			if _run_weapon_type == "Bomb" else attack_positioning_direct_entry_max_cross_track_m
+		if cross_track_m > maxf(max_cross_track_m, 0.0):
+			result["reason"] = "cross_track"
+			return result
+		if attack_corridor_projected_path_enabled:
+			var horizontal_velocity: Vector3 = Vector3(aircraft.linear_velocity.x, 0.0, aircraft.linear_velocity.z)
+			var horizontal_speed_mps: float = horizontal_velocity.length()
+			if horizontal_speed_mps > 1.0:
+				var track_dir: Vector3 = horizontal_velocity / horizontal_speed_mps
+				var track_dot: float = track_dir.dot(planned_attack_dir)
+				result["track_dot"] = track_dot
+				if track_dot < clampf(attack_positioning_direct_entry_min_planned_dot, -1.0, 1.0):
+					result["reason"] = "bad_flight_path_heading"
+					return result
+				var terminal_range_m: float = _get_attack_pull_up_distance_m()
+				if _is_strafing_ground_attack_weapon_type(_run_weapon_type):
+					terminal_range_m = maxf(terminal_range_m, rocket_release_max_range_m)
+				elif _run_weapon_type == "Bomb":
+					terminal_range_m = maxf(terminal_range_m, bomb_dive_start_distance_m)
+				var time_to_terminal_s: float = maxf(horiz_dist_m - terminal_range_m, 0.0) / horizontal_speed_mps
+				var corridor_right: Vector3 = Vector3(-planned_attack_dir.z, 0.0, planned_attack_dir.x)
+				var signed_cross_track_m: float = from_setup.dot(corridor_right)
+				var lateral_speed_mps: float = horizontal_velocity.dot(corridor_right)
+				var yaw_rate_rad_s: float = absf(aircraft.angular_velocity.dot(Vector3.UP))
+				# Constant-rate curvature is a conservative forecast of how far a hard
+				# turn will carry the flight path sideways before the release region.
+				var projected_cross_track_m: float = absf(
+					signed_cross_track_m + lateral_speed_mps * time_to_terminal_s
+				) + 0.5 * horizontal_speed_mps * yaw_rate_rad_s * time_to_terminal_s * time_to_terminal_s
+				result["projected_cross_track_m"] = projected_cross_track_m
+				result["time_to_terminal_s"] = time_to_terminal_s
+				if projected_cross_track_m > maxf(max_cross_track_m, 1.0):
+					result["reason"] = "turn_unsettled"
+					return result
+	if _run_weapon_type == "Bomb":
+		var planned_altitude_m: float = _bomb_run_altitude_m if _bomb_run_altitude_m > 0.0 \
+			else target_pos.y + bomb_run_setup_altitude_offset_m
+		if aircraft.global_position.y - planned_altitude_m > maxf(bomb_direct_entry_max_altitude_overshoot_m, 0.0):
+			result["reason"] = "altitude_overshoot"
+			return result
+	if not _has_attack_egress_waypoint():
+		result["reason"] = "egress_missing"
+		return result
+	var obstruction_score: float = _score_rocket_attack_corridor_obstruction(
+		aircraft.global_position,
+		target_pos
+	) if _run_weapon_type == "Rocket Pod" else _score_attack_run_corridor_obstruction(
+		aircraft.global_position,
+		target_pos,
+		_attack_egress_waypoint
+	)
+	if obstruction_score > 0.0:
+		result["reason"] = "terrain_obstructed"
+		result["obstruction"] = obstruction_score
+		return result
+	var recovery: Dictionary = _evaluate_attack_recovery_clearance()
+	if not bool(recovery.get("safe", false)):
+		result["reason"] = "recovery_clearance"
+		result["recovery"] = recovery
+		return result
+	result["ok"] = true
+	result["reason"] = "committed"
+	result["recovery"] = recovery
+	return result
+
+func _evaluate_attack_abort(target_pos: Vector3) -> Dictionary:
+	var horiz_dist_m: float = Vector2(
+		aircraft.global_position.x - target_pos.x,
+		aircraft.global_position.z - target_pos.z
+	).length()
+	var target_dot: float = _get_attack_target_heading_dot(target_pos)
+	if target_dot < clampf(attack_dive_abort_min_target_dot, -1.0, 1.0):
+		var target_flat := Vector3(
+			target_pos.x - aircraft.global_position.x,
+			0.0,
+			target_pos.z - aircraft.global_position.z
+		)
+		var velocity_flat := Vector3(aircraft.linear_velocity.x, 0.0, aircraft.linear_velocity.z)
+		var fpv_target_dot: float = -1.0
+		if target_flat.length_squared() > 1.0 and velocity_flat.length_squared() > 1.0:
+			fpv_target_dot = velocity_flat.normalized().dot(target_flat.normalized())
+		# Nose attitude can lag the actual flight path during a correction. Only call
+		# the target truly behind once both the nose and FPV have passed it.
+		if fpv_target_dot < clampf(attack_dive_abort_min_target_dot, -1.0, 1.0):
+			return {
+				"abort": true,
+				"reason": "target_behind",
+				"target_dot": target_dot,
+				"fpv_target_dot": fpv_target_dot,
+			}
+	var active_target: Node3D = _resolve_current_ground_attack_target()
+	if active_target != null:
+		var structure_abort: Dictionary = _evaluate_target_structure_clearance(active_target, target_pos)
+		if bool(structure_abort.get("abort", false)):
+			# A predicted collision with the target used to wave bombers off before the
+			# release handler ran. Let a bomber that is still physically above the
+			# structure finish its short release window; after release, the normal
+			# weapon-released branch immediately commands the break-away.
+			var allow_bomb_release_before_waveoff: bool = _run_weapon_type == "Bomb" \
+				and bomb_gameplay_release_enabled \
+				and _bombs_dropped_this_run < _bombs_to_drop_this_run \
+				and horiz_dist_m <= maxf(bomb_gameplay_release_range_m, bomb_release_min_range_m) \
+				and str(structure_abort.get("reason", "")) == "structure_clearance_predicted" \
+				and aircraft.global_position.y >= float(structure_abort.get("required_y", INF))
+			if not allow_bomb_release_before_waveoff:
+				structure_abort["target_dot"] = target_dot
+				return structure_abort
+	# Once the pod begins emitting its six-rocket burst, hold the attack controls until
+	# the physical burst completes. Otherwise ATTACK_BREAK_OFF starts pulling the nose
+	# away while rockets two through six are still leaving the pod.
+	# A genuine emergency (critical terrain / below the hard floor) is handled by _check_terrain_avoidance.
+	var volley_in_progress: bool = _run_weapon_type == "Rocket Pod" \
+		and ((_rockets_fired_this_run > 0 \
+			and _rockets_fired_this_run < _rockets_to_fire_this_run) \
+			or _is_rocket_pod_burst_in_progress())
+	if volley_in_progress and altitude_agl > maxf(rocket_attack_commit_min_agl_m, 20.0):
+		return {"abort": false, "reason": "volley_in_progress", "range_m": horiz_dist_m, "target_dot": target_dot}
+	var recovery: Dictionary = _evaluate_attack_recovery_clearance()
+	if _is_strafing_ground_attack_weapon_type(_run_weapon_type):
+		var committed_gun_run: bool = _is_direct_fire_attack_weapon_type(_run_weapon_type) \
+			and _run_weapon_type != "Rocket Pod"
+		# The configured distance remains the minimum usable firing lane, but a fast
+		# or steep approach must break earlier if its predicted pull-out would cross
+		# the applicable recovery floor. This uses measured flight state and sampled
+		# terrain rather than another fixed gun-specific distance.
+		var strafing_range_boundary_m: float = maxf(
+			maxf(
+				_get_attack_pull_up_distance_m(),
+				float(recovery.get("dynamic_pull_up_m", 0.0))
+			),
+			1.0
+		)
+		var strafing_agl_boundary_m: float = maxf(
+			rocket_attack_commit_min_agl_m if _run_weapon_type == "Rocket Pod" else gun_attack_commit_min_agl_m,
+			20.0
+		)
+		var recovery_floor_agl_m: float = maxf(strafing_agl_boundary_m, emergency_min_agl_m)
+		var predicted_min_agl_m: float = float(recovery.get("predicted_min_agl_m", altitude_agl))
+		# A committed gun pass already has a physical horizontal pull-out solution in
+		# strafing_range_boundary_m. Applying the unrelated normal-flight emergency AGL
+		# as a second gate made a 250 m command impossible on a valid shallow firing line:
+		# it forced every pass to recover around 850-900 m. Let the calculated pull-out
+		# distance own a gun run; the terrain TTI and structure checks still retain
+		# immediate authority over a genuinely imminent collision.
+		var predicted_recovery_unsafe: bool = not committed_gun_run \
+			and predicted_min_agl_m < recovery_floor_agl_m
+		var agl_boundary_reached: bool = not committed_gun_run \
+			and altitude_agl <= strafing_agl_boundary_m
+		if horiz_dist_m <= strafing_range_boundary_m \
+				or agl_boundary_reached \
+				or predicted_recovery_unsafe:
+			return {
+				"abort": true,
+				"reason": "recovery_clearance" if predicted_recovery_unsafe else "dynamic_pull_up",
+				"range_m": horiz_dist_m,
+				"pull_up_m": strafing_range_boundary_m,
+				"agl_floor_m": strafing_agl_boundary_m,
+				"recovery_floor_agl_m": recovery_floor_agl_m,
+				"predicted_min_agl_m": predicted_min_agl_m,
+				"recovery": recovery,
+			}
+		return {"abort": false, "reason": "strafing_attack_envelope", "range_m": horiz_dist_m, "target_dot": target_dot}
+	var dynamic_pull_up_m: float = maxf(
+		_get_attack_pull_up_distance_m(),
+		float(recovery.get("dynamic_pull_up_m", 0.0))
+	)
+	if horiz_dist_m <= maxf(dynamic_pull_up_m, 1.0):
+		return {
+			"abort": true,
+			"reason": "dynamic_pull_up",
+			"range_m": horiz_dist_m,
+			"pull_up_m": dynamic_pull_up_m,
+			"recovery": recovery,
+		}
+	if not bool(recovery.get("safe", false)):
+		return {"abort": true, "reason": "recovery_clearance", "recovery": recovery}
+	return {"abort": false, "reason": "continue", "range_m": horiz_dist_m, "target_dot": target_dot}
+
 func _can_enter_attack_run_from_current_geometry(target_pos: Vector3) -> bool:
 	if _positioning_time_s < maxf(attack_positioning_direct_entry_after_s, 0.0):
+		_attack_last_commit_reason = "positioning_time"
 		return false
-
-	var to_target: Vector3 = target_pos - aircraft.global_position
-	var to_target_flat := Vector3(to_target.x, 0.0, to_target.z)
-	var horiz_dist: float = to_target_flat.length()
-	if horiz_dist < 1.0:
+	var evaluation: Dictionary = _evaluate_attack_commit(target_pos)
+	_attack_last_commit_reason = str(evaluation.get("reason", "unknown"))
+	if not bool(evaluation.get("ok", false)):
 		return false
-
-	var setup_dist: float = _get_attack_setup_distance_m()
-	var range_buffer: float = maxf(attack_positioning_direct_entry_range_buffer_m, 0.0)
-	if horiz_dist > setup_dist + range_buffer:
-		return false
-	if _run_weapon_type == "Bomb":
-		var min_bomb_entry_range: float = maxf(bomb_dive_start_distance_m + 150.0, setup_dist - 150.0)
-		if horiz_dist < min_bomb_entry_range:
-			return false
-		var planned_altitude: float = _bomb_run_altitude_m if _bomb_run_altitude_m > 0.0 else target_pos.y + bomb_run_setup_altitude_offset_m
-		var altitude_overshoot: float = aircraft.global_position.y - planned_altitude
-		if altitude_overshoot > maxf(bomb_direct_entry_max_altitude_overshoot_m, 0.0):
-			return false
-		var setup_wp_flat := Vector3(_attack_setup_wp_xz.x, 0.0, _attack_setup_wp_xz.y)
-		var target_flat := Vector3(target_pos.x, 0.0, target_pos.z)
-		var attack_line: Vector3 = target_flat - setup_wp_flat
-		if attack_line.length_squared() > 1.0:
-			var attack_dir: Vector3 = attack_line.normalized()
-			var aircraft_flat := Vector3(aircraft.global_position.x, 0.0, aircraft.global_position.z)
-			var from_setup: Vector3 = aircraft_flat - setup_wp_flat
-			var along_track: float = from_setup.dot(attack_dir)
-			var closest_on_line: Vector3 = setup_wp_flat + attack_dir * along_track
-			var cross_track_m: float = aircraft_flat.distance_to(closest_on_line)
-			if cross_track_m > maxf(bomb_direct_entry_max_cross_track_m, 0.0):
-				return false
-
-	var forward_flat := Vector3(aircraft.global_transform.basis.z.x, 0.0, aircraft.global_transform.basis.z.z)
-	if forward_flat.length_squared() <= 0.0001:
-		return false
-
-	var target_dot: float = forward_flat.normalized().dot(to_target_flat.normalized())
-	if target_dot < clampf(attack_positioning_direct_entry_min_dot, -1.0, 1.0):
-		return false
-	if _run_weapon_type == "Bomb":
-		var planned_setup_flat := Vector3(_attack_setup_wp_xz.x, 0.0, _attack_setup_wp_xz.y)
-		var planned_target_flat := Vector3(target_pos.x, 0.0, target_pos.z)
-		var planned_attack_line: Vector3 = planned_target_flat - planned_setup_flat
-		if planned_attack_line.length_squared() > 1.0:
-			var attack_dot: float = forward_flat.normalized().dot(planned_attack_line.normalized())
-			if attack_dot < 0.75:
-				return false
-
 	if debug_enabled:
 		print("[AIPilot ATTACK] Entering run from geometry: range=%.0fm dot=%.2f weapon=%s" % [
-			horiz_dist,
-			target_dot,
+			float(evaluation.get("range_m", INF)),
+			float(evaluation.get("target_dot", -1.0)),
 			_run_weapon_type
 		])
 	return true
@@ -2106,6 +8020,12 @@ func _state_attack_inbound(delta: float):
 	var ahead_h: float = _sample_attack_path_terrain_max_cached(aircraft.global_position, target_pos, 4)
 	if not is_nan(ahead_h):
 		inbound_alt = max(inbound_alt, ahead_h + 180.0)
+	if _has_attack_egress_waypoint():
+		_attack_egress_waypoint = target_pos + _attack_egress_offset_from_target
+		inbound_alt = maxf(inbound_alt, _attack_egress_waypoint.y)
+		var egress_h: float = _sample_max_terrain_height_along_path(target_pos, _attack_egress_waypoint, 6)
+		if not is_nan(egress_h):
+			inbound_alt = maxf(inbound_alt, egress_h + aircraft_flight_plan_terrain_clearance_m)
 	nav_waypoint = target_pos
 	nav_waypoint.y = inbound_alt
 
@@ -2133,17 +8053,31 @@ func _state_attack_inbound(delta: float):
 	if forward_flat.length_squared() > 0.0001 and target_flat.length_squared() > 1.0:
 		target_aligned = forward_flat.normalized().dot(target_flat.normalized()) >= clampf(bomb_dive_start_min_target_dot, -1.0, 1.0)
 	var bank_ready: bool = _get_current_bank_angle_deg() <= maxf(bomb_dive_start_max_bank_deg, 1.0)
-	if horiz_dist_to_target <= effective_dive_start_dist and alt_ready and target_aligned and bank_ready:
+	var dive_commit_min_lane_m: float = maxf(_get_attack_pull_up_distance_m() * 1.35, 1.0)
+	var commit_evaluation: Dictionary = _evaluate_attack_commit(target_pos, dive_commit_min_lane_m)
+	# Direct intercept already passed its heading/FPV gate before entering inbound.
+	# Re-running the full route/corridor validator here can reject the same run on
+	# the next frame and create an endless POSITIONING <-> INBOUND loop. Once a
+	# direct attack is committed, press into the dive; only the attack safety and
+	# terrain systems may wave it off.
+	var direct_run_committed: bool = _uses_direct_ground_attack_intercept()
+	var shared_commit_ready: bool = direct_run_committed or bool(commit_evaluation.get("ok", false))
+	var entry_attitude_ready: bool = direct_run_committed or (target_aligned and bank_ready)
+	if horiz_dist_to_target <= effective_dive_start_dist and alt_ready and entry_attitude_ready and shared_commit_ready:
+		_attack_last_commit_reason = "committed"
+		_attack_last_end_reason = "attack_in_progress"
+		_attack_commit_count += 1
 		change_state(State.ATTACK_DIVE)
 		_committed_turn_sign = 0.0
 		if debug_enabled:
 			print("[AIPilot ATTACK] Dive start: target=", active_target.name, "  horiz_range=", snapped(horiz_dist_to_target, 1.0), "m  alt_above=", snapped(alt_above, 1.0), "m  aim_height=", bomb_dive_aim_height_m, "m")
-	elif horiz_dist_to_target <= bomb_dive_start_distance_m * 0.4:
+	elif horiz_dist_to_target <= effective_dive_start_dist and not shared_commit_ready:
 		# Abort: we're way too close and still too low ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â can't set up a proper dive
-		change_state(State.ATTACK_BREAK_OFF)
-		_committed_turn_sign = 0.0
+		_attack_last_commit_reason = str(commit_evaluation.get("reason", "unknown"))
+		_setup_attack_run_waypoint(false)
+		change_state(State.ATTACK_POSITIONING)
 		if debug_enabled:
-			print("[AIPilot ATTACK] Inbound abort: too close (", snapped(horiz_dist_to_target, 1.0), "m) and too low for dive, breaking off")
+			print("[AIPilot ATTACK] Inbound geometry invalid (%s), rebuilding approach" % _attack_last_commit_reason)
 
 func _state_attack_dive(delta: float):
 	"""Dive at target, fire guns, break off at 100m to line up new run."""
@@ -2154,41 +8088,105 @@ func _state_attack_dive(delta: float):
 		return
 	var active_target: Node3D = _resolve_current_ground_attack_target()
 	if active_target == null:
-		change_state(State.SEARCH)
+		# Finishing a target must finish the pass too. Previously target deletion
+		# dropped straight into SEARCH; repeating-wave tests then assigned a new
+		# target in the same frame while the aircraft was still low and descending.
+		# Recover along the current flight path using the last valid target position,
+		# and forbid a replacement target from moving that reference until egress is
+		# complete.
+		_stop_firing()
+		var lost_target_pos: Vector3 = _attack_breakoff_reference_pos
+		if lost_target_pos == Vector3.INF:
+			var fallback_dir: Vector3 = aircraft.linear_velocity
+			fallback_dir.y = 0.0
+			if fallback_dir.length_squared() < 1.0:
+				fallback_dir = aircraft.global_transform.basis.z
+				fallback_dir.y = 0.0
+			fallback_dir = fallback_dir.normalized() if fallback_dir.length_squared() > 0.001 else Vector3.FORWARD
+			lost_target_pos = aircraft.global_position + fallback_dir * maxf(_get_attack_pull_up_distance_m(), 1.0)
+		_attack_last_end_reason = "target_lost_breakoff"
+		_prime_attack_straight_ahead_breakoff(lost_target_pos)
+		_attack_breakoff_reference_locked = true
+		combat_target = null
+		change_state(State.ATTACK_BREAK_OFF)
 		return
 
 	var target_pos: Vector3 = _get_surface_target_position(active_target)
+	_attack_breakoff_reference_pos = target_pos
 	var dist_to_target: float = aircraft.global_position.distance_to(target_pos)
+	# RocketPod.fire() sequences the remaining projectiles after the trigger frame.
+	# Preserve the solved control state for that physical burst so later rockets do
+	# not inherit a pull-up or a newly recomputed CCIP correction. Critical terrain
+	# authority remains outside this state in the terrain-avoidance layer.
+	if _rocket_volley_control_hold_active:
+		if _is_rocket_pod_burst_in_progress():
+			pitch_input = _rocket_volley_hold_pitch_input
+			roll_input = _rocket_volley_hold_roll_input
+			yaw_input = _rocket_volley_hold_yaw_input
+			_smoothed_pitch_input = pitch_input
+			_smoothed_roll_input = roll_input
+			_smoothed_yaw_input = yaw_input
+			target_speed = 120.0
+			return
+		_rocket_volley_control_hold_active = false
 
 	# Bomb runs need a much larger break-off margin ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â they dive from high altitude and need room to recover.
-	var pull_up_dist: float = _get_attack_pull_up_distance_m()
+	var horiz_dist_to_target: float = Vector2(
+		aircraft.global_position.x - target_pos.x,
+		aircraft.global_position.z - target_pos.z
+	).length()
 
 	# Break off when we've dropped all planned bombs (3 for bomb runs)
 	if _run_weapon_type == "Bomb" and _bombs_dropped_this_run >= _bombs_to_drop_this_run:
+		_attack_last_end_reason = "weapon_released"
+		_prime_attack_breakoff_egress(target_pos)
 		change_state(State.ATTACK_BREAK_OFF)
 		_committed_turn_sign = 0.0
 		if debug_enabled:
 			print("[AIPilot ATTACK] Break-off: dropped ", _bombs_dropped_this_run, " bombs, pulling up")
 		return
-	if _run_weapon_type == "Rocket Pod" and _rockets_to_fire_this_run > 0 and _rockets_fired_this_run >= _rockets_to_fire_this_run:
+	if _run_weapon_type == "Rocket Pod" \
+			and _rockets_to_fire_this_run > 0 \
+			and _rockets_fired_this_run >= _rockets_to_fire_this_run \
+			and not _is_rocket_pod_burst_in_progress():
+		_attack_last_end_reason = "weapon_released"
+		_prime_attack_breakoff_egress(target_pos)
 		change_state(State.ATTACK_BREAK_OFF)
 		_committed_turn_sign = 0.0
 		if debug_enabled:
 			print("[AIPilot ATTACK] Break-off: fired ", _rockets_fired_this_run, " rockets, pulling up")
 		return
-	# Break off when too close. Bomb runs should not be salvaged with last-second drops;
-	# if CCIP was not good by the pull-up range, keep the bombs and try another pass.
-	var min_safe_dist: float = pull_up_dist
-	if dist_to_target < min_safe_dist:
-		change_state(State.ATTACK_BREAK_OFF)
-		_committed_turn_sign = 0.0
-		if debug_enabled:
-			print("[AIPilot ATTACK] Break-off: too close to target (", snapped(dist_to_target, 1.0), "m)")
-		return
+	var abort_evaluation: Dictionary = _evaluate_attack_abort(target_pos)
+	var bomb_release_before_pull_up: bool = false
+	var rocket_release_before_pull_up: bool = false
+	if bool(abort_evaluation.get("abort", false)):
+		# Dynamic pull-up is the last usable release point, not a reason to carry a
+		# bomb home. Defer only this routine end-of-pass condition until after the
+		# current frame's CCIP has been computed. Genuine safety/geometry aborts retain
+		# immediate authority and never wait for weapon logic.
+		bomb_release_before_pull_up = _run_weapon_type == "Bomb" \
+			and str(abort_evaluation.get("reason", "")) == "dynamic_pull_up" \
+			and _bombs_dropped_this_run < _bombs_to_drop_this_run
+		# The rocket release controller needs the same final frame. Previously the
+		# shared abort returned before CCIP or the release handler ran, so no amount
+		# of tuning its gains could begin a volley at the recovery boundary.
+		rocket_release_before_pull_up = _run_weapon_type == "Rocket Pod" \
+			and str(abort_evaluation.get("reason", "")) == "dynamic_pull_up" \
+			and _rockets_fired_this_run < _rockets_to_fire_this_run
+		if not bomb_release_before_pull_up and not rocket_release_before_pull_up:
+			_attack_last_end_reason = str(abort_evaluation.get("reason", "safety_abort"))
+			_stop_firing()
+			_prime_attack_straight_ahead_breakoff(target_pos)
+			change_state(State.ATTACK_BREAK_OFF)
+			_committed_turn_sign = 0.0
+			if debug_enabled:
+				print("[AIPilot ATTACK] Shared abort: %s" % _attack_last_end_reason)
+			return
 
 	# For gun runs aim just above the ground target for accuracy.
-	# For bomb runs aim at target altitude so the dive trajectory sweeps through the
-	# optimal CCIP release geometry, allowing CCIP to cross zero during the approach.
+	# Bombs must fly a shallower path than the direct aircraft-to-target line because
+	# gravity carries the released weapon below the aircraft flight path. The raised
+	# base aim point establishes that path; live CCIP feedback below refines it.
 	# Raise the aim point only if terrain on the approach path requires it.
 	var aim_height: float = 1.5
 	var target_velocity: Vector3 = _get_target_linear_velocity(active_target)
@@ -2207,20 +8205,15 @@ func _state_attack_dive(delta: float):
 		aim_pos += target_velocity * attack_aim_lead_time_s
 
 	# Bomb runs: refine aim using predicted impact ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â steer to put the bullseye on target
-	var horiz_dist: float = Vector2(aircraft.global_position.x - target_pos.x, aircraft.global_position.z - target_pos.z).length()
+	var horiz_dist: float = horiz_dist_to_target
 	var alt_above: float = aircraft.global_position.y - target_pos.y
-	if _run_weapon_type == "Bomb" and _bombs_dropped_this_run == 0:
-		var target_flat_dir := Vector3(target_pos.x - aircraft.global_position.x, 0.0, target_pos.z - aircraft.global_position.z)
-		var forward_flat_dir := Vector3(aircraft.global_transform.basis.z.x, 0.0, aircraft.global_transform.basis.z.z)
-		if target_flat_dir.length_squared() > 1.0 and forward_flat_dir.length_squared() > 0.0001:
-			var nose_to_target_dot: float = forward_flat_dir.normalized().dot(target_flat_dir.normalized())
-			if nose_to_target_dot < -0.15 and horiz_dist > maxf(bomb_pull_up_distance_m, 1.0):
-				if debug_enabled:
-					print("[AIPilot ATTACK] Bomb dive invalid: target behind nose (dot=%.2f), resetting run" % nose_to_target_dot)
-				_setup_attack_run_waypoint()
-				change_state(State.ATTACK_POSITIONING)
-				return
 	var ccip_impact: Vector3 = Vector3.ZERO  # Shared between aim correction and release check
+	if _run_weapon_type != "Bomb":
+		_clear_bomb_ccip_aim_error()
+	if _run_weapon_type != "Rocket Pod":
+		_clear_rocket_ccip_aim_error()
+	if not _is_direct_fire_attack_weapon_type(_run_weapon_type):
+		_clear_gun_ccip_aim_error()
 	if _run_weapon_type == "Bomb":
 		# Throttle CCIP calculation â€” ballistic sim is expensive (~500 iterations + raycasts)
 		_ccip_cache_timer -= delta
@@ -2233,6 +8226,8 @@ func _state_attack_dive(delta: float):
 			var impact_variant: Variant = bomb_ccip_solution.get("impact_position", Vector3.ZERO)
 			_ccip_cached_result = impact_variant if impact_variant is Vector3 else Vector3.ZERO
 			_ccip_cached_tof_s = float(bomb_ccip_solution.get("time_of_flight", -1.0))
+			_ccip_cached_blocked = false
+			_ccip_cached_block_reason = ""
 		ccip_impact = _ccip_cached_result
 		if target_velocity != Vector3.ZERO:
 			var lead_time_s: float = attack_aim_lead_time_s
@@ -2261,18 +8256,32 @@ func _state_attack_dive(delta: float):
 				var close_t: float = 1.0 - clampf(horiz_dist / maxf(bomb_ccip_aim_correction_close_range_m, 1.0), 0.0, 1.0)
 				correction_strength = lerpf(correction_strength, bomb_ccip_aim_correction_close_scale, close_t)
 			aim_pos += err_h * correction_strength
+			_set_bomb_ccip_aim_error(release_target_pos, ccip_impact, horiz_dist)
+		else:
+			_clear_bomb_ccip_aim_error()
 		# In release window: aim closer to target and use precise steering
 		# Smooth transition 600ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢400m to avoid abrupt aim-height jump that causes pitch oscillation
 		var release_t: float = clamp(1.0 - (horiz_dist - 650.0) / 350.0, 0.0, 1.0) if alt_above < 450.0 else 0.0
 		var aim_height_close: float = lerp(aim_height, bomb_dive_close_aim_height_m, release_t)
 		aim_pos.y = release_target_pos.y + aim_height_close
-		_dive_precise_aim = horiz_dist < 750.0 and alt_above < 450.0
+		var required_ccip_bank_rad := _get_bomb_ccip_lateral_bank_target_rad(delta)
+		var precision_bank_limit_rad := deg_to_rad(maxf(bomb_ccip_precision_bank_limit_deg, 1.0))
+		_dive_precise_aim = horiz_dist < 750.0 \
+			and alt_above < 450.0 \
+			and absf(required_ccip_bank_rad) < precision_bank_limit_rad
 	elif _run_weapon_type == "Rocket Pod":
 		_ccip_cache_timer -= delta
 		if _ccip_cache_timer <= 0.0:
 			_ccip_cache_timer = maxf(rocket_ccip_recompute_interval_s, 0.05)
-			var rocket_ccip_solution: Dictionary = _predict_rocket_impact_solution()
+			var rocket_ccip_solution: Dictionary = _predict_rocket_impact_solution(target_pos, active_target)
 			var rocket_impact_variant: Variant = rocket_ccip_solution.get("impact_position", Vector3.ZERO)
+			_ccip_cached_blocked = bool(rocket_ccip_solution.get("blocked", false))
+			_ccip_cached_block_reason = str(rocket_ccip_solution.get("blocked_reason", ""))
+			_rocket_ccip_cached_hit_target = bool(rocket_ccip_solution.get("hit_intended_target", false))
+			_rocket_ccip_cached_damage_radius_m = maxf(float(rocket_ccip_solution.get("effective_damage_radius_m", 0.0)), 0.0)
+			# Keep a terrain-short prediction available to the steering feedback. Its
+			# blocked flag prevents release, but discarding the impact point here leaves
+			# the controller unable to drive that undershoot onto the target.
 			_ccip_cached_result = rocket_impact_variant if rocket_impact_variant is Vector3 else Vector3.ZERO
 			_ccip_cached_tof_s = float(rocket_ccip_solution.get("time_to_impact", -1.0))
 		ccip_impact = _ccip_cached_result
@@ -2285,9 +8294,81 @@ func _state_attack_dive(delta: float):
 			var rocket_err_h: Vector3 = Vector3(release_target_pos.x - ccip_impact.x, 0.0, release_target_pos.z - ccip_impact.z)
 			var rocket_correction_strength: float = clampf(0.35 + 0.45 * (1.0 - horiz_dist / maxf(rocket_release_max_range_m, 1.0)), 0.35, 0.8)
 			aim_pos += rocket_err_h * rocket_correction_strength
-		_dive_precise_aim = horiz_dist < rocket_release_max_range_m and alt_above < 320.0
+			_set_rocket_ccip_aim_error(release_target_pos, ccip_impact, horiz_dist)
+		else:
+			_clear_rocket_ccip_aim_error()
+		_dive_precise_aim = horiz_dist < rocket_release_max_range_m \
+			+ maxf(rocket_ccip_aim_acquisition_margin_m, 0.0) and alt_above < 700.0
+	elif _is_direct_fire_attack_weapon_type(_run_weapon_type):
+		if gun_ccip_enabled:
+			_ccip_cache_timer -= delta
+			if _ccip_cache_timer <= 0.0:
+				_ccip_cache_timer = maxf(gun_ccip_recompute_interval_s, 0.02)
+				var gun_ccip_solution: Dictionary = _predict_gun_impact_solution(target_pos, active_target)
+				var gun_impact_variant: Variant = gun_ccip_solution.get("impact_position", Vector3.ZERO)
+				_ccip_cached_result = gun_impact_variant if bool(gun_ccip_solution.get("has_impact", false)) and gun_impact_variant is Vector3 else Vector3.ZERO
+				_ccip_cached_tof_s = float(gun_ccip_solution.get("time_to_impact", -1.0))
+				_ccip_cached_blocked = bool(gun_ccip_solution.get("blocked", false))
+				_ccip_cached_block_reason = str(gun_ccip_solution.get("blocked_reason", ""))
+			ccip_impact = _ccip_cached_result
+			if ccip_impact != Vector3.ZERO:
+				var gun_err_h: Vector3 = Vector3(release_target_pos.x - ccip_impact.x, 0.0, release_target_pos.z - ccip_impact.z)
+				# Convert the measured impact error into an angular change of the current
+				# gun line.  Adding a fraction of gun_err_h to an absolute target point
+				# leaves a proportional steady-state error: the rounds land short at long
+				# range and only walk onto the target as ballistic drop shrinks.  Rotating
+				# the current airframe aim direction by the impact-to-target angle instead
+				# makes every CCIP refresh an incremental correction and converges on zero
+				# miss without a weapon-specific vertical bias.
+				aim_pos = _get_gun_ccip_corrected_aim_position(
+					aim_pos,
+					release_target_pos,
+					ccip_impact
+				)
+				_set_gun_ccip_aim_error(
+					release_target_pos,
+					ccip_impact,
+					horiz_dist,
+					_ccip_cached_blocked,
+					_ccip_cached_block_reason
+				)
+			else:
+				_clear_gun_ccip_aim_error()
+		else:
+			_clear_gun_ccip_aim_error()
+		_dive_precise_aim = false
+		if _should_abort_direct_fire_ccip_attack(horiz_dist):
+			var abort_miss_m: float = _gun_ccip_miss_m
+			var abort_blocked: bool = _gun_ccip_blocked
+			var abort_block_reason: String = _gun_ccip_block_reason
+			_attack_last_end_reason = "gun_ccip_abort_%s" % (
+				abort_block_reason if not abort_block_reason.is_empty() else "miss"
+			)
+			_stop_firing()
+			_prime_attack_breakoff_egress(target_pos)
+			_attack_recovery_until_s = maxf(
+				_attack_recovery_until_s,
+				Time.get_ticks_msec() / 1000.0 + maxf(gun_ccip_abort_recovery_s, 0.0)
+			)
+			if _has_attack_egress_waypoint():
+				var recover_agl_m: float = maxf(attack_breakoff_direct_fire_min_recover_agl_m, gun_ccip_abort_low_agl_m)
+				_attack_egress_waypoint.y = maxf(_attack_egress_waypoint.y, aircraft.global_position.y + recover_agl_m)
+				_attack_breakoff_egress_y_m = maxf(_attack_breakoff_egress_y_m, _attack_egress_waypoint.y)
+			change_state(State.ATTACK_BREAK_OFF)
+			_committed_turn_sign = 0.0
+			if debug_enabled:
+				print("[AIPilot ATTACK] Gun CCIP abort: miss=%.0fm range=%.0fm agl=%.0fm blocked=%s reason=%s" % [
+					abort_miss_m,
+					horiz_dist,
+					altitude_agl,
+					str(abort_blocked),
+					abort_block_reason
+				])
+			return
 	else:
 		_dive_precise_aim = false
+		_clear_rocket_ccip_aim_error()
+		_clear_gun_ccip_aim_error()
 		_hide_bomb_debug_visuals()
 
 	if _run_weapon_type == "Bomb":
@@ -2308,15 +8389,131 @@ func _state_attack_dive(delta: float):
 		var fwd: Vector3 = aircraft.global_transform.basis.z
 		var to_tgt: Vector3 = (aim_pos - aircraft.global_position).normalized()
 		var dot: float = fwd.dot(to_tgt)
-		var gun_max_range_m: float = _get_selected_gun_max_range_m()
-		var in_gun_range: bool = (not is_finite(gun_max_range_m)) or dist_to_target <= gun_max_range_m
-		var ground_gun_alignment_deg: float = lerpf(6.0, night_ground_gun_alignment_deg, _get_ai_darkness_factor())
-		if dot > cos(deg_to_rad(ground_gun_alignment_deg)) and in_gun_range:
+		# A gun's configured range is the distance its projectile travels relative to a
+		# stationary muzzle during the projectile's lifetime. Bullets also inherit the
+		# aircraft's point velocity, so treating the configured value as a hard world-
+		# space cutoff makes a fast diving aircraft wait until the last instant (or reach
+		# the pull-up boundary without firing at all). Use the displacement the physical
+		# projectile can actually cover along the target line instead.
+		var gun_reachable_range_m: float = _get_selected_gun_reachable_range_m(
+			target_pos - aircraft.global_position
+		)
+		var in_gun_range: bool = (not is_finite(gun_reachable_range_m)) \
+			or dist_to_target <= gun_reachable_range_m
+		var ground_gun_alignment_deg: float = lerpf(
+			maxf(ground_gun_fire_alignment_deg, 0.1),
+			night_ground_gun_alignment_deg,
+			_get_ai_darkness_factor()
+		)
+		var gun_angle_ok: bool = dot > cos(deg_to_rad(ground_gun_alignment_deg))
+		var gun_ccip_ok: bool = false
+		if _gun_ccip_aim_active:
+			var gun_tolerance_m: float = gun_ccip_blocked_fire_tolerance_m if _gun_ccip_blocked else gun_ccip_fire_tolerance_m
+			gun_ccip_ok = _gun_ccip_miss_m <= maxf(gun_tolerance_m, 0.0)
+		# CCIP improves aim but must not suppress an otherwise valid strafing shot.
+		# Once fire begins, keep the trigger down until the shared strafing envelope
+		# ends the run. A momentary one-frame aim wobble must not reduce a gun pass to
+		# a four-round tap.
+		if in_gun_range and (gun_angle_ok or gun_ccip_ok):
+			_ground_gun_firing_run_active = true
+		if in_gun_range and _ground_gun_firing_run_active:
 			_fire_guns()
 		else:
 			_stop_firing()
 
-	target_speed = 110.0 if _run_weapon_type == "Rocket Pod" else 120.0  # Faster during attack run
+	if bomb_release_before_pull_up:
+		# The normal release handler above gets first refusal. If its accuracy gate
+		# still withholds, use the final valid ballistic solution and release one bomb
+		# before beginning the mandatory pull-out. There is deliberately no invented
+		# miss-distance cutoff here: reaching the calculated recovery boundary defines
+		# the last attainable solution for this pass.
+		var released_at_pull_up: bool = _bombs_dropped_this_run >= _bombs_to_drop_this_run
+		var final_ccip_miss_m: float = INF
+		if ccip_impact != Vector3.ZERO:
+			final_ccip_miss_m = Vector2(
+				release_target_pos.x - ccip_impact.x,
+				release_target_pos.z - ccip_impact.z
+			).length()
+		if not released_at_pull_up and ccip_impact != Vector3.ZERO:
+			_set_bomb_release_status(
+				"pull_up_release",
+				final_ccip_miss_m,
+				minf(_best_bomb_ccip_miss_this_run, final_ccip_miss_m),
+				alt_above,
+				horiz_dist,
+				_get_current_bank_angle_deg(),
+				rad_to_deg(atan2(-aircraft.linear_velocity.y, maxf(Vector2(aircraft.linear_velocity.x, aircraft.linear_velocity.z).length(), 1.0))),
+				true
+			)
+			released_at_pull_up = _drop_one_bomb(target_pos, ccip_impact)
+			if released_at_pull_up:
+				_bombs_dropped_this_run += 1
+				_last_bomb_drop_time_s = Time.get_ticks_msec() / 1000.0
+		_attack_last_end_reason = "dynamic_pull_up_release" if released_at_pull_up else "dynamic_pull_up_no_ccip"
+		_stop_firing()
+		_prime_attack_straight_ahead_breakoff(target_pos)
+		change_state(State.ATTACK_BREAK_OFF)
+		_committed_turn_sign = 0.0
+		if debug_enabled:
+			print("[AIPilot ATTACK] Pull-up boundary: bomb_released=%s ccip_miss=%.1fm" % [
+				str(released_at_pull_up),
+				final_ccip_miss_m,
+			])
+		return
+
+	if rocket_release_before_pull_up:
+		# Give the ordinary release gate first refusal. Reaching the pull-up boundary
+		# does not turn a known miss into a useful shot: only launch if the current
+		# prediction intersects the target or lies inside the rocket's real damage
+		# footprint. Otherwise break off cleanly and build another pass.
+		var volley_started: bool = _rockets_fired_this_run > 0
+		var final_rocket_ccip_miss_m: float = INF
+		if ccip_impact != Vector3.ZERO:
+			final_rocket_ccip_miss_m = Vector2(
+				release_target_pos.x - ccip_impact.x,
+				release_target_pos.z - ccip_impact.z
+			).length()
+		var pull_up_release_radius_m: float = _rocket_ccip_cached_damage_radius_m
+		if pull_up_release_radius_m <= 0.0:
+			pull_up_release_radius_m = maxf(rocket_ccip_release_tolerance_m, 0.0)
+		var pull_up_ccip_accurate: bool = ccip_impact != Vector3.ZERO \
+			and not _ccip_cached_blocked \
+			and (_rocket_ccip_cached_hit_target or final_rocket_ccip_miss_m <= pull_up_release_radius_m)
+		if not volley_started and pull_up_ccip_accurate:
+			_last_rocket_release_reason = "pull_up_release"
+			_last_rocket_release_miss_m = final_rocket_ccip_miss_m
+			_last_rocket_release_best_miss_m = minf(
+				_best_rocket_ccip_miss_this_run,
+				final_rocket_ccip_miss_m
+			)
+			if _fire_one_weapon_of_type_with_result("Rocket Pod"):
+				_rockets_fired_this_run += 1
+				_last_rocket_fire_time_s = Time.get_ticks_msec() / 1000.0
+				_begin_rocket_volley_control_hold()
+				volley_started = true
+				if debug_enabled:
+					print("[AIPilot RELEASE] %s type=Rocket count=%d/%d range=%.0fm miss=%.1fm best=%.1fm reason=pull_up_release" % [
+						aircraft.name,
+						_rockets_fired_this_run,
+						_rockets_to_fire_this_run,
+						horiz_dist,
+						final_rocket_ccip_miss_m,
+						_last_rocket_release_best_miss_m,
+					])
+		if volley_started:
+			_attack_last_end_reason = "rocket_volley_at_pull_up"
+			target_speed = 120.0
+			return
+		_attack_last_end_reason = "dynamic_pull_up_no_accurate_rocket_ccip"
+		_stop_firing()
+		_prime_attack_straight_ahead_breakoff(target_pos)
+		change_state(State.ATTACK_BREAK_OFF)
+		_committed_turn_sign = 0.0
+		if debug_enabled:
+			print("[AIPilot ATTACK] Pull-up boundary: rocket_volley_started=false ccip_miss=%.1fm" % final_rocket_ccip_miss_m)
+		return
+
+	target_speed = 120.0
 
 func _state_attack_break_off(delta: float):
 	"""Fly away from target until far enough, then return to SEARCH to set up new run."""
@@ -2325,19 +8522,95 @@ func _state_attack_break_off(delta: float):
 	if not ground_attack_enabled:
 		change_state(State.SEARCH)
 		return
-	var active_target: Node3D = _resolve_current_ground_attack_target()
-	if active_target == null:
+	var active_target: Node3D = null
+	if not _attack_breakoff_reference_locked:
+		active_target = _resolve_current_ground_attack_target()
+	var target_pos: Vector3 = _attack_breakoff_reference_pos
+	if active_target != null:
+		target_pos = _get_surface_target_position(active_target)
+		_attack_breakoff_reference_pos = target_pos
+	if target_pos == Vector3.INF:
 		change_state(State.SEARCH)
 		return
-
-	var target_pos: Vector3 = _get_surface_target_position(active_target)
 	var dist_to_target: float = aircraft.global_position.distance_to(target_pos)
+	var horiz_dist_to_target: float = Vector2(
+		aircraft.global_position.x - target_pos.x,
+		aircraft.global_position.z - target_pos.z
+	).length()
 	var now_s: float = Time.get_ticks_msec() / 1000.0
-	var recovery_ready: bool = now_s >= _attack_recovery_until_s and altitude_agl > (emergency_min_agl_m + 80.0)
+	var breakoff_age_s: float = now_s - _attack_breakoff_entry_time_s
+	if not is_finite(breakoff_age_s) or breakoff_age_s < 0.0:
+		breakoff_age_s = 0.0
+	# Rockets and guns need a straight, full-length strafing egress even when they
+	# arrived through the full corridor planner. Navigation mode must not make a
+	# rocket pass fall back to the shorter bomb-style breakoff envelope.
+	var direct_fire_run: bool = _uses_direct_ground_attack_intercept() \
+		or _run_weapon_type == "Rocket Pod" \
+		or _run_weapon_type == "Autocannon"
+	target_speed = attack_breakoff_direct_fire_target_speed_mps if direct_fire_run else attack_breakoff_target_speed_mps
+	var vertical_speed_mps: float = aircraft.linear_velocity.y
+	var min_recover_agl_m: float = maxf(attack_breakoff_min_recover_agl_m, emergency_min_agl_m + 160.0)
+	if direct_fire_run:
+		min_recover_agl_m = maxf(attack_breakoff_direct_fire_min_recover_agl_m, emergency_min_agl_m + 80.0)
+	var direct_fire_exit_ready: bool = _direct_fire_breakoff_exit_ready(min_recover_agl_m, vertical_speed_mps, breakoff_age_s)
+	var safely_climbing: bool = vertical_speed_mps >= attack_breakoff_min_climb_rate_mps \
+		or altitude_agl >= min_recover_agl_m \
+		or breakoff_age_s >= attack_breakoff_max_time_s
+	var recovery_ready: bool = now_s >= _attack_recovery_until_s \
+		and breakoff_age_s >= attack_breakoff_min_time_s \
+		and altitude_agl >= min_recover_agl_m \
+		and safely_climbing
+	var has_planned_egress: bool = _has_attack_egress_waypoint()
+	if has_planned_egress:
+		if _attack_egress_offset_from_target == Vector3.ZERO:
+			_attack_egress_offset_from_target = Vector3(
+				_attack_egress_waypoint.x - target_pos.x,
+				0.0,
+				_attack_egress_waypoint.z - target_pos.z
+			)
+		var egress_offset_horizontal: Vector3 = Vector3(_attack_egress_offset_from_target.x, 0.0, _attack_egress_offset_from_target.z)
+		_attack_egress_waypoint = target_pos + egress_offset_horizontal
+	var dist_to_egress: float = aircraft.global_position.distance_to(_attack_egress_waypoint) if has_planned_egress else INF
+	var egress_capture_m: float = maxf(attack_egress_capture_radius_m, attack_breakoff_completion_radius_m)
+	var egress_complete: bool = not has_planned_egress or dist_to_egress <= maxf(egress_capture_m, 1.0)
+	var egress_timed_out: bool = has_planned_egress \
+		and breakoff_age_s >= attack_breakoff_max_time_s \
+		and altitude_agl >= min_recover_agl_m
+	# Direct-fire (gun/rocket) runs were turning back into a new attack far too soon -- the old
+	# 1.45x/2.6x thresholds let them re-engage at 725m/1300m when a full egress leg was actually
+	# planned out to attack_egress_distance_m (1500m). Extend properly before re-attacking: use
+	# the planned egress distance itself as the real-world re-engage distance for direct fire.
+	# A normal direct-fire pass flies the full planned extension. When the target
+	# vanished during the pass, the urgent requirement is narrower: finish the
+	# pull-up, gain the normal breakoff separation, then hand control back to the
+	# 3D route planner. Holding that special case straight for the full 1.7 km
+	# carried it into a ridge beyond the safely recovered portion of the pass.
+	var direct_fire_extend_distance_m: float = attack_break_off_distance_m \
+		if _attack_breakoff_reference_locked \
+		else maxf(attack_egress_distance_m, attack_break_off_distance_m * 2.6)
+	var far_enough_from_target: bool = horiz_dist_to_target >= (direct_fire_extend_distance_m if direct_fire_run else attack_break_off_distance_m * 2.4)
+	var clear_after_pass: bool = has_planned_egress \
+		and direct_fire_run \
+		and breakoff_age_s >= attack_breakoff_min_time_s \
+		and far_enough_from_target
+	var breakoff_complete: bool = (egress_complete or egress_timed_out or clear_after_pass) if has_planned_egress else far_enough_from_target
+	# Recovery state and ingress geometry are separate concerns. Being high or slow
+	# can change how we recover the aircraft, but it must never count as having
+	# flown the egress distance: doing so starts a 180-degree re-attack only a few
+	# hundred metres beyond the target and makes a stable corridor impossible.
+	var direct_fire_clear_after_pass: bool = direct_fire_run \
+		and breakoff_age_s >= attack_breakoff_min_time_s \
+		and horiz_dist_to_target >= direct_fire_extend_distance_m \
+		and direct_fire_exit_ready
 
 	# Far enough - acquire a (potentially new) target and line up the next run
-	if dist_to_target >= attack_break_off_distance_m and recovery_ready:
-		var next_target: Node3D = _find_ground_attack_target()
+	var ready_to_reattack: bool = direct_fire_clear_after_pass if direct_fire_run else (
+		horiz_dist_to_target >= attack_break_off_distance_m \
+		and breakoff_complete \
+		and recovery_ready
+	)
+	if ready_to_reattack:
+		var next_target: Node3D = _find_ground_attack_target() if ground_attack_reacquire_after_breakoff else null
 		if next_target and is_instance_valid(next_target):
 			combat_target = next_target
 			_setup_attack_run_waypoint()
@@ -2351,20 +8624,344 @@ func _state_attack_break_off(delta: float):
 				print("[AIPilot ATTACK] Break-off complete, no target in range, returning to search")
 		return
 
+	if direct_fire_run:
+		_set_direct_fire_breakoff_extend_waypoint(target_pos, min_recover_agl_m)
+		_fly_direct_fire_breakoff_recovery(min_recover_agl_m)
+		return
+
+	var recovery_hold_agl_m: float = maxf(
+		attack_recovery_heading_hold_min_agl_m,
+		attack_positioning_hard_floor_agl_m
+	)
+	var initial_recovery_complete: bool = breakoff_age_s >= attack_breakoff_min_time_s \
+		and altitude_agl >= recovery_hold_agl_m \
+		and vertical_speed_mps >= attack_breakoff_min_climb_rate_mps
+	if _attack_recovery_waypoint != Vector3.INF and not initial_recovery_complete:
+		nav_waypoint = _attack_recovery_waypoint
+		nav_waypoint.y = _terrain_safe_altitude_for_segment(
+			aircraft.global_position,
+			nav_waypoint,
+			maxf(nav_waypoint.y, aircraft.global_position.y),
+			recovery_hold_agl_m
+		)
+		_attack_recovery_waypoint = nav_waypoint
+		maneuver_waypoint = nav_waypoint
+		if nav_target:
+			nav_target.global_position = maneuver_waypoint
+		_navigate_to_waypoint(delta)
+		return
+	if initial_recovery_complete:
+		_attack_recovery_waypoint = Vector3.INF
+
+	if has_planned_egress:
+		nav_waypoint = _attack_egress_waypoint
+		var requested_egress_y: float = maxf(nav_waypoint.y, _attack_breakoff_egress_y_m) if is_finite(_attack_breakoff_egress_y_m) else maxf(nav_waypoint.y, aircraft.global_position.y + attack_breakoff_egress_altitude_gain_m)
+		requested_egress_y = maxf(requested_egress_y, patrol_altitude_m)
+		nav_waypoint.y = _terrain_safe_altitude_for_segment(
+			aircraft.global_position,
+			nav_waypoint,
+			requested_egress_y,
+			aircraft_flight_plan_terrain_clearance_m
+		)
+		_attack_egress_waypoint = nav_waypoint
+		_attack_breakoff_egress_y_m = nav_waypoint.y
+		_update_maneuver_waypoint()
+		_navigate_to_waypoint(delta)
+		return
+
 	# Fly away from target (direction from target to us, extended)
 	var away: Vector3 = (aircraft.global_position - target_pos)
 	away.y = 0.0
 	var away_dir: Vector3 = away.normalized() if away.length() > 1.0 else aircraft.global_transform.basis.z
 	nav_waypoint = aircraft.global_position + away_dir * 1000.0
 	# Egress at current altitude or patrol altitude â€” don't force a steep climb that bleeds airspeed.
-	nav_waypoint.y = maxf(aircraft.global_position.y + 30.0, patrol_altitude_m)
+	var requested_escape_y: float = maxf(_attack_breakoff_egress_y_m, patrol_altitude_m) if is_finite(_attack_breakoff_egress_y_m) else maxf(aircraft.global_position.y + attack_breakoff_egress_altitude_gain_m, patrol_altitude_m)
+	nav_waypoint.y = _terrain_safe_altitude_for_segment(
+		aircraft.global_position,
+		nav_waypoint,
+		requested_escape_y,
+		aircraft_flight_plan_terrain_clearance_m
+	)
+	_attack_breakoff_egress_y_m = nav_waypoint.y
 	_update_maneuver_waypoint()
 	_navigate_to_waypoint(delta)
 
-	target_speed = 100.0
+# Specific energy in metres: potential (altitude) + kinetic (v^2/2g). A single scalar for how much
+# total energy an aircraft has to spend on climbing or accelerating.
+func _specific_energy_m(altitude_y: float, speed_mps: float) -> float:
+	var g: float = 9.8
+	return altitude_y + (speed_mps * speed_mps) / (2.0 * g)
+
+# Decide the energy tactic (boom-and-zoom) and return an adjusted aim point + throttle/vertical
+# intent for this frame. This is the tactical brain that keeps an energy-advantaged fighter using
+# the vertical instead of descending to turn-fight a low/slow target.
+func _compute_dogfight_energy_tactic(
+		own_pos: Vector3, own_vel: Vector3, target_pos: Vector3, target_vel: Vector3,
+		base_aim_point: Vector3, delta: float) -> Dictionary:
+	var result: Dictionary = {
+		"aim_point": base_aim_point,
+		"tactic": DogfightEnergyTactic.NEUTRAL,
+		"throttle_override": -1.0,   # <0 = leave throttle to the normal law
+		"min_altitude_y": -INF,      # hard floor the aim point won't dive below
+	}
+	if not dogfight_energy_tactics_enabled:
+		return result
+	_dogfight_tactic_hold_s = maxf(0.0, _dogfight_tactic_hold_s - delta)
+
+	var own_speed: float = own_vel.length()
+	var target_speed: float = target_vel.length()
+	var height_above_target: float = own_pos.y - target_pos.y
+	var speed_advantage: float = own_speed - target_speed
+
+	# KEEP-IT-LOW: hard ceiling for aim points. NEVER aim above the preferred ceiling -- clamp the aim's
+	# Y so we stop chasing an enemy who is climbing (the ratchet that spirals both sides to altitude). A
+	# plane below the ceiling aiming at a high target now aims LEVEL toward the ceiling (gentle climb, no
+	# higher); a plane at the ceiling holds it. Whoever climbs highest runs out of energy and sinks back;
+	# the fight settles near the ceiling where it's readable. Only clamps DOWN (never forces a climb, and
+	# never below our own altitude if we're already high -- so it can't order a dive here, that's the
+	# tactics' job). Clamped unconditionally so we stop the ratchet BEFORE overshooting the ceiling.
+	var _kl_ground_y: float = _get_ground_height_at_position(own_pos)
+	var _kl_ceiling_y: float = _kl_ground_y + dogfight_preferred_ceiling_agl_m
+	if base_aim_point.y > _kl_ceiling_y:
+		# Don't yank the nose down below our own height (would spoil tracking); just cap the climb.
+		base_aim_point.y = maxf(_kl_ceiling_y, minf(base_aim_point.y, own_pos.y))
+		result["aim_point"] = base_aim_point
+	# HARD DIVE FLOOR: never aim below a safe AGL above terrain -- a committed dive must always have
+	# room to pull out (this alone prevents the "pressed into the ground at hits_taken=1" crash).
+	var _kl_floor_y: float = _kl_ground_y + dogfight_min_agl_floor_m
+	if base_aim_point.y < _kl_floor_y:
+		base_aim_point.y = _kl_floor_y
+		result["aim_point"] = base_aim_point
+	var my_e: float = _specific_energy_m(own_pos.y, own_speed)
+	var tgt_e: float = _specific_energy_m(target_pos.y, target_speed)
+	var energy_advantage: float = my_e - tgt_e
+	var target_is_low_slow: bool = speed_advantage >= dogfight_slow_target_speed_margin_mps
+
+	# The "don't follow a helicopter into the canyon" floor: while pressing a low/slow target from an
+	# energy advantage, never let the aim point pull us below a set height above it.
+	var pursuit_floor_y: float = -INF
+	if target_is_low_slow and energy_advantage > dogfight_energy_advantage_margin_m:
+		pursuit_floor_y = target_pos.y + dogfight_min_pursuit_height_m
+	result["min_altitude_y"] = pursuit_floor_y
+
+	# Geometry: how far ahead the target is and how well our nose points at it.
+	var to_target: Vector3 = target_pos - own_pos
+	var dist_now: float = to_target.length()
+	var nose: Vector3 = aircraft.global_transform.basis.z.normalized()
+	var aim_dot_now: float = nose.dot(to_target.normalized()) if dist_now > 1.0 else 1.0
+	# Is the enemy roughly on OUR tail? (we're pointed away, it's behind us)
+	var enemy_on_our_tail: bool = aim_dot_now < -0.2
+
+	# --- BUG-OUT: losing badly -> disengage and run (don't die pointlessly) ---
+	if dogfight_bugout_enabled:
+		var health_frac: float = _get_health_fraction()
+		var badly_hurt: bool = health_frac >= 0.0 and health_frac < dogfight_bugout_health_frac
+		var out_energied_and_chased: bool = enemy_on_our_tail and energy_advantage < -dogfight_bugout_energy_deficit_m
+		if badly_hurt or out_energied_and_chased:
+			# Run: dive away for speed and get low/fast, away from the enemy. Descend toward the deck
+			# (low = harder to follow, and keeps the fight readable) while extending.
+			var run_dir: Vector3 = (own_pos - target_pos)
+			run_dir.y = 0.0
+			if run_dir.length() < 1.0:
+				run_dir = Vector3(own_vel.x, 0.0, own_vel.z)
+			var run_point: Vector3 = own_pos + run_dir.normalized() * 1500.0 - Vector3.UP * 300.0
+			result["aim_point"] = run_point
+			result["throttle_override"] = 1.0
+			result["min_altitude_y"] = -INF
+			result["tactic"] = DogfightEnergyTactic.EXTEND_REBUILD
+			_dogfight_energy_tactic = DogfightEnergyTactic.EXTEND_REBUILD
+			return result
+
+	# --- FINISH THE KILL: dominant vs a slow, fleeing/passive bandit -> stop slashing, settle into a
+	# patient tail-chase gun pass. This closes out the draws where a rookie disengages and drifts slow
+	# & low while our boom-and-zoom keeps overshooting and zoom/extend-resetting off it. ---
+	if dogfight_finish_kill_enabled:
+		var bandit_is_slow: bool = speed_advantage >= dogfight_finish_speed_margin_mps
+		var we_dominate: bool = energy_advantage >= dogfight_finish_energy_advantage_m
+		var in_finish_range: bool = dist_now <= dogfight_finish_max_range_m
+		if bandit_is_slow and we_dominate and in_finish_range and not enemy_on_our_tail:
+			# Hold the nose on the (clamped) lead point, ease throttle so we don't blow past a slow target,
+			# and commit -- no zoom/extend. base_aim_point already carries the ceiling + dive-floor clamps.
+			result["aim_point"] = base_aim_point
+			result["gun_commit"] = true
+			# Match speed: ease off if we're closing much faster than the bandit so we can track, not overshoot.
+			var overtake: float = own_speed - target_speed
+			if overtake > dogfight_finish_speed_margin_mps and dist_now < dogfight_finish_max_range_m * 0.6:
+				result["throttle_override"] = clampf(1.0 - (overtake - dogfight_finish_speed_margin_mps) / 60.0, 0.35, 1.0)
+			else:
+				result["throttle_override"] = 1.0
+			result["min_altitude_y"] = pursuit_floor_y
+			result["tactic"] = DogfightEnergyTactic.COMMITTED_ATTACK
+			_dogfight_energy_tactic = DogfightEnergyTactic.COMMITTED_ATTACK
+			# Reset the scissors timer -- this isn't a co-energy scrap, it's a kill in progress.
+			_dogfight_scissors_timer_s = 0.0
+			return result
+
+	# --- SCISSORS RESET: stuck in a neutral, co-energy turn fight too long -> extend & re-bounce ---
+	# Track "neutral" time: close-ish, roughly co-energy, neither clearly on the other's tail.
+	var roughly_co_energy: bool = absf(energy_advantage) < dogfight_energy_advantage_margin_m
+	var neutral_scrap: bool = dist_now < dogfight_dive_gun_commit_range_m * 2.0 and roughly_co_energy \
+			and aim_dot_now < dogfight_commit_min_aim_dot and not enemy_on_our_tail
+	if neutral_scrap:
+		_dogfight_scissors_timer_s += delta
+	else:
+		_dogfight_scissors_timer_s = maxf(0.0, _dogfight_scissors_timer_s - delta * 2.0)
+	# If already extending from a scissors, keep running the extend for its duration.
+	if _dogfight_extend_timer_s > 0.0:
+		_dogfight_extend_timer_s -= delta
+		var ext_dir: Vector3 = (own_pos - target_pos)
+		ext_dir.y = 0.0
+		if ext_dir.length() < 1.0:
+			ext_dir = Vector3(own_vel.x, 0.0, own_vel.z)
+		# Extend flat/slightly down to keep speed and stay low, building separation to re-bounce.
+		var ext_point: Vector3 = own_pos + ext_dir.normalized() * 1400.0 - Vector3.UP * 120.0
+		result["aim_point"] = ext_point
+		result["throttle_override"] = 1.0
+		result["min_altitude_y"] = -INF
+		result["tactic"] = DogfightEnergyTactic.EXTEND_REBUILD
+		_dogfight_energy_tactic = DogfightEnergyTactic.EXTEND_REBUILD
+		return result
+	if _dogfight_scissors_timer_s >= dogfight_scissors_timeout_s:
+		# Been circling with no advantage: break off, extend to reset, then re-attack fresh.
+		_dogfight_scissors_timer_s = 0.0
+		_dogfight_extend_timer_s = dogfight_scissors_extend_s
+		result["tactic"] = DogfightEnergyTactic.EXTEND_REBUILD
+		_dogfight_energy_tactic = DogfightEnergyTactic.EXTEND_REBUILD
+		return result
+
+	# --- Tactic state machine ---
+	# COMMITTED_ATTACK (highest priority): we've committed to a firing pass. Hold the nose on the
+	# target and press through the merge -- do NOT zoom away -- until the target goes abeam/behind or
+	# the commit times out. This is what turns a good bounce into an actual kill instead of a
+	# stalemate. Energy is real now (climbing/turning bleeds speed), so pressing the pass is correct.
+	if _dogfight_energy_tactic == DogfightEnergyTactic.COMMITTED_ATTACK:
+		_dogfight_commit_timer_s = maxf(0.0, _dogfight_commit_timer_s - delta)
+		var target_gone: bool = aim_dot_now < dogfight_commit_break_dot
+		var lost_energy: bool = own_speed <= stall_speed_mps + stall_margin_mps + 5.0
+		if target_gone or lost_energy or _dogfight_commit_timer_s <= 0.0 or dist_now > dogfight_dive_gun_commit_range_m * 2.0:
+			# Pass complete -> zoom-reset to rebuild the perch (unless we're too slow to zoom).
+			if lost_energy:
+				_dogfight_energy_tactic = DogfightEnergyTactic.EXTEND_REBUILD
+				result["tactic"] = DogfightEnergyTactic.EXTEND_REBUILD
+				result["throttle_override"] = 1.0
+				return result
+			_dogfight_energy_tactic = DogfightEnergyTactic.ZOOM_RESET
+			_dogfight_tactic_hold_s = 6.0
+			result["tactic"] = DogfightEnergyTactic.ZOOM_RESET
+			return result
+		# Press the pass, but MANAGE CLOSURE so we don't overshoot to the target's 6 o'clock (the merge
+		# was ending with the target ~160deg behind the nose -- flown straight past). Two corrections:
+		#  1) Lag pursuit: when closing fast and close, bias the aim toward the target's TAIL (behind it
+		#     along its velocity) so we curve into a tracking position instead of driving through it.
+		#  2) Throttle back on a high-overtake close pass so the closure rate drops and we can track.
+		var overtake: float = own_speed - target_speed
+		var lag_aim: Vector3 = base_aim_point
+		if dist_now < dogfight_dive_gun_commit_range_m and target_vel.length() > 5.0:
+			# Blend more lag the closer and faster we are; pull the aim behind the target.
+			var lag_t: float = clampf((dogfight_dive_gun_commit_range_m - dist_now) / dogfight_dive_gun_commit_range_m, 0.0, 1.0)
+			lag_t *= clampf(overtake / 60.0, 0.0, 1.0)
+			var tail_point: Vector3 = target_pos - target_vel.normalized() * dogfight_lag_pursuit_distance_m
+			lag_aim = base_aim_point.lerp(tail_point, lag_t * dogfight_lag_pursuit_strength)
+		result["aim_point"] = lag_aim
+		result["min_altitude_y"] = -INF
+		result["gun_commit"] = true
+		# Ease throttle if we're overtaking hard at close range, so we settle into tracking rather
+		# than blowing past. Never below a floor that keeps us above corner speed.
+		var commit_throttle: float = 1.0
+		if dist_now < dogfight_dive_gun_commit_range_m and overtake > dogfight_overtake_throttle_ease_mps:
+			commit_throttle = clampf(1.0 - (overtake - dogfight_overtake_throttle_ease_mps) / 80.0, 0.45, 1.0)
+		result["throttle_override"] = commit_throttle
+		result["tactic"] = DogfightEnergyTactic.COMMITTED_ATTACK
+		return result
+
+	# ZOOM_RESET: after a diving pass we're fast; trade speed for altitude back up to a perch, then
+	# re-attack. Latches until we've regained height or bled to corner speed.
+	if _dogfight_energy_tactic == DogfightEnergyTactic.ZOOM_RESET:
+		var regained: bool = height_above_target >= dogfight_zoom_reset_height_m
+		var too_slow: bool = own_speed <= dogfight_corner_speed_mps + 5.0
+		if regained or too_slow or _dogfight_tactic_hold_s <= 0.0:
+			_dogfight_energy_tactic = DogfightEnergyTactic.NEUTRAL
+		else:
+			# Aim up and ahead to zoom-climb, keep full throttle.
+			var climb_dir: Vector3 = own_vel
+			climb_dir.y = 0.0
+			if climb_dir.length() < 1.0:
+				climb_dir = Vector3(own_vel.x, 0.0, own_vel.z)
+			# KEEP-IT-LOW: don't zoom past the preferred ceiling -- if we're already near/above it,
+			# zoom shallow (extend for speed) so the fight stays low and readable instead of spiralling up.
+			var zoom_climb_m: float = 500.0
+			var ground_y: float = _get_ground_height_at_position(own_pos)
+			var own_agl: float = own_pos.y - ground_y
+			if own_agl >= dogfight_preferred_ceiling_agl_m:
+				zoom_climb_m = 0.0
+			elif own_agl + zoom_climb_m > dogfight_preferred_ceiling_agl_m:
+				zoom_climb_m = maxf(0.0, dogfight_preferred_ceiling_agl_m - own_agl)
+			var zoom_point: Vector3 = own_pos + climb_dir.normalized() * 600.0 + Vector3.UP * zoom_climb_m
+			result["aim_point"] = zoom_point
+			result["throttle_override"] = 1.0
+			result["tactic"] = DogfightEnergyTactic.ZOOM_RESET
+			return result
+
+	# COMMIT TRIGGER: if we've pressed into range with the nose roughly on the target, lock into a
+	# committed firing pass regardless of whether we still hold an altitude advantage. This is the
+	# key to "commit the bounce" -- once the shot is there, take it and hold it, don't zoom early.
+	if dist_now <= dogfight_commit_range_m and aim_dot_now >= dogfight_commit_min_aim_dot:
+		_dogfight_energy_tactic = DogfightEnergyTactic.COMMITTED_ATTACK
+		_dogfight_commit_timer_s = dogfight_commit_max_s
+		result["aim_point"] = base_aim_point
+		result["min_altitude_y"] = -INF
+		result["gun_commit"] = true
+		result["throttle_override"] = 1.0
+		result["tactic"] = DogfightEnergyTactic.COMMITTED_ATTACK
+		return result
+
+	# DIVING ATTACK: energy-rich and above -> slash down toward the target to set up the commit. Aim
+	# straight down the pursuit curve; the pursuit floor only applies when we're NOT yet in gun range
+	# (so against a genuinely low/slow target we don't sink into its arena on the approach).
+	if energy_advantage > dogfight_energy_advantage_margin_m and height_above_target > dogfight_min_pursuit_height_m:
+		_dogfight_energy_tactic = DogfightEnergyTactic.DIVING_ATTACK
+		var diving_aim: Vector3 = base_aim_point
+		var in_gun_commit: bool = dist_now <= dogfight_dive_gun_commit_range_m
+		result["gun_commit"] = in_gun_commit
+		if pursuit_floor_y > -INF and not in_gun_commit:
+			diving_aim.y = maxf(diving_aim.y, pursuit_floor_y)
+			result["min_altitude_y"] = pursuit_floor_y
+		else:
+			result["min_altitude_y"] = -INF
+		result["aim_point"] = diving_aim
+		result["tactic"] = DogfightEnergyTactic.DIVING_ATTACK
+		return result
+	elif speed_advantage >= dogfight_zoom_speed_margin_mps and height_above_target < -dogfight_min_pursuit_height_m:
+		# We slashed past and ended up BELOW the target while fast: zoom back up to regain the perch.
+		# (Only zoom when genuinely below -- not just because we descended during a dive.)
+		_dogfight_energy_tactic = DogfightEnergyTactic.ZOOM_RESET
+		_dogfight_tactic_hold_s = 6.0
+		result["tactic"] = DogfightEnergyTactic.ZOOM_RESET
+		return result
+	elif energy_advantage < -dogfight_energy_advantage_margin_m:
+		# We're the low-energy one: EXTEND to rebuild rather than turn-fight from a deficit -- BUT don't
+		# run forever. In a bounded 1v1 a perpetual extend stalemates the round, so cap it: once we've
+		# been running this long, turn in and fight from the deficit (fall through to NEUTRAL).
+		_dogfight_extend_run_timer_s += delta
+		if _dogfight_extend_run_timer_s < dogfight_max_extend_s:
+			_dogfight_energy_tactic = DogfightEnergyTactic.EXTEND_REBUILD
+			result["tactic"] = DogfightEnergyTactic.EXTEND_REBUILD
+			result["throttle_override"] = 1.0
+			return result
+		# Extended long enough -- commit to the fight (NEUTRAL: turn in, track, take the shot) and KEEP
+		# committing (timer stays >= cap) until we actually regain energy. The `else` branch (energy no
+		# longer at a deficit) decays the timer and re-enables a fresh extend. This prevents running
+		# forever: a plane stuck at an energy deficit will fight from it rather than stalemate the round.
+		_dogfight_extend_run_timer_s = dogfight_max_extend_s
+	else:
+		_dogfight_extend_run_timer_s = maxf(0.0, _dogfight_extend_run_timer_s - delta * 2.0)
+
+	_dogfight_energy_tactic = DogfightEnergyTactic.NEUTRAL
+	return result
 
 func _state_dogfight(delta: float):
-	"""Simple dogfight law: roll into target bearing, pull to bring target near nose, full throttle."""
+	"""Pursuit law: turn toward the target, adding only enough lead to make a close gun solution."""
+	_dogfight_assertive_turn_yaw_error_deg = 0.0
 	if not dogfight_enabled:
 		_stop_firing()
 		change_state(State.SEARCH)
@@ -2374,15 +8971,24 @@ func _state_dogfight(delta: float):
 	_dogfight_weapon_commit_timer_s = maxf(0.0, _dogfight_weapon_commit_timer_s - delta)
 	_dogfight_lost_sight_timer_s = maxf(0.0, _dogfight_lost_sight_timer_s - delta)
 	var target_invalid: bool = not (combat_target and is_instance_valid(combat_target) and _is_enemy_aircraft_target(combat_target))
+	# Lost sight: if awareness of the current target has decayed below the drop threshold (it slipped
+	# to a blind arc and we couldn't keep the picture), treat it as invalid -- we no longer know where
+	# it is. Novices drop it fast; aces almost never do. Forces re-acquisition (or a search).
+	if not target_invalid and not dogfight_simple_pursuit_enabled and dogfight_situational_awareness_enabled \
+			and _get_enemy_awareness(combat_target as Node3D) < dogfight_awareness_drop_threshold:
+		target_invalid = true
 	if target_invalid or _dogfight_retarget_timer_s <= 0.0:
 		_dogfight_retarget_timer_s = maxf(dogfight_retarget_interval_s, 0.1)
-		var candidate: Node3D = _find_nearest_enemy_aircraft_target()
+		var candidate: Node3D = _find_best_air_target()
 		if candidate and is_instance_valid(candidate):
 			if target_invalid or _should_switch_dogfight_target(combat_target, candidate):
+				if combat_target != candidate:
+					_dogfight_rear_turn_sign = 0.0
 				combat_target = candidate
 
 	if not (combat_target and is_instance_valid(combat_target) and _is_enemy_aircraft_target(combat_target)):
 		_stop_firing()
+		combat_target = null
 		change_state(State.SEARCH)
 		return
 	if not _is_within_engagement_radius(combat_target, disengage_radius_from_carrier_m):
@@ -2408,6 +9014,10 @@ func _state_dogfight(delta: float):
 	var sight_cos: float = cos(deg_to_rad(clampf(dogfight_lost_sight_cone_deg, 10.0, 179.0) * 0.5))
 	var target_in_sight: bool = to_target_dir.dot(b.z) >= sight_cos
 	if target_in_sight:
+		_clear_dogfight_lost_sight_behavior()
+	elif dogfight_simple_pursuit_enabled:
+		# Keep turning toward the known target. Random climb/extend/offset waypoints made a basic
+		# rear-hemisphere pursuit fly away from the fight just when it needed to commit to the turn.
 		_clear_dogfight_lost_sight_behavior()
 	elif _dogfight_lost_sight_timer_s <= 0.0:
 		_choose_dogfight_lost_sight_behavior(target_pos, target_vel, own_pos, b)
@@ -2444,12 +9054,79 @@ func _state_dogfight(delta: float):
 	var ballistic_aim_base_blend: float = clampf(dogfight_ballistic_aim_blend, 0.0, 1.0)
 	var aim_point: Vector3 = pursuit_point.lerp(compensated_aim_point, ballistic_aim_base_blend)
 	aim_point = _clamp_dogfight_upward_aim_point(own_pos, aim_point)
-	if not target_in_sight and _dogfight_lost_sight_behavior in [
+	if dogfight_simple_pursuit_enabled:
+		var target_forward_dot: float = clampf(to_target_dir.dot(b.z), -1.0, 1.0)
+		var simple_lead_t: float = smoothstep(0.0, 0.85, maxf(target_forward_dot, 0.0))
+		var simple_lead_offset: Vector3 = target_vel * maxf(dogfight_simple_pursuit_max_lead_s, 0.0) * simple_lead_t
+		var simple_max_lead_m: float = maxf(dogfight_simple_pursuit_max_lead_m, 0.0)
+		if simple_max_lead_m > 0.0 and simple_lead_offset.length() > simple_max_lead_m:
+			simple_lead_offset = simple_lead_offset.normalized() * simple_max_lead_m
+		aim_point = _clamp_dogfight_upward_aim_point(own_pos, target_pos + simple_lead_offset)
+
+	# Energy tactics (boom-and-zoom): use the vertical when energy-rich rather than descending to
+	# turn-fight a low/slow target. This can redirect the aim point up (zoom reset) or floor how far
+	# down we chase (diving attack), and may force full throttle.
+	var energy_tactic: Dictionary = {
+		"tactic": DogfightEnergyTactic.NEUTRAL,
+		"aim_point": aim_point,
+		"min_altitude_y": -INF,
+		"throttle_override": -1.0,
+		"gun_commit": false,
+	}
+	if dogfight_simple_pursuit_enabled:
+		_dogfight_energy_tactic = DogfightEnergyTactic.NEUTRAL
+	else:
+		energy_tactic = _compute_dogfight_energy_tactic(
+			own_pos, own_vel, target_pos, target_vel, aim_point, delta)
+	var tactic_id: int = int(energy_tactic.get("tactic", DogfightEnergyTactic.NEUTRAL))
+	var tactic_min_alt_y: float = float(energy_tactic.get("min_altitude_y", -INF))
+	var tactic_throttle: float = float(energy_tactic.get("throttle_override", -1.0))
+	var tactic_gun_commit: bool = bool(energy_tactic.get("gun_commit", false))
+	# Adopt the tactic's aim point: it already carries the keep-it-low CEILING clamp and the hard dive
+	# FLOOR from _compute_dogfight_energy_tactic (previously only ZOOM_RESET read it back, so a sustained
+	# COMMITTED/DIVING 1v1 ignored the ceiling and spiralled to 4000m+). Then still apply the per-tactic
+	# min-altitude floor on top.
+	aim_point = energy_tactic.get("aim_point", aim_point)
+	if tactic_min_alt_y > -INF:
+		aim_point.y = maxf(aim_point.y, tactic_min_alt_y)
+	# Keep-it-low ceiling also on the final flown aim (belt-and-suspenders: the pursuit point built here
+	# can sit above what the tactic clamped, e.g. a target above the ceiling).
+	if tactic_id != DogfightEnergyTactic.ZOOM_RESET:
+		var kl_ground_y: float = _get_ground_height_at_position(own_pos)
+		var kl_ceiling_y: float = kl_ground_y + dogfight_preferred_ceiling_agl_m
+		if own_pos.y >= kl_ceiling_y:
+			# Above the ceiling: actively bias the aim DOWN (not just level) so we descend back toward the
+			# arena instead of holding altitude and timing out mid-descent. The push grows with how far
+			# above the ceiling we are, so a plane at 4000m sinks decisively; near the ceiling it's gentle.
+			var above: float = own_pos.y - kl_ceiling_y
+			var descend_target_y: float = own_pos.y - clampf(above * 0.6 + 80.0, 80.0, 600.0)
+			aim_point.y = minf(aim_point.y, descend_target_y)
+
+	if not dogfight_simple_pursuit_enabled and not target_in_sight and _dogfight_lost_sight_behavior in [
 		DogfightLostSightBehavior.CLIMB,
 		DogfightLostSightBehavior.EXTEND,
 		DogfightLostSightBehavior.OFFSET
 	] and _dogfight_variation_waypoint != Vector3.ZERO:
 		aim_point = _clamp_dogfight_upward_aim_point(own_pos, _dogfight_variation_waypoint)
+
+	# SUICIDE DIVE GUARD: dive angle itself is intentionally unrestricted (a steep dive is a legitimate
+	# attack) -- but committing the nose toward an aim point that doesn't leave room to pull out before
+	# terrain is not a tactic, it's a crash. Check the dive implied by the CANDIDATE aim point (not just
+	# current velocity) so we catch it before the nose commits, using the same pullout-radius physics as
+	# the ground-attack recovery check. If unsafe, shallow the aim point to the steepest angle that still
+	# leaves a safe pullout, rather than banning steep dives outright.
+	aim_point = _clamp_dogfight_suicide_dive(own_pos, own_vel, aim_point)
+
+	# FORWARD TERRAIN FLOOR: unlike ground-attack (which plans a full terrain-checked route before
+	# committing to a run), dogfight previously had no forward terrain knowledge at all -- only the
+	# reactive fan-cast in _check_terrain_avoidance (3s lookahead) and the above suicide-dive guard
+	# (which only catches a dive on the CURRENT aim point, not the ground the merge is about to cross
+	# more generally). This periodically samples terrain toward where the fight is heading and floors
+	# the aim point there, so a fast merge that would otherwise drag both aircraft down into a valley
+	# gets caught before the nose ever points that way, not just once already diving into it.
+	_update_dogfight_terrain_floor(delta, own_pos, own_vel, target_pos, target_vel)
+	if _dogfight_terrain_floor_y > -INF:
+		aim_point.y = maxf(aim_point.y, _dogfight_terrain_floor_y)
 
 	var to_aim: Vector3 = aim_point - aim_reference_pos
 	if to_aim.length_squared() < 1.0:
@@ -2460,24 +9137,50 @@ func _state_dogfight(delta: float):
 	var local_z: float = aim_dir.dot(b.z)
 
 	# Outer loop: choose desired bank from aim azimuth error.
-	var max_bank_deg: float = dogfight_bank_cmd_limit_deg
-	if in_rejoin:
-		max_bank_deg = minf(max_bank_deg, dogfight_rejoin_bank_limit_deg)
 	var speed_t: float = clampf(
 		(speed_mps - dogfight_min_speed_mps) / maxf(dogfight_corner_speed_mps - dogfight_min_speed_mps, 1.0),
 		0.0,
 		1.0
 	)
-	var low_speed_bank_deg: float = 30.0 if in_rejoin else 40.0
-	max_bank_deg = lerpf(low_speed_bank_deg, max_bank_deg, speed_t)
-	if altitude_agl < dogfight_ground_protect_agl_m:
-		max_bank_deg = minf(max_bank_deg, dogfight_ground_protect_min_bank_deg + 15.0)
+	# Anything-goes: while actively tracking a target we can see, with energy above stall and safe
+	# altitude, allow full roll authority (past 90deg / inverted) so we can roll the lift vector onto
+	# the target and pull. Outside those conditions -- rejoining, slow, or low -- keep the old caps so
+	# we don't depart controlled flight or hit the ground.
+	var stall_floor_mps: float = stall_speed_mps + stall_margin_mps
+	var fighting_freely: bool = dogfight_unrestricted_maneuvering \
+		and target_in_sight \
+		and not in_rejoin \
+		and speed_mps > stall_floor_mps + 8.0 \
+		and altitude_agl > dogfight_ground_protect_agl_m
+	var max_bank_deg: float
+	if fighting_freely:
+		max_bank_deg = dogfight_unrestricted_max_bank_deg
+	else:
+		max_bank_deg = dogfight_bank_cmd_limit_deg
+		if in_rejoin and not dogfight_simple_pursuit_enabled:
+			max_bank_deg = minf(max_bank_deg, dogfight_rejoin_bank_limit_deg)
+		var low_speed_bank_deg: float = 40.0 if dogfight_simple_pursuit_enabled else (30.0 if in_rejoin else 40.0)
+		max_bank_deg = lerpf(low_speed_bank_deg, max_bank_deg, speed_t)
+		if altitude_agl < dogfight_ground_protect_agl_m:
+			max_bank_deg = minf(max_bank_deg, dogfight_ground_protect_min_bank_deg + 15.0)
 
 	var yaw_err_rad: float
-	if local_z < -0.15:
-		# Target behind: commit hard turn toward the side of the target.
+	if dogfight_simple_pursuit_enabled and local_z < -0.15:
+		# Once the target is behind, retain one turn direction until it returns to the forward
+		# hemisphere. Re-choosing from tiny left/right changes every frame causes indecisive reversals.
+		if absf(_dogfight_rear_turn_sign) < 0.5:
+			_dogfight_rear_turn_sign = signf(local_x)
+			if absf(_dogfight_rear_turn_sign) < 0.5:
+				var current_roll_for_choice: float = atan2(b.x.y, b.y.y)
+				_dogfight_rear_turn_sign = signf(current_roll_for_choice)
+			if absf(_dogfight_rear_turn_sign) < 0.5:
+				_dogfight_rear_turn_sign = 1.0
+		yaw_err_rad = _dogfight_rear_turn_sign * PI * 0.5
+	elif local_z < -0.15:
 		yaw_err_rad = signf(local_x) * PI * 0.5
 	else:
+		if dogfight_simple_pursuit_enabled and local_z > 0.25:
+			_dogfight_rear_turn_sign = 0.0
 		yaw_err_rad = atan2(local_x, maxf(local_z, 0.05))
 	var pitch_err_rad: float = atan2(local_y, maxf(absf(local_z), 0.05))
 	var aim_err_rad: float = sqrt(yaw_err_rad * yaw_err_rad + pitch_err_rad * pitch_err_rad)
@@ -2497,7 +9200,13 @@ func _state_dogfight(delta: float):
 		precise_aim_t = clampf(sqrt(precise_aim_t), 0.0, 1.0)
 
 	# As the nose comes on target, transition from pursuit steering onto the real ballistic solution.
-	if target_in_sight:
+	# Skip this during a ZOOM_RESET -- there we're deliberately climbing away, not tracking for a shot.
+	var allow_ballistic_steering: bool = not dogfight_simple_pursuit_enabled or (
+		dist_to_target <= maxf(dogfight_simple_ballistic_steering_range_m, 1.0)
+		and local_z >= clampf(dogfight_simple_ballistic_steering_min_forward_dot, 0.0, 1.0)
+		and precise_aim_t >= clampf(dogfight_simple_ballistic_steering_min_precision, 0.0, 1.0)
+	)
+	if target_in_sight and tactic_id != DogfightEnergyTactic.ZOOM_RESET and allow_ballistic_steering:
 		var precise_ballistic_blend: float = lerpf(
 			ballistic_aim_base_blend,
 			clampf(dogfight_precise_ballistic_aim_blend, ballistic_aim_base_blend, 1.0),
@@ -2505,6 +9214,9 @@ func _state_dogfight(delta: float):
 		)
 		var refined_aim_point: Vector3 = pursuit_point.lerp(compensated_aim_point, precise_ballistic_blend)
 		refined_aim_point = _clamp_dogfight_upward_aim_point(own_pos, refined_aim_point)
+		# Keep the "don't sink into their arena" floor even on the refined ballistic aim.
+		if tactic_min_alt_y > -INF:
+			refined_aim_point.y = maxf(refined_aim_point.y, tactic_min_alt_y)
 		if refined_aim_point.distance_squared_to(aim_point) > 0.01:
 			aim_point = refined_aim_point
 			to_aim = aim_point - aim_reference_pos
@@ -2514,9 +9226,17 @@ func _state_dogfight(delta: float):
 			local_x = aim_dir.dot(b.x)
 			local_y = aim_dir.dot(b.y)
 			local_z = aim_dir.dot(b.z)
-			if local_z < -0.15:
+			if dogfight_simple_pursuit_enabled and local_z < -0.15:
+				if absf(_dogfight_rear_turn_sign) < 0.5:
+					_dogfight_rear_turn_sign = signf(local_x)
+					if absf(_dogfight_rear_turn_sign) < 0.5:
+						_dogfight_rear_turn_sign = 1.0
+				yaw_err_rad = _dogfight_rear_turn_sign * PI * 0.5
+			elif local_z < -0.15:
 				yaw_err_rad = signf(local_x) * PI * 0.5
 			else:
+				if dogfight_simple_pursuit_enabled and local_z > 0.25:
+					_dogfight_rear_turn_sign = 0.0
 				yaw_err_rad = atan2(local_x, maxf(local_z, 0.05))
 			pitch_err_rad = atan2(local_y, maxf(absf(local_z), 0.05))
 			aim_err_rad = sqrt(yaw_err_rad * yaw_err_rad + pitch_err_rad * pitch_err_rad)
@@ -2528,6 +9248,17 @@ func _state_dogfight(delta: float):
 		aim_point = collision_avoid_wp
 		precise_aim_t = 0.0
 		_reset_dogfight_precise_controllers()
+		to_aim = aim_point - aim_reference_pos
+		if to_aim.length_squared() < 1.0:
+			to_aim = b.z
+		aim_dir = to_aim.normalized()
+		local_x = aim_dir.dot(b.x)
+		local_y = aim_dir.dot(b.y)
+		local_z = aim_dir.dot(b.z)
+		yaw_err_rad = atan2(local_x, maxf(local_z, 0.05))
+		pitch_err_rad = atan2(local_y, maxf(absf(local_z), 0.05))
+		aim_err_rad = sqrt(yaw_err_rad * yaw_err_rad + pitch_err_rad * pitch_err_rad)
+	_dogfight_precise_aim_blend = precise_aim_t
 
 	# Keep debug marker aligned with dogfight aim point.
 	nav_waypoint = aim_point
@@ -2536,6 +9267,99 @@ func _state_dogfight(delta: float):
 		nav_target.global_position = maneuver_waypoint
 
 	var desired_bank: float = clampf(yaw_err_rad * 4.5, -deg_to_rad(max_bank_deg), deg_to_rad(max_bank_deg))
+	var los_rate_rad_s := _update_dogfight_los_rate(
+		delta,
+		aim_point - aim_reference_pos,
+		combat_target.get_instance_id()
+	)
+	var actual_track_rate_rad_s := _update_dogfight_track_rate(delta, own_vel)
+	var turn_rate_control_requested: bool = dogfight_assertive_turn_enabled \
+		and dogfight_turn_rate_bank_scheduler_enabled \
+		and not collision_avoiding
+	_dogfight_assertive_turn_yaw_error_deg = rad_to_deg(yaw_err_rad)
+	_dogfight_los_rate_deg_s = rad_to_deg(los_rate_rad_s)
+	_dogfight_commanded_turn_rate_deg_s = 0.0
+	if turn_rate_control_requested:
+		# A target may remain precisely on the sight while both aircraft sustain a hard turn.
+		# Heading error alone would incorrectly roll us level in that case, while the old 5-degree
+		# latch did the opposite and demanded 82 degrees for nearly every correction. Combine
+		# proportional error with measured LOS rotation, then ask for the bank whose lateral
+		# acceleration v*omega supplies that turn rate.
+		var desired_turn_rate_rad_s: float = yaw_err_rad \
+			* maxf(dogfight_turn_rate_heading_gain, 0.0) \
+			+ los_rate_rad_s * maxf(dogfight_turn_rate_los_feedforward, 0.0)
+		var turn_rate_limit_rad_s := deg_to_rad(maxf(dogfight_turn_rate_limit_deg_s, 1.0))
+		desired_turn_rate_rad_s = clampf(
+			desired_turn_rate_rad_s,
+			-turn_rate_limit_rad_s,
+			turn_rate_limit_rad_s
+		)
+		_dogfight_commanded_turn_rate_deg_s = rad_to_deg(desired_turn_rate_rad_s)
+		# The ideal coordinated-turn bank is useful feed-forward, but it cannot damp
+		# angular momentum by itself. The derivative of horizontal aim error is exactly
+		# LOS bearing rate minus our ground-track rate. Feed that derivative back into
+		# the bank schedule, so the pilot brakes when the nose is sweeping across the
+		# sightline too quickly. Comparing track rate against the full proportional
+		# command would multiply the heading gain as well and can excite the same weave.
+		var lateral_error_rate_rad_s: float = los_rate_rad_s - actual_track_rate_rad_s
+		var bank_command_rate_rad_s: float = desired_turn_rate_rad_s \
+			+ lateral_error_rate_rad_s * maxf(dogfight_turn_rate_feedback_gain, 0.0)
+		bank_command_rate_rad_s = clampf(
+			bank_command_rate_rad_s,
+			-turn_rate_limit_rad_s,
+			turn_rate_limit_rad_s
+		)
+		_dogfight_bank_command_rate_deg_s = rad_to_deg(bank_command_rate_rad_s)
+		var gravity_mps2: float = float(ProjectSettings.get_setting("physics/3d/default_gravity", 9.8))
+		var scheduled_bank_rad := atan2(
+			speed_mps * bank_command_rate_rad_s,
+			maxf(gravity_mps2, 0.1)
+		)
+		# A bank angle is only a useful sustained-turn command when the wing can
+		# support its vertical component.  Asking for (say) 80 degrees when the
+		# current dynamic pressure can make only 2G guarantees a repeating
+		# pull/stall/unload cycle.  Derive the limit from SimpleAero's own useful-AoA
+		# lift equation every frame, so the pilot uses all available lift without a
+		# fixed bank or G restriction and naturally shallows the turn as energy falls.
+		var sustainable_bank_rad := _get_dogfight_sustainable_bank_rad(speed_mps, b)
+		scheduled_bank_rad = clampf(
+			scheduled_bank_rad,
+			-sustainable_bank_rad,
+			sustainable_bank_rad
+		)
+		if not _dogfight_scheduled_bank_initialized:
+			_dogfight_scheduled_bank_rad = scheduled_bank_rad
+			_dogfight_scheduled_bank_initialized = true
+		elif dogfight_turn_rate_bank_response_hz > 0.0:
+			var bank_response_t := 1.0 - exp(-delta * dogfight_turn_rate_bank_response_hz)
+			_dogfight_scheduled_bank_rad = lerpf(
+				_dogfight_scheduled_bank_rad,
+				scheduled_bank_rad,
+				clampf(bank_response_t, 0.0, 1.0)
+			)
+		else:
+			_dogfight_scheduled_bank_rad = scheduled_bank_rad
+		# The response filter must not preserve a previously supportable steep bank
+		# after speed (and therefore lift capacity) has fallen.  Clamp the filtered
+		# state too; otherwise its stored 70-degree command can survive for seconds
+		# even though the live aerodynamic limit has already fallen into the 30s.
+		_dogfight_scheduled_bank_rad = clampf(
+			_dogfight_scheduled_bank_rad,
+			-sustainable_bank_rad,
+			sustainable_bank_rad
+		)
+		desired_bank = clampf(
+			_dogfight_scheduled_bank_rad,
+			-deg_to_rad(max_bank_deg),
+			deg_to_rad(max_bank_deg)
+		)
+	else:
+		_dogfight_scheduled_bank_initialized = false
+		_dogfight_bank_command_rate_deg_s = 0.0
+	# Keep one controller in charge through roll-out and low-speed recovery.  The
+	# former bank-threshold handoff dropped back into the legacy pitch-bias path
+	# precisely when the wing needed a stable unload and acceleration.
+	_dogfight_assertive_turn_active = turn_rate_control_requested
 	var straight_t: float = 0.0
 	var straight_t_effective: float = 0.0
 	if local_z > 0.2:
@@ -2559,9 +9383,13 @@ func _state_dogfight(delta: float):
 
 	# Inner loop: roll to desired bank.
 	var current_roll: float = atan2(b.x.y, b.y.y)
-	var inverted_recover: bool = b.y.y < -0.05
+	# Going inverted is a legitimate combat maneuver (roll the lift vector onto a target, split-S).
+	# Only force wings-upright recovery when we are NOT free-fighting -- i.e. low on energy, low to
+	# the ground, or rejoining -- where hanging inverted would be dangerous. While fighting freely we
+	# let it stay inverted and pull the nose through the target.
+	var inverted_recover: bool = b.y.y < -0.05 and not fighting_freely
 	if inverted_recover:
-		# Never level inverted: force wings back to upright first.
+		# Never level inverted when unsafe: force wings back to upright first.
 		desired_bank = 0.0
 	var bank_error: float = _normalize_angle(desired_bank - current_roll)
 	var roll_rate: float = aircraft.angular_velocity.dot(b.z)
@@ -2571,7 +9399,17 @@ func _state_dogfight(delta: float):
 
 	# Inner loop: pitch toward aim elevation with turn-load bias.
 	var pitch_rate_up: float = -aircraft.angular_velocity.dot(b.x)
-	var turn_pull_bias: float = clampf(absf(desired_bank) / deg_to_rad(maxf(max_bank_deg, 1.0)), 0.0, 1.0) * 0.22
+	var dogfight_turn_load_pitch: float = 0.0
+	if not inverted_recover and not in_rejoin:
+		dogfight_turn_load_pitch = _compute_turn_load_pitch_demand(
+			maxf(absf(desired_bank), absf(current_roll)),
+			dogfight_turn_load_target_g,
+			dogfight_turn_load_pitch_max,
+			dogfight_turn_load_start_bank_deg,
+			dogfight_turn_load_full_bank_deg,
+			dogfight_turn_load_feedback_gain
+		)
+	var turn_pull_bias: float = dogfight_turn_load_pitch
 	if local_z < -0.15:
 		turn_pull_bias += 0.15
 	var pitch_level_blend: float = clampf(dogfight_straight_level_pitch_blend, 0.0, 1.0)
@@ -2588,8 +9426,22 @@ func _state_dogfight(delta: float):
 		raw_pitch = clampf(raw_pitch, -0.55, 0.65)
 	else:
 		raw_pitch = clampf(raw_pitch, -0.75, 1.0)
-	var low_speed_t: float = clampf((dogfight_corner_speed_mps - speed_mps) / maxf(dogfight_corner_speed_mps, 1.0), 0.0, 1.0)
-	var low_speed_pitch_cap: float = lerpf(0.85, dogfight_low_speed_pitch_cap, low_speed_t)
+	# ENERGY DISCIPLINE: cap the pull to a SUSTAINABLE turn so a fast plane can't dump all its energy in
+	# one violent merge pull (the "both bleed 110->8 m/s and mutual-kill while stalled" bug -- strong
+	# induced drag under full pull = ~2g decel, 110->8 in a few seconds). The cap is highest near corner
+	# speed (pull hard where it's efficient) and REDUCES as speed climbs above corner (a fast plane
+	# shouldn't crank max-G -- that just bleeds energy), and also eases below corner (don't stall).
+	var low_speed_pitch_cap: float
+	if speed_mps <= dogfight_corner_speed_mps:
+		# Below corner: ease from the corner-speed cap down to the low-speed cap at the sustain floor.
+		var sustain_floor_mps: float = dogfight_corner_speed_mps * dogfight_sustain_turn_speed_frac
+		var lo_t: float = clampf((dogfight_corner_speed_mps - speed_mps) / maxf(dogfight_corner_speed_mps - sustain_floor_mps, 1.0), 0.0, 1.0)
+		low_speed_pitch_cap = lerpf(dogfight_high_speed_pitch_cap, dogfight_low_speed_pitch_cap, lo_t)
+	else:
+		# Above corner: reduce the cap as speed rises so the plane holds a sustainable-G turn near corner
+		# instead of hauling max-G at high speed and bleeding straight through to a stall.
+		var hi_t: float = clampf((speed_mps - dogfight_corner_speed_mps) / maxf(dogfight_corner_speed_mps * 0.8, 1.0), 0.0, 1.0)
+		low_speed_pitch_cap = lerpf(dogfight_high_speed_pitch_cap, dogfight_sustain_high_speed_pitch_cap, hi_t)
 	raw_pitch = clampf(raw_pitch, -0.6, low_speed_pitch_cap)
 	if altitude_agl < 80.0 and own_vel.y < 0.0:
 		raw_pitch = maxf(raw_pitch, 0.6)
@@ -2661,6 +9513,94 @@ func _state_dogfight(delta: float):
 	else:
 		_reset_dogfight_precise_controllers()
 
+	# Aiming elevation is allowed to shape the maneuver, but it must not erase nearly all lift while
+	# the roll controller is holding a committed combat bank. Low-speed caps and the global stall
+	# backstop still run after this and retain final authority to unload the aircraft.
+	var dogfight_turn_committed: bool = not inverted_recover \
+		and not in_rejoin \
+		and absf(desired_bank) >= deg_to_rad(maxf(dogfight_turn_load_start_bank_deg, 1.0)) \
+		and (absf(yaw_err_rad) > deg_to_rad(4.0) or local_z < 0.65)
+	if dogfight_turn_committed and dogfight_turn_load_pitch > 0.0:
+		raw_pitch = maxf(
+			raw_pitch,
+			dogfight_turn_load_pitch * clampf(dogfight_turn_load_pitch_floor_ratio, 0.0, 1.0)
+		)
+
+	# Bank remains an independent maneuver command. The coordinated controller supplies a stable
+	# load/vertical-path baseline, then the local-frame 2D aimer progressively takes pitch and rudder
+	# authority as the gun solution tightens. Do not overwrite precision aiming during a hard turn:
+	# a fighter must be able to hold steep bank, match the target's turn, and shoot simultaneously.
+	if _dogfight_assertive_turn_active:
+		# Cascaded bank/rate loop: bank error selects a roll rate, then the inner
+		# loop brakes actual angular velocity.  A single saturated bank-error command
+		# kept accelerating all the way toward the target and routinely coasted a
+		# 40-degree reversal through 90+ degrees before it could apply any braking.
+		# Scale that requested rate by the same speed envelope SimpleAero uses for
+		# control authority.  Near stall the ailerons retain only about one third of
+		# their normal torque; commanding the high-speed roll rate there creates
+		# angular momentum the weakened controls cannot arrest.
+		var roll_authority_scale: float = 1.0
+		if simple_aero != null and is_instance_valid(simple_aero):
+			var effective_stall_speed_mps: float = float(simple_aero.call("get_effective_stall_speed_mps")) \
+				if simple_aero.has_method("get_effective_stall_speed_mps") else stall_speed_mps
+			var full_authority_speed_mps: float = effective_stall_speed_mps \
+				* maxf(float(simple_aero.get("control_authority_full_stall_margin")), 1.05)
+			var taper_speed_mps: float = effective_stall_speed_mps * clampf(
+				float(simple_aero.get("control_authority_taper_stall_margin")),
+				1.0,
+				maxf(float(simple_aero.get("control_authority_full_stall_margin")) - 0.01, 1.0)
+			)
+			var authority_t: float = clampf(
+				(speed_mps - taper_speed_mps) / maxf(full_authority_speed_mps - taper_speed_mps, 1.0),
+				0.0,
+				1.0
+			)
+			roll_authority_scale = lerpf(
+				clampf(float(simple_aero.get("control_authority_stall_floor")), 0.05, 1.0),
+				1.0,
+				pow(authority_t, maxf(float(simple_aero.get("control_authority_curve")), 0.1))
+			)
+		var max_desired_roll_rate_rad_s: float = 1.20 * roll_authority_scale
+		var desired_roll_rate_rad_s := clampf(
+			bank_error * 2.5,
+			-max_desired_roll_rate_rad_s,
+			max_desired_roll_rate_rad_s
+		)
+		raw_roll = clampf(
+			(desired_roll_rate_rad_s - roll_rate) * 1.5,
+			-1.0,
+			1.0
+		)
+		# Follow the target in three dimensions. The old altitude-error law only ever
+		# requested +/-8 m/s and took about forty seconds to react, so a fighter above
+		# its target could keep circling while barely descending. The vertical component
+		# of the line-of-sight flight path gives a natural dive/climb request at the
+		# aircraft's current speed; the existing combat flight-path envelope remains the
+		# tactical limit.
+		var turn_path: Vector3 = aim_point - own_pos
+		var turn_desired_vs: float = 0.0
+		if turn_path.length_squared() > 1.0:
+			turn_desired_vs = clampf(
+				turn_path.normalized().y * speed_mps,
+				-maxf(dogfight_turn_vs_limit_mps, 1.0),
+				maxf(dogfight_turn_vs_limit_mps, 1.0)
+			)
+		var coordinated_turn: Dictionary = _compute_coordinated_turn_controls(
+			delta,
+			desired_bank,
+			turn_desired_vs,
+			dogfight_turn_load_target_g,
+			dogfight_simple_pursuit_enabled
+		)
+		var coordinated_pitch := float(coordinated_turn.get("pitch", 0.0))
+		var coordinated_yaw := float(coordinated_turn.get("yaw", 0.0))
+		var aim_axis_authority := pow(
+			clampf(precise_aim_t, 0.0, 1.0),
+			maxf(dogfight_precision_axis_authority_power, 0.05)
+		)
+		raw_pitch = lerpf(coordinated_pitch, raw_pitch, aim_axis_authority)
+		raw_yaw = lerpf(coordinated_yaw, raw_yaw, aim_axis_authority)
+
 	# Output with minimal smoothing. In the direct-control path, apply commands near-instantly.
 	var response_t: float = clampf(lerpf(0.93, 1.0, precise_aim_t), 0.0, 1.0)
 	roll_input = lerpf(_smoothed_roll_input, raw_roll, response_t)
@@ -2670,8 +9610,10 @@ func _state_dogfight(delta: float):
 	_smoothed_pitch_input = pitch_input
 	_smoothed_yaw_input = yaw_input
 
-	# Keep energy high in dogfight.
+	# Keep energy high in dogfight (full throttle); an energy tactic may also demand it explicitly.
 	throttle_input = 1.0
+	if tactic_throttle >= 0.0:
+		throttle_input = tactic_throttle
 	if in_rejoin:
 		target_speed = clampf(dogfight_rejoin_speed_mps, dogfight_min_speed_mps, dogfight_max_speed_mps)
 	else:
@@ -2694,9 +9636,13 @@ func _state_dogfight(delta: float):
 		aim_tof,
 		dist_to_target
 	)
-	# Don't shoot at medium/long range unless we're in precise-aim phase.
+	# Don't shoot at medium/long range unless we're in precise-aim phase. During a COMMITTED pass we
+	# relax this -- the whole point is to spray rounds through the target on the slashing merge, so
+	# extend the "close enough to fire on a decent solution" range to the full commit range.
 	var min_precise_fire_blend: float = clampf(dogfight_fire_precise_min_blend, 0.0, 1.0)
 	var precise_close_range_m: float = maxf(dogfight_fire_precise_close_range_m, 50.0)
+	if tactic_gun_commit:
+		precise_close_range_m = maxf(precise_close_range_m, dogfight_commit_range_m)
 	if precise_aim_t < min_precise_fire_blend and dist_to_target > precise_close_range_m:
 		fire_ok = false
 
@@ -2741,11 +9687,95 @@ func _state_dogfight(delta: float):
 		print("  inputs:   roll=%+5.2f  pitch=%+5.2f  yaw=%+5.2f  thr=%.2f  firing=%s" % [
 			roll_input, pitch_input, yaw_input, throttle_input, str(_dogfight_burst_active)])
 
+
+func _update_dogfight_los_rate(delta: float, world_aim_vector: Vector3, target_id: int) -> float:
+	var horizontal_aim := Vector2(world_aim_vector.x, world_aim_vector.z)
+	if delta <= 0.0001 or horizontal_aim.length_squared() < 0.0001:
+		return _dogfight_filtered_los_rate_rad_s
+	var bearing_rad := atan2(horizontal_aim.x, horizontal_aim.y)
+	if not _dogfight_los_rate_initialized or target_id != _dogfight_los_rate_target_id:
+		_dogfight_los_rate_initialized = true
+		_dogfight_los_rate_target_id = target_id
+		_dogfight_previous_los_bearing_rad = bearing_rad
+		_dogfight_filtered_los_rate_rad_s = 0.0
+		return 0.0
+	var bearing_delta_rad := _normalize_angle(bearing_rad - _dogfight_previous_los_bearing_rad)
+	_dogfight_previous_los_bearing_rad = bearing_rad
+	# Rail recycling, target replacement, and floating-origin shifts can move an aim point
+	# discontinuously. Treat that as a new observation rather than a several-thousand-deg/s
+	# target maneuver; heading error still commands the required turn toward its new location.
+	if absf(bearing_delta_rad) > deg_to_rad(maxf(dogfight_los_bearing_jump_reset_deg, 1.0)):
+		_dogfight_filtered_los_rate_rad_s = 0.0
+		return 0.0
+	var raw_los_rate_rad_s := bearing_delta_rad / delta
+	var rate_limit_rad_s := deg_to_rad(maxf(dogfight_turn_rate_limit_deg_s, 1.0))
+	raw_los_rate_rad_s = clampf(raw_los_rate_rad_s, -rate_limit_rad_s, rate_limit_rad_s)
+	var filter_t := 1.0 - exp(-maxf(delta, 0.0) * maxf(dogfight_los_rate_filter_hz, 0.1))
+	_dogfight_filtered_los_rate_rad_s = lerpf(
+		_dogfight_filtered_los_rate_rad_s,
+		raw_los_rate_rad_s,
+		filter_t
+	)
+	return _dogfight_filtered_los_rate_rad_s
+
+
+func _update_dogfight_track_rate(delta: float, world_velocity: Vector3) -> float:
+	var horizontal_velocity := Vector2(world_velocity.x, world_velocity.z)
+	if delta <= 0.0001 or horizontal_velocity.length_squared() < 1.0:
+		return _dogfight_filtered_track_rate_rad_s
+	var track_bearing_rad := atan2(horizontal_velocity.x, horizontal_velocity.y)
+	if not _dogfight_track_rate_initialized:
+		_dogfight_track_rate_initialized = true
+		_dogfight_previous_track_bearing_rad = track_bearing_rad
+		_dogfight_filtered_track_rate_rad_s = 0.0
+		_dogfight_actual_track_rate_deg_s = 0.0
+		return 0.0
+	var bearing_delta_rad := _normalize_angle(
+		track_bearing_rad - _dogfight_previous_track_bearing_rad
+	)
+	_dogfight_previous_track_bearing_rad = track_bearing_rad
+	var raw_track_rate_rad_s := bearing_delta_rad / delta
+	# A real aircraft may transiently exceed the tactical command limit, so retain
+	# enough measurement range for the feedback loop to brake it rather than hiding
+	# the overspeed behind the command clamp.
+	var measurement_limit_rad_s := deg_to_rad(maxf(dogfight_turn_rate_limit_deg_s, 1.0) * 2.0)
+	raw_track_rate_rad_s = clampf(
+		raw_track_rate_rad_s,
+		-measurement_limit_rad_s,
+		measurement_limit_rad_s
+	)
+	var filter_t := 1.0 - exp(
+		-maxf(delta, 0.0) * maxf(dogfight_track_rate_filter_hz, 0.1)
+	)
+	_dogfight_filtered_track_rate_rad_s = lerpf(
+		_dogfight_filtered_track_rate_rad_s,
+		raw_track_rate_rad_s,
+		filter_t
+	)
+	_dogfight_actual_track_rate_deg_s = rad_to_deg(_dogfight_filtered_track_rate_rad_s)
+	return _dogfight_filtered_track_rate_rad_s
+
 func _reset_dogfight_precise_controllers() -> void:
 	if _dogfight_precise_yaw_controller:
 		_dogfight_precise_yaw_controller.reset()
 	if _dogfight_precise_pitch_controller:
 		_dogfight_precise_pitch_controller.reset()
+
+func _reset_dogfight_los_rate() -> void:
+	_dogfight_los_rate_initialized = false
+	_dogfight_los_rate_target_id = 0
+	_dogfight_previous_los_bearing_rad = 0.0
+	_dogfight_filtered_los_rate_rad_s = 0.0
+	_dogfight_commanded_turn_rate_deg_s = 0.0
+	_dogfight_los_rate_deg_s = 0.0
+	_dogfight_actual_track_rate_deg_s = 0.0
+	_dogfight_bank_command_rate_deg_s = 0.0
+	_dogfight_track_rate_initialized = false
+	_dogfight_previous_track_bearing_rad = 0.0
+	_dogfight_filtered_track_rate_rad_s = 0.0
+	_dogfight_precise_aim_blend = 0.0
+	_dogfight_scheduled_bank_rad = 0.0
+	_dogfight_scheduled_bank_initialized = false
 
 func _clear_dogfight_lost_sight_behavior() -> void:
 	_dogfight_lost_sight_behavior = DogfightLostSightBehavior.EFFICIENT
@@ -2839,6 +9869,57 @@ func _find_alternate_dogfight_target() -> Node3D:
 			best_target = enemy_node
 	return best_target
 
+func _air_target_effective_distance(enemy: Node3D) -> float:
+	"""Tactical 'effective distance' for a dogfight target -- LOWER is more attractive. Starts from real
+	distance, then subtracts bonuses so a THREAT on our tail or an OPPORTUNITY dead ahead scores better
+	than a merely-closer bandit. This is what lets a pilot switch off its first pick to the guy shooting
+	it, or to an easy kill in front, instead of fixating."""
+	var own_pos: Vector3 = aircraft.global_position
+	var b: Basis = aircraft.global_transform.basis
+	var to_enemy: Vector3 = enemy.global_position - own_pos
+	var dist: float = to_enemy.length()
+	if dist < 1.0:
+		return 0.0
+	var dir: Vector3 = to_enemy / dist
+	var score: float = dist
+	# OPPORTUNITY: enemy ahead of us, near our nose (low deflection = easy gun kill). +bonus scaled by
+	# how well our nose already points at it.
+	var ahead_dot: float = dir.dot(b.z)   # +1 = dead ahead
+	if ahead_dot > 0.3:
+		score -= dogfight_retarget_opportunity_weight * clampf((ahead_dot - 0.3) / 0.7, 0.0, 1.0)
+	# THREAT: enemy behind us AND pointing at us (on our 6, a gun threat). Prioritize dealing with it.
+	if ahead_dot < -0.1 and (enemy is Node3D) and "linear_velocity" in enemy:
+		var evel: Vector3 = enemy.linear_velocity
+		if evel.length() > 5.0:
+			var enemy_aim_dot: float = (-dir).dot(evel.normalized())  # enemy's nose pointing back at us
+			if enemy_aim_dot > 0.4:
+				score -= dogfight_retarget_threat_weight * clampf((enemy_aim_dot - 0.4) / 0.6, 0.0, 1.0)
+	return score
+
+func _find_best_air_target() -> Node3D:
+	"""Pick the most tactically valuable enemy aircraft (lowest effective distance), respecting awareness."""
+	if not dogfight_smart_retarget_enabled:
+		return _find_nearest_enemy_aircraft_target()
+	var best: Node3D = null
+	var best_score: float = INF
+	for enemy in known_enemies:
+		if not is_instance_valid(enemy) or not (enemy is Node3D):
+			continue
+		var enemy_node: Node3D = enemy as Node3D
+		if not _is_enemy_aircraft_target(enemy_node):
+			continue
+		if not _is_within_engagement_radius(enemy_node):
+			continue
+		var d_know: float = aircraft.global_position.distance_to(enemy_node.global_position)
+		if dogfight_situational_awareness_enabled and d_know > dogfight_knife_fight_range_m \
+				and _get_enemy_awareness(enemy_node) < dogfight_awareness_engage_threshold:
+			continue
+		var s: float = _air_target_effective_distance(enemy_node)
+		if s < best_score:
+			best_score = s
+			best = enemy_node
+	return best
+
 func _should_switch_dogfight_target(current_target: Variant, candidate: Variant) -> bool:
 	if candidate == null or not is_instance_valid(candidate) or not (candidate is Node3D):
 		return false
@@ -2848,15 +9929,53 @@ func _should_switch_dogfight_target(current_target: Variant, candidate: Variant)
 		return false
 	var current_node := current_target as Node3D
 	var candidate_node := candidate as Node3D
+	if dogfight_smart_retarget_enabled:
+		# Switch only if the candidate is clearly better tactically (threat/opportunity aware), with
+		# hysteresis so we don't flip-flop between two similar bandits every retarget tick.
+		var current_score: float = _air_target_effective_distance(current_node)
+		var candidate_score: float = _air_target_effective_distance(candidate_node)
+		return candidate_score + maxf(dogfight_retarget_switch_hysteresis, 0.0) < current_score
 	var current_dist: float = aircraft.global_position.distance_to(current_node.global_position)
 	var candidate_dist: float = aircraft.global_position.distance_to(candidate_node.global_position)
 	return candidate_dist + maxf(dogfight_retarget_advantage_m, 0.0) < current_dist
+
+func _update_dogfight_terrain_floor(delta: float, own_pos: Vector3, own_vel: Vector3, target_pos: Vector3, target_vel: Vector3) -> void:
+	# Refresh on a timer, not every frame -- cheap enough to call often but the target moves fast enough
+	# that recomputing every physics tick would buy nothing over a few-times-a-second refresh.
+	_dogfight_terrain_floor_timer_s -= delta
+	if _dogfight_terrain_floor_timer_s > 0.0:
+		return
+	_dogfight_terrain_floor_timer_s = maxf(dogfight_terrain_floor_refresh_s, 0.05)
+
+	var lookahead_s: float = maxf(dogfight_terrain_floor_lookahead_s, 0.5)
+	var own_speed: float = maxf(own_vel.length(), dogfight_min_speed_mps)
+	# Sample toward where the FIGHT is actually heading -- the midpoint between our own projected
+	# position and the target's projected position -- so the floor covers the ground the merge is
+	# about to cross, not just our current heading (which the aim-point logic may override this frame).
+	var own_projected: Vector3 = own_pos + own_vel * lookahead_s
+	var target_projected: Vector3 = target_pos + target_vel * lookahead_s
+	var probe_end: Vector3 = own_projected.lerp(target_projected, 0.5)
+	var probe_distance_m: float = own_pos.distance_to(probe_end)
+	if probe_distance_m < 50.0:
+		# Merge is essentially co-located already; nothing new to learn from a near-zero-length probe.
+		_dogfight_terrain_floor_y = -INF
+		return
+	var samples: int = clampi(int(ceil(probe_distance_m / 250.0)), 4, 16)
+	var terrain_max_y: float = _sample_max_terrain_height_along_path(own_pos, probe_end, samples)
+	_dogfight_terrain_floor_y = terrain_max_y + dogfight_ground_protect_agl_m if not is_nan(terrain_max_y) else -INF
 
 func _compute_dogfight_collision_avoidance(target_pos: Vector3, target_vel: Vector3, own_pos: Vector3, own_vel: Vector3) -> Vector3:
 	"""Predict close pass and return an avoidance waypoint when needed."""
 	var rel_pos: Vector3 = target_pos - own_pos
 	var rel_vel: Vector3 = target_vel - own_vel
 	var rel_speed_sq: float = rel_vel.length_squared()
+
+	# Hard proximity floor: fires on ACTUAL current separation regardless of relative velocity, so a
+	# co-speed tail chase / scissors that has curved into near-contact still breaks away even though a
+	# linear closure projection sees little or no danger.
+	if rel_pos.length() <= maxf(dogfight_collision_hard_floor_m, 1.0):
+		return _build_dogfight_collision_avoid_waypoint(rel_vel, own_pos, own_vel)
+
 	if rel_speed_sq < 1.0:
 		return Vector3.ZERO
 
@@ -2864,11 +9983,24 @@ func _compute_dogfight_collision_avoidance(target_pos: Vector3, target_vel: Vect
 	var t_cpa: float = clampf(-rel_pos.dot(rel_vel) / rel_speed_sq, 0.0, horizon)
 	var sep_vec: Vector3 = rel_pos + rel_vel * t_cpa
 	var sep_dist: float = sep_vec.length()
-	if sep_dist > dogfight_collision_min_sep_m:
+	# HEAD-ON MERGE: the fixed 130m bubble is far too tight for a nose-to-nose pass -- at ~200 m/s closure
+	# that's 0.65s to impact, too late to break a hard-turning jet clear (they were colliding on the merge).
+	# Scale the required separation with CLOSURE SPEED so a fast head-on triggers the break much earlier
+	# (bigger bubble = more room to maneuver), while a slow co-speed tail chase keeps the tight threshold.
+	var closure_speed: float = sqrt(rel_speed_sq)
+	var effective_min_sep: float = maxf(dogfight_collision_min_sep_m, closure_speed * dogfight_collision_closure_lead_s)
+	if sep_dist > effective_min_sep:
 		return Vector3.ZERO
 
-	# Build an orthogonal break direction away from closure line.
-	var closure_dir: Vector3 = rel_vel.normalized()
+	return _build_dogfight_collision_avoid_waypoint(rel_vel, own_pos, own_vel)
+
+func _build_dogfight_collision_avoid_waypoint(rel_vel: Vector3, own_pos: Vector3, own_vel: Vector3) -> Vector3:
+	# Build an orthogonal break direction away from closure line. When relative velocity is near zero
+	# (co-speed chase/scissors -- the case the hard proximity floor exists for), rel_vel has no reliable
+	# direction, so fall back to our own heading/velocity instead of normalizing a near-zero vector.
+	var closure_dir: Vector3 = rel_vel.normalized() if rel_vel.length_squared() > 1.0 else own_vel.normalized()
+	if closure_dir.length() < 0.1:
+		closure_dir = aircraft.global_transform.basis.z.normalized()
 	var lateral: Vector3 = closure_dir.cross(Vector3.UP).normalized()
 	if lateral.length() < 0.1:
 		lateral = aircraft.global_transform.basis.x.normalized()
@@ -2940,9 +10072,78 @@ func _get_selected_control_weapon_type() -> String:
 	var selected = control_weapons.get("selected_weapon_type")
 	return "" if selected == null else String(selected)
 
+func _is_direct_fire_attack_weapon_type(weapon_type: String) -> bool:
+	return not weapon_type.is_empty() \
+		and weapon_type != "Bomb" \
+		and weapon_type != "Rocket Pod" \
+		and weapon_type != "AAMissile"
+
+
+func _is_strafing_ground_attack_weapon_type(weapon_type: String) -> bool:
+	return weapon_type == "Rocket Pod" or _is_direct_fire_attack_weapon_type(weapon_type)
+
 func _set_selected_control_weapon_type(weapon_type: String) -> void:
-	if control_weapons:
-		control_weapons.set("selected_weapon_type", weapon_type)
+	if not control_weapons or not is_instance_valid(control_weapons):
+		return
+	var weapon_types_value = control_weapons.get("weapon_types")
+	var weapon_types: Array = weapon_types_value if weapon_types_value is Array else []
+	var selected_index: int = weapon_types.find(weapon_type)
+	if selected_index < 0 and control_weapons.has_method("categorize_weapons"):
+		control_weapons.call("categorize_weapons")
+		weapon_types_value = control_weapons.get("weapon_types")
+		weapon_types = weapon_types_value if weapon_types_value is Array else []
+		selected_index = weapon_types.find(weapon_type)
+	if selected_index < 0:
+		return
+	control_weapons.set("selected_weapon_type_index", selected_index)
+	control_weapons.set("selected_weapon_type", weapon_type)
+
+
+func _sync_ai_combat_selection_to_aircraft() -> void:
+	# The pilot's combat_target is the authoritative tactical selection. The normal
+	# targeting module is what the HUD, radar, MFD and instrument panel read, so keep
+	# it on the same object instead of letting its independent auto-selector display
+	# a different contact.
+	if aircraft == null or not is_instance_valid(aircraft):
+		return
+	if control_targeting == null or not is_instance_valid(control_targeting):
+		control_targeting = _find_module(aircraft, "ControlTargeting")
+	if control_targeting != null and is_instance_valid(control_targeting):
+		control_targeting.set("auto_target_when_none", false)
+		control_targeting.set("auto_replace_target", false)
+		var selected_target: Node3D = combat_target if combat_target is Node3D and is_instance_valid(combat_target) else null
+		var displayed_target = control_targeting.get("current_target")
+		if displayed_target != selected_target:
+			if control_targeting.has_method("set_target"):
+				control_targeting.call("set_target", selected_target)
+			else:
+				control_targeting.set("current_target", selected_target)
+
+	# _run_weapon_type is the weapon the state machine is preparing or firing. Reassert
+	# it after UI/input modules have run so both the string and index describe the AI's
+	# real selection.
+	if not _run_weapon_type.is_empty():
+		_set_selected_control_weapon_type(_run_weapon_type)
+
+func set_ground_attack_forced_weapon_type(weapon_type: String) -> void:
+	ground_attack_forced_weapon_type = weapon_type
+
+func _get_forced_ground_attack_weapon_type() -> String:
+	if not control_weapons:
+		return ""
+	var requested: String = ground_attack_forced_weapon_type.strip_edges()
+	if requested.is_empty():
+		return ""
+	var types: Array = _get_control_weapon_types()
+	if requested == "Bomb" and types.has("Bomb"):
+		return "Bomb"
+	if requested == "Rocket Pod" and types.has("Rocket Pod"):
+		return "Rocket Pod"
+	if requested == "Guns" or requested == "Autocannon":
+		return _choose_non_bomb_weapon_type()
+	if types.has(requested):
+		return requested
+	return ""
 
 func _select_dogfight_weapon(dist_to_target: float, target_in_sight: bool, to_target_dir: Vector3) -> void:
 	"""Choose weapon for dogfight. Use missiles opportunistically, otherwise stay on guns."""
@@ -3053,7 +10254,8 @@ func _get_selected_gun_muzzle_velocity() -> float:
 		if not hp or not hp.weapon_instance:
 			continue
 		var wname: String = String(hp.weapon_instance.weapon_name)
-		if wname != selected:
+		var wcategory: String = String(hp.weapon_instance.weapon_category)
+		if wname != selected and wcategory != selected:
 			continue
 		if "muzzle_velocity" in hp.weapon_instance:
 			selected_muzzle_velocity_mps = maxf(float(hp.weapon_instance.muzzle_velocity), 50.0)
@@ -3071,7 +10273,8 @@ func _get_selected_gun_max_range_m() -> float:
 		if not hp or not hp.weapon_instance:
 			continue
 		var wname: String = String(hp.weapon_instance.weapon_name)
-		if wname != selected:
+		var wcategory: String = String(hp.weapon_instance.weapon_category)
+		if wname != selected and wcategory != selected:
 			continue
 		var range_variant: Variant = hp.weapon_instance.get("max_range_m")
 		if typeof(range_variant) in [TYPE_FLOAT, TYPE_INT]:
@@ -3079,6 +10282,32 @@ func _get_selected_gun_max_range_m() -> float:
 	if best_range_m > 0.0:
 		return best_range_m
 	return INF
+
+func _get_selected_gun_reachable_range_m(target_direction: Vector3 = Vector3.ZERO) -> float:
+	var nominal_range_m: float = _get_selected_gun_max_range_m()
+	if not is_finite(nominal_range_m):
+		return INF
+
+	var muzzle_speed_mps: float = _get_selected_gun_muzzle_velocity()
+	var projectile_lifetime_s: float = nominal_range_m / maxf(muzzle_speed_mps, 1.0)
+	var mount_info: Dictionary = _get_selected_weapon_mount_info()
+	var muzzle_origin: Vector3 = mount_info.get("origin", aircraft.global_position)
+	var muzzle_forward: Vector3 = mount_info.get("forward", aircraft.global_transform.basis.z)
+	if muzzle_forward.length_squared() < 0.001:
+		muzzle_forward = aircraft.global_transform.basis.z
+	muzzle_forward = muzzle_forward.normalized()
+
+	# Match Bullet.fire(): muzzle velocity plus the firing platform's velocity at the
+	# hardpoint. Include gravity because it contributes useful downrange displacement
+	# on a strafing dive. Projecting onto the target line avoids claiming sideways
+	# aircraft velocity as extra firing range.
+	var initial_world_velocity: Vector3 = muzzle_forward * muzzle_speed_mps \
+		+ _get_point_velocity_at_world_position(muzzle_origin)
+	var displacement: Vector3 = initial_world_velocity * projectile_lifetime_s \
+		+ 0.5 * _get_world_gravity_vector() * projectile_lifetime_s * projectile_lifetime_s
+	if target_direction.length_squared() > 0.001:
+		return maxf(displacement.dot(target_direction.normalized()), 0.0)
+	return displacement.length()
 
 func _get_effective_projectile_speed_mps(nominal_speed_mps: float) -> float:
 	var speed_cap_mps: float = _get_projectile_linear_speed_cap_mps()
@@ -3232,12 +10461,12 @@ func _predict_ballistic_aim_solution(shooter_pos: Vector3, shooter_vel: Vector3,
 	if best_t <= 0.0:
 		best_t = distance_estimate / muzzle_speed
 	best_t = clampf(best_t, min_tof, solver_max_tof)
-	var best_intercept: Vector3 = target_pos + target_vel * best_t
+	var best_intercept: Vector3 = _predict_target_future_pos(target_pos, target_vel, best_t)
 	var best_muzzle_vec: Vector3 = Vector3.ZERO
 
 	# Refine time-of-flight with gravity by matching required muzzle speed.
 	for _i in range(5):
-		var future_target: Vector3 = target_pos + target_vel * best_t
+		var future_target: Vector3 = _predict_target_future_pos(target_pos, target_vel, best_t)
 		var required_muzzle_vec: Vector3 = (future_target - shooter_pos - shooter_vel * best_t - 0.5 * gravity_vec * best_t * best_t) / best_t
 		var required_speed: float = required_muzzle_vec.length()
 		if required_speed <= 0.0001:
@@ -3270,6 +10499,26 @@ func _predict_ballistic_aim_solution(shooter_pos: Vector3, shooter_vel: Vector3,
 		"tof": best_t,
 	}
 
+func _predict_target_future_pos(target_pos: Vector3, target_vel: Vector3, t: float) -> Vector3:
+	"""Where the target will be at time t. Straight-line if we have no turn estimate; otherwise propagate
+	along the estimated turn ARC (rotate the velocity vector about the turn axis over t) so the lead
+	curves with a jinking bandit instead of flying off tangent."""
+	if not dogfight_curved_lead_enabled or not _lead_track_valid or _lead_track_turn_rate <= 0.02 \
+			or _lead_track_turn_axis.length_squared() < 0.5:
+		return target_pos + target_vel * t
+	var rate: float = _lead_track_turn_rate
+	var axis: Vector3 = _lead_track_turn_axis
+	# Integrate position along a constant-rate turn: sample a few sub-steps and rotate velocity each step.
+	# (Closed form is a circular arc; sub-stepping is robust and cheap for the short TOF involved.)
+	var steps: int = 4
+	var dt: float = t / float(steps)
+	var pos: Vector3 = target_pos
+	var v: Vector3 = target_vel
+	for _i in range(steps):
+		v = v.rotated(axis, rate * dt)
+		pos += v * dt
+	return pos
+
 func _predict_lead_point(shooter_pos: Vector3, shooter_vel: Vector3, target_pos: Vector3, target_vel: Vector3, projectile_speed: float) -> Vector3:
 	"""First-order interception point for constant-velocity target."""
 	var rel_pos: Vector3 = target_pos - shooter_pos
@@ -3299,7 +10548,7 @@ func _predict_lead_point(shooter_pos: Vector3, shooter_vel: Vector3, target_pos:
 
 	if t <= 0.0:
 		t = rel_pos.length() / effective_projectile_speed
-	return target_pos + target_vel * t
+	return _predict_target_future_pos(target_pos, target_vel, t)
 
 func _predict_dogfight_projectile_position(shooter_pos: Vector3, shooter_vel: Vector3, aim_dir: Vector3, muzzle_velocity: float, tof: float) -> Vector3:
 	return shooter_pos \
@@ -3318,22 +10567,39 @@ func _dogfight_has_good_fire_solution(
 	tof: float,
 	dist_to_target: float
 ) -> bool:
+	_dogfight_last_hit_chance = 0.0
+	_dogfight_fire_block_reason = "not_evaluated"
+	_dogfight_fire_range_m = dist_to_target
+	_dogfight_fire_aim_dot = -1.0
+	_dogfight_fire_required_dot = 1.0
+	_dogfight_fire_miss_radius_m = INF
+	_dogfight_fire_hit_envelope_m = 0.0
+	_dogfight_fire_hit_chance = 0.0
+	_dogfight_fire_required_hit_chance = 1.0
+	_dogfight_fire_tof_s = tof
+	_dogfight_fire_max_tof_s = 0.0
 	if _get_selected_control_weapon_type() == "AAMissile":
 		for hp in _get_control_weapon_hardpoints():
 			if hp and hp.weapon_instance and hp.weapon_instance.weapon_name == "AAMissile":
-				return hp.weapon_instance.can_fire()
+				var missile_ready: bool = hp.weapon_instance.can_fire()
+				_dogfight_fire_block_reason = "ready" if missile_ready else "missile_not_ready"
+				return missile_ready
+		_dogfight_fire_block_reason = "no_missile"
 		return false
 	
 	var gun_max_range_m: float = _get_selected_gun_max_range_m()
 	if is_finite(gun_max_range_m) and dist_to_target > gun_max_range_m:
+		_dogfight_fire_block_reason = "gun_range"
 		return false
 	var darkness: float = _get_ai_darkness_factor()
 	var effective_dogfight_max_range_m: float = dogfight_max_range_m * lerpf(1.0, night_dogfight_max_range_multiplier, darkness)
 	if dist_to_target > effective_dogfight_max_range_m:
+		_dogfight_fire_block_reason = "dogfight_range"
 		return false
 	var to_aim: Vector3 = aim_point - shooter_pos
 	var aim_dist: float = to_aim.length()
 	if aim_dist < 1.0:
+		_dogfight_fire_block_reason = "invalid_aim"
 		return false
 	var aim_dir: Vector3 = to_aim / aim_dist
 	var fwd: Vector3 = muzzle_forward.normalized()
@@ -3353,8 +10619,9 @@ func _dogfight_has_good_fire_solution(
 	)
 	required_hit_chance = clampf(required_hit_chance + night_fire_hit_chance_bonus * darkness, 0.0, 0.98)
 	var dot: float = clampf(fwd.dot(aim_dir), -1.0, 1.0)
-	if dot < required_dot:
-		return false
+	_dogfight_fire_aim_dot = dot
+	_dogfight_fire_required_dot = required_dot
+	_dogfight_fire_required_hit_chance = required_hit_chance
 
 	var predicted_impact: Vector3 = _predict_dogfight_projectile_position(
 		shooter_pos,
@@ -3367,15 +10634,64 @@ func _dogfight_has_good_fire_solution(
 	var spread_radius: float = tan(deg_to_rad(maxf(spread_deg, 0.1))) * shooter_pos.distance_to(predicted_impact)
 	var hit_envelope: float = dogfight_target_radius_m + spread_radius
 	var hit_chance: float = clampf(1.0 - (miss_radius / maxf(hit_envelope, 0.1)), 0.0, 1.0)
+	_dogfight_fire_miss_radius_m = miss_radius
+	_dogfight_fire_hit_envelope_m = hit_envelope
+	_dogfight_fire_hit_chance = hit_chance
 
 	# Also require finite bullet time-of-flight to avoid very stale lead.
 	var max_tof: float = maxf(dogfight_fire_max_tof_s * lerpf(1.0, night_fire_max_tof_multiplier, darkness), 0.1)
-	return hit_chance >= required_hit_chance and tof <= max_tof
+	_dogfight_fire_max_tof_s = max_tof
+	var solution_ok: bool = dot >= required_dot and hit_chance >= required_hit_chance and tof <= max_tof
+	if solution_ok:
+		_dogfight_fire_block_reason = "ready"
+	elif dot < required_dot:
+		_dogfight_fire_block_reason = "aim_dot"
+	elif hit_chance < required_hit_chance:
+		_dogfight_fire_block_reason = "miss_radius"
+	else:
+		_dogfight_fire_block_reason = "time_of_flight"
+	# Remember the computed hit chance so the burst logic can HOLD THE TRIGGER on a strong, sustained
+	# solution instead of pulsing on the fixed burst/cooldown cadence.
+	_dogfight_last_hit_chance = hit_chance if solution_ok else 0.0
+	if debug_enabled and verbose_debug_enabled and Engine.get_process_frames() % 30 == 0:
+		print("  firesol:  dot=%.4f/%.4f  miss=%.1fm  env=%.1fm  hitch=%.2f/%.2f  tof=%.2f -> %s" % [
+			dot, required_dot, miss_radius, hit_envelope, hit_chance, required_hit_chance, tof, str(solution_ok)])
+	return solution_ok
+
+func get_dogfight_gunnery_metrics() -> Dictionary:
+	## Continuous fire-solution telemetry for deterministic tuning and diagnostics.
+	## These values deliberately describe geometry even while the trigger is gated.
+	return {
+		"block_reason": _dogfight_fire_block_reason,
+		"range_m": _dogfight_fire_range_m,
+		"aim_dot": _dogfight_fire_aim_dot,
+		"required_dot": _dogfight_fire_required_dot,
+		"miss_radius_m": _dogfight_fire_miss_radius_m,
+		"hit_envelope_m": _dogfight_fire_hit_envelope_m,
+		"hit_chance": _dogfight_fire_hit_chance,
+		"required_hit_chance": _dogfight_fire_required_hit_chance,
+		"tof_s": _dogfight_fire_tof_s,
+		"max_tof_s": _dogfight_fire_max_tof_s,
+		"precise_aim_blend": _dogfight_precise_aim_blend,
+		"commanded_turn_rate_deg_s": _dogfight_commanded_turn_rate_deg_s,
+		"actual_track_rate_deg_s": _dogfight_actual_track_rate_deg_s,
+		"bank_command_rate_deg_s": _dogfight_bank_command_rate_deg_s,
+		"los_rate_deg_s": _dogfight_los_rate_deg_s,
+		"scheduled_bank_deg": rad_to_deg(_dogfight_scheduled_bank_rad),
+		"target_load_g": _coordinated_turn_target_g,
+		"available_load_g": _coordinated_turn_available_g,
+		"target_aoa_deg": _coordinated_turn_target_aoa_deg,
+		"desired_vertical_speed_mps": _coordinated_turn_desired_vertical_speed_mps,
+		"vertical_speed_mps": aircraft.linear_velocity.y if aircraft and is_instance_valid(aircraft) else 0.0,
+		"fire_solution_good": _dogfight_fire_block_reason == "ready",
+	}
 
 func _update_dogfight_burst_timers(delta: float, fire_solution_good: bool) -> void:
 	_dogfight_burst_timer_s = maxf(0.0, _dogfight_burst_timer_s - delta)
 	_dogfight_burst_cooldown_timer_s = maxf(0.0, _dogfight_burst_cooldown_timer_s - delta)
 
+	# Strong, sustained solution -> hold the trigger (skip the post-burst cooldown, refresh the burst).
+	var sustained: bool = _dogfight_last_hit_chance >= dogfight_sustained_fire_hit_chance
 	if _dogfight_burst_active:
 		if not fire_solution_good:
 			_dogfight_burst_active = false
@@ -3383,8 +10699,13 @@ func _update_dogfight_burst_timers(delta: float, fire_solution_good: bool) -> vo
 			_dogfight_burst_cooldown_timer_s = maxf(_dogfight_burst_cooldown_timer_s, dogfight_burst_cooldown_s)
 			return
 		if _dogfight_burst_timer_s <= 0.0:
-			_dogfight_burst_active = false
-			_dogfight_burst_cooldown_timer_s = dogfight_burst_cooldown_s
+			if sustained:
+				# Keep firing: refresh the burst, no cooldown. Finger stays on the trigger.
+				_dogfight_burst_timer_s = dogfight_fire_burst_s
+			else:
+				# Marginal shot -> controlled burst: stop and cool down before the next.
+				_dogfight_burst_active = false
+				_dogfight_burst_cooldown_timer_s = dogfight_burst_cooldown_s
 		return
 
 	if fire_solution_good and _dogfight_burst_cooldown_timer_s <= 0.0:
@@ -3426,6 +10747,26 @@ func _fire_one_weapon_of_type_with_result(weapon_type: String) -> bool:
 			return true
 	return false
 
+func _ground_target_health_favors_bomb(target: Variant) -> bool:
+	# Soft weapon-selection hint: a target still near full health is a poor match for a gun/rocket pass
+	# that will only chip a fraction off it and require several more circuits -- send the bomb instead.
+	# A target already worn down doesn't need the heavier ordnance; a gun/rocket finish is faster and
+	# doesn't burn a bomb pilots may want later. Falls through to the existing preference (bombs first
+	# with a one-run rocket fallback after a failed pass) whenever health can't be read.
+	var node: Node3D = _sanitize_ground_attack_target(target)
+	if node == null or not is_instance_valid(node):
+		return false
+	var current_health_variant: Variant = node.get("current_health")
+	var max_health_variant: Variant = node.get("max_health")
+	if typeof(current_health_variant) not in [TYPE_FLOAT, TYPE_INT] \
+			or typeof(max_health_variant) not in [TYPE_FLOAT, TYPE_INT]:
+		return false
+	var max_health: float = float(max_health_variant)
+	if max_health <= 0.0:
+		return false
+	var health_frac: float = clampf(float(current_health_variant) / max_health, 0.0, 1.0)
+	return health_frac >= ground_target_bomb_health_frac_threshold
+
 func _plan_attack_run_weapon() -> void:
 	"""Choose one weapon profile for this run. Prefer bombs when available."""
 	# Capture outcome of the previous run before resetting
@@ -3445,11 +10786,22 @@ func _plan_attack_run_weapon() -> void:
 	_rockets_to_fire_this_run = 0
 	_rockets_fired_this_run = 0
 	_last_rocket_fire_time_s = -INF
+	_rocket_volley_control_hold_active = false
 	_prev_ccip_miss = INF
+	_prev_rocket_ccip_miss = INF
 	_ccip_cache_timer = 0.0
 	_ccip_cached_result = Vector3.ZERO
 	_ccip_cached_tof_s = -1.0
+	_ccip_cached_blocked = false
+	_ccip_cached_block_reason = ""
+	_rocket_ccip_cached_hit_target = false
+	_rocket_ccip_cached_damage_radius_m = 0.0
 	_best_bomb_ccip_miss_this_run = INF
+	_best_rocket_ccip_miss_this_run = INF
+	_last_rocket_release_reason = ""
+	_last_rocket_release_block_reason = ""
+	_last_rocket_release_miss_m = INF
+	_last_rocket_release_best_miss_m = INF
 	_reset_release_solution_stability()
 	if not control_weapons:
 		return
@@ -3468,11 +10820,45 @@ func _plan_attack_run_weapon() -> void:
 					str(hp.weapon_instance.get("ammo_count")),
 					str(hp.weapon_instance.can_fire())])
 
+	# A configured rotation owns the per-pass choice. Geometry rebuilds call the setup
+	# routine with plan_new_weapon=false, so retries cannot consume rotation entries or
+	# reset the active salvo counters.
+	if _plan_rotating_ground_attack_weapon(bomb_ready, rockets_ready):
+		if debug_enabled:
+			print("[WEAPON SELECT] -> %s (rotation) bombs_planned=%d rockets_planned=%d" % [
+				_run_weapon_type, _bombs_to_drop_this_run, _rockets_to_fire_this_run])
+		_set_selected_control_weapon_type(_run_weapon_type)
+		return
+
 	# Keep preferring bombs against the carrier so strike aircraft actually shed their heavy payloads.
 	# For non-carrier targets, still allow a one-run fallback to rockets after a failed bomb pass.
-	var force_bombs_for_target: bool = _is_carrier_attack_target(combat_target)
+	var forced_weapon_type: String = _get_forced_ground_attack_weapon_type()
+	var force_bombs_for_target: bool = _is_carrier_attack_target(combat_target) \
+		or _ground_target_health_favors_bomb(combat_target)
 	var allow_bomb_run: bool = bomb_ready > 0 and (force_bombs_for_target or not _prev_run_was_failed_bomb)
-	if allow_bomb_run:
+	if forced_weapon_type == "Bomb" and bomb_ready > 0:
+		_run_weapon_type = "Bomb"
+		var forced_bomb_ammo: int = _get_total_bomb_ammo()
+		var forced_bomb_count: int = maxi(bomb_salvo_per_run, 1)
+		if force_bombs_for_target:
+			forced_bomb_count = maxi(carrier_bomb_salvo_per_run, forced_bomb_count)
+		_bombs_to_drop_this_run = min(forced_bomb_count, forced_bomb_ammo)
+	elif forced_weapon_type == "Bomb":
+		# A forced profile must not trap an empty aircraft in endless no-release
+		# bomb approaches. Continue the mission with the remaining ordnance.
+		if rockets_ready > 0:
+			_run_weapon_type = "Rocket Pod"
+			var fallback_rocket_ammo: int = _get_total_rocket_ammo()
+			_rockets_to_fire_this_run = min(maxi(rocket_shots_per_run, 1), fallback_rocket_ammo)
+		else:
+			_run_weapon_type = _choose_non_bomb_weapon_type()
+	elif forced_weapon_type == "Rocket Pod":
+		_run_weapon_type = "Rocket Pod"
+		var forced_rocket_ammo: int = _get_total_rocket_ammo()
+		_rockets_to_fire_this_run = min(maxi(rocket_shots_per_run, 1), forced_rocket_ammo)
+	elif not forced_weapon_type.is_empty():
+		_run_weapon_type = forced_weapon_type
+	elif allow_bomb_run:
 		_run_weapon_type = "Bomb"
 		var total_ammo: int = _get_total_bomb_ammo()
 		var planned_bomb_count: int = maxi(bomb_salvo_per_run, 1)
@@ -3491,6 +10877,35 @@ func _plan_attack_run_weapon() -> void:
 		print("[WEAPON SELECT] -> %s  bombs_planned=%d  rockets_planned=%d  force_bombs=%s" % [
 			_run_weapon_type, _bombs_to_drop_this_run, _rockets_to_fire_this_run, str(force_bombs_for_target)])
 	_set_selected_control_weapon_type(_run_weapon_type)
+
+
+func _plan_rotating_ground_attack_weapon(bomb_ready: int, rockets_ready: int) -> bool:
+	var rotation_count: int = ground_attack_weapon_rotation.size()
+	if rotation_count <= 0:
+		return false
+	var available_types: Array = _get_control_weapon_types()
+	for offset in range(rotation_count):
+		var candidate_index: int = posmod(_ground_attack_weapon_rotation_index + offset, rotation_count)
+		var requested: String = ground_attack_weapon_rotation[candidate_index].strip_edges()
+		var selected: String = ""
+		if requested == "Bomb" and bomb_ready > 0:
+			selected = "Bomb"
+			_bombs_to_drop_this_run = min(maxi(bomb_salvo_per_run, 1), _get_total_bomb_ammo())
+		elif requested == "Rocket Pod" and rockets_ready > 0:
+			selected = "Rocket Pod"
+			_rockets_to_fire_this_run = min(maxi(rocket_shots_per_run, 1), _get_total_rocket_ammo())
+		elif requested == "Guns" or requested == "Autocannon":
+			var gun_choice: String = _choose_non_bomb_weapon_type()
+			if _is_direct_fire_attack_weapon_type(gun_choice):
+				selected = gun_choice
+		elif available_types.has(requested) and _is_direct_fire_attack_weapon_type(requested):
+			selected = requested
+		if selected.is_empty():
+			continue
+		_run_weapon_type = selected
+		_ground_attack_weapon_rotation_index = posmod(candidate_index + 1, rotation_count)
+		return true
+	return false
 
 func _choose_non_bomb_weapon_type() -> String:
 	if not control_weapons:
@@ -3567,10 +10982,49 @@ func _get_total_rocket_ammo() -> int:
 			total += int(hp.weapon_instance.ammo_count)
 	return total
 
+func _is_rocket_pod_burst_in_progress() -> bool:
+	for hp in _get_control_weapon_hardpoints():
+		if not hp or not hp.weapon_instance:
+			continue
+		if hp.weapon_instance.weapon_name != "Rocket Pod":
+			continue
+		if hp.weapon_instance.has_method("is_burst_in_progress") \
+				and bool(hp.weapon_instance.call("is_burst_in_progress")):
+			return true
+	return false
+
+func _begin_rocket_volley_control_hold() -> void:
+	_rocket_volley_control_hold_active = _is_rocket_pod_burst_in_progress()
+	_rocket_volley_hold_pitch_input = pitch_input
+	_rocket_volley_hold_roll_input = roll_input
+	_rocket_volley_hold_yaw_input = yaw_input
+
+func _set_bomb_release_status(
+	reason: String,
+	miss_m: float = INF,
+	best_miss_m: float = INF,
+	alt_above_m: float = INF,
+	range_m: float = INF,
+	bank_deg: float = 0.0,
+	fpa_deg: float = 0.0,
+	has_ccip: bool = false
+) -> void:
+	_last_bomb_release_block_reason = reason
+	_last_bomb_release_miss_m = miss_m
+	_last_bomb_release_best_miss_m = best_miss_m
+	_last_bomb_release_alt_above_m = alt_above_m
+	_last_bomb_release_range_m = range_m
+	_last_bomb_release_bank_deg = bank_deg
+	_last_bomb_release_fpa_deg = fpa_deg
+	_last_bomb_release_has_ccip = has_ccip
+	_last_bomb_release_stable_s = _release_solution_stable_time_s
+
 func _handle_bomb_release_run(aim_pos: Vector3, target_pos: Vector3, ccip_predicted: Vector3 = Vector3.ZERO, current_target_pos: Vector3 = Vector3.ZERO) -> void:
 	if _bombs_to_drop_this_run <= 0:
+		_set_bomb_release_status("not_planned")
 		return
 	if _bombs_dropped_this_run >= _bombs_to_drop_this_run:
+		_set_bomb_release_status("complete")
 		return
 	var now_s: float = Time.get_ticks_msec() / 1000.0
 	var drop_spacing_ready: bool = now_s - _last_bomb_drop_time_s >= bomb_release_spacing_s
@@ -3580,21 +11034,35 @@ func _handle_bomb_release_run(aim_pos: Vector3, target_pos: Vector3, ccip_predic
 	# Safety window: never release outside 5ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ600m above target
 	if alt_above_target > bomb_release_altitude_window_m or alt_above_target < 5.0 or horiz_dist_to_target < bomb_release_min_range_m:
 		_is_release_solution_stable_enough(now_s, false)
+		var window_reason: String = "high"
+		if alt_above_target < 5.0:
+			window_reason = "low"
+		elif horiz_dist_to_target < bomb_release_min_range_m:
+			window_reason = "close"
+		_set_bomb_release_status(window_reason, INF, _best_bomb_ccip_miss_this_run, alt_above_target, horiz_dist_to_target, _get_current_bank_angle_deg(), 0.0, ccip_predicted != Vector3.ZERO)
 		return
 	# Must be descending
 	var horiz_speed: float = Vector2(aircraft.linear_velocity.x, aircraft.linear_velocity.z).length()
 	var fpa_deg: float = rad_to_deg(atan2(-aircraft.linear_velocity.y, max(horiz_speed, 1.0)))
 	if fpa_deg < bomb_min_dive_angle_deg:
 		_is_release_solution_stable_enough(now_s, false)
+		_set_bomb_release_status("shallow", INF, _best_bomb_ccip_miss_this_run, alt_above_target, horiz_dist_to_target, _get_current_bank_angle_deg(), fpa_deg, ccip_predicted != Vector3.ZERO)
 		return  # Not in a real dive yet ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â CCIP is unreliable at shallow angles
 
 	# CCIP release: hold until predicted impact is close enough to target.
 	# If CCIP failed (Vector3.ZERO ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â no terrain found), release immediately.
-	var pred_err_h: float = -1.0
-	var led_pred_err_h: float = -1.0
-	var current_pred_err_h: float = -1.0
+	var pred_err_h: float = INF
+	var led_pred_err_h: float = INF
+	var current_pred_err_h: float = INF
 	var ccip_good: bool = false
 	var release_at_best_solution: bool = false
+	var predicted_along_m: float = -INF
+	var predicted_at_or_beyond_target: bool = false
+	var best_with_current_m: float = _best_bomb_ccip_miss_this_run
+	var release_tolerance_m: float = _get_effective_bomb_release_tolerance_m()
+	var near_best_solution: bool = false
+	var gameplay_release: bool = false
+	var forced_gameplay_release: bool = false
 	if ccip_predicted != Vector3.ZERO:
 		led_pred_err_h = Vector2(target_pos.x - ccip_predicted.x, target_pos.z - ccip_predicted.z).length()
 		if current_target_pos == Vector3.ZERO:
@@ -3603,32 +11071,73 @@ func _handle_bomb_release_run(aim_pos: Vector3, target_pos: Vector3, ccip_predic
 		pred_err_h = led_pred_err_h
 		if _is_carrier_attack_target(combat_target):
 			pred_err_h = minf(led_pred_err_h, current_pred_err_h)
-		var release_tolerance_m: float = _get_effective_bomb_release_tolerance_m()
+		# Radial error alone cannot distinguish an early (short) solution from a
+		# useful release. Project the predicted impact onto the current flight path:
+		# normal release becomes valid as the CCIP crosses the target plane. The
+		# best-solution fallback below remains available when a pass never crosses it.
+		var horizontal_flight_direction := Vector3(aircraft.linear_velocity.x, 0.0, aircraft.linear_velocity.z)
+		if horizontal_flight_direction.length_squared() > 0.01:
+			horizontal_flight_direction = horizontal_flight_direction.normalized()
+			var predicted_from_target := Vector3(
+				ccip_predicted.x - target_pos.x,
+				0.0,
+				ccip_predicted.z - target_pos.z
+			)
+			predicted_along_m = predicted_from_target.dot(horizontal_flight_direction)
+			predicted_at_or_beyond_target = predicted_along_m >= 0.0
 		var previous_miss_m: float = _prev_ccip_miss
 		var previous_best_miss_m: float = _best_bomb_ccip_miss_this_run
 		release_at_best_solution = _is_bomb_best_solution_release_moment(pred_err_h, previous_miss_m, previous_best_miss_m, release_tolerance_m)
-		var best_with_current_m: float = minf(previous_best_miss_m, pred_err_h)
-		var near_best_solution: bool = pred_err_h <= best_with_current_m + maxf(bomb_release_best_miss_slack_m, 0.0)
-		ccip_good = (pred_err_h <= release_tolerance_m and near_best_solution) or release_at_best_solution
+		best_with_current_m = minf(previous_best_miss_m, pred_err_h)
+		near_best_solution = pred_err_h <= best_with_current_m + maxf(bomb_release_best_miss_slack_m, 0.0)
+		gameplay_release = bomb_gameplay_release_enabled \
+			and horiz_dist_to_target <= maxf(bomb_gameplay_release_range_m, bomb_release_min_range_m) \
+			and pred_err_h <= maxf(bomb_gameplay_release_tolerance_m, release_tolerance_m)
+		forced_gameplay_release = bomb_gameplay_release_enabled \
+			and horiz_dist_to_target <= maxf(bomb_gameplay_force_release_range_m, bomb_release_min_range_m)
+		ccip_good = (pred_err_h <= release_tolerance_m and near_best_solution and predicted_at_or_beyond_target) \
+			or release_at_best_solution \
+			or gameplay_release \
+			or forced_gameplay_release
 		_prev_ccip_miss = pred_err_h
 		_best_bomb_ccip_miss_this_run = best_with_current_m
+	else:
+		forced_gameplay_release = bomb_gameplay_release_enabled \
+			and bomb_gameplay_release_without_ccip \
+			and horiz_dist_to_target <= maxf(bomb_gameplay_force_release_range_m, bomb_release_min_range_m)
+		ccip_good = forced_gameplay_release
 	var bank_ok: bool = _get_current_bank_angle_deg() <= bomb_release_max_bank_deg
 	if not drop_spacing_ready:
+		_set_bomb_release_status("spacing", pred_err_h, best_with_current_m, alt_above_target, horiz_dist_to_target, _get_current_bank_angle_deg(), fpa_deg, ccip_predicted != Vector3.ZERO)
 		return
-	var release_hold_s: float = 0.0 if release_at_best_solution else _get_effective_bomb_release_hold_s()
+	var action_release: bool = gameplay_release or forced_gameplay_release
+	var release_hold_s: float = 0.0 if (release_at_best_solution or action_release) else _get_effective_bomb_release_hold_s()
 	if not _is_release_solution_stable_enough(now_s, ccip_good and bank_ok, release_hold_s):
+		var stable_reason: String = "hold"
+		if ccip_predicted == Vector3.ZERO and not forced_gameplay_release:
+			stable_reason = "no_ccip"
+		elif not bank_ok:
+			stable_reason = "bank"
+		elif pred_err_h <= release_tolerance_m and not predicted_at_or_beyond_target and not action_release:
+			stable_reason = "ccip_short"
+		elif pred_err_h > release_tolerance_m and not action_release:
+			stable_reason = "ccip_miss"
+		elif not near_best_solution and not release_at_best_solution:
+			stable_reason = "past_best"
+		_set_bomb_release_status(stable_reason, pred_err_h, best_with_current_m, alt_above_target, horiz_dist_to_target, _get_current_bank_angle_deg(), fpa_deg, ccip_predicted != Vector3.ZERO)
 		return
 
 	var bomb_released: bool = _drop_one_bomb(target_pos, ccip_predicted)
 	if bomb_released:
 		_bombs_dropped_this_run += 1
 		_last_bomb_drop_time_s = now_s
+		_set_bomb_release_status("released", pred_err_h, best_with_current_m, alt_above_target, horiz_dist_to_target, _get_current_bank_angle_deg(), fpa_deg, ccip_predicted != Vector3.ZERO)
 
 		if debug_enabled:
 			var hdist: float = Vector2(aircraft.global_position.x - target_pos.x, aircraft.global_position.z - target_pos.z).length()
 			var spd: float = aircraft.linear_velocity.length()
 			var fpa_at_drop: float = rad_to_deg(atan2(-aircraft.linear_velocity.y, max(horiz_speed, 1.0)))
-			var miss_str: String = " miss=%.1fm led=%.1fm cur=%.1fm" % [pred_err_h, led_pred_err_h, current_pred_err_h] if ccip_predicted != Vector3.ZERO else " miss=no-ccip"
+			var miss_str: String = " miss=%.1fm led=%.1fm cur=%.1fm along=%+.1fm" % [pred_err_h, led_pred_err_h, current_pred_err_h, predicted_along_m] if ccip_predicted != Vector3.ZERO else " miss=no-ccip"
 			var target_range_now: float = aircraft.global_position.distance_to(_get_surface_target_position(combat_target)) if combat_target and is_instance_valid(combat_target) else hdist
 			print("[AIPilot RELEASE] %s type=Bomb count=%d/%d alt_above=%.1fm hdist=%.1fm current_range=%.1fm spd=%.1fm/s fpa=%.1fdeg%s" % [
 				aircraft.name,
@@ -3641,7 +11150,9 @@ func _handle_bomb_release_run(aim_pos: Vector3, target_pos: Vector3, ccip_predic
 				fpa_at_drop,
 				miss_str
 			])
-	elif debug_enabled:
+	else:
+		_set_bomb_release_status("no_ready_bomb", pred_err_h, best_with_current_m, alt_above_target, horiz_dist_to_target, _get_current_bank_angle_deg(), fpa_deg, ccip_predicted != Vector3.ZERO)
+	if debug_enabled and not bomb_released:
 		print("[AIPilot RELEASE_FAIL] %s type=Bomb reason=no_ready_bomb miss=%.1fm desired=%d dropped=%d" % [
 			aircraft.name,
 			pred_err_h,
@@ -3657,7 +11168,11 @@ func _drop_one_bomb(target_pos: Vector3 = Vector3.ZERO, ccip_predicted: Vector3 
 			continue
 		if not hp.weapon_instance.can_fire():
 			continue
-		var attach_bomb_debug_metadata: bool = debug_enabled and verbose_debug_enabled
+		var airplane_test_bomb_tuning: bool = false
+		if aircraft != null and is_instance_valid(aircraft):
+			var tuning_value: Variant = aircraft.get_meta("airplane_test_persistent_bomb_tuning", false)
+			airplane_test_bomb_tuning = tuning_value is bool and bool(tuning_value)
+		var attach_bomb_debug_metadata: bool = airplane_test_bomb_tuning or (debug_enabled and verbose_debug_enabled)
 		if attach_bomb_debug_metadata and hp.weapon_instance.has_method("set_next_bomb_debug_metadata"):
 			hp.weapon_instance.set_next_bomb_debug_metadata(target_pos, ccip_predicted)
 		if hp.fire():
@@ -3668,6 +11183,39 @@ func _drop_one_bomb(target_pos: Vector3 = Vector3.ZERO, ccip_predicted: Vector3 
 				dropped_bomb.set_meta("debug_predicted_impact", ccip_predicted)
 			return true
 	return false
+
+func _set_bomb_ccip_aim_error(target_pos: Vector3, ccip_impact: Vector3, fallback_range_m: float) -> void:
+	if ccip_impact == Vector3.ZERO:
+		_clear_bomb_ccip_aim_error()
+		return
+	var error_world: Vector3 = target_pos - ccip_impact
+	error_world.y = 0.0
+	var b: Basis = aircraft.global_transform.basis
+	_bomb_ccip_local_right_m = error_world.dot(b.x)
+	_bomb_ccip_local_forward_m = error_world.dot(b.z)
+	_bomb_ccip_range_m = maxf(fallback_range_m, 1.0)
+	_bomb_ccip_aim_active = true
+
+func _get_bomb_ccip_lateral_bank_target_rad(delta: float) -> float:
+	if not _bomb_ccip_aim_active or aircraft == null or not is_instance_valid(aircraft):
+		return 0.0
+	var horizontal_speed_mps := Vector2(aircraft.linear_velocity.x, aircraft.linear_velocity.z).length()
+	var correction_time_s := _bomb_ccip_range_m / maxf(horizontal_speed_mps, 1.0)
+	correction_time_s = maxf(correction_time_s, maxf(delta, 0.001))
+	# Constant-acceleration intercept: lateral displacement = 1/2 a t^2.
+	var required_lateral_accel_mps2 := 2.0 * _bomb_ccip_local_right_m \
+		/ (correction_time_s * correction_time_s)
+	var gravity_mps2 := float(ProjectSettings.get_setting("physics/3d/default_gravity", 9.8))
+	var bank_target_rad := atan2(required_lateral_accel_mps2, maxf(gravity_mps2, 0.1))
+	return -bank_target_rad if flip_roll_direction else bank_target_rad
+
+func _clear_bomb_ccip_aim_error() -> void:
+	_bomb_ccip_aim_active = false
+	_bomb_ccip_local_right_m = 0.0
+	_bomb_ccip_local_forward_m = 0.0
+	_bomb_ccip_range_m = 1.0
+	_bomb_ccip_pitch_cmd = 0.0
+	_bomb_ccip_yaw_cmd = 0.0
 
 func _handle_rocket_release_run(aim_pos: Vector3, target_pos: Vector3, ccip_predicted: Vector3 = Vector3.ZERO) -> void:
 	if _rockets_to_fire_this_run <= 0:
@@ -3680,7 +11228,12 @@ func _handle_rocket_release_run(aim_pos: Vector3, target_pos: Vector3, ccip_pred
 		return
 
 	var horiz_dist: float = Vector2(aircraft.global_position.x - target_pos.x, aircraft.global_position.z - target_pos.z).length()
-	if horiz_dist > rocket_release_max_range_m or horiz_dist < rocket_release_min_range_m:
+	# The live ballistic solution is the real range limit. If the predictor says
+	# the rocket survives to an unobstructed impact inside the target/blast footprint,
+	# a fixed nominal maximum must not withhold an otherwise valid combat shot.
+	# Keep only the close-range floor after the useful attack lane has ended.
+	if horiz_dist < rocket_release_min_range_m:
+		_last_rocket_release_block_reason = "inside_min_range"
 		_is_release_solution_stable_enough(now_s, false)
 		return
 
@@ -3690,24 +11243,75 @@ func _handle_rocket_release_run(aim_pos: Vector3, target_pos: Vector3, ccip_pred
 	var to_target_dir: Vector3 = (target_pos - aircraft.global_position).normalized()
 	var required_dot: float = cos(deg_to_rad(maxf(rocket_fire_alignment_deg, 1.0)))
 	var alignment_ok: bool = fwd.dot(to_target_dir) >= required_dot
-	if ccip_predicted == Vector3.ZERO:
-		_is_release_solution_stable_enough(now_s, false)
-		return
-	var pred_err_h: float = Vector2(target_pos.x - ccip_predicted.x, target_pos.z - ccip_predicted.z).length()
+	var has_ccip: bool = ccip_predicted != Vector3.ZERO
+	var ccip_clear_for_release: bool = has_ccip and not _ccip_cached_blocked
+	var pred_err_h: float = Vector2(target_pos.x - ccip_predicted.x, target_pos.z - ccip_predicted.z).length() if has_ccip else INF
+	var previous_miss_m: float = _prev_rocket_ccip_miss
+	var previous_best_miss_m: float = _best_rocket_ccip_miss_this_run
+	var best_with_current_m: float = minf(previous_best_miss_m, pred_err_h)
+	# Use the projectile's real blast footprint as the normal release gate. The
+	# broad legacy tolerance remains only as a fallback for custom rockets that do
+	# not expose their damage radius.
+	var effective_rocket_tolerance_m: float = _rocket_ccip_cached_damage_radius_m
+	if effective_rocket_tolerance_m <= 0.0:
+		effective_rocket_tolerance_m = rocket_ccip_release_tolerance_m \
+			* lerpf(1.0, night_rocket_release_tolerance_multiplier, _get_ai_darkness_factor())
+	var release_at_best_solution: bool = _is_rocket_best_solution_release_moment(
+		pred_err_h, previous_miss_m, previous_best_miss_m, effective_rocket_tolerance_m
+	)
+	var ccip_accurate_for_release: bool = ccip_clear_for_release and (
+		_rocket_ccip_cached_hit_target or pred_err_h <= effective_rocket_tolerance_m
+	)
+	# Last chance belongs at the actual pull-up boundary, not hundreds of metres
+	# before it. Until then the pilot keeps flying the CCIP residual toward zero.
+	var last_chance_range_m: float = maxf(rocket_release_min_range_m, rocket_pull_up_distance_m)
+	var release_last_chance: bool = (
+		_rockets_fired_this_run <= 0
+		and horiz_dist <= last_chance_range_m
+		and ccip_accurate_for_release
+	)
+	var ccip_ok: bool = ccip_accurate_for_release \
+		or release_last_chance
+	var release_reason: String = "tight"
+	if release_last_chance:
+		release_reason = "last_chance"
+	elif release_at_best_solution:
+		release_reason = "after_best"
 	_prev_ccip_miss = pred_err_h
-	var effective_rocket_tolerance_m: float = rocket_ccip_release_tolerance_m \
-		* lerpf(1.0, night_rocket_release_tolerance_multiplier, _get_ai_darkness_factor())
-	var ccip_ok: bool = pred_err_h <= effective_rocket_tolerance_m
+	_prev_rocket_ccip_miss = pred_err_h
+	_best_rocket_ccip_miss_this_run = best_with_current_m
 	var bank_ok: bool = _get_current_bank_angle_deg() <= rocket_release_max_bank_deg
-	if not _is_release_solution_stable_enough(now_s, alignment_ok and ccip_ok and bank_ok):
+	_last_rocket_release_miss_m = pred_err_h
+	_last_rocket_release_best_miss_m = best_with_current_m
+	if not alignment_ok:
+		_last_rocket_release_block_reason = "alignment"
+	elif not has_ccip:
+		_last_rocket_release_block_reason = "no_ccip"
+	elif not ccip_clear_for_release:
+		_last_rocket_release_block_reason = "ccip_blocked_%s" % _ccip_cached_block_reason
+	elif not ccip_ok:
+		_last_rocket_release_block_reason = "ccip_miss"
+	elif not bank_ok:
+		_last_rocket_release_block_reason = "bank"
+	else:
+		_last_rocket_release_block_reason = "stabilizing"
+	var release_hold_s: float = rocket_release_hold_s
+	if release_at_best_solution or release_last_chance:
+		release_hold_s = 0.0
+	if not _is_release_solution_stable_enough(now_s, alignment_ok and ccip_ok and bank_ok, release_hold_s):
 		return
 
+	_last_rocket_release_reason = release_reason
+	_last_rocket_release_block_reason = "released"
+	_last_rocket_release_miss_m = pred_err_h
+	_last_rocket_release_best_miss_m = best_with_current_m
 	if _fire_one_weapon_of_type_with_result("Rocket Pod"):
 		_rockets_fired_this_run += 1
 		_last_rocket_fire_time_s = now_s
+		_begin_rocket_volley_control_hold()
 		if debug_enabled:
 			var pred_err_h_debug: float = Vector2(target_pos.x - ccip_predicted.x, target_pos.z - ccip_predicted.z).length() if ccip_predicted != Vector3.ZERO else -1.0
-			var miss_str: String = " miss=%.1fm" % pred_err_h_debug if ccip_predicted != Vector3.ZERO else " miss=n/a"
+			var miss_str: String = " miss=%.1fm best=%.1fm reason=%s" % [pred_err_h_debug, best_with_current_m, release_reason] if ccip_predicted != Vector3.ZERO else " miss=n/a"
 			print("[AIPilot RELEASE] %s type=Rocket count=%d/%d range=%.0fm%s" % [
 				aircraft.name,
 				_rockets_fired_this_run,
@@ -3716,12 +11320,12 @@ func _handle_rocket_release_run(aim_pos: Vector3, target_pos: Vector3, ccip_pred
 				miss_str
 			])
 
-func _predict_rocket_impact_solution() -> Dictionary:
+func _predict_rocket_impact_solution(target_pos: Vector3 = Vector3.INF, intended_target: Node = null) -> Dictionary:
 	if aircraft == null or not is_instance_valid(aircraft):
 		return {}
 	if not aircraft.has_method("calculate_rocket_ccip_impact_point"):
 		return {}
-	var result: Variant = aircraft.calculate_rocket_ccip_impact_point()
+	var result: Variant = aircraft.calculate_rocket_ccip_impact_point(target_pos, intended_target)
 	if result is Dictionary:
 		return result
 	return {}
@@ -3733,6 +11337,228 @@ func _predict_rocket_impact_point() -> Vector3:
 		if impact_variant is Vector3:
 			return impact_variant
 	return Vector3.ZERO
+
+func _predict_gun_impact_solution(target_pos: Vector3 = Vector3.INF, intended_target: Node = null) -> Dictionary:
+	if aircraft == null or not is_instance_valid(aircraft):
+		return {}
+	if not aircraft.has_method("calculate_gun_ccip_impact_point"):
+		return {}
+	var result: Variant = aircraft.calculate_gun_ccip_impact_point(target_pos, intended_target)
+	if result is Dictionary:
+		return result
+	return {}
+
+func _should_abort_direct_fire_ccip_attack(horiz_dist_m: float) -> bool:
+	if not gun_ccip_abort_enabled:
+		return false
+	if not _is_direct_fire_attack_weapon_type(_run_weapon_type):
+		return false
+	if not _gun_ccip_aim_active:
+		return false
+	if not is_finite(_gun_ccip_miss_m):
+		return false
+	var dive_age_s: float = Time.get_ticks_msec() / 1000.0 - _dive_entry_time_s if _dive_entry_time_s > -INF else INF
+	if dive_age_s < maxf(gun_ccip_abort_settle_s, 0.0):
+		return false
+	if horiz_dist_m < maxf(gun_ccip_abort_min_range_m, 0.0):
+		return false
+	var miss_limit_m: float = maxf(
+		gun_ccip_abort_miss_m,
+		horiz_dist_m * clampf(gun_ccip_abort_miss_range_fraction, 0.0, 2.0)
+	)
+	if _gun_ccip_miss_m <= miss_limit_m:
+		return false
+	var unsafe_geometry: bool = altitude_agl < maxf(gun_ccip_abort_low_agl_m, 0.0) or _gun_ccip_blocked
+	return unsafe_geometry
+
+func _set_rocket_ccip_aim_error(target_pos: Vector3, ccip_impact: Vector3, fallback_range_m: float) -> void:
+	if not rocket_ccip_aim_overlay_enabled:
+		_clear_rocket_ccip_aim_error()
+		return
+	if ccip_impact == Vector3.ZERO:
+		_clear_rocket_ccip_aim_error()
+		return
+	var b: Basis = aircraft.global_transform.basis
+	var error_world: Vector3 = target_pos - ccip_impact
+	error_world.y = 0.0
+	_rocket_ccip_local_right_m = error_world.dot(b.x)
+	_rocket_ccip_local_forward_m = error_world.dot(b.z)
+	_rocket_ccip_miss_m = Vector2(error_world.x, error_world.z).length()
+	_rocket_ccip_range_m = maxf(fallback_range_m, 1.0)
+	_rocket_ccip_aim_active = true
+
+func _clear_rocket_ccip_aim_error() -> void:
+	_rocket_ccip_aim_active = false
+	_rocket_ccip_local_right_m = 0.0
+	_rocket_ccip_local_forward_m = 0.0
+	_rocket_ccip_miss_m = INF
+	_rocket_ccip_range_m = 1.0
+	_rocket_ccip_pitch_cmd = 0.0
+	_rocket_ccip_yaw_cmd = 0.0
+
+func _set_gun_ccip_aim_error(target_pos: Vector3, ccip_impact: Vector3, fallback_range_m: float, blocked: bool = false, block_reason: String = "") -> void:
+	if not gun_ccip_enabled:
+		_clear_gun_ccip_aim_error()
+		return
+	if ccip_impact == Vector3.ZERO:
+		_clear_gun_ccip_aim_error()
+		return
+	var b: Basis = aircraft.global_transform.basis
+	var error_world: Vector3 = target_pos - ccip_impact
+	error_world.y = 0.0
+	_gun_ccip_local_right_m = error_world.dot(b.x)
+	_gun_ccip_local_forward_m = error_world.dot(b.z)
+	_gun_ccip_miss_m = Vector2(error_world.x, error_world.z).length()
+	_gun_ccip_range_m = maxf(fallback_range_m, 1.0)
+	_gun_ccip_blocked = blocked
+	_gun_ccip_block_reason = block_reason
+	_gun_ccip_aim_active = true
+
+func _get_gun_ccip_corrected_aim_position(base_aim_pos: Vector3, target_pos: Vector3, ccip_impact: Vector3) -> Vector3:
+	if aircraft == null or not is_instance_valid(aircraft):
+		return base_aim_pos
+
+	var impact_error_h := Vector3(target_pos.x - ccip_impact.x, 0.0, target_pos.z - ccip_impact.z)
+	if impact_error_h.length_squared() < 0.01:
+		return base_aim_pos
+	var max_correction_m: float = maxf(gun_ccip_aim_correction_max_m, 0.0)
+	if max_correction_m > 0.0 and impact_error_h.length() > max_correction_m:
+		impact_error_h = impact_error_h.normalized() * max_correction_m
+
+	var mount_info: Dictionary = _get_selected_weapon_mount_info()
+	var muzzle_origin: Vector3 = mount_info.get("origin", aircraft.global_position)
+	var impact_chord: Vector3 = ccip_impact - muzzle_origin
+	# Keep both chord endpoints on the predicted impact plane.  Target height is
+	# handled by the ordinary aim point; this correction answers only the CCIP
+	# question: which change in gun direction moves the ground impact onto the
+	# target's horizontal position?
+	var corrected_impact_pos: Vector3 = ccip_impact + impact_error_h
+	var target_chord: Vector3 = corrected_impact_pos - muzzle_origin
+	if impact_chord.length_squared() < 1.0 or target_chord.length_squared() < 1.0:
+		return base_aim_pos
+
+	var impact_dir: Vector3 = impact_chord.normalized()
+	var target_dir: Vector3 = target_chord.normalized()
+	var correction_angle_rad: float = acos(clampf(impact_dir.dot(target_dir), -1.0, 1.0))
+	var correction_axis: Vector3 = impact_dir.cross(target_dir)
+	if correction_angle_rad < 0.0001 or correction_axis.length_squared() < 0.000001:
+		return base_aim_pos
+
+	var airframe_forward: Vector3 = aircraft.global_transform.basis.z.normalized()
+	var correction_rotation := Basis(
+		correction_axis.normalized(),
+		correction_angle_rad * clampf(gun_ccip_aim_correction_strength, 0.0, 2.0)
+	)
+	var corrected_airframe_forward: Vector3 = (correction_rotation * airframe_forward).normalized()
+	var aim_distance_m: float = maxf(aircraft.global_position.distance_to(base_aim_pos), 1.0)
+	return aircraft.global_position + corrected_airframe_forward * aim_distance_m
+
+func _clear_gun_ccip_aim_error() -> void:
+	_gun_ccip_aim_active = false
+	_gun_ccip_local_right_m = 0.0
+	_gun_ccip_local_forward_m = 0.0
+	_gun_ccip_miss_m = INF
+	_gun_ccip_range_m = 1.0
+	_gun_ccip_pitch_cmd = 0.0
+	_gun_ccip_yaw_cmd = 0.0
+	_gun_ccip_blocked = false
+	_gun_ccip_block_reason = ""
+
+func is_rocket_ccip_aim_active() -> bool:
+	return _rocket_ccip_aim_active
+
+func get_rocket_ccip_aim_miss_m() -> float:
+	return _rocket_ccip_miss_m
+
+func get_rocket_ccip_aim_local_right_m() -> float:
+	return _rocket_ccip_local_right_m
+
+func get_rocket_ccip_aim_local_forward_m() -> float:
+	return _rocket_ccip_local_forward_m
+
+func get_rocket_ccip_aim_pitch_cmd() -> float:
+	return _rocket_ccip_pitch_cmd
+
+func get_rocket_ccip_aim_yaw_cmd() -> float:
+	return _rocket_ccip_yaw_cmd
+
+func is_rocket_ccip_blocked() -> bool:
+	return _run_weapon_type == "Rocket Pod" and _ccip_cached_blocked
+
+func get_rocket_ccip_block_reason() -> String:
+	return _ccip_cached_block_reason
+
+func is_gun_ccip_aim_active() -> bool:
+	return _gun_ccip_aim_active
+
+func get_gun_ccip_aim_miss_m() -> float:
+	return _gun_ccip_miss_m
+
+func get_gun_ccip_aim_local_right_m() -> float:
+	return _gun_ccip_local_right_m
+
+func get_gun_ccip_aim_local_forward_m() -> float:
+	return _gun_ccip_local_forward_m
+
+func get_gun_ccip_aim_pitch_cmd() -> float:
+	return _gun_ccip_pitch_cmd
+
+func get_gun_ccip_aim_yaw_cmd() -> float:
+	return _gun_ccip_yaw_cmd
+
+func is_gun_ccip_blocked() -> bool:
+	return _gun_ccip_blocked
+
+func get_gun_ccip_block_reason() -> String:
+	return _gun_ccip_block_reason
+
+func get_attack_last_commit_reason() -> String:
+	return _attack_last_commit_reason
+
+func get_attack_last_end_reason() -> String:
+	return _attack_last_end_reason
+
+func get_attack_commit_count() -> int:
+	return _attack_commit_count
+
+func get_last_rocket_release_reason() -> String:
+	return _last_rocket_release_reason
+
+func get_last_rocket_release_block_reason() -> String:
+	return _last_rocket_release_block_reason
+
+func get_last_rocket_release_miss_m() -> float:
+	return _last_rocket_release_miss_m
+
+func get_last_rocket_release_best_miss_m() -> float:
+	return _last_rocket_release_best_miss_m
+
+func get_last_bomb_release_block_reason() -> String:
+	return _last_bomb_release_block_reason
+
+func get_last_bomb_release_miss_m() -> float:
+	return _last_bomb_release_miss_m
+
+func get_last_bomb_release_best_miss_m() -> float:
+	return _last_bomb_release_best_miss_m
+
+func get_last_bomb_release_alt_above_m() -> float:
+	return _last_bomb_release_alt_above_m
+
+func get_last_bomb_release_range_m() -> float:
+	return _last_bomb_release_range_m
+
+func get_last_bomb_release_bank_deg() -> float:
+	return _last_bomb_release_bank_deg
+
+func get_last_bomb_release_fpa_deg() -> float:
+	return _last_bomb_release_fpa_deg
+
+func last_bomb_release_has_ccip() -> bool:
+	return _last_bomb_release_has_ccip
+
+func get_last_bomb_release_stable_s() -> float:
+	return _last_bomb_release_stable_s
 
 func _predict_bomb_impact_solution(
 	log_debug: bool = false,
@@ -3900,11 +11726,49 @@ func _state_engage(delta: float):
 	combat_target = null
 	change_state(State.SEARCH)
 
+func _ensure_rtb_flight_plan() -> void:
+	if formation_anchor_active:
+		return
+	var rtb_target: Vector3 = carrier_position
+	rtb_target.y = _resolve_effective_altitude_world_y(rtb_target, patrol_altitude_m)
+	rtb_target.y = _terrain_safe_altitude_for_segment(
+		aircraft.global_position,
+		rtb_target,
+		rtb_target.y,
+		aircraft_flight_plan_terrain_clearance_m
+	)
+	var needs_plan: bool = _flight_plan_name != "rtb" or waypoints.is_empty()
+	if not needs_plan:
+		var current_goal: Vector3 = waypoints[waypoints.size() - 1]
+		needs_plan = Vector2(current_goal.x - rtb_target.x, current_goal.z - rtb_target.z).length() > 500.0
+	if not needs_plan:
+		return
+	set_flight_plan_legs("rtb", [
+		{
+			"position": rtb_target,
+			"role": "rtb",
+			"speed_mps": 100.0,
+			"capture_radius_m": on_station_radius_m
+		}
+	], false, false, on_station_radius_m)
+	_request_aircraft_heightmap_route("rtb", [
+		_make_aircraft_route_path_segment(
+			aircraft.global_position,
+			rtb_target,
+			"rtb",
+			100.0,
+			on_station_radius_m
+		)
+	], 5)
+
 func _state_rtb(delta: float):
 	"""Returning to base"""
 	# Priority 1: Stop combat
 	_stop_firing()
-	
+	# Fleeing/returning: keep going home, but jink if an air threat is close behind. (Evade-only -- RTB
+	# stays committed to egress for both postures; it won't turn back to dogfight.)
+	_check_air_threat_evade_only()
+
 	_refresh_carrier_position(false)
 	_ensure_carrier_position()
 	
@@ -3912,13 +11776,11 @@ func _state_rtb(delta: float):
 	target_speed = 100.0
 	if formation_anchor_active:
 		nav_waypoint = formation_anchor
+		_update_maneuver_waypoint()
+		_navigate_to_waypoint(delta)
 	else:
-		nav_waypoint = carrier_position
-		nav_waypoint.y = _resolve_effective_altitude_world_y(nav_waypoint, patrol_altitude_m)
-	
-	# Climb/descend to patrol altitude while navigating
-	_update_maneuver_waypoint()
-	_navigate_to_waypoint(delta)
+		_ensure_rtb_flight_plan()
+		_follow_waypoint_route(delta, false, on_station_radius_m)
 	
 	# Check horizontal distance to carrier
 	var h_dist: float = Vector2(aircraft.global_position.x - carrier_position.x, aircraft.global_position.z - carrier_position.z).length()
@@ -3964,6 +11826,27 @@ func _get_recovery_carrier_frame() -> Dictionary:
 		"deck_y": _get_approach_deck_y()
 	}
 
+func _is_inside_prechecked_recovery_axis() -> bool:
+	if not is_instance_valid(aircraft):
+		return false
+	var frame := _get_recovery_carrier_frame()
+	var origin: Vector3 = frame.get("origin", carrier_position)
+	var forward: Vector3 = frame.get("forward", Vector3.FORWARD)
+	forward.y = 0.0
+	if forward.length_squared() <= 0.001:
+		return false
+	forward = forward.normalized()
+	var to_carrier: Vector3 = origin - aircraft.global_position
+	var behind_m: float = to_carrier.dot(forward)
+	var rel_flat: Vector3 = aircraft.global_position - origin
+	rel_flat.y = 0.0
+	var cross_m: float = (rel_flat + forward * behind_m).length()
+	var glide_tan: float = tan(deg_to_rad(clampf(approach_descent_angle_deg, 1.0, 20.0)))
+	var intercept_behind_m: float = recovery_pattern_alt_above_deck_m / glide_tan + glide_intercept_margin_m
+	return cross_m <= glide_intercept_capture_m \
+			and behind_m >= 0.0 \
+			and behind_m <= intercept_behind_m + glide_intercept_capture_m
+
 func _get_recovery_point(behind_m: float, right_m: float, alt_above_deck_m: float) -> Vector3:
 	var frame: Dictionary = _get_recovery_carrier_frame()
 	var origin: Vector3 = frame.get("origin", carrier_position)
@@ -4004,82 +11887,588 @@ func _get_recovery_approach_gate(phase: int) -> Dictionary:
 
 func _request_landing_clearance_from_deck() -> bool:
 	var fdm = get_tree().get_first_node_in_group("flight_deck_manager")
+	var granted := true
 	if fdm and fdm.has_method("request_landing_clearance"):
-		return bool(fdm.request_landing_clearance(aircraft))
-	if fdm and fdm.has_method("can_accept_landing"):
-		return bool(fdm.can_accept_landing(aircraft))
-	return true
+		granted = bool(fdm.request_landing_clearance(aircraft))
+	elif fdm and fdm.has_method("can_accept_landing"):
+		granted = bool(fdm.can_accept_landing(aircraft))
+	if granted and is_instance_valid(aircraft):
+		aircraft.set_meta("carrier_fixed_wing_recovery_active", true)
+	return granted
 
 func _release_landing_clearance_from_deck() -> void:
+	if is_instance_valid(aircraft) and aircraft.has_meta("carrier_fixed_wing_recovery_active"):
+		aircraft.remove_meta("carrier_fixed_wing_recovery_active")
 	var fdm = get_tree().get_first_node_in_group("flight_deck_manager")
 	if fdm and fdm.has_method("release_landing_clearance"):
 		fdm.release_landing_clearance(aircraft)
 
 func _state_recovery_marshal(delta: float) -> void:
-	"""Fly to the high recovery gate and ask the deck for landing clearance."""
+	"""Retained only as a safe entry redirect -- the streamlined recovery decides circle-vs-approach in
+	start_recovery(). If anything still transitions here, do the same clearance check and branch."""
 	_stop_firing()
-	target_speed = recovery_gate_speed_mps
-	nav_waypoint = _get_recovery_point(recovery_marshal_behind_m, 0.0, recovery_marshal_alt_above_deck_m)
+	target_speed = recovery_circle_speed_mps
+	nav_waypoint = _get_recovery_point(approach_point_behind_m, 0.0, recovery_circle_alt_above_deck_m)
 	_update_maneuver_waypoint()
 	_navigate_to_waypoint(delta)
-	_landing_debug_tick(delta, "RECOVERY_MARSHAL", nav_waypoint)
-
-	var dist_to_gate: float = aircraft.global_position.distance_to(nav_waypoint)
-	if dist_to_gate <= recovery_clearance_request_distance_m:
-		if _request_landing_clearance_from_deck():
-			_recovery_clearance_granted = true
-			_recovery_phase = 0
-			_landing_debug_event("recovery clearance granted; stepping down to approach gates")
-			change_state(State.RECOVERY_APPROACH)
-		else:
-			_recovery_clearance_granted = false
-			_landing_debug_event("recovery clearance denied; entering hold")
-			change_state(State.RECOVERY_HOLD)
+	if _request_landing_clearance_from_deck():
+		_recovery_clearance_granted = true
+		_recovery_phase = 0
+		_approach_route_point = Vector3.INF
+		change_state(State.RECOVERY_APPROACH)
+	else:
+		_circle_theta = _carrier_relative_bearing_of_self()
+		change_state(State.RECOVERY_HOLD)
 
 func _state_recovery_hold(delta: float) -> void:
-	"""Simple carrier-relative hold behind the ship until clearance opens."""
+	"""CIRCLE the carrier while the deck is busy. Orbit at circle radius/alt, advancing around the ship,
+	and re-request clearance every frame -- the instant it opens, break off to the approach."""
 	_stop_firing()
-	target_speed = recovery_gate_speed_mps
-	nav_waypoint = _get_recovery_point(
-		recovery_marshal_behind_m,
-		_recovery_hold_side * recovery_hold_lateral_m,
-		recovery_marshal_alt_above_deck_m
-	)
+	target_speed = recovery_circle_speed_mps
+	# Advance our orbit angle so we fly a circle around the carrier (rate ~ speed / radius).
+	var omega: float = recovery_circle_speed_mps / maxf(recovery_circle_radius_m, 1.0)
+	_circle_theta += omega * delta
+	var frame: Dictionary = _get_recovery_carrier_frame()
+	var origin: Vector3 = frame.get("origin", carrier_position)
+	var deck_y: float = float(frame.get("deck_y", carrier_position.y + approach_deck_height_fallback_m))
+	# Lead the orbit point a bit ahead of our current bearing so we keep flying forward around the ring.
+	var lead: float = _circle_theta + 0.35
+	var ring: Vector3 = origin + Vector3(sin(lead), 0.0, cos(lead)) * recovery_circle_radius_m
+	ring.y = deck_y + recovery_circle_alt_above_deck_m
+	if is_instance_valid(aircraft):
+		ring.y = _terrain_safe_altitude_for_segment(
+			aircraft.global_position,
+			ring,
+			ring.y,
+			maxf(recovery_gate_min_terrain_clearance_m, emergency_min_agl_m + 120.0)
+		)
+	nav_waypoint = ring
 	_update_maneuver_waypoint()
 	_navigate_to_waypoint(delta)
-	_landing_debug_tick(delta, "RECOVERY_HOLD", nav_waypoint)
-
-	if aircraft.global_position.distance_to(nav_waypoint) <= recovery_gate_capture_m:
-		_recovery_hold_side *= -1.0
+	_landing_debug_tick(delta, "RECOVERY_CIRCLE", nav_waypoint)
 
 	if _request_landing_clearance_from_deck():
 		_recovery_clearance_granted = true
 		_recovery_phase = 0
-		_landing_debug_event("recovery clearance granted from hold; stepping down to approach gates")
+		_approach_route_point = Vector3.INF
+		_landing_debug_event("recovery clearance granted while circling; committing to approach")
 		change_state(State.RECOVERY_APPROACH)
 
-func _state_recovery_approach(delta: float) -> void:
-	"""Fly the clearance-owned carrier-relative descent gates, then hand off to final landing."""
-	target_speed = recovery_final_gate_speed_mps if _recovery_phase >= 2 else recovery_gate_speed_mps
-	_deploy_landing_gear()
-	var gate: Dictionary = _get_recovery_approach_gate(_recovery_phase)
-	nav_waypoint = _get_recovery_point(
-		float(gate.get("behind_m", recovery_final_gate_behind_m)),
-		0.0,
-		float(gate.get("alt_above_deck_m", recovery_final_gate_alt_above_deck_m))
+func _get_recovery_authored_corridor_behind_m(frame: Dictionary) -> float:
+	## Horizontal extent of the carrier-authored straight-in corridor. Marker altitude is
+	## deliberately ignored: the live glideslope owns the vertical profile.
+	var origin: Vector3 = frame.get("origin", carrier_position)
+	var forward: Vector3 = frame.get("forward", Vector3.FORWARD)
+	var corridor_behind_m: float = start_landing_behind_m
+	if _approach_wp.size() >= 1:
+		var corridor_start := _approach_wp[0] as Node3D
+		if is_instance_valid(corridor_start):
+			var to_origin: Vector3 = origin - corridor_start.global_position
+			var authored_behind_m: float = to_origin.dot(forward)
+			if authored_behind_m > start_landing_behind_m:
+				corridor_behind_m = authored_behind_m
+	return corridor_behind_m
+
+func _request_recovery_arrival_route(frame: Dictionary) -> void:
+	## Terrain-route from the aircraft to the beginning of the carrier's authored
+	## straight-in corridor, then use a short direct leg down that known-clear corridor.
+	## This intentionally makes no claim that the runway centreline is clear beyond the
+	## marker: arbitrary terrain outside the final is the route planner's responsibility.
+	if not approach_route_threaded or not aircraft_heightmap_pathfinding_enabled:
+		return
+	var origin: Vector3 = frame.get("origin", carrier_position)
+	var forward: Vector3 = frame.get("forward", Vector3.FORWARD)
+	var deck_y: float = float(frame.get("deck_y", carrier_position.y + approach_deck_height_fallback_m))
+	var join_behind_m: float = _get_recovery_authored_corridor_behind_m(frame)
+	if join_behind_m <= start_landing_behind_m + approach_point_capture_m:
+		if not _recovery_route_request_debugged:
+			if debug_enabled:
+				print("[AIPilot ROUTE] recovery route rejected: corridor=%.0fm handoff=%.0fm threaded=%s pathfinding=%s" % [
+					join_behind_m,
+					start_landing_behind_m,
+					str(approach_route_threaded),
+					str(aircraft_heightmap_pathfinding_enabled),
+				])
+			_landing_debug_event("terrain-route unavailable: authored corridor %.0fm does not reach beyond final handoff %.0fm" % [
+				join_behind_m,
+				start_landing_behind_m,
+			])
+			_recovery_route_request_debugged = true
+		return
+	var glide_tan: float = tan(deg_to_rad(maxf(landing_glideslope_deg, 0.1)))
+	var join: Vector3 = origin - forward * join_behind_m
+	join.y = deck_y + join_behind_m * glide_tan
+	var recovery_descent_tan: float = tan(deg_to_rad(maxf(
+		minf(recovery_descent_max_fpa_deg, approach_descent_angle_deg),
+		1.0
+	)))
+	var lineup_turn_radius_m: float = _estimate_aircraft_turn_radius_m(
+		recovery_gate_speed_mps,
+		"recovery_transit"
 	)
+	var reversal_room_m: float = lineup_turn_radius_m * 2.0
+	var lineup_behind_m: float = join_behind_m + reversal_room_m
+	var lineup: Vector3 = origin - forward * lineup_behind_m
+	for _iteration in range(3):
+		lineup = origin - forward * lineup_behind_m
+		lineup.y = deck_y + recovery_pattern_alt_above_deck_m
+		lineup.y = _terrain_safe_altitude_for_segment(
+			lineup,
+			lineup,
+			lineup.y,
+			aircraft_flight_plan_terrain_clearance_m
+		)
+		var descent_run_needed_m: float = maxf(lineup.y - join.y, 0.0) \
+			/ maxf(recovery_descent_tan, 0.01)
+		lineup_behind_m = join_behind_m + reversal_room_m + descent_run_needed_m
+	var final_handoff: Vector3 = origin - forward * start_landing_behind_m
+	final_handoff.y = deck_y + start_landing_behind_m * glide_tan
+	_approach_route_point = final_handoff
+	var segments: Array = [
+		_make_aircraft_route_path_segment(
+			aircraft.global_position,
+			lineup,
+			"recovery_transit",
+			recovery_gate_speed_mps,
+			recovery_gate_capture_m
+		),
+		_make_aircraft_route_path_segment(
+			lineup,
+			join,
+			"recovery_arrival",
+			recovery_gate_speed_mps,
+			recovery_gate_capture_m
+		),
+		_make_aircraft_route_direct_segment(
+			final_handoff,
+			"recovery_lineup",
+			approach_speed_mps,
+			approach_point_capture_m
+		),
+	]
+	if not _recovery_route_request_debugged:
+		print("[AIPilot ROUTE] recovery request lineup=%.0fm join=%.0fm handoff=%.0fm kinds=%s/%s" % [
+			lineup_behind_m,
+			join_behind_m,
+			start_landing_behind_m,
+			str((segments[0] as Dictionary).get("kind", "unknown")),
+			str((segments[1] as Dictionary).get("kind", "unknown")),
+		])
+		_landing_debug_event("requesting terrain-routed arrival join=%.0fm handoff=%.0fm path_kind=%s" % [
+			join_behind_m,
+			start_landing_behind_m,
+			str((segments[0] as Dictionary).get("kind", "unknown")),
+		])
+		_recovery_route_request_debugged = true
+	_request_aircraft_heightmap_route("recovery_approach", segments, 20)
+
+func _state_recovery_approach(delta: float) -> void:
+	"""Recovery: terrain-route in 3D to the authored final corridor, line up inside that short
+	known-clear segment, then hand off to the FPA-carrot final. The legacy phase controller below
+	remains as a fallback when heightmap routing is unavailable."""
+	# ENTRY BANK GUARD: recovery can be commanded straight out of DOGFIGHT (see notify_recovery_ready
+	# callers), which can leave the aircraft 40-60deg banked from combat maneuvering. That's below the
+	# 75deg severely_banked threshold in _check_terrain_avoidance and above the 25deg spiral-recovery
+	# threshold in _navigate_to_waypoint (which RECOVERY_APPROACH is deliberately excluded from, since a
+	# real glideslope legitimately banks while descending) -- so neither existing wings-level guard
+	# covers it, and the normal phase-0 descend logic below trusts the general bank-tracking law to sort
+	# itself out. Observed: an aircraft entered at bank=49.5deg, agl=107m and crashed 3s later still at
+	# bank=50.9deg -- the roll controller never got priority to actually level out at low altitude.
+	# Only apply this for a brief window right at phase-0 entry, not through the whole approach.
+	var entry_roll_rad: float = atan2(aircraft.global_transform.basis.x.y, aircraft.global_transform.basis.y.y)
+	var entry_bank_deg: float = rad_to_deg(absf(entry_roll_rad))
+	if _recovery_phase == 0 and entry_bank_deg > recovery_entry_bank_guard_deg and altitude_agl < recovery_entry_bank_guard_agl_m:
+		var roll_rate: float = aircraft.angular_velocity.dot(aircraft.global_transform.basis.z)
+		var level_roll_sign: float = -signf(entry_roll_rad) if absf(entry_roll_rad) > 0.01 else 1.0
+		roll_input = clampf(level_roll_sign * 1.0 - roll_rate * 0.1, -1.0, 1.0)
+		var upright_factor_y: float = clampf(aircraft.global_transform.basis.y.y, 0.15, 1.0)
+		pitch_input = 0.5 * upright_factor_y
+		yaw_input = 0.0
+		throttle_input = 1.0
+		target_speed = maxf(recovery_circle_speed_mps, stall_speed_mps + stall_margin_mps + 35.0)
+		_smoothed_roll_input = roll_input
+		_smoothed_pitch_input = pitch_input
+		_smoothed_yaw_input = yaw_input
+		_landing_debug_tick(delta, "RECOVERY_APPROACH", aircraft.global_position, "entry bank guard bank=%.0fdeg agl=%.0f" % [entry_bank_deg, altitude_agl])
+		return
+	var frame: Dictionary = _get_recovery_carrier_frame()
+	var origin: Vector3 = frame.get("origin", carrier_position)
+	var forward: Vector3 = frame.get("forward", Vector3.FORWARD)
+	var deck_y: float = float(frame.get("deck_y", carrier_position.y + approach_deck_height_fallback_m))
+	var pattern_y: float = deck_y + recovery_pattern_alt_above_deck_m
+	# Before glideslope capture the aircraft may be making a wide, banked turn outside the checked
+	# centerline corridor. Plan to the same 300 m soft-safety band used by the flight controller so
+	# vertical lag cannot carry it into off-axis ridges.
+	var precommit_terrain_clearance_m: float = maxf(
+		recovery_gate_min_terrain_clearance_m,
+		emergency_min_agl_m + 120.0
+	)
+
+	# ORIGIN-SHIFT GUARD: a floating-origin shift can briefly hand us a wild carrier frame, sending the
+	# aircraft chasing a 39km waypoint. If we're implausibly far from the carrier (real recoveries stay
+	# within a few km of a 5-6km spawn), fly STRAIGHT BACK toward the carrier at pattern altitude and reset
+	# to phase 0 -- this both ignores the glitch frame and recovers an aircraft that already flew off.
+	var origin_flat_dist: float = Vector2(aircraft.global_position.x - origin.x, aircraft.global_position.z - origin.z).length()
+	if origin_flat_dist > recovery_frame_sanity_max_m:
+		_recovery_phase = 0
+		target_speed = recovery_circle_speed_mps
+		var back: Vector3 = origin
+		back.y = pattern_y
+		nav_waypoint = back
+		_update_maneuver_waypoint()
+		_navigate_to_waypoint(delta)
+		_landing_debug_tick(delta, "RECOVERY_APPROACH", nav_waypoint, "RECOVER far=%.0fm -> back to carrier" % origin_flat_dist)
+		return
+
+	if not _recovery_route_request_debugged:
+		print("[AIPilot ROUTE] recovery config threaded=%s pathfinding=%s corridor=%.0fm handoff=%.0fm" % [
+			str(approach_route_threaded),
+			str(aircraft_heightmap_pathfinding_enabled),
+			_get_recovery_authored_corridor_behind_m(frame),
+			start_landing_behind_m,
+		])
+	if approach_route_threaded and aircraft_heightmap_pathfinding_enabled:
+		if _flight_plan_name == "recovery_approach" and not waypoints.is_empty():
+			# The last route point is a directional handoff, not a loiter point. Check both sides of
+			# the arrival->lineup role boundary: an aircraft can miss the join waypoint's small 3D
+			# bubble, yet finish converging onto the actual final line before the handoff plane. In
+			# that case keeping the old arrival role made it turn back toward the passed join and fly
+			# out of the verified corridor. The real final geometry is authoritative here.
+			var handoff_role: String = _active_route_leg_role()
+			if handoff_role in ["recovery_arrival", "recovery_lineup"]:
+				var handoff_to_carrier: Vector3 = origin - aircraft.global_position
+				var handoff_behind_m: float = handoff_to_carrier.dot(forward)
+				var handoff_plane_behind_m: float = start_landing_behind_m \
+					+ _get_active_leg_capture_radius()
+				var handoff_velocity_flat: Vector3 = Vector3(
+					aircraft.linear_velocity.x,
+					0.0,
+					aircraft.linear_velocity.z
+				)
+				var handoff_alignment_dot: float = handoff_velocity_flat.normalized().dot(forward) \
+					if handoff_velocity_flat.length_squared() > 25.0 else -1.0
+				var crossed_handoff_inbound: bool = handoff_alignment_dot > 0.0 \
+					and handoff_behind_m <= handoff_plane_behind_m
+				if crossed_handoff_inbound:
+					var handoff_rel_flat: Vector3 = aircraft.global_position - origin
+					handoff_rel_flat.y = 0.0
+					var handoff_cross_m: float = (
+						handoff_rel_flat + forward * handoff_behind_m
+					).length()
+					var handoff_ideal_y: float = deck_y + maxf(handoff_behind_m, 0.0) \
+						* tan(deg_to_rad(maxf(landing_glideslope_deg, 0.1)))
+					var handoff_allowed_cross_m: float = maxf(
+						landing_final_capture_lateral_apex_m,
+						0.1
+					) + maxf(handoff_behind_m, 0.0) * tan(deg_to_rad(maxf(
+						landing_final_capture_lateral_half_angle_deg,
+						0.1
+					)))
+					# Determine vertical reachability from the actual correction authority and the
+					# distance remaining before the strict final capture gate. This avoids another
+					# arbitrary altitude band at the handoff.
+					var capture_gate_behind_m: float = maxf(
+						landing_final_capture_gate_remaining_m,
+						1.0
+					)
+					var capture_gate_y: float = deck_y + capture_gate_behind_m \
+						* tan(deg_to_rad(maxf(landing_glideslope_deg, 0.1)))
+					var correction_room_m: float = maxf(
+						handoff_behind_m - capture_gate_behind_m,
+						0.0
+					)
+					var highest_recoverable_y: float = capture_gate_y + correction_room_m \
+						* tan(deg_to_rad(maxf(landing_final_max_descent_fpa_deg, 1.0)))
+					var lowest_recoverable_y: float = capture_gate_y - correction_room_m \
+						* tan(deg_to_rad(maxf(landing_final_max_climb_fpa_deg, 1.0)))
+					var final_geometry_ready: bool = handoff_alignment_dot >= approach_align_min_dot \
+						and handoff_cross_m <= handoff_allowed_cross_m \
+						and aircraft.global_position.y >= lowest_recoverable_y \
+						and aircraft.global_position.y <= highest_recoverable_y
+					if final_geometry_ready:
+						_landing_debug_event(
+							(
+								"terrain-routed arrival crossed final handoff from %s " \
+								+ "behind=%.0f cross=%.0f/%.0f vertical=%+.0f align=%.2f; committing landing"
+							) % [
+								handoff_role,
+								handoff_behind_m,
+								handoff_cross_m,
+								handoff_allowed_cross_m,
+								aircraft.global_position.y - handoff_ideal_y,
+								handoff_alignment_dot,
+							]
+						)
+						if not start_landing():
+							_release_landing_clearance_from_deck()
+							change_state(State.RTB)
+						return
+					# Crossing is irreversible. If this is not a flyable final, discard the stale
+					# approach and ask the terrain planner for another complete circuit rather than
+					# steering back to either of the already-passed straight-in gates.
+					_landing_debug_event(
+						(
+							"final handoff rejected from %s behind=%.0f cross=%.0f/%.0f " \
+							+ "vertical=%+.0f align=%.2f; replanning recovery"
+						) % [
+							handoff_role,
+							handoff_behind_m,
+							handoff_cross_m,
+							handoff_allowed_cross_m,
+							aircraft.global_position.y - handoff_ideal_y,
+							handoff_alignment_dot,
+						]
+					)
+					_clear_flight_plan()
+					waypoints.clear()
+					waypoint_speeds_mps.clear()
+					current_waypoint_index = 0
+					_aircraft_heightmap_route_signature = ""
+					_recovery_route_request_debugged = false
+					_request_recovery_arrival_route(frame)
+					return
+			var route_complete: bool = _follow_waypoint_route(delta, false, -1.0)
+			_landing_debug_tick(delta, "RECOVERY_ROUTE", maneuver_waypoint,
+				"leg=%d/%d role=%s" % [
+					current_waypoint_index + 1,
+					waypoints.size(),
+					_active_route_leg_role(),
+				])
+			if route_complete:
+				_landing_debug_event("terrain-routed arrival complete; committing final landing")
+				if not start_landing():
+					_release_landing_clearance_from_deck()
+					change_state(State.RTB)
+			return
+		_request_recovery_arrival_route(frame)
+		if _aircraft_heightmap_route_job_active:
+			return
+
+	var glide_tan: float = tan(deg_to_rad(clampf(approach_descent_angle_deg, 1.0, 20.0)))
+	# Where the 6deg slope reaches pattern altitude, plus a margin for stabilizing: the INTERCEPT point.
+	var intercept_behind_m: float = recovery_pattern_alt_above_deck_m / glide_tan + glide_intercept_margin_m
+	var intercept: Vector3 = origin - forward * intercept_behind_m
+	intercept.y = pattern_y
+	_approach_route_point = intercept
+
+	# Signed distance behind the carrier along the deck axis (positive = behind, on the approach side).
+	var to_carrier: Vector3 = origin - aircraft.global_position
+	var behind_m: float = to_carrier.dot(forward)
+	var vel_flat: Vector3 = Vector3(aircraft.linear_velocity.x, 0.0, aircraft.linear_velocity.z)
+	var approach_alignment_dot: float = vel_flat.normalized().dot(forward) if vel_flat.length() > 5.0 else -1.0
+	var aligned: bool = approach_alignment_dot >= approach_align_min_dot
+	var outbound_aligned: bool = approach_alignment_dot <= -approach_align_min_dot
+	var above_pattern: float = aircraft.global_position.y - pattern_y
+
+	# Lateral (cross-track) distance from the deck approach axis, flat.
+	var fwd_flat: Vector3 = Vector3(forward.x, 0.0, forward.z).normalized()
+	var rel_flat: Vector3 = aircraft.global_position - origin
+	rel_flat.y = 0.0
+	var cross_m: float = (rel_flat + fwd_flat * behind_m).length()
+	var inside_prechecked_axis: bool = cross_m <= glide_intercept_capture_m \
+			and behind_m >= 0.0 \
+			and behind_m <= intercept_behind_m + glide_intercept_capture_m
+	if inside_prechecked_axis:
+		precommit_terrain_clearance_m = maxf(recovery_gate_min_terrain_clearance_m, 20.0)
+
+	# --- Phase 0: DESCEND toward pattern altitude (deck + ~400m) heading for the intercept point.
+	# DIVE GUARD: never demand a slope steeper than recovery_descent_max_fpa_deg -- a spawn near the
+	# axis puts the intercept almost below us and an uncapped carrot commanded 40deg+ terrain dives.
+	# If we arrive over the intercept still high we just keep flying and finish the descent outbound.
+	if _recovery_phase == 0:
+		target_speed = recovery_circle_speed_mps
+		if above_pattern > recovery_pattern_alt_capture_m:
+			var descent_limit_rad: float = deg_to_rad(clampf(recovery_descent_max_fpa_deg, 3.0, 20.0))
+			var descent_run_needed_m: float = above_pattern / maxf(tan(descent_limit_rad), 0.01)
+			# Aim through the nominal intercept along the outbound axis. Its longitudinal
+			# position is derived from the altitude still to lose, so a high aircraft gets
+			# enough real 3D path length instead of circling a fixed point while descending.
+			var descend_aim_behind_m: float = maxf(
+				intercept_behind_m,
+				behind_m + maxf(descent_run_needed_m, glide_intercept_capture_m)
+			)
+			var descend_pt: Vector3 = origin - forward * descend_aim_behind_m
+			var safe_y: float = _terrain_safe_altitude_for_segment(
+				aircraft.global_position,
+				descend_pt,
+				pattern_y,
+				precommit_terrain_clearance_m
+			)
+			descend_pt.y = safe_y
+			nav_waypoint = descend_pt
+			_update_maneuver_waypoint()
+			_navigate_to_waypoint(delta)
+			_landing_debug_tick(delta, "RECOVERY_APPROACH", nav_waypoint,
+				"3D descent above=%.0f run=%.0f aim_behind=%.0f" % [
+					above_pattern,
+					descent_run_needed_m,
+					descend_aim_behind_m,
+				])
+			return
+		# If we reached pattern altitude while still travelling away from the carrier, complete a
+		# deliberate outbound setup before asking for the inbound turn. This avoids starting a wide
+		# intercept turn from an arbitrary off-axis point.
+		_recovery_phase = 3 if outbound_aligned else 1
+		_landing_debug_event("at pattern altitude; %s" % (
+			"completing outbound setup" if _recovery_phase == 3 else "transiting to glideslope intercept"
+		))
+
+	# --- Phase 3: EXTEND outbound -- we got too close to the ship without lining up. Fly back out along
+	# the axis past the intercept, then re-enter phase 1 with a long straight inbound run.
+	if _recovery_phase == 3:
+		target_speed = recovery_circle_speed_mps
+		var extension_behind_m: float = intercept_behind_m + maxf(recovery_outbound_extension_m, 1200.0)
+		# The extension distance is a capture GATE, not a point to pure-pursue. Steering
+		# at the gate itself makes the aircraft turn as it reaches it, so position and
+		# outbound-heading capture conditions never overlap. Aim through the gate at a
+		# farther 3D point while testing capture at the original plane.
+		var extension_aim_behind_m: float = extension_behind_m \
+			+ maxf(recovery_axis_capture_lookahead_m, glide_intercept_capture_m)
+		var ext_aim: Vector3 = origin - forward * extension_aim_behind_m
+		ext_aim.y = _terrain_safe_altitude_for_segment(
+			aircraft.global_position,
+			ext_aim,
+			pattern_y,
+			precommit_terrain_clearance_m
+		)
+		nav_waypoint = ext_aim
+		_update_maneuver_waypoint()
+		_navigate_to_waypoint(delta)
+		_landing_debug_tick(delta, "RECOVERY_APPROACH", nav_waypoint,
+			"extend outbound behind=%.0f gate=%.0f aim=%.0f" % [
+				behind_m,
+				extension_behind_m,
+				extension_aim_behind_m,
+			])
+		var extension_captured: bool = behind_m >= extension_behind_m - glide_intercept_capture_m \
+				and cross_m <= glide_intercept_capture_m \
+				and outbound_aligned
+		if extension_captured:
+			_recovery_phase = 4
+			_landing_debug_event("outbound setup captured; beginning inbound turn")
+		return
+
+	# --- Phase 4: TURN INBOUND from the centered outbound setup. Keeping this distinct from phase 1
+	# prevents phase 1 from trying to capture while the aircraft is still travelling away from the ship.
+	if _recovery_phase == 4:
+		# Slow before the turn and aim well down the inbound axis. Aiming back at the fixed intercept
+		# point makes a large-radius aircraft cross the centerline before its flight path is inbound.
+		target_speed = approach_speed_mps
+		var turn_in_target: Vector3 = origin - forward * glide_commit_min_behind_m
+		turn_in_target.y = _terrain_safe_altitude_for_segment(
+			aircraft.global_position,
+			turn_in_target,
+			pattern_y,
+			precommit_terrain_clearance_m
+		)
+		nav_waypoint = turn_in_target
+		_update_maneuver_waypoint()
+		_navigate_to_waypoint(delta)
+		_landing_debug_tick(delta, "RECOVERY_APPROACH", nav_waypoint,
+			"turn inbound behind=%.0f cross=%.0f align=%.2f" % [behind_m, cross_m, approach_alignment_dot])
+		if aligned:
+			_recovery_phase = 1
+			_landing_debug_event("inbound turn aligned; capturing approach axis")
+		return
+
+	# --- Phase 1: TRANSIT at pattern altitude toward the intercept point. Commit down the slope as soon
+	# as we're ALIGNED with the deck axis, laterally ON it, and far enough out to descend -- committing
+	# on the axis (not on reaching a point) avoids orbiting a capture bubble smaller than our turn radius.
+	if _recovery_phase == 1:
+		var flat_to_intercept: float = Vector2(aircraft.global_position.x - intercept.x, aircraft.global_position.z - intercept.z).length()
+		# Stay on approach speed and steer toward a moving point on the centerline ahead of the
+		# aircraft. This makes heading and cross-track converge together instead of pure-pursuing
+		# the fixed intercept point and alternately satisfying one capture gate or the other.
+		target_speed = approach_speed_mps
+		# Terrain clearance can legitimately lift the inbound turn above nominal pattern altitude.
+		# A fixed +/- pattern-altitude gate made that aircraft impossible to recover: it was visually
+		# lined up with kilometres still available, but phase 1 immediately sent it outbound again.
+		# Test the real geometry instead -- whether the existing final-flight-path authority can put
+		# the aircraft inside the glideslope at the final capture gate.
+		var final_capture_behind_m: float = maxf(landing_final_capture_gate_remaining_m, 1.0)
+		var final_capture_y: float = deck_y + final_capture_behind_m * glide_tan
+		var room_to_final_capture_m: float = maxf(behind_m - final_capture_behind_m, 0.0)
+		var highest_recoverable_y: float = final_capture_y + room_to_final_capture_m \
+			* tan(deg_to_rad(maxf(landing_final_max_descent_fpa_deg, 1.0)))
+		var lowest_recoverable_y: float = final_capture_y - room_to_final_capture_m \
+			* tan(deg_to_rad(maxf(landing_final_max_climb_fpa_deg, 1.0)))
+		var recovery_altitude_recoverable: bool = aircraft.global_position.y <= highest_recoverable_y \
+			and aircraft.global_position.y >= lowest_recoverable_y
+		var rejoin_floor_behind_m: float = maxf(
+			start_landing_behind_m,
+			final_capture_behind_m + glide_lookahead_m
+		)
+		var committed: bool = aligned \
+			and cross_m <= glide_intercept_capture_m \
+			and behind_m >= rejoin_floor_behind_m \
+			and recovery_altitude_recoverable
+		if not committed:
+			if behind_m < rejoin_floor_behind_m:
+				# The aircraft has now used the actual remaining correction room without capturing
+				# the axis. This is the point where another circuit is warranted.
+				_recovery_phase = 3
+				_landing_debug_event("too close without lineup (behind=%.0f cross=%.0f); extending" % [behind_m, cross_m])
+			var capture_lookahead_m: float = maxf(
+				maxf(recovery_axis_capture_lookahead_m, 500.0),
+				cross_m * maxf(recovery_axis_cross_track_lookahead_scale, 1.0)
+			)
+			var transit_target_behind_m: float = maxf(
+				rejoin_floor_behind_m,
+				behind_m - capture_lookahead_m
+			)
+			var transit_target: Vector3 = origin - forward * transit_target_behind_m
+			transit_target.y = _terrain_safe_altitude_for_segment(
+				aircraft.global_position,
+				transit_target,
+				pattern_y,
+				precommit_terrain_clearance_m
+			)
+			nav_waypoint = transit_target
+			_update_maneuver_waypoint()
+			_navigate_to_waypoint(delta)
+			_landing_debug_tick(delta, "RECOVERY_APPROACH", nav_waypoint,
+				"transit to intercept d=%.0f cross=%.0f aligned=%s alt_ok=%s" % [
+					flat_to_intercept, cross_m, str(aligned), str(recovery_altitude_recoverable)
+				])
+			return
+		_recovery_phase = 2
+		_landing_debug_event("on axis, aligned + on-speed at behind=%.0f; riding the glideslope" % behind_m)
+
+	# --- Phase 2: ride the ~6deg glideslope down the deck axis toward the wire. Gear+flaps only once
+	# close (clean and fast until then). Hand the last stretch to the proven FPA-carrot final.
+	target_speed = approach_speed_mps
+	if behind_m <= gear_deploy_behind_m:
+		_deploy_landing_gear()
+	var carrot_behind: float = maxf(behind_m - glide_lookahead_m, 0.0)
+	var carrot: Vector3 = origin - forward * carrot_behind
+	carrot.y = minf(deck_y + carrot_behind * glide_tan, pattern_y)
+	# If terrain routing delivered the aircraft above the nominal slope, aim along the shallowest
+	# straight interception that reaches the real final capture gate. This removes the altitude
+	# error progressively instead of either rejecting an otherwise good lineup or pointing the
+	# short carrot steeply down at the ideal line in one step.
+	var phase2_lookahead_m: float = maxf(behind_m - carrot_behind, 1.0)
+	var phase2_capture_behind_m: float = maxf(landing_final_capture_gate_remaining_m, 1.0)
+	if behind_m > phase2_capture_behind_m:
+		var phase2_capture_y: float = deck_y + phase2_capture_behind_m * glide_tan
+		var phase2_room_to_capture_m: float = maxf(behind_m - phase2_capture_behind_m, 1.0)
+		var intercept_fpa_rad: float = clampf(
+			atan2(phase2_capture_y - aircraft.global_position.y, phase2_room_to_capture_m),
+			-deg_to_rad(maxf(landing_final_max_descent_fpa_deg, 1.0)),
+			deg_to_rad(maxf(landing_final_max_climb_fpa_deg, 1.0))
+		)
+		var intercept_carrot_y: float = aircraft.global_position.y \
+			+ phase2_lookahead_m * tan(intercept_fpa_rad)
+		carrot.y = maxf(carrot.y, intercept_carrot_y)
+	nav_waypoint = carrot
 	_update_maneuver_waypoint()
 	_navigate_to_waypoint(delta)
-	_landing_debug_tick(delta, "RECOVERY_APPROACH", nav_waypoint, "gate=%s" % str(gate.get("label", "final")))
+	_landing_debug_tick(delta, "RECOVERY_APPROACH", carrot,
+		"glideslope behind=%.0f alt=%.0f aligned=%s" % [behind_m, aircraft.global_position.y, str(aligned)])
 
-	var capture_m: float = recovery_final_gate_capture_m if _recovery_phase >= 2 else recovery_gate_capture_m
-	if aircraft.global_position.distance_to(nav_waypoint) > capture_m:
+	if behind_m > start_landing_behind_m:
 		return
-	if _recovery_phase < 2:
-		_recovery_phase += 1
-		_landing_debug_event("recovery gate reached; next gate phase=%d" % _recovery_phase)
-		return
-	_landing_debug_event("recovery final gate reached; starting straight-in landing")
+	# Close in, on the slope, aligned -> hand to the existing final landing (aims wire-2 center).
+	_landing_debug_event("glideslope flown to handoff; committing final landing")
 	if not start_landing():
 		_release_landing_clearance_from_deck()
 		change_state(State.RTB)
@@ -4154,12 +12543,21 @@ func _compute_precision_point_control(
 
 	var bank_limit_rad: float = deg_to_rad(maxf(bank_limit_deg, 1.0))
 	var desired_bank: float = clampf(yaw_err_rad * bank_gain, -bank_limit_rad, bank_limit_rad)
+	# Only force the minimum-bank authority for a genuine heading error. A tight 1deg threshold made
+	# the bank command snap between +/-min_bank as the heading error wobbled around zero on rollout,
+	# producing a visible wing-waggle. Widen the deadband and scale the forced bank in over a few
+	# degrees so it eases toward the target instead of stepping across it.
 	var min_bank_rad: float = deg_to_rad(maxf(min_bank_deg, 0.0))
-	if min_bank_rad > 0.0 and absf(yaw_err_rad) > deg_to_rad(1.0) and absf(desired_bank) < min_bank_rad:
-		desired_bank = signf(yaw_err_rad)
-		if absf(desired_bank) < 0.01:
-			desired_bank = 1.0
-		desired_bank *= minf(min_bank_rad, bank_limit_rad)
+	var min_bank_deadband_rad: float = deg_to_rad(4.0)
+	if min_bank_rad > 0.0 and absf(yaw_err_rad) > min_bank_deadband_rad and absf(desired_bank) < min_bank_rad:
+		var forced_bank: float = signf(yaw_err_rad)
+		if absf(forced_bank) < 0.01:
+			forced_bank = 1.0
+		# Ease the forced minimum in between the deadband and ~8deg of error so it doesn't step.
+		var min_bank_ramp: float = clampf((absf(yaw_err_rad) - min_bank_deadband_rad) / deg_to_rad(4.0), 0.0, 1.0)
+		forced_bank *= minf(min_bank_rad, bank_limit_rad) * min_bank_ramp
+		if absf(forced_bank) > absf(desired_bank):
+			desired_bank = forced_bank
 	if flip_roll_direction:
 		desired_bank = -desired_bank
 
@@ -4167,7 +12565,11 @@ func _compute_precision_point_control(
 	var roll_rate: float = ang_vel.dot(b.z)
 	var bank_error: float = _normalize_angle(desired_bank - current_roll)
 	var raw_roll: float = clampf(bank_error * 8.0 - roll_rate * 0.25, -1.0, 1.0)
-	if absf(bank_error) > deg_to_rad(2.0):
+	# Only apply the minimum roll authority for a real bank error. A 2deg threshold kept kicking a
+	# +/-0.10 roll input in as the aircraft settled onto the target bank, flipping sign across the
+	# target and contributing to the wing-waggle. Use a wider deadband and don't fight the roll rate:
+	# if we're already rolling toward the target, skip the floor.
+	if absf(bank_error) > deg_to_rad(6.0) and roll_rate * signf(bank_error) <= 0.0:
 		var min_roll: float = 0.10 * signf(bank_error)
 		if absf(raw_roll) < absf(min_roll):
 			raw_roll = min_roll
@@ -4612,18 +13014,35 @@ func _get_landing_touchdown_reference() -> Dictionary:
 		"DeckCenterStart"
 	])
 	var aim_wire: Node3D = _find_arresting_wire(maxi(landing_aim_wire_number, 1))
+	if is_instance_valid(deck_start):
+		# DeckCenterStart is the authored wheel-touchdown reference, ahead of the
+		# arresting wires. Aiming the rigid-body origin at a wire left the aircraft
+		# airborne over every cable; its hook only reached cable height after them.
+		# Touch down at the deck marker and let the deployed hook trail across the
+		# selected arresting zone, as the deck geometry and bolter distance intend.
+		var deck_touchdown: Vector3 = deck_start.global_position
+		deck_touchdown.y = approach_4_pos.y
+		result["position"] = deck_touchdown
+		result["source"] = landing_deck_start_node_name
+		result["deck_start"] = deck_start.global_position
+		if is_instance_valid(aim_wire):
+			result["aim_wire"] = aim_wire.global_position
+		return result
 	if is_instance_valid(aim_wire):
+		# Aim at the MIDDLE of the wire (midpoint of its deck anchors), not the cable node's origin.
 		var wire_target: Vector3 = aim_wire.global_position
+		if aim_wire.has_method("get_wire_center"):
+			wire_target = aim_wire.call("get_wire_center")
+		var deck_forward: Vector3 = Vector3.ZERO
+		if is_instance_valid(deck_start):
+			deck_forward = aim_wire.global_position - deck_start.global_position
+		elif _approach_wp.size() > 0 and is_instance_valid(_approach_wp[0]):
+			deck_forward = aim_wire.global_position - (_approach_wp[0] as Node3D).global_position
+		deck_forward.y = 0.0
 		var forward_offset_m: float = maxf(landing_aim_forward_offset_m, 0.0)
-		if forward_offset_m > 0.0:
-			var deck_forward: Vector3 = Vector3.ZERO
-			if is_instance_valid(deck_start):
-				deck_forward = aim_wire.global_position - deck_start.global_position
-			elif _approach_wp.size() > 0 and is_instance_valid(_approach_wp[0]):
-				deck_forward = aim_wire.global_position - (_approach_wp[0] as Node3D).global_position
-			deck_forward.y = 0.0
-			if deck_forward.length_squared() > 0.001:
-				wire_target += deck_forward.normalized() * forward_offset_m
+		if deck_forward.length_squared() > 0.001:
+			deck_forward = deck_forward.normalized()
+			wire_target += deck_forward * forward_offset_m
 		wire_target.y = approach_4_pos.y
 		result["position"] = wire_target
 		result["source"] = "wire_%d+%.0fm" % [maxi(landing_aim_wire_number, 1), forward_offset_m]
@@ -4705,6 +13124,221 @@ func _landing_track_error(pos: Vector3) -> Dictionary:
 		"vertical_m": vertical_m,
 		"track_error_m": sqrt(lateral_m * lateral_m + vertical_m * vertical_m)
 	}
+
+
+func _landing_behind_carrier_m() -> float:
+	var frame: Dictionary = _get_recovery_carrier_frame()
+	if not bool(frame.get("valid", false)):
+		return NAN
+	var origin: Vector3 = frame.get("origin", Vector3.ZERO)
+	var forward: Vector3 = frame.get("forward", Vector3.FORWARD)
+	forward.y = 0.0
+	if forward.length_squared() < 0.001:
+		return NAN
+	return (origin - aircraft.global_position).dot(forward.normalized())
+
+
+func _update_landing_capture_cone(delta: float, landing_geom: Dictionary,
+		remaining_m: float, vertical_error_m: float) -> bool:
+	## Returns true only on the frame where an uncaptured aircraft crosses the commit gate.
+	var axis: Vector3 = landing_geom.get("axis", Vector3.FORWARD)
+	axis.y = 0.0
+	if axis.length_squared() < 0.001:
+		return false
+	axis = axis.normalized()
+	var right: Vector3 = Vector3.UP.cross(axis).normalized()
+	var ideal: Vector3 = _landing_path_point(landing_geom, remaining_m)
+	var lateral_m: float = (aircraft.global_position - ideal).dot(right)
+	var cone_remaining_m: float = maxf(remaining_m, 0.0)
+	var allowed_lateral_m: float = maxf(landing_final_capture_lateral_apex_m, 0.1) \
+		+ cone_remaining_m * tan(deg_to_rad(maxf(landing_final_capture_lateral_half_angle_deg, 0.1)))
+	var allowed_vertical_high_m: float = maxf(landing_final_capture_vertical_apex_m, 0.1) \
+		+ cone_remaining_m * tan(deg_to_rad(maxf(landing_final_capture_vertical_half_angle_deg, 0.1)))
+	var allowed_vertical_low_m: float = maxf(landing_final_capture_low_apex_m, 0.05) \
+		+ cone_remaining_m * tan(deg_to_rad(maxf(landing_final_capture_low_half_angle_deg, 0.05)))
+	var allowed_vertical_m: float = allowed_vertical_high_m \
+		if vertical_error_m >= 0.0 else allowed_vertical_low_m
+	var low_cone_deficit_m: float = maxf(-vertical_error_m - allowed_vertical_low_m, 0.0)
+	var ellipse_ratio: float = sqrt(
+		pow(lateral_m / allowed_lateral_m, 2.0) \
+		+ pow(vertical_error_m / allowed_vertical_m, 2.0)
+	)
+
+	var carrier_relative_velocity: Vector3 = aircraft.linear_velocity - _get_carrier_velocity()
+	var track_flat := Vector3(carrier_relative_velocity.x, 0.0, carrier_relative_velocity.z)
+	var track_yaw_error_deg: float = 180.0
+	if track_flat.length_squared() > 1.0:
+		track_flat = track_flat.normalized()
+		track_yaw_error_deg = absf(rad_to_deg(atan2(axis.cross(track_flat).y, axis.dot(track_flat))))
+	var current_fpa_rad: float = atan2(
+		carrier_relative_velocity.y,
+		maxf(Vector2(carrier_relative_velocity.x, carrier_relative_velocity.z).length(), 1.0)
+	)
+	var body_pitch_deg: float = rad_to_deg(_get_forward_pitch_rad())
+	var aoa_deg: float = _get_estimated_landing_aoa_deg()
+	var ideal_fpa_rad: float = -deg_to_rad(maxf(landing_glideslope_deg, 0.1))
+	var fpa_error_deg: float = absf(rad_to_deg(current_fpa_rad - ideal_fpa_rad))
+	var aircraft_basis: Basis = aircraft.global_transform.basis
+	var bank_deg: float = absf(rad_to_deg(atan2(aircraft_basis.x.y, aircraft_basis.y.y)))
+	var position_inside: bool = ellipse_ratio <= 1.0
+	var flight_path_inside: bool = track_yaw_error_deg <= maxf(landing_final_capture_max_track_yaw_deg, 0.1) \
+		and fpa_error_deg <= maxf(landing_final_capture_max_fpa_error_deg, 0.1) \
+		and bank_deg <= maxf(landing_final_capture_max_bank_deg, 0.1)
+	var inside: bool = position_inside and flight_path_inside
+	if inside:
+		_landing_capture_cone_stable_s += maxf(delta, 0.0)
+	else:
+		_landing_capture_cone_stable_s = 0.0
+	var stable_required_s: float = maxf(landing_final_capture_stable_time_s, 0.0)
+	if not _landing_capture_cone_captured \
+			and _landing_capture_cone_stable_s >= stable_required_s:
+		_landing_capture_cone_captured = true
+		_landing_capture_cone_capture_remaining_m = remaining_m
+		_landing_capture_cone_capture_behind_m = _landing_behind_carrier_m()
+	var settled_now: bool = absf(lateral_m) <= maxf(landing_final_settled_lateral_m, 0.1) \
+		and track_yaw_error_deg <= maxf(landing_final_settled_track_yaw_deg, 0.1) \
+		and bank_deg <= maxf(landing_final_settled_bank_deg, 0.1)
+	if not _landing_final_settled:
+		if settled_now:
+			_landing_final_settled_stable_s += maxf(delta, 0.0)
+		else:
+			_landing_final_settled_stable_s = 0.0
+		if _landing_final_settled_stable_s >= maxf(landing_final_settled_stable_time_s, 0.0):
+			_landing_final_settled = true
+			_landing_final_settled_remaining_m = remaining_m
+			_landing_final_settled_behind_m = _landing_behind_carrier_m()
+
+	var gate_failed: bool = false
+	var gate_remaining_m: float = maxf(landing_final_capture_gate_remaining_m, 1.0)
+	if not _landing_capture_cone_gate_checked and remaining_m <= gate_remaining_m:
+		_landing_capture_cone_gate_checked = true
+		_landing_capture_cone_gate_passed = inside \
+			and _landing_capture_cone_stable_s >= stable_required_s
+		if not _landing_capture_cone_gate_passed:
+			gate_failed = true
+			_landing_capture_cone_waveoff_reason = (
+				"cone ratio=%.2f lat=%+.1f/%.1f vert=%+.1f/%.1f " \
+				+ "track=%.1fdeg fpa=%.1fdeg bank=%.1fdeg stable=%.2fs"
+			) % [
+				ellipse_ratio, lateral_m, allowed_lateral_m,
+				vertical_error_m, allowed_vertical_m,
+				track_yaw_error_deg, fpa_error_deg, bank_deg,
+				_landing_capture_cone_stable_s,
+			]
+
+	_landing_capture_cone_status = {
+		"valid": true,
+		"remaining_m": remaining_m,
+		"behind_carrier_m": _landing_behind_carrier_m(),
+		"lateral_m": lateral_m,
+		"vertical_m": vertical_error_m,
+		"allowed_lateral_m": allowed_lateral_m,
+		"allowed_vertical_m": allowed_vertical_m,
+		"allowed_vertical_high_m": allowed_vertical_high_m,
+		"allowed_vertical_low_m": allowed_vertical_low_m,
+		"low_cone_deficit_m": low_cone_deficit_m,
+		"ellipse_ratio": ellipse_ratio,
+		"track_yaw_error_deg": track_yaw_error_deg,
+		"speed_mps": aircraft.linear_velocity.length(),
+		"fpa_deg": rad_to_deg(current_fpa_rad),
+		"body_pitch_deg": body_pitch_deg,
+		"aoa_deg": aoa_deg,
+		"target_aoa_deg": maxf(landing_final_target_aoa_deg, 0.0) * _landing_final_aoa_blend(remaining_m),
+		"throttle_cmd": throttle_input,
+		"engine_power": _get_landing_engine_power(),
+		"fpa_error_deg": fpa_error_deg,
+		"bank_deg": bank_deg,
+		"commanded_bank_deg": _landing_commanded_bank_deg,
+		"bank_settle_scale": _landing_bank_settle_scale,
+		"roll_input": roll_input,
+		"yaw_input": yaw_input,
+		"position_inside": position_inside,
+		"flight_path_inside": flight_path_inside,
+		"inside": inside,
+		"stable_s": _landing_capture_cone_stable_s,
+		"captured": _landing_capture_cone_captured,
+		"capture_remaining_m": _landing_capture_cone_capture_remaining_m,
+		"capture_behind_carrier_m": _landing_capture_cone_capture_behind_m,
+		"gate_remaining_m": gate_remaining_m,
+		"gate_checked": _landing_capture_cone_gate_checked,
+		"gate_passed": _landing_capture_cone_gate_passed,
+		"waveoff_reason": _landing_capture_cone_waveoff_reason,
+		"settled_now": settled_now,
+		"settled": _landing_final_settled,
+		"settled_stable_s": _landing_final_settled_stable_s,
+		"settled_remaining_m": _landing_final_settled_remaining_m,
+		"settled_behind_carrier_m": _landing_final_settled_behind_m,
+	}
+	return gate_failed
+
+
+func get_landing_capture_cone_status() -> Dictionary:
+	return _landing_capture_cone_status.duplicate(true)
+
+
+func _get_estimated_landing_aoa_deg() -> float:
+	if simple_aero != null and simple_aero.has_method("get_estimated_angle_of_attack_deg"):
+		return float(simple_aero.call("get_estimated_angle_of_attack_deg"))
+	var local_vel: Vector3 = aircraft.global_transform.basis.inverse() * aircraft.linear_velocity
+	return rad_to_deg(atan2(-local_vel.y, maxf(local_vel.z, 0.1)))
+
+
+func _get_landing_stall_floor_mps() -> float:
+	if simple_aero != null and simple_aero.has_method("get_effective_stall_speed_mps"):
+		return float(simple_aero.call("get_effective_stall_speed_mps")) \
+			+ maxf(landing_final_effective_stall_margin_mps, 0.0)
+	return stall_speed_mps + stall_margin_mps
+
+
+func _get_landing_engine_power() -> float:
+	if engine != null and "current_power" in engine:
+		return float(engine.get("current_power"))
+	return NAN
+
+
+func _landing_final_aoa_blend(remaining_m: float) -> float:
+	var blend_start_m: float = maxf(landing_final_aoa_blend_start_remaining_m, 1.0)
+	var blend_full_m: float = clampf(
+		landing_final_aoa_blend_full_remaining_m,
+		0.0,
+		blend_start_m - 1.0
+	)
+	return 1.0 - clampf(
+		(remaining_m - blend_full_m) / maxf(blend_start_m - blend_full_m, 1.0),
+		0.0,
+		1.0
+	)
+
+
+func get_landing_attitude_status() -> Dictionary:
+	var carrier_relative_velocity: Vector3 = aircraft.linear_velocity - _get_carrier_velocity()
+	var horizontal_speed_mps: float = Vector2(
+		carrier_relative_velocity.x,
+		carrier_relative_velocity.z
+	).length()
+	var remaining_m: float = 0.0
+	var track_status: Dictionary = _landing_track_error(aircraft.global_position)
+	if bool(track_status.get("valid", false)):
+		remaining_m = float(track_status.get("remaining_m", 0.0))
+	var aoa_blend: float = _landing_final_aoa_blend(remaining_m)
+	return {
+		"speed_mps": aircraft.linear_velocity.length(),
+		"fpa_deg": rad_to_deg(atan2(carrier_relative_velocity.y, maxf(horizontal_speed_mps, 1.0))),
+		"body_pitch_deg": rad_to_deg(_get_forward_pitch_rad()),
+		"aoa_deg": _get_estimated_landing_aoa_deg(),
+		"target_aoa_deg": maxf(landing_final_target_aoa_deg, 0.0) * aoa_blend,
+		"aoa_blend": aoa_blend,
+		"throttle_cmd": throttle_input,
+		"engine_power": _get_landing_engine_power(),
+		"remaining_m": remaining_m,
+	}
+
+
+func is_landing_go_around_active() -> bool:
+	## Public status for test/scoring systems. MISSED_APPROACH is the normal retry
+	## state after a wire miss even when the final-cone bolter flag was not used.
+	return _bolter_go_around or current_state == State.MISSED_APPROACH
+
 
 func _get_moving_landing_carrot(delta: float) -> Dictionary:
 	var landing_geom: Dictionary = _get_landing_line_geometry()
@@ -4912,6 +13546,10 @@ func _state_landing(delta: float):
 
 	var vel: Vector3 = aircraft.linear_velocity
 	var speed: float = vel.length()
+	# Final approach is steered in the carrier frame, so observe the angular rate of
+	# that relative flight path. This is the same measured-rate signal used to lead
+	# attack roll-out, now kept alive after recovery hands control to LANDING.
+	_update_turn_track_rate_observer(delta, vel - _get_carrier_velocity())
 	var b: Basis = aircraft.global_transform.basis
 	var ang_vel: Vector3 = aircraft.angular_velocity
 	var to_touch: Vector3 = touchdown - aircraft.global_position
@@ -4930,6 +13568,22 @@ func _state_landing(delta: float):
 	var lookahead_m: float = clampf(speed * landing_path_lookahead_time_s,
 									landing_path_min_lookahead_m,
 									landing_path_max_lookahead_m)
+	var capture_cone_gate_failed: bool = false
+	if landing_line_valid and not _bolter_go_around:
+		capture_cone_gate_failed = _update_landing_capture_cone(
+			delta,
+			landing_geom,
+			remaining_to_touchdown_m,
+			glide_vertical_error_m
+		)
+	if capture_cone_gate_failed:
+		_bolter_go_around = true
+		var cone_escape_velocity := Vector3(vel.x, 0.0, vel.z)
+		_bolter_dir = cone_escape_velocity.normalized() \
+			if cone_escape_velocity.length_squared() > 0.5 else b.z
+		if not _land_snap_touch_done:
+			_land_snap_touch_done = true
+			_landing_snap("WAVE-OFF", _landing_capture_cone_waveoff_reason + "  pts=0.0")
 
 	if not _land_snap_400_done and dist_to_touch < 400.0:
 		_land_snap_400_done = true
@@ -5094,17 +13748,20 @@ func _state_landing(delta: float):
 		_request_carrier_recovery()
 		return
 
-	# Speed target: bleed off as we close in (gear+flap drag assists; skip during go-around)
+	# Speed target: slow early enough that the requested landing AoA does not create excess lift
+	# and float the aircraft over the wires. Carrier-axis compensation keeps this an air-relative
+	# schedule when the deck is moving.
 	if not _bolter_go_around:
-		var base_landing_speed: float = 62.0
-		if horiz_dist < 80.0:
-			base_landing_speed = 50.0
-		elif horiz_dist < 150.0:
-			base_landing_speed = 53.0
-		elif horiz_dist < 250.0:
-			base_landing_speed = 57.0
-		else:
-			base_landing_speed = 62.0
+		var landing_speed_t: float = clampf(
+			remaining_to_touchdown_m / maxf(landing_final_speed_taper_distance_m, 1.0),
+			0.0,
+			1.0
+		)
+		var base_landing_speed: float = lerpf(
+			maxf(landing_final_speed_touchdown_mps, 1.0),
+			maxf(landing_final_speed_far_mps, landing_final_speed_touchdown_mps),
+			landing_speed_t
+		)
 		target_speed = base_landing_speed + _get_landing_carrier_speed_compensation(landing_geom)
 
 	# === ROLL: wings level on short final (< 200 m), bearing-based further out ===
@@ -5172,6 +13829,8 @@ func _state_landing(delta: float):
 	var damped_bearing_err_final: float = _landing_smoothed_bearing_error * lateral_gain_scale
 	var damped_runway_heading_err_final: float = _landing_smoothed_runway_heading_error
 	var lateral_pd_err_final: float = damped_bearing_err_final
+	var axis_track_heading_rad: float = 0.0
+	var axis_track_valid: bool = false
 	if landing_line_valid and runway_axis_flat.length() > 0.01:
 		var line_point_xz: Vector3 = _landing_path_point(landing_geom, remaining_to_touchdown_m)
 		line_point_xz.y = aircraft.global_position.y
@@ -5195,26 +13854,98 @@ func _state_landing(delta: float):
 			var lateral_aim_heading_rad: float = atan2(lateral_aim_dir.x, lateral_aim_dir.z)
 			var runway_heading_rad_pd: float = atan2(runway_axis_flat.x, runway_axis_flat.z)
 			lateral_pd_err_final = _normalize_angle(lateral_aim_heading_rad - runway_heading_rad_pd) * lateral_gain_scale
+			axis_track_heading_rad = lateral_aim_heading_rad
+			axis_track_valid = true
+	# Make the strict final-stage error the carrier-relative FLIGHT PATH VECTOR angle to the
+	# actual moving carrot in the horizontal plane. Nose heading is only a loose proxy at
+	# approach AoA or with sideslip, and can look aligned while the trajectory misses the wires.
+	var flight_path_yaw_err_final: float = lateral_pd_err_final
+	var carrier_relative_track_flat: Vector3 = vel - _get_carrier_velocity()
+	carrier_relative_track_flat.y = 0.0
+	if horiz_to_target_flat.length() > 1.0 and carrier_relative_track_flat.length() > 5.0:
+		var desired_fpv_heading_rad: float = atan2(horiz_to_target_flat.x, horiz_to_target_flat.z)
+		if axis_track_valid:
+			var axis_blend_full_m: float = maxf(landing_final_axis_track_blend_full_m, 1.0)
+			var axis_blend_start_m: float = maxf(
+				landing_final_axis_track_blend_start_m,
+				axis_blend_full_m + 1.0
+			)
+			var axis_track_blend: float = 1.0 - clampf(
+				(remaining_to_touchdown_m - axis_blend_full_m)
+					/ (axis_blend_start_m - axis_blend_full_m),
+				0.0,
+				1.0
+			)
+			# Interpolate headings on the circle. By the capture gate this uses the runway-axis
+			# solution, so lateral velocity is removed instead of merely pursuing the carrot.
+			desired_fpv_heading_rad = _normalize_angle(
+				desired_fpv_heading_rad
+					+ _normalize_angle(axis_track_heading_rad - desired_fpv_heading_rad) * axis_track_blend
+			)
+		var current_fpv_heading_rad: float = atan2(carrier_relative_track_flat.x, carrier_relative_track_flat.z)
+		flight_path_yaw_err_final = _normalize_angle(desired_fpv_heading_rad - current_fpv_heading_rad)
+	_landing_fpv_yaw_error_deg = rad_to_deg(flight_path_yaw_err_final)
+	_landing_track_rate_deg_s = rad_to_deg(_attack_turn_track_rate_rad_s) \
+		if _attack_turn_track_heading_valid else NAN
+	# Lead the final correction by the turn rate the aircraft already carries. The
+	# existing lateral-velocity term predicts translation, but it cannot predict the
+	# curved path that continues while bank and rudder unwind. Attack positioning
+	# solved the same problem by comparing measured track rate with the rate needed
+	# to remove the remaining angle over its aim-settling horizon. Reuse that law in
+	# the landing frame. It only intervenes once the real turn is faster than the
+	# remaining geometry requires, and can therefore request the counter-correction
+	# before the current-position error crosses zero.
+	var predictive_fpv_yaw_err_final: float = flight_path_yaw_err_final
+	if _attack_turn_track_heading_valid and carrier_relative_track_flat.length() > 5.0:
+		var lateral_rollout_distance_m: float = maxf(
+			landing_final_lateral_pd_lookahead_m,
+			1.0
+		)
+		var lateral_rollout_time_s: float = lateral_rollout_distance_m \
+			/ maxf(carrier_relative_track_flat.length(), 1.0)
+		var desired_track_rate_rad_s: float = flight_path_yaw_err_final \
+			/ maxf(lateral_rollout_time_s, maxf(delta, 0.001))
+		var corrected_track_rate_rad_s: float = desired_track_rate_rad_s
+		var actual_turns_toward_line: bool = signf(_attack_turn_track_rate_rad_s) \
+			== signf(desired_track_rate_rad_s)
+		if actual_turns_toward_line \
+				and absf(_attack_turn_track_rate_rad_s) > absf(desired_track_rate_rad_s):
+			corrected_track_rate_rad_s += desired_track_rate_rad_s \
+				- _attack_turn_track_rate_rad_s
+			predictive_fpv_yaw_err_final = corrected_track_rate_rad_s \
+				* lateral_rollout_time_s
+	_landing_predictive_fpv_yaw_error_deg = rad_to_deg(predictive_fpv_yaw_err_final)
+	lateral_pd_err_final = predictive_fpv_yaw_err_final
 	var desired_bank: float = 0.0
 	var lateral_bank_gain: float = maxf(landing_final_lateral_bank_gain, 0.0)
 	var lateral_bank_limit_rad: float = deg_to_rad(maxf(landing_final_lateral_bank_limit_deg, 0.0))
-	if horiz_dist > 200.0:
-		desired_bank = clampf(
-			lateral_pd_err_final * lateral_bank_gain,
-			-lateral_bank_limit_rad,
-			lateral_bank_limit_rad
-		)
-		if flip_roll_direction:
-			desired_bank = -desired_bank
+	desired_bank = clampf(
+		lateral_pd_err_final * lateral_bank_gain,
+		-lateral_bank_limit_rad,
+		lateral_bank_limit_rad
+	)
+	if flip_roll_direction:
+		desired_bank = -desired_bank
 	# desired_bank stays 0.0 inside 200 m ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â command wings level
+	# Bank now stays available until the touchdown-distance taper below deliberately reduces it.
 	var bank_error: float = desired_bank - current_roll
 	var raw_roll: float = clamp(bank_error * 11.0 - roll_rate * 0.3, -1.0, 1.0)
 	roll_input = lerp(_smoothed_roll_input, raw_roll, 0.25)
 	_smoothed_roll_input = roll_input
 	var short_final_dist_m: float = maxf(landing_short_final_bank_distance_m, 1.0)
-	var close_alignment_t: float = 1.0 - clampf(horiz_dist / short_final_dist_m, 0.0, 1.0)
+	# Use distance to the deck touchdown reference. `horiz_dist` is only the short carrot gap,
+	# which previously made displaced aircraft level their wings hundreds of metres too early.
+	var close_alignment_t: float = 1.0 - clampf(
+		remaining_to_touchdown_m / short_final_dist_m,
+		0.0,
+		1.0
+	)
 	var touchdown_level_dist_m: float = maxf(landing_touchdown_level_distance_m, 1.0)
-	var touchdown_level_t: float = 1.0 - clampf(horiz_dist / touchdown_level_dist_m, 0.0, 1.0)
+	var touchdown_level_t: float = 1.0 - clampf(
+		remaining_to_touchdown_m / touchdown_level_dist_m,
+		0.0,
+		1.0
+	)
 	var landing_bank_limit_deg: float = lerpf(
 		20.0,
 		clampf(landing_short_final_bank_limit_deg, 4.0, 20.0),
@@ -5230,8 +13961,24 @@ func _state_landing(delta: float):
 		clampf(landing_final_rudder_primary_bank_scale, 0.0, 1.0),
 		close_alignment_t
 	)
+	var capture_gate_remaining_m: float = maxf(landing_final_capture_gate_remaining_m, 1.0)
+	var bank_settle_start_m: float = maxf(
+		landing_final_bank_settle_start_remaining_m,
+		capture_gate_remaining_m + 1.0
+	)
+	var bank_settle_t: float = 1.0 - clampf(
+		(remaining_to_touchdown_m - capture_gate_remaining_m)
+			/ (bank_settle_start_m - capture_gate_remaining_m),
+		0.0,
+		1.0
+	)
+	_landing_bank_settle_scale = lerpf(
+		1.0,
+		clampf(landing_final_bank_scale_at_gate, 0.1, 1.0),
+		bank_settle_t
+	)
 	var aligned_bank: float = clampf(
-		lateral_pd_err_final * lateral_bank_gain * rudder_primary_bank_scale,
+		lateral_pd_err_final * lateral_bank_gain * rudder_primary_bank_scale * _landing_bank_settle_scale,
 		-minf(deg_to_rad(landing_bank_limit_deg), lateral_bank_limit_rad),
 		minf(deg_to_rad(landing_bank_limit_deg), lateral_bank_limit_rad)
 	)
@@ -5242,7 +13989,7 @@ func _state_landing(delta: float):
 			0.0,
 			touchdown_level_t
 		)
-		short_final_min_bank_deg *= rudder_primary_bank_scale
+		short_final_min_bank_deg *= rudder_primary_bank_scale * _landing_bank_settle_scale
 	var short_final_min_bank_rad: float = deg_to_rad(short_final_min_bank_deg)
 	if close_alignment_t > 0.0 and absf(lateral_pd_err_final) > deg_to_rad(1.0) and absf(aligned_bank) < short_final_min_bank_rad:
 		aligned_bank = signf(lateral_pd_err_final)
@@ -5251,6 +13998,7 @@ func _state_landing(delta: float):
 		aligned_bank *= short_final_min_bank_rad
 	if flip_roll_direction:
 		aligned_bank = -aligned_bank
+	_landing_commanded_bank_deg = rad_to_deg(aligned_bank)
 	var aligned_bank_error: float = _normalize_angle(aligned_bank - current_roll)
 	var touchdown_roll_damping: float = lerpf(0.3, 0.45, touchdown_level_t)
 	var aligned_raw_roll: float = clampf(aligned_bank_error * 11.0 - roll_rate * touchdown_roll_damping, -1.0, 1.0)
@@ -5303,6 +14051,22 @@ func _state_landing(delta: float):
 		desired_fpa = base_fpa + height_correction + vs_correction
 	else:
 		desired_fpa = atan2(to_target.y, maxf(horiz_dist, 25.0))
+	var low_cone_deficit_m: float = float(_landing_capture_cone_status.get("low_cone_deficit_m", 0.0))
+	if low_cone_deficit_m > 0.0 \
+			and remaining_to_touchdown_m > maxf(landing_final_capture_gate_remaining_m, 1.0) \
+			and not _bolter_go_around:
+		# Aim to remove the actual path error over the horizontal distance left before the gate.
+		# A fixed positive climb caused a small low error to overshoot through the upper cone.
+		var distance_to_capture_gate_m: float = maxf(
+			remaining_to_touchdown_m - maxf(landing_final_capture_gate_remaining_m, 1.0),
+			25.0
+		)
+		var gate_intercept_correction: float = clampf(
+			atan2(-glide_vertical_error_m, distance_to_capture_gate_m),
+			0.0,
+			deg_to_rad(maxf(landing_final_low_cone_intercept_max_correction_deg, 0.1))
+		)
+		desired_fpa = -deg_to_rad(maxf(landing_glideslope_deg, 0.1)) + gate_intercept_correction
 	desired_fpa = clampf(
 		desired_fpa,
 		-deg_to_rad(maxf(landing_final_max_descent_fpa_deg, 1.0)),
@@ -5330,17 +14094,44 @@ func _state_landing(delta: float):
 		desired_fpa = lerpf(_landing_smoothed_desired_fpa, slewed_fpa, fpa_smoothing)
 		_landing_smoothed_desired_fpa = desired_fpa
 	var fpa_err: float = desired_fpa - current_fpa
+	_landing_fpv_pitch_error_deg = rad_to_deg(fpa_err)
+	var target_aoa_rad: float = deg_to_rad(maxf(landing_final_target_aoa_deg, 0.0)) \
+		* _landing_final_aoa_blend(remaining_to_touchdown_m)
+	var current_aoa_rad: float = deg_to_rad(_get_estimated_landing_aoa_deg())
+	var aoa_error_rad: float = clampf(
+		target_aoa_rad - current_aoa_rad,
+		-deg_to_rad(maxf(landing_final_aoa_error_limit_deg, 0.1)),
+		deg_to_rad(maxf(landing_final_aoa_error_limit_deg, 0.1))
+	)
+	# Pitch is the primary FPV effector. AoA assistance may trim the attitude only while the
+	# trajectory is already close to the requested line; it must never cancel a large FPV error.
+	var aoa_fpa_full_error_rad: float = deg_to_rad(maxf(
+		landing_final_aoa_fpa_priority_full_error_deg,
+		0.0
+	))
+	var aoa_fpa_release_error_rad: float = deg_to_rad(maxf(
+		landing_final_aoa_fpa_priority_release_error_deg,
+		landing_final_aoa_fpa_priority_full_error_deg + 0.1
+	))
+	var aoa_fpa_priority: float = 1.0 - clampf(
+		(absf(fpa_err) - aoa_fpa_full_error_rad) \
+			/ maxf(aoa_fpa_release_error_rad - aoa_fpa_full_error_rad, 0.001),
+		0.0,
+		1.0
+	)
 	var pitch_rate_up: float = -ang_vel.dot(b.x)
 	var final_pitch_limit: float = maxf(landing_final_pitch_input_limit, 0.05)
 	var raw_pitch: float = clampf(
-		fpa_err * landing_final_pitch_gain - pitch_rate_up * landing_final_pitch_rate_damping,
+		fpa_err * landing_final_pitch_gain \
+			+ aoa_error_rad * maxf(landing_final_aoa_gain, 0.0) * aoa_fpa_priority \
+			- pitch_rate_up * landing_final_pitch_rate_damping,
 		-final_pitch_limit,
 		final_pitch_limit
 	)
 	pitch_input = lerpf(_smoothed_pitch_input, raw_pitch, clampf(landing_final_pitch_smoothing, 0.02, 1.0))
 	_smoothed_pitch_input = pitch_input
 	# Stall protection: don't push nose down aggressively when near stall.
-	var _stall_floor_final: float = stall_speed_mps + stall_margin_mps
+	var _stall_floor_final: float = _get_landing_stall_floor_mps()
 	var _final_speed_margin: float = speed - _stall_floor_final
 	if _final_speed_margin < 12.0:
 		var _max_nd: float = lerpf(-0.05, -final_pitch_limit, clampf(_final_speed_margin / 12.0, 0.0, 1.0))
@@ -5352,27 +14143,86 @@ func _state_landing(delta: float):
 			_smoothed_pitch_input = pitch_input
 
 	# === THROTTLE: maintain approach speed (min 0.1 ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â lower than normal nav's 0.4) ===
-	var commanded_target_speed: float = _get_effective_target_speed()
+	# Final approach is configured with flaps, so use SimpleAero's flap-adjusted stall speed.
+	# The generic AI floor assumes a clean wing and otherwise silently clamps this schedule to
+	# roughly 50 m/s, preventing the higher-AoA carrier attitude from reaching equilibrium.
+	var commanded_target_speed: float = maxf(
+		target_speed + formation_speed_bias_mps,
+		_get_landing_stall_floor_mps()
+	)
+	if is_finite(formation_speed_cap_mps):
+		commanded_target_speed = minf(commanded_target_speed, formation_speed_cap_mps)
 	var speed_err: float = commanded_target_speed - speed
-	throttle_input = clamp(throttle_input + clamp(speed_err * 0.01, -0.05, 0.05), 0.1, 1.0)
+	var landing_throttle_min: float = 0.1
+	if landing_line_valid \
+			and remaining_to_touchdown_m <= maxf(landing_final_high_path_idle_remaining_m, 1.0) \
+			and glide_vertical_error_m >= maxf(landing_final_high_path_idle_error_m, 0.0):
+		# Carrier-style power correction: once established on short final, an aircraft that is
+		# above path may use reduced power to shed lift/speed. Low-path protections below immediately
+		# restore power if it crosses beneath the safe surface.
+		landing_throttle_min = clampf(landing_final_high_path_throttle_min, 0.0, 0.1)
+	throttle_input = clamp(
+		throttle_input + clamp(speed_err * 0.01, -0.05, 0.05),
+		landing_throttle_min,
+		1.0
+	)
 	if landing_line_valid and not _bolter_go_around:
 		var throttle_glideslope_rad: float = deg_to_rad(maxf(landing_glideslope_deg, 0.1))
 		var throttle_ideal_vs: float = -rel_horiz_speed_fpa * tan(throttle_glideslope_rad)
 		var low_path_t: float = clampf((-glide_vertical_error_m - 1.0) / 8.0, 0.0, 1.0)
 		var excess_sink_t: float = clampf((throttle_ideal_vs - rel_vel_fpa.y) / 4.0, 0.0, 1.0)
-		var low_path_floor: float = lerpf(0.1, clampf(landing_final_low_path_throttle_floor, 0.1, 1.0), low_path_t)
-		var sink_floor: float = lerpf(0.1, clampf(landing_final_sink_throttle_floor, 0.1, 1.0), excess_sink_t)
+		# A steep descent is desirable while correcting from above the path. Do not let the generic
+		# sink-rate guard add power and fight that correction; blend it back in around/on/below path.
+		var sink_guard_high_m: float = maxf(
+			landing_final_sink_guard_fade_high_m,
+			landing_final_sink_guard_full_low_m + 0.1
+		)
+		var sink_guard_path_t: float = 1.0 - clampf(
+			(glide_vertical_error_m - landing_final_sink_guard_full_low_m) \
+				/ (sink_guard_high_m - landing_final_sink_guard_full_low_m),
+			0.0,
+			1.0
+		)
+		var low_path_floor: float = lerpf(landing_throttle_min, clampf(landing_final_low_path_throttle_floor, 0.0, 1.0), low_path_t)
+		var sink_floor: float = lerpf(
+			landing_throttle_min,
+			clampf(landing_final_sink_throttle_floor, 0.0, 1.0),
+			excess_sink_t * sink_guard_path_t
+		)
 		throttle_input = maxf(throttle_input, maxf(low_path_floor, sink_floor))
-	if speed < stall_speed_mps + stall_margin_mps:
+		if float(_landing_capture_cone_status.get("low_cone_deficit_m", 0.0)) > 0.0:
+			throttle_input = maxf(
+				throttle_input,
+				clampf(landing_final_low_cone_rescue_throttle_floor, 0.1, 1.0)
+			)
+	if speed < _get_landing_stall_floor_mps():
 		throttle_input = 1.0
 
 	# === YAW: coordinate the bank + rudder correction for heading fine-tuning ===
 	var yaw_rate: float = ang_vel.dot(b.y)
-	var rudder_target_heading_err: float = _normalize_angle(
-		damped_runway_heading_err_final + lateral_pd_err_final * maxf(landing_final_rudder_lateral_gain, 0.0)
+	_landing_fpv_yaw_controller.set_gains(
+		maxf(landing_final_fpv_pid_kp, 0.0),
+		maxf(landing_final_fpv_pid_ki, 0.0),
+		maxf(landing_final_fpv_pid_kd, 0.0)
+	)
+	_landing_fpv_yaw_controller.integral_limit = maxf(landing_final_fpv_pid_integral_limit, 0.0)
+	if not _landing_fpv_pid_active:
+		# Prime the derivative state so entering final does not create a one-frame rudder spike.
+		_landing_fpv_yaw_controller.last_error = lateral_pd_err_final
+		_landing_fpv_pid_active = true
+	var fpv_yaw_pid_output: float = clampf(
+		_landing_fpv_yaw_controller.update(lateral_pd_err_final, delta),
+		-maxf(landing_final_fpv_pid_output_limit, 0.05),
+		maxf(landing_final_fpv_pid_output_limit, 0.05)
+	)
+	# Keep sideslip bounded, but leave the trajectory PID authoritative.
+	var nose_runway_correction: float = clampf(
+		damped_runway_heading_err_final * maxf(landing_final_runway_yaw_gain, 0.0) * 0.25,
+		-0.20,
+		0.20
 	)
 	var yaw_correction_final: float = clampf(
-		rudder_target_heading_err * maxf(landing_final_runway_yaw_gain, 0.0),
+		fpv_yaw_pid_output + nose_runway_correction,
 		-0.85,
 		0.85
 	)
@@ -5386,7 +14236,7 @@ func _state_landing(delta: float):
 	# Rudder authority scales up as bank is restricted — rudder becomes the primary alignment tool.
 	var aligned_yaw_correction_limit: float = lerpf(0.4, 0.85, close_alignment_t)
 	var aligned_yaw_correction: float = clampf(
-		rudder_target_heading_err * maxf(landing_final_runway_yaw_gain, 0.0),
+		fpv_yaw_pid_output + nose_runway_correction,
 		-aligned_yaw_correction_limit,
 		aligned_yaw_correction_limit
 	)
@@ -5435,9 +14285,23 @@ func _state_missed_approach(delta: float):
 			_stow_landing_config()
 		var wings_ok: bool = absf(current_roll) < deg_to_rad(15.0)
 		var speed_ok: bool = speed_margin >= 15.0
-		var climbing: bool = vel.y >= 0.0
+		# Require an ESTABLISHED climb, not just a momentary non-negative vertical speed -- vel.y >= 0.0
+		# was satisfied almost immediately after the bolter (wings already near level, speed already fine
+		# right off the deck) and handed off to Phase 2 before any real altitude had been gained. Phase 2
+		# has no terrain/climb guarantee of its own (pure lateral nav at current altitude), so a weak
+		# hand-off here meant the aircraft could fly essentially level-to-slightly-sinking right into
+		# terrain during the "go-around" — observed directly: it flew straight, gradually losing altitude,
+		# into a cliff. Now requires a real climb rate sustained long enough to represent an actual
+		# escape, not a single frame's velocity reading.
+		var established_climb: bool = vel.y >= landing_bolter_escape_climb_rate_mps
+		if established_climb:
+			_ma_escape_climb_timer_s += delta
+		else:
+			_ma_escape_climb_timer_s = 0.0
+		var climbing: bool = _ma_escape_climb_timer_s >= landing_bolter_escape_climb_hold_s
 		if wings_ok and speed_ok and climbing:
 			_ma_escape_complete = true
+			_ma_escape_climb_timer_s = 0.0
 			# Fall through to Phase 2 immediately this frame.
 		else:
 			var bank_error: float = _normalize_angle(0.0 - current_roll)
@@ -5492,11 +14356,70 @@ func _state_missed_approach(delta: float):
 # NAVIGATION FUNCTIONS
 # ============================================================================
 
+func _reset_turn_track_rate_observer() -> void:
+	_attack_turn_track_heading_valid = false
+	_attack_turn_track_rate_rad_s = 0.0
+
+
+func _update_turn_track_rate_observer(delta: float, world_velocity: Vector3) -> void:
+	var track_velocity := Vector3(world_velocity.x, 0.0, world_velocity.z)
+	if track_velocity.length_squared() <= 1.0:
+		_reset_turn_track_rate_observer()
+		return
+	var track_heading_rad: float = atan2(track_velocity.x, track_velocity.z)
+	if _attack_turn_track_heading_valid and delta > 0.0:
+		var measured_track_rate_rad_s: float = _normalize_angle(
+			track_heading_rad - _attack_turn_track_heading_rad
+		) / delta
+		var track_rate_filter_t: float = 1.0 - exp(
+			-maxf(delta, 0.0) * TAU * maxf(attack_turn_track_rate_response_hz, 0.01)
+		)
+		_attack_turn_track_rate_rad_s = lerpf(
+			_attack_turn_track_rate_rad_s,
+			measured_track_rate_rad_s,
+			clampf(track_rate_filter_t, 0.0, 1.0)
+		)
+	else:
+		_attack_turn_track_rate_rad_s = 0.0
+	_attack_turn_track_heading_rad = track_heading_rad
+	_attack_turn_track_heading_valid = true
+
+
 func _navigate_to_waypoint(delta: float):
 	"""Hybrid approach: local-space horizontal steering (roll) + world-space altitude hold (pitch)."""
-	
+
+	_recovery_straight_cross_track_m_debug = NAN
+	_recovery_straight_cross_track_rate_mps_debug = NAN
+	_recovery_straight_lateral_accel_mps2_debug = NAN
 	var vel: Vector3 = aircraft.linear_velocity
 	var speed: float = max(vel.length(), 0.1)
+	# Measure the actual horizontal flight-path turn rate. Bank and body yaw rate are
+	# only indirect proxies; this is the quantity that tells us whether the aircraft
+	# already has enough angular momentum to reach (or overshoot) the attack line.
+	var attack_track_velocity: Vector3 = vel
+	if current_state == State.RECOVERY_APPROACH:
+		# Recovery geometry is fixed in the carrier's moving frame. Measure the turn
+		# that changes the approach error, rather than including the deck's motion.
+		attack_track_velocity -= _get_carrier_velocity()
+	if current_state in [State.ATTACK_POSITIONING, State.RECOVERY_APPROACH]:
+		_update_turn_track_rate_observer(delta, attack_track_velocity)
+	else:
+		_reset_turn_track_rate_observer()
+	# DEFENSIVE EVASION: a defensive aircraft under threat keeps flying toward its mission waypoint but
+	# adds a lateral weave to spoil an attacker's gun solution. This offsets the waypoint side to side
+	# without changing the destination, so the attack run / egress continues while jinking.
+	if _defensive_evade_timer_s > 0.0:
+		_defensive_evade_timer_s -= delta
+		# Reverse the weave direction periodically for an unpredictable jink.
+		if fmod(_defensive_evade_timer_s, 0.6) > 0.3:
+			_defensive_evade_dir = 1.0
+		else:
+			_defensive_evade_dir = -1.0
+		var flat_fwd: Vector3 = Vector3(vel.x, 0.0, vel.z)
+		if flat_fwd.length() > 1.0:
+			var side: Vector3 = flat_fwd.normalized().cross(Vector3.UP)
+			nav_waypoint += side * _defensive_evade_dir * defensive_evade_weave_m
+			nav_waypoint.y += sin(_defensive_evade_timer_s * 6.0) * defensive_evade_weave_m * 0.4
 	# Heading-independent bank angle: basis.x is the aircraft's right-wing vector.
 	# Its Y component directly tells us the bank: negative = right wing down = right bank.
 	var current_roll: float = atan2(aircraft.global_transform.basis.x.y, aircraft.global_transform.basis.y.y)
@@ -5505,7 +14428,13 @@ func _navigate_to_waypoint(delta: float):
 	# In dogfight, the aircraft intentionally banks up to dogfight_bank_cmd_limit_deg (e.g. 85ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â°).
 	# cos(85ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â°) = 0.087 ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â below the normal 0.3 threshold ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â so we raise the limit only in states
 	# that deliberately command steep banks, to avoid fighting the roll controller.
-	var is_upright: bool = current_state == State.DOGFIGHT or aircraft_up_y > 0.3
+	# Attack positioning now deliberately uses the same steep-but-upright bank
+	# envelope as combat pursuit. Treating aircraft_up_y < 0.3 (about 72.5 deg)
+	# as inversion returned before its coordinated-turn controller and created
+	# the hidden bank ceiling seen in the integrated test.
+	var intentional_steep_bank: bool = current_state == State.DOGFIGHT \
+		or (current_state == State.ATTACK_POSITIONING and attack_assertive_turn_enabled)
+	var is_upright: bool = intentional_steep_bank or aircraft_up_y > 0.3
 
 	# === INVERTED RECOVERY ===
 	if not is_upright:
@@ -5537,6 +14466,49 @@ func _navigate_to_waypoint(delta: float):
 	
 	var to_target: Vector3 = maneuver_waypoint - aircraft.global_position
 	var b: Basis = aircraft.global_transform.basis
+	var in_dive_state: bool = current_state == State.ATTACK_DIVE
+	var direct_fire_dive: bool = in_dive_state and _is_direct_fire_attack_weapon_type(_run_weapon_type)
+	# The 3D setup leg must remain one coherent route-following task. Giving target
+	# LOS separate pitch authority here can command a descent while the route is
+	# still climbing over terrain toward setup. Target LOS takes over on the actual
+	# attack_target leg, whose geometry already points down the weapon corridor.
+	var active_ground_attack_role: String = ""
+	if current_state == State.ATTACK_POSITIONING \
+			and _flight_plan_name == "ground_attack" \
+			and current_waypoint_index >= 0 \
+			and current_waypoint_index < _flight_plan_legs.size():
+		active_ground_attack_role = str(_flight_plan_legs[current_waypoint_index].get("role", ""))
+	var terminal_attack_acquisition: bool = active_ground_attack_role == "attack_target" \
+		and (_run_weapon_type == "Rocket Pod" or _is_direct_fire_attack_weapon_type(_run_weapon_type))
+	var terminal_attack_fpv_yaw_error_rad: float = 0.0
+	var terminal_attack_fpv_yaw_valid: bool = false
+	var terminal_attack_nose_aim_dir: Vector3 = Vector3.ZERO
+	var terminal_attack_nose_aim_valid: bool = false
+	if terminal_attack_acquisition:
+		var acquisition_point: Vector3 = maneuver_waypoint
+		if current_waypoint_index >= 0 and current_waypoint_index < waypoints.size():
+			acquisition_point = waypoints[current_waypoint_index]
+		var acquisition_flat: Vector3 = acquisition_point - aircraft.global_position
+		acquisition_flat.y = 0.0
+		if acquisition_flat.length_squared() > 1.0 and attack_track_velocity.length_squared() > 1.0:
+			var acquisition_heading_rad: float = atan2(acquisition_flat.x, acquisition_flat.z)
+			var attack_track_heading_rad: float = atan2(attack_track_velocity.x, attack_track_velocity.z)
+			terminal_attack_fpv_yaw_error_rad = _normalize_angle(
+				acquisition_heading_rad - attack_track_heading_rad
+			)
+			terminal_attack_fpv_yaw_valid = true
+		# Keep navigating the aircraft through the planned release position, but point
+		# its nose at what it will actually shoot. Previously the positioning controller
+		# only followed route vertical speed; the target did not own elevator until
+		# ATTACK_DIVE, leaving precision aim to correct a large nose error at close range.
+		var terminal_attack_target: Node3D = _resolve_current_ground_attack_target()
+		var terminal_attack_nose_point: Vector3 = acquisition_point
+		if terminal_attack_target != null:
+			terminal_attack_nose_point = _get_surface_target_position(terminal_attack_target)
+		var terminal_attack_nose_vec: Vector3 = terminal_attack_nose_point - aircraft.global_position
+		if terminal_attack_nose_vec.length_squared() > 1.0:
+			terminal_attack_nose_aim_dir = terminal_attack_nose_vec.normalized()
+			terminal_attack_nose_aim_valid = true
 	var in_dogfight_rejoin: bool = false
 	if current_state == State.DOGFIGHT and combat_target and is_instance_valid(combat_target):
 		in_dogfight_rejoin = aircraft.global_position.distance_to(combat_target.global_position) > dogfight_rejoin_range_m
@@ -5549,11 +14521,33 @@ func _navigate_to_waypoint(delta: float):
 	if current_state not in [State.ATTACK_DIVE, State.LANDING]:
 		_dive_precise_aim = false
 	if _dive_precise_aim:
-		bank_limit_deg = 35.0  # Tighter bank for steadier final approach
+		bank_limit_deg = maxf(bomb_ccip_precision_bank_limit_deg, 1.0)
 	elif current_state == State.DOGFIGHT:
 		bank_limit_deg = dogfight_bank_cmd_limit_deg
-	elif current_state in [State.ATTACK_POSITIONING, State.ATTACK_DIVE, State.ATTACK_BREAK_OFF]:
+	elif current_state == State.ATTACK_POSITIONING:
+		bank_limit_deg = attack_route_bank_limit_deg
+	elif current_state == State.ATTACK_INBOUND:
+		# A short bombing ingress still needs lift for the altitude gate. Falling
+		# through to the generic navigation limit allowed 70-90 degree banks and
+		# converted a modest lineup correction into an automatic waveoff.
+		bank_limit_deg = attack_inbound_bank_limit_deg
+	elif current_state in [State.ATTACK_DIVE, State.ATTACK_BREAK_OFF]:
 		bank_limit_deg = attack_bank_cmd_limit_deg
+	elif current_state in [State.RECOVERY_MARSHAL, State.RECOVERY_HOLD]:
+		bank_limit_deg = minf(bank_cmd_limit_deg, maxf(recovery_navigation_bank_limit_deg, 5.0))
+	elif current_state == State.RECOVERY_APPROACH:
+		var active_recovery_role: String = _active_route_leg_role()
+		var active_recovery_primitive: String = str(
+			_flight_plan_legs[current_waypoint_index].get("route_primitive", "")
+		) if current_waypoint_index >= 0 and current_waypoint_index < _flight_plan_legs.size() else ""
+		var recovery_bank_target_deg: float = recovery_glideslope_bank_limit_deg \
+			if _recovery_phase == 2 else recovery_navigation_bank_limit_deg
+		if active_recovery_role in ["recovery_transit", "recovery_arrival"] \
+				and not active_recovery_primitive.is_empty():
+			recovery_bank_target_deg = _get_aircraft_route_planning_bank_limit_deg(
+				active_recovery_role
+			)
+		bank_limit_deg = minf(bank_cmd_limit_deg, maxf(recovery_bank_target_deg, 5.0))
 	elif current_state == State.APPROACH:
 		# Limit approach bank so bank_compensation (capped 1.2×) can hold altitude.
 		# cos⁻¹(1/1.2) ≈ 34° — keep well under that to maintain altitude in entry turns.
@@ -5573,7 +14567,7 @@ func _navigate_to_waypoint(delta: float):
 		bank_limit_deg = lerpf(bank_limit_deg, minf(bank_limit_deg, formation_close_bank_limit_deg), formation_soft_t)
 	if current_state == State.DOGFIGHT and _dogfight_recovery_timer_s > 0.0:
 		bank_limit_deg = minf(bank_limit_deg, 25.0)
-	if current_state == State.DOGFIGHT and in_dogfight_rejoin:
+	if current_state == State.DOGFIGHT and in_dogfight_rejoin and not dogfight_simple_pursuit_enabled:
 		bank_limit_deg = minf(bank_limit_deg, dogfight_rejoin_bank_limit_deg)
 	# Ground protection in dogfight: taper max bank as AGL gets low.
 	if current_state == State.DOGFIGHT:
@@ -5587,7 +14581,7 @@ func _navigate_to_waypoint(delta: float):
 			1.0
 		)
 		var speed_bank_floor: float = 45.0 if local_z_for_limit < -0.2 else 35.0
-		if in_dogfight_rejoin:
+		if in_dogfight_rejoin and not dogfight_simple_pursuit_enabled:
 			speed_bank_floor = 30.0
 		var speed_bank_limit: float = lerpf(speed_bank_floor, dogfight_bank_cmd_limit_deg, speed_t)
 		bank_limit_deg = minf(bank_limit_deg, speed_bank_limit)
@@ -5599,7 +14593,23 @@ func _navigate_to_waypoint(delta: float):
 			var low_agl_t: float = clampf((low_agl_soft_band_m - altitude_agl) / maxf(low_agl_soft_band_m, 1.0), 0.0, 1.0)
 			var low_agl_bank_limit: float = lerpf(bank_limit_deg, bank_limit_when_low_deg, low_agl_t)
 			bank_limit_deg = minf(bank_limit_deg, low_agl_bank_limit)
-	
+
+	var direct_fire_aim_angle_deg: float = 0.0
+	var direct_fire_coarse_t: float = 0.0
+	if direct_fire_dive:
+		var direct_fire_aim_vec: Vector3 = maneuver_waypoint - aircraft.global_position
+		if direct_fire_aim_vec.length_squared() > 1.0:
+			var direct_fire_aim_dir: Vector3 = direct_fire_aim_vec.normalized()
+			var direct_fire_forward_dot: float = clampf(direct_fire_aim_dir.dot(b.z), -1.0, 1.0)
+			direct_fire_aim_angle_deg = rad_to_deg(acos(direct_fire_forward_dot))
+			var direct_fire_fine_deg: float = maxf(gun_attack_fine_aim_angle_deg, 0.1)
+			var direct_fire_coarse_deg: float = maxf(gun_attack_coarse_aim_angle_deg, direct_fire_fine_deg + 0.1)
+			direct_fire_coarse_t = clampf(
+				(direct_fire_aim_angle_deg - direct_fire_fine_deg) / maxf(direct_fire_coarse_deg - direct_fire_fine_deg, 0.1),
+				0.0,
+				1.0
+			)
+
 	# === ROLL: project HORIZONTAL direction to target into local frame ===
 	# By zeroing Y we prevent altitude differences from affecting the bank command.
 	var horiz_to_target: Vector3 = Vector3(to_target.x, 0.0, to_target.z)
@@ -5609,6 +14619,8 @@ func _navigate_to_waypoint(delta: float):
 	
 	var desired_bank: float = 0.0
 	var bearing_err_rad: float = 0.0  # Heading error in radians; used for bank and rudder correction
+	var point_tracking_bearing_err_rad: float = 0.0
+	var attack_route_projection_guidance_available: bool = false
 	if horiz_len > 1.0:
 		var lateral_ratio: float = local_horiz_x / horiz_len
 		var horiz_dir_z: float = local_horiz_z / horiz_len
@@ -5617,6 +14629,114 @@ func _navigate_to_waypoint(delta: float):
 		var heading_rad: float = atan2(aircraft.global_transform.basis.z.x, aircraft.global_transform.basis.z.z)
 		var bearing_to_wp_rad: float = atan2(horiz_to_target.x, horiz_to_target.z)
 		bearing_err_rad = _normalize_angle(bearing_to_wp_rad - heading_rad)
+		point_tracking_bearing_err_rad = bearing_err_rad
+		if current_state == State.ATTACK_DIVE:
+			var velocity_flat := Vector3(vel.x, 0.0, vel.z)
+			if velocity_flat.length_squared() > 1.0:
+				var fpv_heading_rad := atan2(velocity_flat.x, velocity_flat.z)
+				var fpv_bearing_err_rad := _normalize_angle(bearing_to_wp_rad - fpv_heading_rad)
+				point_tracking_bearing_err_rad = lerp_angle(
+					bearing_err_rad,
+					fpv_bearing_err_rad,
+					clampf(attack_terminal_fpv_guidance_blend, 0.0, 1.0)
+				)
+		var route_projection_available: bool = (
+			aircraft_route_forward_projection_enabled
+			and _route_forward_projection_active
+			and _route_forward_projection_error_is_usable(b)
+			and current_state in [State.SEARCH, State.TRANSIT, State.RTB, State.ATTACK_POSITIONING, State.ATTACK_BREAK_OFF, State.RECOVERY_APPROACH]
+			and formation_soft_t <= 0.0
+		)
+		attack_route_projection_guidance_available = route_projection_available
+		var route_projection_bank: float = 0.0
+		if route_projection_available:
+			var route_yaw_error_rad: float = _get_local_forward_view_yaw_error(_route_forward_projection_dir, b)
+			var route_guidance_yaw_error_rad: float = route_yaw_error_rad
+			_route_fpv_yaw_error_rad = route_yaw_error_rad
+			if aircraft_route_fpv_yaw_enabled:
+				var flat_velocity: Vector3 = Vector3(vel.x, 0.0, vel.z)
+				if flat_velocity.length() >= maxf(aircraft_route_fpv_yaw_min_speed_mps, 0.0):
+					var desired_local: Vector3 = b.inverse() * _route_forward_projection_dir
+					var velocity_local: Vector3 = b.inverse() * flat_velocity.normalized()
+					var desired_azimuth_rad: float = atan2(desired_local.x, desired_local.z)
+					var velocity_azimuth_rad: float = atan2(velocity_local.x, velocity_local.z)
+					_route_fpv_yaw_error_rad = atan2(
+						sin(desired_azimuth_rad - velocity_azimuth_rad),
+						cos(desired_azimuth_rad - velocity_azimuth_rad)
+					)
+					route_guidance_yaw_error_rad = lerp_angle(
+						route_yaw_error_rad,
+						_route_fpv_yaw_error_rad,
+						clampf(aircraft_route_fpv_yaw_blend, 0.0, 1.0)
+					)
+			_route_guidance_yaw_error_rad = route_guidance_yaw_error_rad
+			var effective_projection_gain: float = aircraft_route_forward_projection_gain
+			if current_state == State.ATTACK_POSITIONING and _flight_plan_name == "ground_attack":
+				effective_projection_gain = attack_route_projection_gain
+			route_projection_bank = clampf(
+				route_guidance_yaw_error_rad * maxf(effective_projection_gain, 0.0)
+					+ _route_curvature_feedforward_bank_rad * maxf(aircraft_route_curvature_feedforward_gain, 0.0),
+				-deg_to_rad(bank_limit_deg),
+				deg_to_rad(bank_limit_deg)
+			)
+		else:
+			# A route projection normally becomes "unusable" after its direction has
+			# moved behind the aircraft. On the final ground-attack approach that means
+			# we have passed the join point: chasing that point reverses the intended
+			# turn and produces a maximum-bank hook. Recover guidance from the outgoing
+			# segment instead, so the same frame begins the turn onto the attack line.
+			var recovered_outgoing_route_guidance: bool = false
+			if current_state == State.ATTACK_POSITIONING \
+					and _flight_plan_name == "ground_attack" \
+					and _route_forward_projection_active \
+					and current_waypoint_index >= 0 \
+					and current_waypoint_index + 1 < waypoints.size():
+				var outgoing_route_dir: Vector3 = waypoints[current_waypoint_index + 1] \
+					- waypoints[current_waypoint_index]
+				outgoing_route_dir.y = 0.0
+				if outgoing_route_dir.length_squared() > 1.0:
+					outgoing_route_dir = outgoing_route_dir.normalized()
+					var outgoing_yaw_error_rad: float = _get_local_forward_view_yaw_error(
+						outgoing_route_dir,
+						b
+					)
+					var outgoing_guidance_error_rad: float = outgoing_yaw_error_rad
+					var outgoing_flat_velocity: Vector3 = Vector3(vel.x, 0.0, vel.z)
+					if aircraft_route_fpv_yaw_enabled \
+							and outgoing_flat_velocity.length() >= maxf(
+								aircraft_route_fpv_yaw_min_speed_mps,
+								0.0
+							):
+						var outgoing_desired_heading_rad: float = atan2(
+							outgoing_route_dir.x,
+							outgoing_route_dir.z
+						)
+						var outgoing_track_heading_rad: float = atan2(
+							outgoing_flat_velocity.x,
+							outgoing_flat_velocity.z
+						)
+						_route_fpv_yaw_error_rad = _normalize_angle(
+							outgoing_desired_heading_rad - outgoing_track_heading_rad
+						)
+						outgoing_guidance_error_rad = lerp_angle(
+							outgoing_yaw_error_rad,
+							_route_fpv_yaw_error_rad,
+							clampf(aircraft_route_fpv_yaw_blend, 0.0, 1.0)
+						)
+					else:
+						_route_fpv_yaw_error_rad = outgoing_yaw_error_rad
+					_route_guidance_yaw_error_rad = outgoing_guidance_error_rad
+					route_projection_bank = clampf(
+						outgoing_guidance_error_rad * maxf(attack_route_projection_gain, 0.0),
+						-deg_to_rad(bank_limit_deg),
+						deg_to_rad(bank_limit_deg)
+					)
+					route_projection_available = true
+					attack_route_projection_guidance_available = true
+					recovered_outgoing_route_guidance = true
+			if not recovered_outgoing_route_guidance:
+				_route_fpv_yaw_error_rad = 0.0
+				_route_guidance_yaw_error_rad = 0.0
 
 		if current_state == State.DOGFIGHT:
 			# Pure horizontal LOS turn law: bank toward target bearing.
@@ -5669,21 +14789,749 @@ func _navigate_to_waypoint(delta: float):
 					turn_toward = _committed_turn_sign
 				if _committed_turn_sign == 0.0:
 					_committed_turn_sign = turn_toward
-				elif abs(lateral_ratio) > 0.05 and signf(_committed_turn_sign) != signf(lateral_ratio):
-					_committed_turn_sign = turn_toward
+				# Once a behind-the-aircraft turn has selected a side, retain it until
+				# the desired direction returns to the forward hemisphere. Changing
+				# sides from lateral noise near +/-PI prevents the turn from completing.
 				desired_bank = _committed_turn_sign * deg_to_rad(bank_limit_deg)
 				if flip_roll_direction:
 					desired_bank = -desired_bank
 		else:
 			if horiz_dir_z > 0.0:
 				_committed_turn_sign = 0.0
-			var bank_gain: float = 2.2 if _dive_precise_aim else 1.5
+			var bank_gain: float = maxf(attack_terminal_fpv_bank_gain, 0.0) \
+				if current_state == State.ATTACK_DIVE else (2.2 if _dive_precise_aim else navigation_point_tracking_bank_gain)
+			if direct_fire_dive:
+				bank_gain = lerpf(
+					maxf(gun_attack_fine_bank_gain, 0.0),
+					maxf(gun_attack_coarse_bank_gain, 0.0),
+					direct_fire_coarse_t
+				)
 			if formation_soft_t > 0.0:
 				bank_gain = lerpf(bank_gain, formation_close_bank_gain_scale, formation_soft_t)
-			desired_bank = clamp(bearing_err_rad * bank_gain, -deg_to_rad(bank_limit_deg), deg_to_rad(bank_limit_deg))
+			var point_tracking_bank: float = clamp(point_tracking_bearing_err_rad * bank_gain, -deg_to_rad(bank_limit_deg), deg_to_rad(bank_limit_deg))
+			if route_projection_available:
+				var cross_track_recovery_t: float = _get_route_cross_track_recovery_t()
+				var effective_projection_blend: float = aircraft_route_forward_projection_blend
+				if current_state == State.ATTACK_POSITIONING and _flight_plan_name == "ground_attack":
+					effective_projection_blend = attack_route_projection_blend
+				var route_projection_base_blend: float = clampf(effective_projection_blend, 0.0, 1.0)
+				var route_projection_capture_blend: float = clampf(
+					aircraft_route_cross_track_capture_max_projection_blend,
+					route_projection_base_blend,
+					1.0
+				)
+				var route_projection_blend: float = lerpf(
+					route_projection_base_blend,
+					route_projection_capture_blend,
+					cross_track_recovery_t
+				)
+				desired_bank = lerpf(
+					point_tracking_bank,
+					route_projection_bank,
+					route_projection_blend
+				)
+			else:
+				desired_bank = point_tracking_bank
 			if flip_roll_direction:
 				desired_bank = -desired_bank
+
+		# During a bomb dive, close the final lateral CCIP error with roll as well as
+		# rudder. The required bank comes from the constant lateral acceleration that
+		# would remove the predicted miss over the remaining horizontal time-to-target;
+		# the existing roll PD loop supplies rate damping. This avoids a coarse-roll ->
+		# yaw-only handoff without introducing a canned fine-aim bank angle.
+		if current_state == State.ATTACK_DIVE \
+				and _run_weapon_type == "Bomb" \
+				and _bomb_ccip_aim_active \
+				and _dive_precise_aim:
+			var ccip_bank_target := _get_bomb_ccip_lateral_bank_target_rad(delta)
+			var precision_bank_limit_rad := deg_to_rad(maxf(bomb_ccip_precision_bank_limit_deg, 1.0))
+			var fine_roll_blend := clampf(
+				1.0 - absf(ccip_bank_target) / precision_bank_limit_rad,
+				0.0,
+				1.0
+			)
+			fine_roll_blend = fine_roll_blend * fine_roll_blend * (3.0 - 2.0 * fine_roll_blend)
+			desired_bank = lerpf(
+				desired_bank,
+				clampf(ccip_bank_target, -precision_bank_limit_rad, precision_bank_limit_rad),
+				fine_roll_blend
+			)
 	
+	# Ground-attack positioning should visibly TURN to its next attack leg. Route projection can
+	# otherwise blend the bank command almost to zero while the yaw controller still sees a large
+	# point-bearing error, producing the observed wings-level climb/dive cycle.
+	var assertive_attack_altitude_error_m: float = nav_waypoint.y - aircraft.global_position.y
+	var assertive_attack_climb_rate_mps: float = maxf(aircraft.linear_velocity.y, 0.0)
+	var assertive_attack_excess_altitude_m: float = maxf(-assertive_attack_altitude_error_m, 0.0)
+	var overbank_altitude_start_m: float = maxf(
+		attack_assertive_turn_overbank_altitude_start_m,
+		0.0
+	)
+	var overbank_descent_release_mps: float = maxf(
+		attack_assertive_turn_overbank_descent_release_mps,
+		0.5
+	)
+	# When a route supplies a tangent/cross-track heading, that is the direction the
+	# aircraft must establish, especially at the final join onto an attack line.
+	# Raw point-bearing aims at the waypoint itself; using it here discarded the
+	# route's lead and generated a maximum-bank step as each waypoint advanced.
+	var assertive_attack_guidance_error_rad: float = _route_guidance_yaw_error_rad \
+		if attack_route_projection_guidance_available else bearing_err_rad
+	if terminal_attack_fpv_yaw_valid:
+		# Once on the firing leg, the real ground-track error to its terminal point is
+		# more important than a projected carrot that can already be nearly tangent.
+		assertive_attack_guidance_error_rad = terminal_attack_fpv_yaw_error_rad
+	# A geometric arc specifies more than a heading: its radius specifies the
+	# lateral acceleration the aircraft must actually produce.  Combine that with
+	# the vertical acceleration required to acquire the route's flight path.  The
+	# resulting lift-vector angle is the bank required to satisfy both constraints;
+	# when arresting a climb it naturally becomes steeper, without an arbitrary
+	# extra-bank or G command.
+	var route_arc_acceleration_bank_active: bool = false
+	var route_arc_acceleration_bank_abs_rad: float = 0.0
+	var route_arc_acceleration_bank_sign: float = 0.0
+	var route_arc_acceleration_target_g: float = normal_flight_turn_target_g
+	var route_primitive_horizontal_speed_mps: float = Vector2(vel.x, vel.z).length()
+	var route_primitive_control_active: bool = current_waypoint_index >= 0 \
+			and current_waypoint_index < _flight_plan_legs.size() \
+			and (
+				(current_state == State.ATTACK_POSITIONING and _flight_plan_name == "ground_attack")
+				or (current_state == State.RECOVERY_APPROACH and _flight_plan_name == "recovery_approach")
+			)
+	if route_primitive_control_active \
+			and str(_flight_plan_legs[current_waypoint_index].get("route_primitive", "")) == "arc":
+		var route_arc_radius_m: float = float(
+			_flight_plan_legs[current_waypoint_index].get("turn_radius_m", NAN)
+		)
+		if is_finite(route_arc_radius_m) and route_arc_radius_m > 1.0:
+			var route_arc_horizontal_speed_mps := Vector2(vel.x, vel.z).length()
+			var route_arc_turn_sign: float = signf(float(
+				_flight_plan_legs[current_waypoint_index].get("arc_turn_sign", 1.0)
+			))
+			if absf(route_arc_turn_sign) < 0.5:
+				route_arc_turn_sign = 1.0
+			var route_arc_base_lateral_accel_mps2 := route_arc_horizontal_speed_mps \
+				* route_arc_horizontal_speed_mps / route_arc_radius_m
+			# Feed-forward curvature alone preserves any parallel orbit created during
+			# roll-in. Close the heading error to the circle's tangent-plus-radial capture
+			# vector over the physical look-ahead distance. v^2/L * sin(error) is the
+			# bounded lateral acceleration required by that pursuit geometry; it tightens
+			# or opens the primitive without introducing a hand-tuned cross-track gain.
+			var route_arc_lookahead_m: float = maxf(_route_fpv_pitch_horizon_m, 1.0)
+			var route_arc_world_track_error_rad: float = 0.0
+			var route_arc_ground_track := Vector2(vel.x, vel.z)
+			var route_arc_capture_track := Vector2(
+				_route_forward_projection_dir.x,
+				_route_forward_projection_dir.z
+			)
+			if route_arc_ground_track.length_squared() > 0.001 \
+					and route_arc_capture_track.length_squared() > 0.001:
+				route_arc_ground_track = route_arc_ground_track.normalized()
+				route_arc_capture_track = route_arc_capture_track.normalized()
+				route_arc_world_track_error_rad = atan2(
+					route_arc_ground_track.x * route_arc_capture_track.y
+						- route_arc_ground_track.y * route_arc_capture_track.x,
+					route_arc_ground_track.dot(route_arc_capture_track)
+				)
+			var route_arc_capture_accel_mps2: float = route_arc_horizontal_speed_mps \
+				* route_arc_horizontal_speed_mps / route_arc_lookahead_m \
+				* sin(route_arc_world_track_error_rad)
+			var route_arc_signed_lateral_accel_mps2: float = route_arc_turn_sign \
+				* route_arc_base_lateral_accel_mps2 + route_arc_capture_accel_mps2
+			if _flight_plan_name == "recovery_approach" \
+					and current_state == State.RECOVERY_APPROACH:
+				# Use the circle's radial dynamics directly during recovery. The heading-only
+				# capture vector could reach the circle with substantial inward velocity,
+				# cross it, then command the opposite correction after the fact. The natural
+				# angular frequency v/R supplies a critically damped radial response without
+				# a hand-tuned gain: centripetal feed-forward plus 2*w*r_dot + w^2*(r-R).
+				var route_arc_center_value: Variant = _flight_plan_legs[
+					current_waypoint_index
+				].get("arc_center_xz", Vector2.ZERO)
+				if route_arc_center_value is Vector2:
+					var route_arc_center: Vector2 = route_arc_center_value
+					var route_arc_position_2d := Vector2(
+						aircraft.global_position.x,
+						aircraft.global_position.z
+					)
+					var route_arc_radial: Vector2 = route_arc_position_2d - route_arc_center
+					if route_arc_radial.length_squared() > 1.0:
+						var route_arc_radial_dir: Vector2 = route_arc_radial.normalized()
+						var route_arc_tangent_dir: Vector2 = _circle_tangent_direction_2d(
+							route_arc_radial_dir,
+							route_arc_turn_sign
+						)
+						var route_arc_velocity_2d := Vector2(vel.x, vel.z)
+						var route_arc_radial_speed_mps: float = route_arc_velocity_2d.dot(
+							route_arc_radial_dir
+						)
+						var route_arc_tangential_speed_mps: float = route_arc_velocity_2d.dot(
+							route_arc_tangent_dir
+						)
+						var route_arc_natural_frequency_s: float = route_arc_horizontal_speed_mps \
+							/ route_arc_radius_m
+						var route_arc_signed_radial_error_m: float = route_arc_radial.length() \
+							- route_arc_radius_m
+						var route_arc_inward_accel_mps2: float = (
+							route_arc_tangential_speed_mps * route_arc_tangential_speed_mps
+								/ route_arc_radial.length()
+							+ 2.0 * route_arc_natural_frequency_s * route_arc_radial_speed_mps
+							+ route_arc_natural_frequency_s * route_arc_natural_frequency_s
+								* route_arc_signed_radial_error_m
+						)
+						route_arc_signed_lateral_accel_mps2 = route_arc_turn_sign \
+							* route_arc_inward_accel_mps2
+			# The circle tangent/cross-track vector field owns capture as well as steady
+			# curvature. If an aircraft enters pointed through the circle, its shortest
+			# intercept can temporarily require lateral acceleration opposite the arc's
+			# eventual direction. Clamping that correction to zero made the aircraft fly
+			# through the centre while the controller kept displaying the arc's bank; its
+			# radial error then grew forever. Preserve the signed acceleration here. Once
+			# the tangent is captured, the base-curvature term naturally restores the
+			# primitive's intended turn direction.
+			route_arc_acceleration_bank_sign = signf(route_arc_signed_lateral_accel_mps2)
+			if absf(route_arc_acceleration_bank_sign) < 0.5:
+				route_arc_acceleration_bank_sign = route_arc_turn_sign
+			var route_arc_lateral_accel_mps2: float = absf(
+				route_arc_signed_lateral_accel_mps2
+			)
+			var route_arc_desired_vs_mps: float = 0.0
+			if _route_fpv_pitch_target_active:
+				var route_arc_vertical_path: Vector3 = _route_fpv_pitch_target - aircraft.global_position
+				var route_arc_vertical_horizontal_m := Vector2(
+					route_arc_vertical_path.x,
+					route_arc_vertical_path.z
+				).length()
+				if route_arc_vertical_horizontal_m > 1.0:
+					route_arc_desired_vs_mps = route_arc_horizontal_speed_mps \
+						* route_arc_vertical_path.y / route_arc_vertical_horizontal_m
+			var route_arc_vertical_accel_mps2: float = (route_arc_desired_vs_mps - vel.y) \
+				* maxf(coordinated_turn_vertical_path_response, 0.0)
+			var route_arc_gravity_mps2: float = float(ProjectSettings.get_setting(
+				"physics/3d/default_gravity",
+				9.8
+			))
+			var route_arc_vertical_lift_accel_mps2: float = route_arc_gravity_mps2 \
+				+ route_arc_vertical_accel_mps2 \
+				- _coordinated_turn_nonwing_vertical_accel_mps2
+			# A mathematical Dubins path changes from constant curvature to straight
+			# instantaneously; a real aircraft cannot. Use the route's physical
+			# look-ahead distance as the rollout length and taper bank continuously as
+			# the tangent endpoint approaches. This retains full authority through the
+			# body of the turn while reaching the following straight with little roll
+			# energy left, rather than abandoning the arc early at full bank.
+			var route_arc_rollout_distance_m: float = maxf(_route_fpv_pitch_horizon_m, 1.0)
+			var route_arc_rollout_t: float = clampf(
+				_route_arc_remaining_m / route_arc_rollout_distance_m,
+				0.0,
+				1.0
+			)
+			route_arc_rollout_t = route_arc_rollout_t * route_arc_rollout_t \
+				* (3.0 - 2.0 * route_arc_rollout_t)
+			# Distance alone is not sufficient: an aircraft displaced during roll-in can
+			# reach the endpoint angle while its velocity is still far from the tangent.
+			# The normalized chord of the heading error is a gain-free angular measure
+			# (zero when aligned, one when reciprocal). Keep enough bank to capture the
+			# tangent before allowing the distance-based rollout to finish.
+			var route_arc_alignment_t: float = sqrt(maxf(
+				0.5 * (1.0 - cos(route_arc_world_track_error_rad)),
+				0.0
+			))
+			route_arc_rollout_t = maxf(route_arc_rollout_t, route_arc_alignment_t)
+			# Roll out by reducing the lateral component of the requested acceleration
+			# vector, then derive both bank and load from that same reduced vector.  The
+			# former code multiplied only the already-computed bank angle while leaving
+			# target G at the full-curvature value.  Near an arc endpoint the ailerons
+			# therefore rolled toward level while the elevator still pulled for a turn
+			# that no longer existed, producing the observed load/unload pulse and a
+			# badly misaligned handoff to the following straight.
+			var route_arc_effective_lateral_accel_mps2: float = \
+				route_arc_lateral_accel_mps2 * route_arc_rollout_t
+			# The distance taper above describes the geometric curvature transition, but
+			# the rigid body also needs time to shed its existing bank. Bound the target
+			# bank by the angle the damped roll system can still remove in the remaining
+			# flight time. A constant-acceleration estimate was much too optimistic: the
+			# flight model's angular damping quickly limits roll to a finite steady rate,
+			# so theta = 1/2*a*t^2 delayed rollout until the final few metres. Integrating
+			# w' = a*u - beta*w with full counter-aileron accounts for both that terminal
+			# rate and roll momentum already carried toward (or away from) deeper bank.
+			var route_arc_roll_accel_rad_s2: float = _estimate_maximum_roll_accel_rad_s2()
+			var route_arc_roll_rate_limit_rad_s: float = _estimate_maximum_roll_rate_rad_s()
+			var route_arc_rollout_bank_cap_rad: float = INF
+			if route_arc_roll_accel_rad_s2 > 0.001 \
+					and route_arc_roll_rate_limit_rad_s > 0.001:
+				var route_arc_time_remaining_s: float = _route_arc_remaining_m \
+					/ maxf(route_arc_horizontal_speed_mps, 1.0)
+				var route_arc_roll_damping_rate_s: float = route_arc_roll_accel_rad_s2 \
+					/ route_arc_roll_rate_limit_rad_s
+				var route_arc_bank_magnitude_rate_rad_s: float = signf(current_roll) \
+					* aircraft.angular_velocity.dot(aircraft.global_transform.basis.z)
+				var route_arc_damping_transient_s: float = (
+					route_arc_bank_magnitude_rate_rad_s + route_arc_roll_rate_limit_rad_s
+				) * (
+					1.0 - exp(-route_arc_roll_damping_rate_s * route_arc_time_remaining_s)
+				) / route_arc_roll_damping_rate_s
+				route_arc_rollout_bank_cap_rad = maxf(
+					route_arc_roll_rate_limit_rad_s * route_arc_time_remaining_s
+						- route_arc_damping_transient_s,
+					0.0
+				)
+			route_arc_acceleration_bank_abs_rad = atan2(
+				maxf(route_arc_effective_lateral_accel_mps2, 0.0),
+				route_arc_vertical_lift_accel_mps2
+			)
+			route_arc_acceleration_bank_abs_rad = clampf(
+				route_arc_acceleration_bank_abs_rad,
+				0.0,
+				deg_to_rad(maxf(attack_assertive_turn_overbank_max_deg, attack_route_bank_limit_deg))
+			)
+			# This is a reachable-attitude constraint, not another vertical-path demand.
+			# Apply it even when the unconstrained lift vector points beyond knife-edge:
+			# that combination of descent and curvature is precisely the case in which
+			# preserving the mathematical vector would make a clean tangent exit
+			# physically impossible. The commanded vector is projected onto the attitude
+			# the airframe can still shed before the endpoint; the vertical loop then
+			# achieves the closest positive-load flight path available at that attitude.
+			if is_finite(route_arc_rollout_bank_cap_rad):
+				route_arc_acceleration_bank_abs_rad = minf(
+					route_arc_acceleration_bank_abs_rad,
+					maxf(route_arc_rollout_bank_cap_rad, 0.0)
+				)
+			# The same effective acceleration vector that defines bank also defines the
+			# required wing load. Passing the generic maximum-G envelope let vertical-path
+			# error drive the wing to maximum lift, making the real circle far tighter than
+			# the planned arc. Use this vector magnitude as the cap so bank, G and radius
+			# remain one self-consistent maneuver throughout rollout as well.
+			route_arc_acceleration_target_g = clampf(
+				sqrt(
+					route_arc_effective_lateral_accel_mps2 * route_arc_effective_lateral_accel_mps2
+					+ route_arc_vertical_lift_accel_mps2 * route_arc_vertical_lift_accel_mps2
+				) / maxf(route_arc_gravity_mps2, 0.1),
+				0.1,
+				normal_flight_turn_target_g
+			)
+			route_arc_acceleration_bank_active = true
+	var recovery_straight_acceleration_bank_active: bool = false
+	if route_primitive_control_active \
+			and _flight_plan_name == "recovery_approach" \
+			and current_state == State.RECOVERY_APPROACH \
+			and str(_flight_plan_legs[current_waypoint_index].get(
+				"route_primitive",
+				""
+			)) != "arc":
+		var recovery_straight_previous_index: int = _get_route_previous_index(
+			current_waypoint_index,
+			false
+		)
+		if recovery_straight_previous_index >= 0:
+			var recovery_straight_start: Vector3 = waypoints[recovery_straight_previous_index]
+			var recovery_straight_end: Vector3 = waypoints[current_waypoint_index]
+			var recovery_straight_direction: Vector3 = _route_direction_between_points(
+				recovery_straight_start,
+				recovery_straight_end
+			)
+			if recovery_straight_direction.length_squared() > 0.001:
+				var recovery_straight_right := Vector3(
+					recovery_straight_direction.z,
+					0.0,
+					-recovery_straight_direction.x
+				)
+				var recovery_straight_offset: Vector3 = aircraft.global_position \
+					- recovery_straight_start
+				recovery_straight_offset.y = 0.0
+				var recovery_straight_cross_track_m: float = recovery_straight_offset.dot(
+					recovery_straight_right
+				)
+				var recovery_straight_cross_track_rate_mps: float = Vector3(
+					vel.x,
+					0.0,
+					vel.z
+				).dot(recovery_straight_right)
+				var recovery_straight_turn_radius_m: float = maxf(float(
+					_flight_plan_legs[current_waypoint_index].get(
+						"turn_radius_m",
+						_estimate_aircraft_turn_radius_m(route_primitive_horizontal_speed_mps)
+					)
+				), 1.0)
+				var recovery_straight_natural_frequency_s: float = \
+					route_primitive_horizontal_speed_mps / recovery_straight_turn_radius_m
+				# Positive bank accelerates toward the route's left; positive cross-track
+				# and cross-track rate are to its right. This is the straight-line form of
+				# the same critically damped radial law used by recovery arcs.
+				var recovery_straight_left_accel_mps2: float = (
+					2.0 * recovery_straight_natural_frequency_s
+						* recovery_straight_cross_track_rate_mps
+					+ recovery_straight_natural_frequency_s
+						* recovery_straight_natural_frequency_s
+						* recovery_straight_cross_track_m
+				)
+				# A Dubins tangent changes curvature instantaneously, but the aircraft must
+				# roll before it can produce the next arc's centripetal acceleration. Blend
+				# that acceleration into the finite straight over the minimum attitude-change
+				# distance implied by live roll acceleration and damping-limited roll rate.
+				# This is a clothoid-like control transition: it starts straight and reaches
+				# the circle's full curvature at the tangent without a hand-tuned lead range.
+				var recovery_next_index: int = _get_route_next_index(
+					current_waypoint_index,
+					false
+				)
+				if recovery_next_index >= 0 \
+						and recovery_next_index < _flight_plan_legs.size() \
+						and str(_flight_plan_legs[recovery_next_index].get(
+							"route_primitive",
+							""
+						)) == "arc":
+					var next_arc_radius_m: float = maxf(float(
+						_flight_plan_legs[recovery_next_index].get("turn_radius_m", 0.0)
+					), 1.0)
+					var next_arc_turn_sign: float = signf(float(
+						_flight_plan_legs[recovery_next_index].get("arc_turn_sign", 0.0)
+					))
+					if absf(next_arc_turn_sign) > 0.5:
+						var next_arc_lateral_accel_mps2: float = next_arc_turn_sign \
+							* route_primitive_horizontal_speed_mps \
+							* route_primitive_horizontal_speed_mps \
+							/ next_arc_radius_m
+						var next_arc_bank_rad: float = atan2(
+							next_arc_lateral_accel_mps2,
+							float(ProjectSettings.get_setting("physics/3d/default_gravity", 9.8))
+						)
+						var roll_angle_change_rad: float = absf(_normalize_angle(
+							next_arc_bank_rad - current_roll
+						))
+						var maximum_roll_accel_rad_s2: float = _estimate_maximum_roll_accel_rad_s2()
+						var maximum_roll_rate_rad_s: float = _estimate_maximum_roll_rate_rad_s()
+						if roll_angle_change_rad > 0.001 \
+								and maximum_roll_accel_rad_s2 > 0.001 \
+								and maximum_roll_rate_rad_s > 0.001:
+							var rate_limited_angle_rad: float = maximum_roll_rate_rad_s \
+								* maximum_roll_rate_rad_s / maximum_roll_accel_rad_s2
+							var roll_time_s: float = 0.0
+							if roll_angle_change_rad <= rate_limited_angle_rad:
+								roll_time_s = 2.0 * sqrt(
+									roll_angle_change_rad / maximum_roll_accel_rad_s2
+								)
+							else:
+								roll_time_s = roll_angle_change_rad / maximum_roll_rate_rad_s \
+									+ maximum_roll_rate_rad_s / maximum_roll_accel_rad_s2
+							var roll_in_distance_m: float = route_primitive_horizontal_speed_mps \
+								* roll_time_s
+							var remaining_straight_m: float = maxf(
+								(recovery_straight_end - aircraft.global_position).dot(
+									recovery_straight_direction
+								),
+								0.0
+							)
+							var roll_in_t: float = clampf(
+								1.0 - remaining_straight_m / maxf(roll_in_distance_m, 1.0),
+								0.0,
+								1.0
+							)
+							roll_in_t = roll_in_t * roll_in_t * (3.0 - 2.0 * roll_in_t)
+							recovery_straight_left_accel_mps2 = lerpf(
+								recovery_straight_left_accel_mps2,
+								next_arc_lateral_accel_mps2,
+								roll_in_t
+							)
+				_recovery_straight_cross_track_m_debug = recovery_straight_cross_track_m
+				_recovery_straight_cross_track_rate_mps_debug = recovery_straight_cross_track_rate_mps
+				_recovery_straight_lateral_accel_mps2_debug = recovery_straight_left_accel_mps2
+				var recovery_straight_desired_vs_mps: float = 0.0
+				if _route_fpv_pitch_target_active:
+					var recovery_straight_vertical_path: Vector3 = _route_fpv_pitch_target \
+						- aircraft.global_position
+					var recovery_straight_vertical_run_m: float = Vector2(
+						recovery_straight_vertical_path.x,
+						recovery_straight_vertical_path.z
+					).length()
+					if recovery_straight_vertical_run_m > 1.0:
+						recovery_straight_desired_vs_mps = route_primitive_horizontal_speed_mps \
+							* recovery_straight_vertical_path.y \
+							/ recovery_straight_vertical_run_m
+				var recovery_straight_vertical_accel_mps2: float = (
+					recovery_straight_desired_vs_mps - vel.y
+				) * maxf(coordinated_turn_vertical_path_response, 0.0)
+				var recovery_straight_gravity_mps2: float = float(ProjectSettings.get_setting(
+					"physics/3d/default_gravity",
+					9.8
+				))
+				var recovery_straight_vertical_lift_accel_mps2: float = \
+					recovery_straight_gravity_mps2 \
+					+ recovery_straight_vertical_accel_mps2 \
+					- _coordinated_turn_nonwing_vertical_accel_mps2
+				desired_bank = clampf(
+					atan2(
+						recovery_straight_left_accel_mps2,
+						recovery_straight_vertical_lift_accel_mps2
+					),
+					-deg_to_rad(maxf(bank_limit_deg, 1.0)),
+					deg_to_rad(maxf(bank_limit_deg, 1.0))
+				)
+				route_arc_acceleration_target_g = clampf(
+					sqrt(
+						recovery_straight_left_accel_mps2
+							* recovery_straight_left_accel_mps2
+						+ recovery_straight_vertical_lift_accel_mps2
+							* recovery_straight_vertical_lift_accel_mps2
+					) / maxf(recovery_straight_gravity_mps2, 0.1),
+					0.1,
+					normal_flight_turn_target_g
+				)
+				recovery_straight_acceleration_bank_active = true
+	# Straight and fly-by route legs used to choose bank entirely from a horizontal
+	# heading law, then independently ask the elevator to acquire the leg's vertical
+	# slope.  That let an aircraft roll hard for a turn while simultaneously pulling
+	# for a climb, despite there being only one lift vector available.  For ordinary
+	# ground-attack legs, derive the bank from the same desired 3D flight path as the
+	# vertical-speed controller. Arc primitives already do the equivalent calculation
+	# from their radius above, so leave their dedicated geometry in charge.
+	var attack_route_3d_guidance: Dictionary = _get_attack_route_3d_lift_vector_guidance(
+		desired_bank,
+		bank_limit_deg,
+		route_arc_acceleration_bank_active
+	)
+	# Vertical path acquisition may unload the horizontally requested turn, but it
+	# must not be the final authority on horizontal curvature. In particular, a
+	# strong descent request can make the lift-vector solution point beyond
+	# knife-edge even when the aircraft is already nearly aligned with a straight
+	# route. Apply the compatible 3D solution first, then let the explicit
+	# heading/cross-track law below supply any assertive-bank floor the horizontal
+	# geometry actually warrants.
+	if bool(attack_route_3d_guidance.get("active", false)):
+		desired_bank = float(attack_route_3d_guidance.get("bank_rad", desired_bank))
+	var assertive_attack_turn_requested: bool = attack_assertive_turn_enabled \
+		and current_state == State.ATTACK_POSITIONING \
+		and _direct_intercept_extension_waypoint == Vector3.INF \
+		and absf(assertive_attack_guidance_error_rad) >= deg_to_rad(
+			maxf(attack_assertive_turn_entry_error_deg, 0.1)
+		)
+	# Crossing the desired bearing starts the roll-out, but does not instantly
+	# remove elevator/rudder coordination. Without this hysteresis the aircraft
+	# spent the whole two-second roll-out at 50-75 degrees of bank with no load
+	# command: visually banked, yet following an almost straight ground track.
+	var assertive_attack_coordination_active: bool = attack_assertive_turn_enabled \
+		and current_state == State.ATTACK_POSITIONING \
+		and _direct_intercept_extension_waypoint == Vector3.INF \
+		and (
+			assertive_attack_turn_requested
+			or absf(current_roll) >= deg_to_rad(20.0)
+			or (
+				_flight_plan_name == "ground_attack"
+				and attack_route_projection_guidance_available
+			)
+		)
+	if assertive_attack_turn_requested:
+		# Scale bank continuously with the actual heading correction. Previously
+		# crossing a five-degree threshold jumped directly to 82 degrees, so even
+		# tiny route adjustments became maximum-performance reversals.
+		var entry_error_deg: float = maxf(attack_assertive_turn_entry_error_deg, 0.1)
+		var full_bank_error_deg: float = maxf(
+			attack_assertive_turn_full_bank_error_deg,
+			entry_error_deg + 1.0
+		)
+		var heading_error_deg: float = absf(rad_to_deg(assertive_attack_guidance_error_rad))
+		var assertive_bank_t: float = clampf(
+			(heading_error_deg - entry_error_deg)
+				/ (full_bank_error_deg - entry_error_deg),
+			0.0,
+			1.0
+		)
+		assertive_bank_t = assertive_bank_t * assertive_bank_t \
+			* (3.0 - 2.0 * assertive_bank_t)
+		var assertive_attack_bank_deg: float = lerpf(
+			clampf(
+				attack_assertive_turn_min_bank_deg,
+				1.0,
+				maxf(bank_limit_deg, 1.0)
+			),
+			clampf(
+				attack_assertive_turn_bank_deg,
+				1.0,
+				maxf(bank_limit_deg, 1.0)
+			),
+			assertive_bank_t
+		)
+		# Elevator alone cannot both preserve a hard turn and promptly remove a large upward
+		# flight-path velocity. When climbing faster than this leg requests, progressively
+		# roll through knife-edge toward the configured roll-onto target. Beyond 90 degrees,
+		# positive wing lift retains its lateral turn component but points partly downward.
+		# Because this target is continuously derived from climb rate, it rolls back toward
+		# the ordinary assertive bank as soon as that unwanted upward velocity is removed.
+		var overbank_start_mps: float = maxf(attack_assertive_turn_overbank_start_error_mps, 0.0)
+		var overbank_full_mps: float = maxf(
+			attack_assertive_turn_overbank_full_error_mps,
+			overbank_start_mps + 1.0
+		)
+		var overbank_t: float = clampf(
+			(assertive_attack_climb_rate_mps - overbank_start_mps)
+				/ (overbank_full_mps - overbank_start_mps),
+			0.0,
+			1.0
+		)
+		var overbank_altitude_full_m: float = maxf(
+			attack_assertive_turn_overbank_altitude_full_m,
+			overbank_altitude_start_m + 1.0
+		)
+		var overbank_altitude_t: float = clampf(
+			(assertive_attack_excess_altitude_m - overbank_altitude_start_m)
+				/ (overbank_altitude_full_m - overbank_altitude_start_m),
+			0.0,
+			1.0
+		)
+		var overbank_descent_release_t: float = clampf(
+			(aircraft.linear_velocity.y + overbank_descent_release_mps)
+				/ overbank_descent_release_mps,
+			0.0,
+			1.0
+		)
+		overbank_t = maxf(
+			overbank_t,
+			overbank_altitude_t * overbank_descent_release_t
+		)
+		var overbank_min_error_deg: float = maxf(
+			attack_assertive_turn_overbank_min_error_deg,
+			full_bank_error_deg
+		)
+		var overbank_heading_t: float = clampf(
+			(heading_error_deg - overbank_min_error_deg)
+				/ maxf(120.0 - overbank_min_error_deg, 1.0),
+			0.0,
+			1.0
+		)
+		overbank_heading_t = overbank_heading_t * overbank_heading_t \
+			* (3.0 - 2.0 * overbank_heading_t)
+		overbank_t *= overbank_heading_t
+		var overbank_max_deg: float = clampf(
+			attack_assertive_turn_overbank_max_deg,
+			assertive_attack_bank_deg,
+			179.0
+		)
+		assertive_attack_bank_deg = lerpf(
+			assertive_attack_bank_deg,
+			overbank_max_deg,
+			overbank_t
+		)
+		var assertive_turn_sign: float = signf(assertive_attack_guidance_error_rad)
+		# The generic behind-target guidance commits to one turn direction, but the
+		# assertive attack override previously discarded that decision and took the
+		# wrapped error sign every frame. At the +/-PI boundary that sign alternates.
+		# A negative cosine identifies the rear hemisphere directly from geometry.
+		if cos(assertive_attack_guidance_error_rad) < 0.0:
+			if absf(_committed_turn_sign) < 0.01:
+				_committed_turn_sign = assertive_turn_sign
+			assertive_turn_sign = _committed_turn_sign
+		if absf(assertive_turn_sign) < 0.01:
+			assertive_turn_sign = 1.0
+		var assertive_bank_target: float = assertive_turn_sign * deg_to_rad(assertive_attack_bank_deg)
+		# Assertive steering is a floor on turn authority.  The route projection may
+		# have derived a stronger correction from cross-track geometry; replacing it
+		# with the gentler heading schedule caused the long 20-30 degree lazy turns.
+		if signf(desired_bank) == signf(assertive_bank_target) \
+				and absf(desired_bank) > absf(assertive_bank_target):
+			assertive_bank_target = desired_bank
+		desired_bank = assertive_bank_target
+		# current_roll is already in controller coordinates; applying the aircraft's
+		# output inversion to that sign again would command the opposite bank.
+		if flip_roll_direction:
+			desired_bank = -desired_bank
+	# Heading error can momentarily fall below the ordinary assertive-turn entry
+	# threshold while the aircraft is exactly tangent to an arc.  That is not a
+	# rollout cue: the path still requires centripetal acceleration.  Preserve the
+	# physics-derived bank for the full primitive, using the already resolved
+	# controller-space turn direction.
+	if route_arc_acceleration_bank_active:
+		# Do not latch the primitive's eventual direction during capture. The signed
+		# acceleration above is a continuous vector-field command and may legitimately
+		# cross zero when the shortest way to intercept the circle changes sides. The
+		# roll-rate servo supplies the damping for that transition.
+		_route_arc_controller_bank_sign = route_arc_acceleration_bank_sign
+		desired_bank = _route_arc_controller_bank_sign * route_arc_acceleration_bank_abs_rad
+
+	# Lead the rollout with measured ground-track rate. The heading-error schedule
+	# above says how hard the turn may be; this physics-derived target says how much
+	# bank is still needed after accounting for the turn already in progress.
+	# The settling horizon comes from the configured fine-aim distance, so faster
+	# aircraft begin unwinding earlier in metres while retaining the same time to aim.
+	var terminal_coarse_capture_complete: bool = not terminal_attack_acquisition \
+		or not terminal_attack_fpv_yaw_valid \
+		or absf(terminal_attack_fpv_yaw_error_rad) <= deg_to_rad(
+			maxf(gun_attack_coarse_aim_angle_deg, 0.1)
+		)
+	if assertive_attack_coordination_active \
+			and local_horiz_z >= 0.0 \
+			and _attack_turn_track_heading_valid \
+			and not route_arc_acceleration_bank_active \
+			and terminal_coarse_capture_complete:
+		var rollout_distance_m: float = maxf(attack_setup_capture_radius_m, 1.0)
+		if _is_strafing_ground_attack_weapon_type(_run_weapon_type):
+			rollout_distance_m = maxf(rollout_distance_m, rocket_ccip_aim_acquisition_margin_m)
+		elif _run_weapon_type == "Bomb":
+			rollout_distance_m = maxf(rollout_distance_m, bomb_ccip_aim_correction_close_range_m)
+		var horizontal_speed_mps: float = maxf(attack_track_velocity.length(), 1.0)
+		var rollout_time_s: float = rollout_distance_m / horizontal_speed_mps
+		var desired_track_rate_rad_s: float = assertive_attack_guidance_error_rad / rollout_time_s
+		# The heading schedule already asks for an assertive initial turn. Rate
+		# feedback is needed to lead the rollout, not to double that request while
+		# measured rate is still zero. Apply the feedback term only after the
+		# aircraft is rotating faster than the remaining geometry requires; this
+		# preserves prompt turn-in and can still command a counter-bank before the
+		# attack line is crossed.
+		var corrected_track_rate_rad_s: float = desired_track_rate_rad_s
+		var actual_turns_toward_line: bool = signf(_attack_turn_track_rate_rad_s) \
+			== signf(desired_track_rate_rad_s)
+		if actual_turns_toward_line \
+				and absf(_attack_turn_track_rate_rad_s) > absf(desired_track_rate_rad_s):
+			corrected_track_rate_rad_s += desired_track_rate_rad_s \
+				- _attack_turn_track_rate_rad_s
+		var gravity_mps2: float = float(ProjectSettings.get_setting(
+			"physics/3d/default_gravity",
+			9.8
+		))
+		var rate_bank_target: float = atan2(
+			corrected_track_rate_rad_s * horizontal_speed_mps,
+			maxf(gravity_mps2, 0.1)
+		)
+		rate_bank_target = clampf(
+			rate_bank_target,
+			-deg_to_rad(bank_limit_deg),
+			deg_to_rad(bank_limit_deg)
+		)
+		if flip_roll_direction:
+			rate_bank_target = -rate_bank_target
+		if absf(rate_bank_target) < absf(desired_bank) \
+				or signf(rate_bank_target) != signf(desired_bank):
+			desired_bank = rate_bank_target
+
+	# Guidance can move its projected tangent and cross-track capture vector every
+	# physics frame.  Filter that target attitude rather than merely slowing the
+	# ailerons: the roll servo still reacts immediately to a meaningful bank error,
+	# while sub-frame route noise cannot appear as alternating stick commands.
+	var attack_route_bank_filter_active: bool = current_state == State.ATTACK_POSITIONING \
+		and _flight_plan_name == "ground_attack" \
+		and current_waypoint_index >= 0 \
+		and current_waypoint_index < _flight_plan_legs.size()
+	var physics_frame: int = Engine.get_physics_frames()
+	if attack_route_bank_filter_active:
+		if not _attack_route_smoothed_target_bank_valid \
+				or physics_frame - _attack_route_smoothed_target_bank_last_frame > 1:
+			_attack_route_smoothed_target_bank_rad = desired_bank
+			_attack_route_smoothed_target_bank_valid = true
+		else:
+			var target_time_s: float = maxf(attack_route_guidance_target_time_s, 0.0)
+			var bank_target_filter_t: float = 1.0
+			if target_time_s > 0.0:
+				bank_target_filter_t = 1.0 - exp(-maxf(delta, 0.0) / target_time_s)
+			_attack_route_smoothed_target_bank_rad = lerp_angle(
+				_attack_route_smoothed_target_bank_rad,
+				desired_bank,
+				clampf(bank_target_filter_t, 0.0, 1.0)
+			)
+		_attack_route_smoothed_target_bank_last_frame = physics_frame
+		desired_bank = _attack_route_smoothed_target_bank_rad
+	else:
+		_attack_route_smoothed_target_bank_valid = false
+
 	# Read angular rates for derivative damping (PD control instead of just P)
 	var ang_vel: Vector3 = aircraft.angular_velocity
 	var roll_rate: float = ang_vel.dot(b.z)
@@ -5693,29 +15541,103 @@ func _navigate_to_waypoint(delta: float):
 	var high_bank_t: float = clamp((bank_util - high_bank_start_ratio) / max(1.0 - high_bank_start_ratio, 0.01), 0.0, 1.0)
 	
 	# === ROLL: PD controller - decisive gain + minimum input when off target ===
+	_navigation_desired_bank_rad_debug = desired_bank
+	_navigation_current_bank_rad_debug = current_roll
 	var bank_error: float = desired_bank - current_roll
-	var roll_rate_damping: float = 0.30 + high_bank_roll_damping_gain * high_bank_t
+	var roll_rate_damping: float = maxf(navigation_roll_rate_damping, 0.0) + high_bank_roll_damping_gain * high_bank_t
 	# Taper P-gain as bank approaches the limit: reduces vibration at max bank by making
 	# the controller damping-dominated near the ceiling rather than twitchy-proportional.
-	var roll_p_gain: float = lerp(11.0, 4.5, high_bank_t)
-	var raw_roll: float = clamp(bank_error * roll_p_gain - roll_rate * roll_rate_damping, -1.0, 1.0)
-	if abs(bank_error) > deg_to_rad(2.0):
-		var min_roll: float = 0.45 * (1.0 - 0.55 * high_bank_t) * sign(bank_error)
+	var roll_p_gain: float = lerp(
+		maxf(navigation_roll_p_gain, 0.0),
+		maxf(navigation_roll_high_bank_p_gain, 0.0),
+		high_bank_t
+	)
+	var route_primitive_roll_servo: bool = route_primitive_control_active \
+		and not str(_flight_plan_legs[current_waypoint_index].get("route_primitive", "")).is_empty()
+	var raw_roll: float = 0.0
+	if route_primitive_roll_servo:
+		# Track bank through a roll-rate command that is itself reachable by this
+		# airframe. The former bank-error PD stayed saturated until almost level with
+		# the target attitude; its small derivative term could not arrest the stored
+		# roll momentum when an arc's bank target unwound at the tangent. The square-
+		# root schedule is the braking curve v^2 = 2*a*x: far away it uses the
+		# aerodynamic steady roll rate, then continuously lowers that rate when the
+		# remaining bank error is only just sufficient to stop.
+		var maximum_roll_accel_rad_s2: float = _estimate_maximum_roll_accel_rad_s2()
+		var maximum_roll_rate_rad_s: float = _estimate_maximum_roll_rate_rad_s()
+		if maximum_roll_accel_rad_s2 > 0.001 and maximum_roll_rate_rad_s > 0.001:
+			var braking_roll_rate_rad_s: float = sqrt(
+				2.0 * maximum_roll_accel_rad_s2 * absf(bank_error)
+			)
+			# The square-root braking curve is correct for a maximum-effort attitude
+			# change, but its slope approaches infinity at zero error. That made tiny
+			# wings-level errors request a visible roll rate and reverse on every target
+			# crossing. Inside the distance that can settle over the guidance target's
+			# own response time, use the proportional capture rate instead. Taking the
+			# lower of the two schedules keeps the maximum-effort response for large
+			# changes and approaches zero continuously for straight flight.
+			var capture_time_s: float = maxf(
+				attack_route_guidance_target_time_s,
+				maxf(delta, 0.001)
+			)
+			var capture_roll_rate_rad_s: float = absf(bank_error) / capture_time_s
+			var desired_roll_rate_rad_s: float = signf(bank_error) * minf(
+				maximum_roll_rate_rad_s,
+				minf(braking_roll_rate_rad_s, capture_roll_rate_rad_s)
+			)
+			# Feed forward the aileron needed to balance SimpleAero's angular damping
+			# at the requested rate, then use the same physically derived steady rate
+			# to normalize rate error. This produces counter-aileron before the bank
+			# target is crossed instead of trying to repair an overshoot afterwards.
+			raw_roll = clampf(
+				desired_roll_rate_rad_s / maximum_roll_rate_rad_s
+					+ (desired_roll_rate_rad_s - roll_rate) / maximum_roll_rate_rad_s,
+				-1.0,
+				1.0
+			)
+		else:
+			raw_roll = clampf(
+				bank_error * roll_p_gain - roll_rate * roll_rate_damping,
+				-1.0,
+				1.0
+			)
+	else:
+		raw_roll = clampf(bank_error * roll_p_gain - roll_rate * roll_rate_damping, -1.0, 1.0)
+	_navigation_raw_roll_debug = raw_roll
+	if not route_primitive_roll_servo and abs(bank_error) > deg_to_rad(2.0):
+		var min_roll_strength: float = clampf(navigation_roll_min_input, 0.0, 1.0)
+		if direct_fire_dive:
+			min_roll_strength = lerpf(min_roll_strength, 0.70, direct_fire_coarse_t)
+		var min_roll: float = min_roll_strength * (1.0 - 0.55 * high_bank_t) * sign(bank_error)
 		if abs(raw_roll) < abs(min_roll):
 			raw_roll = min_roll
 	var roll_smoothing: float = lerp(input_smoothing, 0.45, high_bank_t)
 	if _dive_precise_aim:
 		roll_smoothing = lerp(roll_smoothing, 0.25, 0.8)  # Faster response when aiming precisely
+	if direct_fire_dive:
+		roll_smoothing = maxf(roll_smoothing, lerpf(0.35, gun_attack_roll_response, direct_fire_coarse_t))
 	roll_input = lerp(_smoothed_roll_input, raw_roll, roll_smoothing)
 	_smoothed_roll_input = roll_input
 	
 	# === PITCH: world-space altitude hold via desired vertical speed, with stronger damping ===
 	var alt_err: float = nav_waypoint.y - aircraft.global_position.y
-	var in_dive_state: bool = current_state == State.ATTACK_DIVE
 	var in_break_off: bool = current_state == State.ATTACK_BREAK_OFF
 	var in_attack_approach: bool = current_state in [State.ATTACK_POSITIONING, State.ATTACK_INBOUND]
 	var in_dogfight: bool = current_state == State.DOGFIGHT
-	var in_carrier_approach: bool = current_state == State.APPROACH
+	# Recovery phase 2 is a deliberate carrier glideslope. Leaving it on the
+	# normal-flight 8 m/s vertical-speed cap left almost no authority to recapture
+	# the 6-degree path after terrain avoidance, producing repeatable high wave-offs.
+	# Keep phases 0/1/3 on gentler terrain-navigation authority: applying this to
+	# phase 1 caused an altitude-hold overshoot into terrain during lineup.
+	var active_recovery_route_role: String = _active_route_leg_role() \
+		if current_state == State.RECOVERY_APPROACH and _flight_plan_name == "recovery_approach" \
+		else ""
+	var on_recovery_final_route: bool = active_recovery_route_role in [
+		"recovery_arrival",
+		"recovery_lineup",
+	]
+	var in_carrier_approach: bool = current_state == State.APPROACH \
+		or (current_state == State.RECOVERY_APPROACH and (_recovery_phase == 2 or on_recovery_final_route))
 	var in_landing: bool = current_state == State.LANDING
 	var in_normal_altitude_hold: bool = not (
 		in_dive_state
@@ -5766,6 +15688,33 @@ func _navigate_to_waypoint(delta: float):
 		vs_limit = maxf(normal_flight_vs_limit_mps, 2.0)
 		vs_gain = maxf(normal_flight_vs_gain, 0.01)
 	var desired_vs: float = clamp(alt_err * vs_gain, -vs_limit, vs_limit)
+	var breakoff_energy_t: float = 1.0
+	var breakoff_desired_fpa_rad: float = 0.0
+	var breakoff_climb_angle_limit_rad: float = deg_to_rad(maxf(attack_breakoff_max_climb_angle_deg, 0.0))
+	if in_break_off:
+		var breakoff_stall_floor_mps: float = stall_speed_mps + stall_margin_mps
+		var breakoff_target_speed_mps: float = maxf(_get_effective_target_speed(), breakoff_stall_floor_mps + 1.0)
+		breakoff_energy_t = clampf(
+			(speed - breakoff_stall_floor_mps) / maxf(breakoff_target_speed_mps - breakoff_stall_floor_mps, 1.0),
+			0.0,
+			1.0
+		)
+		breakoff_climb_angle_limit_rad *= breakoff_energy_t
+		var breakoff_horizontal_speed_mps: float = Vector2(vel.x, vel.z).length()
+		var breakoff_target_horizontal_m: float = Vector2(
+			maneuver_waypoint.x - aircraft.global_position.x,
+			maneuver_waypoint.z - aircraft.global_position.z
+		).length()
+		var breakoff_geometry_fpa_rad: float = atan2(
+			maneuver_waypoint.y - aircraft.global_position.y,
+			maxf(breakoff_target_horizontal_m, 1.0)
+		)
+		breakoff_desired_fpa_rad = minf(breakoff_geometry_fpa_rad, breakoff_climb_angle_limit_rad)
+		var breakoff_unload_rad: float = deg_to_rad(maxf(attack_breakoff_low_energy_unload_angle_deg, 0.0)) \
+			* (1.0 - breakoff_energy_t) * (1.0 - breakoff_energy_t)
+		breakoff_desired_fpa_rad -= breakoff_unload_rad
+		var breakoff_desired_vs_mps: float = breakoff_horizontal_speed_mps * tan(breakoff_desired_fpa_rad)
+		desired_vs = minf(desired_vs, breakoff_desired_vs_mps)
 	# Deadband: settle when close to target altitude ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â applies in all non-dive/break-off states
 	if not needs_high_authority and abs(alt_err) < pitch_deadband_m and abs(vel.y) < 2.0:
 		desired_vs = 0.0
@@ -5794,21 +15743,130 @@ func _navigate_to_waypoint(delta: float):
 			desired_vs = maxf(desired_vs, dogfight_ground_protect_min_climb_vs_mps)
 		if _dogfight_recovery_timer_s > 0.0:
 			desired_vs = maxf(desired_vs, dogfight_ground_protect_min_climb_vs_mps + 4.0)
+	# A precomputed aircraft route already defines its vertical geometry.
+	# Convert the active look-ahead segment's slope into vertical velocity at the
+	# aircraft's actual horizontal speed. The previous generic vertical-speed cap could
+	# make a terrain-valid setup-to-release segment physically impossible to fly:
+	# attack aircraft passed release high, and recovery aircraft passed the authored
+	# final-corridor handoff high.
+	# The coordinated controller below still limits acceleration and wing load to
+	# what SimpleAero can produce; this only makes the requested path kinematically
+	# consistent with the route.
+	var route_owns_vertical_path: bool = _route_fpv_pitch_target_active and (
+		(current_state == State.ATTACK_POSITIONING and _flight_plan_name == "ground_attack")
+		or (current_state == State.RECOVERY_APPROACH and _flight_plan_name == "recovery_approach")
+	)
+	if route_owns_vertical_path:
+		if _flight_plan_name == "ground_attack" \
+				and bool(attack_route_3d_guidance.get("active", false)):
+			desired_vs = float(attack_route_3d_guidance.get("desired_vs_mps", desired_vs))
+		else:
+			var route_vertical_path: Vector3 = _route_fpv_pitch_target - aircraft.global_position
+			var route_vertical_path_horizontal_m := Vector2(
+				route_vertical_path.x,
+				route_vertical_path.z
+			).length()
+			if route_vertical_path_horizontal_m > 1.0:
+				var route_horizontal_speed_mps := Vector2(vel.x, vel.z).length()
+				desired_vs = route_horizontal_speed_mps \
+					* route_vertical_path.y / route_vertical_path_horizontal_m
+		var vertical_target_frame: int = Engine.get_physics_frames()
+		if not _attack_route_smoothed_desired_vs_valid \
+				or vertical_target_frame - _attack_route_smoothed_desired_vs_last_frame > 1:
+			_attack_route_smoothed_desired_vs_mps = desired_vs
+			_attack_route_smoothed_desired_vs_valid = true
+		else:
+			var target_time_s: float = maxf(attack_route_guidance_target_time_s, 0.0)
+			var vertical_target_filter_t: float = 1.0
+			if target_time_s > 0.0:
+				vertical_target_filter_t = 1.0 - exp(-maxf(delta, 0.0) / target_time_s)
+			_attack_route_smoothed_desired_vs_mps = lerpf(
+				_attack_route_smoothed_desired_vs_mps,
+				desired_vs,
+				clampf(vertical_target_filter_t, 0.0, 1.0)
+			)
+		_attack_route_smoothed_desired_vs_last_frame = vertical_target_frame
+		desired_vs = _attack_route_smoothed_desired_vs_mps
+	else:
+		_attack_route_smoothed_desired_vs_valid = false
 	# General low-altitude guardrail: bias toward a climb before we hit hard safety override.
 	# ATTACK_DIVE excluded: the dive has its own break-off logic; guardrail was canceling dive command.
-	if current_state not in [State.APPROACH, State.LANDING, State.IDLE, State.ATTACK_DIVE]:
+	var on_prechecked_recovery_glideslope: bool = current_state == State.RECOVERY_APPROACH \
+			and (_recovery_phase == 2 or not active_recovery_route_role.is_empty())
+	if current_state not in [State.APPROACH, State.LANDING, State.IDLE, State.ATTACK_DIVE] \
+			and not on_prechecked_recovery_glideslope:
 		var low_agl_guard_band_m: float = emergency_min_agl_m + 120.0
 		if altitude_agl < low_agl_guard_band_m:
 			var low_guard_t: float = clampf((low_agl_guard_band_m - altitude_agl) / maxf(low_agl_guard_band_m, 1.0), 0.0, 1.0)
 			var min_climb_vs: float = lerpf(2.0, maxf(dogfight_ground_protect_min_climb_vs_mps, 10.0), low_guard_t)
 			desired_vs = maxf(desired_vs, min_climb_vs)
 	var vs_err: float = desired_vs - vel.y
-	var bank_compensation: float = clamp(1.0 / max(cos(bank_rad), 0.7), 1.0, 1.2)
-	var pitch_limit: float = 0.75 if in_dogfight else max_pitch_angle / deg_to_rad(60.0)
+	# TURN-RATE AUTHORITY: the stock bank_compensation only offsets the LIFT LOST to banking (capped at
+	# 1.2x, i.e. barely more than enough to hold altitude) -- it was never meant to add turn performance,
+	# so a banked aircraft turned no faster than gravity/roll alone produced. Widening this cap gives a
+	# steeply banked, on-altitude turn real additional pull (matching a pilot loading the turn with back
+	# stick), while staying multiplied through vs_err -- so it only pulls when altitude-hold ALREADY wants
+	# some correction in that direction, and can't manufacture a persistent climb once altitude is on target
+	# (unlike a raw additive pitch term would). Excluded from states with their own dedicated pitch law.
+	var general_turn_compensation_cap: float = 1.2
+	if not (in_dive_state or in_carrier_approach or in_landing or in_dogfight or in_break_off):
+		general_turn_compensation_cap = lerpf(1.2, maxf(general_turn_compensation_max, 1.2), bank_util * bank_util)
+	var bank_compensation: float = clamp(1.0 / max(cos(bank_rad), 0.7), 1.0, general_turn_compensation_cap)
+	# FEEDFORWARD BACK-STICK: bank_compensation above only scales vs_err, which starts near zero the
+	# instant a turn is commanded (the plane hasn't sunk yet) -- so the extra pull only shows up AFTER
+	# altitude has already sagged and vel.y has gone negative. A real pilot loads the stick with the
+	# roll-in, not after the nose has already dropped. Add the lift-loss compensation as its own term,
+	# proportional to how banked the aircraft actually is right now (not the reactive alt error), so
+	# back-pressure comes on with the bank instead of chasing a sink that's already started. This is
+	# strictly lift-loss makeup (bank_compensation - 1, i.e. zero at wings-level) so it cannot manufacture
+	# a persistent climb once the turn ends and bank returns to zero.
+	var turn_feedforward_pitch: float = 0.0
+	var in_recovery_navigation: bool = current_state in [
+		State.RECOVERY_MARSHAL,
+		State.RECOVERY_HOLD,
+		State.RECOVERY_APPROACH,
+		State.APPROACH,
+		State.LANDING,
+		State.MISSED_APPROACH,
+	]
+	# Ordinary airborne routing now uses the same coordinated bank/load controller
+	# as attack, recovery primitives, and dogfight. Guidance still chooses the
+	# waypoint and bank; this flag only replaces the older additive pitch/rudder
+	# law which could display a bank without making the corresponding turn. Formation
+	# may soften the bank/path target, but a bank it does request must still produce
+	# the corresponding physical turn rather than reverting to a low-G inner loop.
+	var shared_waypoint_coordination_active: bool = \
+		_uses_shared_waypoint_turn_controller()
+	if not (in_dive_state or in_carrier_approach or in_landing or in_dogfight or in_break_off \
+			or current_state in [State.CLIMBING, State.ATTACK_INBOUND] or in_recovery_navigation \
+			or shared_waypoint_coordination_active):
+		# Use the same bank-to-load law as dogfighting. This produces a commanded load target,
+		# adds feedback when SimpleAero reports that the wing is not actually making that load,
+		# and returns the pitch demand needed to sustain the maneuver.
+		turn_feedforward_pitch = _compute_turn_load_pitch_demand(
+			maxf(absf(desired_bank), bank_rad),
+			normal_flight_turn_target_g,
+			normal_flight_turn_pitch_max,
+			navigation_turn_backpressure_start_bank_deg,
+			navigation_turn_backpressure_full_bank_deg,
+			normal_flight_turn_load_feedback_gain
+		)
+	var navigation_turn_pull_t: float = 0.0
+	if navigation_turn_backpressure_enabled and _should_use_navigation_auto_rudder_only():
+		var pull_bank_rad: float = maxf(absf(desired_bank), absf(current_roll))
+		var pull_start_rad: float = deg_to_rad(maxf(navigation_turn_backpressure_start_bank_deg, 0.0))
+		var pull_full_rad: float = deg_to_rad(maxf(navigation_turn_backpressure_full_bank_deg, navigation_turn_backpressure_start_bank_deg + 1.0))
+		navigation_turn_pull_t = clampf((pull_bank_rad - pull_start_rad) / maxf(pull_full_rad - pull_start_rad, 0.001), 0.0, 1.0)
+		navigation_turn_pull_t = navigation_turn_pull_t * navigation_turn_pull_t * (3.0 - 2.0 * navigation_turn_pull_t)
+	# No artificial ceiling below full input for genuine maneuvering (dogfight, normal nav/attack
+	# turns) -- the player isn't capped this way, and _apply_anti_stall_pitch_backstop() is the real
+	# safety net (only fires nose-high AND slow, not just "pulling hard"). Precision-control states
+	# (carrier approach, formation) keep their own deliberately gentler limits below -- those aren't
+	# timidity, they're intentionally soft inputs for a controlled glideslope/formation hold, the way
+	# a real pilot doesn't yank full stick on short final either.
+	var pitch_limit: float = 1.0
 	if in_carrier_approach:
 		pitch_limit = minf(maxf(pitch_limit, 0.25), maxf(landing_approach_pitch_input_limit, 0.05))
-	elif in_normal_altitude_hold:
-		pitch_limit = minf(pitch_limit, maxf(normal_flight_pitch_input_limit, 0.05))
 	if formation_soft_t > 0.0 and not in_dogfight:
 		var formation_pitch_limit: float = deg_to_rad(formation_close_pitch_limit_deg) / deg_to_rad(60.0)
 		pitch_limit = minf(pitch_limit, lerpf(pitch_limit, formation_pitch_limit, formation_soft_t))
@@ -5832,7 +15890,58 @@ func _navigate_to_waypoint(delta: float):
 		pitch_rate_damping = maxf(landing_approach_pitch_rate_damping, 0.1)
 	elif in_normal_altitude_hold:
 		pitch_rate_damping = maxf(normal_flight_pitch_rate_damping, 0.1)
-	var raw_pitch: float = clamp(vs_err * pitch_gain * bank_compensation - pitch_rate_up * pitch_rate_damping, -pitch_limit, pitch_limit)
+	# TURN PRIORITY OVER ALTITUDE PRECISION: telemetry showed the reactive altitude-hold term
+	# (vs_err*gain*comp) fighting turn_feedforward_pitch directly -- a legitimate "ease off, you're
+	# a bit high" correction from waypoint-following was persistently cancelling 50-70% of the turn
+	# pull, capping a hard 50deg-bank turn's actual pitch_input around 0.1-0.25 instead of the ~0.4
+	# the turn alone called for. A real pilot pulling hard in a turn doesn't babysit altitude to the
+	# meter -- fade the altitude term's authority as the turn demands more, so turning tight wins
+	# priority over precise altitude tracking during a maneuvering turn (dive/approach/landing/
+	# dogfight/break-off are untouched -- turn_feedforward_pitch is already zero there).
+	var altitude_term_t: float = 1.0 - clampf(turn_feedforward_pitch / maxf(normal_flight_turn_pitch_max, 0.01), 0.0, 1.0) * 0.7
+	var vertical_pitch_correction: float = vs_err * pitch_gain * bank_compensation * altitude_term_t
+	var turn_floor_release_pitch: float = minf(vertical_pitch_correction, 0.0)
+	var raw_pitch: float = clamp(vertical_pitch_correction + turn_feedforward_pitch - pitch_rate_up * pitch_rate_damping, -pitch_limit, pitch_limit)
+	var forward_frame_pitch_valid: bool = false
+	var forward_frame_raw_pitch: float = 0.0
+	_route_fpv_pitch_error_rad = 0.0
+	_navigation_turn_pull_command = 0.0
+	if navigation_forward_frame_pitch_enabled and _should_use_navigation_auto_rudder_only():
+		var pitch_target_point: Vector3 = _route_fpv_pitch_target if _route_fpv_pitch_target_active else maneuver_waypoint
+		var pitch_target_vec: Vector3 = pitch_target_point - aircraft.global_position
+		if in_break_off and pitch_target_vec.y > 0.0:
+			var breakoff_target_horizontal_m: float = Vector2(pitch_target_vec.x, pitch_target_vec.z).length()
+			pitch_target_vec.y = minf(
+				pitch_target_vec.y,
+				breakoff_target_horizontal_m * tan(breakoff_climb_angle_limit_rad)
+			)
+		if _route_fpv_pitch_target_active:
+			var pitch_horizontal: Vector3 = Vector3(pitch_target_vec.x, 0.0, pitch_target_vec.z)
+			if pitch_horizontal.length_squared() > 0.0001:
+				var pitch_horizon_m: float = maxf(_route_fpv_pitch_horizon_m, navigation_forward_frame_min_forward_dot)
+				var horizontal_distance_m: float = minf(pitch_horizontal.length(), pitch_horizon_m)
+				pitch_target_vec = pitch_horizontal.normalized() * horizontal_distance_m + Vector3.UP * pitch_target_vec.y
+		if pitch_target_vec.length_squared() > 1.0 and speed > 1.0:
+			var pitch_target_dir: Vector3 = pitch_target_vec.normalized()
+			var flight_path_dir: Vector3 = vel.normalized()
+			var local_target_y: float = pitch_target_dir.dot(b.y)
+			var local_target_z: float = pitch_target_dir.dot(b.z)
+			var local_fpv_y: float = flight_path_dir.dot(b.y)
+			var local_fpv_z: float = flight_path_dir.dot(b.z)
+			var local_pitch_denominator: float = maxf(absf(local_target_z), maxf(navigation_forward_frame_min_forward_dot, 0.01))
+			var local_fpv_denominator: float = maxf(absf(local_fpv_z), maxf(navigation_forward_frame_min_forward_dot, 0.01))
+			var desired_fpv_pitch_rad: float = atan2(local_target_y, local_pitch_denominator)
+			var current_fpv_pitch_rad: float = atan2(local_fpv_y, local_fpv_denominator)
+			var local_pitch_err_rad: float = desired_fpv_pitch_rad - current_fpv_pitch_rad
+			_route_fpv_pitch_error_rad = local_pitch_err_rad
+			var local_pitch_limit: float = minf(pitch_limit, maxf(navigation_forward_frame_pitch_limit, 0.05))
+			forward_frame_raw_pitch = clampf(
+				local_pitch_err_rad * maxf(navigation_forward_frame_pitch_gain, 0.0)
+				- pitch_rate_up * maxf(navigation_forward_frame_pitch_rate_damping, 0.0),
+				-local_pitch_limit,
+				local_pitch_limit
+			)
+			forward_frame_pitch_valid = true
 	if in_dive_state:
 		var aim_vector: Vector3 = maneuver_waypoint - aircraft.global_position
 		if aim_vector.length_squared() > 1.0:
@@ -5840,17 +15949,137 @@ func _navigate_to_waypoint(delta: float):
 			var local_y_to_aim: float = aim_dir.dot(b.y)
 			var local_z_to_aim: float = aim_dir.dot(b.z)
 			var pitch_los_err_rad: float = atan2(local_y_to_aim, maxf(absf(local_z_to_aim), 0.05))
+			var dive_pitch_los_gain: float = gun_attack_pitch_los_gain if direct_fire_dive else bomb_dive_pitch_los_gain
+			var dive_pitch_rate_damping: float = gun_attack_pitch_rate_damping if direct_fire_dive else 0.22
 			raw_pitch = clampf(
-				pitch_los_err_rad * maxf(bomb_dive_pitch_los_gain, 0.1) - pitch_rate_up * 0.22,
+				pitch_los_err_rad * maxf(dive_pitch_los_gain, 0.1) - pitch_rate_up * maxf(dive_pitch_rate_damping, 0.0),
 				-pitch_limit,
 				pitch_limit
 			)
+			# Use the weapon's effective dive envelope. Strafing weapons may need a steeper
+			# flight path to reach the actual target LOS; terrain/AGL logic still owns recovery.
+			var dive_horiz_speed: float = Vector2(vel.x, vel.z).length()
+			var dive_fpa_deg: float = rad_to_deg(atan2(-vel.y, maxf(dive_horiz_speed, 1.0)))
+			var effective_attack_dive_limit_deg: float = _get_effective_attack_dive_angle_limit_deg()
+			if dive_fpa_deg > effective_attack_dive_limit_deg:
+				var dive_pullup: float = (dive_fpa_deg - effective_attack_dive_limit_deg) * maxf(attack_max_dive_pullback_gain, 0.0)
+				raw_pitch = maxf(raw_pitch, clampf(dive_pullup, 0.0, pitch_limit))
 		if _run_weapon_type == "Bomb":
 			var horiz_speed_for_fpa: float = Vector2(vel.x, vel.z).length()
 			var fpa_deg: float = rad_to_deg(atan2(-vel.y, maxf(horiz_speed_for_fpa, 1.0)))
 			if fpa_deg > bomb_preferred_dive_angle_deg:
 				var pullback_pitch: float = (fpa_deg - bomb_preferred_dive_angle_deg) * maxf(bomb_dive_pullback_gain, 0.0)
 				raw_pitch = maxf(raw_pitch, clampf(pullback_pitch, 0.0, pitch_limit))
+		if _run_weapon_type == "Bomb" and _bomb_ccip_aim_active:
+			var bomb_ccip_pitch_err_rad: float = atan2(
+				_bomb_ccip_local_forward_m,
+				maxf(_bomb_ccip_range_m * 0.12, 1.0)
+			)
+			var bomb_ccip_pitch_cmd: float = clampf(
+				bomb_ccip_pitch_err_rad * absf(bomb_ccip_pitch_gain)
+				- pitch_rate_up * maxf(bomb_ccip_pitch_rate_damping, 0.0),
+				-maxf(bomb_ccip_max_pitch_input, 0.0),
+				maxf(bomb_ccip_max_pitch_input, 0.0)
+			)
+			raw_pitch = clampf(raw_pitch + bomb_ccip_pitch_cmd, -pitch_limit, pitch_limit)
+			_bomb_ccip_pitch_cmd = bomb_ccip_pitch_cmd
+		else:
+			_bomb_ccip_pitch_cmd = 0.0
+		if _run_weapon_type == "Rocket Pod" and _rocket_ccip_aim_active:
+			var ccip_pitch_err_rad: float = atan2(
+				_rocket_ccip_local_forward_m,
+				maxf(_rocket_ccip_range_m * 0.08, 1.0)
+			)
+			var ccip_pitch_cmd: float = clampf(
+				ccip_pitch_err_rad * absf(rocket_ccip_pitch_gain)
+				- pitch_rate_up * maxf(rocket_ccip_pitch_rate_damping, 0.0),
+				-maxf(rocket_ccip_max_pitch_input, 0.0),
+				maxf(rocket_ccip_max_pitch_input, 0.0)
+			)
+			raw_pitch = clampf(raw_pitch + ccip_pitch_cmd, -pitch_limit, pitch_limit)
+			_rocket_ccip_pitch_cmd = ccip_pitch_cmd
+		else:
+			_rocket_ccip_pitch_cmd = 0.0
+		if direct_fire_dive and _gun_ccip_aim_active:
+			var gun_ccip_forward_ratio: float = clampf(
+				_gun_ccip_local_forward_m / maxf(_gun_ccip_range_m, 1.0),
+				-1.0,
+				1.0
+			)
+			var gun_ccip_pitch_cmd: float = clampf(
+				gun_ccip_forward_ratio * 0.18 - pitch_rate_up * 0.08,
+				-0.12,
+				0.12
+			)
+			raw_pitch = clampf(raw_pitch + gun_ccip_pitch_cmd, -pitch_limit, pitch_limit)
+			_gun_ccip_pitch_cmd = gun_ccip_pitch_cmd
+		else:
+			_gun_ccip_pitch_cmd = 0.0
+	if forward_frame_pitch_valid:
+		var path_target_y: float = _route_fpv_pitch_target.y if _route_fpv_pitch_target_active else maneuver_waypoint.y
+		var above_path_m: float = aircraft.global_position.y - path_target_y
+		var altitude_trim: float = clampf(
+			raw_pitch,
+			-maxf(navigation_forward_frame_altitude_trim_limit, 0.0),
+			maxf(navigation_forward_frame_altitude_trim_limit, 0.0)
+		)
+		var unload_start_m: float = maxf(navigation_forward_frame_above_path_unload_start_m, 0.0)
+		var unload_full_m: float = maxf(navigation_forward_frame_above_path_unload_full_m, unload_start_m + 1.0)
+		var above_path_unload_t: float = clampf((above_path_m - unload_start_m) / maxf(unload_full_m - unload_start_m, 1.0), 0.0, 1.0)
+		var above_path_unload_pitch: float = above_path_unload_t * maxf(navigation_forward_frame_above_path_unload_pitch, 0.0)
+		# A commanded descent must be able to unload a banked turn. Feed the local
+		# flight-path correction into the same continuous release signal as the
+		# vertical-speed controller; this avoids a separate altitude or G hard gate.
+		turn_floor_release_pitch += minf(forward_frame_raw_pitch, 0.0) - above_path_unload_pitch
+		if navigation_turn_pull_t > 0.0:
+			var release_m: float = maxf(navigation_turn_backpressure_alt_error_release_m, 1.0)
+			var altitude_release_t: float = 1.0 - clampf(
+				(maxf(above_path_m, 0.0) - release_m) / release_m,
+				0.0,
+				1.0
+			)
+			# Sustain banked flight while the local FPV controller keeps the path marker centered.
+			var marker_release_rad: float = deg_to_rad(2.0)
+			var marker_pull_t: float = clampf(
+				(_route_fpv_pitch_error_rad + marker_release_rad) / marker_release_rad,
+				0.0,
+				1.0
+			)
+			marker_pull_t = marker_pull_t * marker_pull_t * (3.0 - 2.0 * marker_pull_t)
+			var safe_pull_speed_mps: float = stall_speed_mps + stall_margin_mps + 5.0
+			var energy_t: float = clampf((speed - safe_pull_speed_mps) / 20.0, 0.0, 1.0)
+			_navigation_turn_pull_command = (
+				navigation_turn_pull_t
+				* maxf(navigation_turn_backpressure_pitch_input, 0.0)
+				* altitude_release_t
+				* marker_pull_t
+				* energy_t
+			)
+		var local_frame_pitch: float = clampf(
+			forward_frame_raw_pitch + altitude_trim + _navigation_turn_pull_command - above_path_unload_pitch,
+			-pitch_limit,
+			pitch_limit
+		)
+		raw_pitch = clampf(lerpf(raw_pitch, local_frame_pitch, clampf(navigation_forward_frame_pitch_blend, 0.0, 1.0)), -pitch_limit, pitch_limit)
+	if in_break_off:
+		var breakoff_horizontal_speed_mps: float = Vector2(vel.x, vel.z).length()
+		var breakoff_current_fpa_rad: float = atan2(vel.y, maxf(breakoff_horizontal_speed_mps, 1.0))
+		var breakoff_fpa_error_rad: float = breakoff_desired_fpa_rad - breakoff_current_fpa_rad
+		raw_pitch = clampf(
+			breakoff_fpa_error_rad * maxf(attack_breakoff_fpa_pitch_gain, 0.0)
+				- pitch_rate_up * maxf(attack_breakoff_fpa_pitch_rate_damping, 0.0),
+			-pitch_limit,
+			pitch_limit
+		)
+	# Preserve load in a bank while the vertical/path loops are broadly content. If either loop asks
+	# for nose-down authority, progressively release this floor by the size of that request. The old
+	# unconditional floor could overwrite even a full-scale descent correction and make an aircraft
+	# climb forever while circling.
+	if turn_feedforward_pitch > 0.0 and not in_recovery_navigation:
+		var turn_pitch_floor: float = turn_feedforward_pitch \
+			* clampf(normal_flight_turn_pitch_floor_ratio, 0.0, 1.0)
+		var adaptive_turn_pitch_floor: float = maxf(turn_pitch_floor + turn_floor_release_pitch, 0.0)
+		raw_pitch = maxf(raw_pitch, adaptive_turn_pitch_floor)
 	# Min pitch prevents dead-zone but must not fight the controller when it is already correcting
 	# correctly. Only enforce the floor when vs_err agrees with the altitude error direction.
 	var min_pitch_threshold: float = 60.0 if in_dive_state else 40.0
@@ -5859,7 +16088,9 @@ func _navigate_to_waypoint(delta: float):
 		if sign(vs_err) == sign(alt_err) and abs(raw_pitch) < abs(min_pitch):
 			raw_pitch = min_pitch
 	var effective_pitch_smoothing: float
-	if in_dive_state:
+	if direct_fire_dive:
+		effective_pitch_smoothing = clampf(gun_attack_pitch_response, 0.02, 1.0)
+	elif in_dive_state:
 		effective_pitch_smoothing = 0.4
 	elif in_carrier_approach:
 		effective_pitch_smoothing = 0.5
@@ -5871,6 +16102,13 @@ func _navigate_to_waypoint(delta: float):
 		effective_pitch_smoothing = pitch_input_smoothing
 	pitch_input = lerp(_smoothed_pitch_input, raw_pitch, effective_pitch_smoothing)
 	_smoothed_pitch_input = pitch_input
+	if Engine.get_process_frames() % 20 == 0:
+		print("[PITCH_TERMS] %s state=%s bank=%.0f bank_comp=%.3f vs_err=%.2f pitch_gain=%.3f term1(vs*gain*comp)=%.3f ff=%.3f rate_up=%.3f damp=%.2f term3(rate)=%.3f raw=%.3f pitch_limit=%.2f smoothing=%.2f smoothed=%.3f" % [
+			aircraft.name, State.keys()[current_state], rad_to_deg(current_roll), bank_compensation, vs_err, pitch_gain,
+			vs_err * pitch_gain * bank_compensation, turn_feedforward_pitch,
+			pitch_rate_up, pitch_rate_damping, pitch_rate_up * pitch_rate_damping,
+			raw_pitch, pitch_limit, effective_pitch_smoothing, pitch_input
+		])
 	
 	if debug_enabled and verbose_debug_enabled and Engine.get_process_frames() % 30 == 0:
 		var gh: float = _smoothed_ground_height if not is_nan(_smoothed_ground_height) else _get_ground_height_at_position(aircraft.global_position)
@@ -5904,32 +16142,261 @@ func _navigate_to_waypoint(delta: float):
 		raw_yaw = clampf(yaw_slip_damp + yaw_aim + yaw_coord, -dogfight_max_rudder_input, dogfight_max_rudder_input)
 		yaw_smoothing = 0.25
 	else:
-		var yaw_turn: float = -sin(desired_bank) * lerp(1.0, high_bank_yaw_scale, high_bank_t)
-		var yaw_correction: float
-		if current_state in [State.APPROACH, State.LANDING]:
-			# PD controller: proportional to bearing error, derivative damps yaw rate to prevent overshoot.
-			var yaw_rate: float = ang_vel.dot(b.y)
-			yaw_correction = clampf(bearing_err_rad * 1.5 - yaw_rate * 0.5, -0.7, 0.7)
+		if navigation_auto_rudder_enabled and _should_use_navigation_auto_rudder_only():
+			# AIPilot OWNS turn coordination for AI aircraft -- initialize() zeroes out
+			# SimpleAero.auto_rudder_strength on every AI-controlled aircraft specifically because
+			# that mechanic is tuned around a human's roll_input (a direct stick signal) and the AI's
+			# roll_input is a PD controller output that can reverse sign during damping, which would
+			# make the airframe's own auto-rudder incoherent. So there is no airframe-level torque
+			# rudder to coordinate with here -- only SimpleAero's alignment_strength, which is a
+			# separate FORCE (not torque) that pulls local lateral velocity toward zero independent of
+			# yaw_input. It doesn't fight this term, but it DOES mean sideslip_ratio is already being
+			# pulled toward zero by something else, so an overly aggressive closed-loop gain here can
+			# still overshoot/oscillate chasing a signal that's also moving on its own. Keep gain
+			# moderate (not "full authority") and lean on rate damping to stay smooth -- this was the
+			# actual bug in two earlier attempts tonight: the first added a large STATIC sin(bank)
+			# feedforward that alone nearly saturated output at 50-70deg AI bank angles regardless of
+			# real error; the second removed most of the feedforward but kept a high reactive gain
+			# with too little damping, which the user directly observed pegging the ball to one side
+			# rather than centering it.
+			var sideslip_ratio: float = clampf(vel.dot(b.x) / maxf(speed, 1.0), -1.0, 1.0)
+			var yaw_rate_for_coord: float = ang_vel.dot(b.y)
+			var bank_coord_yaw: float = -sin(current_roll) * maxf(navigation_auto_rudder_strength, 0.0) * 0.5
+			var slip_damping_yaw: float = -sideslip_ratio * maxf(navigation_auto_rudder_sideslip_gain, 0.0) * 0.5
+			raw_yaw = clampf(
+				bank_coord_yaw + slip_damping_yaw - yaw_rate_for_coord * maxf(navigation_auto_rudder_rate_damping, 0.0) * 2.0,
+				-0.75,
+				0.75
+			)
+			yaw_smoothing = lerp(input_smoothing, 0.5, high_bank_t)
 		else:
-			yaw_correction = clampf(bearing_err_rad * 0.25, -0.3, 0.3) * (1.0 - high_bank_t)
-		raw_yaw = clampf(yaw_turn + yaw_correction, -1.0, 1.0)
-		yaw_smoothing = lerp(input_smoothing, 0.5, high_bank_t)
+			# THIS branch (ATTACK_POSITIONING/DIVE/BREAK_OFF/APPROACH/LANDING/etc.) is the one actually
+			# active at the 50-70deg banks this session's turn-authority tuning now regularly commands
+			# during attack runs -- the SEARCH/TRANSIT/CLIMBING/RTB branch above (which got two rounds
+			# of slip-focused tuning tonight) never even reaches these bank angles in practice, so all
+			# that tuning had zero effect on the pegged-ball symptom the user was actually seeing.
+			# yaw_turn below was PURELY OPEN LOOP -- sin(desired_bank) with no feedback on the actual
+			# slip at all -- and high_bank_yaw_scale REDUCES authority at high bank (tuned to avoid
+			# rudder waggle at extreme angles), backwards from what a genuinely under-coordinated hard
+			# turn needs. Add a real closed-loop slip term so this branch can actually correct what it
+			# was previously blind to, without touching the open-loop base term other states may depend
+			# on for feel.
+			var sideslip_ratio: float = clampf(vel.dot(b.x) / maxf(speed, 1.0), -1.0, 1.0)
+			var yaw_turn: float = -sin(desired_bank) * lerp(1.0, high_bank_yaw_scale, high_bank_t)
+			var yaw_slip_correction: float = -sideslip_ratio * maxf(navigation_auto_rudder_sideslip_gain, 0.0)
+			var yaw_correction: float
+			if current_state in [State.APPROACH, State.LANDING]:
+				# PD controller: proportional to bearing error, derivative damps yaw rate to prevent overshoot.
+				var yaw_rate: float = ang_vel.dot(b.y)
+				yaw_correction = clampf(bearing_err_rad * 1.5 - yaw_rate * 0.5, -0.7, 0.7)
+			else:
+				yaw_correction = clampf(bearing_err_rad * 0.25, -0.3, 0.3) * (1.0 - high_bank_t)
+			raw_yaw = clampf(yaw_turn + yaw_correction + yaw_slip_correction, -1.0, 1.0)
+			yaw_smoothing = lerp(input_smoothing, 0.5, high_bank_t)
+	if in_dive_state and _run_weapon_type == "Rocket Pod" and _rocket_ccip_aim_active:
+		var ccip_yaw_err_rad: float = atan2(
+			_rocket_ccip_local_right_m,
+			maxf(absf(_rocket_ccip_local_forward_m), maxf(_rocket_ccip_range_m * 0.08, 1.0))
+		)
+		var yaw_rate_for_ccip: float = ang_vel.dot(b.y)
+		var ccip_yaw_cmd: float = clampf(
+			ccip_yaw_err_rad * rocket_ccip_yaw_gain
+			- yaw_rate_for_ccip * maxf(rocket_ccip_yaw_rate_damping, 0.0),
+			-maxf(rocket_ccip_max_yaw_input, 0.0),
+			maxf(rocket_ccip_max_yaw_input, 0.0)
+		)
+		raw_yaw = clampf(raw_yaw + ccip_yaw_cmd, -1.0, 1.0)
+		yaw_smoothing = lerpf(yaw_smoothing, clampf(rocket_ccip_aim_smoothing, 0.02, 1.0), 0.75)
+		_rocket_ccip_yaw_cmd = ccip_yaw_cmd
+	else:
+		_rocket_ccip_yaw_cmd = 0.0
+	if in_dive_state and _run_weapon_type == "Bomb" and _bomb_ccip_aim_active:
+		var bomb_ccip_yaw_err_rad: float = atan2(
+			_bomb_ccip_local_right_m,
+			maxf(absf(_bomb_ccip_local_forward_m), maxf(_bomb_ccip_range_m * 0.12, 1.0))
+		)
+		var bomb_yaw_rate_for_ccip: float = ang_vel.dot(b.y)
+		var bomb_ccip_yaw_cmd: float = clampf(
+			bomb_ccip_yaw_err_rad * bomb_ccip_yaw_gain
+			- bomb_yaw_rate_for_ccip * maxf(bomb_ccip_yaw_rate_damping, 0.0),
+			-maxf(bomb_ccip_max_yaw_input, 0.0),
+			maxf(bomb_ccip_max_yaw_input, 0.0)
+		)
+		raw_yaw = clampf(raw_yaw + bomb_ccip_yaw_cmd, -1.0, 1.0)
+		yaw_smoothing = lerpf(yaw_smoothing, clampf(bomb_ccip_aim_smoothing, 0.02, 1.0), 0.55)
+		_bomb_ccip_yaw_cmd = bomb_ccip_yaw_cmd
+	else:
+		_bomb_ccip_yaw_cmd = 0.0
+	if direct_fire_dive:
+		var direct_fire_yaw_err_rad: float = 0.0
+		var direct_fire_yaw_valid: bool = false
+		if _gun_ccip_aim_active:
+			direct_fire_yaw_err_rad = atan2(
+				_gun_ccip_local_right_m,
+				maxf(absf(_gun_ccip_local_forward_m), maxf(_gun_ccip_range_m * 0.08, 1.0))
+			)
+			direct_fire_yaw_valid = true
+		else:
+			var direct_fire_yaw_aim_vec: Vector3 = maneuver_waypoint - aircraft.global_position
+			if direct_fire_yaw_aim_vec.length_squared() > 1.0:
+				var direct_fire_yaw_aim_dir: Vector3 = direct_fire_yaw_aim_vec.normalized()
+				var direct_fire_local_right: float = direct_fire_yaw_aim_dir.dot(b.x)
+				var direct_fire_local_forward: float = maxf(absf(direct_fire_yaw_aim_dir.dot(b.z)), 0.05)
+				direct_fire_yaw_err_rad = atan2(direct_fire_local_right, direct_fire_local_forward)
+				direct_fire_yaw_valid = true
+		if direct_fire_yaw_valid:
+			var direct_fire_yaw_rate: float = ang_vel.dot(b.y)
+			var direct_fire_yaw_cmd: float = clampf(
+				direct_fire_yaw_err_rad * maxf(gun_attack_yaw_gain, 0.0)
+				- direct_fire_yaw_rate * maxf(gun_attack_yaw_rate_damping, 0.0),
+				-maxf(gun_attack_max_yaw_input, 0.0),
+				maxf(gun_attack_max_yaw_input, 0.0)
+			)
+			var direct_fire_fine_t: float = 1.0 - direct_fire_coarse_t
+			raw_yaw = clampf(raw_yaw + direct_fire_yaw_cmd * direct_fire_fine_t, -1.0, 1.0)
+			yaw_smoothing = maxf(yaw_smoothing, lerpf(0.25, gun_attack_yaw_response, direct_fire_fine_t))
+			if _gun_ccip_aim_active:
+				_gun_ccip_yaw_cmd = direct_fire_yaw_cmd * direct_fire_fine_t
+		else:
+			_gun_ccip_yaw_cmd = 0.0
+	var recovery_primitive_coordination_active: bool = route_primitive_control_active \
+		and _flight_plan_name == "recovery_approach" \
+		and current_state == State.RECOVERY_APPROACH \
+		and _route_fpv_pitch_target_active
+	var coordinated_route_control_active: bool = assertive_attack_coordination_active \
+		or recovery_primitive_coordination_active \
+		or shared_waypoint_coordination_active
+	if coordinated_route_control_active:
+		var coordinated_input_filter_t: float = clampf(
+			1.0 - exp(
+				-maxf(delta, 0.0) * TAU * maxf(attack_route_control_input_response_hz, 0.01)
+			),
+			0.0,
+			1.0
+		)
+		roll_input = lerpf(_smoothed_roll_input, raw_roll, coordinated_input_filter_t)
+		_smoothed_roll_input = roll_input
+		# Follow the precomputed route's vertical profile throughout the positioning
+		# path, including the attack_approach arcs and straights. Holding those early
+		# legs level discarded their interpolated altitude, then forced the aircraft
+		# to acquire all of the setup height at the final waypoint and immediately
+		# reverse into the attack descent. That created the observed climb-then-dive
+		# kink even though the 3D route itself began changing height much earlier.
+		# The positive-load coordinated controller below still limits how quickly the
+		# aircraft can follow the requested slope without resorting to negative G.
+		var active_attack_role: String = ""
+		if _flight_plan_name == "ground_attack" \
+				and current_waypoint_index >= 0 \
+				and current_waypoint_index < _flight_plan_legs.size():
+			active_attack_role = str(_flight_plan_legs[current_waypoint_index].get("role", ""))
+		var follows_ground_attack_route: bool = not active_attack_role.is_empty() \
+			and _route_fpv_pitch_target_active
+		var follows_recovery_primitive: bool = recovery_primitive_coordination_active
+		var coordinated_desired_vs_mps: float = desired_vs \
+			if follows_ground_attack_route \
+				or follows_recovery_primitive \
+				or shared_waypoint_coordination_active else 0.0
+		var coordinated_attack_turn: Dictionary = _compute_coordinated_turn_controls(
+			delta,
+			desired_bank,
+			coordinated_desired_vs_mps,
+			route_arc_acceleration_target_g,
+			true,
+			route_arc_acceleration_bank_active or recovery_straight_acceleration_bank_active
+		)
+		var coordinated_pitch_command: float = float(coordinated_attack_turn.get("pitch", 0.0))
+		# Do not convert climb rate directly into forward stick here. The coordinated
+		# controller already folds vertical-speed error into its requested wing load.
+		# In a bank, requesting less than the level-turn load lets gravity arrest a
+		# climb while preserving positive AoA and lateral turning force. Overriding
+		# that with nose-down elevator unloaded the wing to 0.1-0.8 G, so the aircraft
+		# kept coasting upward while barely changing heading.
+		if terminal_attack_nose_aim_valid:
+			# On the terminal ingress, acquire the actual target with elevator now instead
+			# of waiting for precision mode. This is a damped angular controller using the
+			# same response and gains as direct-fire aiming, so there is no distance-based
+			# pitch impulse or separate arbitrary authority schedule.
+			var terminal_local_y: float = terminal_attack_nose_aim_dir.dot(b.y)
+			var terminal_local_z: float = terminal_attack_nose_aim_dir.dot(b.z)
+			var terminal_pitch_error_rad: float = atan2(
+				terminal_local_y,
+				maxf(absf(terminal_local_z), 0.05)
+			)
+			var terminal_pitch_cmd: float = clampf(
+				terminal_pitch_error_rad * maxf(gun_attack_pitch_los_gain, 0.1)
+					- pitch_rate_up * maxf(gun_attack_pitch_rate_damping, 0.0),
+				-pitch_limit,
+				pitch_limit
+			)
+			coordinated_pitch_command = lerpf(
+				coordinated_pitch_command,
+				terminal_pitch_cmd,
+				clampf(gun_attack_pitch_response, 0.02, 1.0)
+			)
+			if Engine.get_process_frames() % 20 == 0:
+				var terminal_nose_error_deg: float = rad_to_deg(acos(clampf(
+					terminal_attack_nose_aim_dir.dot(b.z),
+					-1.0,
+					1.0
+				)))
+				print("[TERMINAL_AIM] %s nose_err=%.1fdeg pitch_err=%.1fdeg coordinated_pitch=%.3f target_pitch=%.3f output=%.3f" % [
+					aircraft.name,
+					terminal_nose_error_deg,
+					rad_to_deg(terminal_pitch_error_rad),
+					float(coordinated_attack_turn.get("pitch", 0.0)),
+					terminal_pitch_cmd,
+					coordinated_pitch_command,
+				])
+		pitch_input = lerpf(
+			_smoothed_pitch_input,
+			coordinated_pitch_command,
+			coordinated_input_filter_t
+		)
+		_smoothed_pitch_input = pitch_input
+		raw_yaw = float(coordinated_attack_turn.get("yaw", 0.0))
+		yaw_smoothing = coordinated_input_filter_t
+	elif current_state == State.ATTACK_POSITIONING:
+		# Never use rudder as a wings-level substitute for rolling into an attack turn.
+		var positioning_rudder_bank_t: float = clampf(
+			(absf(rad_to_deg(current_roll)) - 5.0) / 20.0,
+			0.0,
+			1.0
+		)
+		raw_yaw *= positioning_rudder_bank_t
 	yaw_input = lerp(_smoothed_yaw_input, raw_yaw, yaw_smoothing)
 	_smoothed_yaw_input = yaw_input
 	
 	# === THROTTLE ===
 	var commanded_target_speed: float = _get_effective_target_speed()
+	if navigation_turn_pull_t > 0.0:
+		commanded_target_speed = maxf(
+			stall_speed_mps + stall_margin_mps + 8.0,
+			commanded_target_speed - navigation_turn_pull_t * maxf(navigation_turn_backpressure_speed_cut_mps, 0.0)
+		)
 	var speed_error: float = commanded_target_speed - speed
 	throttle_input += clamp(speed_error * 0.01, -0.05, 0.05)
 	var thr_min: float = 0.4
+	var thr_max: float = 1.0
+	var bank_throttle_scale: float = 1.0
+	_route_turn_speed_brake_t = 0.0
 	if current_state == State.APPROACH and _landing_phase >= 1:
 		thr_min = approach_post_gate_min_throttle
 	elif current_state == State.LANDING:
 		var dist_to_touchdown: float = Vector2(aircraft.global_position.x - nav_waypoint.x, aircraft.global_position.z - nav_waypoint.z).length()
 		if dist_to_touchdown < 150.0:
 			thr_min = 0.25  # Allow lower throttle on short final to avoid overflying
-	throttle_input = clamp(throttle_input, thr_min, 1.0)
-	throttle_input += clamp(bank_rad / deg_to_rad(30.0), 0.0, 1.0) * 0.15
+	elif _route_turn_speed_limit_active and speed > _route_turn_speed_cap_mps + maxf(aircraft_route_turn_speed_margin_mps, 0.0):
+		var route_overspeed_mps: float = speed - _route_turn_speed_cap_mps - maxf(aircraft_route_turn_speed_margin_mps, 0.0)
+		_route_turn_speed_brake_t = clampf(route_overspeed_mps / maxf(aircraft_route_turn_speed_cut_range_mps, 0.1), 0.0, 1.0)
+		thr_min = minf(thr_min, clampf(aircraft_route_turn_speed_throttle_min, 0.0, 1.0))
+		thr_max = minf(thr_max, lerpf(1.0, clampf(aircraft_route_turn_speed_throttle_cut, 0.0, 1.0), _route_turn_speed_brake_t))
+		bank_throttle_scale = lerpf(1.0, clampf(aircraft_route_turn_speed_bank_throttle_scale, 0.0, 1.0), _route_turn_speed_brake_t)
+	if navigation_turn_pull_t > 0.0:
+		thr_max = minf(thr_max, lerpf(1.0, clampf(navigation_turn_backpressure_throttle_cut, 0.0, 1.0), navigation_turn_pull_t))
+		bank_throttle_scale = minf(bank_throttle_scale, lerpf(1.0, clampf(aircraft_route_turn_speed_bank_throttle_scale, 0.0, 1.0), navigation_turn_pull_t))
+	throttle_input = clamp(throttle_input, thr_min, thr_max)
+	throttle_input += clamp(bank_rad / deg_to_rad(30.0), 0.0, 1.0) * 0.15 * bank_throttle_scale
+	throttle_input = minf(throttle_input, thr_max)
 	if current_state == State.APPROACH and _landing_phase >= 1 and speed > target_speed + approach_post_gate_slowdown_margin_mps:
 		throttle_input = minf(throttle_input, approach_post_gate_throttle_cut)
 	throttle_input = clamp(throttle_input, 0.0, 1.0)
@@ -5943,6 +16410,15 @@ func _navigate_to_waypoint(delta: float):
 			pitch_input = clamp(pitch_input, -0.6, dogfight_pitch_cap)
 		else:
 			pitch_input = clamp(pitch_input, -0.5, 0.3)
+		throttle_input = 1.0
+	if current_state not in [State.IDLE, State.RECOVERY_APPROACH, State.APPROACH, State.LANDING]:
+		throttle_input = maxf(throttle_input, clampf(airborne_min_throttle, 0.0, 1.0))
+	if attack_full_throttle_enabled and current_state in [
+		State.ATTACK_POSITIONING,
+		State.ATTACK_INBOUND,
+		State.ATTACK_DIVE,
+		State.ATTACK_BREAK_OFF,
+	]:
 		throttle_input = 1.0
 	
 	if debug_enabled and verbose_debug_enabled and Engine.get_process_frames() % 30 == 0:
@@ -5997,7 +16473,7 @@ func _update_maneuver_waypoint():
 		maneuver_waypoint = nav_waypoint
 	else:
 		var dir_to_nav: Vector3 = to_nav.normalized()
-		var lookahead: float = min(maneuver_lookahead_distance, horizontal_distance)
+		var lookahead: float = min(_get_active_route_lookahead_distance_m(), horizontal_distance)
 		maneuver_waypoint = aircraft.global_position + dir_to_nav * lookahead
 		maneuver_waypoint.y = nav_waypoint.y
 	
@@ -6344,14 +16820,53 @@ func _check_terrain_avoidance(_delta: float) -> bool:
 	"""Directional terrain avoidance using fan-sampled clearance data.
 	Steers toward the safest direction when terrain is threatening ahead.
 	Returns true if controls were overridden."""
-	if current_state in [State.LAUNCHING, State.LANDING, State.IDLE, State.MISSED_APPROACH]:
+	# MISSED_APPROACH used to be excluded alongside LAUNCHING/LANDING (both legitimately close to the
+	# deck by design, where this check would misfire) -- but a bolter/go-around climbs AWAY from the
+	# deck into open terrain, it doesn't hug it, and _state_missed_approach has NO terrain awareness of
+	# its own (Phase 2 flies a same-altitude waypoint back to the touchdown point with zero terrain
+	# sampling). Observed: an aircraft flew straight and level, slowly losing altitude, directly into a
+	# cliff during go-around -- this was the actual gap. Re-enable the general safety net here while
+	# retaining the exclusions that cover a genuine on-deck launch and established final.
+	# Established final guidance already follows a terrain-checked corridor. After a wave-off the
+	# aircraft is beyond that corridor and needs the normal forward terrain safety net again.
+	if current_state in [State.LAUNCHING, State.IDLE] \
+			or (current_state == State.LANDING and not _bolter_go_around):
 		return false
-	if current_state == State.CLIMBING and aircraft.linear_velocity.y > 2.0:
-		return false
+	# A positive climb rate only means the aircraft is gaining altitude -- it says nothing about
+	# whether the terrain ahead is rising even faster (a ridge/cliff in the climb-out path). Two
+	# aircraft flew a nominal, steadily-climbing launch profile straight into a cliff because this
+	# used to skip the check entirely whenever vel.y > 2.0. Keep the skip for the *margin* nagging
+	# (a healthy climb doesn't need the emergency_min_agl_m margin enforced), but still let the
+	# forward fan/raycast imminent-terrain signal force evasive action -- that's the one signal
+	# that actually looks at what's ahead rather than the aircraft's own vertical speed.
+	var climbing_with_margin: bool = current_state == State.CLIMBING and aircraft.linear_velocity.y > 2.0
 
 	# State-specific safety margins (how much clearance we need to feel safe)
 	var safety_margin: float
-	if current_state == State.APPROACH:
+	if current_state == State.RECOVERY_APPROACH:
+		# The recovery route is explicitly planned with its own terrain clearance.
+		# Applying the normal-flight 180 m emergency margin here repeatedly lifted
+		# phase-2 aircraft far above the glideslope and guaranteed a high wave-off.
+		# Once committed, use the same close-in margin as the legacy approach.
+		var active_recovery_route_role: String = _active_route_leg_role() \
+			if _flight_plan_name == "recovery_approach" else ""
+		if active_recovery_route_role == "recovery_transit":
+			safety_margin = aircraft_flight_plan_terrain_clearance_m
+		elif active_recovery_route_role in ["recovery_arrival", "recovery_lineup"]:
+			var verified_final_clearance_m: float = recovery_gate_min_terrain_clearance_m
+			var flight_deck_manager := get_tree().get_first_node_in_group("flight_deck_manager")
+			if flight_deck_manager != null:
+				var verified_clearance_value: Variant = flight_deck_manager.get("landing_terrain_clearance_m")
+				if verified_clearance_value is float or verified_clearance_value is int:
+					verified_final_clearance_m = maxf(float(verified_clearance_value), 0.0)
+			safety_margin = verified_final_clearance_m
+		elif _recovery_phase == 2:
+			safety_margin = 45.0
+		elif _is_inside_prechecked_recovery_axis():
+			safety_margin = maxf(recovery_gate_min_terrain_clearance_m, 20.0)
+		else:
+			safety_margin = maxf(recovery_gate_min_terrain_clearance_m, emergency_min_agl_m + 120.0)
+	elif current_state == State.APPROACH:
 		safety_margin = 45.0
 	elif current_state == State.ATTACK_DIVE:
 		safety_margin = 60.0
@@ -6376,29 +16891,55 @@ func _check_terrain_avoidance(_delta: float) -> bool:
 	dynamic_margin += clampf(sink_mps * 5.0, 0.0, 80.0)
 	var imminent_terrain: bool = terrain_ahead_distance < INF and tti <= (emergency_tti_s + 0.8)
 	var critical_terrain: bool = terrain_ahead_distance < INF and tti <= emergency_tti_s
-	if _is_committed_direct_fire_attack_run(tti):
+	var committed_direct_fire_run: bool = _is_committed_direct_fire_attack_run(tti)
+	if committed_direct_fire_run:
 		imminent_terrain = false
 		critical_terrain = false
 		var commit_min_agl: float = rocket_attack_commit_min_agl_m if _run_weapon_type == "Rocket Pod" else gun_attack_commit_min_agl_m
 		dynamic_margin = minf(dynamic_margin, maxf(commit_min_agl, 20.0))
+		# On a gun pass the fan sampler necessarily sees the ground containing the
+		# intended target. Once range and TTI say the run is still committed, treating
+		# that expected intersection as a generic low-clearance emergency defeats the
+		# attack state and masks its calculated pull-up boundary. Rockets already have
+		# an equivalent committed-run exemption below; guns need it here before the
+		# generic fan-clearance branch can command an early recovery.
+		if _is_direct_fire_attack_weapon_type(_run_weapon_type):
+			return false
 	if terrain_ahead_distance < INF and tti < 2.8:
 		forward_clearance = minf(forward_clearance, terrain_ahead_distance * 0.5)
 
+	# Attack positioning is a deliberate low-altitude maneuvering phase. Aggressive banked turns
+	# transiently sink the aircraft, and the default ~180m+ margin was aborting most rocket runs
+	# (they dipped to ~97m mid-turn) before they could ever line up. Let positioning tolerate a
+	# lower AGL -- down to the hard floor -- so a transient dip doesn't kill the run. The
+	# positioning_must_abort branch below still cancels on a genuine hard-floor breach.
+	if current_state == State.ATTACK_POSITIONING:
+		dynamic_margin = minf(dynamic_margin, maxf(attack_positioning_hard_floor_agl_m + 20.0, 40.0))
 	# If forward is fine AND we're not dangerously low, no override needed.
-	var is_climbing: bool = current_state in [State.DOGFIGHT, State.ATTACK_POSITIONING, State.ATTACK_INBOUND] and vel.y > 0.0
+	# A positive vel.y only means altitude is increasing right now -- it says nothing about whether a
+	# banked aircraft could actually sustain that climb if terrain ahead demanded more pull. An
+	# aircraft crashed mid-DOGFIGHT holding a steady 45-50deg bank the whole time: not banked enough
+	# to trip severely_banked (75deg) below, but banked enough that this exemption's trust in vel.y
+	# was misplaced. Require close to wings-level before treating "currently climbing" as a reason to
+	# accept a much lower AGL floor here -- mirrors the same fix already applied to State.CLIMBING.
+	var near_upright: bool = aircraft.global_transform.basis.y.y > 0.7  # within ~45deg of level
+	var is_climbing: bool = current_state in [State.DOGFIGHT, State.ATTACK_POSITIONING, State.ATTACK_INBOUND] and vel.y > 0.0 and near_upright
 	var agl_ok: bool
 	if current_state == State.APPROACH:
 		agl_ok = altitude_agl > 20.0 or vel.y > -6.0
-	elif is_climbing:
+	elif is_climbing or climbing_with_margin:
 		agl_ok = altitude_agl > 30.0
 	else:
 		agl_ok = altitude_agl > dynamic_margin
 
+	if climbing_with_margin and not imminent_terrain:
+		return false
 	if forward_clearance > dynamic_margin and agl_ok and not imminent_terrain:
 		return false
 
 	# We're in danger. Decide: turn or climb?
 	var escape_angle_deg: float = fan_angles[best_idx]
+	var terrain_escape_dir: Vector3 = _get_terrain_escape_direction(escape_angle_deg)
 	var emergency_escape: bool = altitude_agl < emergency_min_agl_m or critical_terrain or forward_clearance < dynamic_margin * 0.6
 	var lateral_advantage_margin: float = 20.0 if emergency_escape else 30.0
 	var lateral_is_better: bool = best_clearance > forward_clearance + lateral_advantage_margin and best_idx != 2
@@ -6429,7 +16970,33 @@ func _check_terrain_avoidance(_delta: float) -> bool:
 	var sink_pull_floor: float = lerpf(0.0, minf(pitch_cap, 0.45), clampf(sink_mps / 18.0, 0.0, 1.0) * energy_t)
 	escape_pitch_input = maxf(escape_pitch_input, sink_pull_floor)
 
-	if lateral_is_better and not emergency_escape and altitude_agl > emergency_min_agl_m + 40.0:
+	# WINGS-LEVEL PRIORITY: pitch-up only pulls AWAY from the ground when close to upright. Past a steep
+	# bank (let alone inverted), "pull up" partially or fully steers into a dive instead -- this is what
+	# let a break-off pull-up fail after the aircraft was left at bank=107.8deg by the preceding maneuver
+	# (pitch input around a rolled-past-vertical axis does not climb). Roll back toward upright takes
+	# priority over any lateral escape turn once bank is this severe; pitch is eased while inverted since a
+	# hard pull while upside-down still points the nose down.
+	var terrain_escape_basis: Basis = aircraft.global_transform.basis
+	var current_bank_rad: float = atan2(terrain_escape_basis.x.y, terrain_escape_basis.y.y)
+	var severely_banked: bool = absf(current_bank_rad) > deg_to_rad(75.0)
+	var upright_factor_y: float = terrain_escape_basis.y.y  # 1.0 = level, 0.0 = knife-edge, -1.0 = inverted
+
+	if severely_banked:
+		var roll_rate: float = aircraft.angular_velocity.dot(terrain_escape_basis.z)
+		var level_roll_sign: float = -signf(current_bank_rad) if absf(current_bank_rad) > 0.01 else 1.0
+		roll_input = clampf(level_roll_sign * 1.0 - roll_rate * 0.1, -1.0, 1.0)
+		pitch_input = escape_pitch_input * clampf(upright_factor_y, 0.15, 1.0)
+	elif current_state == State.ATTACK_BREAK_OFF and _attack_breakoff_reference_locked:
+		# Preserve the direct-fire recovery controller's active wings-level hold.
+		# Neutral aileron here allowed auto-rudder/aerodynamic coupling to build a
+		# 60-degree bank during the terrain escape, rotating the climb into the ridge.
+		var recovery_roll_rate: float = aircraft.angular_velocity.dot(terrain_escape_basis.z)
+		roll_input = clampf(-current_bank_rad * 1.8 - recovery_roll_rate * 0.18, -0.55, 0.55)
+		pitch_input = escape_pitch_input
+	elif lateral_is_better \
+			and not emergency_escape \
+			and altitude_agl > emergency_min_agl_m + 40.0 \
+			and not (current_state == State.ATTACK_BREAK_OFF and _attack_breakoff_reference_locked):
 		# A lateral direction has more clearance; turn toward it without bleeding all energy.
 		var bank_sign: float = signf(escape_angle_deg)
 		var lateral_roll_t: float = clampf(energy_t, 0.25, 1.0)
@@ -6443,13 +17010,81 @@ func _check_terrain_avoidance(_delta: float) -> bool:
 	yaw_input = 0.0
 	throttle_input = 1.0
 	target_speed = maxf(target_speed, stall_floor_speed + 35.0)
+	if current_state == State.ATTACK_BREAK_OFF:
+		# A target-loss breakoff is deliberately anchored to the completed pass.
+		# Do not let a newly assigned target move this recovery reference. The
+		# terrain controller may release the lock only after both its recovery-AGL
+		# gate and the configured breakoff separation have been achieved; requiring
+		# the entire straight 1.7 km egress here can carry the aircraft into terrain
+		# that the next 3D route would otherwise avoid.
+		var breakoff_target_pos: Vector3 = _attack_breakoff_reference_pos
+		if not _attack_breakoff_reference_locked:
+			var breakoff_target: Node3D = _resolve_current_ground_attack_target()
+			if breakoff_target != null:
+				breakoff_target_pos = _get_surface_target_position(breakoff_target)
+				_attack_breakoff_reference_pos = breakoff_target_pos
+		if breakoff_target_pos != Vector3.INF:
+			var breakoff_horiz_dist: float = Vector2(
+				aircraft.global_position.x - breakoff_target_pos.x,
+				aircraft.global_position.z - breakoff_target_pos.z
+			).length()
+			if _is_direct_fire_attack_weapon_type(_run_weapon_type):
+				var terrain_direct_min_agl: float = maxf(attack_breakoff_direct_fire_min_recover_agl_m, emergency_min_agl_m + 80.0)
+				var terrain_exit_ready: bool = _direct_fire_breakoff_exit_ready(terrain_direct_min_agl, aircraft.linear_velocity.y, 0.0)
+				if breakoff_horiz_dist >= attack_break_off_distance_m \
+						and terrain_exit_ready:
+					combat_target = null
+					change_state(State.SEARCH)
+				else:
+					_set_direct_fire_breakoff_extend_waypoint(breakoff_target_pos, terrain_direct_min_agl)
+					_fly_direct_fire_breakoff_recovery(terrain_direct_min_agl)
+			else:
+				_prime_attack_straight_ahead_breakoff(breakoff_target_pos, terrain_escape_dir)
 	# Slam smoothed values so the state machine doesn't fight the override next frame.
 	_smoothed_roll_input = roll_input
 	_smoothed_pitch_input = pitch_input
 	_smoothed_yaw_input = 0.0
 
-	# Force state transition out of attack if needed.
-	if current_state in [State.ATTACK_DIVE, State.ATTACK_POSITIONING, State.ATTACK_INBOUND]:
+	# Positioning follows a terrain-planned route. A normal avoidance correction should
+	# temporarily override controls without discarding that route; only a genuinely
+	# critical collision threat or hard-floor breach cancels the attack setup.
+	var positioning_must_abort: bool = current_state == State.ATTACK_POSITIONING and (
+		critical_terrain or altitude_agl < maxf(attack_positioning_hard_floor_agl_m, 20.0)
+	)
+	# A committed rocket dive runs over a corridor the route planner already cleared for terrain,
+	# so a terrain-avoidance trip here is almost always a false alarm on the target's own ground.
+	# Don't abort such a dive before the salvo is away unless it's genuinely critical (very low or
+	# imminent impact) -- otherwise ~86% of rocket runs bailed out without firing. The dynamic
+	# pull-up floor in _evaluate_attack_abort still catches real ground.
+	var committed_rocket_dive: bool = current_state == State.ATTACK_DIVE \
+		and _is_committed_rocket_attack_run(tti) \
+		and not critical_terrain \
+		and altitude_agl >= maxf(rocket_attack_commit_min_agl_m, 20.0)
+	var attack_state_must_abort: bool = (current_state in [State.ATTACK_DIVE, State.ATTACK_INBOUND] \
+		or positioning_must_abort) \
+		and not committed_rocket_dive
+	if attack_state_must_abort:
+		_attack_last_end_reason = "terrain_emergency"
+		var recovery_target: Node3D = _resolve_current_ground_attack_target()
+		if recovery_target != null:
+			_prime_attack_straight_ahead_breakoff(
+				_get_surface_target_position(recovery_target),
+				terrain_escape_dir
+			)
+		elif current_state == State.ATTACK_DIVE and _attack_breakoff_reference_pos != Vector3.INF:
+			# Terrain safety executes before the state machine. If the projectile
+			# destroyed the target between physics ticks, this is the code path that
+			# actually observes target loss; _state_attack_dive will not run again.
+			# Anchor recovery to the completed pass and activate its safe AGL/range
+			# gate here as well.
+			_stop_firing()
+			_prime_attack_straight_ahead_breakoff(
+				_attack_breakoff_reference_pos,
+				terrain_escape_dir
+			)
+			_attack_breakoff_reference_locked = true
+			combat_target = null
+			_attack_last_end_reason = "target_lost_terrain_breakoff"
 		_attack_recovery_until_s = maxf(_attack_recovery_until_s, Time.get_ticks_msec() / 1000.0 + 4.0)
 		change_state(State.ATTACK_BREAK_OFF)
 
@@ -6459,12 +17094,27 @@ func _check_terrain_avoidance(_delta: float) -> bool:
 			altitude_agl, forward_clearance, dynamic_margin, tti, forward_speed, speed_margin, pitch_input, pitch_cap, escape_angle_deg, best_clearance, action])
 	return true
 
+func _get_terrain_escape_direction(angle_deg: float) -> Vector3:
+	var velocity_flat := Vector3(aircraft.linear_velocity.x, 0.0, aircraft.linear_velocity.z)
+	var heading_dir: Vector3 = velocity_flat.normalized() if velocity_flat.length_squared() > 1.0 \
+		else Vector3(aircraft.global_transform.basis.z.x, 0.0, aircraft.global_transform.basis.z.z).normalized()
+	if heading_dir.length_squared() <= 0.001:
+		heading_dir = Vector3.FORWARD
+	var angle_rad := deg_to_rad(angle_deg)
+	return Vector3(
+		heading_dir.x * cos(angle_rad) - heading_dir.z * sin(angle_rad),
+		0.0,
+		heading_dir.x * sin(angle_rad) + heading_dir.z * cos(angle_rad)
+	).normalized()
+
 func _is_committed_rocket_attack_run(terrain_tti_s: float) -> bool:
 	if current_state != State.ATTACK_DIVE:
 		return false
 	if _run_weapon_type != "Rocket Pod":
 		return false
-	if _rockets_to_fire_this_run <= 0 or _rockets_fired_this_run >= _rockets_to_fire_this_run:
+	var volley_in_progress: bool = _is_rocket_pod_burst_in_progress()
+	if _rockets_to_fire_this_run <= 0 \
+			or (_rockets_fired_this_run >= _rockets_to_fire_this_run and not volley_in_progress):
 		return false
 	if combat_target == null or not is_instance_valid(combat_target):
 		return false
@@ -6472,12 +17122,17 @@ func _is_committed_rocket_attack_run(terrain_tti_s: float) -> bool:
 		return false
 	if terrain_tti_s < maxf(rocket_attack_commit_critical_tti_s, 0.2):
 		return false
+	if volley_in_progress:
+		return true
 	var target_pos: Vector3 = _get_surface_target_position(combat_target)
 	var horiz_dist: float = Vector2(
 		aircraft.global_position.x - target_pos.x,
 		aircraft.global_position.z - target_pos.z
 	).length()
-	if horiz_dist < maxf(rocket_pull_up_distance_m, rocket_release_min_range_m * 0.75):
+	# The state machine owns the planned rocket pull-up boundary. Keep this
+	# pre-emptive terrain exception active through the boundary crossing so the
+	# final CCIP/release frame gets to run unless TTI or AGL is genuinely critical.
+	if horiz_dist < maxf(rocket_release_min_range_m * 0.75, 1.0):
 		return false
 	return horiz_dist <= rocket_release_max_range_m + maxf(rocket_attack_commit_extra_range_m, 0.0)
 
@@ -6486,11 +17141,9 @@ func _is_committed_direct_fire_attack_run(terrain_tti_s: float) -> bool:
 		return true
 	if current_state != State.ATTACK_DIVE:
 		return false
-	if _run_weapon_type == "Bomb" or _run_weapon_type == "Rocket Pod" or _run_weapon_type == "AAMissile":
+	if not _is_direct_fire_attack_weapon_type(_run_weapon_type):
 		return false
 	if combat_target == null or not is_instance_valid(combat_target):
-		return false
-	if altitude_agl < maxf(gun_attack_commit_min_agl_m, 1.0):
 		return false
 	if terrain_tti_s < maxf(gun_attack_commit_critical_tti_s, 0.2):
 		return false
@@ -6499,9 +17152,11 @@ func _is_committed_direct_fire_attack_run(terrain_tti_s: float) -> bool:
 		aircraft.global_position.x - target_pos.x,
 		aircraft.global_position.z - target_pos.z
 	).length()
-	if horiz_dist < maxf(attack_pull_up_distance_m, 1.0):
+	if horiz_dist < maxf(_get_attack_pull_up_distance_m(), 1.0):
 		return false
-	var gun_range_m: float = _get_selected_gun_max_range_m()
+	var gun_range_m: float = _get_selected_gun_reachable_range_m(
+		target_pos - aircraft.global_position
+	)
 	if not is_finite(gun_range_m):
 		gun_range_m = 700.0
 	return horiz_dist <= gun_range_m + maxf(gun_attack_commit_extra_range_m, 0.0)
@@ -6646,18 +17301,382 @@ func _is_airborne_for_separation(node: Node) -> bool:
 		return rb.linear_velocity.length() > 2.0 or rb.global_position.y > 8.0
 	return true
 
+# Global stall-safety backstop applied to the final pitch command in every state.
+# Aggressive navigation/route-following can command near-vertical zoom-climbs (60-70deg nose-up)
+# that decay to a stall (high pitch, flat flight path, speed bleeding toward stall). This catches
+# any such attitude regardless of which state produced it: when nose-high AND slow, it overrides
+# the commanded pitch to unload and recover energy. It does NOT engage in normal flight (moderate
+# pitch or healthy speed), so it won't make pilots timid -- it only fires at genuine stall risk.
+func _apply_anti_stall_pitch_backstop() -> void:
+	if aircraft == null or not is_instance_valid(aircraft):
+		return
+	# Launch and landing legitimately fly steep/slow under close control; leave them alone.
+	if current_state in [State.LAUNCHING, State.LANDING, State.IDLE]:
+		return
+	var basis := aircraft.global_transform.basis
+	var pitch_deg: float = rad_to_deg(asin(clampf(basis.z.y, -1.0, 1.0)))
+	var speed: float = aircraft.linear_velocity.length()
+	var stall_floor: float = stall_speed_mps + stall_margin_mps
+	# Combat pilots are allowed to pull at full authority all the way to the real stall. Once the
+	# aerodynamic model actually reports a stall (or speed reaches the effective stall boundary),
+	# unload decisively. This replaces the earlier broad "energy discipline" with a late hard stop.
+	var actual_stall_only_state: bool = current_state == State.DOGFIGHT \
+		or (current_state == State.ATTACK_POSITIONING and attack_assertive_turn_enabled)
+	if actual_stall_only_state:
+		# The coordinated dogfight controller already targets a useful AoA below
+		# the aerodynamic stall boundary, while its bank scheduler sheds bank as
+		# lift capacity falls.  The old speed-threshold backstop fought that loop by
+		# abruptly commanding forward stick, producing the visible load/unload
+		# oscillation.  Leave pitch/AoA authority with the single coordinated loop;
+		# SimpleAero still supplies its physical stall lift/control loss if exceeded.
+		if current_state == State.DOGFIGHT:
+			return
+		var actual_stall_t: float = 0.0
+		if simple_aero != null and is_instance_valid(simple_aero):
+			if simple_aero.has_method("get_stall_severity"):
+				actual_stall_t = maxf(
+					actual_stall_t,
+					clampf(float(simple_aero.call("get_stall_severity")) * 3.0, 0.0, 1.0)
+				)
+			if simple_aero.has_method("get_effective_stall_speed_mps"):
+				var effective_stall_speed: float = float(simple_aero.call("get_effective_stall_speed_mps"))
+				actual_stall_t = maxf(
+					actual_stall_t,
+					clampf((effective_stall_speed + 2.0 - speed) / 4.0, 0.0, 1.0)
+				)
+		if actual_stall_t > 0.0:
+			var combat_stall_pitch_cap: float = lerpf(0.10, -0.45, actual_stall_t)
+			if pitch_input > combat_stall_pitch_cap:
+				pitch_input = combat_stall_pitch_cap
+				_smoothed_pitch_input = pitch_input
+			throttle_input = 1.0
+		# Do not fall through to the generic nose-high/energy guard in a dogfight. Combat pilots
+		# keep pulling until the aerodynamic model itself says the aircraft is at the stall.
+		return
+	# How nose-high we are past a safe climb attitude (starts biting at 35deg, hard by ~55deg).
+	var pitch_excess_t: float = clampf((pitch_deg - 35.0) / 20.0, 0.0, 1.0)
+	# How close to stall we are (starts biting with 25 m/s of margin, critical at the floor).
+	var speed_danger_t: float = clampf((stall_floor + 25.0 - speed) / 25.0, 0.0, 1.0)
+	var danger: float = pitch_excess_t * speed_danger_t
+	if danger <= 0.0:
+		return
+	# Force the pitch command down toward an unload as danger rises: at full danger we command a
+	# firm push (-0.35) to break the nose-high, low-speed attitude before it becomes a stall.
+	var safe_pitch_cap: float = lerpf(0.15, -0.35, danger)
+	if pitch_input > safe_pitch_cap:
+		pitch_input = safe_pitch_cap
+		_smoothed_pitch_input = pitch_input
+		throttle_input = 1.0
+
+# Global pull-up floor for a steep dive close to the ground, in any state. A line-of-sight aim at
+# a low target (or a post-stall nose-over) can flip the aircraft into a near-vertical dive; when
+# that happens with little altitude to spare, force a firm pull-up regardless of what the state
+# logic wants. A committed attack dive with plenty of height is left alone so it can still press.
+func _apply_steep_dive_floor() -> void:
+	if aircraft == null or not is_instance_valid(aircraft):
+		return
+	if current_state in [State.LAUNCHING, State.LANDING, State.IDLE]:
+		return
+	var vel := aircraft.linear_velocity
+	var horiz_speed: float = Vector2(vel.x, vel.z).length()
+	var fpa_deg: float = rad_to_deg(atan2(-vel.y, maxf(horiz_speed, 1.0)))
+	var effective_dive_limit_deg: float = _get_effective_attack_dive_angle_limit_deg()
+	if fpa_deg <= effective_dive_limit_deg:
+		return
+	# Steeper than the ceiling. How urgent depends on how much ground is left: below ~1.5x the
+	# emergency floor it ramps to a hard pull; with lots of height, only a gentle nudge.
+	var height_danger_t: float = clampf(((emergency_min_agl_m * 2.5) - altitude_agl) / maxf(emergency_min_agl_m * 2.5, 1.0), 0.0, 1.0)
+	var steepness_t: float = clampf((fpa_deg - effective_dive_limit_deg) / 25.0, 0.0, 1.0)
+	var pull: float = maxf(height_danger_t, 0.15) * steepness_t
+	if pull <= 0.0:
+		return
+	var pull_floor: float = lerpf(0.0, 0.55, pull)
+	if pitch_input < pull_floor:
+		pitch_input = pull_floor
+		_smoothed_pitch_input = pitch_input
+		throttle_input = 1.0
+
+## Return the dive-angle envelope needed to put a direct-fire weapon on its real
+## target. A fixed angle cannot work for every combination of height and range: it
+## physically prevents the nose/flight path from reaching a target below that line.
+## Bombs retain their configured preferred envelope; guns and rockets expand it only
+## to the current line-of-sight angle. Their range, AGL, structure and terrain aborts
+## still decide when the attack must end.
+func _get_effective_attack_dive_angle_limit_deg() -> float:
+	var angle_limit_deg: float = maxf(attack_max_dive_angle_deg, 1.0)
+	if current_state != State.ATTACK_DIVE \
+			or not _is_strafing_ground_attack_weapon_type(_run_weapon_type) \
+			or aircraft == null \
+			or not is_instance_valid(aircraft):
+		return angle_limit_deg
+	var active_target: Node3D = _resolve_current_ground_attack_target()
+	if active_target == null:
+		return angle_limit_deg
+	var aim_pos: Vector3 = _get_surface_target_position(active_target)
+	aim_pos.y += _get_attack_run_aim_height_m()
+	var horizontal_range_m: float = Vector2(
+		aim_pos.x - aircraft.global_position.x,
+		aim_pos.z - aircraft.global_position.z
+	).length()
+	if horizontal_range_m <= 0.0:
+		return angle_limit_deg
+	var required_los_angle_deg: float = rad_to_deg(atan2(
+		maxf(aircraft.global_position.y - aim_pos.y, 0.0),
+		horizontal_range_m
+	))
+	return maxf(angle_limit_deg, required_los_angle_deg)
+
+
+## Final attack-dive envelope. Strafing LOS/CCIP gets full forward-stick
+## authority; the continuously computed angle above prevents the envelope itself
+## from holding the nose above the target. Predictive terrain/AGL logic owns the
+## eventual recovery rather than an unrelated fixed dive angle.
+func _apply_attack_dive_envelope() -> void:
+	if current_state != State.ATTACK_DIVE or aircraft == null or not is_instance_valid(aircraft):
+		return
+	var max_nose_down_input: float = clampf(attack_dive_max_nose_down_pitch_input, 0.0, 1.0)
+	if _is_strafing_ground_attack_weapon_type(_run_weapon_type):
+		max_nose_down_input = 1.0
+	pitch_input = maxf(pitch_input, -max_nose_down_input)
+	var velocity: Vector3 = aircraft.linear_velocity
+	var horizontal_speed: float = Vector2(velocity.x, velocity.z).length()
+	var dive_fpa_deg: float = rad_to_deg(atan2(-velocity.y, maxf(horizontal_speed, 1.0)))
+	var hard_limit_deg: float = _get_effective_attack_dive_angle_limit_deg()
+	var soft_limit_deg: float = maxf(
+		hard_limit_deg - maxf(attack_dive_envelope_soft_margin_deg, 1.0),
+		0.0
+	)
+	var envelope_t: float = clampf(
+		(dive_fpa_deg - soft_limit_deg) / maxf(hard_limit_deg - soft_limit_deg, 1.0),
+		0.0,
+		1.0
+	)
+	if envelope_t > 0.0:
+		envelope_t = envelope_t * envelope_t * (3.0 - 2.0 * envelope_t)
+		var envelope_pitch_floor: float = lerpf(
+			-max_nose_down_input,
+			clampf(attack_dive_envelope_recovery_pitch_input, 0.0, 1.0),
+			envelope_t
+		)
+		pitch_input = maxf(pitch_input, envelope_pitch_floor)
+	_smoothed_pitch_input = pitch_input
+
+## Positioning is for establishing the attack line, not diving at the target. Keep its descent
+## shallow and its forward-stick command modest; the dedicated ATTACK_DIVE state owns the steeper
+## descent after heading and bank have settled.
+func _apply_attack_positioning_descent_envelope() -> void:
+	if current_state != State.ATTACK_POSITIONING or aircraft == null or not is_instance_valid(aircraft):
+		return
+	var max_nose_down_input: float = clampf(attack_positioning_max_nose_down_pitch_input, 0.0, 1.0)
+	# A climbing aircraft is not yet diving. Give it enough forward-stick authority to
+	# rotate the flight path back toward level instead of letting the old -0.20 cap carry
+	# upward momentum for hundreds of metres. This authority fades out as the climb is
+	# arrested; the FPA envelope below still owns and limits the actual descent.
+	var altitude_error_m: float = nav_waypoint.y - aircraft.global_position.y
+	var desired_vs_mps: float = clampf(altitude_error_m * 0.08, -10.0, 10.0)
+	var climb_error_mps: float = aircraft.linear_velocity.y - desired_vs_mps
+	if altitude_error_m < 0.0 and aircraft.linear_velocity.y > 0.0:
+		var climb_arrest_t: float = clampf(
+			climb_error_mps / maxf(attack_positioning_climb_arrest_full_error_mps, 1.0),
+			0.0,
+			1.0
+		)
+		max_nose_down_input = lerpf(
+			max_nose_down_input,
+			maxf(attack_positioning_climb_arrest_max_nose_down_pitch_input, max_nose_down_input),
+			climb_arrest_t
+		)
+	pitch_input = maxf(pitch_input, -max_nose_down_input)
+	var velocity: Vector3 = aircraft.linear_velocity
+	var horizontal_speed: float = Vector2(velocity.x, velocity.z).length()
+	var descent_fpa_deg: float = rad_to_deg(atan2(-velocity.y, maxf(horizontal_speed, 1.0)))
+	var hard_limit_deg: float = maxf(attack_positioning_max_descent_angle_deg, 1.0)
+	var soft_limit_deg: float = maxf(
+		hard_limit_deg - maxf(attack_positioning_descent_soft_margin_deg, 1.0),
+		0.0
+	)
+	var envelope_t: float = clampf(
+		(descent_fpa_deg - soft_limit_deg) / maxf(hard_limit_deg - soft_limit_deg, 1.0),
+		0.0,
+		1.0
+	)
+	if envelope_t > 0.0:
+		envelope_t = envelope_t * envelope_t * (3.0 - 2.0 * envelope_t)
+		var recovery_pitch_floor: float = lerpf(
+			-max_nose_down_input,
+			clampf(attack_positioning_descent_recovery_pitch_input, 0.0, 1.0),
+			envelope_t
+		)
+		pitch_input = maxf(pitch_input, recovery_pitch_floor)
+	_smoothed_pitch_input = pitch_input
+
+
+## Prevent momentum, a stall departure, or a transient controller command from carrying a fighter
+## through the commanded dive limit. Upright aircraft pull; knife-edge/inverted aircraft unload,
+## remove rudder, and roll upright before pulling.
+func _apply_dogfight_dive_envelope() -> void:
+	if current_state != State.DOGFIGHT or aircraft == null or not is_instance_valid(aircraft):
+		return
+	var velocity: Vector3 = aircraft.linear_velocity
+	var horizontal_speed: float = Vector2(velocity.x, velocity.z).length()
+	var dive_fpa_deg: float = rad_to_deg(atan2(-velocity.y, maxf(horizontal_speed, 1.0)))
+	var dive_limit_deg: float = clampf(dogfight_max_commanded_dive_angle_deg, 1.0, 80.0)
+	if dive_fpa_deg <= dive_limit_deg:
+		return
+	var basis: Basis = aircraft.global_transform.basis
+	var current_roll_rad: float = atan2(basis.x.y, basis.y.y)
+	if basis.y.y < 0.20:
+		var roll_rate: float = aircraft.angular_velocity.dot(basis.z)
+		roll_input = clampf(
+			_normalize_angle(-current_roll_rad) * 8.0 - roll_rate * 0.30,
+			-1.0,
+			1.0
+		)
+		pitch_input = minf(pitch_input, 0.05)
+		yaw_input = 0.0
+	else:
+		var recovery_t: float = clampf((dive_fpa_deg - dive_limit_deg) / 20.0, 0.0, 1.0)
+		pitch_input = maxf(pitch_input, lerpf(0.30, 0.85, recovery_t))
+		yaw_input *= 1.0 - recovery_t
+	_smoothed_roll_input = roll_input
+	_smoothed_pitch_input = pitch_input
+	_smoothed_yaw_input = yaw_input
+
+
+# Cap how hard the nose can be shoved DOWN while maneuvering/positioning. Descending to the attack
+# setup altitude, the nav controller (with aggressive gains) can slam near-full forward stick
+# (pitch ~ -0.9), bunting the aircraft into the ground before the FPA-based dive floor reacts --
+# the "nosed over, stick forward, ate the dirt" failure. The committed firing dive (ATTACK_DIVE)
+# is exempt so it can still point at the target; everywhere else, a firm-but-not-violent push-over
+# is plenty and gets tighter as the ground gets closer.
+func _apply_nose_down_pushover_cap() -> void:
+	if aircraft == null or not is_instance_valid(aircraft):
+		return
+	if current_state in [State.LAUNCHING, State.LANDING, State.IDLE, State.ATTACK_DIVE]:
+		return
+	if pitch_input >= 0.0:
+		return
+	# Allow a firmer push-over with lots of height; clamp hard when low. -0.45 up high, -0.18 low.
+	var height_t: float = clampf((altitude_agl - emergency_min_agl_m) / maxf(emergency_min_agl_m * 2.0, 1.0), 0.0, 1.0)
+	var nose_down_limit: float = lerpf(-0.18, -0.45, height_t)
+	if current_state == State.ATTACK_POSITIONING:
+		var altitude_error_m: float = nav_waypoint.y - aircraft.global_position.y
+		var desired_vs_mps: float = clampf(altitude_error_m * 0.08, -10.0, 10.0)
+		var climb_error_mps: float = aircraft.linear_velocity.y - desired_vs_mps
+		if altitude_error_m < -20.0 and aircraft.linear_velocity.y > 0.0:
+			var climb_arrest_t: float = clampf(
+				climb_error_mps / maxf(attack_positioning_climb_arrest_full_error_mps, 1.0),
+				0.0,
+				1.0
+			)
+			nose_down_limit = lerpf(
+				nose_down_limit,
+				-clampf(attack_positioning_climb_arrest_max_nose_down_pitch_input, 0.0, 1.0),
+				climb_arrest_t
+			)
+	if pitch_input < nose_down_limit:
+		pitch_input = nose_down_limit
+		_smoothed_pitch_input = pitch_input
+
 func _apply_controls():
 	"""Apply control inputs to aircraft modules"""
+	_apply_anti_stall_pitch_backstop()
+	_apply_attack_positioning_descent_envelope()
+	_apply_attack_dive_envelope()
+	_apply_steep_dive_floor()
+	_apply_nose_down_pushover_cap()
+	_apply_dogfight_dive_envelope()
+	_apply_positive_combat_turn_load_guard()
 	if simple_aero:
 		var out_roll := -roll_input if invert_roll_sign else roll_input
 		var out_pitch := -pitch_input if invert_pitch_sign else pitch_input
 		var out_yaw := -yaw_input if invert_yaw_sign else yaw_input
+		if navigation_auto_rudder_enabled and navigation_auto_rudder_zero_manual_yaw and _should_use_navigation_auto_rudder_only():
+			out_yaw = 0.0
 		simple_aero.roll_input = out_roll
 		simple_aero.pitch_input = out_pitch
 		simple_aero.yaw_input = out_yaw
 
 	if control_engine and control_engine.has_method("set_target_power"):
 		control_engine.set_target_power(throttle_input)
+
+
+func _apply_positive_combat_turn_load_guard() -> void:
+	# Keep combat turns at positive wing load without the old arbitrary
+	# pitch_input >= 0 rule. Forward stick can be necessary to arrest a climb;
+	# allow it while measured load/AoA retain positive margin, then remove that
+	# authority continuously as the wing approaches zero lift.
+	_positive_turn_load_guard_active = false
+	if aircraft == null or not is_instance_valid(aircraft):
+		return
+	if current_state not in [State.ATTACK_POSITIONING, State.DOGFIGHT, State.ENGAGE] \
+			and not _uses_shared_waypoint_turn_controller():
+		return
+	var basis: Basis = aircraft.global_transform.basis
+	var bank_rad: float = absf(_normalize_angle(atan2(basis.x.y, basis.y.y)))
+	if bank_rad < deg_to_rad(maxf(coordinated_turn_load_start_bank_deg, 0.0)):
+		return
+	var aoa_deg: float = 0.0
+	var measured_load_g: float = 1.0
+	if simple_aero != null \
+			and is_instance_valid(simple_aero):
+		if simple_aero.has_method("get_estimated_angle_of_attack_deg"):
+			aoa_deg = float(simple_aero.call("get_estimated_angle_of_attack_deg"))
+		if simple_aero.has_method("get_estimated_lift_ratio"):
+			measured_load_g = maxf(
+				float(simple_aero.call("get_estimated_lift_ratio")),
+				0.0
+			)
+	var low_load_recovery_t: float = clampf(
+		(0.30 - measured_load_g) / 0.30,
+		0.0,
+		1.0
+	)
+	var negative_aoa_recovery: float = clampf(
+		-aoa_deg / maxf(coordinated_turn_aoa_soft_deg, 1.0),
+		0.0,
+		1.0
+	) * low_load_recovery_t
+	var positive_load_margin_t: float = clampf(
+		(measured_load_g - 0.15) / 0.85,
+		0.0,
+		1.0
+	)
+	var allowed_unload_pitch: float = lerpf(0.0, -0.35, positive_load_margin_t)
+	var load_guard_pitch: float = allowed_unload_pitch
+	if low_load_recovery_t > 0.0:
+		load_guard_pitch = maxf(load_guard_pitch, negative_aoa_recovery)
+	var guarded_pitch: float = maxf(pitch_input, load_guard_pitch)
+	_positive_turn_load_guard_active = guarded_pitch > pitch_input + 0.0001
+	pitch_input = guarded_pitch
+	_smoothed_pitch_input = maxf(_smoothed_pitch_input, pitch_input)
+
+
+func _should_use_navigation_auto_rudder_only() -> bool:
+	return current_state in [
+		State.CLIMBING,
+		State.TRANSIT,
+		State.SEARCH,
+		State.RTB,
+	]
+
+
+func _uses_shared_waypoint_turn_controller() -> bool:
+	# These states all express their maneuver as a 3D waypoint/flight-path target.
+	# They should differ in route geometry and speed policy, not in the low-level
+	# way bank becomes wing load and coordinated yaw. Attack/recovery primitives
+	# opt into the same controller separately because their vector-load solution
+	# carries additional arc geometry. Launch, weapon release, final landing, and
+	# emergency escape remain explicit precision/safety overlays.
+	return current_state in [
+		State.TRANSIT,
+		State.SEARCH,
+		State.RTB,
+		State.RECOVERY_MARSHAL,
+		State.RECOVERY_HOLD,
+		State.RECOVERY_APPROACH,
+	]
+
 
 func _update_ai_checkin(delta: float) -> void:
 	if not ai_checkin_enabled or not aircraft:
@@ -6822,7 +17841,55 @@ func _update_sensors(delta: float):
 		scan_interval_s *= lerpf(1.0, night_contact_scan_interval_multiplier, _get_ai_darkness_factor())
 		_contact_scan_timer_s = scan_interval_s
 		_scan_contacts()
+	# Situational awareness updates every frame (smooth), keyed off the raw in-range enemy list, so a
+	# bandit sliding to your blind arc fades from your picture between scans, not just on scan ticks.
+	if dogfight_situational_awareness_enabled:
+		_update_enemy_awareness(delta, known_enemies)
+	_update_target_turn_estimate(delta)
 	_report_contacts_to_air_ops(delta)
+
+func _update_target_turn_estimate(delta: float) -> void:
+	"""Estimate the current combat target's angular turn rate (rad/s) and axis from how its velocity
+	vector rotates frame to frame. Feeds the curved-lead solver so we lead a turning bandit correctly."""
+	if not dogfight_curved_lead_enabled or delta <= 0.0:
+		_lead_track_valid = false
+		return
+	var tgt: Node3D = combat_target if (combat_target and is_instance_valid(combat_target)) else null
+	if tgt == null:
+		_lead_track_target = null
+		_lead_track_valid = false
+		return
+	var vel: Vector3 = _get_target_linear_velocity(tgt)
+	# Reset history if the target changed or we don't have a usable previous sample.
+	if tgt != _lead_track_target or _lead_track_prev_vel.length_squared() < 1.0:
+		_lead_track_target = tgt
+		_lead_track_prev_vel = vel
+		_lead_track_turn_rate = 0.0
+		_lead_track_turn_axis = Vector3.ZERO
+		_lead_track_valid = false
+		return
+	var prev: Vector3 = _lead_track_prev_vel
+	var s_prev: float = prev.length()
+	var s_now: float = vel.length()
+	if s_prev > 5.0 and s_now > 5.0:
+		var pdir: Vector3 = prev / s_prev
+		var ndir: Vector3 = vel / s_now
+		var d: float = clampf(pdir.dot(ndir), -1.0, 1.0)
+		var ang: float = acos(d)                       # heading change this frame (rad)
+		var inst_rate: float = clampf(ang / delta, 0.0, dogfight_curved_lead_max_turn_rate)
+		var axis: Vector3 = pdir.cross(ndir)
+		if axis.length_squared() > 1.0e-6:
+			axis = axis.normalized()
+			# Low-pass the rate and axis so a single noisy frame doesn't throw the lead off.
+			_lead_track_turn_rate = lerpf(_lead_track_turn_rate, inst_rate, dogfight_curved_lead_smoothing)
+			_lead_track_turn_axis = _lead_track_turn_axis.lerp(axis, dogfight_curved_lead_smoothing)
+			if _lead_track_turn_axis.length_squared() > 1.0e-6:
+				_lead_track_turn_axis = _lead_track_turn_axis.normalized()
+			_lead_track_valid = _lead_track_turn_rate > 0.02
+		else:
+			_lead_track_turn_rate = lerpf(_lead_track_turn_rate, 0.0, dogfight_curved_lead_smoothing)
+			_lead_track_valid = _lead_track_turn_rate > 0.02
+	_lead_track_prev_vel = vel
 
 func _update_agl():
 	"""Raycast down to find altitude above ground"""
@@ -6940,11 +18007,17 @@ func _get_attack_setup_altitude_m(target_pos: Vector3, terrain_max: float = NAN)
 		setup_altitude_m = target_pos.y + bomb_run_setup_altitude_offset_m
 		if not is_nan(terrain_max):
 			setup_altitude_m = maxf(setup_altitude_m, terrain_max + bomb_run_setup_altitude_offset_m)
-		var max_bomb_setup_altitude: float = target_pos.y + maxf(bomb_run_setup_max_altitude_offset_m, bomb_run_setup_altitude_offset_m)
+		var max_bomb_setup_altitude_m: float = target_pos.y + maxf(
+			bomb_run_setup_max_altitude_offset_m,
+			bomb_run_setup_altitude_offset_m
+		)
 		if not is_nan(terrain_max):
-			max_bomb_setup_altitude = maxf(max_bomb_setup_altitude, terrain_max + 220.0)
-		setup_altitude_m = minf(setup_altitude_m, max_bomb_setup_altitude)
-	elif _run_weapon_type == "Rocket Pod":
+			max_bomb_setup_altitude_m = maxf(
+				max_bomb_setup_altitude_m,
+				terrain_max + aircraft_flight_plan_terrain_clearance_m
+			)
+		setup_altitude_m = minf(setup_altitude_m, max_bomb_setup_altitude_m)
+	elif _is_strafing_ground_attack_weapon_type(_run_weapon_type):
 		setup_altitude_m = maxf(setup_altitude_m, target_pos.y + rocket_run_altitude_offset_m)
 		if not is_nan(terrain_max):
 			setup_altitude_m = maxf(setup_altitude_m, terrain_max + rocket_run_altitude_offset_m)
@@ -6955,11 +18028,27 @@ func _get_attack_setup_altitude_m(target_pos: Vector3, terrain_max: float = NAN)
 	return setup_altitude_m
 
 func _get_attack_setup_distance_m() -> float:
+	# The fixed base distance was tuned for a wide-radius turn; at the tighter turn radii the aircraft
+	# can actually achieve (post turn-rate tuning) it's often plenty -- but on a target it's already
+	# close to, a short base distance leaves no room to complete the turn INTO the ingress line, so the
+	# aircraft repeatedly re-commits to unreachable setups and circles close around the target instead of
+	# breaking out to a proper distance. Scale the base distance up by how much turn radius the current
+	# speed actually needs, so the setup point always sits far enough out for a clean turn-in.
+	var turn_radius_m: float = _estimate_aircraft_turn_radius_m(
+		maxf(aircraft.linear_velocity.length(), 80.0) if aircraft != null and is_instance_valid(aircraft) else 80.0,
+		"attack_approach"
+	)
+	# Weapon-specific setup distances were previously exported and tuned but never
+	# consumed here. Treat them as minimum straight-run lengths, then extend the run
+	# when the aircraft's current turn radius needs more room. This keeps bombs and
+	# rockets on the same corridor logic without baking either weapon into a single
+	# fixed approach length.
+	var weapon_setup_floor_m: float = attack_run_distance_m
 	if _run_weapon_type == "Bomb":
-		return bomb_run_setup_distance_m
-	if _run_weapon_type == "Rocket Pod":
-		return rocket_run_setup_distance_m
-	return attack_run_distance_m
+		weapon_setup_floor_m = maxf(weapon_setup_floor_m, bomb_run_setup_distance_m)
+	elif _is_strafing_ground_attack_weapon_type(_run_weapon_type):
+		weapon_setup_floor_m = maxf(weapon_setup_floor_m, rocket_run_setup_distance_m)
+	return maxf(weapon_setup_floor_m, turn_radius_m * maxf(attack_setup_distance_turn_radius_scale, 1.0))
 
 func _get_attack_pull_up_distance_m() -> float:
 	if _run_weapon_type == "Bomb":
@@ -6979,6 +18068,25 @@ func _terrain_safe_altitude_for_segment(from_pos: Vector3, to_pos: Vector3, requ
 		safe_altitude_m = maxf(safe_altitude_m, segment_terrain_h + minimum_agl_m)
 	return safe_altitude_m
 
+func _terrain_safe_climb_endpoint_altitude(from_pos: Vector3, to_pos: Vector3, requested_altitude_m: float, minimum_agl_m: float) -> float:
+	# Unlike _terrain_safe_altitude_for_segment(), this solves the endpoint altitude
+	# required for the entire straight climb profile to clear each terrain sample.
+	# It is intended for emergency paths beginning at the aircraft's actual position.
+	var safe_endpoint_y: float = requested_altitude_m
+	var horizontal_distance_m := Vector2(to_pos.x - from_pos.x, to_pos.z - from_pos.z).length()
+	var samples: int = clampi(int(ceil(horizontal_distance_m / 80.0)), 8, 32)
+	for i in range(samples):
+		var t: float = float(i + 1) / float(samples)
+		var sample_pos: Vector3 = from_pos.lerp(to_pos, t)
+		var terrain_h: float = _get_ground_height_at_position(sample_pos)
+		if is_nan(terrain_h):
+			continue
+		var required_profile_y: float = terrain_h + maxf(minimum_agl_m, 0.0)
+		# lerp(from_y, endpoint_y, t) >= required_profile_y
+		var endpoint_y_needed: float = from_pos.y + (required_profile_y - from_pos.y) / maxf(t, 0.001)
+		safe_endpoint_y = maxf(safe_endpoint_y, endpoint_y_needed)
+	return safe_endpoint_y
+
 func _resolve_effective_altitude_world_y(world_pos: Vector3, desired_agl_m: float) -> float:
 	var reference_y: float = _get_ground_height_at_position(world_pos)
 	if is_nan(reference_y) and aircraft and aircraft.has_method("get_effective_altitude_reference_y"):
@@ -6986,6 +18094,68 @@ func _resolve_effective_altitude_world_y(world_pos: Vector3, desired_agl_m: floa
 	if is_nan(reference_y):
 		reference_y = 0.0
 	return reference_y + maxf(desired_agl_m, 0.0)
+
+# Skill as a 0..1 fraction (RECRUIT=0 .. ELITE=1) for interpolating awareness rates.
+func _skill_fraction() -> float:
+	var steps: int = maxi(AIPilotSkill.size() - 1, 1)
+	return clampf(float(int(skill)) / float(steps), 0.0, 1.0)
+
+# Update this pilot's 0..1 awareness of each enemy based on which arc it's in (pilot's local frame),
+# the range, and pilot skill. Front is easy; behind/below almost impossible. Aces hold the picture
+# far better than novices. Enemies below the engage threshold are effectively "lost" until re-spotted.
+func _update_enemy_awareness(delta: float, candidate_enemies: Array) -> void:
+	if not dogfight_situational_awareness_enabled:
+		return
+	if aircraft == null or not is_instance_valid(aircraft):
+		return
+	var b: Basis = aircraft.global_transform.basis
+	var skill_t: float = _skill_fraction()
+	var gain_mult: float = lerpf(dogfight_awareness_skill_gain_min, dogfight_awareness_skill_gain_max, skill_t)
+	var decay_mult: float = lerpf(dogfight_awareness_skill_decay_min, dogfight_awareness_skill_decay_max, skill_t)
+	# Prune awareness entries for enemies no longer present.
+	for key in _enemy_awareness.keys():
+		if not is_instance_valid(key) or not (key in candidate_enemies):
+			_enemy_awareness.erase(key)
+	for enemy in candidate_enemies:
+		if not is_instance_valid(enemy) or not (enemy is Node3D):
+			continue
+		var to_enemy: Vector3 = (enemy as Node3D).global_position - aircraft.global_position
+		var dist: float = to_enemy.length()
+		if dist < 1.0:
+			_enemy_awareness[enemy] = 1.0
+			continue
+		var dir: Vector3 = to_enemy / dist
+		# Local-frame components: +z forward, +x right, +y up.
+		var fwd_d: float = dir.dot(b.z)
+		var right_d: float = dir.dot(b.x)
+		var up_d: float = dir.dot(b.y)
+		# Pick the dominant arc and its base gain rate.
+		var arc_gain: float
+		if fwd_d >= 0.5:
+			arc_gain = dogfight_awareness_gain_front            # front cone
+		elif fwd_d <= -0.5:
+			arc_gain = dogfight_awareness_gain_behind           # rear cone
+		elif up_d >= 0.5:
+			arc_gain = dogfight_awareness_gain_above            # high
+		elif up_d <= -0.5:
+			arc_gain = dogfight_awareness_gain_below            # low (belly) -- worst
+		else:
+			arc_gain = dogfight_awareness_gain_side             # left/right
+		# Range factor: easy up close, fading out to the max visual range.
+		var range_factor: float = clampf(
+			1.0 - (dist - dogfight_awareness_range_full_m) / maxf(dogfight_awareness_range_max_m - dogfight_awareness_range_full_m, 1.0),
+			0.0, 1.0)
+		var current: float = float(_enemy_awareness.get(enemy, 0.0))
+		var effective_gain: float = arc_gain * gain_mult * range_factor
+		# Awareness rises toward 1 at the effective gain rate; if the arc is very poor (low gain) it
+		# also decays, so a bandit that slips to your 6 and stays there fades from your picture.
+		var net: float = effective_gain * delta - dogfight_awareness_decay_rate * decay_mult * delta * (1.0 - clampf(effective_gain / maxf(dogfight_awareness_gain_front, 0.1), 0.0, 1.0))
+		_enemy_awareness[enemy] = clampf(current + net, 0.0, 1.0)
+
+func _get_enemy_awareness(enemy: Node3D) -> float:
+	if not dogfight_situational_awareness_enabled:
+		return 1.0
+	return float(_enemy_awareness.get(enemy, 0.0))
 
 func _scan_contacts():
 	"""Scan for enemies and friendlies within sensor range"""
@@ -7084,7 +18254,7 @@ func _check_rtb_triggers():
 	"""Monitor health and fuel, trigger RTB if critical"""
 	if current_state in [State.RTB, State.RECOVERY_MARSHAL, State.RECOVERY_HOLD, State.RECOVERY_APPROACH, State.APPROACH, State.LANDING, State.MISSED_APPROACH]:
 		return
-		
+
 	var needs_rtb: bool = false
 	var rtb_reason: String = ""
 
@@ -7184,6 +18354,702 @@ func _normalize_angle(angle: float) -> float:
 		angle += TAU
 	return angle
 
+
+## Convert a committed bank into a real aerodynamic load/pitch demand. This is deliberately shared
+## by navigation/attack and dogfight control so neither branch can regress to "bank hard, pull
+## almost nothing." Bank sets the requested load between 1g and target_g. If SimpleAero can report
+## its current lift ratio, proportional feedback adds pitch when actual wing load trails the target.
+func _compute_turn_load_pitch_demand(
+	bank_rad: float,
+	target_g: float,
+	pitch_max: float,
+	start_bank_deg: float,
+	full_bank_deg: float,
+	load_feedback_gain: float
+) -> float:
+	var bank_deg: float = absf(rad_to_deg(_normalize_angle(bank_rad)))
+	var start_deg: float = maxf(start_bank_deg, 0.0)
+	var full_deg: float = maxf(full_bank_deg, start_deg + 1.0)
+	var bank_t: float = clampf((bank_deg - start_deg) / (full_deg - start_deg), 0.0, 1.0)
+	bank_t = bank_t * bank_t * (3.0 - 2.0 * bank_t)
+	if bank_t <= 0.0:
+		return 0.0
+
+	var safe_target_g: float = maxf(target_g, 1.1)
+	var safe_pitch_max: float = maxf(pitch_max, 0.0)
+	var desired_load_g: float = lerpf(1.0, safe_target_g, bank_t)
+	var pitch_demand: float = bank_t * safe_pitch_max
+
+	if simple_aero != null \
+			and is_instance_valid(simple_aero) \
+			and simple_aero.has_method("get_estimated_lift_ratio"):
+		var estimated_load_g: float = float(simple_aero.call("get_estimated_lift_ratio"))
+		if is_finite(estimated_load_g):
+			var load_error_g: float = maxf(desired_load_g - estimated_load_g, 0.0)
+			var normalized_load_error: float = load_error_g / maxf(safe_target_g - 1.0, 0.1)
+			pitch_demand += normalized_load_error \
+				* clampf(load_feedback_gain, 0.0, 1.0) \
+				* safe_pitch_max
+
+	return clampf(pitch_demand, 0.0, safe_pitch_max)
+
+
+## Maximum bank that can sustain its own vertical lift component at the wing's
+## configured useful-AoA boundary.  This is a live aerodynamic capability
+## calculation, not a pilot comfort limit: at high dynamic pressure it permits
+## the full useful load, while low speed smoothly reduces bank before a stall
+## backstop has to alternate between pulling and unloading.
+func _get_dogfight_sustainable_bank_rad(speed_mps: float, basis: Basis) -> float:
+	var configured_bank_rad := deg_to_rad(clampf(dogfight_bank_cmd_limit_deg, 0.0, 89.0))
+	if simple_aero == null or not is_instance_valid(simple_aero):
+		return configured_bank_rad
+	var aligned_level_speed_mps: float = maxf(float(simple_aero.get("aligned_level_speed_mps")), 1.0)
+	var useful_aoa_full_deg: float = maxf(float(simple_aero.get("aoa_lift_full_deg")), 0.1)
+	var useful_aoa_t: float = clampf(
+		maxf(coordinated_turn_aoa_soft_deg, 0.0) / useful_aoa_full_deg,
+		0.0,
+		1.0
+	)
+	var lift_bonus_factor: float = maxf(float(simple_aero.get("aoa_lift_bonus_factor")), 0.0)
+	var zero_aoa_load_g: float = minf(pow(maxf(speed_mps, 0.0) / aligned_level_speed_mps, 2.0), 1.0)
+	var sustainable_load_g: float = zero_aoa_load_g * (1.0 + useful_aoa_t * lift_bonus_factor)
+	sustainable_load_g = minf(
+		sustainable_load_g,
+		minf(
+			maxf(float(simple_aero.get("max_lift_ratio")), 0.1),
+			maxf(dogfight_turn_load_target_g, 0.1)
+		)
+	)
+	# Match SimpleAero's real speed-stall lift loss as forward speed falls below
+	# the airframe's stall speed.  Total speed alone overstates available lift
+	# during a large sideslip.
+	var forward_speed_mps: float = maxf(aircraft.linear_velocity.dot(basis.z), 0.0)
+	var effective_stall_speed_mps: float = float(simple_aero.call("get_effective_stall_speed_mps")) \
+		if simple_aero.has_method("get_effective_stall_speed_mps") else stall_speed_mps
+	if forward_speed_mps < effective_stall_speed_mps and speed_mps > 5.0:
+		var speed_stall_severity: float = clampf(
+			1.0 - forward_speed_mps / maxf(effective_stall_speed_mps, 1.0),
+			0.0,
+			1.0
+		)
+		var speed_lift_loss: float = clampf(
+			maxf(float(simple_aero.get("stall_lift_loss")), 0.0) * speed_stall_severity,
+			0.0,
+			0.95
+		)
+		sustainable_load_g *= 1.0 - speed_lift_loss
+	if sustainable_load_g <= 1.0:
+		return 0.0
+	var lift_supported_bank_rad := acos(clampf(1.0 / sustainable_load_g, 0.0, 1.0))
+	return minf(configured_bank_rad, lift_supported_bank_rad)
+
+
+## Closed-loop coordinated turn. The commanded bank defines the maneuver. Required wing load follows
+## from the bank actually achieved, with a vertical-acceleration correction to arrest climbs/sinks.
+## Elevator regulates measured load and AoA. Rudder centers sideslip but can intentionally accept
+## some slip when its banked axis gives it useful world-vertical authority.
+func _compute_coordinated_turn_controls(
+	delta: float,
+	target_bank_rad: float,
+	desired_vertical_speed_mps: float,
+	maximum_load_g: float,
+	hold_commanded_load: bool = false,
+	hold_supplied_vector_load: bool = false
+) -> Dictionary:
+	if aircraft == null or not is_instance_valid(aircraft):
+		return {"pitch": 0.0, "yaw": 0.0}
+	var basis: Basis = aircraft.global_transform.basis
+	var velocity: Vector3 = aircraft.linear_velocity
+	var speed_mps: float = maxf(velocity.length(), 1.0)
+	var current_bank_rad: float = atan2(basis.x.y, basis.y.y)
+	var effective_bank_rad: float = clampf(absf(current_bank_rad), 0.0, deg_to_rad(85.0))
+	var target_bank_abs_rad: float = absf(_normalize_angle(target_bank_rad))
+	var same_turn_direction: bool = absf(current_bank_rad) < deg_to_rad(2.0) \
+		or signf(current_bank_rad) == signf(target_bank_rad)
+	var bank_established_fraction: float = clampf(
+		effective_bank_rad / maxf(target_bank_abs_rad, deg_to_rad(8.0)),
+		0.0,
+		1.0
+	) if same_turn_direction else 0.0
+	# Roll first, then progressively load the wing. This prevents stored PI trim or
+	# a transient lift estimate from commanding full back-stick while the aircraft
+	# is still nearly wings-level or reversing its bank.
+	var bank_established_t: float = clampf(
+		(bank_established_fraction - 0.25) / 0.55,
+		0.0,
+		1.0
+	)
+	bank_established_t = bank_established_t * bank_established_t \
+		* (3.0 - 2.0 * bank_established_t)
+	var gravity_mps2: float = float(ProjectSettings.get_setting("physics/3d/default_gravity", 9.8))
+	# Match SimpleAero's real lift geometry. cos(body bank) is only the vertical lift
+	# fraction while attitude and airflow remain in a special level-flight alignment.
+	# During a climbing spiral the body Euler bank can still read 70+ degrees while
+	# the airflow-normal lift vector points substantially upward. Using cos(bank)
+	# then falsely reports a vertical-lift shortage and commands still more elevator.
+	var airflow_dir: Vector3 = velocity / speed_mps
+	var projected_lift_up: Vector3 = basis.y - airflow_dir * basis.y.dot(airflow_dir)
+	var lift_direction: Vector3 = projected_lift_up.normalized() \
+		if projected_lift_up.length_squared() > 0.000001 else basis.y
+	var vertical_lift_fraction: float = lift_direction.dot(Vector3.UP)
+	# Preserve the sign of the real lift geometry. Above 90 degrees, positive wing
+	# load accelerates the aircraft downward; treating it as +0.05 made the load
+	# controller believe an overbanked airplane could still support its weight
+	# upward. Keep only a small magnitude floor around knife-edge to avoid division
+	# noise while retaining which side of 90 degrees the lift vector is on.
+	var vertical_lift_divisor: float = maxf(absf(vertical_lift_fraction), 0.05) \
+		* (-1.0 if vertical_lift_fraction < 0.0 else 1.0)
+	var vertical_speed_error: float = desired_vertical_speed_mps - velocity.y
+	# Do not cap climb arrest at an arbitrary -0.55 G correction. A large
+	# established climb must be allowed to unload the turn until vertical speed
+	# actually comes back. target_load_g below still has a positive floor, and
+	# the final positive-load guard prevents negative-AoA turning.
+	var vertical_accel_g: float = minf(
+		vertical_speed_error * maxf(coordinated_turn_vertical_accel_gain, 0.0) / maxf(gravity_mps2, 0.1),
+		0.55
+	)
+	var required_load_g: float = (1.0 + vertical_accel_g) / vertical_lift_divisor
+	# Bank is the maneuver command; this equation supplies exactly the wing load
+	# needed to drive vertical speed toward the requested path. On-path at 70deg it
+	# naturally requests about 2.9 G. During an excessive climb it deliberately
+	# eases below that level-turn load so gravity can arrest the climb while the
+	# banked wing still supplies lateral force. Do not re-impose a bank-derived
+	# minimum here: doing so locked the turn at 3 G and preserved every upward
+	# velocity error.
+	var load_start_rad: float = deg_to_rad(maxf(coordinated_turn_load_start_bank_deg, 0.0))
+	var available_load_g: float = maxf(maximum_load_g, 1.0)
+	var aero_zero_aoa_load_g: float = 1.0
+	var aero_aoa_lift_full_deg: float = maxf(coordinated_turn_aoa_soft_deg, 1.0)
+	var aero_aoa_lift_bonus_factor: float = 0.0
+	var aero_negative_aoa_lift_penalty_factor: float = 0.0
+	var measured_load_g: float = 1.0
+	var aoa_deg: float = 0.0
+	if hold_commanded_load and simple_aero != null and is_instance_valid(simple_aero):
+		# Derive the load the wing can actually make at the useful-AoA boundary from the same
+		# equation SimpleAero uses. Asking for 4.5G at 42m/s when the wing can make roughly
+		# 1.6G guarantees a stall/recovery limit cycle; this follows dynamic pressure instead.
+		var aligned_level_speed_mps: float = maxf(float(simple_aero.get("aligned_level_speed_mps")), 1.0)
+		aero_aoa_lift_full_deg = maxf(float(simple_aero.get("aoa_lift_full_deg")), 0.1)
+		aero_aoa_lift_bonus_factor = maxf(float(simple_aero.get("aoa_lift_bonus_factor")), 0.0)
+		aero_negative_aoa_lift_penalty_factor = maxf(
+			float(simple_aero.get("aoa_negative_lift_penalty_factor")),
+			0.0
+		)
+		var aero_max_lift_g: float = maxf(float(simple_aero.get("max_lift_ratio")), 0.1)
+		aero_zero_aoa_load_g = minf(pow(speed_mps / aligned_level_speed_mps, 2.0), 1.0)
+		var useful_aoa_t: float = clampf(
+			maxf(coordinated_turn_aoa_soft_deg, 0.0) / aero_aoa_lift_full_deg,
+			0.0,
+			1.0
+		)
+		available_load_g = clampf(
+			aero_zero_aoa_load_g * (1.0 + useful_aoa_t * aero_aoa_lift_bonus_factor),
+			0.10,
+			minf(aero_max_lift_g, maxf(maximum_load_g, 0.10))
+		)
+	if simple_aero != null and is_instance_valid(simple_aero):
+		if simple_aero.has_method("get_estimated_lift_ratio"):
+			measured_load_g = maxf(float(simple_aero.call("get_estimated_lift_ratio")), 0.0)
+		if simple_aero.has_method("get_estimated_angle_of_attack_deg"):
+			aoa_deg = float(simple_aero.call("get_estimated_angle_of_attack_deg"))
+	var frame: int = Engine.get_physics_frames()
+	var target_load_g: float
+	if hold_commanded_load:
+		# Command the vertical acceleration needed to acquire the requested flight path,
+		# not merely the load which preserves today's climb or sink. The attainable
+		# acceleration interval comes directly from the current lift geometry and the
+		# wing's zero/useful-AoA loads. This keeps the wing positively loaded while still
+		# allowing a banked fighter to descend: at zero AoA its vertical lift is below
+		# weight, so gravity bends the flight path down without a negative-G push.
+		var upright_vertical_lift_fraction := maxf(vertical_lift_fraction, 0.05)
+		# Zero AoA is deliberately 1 G at normal combat speed in SimpleAero. It can
+		# therefore stop an acceleration, but it cannot bend an established climb
+		# downward while the fighter is nearly wings-level. Use the model's actual
+		# negative-AoA lift range as the minimum: this lowers the nose with a positive
+		# wing load instead of requiring either a fixed push-over or negative G.
+		var minimum_lift_scale := maxf(1.0 - aero_negative_aoa_lift_penalty_factor, 0.0)
+		var minimum_positive_load_g := maxf(
+			aero_zero_aoa_load_g * minimum_lift_scale,
+			0.05
+		)
+		var requested_vertical_accel_mps2 := vertical_speed_error \
+			* maxf(coordinated_turn_vertical_path_response, 0.0)
+		var minimum_vertical_accel_mps2 := gravity_mps2 \
+			* (minimum_positive_load_g * upright_vertical_lift_fraction - 1.0) \
+			+ _coordinated_turn_nonwing_vertical_accel_mps2
+		var maximum_vertical_accel_mps2 := gravity_mps2 \
+			* (available_load_g * upright_vertical_lift_fraction - 1.0) \
+			+ _coordinated_turn_nonwing_vertical_accel_mps2
+		var attainable_vertical_accel_mps2 := clampf(
+			requested_vertical_accel_mps2,
+			minimum_vertical_accel_mps2,
+			maximum_vertical_accel_mps2
+		)
+		var required_wing_vertical_accel_mps2 := attainable_vertical_accel_mps2 \
+			- _coordinated_turn_nonwing_vertical_accel_mps2
+		var flight_path_load_g := clampf(
+			(1.0 + required_wing_vertical_accel_mps2 / maxf(gravity_mps2, 0.1)) \
+				/ upright_vertical_lift_fraction,
+			minimum_positive_load_g,
+			available_load_g
+		)
+		var active_ground_attack_role: String = str(
+			_flight_plan_legs[current_waypoint_index].get("role", "")
+		) if current_waypoint_index >= 0 and current_waypoint_index < _flight_plan_legs.size() else ""
+		var active_ground_attack_primitive: String = str(
+			_flight_plan_legs[current_waypoint_index].get("route_primitive", "")
+		) if current_waypoint_index >= 0 and current_waypoint_index < _flight_plan_legs.size() else ""
+		var active_geometric_arc: bool = active_ground_attack_primitive == "arc" \
+			and _flight_plan_name in ["ground_attack", "recovery_approach"]
+		if active_geometric_arc or hold_supplied_vector_load:
+			# _navigate_to_waypoint has already resolved this geometric leg's required lateral
+			# acceleration and vertical-path acceleration into one compatible vector.
+			# Its magnitude arrives as maximum_load_g. Re-deriving load from vertical
+			# speed alone here unloads descending arcs/straights and silently erases their lateral
+			# acceleration, so the aircraft displays the planned bank while flying a
+			# circle several times too large. Track the supplied vector magnitude exactly,
+			# bounded only by the live useful-AoA capability calculated above.
+			flight_path_load_g = clampf(
+				maximum_load_g,
+				minimum_positive_load_g,
+				available_load_g
+			)
+		var active_ground_attack_response_leg: bool = current_state == State.ATTACK_POSITIONING \
+			and _flight_plan_name == "ground_attack" \
+			and active_ground_attack_role in ["attack_approach", "attack_setup", "attack_target"]
+		# A newly replanned recovery begins with a direct point-capture leg because there
+		# is no preceding segment yet. It has a bank command but no explicit acceleration
+		# vector, so use the same measured ground-track observer that made attack ingress
+		# bank translate into real turn performance. Subsequent recovery straights and arcs
+		# supply their own compatible vector magnitude and do not need this observer.
+		var active_recovery_point_capture_leg: bool = current_state == State.RECOVERY_APPROACH \
+			and _flight_plan_name == "recovery_approach" \
+			and current_waypoint_index == 0
+		var active_turn_response_route_leg: bool = active_ground_attack_primitive != "arc" \
+			and not hold_supplied_vector_load \
+			and (
+				(active_ground_attack_response_leg and _route_forward_projection_active)
+				or active_recovery_point_capture_leg
+			)
+		# Dogfight steering already observes the aircraft's real ground-track rate for
+		# its bank scheduler. Feed that same measurement into the adaptive load law.
+		# Previously this correction existed only for attack/recovery point capture, so
+		# a fighter could hold 45-75 degrees of bank at roughly 1 G while its velocity
+		# vector barely turned. Large pursuit errors should consume all useful lift;
+		# small corrections still receive only the load their scheduled bank requires.
+		var active_dogfight_turn_response: bool = current_state == State.DOGFIGHT \
+			and _dogfight_assertive_turn_active \
+			and _dogfight_track_rate_initialized
+		var active_waypoint_turn_response: bool = \
+			_uses_shared_waypoint_turn_controller() \
+			and _attack_turn_track_heading_valid
+		var active_turn_response_feedback: bool = active_turn_response_route_leg \
+			or active_dogfight_turn_response \
+			or active_waypoint_turn_response
+		if active_turn_response_feedback \
+				and target_bank_abs_rad >= load_start_rad \
+				and (active_dogfight_turn_response or _attack_turn_track_heading_valid):
+			# Bank is a demand for lateral acceleration, not merely an attitude to
+			# display. Infer the response expected from that bank, then use the real
+			# ground-track rate to observe any non-wing force which is cancelling the
+			# wing laterally. The resulting load is the amount the wing must actually
+			# make to produce the commanded turn on the setup/target firing corridor,
+			# where unloading for a descent must not silently erase the lateral
+			# acceleration the horizontal follower requested.  This applies to the
+			# straight approach connectors as well: excluding them allowed a persistent
+			# non-wing lateral force to cancel most of the turn while the aircraft held
+			# 30-50 degrees of bank.  Arc primitives remain excluded because their
+			# vector magnitude is supplied explicitly by the radius solution.
+			#
+			# A geometric arc is deliberately excluded. Its radius and 3D flight-path
+			# acceleration already produced a mutually compatible bank and load cap in
+			# _navigate_to_waypoint(). Reinterpreting an 80-degree descending-arc bank as
+			# tan(bank) lateral G is a level-turn assumption: it turned a roughly 1-G
+			# planned arc into a 3.4-G hook and made the aircraft cut inside its own path.
+			var horizontal_lift_fraction: float = sqrt(maxf(
+				1.0 - vertical_lift_fraction * vertical_lift_fraction,
+				0.0
+			))
+			if horizontal_lift_fraction > 0.01:
+				var response_bank_rad: float = minf(target_bank_abs_rad, deg_to_rad(85.0))
+				var commanded_lateral_g: float = tan(response_bank_rad)
+				var horizontal_speed_mps: float = maxf(Vector2(velocity.x, velocity.z).length(), 1.0)
+				# Controller bank coordinates have the opposite sign to world heading
+				# rotation (a positive body-bank command turns the ground track toward
+				# decreasing heading). Preserve direction so a turn away from the command
+				# counts as negative response rather than apparent useful acceleration.
+				var measured_track_rate_rad_s: float = _dogfight_filtered_track_rate_rad_s \
+					if active_dogfight_turn_response else _attack_turn_track_rate_rad_s
+				var measured_turn_rate_toward_rad_s: float = -measured_track_rate_rad_s \
+					* signf(target_bank_rad)
+				var measured_lateral_g: float = horizontal_speed_mps \
+					* measured_turn_rate_toward_rad_s / maxf(gravity_mps2, 0.1)
+				var wing_lateral_g: float = measured_load_g * horizontal_lift_fraction
+				var observed_nonwing_lateral_g: float = measured_lateral_g - wing_lateral_g
+				var required_wing_lateral_g: float = maxf(
+					commanded_lateral_g - observed_nonwing_lateral_g,
+					0.0
+				)
+				var turn_response_load_g: float = clampf(
+					required_wing_lateral_g / horizontal_lift_fraction,
+					minimum_positive_load_g,
+					available_load_g
+				)
+				# Roll-in fraction provides the transition; the normal target-load filter
+				# below supplies temporal damping. Once measured turn rate catches up,
+				# the observer removes this extra demand automatically.
+				flight_path_load_g = maxf(
+					flight_path_load_g,
+					lerpf(minf(1.0, flight_path_load_g), turn_response_load_g, bank_established_t)
+				)
+		var raw_target_load_g: float
+		if target_bank_abs_rad < load_start_rad and available_load_g < 1.0:
+			# Below the speed where even useful AoA can make 1G, demanding 1G merely
+			# holds maximum AoA/drag and prevents recovery.  Roll level and align the
+			# wing with the airflow (zero-AoA load) until dynamic pressure returns.
+			raw_target_load_g = aero_zero_aoa_load_g
+		else:
+			raw_target_load_g = lerpf(
+				minf(1.0, flight_path_load_g),
+				flight_path_load_g,
+				bank_established_t
+			)
+		if frame - _coordinated_turn_last_frame > 1:
+			_coordinated_turn_smoothed_target_g = raw_target_load_g
+		else:
+			var target_load_filter_t := 1.0 - exp(
+				-maxf(delta, 0.0) * TAU * maxf(coordinated_turn_target_load_response_hz, 0.01)
+			)
+			_coordinated_turn_smoothed_target_g = lerpf(
+				_coordinated_turn_smoothed_target_g,
+				raw_target_load_g,
+				target_load_filter_t
+			)
+		target_load_g = clampf(
+			_coordinated_turn_smoothed_target_g,
+			minimum_positive_load_g,
+			available_load_g
+		)
+	else:
+		target_load_g = clampf(
+			required_load_g,
+			0.45,
+			maxf(maximum_load_g, 1.0)
+		)
+		_coordinated_turn_smoothed_target_g = target_load_g
+	var target_aoa_deg: float = 0.0
+	if hold_commanded_load:
+		var required_lift_scale: float = target_load_g / maxf(aero_zero_aoa_load_g, 0.05)
+		if required_lift_scale >= 1.0 and aero_aoa_lift_bonus_factor > 0.001:
+			var target_positive_aoa_t: float = clampf(
+				(required_lift_scale - 1.0) / aero_aoa_lift_bonus_factor,
+				0.0,
+				1.0
+			)
+			target_aoa_deg = target_positive_aoa_t * aero_aoa_lift_full_deg
+		elif required_lift_scale < 1.0 and aero_negative_aoa_lift_penalty_factor > 0.001:
+			var target_negative_aoa_t: float = clampf(
+				(1.0 - required_lift_scale) / aero_negative_aoa_lift_penalty_factor,
+				0.0,
+				1.0
+			)
+			target_aoa_deg = -target_negative_aoa_t * aero_aoa_lift_full_deg
+	var sideslip_ratio: float = clampf(velocity.dot(basis.x) / speed_mps, -1.0, 1.0)
+	if frame - _coordinated_turn_last_frame > 1:
+		_coordinated_turn_pitch_trim = clampf(_smoothed_pitch_input, -0.2, 0.7)
+		_coordinated_turn_previous_sideslip = sideslip_ratio
+		_coordinated_turn_previous_vertical_speed_mps = velocity.y
+		_coordinated_turn_filtered_vertical_accel_mps2 = 0.0
+		_coordinated_turn_nonwing_vertical_accel_mps2 = 0.0
+		_coordinated_turn_previous_aoa_deg = aoa_deg
+		_coordinated_turn_filtered_aoa_rate_deg_s = 0.0
+	elif frame > _coordinated_turn_last_frame:
+		var raw_vertical_accel_mps2: float = \
+			(velocity.y - _coordinated_turn_previous_vertical_speed_mps) / maxf(delta, 0.001)
+		var accel_filter_t: float = 1.0 - exp(-maxf(delta, 0.0) * 8.0)
+		_coordinated_turn_filtered_vertical_accel_mps2 = lerpf(
+			_coordinated_turn_filtered_vertical_accel_mps2,
+			raw_vertical_accel_mps2,
+			accel_filter_t
+		)
+		_coordinated_turn_previous_vertical_speed_mps = velocity.y
+		var raw_aoa_rate_deg_s: float = \
+			(aoa_deg - _coordinated_turn_previous_aoa_deg) / maxf(delta, 0.001)
+		var aoa_rate_filter_t: float = 1.0 - exp(-maxf(delta, 0.0) * 8.0)
+		_coordinated_turn_filtered_aoa_rate_deg_s = lerpf(
+			_coordinated_turn_filtered_aoa_rate_deg_s,
+			raw_aoa_rate_deg_s,
+			aoa_rate_filter_t
+		)
+		_coordinated_turn_previous_aoa_deg = aoa_deg
+		# Disturbance observer: compare the acceleration the rigid body actually
+		# achieved with wing lift + gravity.  The remainder includes thrust along a
+		# pitched flight path and SimpleAero's alignment force.  Feeding this estimate
+		# into the next frame's lift-vector solution closes the loop around the real
+		# aircraft without requiring an aircraft-specific pitch or throttle bias.
+		var modeled_vertical_accel_mps2: float = gravity_mps2 \
+			* (measured_load_g * vertical_lift_fraction - 1.0)
+		var observed_nonwing_vertical_accel_mps2: float = \
+			_coordinated_turn_filtered_vertical_accel_mps2 - modeled_vertical_accel_mps2
+		var nonwing_observer_t: float = 1.0 - exp(
+			-maxf(delta, 0.0) \
+				* TAU \
+				* maxf(coordinated_turn_nonwing_accel_observer_response_hz, 0.01)
+		)
+		_coordinated_turn_nonwing_vertical_accel_mps2 = lerpf(
+			_coordinated_turn_nonwing_vertical_accel_mps2,
+			observed_nonwing_vertical_accel_mps2,
+			nonwing_observer_t
+		)
+	# An excessive climb means the vertical/load equation has already asked the
+	# pilot to ease off. Do not let integral trim accumulated for the preceding
+	# high-G portion survive that tactical change. Proportional load feedback
+	# remains active, so the wing still carries the requested positive load; only
+	# stale maneuver memory is discarded.
+	if not hold_commanded_load and vertical_speed_error < 0.0:
+		_coordinated_turn_pitch_trim = minf(_coordinated_turn_pitch_trim, 0.0)
+	if bank_established_t < 1.0:
+		_coordinated_turn_pitch_trim = minf(_coordinated_turn_pitch_trim, 0.0)
+	# Once the aircraft has rolled essentially wings-level during a climb arrest,
+	# the integral accumulated for the preceding high-G turn is no longer valid.
+	# Clear that maneuver trim and let the proportional load feedback command the
+	# lower positive load requested by the vertical-speed loop. Retaining the old
+	# 3-G trim here caused full back-stick through every roll-out and converted
+	# each close-in turn into another step upward.
+	if not hold_commanded_load and effective_bank_rad < load_start_rad and vertical_speed_error < 0.0:
+		_coordinated_turn_pitch_trim = minf(_coordinated_turn_pitch_trim, 0.0)
+	# The AoA loop otherwise retains the positive trim learned during the preceding
+	# hard turn and spends several seconds integrating it away. Once the requested
+	# flight path calls for an unload, that pull trim is no longer valid.
+	if hold_commanded_load and target_aoa_deg <= 0.0 and vertical_speed_error < 0.0:
+		_coordinated_turn_pitch_trim = minf(_coordinated_turn_pitch_trim, 0.0)
+	# SimpleAero's nose-to-airflow alignment force can accelerate the aircraft
+	# vertically in addition to aerodynamic lift. In an upright turn, add observed
+	# vertical acceleration as a damping load so an upward-bending flight path does
+	# not look like a lift shortage. Do not use this term beyond knife-edge: dividing
+	# downward acceleration by a tiny negative vertical fraction made it look like
+	# several G of wing load and suppressed the hard pull that produces the roll-onto
+	# maneuver's lateral turn.
+	var vertical_accel_load_g: float = 0.0
+	if not hold_commanded_load and vertical_lift_fraction > 0.0:
+		# Upward acceleration can reveal non-wing forces helping the climb.
+		# Downward acceleration already means an unload is working; counting it
+		# as negative measured lift made a 0.45-G target demand full back-stick.
+		vertical_accel_load_g = maxf(
+			_coordinated_turn_filtered_vertical_accel_mps2 \
+				* maxf(coordinated_turn_vertical_accel_damping, 0.0) \
+				/ (maxf(gravity_mps2, 0.1) * vertical_lift_divisor),
+			0.0
+		)
+	var effective_measured_load_g: float = measured_load_g + vertical_accel_load_g
+	var load_error_g: float = target_load_g - effective_measured_load_g
+	var soft_aoa_deg: float = maxf(coordinated_turn_aoa_soft_deg, 1.0)
+	var hard_aoa_deg: float = maxf(coordinated_turn_aoa_hard_deg, soft_aoa_deg + 1.0)
+	var aoa_relief_t: float = clampf((aoa_deg - soft_aoa_deg) / (hard_aoa_deg - soft_aoa_deg), 0.0, 1.0)
+	var pitch_rate_up: float = -aircraft.angular_velocity.dot(basis.x)
+	var pitch_command: float
+	if hold_commanded_load:
+		# The wing's useful AoA is a direct, smooth aerodynamic maneuver target. Load feedback
+		# lagged far enough behind elevator that it alternated full pull and unload even while
+		# bank and requested G were steady. AoA-rate damping anticipates the lift response, but
+		# while AoA is still below target it may only reduce the requested pull to neutral. Letting
+		# this derivative term reverse the elevator produced the observed full-pull/forward-stick
+		# cycle even with a perfectly steady bank and AoA target.
+		var aoa_error_deg: float = target_aoa_deg - aoa_deg
+		var aoa_trim_delta: float = aoa_error_deg \
+			* maxf(coordinated_turn_aoa_hold_ki, 0.0) \
+			* maxf(delta, 0.0)
+		if not (
+			(aoa_trim_delta > 0.0 and _smoothed_pitch_input >= 0.98)
+			or (aoa_trim_delta < 0.0 and _smoothed_pitch_input <= -0.40)
+		):
+			_coordinated_turn_pitch_trim += aoa_trim_delta
+		_coordinated_turn_pitch_trim = clampf(_coordinated_turn_pitch_trim, -0.30, 0.80)
+		var undamped_aoa_pitch_command: float = _coordinated_turn_pitch_trim \
+			+ aoa_error_deg * maxf(coordinated_turn_aoa_hold_kp, 0.0) \
+			- pitch_rate_up * maxf(coordinated_turn_pitch_rate_damping, 0.0)
+		var aoa_rate_damping_pitch: float = _coordinated_turn_filtered_aoa_rate_deg_s \
+			* maxf(coordinated_turn_aoa_rate_damping, 0.0)
+		if aoa_error_deg > 0.0:
+			# A rapidly rising AoA is a reason to stop pulling harder, not a reason to push
+			# outside the turn while the wing is still below its commanded AoA.
+			aoa_rate_damping_pitch = clampf(
+				aoa_rate_damping_pitch,
+				0.0,
+				maxf(undamped_aoa_pitch_command, 0.0)
+			)
+		pitch_command = undamped_aoa_pitch_command - aoa_rate_damping_pitch
+	elif aoa_relief_t <= 0.0 or load_error_g < 0.0:
+		var trim_delta: float = load_error_g * maxf(coordinated_turn_load_ki, 0.0) * maxf(delta, 0.0)
+		# Do not wind the load integrator farther into a saturated control. The stored full-pull
+		# trim was otherwise released only after the stall, amplifying every pull/unload cycle.
+		if not (
+			(trim_delta > 0.0 and _smoothed_pitch_input >= 0.98)
+			or (trim_delta < 0.0 and _smoothed_pitch_input <= -0.40)
+		):
+			_coordinated_turn_pitch_trim += trim_delta
+		_coordinated_turn_pitch_trim = clampf(_coordinated_turn_pitch_trim, -0.45, 1.0)
+		pitch_command = _coordinated_turn_pitch_trim \
+			+ load_error_g * maxf(coordinated_turn_load_kp, 0.0) \
+			- pitch_rate_up * maxf(coordinated_turn_pitch_rate_damping, 0.0) \
+			- aoa_relief_t * maxf(coordinated_turn_aoa_relief_gain, 0.0)
+	else:
+		_coordinated_turn_pitch_trim = move_toward(
+			_coordinated_turn_pitch_trim,
+			0.0,
+			aoa_relief_t * maxf(delta, 0.0) * 1.5
+		)
+		_coordinated_turn_pitch_trim = clampf(_coordinated_turn_pitch_trim, -0.45, 1.0)
+		pitch_command = _coordinated_turn_pitch_trim \
+			+ load_error_g * maxf(coordinated_turn_load_kp, 0.0) \
+			- pitch_rate_up * maxf(coordinated_turn_pitch_rate_damping, 0.0) \
+			- aoa_relief_t * maxf(coordinated_turn_aoa_relief_gain, 0.0)
+	var roll_in_pitch_cap: float = lerpf(0.08, 1.0, bank_established_t)
+	pitch_command = minf(pitch_command, roll_in_pitch_cap)
+	# Continuous AoA relief replaces the old hard switch to -0.10 pitch. With a feasible
+	# speed-derived load target, ordinary load feedback should settle below this boundary;
+	# if a transient overshoots it, progressively remove pull instead of abruptly pushing.
+	if aoa_relief_t > 0.0:
+		var aoa_relief_pitch_cap: float = lerpf(
+			maxf(_coordinated_turn_pitch_trim, 0.0),
+			-0.20,
+			aoa_relief_t
+		)
+		aoa_relief_pitch_cap -= maxf(pitch_rate_up, 0.0) \
+			* maxf(coordinated_turn_pitch_rate_damping, 0.0)
+		pitch_command = minf(pitch_command, aoa_relief_pitch_cap)
+	var sideslip_rate: float = (sideslip_ratio - _coordinated_turn_previous_sideslip) / maxf(delta, 0.001)
+	# Positive local-X velocity means the flight path lies to the aircraft's
+	# right, so positive/right rudder is required to bring the nose onto it.
+	# The previous negative sign drove the nose farther away and made sideslip
+	# grow in proportion to the supposed coordination gain.
+	var sideslip_yaw_command: float = sideslip_ratio * maxf(coordinated_turn_sideslip_kp, 0.0) \
+		+ sideslip_rate * maxf(coordinated_turn_sideslip_kd, 0.0)
+	# At wings-level, yaw has essentially no immediate world-vertical nose authority.
+	# As the aircraft banks, local yaw rotates toward world pitch; use that real
+	# geometry to share climb/sink correction with rudder. basis.x.y carries both
+	# the amount of vertical authority and the correct sign for left/right bank.
+	# The sideslip controller above is deliberately retained, so this establishes
+	# only as much tactical slip as the vertical-path error can justify.
+	var vertical_rudder_command: float = vertical_speed_error \
+		* basis.x.y \
+		* maxf(coordinated_turn_vertical_rudder_gain, 0.0)
+	if hold_commanded_load and simple_aero != null and is_instance_valid(simple_aero):
+		# Near the stall there is no spare control authority for rudder to chase altitude while
+		# the wing is already at maximum useful lift. Fade that secondary task with the real
+		# stall-to-level-flight speed interval; sideslip centering remains fully active.
+		var effective_stall_speed_mps: float = float(simple_aero.call("get_effective_stall_speed_mps")) \
+			if simple_aero.has_method("get_effective_stall_speed_mps") else stall_speed_mps
+		var level_lift_speed_mps: float = maxf(
+			float(simple_aero.get("aligned_level_speed_mps")),
+			effective_stall_speed_mps + 1.0
+		)
+		var vertical_rudder_authority_t: float = clampf(
+			(speed_mps - effective_stall_speed_mps) \
+				/ maxf(level_lift_speed_mps - effective_stall_speed_mps, 1.0),
+			0.0,
+			1.0
+		)
+		vertical_rudder_command *= vertical_rudder_authority_t
+	var yaw_command: float = sideslip_yaw_command + vertical_rudder_command
+	_coordinated_turn_previous_sideslip = sideslip_ratio
+	_coordinated_turn_last_frame = frame
+	_coordinated_turn_target_g = target_load_g
+	_coordinated_turn_available_g = available_load_g
+	_coordinated_turn_target_aoa_deg = target_aoa_deg
+	_coordinated_turn_measured_aoa_deg = aoa_deg
+	_coordinated_turn_measured_g = measured_load_g
+	_coordinated_turn_pitch_command = pitch_command
+	_coordinated_turn_sideslip = sideslip_ratio
+	_coordinated_turn_vertical_rudder = vertical_rudder_command
+	_coordinated_turn_rate_deg_s = rad_to_deg(absf(aircraft.angular_velocity.dot(Vector3.UP)))
+	_coordinated_turn_vertical_lift_fraction = vertical_lift_fraction
+	_coordinated_turn_target_bank_deg = rad_to_deg(target_bank_rad)
+	_coordinated_turn_desired_vertical_speed_mps = desired_vertical_speed_mps
+	return {
+		"pitch": clampf(pitch_command, -1.0, 1.0),
+		"yaw": clampf(yaw_command, -1.0, 1.0),
+		"target_g": target_load_g,
+		"available_load_g": available_load_g,
+		"target_aoa_deg": target_aoa_deg,
+		"measured_g": measured_load_g,
+		"effective_measured_g": effective_measured_load_g,
+		"vertical_accel_mps2": _coordinated_turn_filtered_vertical_accel_mps2,
+		"aoa_deg": aoa_deg,
+		"sideslip": sideslip_ratio,
+		"vertical_rudder": vertical_rudder_command,
+		"turn_rate_deg_s": _coordinated_turn_rate_deg_s,
+		"target_bank_deg": rad_to_deg(target_bank_rad),
+		"vertical_lift_fraction": vertical_lift_fraction,
+		"desired_vertical_speed_mps": desired_vertical_speed_mps,
+		"vertical_speed_mps": velocity.y,
+	}
+
+
+## Deterministic test hook for the turn-optimizer scene. This deliberately uses the exact
+## production coordinated-turn and control-mapping paths, while bypassing mission-state steering.
+## The caller owns the desired bank and vertical speed for the duration of the test.
+func run_coordinated_turn_test_step(
+	delta: float,
+	target_bank_rad: float,
+	desired_vertical_speed_mps: float,
+	maximum_load_g: float
+) -> Dictionary:
+	if aircraft == null or not is_instance_valid(aircraft):
+		return {"valid": false}
+	var basis: Basis = aircraft.global_transform.basis
+	var current_bank_rad: float = atan2(basis.x.y, basis.y.y)
+	var bank_error_rad: float = _normalize_angle(target_bank_rad - current_bank_rad)
+	var roll_rate_rad_s: float = aircraft.angular_velocity.dot(basis.z)
+	var raw_roll: float = clampf(bank_error_rad * 10.0 - roll_rate_rad_s * 0.12, -1.0, 1.0)
+	var controls: Dictionary = _compute_coordinated_turn_controls(
+		delta,
+		target_bank_rad,
+		desired_vertical_speed_mps,
+		maximum_load_g
+	)
+	roll_input = raw_roll
+	# Production combat turns pass through _apply_positive_combat_turn_load_guard()
+	# before reaching SimpleAero. Mirror its fundamental inside-turn rule here so
+	# overbank tests do not evaluate forward-stick/negative-load behavior that the
+	# real attack and dogfight paths will never apply.
+	pitch_input = maxf(float(controls.get("pitch", 0.0)), 0.0)
+	controls["pitch"] = pitch_input
+	yaw_input = float(controls.get("yaw", 0.0))
+	throttle_input = 1.0
+	_smoothed_roll_input = roll_input
+	_smoothed_pitch_input = pitch_input
+	_smoothed_yaw_input = yaw_input
+
+	if simple_aero != null and is_instance_valid(simple_aero):
+		simple_aero.roll_input = -roll_input if invert_roll_sign else roll_input
+		simple_aero.pitch_input = -pitch_input if invert_pitch_sign else pitch_input
+		simple_aero.yaw_input = -yaw_input if invert_yaw_sign else yaw_input
+	if control_engine != null and is_instance_valid(control_engine) and control_engine.has_method("set_target_power"):
+		control_engine.call("set_target_power", throttle_input)
+
+	controls["valid"] = true
+	controls["roll"] = roll_input
+	controls["bank_deg"] = rad_to_deg(current_bank_rad)
+	controls["bank_error_deg"] = rad_to_deg(bank_error_rad)
+	return controls
+
+
+func reset_coordinated_turn_test_state() -> void:
+	_coordinated_turn_pitch_trim = 0.0
+	_coordinated_turn_previous_sideslip = 0.0
+	_coordinated_turn_previous_vertical_speed_mps = 0.0
+	_coordinated_turn_filtered_vertical_accel_mps2 = 0.0
+	_coordinated_turn_previous_aoa_deg = 0.0
+	_coordinated_turn_filtered_aoa_rate_deg_s = 0.0
+	_coordinated_turn_last_frame = -1000
+	_coordinated_turn_smoothed_target_g = 1.0
+	_coordinated_turn_desired_vertical_speed_mps = 0.0
+	_smoothed_roll_input = 0.0
+	_smoothed_pitch_input = 0.0
+	_smoothed_yaw_input = 0.0
+
+
 func _setup_patrol_waypoints():
 	"""Create 2 km square patrol around carrier"""
 	waypoints.clear()
@@ -7198,11 +19064,23 @@ func _setup_patrol_waypoints():
 		carrier_position + Vector3(-half, 0.0, -half),
 		carrier_position + Vector3( half, 0.0, -half),
 	]
-	for point in patrol_points:
+	var patrol_legs: Array = []
+	var safe_patrol_points: Array[Vector3] = build_terrain_safe_waypoints(
+		patrol_points,
+		aircraft_flight_plan_terrain_clearance_m,
+		true,
+		false
+	)
+	for point in safe_patrol_points:
 		var waypoint := point
-		waypoint.y = _resolve_effective_altitude_world_y(waypoint, patrol_altitude_m)
-		waypoints.append(waypoint)
-		waypoint_speeds_mps.append(default_waypoint_speed_mps)
+		waypoint.y = maxf(waypoint.y, _resolve_effective_altitude_world_y(waypoint, patrol_altitude_m))
+		patrol_legs.append({
+			"position": waypoint,
+			"role": "patrol",
+			"speed_mps": default_waypoint_speed_mps,
+			"capture_radius_m": 100.0
+		})
+	set_flight_plan_legs("patrol", patrol_legs, true, true, 100.0)
 
 	if debug_enabled and verbose_debug_enabled:
 		print("[AIPilot] Figure-eight patrol with ", waypoints.size(), " waypoints around carrier at: ", carrier_position)
@@ -7250,6 +19128,24 @@ func _refresh_carrier_position(shift_patrol_waypoints: bool) -> void:
 		for i in range(waypoints.size()):
 			waypoints[i] += center_delta
 
+func _combat_log_event(category: String, text: String) -> void:
+	var cl := get_node_or_null("/root/CombatLog")
+	if cl != null and cl.has_method("event"):
+		cl.call("event", category, text)
+
+func _combat_log_self() -> String:
+	if aircraft == null or not is_instance_valid(aircraft):
+		return "AI"
+	var t := ""
+	if aircraft.has_method("get_team"):
+		t = "T%d:" % int(aircraft.get_team())
+	return "%s%s" % [t, aircraft.name]
+
+func _combat_log_target() -> String:
+	if combat_target and is_instance_valid(combat_target):
+		return str(combat_target.name)
+	return "target"
+
 func change_state(new_state: State):
 	"""Change AI state with logging"""
 	if debug_enabled and current_state != new_state:
@@ -7266,6 +19162,18 @@ func change_state(new_state: State):
 			_landing_debug_timer_s = 0.0
 	if current_state != new_state:
 		_reset_release_solution_stability()
+	if new_state == State.ATTACK_POSITIONING and current_state not in [
+		State.ATTACK_POSITIONING,
+		State.ATTACK_INBOUND,
+		State.ATTACK_DIVE,
+		State.ATTACK_BREAK_OFF,
+	]:
+		_attack_last_commit_reason = "positioning"
+		_attack_last_end_reason = "pending"
+		_combat_log_event("ATTACK", "%s starting attack run on %s" % [_combat_log_self(), _combat_log_target()])
+	# Entering a dogfight (from a non-dogfight state) is a meaningful event.
+	if new_state == State.DOGFIGHT and current_state != State.DOGFIGHT:
+		_combat_log_event("ENGAGE", "%s engaging %s" % [_combat_log_self(), _combat_log_target()])
 	if current_state == State.DOGFIGHT and new_state != State.DOGFIGHT:
 		_dogfight_burst_active = false
 		_dogfight_burst_timer_s = 0.0
@@ -7280,14 +19188,39 @@ func change_state(new_state: State):
 		_dogfight_prev_target_distance_m = INF
 		_dogfight_recovery_timer_s = 0.0
 		_dogfight_recovery_waypoint = Vector3.ZERO
+		_dogfight_assertive_turn_active = false
+		_dogfight_rear_turn_sign = 0.0
 		_clear_dogfight_lost_sight_behavior()
 		_reset_dogfight_precise_controllers()
+		_reset_dogfight_los_rate()
 		_stop_firing()
 	if new_state == State.ATTACK_DIVE:
+		_ground_gun_firing_run_active = false
 		_dive_entry_time_s = Time.get_ticks_msec() / 1000.0
+		_attack_breakoff_egress_y_m = -INF
+		_attack_recovery_waypoint = Vector3.INF
+		_attack_recovery_heading_dir = Vector3.ZERO
+		_direct_fire_breakoff_dir = Vector3.ZERO
+		_attack_breakoff_reference_pos = _attack_setup_target_pos
+		_attack_breakoff_reference_locked = false
 		_best_bomb_ccip_miss_this_run = INF
+		_best_rocket_ccip_miss_this_run = INF
+		_prev_rocket_ccip_miss = INF
+	if new_state == State.ATTACK_BREAK_OFF and current_state != State.ATTACK_BREAK_OFF:
+		_attack_breakoff_entry_time_s = Time.get_ticks_msec() / 1000.0
+		_direct_fire_breakoff_dir = Vector3.ZERO
+	if current_state == State.ATTACK_BREAK_OFF and new_state != State.ATTACK_BREAK_OFF:
+		_attack_recovery_waypoint = Vector3.INF
+		_attack_recovery_heading_dir = Vector3.ZERO
+		_direct_fire_breakoff_dir = Vector3.ZERO
+		_attack_breakoff_reference_pos = Vector3.INF
+		_attack_breakoff_reference_locked = false
 	if current_state == State.ATTACK_DIVE and new_state != State.ATTACK_DIVE:
+		_ground_gun_firing_run_active = false
 		_hide_bomb_debug_visuals()
+		_clear_bomb_ccip_aim_error()
+		_clear_rocket_ccip_aim_error()
+		_clear_gun_ccip_aim_error()
 	if new_state == State.DOGFIGHT:
 		_dogfight_retarget_timer_s = 0.0
 		_dogfight_weapon_commit_timer_s = 0.0
@@ -7296,21 +19229,28 @@ func change_state(new_state: State):
 		_dogfight_prev_target_distance_m = INF
 		_dogfight_recovery_timer_s = 0.0
 		_dogfight_recovery_waypoint = Vector3.ZERO
+		_dogfight_assertive_turn_active = false
+		_dogfight_rear_turn_sign = 0.0
 		_clear_dogfight_lost_sight_behavior()
 		_reset_dogfight_precise_controllers()
+		_reset_dogfight_los_rate()
 	current_state = new_state
 
 # ============================================================================
 # PUBLIC API - For external control
 # ============================================================================
 
-func set_waypoints(new_waypoints: Array[Vector3], follow_carrier: bool = false, target_speeds_mps: Array = []):
-	"""Set waypoint list for navigation"""
+func _apply_waypoint_arrays(new_waypoints: Array[Vector3], follow_carrier: bool = false, target_speeds_mps: Array = []) -> void:
 	waypoints = new_waypoints
 	waypoint_speeds_mps = _normalize_waypoint_speeds(target_speeds_mps, waypoints.size())
 	current_waypoint_index = 0
 	waypoints_follow_carrier = follow_carrier
 	_reset_cap_route_debug()
+
+func set_waypoints(new_waypoints: Array[Vector3], follow_carrier: bool = false, target_speeds_mps: Array = []):
+	"""Set waypoint list for navigation"""
+	_clear_flight_plan()
+	_apply_waypoint_arrays(new_waypoints, follow_carrier, target_speeds_mps)
 	if cap_route_debug_enabled and not follow_carrier and new_waypoints.size() > 1:
 		var first := new_waypoints[0]
 		var second := new_waypoints[1]
@@ -7323,28 +19263,1624 @@ func set_waypoints(new_waypoints: Array[Vector3], follow_carrier: bool = false, 
 
 func set_waypoint_legs(legs: Array, follow_carrier: bool = false) -> void:
 	"""Set waypoint legs from dictionaries containing position and optional speed_mps."""
+	set_flight_plan_legs("external", legs, follow_carrier, true)
+
+func _route_speed_for_radius_mps(radius_m: float) -> float:
+	var bank_rad: float = deg_to_rad(clampf(
+		aircraft_route_turn_speed_bank_deg,
+		aircraft_route_min_planning_bank_deg,
+		aircraft_route_max_planning_bank_deg
+	))
+	return sqrt(
+		maxf(radius_m, 1.0) * 9.80665 * tan(maxf(bank_rad, deg_to_rad(1.0)))
+		/ maxf(aircraft_turn_radius_safety_factor, 0.1)
+	)
+
+func _constrain_flight_plan_corner_radii(legs: Array[Dictionary], loop_route: bool) -> void:
+	if not aircraft_route_radius_constraint_enabled or legs.size() < 3:
+		return
+	var first_corner: int = 0 if loop_route else 1
+	var last_corner_exclusive: int = legs.size() if loop_route else legs.size() - 1
+	for corner_index in range(first_corner, last_corner_exclusive):
+		var previous_index: int = posmod(corner_index - 1, legs.size())
+		var next_index: int = posmod(corner_index + 1, legs.size())
+		var previous_pos: Vector3 = legs[previous_index].get("position", Vector3.ZERO)
+		var corner_pos: Vector3 = legs[corner_index].get("position", Vector3.ZERO)
+		var next_pos: Vector3 = legs[next_index].get("position", Vector3.ZERO)
+		var incoming: Vector2 = Vector2(corner_pos.x - previous_pos.x, corner_pos.z - previous_pos.z)
+		var outgoing: Vector2 = Vector2(next_pos.x - corner_pos.x, next_pos.z - corner_pos.z)
+		var incoming_length_m: float = incoming.length()
+		var outgoing_length_m: float = outgoing.length()
+		if incoming_length_m <= 1.0 or outgoing_length_m <= 1.0:
+			continue
+		var turn_angle_rad: float = acos(clampf(
+			(incoming / incoming_length_m).dot(outgoing / outgoing_length_m),
+			-1.0,
+			1.0
+		))
+		if turn_angle_rad < deg_to_rad(maxf(aircraft_route_turn_min_angle_deg, 0.0)):
+			continue
+		var tan_half_angle: float = tan(turn_angle_rad * 0.5)
+		if tan_half_angle <= 0.01:
+			continue
+		var usable_tangent_m: float = minf(incoming_length_m, outgoing_length_m) \
+			* clampf(aircraft_route_turn_tangent_fraction, 0.1, 0.95) \
+			* clampf(aircraft_route_radius_constraint_margin, 0.25, 1.0)
+		var available_radius_m: float = usable_tangent_m / tan_half_angle
+		var planned_radius_m: float = float(legs[corner_index].get("turn_radius_m", NAN))
+		if not is_finite(planned_radius_m) or planned_radius_m <= 0.0:
+			var planned_speed_mps: float = float(legs[corner_index].get("speed_mps", NAN))
+			planned_radius_m = _estimate_aircraft_turn_radius_m(planned_speed_mps)
+		if available_radius_m >= planned_radius_m:
+			legs[corner_index]["turn_feasible"] = true
+			continue
+		var minimum_speed_mps: float = maxf(
+			aircraft_route_turn_speed_min_mps,
+			stall_speed_mps + stall_margin_mps + 8.0
+		)
+		var constrained_speed_mps: float = maxf(_route_speed_for_radius_mps(available_radius_m), minimum_speed_mps)
+		var constrained_radius_m: float = maxf(
+			available_radius_m,
+			(constrained_speed_mps * constrained_speed_mps)
+				/ (9.80665 * tan(deg_to_rad(maxf(aircraft_route_turn_speed_bank_deg, 1.0))))
+				* maxf(aircraft_turn_radius_safety_factor, 0.1)
+		)
+		legs[corner_index]["corner_speed_cap_mps"] = constrained_speed_mps
+		legs[corner_index]["available_turn_radius_m"] = available_radius_m
+		legs[corner_index]["turn_feasible"] = constrained_radius_m <= available_radius_m * 1.05
+		var existing_capture_m: float = float(legs[corner_index].get("capture_radius_m", 0.0))
+		legs[corner_index]["capture_radius_m"] = maxf(
+			existing_capture_m,
+			minf(usable_tangent_m * aircraft_route_turn_capture_fraction, aircraft_route_turn_capture_max_m)
+		)
+
+func get_active_waypoints() -> Array[Vector3]:
+	# Map-facing view of the route. Return the active leg first so both the
+	# tactical map and cockpit map can connect the aircraft to what it is actually
+	# flying toward instead of redrawing already-completed legs behind it.
+	var active_route: Array[Vector3] = []
+	if waypoints.is_empty():
+		return active_route
+	var start_index: int = clampi(current_waypoint_index, 0, waypoints.size() - 1)
+	for i in range(start_index, waypoints.size()):
+		active_route.append(waypoints[i])
+	if _flight_plan_loop:
+		for i in range(start_index):
+			active_route.append(waypoints[i])
+	return active_route
+
+func set_flight_plan_legs(plan_name: String, legs: Array, follow_carrier: bool = false, loop: bool = false, capture_radius_m: float = -1.0) -> void:
+	"""Set a route with lightweight metadata while still feeding the legacy waypoint controller."""
 	var new_waypoints: Array[Vector3] = []
 	var new_speeds: Array = []
+	var normalized_legs: Array[Dictionary] = []
 	for leg_variant in legs:
 		if leg_variant is Vector3:
-			new_waypoints.append(leg_variant)
+			var point: Vector3 = leg_variant
+			new_waypoints.append(point)
 			new_speeds.append(NAN)
+			normalized_legs.append({
+				"position": point,
+				"role": "waypoint",
+				"speed_mps": NAN,
+				"turn_radius_m": NAN
+			})
 			continue
 		if not (leg_variant is Dictionary):
 			continue
-		var leg := leg_variant as Dictionary
+		var leg: Dictionary = leg_variant as Dictionary
 		var pos_value: Variant = leg.get("position", leg.get("waypoint", Vector3.INF))
 		if not (pos_value is Vector3):
 			continue
-		var position := Vector3.ZERO
+		var position: Vector3 = Vector3.ZERO
 		position = pos_value
 		new_waypoints.append(position)
 		var speed_value: Variant = leg.get("speed_mps", leg.get("target_speed_mps", NAN))
-		var speed := NAN
+		var speed: float = NAN
 		if typeof(speed_value) == TYPE_FLOAT or typeof(speed_value) == TYPE_INT:
 			speed = float(speed_value)
 		new_speeds.append(speed)
-	set_waypoints(new_waypoints, follow_carrier, new_speeds)
+		var role_value: Variant = leg.get("role", leg.get("type", "waypoint"))
+		var role: String = str(role_value)
+		var leg_capture_value: Variant = leg.get("capture_radius_m", NAN)
+		var leg_capture: float = NAN
+		if typeof(leg_capture_value) == TYPE_FLOAT or typeof(leg_capture_value) == TYPE_INT:
+			leg_capture = float(leg_capture_value)
+		var turn_radius_value: Variant = leg.get("turn_radius_m", NAN)
+		var turn_radius_m: float = NAN
+		if typeof(turn_radius_value) == TYPE_FLOAT or typeof(turn_radius_value) == TYPE_INT:
+			turn_radius_m = float(turn_radius_value)
+		if is_nan(turn_radius_m) or turn_radius_m <= 0.0:
+			turn_radius_m = _estimate_aircraft_turn_radius_m(speed, role)
+		leg_capture = _get_aircraft_route_capture_radius_m(speed, role, leg_capture)
+		var normalized_leg: Dictionary = {
+			"position": position,
+			"role": role,
+			"speed_mps": speed,
+			"capture_radius_m": leg_capture,
+			"turn_radius_m": turn_radius_m
+		}
+		var debug_tag: String = str(leg.get("debug_tag", ""))
+		if not debug_tag.is_empty():
+			normalized_leg["debug_tag"] = debug_tag
+		var route_primitive: String = str(leg.get("route_primitive", ""))
+		if not route_primitive.is_empty():
+			normalized_leg["route_primitive"] = route_primitive
+		for primitive_key: String in [
+			"arc_center_xz",
+			"arc_start_angle_rad",
+			"arc_sweep_rad",
+			"arc_turn_sign",
+		]:
+			if leg.has(primitive_key):
+				normalized_leg[primitive_key] = leg[primitive_key]
+		normalized_legs.append(normalized_leg)
+	_constrain_flight_plan_corner_radii(normalized_legs, loop)
+	new_waypoints.clear()
+	new_speeds.clear()
+	for normalized_leg: Dictionary in normalized_legs:
+		new_waypoints.append(normalized_leg.get("position", Vector3.ZERO))
+		new_speeds.append(float(normalized_leg.get("speed_mps", NAN)))
+	_flight_plan_name = plan_name
+	_flight_plan_legs = normalized_legs
+	_flight_plan_loop = loop
+	_flight_plan_capture_radius_m = capture_radius_m if capture_radius_m > 0.0 else aircraft_flight_plan_capture_radius_m
+	_route_last_advance_reason = "hold"
+	_route_last_resync_reason = "none"
+	_route_pending_advance_reason = ""
+	_route_pending_resync_reason = ""
+	_route_arc_progress_index = -1
+	_route_arc_progress_rad = 0.0
+	_route_arc_remaining_m = INF
+	_route_arc_radial_error_m = INF
+	_route_arc_controller_bank_sign = 0.0
+	_route_arc_endpoint_plane_armed = false
+	_clear_route_advance_hint()
+	_apply_waypoint_arrays(new_waypoints, follow_carrier, new_speeds)
+	_flight_plan_revision += 1
+
+func _clear_flight_plan() -> void:
+	_flight_plan_name = ""
+	_flight_plan_legs.clear()
+	_flight_plan_loop = false
+	_flight_plan_capture_radius_m = aircraft_flight_plan_capture_radius_m
+	_route_last_advance_reason = "hold"
+	_route_last_resync_reason = "none"
+	_route_pending_advance_reason = ""
+	_route_pending_resync_reason = ""
+	_route_arc_progress_index = -1
+	_route_arc_progress_rad = 0.0
+	_route_arc_remaining_m = INF
+	_route_arc_radial_error_m = INF
+	_route_arc_controller_bank_sign = 0.0
+	_route_arc_endpoint_plane_armed = false
+	_clear_route_advance_hint()
+
+func _clear_attack_flight_plan() -> void:
+	_attack_egress_waypoint = Vector3.INF
+	_attack_egress_offset_from_target = Vector3.ZERO
+	_attack_breakoff_egress_y_m = -INF
+	_attack_locked_setup_distance_m = 0.0
+	_attack_setup_altitude_m = NAN
+	_attack_release_waypoint = Vector3.INF
+	_attack_corridor_axis = Vector3.ZERO
+	_attack_corridor_target_instance_id = 0
+	_attack_corridor_target_pos = Vector3.INF
+	if _flight_plan_name == "ground_attack":
+		_clear_flight_plan()
+		waypoints.clear()
+		waypoint_speeds_mps.clear()
+		current_waypoint_index = 0
+
+func _get_active_leg_capture_radius() -> float:
+	var radius_m: float = _get_route_leg_capture_radius(current_waypoint_index)
+	if _flight_plan_name == "ground_attack" and current_state == State.ATTACK_POSITIONING:
+		radius_m *= clampf(attack_route_capture_radius_scale, 0.25, 3.0)
+	return maxf(radius_m, 1.0)
+
+func _get_route_leg_capture_radius(index: int) -> float:
+	var radius: float = _flight_plan_capture_radius_m
+	if _flight_plan_legs.size() > 0:
+		var clamped_index: int = clampi(index, 0, _flight_plan_legs.size() - 1)
+		var leg: Dictionary = _flight_plan_legs[clamped_index]
+		var capture_value: Variant = leg.get("capture_radius_m", NAN)
+		if typeof(capture_value) == TYPE_FLOAT or typeof(capture_value) == TYPE_INT:
+			var capture_radius: float = float(capture_value)
+			if not is_nan(capture_radius) and capture_radius > 0.0:
+				radius = capture_radius
+	return maxf(radius, 1.0)
+
+func _active_route_leg_role() -> String:
+	return _get_route_leg_role(current_waypoint_index)
+
+func _get_route_leg_role(index: int) -> String:
+	if _flight_plan_legs.is_empty():
+		return ""
+	var clamped_index: int = clampi(index, 0, _flight_plan_legs.size() - 1)
+	var leg: Dictionary = _flight_plan_legs[clamped_index]
+	return str(leg.get("role", ""))
+
+func _get_active_leg_turn_radius_m() -> float:
+	return _get_route_leg_turn_radius_m(current_waypoint_index)
+
+func _get_route_leg_turn_radius_m(index: int) -> float:
+	if _flight_plan_legs.size() <= 0:
+		return NAN
+	var clamped_index: int = clampi(index, 0, _flight_plan_legs.size() - 1)
+	var leg: Dictionary = _flight_plan_legs[clamped_index]
+	var radius_value: Variant = leg.get("turn_radius_m", NAN)
+	if typeof(radius_value) == TYPE_FLOAT or typeof(radius_value) == TYPE_INT:
+		var radius_m: float = float(radius_value)
+		if not is_nan(radius_m) and radius_m > 0.0:
+			return radius_m
+	return NAN
+
+func _get_active_route_lookahead_distance_m() -> float:
+	var lookahead_m: float = maneuver_lookahead_distance
+	var radius_m: float = _get_active_leg_turn_radius_m()
+	if (
+		_flight_plan_name == "ground_attack"
+		and current_state == State.ATTACK_POSITIONING
+		and not is_nan(radius_m)
+		and radius_m > 0.0
+	):
+		var attack_lookahead_m: float = maxf(
+			_get_active_leg_capture_radius(),
+			radius_m * maxf(attack_route_lookahead_radius_fraction, 0.05)
+		)
+		return minf(attack_lookahead_m, maneuver_lookahead_distance)
+	if not is_nan(radius_m) and radius_m > 0.0:
+		lookahead_m = maxf(lookahead_m, radius_m * maxf(aircraft_route_lookahead_radius_fraction, 0.1))
+	return clampf(lookahead_m, maneuver_lookahead_distance, aircraft_turn_radius_max_m)
+
+func _get_route_previous_index(index: int, loop_route: bool) -> int:
+	if waypoints.size() <= 1:
+		return -1
+	if index > 0:
+		return index - 1
+	if loop_route:
+		return waypoints.size() - 1
+	return -1
+
+func _get_route_next_index(index: int, loop_route: bool) -> int:
+	if waypoints.size() <= 1:
+		return -1
+	if index < waypoints.size() - 1:
+		return index + 1
+	if loop_route:
+		return 0
+	return -1
+
+func _offset_route_index(index: int, offset: int, loop_route: bool) -> int:
+	if waypoints.is_empty():
+		return -1
+	if loop_route:
+		return posmod(index + offset, waypoints.size())
+	return clampi(index + offset, 0, waypoints.size() - 1)
+
+func _project_route_t_xz(point: Vector3, segment_start: Vector3, segment_end: Vector3) -> float:
+	var segment_x: float = segment_end.x - segment_start.x
+	var segment_z: float = segment_end.z - segment_start.z
+	var length_sq: float = segment_x * segment_x + segment_z * segment_z
+	if length_sq <= 0.001:
+		return 0.0
+	var point_x: float = point.x - segment_start.x
+	var point_z: float = point.z - segment_start.z
+	return (point_x * segment_x + point_z * segment_z) / length_sq
+
+func _interpolate_route_point(segment_start: Vector3, segment_end: Vector3, t: float) -> Vector3:
+	return segment_start.lerp(segment_end, clampf(t, 0.0, 1.0))
+
+func _route_segment_distance_xz(point: Vector3, target_index: int, loop_route: bool) -> float:
+	var previous_index: int = _get_route_previous_index(target_index, loop_route)
+	if previous_index < 0:
+		return INF
+	var segment_start: Vector3 = waypoints[previous_index]
+	var segment_end: Vector3 = waypoints[target_index]
+	var segment_t: float = clampf(_project_route_t_xz(point, segment_start, segment_end), 0.0, 1.0)
+	var closest: Vector3 = _interpolate_route_point(segment_start, segment_end, segment_t)
+	return Vector2(point.x - closest.x, point.z - closest.z).length()
+
+func _route_segment_heading_error_rad(target_index: int, loop_route: bool) -> float:
+	if aircraft == null or not is_instance_valid(aircraft):
+		return 0.0
+	var previous_index: int = _get_route_previous_index(target_index, loop_route)
+	if previous_index < 0:
+		return 0.0
+	var direction: Vector3 = _route_direction_between_points(waypoints[previous_index], waypoints[target_index])
+	if direction.length_squared() <= 0.0001:
+		return 0.0
+	return absf(_get_local_forward_view_yaw_error(direction, aircraft.global_transform.basis))
+
+func _route_segment_resync_score(point: Vector3, target_index: int, _current_index: int, offset: int, loop_route: bool) -> float:
+	var distance_m: float = _route_segment_distance_xz(point, target_index, loop_route)
+	if not is_finite(distance_m):
+		return INF
+	var score_m: float = distance_m
+	var heading_error_rad: float = _route_segment_heading_error_rad(target_index, loop_route)
+	# A later segment behind the aircraft is not progress toward the route. In the
+	# old re-entry plan its proximity score could skip several curved legs and leave
+	# the aircraft chasing the back of the arc. Wait until that segment enters the
+	# forward hemisphere; the ordinary active-leg controller owns the turn meanwhile.
+	if _flight_plan_name == "ground_attack" and offset > 0 and cos(heading_error_rad) < 0.0:
+		return INF
+	score_m += (heading_error_rad / PI) * maxf(aircraft_route_resync_heading_penalty_m, 0.0)
+	if offset < 0:
+		score_m += abs(offset) * maxf(aircraft_route_resync_backward_penalty_m, 0.0)
+	return score_m
+
+func _route_horizontal_distance(a: Vector3, b: Vector3) -> float:
+	return Vector2(a.x - b.x, a.z - b.z).length()
+
+func _get_route_turn_guidance(target_index: int, loop_route: bool) -> Dictionary:
+	if waypoints.size() < 3:
+		return {}
+	var corner_index: int = clampi(target_index, 0, waypoints.size() - 1)
+	var previous_index: int = _get_route_previous_index(corner_index, loop_route)
+	var next_index: int = _get_route_next_index(corner_index, loop_route)
+	if previous_index < 0 or next_index < 0 or previous_index == corner_index or next_index == corner_index:
+		return {}
+
+	var previous_point: Vector3 = waypoints[previous_index]
+	var corner_point: Vector3 = waypoints[corner_index]
+	var next_point: Vector3 = waypoints[next_index]
+	var incoming: Vector2 = Vector2(corner_point.x - previous_point.x, corner_point.z - previous_point.z)
+	var outgoing: Vector2 = Vector2(next_point.x - corner_point.x, next_point.z - corner_point.z)
+	var incoming_length_m: float = incoming.length()
+	var outgoing_length_m: float = outgoing.length()
+	if incoming_length_m <= 1.0 or outgoing_length_m <= 1.0:
+		return {}
+
+	var incoming_dir: Vector2 = incoming / incoming_length_m
+	var outgoing_dir: Vector2 = outgoing / outgoing_length_m
+	var turn_angle_rad: float = acos(clampf(incoming_dir.dot(outgoing_dir), -1.0, 1.0))
+	if turn_angle_rad < deg_to_rad(maxf(aircraft_route_turn_min_angle_deg, 0.0)):
+		return {}
+
+	var tan_half_angle: float = tan(turn_angle_rad * 0.5)
+	if tan_half_angle <= 0.01:
+		return {}
+	var available_tangent_m: float = minf(incoming_length_m, outgoing_length_m) * clampf(aircraft_route_turn_tangent_fraction, 0.1, 0.95)
+	var radius_m: float = available_tangent_m / tan_half_angle
+	var bank_rad: float = deg_to_rad(clampf(aircraft_route_turn_speed_bank_deg, aircraft_route_min_planning_bank_deg, aircraft_route_max_planning_bank_deg))
+	var speed_cap_mps: float = sqrt(maxf(radius_m, 1.0) * 9.80665 * tan(maxf(bank_rad, deg_to_rad(1.0))) / maxf(aircraft_turn_radius_safety_factor, 0.1))
+	if corner_index < _flight_plan_legs.size():
+		var stored_cap_value: Variant = _flight_plan_legs[corner_index].get("corner_speed_cap_mps", NAN)
+		if typeof(stored_cap_value) == TYPE_FLOAT or typeof(stored_cap_value) == TYPE_INT:
+			var stored_cap_mps: float = float(stored_cap_value)
+			if is_finite(stored_cap_mps) and stored_cap_mps > 0.0:
+				speed_cap_mps = minf(speed_cap_mps, stored_cap_mps)
+	return {
+		"corner": corner_point,
+		"turn_angle_rad": turn_angle_rad,
+		"radius_m": radius_m,
+		"tangent_m": available_tangent_m,
+		"speed_cap_mps": speed_cap_mps,
+		"incoming_length_m": incoming_length_m,
+		"outgoing_length_m": outgoing_length_m,
+	}
+
+func _get_route_flyby_guidance(target_index: int, loop_route: bool) -> Dictionary:
+	if not aircraft_route_flyby_enabled:
+		return {}
+	if (
+		not attack_route_flyby_enabled
+		and _flight_plan_name == "ground_attack"
+		and current_state == State.ATTACK_POSITIONING
+	):
+		return {}
+	if target_index >= 0 and target_index < _flight_plan_legs.size() \
+			and (
+				str(_flight_plan_legs[target_index].get("debug_tag", "")) == "departure_turn"
+				or str(_flight_plan_legs[target_index].get("route_primitive", "")) == "arc"
+			):
+		# These points are samples of an already-solved circular tangent. Applying
+		# another corner-rounding curve here creates curvature on top of curvature.
+		return {}
+	var guidance: Dictionary = _get_route_turn_guidance(target_index, loop_route)
+	if guidance.is_empty():
+		return {}
+
+	var turn_angle_rad: float = float(guidance.get("turn_angle_rad", 0.0))
+	var tan_half_angle: float = tan(turn_angle_rad * 0.5)
+	if tan_half_angle <= 0.01:
+		return {}
+
+	var incoming_length_m: float = float(guidance.get("incoming_length_m", 0.0))
+	var outgoing_length_m: float = float(guidance.get("outgoing_length_m", 0.0))
+	var planned_radius_m: float = _get_active_leg_turn_radius_m()
+	if not is_finite(planned_radius_m) or planned_radius_m <= 1.0:
+		planned_radius_m = _estimate_aircraft_turn_radius_m(target_speed)
+	var ideal_tangent_m: float = planned_radius_m * tan_half_angle * maxf(aircraft_route_flyby_start_radius_fraction, 0.1)
+	var max_tangent_m: float = minf(incoming_length_m, outgoing_length_m) * clampf(aircraft_route_turn_tangent_fraction, 0.1, 0.95)
+	var tangent_m: float = clampf(ideal_tangent_m, 1.0, max_tangent_m)
+	if tangent_m <= 1.0:
+		return {}
+
+	var corner_value: Variant = guidance.get("corner", Vector3.INF)
+	if not (corner_value is Vector3):
+		return {}
+	var corner: Vector3 = corner_value
+	var previous_index: int = _get_route_previous_index(target_index, loop_route)
+	var next_index: int = _get_route_next_index(target_index, loop_route)
+	if previous_index < 0 or next_index < 0:
+		return {}
+	var previous_point: Vector3 = waypoints[previous_index]
+	var next_point: Vector3 = waypoints[next_index]
+	var incoming_dir_xz: Vector2 = Vector2(corner.x - previous_point.x, corner.z - previous_point.z).normalized()
+	var outgoing_dir_xz: Vector2 = Vector2(next_point.x - corner.x, next_point.z - corner.z).normalized()
+	var turn_cross: float = incoming_dir_xz.x * outgoing_dir_xz.y - incoming_dir_xz.y * outgoing_dir_xz.x
+	var turn_sign: float = -signf(turn_cross)
+	var turn_radius_m: float = tangent_m / tan_half_angle
+	var turn_start: Vector3 = Vector3(
+		corner.x - incoming_dir_xz.x * tangent_m,
+		lerpf(previous_point.y, corner.y, clampf((incoming_length_m - tangent_m) / incoming_length_m, 0.0, 1.0)),
+		corner.z - incoming_dir_xz.y * tangent_m
+	)
+	var turn_end: Vector3 = Vector3(
+		corner.x + outgoing_dir_xz.x * tangent_m,
+		lerpf(corner.y, next_point.y, clampf(tangent_m / outgoing_length_m, 0.0, 1.0)),
+		corner.z + outgoing_dir_xz.y * tangent_m
+	)
+	return {
+		"corner": corner,
+		"turn_start": turn_start,
+		"turn_end": turn_end,
+		"tangent_m": tangent_m,
+		"arc_length_m": (tangent_m / tan_half_angle) * turn_angle_rad,
+		"turn_radius_m": turn_radius_m,
+		"turn_sign": turn_sign,
+		"incoming_length_m": incoming_length_m,
+		"outgoing_length_m": outgoing_length_m,
+		"incoming_dir_xz": incoming_dir_xz,
+		"outgoing_dir_xz": outgoing_dir_xz,
+	}
+
+func _update_route_arc_primitive_guidance(target_index: int, loop_route: bool) -> bool:
+	if target_index < 0 or target_index >= _flight_plan_legs.size():
+		return false
+	var leg: Dictionary = _flight_plan_legs[target_index]
+	if str(leg.get("route_primitive", "")) != "arc":
+		return false
+	var center_value: Variant = leg.get("arc_center_xz", Vector2.ZERO)
+	if not (center_value is Vector2):
+		return false
+	var center: Vector2 = center_value
+	var radius_m: float = maxf(float(leg.get("turn_radius_m", 0.0)), 1.0)
+	var start_angle: float = float(leg.get("arc_start_angle_rad", 0.0))
+	var sweep_rad: float = maxf(float(leg.get("arc_sweep_rad", 0.0)), 0.0)
+	var turn_sign: float = signf(float(leg.get("arc_turn_sign", 1.0)))
+	if sweep_rad <= 0.001 or absf(turn_sign) < 0.5:
+		return false
+
+	var aircraft_2d := Vector2(aircraft.global_position.x, aircraft.global_position.z)
+	var radial: Vector2 = aircraft_2d - center
+	if radial.length_squared() <= 0.001:
+		return false
+	var current_angle: float = atan2(radial.y, radial.x)
+	var raw_progress_rad: float = _directed_circle_sweep_rad(start_angle, current_angle, turn_sign)
+	if _route_arc_progress_index != target_index:
+		_route_arc_progress_index = target_index
+		_route_arc_progress_rad = 0.0
+		_route_arc_controller_bank_sign = 0.0
+		_route_arc_endpoint_plane_armed = false
+	var progress_delta_rad: float = wrapf(raw_progress_rad - _route_arc_progress_rad, -PI, PI)
+	_route_arc_progress_rad = clampf(
+		maxf(_route_arc_progress_rad, _route_arc_progress_rad + progress_delta_rad),
+		0.0,
+		sweep_rad
+	)
+	_route_arc_remaining_m = maxf(sweep_rad - _route_arc_progress_rad, 0.0) * radius_m
+	_route_arc_radial_error_m = absf(radial.length() - radius_m)
+
+	var lookahead_m: float = _get_active_route_lookahead_distance_m()
+	var lookahead_progress_rad: float = minf(
+		_route_arc_progress_rad + lookahead_m / radius_m,
+		sweep_rad
+	)
+	var lookahead_angle: float = start_angle + turn_sign * lookahead_progress_rad
+	var previous_index: int = _get_route_previous_index(target_index, loop_route)
+	var start_y: float = aircraft.global_position.y
+	if previous_index >= 0:
+		start_y = waypoints[previous_index].y
+	var end_y: float = waypoints[target_index].y
+	var altitude_t: float = clampf(
+		lookahead_progress_rad / maxf(sweep_rad, 0.001),
+		0.0,
+		1.0
+	)
+	# Horizontal path capture must be based on the closest point on the circle to
+	# the aircraft, not the monotonically advancing route carrot. If the aircraft
+	# overshoots the carrot, steering toward that now-behind point can either open
+	# the turn or lock onto a displaced orbit. The radial projection remains valid
+	# everywhere around the circle and supplies a coherent tangent/cross-track pair.
+	var closest_radial: Vector2 = radial.normalized()
+	var route_point := Vector3(
+		center.x + closest_radial.x * radius_m,
+		lerpf(start_y, end_y, clampf(_route_arc_progress_rad / maxf(sweep_rad, 0.001), 0.0, 1.0)),
+		center.y + closest_radial.y * radius_m
+	)
+	maneuver_waypoint = Vector3(
+		center.x + cos(lookahead_angle) * radius_m,
+		lerpf(start_y, end_y, altitude_t),
+		center.y + sin(lookahead_angle) * radius_m
+	)
+	var tangent_2d: Vector2 = _circle_tangent_direction_2d(closest_radial, turn_sign)
+	var tangent_world := Vector3(tangent_2d.x, 0.0, tangent_2d.y)
+	_route_cross_track_m = _route_arc_radial_error_m
+	_set_route_forward_projection_direction(
+		_get_route_cross_track_capture_direction(tangent_world, route_point)
+	)
+	var horizontal_speed_mps: float = Vector2(
+		aircraft.linear_velocity.x,
+		aircraft.linear_velocity.z
+	).length()
+	# In this aircraft controller, positive bank produces increasing polar angle in
+	# the world's XZ plane. Keep controller bank sign identical to the primitive's
+	# directed angular sign; negating it made the aircraft fly the opposite way
+	# around the circle while the signed progress tracker correctly stayed put.
+	_route_curvature_feedforward_bank_rad = turn_sign * atan(
+		horizontal_speed_mps * horizontal_speed_mps / (9.80665 * radius_m)
+	)
+	_route_fpv_pitch_target_active = true
+	_route_fpv_pitch_horizon_m = lookahead_m
+	_route_fpv_pitch_target = maneuver_waypoint
+	if nav_target:
+		nav_target.global_position = maneuver_waypoint
+
+	var capture_radius_m: float = _get_route_leg_capture_radius(target_index)
+	# A generic waypoint capture radius is intentionally generous, but using it as
+	# remaining arc length abandons a tangent turn tens of degrees early. Use the
+	# configured radius fraction for angular completion; this scales with the
+	# actual maneuver instead of imposing a fixed distance or heading band.
+	var arc_completion_m: float = minf(
+		capture_radius_m,
+		radius_m * maxf(aircraft_route_capture_radius_fraction, 0.01)
+	)
+	var radial_limit_m: float = _get_route_projection_advance_limit_for_index(
+		target_index,
+		capture_radius_m
+	)
+	var arc_radial_completion_m: float = minf(radial_limit_m, arc_completion_m)
+	var end_angle: float = start_angle + turn_sign * sweep_rad
+	var end_radial := Vector2(cos(end_angle), sin(end_angle))
+	var end_point_2d: Vector2 = center + end_radial * radius_m
+	var end_tangent_2d: Vector2 = _circle_tangent_direction_2d(end_radial, turn_sign)
+	var endpoint_plane_distance_m: float = (aircraft_2d - end_point_2d).dot(end_tangent_2d)
+	# A directed arc has a real exit plane: the tangent through its endpoint.  Arm
+	# that plane while the aircraft is on its approach side, then accept the crossing
+	# only near the endpoint and circle.  Unlike a final angular epsilon, this still
+	# works when a displaced aircraft reaches the correct tangent with the modulo
+	# progress tracker a few metres short.  Long (>180 degree) arcs cannot falsely
+	# complete near their start because they encounter and arm the approach side of
+	# the endpoint plane only after traversing the opposite half of the circle.
+	if endpoint_plane_distance_m < 0.0:
+		_route_arc_endpoint_plane_armed = true
+	var horizontal_velocity_2d := Vector2(
+		aircraft.linear_velocity.x,
+		aircraft.linear_velocity.z
+	)
+	var endpoint_plane_crossed: bool = (
+		_route_arc_endpoint_plane_armed
+		and endpoint_plane_distance_m >= 0.0
+		and aircraft_2d.distance_to(end_point_2d) <= capture_radius_m
+		and _route_arc_radial_error_m <= radial_limit_m
+		and horizontal_velocity_2d.dot(end_tangent_2d) > 0.0
+	)
+	# Once signed angular progress has actually reached the end of the primitive,
+	# its horizontal turning obligation is complete.  Requiring a second radial
+	# capture at that point can deadlock a displaced aircraft into an expanding
+	# orbit around an already-finished arc; the following straight/arc leg is the
+	# correct geometry for recovering that displacement.  Before the endpoint we
+	# still require the normal radial capture, so a merely-near endpoint cannot
+	# skip a turn early.
+	var arc_progress_complete: bool = _route_arc_progress_rad >= sweep_rad - 0.0001
+	if endpoint_plane_crossed:
+		var next_index: int = _get_route_next_index(target_index, loop_route)
+		if next_index >= 0:
+			_suggest_route_advance(next_index, "arc_endpoint_crossing")
+	elif _route_arc_remaining_m <= arc_completion_m \
+			and (arc_progress_complete or _route_arc_radial_error_m <= arc_radial_completion_m):
+		var next_index: int = _get_route_next_index(target_index, loop_route)
+		if next_index >= 0:
+			_suggest_route_advance(next_index, "arc_complete")
+	return true
+
+func _quadratic_bezier(a: Vector3, b: Vector3, c: Vector3, t: float) -> Vector3:
+	var u: float = 1.0 - t
+	return a * (u * u) + b * (2.0 * u * t) + c * (t * t)
+
+func _quadratic_bezier_tangent(a: Vector3, b: Vector3, c: Vector3, t: float) -> Vector3:
+	return (b - a) * (2.0 * (1.0 - t)) + (c - b) * (2.0 * t)
+
+func _set_route_forward_projection_direction(direction: Vector3) -> void:
+	direction.y = 0.0
+	if not aircraft_route_forward_projection_enabled or direction.length_squared() <= 0.0001:
+		_route_forward_projection_active = false
+		_route_forward_projection_dir = Vector3.ZERO
+		return
+	_route_forward_projection_active = true
+	_route_forward_projection_dir = direction.normalized()
+
+func _clear_route_forward_projection_direction() -> void:
+	_route_forward_projection_active = false
+	_route_forward_projection_dir = Vector3.ZERO
+	_route_curvature_feedforward_bank_rad = 0.0
+	_route_cross_track_m = 0.0
+	_route_cross_track_signed_m = 0.0
+	_route_capture_angle_rad = 0.0
+	_route_fpv_yaw_error_rad = 0.0
+	_route_guidance_yaw_error_rad = 0.0
+	_route_fpv_pitch_target_active = false
+	_route_fpv_pitch_target = Vector3.ZERO
+	_route_fpv_pitch_horizon_m = 0.0
+
+func _clear_route_advance_hint() -> void:
+	_route_suggested_advance_index = -1
+	_route_suggested_advance_reason = ""
+
+func _suggest_route_advance(index: int, reason: String) -> void:
+	if index < 0 or waypoints.is_empty():
+		return
+	_route_suggested_advance_index = clampi(index, 0, waypoints.size() - 1)
+	_route_suggested_advance_reason = reason
+
+func _get_local_forward_view_yaw_error(direction: Vector3, basis: Basis) -> float:
+	var flat_direction: Vector3 = Vector3(direction.x, 0.0, direction.z)
+	if flat_direction.length_squared() <= 0.0001:
+		return 0.0
+	var local_direction: Vector3 = basis.inverse() * flat_direction.normalized()
+	return atan2(local_direction.x, local_direction.z)
+
+
+## Resolve a route look-ahead into one compatible lift-vector request.  The
+## horizontal follower still owns route direction and turn sign; this helper
+## supplies the bank magnitude implied by turning the actual flight path toward
+## that direction while acquiring the same look-ahead point's vertical slope.
+## It deliberately excludes circle primitives because their radius supplies a
+## more exact lateral acceleration in _navigate_to_waypoint().
+func _get_attack_route_3d_lift_vector_guidance(
+	horizontal_bank_rad: float,
+	bank_limit_deg: float,
+	arc_primitive_active: bool
+) -> Dictionary:
+	if arc_primitive_active \
+			or current_state != State.ATTACK_POSITIONING \
+			or _flight_plan_name != "ground_attack" \
+			or not _route_fpv_pitch_target_active \
+			or not _route_forward_projection_active \
+			or aircraft == null \
+			or not is_instance_valid(aircraft):
+		return {"active": false}
+
+	var velocity: Vector3 = aircraft.linear_velocity
+	var horizontal_speed_mps: float = Vector2(velocity.x, velocity.z).length()
+	if horizontal_speed_mps <= 1.0:
+		return {"active": false}
+	var vertical_path: Vector3 = _route_fpv_pitch_target - aircraft.global_position
+	var vertical_path_horizontal_m: float = Vector2(vertical_path.x, vertical_path.z).length()
+	if vertical_path_horizontal_m <= 1.0:
+		return {"active": false}
+
+	# The look-ahead distance is generated by the active route geometry. Dividing
+	# it by current ground speed gives the time available to acquire both the
+	# heading and the slope, rather than adding a separate steering time constant.
+	var horizon_m: float = maxf(_route_fpv_pitch_horizon_m, 1.0)
+	var horizon_time_s: float = horizon_m / horizontal_speed_mps
+	var desired_vs_mps: float = horizontal_speed_mps * vertical_path.y / vertical_path_horizontal_m
+	var horizontal_heading_error_rad: float = _route_guidance_yaw_error_rad
+	if not is_finite(horizontal_heading_error_rad):
+		horizontal_heading_error_rad = 0.0
+	var resolved_turn_sign: float = signf(horizontal_bank_rad)
+	if absf(resolved_turn_sign) < 0.01:
+		resolved_turn_sign = signf(horizontal_heading_error_rad)
+	if absf(resolved_turn_sign) < 0.01:
+		return {
+			"active": true,
+			"bank_rad": 0.0,
+			"desired_vs_mps": desired_vs_mps,
+		}
+
+	# Turning through the remaining horizontal heading error over the geometric
+	# look-ahead interval requires v * yaw_rate lateral acceleration.  The same
+	# interval is used below to acquire the vertical path, yielding one acceleration
+	# vector rather than independently scheduled bank and pitch demands.
+	var lateral_accel_mps2: float = horizontal_speed_mps \
+		* absf(horizontal_heading_error_rad) / maxf(horizon_time_s, 0.001)
+	var vertical_accel_mps2: float = (desired_vs_mps - velocity.y) \
+		* maxf(coordinated_turn_vertical_path_response, 0.0)
+	var gravity_mps2: float = float(ProjectSettings.get_setting(
+		"physics/3d/default_gravity",
+		9.8
+	))
+	# The coordinated controller observes thrust/alignment acceleration separately.
+	# Subtracting it here prevents an existing climb assist from being mistaken for
+	# required wing lift and preserves the intended downward path without negative G.
+	var required_vertical_lift_accel_mps2: float = gravity_mps2 \
+		+ vertical_accel_mps2 - _coordinated_turn_nonwing_vertical_accel_mps2
+	var requested_bank_abs_rad: float = atan2(
+		lateral_accel_mps2,
+		required_vertical_lift_accel_mps2
+	)
+	var bank_cap_rad: float = deg_to_rad(maxf(
+		bank_limit_deg,
+		attack_assertive_turn_overbank_max_deg
+	))
+	requested_bank_abs_rad = clampf(requested_bank_abs_rad, 0.0, bank_cap_rad)
+	# The vertical component is allowed to unload a turn when the route asks for a
+	# climb, but it cannot create extra horizontal curvature. A sufficiently steep
+	# late descent can make required_vertical_lift_accel_mps2 negative; atan2 then
+	# points the mathematical lift vector beyond knife-edge even when the horizontal
+	# follower asks for only a small correction. That descent is not attainable by
+	# an upright, positive-loaded aircraft within this look-ahead horizon. Preserve
+	# the horizontal follower's bank and let the load/elevator loop achieve as much
+	# of the vertical path as the aircraft can, rather than converting infeasible
+	# vertical acceleration into an unrelated maximum-rate turn. Explicit overbank
+	# remains available in the assertive heading law for genuinely large turns.
+	requested_bank_abs_rad = minf(requested_bank_abs_rad, absf(horizontal_bank_rad))
+	return {
+		"active": true,
+		"bank_rad": resolved_turn_sign * requested_bank_abs_rad,
+		"desired_vs_mps": desired_vs_mps,
+	}
+
+func _route_direction_between_points(a: Vector3, b: Vector3) -> Vector3:
+	var direction: Vector3 = b - a
+	direction.y = 0.0
+	if direction.length_squared() <= 0.0001:
+		return Vector3.ZERO
+	return direction.normalized()
+
+func _get_route_cross_track_capture_direction(route_direction: Vector3, route_point: Vector3) -> Vector3:
+	var flat_route_direction: Vector3 = Vector3(route_direction.x, 0.0, route_direction.z)
+	if flat_route_direction.length_squared() <= 0.0001:
+		_route_cross_track_signed_m = 0.0
+		_route_capture_angle_rad = 0.0
+		return Vector3.ZERO
+	flat_route_direction = flat_route_direction.normalized()
+	var route_right: Vector3 = Vector3(flat_route_direction.z, 0.0, -flat_route_direction.x)
+	var offset_from_route: Vector3 = aircraft.global_position - route_point
+	offset_from_route.y = 0.0
+	_route_cross_track_signed_m = offset_from_route.dot(route_right)
+	_route_capture_angle_rad = 0.0
+	if not aircraft_route_cross_track_capture_enabled:
+		return flat_route_direction
+
+	var active_turn_radius_m: float = _get_active_leg_turn_radius_m()
+	if not is_finite(active_turn_radius_m) or active_turn_radius_m <= 1.0:
+		active_turn_radius_m = _estimate_aircraft_turn_radius_m(maxf(aircraft.linear_velocity.length(), target_speed))
+	var capture_horizon_m: float = maxf(
+		active_turn_radius_m * maxf(aircraft_route_cross_track_capture_radius_scale, 0.1),
+		1.0
+	)
+	var max_capture_angle_rad: float = deg_to_rad(clampf(
+		aircraft_route_cross_track_capture_max_angle_deg,
+		0.0,
+		80.0
+	))
+	_route_capture_angle_rad = clampf(
+		atan2(-_route_cross_track_signed_m, capture_horizon_m),
+		-max_capture_angle_rad,
+		max_capture_angle_rad
+	)
+	return (
+		flat_route_direction * cos(_route_capture_angle_rad)
+		+ route_right * sin(_route_capture_angle_rad)
+	).normalized()
+
+func _get_route_point_ahead(route_point: Vector3, target_index: int, loop_route: bool, lookahead_m: float) -> Vector3:
+	if waypoints.is_empty() or lookahead_m <= 1.0:
+		return route_point
+	var leg_start: Vector3 = route_point
+	var leg_target_index: int = clampi(target_index, 0, waypoints.size() - 1)
+	var leg_end: Vector3 = waypoints[leg_target_index]
+	var remaining_m: float = lookahead_m
+	var guard: int = 0
+	var guard_limit: int = waypoints.size() + 1
+	while guard < guard_limit:
+		var leg_delta: Vector3 = leg_end - leg_start
+		var leg_horizontal_length: float = Vector2(leg_delta.x, leg_delta.z).length()
+		if leg_horizontal_length <= 1.0:
+			# Fixed-wing route pitch is defined by distance along the ground track.
+			# Curvature builders can legitimately end an approach at the exact X/Z of
+			# the following setup leg, leaving a duplicate horizontal point with a
+			# different altitude. Treating that as the pitch look-ahead divides the
+			# altitude step by only the aircraft's residual miss distance and produces
+			# an effectively vertical command. Step across it just as the horizontal
+			# carrot follower does, and resolve pitch from the next flyable segment.
+			var zero_leg_next_index: int = _get_route_next_index(leg_target_index, loop_route)
+			if zero_leg_next_index < 0:
+				return leg_end
+			leg_start = leg_end
+			leg_end = waypoints[zero_leg_next_index]
+			leg_target_index = zero_leg_next_index
+			guard += 1
+			continue
+		if remaining_m <= leg_horizontal_length:
+			return _interpolate_route_point(leg_start, leg_end, remaining_m / leg_horizontal_length)
+		remaining_m -= leg_horizontal_length
+		var next_index: int = _get_route_next_index(leg_target_index, loop_route)
+		if next_index < 0:
+			return leg_end
+		leg_start = leg_end
+		leg_end = waypoints[next_index]
+		leg_target_index = next_index
+		guard += 1
+	return leg_end
+
+func _get_route_pitch_lookahead_m(route_point: Vector3) -> float:
+	var max_lookahead_m: float = maxf(navigation_forward_frame_pitch_path_lookahead_m, 1.0)
+	var min_lookahead_m: float = clampf(navigation_forward_frame_pitch_min_path_lookahead_m, 1.0, max_lookahead_m)
+	if aircraft == null or not is_instance_valid(aircraft):
+		return max_lookahead_m
+	var vertical_error_m: float = absf(aircraft.global_position.y - route_point.y)
+	var release_m: float = maxf(navigation_forward_frame_pitch_altitude_lookahead_release_m, 1.0)
+	var close_path_t: float = clampf(vertical_error_m / release_m, 0.0, 1.0)
+	return lerpf(max_lookahead_m, min_lookahead_m, close_path_t)
+
+func _get_route_cross_track_recovery_t() -> float:
+	var start_m: float = maxf(aircraft_route_cross_track_recovery_start_m, 0.0)
+	var full_m: float = maxf(aircraft_route_cross_track_recovery_full_m, start_m + 1.0)
+	return clampf((_route_cross_track_m - start_m) / maxf(full_m - start_m, 1.0), 0.0, 1.0)
+
+func _apply_route_cross_track_recovery_speed_limit() -> void:
+	if not aircraft_route_turn_speed_control_enabled:
+		return
+	var recovery_t: float = _get_route_cross_track_recovery_t()
+	if recovery_t <= 0.01:
+		return
+	var base_target_speed_mps: float = target_speed
+	var min_speed_mps: float = maxf(aircraft_route_turn_speed_min_mps, stall_speed_mps + stall_margin_mps + 8.0)
+	var speed_cut_mps: float = recovery_t * maxf(aircraft_route_cross_track_recovery_speed_cut_mps, 0.0)
+	var recovery_speed_cap_mps: float = clampf(base_target_speed_mps - speed_cut_mps, min_speed_mps, base_target_speed_mps)
+	if recovery_speed_cap_mps >= base_target_speed_mps - 0.5:
+		return
+	target_speed = minf(target_speed, recovery_speed_cap_mps)
+	_route_turn_speed_limit_active = true
+	_route_turn_speed_cap_mps = minf(_route_turn_speed_cap_mps, recovery_speed_cap_mps) if is_finite(_route_turn_speed_cap_mps) else recovery_speed_cap_mps
+
+func _route_forward_projection_error_is_usable(basis: Basis) -> bool:
+	if not _route_forward_projection_active:
+		return false
+	var error_rad: float = _get_local_forward_view_yaw_error(_route_forward_projection_dir, basis)
+	var max_error_rad: float = deg_to_rad(clampf(aircraft_route_forward_projection_max_error_deg, 5.0, 179.0))
+	return absf(error_rad) <= max_error_rad
+
+func _route_direction_yaw_is_within(direction: Vector3, max_error_deg: float) -> bool:
+	if aircraft == null or not is_instance_valid(aircraft):
+		return false
+	if direction.length_squared() <= 0.0001:
+		return false
+	var error_rad: float = _get_local_forward_view_yaw_error(direction, aircraft.global_transform.basis)
+	var max_error_rad: float = deg_to_rad(clampf(max_error_deg, 5.0, 179.0))
+	return absf(error_rad) <= max_error_rad
+
+func _apply_route_departure_turn_speed_limit(loop_route: bool) -> void:
+	if not aircraft_route_departure_turn_enabled or loop_route or current_waypoint_index != 0:
+		return
+	if aircraft == null or not is_instance_valid(aircraft) or waypoints.is_empty():
+		return
+	var to_first: Vector3 = waypoints[0] - aircraft.global_position
+	to_first.y = 0.0
+	var distance_m: float = to_first.length()
+	if distance_m <= 1.0:
+		return
+	var heading_error_rad: float = absf(_get_local_forward_view_yaw_error(to_first, aircraft.global_transform.basis))
+	if heading_error_rad < deg_to_rad(maxf(aircraft_route_turn_min_angle_deg, 0.0)):
+		return
+	var tan_half_angle: float = tan(minf(heading_error_rad, deg_to_rad(175.0)) * 0.5)
+	if tan_half_angle <= 0.01:
+		return
+	var usable_tangent_m: float = maxf(distance_m - _get_active_leg_capture_radius(), 1.0) \
+		* clampf(aircraft_route_radius_constraint_margin, 0.25, 1.0)
+	var available_radius_m: float = usable_tangent_m / tan_half_angle
+	var planned_radius_m: float = _get_active_leg_turn_radius_m()
+	if not is_finite(planned_radius_m) or planned_radius_m <= 0.0:
+		planned_radius_m = _estimate_aircraft_turn_radius_m(target_speed)
+	if available_radius_m >= planned_radius_m:
+		return
+	var minimum_speed_mps: float = maxf(
+		aircraft_route_turn_speed_min_mps,
+		stall_speed_mps + stall_margin_mps + 8.0
+	)
+	var speed_cap_mps: float = maxf(_route_speed_for_radius_mps(available_radius_m), minimum_speed_mps)
+	target_speed = minf(target_speed, speed_cap_mps)
+	_route_turn_speed_limit_active = true
+	_route_turn_speed_cap_mps = minf(_route_turn_speed_cap_mps, speed_cap_mps) \
+		if is_finite(_route_turn_speed_cap_mps) else speed_cap_mps
+
+func _apply_route_turn_speed_limit(loop_route: bool) -> void:
+	_route_turn_speed_limit_active = false
+	_route_turn_speed_cap_mps = INF
+	if not aircraft_route_turn_speed_control_enabled:
+		return
+	if aircraft == null or not is_instance_valid(aircraft):
+		return
+	_apply_route_departure_turn_speed_limit(loop_route)
+	var guidance: Dictionary = _get_route_turn_guidance(current_waypoint_index, loop_route)
+	if guidance.is_empty():
+		return
+	var corner_value: Variant = guidance.get("corner", Vector3.INF)
+	if not (corner_value is Vector3):
+		return
+	var corner: Vector3 = corner_value
+	var speed_cap_value: Variant = guidance.get("speed_cap_mps", INF)
+	var raw_speed_cap_mps: float = float(speed_cap_value)
+	if not is_finite(raw_speed_cap_mps):
+		return
+	var base_target_speed_mps: float = target_speed
+	var speed_cap_mps: float = clampf(raw_speed_cap_mps, maxf(aircraft_route_turn_speed_min_mps, stall_speed_mps + stall_margin_mps + 8.0), base_target_speed_mps)
+	if speed_cap_mps >= base_target_speed_mps - 0.5:
+		return
+
+	var distance_to_corner_m: float = _route_horizontal_distance(aircraft.global_position, corner)
+	var tangent_m: float = float(guidance.get("tangent_m", 0.0))
+	var current_speed_mps: float = aircraft.linear_velocity.length() if aircraft != null and is_instance_valid(aircraft) else base_target_speed_mps
+	var slowdown_distance_m: float = maxf(
+		tangent_m * maxf(aircraft_route_turn_speed_slowdown_factor, 0.1),
+		current_speed_mps * maxf(aircraft_route_turn_speed_time_horizon_s, 0.0)
+	)
+	if slowdown_distance_m <= 1.0:
+		return
+	var turn_influence: float = clampf((slowdown_distance_m - distance_to_corner_m) / slowdown_distance_m, 0.0, 1.0)
+	var incoming_length_m: float = float(guidance.get("incoming_length_m", slowdown_distance_m))
+	if incoming_length_m <= slowdown_distance_m:
+		turn_influence = maxf(turn_influence, 0.75)
+	if turn_influence <= 0.01:
+		return
+
+	target_speed = minf(target_speed, lerpf(base_target_speed_mps, speed_cap_mps, turn_influence))
+	_route_turn_speed_limit_active = true
+	_route_turn_speed_cap_mps = speed_cap_mps
+
+func _get_route_turn_capture_radius_m(loop_route: bool) -> float:
+	var guidance: Dictionary = _get_route_turn_guidance(current_waypoint_index, loop_route)
+	if guidance.is_empty():
+		return 0.0
+	var tangent_m: float = float(guidance.get("tangent_m", 0.0))
+	var incoming_length_m: float = float(guidance.get("incoming_length_m", 0.0))
+	if tangent_m <= 1.0 or incoming_length_m <= 1.0:
+		return 0.0
+	var capture_m: float = tangent_m * clampf(aircraft_route_turn_capture_fraction, 0.0, 1.0)
+	var max_capture_m: float = minf(maxf(aircraft_route_turn_capture_max_m, 1.0), incoming_length_m * 0.8)
+	return clampf(capture_m, 0.0, max_capture_m)
+
+func _get_route_projection_advance_limit_for_index(index: int, capture_radius_m: float) -> float:
+	if _flight_plan_name == "recovery_approach" \
+			and _get_route_leg_role(index) in ["recovery_arrival", "recovery_lineup"]:
+		# Projection is useful after a gate plane has been crossed, but it must not
+		# loosen the corridor's authored capture radius.
+		return maxf(capture_radius_m, 1.0)
+	if _flight_plan_name == "ground_attack" \
+			and index >= 0 and index < _flight_plan_legs.size() \
+			and not str(_flight_plan_legs[index].get("route_primitive", "")).is_empty():
+		# A Dubins primitive is a connected piece of one solved path, not a loose
+		# navigation waypoint. Advancing from its straight while a full generic
+		# waypoint radius away handed the following arc an aircraft hundreds of metres
+		# outside its circle; the arc then quite correctly demanded a violent capture
+		# turn. Its own capture radius is already derived from aircraft turn radius, so
+		# use that geometric tolerance for primitive continuity.
+		return maxf(capture_radius_m, 1.0)
+	var limit_m: float = maxf(aircraft_route_projection_advance_max_cross_track_m, capture_radius_m)
+	if _get_route_leg_role(index) == "attack_approach":
+		var planned_turn_radius_m: float = _get_route_leg_turn_radius_m(index)
+		if is_finite(planned_turn_radius_m) and planned_turn_radius_m > 0.0:
+			limit_m = maxf(limit_m, planned_turn_radius_m)
+	return limit_m
+
+func _get_route_projection_advance_limit_m(capture_radius_m: float) -> float:
+	return _get_route_projection_advance_limit_for_index(current_waypoint_index, capture_radius_m)
+
+func _route_forward_resync_role_is_safe(source_index: int, candidate_index: int) -> bool:
+	if _flight_plan_name == "recovery_approach":
+		# Recovery legs are ordered geometry: transit reaches the outbound lineup,
+		# arrival turns inbound and descends to the verified corridor, and lineup
+		# finishes the straight-in handoff. Terrain-transit points are also the safe
+		# corridor around obstacles, not interchangeable hints. Forward resync used to
+		# jump 2->4->7 while kilometres off-track, leaving the aircraft pointed along a
+		# segment it had never captured. Async installation already trims stale prefixes;
+		# once installed, follow every remaining recovery leg in order.
+		return false
+	if _flight_plan_name != "ground_attack":
+		return true
+	if source_index < _flight_plan_legs.size() \
+			and not str(_flight_plan_legs[source_index].get("route_primitive", "")).is_empty():
+		return false
+	if candidate_index < _flight_plan_legs.size() \
+			and not str(_flight_plan_legs[candidate_index].get("route_primitive", "")).is_empty():
+		return false
+	return (
+		_get_route_leg_role(source_index) == "attack_approach"
+		and _get_route_leg_role(candidate_index) == "attack_approach"
+	)
+
+func _get_route_multi_segment_advance_index(start_index: int, loop_route: bool) -> int:
+	var route_index: int = clampi(start_index, 0, waypoints.size() - 1)
+	var max_advances: int = mini(maxi(aircraft_route_resync_forward_segments, 1), maxi(waypoints.size() - 1, 1))
+	if _flight_plan_name == "recovery_approach":
+		max_advances = 1
+	elif route_index < _flight_plan_legs.size() \
+			and (
+				str(_flight_plan_legs[route_index].get("debug_tag", "")) == "departure_turn"
+				or not str(_flight_plan_legs[route_index].get("route_primitive", "")).is_empty()
+			):
+		# Advance through every connected primitive in order. Projection beyond one
+		# straight or arc is not evidence that the aircraft has captured a later one.
+		max_advances = 1
+	var advances: int = 0
+	while advances < max_advances:
+		var previous_index: int = _get_route_previous_index(route_index, loop_route)
+		if previous_index < 0:
+			break
+		var projected_t: float = _project_route_t_xz(
+			aircraft.global_position,
+			waypoints[previous_index],
+			waypoints[route_index]
+		)
+		var projected_cross_track_m: float = _route_segment_distance_xz(
+			aircraft.global_position,
+			route_index,
+			loop_route
+		)
+		var capture_radius_m: float = _get_route_leg_capture_radius(route_index)
+		var projection_limit_m: float = _get_route_projection_advance_limit_for_index(
+			route_index,
+			capture_radius_m
+		)
+		if (
+			projected_t < maxf(aircraft_route_projection_advance_t, 0.5)
+			or projected_cross_track_m > projection_limit_m
+		):
+			break
+		var next_index: int = _get_route_next_index(route_index, loop_route)
+		if next_index < 0 or next_index == start_index:
+			break
+		var crossed_role_boundary: bool = (
+			_flight_plan_name in ["ground_attack", "recovery_approach"]
+			and _get_route_leg_role(route_index) != _get_route_leg_role(next_index)
+		)
+		route_index = next_index
+		advances += 1
+		if crossed_role_boundary:
+			break
+	return route_index
+
+func _should_recover_route_advance(current_index: int, loop_route: bool) -> bool:
+	if not aircraft_route_bad_projection_recovery_enabled:
+		return false
+	var active_role: String = _active_route_leg_role()
+	var recovery_transit_recovery: bool = _flight_plan_name == "recovery_approach" \
+		and current_state == State.RECOVERY_APPROACH \
+		and active_role == "recovery_transit"
+	if not loop_route and active_role != "attack_approach" and not recovery_transit_recovery:
+		return false
+	if aircraft == null or not is_instance_valid(aircraft):
+		return false
+	if waypoints.size() < 3 or not _route_forward_projection_active:
+		return false
+	if _route_forward_projection_error_is_usable(aircraft.global_transform.basis):
+		return false
+	var next_index: int = _get_route_next_index(current_index, loop_route)
+	var previous_index: int = _get_route_previous_index(current_index, loop_route)
+	if next_index < 0 or previous_index < 0:
+		return false
+	if recovery_transit_recovery and _get_route_leg_role(next_index) != "recovery_transit":
+		# The connected arrival arc has its own tangent-plane capture. Bad projection
+		# on a transit segment is not permission to skip that geometric handoff.
+		return false
+	var position: Vector3 = aircraft.global_position
+	var current_distance_m: float = _route_segment_distance_xz(position, current_index, loop_route)
+	var next_distance_m: float = _route_segment_distance_xz(position, next_index, loop_route)
+	if not is_finite(current_distance_m) or not is_finite(next_distance_m):
+		return false
+	var current_t: float = _project_route_t_xz(position, waypoints[previous_index], waypoints[current_index])
+	var next_previous_index: int = _get_route_previous_index(next_index, loop_route)
+	if next_previous_index < 0:
+		return false
+	var next_direction: Vector3 = _route_direction_between_points(waypoints[next_previous_index], waypoints[next_index])
+	if not _route_direction_yaw_is_within(next_direction, aircraft_route_forward_projection_max_error_deg):
+		return false
+	var next_t: float = _project_route_t_xz(position, waypoints[next_previous_index], waypoints[next_index])
+	var margin_m: float = maxf(aircraft_route_bad_projection_recovery_margin_m, 0.0)
+	if current_t >= 0.85 and next_distance_m <= current_distance_m + margin_m:
+		return true
+	if current_t > 1.0 and next_distance_m <= current_distance_m + margin_m * 2.0:
+		return true
+	if next_t >= -0.10 and next_distance_m + margin_m < current_distance_m:
+		return true
+	return false
+
+func _resync_route_segment_if_needed(loop_route: bool) -> void:
+	if not aircraft_route_segment_resync_enabled:
+		return
+	if aircraft == null or not is_instance_valid(aircraft):
+		return
+	if waypoints.size() < 3:
+		return
+	var current_index: int = clampi(current_waypoint_index, 0, waypoints.size() - 1)
+	if not loop_route and current_index <= 0:
+		return
+	var current_distance_m: float = _route_segment_distance_xz(aircraft.global_position, current_index, loop_route)
+	if not is_finite(current_distance_m):
+		return
+
+	var best_index: int = current_index
+	var best_distance_m: float = current_distance_m
+	var current_score_m: float = _route_segment_resync_score(aircraft.global_position, current_index, current_index, 0, loop_route)
+	var best_score_m: float = current_score_m
+	var backward_segments: int = maxi(aircraft_route_resync_backward_segments, 0) if loop_route else 0
+	var forward_segments: int = maxi(aircraft_route_resync_forward_segments, 0)
+	for offset in range(-backward_segments, forward_segments + 1):
+		var candidate_index: int = _offset_route_index(current_index, offset, loop_route)
+		if candidate_index < 0 or candidate_index == current_index:
+			continue
+		if not loop_route and candidate_index <= current_index:
+			continue
+		if offset > 0 and not _route_forward_resync_role_is_safe(current_index, candidate_index):
+			break
+		var candidate_distance_m: float = _route_segment_distance_xz(aircraft.global_position, candidate_index, loop_route)
+		var candidate_score_m: float = _route_segment_resync_score(aircraft.global_position, candidate_index, current_index, offset, loop_route)
+		if candidate_score_m < best_score_m:
+			best_score_m = candidate_score_m
+			best_distance_m = candidate_distance_m
+			best_index = candidate_index
+
+	if best_index != current_index and best_score_m + maxf(aircraft_route_resync_hysteresis_m, 0.0) < current_score_m:
+		_route_last_resync_reason = "resync_%d_to_%d_dist_%.0f" % [current_index + 1, best_index + 1, best_distance_m]
+		_route_pending_resync_reason = _route_last_resync_reason
+		current_waypoint_index = best_index
+
+func _update_route_maneuver_waypoint(loop_route: bool) -> bool:
+	_clear_route_forward_projection_direction()
+	_clear_route_advance_hint()
+	if (
+		attack_route_direct_waypoint_steering
+		and _flight_plan_name == "ground_attack"
+		and current_state == State.ATTACK_POSITIONING
+	):
+		return false
+	if not aircraft_route_polyline_carrot_enabled:
+		return false
+	if current_state == State.LANDING:
+		return false
+	if aircraft == null or not is_instance_valid(aircraft):
+		return false
+	if waypoints.size() < 2:
+		return false
+
+	var target_index: int = clampi(current_waypoint_index, 0, waypoints.size() - 1)
+	if _update_route_arc_primitive_guidance(target_index, loop_route):
+		return true
+	var target_waypoint: Vector3 = waypoints[target_index]
+	var previous_index: int = _get_route_previous_index(target_index, loop_route)
+	var segment_start: Vector3 = aircraft.global_position
+	var segment_t: float = 0.0
+	var raw_segment_t: float = 0.0
+	if previous_index >= 0:
+		segment_start = waypoints[previous_index]
+		raw_segment_t = _project_route_t_xz(
+			aircraft.global_position,
+			segment_start,
+			target_waypoint
+		)
+		segment_t = clampf(raw_segment_t, 0.0, 1.0)
+		if _flight_plan_name == "recovery_approach" \
+				and _get_route_leg_role(target_index) == "recovery_transit" \
+				and (raw_segment_t < 0.0 or raw_segment_t > 1.0):
+			# Outside a finite segment, its tangent points along an unreachable infinite
+			# line and can lead directly away from both endpoints. Use ordinary 3D point
+			# capture until the aircraft is alongside the segment again. The adjacent-leg
+			# recovery logic may still advance a genuinely crossed segment after navigation.
+			return false
+
+	var route_point: Vector3 = _interpolate_route_point(segment_start, target_waypoint, segment_t)
+	_route_cross_track_m = _route_horizontal_distance(aircraft.global_position, route_point)
+	var pitch_lookahead_m: float = _get_route_pitch_lookahead_m(route_point)
+	_route_fpv_pitch_target_active = true
+	_route_fpv_pitch_horizon_m = pitch_lookahead_m
+	_route_fpv_pitch_target = _get_route_point_ahead(
+		route_point,
+		target_index,
+		loop_route,
+		pitch_lookahead_m
+	)
+	var remaining_lookahead_m: float = _get_active_route_lookahead_distance_m()
+	var cross_track_recovery_t: float = _get_route_cross_track_recovery_t()
+	var recovery_lookahead_scale: float = clampf(aircraft_route_cross_track_recovery_lookahead_scale, 0.1, 1.0)
+	remaining_lookahead_m *= lerpf(1.0, recovery_lookahead_scale, cross_track_recovery_t)
+	var current_segment_direction: Vector3 = _route_direction_between_points(segment_start, target_waypoint)
+	var active_route_primitive: String = str(
+		_flight_plan_legs[target_index].get("route_primitive", "")
+	) if target_index < _flight_plan_legs.size() else ""
+	var connected_arc_index: int = _get_route_next_index(target_index, loop_route)
+	if connected_arc_index >= 0 \
+			and connected_arc_index < _flight_plan_legs.size() \
+			and str(_flight_plan_legs[connected_arc_index].get("route_primitive", "")) == "arc":
+		# The current endpoint is also the solved arc's start tangent. Once the aircraft
+		# crosses that tangent plane in the correct direction and lies inside the arc's
+		# own radius-derived capture tube, point pursuit of the now-behind endpoint can
+		# only create a loop. Transfer the residual radial error to the arc vector field.
+		var next_arc_leg: Dictionary = _flight_plan_legs[connected_arc_index]
+		var next_arc_center_value: Variant = next_arc_leg.get("arc_center_xz", Vector2.ZERO)
+		if next_arc_center_value is Vector2:
+			var next_arc_center: Vector2 = next_arc_center_value
+			var next_arc_radius_m: float = maxf(float(next_arc_leg.get("turn_radius_m", 0.0)), 1.0)
+			var next_arc_turn_sign: float = signf(float(next_arc_leg.get("arc_turn_sign", 1.0)))
+			var arc_start_radial := Vector2(
+				target_waypoint.x - next_arc_center.x,
+				target_waypoint.z - next_arc_center.y
+			).normalized()
+			var arc_start_tangent_2d: Vector2 = _circle_tangent_direction_2d(
+				arc_start_radial,
+				next_arc_turn_sign
+			)
+			var from_arc_start_2d := Vector2(
+				aircraft.global_position.x - target_waypoint.x,
+				aircraft.global_position.z - target_waypoint.z
+			)
+			var velocity_2d := Vector2(
+				aircraft.linear_velocity.x,
+				aircraft.linear_velocity.z
+			)
+			var next_arc_capture_m: float = _get_route_leg_capture_radius(connected_arc_index)
+			var next_arc_radial_error_m: float = absf(
+				Vector2(aircraft.global_position.x, aircraft.global_position.z).distance_to(
+					next_arc_center
+				) - next_arc_radius_m
+			)
+			if from_arc_start_2d.dot(arc_start_tangent_2d) >= 0.0 \
+					and velocity_2d.dot(arc_start_tangent_2d) > 0.0 \
+					and next_arc_radial_error_m <= next_arc_capture_m \
+					and absf(aircraft.global_position.y - target_waypoint.y) <= next_arc_capture_m:
+				_suggest_route_advance(connected_arc_index, "arc_entry_plane")
+	if active_route_primitive == "straight" and previous_index >= 0:
+		# A finite straight primitive ends at the plane normal to its track through
+		# its endpoint. Once the aircraft has crossed that plane while still moving
+		# in the solved path's direction, recapturing the now-behind finite segment
+		# can only create a loop. Hand its residual cross-track error to the following
+		# connected primitive, whose geometry is the route that exists beyond the
+		# plane. This is the straight-line equivalent of an arc endpoint crossing.
+		var horizontal_velocity := Vector3(
+			aircraft.linear_velocity.x,
+			0.0,
+			aircraft.linear_velocity.z
+		)
+		if raw_segment_t >= 1.0 \
+				and horizontal_velocity.dot(current_segment_direction) > 0.0:
+			var straight_next_index: int = _get_route_next_index(target_index, loop_route)
+			var recovery_arc_handoff: bool = _flight_plan_name == "recovery_approach" \
+				and straight_next_index >= 0 \
+				and straight_next_index < _flight_plan_legs.size() \
+				and str(_flight_plan_legs[straight_next_index].get(
+					"route_primitive",
+					""
+				)) == "arc"
+			if straight_next_index >= 0 and not recovery_arc_handoff:
+				_suggest_route_advance(straight_next_index, "straight_endpoint_crossing")
+
+	var flyby_guidance: Dictionary = _get_route_flyby_guidance(target_index, loop_route)
+	if not flyby_guidance.is_empty() and previous_index >= 0:
+		var incoming_length_m: float = float(flyby_guidance.get("incoming_length_m", 0.0))
+		var tangent_m: float = float(flyby_guidance.get("tangent_m", 0.0))
+		var distance_to_corner_along_m: float = (1.0 - segment_t) * incoming_length_m
+		if incoming_length_m > 1.0 and tangent_m > 1.0 and distance_to_corner_along_m <= tangent_m:
+			var corner_value: Variant = flyby_guidance.get("corner", Vector3.INF)
+			var turn_start_value: Variant = flyby_guidance.get("turn_start", Vector3.INF)
+			var turn_end_value: Variant = flyby_guidance.get("turn_end", Vector3.INF)
+			var outgoing_dir_value: Variant = flyby_guidance.get("outgoing_dir_xz", Vector2.ZERO)
+			if corner_value is Vector3 and turn_start_value is Vector3 and turn_end_value is Vector3 and outgoing_dir_value is Vector2:
+				var corner: Vector3 = corner_value
+				var turn_start: Vector3 = turn_start_value
+				var turn_end: Vector3 = turn_end_value
+				var outgoing_dir_xz: Vector2 = outgoing_dir_value
+				var arc_length_m: float = maxf(float(flyby_guidance.get("arc_length_m", tangent_m * 2.0)), 1.0)
+				var turn_distance_m: float = tangent_m - distance_to_corner_along_m
+				var flyby_lookahead_m: float = remaining_lookahead_m * clampf(aircraft_route_flyby_lookahead_fraction, 0.1, 1.0)
+				var flyby_target_distance_m: float = turn_distance_m + flyby_lookahead_m
+				var turn_radius_m: float = maxf(float(flyby_guidance.get("turn_radius_m", 1.0)), 1.0)
+				var turn_sign: float = float(flyby_guidance.get("turn_sign", 0.0))
+				var horizontal_speed_mps: float = Vector2(aircraft.linear_velocity.x, aircraft.linear_velocity.z).length()
+				if flyby_target_distance_m <= arc_length_m:
+					_route_curvature_feedforward_bank_rad = turn_sign * atan(
+						horizontal_speed_mps * horizontal_speed_mps / (9.80665 * turn_radius_m)
+					)
+					var flyby_t: float = clampf(flyby_target_distance_m / arc_length_m, 0.0, 1.0)
+					maneuver_waypoint = _quadratic_bezier(turn_start, corner, turn_end, flyby_t)
+					_set_route_forward_projection_direction(_quadratic_bezier_tangent(turn_start, corner, turn_end, flyby_t))
+				else:
+					var next_index: int = _get_route_next_index(target_index, loop_route)
+					var outgoing_length_m: float = float(flyby_guidance.get("outgoing_length_m", 0.0))
+					var outgoing_distance_m: float = clampf(
+						tangent_m + flyby_target_distance_m - arc_length_m,
+						tangent_m,
+						maxf(tangent_m, outgoing_length_m)
+					)
+					var next_point: Vector3 = waypoints[next_index] if next_index >= 0 else turn_end
+					var outgoing_t: float = clampf(outgoing_distance_m / maxf(outgoing_length_m, 1.0), 0.0, 1.0)
+					maneuver_waypoint = Vector3(
+						corner.x + outgoing_dir_xz.x * outgoing_distance_m,
+						lerpf(corner.y, next_point.y, outgoing_t),
+						corner.z + outgoing_dir_xz.y * outgoing_distance_m
+					)
+					var outgoing_projection_direction: Vector3 = Vector3(outgoing_dir_xz.x, 0.0, outgoing_dir_xz.y)
+					_set_route_forward_projection_direction(outgoing_projection_direction)
+					var flyby_cross_track_m: float = _route_segment_distance_xz(aircraft.global_position, target_index, loop_route)
+					var flyby_advance_cross_track_limit_m: float = maxf(
+						_get_route_projection_advance_limit_m(_get_active_leg_capture_radius()),
+						tangent_m * 1.25
+					)
+					if (
+						next_index >= 0
+						and flyby_cross_track_m <= flyby_advance_cross_track_limit_m
+						and _route_direction_yaw_is_within(outgoing_projection_direction, aircraft_route_flyby_advance_max_yaw_deg)
+					):
+						_suggest_route_advance(next_index, "flyby_outgoing")
+				if nav_target:
+					nav_target.global_position = maneuver_waypoint
+				return true
+
+	var carrot_point: Vector3 = route_point
+	var leg_start: Vector3 = route_point
+	var leg_end: Vector3 = target_waypoint
+	var leg_target_index: int = target_index
+	var projection_direction: Vector3 = current_segment_direction
+	var guard: int = 0
+	var guard_limit: int = waypoints.size() + 1
+
+	while guard < guard_limit:
+		var leg_delta: Vector3 = leg_end - leg_start
+		var leg_horizontal_length: float = Vector2(leg_delta.x, leg_delta.z).length()
+		if leg_horizontal_length <= 1.0:
+			carrot_point = leg_end
+		elif remaining_lookahead_m <= leg_horizontal_length:
+			var leg_t: float = remaining_lookahead_m / leg_horizontal_length
+			carrot_point = _interpolate_route_point(leg_start, leg_end, leg_t)
+			if projection_direction.length_squared() <= 0.0001:
+				projection_direction = _route_direction_between_points(leg_start, leg_end)
+			break
+		else:
+			remaining_lookahead_m -= leg_horizontal_length
+			carrot_point = leg_end
+
+		var next_index: int = _get_route_next_index(leg_target_index, loop_route)
+		if next_index < 0:
+			break
+		if next_index < _flight_plan_legs.size() \
+				and str(_flight_plan_legs[next_index].get("route_primitive", "")) == "arc":
+			# An arc is not the straight chord from its start to its endpoint. Stop the
+			# polyline carrot at the tangent; the arc tracker owns all lookahead beyond it.
+			break
+		leg_start = leg_end
+		leg_end = waypoints[next_index]
+		leg_target_index = next_index
+		if projection_direction.length_squared() <= 0.0001:
+			projection_direction = _route_direction_between_points(leg_start, leg_end)
+		guard += 1
+
+	maneuver_waypoint = carrot_point
+	if projection_direction.length_squared() <= 0.0001:
+		projection_direction = _route_direction_between_points(route_point, carrot_point)
+	_set_route_forward_projection_direction(
+		_get_route_cross_track_capture_direction(projection_direction, route_point)
+	)
+	if nav_target:
+		nav_target.global_position = maneuver_waypoint
+	return true
+
+func _follow_waypoint_route(delta: float, loop_route: bool = false, capture_radius_m: float = -1.0) -> bool:
+	if waypoints.is_empty():
+		_route_follow_debug = {}
+		_reset_cap_route_debug()
+		return false
+	_route_last_advance_reason = "hold"
+	_route_last_resync_reason = "none"
+	current_waypoint_index = clampi(current_waypoint_index, 0, waypoints.size() - 1)
+	_resync_route_segment_if_needed(loop_route)
+	var active_waypoint: Vector3 = waypoints[current_waypoint_index]
+	nav_waypoint = active_waypoint
+	_apply_active_waypoint_targets()
+	_apply_route_turn_speed_limit(loop_route)
+	var using_route_carrot: bool = _update_route_maneuver_waypoint(loop_route)
+	if using_route_carrot:
+		_apply_route_cross_track_recovery_speed_limit()
+	if using_route_carrot:
+		nav_waypoint = Vector3(active_waypoint.x, maneuver_waypoint.y, active_waypoint.z)
+	else:
+		_update_maneuver_waypoint()
+	_navigate_to_waypoint(delta)
+
+	var distance_to_waypoint: float = aircraft.global_position.distance_to(active_waypoint)
+	_debug_cap_route_following(delta, distance_to_waypoint)
+	var capture_radius: float = capture_radius_m if capture_radius_m > 0.0 else _get_active_leg_capture_radius()
+	var route_flyby_active: bool = using_route_carrot and aircraft_route_flyby_enabled
+	var active_arc_primitive: bool = current_waypoint_index < _flight_plan_legs.size() \
+		and str(_flight_plan_legs[current_waypoint_index].get("route_primitive", "")) == "arc"
+	if (
+		route_flyby_active
+		and not attack_route_flyby_enabled
+		and _flight_plan_name == "ground_attack"
+		and current_state == State.ATTACK_POSITIONING
+	):
+		route_flyby_active = false
+	if not route_flyby_active:
+		capture_radius = maxf(capture_radius, _get_route_turn_capture_radius_m(loop_route))
+	_route_follow_debug = {
+		"index": current_waypoint_index,
+		"role": _active_route_leg_role(),
+		"debug_tag": str(_flight_plan_legs[current_waypoint_index].get("debug_tag", "")) \
+			if current_waypoint_index < _flight_plan_legs.size() else "",
+		"using_carrot": using_route_carrot,
+		"distance_m": distance_to_waypoint,
+		"capture_m": capture_radius,
+		"projection_t": NAN,
+		"projection_cross_track_m": INF,
+		"projection_limit_m": _get_route_projection_advance_limit_m(capture_radius),
+		"suggested_index": _route_suggested_advance_index,
+		"suggested_reason": _route_suggested_advance_reason,
+		"decision": "hold",
+		"signed_cross_track_m": _route_cross_track_signed_m,
+		"capture_angle_rad": _route_capture_angle_rad,
+		"guidance_yaw_error_rad": _route_guidance_yaw_error_rad,
+		"desired_bank_rad": _navigation_desired_bank_rad_debug,
+		"current_bank_rad": _navigation_current_bank_rad_debug,
+		"raw_roll": _navigation_raw_roll_debug,
+		"straight_cross_track_m": _recovery_straight_cross_track_m_debug,
+		"straight_cross_track_rate_mps": _recovery_straight_cross_track_rate_mps_debug,
+		"straight_lateral_accel_mps2": _recovery_straight_lateral_accel_mps2_debug,
+		"turn_target_g": _coordinated_turn_target_g,
+		"turn_measured_g": _coordinated_turn_measured_g,
+		"turn_available_g": _coordinated_turn_available_g,
+		"turn_target_aoa_deg": _coordinated_turn_target_aoa_deg,
+		"turn_measured_aoa_deg": _coordinated_turn_measured_aoa_deg,
+		"turn_pitch_command": _coordinated_turn_pitch_command,
+		"turn_desired_vertical_speed_mps": _coordinated_turn_desired_vertical_speed_mps,
+		"turn_vertical_speed_mps": aircraft.linear_velocity.y \
+			if aircraft != null and is_instance_valid(aircraft) else NAN,
+	}
+	if active_arc_primitive:
+		_route_follow_debug["projection_cross_track_m"] = _route_arc_radial_error_m
+		_route_follow_debug["arc_remaining_m"] = _route_arc_remaining_m
+		_route_follow_debug["arc_progress_rad"] = _route_arc_progress_rad
+		_route_follow_debug["arc_radius_m"] = float(
+			_flight_plan_legs[current_waypoint_index].get("turn_radius_m", NAN)
+		)
+		_route_follow_debug["arc_turn_sign"] = float(
+			_flight_plan_legs[current_waypoint_index].get("arc_turn_sign", 0.0)
+		)
+		_route_follow_debug["arc_center_xz"] = _flight_plan_legs[current_waypoint_index].get(
+			"arc_center_xz",
+			Vector2.ZERO
+		)
+	var next_index: int = _get_route_next_index(current_waypoint_index, loop_route)
+	var reached_waypoint: bool = distance_to_waypoint < capture_radius
+	if active_arc_primitive:
+		# Endpoint proximity is ambiguous for long arcs whose end lies near their
+		# start. Only signed angular progress may complete a circle primitive.
+		reached_waypoint = false
+	var attack_setup_exit_ready: bool = true
+	# Setup is not merely a point to pass near; it is the entrance to the weapon
+	# corridor. Use the attack commit geometry itself instead of another arbitrary
+	# yaw band: heading, cross-track, usable lane, altitude and bank must all say
+	# that this is a viable run before guidance is handed to the target leg.
+	if _flight_plan_name == "ground_attack" \
+			and current_state == State.ATTACK_POSITIONING \
+			and _active_route_leg_role() == "attack_setup" \
+			and next_index >= 0:
+		# The next rocket route point is its release position, not the surface aim
+		# point. Commit geometry (heading, lane and terrain profile) is defined against
+		# the actual target for every weapon; evaluating against the release waypoint
+		# made the rocket setup gate validate a fictitious, much shorter corridor.
+		var setup_commit_target_pos: Vector3 = waypoints[next_index]
+		if combat_target != null and is_instance_valid(combat_target):
+			setup_commit_target_pos = _get_surface_target_position(combat_target)
+		var setup_commit_evaluation: Dictionary = _evaluate_attack_commit(setup_commit_target_pos)
+		var setup_commit_reason: String = str(setup_commit_evaluation.get("reason", "unknown"))
+		# Bank and projected turn motion are transient attitude errors. The target
+		# leg exists to settle them while tracking the actual attack line, so they
+		# must not pin the aircraft to a setup point it has already reached. Keep
+		# geometric failures (heading, cross-track, lane and terrain) authoritative.
+		attack_setup_exit_ready = bool(setup_commit_evaluation.get("ok", false)) \
+			or setup_commit_reason in ["bank_unsettled", "turn_unsettled"]
+		if not attack_setup_exit_ready:
+			reached_waypoint = false
+	var advance_reason: String = "distance" if reached_waypoint else ""
+	var advance_to_index: int = -1
+	if not reached_waypoint and attack_setup_exit_ready and not loop_route and next_index >= 0 and _active_route_leg_role() == "attack_setup":
+		var to_first_flat := Vector3(
+			active_waypoint.x - aircraft.global_position.x,
+			0.0,
+			active_waypoint.z - aircraft.global_position.z
+		)
+		var velocity_flat := Vector3(aircraft.linear_velocity.x, 0.0, aircraft.linear_velocity.z)
+		if to_first_flat.length_squared() > 1.0 and velocity_flat.length_squared() > 25.0:
+			var first_wp_dot: float = velocity_flat.normalized().dot(to_first_flat.normalized())
+			var turn_radius_m: float = _get_active_leg_turn_radius_m()
+			if not is_finite(turn_radius_m) or turn_radius_m <= 0.0:
+				turn_radius_m = _estimate_aircraft_turn_radius_m(target_speed)
+			var first_wp_miss_window_m: float = maxf(capture_radius, turn_radius_m * 1.30)
+			if first_wp_dot < -0.15 and distance_to_waypoint <= first_wp_miss_window_m:
+				reached_waypoint = true
+				advance_to_index = next_index
+				advance_reason = "setup_wp_overshoot"
+	var can_accept_flyby_advance: bool = loop_route \
+		or _active_route_leg_role() in ["attack_approach", "recovery_transit"] \
+		or (
+			_flight_plan_name == "recovery_approach"
+			and active_arc_primitive
+			and _active_route_leg_role() == "recovery_arrival"
+		)
+	if can_accept_flyby_advance \
+			and attack_setup_exit_ready \
+			and using_route_carrot \
+			and _route_suggested_advance_index >= 0 \
+			and _route_suggested_advance_index == next_index:
+		reached_waypoint = true
+		advance_to_index = _route_suggested_advance_index
+		advance_reason = _route_suggested_advance_reason
+	if not reached_waypoint and using_route_carrot and not active_arc_primitive:
+		var previous_index: int = _get_route_previous_index(current_waypoint_index, loop_route)
+		if previous_index >= 0:
+			var projected_t: float = _project_route_t_xz(aircraft.global_position, waypoints[previous_index], active_waypoint)
+			var projected_cross_track_m: float = _route_segment_distance_xz(aircraft.global_position, current_waypoint_index, loop_route)
+			var projected_cross_track_limit_m: float = _get_route_projection_advance_limit_m(capture_radius)
+			_route_follow_debug["projection_t"] = projected_t
+			_route_follow_debug["projection_cross_track_m"] = projected_cross_track_m
+			_route_follow_debug["projection_limit_m"] = projected_cross_track_limit_m
+			reached_waypoint = (
+				projected_t >= maxf(aircraft_route_projection_advance_t, 0.5)
+				and projected_cross_track_m <= projected_cross_track_limit_m
+			)
+			if reached_waypoint \
+					and _flight_plan_name == "recovery_approach" \
+					and _active_route_leg_role() in ["recovery_arrival", "recovery_lineup"]:
+				# A landing gate is genuinely 3D. Crossing its horizontal plane while
+				# still high or low is not completion and previously caused late finals.
+				reached_waypoint = absf(aircraft.global_position.y - active_waypoint.y) \
+					<= capture_radius
+			if reached_waypoint:
+				var multi_advance_index: int = _get_route_multi_segment_advance_index(current_waypoint_index, loop_route)
+				if multi_advance_index != current_waypoint_index:
+					advance_to_index = multi_advance_index
+					var advance_count: int = (
+						posmod(advance_to_index - current_waypoint_index, waypoints.size())
+						if loop_route
+						else advance_to_index - current_waypoint_index
+					)
+					advance_reason = "segment_progress_%d" % maxi(advance_count, 1)
+				else:
+					advance_reason = "projection"
+	if not reached_waypoint and _should_recover_route_advance(current_waypoint_index, loop_route):
+		reached_waypoint = true
+		advance_to_index = next_index
+		advance_reason = "projection_recovery"
+	if not reached_waypoint:
+		return false
+	_route_follow_debug["decision"] = advance_reason
+
+	var reached_index: int = current_waypoint_index
+	if advance_to_index >= 0:
+		current_waypoint_index = clampi(advance_to_index, 0, waypoints.size() - 1)
+	elif current_waypoint_index >= waypoints.size() - 1:
+		if loop_route:
+			current_waypoint_index = 0
+		else:
+			return true
+	else:
+		current_waypoint_index += 1
+	_route_last_advance_reason = advance_reason
+	_route_pending_advance_reason = advance_reason
+
+	if debug_enabled and verbose_debug_enabled:
+		print("[AIPilot ROUTE] %s reached wp %d/%d -> %d/%d reason=%s plan=%s" % [
+			aircraft.name if aircraft else "AI",
+			reached_index + 1,
+			waypoints.size(),
+			current_waypoint_index + 1,
+			waypoints.size(),
+			advance_reason,
+			_flight_plan_name
+		])
+	return false
 
 func set_formation_anchor(anchor_world: Vector3) -> void:
 	formation_anchor = anchor_world
@@ -7551,6 +21087,18 @@ func add_waypoint_leg(waypoint: Vector3, speed_mps: float = -1.0) -> void:
 		stored_speed = speed_mps
 	waypoint_speeds_mps.append(stored_speed)
 
+func get_landing_fpv_yaw_error_deg() -> float:
+	return _landing_fpv_yaw_error_deg
+
+func get_landing_predictive_fpv_yaw_error_deg() -> float:
+	return _landing_predictive_fpv_yaw_error_deg
+
+func get_landing_track_rate_deg_s() -> float:
+	return _landing_track_rate_deg_s
+
+func get_landing_fpv_pitch_error_deg() -> float:
+	return _landing_fpv_pitch_error_deg
+
 func set_target_speed(speed_mps: float) -> void:
 	"""Set the current commanded target speed."""
 	if speed_mps > 0.0:
@@ -7565,9 +21113,109 @@ func set_target_speed(speed_mps: float) -> void:
 func clear_target_speed() -> void:
 	_manual_target_speed_mps = NAN
 
+func is_route_turn_speed_limited() -> bool:
+	return _route_turn_speed_limit_active
+
+func get_route_turn_speed_cap_mps() -> float:
+	return _route_turn_speed_cap_mps
+
+func get_route_turn_speed_brake_t() -> float:
+	return _route_turn_speed_brake_t
+
+func is_attack_energy_recovery_active() -> bool:
+	return _attack_energy_recovery_active
+
+func get_attack_positioning_route_timeout_s() -> float:
+	return maxf(_attack_positioning_route_timeout_s, 30.0)
+
+func get_flight_plan_debug_snapshot() -> Dictionary:
+	var debug_legs: Array[Dictionary] = []
+	for leg: Dictionary in _flight_plan_legs:
+		debug_legs.append(leg.duplicate(true))
+	return {
+		"revision": _flight_plan_revision,
+		"plan_name": _flight_plan_name,
+		"current_index": current_waypoint_index,
+		"loop": _flight_plan_loop,
+		"legs": debug_legs,
+		"attack_lineup_retry_count": _attack_lineup_retry_count,
+		"thread_stats": _aircraft_heightmap_route_last_smoothing_stats.duplicate(true),
+	}
+
+func is_route_forward_projection_active() -> bool:
+	return _route_forward_projection_active
+
+func is_route_forward_projection_usable() -> bool:
+	if aircraft == null or not is_instance_valid(aircraft):
+		return false
+	return _route_forward_projection_error_is_usable(aircraft.global_transform.basis)
+
+func get_route_forward_projection_yaw_error_rad() -> float:
+	if not _route_forward_projection_active or aircraft == null or not is_instance_valid(aircraft):
+		return NAN
+	return _get_local_forward_view_yaw_error(_route_forward_projection_dir, aircraft.global_transform.basis)
+
+func get_route_fpv_yaw_error_rad() -> float:
+	return _route_fpv_yaw_error_rad
+
+func get_route_fpv_pitch_error_rad() -> float:
+	return _route_fpv_pitch_error_rad
+
+func get_navigation_turn_pull_command() -> float:
+	return _navigation_turn_pull_command
+
+func get_route_guidance_yaw_error_rad() -> float:
+	return _route_guidance_yaw_error_rad
+
+func get_route_capture_angle_rad() -> float:
+	return _route_capture_angle_rad
+
+func get_route_signed_cross_track_m() -> float:
+	return _route_cross_track_signed_m
+
+func get_route_last_advance_reason() -> String:
+	return _route_last_advance_reason
+
+func get_route_last_resync_reason() -> String:
+	return _route_last_resync_reason
+
+func get_route_follow_debug_snapshot() -> Dictionary:
+	return _route_follow_debug.duplicate(true)
+
+func consume_route_advance_reason() -> String:
+	if _route_pending_advance_reason.is_empty():
+		return "hold"
+	var reason: String = _route_pending_advance_reason
+	_route_pending_advance_reason = ""
+	return reason
+
+func consume_route_resync_reason() -> String:
+	if _route_pending_resync_reason.is_empty():
+		return "none"
+	var reason: String = _route_pending_resync_reason
+	_route_pending_resync_reason = ""
+	return reason
+
 func set_target(target: Variant):
 	"""Set combat target and engage"""
 	if target == null or not is_instance_valid(target):
+		# Mission/scenario managers clear destroyed targets through this public API.
+		# Do not let that external cleanup bypass a committed pass's recovery state.
+		if current_state == State.ATTACK_BREAK_OFF and _attack_breakoff_reference_pos != Vector3.INF:
+			combat_target = null
+			return
+		if current_state == State.ATTACK_DIVE and _attack_breakoff_reference_pos != Vector3.INF:
+			_stop_firing()
+			_prime_attack_straight_ahead_breakoff(_attack_breakoff_reference_pos)
+			_attack_breakoff_reference_locked = true
+			combat_target = null
+			_attack_last_end_reason = "target_lost_external_breakoff"
+			_attack_recovery_until_s = maxf(
+				_attack_recovery_until_s,
+				Time.get_ticks_msec() / 1000.0 + 4.0
+			)
+			change_state(State.ATTACK_BREAK_OFF)
+			return
 		combat_target = null
 		change_state(State.SEARCH)
 		return
@@ -7587,6 +21235,10 @@ func _get_surface_target_position(target: Variant) -> Vector3:
 	target = _sanitize_ground_attack_target(target)
 	if not target or not is_instance_valid(target):
 		return aircraft.global_position
+	if _run_weapon_type == "Bomb":
+		return _get_bomb_footprint_target_position(target)
+	if _run_weapon_type == "Rocket Pod":
+		return _get_ground_under_target_position(target)
 	var collision_shape: CollisionShape3D = _find_target_collision_shape(target)
 	if collision_shape and is_instance_valid(collision_shape):
 		# Keep vertical bias in world-up space. Some colliders are rotated so their
@@ -7596,6 +21248,76 @@ func _get_surface_target_position(target: Variant) -> Vector3:
 	if body_node and is_instance_valid(body_node):
 		return body_node.global_position + Vector3.UP * 1.2
 	return target.global_position + Vector3.UP * 1.2
+
+func _get_bomb_footprint_target_position(target: Node3D) -> Vector3:
+	# Bombs are area weapons. Aim at the horizontal center of the target's
+	# footprint rather than a narrow elevated point on its collider. This makes a
+	# useful ground burst the intended solution for buildings, vehicles and bases.
+	var footprint_pos: Vector3 = _get_ground_under_target_position(target)
+	if _is_carrier_attack_target(target):
+		# The carrier moves, so its CCIP lead plane must be the carrier surface—not
+		# terrain beneath it. Use the top of its main collider at footprint center.
+		var carrier_shape: CollisionShape3D = _find_target_collision_shape(target)
+		if carrier_shape and is_instance_valid(carrier_shape):
+			footprint_pos.x = carrier_shape.global_position.x
+			footprint_pos.y = carrier_shape.global_position.y + _get_shape_vertical_half_extent(carrier_shape)
+			footprint_pos.z = carrier_shape.global_position.z
+		else:
+			footprint_pos.y = target.global_position.y
+	return footprint_pos
+
+func _get_target_structure_top_y(target: Node3D) -> float:
+	if target == null or not is_instance_valid(target):
+		return NAN
+	var collision_shape: CollisionShape3D = _find_target_collision_shape(target)
+	if collision_shape == null or not is_instance_valid(collision_shape):
+		return NAN
+	var half_height_m: float = _get_shape_vertical_half_extent(collision_shape)
+	if half_height_m < maxf(attack_structure_min_half_height_m, 0.0):
+		return NAN
+	return collision_shape.global_position.y + half_height_m
+
+func _evaluate_target_structure_clearance(target: Node3D, target_pos: Vector3) -> Dictionary:
+	var result: Dictionary = {"abort": false, "reason": "structure_clear"}
+	if aircraft == null or not is_instance_valid(aircraft):
+		return result
+	var structure_top_y: float = _get_target_structure_top_y(target)
+	if not is_finite(structure_top_y):
+		return result
+	var horiz_dist_m: float = Vector2(
+		aircraft.global_position.x - target_pos.x,
+		aircraft.global_position.z - target_pos.z
+	).length()
+	var required_y: float = structure_top_y + maxf(attack_structure_overflight_margin_m, 0.0)
+	var horizontal_speed_mps: float = Vector2(aircraft.linear_velocity.x, aircraft.linear_velocity.z).length()
+	var speed_guard_m: float = horizontal_speed_mps * 6.0
+	var guard_range_m: float = maxf(attack_structure_guard_range_m, speed_guard_m)
+	var time_to_target_s: float = horiz_dist_m / maxf(horizontal_speed_mps, 1.0)
+	var projected_y: float = aircraft.global_position.y + minf(aircraft.linear_velocity.y, 0.0) * time_to_target_s
+	result["range_m"] = horiz_dist_m
+	result["guard_range_m"] = guard_range_m
+	result["structure_top_y"] = structure_top_y
+	result["required_y"] = required_y
+	result["clearance_m"] = aircraft.global_position.y - structure_top_y
+	result["projected_y"] = projected_y
+	if horiz_dist_m <= guard_range_m and (aircraft.global_position.y < required_y or projected_y < required_y):
+		result["abort"] = true
+		result["reason"] = "structure_clearance_predicted" if projected_y < required_y else "structure_clearance"
+	return result
+
+func _get_ground_under_target_position(target: Node3D) -> Vector3:
+	var center_pos: Vector3 = target.global_position
+	var collision_shape: CollisionShape3D = _find_target_collision_shape(target)
+	if collision_shape and is_instance_valid(collision_shape):
+		center_pos = collision_shape.global_position
+	else:
+		var body_node: Node3D = target.get_node_or_null("Body") as Node3D
+		if body_node and is_instance_valid(body_node):
+			center_pos = body_node.global_position
+	var ground_y: float = _get_ground_height_at_position(center_pos)
+	if is_nan(ground_y):
+		ground_y = target.global_position.y
+	return Vector3(center_pos.x, ground_y, center_pos.z)
 
 func _find_target_collision_shape(node: Node) -> CollisionShape3D:
 	if not node or not is_instance_valid(node):
@@ -7690,20 +21412,43 @@ func return_to_base():
 		change_state(State.RTB)
 
 func start_recovery() -> bool:
-	"""Enter the mission-return recovery framework before final landing."""
+	"""Streamlined recovery: if the deck clears us, go straight to the approach; otherwise circle the
+	carrier until it opens. No shallow multi-gate marshal chain."""
 	if not _find_approach_waypoints():
 		_landing_debug_event("recovery start failed: missing approach_4")
 		return false
 	_find_takeoff_waypoint()
 	_stop_firing()
+	# RTB and combat routes are world-space paths with different terminal semantics.
+	# Drop them before requesting the terrain-routed carrier arrival.
+	_clear_flight_plan()
+	waypoints.clear()
+	waypoint_speeds_mps.clear()
+	current_waypoint_index = 0
 	_recovery_phase = 0
-	_recovery_hold_side = 1.0
 	_recovery_clearance_granted = false
+	_approach_route_point = Vector3.INF
+	_recovery_route_request_debugged = false
 	_landing_debug_timer_s = 0.0
 	_reset_landing_carrier_motion_estimate()
 	_stow_landing_config()
-	change_state(State.RECOVERY_MARSHAL)
+	# Ask the deck right away -- no need to circle if we can just land.
+	if _request_landing_clearance_from_deck():
+		_recovery_clearance_granted = true
+		_landing_debug_event("recovery: cleared immediately -> approach")
+		change_state(State.RECOVERY_APPROACH)
+	else:
+		_circle_theta = _carrier_relative_bearing_of_self()
+		_landing_debug_event("recovery: deck busy -> circling")
+		change_state(State.RECOVERY_HOLD)
 	return true
+
+func _carrier_relative_bearing_of_self() -> float:
+	## Current angle of the aircraft around the carrier (so circling starts where we already are).
+	var frame: Dictionary = _get_recovery_carrier_frame()
+	var origin: Vector3 = frame.get("origin", carrier_position)
+	var to_self: Vector3 = aircraft.global_position - origin if is_instance_valid(aircraft) else Vector3.FORWARD
+	return atan2(to_self.x, to_self.z)
 
 func _request_carrier_recovery() -> void:
 	"""After arrest, ask FlightDeckManager to move aircraft to hangar."""
@@ -7747,7 +21492,29 @@ func start_landing() -> bool:
 	_landing_smoothed_desired_fpa = NAN
 	_landing_smoothed_bearing_error = NAN
 	_landing_smoothed_runway_heading_error = NAN
+	_landing_fpv_pid_active = false
+	_landing_fpv_yaw_error_deg = NAN
+	_landing_fpv_pitch_error_deg = NAN
+	_landing_predictive_fpv_yaw_error_deg = NAN
+	_landing_track_rate_deg_s = NAN
+	_reset_turn_track_rate_observer()
+	_landing_capture_cone_status.clear()
+	_landing_capture_cone_stable_s = 0.0
+	_landing_capture_cone_captured = false
+	_landing_capture_cone_gate_checked = false
+	_landing_capture_cone_gate_passed = false
+	_landing_capture_cone_capture_remaining_m = NAN
+	_landing_capture_cone_capture_behind_m = NAN
+	_landing_capture_cone_waveoff_reason = ""
+	_landing_final_settled_stable_s = 0.0
+	_landing_final_settled = false
+	_landing_final_settled_remaining_m = NAN
+	_landing_final_settled_behind_m = NAN
+	if _landing_fpv_yaw_controller:
+		_landing_fpv_yaw_controller.reset()
 	_reset_landing_carrier_motion_estimate()
+	if _flight_plan_name == "recovery_approach":
+		_clear_flight_plan()  # drop the approach route before the FPA-carrot final takes over
 	_land_snap_400_done = false
 	_land_snap_200_done = false
 	_land_snap_100_done = false
@@ -7866,11 +21633,9 @@ func _should_start_missed_approach() -> bool:
 	var wp4: Node3D = _approach_wp[4] as Node3D
 	var touchdown_ref: Dictionary = _get_landing_touchdown_reference()
 	var touchdown: Vector3 = touchdown_ref.get("position", wp4.global_position)
-	# Only detect a bolter when the aircraft is near deck level — not while it is still
-	# descending from a high entry. Planes that started high pass approach_4 horizontally
-	# but are still 30+ m up and very much on approach.
-	if aircraft.global_position.y > touchdown.y + 15.0:
-		return false
+	# Passing the touchdown reference means a landing is no longer geometrically possible at any
+	# height. The previous deck+15m condition left high bolters descending in LANDING beyond the
+	# carrier; both test aircraft then struck the same cliff instead of beginning a go-around.
 	# Use velocity direction as the approach axis (no approach_3 required).
 	var vel_flat := Vector3(aircraft.linear_velocity.x, 0.0, aircraft.linear_velocity.z)
 	if vel_flat.length_squared() < 1.0:
@@ -7900,6 +21665,7 @@ func _begin_missed_approach() -> void:
 			_takeoff_wp.global_position.z
 		])
 	_ma_escape_complete = false
+	_ma_escape_climb_timer_s = 0.0
 	# Do NOT stow landing config here — flaps provide critical lift at near-stall speed.
 	# Gear/flap retraction happens in _state_missed_approach once safe altitude is reached.
 	change_state(State.MISSED_APPROACH)

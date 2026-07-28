@@ -445,6 +445,7 @@ func _terrain_uv_for_radar_point(
 # --- Flight route drawing ---------------------------------------------------
 
 const ROUTE_COLOR: Color = Color(0.44, 0.86, 1.0, 0.9)  # Light blue, matches tactical map
+const ROUTE_ACTIVE_COLOR: Color = Color(1.0, 0.82, 0.28, 1.0)
 const ROUTE_LINE_WIDTH: float = 1.6
 const ROUTE_DOT_SIZE: float = 4.0
 const ROUTE_SIMPLIFY_MIN_PX: float = 1.0  # Keep dense nav-test breadcrumbs visible on the cockpit radar
@@ -468,13 +469,17 @@ func _draw_flight_route(center: Vector2, radius: float, origin: Vector3,
 
 	# Build screen-space polyline: start at own position (center), then each waypoint
 	var map_points: PackedVector2Array = PackedVector2Array()
+	var visible_waypoints: Array[Vector3] = []
 	map_points.append(center)  # Own aircraft is always at center
 	for wp in waypoints:
+		if not (wp is Vector3):
+			continue
 		var screen_pt := _world_to_radar(wp, origin, flat_right, flat_forward, range_m, center, radius)
 		# Skip points that are too close to the previous one (route simplification)
 		if map_points.size() > 0 and screen_pt.distance_to(map_points[map_points.size() - 1]) < ROUTE_SIMPLIFY_MIN_PX:
 			continue
 		map_points.append(screen_pt)
+		visible_waypoints.append(wp)
 
 	if map_points.size() < 2:
 		return
@@ -484,7 +489,26 @@ func _draw_flight_route(center: Vector2, radius: float, origin: Vector3,
 
 	# Draw square markers at each waypoint (skip index 0 which is own position)
 	for i in range(1, map_points.size()):
-		_draw_square_marker(map_points[i], ROUTE_DOT_SIZE, ROUTE_COLOR)
+		var is_active: bool = i == 1
+		var marker_color: Color = ROUTE_ACTIVE_COLOR if is_active else ROUTE_COLOR
+		var marker_size: float = ROUTE_DOT_SIZE * (1.9 if is_active else 1.0)
+		_draw_square_marker(map_points[i], marker_size, marker_color)
+		if is_active:
+			draw_circle(map_points[i], marker_size, marker_color, false, 1.5, true)
+		var waypoint_index: int = i - 1
+		if waypoint_index < visible_waypoints.size():
+			var waypoint: Vector3 = visible_waypoints[waypoint_index]
+			var terrain_y: float = TerrainNavGrid.sample_height(waypoint.x, waypoint.z)
+			var altitude_m: float = waypoint.y - terrain_y if terrain_y > -100000.0 else waypoint.y
+			draw_string(
+				get_theme_default_font(),
+				map_points[i] + Vector2(5.0, -3.0),
+				"%d %.0fm" % [i, altitude_m],
+				HORIZONTAL_ALIGNMENT_LEFT,
+				-1.0,
+				9,
+				marker_color
+			)
 
 func _world_to_radar(world_pos: Vector3, origin: Vector3, flat_right: Vector3,
 		flat_forward: Vector3, range_m: float, center: Vector2, radius: float) -> Vector2:

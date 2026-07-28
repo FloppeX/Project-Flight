@@ -112,19 +112,7 @@ func _ready():
 	if auto_build_default_modules:
 		_build_module_panel()
 	_ensure_interaction_cursor()
-	# Resolve camera target on aircraft
-	if aircraft:
-		if camera_target_path != NodePath():
-			camera_target = aircraft.get_node_or_null(camera_target_path) as Node3D
-		if camera_target == null:
-			camera_target = aircraft.find_child("CameraTarget", true, false) as Node3D
-		# If CameraTarget has a child Camera3D, use it as source pose (but do not make it current)
-		if camera_target:
-			_camera_target_rest_transform = camera_target.transform
-			camera_target_cam = camera_target.find_child("Camera3D", true, false) as Camera3D
-			if camera_target_cam:
-				_camera_target_cam_rest_transform = camera_target_cam.transform
-				camera_target_cam.current = false
+	_resolve_camera_target()
 	_update_lower_layout_sizes()
 	# Auto-bind aircraft if not provided via export, so radar works by default
 	if aircraft == null:
@@ -283,21 +271,53 @@ func _ensure_aircraft_bound() -> void:
 		if a:
 			aircraft = a
 
+
+func _resolve_camera_target() -> void:
+	camera_target = null
+	camera_target_cam = null
+	_camera_target_rest_transform = Transform3D.IDENTITY
+	_camera_target_cam_rest_transform = Transform3D.IDENTITY
+
+	if aircraft != null and is_instance_valid(aircraft):
+		camera_target = aircraft.get_node_or_null("CameraTarget") as Node3D
+		if camera_target_path != NodePath():
+			var path_target := aircraft.get_node_or_null(camera_target_path) as Node3D
+			if path_target != null and _node_is_same_or_descendant(path_target, aircraft):
+				camera_target = path_target
+		if camera_target == null:
+			camera_target = aircraft.find_child("CameraTarget", true, false) as Node3D
+	if camera_target == null and camera_target_path != NodePath():
+		camera_target = get_node_or_null(camera_target_path) as Node3D
+
+	if camera_target == null or not is_instance_valid(camera_target):
+		return
+
+	_camera_target_rest_transform = camera_target.transform
+	camera_target_cam = _find_first_child_camera(camera_target)
+	if camera_target_cam != null:
+		_camera_target_cam_rest_transform = camera_target_cam.transform
+		camera_target_cam.current = false
+
+
+func _find_first_child_camera(root: Node) -> Camera3D:
+	if root == null:
+		return null
+	for child in root.get_children():
+		if child is Camera3D:
+			return child as Camera3D
+		var nested := _find_first_child_camera(child)
+		if nested != null:
+			return nested
+	return null
+
+
 ## Called by FlightDirector when switching spectated aircraft.
 ## Rebinds the instrument panel so all gauges reflect the new plane.
 func bind_to_aircraft(new_aircraft: Node3D) -> void:
 	if not is_instance_valid(new_aircraft):
 		return
 	aircraft = new_aircraft as Aircraft
-	# Re-resolve the camera target on the new aircraft
-	var ct := new_aircraft.get_node_or_null("CameraTarget") as Node3D
-	if ct:
-		camera_target = ct
-		_camera_target_rest_transform = camera_target.transform
-		camera_target_cam = ct.find_child("Camera3D", true, false) as Camera3D
-		if camera_target_cam:
-			_camera_target_cam_rest_transform = camera_target_cam.transform
-			camera_target_cam.current = false
+	_resolve_camera_target()
 	_target_camera_pose_initialized = false
 	for module in instrument_modules:
 		if module != null and is_instance_valid(module):

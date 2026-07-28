@@ -19,6 +19,7 @@ const VISUAL_FOCUS_HELPER = preload("res://Effects/VisualFocus.gd")
 @export var pooled_puff_count: int = 16
 @export var auto_size_pool: bool = true
 @export var max_pooled_puff_count: int = 128
+@export var visual_budget_enabled: bool = true
 
 var _emit_offsets: Array[Vector3] = []
 var _timers: Array[float] = []
@@ -37,6 +38,9 @@ static var _shared_dust_color: Color = Color(0.78, 0.46, 0.26, 1.0)
 static var _shared_mesh: SphereMesh = null
 static var _shared_color_sample_cooldown: float = 0.0
 static var dust_enabled: bool = true
+
+func set_visual_budget_enabled(value: bool) -> void:
+	visual_budget_enabled = value
 
 static func _sanitize_dust_color(color: Color) -> Color:
 	var clean := Color(
@@ -211,7 +215,7 @@ func _physics_process(delta: float) -> void:
 	_speed = current_pos.distance_to(_last_position) / maxf(delta, 0.001)
 	_last_position = current_pos
 
-	if not dust_enabled or _speed < min_speed_mps or not _should_emit_for_camera(delta):
+	if not visual_budget_enabled or not dust_enabled or _speed < min_speed_mps or not _should_emit_for_camera(delta):
 		return
 
 	# Only one instance samples color, and only every 5 seconds

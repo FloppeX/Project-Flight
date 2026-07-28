@@ -11,6 +11,7 @@ var _rotor_pivot: Node3D = null
 
 func _ready() -> void:
 	super._ready()
+	add_to_group("wind_turbines")
 	_rotor_pivot = get_node_or_null(rotor_pivot_path) as Node3D
 	_rotor = _setup_rotor_pivot()
 	_apply_team_main_color()
@@ -28,7 +29,8 @@ func _process(delta: float) -> void:
 func _destroy() -> void:
 	is_destroyed = true
 	destroyed.emit(self)
-	EnemyOpsManager.on_turbine_destroyed()
+	if not bool(get_meta("suppress_enemy_ops_on_destroy", false)):
+		EnemyOpsManager.on_turbine_destroyed()
 
 	if destroyed_scene_path != "":
 		var destroyed_scene: PackedScene = load(destroyed_scene_path)

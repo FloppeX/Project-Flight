@@ -2,14 +2,17 @@ extends StaticBody3D
 class_name GunEmplacement
 
 signal destroyed(emplacement)
+signal damaged(amount: float, health: float)
 
 @export var max_health: float = 150.0
 @export var team: int = 2
 @export var destroyed_scene_path: String = ""
 @export var turret_controller_path: NodePath = NodePath("TurretController")
-@export var activation_distance_m: float = 1700.0
-@export var activation_check_interval_s: float = 0.5
+@export var activation_distance_m: float = 1500.0
+@export var deactivation_distance_m: float = 1800.0
+@export var activation_check_interval_s: float = 1.0
 @export var inactive_when_no_targets: bool = true
+@export var full_deactivation_when_no_targets: bool = true
 @export var collider_ground_clearance_m: float = 0.0
 @export var is_dummy: bool = false
 @export var weapon_scene_10mm: PackedScene = preload("res://Weapons/Turrets/bullet_weapon.tscn")
@@ -21,11 +24,15 @@ var is_destroyed: bool = false
 var _explosion_scene: PackedScene = null
 var _turret_controller: TurretController = null
 var _active: bool = true
+var _full_presence_active: bool = true
 var _activation_timer_s: float = 0.0
+var _presence_collision_shape_refs: Array[WeakRef] = []
+var _original_root_visible: bool = true
 
 func _ready() -> void:
 	current_health = max_health
 	_explosion_scene = load("res://Projectiles/Explosion/explosion.tscn")
+	_original_root_visible = visible
 
 	add_to_group("gun_emplacements")
 	add_to_group("buildings")
@@ -46,6 +53,8 @@ func _ready() -> void:
 	call_deferred("_apply_team_main_color")
 	if inactive_when_no_targets:
 		_set_turret_active(false)
+		if full_deactivation_when_no_targets:
+			_set_full_presence_active(false)
 		_activation_timer_s = randf_range(0.0, maxf(activation_check_interval_s, 0.1))
 	set_process(true)
 
@@ -56,17 +65,26 @@ func _process(delta: float) -> void:
 	if _activation_timer_s > 0.0:
 		return
 	_activation_timer_s = maxf(activation_check_interval_s, 0.1)
-	var should_activate: bool = _has_hostile_within_activation_range()
+	var should_activate: bool = _has_hostile_within_relevance_range()
 	if should_activate != _active:
 		_set_turret_active(should_activate)
+	if full_deactivation_when_no_targets and should_activate != _full_presence_active:
+		_set_full_presence_active(should_activate)
 
 func get_team() -> int:
 	return team
+
+func is_turret_active() -> bool:
+	return _active
+
+func is_full_presence_active() -> bool:
+	return _full_presence_active
 
 func take_damage(damage_amount: float) -> void:
 	if is_destroyed:
 		return
 	current_health = maxf(current_health - damage_amount, 0.0)
+	damaged.emit(damage_amount, current_health)
 	if current_health <= 0.0:
 		_destroy()
 
@@ -118,8 +136,49 @@ func _set_turret_active(enabled: bool) -> void:
 		if _turret_controller.weapon_instance and _turret_controller.weapon_instance.has_method("stop_firing"):
 			_turret_controller.weapon_instance.stop_firing()
 
-func _has_hostile_within_activation_range() -> bool:
-	var range_m: float = maxf(activation_distance_m, 10.0)
+func _set_full_presence_active(enabled: bool) -> void:
+	_full_presence_active = enabled
+	_cache_presence_nodes()
+	visible = _original_root_visible if enabled else false
+
+	for ref: WeakRef in _presence_collision_shape_refs:
+		var collision_shape: CollisionShape3D = _resolve_weak_node(ref) as CollisionShape3D
+		if collision_shape == null:
+			continue
+		if enabled:
+			var original_disabled: Variant = collision_shape.get_meta("gun_emplacement_original_disabled", false)
+			collision_shape.disabled = bool(original_disabled)
+		else:
+			collision_shape.disabled = true
+
+func _cache_presence_nodes() -> void:
+	if not _presence_collision_shape_refs.is_empty():
+		return
+	_cache_presence_nodes_recursive(self)
+
+func _cache_presence_nodes_recursive(node: Node) -> void:
+	if node is CollisionShape3D:
+		var collision_shape: CollisionShape3D = node as CollisionShape3D
+		if not collision_shape.has_meta("gun_emplacement_original_disabled"):
+			collision_shape.set_meta("gun_emplacement_original_disabled", collision_shape.disabled)
+		_presence_collision_shape_refs.append(weakref(collision_shape))
+	for child: Node in node.get_children():
+		_cache_presence_nodes_recursive(child)
+
+func _resolve_weak_node(ref: WeakRef) -> Node:
+	var object: Object = ref.get_ref()
+	if object == null or not is_instance_valid(object):
+		return null
+	return object as Node
+
+func _has_hostile_within_relevance_range() -> bool:
+	var range_m: float = activation_distance_m
+	if _active:
+		range_m = maxf(deactivation_distance_m, activation_distance_m)
+	return _has_hostile_within_range(range_m)
+
+func _has_hostile_within_range(range_m: float) -> bool:
+	range_m = maxf(range_m, 10.0)
 	var range_sq: float = range_m * range_m
 	var groups: Array[String] = _get_hostile_groups_for_team(team)
 	for group_name in groups:

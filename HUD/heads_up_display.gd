@@ -432,6 +432,7 @@ func _process(dt: float) -> void:
 	# Handle HUD mode cycling
 	if Input.is_action_just_pressed("change_weapon"):
 		_cycle_hud_mode()
+	_sync_hud_mode_to_ai_weapon()
 
 	# Update weapon status display
 	update_weapon_status()
@@ -1636,6 +1637,32 @@ func _cycle_hud_mode() -> void:
 	# Update mode label
 	if is_instance_valid(hud_mode_label):
 		hud_mode_label.text = HUDMode.keys()[hud_mode]
+
+
+func _sync_hud_mode_to_ai_weapon() -> void:
+	# While this aircraft is AI-controlled, its pilot owns the weapon selection.
+	# Keep the mode-specific symbology and label on that weapon instead of retaining
+	# whichever HUD mode the spectator/player last selected.
+	if not is_instance_valid(aircraft):
+		return
+	var ai_toggle: Node = aircraft.find_child("AIToggle", true, false)
+	if ai_toggle == null or not bool(ai_toggle.get("ai_active")):
+		return
+	var weapon_control = get_weapon_control()
+	if not is_instance_valid(weapon_control):
+		return
+	var selected_type: String = str(weapon_control.get("selected_weapon_type"))
+	var desired_mode: HUDMode = HUDMode.NAV
+	if selected_type == "Rocket Pod":
+		desired_mode = HUDMode.ROCKETS
+	elif selected_type == "Bomb":
+		desired_mode = HUDMode.BOMBS
+	elif not selected_type.is_empty() and selected_type != "AAMissile":
+		desired_mode = HUDMode.GUN
+	if hud_mode != desired_mode:
+		hud_mode = desired_mode
+		if is_instance_valid(hud_mode_label):
+			hud_mode_label.text = HUDMode.keys()[hud_mode]
 
 func _available_hud_modes() -> Array:
 	var modes: Array = [HUDMode.NAV]

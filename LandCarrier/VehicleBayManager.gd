@@ -34,6 +34,7 @@ var _retrieve_timer: float = 0.0
 var stored_vehicles: int = 0
 
 func _unhandled_input(event: InputEvent) -> void:
+	return
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_V:
 			var gom := _get_ground_ops()

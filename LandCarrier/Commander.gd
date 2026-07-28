@@ -36,6 +36,8 @@ class_name Commander
 var _look_yaw: float = 0.0
 var _look_pitch: float = 0.0
 var _glass_meshes: Array[MeshInstance3D] = []
+var _glass_surfaces: Array[Dictionary] = []
+var _hidden_glass_material: StandardMaterial3D = null
 var _glass_found: bool = false
 var _anchor_local_position: Vector3 = Vector3.ZERO
 var _bridge_bounds_min: Vector2 = Vector2.ZERO
@@ -50,6 +52,7 @@ var _control_room_wind_player: AudioStreamPlayer
 var _active_view_mode: int = 0
 var _chase_camera: Camera3D = null
 var _cinematic_camera: Camera3D = null
+var _walk_area_provider: Node = null
 
 const VIEW_CONTROL_ROOM: int = 0
 const VIEW_CHASE: int = 1
@@ -112,6 +115,8 @@ func _physics_process(delta: float) -> void:
 		velocity = Vector3.ZERO
 		return
 
+	position = _constrain_walk_position(position, position)
+
 	_update_look(delta)
 
 	var forward_input := Input.get_action_strength("pitch_up") - Input.get_action_strength("pitch_down")
@@ -137,7 +142,7 @@ func _physics_process(delta: float) -> void:
 		return
 
 	velocity = Vector3.ZERO
-	position = _clamp_to_bridge_bounds(position + move_velocity * delta)
+	position = _constrain_walk_position(position, position + move_velocity * delta)
 	_anchor_local_position = position
 
 func _update_look(delta: float) -> void:
@@ -239,6 +244,13 @@ func _clamp_to_bridge_bounds(local_position: Vector3) -> Vector3:
 	# _bridge_bounds_min/max are Vector2(x, z) — .y component stores Z bounds
 	clamped.z = clampf(clamped.z, _bridge_bounds_min.y, _bridge_bounds_max.y)
 	return clamped
+
+func _constrain_walk_position(current_position: Vector3, desired_position: Vector3) -> Vector3:
+	if _walk_area_provider == null:
+		_walk_area_provider = get_parent().get_node_or_null("CommanderWalkArea")
+	if _walk_area_provider != null and _walk_area_provider.has_method("constrain_commander_position"):
+		return _walk_area_provider.call("constrain_commander_position", current_position, desired_position) as Vector3
+	return _clamp_to_bridge_bounds(desired_position)
 
 func _update_body_visibility(active_view: bool) -> void:
 	if body_mesh == null:
@@ -373,17 +385,50 @@ func _place_external_camera(camera: Camera3D, carrier_node: Node3D, local_positi
 
 func _find_glass_meshes() -> void:
 	_glass_meshes.clear()
+	_glass_surfaces.clear()
 	var root := get_parent()
 	if not is_instance_valid(root):
 		return
 	var stack: Array[Node] = [root]
 	while not stack.is_empty():
 		var node: Node = stack.pop_back() as Node
-		if node is MeshInstance3D and node.name.to_lower() == "glass":
-			_glass_meshes.append(node as MeshInstance3D)
+		if node is MeshInstance3D:
+			var mesh_instance := node as MeshInstance3D
+			if node.name.to_lower() == "glass":
+				# Legacy carrier: its windows are a dedicated mesh.
+				_glass_meshes.append(mesh_instance)
+			else:
+				_find_glass_material_surfaces(mesh_instance)
 		for child in node.get_children():
 			stack.append(child)
 	_glass_found = true
+
+
+func _find_glass_material_surfaces(mesh_instance: MeshInstance3D) -> void:
+	if mesh_instance.mesh == null:
+		return
+	for surface_index in mesh_instance.mesh.get_surface_count():
+		var override_material := mesh_instance.get_surface_override_material(surface_index)
+		var surface_material := override_material
+		if surface_material == null:
+			surface_material = mesh_instance.mesh.surface_get_material(surface_index)
+		if surface_material == null or surface_material.resource_name.strip_edges().to_lower() != "glass":
+			continue
+		_glass_surfaces.append({
+			"mesh": mesh_instance,
+			"surface": surface_index,
+			"original_override": override_material,
+		})
+
+
+func _get_hidden_glass_material() -> StandardMaterial3D:
+	if _hidden_glass_material == null:
+		_hidden_glass_material = StandardMaterial3D.new()
+		_hidden_glass_material.resource_name = "CommanderHiddenGlass"
+		_hidden_glass_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		_hidden_glass_material.albedo_color = Color(1.0, 1.0, 1.0, 0.0)
+		_hidden_glass_material.no_depth_test = true
+	return _hidden_glass_material
 
 
 func _set_glass_visible(visible: bool) -> void:
@@ -392,3 +437,12 @@ func _set_glass_visible(visible: bool) -> void:
 	for mi in _glass_meshes:
 		if is_instance_valid(mi):
 			mi.visible = visible
+	for entry in _glass_surfaces:
+		var mesh_instance := entry.get("mesh") as MeshInstance3D
+		if not is_instance_valid(mesh_instance):
+			continue
+		var surface_index := int(entry.get("surface", -1))
+		if surface_index < 0 or mesh_instance.mesh == null or surface_index >= mesh_instance.mesh.get_surface_count():
+			continue
+		var material := entry.get("original_override") as Material if visible else _get_hidden_glass_material()
+		mesh_instance.set_surface_override_material(surface_index, material)

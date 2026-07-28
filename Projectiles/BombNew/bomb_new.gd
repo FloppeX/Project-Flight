@@ -1,6 +1,9 @@
 extends ProjectileNew
 class_name BombProjectile
 
+signal tuning_impact(position: Vector3)
+signal tuning_impact_detail(position: Vector3, body: Node)
+
 # =============================================================================
 # BOMB PROJECTILE - Specialized bomb with arming delay
 # =============================================================================
@@ -12,6 +15,7 @@ class_name BombProjectile
 
 var arming_timer: float = 0.0
 var _debug_elapsed: float = 0.0
+var _tuning_impact_emitted: bool = false
 
 func _init():
 	# Bombs should keep their release velocity and only curve due to gravity.
@@ -27,6 +31,16 @@ func _ready():
 		explosion_scene = load("res://Projectiles/Explosion/explosion.tscn")
 	body_entered.disconnect(_on_body_entered)
 	body_entered.connect(_on_body_entered)
+
+func _exit_tree() -> void:
+	_emit_tuning_impact(global_position)
+
+func _emit_tuning_impact(position: Vector3, body: Node = null) -> void:
+	if _tuning_impact_emitted:
+		return
+	_tuning_impact_emitted = true
+	tuning_impact.emit(position)
+	tuning_impact_detail.emit(position, body)
 
 func _physics_process(delta):
 	# Update arming timer
@@ -59,6 +73,7 @@ func _on_body_entered(body):
 	if body == shooter:
 		return
 	if not armed:
+		_emit_tuning_impact(global_position, body)
 		has_impacted = true
 		queue_free()
 		return
@@ -67,6 +82,7 @@ func _on_body_entered(body):
 func _trigger_explosion(hit_body: Node = null):
 	# Debug: report actual vs intended impact
 	var impact_pos: Vector3 = global_position
+	_emit_tuning_impact(impact_pos, hit_body)
 	if has_meta("debug_aim_target"):
 		var aim: Vector3 = get_meta("debug_aim_target")
 		var predicted: Vector3 = get_meta("debug_predicted_impact", Vector3.ZERO)

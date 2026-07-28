@@ -24,7 +24,7 @@ func apply_origin_shift(offset: Vector3) -> void:
 
 # --- Config (set in Inspector on the autoload node) ---
 @export var cell_size_m: float = 40.0          ## Grid resolution in metres
-@export var bake_half_extent_m: float = 9000.0 ## Half-side of baked square around terrain centre
+@export var bake_half_extent_m: float = 12500.0 ## Half-side of baked square around terrain centre
 @export var search_padding_m: float = 400.0    ## Extra A* search area beyond start→goal bbox
 @export_range(1, 20) var rows_per_frame: int = 4 ## Terrain rows sampled per frame while baking
 ## Clearance radius in cells required around each path node.
@@ -43,7 +43,7 @@ func apply_origin_shift(offset: Vector3) -> void:
 @export_group("Query Grid")
 ## Finer, non-A* grid used for cheap terrain safety/footprint checks.
 @export var query_grid_enabled: bool = true
-@export var query_cell_size_m: float = 32.0
+@export var query_cell_size_m: float = 24.0
 ## Radius, in query cells, used to bake local height variation / edge risk.
 @export_range(1, 4) var query_edge_radius_cells: int = 2
 
@@ -212,6 +212,62 @@ func is_stable_footprint(wx: float, wz: float, radius_m: float, max_center_drop_
 			if max_h - min_h > max_height_variation_m:
 				return false
 	return true
+
+
+## Checks the low-altitude departure lane ahead of a spawn point. A stable
+## footprint alone can still put an aircraft carrier immediately in front of a
+## mesa that lies outside the hull radius.
+func is_directional_launch_corridor_clear(
+		wx: float,
+		wz: float,
+		direction_x: float,
+		direction_z: float,
+		distance_m: float,
+		half_width_m: float,
+		max_terrain_rise_m: float
+) -> bool:
+	if not _query_is_baked:
+		return false
+	var direction := Vector2(direction_x, direction_z)
+	if direction.length_squared() <= 0.0001:
+		return false
+	direction = direction.normalized()
+	var right := Vector2(-direction.y, direction.x)
+	var start_h: float = sample_query_height(wx, wz)
+	if start_h <= IMPASSABLE * 0.5:
+		return false
+	var corridor_distance: float = maxf(distance_m, 0.0)
+	var corridor_half_width: float = maxf(half_width_m, 0.0)
+	var sample_step: float = maxf(query_cell_size_m * 0.5, 40.0)
+	var lateral_offsets: Array[float] = [-corridor_half_width, 0.0, corridor_half_width]
+	var along: float = 0.0
+	while along <= corridor_distance + 0.001:
+		var center := Vector2(wx, wz) + direction * along
+		for lateral in lateral_offsets:
+			var sample_pos := center + right * lateral
+			var terrain_h: float = sample_query_height(sample_pos.x, sample_pos.y)
+			if terrain_h <= IMPASSABLE * 0.5:
+				return false
+			if terrain_h - start_h > maxf(max_terrain_rise_m, 0.0):
+				return false
+		along += sample_step
+	return true
+
+
+func is_low_clear_position(wx: float, wz: float, max_slope_m: float = 15.0) -> bool:
+	if not _is_baked:
+		return false
+	var gx := int((wx - _origin_x) / cell_size_m)
+	var gz := int((wz - _origin_z) / cell_size_m)
+	if gx < 0 or gx >= _cols or gz < 0 or gz >= _rows:
+		return false
+	var h: float = _heights[gz * _cols + gx]
+	if h <= IMPASSABLE * 0.5:
+		return false
+	var h_ceil := _h_min_passable + low_level_tolerance_m
+	if h > h_ceil:
+		return false
+	return _cell_clear(gx, gz, max_slope_m)
 
 
 func get_max_height_in_radius(wx: float, wz: float, radius_m: float) -> float:
@@ -528,7 +584,9 @@ func _los_clear(a: Vector3, b: Vector3, max_slope_m: float) -> bool:
 ## Returns Vector3.ZERO if nothing suitable is found within max_attempts.
 func get_random_passable_position(rng: RandomNumberGenerator,
 		max_slope_m: float = 15.0,
-		max_attempts: int = 2000) -> Vector3:
+		max_attempts: int = 2000,
+		clearance_radius_m: float = 0.0,
+		clearance_max_height_variation_m: float = 15.0) -> Vector3:
 	if not _is_baked:
 		return Vector3.ZERO
 	var border := body_clearance_cells + 8
@@ -539,8 +597,15 @@ func get_random_passable_position(rng: RandomNumberGenerator,
 		var h: float = _heights[gz * _cols + gx]
 		if h > h_ceil:
 			continue  # skip mid/high level cells
-		if _cell_clear(gx, gz, max_slope_m):
-			return Vector3(_origin_x + gx * cell_size_m, h, _origin_z + gz * cell_size_m)
+		if not _cell_clear(gx, gz, max_slope_m):
+			continue
+		var wx: float = _origin_x + gx * cell_size_m
+		var wz: float = _origin_z + gz * cell_size_m
+		if clearance_radius_m > 0.0 and not is_stable_footprint(
+				wx, wz, clearance_radius_m,
+				clearance_max_height_variation_m, clearance_max_height_variation_m):
+			continue
+		return Vector3(wx, h, wz)
 	return Vector3.ZERO
 
 
@@ -597,7 +662,9 @@ func get_centered_edge_position(
 		edge_margin_m: float = 1800.0,
 		lateral_search_m: float = 3600.0,
 		inward_search_m: float = 2800.0,
-		max_slope_m: float = 15.0) -> Vector3:
+		max_slope_m: float = 15.0,
+		clearance_radius_m: float = 0.0,
+		clearance_max_height_variation_m: float = 15.0) -> Vector3:
 	if not _is_baked:
 		return Vector3.ZERO
 
@@ -642,6 +709,12 @@ func get_centered_edge_position(
 			if h > h_ceil:
 				continue
 			if not _cell_clear(gx, gz, max_slope_m):
+				continue
+			var wx: float = _origin_x + gx * cell_size_m
+			var wz: float = _origin_z + gz * cell_size_m
+			if clearance_radius_m > 0.0 and not is_stable_footprint(
+					wx, wz, clearance_radius_m,
+					clearance_max_height_variation_m, clearance_max_height_variation_m):
 				continue
 			var score := absf(float(lateral_offset)) + float(depth_offset) * 0.65
 			if score < best_score:

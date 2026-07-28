@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://Scenario/TurnGym.gd" id="1_turn_gym"]
+
+[node name="TurnGym" type="Node3D"]
+script = ExtResource("1_turn_gym")

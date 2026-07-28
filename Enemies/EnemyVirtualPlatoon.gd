@@ -1,5 +1,7 @@
 class_name EnemyVirtualPlatoon
 extends Node
+
+const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
 ## Abstract representation of an enemy ground platoon.
 ## Moves as data until a friendly asset comes within ACTIVATE_RANGE_M,
 ## then spawns real VehicleEnemyLight instances inside a GroundVehiclePlatoon.
@@ -12,13 +14,26 @@ extends Node
 enum Mission { PATROL, ATTACK_CARRIER, ATTACK_POSITION, RTB, HOLD }
 enum VState  { VIRTUAL, ACTIVE }
 
-const ACTIVATE_RANGE_M          := 1400.0
-const DEACTIVATE_RANGE_M        := 2200.0
+const ACTIVATE_RANGE_M          := 3000.0
+const DEACTIVATE_RANGE_M        := 4400.0
 const PATROL_SPEED_MPS          := 8.0
 const ATTACK_SPEED_MPS          := 10.0
 const RTB_SPEED_MPS             := 9.0
-const PATROL_WP_COUNT           := 4
+const PATROL_WP_COUNT           := 6
 const PATROL_WP_REACH_M         := 80.0
+const DRIVE_NAV_CLEARANCE_M     := 60.0
+const DRIVE_NAV_ANCHOR_M        := 220.0
+const DRIVE_POSITION_SEARCH_M   := 1800.0
+const DRIVE_POSITION_SAMPLES    := 16
+const DRIVE_POSITION_RINGS      := 6
+const DRIVE_NAV_CANDIDATES_TO_CHECK := 8
+const DRIVE_FOOTPRINT_RADIUS_M  := 55.0
+const DRIVE_MAX_CENTER_DROP_M   := 4.0
+const DRIVE_PATH_REACH_M        := 65.0
+const DRIVE_PATH_REPATH_M       := 140.0
+const DRIVE_PATH_RETRY_S        := 10.0
+const DRIVE_PATH_RETRY_JITTER_S := 6.0
+const VIRTUAL_PATH_MAX_CONCURRENT_JOBS := 2
 const DETECTION_RANGE_M         := 2500.0  # ground units see less than air
 const DETECTION_SCAN_INTERVAL_S := 6.0
 const REPORT_DELAY_MIN_S        := 40.0    # slower comms for ground
@@ -47,6 +62,13 @@ var _last_live_count:  int = 0
 var _detection_timer:  float = 0.0
 var _pending_reports:  Array[Dictionary] = []
 var _rng:              RandomNumberGenerator = RandomNumberGenerator.new()
+var _virtual_path:     Array[Vector3] = []
+var _virtual_path_idx: int = 0
+var _virtual_path_goal: Vector3 = Vector3.INF
+var _virtual_path_retry_s: float = 0.0
+var _is_virtual_pathfinding: bool = false
+
+static var _global_virtual_path_jobs: int = 0
 
 signal unit_destroyed(platoon: EnemyVirtualPlatoon)
 
@@ -56,40 +78,56 @@ func setup(home_pos: Vector3, scenes: Array[PackedScene], start_angle: float = 0
 	_vehicle_scenes = scenes
 	_rng.randomize()
 	_generate_patrol_waypoints(start_angle)
-	_patrol_wp_idx = _rng.randi() % maxi(_patrol_waypoints.size(), 1)
+	_randomize_initial_patrol_waypoint()
 	if not _patrol_waypoints.is_empty():
 		position = _patrol_waypoints[_patrol_wp_idx]
 	else:
 		var ix := home_pos.x + cos(start_angle) * patrol_radius
 		var iz := home_pos.z + sin(start_angle) * patrol_radius
-		var iy := TerrainNavGrid.sample_height(ix, iz)
-		if iy <= TerrainNavGrid.IMPASSABLE * 0.5:
-			iy = home_pos.y
-		position = Vector3(ix, iy, iz)
-	heading = Vector3(-sin(start_angle), 0.0, cos(start_angle)).normalized()
+		position = _find_driveable_position_near(Vector3(ix, home_pos.y, iz), home_pos, false)
+	_update_heading_toward_next_patrol_waypoint(start_angle)
 	_detection_timer = _rng.randf_range(0.0, DETECTION_SCAN_INTERVAL_S)
 
 
 func _generate_patrol_waypoints(start_angle: float) -> void:
 	_patrol_waypoints.clear()
 	for i in range(PATROL_WP_COUNT):
-		var angle := start_angle + float(i) * TAU / float(PATROL_WP_COUNT) + _rng.randf_range(-0.3, 0.3)
-		var r     := patrol_radius * _rng.randf_range(0.45, 0.95)
+		var angle := start_angle + float(i) * TAU / float(PATROL_WP_COUNT) + _rng.randf_range(-0.38, 0.38)
+		var r     := patrol_radius * _rng.randf_range(0.65, 1.15)
 		var wx    := home_position.x + cos(angle) * r
 		var wz    := home_position.z + sin(angle) * r
-		var wy    := TerrainNavGrid.sample_height(wx, wz)
-		if wy <= TerrainNavGrid.IMPASSABLE * 0.5:
-			wy = home_position.y
-		_patrol_waypoints.append(Vector3(wx, wy, wz))
+		_patrol_waypoints.append(_find_driveable_position_near(Vector3(wx, home_position.y, wz), home_position, false))
 	_patrol_wp_idx = 0
 
 
+func _randomize_initial_patrol_waypoint() -> void:
+	if _patrol_waypoints.is_empty():
+		_patrol_wp_idx = 0
+		return
+	_patrol_wp_idx = _rng.randi() % _patrol_waypoints.size()
+
+
+func _update_heading_toward_next_patrol_waypoint(fallback_angle: float) -> void:
+	if _patrol_waypoints.size() <= 1:
+		heading = Vector3(-sin(fallback_angle), 0.0, cos(fallback_angle)).normalized()
+		return
+	var next_idx: int = (_patrol_wp_idx + 1) % _patrol_waypoints.size()
+	var to_next: Vector3 = _patrol_waypoints[next_idx] - position
+	to_next.y = 0.0
+	if to_next.length_squared() <= 1.0:
+		heading = Vector3(-sin(fallback_angle), 0.0, cos(fallback_angle)).normalized()
+		return
+	heading = to_next.normalized()
+
+
 func tick(delta: float) -> void:
+	var _profiler_start: int = FrameProfiler.begin("EnemyVirtualPlatoon.tick")
 	_active_vehicles = _active_vehicles.filter(func(v): return is_instance_valid(v))
 
 	if vstate == VState.ACTIVE:
 		if _platoon_node == null or not is_instance_valid(_platoon_node):
 			_on_platoon_gone()
+			FrameProfiler.end("EnemyVirtualPlatoon.tick", _profiler_start)
 			return
 		var live := _platoon_node.get_members().size()
 		if live != _last_live_count:
@@ -97,18 +135,28 @@ func tick(delta: float) -> void:
 			vehicle_count = live
 			if live == 0:
 				_on_platoon_gone()
+				FrameProfiler.end("EnemyVirtualPlatoon.tick", _profiler_start)
 				return
 		var centroid := _platoon_node.get_contact_position()
 		if centroid != Vector3.INF:
 			position = centroid
+		var active_check_start: int = FrameProfiler.begin("EnemyVirtualPlatoon.active_checks")
 		_check_dematerialize()
+		if vstate != VState.ACTIVE:
+			FrameProfiler.end("EnemyVirtualPlatoon.active_checks", active_check_start)
+			FrameProfiler.end("EnemyVirtualPlatoon.tick", _profiler_start)
+			return
 		# Materialized units report immediately
 		_scan_for_contacts(true)
+		FrameProfiler.end("EnemyVirtualPlatoon.active_checks", active_check_start)
+		FrameProfiler.end("EnemyVirtualPlatoon.tick", _profiler_start)
 		return
 
 	if vehicle_count <= 0:
+		FrameProfiler.end("EnemyVirtualPlatoon.tick", _profiler_start)
 		return
 
+	var move_start: int = FrameProfiler.begin("EnemyVirtualPlatoon.move")
 	match mission:
 		Mission.PATROL:
 			_tick_patrol(delta)
@@ -118,9 +166,15 @@ func tick(delta: float) -> void:
 			_tick_rtb(delta)
 		Mission.HOLD:
 			pass
+	FrameProfiler.end("EnemyVirtualPlatoon.move", move_start)
 
+	var materialize_start: int = FrameProfiler.begin("EnemyVirtualPlatoon.materialize_check")
 	_check_materialize()
+	FrameProfiler.end("EnemyVirtualPlatoon.materialize_check", materialize_start)
+	var detection_start: int = FrameProfiler.begin("EnemyVirtualPlatoon.detection")
 	_tick_detection(delta)
+	FrameProfiler.end("EnemyVirtualPlatoon.detection", detection_start)
+	FrameProfiler.end("EnemyVirtualPlatoon.tick", _profiler_start)
 
 
 # ── Movement ──────────────────────────────────────────────────────────────────
@@ -133,19 +187,16 @@ func _tick_patrol(delta: float) -> void:
 	var to_target := Vector3(target.x - position.x, 0.0, target.z - position.z)
 	if to_target.length() < PATROL_WP_REACH_M:
 		_patrol_wp_idx = (_patrol_wp_idx + 1) % _patrol_waypoints.size()
+		_clear_virtual_path()
 		return
-	var dir   := to_target.normalized()
-	position  += dir * PATROL_SPEED_MPS * delta
-	heading    = dir
+	_move_virtual_toward(target, PATROL_SPEED_MPS, delta, PATROL_WP_REACH_M)
 
 
 func _tick_move_to(target: Vector3, speed: float, delta: float) -> void:
 	var to_target := Vector3(target.x - position.x, 0.0, target.z - position.z)
 	if to_target.length() < 80.0:
 		return
-	var dir   := to_target.normalized()
-	position  += dir * speed * delta
-	heading    = dir
+	_move_virtual_toward(target, speed, delta, 80.0)
 
 
 func _tick_rtb(delta: float) -> void:
@@ -153,10 +204,124 @@ func _tick_rtb(delta: float) -> void:
 	if to_base.length() < 150.0:
 		mission  = Mission.HOLD
 		position = home_position
+		_clear_virtual_path()
 		return
-	var dir   := to_base.normalized()
-	position  += dir * RTB_SPEED_MPS * delta
-	heading    = dir
+	_move_virtual_toward(home_position, RTB_SPEED_MPS, delta, 150.0)
+
+
+func _move_virtual_toward(raw_target: Vector3, speed: float, delta: float, stop_distance: float) -> void:
+	_virtual_path_retry_s = maxf(_virtual_path_retry_s - delta, 0.0)
+	var target := _project_to_ground(raw_target)
+	var follow_start: int = FrameProfiler.begin("EnemyVirtualPlatoon.follow_point")
+	var follow := _get_virtual_follow_point(target)
+	FrameProfiler.end("EnemyVirtualPlatoon.follow_point", follow_start)
+	if not _is_valid_world_position(follow):
+		return
+	var to_follow := Vector3(follow.x - position.x, 0.0, follow.z - position.z)
+	var follow_dist := to_follow.length()
+	if follow_dist <= DRIVE_PATH_REACH_M:
+		if _virtual_path_idx < _virtual_path.size():
+			_virtual_path_idx += 1
+			if _virtual_path_idx >= _virtual_path.size():
+				if Vector3(target.x - position.x, 0.0, target.z - position.z).length() <= stop_distance:
+					return
+				follow = target
+			else:
+				follow = _virtual_path[_virtual_path_idx]
+				if not _is_valid_world_position(follow):
+					return
+			to_follow = Vector3(follow.x - position.x, 0.0, follow.z - position.z)
+			follow_dist = to_follow.length()
+		elif Vector3(target.x - position.x, 0.0, target.z - position.z).length() <= stop_distance:
+			return
+	if follow_dist <= 0.001:
+		return
+	var dir := to_follow / follow_dist
+	var step := minf(speed * delta, follow_dist)
+	position += dir * step
+	position = _project_to_ground(position)
+	heading = dir
+
+
+func _get_virtual_follow_point(target: Vector3) -> Vector3:
+	if not NavGraph.is_ready():
+		return target if _is_driveable_terrain_position(target) else _find_driveable_position_near(target, position, false)
+	var goal_shifted := not _is_valid_world_position(_virtual_path_goal) \
+		or _flat_distance(_virtual_path_goal, target) > DRIVE_PATH_REPATH_M
+	var needs_path := _virtual_path.is_empty()
+	if goal_shifted or needs_path:
+		if _is_virtual_pathfinding or _virtual_path_retry_s > 0.0:
+			return position
+		_recompute_virtual_path(target)
+	if _virtual_path_idx < _virtual_path.size():
+		return _virtual_path[_virtual_path_idx]
+	if _is_driveable_terrain_position(target):
+		return target
+	return Vector3.INF
+
+
+func _recompute_virtual_path(target: Vector3) -> void:
+	if _is_virtual_pathfinding:
+		return
+	_clear_virtual_path()
+	if not NavGraph.is_ready():
+		return
+	if _global_virtual_path_jobs >= VIRTUAL_PATH_MAX_CONCURRENT_JOBS:
+		_virtual_path_retry_s = _rng.randf_range(0.5, 1.5)
+		return
+	var start_pos := position
+	var goal_pos := target
+	if not _is_driveable_terrain_position(start_pos) or not _is_driveable_terrain_position(goal_pos):
+		_virtual_path_retry_s = _next_path_retry_s()
+		return
+	if not _is_valid_world_position(start_pos) or not _is_valid_world_position(goal_pos):
+		_virtual_path_retry_s = _next_path_retry_s()
+		return
+	_virtual_path_goal = goal_pos
+	_is_virtual_pathfinding = true
+	_global_virtual_path_jobs += 1
+	var callback: Callable = func(path: Array[Vector3]) -> void:
+		_on_virtual_path_computed(path, goal_pos)
+	var job_id: int = NavPathScheduler.request_find_path(start_pos, goal_pos, DRIVE_NAV_CLEARANCE_M, callback, 0, "EnemyVirtualPlatoon")
+	if job_id < 0:
+		_global_virtual_path_jobs = maxi(_global_virtual_path_jobs - 1, 0)
+		_is_virtual_pathfinding = false
+		_virtual_path_retry_s = _next_path_retry_s()
+		return
+
+
+func _on_virtual_path_computed(path: Array[Vector3], goal_at_request: Vector3) -> void:
+	_global_virtual_path_jobs = maxi(_global_virtual_path_jobs - 1, 0)
+	_is_virtual_pathfinding = false
+	if not is_instance_valid(self):
+		return
+	if not _is_valid_world_position(_virtual_path_goal) or _flat_distance(goal_at_request, _virtual_path_goal) > DRIVE_PATH_REPATH_M:
+		return
+	if path.is_empty():
+		_virtual_path_retry_s = _next_path_retry_s()
+		return
+	_virtual_path_goal = goal_at_request
+	_virtual_path.clear()
+	for point in path:
+		if point is Vector3:
+			_virtual_path.append(_project_to_ground(point as Vector3))
+	var projected_goal := _project_to_ground(goal_at_request)
+	if _virtual_path.is_empty() or _flat_distance(_virtual_path[_virtual_path.size() - 1], projected_goal) > DRIVE_PATH_REACH_M:
+		_virtual_path.append(projected_goal)
+	_virtual_path_idx = 0
+	while _virtual_path_idx < _virtual_path.size() and _flat_distance(position, _virtual_path[_virtual_path_idx]) <= DRIVE_PATH_REACH_M:
+		_virtual_path_idx += 1
+
+
+func _clear_virtual_path() -> void:
+	_virtual_path.clear()
+	_virtual_path_idx = 0
+	_virtual_path_goal = Vector3.INF
+	_virtual_path_retry_s = 0.0
+
+
+func _next_path_retry_s() -> float:
+	return DRIVE_PATH_RETRY_S + _rng.randf_range(0.0, DRIVE_PATH_RETRY_JITTER_S)
 
 
 # ── Detection & reporting ─────────────────────────────────────────────────────
@@ -234,13 +399,22 @@ func _process_pending_reports(delta: float) -> void:
 func _check_materialize() -> void:
 	if _vehicle_scenes.is_empty() or vstate == VState.ACTIVE:
 		return
-	if _nearest_friendly_distance() <= ACTIVATE_RANGE_M:
+	if _should_materialize():
 		_materialize()
 
 
 func _check_dematerialize() -> void:
-	if _nearest_friendly_distance() > DEACTIVATE_RANGE_M:
+	if _nearest_player_relevance_distance() > DEACTIVATE_RANGE_M:
 		dematerialize()
+
+
+func _should_materialize() -> bool:
+	var player_dist: float = _nearest_player_relevance_distance()
+	if player_dist <= ACTIVATE_RANGE_M:
+		return true
+	if player_dist <= DEACTIVATE_RANGE_M and _nearest_friendly_distance() <= ACTIVATE_RANGE_M:
+		return true
+	return false
 
 
 func _materialize() -> void:
@@ -264,7 +438,10 @@ func _materialize() -> void:
 		scene_root.add_child(veh)
 		var angle  := float(i) * TAU / float(maxi(vehicle_count, 1))
 		var spread := Vector3(cos(angle) * 28.0, 0.0, sin(angle) * 28.0)
-		veh.global_position = position + spread
+		var spawn_pos := _find_driveable_position_near(position + spread, position, false)
+		if not _is_valid_world_position(spawn_pos):
+			spawn_pos = _project_to_ground(position + spread)
+		veh.global_position = spawn_pos
 		veh.set_meta("faction_color", faction_color)
 		if "team" in veh:
 			veh.set("team", 2)
@@ -333,6 +510,7 @@ func dematerialize() -> void:
 
 func set_mission_patrol() -> void:
 	mission = Mission.PATROL
+	_clear_virtual_path()
 	if vstate == VState.ACTIVE:
 		_apply_mission_to_platoon()
 
@@ -342,21 +520,122 @@ func set_mission_attack_carrier() -> void:
 	if carrier and is_instance_valid(carrier):
 		attack_position = carrier.global_position
 	mission = Mission.ATTACK_CARRIER
+	_clear_virtual_path()
 	if vstate == VState.ACTIVE:
 		_apply_mission_to_platoon()
 
 
 func set_mission_attack_position(target: Vector3) -> void:
-	attack_position = target
+	attack_position = _find_driveable_position_near(target, position, false)
 	mission         = Mission.ATTACK_POSITION
+	_clear_virtual_path()
 	if vstate == VState.ACTIVE:
 		_apply_mission_to_platoon()
 
 
 func set_mission_rtb() -> void:
 	mission = Mission.RTB
+	_clear_virtual_path()
 	if vstate == VState.ACTIVE:
 		_apply_mission_to_platoon()
+
+
+# Terrain and navigation helpers
+
+func _find_driveable_position_near(desired: Vector3, reference: Vector3, require_nav_anchor: bool = true) -> Vector3:
+	var projected := _project_to_ground(desired)
+	if require_nav_anchor:
+		if _is_driveable_position(projected):
+			return projected
+	elif _is_driveable_terrain_position(projected):
+		return projected
+
+	var candidates: Array[Dictionary] = []
+	var rings := maxi(DRIVE_POSITION_RINGS, 1)
+	var samples := maxi(DRIVE_POSITION_SAMPLES, 4)
+	for ring in range(1, rings + 1):
+		var radius := DRIVE_POSITION_SEARCH_M * float(ring) / float(rings)
+		var angle_offset := _rng.randf_range(0.0, TAU)
+		for sample_idx in range(samples):
+			var angle := angle_offset + TAU * float(sample_idx) / float(samples)
+			var candidate := Vector3(
+				desired.x + cos(angle) * radius,
+				desired.y,
+				desired.z + sin(angle) * radius
+			)
+			candidate = _project_to_ground(candidate)
+			if not _is_driveable_terrain_position(candidate):
+				continue
+			var score := _flat_distance(candidate, desired) + _flat_distance(candidate, reference) * 0.12
+			candidates.append({"position": candidate, "score": score})
+	candidates.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return float(a["score"]) < float(b["score"])
+	)
+	if not candidates.is_empty():
+		if require_nav_anchor:
+			var nav_checks: int = mini(candidates.size(), DRIVE_NAV_CANDIDATES_TO_CHECK)
+			for i in range(nav_checks):
+				var entry: Dictionary = candidates[i]
+				var candidate_pos: Vector3 = entry["position"] as Vector3
+				if _has_drive_nav_anchor(candidate_pos):
+					return candidate_pos
+		var fallback_entry: Dictionary = candidates[0]
+		return fallback_entry["position"] as Vector3
+	var projected_reference := _project_to_ground(reference)
+	if require_nav_anchor:
+		if _is_driveable_position(projected_reference):
+			return projected_reference
+	elif _is_driveable_terrain_position(projected_reference):
+		return projected_reference
+	return projected if _is_valid_world_position(projected) else Vector3.INF
+
+
+func _is_driveable_position(world_pos: Vector3) -> bool:
+	if not _is_driveable_terrain_position(world_pos):
+		return false
+	return _has_drive_nav_anchor(world_pos)
+
+
+func _is_driveable_terrain_position(world_pos: Vector3) -> bool:
+	if not _is_valid_world_position(world_pos) or not TerrainNavGrid.is_ready():
+		return false
+	if not TerrainNavGrid.is_low_clear_position(world_pos.x, world_pos.z, _max_drive_slope_m()):
+		return false
+	if TerrainNavGrid.has_query_grid():
+		if not TerrainNavGrid.is_stable_footprint(
+				world_pos.x,
+				world_pos.z,
+				DRIVE_FOOTPRINT_RADIUS_M,
+				DRIVE_MAX_CENTER_DROP_M,
+				_max_drive_slope_m()):
+			return false
+	return true
+
+
+func _has_drive_nav_anchor(world_pos: Vector3) -> bool:
+	if NavGraph.is_ready():
+		return NavGraph.can_anchor(world_pos, DRIVE_NAV_CLEARANCE_M, DRIVE_NAV_ANCHOR_M)
+	return true
+
+
+func _project_to_ground(world_pos: Vector3) -> Vector3:
+	var projected := world_pos
+	var h := TerrainNavGrid.sample_height(world_pos.x, world_pos.z)
+	if h > TerrainNavGrid.IMPASSABLE * 0.5:
+		projected.y = h
+	return projected
+
+
+func _max_drive_slope_m() -> float:
+	return NavGraph.max_slope_m if NavGraph != null else 18.0
+
+
+func _flat_distance(a: Vector3, b: Vector3) -> float:
+	return Vector2(a.x - b.x, a.z - b.z).length()
+
+
+func _is_valid_world_position(world_pos: Vector3) -> bool:
+	return is_finite(world_pos.x) and is_finite(world_pos.y) and is_finite(world_pos.z)
 
 
 # ── Proximity helpers ─────────────────────────────────────────────────────────
@@ -378,6 +657,50 @@ func _nearest_friendly_distance() -> float:
 			continue
 		best_sq = minf(best_sq, position.distance_squared_to((node as Node3D).global_position))
 	return sqrt(best_sq)
+
+
+func _nearest_player_relevance_distance() -> float:
+	var player_node: Node3D = _get_player_relevance_node()
+	if player_node != null and is_instance_valid(player_node):
+		return position.distance_to(player_node.global_position)
+	return _nearest_friendly_distance()
+
+
+func _get_player_relevance_node() -> Node3D:
+	var camera_node: Node3D = _get_active_camera_relevance_node()
+	if camera_node != null and is_instance_valid(camera_node):
+		return camera_node
+	var flight_director: Node = get_node_or_null("/root/FlightDirector")
+	if flight_director != null:
+		var controlled_value: Variant = flight_director.get("player_controlled_plane")
+		if controlled_value is Node3D and is_instance_valid(controlled_value):
+			return controlled_value as Node3D
+		var viewed_value: Variant = flight_director.get("current_viewed_aircraft")
+		if viewed_value is Node3D and is_instance_valid(viewed_value):
+			return viewed_value as Node3D
+	return null
+
+
+func _get_active_camera_relevance_node() -> Node3D:
+	var viewport: Viewport = get_viewport()
+	if viewport != null:
+		var camera: Camera3D = viewport.get_camera_3d()
+		if camera != null and is_instance_valid(camera):
+			var node: Node = camera
+			while node != null:
+				if node is Node3D and _is_player_relevance_root(node):
+					return node as Node3D
+				node = node.get_parent()
+			return camera
+	return null
+
+
+func _is_player_relevance_root(node: Node) -> bool:
+	return node.is_in_group("aircraft") \
+		or node.is_in_group("ai_aircraft") \
+		or node.is_in_group("ground_vehicles") \
+		or node.is_in_group("carrier") \
+		or node.is_in_group("friendlies")
 
 
 func _get_friendly_air_nodes() -> Array[Node3D]:

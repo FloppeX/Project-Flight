@@ -88,6 +88,7 @@ var _rolling_audio_player: AudioStreamPlayer3D = null
 var _visibility_notifier: VisibleOnScreenNotifier3D = null
 var _track_visuals_on_screen: bool = true
 var _track_visual_refresh_required: bool = true
+var _visual_budget_enabled: bool = true
 
 
 func _ready() -> void:
@@ -111,6 +112,28 @@ func _ready() -> void:
 	_rebuild_track_multimesh()
 	_setup_visibility_notifier()
 	_setup_rolling_audio()
+
+
+func set_visual_budget_enabled(enabled: bool) -> void:
+	if _visual_budget_enabled == enabled:
+		return
+	_visual_budget_enabled = enabled
+	set_physics_process(enabled)
+	if _track_multimesh != null:
+		_track_multimesh.visible = enabled
+	for wheel in _wheel_roots:
+		if is_instance_valid(wheel):
+			wheel.visible = enabled
+	for child in get_children():
+		if child.has_method("set_visual_budget_enabled"):
+			child.call("set_visual_budget_enabled", enabled)
+	if enabled:
+		_track_visual_refresh_required = true
+		if _rolling_audio_player != null and not _rolling_audio_player.playing:
+			_rolling_audio_player.call_deferred("play")
+	else:
+		if _rolling_audio_player != null:
+			_rolling_audio_player.volume_db = rolling_sound_silence_db
 
 
 func setup_tread_offset() -> void:
@@ -378,6 +401,8 @@ func _clear_path_follow_plates() -> void:
 
 
 func _advance_tracks(signed_travel_m: float) -> void:
+	if not _visual_budget_enabled:
+		return
 	if _path_length_m <= 0.001:
 		return
 	if belt_debug_freeze_scroll:
@@ -446,6 +471,8 @@ func _on_track_screen_exited() -> void:
 
 func _apply_scroll_speed(delta: float, speed_mps: float) -> void:
 	scroll_speed = speed_mps
+	if not _visual_budget_enabled:
+		return
 	_update_rolling_audio(delta, absf(scroll_speed))
 	_advance_tracks(scroll_speed * delta)
 
@@ -538,7 +565,7 @@ func _collect_wheels() -> void:
 
 func _apply_debug_mode() -> void:
 	if _track_multimesh:
-		_track_multimesh.visible = true
+		_track_multimesh.visible = _visual_budget_enabled
 		_update_multimesh_transforms()
 
 

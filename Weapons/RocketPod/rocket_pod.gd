@@ -2,11 +2,12 @@ extends Weapon
 class_name RocketPod
 
 const HELI_TEST_UNLIMITED_AMMO_META := "heli_test_unlimited_ammo"
+const AIRPLANE_TEST_PERSISTENT_TUNING_META := "airplane_test_persistent_rocket_tuning"
 
 @export var rocket_scene: PackedScene
 @export var muzzle_velocity: float = 220.0
 @export var fire_cooldown_s: float = 0.35
-@export var burst_count: int = 4
+@export var burst_count: int = 6
 @export var burst_interval_s: float = 0.07
 @export var pod_empty_mass_kg: float = 80.0
 @export var rocket_mass_kg: float = 5.0
@@ -18,7 +19,8 @@ var _burst_timer: float = 0.0
 var _payload_aircraft: RigidBody3D = null
 var _tuning_launch_callback: Callable = Callable()
 var _tuning_impact_callback: Callable = Callable()
-var _tuning_trial_id: int = 0
+var _tuning_impact_detail_callback: Callable = Callable()
+var _tuning_trial_id: int = -1
 var _tuning_target: Node3D = null
 
 func _ready() -> void:
@@ -50,6 +52,16 @@ func _has_unlimited_test_ammo() -> bool:
 	var enabled: bool = value
 	return enabled
 
+func _has_persistent_tuning_context() -> bool:
+	var aircraft: RigidBody3D = _get_parent_rigidbody()
+	if aircraft == null or not is_instance_valid(aircraft):
+		return false
+	var value: Variant = aircraft.get_meta(AIRPLANE_TEST_PERSISTENT_TUNING_META, false)
+	if not (value is bool):
+		return false
+	var enabled: bool = value
+	return enabled
+
 func _refresh_aircraft_payload_mass() -> void:
 	if not is_instance_valid(_payload_aircraft):
 		_payload_aircraft = _get_parent_rigidbody()
@@ -58,13 +70,14 @@ func _refresh_aircraft_payload_mass() -> void:
 		_payload_aircraft.set_payload_mass(self, total_mass_kg)
 
 func get_predicted_release_transform() -> Transform3D:
-	if hardpoint:
-		return hardpoint.global_transform
 	return global_transform
 
 func get_predicted_initial_velocity(aircraft: RigidBody3D) -> Vector3:
 	var release_transform: Transform3D = get_predicted_release_transform()
-	var initial_velocity: Vector3 = release_transform.basis.z * muzzle_velocity
+	var launch_dir: Vector3 = global_transform.basis.z
+	if hardpoint:
+		launch_dir = hardpoint.get_hardpoint_forward_direction()
+	var initial_velocity: Vector3 = launch_dir * muzzle_velocity
 	if aircraft == null:
 		return initial_velocity
 	initial_velocity += aircraft.linear_velocity
@@ -82,17 +95,20 @@ func _process(delta: float) -> void:
 			_burst_remaining -= 1
 			_burst_timer = burst_interval_s
 			if _burst_remaining <= 0:
-				_clear_tuning_context()
+				if not _has_persistent_tuning_context():
+					_clear_tuning_context()
 
 
 func set_tuning_context(
 		launch_callback: Callable,
 		impact_callback: Callable,
 		trial_id: int,
-		target: Node3D
+		target: Node3D,
+		impact_detail_callback: Callable = Callable()
 ) -> void:
 	_tuning_launch_callback = launch_callback
 	_tuning_impact_callback = impact_callback
+	_tuning_impact_detail_callback = impact_detail_callback
 	_tuning_trial_id = trial_id
 	_tuning_target = target
 
@@ -100,11 +116,15 @@ func set_tuning_context(
 func _clear_tuning_context() -> void:
 	_tuning_launch_callback = Callable()
 	_tuning_impact_callback = Callable()
-	_tuning_trial_id = 0
+	_tuning_impact_detail_callback = Callable()
+	_tuning_trial_id = -1
 	_tuning_target = null
 
 func can_fire() -> bool:
 	return (_has_unlimited_test_ammo() or ammo_count > 0) and _fire_timer <= 0.0 and _burst_remaining == 0
+
+func is_burst_in_progress() -> bool:
+	return _burst_remaining > 0
 
 func fire() -> bool:
 	if not can_fire():
@@ -114,7 +134,7 @@ func fire() -> bool:
 	_fire_one_rocket()
 	_burst_remaining = maxi(burst_count - 1, 0) if unlimited_ammo else mini(maxi(burst_count - 1, 0), ammo_count)
 	_burst_timer = burst_interval_s
-	if _burst_remaining <= 0:
+	if _burst_remaining <= 0 and not _has_persistent_tuning_context():
 		_clear_tuning_context()
 	return true
 
@@ -127,16 +147,61 @@ func _fire_one_rocket() -> void:
 	rocket.position = global_position
 	rocket.rotation = global_rotation
 	get_tree().current_scene.add_child(rocket)
-	if _tuning_launch_callback.is_valid() and _tuning_trial_id > 0:
-		_tuning_launch_callback.call(_tuning_trial_id)
-	if _tuning_impact_callback.is_valid() and _tuning_trial_id > 0 and rocket.has_signal("tuning_impact"):
+	if _tuning_impact_callback.is_valid() and _tuning_trial_id >= 0 and rocket.has_signal("tuning_impact"):
+		var impact_callback_args: int = _get_callable_argument_count(_tuning_impact_callback, 3)
+		var impact_callback: Callable = _tuning_impact_callback.bind(_tuning_trial_id, _tuning_target, rocket) \
+				if impact_callback_args >= 4 else _tuning_impact_callback.bind(_tuning_trial_id, _tuning_target)
 		rocket.connect(
 			"tuning_impact",
-			_tuning_impact_callback.bind(_tuning_trial_id, _tuning_target),
+			impact_callback,
+			CONNECT_ONE_SHOT
+		)
+	if _tuning_impact_detail_callback.is_valid() and _tuning_trial_id >= 0 and rocket.has_signal("tuning_impact_detail"):
+		var detail_callback_args: int = _get_callable_argument_count(_tuning_impact_detail_callback, 4)
+		var detail_callback: Callable = _tuning_impact_detail_callback.bind(_tuning_trial_id, _tuning_target, rocket) \
+				if detail_callback_args >= 5 else _tuning_impact_detail_callback.bind(_tuning_trial_id, _tuning_target)
+		rocket.connect(
+			"tuning_impact_detail",
+			detail_callback,
 			CONNECT_ONE_SHOT
 		)
 	var muzzle_vel := hardpoint.get_hardpoint_forward_direction() * muzzle_velocity
 	rocket.fire(muzzle_vel, hardpoint.aircraft)
+	# Report the launch after fire() has installed the rocket's real inherited
+	# platform velocity. Test diagnostics can now compare the predictor against
+	# the exact initial state used by the live projectile.
+	_call_tuning_launch_callback(rocket)
 	if not unlimited_ammo:
 		ammo_count -= 1
 		_refresh_aircraft_payload_mass()
+
+
+func _get_callable_argument_count(callback: Callable, fallback: int) -> int:
+	var callback_object: Object = callback.get_object()
+	if callback_object == null or not is_instance_valid(callback_object):
+		return fallback
+	var callback_method: StringName = callback.get_method()
+	for method_info_value: Variant in callback_object.get_method_list():
+		if not method_info_value is Dictionary:
+			continue
+		var method_info: Dictionary = method_info_value as Dictionary
+		if str(method_info.get("name", "")) != str(callback_method):
+			continue
+		var args_value: Variant = method_info.get("args", [])
+		if args_value is Array:
+			var args: Array = args_value as Array
+			return args.size()
+		return fallback
+	return fallback
+
+
+func _call_tuning_launch_callback(rocket: Node) -> void:
+	if not _tuning_launch_callback.is_valid() or _tuning_trial_id < 0:
+		return
+	var argument_count: int = _get_callable_argument_count(_tuning_launch_callback, 1)
+	if argument_count >= 3:
+		_tuning_launch_callback.call(_tuning_trial_id, rocket, _tuning_target)
+	elif argument_count >= 2:
+		_tuning_launch_callback.call(_tuning_trial_id, rocket)
+	else:
+		_tuning_launch_callback.call(_tuning_trial_id)

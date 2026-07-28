@@ -1,6 +1,8 @@
 extends Node3D
 class_name LowPolyTerrain
 
+const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
+
 @export_group("Size")
 @export var quads_x: int = 2778
 @export var quads_z: int = 2778
@@ -161,6 +163,15 @@ class_name LowPolyTerrain
 @export var stream_target_path: NodePath
 @export var stream_update_interval_s: float = 0.25
 @export var max_chunk_builds_per_update: int = 2
+@export var initial_chunk_builds_per_update: int = 4
+@export var max_chunk_finalizes_per_frame: int = 2
+# Fast-fill: when the view JUMPS (camera switch/teleport) or there's a big backlog, burst-load chunks so
+# terrain appears quickly, then relax back to the low steady-state rates (which avoid in-flight hitches).
+@export var fast_fill_chunk_builds_per_update: int = 24
+@export var fast_fill_finalizes_per_frame: int = 16
+@export var fast_fill_center_jump_chunks: int = 3   # center moving this many chunks in one update = a jump
+@export var fast_fill_backlog_threshold: int = 8    # this many pending builds also counts as needing fast-fill
+var _fast_fill_active: bool = false
 @export var stream_preload_ahead_m: float = 1200.0
 
 var _mesh_node: MeshInstance3D
@@ -210,10 +221,16 @@ func _exit_tree() -> void:
 func _process(delta: float) -> void:
 	if not use_streaming:
 		return
+	var _profiler_start: int = FrameProfiler.begin("LowPolyTerrain.process")
+	# Finalize completed chunk nodes -- fast while catching up from a jump, low in steady state.
+	var finalize_budget: int = fast_fill_finalizes_per_frame if _fast_fill_active else max_chunk_finalizes_per_frame
+	_finalize_ready_tasks(finalize_budget)
 	_stream_timer += delta
-	if _stream_timer >= maxf(stream_update_interval_s, 0.01):
+	# While fast-filling, re-check every frame (skip the 0.25s throttle) so builds launch immediately.
+	if _fast_fill_active or _stream_timer >= maxf(stream_update_interval_s, 0.01):
 		_stream_timer = 0.0
 		_update_streaming(false)
+	FrameProfiler.end("LowPolyTerrain.process", _profiler_start)
 
 func rebuild() -> void:
 	_ensure_nodes()
@@ -365,8 +382,17 @@ func _update_streaming(force_refresh: bool) -> void:
 	var center_chunk: Vector2i = _world_to_chunk(center_local.x, center_local.z)
 	var center_changed: bool = force_refresh or center_chunk != _last_center_chunk
 	if center_changed:
+		# Big center jump (camera switch/teleport) -> burst-fill so terrain shows up fast.
+		var jump: int = maxi(absi(center_chunk.x - _last_center_chunk.x), absi(center_chunk.y - _last_center_chunk.y))
+		if force_refresh or jump >= max(fast_fill_center_jump_chunks, 1):
+			_fast_fill_active = true
 		_refresh_chunk_targets(center_chunk)
 		_last_center_chunk = center_chunk
+	# Stay in fast-fill while a meaningful backlog remains; drop out once nearly caught up.
+	if _pending_builds.size() + _async_tasks.size() >= max(fast_fill_backlog_threshold, 1):
+		_fast_fill_active = true
+	elif _pending_builds.is_empty():
+		_fast_fill_active = false
 	_build_pending_chunks()
 
 func _refresh_chunk_targets(center_chunk: Vector2i) -> void:
@@ -401,14 +427,19 @@ func _refresh_chunk_targets(center_chunk: Vector2i) -> void:
 		_pending_set[key] = true
 
 func _build_pending_chunks() -> void:
-	_finalize_ready_tasks()
 	# Use a higher budget during initial fill (many pending chunks) to reduce pop-in delay.
 	# Once steady-state, honour max_chunk_builds_per_update to avoid hitches.
 	# The budget now controls how many async tasks we launch per update, not how many we build.
 	var initial_fill := _pending_builds.size() > load_radius_chunks * 2
 	if initial_fill and _initial_pending_total == 0:
 		_initial_pending_total = _pending_builds.size()
-	var budget: int = max(max_chunk_builds_per_update, 1) if not initial_fill else 16
+	var budget: int
+	if initial_fill:
+		budget = max(initial_chunk_builds_per_update, 1)
+	elif _fast_fill_active:
+		budget = max(fast_fill_chunk_builds_per_update, 1)   # camera-switch / jump burst
+	else:
+		budget = max(max_chunk_builds_per_update, 1)         # hitch-free steady state
 	while budget > 0 and not _pending_builds.is_empty():
 		var coord: Vector2i = _pending_builds.pop_front()
 		var key := _chunk_key(coord.x, coord.y)
@@ -436,13 +467,17 @@ func _launch_chunk_task(coord: Vector2i) -> void:
 	)
 	_async_tasks.append({coord = coord, task_id = task_id, holder = holder})
 
-func _finalize_ready_tasks() -> void:
+func _finalize_ready_tasks(max_to_finalize: int = -1) -> void:
+	var finalized_count := 0
 	var i := _async_tasks.size() - 1
 	while i >= 0:
+		if max_to_finalize >= 0 and finalized_count >= max_to_finalize:
+			break
 		var task: Dictionary = _async_tasks[i]
 		if WorkerThreadPool.is_task_completed(task.task_id):
 			WorkerThreadPool.wait_for_task_completion(task.task_id)
 			_async_tasks.remove_at(i)
+			finalized_count += 1
 			var coord: Vector2i = task.coord
 			var key := _chunk_key(coord.x, coord.y)
 			_building_set.erase(key)

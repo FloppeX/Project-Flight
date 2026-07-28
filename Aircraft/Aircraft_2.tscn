@@ -68,6 +68,7 @@ center_of_mass = Vector3(0, 0, 0.5)
 contact_monitor = true
 max_contacts_reported = 10
 script = ExtResource("1_e8t1h")
+max_health = 150.0
 explosion_scene = ExtResource("2_x73up")
 wreck_scene = ExtResource("3_x73up")
 wreck_base_impulse = 100.0
@@ -97,6 +98,7 @@ roll_power = 10.0
 yaw_power = 2.0
 stability_strength = 3.0
 pitch_stability_factor = 0.85
+stall_speed = 50.0
 auto_rudder_strength = 0.5
 
 [node name="MovingParts" type="Node3D" parent="." unique_id=1927764439]

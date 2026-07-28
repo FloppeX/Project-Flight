@@ -166,9 +166,9 @@ func _input(event):
 		get_viewport().set_input_as_handled()
 		return
 
-	if _is_refill_ordnance_key_event(event):
-		if _refill_player_plane_ordnance():
-			get_viewport().set_input_as_handled()
+	# Space is the sole direct gameplay key handled here. All other keyboard
+	# controls must be assigned through the Input Map.
+	if event is InputEventKey:
 		return
 
 	if _destroyed_plane_linger_active:
@@ -179,8 +179,6 @@ func _input(event):
 			var btn := (event as InputEventJoypadButton).button_index
 			# LB=9 / RB=10 (cycle viewed unit) or Y=3/Triangle (cycle camera mode)
 			cancels = btn in [9, 10, 3]
-		if event is InputEventKey and event.pressed and not event.echo:
-			cancels = (event as InputEventKey).physical_keycode in [KEY_TAB, KEY_C]
 		if _is_action_pressed_event(event, "cycle_camera_mode"):
 			cancels = true
 		if cancels:
@@ -190,10 +188,6 @@ func _input(event):
 			return
 
 	if _free_camera_active:
-		if event is InputEventKey and event.pressed and not event.echo and event.physical_keycode == KEY_W:
-			_spawn_wind_turbine_at_free_camera()
-			get_viewport().set_input_as_handled()
-			return
 		if _is_action_pressed_event(event, "change_weapon"):
 			_spawn_debug_exploded_aircraft5()
 			get_viewport().set_input_as_handled()
@@ -217,21 +211,6 @@ func _input(event):
 	if _is_action_pressed_event(event, "switch_camera"):
 		_cycle_aircraft_view()
 		get_viewport().set_input_as_handled()
-		return
-
-	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_L:
-		command_closest_friendly_to_land()
-		get_viewport().set_input_as_handled()
-		return
-
-	if event is InputEventKey and event.pressed and not event.echo and event.physical_keycode == KEY_H:
-		if command_viewed_helicopter_to_return_to_carrier():
-			get_viewport().set_input_as_handled()
-		return
-
-	if event is InputEventKey and event.pressed and not event.echo and (event.keycode == KEY_F10 or event.physical_keycode == KEY_F10):
-		if _save_manual_log_for_viewed_aircraft():
-			get_viewport().set_input_as_handled()
 		return
 
 	if _is_action_pressed_event(event, "toggle_player_control"):
@@ -780,13 +759,15 @@ func command_closest_friendly_to_land() -> void:
 		ai_toggle.enable_ai()
 
 	var ai_pilot = target.find_child("AIPilot", true, false)
-	if not ai_pilot or not ai_pilot.has_method("start_landing"):
+	if not ai_pilot or not ai_pilot.has_method("start_recovery"):
 		print("[FlightDirector] L: no AIPilot found on ", target.name)
 		return
 
-	var ok: bool = ai_pilot.start_landing()
+	# Use the same staged recovery as autonomous RTB: queue for a clear, steady carrier corridor,
+	# establish the inbound axis and glideslope, then hand the final segment to start_landing().
+	var ok: bool = ai_pilot.start_recovery()
 	if ok:
-		print("[FlightDirector] L: landing commanded for ", target.name)
+		print("[FlightDirector] L: staged carrier recovery commanded for ", target.name)
 	else:
 		print("[FlightDirector] L: approach waypoints not found for ", target.name)
 
@@ -794,7 +775,14 @@ func _is_aircraft_in_landing_flow(aircraft: RigidBody3D) -> bool:
 	var ai_pilot := aircraft.find_child("AIPilot", true, false) as AIPilot
 	if ai_pilot == null:
 		return false
-	return ai_pilot.current_state in [AIPilot.State.APPROACH, AIPilot.State.LANDING, AIPilot.State.MISSED_APPROACH]
+	return ai_pilot.current_state in [
+		AIPilot.State.RECOVERY_MARSHAL,
+		AIPilot.State.RECOVERY_HOLD,
+		AIPilot.State.RECOVERY_APPROACH,
+		AIPilot.State.APPROACH,
+		AIPilot.State.LANDING,
+		AIPilot.State.MISSED_APPROACH,
+	]
 
 func _find_closest_friendly_aircraft_to_carrier() -> RigidBody3D:
 	var carrier := get_tree().get_first_node_in_group("carrier") as Node3D
@@ -817,7 +805,7 @@ func _find_closest_friendly_aircraft_to_carrier() -> RigidBody3D:
 		if _is_aircraft_in_landing_flow(aircraft):
 			continue
 		var ai_pilot = aircraft.find_child("AIPilot", true, false)
-		if not ai_pilot or not ai_pilot.has_method("start_landing"):
+		if not ai_pilot or not ai_pilot.has_method("start_recovery"):
 			continue
 		var distance := aircraft.global_position.distance_squared_to(carrier.global_position)
 		if distance < best_distance:

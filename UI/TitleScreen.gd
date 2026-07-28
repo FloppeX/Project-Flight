@@ -2,7 +2,7 @@ extends Node3D
 
 const MENU_FONT: FontFile = preload("res://UI/Orbitron-VariableFont_wght.ttf")
 const TITLE_FONT: FontFile = preload("res://UI/Pixel.ttf")
-const CARRIER_PREVIEW_SCENE: PackedScene = preload("res://Models/LandCarrier/Land carrier body.glb")
+const CARRIER_PREVIEW_SCENE: PackedScene = preload("res://Models/LandCarrier/Land carrier 2.glb")
 const GAME_SCENE := "res://Main_Scene.tscn"
 const DEFAULT_CARRIER_NAME := "Land Carrier"
 const BASE_UI_SIZE := Vector2(1280.0, 720.0)
@@ -204,6 +204,9 @@ func _build_carrier_preview() -> void:
 
 	_preview_model = CARRIER_PREVIEW_SCENE.instantiate()
 	_preview_root.add_child(_preview_model)
+	var scale_reference := _preview_model.find_child("human", true, false) as Node3D
+	if scale_reference != null:
+		scale_reference.visible = false
 	if _preview_model is Node3D:
 		var model := _preview_model as Node3D
 		model.rotation_degrees = Vector3(0.0, 180.0, 0.0)

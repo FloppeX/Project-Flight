@@ -16,7 +16,7 @@ func _ready() -> void:
 		body_entered.connect(_on_body_entered)
 
 func _physics_process(delta: float) -> void:
-	if _ground_hit:
+	if _ground_hit or not is_inside_tree() or is_queued_for_deletion():
 		return
 	_life_timer_s += delta
 	if _life_timer_s >= max_lifetime_s:
@@ -47,8 +47,9 @@ func _is_ground_or_terrain(body: Node) -> bool:
 	return false
 
 func _emit_smoke_puff() -> void:
-	if not ParticleManager:
+	if not is_inside_tree() or is_queued_for_deletion() or not ParticleManager:
 		return
+	var smoke_position: Vector3 = global_position
 	var scene_root: Node = get_tree().current_scene
 	if scene_root == null:
 		return
@@ -64,8 +65,8 @@ func _emit_smoke_puff() -> void:
 	mat.roughness = 1.0
 	puff.material_override = mat
 	puff.scale = Vector3.ONE * randf_range(0.6, 1.1)
-	puff.global_position = global_position
 	scene_root.add_child(puff)
+	puff.global_position = smoke_position
 
 	ParticleManager.add_rising_smoke(
 		puff,

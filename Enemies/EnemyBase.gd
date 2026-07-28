@@ -16,6 +16,22 @@ const ENEMY_LIVERY_TEAM_ID: int = 2
 const PAD_COLOR    := Color(0.16, 0.11, 0.09, 1.0)
 const PAD_RADIUS_M := 420.0
 const PATROL_RADIUS_M := 9000.0
+const AIR_PATROL_STANDARD_MIN_M := 8000.0
+const AIR_PATROL_STANDARD_MAX_M := 15000.0
+const AIR_PATROL_EXTENDED_MIN_M := 15000.0
+const AIR_PATROL_EXTENDED_MAX_M := 28000.0
+const AIR_PATROL_LONG_MIN_M := 28000.0
+const AIR_PATROL_LONG_MAX_M := 42000.0
+const AIR_PATROL_DEEP_MIN_M := 42000.0
+const AIR_PATROL_DEEP_MAX_M := 55000.0
+const GROUND_PATROL_CLOSE_MIN_M := 5000.0
+const GROUND_PATROL_CLOSE_MAX_M := 11000.0
+const GROUND_PATROL_EXTENDED_MIN_M := 11000.0
+const GROUND_PATROL_EXTENDED_MAX_M := 22000.0
+const GROUND_PATROL_LONG_MIN_M := 22000.0
+const GROUND_PATROL_LONG_MAX_M := 36000.0
+const GROUND_PATROL_DEEP_MIN_M := 36000.0
+const GROUND_PATROL_DEEP_MAX_M := 48000.0
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
@@ -25,12 +41,12 @@ const PATROL_RADIUS_M := 9000.0
 # ── Inventory ─────────────────────────────────────────────────────────────────
 
 ## Total aircraft the base can ever field (permanent losses reduce this).
-@export var aircraft_max: int = 24
+@export var aircraft_max: int = 32
 ## Aircraft currently at base, available for deployment.
 var aircraft_reserve: int = 0
 
 ## Total vehicles the base can ever field.
-@export var vehicle_max: int = 56
+@export var vehicle_max: int = 72
 ## Vehicles currently at base, available for deployment.
 var vehicle_reserve: int = 0
 
@@ -256,24 +272,14 @@ func deploy_patrol_pair() -> Array[EnemyVirtualFlight]:
 
 	aircraft_reserve -= total
 	_flight_counter  += 1
-	var start_angle  := _rng.randf_range(0.0, TAU)
+	var start_angle: float = _rng.randf_range(0.0, TAU)
 	var result: Array[EnemyVirtualFlight] = []
-
-	# Weighted patrol radius: ~50% standard, ~30% extended, ~20% deep ranging
-	var radius_roll := _rng.randf()
-	var patrol_radius: float
-	if radius_roll < 0.50:
-		patrol_radius = _rng.randf_range(5000.0, 10000.0)   # standard CAP
-	elif radius_roll < 0.80:
-		patrol_radius = _rng.randf_range(10000.0, 18000.0)  # extended patrol
-	else:
-		patrol_radius = _rng.randf_range(18000.0, 30000.0)  # deep ranging
 
 	for gi in range(2):
 		var group_def: Array = comp[gi]
 		var f := EnemyVirtualFlight.new()
 		f.flight_name   = "%s-%02d%s" % [faction_name.left(3).to_upper(), _flight_counter, "A" if gi == 0 else "B"]
-		f.patrol_radius = patrol_radius
+		f.patrol_radius = _pick_air_patrol_radius()
 		f.faction_color = faction_color
 
 		var scenes:   Array[PackedScene] = []
@@ -285,10 +291,22 @@ func deploy_patrol_pair() -> Array[EnemyVirtualFlight]:
 			if (slot[1] as String) in ["bombs", "rockets"]:
 				has_strike = true
 		f.role = EnemyVirtualFlight.AircraftRole.BOMBER if has_strike else EnemyVirtualFlight.AircraftRole.FIGHTER
-		f.setup(global_position, scenes, loadouts, start_angle + float(gi) * PI * 0.5)
+		var route_angle: float = start_angle + float(gi) * PI + _rng.randf_range(-0.45, 0.45)
+		f.setup(global_position, scenes, loadouts, route_angle)
 		result.append(f)
 
 	return result
+
+
+func _pick_air_patrol_radius() -> float:
+	var radius_roll: float = _rng.randf()
+	if radius_roll < 0.35:
+		return _rng.randf_range(AIR_PATROL_STANDARD_MIN_M, AIR_PATROL_STANDARD_MAX_M)
+	if radius_roll < 0.70:
+		return _rng.randf_range(AIR_PATROL_EXTENDED_MIN_M, AIR_PATROL_EXTENDED_MAX_M)
+	if radius_roll < 0.92:
+		return _rng.randf_range(AIR_PATROL_LONG_MIN_M, AIR_PATROL_LONG_MAX_M)
+	return _rng.randf_range(AIR_PATROL_DEEP_MIN_M, AIR_PATROL_DEEP_MAX_M)
 
 
 func _resolve_aircraft_scene(key: String) -> PackedScene:
@@ -308,23 +326,25 @@ func deploy_platoon(count: int) -> EnemyVirtualPlatoon:
 	vehicle_reserve -= count
 	_platoon_counter += 1
 
-	var radius_roll := _rng.randf()
-	var platoon_radius: float
-	if radius_roll < 0.50:
-		platoon_radius = _rng.randf_range(3000.0, 8000.0)    # close patrol
-	elif radius_roll < 0.80:
-		platoon_radius = _rng.randf_range(8000.0, 15000.0)   # extended patrol
-	else:
-		platoon_radius = _rng.randf_range(15000.0, 24000.0)  # deep ranging
-
 	var p := EnemyVirtualPlatoon.new()
 	p.platoon_name   = "%s-P%02d" % [faction_name.left(3).to_upper(), _platoon_counter]
 	p.vehicle_count  = count
-	p.patrol_radius  = platoon_radius
+	p.patrol_radius  = _pick_ground_patrol_radius()
 	p.faction_color  = faction_color
 	var start_angle  := _rng.randf_range(0.0, TAU)
 	p.setup(global_position, _enemy_vehicle_scenes, start_angle)
 	return p
+
+
+func _pick_ground_patrol_radius() -> float:
+	var radius_roll: float = _rng.randf()
+	if radius_roll < 0.35:
+		return _rng.randf_range(GROUND_PATROL_CLOSE_MIN_M, GROUND_PATROL_CLOSE_MAX_M)
+	if radius_roll < 0.70:
+		return _rng.randf_range(GROUND_PATROL_EXTENDED_MIN_M, GROUND_PATROL_EXTENDED_MAX_M)
+	if radius_roll < 0.92:
+		return _rng.randf_range(GROUND_PATROL_LONG_MIN_M, GROUND_PATROL_LONG_MAX_M)
+	return _rng.randf_range(GROUND_PATROL_DEEP_MIN_M, GROUND_PATROL_DEEP_MAX_M)
 
 
 # ── Origin shift ──────────────────────────────────────────────────────────────

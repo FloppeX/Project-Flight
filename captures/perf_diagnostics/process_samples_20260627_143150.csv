@@ -1,2 +1,0 @@
-﻿timestamp,elapsed_s,pid,process,cpu_s,delta_cpu_s,working_set_mb,private_mb,threads,top_processes
-2026-06-27T14:31:52.7914390+02:00,2,,,,,,,,"19432:StreamDeck:cpu_total=52766.2:ws=55MB|6348:Codex:cpu_total=48018.3:ws=260MB|31148:DisplayFusion:cpu_total=12856.3:ws=93MB|18288:Creative Cloud:cpu_total=9476.3:ws=59MB|32188:firefox:cpu_total=4847.3:ws=162MB|9972:CurseForge:cpu_total=4268.5:ws=34MB|9932:Codex:cpu_total=2473.5:ws=445MB|6392:codex:cpu_total=1920.4:ws=144MB"

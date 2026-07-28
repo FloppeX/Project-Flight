@@ -33,6 +33,7 @@ func _ready():
 	_build_lights()
 
 func _unhandled_input(event: InputEvent) -> void:
+	return
 	if event is InputEventKey and event.pressed and not event.echo:
 		var key_event: InputEventKey = event as InputEventKey
 		if key_event.keycode == KEY_COMMA:

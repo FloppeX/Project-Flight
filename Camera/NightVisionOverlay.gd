@@ -11,13 +11,6 @@ func _ready() -> void:
 	layer = 96
 	visible = false
 
-	if InputMap.has_action("toggle_nightvision"):
-		InputMap.erase_action("toggle_nightvision")
-	InputMap.add_action("toggle_nightvision")
-	var ev := InputEventKey.new()
-	ev.keycode = KEY_I
-	InputMap.action_add_event("toggle_nightvision", ev)
-
 	_poly = Polygon2D.new()
 	add_child(_poly)
 
@@ -41,6 +34,8 @@ func _ready() -> void:
 
 
 func _input(event: InputEvent) -> void:
+	if not InputMap.has_action("toggle_nightvision"):
+		return
 	if event.is_action_pressed("toggle_nightvision") and _is_player_cockpit_view_active():
 		_enabled = not _enabled
 		_update_visibility()

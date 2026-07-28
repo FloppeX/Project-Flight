@@ -51,13 +51,39 @@ var _sensor_picture_timer: float = 0.0
 var _next_flight_idx: int = 0
 
 ## Currently assigned missions. Null means no flight holds that role.
+## (Legacy 3-slot model -- retained only while transitioning; the task board below supersedes it.)
 var _cap_flight: Flight = null
 var _intercept_flight: Flight = null
 var _cas_flight: Flight = null
 
+# ── Dynamic tasking (mission board) ─────────────────────────────────────────────
+# Replaces the fixed 3-slot role model. Each tick we build a list of TASKS from the fused sensor
+# picture (intercepts, strike clusters, standing CAP), score them, and assign available flights.
+# A task is a Dictionary: {
+#   "id": String,            # stable-ish key so a flight stays on the same task across ticks
+#   "type": String,          # "intercept" | "strike" | "cap"
+#   "priority": float,       # higher = assign first; carrier threats dominate
+#   "target": Node3D,        # intercept: the bandit (may be null once cleared)
+#   "area": Vector3,         # strike/cap center
+#   "radius": float,         # strike area radius
+#   "targets": Array,        # strike: the clustered enemy nodes
+#   "flight": Flight,        # assigned flight (null = unfilled)
+# }
+@export var task_assign_interval_s: float = 2.0
+@export var strike_cluster_radius_m: float = 1200.0   # enemy targets within this of each other form one strike task
+@export var task_switch_hysteresis: float = 0.0       # (reserved) extra priority a new task must beat to steal a flight
+@export var min_cap_flights: int = 1                  # keep at least this many patrolling the carrier when possible
+@export var dynamic_tasking_enabled: bool = true      # false = fall back to the legacy 3-slot updates
+var _tasks: Array = []
+var _flight_task: Dictionary = {}                     # Flight -> task id currently assigned
+var _flight_role: Dictionary = {}                     # Flight -> last task TYPE barked (so we only bark on a ROLE change, not target/cluster churn within a role)
+var _task_timer: float = 0.0
+
 ## Flight currently being scrambled from the hangar (waiting for launches).
 var _scrambling_flight: Flight = null
 var _scrambling_expected_count: int = 0
+var _scrambling_elapsed_s: float = 0.0
+@export var scramble_timeout_s: float = 90.0  # if a scramble never completes launches in this long, release it
 var _reported_contacts: Dictionary = {}  # Node3D target -> contact report dictionary
 var _acknowledged_order_keys: Dictionary = {}  # flight name -> last order key that already got a reply
 
@@ -90,18 +116,36 @@ func _process(delta: float) -> void:
 		_sensor_picture_timer = maxf(sensor_picture_update_interval_s, 0.1)
 		_update_friendly_sensor_picture()
 
-	_assign_timer -= delta
-	if _assign_timer <= 0.0:
-		_assign_timer = assignment_interval_s
-		_refresh_carrier()
-		_auto_assign_unassigned()
-		_ensure_carrier_cap()
-
-	_threat_timer -= delta
-	if _threat_timer <= 0.0:
-		_threat_timer = threat_scan_interval_s
-		_update_intercept()
-		_update_cas()
+	# Release a scramble that never completed its launches (deck jammed / aircraft stuck) so it doesn't
+	# block all future tasking forever.
+	if _scrambling_flight != null:
+		_scrambling_elapsed_s += delta
+		if _scrambling_elapsed_s >= maxf(scramble_timeout_s, 5.0):
+			if debug_print:
+				print("[AirOpsManager] Scramble for %s timed out (%.0fs) — releasing" % [_scrambling_flight.flight_name, _scrambling_elapsed_s])
+			_scrambling_flight = null
+			_scrambling_expected_count = 0
+			_scrambling_elapsed_s = 0.0
+	if dynamic_tasking_enabled:
+		_task_timer -= delta
+		if _task_timer <= 0.0:
+			_task_timer = maxf(task_assign_interval_s, 0.2)
+			_refresh_carrier()
+			_auto_assign_unassigned()   # registers newly-launched/idle aircraft into flights
+			_update_tasking()           # the mission board: build tasks + assign flights
+	else:
+		# Legacy 3-slot path (kept as a fallback).
+		_assign_timer -= delta
+		if _assign_timer <= 0.0:
+			_assign_timer = assignment_interval_s
+			_refresh_carrier()
+			_auto_assign_unassigned()
+			_ensure_carrier_cap()
+		_threat_timer -= delta
+		if _threat_timer <= 0.0:
+			_threat_timer = threat_scan_interval_s
+			_update_intercept()
+			_update_cas()
 	FrameProfiler.end("AirOpsManager.process", _profiler_start)
 
 # ── Ordering API ───────────────────────────────────────────────────────────────
@@ -198,6 +242,15 @@ func get_reported_ground_targets(center: Vector3 = Vector3.ZERO, radius_m: float
 				continue
 		result.append(target)
 	return result
+
+func is_contact_detected(node: Node3D) -> bool:
+	## True if this enemy node is currently in the fused friendly sensor picture (carrier radar + any
+	## friendly aircraft/vehicle). Used by the map to show sensed contacts in full color and un-sensed
+	## (remembered/off-radar) ones muted. Prunes stale reports first so a lost contact reads as hidden.
+	if node == null or not is_instance_valid(node):
+		return false
+	_prune_reported_contacts()
+	return _reported_contacts.has(node)
 
 func get_flight_of(aircraft: Node3D) -> Flight:
 	for f in flights:
@@ -415,6 +468,260 @@ func _on_flight_lost(f: Flight, role: String) -> void:
 	RadioComms.transmit("Citadel", "All flights",
 		"%s flight is down. Reassigning mission." % f.flight_name)
 
+# ── Dynamic tasking (mission board) ─────────────────────────────────────────────
+
+func _update_tasking() -> void:
+	## Rebuild the task board from the fused sensor picture, then assign flights.
+	_refresh_carrier()
+	_tasks = _build_tasks()
+	_tasks.sort_custom(func(a, b): return float(a.get("priority", 0.0)) > float(b.get("priority", 0.0)))
+	_assign_flights_to_tasks()
+	if debug_print:
+		_print_task_board()
+
+func _print_task_board() -> void:
+	var parts: Array[String] = []
+	for t in _tasks:
+		var f: Variant = t.get("flight")
+		var fname: String = (f.flight_name if (f != null and is_instance_valid(f)) else "-")
+		var n: int = (t.get("targets") as Array).size()
+		parts.append("%s[p%.0f n%d ->%s]" % [t.get("type"), float(t.get("priority", 0.0)), n, fname])
+	print("[AirOps BOARD] contacts=%d tasks: %s" % [_reported_contacts.size(), " ".join(parts)])
+
+func _build_tasks() -> Array:
+	var tasks: Array = []
+	# --- INTERCEPT tasks: one per inbound enemy aircraft (defense -- always top priority). ---
+	for bandit in _get_inbound_enemy_aircraft():
+		if not (bandit is Node3D) or not is_instance_valid(bandit):
+			continue
+		var node := bandit as Node3D
+		var dist_to_carrier: float = _flat_dist_to_carrier(node.global_position)
+		# Closer to the carrier = more urgent. Base 1000 keeps all intercepts above all strikes.
+		var prio: float = 1000.0 + clampf(carrier_air_threat_radius_m - dist_to_carrier, 0.0, carrier_air_threat_radius_m)
+		tasks.append({
+			"id": "intercept:%d" % node.get_instance_id(),
+			"type": "intercept",
+			"priority": prio,
+			"target": node,
+			"area": node.global_position,
+			"radius": 0.0,
+			"targets": [node],
+			"flight": null,
+		})
+	# --- STRIKE tasks: cluster nearby enemy ground/structure targets into strike areas. ---
+	for cluster in _cluster_ground_targets(_get_enemy_ground_targets()):
+		var members: Array = cluster
+		if members.is_empty():
+			continue
+		var center: Vector3 = _cluster_center(members)
+		var value: float = 0.0
+		for t in members:
+			value += _ground_target_value(t)
+		# Strikes rank below intercepts (base < 1000). Closer + higher-value clusters first.
+		var dist: float = _flat_dist_to_carrier(center)
+		var prio: float = 200.0 + value + clampf((strike_target_scan_radius_m - dist) / strike_target_scan_radius_m, 0.0, 1.0) * 100.0
+		tasks.append({
+			"id": "strike:%d" % _cluster_id(members),
+			"type": "strike",
+			"priority": prio,
+			"target": null,
+			"area": center,
+			"radius": maxf(strike_cluster_radius_m, 800.0),
+			"targets": members,
+			"flight": null,
+		})
+	# --- Standing CAP over the carrier (baseline low priority; defense-first still honors min_cap). ---
+	if _carrier and is_instance_valid(_carrier):
+		tasks.append({
+			"id": "cap:carrier",
+			"type": "cap",
+			"priority": 100.0,
+			"target": null,
+			"area": _carrier.global_position,
+			"radius": carrier_cap_overhead_radius_m,
+			"targets": [],
+			"flight": null,
+		})
+	return tasks
+
+func _assign_flights_to_tasks() -> void:
+	# Reconcile: drop stale flight->task links (flight gone, or task id no longer exists).
+	var live_ids: Dictionary = {}
+	for t in _tasks:
+		live_ids[t["id"]] = t
+	for f in _flight_task.keys():
+		if not _flight_is_active(f) or not live_ids.has(_flight_task[f]):
+			_flight_task.erase(f)
+			# Wiped flight -> forget its role so a rebuilt flight barks fresh. (A flight that merely lost
+			# its task but is still alive keeps its role, so re-tasking to the SAME role stays quiet.)
+			if not _flight_is_active(f):
+				_flight_role.erase(f)
+	# Re-attach flights already on a still-live task (hysteresis: they stay put).
+	for f in _flight_task.keys():
+		var t: Dictionary = live_ids[_flight_task[f]]
+		t["flight"] = f
+	# Assign unfilled tasks, highest priority first, to the best available flight.
+	var min_cap_reserved: int = 0
+	for t in _tasks:
+		if t.get("flight") != null:
+			continue
+		# Defense-first: if this is CAP and we've already met the CAP minimum, only fill it with leftovers.
+		if t["type"] == "cap":
+			if min_cap_reserved >= max(min_cap_flights, 0) and not _tasks_all_higher_filled(t):
+				# Still assign CAP if a flight is genuinely idle (handled by _pick below returning idle only).
+				pass
+		var f := _pick_flight_for_task(t)
+		if f == null:
+			# No available flight -> scramble one if this task warrants it (intercept/strike/ or CAP if none up).
+			if _scrambling_flight == null:
+				var empty := _pick_empty_flight(null)
+				if empty != null:
+					var reason: String = _scramble_reason_for_task(t)
+					if _scramble_flight(empty, reason):
+						# Silent: the scramble bark already announced the launch; no redundant second order.
+						_apply_task_to_flight(t, empty, true)
+			continue
+		_apply_task_to_flight(t, f)
+		if t["type"] == "cap":
+			min_cap_reserved += 1
+
+func _tasks_all_higher_filled(cap_task: Dictionary) -> bool:
+	for t in _tasks:
+		if t == cap_task:
+			continue
+		if float(t.get("priority", 0.0)) > float(cap_task.get("priority", 0.0)) and t.get("flight") == null:
+			return false
+	return true
+
+func _apply_task_to_flight(t: Dictionary, f: Flight, silent: bool = false) -> void:
+	## Assign flight f to task t. `silent` suppresses the radio order (used at scramble time -- the
+	## scramble bark already covers it, and the flight isn't airborne yet). Otherwise a radio order is
+	## issued ONLY when the flight's ROLE actually changes (cap<->intercept<->strike), not when the
+	## specific bandit/cluster within the same role changes -- that repeated re-vectoring was the
+	## "random, not tied to what's happening" chatter.
+	if f == null or not is_instance_valid(f):
+		return
+	t["flight"] = f
+	_flight_task[f] = t["id"]
+	_clear_legacy_role(f)
+	var role: String = str(t["type"])
+	var role_changed: bool = not silent and str(_flight_role.get(f, "")) != role
+	match role:
+		"intercept":
+			if t.get("target") and is_instance_valid(t["target"]):
+				f.set_intercept(t["target"], _carrier, default_cap_altitude_m)
+				if role_changed:
+					RadioComms.transmit("Citadel", "%s flight" % f.flight_name, RadioComms._pick([
+						"%s flight, bandits inbound. Vector to intercept. Weapons free." % f.flight_name,
+						"%s flight, radar contact. Intercept and engage." % f.flight_name,
+					]))
+		"strike":
+			f.set_cas(t["area"], t["radius"], default_cas_altitude_m)
+			if role_changed:
+				RadioComms.transmit("Citadel", "%s flight" % f.flight_name, RadioComms._pick([
+					"%s flight, enemy ground targets. Cleared hot. Attack at will." % f.flight_name,
+					"%s flight, ground targets marked. Prosecute. Cleared hot." % f.flight_name,
+				]))
+		"cap":
+			f.set_cap(_carrier, default_cap_altitude_m)
+			if role_changed:
+				RadioComms.say_cap_order(f.flight_name, default_cap_altitude_m)
+	if role_changed:
+		var cl := get_node_or_null("/root/CombatLog")
+		if cl != null and cl.has_method("event"):
+			var n: int = (t.get("targets") as Array).size()
+			var detail: String = " (%d targets)" % n if role == "strike" else ""
+			cl.call("event", "ORDER", "%s flight -> %s%s" % [f.flight_name, role.to_upper(), detail])
+	_flight_role[f] = role
+	_ensure_flight_can_execute(f)
+
+func _pick_flight_for_task(t: Dictionary) -> Flight:
+	## Best available (active, order-capable, not already on a live task) flight, nearest to the task.
+	var best: Flight = null
+	var best_cost: float = INF
+	var task_pos: Vector3 = t.get("area", Vector3.ZERO)
+	for f in flights:
+		if not _flight_is_active(f):
+			continue
+		if _flight_task.has(f):
+			continue  # already on a task this tick
+		if not _flight_can_take_tactical_order(f):
+			continue
+		var cost: float = _flight_center(f).distance_to(task_pos)
+		if cost < best_cost:
+			best_cost = cost
+			best = f
+	return best
+
+func _scramble_reason_for_task(t: Dictionary) -> String:
+	match t.get("type", ""):
+		"intercept": return "intercept"
+		"strike": return "cas"
+		_: return "cap"
+
+func _clear_legacy_role(f: Flight) -> void:
+	if f == _cap_flight: _cap_flight = null
+	if f == _intercept_flight: _intercept_flight = null
+	if f == _cas_flight: _cas_flight = null
+
+# --- Ground-target clustering + valuation ---
+
+func _cluster_ground_targets(targets: Array) -> Array:
+	var remaining: Array = []
+	for t in targets:
+		if t is Node3D and is_instance_valid(t):
+			remaining.append(t)
+	var clusters: Array = []
+	while not remaining.is_empty():
+		var seed: Node3D = remaining.pop_back()
+		var group: Array = [seed]
+		var i: int = remaining.size() - 1
+		while i >= 0:
+			var other: Node3D = remaining[i]
+			if _cluster_center(group).distance_to(other.global_position) <= strike_cluster_radius_m:
+				group.append(other)
+				remaining.remove_at(i)
+			i -= 1
+		clusters.append(group)
+	return clusters
+
+func _cluster_center(group: Array) -> Vector3:
+	var sum := Vector3.ZERO
+	var n := 0
+	for t in group:
+		if t is Node3D and is_instance_valid(t):
+			sum += (t as Node3D).global_position
+			n += 1
+	return sum / float(max(n, 1))
+
+func _cluster_id(group: Array) -> int:
+	## Stable-ish id: smallest instance id in the cluster (so a growing/shrinking cluster keeps its key).
+	var best: int = 0x7fffffff
+	for t in group:
+		if t is Node3D and is_instance_valid(t):
+			best = min(best, int((t as Node3D).get_instance_id()))
+	return best
+
+func _ground_target_value(node: Node3D) -> float:
+	## Priority by type: mobile/AAA (threat to friendlies) > structures > low value.
+	if node == null or not is_instance_valid(node):
+		return 0.0
+	if node.is_in_group("gun_emplacements"):
+		return 120.0   # AAA -- dangerous to our aircraft, kill first
+	if node.is_in_group("ground_vehicles"):
+		return 90.0    # mobile threat
+	if node.is_in_group("enemy_bases"):
+		return 70.0
+	if node.is_in_group("buildings"):
+		return 40.0    # structures (e.g. wind turbines)
+	return 30.0
+
+func _flat_dist_to_carrier(pos: Vector3) -> float:
+	if not _carrier or not is_instance_valid(_carrier):
+		return INF
+	var cp := _carrier.global_position
+	return Vector2(pos.x - cp.x, pos.z - cp.z).length()
+
 # ── Internal ───────────────────────────────────────────────────────────────────
 
 func _scramble_flight(f: Flight, reason: String = "intercept"):
@@ -437,7 +744,11 @@ func _scramble_flight(f: Flight, reason: String = "intercept"):
 		return
 	_scrambling_flight = f
 	_scrambling_expected_count = accepted_count
+	_scrambling_elapsed_s = 0.0
 	print("[AirOpsManager] Scrambling %s flight (%d aircraft)" % [f.flight_name, accepted_count])
+	var _cl := get_node_or_null("/root/CombatLog")
+	if _cl != null and _cl.has_method("event"):
+		_cl.call("event", "LAUNCH", "%s flight scrambling (%d ac, %s)" % [f.flight_name, accepted_count, reason])
 	if reason == "cap":
 		if _mark_order_acknowledgement_needed(f, "scramble_cap"):
 			RadioComms.transmit("Citadel", "%s flight" % f.flight_name, RadioComms._pick([
@@ -486,6 +797,7 @@ func notify_aircraft_launched(pilot: AIPilot) -> void:
 			randf_range(1.5, 3.0))
 		_scrambling_flight = null
 		_scrambling_expected_count = 0
+		_scrambling_elapsed_s = 0.0
 
 func _flight_is_active(f: Flight) -> bool:
 	## A flight is active if it exists and has at least one living member.
@@ -912,10 +1224,16 @@ func _is_aircraft_candidate_for_flight(node: Node) -> bool:
 		return false
 	if node.is_in_group("ground_vehicles"):
 		return false
+	# Utility helicopters (Aircraft_11) are rescue/transport assets -- never pull them into combat flights.
+	# (notify_aircraft_launched already excludes them on the scramble path; this covers the auto-assign
+	# path that was grabbing the pre-stored hangar helicopters into Archer/Bulldog/Crimson at startup.)
+	if node is Node3D and (node as Node3D).name.begins_with("Aircraft_11"):
+		return false
+	if node.find_child("HelicopterPilot", true, false) != null and node.find_child("AIPilot", true, false) == null:
+		return false  # helicopter-only asset, not a fixed-wing combat flight member
 	if node.is_in_group("aircraft") or node.is_in_group("ai_aircraft"):
 		return true
-	return node.find_child("AIPilot", true, false) != null \
-		or node.find_child("HelicopterPilot", true, false) != null
+	return node.find_child("AIPilot", true, false) != null
 
 func _get_enemy_ground_targets() -> Array:
 	var result: Array = []

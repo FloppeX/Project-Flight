@@ -9,4 +9,5 @@ profile_name = "15 mm Machine Gun"
 weapon_name = "15 mm Machine Gun"
 muzzle_velocity_mps = 600.0
 spread_angle_deg = 0.35
+max_range_m = 850.0
 projectile_scene = ExtResource("2_projectile")

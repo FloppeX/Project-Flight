@@ -3,7 +3,7 @@
 [ext_resource type="Script" uid="uid://dhif0k7fphvot" path="res://Scenario/ScenarioManager.gd" id="1"]
 [ext_resource type="PackedScene" uid="uid://dsel16gi76dnm" path="res://UI/UIEnergyContainer/UIFuelLevel.tscn" id="5"]
 [ext_resource type="PackedScene" uid="uid://bu2hixfhu8ndm" path="res://UI/UIEnginePower/UIEnginePower.tscn" id="10"]
-[ext_resource type="PackedScene" uid="uid://cfbnb1h25pmhu" path="res://LandCarrier/LandCarrier.tscn" id="16_13cwd"]
+[ext_resource type="PackedScene" uid="uid://bj60hl0ewia0b" path="res://LandCarrier/LandCarrier2.tscn" id="16_13cwd"]
 [ext_resource type="PackedScene" uid="uid://bmut2y2xaqj6x" path="res://UI/UIAltSpeed/UIAltSpeed.tscn" id="22"]
 [ext_resource type="PackedScene" uid="uid://c4dncgm8qjt7u" path="res://UI/UIFlaps/UIFlaps.tscn" id="23"]
 [ext_resource type="PackedScene" uid="uid://b8s77ar81hq22" path="res://UI/UILandingGear/UILandingGear.tscn" id="25"]
@@ -73,10 +73,10 @@ base_height_offset_m = 220.0
 canyon_wall_color = Color(0.667926, 0.427286, 0.274156, 1)
 canyon_upper_color = Color(0.744223, 0.61311, 0.439865, 1)
 steep_slope_color = Color(0.338234, 0.326747, 0.303773, 1)
-load_radius_chunks = 4
+load_radius_chunks = 8
 unload_margin_chunks = 2
 stream_update_interval_s = 0.5
-stream_preload_ahead_m = 1200.0
+stream_preload_ahead_m = 2200.0
 
 [node name="PlantPatchStreamer" parent="." instance=ExtResource("73_plantpatch")]
 

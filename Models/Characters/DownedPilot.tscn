@@ -1,7 +1,7 @@
 [gd_scene load_steps=5 format=3]
 
 [ext_resource type="Script" path="res://Models/Characters/DownedPilot.gd" id="1_script"]
-[ext_resource type="PackedScene" path="res://Models/Characters/pilot 2 - sitting in cockpit.glb" id="2_model"]
+[ext_resource type="PackedScene" uid="uid://ctqy76sqfod4c" path="res://Models/Characters/Pilot 2 - running.fbx" id="2_model"]
 [ext_resource type="Script" path="res://Aircraft/PilotPose.gd" id="3_pose"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_downed_pilot"]

@@ -35,6 +35,7 @@ var _fps_stable_acc  := 0.0    # cumulative seconds above FPS_TARGET
 var _terrain_node: Node = null
 var _nav_grid: Node = null
 var _active := false
+var _disabled_for_test_mode := false
 
 
 func _ready() -> void:
@@ -47,11 +48,15 @@ func _ready() -> void:
 
 
 func _on_node_added(_node: Node) -> void:
+	if _disabled_for_test_mode:
+		return
 	if not _active:
 		call_deferred("_try_activate")
 
 
 func _try_activate() -> void:
+	if _disabled_for_test_mode:
+		return
 	if _active:
 		return
 	_terrain_node = get_tree().get_first_node_in_group("terrain_provider")
@@ -68,6 +73,16 @@ func _try_activate() -> void:
 		var bake_done_callback := Callable(self, "_on_navgrid_bake_complete")
 		if not _nav_grid.is_connected("bake_complete", bake_done_callback):
 			_nav_grid.connect("bake_complete", bake_done_callback)
+
+
+func disable_for_test_mode() -> void:
+	_disabled_for_test_mode = true
+	_active = false
+	_fading = false
+	visible = false
+	set_process(false)
+	if _root != null:
+		_root.visible = false
 
 
 func _build_ui() -> void:

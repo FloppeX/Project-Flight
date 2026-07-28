@@ -44,7 +44,7 @@ signal deck_state_changed(new_state)
 @export var landing_blocker_cleanup_timeout_s: float = 35.0
 @export var landing_blocker_cleanup_speed_threshold_mps: float = 2.5
 @export var landing_blocker_cleanup_deck_contact_margin_m: float = 1.0
-@export var landing_clearance_abandon_radius_m: float = 6000.0
+@export var landing_clearance_abandon_radius_m: float = 8000.0
 @export var landing_clearance_timeout_s: float = 30.0
 @export var landing_clearance_retry_cooldown_s: float = 12.0
 @export var helicopter_recent_landing_clearance_hold_s: float = 15.0
@@ -52,6 +52,32 @@ signal deck_state_changed(new_state)
 @export var carrier_recovery_constraint_requires_active_clearance: bool = true
 @export var launch_carrier_turn_yaw_rate_limit_deg_s: float = 0.6
 @export var launch_carrier_turn_steer_limit: float = 0.06
+# When a launch is pending and the carrier is turning, make the carrier STOP TURNING (and slow via the
+# recovery constraint) to create a launch window, rather than deferring the launch until it happens to
+# be flying straight. This gets aircraft off the deck promptly instead of trickling out.
+@export var launch_stop_carrier_to_launch: bool = true
+# Don't launch into a cliff: sample terrain ahead along the launch heading and refuse if it rises above
+# a shallow climb profile within the check distance.
+@export var launch_terrain_check_enabled: bool = true
+@export var launch_terrain_check_distance_m: float = 1400.0   # how far ahead to look for rising terrain
+@export var launch_terrain_check_step_m: float = 80.0         # sampling step along the departure path
+@export var launch_terrain_climb_grade: float = 0.10          # assumed climb-out gradient (rise/run) after launch
+@export var launch_terrain_clearance_m: float = 60.0          # required clearance above terrain along the path
+var _launch_terrain_block_log_s: float = 0.0
+# Don't clear a fixed-wing recovery into terrain that protrudes through the
+# carrier's glideslope. The carrier keeps moving while clearance is withheld,
+# so queued aircraft can hold until a usable approach corridor opens.
+@export var landing_terrain_check_enabled: bool = true
+@export var landing_terrain_check_distance_m: float = 2000.0  # Fallback only; authored approach_0 -> approach_4 distance is preferred
+@export var landing_terrain_check_step_m: float = 100.0
+@export var landing_terrain_glideslope_deg: float = 5.9
+@export var landing_terrain_clearance_m: float = 25.0
+@export var landing_terrain_corridor_half_width_m: float = 180.0
+@export var landing_terrain_corridor_near_half_width_m: float = 35.0
+@export var landing_terrain_corridor_full_width_distance_m: float = 1500.0
+@export var landing_terrain_cache_interval_s: float = 0.35
+@export var landing_carrier_turn_yaw_rate_limit_deg_s: float = 0.35
+@export var landing_carrier_turn_steer_limit: float = 0.04
 @export var tractor_recovery_debug: bool = true
 @export var tractor_recovery_debug_interval_s: float = 1.0
 @export var tractor_position_timeout_s: float = 16.0
@@ -62,6 +88,8 @@ const DEFAULT_AIRCRAFT_SCENE_PATH := "res://Aircraft/Aircraft_5.tscn"
 const LOADOUT_CAP := "cap"
 const LOADOUT_INTERCEPT := "intercept"
 const LOADOUT_STRIKE := "strike"
+const LOADOUT_COMBAT_TEST := "combat_test"
+const LOADOUT_ROCKET_STRIKE := "rocket_strike"
 const WEAPON_SCENE_20MM := "res://Weapons/Guns/Hardpoint/20mm_autocannon_hardpoint.tscn"
 const WEAPON_SCENE_AA_MISSILE := "res://Weapons/AA_Missile/aa_missile_launcher.tscn"
 const WEAPON_SCENE_ROCKET_POD := "res://Weapons/RocketPod/rocket_pod.tscn"
@@ -129,6 +157,8 @@ var _recent_helicopter_landing_hold_until_s: float = 0.0
 var _landing_blocker_aircraft: RigidBody3D = null
 var _landing_blocker_elapsed_s: float = 0.0
 var _landing_blocker_cleanup_dispatched: bool = false
+var _landing_path_cache_clear: bool = true
+var _landing_path_cache_until_s: float = 0.0
 var _launch_turn_block_log_s: float = 0.0
 var carrier_manager: CarrierManager = null
 
@@ -148,14 +178,18 @@ const RECOVERY_DEBUG_ALTITUDE_M: float = 100.0
 const LANDING_WIRE_HALF_WIDTH_M: float = 24.8  # ±24.8 m = full wire width
 
 # --- Saved physical test scenarios (F11 / Shift+F11) ---
-enum TestScenario { NORMAL_GAME, HELI_NAVIGATION, HELI_AIMING }
+enum TestScenario { NORMAL_GAME, HELI_NAVIGATION, HELI_AIMING, AIRPLANE_TEST, DOGFIGHT_TEST, LANDING_TEST, CARRIER_COMBAT_TEST }
 const TEST_SCENARIO_SETTINGS_PATH := "user://physical_test_scenario.json"
 const TEST_SCENARIO_LABELS := {
 	TestScenario.NORMAL_GAME: "Normal Game",
 	TestScenario.HELI_NAVIGATION: "Helicopter Navigation Loop",
 	TestScenario.HELI_AIMING: "Helicopter Aiming Range",
+	TestScenario.AIRPLANE_TEST: "Airplane Test Circuit",
+	TestScenario.DOGFIGHT_TEST: "Dogfight Test",
+	TestScenario.LANDING_TEST: "Landing Test",
+	TestScenario.CARRIER_COMBAT_TEST: "Carrier Combat Test",
 }
-@export_enum("Normal Game", "Helicopter Navigation Loop", "Helicopter Aiming Range") \
+@export_enum("Normal Game", "Helicopter Navigation Loop", "Helicopter Aiming Range", "Airplane Test Circuit", "Dogfight Test", "Landing Test", "Carrier Combat Test") \
 		var startup_test_scenario: int = TestScenario.NORMAL_GAME
 @export var remember_test_scenario: bool = true
 var _active_test_scenario: int = TestScenario.NORMAL_GAME
@@ -335,6 +369,7 @@ var _ai_launch_queue: int = 0          # Aircraft still to retrieve+launch for F
 var _pending_flight_ops: Node = null   # Node waiting for notify_aircraft_launched() callbacks (FlightDirector)
 var _retrieval_ai_land_after_launch: bool = true
 var _pending_ai_loadout_profile: String = ""
+var _pending_launch_hangar_index: int = 0   # hangar slot chosen for the current launch (skips utility helis for AI scrambles)
 
 func _deck_state_name(state: int = -1) -> String:
 	var resolved_state := current_state if state == -1 else state
@@ -376,6 +411,149 @@ func _recovery_debug(message: String) -> void:
 		str(_tractorbots_in_hangar),
 		message
 	])
+
+func _launch_path_clear_of_terrain() -> bool:
+	## Sample terrain ahead along the launch (deck-forward) direction. Aircraft launch low and climb out
+	## shallowly, so if terrain rises above a climb profile within the check distance, it's a cliff ahead
+	## -- refuse the launch. Returns true (clear) if no terrain provider is available (can't check).
+	if not launch_terrain_check_enabled:
+		return true
+	var carrier := get_parent()
+	var origin: Node3D = null
+	if catapult and is_instance_valid(catapult) and catapult is Node3D:
+		origin = catapult as Node3D
+	elif carrier is Node3D:
+		origin = carrier as Node3D
+	if origin == null:
+		return true
+	var terrain: Node = get_tree().get_first_node_in_group("terrain_provider")
+	if terrain == null or not terrain.has_method("get_height"):
+		return true  # can't check -> don't block
+	var start_pos: Vector3 = origin.global_position
+	var fwd: Vector3
+	if catapult and catapult.has_method("_get_deck_forward_vector"):
+		fwd = catapult.call("_get_deck_forward_vector")
+	elif carrier is Node3D:
+		fwd = (carrier as Node3D).global_transform.basis.z
+	else:
+		return true
+	fwd.y = 0.0
+	if fwd.length() < 0.01:
+		return true
+	fwd = fwd.normalized()
+	# Climb profile: aircraft is ~deck height at launch and climbs at ~climb_grade. Terrain above
+	# (launch_y + distance*grade + clearance) within the check distance is a wall we'd hit.
+	# Sample a small fan around deck-forward, not just the single centerline ray -- the aircraft's
+	# actual post-launch heading (captured from its own attitude once clear of the deck, see
+	# AIPilot._state_launching) can drift a few degrees off deck-forward, and a single ray missed a
+	# cliff that two aircraft in a row flew straight into on an otherwise nominal climb-out.
+	var launch_y: float = start_pos.y
+	var step_m: float = maxf(launch_terrain_check_step_m, 20.0)
+	for fan_deg in [0.0, -10.0, 10.0]:
+		var fan_dir: Vector3 = fwd.rotated(Vector3.UP, deg_to_rad(fan_deg))
+		var dist: float = step_m
+		while dist <= launch_terrain_check_distance_m:
+			var sample: Vector3 = start_pos + fan_dir * dist
+			var terrain_y: float = float(terrain.call("get_height", sample))
+			var safe_y: float = launch_y + dist * launch_terrain_climb_grade + launch_terrain_clearance_m
+			if terrain_y > safe_y:
+				return false
+			dist += step_m
+	return true
+
+
+func _landing_path_clear_of_terrain(force_refresh: bool = false) -> bool:
+	## Sample behind the deck along the fixed-wing approach axis. Clearance is
+	## withheld when terrain intersects the nominal glideslope plus a small
+	## airframe margin. Helicopters do not use this corridor.
+	if not landing_terrain_check_enabled:
+		return true
+	var now_s := Time.get_ticks_msec() / 1000.0
+	if not force_refresh and now_s < _landing_path_cache_until_s:
+		return _landing_path_cache_clear
+	var carrier := get_parent() as Node3D
+	if not is_instance_valid(carrier):
+		return true
+	var terrain: Node = get_tree().get_first_node_in_group("terrain_provider")
+	if terrain == null or not terrain.has_method("get_height"):
+		return true
+	var deck_y: float = carrier.global_position.y
+	var check_distance_m: float = maxf(landing_terrain_check_distance_m, landing_terrain_check_step_m)
+	var root := get_tree().current_scene
+	if root != null:
+		var approach_4 := root.find_child("approach_4", true, false) as Node3D
+		if is_instance_valid(approach_4):
+			deck_y = approach_4.global_position.y
+			var approach_0 := root.find_child("approach_0", true, false) as Node3D
+			if is_instance_valid(approach_0):
+				var authored_final_span: Vector3 = approach_4.global_position - approach_0.global_position
+				authored_final_span.y = 0.0
+				if authored_final_span.length_squared() > 1.0:
+					# Only the authored straight-in segment must be terrain-clear. Recovery
+					# before approach_0 is a terrain-aware 3D route, not an extension of the
+					# fixed glideslope across several kilometres of arbitrary terrain.
+					check_distance_m = authored_final_span.length()
+	var forward: Vector3 = carrier.global_transform.basis.z
+	forward.y = 0.0
+	if forward.length_squared() < 0.001:
+		return true
+	forward = forward.normalized()
+	var right: Vector3 = carrier.global_transform.basis.x
+	right.y = 0.0
+	right = right.normalized() if right.length_squared() >= 0.001 else forward.cross(Vector3.UP).normalized()
+	var glide_tan: float = tan(deg_to_rad(clampf(landing_terrain_glideslope_deg, 1.0, 20.0)))
+	var step_m: float = maxf(landing_terrain_check_step_m, 20.0)
+	var distance_m: float = step_m
+	var corridor_clear := true
+	while distance_m <= maxf(check_distance_m, step_m):
+		# Check a tapered three-lane corridor rather than only its centerline. Near the deck the
+		# footprint is narrow; farther out it widens enough to cover a normal lineup correction.
+		var width_t := clampf(
+			distance_m / maxf(landing_terrain_corridor_full_width_distance_m, step_m),
+			0.0,
+			1.0
+		)
+		var half_width := lerpf(
+			maxf(landing_terrain_corridor_near_half_width_m, 0.0),
+			maxf(landing_terrain_corridor_half_width_m, 0.0),
+			width_t
+		)
+		var path_y: float = deck_y + distance_m * glide_tan
+		for lateral_m in [-half_width, 0.0, half_width]:
+			var sample: Vector3 = carrier.global_position - forward * distance_m + right * lateral_m
+			var terrain_y: float = float(terrain.call("get_height", sample))
+			if is_finite(terrain_y) \
+			and terrain_y + maxf(landing_terrain_clearance_m, 0.0) > path_y:
+				corridor_clear = false
+				break
+		if not corridor_clear:
+			break
+		distance_m += step_m
+	_landing_path_cache_clear = corridor_clear
+	_landing_path_cache_until_s = now_s + maxf(landing_terrain_cache_interval_s, 0.05)
+	return corridor_clear
+
+
+func _is_carrier_settled_for_recovery() -> bool:
+	var carrier := get_parent()
+	if carrier == null:
+		return true
+	var yaw_limit := deg_to_rad(maxf(landing_carrier_turn_yaw_rate_limit_deg_s, 0.0))
+	var steer_limit := maxf(landing_carrier_turn_steer_limit, 0.0)
+	if carrier.has_method("is_turning_for_launch"):
+		return not bool(carrier.call("is_turning_for_launch", yaw_limit, steer_limit))
+	if carrier.has_method("get_yaw_rate_rad_s"):
+		return absf(float(carrier.call("get_yaw_rate_rad_s"))) <= yaw_limit
+	return true
+
+
+func _queued_fixed_wing_recovery_has_clear_corridor() -> bool:
+	for requester in _landing_clearance_queue:
+		if _is_landing_clearance_aircraft_stale(requester):
+			continue
+		if not _is_helicopter_aircraft(requester):
+			return _landing_path_clear_of_terrain()
+	return false
 
 func _is_carrier_turning_for_launch(log_block: bool = false) -> bool:
 	var carrier := get_parent()
@@ -419,7 +597,7 @@ func _ready():
 	_initialize_hangar_with_aircraft()
 
 	_active_test_scenario = _load_saved_test_scenario() if remember_test_scenario \
-			else clampi(startup_test_scenario, TestScenario.NORMAL_GAME, TestScenario.HELI_AIMING)
+			else clampi(startup_test_scenario, TestScenario.NORMAL_GAME, TestScenario.size() - 1)
 	# Let the main scene and autoload managers finish their own _ready methods.
 	call_deferred("_activate_selected_test_scenario")
 
@@ -456,21 +634,31 @@ func _activate_selected_test_scenario() -> void:
 		TestScenario.HELI_AIMING:
 			if not _heli_test_active:
 				_toggle_heli_test_mode()
+		TestScenario.AIRPLANE_TEST:
+			print("[TestScenario] Airplane Test Circuit (handled by ScenarioManager)")
+		TestScenario.DOGFIGHT_TEST:
+			print("[TestScenario] Dogfight Test (handled by ScenarioManager)")
+		TestScenario.LANDING_TEST:
+			print("[TestScenario] Landing Test (handled by ScenarioManager)")
+		TestScenario.CARRIER_COMBAT_TEST:
+			print("[TestScenario] Carrier Combat Test (handled by ScenarioManager)")
 		_:
 			print("[TestScenario] Normal Game (F11: next, Shift+F11: previous)")
 
 
 func _load_saved_test_scenario() -> int:
 	if not FileAccess.file_exists(TEST_SCENARIO_SETTINGS_PATH):
-		return clampi(startup_test_scenario, TestScenario.NORMAL_GAME, TestScenario.HELI_AIMING)
+		return clampi(startup_test_scenario, TestScenario.NORMAL_GAME, TestScenario.size() - 1)
 	var file := FileAccess.open(TEST_SCENARIO_SETTINGS_PATH, FileAccess.READ)
 	if file == null:
-		return clampi(startup_test_scenario, TestScenario.NORMAL_GAME, TestScenario.HELI_AIMING)
+		return clampi(startup_test_scenario, TestScenario.NORMAL_GAME, TestScenario.size() - 1)
 	var parsed: Variant = JSON.parse_string(file.get_as_text())
 	if not (parsed is Dictionary):
-		return clampi(startup_test_scenario, TestScenario.NORMAL_GAME, TestScenario.HELI_AIMING)
-	return clampi(int((parsed as Dictionary).get("scenario", startup_test_scenario)),
-		TestScenario.NORMAL_GAME, TestScenario.HELI_AIMING)
+		return clampi(startup_test_scenario, TestScenario.NORMAL_GAME, TestScenario.size() - 1)
+	var requested_scenario: int = int((parsed as Dictionary).get("scenario", startup_test_scenario))
+	if requested_scenario < TestScenario.NORMAL_GAME or requested_scenario >= TestScenario.size():
+		return TestScenario.NORMAL_GAME
+	return requested_scenario
 
 
 func _save_test_scenario(scenario: int) -> void:
@@ -727,7 +915,7 @@ func _input(event):
 			pass
 
 	# Retrieve aircraft from hangar (key "1" or retrieve_aircraft action)
-	if Input.is_action_just_pressed("retrieve_aircraft") or (event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_1):
+	if Input.is_action_just_pressed("retrieve_aircraft"):
 		if current_state == DeckState.IDLE and not stored_aircraft.is_empty():
 			start_hangar_retrieval()
 		else:
@@ -735,6 +923,11 @@ func _input(event):
 				pass
 			if stored_aircraft.is_empty():
 				pass
+
+	# Direct keyboard shortcuts below this point were development/test controls.
+	# Keep action-based controls above so newly assigned Input Map keys still work.
+	if event is InputEventKey:
+		return
 
 	# Spawn Aircraft 2 from hangar (key "2")
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_2:
@@ -852,6 +1045,15 @@ func request_launch_sequence(aircraft: RigidBody3D):
 	if not catapult:
 		return
 	if _is_carrier_turning_for_launch(true):
+		return
+	# Don't launch straight into rising terrain / a cliff ahead (this has flung aircraft into walls).
+	# Hold the launch until the departure path is clear -- the carrier will keep moving/turning and the
+	# heading will change, opening a safe launch corridor.
+	if not _launch_path_clear_of_terrain():
+		var now_cliff_s := Time.get_ticks_msec() / 1000.0
+		if now_cliff_s >= _launch_terrain_block_log_s:
+			_launch_terrain_block_log_s = now_cliff_s + 2.0
+			_recovery_debug("launch held: terrain/cliff ahead on departure path")
 		return
 
 	# Clear parking brake but keep controls_disabled set until catapult latch/release.
@@ -1113,6 +1315,11 @@ func _perform_cable_release(ac_variant: Variant) -> void:
 # --- Fallback polling and safety checks ---
 func _physics_process(_delta: float) -> void:
 	var _profiler_start: int = FrameProfiler.begin("FlightDeckManager.physics")
+	# Pump a pending AI launch queue if it was requested while the deck was busy. queue_ai_flight() only
+	# kicks off the launch if the deck was IDLE at request time; without this, a scramble that arrives
+	# during vehicle deploy / another op sits queued forever (AirOps flights never launch).
+	if _ai_launch_queue > 0 and current_state == DeckState.IDLE and not _landing_test_active and not stored_aircraft.is_empty():
+		_launch_next_queued_ai()
 	# 1. Safety Check: If an operation is active, verify the aircraft still exists and is on the deck
 	if current_state == DeckState.LAUNCH_IN_PROGRESS or current_state == DeckState.RECOVERY_IN_PROGRESS:
 		if not is_instance_valid(deck_aircraft):
@@ -1610,6 +1817,18 @@ func _landing_deck_state_busy_for_clearance() -> bool:
 	]
 
 func _can_grant_landing_clearance_to(requester: RigidBody3D = null) -> bool:
+	# Clearance is deliberately generous: only an ACTUALLY BUSY deck (another launch/recovery/hangar
+	# op in progress) or actual physical traffic should hold a pilot off. Terrain-corridor and
+	# carrier-settled were previously hard gates here, but the carrier patrols autonomously and can
+	# spend long stretches never satisfying either (a smoothly curving route rarely drops yaw rate to
+	# near-zero; a corridor sampled from whatever heading the carrier currently happens to be on is
+	# essentially arbitrary relative to the aircraft's actual approach) -- that stranded pilots who had
+	# survived their mission in an indefinite holding pattern with nothing else going on. AIPilot's own
+	# recovery-approach logic already re-samples terrain along its real flight path via
+	# _terrain_safe_altitude_for_segment once it starts the approach, so this deck-level pre-check was
+	# redundant as a blocker, not the only safety net. _landing_path_clear_of_terrain() is kept for its
+	# other caller (_queued_fixed_wing_recovery_has_clear_corridor / carrier motion constraint) -- only
+	# its use as a clearance gate here is removed.
 	if _landing_deck_state_busy_for_clearance():
 		return false
 	if _is_recent_helicopter_landing_hold_active(requester):
@@ -1644,11 +1863,45 @@ func is_carrier_recovery_constraint_active() -> bool:
 	_prune_landing_clearance_queue()
 	_prune_landing_clearance_aircraft()
 	return current_state == DeckState.RECOVERY_IN_PROGRESS \
-			or (carrier_recovery_constraint_requires_active_clearance and _landing_clearance_aircraft_needs_carrier_constraint())
+			or (carrier_recovery_constraint_requires_active_clearance and _landing_clearance_aircraft_needs_carrier_constraint()) \
+			or _queued_fixed_wing_recovery_has_clear_corridor() \
+			or _launch_needs_carrier_constraint()
+
+func is_launch_constraint_active() -> bool:
+	## True when the carrier motion constraint is being driven by a pending LAUNCH (vs a landing recovery).
+	## Lets the carrier keep moving straight for a launch instead of dead-stopping.
+	return _launch_needs_carrier_constraint() \
+			and current_state != DeckState.RECOVERY_IN_PROGRESS \
+			and not _landing_clearance_aircraft_needs_carrier_constraint()
+
+func _launch_needs_carrier_constraint() -> bool:
+	## True when a launch is pending/underway and the carrier is still turning. This makes the carrier
+	## STOP TURNING (and slow) to create a launch window, instead of deferring the launch indefinitely
+	## while it patrols/turns. Straight deck = safe launch.
+	if not launch_stop_carrier_to_launch:
+		return false
+	if not _has_pending_launch():
+		return false
+	# Hold the deck straight for the WHOLE pending launch (don't gate on currently-turning, or it would
+	# oscillate: settle -> resume turn to waypoint -> turn again). Suppressed if there's a cliff ahead --
+	# then let the carrier keep moving/turning to swing onto a clear heading before it commits to straight.
+	if not _launch_path_clear_of_terrain():
+		return false
+	return true
+
+func _has_pending_launch() -> bool:
+	if _ai_launch_queue > 0:
+		return true
+	if current_state == DeckState.LAUNCH_IN_PROGRESS or current_state == DeckState.AIRCRAFT_ON_DECK:
+		return true
+	return false
 
 func _landing_clearance_aircraft_needs_carrier_constraint() -> bool:
 	if not is_instance_valid(_landing_clearance_aircraft):
 		return false
+	if _landing_clearance_aircraft.has_meta("carrier_fixed_wing_recovery_active") \
+			and bool(_landing_clearance_aircraft.get_meta("carrier_fixed_wing_recovery_active")):
+		return true
 	if _is_helicopter_aircraft(_landing_clearance_aircraft):
 		return false
 	return _landing_clearance_aircraft.has_meta("carrier_landing_final_active") \
@@ -1765,6 +2018,13 @@ func _update_landing_clearance_timeout(delta: float) -> void:
 		_landing_clearance_aircraft = null
 		_landing_clearance_elapsed_s = 0.0
 		return
+	# Fixed-wing recovery includes a long outbound extension and intercept. Its pilot explicitly
+	# releases clearance on bolter, abort, or destruction, so the generic queue timeout must not
+	# rotate a second aircraft into the same approach while the first is still active.
+	if _landing_clearance_aircraft.has_meta("carrier_fixed_wing_recovery_active") \
+			and bool(_landing_clearance_aircraft.get_meta("carrier_fixed_wing_recovery_active")):
+		_landing_clearance_elapsed_s = 0.0
+		return
 	var timeout_s := maxf(landing_clearance_timeout_s, 0.0)
 	if timeout_s <= 0.0:
 		return
@@ -1863,7 +2123,9 @@ func request_landing_clearance(requester: RigidBody3D) -> bool:
 		landing_deck_active = true
 		return false
 	_grant_landing_clearance(requester)
-	return true
+	# _grant_landing_clearance() can still reject a requester that became stale between the
+	# earlier checks and assignment. Never report clearance unless this manager owns it.
+	return has_landing_clearance(requester)
 
 func get_landing_queue_position(requester: RigidBody3D) -> int:
 	if not is_instance_valid(requester):
@@ -2197,13 +2459,23 @@ func _spawn_aircraft_at_hangar_level():
 
 
 	# Create aircraft at hangar level
+	_pending_launch_hangar_index = 0
 	var aircraft = _create_aircraft_at_hangar_level()
 
 	if not aircraft:
 		current_state = DeckState.IDLE
+		# If an AI scramble couldn't find a suitable (non-utility) aircraft, drop the queue so we don't
+		# spin retrying. (Normal case: plenty of jets in the hangar, so this won't trigger.)
+		if _pending_flight_ops != null and _select_hangar_launch_index() < 0:
+			_ai_launch_queue = 0
+			_pending_flight_ops = null
+			_pending_ai_loadout_profile = ""
 		return
 
-	stored_aircraft.pop_front()  # Remove from hangar storage
+	# Remove the aircraft we actually launched (may not be index 0 if we skipped utility helicopters).
+	var remove_idx: int = clampi(_pending_launch_hangar_index, 0, stored_aircraft.size() - 1)
+	stored_aircraft.remove_at(remove_idx)
+	_pending_launch_hangar_index = 0
 
 	# Store reference for the retrieval sequence
 	deck_aircraft = aircraft
@@ -3069,6 +3341,16 @@ func _choose_ai_loadout_weapon_scene(hardpoint: Hardpoint, hardpoint_index: int,
 		return WEAPON_SCENE_20MM
 	if profile == LOADOUT_STRIKE or profile == "cas":
 		return WEAPON_SCENE_BOMB_RACK if hardpoint_index == 0 else WEAPON_SCENE_ROCKET_POD
+	if profile == LOADOUT_COMBAT_TEST:
+		if hardpoint_index == 0:
+			return WEAPON_SCENE_BOMB_RACK
+		if hardpoint_index == 1:
+			return WEAPON_SCENE_ROCKET_POD
+		return WEAPON_SCENE_20MM
+	if profile == LOADOUT_ROCKET_STRIKE:
+		# Aircraft_5 has three hardpoints. The full-cycle combat test needs two
+		# finite 24-round rocket canisters and its normal gun, in that order.
+		return WEAPON_SCENE_ROCKET_POD if hardpoint_index < 2 else WEAPON_SCENE_20MM
 	return ""
 
 func _mount_weapon_scene_on_hardpoint(hardpoint: Hardpoint, weapon_scene_path: String) -> void:
@@ -3111,9 +3393,11 @@ func _refresh_weapon_controller_after_loadout(aircraft: RigidBody3D, profile: St
 		control_weapons.categorize_weapons()
 	if not ("weapon_types" in control_weapons):
 		return
-	var preferred_type := "Bomb" if (profile == LOADOUT_STRIKE or profile == "cas") else "AAMissile"
+	var preferred_type := "Bomb" if (profile == LOADOUT_STRIKE or profile == "cas" or profile == LOADOUT_COMBAT_TEST) else "AAMissile"
 	if profile == LOADOUT_CAP:
 		preferred_type = "Autocannon"
+	elif profile == LOADOUT_ROCKET_STRIKE:
+		preferred_type = "Rocket Pod"
 	var selected_idx := -1
 	for i in range(control_weapons.weapon_types.size()):
 		var weapon_type := str(control_weapons.weapon_types[i])
@@ -3163,19 +3447,41 @@ func _extract_aircraft_data(aircraft: RigidBody3D) -> Dictionary:
 
 	return data
 
+func _select_hangar_launch_index() -> int:
+	## Which stored aircraft to launch next. For an AI COMBAT flight launch (a flight-ops scramble), skip
+	## utility helicopters (Aircraft_11) -- they're prepended in the hangar for rescue readiness and must
+	## NOT be scrambled as fighters. Explicit retrievals (debug key / rescue) push_front their chosen
+	## aircraft, so index 0 is correct for them.
+	if stored_aircraft.is_empty():
+		return -1
+	# An AI flight scramble is in progress when there's a pending flight-ops callback target.
+	var ai_combat_launch: bool = _pending_flight_ops != null and not _retrieval_ai_land_after_launch
+	if ai_combat_launch:
+		for i in range(stored_aircraft.size()):
+			var nm := str((stored_aircraft[i] as Dictionary).get("name", ""))
+			if not nm.begins_with("Aircraft_11"):
+				return i
+		# Only helicopters available -> don't launch one as a fighter.
+		return -1
+	return 0
+
 func _create_aircraft_at_hangar_level() -> RigidBody3D:
 	"""Create aircraft at hangar level from stored data and template"""
 	if stored_aircraft.is_empty():
 		return null
 
-	# Get the stored aircraft data (use first stored aircraft)
-	var aircraft_data = stored_aircraft[0]  # We'll remove this after spawning
+	var idx := _select_hangar_launch_index()
+	if idx < 0:
+		# No suitable aircraft (e.g. an AI scramble but only utility helicopters remain).
+		return null
+	var aircraft_data = stored_aircraft[idx]
 	if not _ensure_pilot_assigned_for_data(aircraft_data):
 		push_warning("[FlightDeckManager] Retrieval blocked: no available pilot for aircraft.")
 		return null
 	if not _pending_ai_loadout_profile.is_empty():
 		aircraft_data["requested_ai_loadout_profile"] = _pending_ai_loadout_profile
-	stored_aircraft[0] = aircraft_data
+	stored_aircraft[idx] = aircraft_data
+	_pending_launch_hangar_index = idx
 
 	# Use scene embedded in data dict (e.g. Aircraft 2), otherwise fall back to template
 	var scene_to_use: PackedScene = aircraft_data.get("scene", null)
@@ -3642,8 +3948,23 @@ func _complete_retrieval_sequence():
 	# Retrieved aircraft stay AI-controlled until the player explicitly takes over.
 	_configure_retrieved_aircraft_as_ai(aircraft, _retrieval_ai_land_after_launch)
 
-	while is_instance_valid(aircraft) and _is_carrier_turning_for_launch(true):
-		await get_tree().physics_frame
+	# Keep this retrieval operation and its aircraft reserved at the catapult until
+	# every launch interlock is clear. request_launch_sequence() rejects a blocked
+	# request rather than queuing it; returning from this function after such a
+	# rejection lets later hangar work overwrite deck_aircraft and stack another
+	# plane on the same latch marker.
+	while is_instance_valid(aircraft):
+		if _is_carrier_turning_for_launch(true):
+			await get_tree().physics_frame
+			continue
+		if not _launch_path_clear_of_terrain():
+			var now_cliff_s := Time.get_ticks_msec() / 1000.0
+			if now_cliff_s >= _launch_terrain_block_log_s:
+				_launch_terrain_block_log_s = now_cliff_s + 2.0
+				_recovery_debug("launch held: terrain/cliff ahead on departure path")
+			await get_tree().physics_frame
+			continue
+		break
 	if not is_instance_valid(aircraft):
 		return
 

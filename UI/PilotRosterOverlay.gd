@@ -61,9 +61,6 @@ func _process(delta: float) -> void:
 
 func _input(event: InputEvent) -> void:
 	var pressed := event.is_action_pressed("pilot_roster_toggle")
-	if not pressed and event is InputEventKey:
-		var key_event := event as InputEventKey
-		pressed = key_event.pressed and not key_event.echo and key_event.keycode == KEY_COMMA
 	if not pressed:
 		return
 	_set_open(not _root.visible)
@@ -72,10 +69,6 @@ func _input(event: InputEvent) -> void:
 func _ensure_input_action() -> void:
 	if not InputMap.has_action("pilot_roster_toggle"):
 		InputMap.add_action("pilot_roster_toggle")
-		var key_event := InputEventKey.new()
-		key_event.physical_keycode = KEY_COMMA
-		key_event.keycode = KEY_COMMA
-		InputMap.action_add_event("pilot_roster_toggle", key_event)
 
 func _build_ui() -> void:
 	_root = Control.new()

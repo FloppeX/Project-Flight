@@ -6,6 +6,7 @@ signal deploy_complete(vehicle)
 signal retrieve_complete(vehicle)
 
 const VISUAL_FOCUS_HELPER = preload("res://Effects/VisualFocus.gd")
+const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
 
 # --- Deployment ---
 enum DeployPhase { NONE, ON_DECK, ON_RAMP, DONE }
@@ -562,15 +563,19 @@ func apply_origin_shift(offset: Vector3) -> void:
 		_combat_scoot_destination -= offset
 
 func _physics_process(delta: float) -> void:
+	var _profiler_start: int = FrameProfiler.begin("VehicleFriendlyLight.physics")
 	if is_dying:
+		FrameProfiler.end("VehicleFriendlyLight.physics", _profiler_start)
 		return
 
 	if deploy_mode:
 		_process_deploy(delta)
+		FrameProfiler.end("VehicleFriendlyLight.physics", _profiler_start)
 		return
 
 	if retrieve_mode:
 		_process_retrieve(delta)
+		FrameProfiler.end("VehicleFriendlyLight.physics", _profiler_start)
 		return
 
 	if turret_controller:
@@ -582,6 +587,7 @@ func _physics_process(delta: float) -> void:
 
 	_drive_to_waypoint(delta)
 	_update_wheel_visuals()
+	FrameProfiler.end("VehicleFriendlyLight.physics", _profiler_start)
 
 # --- Wheel Visuals / Chassis Support ---
 
@@ -878,7 +884,7 @@ func _update_navigation_path(delta: float) -> void:
 	var needs_repath: bool = _nav_path_positions.is_empty() or _nav_path_index >= _nav_path_positions.size()
 	if _nav_retry_cooldown_s > 0.0:
 		return
-	if goal_shifted:
+	if goal_shifted and _nav_repath_timer_s >= path_replan_interval_s:
 		_recompute_navigation_path(raw_target)
 	elif needs_repath and _nav_repath_timer_s >= path_replan_interval_s:
 		_recompute_navigation_path(raw_target)
@@ -919,7 +925,7 @@ func _recompute_navigation_path(raw_target: Vector3) -> void:
 	var retry_cooldown := path_retry_cooldown_s
 	var no_anchor_retry_cooldown := path_no_anchor_retry_cooldown_s
 
-	WorkerThreadPool.add_task(func() -> void:
+	var work: Callable = func() -> Dictionary:
 		var status_code := 0 # 0 = OK, 1 = NO_ANCHOR, 2 = NO_PATH
 		var best_path: Array[Vector3] = []
 		
@@ -959,19 +965,41 @@ func _recompute_navigation_path(raw_target: Vector3) -> void:
 			if best_path.is_empty():
 				status_code = 2
 
-		# Safely deliver result back to the main thread
-		_on_navigation_path_computed.call_deferred(best_path, raw_target, status_code, no_anchor_retry_cooldown, retry_cooldown)
-	)
+		return {
+			"best_path": best_path,
+			"target": raw_target,
+			"status_code": status_code,
+			"no_anchor_cooldown": no_anchor_retry_cooldown,
+			"path_cooldown": retry_cooldown,
+		}
+
+	var job_id: int = NavPathScheduler.request_work(work, _on_navigation_path_job_result, 0, "FriendlyVehicle.navigation")
+	if job_id < 0:
+		_is_pathfinding = false
+		_nav_retry_cooldown_s = maxf(_nav_retry_cooldown_s, retry_cooldown)
+
+func _on_navigation_path_job_result(result: Variant) -> void:
+	if not result is Dictionary:
+		_is_pathfinding = false
+		_nav_retry_cooldown_s = maxf(_nav_retry_cooldown_s, path_retry_cooldown_s)
+		return
+	var data: Dictionary = result as Dictionary
+	_on_navigation_path_computed(
+		data.get("best_path", []),
+		data.get("target", Vector3.INF),
+		int(data.get("status_code", 2)),
+		float(data.get("no_anchor_cooldown", path_no_anchor_retry_cooldown_s)),
+		float(data.get("path_cooldown", path_retry_cooldown_s)))
 
 func _on_navigation_path_computed(best_path: Array[Vector3], target_at_request_time: Vector3, status_code: int, no_anchor_cooldown: float, path_cooldown: float) -> void:
 	_is_pathfinding = false
 	if not is_instance_valid(self):
 		return
 	
-	# If the target has changed since we started pathfinding, trigger a new pathfinding run immediately
+	# If the target changed while queued/running, wait for the regular repath cadence.
 	var current_target_dest := _get_raw_navigation_destination()
 	if _flat_distance(target_at_request_time, current_target_dest) > 1.0:
-		_recompute_navigation_path(current_target_dest)
+		_nav_repath_timer_s = 0.0
 		return
 
 	_nav_repath_timer_s = 0.0

@@ -73,7 +73,7 @@ center_of_mass = Vector3(0, 0, 0.5)
 contact_monitor = true
 max_contacts_reported = 10
 script = ExtResource("1_e8t1h")
-max_health = 140.0
+max_health = 260.0
 explosion_scene = ExtResource("2_x73up")
 wreck_scene = ExtResource("3_x73up")
 wreck_base_impulse = 100.0
@@ -105,6 +105,7 @@ roll_power = 10.0
 yaw_power = 2.6
 stability_strength = 3.4
 pitch_stability_factor = 0.9
+stall_speed = 52.0
 auto_rudder_strength = 0.5
 
 [node name="MovingParts" type="Node3D" parent="."]
@@ -113,7 +114,7 @@ auto_rudder_strength = 0.5
 
 [node name="Engine" parent="." instance=ExtResource("10_jemhm")]
 transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, 0, 0)
-PowerFactor = 10500.0
+PowerFactor = 9500.0
 propeller_node = NodePath("../aircraft_4/Aircraft 2 propeller")
 EngineSoundLoop = ExtResource("11_btnkm")
 EngineSoundStart = ExtResource("12_sqfht")

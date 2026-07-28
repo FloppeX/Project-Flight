@@ -297,9 +297,11 @@ func _create_ground_bullet_mark(body: Object) -> void:
 		get_tree().current_scene.add_child(decal)
 
 	if ground_mark_lifetime_s > 0.0:
+		var decal_ref: WeakRef = weakref(decal)
 		get_tree().create_timer(ground_mark_lifetime_s).timeout.connect(func():
-			if is_instance_valid(decal):
-				decal.queue_free()
+			var decal_obj: Object = decal_ref.get_ref()
+			if decal_obj is Node and is_instance_valid(decal_obj):
+				(decal_obj as Node).queue_free()
 		)
 
 func _spawn_ground_impact_particles(body: Object) -> void:

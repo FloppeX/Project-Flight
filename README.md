@@ -32,10 +32,12 @@ The player pushes into enemy-controlled territory, launches and recovers aircraf
 
 ## Current Status
 
-**Last Updated:** 2026-06-25
+**Last Updated:** 2026-07-16
 **Godot Version:** 4.6.2.stable.official.71f334935
 **Project Health:** PLAYABLE
 **Control Mode:** AI-by-default with viewed-aircraft player/AI toggle (game controller + keyboard parity in pause/menu flows)
+**Active Carrier Scene:** `LandCarrier2.tscn` (the new carrier) — instanced by `Main_Scene.tscn`.
+**Recent Focus:** Air-combat AI (dogfight gunnery + energy), the AirOps/Citadel dynamic tasking brain, and battlefield readability (map fog-of-war, combat event log). See the 2026-07-16 changes below.
 
 ## Control And AI Design Rule
 
@@ -54,6 +56,30 @@ For AI pilots and vehicle controllers, the expected approach is:
 - If a limiter is truly needed, name it honestly, expose it as tuning, print/debug when it activates, and explain why a feedback fix is not enough.
 
 This is especially important for helicopters. They have delayed response and strong coupling between collective, cyclic, speed, lift, and altitude. The AI should fly them by making deliberate control changes based on observed response, not by stacking hidden safety barriers that fight each other.
+
+### Recent Changes (2026-07-16)
+
+**Air-combat AI — dogfight gunnery, energy, and behavior.** The AI dogfight was overhauled so fights actually resolve instead of stalemating:
+- **Curved (turn-rate) lead gunnery** — the biggest fix. The AI now estimates a target's angular turn rate and propagates its future position along that turn arc (not a straight line), so shots lead a jinking bandit correctly over the bullet's flight time. This converted "positions well but never hits" into decisive kills.
+- **Energy realism + discipline** — induced drag now bleeds energy from hard maneuvering (keyed off load factor, since the arcade model keeps velocity aligned to the nose so AoA stays ~0). A pull-cap around corner speed keeps hard turns *sustainable* — a plane can no longer dump 110 m/s → ~10 m/s in one merge pull and mutual-kill while stalled.
+- **Anti-stalemate stack** — bug-out when losing badly, scissors-reset when stuck in a co-energy turn fight, a keep-it-low ceiling (fights stay near the deck, readable), a hard dive floor (no more pressing a committed dive into terrain), and a max-extend cap (a plane behind on energy fights instead of running forever).
+- **Situational awareness by arc** — pilots detect enemies by arc (front easy, behind/below near-impossible), scaled by skill; a knife-fight range override so a close bandit is never "lost," plus a bounced-from-behind reaction so a plane getting shot re-acquires the shooter.
+- **Smart target reprioritization** — pilots no longer fixate on their first pick. Air targets are scored by threat (enemy on your 6) and opportunity (easy kill ahead), not just distance; ground attackers re-evaluate during setup (never mid-dive). Applies to ground attack too.
+- **Role posture** — `air_combat_posture` (DOGFIGHTER vs DEFENSIVE): attackers/bombers/fleeing aircraft keep flying their mission and *evade* (defensive jink) instead of dropping everything to turn-fight; they only commit to a dogfight if truly cornered.
+- **Sustained fire** — guns hold the trigger on a strong, stable solution instead of always pulsing on a fixed burst/cooldown.
+- **Dogfight test harness** (`Scenario/DogfightTestMode.gd`, scenario 4) grew a 1v1 neutral-merge diagnostic mode and auto-restarting rounds with a results log.
+
+**AirOps / Citadel — dynamic tasking brain.** The carrier's `AirOpsManager` was rebuilt from a fixed 3-slot role model (one CAP + one INTERCEPT + one CAS) into a **dynamic mission board**. Each tick it builds tasks from the fused sensor picture (carrier radar + every friendly vehicle's sensors + buildings), **clusters** nearby enemy ground/structure targets into strike areas, scores tasks (defense-first: intercepts outrank strikes outrank CAP), and assigns the nearest available flight — scrambling from the hangar to fill gaps. This supports concurrent strikes + patrol + interception, which the old model could not. Verified end-to-end in the normal game (patrol → detect targets → strike/intercept assignment).
+- Radio-bark audit: Citadel now speaks only on a genuine **role change** (CAP/INTERCEPT/STRIKE), not on every target switch within a role, and no longer double-barks on scramble. This fixes the "random, not tied to what's happening" chatter.
+- Deck-launch fixes: the deck now pumps a pending AI-launch queue whenever it's free (a scramble arriving during a busy deck no longer queues forever), a stuck scramble times out instead of blocking all future tasking, and **combat scrambles skip utility helicopters** in the hangar (Aircraft 11 rescue helis were being catapulted as fighters at startup — they now stay parked as rescue assets).
+- Carrier launch behavior: instead of *holding* launches while the carrier is turning, the carrier now straightens/settles to open a launch window; and a terrain check refuses to launch aircraft straight into a cliff on the departure path.
+
+**Battlefield readability:**
+- **Map fog-of-war (lite)** — the tactical map shows everything, but enemies not currently in the friendly sensor picture are drawn in a **muted** version of their real color; they brighten to full color when the carrier radar or a friendly picks them up. Friendlies are always full color. (Tunable; can be toggled off.)
+- **Combat event log** — a new lightweight `CombatLog` autoload records *meaningful* events (attacks started, engagements, hits with coalescing so a burst isn't one line per bullet, kills with hit totals, crashes, and flight taskings/launches) to `user://combat_log.txt` with timestamps — not a per-frame trace.
+- The bridge **holomap is temporarily disabled** (removed for now; may return later).
+
+**Terrain streaming:** added a fast-fill burst when the view jumps (camera switch / teleport) so terrain appears quickly, then relaxes back to the low steady-state rate that keeps normal flying hitch-free.
 
 ### Recent Changes (2026-06-25)
 
@@ -382,7 +408,7 @@ Supported readout instruments currently include `speed`, `altitude`, `vertical_s
 4. Carrier landing: DESCEND position hold and touchdown detection need live testing across all three helicopter types; airborne separation may need tuning if multiple inbound helis bunch up near hold points.
 5. Stabilize ejection/parachute flow: Pilot 2 pose authoring, parachute cockpit camera placement, first-person pilot hiding, view cycling, landing/downed-pilot persistence, and making sure abandoned-aircraft destruction never steals camera focus back.
 6. Continue tuning helicopter feel: Aircraft 9 heavy rescue at 50 m/s cruise, rotor stow/spin/droop visuals, carrier deck takeoff collective threshold.
-7. Live-test the Citadel/AirOps loop under pressure: reported contacts, carrier radar range, interceptor loadouts, CAS tasking, radio line frequency, and whether flights actually execute the orders they acknowledge.
+7. AirOps/Citadel dynamic tasking (NEW brain, verified end-to-end): now watch it under sustained pressure across a full round — confirm the whole loop plays out in one game (patrol → strike a target group to destruction → enemy planes appear → reassign to intercept → relaunch fresh CAP). Open follow-ups: launch cadence is gated by deck-sequence duration + scramble/reassign churn (the first flight, "Archer", still tends to time out its scramble because its queued aircraft get reassigned to other flights); the `min_cap` reserve is coded but lightly exercised; player-override coexistence with the auto-tasker is untested.
 8. Validate the new interactive `M`-map workflow in live play: asset selection, mission drafting, confirm/cancel flow, and readability under pressure.
 9. Expand mission authoring beyond the first slice, especially richer waypoint editing and more flight directives than the current CAP / CAS / RTB set.
 10. Continue tuning AI precision control in dogfights so aircraft point more authoritatively at gun solutions, align the pipper with the real gun line, and waste fewer shots while still breaking off unsafe close merges.
@@ -391,6 +417,15 @@ Supported readout instruments currently include `speed`, `altitude`, `vertical_s
 13. Keep watching terrain edge cases: floating rocks, cliff-edge altitude checks, terrain streaming gaps, and delayed collision/chunk loading.
 14. Continue expanding bridge/commander command features and allow AirOps/GroundOps AI to create and manage missions through the same order model the player uses.
 15. Continue regenerating and judging radio performances; the technical pipeline is solid, but several voices still need better source direction/energy before the chatter fully sells the fiction.
+
+### Upcoming Fixes (from the 2026-07-16 air-combat/AirOps pass)
+
+- **Even-fight conversion ceiling:** a perfectly matched 1v1 (same aircraft/skill) can still run to the round timeout landing only a hit or two — the gunnery converts against a clear advantage but not against a true equal. Wants better sustained-tracking / angle exploitation, not a hard cap.
+- **Energy realism is drag-only for now:** hard turning bleeds energy, but at full throttle the engine still out-powers the drag, so energy doesn't *deplete* over a fight. The realistic version needs thrust that falls off with speed — but the engine is a shared module, so it would affect the whole game's flight feel and was deliberately deferred.
+- **Launch throughput:** the deck launch sequence (elevator → tractor → catapult) plus scramble/reassign churn keeps launches slow. The real lever is shortening the deck sequence or making a scramble reserve its own launched aircraft so the first flight doesn't get its planes stolen.
+- **Dogfight balance:** with the new gunnery, the higher-skilled side wins nearly every round; the skill gap in the test may now be too decisive for variety. Aircraft-vs-aircraft balance (e.g. Aircraft 2 tending to beat Aircraft 5 with equal pilots) also wants a look against the intended roster roles.
+- **CombatLog polish:** ground-attack targets currently log as raw node names (e.g. `@StaticBody3D@454`) — resolve to friendlier building/vehicle labels.
+- **Visibility model consistency:** the map's fog-of-war keys off the AirOps sensor picture, while the (now-disabled) bridge holomap used its own terrain line-of-sight reveal. If the holomap returns, unify the two so "what the player can see" is one rule.
 
 ## Planned Features
 
@@ -427,7 +462,7 @@ Supported readout instruments currently include `speed`, `altitude`, `vertical_s
 - 3D rotating model viewer per entry with description text below
 - Covers vehicles and weapons
 
-**Current focus:** As of 2026-06-12, Aircraft 11 is in active development (swing doors, texture shader work, rotor disc). Threaded pathfinding and airborne separation are wired. Active tuning: Aircraft 11 flight feel and integration into the F11 heli test loop, rotor wash dust effect tuning, and continuing terrain pathfinding validation for all three helicopter types.
+**Current focus:** As of 2026-07-16, the active work is air combat and carrier air operations — the dogfight AI (curved-lead gunnery, energy discipline, anti-stalemate behavior) and the AirOps/Citadel dynamic tasking brain, plus battlefield readability (map fog-of-war and the combat event log). Near-term follow-ups are in *Upcoming Fixes* above: even-fight gunnery conversion, launch cadence, and dogfight/aircraft balance. (Helicopter Aircraft 11 development and the heli test loop from the previous focus are paused, not dropped.)
 
 ## Working Style Notes
 

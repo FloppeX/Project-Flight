@@ -199,6 +199,8 @@ spot_angle = 60.0
 
 [node name="BridgeHologram" parent="." unique_id=713542789 instance=ExtResource("14_bridge_holo")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -29.5554, 13.5188, 0.00964248)
+visible = false
+process_mode = 4
 
 [node name="Arresting Cable 1" parent="." unique_id=1421598451 instance=ExtResource("12_eyg35")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -62.4367)

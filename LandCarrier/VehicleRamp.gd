@@ -39,6 +39,7 @@ func _ready() -> void:
 	_find_meshes_and_build()
 
 func _unhandled_input(event: InputEvent) -> void:
+	return
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_Z:
 			toggle()

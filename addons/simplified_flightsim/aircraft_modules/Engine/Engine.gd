@@ -27,6 +27,8 @@ signal update_interface(values)
 @export var EngineLoopInteriorVolumeOffsetDb: float = 0.0
 @export var EngineSoundPitchFollowsPower: bool = true
 @export var EngineLoopConstantPitchScale: float = 1.0
+@export var visual_budget_enabled: bool = true
+@export var audio_budget_enabled: bool = true
 @export_group("Propeller Blur")
 @export var enable_propeller_blur: bool = true
 @export var propeller_spin_axis_local: Vector3 = Vector3.BACK
@@ -126,8 +128,8 @@ func process_physic_frame(delta):
 		var engine_rotated_position = global_transform.origin - aircraft.global_transform.origin
 		aircraft.apply_force(force_vector, engine_rotated_position)
 		
-	# Spin propeller directly
-		if propeller is Node3D and (current_power > 0.0 or (GovernPropellerVisualSpeed and is_engine_working)):
+	# Spin propeller directly. Budgeting this only affects visuals; thrust above still runs.
+		if visual_budget_enabled and propeller is Node3D and (current_power > 0.0 or (GovernPropellerVisualSpeed and is_engine_working)):
 			var visual_power: float = 1.0 if GovernPropellerVisualSpeed else current_power
 			var prop_speed = visual_power * 50.0 + 5.0  # RPM based on power
 			var spin_axis: Vector3 = propeller_spin_axis_local
@@ -136,9 +138,11 @@ func process_physic_frame(delta):
 			var propeller_node_3d := propeller as Node3D
 			propeller_node_3d.rotate_object_local(spin_axis.normalized(), prop_speed * delta)
 
-		_update_engine_sound(delta)
+		if audio_budget_enabled:
+			_update_engine_sound(delta)
 
-	_update_propeller_blur_visuals(delta)
+	if visual_budget_enabled:
+		_update_propeller_blur_visuals(delta)
 
 # -----------------------------------------------------------------------------
 
@@ -260,6 +264,22 @@ func set_throttle_input(new_throttle: float):
 	# Allows external systems like the catapult to command throttle directly
 	# while still using the engine's internal spool response.
 	engine_set_power(new_throttle)
+
+func set_aircraft_visual_budget_enabled(enabled: bool) -> void:
+	visual_budget_enabled = enabled
+	if enabled:
+		_update_propeller_blur_visuals(1.0)
+
+func set_aircraft_audio_budget_enabled(enabled: bool) -> void:
+	audio_budget_enabled = enabled
+	if enabled:
+		if is_engine_working and sfx_engine_loop != null and not sfx_engine_loop.playing:
+			sfx_engine_loop.play()
+		return
+	for player_variant in [sfx_engine_loop, sfx_engine_start, sfx_engine_stop]:
+		var player: AudioStreamPlayer3D = player_variant as AudioStreamPlayer3D
+		if player != null and player.playing:
+			player.stop()
 
 func process_input(input_actions):
 	if input_actions.engine_power_up > 0.0:

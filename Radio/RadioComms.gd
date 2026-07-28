@@ -105,6 +105,7 @@ func _process(delta: float) -> void:
 	_update_radio_static(delta)
 
 func _input(event: InputEvent) -> void:
+	return
 	if not radio_test_hotkey_enabled:
 		return
 	if event is InputEventKey and event.pressed and not event.echo and event.physical_keycode == KEY_V:
@@ -963,6 +964,9 @@ func _refresh_status() -> void:
 	if not _status_label:
 		return
 	var parts: Array[String] = []
+	if AirOpsManager == null:
+		_status_label.text = ""
+		return
 	for f in AirOpsManager.flights:
 		parts.append("%s: %d" % [f.flight_name.left(1), f.strength()])
 	_status_label.text = "  ".join(parts)

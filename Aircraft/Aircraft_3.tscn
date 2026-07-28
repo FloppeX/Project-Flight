@@ -95,6 +95,7 @@ roll_power = 19.0
 yaw_power = 2.0
 stability_strength = 1.0
 pitch_stability_factor = 0.55
+stall_speed = 36.0
 auto_rudder_strength = 0.5
 slow_flight_alignment_start_speed_mps = 80.0
 
@@ -134,7 +135,7 @@ transform = Transform3D(1, 0, -2.9803e-08, 0, 1, 0, 2.9803e-08, 0, 1, -0.456, 0.
 
 [node name="Engine" parent="." instance=ExtResource("10_jemhm")]
 transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, 0, 0)
-PowerFactor = 7000.0
+PowerFactor = 11000.0
 propeller_node = NodePath("../Aircraft 3/Aircraft 2 propeller")
 EngineSoundLoop = ExtResource("11_btnkm")
 EngineSoundStart = ExtResource("12_sqfht")

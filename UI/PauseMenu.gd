@@ -72,6 +72,7 @@ var _vsync_enabled: bool = false
 var _resolution_index: int = 0
 var _view_distance_level: int = DEFAULT_VIEW_DISTANCE_LEVEL
 var _rudder_assist_level: int = 0
+var _helicopter_rudder_assist_level: int = 1
 
 
 func _ready() -> void:
@@ -305,7 +306,7 @@ func _build_gameplay_screen() -> Control:
 	var panel = ColorRect.new()
 	panel.color = COLOR_PANEL
 	panel.position = Vector2(SUBMENU_X - 20, 60)
-	panel.size = Vector2(600, 330)
+	panel.size = Vector2(600, 390)
 	root.add_child(panel)
 
 	var back = _make_back_button(Vector2(SUBMENU_X, 76))
@@ -324,6 +325,11 @@ func _build_gameplay_screen() -> Control:
 	rudder_btn.pressed.connect(_cycle_rudder_assist)
 	root.add_child(rudder_btn)
 	_gameplay_buttons["rudder_assist"] = rudder_btn
+
+	var helicopter_rudder_btn = _make_row_button("", Vector2(SUBMENU_X, 252), 560.0)
+	helicopter_rudder_btn.pressed.connect(_cycle_helicopter_rudder_assist)
+	root.add_child(helicopter_rudder_btn)
+	_gameplay_buttons["helicopter_rudder_assist"] = helicopter_rudder_btn
 
 	_refresh_gameplay_button_labels()
 
@@ -413,6 +419,12 @@ func _cycle_rudder_assist() -> void:
 	_save_settings()
 
 
+func _cycle_helicopter_rudder_assist() -> void:
+	_helicopter_rudder_assist_level = (_helicopter_rudder_assist_level + 1) % RUDDER_ASSIST_LABELS.size()
+	_refresh_gameplay_button_labels()
+	_save_settings()
+
+
 func _refresh_graphics_button_labels() -> void:
 	if _graphics_buttons.has("vsync"):
 		var btn := _graphics_buttons["vsync"] as Button
@@ -427,9 +439,13 @@ func _refresh_graphics_button_labels() -> void:
 
 func _refresh_gameplay_button_labels() -> void:
 	_rudder_assist_level = clampi(_rudder_assist_level, 0, RUDDER_ASSIST_LABELS.size() - 1)
+	_helicopter_rudder_assist_level = clampi(_helicopter_rudder_assist_level, 0, RUDDER_ASSIST_LABELS.size() - 1)
 	if _gameplay_buttons.has("rudder_assist"):
 		var btn := _gameplay_buttons["rudder_assist"] as Button
-		btn.text = "RUDDER ASSIST: %s" % RUDDER_ASSIST_LABELS[_rudder_assist_level]
+		btn.text = "AIRPLANE RUDDER ASSIST: %s" % RUDDER_ASSIST_LABELS[_rudder_assist_level]
+	if _gameplay_buttons.has("helicopter_rudder_assist"):
+		var btn := _gameplay_buttons["helicopter_rudder_assist"] as Button
+		btn.text = "HELI RUDDER ASSIST: %s" % RUDDER_ASSIST_LABELS[_helicopter_rudder_assist_level]
 
 
 func get_rudder_assist_level() -> int:
@@ -438,6 +454,14 @@ func get_rudder_assist_level() -> int:
 
 func get_rudder_assist_strength() -> float:
 	return float(RUDDER_ASSIST_STRENGTHS[get_rudder_assist_level()])
+
+
+func get_helicopter_rudder_assist_level() -> int:
+	return clampi(_helicopter_rudder_assist_level, 0, RUDDER_ASSIST_LABELS.size() - 1)
+
+
+func get_helicopter_rudder_assist_strength() -> float:
+	return float(RUDDER_ASSIST_STRENGTHS[get_helicopter_rudder_assist_level()])
 
 
 func _apply_graphics_settings() -> void:
@@ -575,6 +599,11 @@ func _load_settings() -> void:
 		0,
 		RUDDER_ASSIST_LABELS.size() - 1
 	)
+	_helicopter_rudder_assist_level = clampi(
+		int(cfg.get_value(SETTINGS_SECTION_GAMEPLAY, "helicopter_rudder_assist_level", _helicopter_rudder_assist_level)),
+		0,
+		RUDDER_ASSIST_LABELS.size() - 1
+	)
 	if should_migrate_graphics:
 		_save_settings()
 
@@ -599,6 +628,7 @@ func _save_settings() -> void:
 	cfg.set_value(SETTINGS_SECTION_GRAPHICS, "resolution_index", _resolution_index)
 	cfg.set_value(SETTINGS_SECTION_GRAPHICS, "view_distance_level", _view_distance_level)
 	cfg.set_value(SETTINGS_SECTION_GAMEPLAY, "rudder_assist_level", _rudder_assist_level)
+	cfg.set_value(SETTINGS_SECTION_GAMEPLAY, "helicopter_rudder_assist_level", _helicopter_rudder_assist_level)
 	cfg.save(SETTINGS_PATH)
 
 

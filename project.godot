@@ -40,10 +40,13 @@ FlightDirector="*res://AirOps/FlightDirector.gd"
 PilotRoster="*res://AirOps/PilotRoster.gd"
 AirOpsManager="*res://AirOps/AirOpsManager.gd"
 RadioComms="*res://Radio/RadioComms.gd"
+CombatLog="*res://Debug/CombatLog.gd"
 NavGraph="*res://AI/NavGraph.gd"
+NavPathScheduler="*res://AI/NavPathScheduler.gd"
 HelicopterCombatTuner="*res://AI/HelicopterCombatTuner.gd"
 HelicopterNavigationTuner="*res://AI/HelicopterNavigationTuner.gd"
 ParticleManager="*res://Effects/ParticleManager.gd"
+EnemyVisualBudget="*res://Effects/EnemyVisualBudget.gd"
 GroundOpsManager="*res://GroundOps/GroundOpsManager.gd"
 EnemyBaseManager="*res://Enemies/EnemyBaseManager.gd"
 EnemyOpsManager="*res://Enemies/EnemyOpsManager.gd"
@@ -59,7 +62,6 @@ window/size/viewport_width=1920
 window/size/viewport_height=1080
 window/size/mode=4
 window/stretch/mode="viewport"
-window/stretch/aspect="keep"
 window/vsync/vsync_mode=0
 
 [editor_plugins]
@@ -168,8 +170,6 @@ look_down={
 switch_camera={
 "deadzone": 0.2,
 "events": [Object(InputEventJoypadButton,"resource_local_to_scene":false,"resource_name":"","device":-1,"button_index":3,"pressure":0.0,"pressed":false,"script":null)
-, Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":89,"key_label":0,"unicode":121,"location":0,"echo":false,"script":null)
-, Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":66,"key_label":0,"unicode":98,"location":0,"echo":false,"script":null)
 ]
 }
 fire_weapon={
@@ -209,8 +209,7 @@ request_launch={
 }
 store_aircraft={
 "deadzone": 0.5,
-"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":83,"key_label":0,"unicode":115,"location":0,"echo":false,"script":null)
-]
+"events": []
 }
 retrieve_aircraft={
 "deadzone": 0.5,
@@ -218,8 +217,7 @@ retrieve_aircraft={
 }
 toggle_ai_pilot={
 "deadzone": 0.5,
-"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":65,"key_label":0,"unicode":97,"location":0,"echo":false,"script":null)
-]
+"events": []
 }
 toggle_player_control={
 "deadzone": 0.5,
@@ -248,8 +246,7 @@ map_toggle={
 }
 pilot_roster_toggle={
 "deadzone": 0.5,
-"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":44,"physical_keycode":44,"key_label":0,"unicode":44,"location":0,"echo":false,"script":null)
-]
+"events": []
 }
 pause_game={
 "deadzone": 0.5,
@@ -266,8 +263,10 @@ pause_game={
 [physics]
 
 3d/physics_engine="Jolt Physics"
+jolt_physics_3d/limits/max_linear_velocity=2000.0
 common/physics_interpolation=true
 common/enable_pause_aware_picking=true
+jolt_3d/limits/max_linear_velocity=2000.0
 
 [rendering]
 

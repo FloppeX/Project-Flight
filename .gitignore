@@ -30,3 +30,11 @@ _trash/
 
 # Documentation imports
 docs/*.import
+
+# Local coordinated-turn optimizer telemetry and checkpoints
+turn_optimizer_runs/
+
+# Local screenshots, videos, test archives, and runtime telemetry
+captures/
+run_archives/
+*.log

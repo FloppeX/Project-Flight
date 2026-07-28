@@ -1,0 +1,16 @@
+{
+  "fitness": 3395.70485840434,
+  "gains": {
+    "turn_rate_heading_gain": 0.8,
+    "turn_rate_los_feedforward": 1.0,
+    "turn_rate_limit_deg_s": 40.0,
+    "los_rate_filter_hz": 4.0,
+    "bank_response_hz": 0.0,
+    "precision_direct_pitch_gain": 26.0,
+    "precision_direct_yaw_gain": 14.0,
+    "precision_pid_scale": 1.0,
+    "precision_entry_deg": 35.0,
+    "precision_full_deg": 1.5,
+    "precision_axis_authority_power": 1.0
+  }
+}

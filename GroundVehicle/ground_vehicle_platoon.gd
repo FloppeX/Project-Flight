@@ -1,6 +1,8 @@
 extends Node3D
 class_name GroundVehiclePlatoon
 
+const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
+
 enum ObjectiveType {
 	NONE,
 	MOVE_TO_POSITION,
@@ -32,12 +34,14 @@ enum ObjectiveType {
 @export var formation_file_spacing_m: float = 18.0
 @export var formation_widen_per_rank_m: float = 3.0
 @export var contact_path_clearance_m: float = 60.0
-@export var contact_repath_interval_s: float = 1.0
 @export var contact_goal_repath_distance_m: float = 70.0
 @export var contact_waypoint_reach_distance_m: float = 24.0
 @export var contact_anchor_distance_m: float = 220.0
 @export var contact_anchor_search_samples: int = 12
 @export var route_preview_repath_interval_s: float = 2.5
+@export var max_concurrent_route_preview_jobs: int = 1
+@export var path_job_retry_min_s: float = 0.45
+@export var path_job_retry_max_s: float = 1.25
 @export_group("Night Combat Penalties")
 @export_range(0.1, 1.0, 0.05) var night_hostile_search_range_multiplier: float = 0.65
 @export_group("")
@@ -60,23 +64,23 @@ var _cached_day_night_cycle: Node = null
 var _cached_ai_darkness_factor: float = 0.0
 var _ai_darkness_cache_at_ms: int = -100000
 var _contact_world_position: Vector3 = Vector3.INF
-var _contact_path_positions: Array[Vector3] = []
-var _contact_path_index: int = 0
-var _contact_path_goal: Vector3 = Vector3.ZERO
-var _contact_repath_timer_s: float = 0.0
 var _route_preview_positions: Array[Vector3] = []
 var _route_preview_goal: Vector3 = Vector3.INF
 var _route_preview_origin: Vector3 = Vector3.INF
 var _route_preview_repath_timer_s: float = 0.0
-var _is_contact_pathfinding: bool = false
 var _is_route_preview_pathfinding: bool = false
+
+static var _global_route_preview_jobs: int = 0
 
 func _ready() -> void:
 	add_to_group("origin_shifter")
 	add_to_group("ground_vehicle_platoons")
 	set_physics_process(true)
-	_contact_repath_timer_s = randf() * maxf(contact_repath_interval_s, 0.1)
 	_route_preview_repath_timer_s = randf() * maxf(route_preview_repath_interval_s, 0.1)
+
+func _exit_tree() -> void:
+	if _is_route_preview_pathfinding:
+		_global_route_preview_jobs = maxi(_global_route_preview_jobs - 1, 0)
 
 func apply_origin_shift(offset: Vector3) -> void:
 	objective_position -= offset
@@ -86,9 +90,6 @@ func apply_origin_shift(offset: Vector3) -> void:
 		_route_preview_goal -= offset
 	if _is_valid_contact_world_position(_route_preview_origin):
 		_route_preview_origin -= offset
-	for i in range(_contact_path_positions.size()):
-		if _is_valid_contact_world_position(_contact_path_positions[i]):
-			_contact_path_positions[i] -= offset
 	for i in range(_route_preview_positions.size()):
 		if _is_valid_contact_world_position(_route_preview_positions[i]):
 			_route_preview_positions[i] -= offset
@@ -96,8 +97,10 @@ func apply_origin_shift(offset: Vector3) -> void:
 		_shared_hostile_cache_origin -= offset
 
 func _physics_process(delta: float) -> void:
+	var _profiler_start: int = FrameProfiler.begin("GroundVehiclePlatoon.physics")
 	_update_contact_position(delta)
 	_update_route_preview(delta)
+	FrameProfiler.end("GroundVehiclePlatoon.physics", _profiler_start)
 
 func register_vehicle(vehicle: Node3D) -> void:
 	if not vehicle or not is_instance_valid(vehicle):
@@ -148,6 +151,29 @@ func get_active_waypoints() -> Array[Vector3]:
 			if not _is_valid_contact_world_position(contact_pos) or _flat_distance(contact_pos, fallback_goal) > maxf(contact_waypoint_reach_distance_m, 2.0):
 				active_waypoints.append(fallback_goal)
 	return active_waypoints
+
+func should_vehicle_use_shared_route(vehicle: Node3D) -> bool:
+	if vehicle == null or not is_instance_valid(vehicle):
+		return false
+	if not has_active_objective() or has_any_member_in_combat():
+		return false
+	if objective_type == ObjectiveType.ESCORT_CARRIER:
+		return false
+	return true
+
+func get_shared_route_destination_for(vehicle: Node3D, fallback_destination: Vector3) -> Vector3:
+	var anchor: Vector3 = _get_route_navigation_anchor()
+	if not _is_valid_contact_world_position(anchor):
+		var waypoints := get_active_waypoints()
+		if not waypoints.is_empty():
+			anchor = waypoints[0]
+	if not _is_valid_contact_world_position(anchor):
+		if _is_route_preview_pathfinding:
+			var contact_pos := get_contact_position()
+			if _is_valid_contact_world_position(contact_pos):
+				return get_formation_destination_for(vehicle, contact_pos)
+		return get_formation_destination_for(vehicle, fallback_destination)
+	return get_formation_destination_for(vehicle, anchor)
 
 func has_any_member_in_combat() -> bool:
 	var now_ms: int = Time.get_ticks_msec()
@@ -399,12 +425,21 @@ func _get_route_navigation_anchor() -> Vector3:
 	if not _is_valid_contact_world_position(contact_pos):
 		return Vector3.INF
 	var reach_distance: float = maxf(contact_waypoint_reach_distance_m, 2.0)
-	for waypoint in _route_preview_positions:
+	var closest_idx: int = -1
+	var closest_dist: float = INF
+	for i in range(_route_preview_positions.size()):
+		var waypoint := _route_preview_positions[i]
 		if not _is_valid_contact_world_position(waypoint):
 			continue
-		if _flat_distance(contact_pos, waypoint) <= reach_distance:
-			continue
-		return _project_contact_to_ground(waypoint)
+		var dist := _flat_distance(contact_pos, waypoint)
+		if dist < closest_dist:
+			closest_dist = dist
+			closest_idx = i
+	if closest_idx >= 0:
+		var anchor_idx := closest_idx
+		if closest_dist <= reach_distance and closest_idx + 1 < _route_preview_positions.size():
+			anchor_idx = closest_idx + 1
+		return _project_contact_to_ground(_route_preview_positions[anchor_idx])
 	if _is_valid_contact_world_position(_route_preview_goal) and _flat_distance(contact_pos, _route_preview_goal) > reach_distance:
 		return _project_contact_to_ground(_route_preview_goal)
 	return Vector3.INF
@@ -584,194 +619,51 @@ func _get_slot_position_around(anchor: Vector3, vehicle: Node3D, radius_m: float
 	var angle: float = TAU * float(slot_index) / float(slot_count)
 	return anchor + Vector3(cos(angle) * radius_m, 0.0, sin(angle) * radius_m)
 
-func _update_contact_position(delta: float) -> void:
+func _update_contact_position(_delta: float) -> void:
+	var _profiler_start: int = FrameProfiler.begin("GroundVehiclePlatoon.contact")
 	var members: Array[Node3D] = get_members()
 	if members.is_empty():
-		_clear_contact_path()
-		_contact_repath_timer_s = 0.0
+		FrameProfiler.end("GroundVehiclePlatoon.contact", _profiler_start)
 		return
 
 	var contact_target := _get_contact_follow_target_from_members(members)
 	if not _is_valid_contact_world_position(contact_target):
+		FrameProfiler.end("GroundVehiclePlatoon.contact", _profiler_start)
 		return
 
-	if not _is_valid_contact_world_position(_contact_world_position):
-		var initial_contact := _get_safe_contact_nav_position(contact_target, contact_target)
-		_contact_world_position = initial_contact if _is_valid_contact_world_position(initial_contact) else contact_target
-		_contact_path_goal = contact_target
-		_clear_contact_path()
-		return
-
-	var reach_distance: float = maxf(contact_waypoint_reach_distance_m, 2.0)
-	if _flat_distance(_contact_world_position, contact_target) <= reach_distance:
-		_contact_world_position = contact_target
-		_contact_path_goal = contact_target
-		_clear_contact_path()
-		return
-
-	if not NavGraph.is_ready():
-		_contact_world_position = _project_contact_to_ground(contact_target)
-		return
-
-	_contact_repath_timer_s += delta
-	var repath_due: bool = _contact_repath_timer_s >= maxf(contact_repath_interval_s, 0.1)
-	var goal_shifted: bool = _flat_distance(_contact_path_goal, contact_target) > contact_goal_repath_distance_m
-	var needs_path: bool = _contact_path_positions.is_empty() or _contact_path_index >= _contact_path_positions.size()
-	if goal_shifted or (needs_path and repath_due):
-		_recompute_contact_path(contact_target)
-
-	_advance_contact_along_path(delta, contact_target)
-
-func _recompute_contact_path(target_world_pos: Vector3) -> void:
-	if not NavGraph.is_ready():
-		return
-	if _is_contact_pathfinding:
-		return
-
-	_is_contact_pathfinding = true
-	_contact_repath_timer_s = 0.0
-
-	var contact_pos := _contact_world_position
-	var target_pos := target_world_pos
-	var clearance := contact_path_clearance_m
-	var anchor_dist := contact_anchor_distance_m
-	var reach_dist := maxf(contact_waypoint_reach_distance_m, 2.0)
-	var anchor_samples := contact_anchor_search_samples
-
-	WorkerThreadPool.add_task(func() -> void:
-		var get_safe_pos = func(wpos: Vector3, rpos: Vector3) -> Vector3:
-			var projected := wpos
-			var terrain_y := TerrainNavGrid.sample_height(projected.x, projected.z)
-			if terrain_y > TerrainNavGrid.IMPASSABLE * 0.5:
-				projected.y = terrain_y
-			if not (is_finite(projected.x) and is_finite(projected.y) and is_finite(projected.z)):
-				return Vector3.INF
-			if NavGraph.can_anchor(projected, clearance, anchor_dist):
-				return projected
-
-			var ref := rpos if (is_finite(rpos.x) and is_finite(rpos.y) and is_finite(rpos.z)) else projected
-			var search_radius: float = maxf(anchor_dist, reach_dist * 2.0)
-			var sample_count: int = maxi(anchor_samples, 4)
-			var base_vec := Vector2(projected.x - ref.x, projected.z - ref.z)
-			var base_angle: float = atan2(base_vec.y, base_vec.x) if base_vec.length_squared() > 1.0 else 0.0
-			var best_target: Vector3 = Vector3.INF
-			var best_score: float = INF
-			var ring_count: int = 3
-			for ring_idx in range(1, ring_count + 1):
-				var radius: float = search_radius * float(ring_idx) / float(ring_count)
-				for sample_idx in range(sample_count):
-					var angle: float = base_angle + TAU * float(sample_idx) / float(sample_count)
-					var candidate := projected + Vector3(cos(angle) * radius, 0.0, sin(angle) * radius)
-					var cy := TerrainNavGrid.sample_height(candidate.x, candidate.z)
-					if cy > TerrainNavGrid.IMPASSABLE * 0.5:
-						candidate.y = cy
-					if not NavGraph.can_anchor(candidate, clearance, anchor_dist):
-						continue
-					var score: float = Vector2(candidate.x - projected.x, candidate.z - projected.z).length() + Vector2(candidate.x - ref.x, candidate.z - ref.z).length() * 0.1
-					if score < best_score:
-						best_score = score
-						best_target = candidate
-			if is_finite(best_target.x) and is_finite(best_target.y) and is_finite(best_target.z):
-				return best_target
-			return Vector3.INF
-
-		var start_world: Vector3 = get_safe_pos.call(contact_pos, target_pos)
-		var goal_world: Vector3 = get_safe_pos.call(target_pos, contact_pos)
-
-		if not (is_finite(start_world.x) and is_finite(start_world.y) and is_finite(start_world.z)) or not (is_finite(goal_world.x) and is_finite(goal_world.y) and is_finite(goal_world.z)):
-			_on_contact_path_computed.call_deferred([], target_pos, start_world, goal_world, false)
-			return
-
-		if Vector2(start_world.x - goal_world.x, start_world.z - goal_world.z).length() <= reach_dist:
-			_on_contact_path_computed.call_deferred([], target_pos, start_world, goal_world, true)
-			return
-
-		var candidate_path := NavGraph.find_path(start_world, goal_world, clearance)
-		_on_contact_path_computed.call_deferred(candidate_path, target_pos, start_world, goal_world, false)
-	)
-
-func _on_contact_path_computed(candidate_path: Array, target_at_request_time: Vector3, start_world: Vector3, goal_world: Vector3, reached_direct: bool) -> void:
-	_is_contact_pathfinding = false
-	if not is_instance_valid(self):
-		return
-
-	var current_contact_target := _get_contact_follow_target()
-	if _flat_distance(target_at_request_time, current_contact_target) > contact_goal_repath_distance_m:
-		_recompute_contact_path(current_contact_target)
-		return
-
-	if not _is_valid_contact_world_position(start_world) or not _is_valid_contact_world_position(goal_world):
-		return
-
-	_contact_world_position = start_world
-	_contact_path_goal = target_at_request_time
-
-	if reached_direct:
-		_contact_world_position = goal_world
-		_clear_contact_path()
-		return
-
-	if candidate_path.is_empty():
-		return
-
-	_contact_path_positions.clear()
-	for point in candidate_path:
-		if point is Vector3:
-			_contact_path_positions.append(point as Vector3)
-	_contact_path_index = 0
-	_consume_reached_contact_waypoints()
-
-func _advance_contact_along_path(delta: float, target_world_pos: Vector3) -> void:
-	if _contact_path_index >= _contact_path_positions.size():
-		if _flat_distance(_contact_world_position, target_world_pos) <= maxf(contact_waypoint_reach_distance_m, 2.0):
-			_contact_world_position = _project_contact_to_ground(target_world_pos)
-		return
-
-	var remaining_step: float = maxf(_get_contact_follow_speed_mps() * maxf(delta, 0.0), 0.0)
-	_consume_reached_contact_waypoints()
-	while remaining_step > 0.0 and _contact_path_index < _contact_path_positions.size():
-		var waypoint := _project_contact_to_ground(_contact_path_positions[_contact_path_index])
-		var to_waypoint := waypoint - _contact_world_position
-		to_waypoint.y = 0.0
-		var distance_to_waypoint: float = to_waypoint.length()
-		if distance_to_waypoint <= maxf(contact_waypoint_reach_distance_m, 2.0):
-			_contact_world_position = waypoint
-			_contact_path_index += 1
-			continue
-		var travel_step: float = minf(remaining_step, distance_to_waypoint)
-		var move_dir := to_waypoint / distance_to_waypoint
-		_contact_world_position += Vector3(move_dir.x, 0.0, move_dir.z) * travel_step
-		_contact_world_position = _project_contact_to_ground(_contact_world_position)
-		remaining_step -= travel_step
-		if travel_step + 0.001 < distance_to_waypoint:
-			break
-		_contact_world_position = waypoint
-		_contact_path_index += 1
-	_consume_reached_contact_waypoints()
-	if _contact_path_index >= _contact_path_positions.size() and _flat_distance(_contact_world_position, target_world_pos) <= maxf(contact_waypoint_reach_distance_m, 2.0):
-		_contact_world_position = _project_contact_to_ground(target_world_pos)
+	_contact_world_position = _project_contact_to_ground(contact_target)
+	FrameProfiler.end("GroundVehiclePlatoon.contact", _profiler_start)
 
 func _update_route_preview(delta: float) -> void:
+	var _profiler_start: int = FrameProfiler.begin("GroundVehiclePlatoon.route_preview")
 	if not has_active_objective() or not has_members():
 		_clear_route_preview()
+		FrameProfiler.end("GroundVehiclePlatoon.route_preview", _profiler_start)
 		return
 	var route_target := _get_route_preview_goal()
 	if not _is_valid_contact_world_position(route_target):
 		_clear_route_preview()
+		FrameProfiler.end("GroundVehiclePlatoon.route_preview", _profiler_start)
 		return
 	if not NavGraph.is_ready():
 		_route_preview_positions = [_project_contact_to_ground(route_target)]
 		_route_preview_goal = route_target
+		FrameProfiler.end("GroundVehiclePlatoon.route_preview", _profiler_start)
 		return
 	var contact_pos := get_contact_position()
 	if not _is_valid_contact_world_position(contact_pos):
 		_clear_route_preview()
+		FrameProfiler.end("GroundVehiclePlatoon.route_preview", _profiler_start)
+		return
+	if _route_preview_repath_timer_s < 0.0:
+		_route_preview_repath_timer_s += maxf(delta, 0.0)
+		FrameProfiler.end("GroundVehiclePlatoon.route_preview", _profiler_start)
 		return
 	_route_preview_repath_timer_s += maxf(delta, 0.0)
 	var goal_shifted: bool = not _is_valid_contact_world_position(_route_preview_goal) or _flat_distance(_route_preview_goal, route_target) > contact_goal_repath_distance_m
-	var origin_shifted: bool = not _is_valid_contact_world_position(_route_preview_origin) or _flat_distance(_route_preview_origin, contact_pos) > contact_goal_repath_distance_m
-	if goal_shifted or origin_shifted or _route_preview_positions.is_empty():
+	if _route_preview_positions.is_empty() or goal_shifted:
 		_recompute_route_preview(contact_pos, route_target)
+	FrameProfiler.end("GroundVehiclePlatoon.route_preview", _profiler_start)
 
 func _recompute_route_preview(start_world_pos: Vector3, target_world_pos: Vector3) -> void:
 	if not NavGraph.is_ready():
@@ -780,8 +672,12 @@ func _recompute_route_preview(start_world_pos: Vector3, target_world_pos: Vector
 		return
 	if _is_route_preview_pathfinding:
 		return
+	if _global_route_preview_jobs >= maxi(max_concurrent_route_preview_jobs, 1):
+		_route_preview_repath_timer_s = -randf_range(path_job_retry_min_s, path_job_retry_max_s)
+		return
 
 	_is_route_preview_pathfinding = true
+	_global_route_preview_jobs += 1
 	_route_preview_repath_timer_s = 0.0
 
 	var start_pos := start_world_pos
@@ -791,7 +687,17 @@ func _recompute_route_preview(start_world_pos: Vector3, target_world_pos: Vector
 	var reach_dist := maxf(contact_waypoint_reach_distance_m, 2.0)
 	var anchor_samples := contact_anchor_search_samples
 
-	WorkerThreadPool.add_task(func() -> void:
+	var work: Callable = func() -> Dictionary:
+		var make_result = func(preview_pts: Array, start_at_request: Vector3, target_at_request: Vector3, start_world: Vector3, goal_world: Vector3, status_code: int) -> Dictionary:
+			return {
+				"preview_pts": preview_pts,
+				"start_at_request": start_at_request,
+				"target_at_request": target_at_request,
+				"start_world": start_world,
+				"goal_world": goal_world,
+				"status_code": status_code,
+			}
+
 		var get_safe_pos = func(wpos: Vector3, rpos: Vector3) -> Vector3:
 			var projected := wpos
 			var terrain_y := TerrainNavGrid.sample_height(projected.x, projected.z)
@@ -832,17 +738,14 @@ func _recompute_route_preview(start_world_pos: Vector3, target_world_pos: Vector
 		var goal_world: Vector3 = get_safe_pos.call(target_pos, start_pos)
 
 		if not (is_finite(start_world.x) and is_finite(start_world.y) and is_finite(start_world.z)) or not (is_finite(goal_world.x) and is_finite(goal_world.y) and is_finite(goal_world.z)):
-			_on_route_preview_computed.call_deferred([], start_pos, target_pos, start_world, goal_world, 1)
-			return
+			return make_result.call([], start_pos, target_pos, start_world, goal_world, 1)
 
 		if Vector2(start_world.x - goal_world.x, start_world.z - goal_world.z).length() <= reach_dist:
-			_on_route_preview_computed.call_deferred([], start_pos, target_pos, start_world, goal_world, 2)
-			return
+			return make_result.call([], start_pos, target_pos, start_world, goal_world, 2)
 
 		var candidate_path := NavGraph.find_path(start_world, goal_world, clearance)
 		if candidate_path.is_empty():
-			_on_route_preview_computed.call_deferred([], start_pos, target_pos, start_world, goal_world, 3)
-			return
+			return make_result.call([], start_pos, target_pos, start_world, goal_world, 3)
 
 		var preview_pts: Array[Vector3] = []
 		for i in range(candidate_path.size()):
@@ -858,18 +761,43 @@ func _recompute_route_preview(start_world_pos: Vector3, target_world_pos: Vector
 		if preview_pts.is_empty() or Vector2(preview_pts[preview_pts.size() - 1].x - goal_world.x, preview_pts[preview_pts.size() - 1].z - goal_world.z).length() > reach_dist:
 			preview_pts.append(goal_world)
 
-		_on_route_preview_computed.call_deferred(preview_pts, start_pos, target_pos, start_world, goal_world, 0)
-	)
+		return make_result.call(preview_pts, start_pos, target_pos, start_world, goal_world, 0)
 
-func _on_route_preview_computed(preview_pts: Array, start_at_request: Vector3, target_at_request: Vector3, start_world: Vector3, goal_world: Vector3, status_code: int) -> void:
+	var job_id: int = NavPathScheduler.request_work(
+		work,
+		_on_route_preview_job_result,
+		0,
+		"GroundVehiclePlatoon.route_preview")
+	if job_id < 0:
+		_global_route_preview_jobs = maxi(_global_route_preview_jobs - 1, 0)
+		_is_route_preview_pathfinding = false
+		_route_preview_repath_timer_s = -randf_range(path_job_retry_min_s, path_job_retry_max_s)
+
+
+func _on_route_preview_job_result(result: Variant) -> void:
+	if not result is Dictionary:
+		_global_route_preview_jobs = maxi(_global_route_preview_jobs - 1, 0)
+		_is_route_preview_pathfinding = false
+		_route_preview_repath_timer_s = -randf_range(path_job_retry_min_s, path_job_retry_max_s)
+		return
+	var data: Dictionary = result as Dictionary
+	_on_route_preview_computed(
+		data.get("preview_pts", []),
+		data.get("start_at_request", Vector3.INF),
+		data.get("target_at_request", Vector3.INF),
+		data.get("start_world", Vector3.INF),
+		data.get("goal_world", Vector3.INF),
+		int(data.get("status_code", 1)))
+
+func _on_route_preview_computed(preview_pts: Array, _start_at_request: Vector3, target_at_request: Vector3, start_world: Vector3, goal_world: Vector3, status_code: int) -> void:
+	_global_route_preview_jobs = maxi(_global_route_preview_jobs - 1, 0)
 	_is_route_preview_pathfinding = false
 	if not is_instance_valid(self):
 		return
 
-	var contact_pos := get_contact_position()
 	var route_target := _get_route_preview_goal()
-	if _flat_distance(target_at_request, route_target) > contact_goal_repath_distance_m or _flat_distance(start_at_request, contact_pos) > contact_goal_repath_distance_m:
-		_recompute_route_preview(contact_pos, route_target)
+	if _flat_distance(target_at_request, route_target) > contact_goal_repath_distance_m:
+		_route_preview_repath_timer_s = maxf(route_preview_repath_interval_s, 0.1)
 		return
 
 	_route_preview_repath_timer_s = 0.0
@@ -894,17 +822,6 @@ func _on_route_preview_computed(preview_pts: Array, start_at_request: Vector3, t
 			_route_preview_positions.append(point as Vector3)
 	if _route_preview_positions.is_empty():
 		_route_preview_positions = [goal_world]
-
-func _consume_reached_contact_waypoints() -> void:
-	var reach_distance: float = maxf(contact_waypoint_reach_distance_m, 2.0)
-	while _contact_path_index < _contact_path_positions.size():
-		if _flat_distance(_contact_world_position, _contact_path_positions[_contact_path_index]) > reach_distance:
-			break
-		_contact_path_index += 1
-
-func _clear_contact_path() -> void:
-	_contact_path_positions.clear()
-	_contact_path_index = 0
 
 func _clear_route_preview() -> void:
 	_route_preview_positions.clear()
@@ -960,12 +877,6 @@ func _get_contact_follow_target_from_members(members: Array[Node3D]) -> Vector3:
 
 	var center := _get_member_average_position(members)
 	var representative := _get_representative_member_position(members, center)
-	var safe_representative := _get_safe_contact_nav_position(representative, center)
-	if _is_valid_contact_world_position(safe_representative):
-		return safe_representative
-	var safe_center := _get_safe_contact_nav_position(center, representative)
-	if _is_valid_contact_world_position(safe_center):
-		return safe_center
 	return _project_contact_to_ground(representative)
 
 func _get_member_average_position(members: Array[Node3D]) -> Vector3:

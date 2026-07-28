@@ -55,73 +55,8 @@ func _ready():
 func _input(event):
 	if not land_carrier:
 		return
-
-	# PageUp/PageDown adjust max_speed regardless of legacy mode.
-	if event is InputEventKey and event.pressed and not event.echo:
-		match event.keycode:
-			KEY_PAGEUP:
-				_adjust_carrier_speed(speed_increment)
-				return
-			KEY_PAGEDOWN:
-				_adjust_carrier_speed(-speed_increment)
-				return
-			KEY_T:
-				if event.shift_pressed:
-					_toggle_tread_debug_freeze()
-				else:
-					_cycle_tread_debug_mode()
-				return
-
-	if not enable_legacy_keyboard_controls:
-		return
-
-	# Handle key presses
-	if event is InputEventKey and event.pressed:
-		match event.keycode:
-			KEY_E:
-				# Move elevator up
-				if land_carrier.has_method("get_elevator"):
-					var elevator = land_carrier.get_elevator()
-					if elevator:
-						elevator.move_platform_up()
-						print("Elevator moving UP")
-					else:
-						print("No elevator system available")
-				else:
-					print("No elevator system available")
-
-			KEY_D:
-				# Move elevator down
-				if land_carrier.has_method("get_elevator"):
-					var elevator = land_carrier.get_elevator()
-					if elevator:
-						elevator.move_platform_down()
-						print("Elevator moving DOWN")
-					else:
-						print("No elevator system available")
-				else:
-					print("No elevator system available")
-
-			KEY_W:
-				# Increase speed
-				increase_speed()
-
-			KEY_S:
-				# Decrease speed
-				decrease_speed()
-
-			KEY_A:
-				# Turn left
-				turn_left()
-
-			KEY_D:
-				# Turn right (only if not using D for elevator)
-				if not Input.is_key_pressed(KEY_E):  # Only turn if E is not pressed
-					turn_right()
-
-			KEY_ESCAPE:
-				# Quit application
-				get_tree().quit()
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_ESCAPE:
+		get_tree().quit()
 
 
 func increase_speed():

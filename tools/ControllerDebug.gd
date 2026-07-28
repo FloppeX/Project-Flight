@@ -6,6 +6,7 @@ extends Node
 var debug_enabled = false
 
 func _input(event):
+	return
 	if event is InputEventKey and event.pressed and event.keycode == KEY_F12:
 		debug_enabled = !debug_enabled
 		print("Controller debug: ", "ENABLED" if debug_enabled else "DISABLED")

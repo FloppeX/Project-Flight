@@ -89,8 +89,8 @@ shape = SubResource("BoxShape3D_wing_hitbox")
 [node name="SimpleAero" type="Node" parent="."]
 script = ExtResource("5_8vbcf")
 rb_path = NodePath("..")
-pitch_power = 6.8
-roll_power = 10.0
+pitch_power = 7.2
+roll_power = 14.0
 yaw_power = 4.6
 min_control_speed = 48.0
 alignment_strength = 3.4

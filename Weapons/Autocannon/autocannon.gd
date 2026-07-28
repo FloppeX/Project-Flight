@@ -1,6 +1,8 @@
 extends Weapon
 class_name Autocannon
 
+const HELI_TEST_UNLIMITED_AMMO_META := "heli_test_unlimited_ammo"
+
 const PROJECTILE_SPEED_CAP_SETTING_KEYS: Array = [
 	"physics/jolt_3d/simulation/limits/max_linear_velocity",
 	"physics/jolt_physics_3d/simulation/limits/max_linear_velocity",
@@ -44,7 +46,7 @@ const AUTOCANNON_SHOT_STREAMS = [
 @export var spread_angle: float = 1.0         # Degrees of inaccuracy
 @export var recoil_force: float = 1000.0
 @export var damage_per_shot: float = 20.0
-@export var max_range_m: float = 550.0
+@export var max_range_m: float = 900.0
 @export var cockpit_judder_shake_intensity: float = 0.4
 @export var cockpit_judder_shake_duration_s: float = 0.06
 @export var cannon_sound: AudioStream
@@ -64,6 +66,10 @@ var _last_shot_sound_index: int = -1
 var _projectile_speed_cap_cached: bool = false
 var _projectile_speed_cap_mps: float = INF
 var _bullet_spawn_point: Node3D = null
+var _tuning_shot_callback: Callable = Callable()
+var _tuning_report_callback: Callable = Callable()
+var _tuning_trial_id: int = -1
+var _tuning_target: Node3D = null
 
 func _ready():
 	_apply_gun_profile()
@@ -91,6 +97,24 @@ func stop_firing():
 func get_recoil_force() -> float:
 	return recoil_force
 
+func _has_unlimited_test_ammo() -> bool:
+	var aircraft: RigidBody3D = hardpoint.aircraft if hardpoint else null
+	return is_instance_valid(aircraft) and bool(aircraft.get_meta(HELI_TEST_UNLIMITED_AMMO_META, false))
+
+func can_fire() -> bool:
+	return _has_unlimited_test_ammo() or ammo_count > 0
+
+func set_tuning_context(
+		shot_callback: Callable = Callable(),
+		report_callback: Callable = Callable(),
+		trial_id: int = -1,
+		target: Node3D = null
+) -> void:
+	_tuning_shot_callback = shot_callback
+	_tuning_report_callback = report_callback
+	_tuning_trial_id = trial_id
+	_tuning_target = target
+
 func fire() -> bool:
 	if not can_fire() or fire_timer > 0:
 		return false
@@ -102,8 +126,7 @@ func fire() -> bool:
 
 	var bullet = bullet_projectile_scene.instantiate()
 	var spawn_transform: Transform3D = _get_bullet_spawn_transform()
-	get_tree().current_scene.add_child(bullet)
-	bullet.global_transform = spawn_transform
+	bullet.transform = spawn_transform
 
 	var spread := Vector3(
 		randf_range(-spread_angle, spread_angle),
@@ -113,17 +136,35 @@ func fire() -> bool:
 	bullet.rotate_object_local(Vector3.RIGHT, deg_to_rad(spread.x))
 	bullet.rotate_object_local(Vector3.UP, deg_to_rad(spread.y))
 	_configure_projectile_instance(bullet)
+	var projectile_transform: Transform3D = bullet.transform
+	get_tree().current_scene.add_child(bullet)
+	bullet.global_transform = projectile_transform
 
 	var aircraft = hardpoint.aircraft if hardpoint else null
 	var muzzle_vel = bullet.global_transform.basis.z.normalized() * muzzle_velocity
+	_configure_tuning_bullet_metadata(bullet)
+	if _tuning_shot_callback.is_valid():
+		_tuning_shot_callback.call(_tuning_trial_id, bullet)
 	bullet.fire(muzzle_vel, aircraft)
 
 	if hardpoint:
 		hardpoint.apply_recoil_force(get_recoil_force(), false)
 	_apply_cockpit_judder(aircraft)
 
-	ammo_count -= 1
+	if not _has_unlimited_test_ammo():
+		ammo_count -= 1
 	return true
+
+func _configure_tuning_bullet_metadata(bullet: Node) -> void:
+	if bullet == null or not is_instance_valid(bullet):
+		return
+	if _tuning_report_callback.is_valid():
+		bullet.set_meta("debug_report_callback", _tuning_report_callback)
+	if _tuning_target != null and is_instance_valid(_tuning_target):
+		bullet.set_meta("debug_target_node", _tuning_target)
+		var range_m: float = bullet.global_position.distance_to(_tuning_target.global_position)
+		bullet.set_meta("debug_nominal_flight_time_s", range_m / maxf(muzzle_velocity, 50.0))
+	bullet.set_meta("debug_nominal_bullet_speed_mps", muzzle_velocity)
 
 func _get_bullet_spawn_transform() -> Transform3D:
 	var spawn_point := _get_bullet_spawn_point()

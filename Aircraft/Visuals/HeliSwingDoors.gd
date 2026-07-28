@@ -44,6 +44,7 @@ func setup(aircraft_node):
 
 
 func receive_input(event: InputEvent) -> void:
+	return
 	if not _initialized or not _is_this_aircraft_player_controlled():
 		return
 	if event is InputEventKey:

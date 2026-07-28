@@ -1,0 +1,263 @@
+{
+  "best_fitness": 10313.084926066,
+  "best_genome": {
+    "flaps_drag_multiplier": 3.53351420164108,
+    "flaps_lift_bonus": 0.130389929376543,
+    "landing_carrot_final_max_gap_m": 180.0,
+    "landing_carrot_min_gap_m": 27.6970012187957,
+    "landing_final_aoa_gain": 4.02400490641594,
+    "landing_final_axis_track_blend_full_m": 459.043862342834,
+    "landing_final_axis_track_blend_start_m": 844.768645286559,
+    "landing_final_bank_scale_at_gate": 0.45,
+    "landing_final_bank_settle_start_remaining_m": 650.0,
+    "landing_final_fpv_pid_kd": 0.168814824486617,
+    "landing_final_fpv_pid_ki": 0.2967797704041,
+    "landing_final_fpv_pid_kp": 9.71223535835744,
+    "landing_final_fpv_pid_output_limit": 0.911998104304075,
+    "landing_final_glide_error_fpa_gain": 0.0145962669521104,
+    "landing_final_lateral_bank_gain": 0.545453702565286,
+    "landing_final_lateral_bank_limit_deg": 7.83857705444099,
+    "landing_final_lateral_pd_limit_deg": 9.00766599178318,
+    "landing_final_lateral_pd_lookahead_m": 102.940291762352,
+    "landing_final_lateral_slew_deg_per_s": 26.9235323555769,
+    "landing_final_lateral_velocity_damping_s": 1.89427239820361,
+    "landing_final_low_cone_intercept_max_correction_deg": 2.82531961798668,
+    "landing_final_pitch_gain": 1.51783956363798,
+    "landing_final_pitch_rate_damping": 1.48403732283041,
+    "landing_final_pitch_smoothing": 0.217052271738648,
+    "landing_final_rudder_primary_bank_scale": 0.398452585935592,
+    "landing_final_rudder_rate_damping": 0.5809256374836,
+    "landing_final_target_aoa_deg": 7.41772082448005
+  },
+  "best_summary": {
+    "candidate": 0,
+    "catches": 4,
+    "fitness": 10313.084926066,
+    "genome": {
+      "flaps_drag_multiplier": 3.53351420164108,
+      "flaps_lift_bonus": 0.130389929376543,
+      "landing_carrot_final_max_gap_m": 180.0,
+      "landing_carrot_min_gap_m": 27.6970012187957,
+      "landing_final_aoa_gain": 4.02400490641594,
+      "landing_final_axis_track_blend_full_m": 459.043862342834,
+      "landing_final_axis_track_blend_start_m": 844.768645286559,
+      "landing_final_bank_scale_at_gate": 0.45,
+      "landing_final_bank_settle_start_remaining_m": 650.0,
+      "landing_final_fpv_pid_kd": 0.168814824486617,
+      "landing_final_fpv_pid_ki": 0.2967797704041,
+      "landing_final_fpv_pid_kp": 9.71223535835744,
+      "landing_final_fpv_pid_output_limit": 0.911998104304075,
+      "landing_final_glide_error_fpa_gain": 0.0145962669521104,
+      "landing_final_lateral_bank_gain": 0.545453702565286,
+      "landing_final_lateral_bank_limit_deg": 7.83857705444099,
+      "landing_final_lateral_pd_limit_deg": 9.00766599178318,
+      "landing_final_lateral_pd_lookahead_m": 102.940291762352,
+      "landing_final_lateral_slew_deg_per_s": 26.9235323555769,
+      "landing_final_lateral_velocity_damping_s": 1.89427239820361,
+      "landing_final_low_cone_intercept_max_correction_deg": 2.82531961798668,
+      "landing_final_pitch_gain": 1.51783956363798,
+      "landing_final_pitch_rate_damping": 1.48403732283041,
+      "landing_final_pitch_smoothing": 0.217052271738648,
+      "landing_final_rudder_primary_bank_scale": 0.398452585935592,
+      "landing_final_rudder_rate_damping": 0.5809256374836,
+      "landing_final_target_aoa_deg": 7.41772082448005
+    },
+    "mean_fitness": 11430.3977172809
+  },
+  "curriculum_level": 2,
+  "curriculum_level_count": 5,
+  "curriculum_version": 1,
+  "fitness_version": 36,
+  "generation": 10,
+  "parameter_specs": [
+    {
+      "base": 4.2,
+      "max": 10.0,
+      "min": 1.8,
+      "name": "landing_final_fpv_pid_kp",
+      "sigma": 0.7
+    },
+    {
+      "base": 0.3,
+      "max": 0.9,
+      "min": 0.0,
+      "name": "landing_final_fpv_pid_ki",
+      "sigma": 0.1
+    },
+    {
+      "base": 0.05,
+      "max": 0.2,
+      "min": 0.0,
+      "name": "landing_final_fpv_pid_kd",
+      "sigma": 0.025
+    },
+    {
+      "base": 0.85,
+      "max": 1.0,
+      "min": 0.45,
+      "name": "landing_final_fpv_pid_output_limit",
+      "sigma": 0.07
+    },
+    {
+      "base": 1.0,
+      "max": 2.0,
+      "min": 0.45,
+      "name": "landing_final_lateral_bank_gain",
+      "sigma": 0.18
+    },
+    {
+      "base": 8.0,
+      "max": 15.0,
+      "min": 4.0,
+      "name": "landing_final_lateral_bank_limit_deg",
+      "sigma": 1.3
+    },
+    {
+      "base": 18.0,
+      "max": 36.0,
+      "min": 10.0,
+      "name": "landing_final_lateral_slew_deg_per_s",
+      "sigma": 3.0
+    },
+    {
+      "base": 0.7,
+      "max": 1.4,
+      "min": 0.25,
+      "name": "landing_final_rudder_rate_damping",
+      "sigma": 0.13
+    },
+    {
+      "base": 130.0,
+      "max": 220.0,
+      "min": 70.0,
+      "name": "landing_final_lateral_pd_lookahead_m",
+      "sigma": 18.0
+    },
+    {
+      "base": 2.0,
+      "max": 4.0,
+      "min": 0.5,
+      "name": "landing_final_lateral_velocity_damping_s",
+      "sigma": 0.35
+    },
+    {
+      "base": 12.0,
+      "max": 18.0,
+      "min": 8.0,
+      "name": "landing_final_lateral_pd_limit_deg",
+      "sigma": 1.2
+    },
+    {
+      "base": 800.0,
+      "max": 1000.0,
+      "min": 600.0,
+      "name": "landing_final_axis_track_blend_start_m",
+      "sigma": 55.0
+    },
+    {
+      "base": 450.0,
+      "max": 600.0,
+      "min": 350.0,
+      "name": "landing_final_axis_track_blend_full_m",
+      "sigma": 35.0
+    },
+    {
+      "base": 0.6,
+      "max": 0.9,
+      "min": 0.35,
+      "name": "landing_final_rudder_primary_bank_scale",
+      "sigma": 0.08
+    },
+    {
+      "base": 650.0,
+      "max": 850.0,
+      "min": 500.0,
+      "name": "landing_final_bank_settle_start_remaining_m",
+      "sigma": 45.0
+    },
+    {
+      "base": 0.45,
+      "max": 0.75,
+      "min": 0.2,
+      "name": "landing_final_bank_scale_at_gate",
+      "sigma": 0.07
+    },
+    {
+      "base": 2.4,
+      "max": 4.0,
+      "min": 0.8,
+      "name": "landing_final_pitch_gain",
+      "sigma": 0.3
+    },
+    {
+      "base": 1.35,
+      "max": 2.4,
+      "min": 0.55,
+      "name": "landing_final_pitch_rate_damping",
+      "sigma": 0.2
+    },
+    {
+      "base": 0.34,
+      "max": 0.75,
+      "min": 0.15,
+      "name": "landing_final_pitch_smoothing",
+      "sigma": 0.07
+    },
+    {
+      "base": 0.018,
+      "max": 0.035,
+      "min": 0.005,
+      "name": "landing_final_glide_error_fpa_gain",
+      "sigma": 0.003
+    },
+    {
+      "base": 3.0,
+      "max": 5.0,
+      "min": 1.0,
+      "name": "landing_final_low_cone_intercept_max_correction_deg",
+      "sigma": 0.45
+    },
+    {
+      "base": 8.0,
+      "max": 10.0,
+      "min": 6.0,
+      "name": "landing_final_target_aoa_deg",
+      "sigma": 0.45
+    },
+    {
+      "base": 4.0,
+      "max": 6.5,
+      "min": 2.0,
+      "name": "landing_final_aoa_gain",
+      "sigma": 0.45
+    },
+    {
+      "base": 0.15,
+      "max": 0.3,
+      "min": 0.05,
+      "name": "flaps_lift_bonus",
+      "sigma": 0.025
+    },
+    {
+      "base": 4.0,
+      "max": 5.5,
+      "min": 2.5,
+      "name": "flaps_drag_multiplier",
+      "sigma": 0.35
+    },
+    {
+      "base": 45.0,
+      "max": 80.0,
+      "min": 25.0,
+      "name": "landing_carrot_min_gap_m",
+      "sigma": 7.0
+    },
+    {
+      "base": 120.0,
+      "max": 180.0,
+      "min": 70.0,
+      "name": "landing_carrot_final_max_gap_m",
+      "sigma": 15.0
+    }
+  ]
+}

@@ -105,6 +105,12 @@ const PilotVisualMaterials = preload("res://Models/Characters/PilotVisualMateria
 @export_group("Mixamo Animation")
 ## Name of the animation to play in the cockpit (e.g. "mixamo.com"). Leave empty to print available names at startup.
 @export var mixamo_cockpit_animation: StringName = &""
+@export_group("Locomotion Animation")
+## Looping run clip played while the pilot moves on the ground. Falls back to the
+## procedural gait when the rig has no AnimationPlayer with this clip.
+@export var locomotion_animation: StringName = &"mixamo_com"
+## Ground speed the clip reads naturally at; playback speed scales relative to this.
+@export var locomotion_anim_reference_speed_mps: float = 5.5
 
 var _skeleton: Skeleton3D = null
 var _ready_done: bool = false
@@ -120,6 +126,7 @@ var _pose_target_root: Node = null
 var _locomotion_active: bool = false
 var _locomotion_speed_mps: float = 0.0
 var _locomotion_time_s: float = 0.0
+var _locomotion_anim_playing: bool = false
 
 const BONE_ALIASES := {
 	"Abdomen": ["mixamorig_Spine", "mixamorig:Spine", "spine_01.x", "Waist", "Spine01", "DEF-spine"],
@@ -296,6 +303,9 @@ func _process(_delta: float) -> void:
 	if _baked_sitting_pose_active:
 		_update_head_visibility(false)
 		return
+	if _locomotion_anim_playing:
+		_update_head_visibility(false)
+		return
 	if _locomotion_active:
 		_apply_locomotion_pose(_delta)
 		_update_head_visibility(false)
@@ -416,9 +426,43 @@ func set_locomotion_pose(active: bool, speed_mps: float = 0.0) -> void:
 		if _anim_player != null and is_instance_valid(_anim_player):
 			_anim_player.stop()
 	if active:
+		_start_locomotion_animation()
 		set_process(true)
 	else:
+		_stop_locomotion_animation()
 		_apply_pose()
+
+
+func _start_locomotion_animation() -> void:
+	if _anim_player == null or not is_instance_valid(_anim_player):
+		_anim_player = _find_first_animation_player(_pose_target_root)
+	if _anim_player == null:
+		return
+	var resolved := _resolve_mixamo_anim(locomotion_animation)
+	if resolved == &"":
+		return
+	var anim := _anim_player.get_animation(resolved)
+	if anim != null and anim.loop_mode == Animation.LOOP_NONE:
+		anim.loop_mode = Animation.LOOP_LINEAR
+	_anim_player.active = true
+	_anim_player.speed_scale = clampf(
+		_locomotion_speed_mps / maxf(locomotion_anim_reference_speed_mps, 0.1),
+		0.45,
+		1.6
+	)
+	if _anim_player.current_animation != String(resolved) or not _anim_player.is_playing():
+		_anim_player.play(resolved)
+	_locomotion_anim_playing = true
+
+
+func _stop_locomotion_animation() -> void:
+	if not _locomotion_anim_playing:
+		return
+	_locomotion_anim_playing = false
+	if _anim_player != null and is_instance_valid(_anim_player):
+		_anim_player.stop()
+		_anim_player.speed_scale = 1.0
+		_anim_player.active = false
 
 
 func _get_pose_values(pose_name: StringName) -> Dictionary:
@@ -449,6 +493,9 @@ func _get_pose_values(pose_name: StringName) -> Dictionary:
 				return _make_pose(0.0, 0.0, 5.0, 5.0, -5.0, -25.0, 0.0, 0.0, 90.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 45.0, 0.0, 0.0)
 			return _make_pose(90.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 45.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
 		&"grounded":
+			if _is_mixamo_rig():
+				# Mixamo rest = T-pose (arms horizontal); negative upper_arm_x swings them down.
+				return _make_pose(0.0, 0.0, 5.0, 5.0, 4.0, -10.0, 6.0, 0.0, -75.0, 0.0, 0.0, 15.0, 0.0, 0.0, 0.0, 0.0, 12.0, 8.0, 0.0)
 			# Standing, slightly slumped, waiting for rescue. Tune visually.
 			return _make_pose(0.0, 0.0, 8.0, 5.0, 4.0, -10.0, 6.0, 0.0, 15.0, 0.0, 38.0, 22.0, 0.0, 0.0, 0.0, 0.0, 12.0, 8.0, 0.0)
 		_:

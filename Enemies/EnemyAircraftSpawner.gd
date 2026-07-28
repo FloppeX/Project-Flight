@@ -75,45 +75,7 @@ func _ready():
 	_friendly_vehicle_scene = load("res://GroundVehicle/vehicle_friendly_light.tscn")
 
 func _input(event):
-	if _disabled_for_heli_test:
-		return
-	if event is InputEventKey and event.pressed and not event.echo:
-		if event.keycode == KEY_O:
-			_toggle_ai_attack_mode()
-			get_viewport().set_input_as_handled()
-		elif event.keycode == KEY_L and event.shift_pressed:
-			_command_land()
-			get_viewport().set_input_as_handled()
-		elif event.keycode == KEY_U:
-			_spawn_on_approach()
-			get_viewport().set_input_as_handled()
-		elif event.keycode == KEY_D:
-			_spawn_dogfight_duel()
-			get_viewport().set_input_as_handled()
-		elif event.keycode == KEY_E:
-			_spawn_enemy_vehicle_mix(4)
-			get_viewport().set_input_as_handled()
-		elif event.keycode == KEY_F:
-			_spawn_friendly_debug_flight()
-			get_viewport().set_input_as_handled()
-		elif event.keycode == KEY_R:
-			_spawn_enemy_debug_flight()
-			get_viewport().set_input_as_handled()
-		elif event.keycode == KEY_G:
-			_spawn_friendly_cap_flight()
-			get_viewport().set_input_as_handled()
-		elif event.keycode == KEY_3:
-			_spawn_friendly_aircraft_3()
-			get_viewport().set_input_as_handled()
-		elif event.keycode == KEY_4:
-			_spawn_friendly_aircraft_4()
-			get_viewport().set_input_as_handled()
-		elif event.keycode == KEY_6:
-			_spawn_friendly_aircraft_6()
-			get_viewport().set_input_as_handled()
-		elif event.keycode == KEY_X:
-			_spawn_enemy_base()
-			get_viewport().set_input_as_handled()
+	pass
 
 func _spawn_ground_vehicles(scene: PackedScene, count: int) -> void:
 	if _disabled_for_heli_test:
@@ -357,10 +319,9 @@ func _evaluate_ground_spawn_candidate(world_pos: Vector3, exclude_body: Collisio
 			if not is_finite(carrier_ground_y):
 				return {"valid": false, "position": center_pos, "height_delta": max_delta, "route_length": INF}
 			var carrier_ground_pos := Vector3(carrier_pos.x, carrier_ground_y + 2.0, carrier_pos.z)
-			var route: Array[Vector3] = NavGraph.find_path(center_pos, carrier_ground_pos, ground_vehicle_spawn_path_clearance_m)
-			if route.is_empty():
+			if not NavGraph.can_anchor(carrier_ground_pos, ground_vehicle_spawn_path_clearance_m, ground_vehicle_spawn_anchor_distance_m):
 				return {"valid": false, "position": center_pos, "height_delta": max_delta, "route_length": INF}
-			return {"valid": true, "position": center_pos, "height_delta": max_delta, "route_length": _path_length(route)}
+			return {"valid": true, "position": center_pos, "height_delta": max_delta, "route_length": Vector2(center_pos.x - carrier_ground_pos.x, center_pos.z - carrier_ground_pos.z).length()}
 	return {"valid": true, "position": center_pos, "height_delta": max_delta, "route_length": 0.0}
 
 func _is_world_in_tactical_map_bounds(world_pos: Vector3, margin_m: float = 0.0) -> bool:
@@ -870,28 +831,7 @@ func _spawn_enemy():
 	aircraft.add_to_group("friendlies")
 	aircraft.add_to_group("ai_aircraft")
 
-	# Friendly AI: keep ControlWeapons enabled for ground attack; disable player UI/targeting
-	var disable_nodes = [
-		"CameraController", "HeadsUpDisplay", "InstrumentPanel",
-		"ControlTargeting"
-	]
-	for node_name in disable_nodes:
-		var node = aircraft.find_child(node_name, true, false)
-		if node:
-			node.set_process(false)
-			node.set_physics_process(false)
-			node.set_process_input(false)
-			if node is CanvasItem:
-				node.visible = false
-			elif node is Node3D:
-				node.visible = false
-	
-	# Ensure camera tripods stay enabled so player can switch to view this AI plane
-	for cam_name in ["CameraCockpit", "CameraChase", "CameraCinematic"]:
-		var tripod = aircraft.get_node_or_null(cam_name)
-		if tripod:
-			tripod.set_process(true)
-			tripod.set_physics_process(true)
+	_apply_ai_aircraft_spawn_budget(aircraft)
 
 	# AI planes spawn airborne - stow gear immediately
 	var control_gear = aircraft.find_child("ControlLandingGear", true, false)
@@ -945,23 +885,7 @@ func _spawn_ai_fighter(scene: PackedScene, display_name: String, team_id: int, e
 	if team_id == 2:
 		_strip_enemy_aircraft_3_stores(aircraft)
 
-	# Disable player-only UI/camera controller/targeting.
-	for node_name in ["CameraController", "HeadsUpDisplay", "InstrumentPanel", "ControlTargeting"]:
-		var node = aircraft.find_child(node_name, true, false)
-		if node:
-			node.set_process(false)
-			node.set_physics_process(false)
-			node.set_process_input(false)
-			if node is CanvasItem:
-				node.visible = false
-			elif node is Node3D:
-				node.visible = false
-
-	for cam_name in ["CameraCockpit", "CameraChase", "CameraCinematic"]:
-		var tripod = aircraft.get_node_or_null(cam_name)
-		if tripod:
-			tripod.set_process(true)
-			tripod.set_physics_process(true)
+	_apply_ai_aircraft_spawn_budget(aircraft)
 
 	# Spawn airborne with gear up.
 	var control_gear = aircraft.find_child("ControlLandingGear", true, false)
@@ -981,6 +905,72 @@ func _spawn_ai_fighter(scene: PackedScene, display_name: String, team_id: int, e
 		aircraft.destroyed.connect(_on_enemy_destroyed.bind(aircraft), CONNECT_ONE_SHOT)
 	_active_ai_planes.append(aircraft)
 	return aircraft
+
+func _apply_ai_aircraft_spawn_budget(aircraft: Node) -> void:
+	if aircraft == null or not is_instance_valid(aircraft):
+		return
+	aircraft.set_meta("ai_spawn_budget_applied", true)
+
+	for node_name_variant in [
+		"CameraController",
+		"HeadsUpDisplay",
+		"InstrumentPanel",
+		"ControlTargeting",
+		"AudioManager3D",
+		"CockpitCanopyVisibility",
+		"CockpitPilot",
+		"CameraCockpit",
+		"CameraChase",
+		"CameraCinematic",
+		"CameraTarget",
+	]:
+		var node_name: String = str(node_name_variant)
+		var node: Node = aircraft.find_child(node_name, true, false)
+		if node == null or not is_instance_valid(node):
+			continue
+		node.set_process(false)
+		node.set_physics_process(false)
+		node.set_process_input(false)
+		if node is CanvasItem:
+			(node as CanvasItem).visible = false
+		elif node is Node3D:
+			(node as Node3D).visible = false
+		_stop_audio_players_recursive(node)
+
+	for child_variant in aircraft.find_children("*", "AudioStreamPlayer", true, false):
+		var audio_node_2d: Node = child_variant as Node
+		_stop_audio_player(audio_node_2d)
+	for child_variant in aircraft.find_children("*", "AudioStreamPlayer3D", true, false):
+		var audio_node_3d: Node = child_variant as Node
+		_stop_audio_player(audio_node_3d)
+
+	for child_variant in aircraft.find_children("*", "", true, false):
+		var node: Node = child_variant as Node
+		if node == null:
+			continue
+		if node.has_method("set_aircraft_visual_budget_enabled"):
+			node.call("set_aircraft_visual_budget_enabled", false)
+		if node.has_method("set_aircraft_audio_budget_enabled"):
+			node.call("set_aircraft_audio_budget_enabled", false)
+
+func _stop_audio_players_recursive(node: Node) -> void:
+	if node == null or not is_instance_valid(node):
+		return
+	_stop_audio_player(node)
+	for child: Node in node.get_children():
+		_stop_audio_players_recursive(child)
+
+func _stop_audio_player(node: Node) -> void:
+	if node == null or not is_instance_valid(node):
+		return
+	if node is AudioStreamPlayer:
+		var audio_2d: AudioStreamPlayer = node as AudioStreamPlayer
+		if audio_2d.playing:
+			audio_2d.stop()
+	elif node is AudioStreamPlayer3D:
+		var audio_3d: AudioStreamPlayer3D = node as AudioStreamPlayer3D
+		if audio_3d.playing:
+			audio_3d.stop()
 
 func _spawn_dogfight_duel() -> void:
 	"""D key: spawn one friendly + one enemy in a head-on dogfight setup."""
@@ -1149,23 +1139,7 @@ func _spawn_on_approach():
 	aircraft.add_to_group("friendlies")
 	aircraft.add_to_group("ai_aircraft")
 
-	var disable_nodes = ["CameraController", "HeadsUpDisplay", "InstrumentPanel", "ControlTargeting"]
-	for node_name in disable_nodes:
-		var node = aircraft.find_child(node_name, true, false)
-		if node:
-			node.set_process(false)
-			node.set_physics_process(false)
-			node.set_process_input(false)
-			if node is CanvasItem:
-				node.visible = false
-			elif node is Node3D:
-				node.visible = false
-
-	for cam_name in ["CameraCockpit", "CameraChase", "CameraCinematic"]:
-		var tripod = aircraft.get_node_or_null(cam_name)
-		if tripod:
-			tripod.set_process(true)
-			tripod.set_physics_process(true)
+	_apply_ai_aircraft_spawn_budget(aircraft)
 
 	# Gear stowed — will be deployed by AIPilot at approach_2
 	var control_gear = aircraft.find_child("ControlLandingGear", true, false)

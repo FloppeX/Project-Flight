@@ -17,6 +17,8 @@ signal launch_sequence_aborted
 
 # Timing and forces
 @export var shuttle_speed: float = 30.0       # Constant shuttle speed (m/s)
+@export var respect_aircraft_min_control_speed: bool = true
+@export var launch_control_speed_margin_mps: float = 8.0
 @export var approach_speed_mps: float = 2.0   # Slow approach speed when moving to latch
 @export var return_speed_mps: float = 35.0    # Speed shuttle moves back after launch
 @export var latch_proximity_m: float = 0.1    # Distance at which shuttle latches nose gear (proximity fallback)
@@ -35,6 +37,7 @@ signal launch_sequence_aborted
 @export var deck_snap_mask: int = (1 << 0) | (1 << 9) # default + terrain
 @export var deck_clearance: float = 0.2               # clearance above deck on settle
 @export var teleport_snap_to_deck: bool = false       # optional deck ray-snap for generic alignment path
+@export var launch_teleport_max_below_carrier_m: float = 30.0  # reject a launch teleport target this far below the carrier (guards the "teleported underground on launch" bug)
 @export var heading_offset_deg: float = 0.0           # compensate model yaw misalignment
 @export var deck_forward_is_plus_z: bool = true       # carrier now uses +Z as forward
 
@@ -280,6 +283,7 @@ func _input(event):
 func begin_sequence(aircraft: RigidBody3D) -> void:
 	if debug_enabled: print("[CATAPULT] Begin sequence called. Unpinning shuttle and starting approach.")
 	_aircraft = aircraft
+	_configure_launch_acceleration_for_aircraft(aircraft)
 	_capture_aircraft_carrier_rotation()
 	_latched = false
 	_launching = false
@@ -296,6 +300,29 @@ func begin_sequence(aircraft: RigidBody3D) -> void:
 	_latch_target_position.y = shuttle.global_position.y
 	_last_shuttle_global_position = shuttle.global_position
 	if debug_enabled: print("[CATAPULT] Shuttle approaching latch_marker. Will abort if no latch by then.")
+
+func _configure_launch_acceleration_for_aircraft(aircraft: RigidBody3D) -> void:
+	var required_release_speed_mps: float = maxf(shuttle_speed, 1.0)
+	if respect_aircraft_min_control_speed and is_instance_valid(aircraft):
+		var aero: Node = aircraft.find_child("SimpleAero", true, false)
+		if is_instance_valid(aero):
+			var min_control_variant: Variant = aero.get("min_control_speed")
+			if min_control_variant is float or min_control_variant is int:
+				required_release_speed_mps = maxf(
+					required_release_speed_mps,
+					float(min_control_variant) + maxf(launch_control_speed_margin_mps, 0.0)
+				)
+	var launch_distance_m: float = latch_marker.global_position.distance_to(release_marker.global_position) \
+		if is_instance_valid(latch_marker) and is_instance_valid(release_marker) else 0.0
+	if launch_distance_m > 0.01:
+		_launch_acceleration = required_release_speed_mps * required_release_speed_mps / (2.0 * launch_distance_m)
+	else:
+		_launch_acceleration = 200.0
+	if debug_enabled:
+		print("[CATAPULT] Configured release speed %.1fm/s acceleration %.1fm/s^2" % [
+			required_release_speed_mps,
+			_launch_acceleration,
+		])
 
 
 func _on_shuttle_area_entered(area: Area3D) -> void:
@@ -575,6 +602,26 @@ func align_aircraft(ac: RigidBody3D) -> void:
 		var hit = space.intersect_ray(query)
 		if hit:
 			final_transform.origin.y = hit.position.y + deck_clearance
+
+	# SANITY GUARD: never teleport the aircraft far below the deck. A bad latch_marker global transform
+	# (e.g. read mid-origin-shift or before the marker settled) has sent aircraft far underground on
+	# launch. If the target is implausibly below the carrier, recompute the marker position from the
+	# carrier's transform (which is authoritative) instead of using the stale global value.
+	var carrier := _find_carrier_node()
+	if is_instance_valid(carrier):
+		var y_below_carrier: float = carrier.global_position.y - final_transform.origin.y
+		if y_below_carrier > launch_teleport_max_below_carrier_m:
+			# Recompute the marker's world position from its parent's CURRENT transform (authoritative --
+			# the marker is a child of the carrier/deck, so parent.global_transform * marker.local_origin
+			# gives the real deck spot even if the marker's cached global_transform was stale).
+			var safe_origin: Vector3 = final_transform.origin
+			if latch_marker.get_parent() != null and latch_marker.get_parent() is Node3D:
+				var parent3d := latch_marker.get_parent() as Node3D
+				safe_origin = parent3d.global_transform * latch_marker.transform.origin
+			push_warning("[CATAPULT] Rejected bad launch teleport %.0fm below carrier — using recomputed deck position." % y_below_carrier)
+			if debug_enabled:
+				print("[CATAPULT] bad target=%s carrier_y=%.1f -> safe=%s" % [final_transform.origin, carrier.global_position.y, safe_origin])
+			final_transform.origin = safe_origin
 
 	ac.global_transform = final_transform
 	PhysicsServer3D.body_set_state(ac.get_rid(), PhysicsServer3D.BODY_STATE_TRANSFORM, ac.global_transform)

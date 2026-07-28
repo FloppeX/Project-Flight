@@ -2,6 +2,7 @@ extends Weapon
 class_name BombRack
 
 const HELI_TEST_UNLIMITED_AMMO_META := "heli_test_unlimited_ammo"
+const AIRPLANE_TEST_PERSISTENT_TUNING_META := "airplane_test_persistent_bomb_tuning"
 
 @export var bomb_projectile_scene: PackedScene
 @export var drop_force: float = 0.0
@@ -17,6 +18,11 @@ var _pending_debug_aim_target: Vector3 = Vector3.ZERO
 var _pending_debug_predicted_impact: Vector3 = Vector3.ZERO
 var _has_pending_debug_metadata: bool = false
 var _payload_aircraft: RigidBody3D = null
+var _tuning_drop_callback: Callable = Callable()
+var _tuning_impact_callback: Callable = Callable()
+var _tuning_impact_detail_callback: Callable = Callable()
+var _tuning_trial_id: int = -1
+var _tuning_target: Node3D = null
 
 func _ready() -> void:
 	weapon_name = "Bomb"
@@ -50,6 +56,36 @@ func _has_unlimited_test_ammo() -> bool:
 		return false
 	var enabled: bool = value
 	return enabled
+
+func _has_persistent_tuning_context() -> bool:
+	var aircraft: RigidBody3D = _get_parent_rigidbody()
+	if aircraft == null or not is_instance_valid(aircraft):
+		return false
+	var value: Variant = aircraft.get_meta(AIRPLANE_TEST_PERSISTENT_TUNING_META, false)
+	if not (value is bool):
+		return false
+	var enabled: bool = value
+	return enabled
+
+func set_tuning_context(
+		drop_callback: Callable,
+		impact_callback: Callable,
+		trial_id: int,
+		target: Node3D,
+		impact_detail_callback: Callable = Callable()
+) -> void:
+	_tuning_drop_callback = drop_callback
+	_tuning_impact_callback = impact_callback
+	_tuning_impact_detail_callback = impact_detail_callback
+	_tuning_trial_id = trial_id
+	_tuning_target = target
+
+func _clear_tuning_context() -> void:
+	_tuning_drop_callback = Callable()
+	_tuning_impact_callback = Callable()
+	_tuning_impact_detail_callback = Callable()
+	_tuning_trial_id = -1
+	_tuning_target = null
 
 func _refresh_aircraft_payload_mass() -> void:
 	if not is_instance_valid(_payload_aircraft):
@@ -152,6 +188,20 @@ func _spawn_bomb_next_physics(slot: Node3D, consume_slot: bool = true) -> void:
 		_has_pending_debug_metadata = false
 		_pending_debug_aim_target = Vector3.ZERO
 		_pending_debug_predicted_impact = Vector3.ZERO
+	if _tuning_drop_callback.is_valid() and _tuning_trial_id >= 0:
+		_tuning_drop_callback.call(_tuning_trial_id, proj)
+	if _tuning_impact_callback.is_valid() and _tuning_trial_id >= 0 and proj.has_signal("tuning_impact"):
+		proj.connect(
+			"tuning_impact",
+			_tuning_impact_callback.bind(_tuning_trial_id, _tuning_target),
+			CONNECT_ONE_SHOT
+		)
+	if _tuning_impact_detail_callback.is_valid() and _tuning_trial_id >= 0 and proj.has_signal("tuning_impact_detail"):
+		proj.connect(
+			"tuning_impact_detail",
+			_tuning_impact_detail_callback.bind(_tuning_trial_id, _tuning_target),
+			CONNECT_ONE_SHOT
+		)
 
 	if debug_drop_logging:
 		print("=== BOMB DROP ===")
@@ -165,3 +215,5 @@ func _spawn_bomb_next_physics(slot: Node3D, consume_slot: bool = true) -> void:
 
 	if consume_slot:
 		slot.queue_free()
+	if not _has_persistent_tuning_context():
+		_clear_tuning_context()

@@ -2,8 +2,12 @@ extends Node3D
 
 const MENU_FONT: FontFile = preload("res://UI/Orbitron-VariableFont_wght.ttf")
 const MENU_TERRAIN_SCENE: PackedScene = preload("res://Environment/LowPolyTerrainPrototype.tscn")
-const MENU_CARRIER_SCENE: PackedScene = preload("res://LandCarrier/LandCarrier.tscn")
+const MENU_CARRIER_SCENE: PackedScene = preload("res://LandCarrier/LandCarrier2.tscn")
 const GAME_SCENE := "res://Main_Scene.tscn"
+const TEST_SCENARIO_SETTINGS_PATH := "user://physical_test_scenario.json"
+const NORMAL_TEST_SCENARIO := 0
+const LANDING_TEST_SCENARIO := 5
+const CARRIER_COMBAT_TEST_SCENARIO := 6
 const DEFAULT_CARRIER_NAME := "Land Carrier"
 const SHIP_NAME_LIST_PATH := "res://Data/ShipNames.txt"
 const BASE_UI_SIZE := Vector2(1280.0, 720.0)
@@ -453,7 +457,7 @@ func _route_segment_height_span(a: Vector3, b: Vector3, step_m: float) -> float:
 
 
 func _strip_menu_carrier_systems(carrier: Node3D) -> void:
-	for child_name in ["LandCarrierInput", "FlightDeckManager", "BridgeHologram", "StandaloneCameraSwitcher", "Commander"]:
+	for child_name in ["LandCarrierInput", "FlightDeckManager", "BridgeHologram", "StandaloneCameraSwitcher", "CommanderWalkArea", "Commander"]:
 		var child := carrier.get_node_or_null(child_name)
 		if child != null:
 			carrier.remove_child(child)
@@ -533,6 +537,16 @@ func _restore_autoloads() -> void:
 		NavGraph.call("reset_until_navgrid_bakes")
 	else:
 		NavGraph.rebuild_from_current_navgrid()
+	_enable_enemy_systems_for_game()
+
+
+func _enable_enemy_systems_for_game() -> void:
+	var enemy_ops := get_node_or_null("/root/EnemyOpsManager")
+	if enemy_ops != null and enemy_ops.has_method("enable_for_game"):
+		enemy_ops.call("enable_for_game")
+	var enemy_bases := get_node_or_null("/root/EnemyBaseManager")
+	if enemy_bases != null and enemy_bases.has_method("enable_for_game"):
+		enemy_bases.call("enable_for_game")
 
 
 func _build_environment() -> void:
@@ -852,6 +866,8 @@ func _build_main_menu(parent: Control) -> void:
 		["CONTINUE", Callable(self, "_continue_game")],
 		["NEW CAMPAIGN", Callable(self, "_show_setup_menu")],
 		["SKIRMISH / TEST FLIGHT", Callable(self, "_start_test_flight")],
+		["LANDING TEST", Callable(self, "_start_landing_test")],
+		["CARRIER COMBAT TEST", Callable(self, "_start_carrier_combat_test")],
 		["SETTINGS", Callable(self, "_show_options_menu")],
 		["CREDITS", Callable(self, "_show_credits_stub")],
 		["QUIT", Callable(self, "_quit_game")],
@@ -934,8 +950,17 @@ func _continue_game() -> void:
 
 func _start_test_flight() -> void:
 	_configure_session(DEFAULT_CARRIER_NAME, _carrier_colors[_primary_index], _carrier_colors[_secondary_index], _selected_pattern_index(), _insignia_index)
-	_restore_autoloads()
-	get_tree().change_scene_to_file(GAME_SCENE)
+	_start_game_with_scenario(NORMAL_TEST_SCENARIO)
+
+
+func _start_landing_test() -> void:
+	_configure_session(DEFAULT_CARRIER_NAME, _carrier_colors[_primary_index], _carrier_colors[_secondary_index], _selected_pattern_index(), _insignia_index)
+	_start_game_with_scenario(LANDING_TEST_SCENARIO)
+
+
+func _start_carrier_combat_test() -> void:
+	_configure_session(DEFAULT_CARRIER_NAME, _carrier_colors[_primary_index], _carrier_colors[_secondary_index], _selected_pattern_index(), _insignia_index)
+	_start_game_with_scenario(CARRIER_COMBAT_TEST_SCENARIO)
 
 
 func _show_options_menu() -> void:
@@ -958,6 +983,17 @@ func _quit_game() -> void:
 
 func _start_new_campaign() -> void:
 	_configure_session(_name_edit.text, _carrier_colors[_primary_index], _carrier_colors[_secondary_index], _selected_pattern_index(), _insignia_index)
+	_start_game_with_scenario(NORMAL_TEST_SCENARIO)
+
+
+func _start_game_with_scenario(scenario: int) -> void:
+	var file := FileAccess.open(TEST_SCENARIO_SETTINGS_PATH, FileAccess.WRITE)
+	if file == null:
+		_message_label.text = "COULD NOT SAVE GAME MODE"
+		push_warning("[MainMenu] Could not save %s" % TEST_SCENARIO_SETTINGS_PATH)
+		return
+	file.store_string(JSON.stringify({"scenario": scenario}))
+	file.close()
 	_restore_autoloads()
 	get_tree().change_scene_to_file(GAME_SCENE)
 

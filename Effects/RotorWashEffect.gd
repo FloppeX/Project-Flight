@@ -18,6 +18,7 @@ const VISUAL_FOCUS_HELPER = preload("res://Effects/VisualFocus.gd")
 @export_range(0.0, 1.0, 0.01) var min_rotor_power_for_dust: float = 0.35
 @export_range(0.0, 1.0, 0.01) var full_rotor_power_for_dust: float = 0.8
 @export var rotor_wash_power_response: float = 2.5
+@export var visual_budget_enabled: bool = true
 
 var rotor_radius: float = 10.0
 var is_engine_on: bool = false
@@ -37,6 +38,9 @@ static var _shared_dust_color: Color = Color(0.78, 0.46, 0.26, 1.0)
 static var _shared_mesh: SphereMesh = null
 static var _shared_color_sample_cooldown: float = 0.0
 static var dust_enabled: bool = true
+
+func set_visual_budget_enabled(value: bool) -> void:
+	visual_budget_enabled = value
 
 static func _sanitize_dust_color(color: Color) -> Color:
 	var clean := Color(
@@ -144,7 +148,7 @@ func _release_pooled_puff(puff: MeshInstance3D) -> void:
 
 func _physics_process(delta: float) -> void:
 	var wash_power := _get_rotor_wash_power(delta)
-	if not dust_enabled or wash_power <= 0.0 or current_agl > max_agl_m or not _should_emit_for_camera(delta):
+	if not visual_budget_enabled or not dust_enabled or wash_power <= 0.0 or current_agl > max_agl_m or not _should_emit_for_camera(delta):
 		return
 
 	_shared_color_sample_cooldown -= delta

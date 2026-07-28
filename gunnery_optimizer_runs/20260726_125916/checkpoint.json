@@ -1,0 +1,106 @@
+{
+  "seed": 20260726,
+  "parameters": [
+    [
+      "turn_rate_heading_gain",
+      0.3,
+      1.6,
+      0.8
+    ],
+    [
+      "turn_rate_los_feedforward",
+      0.35,
+      1.9,
+      1.0
+    ],
+    [
+      "turn_rate_limit_deg_s",
+      20.0,
+      65.0,
+      40.0
+    ],
+    [
+      "los_rate_filter_hz",
+      0.8,
+      10.0,
+      4.0
+    ],
+    [
+      "bank_response_hz",
+      0.0,
+      8.0,
+      0.0
+    ],
+    [
+      "precision_direct_pitch_gain",
+      8.0,
+      42.0,
+      26.0
+    ],
+    [
+      "precision_direct_yaw_gain",
+      5.0,
+      28.0,
+      14.0
+    ],
+    [
+      "precision_pid_scale",
+      0.1,
+      2.0,
+      1.0
+    ],
+    [
+      "precision_entry_deg",
+      18.0,
+      50.0,
+      35.0
+    ],
+    [
+      "precision_full_deg",
+      0.5,
+      5.0,
+      1.5
+    ],
+    [
+      "precision_axis_authority_power",
+      0.4,
+      2.5,
+      1.0
+    ]
+  ],
+  "history": [
+    {
+      "generation": 0,
+      "best_fitness": 1023.2467656486,
+      "mean_fitness": 969.115834043268,
+      "sigma": 0.16749490050938295,
+      "best_gains": {
+        "turn_rate_heading_gain": 0.44733446,
+        "turn_rate_los_feedforward": 1.56907,
+        "turn_rate_limit_deg_s": 44.04989285,
+        "los_rate_filter_hz": 2.04681752,
+        "bank_response_hz": 0.0,
+        "precision_direct_pitch_gain": 25.84901723,
+        "precision_direct_yaw_gain": 13.93634566,
+        "precision_pid_scale": 1.19951043,
+        "precision_entry_deg": 36.17538334,
+        "precision_full_deg": 1.41313526,
+        "precision_axis_authority_power": 1.22892804
+      }
+    }
+  ],
+  "best_training_fitness": 1023.2467656486,
+  "best_gains": {
+    "turn_rate_heading_gain": 0.44733446,
+    "turn_rate_los_feedforward": 1.56907,
+    "turn_rate_limit_deg_s": 44.04989285,
+    "los_rate_filter_hz": 2.04681752,
+    "bank_response_hz": 0.0,
+    "precision_direct_pitch_gain": 25.84901723,
+    "precision_direct_yaw_gain": 13.93634566,
+    "precision_pid_scale": 1.19951043,
+    "precision_entry_deg": 36.17538334,
+    "precision_full_deg": 1.41313526,
+    "precision_axis_authority_power": 1.22892804
+  }
+}

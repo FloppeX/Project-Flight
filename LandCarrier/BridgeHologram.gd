@@ -149,6 +149,8 @@ func _setup_visuals() -> void:
 	line_mesh.top_radius = 0.5
 	line_mesh.bottom_radius = 0.5
 	line_mesh.height = 1.0
+	line_mesh.radial_segments = 4
+	line_mesh.rings = 0
 	var line_multimesh := MultiMesh.new()
 	line_multimesh.transform_format = MultiMesh.TRANSFORM_3D
 	line_multimesh.use_colors = true
@@ -876,6 +878,8 @@ func _setup_waypoint_visuals() -> void:
 	line_mesh.top_radius = 0.5
 	line_mesh.bottom_radius = 0.5
 	line_mesh.height = 1.0
+	line_mesh.radial_segments = 4
+	line_mesh.rings = 0
 	var line_mm := MultiMesh.new()
 	line_mm.transform_format = MultiMesh.TRANSFORM_3D
 	line_mm.use_colors = true

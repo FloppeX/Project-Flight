@@ -19,6 +19,13 @@ const PLANT_PATCH_OUTLINE_COLOR: Color = Color(0.74, 0.92, 0.58, 0.38)
 @export var player_color: Color = Color(1.0, 1.0, 0.40, 1.0)
 @export var friendly_color: Color = Color(0.58, 1.0, 0.64, 1.0)
 @export var enemy_color: Color = Color(1.0, 0.38, 0.38, 1.0)
+# Fog-of-war-lite: enemies NOT currently in the friendly sensor picture show in a muted version of their
+# real color (still on the map, but clearly not actively tracked). Set hide_unsensed_enemies=false to
+# draw everything full-color.
+@export var hide_unsensed_enemies: bool = true
+@export_range(0.0, 1.0, 0.05) var unsensed_brightness: float = 0.45  # how dark the muted color is
+@export_range(0.0, 1.0, 0.05) var unsensed_desaturate: float = 0.45  # how far toward grey
+@export_range(0.0, 1.0, 0.05) var unsensed_alpha: float = 0.65       # muted contact transparency
 @export var enemy_platoon_color: Color = Color(1.0, 0.12, 0.72, 1.0)
 @export var carrier_color: Color = Color(0.72, 1.0, 0.78, 1.0)
 @export var building_color: Color = Color(0.64, 0.96, 0.70, 1.0)
@@ -35,6 +42,7 @@ const PLANT_PATCH_OUTLINE_COLOR: Color = Color(0.74, 0.92, 0.58, 0.38)
 @export var platoon_reveal_max_range_m: float = 5000.0
 @export var carrier_waypoint_color: Color = Color(0.72, 1.0, 0.78, 0.9)
 @export var helicopter_waypoint_color: Color = Color(0.44, 0.86, 1.0, 0.9)
+@export var active_aircraft_waypoint_color: Color = Color(1.0, 0.82, 0.28, 1.0)
 @export var platoon_waypoint_color: Color = Color(1.0, 0.24, 0.78, 0.9)
 @export var waypoint_line_width_px: float = 1.6
 @export var waypoint_dot_size_px: float = 4.0
@@ -125,7 +133,7 @@ func _draw() -> void:
 			else:
 				var air_route := _get_active_route_points(node_3d)
 				if not air_route.is_empty():
-					_draw_route_from_points(node_3d.global_position, air_route, helicopter_waypoint_color, true, false, aircraft_route_display_simplify_enabled)
+					_draw_route_from_points(node_3d.global_position, air_route, helicopter_waypoint_color, true, false, aircraft_route_display_simplify_enabled, true, true)
 				_draw_air_marker(node_3d)
 
 	for node in get_tree().get_nodes_in_group("ground_vehicle_platoons"):
@@ -220,6 +228,7 @@ func _draw_air_marker(node_3d: Node3D) -> void:
 		return
 	var map_pos: Vector2 = _world_to_map(node_3d.global_position)
 	var team_color := _color_for_team_node(node_3d)
+	var outline_alpha: float = 0.85 * (unsensed_alpha if not _is_visible_to_player(node_3d) else 1.0)
 	var heading := _basis_to_map_forward(node_3d.global_basis)
 	if heading.length() < 0.001:
 		heading = Vector2(0.0, -1.0)
@@ -231,7 +240,7 @@ func _draw_air_marker(node_3d: Node3D) -> void:
 	var bl: Vector2 = map_pos - heading * (s * 0.55) + perp * (s * 0.52)
 	var br: Vector2 = map_pos - heading * (s * 0.55) - perp * (s * 0.52)
 	draw_polygon(PackedVector2Array([tip, bl, br]), PackedColorArray([team_color]))
-	draw_polyline(PackedVector2Array([tip, bl, br, tip]), Color(1.0, 1.0, 1.0, 0.85), 1.0)
+	draw_polyline(PackedVector2Array([tip, bl, br, tip]), Color(1.0, 1.0, 1.0, outline_alpha), 1.0)
 
 func _draw_ground_marker(node_3d: Node3D) -> void:
 	if not _is_world_in_map_bounds(node_3d.global_position):
@@ -283,21 +292,51 @@ func _draw_square_marker(center: Vector2, size_px: float, color: Color, outline:
 	if outline:
 		draw_rect(rect.grow(1.0), BORDER_COLOR, false, 1.2)
 
-func _draw_route_from_points(origin_world: Vector3, route_points: Array[Vector3], color: Color, outline: bool, closed_loop: bool = false, simplify_display: bool = true) -> void:
+func _draw_route_from_points(
+		origin_world: Vector3,
+		route_points: Array[Vector3],
+		color: Color,
+		outline: bool,
+		closed_loop: bool = false,
+		simplify_display: bool = true,
+		highlight_first: bool = false,
+		show_altitude_labels: bool = false
+) -> void:
 	if route_points.is_empty() or not _is_world_in_map_bounds(origin_world):
 		return
 	var display_points := _simplify_route_for_display(origin_world, route_points) if simplify_display else route_points
 	var map_points := PackedVector2Array()
+	var visible_world_points: Array[Vector3] = []
 	map_points.append(_world_to_map(origin_world))
 	for world_point in display_points:
 		if not _is_world_in_map_bounds(world_point):
 			continue
 		map_points.append(_world_to_map(world_point))
+		visible_world_points.append(world_point)
 	if map_points.size() < 2:
 		return
 	draw_polyline(map_points, color, waypoint_line_width_px, true)
 	for i in range(1, map_points.size()):
-		_draw_square_marker(map_points[i], waypoint_dot_size_px, color, outline)
+		var is_active: bool = highlight_first and i == 1
+		var marker_color: Color = active_aircraft_waypoint_color if is_active else color
+		var marker_size: float = waypoint_dot_size_px * (1.9 if is_active else 1.0)
+		_draw_square_marker(map_points[i], marker_size, marker_color, outline)
+		if is_active:
+			draw_circle(map_points[i], marker_size, marker_color, false, 1.5, true)
+		if show_altitude_labels and i - 1 < visible_world_points.size():
+			var world_point: Vector3 = visible_world_points[i - 1]
+			var terrain_y: float = TerrainNavGrid.sample_height(world_point.x, world_point.z)
+			var altitude_m: float = world_point.y - terrain_y if terrain_y > -100000.0 else world_point.y
+			var label: String = "%d  %.0fm" % [i, altitude_m]
+			draw_string(
+				PIXEL_FONT,
+				map_points[i] + Vector2(6.0, -4.0),
+				label,
+				HORIZONTAL_ALIGNMENT_LEFT,
+				-1.0,
+				10,
+				marker_color
+			)
 	if closed_loop and map_points.size() >= 3:
 		draw_line(map_points[map_points.size() - 1], map_points[1], color, waypoint_line_width_px, true)
 
@@ -435,8 +474,38 @@ func _basis_to_map_forward(basis: Basis) -> Vector2:
 
 func _color_for_team_node(node_3d: Node3D) -> Color:
 	if node_3d.has_method("get_team") and int(node_3d.call("get_team")) == 2:
-		return Livery.get_team_hud_color(2)
+		var enemy: Color = Livery.get_team_hud_color(2)
+		# Enemies not currently in the friendly sensor picture are drawn muted (dimmed real color) --
+		# still on the map "for now", but clearly shown as not actively tracked by the player's side.
+		if not _is_visible_to_player(node_3d):
+			return _mute_color(enemy)
+		return enemy
 	return Livery.get_team_hud_color(Livery.PLAYER_TEAM_ID)
+
+## True if this node is currently detected by the friendly sensor network (carrier radar + any friendly
+## aircraft/vehicle), via the AirOps fused picture. Team-1 (friendly) nodes are always visible.
+func _is_visible_to_player(node_3d: Node3D) -> bool:
+	if node_3d == null or not is_instance_valid(node_3d):
+		return false
+	if not node_3d.has_method("get_team") or int(node_3d.call("get_team")) != 2:
+		return true  # own side is always visible
+	if not hide_unsensed_enemies:
+		return true
+	if AirOpsManager != null and is_instance_valid(AirOpsManager) and AirOpsManager.has_method("is_contact_detected"):
+		return bool(AirOpsManager.call("is_contact_detected", node_3d))
+	return true  # no sensor manager -> don't hide anything
+
+func _mute_color(c: Color) -> Color:
+	# Dim + desaturate toward grey, and drop alpha, so the type/team is still readable but it clearly
+	# reads as an un-tracked / remembered contact.
+	var grey: float = (c.r + c.g + c.b) / 3.0
+	var muted := Color(
+		lerpf(c.r, grey, unsensed_desaturate) * unsensed_brightness,
+		lerpf(c.g, grey, unsensed_desaturate) * unsensed_brightness,
+		lerpf(c.b, grey, unsensed_desaturate) * unsensed_brightness,
+		c.a * unsensed_alpha
+	)
+	return muted
 
 
 func _nearest_base_color(_pos: Vector3) -> Color:
@@ -528,7 +597,10 @@ func _draw_enemy_bases() -> void:
 		if not _is_world_in_map_bounds(base_pos):
 			continue
 		var mp    := _world_to_map(base_pos)
+		var base_sensed: bool = _is_visible_to_player(base)
 		var color := Livery.get_team_hud_color(2)
+		if not base_sensed:
+			color = _mute_color(color)
 
 		# Filled diamond
 		var s := 9.0
@@ -539,7 +611,7 @@ func _draw_enemy_bases() -> void:
 		draw_colored_polygon(diamond, color)
 		draw_polyline(PackedVector2Array([
 			diamond[0], diamond[1], diamond[2], diamond[3], diamond[0]
-		]), Color(1.0, 1.0, 1.0, 0.55), 1.2)
+		]), Color(1.0, 1.0, 1.0, 0.55 * (unsensed_alpha if not base_sensed else 1.0)), 1.2)
 
 		# Virtual flight arrow markers
 		for flight in base.get_flights():

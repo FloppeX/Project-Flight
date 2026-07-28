@@ -42,6 +42,10 @@ signal cable_released(aircraft: RigidBody3D)
 @export var band_length_m: float = 0.5          # Stripe length for visualization (m)
 @export var band_color_a: Color = Color(0, 0, 0, 1)
 @export var band_color_b: Color = Color(1, 1, 1, 1)
+@export var swept_hook_capture_enabled: bool = true
+@export var swept_hook_vertical_tolerance_m: float = 0.8
+@export var swept_hook_lateral_margin_m: float = 1.0
+@export var swept_hook_max_frame_travel_m: float = 5.0
 
 # Roll stabilization while engaged: applies damping around aircraft longitudinal axis
 @export var roll_stabilize_enabled: bool = true
@@ -71,6 +75,7 @@ var _mat_rest: ShaderMaterial
 var _gear_module: Node = null
 var _orig_sideways_friction: float = NAN
 var _orig_friction_multiplier: float = NAN
+var _hook_previous_positions: Dictionary = {}
 
 func _ready():
 	add_to_group("arresting_cable")
@@ -97,7 +102,13 @@ func _ready():
 		_create_cable_visuals()
 
 func _physics_process(delta: float) -> void:
-	if not _engaged or not is_instance_valid(_aircraft):
+	if not _engaged:
+		_try_swept_hook_engagement()
+		if not _engaged:
+			return
+	if not is_instance_valid(_aircraft):
+		push_warning("[Cable] Engaged aircraft disappeared; resetting cable")
+		_release()
 		return
 	_engaged_elapsed += delta
 	# Velocity along deck axis (+Z or legacy deck_direction)
@@ -216,48 +227,124 @@ func _physics_process(delta: float) -> void:
 
 func _on_area_entered(area: Area3D) -> void:
 	# Engage on tailhook Area3D by group/name; enforce single-cable interlock
-	if _engaged:
+	_engage_hook_area(area, "AREA")
+
+
+func _try_swept_hook_engagement() -> void:
+	if not swept_hook_capture_enabled or _engaged:
 		return
-	if area.is_in_group("tailhook") or area.name.to_lower().find("hook") != -1:
-		print("[Cable] ENTER by ", area.name, " groups=", area.get_groups())
-		var ac = _find_aircraft(area)
-		if ac:
-			_aircraft = ac
-			if _aircraft.has_meta("arresting_engaged") and _aircraft.get_meta("arresting_engaged") == true:
-				print("[Cable] SKIP engage: aircraft already engaged by another cable")
-				_aircraft = null
-				return
-			_aircraft.set_meta("arresting_engaged", true)
-			_aircraft.set_meta("arresting_cable", self)
-			_hook_node = area
-			_engage_point = area.global_position
-			# Compute signed lateral offset from cable centre at moment of engagement
-			var _anchor_mid_e := _anchor_midpoint()
-			if _left_anchor and _right_anchor:
-				var lat_axis := (_right_anchor.global_position - _left_anchor.global_position).normalized()
-				_engage_lateral_m = (area.global_position - _anchor_mid_e).dot(lat_axis)
-			else:
-				_engage_lateral_m = 0.0
-			_pay_out_used = 0.0
-			_engaged = true
-			_engaged_elapsed = 0.0
-			_force_along_prev = 0.0
-			_debug_t = 0.0
-			_cut_aircraft_engine(_aircraft)
-			print("[Cable] ENGAGED with ", _aircraft.name, " (Mass: ", _aircraft.mass, " kg)")
-			# Reduce lateral grip while engaged to prevent tipping
-			_gear_module = _aircraft.find_child("LandingGear", true, false)
-			if _gear_module:
-				var sf = _gear_module.get("sideways_friction")
-				if sf != null:
-					_orig_sideways_friction = float(sf)
-					_gear_module.set("sideways_friction", max(1.0, _orig_sideways_friction * 0.35))
-				var fm = _gear_module.get("friction_force_multiplier")
-				if fm != null:
-					_orig_friction_multiplier = float(fm)
-					_gear_module.set("friction_force_multiplier", max(200.0, _orig_friction_multiplier * 0.5))
-			# Notify listeners (e.g., FlightDeckManager)
-			emit_signal("cable_engaged", _aircraft)
+	if not (is_instance_valid(_left_anchor) and is_instance_valid(_right_anchor)):
+		return
+	var axis_local: Vector3 = Vector3.BACK if deck_forward_is_plus_z else deck_direction
+	var axis: Vector3 = (global_transform.basis * axis_local).normalized()
+	var anchor_mid: Vector3 = _anchor_midpoint()
+	var lateral_axis: Vector3 = (_right_anchor.global_position - _left_anchor.global_position).normalized()
+	var half_span_m: float = _left_anchor.global_position.distance_to(_right_anchor.global_position) * 0.5
+	var seen_ids: Dictionary = {}
+	for candidate in get_tree().get_nodes_in_group("tailhook"):
+		var area := candidate as Area3D
+		if not is_instance_valid(area) or not area.monitoring:
+			continue
+		var hook_root: Node = area.get_parent()
+		if is_instance_valid(hook_root) and "_is_deployed" in hook_root \
+				and not bool(hook_root.get("_is_deployed")):
+			continue
+		var ac := _find_aircraft(area)
+		if not is_instance_valid(ac):
+			continue
+		var hook_id: int = area.get_instance_id()
+		var current_pos: Vector3 = area.global_position
+		seen_ids[hook_id] = true
+		var previous_pos: Vector3 = _hook_previous_positions.get(hook_id, current_pos)
+		_hook_previous_positions[hook_id] = current_pos
+		ac.set_meta("arrest_sweep_seen_count", int(ac.get_meta("arrest_sweep_seen_count", 0)) + 1)
+		if bool(ac.get_meta("arresting_engaged", false)):
+			continue
+		var frame_travel_m: float = previous_pos.distance_to(current_pos)
+		if frame_travel_m <= 0.0001 or frame_travel_m > maxf(swept_hook_max_frame_travel_m, 0.1):
+			continue
+		var previous_along_m: float = (previous_pos - anchor_mid).dot(axis)
+		var current_along_m: float = (current_pos - anchor_mid).dot(axis)
+		var closest_along_m: float = minf(absf(previous_along_m), absf(current_along_m))
+		var previous_best_m: float = float(ac.get_meta("arrest_sweep_closest_m", INF))
+		if closest_along_m < previous_best_m:
+			ac.set_meta("arrest_sweep_closest_m", closest_along_m)
+			ac.set_meta("arrest_sweep_diag", {
+				"cable": name,
+				"previous_along_m": previous_along_m,
+				"current_along_m": current_along_m,
+				"vertical_m": absf(current_pos.y - anchor_mid.y),
+				"lateral_m": absf((current_pos - anchor_mid).dot(lateral_axis)),
+				"frame_travel_m": frame_travel_m,
+			})
+		if previous_along_m > 0.0 or current_along_m < 0.0:
+			continue
+		var crossing_t: float = clampf(
+			-previous_along_m / maxf(current_along_m - previous_along_m, 0.0001),
+			0.0,
+			1.0
+		)
+		var crossing_pos: Vector3 = previous_pos.lerp(current_pos, crossing_t)
+		var vertical_m: float = absf(crossing_pos.y - anchor_mid.y)
+		var lateral_m: float = absf((crossing_pos - anchor_mid).dot(lateral_axis))
+		if lateral_m <= half_span_m + maxf(swept_hook_lateral_margin_m, 0.0):
+			var previous_wire_vertical_m: float = float(ac.get_meta("arrest_min_wire_vertical_m", INF))
+			if vertical_m < previous_wire_vertical_m:
+				ac.set_meta("arrest_min_wire_vertical_m", vertical_m)
+				ac.set_meta("arrest_min_wire_vertical_cable", name)
+		if vertical_m > maxf(swept_hook_vertical_tolerance_m, 0.05) \
+				or lateral_m > half_span_m + maxf(swept_hook_lateral_margin_m, 0.0):
+			continue
+		if debug_enabled:
+			print("[Cable] SWEPT hook crossing vertical=", vertical_m, " lateral=", lateral_m)
+		_engage_hook_area(area, "SWEPT")
+		return
+	for hook_id_variant in _hook_previous_positions.keys():
+		if not seen_ids.has(hook_id_variant):
+			_hook_previous_positions.erase(hook_id_variant)
+
+
+func _engage_hook_area(area: Area3D, source: String) -> bool:
+	if _engaged or not is_instance_valid(area):
+		return false
+	if not area.is_in_group("tailhook") and area.name.to_lower().find("hook") == -1:
+		return false
+	var ac := _find_aircraft(area)
+	if not is_instance_valid(ac):
+		return false
+	if bool(ac.get_meta("arresting_engaged", false)):
+		return false
+	print("[Cable] ", source, " engage by ", area.name, " groups=", area.get_groups())
+	_aircraft = ac
+	_aircraft.set_meta("arresting_engaged", true)
+	_aircraft.set_meta("arresting_cable", self)
+	_hook_node = area
+	_engage_point = area.global_position
+	var anchor_mid_e := _anchor_midpoint()
+	if is_instance_valid(_left_anchor) and is_instance_valid(_right_anchor):
+		var lat_axis := (_right_anchor.global_position - _left_anchor.global_position).normalized()
+		_engage_lateral_m = (area.global_position - anchor_mid_e).dot(lat_axis)
+	else:
+		_engage_lateral_m = 0.0
+	_pay_out_used = 0.0
+	_engaged = true
+	_engaged_elapsed = 0.0
+	_force_along_prev = 0.0
+	_debug_t = 0.0
+	_cut_aircraft_engine(_aircraft)
+	print("[Cable] ENGAGED with ", _aircraft.name, " (Mass: ", _aircraft.mass, " kg)")
+	_gear_module = _aircraft.find_child("LandingGear", true, false)
+	if _gear_module:
+		var sf = _gear_module.get("sideways_friction")
+		if sf != null:
+			_orig_sideways_friction = float(sf)
+			_gear_module.set("sideways_friction", max(1.0, _orig_sideways_friction * 0.35))
+		var fm = _gear_module.get("friction_force_multiplier")
+		if fm != null:
+			_orig_friction_multiplier = float(fm)
+			_gear_module.set("friction_force_multiplier", max(200.0, _orig_friction_multiplier * 0.5))
+	emit_signal("cable_engaged", _aircraft)
+	return true
 
 func _on_area_exited(area: Area3D) -> void:
 	# Stay engaged on exit; release by speed criteria or explicit command
@@ -268,7 +355,7 @@ func _release():
 	# Clear engaged state, visuals, and restore gear friction settings
 	var released_aircraft := _aircraft
 	_engaged = false
-	if _aircraft and _aircraft.has_meta("arresting_engaged"):
+	if is_instance_valid(_aircraft) and _aircraft.has_meta("arresting_engaged"):
 		_aircraft.set_meta("arresting_engaged", false)
 		if _aircraft.has_meta("arresting_cable"):
 			_aircraft.remove_meta("arresting_cable")
@@ -279,12 +366,12 @@ func _release():
 	print("[Cable] RELEASED")
 	if visualize_cable:
 		_update_cable_visuals(Vector3.INF)
-	if _gear_module:
+	if is_instance_valid(_gear_module):
 		if not is_nan(_orig_sideways_friction) and _gear_module.get("sideways_friction") != null:
 			_gear_module.set("sideways_friction", _orig_sideways_friction)
 		if not is_nan(_orig_friction_multiplier) and _gear_module.get("friction_force_multiplier") != null:
 			_gear_module.set("friction_force_multiplier", _orig_friction_multiplier)
-		_gear_module = null
+	_gear_module = null
 	# Notify listeners that the cable released
 	if is_instance_valid(released_aircraft):
 		emit_signal("cable_released", released_aircraft)
@@ -308,6 +395,14 @@ func _cut_aircraft_engine(ac: RigidBody3D) -> void:
 
 func get_engage_lateral_m() -> float:
 	return _engage_lateral_m
+
+func get_wire_center() -> Vector3:
+	## World position of the MIDDLE of the wire (midpoint of the left/right deck anchors). This is the
+	## point an approaching aircraft should aim its touchdown at -- the cable node's own origin is not
+	## necessarily centered on the anchor span.
+	if is_instance_valid(_left_anchor) and is_instance_valid(_right_anchor):
+		return (_left_anchor.global_position + _right_anchor.global_position) * 0.5
+	return global_position
 
 func get_wire_number() -> int:
 	# Sort same-script siblings by local Z; return 1-based index of this cable.

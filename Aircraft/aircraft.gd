@@ -2,6 +2,15 @@ class_name Aircraft
 extends RigidBody3D
 
 const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
+const ROCKET_CCIP_TARGET_ALONG_MARGIN_M: float = 35.0
+const ROCKET_CCIP_MIN_GROUND_NORMAL_Y: float = 0.42
+const PROJECTILE_SPEED_CAP_SETTING_KEYS: Array[String] = [
+	"physics/jolt_3d/simulation/limits/max_linear_velocity",
+	"physics/jolt_physics_3d/simulation/limits/max_linear_velocity",
+	"physics/jolt_3d/limits/max_linear_velocity",
+	"physics/jolt_physics_3d/limits/max_linear_velocity",
+	"physics/3d/max_linear_velocity",
+]
 
 signal crashed(impact_velocity)
 signal parked
@@ -218,9 +227,14 @@ func _ready():
 
 
 func apply_origin_shift(_offset: Vector3) -> void:
-	if freeze:
-		var rid := get_rid()
-		PhysicsServer3D.body_set_state(rid, PhysicsServer3D.BODY_STATE_TRANSFORM, global_transform)
+	# FloatingOrigin sets our node global_position -= offset, but for a RigidBody3D the PHYSICS SERVER
+	# holds the authoritative transform. If we don't push the shifted transform into the physics server,
+	# the server keeps the pre-shift position and on the next physics step the body snaps back by ~offset
+	# -- a multi-km teleport (this was flinging airborne aircraft ~30km on carrier-driven origin shifts).
+	# The old code only synced when frozen; airborne (non-frozen) bodies MUST sync too. Velocity is
+	# preserved (we only overwrite the transform state).
+	var rid := get_rid()
+	PhysicsServer3D.body_set_state(rid, PhysicsServer3D.BODY_STATE_TRANSFORM, global_transform)
 
 
 func _ensure_cockpit_pilot() -> void:
@@ -368,6 +382,7 @@ func _on_Aircraft_body_shape_entered(body_rid, body, body_shape_index, local_sha
 		return
 	var collider_shape = shape_owner_get_owner(local_shape_index)
 	var impact_force = linear_velocity.length()
+	_record_collision_diagnostics(body, impact_force)
 	if _is_runway_surface(body):
 		if collider_shape in safe_colliders:
 			var landing_force = linear_velocity.dot(global_transform.basis.y)
@@ -394,6 +409,23 @@ func _on_Aircraft_body_shape_entered(body_rid, body, body_shape_index, local_sha
 		land(landing_force, impact_force)
 	else:
 		crash(impact_force)
+
+func _record_collision_diagnostics(body: Node, impact_speed_mps: float) -> void:
+	set_meta("last_collision_time_msec", Time.get_ticks_msec())
+	set_meta("last_collision_position", global_position)
+	set_meta("last_collision_impact_speed_mps", impact_speed_mps)
+	if body == null or not is_instance_valid(body):
+		set_meta("last_collision_body_name", "unknown")
+		set_meta("last_collision_body_path", "")
+		return
+	set_meta("last_collision_body_name", body.name)
+	set_meta("last_collision_body_path", str(body.get_path()) if body.is_inside_tree() else "")
+	var ancestry: Array[String] = []
+	var cursor: Node = body
+	while cursor != null and ancestry.size() < 5:
+		ancestry.append(cursor.name)
+		cursor = cursor.get_parent()
+	set_meta("last_collision_ancestry", "/".join(ancestry))
 
 func _on_Aircraft_body_shape_exited(body_rid, body, body_shape_index, local_shape_index):
 	pass
@@ -1347,7 +1379,7 @@ func calculate_ccip_impact_point() -> Dictionary:
 	var current_vel = initial_velocity
 	
 	# Raycast to terrain for each time step
-	var space_state = get_world_3d().direct_space_state
+	var space_state: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
 	
 	for step in int(max_time / time_step):
 		# Apply physics before moving
@@ -1386,12 +1418,19 @@ func calculate_ccip_impact_point() -> Dictionary:
 	return result
 
 
-func calculate_rocket_ccip_impact_point() -> Dictionary:
+func calculate_rocket_ccip_impact_point(target_pos: Vector3 = Vector3.INF, intended_target: Node = null) -> Dictionary:
 	"""Calculate where a rocket would hit if fired right now"""
 	var result = {
 		"has_impact": false,
 		"impact_position": Vector3.ZERO,
-		"time_to_impact": 0.0
+		"time_to_impact": 0.0,
+		"hit_body": null,
+		"hit_normal": Vector3.ZERO,
+		"blocked": false,
+		"blocked_reason": "",
+		"target_miss_m": INF,
+		"hit_intended_target": false,
+		"effective_damage_radius_m": 0.0,
 	}
 
 	# Find the first active rocket hardpoint
@@ -1430,31 +1469,40 @@ func calculate_rocket_ccip_impact_point() -> Dictionary:
 		initial_velocity = rocket_hardpoint.weapon_instance.get_predicted_initial_velocity(self)
 
 	# Read physics from rocket scene
-	var rocket_instance = rocket_scene.instantiate()
-	var linear_damp := 0.06
-	if "linear_damp" in rocket_instance:
-		var ld = float(rocket_instance.linear_damp)
+	var rocket_instance: Node = rocket_scene.instantiate()
+	# Read the rocket's drag from its EXPORTED value, not the built-in linear_damp -- the latter is
+	# only assigned in the rocket's _ready() (which hasn't run on this un-parented instance), so it
+	# reads 0.0 here and the CCIP predicted a drag-free rocket that over-flew the target by ~400m.
+	var linear_damp: float = 0.06
+	if "rocket_linear_damp" in rocket_instance:
+		var ld: float = float(rocket_instance.rocket_linear_damp)
 		if ld >= 0.0:
 			linear_damp = ld
-	var gravity_scale := 1.0
+	elif "linear_damp" in rocket_instance:
+		var ld_builtin: float = float(rocket_instance.linear_damp)
+		if ld_builtin > 0.0:
+			linear_damp = ld_builtin
+	var gravity_scale: float = 1.0
 	if "gravity_scale" in rocket_instance:
 		gravity_scale = float(rocket_instance.gravity_scale)
-	var motor_acceleration_mps2 := 0.0
+	var motor_acceleration_mps2: float = 0.0
 	if "motor_acceleration_mps2" in rocket_instance:
 		motor_acceleration_mps2 = float(rocket_instance.motor_acceleration_mps2)
-	var motor_additional_speed_mps := 0.0
+	var motor_additional_speed_mps: float = 0.0
 	if "motor_additional_speed_mps" in rocket_instance:
 		motor_additional_speed_mps = float(rocket_instance.motor_additional_speed_mps)
+	if "explosion_blast_radius" in rocket_instance:
+		result.effective_damage_radius_m = maxf(float(rocket_instance.explosion_blast_radius), 0.0)
 	rocket_instance.queue_free()
 
 	var gravity_dir: Vector3 = ProjectSettings.get_setting("physics/3d/default_gravity_vector", Vector3(0, -1, 0))
 	var gravity_mag: float = float(ProjectSettings.get_setting("physics/3d/default_gravity", 9.8))
 	var gravity_vec: Vector3 = gravity_dir * gravity_mag
 
-	var time_step := 0.02
-	var max_time := 15.0
-	var current_pos := start_pos
-	var current_vel := initial_velocity
+	var time_step: float = 0.02
+	var max_time: float = 15.0
+	var current_pos: Vector3 = start_pos
+	var current_vel: Vector3 = initial_velocity
 	var launch_reference_speed_mps: float = initial_velocity.length()
 	var space_state = get_world_3d().direct_space_state
 
@@ -1472,17 +1520,38 @@ func calculate_rocket_ccip_impact_point() -> Dictionary:
 		current_vel += gravity_vec * gravity_scale * time_step
 		if linear_damp > 0.0:
 			current_vel /= (1.0 + linear_damp * time_step)
-		var next_pos := current_pos + current_vel * time_step
+		var next_pos: Vector3 = current_pos + current_vel * time_step
 
-		var query = PhysicsRayQueryParameters3D.create(current_pos, next_pos)
+		var query: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(current_pos, next_pos)
 		query.exclude = [self]
 		query.collision_mask = 0xFFFFFFFF
-		var hit_result = space_state.intersect_ray(query)
+		var hit_result: Dictionary = space_state.intersect_ray(query)
 		if hit_result:
 			result.has_impact = true
 			result.impact_position = hit_result.position
 			result.time_to_impact = step * time_step
+			result.hit_body = hit_result.get("collider", null)
+			result.hit_normal = hit_result.get("normal", Vector3.ZERO)
+			_classify_rocket_ccip_impact(result, start_pos, target_pos, intended_target)
 			break
+
+		var terrain_h: float = _get_ground_height_at_position(next_pos)
+		if not is_nan(terrain_h):
+			var prev_h: float = _get_ground_height_at_position(current_pos)
+			var prev_above: bool = is_nan(prev_h) or current_pos.y >= prev_h
+			var curr_above: bool = next_pos.y >= terrain_h
+			if prev_above and not curr_above:
+				var denom: float = maxf((current_pos.y - prev_h) - (next_pos.y - terrain_h), 0.001) if not is_nan(prev_h) else 1.0
+				var t: float = clampf((current_pos.y - prev_h) / denom, 0.0, 1.0) if not is_nan(prev_h) else 1.0
+				var impact_pos: Vector3 = current_pos.lerp(next_pos, t)
+				impact_pos.y = terrain_h
+				result.has_impact = true
+				result.impact_position = impact_pos
+				result.time_to_impact = step * time_step
+				result.hit_body = _get_cached_terrain_node()
+				result.hit_normal = _sample_terrain_normal_for_ccip(impact_pos)
+				_classify_rocket_ccip_impact(result, start_pos, target_pos, intended_target)
+				break
 
 		if next_pos.y < -1000:
 			break
@@ -1490,3 +1559,270 @@ func calculate_rocket_ccip_impact_point() -> Dictionary:
 		current_pos = next_pos
 
 	return result
+
+
+func calculate_gun_ccip_impact_point(target_pos: Vector3 = Vector3.INF, intended_target: Node = null) -> Dictionary:
+	"""Calculate where the selected gun stream would hit if fired right now."""
+	var result := {
+		"has_impact": false,
+		"impact_position": Vector3.ZERO,
+		"time_to_impact": 0.0,
+		"hit_body": null,
+		"hit_normal": Vector3.ZERO,
+		"blocked": false,
+		"blocked_reason": "",
+		"target_miss_m": INF,
+	}
+
+	var gun_info: Dictionary = _get_selected_gun_ccip_source()
+	if gun_info.is_empty():
+		return result
+
+	var source_node: Node3D = gun_info.get("source_node", null) as Node3D
+	if source_node == null or not is_instance_valid(source_node):
+		return result
+	var weapon_node: Node = gun_info.get("weapon_node", null) as Node
+	if weapon_node == null or not is_instance_valid(weapon_node):
+		return result
+
+	var muzzle_velocity: float = maxf(float(gun_info.get("muzzle_velocity", 500.0)), 50.0)
+	var projectile_speed: float = _get_effective_ccip_projectile_speed(muzzle_velocity)
+	var projectile_speed_cap_mps: float = _get_ccip_projectile_speed_cap_mps()
+	var max_range_m: float = maxf(float(gun_info.get("max_range_m", 900.0)), 10.0)
+	var max_time: float = maxf(max_range_m / maxf(projectile_speed, 1.0), 0.05)
+	var projectile_scene: PackedScene = gun_info.get("projectile_scene", null) as PackedScene
+
+	var gravity_scale: float = 1.0
+	var linear_damp: float = 0.0
+	if projectile_scene != null:
+		var projectile_instance: Node = projectile_scene.instantiate()
+		if "gravity_scale" in projectile_instance:
+			gravity_scale = float(projectile_instance.gravity_scale)
+		if "linear_damp" in projectile_instance:
+			var projectile_linear_damp: float = float(projectile_instance.linear_damp)
+			if projectile_linear_damp >= 0.0:
+				linear_damp = projectile_linear_damp
+		projectile_instance.queue_free()
+
+	var release_transform: Transform3D = source_node.global_transform
+	var spawn_point: Node3D = weapon_node.find_child("BulletSpawnPoint", true, false) as Node3D
+	if spawn_point != null and is_instance_valid(spawn_point):
+		release_transform = spawn_point.global_transform
+	var start_pos: Vector3 = release_transform.origin
+	var forward_dir: Vector3 = release_transform.basis.z.normalized()
+	if forward_dir.length_squared() < 0.001:
+		forward_dir = global_transform.basis.z.normalized()
+
+	var initial_velocity: Vector3 = forward_dir * projectile_speed
+	initial_velocity += linear_velocity
+	var r_offset: Vector3 = start_pos - global_position
+	initial_velocity += angular_velocity.cross(r_offset)
+	# RigidBody3D clamps the completed velocity assignment, including inherited
+	# platform motion. Mirror that second clamp or CCIP predicts rounds flying
+	# substantially faster than the bullets during a high-speed attack run.
+	if is_finite(projectile_speed_cap_mps) and initial_velocity.length() > projectile_speed_cap_mps:
+		initial_velocity = initial_velocity.normalized() * projectile_speed_cap_mps
+
+	var gravity_dir: Vector3 = ProjectSettings.get_setting("physics/3d/default_gravity_vector", Vector3(0.0, -1.0, 0.0))
+	var gravity_mag: float = float(ProjectSettings.get_setting("physics/3d/default_gravity", 9.8))
+	var gravity_vec: Vector3 = gravity_dir.normalized() * gravity_mag
+	var time_step: float = 0.02
+	var current_pos: Vector3 = start_pos
+	var current_vel: Vector3 = initial_velocity
+	var space_state: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
+	var steps: int = maxi(int(ceil(max_time / time_step)), 1)
+
+	for step in range(steps):
+		current_vel += gravity_vec * gravity_scale * time_step
+		if linear_damp > 0.0:
+			current_vel /= (1.0 + linear_damp * time_step)
+		var next_pos: Vector3 = current_pos + current_vel * time_step
+
+		var query: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(current_pos, next_pos)
+		query.exclude = [self]
+		query.collision_mask = 0xFFFFFFFF
+		var hit_result: Dictionary = space_state.intersect_ray(query)
+		if hit_result:
+			result.has_impact = true
+			result.impact_position = hit_result.position
+			result.time_to_impact = float(step) * time_step
+			result.hit_body = hit_result.get("collider", null)
+			result.hit_normal = hit_result.get("normal", Vector3.ZERO)
+			_classify_gun_ccip_impact(result, start_pos, target_pos, intended_target)
+			break
+
+		var terrain_h: float = _get_ground_height_at_position(next_pos)
+		if not is_nan(terrain_h):
+			var prev_h: float = _get_ground_height_at_position(current_pos)
+			var prev_above: bool = is_nan(prev_h) or current_pos.y >= prev_h
+			var curr_above: bool = next_pos.y >= terrain_h
+			if prev_above and not curr_above:
+				var denom: float = maxf((current_pos.y - prev_h) - (next_pos.y - terrain_h), 0.001) if not is_nan(prev_h) else 1.0
+				var t: float = clampf((current_pos.y - prev_h) / denom, 0.0, 1.0) if not is_nan(prev_h) else 1.0
+				var impact_pos: Vector3 = current_pos.lerp(next_pos, t)
+				impact_pos.y = terrain_h
+				result.has_impact = true
+				result.impact_position = impact_pos
+				result.time_to_impact = float(step) * time_step
+				result.hit_body = _get_cached_terrain_node()
+				result.hit_normal = _sample_terrain_normal_for_ccip(impact_pos)
+				_classify_gun_ccip_impact(result, start_pos, target_pos, intended_target)
+				break
+
+		if next_pos.y < -1000.0:
+			break
+
+		current_pos = next_pos
+
+	return result
+
+
+func _get_selected_gun_ccip_source() -> Dictionary:
+	var control_weapons: Node = find_child("ControlWeapons")
+	if control_weapons == null:
+		return {}
+	var hardpoints_value: Variant = control_weapons.get("hardpoints")
+	if not (hardpoints_value is Array):
+		return {}
+	var selected: String = str(control_weapons.get("selected_weapon_type"))
+	if selected.is_empty():
+		selected = "Autocannon"
+
+	for hardpoint_variant in hardpoints_value:
+		if not (hardpoint_variant is Node3D):
+			continue
+		var hardpoint: Node3D = hardpoint_variant as Node3D
+		if not is_instance_valid(hardpoint):
+			continue
+		var weapon_variant: Variant = hardpoint.get("weapon_instance")
+		if not (weapon_variant is Node):
+			continue
+		var weapon: Node = weapon_variant as Node
+		if not is_instance_valid(weapon):
+			continue
+		var weapon_name: String = str(weapon.get("weapon_name"))
+		var weapon_category: String = str(weapon.get("weapon_category"))
+		if weapon_name != selected and weapon_category != selected:
+			continue
+		var muzzle_velocity: float = 500.0
+		if "muzzle_velocity" in weapon:
+			muzzle_velocity = float(weapon.get("muzzle_velocity"))
+		elif "bullet_speed" in weapon:
+			muzzle_velocity = float(weapon.get("bullet_speed"))
+		var max_range_m: float = 900.0
+		if "max_range_m" in weapon:
+			max_range_m = float(weapon.get("max_range_m"))
+		var projectile_scene: PackedScene = null
+		if "bullet_projectile_scene" in weapon:
+			projectile_scene = weapon.get("bullet_projectile_scene") as PackedScene
+		elif "bullet_scene" in weapon:
+			projectile_scene = weapon.get("bullet_scene") as PackedScene
+		return {
+			"source_node": hardpoint,
+			"weapon_node": weapon,
+			"muzzle_velocity": muzzle_velocity,
+			"max_range_m": max_range_m,
+			"projectile_scene": projectile_scene,
+		}
+	return {}
+
+
+func _get_effective_ccip_projectile_speed(nominal_speed_mps: float) -> float:
+	var speed_mps: float = maxf(nominal_speed_mps, 50.0)
+	var speed_cap_mps: float = _get_ccip_projectile_speed_cap_mps()
+	if is_finite(speed_cap_mps):
+		speed_mps = minf(speed_mps, speed_cap_mps)
+	return maxf(speed_mps, 50.0)
+
+
+func _get_ccip_projectile_speed_cap_mps() -> float:
+	for key in PROJECTILE_SPEED_CAP_SETTING_KEYS:
+		if not ProjectSettings.has_setting(key):
+			continue
+		var cap_variant: Variant = ProjectSettings.get_setting(key)
+		if typeof(cap_variant) in [TYPE_FLOAT, TYPE_INT]:
+			var cap_mps: float = float(cap_variant)
+			if cap_mps > 0.0:
+				return cap_mps
+	return INF
+
+
+func _classify_gun_ccip_impact(result: Dictionary, start_pos: Vector3, target_pos: Vector3, intended_target: Node) -> void:
+	var impact_variant: Variant = result.get("impact_position", Vector3.ZERO)
+	var impact_pos: Vector3 = impact_variant if impact_variant is Vector3 else Vector3.ZERO
+	if not _is_finite_vector3(target_pos) or impact_pos == Vector3.ZERO:
+		return
+	result.target_miss_m = Vector2(target_pos.x - impact_pos.x, target_pos.z - impact_pos.z).length()
+	var hit_body: Node = result.get("hit_body", null) as Node
+	if _rocket_ccip_hit_belongs_to_target(hit_body, intended_target):
+		result.hit_intended_target = true
+		return
+	var shot_flat: Vector3 = Vector3(impact_pos.x - start_pos.x, 0.0, impact_pos.z - start_pos.z)
+	var target_flat: Vector3 = Vector3(target_pos.x - start_pos.x, 0.0, target_pos.z - start_pos.z)
+	if shot_flat.length_squared() < 1.0 or target_flat.length_squared() < 1.0:
+		return
+	var shot_dir: Vector3 = shot_flat.normalized()
+	var impact_along_m: float = shot_flat.dot(shot_dir)
+	var target_along_m: float = target_flat.dot(shot_dir)
+	if impact_along_m < target_along_m - ROCKET_CCIP_TARGET_ALONG_MARGIN_M:
+		result.blocked = true
+		result.blocked_reason = "before_target"
+
+
+func _classify_rocket_ccip_impact(result: Dictionary, start_pos: Vector3, target_pos: Vector3, intended_target: Node) -> void:
+	var impact_variant: Variant = result.get("impact_position", Vector3.ZERO)
+	var impact_pos: Vector3 = impact_variant if impact_variant is Vector3 else Vector3.ZERO
+	if not _is_finite_vector3(target_pos) or impact_pos == Vector3.ZERO:
+		return
+	result.target_miss_m = Vector2(target_pos.x - impact_pos.x, target_pos.z - impact_pos.z).length()
+	var hit_body: Node = result.get("hit_body", null) as Node
+	if _rocket_ccip_hit_belongs_to_target(hit_body, intended_target):
+		return
+	var shot_flat: Vector3 = Vector3(impact_pos.x - start_pos.x, 0.0, impact_pos.z - start_pos.z)
+	var target_flat: Vector3 = Vector3(target_pos.x - start_pos.x, 0.0, target_pos.z - start_pos.z)
+	if shot_flat.length_squared() < 1.0 or target_flat.length_squared() < 1.0:
+		return
+	var shot_dir: Vector3 = shot_flat.normalized()
+	var impact_along_m: float = shot_flat.dot(shot_dir)
+	var target_along_m: float = target_flat.dot(shot_dir)
+	var normal_variant: Variant = result.get("hit_normal", Vector3.ZERO)
+	var hit_normal: Vector3 = normal_variant if normal_variant is Vector3 else Vector3.ZERO
+	var hit_is_steep: bool = hit_normal != Vector3.ZERO and hit_normal.y < ROCKET_CCIP_MIN_GROUND_NORMAL_Y
+	# A terrain impact before the target is an undershoot, not a valid rocket
+	# solution. The intended target's own collider was accepted above, so no
+	# fixed distance allowance is needed here.
+	var hit_before_target: bool = impact_along_m < target_along_m
+	if hit_before_target or hit_is_steep:
+		result.blocked = true
+		result.blocked_reason = "before_target" if hit_before_target else "steep_terrain"
+
+
+func _rocket_ccip_hit_belongs_to_target(hit_body: Node, intended_target: Node) -> bool:
+	if hit_body == null or intended_target == null or not is_instance_valid(intended_target):
+		return false
+	var node: Node = hit_body
+	while node:
+		if node == intended_target:
+			return true
+		node = node.get_parent()
+	return false
+
+
+func _sample_terrain_normal_for_ccip(world_pos: Vector3) -> Vector3:
+	var sample_step_m: float = 5.0
+	var hx0: float = _get_ground_height_at_position(world_pos + Vector3(-sample_step_m, 0.0, 0.0))
+	var hx1: float = _get_ground_height_at_position(world_pos + Vector3(sample_step_m, 0.0, 0.0))
+	var hz0: float = _get_ground_height_at_position(world_pos + Vector3(0.0, 0.0, -sample_step_m))
+	var hz1: float = _get_ground_height_at_position(world_pos + Vector3(0.0, 0.0, sample_step_m))
+	if is_nan(hx0) or is_nan(hx1) or is_nan(hz0) or is_nan(hz1):
+		return Vector3.UP
+	var dx: Vector3 = Vector3(sample_step_m * 2.0, hx1 - hx0, 0.0)
+	var dz: Vector3 = Vector3(0.0, hz1 - hz0, sample_step_m * 2.0)
+	var normal: Vector3 = dz.cross(dx).normalized()
+	if normal.y < 0.0:
+		normal = -normal
+	return normal
+
+
+func _is_finite_vector3(value: Vector3) -> bool:
+	return is_finite(value.x) and is_finite(value.y) and is_finite(value.z)

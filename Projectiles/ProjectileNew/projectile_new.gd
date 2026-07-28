@@ -153,9 +153,13 @@ func fire(initial_velocity: Vector3, firing_aircraft: Node3D):
 	if firing_aircraft and firing_aircraft is CollisionObject3D:
 		add_collision_exception_with(firing_aircraft)
 		# Re-enable collision after a short delay (once projectile is clear)
-		get_tree().create_timer(0.2).timeout.connect(func(): 
-			if firing_aircraft and is_instance_valid(firing_aircraft):
-				remove_collision_exception_with(firing_aircraft)
+		var projectile_ref: WeakRef = weakref(self)
+		var shooter_ref: WeakRef = weakref(firing_aircraft)
+		get_tree().create_timer(0.2).timeout.connect(func() -> void:
+			var projectile_obj: Object = projectile_ref.get_ref()
+			var shooter_obj: Object = shooter_ref.get_ref()
+			if projectile_obj is ProjectileNew and is_instance_valid(projectile_obj) and shooter_obj is CollisionObject3D and is_instance_valid(shooter_obj):
+				(projectile_obj as ProjectileNew).remove_collision_exception_with(shooter_obj as CollisionObject3D)
 		)
 
 func _get_projectile_query_excludes() -> Array:
@@ -556,10 +560,16 @@ func play_impact_sound(body: Node) -> void:
 	audio_player.pitch_scale = randf_range(0.9, 1.1)
 	audio_player.play()
 
-	audio_player.finished.connect(func(): audio_player.queue_free())
+	var audio_ref: WeakRef = weakref(audio_player)
+	audio_player.finished.connect(func() -> void:
+		var audio_obj: Object = audio_ref.get_ref()
+		if audio_obj is Node and is_instance_valid(audio_obj):
+			(audio_obj as Node).queue_free()
+	)
 	get_tree().create_timer(3.0).timeout.connect(func():
-		if audio_player and is_instance_valid(audio_player):
-			audio_player.queue_free()
+		var audio_obj: Object = audio_ref.get_ref()
+		if audio_obj is Node and is_instance_valid(audio_obj):
+			(audio_obj as Node).queue_free()
 	)
 
 func create_bullet_scorch_mark(aircraft_body: Node) -> void:
@@ -634,9 +644,11 @@ func create_bullet_scorch_mark(aircraft_body: Node) -> void:
 	# Aircraft marks are cleaned up by the cap (last 15 stay permanently).
 	# Only time-expire marks on non-aircraft targets (ground vehicles, etc.).
 	if target_mark_lifetime_s > 0.0 and not is_aircraft(aircraft_body):
+		var decal_ref: WeakRef = weakref(decal)
 		get_tree().create_timer(target_mark_lifetime_s).timeout.connect(func():
-			if is_instance_valid(decal):
-				decal.queue_free()
+			var decal_obj: Object = decal_ref.get_ref()
+			if decal_obj is Node and is_instance_valid(decal_obj):
+				(decal_obj as Node).queue_free()
 		)
 
 func _enforce_aircraft_bullet_decal_cap(target: Node, newest_decal: Decal) -> void:

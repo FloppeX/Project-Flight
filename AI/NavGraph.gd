@@ -51,10 +51,7 @@ func apply_origin_shift(offset: Vector3) -> void:
 	_lock.unlock()
 
 func is_ready() -> bool:
-	_lock.lock()
-	var r := _is_ready
-	_lock.unlock()
-	return r
+	return _is_ready
 
 func rebuild_from_current_navgrid() -> void:
 	_reset_graph()
@@ -106,10 +103,7 @@ func find_path(from_world: Vector3, to_world: Vector3,
 	return res
 
 func find_path_async(from_world: Vector3, to_world: Vector3, min_clearance_m: float, callback: Callable) -> void:
-	WorkerThreadPool.add_task(func() -> void:
-		var path := find_path(from_world, to_world, min_clearance_m)
-		callback.call_deferred(path)
-	)
+	NavPathScheduler.request_find_path(from_world, to_world, min_clearance_m, callback, 0, "NavGraph.find_path_async")
 
 func has_nearby_node(world_pos: Vector3, min_clearance_m: float = 0.0) -> bool:
 	_lock.lock()

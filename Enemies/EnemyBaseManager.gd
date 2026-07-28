@@ -12,6 +12,10 @@ const MAX_SPAN_M := 28.0         # max height span to accept as "flat enough"
 const MAX_HEIGHT_DELTA_FROM_CARRIER_M := 110.0
 const HEIGHT_MATCH_WEIGHT := 0.22
 const BASE_GROUND_CLEARANCE_M := 1.0
+const BASE_NAV_CLEARANCE_M := 60.0
+const BASE_NAV_ANCHOR_M := 260.0
+const BASE_NAV_CANDIDATES_TO_CHECK := 18
+const BASE_RANDOM_FALLBACK_ATTEMPTS := 140
 const EMPLACEMENT_SEARCH_ATTEMPTS := 32
 
 var bases: Array[EnemyBase] = []
@@ -29,7 +33,8 @@ var _disabled_for_test: bool = false
 @export var emplacement_cluster_spread_min_m: float = 18.0
 @export var emplacement_cluster_spread_max_m: float = 75.0
 @export var emplacement_map_margin_m: float = 500.0
-@export var emplacement_activation_distance_m: float = 1700.0
+@export var emplacement_activation_distance_m: float = 1500.0
+@export var emplacement_deactivation_distance_m: float = 1800.0
 @export var emplacement_spawn_debug: bool = false
 
 
@@ -57,20 +62,26 @@ func _spawn_bases() -> void:
 		var x_sign := -1.0 if i == 0 else 1.0
 		var target: Vector2 = _pick_random_upper_quadrant_target(center, half_ext, x_sign)
 
-		var pos := _find_flat_ground(target.x, target.y, carrier_ground_y, MAX_HEIGHT_DELTA_FROM_CARRIER_M)
+		var pos := _find_flat_ground(target.x, target.y, carrier_ground_y, MAX_HEIGHT_DELTA_FROM_CARRIER_M, true)
 		if pos == Vector3.INF:
 			# Relax once if this quadrant has sparse matching terrain.
-			pos = _find_flat_ground(target.x, target.y, carrier_ground_y, MAX_HEIGHT_DELTA_FROM_CARRIER_M * 1.8)
+			pos = _find_flat_ground(target.x, target.y, carrier_ground_y, MAX_HEIGHT_DELTA_FROM_CARRIER_M * 1.8, true)
 		if pos == Vector3.INF:
-			# Final fallback: prioritize flatness only.
-			pos = _find_flat_ground(target.x, target.y, carrier_ground_y, INF)
+			pos = _find_random_low_ground(carrier_ground_y, MAX_HEIGHT_DELTA_FROM_CARRIER_M * 1.8)
+		if pos == Vector3.INF:
+			pos = _find_flat_ground(target.x, target.y, carrier_ground_y, INF, false)
 
 		if pos == Vector3.INF:
-			push_warning("[EnemyBaseManager] No flat ground found for base %d - using target" % i)
-			var h := TerrainNavGrid.sample_height(target.x, target.y)
-			if h <= TerrainNavGrid.IMPASSABLE * 0.5:
-				h = carrier_ground_y
-			pos = Vector3(target.x, h, target.y)
+			push_warning("[EnemyBaseManager] No low flat ground found for base %d - using emergency fallback" % i)
+			var fallback_slope_m: float = maxf(NavGraph.max_slope_m if NavGraph != null else 18.0, 36.0)
+			var fallback_pos := TerrainNavGrid.get_random_passable_position(_rng, fallback_slope_m, 5000)
+			if fallback_pos != Vector3.ZERO:
+				pos = fallback_pos + Vector3.UP * BASE_GROUND_CLEARANCE_M
+			else:
+				var h := TerrainNavGrid.sample_height(center.x, center.z)
+				if h <= TerrainNavGrid.IMPASSABLE * 0.5:
+					h = carrier_ground_y
+				pos = Vector3(center.x, h + BASE_GROUND_CLEARANCE_M, center.z)
 
 		var base := EnemyBase.new()
 		base.faction_id = i
@@ -84,9 +95,19 @@ func _spawn_bases() -> void:
 	_spawn_enemy_emplacement_clumps(center, half_ext, carrier_ground_y)
 
 
-func _find_flat_ground(cx: float, cz: float, reference_ground_y: float, max_height_delta_m: float) -> Vector3:
+func enable_for_game() -> void:
+	_disabled_for_test = false
+	if TerrainNavGrid.is_ready():
+		call_deferred("_spawn_bases")
+		return
+	if not TerrainNavGrid.bake_complete.is_connected(_spawn_bases):
+		TerrainNavGrid.bake_complete.connect(_spawn_bases, CONNECT_ONE_SHOT)
+
+
+func _find_flat_ground(cx: float, cz: float, reference_ground_y: float, max_height_delta_m: float, require_nav_anchor: bool = false) -> Vector3:
 	var best_score := INF
 	var best_pos := Vector3.INF
+	var candidates: Array[Dictionary] = []
 
 	var half := SEARCH_RADIUS_M
 	var x := -half
@@ -96,17 +117,51 @@ func _find_flat_ground(cx: float, cz: float, reference_ground_y: float, max_heig
 			if x * x + z * z <= half * half:
 				var wx := cx + x
 				var wz := cz + z
-				var result := _evaluate_flatness(wx, wz, reference_ground_y, max_height_delta_m)
-				if result.valid and result.score < best_score:
-					best_score = result.score
-					best_pos = Vector3(wx, result.height + BASE_GROUND_CLEARANCE_M, wz)
+				var result: Dictionary = _evaluate_flatness(wx, wz, reference_ground_y, max_height_delta_m)
+				if bool(result.get("valid", false)):
+					var score: float = float(result.get("score", INF))
+					var candidate_pos := Vector3(wx, float(result.get("height", reference_ground_y)) + BASE_GROUND_CLEARANCE_M, wz)
+					candidates.append({"position": candidate_pos, "score": score})
+					if score < best_score:
+						best_score = score
+						best_pos = candidate_pos
 			z += SEARCH_STEP_M
 		x += SEARCH_STEP_M
 
-	return best_pos
+	if not require_nav_anchor or not NavGraph.is_ready():
+		return best_pos
+	candidates.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return float(a.get("score", INF)) < float(b.get("score", INF))
+	)
+	var nav_checks: int = mini(candidates.size(), BASE_NAV_CANDIDATES_TO_CHECK)
+	for i in range(nav_checks):
+		var entry: Dictionary = candidates[i]
+		var candidate_pos: Vector3 = entry.get("position", Vector3.INF) as Vector3
+		if NavGraph.can_anchor(candidate_pos, BASE_NAV_CLEARANCE_M, BASE_NAV_ANCHOR_M):
+			return candidate_pos
+	return Vector3.INF
+
+
+func _find_random_low_ground(reference_ground_y: float, max_height_delta_m: float) -> Vector3:
+	var fallback_slope_m: float = NavGraph.max_slope_m if NavGraph != null else 18.0
+	for _attempt in range(BASE_RANDOM_FALLBACK_ATTEMPTS):
+		var candidate: Vector3 = TerrainNavGrid.get_random_passable_position(_rng, fallback_slope_m, 120)
+		if candidate == Vector3.ZERO:
+			continue
+		if max_height_delta_m != INF and absf(candidate.y - reference_ground_y) > max_height_delta_m:
+			continue
+		var base_pos := candidate + Vector3.UP * BASE_GROUND_CLEARANCE_M
+		if NavGraph.is_ready() and not NavGraph.can_anchor(base_pos, BASE_NAV_CLEARANCE_M, BASE_NAV_ANCHOR_M):
+			continue
+		return base_pos
+	return Vector3.INF
 
 
 func _evaluate_flatness(cx: float, cz: float, reference_ground_y: float, max_height_delta_m: float) -> Dictionary:
+	var max_slope_m: float = NavGraph.max_slope_m if NavGraph != null else 18.0
+	if not TerrainNavGrid.is_low_clear_position(cx, cz, max_slope_m):
+		return {"valid": false}
+
 	var r := PROBE_RADIUS_M
 	var d := r * 0.707
 	var sample_offsets := [
@@ -217,7 +272,7 @@ func _spawn_enemy_emplacement_clumps(center: Vector3, half_ext: float, carrier_g
 					var dist: float = _rng.randf_range(spread_min, spread_max)
 					var candidate_x: float = clump_center.x + cos(angle) * dist
 					var candidate_z: float = clump_center.z + sin(angle) * dist
-					var candidate_position: Vector3 = _find_flat_ground(candidate_x, candidate_z, carrier_ground_y, MAX_HEIGHT_DELTA_FROM_CARRIER_M * 1.8)
+					var candidate_position: Vector3 = _find_flat_ground(candidate_x, candidate_z, carrier_ground_y, MAX_HEIGHT_DELTA_FROM_CARRIER_M * 1.8, false)
 					if candidate_position != Vector3.INF:
 						unit_position = candidate_position
 				_spawn_single_emplacement(unit_position, enemy_faction_id)
@@ -233,7 +288,7 @@ func _find_random_emplacement_center(center: Vector3, half_ext: float, carrier_g
 	for _attempt in range(EMPLACEMENT_SEARCH_ATTEMPTS):
 		var tx: float = center.x + _rng.randf_range(-range_extent, range_extent)
 		var tz: float = center.z + _rng.randf_range(-range_extent, range_extent)
-		var result: Vector3 = _find_flat_ground(tx, tz, carrier_ground_y, MAX_HEIGHT_DELTA_FROM_CARRIER_M * 1.8)
+		var result: Vector3 = _find_flat_ground(tx, tz, carrier_ground_y, MAX_HEIGHT_DELTA_FROM_CARRIER_M * 1.8, false)
 		if result != Vector3.INF:
 			return result
 	return Vector3.INF
@@ -251,6 +306,8 @@ func _spawn_single_emplacement(world_position: Vector3, enemy_faction_id: int) -
 		emplacement.set("team", 2)
 	if "activation_distance_m" in emplacement:
 		emplacement.set("activation_distance_m", maxf(emplacement_activation_distance_m, 50.0))
+	if "deactivation_distance_m" in emplacement:
+		emplacement.set("deactivation_distance_m", maxf(emplacement_deactivation_distance_m, emplacement_activation_distance_m))
 	get_tree().current_scene.add_child(emplacement)
 	emplacement.global_position = world_position
 	emplacement.rotation.y = _rng.randf_range(0.0, TAU)

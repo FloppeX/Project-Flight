@@ -5,6 +5,15 @@ const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
 const TEST_SCENARIO_SETTINGS_PATH := "user://physical_test_scenario.json"
 const FRAME_PROFILER_OVERRIDE_PATH := "user://frame_profiler_override.json"
 const HELI_NAVIGATION_TEST_SCENARIO: int = 1
+const AIRPLANE_TEST_SCENARIO: int = 3
+const DOGFIGHT_TEST_SCENARIO: int = 4
+const LANDING_TEST_SCENARIO: int = 5
+const CARRIER_COMBAT_TEST_SCENARIO: int = 6
+const CARRIER_COMBAT_DEFAULT_PROFILE := "continuous_intercept"
+const AIRPLANE_TEST_MODE_SCRIPT: Script = preload("res://Scenario/AirplaneTestMode.gd")
+const DOGFIGHT_TEST_MODE_SCRIPT: Script = preload("res://Scenario/DogfightTestMode.gd")
+const LANDING_TEST_MODE_SCRIPT: Script = preload("res://Scenario/LandingTestMode.gd")
+const CARRIER_COMBAT_TEST_MODE_SCRIPT: Script = preload("res://Scenario/CarrierCombatTestMode.gd")
 
 var restart_timer: Timer
 
@@ -17,6 +26,11 @@ var restart_timer: Timer
 # A known-good, deterministic region for navigation evolution. The terrain seed is
 # already fixed by Main_Scene; fixing the bake center makes the actual test map fixed.
 @export var navigation_test_fixed_play_area_xz := Vector2(25520.0, -27880.0)
+# Known-good region from the 2026-07-25 integrated carrier test. Keeping the
+# carrier-combat bake here makes the carrier route, launch corridor, targets, and
+# recovery terrain repeatable instead of sampling a different part of the world
+# on every restart.
+@export var carrier_combat_test_fixed_play_area_xz := Vector2(18880.0, -3720.0)
 @export var carrier_center_search_radius_m: float = 1400.0
 @export var carrier_search_step_m: float = 120.0
 @export var carrier_flat_probe_radius_m: float = 140.0
@@ -37,8 +51,8 @@ var restart_timer: Timer
 @export var wind_turbine_total_count: int = 25
 @export var wind_turbine_group_min_size: int = 3
 @export var wind_turbine_group_max_size: int = 4
-@export var wind_turbine_activation_distance_m: float = 3000.0
-@export var wind_turbine_deactivation_distance_m: float = 4000.0
+@export var wind_turbine_activation_distance_m: float = 1200.0
+@export var wind_turbine_deactivation_distance_m: float = 1800.0
 @export var wind_turbine_activation_check_interval_s: float = 1.5
 @export var wind_turbine_map_margin_m: float = 1200.0
 @export var wind_turbine_min_start_distance_m: float = 2200.0
@@ -54,7 +68,8 @@ var restart_timer: Timer
 @export var wind_turbine_guard_emplacements_max: int = 3
 @export var wind_turbine_guard_min_distance_m: float = 140.0
 @export var wind_turbine_guard_max_distance_m: float = 280.0
-@export var wind_turbine_guard_activation_distance_m: float = 1700.0
+@export var wind_turbine_guard_activation_distance_m: float = 1500.0
+@export var wind_turbine_guard_deactivation_distance_m: float = 1800.0
 @export var wind_turbine_guard_search_attempts: int = 32
 @export var wind_turbine_spawn_debug: bool = false
 
@@ -62,6 +77,10 @@ var _scenario_play_area_center: Vector3 = Vector3.ZERO
 var _scenario_play_area_center_valid: bool = false
 var _wind_turbines_spawned: bool = false
 var _wind_turbine_rng := RandomNumberGenerator.new()
+var _airplane_test_mode: Node = null
+var _dogfight_test_mode: Node = null
+var _landing_test_mode: Node = null
+var _carrier_combat_test_mode: Node = null
 
 func _enter_tree() -> void:
 	_configure_play_area_for_run()
@@ -80,6 +99,22 @@ func _ready():
 	FrameProfiler.set_enabled(profiler_enabled, "ScenarioManager")
 	if not _scenario_play_area_center_valid:
 		_configure_play_area_for_run()
+	if _is_airplane_test_requested():
+		spawn_wind_turbines_on_startup = false
+		_wind_turbines_spawned = true
+		_start_airplane_test_mode()
+	elif _is_dogfight_test_requested():
+		spawn_wind_turbines_on_startup = false
+		_wind_turbines_spawned = true
+		_start_dogfight_test_mode()
+	elif _is_landing_test_requested():
+		spawn_wind_turbines_on_startup = false
+		_wind_turbines_spawned = true
+		_start_landing_test_mode()
+	elif _is_carrier_combat_test_requested():
+		spawn_wind_turbines_on_startup = false
+		_wind_turbines_spawned = true
+		_start_carrier_combat_test_mode()
 	# Find any player aircraft (Aircraft_1, Aircraft_3, Aircraft_5, etc.)
 	var aircraft: Node = null
 	for child in get_children():
@@ -208,11 +243,21 @@ func _configure_play_area_for_run() -> void:
 	if terrain == null:
 		return
 
-	var center: Vector3 = terrain.global_position
-	var navigation_test_requested := _is_navigation_test_requested()
-	if navigation_test_requested:
+	# _configure_play_area_for_run() is first called from _enter_tree(), when this
+	# direct child has not entered the SceneTree yet. Its local position is already
+	# final and avoids querying an invalid global transform during startup.
+	var center: Vector3 = terrain.position
+	var test_scenario: int = _get_requested_test_scenario()
+	var navigation_test_requested: bool = test_scenario == HELI_NAVIGATION_TEST_SCENARIO
+	var airplane_test_requested: bool = test_scenario == AIRPLANE_TEST_SCENARIO
+	var landing_test_requested: bool = test_scenario == LANDING_TEST_SCENARIO
+	var carrier_combat_test_requested: bool = test_scenario == CARRIER_COMBAT_TEST_SCENARIO
+	if navigation_test_requested or airplane_test_requested:
 		center.x = navigation_test_fixed_play_area_xz.x
 		center.z = navigation_test_fixed_play_area_xz.y
+	elif carrier_combat_test_requested or landing_test_requested:
+		center.x = carrier_combat_test_fixed_play_area_xz.x
+		center.z = carrier_combat_test_fixed_play_area_xz.y
 	elif randomize_play_area_each_run:
 		center = _pick_random_play_area_center(terrain)
 	center = _snap_play_area_center_to_nav_grid(center)
@@ -231,17 +276,141 @@ func _configure_play_area_for_run() -> void:
 		print("[ScenarioManager] Play area center set to ", center)
 	elif navigation_test_requested:
 		print("[ScenarioManager] Navigation test fixed play area center set to ", center)
+	elif airplane_test_requested:
+		print("[ScenarioManager] Airplane test fixed play area center set to ", center)
+	elif carrier_combat_test_requested:
+		print("[ScenarioManager] Carrier combat test fixed play area center set to ", center)
 
 
 func _is_navigation_test_requested() -> bool:
+	return _get_requested_test_scenario() == HELI_NAVIGATION_TEST_SCENARIO
+
+
+func _is_airplane_test_requested() -> bool:
+	return _get_requested_test_scenario() == AIRPLANE_TEST_SCENARIO
+
+
+func _is_dogfight_test_requested() -> bool:
+	return _get_requested_test_scenario() == DOGFIGHT_TEST_SCENARIO
+
+
+func _is_landing_test_requested() -> bool:
+	return _get_requested_test_scenario() == LANDING_TEST_SCENARIO
+
+
+func _is_carrier_combat_test_requested() -> bool:
+	return _get_requested_test_scenario() == CARRIER_COMBAT_TEST_SCENARIO
+
+
+func _get_requested_test_scenario() -> int:
 	if not FileAccess.file_exists(TEST_SCENARIO_SETTINGS_PATH):
-		return false
+		return -1
 	var file := FileAccess.open(TEST_SCENARIO_SETTINGS_PATH, FileAccess.READ)
 	if file == null:
-		return false
+		return -1
 	var parsed: Variant = JSON.parse_string(file.get_as_text())
-	return parsed is Dictionary \
-			and int((parsed as Dictionary).get("scenario", -1)) == HELI_NAVIGATION_TEST_SCENARIO
+	if parsed is Dictionary:
+		return int((parsed as Dictionary).get("scenario", -1))
+	return -1
+
+
+func _get_requested_carrier_combat_profile() -> String:
+	if not FileAccess.file_exists(TEST_SCENARIO_SETTINGS_PATH):
+		return CARRIER_COMBAT_DEFAULT_PROFILE
+	var file := FileAccess.open(TEST_SCENARIO_SETTINGS_PATH, FileAccess.READ)
+	if file == null:
+		return CARRIER_COMBAT_DEFAULT_PROFILE
+	var parsed: Variant = JSON.parse_string(file.get_as_text())
+	if parsed is Dictionary:
+		return str((parsed as Dictionary).get("profile", CARRIER_COMBAT_DEFAULT_PROFILE))
+	return CARRIER_COMBAT_DEFAULT_PROFILE
+
+
+func _get_requested_carrier_combat_weapon_focus() -> String:
+	if not FileAccess.file_exists(TEST_SCENARIO_SETTINGS_PATH):
+		return ""
+	var file := FileAccess.open(TEST_SCENARIO_SETTINGS_PATH, FileAccess.READ)
+	if file == null:
+		return ""
+	var parsed: Variant = JSON.parse_string(file.get_as_text())
+	if parsed is Dictionary:
+		return str((parsed as Dictionary).get("weapon_focus", ""))
+	return ""
+
+
+func _start_airplane_test_mode() -> void:
+	if _airplane_test_mode != null and is_instance_valid(_airplane_test_mode):
+		return
+	_disable_loading_screen_for_airplane_test()
+	var mode := Node3D.new()
+	mode.set_script(AIRPLANE_TEST_MODE_SCRIPT)
+	if mode == null:
+		push_error("[ScenarioManager] Could not create airplane test mode")
+		return
+	_airplane_test_mode = mode
+	add_child(mode)
+	if mode.has_method("configure"):
+		mode.call("configure", _scenario_play_area_center)
+
+
+func _start_dogfight_test_mode() -> void:
+	if _dogfight_test_mode != null and is_instance_valid(_dogfight_test_mode):
+		return
+	_disable_loading_screen_for_airplane_test()
+	var mode := Node3D.new()
+	mode.set_script(DOGFIGHT_TEST_MODE_SCRIPT)
+	if mode == null:
+		push_error("[ScenarioManager] Could not create dogfight test mode")
+		return
+	_dogfight_test_mode = mode
+	add_child(mode)
+	if mode.has_method("configure"):
+		mode.call("configure", _scenario_play_area_center)
+
+
+func _start_landing_test_mode() -> void:
+	if _landing_test_mode != null and is_instance_valid(_landing_test_mode):
+		return
+	_disable_loading_screen_for_airplane_test()
+	var mode := Node3D.new()
+	mode.set_script(LANDING_TEST_MODE_SCRIPT)
+	if mode == null:
+		push_error("[ScenarioManager] Could not create landing test mode")
+		return
+	_landing_test_mode = mode
+	add_child(mode)
+	if mode.has_method("configure"):
+		mode.call("configure", _scenario_play_area_center)
+
+
+func _start_carrier_combat_test_mode() -> void:
+	if _carrier_combat_test_mode != null and is_instance_valid(_carrier_combat_test_mode):
+		return
+	_disable_loading_screen_for_airplane_test()
+	var mode := Node3D.new()
+	mode.set_script(CARRIER_COMBAT_TEST_MODE_SCRIPT)
+	if mode == null:
+		push_error("[ScenarioManager] Could not create carrier combat test mode")
+		return
+	_carrier_combat_test_mode = mode
+	if mode.has_method("set_test_profile"):
+		mode.call("set_test_profile", _get_requested_carrier_combat_profile())
+	if mode.has_method("set_isolated_ground_weapon_focus"):
+		mode.call("set_isolated_ground_weapon_focus", _get_requested_carrier_combat_weapon_focus())
+	add_child(mode)
+	if mode.has_method("configure"):
+		mode.call("configure", _scenario_play_area_center)
+
+
+func _disable_loading_screen_for_airplane_test() -> void:
+	var loading_screen: Node = get_node_or_null("/root/LoadingScreen")
+	if loading_screen == null:
+		return
+	if loading_screen.has_method("disable_for_test_mode"):
+		loading_screen.call("disable_for_test_mode")
+	else:
+		loading_screen.visible = false
+		loading_screen.set_process(false)
 
 
 func _load_frame_profiler_override() -> Dictionary:
@@ -526,6 +695,8 @@ func _spawn_wind_turbine_guard_emplacements(container: Node3D, group_center: Vec
 			guard.set("team", wind_turbine_team)
 		if "activation_distance_m" in guard:
 			guard.set("activation_distance_m", wind_turbine_guard_activation_distance_m)
+		if "deactivation_distance_m" in guard:
+			guard.set("deactivation_distance_m", wind_turbine_guard_deactivation_distance_m)
 		container.add_child(guard)
 		var yaw: float = _wind_turbine_rng.randf_range(-PI, PI)
 		guard.global_transform = Transform3D(Basis(Vector3.UP, yaw), guard_pos)
@@ -595,7 +766,7 @@ func _pick_random_play_area_center(terrain: Node3D) -> Vector3:
 	var terrain_quads_z: int = int(quads_z_variant) if quads_z_variant != null else 0
 	var terrain_cell_size_m: float = float(cell_size_variant) if cell_size_variant != null else 0.0
 	if terrain_quads_x <= 0 or terrain_quads_z <= 0 or terrain_cell_size_m <= 0.0:
-		return terrain.global_position
+		return terrain.position
 
 	var terrain_half_span_x: float = float(terrain_quads_x) * terrain_cell_size_m * 0.5
 	var terrain_half_span_z: float = float(terrain_quads_z) * terrain_cell_size_m * 0.5
@@ -609,9 +780,9 @@ func _pick_random_play_area_center(terrain: Node3D) -> Vector3:
 	var rng := RandomNumberGenerator.new()
 	rng.randomize()
 	return Vector3(
-		terrain.global_position.x + rng.randf_range(-max_offset_x, max_offset_x),
-		terrain.global_position.y,
-		terrain.global_position.z + rng.randf_range(-max_offset_z, max_offset_z)
+		terrain.position.x + rng.randf_range(-max_offset_x, max_offset_x),
+		terrain.position.y,
+		terrain.position.z + rng.randf_range(-max_offset_z, max_offset_z)
 	)
 
 func _snap_play_area_center_to_nav_grid(center: Vector3) -> Vector3:

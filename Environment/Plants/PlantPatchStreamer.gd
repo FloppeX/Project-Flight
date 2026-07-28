@@ -5,6 +5,7 @@ const DEFAULT_PLANT_SCENE: PackedScene = preload("res://Environment/Plants/Cactu
 const LAYOUT_VERSION := 5
 
 @export_group("Plant")
+@export var streaming_enabled: bool = false
 @export var plant_scene: PackedScene = DEFAULT_PLANT_SCENE
 @export var seed: int = 424242
 @export var layout_save_path: String = "user://plant_patch_layouts/cactus_patches_v5.json"
@@ -54,10 +55,18 @@ var _layout_center_local: Vector3 = Vector3.ZERO
 func _ready() -> void:
 	add_to_group("origin_shifter")
 	add_to_group("plant_patch_streamer")
+	if not streaming_enabled:
+		set_process(false)
+		_clear_active_plants()
+		return
 	call_deferred("_try_initialize_layout")
 
 
 func _process(delta: float) -> void:
+	if not streaming_enabled:
+		_clear_active_plants()
+		set_process(false)
+		return
 	if not _layout_ready:
 		_try_initialize_layout()
 		return
@@ -70,15 +79,19 @@ func _process(delta: float) -> void:
 
 
 func apply_origin_shift(_offset: Vector3) -> void:
+	if not streaming_enabled:
+		return
 	_update_timer = 0.0
 
 
 func is_layout_ready() -> bool:
-	return _layout_ready
+	return streaming_enabled and _layout_ready
 
 
 func get_patch_map_markers() -> Array[Dictionary]:
 	var markers: Array[Dictionary] = []
+	if not streaming_enabled:
+		return markers
 	for patch in _patch_local_centers:
 		var local_pos := patch["position"] as Vector3
 		markers.append({
@@ -90,6 +103,8 @@ func get_patch_map_markers() -> Array[Dictionary]:
 
 
 func _try_initialize_layout() -> void:
+	if not streaming_enabled:
+		return
 	if _layout_ready:
 		return
 	if _terrain == null:
@@ -266,6 +281,9 @@ func _sample_ground_y(local_x: float, local_z: float) -> float:
 
 
 func _update_streamed_plants() -> void:
+	if not streaming_enabled:
+		_clear_active_plants()
+		return
 	var focus := _get_stream_focus()
 	if focus == null:
 		return
@@ -300,6 +318,14 @@ func _update_streamed_plants() -> void:
 		visible_count += 1
 		if visible_count >= max_visible_plants:
 			return
+
+
+func _clear_active_plants() -> void:
+	for id in _active.keys():
+		var plant := _active[id] as Node
+		if plant != null and is_instance_valid(plant):
+			plant.queue_free()
+	_active.clear()
 
 
 func _spawn_record(record: Dictionary) -> void:

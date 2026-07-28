@@ -2,6 +2,7 @@ extends StaticBody3D
 class_name Building
 
 signal destroyed(building)
+signal damaged(amount, current_health)
 
 @export var max_health: float = 150.0
 @export var destroyed_scene_path: String = ""
@@ -26,6 +27,7 @@ func take_damage(damage_amount: float) -> void:
 		return
 	current_health -= damage_amount
 	current_health = maxf(current_health, 0.0)
+	damaged.emit(damage_amount, current_health)
 	if current_health <= 0.0:
 		_destroy()
 

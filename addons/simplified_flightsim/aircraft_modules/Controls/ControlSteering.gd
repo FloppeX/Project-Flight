@@ -14,10 +14,23 @@ class_name AircraftModule_ControlSteering
 @export var rudder_assist_center_deadzone: float = 0.055
 @export var rudder_assist_manual_override_start: float = 0.05
 @export var rudder_assist_manual_override_full: float = 0.30
+@export var helicopter_rudder_assist_gain: float = 0.55
+@export var helicopter_rudder_assist_max_input: float = 0.35
+@export var helicopter_rudder_assist_yaw_rate_damping: float = 0.055
+@export var helicopter_rudder_assist_response_speed: float = 10.0
+@export var helicopter_rudder_assist_full_deflection_lateral_g: float = 0.75
+@export var helicopter_rudder_assist_velocity_slip_weight: float = 0.20
+@export var helicopter_rudder_assist_lateral_g_filter_speed: float = 8.0
+@export var helicopter_rudder_assist_center_deadzone: float = 0.12
+@export var helicopter_rudder_assist_manual_override_start: float = 0.02
+@export var helicopter_rudder_assist_manual_override_full: float = 0.16
+@export var helicopter_rudder_assist_min_forward_speed: float = 8.0
+@export var helicopter_rudder_assist_full_forward_speed: float = 32.0
 
 var steering_module: Node = null
 var simple_aero: Node = null
 var aero_has_cmds := false
+var _is_helicopter_controls: bool = false
 var _filtered_lateral_g: float = 0.0
 var _previous_velocity: Vector3 = Vector3.ZERO
 var _has_previous_velocity: bool = false
@@ -36,6 +49,7 @@ func setup(aircraft_node: Node) -> void:
 		simple_aero = aircraft.find_child("SimpleAero", true, false)
 	if simple_aero != null and not _node_has_properties(simple_aero, ["pitch_input", "roll_input", "yaw_input"]):
 		simple_aero = null
+	_is_helicopter_controls = _detect_helicopter_controls()
 
 func _physics_process(delta: float) -> void:
 	if (not ControlActive) or (steering_module == null):
@@ -73,39 +87,55 @@ func _shape_input(v: float) -> float:
 
 
 func _apply_rudder_assist(manual_yaw: float, delta: float) -> float:
-	var assist_strength := _get_rudder_assist_strength()
+	var assist_strength := _get_rudder_assist_strength(_is_helicopter_controls)
 	if assist_strength <= 0.0 or aircraft == null or not is_instance_valid(aircraft) or not (aircraft is RigidBody3D):
 		_reset_rudder_assist_state()
 		return manual_yaw
 
-	var slip_error := _estimate_slip_ball_error(delta)
-	if absf(slip_error) < rudder_assist_center_deadzone:
+	var gain := helicopter_rudder_assist_gain if _is_helicopter_controls else rudder_assist_gain
+	var max_input := helicopter_rudder_assist_max_input if _is_helicopter_controls else rudder_assist_max_input
+	var yaw_rate_damping := helicopter_rudder_assist_yaw_rate_damping if _is_helicopter_controls else rudder_assist_yaw_rate_damping
+	var response_speed := helicopter_rudder_assist_response_speed if _is_helicopter_controls else rudder_assist_response_speed
+	var center_deadzone := helicopter_rudder_assist_center_deadzone if _is_helicopter_controls else rudder_assist_center_deadzone
+	var manual_override_start := helicopter_rudder_assist_manual_override_start if _is_helicopter_controls else rudder_assist_manual_override_start
+	var manual_override_full := helicopter_rudder_assist_manual_override_full if _is_helicopter_controls else rudder_assist_manual_override_full
+
+	var slip_error := _estimate_slip_ball_error(delta, _is_helicopter_controls)
+	if absf(slip_error) < center_deadzone:
 		slip_error = 0.0
 
 	var basis := (aircraft as Node3D).global_transform.basis.orthonormalized()
 	var yaw_rate := 0.0
 	if aircraft is RigidBody3D:
 		yaw_rate = (aircraft as RigidBody3D).angular_velocity.dot(basis.y)
+		if _is_helicopter_controls:
+			var local_velocity := basis.inverse() * (aircraft as RigidBody3D).linear_velocity
+			var forward_speed := absf(local_velocity.z)
+			assist_strength *= _smoothstep(
+				helicopter_rudder_assist_min_forward_speed,
+				maxf(helicopter_rudder_assist_full_forward_speed, helicopter_rudder_assist_min_forward_speed + 0.1),
+				forward_speed
+			)
 
-	var target_assist := -slip_error * rudder_assist_gain - yaw_rate * rudder_assist_yaw_rate_damping
+	var target_assist := -slip_error * gain - yaw_rate * yaw_rate_damping
 	target_assist = clampf(
 		target_assist,
-		-rudder_assist_max_input,
-		rudder_assist_max_input
+		-max_input,
+		max_input
 	) * assist_strength
 
-	var response_t := clampf(delta * maxf(rudder_assist_response_speed, 0.1), 0.0, 1.0)
+	var response_t := clampf(delta * maxf(response_speed, 0.1), 0.0, 1.0)
 	_filtered_assist_yaw = lerpf(_filtered_assist_yaw, target_assist, response_t)
 
 	var manual_fade := 1.0 - _smoothstep(
-		rudder_assist_manual_override_start,
-		maxf(rudder_assist_manual_override_full, rudder_assist_manual_override_start + 0.01),
+		manual_override_start,
+		maxf(manual_override_full, manual_override_start + 0.01),
 		absf(manual_yaw)
 	)
 	return clampf(manual_yaw + _filtered_assist_yaw * manual_fade, -1.0, 1.0)
 
 
-func _estimate_slip_ball_error(delta: float) -> float:
+func _estimate_slip_ball_error(delta: float, use_helicopter_tuning: bool) -> float:
 	var rb := aircraft as RigidBody3D
 	if rb == null:
 		return 0.0
@@ -125,15 +155,20 @@ func _estimate_slip_ball_error(delta: float) -> float:
 	_previous_velocity = velocity
 	_has_previous_velocity = true
 
-	var lateral_filter_t := clampf(delta * maxf(rudder_assist_lateral_g_filter_speed, 0.1), 0.0, 1.0)
+	var lateral_filter_speed := helicopter_rudder_assist_lateral_g_filter_speed if use_helicopter_tuning else rudder_assist_lateral_g_filter_speed
+	var full_deflection_lateral_g := helicopter_rudder_assist_full_deflection_lateral_g if use_helicopter_tuning else rudder_assist_full_deflection_lateral_g
+	var velocity_slip_weight := helicopter_rudder_assist_velocity_slip_weight if use_helicopter_tuning else rudder_assist_velocity_slip_weight
+	var lateral_filter_t := clampf(delta * maxf(lateral_filter_speed, 0.1), 0.0, 1.0)
 	_filtered_lateral_g = lerpf(_filtered_lateral_g, lateral_g, lateral_filter_t)
 
-	var force_slip := _filtered_lateral_g / maxf(rudder_assist_full_deflection_lateral_g, 0.05)
-	return clampf(force_slip + velocity_slip * maxf(rudder_assist_velocity_slip_weight, 0.0), -1.0, 1.0)
+	var force_slip := _filtered_lateral_g / maxf(full_deflection_lateral_g, 0.05)
+	return clampf(force_slip + velocity_slip * maxf(velocity_slip_weight, 0.0), -1.0, 1.0)
 
 
-func _get_rudder_assist_strength() -> float:
+func _get_rudder_assist_strength(use_helicopter_setting: bool) -> float:
 	var pause_menu := get_node_or_null("/root/PauseMenu")
+	if use_helicopter_setting and pause_menu != null and pause_menu.has_method("get_helicopter_rudder_assist_strength"):
+		return clampf(float(pause_menu.call("get_helicopter_rudder_assist_strength")), 0.0, 1.0)
 	if pause_menu != null and pause_menu.has_method("get_rudder_assist_strength"):
 		return clampf(float(pause_menu.call("get_rudder_assist_strength")), 0.0, 1.0)
 	return 0.0
@@ -148,6 +183,16 @@ func _reset_rudder_assist_state() -> void:
 func _smoothstep(edge0: float, edge1: float, x: float) -> float:
 	var t := clampf((x - edge0) / maxf(edge1 - edge0, 0.0001), 0.0, 1.0)
 	return t * t * (3.0 - 2.0 * t)
+
+
+func _detect_helicopter_controls() -> bool:
+	if simple_aero == null:
+		return false
+	var script := simple_aero.get_script() as Script
+	if script != null and script.resource_path.ends_with("HelicopterFlight.gd"):
+		return true
+	return simple_aero.get_class() == "HelicopterFlight"
+
 
 func _node_has_properties(n: Object, names: Array) -> bool:
 	var plist := n.get_property_list()

@@ -2,6 +2,7 @@ extends RefCounted
 class_name FrameProfiler
 
 static var enabled: bool = false
+static var report_capture_enabled: bool = false
 static var report_interval_s: float = 1.0
 static var summary_interval_s: float = 10.0
 static var spike_threshold_ms: float = 8.0
@@ -11,6 +12,7 @@ static var _frame_index: int = -1
 static var _frame_entries: Dictionary = {}
 static var _interval_entries: Dictionary = {}
 static var _summary_entries: Dictionary = {}
+static var _report_entries: Dictionary = {}
 static var _interval_elapsed_s: float = 0.0
 static var _summary_elapsed_s: float = 0.0
 
@@ -36,19 +38,42 @@ static func set_enabled(value: bool, reason: String = "") -> void:
 	print("[FrameProfiler] %s%s" % ["enabled" if enabled else "disabled", suffix])
 
 
+static func set_report_capture_enabled(value: bool, reason: String = "") -> void:
+	if report_capture_enabled == value:
+		return
+	report_capture_enabled = value
+	_report_entries.clear()
+	var suffix := " (%s)" % reason if not reason.is_empty() else ""
+	print("[FrameProfilerReportCapture] %s%s" % ["enabled" if report_capture_enabled else "disabled", suffix])
+
+
 static func begin(_label: String) -> int:
-	if not enabled:
+	if not enabled and not report_capture_enabled:
 		return 0
 	return Time.get_ticks_usec()
 
 
 static func end(label: String, start_usec: int) -> void:
-	if not enabled or start_usec <= 0:
+	if (not enabled and not report_capture_enabled) or start_usec <= 0:
 		return
 	var elapsed_us: int = maxi(Time.get_ticks_usec() - start_usec, 0)
-	_record(_frame_entries, label, elapsed_us)
-	_record(_interval_entries, label, elapsed_us)
-	_record(_summary_entries, label, elapsed_us)
+	if enabled:
+		_record(_frame_entries, label, elapsed_us)
+		_record(_interval_entries, label, elapsed_us)
+		_record(_summary_entries, label, elapsed_us)
+	if report_capture_enabled:
+		_record(_report_entries, label, elapsed_us)
+
+
+static func consume_report_rows(max_rows: int = 12) -> Array[Dictionary]:
+	var rows: Array[Dictionary] = _sorted_rows(_report_entries)
+	_report_entries.clear()
+	var result: Array[Dictionary] = []
+	var limit: int = mini(maxi(max_rows, 1), rows.size())
+	for i in range(limit):
+		var row: Dictionary = rows[i]
+		result.append(row)
+	return result
 
 
 static func tick(delta: float) -> void:
@@ -113,23 +138,11 @@ static func _flush_summary() -> void:
 
 
 static func _format_top_entries(entries: Dictionary, include_avg: bool) -> String:
-	var rows: Array[Dictionary] = []
-	for label in entries.keys():
-		var entry: Dictionary = entries[label]
-		rows.append({
-			"label": str(label),
-			"total_us": int(entry.get("total_us", 0)),
-			"max_us": int(entry.get("max_us", 0)),
-			"count": int(entry.get("count", 0)),
-		})
-	rows.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
-		return int(a["total_us"]) > int(b["total_us"])
-	)
-
+	var rows: Array[Dictionary] = _sorted_rows(entries)
 	var parts: Array[String] = []
 	var limit: int = mini(maxi(top_count, 1), rows.size())
 	for i in range(limit):
-		var row := rows[i]
+		var row: Dictionary = rows[i]
 		var count: int = maxi(int(row["count"]), 1)
 		if include_avg:
 			parts.append("%s total=%.2fms avg=%.3fms max=%.2fms n=%d" % [
@@ -145,3 +158,19 @@ static func _format_top_entries(entries: Dictionary, include_avg: bool) -> Strin
 				float(row["total_us"]) * 0.001,
 			])
 	return "; ".join(parts)
+
+
+static func _sorted_rows(entries: Dictionary) -> Array[Dictionary]:
+	var rows: Array[Dictionary] = []
+	for label in entries.keys():
+		var entry: Dictionary = entries[label]
+		rows.append({
+			"label": str(label),
+			"total_us": int(entry.get("total_us", 0)),
+			"max_us": int(entry.get("max_us", 0)),
+			"count": int(entry.get("count", 0)),
+		})
+	rows.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return int(a["total_us"]) > int(b["total_us"])
+	)
+	return rows
