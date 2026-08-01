@@ -46,8 +46,6 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	layer = 191
 	set_process(true)
-	set_process_input(true)
-	_ensure_input_action()
 	_build_ui()
 	_set_open(false)
 
@@ -58,17 +56,6 @@ func _process(delta: float) -> void:
 	if _refresh_timer_s <= 0.0:
 		_refresh_table()
 		_refresh_timer_s = 0.5
-
-func _input(event: InputEvent) -> void:
-	var pressed := event.is_action_pressed("pilot_roster_toggle")
-	if not pressed:
-		return
-	_set_open(not _root.visible)
-	get_viewport().set_input_as_handled()
-
-func _ensure_input_action() -> void:
-	if not InputMap.has_action("pilot_roster_toggle"):
-		InputMap.add_action("pilot_roster_toggle")
 
 func _build_ui() -> void:
 	_root = Control.new()
@@ -100,7 +87,7 @@ func _build_ui() -> void:
 	_table.custom_minimum_size = Vector2(_table_width(), 0.0)
 	_scroll.add_child(_table)
 
-	_footer = _make_label("COMMA: CLOSE", 12, VECTOR_DIM_COLOR, HORIZONTAL_ALIGNMENT_RIGHT)
+	_footer = _make_label("M / ESC: CLOSE // CARRIER CONSOLE: PERSONNEL", 12, VECTOR_DIM_COLOR, HORIZONTAL_ALIGNMENT_RIGHT)
 	_panel.add_child(_footer)
 
 	_root.resized.connect(_layout_ui)
@@ -130,6 +117,12 @@ func _set_open(is_open: bool) -> void:
 	if is_open:
 		_refresh_table()
 		_refresh_timer_s = 0.5
+
+func set_console_visible(is_visible: bool) -> void:
+	_set_open(is_visible)
+
+func is_console_visible() -> bool:
+	return _root != null and _root.visible
 
 func _refresh_table() -> void:
 	if _table == null:

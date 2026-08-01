@@ -146,6 +146,7 @@ func _score_trial(result: Dictionary) -> float:
 	var outcome := String(result.get("outcome", "GONE"))
 	var score := {
 		"CAUGHT": 10000.0,
+		"WAVE-OFF": 2200.0,
 		"BOLTER": 2200.0,
 		"TIMEOUT": -2200.0,
 		"CRASH": -4000.0,

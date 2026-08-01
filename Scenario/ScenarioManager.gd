@@ -303,6 +303,9 @@ func _is_carrier_combat_test_requested() -> bool:
 
 
 func _get_requested_test_scenario() -> int:
+	var cli_value := _get_cmdline_option("--test-scenario=")
+	if cli_value.is_valid_int():
+		return int(cli_value)
 	if not FileAccess.file_exists(TEST_SCENARIO_SETTINGS_PATH):
 		return -1
 	var file := FileAccess.open(TEST_SCENARIO_SETTINGS_PATH, FileAccess.READ)
@@ -315,6 +318,9 @@ func _get_requested_test_scenario() -> int:
 
 
 func _get_requested_carrier_combat_profile() -> String:
+	var cli_value := _get_cmdline_option("--test-profile=")
+	if not cli_value.is_empty():
+		return cli_value
 	if not FileAccess.file_exists(TEST_SCENARIO_SETTINGS_PATH):
 		return CARRIER_COMBAT_DEFAULT_PROFILE
 	var file := FileAccess.open(TEST_SCENARIO_SETTINGS_PATH, FileAccess.READ)
@@ -324,6 +330,13 @@ func _get_requested_carrier_combat_profile() -> String:
 	if parsed is Dictionary:
 		return str((parsed as Dictionary).get("profile", CARRIER_COMBAT_DEFAULT_PROFILE))
 	return CARRIER_COMBAT_DEFAULT_PROFILE
+
+
+func _get_cmdline_option(prefix: String) -> String:
+	for arg in OS.get_cmdline_user_args():
+		if arg.begins_with(prefix):
+			return arg.substr(prefix.length())
+	return ""
 
 
 func _get_requested_carrier_combat_weapon_focus() -> String:

@@ -111,6 +111,16 @@ const PilotVisualMaterials = preload("res://Models/Characters/PilotVisualMateria
 @export var locomotion_animation: StringName = &"mixamo_com"
 ## Ground speed the clip reads naturally at; playback speed scales relative to this.
 @export var locomotion_anim_reference_speed_mps: float = 5.5
+@export_group("Retargeted Locomotion")
+## Optional animation-only character whose clip is retargeted onto this pilot's
+## colored skeleton. This keeps the source mesh hidden and uses only its motion.
+@export var locomotion_source_scene: PackedScene
+@export var locomotion_source_animation: StringName = &"mixamo_com"
+@export_group("Retargeted Ejection")
+## Mixamo hanging animation used while the colored cockpit pilot is under canopy.
+@export var parachute_source_scene: PackedScene
+@export var parachute_source_animation: StringName = &"mixamo_com"
+@export var parachute_animation_speed: float = 1.0
 
 var _skeleton: Skeleton3D = null
 var _ready_done: bool = false
@@ -127,6 +137,58 @@ var _locomotion_active: bool = false
 var _locomotion_speed_mps: float = 0.0
 var _locomotion_time_s: float = 0.0
 var _locomotion_anim_playing: bool = false
+var _retarget_source_root: Node = null
+var _retarget_source_skeleton: Skeleton3D = null
+var _retarget_source_player: AnimationPlayer = null
+var _retarget_bone_pairs: Array[Dictionary] = []
+var _retarget_loaded_scene: PackedScene = null
+var _retarget_animation_active: bool = false
+
+const LOCOMOTION_RETARGET_BONES := [
+	["mixamorig_Hips", "root.x"],
+	["mixamorig_Spine", "spine_01.x"],
+	["mixamorig_Spine2", "spine_02.x"],
+	["mixamorig_Neck", "neck.x"],
+	["mixamorig_Head", "head.x"],
+	["mixamorig_LeftShoulder", "shoulder.l"],
+	["mixamorig_RightShoulder", "shoulder.r"],
+	["mixamorig_LeftArm", "arm_stretch.l"],
+	["mixamorig_LeftArm", "c_arm_twist_offset.l"],
+	["mixamorig_RightArm", "arm_stretch.r"],
+	["mixamorig_RightArm", "c_arm_twist_offset.r"],
+	["mixamorig_LeftForeArm", "forearm_stretch.l"],
+	["mixamorig_LeftForeArm", "forearm_twist.l"],
+	["mixamorig_RightForeArm", "forearm_stretch.r"],
+	["mixamorig_RightForeArm", "forearm_twist.r"],
+	["mixamorig_LeftHand", "hand.l"],
+	["mixamorig_RightHand", "hand.r"],
+	["mixamorig_LeftUpLeg", "thigh_stretch.l"],
+	["mixamorig_LeftUpLeg", "thigh_twist.l"],
+	["mixamorig_RightUpLeg", "thigh_stretch.r"],
+	["mixamorig_RightUpLeg", "thigh_twist.r"],
+	["mixamorig_LeftLeg", "leg_stretch.l"],
+	["mixamorig_LeftLeg", "leg_twist.l"],
+	["mixamorig_RightLeg", "leg_stretch.r"],
+	["mixamorig_RightLeg", "leg_twist.r"],
+	["mixamorig_LeftFoot", "foot.l"],
+	["mixamorig_RightFoot", "foot.r"],
+	["mixamorig_LeftToeBase", "toes_01.l"],
+	["mixamorig_RightToeBase", "toes_01.r"],
+	["mixamorig_LeftHandThumb1", "thumb1.l"],
+	["mixamorig_LeftHandThumb2", "c_thumb2.l"],
+	["mixamorig_LeftHandThumb3", "c_thumb3.l"],
+	["mixamorig_RightHandThumb1", "thumb1.r"],
+	["mixamorig_RightHandThumb2", "c_thumb2.r"],
+	["mixamorig_RightHandThumb3", "c_thumb3.r"],
+	["mixamorig_LeftHandIndex1", "index1.l"],
+	["mixamorig_LeftHandIndex1", "c_index1_base.l"],
+	["mixamorig_LeftHandIndex2", "c_index2.l"],
+	["mixamorig_LeftHandIndex3", "c_index3.l"],
+	["mixamorig_RightHandIndex1", "index1.r"],
+	["mixamorig_RightHandIndex1", "c_index1_base.r"],
+	["mixamorig_RightHandIndex2", "c_index2.r"],
+	["mixamorig_RightHandIndex3", "c_index3.r"],
+]
 
 const BONE_ALIASES := {
 	"Abdomen": ["mixamorig_Spine", "mixamorig:Spine", "spine_01.x", "Waist", "Spine01", "DEF-spine"],
@@ -303,6 +365,10 @@ func _process(_delta: float) -> void:
 	if _baked_sitting_pose_active:
 		_update_head_visibility(false)
 		return
+	if _retarget_animation_active:
+		_advance_retargeted_animation(_delta)
+		_update_head_visibility(false)
+		return
 	if _locomotion_anim_playing:
 		_update_head_visibility(false)
 		return
@@ -403,17 +469,28 @@ func _apply_locomotion_pose(delta: float) -> void:
 
 
 func set_ejection_pose(pose_name: StringName, blend_time_s: float = -1.0) -> void:
+	_release_cockpit_visibility()
 	_baked_sitting_pose_active = false
 	set_locomotion_pose(false)
 	if _mixamo_anim_active:
 		_mixamo_anim_active = false
 		if _anim_player != null and is_instance_valid(_anim_player):
 			_anim_player.stop()
+	if pose_name == &"parachute" and _start_retargeted_parachute():
+		return
 	var values := _get_pose_values(pose_name)
 	if values.is_empty():
 		return
 	var duration := pose_blend_time_s if blend_time_s < 0.0 else blend_time_s
 	_apply_pose_values(values, maxf(duration, 0.0))
+
+
+func _release_cockpit_visibility() -> void:
+	# The cockpit camera is reparented with the pilot during player ejection. It can
+	# remain current all the way down, but it must no longer hide the pilot mesh.
+	hide_head_in_cockpit = false
+	_cockpit_camera = null
+	_update_head_visibility(true)
 
 
 func set_locomotion_pose(active: bool, speed_mps: float = 0.0) -> void:
@@ -434,6 +511,8 @@ func set_locomotion_pose(active: bool, speed_mps: float = 0.0) -> void:
 
 
 func _start_locomotion_animation() -> void:
+	if _start_retargeted_locomotion():
+		return
 	if _anim_player == null or not is_instance_valid(_anim_player):
 		_anim_player = _find_first_animation_player(_pose_target_root)
 	if _anim_player == null:
@@ -456,6 +535,7 @@ func _start_locomotion_animation() -> void:
 
 
 func _stop_locomotion_animation() -> void:
+	_stop_retargeted_animation()
 	if not _locomotion_anim_playing:
 		return
 	_locomotion_anim_playing = false
@@ -463,6 +543,148 @@ func _stop_locomotion_animation() -> void:
 		_anim_player.stop()
 		_anim_player.speed_scale = 1.0
 		_anim_player.active = false
+
+
+func _start_retargeted_locomotion() -> bool:
+	if locomotion_source_scene == null or _skeleton == null:
+		return false
+	var speed_scale := clampf(
+		_locomotion_speed_mps / maxf(locomotion_anim_reference_speed_mps, 0.1),
+		0.45,
+		1.6
+	)
+	return _start_retargeted_animation(locomotion_source_scene, locomotion_source_animation, speed_scale)
+
+
+func _start_retargeted_parachute() -> bool:
+	if parachute_source_scene == null or _skeleton == null:
+		return false
+	return _start_retargeted_animation(
+		parachute_source_scene,
+		parachute_source_animation,
+		maxf(parachute_animation_speed, 0.01)
+	)
+
+
+func _start_retargeted_animation(source_scene: PackedScene, animation_name: StringName, speed_scale: float) -> bool:
+	if not _setup_retargeted_animation(source_scene):
+		return false
+	var resolved := _resolve_animation_on_player(_retarget_source_player, animation_name)
+	if resolved == &"":
+		return false
+	var animation := _retarget_source_player.get_animation(resolved)
+	if animation != null and animation.loop_mode == Animation.LOOP_NONE:
+		animation.loop_mode = Animation.LOOP_LINEAR
+	_retarget_source_player.active = true
+	_retarget_source_player.speed_scale = speed_scale
+	_retarget_source_player.play(resolved)
+	_retarget_source_player.advance(0.0)
+	_retarget_animation_active = true
+	_apply_retargeted_animation_frame()
+	return true
+
+
+func _stop_retargeted_animation() -> void:
+	if not _retarget_animation_active:
+		return
+	_retarget_animation_active = false
+	if _retarget_source_player != null and is_instance_valid(_retarget_source_player):
+		_retarget_source_player.stop()
+		_retarget_source_player.speed_scale = 1.0
+	_skeleton.reset_bone_poses()
+
+
+func _setup_retargeted_animation(source_scene: PackedScene) -> bool:
+	if source_scene == null:
+		return false
+	if _retarget_loaded_scene == source_scene \
+			and _retarget_source_root != null \
+			and is_instance_valid(_retarget_source_root):
+		return _retarget_source_skeleton != null \
+			and _retarget_source_player != null \
+			and not _retarget_bone_pairs.is_empty()
+	_free_retarget_source()
+	_retarget_source_root = source_scene.instantiate()
+	if _retarget_source_root == null:
+		return false
+	_retarget_loaded_scene = source_scene
+	add_child(_retarget_source_root)
+	if _retarget_source_root is Node3D:
+		(_retarget_source_root as Node3D).visible = false
+	_retarget_source_skeleton = _find_skeleton(_retarget_source_root)
+	_retarget_source_player = _find_first_animation_player(_retarget_source_root)
+	if _retarget_source_skeleton == null or _retarget_source_player == null:
+		_free_retarget_source()
+		return false
+	# The source player is sampled explicitly by this node, never by its own process.
+	_retarget_source_root.process_mode = Node.PROCESS_MODE_DISABLED
+	_retarget_bone_pairs.clear()
+	for mapping in LOCOMOTION_RETARGET_BONES:
+		var source_index := _retarget_source_skeleton.find_bone(String(mapping[0]))
+		var target_index := _skeleton.find_bone(String(mapping[1]))
+		if source_index < 0 or target_index < 0:
+			continue
+		_retarget_bone_pairs.append({
+			"source": source_index,
+			"target": target_index,
+		})
+	return not _retarget_bone_pairs.is_empty()
+
+
+func _free_retarget_source() -> void:
+	if _retarget_source_root != null and is_instance_valid(_retarget_source_root):
+		_retarget_source_root.queue_free()
+	_retarget_source_root = null
+	_retarget_source_skeleton = null
+	_retarget_source_player = null
+	_retarget_loaded_scene = null
+	_retarget_bone_pairs.clear()
+
+
+func _advance_retargeted_animation(delta: float) -> void:
+	if _retarget_source_player == null or not is_instance_valid(_retarget_source_player):
+		_retarget_animation_active = false
+		return
+	_retarget_source_player.advance(delta)
+	_apply_retargeted_animation_frame()
+
+
+func _apply_retargeted_animation_frame() -> void:
+	if _skeleton == null or _retarget_source_skeleton == null:
+		return
+	_skeleton.reset_bone_poses()
+	for pair in _retarget_bone_pairs:
+		var source_index := int(pair["source"])
+		var target_index := int(pair["target"])
+		var source_rest := _retarget_source_skeleton.get_bone_global_rest(source_index).orthonormalized()
+		var source_pose := _retarget_source_skeleton.get_bone_global_pose(source_index).orthonormalized()
+		var target_rest := _skeleton.get_bone_global_rest(target_index)
+		# Applying the complete global rest-to-pose delta transfers both rotation and
+		# joint travel. The colored rig's deformation bones are mostly siblings under
+		# a control root, so rotation alone would leave knees and elbows behind.
+		var motion_delta := source_pose * source_rest.affine_inverse()
+		var desired_global := motion_delta * target_rest
+		desired_global.basis = desired_global.basis.orthonormalized()
+		var parent_index := _skeleton.get_bone_parent(target_index)
+		var desired_local := desired_global
+		if parent_index >= 0:
+			desired_local = _skeleton.get_bone_global_pose(parent_index).affine_inverse() * desired_global
+		var target_local_rest := _skeleton.get_bone_rest(target_index)
+		var pose_basis := target_local_rest.basis.orthonormalized().inverse() * desired_local.basis
+		_skeleton.set_bone_pose_rotation(target_index, pose_basis.orthonormalized().get_rotation_quaternion())
+		_skeleton.set_bone_pose_position(target_index, desired_local.origin - target_local_rest.origin)
+
+
+func _resolve_animation_on_player(player: AnimationPlayer, animation_name: StringName) -> StringName:
+	if player == null:
+		return &""
+	if player.has_animation(animation_name):
+		return animation_name
+	for library_name in player.get_animation_library_list():
+		var candidate := StringName(library_name + "/" + str(animation_name)) if library_name != "" else animation_name
+		if player.has_animation(candidate):
+			return candidate
+	return &""
 
 
 func _get_pose_values(pose_name: StringName) -> Dictionary:

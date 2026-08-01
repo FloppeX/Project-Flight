@@ -844,8 +844,7 @@ func _controls_bbcode() -> String:
 [color=#{d}]V[/color]                DEPLOY NEXT GROUND PLATOON
 [color=#{d}]B[/color]                RETRIEVE LAST PLATOON
 [color=#{d}]Z[/color]                TOGGLE VEHICLE RAMP
-[color=#{d}]M[/color]                WORLD MAP
-[color=#{d}],[/color]                PILOT ROSTER
+[color=#{d}]M[/color]                CARRIER OPERATIONS CONSOLE
 [color=#{d}]P / SELECT[/color]       PAUSE / THIS MENU
 """.format({"w": w, "d": d})
 

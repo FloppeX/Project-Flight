@@ -19,6 +19,7 @@ const FLIGHT_NAMES := ["Archer", "Bulldog", "Crimson", "Dingo"]
 @export var assignment_interval_s: float = 3.0
 @export var threat_scan_interval_s: float = 2.5
 @export var debug_print: bool = true
+@export var mission_tasking_enabled: bool = true
 
 @export var default_mission: Flight.Mission = Flight.Mission.CAP
 @export var default_cap_altitude_m: float = 800.0
@@ -35,6 +36,16 @@ const FLIGHT_NAMES := ["Archer", "Bulldog", "Crimson", "Dingo"]
 @export var ground_vehicle_radar_enabled: bool = true
 @export var ground_vehicle_radar_range_m: float = 3500.0
 
+## Recovery supervision observes mission progress without taking ownership of
+## waypoints or controls. AIPilot remains the tactical route executor and the
+## flight deck remains the sole landing-clearance authority.
+@export var recovery_supervision_enabled: bool = true
+@export var recovery_supervision_interval_s: float = 3.0
+@export var recovery_supervision_stall_timeout_s: float = 40.0
+@export var recovery_supervision_progress_step_m: float = 25.0
+@export var recovery_supervision_replan_cooldown_s: float = 30.0
+@export var recovery_supervision_max_replans: int = 3
+
 ## Aircraft to launch per scramble when a flight has no members.
 @export var scramble_flight_size: int = 2
 
@@ -48,6 +59,9 @@ var _carrier: Node3D = null
 var _assign_timer: float = 0.0
 var _threat_timer: float = 0.0
 var _sensor_picture_timer: float = 0.0
+var _recovery_supervision_timer_s: float = 0.0
+var _recovery_supervision_elapsed_s: float = 0.0
+var _recovery_supervision_records: Dictionary = {}
 var _next_flight_idx: int = 0
 
 ## Currently assigned missions. Null means no flight holds that role.
@@ -111,6 +125,19 @@ func _apply_default_missions() -> void:
 
 func _process(delta: float) -> void:
 	var _profiler_start: int = FrameProfiler.begin("AirOpsManager.process")
+	_recovery_supervision_elapsed_s += maxf(delta, 0.0)
+	_recovery_supervision_timer_s -= delta
+	if recovery_supervision_enabled and _recovery_supervision_timer_s <= 0.0:
+		_recovery_supervision_timer_s = maxf(recovery_supervision_interval_s, 0.5)
+		_update_recovery_supervision(_recovery_supervision_elapsed_s)
+		_recovery_supervision_elapsed_s = 0.0
+	elif not recovery_supervision_enabled:
+		if not _recovery_supervision_records.is_empty():
+			_recovery_supervision_records.clear()
+		_recovery_supervision_elapsed_s = 0.0
+	if not mission_tasking_enabled:
+		FrameProfiler.end("AirOpsManager.process", _profiler_start)
+		return
 	_sensor_picture_timer -= delta
 	if _sensor_picture_timer <= 0.0:
 		_sensor_picture_timer = maxf(sensor_picture_update_interval_s, 0.1)
@@ -149,6 +176,162 @@ func _process(delta: float) -> void:
 	FrameProfiler.end("AirOpsManager.process", _profiler_start)
 
 # ── Ordering API ───────────────────────────────────────────────────────────────
+
+func _update_recovery_supervision(sample_delta_s: float) -> void:
+	## Observe only route-following recovery phases. Holding, final stabilization,
+	## landing, and bolter states may intentionally fly away from the carrier and
+	## therefore must never be "corrected" by this strategic watchdog.
+	var supervised_aircraft: Dictionary = {}
+	for group_name in ["aircraft", "ai_aircraft", "friendlies"]:
+		for node_variant in get_tree().get_nodes_in_group(group_name):
+			if not (node_variant is Node3D) or not is_instance_valid(node_variant):
+				continue
+			var aircraft := node_variant as Node3D
+			if supervised_aircraft.has(aircraft):
+				continue
+			if not _is_aircraft_candidate_for_flight(aircraft):
+				continue
+			if not aircraft.has_method("get_team") or int(aircraft.call("get_team")) != 1:
+				continue
+			var pilot := aircraft.find_child("AIPilot", true, false) as AIPilot
+			if not _pilot_needs_recovery_supervision(pilot):
+				continue
+			supervised_aircraft[aircraft] = true
+			_supervise_recovering_aircraft(
+				get_flight_of(aircraft),
+				aircraft,
+				pilot,
+				maxf(sample_delta_s, 0.0)
+			)
+
+	for aircraft_ref in _recovery_supervision_records.keys():
+		if not is_instance_valid(aircraft_ref) or not supervised_aircraft.has(aircraft_ref):
+			_recovery_supervision_records.erase(aircraft_ref)
+
+
+func _pilot_needs_recovery_supervision(pilot: AIPilot) -> bool:
+	if pilot == null or not is_instance_valid(pilot):
+		return false
+	return pilot.current_state in [
+		AIPilot.State.RTB,
+		AIPilot.State.RECOVERY_APPROACH,
+	]
+
+
+func _supervise_recovering_aircraft(
+		flight: Flight,
+		aircraft: Node3D,
+		pilot: AIPilot,
+		sample_delta_s: float
+	) -> void:
+	var snapshot: Dictionary = pilot.get_recovery_navigation_snapshot()
+	if not bool(snapshot.get("valid", false)):
+		_recovery_supervision_records.erase(aircraft)
+		return
+	var progress: Dictionary = snapshot.get("progress", {})
+	var progress_valid: bool = bool(progress.get("valid", false))
+	var state: int = int(snapshot.get("state", int(pilot.current_state)))
+	var revision: int = int(snapshot.get("flight_plan_revision", -1))
+	var progress_index: int = int(progress.get("index", -1)) if progress_valid else -1
+	var plan_remaining_m: float = float(progress.get("plan_remaining_m", INF)) \
+		if progress_valid else INF
+	var reacquire_active: bool = bool(snapshot.get("reacquire_active", false))
+
+	var record: Dictionary = _recovery_supervision_records.get(aircraft, {})
+	var route_identity_changed: bool = record.is_empty() \
+		or int(record.get("state", -1)) != state \
+		or int(record.get("revision", -1)) != revision \
+		or int(record.get("progress_index", -1)) != progress_index
+	if route_identity_changed:
+		var prior_attempts: int = int(record.get("attempts", 0))
+		record = {
+			"state": state,
+			"revision": revision,
+			"progress_index": progress_index,
+			"best_plan_remaining_m": plan_remaining_m,
+			"stalled_s": 0.0,
+			"cooldown_s": maxf(
+				float(record.get("cooldown_s", 0.0)) - sample_delta_s,
+				0.0
+			),
+			"attempts": prior_attempts,
+			"exhausted_logged": false,
+		}
+		_recovery_supervision_records[aircraft] = record
+		return
+
+	record["cooldown_s"] = maxf(
+		float(record.get("cooldown_s", 0.0)) - sample_delta_s,
+		0.0
+	)
+	if reacquire_active:
+		# The pilot has acknowledged a local or supervisory repair and temporarily
+		# owns a stabilization manoeuvre. Do not stack another command on top of it.
+		record["stalled_s"] = 0.0
+		if progress_valid:
+			record["best_plan_remaining_m"] = plan_remaining_m
+		_recovery_supervision_records[aircraft] = record
+		return
+
+	var made_progress: bool = false
+	if progress_valid and is_finite(plan_remaining_m):
+		var best_remaining_m: float = float(record.get("best_plan_remaining_m", INF))
+		made_progress = not is_finite(best_remaining_m) \
+			or plan_remaining_m <= best_remaining_m \
+				- maxf(recovery_supervision_progress_step_m, 1.0)
+		if made_progress:
+			record["best_plan_remaining_m"] = plan_remaining_m
+	if made_progress:
+		record["stalled_s"] = 0.0
+		record["attempts"] = 0
+		record["exhausted_logged"] = false
+	else:
+		record["stalled_s"] = float(record.get("stalled_s", 0.0)) + sample_delta_s
+
+	var stalled_s: float = float(record.get("stalled_s", 0.0))
+	if stalled_s < maxf(recovery_supervision_stall_timeout_s, 1.0) \
+			or float(record.get("cooldown_s", 0.0)) > 0.0:
+		_recovery_supervision_records[aircraft] = record
+		return
+
+	var attempts: int = int(record.get("attempts", 0))
+	var flight_label: String = flight.flight_name \
+		if flight != null and is_instance_valid(flight) else "UNASSIGNED"
+	if attempts >= maxi(recovery_supervision_max_replans, 0):
+		if not bool(record.get("exhausted_logged", false)):
+			record["exhausted_logged"] = true
+			push_warning(
+				"[AirOps RECOVERY_WATCH] %s/%s still stalled after %d replans; leaving control with pilot" % [
+					flight_label,
+					aircraft.name,
+					attempts,
+				]
+			)
+		_recovery_supervision_records[aircraft] = record
+		return
+
+	var state_name: String = AIPilot.State.keys()[state] \
+		if state >= 0 and state < AIPilot.State.size() else str(state)
+	var reason := "no_route_progress_%.0fs_%s" % [stalled_s, state_name.to_lower()]
+	var accepted: bool = pilot.request_recovery_replan(reason)
+	record["stalled_s"] = 0.0
+	if accepted:
+		record["attempts"] = attempts + 1
+		record["cooldown_s"] = maxf(recovery_supervision_replan_cooldown_s, 0.0)
+		record["exhausted_logged"] = false
+		print("[AirOps RECOVERY_WATCH] %s/%s requested replan attempt=%d state=%s remaining=%.0fm" % [
+			flight_label,
+			aircraft.name,
+			attempts + 1,
+			state_name,
+			plan_remaining_m,
+		])
+	else:
+		# A state transition between the snapshot and the command is harmless. A
+		# short retry delay prevents log/command spam without manufacturing an ack.
+		record["cooldown_s"] = maxf(recovery_supervision_interval_s, 5.0)
+	_recovery_supervision_records[aircraft] = record
+
 
 func order_cap(fname: String, altitude_m: float = 800.0) -> void:
 	var f := get_flight(fname)
@@ -833,6 +1016,7 @@ func _aircraft_can_take_tactical_order(aircraft: Node3D) -> bool:
 		AIPilot.State.RECOVERY_MARSHAL,
 		AIPilot.State.RECOVERY_HOLD,
 		AIPilot.State.RECOVERY_APPROACH,
+		AIPilot.State.PRE_LANDING,
 		AIPilot.State.APPROACH,
 		AIPilot.State.LANDING,
 		AIPilot.State.MISSED_APPROACH,

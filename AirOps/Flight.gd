@@ -1,6 +1,8 @@
 class_name Flight
 extends Node
 
+const AirTaskModel: Script = preload("res://AI/AirTask.gd")
+
 ## Manages a single named flight of 2-4 aircraft.
 ## Applies mission settings to each pilot and handles per-aircraft target
 ## distribution for CAS missions.
@@ -57,7 +59,6 @@ const CAP_ROUTE_MIN_AGL_M: float = 260.0
 const FORMATION_ACTIVE_STATES: Array = [
 	AIPilot.State.SEARCH,
 	AIPilot.State.TRANSIT,
-	AIPilot.State.RTB,
 ]
 const FORMATION_BREAK_STATES: Array = [
 	AIPilot.State.DOGFIGHT,
@@ -65,6 +66,11 @@ const FORMATION_BREAK_STATES: Array = [
 	AIPilot.State.ATTACK_INBOUND,
 	AIPilot.State.ATTACK_DIVE,
 	AIPilot.State.ATTACK_BREAK_OFF,
+	AIPilot.State.RTB,
+	AIPilot.State.RECOVERY_MARSHAL,
+	AIPilot.State.RECOVERY_HOLD,
+	AIPilot.State.RECOVERY_APPROACH,
+	AIPilot.State.PRE_LANDING,
 	AIPilot.State.APPROACH,
 	AIPilot.State.LANDING,
 	AIPilot.State.IDLE,
@@ -270,13 +276,17 @@ func _apply_cap(aircraft: Node3D) -> bool:
 		return false
 	pilot.ground_attack_enabled = false
 	pilot.dogfight_enabled = true
-	pilot.set_patrol_altitude(_cap_altitude_m)
+	var cap_center: Vector3 = _cap_carrier.global_position \
+		if _cap_carrier != null and is_instance_valid(_cap_carrier) else Vector3.INF
+	var cap_task: Variant = AirTaskModel.patrol(cap_center, NAN, _cap_altitude_m)
+	cap_task.metadata = {"mission": "cap", "carrier_relative": true}
 	if aircraft == _get_lead_aircraft():
 		_refresh_lead_guidance(aircraft, pilot)
 	else:
 		# Clear waypoints so AIPilot rebuilds its carrier-centered patrol.
 		_clear_navigation_waypoints(pilot, true)
-	if pilot.current_state not in [AIPilot.State.SEARCH]:
+	if not pilot.assign_air_task(cap_task) and pilot.current_state not in [AIPilot.State.SEARCH]:
+		pilot.set_patrol_altitude(_cap_altitude_m)
 		pilot.change_state(AIPilot.State.SEARCH)
 	return true
 
@@ -286,17 +296,26 @@ func _apply_cas(aircraft: Node3D) -> bool:
 		return false
 	pilot.ground_attack_enabled = true
 	pilot.dogfight_enabled = true  # still defend themselves
+	# Keep an already-committed attack uninterrupted while updating the mission's
+	# eventual patrol altitude. Idle/searching pilots receive the full AirTask below.
 	pilot.set_patrol_altitude(_cas_altitude_m)
 	_clear_navigation_waypoints(pilot)
 	if pilot.current_state not in [
-		AIPilot.State.SEARCH,
 		AIPilot.State.ATTACK_POSITIONING,
 		AIPilot.State.ATTACK_INBOUND,
 		AIPilot.State.ATTACK_DIVE,
 		AIPilot.State.ATTACK_BREAK_OFF,
 		AIPilot.State.DOGFIGHT,
 	]:
-		pilot.change_state(AIPilot.State.SEARCH)
+		var cas_task: Variant = AirTaskModel.patrol(
+			_cas_area_center,
+			_cas_area_radius,
+			_cas_altitude_m
+		)
+		cas_task.metadata = {"mission": "cas", "awaiting_target": true}
+		if not pilot.assign_air_task(cas_task):
+			pilot.set_patrol_altitude(_cas_altitude_m)
+			pilot.change_state(AIPilot.State.SEARCH)
 	return true
 
 func _apply_intercept(aircraft: Node3D) -> bool:
@@ -307,7 +326,10 @@ func _apply_intercept(aircraft: Node3D) -> bool:
 	pilot.dogfight_enabled = true
 	pilot.set_patrol_altitude(_intercept_altitude_m)
 	if _intercept_target and is_instance_valid(_intercept_target):
-		pilot.set_target(_intercept_target)
+		var intercept_task: Variant = AirTaskModel.intercept_target(_intercept_target)
+		intercept_task.requested_altitude_m = _intercept_altitude_m
+		if not pilot.assign_air_task(intercept_task):
+			pilot.set_target(_intercept_target)
 	else:
 		_clear_navigation_waypoints(pilot, true)
 		if pilot.current_state not in [AIPilot.State.SEARCH]:
@@ -320,7 +342,8 @@ func _apply_rtb(aircraft: Node3D) -> bool:
 		return false
 	_clear_navigation_waypoints(pilot)
 	if pilot.current_state not in [AIPilot.State.RTB, AIPilot.State.APPROACH, AIPilot.State.LANDING]:
-		pilot.change_state(AIPilot.State.RTB)
+		if not pilot.assign_air_task(AirTaskModel.return_to_base()):
+			pilot.change_state(AIPilot.State.RTB)
 	return true
 
 # ── CAS target distribution ───────────────────────────────────────────────────
@@ -347,7 +370,8 @@ func _update_cas_assignments() -> void:
 			continue
 
 		_claimed_targets[target] = aircraft
-		pilot.set_target(target)
+		if not pilot.assign_air_task(AirTaskModel.attack_target(target)):
+			pilot.set_target(target)
 		if debug_print:
 			print("[Flight %s] %s → %s" % [flight_name, aircraft.name, target.name])
 		_say_cas_assignment(aircraft, target)
@@ -783,7 +807,9 @@ func _is_deck_busy(pilot: AIPilot) -> bool:
 	return pilot.current_state in [
 		AIPilot.State.IDLE, AIPilot.State.LAUNCHING,
 		AIPilot.State.CLIMBING, AIPilot.State.RTB,
-		AIPilot.State.APPROACH, AIPilot.State.LANDING,
+		AIPilot.State.RECOVERY_MARSHAL, AIPilot.State.RECOVERY_HOLD,
+		AIPilot.State.RECOVERY_APPROACH, AIPilot.State.MISSED_APPROACH,
+		AIPilot.State.PRE_LANDING, AIPilot.State.APPROACH, AIPilot.State.LANDING,
 	]
 
 func _mark_mission_dirty() -> void:

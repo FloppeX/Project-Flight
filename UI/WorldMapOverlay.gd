@@ -101,7 +101,6 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	layer = 190
 	set_process(true)
-	set_process_input(true)
 	_build_ui()
 	_rebuild_asset_buttons()
 	_rebuild_mission_buttons()
@@ -124,14 +123,6 @@ func _process(delta: float) -> void:
 	if _ui_refresh_timer_s <= 0.0:
 		_refresh_ui()
 		_ui_refresh_timer_s = 0.2
-
-func _input(event: InputEvent) -> void:
-	if not event.is_action_pressed("map_toggle"):
-		return
-	if event is InputEventKey and event.echo:
-		return
-	_set_open(not _root.visible)
-	get_viewport().set_input_as_handled()
 
 func _on_navgrid_bake_complete() -> void:
 	if _root.visible:
@@ -360,6 +351,12 @@ func _set_open(is_open: bool) -> void:
 	if is_open:
 		_ensure_map_texture()
 		_refresh_ui(true)
+
+func set_console_visible(is_visible: bool) -> void:
+	_set_open(is_visible)
+
+func is_console_visible() -> bool:
+	return _root != null and _root.visible
 
 func _ensure_map_texture() -> void:
 	if _map_ready:

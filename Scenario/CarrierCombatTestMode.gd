@@ -7,21 +7,30 @@ extends Node3D
 
 const FRIENDLY_SCENE_PATH := "res://Aircraft/Aircraft_5.tscn"
 const ENEMY_SCENE: PackedScene = preload("res://Aircraft/Aircraft_4.tscn")
+const AirTaskModel: Script = preload("res://AI/AirTask.gd")
 const DUMMY_TURRET_SCENE: PackedScene = preload("res://Buildings/dummy_gun_emplacement.tscn")
 const ACTIVE_TURRET_SCENE: PackedScene = preload("res://Buildings/gun_emplacement.tscn")
 const ACTIVE_TURRET_10MM_WEAPON_SCENE: PackedScene = preload("res://Weapons/Turrets/bullet_weapon.tscn")
+const ENEMY_TRUCK_SCENE: PackedScene = preload("res://GroundVehicle/GroundVehicle.tscn")
+const ENEMY_BUGGY_SCENE: PackedScene = preload("res://GroundVehicle/vehicle_enemy_buggy.tscn")
+const ENEMY_PICKUP_SCENE: PackedScene = preload("res://GroundVehicle/vehicle_enemy_pickup.tscn")
 const REPORT_PATH := "user://carrier_combat_test_report.log"
+const BATCH_REPORT_PREFIX := "user://carrier_combat_test_"
 const MIXED_LOADOUT_PROFILE := "combat_test"
 const INTERCEPT_LOADOUT_PROFILE := "cap"
-const FULL_CYCLE_LOADOUT_PROFILE := "rocket_strike"
+const FULL_CYCLE_LOADOUT_PROFILE := "random_ground_strike"
+const FULL_CYCLE_ROCKET_LOADOUT_PROFILE := "rocket_strike"
+const FULL_CYCLE_BOMB_LOADOUT_PROFILE := "bomb_strike"
 const SUMMARY_INTERVAL_S := 2.0
+const ROLLING_SUMMARY_INTERVAL_S := 10.0
 const PROFILE_CONTINUOUS_INTERCEPT := "continuous_intercept"
 const PROFILE_ISOLATED_GROUND_ATTACK := "isolated_ground_attack"
 const PROFILE_INTEGRATED := "integrated"
 const PROFILE_FULL_CYCLE := "full_cycle"
+const PROFILE_ROLLING_RECOVERY := "rolling_recovery"
 const PROJECT_ROCKET_SPECIALIST_PATH := "res://Scenario/airplane_test_best_rocket_genome.json"
 
-enum Stage { SETUP, GROUND_STRIKE, AIR_COMBAT, RECOVERY, COMPLETE }
+enum Stage { SETUP, GROUND_STRIKE, AIR_COMBAT, RECOVERY, ROLLING, COMPLETE }
 
 # Launch/climb consumes roughly the first 1.7 km from the carrier in this test.
 # Keep the target far enough beyond that point for the turn-radius-derived setup
@@ -35,6 +44,12 @@ enum Stage { SETUP, GROUND_STRIKE, AIR_COMBAT, RECOVERY, COMPLETE }
 @export var ground_target_attack_corridor_max_rise_m: float = 40.0
 @export var ground_target_attack_corridor_samples: int = 22
 @export var ground_target_wave_min_relocation_m: float = 600.0
+@export var full_cycle_ground_vehicle_range_m: float = 5000.0
+@export var full_cycle_ground_vehicle_spacing_m: float = 38.0
+@export var full_cycle_ground_vehicle_attack_radius_m: float = 500.0
+@export_range(0.0, 1.0, 0.05) var full_cycle_ground_vehicle_air_aim_multiplier: float = 0.55
+@export var full_cycle_ground_vehicle_air_extra_spread_m: float = 12.0
+@export var full_cycle_skip_enemy_air: bool = true
 @export_enum("Bomb", "Rocket Pod", "Guns", "Rotate") var isolated_ground_weapon_focus: String = "Rocket Pod"
 @export var enemy_range_from_carrier_m: float = 4000.0
 @export var full_cycle_enemy_range_from_carrier_m: float = 6000.0
@@ -49,14 +64,30 @@ enum Stage { SETUP, GROUND_STRIKE, AIR_COMBAT, RECOVERY, COMPLETE }
 @export var enemy_path_sample_spacing_m: float = 750.0
 @export var ground_strike_observation_timeout_s: float = 300.0
 @export var air_combat_timeout_s: float = 300.0
-@export var recovery_timeout_s: float = 300.0
+# Recovery orders can be issued while a survivor is still 4-6 km away on the
+# terrain route.  Allow that transit plus multiple safe go-arounds/replans before
+# the per-aircraft test budget expires; this is an observation limit, not pilot
+# guidance or a gameplay shortcut.  The outer process watchdog still catches a
+# genuinely non-terminating run.
+@export var recovery_timeout_s: float = 900.0
 @export var initial_launch_watchdog_s: float = 90.0
 @export var ground_assignment_min_agl_m: float = 300.0
 @export var keep_carrier_at_verified_pose: bool = true
-@export_enum("continuous_intercept", "isolated_ground_attack", "integrated", "full_cycle") var test_profile: String = PROFILE_CONTINUOUS_INTERCEPT
+@export_enum("continuous_intercept", "isolated_ground_attack", "integrated", "full_cycle", "rolling_recovery") var test_profile: String = PROFILE_CONTINUOUS_INTERCEPT
 @export var continuous_intercept_mode: bool = true
 @export_range(1, 8, 1) var continuous_friendly_count: int = 2
 @export_range(1, 8, 1) var continuous_enemy_count: int = 2
+@export_group("Rolling Recovery")
+@export_range(1, 5, 1) var rolling_active_aircraft_max: int = 5
+@export var rolling_outbound_min_m: float = 4000.0
+@export var rolling_outbound_max_m: float = 6000.0
+@export var rolling_outbound_altitude_agl_m: float = 520.0
+@export var rolling_outbound_min_route_agl_m: float = 350.0
+@export var rolling_outbound_capture_radius_m: float = 300.0
+@export var rolling_outbound_speed_mps: float = 100.0
+@export_range(0, 1000, 1) var rolling_target_traps: int = 10
+@export var rolling_random_seed: int = 20260801
+@export var rolling_finite_cohort: bool = false
 
 var _play_area_center := Vector3.ZERO
 var _carrier: Node3D = null
@@ -75,6 +106,7 @@ var _enemy_kills: int = 0
 var _continuous_force_check_s: float = 0.0
 var _reserve_aircraft_serial: int = 0
 var _ground_targets: Array[Node3D] = []
+var _ground_target_platoon: GroundVehiclePlatoon = null
 var _ground_targets_destroyed: int = 0
 var _ground_wave_index: int = 0
 var _ground_wave_destroyed: int = 0
@@ -92,8 +124,27 @@ var _initial_launch_watchdog_fired: bool = false
 var _carrier_resume_route_offset := Vector3.ZERO
 var _carrier_held_for_launches: bool = false
 var _carrier_resume_pending: bool = false
+var _carrier_held_for_recovery: bool = false
+var _carrier_recovery_hold_wait_logged: bool = false
+var _recovery_orders_dispatched: bool = false
 var _isolated_ground_attack_mode: bool = false
 var _full_cycle_mode: bool = false
+var _rolling_recovery_mode: bool = false
+var _weapon_focus_override_requested: bool = false
+var _rolling_rng := RandomNumberGenerator.new()
+var _rolling_traps: int = 0
+var _rolling_losses: int = 0
+var _rolling_last_queue_signature: String = ""
+var _rolling_last_refill_log_s: float = -100.0
+var _rolling_max_queue_depth: int = 0
+var _rolling_max_holding_aircraft: int = 0
+var _report_path: String = REPORT_PATH
+var _test_seed: int = -1
+var _test_run_id: String = ""
+var _quit_on_test_complete: bool = false
+var _completion_handled: bool = false
+var _friendly_destroyed_count: int = 0
+var _friendly_crash_count: int = 0
 
 
 func configure(play_area_center: Vector3) -> void:
@@ -106,6 +157,7 @@ func set_test_profile(profile: String) -> void:
 		PROFILE_ISOLATED_GROUND_ATTACK,
 		PROFILE_INTEGRATED,
 		PROFILE_FULL_CYCLE,
+		PROFILE_ROLLING_RECOVERY,
 	]:
 		push_warning("[CarrierCombatTest] Unknown profile '%s'; using %s" % [profile, PROFILE_CONTINUOUS_INTERCEPT])
 		test_profile = PROFILE_CONTINUOUS_INTERCEPT
@@ -124,12 +176,14 @@ func set_isolated_ground_weapon_focus(weapon_focus: String) -> void:
 		])
 		return
 	isolated_ground_weapon_focus = weapon_focus
+	_weapon_focus_override_requested = true
 
 
 func _sync_test_profile_flags() -> void:
 	continuous_intercept_mode = test_profile == PROFILE_CONTINUOUS_INTERCEPT
 	_isolated_ground_attack_mode = test_profile == PROFILE_ISOLATED_GROUND_ATTACK
 	_full_cycle_mode = test_profile == PROFILE_FULL_CYCLE
+	_rolling_recovery_mode = test_profile == PROFILE_ROLLING_RECOVERY
 	# Existing observation profiles deliberately keep their verified static pose.
 	# The end-to-end mission explicitly tests launch, combat and recovery from a
 	# carrier that resumes its patrol after the second catapult shot.
@@ -139,9 +193,15 @@ func _sync_test_profile_flags() -> void:
 
 func _ready() -> void:
 	_sync_test_profile_flags()
-	var report := FileAccess.open(REPORT_PATH, FileAccess.WRITE)
+	_configure_batch_run_from_cli()
+	if _rolling_recovery_mode and OS.get_cmdline_user_args().has("--rolling-finite-cohort"):
+		rolling_finite_cohort = true
+		rolling_target_traps = rolling_active_aircraft_max
+	var report := FileAccess.open(_report_path, FileAccess.WRITE)
 	if report != null:
 		report.store_line("Carrier combat test report")
+		if not _test_run_id.is_empty():
+			report.store_line("run_id=%s seed=%d" % [_test_run_id, _test_seed])
 		report.close()
 	if continuous_intercept_mode:
 		_log("START requested: continuous carrier intercept; %dx Aircraft_5 gun fighters; %dx replaceable kinematic-rail Aircraft_4 targets at %.0fm AGL" % [
@@ -150,12 +210,62 @@ func _ready() -> void:
 	elif _isolated_ground_attack_mode:
 		_log("START requested: isolated ground attack; repeating %s against waves of 4 non-firing ground targets; 2x Aircraft_5 strike; unlimited ammunition; no phase timeout, enemy aircraft, or recovery phase" % _isolated_ground_weapon_profile_label())
 	elif _full_cycle_mode:
-		_log("START requested: full cycle; moving carrier; 4 active enemy turrets; 2x Aircraft_5 with 2x finite rocket canisters + gun; then 2x live Aircraft_4 bombers at 6000m; survivors recover")
+		if full_cycle_skip_enemy_air:
+			_log("START requested: strike-to-recovery cycle; moving carrier; 4-vehicle enemy platoon (truck/buggy/pickup) advancing from 5000m; 2x Aircraft_5 independently randomized to 2x finite rocket canisters + gun or 2x finite bomb racks + gun; survivors recover immediately after the vehicles are destroyed; enemy air skipped")
+		else:
+			_log("START requested: full cycle; moving carrier; 4-vehicle enemy platoon (truck/buggy/pickup) advancing from 5000m; 2x Aircraft_5 independently randomized to 2x finite rocket canisters + gun or 2x finite bomb racks + gun; then 2x live Aircraft_4 bombers at 6000m; survivors recover")
+	elif _rolling_recovery_mode:
+		_log("START requested: rolling recovery; max_active=%d outbound=%.0f-%.0fm target_traps=%s seed=%d mode=%s; real catapult, FIFO landing clearance, recovery hold, arrest, tractor, hangar%s" % [
+			rolling_active_aircraft_max,
+			rolling_outbound_min_m,
+			rolling_outbound_max_m,
+			str(rolling_target_traps) if rolling_target_traps > 0 else "unlimited",
+			rolling_random_seed,
+			"finite_cohort" if rolling_finite_cohort else "rolling_refill",
+			"" if rolling_finite_cohort else ", and relaunch",
+		])
 	else:
 		_log("START requested: carrier + 4 non-firing enemy turrets; 2x Aircraft_5 strike; 2x kinematic-rail Aircraft_4 gunnery targets inbound at 550m AGL; survivors recover")
 	_suppress_normal_ops()
 	_clear_unrelated_units()
 	call_deferred("_setup_scenario")
+
+
+func _configure_batch_run_from_cli() -> void:
+	var seed_text := _get_cmdline_option("--test-seed=")
+	if seed_text.is_valid_int():
+		_test_seed = int(seed_text)
+		seed(_test_seed)
+	var rolling_active_text := _get_cmdline_option("--rolling-active=")
+	if rolling_active_text.is_valid_int():
+		rolling_active_aircraft_max = clampi(
+			int(rolling_active_text),
+			1,
+			5
+		)
+	_test_run_id = _sanitize_run_id(_get_cmdline_option("--test-run-id="))
+	_quit_on_test_complete = OS.get_cmdline_user_args().has("--quit-on-test-complete")
+	if OS.get_cmdline_user_args().has("--include-enemy-air"):
+		full_cycle_skip_enemy_air = false
+	elif OS.get_cmdline_user_args().has("--skip-enemy-air"):
+		full_cycle_skip_enemy_air = true
+	if not _test_run_id.is_empty():
+		_report_path = BATCH_REPORT_PREFIX + _test_run_id + ".log"
+
+
+func _get_cmdline_option(prefix: String) -> String:
+	for arg in OS.get_cmdline_user_args():
+		if arg.begins_with(prefix):
+			return arg.substr(prefix.length())
+	return ""
+
+
+func _sanitize_run_id(value: String) -> String:
+	var safe := ""
+	for character in value:
+		if character.to_lower() in "abcdefghijklmnopqrstuvwxyz0123456789_-":
+			safe += character
+	return safe.left(80)
 
 
 func _setup_scenario() -> void:
@@ -184,6 +294,14 @@ func _setup_scenario() -> void:
 		_log("ERROR setup failed: no terrain-safe carrier launch/recovery pose found")
 		return
 	_connect_arresting_cables()
+	if _rolling_recovery_mode:
+		_rolling_rng.seed = rolling_random_seed
+		_stage = Stage.ROLLING
+		_stage_started_s = _elapsed_s
+		_started = true
+		_request_rolling_launches()
+		_log("PHASE rolling recovery active; combat disabled, carrier held at verified launch/recovery pose")
+		return
 	if continuous_intercept_mode:
 		_stage = Stage.AIR_COMBAT
 		_stage_started_s = _elapsed_s
@@ -197,11 +315,16 @@ func _setup_scenario() -> void:
 		_log("ERROR setup failed: spawned %d/4 ground targets" % _ground_targets.size())
 		return
 	var launch_loadout := FULL_CYCLE_LOADOUT_PROFILE if _full_cycle_mode else MIXED_LOADOUT_PROFILE
+	if _full_cycle_mode and _weapon_focus_override_requested:
+		if isolated_ground_weapon_focus == "Rocket Pod":
+			launch_loadout = FULL_CYCLE_ROCKET_LOADOUT_PROFILE
+		elif isolated_ground_weapon_focus == "Bomb":
+			launch_loadout = FULL_CYCLE_BOMB_LOADOUT_PROFILE
 	var queued: int = int(_fdm.call("queue_ai_flight", 2, self, launch_loadout))
 	_log("LAUNCH_ORDER queued=%d aircraft_scene=%s loadout=%s" % [
 		queued,
 		FRIENDLY_SCENE_PATH,
-		"2xRocketPod+Gun finite" if _full_cycle_mode else "Bomb+Rocket+Gun",
+		launch_loadout if _full_cycle_mode else "Bomb+Rocket+Gun",
 	])
 	if queued != 2:
 		_log("ERROR expected two available Aircraft_5 hangar launches, got %d" % queued)
@@ -214,6 +337,15 @@ func _suppress_normal_ops() -> void:
 	for autoload_name in ["AirOpsManager", "EnemyOpsManager", "GroundOpsManager", "EnemyBaseManager", "POIManager"]:
 		var manager: Node = get_node_or_null("/root/" + autoload_name)
 		if manager != null:
+			# This harness owns mission/combat tasking in every profile, but recovery
+			# supervision is orthogonal and should remain active during the real combat
+			# cycle as well as the isolated rolling test.
+			if autoload_name == "AirOpsManager":
+				manager.set("mission_tasking_enabled", false)
+				manager.set_process(true)
+				manager.set_physics_process(false)
+				_log("SUPPRESSED AirOpsManager tasking; recovery supervision active")
+				continue
 			manager.set_process(false)
 			manager.set_physics_process(false)
 			_log("SUPPRESSED %s" % autoload_name)
@@ -270,6 +402,7 @@ func _spawn_ground_targets() -> void:
 	_ground_wave_index += 1
 	_ground_wave_destroyed = 0
 	_ground_targets.clear()
+	_ground_target_platoon = null
 	var carrier_right := _carrier.global_transform.basis.x
 	carrier_right.y = 0.0
 	if carrier_right.length_squared() < 0.001:
@@ -285,29 +418,52 @@ func _spawn_ground_targets() -> void:
 		Vector2(-0.5, 0.5), Vector2(0.5, 0.5),
 	]
 	var preferred_bearing_deg: float = _ground_wave_preferred_bearing_deg(_ground_wave_index)
-	var site := _find_ground_target_cluster_site(
+	var cluster_spacing_m: float = full_cycle_ground_vehicle_spacing_m if _full_cycle_mode else ground_target_spacing_m
+	var cluster_range_m: float = full_cycle_ground_vehicle_range_m if _full_cycle_mode else ground_target_range_from_carrier_m
+	var site: Dictionary = _find_moving_ground_platoon_site(
 		carrier_forward,
 		carrier_right,
 		offsets,
 		preferred_bearing_deg,
-		_last_ground_target_center
+		cluster_spacing_m,
+		cluster_range_m
+	) if _full_cycle_mode else _find_ground_target_cluster_site(
+		carrier_forward,
+		carrier_right,
+		offsets,
+		preferred_bearing_deg,
+		_last_ground_target_center,
+		cluster_spacing_m,
+		cluster_range_m,
+		false
 	)
 	if site.is_empty() and is_finite(_last_ground_target_center.x):
 		# Terrain legality wins if the fixed map happens not to offer a second clear
 		# corridor at the requested separation, but make that fallback explicit.
 		_log("GROUND_WAVE relocation fallback: no alternate legal site at least %.0fm from prior wave" % ground_target_wave_min_relocation_m)
-		site = _find_ground_target_cluster_site(
+		site = _find_moving_ground_platoon_site(
 			carrier_forward,
 			carrier_right,
 			offsets,
-			preferred_bearing_deg
+			preferred_bearing_deg,
+			cluster_spacing_m,
+			cluster_range_m
+		) if _full_cycle_mode else _find_ground_target_cluster_site(
+			carrier_forward,
+			carrier_right,
+			offsets,
+			preferred_bearing_deg,
+			Vector3.INF,
+			cluster_spacing_m,
+			cluster_range_m,
+			false
 		)
 	if site.is_empty():
 		_log("ERROR no terrain-safe ground-target attack corridor found")
 		return
 	var cluster_center: Vector3 = site.get(
 		"center",
-		_carrier.global_position + (carrier_forward + carrier_right * 0.35).normalized() * ground_target_range_from_carrier_m
+		_carrier.global_position + (carrier_forward + carrier_right * 0.35).normalized() * cluster_range_m
 	)
 	_last_ground_target_center = cluster_center
 	_log("GROUND_TARGET_SITE wave=%d preferred=%.0fdeg bearing=%.0fdeg range=%.0fm rise=%.0fm span=%.0fm corridor_rise=%.0fm" % [
@@ -319,37 +475,44 @@ func _spawn_ground_targets() -> void:
 		float(site.get("span_m", NAN)),
 		float(site.get("corridor_rise_m", NAN)),
 	])
+	if _full_cycle_mode:
+		_spawn_full_cycle_ground_vehicle_platoon(cluster_center, carrier_forward, carrier_right, offsets)
+		return
 	for i in range(4):
-		var target_scene := ACTIVE_TURRET_SCENE if _full_cycle_mode else DUMMY_TURRET_SCENE
+		var target_scene := DUMMY_TURRET_SCENE
 		var target := target_scene.instantiate() as Node3D
 		if target == null:
 			continue
-		target.name = "CombatTest_Wave_%02d_%sTurret_%d" % [
+		target.name = "CombatTest_Wave_%02d_DummyTurret_%d" % [
 			_ground_wave_index,
-			"Active" if _full_cycle_mode else "Dummy",
 			i + 1,
 		]
 		# One solid near-hit should remove a test target. These dummies exist to advance
 		# the integrated strike -> dogfight -> recovery sequence, not to soak repeated
 		# bombing passes while maneuvering changes are under observation.
-		target.set("max_health", 150.0 if _full_cycle_mode else 100.0)
+		target.set("max_health", 100.0)
 		target.set("team", 2)
-		target.set("is_dummy", not _full_cycle_mode)
-		if _full_cycle_mode:
-			# Keep the integrated challenge focused on the pilots' attack and recovery.
-			# Ordinary world emplacements still retain their randomized 10/15/20 mm loadouts.
-			target.set("weapon_scene_10mm", ACTIVE_TURRET_10MM_WEAPON_SCENE)
-			target.set("weapon_scene_15mm", null)
-			target.set("weapon_scene_20mm", null)
+		target.set("is_dummy", true)
 		# The normal relevance optimization can hide and disable a distant emplacement.
 		# Test targets must remain visible and collidable throughout the strike.
 		target.set("inactive_when_no_targets", false)
 		target.set("full_deactivation_when_no_targets", false)
 		target.set_meta("suppress_enemy_ops_on_destroy", true)
 		get_tree().current_scene.add_child(target)
+		for turret_controller in target.find_children("*", "TurretController", true, false):
+			if "air_target_aim_skill_multiplier" in turret_controller:
+				turret_controller.set(
+					"air_target_aim_skill_multiplier",
+					full_cycle_ground_vehicle_air_aim_multiplier
+				)
+			if "air_target_extra_spread_m" in turret_controller:
+				turret_controller.set(
+					"air_target_extra_spread_m",
+					maxf(full_cycle_ground_vehicle_air_extra_spread_m, 0.0)
+				)
 		var p := cluster_center \
-				+ carrier_right * offsets[i].x * ground_target_spacing_m \
-				+ carrier_forward * offsets[i].y * ground_target_spacing_m
+				+ carrier_right * offsets[i].x * cluster_spacing_m \
+				+ carrier_forward * offsets[i].y * cluster_spacing_m
 		# _ground_height() reads the terrain node's exact analytical height. Do NOT follow this with
 		# snap_collider_to_ground() -- that re-derives Y from TerrainNavGrid's baked, coarser grid
 		# (40m/cell resolution per its own docs), which can disagree by a meter or more on sloped
@@ -364,22 +527,205 @@ func _spawn_ground_targets() -> void:
 		_ground_targets.append(target)
 		_log("SPAWN ground_target=%s type=%s pos=%s range_from_carrier=%.0fm hp=%.0f armed=%s weapon=%s" % [
 			target.name,
-			"gun_emplacement" if _full_cycle_mode else "dummy_turret",
+			"dummy_turret",
 			_fmt(p),
 			_flat_distance(p, _carrier.global_position),
 			float(target.get("max_health")) if "max_health" in target else -1.0,
-			str(_full_cycle_mode),
-			"10 mm Machine Gun" if _full_cycle_mode else "none",
+			"false",
+			"none",
 		])
 
 
-func _find_ground_target_cluster_site(
-		carrier_forward: Vector3,
-		carrier_right: Vector3,
-		offsets: Array[Vector2],
-		preferred_bearing_deg: float = NAN,
-		avoid_center: Vector3 = Vector3.INF
+func _spawn_full_cycle_ground_vehicle_platoon(
+	cluster_center: Vector3,
+	carrier_forward: Vector3,
+	carrier_right: Vector3,
+	offsets: Array[Vector2]
+) -> void:
+	var platoon := GroundVehiclePlatoon.new()
+	platoon.name = "CombatTest_EnemyVehiclePlatoon_%02d" % _ground_wave_index
+	platoon.platoon_id = platoon.name
+	platoon.team = 2
+	platoon.global_position = cluster_center
+	get_tree().current_scene.add_child(platoon)
+	platoon.set_attack_node(_carrier, full_cycle_ground_vehicle_attack_radius_m)
+	_ground_target_platoon = platoon
+
+	var scenes: Array[PackedScene] = [
+		ENEMY_TRUCK_SCENE,
+		ENEMY_BUGGY_SCENE,
+		ENEMY_PICKUP_SCENE,
+	]
+	var toward_carrier: Vector3 = _carrier.global_position - cluster_center
+	toward_carrier.y = 0.0
+	if toward_carrier.length_squared() <= 0.001:
+		toward_carrier = -carrier_forward
+	toward_carrier = toward_carrier.normalized()
+	for i in range(4):
+		var scene: PackedScene = scenes[randi() % scenes.size()]
+		var target := scene.instantiate() as Node3D
+		if target == null:
+			continue
+		var vehicle_type := "truck"
+		if scene == ENEMY_BUGGY_SCENE:
+			vehicle_type = "buggy"
+		elif scene == ENEMY_PICKUP_SCENE:
+			vehicle_type = "pickup"
+		target.name = "CombatTest_Wave_%02d_%s_%d" % [
+			_ground_wave_index,
+			vehicle_type.capitalize(),
+			i + 1,
+		]
+		target.set("team", 2)
+		target.set_meta("suppress_enemy_ops_on_destroy", true)
+		get_tree().current_scene.add_child(target)
+		var configured_gunners: int = _configure_full_cycle_ground_vehicle_gunners(target)
+		var p := cluster_center \
+				+ carrier_right * offsets[i].x * full_cycle_ground_vehicle_spacing_m \
+				+ carrier_forward * offsets[i].y * full_cycle_ground_vehicle_spacing_m
+		p.y = _ground_height(p) + 2.0
+		target.global_transform = Transform3D(_basis_from_forward(toward_carrier), p)
+		if target.has_method("assign_platoon"):
+			target.call("assign_platoon", platoon)
+		if target.has_signal("damaged"):
+			target.connect("damaged", Callable(self, "_on_ground_target_damaged").bind(target))
+		if target.has_signal("destroyed"):
+			target.connect("destroyed", Callable(self, "_on_ground_target_destroyed"), CONNECT_ONE_SHOT)
+		_ground_targets.append(target)
+		_log("SPAWN ground_target=%s type=%s pos=%s range_from_carrier=%.0fm hp=%.0f armed=true objective=attack_carrier platoon=%s gunners=%d air_aim_mult=%.2f air_spread=%.1fm" % [
+			target.name,
+			vehicle_type,
+			_fmt(p),
+			_flat_distance(p, _carrier.global_position),
+			float(target.get("max_health")) if "max_health" in target else -1.0,
+			platoon.name,
+			configured_gunners,
+			full_cycle_ground_vehicle_air_aim_multiplier,
+			maxf(full_cycle_ground_vehicle_air_extra_spread_m, 0.0),
+		])
+
+
+func _configure_full_cycle_ground_vehicle_gunners(target: Node3D) -> int:
+	# These penalties belong to this deliberately small, exposed test platoon.  The
+	# spawn log previously advertised them without applying them: only the retired
+	# static-turret branch configured its TurretControllers.  Keep the vehicle's
+	# ordinary ground-target accuracy intact and weaken only its air solution.
+	var configured_count: int = 0
+	for turret_controller in target.find_children("*", "TurretController", true, false):
+		if "air_target_aim_skill_multiplier" in turret_controller:
+			turret_controller.set(
+				"air_target_aim_skill_multiplier",
+				clampf(full_cycle_ground_vehicle_air_aim_multiplier, 0.0, 1.0)
+			)
+		if "air_target_extra_spread_m" in turret_controller:
+			turret_controller.set(
+				"air_target_extra_spread_m",
+				maxf(full_cycle_ground_vehicle_air_extra_spread_m, 0.0)
+			)
+		configured_count += 1
+	return configured_count
+
+
+func _find_moving_ground_platoon_site(
+	carrier_forward: Vector3,
+	carrier_right: Vector3,
+	offsets: Array[Vector2],
+	preferred_bearing_deg: float,
+	cluster_spacing_m: float,
+	cluster_range_m: float
 ) -> Dictionary:
+	var bearings_deg: Array[float] = [
+		preferred_bearing_deg,
+		preferred_bearing_deg + 20.0,
+		preferred_bearing_deg - 20.0,
+		preferred_bearing_deg + 45.0,
+		preferred_bearing_deg - 45.0,
+		preferred_bearing_deg + 90.0,
+		preferred_bearing_deg - 90.0,
+		preferred_bearing_deg + 135.0,
+		preferred_bearing_deg - 135.0,
+		preferred_bearing_deg + 180.0,
+	]
+	var ranges_m: Array[float] = [
+		cluster_range_m,
+		cluster_range_m - 200.0,
+		cluster_range_m + 200.0,
+		cluster_range_m - 400.0,
+		cluster_range_m + 400.0,
+	]
+	var best: Dictionary = {}
+	var best_score: float = INF
+	for bearing_deg in bearings_deg:
+		var bearing_rad := deg_to_rad(bearing_deg)
+		var direction := (carrier_forward * cos(bearing_rad) + carrier_right * sin(bearing_rad)).normalized()
+		for candidate_range_m in ranges_m:
+			var center := _carrier.global_position + direction * maxf(candidate_range_m, 500.0)
+			if not _is_inside_tactical_map(center, 300.0):
+				continue
+			var min_h: float = INF
+			var max_h: float = -INF
+			var valid: bool = true
+			for offset in offsets:
+				var probe := center \
+						+ carrier_right * offset.x * cluster_spacing_m \
+						+ carrier_forward * offset.y * cluster_spacing_m
+				var height_m: float = _ground_height(probe)
+				if not is_finite(height_m):
+					valid = false
+					break
+				min_h = minf(min_h, height_m)
+				max_h = maxf(max_h, height_m)
+			if not valid:
+				continue
+			var local_height_span_m: float = max_h - min_h
+			if local_height_span_m > maxf(ground_target_site_max_height_span_m, 1.0):
+				continue
+			var ground_center := Vector3(center.x, (min_h + max_h) * 0.5, center.z)
+			if NavGraph.is_ready() and not NavGraph.can_anchor(ground_center, 60.0, 220.0):
+				continue
+			var bearing_error_deg: float = absf(wrapf(bearing_deg - preferred_bearing_deg, -180.0, 180.0))
+			var score: float = bearing_error_deg * 2.0 \
+					+ absf(candidate_range_m - cluster_range_m) * 0.05 \
+					+ local_height_span_m * 10.0
+			if score < best_score:
+				best_score = score
+				best = {
+					"center": ground_center,
+					"bearing_deg": wrapf(bearing_deg, -180.0, 180.0),
+					"rise_m": max_h - _ground_height(_carrier.global_position),
+					"span_m": local_height_span_m,
+					"corridor_rise_m": NAN,
+				}
+	return best
+
+
+func _is_inside_tactical_map(world_pos: Vector3, margin_m: float = 0.0) -> bool:
+	if not TerrainNavGrid.is_ready() or TerrainNavGrid._cols <= 1 or TerrainNavGrid._rows <= 1:
+		return false
+	var max_x: float = TerrainNavGrid._origin_x \
+			+ float(TerrainNavGrid._cols - 1) * TerrainNavGrid.cell_size_m
+	var max_z: float = TerrainNavGrid._origin_z \
+			+ float(TerrainNavGrid._rows - 1) * TerrainNavGrid.cell_size_m
+	return world_pos.x >= TerrainNavGrid._origin_x + margin_m \
+			and world_pos.x <= max_x - margin_m \
+			and world_pos.z >= TerrainNavGrid._origin_z + margin_m \
+			and world_pos.z <= max_z - margin_m
+
+
+func _find_ground_target_cluster_site(
+	carrier_forward: Vector3,
+	carrier_right: Vector3,
+	offsets: Array[Vector2],
+	preferred_bearing_deg: float = NAN,
+	avoid_center: Vector3 = Vector3.INF,
+	cluster_spacing_m: float = -1.0,
+	cluster_range_m: float = -1.0,
+	require_ground_navigation: bool = false
+) -> Dictionary:
+	if cluster_spacing_m <= 0.0:
+		cluster_spacing_m = ground_target_spacing_m
+	if cluster_range_m <= 0.0:
+		cluster_range_m = ground_target_range_from_carrier_m
 	var carrier_ground: float = _ground_height(_carrier.global_position)
 	var best: Dictionary = {}
 	var best_score: float = INF
@@ -389,10 +735,10 @@ func _find_ground_target_cluster_site(
 		100.0, -100.0, 120.0, -120.0, 140.0, -140.0, 160.0, -160.0, 180.0,
 	]
 	var ranges_m: Array[float] = [
-		ground_target_range_from_carrier_m,
-		ground_target_range_from_carrier_m + 200.0,
-		ground_target_range_from_carrier_m - 200.0,
-		ground_target_range_from_carrier_m + 400.0,
+		cluster_range_m,
+		cluster_range_m + 200.0,
+		cluster_range_m - 200.0,
+		cluster_range_m + 400.0,
 	]
 	for bearing_deg in bearings_deg:
 		var bearing_rad := deg_to_rad(bearing_deg)
@@ -407,8 +753,8 @@ func _find_ground_target_cluster_site(
 			var valid: bool = true
 			for offset in offsets:
 				var probe := center \
-						+ carrier_right * offset.x * ground_target_spacing_m \
-						+ carrier_forward * offset.y * ground_target_spacing_m
+						+ carrier_right * offset.x * cluster_spacing_m \
+						+ carrier_forward * offset.y * cluster_spacing_m
 				var h: float = _ground_height(probe)
 				if not is_finite(h):
 					valid = false
@@ -419,6 +765,10 @@ func _find_ground_target_cluster_site(
 				continue
 			var rise_m: float = max_h - carrier_ground
 			var span_m: float = max_h - min_h
+			if require_ground_navigation and NavGraph.is_ready():
+				var ground_center := Vector3(center.x, (min_h + max_h) * 0.5, center.z)
+				if not NavGraph.can_anchor(ground_center, 60.0, 220.0):
+					continue
 			if rise_m > maxf(ground_target_site_max_rise_from_carrier_m, 0.0) \
 					or span_m > maxf(ground_target_site_max_height_span_m, 0.0):
 				continue
@@ -430,7 +780,7 @@ func _find_ground_target_cluster_site(
 			if is_finite(preferred_bearing_deg):
 				bearing_error_deg = absf(wrapf(bearing_deg - preferred_bearing_deg, -180.0, 180.0))
 			var score: float = bearing_error_deg * 2.0 \
-					+ absf(candidate_range - ground_target_range_from_carrier_m) * 0.05 \
+					+ absf(candidate_range - cluster_range_m) * 0.05 \
 					+ maxf(rise_m, 0.0) * 4.0 \
 					+ span_m * 10.0 \
 					+ maxf(corridor_rise_m, 0.0) * 2.0
@@ -506,10 +856,10 @@ func notify_aircraft_launched(pilot: Node) -> void:
 		_log("ERROR deck launch callback pilot had no valid aircraft")
 		return
 	var craft := craft_variant as RigidBody3D
-	if continuous_intercept_mode:
+	if continuous_intercept_mode or _rolling_recovery_mode:
 		_friendly_launch_requests_outstanding = maxi(_friendly_launch_requests_outstanding - 1, 0)
 	_friendly_launches += 1
-	craft.name = "Combat_Friendly_%d" % _friendly_launches
+	craft.name = ("RecoveryCycle_%03d" if _rolling_recovery_mode else "Combat_Friendly_%d") % _friendly_launches
 	craft.set_meta("carrier_combat_test", true)
 	_configure_pilot(pilot, true)
 	_register_aircraft(craft, pilot, 1)
@@ -523,7 +873,24 @@ func notify_aircraft_launched(pilot: Node) -> void:
 	var record: Dictionary = _aircraft_records[id]
 	record["ground_assignment_index"] = _friendly_launches - 1
 	record["ground_mission_assigned"] = false
+	if _rolling_recovery_mode:
+		record["rolling_status"] = "departing"
+		record["rolling_outbound_point"] = Vector3.INF
+		record["rolling_recovery_started_s"] = -1.0
+		record["rolling_hold_started_s"] = -1.0
+		record["rolling_clearance_s"] = -1.0
+		record["rolling_queue_position"] = -2
 	_aircraft_records[id] = record
+	if _rolling_recovery_mode:
+		_log("ROLLING_SLOT launched aircraft=%s active=%d pending=%d traps=%d/%s" % [
+			craft.name,
+			_rolling_active_aircraft_count(),
+			_friendly_launch_requests_outstanding,
+			_rolling_traps,
+			str(rolling_target_traps) if rolling_target_traps > 0 else "unlimited",
+		])
+		call_deferred("_request_rolling_launches")
+		return
 	if continuous_intercept_mode:
 		_log("INTERCEPT_REPLACEMENT ready aircraft=%s live=%d requested=%d" % [
 			craft.name,
@@ -538,6 +905,234 @@ func notify_aircraft_launched(pilot: Node) -> void:
 			_log("CARRIER_HOLD retained verified launch/recovery pose")
 		else:
 			_carrier_resume_pending = true
+
+
+func _request_rolling_launches() -> void:
+	if not _rolling_recovery_mode or _stage != Stage.ROLLING or not is_instance_valid(_fdm):
+		return
+	# queue_ai_flight replaces, rather than extends, an existing deck launch queue.
+	# Wait for its callback count to drain before asking for another refill batch.
+	if _friendly_launch_requests_outstanding > 0:
+		return
+	var active_count := _rolling_active_aircraft_count()
+	var request_count := maxi(rolling_active_aircraft_max - active_count, 0)
+	if rolling_finite_cohort:
+		# Launch exactly one cohort. An abandoned deck callback may be retried, but a
+		# trapped or lost member is never replaced, making N/N traps a real assertion.
+		var cohort_slots_remaining := maxi(
+			rolling_active_aircraft_max
+				- _friendly_launches
+				- _friendly_launch_requests_outstanding,
+			0
+		)
+		request_count = mini(request_count, cohort_slots_remaining)
+	if request_count <= 0:
+		return
+	var stored_variant: Variant = _fdm.get("stored_aircraft")
+	var stored_count: int = stored_variant.size() if stored_variant is Array else 0
+	if stored_count <= 0:
+		if _elapsed_s - _rolling_last_refill_log_s >= 10.0:
+			_rolling_last_refill_log_s = _elapsed_s
+			_log("ROLLING_REFILL waiting active=%d needed=%d hangar=0 deck_state=%d" % [
+				active_count, request_count, int(_fdm.get("current_state")),
+			])
+		return
+	var queued := int(_fdm.call("queue_ai_flight", request_count, self, INTERCEPT_LOADOUT_PROFILE))
+	_friendly_launch_requests_outstanding += queued
+	_rolling_last_refill_log_s = _elapsed_s
+	_log("ROLLING_REFILL requested=%d queued=%d active=%d committed=%d hangar=%d deck_state=%d" % [
+		request_count,
+		queued,
+		active_count,
+		active_count + _friendly_launch_requests_outstanding,
+		stored_count,
+		int(_fdm.get("current_state")),
+	])
+
+
+func _rolling_active_aircraft_count() -> int:
+	var count := 0
+	for record_variant in _aircraft_records.values():
+		var record: Dictionary = record_variant
+		if int(record.get("team", 0)) != 1 or not bool(record.get("alive", false)):
+			continue
+		var craft_variant: Variant = record.get("craft", null)
+		if not is_instance_valid(craft_variant):
+			continue
+		if str(record.get("rolling_status", "")) in ["departing", "outbound", "recovery"]:
+			count += 1
+	return count
+
+
+func _assign_rolling_outbound(id: int, record: Dictionary) -> bool:
+	var craft_variant: Variant = record.get("craft", null)
+	var pilot_variant: Variant = record.get("pilot", null)
+	if not is_instance_valid(craft_variant) or not (craft_variant is RigidBody3D) \
+			or not is_instance_valid(pilot_variant) or not (pilot_variant is Node) \
+			or not is_instance_valid(_carrier):
+		return false
+	var craft := craft_variant as RigidBody3D
+	var pilot := pilot_variant as Node
+	var min_range_m := maxf(rolling_outbound_min_m, 1000.0)
+	var max_range_m := maxf(rolling_outbound_max_m, min_range_m)
+	var range_m := _rolling_rng.randf_range(min_range_m, max_range_m)
+	var bearing_rad := _rolling_rng.randf_range(-PI, PI)
+	var outbound_direction := Vector3(sin(bearing_rad), 0.0, cos(bearing_rad)).normalized()
+	var outbound_point := _carrier.global_position + outbound_direction * range_m
+	var endpoint_ground_m := _ground_height(outbound_point)
+	if not is_finite(endpoint_ground_m):
+		return false
+	outbound_point.y = maxf(
+		endpoint_ground_m + maxf(rolling_outbound_altitude_agl_m, 100.0),
+		_carrier.global_position.y + 350.0
+	)
+	if pilot.has_method("build_terrain_safe_waypoints"):
+		var desired_points: Array[Vector3] = [outbound_point]
+		var safe_variant: Variant = pilot.call(
+			"build_terrain_safe_waypoints",
+			desired_points,
+			maxf(rolling_outbound_min_route_agl_m, 100.0),
+			false,
+			false
+		)
+		if safe_variant is Array and not safe_variant.is_empty() and safe_variant[0] is Vector3:
+			outbound_point = safe_variant[0]
+	var outbound_task: Variant = AirTaskModel.patrol(
+		outbound_point,
+		maxf(rolling_outbound_capture_radius_m, 50.0),
+		outbound_point.y
+	)
+	outbound_task.requested_speed_mps = maxf(rolling_outbound_speed_mps, 60.0)
+	outbound_task.metadata = {
+		"mission": "rolling_recovery_outbound",
+		"launch_serial": _friendly_launches,
+	}
+	if not pilot.has_method("assign_air_task") or not bool(pilot.call("assign_air_task", outbound_task)):
+		return false
+	var outbound_legs: Array = [{
+		"position": outbound_point,
+		"role": "rolling_outbound",
+		"speed_mps": maxf(rolling_outbound_speed_mps, 60.0),
+		"capture_radius_m": maxf(rolling_outbound_capture_radius_m, 50.0),
+	}]
+	pilot.call("set_flight_plan_legs", "rolling_recovery_outbound", outbound_legs, false, false)
+	pilot.set("nav_waypoint", outbound_point)
+	pilot.call("change_state", AIPilot.State.TRANSIT)
+	record["rolling_status"] = "outbound"
+	record["rolling_outbound_point"] = outbound_point
+	record["rolling_outbound_range_m"] = range_m
+	_aircraft_records[id] = record
+	_log("ROLLING_OUTBOUND aircraft=%s point=%s range=%.0fm bearing=%.1fdeg altitude=%.0fm agl=%.0fm" % [
+		craft.name,
+		_fmt(outbound_point),
+		range_m,
+		rad_to_deg(bearing_rad),
+		outbound_point.y,
+		outbound_point.y - endpoint_ground_m,
+	])
+	return true
+
+
+func _poll_rolling_aircraft() -> void:
+	if not _rolling_recovery_mode or _stage != Stage.ROLLING:
+		return
+	var holding_count := 0
+	for id_variant in _aircraft_records.keys():
+		var id := int(id_variant)
+		var record: Dictionary = _aircraft_records[id]
+		if int(record.get("team", 0)) != 1 or not bool(record.get("alive", false)):
+			continue
+		var craft_variant: Variant = record.get("craft", null)
+		var pilot_variant: Variant = record.get("pilot", null)
+		if not is_instance_valid(craft_variant) or not (craft_variant is RigidBody3D) \
+				or not is_instance_valid(pilot_variant) or not (pilot_variant is Node):
+			continue
+		var craft := craft_variant as RigidBody3D
+		var pilot := pilot_variant as Node
+		var status := str(record.get("rolling_status", ""))
+		var state := int(pilot.get("current_state"))
+		if status == "departing" and state in [AIPilot.State.SEARCH, AIPilot.State.TRANSIT]:
+			_assign_rolling_outbound(id, record)
+			continue
+		if status == "outbound":
+			var outbound_value: Variant = record.get("rolling_outbound_point", Vector3.INF)
+			if outbound_value is Vector3 and outbound_value != Vector3.INF:
+				var outbound_point: Vector3 = outbound_value
+				var distance_m := _flat_distance(craft.global_position, outbound_point)
+				# A finite one-leg plan changes to SEARCH after crossing its terminal
+				# gate. Accept that contract as well as spatial capture so a high-speed
+				# endpoint miss cannot wander indefinitely before returning.
+				var outbound_route_complete := state == AIPilot.State.SEARCH
+				if distance_m <= maxf(rolling_outbound_capture_radius_m, 50.0) \
+						or outbound_route_complete:
+					pilot.set("ground_attack_enabled", false)
+					pilot.set("dogfight_enabled", false)
+					pilot.set("aircraft_heightmap_pathfinding_enabled", true)
+					pilot.set("approach_route_threaded", true)
+					var accepted: bool = bool(pilot.call("start_recovery")) \
+							if pilot.has_method("start_recovery") else false
+					if accepted:
+						record["rolling_status"] = "recovery"
+						record["rolling_recovery_started_s"] = _elapsed_s
+						_recovery_requested[id] = true
+						_aircraft_records[id] = record
+						_log("ROLLING_RETURN aircraft=%s outbound_reached=%.0fm recovery_accepted=true state=%s trigger=%s" % [
+							craft.name,
+							float(record.get("rolling_outbound_range_m", 0.0)),
+							_state_name(int(pilot.get("current_state"))),
+							"route_complete" if outbound_route_complete else "radius",
+						])
+			continue
+		if status != "recovery":
+			continue
+		if state == AIPilot.State.RECOVERY_HOLD:
+			holding_count += 1
+			if float(record.get("rolling_hold_started_s", -1.0)) < 0.0:
+				record["rolling_hold_started_s"] = _elapsed_s
+				_log("ROLLING_HOLD aircraft=%s entered carrier_dist=%.0fm" % [
+					craft.name,
+					_flat_distance(craft.global_position, _carrier.global_position),
+				])
+		var queue_position := int(_fdm.call("get_landing_queue_position", craft)) \
+				if is_instance_valid(_fdm) and _fdm.has_method("get_landing_queue_position") else -1
+		if queue_position != int(record.get("rolling_queue_position", -2)):
+			record["rolling_queue_position"] = queue_position
+			if queue_position == 0 and float(record.get("rolling_clearance_s", -1.0)) < 0.0:
+				record["rolling_clearance_s"] = _elapsed_s
+			_log("ROLLING_QUEUE aircraft=%s position=%d state=%s recovery_elapsed=%.1fs" % [
+				craft.name,
+				queue_position,
+				_state_name(state),
+				_elapsed_s - float(record.get("rolling_recovery_started_s", _elapsed_s)),
+			])
+		_aircraft_records[id] = record
+	_rolling_max_holding_aircraft = maxi(_rolling_max_holding_aircraft, holding_count)
+	_log_rolling_queue_snapshot()
+
+
+func _log_rolling_queue_snapshot() -> void:
+	if not is_instance_valid(_fdm):
+		return
+	var holder_variant: Variant = _fdm.get("_landing_clearance_aircraft")
+	var holder_name := "none"
+	if is_instance_valid(holder_variant) and holder_variant is Node:
+		holder_name = str((holder_variant as Node).name)
+	var queue_names: PackedStringArray = []
+	var queue_variant: Variant = _fdm.get("_landing_clearance_queue")
+	if queue_variant is Array:
+		for requester_variant in queue_variant:
+			if is_instance_valid(requester_variant) and requester_variant is Node:
+				queue_names.append(str((requester_variant as Node).name))
+	_rolling_max_queue_depth = maxi(_rolling_max_queue_depth, queue_names.size())
+	var signature := "%s|%s" % [holder_name, ",".join(queue_names)]
+	if signature == _rolling_last_queue_signature:
+		return
+	_rolling_last_queue_signature = signature
+	_log("ROLLING_QUEUE_SNAPSHOT holder=%s waiting=%d [%s]" % [
+		holder_name,
+		queue_names.size(),
+		", ".join(queue_names),
+	])
 
 
 func _hold_carrier_for_launches() -> bool:
@@ -813,6 +1408,8 @@ func _on_ground_target_destroyed(target: Node) -> void:
 				_ground_targets_destroyed,
 			])
 			call_deferred("_spawn_next_ground_wave")
+		elif _full_cycle_mode and full_cycle_skip_enemy_air:
+			_begin_recovery("ground targets eliminated; enemy air phase skipped")
 		else:
 			_begin_air_combat("ground targets eliminated")
 
@@ -988,7 +1585,7 @@ func _spawn_live_bomber_targets(count: int) -> int:
 		var enemy := _spawn_live_bomber(_enemy_spawn_serial, pos, -outward)
 		if enemy != null:
 			enemies.append(enemy)
-	_log("ENEMY_FLIGHT spawned=%d type=Aircraft_4 mode=live_bomber target=carrier spawn_agl=%.0fm range=%.0fm" % [
+	_log("ENEMY_FLIGHT spawned=%d type=Aircraft_4 mode=planned_bomb_strike target=carrier return=spawn spawn_agl=%.0fm range=%.0fm" % [
 		enemies.size(),
 		enemy_altitude_agl_m,
 		full_cycle_enemy_range_from_carrier_m,
@@ -1001,8 +1598,17 @@ func _spawn_live_bomber_targets(count: int) -> int:
 		var pilot: Node = record.get("pilot", null)
 		if is_instance_valid(pilot):
 			pilot.set("ground_attack_enabled", false)
-			pilot.call("set_target", enemies[i % enemies.size()])
-			_log("ORDER %s intercept %s" % [_pilot_aircraft_name(pilot), enemies[i % enemies.size()].name])
+			var assigned_enemy: RigidBody3D = enemies[i % enemies.size()]
+			var intercept_task: Variant = AirTaskModel.intercept_target(assigned_enemy)
+			var assigned: bool = pilot.has_method("assign_air_task") \
+				and bool(pilot.call("assign_air_task", intercept_task))
+			if not assigned:
+				pilot.call("set_target", assigned_enemy)
+			_log("ORDER %s intercept %s track=%s" % [
+				_pilot_aircraft_name(pilot),
+				assigned_enemy.name,
+				"controller" if assigned else "visual_fallback",
+			])
 	_refresh_all_gun_targets()
 	return enemies.size()
 
@@ -1018,6 +1624,7 @@ func _spawn_live_bomber(index: int, pos: Vector3, inbound_direction: Vector3) ->
 	craft.add_to_group("ai_aircraft")
 	craft.add_to_group("enemies")
 	craft.set_meta("carrier_combat_test", true)
+	craft.set_meta("carrier_combat_spawn_point", pos)
 	craft.set_meta("carrier_transport_mode", false)
 	craft.remove_meta("controls_disabled")
 	var toward_carrier := inbound_direction
@@ -1043,13 +1650,28 @@ func _spawn_live_bomber(index: int, pos: Vector3, inbound_direction: Vector3) ->
 		pilot.set("ground_attack_enabled", true)
 		pilot.set("ground_attack_forced_weapon_type", "Bomb")
 		pilot.set("ground_attack_weapon_rotation", PackedStringArray())
+		# The 6 km bomber mission benefits from the same terrain-aware 3D planner used
+		# by recovery and long routes. The short friendly strike disables this only to
+		# avoid replacing its already-compact ingress while an async job completes.
+		pilot.set("aircraft_heightmap_pathfinding_enabled", true)
 	_register_aircraft(craft, pilot, 2)
 	_configure_weapon_logging(craft)
 	_select_aircraft_weapon(craft, "Bomb")
 	_stow_gear_retry(craft, 0)
 	_remove_player_group_deferred(craft)
 	if is_instance_valid(pilot):
-		pilot.call("set_target", _carrier)
+		var strike_task: Variant = AirTaskModel.attack_target_and_return(
+			_carrier,
+			pos,
+			maxf(enemy_initial_speed_mps, 90.0),
+			350.0
+		)
+		strike_task.requested_altitude_m = pos.y
+		strike_task.metadata["mission"] = "carrier_bomb_strike"
+		strike_task.metadata["spawn_point"] = pos
+		if not pilot.has_method("assign_air_task") \
+				or not bool(pilot.call("assign_air_task", strike_task)):
+			pilot.call("set_target", _carrier)
 	_log("SPAWN %s pos=%s speed=%.1fm/s loadout=%s target=%s defensive_turret=active" % [
 		craft.name,
 		_fmt(pos),
@@ -1134,7 +1756,10 @@ func _spawn_enemy_targets(count: int) -> int:
 
 
 func _assign_missing_intercept_targets() -> void:
-	if not continuous_intercept_mode or _stage != Stage.AIR_COMBAT:
+	# This applies to both the endless intercept gym and the full-cycle scenario.
+	# Air targets are deliberately non-exclusive: when only one bomber remains,
+	# every fighter whose previous target died should join the attack on it.
+	if _stage != Stage.AIR_COMBAT:
 		return
 	var enemies := _live_aircraft_for_team(2)
 	if enemies.is_empty():
@@ -1382,8 +2007,8 @@ func _remove_player_group_deferred(craft: RigidBody3D) -> void:
 func _configure_pilot(pilot: Node, friendly: bool) -> void:
 	if pilot == null or not is_instance_valid(pilot):
 		return
-	pilot.set("ground_attack_enabled", friendly and not continuous_intercept_mode)
-	pilot.set("dogfight_enabled", friendly)
+	pilot.set("ground_attack_enabled", friendly and not continuous_intercept_mode and not _rolling_recovery_mode)
+	pilot.set("dogfight_enabled", friendly and not _rolling_recovery_mode)
 	pilot.set("land_after_launch", false)
 	pilot.set("_land_after_climb", false)
 	pilot.set("rtb_health_threshold", 0.0)
@@ -1423,7 +2048,16 @@ func _configure_pilot(pilot: Node, friendly: bool) -> void:
 		else:
 			forced_ground_weapon = _ground_wave_weapon_type(_ground_wave_index)
 	elif friendly and _full_cycle_mode:
-		forced_ground_weapon = "Rocket Pod"
+		if _weapon_focus_override_requested and isolated_ground_weapon_focus != "Rotate":
+			# A diagnostic full-cycle config can isolate one available weapon while
+			# retaining the moving platoon. Normal full-cycle configs omit weapon_focus
+			# and continue to exercise their random primary weapon followed by guns.
+			forced_ground_weapon = isolated_ground_weapon_focus
+		else:
+			# Each full-cycle aircraft may carry rockets or bombs, but always has its gun.
+			# The rotation planner skips unavailable types, so this becomes Rocket -> Guns
+			# or Bomb -> Guns without adding loadout-specific attack-state branches.
+			ground_weapon_rotation = _isolated_ground_weapon_rotation()
 	pilot.set("ground_attack_forced_weapon_type", forced_ground_weapon)
 	pilot.set("ground_attack_weapon_rotation", ground_weapon_rotation)
 	if forced_ground_weapon == "Rocket Pod" or ground_weapon_rotation.has("Rocket Pod"):
@@ -1481,7 +2115,14 @@ func _configure_pilot(pilot: Node, friendly: bool) -> void:
 	pilot.set("bomb_experienced_release_hold_s", 0.08)
 	pilot.set("bomb_veteran_release_hold_s", 0.08)
 	pilot.set("bomb_ace_release_hold_s", 0.08)
-	pilot.set("bomb_salvo_per_run", 1)
+	# Clustered ground targets support a two-target pass: after one release the
+	# pilot's existing in-pass retargeting can drop on a neighbour without flying
+	# another complete setup circuit. Carrier strikes remain one bomb per pass.
+	var test_bombs_per_run: int = 2 if (
+		_full_cycle_mode
+		or (_isolated_ground_attack_mode and isolated_ground_weapon_focus == "Bomb")
+	) else 1
+	pilot.set("bomb_salvo_per_run", test_bombs_per_run)
 	pilot.set("carrier_bomb_salvo_per_run", 1)
 	pilot.set("bomb_release_spacing_s", 0.45)
 	# A run is only "inbound" once the aircraft has joined the planned attack
@@ -1597,7 +2238,24 @@ func _on_aircraft_destroyed(id: int) -> void:
 	record["alive"] = false
 	_aircraft_records[id] = record
 	var team := int(record.get("team", 0))
+	if team == 1:
+		_friendly_destroyed_count += 1
 	_log("DESTROYED aircraft=%s team=%d %s" % [record.get("name", "unknown"), team, diagnostics])
+	if _rolling_recovery_mode and _stage == Stage.ROLLING and team == 1:
+		record["rolling_status"] = "lost"
+		_aircraft_records[id] = record
+		_rolling_losses += 1
+		_log("ROLLING_LOSS aircraft=%s reason=destroyed losses=%d active=%d" % [
+			record.get("name", "unknown"), _rolling_losses, _rolling_active_aircraft_count(),
+		])
+		if rolling_finite_cohort:
+			_stage = Stage.COMPLETE
+			_log("FAILED rolling finite cohort; traps=%d/%d losses=%d launches=%d reason=destroyed" % [
+				_rolling_traps, rolling_target_traps, _rolling_losses, _friendly_launches,
+			])
+			return
+		call_deferred("_request_rolling_launches")
+		return
 	if continuous_intercept_mode and _stage == Stage.AIR_COMBAT:
 		if team == 2:
 			_enemy_kills += 1
@@ -1617,7 +2275,27 @@ func _on_aircraft_destroyed(id: int) -> void:
 
 func _on_aircraft_crashed(impact_velocity: float, id: int) -> void:
 	var record: Dictionary = _aircraft_records.get(id, {})
+	if int(record.get("team", 0)) == 1 and not bool(record.get("crash_recorded", false)):
+		record["crash_recorded"] = true
+		_aircraft_records[id] = record
+		_friendly_crash_count += 1
 	_log("CRASH aircraft=%s team=%d impact_speed=%.1fm/s %s" % [record.get("name", "unknown"), int(record.get("team", 0)), impact_velocity, _aircraft_diagnostics(record)])
+	if _rolling_recovery_mode and _stage == Stage.ROLLING \
+			and int(record.get("team", 0)) == 1 and bool(record.get("alive", false)):
+		record["alive"] = false
+		record["rolling_status"] = "lost"
+		_aircraft_records[id] = record
+		_rolling_losses += 1
+		_log("ROLLING_LOSS aircraft=%s reason=crash losses=%d active=%d" % [
+			record.get("name", "unknown"), _rolling_losses, _rolling_active_aircraft_count(),
+		])
+		if rolling_finite_cohort:
+			_stage = Stage.COMPLETE
+			_log("FAILED rolling finite cohort; traps=%d/%d losses=%d launches=%d reason=crash" % [
+				_rolling_traps, rolling_target_traps, _rolling_losses, _friendly_launches,
+			])
+			return
+		call_deferred("_request_rolling_launches")
 
 
 func _check_air_combat_end() -> void:
@@ -1632,6 +2310,11 @@ func _check_air_combat_end() -> void:
 	elif friendlies_alive == 0:
 		_stage = Stage.COMPLETE
 		_log("COMPLETE friendly flight eliminated; no aircraft available to recover")
+	else:
+		# A destroyed bandit invalidates only the pilots assigned to that bandit.
+		# Immediately retask those free fighters onto the survivors; do not reserve
+		# an air target for a single attacker.
+		call_deferred("_assign_missing_intercept_targets")
 
 
 func _begin_recovery(reason: String) -> void:
@@ -1650,19 +2333,63 @@ func _begin_recovery(reason: String) -> void:
 		var id: int = (craft as Node).get_instance_id()
 		_recovery_requested[id] = true
 		pilot.set("ground_attack_enabled", false)
-		pilot.call("set_target", null)
 		# Ground-attack configuration deliberately disables asynchronous heightmap
 		# routing so a short ingress is not replaced by a several-kilometre detour.
 		# Recovery is the opposite problem: it needs the terrain-aware 3D arrival
 		# route into the carrier's authored final corridor. Restore that controller
-		# before start_recovery() clears the combat plan and requests its arrival.
+		# before start_recovery() atomically clears the target, combat task, and old
+		# planner ownership. Calling set_target(null) here used to insert a transient
+		# SEARCH state while those stale owners were still live.
 		pilot.set("aircraft_heightmap_pathfinding_enabled", true)
 		pilot.set("approach_route_threaded", true)
-		var accepted: bool = bool(pilot.call("start_recovery")) if pilot.has_method("start_recovery") else false
-		_log("RECOVERY_ORDER aircraft=%s accepted=%s pathfinding=3D_threaded" % [
+	if _try_hold_carrier_for_recovery():
+		_dispatch_recovery_orders()
+	else:
+		_log("RECOVERY_ORDER pending until carrier locks a terrain-clear pose")
+
+
+func _dispatch_recovery_orders() -> void:
+	if _recovery_orders_dispatched:
+		return
+	_recovery_orders_dispatched = true
+	for id_variant in _recovery_requested.keys():
+		var record: Dictionary = _aircraft_records.get(int(id_variant), {})
+		if not bool(record.get("alive", false)):
+			continue
+		var pilot: Node = record.get("pilot", null)
+		if not is_instance_valid(pilot):
+			continue
+		var accepted: bool = bool(pilot.call("start_recovery")) \
+			if pilot.has_method("start_recovery") else false
+		_log("RECOVERY_ORDER aircraft=%s accepted=%s pathfinding=3D_threaded condition={%s}" % [
 			record.get("name", "unknown"),
 			str(accepted),
+			_recovery_condition_diagnostics(record),
 		])
+
+
+func _try_hold_carrier_for_recovery() -> bool:
+	# The full-cycle carrier should move throughout launch and combat, but a landing
+	# corridor verified at recovery start is not guaranteed to remain clear if the
+	# carrier drives on for the several minutes needed to recover a queued pair.
+	# Freeze only after the live FlightDeckManager terrain check says the current
+	# authored final is clear; until then the aircraft can safely remain in recovery hold.
+	if not _full_cycle_mode or _carrier_held_for_recovery:
+		return _carrier_held_for_recovery
+	if not is_instance_valid(_carrier) \
+			or not _carrier.has_method("set_heli_test_stationary") \
+			or not is_instance_valid(_fdm) \
+			or not _fdm.has_method("_landing_path_clear_of_terrain"):
+		return false
+	if not bool(_fdm.call("_landing_path_clear_of_terrain", true)):
+		if not _carrier_recovery_hold_wait_logged:
+			_carrier_recovery_hold_wait_logged = true
+			_log("CARRIER_RECOVERY_HOLD waiting for terrain-clear final corridor")
+		return false
+	_carrier.call("set_heli_test_stationary", true)
+	_carrier_held_for_recovery = true
+	_log("CARRIER_RECOVERY_HOLD engaged at terrain-clear pose")
+	return true
 
 
 func _retire_remaining_gunnery_targets() -> void:
@@ -1701,10 +2428,53 @@ func _on_cable_engaged(aircraft_variant: Variant, cable: Node) -> void:
 	var id := craft.get_instance_id()
 	if not _aircraft_records.has(id):
 		return
+	if _stage == Stage.COMPLETE:
+		_log("LANDING_LATE ignored aircraft=%s reason=test_already_complete" % craft.name)
+		return
 	_caught_aircraft[id] = true
 	var wire: int = int(cable.call("get_wire_number")) if is_instance_valid(cable) and cable.has_method("get_wire_number") else -1
 	var lateral: float = float(cable.call("get_engage_lateral_m")) if is_instance_valid(cable) and cable.has_method("get_engage_lateral_m") else NAN
 	_log("LANDING caught aircraft=%s wire=%d lateral=%.2fm speed=%.1fm/s" % [craft.name, wire, lateral, craft.linear_velocity.length()])
+	if _rolling_recovery_mode and _stage == Stage.ROLLING:
+		var record: Dictionary = _aircraft_records.get(id, {})
+		# Once trapped, this aircraft no longer occupies an airborne rolling slot.
+		# The deck manager will free its scene instance after hangar storage, so stop
+		# all harness polling before that reference can become stale.
+		record["alive"] = false
+		record["rolling_status"] = "caught"
+		_aircraft_records[id] = record
+		_rolling_traps += 1
+		var recovery_started_s := float(record.get("rolling_recovery_started_s", _elapsed_s))
+		var hold_started_s := float(record.get("rolling_hold_started_s", -1.0))
+		var clearance_s := float(record.get("rolling_clearance_s", -1.0))
+		var hold_wait_s := maxf((clearance_s if clearance_s >= 0.0 else _elapsed_s) - hold_started_s, 0.0) \
+				if hold_started_s >= 0.0 else 0.0
+		_log("ROLLING_TRAP count=%d/%s aircraft=%s wire=%d lateral=%.2fm recovery=%.1fs hold_wait=%.1fs active_after=%d max_queue=%d max_holding=%d" % [
+			_rolling_traps,
+			str(rolling_target_traps) if rolling_target_traps > 0 else "unlimited",
+			craft.name,
+			wire,
+			lateral,
+			_elapsed_s - recovery_started_s,
+			hold_wait_s,
+			_rolling_active_aircraft_count(),
+			_rolling_max_queue_depth,
+			_rolling_max_holding_aircraft,
+		])
+		if rolling_target_traps > 0 and _rolling_traps >= rolling_target_traps:
+			_stage = Stage.COMPLETE
+			_log("COMPLETE rolling recovery target reached; traps=%d losses=%d launches=%d max_active=%d max_queue=%d max_holding=%d mode=%s" % [
+				_rolling_traps,
+				_rolling_losses,
+				_friendly_launches,
+				rolling_active_aircraft_max,
+				_rolling_max_queue_depth,
+				_rolling_max_holding_aircraft,
+				"finite_cohort" if rolling_finite_cohort else "rolling_refill",
+			])
+		else:
+			call_deferred("_request_rolling_launches")
+		return
 	_check_recovery_end()
 
 
@@ -1728,9 +2498,11 @@ func _configure_weapon_logging(craft: RigidBody3D) -> void:
 	if _full_cycle_mode:
 		# This mission is also a loadout/endurance test: two 24-round canisters are
 		# all each friendly receives, and the attacking bombers keep finite stores.
+		# Persistent tuning metadata keeps the telemetry callbacks attached after the
+		# first release; it does not replenish ammunition.
 		craft.remove_meta("heli_test_unlimited_ammo")
-		craft.remove_meta("airplane_test_persistent_bomb_tuning")
-		craft.remove_meta("airplane_test_persistent_rocket_tuning")
+		craft.set_meta("airplane_test_persistent_bomb_tuning", true)
+		craft.set_meta("airplane_test_persistent_rocket_tuning", true)
 	else:
 		craft.set_meta("heli_test_unlimited_ammo", true)
 		craft.set_meta("airplane_test_persistent_bomb_tuning", true)
@@ -1923,6 +2695,7 @@ func _physics_process(delta: float) -> void:
 		return
 	_update_enemy_gunnery_rails(delta)
 	if _stage == Stage.COMPLETE:
+		_finalize_completed_run()
 		return
 	if continuous_intercept_mode and _stage == Stage.AIR_COMBAT:
 		_continuous_force_check_s += delta
@@ -1939,14 +2712,27 @@ func _physics_process(delta: float) -> void:
 					_friendly_launch_requests_outstanding = 0
 			_ensure_enemy_target_count()
 			_ensure_friendly_force()
-	if _stage == Stage.GROUND_STRIKE \
+	if _rolling_recovery_mode and _stage == Stage.ROLLING:
+		_continuous_force_check_s += delta
+		if _continuous_force_check_s >= 2.0:
+			_continuous_force_check_s = 0.0
+			if _friendly_launch_requests_outstanding > 0 and is_instance_valid(_fdm):
+				var rolling_pending_ops: Variant = _fdm.get("_pending_flight_ops")
+				var rolling_deck_state := int(_fdm.get("current_state"))
+				var rolling_deck_queue := int(_fdm.get("_ai_launch_queue"))
+				if not is_instance_valid(rolling_pending_ops) and rolling_deck_state == 0 and rolling_deck_queue <= 0:
+					_log("ROLLING_LAUNCH_RETRY abandoned_callbacks=%d" % _friendly_launch_requests_outstanding)
+					_friendly_launch_requests_outstanding = 0
+			_request_rolling_launches()
+	if _stage in [Stage.GROUND_STRIKE, Stage.ROLLING] \
 			and _friendly_launches == 0 \
 			and not _initial_launch_watchdog_fired \
 			and _elapsed_s - _stage_started_s >= maxf(initial_launch_watchdog_s, 5.0):
 		_initial_launch_watchdog_fired = true
 		var queued_launches: int = int(_fdm.get("_ai_launch_queue")) if is_instance_valid(_fdm) else 0
 		var deck_state: int = int(_fdm.get("current_state")) if is_instance_valid(_fdm) else -1
-		var untouched_queue: bool = queued_launches >= 2
+		var expected_initial_queue := rolling_active_aircraft_max if _rolling_recovery_mode else 2
+		var untouched_queue: bool = queued_launches >= expected_initial_queue
 		var released_for_departure: bool = false
 		if not keep_carrier_at_verified_pose:
 			released_for_departure = _release_carrier_hold("launch watchdog: departure corridor did not clear")
@@ -1972,9 +2758,17 @@ func _physics_process(delta: float) -> void:
 	_poll_s += delta
 	if _poll_s >= 0.5:
 		_poll_s = 0.0
+		if _stage == Stage.RECOVERY and not _carrier_held_for_recovery:
+			if _try_hold_carrier_for_recovery():
+				_dispatch_recovery_orders()
+		elif _stage == Stage.RECOVERY and not _recovery_orders_dispatched:
+			_dispatch_recovery_orders()
 		_poll_aircraft_events()
+		_poll_rolling_aircraft()
 		_poll_missile_launches()
-	if _summary_s >= SUMMARY_INTERVAL_S:
+	var summary_interval_s := ROLLING_SUMMARY_INTERVAL_S \
+			if _rolling_recovery_mode else SUMMARY_INTERVAL_S
+	if _summary_s >= summary_interval_s:
 		_summary_s = 0.0
 		_log_summary()
 	if _stage == Stage.GROUND_STRIKE \
@@ -1991,20 +2785,92 @@ func _physics_process(delta: float) -> void:
 			and _stage == Stage.AIR_COMBAT \
 			and _elapsed_s - _stage_started_s >= air_combat_timeout_s:
 		_begin_recovery("air combat timeout with %d enemies still airborne" % _live_aircraft_for_team(2).size())
+	var recovery_time_budget_s: float = maxf(recovery_timeout_s, 30.0) \
+		* float(maxi(_recovery_requested.size(), 1))
 	if _stage == Stage.RECOVERY \
-			and _elapsed_s - _stage_started_s >= maxf(recovery_timeout_s, 30.0):
+			and _elapsed_s - _stage_started_s >= recovery_time_budget_s:
 		var surviving_recovery_aircraft: int = 0
 		for id_variant in _recovery_requested.keys():
 			var record: Dictionary = _aircraft_records.get(int(id_variant), {})
 			if bool(record.get("alive", false)) and not _caught_aircraft.has(int(id_variant)):
 				surviving_recovery_aircraft += 1
 		_stage = Stage.COMPLETE
-		_log("COMPLETE recovery timeout after %.0fs; caught=%d requested=%d still_airborne=%d" % [
+		_log("COMPLETE recovery timeout after %.0fs (%.0fs per requested aircraft); caught=%d requested=%d still_airborne=%d" % [
+			recovery_time_budget_s,
 			maxf(recovery_timeout_s, 30.0),
 			_caught_aircraft.size(),
 			_recovery_requested.size(),
 			surviving_recovery_aircraft,
 		])
+
+
+func _finalize_completed_run() -> void:
+	if _completion_handled:
+		return
+	_completion_handled = true
+	var friendly_alive := 0
+	var enemy_spawned := 0
+	var enemy_alive := 0
+	var loadouts: Array[String] = []
+	for record_variant in _aircraft_records.values():
+		var record: Dictionary = record_variant
+		var team := int(record.get("team", 0))
+		if team == 1:
+			if bool(record.get("alive", false)):
+				friendly_alive += 1
+			var craft_variant: Variant = record.get("craft", null)
+			if is_instance_valid(craft_variant):
+				loadouts.append(_describe_loadout(craft_variant as Node))
+		elif team == 2:
+			enemy_spawned += 1
+			if bool(record.get("alive", false)):
+				enemy_alive += 1
+	var enemy_phase_success := (
+		full_cycle_skip_enemy_air and enemy_spawned == 0
+	) or (
+		not full_cycle_skip_enemy_air and enemy_spawned >= 2 and enemy_alive == 0
+	)
+	var full_cycle_success := _full_cycle_mode \
+			and _ground_targets_destroyed >= 4 \
+			and enemy_phase_success \
+			and _friendly_launches == 2 \
+			and _caught_aircraft.size() == _friendly_launches \
+			and _friendly_destroyed_count == 0 \
+			and _friendly_crash_count == 0
+	var rolling_success := _rolling_recovery_mode \
+			and rolling_target_traps > 0 \
+			and _rolling_traps >= rolling_target_traps \
+			and _rolling_losses == 0 \
+			and _friendly_launches == rolling_target_traps
+	var strict_success := full_cycle_success or rolling_success
+	var result := {
+		"run_id": _test_run_id,
+		"seed": _test_seed,
+		"profile": test_profile,
+		"status": "PASS" if strict_success else "FAIL",
+		"sim_time_s": snappedf(_elapsed_s, 0.1),
+		"ground_destroyed": _ground_targets_destroyed,
+		"enemy_air_skipped": full_cycle_skip_enemy_air,
+		"enemy_spawned": enemy_spawned,
+		"enemy_alive": enemy_alive,
+		"friendly_launched": _friendly_launches,
+		"friendly_alive": friendly_alive,
+		"friendly_destroyed": _friendly_destroyed_count,
+		"friendly_crashes": _friendly_crash_count,
+		"recovery_requested": _recovery_requested.size(),
+		"caught": _caught_aircraft.size(),
+		"loadouts": loadouts,
+	}
+	_log("RUN_RESULT json=%s" % JSON.stringify(result))
+	if _quit_on_test_complete:
+		call_deferred("_quit_completed_run")
+
+
+func _quit_completed_run() -> void:
+	# Give stdout and the report file one idle frame to flush before the batch
+	# process exits and its launcher starts a completely fresh game instance.
+	await get_tree().process_frame
+	get_tree().quit(0)
 
 
 func _poll_aircraft_events() -> void:
@@ -2013,9 +2879,10 @@ func _poll_aircraft_events() -> void:
 		var record: Dictionary = _aircraft_records[id]
 		if not bool(record.get("alive", false)):
 			continue
-		var pilot: Node = record.get("pilot", null)
-		if not is_instance_valid(pilot):
+		var pilot_variant: Variant = record.get("pilot", null)
+		if not is_instance_valid(pilot_variant) or not (pilot_variant is Node):
 			continue
+		var pilot := pilot_variant as Node
 		var state := int(pilot.get("current_state"))
 		if state != int(record.get("last_state", -1)):
 			_log("STATE aircraft=%s %s->%s target=%s %s" % [
@@ -2171,6 +3038,47 @@ func _aircraft_diagnostics(record: Dictionary) -> String:
 	return " ".join(pieces)
 
 
+func _recovery_condition_diagnostics(record: Dictionary) -> String:
+	var pieces: Array[String] = []
+	var craft_value: Variant = record.get("craft", null)
+	var pilot: Node = record.get("pilot", null)
+	if is_instance_valid(craft_value) and craft_value is RigidBody3D:
+		var craft := craft_value as RigidBody3D
+		pieces.append("mass=%.1f" % craft.mass)
+		pieces.append("speed=%.1f" % craft.linear_velocity.length())
+		pieces.append("vs=%+.1f" % craft.linear_velocity.y)
+		var bank_deg: float = absf(rad_to_deg(atan2(
+			craft.global_transform.basis.x.y,
+			craft.global_transform.basis.y.y
+		)))
+		pieces.append("bank=%.1fdeg" % bank_deg)
+		for property_name in ["health", "current_health", "fuel", "fuel_amount"]:
+			if property_name in craft:
+				var property_value: Variant = craft.get(property_name)
+				if property_value is float or property_value is int:
+					pieces.append("%s=%.1f" % [property_name, float(property_value)])
+		var stores: int = 0
+		for weapon in _weapon_nodes(craft):
+			for ammo_property in ["ammo_count", "rounds_remaining", "bomb_count"]:
+				if ammo_property in weapon:
+					var ammo_value: Variant = weapon.get(ammo_property)
+					if ammo_value is int or ammo_value is float:
+						stores += maxi(int(ammo_value), 0)
+						break
+		pieces.append("stores=%d" % stores)
+	if is_instance_valid(pilot):
+		if "altitude_agl" in pilot:
+			pieces.append("agl=%.1f" % float(pilot.get("altitude_agl")))
+		if "stall_speed_mps" in pilot:
+			pieces.append("stall=%.1f" % float(pilot.get("stall_speed_mps")))
+		if "_aircraft_heightmap_route_serial" in pilot:
+			pieces.append("route_serial=%d" % int(pilot.get("_aircraft_heightmap_route_serial")))
+		if "current_air_task" in pilot:
+			var task_value: Variant = pilot.get("current_air_task")
+			pieces.append("task=%s" % (str(task_value.kind) if task_value != null else "none"))
+	return " ".join(pieces)
+
+
 func _poll_missile_launches() -> void:
 	for record_variant in _aircraft_records.values():
 		var record: Dictionary = record_variant
@@ -2193,6 +3101,7 @@ func _poll_missile_launches() -> void:
 
 func _log_summary() -> void:
 	var stage_name: String = str(Stage.keys()[int(_stage)])
+	var measured_fps: int = Engine.get_frames_per_second()
 	var pieces: Array[String] = []
 	for record_variant in _aircraft_records.values():
 		var record: Dictionary = record_variant
@@ -2223,8 +3132,34 @@ func _log_summary() -> void:
 					yaw_val,
 					g_val,
 				]
-				if pilot_state == AIPilot.State.RECOVERY_APPROACH and "_recovery_phase" in pilot_variant:
-					status += " rp=%d" % int(pilot_variant.get("_recovery_phase"))
+				if pilot_state in [
+					AIPilot.State.RTB,
+					AIPilot.State.RECOVERY_HOLD,
+					AIPilot.State.RECOVERY_APPROACH,
+					AIPilot.State.PRE_LANDING,
+				] and pilot_variant.has_method("get_recovery_navigation_snapshot"):
+					var nav_snapshot: Dictionary = pilot_variant.call(
+						"get_recovery_navigation_snapshot"
+					)
+					var progress_value: Variant = nav_snapshot.get("progress", {})
+					var progress: Dictionary = progress_value \
+						if progress_value is Dictionary else {}
+					status += " rc=%d re=%d fp=%d/%d/%s rem=%.0f plan=%.0f homev=%+.1f homec=%+.2f reacq=%s" % [
+						int(nav_snapshot.get("route_serial", -1)),
+						int(nav_snapshot.get("origin_shift_epoch", -1)),
+						int(progress.get("index", -1)) + 1,
+						int(pilot_variant.get("waypoints").size()) \
+							if pilot_variant.get("waypoints") is Array else 0,
+						str(progress.get("role", "none")),
+						float(progress.get("remaining_m", INF)),
+						float(progress.get("plan_remaining_m", INF)),
+						float(nav_snapshot.get("velocity_toward_carrier_mps", NAN)),
+						float(nav_snapshot.get("guidance_toward_carrier_dot", NAN)),
+						str(bool(nav_snapshot.get("reacquire_active", false))),
+					]
+				if pilot_state in [AIPilot.State.RECOVERY_APPROACH, AIPilot.State.PRE_LANDING]:
+					if "_recovery_phase" in pilot_variant:
+						status += " rp=%d" % int(pilot_variant.get("_recovery_phase"))
 					if pilot_variant.has_method("get_route_follow_debug_snapshot"):
 						var recovery_route_debug: Dictionary = pilot_variant.call("get_route_follow_debug_snapshot")
 						status += " rn=%s ri=%d rr=%s rx=%.0f" % [
@@ -2233,6 +3168,10 @@ func _log_summary() -> void:
 							str(recovery_route_debug.get("role", "none")),
 							float(recovery_route_debug.get("projection_cross_track_m", INF)),
 						]
+					if pilot_state == AIPilot.State.PRE_LANDING:
+						status += " hs=%.2f" % float(
+							pilot_variant.get("_recovery_final_handoff_stable_s")
+						)
 				if pilot_state == AIPilot.State.LANDING:
 					status += " bolter=%s" % str(bool(pilot_variant.get("_bolter_go_around")))
 					if pilot_variant.has_method("_landing_behind_carrier_m"):
@@ -2255,6 +3194,10 @@ func _log_summary() -> void:
 						route_guidance_error_deg,
 						float(route_debug.get("projection_cross_track_m", INF)),
 					]
+					if "_attack_setup_requires_target_crossing" in pilot_variant:
+						status += " cross=%s" % str(bool(pilot_variant.get(
+							"_attack_setup_requires_target_crossing"
+						)))
 					var route_tag: String = str(route_debug.get("debug_tag", ""))
 					if not route_tag.is_empty():
 						status += " rt=%s" % route_tag
@@ -2338,15 +3281,56 @@ func _log_summary() -> void:
 						if pilot_variant.has_method("is_rocket_ccip_blocked") \
 								and bool(pilot_variant.call("is_rocket_ccip_blocked")):
 							status += " rcb=%s" % str(pilot_variant.call("get_rocket_ccip_block_reason"))
+				if pilot_state == AIPilot.State.ATTACK_DIVE \
+						and str(pilot_variant.get("_run_weapon_type")) == "Guns" \
+						and pilot_variant.has_method("is_gun_ccip_aim_active"):
+					var gun_ccip_active: bool = bool(pilot_variant.call("is_gun_ccip_aim_active"))
+					status += " gca=%s" % str(gun_ccip_active)
+					if gun_ccip_active:
+						status += " gcm=%.0f gcf=%+.0f gcr=%+.0f gcp=%+.2f gcy=%+.2f" % [
+							float(pilot_variant.call("get_gun_ccip_aim_miss_m")),
+							float(pilot_variant.call("get_gun_ccip_aim_local_forward_m")),
+							float(pilot_variant.call("get_gun_ccip_aim_local_right_m")),
+							float(pilot_variant.call("get_gun_ccip_aim_pitch_cmd")),
+							float(pilot_variant.call("get_gun_ccip_aim_yaw_cmd")),
+						]
+						if pilot_variant.has_method("is_gun_ccip_blocked") \
+								and bool(pilot_variant.call("is_gun_ccip_blocked")):
+							status += " gcb=%s" % str(pilot_variant.call("get_gun_ccip_block_reason"))
 				var simple_aero_variant: Variant = pilot_variant.get("simple_aero")
 				if is_instance_valid(simple_aero_variant):
 					if simple_aero_variant.has_method("get_estimated_angle_of_attack_deg"):
 						status += " alpha=%.1f" % float(simple_aero_variant.call("get_estimated_angle_of_attack_deg"))
 					if simple_aero_variant.has_method("get_estimated_lift_ratio"):
 						status += " lift=%.2f" % float(simple_aero_variant.call("get_estimated_lift_ratio"))
-		pieces.append("%s[%s h=%d m=%d]" % [record.get("name", "?"), status, int(record.get("gun_hits", 0)), int(record.get("gun_misses", 0))])
-	if continuous_intercept_mode:
-		_log("SUMMARY stage=CONTINUOUS_INTERCEPT kills=%d friendly_losses=%d friendly_alive=%d launches_pending=%d enemy_alive=%d :: %s" % [
+		var rolling_label := ""
+		if _rolling_recovery_mode and not str(record.get("rolling_status", "")).is_empty():
+			rolling_label = " cycle=%s q=%d" % [
+				str(record.get("rolling_status", "")),
+				int(record.get("rolling_queue_position", -1)),
+			]
+		pieces.append("%s[%s%s h=%d m=%d]" % [record.get("name", "?"), status, rolling_label, int(record.get("gun_hits", 0)), int(record.get("gun_misses", 0))])
+	if _rolling_recovery_mode:
+		var waiting_count := 0
+		if is_instance_valid(_fdm):
+			var waiting_variant: Variant = _fdm.get("_landing_clearance_queue")
+			waiting_count = waiting_variant.size() if waiting_variant is Array else 0
+		_log("SUMMARY stage=ROLLING_RECOVERY fps=%d traps=%d/%s losses=%d launches=%d active=%d pending_launches=%d waiting=%d max_queue=%d max_holding=%d :: %s" % [
+			measured_fps,
+			_rolling_traps,
+			str(rolling_target_traps) if rolling_target_traps > 0 else "unlimited",
+			_rolling_losses,
+			_friendly_launches,
+			_rolling_active_aircraft_count(),
+			_friendly_launch_requests_outstanding,
+			waiting_count,
+			_rolling_max_queue_depth,
+			_rolling_max_holding_aircraft,
+			" | ".join(pieces),
+		])
+	elif continuous_intercept_mode:
+		_log("SUMMARY stage=CONTINUOUS_INTERCEPT fps=%d kills=%d friendly_losses=%d friendly_alive=%d launches_pending=%d enemy_alive=%d :: %s" % [
+			measured_fps,
 			_enemy_kills,
 			_friendly_losses,
 			_live_aircraft_for_team(1).size(),
@@ -2363,8 +3347,8 @@ func _log_summary() -> void:
 				_ground_wave_destroyed,
 				_ground_targets_destroyed,
 			]
-		_log("SUMMARY stage=%s ground_targets=%s friendly_alive=%d enemy_alive=%d :: %s" % [
-			stage_name, ground_status, _live_aircraft_for_team(1).size(),
+		_log("SUMMARY stage=%s fps=%d ground_targets=%s friendly_alive=%d enemy_alive=%d :: %s" % [
+			stage_name, measured_fps, ground_status, _live_aircraft_for_team(1).size(),
 			_live_aircraft_for_team(2).size(), " | ".join(pieces),
 		])
 
@@ -2384,8 +3368,15 @@ func _live_aircraft_for_team(team: int) -> Array[Dictionary]:
 func _live_ground_targets() -> Array[Node3D]:
 	var out: Array[Node3D] = []
 	for target in _ground_targets:
-		if is_instance_valid(target) and not bool(target.get("is_destroyed")):
-			out.append(target)
+		if not is_instance_valid(target):
+			continue
+		if "is_destroyed" in target and bool(target.get("is_destroyed")):
+			continue
+		if "is_dying" in target and bool(target.get("is_dying")):
+			continue
+		if "current_health" in target and float(target.get("current_health")) <= 0.0:
+			continue
+		out.append(target)
 	return out
 
 
@@ -2498,7 +3489,7 @@ func _fmt(v: Vector3) -> String:
 func _log(message: String) -> void:
 	var line := "t=%07.1f %s" % [_elapsed_s, message]
 	print("[CarrierCombatTest] ", line)
-	var file := FileAccess.open(REPORT_PATH, FileAccess.READ_WRITE) if FileAccess.file_exists(REPORT_PATH) else FileAccess.open(REPORT_PATH, FileAccess.WRITE)
+	var file := FileAccess.open(_report_path, FileAccess.READ_WRITE) if FileAccess.file_exists(_report_path) else FileAccess.open(_report_path, FileAccess.WRITE)
 	if file != null:
 		file.seek_end()
 		file.store_line(line)

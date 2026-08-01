@@ -160,6 +160,8 @@ var _terrain_safety_cache_frame: int = -1000000
 var _terrain_safety_cache_pos: Vector3 = Vector3.INF
 var _terrain_safety_cache_center_ground_y: float = NAN
 var _terrain_safety_cache_result: bool = true
+var _effective_agl_cache_physics_frame: int = -1
+var _effective_agl_cache_value_m: float = NAN
 
 func _ready():
 	await get_tree().process_frame
@@ -705,6 +707,9 @@ func _get_carrier_reference_ground_y() -> float:
 	return deck_y - carrier_deck_reference_altitude_m
 
 func get_effective_altitude_agl_m() -> float:
+	var physics_frame: int = Engine.get_physics_frames()
+	if _effective_agl_cache_physics_frame == physics_frame:
+		return _effective_agl_cache_value_m
 	var ground_y: float = _get_ground_height_at_position(global_position)
 	var carrier_ground_y: float = _get_carrier_reference_ground_y()
 	var reference_ground_y: float = ground_y
@@ -714,8 +719,11 @@ func get_effective_altitude_agl_m() -> float:
 		else:
 			reference_ground_y = minf(reference_ground_y, carrier_ground_y)
 	if is_nan(reference_ground_y):
-		return maxf(global_position.y - sea_level_from_origin, 0.0)
-	return maxf(global_position.y - reference_ground_y, 0.0)
+		_effective_agl_cache_value_m = maxf(global_position.y - sea_level_from_origin, 0.0)
+	else:
+		_effective_agl_cache_value_m = maxf(global_position.y - reference_ground_y, 0.0)
+	_effective_agl_cache_physics_frame = physics_frame
+	return _effective_agl_cache_value_m
 
 func get_effective_altitude_reference_y() -> float:
 	var ground_y: float = _get_ground_height_at_position(global_position)
@@ -1429,6 +1437,7 @@ func calculate_rocket_ccip_impact_point(target_pos: Vector3 = Vector3.INF, inten
 		"blocked": false,
 		"blocked_reason": "",
 		"target_miss_m": INF,
+		"target_edge_miss_m": INF,
 		"hit_intended_target": false,
 		"effective_damage_radius_m": 0.0,
 	}
@@ -1493,6 +1502,9 @@ func calculate_rocket_ccip_impact_point(target_pos: Vector3 = Vector3.INF, inten
 		motor_additional_speed_mps = float(rocket_instance.motor_additional_speed_mps)
 	if "explosion_blast_radius" in rocket_instance:
 		result.effective_damage_radius_m = maxf(float(rocket_instance.explosion_blast_radius), 0.0)
+	var max_time: float = 15.0
+	if "lifetime" in rocket_instance:
+		max_time = maxf(float(rocket_instance.lifetime), 0.05)
 	rocket_instance.queue_free()
 
 	var gravity_dir: Vector3 = ProjectSettings.get_setting("physics/3d/default_gravity_vector", Vector3(0, -1, 0))
@@ -1500,7 +1512,6 @@ func calculate_rocket_ccip_impact_point(target_pos: Vector3 = Vector3.INF, inten
 	var gravity_vec: Vector3 = gravity_dir * gravity_mag
 
 	var time_step: float = 0.02
-	var max_time: float = 15.0
 	var current_pos: Vector3 = start_pos
 	var current_vel: Vector3 = initial_velocity
 	var launch_reference_speed_mps: float = initial_velocity.length()
@@ -1774,12 +1785,25 @@ func _classify_rocket_ccip_impact(result: Dictionary, start_pos: Vector3, target
 	var impact_pos: Vector3 = impact_variant if impact_variant is Vector3 else Vector3.ZERO
 	if not _is_finite_vector3(target_pos) or impact_pos == Vector3.ZERO:
 		return
-	result.target_miss_m = Vector2(target_pos.x - impact_pos.x, target_pos.z - impact_pos.z).length()
+	# Judge a moving target where it will be when the rocket arrives. The pilot's
+	# terminal lead uses this same time of flight; comparing the impact with the
+	# vehicle's current collider makes a correct lead look like a vehicle-speed * TOF
+	# miss (roughly 45 m for a fast pickup).
+	var target_translation := _get_ccip_target_linear_velocity(intended_target) \
+		* maxf(float(result.get("time_to_impact", 0.0)), 0.0)
+	var target_at_impact: Vector3 = target_pos + target_translation
+	result.target_miss_m = Vector2(target_at_impact.x - impact_pos.x, target_at_impact.z - impact_pos.z).length()
+	result.target_edge_miss_m = _horizontal_distance_to_target_collision_footprint(
+		impact_pos,
+		intended_target,
+		target_at_impact,
+		target_translation
+	)
 	var hit_body: Node = result.get("hit_body", null) as Node
 	if _rocket_ccip_hit_belongs_to_target(hit_body, intended_target):
 		return
 	var shot_flat: Vector3 = Vector3(impact_pos.x - start_pos.x, 0.0, impact_pos.z - start_pos.z)
-	var target_flat: Vector3 = Vector3(target_pos.x - start_pos.x, 0.0, target_pos.z - start_pos.z)
+	var target_flat: Vector3 = Vector3(target_at_impact.x - start_pos.x, 0.0, target_at_impact.z - start_pos.z)
 	if shot_flat.length_squared() < 1.0 or target_flat.length_squared() < 1.0:
 		return
 	var shot_dir: Vector3 = shot_flat.normalized()
@@ -1788,13 +1812,131 @@ func _classify_rocket_ccip_impact(result: Dictionary, start_pos: Vector3, target
 	var normal_variant: Variant = result.get("hit_normal", Vector3.ZERO)
 	var hit_normal: Vector3 = normal_variant if normal_variant is Vector3 else Vector3.ZERO
 	var hit_is_steep: bool = hit_normal != Vector3.ZERO and hit_normal.y < ROCKET_CCIP_MIN_GROUND_NORMAL_Y
-	# A terrain impact before the target is an undershoot, not a valid rocket
-	# solution. The intended target's own collider was accepted above, so no
-	# fixed distance allowance is needed here.
-	var hit_before_target: bool = impact_along_m < target_along_m
+	# An impact short of the target is only blocked when the target is also outside
+	# the rocket's real damage radius. This keeps terrain masking meaningful while
+	# accepting a near-side ground impact that the configured explosion can damage.
+	# The intended target's own collider was already accepted above.
+	var effective_damage_radius_m: float = maxf(
+		float(result.get("effective_damage_radius_m", 0.0)),
+		0.0
+	)
+	var explosion_reaches_target: bool = float(result.get(
+		"target_edge_miss_m",
+		INF
+	)) <= effective_damage_radius_m
+	var hit_before_target: bool = not explosion_reaches_target \
+		and impact_along_m + effective_damage_radius_m < target_along_m
 	if hit_before_target or hit_is_steep:
 		result.blocked = true
 		result.blocked_reason = "before_target" if hit_before_target else "steep_terrain"
+
+
+func _horizontal_distance_to_target_collision_footprint(
+		point: Vector3,
+		intended_target: Node,
+		fallback_target_pos: Vector3,
+		footprint_translation: Vector3 = Vector3.ZERO
+) -> float:
+	var fallback_distance_m: float = Vector2(
+		point.x - fallback_target_pos.x,
+		point.z - fallback_target_pos.z
+	).length()
+	if intended_target == null or not is_instance_valid(intended_target):
+		return fallback_distance_m
+	# Release against the physical damageable footprint, not every visual below the
+	# target. Vehicle scenes contain turret barrels, tracers and other moving meshes;
+	# folding all of those into one AABB can make a miss tens of metres away look valid.
+	# Only shapes owned by the target CollisionObject3D are part of this footprint.
+	if not (intended_target is CollisionObject3D):
+		return fallback_distance_m
+	var target_collision_object := intended_target as CollisionObject3D
+	var target_shapes: Array[CollisionShape3D] = []
+	for shape_value: Node in intended_target.find_children("*", "CollisionShape3D", true, false):
+		if not (shape_value is CollisionShape3D):
+			continue
+		var collision_shape := shape_value as CollisionShape3D
+		if collision_shape.disabled or collision_shape.shape == null:
+			continue
+		var owner: Node = collision_shape.get_parent()
+		while owner != null and not (owner is CollisionObject3D):
+			owner = owner.get_parent()
+		if owner == target_collision_object:
+			target_shapes.append(collision_shape)
+	var min_x: float = INF
+	var max_x: float = -INF
+	var min_z: float = INF
+	var max_z: float = -INF
+	for collision_shape: CollisionShape3D in target_shapes:
+		var local_bounds: AABB = _get_collision_shape_local_bounds(collision_shape.shape)
+		if local_bounds.size == Vector3.ZERO:
+			continue
+		for x_index in range(2):
+			for y_index in range(2):
+				for z_index in range(2):
+					var local_corner := local_bounds.position + Vector3(
+						local_bounds.size.x * float(x_index),
+						local_bounds.size.y * float(y_index),
+						local_bounds.size.z * float(z_index)
+					)
+					var world_corner: Vector3 = collision_shape.global_transform * local_corner \
+						+ footprint_translation
+					min_x = minf(min_x, world_corner.x)
+					max_x = maxf(max_x, world_corner.x)
+					min_z = minf(min_z, world_corner.z)
+					max_z = maxf(max_z, world_corner.z)
+	if not is_finite(min_x) or not is_finite(max_x) \
+			or not is_finite(min_z) or not is_finite(max_z):
+		return fallback_distance_m
+	var outside_x_m: float = maxf(maxf(min_x - point.x, point.x - max_x), 0.0)
+	var outside_z_m: float = maxf(maxf(min_z - point.z, point.z - max_z), 0.0)
+	return Vector2(outside_x_m, outside_z_m).length()
+
+
+func _get_collision_shape_local_bounds(shape: Shape3D) -> AABB:
+	if shape is BoxShape3D:
+		var box_size: Vector3 = (shape as BoxShape3D).size
+		return AABB(-box_size * 0.5, box_size)
+	if shape is SphereShape3D:
+		var sphere_radius: float = (shape as SphereShape3D).radius
+		var sphere_size := Vector3.ONE * sphere_radius * 2.0
+		return AABB(-sphere_size * 0.5, sphere_size)
+	if shape is CapsuleShape3D:
+		var capsule := shape as CapsuleShape3D
+		var capsule_size := Vector3(capsule.radius * 2.0, capsule.height, capsule.radius * 2.0)
+		return AABB(-capsule_size * 0.5, capsule_size)
+	if shape is CylinderShape3D:
+		var cylinder := shape as CylinderShape3D
+		var cylinder_size := Vector3(cylinder.radius * 2.0, cylinder.height, cylinder.radius * 2.0)
+		return AABB(-cylinder_size * 0.5, cylinder_size)
+	var points: PackedVector3Array = PackedVector3Array()
+	if shape is ConvexPolygonShape3D:
+		points = (shape as ConvexPolygonShape3D).points
+	elif shape is ConcavePolygonShape3D:
+		points = (shape as ConcavePolygonShape3D).get_faces()
+	if points.is_empty():
+		return AABB()
+	var bounds := AABB(points[0], Vector3.ZERO)
+	for point_index in range(1, points.size()):
+		bounds = bounds.expand(points[point_index])
+	return bounds
+
+
+func _get_ccip_target_linear_velocity(target: Node) -> Vector3:
+	if target == null or not is_instance_valid(target):
+		return Vector3.ZERO
+	if target is RigidBody3D:
+		return (target as RigidBody3D).linear_velocity
+	if target is CharacterBody3D:
+		return (target as CharacterBody3D).velocity
+	if "linear_velocity" in target:
+		var linear_velocity_value: Variant = target.get("linear_velocity")
+		if linear_velocity_value is Vector3:
+			return linear_velocity_value
+	if "velocity" in target:
+		var velocity_value: Variant = target.get("velocity")
+		if velocity_value is Vector3:
+			return velocity_value
+	return Vector3.ZERO
 
 
 func _rocket_ccip_hit_belongs_to_target(hit_body: Node, intended_target: Node) -> bool:

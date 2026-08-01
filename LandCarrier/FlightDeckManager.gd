@@ -90,6 +90,8 @@ const LOADOUT_INTERCEPT := "intercept"
 const LOADOUT_STRIKE := "strike"
 const LOADOUT_COMBAT_TEST := "combat_test"
 const LOADOUT_ROCKET_STRIKE := "rocket_strike"
+const LOADOUT_BOMB_STRIKE := "bomb_strike"
+const LOADOUT_RANDOM_GROUND_STRIKE := "random_ground_strike"
 const WEAPON_SCENE_20MM := "res://Weapons/Guns/Hardpoint/20mm_autocannon_hardpoint.tscn"
 const WEAPON_SCENE_AA_MISSILE := "res://Weapons/AA_Missile/aa_missile_launcher.tscn"
 const WEAPON_SCENE_ROCKET_POD := "res://Weapons/RocketPod/rocket_pod.tscn"
@@ -502,7 +504,13 @@ func _landing_path_clear_of_terrain(force_refresh: bool = false) -> bool:
 	right.y = 0.0
 	right = right.normalized() if right.length_squared() >= 0.001 else forward.cross(Vector3.UP).normalized()
 	var glide_tan: float = tan(deg_to_rad(clampf(landing_terrain_glideslope_deg, 1.0, 20.0)))
-	var step_m: float = maxf(landing_terrain_check_step_m, 20.0)
+	# A sampling interval wider than the clearance buffer can step cleanly over a
+	# narrow ridge that still intersects the glideslope between samples. Respect the
+	# configured interval, but never let it be coarser than the safety margin itself.
+	var step_m: float = minf(
+		maxf(landing_terrain_check_step_m, 20.0),
+		maxf(landing_terrain_clearance_m, 20.0)
+	)
 	var distance_m: float = step_m
 	var corridor_clear := true
 	while distance_m <= maxf(check_distance_m, step_m):
@@ -1142,6 +1150,15 @@ func _launch_next_queued_ai() -> void:
 		_pending_flight_ops = null
 		_retrieval_ai_land_after_launch = true
 		_pending_ai_loadout_profile = ""
+		return
+	# Recovery traffic owns the deck once an aircraft has requested clearance.
+	# Keep the launch queued instead of retrieving it ahead of an active holder,
+	# a waiting recovery, or an arrested aircraft still being stored.
+	_prune_landing_clearance_queue()
+	_prune_landing_clearance_aircraft()
+	if is_instance_valid(_pending_store_aircraft) \
+			or is_instance_valid(_landing_clearance_aircraft) \
+			or not _landing_clearance_queue.is_empty():
 		return
 	_ai_launch_queue -= 1
 	start_hangar_retrieval()
@@ -2067,8 +2084,17 @@ func _is_landing_clearance_aircraft_stale(aircraft: RigidBody3D) -> bool:
 		return true
 	if "_has_exploded" in aircraft and bool(aircraft.get("_has_exploded")):
 		return true
+	var active_fixed_wing_recovery: bool = aircraft.has_meta(
+		"carrier_fixed_wing_recovery_active"
+	) and bool(aircraft.get_meta("carrier_fixed_wing_recovery_active"))
 	var carrier := get_parent() as Node3D
-	if is_instance_valid(carrier) and maxf(landing_clearance_abandon_radius_m, 0.0) > 0.0:
+	if not active_fixed_wing_recovery \
+			and is_instance_valid(carrier) \
+			and maxf(landing_clearance_abandon_radius_m, 0.0) > 0.0:
+		# Fixed-wing recovery deliberately includes an outbound reversal that can
+		# exceed the generic request radius. Its pilot owns explicit release on
+		# wave-off, abort, destruction, and arrest; pruning that live clearance here
+		# lets the carrier resume moving underneath a world-space arrival route.
 		var carrier_to_aircraft := aircraft.global_position - carrier.global_position
 		carrier_to_aircraft.y = 0.0
 		if carrier_to_aircraft.length() > landing_clearance_abandon_radius_m:
@@ -2417,9 +2443,10 @@ func _store_aircraft_in_hangar():
 	if not is_instance_valid(_pending_store_aircraft):
 		_pending_store_aircraft = null
 		_recovery_debug("store aircraft skipped: no pending store aircraft")
-		_landing_clearance_aircraft = null
-		_landing_clearance_queue.clear()
 		current_state = DeckState.IDLE
+		_prune_landing_clearance_queue()
+		_prune_landing_clearance_aircraft()
+		_grant_next_landing_clearance_if_possible()
 		return
 
 
@@ -2442,10 +2469,14 @@ func _store_aircraft_in_hangar():
 	_recovery_powerdown_in_progress = false
 	_recovery_release_done = false
 	_recovery_job_dispatched = false
-	_landing_clearance_aircraft = null
-	_landing_clearance_queue.clear()
 	_reset_landing_blocker_cleanup()
 	current_state = DeckState.IDLE
+	# The arrested aircraft released its own clearance before storage. Preserve
+	# every other recovery request and promote the next waiter now that the deck
+	# has physically cleared.
+	_prune_landing_clearance_queue()
+	_prune_landing_clearance_aircraft()
+	_grant_next_landing_clearance_if_possible()
 
 func _spawn_aircraft_at_hangar_level():
 	"""Spawn aircraft at hangar level when elevator reaches bottom during retrieval"""
@@ -3315,6 +3346,11 @@ func _apply_ai_loadout_profile(aircraft: RigidBody3D, profile: String) -> void:
 	var normalized_profile := profile.strip_edges().to_lower()
 	if normalized_profile == "":
 		return
+	# Resolve this once per materialized aircraft, not once per hardpoint, so a
+	# random strike loadout is always a coherent pair of stores plus the gun.
+	if normalized_profile == LOADOUT_RANDOM_GROUND_STRIKE:
+		normalized_profile = LOADOUT_ROCKET_STRIKE if randi() % 2 == 0 else LOADOUT_BOMB_STRIKE
+	aircraft.set_meta("resolved_ai_loadout_profile", normalized_profile)
 	var hardpoints: Array[Hardpoint] = []
 	for node in _get_all_children(aircraft):
 		if node is Hardpoint:
@@ -3351,6 +3387,8 @@ func _choose_ai_loadout_weapon_scene(hardpoint: Hardpoint, hardpoint_index: int,
 		# Aircraft_5 has three hardpoints. The full-cycle combat test needs two
 		# finite 24-round rocket canisters and its normal gun, in that order.
 		return WEAPON_SCENE_ROCKET_POD if hardpoint_index < 2 else WEAPON_SCENE_20MM
+	if profile == LOADOUT_BOMB_STRIKE:
+		return WEAPON_SCENE_BOMB_RACK if hardpoint_index < 2 else WEAPON_SCENE_20MM
 	return ""
 
 func _mount_weapon_scene_on_hardpoint(hardpoint: Hardpoint, weapon_scene_path: String) -> void:
@@ -3393,7 +3431,7 @@ func _refresh_weapon_controller_after_loadout(aircraft: RigidBody3D, profile: St
 		control_weapons.categorize_weapons()
 	if not ("weapon_types" in control_weapons):
 		return
-	var preferred_type := "Bomb" if (profile == LOADOUT_STRIKE or profile == "cas" or profile == LOADOUT_COMBAT_TEST) else "AAMissile"
+	var preferred_type := "Bomb" if (profile == LOADOUT_STRIKE or profile == "cas" or profile == LOADOUT_COMBAT_TEST or profile == LOADOUT_BOMB_STRIKE) else "AAMissile"
 	if profile == LOADOUT_CAP:
 		preferred_type = "Autocannon"
 	elif profile == LOADOUT_ROCKET_STRIKE:

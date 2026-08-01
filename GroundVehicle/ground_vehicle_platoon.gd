@@ -152,6 +152,43 @@ func get_active_waypoints() -> Array[Vector3]:
 				active_waypoints.append(fallback_goal)
 	return active_waypoints
 
+
+func predict_member_route_position(member: Node3D, lookahead_s: float) -> Vector3:
+	## Predict along the platoon's actual terrain route instead of extending the
+	## member's instantaneous steering vector through future bends.
+	if member == null or not is_instance_valid(member) or lookahead_s <= 0.0:
+		return member.global_position if member != null and is_instance_valid(member) else global_position
+	var planar_speed_mps: float = 0.0
+	if "velocity" in member:
+		var velocity_value: Variant = member.get("velocity")
+		if velocity_value is Vector3:
+			planar_speed_mps = Vector2(velocity_value.x, velocity_value.z).length()
+	elif "linear_velocity" in member:
+		var linear_velocity_value: Variant = member.get("linear_velocity")
+		if linear_velocity_value is Vector3:
+			planar_speed_mps = Vector2(linear_velocity_value.x, linear_velocity_value.z).length()
+	if planar_speed_mps <= 0.1:
+		var default_speed_mps: float = float(member.get("max_speed")) if "max_speed" in member else 15.0
+		planar_speed_mps = get_platoon_speed_limit(default_speed_mps)
+	var remaining_m: float = planar_speed_mps * maxf(lookahead_s, 0.0)
+	var cursor: Vector3 = member.global_position
+	var route_points: Array[Vector3] = get_active_waypoints()
+	if route_points.is_empty() and has_active_objective():
+		route_points.append(get_destination_for(member))
+	for point in route_points:
+		var segment: Vector3 = point - cursor
+		segment.y = 0.0
+		var segment_length_m: float = segment.length()
+		if segment_length_m <= 0.1:
+			cursor = point
+			continue
+		if remaining_m <= segment_length_m:
+			var predicted: Vector3 = cursor + segment / segment_length_m * remaining_m
+			return _project_contact_to_ground(predicted)
+		remaining_m -= segment_length_m
+		cursor = point
+	return _project_contact_to_ground(cursor)
+
 func should_vehicle_use_shared_route(vehicle: Node3D) -> bool:
 	if vehicle == null or not is_instance_valid(vehicle):
 		return false

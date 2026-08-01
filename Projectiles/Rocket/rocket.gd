@@ -26,7 +26,7 @@ const DEFAULT_ROCKET_LOOP: AudioStream = preload("res://Audio/rocket.wav")
 ## Smooth, zero-mean lateral acceleration unique to each rocket. Unlike the
 ## periodic wobble, this does not cancel into the same repeatable trajectory and
 ## therefore produces a small natural dispersion during flight.
-@export var flight_scatter_accel_mps2: float = 0.65
+@export var flight_scatter_accel_mps2: float = 0.85
 ## How long a small thrust/fin error tends to persist before drifting elsewhere.
 @export var flight_scatter_correlation_s: float = 0.65
 @export var rocket_linear_damp: float = 0.06  # Drag applied to the rocket. Exported so the CCIP predictor can read it BEFORE _ready() runs -- otherwise CCIP saw linear_damp=0 (drag-free) and over-predicted range by ~400m, which no aiming fix could correct.

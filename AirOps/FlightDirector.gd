@@ -1,5 +1,7 @@
 extends Node
 
+const AirTaskModel: Script = preload("res://AI/AirTask.gd")
+
 ## Global Flight Director
 ## Manages spectator mode, pilot handoff, and tracking all active aircraft.
 ##
@@ -765,7 +767,9 @@ func command_closest_friendly_to_land() -> void:
 
 	# Use the same staged recovery as autonomous RTB: queue for a clear, steady carrier corridor,
 	# establish the inbound axis and glideslope, then hand the final segment to start_landing().
-	var ok: bool = ai_pilot.start_recovery()
+	var recovery_task: Variant = AirTaskModel.recover()
+	var ok: bool = bool(ai_pilot.call("assign_air_task", recovery_task)) \
+		if ai_pilot.has_method("assign_air_task") else ai_pilot.start_recovery()
 	if ok:
 		print("[FlightDirector] L: staged carrier recovery commanded for ", target.name)
 	else:

@@ -422,9 +422,15 @@ func deal_explosion_damage():
 				print("  - Skipping (no take_damage method and not RigidBody3D)")
 			continue
 		
-		var distance: float = global_position.distance_to(target.global_position)
-		if distance > blast_radius:
-			continue
+		# intersect_shape has already established that the blast sphere overlaps this
+		# target's collider. Do not reject that physical overlap merely because the
+		# node origin (often the centre of a truck or ship) lies outside the radius.
+		# Clamp the centre distance to the edge of the blast so collider-edge overlaps
+		# receive the configured minimum damage rather than no damage at all.
+		var distance: float = minf(
+			global_position.distance_to(target.global_position),
+			blast_radius
+		)
 		
 		# Optional line-of-sight check to avoid damaging through walls/terrain
 		if use_line_of_sight:

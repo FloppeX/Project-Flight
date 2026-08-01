@@ -10,6 +10,54 @@ There are no scripted missions. Each scenario is intended to support open-ended 
 
 ## Core Concept
 
+### Design North Star: An Autonomous Carrier Society
+
+The carrier should feel like a functioning war machine and mobile colony, not a collection of units waiting for player orders. Its operational controllers and crew are expected to act independently: they detect needs, create and assign missions, launch aircraft, conduct patrols and attacks, recover vehicles and pilots, repair and rearm equipment, and reorganize after losses. Normal operations should continue without requiring the player to micromanage them.
+
+The intended division of responsibility is **player intent, autonomous execution**. The player decides what matters; the carrier's people and systems decide how to carry it out. This is also a development direction: new carrier, AirOps, GroundOps, flight-deck, logistics, and personnel systems should strengthen the autonomous operational loop rather than make routine work depend on repeated player commands.
+
+The design should follow **command by exception**:
+
+- The autonomous organization handles ordinary operations and reacts to routine threats.
+- The player sets priorities, route, doctrine, acceptable risk, and resource commitments.
+- The player is called on when priorities conflict, circumstances become unusual, or consequences are important.
+- The player may directly take control of an aircraft, helicopter, turret, vehicle, or other station whenever that is interesting, urgent, or personally meaningful.
+- Direct control is an intervention and a source of action gameplay, not a chore required to keep the carrier functioning.
+
+The player's exact fictional office and the final balance between strategic authority and free-form participation remain open design questions. However, the player should not be merely a passenger: some decisions must require their judgment, particularly decisions involving route, sacrifice, diplomacy, scarce resources, and the expedition's values.
+
+### Campaign Direction
+
+The working campaign premise is a long carrier expedition through a sequence of regions or maps, potentially with distinct biomes, in search of a distant safe or utopian territory. Whether that destination exists as promised is deliberately not settled yet. The journey provides direction; the condition and character of the carrier society that arrives should provide much of the meaning.
+
+Each region should create an operational cycle:
+
+1. **Enter:** arrive carrying forward surviving personnel, vehicles, supplies, upgrades, and damage.
+2. **Discover:** scouts and sensors reveal terrain, weather, settlements, resources, routes, and enemy activity.
+3. **Choose intent:** the player selects broad priorities such as advance, avoid contact, obtain fuel, rescue people, protect a settlement, or remove a strategic threat.
+4. **Operate:** autonomous controllers turn those priorities and the current sensor picture into patrols, strikes, escorts, rescues, logistics, recovery, and repair work.
+5. **Respond:** unexpected threats and conflicting needs create exceptional decisions; the player may revise priorities or intervene directly.
+6. **Recover and adapt:** the carrier deals with fatigue, casualties, damage, ammunition, fuel, experience, and new people or capabilities.
+7. **Move on:** the player chooses when and how to leave, usually without enough time or resources to solve every problem in the region.
+
+Meaningful play should come from competing priorities rather than unit-level busywork. Committing aircraft to a strike can weaken carrier defense; waiting for repairs can allow enemies to reinforce; rescuing a pilot can risk more lives; helping a settlement can consume time but earn people, knowledge, or supplies. Policies and doctrine should let the player express intent without approving every launch, weapon choice, or repair.
+
+This campaign structure is a target, not a claim about what is already implemented. Near-term systems may remain sandbox-oriented, but they should be built so they can eventually participate in this persistent autonomous expedition loop.
+
+### Planned Campaign Ending (Design Spoilers)
+
+The expedition is trying to reach a mythical safe settlement said to have forests, streams, and abundant plant life. For most of the game, the desert contains very little vegetation. As the carrier approaches its destination across the later regions, the environment should quietly validate the stories: isolated hardy plants become more common, followed by patches of grass, damp ground, running water, and increasingly green terrain. This progression should create genuine hope without revealing the final destination too early.
+
+When the expedition finally reaches the promised location, it finds a ruined and abandoned city rather than the sanctuary it expected. The discovery should initially feel like the failure of the myth and the loss of the destination that sustained the journey.
+
+Beyond the ruins, however, the crew encounters something larger and more majestic than the promised city: the ocean. This should be the first clear sight of the sea in the game, ideally preceded by subtle sensory clues such as unfamiliar wind, gulls, moisture, or distant surf. The reveal changes the ending from arrival to possibility.
+
+In the final sequence, the land carrier is modified so that it can enter the water. It drives into the sea, floats, and jettisons its enormous tread assemblies. The former land carrier has become a true carrier ship. Carrying the surviving society and everything it has become during the campaign, it sails toward the horizon and a new frontier, leaving room for a sequel.
+
+The ending's thematic purpose is that utopia is not a finished place waiting to be discovered. It is the community the expedition preserved and shaped during the journey. The ruined city can still provide knowledge, seeds, records, materials, infrastructure, or other evidence that its promise was once real, so reaching it is not meaningless even though it is no longer a sanctuary.
+
+The carrier's ability to survive the conversion should be foreshadowed enough to feel surprising but credible. Possible foundations include a sealed or ship-derived hull, dormant marine systems, old plans, or conversion infrastructure found near the city; the exact explanation remains open. These clues should not reveal the ocean or the final transformation prematurely.
+
 ### Aesthetic Vision
 
 The project aims for a low-poly, flat-shaded look with an old-school Amiga feel.
@@ -24,11 +72,11 @@ The land carrier is the centerpiece of the game: a 200-meter-long tracked mobile
 
 ### Player Units
 
-Aircraft are the primary player-flown vehicles and are meant to be modular, upgradeable, and recoverable. Ground vehicles are mostly AI controlled, but support the player's wider tactical plan.
+Aircraft, helicopters, ground vehicles, defenses, and carrier stations can provide direct action gameplay, with aircraft remaining the primary player-flown vehicles. They are nevertheless AI-first participants in the carrier's autonomous operations: the player can take control when desired without becoming responsible for their routine execution. Vehicles are meant to be modular, upgradeable, recoverable, and part of the player's wider strategic plan.
 
 ### High-Level Gameplay Loop
 
-The player pushes into enemy-controlled territory, launches and recovers aircraft, protects the carrier, attacks enemy positions, and gradually expands capability through resources, repairs, and upgrades.
+The carrier expedition advances through dangerous regions while its autonomous organization scouts, launches and recovers aircraft, protects the carrier, attacks threats, and manages routine logistics. The player chooses direction and priorities, resolves consequential conflicts, intervenes directly when desired, and gradually shapes the expedition through resources, repairs, personnel, doctrine, and upgrades.
 
 ## Current Status
 
@@ -472,6 +520,7 @@ Supported readout instruments currently include `speed`, `altitude`, `vertical_s
 
 ## Additional Documentation
 
+- [Pilot Portrait Catalog](Images/Pilot%20Portraits/pilot_portrait_catalog.csv) - maps all 100 pilot portrait filenames to apparent presentation plus semicolon-separated strong and additional regional fits. The region fields are deliberately loose casting suggestions for a culturally mixed fictional future, not claims about ancestry or nationality.
 - [Land Carrier Changelog](docs/Land%20Carrier%20Changelog.md)
 - [Land Carrier Track Mapping Problem](docs/Land%20Carrier%20Track%20Mapping%20Problem.md)
 - [Land Carrier Bridge Jitter Problem](docs/Land%20Carrier%20Bridge%20Jitter%20Problem.md)

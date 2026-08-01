@@ -1,0 +1,19 @@
+[remap]
+
+importer="csv_translation"
+type="Translation"
+uid="uid://d12dadqti5ejj"
+
+[deps]
+
+files=["res://Images/Pilot Portraits/pilot_portrait_catalog.apparent.translation", "res://Images/Pilot Portraits/pilot_portrait_catalog.strong.translation", "res://Images/Pilot Portraits/pilot_portrait_catalog.additional.translation"]
+
+source_file="res://Images/Pilot Portraits/pilot_portrait_catalog.csv"
+dest_files=["res://Images/Pilot Portraits/pilot_portrait_catalog.apparent.translation", "res://Images/Pilot Portraits/pilot_portrait_catalog.strong.translation", "res://Images/Pilot Portraits/pilot_portrait_catalog.additional.translation"]
+
+[params]
+
+compress=1
+delimiter=0
+unescape_keys=false
+unescape_translations=true
