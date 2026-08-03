@@ -73,6 +73,16 @@ static var _global_virtual_path_jobs: int = 0
 signal unit_destroyed(platoon: EnemyVirtualPlatoon)
 
 
+func _ready() -> void:
+	if WorldUnitIndex != null:
+		WorldUnitIndex.register_formation(self, "platoon", platoon_name)
+
+
+func _exit_tree() -> void:
+	if WorldUnitIndex != null:
+		WorldUnitIndex.unregister_formation(self)
+
+
 func setup(home_pos: Vector3, scenes: Array[PackedScene], start_angle: float = 0.0) -> void:
 	home_position   = home_pos
 	_vehicle_scenes = scenes
@@ -404,11 +414,17 @@ func _check_materialize() -> void:
 
 
 func _check_dematerialize() -> void:
+	if WorldUnitIndex != null and WorldUnitIndex.enabled and WorldUnitIndex.formation_relevance_enabled:
+		if WorldUnitIndex.should_dematerialize_formation(position, DEACTIVATE_RANGE_M):
+			dematerialize()
+		return
 	if _nearest_player_relevance_distance() > DEACTIVATE_RANGE_M:
 		dematerialize()
 
 
 func _should_materialize() -> bool:
+	if WorldUnitIndex != null and WorldUnitIndex.enabled and WorldUnitIndex.formation_relevance_enabled:
+		return WorldUnitIndex.should_materialize_formation(position, ACTIVATE_RANGE_M, DEACTIVATE_RANGE_M)
 	var player_dist: float = _nearest_player_relevance_distance()
 	if player_dist <= ACTIVATE_RANGE_M:
 		return true
@@ -464,19 +480,15 @@ func _apply_mission_to_platoon() -> void:
 		Mission.ATTACK_CARRIER:
 			var carrier := get_tree().get_first_node_in_group("carrier") as Node3D
 			if carrier and is_instance_valid(carrier):
-				_platoon_node.attack_node = carrier
-				_platoon_node.objective_type = GroundVehiclePlatoon.ObjectiveType.ATTACK_NODE
+				_platoon_node.set_attack_node(carrier)
 				return
-			_platoon_node.objective_position = attack_position
-			_platoon_node.objective_type = GroundVehiclePlatoon.ObjectiveType.ATTACK_POSITION
+			_platoon_node.set_attack_position(attack_position)
 		Mission.ATTACK_POSITION:
-			_platoon_node.objective_position = attack_position
-			_platoon_node.objective_type = GroundVehiclePlatoon.ObjectiveType.ATTACK_POSITION
+			_platoon_node.set_attack_position(attack_position)
 		_:
 			# PATROL / RTB / HOLD — move to next patrol waypoint
 			var dest := _current_patrol_waypoint()
-			_platoon_node.objective_position = dest
-			_platoon_node.objective_type = GroundVehiclePlatoon.ObjectiveType.MOVE_TO_POSITION
+			_platoon_node.set_move_objective(dest)
 
 
 func _current_patrol_waypoint() -> Vector3:

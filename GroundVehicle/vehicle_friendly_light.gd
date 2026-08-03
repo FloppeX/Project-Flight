@@ -6,6 +6,8 @@ signal deploy_complete(vehicle)
 signal retrieve_complete(vehicle)
 
 const VISUAL_FOCUS_HELPER = preload("res://Effects/VisualFocus.gd")
+const CAMERA_VISIBILITY_LOD = preload("res://Effects/CameraVisibilityLOD.gd")
+const VEHICLE_MESH_LOD = preload("res://Effects/VehicleMeshLOD.gd")
 const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
 
 # --- Deployment ---
@@ -47,6 +49,32 @@ var _retrieve_siblings: Array[Node3D] = []  # other vehicles in this retrieval g
 @export var spacing_cache_refresh_s: float = 0.35
 @export var detailed_suspension_distance_m: float = 800.0
 @export var distant_suspension_height_lerp: float = 8.0
+@export_group("Vehicle Performance LOD")
+@export var performance_lod_enabled: bool = true
+@export var suspension_requires_camera_visibility: bool = true
+@export var camera_visibility_check_interval_s: float = 0.15
+@export var camera_visibility_padding_m: float = 8.0
+@export var offscreen_ground_update_interval_s: float = 0.25
+@export var carrier_ops_require_physical_suspension: bool = true
+@export var multi_rate_drive_commands_enabled: bool = true
+@export_range(0.02, 0.20, 0.01) var drive_command_update_interval_s: float = 0.05
+@export var multi_rate_vehicle_simulation_enabled: bool = true
+@export var full_rate_simulation_distance_m: float = 450.0
+@export_range(0.04, 0.25, 0.01) var offscreen_simulation_update_interval_s: float = 0.10
+@export_range(0.03, 0.20, 0.01) var offscreen_combat_update_interval_s: float = 0.067
+@export_range(0.10, 0.50, 0.01) var simulation_max_catchup_delta_s: float = 0.25
+@export var damage_wake_duration_s: float = 1.0
+@export_group("")
+@export_group("Vehicle Mesh LOD")
+@export var mesh_lod_enabled: bool = true
+@export var mesh_lod_update_interval_s: float = 0.25
+@export var mesh_lod_near_distance_m: float = 200.0
+@export var mesh_lod_far_distance_m: float = 600.0
+@export_range(0.02, 1.0, 0.01) var mesh_lod_mid_bias: float = 0.55
+@export_range(0.02, 1.0, 0.01) var mesh_lod_far_bias: float = 0.22
+@export var wheel_mesh_visibility_distance_m: float = 450.0
+@export var mesh_shadow_visibility_distance_m: float = 600.0
+@export_group("")
 
 # --- Waypoints ---
 @export var waypoints: Array[NodePath] = []
@@ -70,6 +98,8 @@ var _retrieve_siblings: Array[Node3D] = []  # other vehicles in this retrieval g
 @export var delay_length: float = 3.0
 @export var turret_weapon: PackedScene
 @export var aim_skill: float = 0.75
+@export var staged_wreck_breakup_enabled: bool = true
+@export_range(0.0, 0.6, 0.01) var wreck_breakup_spread_duration_s: float = 0.28
 @export var platoon_min_neighbor_distance_m: float = 20.0
 @export var platoon_rejoin_distance_m: float = 80.0
 @export var preferred_vehicle_spacing_min_m: float = 20.0
@@ -140,6 +170,26 @@ var _cached_spacing_candidates: Array[Node3D] = []
 var _spacing_cache_timer_s: float = 0.0
 var _cached_active_camera: Camera3D = null
 var _camera_cache_timer_s: float = 0.0
+var _camera_visibility_timer_s: float = 0.0
+var _cached_camera_visible: bool = true
+var _offscreen_ground_timer_s: float = 0.0
+var _offscreen_ground_accumulated_delta_s: float = 0.0
+var _mesh_lod_controller: Node = null
+var _drive_command_timer_s: float = 0.0
+var _drive_command_elapsed_s: float = 0.0
+var _drive_command_interval_scale: float = 1.0
+var _drive_command_has_destination: bool = false
+var _drive_command_formation_hold: bool = false
+var _drive_command_formation_slot: Vector3 = Vector3.ZERO
+var _drive_command_steer: float = 0.0
+var _drive_command_turn_rate_scale: float = 1.0
+var _drive_command_throttle: float = 0.0
+var _drive_command_combat: bool = false
+var _simulation_lod_band: StringName = &"near"
+var _simulation_lod_timer_s: float = 0.0
+var _simulation_lod_accumulated_delta_s: float = 0.0
+var _simulation_lod_wake_timer_s: float = 0.0
+var _simulation_lod_phase: float = 0.0
 func _ready() -> void:
 	current_health = max_health
 	floor_snap_length = 0.0
@@ -148,12 +198,28 @@ func _ready() -> void:
 	add_to_group("ground_vehicles")
 	add_to_group("team_" + str(team))
 	add_to_group("origin_shifter")
+	if WorldUnitIndex != null:
+		WorldUnitIndex.register_unit(self)
 	if Livery:
 		Livery.apply(self)
 	_resolve_waypoints()
 	_collect_wheel_nodes()
 	_compute_corner_probes()
 	_suspension_probe_counter = int(get_instance_id()) % maxi(suspension_probe_interval_frames, 1)
+	_cached_camera_visible = CAMERA_VISIBILITY_LOD.is_node_camera_relevant(
+		self,
+		self,
+		_get_active_camera(0.0),
+		camera_visibility_padding_m
+	)
+	_camera_visibility_timer_s = randf_range(0.0, maxf(camera_visibility_check_interval_s, 0.01))
+	_offscreen_ground_timer_s = randf_range(0.0, maxf(offscreen_ground_update_interval_s, 0.01))
+	var drive_phase: float = float(get_instance_id() % 997) / 997.0
+	_drive_command_interval_scale = lerpf(0.90, 1.10, drive_phase)
+	_drive_command_timer_s = maxf(drive_command_update_interval_s, 0.02) * drive_phase
+	_simulation_lod_phase = float(get_instance_id() % 991) / 991.0
+	_simulation_lod_timer_s = maxf(offscreen_simulation_update_interval_s, 0.04) * _simulation_lod_phase
+	_set_simulation_lod_band(&"near")
 
 	# Dust from wheels
 	if not has_node("DustEffect"):
@@ -182,6 +248,10 @@ func _ready() -> void:
 		turret_controller.target_aim_height_bias_m = 1.2
 		if turret_weapon and turret_controller.weapon_instance == null:
 			turret_controller.mount_weapon(turret_weapon)
+	_mesh_lod_controller = VEHICLE_MESH_LOD.new()
+	_mesh_lod_controller.name = "VehicleMeshLOD"
+	add_child(_mesh_lod_controller)
+	_mesh_lod_controller.setup(self)
 
 func _find_turret_controller() -> TurretController:
 	var direct: Node = find_child("TurretController", true, false)
@@ -567,32 +637,138 @@ func _physics_process(delta: float) -> void:
 	if is_dying:
 		FrameProfiler.end("VehicleFriendlyLight.physics", _profiler_start)
 		return
-
 	if deploy_mode:
+		_update_mesh_lod(delta)
 		_process_deploy(delta)
 		FrameProfiler.end("VehicleFriendlyLight.physics", _profiler_start)
 		return
 
 	if retrieve_mode:
+		_update_mesh_lod(delta)
 		_process_retrieve(delta)
 		FrameProfiler.end("VehicleFriendlyLight.physics", _profiler_start)
 		return
+	var simulation_delta: float = _consume_vehicle_simulation_delta(delta)
+	if simulation_delta <= 0.0:
+		FrameProfiler.end("VehicleFriendlyLight.physics", _profiler_start)
+		return
+	var coarse_motion: bool = _simulation_lod_band != &"near"
+	_update_mesh_lod(simulation_delta)
 
-	if turret_controller:
-		current_target = turret_controller.current_target
-	else:
-		current_target = null
-	_update_shoot_and_scoot(delta)
-	_update_navigation_path(delta)
-
-	_drive_to_waypoint(delta)
-	_update_wheel_visuals()
+	var command_delta: float = _consume_drive_command_delta(simulation_delta)
+	if command_delta > 0.0:
+		var command_profiler_start: int = FrameProfiler.begin("VehicleFriendlyLight.drive_command")
+		if turret_controller:
+			current_target = turret_controller.current_target
+		else:
+			current_target = null
+		_update_shoot_and_scoot(command_delta)
+		_update_navigation_path(command_delta)
+		_refresh_drive_command(command_delta)
+		FrameProfiler.end("VehicleFriendlyLight.drive_command", command_profiler_start)
+	_apply_cached_drive_motion(simulation_delta, coarse_motion)
+	_update_wheel_visuals(simulation_delta, true)
 	FrameProfiler.end("VehicleFriendlyLight.physics", _profiler_start)
+
+func _consume_vehicle_simulation_delta(delta: float) -> float:
+	var safe_delta := maxf(delta, 0.0)
+	_simulation_lod_wake_timer_s = maxf(_simulation_lod_wake_timer_s - safe_delta, 0.0)
+	if not performance_lod_enabled or not multi_rate_vehicle_simulation_enabled:
+		_reset_simulation_lod_accumulator()
+		_set_simulation_lod_band(&"near")
+		return safe_delta
+
+	var camera_visible: bool = _is_camera_visible(safe_delta)
+	var camera := _get_active_camera(0.0)
+	var within_full_rate_distance: bool = camera == null or not is_instance_valid(camera) \
+		or global_position.distance_squared_to(camera.global_position) \
+			<= full_rate_simulation_distance_m * full_rate_simulation_distance_m
+	if camera_visible or within_full_rate_distance or _simulation_lod_wake_timer_s > 0.0:
+		_reset_simulation_lod_accumulator()
+		_set_simulation_lod_band(&"near")
+		return safe_delta
+
+	var engaged: bool = _drive_command_combat \
+		or (current_target != null and is_instance_valid(current_target)) \
+		or (turret_controller != null and is_instance_valid(turret_controller) \
+			and turret_controller.current_target != null \
+			and is_instance_valid(turret_controller.current_target))
+	var band: StringName = &"offscreen_combat" if engaged else &"offscreen"
+	var interval_s: float = maxf(
+		offscreen_combat_update_interval_s if engaged else offscreen_simulation_update_interval_s,
+		0.03
+	)
+	if band != _simulation_lod_band:
+		_simulation_lod_timer_s = interval_s * _simulation_lod_phase
+		_simulation_lod_accumulated_delta_s = 0.0
+		_set_simulation_lod_band(band)
+
+	_simulation_lod_accumulated_delta_s += safe_delta
+	_simulation_lod_timer_s -= safe_delta
+	if _simulation_lod_timer_s > 0.0:
+		return 0.0
+
+	var simulation_delta: float = minf(
+		maxf(_simulation_lod_accumulated_delta_s, safe_delta),
+		maxf(simulation_max_catchup_delta_s, interval_s)
+	)
+	_simulation_lod_accumulated_delta_s = maxf(
+		_simulation_lod_accumulated_delta_s - simulation_delta,
+		0.0
+	)
+	_simulation_lod_timer_s = interval_s
+	return simulation_delta
+
+func wake_vehicle_simulation_lod(duration_s: float = -1.0) -> void:
+	var wake_s: float = damage_wake_duration_s if duration_s < 0.0 else duration_s
+	_simulation_lod_wake_timer_s = maxf(_simulation_lod_wake_timer_s, maxf(wake_s, 0.0))
+	_reset_simulation_lod_accumulator()
+	_set_simulation_lod_band(&"near")
+
+func reset_simulation_lod_schedule() -> void:
+	_simulation_lod_wake_timer_s = 0.0
+	_simulation_lod_accumulated_delta_s = 0.0
+	_simulation_lod_timer_s = maxf(offscreen_simulation_update_interval_s, 0.04) * _simulation_lod_phase
+	_set_simulation_lod_band(&"near")
+
+func get_vehicle_simulation_lod_band() -> StringName:
+	return _simulation_lod_band
+
+func _reset_simulation_lod_accumulator() -> void:
+	_simulation_lod_accumulated_delta_s = 0.0
+	_simulation_lod_timer_s = 0.0
+
+func _set_simulation_lod_band(band: StringName) -> void:
+	if _simulation_lod_band == band and has_meta("ground_simulation_lod_band"):
+		return
+	_simulation_lod_band = band
+	set_meta("ground_simulation_lod_band", band)
+
+func _update_mesh_lod(delta: float) -> void:
+	if _mesh_lod_controller == null or not is_instance_valid(_mesh_lod_controller):
+		return
+	_mesh_lod_controller.update_policy(
+		delta,
+		_get_active_camera(delta),
+		mesh_lod_enabled,
+		mesh_lod_update_interval_s,
+		mesh_lod_near_distance_m,
+		mesh_lod_far_distance_m,
+		mesh_lod_mid_bias,
+		mesh_lod_far_bias,
+		wheel_mesh_visibility_distance_m,
+		mesh_shadow_visibility_distance_m
+	)
 
 # --- Wheel Visuals / Chassis Support ---
 
-func _update_wheel_visuals() -> void:
-	var delta := get_physics_process_delta_time()
+func _update_wheel_visuals(delta_override: float = -1.0, visibility_already_sampled: bool = false) -> void:
+	var delta: float = delta_override if delta_override >= 0.0 else get_physics_process_delta_time()
+	var carrier_physics_required := carrier_ops_require_physical_suspension and (deploy_mode or retrieve_mode)
+	var camera_visible: bool = _cached_camera_visible if visibility_already_sampled else _is_camera_visible(delta)
+	if performance_lod_enabled and suspension_requires_camera_visibility and not carrier_physics_required and not camera_visible:
+		_apply_offscreen_ground_support(delta)
+		return
 	if not _should_use_detailed_suspension(delta):
 		_apply_distant_suspension_visuals(delta)
 		return
@@ -831,7 +1007,7 @@ func _get_active_camera(delta: float) -> Camera3D:
 	return _cached_active_camera
 
 func _should_use_detailed_suspension(delta: float) -> bool:
-	if deploy_mode or retrieve_mode:
+	if carrier_ops_require_physical_suspension and (deploy_mode or retrieve_mode):
 		return true
 	if VISUAL_FOCUS_HELPER.is_node_in_target_camera_focus(self, self):
 		return true
@@ -839,6 +1015,43 @@ func _should_use_detailed_suspension(delta: float) -> bool:
 	if camera == null or not is_instance_valid(camera):
 		return false
 	return global_position.distance_squared_to(camera.global_position) <= detailed_suspension_distance_m * detailed_suspension_distance_m
+
+func _is_camera_visible(delta: float) -> bool:
+	if not performance_lod_enabled or not suspension_requires_camera_visibility:
+		return true
+	_camera_visibility_timer_s -= delta
+	if _camera_visibility_timer_s > 0.0:
+		return _cached_camera_visible
+	var was_visible := _cached_camera_visible
+	var camera := _get_active_camera(delta)
+	_cached_camera_visible = CAMERA_VISIBILITY_LOD.is_node_camera_relevant(
+		self,
+		self,
+		camera,
+		camera_visibility_padding_m
+	)
+	_camera_visibility_timer_s = maxf(camera_visibility_check_interval_s, 0.01)
+	if _cached_camera_visible and not was_visible:
+		_suspension_probe_ready = false
+		_suspension_probe_counter = 0
+	return _cached_camera_visible
+
+func _apply_offscreen_ground_support(delta: float) -> void:
+	_offscreen_ground_accumulated_delta_s += delta
+	_offscreen_ground_timer_s -= delta
+	if _offscreen_ground_timer_s > 0.0:
+		return
+	var support_delta := maxf(_offscreen_ground_accumulated_delta_s, delta)
+	_offscreen_ground_accumulated_delta_s = 0.0
+	_offscreen_ground_timer_s = maxf(offscreen_ground_update_interval_s, 0.01)
+	var terrain_y: float = TerrainNavGrid.sample_height(global_position.x, global_position.z)
+	if terrain_y > TerrainNavGrid.IMPASSABLE * 0.5:
+		global_position.y = lerpf(
+			global_position.y,
+			terrain_y + chassis_ride_height_m,
+			clampf(distant_suspension_height_lerp * support_delta, 0.0, 1.0)
+		)
+	_spring_velocity_y = 0.0
 
 func _apply_distant_suspension_visuals(delta: float) -> void:
 	var terrain_y: float = TerrainNavGrid.sample_height(global_position.x, global_position.z)
@@ -1100,9 +1313,19 @@ func _get_cached_carrier() -> Node3D:
 
 func _refresh_spacing_candidates() -> void:
 	_cached_spacing_candidates.clear()
-	for node in get_tree().get_nodes_in_group("ground_vehicles"):
-		if node is Node3D and is_instance_valid(node):
-			_cached_spacing_candidates.append(node as Node3D)
+	if WorldUnitIndex != null and WorldUnitIndex.enabled and WorldUnitIndex.spatial_queries_enabled:
+		var query_radius_m: float = maxf(preferred_vehicle_spacing_min_m * 1.5, 12.0)
+		_cached_spacing_candidates = WorldUnitIndex.query_nodes_in_groups(
+			global_position,
+			query_radius_m,
+			["ground_vehicles"],
+			[],
+			[self]
+		)
+	else:
+		for node in get_tree().get_nodes_in_group("ground_vehicles"):
+			if node is Node3D and is_instance_valid(node):
+				_cached_spacing_candidates.append(node as Node3D)
 	_spacing_cache_timer_s = spacing_cache_refresh_s
 
 func _get_spacing_candidates(delta: float) -> Array[Node3D]:
@@ -1159,17 +1382,34 @@ func _add_carrier_clearance_nudge(nudge: Vector3, desired_dir: Vector3) -> Vecto
 		nudge += push_world * strength * 1.4
 	return nudge
 
-func _drive_to_waypoint(delta: float) -> void:
-	velocity.y = _spring_velocity_y
+func _consume_drive_command_delta(delta: float) -> float:
+	var safe_delta := maxf(delta, 0.0)
+	if not multi_rate_drive_commands_enabled:
+		_drive_command_elapsed_s = 0.0
+		_drive_command_timer_s = 0.0
+		return safe_delta
+	_drive_command_elapsed_s += safe_delta
+	_drive_command_timer_s -= safe_delta
+	if _drive_command_timer_s > 0.0:
+		return 0.0
+	var elapsed_s := maxf(_drive_command_elapsed_s, safe_delta)
+	_drive_command_elapsed_s = 0.0
+	_drive_command_timer_s = maxf(drive_command_update_interval_s, 0.02) \
+		* _drive_command_interval_scale
+	return elapsed_s
 
+
+func _refresh_drive_command(delta: float) -> void:
 	var hold_in_combat: bool = _has_combat_target()
+	_drive_command_combat = hold_in_combat
+	_drive_command_formation_hold = false
 
 	if not _has_navigation_destination():
-		var stop_accel: float = acceleration * delta * 2.5
-		velocity.x = move_toward(velocity.x, 0.0, stop_accel)
-		velocity.z = move_toward(velocity.z, 0.0, stop_accel)
-		move_and_slide()
+		_drive_command_has_destination = false
+		_drive_command_steer = 0.0
+		_drive_command_throttle = 0.0
 		return
+	_drive_command_has_destination = true
 
 	var nav_dest: Vector3 = _get_follow_navigation_destination()
 	var raw_dest: Vector3 = _get_raw_navigation_destination()
@@ -1184,12 +1424,14 @@ func _drive_to_waypoint(delta: float) -> void:
 			if _flat_distance(formation_raw_dest, _arrived_destination_pos) > 30.0:
 				_arrived_at_destination = false  # Destination moved, re-engage
 			else:
-				_match_formation_velocity(formation_raw_dest, delta)
+				_drive_command_formation_hold = true
+				_drive_command_formation_slot = formation_raw_dest
 				return
 		elif _flat_distance(global_position, formation_raw_dest) < waypoint_reach_distance:
 			_arrived_at_destination = true
 			_arrived_destination_pos = formation_raw_dest
-			_match_formation_velocity(formation_raw_dest, delta)
+			_drive_command_formation_hold = true
+			_drive_command_formation_slot = formation_raw_dest
 			return
 
 	var current_forward: Vector3 = global_basis.z
@@ -1203,10 +1445,9 @@ func _drive_to_waypoint(delta: float) -> void:
 		var to_dest: Vector3 = dest - global_position
 		to_dest.y = 0.0
 		if to_dest.length_squared() <= 0.01:
-			var stop_accel_idle: float = acceleration * delta * 2.5
-			velocity.x = move_toward(velocity.x, 0.0, stop_accel_idle)
-			velocity.z = move_toward(velocity.z, 0.0, stop_accel_idle)
-			move_and_slide()
+			_drive_command_has_destination = false
+			_drive_command_steer = 0.0
+			_drive_command_throttle = 0.0
 			return
 		desired_dir = to_dest
 	if desired_dir.length_squared() <= 0.0001:
@@ -1281,7 +1522,6 @@ func _drive_to_waypoint(delta: float) -> void:
 		turn_rate_scale = maxf(turn_rate_scale, 0.5)  # Don't let avoidance kill turn rate
 	if hold_in_combat:
 		turn_rate_scale = maxf(turn_rate_scale, 0.35)
-	global_rotate(Vector3.UP, steer_target * turn_speed * delta * turn_rate_scale)
 
 	var throttle: float = 1.0
 	if not hold_in_combat:
@@ -1296,26 +1536,50 @@ func _drive_to_waypoint(delta: float) -> void:
 		else:
 			var closing_speed: float = clampf((target_distance - combat_stop_distance_m) / maxf(combat_hold_distance_m - combat_stop_distance_m, 1.0), 0.25, 0.7)
 			throttle = maxf(closing_speed, combat_creep_speed_mps / maxf(max_speed, 0.1))
+	_drive_command_steer = steer_target
+	_drive_command_turn_rate_scale = turn_rate_scale
+	_drive_command_throttle = throttle
+
+func _apply_cached_drive_motion(delta: float, coarse_motion: bool = false) -> void:
+	velocity.y = _spring_velocity_y
+	if _drive_command_formation_hold:
+		_match_formation_velocity(_drive_command_formation_slot, delta, coarse_motion)
+		return
+	if not _drive_command_has_destination:
+		var stop_accel: float = acceleration * delta * 2.5
+		velocity.x = move_toward(velocity.x, 0.0, stop_accel)
+		velocity.z = move_toward(velocity.z, 0.0, stop_accel)
+		_move_vehicle_body(delta, coarse_motion)
+		return
+	global_rotate(
+		Vector3.UP,
+		_drive_command_steer * turn_speed * delta * _drive_command_turn_rate_scale
+	)
 	var forward: Vector3 = global_basis.z
 	forward.y = 0.0
 	forward = forward.normalized() if forward.length_squared() > 0.0001 else Vector3.FORWARD
-
-	# Kill lateral velocity — vehicles only move along their forward axis
 	var current_planar := Vector3(velocity.x, 0.0, velocity.z)
 	var forward_speed: float = current_planar.dot(forward)
 	var cruise_speed_limit: float = _get_platoon_speed_limit()
-	var target_speed: float = throttle * minf(max_speed, cruise_speed_limit)
-	if hold_in_combat:
-		forward_speed = move_toward(forward_speed, target_speed, acceleration * delta * (4.0 if forward_speed > target_speed else 1.8))
-	else:
-		forward_speed = move_toward(forward_speed, target_speed, acceleration * delta * (4.0 if forward_speed > target_speed else 1.0))
+	var target_speed: float = _drive_command_throttle * minf(max_speed, cruise_speed_limit)
+	var accel_scale: float = 1.0
+	if _drive_command_combat:
+		accel_scale = 4.0 if forward_speed > target_speed else 1.8
+	elif forward_speed > target_speed:
+		accel_scale = 4.0
+	forward_speed = move_toward(forward_speed, target_speed, acceleration * delta * accel_scale)
 	velocity.x = forward.x * forward_speed
 	velocity.z = forward.z * forward_speed
+	_move_vehicle_body(delta, coarse_motion)
+	if not coarse_motion:
+		for wheel in _front_wheels:
+			wheel.rotation.y = _drive_command_steer * max_steering_angle
 
-	move_and_slide()
-
-	for w in _front_wheels:
-		w.rotation.y = steer_target * max_steering_angle
+func _move_vehicle_body(delta: float, coarse_motion: bool) -> void:
+	if coarse_motion:
+		move_and_collide(velocity * maxf(delta, 0.0))
+	else:
+		move_and_slide()
 
 func _get_navigation_destination() -> Vector3:
 	return _get_follow_navigation_destination()
@@ -1332,7 +1596,7 @@ func _get_platoon_speed_limit() -> float:
 
 ## When holding position in a formation tied to a moving reference (carrier),
 ## match its velocity and apply a gentle correction toward the slot position.
-func _match_formation_velocity(slot_pos: Vector3, delta: float) -> void:
+func _match_formation_velocity(slot_pos: Vector3, delta: float, coarse_motion: bool = false) -> void:
 	var base_vel := Vector3.ZERO
 	# Get carrier velocity if escorting
 	if platoon and is_instance_valid(platoon) and platoon.objective_type == GroundVehiclePlatoon.ObjectiveType.ESCORT_CARRIER:
@@ -1365,8 +1629,7 @@ func _match_formation_velocity(slot_pos: Vector3, delta: float) -> void:
 			var cross_y: float = current_fwd.cross(move_dir).y
 			global_rotate(Vector3.UP, clamp(cross_y * 2.0, -1.0, 1.0) * turn_speed * delta)
 
-	move_and_slide()
-	_update_wheel_visuals()
+	_move_vehicle_body(delta, coarse_motion)
 
 func _apply_platoon_cohesion(base_destination: Vector3) -> Vector3:
 	if _has_combat_target():
@@ -1457,6 +1720,7 @@ func get_team() -> int:
 func take_damage(damage_amount: float) -> void:
 	if is_dying or current_health <= 0:
 		return
+	wake_vehicle_simulation_lod()
 	current_health -= damage_amount
 	current_health = max(current_health, 0.0)
 	if current_health <= 0:
@@ -1478,5 +1742,11 @@ func explode() -> void:
 		var exp = explosion_res.instantiate()
 		get_parent().add_child(exp)
 		exp.global_position = global_position
-	VehicleWreck.spawn(get_parent(), global_transform, velocity)
+	VehicleWreck.spawn(
+		get_parent(),
+		global_transform,
+		velocity,
+		staged_wreck_breakup_enabled,
+		wreck_breakup_spread_duration_s
+	)
 	queue_free()

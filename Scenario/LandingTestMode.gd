@@ -123,6 +123,7 @@ var _focused_final_diagnostic: bool = false
 var _queue_diagnostic: bool = false
 var _dirty_recovery_diagnostic: bool = false
 var _dirty_two_aircraft_diagnostic: bool = false
+var _force_full_rate_guidance: bool = false
 var _attempt_limit: int = -1
 var _dirty_start_case_index: int = 0
 var _suite_completion_scheduled: bool = false
@@ -143,6 +144,7 @@ func _ready() -> void:
 	_dirty_recovery_diagnostic = user_args.has("--landing-dirty-recovery") \
 		or user_args.has("--landing-dirty-two-aircraft")
 	_dirty_two_aircraft_diagnostic = user_args.has("--landing-dirty-two-aircraft")
+	_force_full_rate_guidance = user_args.has("--landing-full-rate-guidance")
 	_attempt_limit = _parse_positive_int_arg(user_args, "--landing-attempt-limit=")
 	var attempt_timeout_override_s: int = _parse_positive_int_arg(
 		user_args,
@@ -622,6 +624,10 @@ func _spawn_lander() -> void:
 		pilot.set("rtb_health_threshold", 0.0)
 		pilot.set("rtb_fuel_threshold", 0.0)
 		pilot.set("carrier_position", carrier.global_position)
+		# Diagnostic A/B switch: leave all slower tactical/sensor scheduling intact,
+		# but run the fixed-wing guidance solver on every physics frame.
+		if _force_full_rate_guidance:
+			pilot.set("adaptive_guidance_cadence_enabled", false)
 		# Kick off the chosen landing flow next frame (after the pilot's own _ready has run).
 		call_deferred("_begin_landing_flow", pilot, flow)
 

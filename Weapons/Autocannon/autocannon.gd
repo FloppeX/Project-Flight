@@ -83,10 +83,13 @@ func _ready():
 	if bullet_projectile_scene == null:
 		bullet_projectile_scene = load("res://Projectiles/Bullet/bullet.tscn")
 	_setup_cannon_audio()
+	set_process(false)
 
 func _process(delta):
 	if fire_timer > 0:
-		fire_timer -= delta
+		fire_timer = maxf(fire_timer - delta, 0.0)
+	if fire_timer <= 0.0:
+		set_process(false)
 
 func start_firing():
 	is_firing = true
@@ -121,24 +124,32 @@ func fire() -> bool:
 
 	var seconds_per_round := 60.0 / rounds_per_minute
 	fire_timer = seconds_per_round
+	set_process(true)
 
 	_play_cannon_sound()
 
-	var bullet = bullet_projectile_scene.instantiate()
 	var spawn_transform: Transform3D = _get_bullet_spawn_transform()
-	bullet.transform = spawn_transform
-
 	var spread := Vector3(
 		randf_range(-spread_angle, spread_angle),
 		randf_range(-spread_angle, spread_angle),
 		0
 	)
-	bullet.rotate_object_local(Vector3.RIGHT, deg_to_rad(spread.x))
-	bullet.rotate_object_local(Vector3.UP, deg_to_rad(spread.y))
+	var projectile_transform := Transform3D(spawn_transform.basis.orthonormalized(), spawn_transform.origin)
+	projectile_transform.basis = projectile_transform.basis * Basis(Vector3.RIGHT, deg_to_rad(spread.x))
+	projectile_transform.basis = projectile_transform.basis * Basis(Vector3.UP, deg_to_rad(spread.y))
+	var scene_root: Node = get_tree().current_scene
+	if scene_root == null:
+		return false
+	var pool: Node = get_node_or_null("/root/BulletPool")
+	var bullet: Node = pool.call("acquire", bullet_projectile_scene, scene_root, projectile_transform) as Node if pool else null
+	if bullet == null:
+		bullet = bullet_projectile_scene.instantiate()
+		if bullet:
+			bullet.transform = projectile_transform
+			scene_root.add_child(bullet)
+	if bullet == null:
+		return false
 	_configure_projectile_instance(bullet)
-	var projectile_transform: Transform3D = bullet.transform
-	get_tree().current_scene.add_child(bullet)
-	bullet.global_transform = projectile_transform
 
 	var aircraft = hardpoint.aircraft if hardpoint else null
 	var muzzle_vel = bullet.global_transform.basis.z.normalized() * muzzle_velocity

@@ -126,6 +126,11 @@ func _spawn_next_vehicle() -> void:
 		_deploy_queue = 0
 		return
 	if not _ramp.is_deployed():
+		# A queued platoon can be accepted while the previous platoon's ramp is
+		# still stowing. Once it reaches STOWED, start the next deployment instead
+		# of waiting forever for a ramp nobody has told to open again.
+		if _ramp.is_stowed():
+			_ramp.deploy()
 		_deploy_timer = 0.5
 		return
 	if stored_vehicles <= 0:

@@ -60,6 +60,9 @@ func _ready() -> void:
 
 	# Connect to damage signal
 	_aircraft.damaged.connect(_on_aircraft_damaged)
+	# Pristine aircraft have no continuous damage work. The damage signal wakes
+	# this node only when a tier that needs ongoing effects becomes active.
+	set_process(false)
 
 	# Cache module references (available after aircraft._ready sets up modules)
 	call_deferred("_cache_modules")
@@ -110,6 +113,7 @@ func _on_aircraft_damaged(_damage_amount: float, current_health: float) -> void:
 	if current_health <= 0.0:
 		if _smoke_active_tier < 4:
 			_smoke_active_tier = 4
+		set_process(true)
 		return
 
 	# Check each tier threshold (only trigger once per tier)
@@ -121,6 +125,8 @@ func _on_aircraft_damaged(_damage_amount: float, current_health: float) -> void:
 
 	if _tier3_effect == -1 and health_fraction < TIER_3_THRESHOLD:
 		_trigger_tier3()
+	if _smoke_active_tier > 0 or _fuel_leak_active or _hud_flicker_active or _engine_is_cut:
+		set_process(true)
 
 
 # ─── TIER 1: Warning (below 60%) ─────────────────────────────────────────────

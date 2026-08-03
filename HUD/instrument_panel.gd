@@ -324,6 +324,18 @@ func bind_to_aircraft(new_aircraft: Node3D) -> void:
 			module.set_aircraft_reference(aircraft)
 
 
+## Public lifecycle hook used by FlightDirector and the visual budget. This also
+## disables the panel's secondary 3D target-camera viewport.
+func set_view_updates_active(active: bool) -> void:
+	_set_panel_updates_active(active)
+	# RadarCanvas is a processing child. Disabling this parent does not cascade
+	# Node processing, so suspend its contact rebuilds explicitly as well.
+	if radar_canvas != null and is_instance_valid(radar_canvas):
+		radar_canvas.set_process(active)
+		if active:
+			radar_canvas.queue_redraw()
+
+
 func _physics_process(delta: float) -> void:
 	if not _should_update_panel_this_frame():
 		return

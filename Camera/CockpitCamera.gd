@@ -8,7 +8,7 @@ class_name CockpitCamera
 @export var g_force_vertical_scale: float = 0.35 # Scale vertical G camera motion without affecting horizontal response
 @export var g_force_smoothing_horizontal: float = 12.0  # How fast camera returns to center side-to-side/front-back
 @export var g_force_smoothing_vertical: float = 35.0    # How fast camera returns to center up-down
-@export var max_g_offset: float = 0.4           # Maximum camera displacement
+@export var max_g_offset: float = 0.2           # Maximum camera displacement in any direction
 @export var g_deadzone: float = 0.5             # Minimum G-force to trigger effect
 @export var airflow_buffet_position_strength: float = 0.026
 @export var airflow_buffet_rotation_strength_deg: float = 0.75
@@ -28,6 +28,11 @@ var last_velocity: Vector3 = Vector3.ZERO
 func _ready():
 	base_position = position
 	base_rotation = rotation
+	var aircraft := get_parent() as RigidBody3D
+	if aircraft != null:
+		# Do not interpret the aircraft's existing world velocity as a one-frame
+		# acceleration impulse when the cockpit script first becomes active.
+		last_velocity = aircraft.linear_velocity
 
 func _process(delta):
 	# Get right stick input
@@ -82,15 +87,20 @@ func _physics_process(delta: float):
 	# Clamp maximum offset
 	target_offset = target_offset.limit_length(max_g_offset)
 
-	# Smooth camera movement independently by axis
-	g_force_offset.x = lerp(g_force_offset.x, target_offset.x, g_force_smoothing_horizontal * delta)
-	g_force_offset.y = lerp(g_force_offset.y, target_offset.y, g_force_smoothing_vertical * delta)
-	g_force_offset.z = lerp(g_force_offset.z, target_offset.z, g_force_smoothing_horizontal * delta)
+	# Exponential response is frame-rate stable and cannot overshoot when a launch
+	# or effect-spawn hitch produces a large delta.
+	var horizontal_blend: float = 1.0 - exp(-maxf(g_force_smoothing_horizontal, 0.0) * delta)
+	var vertical_blend: float = 1.0 - exp(-maxf(g_force_smoothing_vertical, 0.0) * delta)
+	g_force_offset.x = lerpf(g_force_offset.x, target_offset.x, horizontal_blend)
+	g_force_offset.y = lerpf(g_force_offset.y, target_offset.y, vertical_blend)
+	g_force_offset.z = lerpf(g_force_offset.z, target_offset.z, horizontal_blend)
 
 	_update_airflow_buffet(delta)
 
-	# Apply to camera position
-	position = base_position + g_force_offset + airflow_buffet_offset
+	# Apply one final spherical cap so combined G-force and buffet motion can never
+	# exceed the configured travel in any direction.
+	var total_offset: Vector3 = (g_force_offset + airflow_buffet_offset).limit_length(max_g_offset)
+	position = base_position + total_offset
 
 
 func set_airflow_buffet_intensity(intensity: float) -> void:

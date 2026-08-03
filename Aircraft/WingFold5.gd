@@ -15,6 +15,7 @@ class_name WingFold5
 @export var phase3_duration: float = 2.5  ## Y-axis rotation duration
 @export var x_fold_deg: float = 90.0      ## X-axis fold angle
 @export var y_fold_deg: float = 90.0      ## Y-axis fold angle
+@export var stable_poll_interval_s: float = 0.2
 
 var _left_wing: Node3D
 var _right_wing: Node3D
@@ -30,6 +31,7 @@ var _snapped: bool = false
 
 # Total animation length
 var _total_duration: float
+var _stable_poll_timer_s: float = 0.0
 
 
 func _ready() -> void:
@@ -53,6 +55,12 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	if not _left_wing or not _right_wing:
 		return
+	var stable: bool = _snapped and (_anim_time <= 0.0 or _anim_time >= _total_duration)
+	if stable:
+		_stable_poll_timer_s -= delta
+		if _stable_poll_timer_s > 0.0:
+			return
+		_stable_poll_timer_s = maxf(stable_poll_interval_s, 0.02)
 
 	var parent := get_parent()
 	var braked: bool = parent.has_meta("parking_brake") and bool(parent.get_meta("parking_brake"))
@@ -67,6 +75,7 @@ func _process(delta: float) -> void:
 			_folding = true
 
 	# Advance or rewind animation time
+	var previous_anim_time: float = _anim_time
 	if should_fold:
 		_anim_time = minf(_anim_time + delta, _total_duration)
 		_folding = true
@@ -74,7 +83,8 @@ func _process(delta: float) -> void:
 		_anim_time = maxf(_anim_time - delta, 0.0)
 		_folding = false
 
-	_apply_pose()
+	if not is_equal_approx(previous_anim_time, _anim_time) or not stable:
+		_apply_pose()
 
 func _apply_pose() -> void:
 	# Phase 1: lateral slide (0 → phase1_duration)

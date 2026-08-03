@@ -33,6 +33,8 @@ func take_damage(damage_amount: float) -> void:
 
 func _destroy() -> void:
 	is_destroyed = true
+	if team != 1 and not bool(get_meta("suppress_enemy_ops_on_destroy", false)):
+		EnemyOpsManager.report_asset_loss(global_position, "building")
 	destroyed.emit(self)
 
 	# Spawn destroyed version

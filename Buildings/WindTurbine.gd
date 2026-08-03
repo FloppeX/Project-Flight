@@ -28,6 +28,8 @@ func _process(delta: float) -> void:
 
 func _destroy() -> void:
 	is_destroyed = true
+	if team != 1 and not bool(get_meta("suppress_enemy_ops_on_destroy", false)):
+		EnemyOpsManager.report_asset_loss(global_position, "wind turbine")
 	destroyed.emit(self)
 	if not bool(get_meta("suppress_enemy_ops_on_destroy", false)):
 		EnemyOpsManager.on_turbine_destroyed()

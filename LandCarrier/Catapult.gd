@@ -115,7 +115,7 @@ func _ready():
 
 var _dbg_frame: int = 0
 func _physics_process(delta: float):
-	if is_instance_valid(_aircraft) and (not _pin_at_connect_point) and not _launching:
+	if debug_enabled and is_instance_valid(_aircraft) and (not _pin_at_connect_point) and not _launching:
 		_dbg_frame += 1
 		if _dbg_frame % 10 == 0:  # every ~10 physics frames
 			var lm_pos := latch_marker.global_position if is_instance_valid(latch_marker) else Vector3.ZERO

@@ -31,6 +31,7 @@ func _ready() -> void:
 	if rocket_scene == null:
 		rocket_scene = load("res://Projectiles/Rocket/rocket.tscn")
 	_refresh_aircraft_payload_mass()
+	set_process(false)
 
 func _exit_tree() -> void:
 	if is_instance_valid(_payload_aircraft) and _payload_aircraft.has_method("clear_payload_mass"):
@@ -87,7 +88,7 @@ func get_predicted_initial_velocity(aircraft: RigidBody3D) -> Vector3:
 
 func _process(delta: float) -> void:
 	if _fire_timer > 0.0:
-		_fire_timer -= delta
+		_fire_timer = maxf(_fire_timer - delta, 0.0)
 	if _burst_remaining > 0:
 		_burst_timer -= delta
 		if _burst_timer <= 0.0:
@@ -97,6 +98,8 @@ func _process(delta: float) -> void:
 			if _burst_remaining <= 0:
 				if not _has_persistent_tuning_context():
 					_clear_tuning_context()
+	if _fire_timer <= 0.0 and _burst_remaining <= 0:
+		set_process(false)
 
 
 func set_tuning_context(
@@ -131,6 +134,7 @@ func fire() -> bool:
 		return false
 	var unlimited_ammo: bool = _has_unlimited_test_ammo()
 	_fire_timer = fire_cooldown_s
+	set_process(true)
 	_fire_one_rocket()
 	_burst_remaining = maxi(burst_count - 1, 0) if unlimited_ammo else mini(maxi(burst_count - 1, 0), ammo_count)
 	_burst_timer = burst_interval_s

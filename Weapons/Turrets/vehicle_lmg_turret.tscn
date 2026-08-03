@@ -12,6 +12,9 @@ max_pitch_down = -20.0
 base_mesh = NodePath("StandModel/lmg stand")
 barrel_mount = NodePath("BarrelMount")
 firing_points = [NodePath("BarrelMount/Muzzle")]
+derive_forward_from_muzzle = true
+barrel_forward_axis_local = Vector3(1, 0, 0)
+barrel_pitch_axis_local = Vector3(0, 0, -1)
 
 [node name="StandModel" parent="." instance=ExtResource("2_model")]
 

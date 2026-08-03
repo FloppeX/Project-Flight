@@ -6,8 +6,11 @@ extends Node3D
 ## same deterministic carrier/terrain setup.
 
 const FRIENDLY_SCENE_PATH := "res://Aircraft/Aircraft_5.tscn"
+const FRIENDLY_ATTACK_HELICOPTER_PATH := "res://Aircraft/Aircraft_10.tscn"
 const ENEMY_SCENE: PackedScene = preload("res://Aircraft/Aircraft_4.tscn")
+const ENEMY_FIGHTER_SCENE: PackedScene = preload("res://Aircraft/Aircraft_3.tscn")
 const AirTaskModel: Script = preload("res://AI/AirTask.gd")
+const OpsOrderModel: Script = preload("res://Operations/OpsOrder.gd")
 const DUMMY_TURRET_SCENE: PackedScene = preload("res://Buildings/dummy_gun_emplacement.tscn")
 const ACTIVE_TURRET_SCENE: PackedScene = preload("res://Buildings/gun_emplacement.tscn")
 const ACTIVE_TURRET_10MM_WEAPON_SCENE: PackedScene = preload("res://Weapons/Turrets/bullet_weapon.tscn")
@@ -18,6 +21,7 @@ const REPORT_PATH := "user://carrier_combat_test_report.log"
 const BATCH_REPORT_PREFIX := "user://carrier_combat_test_"
 const MIXED_LOADOUT_PROFILE := "combat_test"
 const INTERCEPT_LOADOUT_PROFILE := "cap"
+const GUN_ONLY_LOADOUT_PROFILE := "gun_only"
 const FULL_CYCLE_LOADOUT_PROFILE := "random_ground_strike"
 const FULL_CYCLE_ROCKET_LOADOUT_PROFILE := "rocket_strike"
 const FULL_CYCLE_BOMB_LOADOUT_PROFILE := "bomb_strike"
@@ -28,6 +32,8 @@ const PROFILE_ISOLATED_GROUND_ATTACK := "isolated_ground_attack"
 const PROFILE_INTEGRATED := "integrated"
 const PROFILE_FULL_CYCLE := "full_cycle"
 const PROFILE_ROLLING_RECOVERY := "rolling_recovery"
+const PROFILE_MIXED_RECOVERY := "mixed_recovery"
+const PROFILE_ROLE_STRESS := "role_stress"
 const PROJECT_ROCKET_SPECIALIST_PATH := "res://Scenario/airplane_test_best_rocket_genome.json"
 
 enum Stage { SETUP, GROUND_STRIKE, AIR_COMBAT, RECOVERY, ROLLING, COMPLETE }
@@ -73,7 +79,7 @@ enum Stage { SETUP, GROUND_STRIKE, AIR_COMBAT, RECOVERY, ROLLING, COMPLETE }
 @export var initial_launch_watchdog_s: float = 90.0
 @export var ground_assignment_min_agl_m: float = 300.0
 @export var keep_carrier_at_verified_pose: bool = true
-@export_enum("continuous_intercept", "isolated_ground_attack", "integrated", "full_cycle", "rolling_recovery") var test_profile: String = PROFILE_CONTINUOUS_INTERCEPT
+@export_enum("continuous_intercept", "isolated_ground_attack", "integrated", "full_cycle", "rolling_recovery", "mixed_recovery", "role_stress") var test_profile: String = PROFILE_CONTINUOUS_INTERCEPT
 @export var continuous_intercept_mode: bool = true
 @export_range(1, 8, 1) var continuous_friendly_count: int = 2
 @export_range(1, 8, 1) var continuous_enemy_count: int = 2
@@ -88,6 +94,16 @@ enum Stage { SETUP, GROUND_STRIKE, AIR_COMBAT, RECOVERY, ROLLING, COMPLETE }
 @export_range(0, 1000, 1) var rolling_target_traps: int = 10
 @export var rolling_random_seed: int = 20260801
 @export var rolling_finite_cohort: bool = false
+@export_group("Mixed Recovery")
+@export_range(1, 3, 1) var mixed_helicopter_count: int = 2
+@export_range(1, 3, 1) var mixed_fixed_wing_count: int = 2
+@export_group("Role Stress")
+@export var role_stress_patrol_radius_m: float = 1800.0
+@export var role_stress_patrol_altitude_agl_m: float = 650.0
+@export var role_stress_enemy_fighter_range_m: float = 4500.0
+@export var role_stress_timeout_s: float = 1500.0
+@export_range(0.0, 1.0, 0.05) var role_stress_ground_vehicle_air_aim_multiplier: float = 0.25
+@export var role_stress_ground_vehicle_air_extra_spread_m: float = 24.0
 
 var _play_area_center := Vector3.ZERO
 var _carrier: Node3D = null
@@ -130,6 +146,8 @@ var _recovery_orders_dispatched: bool = false
 var _isolated_ground_attack_mode: bool = false
 var _full_cycle_mode: bool = false
 var _rolling_recovery_mode: bool = false
+var _mixed_recovery_mode: bool = false
+var _role_stress_mode: bool = false
 var _weapon_focus_override_requested: bool = false
 var _rolling_rng := RandomNumberGenerator.new()
 var _rolling_traps: int = 0
@@ -145,6 +163,17 @@ var _quit_on_test_complete: bool = false
 var _completion_handled: bool = false
 var _friendly_destroyed_count: int = 0
 var _friendly_crash_count: int = 0
+var _mixed_helicopter_launches: int = 0
+var _mixed_fixed_wing_launches: int = 0
+var _mixed_helicopters_requested: bool = false
+var _mixed_fixed_wings_requested: bool = false
+var _role_stress_helicopter_launches: int = 0
+var _role_stress_patrol_launches: int = 0
+var _role_stress_helicopters_requested: bool = false
+var _role_stress_patrol_requested: bool = false
+var _role_stress_enemy_fighters_spawned: bool = false
+var _role_stress_recovery_started: bool = false
+var _role_stress_role_violations: int = 0
 
 
 func configure(play_area_center: Vector3) -> void:
@@ -158,6 +187,8 @@ func set_test_profile(profile: String) -> void:
 		PROFILE_INTEGRATED,
 		PROFILE_FULL_CYCLE,
 		PROFILE_ROLLING_RECOVERY,
+		PROFILE_MIXED_RECOVERY,
+		PROFILE_ROLE_STRESS,
 	]:
 		push_warning("[CarrierCombatTest] Unknown profile '%s'; using %s" % [profile, PROFILE_CONTINUOUS_INTERCEPT])
 		test_profile = PROFILE_CONTINUOUS_INTERCEPT
@@ -182,8 +213,14 @@ func set_isolated_ground_weapon_focus(weapon_focus: String) -> void:
 func _sync_test_profile_flags() -> void:
 	continuous_intercept_mode = test_profile == PROFILE_CONTINUOUS_INTERCEPT
 	_isolated_ground_attack_mode = test_profile == PROFILE_ISOLATED_GROUND_ATTACK
-	_full_cycle_mode = test_profile == PROFILE_FULL_CYCLE
-	_rolling_recovery_mode = test_profile == PROFILE_ROLLING_RECOVERY
+	_role_stress_mode = test_profile == PROFILE_ROLE_STRESS
+	_full_cycle_mode = test_profile in [PROFILE_FULL_CYCLE, PROFILE_ROLE_STRESS]
+	_mixed_recovery_mode = test_profile == PROFILE_MIXED_RECOVERY
+	_rolling_recovery_mode = test_profile in [PROFILE_ROLLING_RECOVERY, PROFILE_MIXED_RECOVERY]
+	if _mixed_recovery_mode:
+		rolling_finite_cohort = true
+		rolling_active_aircraft_max = mixed_helicopter_count + mixed_fixed_wing_count
+		rolling_target_traps = rolling_active_aircraft_max
 	# Existing observation profiles deliberately keep their verified static pose.
 	# The end-to-end mission explicitly tests launch, combat and recovery from a
 	# carrier that resumes its patrol after the second catapult shot.
@@ -203,7 +240,9 @@ func _ready() -> void:
 		if not _test_run_id.is_empty():
 			report.store_line("run_id=%s seed=%d" % [_test_run_id, _test_seed])
 		report.close()
-	if continuous_intercept_mode:
+	if _role_stress_mode:
+		_log("START requested: role stress; AirOps launches 2x Aircraft_10 for ground attack and 2x gun-only Aircraft_5 for CAP; first vehicle kill triggers 2x gun-only Aircraft_3; all friendlies recover after both threats are eliminated")
+	elif continuous_intercept_mode:
 		_log("START requested: continuous carrier intercept; %dx Aircraft_5 gun fighters; %dx replaceable kinematic-rail Aircraft_4 targets at %.0fm AGL" % [
 			continuous_friendly_count, continuous_enemy_count, enemy_altitude_agl_m,
 		])
@@ -215,7 +254,9 @@ func _ready() -> void:
 		else:
 			_log("START requested: full cycle; moving carrier; 4-vehicle enemy platoon (truck/buggy/pickup) advancing from 5000m; 2x Aircraft_5 independently randomized to 2x finite rocket canisters + gun or 2x finite bomb racks + gun; then 2x live Aircraft_4 bombers at 6000m; survivors recover")
 	elif _rolling_recovery_mode:
-		_log("START requested: rolling recovery; max_active=%d outbound=%.0f-%.0fm target_traps=%s seed=%d mode=%s; real catapult, FIFO landing clearance, recovery hold, arrest, tractor, hangar%s" % [
+		var recovery_test_name := "mixed helicopter/fixed-wing recovery" if _mixed_recovery_mode else "rolling recovery"
+		_log("START requested: %s; max_active=%d outbound=%.0f-%.0fm target_traps=%s seed=%d mode=%s; real hangar launch, shared FIFO landing clearance, recovery hold, touchdown/arrest, tractor, hangar%s" % [
+			recovery_test_name,
 			rolling_active_aircraft_max,
 			rolling_outbound_min_m,
 			rolling_outbound_max_m,
@@ -294,13 +335,37 @@ func _setup_scenario() -> void:
 		_log("ERROR setup failed: no terrain-safe carrier launch/recovery pose found")
 		return
 	_connect_arresting_cables()
+	if _role_stress_mode:
+		# Keep the platoon live and dangerous, but make this role/recovery stress test
+		# resistant to a lucky long-range gunner hit ending a helicopter on ingress.
+		# The ordinary full-cycle profile retains its normal anti-air settings.
+		full_cycle_ground_vehicle_air_aim_multiplier = role_stress_ground_vehicle_air_aim_multiplier
+		full_cycle_ground_vehicle_air_extra_spread_m = role_stress_ground_vehicle_air_extra_spread_m
+		_spawn_ground_targets()
+		if _ground_targets.size() != 4:
+			_log("ERROR role stress setup failed: spawned %d/4 ground vehicles" % _ground_targets.size())
+			return
+		_ensure_role_stress_hangar_stock()
+		_stage = Stage.GROUND_STRIKE
+		_stage_started_s = _elapsed_s
+		_started = true
+		_request_role_stress_launches()
+		_log("PHASE role stress active; helicopters=ground_attack fixed_wing=CAP enemy_air_trigger=first_ground_kill")
+		return
 	if _rolling_recovery_mode:
 		_rolling_rng.seed = rolling_random_seed
 		_stage = Stage.ROLLING
 		_stage_started_s = _elapsed_s
 		_started = true
-		_request_rolling_launches()
-		_log("PHASE rolling recovery active; combat disabled, carrier held at verified launch/recovery pose")
+		if _mixed_recovery_mode:
+			_request_mixed_launches()
+			_log("PHASE mixed recovery active; %d helicopters + %d fixed-wing aircraft; combat disabled, carrier held at verified launch/recovery pose" % [
+				mixed_helicopter_count,
+				mixed_fixed_wing_count,
+			])
+		else:
+			_request_recovery_test_launches()
+			_log("PHASE rolling recovery active; combat disabled, carrier held at verified launch/recovery pose")
 		return
 	if continuous_intercept_mode:
 		_stage = Stage.AIR_COMBAT
@@ -856,12 +921,30 @@ func notify_aircraft_launched(pilot: Node) -> void:
 		_log("ERROR deck launch callback pilot had no valid aircraft")
 		return
 	var craft := craft_variant as RigidBody3D
-	if continuous_intercept_mode or _rolling_recovery_mode:
+	var is_helicopter := pilot is HelicopterPilot \
+			or pilot.name == "HelicopterPilot" \
+			or bool(craft.get_meta("is_helicopter", false))
+	if _role_stress_mode and is_helicopter:
+		_notify_role_stress_helicopter_launched(craft, pilot)
+		return
+	if _mixed_recovery_mode and is_helicopter:
+		_notify_mixed_helicopter_launched(craft, pilot)
+		return
+	if continuous_intercept_mode or _rolling_recovery_mode or _role_stress_mode:
 		_friendly_launch_requests_outstanding = maxi(_friendly_launch_requests_outstanding - 1, 0)
 	_friendly_launches += 1
-	craft.name = ("RecoveryCycle_%03d" if _rolling_recovery_mode else "Combat_Friendly_%d") % _friendly_launches
+	if _role_stress_mode:
+		_role_stress_patrol_launches += 1
+	if _mixed_recovery_mode:
+		_mixed_fixed_wing_launches += 1
+	craft.name = ("RoleStress_CAP_%02d" % _role_stress_patrol_launches) if _role_stress_mode else (
+		("RecoveryCycle_%03d" if _rolling_recovery_mode else "Combat_Friendly_%d") % _friendly_launches
+	)
 	craft.set_meta("carrier_combat_test", true)
 	_configure_pilot(pilot, true)
+	if _role_stress_mode:
+		pilot.set("ground_attack_enabled", false)
+		pilot.set("dogfight_enabled", true)
 	_register_aircraft(craft, pilot, 1)
 	_configure_weapon_logging(craft)
 	_log("LAUNCHED %s via catapult pos=%s speed=%.1fm/s loadout=%s" % [
@@ -873,7 +956,12 @@ func notify_aircraft_launched(pilot: Node) -> void:
 	var record: Dictionary = _aircraft_records[id]
 	record["ground_assignment_index"] = _friendly_launches - 1
 	record["ground_mission_assigned"] = false
+	if _role_stress_mode:
+		record["ops_domain"] = "fixed_wing"
+		record["role"] = "CAP"
+		record["role_ordered"] = false
 	if _rolling_recovery_mode:
+		record["ops_domain"] = "fixed_wing"
 		record["rolling_status"] = "departing"
 		record["rolling_outbound_point"] = Vector3.INF
 		record["rolling_recovery_started_s"] = -1.0
@@ -889,7 +977,7 @@ func notify_aircraft_launched(pilot: Node) -> void:
 			_rolling_traps,
 			str(rolling_target_traps) if rolling_target_traps > 0 else "unlimited",
 		])
-		call_deferred("_request_rolling_launches")
+		call_deferred("_request_recovery_test_launches")
 		return
 	if continuous_intercept_mode:
 		_log("INTERCEPT_REPLACEMENT ready aircraft=%s live=%d requested=%d" % [
@@ -900,11 +988,80 @@ func notify_aircraft_launched(pilot: Node) -> void:
 		# Preserve LAUNCHING/CLIMBING. _poll_aircraft_events assigns a rail target
 		# after the aircraft is in a state that can safely become DOGFIGHT.
 		call_deferred("_ensure_friendly_force")
+	if _role_stress_mode:
+		_log("ROLE_LAUNCHED aircraft=%s model=Aircraft_5 role=CAP loadout=%s" % [
+			craft.name,
+			_describe_loadout(craft),
+		])
+		call_deferred("_request_role_stress_launches")
+		return
 	if _friendly_launches >= 2:
 		if keep_carrier_at_verified_pose:
 			_log("CARRIER_HOLD retained verified launch/recovery pose")
 		else:
 			_carrier_resume_pending = true
+
+
+func _notify_mixed_helicopter_launched(craft: RigidBody3D, pilot: Node) -> void:
+	_friendly_launch_requests_outstanding = maxi(_friendly_launch_requests_outstanding - 1, 0)
+	_friendly_launches += 1
+	_mixed_helicopter_launches += 1
+	craft.name = "MixedRecovery_Heli_%02d" % _mixed_helicopter_launches
+	craft.set_meta("carrier_combat_test", true)
+	craft.set_meta("mixed_recovery_test", true)
+	if "combat_enabled" in pilot:
+		pilot.set("combat_enabled", false)
+	if "atk_enabled" in pilot:
+		pilot.set("atk_enabled", false)
+	if "combat_tuning_enabled" in pilot:
+		pilot.set("combat_tuning_enabled", false)
+	_register_aircraft(craft, pilot, 1)
+	var id := craft.get_instance_id()
+	var record: Dictionary = _aircraft_records[id]
+	record["ops_domain"] = "helicopter"
+	record["rolling_status"] = "departing"
+	record["rolling_outbound_point"] = Vector3.INF
+	record["rolling_recovery_started_s"] = -1.0
+	record["rolling_hold_started_s"] = -1.0
+	record["rolling_clearance_s"] = -1.0
+	record["rolling_queue_position"] = -2
+	_aircraft_records[id] = record
+	_log("MIXED_LAUNCHED aircraft=%s type=helicopter deck_vertical_departure=true active=%d pending=%d" % [
+		craft.name,
+		_rolling_active_aircraft_count(),
+		_friendly_launch_requests_outstanding,
+	])
+	_assign_mixed_helicopter_outbound(id, record)
+	call_deferred("_request_mixed_launches")
+
+
+func _notify_role_stress_helicopter_launched(craft: RigidBody3D, pilot: Node) -> void:
+	_friendly_launch_requests_outstanding = maxi(_friendly_launch_requests_outstanding - 1, 0)
+	_friendly_launches += 1
+	_role_stress_helicopter_launches += 1
+	craft.name = "RoleStress_AttackHeli_%02d" % _role_stress_helicopter_launches
+	craft.set_meta("carrier_combat_test", true)
+	craft.set_meta("role_stress_test", true)
+	pilot.set("combat_enabled", true)
+	pilot.set("atk_enabled", true)
+	pilot.set("combat_tuning_enabled", false)
+	pilot.set("combat_report_gun_projectiles_enabled", true)
+	pilot.set("combat_report_feeler_events_enabled", true)
+	_register_aircraft(craft, pilot, 1)
+	_configure_weapon_logging(craft)
+	var id := craft.get_instance_id()
+	var record: Dictionary = _aircraft_records[id]
+	record["ops_domain"] = "helicopter"
+	record["role"] = "GROUND_ATTACK"
+	record["role_ordered"] = false
+	record["moving_target_shots"] = 0
+	_aircraft_records[id] = record
+	_assign_role_stress_helicopter_target(id)
+	_log("ROLE_LAUNCHED aircraft=%s model=Aircraft_10 role=GROUND_ATTACK loadout=%s" % [
+		craft.name,
+		_describe_loadout(craft),
+	])
+	call_deferred("_request_role_stress_launches")
 
 
 func _request_rolling_launches() -> void:
@@ -948,6 +1105,144 @@ func _request_rolling_launches() -> void:
 		stored_count,
 		int(_fdm.get("current_state")),
 	])
+
+
+func _request_recovery_test_launches() -> void:
+	if _mixed_recovery_mode:
+		_request_mixed_launches()
+	else:
+		_request_rolling_launches()
+
+
+func _request_mixed_launches() -> void:
+	if not _mixed_recovery_mode or _stage != Stage.ROLLING or not is_instance_valid(_fdm):
+		return
+	if _friendly_launch_requests_outstanding > 0:
+		return
+	# Helicopters depart first. Their slower 4-6 km transit keeps them airborne
+	# while the fixed-wing pair completes elevator/catapult launch, producing a
+	# genuinely mixed return queue rather than two isolated recovery batches.
+	if not _mixed_helicopters_requested:
+		var queued_helis := int(_fdm.call("queue_ai_helicopters", mixed_helicopter_count, self)) \
+				if _fdm.has_method("queue_ai_helicopters") else 0
+		_mixed_helicopters_requested = queued_helis > 0
+		_friendly_launch_requests_outstanding = queued_helis
+		_log("MIXED_LAUNCH_ORDER type=helicopter requested=%d queued=%d" % [
+			mixed_helicopter_count,
+			queued_helis,
+		])
+		if queued_helis != mixed_helicopter_count:
+			_stage = Stage.COMPLETE
+			_log("FAILED mixed recovery: expected %d helicopters in hangar, queued=%d" % [
+				mixed_helicopter_count,
+				queued_helis,
+			])
+		return
+	if _mixed_helicopter_launches < mixed_helicopter_count:
+		return
+	if not _mixed_fixed_wings_requested:
+		var queued_fixed := int(_fdm.call("queue_ai_flight", mixed_fixed_wing_count, self, INTERCEPT_LOADOUT_PROFILE))
+		_mixed_fixed_wings_requested = queued_fixed > 0
+		_friendly_launch_requests_outstanding = queued_fixed
+		_log("MIXED_LAUNCH_ORDER type=fixed_wing requested=%d queued=%d" % [
+			mixed_fixed_wing_count,
+			queued_fixed,
+		])
+		if queued_fixed != mixed_fixed_wing_count:
+			_stage = Stage.COMPLETE
+			_log("FAILED mixed recovery: expected %d fixed-wing aircraft in hangar, queued=%d" % [
+				mixed_fixed_wing_count,
+				queued_fixed,
+			])
+
+
+func _ensure_role_stress_hangar_stock() -> void:
+	if not is_instance_valid(_fdm):
+		return
+	var stored_variant: Variant = _fdm.get("stored_aircraft")
+	if not (stored_variant is Array):
+		return
+	var stored: Array = stored_variant
+	var existing_aircraft_10 := 0
+	for entry_variant in stored:
+		if entry_variant is Dictionary \
+				and str((entry_variant as Dictionary).get("scene_file", "")).to_lower().contains("aircraft_10"):
+			existing_aircraft_10 += 1
+	var converted := 0
+	for i in range(stored.size()):
+		if existing_aircraft_10 + converted >= 2:
+			break
+		if not (stored[i] is Dictionary):
+			continue
+		var entry := stored[i] as Dictionary
+		var scene_file := str(entry.get("scene_file", "")).to_lower()
+		var entry_name := str(entry.get("name", "")).to_lower()
+		if scene_file.contains("aircraft_9") or scene_file.contains("aircraft_10") \
+				or scene_file.contains("aircraft_11") or entry_name.contains("aircraft_11"):
+			continue
+		entry["name"] = "RoleStress_Aircraft_10_%02d" % (existing_aircraft_10 + converted + 1)
+		entry["scene_file"] = FRIENDLY_ATTACK_HELICOPTER_PATH
+		entry["scene"] = load(FRIENDLY_ATTACK_HELICOPTER_PATH) as PackedScene
+		var metadata: Dictionary = entry.get("metadata", {})
+		metadata["aircraft_role"] = "attack_helicopter"
+		entry["metadata"] = metadata
+		stored[i] = entry
+		converted += 1
+	_fdm.set("stored_aircraft", stored)
+	_log("ROLE_STRESS_HANGAR Aircraft_10=%d converted=%d Aircraft_5=%d" % [
+		existing_aircraft_10 + converted,
+		converted,
+		_count_stored_model("aircraft_5"),
+	])
+
+
+func _count_stored_model(model_name: String) -> int:
+	if not is_instance_valid(_fdm):
+		return 0
+	var stored_variant: Variant = _fdm.get("stored_aircraft")
+	if not (stored_variant is Array):
+		return 0
+	var count := 0
+	for entry_variant in stored_variant:
+		if not (entry_variant is Dictionary):
+			continue
+		var entry := entry_variant as Dictionary
+		if str(entry.get("scene_file", "")).to_lower().contains(model_name.to_lower()) \
+				or str(entry.get("name", "")).to_lower().contains(model_name.to_lower()):
+			count += 1
+	return count
+
+
+func _request_role_stress_launches() -> void:
+	if not _role_stress_mode or _stage != Stage.GROUND_STRIKE or not is_instance_valid(_fdm):
+		return
+	if _friendly_launch_requests_outstanding > 0:
+		return
+	if not _role_stress_helicopters_requested:
+		var queued_helis := int(_fdm.call("queue_ai_helicopters", 2, self, "Aircraft_10"))
+		_role_stress_helicopters_requested = queued_helis > 0
+		_friendly_launch_requests_outstanding = queued_helis
+		_log("AIROPS_LAUNCH role=ground_attack model=Aircraft_10 requested=2 queued=%d" % queued_helis)
+		if queued_helis != 2:
+			_stage = Stage.COMPLETE
+			_log("FAILED role stress: expected two Aircraft_10 helicopters, queued=%d" % queued_helis)
+		return
+	if _role_stress_helicopter_launches < 2:
+		return
+	if not _role_stress_patrol_requested:
+		var queued_patrol := int(_fdm.call("queue_ai_flight", 2, self, GUN_ONLY_LOADOUT_PROFILE, "Aircraft_5"))
+		_role_stress_patrol_requested = queued_patrol > 0
+		_friendly_launch_requests_outstanding = queued_patrol
+		_log("AIROPS_LAUNCH role=CAP model=Aircraft_5 requested=2 queued=%d loadout=single_gun")
+		if queued_patrol != 2:
+			_stage = Stage.COMPLETE
+			_log("FAILED role stress: expected two gun-only Aircraft_5, queued=%d" % queued_patrol)
+
+
+func _air_ops_issue(unit: Node, order: OpsOrder) -> bool:
+	if AirOpsManager != null and AirOpsManager.has_method("issue_ops_order"):
+		return bool(AirOpsManager.call("issue_ops_order", unit, order))
+	return OperationsCoordinator.issue_order(unit, order)
 
 
 func _rolling_active_aircraft_count() -> int:
@@ -997,32 +1292,70 @@ func _assign_rolling_outbound(id: int, record: Dictionary) -> bool:
 		)
 		if safe_variant is Array and not safe_variant.is_empty() and safe_variant[0] is Vector3:
 			outbound_point = safe_variant[0]
-	var outbound_task: Variant = AirTaskModel.patrol(
+	var outbound_order: OpsOrder = OpsOrderModel.transit_to_position(
 		outbound_point,
-		maxf(rolling_outbound_capture_radius_m, 50.0),
-		outbound_point.y
+		maxf(rolling_outbound_speed_mps, 60.0),
+		outbound_point.y,
+		maxf(rolling_outbound_capture_radius_m, 50.0)
 	)
-	outbound_task.requested_speed_mps = maxf(rolling_outbound_speed_mps, 60.0)
-	outbound_task.metadata = {
+	outbound_order.metadata = {
 		"mission": "rolling_recovery_outbound",
 		"launch_serial": _friendly_launches,
+		"minimum_agl_m": maxf(rolling_outbound_min_route_agl_m, 100.0),
 	}
-	if not pilot.has_method("assign_air_task") or not bool(pilot.call("assign_air_task", outbound_task)):
+	if not OperationsCoordinator.issue_order(craft, outbound_order):
 		return false
-	var outbound_legs: Array = [{
-		"position": outbound_point,
-		"role": "rolling_outbound",
-		"speed_mps": maxf(rolling_outbound_speed_mps, 60.0),
-		"capture_radius_m": maxf(rolling_outbound_capture_radius_m, 50.0),
-	}]
-	pilot.call("set_flight_plan_legs", "rolling_recovery_outbound", outbound_legs, false, false)
-	pilot.set("nav_waypoint", outbound_point)
-	pilot.call("change_state", AIPilot.State.TRANSIT)
 	record["rolling_status"] = "outbound"
 	record["rolling_outbound_point"] = outbound_point
 	record["rolling_outbound_range_m"] = range_m
 	_aircraft_records[id] = record
 	_log("ROLLING_OUTBOUND aircraft=%s point=%s range=%.0fm bearing=%.1fdeg altitude=%.0fm agl=%.0fm" % [
+		craft.name,
+		_fmt(outbound_point),
+		range_m,
+		rad_to_deg(bearing_rad),
+		outbound_point.y,
+		outbound_point.y - endpoint_ground_m,
+	])
+	return true
+
+
+func _assign_mixed_helicopter_outbound(id: int, record: Dictionary) -> bool:
+	var craft_variant: Variant = record.get("craft", null)
+	if not is_instance_valid(craft_variant) or not (craft_variant is RigidBody3D) \
+			or not is_instance_valid(_carrier):
+		return false
+	var craft := craft_variant as RigidBody3D
+	var min_range_m := maxf(rolling_outbound_min_m, 1000.0)
+	var max_range_m := maxf(rolling_outbound_max_m, min_range_m)
+	var range_m := _rolling_rng.randf_range(min_range_m, max_range_m)
+	var bearing_rad := _rolling_rng.randf_range(-PI, PI)
+	var outbound_direction := Vector3(sin(bearing_rad), 0.0, cos(bearing_rad)).normalized()
+	var outbound_point := _carrier.global_position + outbound_direction * range_m
+	var endpoint_ground_m := _ground_height(outbound_point)
+	if not is_finite(endpoint_ground_m):
+		return false
+	# HelicopterPilot owns terrain routing and vertical profile generation. Give it
+	# a moderate terminal AGL rather than the fixed-wing cruise altitude.
+	outbound_point.y = maxf(endpoint_ground_m + 120.0, _carrier.global_position.y + 90.0)
+	var outbound_order: OpsOrder = OpsOrderModel.transit_to_position(
+		outbound_point,
+		minf(maxf(rolling_outbound_speed_mps * 0.55, 35.0), 65.0),
+		outbound_point.y,
+		maxf(rolling_outbound_capture_radius_m, 80.0)
+	)
+	outbound_order.metadata = {
+		"mission": "mixed_recovery_outbound",
+		"vehicle_type": "helicopter",
+		"launch_serial": _friendly_launches,
+	}
+	if not OperationsCoordinator.issue_order(craft, outbound_order):
+		return false
+	record["rolling_status"] = "outbound"
+	record["rolling_outbound_point"] = outbound_point
+	record["rolling_outbound_range_m"] = range_m
+	_aircraft_records[id] = record
+	_log("MIXED_OUTBOUND aircraft=%s type=helicopter point=%s range=%.0fm bearing=%.1fdeg altitude=%.0fm agl=%.0fm" % [
 		craft.name,
 		_fmt(outbound_point),
 		range_m,
@@ -1049,10 +1382,15 @@ func _poll_rolling_aircraft() -> void:
 			continue
 		var craft := craft_variant as RigidBody3D
 		var pilot := pilot_variant as Node
+		var ops_domain := str(record.get("ops_domain", "fixed_wing"))
 		var status := str(record.get("rolling_status", ""))
-		var state := int(pilot.get("current_state"))
-		if status == "departing" and state in [AIPilot.State.SEARCH, AIPilot.State.TRANSIT]:
-			_assign_rolling_outbound(id, record)
+		var state := int(pilot.get("state")) if ops_domain == "helicopter" \
+				else int(pilot.get("current_state"))
+		if status == "departing":
+			if ops_domain == "helicopter":
+				_assign_mixed_helicopter_outbound(id, record)
+			elif state in [AIPilot.State.SEARCH, AIPilot.State.TRANSIT]:
+				_assign_rolling_outbound(id, record)
 			continue
 		if status == "outbound":
 			var outbound_value: Variant = record.get("rolling_outbound_point", Vector3.INF)
@@ -1062,52 +1400,71 @@ func _poll_rolling_aircraft() -> void:
 				# A finite one-leg plan changes to SEARCH after crossing its terminal
 				# gate. Accept that contract as well as spatial capture so a high-speed
 				# endpoint miss cannot wander indefinitely before returning.
-				var outbound_route_complete := state == AIPilot.State.SEARCH
+				var outbound_route_complete := ops_domain == "fixed_wing" \
+						and state == AIPilot.State.SEARCH
 				if distance_m <= maxf(rolling_outbound_capture_radius_m, 50.0) \
 						or outbound_route_complete:
-					pilot.set("ground_attack_enabled", false)
-					pilot.set("dogfight_enabled", false)
-					pilot.set("aircraft_heightmap_pathfinding_enabled", true)
-					pilot.set("approach_route_threaded", true)
-					var accepted: bool = bool(pilot.call("start_recovery")) \
-							if pilot.has_method("start_recovery") else false
+					if ops_domain == "fixed_wing":
+						pilot.set("ground_attack_enabled", false)
+						pilot.set("dogfight_enabled", false)
+						pilot.set("aircraft_heightmap_pathfinding_enabled", true)
+						pilot.set("approach_route_threaded", true)
+					var accepted := OperationsCoordinator.issue_order(craft, OpsOrderModel.recover())
 					if accepted:
 						record["rolling_status"] = "recovery"
 						record["rolling_recovery_started_s"] = _elapsed_s
 						_recovery_requested[id] = true
 						_aircraft_records[id] = record
-						_log("ROLLING_RETURN aircraft=%s outbound_reached=%.0fm recovery_accepted=true state=%s trigger=%s" % [
+						_log("ROLLING_RETURN aircraft=%s type=%s outbound_reached=%.0fm recovery_accepted=true state=%s trigger=%s" % [
 							craft.name,
+							ops_domain,
 							float(record.get("rolling_outbound_range_m", 0.0)),
-							_state_name(int(pilot.get("current_state"))),
+							_ops_state_name(pilot, ops_domain),
 							"route_complete" if outbound_route_complete else "radius",
 						])
 			continue
 		if status != "recovery":
 			continue
-		if state == AIPilot.State.RECOVERY_HOLD:
+		if ops_domain == "helicopter" \
+				and bool(craft.get_meta("carrier_transport_mode", false)) \
+				and not _caught_aircraft.has(id):
+			_record_rolling_recovery(craft, -1, NAN, "helicopter")
+			continue
+		var queue_position := int(_fdm.call("get_landing_queue_position", craft)) \
+				if is_instance_valid(_fdm) and _fdm.has_method("get_landing_queue_position") else -1
+		var waiting_for_clearance := state == AIPilot.State.RECOVERY_HOLD \
+				if ops_domain == "fixed_wing" else queue_position > 0
+		if waiting_for_clearance:
 			holding_count += 1
 			if float(record.get("rolling_hold_started_s", -1.0)) < 0.0:
 				record["rolling_hold_started_s"] = _elapsed_s
-				_log("ROLLING_HOLD aircraft=%s entered carrier_dist=%.0fm" % [
+				_log("ROLLING_HOLD aircraft=%s type=%s entered carrier_dist=%.0fm" % [
 					craft.name,
+					ops_domain,
 					_flat_distance(craft.global_position, _carrier.global_position),
 				])
-		var queue_position := int(_fdm.call("get_landing_queue_position", craft)) \
-				if is_instance_valid(_fdm) and _fdm.has_method("get_landing_queue_position") else -1
 		if queue_position != int(record.get("rolling_queue_position", -2)):
 			record["rolling_queue_position"] = queue_position
 			if queue_position == 0 and float(record.get("rolling_clearance_s", -1.0)) < 0.0:
 				record["rolling_clearance_s"] = _elapsed_s
-			_log("ROLLING_QUEUE aircraft=%s position=%d state=%s recovery_elapsed=%.1fs" % [
+			_log("ROLLING_QUEUE aircraft=%s type=%s position=%d state=%s recovery_elapsed=%.1fs" % [
 				craft.name,
+				ops_domain,
 				queue_position,
-				_state_name(state),
+				_ops_state_name(pilot, ops_domain),
 				_elapsed_s - float(record.get("rolling_recovery_started_s", _elapsed_s)),
 			])
 		_aircraft_records[id] = record
 	_rolling_max_holding_aircraft = maxi(_rolling_max_holding_aircraft, holding_count)
 	_log_rolling_queue_snapshot()
+
+
+func _ops_state_name(pilot: Node, ops_domain: String) -> String:
+	if ops_domain == "helicopter":
+		var state := int(pilot.get("state"))
+		return str(HelicopterPilot.State.keys()[state]) \
+				if state >= 0 and state < HelicopterPilot.State.size() else "UNKNOWN"
+	return _state_name(int(pilot.get("current_state")))
 
 
 func _log_rolling_queue_snapshot() -> void:
@@ -1367,6 +1724,309 @@ func _assign_ground_target(pilot: Node, launch_index: int) -> void:
 	_log("ORDER %s attack %s" % [_pilot_aircraft_name(pilot), target.name])
 
 
+func _assign_role_stress_helicopter_target(id: int) -> bool:
+	var record: Dictionary = _aircraft_records.get(id, {})
+	if not bool(record.get("alive", false)) or str(record.get("role", "")) != "GROUND_ATTACK":
+		return false
+	var craft: Node = record.get("craft", null)
+	if not is_instance_valid(craft):
+		return false
+	var live_targets := _live_ground_targets()
+	if live_targets.is_empty():
+		return false
+	var assignment_index := int(record.get("ground_assignment_index", _role_stress_helicopter_launches - 1))
+	var target := live_targets[posmod(assignment_index, live_targets.size())]
+	var accepted := _air_ops_issue(craft, OpsOrderModel.attack_target(target))
+	record["ground_assignment_index"] = assignment_index
+	record["role_ordered"] = accepted
+	record["assigned_ground_target_id"] = target.get_instance_id() if accepted else 0
+	_aircraft_records[id] = record
+	_log("AIROPS_ORDER aircraft=%s role=GROUND_ATTACK target=%s moving=true accepted=%s" % [
+		record.get("name", craft.name),
+		target.name,
+		str(accepted),
+	])
+	return accepted
+
+
+func _assign_role_stress_patrol(record_id: int) -> bool:
+	var record: Dictionary = _aircraft_records.get(record_id, {})
+	var craft: Node = record.get("craft", null)
+	if not is_instance_valid(craft) or not is_instance_valid(_carrier):
+		return false
+	var forward := _carrier.global_transform.basis.z
+	forward.y = 0.0
+	forward = forward.normalized() if forward.length_squared() > 0.001 else Vector3.FORWARD
+	var patrol_center := _carrier.global_position + forward * 1400.0
+	patrol_center.y = _ground_height(patrol_center) + role_stress_patrol_altitude_agl_m
+	var accepted := _air_ops_issue(craft, OpsOrderModel.patrol_position(
+		patrol_center,
+		role_stress_patrol_radius_m,
+		patrol_center.y
+	))
+	record["role_ordered"] = accepted
+	record["role_order_name"] = "PATROL"
+	_aircraft_records[record_id] = record
+	_log("AIROPS_ORDER aircraft=%s role=CAP task=PATROL center=%s radius=%.0fm accepted=%s" % [
+		record.get("name", craft.name),
+		_fmt(patrol_center),
+		role_stress_patrol_radius_m,
+		str(accepted),
+	])
+	return accepted
+
+
+func _assign_role_stress_intercepts() -> void:
+	var enemies := _live_aircraft_for_team(2)
+	if enemies.is_empty():
+		return
+	var next_enemy := 0
+	for id_variant in _aircraft_records.keys():
+		var id := int(id_variant)
+		var record: Dictionary = _aircraft_records[id]
+		if not bool(record.get("alive", false)) or str(record.get("role", "")) != "CAP":
+			continue
+		var pilot: Node = record.get("pilot", null)
+		var craft: Node = record.get("craft", null)
+		if not is_instance_valid(pilot) or not is_instance_valid(craft):
+			continue
+		var state := int(pilot.get("current_state"))
+		if state in [AIPilot.State.IDLE, AIPilot.State.LAUNCHING]:
+			continue
+		var enemy_record: Dictionary = enemies[next_enemy % enemies.size()]
+		next_enemy += 1
+		var target: Node3D = enemy_record.get("craft", null) as Node3D
+		if not is_instance_valid(target):
+			continue
+		var current_target: Variant = pilot.get("combat_target")
+		if current_target == target and str(record.get("role_order_name", "")) == "INTERCEPT":
+			continue
+		var accepted := _air_ops_issue(craft, OpsOrderModel.intercept_target(target))
+		if accepted:
+			pilot.set("ground_attack_enabled", false)
+			pilot.set("dogfight_enabled", true)
+			record["role_ordered"] = true
+			record["role_order_name"] = "INTERCEPT"
+			_aircraft_records[id] = record
+		_log("AIROPS_ORDER aircraft=%s role=CAP task=INTERCEPT target=%s accepted=%s" % [
+			record.get("name", craft.name),
+			target.name,
+			str(accepted),
+		])
+	_refresh_all_gun_targets()
+
+
+func _spawn_role_stress_enemy_fighters() -> void:
+	if _role_stress_enemy_fighters_spawned or not is_instance_valid(_carrier):
+		return
+	_role_stress_enemy_fighters_spawned = true
+	var caps: Array[Dictionary] = []
+	for record_variant in _live_aircraft_for_team(1):
+		var friendly_record: Dictionary = record_variant
+		if str(friendly_record.get("role", "")) == "CAP":
+			caps.append(friendly_record)
+	var outward := _carrier.global_transform.basis.x
+	outward.y = 0.0
+	outward = outward.normalized() if outward.length_squared() > 0.001 else Vector3.RIGHT
+	var lateral := _carrier.global_transform.basis.z
+	lateral.y = 0.0
+	lateral = lateral.normalized() if lateral.length_squared() > 0.001 else Vector3.FORWARD
+	var spawned := 0
+	for i in range(2):
+		_enemy_spawn_serial += 1
+		var craft := ENEMY_FIGHTER_SCENE.instantiate() as RigidBody3D
+		if craft == null:
+			continue
+		craft.name = "RoleStress_Enemy_Aircraft_3_%02d" % (i + 1)
+		craft.set("team", 2)
+		craft.set_meta("carrier_combat_test", true)
+		craft.set_meta("carrier_transport_mode", false)
+		get_tree().current_scene.add_child(craft)
+		var lane := (float(i) - 0.5) * enemy_pair_spacing_m
+		var pos := _carrier.global_position + outward * role_stress_enemy_fighter_range_m + lateral * lane
+		pos.y = _ground_height(pos) + role_stress_patrol_altitude_agl_m
+		craft.global_transform = Transform3D(_basis_from_forward(-outward), pos)
+		craft.linear_velocity = -outward * enemy_initial_speed_mps
+		craft.angular_velocity = Vector3.ZERO
+		_configure_existing_guns_only(craft)
+		var toggle := craft.find_child("AIToggle", true, false)
+		if toggle != null and toggle.has_method("enable_ai"):
+			toggle.call("enable_ai")
+		var pilot := craft.find_child("AIPilot", true, false)
+		_configure_pilot(pilot, false)
+		if is_instance_valid(pilot):
+			pilot.set("dogfight_enabled", true)
+			pilot.set("ground_attack_enabled", false)
+		_register_aircraft(craft, pilot, 2)
+		var enemy_id := craft.get_instance_id()
+		var enemy_record: Dictionary = _aircraft_records[enemy_id]
+		enemy_record["role"] = "INTERCEPTOR"
+		_aircraft_records[enemy_id] = enemy_record
+		_configure_weapon_logging(craft)
+		if not caps.is_empty() and is_instance_valid(pilot):
+			var target: Node3D = caps[i % caps.size()].get("craft", null) as Node3D
+			if is_instance_valid(target):
+				pilot.call("assign_air_task", AirTaskModel.intercept_target(target))
+		_log("SPAWN aircraft=%s model=Aircraft_3 role=INTERCEPTOR loadout=%s pos=%s target=%s" % [
+			craft.name,
+			_describe_loadout(craft),
+			_fmt(pos),
+			str(caps[i % caps.size()].get("name", "none")) if not caps.is_empty() else "none",
+		])
+		_remove_player_group_deferred(craft)
+		spawned += 1
+	_log("ROLE_TRIGGER first_ground_vehicle_destroyed enemy_air_spawned=%d model=Aircraft_3 loadout=guns_only" % spawned)
+	_assign_role_stress_intercepts()
+
+
+func _configure_existing_guns_only(craft: RigidBody3D) -> void:
+	for node in craft.find_children("*", "Hardpoint", true, false):
+		var hardpoint := node as Hardpoint
+		if hardpoint == null:
+			continue
+		var weapon_name := ""
+		if is_instance_valid(hardpoint.weapon_instance):
+			weapon_name = str(hardpoint.weapon_instance.get("weapon_name")).to_lower()
+		var is_gun := weapon_name.contains("gun") or weapon_name.contains("cannon") \
+				or hardpoint.weapon_instance is Autocannon
+		if is_gun:
+			continue
+		if is_instance_valid(hardpoint.weapon_instance):
+			hardpoint.weapon_instance.queue_free()
+		hardpoint.weapon_instance = null
+		hardpoint.mounted_weapon = null
+	var control_weapons := craft.find_child("ControlWeapons", true, false)
+	if control_weapons != null:
+		if control_weapons.has_method("find_hardpoints"):
+			control_weapons.call("find_hardpoints")
+		if control_weapons.has_method("categorize_weapons"):
+			control_weapons.call("categorize_weapons")
+
+
+func _poll_role_stress() -> void:
+	if not _role_stress_mode:
+		return
+	if _stage == Stage.RECOVERY:
+		for id_variant in _recovery_requested.keys():
+			var id := int(id_variant)
+			if _caught_aircraft.has(id):
+				continue
+			var record: Dictionary = _aircraft_records.get(id, {})
+			if str(record.get("ops_domain", "")) != "helicopter":
+				continue
+			var craft: RigidBody3D = record.get("craft", null) as RigidBody3D
+			if is_instance_valid(craft) and bool(craft.get_meta("carrier_transport_mode", false)):
+				_caught_aircraft[id] = true
+				OperationsCoordinator.clear_order(craft)
+				_log("LANDING helicopter_recovered aircraft=%s caught=%d/%d" % [
+					record.get("name", craft.name),
+					_caught_aircraft.size(),
+					_recovery_requested.size(),
+				])
+		_check_recovery_end()
+		return
+	if _stage != Stage.GROUND_STRIKE:
+		return
+	for id_variant in _aircraft_records.keys():
+		var id := int(id_variant)
+		var record: Dictionary = _aircraft_records[id]
+		if not bool(record.get("alive", false)) or int(record.get("team", 0)) != 1:
+			continue
+		var role := str(record.get("role", ""))
+		var pilot: Node = record.get("pilot", null)
+		if not is_instance_valid(pilot):
+			continue
+		if role == "GROUND_ATTACK":
+			var commanded_target: Variant = pilot.get("_commanded_attack_target")
+			if is_instance_valid(commanded_target) and commanded_target is Node3D \
+					and ((commanded_target as Node3D).is_in_group("aircraft") \
+					or (commanded_target as Node3D).is_in_group("ai_aircraft")):
+				_record_role_violation(id, "ground-attack helicopter targeted aircraft %s" % (commanded_target as Node).name)
+			var assigned_id := int(record.get("assigned_ground_target_id", 0))
+			if assigned_id == 0 or not is_instance_id_valid(assigned_id):
+				# The pilot may tactically continue an established firing corridor onto a
+				# second ground target. Recognize that continuation instead of immediately
+				# overwriting it with a fresh AirOps order and rebuilding the whole ingress.
+				if is_instance_valid(commanded_target) and commanded_target is Node3D \
+						and not bool((commanded_target as Node3D).get("is_destroyed")) \
+						and not (commanded_target as Node3D).is_in_group("aircraft") \
+						and not (commanded_target as Node3D).is_in_group("ai_aircraft"):
+					record["assigned_ground_target_id"] = (commanded_target as Node3D).get_instance_id()
+					_aircraft_records[id] = record
+					_log("AIROPS_ACK aircraft=%s role=GROUND_ATTACK tactical_retarget=%s" % [
+						record.get("name", "unknown"),
+						(commanded_target as Node3D).name,
+					])
+				else:
+					record["ground_assignment_index"] = int(record.get("ground_assignment_index", 0)) + 1
+					_aircraft_records[id] = record
+					_assign_role_stress_helicopter_target(id)
+		elif role == "CAP":
+			var cap_target: Variant = pilot.get("combat_target")
+			if is_instance_valid(cap_target) and cap_target is Node3D \
+					and not ((cap_target as Node3D).is_in_group("aircraft") \
+					or (cap_target as Node3D).is_in_group("ai_aircraft")):
+				_record_role_violation(id, "CAP aircraft targeted non-aircraft %s" % (cap_target as Node).name)
+			var state := int(pilot.get("current_state"))
+			if state in [AIPilot.State.SEARCH, AIPilot.State.TRANSIT, AIPilot.State.CLIMBING]:
+				if _role_stress_enemy_fighters_spawned:
+					_assign_role_stress_intercepts()
+				elif not bool(record.get("role_ordered", false)):
+					_assign_role_stress_patrol(id)
+
+
+func _record_role_violation(id: int, reason: String) -> void:
+	var record: Dictionary = _aircraft_records.get(id, {})
+	if bool(record.get("role_violation_reported", false)):
+		return
+	record["role_violation_reported"] = true
+	_aircraft_records[id] = record
+	_role_stress_role_violations += 1
+	_log("ROLE_VIOLATION aircraft=%s reason=%s total=%d" % [
+		record.get("name", "unknown"),
+		reason,
+		_role_stress_role_violations,
+	])
+
+
+func _try_finish_role_stress_combat() -> void:
+	if not _role_stress_mode or _stage != Stage.GROUND_STRIKE:
+		return
+	if _ground_targets_destroyed < 4 or not _role_stress_enemy_fighters_spawned:
+		return
+	if not _live_aircraft_for_team(2).is_empty():
+		return
+	_begin_role_stress_recovery()
+
+
+func _begin_role_stress_recovery() -> void:
+	if _role_stress_recovery_started:
+		return
+	_role_stress_recovery_started = true
+	_stage = Stage.RECOVERY
+	_stage_started_s = _elapsed_s
+	_log("PHASE role stress recovery; ground vehicles eliminated and enemy Aircraft_3 eliminated")
+	for record_variant in _live_aircraft_for_team(1):
+		var record: Dictionary = record_variant
+		var craft: Node = record.get("craft", null)
+		var pilot: Node = record.get("pilot", null)
+		if not is_instance_valid(craft) or not is_instance_valid(pilot):
+			continue
+		if str(record.get("ops_domain", "")) == "fixed_wing":
+			pilot.set("ground_attack_enabled", false)
+			pilot.set("dogfight_enabled", false)
+			pilot.set("aircraft_heightmap_pathfinding_enabled", true)
+			pilot.set("approach_route_threaded", true)
+		var id := craft.get_instance_id()
+		_recovery_requested[id] = true
+		var accepted := _air_ops_issue(craft, OpsOrderModel.recover())
+		_log("AIROPS_ORDER aircraft=%s role=%s task=RECOVER accepted=%s" % [
+			record.get("name", craft.name),
+			record.get("role", "unknown"),
+			str(accepted),
+		])
+
+
 func _on_ground_target_damaged(amount: float, health: float, target: Node3D) -> void:
 	if not is_instance_valid(target):
 		return
@@ -1382,6 +2042,22 @@ func _on_ground_target_destroyed(target: Node) -> void:
 		_ground_wave_destroyed,
 		_ground_targets_destroyed,
 	])
+	if _role_stress_mode:
+		if _ground_targets_destroyed == 1:
+			call_deferred("_spawn_role_stress_enemy_fighters")
+		var destroyed_id := target.get_instance_id() if is_instance_valid(target) else 0
+		for id_variant in _aircraft_records.keys():
+			var id := int(id_variant)
+			var record: Dictionary = _aircraft_records[id]
+			if str(record.get("role", "")) != "GROUND_ATTACK" \
+					or int(record.get("assigned_ground_target_id", 0)) != destroyed_id:
+				continue
+			record["assigned_ground_target_id"] = 0
+			record["ground_assignment_index"] = int(record.get("ground_assignment_index", 0)) + 1
+			_aircraft_records[id] = record
+			call_deferred("_assign_role_stress_helicopter_target", id)
+		_try_finish_role_stress_combat()
+		return
 	# A target may be destroyed by the other aircraft while this pilot still owns
 	# it. Re-open only those stale mission slots so the remaining emplacements are
 	# assigned without disturbing a valid attack already in progress.
@@ -2241,6 +2917,19 @@ func _on_aircraft_destroyed(id: int) -> void:
 	if team == 1:
 		_friendly_destroyed_count += 1
 	_log("DESTROYED aircraft=%s team=%d %s" % [record.get("name", "unknown"), team, diagnostics])
+	if _role_stress_mode:
+		if team == 2:
+			_enemy_kills += 1
+			_log("ROLE_SCORE enemy_air_kills=%d/2 ground_vehicle_kills=%d/4" % [
+				_enemy_kills,
+				_ground_targets_destroyed,
+			])
+			call_deferred("_assign_role_stress_intercepts")
+			call_deferred("_try_finish_role_stress_combat")
+		elif team == 1 and _live_aircraft_for_team(1).is_empty():
+			_stage = Stage.COMPLETE
+			_log("FAILED role stress: all friendly aircraft lost")
+		return
 	if _rolling_recovery_mode and _stage == Stage.ROLLING and team == 1:
 		record["rolling_status"] = "lost"
 		_aircraft_records[id] = record
@@ -2254,7 +2943,7 @@ func _on_aircraft_destroyed(id: int) -> void:
 				_rolling_traps, rolling_target_traps, _rolling_losses, _friendly_launches,
 			])
 			return
-		call_deferred("_request_rolling_launches")
+		call_deferred("_request_recovery_test_launches")
 		return
 	if continuous_intercept_mode and _stage == Stage.AIR_COMBAT:
 		if team == 2:
@@ -2295,7 +2984,7 @@ func _on_aircraft_crashed(impact_velocity: float, id: int) -> void:
 				_rolling_traps, rolling_target_traps, _rolling_losses, _friendly_launches,
 			])
 			return
-		call_deferred("_request_rolling_launches")
+		call_deferred("_request_recovery_test_launches")
 
 
 func _check_air_combat_end() -> void:
@@ -2431,51 +3120,69 @@ func _on_cable_engaged(aircraft_variant: Variant, cable: Node) -> void:
 	if _stage == Stage.COMPLETE:
 		_log("LANDING_LATE ignored aircraft=%s reason=test_already_complete" % craft.name)
 		return
-	_caught_aircraft[id] = true
 	var wire: int = int(cable.call("get_wire_number")) if is_instance_valid(cable) and cable.has_method("get_wire_number") else -1
 	var lateral: float = float(cable.call("get_engage_lateral_m")) if is_instance_valid(cable) and cable.has_method("get_engage_lateral_m") else NAN
 	_log("LANDING caught aircraft=%s wire=%d lateral=%.2fm speed=%.1fm/s" % [craft.name, wire, lateral, craft.linear_velocity.length()])
 	if _rolling_recovery_mode and _stage == Stage.ROLLING:
-		var record: Dictionary = _aircraft_records.get(id, {})
-		# Once trapped, this aircraft no longer occupies an airborne rolling slot.
-		# The deck manager will free its scene instance after hangar storage, so stop
-		# all harness polling before that reference can become stale.
-		record["alive"] = false
-		record["rolling_status"] = "caught"
-		_aircraft_records[id] = record
-		_rolling_traps += 1
-		var recovery_started_s := float(record.get("rolling_recovery_started_s", _elapsed_s))
-		var hold_started_s := float(record.get("rolling_hold_started_s", -1.0))
-		var clearance_s := float(record.get("rolling_clearance_s", -1.0))
-		var hold_wait_s := maxf((clearance_s if clearance_s >= 0.0 else _elapsed_s) - hold_started_s, 0.0) \
-				if hold_started_s >= 0.0 else 0.0
-		_log("ROLLING_TRAP count=%d/%s aircraft=%s wire=%d lateral=%.2fm recovery=%.1fs hold_wait=%.1fs active_after=%d max_queue=%d max_holding=%d" % [
+		_record_rolling_recovery(craft, wire, lateral, "fixed_wing")
+		return
+	_caught_aircraft[id] = true
+	_check_recovery_end()
+
+
+func _record_rolling_recovery(
+	craft: RigidBody3D,
+	wire: int,
+	lateral: float,
+	recovery_type: String
+) -> void:
+	if not is_instance_valid(craft):
+		return
+	var id := craft.get_instance_id()
+	if _caught_aircraft.has(id):
+		return
+	_caught_aircraft[id] = true
+	var record: Dictionary = _aircraft_records.get(id, {})
+	# A safely landed aircraft no longer occupies an active airborne slot. The deck
+	# manager may subsequently store and free it, so stop harness polling now.
+	record["alive"] = false
+	record["rolling_status"] = "caught"
+	_aircraft_records[id] = record
+	OperationsCoordinator.clear_order(craft)
+	_rolling_traps += 1
+	var recovery_started_s := float(record.get("rolling_recovery_started_s", _elapsed_s))
+	var hold_started_s := float(record.get("rolling_hold_started_s", -1.0))
+	var clearance_s := float(record.get("rolling_clearance_s", -1.0))
+	var hold_wait_s := maxf((clearance_s if clearance_s >= 0.0 else _elapsed_s) - hold_started_s, 0.0) \
+			if hold_started_s >= 0.0 else 0.0
+	_log("ROLLING_TRAP count=%d/%s aircraft=%s type=%s wire=%d lateral=%s recovery=%.1fs hold_wait=%.1fs active_after=%d max_queue=%d max_holding=%d" % [
+		_rolling_traps,
+		str(rolling_target_traps) if rolling_target_traps > 0 else "unlimited",
+		craft.name,
+		recovery_type,
+		wire,
+		("%.2fm" % lateral) if is_finite(lateral) else "n/a",
+		_elapsed_s - recovery_started_s,
+		hold_wait_s,
+		_rolling_active_aircraft_count(),
+		_rolling_max_queue_depth,
+		_rolling_max_holding_aircraft,
+	])
+	if rolling_target_traps > 0 and _rolling_traps >= rolling_target_traps:
+		_stage = Stage.COMPLETE
+		_log("COMPLETE recovery target reached; traps=%d losses=%d launches=%d max_active=%d max_queue=%d max_holding=%d mode=%s" % [
 			_rolling_traps,
-			str(rolling_target_traps) if rolling_target_traps > 0 else "unlimited",
-			craft.name,
-			wire,
-			lateral,
-			_elapsed_s - recovery_started_s,
-			hold_wait_s,
-			_rolling_active_aircraft_count(),
+			_rolling_losses,
+			_friendly_launches,
+			rolling_active_aircraft_max,
 			_rolling_max_queue_depth,
 			_rolling_max_holding_aircraft,
+			"mixed_finite_cohort" if _mixed_recovery_mode else (
+				"finite_cohort" if rolling_finite_cohort else "rolling_refill"
+			),
 		])
-		if rolling_target_traps > 0 and _rolling_traps >= rolling_target_traps:
-			_stage = Stage.COMPLETE
-			_log("COMPLETE rolling recovery target reached; traps=%d losses=%d launches=%d max_active=%d max_queue=%d max_holding=%d mode=%s" % [
-				_rolling_traps,
-				_rolling_losses,
-				_friendly_launches,
-				rolling_active_aircraft_max,
-				_rolling_max_queue_depth,
-				_rolling_max_holding_aircraft,
-				"finite_cohort" if rolling_finite_cohort else "rolling_refill",
-			])
-		else:
-			call_deferred("_request_rolling_launches")
-		return
-	_check_recovery_end()
+	else:
+		call_deferred("_request_recovery_test_launches")
 
 
 func _check_recovery_end() -> void:
@@ -2712,6 +3419,18 @@ func _physics_process(delta: float) -> void:
 					_friendly_launch_requests_outstanding = 0
 			_ensure_enemy_target_count()
 			_ensure_friendly_force()
+	if _role_stress_mode and _stage == Stage.GROUND_STRIKE:
+		_continuous_force_check_s += delta
+		if _continuous_force_check_s >= 2.0:
+			_continuous_force_check_s = 0.0
+			if _friendly_launch_requests_outstanding > 0 and is_instance_valid(_fdm):
+				var role_pending_ops: Variant = _fdm.get("_pending_flight_ops")
+				var role_deck_state := int(_fdm.get("current_state"))
+				var role_deck_queue := int(_fdm.get("_ai_launch_queue"))
+				if not is_instance_valid(role_pending_ops) and role_deck_state == 0 and role_deck_queue <= 0:
+					_log("ROLE_LAUNCH_RETRY abandoned_callbacks=%d" % _friendly_launch_requests_outstanding)
+					_friendly_launch_requests_outstanding = 0
+			_request_role_stress_launches()
 	if _rolling_recovery_mode and _stage == Stage.ROLLING:
 		_continuous_force_check_s += delta
 		if _continuous_force_check_s >= 2.0:
@@ -2723,7 +3442,7 @@ func _physics_process(delta: float) -> void:
 				if not is_instance_valid(rolling_pending_ops) and rolling_deck_state == 0 and rolling_deck_queue <= 0:
 					_log("ROLLING_LAUNCH_RETRY abandoned_callbacks=%d" % _friendly_launch_requests_outstanding)
 					_friendly_launch_requests_outstanding = 0
-			_request_rolling_launches()
+			_request_recovery_test_launches()
 	if _stage in [Stage.GROUND_STRIKE, Stage.ROLLING] \
 			and _friendly_launches == 0 \
 			and not _initial_launch_watchdog_fired \
@@ -2731,7 +3450,9 @@ func _physics_process(delta: float) -> void:
 		_initial_launch_watchdog_fired = true
 		var queued_launches: int = int(_fdm.get("_ai_launch_queue")) if is_instance_valid(_fdm) else 0
 		var deck_state: int = int(_fdm.get("current_state")) if is_instance_valid(_fdm) else -1
-		var expected_initial_queue := rolling_active_aircraft_max if _rolling_recovery_mode else 2
+		var expected_initial_queue := (
+			mixed_helicopter_count if _mixed_recovery_mode else rolling_active_aircraft_max
+		) if _rolling_recovery_mode else 2
 		var untouched_queue: bool = queued_launches >= expected_initial_queue
 		var released_for_departure: bool = false
 		if not keep_carrier_at_verified_pose:
@@ -2765,6 +3486,7 @@ func _physics_process(delta: float) -> void:
 			_dispatch_recovery_orders()
 		_poll_aircraft_events()
 		_poll_rolling_aircraft()
+		_poll_role_stress()
 		_poll_missile_launches()
 	var summary_interval_s := ROLLING_SUMMARY_INTERVAL_S \
 			if _rolling_recovery_mode else SUMMARY_INTERVAL_S
@@ -2785,6 +3507,14 @@ func _physics_process(delta: float) -> void:
 			and _stage == Stage.AIR_COMBAT \
 			and _elapsed_s - _stage_started_s >= air_combat_timeout_s:
 		_begin_recovery("air combat timeout with %d enemies still airborne" % _live_aircraft_for_team(2).size())
+	if _role_stress_mode and _stage == Stage.GROUND_STRIKE \
+			and _elapsed_s - _stage_started_s >= maxf(role_stress_timeout_s, 60.0):
+		_stage = Stage.COMPLETE
+		_log("FAILED role stress combat timeout; ground=%d/4 enemy_air_kills=%d/2 friendly_alive=%d" % [
+			_ground_targets_destroyed,
+			_enemy_kills,
+			_live_aircraft_for_team(1).size(),
+		])
 	var recovery_time_budget_s: float = maxf(recovery_timeout_s, 30.0) \
 		* float(maxi(_recovery_requested.size(), 1))
 	if _stage == Stage.RECOVERY \
@@ -2842,7 +3572,20 @@ func _finalize_completed_run() -> void:
 			and _rolling_traps >= rolling_target_traps \
 			and _rolling_losses == 0 \
 			and _friendly_launches == rolling_target_traps
-	var strict_success := full_cycle_success or rolling_success
+	var role_stress_success := _role_stress_mode \
+			and _ground_targets_destroyed >= 4 \
+			and enemy_spawned == 2 \
+			and enemy_alive == 0 \
+			and _enemy_kills >= 2 \
+			and _friendly_launches == 4 \
+			and _role_stress_helicopter_launches == 2 \
+			and _role_stress_patrol_launches == 2 \
+			and _recovery_requested.size() == 4 \
+			and _caught_aircraft.size() == 4 \
+			and _friendly_destroyed_count == 0 \
+			and _friendly_crash_count == 0 \
+			and _role_stress_role_violations == 0
+	var strict_success := full_cycle_success or rolling_success or role_stress_success
 	var result := {
 		"run_id": _test_run_id,
 		"seed": _test_seed,
@@ -2859,6 +3602,9 @@ func _finalize_completed_run() -> void:
 		"friendly_crashes": _friendly_crash_count,
 		"recovery_requested": _recovery_requested.size(),
 		"caught": _caught_aircraft.size(),
+		"role_attack_helicopters": _role_stress_helicopter_launches,
+		"role_cap_aircraft": _role_stress_patrol_launches,
+		"role_violations": _role_stress_role_violations,
 		"loadouts": loadouts,
 	}
 	_log("RUN_RESULT json=%s" % JSON.stringify(result))
@@ -2883,6 +3629,10 @@ func _poll_aircraft_events() -> void:
 		if not is_instance_valid(pilot_variant) or not (pilot_variant is Node):
 			continue
 		var pilot := pilot_variant as Node
+		# Fixed-wing combat telemetry below intentionally knows AIPilot's detailed
+		# states. Helicopters are supervised through the domain-neutral rolling poll.
+		if str(record.get("ops_domain", "fixed_wing")) == "helicopter":
+			continue
 		var state := int(pilot.get("current_state"))
 		if state != int(record.get("last_state", -1)):
 			_log("STATE aircraft=%s %s->%s target=%s %s" % [
@@ -2913,6 +3663,7 @@ func _poll_aircraft_events() -> void:
 		var ready_for_ground_assignment: bool = state in [AIPilot.State.SEARCH, AIPilot.State.TRANSIT] \
 				or safe_climb_assignment
 		if _stage == Stage.GROUND_STRIKE \
+				and not _role_stress_mode \
 				and int(record.get("team", 0)) == 1 \
 				and not bool(record.get("ground_mission_assigned", false)) \
 				and ready_for_ground_assignment:
@@ -2975,6 +3726,19 @@ func _aircraft_diagnostics(record: Dictionary) -> String:
 	var pieces: Array[String] = []
 	var craft_variant: Variant = record.get("craft", null)
 	var pilot: Node = record.get("pilot", null)
+	if str(record.get("ops_domain", "fixed_wing")) == "helicopter":
+		if is_instance_valid(craft_variant) and craft_variant is RigidBody3D:
+			var heli_craft := craft_variant as RigidBody3D
+			pieces.append("pos=%s" % _fmt(heli_craft.global_position))
+			pieces.append("speed=%.1f" % heli_craft.linear_velocity.length())
+			var collision_name := str(heli_craft.get_meta("last_collision_body_name", "none"))
+			if collision_name != "none":
+				pieces.append("collision=%s" % collision_name)
+				pieces.append("collision_path=%s" % str(heli_craft.get_meta("last_collision_ancestry", "")))
+				pieces.append("collision_speed=%.1f" % float(heli_craft.get_meta("last_collision_impact_speed_mps", 0.0)))
+		if is_instance_valid(pilot):
+			pieces.append("state=%s" % _ops_state_name(pilot, "helicopter"))
+		return " ".join(pieces)
 	if is_instance_valid(craft_variant) and craft_variant is RigidBody3D:
 		var craft := craft_variant as RigidBody3D
 		pieces.append("pos=%s" % _fmt(craft.global_position))
@@ -3112,6 +3876,27 @@ func _log_summary() -> void:
 			var carrier_range := craft.global_position.distance_to(_carrier.global_position) if is_instance_valid(_carrier) else -1.0
 			status = "pos=%s spd=%.0f carrier_dist=%.0f" % [_fmt(craft.global_position), craft.linear_velocity.length(), carrier_range]
 			var pilot_variant: Variant = record.get("pilot", null)
+			if str(record.get("ops_domain", "fixed_wing")) == "helicopter":
+				if is_instance_valid(pilot_variant):
+					status += " type=helicopter state=%s mission=%s" % [
+						_ops_state_name(pilot_variant as Node, "helicopter"),
+						str(HelicopterPilot.MissionPhase.keys()[int(pilot_variant.get("mission_phase"))]),
+					]
+					if _role_stress_mode:
+						var commanded: Variant = pilot_variant.get("_commanded_attack_target")
+						var commanded_dist := craft.global_position.distance_to((commanded as Node3D).global_position) \
+								if is_instance_valid(commanded) and commanded is Node3D else -1.0
+						status += " atk=%s cmd_dist=%.0f dest=%s" % [
+							str(HelicopterPilot.AtkState.keys()[int(pilot_variant.get("_atk_state"))]),
+							commanded_dist,
+							_fmt(pilot_variant.get("destination")),
+						]
+				var heli_rolling_label := " cycle=%s q=%d" % [
+					str(record.get("rolling_status", "")),
+					int(record.get("rolling_queue_position", -1)),
+				]
+				pieces.append("%s[%s%s]" % [record.get("name", "?"), status, heli_rolling_label])
+				continue
 			if is_instance_valid(pilot_variant):
 				var bank_deg: float = absf(rad_to_deg(atan2(
 					craft.global_transform.basis.x.y,
@@ -3132,6 +3917,15 @@ func _log_summary() -> void:
 					yaw_val,
 					g_val,
 				]
+				if _role_stress_mode:
+					var nav: Vector3 = pilot_variant.get("nav_waypoint")
+					var nav_dist := Vector2(nav.x - craft.global_position.x, nav.z - craft.global_position.z).length()
+					status += " nav=%s nav_dist=%.0f fp=%s/%d" % [
+						_fmt(nav),
+						nav_dist,
+						str(pilot_variant.get("_flight_plan_name")),
+						int(pilot_variant.get("current_waypoint_index")),
+					]
 				if pilot_state in [
 					AIPilot.State.RTB,
 					AIPilot.State.RECOVERY_HOLD,

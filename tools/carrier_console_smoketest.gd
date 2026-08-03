@@ -16,11 +16,29 @@ func _run() -> void:
 	_expect(console != null, "CarrierConsole autoload is available")
 	_expect(tactical != null, "WorldMapOverlay autoload is available")
 	_expect(personnel != null, "PilotRosterOverlay autoload is available")
+	var pilot_roster := root.get_node_or_null("PilotRoster")
+	_expect(pilot_roster != null, "PilotRoster autoload is available")
 	if console == null or tactical == null or personnel == null:
 		_finish()
 		return
 
 	_expect(not bool(console.call("is_open")), "console starts closed")
+	if pilot_roster != null:
+		var roster: Array = pilot_roster.call("get_carrier_roster")
+		var used_portraits: Dictionary = {}
+		_expect(not roster.is_empty(), "pilot roster contains pilots")
+		for pilot_variant in roster:
+			var pilot: Dictionary = pilot_variant
+			var portrait_path := str(pilot.get("portrait_path", ""))
+			var pilot_name := str(pilot.get("name", "Pilot"))
+			_expect(portrait_path != "", "%s has a portrait" % str(pilot.get("name", "Pilot")))
+			_expect(ResourceLoader.exists(portrait_path), "%s portrait exists" % str(pilot.get("name", "Pilot")))
+			_expect(not used_portraits.has(portrait_path), "%s portrait is unique" % str(pilot.get("name", "Pilot")))
+			_expect(is_zero_approx(float(pilot.get("air_kills", -1.0))), "%s starts with zero air kills" % pilot_name)
+			_expect(is_zero_approx(float(pilot.get("ground_kills", -1.0))), "%s starts with zero ground kills" % pilot_name)
+			_expect(is_zero_approx(float(pilot.get("mission_time_s", -1.0))), "%s starts with zero flight time" % pilot_name)
+			_expect(int(pilot.get("sorties_flown", -1)) == 0, "%s starts with zero sorties" % pilot_name)
+			used_portraits[portrait_path] = true
 
 	var toggle_event := InputEventAction.new()
 	toggle_event.action = &"map_toggle"

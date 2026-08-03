@@ -37,6 +37,8 @@ explosion_effect_duration = 1.5
 explosion_debris_count = 6
 explosion_knockback_impulse_at_center = 400.0
 explosion_knockback_impulse_at_edge = 80.0
+explosion_visual_preset = 1
+explosion_audio_enabled = false
 
 [node name="MeshInstance3D" type="MeshInstance3D" parent="."]
 transform = Transform3D(0.18, 0, 0, 0, 0.18, 0, 0, 0, 0.85, 0, 0, 0)

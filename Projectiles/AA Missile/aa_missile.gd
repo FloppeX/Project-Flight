@@ -233,37 +233,24 @@ func _update_smoke_trail(delta: float) -> void:
 	# Emit new smoke particle
 	if smoke_timer >= smoke_interval:
 		_emit_smoke_particle()
-		smoke_timer = 0.0
+		smoke_timer = fmod(smoke_timer, maxf(smoke_interval, 0.01))
 
 func _emit_smoke_particle() -> void:
-	# Create smoke particle
-	var smoke_mesh = MeshInstance3D.new()
-	var box_mesh = BoxMesh.new()
-	box_mesh.size = Vector3(2.0, 2.0, 2.0)  # Reasonable size
-	smoke_mesh.mesh = box_mesh
-	smoke_mesh.name = "SmokeParticle_" + str(Time.get_ticks_msec())
-	
-	# Create bright white smoke material for visibility
-	var material = StandardMaterial3D.new()
-	material.albedo_color = Color.WHITE  # Bright white for visibility
-	material.flags_unshaded = true
-	smoke_mesh.material_override = material
-	
-	# Position directly behind missile (no random offset)
-	var rear_offset = global_transform.basis.z * -3.0  # 3m behind missile
-	smoke_mesh.global_position = global_position + rear_offset
-	
-	# Add random rotation for visual variety
-	smoke_mesh.rotation = Vector3(
-		randf() * TAU,  # Random rotation around X axis
-		randf() * TAU,  # Random rotation around Y axis
-		randf() * TAU   # Random rotation around Z axis
+	if ParticleManager == null:
+		return
+	var rear_offset: Vector3 = global_transform.basis.z * -3.0
+	ParticleManager.spawn_managed_smoke(
+		global_position + rear_offset,
+		Vector3.ONE * 2.0,
+		Color(0.95, 0.95, 0.95, 0.9),
+		1.5,
+		0.0,
+		randf_range(-0.35, 0.35),
+		false,
+		"box",
+		0.0,
+		false
 	)
-	
-	# Add to scene
-	get_tree().current_scene.add_child(smoke_mesh)
-	
-	ParticleManager.add_smoke_particle(smoke_mesh, 1.5, Vector3(2.0, 2.0, 2.0))
 
 func _check_proximity_detonation():
 	var valid_target = null
@@ -414,6 +401,8 @@ func _trigger_explosion(hit_body: Node = null):
 		explosion.min_damage = explosion_damage_splash
 		explosion.blast_radius = explosion_radius
 		explosion.use_line_of_sight = false
+		if explosion is Explosion:
+			(explosion as Explosion).visual_preset = Explosion.VisualPreset.STANDARD
 		if "source_attacker" in explosion and is_instance_valid(shooter):
 			explosion.source_attacker = shooter
 		

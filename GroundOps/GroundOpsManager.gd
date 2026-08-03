@@ -19,7 +19,7 @@ const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
 
 const PLATOON_NAMES := ["Ember", "Ferret", "Grizzly", "Hammer"]
 
-@export var debug_print: bool = true
+@export var debug_print: bool = false
 @export var maintain_carrier_escort: bool = true
 @export var carrier_escort_min_vehicles: int = 2
 @export var carrier_escort_desired_vehicles: int = 4

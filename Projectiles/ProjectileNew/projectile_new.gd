@@ -14,6 +14,12 @@ class_name ProjectileNew
 @export var hit_assist_use_physics_broadphase: bool = true
 @export var hit_assist_broadphase_extra_radius_m: float = 20.0
 @export var hit_assist_broadphase_max_results: int = 32
+@export var hit_assist_direct_candidate_limit: int = 24
+
+# Reusable projectiles manage lifetime from physics ticks and retire through a
+# virtual hook. The default remains the existing one-shot timer/queue_free path
+# so bombs, rockets, and missiles are unaffected.
+var reusable_lifecycle: bool = false
 
 # Preloaded impact sounds to avoid per-hit load() calls
 static var _metal_sounds: Array[AudioStream] = []
@@ -37,6 +43,8 @@ var has_impacted: bool = false
 var _hit_assist_time_accum_s: float = 0.0
 var _hit_assist_segment_start: Vector3 = Vector3.ZERO
 var _hit_assist_broadphase_shape: SphereShape3D = null
+var _lifetime_elapsed_s: float = 0.0
+var _activation_serial: int = 0
 
 static func get_hit_assist_radius_m() -> float:
 	return hit_assist_radius_m
@@ -47,6 +55,10 @@ static func set_hit_assist_radius_m(new_radius_m: float) -> float:
 
 static func adjust_hit_assist_radius_m(delta_m: float) -> float:
 	return set_hit_assist_radius_m(hit_assist_radius_m + delta_m)
+
+static func clear_hit_assist_candidate_cache() -> void:
+	_hit_assist_candidate_cache_by_team.clear()
+	_hit_assist_candidate_cache_expire_msec_by_team.clear()
 
 static func _ensure_sounds_loaded() -> void:
 	if _sounds_loaded:
@@ -72,8 +84,10 @@ func _ready():
 	contact_monitor = true
 	max_contacts_reported = 10
 	
-	# Auto-destroy after lifetime
-	get_tree().create_timer(lifetime).timeout.connect(_on_timeout)
+	# Auto-destroy after lifetime. Reusable bullets cannot keep one-shot timers
+	# because an old activation's timer could retire a newly reused round.
+	if not reusable_lifecycle:
+		get_tree().create_timer(lifetime).timeout.connect(_on_timeout)
 	
 	# Connect collision detection
 	body_entered.connect(_on_body_entered)
@@ -92,6 +106,11 @@ func get_child_collision_shape() -> CollisionShape3D:
 func _physics_process(delta):
 	if has_impacted:
 		return
+	if reusable_lifecycle:
+		_lifetime_elapsed_s += delta
+		if _lifetime_elapsed_s >= maxf(lifetime, 0.001):
+			_on_timeout()
+			return
 	# Raycast between last position and current position to catch tunneling
 	if last_position != Vector3.ZERO:
 		var space_state: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
@@ -108,7 +127,7 @@ func _physics_process(delta):
 			return
 		if hit_assist_enabled:
 			_hit_assist_time_accum_s += delta
-			var interval_s: float = maxf(hit_assist_check_interval_s, 0.0)
+			var interval_s: float = maxf(_get_hit_assist_check_interval_s(), 0.0)
 			if interval_s <= 0.0 or _hit_assist_time_accum_s >= interval_s:
 				var assist_hit: Dictionary = _check_hit_assist(_hit_assist_segment_start, global_position)
 				_hit_assist_segment_start = global_position
@@ -138,6 +157,9 @@ func _physics_process(delta):
 	last_position = global_position
 
 func fire(initial_velocity: Vector3, firing_aircraft: Node3D):
+	_activation_serial += 1
+	_lifetime_elapsed_s = 0.0
+	has_impacted = false
 	shooter = firing_aircraft
 	linear_velocity = initial_velocity
 	_hit_assist_time_accum_s = 0.0
@@ -155,12 +177,16 @@ func fire(initial_velocity: Vector3, firing_aircraft: Node3D):
 		# Re-enable collision after a short delay (once projectile is clear)
 		var projectile_ref: WeakRef = weakref(self)
 		var shooter_ref: WeakRef = weakref(firing_aircraft)
+		var activation_serial: int = _activation_serial
 		get_tree().create_timer(0.2).timeout.connect(func() -> void:
 			var projectile_obj: Object = projectile_ref.get_ref()
 			var shooter_obj: Object = shooter_ref.get_ref()
-			if projectile_obj is ProjectileNew and is_instance_valid(projectile_obj) and shooter_obj is CollisionObject3D and is_instance_valid(shooter_obj):
+			if projectile_obj is ProjectileNew and is_instance_valid(projectile_obj) and (projectile_obj as ProjectileNew)._activation_serial == activation_serial and shooter_obj is CollisionObject3D and is_instance_valid(shooter_obj):
 				(projectile_obj as ProjectileNew).remove_collision_exception_with(shooter_obj as CollisionObject3D)
 		)
+
+func _get_hit_assist_check_interval_s() -> float:
+	return hit_assist_check_interval_s
 
 func _get_projectile_query_excludes() -> Array:
 	var excludes: Array = []
@@ -236,9 +262,15 @@ func _find_best_hit_assist_target(from_pos: Vector3, to_pos: Vector3, assist_rad
 	}
 
 func _get_hit_assist_candidates_for_segment(from_pos: Vector3, to_pos: Vector3, assist_radius: float) -> Array:
-	if hit_assist_use_physics_broadphase:
+	var registered_candidates: Array = _get_hit_assist_candidates()
+	if registered_candidates.is_empty():
+		return []
+	# A cached list is cheaper than a shape query when battles contain only a
+	# modest number of valid targets. Switch to physics broadphase only once the
+	# candidate population is large enough for spatial pruning to pay for itself.
+	if hit_assist_use_physics_broadphase and registered_candidates.size() > max(hit_assist_direct_candidate_limit, 0):
 		return _get_hit_assist_candidates_from_physics(from_pos, to_pos, assist_radius)
-	return _get_hit_assist_candidates()
+	return registered_candidates
 
 func _get_hit_assist_candidates_from_physics(from_pos: Vector3, to_pos: Vector3, assist_radius: float) -> Array:
 	if _hit_assist_broadphase_shape == null:
@@ -305,7 +337,7 @@ func _get_hit_assist_candidates() -> Array:
 	var cache_expiry_ms: int = int(expiry_variant)
 	var cached_variant: Variant = _hit_assist_candidate_cache_by_team.get(cache_key, [])
 	var cached_nodes: Array = cached_variant if cached_variant is Array else []
-	if now_ms <= cache_expiry_ms and not cached_nodes.is_empty():
+	if now_ms <= cache_expiry_ms:
 		return _filter_valid_hit_assist_candidates(cached_nodes)
 
 	var rebuilt: Array = _rebuild_hit_assist_candidates(tree, shooter_team)
@@ -508,7 +540,7 @@ func _on_body_entered(body):
 	if damage_target and damage_target.has_method("take_damage"):
 		_report_damage_credit(damage_target, damage)
 		damage_target.take_damage(damage)
-	queue_free()
+	_retire_projectile()
 
 func _report_damage_credit(damage_target: Node, damage_amount: float) -> void:
 	if shooter == null or not is_instance_valid(shooter):
@@ -537,6 +569,7 @@ func _get_terrain_height_at_position(world_pos: Vector3) -> float:
 	return NAN
 
 func play_impact_sound(body: Node) -> void:
+	var impact_budget: Node = get_node_or_null("/root/BulletImpactBudget")
 	# Pick from preloaded sound arrays
 	var sound: AudioStream = null
 	if is_aircraft(body):
@@ -550,6 +583,11 @@ func play_impact_sound(body: Node) -> void:
 			sound = _metal_sounds[0]
 
 	if not sound:
+		return
+	if impact_budget and impact_budget.has_method("play_impact_sound"):
+		impact_budget.call("play_impact_sound", sound, global_position, -5.0, randf_range(0.9, 1.1))
+		return
+	if impact_budget and not bool(impact_budget.call("should_play_impact_sound", global_position)):
 		return
 
 	var audio_player = AudioStreamPlayer3D.new()
@@ -601,6 +639,9 @@ func create_bullet_scorch_mark(aircraft_body: Node) -> void:
 		var outward: Vector3 = global_position - ac_center
 		if outward.length() > 0.01:
 			hit_normal = outward.normalized()
+	var impact_budget: Node = get_node_or_null("/root/BulletImpactBudget")
+	if impact_budget and not bool(impact_budget.call("should_spawn_visual", hit_pos)):
+		return
 
 	# Scale mark size with damage. sqrt keeps heavy rounds from looking absurd.
 	# target_mark_size is calibrated for damage = 10.
@@ -610,8 +651,13 @@ func create_bullet_scorch_mark(aircraft_body: Node) -> void:
 		target_mark_size.y * dmg_scale,
 		target_mark_size.z * dmg_scale)
 
-	# Create bullet scorch decal
-	var decal: Decal = Decal.new()
+	# Aircraft keep their small per-aircraft history. Transient vehicle marks use
+	# the global decal pool and return there when their lifetime expires.
+	var decal: Decal
+	if impact_budget and not is_aircraft(aircraft_body):
+		decal = impact_budget.call("acquire_decal", aircraft_body if aircraft_body and is_instance_valid(aircraft_body) else get_tree().current_scene) as Decal
+	else:
+		decal = Decal.new()
 	decal.texture_albedo = _scorch_texture
 	decal.size = scaled_size
 	# Disable distance fade so the mark stays sharp across the whole projection volume.
@@ -620,10 +666,11 @@ func create_bullet_scorch_mark(aircraft_body: Node) -> void:
 	decal.sorting_offset = 20.0
 
 	# Parent first, then set global transform so placement is correct in world space.
-	if aircraft_body and is_instance_valid(aircraft_body):
-		aircraft_body.add_child(decal)
-	else:
-		get_tree().current_scene.add_child(decal)
+	if decal.get_parent() == null:
+		if aircraft_body and is_instance_valid(aircraft_body):
+			aircraft_body.add_child(decal)
+		else:
+			get_tree().current_scene.add_child(decal)
 
 	# Align projection with surface normal. Decals project along local -Y.
 	var y_axis: Vector3 = hit_normal.normalized()
@@ -640,10 +687,12 @@ func create_bullet_scorch_mark(aircraft_body: Node) -> void:
 	decal.global_basis = random_spin * surface_basis
 	decal.modulate = Color(1.0, 1.0, 1.0, 1.0)
 	_enforce_aircraft_bullet_decal_cap(aircraft_body, decal)
+	if impact_budget:
+		impact_budget.call("register_decal", decal, 0.0 if is_aircraft(aircraft_body) else target_mark_lifetime_s)
 
 	# Aircraft marks are cleaned up by the cap (last 15 stay permanently).
 	# Only time-expire marks on non-aircraft targets (ground vehicles, etc.).
-	if target_mark_lifetime_s > 0.0 and not is_aircraft(aircraft_body):
+	if target_mark_lifetime_s > 0.0 and not is_aircraft(aircraft_body) and impact_budget == null:
 		var decal_ref: WeakRef = weakref(decal)
 		get_tree().create_timer(target_mark_lifetime_s).timeout.connect(func():
 			var decal_obj: Object = decal_ref.get_ref()
@@ -745,4 +794,7 @@ func is_ground_or_terrain(body: Node) -> bool:
 	return false
 
 func _on_timeout():
+	_retire_projectile()
+
+func _retire_projectile() -> void:
 	queue_free()

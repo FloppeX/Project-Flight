@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://tools/combat_effect_pool_smoketest.gd" id="1_test"]
+
+[node name="CombatEffectPoolSmoketest" type="Node3D"]
+script = ExtResource("1_test")

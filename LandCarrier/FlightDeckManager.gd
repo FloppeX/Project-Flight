@@ -92,6 +92,7 @@ const LOADOUT_COMBAT_TEST := "combat_test"
 const LOADOUT_ROCKET_STRIKE := "rocket_strike"
 const LOADOUT_BOMB_STRIKE := "bomb_strike"
 const LOADOUT_RANDOM_GROUND_STRIKE := "random_ground_strike"
+const LOADOUT_GUN_ONLY := "gun_only"
 const WEAPON_SCENE_20MM := "res://Weapons/Guns/Hardpoint/20mm_autocannon_hardpoint.tscn"
 const WEAPON_SCENE_AA_MISSILE := "res://Weapons/AA_Missile/aa_missile_launcher.tscn"
 const WEAPON_SCENE_ROCKET_POD := "res://Weapons/RocketPod/rocket_pod.tscn"
@@ -371,6 +372,8 @@ var _ai_launch_queue: int = 0          # Aircraft still to retrieve+launch for F
 var _pending_flight_ops: Node = null   # Node waiting for notify_aircraft_launched() callbacks (FlightDirector)
 var _retrieval_ai_land_after_launch: bool = true
 var _pending_ai_loadout_profile: String = ""
+var _pending_ai_aircraft_kind: String = "fixed_wing"
+var _pending_ai_aircraft_model: String = ""
 var _pending_launch_hangar_index: int = 0   # hangar slot chosen for the current launch (skips utility helis for AI scrambles)
 
 func _deck_state_name(state: int = -1) -> String:
@@ -1117,7 +1120,12 @@ func _is_non_aircraft_body(node: Node) -> bool:
 			or bool(node.get_meta("ejected_pilot_camera_target", false)) \
 			or node.is_in_group("ejected_pilots")
 
-func queue_ai_flight(count: int, ops: Node, loadout_profile: String = "") -> int:
+func queue_ai_flight(
+	count: int,
+	ops: Node,
+	loadout_profile: String = "",
+	aircraft_model: String = ""
+) -> int:
 	"""Request FlightOps to launch `count` AI aircraft one after another.
 	Each successful launch calls ops.notify_aircraft_launched(pilot)."""
 	if _landing_test_active:
@@ -1125,8 +1133,10 @@ func queue_ai_flight(count: int, ops: Node, loadout_profile: String = "") -> int
 		_pending_flight_ops = null
 		_retrieval_ai_land_after_launch = true
 		_pending_ai_loadout_profile = ""
+		_pending_ai_aircraft_kind = "fixed_wing"
+		_pending_ai_aircraft_model = ""
 		return 0
-	var available := mini(count, stored_aircraft.size())
+	var available := mini(count, _count_stored_aircraft_for_kind("fixed_wing", aircraft_model))
 	if available <= 0:
 		push_warning("[FlightDeckManager] queue_ai_flight: hangar empty")
 		return 0
@@ -1134,6 +1144,28 @@ func queue_ai_flight(count: int, ops: Node, loadout_profile: String = "") -> int
 	_pending_flight_ops = ops
 	_retrieval_ai_land_after_launch = false
 	_pending_ai_loadout_profile = loadout_profile
+	_pending_ai_aircraft_kind = "fixed_wing"
+	_pending_ai_aircraft_model = aircraft_model
+	if current_state == DeckState.IDLE:
+		_launch_next_queued_ai()
+	return available
+
+
+func queue_ai_helicopters(count: int, ops: Node, aircraft_model: String = "") -> int:
+	## Launch utility helicopters through the real elevator/deck flow.  Unlike a
+	## fighter scramble, these aircraft bypass the catapult and lift vertically.
+	if _landing_test_active:
+		return 0
+	var available := mini(count, _count_stored_aircraft_for_kind("helicopter", aircraft_model))
+	if available <= 0:
+		push_warning("[FlightDeckManager] queue_ai_helicopters: no helicopters in hangar")
+		return 0
+	_ai_launch_queue = available
+	_pending_flight_ops = ops
+	_retrieval_ai_land_after_launch = false
+	_pending_ai_loadout_profile = ""
+	_pending_ai_aircraft_kind = "helicopter"
+	_pending_ai_aircraft_model = aircraft_model
 	if current_state == DeckState.IDLE:
 		_launch_next_queued_ai()
 	return available
@@ -1144,12 +1176,16 @@ func _launch_next_queued_ai() -> void:
 		_pending_flight_ops = null
 		_retrieval_ai_land_after_launch = true
 		_pending_ai_loadout_profile = ""
+		_pending_ai_aircraft_kind = "fixed_wing"
+		_pending_ai_aircraft_model = ""
 		return
 	if _ai_launch_queue <= 0 or stored_aircraft.is_empty():
 		_ai_launch_queue = 0
 		_pending_flight_ops = null
 		_retrieval_ai_land_after_launch = true
 		_pending_ai_loadout_profile = ""
+		_pending_ai_aircraft_kind = "fixed_wing"
+		_pending_ai_aircraft_model = ""
 		return
 	# Recovery traffic owns the deck once an aircraft has requested clearance.
 	# Keep the launch queued instead of retrieving it ahead of an active holder,
@@ -1167,8 +1203,7 @@ func _on_catapult_sequence_complete():
 	# Notify FlightOps about the aircraft that just launched
 	if _pending_flight_ops and is_instance_valid(deck_aircraft):
 		var pilot = deck_aircraft.get_node_or_null("AIPilot")
-		if pilot and _pending_flight_ops.has_method("notify_aircraft_launched"):
-			_pending_flight_ops.notify_aircraft_launched(pilot)
+		_notify_pending_ops_launched(pilot)
 
 	current_state = DeckState.IDLE
 	deck_aircraft = null
@@ -1180,6 +1215,8 @@ func _on_catapult_sequence_complete():
 		_pending_flight_ops = null
 		_retrieval_ai_land_after_launch = true
 		_pending_ai_loadout_profile = ""
+		_pending_ai_aircraft_kind = "fixed_wing"
+		_pending_ai_aircraft_model = ""
 
 func _on_catapult_sequence_aborted():
 	if is_instance_valid(deck_aircraft):
@@ -1190,8 +1227,19 @@ func _on_catapult_sequence_aborted():
 	_pending_flight_ops = null
 	_retrieval_ai_land_after_launch = true
 	_pending_ai_loadout_profile = ""
+	_pending_ai_aircraft_kind = "fixed_wing"
+	_pending_ai_aircraft_model = ""
 	current_state = DeckState.IDLE
 	deck_aircraft = null
+
+
+func _notify_pending_ops_launched(pilot: Node) -> void:
+	if pilot == null or not is_instance_valid(pilot):
+		return
+	if _pending_flight_ops != null \
+			and is_instance_valid(_pending_flight_ops) \
+			and _pending_flight_ops.has_method("notify_aircraft_launched"):
+		_pending_flight_ops.call("notify_aircraft_launched", pilot)
 
 # --- Arresting cable integration ---
 func _on_cable_engaged(aircraft_variant: Variant) -> void:
@@ -2495,12 +2543,13 @@ func _spawn_aircraft_at_hangar_level():
 
 	if not aircraft:
 		current_state = DeckState.IDLE
-		# If an AI scramble couldn't find a suitable (non-utility) aircraft, drop the queue so we don't
-		# spin retrying. (Normal case: plenty of jets in the hangar, so this won't trigger.)
+		# If an AI scramble couldn't find a suitable aircraft, drop the queue so we do not retry forever.
 		if _pending_flight_ops != null and _select_hangar_launch_index() < 0:
 			_ai_launch_queue = 0
 			_pending_flight_ops = null
 			_pending_ai_loadout_profile = ""
+			_pending_ai_aircraft_kind = "fixed_wing"
+			_pending_ai_aircraft_model = ""
 		return
 
 	# Remove the aircraft we actually launched (may not be index 0 if we skipped utility helicopters).
@@ -2770,7 +2819,10 @@ func _start_aircraft_movement(aircraft: RigidBody3D, target_position: Vector3):
 	# storage/retrieval have consistent bot motion and pacing.
 	var deck_height = _get_deck_height_y()
 	var gear_colliders = _find_gear_colliders(aircraft)
-	if not gear_colliders.is_empty():
+	if not _is_helicopter_aircraft(aircraft) and not gear_colliders.is_empty():
+		var stance_target_position := Vector3(target_position.x, aircraft.global_position.y, target_position.z)
+		await _move_aircraft_horizontally(aircraft, stance_target_position)
+	elif not gear_colliders.is_empty():
 		var lowest_gear_global_y := INF
 		for gear in gear_colliders:
 			if (gear as Node3D).global_position.y < lowest_gear_global_y:
@@ -2790,6 +2842,7 @@ func _start_aircraft_movement(aircraft: RigidBody3D, target_position: Vector3):
 	if not is_instance_valid(aircraft):
 		current_state = DeckState.IDLE
 		return
+	_place_fixed_wing_in_static_suspension_pose(aircraft, _get_deck_height_y())
 	# Wait 1 second after aircraft is in position before starting elevator
 	await get_tree().create_timer(1.0).timeout
 
@@ -2802,7 +2855,7 @@ func _start_aircraft_movement(aircraft: RigidBody3D, target_position: Vector3):
 	_start_elevator_sequence(aircraft)
 
 func _prepare_aircraft_for_movement(aircraft: RigidBody3D):
-	"""Disable physics and position aircraft with gear colliders 20cm above flight deck"""
+	"""Disable physics and place aircraft in its supported deck stance."""
 
 	# Save original collision settings (only if not already saved)
 	if _aircraft_original_collision_layer == 0:
@@ -2815,13 +2868,15 @@ func _prepare_aircraft_for_movement(aircraft: RigidBody3D):
 	aircraft.collision_layer = 0  # Disable collision with ship
 	aircraft.collision_mask = 0
 	
-	# Position aircraft with gear colliders 20cm above flight deck
+	# Preserve the same spring-loaded stance used when physics becomes active.
 	_position_aircraft_above_deck(aircraft)
 
 func _position_aircraft_above_deck(aircraft: RigidBody3D):
-	"""Position aircraft so gear colliders are 20cm above flight deck"""
+	"""Position aircraft in its supported deck stance."""
 	var gear_colliders = _find_gear_colliders(aircraft)
 	var deck_height = _get_deck_height_y()
+	if _place_fixed_wing_in_static_suspension_pose(aircraft, deck_height):
+		return
 	var target_gear_height = deck_height + _aircraft_lift_height
 	
 	if gear_colliders.is_empty():
@@ -2855,7 +2910,8 @@ func _move_aircraft_smoothly(aircraft: RigidBody3D, target_position: Vector3):
 	var carrier := get_parent() as Node3D
 	if carrier:
 		carrier.force_update_transform()
-	# Calculate target position - maintain gear at 20cm above deck
+	# Calculate target position. Fixed-wing aircraft retain their spring-loaded
+	# body height; legacy/helicopter paths retain the configured transport lift.
 	var deck_height = _get_deck_height_y()
 	var target_gear_height = deck_height + _aircraft_lift_height
 
@@ -2867,8 +2923,10 @@ func _move_aircraft_smoothly(aircraft: RigidBody3D, target_position: Vector3):
 		if local_y < lowest_gear_local_y:
 			lowest_gear_local_y = local_y
 
-	# Calculate aircraft's target Y position so its lowest gear is at target_gear_height
-	var aircraft_target_y = target_gear_height - lowest_gear_local_y
+	var aircraft_target_y := aircraft.global_position.y
+	if _is_helicopter_aircraft(aircraft) or gear_colliders.is_empty():
+		# Calculate aircraft's target Y position so its lowest gear is at target_gear_height
+		aircraft_target_y = target_gear_height - lowest_gear_local_y
 	var final_position = Vector3(target_position.x, aircraft_target_y, target_position.z)
 
 	# Convert to carrier-local space
@@ -3044,6 +3102,82 @@ func _get_launch_nose_and_main_nodes(aircraft: RigidBody3D, wheel_nodes: Array[N
 		"mains": main_nodes,
 	}
 
+
+func _place_fixed_wing_in_static_suspension_pose(aircraft: RigidBody3D, surface_y: float) -> bool:
+	if not is_instance_valid(aircraft) or _is_helicopter_aircraft(aircraft):
+		return false
+	var landing_gear_module := _find_landing_gear_module(aircraft)
+	if landing_gear_module == null \
+			or not landing_gear_module.has_method("get_static_load_compressions") \
+			or not landing_gear_module.has_method("get_gear_base_global_position") \
+			or not landing_gear_module.has_method("get_wheel_rest_height"):
+		return false
+	var gear_count := int(landing_gear_module.call("get_gear_count"))
+	if gear_count <= 0:
+		return false
+	var compression_variant: Variant = landing_gear_module.call("get_static_load_compressions")
+	if typeof(compression_variant) != TYPE_ARRAY or compression_variant.size() < gear_count:
+		return false
+	var target_base_heights: Array[float] = []
+	target_base_heights.resize(gear_count)
+	for i in range(gear_count):
+		target_base_heights[i] = surface_y \
+				+ float(landing_gear_module.call("get_wheel_rest_height", i)) \
+				- float(compression_variant[i])
+
+	var nose_index := int(landing_gear_module.get("nose_gear_index"))
+	var main_indices: Array[int] = []
+	var rear_variant: Variant = landing_gear_module.get("rear_gear_indices")
+	if typeof(rear_variant) == TYPE_ARRAY:
+		for rear_index_variant in rear_variant:
+			var rear_index := int(rear_index_variant)
+			if rear_index >= 0 and rear_index < gear_count and rear_index != nose_index:
+				main_indices.append(rear_index)
+
+	# Solve pitch and height against the unshifted suspension bases. Collider and
+	# visual travel are applied afterward, so the same load/compression exists
+	# while frozen and on the first active physics frame.
+	for _iteration in range(4):
+		if nose_index >= 0 and nose_index < gear_count and not main_indices.is_empty():
+			var nose_base: Vector3 = landing_gear_module.call("get_gear_base_global_position", nose_index)
+			var main_base := Vector3.ZERO
+			var main_target_y := 0.0
+			for main_index in main_indices:
+				main_base += landing_gear_module.call("get_gear_base_global_position", main_index) as Vector3
+				main_target_y += target_base_heights[main_index]
+			main_base /= float(main_indices.size())
+			main_target_y /= float(main_indices.size())
+			var nose_error := nose_base.y - target_base_heights[nose_index]
+			var main_error := main_base.y - main_target_y
+			var longitudinal_span := absf(
+				aircraft.to_local(nose_base).z - aircraft.to_local(main_base).z
+			)
+			if longitudinal_span > 0.001:
+				var pitch_step := clampf(
+					atan2(nose_error - main_error, longitudinal_span),
+					-deg_to_rad(launch_deck_pitch_contact_max_deg),
+					deg_to_rad(launch_deck_pitch_contact_max_deg)
+				)
+				if absf(pitch_step) >= deg_to_rad(0.01):
+					var x_axis := aircraft.global_transform.basis.x.normalized()
+					var adjusted_transform := aircraft.global_transform
+					adjusted_transform.basis = adjusted_transform.basis.rotated(x_axis, pitch_step).orthonormalized()
+					aircraft.global_transform = adjusted_transform
+
+		var average_height_error := 0.0
+		for i in range(gear_count):
+			var base_position: Vector3 = landing_gear_module.call("get_gear_base_global_position", i)
+			average_height_error += base_position.y - target_base_heights[i]
+		average_height_error /= float(gear_count)
+		aircraft.global_position.y -= average_height_error
+
+	if landing_gear_module.has_method("snap_suspension_to_static_load"):
+		landing_gear_module.call("snap_suspension_to_static_load")
+	aircraft.linear_velocity = Vector3.ZERO
+	aircraft.angular_velocity = Vector3.ZERO
+	_sync_rigidbody_transform_state(aircraft)
+	return true
+
 func _lower_launch_wheels_to_deck(aircraft: RigidBody3D, wheel_nodes: Array[Node3D], deck_y: float) -> void:
 	if wheel_nodes.is_empty():
 		aircraft.global_position.y = deck_y
@@ -3067,6 +3201,8 @@ func _get_deck_contact_visual_offset(aircraft: RigidBody3D) -> float:
 	return maxf(float(offset), 0.0)
 
 func _settle_launch_aircraft_on_wheels(aircraft: RigidBody3D, wheel_nodes: Array[Node3D], deck_y: float) -> void:
+	if _place_fixed_wing_in_static_suspension_pose(aircraft, deck_y):
+		return
 	if wheel_nodes.is_empty():
 		aircraft.global_position.y = deck_y
 		return
@@ -3359,6 +3495,12 @@ func _apply_ai_loadout_profile(aircraft: RigidBody3D, profile: String) -> void:
 		return
 	for i in range(hardpoints.size()):
 		var hardpoint := hardpoints[i]
+		if normalized_profile == LOADOUT_GUN_ONLY:
+			if i == 0:
+				_mount_weapon_scene_on_hardpoint(hardpoint, WEAPON_SCENE_20MM)
+			else:
+				_clear_hardpoint_weapon(hardpoint)
+			continue
 		var weapon_scene_path := _choose_ai_loadout_weapon_scene(hardpoint, i, normalized_profile)
 		_mount_weapon_scene_on_hardpoint(hardpoint, weapon_scene_path)
 	_refresh_weapon_controller_after_loadout(aircraft, normalized_profile)
@@ -3408,6 +3550,15 @@ func _mount_weapon_scene_on_hardpoint(hardpoint: Hardpoint, weapon_scene_path: S
 		launcher.max_ammo = max(launcher.max_ammo, 1)
 		launcher.ammo_count = max(launcher.ammo_count, launcher.max_ammo)
 
+
+func _clear_hardpoint_weapon(hardpoint: Hardpoint) -> void:
+	if hardpoint == null:
+		return
+	if is_instance_valid(hardpoint.weapon_instance):
+		hardpoint.weapon_instance.queue_free()
+	hardpoint.weapon_instance = null
+	hardpoint.mounted_weapon = null
+
 func _get_hardpoint_weapon_name(hardpoint: Hardpoint) -> String:
 	if hardpoint == null or not is_instance_valid(hardpoint.weapon_instance):
 		return ""
@@ -3433,6 +3584,8 @@ func _refresh_weapon_controller_after_loadout(aircraft: RigidBody3D, profile: St
 		return
 	var preferred_type := "Bomb" if (profile == LOADOUT_STRIKE or profile == "cas" or profile == LOADOUT_COMBAT_TEST or profile == LOADOUT_BOMB_STRIKE) else "AAMissile"
 	if profile == LOADOUT_CAP:
+		preferred_type = "Autocannon"
+	elif profile == LOADOUT_GUN_ONLY:
 		preferred_type = "Autocannon"
 	elif profile == LOADOUT_ROCKET_STRIKE:
 		preferred_type = "Rocket Pod"
@@ -3492,16 +3645,63 @@ func _select_hangar_launch_index() -> int:
 	## aircraft, so index 0 is correct for them.
 	if stored_aircraft.is_empty():
 		return -1
-	# An AI flight scramble is in progress when there's a pending flight-ops callback target.
-	var ai_combat_launch: bool = _pending_flight_ops != null and not _retrieval_ai_land_after_launch
-	if ai_combat_launch:
+	# An AI operations launch is in progress when there's a pending callback target.
+	# Select by capability so utility helicopters cannot be scrambled as fighters,
+	# while helicopter missions can explicitly retrieve one from the same hangar.
+	var ai_ops_launch: bool = _pending_flight_ops != null and not _retrieval_ai_land_after_launch
+	if ai_ops_launch:
 		for i in range(stored_aircraft.size()):
-			var nm := str((stored_aircraft[i] as Dictionary).get("name", ""))
-			if not nm.begins_with("Aircraft_11"):
+			var stored_data := stored_aircraft[i] as Dictionary
+			var is_helicopter := _stored_aircraft_is_helicopter(stored_data)
+			if (_pending_ai_aircraft_kind == "helicopter" and is_helicopter) \
+					or (_pending_ai_aircraft_kind != "helicopter" and not is_helicopter):
+				if not _pending_ai_aircraft_model.is_empty() \
+						and not _stored_aircraft_matches_model(stored_data, _pending_ai_aircraft_model):
+					continue
 				return i
-		# Only helicopters available -> don't launch one as a fighter.
+		# No aircraft of the requested capability is available.
 		return -1
 	return 0
+
+
+func _count_stored_aircraft_for_kind(kind: String, aircraft_model: String = "") -> int:
+	var count := 0
+	for stored_variant in stored_aircraft:
+		if not (stored_variant is Dictionary):
+			continue
+		var is_helicopter := _stored_aircraft_is_helicopter(stored_variant as Dictionary)
+		if not aircraft_model.is_empty() \
+				and not _stored_aircraft_matches_model(stored_variant as Dictionary, aircraft_model):
+			continue
+		if (kind == "helicopter" and is_helicopter) \
+				or (kind != "helicopter" and not is_helicopter):
+			count += 1
+	return count
+
+
+func _stored_aircraft_matches_model(stored_data: Dictionary, aircraft_model: String) -> bool:
+	var needle := aircraft_model.strip_edges().to_lower()
+	if needle.is_empty():
+		return true
+	var stored_name := str(stored_data.get("name", "")).to_lower()
+	var scene_file := str(stored_data.get("scene_file", "")).to_lower()
+	return stored_name.contains(needle) or scene_file.contains(needle)
+
+
+func _stored_aircraft_is_helicopter(stored_data: Dictionary) -> bool:
+	var stored_name := str(stored_data.get("name", "")).to_lower()
+	var scene_file := str(stored_data.get("scene_file", "")).to_lower()
+	var metadata_variant: Variant = stored_data.get("metadata", {})
+	var role := ""
+	if metadata_variant is Dictionary:
+		role = str((metadata_variant as Dictionary).get("aircraft_role", "")).to_lower()
+	return stored_name.begins_with("aircraft_9") \
+			or stored_name.begins_with("aircraft_10") \
+			or stored_name.begins_with("aircraft_11") \
+			or scene_file.contains("aircraft_9.tscn") \
+			or scene_file.contains("aircraft_10.tscn") \
+			or scene_file.contains("aircraft_11.tscn") \
+			or role.contains("helicopter")
 
 func _create_aircraft_at_hangar_level() -> RigidBody3D:
 	"""Create aircraft at hangar level from stored data and template"""
@@ -3573,6 +3773,11 @@ func _create_aircraft_at_hangar_level() -> RigidBody3D:
 	aircraft.scale = aircraft_data.scale
 	if _is_helicopter_aircraft(aircraft):
 		_straighten_retrieved_helicopter_on_deck(aircraft)
+	else:
+		_place_fixed_wing_in_static_suspension_pose(
+			aircraft,
+			_get_elevator_platform_top_global_y(-10.0)
+		)
 
 	# Restore metadata
 	for key in aircraft_data.metadata:
@@ -3651,6 +3856,7 @@ func _follow_elevator_down(aircraft: RigidBody3D):
 	# Get initial positions relative to deck level (not elevator platform)
 	var deck_height = _get_deck_height_y()
 	var initial_aircraft_position = aircraft.global_position
+	var fixed_wing_surface_offset: float = aircraft.global_position.y - deck_height
 	var active_bots: Array[Node3D] = []
 	var active_bot_offsets: Array[Vector3] = []
 	for bot in tractor_bots:
@@ -3680,9 +3886,13 @@ func _follow_elevator_down(aircraft: RigidBody3D):
 	while is_instance_valid(aircraft) and is_instance_valid(elevator) and not _is_elevator_physically_at_bottom():
 		var elevator_top_y = _get_elevator_platform_top_global_y(-10.0)
 
-		# Calculate aircraft position so its lowest gear is 0.2m above elevator platform
-		var target_gear_height = elevator_top_y + target_gear_height_above_elevator
-		var target_aircraft_y = target_gear_height - gear_offset_from_aircraft_center
+		var target_aircraft_y: float
+		if _is_helicopter_aircraft(aircraft):
+			# Legacy helicopter transport clearance.
+			var target_gear_height = elevator_top_y + target_gear_height_above_elevator
+			target_aircraft_y = target_gear_height - gear_offset_from_aircraft_center
+		else:
+			target_aircraft_y = elevator_top_y + fixed_wing_surface_offset
 
 		# Only update Y — carrier delta (LandCarrier._carry_deck_passengers) handles XZ
 		if carrier:
@@ -3851,6 +4061,8 @@ func _follow_elevator_up_for_retrieval(aircraft: RigidBody3D):
 	var carrier := get_parent() as Node3D
 	var aircraft_carrier_local: Vector3 = carrier.to_local(aircraft.global_position) if carrier else aircraft.global_position
 	var aircraft_carrier_local_basis: Basis = carrier.global_transform.basis.inverse() * aircraft.global_transform.basis if carrier else aircraft.global_transform.basis
+	var initial_elevator_top_y: float = _get_elevator_platform_top_global_y(-10.0)
+	var fixed_wing_surface_offset: float = aircraft.global_position.y - initial_elevator_top_y
 
 	# Calculate gear offset from aircraft center using global Y (tilt-safe).
 	# gear_to_body_offset = how far the aircraft body is above its lowest gear.
@@ -3866,9 +4078,13 @@ func _follow_elevator_up_for_retrieval(aircraft: RigidBody3D):
 	while is_instance_valid(aircraft) and is_instance_valid(elevator) and not _is_elevator_physically_at_top():
 		var elevator_top_y = _get_elevator_platform_top_global_y(-10.0)
 
-		# Aircraft body sits gear_to_body_offset above where the gear needs to be.
-		var target_gear_height = elevator_top_y + target_gear_height_above_elevator
-		var target_aircraft_y = target_gear_height + gear_to_body_offset
+		var target_aircraft_y: float
+		if _is_helicopter_aircraft(aircraft):
+			# Aircraft body sits gear_to_body_offset above where the gear needs to be.
+			var target_gear_height = elevator_top_y + target_gear_height_above_elevator
+			target_aircraft_y = target_gear_height + gear_to_body_offset
+		else:
+			target_aircraft_y = elevator_top_y + fixed_wing_surface_offset
 
 		# Only update Y — carrier delta (LandCarrier._carry_deck_passengers) handles XZ
 		if carrier:
@@ -3950,7 +4166,14 @@ func _complete_retrieval_sequence():
 	var gear_colliders = _find_gear_colliders(aircraft)
 	var target_gear_height = deck_height + _aircraft_lift_height  # deck + 0.2m
 
-	if not gear_colliders.is_empty():
+	if not _is_helicopter_aircraft(aircraft) and not gear_colliders.is_empty():
+		# Elevator travel already preserved the static suspension surface offset.
+		# Keep that exact body height during the horizontal catapult transfer.
+		await _move_aircraft_horizontally(
+			aircraft,
+			Vector3(target_position.x, aircraft.global_position.y, target_position.z)
+		)
+	elif not gear_colliders.is_empty():
 		# Find lowest gear collider offset
 		var lowest_gear_local_y = INF
 		for gear in gear_colliders:
@@ -4125,6 +4348,14 @@ func _complete_helicopter_retrieval_sequence(aircraft: RigidBody3D) -> void:
 
 	current_state = DeckState.AIRCRAFT_ON_DECK
 	deck_aircraft = aircraft
+	if _pending_ai_aircraft_kind == "helicopter":
+		_notify_pending_ops_launched(heli_pilot)
+		if _ai_launch_queue <= 0:
+			_pending_flight_ops = null
+			_retrieval_ai_land_after_launch = true
+			_pending_ai_loadout_profile = ""
+			_pending_ai_aircraft_kind = "fixed_wing"
+			_pending_ai_aircraft_model = ""
 	if _heli_test_active:
 		_log_heli_test("helicopter retrieval complete aircraft=%s freeze=%s brake=%s ready=%s transport=%s pos=%s" % [
 			_aircraft_debug_name(aircraft),

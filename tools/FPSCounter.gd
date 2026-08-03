@@ -49,9 +49,20 @@ func _ready() -> void:
 	_hit_assist_label.add_theme_constant_override("shadow_offset_x", 1)
 	_hit_assist_label.add_theme_constant_override("shadow_offset_y", 1)
 	add_child(_hit_assist_label)
-	_open_perf_log()
-	_open_performance_report()
-	_enable_performance_report_profiler()
+	if _performance_logging_requested():
+		_open_perf_log()
+		_open_performance_report()
+		_enable_performance_report_profiler()
+
+
+func _performance_logging_requested() -> bool:
+	if bool(ProjectSettings.get_setting("debug/performance_logging/enabled", false)):
+		return true
+	for argument in OS.get_cmdline_user_args():
+		if argument == "--perf-log":
+			return true
+	var env_value: String = OS.get_environment("PROJECT_FLIGHT_PERF_LOG").strip_edges().to_lower()
+	return env_value in ["1", "true", "yes", "on"]
 
 func _exit_tree() -> void:
 	if _perf_file != null:
@@ -332,7 +343,7 @@ func _write_performance_report_sample() -> void:
 		int(enemy_ops_counts["flight_schedules"]),
 		int(enemy_ops_counts["platoon_schedules"]),
 	])
-	_report_file.store_line("  enemy_visual_budget enabled=%d candidates=%d touched=%d air=%d ground=%d human=%d near=%d mid=%d far=%d culled=%d shadow_nodes=%d shadows_disabled=%d effect_nodes=%d effects_disabled=%d player_only_disabled=%d ai_detail_nodes=%d ai_detail_disabled=%d ai_audio_nodes=%d ai_audio_disabled=%d ai_engine_visual_disabled=%d ai_engine_audio_disabled=%d cache_roots=%d" % [
+	_report_file.store_line("  enemy_visual_budget enabled=%d candidates=%d touched=%d air=%d ground=%d human=%d near=%d mid=%d far=%d culled=%d shadow_nodes=%d shadows_disabled=%d effect_nodes=%d effects_disabled=%d player_only_disabled=%d presentation_aircraft_detached=%d presentation_nodes_detached=%d contact_monitors_disabled=%d ai_detail_nodes=%d ai_detail_disabled=%d ai_audio_nodes=%d ai_audio_disabled=%d ai_engine_visual_disabled=%d ai_engine_audio_disabled=%d cache_roots=%d" % [
 		1 if bool(visual_budget_counts["enabled"]) else 0,
 		int(visual_budget_counts["candidate_count"]),
 		int(visual_budget_counts["units_touched"]),
@@ -348,6 +359,9 @@ func _write_performance_report_sample() -> void:
 		int(visual_budget_counts["effect_nodes"]),
 		int(visual_budget_counts["effects_disabled"]),
 		int(visual_budget_counts["player_only_disabled"]),
+		int(visual_budget_counts["presentation_aircraft_detached"]),
+		int(visual_budget_counts["presentation_nodes_detached"]),
+		int(visual_budget_counts["aircraft_contact_monitors_disabled"]),
 		int(visual_budget_counts["ai_detail_nodes"]),
 		int(visual_budget_counts["ai_detail_disabled"]),
 		int(visual_budget_counts["ai_audio_nodes"]),
@@ -539,6 +553,9 @@ func _collect_enemy_visual_budget_counts() -> Dictionary:
 		"effect_nodes": 0,
 		"effects_disabled": 0,
 		"player_only_disabled": 0,
+		"presentation_aircraft_detached": 0,
+		"presentation_nodes_detached": 0,
+		"aircraft_contact_monitors_disabled": 0,
 		"ai_detail_nodes": 0,
 		"ai_detail_disabled": 0,
 		"ai_audio_nodes": 0,

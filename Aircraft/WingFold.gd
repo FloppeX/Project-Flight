@@ -15,6 +15,7 @@ class_name WingFold
 ## Default is tilted 15 degrees upward from the fore-aft axis so folded wings
 ## point slightly up and back.
 @export var fold_axis: Vector3 = Vector3(0.0, 0.258819, 0.965926)
+@export var stable_poll_interval_s: float = 0.2
 
 var _left_wing:  Node3D
 var _right_wing: Node3D
@@ -24,6 +25,7 @@ var _left_rest_quat: Quaternion
 var _right_rest_quat: Quaternion
 var _left_rest_pos: Vector3
 var _right_rest_pos: Vector3
+var _stable_poll_timer_s: float = 0.0
 
 func _ready() -> void:
 	var body := get_parent().get_node_or_null("Aircraft 2 body") as Node3D
@@ -44,6 +46,12 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	if not _left_wing or not _right_wing:
 		return
+	var stable: bool = _snapped and (_fold_t <= 0.0 or _fold_t >= 1.0)
+	if stable:
+		_stable_poll_timer_s -= delta
+		if _stable_poll_timer_s > 0.0:
+			return
+		_stable_poll_timer_s = maxf(stable_poll_interval_s, 0.02)
 
 	var parent    := get_parent()
 	var braked    := parent.has_meta("parking_brake") and bool(parent.get_meta("parking_brake"))
@@ -58,10 +66,12 @@ func _process(delta: float) -> void:
 			_fold_t = 1.0
 
 	var speed := delta / maxf(fold_duration, 0.01)
+	var previous_fold_t: float = _fold_t
 	_fold_t = move_toward(_fold_t, target, speed)
 
-	var angle := deg_to_rad(fold_angle_deg) * _fold_t
-	_apply_fold_pose(angle)
+	if not is_equal_approx(previous_fold_t, _fold_t) or not stable:
+		var angle := deg_to_rad(fold_angle_deg) * _fold_t
+		_apply_fold_pose(angle)
 
 func _apply_fold_pose(angle: float) -> void:
 	var left_axis := fold_axis.normalized()

@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://tools/operations_contract_smoketest.gd" id="1_ops_smoke"]
+
+[node name="OperationsContractSmoketest" type="Node"]
+script = ExtResource("1_ops_smoke")

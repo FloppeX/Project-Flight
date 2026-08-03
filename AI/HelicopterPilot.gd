@@ -482,7 +482,7 @@ enum MissionPhase {
 @export var control_update_hover_hz: float = 20.0
 @export var control_update_precision_hz: float = 30.0
 @export var control_update_attack_hz: float = 30.0
-@export var control_update_emergency_hz: float = 60.0
+@export var control_update_emergency_hz: float = 30.0
 
 @export_group("Performance Budget")
 @export var budget_noncritical_updates: bool = true
@@ -585,7 +585,7 @@ enum MissionPhase {
 @export var lateral_obstacle_yaw_gain: float = 0.12
 @export var lateral_obstacle_side_push_mps: float = 7.0
 @export var lateral_obstacle_rear_forward_lean: float = 0.18
-@export var lateral_obstacle_forward_speed_scale: float = 0.12
+@export var lateral_obstacle_forward_speed_scale: float = 0.85
 @export var lateral_obstacle_forward_speed_max_penalty: float = 1.0
 @export var heightmap_safe_direction_enabled: bool = true
 @export var heightmap_safe_direction_samples: int = 16
@@ -632,12 +632,21 @@ enum MissionPhase {
 # route/phase/takeover combat system is bypassed entirely.
 @export var atk_enabled: bool = true
 @export var atk_ingress_distance_m: float = 1300.0
+@export var atk_moving_target_ingress_lead_max_s: float = 12.0
+@export var atk_moving_target_ingress_lead_max_m: float = 300.0
+@export var atk_moving_target_velocity_max_mps: float = 30.0
+@export var atk_moving_target_velocity_response_hz: float = 0.5
+@export var atk_moving_target_acceleration_max_mps2: float = 12.0
+@export var atk_moving_target_acceleration_response_hz: float = 1.5
 @export var atk_attack_point_reach_m: float = 140.0
 @export var atk_attack_point_vertical_reach_m: float = 20.0
+@export var atk_moving_target_direct_capture_distance_m: float = 2600.0
+@export var atk_moving_target_direct_capture_alignment_dot: float = 0.45
 @export var atk_target_run_altitude_offset_m: float = 40.0
 @export var atk_target_altitude_tolerance_m: float = 50.0
 @export var atk_high_terrain_score_penalty_per_m: float = 0.5
 @export var atk_breakoff_distance_m: float = 379.038306593895
+@export var atk_gun_breakoff_distance_m: float = 200.0
 # If a rocket pass has not fired at the nominal breakoff, keep the run committed
 # only to this hard floor. This buys a short final solution window without letting
 # the aircraft fly over the target.
@@ -662,8 +671,16 @@ enum MissionPhase {
 # shots by score instead of learning from a large number of no-shot runs.
 @export var atk_fire_gate_extra_deg: float = 3.0
 @export var atk_fire_range_m: float = 807.382278442383
+@export var atk_gun_fire_range_m: float = 600.0
 @export var atk_rocket_volley_interval_s: float = 1.0
-@export_range(1, 4, 1) var atk_max_rocket_volleys_per_run: int = 1
+@export_range(1, 4, 1) var atk_max_rocket_volleys_per_run: int = 4
+@export var atk_same_pass_retarget_enabled: bool = true
+@export_range(0, 3, 1) var atk_max_same_pass_retargets: int = 3
+@export var atk_same_pass_retarget_max_turn_deg: float = 20.0
+@export var atk_same_pass_retarget_corridor_half_width_m: float = 220.0
+@export var atk_same_pass_retarget_max_target_separation_m: float = 450.0
+@export var atk_same_pass_retarget_max_range_m: float = 1200.0
+@export var atk_same_pass_retarget_min_forward_m: float = 25.0
 @export var atk_fire_stable_time_s: float = 0.25
 @export var atk_fire_max_yaw_rate_deg_s: float = 10.0
 @export var atk_fire_max_pitch_rate_deg_s: float = 10.0
@@ -675,6 +692,9 @@ enum MissionPhase {
 @export var atk_aim_yaw_gain: float = 2.2
 @export var atk_aim_yaw_damping: float = 0.9
 @export var atk_aim_yaw_max: float = 0.647095043957233
+@export var atk_gun_aim_yaw_gain: float = 7.0
+@export var atk_gun_pitch_aim_gain: float = 7.0
+@export var atk_gun_pitch_aim_max_input: float = 1.0
 @export var atk_speed_mps: float = 28.0
 @export var combat_scan_interval_s: float = 2.0
 @export var combat_target_scan_range_m: float = 5500.0
@@ -710,6 +730,7 @@ enum MissionPhase {
 # attitude/velocity, phase). Pure logging — no behaviour change.
 @export var combat_report_aim_samples_enabled: bool = false
 @export var combat_report_aim_sample_interval_s: float = 1.0
+@export var combat_report_gun_projectiles_enabled: bool = false
 @export var combat_report_path: String = "user://heli_combat_report.log"
 @export var combat_report_project_mirror_enabled: bool = false
 @export var combat_report_project_mirror_path: String = "res://heli_combat_report.log"
@@ -810,7 +831,7 @@ enum MissionPhase {
 @export var combat_rocket_takeover_min_nose_down_input: float = 0.36
 @export var combat_rocket_takeover_collective_floor: float = 0.64
 @export var combat_rocket_fire_alignment_deg: float = 5.0
-@export var combat_gun_fire_alignment_deg: float = 1.0
+@export var combat_gun_fire_alignment_deg: float = 1.5
 @export var combat_rocket_aim_settle_deg: float = 2.5
 @export var combat_rocket_pitch_aim_settle_deg: float = 2.0
 @export var combat_gun_aim_settle_deg: float = 0.8
@@ -895,6 +916,7 @@ var _roll_cmd: float = 0.0
 var _yaw_cmd: float = 0.0
 var _control_update_accumulator_s: float = 0.0
 var _control_update_last_state: int = -1
+var _control_update_interval_scale: float = 1.0
 var _control_cached_collective_target: float = 0.0
 var _rotor_wash_update_timer_s: float = 0.0
 var _rotor_wash_cached_ground_h: float = NAN
@@ -1031,6 +1053,11 @@ var _atk_weapon: Dictionary = {}
 var _atk_weapon_kind: String = ""
 var _atk_attack_point: Vector3 = Vector3.INF
 var _atk_egress_point: Vector3 = Vector3.INF
+var _atk_desired_run_altitude_m: float = NAN
+var _atk_last_target_position: Vector3 = Vector3.INF
+var _atk_filtered_target_velocity: Vector3 = Vector3.ZERO
+var _atk_filtered_target_acceleration: Vector3 = Vector3.ZERO
+var _atk_target_observation_time_s: float = 0.0
 var _atk_dir: Vector3 = Vector3.ZERO  # attack-line direction (attack_point -> target)
 var _atk_aim_yaw: float = 0.0  # gentle nose-to-target yaw correction during RUN
 var _atk_aim_pitch: float = 0.0  # nose-elevation correction toward aim point during RUN
@@ -1038,7 +1065,9 @@ var _atk_last_aim_dot: float = -1.0  # weapon alignment dot at last fire check
 var _atk_state_started_s: float = 0.0
 var _atk_scan_timer_s: float = 0.0
 var _atk_next_rocket_volley_s: float = 0.0
+var _atk_rocket_assess_until_s: float = 0.0
 var _atk_rocket_volleys_fired: int = 0
+var _atk_same_pass_retargets: int = 0
 var _atk_tuning_trial_id: int = 0
 var _atk_tuning_exit_reason: String = ""
 var _atk_ingress_aligning: bool = false
@@ -1081,6 +1110,7 @@ var _combat_debug_log_s: float = 0.0
 var _combat_task_id: int = -1
 var _combat_job_data: Dictionary = {}
 var _combat_target_nodes_by_id: Dictionary = {}
+var _commanded_attack_target: Node3D = null
 var _combat_route_task_id: int = -1
 var _combat_route_job_data: Dictionary = {}
 var _combat_route_points: Array[Vector3] = []
@@ -1166,6 +1196,10 @@ func apply_origin_shift(offset: Vector3) -> void:
 		_atk_attack_point -= offset
 	if _atk_egress_point != Vector3.INF:
 		_atk_egress_point -= offset
+	if is_finite(_atk_desired_run_altitude_m):
+		_atk_desired_run_altitude_m -= offset.y
+	if _atk_last_target_position != Vector3.INF:
+		_atk_last_target_position -= offset
 	for i in range(_heightmap_path.size()):
 		_heightmap_path[i] -= offset
 	_heightmap_path_goal -= offset
@@ -1224,6 +1258,10 @@ func initialize(aircraft_node: RigidBody3D) -> void:
 	if not is_instance_valid(aircraft):
 		push_error("[HelicopterPilot] Parent aircraft is not valid.")
 		return
+	# Slight deterministic cadence variation prevents a simultaneously launched
+	# helicopter section from refreshing every controller on the same frame.
+	var control_phase: float = float(aircraft.get_instance_id() % 997) / 997.0
+	_control_update_interval_scale = lerpf(0.90, 1.10, control_phase)
 
 	_apply_baked_navigation_profile_for_aircraft()
 	_find_modules()
@@ -1287,6 +1325,7 @@ func deinitialize() -> void:
 	_yaw_cmd = 0.0
 	_control_update_accumulator_s = 0.0
 	_control_update_last_state = -1
+	_control_update_interval_scale = 1.0
 	_control_cached_collective_target = 0.0
 	_rotor_wash_update_timer_s = 0.0
 	_rotor_wash_cached_ground_h = NAN
@@ -1399,6 +1438,33 @@ func clear_target_speed() -> void:
 
 func set_flight_leg(target_position: Vector3, target_speed_mps: float = -1.0) -> void:
 	set_destination(target_position, target_speed_mps)
+
+
+func command_attack_target(target_node: Node3D) -> bool:
+	## Explicit mission-tasking entry point. The attack FSM still owns geometry,
+	## aiming, firing, and egress; this only constrains its target selection.
+	if target_node == null or not is_instance_valid(target_node) or not is_instance_valid(aircraft):
+		return false
+	_commanded_attack_target = target_node
+	combat_enabled = true
+	atk_enabled = true
+	_combat_hunt_mode = false
+	aircraft.set_meta(COMBAT_HUNT_MODE_META, false)
+	_clear_heightmap_path("command_attack_target")
+	_reset_inbound_progress_watchdog()
+	mission_phase = MissionPhase.OUTBOUND
+	_landing_on_carrier = false
+	_carrier_approach_phase = CarrierApproachPhase.NONE
+	_atk_reset("command_attack_target")
+	_sync_aircraft_targeting_module(target_node)
+	set_destination(target_node.global_position, atk_speed_mps)
+	if state == State.IDLE:
+		change_state(State.TAKEOFF)
+	elif state == State.LANDING:
+		change_state(State.LOW_LEVEL_TRANSIT)
+	set_physics_process(true)
+	_debug_event("attack_command", "target=%s" % target_node.name)
+	return true
 
 
 func command_hover(world_position: Variant = null) -> void:
@@ -1709,6 +1775,10 @@ func _physics_process(delta: float) -> void:
 				if gate_dist <= maxf(carrier_approach_gate_radius_m, 5.0):
 					_landing_on_carrier = true
 					change_state(State.LANDING)
+			elif _commanded_attack_target != null and is_instance_valid(_commanded_attack_target):
+				# An explicit attack order is not a terrain-landing destination. The
+				# attack FSM owns arrival, weapon geometry, and egress.
+				pass
 			else:
 				var _land_r: float = maxf(terrain_landing_approach_radius_m, waypoint_accept_radius_m)
 				if _has_destination and _flat_distance(aircraft.global_position, destination) <= _land_r:
@@ -2515,6 +2585,15 @@ func _update_navigation_plan() -> void:
 	# Keep tracking the moving carrier while inbound
 	if _combat_hunt_mode:
 		_update_combat_hunt_destination()
+	elif _commanded_attack_target != null and _atk_state == AtkState.SELECT:
+		if not is_instance_valid(_commanded_attack_target) \
+				or _combat_variant_truthy(_commanded_attack_target.get("is_destroyed")):
+			_commanded_attack_target = null
+		elif not _has_destination \
+				or _flat_distance(destination, _commanded_attack_target.global_position) > 35.0:
+			# The ingress destination is a live track, not the position at order time.
+			# Once in weapon range the attack FSM takes over with its own lead point.
+			set_destination(_commanded_attack_target.global_position, atk_speed_mps)
 	elif mission_phase == MissionPhase.INBOUND and not _is_navigation_shuttle():
 		_update_carrier_destination()
 
@@ -5672,7 +5751,7 @@ func _get_control_update_interval_s() -> float:
 		hz = maxf(hz, control_update_emergency_hz)
 	if hz <= 0.0:
 		return 0.0
-	return 1.0 / hz
+	return _control_update_interval_scale / hz
 
 
 func _apply_cached_control_outputs() -> void:
@@ -6105,15 +6184,11 @@ func _fly_transit_vector(target: Vector3, desired_speed: float, delta: float) ->
 		if safe_forward < 0.65:
 			var unsafe_forward_t: float = clampf((0.65 - safe_forward) / 1.65, 0.0, 1.0)
 			forward_lean *= 1.0 - unsafe_forward_t * safe_strength * maxf(heightmap_safe_direction_forward_speed_scale, 0.0)
-	# Forward obstacle: only slow down if the path is asymmetrically blocked.
-	# If both sides have similar risk it's a corridor — let them fly through.
-	# Slow down only when one side is significantly more blocked than the other,
-	# or when the forward feeler sees something and the sides are clear.
+	# A hit across the forward fan is a wall, not a corridor. The old symmetric-risk
+	# discount retained nearly all forward pitch when every feeler saw the ridge.
 	if _feeler_forward_speed_penalty > 0.0:
-		var side_balance := absf(_net_left_risk - _net_right_risk)
-		var corridor_t := 1.0 - clampf(side_balance / maxf(_feeler_forward_speed_penalty, 0.001), 0.0, 1.0)
 		var effective_penalty := minf(
-			_feeler_forward_speed_penalty * (1.0 - corridor_t * 0.85),
+			_feeler_forward_speed_penalty,
 			maxf(lateral_obstacle_forward_speed_max_penalty, 0.0)
 		)
 		forward_lean *= 1.0 - effective_penalty * maxf(lateral_obstacle_forward_speed_scale, 0.0)
@@ -7623,16 +7698,26 @@ func _update_atk(delta: float, fallback_speed_mps: float) -> bool:
 	if state != State.LOW_LEVEL_TRANSIT:
 		return false
 
-	# Drop the target if it died or vanished (any state except SELECT).
+	# A destroyed target need not end a committed firing pass. If another hostile
+	# vehicle is already ahead in the same narrow corridor, transfer the sight to it
+	# without rebuilding the whole ingress. This is a tactical continuation of the
+	# ground-attack order, not an unrestricted opportunistic target switch.
 	if _atk_state != AtkState.SELECT and not _atk_target_valid():
-		_atk_tuning_exit_reason = "target_lost"
-		_atk_set_state(AtkState.EGRESS) if _atk_state == AtkState.RUN else _atk_reset("target_lost")
+		if _atk_state == AtkState.RUN and is_instance_valid(_atk_target) \
+				and _atk_rocket_burst_in_progress():
+			# Keep the fixed pod aligned until its already-commanded burst is complete.
+			pass
+		elif _atk_state == AtkState.RUN and _atk_try_retarget_current_pass():
+			pass
+		else:
+			_atk_tuning_exit_reason = "target_lost"
+			_atk_set_state(AtkState.EGRESS) if _atk_state == AtkState.RUN else _atk_reset("target_lost")
 
 	match _atk_state:
 		AtkState.SELECT:
 			return _atk_select(delta)
 		AtkState.INGRESS:
-			return _atk_ingress(fallback_speed_mps)
+			return _atk_ingress(delta, fallback_speed_mps)
 		AtkState.RUN:
 			return _atk_run(delta, fallback_speed_mps)
 		AtkState.EGRESS:
@@ -7645,6 +7730,130 @@ func _atk_target_valid() -> bool:
 		return false
 	if _combat_variant_truthy(_atk_target.get("is_destroyed")):
 		return false
+	return true
+
+
+func _atk_try_retarget_current_pass() -> bool:
+	if not atk_same_pass_retarget_enabled \
+			or _atk_same_pass_retargets >= maxi(atk_max_same_pass_retargets, 0) \
+			or not is_instance_valid(aircraft):
+		return false
+	# Never slew a burst that is already walking out of the pod. Finish launching
+	# those unguided rockets down the established sightline before changing targets.
+	if _atk_rocket_burst_in_progress():
+		return false
+
+	var flight_direction := Vector3(
+		aircraft.linear_velocity.x,
+		0.0,
+		aircraft.linear_velocity.z
+	)
+	if flight_direction.length_squared() <= 1.0:
+		flight_direction = Vector3(
+			aircraft.global_transform.basis.z.x,
+			0.0,
+			aircraft.global_transform.basis.z.z
+		)
+	if flight_direction.length_squared() <= 0.001:
+		return false
+	flight_direction = flight_direction.normalized()
+	var flight_right := Vector3(-flight_direction.z, 0.0, flight_direction.x)
+	var old_target := _atk_target
+	var old_target_position := _atk_last_target_position
+	if is_instance_valid(old_target):
+		old_target_position = old_target.global_position
+
+	var best_target: Node3D = null
+	var best_heading_dot := -INF
+	var best_range_m := INF
+	var max_turn_cos := cos(deg_to_rad(clampf(
+		atk_same_pass_retarget_max_turn_deg,
+		0.0,
+		89.0
+	)))
+	var corridor_half_width_m := maxf(atk_same_pass_retarget_corridor_half_width_m, 1.0)
+	var max_separation_m := maxf(atk_same_pass_retarget_max_target_separation_m, 1.0)
+	var max_range_m := maxf(atk_same_pass_retarget_max_range_m, 1.0)
+	var min_forward_m := maxf(atk_same_pass_retarget_min_forward_m, 0.0)
+	var corridor_altitude := _atk_desired_run_altitude_m \
+			if is_finite(_atk_desired_run_altitude_m) else aircraft.global_position.y
+
+	for candidate_variant in _get_uncommanded_combat_target_candidates():
+		var candidate := _combat_node3d_from_variant(candidate_variant)
+		if candidate == null or not is_instance_valid(candidate) or candidate == old_target:
+			continue
+		var candidate_position := candidate.global_position
+		var to_candidate := candidate_position - aircraft.global_position
+		to_candidate.y = 0.0
+		var range_m := to_candidate.length()
+		if range_m <= 1.0 or range_m > max_range_m:
+			continue
+		var along_track_m := to_candidate.dot(flight_direction)
+		var cross_track_m := absf(to_candidate.dot(flight_right))
+		if along_track_m < min_forward_m or cross_track_m > corridor_half_width_m:
+			continue
+		var heading_dot := along_track_m / range_m
+		if heading_dot < max_turn_cos:
+			continue
+		if old_target_position != Vector3.INF:
+			var target_separation := candidate_position - old_target_position
+			target_separation.y = 0.0
+			if target_separation.length() > max_separation_m:
+				continue
+		var corridor_start := Vector3(
+			aircraft.global_position.x,
+			corridor_altitude,
+			aircraft.global_position.z
+		)
+		var corridor_end := Vector3(
+			candidate_position.x,
+			corridor_altitude,
+			candidate_position.z
+		)
+		if not _atk_segment_clear(corridor_start, corridor_end):
+			continue
+		if heading_dot > best_heading_dot \
+				or (is_equal_approx(heading_dot, best_heading_dot) and range_m < best_range_m):
+			best_target = candidate
+			best_heading_dot = heading_dot
+			best_range_m = range_m
+
+	if best_target == null:
+		return false
+
+	var old_target_name: String = String(old_target.name) if is_instance_valid(old_target) else "unknown"
+	_atk_log_fire_gate_summary("same_pass_retarget")
+	_atk_finish_tuning_trial("same_pass_retarget")
+	_release_combat_hunt_target_claim()
+	_atk_target = best_target
+	_commanded_attack_target = best_target
+	_sync_aircraft_targeting_module(best_target)
+	_claim_combat_hunt_target(best_target)
+	_atk_last_target_position = best_target.global_position
+	_atk_filtered_target_velocity = Vector3.ZERO
+	_atk_filtered_target_acceleration = Vector3.ZERO
+	_atk_target_observation_time_s = 0.0
+	_atk_run_best_distance_m = best_range_m
+	_atk_run_away_time_s = 0.0
+	_atk_fire_stable_s = 0.0
+	_atk_rocket_assess_until_s = 0.0
+	_atk_same_pass_retargets += 1
+	_atk_begin_tuning_trial()
+	var next_egress := _atk_choose_low_egress_point(
+		best_target.global_position,
+		flight_direction,
+		corridor_altitude
+	)
+	if next_egress != Vector3.INF:
+		_atk_egress_point = next_egress
+	_atk_dir = flight_direction
+	_log_combat_debug("atk", "same_pass_retarget from=%s to=%s range=%.0f heading_dot=%.3f count=%d" % [
+		old_target_name,
+		best_target.name,
+		best_range_m,
+		best_heading_dot,
+		_atk_same_pass_retargets,
+	], true)
 	return true
 
 
@@ -7728,6 +7937,12 @@ func _on_tuned_rocket_impact(impact_position: Vector3, trial_id: int, target_var
 	])
 
 
+func _on_combat_gun_projectile_report(report: Dictionary) -> void:
+	if not combat_report_enabled or not combat_report_gun_projectiles_enabled:
+		return
+	_write_combat_report_event("GUN_PROJECTILE", _format_combat_report_dictionary(report), "")
+
+
 func _atk_set_state(new_state: int) -> void:
 	_atk_state = new_state
 	_atk_state_started_s = _elapsed_s()
@@ -7736,7 +7951,9 @@ func _atk_set_state(new_state: int) -> void:
 				if is_instance_valid(_atk_target) else INF
 		_atk_run_away_time_s = 0.0
 		_atk_fire_stable_s = 0.0
+		_atk_rocket_assess_until_s = 0.0
 		_atk_rocket_volleys_fired = 0
+		_atk_same_pass_retargets = 0
 		_atk_gate_checks = 0
 		_atk_gate_range_passes = 0
 		_atk_gate_stable_passes = 0
@@ -7765,11 +7982,18 @@ func _atk_reset(reason: String) -> void:
 	_atk_weapon_kind = ""
 	_atk_attack_point = Vector3.INF
 	_atk_egress_point = Vector3.INF
+	_atk_desired_run_altitude_m = NAN
+	_atk_last_target_position = Vector3.INF
+	_atk_filtered_target_velocity = Vector3.ZERO
+	_atk_filtered_target_acceleration = Vector3.ZERO
+	_atk_target_observation_time_s = 0.0
 	_atk_dir = Vector3.ZERO
 	_atk_aim_yaw = 0.0
 	_atk_aim_pitch = 0.0
 	_atk_next_rocket_volley_s = 0.0
+	_atk_rocket_assess_until_s = 0.0
 	_atk_rocket_volleys_fired = 0
+	_atk_same_pass_retargets = 0
 	_atk_tuning_exit_reason = ""
 	_atk_ingress_aligning = false
 	_atk_run_best_distance_m = INF
@@ -7821,9 +8045,21 @@ func _atk_select(delta: float) -> bool:
 			best_target = t
 	if best_target == null:
 		return false
+	# Aircraft_10 doctrine: expend rockets first against both stationary and moving
+	# vehicles. The rocket sight uses observed motion; guns become the natural
+	# fallback once no ready rocket pod remains.
 	var weapon: Dictionary = weapon_options[0] as Dictionary
+	for option_variant in weapon_options:
+		if option_variant is Dictionary \
+				and String((option_variant as Dictionary).get("kind", "")) == COMBAT_WEAPON_ROCKET:
+			weapon = option_variant as Dictionary
+			break
 
 	_atk_target = best_target
+	_atk_last_target_position = best_target.global_position
+	_atk_filtered_target_velocity = Vector3.ZERO
+	_atk_filtered_target_acceleration = Vector3.ZERO
+	_atk_target_observation_time_s = 0.0
 	_sync_aircraft_targeting_module(best_target)
 	_claim_combat_hunt_target(best_target)
 	_atk_weapon = weapon
@@ -7837,6 +8073,7 @@ func _atk_select(delta: float) -> bool:
 
 	_atk_attack_point = points["attack_point"]
 	_atk_egress_point = points["egress_point"]
+	_atk_desired_run_altitude_m = _atk_attack_point.y
 	_atk_dir = points["dir"]
 	set_destination(_atk_attack_point, atk_speed_mps)
 	_atk_set_state(AtkState.INGRESS)
@@ -7989,13 +8226,64 @@ func _atk_target_lead_point(target_pos: Vector3, current_pos: Vector3) -> Vector
 	return target_pos + lead_dir * maxf(atk_target_lead_distance_m, 0.0)
 
 
-func _atk_ingress(fallback_speed_mps: float) -> bool:
+func _atk_update_target_motion_observation(delta: float) -> void:
+	# Infer motion strictly from successive observed positions. Combat prediction
+	# must not consult the target's waypoint list or intended destination.
+	if _atk_target == null or not is_instance_valid(_atk_target):
+		return
+	var safe_delta := maxf(delta, 0.0001)
+	var observed_position := _atk_target.global_position
+	if _atk_last_target_position == Vector3.INF:
+		_atk_last_target_position = observed_position
+		_atk_filtered_target_velocity = Vector3.ZERO
+		_atk_filtered_target_acceleration = Vector3.ZERO
+		_atk_target_observation_time_s = 0.0
+		return
+	var observed_velocity := (observed_position - _atk_last_target_position) / safe_delta
+	var velocity_limit := maxf(atk_moving_target_velocity_max_mps, 0.0)
+	if velocity_limit > 0.0 and observed_velocity.length() > velocity_limit:
+		observed_velocity = observed_velocity.normalized() * velocity_limit
+	var previous_velocity := _atk_filtered_target_velocity
+	if _atk_target_observation_time_s <= 0.0:
+		# The first displacement is already a better observation than a ramp from
+		# zero, and avoids manufacturing a large false acceleration at acquisition.
+		_atk_filtered_target_velocity = observed_velocity
+	else:
+		var velocity_filter_t := 1.0 - exp(
+			-safe_delta * TAU * maxf(atk_moving_target_velocity_response_hz, 0.01)
+		)
+		_atk_filtered_target_velocity = previous_velocity.lerp(
+			observed_velocity,
+			clampf(velocity_filter_t, 0.0, 1.0)
+		)
+	if _atk_target_observation_time_s > 0.1:
+		var observed_acceleration := (_atk_filtered_target_velocity - previous_velocity) / safe_delta
+		var acceleration_limit := maxf(atk_moving_target_acceleration_max_mps2, 0.0)
+		if acceleration_limit > 0.0 and observed_acceleration.length() > acceleration_limit:
+			observed_acceleration = observed_acceleration.normalized() * acceleration_limit
+		var acceleration_filter_t := 1.0 - exp(
+			-safe_delta * TAU * maxf(atk_moving_target_acceleration_response_hz, 0.01)
+		)
+		_atk_filtered_target_acceleration = _atk_filtered_target_acceleration.lerp(
+			observed_acceleration,
+			clampf(acceleration_filter_t, 0.0, 1.0)
+		)
+	_atk_last_target_position = observed_position
+	_atk_target_observation_time_s += safe_delta
+
+
+func _atk_ingress(delta: float, fallback_speed_mps: float) -> bool:
 	# Fly normally to the attack point. Once nearby, keep steering down the firing
 	# line until the velocity is actually target-bound. Treat crossing the entry
 	# plane as arrival too: a helicopter at attack speed cannot reliably hit a small
 	# point-radius and altitude-radius gate on the same physics frame.
 	var current := aircraft.global_position
 	var target_pos := _atk_target.global_position
+	# Keep the selected ingress point fixed while closing. A moving vehicle must not
+	# drag this terrain-planned waypoint around every frame: that invalidates the
+	# route faster than the low-level planner can safely replace it. Once within
+	# direct-capture range we hand off to the live sightline below.
+	_atk_update_target_motion_observation(delta)
 	if not _atk_ingress_aligning:
 		set_destination(_atk_attack_point, atk_speed_mps)
 		var reach_radius := maxf(atk_attack_point_reach_m, 1.0)
@@ -8011,17 +8299,50 @@ func _atk_ingress(fallback_speed_mps: float) -> bool:
 			target_pos,
 			reach_radius
 		) and absf(current.y - _atk_attack_point.y) <= vertical_reach * 2.0
-		if close_enough or crossed_entry:
+		# A moving target can pass well inside the original setup point. At that range,
+		# begin a live lineup regardless of the helicopter's present heading. The
+		# stricter movement/nose/terrain gates below still decide when RUN may start.
+		var to_live_target := Vector3(
+			target_pos.x - current.x,
+			0.0,
+			target_pos.z - current.z
+		)
+		var desired_capture_altitude := _atk_desired_run_altitude_m \
+				if is_finite(_atk_desired_run_altitude_m) else _atk_attack_point.y
+		var low_corridor_start := Vector3(current.x, desired_capture_altitude, current.z)
+		var low_corridor_end := Vector3(target_pos.x, desired_capture_altitude, target_pos.z)
+		var direct_capture := to_live_target.length_squared() > 1.0 \
+				and to_live_target.length() <= maxf(
+					atk_moving_target_direct_capture_distance_m,
+					maxf(atk_ingress_distance_m, 1.0)
+				) \
+				and _atk_segment_clear(low_corridor_start, low_corridor_end)
+		if close_enough or crossed_entry or direct_capture:
 			_atk_ingress_aligning = true
 			_log_combat_debug("atk", "ingress_lineup reason=%s point_dist=%.0f alt_error=%.0f" % [
-				"crossed" if crossed_entry and not close_enough else "reached",
+				"direct_moving_capture" if direct_capture and not close_enough and not crossed_entry \
+				else "crossed" if crossed_entry and not close_enough else "reached",
 				_flat_distance(current, _atk_attack_point),
 				absf(current.y - _atk_attack_point.y),
 			], true)
 	if _atk_ingress_aligning:
 		var lead := _atk_target_lead_point(target_pos, current)
-		var nav := Vector3(lead.x, _atk_attack_point.y, lead.z)
-		set_destination(nav, atk_speed_mps)
+		# Hold at or above a terrain-cleared live sightline during lineup. This avoids
+		# descending toward a stale target-relative attack altitude while the vehicle
+		# crosses a ridge.
+		var max_line_ground := _atk_max_ground_height_on_segment(current, target_pos)
+		var desired_run_altitude := _atk_desired_run_altitude_m \
+				if is_finite(_atk_desired_run_altitude_m) else _atk_attack_point.y
+		var safe_line_altitude := desired_run_altitude
+		if is_finite(max_line_ground):
+			safe_line_altitude = maxf(
+				safe_line_altitude,
+				max_line_ground + maxf(min_terrain_clearance_m, 1.0) + 15.0
+			)
+		var nav := Vector3(lead.x, safe_line_altitude, lead.z)
+		if not _has_destination or _flat_distance(destination, nav) > 35.0 \
+				or absf(destination.y - nav.y) > 10.0:
+			set_destination(nav, atk_speed_mps)
 		# set_destination updates the route goal, but the route planner may still have
 		# an older carrot waypoint. The firing lineup must steer at the live sightline now.
 		_nav_waypoint = nav
@@ -8038,7 +8359,17 @@ func _atk_ingress(fallback_speed_mps: float) -> bool:
 			var movement_aligned := movement_dir.dot(target_dir) >= clampf(atk_run_alignment_dot, -1.0, 1.0)
 			var nose_aligned := nose_dir.length_squared() > 0.001 \
 					and nose_dir.dot(target_dir) >= cos(deg_to_rad(clampf(atk_run_nose_alignment_deg, 0.0, 89.0)))
-			if movement_aligned and nose_aligned:
+			var direct_run_end := Vector3(target_pos.x, current.y, target_pos.z)
+			var terrain_clear := _atk_segment_clear(current, direct_run_end)
+			if movement_aligned and nose_aligned and terrain_clear:
+				_atk_dir = target_dir
+				var live_egress := _atk_choose_low_egress_point(
+					target_pos,
+					target_dir,
+					safe_line_altitude
+				)
+				if live_egress != Vector3.INF:
+					_atk_egress_point = live_egress
 				_atk_set_state(AtkState.RUN)
 	return false
 
@@ -8046,6 +8377,7 @@ func _atk_ingress(fallback_speed_mps: float) -> bool:
 func _atk_run(delta: float, fallback_speed_mps: float) -> bool:
 	# Fly straight at the target (horizontal), break off on distance/overfly/timeout.
 	var target_pos := _atk_target.global_position
+	_atk_update_target_motion_observation(delta)
 	var current := aircraft.global_position
 	var target_dist := _flat_distance(current, target_pos)
 
@@ -8058,7 +8390,7 @@ func _atk_run(delta: float, fallback_speed_mps: float) -> bool:
 			and horiz_vel.normalized().dot(to_target.normalized()) < -0.1
 	# Do not call an initial turn-away a completed pass. It only counts after the
 	# aircraft has entered firing range and then opened a meaningful distance gap.
-	var passed_firing_opportunity := _atk_run_best_distance_m <= maxf(atk_fire_range_m, 1.0) \
+	var passed_firing_opportunity := _atk_run_best_distance_m <= _atk_effective_fire_range_m() \
 			and target_dist >= _atk_run_best_distance_m + maxf(atk_run_away_distance_margin_m, 0.0)
 	if moving_away and passed_firing_opportunity:
 		_atk_run_away_time_s += delta
@@ -8075,13 +8407,31 @@ func _atk_run(delta: float, fallback_speed_mps: float) -> bool:
 			nominal_breakoff_m,
 			maxf(atk_no_shot_hard_breakoff_distance_m, 1.0)
 		)
+	elif _atk_weapon_kind == COMBAT_WEAPON_GUN:
+		# A body-mounted helicopter gun needs a little more close-in time to settle
+		# than a CCIP-gated rocket. The same hard floor remains well outside the
+		# target while materially shrinking angular miss distance.
+		effective_breakoff_m = minf(
+			nominal_breakoff_m,
+			maxf(atk_gun_breakoff_distance_m, 1.0)
+		)
 	var reached_breakoff := target_dist <= effective_breakoff_m
 
 	# Keep the destination beyond the target to suppress arrival braking, but place it
 	# on the live aircraft-to-target sightline. Navigation and weapon aim therefore
-	# cannot request opposite left/right turns.
+	# cannot request opposite left/right turns. Re-evaluate the terrain floor as the
+	# ridge falls behind so the helicopter can descend into its normal weapon geometry.
 	var lead := _atk_target_lead_point(target_pos, current)
-	var nav := Vector3(lead.x, _atk_attack_point.y, lead.z)
+	var desired_run_altitude := _atk_desired_run_altitude_m \
+			if is_finite(_atk_desired_run_altitude_m) else _atk_attack_point.y
+	var run_altitude := desired_run_altitude
+	var run_max_ground := _atk_max_ground_height_on_segment(current, target_pos)
+	if is_finite(run_max_ground):
+		run_altitude = maxf(
+			run_altitude,
+			run_max_ground + maxf(min_terrain_clearance_m, 1.0) + 15.0
+		)
+	var nav := Vector3(lead.x, run_altitude, lead.z)
 	set_destination(nav, atk_speed_mps)
 	_nav_waypoint = nav
 
@@ -8100,8 +8450,10 @@ func _atk_run(delta: float, fallback_speed_mps: float) -> bool:
 	fwd.y = 0.0
 	if to_aim_horizontal.length_squared() > 1.0 and fwd.length_squared() > 0.001:
 		var bearing_err := fwd.normalized().signed_angle_to(to_aim_horizontal.normalized(), Vector3.UP)
+		var effective_yaw_gain := atk_gun_aim_yaw_gain \
+				if _atk_weapon_kind == COMBAT_WEAPON_GUN else atk_aim_yaw_gain
 		_atk_aim_yaw = clampf(
-			bearing_err * maxf(atk_aim_yaw_gain, 0.0) - aircraft.angular_velocity.y * maxf(atk_aim_yaw_damping, 0.0),
+			bearing_err * maxf(effective_yaw_gain, 0.0) - aircraft.angular_velocity.y * maxf(atk_aim_yaw_damping, 0.0),
 			-maxf(atk_aim_yaw_max, 0.0),
 			maxf(atk_aim_yaw_max, 0.0)
 		)
@@ -8121,10 +8473,14 @@ func _atk_run(delta: float, fallback_speed_mps: float) -> bool:
 		# = nose up (speed_pitch = -forward_lean). So to raise the nose toward a
 		# higher aim point (pitch_err > 0) we add a POSITIVE input.
 		var pitch_rate := aircraft.angular_velocity.dot(aircraft.global_transform.basis.x)
+		var effective_pitch_gain := atk_gun_pitch_aim_gain \
+				if _atk_weapon_kind == COMBAT_WEAPON_GUN else atk_pitch_aim_gain
+		var effective_pitch_limit := atk_gun_pitch_aim_max_input \
+				if _atk_weapon_kind == COMBAT_WEAPON_GUN else atk_pitch_aim_max_input
 		_atk_aim_pitch = clampf(
-			pitch_err * maxf(atk_pitch_aim_gain, 0.0) - pitch_rate * maxf(atk_pitch_aim_damping, 0.0),
-			-maxf(atk_pitch_aim_max_input, 0.0),
-			maxf(atk_pitch_aim_max_input, 0.0)
+			pitch_err * maxf(effective_pitch_gain, 0.0) - pitch_rate * maxf(atk_pitch_aim_damping, 0.0),
+			-maxf(effective_pitch_limit, 0.0),
+			maxf(effective_pitch_limit, 0.0)
 		)
 
 	# Require a short quiet period before release. A permissive angular cone gets us
@@ -8146,11 +8502,25 @@ func _atk_run(delta: float, fallback_speed_mps: float) -> bool:
 	_atk_aim_and_fire(target_dist)
 	_atk_tuner_call("record_sample", [_atk_tuning_trial_id, target_dist, _atk_last_aim_dot])
 	if _atk_weapon_kind == COMBAT_WEAPON_ROCKET \
-			and _atk_rocket_volleys_fired >= maxi(atk_max_rocket_volleys_per_run, 1):
+			and _atk_rocket_volleys_fired >= maxi(atk_max_rocket_volleys_per_run, 1) \
+			and not _atk_rocket_burst_in_progress():
 		_atk_tuning_exit_reason = "volley_complete"
 		_atk_log_fire_gate_summary(_atk_tuning_exit_reason)
 		set_destination(_atk_egress_point, atk_speed_mps)
 		_atk_set_state(AtkState.EGRESS)
+		return false
+	# RocketPod.fire() starts a timed six-rocket burst. Keep the nose and flight path
+	# committed until all six have left the rail; turning immediately after rocket
+	# one sends the remaining five away from the computed solution.
+	if _atk_weapon_kind == COMBAT_WEAPON_ROCKET and _atk_rocket_burst_in_progress():
+		return false
+	# Damage is observed only when the rockets arrive. Hold the established line for
+	# that bounded flight-time window so a kill can flow directly into the same-pass
+	# corridor retarget instead of being discovered after egress has already begun.
+	if _atk_weapon_kind == COMBAT_WEAPON_ROCKET \
+			and _atk_rocket_volleys_fired > 0 \
+			and _elapsed_s() < _atk_rocket_assess_until_s \
+			and target_dist > maxf(atk_no_shot_hard_breakoff_distance_m, 1.0):
 		return false
 
 	# Try every firing gate before ending the final frame of the opportunity. An
@@ -8186,7 +8556,35 @@ func _atk_run(delta: float, fallback_speed_mps: float) -> bool:
 
 
 func _atk_effective_fire_cone_deg() -> float:
-	return clampf(atk_fire_cone_deg + maxf(atk_fire_gate_extra_deg, 0.0), 0.1, 45.0)
+	var cone_deg := clampf(atk_fire_cone_deg + maxf(atk_fire_gate_extra_deg, 0.0), 0.1, 45.0)
+	# The broad ATK cone is useful for rockets because CCIP supplies the precise
+	# impact gate. Guns have no second-stage gate: even a few degrees of error is
+	# tens of metres at normal firing range, so honor the dedicated gun alignment
+	# limit here as the final release authority.
+	if _atk_weapon_kind == COMBAT_WEAPON_GUN:
+		cone_deg = minf(cone_deg, maxf(combat_gun_fire_alignment_deg, 0.1))
+	return cone_deg
+
+
+func _atk_effective_fire_range_m() -> float:
+	var fire_range_m := maxf(atk_fire_range_m, 1.0)
+	if _atk_weapon_kind == COMBAT_WEAPON_GUN:
+		# Constant-velocity lead becomes increasingly fragile against a ground
+		# vehicle that is steering through a bend. Keep cannon shots close enough
+		# that route prediction and body alignment can produce useful accuracy.
+		fire_range_m = minf(fire_range_m, maxf(atk_gun_fire_range_m, 1.0))
+	return fire_range_m
+
+
+func _atk_rocket_burst_in_progress() -> bool:
+	if _atk_weapon_kind != COMBAT_WEAPON_ROCKET:
+		return false
+	for hp in _get_combat_hardpoints_from_weapon(_atk_weapon, false):
+		if hp.weapon_instance != null \
+				and hp.weapon_instance.has_method("is_burst_in_progress") \
+				and bool(hp.weapon_instance.call("is_burst_in_progress")):
+			return true
+	return false
 
 
 func _atk_aim_and_fire(target_dist: float) -> void:
@@ -8208,7 +8606,7 @@ func _atk_aim_and_fire(target_dist: float) -> void:
 	var fire_cone_cos := cos(deg_to_rad(_atk_effective_fire_cone_deg()))
 	var is_rocket_volley := _atk_weapon_kind == COMBAT_WEAPON_ROCKET
 	_atk_gate_checks += 1
-	if target_dist > maxf(atk_fire_range_m, 1.0):
+	if target_dist > _atk_effective_fire_range_m():
 		_atk_gate_last_hold = "range"
 		return
 	_atk_gate_range_passes += 1
@@ -8236,6 +8634,9 @@ func _atk_aim_and_fire(target_dist: float) -> void:
 	if is_rocket_volley and _elapsed_s() < _atk_next_rocket_volley_s:
 		_atk_gate_last_hold = "volley_cooldown"
 		return
+	if is_rocket_volley and _elapsed_s() < _atk_rocket_assess_until_s:
+		_atk_gate_last_hold = "rocket_assess"
+		return
 	# Within cone and range — fire every ready hardpoint on this weapon.
 	var fired := false
 	for hp in _get_combat_hardpoints_from_weapon(_atk_weapon, true):
@@ -8247,10 +8648,25 @@ func _atk_aim_and_fire(target_dist: float) -> void:
 				_atk_tuning_trial_id,
 				_atk_target
 			)
+		elif _atk_weapon_kind == COMBAT_WEAPON_GUN \
+				and combat_report_gun_projectiles_enabled \
+				and hp.weapon_instance != null \
+				and hp.weapon_instance.has_method("set_tuning_context"):
+			hp.weapon_instance.call("set_tuning_context",
+				Callable(),
+				Callable(self, "_on_combat_gun_projectile_report"),
+				0,
+				_atk_target
+			)
 		if hp.fire():
 			fired = true
 			var assess_delay_s := _estimate_combat_rocket_assess_time(hp, _atk_target, target_dist) \
 					if is_rocket_volley else maxf(combat_gun_shot_assess_time_s, 0.05)
+			if is_rocket_volley:
+				_atk_rocket_assess_until_s = maxf(
+					_atk_rocket_assess_until_s,
+					_elapsed_s() + assess_delay_s
+				)
 			_queue_combat_shot_report(_atk_weapon_kind, hp, _atk_target, target_dist,
 				assess_delay_s, {}, aim_dot)
 			if is_rocket_volley:
@@ -9695,6 +10111,8 @@ func _get_combat_predicted_aim_point(target: Node3D, hardpoint: Hardpoint) -> Ve
 		weapon_kind = _atk_weapon_kind
 	var muzzle_speed := _get_combat_weapon_muzzle_speed(hardpoint)
 	var target_velocity := _get_node_velocity(target)
+	if target == _atk_target and _atk_target_observation_time_s > 0.0:
+		target_velocity = _atk_filtered_target_velocity
 	if weapon_kind == COMBAT_WEAPON_ROCKET:
 		target_pos.y -= maxf(combat_rocket_aim_lower_bias_m, 0.0)
 		# Pure CCIP feedback: the impact sim already models the full rocket arc
@@ -9718,10 +10136,60 @@ func _get_combat_predicted_aim_point(target: Node3D, hardpoint: Hardpoint) -> Ve
 			rocket_speed,
 			clampf(combat_rocket_drop_compensation, 0.0, 2.0)
 		)
+	if weapon_kind == COMBAT_WEAPON_GUN:
+		# Gun projectiles are gravity-affected rigid bodies and inherit the firing
+		# platform's point velocity. Use the same physical assumptions here; a flat
+		# distance/velocity lead otherwise puts sustained 500-800 m bursts into the
+		# terrain below a correctly tracked ground vehicle.
+		var launch_velocity := _get_combat_launch_point_velocity(hardpoint.global_position)
+		var relative_pos := target_pos - hardpoint.global_position
+		var intercept_time := _solve_combat_intercept_time_no_gravity(
+			relative_pos,
+			target_velocity - launch_velocity,
+			maxf(muzzle_speed, 1.0)
+		)
+		if intercept_time <= 0.0:
+			intercept_time = relative_pos.length() / maxf(muzzle_speed, 1.0)
+		intercept_time = clampf(intercept_time, 0.05, 6.0)
+		var observed_target := _predict_combat_observed_target_position(
+			target,
+			target_pos,
+			target_velocity,
+			intercept_time
+		)
+		# Feed the ballistic solver an equivalent velocity that reaches the
+		# observed-motion point. This preserves its gravity/platform-motion
+		# solution while anticipating a turn without reading navigation intent.
+		var predicted_velocity := (observed_target - target_pos) / intercept_time
+		return _predict_combat_ballistic_aim_point(
+			hardpoint.global_position,
+			launch_velocity,
+			target_pos,
+			predicted_velocity,
+			muzzle_speed,
+			1.0
+		)
 	var distance := hardpoint.global_position.distance_to(target_pos)
 	var impact_time := clampf(distance / maxf(muzzle_speed, 1.0), 0.0, 8.0)
 	target_pos += target_velocity * impact_time
 	return target_pos
+
+
+func _predict_combat_observed_target_position(
+		target: Node3D,
+		live_aim_position: Vector3,
+		target_velocity: Vector3,
+		lookahead_s: float
+) -> Vector3:
+	var prediction_s := maxf(lookahead_s, 0.0)
+	if prediction_s <= 0.0:
+		return live_aim_position
+	var observed_acceleration := Vector3.ZERO
+	if target == _atk_target and _atk_target_observation_time_s > 0.2:
+		observed_acceleration = _atk_filtered_target_acceleration
+	return live_aim_position \
+			+ target_velocity * prediction_s \
+			+ 0.5 * observed_acceleration * prediction_s * prediction_s
 
 
 func _get_combat_rocket_ccip_feedback_aim_point(
@@ -9742,8 +10210,14 @@ func _get_combat_rocket_ccip_feedback_aim_point(
 		return Vector3.INF
 	var impact_pos: Vector3 = impact_variant
 	var time_to_impact: float = maxf(float(ccip_solution.get("time_to_impact", 0.0)), 0.0)
-	# Where the target will be when the rocket arrives (lead for a moving target).
-	var target_reference: Vector3 = target_pos + target_velocity * time_to_impact
+	# Where the target will be when the rocket arrives. This uses only successive
+	# observed positions (filtered velocity/acceleration), never its route or orders.
+	var target_reference: Vector3 = _predict_combat_observed_target_position(
+		target,
+		target_pos,
+		target_velocity,
+		time_to_impact
+	)
 	# Residual miss of the current arc. Shifting the aim point by this amount moves
 	# the nose just enough that the simulated impact lands on the target; as the arc
 	# converges, the residual -> 0 and the pipper settles on the target.
@@ -9790,8 +10264,15 @@ func _get_combat_rocket_ccip_miss_m(target: Node3D, ccip_solution: Dictionary) -
 	var target_pos: Vector3 = target.global_position + Vector3.UP * aim_height
 	target_pos.y -= maxf(combat_rocket_aim_lower_bias_m, 0.0)
 	var target_velocity: Vector3 = _get_node_velocity(target)
+	if target == _atk_target and _atk_target_observation_time_s > 0.0:
+		target_velocity = _atk_filtered_target_velocity
 	var time_to_impact: float = maxf(float(ccip_solution.get("time_to_impact", 0.0)), 0.0)
-	target_pos += target_velocity * time_to_impact
+	target_pos = _predict_combat_observed_target_position(
+		target,
+		target_pos,
+		target_velocity,
+		time_to_impact
+	)
 	return Vector2(target_pos.x - impact_pos.x, target_pos.z - impact_pos.z).length()
 
 
@@ -10484,6 +10965,22 @@ func _write_combat_attack_run_no_shot_report(reason: String) -> void:
 
 
 func _get_combat_target_candidates() -> Array:
+	if _commanded_attack_target != null:
+		if not is_instance_valid(_commanded_attack_target) \
+				or _combat_variant_truthy(_commanded_attack_target.get("is_destroyed")):
+			_commanded_attack_target = null
+		elif _is_valid_commanded_combat_target(_commanded_attack_target):
+			return [_commanded_attack_target]
+		else:
+			# Retain the assigned role while transiting into scan range; do not attack
+			# an unrelated opportunistic contact en route.
+			return []
+	return _get_uncommanded_combat_target_candidates()
+
+
+func _get_uncommanded_combat_target_candidates() -> Array:
+	# Used by autonomous selection and by the tightly constrained same-pass retarget.
+	# The latter applies its own forward-corridor gates before accepting anything.
 	var out: Array = []
 	var seen: Dictionary = {}
 	var target_groups: Array = ["dummy_turrets"] if _combat_hunt_mode else [
@@ -10502,6 +10999,21 @@ func _get_combat_target_candidates() -> Array:
 			if _is_valid_combat_target(node):
 				out.append(node)
 	return out
+
+
+func _is_valid_commanded_combat_target(target: Node3D) -> bool:
+	## AirOps has supplied a positive track, so range is not a selection gate. The
+	## attack FSM still computes live moving-target geometry and weapon constraints.
+	if target == null or target == aircraft:
+		return false
+	if target.is_in_group("aircraft") or target.is_in_group("ai_aircraft") or target.is_in_group("carrier"):
+		return false
+	if _combat_variant_truthy(target.get("is_destroyed")):
+		return false
+	var my_team := 1
+	if aircraft.has_method("get_team"):
+		my_team = int(aircraft.call("get_team"))
+	return not target.has_method("get_team") or int(target.call("get_team")) != my_team
 
 
 func _is_valid_combat_target(target: Node3D) -> bool:

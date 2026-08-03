@@ -20,12 +20,12 @@ const PAGE_CARRIER := "carrier"
 const PAGE_REPLICATOR := "replicator"
 
 const NAV_ITEMS: Array[Dictionary] = [
-	{"id": PAGE_TACTICAL, "label": "TACTICAL", "width": 96.0},
-	{"id": PAGE_AIR_WING, "label": "AIR WING", "width": 96.0},
-	{"id": PAGE_PERSONNEL, "label": "PERSONNEL", "width": 104.0},
-	{"id": PAGE_GROUND_BAY, "label": "GROUND", "width": 88.0},
-	{"id": PAGE_CARRIER, "label": "CARRIER", "width": 92.0},
-	{"id": PAGE_REPLICATOR, "label": "REPLICATOR", "width": 112.0},
+	{"id": PAGE_TACTICAL, "label": "TACTICAL"},
+	{"id": PAGE_AIR_WING, "label": "AIR WING"},
+	{"id": PAGE_PERSONNEL, "label": "PERSONNEL"},
+	{"id": PAGE_GROUND_BAY, "label": "GROUND"},
+	{"id": PAGE_CARRIER, "label": "CARRIER"},
+	{"id": PAGE_REPLICATOR, "label": "REPLICATOR"},
 ]
 
 const PAGE_DESCRIPTIONS := {
@@ -41,6 +41,9 @@ const BORDER_COLOR := Color(0.24, 0.92, 0.42, 0.92)
 const AMBER_COLOR := Color(1.0, 0.78, 0.28, 1.0)
 const DIM_COLOR := Color(0.38, 0.54, 0.42, 0.9)
 const PANEL_BG := Color(0.02, 0.05, 0.03, 0.98)
+const NAV_LEFT_RESERVE_PX := 430.0
+const NAV_RIGHT_MARGIN_PX := 34.0
+const NAV_MIN_TAB_WIDTH_PX := 88.0
 
 var _root: Control
 var _nav_panel: Panel
@@ -150,17 +153,12 @@ func _build_navigation() -> void:
 	_nav_panel.add_theme_stylebox_override("panel", _make_style(PANEL_BG, BORDER_COLOR, 1))
 	_root.add_child(_nav_panel)
 
-	var x := 4.0
 	for item: Dictionary in NAV_ITEMS:
 		var page_id := str(item.get("id", ""))
-		var width := float(item.get("width", 96.0))
 		var button := _make_nav_button(str(item.get("label", page_id)).to_upper())
-		button.position = Vector2(x, 4.0)
-		button.size = Vector2(width, 32.0)
 		button.pressed.connect(_on_nav_pressed.bind(page_id))
 		_nav_panel.add_child(button)
 		_nav_buttons[page_id] = button
-		x += width + 2.0
 
 
 func _build_placeholder() -> void:
@@ -198,9 +196,15 @@ func _layout_ui() -> void:
 	if _root == null:
 		return
 	var viewport_size := _root.size
-	var nav_width := _navigation_width()
-	_nav_panel.position = Vector2(maxf(viewport_size.x - nav_width - 34.0, 8.0), 34.0)
+	var nav_left := minf(NAV_LEFT_RESERVE_PX, maxf(viewport_size.x * 0.34, 8.0))
+	var nav_width := viewport_size.x - nav_left - NAV_RIGHT_MARGIN_PX
+	var minimum_nav_width := NAV_MIN_TAB_WIDTH_PX * float(NAV_ITEMS.size()) + 8.0
+	if nav_width < minimum_nav_width:
+		nav_width = maxf(viewport_size.x - 16.0, 1.0)
+		nav_left = 8.0
+	_nav_panel.position = Vector2(nav_left, 34.0)
 	_nav_panel.size = Vector2(nav_width, 40.0)
+	_layout_navigation_tabs(nav_width)
 
 	_placeholder_panel.position = Vector2(24.0, 24.0)
 	_placeholder_panel.size = Vector2(
@@ -260,7 +264,11 @@ func _refresh_navigation() -> void:
 		var active := _is_open and page_id == _current_page
 		button.add_theme_stylebox_override(
 			"normal",
-			_make_style(Color(0.08, 0.22, 0.09, 0.98) if active else Color(0.01, 0.04, 0.02, 0.9), AMBER_COLOR if active else Color(0.12, 0.35, 0.16, 0.8), 1)
+			_make_tab_style(
+				Color(0.08, 0.22, 0.09, 0.98) if active else Color(0.01, 0.04, 0.02, 0.9),
+				AMBER_COLOR if active else Color(0.12, 0.35, 0.16, 0.8),
+				active
+			)
 		)
 		button.add_theme_color_override("font_color", AMBER_COLOR if active else TEXT_COLOR)
 
@@ -274,10 +282,29 @@ func _make_nav_button(label_text: String) -> Button:
 	button.add_theme_color_override("font_color", TEXT_COLOR)
 	button.add_theme_color_override("font_hover_color", AMBER_COLOR)
 	button.add_theme_color_override("font_pressed_color", STATUS_COLOR)
-	button.add_theme_stylebox_override("normal", _make_style(Color(0.01, 0.04, 0.02, 0.9), Color(0.12, 0.35, 0.16, 0.8), 1))
-	button.add_theme_stylebox_override("hover", _make_style(Color(0.05, 0.16, 0.07, 0.98), BORDER_COLOR, 1))
-	button.add_theme_stylebox_override("pressed", _make_style(Color(0.08, 0.22, 0.09, 0.98), AMBER_COLOR, 1))
+	button.add_theme_stylebox_override("normal", _make_tab_style(Color(0.01, 0.04, 0.02, 0.9), Color(0.12, 0.35, 0.16, 0.8), false))
+	button.add_theme_stylebox_override("hover", _make_tab_style(Color(0.05, 0.16, 0.07, 0.98), BORDER_COLOR, false))
+	button.add_theme_stylebox_override("pressed", _make_tab_style(Color(0.08, 0.22, 0.09, 0.98), AMBER_COLOR, true))
 	return button
+
+
+func _layout_navigation_tabs(nav_width: float) -> void:
+	if NAV_ITEMS.is_empty():
+		return
+	var inner_width := maxf(nav_width - 8.0, 1.0)
+	var gap := 2.0
+	var tab_width := maxf(
+		(inner_width - gap * float(NAV_ITEMS.size() - 1)) / float(NAV_ITEMS.size()),
+		1.0
+	)
+	var x := 4.0
+	for item: Dictionary in NAV_ITEMS:
+		var button := _nav_buttons.get(str(item.get("id", ""))) as Button
+		if button == null:
+			continue
+		button.position = Vector2(x, 4.0)
+		button.size = Vector2(tab_width, 34.0)
+		x += tab_width + gap
 
 
 func _make_label(text: String, font_size: int, color: Color, align: HorizontalAlignment = HORIZONTAL_ALIGNMENT_LEFT) -> Label:
@@ -303,11 +330,18 @@ func _make_style(background: Color, border: Color, border_width: int) -> StyleBo
 	return style
 
 
-func _navigation_width() -> float:
-	var width := 8.0
-	for item: Dictionary in NAV_ITEMS:
-		width += float(item.get("width", 96.0)) + 2.0
-	return width
+func _make_tab_style(background: Color, border: Color, selected: bool) -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = background
+	style.border_color = border
+	style.set_border_width_all(1)
+	if selected:
+		style.border_width_bottom = 0
+	style.corner_radius_top_left = 5
+	style.corner_radius_top_right = 5
+	style.corner_radius_bottom_left = 0
+	style.corner_radius_bottom_right = 0
+	return style
 
 
 func _is_valid_page(page_id: String) -> bool:

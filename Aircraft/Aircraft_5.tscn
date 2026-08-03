@@ -39,7 +39,6 @@
 [ext_resource type="Script" uid="uid://b308dhuj4e8a" path="res://Aircraft/WingFold5.gd" id="37_wf5"]
 [ext_resource type="AudioStream" uid="uid://o2xkkc5oyh4w" path="res://Audio/cockpit_interior_4.wav" id="38_cpit"]
 [ext_resource type="PackedScene" uid="uid://ba1hsntx8a01y" path="res://Aircraft/CockpitPilot.tscn" id="90_cpilot"]
-[ext_resource type="PackedScene" uid="uid://cwh4cxdgqbvdd" path="res://Models/Aircraft_5/aircraft_5_exploded.glb" id="91_exploded"]
 [ext_resource type="PackedScene" path="res://Aircraft/Visuals/EjectionSeat.tscn" id="92_ejection_seat"]
 [ext_resource type="Script" uid="uid://baexawx30vqgf" path="res://Aircraft/EjectionSequence.gd" id="93_ejection_sequence"]
 
@@ -75,7 +74,6 @@ wreck_scene = ExtResource("3_x73up")
 wreck_base_impulse = 100.0
 wreck_random_spread = 1.0
 wreck_extra_spin = 15.0
-exploded_model_scene = ExtResource("91_exploded")
 
 [node name="aircraft_5" parent="." unique_id=173885334 instance=ExtResource("3_kq7no")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.123306, 0.707575)
@@ -168,9 +166,11 @@ gear_stowed_rotations_degrees = Array[Vector3]([Vector3(90, 0, 0), Vector3(90, 9
 InitialState = 1
 DeploySound = ExtResource("16_biq0k")
 StowSound = ExtResource("17_1st6a")
-spring_strength = 12000.0
-wheel_rest_height = 0.5
+spring_strength = 30000.0
+wheel_rest_height = 0.3
+wheel_rest_heights = Array[float]([0.2, 0.3, 0.3])
 max_compression = 0.4
+move_colliders_with_suspension = true
 
 [node name="ControlEngine" parent="." unique_id=1866200711 instance=ExtResource("18_gjrvb")]
 

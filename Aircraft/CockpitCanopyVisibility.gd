@@ -8,6 +8,7 @@ class_name CockpitCanopyVisibility
 @export var material_scan_root_paths: Array[NodePath] = []
 @export var hidden_material_names: PackedStringArray = PackedStringArray(["glass"])
 @export var cockpit_shadow_disable_paths: Array[NodePath] = []
+@export var warn_on_missing_configuration: bool = false
 
 var _cockpit_camera: Camera3D
 var _canopy_nodes: Array[Node3D] = []
@@ -48,7 +49,7 @@ func _ready() -> void:
 			})
 	if _cockpit_camera == null:
 		push_warning("[CockpitCanopyVisibility] Cockpit camera not found")
-	if _canopy_nodes.is_empty() and _canopy_surfaces.is_empty() and _shadow_nodes.is_empty():
+	if warn_on_missing_configuration and _canopy_nodes.is_empty() and _canopy_surfaces.is_empty() and _shadow_nodes.is_empty():
 		push_warning("[CockpitCanopyVisibility] No canopy nodes, surfaces, or shadow nodes found")
 	_update_canopy_visibility()
 

@@ -34,6 +34,10 @@ signal destroyed
 @export var bleed_damage_min_per_s: float = 10.0
 @export var bleed_damage_max_per_s: float = 20.0
 @export var explosion_health_threshold: float = -100.0
+# Procedural chunks are the default destruction representation. The legacy
+# exploded-model path remains available only as an explicit rollback option;
+# normal aircraft scenes no longer load or assign those GLBs.
+@export var legacy_exploded_model_breakup_enabled: bool = false
 @export var exploded_model_scene: PackedScene = null
 @export var critical_debris_chunk_min_count: int = 6
 @export var critical_debris_chunk_max_count: int = 10
@@ -41,6 +45,8 @@ signal destroyed
 @export var critical_debris_chunk_max_size_m: float = 2.0
 @export var critical_debris_chunk_impulse_min_mps: float = 20.0
 @export var critical_debris_chunk_impulse_max_mps: float = 70.0
+@export var staged_critical_debris_enabled: bool = true
+@export_range(0.0, 0.6, 0.01) var critical_debris_spread_duration_s: float = 0.28
 @export var prevent_below_terrain: bool = true 
 @export var ground_clearance: float = 0.25
 @export var ground_probe_up: float = 50.0
@@ -95,7 +101,7 @@ const EARTH_GRAVITY = 9.8 # for g-force calculation
 const DEFAULT_COCKPIT_PILOT_SCENE: PackedScene = preload("res://Aircraft/CockpitPilot.tscn")
 const DEFAULT_COCKPIT_PILOT_POSE_SCRIPT: Script = preload("res://Aircraft/PilotPose.gd")
 const COCKPIT_PILOT_NODE_NAME: StringName = &"CockpitPilot"
-const AIRCRAFT_DEBRIS_CHUNK_SCRIPT: Script = preload("res://Aircraft/AircraftDebrisChunk.gd")
+const AIRCRAFT_DEBRIS_BURST_SCRIPT: Script = preload("res://Aircraft/AircraftDebrisBurst.gd")
 const TERRAIN_SAFETY_SAMPLE_DIRECTIONS := [
 	Vector2(1.0, 0.0),
 	Vector2(-1.0, 0.0),
@@ -549,9 +555,11 @@ func _evaluate_terrain_impact():
 	var vertical_speed_down: float = -linear_velocity.dot(Vector3.UP)
 	var ground_normal: Vector3 = _evaluate_terrain_impact_normal()
 	var up_dot: float = ground_normal.dot(Vector3.UP)
-	# Belly alignment: aircraft belly faces -up (down vector)
-	var belly_normal: Vector3 = -global_transform.basis.y
-	var align_dot: float = clamp(belly_normal.normalized().dot(ground_normal), -1.0, 1.0)
+	# Ground and aircraft-up normals point the same way for an upright belly
+	# contact. Comparing the downward belly normal with the upward ground normal
+	# made every upright contact read as 180 degrees misaligned.
+	var aircraft_up: Vector3 = global_transform.basis.y
+	var align_dot: float = clamp(aircraft_up.normalized().dot(ground_normal), -1.0, 1.0)
 	var align_angle_deg: float = rad_to_deg(acos(align_dot))
 	
 	# Steep slope crash
@@ -911,7 +919,8 @@ func explode():
 	emit_signal("destroyed")
 	_spawn_destruction_explosion()
 	_spawn_critical_damage_chunks()
-	_spawn_exploded_model()
+	if legacy_exploded_model_breakup_enabled:
+		_spawn_exploded_model()
 
 	# Cleanly detach from deck systems
 	if has_meta("arresting_cable"):
@@ -1051,66 +1060,18 @@ func _spawn_critical_damage_chunks() -> void:
 	var max_size: float = maxf(min_size, critical_debris_chunk_max_size_m)
 	var min_impulse: float = maxf(critical_debris_chunk_impulse_min_mps, 0.0)
 	var max_impulse: float = maxf(min_impulse, critical_debris_chunk_impulse_max_mps)
-	var aircraft_velocity: Vector3 = linear_velocity
-	for i in range(chunk_count):
-		var chunk := RigidBody3D.new()
-		chunk.name = "AircraftDebrisChunk_%d" % i
-		chunk.set_script(AIRCRAFT_DEBRIS_CHUNK_SCRIPT)
-		chunk.mass = randf_range(18.0, 60.0)
-		chunk.contact_monitor = true
-		chunk.max_contacts_reported = 4
-		parent_node.add_child(chunk)
-
-		var size := Vector3(
-			randf_range(min_size * 0.7, max_size * 1.15),
-			randf_range(min_size * 0.45, max_size * 0.8),
-			randf_range(min_size * 0.9, max_size * 1.35)
-		)
-		var local_offset := Vector3(
-			randf_range(-2.6, 2.6),
-			randf_range(-0.9, 1.4),
-			randf_range(-3.0, 3.0)
-		)
-		chunk.global_position = global_position + global_transform.basis * local_offset
-		chunk.global_rotation = Vector3(
-			randf_range(-PI, PI),
-			randf_range(-PI, PI),
-			randf_range(-PI, PI)
-		)
-
-		var assets := VehicleWreck.create_angular_chunk_assets(size)
-		var mesh := MeshInstance3D.new()
-		mesh.mesh = assets["mesh"] as ArrayMesh
-		var mat := StandardMaterial3D.new()
-		var shade: float = randf_range(0.10, 0.24)
-		var warmth: float = randf_range(0.0, 0.05)
-		mat.albedo_color = Color(shade + warmth, shade, shade * randf_range(0.9, 1.15))
-		mat.roughness = 0.96
-		mesh.material_override = mat
-		chunk.add_child(mesh)
-
-		var collider := CollisionShape3D.new()
-		collider.shape = assets["shape"] as Shape3D
-		chunk.add_child(collider)
-
-		var outward: Vector3 = (chunk.global_position - global_position).normalized()
-		if outward == Vector3.ZERO:
-			outward = Vector3(
-				randf_range(-1.0, 1.0),
-				randf_range(0.2, 1.0),
-				randf_range(-1.0, 1.0)
-			).normalized()
-		outward.y = maxf(outward.y + randf_range(0.15, 0.65), 0.2)
-		chunk.linear_velocity = aircraft_velocity + outward.normalized() * randf_range(min_impulse, max_impulse)
-		chunk.angular_velocity = Vector3(
-			randf_range(-10.0, 10.0),
-			randf_range(-10.0, 10.0),
-			randf_range(-10.0, 10.0)
-		)
-
-		var fire_trail := FireTrail.new()
-		fire_trail.duration = randf_range(4.0, 7.0)
-		chunk.add_child(fire_trail)
+	AIRCRAFT_DEBRIS_BURST_SCRIPT.call("spawn",
+		parent_node,
+		global_transform,
+		linear_velocity,
+		chunk_count,
+		min_size,
+		max_size,
+		min_impulse,
+		max_impulse,
+		staged_critical_debris_enabled,
+		critical_debris_spread_duration_s
+	)
 
 func activate_deathcam():
 	# Prefer independent deathcam scene

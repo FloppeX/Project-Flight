@@ -3,9 +3,44 @@ class_name VehicleWreck
 
 # Spawns heavier, faceted wreck pieces with simple ballistic breakup.
 
-static func spawn(parent: Node3D, t: Transform3D, inherited_velocity: Vector3 = Vector3.ZERO) -> void:
+const STAGED_STEP_COUNT: int = 7
+
+static func spawn(
+	parent: Node3D,
+	t: Transform3D,
+	inherited_velocity: Vector3 = Vector3.ZERO,
+	staged: bool = true,
+	spread_duration_s: float = 0.28
+) -> void:
+	if not is_instance_valid(parent):
+		return
+	if staged and spread_duration_s > 0.0:
+		var staged_spawner_script := load("res://GroundVehicle/VehicleWreckStagedSpawner.gd") as Script
+		if staged_spawner_script == null:
+			_spawn_body_pieces(parent, t, inherited_velocity)
+			_spawn_tyres(parent, t, inherited_velocity)
+			return
+		var spawner := Node.new()
+		spawner.name = "VehicleWreckStagedSpawner"
+		spawner.set_script(staged_spawner_script)
+		spawner.call("configure", parent, t, inherited_velocity, spread_duration_s)
+		parent.add_child(spawner)
+		return
 	_spawn_body_pieces(parent, t, inherited_velocity)
 	_spawn_tyres(parent, t, inherited_velocity)
+
+static func spawn_staged_step(
+	parent: Node3D,
+	t: Transform3D,
+	inherited_velocity: Vector3,
+	step_index: int
+) -> void:
+	if not is_instance_valid(parent):
+		return
+	if step_index >= 0 and step_index < 6:
+		_spawn_body_pieces(parent, t, inherited_velocity, step_index, 1)
+	elif step_index == 6:
+		_spawn_tyres(parent, t, inherited_velocity)
 
 static func create_angular_chunk_assets(size: Vector3) -> Dictionary:
 	var points: Array[Vector3] = _build_angular_chunk_points(size)
@@ -68,7 +103,13 @@ static func _add_triangle(surface: SurfaceTool, a: Vector3, b: Vector3, c: Vecto
 	surface.set_normal(normal)
 	surface.add_vertex(c)
 
-static func _spawn_body_pieces(parent: Node3D, t: Transform3D, inherited_velocity: Vector3) -> void:
+static func _spawn_body_pieces(
+	parent: Node3D,
+	t: Transform3D,
+	inherited_velocity: Vector3,
+	start_index: int = 0,
+	max_count: int = -1
+) -> void:
 	var shard_specs := [
 		{"size": Vector3(2.6, 1.1, 2.8), "offset": Vector3(0.0, 1.0, 0.5), "mass": 260.0},
 		{"size": Vector3(1.9, 0.9, 2.4), "offset": Vector3(-1.05, 0.65, 1.8), "mass": 180.0},
@@ -78,7 +119,9 @@ static func _spawn_body_pieces(parent: Node3D, t: Transform3D, inherited_velocit
 		{"size": Vector3(1.35, 0.55, 1.8), "offset": Vector3(0.0, 0.45, 2.9), "mass": 110.0},
 	]
 
-	for i in range(shard_specs.size()):
+	var first_index := clampi(start_index, 0, shard_specs.size())
+	var end_index := shard_specs.size() if max_count < 0 else mini(first_index + max_count, shard_specs.size())
+	for i in range(first_index, end_index):
 		var spec: Dictionary = shard_specs[i]
 		var rb := RigidBody3D.new()
 		rb.name = "VehicleWreckShard_%d" % i

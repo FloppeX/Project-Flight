@@ -34,6 +34,7 @@ func _ready():
 
 func deploy():
 	_is_deployed = true
+	set_physics_process(true)
 	if _area:
 		_area.monitoring = true
 		var cs := _area.get_node_or_null("CollisionShape3D") as CollisionShape3D
@@ -46,6 +47,7 @@ func deploy():
 
 func stow():
 	_is_deployed = false
+	set_physics_process(false)
 	if _area:
 		_area.monitoring = false
 		var cs := _area.get_node_or_null("CollisionShape3D") as CollisionShape3D

@@ -2,6 +2,7 @@ extends AircraftModule
 class_name ControlWeapons
 
 @export var hardpoints: Array[Hardpoint] = []
+@export var debug_print: bool = false
 var weapon_types: Array[String] = []  # Available weapon types
 var selected_weapon_type: String = ""
 var selected_weapon_type_index: int = 0
@@ -98,7 +99,7 @@ func fire_selected_weapon_type():
 			if hardpoint.fire():
 				weapons_fired += 1
 	
-	if weapons_fired > 0:
+	if debug_print and weapons_fired > 0:
 		print("Fired ", weapons_fired, " ", selected_weapon_type, " weapons")
 
 func fire_automatic_weapons_of_type(weapon_type: String):

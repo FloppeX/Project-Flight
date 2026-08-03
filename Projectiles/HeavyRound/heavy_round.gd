@@ -12,6 +12,8 @@ class_name HeavyRound
 @export var explosion_debris_count: int = 10
 @export var explosion_knockback_impulse_at_center: float = 900.0
 @export var explosion_knockback_impulse_at_edge: float = 120.0
+@export_enum("Auto", "Light", "Standard", "Heavy") var explosion_visual_preset: int = Explosion.VisualPreset.AUTO
+@export var explosion_audio_enabled: bool = true
 
 func _ready() -> void:
 	super._ready()
@@ -41,7 +43,9 @@ func _on_body_entered(body: Node) -> void:
 	if damage_target and damage_target.has_method("take_damage"):
 		_report_damage_credit(damage_target, damage)
 		damage_target.take_damage(damage)
-	queue_free()
+	# Heavy/autocannon rounds use the same reusable lifecycle as ordinary bullets.
+	# They previously bypassed BulletPool and allocated a new projectile every shot.
+	_retire_projectile()
 
 func _spawn_custom_explosion(hit_ground: bool, hit_aircraft: bool) -> void:
 	if explosion_scene == null:
@@ -64,6 +68,8 @@ func _spawn_custom_explosion(hit_ground: bool, hit_aircraft: bool) -> void:
 	explosion_node.knockback_impulse_at_center = explosion_knockback_impulse_at_center
 	explosion_node.knockback_impulse_at_edge = explosion_knockback_impulse_at_edge
 	explosion_node.use_line_of_sight = false
+	explosion_node.visual_preset = explosion_visual_preset
+	explosion_node.play_explosion_audio = explosion_audio_enabled
 	if is_instance_valid(shooter):
 		explosion_node.source_attacker = shooter
 	if hit_ground:

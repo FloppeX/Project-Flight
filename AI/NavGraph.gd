@@ -16,7 +16,7 @@ signal graph_ready
 @export var node_spacing_m:    float = 80.0   ## Grid spacing between candidate nodes
 @export var max_edge_length_m: float = 180.0  ## Max edge length (~2.25 × spacing covers diagonals)
 @export var max_slope_m:       float = 18.0   ## Max height change per cell_size step along an edge
-@export var debug_print:       bool  = true
+@export var debug_print:       bool  = false
 
 # ── Graph data (populated by _build or _load) ──────────────────────────────
 

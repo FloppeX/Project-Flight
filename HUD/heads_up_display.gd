@@ -789,6 +789,16 @@ func bind_to_aircraft(new_aircraft: Node3D) -> void:
 	_resolve_bound_cockpit_camera()
 
 
+## Stop the off-screen HUD render target along with its script. Merely hiding the
+## HUD mesh does not stop an UPDATE_ALWAYS SubViewport from drawing every frame.
+func set_view_updates_active(active: bool) -> void:
+	if viewport == null or not is_instance_valid(viewport):
+		return
+	viewport.render_target_update_mode = (
+		SubViewport.UPDATE_ALWAYS if active else SubViewport.UPDATE_DISABLED
+	)
+
+
 func _resolve_bound_cockpit_camera() -> void:
 	if not is_instance_valid(aircraft):
 		return

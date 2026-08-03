@@ -12,6 +12,20 @@ const EXPERIENCED_XP: int = 1200
 const VETERAN_XP: int = 3500
 const ELITE_XP: int = 7500
 const ACE_AIR_KILLS: int = 5
+const PORTRAIT_CATALOG_PATH := "res://Images/Pilot Portraits/pilot_portrait_catalog.csv"
+const PORTRAIT_DIRECTORY := "res://Images/Pilot Portraits/"
+
+const ORIGIN_PORTRAIT_REGIONS := {
+	"Ukraine": "Eastern Europe & Russia",
+	"Brazil": "Latin America & Caribbean",
+	"Philippines": "Southeast Asia",
+	"Lebanon": "Middle East & North Africa",
+	"Scotland": "Britain & Ireland",
+	"French Canada": "North America",
+	"Germany": "Western & Central Europe",
+	"Jordan": "Middle East & North Africa",
+	"Nigeria": "Sub-Saharan Africa",
+}
 
 const PILOT_POOL: Array[Dictionary] = [
 	{
@@ -25,8 +39,8 @@ const PILOT_POOL: Array[Dictionary] = [
 		"voice_prefix": "Ukrainian - ",
 		"skill": "VETERAN",
 		"experience_points": 4200,
-		"air_kills": 3,
-		"ground_kills": 8,
+		"air_kills": 0,
+		"ground_kills": 0,
 		"temperament": "steady",
 	},
 	{
@@ -40,8 +54,8 @@ const PILOT_POOL: Array[Dictionary] = [
 		"voice_prefix": "Brazilian male - ",
 		"skill": "EXPERIENCED",
 		"experience_points": 1800,
-		"air_kills": 1,
-		"ground_kills": 5,
+		"air_kills": 0,
+		"ground_kills": 0,
 		"temperament": "confident",
 	},
 	{
@@ -56,7 +70,7 @@ const PILOT_POOL: Array[Dictionary] = [
 		"skill": "EXPERIENCED",
 		"experience_points": 1500,
 		"air_kills": 0,
-		"ground_kills": 6,
+		"ground_kills": 0,
 		"temperament": "eager",
 	},
 	{
@@ -70,8 +84,8 @@ const PILOT_POOL: Array[Dictionary] = [
 		"voice_prefix": "Arabic female - ",
 		"skill": "VETERAN",
 		"experience_points": 3900,
-		"air_kills": 4,
-		"ground_kills": 4,
+		"air_kills": 0,
+		"ground_kills": 0,
 		"temperament": "aggressive",
 	},
 	{
@@ -85,8 +99,8 @@ const PILOT_POOL: Array[Dictionary] = [
 		"voice_prefix": "Scottish female - ",
 		"skill": "ELITE",
 		"experience_points": 7800,
-		"air_kills": 8,
-		"ground_kills": 12,
+		"air_kills": 0,
+		"ground_kills": 0,
 		"temperament": "cool",
 	},
 	{
@@ -100,8 +114,8 @@ const PILOT_POOL: Array[Dictionary] = [
 		"voice_prefix": "Filipino - ",
 		"skill": "VETERAN",
 		"experience_points": 3600,
-		"air_kills": 2,
-		"ground_kills": 10,
+		"air_kills": 0,
+		"ground_kills": 0,
 		"temperament": "practical",
 	},
 	{
@@ -116,7 +130,7 @@ const PILOT_POOL: Array[Dictionary] = [
 		"skill": "ROOKIE",
 		"experience_points": 650,
 		"air_kills": 0,
-		"ground_kills": 2,
+		"ground_kills": 0,
 		"temperament": "bold",
 	},
 	{
@@ -130,8 +144,8 @@ const PILOT_POOL: Array[Dictionary] = [
 		"voice_prefix": "French Canadian female - ",
 		"skill": "EXPERIENCED",
 		"experience_points": 1900,
-		"air_kills": 1,
-		"ground_kills": 4,
+		"air_kills": 0,
+		"ground_kills": 0,
 		"temperament": "spirited",
 	},
 	{
@@ -145,8 +159,8 @@ const PILOT_POOL: Array[Dictionary] = [
 		"voice_prefix": "German female - ",
 		"skill": "EXPERIENCED",
 		"experience_points": 2300,
-		"air_kills": 1,
-		"ground_kills": 7,
+		"air_kills": 0,
+		"ground_kills": 0,
 		"temperament": "methodical",
 	},
 	{
@@ -160,8 +174,8 @@ const PILOT_POOL: Array[Dictionary] = [
 		"voice_prefix": "Filipino - ",
 		"skill": "VETERAN",
 		"experience_points": 5000,
-		"air_kills": 5,
-		"ground_kills": 9,
+		"air_kills": 0,
+		"ground_kills": 0,
 		"temperament": "decisive",
 	},
 	{
@@ -175,8 +189,8 @@ const PILOT_POOL: Array[Dictionary] = [
 		"voice_prefix": "Scottish female - ",
 		"skill": "EXPERIENCED",
 		"experience_points": 2500,
-		"air_kills": 1,
-		"ground_kills": 8,
+		"air_kills": 0,
+		"ground_kills": 0,
 		"temperament": "dry",
 	},
 	{
@@ -191,7 +205,7 @@ const PILOT_POOL: Array[Dictionary] = [
 		"skill": "ROOKIE",
 		"experience_points": 900,
 		"air_kills": 0,
-		"ground_kills": 3,
+		"ground_kills": 0,
 		"temperament": "careful",
 	},
 	{
@@ -205,8 +219,8 @@ const PILOT_POOL: Array[Dictionary] = [
 		"voice_prefix": "Ukrainian - ",
 		"skill": "VETERAN",
 		"experience_points": 4100,
-		"air_kills": 3,
-		"ground_kills": 11,
+		"air_kills": 0,
+		"ground_kills": 0,
 		"temperament": "intense",
 	},
 	{
@@ -220,8 +234,8 @@ const PILOT_POOL: Array[Dictionary] = [
 		"voice_prefix": "Arabic female - ",
 		"skill": "ELITE",
 		"experience_points": 8200,
-		"air_kills": 9,
-		"ground_kills": 10,
+		"air_kills": 0,
+		"ground_kills": 0,
 		"temperament": "fearless",
 	},
 	{
@@ -235,8 +249,8 @@ const PILOT_POOL: Array[Dictionary] = [
 		"voice_prefix": "German female - ",
 		"skill": "VETERAN",
 		"experience_points": 3300,
-		"air_kills": 2,
-		"ground_kills": 6,
+		"air_kills": 0,
+		"ground_kills": 0,
 		"temperament": "precise",
 	},
 	{
@@ -250,8 +264,8 @@ const PILOT_POOL: Array[Dictionary] = [
 		"voice_prefix": "Brazilian male - ",
 		"skill": "EXPERIENCED",
 		"experience_points": 2100,
-		"air_kills": 1,
-		"ground_kills": 4,
+		"air_kills": 0,
+		"ground_kills": 0,
 		"temperament": "restless",
 	},
 	{
@@ -265,8 +279,8 @@ const PILOT_POOL: Array[Dictionary] = [
 		"voice_prefix": "Nigerian male - ",
 		"skill": "EXPERIENCED",
 		"experience_points": 2400,
-		"air_kills": 2,
-		"ground_kills": 5,
+		"air_kills": 0,
+		"ground_kills": 0,
 		"temperament": "resourceful",
 	},
 	{
@@ -281,7 +295,7 @@ const PILOT_POOL: Array[Dictionary] = [
 		"skill": "EXPERIENCED",
 		"experience_points": 1700,
 		"air_kills": 0,
-		"ground_kills": 5,
+		"ground_kills": 0,
 		"temperament": "sharp",
 	},
 ]
@@ -469,6 +483,125 @@ func _build_pilot_index() -> void:
 		if pilot_id != "":
 			_ensure_pilot_career_fields(pilot)
 			_pilots_by_id[pilot_id] = pilot
+	_assign_pilot_portraits()
+
+func _assign_pilot_portraits() -> void:
+	var catalog := _load_portrait_catalog()
+	if catalog.is_empty():
+		push_warning("PilotRoster: Portrait catalog is empty or unavailable")
+		return
+	var used_filenames: Dictionary = {}
+	for pilot_id in _sorted_pilot_ids():
+		if not _pilots_by_id.has(pilot_id):
+			continue
+		var pilot: Dictionary = _pilots_by_id[pilot_id]
+		var filename := _choose_portrait_filename(pilot, catalog, used_filenames)
+		if filename == "":
+			continue
+		var portrait_path := PORTRAIT_DIRECTORY + filename
+		if not ResourceLoader.exists(portrait_path):
+			push_warning("PilotRoster: Missing portrait texture %s" % portrait_path)
+			continue
+		pilot["portrait_path"] = portrait_path
+		used_filenames[filename] = true
+
+func _load_portrait_catalog() -> Array[Dictionary]:
+	var entries: Array[Dictionary] = []
+	var file := FileAccess.open(PORTRAIT_CATALOG_PATH, FileAccess.READ)
+	if file == null:
+		return entries
+	if not file.eof_reached():
+		file.get_csv_line() # Column names.
+	while not file.eof_reached():
+		var fields := file.get_csv_line()
+		if fields.size() < 4:
+			continue
+		var filename := str(fields[0]).strip_edges()
+		if filename == "":
+			continue
+		entries.append({
+			"filename": filename,
+			"presentation": str(fields[1]).strip_edges().to_lower(),
+			"strong_regions": _split_catalog_regions(str(fields[2])),
+			"additional_regions": _split_catalog_regions(str(fields[3])),
+		})
+	return entries
+
+func _split_catalog_regions(value: String) -> Array[String]:
+	var regions: Array[String] = []
+	for part in value.split(";", false):
+		var region := str(part).strip_edges()
+		if region != "":
+			regions.append(region)
+	return regions
+
+func _choose_portrait_filename(
+	pilot: Dictionary,
+	catalog: Array[Dictionary],
+	used_filenames: Dictionary
+) -> String:
+	var target_presentation := _portrait_presentation_for_gender(str(pilot.get("gender", "")))
+	var target_region := str(ORIGIN_PORTRAIT_REGIONS.get(str(pilot.get("national_origin", "")), ""))
+	var candidates: Array[Dictionary] = []
+	for entry in catalog:
+		var presentation := str(entry.get("presentation", ""))
+		var presentation_score := 0
+		if presentation == target_presentation:
+			presentation_score = 1000
+		elif presentation == "ambiguous/androgynous":
+			presentation_score = 500
+		else:
+			continue
+		var region_score := 0
+		var strong_regions: Array = entry.get("strong_regions", [])
+		var additional_regions: Array = entry.get("additional_regions", [])
+		if target_region != "" and target_region in strong_regions:
+			region_score = 100
+		elif target_region != "" and target_region in additional_regions:
+			region_score = 50
+		candidates.append({
+			"filename": str(entry.get("filename", "")),
+			"score": presentation_score + region_score,
+		})
+	if candidates.is_empty():
+		return ""
+	candidates.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		var a_score := int(a.get("score", 0))
+		var b_score := int(b.get("score", 0))
+		if a_score != b_score:
+			return a_score > b_score
+		return str(a.get("filename", "")) < str(b.get("filename", ""))
+	)
+
+	# Select within each suitability tier using the stable pilot ID hash. This
+	# avoids clustering every roster around the first few catalog images while
+	# keeping portrait identity deterministic between runs.
+	var pilot_id := str(pilot.get("id", ""))
+	var stable_seed := int(pilot_id.hash()) & 0x7fffffff
+	var candidate_index := 0
+	while candidate_index < candidates.size():
+		var tier_score := int(candidates[candidate_index].get("score", 0))
+		var tier_end := candidate_index + 1
+		while tier_end < candidates.size() and int(candidates[tier_end].get("score", 0)) == tier_score:
+			tier_end += 1
+		var tier_size := tier_end - candidate_index
+		var tier_offset := stable_seed % tier_size
+		for offset in range(tier_size):
+			var index := candidate_index + ((tier_offset + offset) % tier_size)
+			var filename := str(candidates[index].get("filename", ""))
+			if filename != "" and not used_filenames.has(filename):
+				return filename
+		candidate_index = tier_end
+	return ""
+
+func _portrait_presentation_for_gender(gender: String) -> String:
+	match gender.strip_edges().to_lower():
+		"male":
+			return "masculine-presenting"
+		"female":
+			return "feminine-presenting"
+		_:
+			return "ambiguous/androgynous"
 
 func _pilot_with_assignment(pilot_id: String) -> Dictionary:
 	if not _pilots_by_id.has(pilot_id):

@@ -52,22 +52,18 @@ func _update_pose(delta: float = -1.0) -> void:
 	var tuck_alpha := clampf(stow_alpha / maxf(stow_tuck_phase, 0.001), 0.0, 1.0)
 	var main_rotation_alpha := clampf((stow_alpha - stow_tuck_phase) / maxf(1.0 - stow_tuck_phase, 0.001), 0.0, 1.0)
 	var compression := _update_visual_compression(delta, deploy_progress)
-	var compression_alpha := 0.0
-	if max_visual_compression_m > 0.0:
-		compression_alpha = clampf(compression / max_visual_compression_m, 0.0, 1.0)
 	var steering_yaw := _read_steering_yaw()
 	var axis := _compression_axis_normalized()
-	var upper_leg_offset := compression * maxf(upper_leg_compression_visual_scale, 0.0)
-	var lower_leg_offset := compression * maxf(compression_visual_scale, 0.0) + stowed_lower_leg_retraction_m * tuck_alpha
+	var lower_leg_offset := compression + stowed_lower_leg_retraction_m * tuck_alpha
 
 	var hip_rotation := _deg_vec_to_rad(hip_stowed_rotation_degrees) * main_rotation_alpha
 	var upper_leg_counter_rotation := -hip_rotation if counter_rotate_upper_leg_with_hip else Vector3.ZERO
 	_hip_pivot.rotation = _base_hip_rotation + hip_rotation
-	_front_pivot.position = _base_front_position - axis * upper_leg_offset
+	_front_pivot.position = _base_front_position
 	_front_pivot.rotation = _base_front_rotation + upper_leg_counter_rotation + _deg_vec_to_rad(stowed_rotation_degrees) * main_rotation_alpha
 	_lower_leg_slide.position = _base_slide_position + axis * lower_leg_offset
-	_linkage_pivot.rotation = _base_linkage_rotation + Vector3(0.0, steering_yaw, 0.0) + _deg_vec_to_rad(linkage_compression_rotation_degrees) * compression_alpha + _deg_vec_to_rad(linkage_stowed_rotation_degrees) * tuck_alpha
-	_connector_pivot.rotation = _base_connector_rotation + _deg_vec_to_rad(connector_compression_rotation_degrees) * compression_alpha + _deg_vec_to_rad(connector_stowed_rotation_degrees) * tuck_alpha
+	_linkage_pivot.rotation = _base_linkage_rotation + Vector3(0.0, steering_yaw, 0.0) + _deg_vec_to_rad(linkage_stowed_rotation_degrees) * tuck_alpha
+	_connector_pivot.rotation = _base_connector_rotation + _deg_vec_to_rad(connector_stowed_rotation_degrees) * tuck_alpha
 	_wheel_pivot.rotation = _base_wheel_rotation
 
 	visible = deploy_progress > 0.0 or not hide_when_stowed

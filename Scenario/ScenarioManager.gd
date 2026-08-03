@@ -9,11 +9,13 @@ const AIRPLANE_TEST_SCENARIO: int = 3
 const DOGFIGHT_TEST_SCENARIO: int = 4
 const LANDING_TEST_SCENARIO: int = 5
 const CARRIER_COMBAT_TEST_SCENARIO: int = 6
+const GROUND_COMBAT_TEST_SCENARIO: int = 7
 const CARRIER_COMBAT_DEFAULT_PROFILE := "continuous_intercept"
 const AIRPLANE_TEST_MODE_SCRIPT: Script = preload("res://Scenario/AirplaneTestMode.gd")
 const DOGFIGHT_TEST_MODE_SCRIPT: Script = preload("res://Scenario/DogfightTestMode.gd")
 const LANDING_TEST_MODE_SCRIPT: Script = preload("res://Scenario/LandingTestMode.gd")
 const CARRIER_COMBAT_TEST_MODE_SCRIPT: Script = preload("res://Scenario/CarrierCombatTestMode.gd")
+const GROUND_COMBAT_TEST_MODE_SCRIPT: Script = preload("res://Scenario/GroundCombatTestMode.gd")
 
 var restart_timer: Timer
 
@@ -81,6 +83,7 @@ var _airplane_test_mode: Node = null
 var _dogfight_test_mode: Node = null
 var _landing_test_mode: Node = null
 var _carrier_combat_test_mode: Node = null
+var _ground_combat_test_mode: Node = null
 
 func _enter_tree() -> void:
 	_configure_play_area_for_run()
@@ -115,6 +118,10 @@ func _ready():
 		spawn_wind_turbines_on_startup = false
 		_wind_turbines_spawned = true
 		_start_carrier_combat_test_mode()
+	elif _is_ground_combat_test_requested():
+		spawn_wind_turbines_on_startup = false
+		_wind_turbines_spawned = true
+		_start_ground_combat_test_mode()
 	# Find any player aircraft (Aircraft_1, Aircraft_3, Aircraft_5, etc.)
 	var aircraft: Node = null
 	for child in get_children():
@@ -252,10 +259,11 @@ func _configure_play_area_for_run() -> void:
 	var airplane_test_requested: bool = test_scenario == AIRPLANE_TEST_SCENARIO
 	var landing_test_requested: bool = test_scenario == LANDING_TEST_SCENARIO
 	var carrier_combat_test_requested: bool = test_scenario == CARRIER_COMBAT_TEST_SCENARIO
+	var ground_combat_test_requested: bool = test_scenario == GROUND_COMBAT_TEST_SCENARIO
 	if navigation_test_requested or airplane_test_requested:
 		center.x = navigation_test_fixed_play_area_xz.x
 		center.z = navigation_test_fixed_play_area_xz.y
-	elif carrier_combat_test_requested or landing_test_requested:
+	elif carrier_combat_test_requested or ground_combat_test_requested or landing_test_requested:
 		center.x = carrier_combat_test_fixed_play_area_xz.x
 		center.z = carrier_combat_test_fixed_play_area_xz.y
 	elif randomize_play_area_each_run:
@@ -280,6 +288,8 @@ func _configure_play_area_for_run() -> void:
 		print("[ScenarioManager] Airplane test fixed play area center set to ", center)
 	elif carrier_combat_test_requested:
 		print("[ScenarioManager] Carrier combat test fixed play area center set to ", center)
+	elif ground_combat_test_requested:
+		print("[ScenarioManager] Ground combat test fixed play area center set to ", center)
 
 
 func _is_navigation_test_requested() -> bool:
@@ -300,6 +310,10 @@ func _is_landing_test_requested() -> bool:
 
 func _is_carrier_combat_test_requested() -> bool:
 	return _get_requested_test_scenario() == CARRIER_COMBAT_TEST_SCENARIO
+
+
+func _is_ground_combat_test_requested() -> bool:
+	return _get_requested_test_scenario() == GROUND_COMBAT_TEST_SCENARIO
 
 
 func _get_requested_test_scenario() -> int:
@@ -410,6 +424,21 @@ func _start_carrier_combat_test_mode() -> void:
 		mode.call("set_test_profile", _get_requested_carrier_combat_profile())
 	if mode.has_method("set_isolated_ground_weapon_focus"):
 		mode.call("set_isolated_ground_weapon_focus", _get_requested_carrier_combat_weapon_focus())
+	add_child(mode)
+	if mode.has_method("configure"):
+		mode.call("configure", _scenario_play_area_center)
+
+
+func _start_ground_combat_test_mode() -> void:
+	if _ground_combat_test_mode != null and is_instance_valid(_ground_combat_test_mode):
+		return
+	_disable_loading_screen_for_airplane_test()
+	var mode := Node3D.new()
+	mode.set_script(GROUND_COMBAT_TEST_MODE_SCRIPT)
+	if mode == null:
+		push_error("[ScenarioManager] Could not create ground combat test mode")
+		return
+	_ground_combat_test_mode = mode
 	add_child(mode)
 	if mode.has_method("configure"):
 		mode.call("configure", _scenario_play_area_center)

@@ -17,6 +17,8 @@ signal destroyed(vehicle)
 @export var turret_weapon: PackedScene
 @export var aim_skill: float = 0.75
 @export var explosion_scene: PackedScene
+@export var staged_wreck_breakup_enabled: bool = true
+@export_range(0.0, 0.6, 0.01) var wreck_breakup_spread_duration_s: float = 0.28
 
 var turret_controller: TurretController
 var current_health: float
@@ -101,5 +103,11 @@ func explode() -> void:
 		var exp = explosion_res.instantiate()
 		get_parent().add_child(exp)
 		exp.global_position = global_position
-	VehicleWreck.spawn(get_parent(), global_transform, linear_velocity)
+	VehicleWreck.spawn(
+		get_parent(),
+		global_transform,
+		linear_velocity,
+		staged_wreck_breakup_enabled,
+		wreck_breakup_spread_duration_s
+	)
 	queue_free()

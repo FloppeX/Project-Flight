@@ -92,6 +92,8 @@ func _destroy() -> void:
 	if is_destroyed:
 		return
 	is_destroyed = true
+	if team != 1 and not bool(get_meta("suppress_enemy_ops_on_destroy", false)):
+		EnemyOpsManager.report_asset_loss(global_position, "gun emplacement")
 	destroyed.emit(self)
 
 	if destroyed_scene_path != "":

@@ -199,23 +199,36 @@ func _spawn_bullet(spawn_transform: Transform3D, firing_entity: Node3D) -> void:
 	if not bullet_scene:
 		return
 
-	var bullet = bullet_scene.instantiate()
 	last_fired_projectile = null
 
 	var root = get_tree().current_scene
 	if not root:
 		push_warning("BulletWeapon: No current scene found.")
 		return
+	var pool: Node = get_node_or_null("/root/BulletPool")
+	var projectile_transform := Transform3D(spawn_transform.basis.orthonormalized(), spawn_transform.origin)
+	var bullet: Node = pool.call("acquire", bullet_scene, root, projectile_transform) as Node if pool else null
+	if bullet == null:
+		bullet = bullet_scene.instantiate()
+		if bullet:
+			bullet.transform = projectile_transform
+			root.add_child(bullet)
+	if bullet == null:
+		push_warning("BulletWeapon: Could not acquire or instantiate a projectile.")
+		return
 
-	bullet.transform = spawn_transform
+	# Muzzle/barrel nodes may be visually stretched along their local Z axis.
+	# Passing that scaled basis to a RigidBody3D also scales its collision shape,
+	# which Jolt rejects and reports for every round. Preserve orientation and
+	# position, but never inherit visual muzzle scale into projectile physics.
 	_configure_projectile_instance(bullet)
-	root.add_child(bullet)
 	last_fired_projectile = bullet
 	bullet.global_position += bullet.global_transform.basis.z * 2.5
 
 	# Propagate optional debug metadata from turret controller before bullet.fire()
 	# runs, so projectile-side debug setup can pick up the assigned target/callback.
-	var debug_target_variant: Variant = get_meta(DEBUG_TARGET_META_KEY, null)
+	var debug_target_variant: Variant = get_meta(DEBUG_TARGET_META_KEY) \
+		if has_meta(DEBUG_TARGET_META_KEY) else null
 	if typeof(debug_target_variant) == TYPE_OBJECT and debug_target_variant is Node3D and is_instance_valid(debug_target_variant):
 		bullet.set_meta("debug_target_node", debug_target_variant)
 	var debug_callback_variant: Variant = get_meta(DEBUG_REPORT_CALLBACK_META_KEY, Callable())

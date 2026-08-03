@@ -30,7 +30,12 @@ const PERF_OVERRIDE_PATH := "user://land_carrier_perf_override.json"
 @export var settle_steer_deadzone: float = 0.08
 @export var recovery_constraint_default_speed_limit_mps: float = 0.0
 @export var recovery_constraint_log_interval_s: float = 2.0
+@export var debug_motion_constraints: bool = false
 @export var launch_constraint_min_speed_mps: float = 8.0  # keep the deck moving straight (not dead-stopped) while launching
+@export_group("Carrier Command Scheduling")
+@export var multi_rate_drive_commands_enabled: bool = true
+@export_range(0.02, 0.25, 0.01) var drive_command_update_interval_s: float = 0.10
+@export_group("")
 
 # --- Height ---
 @export var height_smoothing: float = 2.5  # height tracking speed (higher = snappier)
@@ -120,6 +125,11 @@ var _last_planar_speed_mps: float = 0.0
 var _current_planar_speed_mps: float = 0.0
 var _current_yaw_rate_rad_s: float = 0.0
 var _recovery_constraint_log_s: float = 0.0
+var _drive_command_timer_s: float = 0.0
+var _drive_command_elapsed_s: float = 0.0
+var _drive_command_interval_scale: float = 1.0
+var _drive_target_speed_mps: float = 0.0
+var _drive_target_yaw_rate_rad_s: float = 0.0
 var _smoothed_desired_y: float = NAN
 var _using_default_cross_map_route: bool = false
 var _default_cross_map_route_completed: bool = false
@@ -149,6 +159,9 @@ const TEAM_ID: int = 1
 func _ready():
 	add_to_group("carrier")
 	add_to_group("origin_shifter")
+	var command_phase: float = float(get_instance_id() % 997) / 997.0
+	_drive_command_interval_scale = lerpf(0.90, 1.10, command_phase)
+	_drive_command_timer_s = maxf(drive_command_update_interval_s, 0.02) * command_phase
 	visible = false
 	_apply_perf_override()
 	_resolve_waypoints()
@@ -247,6 +260,8 @@ func set_heli_test_stationary(active: bool) -> void:
 	_current_yaw_rate_rad_s = 0.0
 	_current_steer = 0.0
 	_tread_steer = 0.0
+	_drive_target_speed_mps = 0.0
+	_drive_target_yaw_rate_rad_s = 0.0
 	velocity = Vector3.ZERO
 	if active:
 		visible = true
@@ -1370,15 +1385,32 @@ func _get_avoidance_steer() -> float:
 	return clampf(steer_sum, -1.0, 1.0)
 
 func _drive_to_waypoint(delta: float) -> void:
+	var safe_delta := maxf(delta, 0.0)
+	_drive_command_elapsed_s += safe_delta
+	_drive_command_timer_s -= safe_delta
+	if not multi_rate_drive_commands_enabled or _drive_command_timer_s <= 0.0:
+		var command_delta := _drive_command_elapsed_s
+		_drive_command_elapsed_s = 0.0
+		_drive_command_timer_s = maxf(drive_command_update_interval_s, 0.02) \
+			* _drive_command_interval_scale
+		var command_profiler_start: int = FrameProfiler.begin("LandCarrier.drive_command")
+		_refresh_drive_command(maxf(command_delta, safe_delta))
+		FrameProfiler.end("LandCarrier.drive_command", command_profiler_start)
+	_apply_drive_motion(safe_delta, _drive_target_speed_mps, _drive_target_yaw_rate_rad_s)
+
+
+func _refresh_drive_command(delta: float) -> void:
 	if _waypoint_positions.is_empty() or _waypoint_index >= _waypoint_positions.size():
 		if _default_cross_map_route_completed:
 			_no_path_timer = 0.0
 			_replan_attempts = 0
 			_current_steer = move_toward(_current_steer, 0.0, steer_response * delta)
-			_apply_drive_motion(delta, 0.0, 0.0)
+			_drive_target_speed_mps = 0.0
+			_drive_target_yaw_rate_rad_s = 0.0
 			return
 		_no_path_timer += delta
-		_apply_drive_motion(delta, 0.0, 0.0)
+		_drive_target_speed_mps = 0.0
+		_drive_target_yaw_rate_rad_s = 0.0
 		if use_waypoint_pathfinding and _no_path_timer > 4.0:
 			_no_path_timer = 0.0
 			_replan_attempts += 1
@@ -1403,7 +1435,8 @@ func _drive_to_waypoint(delta: float) -> void:
 		if _waypoint_index >= _waypoint_positions.size():
 			_advance_waypoint_or_replan()
 		_current_steer = move_toward(_current_steer, 0.0, steer_response * delta)
-		_apply_drive_motion(delta, 0.0, 0.0)
+		_drive_target_speed_mps = 0.0
+		_drive_target_yaw_rate_rad_s = 0.0
 		return
 
 	if wp_dist > _prev_wp_dist:
@@ -1418,6 +1451,8 @@ func _drive_to_waypoint(delta: float) -> void:
 			else:
 				# Replan full path from current position
 				_compute_path_to_destination()
+			_drive_target_speed_mps = 0.0
+			_drive_target_yaw_rate_rad_s = 0.0
 			return
 	else:
 		_stuck_timer = 0.0
@@ -1460,7 +1495,8 @@ func _drive_to_waypoint(delta: float) -> void:
 	var throttle: float = clamp((dot + 1.0) * 0.5, 0.0, 1.0) * turn_speed_factor
 	if turn_angle_deg > turn_in_place_angle_deg:
 		throttle = maxf(throttle, maxf(hard_turn_crawl_speed_mps, 0.0) / maxf(max_speed, 0.01))
-	_apply_drive_motion(delta, throttle * max_speed, target_yaw_rate)
+	_drive_target_speed_mps = throttle * max_speed
+	_drive_target_yaw_rate_rad_s = target_yaw_rate
 
 
 func _apply_drive_motion(delta: float, target_speed_mps: float, target_yaw_rate_rad_s: float) -> void:
@@ -1537,7 +1573,7 @@ func _apply_recovery_motion_constraint(target_speed_mps: float, target_yaw_rate_
 			and bool(deck_manager.call("is_launch_constraint_active"))
 	if launch_constraint:
 		constrained_speed = maxf(constrained_speed, maxf(launch_constraint_min_speed_mps, 0.0))
-	if _recovery_constraint_log_s <= 0.0:
+	if debug_motion_constraints and _recovery_constraint_log_s <= 0.0:
 		_recovery_constraint_log_s = maxf(recovery_constraint_log_interval_s, 0.1)
 		print("[LandCarrier] %s constraint: speed %.1f->%.1f steer->0 yaw->0" % [
 			"launch" if launch_constraint else "recovery",

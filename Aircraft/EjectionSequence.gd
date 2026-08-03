@@ -81,9 +81,9 @@ var _ejection_seat_available: bool = false
 
 func _ready() -> void:
 	_ejection_seat_available = _has_ejection_seat()
+	set_physics_process(false)
 	if not _ejection_seat_available:
 		set_process_input(false)
-		set_physics_process(false)
 		return
 	call_deferred("_connect_aircraft_signals")
 
@@ -144,8 +144,10 @@ func _physics_process(delta: float) -> void:
 	if _pilot_body == null or not is_instance_valid(_pilot_body):
 		_seat_burn_active = false
 		_parachute_deployed = false
+		set_physics_process(false)
 		return
 	if not _seat_burn_active and not _parachute_deployed:
+		set_physics_process(false)
 		return
 	if _seat_burn_active:
 		_update_seat_rocket_burn(delta)
@@ -292,6 +294,7 @@ func _launch_ejection_seat() -> void:
 	_seat_burn_elapsed_s = 0.0
 	_seat_burn_active = seat_burn_duration_s > 0.0
 	_parachute_deployed = false
+	set_physics_process(_seat_burn_active)
 	seat_body.linear_velocity = inherited_velocity + _seat_launch_direction * 8.0
 	_schedule_parachute_deploy()
 
@@ -342,6 +345,7 @@ func _deploy_parachute() -> void:
 	_set_pilot_ejection_pose(pilot, &"parachute", 0.3)
 	_set_head_camera_mount_transform(parachute)
 	_parachute_deployed = true
+	set_physics_process(true)
 
 
 func _separate_seat_from_pilot() -> void:
@@ -871,6 +875,7 @@ func _land_pilot(surface_position: Variant = null) -> void:
 	_pilot_landed = true
 	_parachute_deployed = false
 	_seat_burn_active = false
+	set_physics_process(false)
 	if _pilot_body == null or not is_instance_valid(_pilot_body):
 		return
 

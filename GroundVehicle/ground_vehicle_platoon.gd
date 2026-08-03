@@ -65,6 +65,7 @@ var _cached_ai_darkness_factor: float = 0.0
 var _ai_darkness_cache_at_ms: int = -100000
 var _contact_world_position: Vector3 = Vector3.INF
 var _route_preview_positions: Array[Vector3] = []
+var _route_preview_index: int = 0
 var _route_preview_goal: Vector3 = Vector3.INF
 var _route_preview_origin: Vector3 = Vector3.INF
 var _route_preview_repath_timer_s: float = 0.0
@@ -141,7 +142,8 @@ func get_contact_position() -> Vector3:
 
 func get_active_waypoints() -> Array[Vector3]:
 	var active_waypoints: Array[Vector3] = []
-	for point in _route_preview_positions:
+	for i in range(clampi(_route_preview_index, 0, _route_preview_positions.size()), _route_preview_positions.size()):
+		var point: Vector3 = _route_preview_positions[i]
 		if _is_valid_contact_world_position(point):
 			active_waypoints.append(_project_contact_to_ground(point))
 	if active_waypoints.is_empty():
@@ -381,7 +383,7 @@ func get_destination_for(vehicle: Node3D) -> Vector3:
 		ObjectiveType.ATTACK_NODE:
 			if attack_node and is_instance_valid(attack_node):
 				var attack_slot: Vector3 = _get_slot_position_around(attack_node.global_position, vehicle, attack_slot_radius_m)
-				var defender: Node3D = _find_shared_hostile("attack", attack_node.global_position, attack_radius_m)
+				var defender: Node3D = _find_shared_hostile("attack", attack_node.global_position, attack_radius_m, attack_node)
 				if defender:
 					return attack_slot.lerp(defender.global_position, 0.45)
 				return attack_slot
@@ -439,7 +441,7 @@ func _get_formation_anchor(fallback_destination: Vector3) -> Vector3:
 			return objective_position
 		ObjectiveType.ATTACK_NODE:
 			if attack_node and is_instance_valid(attack_node):
-				var defender: Node3D = _find_shared_hostile("attack", attack_node.global_position, attack_radius_m)
+				var defender: Node3D = _find_shared_hostile("attack", attack_node.global_position, attack_radius_m, attack_node)
 				if defender:
 					return attack_node.global_position.lerp(defender.global_position, 0.35)
 				return attack_node.global_position
@@ -462,21 +464,24 @@ func _get_route_navigation_anchor() -> Vector3:
 	if not _is_valid_contact_world_position(contact_pos):
 		return Vector3.INF
 	var reach_distance: float = maxf(contact_waypoint_reach_distance_m, 2.0)
-	var closest_idx: int = -1
-	var closest_dist: float = INF
-	for i in range(_route_preview_positions.size()):
-		var waypoint := _route_preview_positions[i]
+	_route_preview_index = clampi(_route_preview_index, 0, _route_preview_positions.size())
+	while _route_preview_index < _route_preview_positions.size():
+		var waypoint: Vector3 = _route_preview_positions[_route_preview_index]
 		if not _is_valid_contact_world_position(waypoint):
+			_route_preview_index += 1
 			continue
-		var dist := _flat_distance(contact_pos, waypoint)
-		if dist < closest_dist:
-			closest_dist = dist
-			closest_idx = i
-	if closest_idx >= 0:
-		var anchor_idx := closest_idx
-		if closest_dist <= reach_distance and closest_idx + 1 < _route_preview_positions.size():
-			anchor_idx = closest_idx + 1
-		return _project_contact_to_ground(_route_preview_positions[anchor_idx])
+		var reached: bool = _flat_distance(contact_pos, waypoint) <= reach_distance
+		var previous: Vector3 = _route_preview_origin if _route_preview_index == 0 \
+				else _route_preview_positions[_route_preview_index - 1]
+		var passed: bool = false
+		if _is_valid_contact_world_position(previous):
+			var leg: Vector2 = Vector2(waypoint.x - previous.x, waypoint.z - previous.z)
+			var beyond: Vector2 = Vector2(contact_pos.x - waypoint.x, contact_pos.z - waypoint.z)
+			passed = leg.length_squared() > 1.0 and beyond.dot(leg) >= 0.0
+		if (reached or passed) and _route_preview_index + 1 < _route_preview_positions.size():
+			_route_preview_index += 1
+			continue
+		return _project_contact_to_ground(waypoint)
 	if _is_valid_contact_world_position(_route_preview_goal) and _flat_distance(contact_pos, _route_preview_goal) > reach_distance:
 		return _project_contact_to_ground(_route_preview_goal)
 	return Vector3.INF
@@ -705,6 +710,7 @@ func _update_route_preview(delta: float) -> void:
 func _recompute_route_preview(start_world_pos: Vector3, target_world_pos: Vector3) -> void:
 	if not NavGraph.is_ready():
 		_route_preview_positions = [_project_contact_to_ground(target_world_pos)]
+		_route_preview_index = 0
 		_route_preview_origin = _project_contact_to_ground(start_world_pos)
 		return
 	if _is_route_preview_pathfinding:
@@ -846,14 +852,17 @@ func _on_route_preview_computed(preview_pts: Array, _start_at_request: Vector3, 
 	elif status_code == 2:
 		_route_preview_origin = start_world
 		_route_preview_positions = [goal_world]
+		_route_preview_index = 0
 		return
 	elif status_code == 3:
 		_route_preview_origin = start_world
 		_route_preview_positions = [goal_world]
+		_route_preview_index = 0
 		return
 
 	_route_preview_origin = start_world
 	_route_preview_positions.clear()
+	_route_preview_index = 0
 	for point in preview_pts:
 		if point is Vector3:
 			_route_preview_positions.append(point as Vector3)
@@ -862,6 +871,7 @@ func _on_route_preview_computed(preview_pts: Array, _start_at_request: Vector3, 
 
 func _clear_route_preview() -> void:
 	_route_preview_positions.clear()
+	_route_preview_index = 0
 	_route_preview_goal = Vector3.INF
 	_route_preview_origin = Vector3.INF
 	_route_preview_repath_timer_s = 0.0

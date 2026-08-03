@@ -16,6 +16,9 @@ const VISUAL_FOCUS_HELPER = preload("res://Effects/VisualFocus.gd")
 @export var max_effect_distance_m: float = 800.0
 @export var require_camera_frustum: bool = true
 @export var camera_frustum_padding_m: float = 25.0
+@export var cache_camera_visibility: bool = true
+@export var camera_visibility_check_interval_s: float = 0.15
+@export var lazy_initialize_pool: bool = true
 @export var pooled_puff_count: int = 16
 @export var auto_size_pool: bool = true
 @export var max_pooled_puff_count: int = 128
@@ -29,6 +32,8 @@ var _speed: float = 0.0
 var _exclude_rids: Array[RID] = []
 var _cached_camera: Camera3D = null
 var _camera_cache_timer_s: float = 0.0
+var _cached_should_emit_for_camera: bool = false
+var _camera_visibility_timer_s: float = 0.0
 var _puff_pool: Array[MeshInstance3D] = []
 var _available_puff_indices: Array[int] = []
 var _pool_target_count: int = 0
@@ -109,8 +114,12 @@ func _ready() -> void:
 		_emit_offsets.append(Vector3.ZERO)
 		_timers.append(0.0)
 
-	_initialize_puff_pool()
+	if lazy_initialize_pool:
+		_pool_target_count = _get_target_pool_count()
+	else:
+		_initialize_puff_pool()
 	_last_position = _parent_node.global_position
+	_camera_visibility_timer_s = randf_range(0.0, maxf(camera_visibility_check_interval_s, 0.01))
 
 func apply_origin_shift(offset: Vector3) -> void:
 	_last_position -= offset
@@ -185,6 +194,8 @@ func _create_pooled_puff() -> void:
 	_available_puff_indices.append(pool_index)
 
 func _acquire_pooled_puff() -> MeshInstance3D:
+	if _pool_target_count <= 0:
+		_pool_target_count = _get_target_pool_count()
 	if _available_puff_indices.is_empty() and _puff_pool.size() < _pool_target_count:
 		_create_pooled_puff()
 	if _available_puff_indices.is_empty():
@@ -208,7 +219,7 @@ func _release_pooled_puff(puff: MeshInstance3D) -> void:
 			_available_puff_indices.append(pool_index)
 
 func _physics_process(delta: float) -> void:
-	if _parent_node == null or not is_instance_valid(_parent_node):
+	if _parent_node == null or not is_instance_valid(_parent_node) or not _parent_node.is_inside_tree():
 		return
 
 	var current_pos := _parent_node.global_position
@@ -235,17 +246,42 @@ func _physics_process(delta: float) -> void:
 
 func _get_active_camera(delta: float) -> Camera3D:
 	_camera_cache_timer_s = maxf(_camera_cache_timer_s - delta, 0.0)
-	if _cached_camera and is_instance_valid(_cached_camera) and _camera_cache_timer_s > 0.0:
+	if _is_camera_usable(_cached_camera) and _camera_cache_timer_s > 0.0:
 		return _cached_camera
-	_cached_camera = get_viewport().get_camera_3d()
+	var viewport := get_viewport()
+	var candidate: Camera3D = viewport.get_camera_3d() if viewport != null else null
+	_cached_camera = candidate if _is_camera_usable(candidate) else null
 	_camera_cache_timer_s = 0.25
 	return _cached_camera
 
+func _is_camera_usable(camera_value: Variant) -> bool:
+	if typeof(camera_value) != TYPE_OBJECT or not is_instance_valid(camera_value):
+		return false
+	if not (camera_value is Camera3D):
+		return false
+	var camera := camera_value as Camera3D
+	return camera.is_inside_tree() and camera.get_world_3d() != null
+
 func _should_emit_for_camera(delta: float) -> bool:
+	if not cache_camera_visibility:
+		return _compute_should_emit_for_camera(delta)
+	_camera_visibility_timer_s -= delta
+	if _camera_visibility_timer_s > 0.0:
+		return _cached_should_emit_for_camera
+	_cached_should_emit_for_camera = _compute_should_emit_for_camera(delta)
+	_camera_visibility_timer_s = maxf(camera_visibility_check_interval_s, 0.01)
+	return _cached_should_emit_for_camera
+
+func _compute_should_emit_for_camera(delta: float) -> bool:
+	if _parent_node == null \
+			or not is_instance_valid(_parent_node) \
+			or not _parent_node.is_inside_tree() \
+			or _parent_node.get_world_3d() == null:
+		return false
 	if VISUAL_FOCUS_HELPER.is_node_in_target_camera_focus(self, _parent_node):
 		return true
 	var camera := _get_active_camera(delta)
-	if camera == null or not is_instance_valid(camera):
+	if not _is_camera_usable(camera):
 		return false
 	if _parent_node.global_position.distance_squared_to(camera.global_position) > max_effect_distance_m * max_effect_distance_m:
 		return false
@@ -254,6 +290,11 @@ func _should_emit_for_camera(delta: float) -> bool:
 	return true
 
 func _is_effect_in_camera_frustum(camera: Camera3D) -> bool:
+	if not _is_camera_usable(camera) \
+			or _parent_node == null \
+			or not is_instance_valid(_parent_node) \
+			or not _parent_node.is_inside_tree():
+		return false
 	var base_pos := _parent_node.global_position
 	if camera.is_position_in_frustum(base_pos):
 		return true
@@ -266,7 +307,12 @@ func _is_effect_in_camera_frustum(camera: Camera3D) -> bool:
 	return false
 
 func _sample_ground_color() -> void:
-	var space := _parent_node.get_world_3d().direct_space_state
+	if _parent_node == null or not is_instance_valid(_parent_node) or not _parent_node.is_inside_tree():
+		return
+	var world := _parent_node.get_world_3d()
+	if world == null:
+		return
+	var space := world.direct_space_state
 	var origin := _parent_node.global_position
 
 	# Raycast to one point offset from the parent to find lit ground

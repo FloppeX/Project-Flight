@@ -91,11 +91,21 @@ func fire_at_target():
 	var lead_pos = calculate_ballistic_lead_position(target_aircraft)
 	var direction = (lead_pos - global_position).normalized()
 	
-	# Create bullet
-	var bullet = bullet_scene.instantiate()
-	# Set transform BEFORE adding to tree so first-frame visuals don't flash at the origin
-	bullet.position = global_position + direction * 2.0  # Spawn slightly in front
-	get_tree().current_scene.add_child(bullet)
+	# Acquire a reusable bullet at the muzzle so high-rate enemy fire does not
+	# allocate a new rigid body and tracer for every shot.
+	var scene_root: Node = get_tree().current_scene
+	if scene_root == null:
+		return
+	var spawn_transform := Transform3D(Basis.IDENTITY, global_position + direction * 2.0)
+	var pool: Node = get_node_or_null("/root/BulletPool")
+	var bullet: Node = pool.call("acquire", bullet_scene, scene_root, spawn_transform) as Node if pool else null
+	if bullet == null:
+		bullet = bullet_scene.instantiate()
+		if bullet:
+			bullet.transform = spawn_transform
+			scene_root.add_child(bullet)
+	if bullet == null:
+		return
 	
 	# Fire bullet towards predicted position
 	var bullet_velocity = direction * bullet_speed

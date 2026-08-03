@@ -12,7 +12,7 @@ const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
 ## Spotted contacts are queued as delayed reports (25–75 s radio delay)
 ## sent to EnemyOpsManager.receive_intel() when the timer fires.
 
-enum Mission      { PATROL, RTB, LANDED, INTERCEPT }
+enum Mission      { PATROL, RTB, LANDED, INTERCEPT, INVESTIGATE }
 enum VState       { VIRTUAL, MATERIALIZING, ACTIVE }
 enum AircraftRole { FIGHTER, BOMBER }
 
@@ -29,6 +29,10 @@ const REPORT_DELAY_MIN_S      := 25.0    # radio delay range
 const REPORT_DELAY_MAX_S      := 75.0
 const ACTIVE_CONTACT_SCAN_INTERVAL_S := 2.0
 const MAX_MATERIALIZE_SPAWNS_PER_TICK := 1
+const INVESTIGATION_ARRIVAL_RANGE_M := 700.0
+const INVESTIGATION_SEARCH_RADIUS_M := 1200.0
+const INVESTIGATION_SEARCH_DURATION_S := 50.0
+const INVESTIGATION_ORBIT_RATE_RAD_S := 0.10
 
 # Configuration (set before adding to tree)
 @export var flight_name:    String       = "XX-01"
@@ -54,9 +58,26 @@ var _detection_timer:   float = 0.0
 var _active_scan_timer: float = 0.0
 var _materialize_next_slot_idx: int = 0
 var _materialize_spawned_count: int = 0
+var _intercept_position: Vector3 = Vector3.INF
+var _investigation_position: Vector3 = Vector3.INF
+var _investigation_search_started: bool = false
+var _investigation_search_remaining_s: float = 0.0
+var _investigation_orbit_angle_rad: float = 0.0
+var _investigation_contact_found: bool = false
+var _resume_patrol_on_dematerialize: bool = false
 # Each report: { "type": String, "position": Vector3, "strength": int, "countdown": float }
 var _pending_reports:   Array[Dictionary] = []
 var _rng:               RandomNumberGenerator = RandomNumberGenerator.new()
+
+
+func _ready() -> void:
+	if WorldUnitIndex != null:
+		WorldUnitIndex.register_formation(self, "flight", flight_name)
+
+
+func _exit_tree() -> void:
+	if WorldUnitIndex != null:
+		WorldUnitIndex.unregister_formation(self)
 
 
 func setup(home_pos: Vector3, aircraft_scenes: Array[PackedScene], loadouts: Array[String], start_angle: float = 0.0) -> void:
@@ -118,6 +139,8 @@ func tick(delta: float) -> void:
 			FrameProfiler.end("EnemyVirtualFlight.tick", _profiler_start)
 			return
 		position = _active_aircraft_centroid()
+		if mission == Mission.INVESTIGATE:
+			_tick_active_investigation(delta)
 		_check_dematerialize()
 		if vstate != VState.ACTIVE:
 			FrameProfiler.end("EnemyVirtualFlight.tick", _profiler_start)
@@ -146,6 +169,7 @@ func tick(delta: float) -> void:
 		Mission.RTB:       _tick_rtb(delta)
 		Mission.LANDED:    pass
 		Mission.INTERCEPT: _tick_intercept(delta)
+		Mission.INVESTIGATE: _tick_investigation(delta)
 
 	_check_materialize()
 	_tick_detection(delta)
@@ -181,19 +205,74 @@ func _tick_rtb(delta: float) -> void:
 
 
 func _tick_intercept(delta: float) -> void:
-	# Move toward the best known friendly aircraft position from intel,
-	# falling back to real-time scan. Once materialized the AI handles it.
-	var target := _nearest_friendly_aircraft_position()
-	if target == Vector3.INF:
+	# Follow the most recently reported or locally observed contact position. Do
+	# not read a friendly aircraft's live position from anywhere on the map.
+	if _intercept_position == Vector3.INF:
 		mission = Mission.PATROL
 		return
-	var flat_target := Vector3(target.x, position.y, target.z)
+	var flat_target := Vector3(_intercept_position.x, position.y, _intercept_position.z)
 	var to_target   := flat_target - position
 	if to_target.length() < 600.0:
 		return
 	var dir  := to_target.normalized()
 	position += dir * RTB_SPEED_MPS * delta
 	heading   = Vector3(dir.x, 0.0, dir.z)
+
+
+func _tick_investigation(delta: float) -> void:
+	if _investigation_position == Vector3.INF:
+		_finish_investigation()
+		return
+	var center := Vector3(_investigation_position.x, position.y, _investigation_position.z)
+	var to_center: Vector3 = center - position
+	if not _investigation_search_started:
+		if to_center.length() > INVESTIGATION_ARRIVAL_RANGE_M:
+			_move_virtual_toward(center, RTB_SPEED_MPS, delta)
+			return
+		_investigation_search_started = true
+		_investigation_search_remaining_s = INVESTIGATION_SEARCH_DURATION_S
+		_investigation_orbit_angle_rad = atan2(position.z - center.z, position.x - center.x)
+
+	_investigation_search_remaining_s -= delta
+	if _investigation_search_remaining_s <= 0.0:
+		_finish_investigation()
+		return
+	_investigation_orbit_angle_rad = wrapf(
+		_investigation_orbit_angle_rad + INVESTIGATION_ORBIT_RATE_RAD_S * delta,
+		0.0,
+		TAU
+	)
+	var orbit_target := center + Vector3(
+		cos(_investigation_orbit_angle_rad) * INVESTIGATION_SEARCH_RADIUS_M,
+		0.0,
+		sin(_investigation_orbit_angle_rad) * INVESTIGATION_SEARCH_RADIUS_M
+	)
+	_move_virtual_toward(orbit_target, PATROL_SPEED_MPS, delta)
+
+
+func _tick_active_investigation(delta: float) -> void:
+	if _investigation_position == Vector3.INF:
+		_finish_investigation()
+		return
+	var flat_delta: Vector3 = _investigation_position - position
+	flat_delta.y = 0.0
+	if not _investigation_search_started:
+		if flat_delta.length() > INVESTIGATION_ARRIVAL_RANGE_M:
+			return
+		_investigation_search_started = true
+		_investigation_search_remaining_s = INVESTIGATION_SEARCH_DURATION_S
+	_investigation_search_remaining_s -= delta
+	if _investigation_search_remaining_s <= 0.0:
+		_finish_investigation()
+
+
+func _move_virtual_toward(target: Vector3, speed_mps: float, delta: float) -> void:
+	var to_target: Vector3 = target - position
+	if to_target.length_squared() <= 1.0:
+		return
+	var dir: Vector3 = to_target.normalized()
+	position += dir * speed_mps * delta
+	heading = Vector3(dir.x, 0.0, dir.z).normalized()
 
 
 # ── Detection & reporting ─────────────────────────────────────────────────────
@@ -226,7 +305,12 @@ func _scan_for_contacts(immediate: bool) -> void:
 			friendly_air_pos += aircraft.global_position
 			friendly_air_count += 1
 	if friendly_air_count > 0:
-		_queue_report("air", friendly_air_pos / float(friendly_air_count), friendly_air_count, delay_s)
+		var friendly_air_centroid: Vector3 = friendly_air_pos / float(friendly_air_count)
+		_queue_report("air", friendly_air_centroid, friendly_air_count, delay_s)
+		if mission == Mission.INTERCEPT:
+			_intercept_position = friendly_air_centroid
+		elif mission == Mission.INVESTIGATE:
+			_update_investigation_contact(friendly_air_centroid)
 
 	# Friendly ground vehicles
 	var friendly_gnd_pos := Vector3.ZERO
@@ -282,11 +366,17 @@ func _check_materialize() -> void:
 
 
 func _check_dematerialize() -> void:
+	if WorldUnitIndex != null and WorldUnitIndex.enabled and WorldUnitIndex.formation_relevance_enabled:
+		if WorldUnitIndex.should_dematerialize_formation(position, DEACTIVATE_RANGE_M):
+			dematerialize()
+		return
 	if _nearest_player_relevance_distance() > DEACTIVATE_RANGE_M:
 		dematerialize()
 
 
 func _should_materialize() -> bool:
+	if WorldUnitIndex != null and WorldUnitIndex.enabled and WorldUnitIndex.formation_relevance_enabled:
+		return WorldUnitIndex.should_materialize_formation(position, ACTIVATE_RANGE_M, DEACTIVATE_RANGE_M)
 	var player_dist: float = _nearest_player_relevance_distance()
 	if player_dist <= ACTIVATE_RANGE_M:
 		return true
@@ -335,7 +425,7 @@ func _tick_materialize_step() -> void:
 		if "linear_velocity" in ac:
 			ac.set("linear_velocity", heading * 75.0)
 		var loadout: String = _loadout_slots[slot_idx] if slot_idx < _loadout_slots.size() else "guns"
-		_configure_materialized_enemy_aircraft(ac, loadout)
+		_configure_materialized_enemy_aircraft(ac, loadout, slot_idx)
 		active_aircraft.append(ac)
 		_active_slot_indices.append(slot_idx)
 		_materialize_spawned_count += 1
@@ -398,7 +488,7 @@ func _strip_enemy_external_stores(ac: Node3D, loadout: String = "guns") -> void:
 			cw.selected_weapon_type = cw.weapon_types[idx]
 
 
-func _configure_materialized_enemy_aircraft(ac: Node3D, loadout: String = "guns") -> void:
+func _configure_materialized_enemy_aircraft(ac: Node3D, loadout: String = "guns", slot_idx: int = 0) -> void:
 	if ac == null or not is_instance_valid(ac):
 		return
 	if ac.is_in_group("aircraft"):
@@ -430,7 +520,12 @@ func _configure_materialized_enemy_aircraft(ac: Node3D, loadout: String = "guns"
 	if ai_pilot:
 		ai_pilot.carrier_position = home_position
 		ai_pilot.waypoints.clear()
+		# Virtual patrols can legitimately materialize far from their home base.
+		# Both halves of the CAP leash must be disabled together; otherwise the
+		# pilot acquires with unlimited range, immediately disengages against the
+		# finite default radius, and repeats SEARCH -> DOGFIGHT every guidance tick.
 		ai_pilot.engagement_radius_from_carrier_m = 0.0
+		ai_pilot.disengage_radius_from_carrier_m = 0.0
 		ai_pilot.skill = AIPilot.AIPilotSkill.ROOKIE
 		var is_strike := loadout in ["bombs", "rockets"]
 		if is_strike:
@@ -441,6 +536,8 @@ func _configure_materialized_enemy_aircraft(ac: Node3D, loadout: String = "guns"
 			ai_pilot.dogfight_enabled = true
 			ai_pilot.ground_attack_enabled = false
 		ai_pilot.apply_skill_preset()
+		if mission == Mission.INVESTIGATE:
+			_assign_investigation_route(ai_pilot, slot_idx)
 		var initial_state := AIPilot.State.DOGFIGHT \
 			if (not is_strike and mission == Mission.INTERCEPT) \
 			else AIPilot.State.SEARCH
@@ -449,6 +546,7 @@ func _configure_materialized_enemy_aircraft(ac: Node3D, loadout: String = "guns"
 
 func dematerialize() -> void:
 	var was_materializing: bool = vstate == VState.MATERIALIZING
+	var should_resume_patrol: bool = _resume_patrol_on_dematerialize
 	_prune_active_aircraft()
 	var remaining_scenes: Array[PackedScene] = []
 	var remaining_loadouts: Array[String] = []
@@ -471,8 +569,12 @@ func dematerialize() -> void:
 	_materialize_next_slot_idx = 0
 	_materialize_spawned_count = 0
 	vstate = VState.VIRTUAL
-	mission = Mission.RTB
-	print("[EnemyVirtualFlight] %s dematerialized → RTB" % flight_name)
+	mission = Mission.PATROL if should_resume_patrol else Mission.RTB
+	_resume_patrol_on_dematerialize = false
+	print("[EnemyVirtualFlight] %s dematerialized → %s" % [
+		flight_name,
+		"PATROL" if mission == Mission.PATROL else "RTB",
+	])
 
 
 # ── Loadout helpers ───────────────────────────────────────────────────────────
@@ -485,6 +587,113 @@ func _has_strike_weapons(ac: Node3D) -> bool:
 		if wt in ["Bomb", "Rocket Pod"]:
 			return true
 	return false
+
+
+# ── Mission assignment ───────────────────────────────────────────────────────
+
+func set_intercept_position(contact_position: Vector3) -> void:
+	_intercept_position = contact_position
+	mission = Mission.INTERCEPT
+
+
+func assign_investigation(incident_position: Vector3) -> bool:
+	if aircraft_count <= 0 or incident_position == Vector3.INF:
+		return false
+	_investigation_position = incident_position
+	_investigation_search_started = false
+	_investigation_search_remaining_s = INVESTIGATION_SEARCH_DURATION_S
+	_investigation_contact_found = false
+	mission = Mission.INVESTIGATE
+	_resume_patrol_on_dematerialize = vstate != VState.VIRTUAL
+	_apply_investigation_routes_to_active_aircraft()
+	return true
+
+
+func resume_patrol() -> void:
+	mission = Mission.PATROL
+	_intercept_position = Vector3.INF
+	_investigation_position = Vector3.INF
+	_investigation_search_started = false
+	_investigation_search_remaining_s = 0.0
+	_apply_patrol_routes_to_active_aircraft()
+
+
+func get_investigation_position() -> Vector3:
+	return _investigation_position
+
+
+func investigation_contact_found() -> bool:
+	return _investigation_contact_found
+
+
+func _update_investigation_contact(contact_position: Vector3) -> void:
+	if contact_position == Vector3.INF:
+		return
+	_investigation_contact_found = true
+	_investigation_position = contact_position
+	_investigation_search_started = false
+	_investigation_search_remaining_s = INVESTIGATION_SEARCH_DURATION_S
+	_apply_investigation_routes_to_active_aircraft()
+
+
+func _finish_investigation() -> void:
+	var was_active: bool = vstate != VState.VIRTUAL
+	mission = Mission.PATROL
+	_intercept_position = Vector3.INF
+	_investigation_position = Vector3.INF
+	_investigation_search_started = false
+	_investigation_search_remaining_s = 0.0
+	_resume_patrol_on_dematerialize = was_active
+	_apply_patrol_routes_to_active_aircraft()
+
+
+func _build_investigation_route(slot_offset: int = 0) -> Array[Vector3]:
+	var route: Array[Vector3] = []
+	if _investigation_position == Vector3.INF:
+		return route
+	var altitude_y: float = maxf(position.y, _investigation_position.y + PATROL_ALTITUDE_M)
+	var point_count := 6
+	for i in range(point_count):
+		var angle: float = TAU * float(i + slot_offset) / float(point_count)
+		route.append(Vector3(
+			_investigation_position.x + cos(angle) * INVESTIGATION_SEARCH_RADIUS_M,
+			altitude_y,
+			_investigation_position.z + sin(angle) * INVESTIGATION_SEARCH_RADIUS_M
+		))
+	return route
+
+
+func _assign_investigation_route(ai_pilot: AIPilot, slot_offset: int = 0) -> void:
+	if ai_pilot == null or not is_instance_valid(ai_pilot):
+		return
+	var route: Array[Vector3] = _build_investigation_route(slot_offset)
+	if not route.is_empty():
+		ai_pilot.set_waypoints(route, false)
+
+
+func _apply_investigation_routes_to_active_aircraft() -> void:
+	for i in range(active_aircraft.size()):
+		var ac: Node3D = active_aircraft[i]
+		if ac == null or not is_instance_valid(ac):
+			continue
+		var ai_pilot := ac.find_child("AIPilot", true, false) as AIPilot
+		if ai_pilot == null:
+			continue
+		_assign_investigation_route(ai_pilot, i)
+		if ai_pilot.current_state not in [AIPilot.State.DOGFIGHT, AIPilot.State.ATTACK_POSITIONING, AIPilot.State.ATTACK_INBOUND, AIPilot.State.ATTACK_DIVE, AIPilot.State.ATTACK_BREAK_OFF]:
+			ai_pilot.change_state(AIPilot.State.SEARCH)
+
+
+func _apply_patrol_routes_to_active_aircraft() -> void:
+	for ac: Node3D in active_aircraft:
+		if ac == null or not is_instance_valid(ac):
+			continue
+		var ai_pilot := ac.find_child("AIPilot", true, false) as AIPilot
+		if ai_pilot == null:
+			continue
+		ai_pilot.set_waypoints(_patrol_waypoints.duplicate(), false)
+		if ai_pilot.current_state not in [AIPilot.State.DOGFIGHT, AIPilot.State.ATTACK_POSITIONING, AIPilot.State.ATTACK_INBOUND, AIPilot.State.ATTACK_DIVE, AIPilot.State.ATTACK_BREAK_OFF]:
+			ai_pilot.change_state(AIPilot.State.SEARCH)
 
 
 # ── Proximity helpers ─────────────────────────────────────────────────────────
@@ -590,17 +799,6 @@ func _active_aircraft_centroid() -> Vector3:
 	return sum / float(count)
 
 
-func _nearest_friendly_aircraft_position() -> Vector3:
-	var best_sq  := INF
-	var best_pos := Vector3.INF
-	for aircraft in _get_friendly_air_nodes():
-		var sq := position.distance_squared_to(aircraft.global_position)
-		if sq < best_sq:
-			best_sq  = sq
-			best_pos = aircraft.global_position
-	return best_pos
-
-
 func _get_friendly_air_nodes() -> Array[Node3D]:
 	var result: Array[Node3D] = []
 	var tree := get_tree()
@@ -627,6 +825,10 @@ func _get_friendly_air_nodes() -> Array[Node3D]:
 func apply_origin_shift(offset: Vector3) -> void:
 	position      -= offset
 	home_position -= offset
+	if _intercept_position != Vector3.INF:
+		_intercept_position -= offset
+	if _investigation_position != Vector3.INF:
+		_investigation_position -= offset
 	for i in range(_patrol_waypoints.size()):
 		_patrol_waypoints[i] -= offset
 	for r in _pending_reports:

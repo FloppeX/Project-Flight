@@ -356,6 +356,8 @@ func _get_ejected_pilot_replacement(ac: RigidBody3D) -> RigidBody3D:
 func _node_has_cameras(node: Node) -> bool:
 	if node != null and bool(node.get_meta("ejected_pilot_camera_target", false)):
 		return true
+	if node != null and bool(node.get_meta("presentation_dormant_camera_capable", false)):
+		return true
 	return node.get_node_or_null("CameraChase") != null \
 		or node.get_node_or_null("CameraCockpit") != null \
 		or node.find_child("CameraController", true, false) != null
@@ -471,6 +473,7 @@ func _sync_view_target_for_free_camera() -> void:
 
 func _view_aircraft(ac: RigidBody3D):
 	current_viewed_aircraft = ac
+	_ensure_aircraft_presentation_attached(ac)
 
 	# FlightDeckManager disables these on AI aircraft. Re-enable them for viewing.
 	_set_aircraft_view_ui_enabled(ac, true)
@@ -715,10 +718,14 @@ func _sync_viewed_aircraft_ui() -> void:
 func _set_aircraft_view_ui_enabled(ac: RigidBody3D, enabled: bool) -> void:
 	if not is_instance_valid(ac):
 		return
+	if enabled:
+		_ensure_aircraft_presentation_attached(ac)
 	for node_name in ["CameraController", "HeadsUpDisplay", "InstrumentPanel"]:
 		var node := ac.find_child(node_name, true, false) as Node
 		if node == null:
 			continue
+		if node.has_method("set_view_updates_active"):
+			node.call("set_view_updates_active", enabled)
 		node.set_process(enabled)
 		node.set_physics_process(enabled)
 		node.set_process_input(enabled)
@@ -726,6 +733,14 @@ func _set_aircraft_view_ui_enabled(ac: RigidBody3D, enabled: bool) -> void:
 			(node as CanvasItem).visible = enabled
 		elif node is Node3D:
 			(node as Node3D).visible = enabled
+
+
+func _ensure_aircraft_presentation_attached(ac: RigidBody3D) -> void:
+	if not is_instance_valid(ac):
+		return
+	var visual_budget := get_node_or_null("/root/EnemyVisualBudget")
+	if visual_budget != null and visual_budget.has_method("ensure_aircraft_presentation_attached"):
+		visual_budget.call("ensure_aircraft_presentation_attached", ac)
 
 func _find_closest_friendly_aircraft() -> RigidBody3D:
 	var friendlies := _get_friendly_aircraft()

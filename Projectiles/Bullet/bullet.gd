@@ -14,7 +14,15 @@ class_name Bullet
 @export var ground_particle_lifetime_s: float = 0.75
 @export var hit_debris_count: int = 4
 @export var hit_debris_lifetime_s: float = 0.6
-@export var use_manual_ballistics: bool = false
+@export var use_manual_ballistics: bool = true
+@export var bullet_body_visual_enabled: bool = false
+@export var visual_lod_enabled: bool = true
+@export var full_tracer_distance_m: float = 600.0
+@export var max_tracer_distance_m: float = 1500.0
+@export var distant_tracer_stride: int = 4
+@export var visual_policy_interval_s: float = 0.10
+@export var distant_hit_assist_interval_s: float = 0.09
+@export var hidden_hit_assist_interval_s: float = 0.12
 
 var trail_mesh: MeshInstance3D
 var tracer_box_mesh: BoxMesh
@@ -22,6 +30,7 @@ var tracer_physics_frames_elapsed: int = 0
 var _debug_target_node: Node3D = null
 var _debug_target_radius_m: float = 0.0
 var _debug_closest_center_distance_m: float = INF
+var _debug_closest_offset_m: Vector3 = Vector3.ZERO
 var _debug_report_sent: bool = false
 var _debug_age_s: float = 0.0
 var _debug_distance_traveled_m: float = 0.0
@@ -30,14 +39,25 @@ var _debug_initial_speed_mps: float = 0.0
 var _debug_closest_time_s: float = 0.0
 var _debug_peak_speed_mps: float = 0.0
 var _debug_tracking_enabled: bool = false
+var _visual_policy_accum_s: float = 0.0
+var _visual_allowed: bool = true
+var _visual_is_distant: bool = false
+var _visual_sample_selected: bool = true
+var _visual_distance_m: float = 0.0
 
 const SCORCH_TEXTURE_PATH: String = "res://Projectiles/Explosion/scorch_mark.png"
 static var _tracer_mesh_cache: Dictionary = {}
 static var _tracer_material_cache: Dictionary = {}
 static var _bullet_material_cache: Dictionary = {}
+static var _activation_counter: int = 0
 
 func _ready():
+	reusable_lifecycle = true
 	hit_assist_enabled = true
+	# The segment ray remains authoritative. Hit assist is only a forgiving
+	# secondary query, so its broadphase can be much tighter than the old 20 m.
+	hit_assist_broadphase_extra_radius_m = 6.0
+	hit_assist_broadphase_max_results = mini(hit_assist_broadphase_max_results, 16)
 	# Call parent's _ready first to get all the base functionality
 	super._ready()
 
@@ -59,7 +79,7 @@ func _ready():
 	if body_entered.is_connected(_on_body_entered):
 		body_entered.disconnect(_on_body_entered)
 	if use_manual_ballistics:
-		freeze_mode = RigidBody3D.FREEZE_MODE_KINEMATIC
+		freeze_mode = RigidBody3D.FREEZE_MODE_STATIC
 		freeze = true
 	
 	# This projectile should not create an explosion on impact
@@ -77,7 +97,8 @@ func _ready():
 func make_bullet_glowy():
 	# Make bullet bigger and glowing
 	if has_node("MeshInstance3D"):
-		var mesh_node = get_node("MeshInstance3D")
+		var mesh_node: MeshInstance3D = get_node("MeshInstance3D") as MeshInstance3D
+		mesh_node.visible = bullet_body_visual_enabled
 		mesh_node.material_override = _get_cached_bullet_material()
 		
 		# Make bullet slightly bigger
@@ -138,9 +159,17 @@ func fire(initial_velocity: Vector3, firing_aircraft: Node3D):
 	# Call parent's fire method to get all the base functionality
 	super.fire(initial_velocity, firing_aircraft)
 	if use_manual_ballistics:
-		freeze_mode = RigidBody3D.FREEZE_MODE_KINEMATIC
+		freeze_mode = RigidBody3D.FREEZE_MODE_STATIC
 		freeze = true
 	tracer_physics_frames_elapsed = 0
+	_activation_counter += 1
+	_visual_sample_selected = distant_tracer_stride <= 1 or (_activation_counter % distant_tracer_stride) == 0
+	_visual_policy_accum_s = visual_policy_interval_s
+	_refresh_visual_policy(0.0, true)
+	var assist_interval_s: float = maxf(_get_hit_assist_check_interval_s(), 0.001)
+	# Spread optional broadphase work across physics frames. The per-frame segment
+	# ray still runs for every bullet, so this does not defer real collider hits.
+	_hit_assist_time_accum_s = -fmod(float(_activation_counter) * 0.61803398875, 1.0) * assist_interval_s
 	_setup_debug_target_tracking()
 	
 	# Inherit the firing platform's point velocity at the muzzle so rounds stay
@@ -194,6 +223,8 @@ func _physics_process(delta):
 		_apply_manual_ballistics(delta)
 	# Call parent's physics process first
 	super._physics_process(delta)
+	if has_impacted:
+		return
 	if _debug_tracking_enabled:
 		_debug_age_s += delta
 		var speed_now_mps: float = linear_velocity.length()
@@ -204,8 +235,9 @@ func _physics_process(delta):
 			_try_acquire_debug_target_from_meta()
 		_update_debug_closest_center_distance(prev_pos, global_position)
 	
-	# Point projectile in direction of travel
-	if linear_velocity.length() > 0.1:
+	_refresh_visual_policy(delta)
+	# Orientation only matters when a bullet visual is actually being rendered.
+	if _visual_allowed and linear_velocity.length() > 0.1:
 		look_at(global_position + linear_velocity, Vector3.UP)
 	
 	# Update tracer trail
@@ -235,6 +267,77 @@ func _on_body_entered(body):
 func _on_timeout() -> void:
 	_emit_debug_report("timeout", null)
 	super._on_timeout()
+
+func _retire_projectile() -> void:
+	var pool: Node = get_node_or_null("/root/BulletPool")
+	if pool and pool.has_method("release"):
+		pool.call("release", self)
+	else:
+		queue_free()
+
+func prepare_for_pool() -> void:
+	_activation_serial += 1
+	has_impacted = true
+	set_physics_process(false)
+	freeze_mode = RigidBody3D.FREEZE_MODE_STATIC
+	freeze = true
+	linear_velocity = Vector3.ZERO
+	angular_velocity = Vector3.ZERO
+	if shooter and is_instance_valid(shooter) and shooter is CollisionObject3D:
+		remove_collision_exception_with(shooter as CollisionObject3D)
+	shooter = null
+	visible = false
+	if trail_mesh:
+		trail_mesh.visible = false
+	for meta_key in [&"debug_target_node", &"debug_report_callback", &"debug_nominal_flight_time_s", &"debug_nominal_bullet_speed_mps"]:
+		if has_meta(meta_key):
+			remove_meta(meta_key)
+	_debug_tracking_enabled = false
+
+func prepare_for_reuse() -> void:
+	_activation_serial += 1
+	has_impacted = false
+	_lifetime_elapsed_s = 0.0
+	visible = true
+	freeze_mode = RigidBody3D.FREEZE_MODE_STATIC
+	freeze = true
+	sleeping = false
+	set_physics_process(true)
+	_visual_policy_accum_s = visual_policy_interval_s
+	if has_node("MeshInstance3D"):
+		(get_node("MeshInstance3D") as MeshInstance3D).visible = bullet_body_visual_enabled
+	if trail_mesh:
+		trail_mesh.visible = false
+
+func _get_hit_assist_check_interval_s() -> float:
+	if not visual_lod_enabled:
+		return hit_assist_check_interval_s
+	if not _visual_allowed:
+		return hidden_hit_assist_interval_s
+	if _visual_is_distant:
+		return distant_hit_assist_interval_s
+	return hit_assist_check_interval_s
+
+func _refresh_visual_policy(delta: float, force: bool = false) -> void:
+	if not visual_lod_enabled:
+		_visual_allowed = true
+		_visual_is_distant = false
+		return
+	_visual_policy_accum_s += delta
+	if not force and _visual_policy_accum_s < maxf(visual_policy_interval_s, 0.01):
+		return
+	_visual_policy_accum_s = 0.0
+	var viewport := get_viewport()
+	var camera: Camera3D = viewport.get_camera_3d() if viewport else null
+	if camera == null or not is_instance_valid(camera):
+		_visual_allowed = true
+		_visual_is_distant = false
+		return
+	_visual_distance_m = camera.global_position.distance_to(global_position)
+	_visual_is_distant = _visual_distance_m > full_tracer_distance_m
+	_visual_allowed = (max_tracer_distance_m <= 0.0 or _visual_distance_m <= max_tracer_distance_m) \
+		and camera.is_position_in_frustum(global_position) \
+		and (not _visual_is_distant or _visual_sample_selected)
 
 func _resolve_impact_surface(body: Object) -> Dictionary:
 	var space_state: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
@@ -266,14 +369,20 @@ func _resolve_impact_surface(body: Object) -> Dictionary:
 func _create_ground_bullet_mark(body: Object) -> void:
 	var impact: Dictionary = _resolve_impact_surface(body)
 	var hit_pos: Vector3 = impact.get("position", global_position)
+	var impact_budget: Node = get_node_or_null("/root/BulletImpactBudget")
+	if impact_budget and not bool(impact_budget.call("should_spawn_visual", hit_pos)):
+		return
 	var hit_normal: Vector3 = impact.get("normal", Vector3.UP)
 	var parent_node: Node3D = impact.get("parent_node", null)
 
-	# Build decal aligned to the surface
-	var decal: Decal = Decal.new()
+	# Build decal aligned to the surface. Transient marks use the global pool.
+	var decal_parent: Node = parent_node if parent_node and is_instance_valid(parent_node) else get_tree().current_scene
+	var decal: Decal = impact_budget.call("acquire_decal", decal_parent) as Decal if impact_budget else Decal.new()
 	decal.texture_albedo = _scorch_texture if _scorch_texture != null else load(SCORCH_TEXTURE_PATH)
 	decal.size = ground_mark_size
 	decal.sorting_offset = 20.0
+	if impact_budget == null:
+		decal_parent.add_child(decal)
 	# Offset slightly along normal to avoid z-fighting
 	decal.global_position = hit_pos + hit_normal * 0.01
 	
@@ -291,14 +400,11 @@ func _create_ground_bullet_mark(body: Object) -> void:
 	decal.global_basis = rot * basis
 	decal.modulate = Color(0.17, 0.15, 0.13, 0.95)
 	
-	if parent_node and is_instance_valid(parent_node):
-		parent_node.add_child(decal)
-	else:
-		get_tree().current_scene.add_child(decal)
-
-	if ground_mark_lifetime_s > 0.0:
+	if impact_budget:
+		impact_budget.call("register_decal", decal, ground_mark_lifetime_s)
+	elif ground_mark_lifetime_s > 0.0:
 		var decal_ref: WeakRef = weakref(decal)
-		get_tree().create_timer(ground_mark_lifetime_s).timeout.connect(func():
+		get_tree().create_timer(ground_mark_lifetime_s).timeout.connect(func() -> void:
 			var decal_obj: Object = decal_ref.get_ref()
 			if decal_obj is Node and is_instance_valid(decal_obj):
 				(decal_obj as Node).queue_free()
@@ -311,62 +417,38 @@ func _spawn_ground_impact_particles(body: Object) -> void:
 	var impact: Dictionary = _resolve_impact_surface(body)
 	var hit_pos: Vector3 = impact.get("position", global_position)
 	var hit_normal: Vector3 = impact.get("normal", Vector3.UP)
-	if not ParticleManager:
+	if get_node_or_null("/root/BulletImpactBudget") == null:
 		return
 
 	for i in range(count):
-		var chip := MeshInstance3D.new()
-		get_tree().current_scene.add_child(chip)
-		chip.global_position = hit_pos + hit_normal * 0.03
-
-		var rock_mesh := BoxMesh.new()
 		var size: float = randf_range(0.10, 0.24)
-		rock_mesh.size = Vector3(size, size, size)
-		chip.mesh = rock_mesh
-
-		var mat := StandardMaterial3D.new()
-		mat.albedo_color = Color(0.44, 0.34, 0.22, 1.0)
-		mat.roughness = 1.0
-		mat.flags_unshaded = false
-		chip.material_override = mat
-
 		var lateral_dir := Vector3(
 			randf_range(-1.0, 1.0),
 			randf_range(0.5, 1.2),
 			randf_range(-1.0, 1.0)
 		).normalized()
 		var launch_velocity: Vector3 = (hit_normal * randf_range(1.5, 3.0) + lateral_dir * randf_range(1.0, 3.0)).normalized() * randf_range(3.0, 8.0)
-		ParticleManager.add_spark_particle(
-			chip,
-			ground_particle_lifetime_s,
-			Vector3.ONE,
-			launch_velocity
-		)
+		var impact_budget: Node = get_node_or_null("/root/BulletImpactBudget")
+		if impact_budget:
+			impact_budget.call("spawn_debris",
+			hit_pos + hit_normal * 0.03,
+			Vector3(size, size, size),
+			Color(0.44, 0.34, 0.22, 1.0),
+			0.0,
+			1.0,
+			launch_velocity,
+			ground_particle_lifetime_s)
 
 
 func _spawn_aircraft_hit_debris(_body: Object) -> void:
-	if hit_debris_count <= 0 or not ParticleManager:
+	if hit_debris_count <= 0 or get_node_or_null("/root/BulletImpactBudget") == null:
 		return
 	var hit_pos: Vector3 = global_position
 	var hit_dir: Vector3 = linear_velocity.normalized() if linear_velocity.length() > 0.1 else Vector3.BACK
 	for i in range(hit_debris_count):
-		var chip := MeshInstance3D.new()
-		get_tree().current_scene.add_child(chip)
-		chip.global_position = hit_pos
-
-		var box := BoxMesh.new()
 		var s: float = randf_range(0.06, 0.18)
-		box.size = Vector3(s, s * randf_range(0.4, 1.0), s * randf_range(0.6, 1.6))
-		chip.mesh = box
-
-		var mat := StandardMaterial3D.new()
 		# Mix of bare metal grey and a touch of warm orange for hot fragments
 		var grey: float = randf_range(0.35, 0.65)
-		mat.albedo_color = Color(grey + randf_range(0.0, 0.15), grey, grey * randf_range(0.7, 1.0), 1.0)
-		mat.roughness = 0.6
-		mat.metallic = 0.7
-		chip.material_override = mat
-
 		# Scatter mostly away from the bullet direction, with some upward bias
 		var scatter := Vector3(
 			randf_range(-1.0, 1.0),
@@ -375,12 +457,21 @@ func _spawn_aircraft_hit_debris(_body: Object) -> void:
 		).normalized()
 		var speed: float = randf_range(4.0, 10.0)
 		var launch: Vector3 = (hit_dir * randf_range(0.2, 0.6) + scatter).normalized() * speed
-		ParticleManager.add_spark_particle(chip, hit_debris_lifetime_s, Vector3.ONE, launch)
+		var impact_budget: Node = get_node_or_null("/root/BulletImpactBudget")
+		if impact_budget:
+			impact_budget.call("spawn_debris",
+			hit_pos,
+			Vector3(s, s * randf_range(0.4, 1.0), s * randf_range(0.6, 1.6)),
+			Color(grey + randf_range(0.0, 0.15), grey, grey * randf_range(0.7, 1.0), 1.0),
+			0.7,
+			0.6,
+			launch,
+			hit_debris_lifetime_s)
 
 func update_tracer_mesh() -> void:
 	if trail_mesh == null or tracer_box_mesh == null:
 		return
-	if _should_hide_tracer_for_startup_frames():
+	if not _visual_allowed or _should_hide_tracer_for_startup_frames():
 		trail_mesh.visible = false
 		return
 	trail_mesh.visible = true
@@ -395,6 +486,7 @@ func _setup_debug_target_tracking() -> void:
 	_debug_target_node = null
 	_debug_target_radius_m = 0.0
 	_debug_closest_center_distance_m = INF
+	_debug_closest_offset_m = Vector3.ZERO
 	_debug_report_sent = false
 	_debug_age_s = 0.0
 	_debug_distance_traveled_m = 0.0
@@ -410,8 +502,10 @@ func _setup_debug_target_tracking() -> void:
 func _try_acquire_debug_target_from_meta() -> void:
 	if _debug_target_node != null and is_instance_valid(_debug_target_node):
 		return
+	if not has_meta("debug_target_node"):
+		return
 
-	var target_variant: Variant = get_meta("debug_target_node", null)
+	var target_variant: Variant = get_meta("debug_target_node")
 	if typeof(target_variant) != TYPE_OBJECT:
 		return
 	# Important: do not cast before validity checks. Casting a freed object throws.
@@ -432,6 +526,7 @@ func _update_debug_closest_center_distance(seg_start: Vector3, seg_end: Vector3)
 	var center_distance: float = target_point.distance_to(closest_point)
 	if center_distance < _debug_closest_center_distance_m:
 		_debug_closest_center_distance_m = center_distance
+		_debug_closest_offset_m = target_point - closest_point
 		_debug_closest_time_s = _debug_age_s
 
 func _emit_debug_report(reason: String, impact_body: Object) -> void:
@@ -456,6 +551,9 @@ func _emit_debug_report(reason: String, impact_body: Object) -> void:
 	var closest_edge_m: float = maxf(closest_center_m - _debug_target_radius_m, 0.0)
 	var hit_target: bool = _did_hit_debug_target(impact_body)
 	var target_name: String = _debug_target_node.name if _debug_target_node != null and is_instance_valid(_debug_target_node) else "<none>"
+	var impact_body_name: String = "<none>"
+	if impact_body is Node and is_instance_valid(impact_body):
+		impact_body_name = String((impact_body as Node).name)
 	var nominal_speed_variant: Variant = get_meta("debug_nominal_bullet_speed_mps", -1.0)
 	var nominal_speed_mps: float = float(nominal_speed_variant)
 	var nominal_flight_time_variant: Variant = get_meta("debug_nominal_flight_time_s", -1.0)
@@ -469,9 +567,13 @@ func _emit_debug_report(reason: String, impact_body: Object) -> void:
 		"target_name": target_name,
 		"closest_center_m": closest_center_m,
 		"closest_edge_m": closest_edge_m,
+		"closest_offset_x_m": _debug_closest_offset_m.x,
+		"closest_offset_y_m": _debug_closest_offset_m.y,
+		"closest_offset_z_m": _debug_closest_offset_m.z,
 		"target_radius_m": _debug_target_radius_m,
 		"hit_target": hit_target,
 		"reason": reason,
+		"impact_body_name": impact_body_name,
 		"bullet_age_s": _debug_age_s,
 		"closest_time_s": _debug_closest_time_s,
 		"bullet_initial_speed_mps": _debug_initial_speed_mps,

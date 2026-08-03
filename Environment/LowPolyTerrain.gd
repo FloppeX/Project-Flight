@@ -173,6 +173,14 @@ const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
 @export var fast_fill_backlog_threshold: int = 8    # this many pending builds also counts as needing fast-fill
 var _fast_fill_active: bool = false
 @export var stream_preload_ahead_m: float = 1200.0
+@export_group("Camera Handoff")
+## A camera change is detected every frame, independently of the normal streaming
+## interval, so a viewed-aircraft switch cannot sit idle behind the 0.5 s timer.
+@export var camera_handoff_min_jump_chunks: int = 2
+@export var camera_handoff_priority_radius_chunks: int = 2
+@export var camera_handoff_builds_per_frame: int = 12
+@export var camera_handoff_finalizes_per_frame: int = 8
+@export var camera_handoff_priority_duration_s: float = 0.75
 
 var _mesh_node: MeshInstance3D
 var _body_node: StaticBody3D
@@ -195,6 +203,9 @@ var _pending_builds: Array[Vector2i] = []
 var _pending_set: Dictionary = {} # key "x:z" -> true
 var _stream_timer: float = 0.0
 var _last_center_chunk: Vector2i = Vector2i(-999999, -999999)
+var _last_active_camera_id: int = 0
+var _last_active_camera_chunk: Vector2i = Vector2i(-999999, -999999)
+var _camera_handoff_remaining_s: float = 0.0
 
 # Async chunk building — _build_chunk_arrays runs on WorkerThreadPool, node creation finalizes on main thread
 var _async_tasks: Array = []              # [{coord, task_id, holder}]
@@ -209,6 +220,8 @@ func _ready() -> void:
 		add_to_group("terrain_provider")
 	if not is_in_group("terrain"):
 		add_to_group("terrain")
+	if not is_in_group("terrain_streamer"):
+		add_to_group("terrain_streamer")
 	_ensure_nodes()
 	if generate_on_ready:
 		rebuild()
@@ -222,12 +235,21 @@ func _process(delta: float) -> void:
 	if not use_streaming:
 		return
 	var _profiler_start: int = FrameProfiler.begin("LowPolyTerrain.process")
+	var camera_handoff_detected: bool = _detect_camera_handoff()
+	_camera_handoff_remaining_s = maxf(_camera_handoff_remaining_s - delta, 0.0)
 	# Finalize completed chunk nodes -- fast while catching up from a jump, low in steady state.
-	var finalize_budget: int = fast_fill_finalizes_per_frame if _fast_fill_active else max_chunk_finalizes_per_frame
+	var finalize_budget: int
+	if _camera_handoff_remaining_s > 0.0:
+		finalize_budget = camera_handoff_finalizes_per_frame
+	else:
+		finalize_budget = fast_fill_finalizes_per_frame if _fast_fill_active else max_chunk_finalizes_per_frame
 	_finalize_ready_tasks(finalize_budget)
 	_stream_timer += delta
+	if camera_handoff_detected:
+		_stream_timer = 0.0
+		_update_streaming(true)
 	# While fast-filling, re-check every frame (skip the 0.25s throttle) so builds launch immediately.
-	if _fast_fill_active or _stream_timer >= maxf(stream_update_interval_s, 0.01):
+	elif _camera_handoff_remaining_s > 0.0 or _fast_fill_active or _stream_timer >= maxf(stream_update_interval_s, 0.01):
 		_stream_timer = 0.0
 		_update_streaming(false)
 	FrameProfiler.end("LowPolyTerrain.process", _profiler_start)
@@ -399,6 +421,14 @@ func _refresh_chunk_targets(center_chunk: Vector2i) -> void:
 	var candidates: Array[Dictionary] = []
 	var radius: int = max(load_radius_chunks, 0)
 	var keep_radius: int = radius + max(unload_margin_chunks, 0)
+	var camera_chunk: Vector2i = _get_active_camera_chunk()
+	var camera_priority_radius_sq: int = maxi(camera_handoff_priority_radius_chunks, 0) * maxi(camera_handoff_priority_radius_chunks, 0)
+
+	# A changed center invalidates the ordering of the old pending queue. Rebuild it
+	# from the new target set so chunks from the abandoned aircraft cannot remain in
+	# front of the chunks now under the camera.
+	_pending_builds.clear()
+	_pending_set.clear()
 
 	for dz in range(-radius, radius + 1):
 		for dx in range(-radius, radius + 1):
@@ -410,14 +440,38 @@ func _refresh_chunk_targets(center_chunk: Vector2i) -> void:
 			if _chunks.has(key) or _pending_set.has(key) or _building_set.has(key):
 				continue
 			var d2: int = dx * dx + dz * dz
-			candidates.append({"coord": Vector2i(cx, cz), "d2": d2})
+			var camera_dx: int = cx - camera_chunk.x
+			var camera_dz: int = cz - camera_chunk.y
+			var camera_d2: int = camera_dx * camera_dx + camera_dz * camera_dz
+			candidates.append({
+				"coord": Vector2i(cx, cz),
+				"d2": d2,
+				"camera_d2": camera_d2,
+				"camera_priority": 0 if camera_d2 <= camera_priority_radius_sq else 1,
+			})
 
 	for key in _chunks.keys():
 		var c: Vector2i = _key_to_chunk(str(key))
 		if abs(c.x - center_chunk.x) > keep_radius or abs(c.y - center_chunk.y) > keep_radius:
 			_remove_chunk(str(key))
 
+	# Worker tasks cannot be cancelled safely, but stale results can be discarded.
+	# If the camera returns while a task is still running, remove that discard mark.
+	for key_variant in _building_set.keys():
+		var key: String = str(key_variant)
+		var c: Vector2i = _key_to_chunk(key)
+		if abs(c.x - center_chunk.x) > keep_radius or abs(c.y - center_chunk.y) > keep_radius:
+			_discard_on_complete[key] = true
+		else:
+			_discard_on_complete.erase(key)
+
 	candidates.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		var a_priority: int = int(a["camera_priority"])
+		var b_priority: int = int(b["camera_priority"])
+		if a_priority != b_priority:
+			return a_priority < b_priority
+		if a_priority == 0 and int(a["camera_d2"]) != int(b["camera_d2"]):
+			return int(a["camera_d2"]) < int(b["camera_d2"])
 		return int(a["d2"]) < int(b["d2"])
 	)
 	for item in candidates:
@@ -434,7 +488,9 @@ func _build_pending_chunks() -> void:
 	if initial_fill and _initial_pending_total == 0:
 		_initial_pending_total = _pending_builds.size()
 	var budget: int
-	if initial_fill:
+	if _camera_handoff_remaining_s > 0.0:
+		budget = max(camera_handoff_builds_per_frame, 1)
+	elif initial_fill:
 		budget = max(initial_chunk_builds_per_update, 1)
 	elif _fast_fill_active:
 		budget = max(fast_fill_chunk_builds_per_update, 1)   # camera-switch / jump burst
@@ -1124,6 +1180,69 @@ func _get_stream_center_local() -> Vector3:
 	if target:
 		return to_local(target.global_position)
 	return Vector3.ZERO
+
+func _get_active_camera_chunk() -> Vector2i:
+	var viewport := get_viewport()
+	var active_camera: Camera3D = viewport.get_camera_3d() if viewport != null else null
+	if active_camera != null and is_instance_valid(active_camera):
+		var camera_local: Vector3 = to_local(active_camera.global_position)
+		return _world_to_chunk(camera_local.x, camera_local.z)
+	return _last_center_chunk
+
+func _detect_camera_handoff() -> bool:
+	var viewport := get_viewport()
+	var active_camera: Camera3D = viewport.get_camera_3d() if viewport != null else null
+	if active_camera == null or not is_instance_valid(active_camera):
+		return false
+	var camera_id: int = active_camera.get_instance_id()
+	var camera_local: Vector3 = to_local(active_camera.global_position)
+	var camera_chunk: Vector2i = _world_to_chunk(camera_local.x, camera_local.z)
+	if _last_active_camera_id == 0:
+		_last_active_camera_id = camera_id
+		_last_active_camera_chunk = camera_chunk
+		return false
+	if camera_id == _last_active_camera_id:
+		_last_active_camera_chunk = camera_chunk
+		return false
+	var jump_chunks: int = maxi(
+		absi(camera_chunk.x - _last_active_camera_chunk.x),
+		absi(camera_chunk.y - _last_active_camera_chunk.y)
+	)
+	_last_active_camera_id = camera_id
+	_last_active_camera_chunk = camera_chunk
+	if jump_chunks < maxi(camera_handoff_min_jump_chunks, 1):
+		return false
+	_camera_handoff_remaining_s = maxf(camera_handoff_priority_duration_s, 0.0)
+	_fast_fill_active = true
+	return true
+
+## Explicit hook for unusual camera systems. Normal aircraft/bridge switches are
+## detected automatically, but callers can request the same immediate refresh.
+func prioritize_camera_handoff(camera: Camera3D = null) -> void:
+	if camera != null and is_instance_valid(camera):
+		_last_active_camera_id = camera.get_instance_id()
+		var camera_local: Vector3 = to_local(camera.global_position)
+		_last_active_camera_chunk = _world_to_chunk(camera_local.x, camera_local.z)
+	_camera_handoff_remaining_s = maxf(camera_handoff_priority_duration_s, 0.0)
+	_fast_fill_active = true
+	_stream_timer = 0.0
+	_update_streaming(true)
+
+func is_chunk_loaded_at_world_position(world_position: Vector3) -> bool:
+	var local_position: Vector3 = to_local(world_position)
+	var coord: Vector2i = _world_to_chunk(local_position.x, local_position.z)
+	return _chunks.has(_chunk_key(coord.x, coord.y))
+
+func get_streaming_stats() -> Dictionary:
+	return {
+		"loaded_chunks": _chunks.size(),
+		"pending_chunks": _pending_builds.size(),
+		"building_chunks": _async_tasks.size(),
+		"fast_fill_active": _fast_fill_active,
+		"camera_handoff_active": _camera_handoff_remaining_s > 0.0,
+		"last_center_chunk": _last_center_chunk,
+		"active_camera_chunk": _get_active_camera_chunk(),
+	}
 
 func _world_to_chunk(local_x: float, local_z: float) -> Vector2i:
 	var chunk_span_x: float = float(max(chunk_quads_x, 1)) * cell_size_m

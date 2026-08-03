@@ -2,6 +2,7 @@ extends Node
 
 const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
 const VISUAL_FOCUS_HELPER = preload("res://Effects/VisualFocus.gd")
+const AircraftPresentationDormancy = preload("res://Aircraft/AircraftPresentationDormancy.gd")
 
 enum BudgetBand { HUMAN, NEAR, MID, FAR, CULLED }
 
@@ -16,6 +17,12 @@ enum BudgetBand { HUMAN, NEAR, MID, FAR, CULLED }
 @export var effect_distance_m: float = 1000.0
 @export var ai_aircraft_detail_distance_m: float = 1400.0
 @export var ai_aircraft_audio_distance_m: float = 1200.0
+@export var detach_ai_presentation_subtrees: bool = true
+@export_group("Aircraft Physics Budget")
+@export var budget_distant_aircraft_contact_monitoring: bool = true
+@export_range(500.0, 8000.0, 100.0) var aircraft_contact_monitor_distance_m: float = 2600.0
+@export_range(100.0, 3000.0, 50.0) var aircraft_contact_monitor_min_agl_m: float = 500.0
+@export_group("")
 @export var require_effect_frustum: bool = true
 @export var prune_cache_interval_s: float = 5.0
 
@@ -51,6 +58,15 @@ func get_report_stats() -> Dictionary:
 	copy["cache_roots"] = _root_cache.size()
 	copy["enabled"] = enabled
 	return copy
+
+
+func ensure_aircraft_presentation_attached(unit: Node3D) -> void:
+	if unit == null or not is_instance_valid(unit):
+		return
+	var cache := _get_cache_for_root(unit)
+	var session = cache.get("presentation_session")
+	if session != null:
+		session.restore()
 
 
 func _update_visual_budget() -> void:
@@ -132,6 +148,7 @@ func _apply_budget_to_unit(unit: Node3D, camera: Camera3D) -> void:
 		_apply_ai_aircraft_detail_budget(_resolve_ref_array(cache.get("ai_detail_refs", [])), allow_ai_detail)
 		_apply_aircraft_engine_budget(_resolve_ref_array(cache.get("aircraft_engine_refs", [])), allow_ai_detail, allow_ai_audio)
 		_apply_aircraft_audio_budget(_resolve_ref_array(cache.get("audio_refs", [])), allow_ai_audio)
+		_apply_aircraft_contact_monitor_budget(unit, focused, distance_m)
 	else:
 		_stats["ground_units"] = int(_stats["ground_units"]) + 1
 	match band:
@@ -156,6 +173,52 @@ func _apply_budget_to_unit(unit: Node3D, camera: Camera3D) -> void:
 	if is_air:
 		unit.set_meta("visual_budget_ai_detail_enabled", allow_ai_detail)
 		unit.set_meta("visual_budget_ai_audio_enabled", allow_ai_audio)
+
+
+func _apply_aircraft_contact_monitor_budget(unit: Node3D, focused: bool, distance_m: float) -> void:
+	if not (unit is RigidBody3D):
+		return
+	var body := unit as RigidBody3D
+	if not body.has_meta("visual_budget_original_contact_monitor"):
+		body.set_meta("visual_budget_original_contact_monitor", body.contact_monitor)
+	var original_monitor: bool = bool(body.get_meta("visual_budget_original_contact_monitor", body.contact_monitor))
+	var may_sleep_monitor: bool = budget_distant_aircraft_contact_monitoring \
+		and original_monitor \
+		and not focused \
+		and distance_m >= maxf(aircraft_contact_monitor_distance_m, 0.0) \
+		and _is_safe_for_distant_aircraft_contact_budget(body)
+	# Never change monitoring while the body is already reporting a contact. This
+	# avoids suppressing the exit half of an active collision and makes restoration
+	# deterministic when an aircraft crosses a budget boundary during contact.
+	if may_sleep_monitor and body.contact_monitor and body.get_contact_count() > 0:
+		may_sleep_monitor = false
+	var should_monitor: bool = original_monitor and not may_sleep_monitor
+	body.contact_monitor = should_monitor
+	body.set_meta("visual_budget_contact_monitor_enabled", should_monitor)
+	if original_monitor and not should_monitor:
+		_stats["aircraft_contact_monitors_disabled"] = int(_stats["aircraft_contact_monitors_disabled"]) + 1
+
+
+func _is_safe_for_distant_aircraft_contact_budget(body: RigidBody3D) -> bool:
+	# Contact callbacks are required for deck/terrain crash and landing handling.
+	# Only steady, high-altitude prop-plane navigation states are eligible.
+	for meta_name in ["controls_disabled", "parking_brake", "carrier_transport_mode", "arresting_engaged"]:
+		if bool(body.get_meta(meta_name, false)):
+			return false
+	if body.has_meta("arresting_cable"):
+		return false
+	var altitude_agl_m: float = float(body.get("local_altitude"))
+	if altitude_agl_m < maxf(aircraft_contact_monitor_min_agl_m, 0.0):
+		return false
+	var pilot := body.find_child("AIPilot", true, false) as AIPilot
+	if pilot == null or not is_instance_valid(pilot):
+		return false
+	return pilot.current_state in [
+		AIPilot.State.CLIMBING,
+		AIPilot.State.TRANSIT,
+		AIPilot.State.SEARCH,
+		AIPilot.State.RTB,
+	]
 
 
 func _get_cache_for_root(root: Node3D) -> Dictionary:
@@ -183,6 +246,7 @@ func _get_cache_for_root(root: Node3D) -> Dictionary:
 		"ai_detail_refs": _make_ref_array(ai_detail_nodes),
 		"audio_refs": _make_ref_array(audio_nodes),
 		"aircraft_engine_refs": _make_ref_array(aircraft_engine_nodes),
+		"presentation_session": AircraftPresentationDormancy.new(root),
 		"last_seen_frame": Engine.get_process_frames(),
 	}
 	_root_cache[id] = cached
@@ -249,14 +313,23 @@ func _apply_effect_budget(effect_nodes: Array, allow_effects: bool) -> void:
 
 
 func _apply_ai_aircraft_player_only_budget(unit: Node3D, focused: bool, cache: Dictionary) -> void:
+	var presentation_session = cache.get("presentation_session")
+	if (focused or not detach_ai_presentation_subtrees) and presentation_session != null:
+		presentation_session.restore()
 	var player_only_nodes: Array = _resolve_ref_array(cache.get("player_only_refs", []))
 	for node_value in player_only_nodes:
 		var node := node_value as Node
 		if node == null or not is_instance_valid(node):
 			continue
 		_store_original_node_state(node)
+		if node.has_method("set_view_updates_active"):
+			node.call("set_view_updates_active", focused)
 		if focused:
-			_restore_node_state(node)
+			# FlightDirector owns the live UI/camera state of the aircraft being
+			# watched. AI aircraft are commonly spawned with these nodes disabled,
+			# so restoring the cached spawn state here blanks the HUD for one frame
+			# every visual-budget update before FlightDirector enables it again.
+			continue
 		else:
 			node.set_process(false)
 			node.set_physics_process(false)
@@ -267,6 +340,11 @@ func _apply_ai_aircraft_player_only_budget(unit: Node3D, focused: bool, cache: D
 				(node as Node3D).visible = false
 			_stop_audio_players_recursive(node)
 			_stats["player_only_disabled"] = int(_stats["player_only_disabled"]) + 1
+	if not focused and detach_ai_presentation_subtrees and presentation_session != null:
+		var detached_nodes: int = int(presentation_session.detach())
+		if detached_nodes > 0:
+			_stats["presentation_aircraft_detached"] = int(_stats["presentation_aircraft_detached"]) + 1
+			_stats["presentation_nodes_detached"] = int(_stats["presentation_nodes_detached"]) + detached_nodes
 
 
 func _apply_ai_aircraft_detail_budget(detail_nodes: Array, allow_detail: bool) -> void:
@@ -312,6 +390,11 @@ func _apply_aircraft_audio_budget(audio_nodes: Array, allow_audio: bool) -> void
 			continue
 		_stats["ai_audio_nodes"] = int(_stats["ai_audio_nodes"]) + 1
 		if allow_audio:
+			# Presentation dormancy may temporarily detach an AI aircraft subtree.
+			# Audio players remain valid Objects while detached, but Godot rejects
+			# play() until they are back in the SceneTree.
+			if not node.is_inside_tree():
+				continue
 			if node.has_meta("visual_budget_audio_was_playing") and bool(node.get_meta("visual_budget_audio_was_playing")):
 				if node is AudioStreamPlayer:
 					var audio_2d: AudioStreamPlayer = node as AudioStreamPlayer
@@ -386,6 +469,10 @@ func _is_player_only_aircraft_node(node: Node) -> bool:
 
 
 func _is_ai_aircraft_detail_node(node: Node) -> bool:
+	# Player-only roots have their own stricter lifecycle. Do not let the broader
+	# near-aircraft detail pass restore a hidden cockpit UI node afterward.
+	if _is_player_only_aircraft_node(node):
+		return false
 	var node_name: String = str(node.name)
 	if node_name in [
 		"CockpitPilot",
@@ -396,7 +483,8 @@ func _is_ai_aircraft_detail_node(node: Node) -> bool:
 	]:
 		return true
 	var lowered_name: String = node_name.to_lower()
-	return lowered_name.find("instrument") >= 0 or lowered_name.find("cockpit") >= 0
+	return lowered_name.find("instrument") >= 0 \
+		or lowered_name.find("cockpit") >= 0
 
 
 func _make_ref_array(nodes: Array) -> Array[WeakRef]:
@@ -455,6 +543,12 @@ func _distance_to_camera(unit: Node3D, camera: Camera3D) -> float:
 func _is_unit_focused(unit: Node3D, camera: Camera3D) -> bool:
 	if _is_player_controlled(unit):
 		return true
+	var director := get_node_or_null("/root/FlightDirector")
+	if director != null and director.get("current_viewed_aircraft") == unit:
+		# Camera handoffs can briefly leave the viewport without the final camera.
+		# The director's viewed-aircraft record is the stable authority for UI
+		# budgeting during that handoff.
+		return true
 	if camera != null and is_instance_valid(camera) and _is_ancestor_of(unit, camera):
 		return true
 	return VISUAL_FOCUS_HELPER.is_node_in_target_camera_focus(self, unit)
@@ -502,9 +596,15 @@ func _prune_cache() -> void:
 		var root_ref: WeakRef = cached.get("root_ref", null) as WeakRef
 		var root: Object = root_ref.get_ref() if root_ref != null else null
 		if root == null or not is_instance_valid(root):
+			var dead_session = cached.get("presentation_session")
+			if dead_session != null:
+				dead_session.discard_detached()
 			stale_ids.append(int(id))
 			continue
 		if current_frame - int(cached.get("last_seen_frame", current_frame)) > 600:
+			var stale_session = cached.get("presentation_session")
+			if stale_session != null:
+				stale_session.dispose()
 			stale_ids.append(int(id))
 	for id in stale_ids:
 		_root_cache.erase(id)
@@ -527,6 +627,9 @@ func _reset_stats() -> void:
 		"effect_nodes": 0,
 		"effects_disabled": 0,
 		"player_only_disabled": 0,
+		"presentation_aircraft_detached": 0,
+		"presentation_nodes_detached": 0,
+		"aircraft_contact_monitors_disabled": 0,
 		"ai_detail_nodes": 0,
 		"ai_detail_disabled": 0,
 		"ai_audio_nodes": 0,

@@ -4,7 +4,9 @@ const PIXEL_FONT: FontFile = preload("res://UI/Pixel.ttf")
 
 const PANEL_MARGIN_PX: float = 24.0
 const HEADER_HEIGHT_PX: float = 62.0
-const ROW_HEIGHT_PX: float = 32.0
+const HEADER_ROW_HEIGHT_PX: float = 32.0
+const ROW_HEIGHT_PX: float = 58.0
+const PORTRAIT_FRAME_SIZE_PX := Vector2(48.0, 50.0)
 const TABLE_PAD_PX: float = 18.0
 
 const VECTOR_TEXT_COLOR: Color = Color(0.58, 1.0, 0.64, 1.0)
@@ -17,6 +19,7 @@ const VECTOR_AMBER_COLOR: Color = Color(1.0, 0.78, 0.28, 1.0)
 const VECTOR_DIM_COLOR: Color = Color(0.38, 0.54, 0.42, 0.9)
 
 const COLUMNS: Array[Dictionary] = [
+	{"title": "PHOTO", "width": 66.0, "kind": "portrait"},
 	{"title": "RANK", "width": 72.0},
 	{"title": "PILOT", "width": 176.0},
 	{"title": "ORIGIN", "width": 136.0},
@@ -41,6 +44,7 @@ var _scroll: ScrollContainer
 var _table: VBoxContainer
 var _footer: Label
 var _refresh_timer_s: float = 0.0
+var _portrait_texture_cache: Dictionary = {}
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -128,14 +132,19 @@ func _refresh_table() -> void:
 	if _table == null:
 		return
 	_clear_children(_table)
-	_table.add_child(_make_row(_header_values(), true, false))
+	_table.add_child(_make_row(_header_values(), true, false, {}))
 	var roster := _get_sorted_roster()
 	if roster.is_empty():
-		var empty_row := _make_row(["", "NO PILOTS AVAILABLE", "", "", "", "", "", "", "", "", "", "", ""], false, false)
+		var empty_values: Array[String] = []
+		for _column in COLUMNS:
+			empty_values.append("")
+		empty_values[2] = "NO PILOTS AVAILABLE"
+		var empty_row := _make_row(empty_values, false, false, {})
 		_table.add_child(empty_row)
 		return
 	for i in range(roster.size()):
-		_table.add_child(_make_row(_pilot_values(roster[i]), false, i % 2 == 1))
+		var pilot: Dictionary = roster[i]
+		_table.add_child(_make_row(_pilot_values(pilot), false, i % 2 == 1, pilot))
 
 func _get_sorted_roster() -> Array[Dictionary]:
 	if PilotRoster == null or not is_instance_valid(PilotRoster):
@@ -174,6 +183,7 @@ func _pilot_values(pilot: Dictionary) -> Array[String]:
 	if callsign != "":
 		status = "ASSIGNED " + callsign.to_upper()
 	return [
+		"",
 		str(pilot.get("rank", "")),
 		str(pilot.get("name", "")),
 		str(pilot.get("national_origin", "")),
@@ -189,21 +199,70 @@ func _pilot_values(pilot: Dictionary) -> Array[String]:
 		str(pilot.get("temperament", "")).to_upper(),
 	]
 
-func _make_row(values: Array[String], is_header: bool, alternate: bool) -> Control:
+func _make_row(values: Array[String], is_header: bool, alternate: bool, pilot: Dictionary) -> Control:
 	var row := ColorRect.new()
 	row.color = Color(0.03, 0.10, 0.05, 0.96) if is_header else (VECTOR_ROW_ALT_BG if alternate else VECTOR_ROW_BG)
-	row.custom_minimum_size = Vector2(_table_width(), ROW_HEIGHT_PX)
+	var row_height := HEADER_ROW_HEIGHT_PX if is_header else ROW_HEIGHT_PX
+	row.custom_minimum_size = Vector2(_table_width(), row_height)
 	var x := 0.0
 	for i in range(COLUMNS.size()):
 		var column: Dictionary = COLUMNS[i]
+		var column_width := float(column.get("width", 80.0))
+		if not is_header and str(column.get("kind", "")) == "portrait":
+			_add_portrait_to_row(row, pilot, x, column_width, row_height)
+			x += column_width
+			continue
 		var label := _make_label(values[i] if i < values.size() else "", 13 if is_header else 12, VECTOR_AMBER_COLOR if is_header else VECTOR_TEXT_COLOR)
 		label.position = Vector2(x + 8.0, 0.0)
-		label.size = Vector2(float(column.get("width", 80.0)) - 12.0, ROW_HEIGHT_PX)
+		label.size = Vector2(column_width - 12.0, row_height)
 		label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		label.clip_text = true
 		row.add_child(label)
-		x += float(column.get("width", 80.0))
+		x += column_width
 	return row
+
+func _add_portrait_to_row(row: Control, pilot: Dictionary, column_x: float, column_width: float, row_height: float) -> void:
+	var frame := Panel.new()
+	frame.position = Vector2(
+		column_x + (column_width - PORTRAIT_FRAME_SIZE_PX.x) * 0.5,
+		(row_height - PORTRAIT_FRAME_SIZE_PX.y) * 0.5
+	)
+	frame.size = PORTRAIT_FRAME_SIZE_PX
+	frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	frame.add_theme_stylebox_override("panel", _portrait_frame_style())
+	frame.tooltip_text = str(pilot.get("name", "Pilot portrait"))
+	row.add_child(frame)
+
+	var portrait := TextureRect.new()
+	portrait.position = Vector2(2.0, 2.0)
+	portrait.size = PORTRAIT_FRAME_SIZE_PX - Vector2(4.0, 4.0)
+	portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	portrait.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	portrait.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	portrait.texture = _get_portrait_texture(str(pilot.get("portrait_path", "")))
+	frame.add_child(portrait)
+
+func _get_portrait_texture(path: String) -> Texture2D:
+	if path == "":
+		return null
+	if _portrait_texture_cache.has(path):
+		return _portrait_texture_cache[path] as Texture2D
+	var texture := load(path) as Texture2D
+	if texture != null:
+		_portrait_texture_cache[path] = texture
+	return texture
+
+func _portrait_frame_style() -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.0, 0.02, 0.01, 1.0)
+	style.border_color = VECTOR_BORDER_COLOR
+	style.set_border_width_all(1)
+	style.corner_radius_top_left = 2
+	style.corner_radius_top_right = 2
+	style.corner_radius_bottom_left = 2
+	style.corner_radius_bottom_right = 2
+	return style
 
 func _make_panel(color: Color) -> ColorRect:
 	var panel := ColorRect.new()

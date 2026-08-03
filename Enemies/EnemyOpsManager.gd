@@ -36,7 +36,14 @@ const INTEL_TTL_CARRIER_S := 180.0
 const INTEL_TTL_AIR_S     := 120.0
 const INTEL_TTL_GROUND_S  := 150.0
 
-@export var debug_print: bool = true
+# Central tasking is deliberately conservative: at most one patrol flight is
+# pulled off station for an alert at a time. Other patrols may still defend
+# themselves if they make their own local contact.
+const MAX_CONCURRENT_AIR_RESPONSE_FLIGHTS := 1
+const LOSS_INCIDENT_COALESCE_RANGE_M := 1500.0
+const MAX_PENDING_LOSS_INCIDENTS := 4
+
+@export var debug_print: bool = false
 
 var bases: Array[EnemyBase] = []
 
@@ -63,6 +70,8 @@ var _last_ticked_unit_count: int = 0
 var _service_pass_count: int = 0
 var _unit_tick_count: int = 0
 var _last_materializing_flight_count: int = 0
+var _pending_loss_incidents: Array[Dictionary] = []
+var _investigation_flight_ref: WeakRef = null
 
 
 func _ready() -> void:
@@ -86,6 +95,7 @@ func _physics_process(delta: float) -> void:
 	_service_due_units()
 
 	_decay_intel(service_delta)
+	_service_loss_investigations()
 
 	# Deployment balance check
 	_eval_timer -= service_delta
@@ -172,6 +182,8 @@ func get_report_stats() -> Dictionary:
 		"unit_ticks": _unit_tick_count,
 		"flight_schedules": _flight_next_tick_s.size(),
 		"platoon_schedules": _platoon_next_tick_s.size(),
+		"pending_loss_incidents": _pending_loss_incidents.size(),
+		"investigation_active": _get_investigation_flight() != null,
 	}
 
 
@@ -288,6 +300,122 @@ func on_turbine_destroyed() -> void:
 		base.vehicle_replenish_interval_s  *= 1.02
 	if debug_print:
 		print("[EnemyOps] Turbine destroyed — enemy capacity and production degraded by 2%%")
+
+
+# ── Fixed-asset loss investigation ───────────────────────────────────────────
+
+func report_asset_loss(loss_position: Vector3, asset_kind: String = "asset") -> void:
+	if _disabled_for_test or not _is_valid_world_position(loss_position):
+		return
+	var active_flight: EnemyVirtualFlight = _get_investigation_flight()
+	if active_flight != null \
+			and active_flight.mission == EnemyVirtualFlight.Mission.INVESTIGATE \
+			and active_flight.get_investigation_position().distance_to(loss_position) <= LOSS_INCIDENT_COALESCE_RANGE_M:
+		active_flight.assign_investigation(loss_position)
+		if debug_print:
+			print("[EnemyOps] Investigation %s updated by nearby %s loss" % [active_flight.flight_name, asset_kind])
+		return
+
+	for incident: Dictionary in _pending_loss_incidents:
+		var incident_position: Vector3 = incident.get("position", Vector3.INF) as Vector3
+		if incident_position != Vector3.INF \
+				and incident_position.distance_to(loss_position) <= LOSS_INCIDENT_COALESCE_RANGE_M:
+			incident["position"] = loss_position
+			incident["kind"] = asset_kind
+			incident["reported_at_s"] = _ops_clock_s
+			return
+
+	if _pending_loss_incidents.size() >= MAX_PENDING_LOSS_INCIDENTS:
+		_pending_loss_incidents.pop_front()
+	_pending_loss_incidents.append({
+		"position": loss_position,
+		"kind": asset_kind,
+		"reported_at_s": _ops_clock_s,
+	})
+	if debug_print:
+		print("[EnemyOps] Queued investigation: %s lost at (%.0f, %.0f)" % [asset_kind, loss_position.x, loss_position.z])
+
+
+func _service_loss_investigations() -> void:
+	var active_flight: EnemyVirtualFlight = _get_investigation_flight()
+	if active_flight != null:
+		if active_flight.mission == EnemyVirtualFlight.Mission.INVESTIGATE:
+			return
+		_investigation_flight_ref = null
+
+	if _pending_loss_incidents.is_empty() \
+			or _count_centrally_tasked_air_responses() >= MAX_CONCURRENT_AIR_RESPONSE_FLIGHTS:
+		return
+	var incident: Dictionary = _pending_loss_incidents[0]
+	var incident_position: Vector3 = incident.get("position", Vector3.INF) as Vector3
+	var flight: EnemyVirtualFlight = _find_nearest_available_fighter(incident_position)
+	if flight == null or not flight.assign_investigation(incident_position):
+		return
+	_pending_loss_incidents.pop_front()
+	_investigation_flight_ref = weakref(flight)
+	if debug_print:
+		print("[EnemyOps] Flight %s → INVESTIGATE %s loss at (%.0f, %.0f)" % [
+			flight.flight_name,
+			String(incident.get("kind", "asset")),
+			incident_position.x,
+			incident_position.z,
+		])
+
+
+func _get_investigation_flight() -> EnemyVirtualFlight:
+	if _investigation_flight_ref == null:
+		return null
+	var value: Variant = _investigation_flight_ref.get_ref()
+	return value as EnemyVirtualFlight if value is EnemyVirtualFlight and is_instance_valid(value) else null
+
+
+func _find_nearest_available_fighter(target_position: Vector3) -> EnemyVirtualFlight:
+	if target_position == Vector3.INF:
+		return null
+	var nearest: EnemyVirtualFlight = null
+	var nearest_distance_sq: float = INF
+	for base: EnemyBase in bases:
+		if base == null or not is_instance_valid(base):
+			continue
+		for flight: EnemyVirtualFlight in _get_flights(base):
+			if flight.aircraft_count <= 0 \
+					or flight.role != EnemyVirtualFlight.AircraftRole.FIGHTER \
+					or flight.mission != EnemyVirtualFlight.Mission.PATROL:
+				continue
+			var distance_sq: float = flight.position.distance_squared_to(target_position)
+			if distance_sq < nearest_distance_sq:
+				nearest_distance_sq = distance_sq
+				nearest = flight
+	return nearest
+
+
+func _count_centrally_tasked_air_responses() -> int:
+	var count := 0
+	for base: EnemyBase in bases:
+		if base == null or not is_instance_valid(base):
+			continue
+		for flight: EnemyVirtualFlight in _get_flights(base):
+			if flight.mission in [EnemyVirtualFlight.Mission.INTERCEPT, EnemyVirtualFlight.Mission.INVESTIGATE]:
+				count += 1
+	return count
+
+
+func _is_valid_world_position(world_position: Vector3) -> bool:
+	return world_position != Vector3.INF \
+		and is_finite(world_position.x) \
+		and is_finite(world_position.y) \
+		and is_finite(world_position.z)
+
+
+func get_investigation_status() -> Dictionary:
+	var active_flight: EnemyVirtualFlight = _get_investigation_flight()
+	return {
+		"active": active_flight != null and active_flight.mission == EnemyVirtualFlight.Mission.INVESTIGATE,
+		"flight_name": active_flight.flight_name if active_flight != null else "",
+		"position": active_flight.get_investigation_position() if active_flight != null else Vector3.INF,
+		"pending": _pending_loss_incidents.size(),
+		"response_count": _count_centrally_tasked_air_responses(),
+	}
 
 
 # ── Deployment ────────────────────────────────────────────────────────────────
@@ -412,6 +540,7 @@ func _get_contact(contact_type: String) -> Dictionary:
 # ── Threat assessment (intel-driven) ─────────────────────────────────────────
 
 func _assess_threats() -> void:
+	var centrally_tasked_response_count: int = _count_centrally_tasked_air_responses()
 	for base in bases:
 		if not is_instance_valid(base):
 			continue
@@ -427,16 +556,21 @@ func _assess_threats() -> void:
 		for f: EnemyVirtualFlight in flights:
 			if f.mission == EnemyVirtualFlight.Mission.INTERCEPT:
 				has_intercept = true
+				if not air_contact.is_empty():
+					f.set_intercept_position(air_contact["position"] as Vector3)
 				break
 
 		if not air_contact.is_empty():
 			var air_dist := base.global_position.distance_to(air_contact["position"] as Vector3)
-			if not has_intercept and air_dist < AIR_INTERCEPT_RANGE_M:
+			if not has_intercept \
+					and centrally_tasked_response_count < MAX_CONCURRENT_AIR_RESPONSE_FLIGHTS \
+					and air_dist < AIR_INTERCEPT_RANGE_M:
 				# Only send fighters on intercept — bombers stick to ground attack
 				for f: EnemyVirtualFlight in flights:
 					if f.mission == EnemyVirtualFlight.Mission.PATROL \
 							and f.role == EnemyVirtualFlight.AircraftRole.FIGHTER:
-						f.mission = EnemyVirtualFlight.Mission.INTERCEPT
+						f.set_intercept_position(air_contact["position"] as Vector3)
+						centrally_tasked_response_count += 1
 						if debug_print:
 							print("[EnemyOps] Flight %s → INTERCEPT (intel: air %.0fm away)" % [
 								f.flight_name, air_dist])
@@ -445,7 +579,8 @@ func _assess_threats() -> void:
 			# No current air intel — stand down
 			for f: EnemyVirtualFlight in flights:
 				if f.mission == EnemyVirtualFlight.Mission.INTERCEPT:
-					f.mission = EnemyVirtualFlight.Mission.PATROL
+					f.resume_patrol()
+					centrally_tasked_response_count = maxi(centrally_tasked_response_count - 1, 0)
 					if debug_print:
 						print("[EnemyOps] Flight %s → PATROL (no air intel)" % f.flight_name)
 					break
@@ -530,6 +665,8 @@ func disable_for_heli_test() -> void:
 	_disabled_for_test = true
 	set_physics_process(false)
 	_known_contacts.clear()
+	_pending_loss_incidents.clear()
+	_investigation_flight_ref = null
 	for base in bases:
 		if not is_instance_valid(base):
 			continue
@@ -556,3 +693,5 @@ func disable_for_heli_test() -> void:
 func apply_origin_shift(offset: Vector3) -> void:
 	for c in _known_contacts:
 		c["position"] = (c["position"] as Vector3) - offset
+	for incident: Dictionary in _pending_loss_incidents:
+		incident["position"] = (incident["position"] as Vector3) - offset

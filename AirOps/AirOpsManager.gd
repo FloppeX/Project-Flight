@@ -18,7 +18,7 @@ const FLIGHT_NAMES := ["Archer", "Bulldog", "Crimson", "Dingo"]
 
 @export var assignment_interval_s: float = 3.0
 @export var threat_scan_interval_s: float = 2.5
-@export var debug_print: bool = true
+@export var debug_print: bool = false
 @export var mission_tasking_enabled: bool = true
 
 @export var default_mission: Flight.Mission = Flight.Mission.CAP
@@ -1278,6 +1278,14 @@ func request_rescue_for(pilot_node: Node3D) -> void:
 			"All rescue assets are tasked. Stay hidden.",
 		]))
 		print("[AirOpsManager] No helicopter available to rescue %s" % pilot_node.name)
+
+
+func issue_ops_order(unit: Node, order: OpsOrder) -> bool:
+	## Public domain-neutral tasking boundary used by scenario and gameplay-level
+	## directors. OperationsCoordinator validates capability before dispatch.
+	if unit == null or not is_instance_valid(unit) or order == null:
+		return false
+	return OperationsCoordinator.issue_order(unit, order)
 
 
 func _ensure_flight_can_execute(f: Flight) -> void:

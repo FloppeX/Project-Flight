@@ -7,6 +7,7 @@ signal origin_shifted(offset: Vector3)
 
 @export var enabled: bool = true
 @export var threshold_m: float = 4000.0
+@export var debug_print: bool = false
 
 func _physics_process(_delta: float) -> void:
 	if not enabled:
@@ -32,7 +33,8 @@ func shift_origin(offset: Vector3) -> void:
 	if not root:
 		return
 	
-	print("[FloatingOrigin] Shifting world origin by offset: ", offset)
+	if debug_print:
+		print("[FloatingOrigin] Shifting world origin by offset: ", offset)
 	# Shift every Node3D child of current_scene
 	for child in root.get_children():
 		if child is Node3D:
@@ -40,7 +42,8 @@ func shift_origin(offset: Vector3) -> void:
 			child.global_position -= offset
 			if child.has_method("reset_physics_interpolation"):
 				child.reset_physics_interpolation()
-			print("[FloatingOrigin]   shifted child '%s' from %s to %s" % [child.name, str(old_pos), str(child.global_position)])
+			if debug_print:
+				print("[FloatingOrigin]   shifted child '%s' from %s to %s" % [child.name, str(old_pos), str(child.global_position)])
 	
 	# Notify all systems that cache global coordinates about the shift
 	origin_shifted.emit(offset)

@@ -8,6 +8,7 @@ class_name AircraftModule_ControlTargeting
 @export var auto_replace_target: bool = false
 @export var relaxed_lock_when_none: bool = true  # If true, pick nearest in range even if out of cone
 @export var enable_legacy_keyboard_shortcuts: bool = false
+@export var external_target_authority: bool = false
 
 var _time_accum: float = 0.0
 var current_target: Node3D
@@ -50,6 +51,10 @@ func receive_input(event):
 				return
 
 func process_physic_frame(delta):
+	if external_target_authority:
+		if current_target != null and not is_instance_valid(current_target):
+			current_target = null
+		return
 	_time_accum += delta
 	var interval = 1.0 / max(targeting_update_rate_hz, 0.1)
 	if _time_accum >= interval:

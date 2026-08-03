@@ -34,8 +34,11 @@ enum LandingGearInitialStates {
 @export var spring_damping: float = 8000.0     # Damping to prevent bouncing  
 @export var nose_spring_damping_multiplier: float = 1.35  # Extra damping on nose gear to reduce pogo on touchdown/rollout
 @export var spring_rebound_damping_ratio: float = 0.35  # Use lighter damping while the strut is re-extending to avoid ground pumping
+@export var airborne_suspension_budget_enabled: bool = true
+@export var suspension_probe_activation_agl_m: float = 12.0
 @export var spring_velocity_deadband_mps: float = 0.05  # Ignore tiny contact-normal velocity noise that can cause chatter
 @export var wheel_rest_height: float = 1.2     # Normal wheel height above ground
+@export var wheel_rest_heights: Array[float] = []  # Optional per-wheel override, ordered like gear_collision_shapes
 @export var max_compression: float = 0.8       # Maximum compression distance
 @export var deck_contact_visual_offset_m: float = 0.0  # Height from collider origin down to visible wheel contact for deck placement helpers
 @export var move_colliders_with_suspension: bool = false
@@ -92,6 +95,9 @@ var audio_player: AudioStreamPlayer3D
 var is_deployed: bool = false
 var is_stowed: bool = true
 var gear_compressions: Array[float] = []  # Latest compression per gear slot (metres); readable by debug systems
+var gear_has_contact: Array[bool] = []  # True while the suspension ray is within usable contact range
+var gear_contact_points: Array[Vector3] = []  # World-space surface point for each gear slot
+var gear_contact_normals: Array[Vector3] = []  # World-space surface normal for each gear slot
 var _suspension_collider_compressions: Array[float] = []
 var _lean_offsets: Array[float] = []       # Per-wheel rest-height offsets from accel lean
 var _prev_forward_speed_mps: float = 0.0
@@ -158,6 +164,13 @@ func process_physic_frame(delta: float):
 	if current_state != LandingGearInitialStates.DEPLOYED:
 		_update_carrier_deck_follow_state(true, delta)
 		return
+	if _can_skip_airborne_suspension_probes():
+		_clear_airborne_contact_state()
+		_update_carrier_deck_follow_state(true, delta)
+		_update_accel_lean(delta)
+		_update_suspension_collider_geometry(delta)
+		_update_lean_geometry()
+		return
 
 	_update_accel_lean(delta)
 
@@ -193,9 +206,67 @@ func process_physic_frame(delta: float):
 	if ang.length() > 1.5:
 		print("[LG TUMBLE] angular_velocity magnitude=%.2f rad/s (%.0f°/s)" % [ang.length(), rad_to_deg(ang.length())])
 
+func _can_skip_airborne_suspension_probes() -> bool:
+	if not airborne_suspension_budget_enabled or not is_instance_valid(aircraft):
+		return false
+	# Deck handling and arrestment must retain full wheel contact even if an
+	# altitude source is briefly stale during a carrier/origin transition.
+	for meta_name in ["controls_disabled", "carrier_transport_mode", "arresting_engaged"]:
+		if bool(aircraft.get_meta(meta_name, false)):
+			return false
+	var agl_m: float = float(aircraft.get("local_altitude")) if "local_altitude" in aircraft else 0.0
+	return agl_m > maxf(suspension_probe_activation_agl_m, 2.0)
+
+
+func _clear_airborne_contact_state() -> void:
+	var count: int = gear_collision_shapes.size()
+	if gear_compressions.size() < count:
+		gear_compressions.resize(count)
+	_ensure_gear_contact_state_size(count)
+	if _wheel_on_carrier_surface.size() < count:
+		_wheel_on_carrier_surface.resize(count)
+	if _wheel_carrier_surfaces.size() < count:
+		_wheel_carrier_surfaces.resize(count)
+	if _wheel_was_grounded.size() < count:
+		_wheel_was_grounded.resize(count)
+	for i in range(count):
+		gear_compressions[i] = 0.0
+		gear_has_contact[i] = false
+		gear_contact_points[i] = Vector3.ZERO
+		gear_contact_normals[i] = Vector3.UP
+		_wheel_on_carrier_surface[i] = false
+		_wheel_carrier_surfaces[i] = null
+		_wheel_was_grounded[i] = false
+
+
+func _ensure_gear_contact_state_size(count: int) -> void:
+	if gear_has_contact.size() < count:
+		var old_contact_count := gear_has_contact.size()
+		gear_has_contact.resize(count)
+		for i in range(old_contact_count, count):
+			gear_has_contact[i] = false
+	if gear_contact_points.size() < count:
+		var old_point_count := gear_contact_points.size()
+		gear_contact_points.resize(count)
+		for i in range(old_point_count, count):
+			gear_contact_points[i] = Vector3.ZERO
+	if gear_contact_normals.size() < count:
+		var old_normal_count := gear_contact_normals.size()
+		gear_contact_normals.resize(count)
+		for i in range(old_normal_count, count):
+			gear_contact_normals[i] = Vector3.UP
+
+
 func apply_spring_physics(collision_shape: CollisionShape3D, gear_index: int, delta: float):
 	"""Apply spring and damping forces to a gear collision shape"""
+	_ensure_gear_contact_state_size(gear_index + 1)
 	if not collision_shape or collision_shape.disabled:
+		gear_has_contact[gear_index] = false
+		gear_contact_points[gear_index] = Vector3.ZERO
+		gear_contact_normals[gear_index] = Vector3.UP
+		if gear_compressions.size() <= gear_index:
+			gear_compressions.resize(gear_index + 1)
+		gear_compressions[gear_index] = 0.0
 		if _wheel_on_carrier_surface.size() <= gear_index:
 			_wheel_on_carrier_surface.resize(gear_index + 1)
 		_wheel_on_carrier_surface[gear_index] = false
@@ -209,7 +280,7 @@ func apply_spring_physics(collision_shape: CollisionShape3D, gear_index: int, de
 	if gear_index < _collider_rest_positions.size():
 		base_global_position = collision_shape.get_parent().to_global(_collider_rest_positions[gear_index])
 		
-	var effective_rest_height: float = maxf(0.05, wheel_rest_height)
+	var effective_rest_height: float = get_wheel_rest_height(gear_index)
 	var space_state = collision_shape.get_world_3d().direct_space_state
 	var query = PhysicsRayQueryParameters3D.create(
 		base_global_position,
@@ -229,12 +300,24 @@ func apply_spring_physics(collision_shape: CollisionShape3D, gear_index: int, de
 		var distance_to_ground = base_global_position.distance_to(result.position)
 		var compression = effective_rest_height - distance_to_ground
 		compression = clamp(compression, 0.0, max_compression)
+		var contact_normal: Vector3 = result.normal as Vector3
+		if contact_normal.length_squared() <= 0.000001:
+			# A ray beginning exactly on/inside a deck collider can report no normal.
+			# The suspension probe always travels downward, so upward is the stable
+			# fallback for this boundary case.
+			contact_normal = Vector3.UP
+		else:
+			contact_normal = contact_normal.normalized()
 		var surface: Variant = result.get("collider", null)
 		var carrier_surface := _find_surface_group_node(surface, "carrier")
 		var touch_margin: float = maxf(carrier_deck_touch_margin_m, 0.0)
+		var contact_is_reachable: bool = distance_to_ground <= (effective_rest_height + touch_margin)
+		gear_has_contact[gear_index] = contact_is_reachable
+		gear_contact_points[gear_index] = result.position as Vector3
+		gear_contact_normals[gear_index] = contact_normal
 		if _wheel_on_carrier_surface.size() <= gear_index:
 			_wheel_on_carrier_surface.resize(gear_index + 1)
-		_wheel_on_carrier_surface[gear_index] = carrier_surface != null and distance_to_ground <= (effective_rest_height + touch_margin)
+		_wheel_on_carrier_surface[gear_index] = carrier_surface != null and contact_is_reachable
 		if _wheel_carrier_surfaces.size() <= gear_index:
 			_wheel_carrier_surfaces.resize(gear_index + 1)
 		_wheel_carrier_surfaces[gear_index] = carrier_surface if _wheel_on_carrier_surface[gear_index] else null
@@ -264,8 +347,6 @@ func apply_spring_physics(collision_shape: CollisionShape3D, gear_index: int, de
 			aircraft.apply_force(-result.normal * deck_hold_force, force_position)
 
 		if compression > 0.01:  # Small threshold to avoid jittering
-			var contact_normal: Vector3 = (result.normal as Vector3).normalized()
-
 			# Calculate spring force (Hooke's law)
 			var spring_force = spring_strength * compression
 
@@ -288,6 +369,9 @@ func apply_spring_physics(collision_shape: CollisionShape3D, gear_index: int, de
 			# Apply directional wheel friction
 			apply_wheel_friction(collision_shape, gear_index, compression, contact_normal, result.get("collider", null))
 	else:
+		gear_has_contact[gear_index] = false
+		gear_contact_points[gear_index] = Vector3.ZERO
+		gear_contact_normals[gear_index] = Vector3.UP
 		if _wheel_on_carrier_surface.size() <= gear_index:
 			_wheel_on_carrier_surface.resize(gear_index + 1)
 		_wheel_on_carrier_surface[gear_index] = false
@@ -301,6 +385,87 @@ func apply_spring_physics(collision_shape: CollisionShape3D, gear_index: int, de
 			print("[LG Wheel %d] LIFTOFF" % [gear_index])
 		if _wheel_was_grounded.size() > gear_index:
 			_wheel_was_grounded[gear_index] = false
+
+
+func get_wheel_rest_height(gear_index: int) -> float:
+	if gear_index >= 0 and gear_index < wheel_rest_heights.size():
+		return maxf(0.05, wheel_rest_heights[gear_index])
+	return maxf(0.05, wheel_rest_height)
+
+
+func get_static_load_compressions() -> Array[float]:
+	var count := gear_collision_shapes.size()
+	var targets: Array[float] = []
+	targets.resize(count)
+	if count <= 0 or not is_instance_valid(aircraft) or spring_strength <= 0.0:
+		return targets
+
+	var gravity_mps2 := float(ProjectSettings.get_setting("physics/3d/default_gravity", 9.8))
+	var total_weight_n := maxf(float(aircraft.mass) * gravity_mps2, 0.0)
+	var loads_n: Array[float] = []
+	loads_n.resize(count)
+	for i in range(count):
+		loads_n[i] = total_weight_n / float(count)
+
+	# For conventional tricycle gear, distribute the static load from the CG and
+	# the longitudinal wheel positions. This makes the frozen deck stance match
+	# the spring forces that will exist immediately after physics is enabled.
+	var valid_rears: Array[int] = []
+	for rear_index in rear_gear_indices:
+		if rear_index >= 0 and rear_index < count and rear_index != nose_gear_index:
+			valid_rears.append(rear_index)
+	if nose_gear_index >= 0 and nose_gear_index < count and not valid_rears.is_empty():
+		var nose_local := _get_gear_base_aircraft_local_position(nose_gear_index)
+		var rear_z := 0.0
+		for rear_index in valid_rears:
+			rear_z += _get_gear_base_aircraft_local_position(rear_index).z
+		rear_z /= float(valid_rears.size())
+		var cg_z: float = aircraft.center_of_mass.z if aircraft.center_of_mass_mode == RigidBody3D.CENTER_OF_MASS_MODE_CUSTOM else 0.0
+		var longitudinal_span := nose_local.z - rear_z
+		if absf(longitudinal_span) > 0.001:
+			var nose_fraction := clampf((cg_z - rear_z) / longitudinal_span, 0.0, 1.0)
+			var nose_load := total_weight_n * nose_fraction
+			var rear_load_each := (total_weight_n - nose_load) / float(valid_rears.size())
+			for i in range(count):
+				loads_n[i] = 0.0
+			loads_n[nose_gear_index] = nose_load
+			for rear_index in valid_rears:
+				loads_n[rear_index] = rear_load_each
+
+	for i in range(count):
+		targets[i] = clampf(loads_n[i] / spring_strength, 0.0, maxf(max_compression, 0.0))
+	return targets
+
+
+func get_gear_base_global_position(gear_index: int) -> Vector3:
+	if gear_index < 0 or gear_index >= gear_collision_shapes.size():
+		return aircraft.global_position if is_instance_valid(aircraft) else Vector3.ZERO
+	var collider := gear_collision_shapes[gear_index]
+	if not is_instance_valid(collider):
+		return aircraft.global_position if is_instance_valid(aircraft) else Vector3.ZERO
+	if gear_index < _collider_rest_positions.size():
+		return collider.get_parent().to_global(_collider_rest_positions[gear_index])
+	return collider.global_position
+
+
+func snap_suspension_to_static_load() -> void:
+	var targets := get_static_load_compressions()
+	var count := gear_collision_shapes.size()
+	if _suspension_collider_compressions.size() < count:
+		_suspension_collider_compressions.resize(count)
+	if gear_compressions.size() < count:
+		gear_compressions.resize(count)
+	for i in range(count):
+		var target := targets[i] if i < targets.size() else 0.0
+		_suspension_collider_compressions[i] = target
+		gear_compressions[i] = target
+	_update_lean_geometry()
+
+
+func _get_gear_base_aircraft_local_position(gear_index: int) -> Vector3:
+	if not is_instance_valid(aircraft):
+		return Vector3.ZERO
+	return aircraft.to_local(get_gear_base_global_position(gear_index))
 
 func _update_carrier_deck_follow_state(force_clear: bool = false, delta: float = 0.0) -> void:
 	if not is_instance_valid(aircraft):

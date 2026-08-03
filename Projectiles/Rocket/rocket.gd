@@ -208,33 +208,24 @@ func _update_smoke_trail(delta: float) -> void:
 	smoke_timer += delta
 	if smoke_timer >= smoke_interval:
 		_emit_smoke_particle()
-		smoke_timer = 0.0
+		smoke_timer = fmod(smoke_timer, maxf(smoke_interval, 0.01))
 
 func _emit_smoke_particle() -> void:
-	if get_tree() == null or get_tree().current_scene == null:
+	if get_tree() == null or get_tree().current_scene == null or ParticleManager == null:
 		return
-
-	var smoke_mesh := MeshInstance3D.new()
-	var box_mesh := BoxMesh.new()
-	box_mesh.size = Vector3(1.0, 1.0, 1.0)
-	smoke_mesh.mesh = box_mesh
-	smoke_mesh.name = "RocketSmoke_" + str(Time.get_ticks_msec())
-	get_tree().current_scene.add_child(smoke_mesh)
-
-	var material := StandardMaterial3D.new()
-	material.albedo_color = Color.WHITE
-	material.flags_unshaded = true
-	smoke_mesh.material_override = material
-
 	var rear_offset := global_transform.basis.z * -3.0
-	smoke_mesh.global_position = global_position + rear_offset
-	smoke_mesh.rotation = Vector3(
-		randf() * TAU,
-		randf() * TAU,
-		randf() * TAU
+	ParticleManager.spawn_managed_smoke(
+		global_position + rear_offset,
+		Vector3.ONE,
+		Color(0.92, 0.92, 0.92, 0.9),
+		1.5,
+		0.0,
+		randf_range(-0.35, 0.35),
+		false,
+		"box",
+		0.0,
+		false
 	)
-
-	ParticleManager.add_smoke_particle(smoke_mesh, 1.5, Vector3(1.0, 1.0, 1.0))
 
 func _on_body_entered(body: Node) -> void:
 	if has_impacted:
@@ -279,6 +270,7 @@ func _spawn_custom_explosion(hit_ground: bool, hit_aircraft: bool) -> void:
 	explosion_node.knockback_impulse_at_center = explosion_knockback_impulse_at_center
 	explosion_node.knockback_impulse_at_edge = explosion_knockback_impulse_at_edge
 	explosion_node.use_line_of_sight = false
+	explosion_node.visual_preset = Explosion.VisualPreset.STANDARD
 	if is_instance_valid(shooter):
 		explosion_node.source_attacker = shooter
 	if hit_ground:

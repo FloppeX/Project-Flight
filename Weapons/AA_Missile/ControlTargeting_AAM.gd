@@ -8,6 +8,7 @@ class_name AircraftModule_ControlTargeting_AAM
 @export var auto_replace_target: bool = false
 @export var relaxed_lock_when_none: bool = true  # If true, pick nearest in range even if out of cone
 @export var enable_legacy_keyboard_shortcuts: bool = false
+@export var external_target_authority: bool = false
 
 var _time_accum: float = 0.0
 var current_target: Node3D
@@ -63,11 +64,12 @@ func process_physic_frame(delta):
 		current_target = null
 		target_lock_time = 0.0
 
-	_time_accum += delta
-	var interval = 1.0 / max(targeting_update_rate_hz, 0.1)
-	if _time_accum >= interval:
-		_time_accum = 0.0
-		_update_best_target_if_needed()
+	if not external_target_authority:
+		_time_accum += delta
+		var interval = 1.0 / max(targeting_update_rate_hz, 0.1)
+		if _time_accum >= interval:
+			_time_accum = 0.0
+			_update_best_target_if_needed()
 		
 	# Track continuous lock time over the 30-degree (total) cone
 	if current_target and is_instance_valid(current_target) and aircraft and is_instance_valid(aircraft):

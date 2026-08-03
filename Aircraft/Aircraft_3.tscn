@@ -1,4 +1,4 @@
-[gd_scene load_steps=45 format=3 uid="uid://cb0aydc8l6c7b"]
+[gd_scene load_steps=44 format=3 uid="uid://cb0aydc8l6c7b"]
 
 [ext_resource type="Script" uid="uid://c4ltq2v6fji05" path="res://Aircraft/aircraft.gd" id="1_e8t1h"]
 [ext_resource type="PackedScene" uid="uid://cadi81fcpvmuc" path="res://Projectiles/Explosion/explosion.tscn" id="2_x73up"]
@@ -38,7 +38,6 @@
 [ext_resource type="AudioStream" uid="uid://bbrf4t56r5uti" path="res://Audio/cockpit_interior_3.wav" id="37_cpit"]
 [ext_resource type="PackedScene" path="res://Weapons/Guns/Hardpoint/10mm_machine_gun_hardpoint.tscn" id="38_10mm"]
 [ext_resource type="PackedScene" path="res://Aircraft/CockpitPilot.tscn" id="90_cpilot"]
-[ext_resource type="PackedScene" uid="uid://iuo5xchdjfn5" path="res://Models/Aircraft_3/Aircraft_3_exploded.glb" id="91_exploded"]
 
 [sub_resource type="PhysicsMaterial" id="PhysicsMaterial_lowfriction"]
 friction = 0.1
@@ -72,7 +71,6 @@ wreck_scene = ExtResource("3_x73up")
 wreck_base_impulse = 100.0
 wreck_random_spread = 1.0
 wreck_extra_spin = 15.0
-exploded_model_scene = ExtResource("91_exploded")
 
 [node name="Aircraft 3" parent="." instance=ExtResource("3_ac3md")]
 

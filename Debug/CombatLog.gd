@@ -136,7 +136,11 @@ func _flush_pending_hits() -> void:
 			_hit_state[id] = st
 
 
-func _on_destroyed(node: Node) -> void:
+func _on_destroyed(signal_node: Node = null, bound_node: Node = null) -> void:
+	# Aircraft destruction signals carry no node and use the bound argument.
+	# Ground-vehicle signals already carry the destroyed vehicle, so their bound
+	# connection supplies a second argument. Accept both signal shapes.
+	var node: Node = bound_node if bound_node != null and is_instance_valid(bound_node) else signal_node
 	if not enabled or node == null or not is_instance_valid(node):
 		return
 	var id := node.get_instance_id()

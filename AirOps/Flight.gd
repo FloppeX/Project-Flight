@@ -17,7 +17,7 @@ enum Mission {
 }
 
 @export var flight_name: String = ""
-@export var debug_print: bool = true
+@export var debug_print: bool = false
 
 var mission: Mission = Mission.NONE
 

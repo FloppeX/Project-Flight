@@ -162,6 +162,16 @@ var _terrain_check_counter: int = 0
 @export var airborne_safe_vertical_m: float = 45.0
 @export var airborne_safe_lookahead_s: float = 3.0
 @export var rtb_check_interval_s: float = 1.0
+@export_group("AI Scheduling")
+@export var multi_rate_ai_enabled: bool = true
+@export_range(0.03, 0.5, 0.01) var tactical_decision_interval_s: float = 0.12
+@export_range(0.03, 1.0, 0.01) var housekeeping_interval_s: float = 0.20
+@export var adaptive_guidance_cadence_enabled: bool = true
+@export_range(0.016, 0.10, 0.001) var guidance_precision_interval_s: float = 0.033
+@export_range(0.016, 0.10, 0.001) var guidance_near_interval_s: float = 0.033
+@export_range(0.016, 0.15, 0.001) var guidance_far_interval_s: float = 0.050
+@export_range(250.0, 5000.0, 50.0) var guidance_far_distance_m: float = 1800.0
+@export_group("")
 @export_group("Radio Callouts")
 @export var radio_damage_call_min_damage: float = 8.0
 @export var radio_damage_call_cooldown_s: float = 10.0
@@ -174,10 +184,23 @@ var _awareness_update_timer_s: float = 0.0
 var _awareness_update_elapsed_s: float = 0.0
 var _collision_avoidance_timer_s: float = 0.0
 var _rtb_check_timer_s: float = 0.0
+var _tactical_decision_timer_s: float = 0.0
+var _tactical_decision_due: bool = true
+var _force_tactical_decision: bool = true
+var _housekeeping_timer_s: float = 0.0
+var _housekeeping_elapsed_s: float = 0.0
+var _force_housekeeping_update: bool = true
+var _guidance_update_timer_s: float = 0.0
+var _guidance_elapsed_s: float = 0.0
+var _force_guidance_update: bool = true
+var _guidance_interval_scale: float = 1.0
 var _radio_last_damage_call_s: float = -INF
 var _radio_last_kill_call_s: float = -INF
 var _radio_last_bingo_call_s: float = -INF
+var _combat_log_last_engage_s: float = -INF
+var _combat_log_last_engage_target_id: int = 0
 var _radio_observed_target: Node3D = null
+var _cached_carrier_node: Node3D = null
 var _smoothed_ground_height: float = NAN  # Smoothed ground height for stable low-level flight
 var _cached_day_night_cycle: Node = null
 var _cached_ai_darkness_factor: float = 0.0
@@ -1148,8 +1171,25 @@ var _attack_terrain_sample_cache_from: Vector3 = Vector3.ZERO
 var _attack_terrain_sample_cache_to: Vector3 = Vector3.ZERO
 var _attack_terrain_sample_cache_samples: int = -1
 var _attack_terrain_sample_cache_value: float = NAN
+@export_group("Attack Geometry Scheduling")
+@export var incremental_attack_geometry_enabled: bool = true
+@export_range(1, 4, 1) var attack_geometry_candidates_per_physics_frame: int = 1
+@export_range(1, 4, 1) var attack_geometry_global_candidates_per_physics_frame: int = 1
+@export_range(1, 128, 1) var attack_geometry_terrain_samples_per_physics_frame: int = 12
+@export_range(1, 256, 1) var attack_geometry_global_terrain_samples_per_physics_frame: int = 12
+@export_range(0.0, 100.0, 5.0) var attack_geometry_terrain_grid_spacing_m: float = 20.0
+@export_range(1, 20, 1) var attack_geometry_snapshot_max_discovery_passes: int = 6
+@export_group("")
 var _attack_geometry_terrain_cache_active: bool = false
 var _attack_geometry_terrain_cache: Dictionary = {}
+var _attack_geometry_snapshot_read_only: bool = false
+var _attack_geometry_snapshot_miss_keys: Array[Vector2] = []
+var _attack_geometry_snapshot_miss_set: Dictionary = {}
+var _attack_geometry_job: Dictionary = {}
+static var _attack_geometry_budget_frame: int = -1
+static var _attack_geometry_budget_used: int = 0
+static var _attack_geometry_terrain_budget_frame: int = -1
+static var _attack_geometry_terrain_budget_used: int = 0
 var _release_solution_stable_time_s: float = 0.0
 var _release_solution_last_update_s: float = -INF
 var _attack_recovery_until_s: float = 0.0  # After emergency, hold egress before next run
@@ -2142,6 +2182,19 @@ func initialize(aircraft_node: RigidBody3D):
 	_awareness_update_elapsed_s = 0.0
 	_collision_avoidance_timer_s = maxf(collision_avoidance_interval_s, 0.02) * slow_tick_phase
 	_rtb_check_timer_s = maxf(rtb_check_interval_s, 0.1) * slow_tick_phase
+	_tactical_decision_timer_s = maxf(tactical_decision_interval_s, 0.03) * slow_tick_phase
+	_tactical_decision_due = true
+	_force_tactical_decision = true
+	_housekeeping_timer_s = maxf(housekeeping_interval_s, 0.03) * slow_tick_phase
+	_housekeeping_elapsed_s = 0.0
+	_force_housekeeping_update = true
+	# A small deterministic spread keeps a whole flight from settling onto the
+	# same guidance frame after simultaneous state changes. It does not consume
+	# gameplay RNG and stays close to the configured nominal cadence.
+	_guidance_interval_scale = lerpf(0.90, 1.10, slow_tick_phase)
+	_guidance_update_timer_s = maxf(_get_guidance_update_interval_s(), 0.0) * slow_tick_phase
+	_guidance_elapsed_s = 0.0
+	_force_guidance_update = true
 
 	# Team-driven contact groups used by sensor scans.
 	var my_team: int = aircraft.get_team() if aircraft.has_method("get_team") else 1
@@ -2170,6 +2223,7 @@ func initialize(aircraft_node: RigidBody3D):
 		control_weapons = aircraft.find_child("ControlWeapons", true, false)
 	control_targeting = _find_module(aircraft, "ControlTargeting")
 	control_targeting_aam = aircraft.find_child("ControlTargeting_AAM", true, false)
+	_set_external_targeting_authority(true)
 
 	if not control_engine or not simple_aero:
 		push_error("[AIPilot] Failed to find required control modules!")
@@ -2223,6 +2277,7 @@ func initialize(aircraft_node: RigidBody3D):
 
 func deinitialize():
 	"""Restore SimpleAero settings when AI is disabled"""
+	_set_external_targeting_authority(false)
 	if simple_aero:
 		if _saved_stability_strength >= 0.0 and "stability_strength" in simple_aero:
 			simple_aero.stability_strength = _saved_stability_strength
@@ -2247,6 +2302,19 @@ func deinitialize():
 	_passive_debug_only = player_control_debug_passthrough_enabled and debug_enabled
 	set_physics_process(_passive_debug_only)
 
+
+func _set_external_targeting_authority(enabled: bool) -> void:
+	for targeting_node in [control_targeting, control_targeting_aam]:
+		if targeting_node == null or not is_instance_valid(targeting_node):
+			continue
+		if "external_target_authority" in targeting_node:
+			targeting_node.set("external_target_authority", enabled)
+	if not enabled and control_targeting != null and is_instance_valid(control_targeting):
+		# AI makes its tactical target authoritative while active. Return the
+		# legacy selector to its normal player-facing acquisition behavior.
+		if "auto_target_when_none" in control_targeting:
+			control_targeting.set("auto_target_when_none", true)
+
 func _physics_process(delta: float):
 	if not aircraft or not is_instance_valid(aircraft):
 		if _waypoint_marker and is_instance_valid(_waypoint_marker):
@@ -2262,12 +2330,18 @@ func _physics_process(delta: float):
 		FrameProfiler.end("AIPilot.physics", _profiler_start)
 		return
 
+	_update_scheduled_work_clocks(delta)
+
 	var _sensor_profiler_start: int = FrameProfiler.begin("AIPilot.sensors")
 	_update_landing_carrier_motion_estimate(delta)
 
 	# Update sensors - AI's view of the world
 	_update_sensors(delta)
 	FrameProfiler.end("AIPilot.sensors", _sensor_profiler_start)
+
+	# Attack route selection is cooperative: evaluate only a bounded number of
+	# headings globally each frame, then apply the completed route on the main thread.
+	_advance_attack_geometry_job()
 
 	if _passive_debug_only:
 		_emit_player_debug_telemetry(delta)
@@ -2291,70 +2365,149 @@ func _physics_process(delta: float):
 		_safety_override_active = true
 	FrameProfiler.end("AIPilot.safety", _safety_profiler_start)
 
+	var guidance_delta: float = _consume_guidance_update_delta(delta)
 	var _state_profiler_start: int = FrameProfiler.begin("AIPilot.state")
-	if not _safety_override_active:
+	if not _safety_override_active and guidance_delta > 0.0:
 		# State machine â€” only runs when safety is not overriding
 		match current_state:
 			State.IDLE:
-				_state_idle(delta)
+				_state_idle(guidance_delta)
 			State.LAUNCHING:
-				_state_launching(delta)
+				_state_launching(guidance_delta)
 			State.CLIMBING:
-				_state_climbing(delta)
+				_state_climbing(guidance_delta)
 			State.TRANSIT:
-				_state_transit(delta)
+				_state_transit(guidance_delta)
 			State.SEARCH:
-				_state_search(delta)
+				_state_search(guidance_delta)
 			State.ATTACK_POSITIONING:
-				_state_attack_positioning(delta)
+				_state_attack_positioning(guidance_delta)
 			State.ATTACK_INBOUND:
-				_state_attack_inbound(delta)
+				_state_attack_inbound(guidance_delta)
 			State.ATTACK_DIVE:
-				_state_attack_dive(delta)
+				_state_attack_dive(guidance_delta)
 			State.ATTACK_BREAK_OFF:
-				_state_attack_break_off(delta)
+				_state_attack_break_off(guidance_delta)
 			State.DOGFIGHT:
-				_state_dogfight(delta)
+				_state_dogfight(guidance_delta)
 			State.ENGAGE:
-				_state_engage(delta)
+				_state_engage(guidance_delta)
 			State.RTB:
-				_state_rtb(delta)
+				_state_rtb(guidance_delta)
 			State.RECOVERY_MARSHAL:
-				_state_recovery_marshal(delta)
+				_state_recovery_marshal(guidance_delta)
 			State.RECOVERY_HOLD:
-				_state_recovery_hold(delta)
+				_state_recovery_hold(guidance_delta)
 			State.RECOVERY_APPROACH:
-				_state_recovery_approach(delta)
+				_state_recovery_approach(guidance_delta)
 			State.PRE_LANDING:
-				_state_pre_landing(delta)
+				_state_pre_landing(guidance_delta)
 			State.APPROACH:
-				_state_approach(delta)
+				_state_approach(guidance_delta)
 			State.LANDING:
-				_state_landing(delta)
+				_state_landing(guidance_delta)
 			State.MISSED_APPROACH:
-				_state_missed_approach(delta)
+				_state_missed_approach(guidance_delta)
 		_apply_attack_energy_recovery()
-	else:
+	elif _safety_override_active:
 		_attack_energy_recovery_active = false
+		_force_guidance_update = true
 	FrameProfiler.end("AIPilot.state", _state_profiler_start)
 
-	var _housekeeping_profiler_start: int = FrameProfiler.begin("AIPilot.housekeeping")
-	_sync_radio_target_watch()
-	_sync_ai_combat_selection_to_aircraft()
-	_emit_periodic_ai_debug(delta)
-
-	_debug_flight_path_alignment(delta)
-	_update_ai_checkin(delta)
-
-	# Update waypoint marker position
-	_update_waypoint_marker()
-	FrameProfiler.end("AIPilot.housekeeping", _housekeeping_profiler_start)
+	_run_scheduled_housekeeping()
 
 	# Apply computed control inputs to aircraft
 	var _controls_profiler_start: int = FrameProfiler.begin("AIPilot.controls")
 	_apply_controls()
 	FrameProfiler.end("AIPilot.controls", _controls_profiler_start)
 	FrameProfiler.end("AIPilot.physics", _profiler_start)
+
+func _update_scheduled_work_clocks(delta: float) -> void:
+	"""Schedule thinking separately from the continuous flight-control loop."""
+	_housekeeping_elapsed_s += delta
+	if not multi_rate_ai_enabled:
+		_tactical_decision_due = true
+		return
+
+	_tactical_decision_timer_s -= delta
+	_tactical_decision_due = _force_tactical_decision or _tactical_decision_timer_s <= 0.0
+	if _tactical_decision_due:
+		_tactical_decision_timer_s = maxf(tactical_decision_interval_s, 0.03)
+		_force_tactical_decision = false
+
+	_housekeeping_timer_s -= delta
+
+
+func _consume_guidance_update_delta(delta: float) -> float:
+	var safe_delta := maxf(delta, 0.0)
+	var interval_s := _get_guidance_update_interval_s()
+	if interval_s <= 0.0:
+		_guidance_elapsed_s = 0.0
+		_guidance_update_timer_s = 0.0
+		_force_guidance_update = false
+		return safe_delta
+
+	_guidance_elapsed_s += safe_delta
+	_guidance_update_timer_s -= safe_delta
+	if not _force_guidance_update and _guidance_update_timer_s > 0.0:
+		return 0.0
+
+	var elapsed_s := maxf(_guidance_elapsed_s, safe_delta)
+	_guidance_elapsed_s = 0.0
+	_guidance_update_timer_s = interval_s * _guidance_interval_scale
+	_force_guidance_update = false
+	return elapsed_s
+
+
+func _get_guidance_update_interval_s() -> float:
+	if not adaptive_guidance_cadence_enabled or not multi_rate_ai_enabled:
+		return 0.0
+	if _is_aircraft_focused_for_guidance():
+		return maxf(guidance_precision_interval_s, 0.016)
+	if current_state not in [State.CLIMBING, State.TRANSIT, State.SEARCH, State.RTB]:
+		# Combat, launch and recovery still use the freshest aircraft state, but a
+		# 30 Hz command solution is ample for these propeller-aircraft dynamics.
+		# The inexpensive safety/envelope pass below remains at physics frequency.
+		return maxf(guidance_precision_interval_s, 0.016)
+	var distance_m := INF
+	if aircraft != null and is_instance_valid(aircraft):
+		distance_m = float(aircraft.get_meta("visual_budget_distance_m", INF))
+	if distance_m <= maxf(guidance_far_distance_m, 0.0):
+		return maxf(guidance_near_interval_s, 0.016)
+	return maxf(guidance_far_interval_s, guidance_near_interval_s)
+
+
+func _is_aircraft_focused_for_guidance() -> bool:
+	if aircraft == null or not is_instance_valid(aircraft):
+		return false
+	if str(aircraft.get_meta("visual_budget_band", "")) == "human":
+		return true
+	var director := get_node_or_null("/root/FlightDirector")
+	if director == null:
+		return false
+	return director.get("current_viewed_aircraft") == aircraft \
+		or director.get("player_controlled_plane") == aircraft
+
+func _run_scheduled_housekeeping() -> void:
+	var should_run: bool = not multi_rate_ai_enabled \
+		or _force_housekeeping_update \
+		or _housekeeping_timer_s <= 0.0
+	if not should_run:
+		return
+
+	var elapsed_s: float = _housekeeping_elapsed_s
+	_housekeeping_elapsed_s = 0.0
+	_housekeeping_timer_s = maxf(housekeeping_interval_s, 0.03)
+	_force_housekeeping_update = false
+
+	var _housekeeping_profiler_start: int = FrameProfiler.begin("AIPilot.housekeeping")
+	_sync_radio_target_watch()
+	_sync_ai_combat_selection_to_aircraft()
+	_emit_periodic_ai_debug(elapsed_s)
+	_debug_flight_path_alignment(elapsed_s)
+	_update_ai_checkin(elapsed_s)
+	_update_waypoint_marker()
+	FrameProfiler.end("AIPilot.housekeeping", _housekeeping_profiler_start)
 
 func _apply_attack_energy_recovery() -> void:
 	_attack_energy_recovery_active = false
@@ -2556,6 +2709,7 @@ func _on_aircraft_damaged(damage_amount: float, new_health: float) -> void:
 			if nearest != null:
 				# Force awareness above the engage threshold so _find_nearest_enemy_aircraft_target picks it up.
 				_enemy_awareness[nearest] = maxf(float(_enemy_awareness.get(nearest, 0.0)), dogfight_awareness_engage_threshold + 0.25)
+				_force_tactical_decision = true
 	if damage_amount < radio_damage_call_min_damage:
 		return
 	if new_health <= 0.0:
@@ -3179,7 +3333,7 @@ func _predict_moving_surface_target_position(
 		return live_target_pos
 	if "platoon" in target:
 		var platoon_value: Variant = target.get("platoon")
-		if platoon_value is Node and is_instance_valid(platoon_value) \
+		if typeof(platoon_value) == TYPE_OBJECT and is_instance_valid(platoon_value) and platoon_value is Node \
 				and platoon_value.has_method("predict_member_route_position"):
 			var route_prediction: Variant = platoon_value.call(
 				"predict_member_route_position",
@@ -3637,7 +3791,11 @@ func _check_air_threat_evade_only() -> void:
 	if nose_dot < defensive_evade_rear_dot:
 		_defensive_evade_timer_s = 1.2
 
-func _evaluate_combat_objective() -> bool:
+func _evaluate_combat_objective(force_update: bool = false) -> bool:
+	# Objective selection scans contact collections and may build an attack route.
+	# Steering remains continuous elsewhere; only this tactical choice is multi-rate.
+	if multi_rate_ai_enabled and not force_update and not _tactical_decision_due:
+		return false
 	# Air defense has priority over ground attack -- but ONLY for DOGFIGHTER-posture aircraft. A DEFENSIVE
 	# aircraft (attacker/bomber/fleeing) does NOT go hunting air targets; it keeps to its mission (ground
 	# attack / RTB / patrol) and only reacts to a close threat via evasion (see _check_air_threat_proximity).
@@ -4042,7 +4200,13 @@ func _evaluate_attack_ingress_reachability(ingress_join_pos: Vector3, attack_dir
 		"turn_radius_m": turn_radius_m,
 	}
 
-func _choose_attack_run_geometry(target_pos: Vector3, preferred_dir: Vector3, setup_dist: float, initial_setup_altitude_m: float) -> Dictionary:
+func _choose_attack_run_geometry(
+	target_pos: Vector3,
+	preferred_dir: Vector3,
+	setup_dist: float,
+	initial_setup_altitude_m: float,
+	candidate_dirs_override: Array[Vector3] = []
+) -> Dictionary:
 	var preferred_flat: Vector3 = Vector3(preferred_dir.x, 0.0, preferred_dir.z)
 	if preferred_flat.length_squared() <= 0.0001:
 		preferred_flat = Vector3(aircraft.global_transform.basis.z.x, 0.0, aircraft.global_transform.basis.z.z)
@@ -4050,7 +4214,9 @@ func _choose_attack_run_geometry(target_pos: Vector3, preferred_dir: Vector3, se
 		preferred_flat = Vector3.FORWARD
 	preferred_flat = preferred_flat.normalized()
 
-	var candidate_dirs: Array[Vector3] = _build_attack_heading_candidates(preferred_flat)
+	var candidate_dirs: Array[Vector3] = candidate_dirs_override \
+		if not candidate_dirs_override.is_empty() \
+		else _build_attack_heading_candidates(preferred_flat)
 	var best_geometry: Dictionary = {}
 	var best_score: float = INF
 	var best_is_clear: bool = false
@@ -4506,11 +4672,15 @@ func _choose_attack_run_geometry(target_pos: Vector3, preferred_dir: Vector3, se
 				"ingress_required_m": reach_required_m,
 				"ingress_available_m": reach_available_m,
 				"ingress_shortfall_fraction": reach_shortfall_fraction,
+				"ingress_turn_rad": ingress_turn_rad,
 				"direct_capture_reachable": direct_capture_reachable,
 				"direct_capture_required_m": direct_capture_required_m,
 				"setup_requires_target_crossing": setup_requires_target_crossing,
 				"attack_dir": attack_dir,
 				"setup_altitude_m": setup_altitude_m,
+				"candidate_setup_distance_m": candidate_setup_distance_m,
+				"rocket_attack_angle_rad": rocket_attack_angle_rad,
+				"rocket_approach_angle_rad": rocket_approach_angle_rad,
 				"direct_fire_attack_angle_deg": rad_to_deg(direct_fire_attack_angle_rad) if is_finite(direct_fire_attack_angle_rad) else NAN,
 				"bomb_attack_angle_deg": rad_to_deg(bomb_attack_angle_rad) if is_finite(bomb_attack_angle_rad) else NAN,
 				"terminal_profile_reachable": terminal_profile_reachable,
@@ -4542,6 +4712,264 @@ func _choose_attack_run_geometry(target_pos: Vector3, preferred_dir: Vector3, se
 			"attack_dir": preferred_flat,
 		}
 	return best_geometry
+
+func _begin_attack_geometry_job(
+	active_target: Node3D,
+	live_target_pos: Vector3,
+	target_velocity: Vector3,
+	target_pos: Vector3,
+	preferred_dir: Vector3,
+	setup_dist: float,
+	initial_setup_altitude_m: float
+) -> void:
+	_cancel_attack_geometry_job()
+	var preferred_flat := Vector3(preferred_dir.x, 0.0, preferred_dir.z)
+	if preferred_flat.length_squared() <= 0.0001:
+		preferred_flat = Vector3(aircraft.global_transform.basis.z.x, 0.0, aircraft.global_transform.basis.z.z)
+	if preferred_flat.length_squared() <= 0.0001:
+		preferred_flat = Vector3.FORWARD
+	preferred_flat = preferred_flat.normalized()
+	var hold_dir := Vector3(aircraft.linear_velocity.x, 0.0, aircraft.linear_velocity.z)
+	if hold_dir.length_squared() <= 1.0:
+		hold_dir = preferred_flat
+	hold_dir = hold_dir.normalized()
+	var hold_waypoint := aircraft.global_position + hold_dir * 900.0
+	hold_waypoint.y = maxf(
+		aircraft.global_position.y,
+		target_pos.y + maxf(attack_positioning_hard_floor_agl_m, 220.0)
+	)
+	_attack_geometry_job = {
+		"target_instance_id": active_target.get_instance_id(),
+		"live_target_pos": live_target_pos,
+		"target_velocity": target_velocity,
+		"target_pos": target_pos,
+		"preferred_dir": preferred_flat,
+		"setup_dist": setup_dist,
+		"initial_setup_altitude_m": initial_setup_altitude_m,
+		"candidate_dirs": _build_attack_heading_candidates(preferred_flat),
+		"candidate_index": 0,
+		"candidate_discovery_passes": 0,
+		"best_geometry": {},
+		"hold_waypoint": hold_waypoint,
+		"pending_terrain_keys": [],
+		"pending_terrain_index": 0,
+	}
+	_attack_geometry_terrain_cache.clear()
+
+func _cancel_attack_geometry_job() -> void:
+	_attack_geometry_job.clear()
+	_attack_geometry_terrain_cache_active = false
+	_attack_geometry_snapshot_read_only = false
+	_attack_geometry_snapshot_miss_keys.clear()
+	_attack_geometry_snapshot_miss_set.clear()
+	_attack_geometry_terrain_cache.clear()
+
+
+func _resolve_attack_geometry_job_target() -> Node3D:
+	if _attack_geometry_job.is_empty():
+		return null
+	var target_instance_id := int(_attack_geometry_job.get("target_instance_id", -1))
+	if target_instance_id <= 0:
+		return null
+	var target_object: Object = instance_from_id(target_instance_id)
+	if target_object == null or not is_instance_valid(target_object) or not (target_object is Node3D):
+		return null
+	return target_object as Node3D
+
+func _claim_attack_geometry_candidate_budget() -> bool:
+	var physics_frame := Engine.get_physics_frames()
+	if _attack_geometry_budget_frame != physics_frame:
+		_attack_geometry_budget_frame = physics_frame
+		_attack_geometry_budget_used = 0
+	var global_limit := maxi(attack_geometry_global_candidates_per_physics_frame, 1)
+	if _attack_geometry_budget_used >= global_limit:
+		return false
+	_attack_geometry_budget_used += 1
+	return true
+
+func _claim_attack_geometry_terrain_sample_budget() -> bool:
+	var physics_frame := Engine.get_physics_frames()
+	if _attack_geometry_terrain_budget_frame != physics_frame:
+		_attack_geometry_terrain_budget_frame = physics_frame
+		_attack_geometry_terrain_budget_used = 0
+	var global_limit := maxi(attack_geometry_global_terrain_samples_per_physics_frame, 1)
+	if _attack_geometry_terrain_budget_used >= global_limit:
+		return false
+	_attack_geometry_terrain_budget_used += 1
+	return true
+
+func _populate_attack_geometry_terrain_snapshot() -> bool:
+	var pending_keys: Array = _attack_geometry_job.get("pending_terrain_keys", [])
+	var pending_index: int = int(_attack_geometry_job.get("pending_terrain_index", 0))
+	if pending_index >= pending_keys.size():
+		_attack_geometry_job["pending_terrain_keys"] = []
+		_attack_geometry_job["pending_terrain_index"] = 0
+		return true
+	var local_limit := maxi(attack_geometry_terrain_samples_per_physics_frame, 1)
+	var sampled := 0
+	var _terrain_profiler_start: int = FrameProfiler.begin("AIPilot.attack_geometry_terrain_snapshot")
+	while pending_index < pending_keys.size() and sampled < local_limit:
+		if not _claim_attack_geometry_terrain_sample_budget():
+			break
+		var key_value: Variant = pending_keys[pending_index]
+		if key_value is Vector2:
+			var key: Vector2 = key_value
+			# Snapshot population is the only main-thread phase permitted to call
+			# the terrain provider for an incremental geometry job. Grid cells store
+			# a conservative local maximum, not a single optimistic interpolation.
+			_attack_geometry_snapshot_read_only = false
+			var cell_max_m: float = NAN
+			var half_cell_m: float = maxf(attack_geometry_terrain_grid_spacing_m, 0.0) * 0.5
+			var offsets: Array[Vector2] = [Vector2.ZERO]
+			if half_cell_m > 0.0:
+				offsets.append_array([
+					Vector2(-half_cell_m, -half_cell_m),
+					Vector2(half_cell_m, -half_cell_m),
+					Vector2(-half_cell_m, half_cell_m),
+					Vector2(half_cell_m, half_cell_m),
+				])
+			for offset in offsets:
+				var height_m: float = _query_ground_height_provider(
+					Vector3(key.x + offset.x, 0.0, key.y + offset.y)
+				)
+				if not is_nan(height_m):
+					cell_max_m = height_m if is_nan(cell_max_m) else maxf(cell_max_m, height_m)
+			_attack_geometry_terrain_cache[key] = cell_max_m
+		pending_index += 1
+		sampled += 1
+	_attack_geometry_job["pending_terrain_index"] = pending_index
+	FrameProfiler.end("AIPilot.attack_geometry_terrain_snapshot", _terrain_profiler_start)
+	if pending_index < pending_keys.size():
+		return false
+	_attack_geometry_job["pending_terrain_keys"] = []
+	_attack_geometry_job["pending_terrain_index"] = 0
+	return true
+
+func _advance_attack_geometry_job() -> void:
+	if _attack_geometry_job.is_empty():
+		return
+	var target: Node3D = _resolve_attack_geometry_job_target()
+	if target == null or not is_instance_valid(target) \
+			or target.get_instance_id() != int(_attack_geometry_job.get("target_instance_id", -1)) \
+			or combat_target != target:
+		_cancel_attack_geometry_job()
+		_force_tactical_decision = true
+		return
+	var pending_terrain_keys: Array = _attack_geometry_job.get("pending_terrain_keys", [])
+	if not pending_terrain_keys.is_empty():
+		_populate_attack_geometry_terrain_snapshot()
+		return
+
+	var candidate_dirs: Array[Vector3] = _attack_geometry_job.get("candidate_dirs", [])
+	var candidate_index: int = int(_attack_geometry_job.get("candidate_index", 0))
+	var local_budget := maxi(attack_geometry_candidates_per_physics_frame, 1)
+	var candidates_processed := 0
+	while candidate_index < candidate_dirs.size() and candidates_processed < local_budget:
+		if not _claim_attack_geometry_candidate_budget():
+			break
+		var candidate_dir: Vector3 = candidate_dirs[candidate_index]
+		var _geometry_profiler_start: int = FrameProfiler.begin("AIPilot.attack_geometry_candidate")
+		_attack_geometry_snapshot_miss_keys.clear()
+		_attack_geometry_snapshot_miss_set.clear()
+		_attack_geometry_snapshot_read_only = true
+		_attack_geometry_terrain_cache_active = true
+		var candidate_geometry := _choose_attack_run_geometry(
+			_attack_geometry_job["target_pos"],
+			_attack_geometry_job["preferred_dir"],
+			float(_attack_geometry_job["setup_dist"]),
+			float(_attack_geometry_job["initial_setup_altitude_m"]),
+			[candidate_dir]
+		)
+		_attack_geometry_terrain_cache_active = false
+		_attack_geometry_snapshot_read_only = false
+		FrameProfiler.end("AIPilot.attack_geometry_candidate", _geometry_profiler_start)
+		if not _attack_geometry_snapshot_miss_keys.is_empty():
+			var discovery_passes := int(_attack_geometry_job.get("candidate_discovery_passes", 0)) + 1
+			_attack_geometry_job["candidate_discovery_passes"] = discovery_passes
+			if discovery_passes <= maxi(attack_geometry_snapshot_max_discovery_passes, 1):
+				_attack_geometry_job["pending_terrain_keys"] = _attack_geometry_snapshot_miss_keys.duplicate()
+				_attack_geometry_job["pending_terrain_index"] = 0
+				return
+			# A pathological terrain-dependent solve may keep revealing new exact
+			# points. Fall back for this one heading only; the global candidate budget
+			# still caps its frame cost, and all samples join the same snapshot cache.
+			var _fallback_profiler_start: int = FrameProfiler.begin("AIPilot.attack_geometry_snapshot_fallback")
+			_attack_geometry_terrain_cache_active = true
+			candidate_geometry = _choose_attack_run_geometry(
+				_attack_geometry_job["target_pos"],
+				_attack_geometry_job["preferred_dir"],
+				float(_attack_geometry_job["setup_dist"]),
+				float(_attack_geometry_job["initial_setup_altitude_m"]),
+				[candidate_dir]
+			)
+			_attack_geometry_terrain_cache_active = false
+			FrameProfiler.end("AIPilot.attack_geometry_snapshot_fallback", _fallback_profiler_start)
+		var best_geometry: Dictionary = _attack_geometry_job.get("best_geometry", {})
+		if _attack_geometry_candidate_is_better(candidate_geometry, best_geometry):
+			_attack_geometry_job["best_geometry"] = candidate_geometry
+		candidate_index += 1
+		candidates_processed += 1
+		_attack_geometry_job["candidate_index"] = candidate_index
+		_attack_geometry_job["candidate_discovery_passes"] = 0
+
+	if candidate_index < candidate_dirs.size():
+		return
+
+	var completed_job := _attack_geometry_job.duplicate()
+	_attack_geometry_job.clear()
+	_attack_geometry_terrain_cache_active = false
+	_attack_geometry_terrain_cache.clear()
+	_apply_attack_geometry_plan(
+		target,
+		completed_job["live_target_pos"],
+		completed_job["target_velocity"],
+		completed_job["target_pos"],
+		completed_job["preferred_dir"],
+		float(completed_job["setup_dist"]),
+		float(completed_job["initial_setup_altitude_m"]),
+		completed_job.get("best_geometry", {})
+	)
+
+func _attack_geometry_candidate_is_better(candidate: Dictionary, best: Dictionary) -> bool:
+	if candidate.is_empty():
+		return false
+	if best.is_empty():
+		return true
+	var candidate_clear := bool(candidate.get("corridor_clear", false))
+	var best_clear := bool(best.get("corridor_clear", false))
+	if candidate_clear != best_clear:
+		return candidate_clear
+	var candidate_reachable := bool(candidate.get("ingress_reachable", false))
+	var best_reachable := bool(best.get("ingress_reachable", false))
+	if candidate_reachable != best_reachable:
+		return candidate_reachable
+	var candidate_crosses := bool(candidate.get("setup_requires_target_crossing", false))
+	var best_crosses := bool(best.get("setup_requires_target_crossing", false))
+	if candidate_crosses != best_crosses:
+		return not candidate_crosses
+	if _run_weapon_type != "Rocket Pod":
+		return float(candidate.get("score", INF)) < float(best.get("score", INF))
+	var candidate_altitude := float(candidate.get("setup_altitude_m", INF))
+	var best_altitude := float(best.get("setup_altitude_m", INF))
+	if not is_equal_approx(candidate_altitude, best_altitude):
+		return candidate_altitude < best_altitude
+	var candidate_distance := float(candidate.get("candidate_setup_distance_m", INF))
+	var best_distance := float(best.get("candidate_setup_distance_m", INF))
+	if not is_equal_approx(candidate_distance, best_distance):
+		return candidate_distance < best_distance
+	var candidate_approach := float(candidate.get("rocket_approach_angle_rad", INF))
+	var best_approach := float(best.get("rocket_approach_angle_rad", INF))
+	if not is_equal_approx(candidate_approach, best_approach):
+		return candidate_approach < best_approach
+	var candidate_turn := float(candidate.get("ingress_turn_rad", INF))
+	var best_turn := float(best.get("ingress_turn_rad", INF))
+	if not is_equal_approx(candidate_turn, best_turn):
+		return candidate_turn < best_turn
+	var candidate_angle := float(candidate.get("rocket_attack_angle_rad", INF))
+	var best_angle := float(best.get("rocket_attack_angle_rad", INF))
+	if not is_equal_approx(candidate_angle, best_angle):
+		return candidate_angle < best_angle
+	return float(candidate.get("score", INF)) < float(best.get("score", INF))
 
 func _solve_direct_fire_corridor_setup_altitude_m(
 	setup_pos: Vector3,
@@ -8506,6 +8934,17 @@ func _setup_attack_run_waypoint(plan_new_weapon: bool = true):
 			horiz_dir = target_motion.normalized()
 	var setup_dist: float = _get_attack_setup_distance_m()
 	var initial_setup_altitude_m: float = _get_attack_setup_altitude_m(target_pos)
+	if incremental_attack_geometry_enabled:
+		_begin_attack_geometry_job(
+			active_target,
+			live_target_pos,
+			target_velocity,
+			target_pos,
+			horiz_dir,
+			setup_dist,
+			initial_setup_altitude_m
+		)
+		return
 	var _attack_geometry_profiler_start: int = FrameProfiler.begin("AIPilot.attack_geometry")
 	# Geometry selection revisits the same exact X/Z samples while converging the
 	# release, recovery, and approach altitudes. Cache only for this synchronous
@@ -8518,6 +8957,31 @@ func _setup_attack_run_waypoint(plan_new_weapon: bool = true):
 	_attack_geometry_terrain_cache_active = false
 	_attack_geometry_terrain_cache.clear()
 	FrameProfiler.end("AIPilot.attack_geometry", _attack_geometry_profiler_start)
+	_apply_attack_geometry_plan(
+		active_target,
+		live_target_pos,
+		target_velocity,
+		target_pos,
+		horiz_dir,
+		setup_dist,
+		initial_setup_altitude_m,
+		attack_geometry
+	)
+
+func _apply_attack_geometry_plan(
+	active_target: Node3D,
+	live_target_pos: Vector3,
+	target_velocity: Vector3,
+	target_pos: Vector3,
+	horiz_dir: Vector3,
+	setup_dist: float,
+	initial_setup_altitude_m: float,
+	attack_geometry: Dictionary
+) -> void:
+	if active_target == null or not is_instance_valid(active_target):
+		return
+	var active_target_instance_id: int = active_target.get_instance_id()
+	var target_motion: Vector3 = Vector3(target_velocity.x, 0.0, target_velocity.z)
 	_attack_setup_requires_target_crossing = bool(attack_geometry.get(
 		"setup_requires_target_crossing",
 		false
@@ -8645,6 +9109,19 @@ func _state_attack_positioning(delta: float):
 	var active_target: Node3D = _resolve_current_ground_attack_target()
 	if active_target == null:
 		change_state(State.SEARCH)
+		return
+	if not _attack_geometry_job.is_empty():
+		var planned_target: Node3D = _resolve_attack_geometry_job_target()
+		if planned_target != active_target:
+			_setup_attack_run_waypoint(false)
+			return
+		var hold_value: Variant = _attack_geometry_job.get("hold_waypoint", Vector3.INF)
+		var hold_waypoint: Vector3 = hold_value if hold_value is Vector3 else Vector3.INF
+		if hold_waypoint != Vector3.INF:
+			nav_waypoint = hold_waypoint
+			_update_maneuver_waypoint()
+			_navigate_to_waypoint(delta)
+		target_speed = maxf(target_speed, 100.0)
 		return
 
 	# SMART RETARGET (positioning only -- safe to switch before committing to the dive): if a clearly
@@ -11841,7 +12318,7 @@ func _sync_ai_combat_selection_to_aircraft() -> void:
 	if control_targeting != null and is_instance_valid(control_targeting):
 		control_targeting.set("auto_target_when_none", false)
 		control_targeting.set("auto_replace_target", false)
-		var selected_target: Node3D = combat_target if combat_target is Node3D and is_instance_valid(combat_target) else null
+		var selected_target: Node3D = combat_target if is_instance_valid(combat_target) and combat_target is Node3D else null
 		var displayed_target = control_targeting.get("current_target")
 		if displayed_target != selected_target:
 			if control_targeting.has_method("set_target"):
@@ -13034,7 +13511,8 @@ func _handle_bomb_release_run(aim_pos: Vector3, target_pos: Vector3, ccip_predic
 		_set_bomb_release_status(stable_reason, pred_err_h, best_with_current_m, alt_above_target, horiz_dist_to_target, _get_current_bank_angle_deg(), fpa_deg, ccip_predicted != Vector3.ZERO)
 		return
 
-	var released_target: Node3D = combat_target as Node3D if combat_target is Node3D else null
+	var released_target: Node3D = combat_target as Node3D \
+			if is_instance_valid(combat_target) and combat_target is Node3D else null
 	var bomb_released: bool = _drop_one_bomb(target_pos, ccip_predicted)
 	if bomb_released:
 		_bombs_dropped_this_run += 1
@@ -13088,7 +13566,8 @@ func _drop_one_bomb(target_pos: Vector3 = Vector3.ZERO, ccip_predicted: Vector3 
 			hp.weapon_instance.set_next_bomb_debug_metadata(target_pos, ccip_predicted)
 		if hp.fire():
 			var dropped_bomb_variant: Variant = hp.weapon_instance.get("last_bomb_dropped")
-			if attach_bomb_debug_metadata and dropped_bomb_variant != null and dropped_bomb_variant is Object and is_instance_valid(dropped_bomb_variant) and dropped_bomb_variant is BombProjectile:
+			if attach_bomb_debug_metadata and typeof(dropped_bomb_variant) == TYPE_OBJECT \
+					and is_instance_valid(dropped_bomb_variant) and dropped_bomb_variant is BombProjectile:
 				var dropped_bomb: BombProjectile = dropped_bomb_variant
 				dropped_bomb.set_meta("debug_aim_target", target_pos)
 				dropped_bomb.set_meta("debug_predicted_impact", ccip_predicted)
@@ -13633,7 +14112,9 @@ func _stop_firing():
 
 func _state_engage(delta: float):
 	"""Attacking target"""
-	if _evaluate_combat_objective():
+	# ENGAGE is a one-shot dispatch state, so it must decide immediately instead of
+	# interpreting a scheduled no-op as "no target" and falling back to SEARCH.
+	if _evaluate_combat_objective(true):
 		return
 	combat_target = null
 	change_state(State.SEARCH)
@@ -18088,7 +18569,8 @@ func _navigate_to_waypoint(delta: float):
 	# load controller cannot see that a banked, store-heavy aircraft is failing to
 	# rotate its flight path, so a large turn home degenerates into a wide spiral.
 	if current_state in [State.ATTACK_POSITIONING, State.RTB] \
-			or _is_recovery_route_state():
+			or _is_recovery_route_state() \
+			or _uses_shared_waypoint_turn_controller():
 		_update_turn_track_rate_observer(delta, attack_track_velocity)
 	else:
 		_reset_turn_track_rate_observer()
@@ -18098,8 +18580,14 @@ func _navigate_to_waypoint(delta: float):
 	# degrees around the live velocity vector gives every downstream bank/load law
 	# one coherent maximum-rate turn request; recomputing it each frame walks the
 	# track around the selected side until the route returns to the forward half.
+	#
+	# This originally guarded only RTB. Air Ops transit legs can begin in exactly
+	# the same reciprocal-track condition after launch: the nose-side controller
+	# then sees a small error while the aircraft's actual path opens the range to
+	# its patrol station. Apply the same pilot-level reacquisition to TRANSIT; the
+	# operations layer still owns the destination and never touches flight controls.
 	_rtb_ground_track_turnaround_active = false
-	if current_state == State.RTB:
+	if current_state in [State.RTB, State.TRANSIT]:
 		var original_rtb_track: Vector3 = maneuver_waypoint - aircraft.global_position
 		original_rtb_track.y = 0.0
 		var actual_rtb_track := Vector3(vel.x, 0.0, vel.z)
@@ -20523,7 +21011,7 @@ func _navigate_to_waypoint(delta: float):
 				terminal_pitch_cmd,
 				clampf(gun_attack_pitch_response, 0.02, 1.0)
 			)
-			if Engine.get_process_frames() % 20 == 0:
+			if debug_enabled and verbose_debug_enabled and Engine.get_process_frames() % 20 == 0:
 				var terminal_nose_error_deg: float = rad_to_deg(acos(clampf(
 					terminal_attack_nose_aim_dir.dot(b.z),
 					-1.0,
@@ -20732,7 +21220,7 @@ func _update_waypoint_marker():
 func _get_bomb_debug_node(key: String, color: Color) -> MeshInstance3D:
 	if _bomb_debug_nodes.has(key):
 		var existing: Variant = _bomb_debug_nodes[key]
-		if existing is MeshInstance3D and is_instance_valid(existing):
+		if is_instance_valid(existing) and existing is MeshInstance3D:
 			return existing
 	var scene_root: Node = get_tree().current_scene if get_tree() else null
 	if scene_root == null:
@@ -20786,12 +21274,12 @@ func _set_bomb_debug_line(key: String, start_pos: Vector3, end_pos: Vector3, col
 
 func _hide_bomb_debug_visuals() -> void:
 	for node_variant in _bomb_debug_nodes.values():
-		if node_variant is Node3D and is_instance_valid(node_variant):
+		if is_instance_valid(node_variant) and node_variant is Node3D:
 			(node_variant as Node3D).visible = false
 
 func _clear_bomb_debug_visuals() -> void:
 	for node_variant in _bomb_debug_nodes.values():
-		if node_variant is Node and is_instance_valid(node_variant):
+		if is_instance_valid(node_variant) and node_variant is Node:
 			(node_variant as Node).queue_free()
 	_bomb_debug_nodes.clear()
 
@@ -20821,7 +21309,7 @@ func _update_bomb_debug_visuals(
 			for key in ["CCIP", "CCIPMiss"]:
 				if _bomb_debug_nodes.has(key):
 					var node_variant: Variant = _bomb_debug_nodes[key]
-					if node_variant is Node3D and is_instance_valid(node_variant):
+					if is_instance_valid(node_variant) and node_variant is Node3D:
 						(node_variant as Node3D).visible = false
 	else:
 		_hide_bomb_debug_visuals()
@@ -22243,9 +22731,46 @@ func _get_cached_terrain_node() -> Node:
 
 func _get_ground_height_at_position(world_pos: Vector3) -> float:
 	var geometry_cache_key := Vector2(world_pos.x, world_pos.z)
+	if _attack_geometry_terrain_cache_active:
+		var grid_spacing_m: float = maxf(attack_geometry_terrain_grid_spacing_m, 0.0)
+		if grid_spacing_m > 0.0:
+			geometry_cache_key = Vector2(
+				roundf(world_pos.x / grid_spacing_m) * grid_spacing_m,
+				roundf(world_pos.z / grid_spacing_m) * grid_spacing_m
+			)
 	if _attack_geometry_terrain_cache_active \
 			and _attack_geometry_terrain_cache.has(geometry_cache_key):
 		return float(_attack_geometry_terrain_cache[geometry_cache_key])
+	if _attack_geometry_terrain_cache_active and _attack_geometry_snapshot_read_only:
+		if not _attack_geometry_snapshot_miss_set.has(geometry_cache_key):
+			_attack_geometry_snapshot_miss_set[geometry_cache_key] = true
+			_attack_geometry_snapshot_miss_keys.append(geometry_cache_key)
+		return NAN
+	if _attack_geometry_terrain_cache_active and attack_geometry_terrain_grid_spacing_m > 0.0:
+		var half_cell_m: float = attack_geometry_terrain_grid_spacing_m * 0.5
+		var cell_max_m: float = NAN
+		for offset in [
+			Vector2.ZERO,
+			Vector2(-half_cell_m, -half_cell_m),
+			Vector2(half_cell_m, -half_cell_m),
+			Vector2(-half_cell_m, half_cell_m),
+			Vector2(half_cell_m, half_cell_m),
+		]:
+			var cell_height_m: float = _query_ground_height_provider(Vector3(
+				geometry_cache_key.x + offset.x,
+				world_pos.y,
+				geometry_cache_key.y + offset.y
+			))
+			if not is_nan(cell_height_m):
+				cell_max_m = cell_height_m if is_nan(cell_max_m) else maxf(cell_max_m, cell_height_m)
+		_attack_geometry_terrain_cache[geometry_cache_key] = cell_max_m
+		return cell_max_m
+	var height_m: float = _query_ground_height_provider(world_pos)
+	if _attack_geometry_terrain_cache_active:
+		_attack_geometry_terrain_cache[geometry_cache_key] = height_m
+	return height_m
+
+func _query_ground_height_provider(world_pos: Vector3) -> float:
 	if not _terrain_height_callable.is_valid():
 		var terrain: Node = _get_cached_terrain_node()
 		if not terrain:
@@ -22257,10 +22782,7 @@ func _get_ground_height_at_position(world_pos: Vector3) -> float:
 		else:
 			return NAN
 	var h = _terrain_height_callable.call(world_pos)
-	var height_m: float = float(h) if typeof(h) == TYPE_FLOAT and not is_nan(float(h)) else NAN
-	if _attack_geometry_terrain_cache_active:
-		_attack_geometry_terrain_cache[geometry_cache_key] = height_m
-	return height_m
+	return float(h) if typeof(h) == TYPE_FLOAT and not is_nan(float(h)) else NAN
 
 func _sample_max_terrain_height_along_path(from_pos: Vector3, to_pos: Vector3, num_samples: int) -> float:
 	"""Sample terrain height at evenly-spaced points between two positions and return the maximum."""
@@ -23441,13 +23963,11 @@ func _ensure_carrier_position():
 	_refresh_carrier_position(false)
 	if carrier_position != Vector3.ZERO:
 		return
-	var carriers = get_tree().get_nodes_in_group("carrier")
-	if carriers.size() > 0:
-		var c = carriers[0]
-		if c is Node3D:
-			carrier_position = (c as Node3D).global_position
-			if debug_enabled and verbose_debug_enabled:
-				print("[AIPilot] Seeded carrier_position from group 'carrier': ", carrier_position)
+	var carrier: Node3D = _resolve_carrier_node()
+	if carrier != null:
+		carrier_position = carrier.global_position
+		if debug_enabled and verbose_debug_enabled:
+			print("[AIPilot] Seeded carrier_position from group 'carrier': ", carrier_position)
 	else:
 		# Fallback: use current position as temporary center to prevent runaway
 		carrier_position = aircraft.global_position
@@ -23455,13 +23975,13 @@ func _ensure_carrier_position():
 			print("[AIPilot] No carrier found; seeding patrol center at aircraft position: ", carrier_position)
 
 func _refresh_carrier_position(shift_patrol_waypoints: bool) -> void:
-	var carriers = get_tree().get_nodes_in_group("carrier")
-	if carriers.is_empty() or not (carriers[0] is Node3D):
+	var carrier: Node3D = _resolve_carrier_node()
+	if carrier == null:
 		if carrier_position == Vector3.ZERO:
 			carrier_position = aircraft.global_position
 		return
 
-	var new_center: Vector3 = (carriers[0] as Node3D).global_position
+	var new_center: Vector3 = carrier.global_position
 	if carrier_position == Vector3.ZERO:
 		carrier_position = new_center
 		return
@@ -23471,6 +23991,13 @@ func _refresh_carrier_position(shift_patrol_waypoints: bool) -> void:
 	if shift_patrol_waypoints and center_delta.length_squared() > 0.01 and not waypoints.is_empty():
 		for i in range(waypoints.size()):
 			waypoints[i] += center_delta
+
+func _resolve_carrier_node() -> Node3D:
+	if _cached_carrier_node != null and is_instance_valid(_cached_carrier_node) \
+		and _cached_carrier_node.is_inside_tree():
+		return _cached_carrier_node
+	_cached_carrier_node = get_tree().get_first_node_in_group("carrier") as Node3D
+	return _cached_carrier_node
 
 func _combat_log_event(category: String, text: String) -> void:
 	var cl := get_node_or_null("/root/CombatLog")
@@ -23490,8 +24017,35 @@ func _combat_log_target() -> String:
 		return str(combat_target.name)
 	return "target"
 
+func _combat_log_dogfight_engagement() -> void:
+	var now_s: float = Time.get_ticks_msec() / 1000.0
+	var target_id: int = combat_target.get_instance_id() \
+		if combat_target and is_instance_valid(combat_target) else 0
+	# Different targets remain meaningful immediate events. Re-entering combat
+	# with the same target inside eight seconds is usually controller jitter and
+	# should not flood stdout even if another transition defect appears later.
+	if target_id == _combat_log_last_engage_target_id \
+			and now_s - _combat_log_last_engage_s < 8.0:
+		return
+	_combat_log_last_engage_target_id = target_id
+	_combat_log_last_engage_s = now_s
+	_combat_log_event("ENGAGE", "%s engaging %s" % [_combat_log_self(), _combat_log_target()])
+
 func change_state(new_state: State):
 	"""Change AI state with logging"""
+	if current_state == State.ATTACK_POSITIONING \
+			and new_state != State.ATTACK_POSITIONING \
+			and not _attack_geometry_job.is_empty():
+		_cancel_attack_geometry_job()
+	if current_state != new_state:
+		# Let event-driven transitions bypass every slow scheduler. Precision combat
+		# and recovery states otherwise hold their last smooth control solution until
+		# the next 30 Hz guidance tick; transit/search may wait slightly longer.
+		_force_tactical_decision = true
+		_force_housekeeping_update = true
+		_force_guidance_update = true
+		_guidance_update_timer_s = 0.0
+		_guidance_elapsed_s = 0.0
 	if debug_enabled and current_state != new_state:
 		var target_name: String = combat_target.name if combat_target and is_instance_valid(combat_target) else "-"
 		print("[AIPilot STATE] %s %s -> %s target=%s weapon=%s" % [
@@ -23517,7 +24071,7 @@ func change_state(new_state: State):
 		_combat_log_event("ATTACK", "%s starting attack run on %s" % [_combat_log_self(), _combat_log_target()])
 	# Entering a dogfight (from a non-dogfight state) is a meaningful event.
 	if new_state == State.DOGFIGHT and current_state != State.DOGFIGHT:
-		_combat_log_event("ENGAGE", "%s engaging %s" % [_combat_log_self(), _combat_log_target()])
+		_combat_log_dogfight_engagement()
 	if current_state == State.DOGFIGHT and new_state != State.DOGFIGHT:
 		_dogfight_burst_active = false
 		_dogfight_burst_timer_s = 0.0
