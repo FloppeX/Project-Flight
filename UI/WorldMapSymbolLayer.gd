@@ -1,24 +1,22 @@
 extends Control
 
-const PIXEL_FONT: FontFile = preload("res://UI/Pixel.ttf")
+const DATA_FONT: FontFile = preload("res://UI/Fonts/JetBrainsMono-Variable.ttf")
 const TRACKED_TEAMS: PackedStringArray = ["friendlies", "enemies"]
 const GRID_DIVISIONS: int = 8
-const GRID_COLOR: Color = Color(0.24, 0.60, 0.28, 0.20)
-const MAJOR_GRID_COLOR: Color = Color(0.48, 1.0, 0.56, 0.26)
-const BORDER_COLOR: Color = Color(0.68, 1.0, 0.74, 0.88)
-const SCANLINE_COLOR: Color = Color(0.0, 0.0, 0.0, 0.16)
-const CENTER_RETICLE_COLOR: Color = Color(0.48, 1.0, 0.56, 0.34)
-const SCANLINE_STEP_PX: float = 4.0
+const GRID_COLOR: Color = Color(0.29, 0.48, 0.48, 0.20)
+const MAJOR_GRID_COLOR: Color = Color(0.46, 0.78, 0.78, 0.28)
+const BORDER_COLOR: Color = Color(0.46, 0.78, 0.78, 0.82)
+const CENTER_RETICLE_COLOR: Color = Color(0.46, 0.78, 0.78, 0.28)
 const CORNER_BRACKET_LEN_PX: float = 18.0
 const CORNER_BRACKET_INSET_PX: float = 7.0
-const POI_ACTIVE_COLOR: Color = Color(1.0, 0.92, 0.28, 1.0)
-const POI_USED_COLOR: Color = Color(0.52, 0.56, 0.52, 0.95)
+const POI_ACTIVE_COLOR: Color = Color("ffb000")
+const POI_USED_COLOR: Color = Color("7d8282")
 const PLANT_PATCH_COLOR: Color = Color(0.42, 0.68, 0.34, 0.62)
 const PLANT_PATCH_OUTLINE_COLOR: Color = Color(0.74, 0.92, 0.58, 0.38)
 
-@export var player_color: Color = Color(1.0, 1.0, 0.40, 1.0)
-@export var friendly_color: Color = Color(0.58, 1.0, 0.64, 1.0)
-@export var enemy_color: Color = Color(1.0, 0.38, 0.38, 1.0)
+@export var player_color: Color = Color("ffb000")
+@export var friendly_color: Color = Color("76c7c7")
+@export var enemy_color: Color = Color("ffb4ab")
 # Fog-of-war-lite: enemies NOT currently in the friendly sensor picture show in a muted version of their
 # real color (still on the map, but clearly not actively tracked). Set hide_unsensed_enemies=false to
 # draw everything full-color.
@@ -26,9 +24,9 @@ const PLANT_PATCH_OUTLINE_COLOR: Color = Color(0.74, 0.92, 0.58, 0.38)
 @export_range(0.0, 1.0, 0.05) var unsensed_brightness: float = 0.45  # how dark the muted color is
 @export_range(0.0, 1.0, 0.05) var unsensed_desaturate: float = 0.45  # how far toward grey
 @export_range(0.0, 1.0, 0.05) var unsensed_alpha: float = 0.65       # muted contact transparency
-@export var enemy_platoon_color: Color = Color(1.0, 0.12, 0.72, 1.0)
-@export var carrier_color: Color = Color(0.72, 1.0, 0.78, 1.0)
-@export var building_color: Color = Color(0.64, 0.96, 0.70, 1.0)
+@export var enemy_platoon_color: Color = Color("ff8a80")
+@export var carrier_color: Color = Color("76c7c7")
+@export var building_color: Color = Color("bfc9c0")
 @export var ground_marker_size_px: float = 5.0
 @export var building_marker_size_px: float = 8.5
 @export var platoon_marker_size_px: float = 10.0
@@ -40,10 +38,10 @@ const PLANT_PATCH_OUTLINE_COLOR: Color = Color(0.74, 0.92, 0.58, 0.38)
 @export var platoon_reveal_sample_step_m: float = 80.0
 @export var platoon_reveal_terrain_clearance_m: float = 4.0
 @export var platoon_reveal_max_range_m: float = 5000.0
-@export var carrier_waypoint_color: Color = Color(0.72, 1.0, 0.78, 0.9)
-@export var helicopter_waypoint_color: Color = Color(0.44, 0.86, 1.0, 0.9)
-@export var active_aircraft_waypoint_color: Color = Color(1.0, 0.82, 0.28, 1.0)
-@export var platoon_waypoint_color: Color = Color(1.0, 0.24, 0.78, 0.9)
+@export var carrier_waypoint_color: Color = Color(0.46, 0.78, 0.78, 0.9)
+@export var helicopter_waypoint_color: Color = Color(0.62, 0.86, 0.86, 0.9)
+@export var active_aircraft_waypoint_color: Color = Color(1.0, 0.69, 0.0, 1.0)
+@export var platoon_waypoint_color: Color = Color(0.75, 0.79, 0.75, 0.9)
 @export var waypoint_line_width_px: float = 1.6
 @export var waypoint_dot_size_px: float = 4.0
 @export var route_display_simplify_enabled: bool = true
@@ -51,8 +49,8 @@ const PLANT_PATCH_OUTLINE_COLOR: Color = Color(0.74, 0.92, 0.58, 0.38)
 @export var route_display_simplify_turn_deg: float = 8.0
 @export var route_display_simplify_line_error_px: float = 5.0
 @export var route_display_simplify_altitude_error_m: float = 35.0
-@export var draft_waypoint_color: Color = Color(1.0, 0.82, 0.32, 0.95)
-@export var selection_color: Color = Color(0.94, 1.0, 0.64, 1.0)
+@export var draft_waypoint_color: Color = Color(1.0, 0.69, 0.0, 0.95)
+@export var selection_color: Color = Color(1.0, 0.69, 0.0, 1.0)
 @export var selection_marker_radius_px: float = 10.0
 @export var counter_margin_px: float = 12.0
 @export var counter_font_size_px: int = 14
@@ -80,7 +78,7 @@ func _ready() -> void:
 	_counts_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_counts_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	_counts_label.vertical_alignment = VERTICAL_ALIGNMENT_TOP
-	_counts_label.add_theme_font_override("font", PIXEL_FONT)
+	_counts_label.add_theme_font_override("font", DATA_FONT)
 	_counts_label.add_theme_color_override("font_color", BORDER_COLOR)
 	_counts_label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 1.0))
 	_counts_label.add_theme_constant_override("outline_size", 1)
@@ -128,12 +126,16 @@ func _draw() -> void:
 				continue
 			if node_3d == carrier:
 				continue
+			var is_enemy: bool = _is_enemy_node(node_3d)
+			if is_enemy and not _is_world_explored(node_3d.global_position):
+				continue
 			if node_3d.is_in_group("ground_vehicles") or node_3d is Building or node_3d.is_in_group("buildings"):
 				_draw_ground_marker(node_3d)
 			else:
-				var air_route := _get_active_route_points(node_3d)
-				if not air_route.is_empty():
-					_draw_route_from_points(node_3d.global_position, air_route, helicopter_waypoint_color, true, false, aircraft_route_display_simplify_enabled, true, true)
+				if not is_enemy:
+					var air_route := _get_active_route_points(node_3d)
+					if not air_route.is_empty():
+						_draw_route_from_points(node_3d.global_position, air_route, helicopter_waypoint_color, true, false, aircraft_route_display_simplify_enabled, true, true)
 				_draw_air_marker(node_3d)
 
 	for node in get_tree().get_nodes_in_group("ground_vehicle_platoons"):
@@ -145,10 +147,9 @@ func _draw() -> void:
 		if not platoon.has_members():
 			continue
 		var platoon_pos: Vector3 = platoon.get_contact_position()
-		if not _is_world_in_map_bounds(platoon_pos):
+		if not _is_world_in_map_bounds(platoon_pos) or not _is_world_explored(platoon_pos):
 			continue
 		var platoon_color := _nearest_base_color(platoon_pos)
-		_draw_route_from_points(platoon_pos, _get_active_route_points(platoon), platoon_color, false)
 		var map_pos: Vector2 = _world_to_map(platoon_pos)
 		_draw_square_marker(map_pos, platoon_marker_size_px, platoon_color, true)
 	_draw_enemy_bases()
@@ -185,7 +186,7 @@ func _count_visible_enemy_platoons() -> int:
 		if not platoon.has_members():
 			continue
 		var platoon_pos: Vector3 = platoon.get_contact_position()
-		if not _is_world_in_map_bounds(platoon_pos):
+		if not _is_world_in_map_bounds(platoon_pos) or not _is_world_explored(platoon_pos):
 			continue
 		count += 1
 	return count
@@ -198,7 +199,7 @@ func _count_visible_enemy_ground_vehicles() -> int:
 		var node_3d := node as Node3D
 		if not node_3d.has_method("get_team") or int(node_3d.call("get_team")) != 2:
 			continue
-		if not _is_world_in_map_bounds(node_3d.global_position):
+		if not _is_world_in_map_bounds(node_3d.global_position) or not _is_world_explored(node_3d.global_position):
 			continue
 		count += 1
 	return count
@@ -266,7 +267,7 @@ func _draw_plant_patch_markers() -> void:
 			if not (marker is Dictionary):
 				continue
 			var world_pos: Vector3 = marker.get("position", Vector3.INF)
-			if not _is_world_in_map_bounds(world_pos):
+			if not _is_world_in_map_bounds(world_pos) or not _is_world_explored(world_pos):
 				continue
 			_draw_plant_patch_marker(_world_to_map(world_pos))
 
@@ -329,7 +330,7 @@ func _draw_route_from_points(
 			var altitude_m: float = world_point.y - terrain_y if terrain_y > -100000.0 else world_point.y
 			var label: String = "%d  %.0fm" % [i, altitude_m]
 			draw_string(
-				PIXEL_FONT,
+				DATA_FONT,
 				map_points[i] + Vector2(6.0, -4.0),
 				label,
 				HORIZONTAL_ALIGNMENT_LEFT,
@@ -461,6 +462,16 @@ func _is_world_in_map_bounds(world_pos: Vector3) -> bool:
 	var v: float = (world_pos.z - TerrainNavGrid._origin_z) / span_z
 	return u >= 0.0 and u <= 1.0 and v >= 0.0 and v <= 1.0
 
+
+func _is_world_explored(world_pos: Vector3) -> bool:
+	return MapFogOfWar.is_initialized() and MapFogOfWar.is_world_explored(world_pos)
+
+
+func _is_enemy_node(node_3d: Node3D) -> bool:
+	if node_3d.is_in_group("enemies"):
+		return true
+	return node_3d.has_method("get_team") and int(node_3d.call("get_team")) == 2
+
 func _world_to_map(world_pos: Vector3) -> Vector2:
 	var span_x: float = float(TerrainNavGrid._cols - 1) * TerrainNavGrid.cell_size_m
 	var span_z: float = float(TerrainNavGrid._rows - 1) * TerrainNavGrid.cell_size_m
@@ -549,16 +560,9 @@ func _has_terrain_line_of_sight(observer_world_pos: Vector3, target_world_pos: V
 	return true
 
 func _draw_vector_decor() -> void:
-	_draw_scanlines()
 	_draw_grid()
 	_draw_border_brackets()
 	_draw_center_reticle()
-
-func _draw_scanlines() -> void:
-	var y: float = 0.0
-	while y <= size.y:
-		draw_line(Vector2(0.0, y), Vector2(size.x, y), SCANLINE_COLOR, 1.0)
-		y += SCANLINE_STEP_PX
 
 func _draw_grid() -> void:
 	for i in range(GRID_DIVISIONS + 1):
@@ -594,7 +598,7 @@ func _draw_enemy_bases() -> void:
 			continue
 		var base      := node as EnemyBase
 		var base_pos  := base.global_position
-		if not _is_world_in_map_bounds(base_pos):
+		if not _is_world_in_map_bounds(base_pos) or not _is_world_explored(base_pos):
 			continue
 		var mp    := _world_to_map(base_pos)
 		var base_sensed: bool = _is_visible_to_player(base)
@@ -617,7 +621,7 @@ func _draw_enemy_bases() -> void:
 		for flight in base.get_flights():
 			if not is_instance_valid(flight):
 				continue
-			if not _is_world_in_map_bounds(flight.position):
+			if not _is_world_in_map_bounds(flight.position) or not _is_world_explored(flight.position):
 				continue
 			var fmp := _world_to_map(flight.position)
 			var fh  := Vector2(flight.heading.x, flight.heading.z)
@@ -642,7 +646,7 @@ func _draw_enemy_virtual_platoons() -> void:
 		for platoon: EnemyVirtualPlatoon in EnemyOpsManager._get_platoons(base):
 			if platoon.vehicle_count <= 0:
 				continue
-			if not _is_world_in_map_bounds(platoon.position):
+			if not _is_world_in_map_bounds(platoon.position) or not _is_world_explored(platoon.position):
 				continue
 			var mp    := _world_to_map(platoon.position)
 			var alpha := 0.50 if platoon.vstate == EnemyVirtualPlatoon.VState.VIRTUAL else 1.0
@@ -653,7 +657,7 @@ func _draw_enemy_virtual_platoons() -> void:
 func _draw_poi_markers() -> void:
 	for marker: Dictionary in POIManager.get_discovered_map_markers():
 		var pos: Vector3 = marker.get("position", Vector3.INF)
-		if not _is_world_in_map_bounds(pos):
+		if not _is_world_in_map_bounds(pos) or not _is_world_explored(pos):
 			continue
 		var color := POI_USED_COLOR if bool(marker.get("revealed", false)) else POI_ACTIVE_COLOR
 		_draw_star(_world_to_map(pos), 7.0, color)

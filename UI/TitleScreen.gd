@@ -581,6 +581,9 @@ func _start_new_game() -> void:
 		_carrier_colors[_secondary_index],
 		PATTERN_INDICES[_pattern_choice_index]
 	)
+	var loading_screen: Node = get_node_or_null("/root/LoadingScreen")
+	if loading_screen != null and loading_screen.has_method("begin_scenario_load"):
+		loading_screen.call("begin_scenario_load")
 	get_tree().change_scene_to_file(GAME_SCENE)
 
 

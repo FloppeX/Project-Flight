@@ -222,7 +222,7 @@ func _ready() -> void:
 	_suppress_carrier_air_ops()
 	_clear_scene_clutter()
 	# LandCarrier starts hidden at the scene origin while its asynchronous NavGraph job
-	# chooses the real patrol start (often tens of kilometres away). Spawning before it
+	# chooses the real safe start (often tens of kilometres away). Spawning before it
 	# becomes visible strands test aircraft at the temporary origin; the first camera-
 	# driven origin shift then makes that look like an aircraft teleport.
 	_waiting_for_carrier_placement = true

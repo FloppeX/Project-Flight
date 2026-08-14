@@ -2,12 +2,20 @@ extends Node3D
 class_name LowPolyTerrain
 
 const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
+const MAP_OPEN_CANYONS := "open_canyons"
+const MAP_LAYERED_BADLANDS := "layered_badlands"
+const LAYERED_PLAYABLE_HALF_EXTENT_M := 25000.0
+const LAYERED_ROUTE_COUNT := 3
+const LAYERED_CONNECTOR_COUNT := 4
+const LAYERED_ROUTE_CORE_HALF_WIDTH_M := 400.0
+const LAYERED_ROUTE_BLEND_HALF_WIDTH_M := 720.0
 
 @export_group("Size")
 @export var quads_x: int = 2778
 @export var quads_z: int = 2778
 @export var cell_size_m: float = 12.0
 @export var seed: int = 1337
+@export var map_profile_id: String = MAP_OPEN_CANYONS
 
 @export_group("Shape")
 ## Baseline plateau elevation — most of the terrain is at this height
@@ -197,6 +205,8 @@ var _x0: float = 0.0
 var _z0: float = 0.0
 var _chunk_count_x: int = 0
 var _chunk_count_z: int = 0
+var _layered_connector_geometry := PackedVector4Array() # start x, end x, base z, z bow
+var _layered_connector_heights := PackedVector2Array() # start and end route height
 
 var _chunks: Dictionary = {} # key "x:z" -> Node3D
 var _pending_builds: Array[Vector2i] = []
@@ -283,6 +293,131 @@ func rebuild() -> void:
 		_shape_node.shape = null
 	set_process(false)
 
+
+func set_map_profile(profile_id: String) -> void:
+	map_profile_id = MAP_LAYERED_BADLANDS if profile_id.strip_edges().to_lower() == MAP_LAYERED_BADLANDS else MAP_OPEN_CANYONS
+
+
+func get_map_profile_id() -> String:
+	return map_profile_id
+
+
+func get_map_profile_display_name() -> String:
+	return "Fractured Badlands" if map_profile_id == MAP_LAYERED_BADLANDS else "Open Canyons"
+
+
+## Samples one of the three protected carrier-scale routes in local terrain space.
+## progress=0 is the north edge and progress=1 is the south edge.
+func get_profile_route_local_position(progress: float, branch_index: int = 0) -> Vector3:
+	var u: float = clampf(progress, 0.0, 1.0)
+	var local_z := lerpf(-LAYERED_PLAYABLE_HALF_EXTENT_M, LAYERED_PLAYABLE_HALF_EXTENT_M, u)
+	var local_x := _layered_route_x(local_z, branch_index)
+	var local_y := _layered_route_height(local_z, branch_index) + base_height_offset_m
+	if quant_step_m > 0.1:
+		local_y = round(local_y / quant_step_m) * quant_step_m
+	return Vector3(local_x, local_y, local_z)
+
+
+## Samples a protected cross-connector between two carrier routes.
+func get_profile_connector_local_position(progress: float, connector_index: int = 0) -> Vector3:
+	var local_position := _layered_connector_position(progress, connector_index)
+	local_position.y += base_height_offset_m
+	if quant_step_m > 0.1:
+		local_position.y = round(local_position.y / quant_step_m) * quant_step_m
+	return local_position
+
+
+## Deterministic geometry validation for the protected routes. It checks the
+## centreline and two carrier-clearance traces continuously from edge to edge,
+## then applies the same grade check to every cross-connector.
+func validate_profile_routes(max_grade_degrees: float = 20.0, sample_step_m: float = 36.0) -> Dictionary:
+	if map_profile_id != MAP_LAYERED_BADLANDS:
+		return {"valid": true, "route_count": 0, "connector_count": 0, "max_grade_degrees": 0.0}
+	if _noises.is_empty():
+		_refresh_layout()
+		_noises = _build_noises()
+	var step_m := maxf(sample_step_m, 6.0)
+	var trace_offsets: Array[float] = [-200.0, 0.0, 200.0]
+	var maximum_grade := 0.0
+	var route_count := LAYERED_ROUTE_COUNT
+	for branch_index in route_count:
+		for lateral_offset in trace_offsets:
+			var z := -LAYERED_PLAYABLE_HALF_EXTENT_M
+			var route_x := _layered_route_x(z, branch_index) + lateral_offset
+			var previous := Vector3(route_x, _sample_profile_height(route_x, z), z)
+			z += step_m
+			while previous.z < LAYERED_PLAYABLE_HALF_EXTENT_M - 0.001:
+				var sample_z := minf(z, LAYERED_PLAYABLE_HALF_EXTENT_M)
+				route_x = _layered_route_x(sample_z, branch_index) + lateral_offset
+				var current := Vector3(route_x, _sample_profile_height(route_x, sample_z), sample_z)
+				var run := Vector2(current.x - previous.x, current.z - previous.z).length()
+				if run <= 0.001 or is_nan(current.y):
+					return {"valid": false, "route_count": route_count, "connector_count": LAYERED_CONNECTOR_COUNT, "max_grade_degrees": maximum_grade, "failed_feature": "route", "failed_index": branch_index, "failed_progress": inverse_lerp(-LAYERED_PLAYABLE_HALF_EXTENT_M, LAYERED_PLAYABLE_HALF_EXTENT_M, sample_z), "failed_offset_m": lateral_offset}
+				var grade_degrees := rad_to_deg(atan2(absf(current.y - previous.y), run))
+				maximum_grade = maxf(maximum_grade, grade_degrees)
+				if grade_degrees > max_grade_degrees + 0.01:
+					return {"valid": false, "route_count": route_count, "connector_count": LAYERED_CONNECTOR_COUNT, "max_grade_degrees": maximum_grade, "failed_feature": "route", "failed_index": branch_index, "failed_progress": inverse_lerp(-LAYERED_PLAYABLE_HALF_EXTENT_M, LAYERED_PLAYABLE_HALF_EXTENT_M, sample_z), "failed_offset_m": lateral_offset}
+				previous = current
+				z = sample_z + step_m
+	var connector_validation := _validate_layered_connectors(max_grade_degrees, step_m, trace_offsets)
+	maximum_grade = maxf(maximum_grade, float(connector_validation.get("max_grade_degrees", 0.0)))
+	var result := {
+		"valid": bool(connector_validation.get("valid", false)),
+		"route_count": route_count,
+		"connector_count": LAYERED_CONNECTOR_COUNT,
+		"max_grade_degrees": maximum_grade,
+	}
+	if not bool(connector_validation.get("valid", false)):
+		for key in connector_validation:
+			if key != "valid" and key != "max_grade_degrees":
+				result[key] = connector_validation[key]
+	return result
+
+
+func _validate_layered_connectors(max_grade_degrees: float, step_m: float, trace_offsets: Array[float]) -> Dictionary:
+	var maximum_grade := 0.0
+	for connector_index in LAYERED_CONNECTOR_COUNT:
+		var approximate_length := 0.0
+		var length_previous := _layered_connector_position(0.0, connector_index)
+		for length_index in range(1, 65):
+			var length_current := _layered_connector_position(float(length_index) / 64.0, connector_index)
+			approximate_length += Vector2(length_current.x - length_previous.x, length_current.z - length_previous.z).length()
+			length_previous = length_current
+		var segment_count := maxi(1, int(ceil(approximate_length / step_m)))
+		for lateral_offset in trace_offsets:
+			var previous := _sample_connector_trace_position(0.0, connector_index, lateral_offset, segment_count)
+			for segment_index in range(1, segment_count + 1):
+				var progress := float(segment_index) / float(segment_count)
+				var current := _sample_connector_trace_position(progress, connector_index, lateral_offset, segment_count)
+				var run := Vector2(current.x - previous.x, current.z - previous.z).length()
+				if run <= 0.001 or is_nan(current.y):
+					return {"valid": false, "max_grade_degrees": maximum_grade, "failed_feature": "connector", "failed_index": connector_index, "failed_progress": progress, "failed_offset_m": lateral_offset}
+				var grade_degrees := rad_to_deg(atan2(absf(current.y - previous.y), run))
+				maximum_grade = maxf(maximum_grade, grade_degrees)
+				if grade_degrees > max_grade_degrees + 0.01:
+					return {"valid": false, "max_grade_degrees": maximum_grade, "failed_feature": "connector", "failed_index": connector_index, "failed_progress": progress, "failed_offset_m": lateral_offset}
+				previous = current
+	return {"valid": true, "max_grade_degrees": maximum_grade}
+
+
+func _sample_connector_trace_position(progress: float, connector_index: int, lateral_offset: float, segment_count: int) -> Vector3:
+	var tangent_step := 1.0 / float(maxi(segment_count, 1))
+	var before := _layered_connector_position(maxf(progress - tangent_step, 0.0), connector_index)
+	var after := _layered_connector_position(minf(progress + tangent_step, 1.0), connector_index)
+	var tangent := Vector2(after.x - before.x, after.z - before.z).normalized()
+	var normal := Vector2(-tangent.y, tangent.x)
+	var center := _layered_connector_position(progress, connector_index)
+	var x := center.x + normal.x * lateral_offset
+	var z := center.z + normal.y * lateral_offset
+	return Vector3(x, _sample_profile_height(x, z), z)
+
+
+func _sample_profile_height(local_x: float, local_z: float) -> float:
+	var height := _sample_height(local_x, local_z, _noises)
+	if quant_step_m > 0.1:
+		height = round(height / quant_step_m) * quant_step_m
+	return height
+
 ## Returns 0.0..1.0 fraction of the initial chunk fill completed.
 ## 1.0 once the first visible ring has fully built and all async tasks are done.
 func get_chunk_load_fraction() -> float:
@@ -348,6 +483,28 @@ func _refresh_layout() -> void:
 	var qz: int = max(chunk_quads_z, 1)
 	_chunk_count_x = int(ceil(float(_size_x) / float(qx)))
 	_chunk_count_z = int(ceil(float(_size_z) / float(qz)))
+	_refresh_layered_connector_cache()
+
+
+func _refresh_layered_connector_cache() -> void:
+	_layered_connector_geometry.resize(LAYERED_CONNECTOR_COUNT)
+	_layered_connector_heights.resize(LAYERED_CONNECTOR_COUNT)
+	for connector_index in LAYERED_CONNECTOR_COUNT:
+		var routes := _layered_connector_routes(connector_index)
+		var connector_u := _layered_connector_u(connector_index)
+		var base_z := lerpf(-LAYERED_PLAYABLE_HALF_EXTENT_M, LAYERED_PLAYABLE_HALF_EXTENT_M, connector_u)
+		var start_x := _layered_route_x(base_z, routes.x)
+		var end_x := _layered_route_x(base_z, routes.y)
+		_layered_connector_geometry[connector_index] = Vector4(
+			start_x,
+			end_x,
+			base_z,
+			_layered_connector_bow_m(connector_index)
+		)
+		_layered_connector_heights[connector_index] = Vector2(
+			_layered_route_height(base_z, routes.x),
+			_layered_route_height(base_z, routes.y)
+		)
 
 func _ensure_nodes() -> void:
 	_mesh_node = get_node_or_null("TerrainMesh") as MeshInstance3D
@@ -1080,6 +1237,9 @@ func _build_noises() -> Dictionary:
 	}
 
 func _sample_height(world_x: float, world_z: float, noises: Dictionary) -> float:
+	if map_profile_id == MAP_LAYERED_BADLANDS:
+		return _sample_layered_badlands_height(world_x, world_z, noises)
+
 	# --- Domain warp: organically meander the canyon network ---
 	var warp_noise: FastNoiseLite = noises["canyon_warp"] as FastNoiseLite
 	var warp_x: float = warp_noise.get_noise_2d(world_x, world_z) * canyon_warp_amplitude_m
@@ -1130,6 +1290,254 @@ func _sample_height(world_x: float, world_z: float, noises: Dictionary) -> float
 	h += flat_surface_detail_var * flat_surface_blend
 
 	return h + base_height_offset_m
+
+
+## A macro-layout profile made from irregular ridges, mesas, channels, and basins
+## plus three protected cross-map routes and four cross-connectors. Height remains continuous: there are no
+## global elevation shelves. Noise supplies geological variation, but never
+## controls whether the routes connect.
+func _sample_layered_badlands_height(world_x: float, world_z: float, noises: Dictionary) -> float:
+	var main_noise := noises["main_canyon"] as FastNoiseLite
+	var tributary_noise := noises["tributary"] as FastNoiseLite
+	var strata_noise := noises["strata_var"] as FastNoiseLite
+	var undulation_noise := noises["flat_surface_undulation"] as FastNoiseLite
+	var detail_noise := noises["flat_surface_detail"] as FastNoiseLite
+
+	var main_value := main_noise.get_noise_2d(world_x, world_z)
+	var tributary_value := tributary_noise.get_noise_2d(world_x - 4700.0, world_z + 8100.0)
+	var strata_value := strata_noise.get_noise_2d(world_x + 9200.0, world_z - 6100.0)
+
+	# Large-scale relief drifts continuously across the region. The overlapping
+	# waves keep any one noise field from reading as a repeated height band.
+	var h := 285.0
+	h += strata_value * 190.0
+	h += main_value * 155.0
+	h += tributary_value * 90.0
+	h += sin(world_x * 0.00016 + world_z * 0.00009) * 82.0
+	h += cos(world_z * 0.00019 - world_x * 0.00007) * 64.0
+
+	# Localized mesas and broken ridges add sharp vertical features, but their
+	# absolute height varies with the surrounding relief instead of snapping to
+	# a small set of shared levels.
+	var mesa_signal := main_value * 0.56 + tributary_value * 0.29
+	mesa_signal += sin(world_x * 0.00023 - world_z * 0.00015) * 0.18
+	var mesa_mask := _smoothstep(0.15, 0.32, mesa_signal)
+	var mesa_relief := 190.0 + (strata_value * 0.5 + 0.5) * 190.0
+	h += mesa_mask * mesa_relief
+
+	var channel_axis := main_value + sin(world_x * 0.00011 + world_z * 0.00017) * 0.10
+	var channel_mask := 1.0 - _smoothstep(0.035, 0.22, absf(channel_axis))
+	h -= channel_mask * channel_mask * (165.0 + (tributary_value * 0.5 + 0.5) * 115.0)
+
+	var ridge_mask := _smoothstep(0.36, 0.58, absf(tributary_value))
+	h += ridge_mask * (95.0 + (strata_value * 0.5 + 0.5) * 105.0)
+	h += undulation_noise.get_noise_2d(world_x, world_z) * 24.0
+	h += detail_noise.get_noise_2d(world_x, world_z) * 6.0
+
+	var feature_blend := 0.0
+	var feature_weight := 0.0
+	var feature_height_weight := 0.0
+	# Calculate the three related routes from one shared parameterization. This
+	# path is sampled millions of times during a 50 km navigation bake, so avoid
+	# recomputing the same trigonometric terms through the public route helpers.
+	var route_u := clampf(
+		(world_z + LAYERED_PLAYABLE_HALF_EXTENT_M) / (LAYERED_PLAYABLE_HALF_EXTENT_M * 2.0),
+		0.0,
+		1.0
+	)
+	var endpoint_envelope := pow(sin(PI * route_u), 2.0)
+	var main_x := endpoint_envelope * (
+		sin(TAU * route_u) * 6500.0
+		+ sin(TAU * 3.0 * route_u) * 1800.0
+	)
+	var route_relief := 325.0
+	route_relief += sin(TAU * route_u + 0.35) * 110.0
+	route_relief += sin(TAU * 3.0 * route_u - 0.55) * 72.0
+	route_relief += sin(TAU * 7.0 * route_u + 0.90) * 38.0
+	var main_height := 65.0 + endpoint_envelope * route_relief
+	var east_u := clampf((route_u - 0.16) / 0.68, 0.0, 1.0)
+	var east_envelope := pow(sin(PI * east_u), 2.0)
+	var east_x := main_x + east_envelope * (7600.0 + sin(TAU * 2.0 * route_u) * 900.0)
+	var east_height := main_height + east_envelope * (
+		260.0 + sin(TAU * 2.0 * route_u + 0.40) * 55.0
+	)
+	var west_u := clampf((route_u - 0.10) / 0.80, 0.0, 1.0)
+	var west_envelope := pow(sin(PI * west_u), 2.0)
+	var west_x := main_x - west_envelope * (
+		8200.0 + sin(TAU * 3.0 * route_u + 0.65) * 1050.0
+	)
+	var west_height := main_height - west_envelope * (
+		115.0 + sin(TAU * 2.5 * route_u - 0.20) * 42.0
+	)
+	var main_blend := 1.0 - _smoothstep(
+		LAYERED_ROUTE_CORE_HALF_WIDTH_M,
+		LAYERED_ROUTE_BLEND_HALF_WIDTH_M,
+		absf(world_x - main_x)
+	)
+	var east_blend := 1.0 - _smoothstep(
+		LAYERED_ROUTE_CORE_HALF_WIDTH_M,
+		LAYERED_ROUTE_BLEND_HALF_WIDTH_M,
+		absf(world_x - east_x)
+	)
+	var west_blend := 1.0 - _smoothstep(
+		LAYERED_ROUTE_CORE_HALF_WIDTH_M,
+		LAYERED_ROUTE_BLEND_HALF_WIDTH_M,
+		absf(world_x - west_x)
+	)
+	feature_blend = maxf(main_blend, maxf(east_blend, west_blend))
+	feature_weight = main_blend + east_blend + west_blend
+	feature_height_weight = (
+		main_height * main_blend
+		+ east_height * east_blend
+		+ west_height * west_blend
+	)
+	# Each connector occupies only a narrow z band. Explicit guards avoid four
+	# helper calls for the overwhelming majority of full-map height samples.
+	var connector_sample := Vector2.ZERO
+	var connector_blend := 0.0
+	if world_z >= -11720.0 and world_z <= -9230.0:
+		connector_sample = _layered_connector_nearest_sample(world_x, world_z, 0)
+		connector_blend = 1.0 - _smoothstep(LAYERED_ROUTE_CORE_HALF_WIDTH_M, LAYERED_ROUTE_BLEND_HALF_WIDTH_M, connector_sample.x)
+		feature_blend = maxf(feature_blend, connector_blend)
+		feature_weight += connector_blend
+		feature_height_weight += connector_sample.y * connector_blend
+	if world_z >= -6620.0 and world_z <= -4280.0:
+		connector_sample = _layered_connector_nearest_sample(world_x, world_z, 1)
+		connector_blend = 1.0 - _smoothstep(LAYERED_ROUTE_CORE_HALF_WIDTH_M, LAYERED_ROUTE_BLEND_HALF_WIDTH_M, connector_sample.x)
+		feature_blend = maxf(feature_blend, connector_blend)
+		feature_weight += connector_blend
+		feature_height_weight += connector_sample.y * connector_blend
+	if world_z >= 5280.0 and world_z <= 7570.0:
+		connector_sample = _layered_connector_nearest_sample(world_x, world_z, 2)
+		connector_blend = 1.0 - _smoothstep(LAYERED_ROUTE_CORE_HALF_WIDTH_M, LAYERED_ROUTE_BLEND_HALF_WIDTH_M, connector_sample.x)
+		feature_blend = maxf(feature_blend, connector_blend)
+		feature_weight += connector_blend
+		feature_height_weight += connector_sample.y * connector_blend
+	if world_z >= 7180.0 and world_z <= 9720.0:
+		connector_sample = _layered_connector_nearest_sample(world_x, world_z, 3)
+		connector_blend = 1.0 - _smoothstep(LAYERED_ROUTE_CORE_HALF_WIDTH_M, LAYERED_ROUTE_BLEND_HALF_WIDTH_M, connector_sample.x)
+		feature_blend = maxf(feature_blend, connector_blend)
+		feature_weight += connector_blend
+		feature_height_weight += connector_sample.y * connector_blend
+	if feature_weight > 0.001:
+		h = lerpf(h, feature_height_weight / feature_weight, feature_blend)
+	return h + base_height_offset_m
+
+
+func _layered_route_x(world_z: float, branch_index: int) -> float:
+	var u := clampf(
+		(world_z + LAYERED_PLAYABLE_HALF_EXTENT_M) / (LAYERED_PLAYABLE_HALF_EXTENT_M * 2.0),
+		0.0,
+		1.0
+	)
+	# The endpoint envelope makes both map-edge approaches straight and launch-safe.
+	var endpoint_envelope := pow(sin(PI * u), 2.0)
+	var main_x := endpoint_envelope * (
+		sin(TAU * u) * 6500.0
+		+ sin(TAU * 3.0 * u) * 1800.0
+	)
+	if branch_index <= 0:
+		return main_x
+	if branch_index == 1:
+		# The eastern high route separates in the interior, loops around a
+		# different side of the escarpments, then reconnects near either edge.
+		var east_u := clampf((u - 0.16) / 0.68, 0.0, 1.0)
+		var east_envelope := pow(sin(PI * east_u), 2.0)
+		return main_x + east_envelope * (7600.0 + sin(TAU * 2.0 * u) * 900.0)
+	# The western basin route splits earlier and follows a different rhythm so
+	# it reads as a true third corridor rather than another short detour.
+	var west_u := clampf((u - 0.10) / 0.80, 0.0, 1.0)
+	var west_envelope := pow(sin(PI * west_u), 2.0)
+	return main_x - west_envelope * (8200.0 + sin(TAU * 3.0 * u + 0.65) * 1050.0)
+
+
+func _layered_route_height(world_z: float, branch_index: int = 0) -> float:
+	var u := clampf(
+		(world_z + LAYERED_PLAYABLE_HALF_EXTENT_M) / (LAYERED_PLAYABLE_HALF_EXTENT_M * 2.0),
+		0.0,
+		1.0
+	)
+	# Overlapping long waves create organic climbs and descents instead of fixed
+	# elevation phases. The endpoint envelope keeps both map-edge approaches flat,
+	# while the amplitudes stay well below the 20-degree validator cap.
+	var endpoint_envelope := pow(sin(PI * u), 2.0)
+	var route_relief := 325.0
+	route_relief += sin(TAU * u + 0.35) * 110.0
+	route_relief += sin(TAU * 3.0 * u - 0.55) * 72.0
+	route_relief += sin(TAU * 7.0 * u + 0.90) * 38.0
+	var h := 65.0 + endpoint_envelope * route_relief
+	if branch_index == 1:
+		var branch_u := clampf((u - 0.16) / 0.68, 0.0, 1.0)
+		var branch_envelope := pow(sin(PI * branch_u), 2.0)
+		h += branch_envelope * (260.0 + sin(TAU * 2.0 * u + 0.40) * 55.0)
+	elif branch_index >= 2:
+		var west_u := clampf((u - 0.10) / 0.80, 0.0, 1.0)
+		var west_envelope := pow(sin(PI * west_u), 2.0)
+		h -= west_envelope * (115.0 + sin(TAU * 2.5 * u - 0.20) * 42.0)
+	return h
+
+
+func _layered_connector_position(progress: float, connector_index: int) -> Vector3:
+	var t := clampf(progress, 0.0, 1.0)
+	var clamped_index := clampi(connector_index, 0, LAYERED_CONNECTOR_COUNT - 1)
+	var geometry := _layered_connector_geometry[clamped_index]
+	var heights := _layered_connector_heights[clamped_index]
+	var smooth_t := t * t * (3.0 - 2.0 * t)
+	var sin_t := sin(PI * t)
+	var x := lerpf(geometry.x, geometry.y, t)
+	var z := geometry.z + sin_t * geometry.w
+	var height_bow := 34.0 if clamped_index % 2 == 0 else -26.0
+	var y := lerpf(heights.x, heights.y, smooth_t) + sin_t * height_bow
+	return Vector3(x, y, z)
+
+
+func _layered_connector_nearest_sample(world_x: float, world_z: float, connector_index: int) -> Vector2:
+	var geometry := _layered_connector_geometry[connector_index]
+	if (
+		world_x < minf(geometry.x, geometry.y) - LAYERED_ROUTE_BLEND_HALF_WIDTH_M
+		or world_x > maxf(geometry.x, geometry.y) + LAYERED_ROUTE_BLEND_HALF_WIDTH_M
+	):
+		return Vector2(LAYERED_ROUTE_BLEND_HALF_WIDTH_M + 1.0, 0.0)
+	var t := 0.0
+	if absf(geometry.y - geometry.x) > 0.001:
+		t = clampf((world_x - geometry.x) / (geometry.y - geometry.x), 0.0, 1.0)
+	var smooth_t := t * t * (3.0 - 2.0 * t)
+	var sin_t := sin(PI * t)
+	var center_x := lerpf(geometry.x, geometry.y, t)
+	var center_z := geometry.z + sin_t * geometry.w
+	var heights := _layered_connector_heights[connector_index]
+	var height_bow := 34.0 if connector_index % 2 == 0 else -26.0
+	var center_height := lerpf(heights.x, heights.y, smooth_t) + sin_t * height_bow
+	var distance := Vector2(world_x - center_x, world_z - center_z).length()
+	return Vector2(distance, center_height)
+
+
+func _layered_connector_routes(connector_index: int) -> Vector2i:
+	return Vector2i(2, 0) if connector_index % 2 == 0 else Vector2i(0, 1)
+
+
+func _layered_connector_u(connector_index: int) -> float:
+	match clampi(connector_index, 0, LAYERED_CONNECTOR_COUNT - 1):
+		0:
+			return 0.28
+		1:
+			return 0.40
+		2:
+			return 0.62
+		_:
+			return 0.68
+
+
+func _layered_connector_bow_m(connector_index: int) -> float:
+	match clampi(connector_index, 0, LAYERED_CONNECTOR_COUNT - 1):
+		0:
+			return 1050.0
+		1:
+			return -900.0
+		2:
+			return 850.0
+		_:
+			return -1100.0
 
 # Maps canyon ridge-noise signal to a carving depth with near-vertical walls.
 # signal_raw: 0 = canyon center, increases outward to plateau

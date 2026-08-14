@@ -15,8 +15,13 @@ signal graph_ready
 
 @export var node_spacing_m:    float = 80.0   ## Grid spacing between candidate nodes
 @export var max_edge_length_m: float = 180.0  ## Max edge length (~2.25 × spacing covers diagonals)
-@export var max_slope_m:       float = 18.0   ## Max height change per cell_size step along an edge
+@export var max_slope_m:       float = 18.0   ## Legacy local-height tolerance used by placement/UI helpers
+@export_range(1.0, 45.0, 0.5) var max_slope_degrees: float = 20.0 ## Hard route grade cap
 @export var debug_print:       bool  = false
+
+@export_group("Layered Map")
+@export var layered_node_spacing_m: float = 160.0
+@export var layered_max_edge_length_m: float = 250.0
 
 # ── Graph data (populated by _build or _load) ──────────────────────────────
 
@@ -145,8 +150,6 @@ func _init_graph() -> void:
 	var loaded_from_cache := false
 	if FileAccess.file_exists(cache):
 		if _load(cache):
-			# Rebuild clearance map (needed for path simplification at query time)
-			_cl_map = _build_clearance_map(TerrainNavGrid._cols, TerrainNavGrid._rows, TerrainNavGrid.cell_size_m)
 			_build_spatial_index()
 			if debug_print:
 				print("[NavGraph] Loaded from cache — %d nodes, %d edges" % [
@@ -166,15 +169,23 @@ func _init_graph() -> void:
 func _cache_path() -> String:
 	var terrain := get_tree().get_first_node_in_group("terrain_provider") as Node3D
 	var seed_val: int = 0
+	var profile_id := "open_canyons"
 	if terrain:
 		var s = terrain.get("seed")
 		if s != null:
 			seed_val = int(s)
+		var profile_value: Variant = terrain.get("map_profile_id")
+		if profile_value != null:
+			profile_id = str(profile_value).validate_filename()
 	var origin_x_key: int = int(round(TerrainNavGrid._origin_x))
 	var origin_z_key: int = int(round(TerrainNavGrid._origin_z))
-	return "user://navgraph_%d_s%.0f_e%.0f_g%.0f_ox%d_oz%d.bin" % [
+	var effective_spacing := _effective_node_spacing_m()
+	var effective_edge_length := _effective_max_edge_length_m()
+	return "user://navgraph_%s_%d_s%.0f_l%.0f_e%.0f_g%.0f_ox%d_oz%d.bin" % [
+		profile_id,
 		seed_val,
-		node_spacing_m,
+		effective_spacing,
+		effective_edge_length,
 		TerrainNavGrid.bake_half_extent_m,
 		TerrainNavGrid.cell_size_m,
 		origin_x_key,
@@ -197,11 +208,13 @@ func _reset_graph() -> void:
 
 func _build() -> void:
 	var t0 := Time.get_ticks_msec()
+	var effective_spacing := _effective_node_spacing_m()
+	var effective_edge_length := _effective_max_edge_length_m()
 	if debug_print:
-		print("[NavGraph] Building graph (spacing=%.0fm)…" % node_spacing_m)
+		print("[NavGraph] Building graph (spacing=%.0fm)…" % effective_spacing)
 
 	var cell  := TerrainNavGrid.cell_size_m
-	var step  := maxi(1, int(node_spacing_m / cell))
+	var step  := maxi(1, int(round(effective_spacing / cell)))
 	var cols  := TerrainNavGrid._cols
 	var rows  := TerrainNavGrid._rows
 	var ox    := TerrainNavGrid._origin_x
@@ -218,8 +231,8 @@ func _build() -> void:
 
 	var node_gx: PackedInt32Array = []
 	var node_gz: PackedInt32Array = []
+	var allow_elevated_routes := _current_map_supports_elevated_routes()
 	var h_ceil := TerrainNavGrid._h_min_passable + TerrainNavGrid.low_level_tolerance_m
-
 	for gz in range(0, rows, step):
 		for gx in range(0, cols, step):
 			if not _cell_passable(gx, gz):
@@ -228,8 +241,7 @@ func _build() -> void:
 			if not _cell_slope_ok(gx, gz):
 				continue
 			var wy: float = TerrainNavGrid._heights[gz * cols + gx]
-			# Skip high-elevation cells — carrier stays on low terrain
-			if wy > h_ceil:
+			if not allow_elevated_routes and wy > h_ceil:
 				continue
 			var idx := _nodes.size()
 			_nodes.append(Vector3(ox + gx * cell, wy, oz + gz * cell))
@@ -248,8 +260,8 @@ func _build() -> void:
 	for i in n:
 		edge_lists[i] = []
 
-	var max_edge_sq := max_edge_length_m * max_edge_length_m
-	var search_r    := int(max_edge_length_m / node_spacing_m) + 1
+	var max_edge_sq := effective_edge_length * effective_edge_length
+	var search_r    := int(effective_edge_length / effective_spacing) + 1
 
 	for i in n:
 		var ga_x: int = node_gx[i]
@@ -302,26 +314,22 @@ func _build() -> void:
 # ── Clearance map ───────────────────────────────────────────────────────────
 
 func _build_clearance_map(cols: int, rows: int, cell: float) -> PackedFloat32Array:
-	## BFS from every obstacle cell outward.  Result[i] = distance (m) from
-	## cell i to the nearest obstacle.  "Obstacle" includes both truly impassable
-	## cells AND high-elevation cells (hills/mountains) that ground vehicles
-	## cannot traverse.
+	## BFS from every obstacle cell outward. Layered maps admit reachable shelves;
+	## the original profile retains its low-canyon routing behavior.
 	var cl := PackedFloat32Array()
 	cl.resize(cols * rows)
 	cl.fill(1e9)
 
-	# Determine height ceiling: only low-level terrain is navigable.
-	# This matches TerrainNavGrid.get_furthest_edge_position logic.
+	var allow_elevated_routes := _current_map_supports_elevated_routes()
 	var h_ceil := TerrainNavGrid._h_min_passable + TerrainNavGrid.low_level_tolerance_m
-
 	var queue: PackedInt32Array = []
 	for gz in rows:
 		for gx in cols:
 			var h := TerrainNavGrid._heights[gz * cols + gx]
 			var is_obstacle := (
 				h <= TerrainNavGrid.IMPASSABLE * 0.5
-				or h > h_ceil
-				or TerrainNavGrid.is_cell_near_steep_slope(gx, gz, max_slope_m)
+				or (not allow_elevated_routes and h > h_ceil)
+				or TerrainNavGrid.is_cell_near_steep_grade(gx, gz, max_slope_degrees, 1)
 			)
 			if is_obstacle:
 				cl[gz * cols + gx] = 0.0
@@ -347,6 +355,22 @@ func _build_clearance_map(cols: int, rows: int, cell: float) -> PackedFloat32Arr
 				queue.append(ni)
 	return cl
 
+
+func _current_map_supports_elevated_routes() -> bool:
+	var terrain := get_tree().get_first_node_in_group("terrain_provider") as Node3D
+	if terrain == null:
+		return false
+	var profile_value: Variant = terrain.get("map_profile_id")
+	return profile_value != null and str(profile_value) == "layered_badlands"
+
+
+func _effective_node_spacing_m() -> float:
+	return maxf(layered_node_spacing_m, TerrainNavGrid.cell_size_m) if _current_map_supports_elevated_routes() else node_spacing_m
+
+
+func _effective_max_edge_length_m() -> float:
+	return maxf(layered_max_edge_length_m, _effective_node_spacing_m()) if _current_map_supports_elevated_routes() else max_edge_length_m
+
 # ── Passability helpers ─────────────────────────────────────────────────────
 
 func _cell_passable(gx: int, gz: int) -> bool:
@@ -359,7 +383,7 @@ func _cell_passable(gx: int, gz: int) -> bool:
 
 func _cell_slope_ok(gx: int, gz: int) -> bool:
 	## Check immediate neighbours for excessive slope.
-	return not TerrainNavGrid.is_cell_near_steep_slope(gx, gz, max_slope_m, 1)
+	return not TerrainNavGrid.is_cell_near_steep_grade(gx, gz, max_slope_degrees, 1)
 
 func _edge_clearance(pa: Vector3, pb: Vector3, ia: int, ib: int) -> float:
 	## Walk the edge in cell_size steps and check slope + passability.
@@ -368,25 +392,28 @@ func _edge_clearance(pa: Vector3, pb: Vector3, ia: int, ib: int) -> float:
 	var dist := diff.length()
 	if dist < 0.01:
 		return _node_cl[ia]
-	var step_m := TerrainNavGrid.cell_size_m
+	var step_m := maxf(TerrainNavGrid.cell_size_m * 0.5, 1.0)
 	var dir := diff / dist
 	var prev_h := pa.y
+	var prev_d := 0.0
 	var min_cl := minf(_node_cl[ia], _node_cl[ib])
-	var d := step_m * 0.5
+	var d := step_m
 	var cell := TerrainNavGrid.cell_size_m
 	var cols := TerrainNavGrid._cols
 	var rows := TerrainNavGrid._rows
 	var ox := TerrainNavGrid._origin_x
 	var oz := TerrainNavGrid._origin_z
-	while d < dist:
-		var px := pa.x + dir.x * d
-		var pz := pa.z + dir.y * d
+	while prev_d < dist - 0.001:
+		var sample_d := minf(d, dist)
+		var px := pa.x + dir.x * sample_d
+		var pz := pa.z + dir.y * sample_d
 		var h := TerrainNavGrid.sample_height(px, pz)
 		if h <= TerrainNavGrid.IMPASSABLE * 0.5:
 			return -1.0
-		if abs(h - prev_h) > max_slope_m:
+		if _grade_exceeds_limit(prev_h, h, sample_d - prev_d):
 			return -1.0
 		prev_h = h
+		prev_d = sample_d
 		# Sample clearance at this intermediate point from the clearance map
 		var gx := int((px - ox) / cell)
 		var gz := int((pz - oz) / cell)
@@ -499,25 +526,28 @@ func _check_segment_clearance(from: Vector3, to: Vector3, min_cl: float) -> floa
 	var dist := diff.length()
 	if dist < 0.01:
 		return 1e9
-	var step_m := TerrainNavGrid.cell_size_m
+	var step_m := maxf(TerrainNavGrid.cell_size_m * 0.5, 1.0)
 	var dir := diff / dist
 	var prev_h := from.y
+	var prev_d := 0.0
 	var result_cl := 1e9
 	var cell := TerrainNavGrid.cell_size_m
 	var cols := TerrainNavGrid._cols
 	var rows := TerrainNavGrid._rows
 	var ox := TerrainNavGrid._origin_x
 	var oz := TerrainNavGrid._origin_z
-	var d := step_m * 0.5
-	while d < dist:
-		var px := from.x + dir.x * d
-		var pz := from.z + dir.y * d
+	var d := step_m
+	while prev_d < dist - 0.001:
+		var sample_d := minf(d, dist)
+		var px := from.x + dir.x * sample_d
+		var pz := from.z + dir.y * sample_d
 		var h := TerrainNavGrid.sample_height(px, pz)
 		if h <= TerrainNavGrid.IMPASSABLE * 0.5:
 			return -1.0
-		if abs(h - prev_h) > max_slope_m:
+		if _grade_exceeds_limit(prev_h, h, sample_d - prev_d):
 			return -1.0
 		prev_h = h
+		prev_d = sample_d
 		var gx := int((px - ox) / cell)
 		var gz := int((pz - oz) / cell)
 		if gx >= 0 and gx < cols and gz >= 0 and gz < rows:
@@ -533,6 +563,13 @@ func _check_segment_clearance(from: Vector3, to: Vector3, min_cl: float) -> floa
 			return -1.0
 		d += step_m
 	return result_cl
+
+
+func _grade_exceeds_limit(from_height: float, to_height: float, horizontal_run_m: float) -> bool:
+	if horizontal_run_m <= 0.001:
+		return true
+	var rise_over_run := absf(to_height - from_height) / horizontal_run_m
+	return rise_over_run > tan(deg_to_rad(clampf(max_slope_degrees, 0.1, 89.0)))
 
 # ── Spatial index ───────────────────────────────────────────────────────────
 
@@ -602,18 +639,21 @@ func _heap_pop(heap: Array) -> Array:
 
 # ── Save / Load ─────────────────────────────────────────────────────────────
 
-const _CACHE_VERSION := 6
+const _CACHE_VERSION := 12
 
 func _save(path: String) -> void:
 	var data := {
 		"version":      _CACHE_VERSION,
-		"node_spacing": node_spacing_m,
+		"node_spacing": _effective_node_spacing_m(),
+		"max_edge_length": _effective_max_edge_length_m(),
 		"max_slope":    max_slope_m,
+		"max_slope_degrees": max_slope_degrees,
 		"nodes":        _nodes,
 		"node_cl":      _node_cl,
 		"edge_starts":  _edge_starts,
 		"edge_nb":      _edge_nb,
 		"edge_cl":      _edge_cl,
+		"clearance_map": _cl_map,
 	}
 	var bytes := var_to_bytes(data)
 	var f := FileAccess.open(path, FileAccess.WRITE)
@@ -636,13 +676,23 @@ func _load(path: String) -> bool:
 		return false
 	if int(data.get("version", 0)) != _CACHE_VERSION:
 		return false
-	if absf(float(data.get("node_spacing", 0.0)) - node_spacing_m) > 0.1:
+	if absf(float(data.get("node_spacing", 0.0)) - _effective_node_spacing_m()) > 0.1:
+		return false
+	if absf(float(data.get("max_edge_length", 0.0)) - _effective_max_edge_length_m()) > 0.1:
 		return false
 	if absf(float(data.get("max_slope", 0.0)) - max_slope_m) > 0.1:
+		return false
+	if absf(float(data.get("max_slope_degrees", 0.0)) - max_slope_degrees) > 0.1:
+		return false
+	var cached_clearance: Variant = data.get("clearance_map", PackedFloat32Array())
+	if not cached_clearance is PackedFloat32Array:
+		return false
+	if (cached_clearance as PackedFloat32Array).size() != TerrainNavGrid._cols * TerrainNavGrid._rows:
 		return false
 	_nodes       = data["nodes"]
 	_node_cl     = data["node_cl"]
 	_edge_starts = data["edge_starts"]
 	_edge_nb     = data["edge_nb"]
 	_edge_cl     = data["edge_cl"]
+	_cl_map      = cached_clearance as PackedFloat32Array
 	return true

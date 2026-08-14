@@ -49,6 +49,53 @@ func _run() -> void:
 	_expect(str(console.call("get_current_page")) == "tactical", "tactical is the default page")
 	_expect(bool(tactical.call("is_console_visible")), "tactical page is visible")
 	_expect(not bool(personnel.call("is_console_visible")), "personnel page is hidden")
+	var mobility_rect := tactical.get("_mobility_rect") as TextureRect
+	var mobility_material := tactical.get("_mobility_material") as ShaderMaterial
+	_expect(mobility_rect != null, "tactical page has a mobility texture layer")
+	_expect(mobility_material != null, "mobility layer has its classification shader")
+	if mobility_material != null:
+		tactical.set("_selected_asset_kind", 2) # WorldMapOverlay.AssetKind.PLATOON
+		tactical.call("_refresh_mobility_display")
+		_expect(float(mobility_material.get_shader_parameter("vehicle_strength")) >= 0.9, "platoon selection emphasizes vehicle mobility")
+		tactical.set("_selected_asset_kind", 3) # WorldMapOverlay.AssetKind.CARRIER
+		tactical.call("_refresh_mobility_display")
+		_expect(float(mobility_material.get_shader_parameter("carrier_strength")) >= 0.99, "carrier selection emphasizes carrier corridors")
+		_expect(float(mobility_material.get_shader_parameter("vehicle_strength")) <= 0.11, "carrier selection subdues vehicle-only corridors")
+		tactical.set("_selected_asset_kind", 0) # WorldMapOverlay.AssetKind.NONE
+		tactical.call("_refresh_mobility_display")
+	var fog_toggle_event := InputEventKey.new()
+	fog_toggle_event.keycode = KEY_H
+	fog_toggle_event.pressed = true
+	Input.parse_input_event(fog_toggle_event)
+	await process_frame
+	_expect(bool(tactical.call("is_fog_mask_suppressed")), "H suppresses the tactical fog mask")
+	Input.parse_input_event(fog_toggle_event)
+	await process_frame
+	_expect(not bool(tactical.call("is_fog_mask_suppressed")), "a second H reapplies the tactical fog mask")
+	var order_bar := tactical.get("_order_bar") as Control
+	var mission_popup := tactical.get("_mission_popup") as Control
+	_expect(order_bar != null and not order_bar.visible, "confirmation bar stays hidden before an order is ready")
+	var asset_entries_variant = tactical.get("_asset_buttons")
+	var asset_entries: Array = asset_entries_variant if asset_entries_variant is Array else []
+	_expect(not asset_entries.is_empty(), "tactical page has selectable assets")
+	if not asset_entries.is_empty():
+		var asset_button := asset_entries[0].get("button") as Button
+		asset_button.emit_signal("pressed")
+		await process_frame
+		_expect(mission_popup != null and mission_popup.visible, "asset selection opens the adjacent mission menu")
+		_expect(order_bar != null and not order_bar.visible, "confirmation bar stays hidden while choosing a mission")
+		tactical.call("_begin_mission_draft", "CAP")
+		await process_frame
+		_expect(mission_popup != null and not mission_popup.visible, "choosing a mission closes the mission menu")
+		_expect(order_bar != null and not order_bar.visible, "confirmation bar waits for the required map target")
+		var preview_points: Array[Vector3] = [Vector3(0.0, 800.0, 0.0)]
+		tactical.set("_draft_points", preview_points)
+		tactical.call("_refresh_ui")
+		await process_frame
+		_expect(order_bar != null and order_bar.visible, "confirmation bar appears when the order is ready")
+		tactical.call("_cancel_draft")
+		await process_frame
+		_expect(order_bar != null and not order_bar.visible, "cancelling hides the confirmation bar")
 
 	console.call("show_page", "personnel")
 	await process_frame

@@ -855,6 +855,9 @@ func _controls_bbcode() -> String:
 
 func _on_restart() -> void:
 	_close()
+	var loading_screen: Node = get_node_or_null("/root/LoadingScreen")
+	if loading_screen != null and loading_screen.has_method("begin_scenario_load"):
+		loading_screen.call("begin_scenario_load")
 	get_tree().reload_current_scene()
 
 

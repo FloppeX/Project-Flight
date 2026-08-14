@@ -170,6 +170,11 @@ var _effective_agl_cache_physics_frame: int = -1
 var _effective_agl_cache_value_m: float = NAN
 
 func _ready():
+	# Register before the startup-frame await. FloatingOrigin may shift as soon as
+	# the active camera is placed on a large map; without this early registration,
+	# a freshly-instantiated aircraft can miss the physics transform sync and snap
+	# back to its pre-shift position on the following physics tick.
+	add_to_group("origin_shifter")
 	await get_tree().process_frame
 	
 	# Force-set health to maximum at startup to override any scene file issues
@@ -182,7 +187,6 @@ func _ready():
 	add_to_group("aircraft")
 	add_to_group("weather_affected")
 	add_to_group("team_" + str(team))
-	add_to_group("origin_shifter")
 	
 	# Create world reference (for compatibility)
 	var internal_world_reference = get_node_or_null("/root/WorldOrientationReference")

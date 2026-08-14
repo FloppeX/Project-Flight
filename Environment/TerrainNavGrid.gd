@@ -7,6 +7,15 @@ extends Node
 
 signal bake_complete
 
+enum BakeStage {
+	WAITING_FOR_TERRAIN,
+	HEIGHTS,
+	QUERY_HEIGHTS,
+	QUERY_ANALYSIS,
+	FINALIZING,
+	COMPLETE,
+}
+
 func _ready() -> void:
 	add_to_group("origin_shifter")
 
@@ -24,9 +33,9 @@ func apply_origin_shift(offset: Vector3) -> void:
 
 # --- Config (set in Inspector on the autoload node) ---
 @export var cell_size_m: float = 40.0          ## Grid resolution in metres
-@export var bake_half_extent_m: float = 12500.0 ## Half-side of baked square around terrain centre
+@export var bake_half_extent_m: float = 25000.0 ## Half-side of baked square around terrain centre (50 km × 50 km map)
 @export var search_padding_m: float = 400.0    ## Extra A* search area beyond start→goal bbox
-@export_range(1, 20) var rows_per_frame: int = 4 ## Terrain rows sampled per frame while baking
+@export_range(1, 20) var rows_per_frame: int = 12 ## Terrain rows sampled per frame while loading
 ## Clearance radius in cells required around each path node.
 ## Carrier is ~76m wide; at 40m/cell use 2 so a 160m corridor is needed.
 @export_range(0, 8) var body_clearance_cells: int = 3
@@ -57,6 +66,7 @@ var _origin_x: float = 0.0
 var _origin_z: float = 0.0
 var _bake_center_x: float = 0.0
 var _bake_center_z: float = 0.0
+var _bake_profile_id: String = ""
 var _is_baked: bool = false
 var _h_min_passable: float = INF  # lowest height among all baked passable cells
 var _bake_center_override_enabled: bool = false
@@ -75,6 +85,9 @@ var _query_is_baked: bool = false
 # --- Bake state ---
 var _bake_terrain: Node3D = null
 var _bake_gz: int = 0  # next row to bake
+var _query_bake_gz: int = 0
+var _query_analysis_gz: int = 0
+var _bake_stage: BakeStage = BakeStage.WAITING_FOR_TERRAIN
 
 # --- Request queue ---
 # Each entry: { from_world, to_world, max_slope_m, max_segment_m, callback }
@@ -270,6 +283,18 @@ func is_low_clear_position(wx: float, wz: float, max_slope_m: float = 15.0) -> b
 	return _cell_clear(gx, gz, max_slope_m)
 
 
+## Like is_low_clear_position(), but permits reachable shelves above the map's
+## minimum elevation. Used for player-selected destinations on layered maps.
+func is_clear_position(wx: float, wz: float, max_slope_m: float = 15.0) -> bool:
+	if not _is_baked:
+		return false
+	var gx := int((wx - _origin_x) / cell_size_m)
+	var gz := int((wz - _origin_z) / cell_size_m)
+	if gx < 0 or gx >= _cols or gz < 0 or gz >= _rows:
+		return false
+	return _cell_clear(gx, gz, max_slope_m)
+
+
 func get_max_height_in_radius(wx: float, wz: float, radius_m: float) -> float:
 	if not _query_is_baked:
 		return IMPASSABLE
@@ -314,6 +339,9 @@ func clear_bake_center_override() -> void:
 func get_bake_center() -> Vector3:
 	return Vector3(_bake_center_x, 0.0, _bake_center_z)
 
+func get_bake_profile_id() -> String:
+	return _bake_profile_id
+
 func _reset_bake_state() -> void:
 	_heights = PackedFloat32Array()
 	_cols = 0
@@ -322,6 +350,7 @@ func _reset_bake_state() -> void:
 	_origin_z = 0.0
 	_bake_center_x = 0.0
 	_bake_center_z = 0.0
+	_bake_profile_id = ""
 	_query_heights = PackedFloat32Array()
 	_query_height_variation = PackedFloat32Array()
 	_query_max_heights = PackedFloat32Array()
@@ -334,6 +363,9 @@ func _reset_bake_state() -> void:
 	_is_baked = false
 	_bake_terrain = null
 	_bake_gz = 0
+	_query_bake_gz = 0
+	_query_analysis_gz = 0
+	_bake_stage = BakeStage.WAITING_FOR_TERRAIN
 	_queue.clear()
 
 
@@ -341,9 +373,33 @@ func _reset_bake_state() -> void:
 func get_bake_progress() -> float:
 	if _is_baked:
 		return 1.0
-	if _bake_terrain == null or _rows == 0:
+	if _rows <= 0:
 		return 0.0
-	return float(_bake_gz) / float(_rows)
+	var query_grid_rows: int = 0
+	if query_grid_enabled:
+		var q_cell: float = maxf(query_cell_size_m, 1.0)
+		query_grid_rows = int(bake_half_extent_m * 2.0 / q_cell) + 1
+	var total_work_rows: int = _rows + query_grid_rows * 2
+	var completed_rows: int = mini(_bake_gz, _rows)
+	completed_rows += mini(_query_bake_gz, query_grid_rows)
+	completed_rows += mini(_query_analysis_gz, query_grid_rows)
+	return clampf(float(completed_rows) / float(maxi(total_work_rows, 1)), 0.0, 0.999)
+
+
+func get_bake_stage_label() -> String:
+	match _bake_stage:
+		BakeStage.HEIGHTS:
+			return "MAPPING TERRAIN"
+		BakeStage.QUERY_HEIGHTS:
+			return "SAMPLING NAVIGATION"
+		BakeStage.QUERY_ANALYSIS:
+			return "ANALYZING ROUTES"
+		BakeStage.FINALIZING:
+			return "FINALIZING MAP"
+		BakeStage.COMPLETE:
+			return "MAP READY"
+		_:
+			return "LOCATING TERRAIN"
 
 
 # --- Baking ---
@@ -356,6 +412,8 @@ func _try_start_bake() -> void:
 	var cz: float = _bake_center_override_z if _bake_center_override_enabled else terrain.global_position.z
 	_bake_center_x = cx
 	_bake_center_z = cz
+	var profile_value: Variant = terrain.get("map_profile_id")
+	_bake_profile_id = str(profile_value) if profile_value != null else "open_canyons"
 	_origin_x = cx - bake_half_extent_m
 	_origin_z = cz - bake_half_extent_m
 	_query_origin_x = _origin_x
@@ -366,46 +424,57 @@ func _try_start_bake() -> void:
 	_heights.fill(IMPASSABLE)
 	_bake_terrain = terrain
 	_bake_gz = 0
-		
-	# Synchronous bake to avoid visual pop-in (teleport) on startup
-	var original_rows_per_frame = rows_per_frame
-	rows_per_frame = 9999
-	_bake_rows()
-	rows_per_frame = original_rows_per_frame
+	_query_bake_gz = 0
+	_query_analysis_gz = 0
+	_h_min_passable = INF
+	_bake_stage = BakeStage.HEIGHTS
 
 
 func _bake_rows() -> void:
-	var t := _bake_terrain
-	var end_gz := mini(_bake_gz + rows_per_frame, _rows)
-	var ty: float = t.global_position.y
+	match _bake_stage:
+		BakeStage.HEIGHTS:
+			_bake_height_rows()
+		BakeStage.QUERY_HEIGHTS:
+			_bake_query_rows()
+		BakeStage.QUERY_ANALYSIS:
+			_analyze_query_rows()
+		BakeStage.FINALIZING:
+			_finish_bake()
+
+
+func _bake_height_rows() -> void:
+	var terrain: Node3D = _bake_terrain
+	if not is_instance_valid(terrain):
+		_reset_bake_state()
+		return
+	var end_gz: int = mini(_bake_gz + rows_per_frame, _rows)
+	var terrain_y: float = terrain.global_position.y
 	for gz in range(_bake_gz, end_gz):
 		for gx in range(_cols):
-			var wx := _origin_x + gx * cell_size_m
-			var wz := _origin_z + gz * cell_size_m
-			var h = t.call("get_height", Vector3(wx, ty, wz))
-			if typeof(h) == TYPE_FLOAT and not is_nan(float(h)):
-				_heights[gz * _cols + gx] = float(h)
-			# else stays IMPASSABLE
+			var world_x: float = _origin_x + gx * cell_size_m
+			var world_z: float = _origin_z + gz * cell_size_m
+			var height_value: Variant = terrain.call("get_height", Vector3(world_x, terrain_y, world_z))
+			if typeof(height_value) == TYPE_FLOAT and not is_nan(float(height_value)):
+				var height: float = float(height_value)
+				_heights[gz * _cols + gx] = height
+				_h_min_passable = minf(_h_min_passable, height)
 	_bake_gz = end_gz
 	if _bake_gz >= _rows:
-		_bake_query_grid(t)
-		_is_baked = true
-		_bake_terrain = null
-		_h_min_passable = INF
-		for h in _heights:
-			if h > IMPASSABLE * 0.5:
-				_h_min_passable = minf(_h_min_passable, h)
-		bake_complete.emit()
+		if query_grid_enabled:
+			_begin_query_grid()
+		else:
+			_bake_stage = BakeStage.FINALIZING
 
 
-func _bake_query_grid(t: Node3D) -> void:
+func _begin_query_grid() -> void:
 	_query_is_baked = false
 	_query_heights = PackedFloat32Array()
 	_query_height_variation = PackedFloat32Array()
 	_query_max_heights = PackedFloat32Array()
 	_query_cols = 0
 	_query_rows = 0
-	if not query_grid_enabled or not is_instance_valid(t):
+	if not is_instance_valid(_bake_terrain):
+		_bake_stage = BakeStage.FINALIZING
 		return
 	var q_cell: float = maxf(query_cell_size_m, 1.0)
 	_query_origin_x = _bake_center_x - bake_half_extent_m
@@ -414,25 +483,43 @@ func _bake_query_grid(t: Node3D) -> void:
 	_query_rows = int(bake_half_extent_m * 2.0 / q_cell) + 1
 	_query_heights.resize(_query_cols * _query_rows)
 	_query_heights.fill(IMPASSABLE)
-	var ty: float = t.global_position.y
-	for gz in range(_query_rows):
+	_query_bake_gz = 0
+	_bake_stage = BakeStage.QUERY_HEIGHTS
+
+
+func _bake_query_rows() -> void:
+	var terrain: Node3D = _bake_terrain
+	if not is_instance_valid(terrain):
+		_reset_bake_state()
+		return
+	var q_cell: float = maxf(query_cell_size_m, 1.0)
+	var end_gz: int = mini(_query_bake_gz + rows_per_frame, _query_rows)
+	var terrain_y: float = terrain.global_position.y
+	for gz in range(_query_bake_gz, end_gz):
 		for gx in range(_query_cols):
-			var wx := _query_origin_x + gx * q_cell
-			var wz := _query_origin_z + gz * q_cell
-			var h = t.call("get_height", Vector3(wx, ty, wz))
-			if (typeof(h) == TYPE_FLOAT or typeof(h) == TYPE_INT) and not is_nan(float(h)):
-				_query_heights[gz * _query_cols + gx] = float(h)
-	_compute_query_height_variation()
-	_query_is_baked = true
+			var world_x: float = _query_origin_x + gx * q_cell
+			var world_z: float = _query_origin_z + gz * q_cell
+			var height_value: Variant = terrain.call("get_height", Vector3(world_x, terrain_y, world_z))
+			if (typeof(height_value) == TYPE_FLOAT or typeof(height_value) == TYPE_INT) and not is_nan(float(height_value)):
+				_query_heights[gz * _query_cols + gx] = float(height_value)
+	_query_bake_gz = end_gz
+	if _query_bake_gz >= _query_rows:
+		_begin_query_analysis()
 
 
-func _compute_query_height_variation() -> void:
+func _begin_query_analysis() -> void:
 	_query_height_variation.resize(_query_cols * _query_rows)
 	_query_height_variation.fill(INF)
 	_query_max_heights.resize(_query_cols * _query_rows)
 	_query_max_heights.fill(-INF)
+	_query_analysis_gz = 0
+	_bake_stage = BakeStage.QUERY_ANALYSIS
+
+
+func _analyze_query_rows() -> void:
 	var r: int = maxi(query_edge_radius_cells, 1)
-	for gz in range(_query_rows):
+	var end_gz: int = mini(_query_analysis_gz + rows_per_frame, _query_rows)
+	for gz in range(_query_analysis_gz, end_gz):
 		for gx in range(_query_cols):
 			var idx: int = gz * _query_cols + gx
 			var h: float = _query_heights[idx]
@@ -459,6 +546,17 @@ func _compute_query_height_variation() -> void:
 			if valid:
 				_query_height_variation[idx] = max_h - min_h
 				_query_max_heights[idx] = max_h
+	_query_analysis_gz = end_gz
+	if _query_analysis_gz >= _query_rows:
+		_query_is_baked = true
+		_bake_stage = BakeStage.FINALIZING
+
+
+func _finish_bake() -> void:
+	_is_baked = true
+	_bake_terrain = null
+	_bake_stage = BakeStage.COMPLETE
+	bake_complete.emit()
 
 
 # --- A* ---
@@ -860,6 +958,33 @@ func is_cell_near_steep_slope(gx: int, gz: int, max_slope_m: float, radius_cells
 			if nh <= IMPASSABLE * 0.5:
 				continue
 			if abs(nh - h) > max_slope_m:
+				return true
+	return false
+
+
+## Geometric grade check. Unlike the legacy max_slope_m checks, this accounts
+## for cardinal, diagonal, and multi-cell horizontal distance correctly.
+func is_cell_near_steep_grade(gx: int, gz: int, max_slope_degrees: float, radius_cells: int = 1) -> bool:
+	if gx < 0 or gx >= _cols or gz < 0 or gz >= _rows:
+		return true
+	var h: float = _heights[gz * _cols + gx]
+	if h <= IMPASSABLE * 0.5:
+		return true
+	var r := maxi(radius_cells, 1)
+	var max_rise_over_run := tan(deg_to_rad(clampf(max_slope_degrees, 0.1, 89.0)))
+	for dz in range(-r, r + 1):
+		for dx in range(-r, r + 1):
+			if dx == 0 and dz == 0:
+				continue
+			var nx := gx + dx
+			var nz := gz + dz
+			if nx < 0 or nx >= _cols or nz < 0 or nz >= _rows:
+				continue
+			var nh: float = _heights[nz * _cols + nx]
+			if nh <= IMPASSABLE * 0.5:
+				continue
+			var run := Vector2(float(dx), float(dz)).length() * cell_size_m
+			if run > 0.001 and absf(nh - h) / run > max_rise_over_run:
 				return true
 	return false
 

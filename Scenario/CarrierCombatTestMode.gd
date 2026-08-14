@@ -319,9 +319,13 @@ func _setup_scenario() -> void:
 	if not is_instance_valid(_carrier) or not is_instance_valid(_fdm):
 		_log("ERROR setup failed: carrier=%s flight_deck_manager=%s" % [str(is_instance_valid(_carrier)), str(is_instance_valid(_fdm))])
 		return
-	# The normal carrier computes its cross-map route asynchronously and then relocates
-	# from its authored origin to the chosen terrain start. Launching before this signal
-	# leaves root-level aircraft/targets behind when the carrier makes that initial move.
+	# Ordinary scenarios now require player-issued carrier routes. The full-cycle
+	# harness deliberately keeps the legacy continuation after its contained test leg.
+	if "automatic_patrol_enabled" in _carrier:
+		_carrier.set("automatic_patrol_enabled", _full_cycle_mode)
+	# The carrier resolves its safe terrain start asynchronously and then relocates from
+	# its authored origin. Launching before this signal leaves root-level aircraft/targets
+	# behind when the carrier makes that initial move.
 	if _carrier.has_method("is_initial_placement_complete") \
 			and not bool(_carrier.call("is_initial_placement_complete")):
 		_log("WAIT carrier initial route placement")

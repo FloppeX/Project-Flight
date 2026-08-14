@@ -88,6 +88,13 @@ var _cas_flight: Flight = null
 @export var task_switch_hysteresis: float = 0.0       # (reserved) extra priority a new task must beat to steal a flight
 @export var min_cap_flights: int = 1                  # keep at least this many patrolling the carrier when possible
 @export var dynamic_tasking_enabled: bool = true      # false = fall back to the legacy 3-slot updates
+# Do not empty the hangar just because every scenario has a standing CAP board
+# entry. AirOps can still assign an already-airborne flight to CAP, and an
+# explicit player order can launch the selected flight.
+@export var auto_scramble_for_cap_tasks: bool = false
+@export var auto_scramble_for_intercept_tasks: bool = true
+# Real detected threats remain valid reasons for AirOps to launch a flight.
+@export var auto_scramble_for_strike_tasks: bool = true
 var _tasks: Array = []
 var _flight_task: Dictionary = {}                     # Flight -> task id currently assigned
 var _flight_role: Dictionary = {}                     # Flight -> last task TYPE barked (so we only bark on a ROLE change, not target/cluster churn within a role)
@@ -733,11 +740,18 @@ func _assign_flights_to_tasks() -> void:
 	for t in _tasks:
 		live_ids[t["id"]] = t
 	for f in _flight_task.keys():
-		if not _flight_is_active(f) or not live_ids.has(_flight_task[f]):
+		# A flight receives its task reservation before the deck starts launching
+		# it. It has no members at first, and its members remain unavailable for
+		# tactical orders while launching/climbing. Dropping the reservation during
+		# that window made the standing CAP look unfilled and caused a second
+		# two-aircraft flight to scramble as soon as the first launch completed.
+		var has_live_task: bool = live_ids.has(_flight_task[f])
+		var has_pending_scramble: bool = f == _scrambling_flight
+		if (not _flight_is_active(f) and not has_pending_scramble) or not has_live_task:
 			_flight_task.erase(f)
 			# Wiped flight -> forget its role so a rebuilt flight barks fresh. (A flight that merely lost
 			# its task but is still alive keeps its role, so re-tasking to the SAME role stays quiet.)
-			if not _flight_is_active(f):
+			if not _flight_is_active(f) and not has_pending_scramble:
 				_flight_role.erase(f)
 	# Re-attach flights already on a still-live task (hysteresis: they stay put).
 	for f in _flight_task.keys():
@@ -756,7 +770,7 @@ func _assign_flights_to_tasks() -> void:
 		var f := _pick_flight_for_task(t)
 		if f == null:
 			# No available flight -> scramble one if this task warrants it (intercept/strike/ or CAP if none up).
-			if _scrambling_flight == null:
+			if _scrambling_flight == null and _task_allows_automatic_scramble(t):
 				var empty := _pick_empty_flight(null)
 				if empty != null:
 					var reason: String = _scramble_reason_for_task(t)
@@ -767,6 +781,17 @@ func _assign_flights_to_tasks() -> void:
 		_apply_task_to_flight(t, f)
 		if t["type"] == "cap":
 			min_cap_reserved += 1
+
+
+func _task_allows_automatic_scramble(task: Dictionary) -> bool:
+	match str(task.get("type", "")):
+		"cap":
+			return auto_scramble_for_cap_tasks
+		"intercept":
+			return auto_scramble_for_intercept_tasks
+		"strike":
+			return auto_scramble_for_strike_tasks
+	return false
 
 func _tasks_all_higher_filled(cap_task: Dictionary) -> bool:
 	for t in _tasks:

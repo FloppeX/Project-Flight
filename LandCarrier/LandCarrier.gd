@@ -2,6 +2,7 @@ extends CharacterBody3D
 class_name LandCarrier
 
 signal initial_placement_completed
+signal player_route_rejected(message: String)
 
 const CARRIER_TREAD_SCRIPT := preload("res://LandCarrier/CarrierTread.gd")
 const VEHICLE_RAMP_SCRIPT := preload("res://LandCarrier/VehicleRamp.gd")
@@ -63,6 +64,8 @@ const PERF_OVERRIDE_PATH := "user://land_carrier_perf_override.json"
 @export var path_max_slope_m: float = 12.0    # max height variation within clearance radius (carrier-specific)
 @export var use_waypoint_pathfinding: bool = true
 @export var turn_in_place_angle_deg: float = 100.0
+## Disabled in normal play: after safe placement, the carrier waits for a player order.
+@export var automatic_patrol_enabled: bool = false
 @export var default_cross_map_route: bool = true
 @export var route_start_edge_margin_m: float = 1800.0
 @export var route_goal_edge_margin_m: float = 0.0
@@ -133,6 +136,8 @@ var _drive_target_yaw_rate_rad_s: float = 0.0
 var _smoothed_desired_y: float = NAN
 var _using_default_cross_map_route: bool = false
 var _default_cross_map_route_completed: bool = false
+var _player_route_active: bool = false
+var _last_player_route_error: String = ""
 var _is_pathfinding: bool = false
 var treads: Array[Node3D] = []
 var elevator: Node3D
@@ -295,6 +300,7 @@ func _resolve_waypoints() -> void:
 			_raw_waypoints.append((node as Node3D).global_position)
 
 func set_patrol_waypoints(positions: Array[Vector3]) -> void:
+	_player_route_active = false
 	_raw_waypoints = positions.duplicate()
 	_raw_waypoint_index = 0
 	_waypoint_positions.clear()
@@ -305,6 +311,63 @@ func set_patrol_waypoints(positions: Array[Vector3]) -> void:
 		_apply_direct_waypoints()
 		return
 	_compute_path_to_destination()
+
+
+func set_player_patrol_waypoints(positions: Array[Vector3]) -> bool:
+	_last_player_route_error = get_player_route_error(positions)
+	if not _last_player_route_error.is_empty():
+		push_warning("[LandCarrier] Rejected player route: %s" % _last_player_route_error)
+		return false
+	set_patrol_waypoints(positions)
+	_player_route_active = true
+	return true
+
+
+func get_player_route_error(positions: Array[Vector3]) -> String:
+	if positions.is_empty():
+		return "ADD AT LEAST ONE ROUTE POINT"
+	for position in positions:
+		var point_error := get_player_route_point_error(position)
+		if not point_error.is_empty():
+			return point_error
+	return ""
+
+
+func get_player_route_point_error(position: Vector3) -> String:
+	if not MapFogOfWar.is_initialized() or not MapFogOfWar.is_world_explored(position):
+		return "AREA UNKNOWN - SCOUT WITH AIRCRAFT"
+	if not TerrainNavGrid.is_ready() or not NavGraph.is_ready():
+		return "CARRIER NAVIGATION NOT READY"
+	var terrain_y := TerrainNavGrid.sample_height(position.x, position.z)
+	if terrain_y <= TerrainNavGrid.IMPASSABLE * 0.5:
+		return "DESTINATION BLOCKED - PICK FLAT OPEN GROUND"
+	if not TerrainNavGrid.is_clear_position(position.x, position.z, path_max_slope_m):
+		return "DESTINATION BLOCKED - PICK FLAT OPEN GROUND"
+	if not TerrainNavGrid.is_stable_footprint(
+			position.x,
+			position.z,
+			CARRIER_CLEARANCE_M,
+			path_max_slope_m,
+			path_max_slope_m
+	):
+		return "DESTINATION TOO TIGHT FOR CARRIER"
+	var grounded_position := Vector3(position.x, terrain_y, position.z)
+	if not NavGraph.can_anchor(
+			grounded_position,
+			CARRIER_CLEARANCE_M,
+			maxf(waypoint_reach_distance, 1.0)
+	):
+		return "NO CARRIER-SAFE ROUTE AT DESTINATION"
+	return ""
+
+
+func get_last_player_route_error() -> String:
+	return _last_player_route_error
+
+
+func hold_position() -> void:
+	_last_player_route_error = ""
+	_clear_route_and_hold()
 
 func get_active_waypoints() -> Array[Vector3]:
 	var active_waypoints: Array[Vector3] = []
@@ -359,12 +422,21 @@ func _start_random_patrol() -> void:
 	var setup_debug := route_setup_debug
 	var body_ride_h := BODY_RIDE_HEIGHT
 	var current_pos := global_position
+	var build_automatic_patrol := automatic_patrol_enabled
+	var initial_heading := global_transform.basis.z
+	initial_heading.y = 0.0
+	if initial_heading.length_squared() <= 0.001:
+		initial_heading = Vector3.FORWARD
+	else:
+		initial_heading = initial_heading.normalized()
 
 	var work: Callable = func() -> Dictionary:
 		var routed_destination := Vector3.ZERO
 		var routed_path: Array[Vector3] = []
 		var final_pos := current_pos
 		var using_cross_route := false
+		var fallback_patrol := false
+		var placement_ready := false
 		var route_plan_details := {}
 
 		if is_default_route:
@@ -379,8 +451,20 @@ func _start_random_patrol() -> void:
 			)
 			if routed_start != Vector3.ZERO:
 				final_pos = Vector3(routed_start.x, routed_start.y + body_ride_h, routed_start.z)
+				if not build_automatic_patrol:
+					placement_ready = launch_corridor_distance <= 0.0 \
+							or TerrainNavGrid.is_directional_launch_corridor_clear(
+								final_pos.x,
+								final_pos.z,
+								initial_heading.x,
+								initial_heading.z,
+								launch_corridor_distance,
+								launch_corridor_half_width,
+								launch_corridor_max_rise
+							)
 
-				# Inline _find_shortest_top_edge_route logic
+				# Inline _find_shortest_top_edge_route logic. Normal gameplay only
+				# needs the safe placement above; it skips this expensive route search.
 				var candidates := TerrainNavGrid.get_edge_position_candidates(
 					"top",
 					goal_margin,
@@ -388,7 +472,7 @@ func _start_random_patrol() -> void:
 					search_depth,
 					max_slope
 				)
-				if not candidates.is_empty():
+				if build_automatic_patrol and not candidates.is_empty():
 					var best_dest := Vector3.ZERO
 					var best_p: Array[Vector3] = []
 					var best_p_len := INF
@@ -435,7 +519,36 @@ func _start_random_patrol() -> void:
 							"path_length_m": best_p_len
 						}
 
-		var fallback_patrol := false
+		if not build_automatic_patrol:
+			if not placement_ready:
+				for _attempt in range(32):
+					var start := TerrainNavGrid.get_random_passable_position(
+						rng, max_slope, 4000, spawn_clear_radius, spawn_clear_variation)
+					if start == Vector3.ZERO:
+						continue
+					var candidate_pos := Vector3(start.x, start.y + body_ride_h, start.z)
+					if launch_corridor_distance > 0.0 and not TerrainNavGrid.is_directional_launch_corridor_clear(
+							candidate_pos.x,
+							candidate_pos.z,
+							initial_heading.x,
+							initial_heading.z,
+							launch_corridor_distance,
+							launch_corridor_half_width,
+							launch_corridor_max_rise
+					):
+						continue
+					final_pos = candidate_pos
+					placement_ready = true
+					break
+			return {
+				"routed_path": routed_path,
+				"routed_destination": routed_destination,
+				"final_pos": final_pos,
+				"using_cross_route": false,
+				"fallback_patrol": false,
+				"route_plan_details": route_plan_details,
+			}
+
 		if routed_path.is_empty():
 			# Fallback to standard random patrol, but do not discard the launch-lane
 			# guarantee merely because the preferred cross-map route was unavailable.
@@ -508,13 +621,16 @@ func _on_random_patrol_computed(routed_path: Array[Vector3], routed_destination:
 	global_position = final_pos
 	visible = true
 	_mark_initial_placement_completed()
+	if not automatic_patrol_enabled:
+		# The route search also gives us a launch-safe initial heading. Keep that
+		# heading and placement, but do not turn the search result into an order.
+		if using_cross_route or fallback_patrol:
+			_face_route_destination(routed_destination)
+		_clear_route_and_hold()
+		return
 
 	if using_cross_route:
-		var to_dest := routed_destination - global_position
-		to_dest.y = 0.0
-		if to_dest.length_squared() > 1.0:
-			var dir := to_dest.normalized()
-			rotation.y = atan2(dir.x, dir.z)
+		_face_route_destination(routed_destination)
 		_raw_waypoints = [routed_destination]
 		_raw_waypoint_index = 0
 		_using_default_cross_map_route = true
@@ -533,11 +649,7 @@ func _on_random_patrol_computed(routed_path: Array[Vector3], routed_destination:
 		return
 
 	if fallback_patrol:
-		var to_dest := routed_destination - global_position
-		to_dest.y = 0.0
-		if to_dest.length_squared() > 1.0:
-			var dir := to_dest.normalized()
-			rotation.y = atan2(dir.x, dir.z)
+		_face_route_destination(routed_destination)
 		_raw_waypoints = [routed_destination]
 		_raw_waypoint_index = 0
 
@@ -548,6 +660,39 @@ func _on_random_patrol_computed(routed_path: Array[Vector3], routed_destination:
 			_on_path_ready(routed_path)
 
 const CARRIER_CLEARANCE_M: float = 120.0
+
+
+func _face_route_destination(destination: Vector3) -> void:
+	var to_dest := destination - global_position
+	to_dest.y = 0.0
+	if to_dest.length_squared() <= 1.0:
+		return
+	var direction := to_dest.normalized()
+	rotation.y = atan2(direction.x, direction.z)
+
+
+func _clear_route_and_hold() -> void:
+	_raw_waypoints.clear()
+	_raw_waypoint_index = 0
+	_waypoint_positions.clear()
+	_waypoint_index = 0
+	_using_default_cross_map_route = false
+	_default_cross_map_route_completed = false
+	_player_route_active = false
+	_stuck_timer = 0.0
+	_prev_wp_dist = INF
+	_no_path_timer = 0.0
+	_replan_attempts = 0
+	_drive_target_speed_mps = 0.0
+	_drive_target_yaw_rate_rad_s = 0.0
+	velocity = Vector3.ZERO
+
+
+func _pick_automatic_patrol_or_hold() -> void:
+	if automatic_patrol_enabled:
+		_pick_new_patrol_destination()
+	else:
+		_clear_route_and_hold()
 
 func _compute_path_to_destination() -> void:
 	visible = true
@@ -562,7 +707,7 @@ func _compute_path_to_destination() -> void:
 			_default_cross_map_route_completed = true
 			return
 		else:
-			_pick_new_patrol_destination()
+			_pick_automatic_patrol_or_hold()
 			return
 	if not use_waypoint_pathfinding:
 		_apply_direct_waypoints()
@@ -590,9 +735,14 @@ func _on_path_computed(path: Array[Vector3], target_at_request: Vector3) -> void
 		return
 
 	if path.is_empty():
+		if _player_route_active:
+			_last_player_route_error = "NO CARRIER-SAFE PATH TO DESTINATION"
+			player_route_rejected.emit(_last_player_route_error)
+			_clear_route_and_hold()
+			return
 		_raw_waypoint_index += 1
 		if _raw_waypoint_index >= _raw_waypoints.size():
-			_pick_new_patrol_destination()
+			_pick_automatic_patrol_or_hold()
 		else:
 			_compute_path_to_destination()
 		return
@@ -724,7 +874,7 @@ func _advance_waypoint_or_replan() -> void:
 			if loop_waypoints:
 				_raw_waypoint_index = 0
 			else:
-				_pick_new_patrol_destination()
+				_pick_automatic_patrol_or_hold()
 				return
 	if not use_waypoint_pathfinding:
 		_apply_direct_waypoints()
@@ -824,6 +974,13 @@ func _carry_deck_passengers(current_transform: Transform3D, old_transform: Trans
 				continue
 			var has_deck_follow: bool = n.has_meta("carrier_deck_follow") and bool(n.get_meta("carrier_deck_follow"))
 			var helicopter_deck_ready: bool = n.has_meta("helicopter_deck_takeoff_ready") and bool(n.get_meta("helicopter_deck_takeoff_ready"))
+			# A retrieved fixed-wing aircraft is frozen at the latch while terrain and
+			# carrier-turn launch interlocks are checked. It still has its parking brake,
+			# so the older on_catapult predicate omitted it and the carrier moved out from
+			# underneath it. Keep that explicit handoff state carrier-relative too.
+			var waiting_for_catapult: bool = node is RigidBody3D \
+					and (node as RigidBody3D).freeze \
+					and bool(n.get_meta("physics_ready_for_launch", false))
 			var is_helicopter: bool = _is_helicopter_deck_passenger(n)
 			var on_carrier: bool = has_transport or helicopter_deck_ready or has_deck_follow
 			if is_helicopter:
@@ -834,8 +991,17 @@ func _carry_deck_passengers(current_transform: Transform3D, old_transform: Trans
 					or (has_brake and _is_node_in_helicopter_deck_carry_zone(node as Node3D))
 				)
 			var on_catapult: bool = n.has_meta("controls_disabled") and bool(n.get_meta("controls_disabled")) and not has_brake and not has_transport
-			if on_carrier or on_catapult:
+			if on_carrier or on_catapult or waiting_for_catapult:
 				(node as Node3D).global_transform = transform_delta * (node as Node3D).global_transform
+				if waiting_for_catapult:
+					var body := node as RigidBody3D
+					PhysicsServer3D.body_set_state(
+						body.get_rid(),
+						PhysicsServer3D.BODY_STATE_TRANSFORM,
+						body.global_transform
+					)
+					body.linear_velocity = Vector3.ZERO
+					body.angular_velocity = Vector3.ZERO
 	for joint in get_tree().get_nodes_in_group("carrier_pin_joint"):
 		if is_instance_valid(joint) and joint is Node3D:
 			(joint as Node3D).global_transform = transform_delta * (joint as Node3D).global_transform
@@ -1401,7 +1567,8 @@ func _drive_to_waypoint(delta: float) -> void:
 
 func _refresh_drive_command(delta: float) -> void:
 	if _waypoint_positions.is_empty() or _waypoint_index >= _waypoint_positions.size():
-		if _default_cross_map_route_completed:
+		if _default_cross_map_route_completed \
+				or (not automatic_patrol_enabled and _raw_waypoints.is_empty()):
 			_no_path_timer = 0.0
 			_replan_attempts = 0
 			_current_steer = move_toward(_current_steer, 0.0, steer_response * delta)
@@ -1416,7 +1583,7 @@ func _refresh_drive_command(delta: float) -> void:
 			_replan_attempts += 1
 			if _replan_attempts >= 2:
 				_replan_attempts = 0
-				_pick_new_patrol_destination()
+				_pick_automatic_patrol_or_hold()
 			else:
 				_compute_path_to_destination()
 		return
@@ -1447,7 +1614,7 @@ func _refresh_drive_command(delta: float) -> void:
 			_replan_attempts += 1
 			if _replan_attempts >= 3:
 				_replan_attempts = 0
-				_pick_new_patrol_destination()
+				_pick_automatic_patrol_or_hold()
 			else:
 				# Replan full path from current position
 				_compute_path_to_destination()

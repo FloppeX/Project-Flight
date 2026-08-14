@@ -10,7 +10,8 @@ signal opened
 signal closed
 signal page_changed(page_id: String)
 
-const PIXEL_FONT: FontFile = preload("res://UI/Pixel.ttf")
+const HEADLINE_FONT: FontFile = preload("res://UI/Fonts/ArchivoNarrow-Variable.ttf")
+const DATA_FONT: FontFile = preload("res://UI/Fonts/JetBrainsMono-Variable.ttf")
 
 const PAGE_TACTICAL := "tactical"
 const PAGE_AIR_WING := "air_wing"
@@ -35,15 +36,18 @@ const PAGE_DESCRIPTIONS := {
 	PAGE_REPLICATOR: "CONSTRUCTION QUEUE, MATERIAL COSTS, AND FABRICATION CAPACITY",
 }
 
-const TEXT_COLOR := Color(0.58, 1.0, 0.64, 1.0)
-const STATUS_COLOR := Color(0.84, 1.0, 0.86, 1.0)
-const BORDER_COLOR := Color(0.24, 0.92, 0.42, 0.92)
-const AMBER_COLOR := Color(1.0, 0.78, 0.28, 1.0)
-const DIM_COLOR := Color(0.38, 0.54, 0.42, 0.9)
-const PANEL_BG := Color(0.02, 0.05, 0.03, 0.98)
-const NAV_LEFT_RESERVE_PX := 430.0
-const NAV_RIGHT_MARGIN_PX := 34.0
-const NAV_MIN_TAB_WIDTH_PX := 88.0
+const TEXT_COLOR := Color("e5e2e1")
+const STATUS_COLOR := Color("c4c7c7")
+const BORDER_COLOR := Color("434747")
+const CYAN_COLOR := Color("76c7c7")
+const AMBER_COLOR := Color("ffb000")
+const DIM_COLOR := Color("7d8282")
+const PANEL_BG := Color("141313")
+const PANEL_ALT_BG := Color("1c1b1b")
+const NAV_LEFT_RESERVE_PX := 360.0
+const NAV_RIGHT_MARGIN_PX := 20.0
+const NAV_MIN_TAB_WIDTH_PX := 104.0
+const TOP_BAR_HEIGHT_PX := 64.0
 
 var _root: Control
 var _nav_panel: Panel
@@ -150,7 +154,7 @@ func _build_navigation() -> void:
 	_nav_panel = Panel.new()
 	_nav_panel.name = "ConsoleNavigation"
 	_nav_panel.mouse_filter = Control.MOUSE_FILTER_STOP
-	_nav_panel.add_theme_stylebox_override("panel", _make_style(PANEL_BG, BORDER_COLOR, 1))
+	_nav_panel.add_theme_stylebox_override("panel", _make_style(PANEL_BG, BORDER_COLOR, 0))
 	_root.add_child(_nav_panel)
 
 	for item: Dictionary in NAV_ITEMS:
@@ -170,25 +174,25 @@ func _build_placeholder() -> void:
 
 	var backdrop := ColorRect.new()
 	backdrop.set_anchors_preset(Control.PRESET_FULL_RECT)
-	backdrop.color = Color(0.0, 0.01, 0.0, 0.95)
+	backdrop.color = Color("0e0e0e")
 	backdrop.mouse_filter = Control.MOUSE_FILTER_STOP
 	_placeholder_root.add_child(backdrop)
 
 	_placeholder_panel = Panel.new()
-	_placeholder_panel.add_theme_stylebox_override("panel", _make_style(PANEL_BG, BORDER_COLOR, 2))
+	_placeholder_panel.add_theme_stylebox_override("panel", _make_style(PANEL_ALT_BG, BORDER_COLOR, 1))
 	_placeholder_root.add_child(_placeholder_panel)
 
-	_placeholder_title = _make_label("", 28, TEXT_COLOR)
+	_placeholder_title = _make_label("", 24, TEXT_COLOR)
 	_placeholder_panel.add_child(_placeholder_title)
-	_placeholder_subtitle = _make_label("CARRIER OPERATIONS INTERFACE // FOUNDATION ONLINE", 12, STATUS_COLOR)
+	_placeholder_subtitle = _make_label("CARRIER OPERATIONS INTERFACE // FOUNDATION ONLINE", 13, STATUS_COLOR, HORIZONTAL_ALIGNMENT_LEFT, DATA_FONT)
 	_placeholder_panel.add_child(_placeholder_subtitle)
 
-	_placeholder_body = _make_label("", 18, TEXT_COLOR, HORIZONTAL_ALIGNMENT_CENTER)
+	_placeholder_body = _make_label("", 17, TEXT_COLOR, HORIZONTAL_ALIGNMENT_CENTER)
 	_placeholder_body.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_placeholder_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_placeholder_panel.add_child(_placeholder_body)
 
-	_placeholder_footer = _make_label("M / ESC: CLOSE // SELECT TACTICAL OR PERSONNEL FOR ACTIVE SYSTEMS", 12, DIM_COLOR, HORIZONTAL_ALIGNMENT_RIGHT)
+	_placeholder_footer = _make_label("M / ESC: CLOSE // SELECT TACTICAL OR PERSONNEL FOR ACTIVE SYSTEMS", 12, DIM_COLOR, HORIZONTAL_ALIGNMENT_RIGHT, DATA_FONT)
 	_placeholder_panel.add_child(_placeholder_footer)
 
 
@@ -202,24 +206,24 @@ func _layout_ui() -> void:
 	if nav_width < minimum_nav_width:
 		nav_width = maxf(viewport_size.x - 16.0, 1.0)
 		nav_left = 8.0
-	_nav_panel.position = Vector2(nav_left, 34.0)
-	_nav_panel.size = Vector2(nav_width, 40.0)
+	_nav_panel.position = Vector2(nav_left, 0.0)
+	_nav_panel.size = Vector2(nav_width, TOP_BAR_HEIGHT_PX)
 	_layout_navigation_tabs(nav_width)
 
-	_placeholder_panel.position = Vector2(24.0, 24.0)
+	_placeholder_panel.position = Vector2(0.0, TOP_BAR_HEIGHT_PX)
 	_placeholder_panel.size = Vector2(
-		maxf(viewport_size.x - 48.0, 1.0),
-		maxf(viewport_size.y - 48.0, 1.0)
+		maxf(viewport_size.x, 1.0),
+		maxf(viewport_size.y - TOP_BAR_HEIGHT_PX, 1.0)
 	)
 	var panel_size := _placeholder_panel.size
-	_placeholder_title.position = Vector2(18.0, 10.0)
-	_placeholder_title.size = Vector2(maxf(panel_size.x - nav_width - 70.0, 220.0), 30.0)
-	_placeholder_subtitle.position = Vector2(18.0, 40.0)
+	_placeholder_title.position = Vector2(32.0, 24.0)
+	_placeholder_title.size = Vector2(maxf(panel_size.x - 64.0, 220.0), 34.0)
+	_placeholder_subtitle.position = Vector2(32.0, 60.0)
 	_placeholder_subtitle.size = Vector2(maxf(panel_size.x - nav_width - 70.0, 220.0), 18.0)
 	_placeholder_body.position = Vector2(panel_size.x * 0.18, panel_size.y * 0.27)
 	_placeholder_body.size = Vector2(panel_size.x * 0.64, panel_size.y * 0.42)
-	_placeholder_footer.position = Vector2(18.0, panel_size.y - 30.0)
-	_placeholder_footer.size = Vector2(panel_size.x - 36.0, 18.0)
+	_placeholder_footer.position = Vector2(32.0, panel_size.y - 36.0)
+	_placeholder_footer.size = Vector2(panel_size.x - 64.0, 18.0)
 
 
 func _on_nav_pressed(page_id: String) -> void:
@@ -265,26 +269,26 @@ func _refresh_navigation() -> void:
 		button.add_theme_stylebox_override(
 			"normal",
 			_make_tab_style(
-				Color(0.08, 0.22, 0.09, 0.98) if active else Color(0.01, 0.04, 0.02, 0.9),
-				AMBER_COLOR if active else Color(0.12, 0.35, 0.16, 0.8),
+				Color("202525") if active else PANEL_BG,
+				CYAN_COLOR if active else BORDER_COLOR,
 				active
 			)
 		)
-		button.add_theme_color_override("font_color", AMBER_COLOR if active else TEXT_COLOR)
+		button.add_theme_color_override("font_color", TEXT_COLOR if active else STATUS_COLOR)
 
 
 func _make_nav_button(label_text: String) -> Button:
 	var button := Button.new()
 	button.text = label_text
 	button.focus_mode = Control.FOCUS_NONE
-	button.add_theme_font_override("font", PIXEL_FONT)
-	button.add_theme_font_size_override("font_size", 12)
+	button.add_theme_font_override("font", DATA_FONT)
+	button.add_theme_font_size_override("font_size", 13)
 	button.add_theme_color_override("font_color", TEXT_COLOR)
-	button.add_theme_color_override("font_hover_color", AMBER_COLOR)
+	button.add_theme_color_override("font_hover_color", TEXT_COLOR)
 	button.add_theme_color_override("font_pressed_color", STATUS_COLOR)
-	button.add_theme_stylebox_override("normal", _make_tab_style(Color(0.01, 0.04, 0.02, 0.9), Color(0.12, 0.35, 0.16, 0.8), false))
-	button.add_theme_stylebox_override("hover", _make_tab_style(Color(0.05, 0.16, 0.07, 0.98), BORDER_COLOR, false))
-	button.add_theme_stylebox_override("pressed", _make_tab_style(Color(0.08, 0.22, 0.09, 0.98), AMBER_COLOR, true))
+	button.add_theme_stylebox_override("normal", _make_tab_style(PANEL_BG, BORDER_COLOR, false))
+	button.add_theme_stylebox_override("hover", _make_tab_style(Color("2a2a2a"), BORDER_COLOR, false))
+	button.add_theme_stylebox_override("pressed", _make_tab_style(Color("202525"), CYAN_COLOR, true))
 	return button
 
 
@@ -302,16 +306,22 @@ func _layout_navigation_tabs(nav_width: float) -> void:
 		var button := _nav_buttons.get(str(item.get("id", ""))) as Button
 		if button == null:
 			continue
-		button.position = Vector2(x, 4.0)
-		button.size = Vector2(tab_width, 34.0)
+		button.position = Vector2(x, 8.0)
+		button.size = Vector2(tab_width, TOP_BAR_HEIGHT_PX - 8.0)
 		x += tab_width + gap
 
 
-func _make_label(text: String, font_size: int, color: Color, align: HorizontalAlignment = HORIZONTAL_ALIGNMENT_LEFT) -> Label:
+func _make_label(
+	text: String,
+	font_size: int,
+	color: Color,
+	align: HorizontalAlignment = HORIZONTAL_ALIGNMENT_LEFT,
+	font: Font = HEADLINE_FONT
+) -> Label:
 	var label := Label.new()
 	label.text = text
 	label.horizontal_alignment = align
-	label.add_theme_font_override("font", PIXEL_FONT)
+	label.add_theme_font_override("font", font)
 	label.add_theme_font_size_override("font_size", font_size)
 	label.add_theme_color_override("font_color", color)
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -323,10 +333,10 @@ func _make_style(background: Color, border: Color, border_width: int) -> StyleBo
 	style.bg_color = background
 	style.border_color = border
 	style.set_border_width_all(border_width)
-	style.corner_radius_top_left = 3
-	style.corner_radius_top_right = 3
-	style.corner_radius_bottom_left = 3
-	style.corner_radius_bottom_right = 3
+	style.corner_radius_top_left = 0
+	style.corner_radius_top_right = 0
+	style.corner_radius_bottom_left = 0
+	style.corner_radius_bottom_right = 0
 	return style
 
 
@@ -334,11 +344,10 @@ func _make_tab_style(background: Color, border: Color, selected: bool) -> StyleB
 	var style := StyleBoxFlat.new()
 	style.bg_color = background
 	style.border_color = border
-	style.set_border_width_all(1)
-	if selected:
-		style.border_width_bottom = 0
-	style.corner_radius_top_left = 5
-	style.corner_radius_top_right = 5
+	style.border_width_bottom = 3 if selected else 1
+	style.content_margin_top = 8.0
+	style.corner_radius_top_left = 0
+	style.corner_radius_top_right = 0
 	style.corner_radius_bottom_left = 0
 	style.corner_radius_bottom_right = 0
 	return style

@@ -24,14 +24,14 @@ const SUPPORT_SAMPLE_DIRECTIONS := [
 @export var radius_m: float = 400.0
 @export var cell_size_m: float = 25.0
 ## Probability [0..1] of a rock appearing in each cell
-@export var density_per_cell: float = 0.28
+@export var density_per_cell: float = 0.42
 @export var max_instances: int = 2000
 @export var min_scale: float = 0.35
 @export var max_scale: float = 0.95
 @export_group("Distribution")
 ## Low-frequency mask that clusters rocks instead of spreading them evenly.
 @export var detail_mask_frequency: float = 0.0011
-@export_range(0.0, 1.0) var detail_mask_strength: float = 0.55
+@export_range(0.0, 1.0) var detail_mask_strength: float = 0.30
 ## Keep only the stronger portions of the mask so detail appears in patches.
 @export_range(0.0, 1.0) var detail_cluster_threshold: float = 0.42
 ## Extra placement chance in lower canyon-floor areas.
@@ -51,18 +51,13 @@ const SUPPORT_SAMPLE_DIRECTIONS := [
 ## Small constant embed as an extra hedge against visible floating.
 @export var embed_depth_m: float = 0.20
 ## Maximum terrain slope in degrees — steeper faces get no rocks
-@export var max_slope_deg: float = 30.0
-## Distance used to sample slope from neighbouring height points
+@export_range(35.0, 85.0, 1.0) var max_slope_deg: float = 55.0
+## Only genuinely steep faces are excluded. Ordinary traversable hillsides
+## should still receive rocks. Distance samples the local face grade.
 @export var slope_sample_m: float = 3.0
-## Extra ring around the rock footprint to check for cliff-edge overhangs.
-## Keeps rocks well clear of quantized cliff edges.
+## Extra clearance around each rock checked for a nearby steep face.
 @export var support_check_margin_m: float = 20.0
-## Maximum allowed terrain drop around a placed rock before it is rejected.
-@export var max_support_drop_m: float = 4.0
-## Maximum height variation across the sampled footprint. This rejects nearby
-## cliff lips even when the exact sample under the rock center is flat.
-@export var max_support_height_variation_m: float = 8.0
-## Number of concentric footprint rings to sample when checking cliff clearance.
+## Number of concentric footprint rings used to find nearby cliff faces.
 @export var support_check_rings: int = 2
 ## Limit sampled directions for streaming cost. The first 8 directions cover
 ## cardinal and diagonal footprint checks.
@@ -81,6 +76,11 @@ var _rock_local_min_y: float = 0.0
 var _rock_local_height: float = 0.0
 var _rock_local_planform_radius: float = 0.5
 var _detail_mask: FastNoiseLite
+## Deterministic world-grid cell -> Transform3D, or null when that cell has no
+## rock. Negative results are retained so empty cells are not resampled.
+var _cell_cache: Dictionary = {}
+var _last_candidate_evaluation_count: int = 0
+var _last_reused_cell_count: int = 0
 
 func _ready() -> void:
 	add_to_group("origin_shifter")
@@ -103,6 +103,7 @@ func _ready() -> void:
 func apply_origin_shift(_offset: Vector3) -> void:
 	# Force a full rebuild on the next _process — the camera's cell will have changed
 	_last_center_cell = Vector2i(1_000_000, 1_000_000)
+	_cell_cache.clear()
 
 func _process(_delta: float) -> void:
 	if _terrain == null:
@@ -137,93 +138,100 @@ func _process(_delta: float) -> void:
 func _rebuild(center: Vector3) -> void:
 	if _terrain == null or _rock_mesh == null:
 		return
-
-	var max_slope_tan: float = tan(deg_to_rad(max_slope_deg))
-	var rng := RandomNumberGenerator.new()
-	var eff_radius := radius_m + preload_margin_m
-	var eff_cells_radius := int(ceil(eff_radius / cell_size_m))
-
-	var transforms: Array[Transform3D] = []
-	transforms.resize(max_instances)
-	var count := 0
-	var _dbg_nan := 0; var _dbg_slope := 0; var _dbg_support := 0; var _dbg_density := 0
-
-	for gx in range(-eff_cells_radius, eff_cells_radius + 1):
-		for gz in range(-eff_cells_radius, eff_cells_radius + 1):
-			var world_x: float = (floor(center.x / cell_size_m) + float(gx)) * cell_size_m + cell_size_m * 0.5
-			var world_z: float = (floor(center.z / cell_size_m) + float(gz)) * cell_size_m + cell_size_m * 0.5
+	var effective_radius := radius_m + preload_margin_m
+	var cell_radius := int(ceil(effective_radius / cell_size_m))
+	var center_cell := Vector2i(
+		int(floor(center.x / cell_size_m)),
+		int(floor(center.z / cell_size_m))
+	)
+	var desired_cells: Dictionary = {}
+	for gx in range(-cell_radius, cell_radius + 1):
+		for gz in range(-cell_radius, cell_radius + 1):
+			var cell_coord := center_cell + Vector2i(gx, gz)
+			var world_x: float = float(cell_coord.x) * cell_size_m + cell_size_m * 0.5
+			var world_z: float = float(cell_coord.y) * cell_size_m + cell_size_m * 0.5
 			var dx: float = world_x - center.x
 			var dz: float = world_z - center.z
-			if dx * dx + dz * dz > eff_radius * eff_radius:
-				continue
+			if dx * dx + dz * dz <= effective_radius * effective_radius:
+				desired_cells[cell_coord] = true
 
-			# Deterministic per-cell random — same result every time for same cell
-			var h_val := _hash2i(int(world_x / cell_size_m), int(world_z / cell_size_m)) ^ seed
-			rng.seed = h_val
+	# Preserve both occupied and empty cells while they remain inside the stream
+	# circle. Only the newly entered edge strip needs terrain checks and raycasts.
+	for cell_variant in _cell_cache.keys():
+		if not desired_cells.has(cell_variant):
+			_cell_cache.erase(cell_variant)
+	_last_candidate_evaluation_count = 0
+	_last_reused_cell_count = 0
+	for cell_variant in desired_cells.keys():
+		var cell_coord: Vector2i = cell_variant
+		if _cell_cache.has(cell_coord):
+			_last_reused_cell_count += 1
+			continue
+		_last_candidate_evaluation_count += 1
+		_cell_cache[cell_coord] = _evaluate_rock_cell(cell_coord)
 
-			# Random offset within cell for organic scatter
-			var offx := rng.randf_range(-cell_size_m * 0.45, cell_size_m * 0.45)
-			var offz := rng.randf_range(-cell_size_m * 0.45, cell_size_m * 0.45)
-			var px: float = world_x + offx
-			var pz: float = world_z + offz
-
-			var yaw := rng.randf() * TAU
-			var s := rng.randf_range(min_scale, max_scale)
-
-			# Height lookup directly from terrain — no raycasts needed
-			var h: float = _terrain.get_height(Vector3(px, 0.0, pz))
-			if is_nan(h):
-				_dbg_nan += 1; continue  # Outside terrain bounds
-
-			# Slope check via central neighbouring samples so one-sided cliffs and
-			# rim transitions are rejected more reliably.
-			var hx_pos: float = _terrain.get_height(Vector3(px + slope_sample_m, 0.0, pz))
-			var hx_neg: float = _terrain.get_height(Vector3(px - slope_sample_m, 0.0, pz))
-			var hz_pos: float = _terrain.get_height(Vector3(px, 0.0, pz + slope_sample_m))
-			var hz_neg: float = _terrain.get_height(Vector3(px, 0.0, pz - slope_sample_m))
-			if is_nan(hx_pos) or is_nan(hx_neg) or is_nan(hz_pos) or is_nan(hz_neg):
-				continue
-			var slope_x: float = abs(hx_pos - hx_neg) / maxf(slope_sample_m * 2.0, 0.001)
-			var slope_z: float = abs(hz_pos - hz_neg) / maxf(slope_sample_m * 2.0, 0.001)
-			var slope_amount: float = maxf(slope_x, slope_z)
-			if maxf(slope_x, slope_z) > max_slope_tan:
-				_dbg_slope += 1; continue  # Too steep — cliff face, no rocks
-
-			# Also reject placements that sit near a sharp edge within the rock's
-			# footprint, otherwise the center point can be grounded while the mesh
-			# visibly hangs out into empty space.
-			var local_density: float = _terrain_detail_density(px, pz, h, slope_amount)
-			if rng.randf() > local_density:
-				_dbg_density += 1; continue
-
-			if not _has_stable_terrain_support(h, px, pz, s):
-				_dbg_support += 1; continue
-
-			var placement_h: float = _get_collision_surface_height(px, pz, h)
-			var basis := Basis().rotated(Vector3.UP, yaw).scaled(Vector3(s, s, s))
-			var embed: float = embed_depth_m + _rock_local_height * s * embed_depth_fraction_of_height
-			var rock_y: float = placement_h - _rock_local_min_y * s - embed
-			# Store in RockStream local space so the MultiMesh stays correct after origin shifts
-			var local_pos := Vector3(px, rock_y, pz) - global_position
-			transforms[count] = Transform3D(basis, local_pos)
-			count += 1
-			if count >= max_instances:
+	var transforms: Array[Transform3D] = []
+	for transform_variant in _cell_cache.values():
+		if transform_variant is Transform3D:
+			transforms.append(transform_variant as Transform3D)
+			if transforms.size() >= max_instances:
 				break
-		if count >= max_instances:
-			break
-
-	pass  # placement stats: placed=%d nan=%d density=%d slope=%d support=%d
-
-	# Build into a fresh MultiMesh and swap atomically — avoids a one-frame
-	# flash to world-origin that happens when setting instance_count in-place.
-	var new_mm := MultiMesh.new()
-	new_mm.transform_format = MultiMesh.TRANSFORM_3D
-	new_mm.mesh = _rock_mesh
-	new_mm.instance_count = count
+	var count := transforms.size()
+	var new_multimesh := MultiMesh.new()
+	new_multimesh.transform_format = MultiMesh.TRANSFORM_3D
+	new_multimesh.mesh = _rock_mesh
+	new_multimesh.instance_count = count
 	for i in range(count):
-		new_mm.set_instance_transform(i, transforms[i])
-	_mm = new_mm
+		new_multimesh.set_instance_transform(i, transforms[i])
+	_mm = new_multimesh
 	_mmi.multimesh = _mm
+
+
+func _evaluate_rock_cell(cell_coord: Vector2i) -> Variant:
+	var world_x: float = float(cell_coord.x) * cell_size_m + cell_size_m * 0.5
+	var world_z: float = float(cell_coord.y) * cell_size_m + cell_size_m * 0.5
+	var rng := RandomNumberGenerator.new()
+	# Keep the legacy seed calculation so caching does not reshuffle the
+	# established rock layout, especially in negative world coordinates.
+	rng.seed = _hash2i(int(world_x / cell_size_m), int(world_z / cell_size_m)) ^ seed
+	var px: float = world_x + rng.randf_range(-cell_size_m * 0.45, cell_size_m * 0.45)
+	var pz: float = world_z + rng.randf_range(-cell_size_m * 0.45, cell_size_m * 0.45)
+	var yaw := rng.randf() * TAU
+	var rock_scale := rng.randf_range(min_scale, max_scale)
+	var height: float = _terrain.get_height(Vector3(px, 0.0, pz))
+	if is_nan(height):
+		return null
+	var hx_pos: float = _terrain.get_height(Vector3(px + slope_sample_m, 0.0, pz))
+	var hx_neg: float = _terrain.get_height(Vector3(px - slope_sample_m, 0.0, pz))
+	var hz_pos: float = _terrain.get_height(Vector3(px, 0.0, pz + slope_sample_m))
+	var hz_neg: float = _terrain.get_height(Vector3(px, 0.0, pz - slope_sample_m))
+	if is_nan(hx_pos) or is_nan(hx_neg) or is_nan(hz_pos) or is_nan(hz_neg):
+		return null
+	var slope_x: float = absf(hx_pos - hx_neg) / maxf(slope_sample_m * 2.0, 0.001)
+	var slope_z: float = absf(hz_pos - hz_neg) / maxf(slope_sample_m * 2.0, 0.001)
+	var slope_amount: float = maxf(slope_x, slope_z)
+	if slope_amount > tan(deg_to_rad(max_slope_deg)):
+		return null
+	if rng.randf() > _terrain_detail_density(px, pz, height, slope_amount):
+		return null
+	if not _has_stable_terrain_support(height, px, pz, rock_scale):
+		return null
+	var placement_height: float = _get_collision_surface_height(px, pz, height)
+	var basis := Basis().rotated(Vector3.UP, yaw).scaled(Vector3(rock_scale, rock_scale, rock_scale))
+	var embed: float = embed_depth_m + _rock_local_height * rock_scale * embed_depth_fraction_of_height
+	var rock_y: float = placement_height - _rock_local_min_y * rock_scale - embed
+	var local_pos := Vector3(px, rock_y, pz) - global_position
+	return Transform3D(basis, local_pos)
+
+
+func get_streaming_diagnostics() -> Dictionary:
+	return {
+		"cached_cells": _cell_cache.size(),
+		"evaluated_cells": _last_candidate_evaluation_count,
+		"reused_cells": _last_reused_cell_count,
+		"rock_instances": _mm.instance_count if _mm != null else 0,
+	}
+
 
 func _hash2i(x: int, y: int) -> int:
 	var n := int(x) * 374761393 + int(y) * 668265263
@@ -294,23 +302,16 @@ func _has_stable_terrain_support(center_h: float, px: float, pz: float, rock_sca
 		return false
 	var rock_radius: float = _rock_local_planform_radius * rock_scale
 	var outer_radius: float = rock_radius + support_check_margin_m
-	if TerrainNavGrid.has_query_grid():
-		return TerrainNavGrid.is_stable_footprint(
-			px,
-			pz,
-			outer_radius,
-			max_support_drop_m,
-			max_support_height_variation_m
-		)
 	var ring_count: int = maxi(support_check_rings, 1)
 	var inner_radius: float = maxf(minf(rock_radius, slope_sample_m), 1.0)
 	outer_radius = maxf(outer_radius, inner_radius)
-	var min_h: float = center_h
-	var max_h: float = center_h
+	var max_grade: float = tan(deg_to_rad(max_slope_deg))
 	for ring_idx in range(ring_count):
 		var t: float = 1.0 if ring_count == 1 else float(ring_idx) / float(ring_count - 1)
 		var sample_radius: float = lerpf(inner_radius, outer_radius, t)
 		var direction_count: int = clampi(support_check_direction_count, 4, SUPPORT_SAMPLE_DIRECTIONS.size())
+		var ring_min_h: float = center_h
+		var ring_max_h: float = center_h
 		for dir_idx in range(direction_count):
 			var dir: Vector2 = SUPPORT_SAMPLE_DIRECTIONS[dir_idx]
 			var sample_h: float = _terrain.get_height(Vector3(
@@ -320,12 +321,16 @@ func _has_stable_terrain_support(center_h: float, px: float, pz: float, rock_sca
 			))
 			if is_nan(sample_h):
 				return false
-			min_h = minf(min_h, sample_h)
-			max_h = maxf(max_h, sample_h)
-			if center_h - sample_h > max_support_drop_m:
+			ring_min_h = minf(ring_min_h, sample_h)
+			ring_max_h = maxf(ring_max_h, sample_h)
+			# Reject only when the center-to-sample grade is cliff-like. Absolute
+			# height change is intentionally allowed on ordinary long slopes.
+			if absf(sample_h - center_h) / maxf(sample_radius, 0.001) > max_grade:
 				return false
-			if max_h - min_h > max_support_height_variation_m:
-				return false
+		# Catch a steep face crossing the sampled footprint even when the
+		# candidate happens to sit near the middle of that transition.
+		if (ring_max_h - ring_min_h) / maxf(sample_radius * 2.0, 0.001) > max_grade:
+			return false
 	return true
 
 func _load_mesh_from_scene(path: String) -> Mesh:

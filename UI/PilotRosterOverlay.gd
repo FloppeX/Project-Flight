@@ -1,22 +1,25 @@
 extends CanvasLayer
 
-const PIXEL_FONT: FontFile = preload("res://UI/Pixel.ttf")
+const HEADLINE_FONT: FontFile = preload("res://UI/Fonts/ArchivoNarrow-Variable.ttf")
+const DATA_FONT: FontFile = preload("res://UI/Fonts/JetBrainsMono-Variable.ttf")
 
-const PANEL_MARGIN_PX: float = 24.0
-const HEADER_HEIGHT_PX: float = 62.0
-const HEADER_ROW_HEIGHT_PX: float = 32.0
+const PANEL_MARGIN_PX: float = 0.0
+const HEADER_HEIGHT_PX: float = 64.0
+const FOOTER_HEIGHT_PX: float = 38.0
+const HEADER_ROW_HEIGHT_PX: float = 36.0
 const ROW_HEIGHT_PX: float = 58.0
 const PORTRAIT_FRAME_SIZE_PX := Vector2(48.0, 50.0)
-const TABLE_PAD_PX: float = 18.0
+const TABLE_PAD_PX: float = 24.0
 
-const VECTOR_TEXT_COLOR: Color = Color(0.58, 1.0, 0.64, 1.0)
-const VECTOR_STATUS_COLOR: Color = Color(0.84, 1.0, 0.86, 1.0)
-const VECTOR_PANEL_BG: Color = Color(0.02, 0.05, 0.03, 0.97)
-const VECTOR_ROW_BG: Color = Color(0.01, 0.04, 0.02, 0.88)
-const VECTOR_ROW_ALT_BG: Color = Color(0.02, 0.07, 0.03, 0.88)
-const VECTOR_BORDER_COLOR: Color = Color(0.24, 0.92, 0.42, 0.92)
-const VECTOR_AMBER_COLOR: Color = Color(1.0, 0.78, 0.28, 1.0)
-const VECTOR_DIM_COLOR: Color = Color(0.38, 0.54, 0.42, 0.9)
+const VECTOR_TEXT_COLOR: Color = Color("e5e2e1")
+const VECTOR_STATUS_COLOR: Color = Color("c4c7c7")
+const VECTOR_PANEL_BG: Color = Color("141313")
+const VECTOR_ROW_BG: Color = Color("1c1b1b")
+const VECTOR_ROW_ALT_BG: Color = Color("201f1f")
+const VECTOR_BORDER_COLOR: Color = Color("434747")
+const VECTOR_CYAN_COLOR: Color = Color("76c7c7")
+const VECTOR_AMBER_COLOR: Color = Color("ffb000")
+const VECTOR_DIM_COLOR: Color = Color("7d8282")
 
 const COLUMNS: Array[Dictionary] = [
 	{"title": "PHOTO", "width": 66.0, "kind": "portrait"},
@@ -37,11 +40,12 @@ const COLUMNS: Array[Dictionary] = [
 
 var _root: Control
 var _backdrop: ColorRect
-var _panel: ColorRect
+var _panel: Panel
 var _header_title: Label
 var _header_subtitle: Label
 var _scroll: ScrollContainer
 var _table: VBoxContainer
+var _footer_panel: Panel
 var _footer: Label
 var _refresh_timer_s: float = 0.0
 var _portrait_texture_cache: Dictionary = {}
@@ -69,15 +73,15 @@ func _build_ui() -> void:
 
 	_backdrop = ColorRect.new()
 	_backdrop.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_backdrop.color = Color(0.0, 0.01, 0.0, 0.94)
+	_backdrop.color = Color("0e0e0e")
 	_root.add_child(_backdrop)
 
 	_panel = _make_panel(VECTOR_PANEL_BG)
 	_root.add_child(_panel)
 
-	_header_title = _make_label("CARRIER PILOT ROSTER", 28, VECTOR_TEXT_COLOR)
+	_header_title = _make_label("CARRIER PERSONNEL", 24, VECTOR_TEXT_COLOR, HORIZONTAL_ALIGNMENT_LEFT, HEADLINE_FONT)
 	_panel.add_child(_header_title)
-	_header_subtitle = _make_label("PERSONNEL STATUS // SORTED BY COMBAT RECORD AND EXPERIENCE", 12, VECTOR_STATUS_COLOR)
+	_header_subtitle = _make_label("PERSONNEL STATUS // ACTIVE ROSTER", 12, VECTOR_STATUS_COLOR)
 	_panel.add_child(_header_subtitle)
 
 	_scroll = ScrollContainer.new()
@@ -91,8 +95,11 @@ func _build_ui() -> void:
 	_table.custom_minimum_size = Vector2(_table_width(), 0.0)
 	_scroll.add_child(_table)
 
-	_footer = _make_label("M / ESC: CLOSE // CARRIER CONSOLE: PERSONNEL", 12, VECTOR_DIM_COLOR, HORIZONTAL_ALIGNMENT_RIGHT)
-	_panel.add_child(_footer)
+	_footer_panel = _make_panel(Color("353434"))
+	_panel.add_child(_footer_panel)
+	_footer = _make_label("M / ESC: CLOSE // CARRIER CONSOLE: PERSONNEL", 12, VECTOR_STATUS_COLOR, HORIZONTAL_ALIGNMENT_RIGHT)
+	_footer.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_footer_panel.add_child(_footer)
 
 	_root.resized.connect(_layout_ui)
 	_layout_ui()
@@ -105,14 +112,16 @@ func _layout_ui() -> void:
 	var panel_size := Vector2(size.x - PANEL_MARGIN_PX * 2.0, size.y - PANEL_MARGIN_PX * 2.0)
 	_panel.position = panel_pos
 	_panel.size = panel_size
-	_header_title.position = Vector2(18.0, 10.0)
-	_header_title.size = Vector2(panel_size.x - 36.0, 30.0)
-	_header_subtitle.position = Vector2(18.0, 40.0)
-	_header_subtitle.size = Vector2(panel_size.x - 36.0, 16.0)
+	_header_title.position = Vector2(32.0, 8.0)
+	_header_title.size = Vector2(310.0, 30.0)
+	_header_subtitle.position = Vector2(32.0, 38.0)
+	_header_subtitle.size = Vector2(310.0, 18.0)
 	_scroll.position = Vector2(TABLE_PAD_PX, HEADER_HEIGHT_PX + 14.0)
-	_scroll.size = Vector2(panel_size.x - TABLE_PAD_PX * 2.0, panel_size.y - HEADER_HEIGHT_PX - 50.0)
-	_footer.position = Vector2(TABLE_PAD_PX, panel_size.y - 26.0)
-	_footer.size = Vector2(panel_size.x - TABLE_PAD_PX * 2.0, 18.0)
+	_scroll.size = Vector2(panel_size.x - TABLE_PAD_PX * 2.0, panel_size.y - HEADER_HEIGHT_PX - FOOTER_HEIGHT_PX - 26.0)
+	_footer_panel.position = Vector2(0.0, panel_size.y - FOOTER_HEIGHT_PX)
+	_footer_panel.size = Vector2(panel_size.x, FOOTER_HEIGHT_PX)
+	_footer.position = Vector2(TABLE_PAD_PX, 0.0)
+	_footer.size = Vector2(panel_size.x - TABLE_PAD_PX * 2.0, FOOTER_HEIGHT_PX)
 
 func _set_open(is_open: bool) -> void:
 	if _root == null:
@@ -201,7 +210,7 @@ func _pilot_values(pilot: Dictionary) -> Array[String]:
 
 func _make_row(values: Array[String], is_header: bool, alternate: bool, pilot: Dictionary) -> Control:
 	var row := ColorRect.new()
-	row.color = Color(0.03, 0.10, 0.05, 0.96) if is_header else (VECTOR_ROW_ALT_BG if alternate else VECTOR_ROW_BG)
+	row.color = Color("1b241e") if is_header else (VECTOR_ROW_ALT_BG if alternate else VECTOR_ROW_BG)
 	var row_height := HEADER_ROW_HEIGHT_PX if is_header else ROW_HEIGHT_PX
 	row.custom_minimum_size = Vector2(_table_width(), row_height)
 	var x := 0.0
@@ -212,7 +221,7 @@ func _make_row(values: Array[String], is_header: bool, alternate: bool, pilot: D
 			_add_portrait_to_row(row, pilot, x, column_width, row_height)
 			x += column_width
 			continue
-		var label := _make_label(values[i] if i < values.size() else "", 13 if is_header else 12, VECTOR_AMBER_COLOR if is_header else VECTOR_TEXT_COLOR)
+		var label := _make_label(values[i] if i < values.size() else "", 12 if is_header else 13, VECTOR_CYAN_COLOR if is_header else VECTOR_TEXT_COLOR)
 		label.position = Vector2(x + 8.0, 0.0)
 		label.size = Vector2(column_width - 12.0, row_height)
 		label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -255,8 +264,8 @@ func _get_portrait_texture(path: String) -> Texture2D:
 
 func _portrait_frame_style() -> StyleBoxFlat:
 	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.0, 0.02, 0.01, 1.0)
-	style.border_color = VECTOR_BORDER_COLOR
+	style.bg_color = Color("0e0e0e")
+	style.border_color = VECTOR_CYAN_COLOR
 	style.set_border_width_all(1)
 	style.corner_radius_top_left = 2
 	style.corner_radius_top_right = 2
@@ -264,25 +273,30 @@ func _portrait_frame_style() -> StyleBoxFlat:
 	style.corner_radius_bottom_right = 2
 	return style
 
-func _make_panel(color: Color) -> ColorRect:
-	var panel := ColorRect.new()
-	panel.color = color
+func _make_panel(color: Color) -> Panel:
+	var panel := Panel.new()
 	var style := StyleBoxFlat.new()
 	style.bg_color = color
 	style.border_color = VECTOR_BORDER_COLOR
-	style.set_border_width_all(2)
-	style.corner_radius_top_left = 4
-	style.corner_radius_top_right = 4
-	style.corner_radius_bottom_left = 4
-	style.corner_radius_bottom_right = 4
+	style.set_border_width_all(1)
+	style.corner_radius_top_left = 0
+	style.corner_radius_top_right = 0
+	style.corner_radius_bottom_left = 0
+	style.corner_radius_bottom_right = 0
 	panel.add_theme_stylebox_override("panel", style)
 	return panel
 
-func _make_label(text: String, font_size: int, color: Color, align: HorizontalAlignment = HORIZONTAL_ALIGNMENT_LEFT) -> Label:
+func _make_label(
+	text: String,
+	font_size: int,
+	color: Color,
+	align: HorizontalAlignment = HORIZONTAL_ALIGNMENT_LEFT,
+	font: Font = DATA_FONT
+) -> Label:
 	var label := Label.new()
 	label.text = text
 	label.horizontal_alignment = align
-	label.add_theme_font_override("font", PIXEL_FONT)
+	label.add_theme_font_override("font", font)
 	label.add_theme_font_size_override("font_size", font_size)
 	label.add_theme_color_override("font_color", color)
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE

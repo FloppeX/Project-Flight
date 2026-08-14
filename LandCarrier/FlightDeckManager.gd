@@ -4142,16 +4142,6 @@ func _complete_retrieval_sequence():
 		await _complete_helicopter_retrieval_sequence(aircraft)
 		return
 
-	# Move aircraft to catapult latch marker
-	var target_position = Vector3.ZERO
-	var launch_marker = get_tree().current_scene.find_child("catapult_latch_marker", true, false)
-
-	if launch_marker and launch_marker is Node3D:
-		target_position = (launch_marker as Node3D).global_position
-	else:
-		# Fallback - position forward of elevator
-		target_position = elevator_pickup_marker.global_position + Vector3(0, 0, 20)
-
 	var active_bots: Array[Node] = []
 	for bot in tractor_bots:
 		if bot and bool(bot.get("is_active")):
@@ -4161,6 +4151,26 @@ func _complete_retrieval_sequence():
 		active_bots = _activate_tractor_bots(aircraft)
 		if not active_bots.is_empty():
 			await _wait_for_tractor_bots_positioned(active_bots)
+	if not is_instance_valid(aircraft):
+		return
+
+	# Resolve the catapult position only after the tractor waits. FloatingOrigin
+	# may shift the whole world during those awaits; retaining the earlier global
+	# coordinate would turn that shift into a multi-kilometre aircraft teleport.
+	var target_position := Vector3.ZERO
+	var launch_marker: Node = get_tree().current_scene.find_child("catapult_latch_marker", true, false)
+	if launch_marker is Node3D:
+		var launch_marker_3d := launch_marker as Node3D
+		var carrier := get_parent() as Node3D
+		if carrier != null:
+			carrier.force_update_transform()
+		launch_marker_3d.force_update_transform()
+		target_position = launch_marker_3d.global_position
+	else:
+		# Fallback - position forward of elevator
+		if elevator_pickup_marker is Node3D:
+			(elevator_pickup_marker as Node3D).force_update_transform()
+			target_position = elevator_pickup_marker.global_position + Vector3(0, 0, 20)
 
 	var deck_height = _get_deck_height_y()
 	var gear_colliders = _find_gear_colliders(aircraft)
@@ -4259,6 +4269,9 @@ func _complete_helicopter_retrieval_sequence(aircraft: RigidBody3D) -> void:
 
 	if not is_instance_valid(aircraft):
 		return
+	# As with the fixed-wing catapult target, refresh this world coordinate after
+	# tractor waits so an origin shift cannot leave the helicopter at the old origin.
+	target_position = _get_helicopter_takeoff_position()
 	var deck_height := _get_deck_height_y()
 	var gear_colliders := _find_gear_colliders(aircraft)
 	var target_gear_height := deck_height + _aircraft_lift_height

@@ -11,6 +11,7 @@ const LANDING_TEST_SCENARIO: int = 5
 const CARRIER_COMBAT_TEST_SCENARIO: int = 6
 const GROUND_COMBAT_TEST_SCENARIO: int = 7
 const CARRIER_COMBAT_DEFAULT_PROFILE := "continuous_intercept"
+const MAP_LAYERED_BADLANDS := "layered_badlands"
 const AIRPLANE_TEST_MODE_SCRIPT: Script = preload("res://Scenario/AirplaneTestMode.gd")
 const DOGFIGHT_TEST_MODE_SCRIPT: Script = preload("res://Scenario/DogfightTestMode.gd")
 const LANDING_TEST_MODE_SCRIPT: Script = preload("res://Scenario/LandingTestMode.gd")
@@ -25,6 +26,7 @@ var restart_timer: Timer
 @export var randomize_play_area_each_run: bool = true
 @export var play_area_center_edge_margin_m: float = 2000.0
 @export var play_area_randomization_debug: bool = false
+@export var layered_badlands_play_area_xz := Vector2.ZERO
 # A known-good, deterministic region for navigation evolution. The terrain seed is
 # already fixed by Main_Scene; fixing the bake center makes the actual test map fixed.
 @export var navigation_test_fixed_play_area_xz := Vector2(25520.0, -27880.0)
@@ -102,6 +104,7 @@ func _ready():
 	FrameProfiler.set_enabled(profiler_enabled, "ScenarioManager")
 	if not _scenario_play_area_center_valid:
 		_configure_play_area_for_run()
+	_schedule_selected_map_validation()
 	if _is_airplane_test_requested():
 		spawn_wind_turbines_on_startup = false
 		_wind_turbines_spawned = true
@@ -199,6 +202,9 @@ func restart_scene_after_delay(delay_seconds: float):
 
 
 func restart_scene():
+	var loading_screen: Node = get_node_or_null("/root/LoadingScreen")
+	if loading_screen != null and loading_screen.has_method("begin_scenario_load"):
+		loading_screen.call("begin_scenario_load")
 	get_tree().reload_current_scene()
 
 
@@ -249,6 +255,9 @@ func _configure_play_area_for_run() -> void:
 	var terrain := get_node_or_null(terrain_node_path) as Node3D
 	if terrain == null:
 		return
+	var selected_map_id := _get_selected_map_id()
+	if terrain.has_method("set_map_profile"):
+		terrain.call("set_map_profile", selected_map_id)
 
 	# _configure_play_area_for_run() is first called from _enter_tree(), when this
 	# direct child has not entered the SceneTree yet. Its local position is already
@@ -266,6 +275,9 @@ func _configure_play_area_for_run() -> void:
 	elif carrier_combat_test_requested or ground_combat_test_requested or landing_test_requested:
 		center.x = carrier_combat_test_fixed_play_area_xz.x
 		center.z = carrier_combat_test_fixed_play_area_xz.y
+	elif selected_map_id == MAP_LAYERED_BADLANDS:
+		center.x = layered_badlands_play_area_xz.x
+		center.z = layered_badlands_play_area_xz.y
 	elif randomize_play_area_each_run:
 		center = _pick_random_play_area_center(terrain)
 	center = _snap_play_area_center_to_nav_grid(center)
@@ -273,7 +285,11 @@ func _configure_play_area_for_run() -> void:
 	_scenario_play_area_center = center
 	_scenario_play_area_center_valid = true
 	var current_bake_center: Vector3 = TerrainNavGrid.get_bake_center()
-	var needs_rebake: bool = TerrainNavGrid.is_ready() and current_bake_center.distance_to(center) > 0.1
+	var current_profile_id: String = TerrainNavGrid.get_bake_profile_id() if TerrainNavGrid.has_method("get_bake_profile_id") else ""
+	var needs_rebake: bool = TerrainNavGrid.is_ready() and (
+		current_bake_center.distance_to(center) > 0.1
+		or current_profile_id != selected_map_id
+	)
 	if needs_rebake:
 		TerrainNavGrid.rebake_at_center(center)
 		NavGraph.rebuild_from_current_navgrid()
@@ -290,6 +306,44 @@ func _configure_play_area_for_run() -> void:
 		print("[ScenarioManager] Carrier combat test fixed play area center set to ", center)
 	elif ground_combat_test_requested:
 		print("[ScenarioManager] Ground combat test fixed play area center set to ", center)
+	elif selected_map_id == MAP_LAYERED_BADLANDS:
+		print("[ScenarioManager] Fractured Badlands play area center set to ", center)
+
+
+func _get_selected_map_id() -> String:
+	var session := get_node_or_null("/root/GameSession")
+	if session == null:
+		return "open_canyons"
+	var map_value: Variant = session.get("selected_map_id")
+	return str(map_value) if map_value != null else "open_canyons"
+
+
+func _schedule_selected_map_validation() -> void:
+	if _get_selected_map_id() != MAP_LAYERED_BADLANDS:
+		return
+	if TerrainNavGrid.is_ready():
+		call_deferred("_validate_selected_map_profile")
+		return
+	var callback := Callable(self, "_validate_selected_map_profile")
+	if not TerrainNavGrid.bake_complete.is_connected(callback):
+		TerrainNavGrid.bake_complete.connect(callback, CONNECT_ONE_SHOT)
+
+
+func _validate_selected_map_profile() -> void:
+	var terrain := get_node_or_null(terrain_node_path) as Node3D
+	if terrain == null or not terrain.has_method("validate_profile_routes"):
+		push_warning("[ScenarioManager] Selected map does not provide route validation")
+		return
+	var result: Dictionary = terrain.call("validate_profile_routes", 20.0, 36.0)
+	if not bool(result.get("valid", false)):
+		push_error("[ScenarioManager] Fractured Badlands route validation failed: %s" % str(result))
+		return
+	print(
+		"[ScenarioManager] Fractured Badlands routes validated: routes=%d max_grade=%.2f deg" % [
+			int(result.get("route_count", 0)),
+			float(result.get("max_grade_degrees", 0.0))
+		]
+	)
 
 
 func _is_navigation_test_requested() -> bool:

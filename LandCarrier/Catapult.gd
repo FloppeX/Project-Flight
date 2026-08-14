@@ -38,6 +38,9 @@ signal launch_sequence_aborted
 @export var deck_clearance: float = 0.2               # clearance above deck on settle
 @export var teleport_snap_to_deck: bool = false       # optional deck ray-snap for generic alignment path
 @export var launch_teleport_max_below_carrier_m: float = 30.0  # reject a launch teleport target this far below the carrier (guards the "teleported underground on launch" bug)
+@export var launch_teleport_max_horizontal_carrier_distance_m: float = 400.0  # reject stale latch positions displaced from the carrier by an origin shift
+@export var retrieval_handoff_max_latch_distance_m: float = 120.0  # only bypass teleport when retrieval really ended beside the live catapult
+@export var retrieval_handoff_max_vertical_error_m: float = 30.0
 @export var heading_offset_deg: float = 0.0           # compensate model yaw misalignment
 @export var deck_forward_is_plus_z: bool = true       # carrier now uses +Z as forward
 
@@ -555,6 +558,7 @@ func align_aircraft(ac: RigidBody3D) -> void:
 
 	_aircraft = ac
 	_capture_aircraft_carrier_rotation()
+	_refresh_launch_transforms()
 
 	# Lock controls immediately so AIPilot/ControlEngine can't run the engine
 	# before the shuttle connects. Released on launch (line with remove_meta).
@@ -564,10 +568,16 @@ func align_aircraft(ac: RigidBody3D) -> void:
 	# so skip teleport/freeze once and go straight to shuttle approach.
 	if ac.has_meta("catapult_skip_teleport_once") and bool(ac.get_meta("catapult_skip_teleport_once")):
 		ac.remove_meta("catapult_skip_teleport_once")
-		if debug_enabled:
-			print("[CATAPULT] Retrieval handoff: skipping teleport/freeze; starting sequence directly.")
-		begin_sequence(ac)
-		return
+		if _can_use_retrieval_handoff(ac):
+			if debug_enabled:
+				print("[CATAPULT] Retrieval handoff: aircraft is at the live latch; starting sequence directly.")
+			begin_sequence(ac)
+			return
+		var latch_distance_m: float = _horizontal_distance(ac.global_position, latch_marker.global_position)
+		push_warning(
+			"[CATAPULT] Rejected stale retrieval handoff %.0fm from the live latch; using safe catapult alignment."
+			% latch_distance_m
+		)
 
 	var target_transform = latch_marker.global_transform
 	
@@ -603,24 +613,32 @@ func align_aircraft(ac: RigidBody3D) -> void:
 		if hit:
 			final_transform.origin.y = hit.position.y + deck_clearance
 
-	# SANITY GUARD: never teleport the aircraft far below the deck. A bad latch_marker global transform
-	# (e.g. read mid-origin-shift or before the marker settled) has sent aircraft far underground on
-	# launch. If the target is implausibly below the carrier, recompute the marker position from the
-	# carrier's transform (which is authoritative) instead of using the stale global value.
+	# SANITY GUARD: never teleport the aircraft far below or horizontally far away from the carrier.
+	# A latch_marker global transform read during an origin shift can retain the old world translation
+	# while still having a plausible height. Rebuild it from its parent's current transform whenever
+	# either axis is implausible.
 	var carrier := _find_carrier_node()
 	if is_instance_valid(carrier):
 		var y_below_carrier: float = carrier.global_position.y - final_transform.origin.y
-		if y_below_carrier > launch_teleport_max_below_carrier_m:
+		var horizontal_delta: Vector3 = final_transform.origin - carrier.global_position
+		horizontal_delta.y = 0.0
+		var horizontal_distance_m: float = horizontal_delta.length()
+		var bad_vertical_target: bool = y_below_carrier > launch_teleport_max_below_carrier_m
+		var bad_horizontal_target: bool = horizontal_distance_m > launch_teleport_max_horizontal_carrier_distance_m
+		if bad_vertical_target or bad_horizontal_target:
 			# Recompute the marker's world position from its parent's CURRENT transform (authoritative --
 			# the marker is a child of the carrier/deck, so parent.global_transform * marker.local_origin
 			# gives the real deck spot even if the marker's cached global_transform was stale).
 			var safe_origin: Vector3 = final_transform.origin
-			if latch_marker.get_parent() != null and latch_marker.get_parent() is Node3D:
-				var parent3d := latch_marker.get_parent() as Node3D
-				safe_origin = parent3d.global_transform * latch_marker.transform.origin
-			push_warning("[CATAPULT] Rejected bad launch teleport %.0fm below carrier — using recomputed deck position." % y_below_carrier)
+			var hierarchy_origin: Vector3 = _get_descendant_world_origin(latch_marker, carrier)
+			if hierarchy_origin != Vector3.INF:
+				safe_origin = hierarchy_origin
+			push_warning(
+				"[CATAPULT] Rejected bad launch teleport (horizontal=%.0fm, below=%.0fm) — using recomputed deck position."
+				% [horizontal_distance_m, y_below_carrier]
+			)
 			if debug_enabled:
-				print("[CATAPULT] bad target=%s carrier_y=%.1f -> safe=%s" % [final_transform.origin, carrier.global_position.y, safe_origin])
+				print("[CATAPULT] bad target=%s carrier=%s -> safe=%s" % [final_transform.origin, carrier.global_position, safe_origin])
 			final_transform.origin = safe_origin
 
 	ac.global_transform = final_transform
@@ -735,6 +753,54 @@ func _find_carrier_node() -> Node3D:
 		node = node.get_parent()
 	var carrier := get_tree().get_first_node_in_group("carrier")
 	return carrier as Node3D
+
+
+func _refresh_launch_transforms() -> void:
+	var carrier := _find_carrier_node()
+	if is_instance_valid(carrier):
+		carrier.force_update_transform()
+	force_update_transform()
+	if is_instance_valid(latch_marker):
+		latch_marker.force_update_transform()
+	if is_instance_valid(release_marker):
+		release_marker.force_update_transform()
+	if is_instance_valid(shuttle):
+		shuttle.force_update_transform()
+
+
+func _can_use_retrieval_handoff(ac: RigidBody3D) -> bool:
+	if not is_instance_valid(ac) or not is_instance_valid(latch_marker):
+		return false
+	var carrier := _find_carrier_node()
+	if not is_instance_valid(carrier):
+		return false
+	var latch_distance_m: float = _horizontal_distance(ac.global_position, latch_marker.global_position)
+	var carrier_distance_m: float = _horizontal_distance(ac.global_position, carrier.global_position)
+	var vertical_error_m: float = absf(ac.global_position.y - latch_marker.global_position.y)
+	return (
+		latch_distance_m <= maxf(retrieval_handoff_max_latch_distance_m, 1.0)
+		and carrier_distance_m <= maxf(launch_teleport_max_horizontal_carrier_distance_m, 1.0)
+		and vertical_error_m <= maxf(retrieval_handoff_max_vertical_error_m, 1.0)
+	)
+
+
+func _horizontal_distance(a: Vector3, b: Vector3) -> float:
+	return Vector2(a.x - b.x, a.z - b.z).length()
+
+
+func _get_descendant_world_origin(descendant: Node3D, ancestor: Node3D) -> Vector3:
+	if not is_instance_valid(descendant) or not is_instance_valid(ancestor):
+		return Vector3.INF
+	var relative_transform := Transform3D.IDENTITY
+	var cursor: Node = descendant
+	while cursor != null and cursor != ancestor:
+		if not (cursor is Node3D):
+			return Vector3.INF
+		relative_transform = (cursor as Node3D).transform * relative_transform
+		cursor = cursor.get_parent()
+	if cursor != ancestor:
+		return Vector3.INF
+	return ancestor.global_transform * relative_transform.origin
 
 
 func _get_deck_forward_vector() -> Vector3:

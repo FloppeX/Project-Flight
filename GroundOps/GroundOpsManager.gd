@@ -20,7 +20,10 @@ const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
 const PLATOON_NAMES := ["Ember", "Ferret", "Grizzly", "Hammer"]
 
 @export var debug_print: bool = false
-@export var maintain_carrier_escort: bool = true
+# Normal play starts with every platoon stored in the carrier. The player can
+# deploy one through a ground order; test scenarios may opt back into automatic
+# escort maintenance explicitly.
+@export var maintain_carrier_escort: bool = false
 @export var carrier_escort_min_vehicles: int = 2
 @export var carrier_escort_desired_vehicles: int = 4
 @export var carrier_escort_check_interval_s: float = 5.0
@@ -54,7 +57,7 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	var _profiler_start: int = FrameProfiler.begin("GroundOpsManager.process")
 	_process_deploy_queue()
-	if maintain_carrier_escort:
+	if maintain_carrier_escort and _is_carrier_initial_placement_ready():
 		_escort_check_timer_s -= delta
 		if _escort_check_timer_s <= 0.0:
 			_escort_check_timer_s = carrier_escort_check_interval_s
@@ -97,6 +100,12 @@ func deploy(platoon_name: String) -> void:
 func _process_deploy_queue() -> void:
 	if _deploy_queue.is_empty():
 		return
+	# The carrier is authored at a temporary scene position while TerrainNavGrid
+	# bakes and is relocated afterward. Starting the ramp sequence before that
+	# handoff can leave a completed platoon behind at the authored position.
+	_refresh_carrier()
+	if not _is_carrier_initial_placement_ready():
+		return
 	_refresh_vehicle_bay()
 	if not _vehicle_bay:
 		return
@@ -135,6 +144,9 @@ func _on_platoon_deployed(platoon: GroundVehiclePlatoon) -> void:
 
 ## Move platoon to a world position.
 func order_move(platoon_name: String, target: Vector3) -> void:
+	if not _is_explored_player_destination(target):
+		push_warning("[GroundOps] Rejected move order into unexplored terrain")
+		return
 	var p := _get_platoon(platoon_name)
 	if not p:
 		return
@@ -145,6 +157,9 @@ func order_move(platoon_name: String, target: Vector3) -> void:
 
 ## Attack a specific node (enemy position, structure, etc).
 func order_attack(platoon_name: String, target_node: Node3D, radius_m: float = 300.0) -> void:
+	if target_node == null or not is_instance_valid(target_node) or not _is_explored_player_destination(target_node.global_position):
+		push_warning("[GroundOps] Rejected attack order into unexplored terrain")
+		return
 	var p := _get_platoon(platoon_name)
 	if not p:
 		return
@@ -154,6 +169,9 @@ func order_attack(platoon_name: String, target_node: Node3D, radius_m: float = 3
 		print("[GroundOps] %s — attack %s" % [platoon_name, target_node.name])
 
 func order_attack_position(platoon_name: String, target_position: Vector3, radius_m: float = 300.0) -> void:
+	if not _is_explored_player_destination(target_position):
+		push_warning("[GroundOps] Rejected attack order into unexplored terrain")
+		return
 	var p := _get_platoon(platoon_name)
 	if not p:
 		return
@@ -164,6 +182,9 @@ func order_attack_position(platoon_name: String, target_position: Vector3, radiu
 
 ## Protect a node (carrier, position, etc).
 func order_protect(platoon_name: String, target_node: Node3D, radius_m: float = 250.0) -> void:
+	if target_node == null or not is_instance_valid(target_node) or not _is_explored_player_destination(target_node.global_position):
+		push_warning("[GroundOps] Rejected protect order into unexplored terrain")
+		return
 	var p := _get_platoon(platoon_name)
 	if not p:
 		return
@@ -173,6 +194,9 @@ func order_protect(platoon_name: String, target_node: Node3D, radius_m: float = 
 		print("[GroundOps] %s — protect %s" % [platoon_name, target_node.name])
 
 func order_protect_position(platoon_name: String, target_position: Vector3, radius_m: float = 250.0) -> void:
+	if not _is_explored_player_destination(target_position):
+		push_warning("[GroundOps] Rejected protect order into unexplored terrain")
+		return
 	var p := _get_platoon(platoon_name)
 	if not p:
 		return
@@ -317,6 +341,15 @@ func _find_reassignable_platoon_name() -> String:
 			return pname
 	return ""
 
+
+func _is_carrier_initial_placement_ready() -> bool:
+	_refresh_carrier()
+	if _carrier == null or not is_instance_valid(_carrier):
+		return false
+	if _carrier.has_method("is_initial_placement_complete"):
+		return bool(_carrier.call("is_initial_placement_complete"))
+	return true
+
 func order_hold(platoon_name: String) -> void:
 	var p := _get_platoon(platoon_name)
 	if not p:
@@ -422,6 +455,10 @@ func _get_platoon(platoon_name: String) -> GroundVehiclePlatoon:
 		push_warning("[GroundOps] Unknown platoon: %s" % platoon_name)
 		return null
 	return platoons[platoon_name]
+
+
+func _is_explored_player_destination(target: Vector3) -> bool:
+	return MapFogOfWar.is_initialized() and MapFogOfWar.is_world_explored(target)
 
 func _ensure_platoon_deployed(platoon_name: String, platoon: GroundVehiclePlatoon) -> void:
 	if platoon == null or not is_instance_valid(platoon):

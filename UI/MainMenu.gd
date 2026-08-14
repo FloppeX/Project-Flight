@@ -10,6 +10,8 @@ const LANDING_TEST_SCENARIO := 5
 const CARRIER_COMBAT_TEST_SCENARIO := 6
 const DEFAULT_CARRIER_NAME := "Land Carrier"
 const SHIP_NAME_LIST_PATH := "res://Data/ShipNames.txt"
+const MAP_IDS: Array[String] = ["open_canyons", "layered_badlands"]
+const MAP_NAMES: Array[String] = ["OPEN CANYONS", "FRACTURED BADLANDS"]
 const BASE_UI_SIZE := Vector2(1280.0, 720.0)
 const CAMERA_LOOP_S := 56.0
 const CARRIER_RIDE_HEIGHT_M := 40.0
@@ -71,11 +73,13 @@ var _primary_index := DEFAULT_PRIMARY_COLOR_INDEX
 var _secondary_index := DEFAULT_SECONDARY_COLOR_INDEX
 var _pattern_choice_index := 0
 var _insignia_index := 0
+var _map_index := 0
 var _current_screen := ""
 var _primary_value_button: Button
 var _secondary_value_button: Button
 var _pattern_value_button: Button
 var _insignia_value_button: Button
+var _map_value_button: Button
 var _menu_rng := RandomNumberGenerator.new()
 var _elapsed := 0.0
 
@@ -837,8 +841,8 @@ func _build_ui() -> void:
 	_build_main_menu(_main_panel)
 
 	_setup_panel = Control.new()
-	_setup_panel.position = Vector2(64.0, 76.0)
-	_setup_panel.size = Vector2(480.0, 560.0)
+	_setup_panel.position = Vector2(64.0, 20.0)
+	_setup_panel.size = Vector2(480.0, 620.0)
 	_ui_root.add_child(_setup_panel)
 	_build_setup_menu(_setup_panel)
 
@@ -901,11 +905,13 @@ func _build_setup_menu(parent: Control) -> void:
 	_pattern_value_button = _build_cycle_row(parent, Vector2(0.0, 316.0), Callable(self, "_change_pattern"))
 	parent.add_child(_make_label("INSIGNIA", Vector2(0.0, 362.0), 18, Color(1.0, 1.0, 1.0, 0.66)))
 	_insignia_value_button = _build_cycle_row(parent, Vector2(0.0, 388.0), Callable(self, "_change_insignia"))
+	parent.add_child(_make_label("MAP", Vector2(0.0, 434.0), 18, Color(1.0, 1.0, 1.0, 0.66)))
+	_map_value_button = _build_cycle_row(parent, Vector2(0.0, 460.0), Callable(self, "_change_map"))
 
-	var start_btn := _make_menu_button("START", Vector2(0.0, 482.0), 185.0)
+	var start_btn := _make_menu_button("START", Vector2(0.0, 538.0), 185.0)
 	start_btn.pressed.connect(_start_new_campaign)
 	parent.add_child(start_btn)
-	var back_btn := _make_small_button("< BACK", Vector2(226.0, 492.0), 170.0)
+	var back_btn := _make_small_button("< BACK", Vector2(226.0, 548.0), 170.0)
 	back_btn.pressed.connect(_show_main_menu)
 	parent.add_child(back_btn)
 	_refresh_setup_buttons()
@@ -995,13 +1001,16 @@ func _start_game_with_scenario(scenario: int) -> void:
 	file.store_string(JSON.stringify({"scenario": scenario}))
 	file.close()
 	_restore_autoloads()
+	var loading_screen: Node = get_node_or_null("/root/LoadingScreen")
+	if loading_screen != null and loading_screen.has_method("begin_scenario_load"):
+		loading_screen.call("begin_scenario_load")
 	get_tree().change_scene_to_file(GAME_SCENE)
 
 
 func _configure_session(carrier_name: String, primary: Color, secondary: Color, pattern_index: int, insignia_index: int) -> void:
 	var session := get_node_or_null("/root/GameSession")
 	if session != null and session.has_method("configure_new_game"):
-		session.call("configure_new_game", carrier_name, primary, secondary, pattern_index, insignia_index)
+		session.call("configure_new_game", carrier_name, primary, secondary, pattern_index, insignia_index, _selected_map_id())
 
 
 func _change_primary(delta: int) -> void:
@@ -1028,6 +1037,11 @@ func _change_insignia(delta: int) -> void:
 	_apply_preview_livery()
 
 
+func _change_map(delta: int) -> void:
+	_map_index = _wrap_index(_map_index + delta, MAP_IDS.size())
+	_refresh_setup_buttons()
+
+
 func _refresh_setup_buttons() -> void:
 	_refresh_color_value_button(_primary_value_button, _primary_index)
 	_refresh_color_value_button(_secondary_value_button, _secondary_index)
@@ -1037,6 +1051,9 @@ func _refresh_setup_buttons() -> void:
 	if _insignia_value_button != null:
 		_insignia_value_button.text = _insignia_names[_wrap_index(_insignia_index, _insignia_names.size())] if not _insignia_names.is_empty() else "NONE"
 		_apply_plain_button_style(_insignia_value_button)
+	if _map_value_button != null:
+		_map_value_button.text = MAP_NAMES[_wrap_index(_map_index, MAP_NAMES.size())]
+		_apply_plain_button_style(_map_value_button)
 
 
 func _apply_preview_livery() -> void:
@@ -1141,6 +1158,12 @@ func _selected_pattern_index() -> int:
 	if _pattern_indices.is_empty():
 		return 0
 	return _pattern_indices[_wrap_index(_pattern_choice_index, _pattern_indices.size())]
+
+
+func _selected_map_id() -> String:
+	if MAP_IDS.is_empty():
+		return "open_canyons"
+	return MAP_IDS[_wrap_index(_map_index, MAP_IDS.size())]
 
 
 func _load_ship_names() -> void:
@@ -1270,6 +1293,9 @@ func _cycle_focused_setup_row(delta: int) -> bool:
 		return true
 	if focus_owner == _insignia_value_button:
 		_change_insignia(delta)
+		return true
+	if focus_owner == _map_value_button:
+		_change_map(delta)
 		return true
 	return false
 
