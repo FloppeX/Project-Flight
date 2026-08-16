@@ -1533,12 +1533,25 @@ func command_return_to_carrier_and_land() -> bool:
 func command_rescue(pilot_node: Node3D) -> void:
 	if not is_instance_valid(pilot_node):
 		return
+	var departure_phase := mission_phase
+	if state == State.IDLE:
+		if departure_phase == MissionPhase.AT_CARRIER:
+			_clear_carrier_landing_hold()
+		else:
+			_clear_ground_landing_hold()
+		change_state(State.TAKEOFF)
+	elif state != State.TAKEOFF:
+		change_state(State.LOW_LEVEL_TRANSIT)
 	_rescue_target = pilot_node
 	mission_phase = MissionPhase.RESCUE
+	_landing_on_carrier = false
+	_carrier_approach_phase = CarrierApproachPhase.NONE
+	_idle_dwell_timer_s = 0.0
 	_clear_combat_attack("rescue_commanded")
 	_cancel_combat_plan_job()
 	_clear_heightmap_path("rescue_start")
 	set_destination(pilot_node.global_position)
+	set_physics_process(true)
 	_record_milestone("Rescue mission — heading to downed pilot at %s" % [str(pilot_node.global_position.snapped(Vector3.ONE))])
 	print("[HelicopterPilot] %s dispatched for rescue of %s" % [aircraft.name if is_instance_valid(aircraft) else name, pilot_node.name])
 
@@ -12482,7 +12495,9 @@ func _try_finish_landing() -> void:
 		var close_to_deck := deck_agl >= carrier_landing_touchdown_min_deck_agl_m \
 				and deck_agl <= maxf(carrier_landing_touchdown_max_deck_agl_m, 0.1)
 		var any_gear_count := _get_carrier_surface_gear_count()
-		var touchdown_contact := gear_landed \
+		var deck_manager_settled := _is_flight_deck_confirmed_touchdown()
+		var touchdown_contact := deck_manager_settled \
+				or gear_landed \
 				or (on_deck and any_gear_count >= 1) \
 				or (flat_dist <= touchdown_radius \
 					and carrier_rel_speed < maxf(carrier_landing_touchdown_relative_speed_mps, 0.1) \
@@ -12491,13 +12506,24 @@ func _try_finish_landing() -> void:
 			carrier_landing_touchdown_max_vertical_mps,
 			carrier_landing_soft_touchdown_sink_mps
 		)
-		if touchdown_contact and gentle_vertical:
+		var touchdown_dynamics_ok := gentle_vertical or deck_manager_settled
+		if touchdown_contact and touchdown_dynamics_ok:
 			_carrier_touchdown_settle_timer_s += _physics_delta
 		else:
 			_carrier_touchdown_settle_timer_s = 0.0
 		is_landed = touchdown_contact \
-				and gentle_vertical \
+				and touchdown_dynamics_ok \
 				and _carrier_touchdown_settle_timer_s >= maxf(carrier_landing_touchdown_settle_time_s, 0.0)
+		if is_landed and deck_manager_settled:
+			_debug_output("HELI_AI event=carrier_touchdown_deck_confirmed craft=%s gear=%d/%d rel=%.2f vs=%.2f deck_agl=%.2f settled=%.2f" % [
+				aircraft.name,
+				any_gear_count,
+				_get_landing_gear_count(),
+				carrier_rel_speed,
+				carrier_rel_vertical_speed,
+				deck_agl,
+				_carrier_touchdown_settle_timer_s,
+			])
 		if gear_landed:
 			_debug_event("carrier_touchdown_gear", "gear=%d/%d flat=%.1f rel=%.2f vs=%.2f deck_agl=%.2f settled=%.2f" % [
 				_get_carrier_surface_gear_count(),
@@ -12589,6 +12615,16 @@ func _try_finish_landing() -> void:
 				_notify_helicopter_landed_on_carrier_deck()
 				_release_carrier_landing_clearance_from_deck()
 	change_state(State.IDLE)
+
+
+func _is_flight_deck_confirmed_touchdown() -> bool:
+	if not is_instance_valid(aircraft):
+		return false
+	var flight_deck_manager := get_tree().get_first_node_in_group("flight_deck_manager")
+	if not is_instance_valid(flight_deck_manager) \
+			or not flight_deck_manager.has_method("is_aircraft_physically_settled_on_landing_deck"):
+		return false
+	return bool(flight_deck_manager.call("is_aircraft_physically_settled_on_landing_deck", aircraft))
 
 
 func _hold_landed_on_carrier() -> void:

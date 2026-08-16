@@ -1,5 +1,7 @@
 # Land Carrier Track Mapping Problem
 
+> **Document status:** Unresolved investigation. The visible loop discontinuity remains listed in the [README](../README.md#known-problems-and-validation-gaps); verify the symptom in the current build before resuming the proposed debug work.
+
 ## Summary
 
 The land carrier uses a shader-driven fake tread animation rather than real moving tread geometry.

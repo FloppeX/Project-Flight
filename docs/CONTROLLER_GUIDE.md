@@ -1,5 +1,7 @@
 # Controller Guide - Land Carrier Project
 
+> **Document status:** Player/control reference last fully audited on 2026-03-17. Core controls remain useful, but debug keys and newer tactical-map interactions may have drifted. Use the [README](../README.md) for current project status.
+
 **Updated:** 2026-03-17  
 **Default Control:** Spectator mode with AI active
 

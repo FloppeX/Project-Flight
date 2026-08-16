@@ -1,12 +1,10 @@
-[gd_scene load_steps=6 format=3]
+[gd_scene load_steps=4 format=3]
 
 [ext_resource type="Script" path="res://Models/Characters/DownedPilot.gd" id="1_script"]
-[ext_resource type="PackedScene" uid="uid://bnxo3mvh7eqk2" path="res://Models/Characters/pilot 2 - sitting in cockpit.glb" id="2_model"]
-[ext_resource type="Script" path="res://Aircraft/PilotPose.gd" id="3_pose"]
-[ext_resource type="PackedScene" uid="uid://ctqy76sqfod4c" path="res://Models/Characters/Pilot 2 - running.fbx" id="4_running_animation"]
+[ext_resource type="PackedScene" path="res://Models/Characters/PilotPlaceholder.tscn" id="2_placeholder"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_downed_pilot"]
-size = Vector3(1, 1.85, 1)
+size = Vector3(0.8, 1.85, 0.3)
 
 [node name="DownedPilot" type="RigidBody3D"]
 collision_layer = 1
@@ -18,12 +16,7 @@ script = ExtResource("1_script")
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.925, 0)
 shape = SubResource("BoxShape3D_downed_pilot")
 
-[node name="Model" parent="." instance=ExtResource("2_model")]
+[node name="HeadCameraMount" type="Marker3D" parent="."]
+position = Vector3(0, 1.7, 0)
 
-[node name="PilotPose" type="Node3D" parent="."]
-script = ExtResource("3_pose")
-pose_target_path = NodePath("../Model")
-hide_head_in_cockpit = false
-cockpit_hidden_mesh_names = PackedStringArray()
-initial_pose_name = &"grounded"
-locomotion_source_scene = ExtResource("4_running_animation")
+[node name="Model" parent="." instance=ExtResource("2_placeholder")]

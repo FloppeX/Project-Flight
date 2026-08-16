@@ -1,0 +1,15 @@
+[gd_scene load_steps=3 format=3]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_pilot_placeholder"]
+albedo_color = Color(0.45, 0.45, 0.45, 1)
+roughness = 0.9
+
+[sub_resource type="BoxMesh" id="BoxMesh_pilot_placeholder"]
+material = SubResource("StandardMaterial3D_pilot_placeholder")
+size = Vector3(0.8, 1.85, 0.3)
+
+[node name="PilotPlaceholder" type="Node3D"]
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
+position = Vector3(0, 0.925, 0)
+mesh = SubResource("BoxMesh_pilot_placeholder")

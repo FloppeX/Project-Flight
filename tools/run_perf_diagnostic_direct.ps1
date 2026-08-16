@@ -8,7 +8,6 @@ param(
     [int]$TrackMarkMaxActive = 240,
     [double]$TrackMarkLifetimeSeconds = 30.0,
     [double]$TrackMarkSpawnSpacingMeters = 0.0,
-    [double]$TrackMarkFadeUpdateRateHz = 5.0,
     [double]$TrackMarkDebugIntervalSeconds = 5.0
 )
 
@@ -41,12 +40,11 @@ try {
     }
     if ($TrackMarks -ne 'Default') {
         $trackMarksEnabled = if ($TrackMarks -eq 'Enabled') { 'true' } else { 'false' }
-        $carrierOverride = '{{"track_marks_enabled":{0},"track_mark_max_active":{1},"track_mark_lifetime_s":{2},"track_mark_spawn_spacing_m":{3},"track_mark_fade_update_rate_hz":{4},"track_mark_debug_log_interval_s":{5}}}' -f `
+        $carrierOverride = '{{"track_marks_enabled":{0},"track_mark_max_active":{1},"track_mark_lifetime_s":{2},"track_mark_spawn_spacing_m":{3},"track_mark_debug_log_interval_s":{4}}}' -f `
             $trackMarksEnabled,
             $TrackMarkMaxActive,
             ([string]::Format([System.Globalization.CultureInfo]::InvariantCulture, '{0:0.###}', $TrackMarkLifetimeSeconds)),
             ([string]::Format([System.Globalization.CultureInfo]::InvariantCulture, '{0:0.###}', $TrackMarkSpawnSpacingMeters)),
-            ([string]::Format([System.Globalization.CultureInfo]::InvariantCulture, '{0:0.###}', $TrackMarkFadeUpdateRateHz)),
             ([string]::Format([System.Globalization.CultureInfo]::InvariantCulture, '{0:0.###}', $TrackMarkDebugIntervalSeconds))
         Set-Content -Path $carrierPerfOverridePath -Value $carrierOverride -Encoding UTF8
     }
@@ -155,7 +153,7 @@ $reportTail = if (Test-Path $reportPath) { Get-Content $reportPath -Tail 100 } e
     "track_marks=$TrackMarks",
     "track_mark_max_active=$TrackMarkMaxActive",
     "track_mark_lifetime_s=$TrackMarkLifetimeSeconds",
-    "track_mark_fade_update_rate_hz=$TrackMarkFadeUpdateRateHz",
+    'track_mark_fade=gpu_smooth',
     '',
     '--- selected runtime output ---',
     $fpsTail,

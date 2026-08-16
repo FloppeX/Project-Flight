@@ -18,7 +18,6 @@ enum Phase {
 
 var _phase: Phase = Phase.FIND_CLEARING
 var _model_node: Node3D = null
-var _pilot_pose: Node = null        # PilotPose node
 var _clearing_target: Vector3 = Vector3.ZERO
 var _rescue_heli: Node3D = null
 var _locomotion_active: bool = false
@@ -32,7 +31,6 @@ func _ready() -> void:
 	freeze = true
 
 	_model_node = get_node_or_null("Model")
-	_pilot_pose = get_node_or_null("PilotPose")
 	_set_locomotion(false)
 
 	_clearing_target = _find_clearing()
@@ -95,16 +93,12 @@ func _walk_toward(target: Vector3, speed: float, delta: float) -> void:
 	_set_locomotion(true, speed)
 
 
-func _set_locomotion(active: bool, speed: float = 0.0) -> void:
+func _set_locomotion(active: bool, _speed: float = 0.0) -> void:
 	if active == _locomotion_active and not active:
 		return
 	_locomotion_active = active
 	if _model_node != null:
 		_model_node.visible = true
-	if _pilot_pose != null and _pilot_pose.has_method("set_locomotion_pose"):
-		_pilot_pose.call("set_locomotion_pose", active, speed)
-	elif _pilot_pose != null and not active and _pilot_pose.has_method("set_ejection_pose"):
-		_pilot_pose.call("set_ejection_pose", &"grounded", 0.3)
 
 
 func _snap_to_terrain() -> void:
@@ -168,6 +162,10 @@ func _board_helicopter(heli: Node3D) -> void:
 	var heli_pilot := heli.find_child("HelicopterPilot", true, false)
 	if heli_pilot != null and heli_pilot.has_method("add_passenger"):
 		heli_pilot.call("add_passenger", self)
+
+	var air_ops := get_node_or_null("/root/AirOpsManager")
+	if air_ops != null and air_ops.has_method("notify_pilot_rescued"):
+		air_ops.call("notify_pilot_rescued", self, heli)
 
 	var flight_director := get_node_or_null("/root/FlightDirector")
 	if flight_director != null:

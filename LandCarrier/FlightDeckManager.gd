@@ -27,6 +27,7 @@ signal deck_state_changed(new_state)
 @export var aircraft_9_scene: PackedScene         # Rescue helicopter placeholder template
 @export var aircraft_10_scene: PackedScene        # Scout helicopter template
 @export var aircraft_11_scene: PackedScene        # Utility helicopter template
+@export_range(0, 6, 1) var initial_utility_helicopter_count: int = 3
 @export var carrier_manager_path: NodePath = NodePath("../CarrierManager")
 @export var auto_recovery_enabled: bool = true
 @export var auto_recovery_speed_threshold_mps: float = 1.5
@@ -44,6 +45,8 @@ signal deck_state_changed(new_state)
 @export var landing_blocker_cleanup_timeout_s: float = 35.0
 @export var landing_blocker_cleanup_speed_threshold_mps: float = 2.5
 @export var landing_blocker_cleanup_deck_contact_margin_m: float = 1.0
+@export var settled_touchdown_vertical_speed_threshold_mps: float = 1.0
+@export var settled_touchdown_min_upright_dot: float = 0.75
 @export var landing_clearance_abandon_radius_m: float = 8000.0
 @export var landing_clearance_timeout_s: float = 30.0
 @export var landing_clearance_retry_cooldown_s: float = 12.0
@@ -1136,6 +1139,8 @@ func queue_ai_flight(
 		_pending_ai_aircraft_kind = "fixed_wing"
 		_pending_ai_aircraft_model = ""
 		return 0
+	if not _can_accept_ai_ops_launch_request():
+		return 0
 	var available := mini(count, _count_stored_aircraft_for_kind("fixed_wing", aircraft_model))
 	if available <= 0:
 		push_warning("[FlightDeckManager] queue_ai_flight: hangar empty")
@@ -1156,6 +1161,8 @@ func queue_ai_helicopters(count: int, ops: Node, aircraft_model: String = "") ->
 	## fighter scramble, these aircraft bypass the catapult and lift vertically.
 	if _landing_test_active:
 		return 0
+	if not _can_accept_ai_ops_launch_request():
+		return 0
 	var available := mini(count, _count_stored_aircraft_for_kind("helicopter", aircraft_model))
 	if available <= 0:
 		push_warning("[FlightDeckManager] queue_ai_helicopters: no helicopters in hangar")
@@ -1169,6 +1176,19 @@ func queue_ai_helicopters(count: int, ops: Node, aircraft_model: String = "") ->
 	if current_state == DeckState.IDLE:
 		_launch_next_queued_ai()
 	return available
+
+
+func can_queue_ai_helicopters(aircraft_model: String = "") -> bool:
+	## Rescue tasking polls this rather than overwriting another deck operation.
+	return _can_accept_ai_ops_launch_request() \
+			and _count_stored_aircraft_for_kind("helicopter", aircraft_model) > 0
+
+
+func _can_accept_ai_ops_launch_request() -> bool:
+	return not _landing_test_active \
+			and current_state == DeckState.IDLE \
+			and _ai_launch_queue <= 0 \
+			and _pending_flight_ops == null
 
 func _launch_next_queued_ai() -> void:
 	if _landing_test_active:
@@ -1799,6 +1819,36 @@ func _find_landing_deck_blocker(requester: RigidBody3D = null) -> RigidBody3D:
 				or _is_aircraft_physically_in_landing_deck_rectangle(aircraft, requester):
 			return aircraft
 	return null
+
+
+func is_aircraft_physically_settled_on_landing_deck(aircraft: RigidBody3D) -> bool:
+	## Authoritative physical touchdown check shared with helicopter landing logic.
+	## This deliberately does not depend on LandingGear's carrier-surface probe:
+	## the skid collision can be resting on the deck even if a short centre ray
+	## momentarily misses while the helicopter rocks after touchdown.
+	if not is_instance_valid(aircraft):
+		return false
+	if not _is_aircraft_physically_in_landing_deck_rectangle(aircraft):
+		return false
+	if not _landing_blocker_has_deck_contact(aircraft):
+		return false
+	if _get_aircraft_carrier_relative_speed(aircraft) \
+			> maxf(landing_blocker_cleanup_speed_threshold_mps, 0.0):
+		return false
+
+	var reference_velocity := _get_aircraft_reference_velocity(aircraft)
+	if reference_velocity.length_squared() <= 0.0001:
+		var carrier := get_parent()
+		if carrier is Node:
+			reference_velocity = _get_node_velocity(carrier as Node)
+	var relative_vertical_speed := aircraft.linear_velocity.y - reference_velocity.y
+	if absf(relative_vertical_speed) > maxf(settled_touchdown_vertical_speed_threshold_mps, 0.0):
+		return false
+
+	var up_axis := aircraft.global_transform.basis.y
+	if up_axis.length_squared() <= 0.0001:
+		return false
+	return up_axis.normalized().dot(Vector3.UP) >= clampf(settled_touchdown_min_upright_dot, -1.0, 1.0)
 
 func _reset_landing_blocker_cleanup() -> void:
 	_landing_blocker_aircraft = null
@@ -2621,7 +2671,8 @@ func _initialize_hangar_with_aircraft():
 	if a11_scene == null:
 		a11_scene = load("res://Aircraft/Aircraft_11.tscn") as PackedScene
 	if a11_scene != null:
-		for _j in range(3):
+		var utility_count := mini(maxi(initial_utility_helicopter_count, 0), max_hangar_capacity)
+		for _j in range(utility_count):
 			var heli_data := _make_stored_aircraft_entry("Aircraft_11", a11_scene)
 			if not heli_data.is_empty():
 				stored_aircraft.append(heli_data)

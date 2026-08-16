@@ -21,14 +21,19 @@ func _run() -> void:
 	if not first_message.ends_with("0%") or first_message.contains("INITIALIZING SCENARIO"):
 		_fail("initial status was not aircraft nonsense with genuine progress")
 		return
-	if detail_label.text != "GROUND CREW REPORTS EVERYTHING IS WITHIN IMAGINARY TOLERANCES":
+	if detail_label.text != "AUXILIARY DATUM CONVERGENCE REMAINS WITHIN SECONDARY LIMITS":
 		_fail("detail text remained literal loading information")
 		return
 
 	loading_screen.call("_update_nonsense_message", 2.0)
 	loading_screen.call("_update_progress_display")
+	if status_label.text != first_message:
+		_fail("pseudo-technical status rotated too quickly")
+		return
+	loading_screen.call("_update_nonsense_message", 2.0)
+	loading_screen.call("_update_progress_display")
 	if status_label.text == first_message:
-		_fail("aircraft nonsense did not rotate")
+		_fail("pseudo-technical status did not rotate after its extended interval")
 		return
 	var second_message := status_label.text
 	for literal_stage in ["LOCATING TERRAIN", "SAMPLING TERRAIN", "STREAMING LOCAL TERRAIN"]:
@@ -40,7 +45,7 @@ func _run() -> void:
 	loading_screen.set("_navgrid_done", true)
 	loading_screen.set("_terrain_done", true)
 	loading_screen.call("_update_progress_display")
-	if status_label.text != "DECLARING THE SKY AIRWORTHY  100%":
+	if status_label.text != "REFERENCE MANIFOLD CONVERGENCE NOMINAL  100%":
 		_fail("completion message was not themed")
 		return
 

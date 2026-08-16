@@ -1,5 +1,7 @@
 # Project Flight carrier recovery investigation
 
+> **Document status:** Dated investigation with a 2026-08-01 implementation update. The primary failure chain produced focused end-to-end catches, but the full acceptance matrix and mixed combat/recovery suite were not completed. Use the [README](README.md#known-problems-and-validation-gaps) for current project status.
+
 **Date:** 2026-07-31  
 **Scope:** Comparison of the working isolated landing test with the mixed/full-cycle scenario, based on the current source tree and the named logs below.
 

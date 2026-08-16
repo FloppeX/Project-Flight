@@ -99,6 +99,11 @@ const PilotVisualMaterials = preload("res://Models/Characters/PilotVisualMateria
 @export var hide_head_in_cockpit: bool = true
 @export var cockpit_camera_path: NodePath = NodePath("../CameraCockpit/Camera3D")
 @export var cockpit_hidden_mesh_names: PackedStringArray = PackedStringArray(["Pilot"])
+@export_group("Temporary Placeholder")
+## The detailed cockpit pilot is replaced by this neutral block under canopy.
+## This is intentionally temporary until a suitable animated character is ready.
+@export var parachute_placeholder_path: NodePath = NodePath("ParachutePlaceholder")
+@export var detailed_visual_path: NodePath = NodePath("Pilot")
 @export_group("Ejection Poses")
 @export var initial_pose_name: StringName = &"sitting"
 @export var pose_blend_time_s: float = 0.18
@@ -234,6 +239,7 @@ const BONE_ALIASES := {
 
 
 func _ready() -> void:
+	_set_parachute_placeholder_active(false)
 	_pose_target_root = _get_pose_target_root()
 	if flat_shade_pilot_visual:
 		PilotVisualMaterials.apply_flat_shading(_pose_target_root)
@@ -470,14 +476,20 @@ func _apply_locomotion_pose(delta: float) -> void:
 
 func set_ejection_pose(pose_name: StringName, blend_time_s: float = -1.0) -> void:
 	_release_cockpit_visibility()
+	# Keep the normal colored cockpit pilot for the complete seat ride. The
+	# temporary rectangle takes over only once the seat has physically separated.
+	var using_placeholder := _set_parachute_placeholder_active(
+		pose_name == &"falling" or pose_name == &"parachute"
+	)
 	_baked_sitting_pose_active = false
 	set_locomotion_pose(false)
 	if _mixamo_anim_active:
 		_mixamo_anim_active = false
 		if _anim_player != null and is_instance_valid(_anim_player):
 			_anim_player.stop()
-	if pose_name == &"parachute" and _start_retargeted_parachute():
-		return
+	if pose_name == &"parachute":
+		if using_placeholder or _start_retargeted_parachute():
+			return
 	var values := _get_pose_values(pose_name)
 	if values.is_empty():
 		return
@@ -491,6 +503,17 @@ func _release_cockpit_visibility() -> void:
 	hide_head_in_cockpit = false
 	_cockpit_camera = null
 	_update_head_visibility(true)
+
+
+func _set_parachute_placeholder_active(active: bool) -> bool:
+	var placeholder := get_node_or_null(parachute_placeholder_path) as Node3D
+	if placeholder == null:
+		return false
+	placeholder.visible = active
+	var detailed_visual := get_node_or_null(detailed_visual_path) as Node3D
+	if detailed_visual != null:
+		detailed_visual.visible = not active
+	return true
 
 
 func set_locomotion_pose(active: bool, speed_mps: float = 0.0) -> void:
@@ -990,11 +1013,9 @@ func _cache_cockpit_visibility_nodes() -> void:
 	_cockpit_camera = get_node_or_null(cockpit_camera_path) as Camera3D
 	if cockpit_hidden_mesh_names.is_empty():
 		return
-	for child_variant in _pose_target_root.get_children():
-		var child: Node = child_variant as Node
-		if child == null:
-			continue
-		_collect_cockpit_hidden_nodes(child)
+	# pose_target_path may point directly at the visual named in
+	# cockpit_hidden_mesh_names, so include the target root itself.
+	_collect_cockpit_hidden_nodes(_pose_target_root)
 
 
 func _collect_cockpit_hidden_nodes(node: Node) -> void:

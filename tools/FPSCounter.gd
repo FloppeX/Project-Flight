@@ -7,7 +7,6 @@ const PERF_FLUSH_INTERVAL_S := 10.0
 const PERFORMANCE_REPORT_TOP_COUNT := 16
 
 var _label: Label
-var _hit_assist_label: Label
 var _perf_file: FileAccess = null
 var _report_file: FileAccess = null
 var _perf_elapsed_s: float = 0.0
@@ -35,20 +34,6 @@ func _ready() -> void:
 	_label.add_theme_constant_override("shadow_offset_y", 2)
 	add_child(_label)
 
-	_hit_assist_label = Label.new()
-	_hit_assist_label.anchor_left = 0.0
-	_hit_assist_label.anchor_top = 0.0
-	_hit_assist_label.anchor_right = 0.0
-	_hit_assist_label.anchor_bottom = 0.0
-	_hit_assist_label.offset_left = 8
-	_hit_assist_label.offset_top = 8
-	_hit_assist_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-	_hit_assist_label.add_theme_font_size_override("font_size", 16)
-	_hit_assist_label.add_theme_color_override("font_color", Color(0.85, 1.0, 0.85, 1.0))
-	_hit_assist_label.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 1.0))
-	_hit_assist_label.add_theme_constant_override("shadow_offset_x", 1)
-	_hit_assist_label.add_theme_constant_override("shadow_offset_y", 1)
-	add_child(_hit_assist_label)
 	if _performance_logging_requested():
 		_open_perf_log()
 		_open_performance_report()
@@ -74,7 +59,6 @@ func _exit_tree() -> void:
 
 func _process(delta: float) -> void:
 	_label.text = "%d FPS" % Engine.get_frames_per_second()
-	_hit_assist_label.text = "Hit Assist Radius: %.1fm" % ProjectileNew.get_hit_assist_radius_m()
 	_update_perf_log(delta)
 
 func _input(event: InputEvent) -> void:

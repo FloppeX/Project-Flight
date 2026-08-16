@@ -93,8 +93,9 @@ func _ready():
 	var external_cam: Camera3D = null
 	if carrier_cam_path != NodePath():
 		external_cam = get_node_or_null(carrier_cam_path) as Camera3D
-	if not external_cam:
-		external_cam = get_tree().get_first_node_in_group("carrier_cam") as Camera3D
+	var scene_tree := get_tree() if is_inside_tree() else null
+	if not external_cam and scene_tree != null:
+		external_cam = scene_tree.get_first_node_in_group("carrier_cam") as Camera3D
 	if external_cam:
 		cinematic_camera = external_cam
 		cinematic_script = null
@@ -173,7 +174,9 @@ func setup_bridge_camera():
 func _build_view_targets():
 	"""Build list of (aircraft, mode) for camera cycling: player views, bridge, then each AI plane."""
 	_view_targets.clear()
-	if not aircraft:
+	if not is_instance_valid(aircraft):
+		aircraft = null
+		_current_view_index = -1
 		return
 	
 	# Player aircraft views
@@ -182,13 +185,16 @@ func _build_view_targets():
 	_view_targets.append({"aircraft": aircraft, "mode": CameraMode.CINEMATIC})
 	if _pilot_ejected:
 		return
+	if not is_inside_tree():
+		return
+	var scene_tree := get_tree()
 	
 	# Bridge (static view)
-	if bridge_camera:
+	if is_instance_valid(bridge_camera):
 		_view_targets.append({"aircraft": null, "mode": CameraMode.BRIDGE})
 	
 	# AI aircraft views (enemies group)
-	var enemies = get_tree().get_nodes_in_group("enemies")
+	var enemies = scene_tree.get_nodes_in_group("enemies")
 	for node in enemies:
 		if node is RigidBody3D and is_instance_valid(node):
 			var ac = node as RigidBody3D
@@ -205,9 +211,17 @@ func focus_ejected_pilot(ejected_body: RigidBody3D, pilot_focus: Node3D) -> void
 	if _is_ai_or_enemy_aircraft(aircraft) and not bool(aircraft.get_meta("player_ejection_camera_takeover", false)):
 		return
 
-	_detach_camera_nodes_for_ejection()
+	# Ejection supersedes any crash/death-camera state that may have started from
+	# the same damage signal. Every surviving mode belongs to the pilot now.
+	deathcam_active = false
+	deathcam_time = 0.0
+	_pilot_ejected = true
 	aircraft = ejected_body
 	_ejected_pilot_focus = pilot_focus
+	if chase_tripod != null and is_instance_valid(chase_tripod):
+		chase_tripod.set_process(true)
+		chase_tripod.set_physics_process(true)
+	_detach_camera_nodes_for_ejection()
 	if cockpit_tripod != null and is_instance_valid(cockpit_tripod):
 		cockpit_camera = cockpit_tripod.find_child("Camera3D", true, false) as Camera3D
 		_apply_cockpit_camera_settings(cockpit_camera)
@@ -219,7 +233,6 @@ func focus_ejected_pilot(ejected_body: RigidBody3D, pilot_focus: Node3D) -> void
 	if bridge_script and bridge_script.has_method("set_aircraft_reference"):
 		bridge_script.call("set_aircraft_reference", pilot_focus if pilot_focus != null else ejected_body)
 
-	_pilot_ejected = true
 	_build_view_targets()
 	for i in range(_view_targets.size()):
 		var target: Dictionary = _view_targets[i] as Dictionary
@@ -260,9 +273,12 @@ func _detach_camera_nodes_for_ejection() -> void:
 func _reparent_to_camera_survival_parent(node: Node) -> void:
 	if node == null or not is_instance_valid(node):
 		return
-	var new_parent := get_tree().current_scene
+	if not is_inside_tree():
+		return
+	var scene_tree := get_tree()
+	var new_parent := scene_tree.current_scene
 	if new_parent == null:
-		new_parent = get_tree().root
+		new_parent = scene_tree.root
 	if new_parent == null or node.get_parent() == new_parent:
 		return
 	var old_parent := node.get_parent()
@@ -285,8 +301,14 @@ func _is_ai_or_enemy_aircraft(aircraft_node: Node) -> bool:
 	return aircraft_node.is_in_group("ai_aircraft") or aircraft_node.is_in_group("enemies")
 
 
-func _get_camera_for(ac: RigidBody3D, mode: CameraMode) -> Camera3D:
+func _get_camera_for(aircraft_candidate: Variant, mode: CameraMode) -> Camera3D:
 	"""Get the Camera3D for an aircraft and mode. Works for player or AI aircraft."""
+	# Cached camera targets can outlive a crashed aircraft until the end of the
+	# frame. Accept Variant here so Godot does not reject the call at the typed
+	# function boundary before we can validate the reference.
+	if not is_instance_valid(aircraft_candidate) or not (aircraft_candidate is RigidBody3D):
+		return null
+	var ac := aircraft_candidate as RigidBody3D
 	if ac == aircraft:
 		match mode:
 			CameraMode.COCKPIT: return _valid_camera(cockpit_camera)
@@ -360,7 +382,10 @@ func _should_claim_initial_camera() -> bool:
 	return current_camera == null
 
 func _get_bridge_camera_provider() -> Node:
-	for node in get_tree().get_nodes_in_group("carrier_cam"):
+	if not is_inside_tree():
+		return null
+	var scene_tree := get_tree()
+	for node in scene_tree.get_nodes_in_group("carrier_cam"):
 		if node != null and node.has_method("get_camera"):
 			return node
 	return null
@@ -372,7 +397,7 @@ func _input(event):
 	
 	# Manual carrier cam control (only when viewing player's external cinematic)
 	if current_mode == CameraMode.CINEMATIC and _use_external_cinematic:
-		if _current_view_index < _view_targets.size():
+		if _current_view_index >= 0 and _current_view_index < _view_targets.size():
 			var t = _view_targets[_current_view_index]
 			if t.get("aircraft") == aircraft and t.get("mode") == CameraMode.CINEMATIC:
 				var look_x = Input.get_action_strength("look_left") - Input.get_action_strength("look_right")
@@ -395,7 +420,7 @@ func _process(delta):
 	
 	# Only run carrier cinematic orbit when viewing player's external cinematic
 	if current_mode == CameraMode.CINEMATIC and _use_external_cinematic:
-		if _current_view_index < _view_targets.size():
+		if _current_view_index >= 0 and _current_view_index < _view_targets.size():
 			var t = _view_targets[_current_view_index]
 			if t.get("aircraft") == aircraft and t.get("mode") == CameraMode.CINEMATIC:
 				update_carrier_cinematic(delta)
@@ -410,9 +435,6 @@ func _is_cockpit_zoom_view_active() -> bool:
 	return current_mode == CameraMode.COCKPIT and cockpit_camera != null
 
 func cycle_camera():
-	if _view_targets.is_empty():
-		return
-	
 	# Rebuild targets each cycle so we pick up newly spawned AI planes
 	_build_view_targets()
 	if _view_targets.is_empty():
@@ -422,8 +444,13 @@ func cycle_camera():
 	_switch_to_view_target(_view_targets[_current_view_index])
 
 func _switch_to_view_target(target: Dictionary):
-	var ac = target.get("aircraft", null)
 	var mode: CameraMode = target.get("mode", CameraMode.COCKPIT)
+	var ac: RigidBody3D = null
+	if mode != CameraMode.BRIDGE:
+		ac = _get_aircraft_from_view_target(target)
+		if ac == null:
+			_recover_from_invalid_view_target()
+			return
 	
 	# Deactivate all cameras we know about
 	_deactivate_all_cameras()
@@ -431,10 +458,10 @@ func _switch_to_view_target(target: Dictionary):
 	current_mode = mode
 	
 	if mode == CameraMode.BRIDGE:
-		if bridge_camera:
+		if is_instance_valid(bridge_camera):
 			bridge_camera.current = true
 		else:
-			_switch_to_view_target(_view_targets[0])
+			_recover_from_invalid_view_target()
 		return
 	
 	var cam = _get_camera_for(ac, mode)
@@ -475,8 +502,11 @@ func _switch_to_view_target(target: Dictionary):
 		cam.fov = normal_fov
 
 func _deactivate_all_cameras():
-	"""Deactivate every known Camera3D, including stale cameras on abandoned aircraft."""
-	var root := get_tree().root
+	"""Deactivate every known Camera3D before switching to the selected target."""
+	if not is_inside_tree():
+		return
+	var scene_tree := get_tree()
+	var root := scene_tree.root
 	if root == null:
 		return
 	_deactivate_cameras_recursive(root)
@@ -527,6 +557,9 @@ func switch_to_camera(mode):
 		cam_mode = mode
 	
 	_build_view_targets()
+	if _view_targets.is_empty():
+		_current_view_index = -1
+		return
 	
 	# Find matching view target and switch
 	for i in range(_view_targets.size()):
@@ -548,11 +581,12 @@ func switch_to_camera(mode):
 	_current_view_index = 0
 	_switch_to_view_target(_view_targets[0])
 
-func switch_to_aircraft_and_mode(ac: RigidBody3D, mode_index: int):
+func switch_to_aircraft_and_mode(aircraft_candidate: Variant, mode_index: int):
 	"""Direct the camera toward a specific aircraft at the given mode (0=COCKPIT,1=CHASE,2=CINEMATIC).
 	This is called by FlightDirector when spectating friendly / enemy aircraft."""
-	if not ac or not is_instance_valid(ac):
+	if not is_instance_valid(aircraft_candidate) or not (aircraft_candidate is RigidBody3D):
 		return
+	var ac := aircraft_candidate as RigidBody3D
 	
 	var target_mode: CameraMode
 	match mode_index:
@@ -580,21 +614,52 @@ func switch_to_aircraft_and_mode(ac: RigidBody3D, mode_index: int):
 			return
 
 func get_current_camera() -> Camera3D:
+	_prune_invalid_view_targets()
 	if _current_view_index >= 0 and _current_view_index < _view_targets.size():
-		var t = _view_targets[_current_view_index]
-		var ac = t.get("aircraft", null)
+		var t := _view_targets[_current_view_index] as Dictionary
 		var mode: CameraMode = t.get("mode", CameraMode.COCKPIT)
 		if mode == CameraMode.BRIDGE:
 			return _valid_camera(bridge_camera)
-		var c = _get_camera_for(ac, mode)
-		if is_instance_valid(c):
-			return c
+		var ac := _get_aircraft_from_view_target(t)
+		if ac != null:
+			var c := _get_camera_for(ac, mode)
+			if is_instance_valid(c):
+				return c
 	match current_mode:
 		CameraMode.COCKPIT: return _valid_camera(cockpit_camera)
 		CameraMode.CHASE: return _valid_camera(chase_camera)
 		CameraMode.CINEMATIC: return _valid_camera(cinematic_camera)
 		CameraMode.BRIDGE: return _valid_camera(bridge_camera)
 		_: return _valid_camera(cockpit_camera)
+
+
+func _get_aircraft_from_view_target(target: Dictionary) -> RigidBody3D:
+	var candidate: Variant = target.get("aircraft", null)
+	if not is_instance_valid(candidate) or not (candidate is RigidBody3D):
+		return null
+	return candidate as RigidBody3D
+
+
+func _prune_invalid_view_targets() -> void:
+	for i in range(_view_targets.size() - 1, -1, -1):
+		var target := _view_targets[i] as Dictionary
+		var mode: CameraMode = target.get("mode", CameraMode.COCKPIT)
+		if mode != CameraMode.BRIDGE and _get_aircraft_from_view_target(target) == null:
+			_view_targets.remove_at(i)
+	if _view_targets.is_empty():
+		_current_view_index = -1
+	else:
+		_current_view_index = clampi(_current_view_index, 0, _view_targets.size() - 1)
+
+
+func _recover_from_invalid_view_target() -> void:
+	# Keep the currently active camera for this frame. FlightDirector may already
+	# have installed a crash-linger camera; forcing a fallback here would steal it.
+	_build_view_targets()
+	if _view_targets.is_empty():
+		_current_view_index = -1
+		return
+	_current_view_index = clampi(_current_view_index, 0, _view_targets.size() - 1)
 
 
 func _valid_camera(camera: Variant) -> Camera3D:

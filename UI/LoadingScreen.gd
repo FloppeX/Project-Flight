@@ -4,35 +4,36 @@ extends CanvasLayer
 
 const GAME_SCENE_PATH := "res://Main_Scene.tscn"
 const SPLASH_TEXTURE: Texture2D = preload("res://Images/Splash/splash screen 8.png")
+const MenuTypography = preload("res://UI/MenuTypography.gd")
 
 const FADE_DURATION_S := 0.65
 const MIN_DISPLAY_S := 1.0
 const NAVGRID_WEIGHT := 0.75
 const TERRAIN_WEIGHT := 0.25
-const NONSENSE_MESSAGE_INTERVAL_S := 1.65
+const NONSENSE_MESSAGE_INTERVAL_S := 3.5
 const NONSENSE_LOADING_MESSAGES := [
-	"RETICULATING CONTRAILS",
-	"CALIBRATING THE RELATIVE WIND",
-	"SYNCHRONIZING PORT AND STARBOARD GRAVITY",
-	"DECONFLICTING THE SKYBOX",
-	"PRESSURIZING THE FLIGHT ENVELOPE",
-	"TRIMMING THE HORIZON",
-	"POLISHING THE RADAR SHADOWS",
-	"WARMING THE COLD AIR INTAKES",
-	"TORQUING THE SKYHOOKS",
-	"INDEXING ALL AVAILABLE CLOUDS",
-	"HARMONIZING THE ANGLES OF ATTACK",
-	"SPINNING UP THE EMERGENCY HEADWIND",
-	"GREASING THE WAKE TURBULENCE",
-	"ALIGNING THE RUNWAY WITH TRUE NORTH",
-	"DEFROSTING THE AFTERBURNERS",
-	"COUNTING THE REMAINING KNOTS",
-	"TUNING THE SUPERSONIC CARBURETORS",
-	"TEACHING THE AUTOPILOT HAND SIGNALS",
-	"VERIFYING THAT LIFT REMAINS UPWARD",
-	"FOLDING THE UNFOLDABLE WINGS",
+	"PHASE-BIASING THE AEROELASTIC COMMUTATORS",
+	"INDEXING THE CONTRA-PHASIC FLOW RESOLVERS",
+	"NORMALIZING THE GIMBALLED PRESSURE MANIFOLD",
+	"CALIBRATING THE BAROMETRIC DIFFERENTIAL CASCADE",
+	"SYNCHRONIZING THE SEMI-ORTHOGONAL LIFT DATUMS",
+	"PRECESSING THE INERTIAL TRANSFER ANNULUS",
+	"TRIMMING THE RECIPROCAL VORTICITY COUPLERS",
+	"NULLING THE PARASITIC YAW HARMONICS",
+	"MODULATING THE AEROSTATIC REFERENCE LATTICE",
+	"BALANCING THE TWIN-AXIAL FLUX CONJUGATES",
+	"SEQUENCING THE QUASI-LAMINAR IMPEDANCE BANK",
+	"RESOLVING THE NON-CIRCULATORY LOAD TENSOR",
+	"CONDITIONING THE HYDRO-PNEUMATIC PHASE BUS",
+	"ALIGNING THE DIFFERENTIAL ATTITUDE RESOLVERS",
+	"INTEGRATING THE BOUNDARY-LAYER COEFFICIENTS",
+	"BIASING THE TRANSONIC FEEDBACK MANIFOLD",
+	"COUPLING THE REDUNDANT PRECESSION REGISTERS",
+	"VALIDATING THE AERODYNAMIC DATUM CASCADE",
+	"HARMONIZING THE LONGITUDINAL TRANSFER MODES",
+	"ESTABLISHING NOMINAL FLOW RECIPROCITY",
 ]
-const NONSENSE_DETAIL_TEXT := "GROUND CREW REPORTS EVERYTHING IS WITHIN IMAGINARY TOLERANCES"
+const NONSENSE_DETAIL_TEXT := "AUXILIARY DATUM CONVERGENCE REMAINS WITHIN SECONDARY LIMITS"
 
 var _root: Control
 var _bar: ProgressBar
@@ -198,7 +199,7 @@ func _update_progress_display() -> void:
 
 	if _navgrid_done and _terrain_done:
 		_bar.value = 1.0
-		_label.text = "DECLARING THE SKY AIRWORTHY  100%"
+		_label.text = "REFERENCE MANIFOLD CONVERGENCE NOMINAL  100%"
 	else:
 		_label.text = "%s  %d%%" % [_current_nonsense_message(), percentage]
 
@@ -226,7 +227,7 @@ func _advance_nonsense_message() -> void:
 
 func _current_nonsense_message() -> String:
 	if NONSENSE_LOADING_MESSAGES.is_empty():
-		return "ADJUSTING THE AIR"
+		return "ESTABLISHING REFERENCE CONTINUITY"
 	var safe_index := clampi(_nonsense_message_index, 0, NONSENSE_LOADING_MESSAGES.size() - 1)
 	return String(NONSENSE_LOADING_MESSAGES[safe_index])
 
@@ -251,12 +252,6 @@ func _build_ui() -> void:
 	background.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_root.add_child(background)
 
-	var shade := ColorRect.new()
-	shade.color = Color(0.01, 0.015, 0.02, 0.42)
-	shade.set_anchors_preset(Control.PRESET_FULL_RECT)
-	shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_root.add_child(shade)
-
 	var strip := ColorRect.new()
 	strip.color = Color(0.015, 0.02, 0.025, 0.90)
 	strip.anchor_right = 1.0
@@ -273,7 +268,8 @@ func _build_ui() -> void:
 	_label.offset_top = -112.0
 	_label.offset_bottom = -84.0
 	_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_label.add_theme_font_size_override("font_size", 18)
+	_label.add_theme_font_override("font", MenuTypography.FONT)
+	_label.add_theme_font_size_override("font_size", MenuTypography.FIELD_VALUE_SIZE)
 	_label.add_theme_color_override("font_color", Color(0.93, 0.82, 0.38))
 	_root.add_child(_label)
 
@@ -304,7 +300,8 @@ func _build_ui() -> void:
 	_detail_label.offset_top = -49.0
 	_detail_label.offset_bottom = -25.0
 	_detail_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_detail_label.add_theme_font_size_override("font_size", 12)
+	_detail_label.add_theme_font_override("font", MenuTypography.FONT)
+	_detail_label.add_theme_font_size_override("font_size", MenuTypography.LOADING_DETAIL_SIZE)
 	_detail_label.add_theme_color_override("font_color", Color(0.68, 0.71, 0.70))
 	_root.add_child(_detail_label)
 

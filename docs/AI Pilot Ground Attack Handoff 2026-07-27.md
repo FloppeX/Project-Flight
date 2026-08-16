@@ -1,5 +1,7 @@
 # AI Pilot Ground-Attack Handoff — 2026-07-27
 
+> **Document status:** Historical handoff and test baseline. The implementation changed after this report, so do not treat its line references or failure frequencies as current without a new run. See the [README](../README.md#known-problems-and-validation-gaps) for current project status.
+
 ## Immediate objective
 
 Replace the current split horizontal/vertical ground-attack route follower with coherent 3D flight-path guidance. The next test focus is gun strafing, but the solution should be shared by bombs and rockets where appropriate.

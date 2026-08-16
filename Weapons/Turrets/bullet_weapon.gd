@@ -253,7 +253,9 @@ func _spawn_bullet(spawn_transform: Transform3D, firing_entity: Node3D) -> void:
 	if bullet.has_method("fire"):
 		bullet.fire(velocity, firing_entity)
 
-	if bullet is RigidBody3D and bullet.linear_velocity.length() > 1.0:
+	# Bullet owns its tracer orientation because fire() may add the firing
+	# platform's point velocity. Keep this fallback for other rigid projectiles.
+	if bullet is RigidBody3D and not bullet.has_method("_align_visual_to_velocity") and bullet.linear_velocity.length() > 1.0:
 		var vel_dir: Vector3 = bullet.linear_velocity.normalized()
 		var up := Vector3.UP
 		var right := up.cross(vel_dir).normalized()

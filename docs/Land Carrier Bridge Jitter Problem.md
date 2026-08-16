@@ -1,5 +1,7 @@
 # Land Carrier Bridge Jitter Problem
 
+> **Document status:** Resolved on 2026-03-21. This file is retained as a diagnostic record; the resolution is summarized at the end and in the [README](../README.md#known-problems-and-validation-gaps).
+
 ## Summary
 
 The land carrier has a commander / bridge camera view inside the control room.

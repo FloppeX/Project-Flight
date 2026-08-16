@@ -2,6 +2,10 @@ extends Node
 
 const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
 
+signal downed_pilot_registered(pilot: Node3D)
+signal rescue_assigned(pilot: Node3D, helicopter: Node3D)
+signal downed_pilot_rescued(pilot: Node3D, helicopter: Node3D)
+
 ## Air Operations Manager — autoload singleton (Citadel).
 ##
 ## Manages four named flights (Archer, Bulldog, Crimson, Dingo).
@@ -15,6 +19,10 @@ const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
 ##   AirOpsManager.order_rtb("Crimson")
 
 const FLIGHT_NAMES := ["Archer", "Bulldog", "Crimson", "Dingo"]
+const RESCUE_STATUS_META := "air_ops_rescue_status"
+const RESCUE_STATUS_WAITING := "waiting"
+const RESCUE_STATUS_LAUNCHING := "launching"
+const RESCUE_STATUS_ASSIGNED := "assigned"
 
 @export var assignment_interval_s: float = 3.0
 @export var threat_scan_interval_s: float = 2.5
@@ -52,6 +60,12 @@ const FLIGHT_NAMES := ["Archer", "Bulldog", "Crimson", "Dingo"]
 ## Keep at least one dedicated flight patrolling over the carrier.
 @export var maintain_carrier_cap: bool = true
 @export var carrier_cap_overhead_radius_m: float = 4500.0
+
+@export_group("Rescue Operations")
+@export var rescue_dispatch_interval_s: float = 2.0
+@export var rescue_launch_timeout_s: float = 180.0
+@export var rescue_helicopter_model: String = "Aircraft_11"
+@export_group("")
 
 var flights: Array[Flight] = []
 
@@ -107,6 +121,11 @@ var _scrambling_elapsed_s: float = 0.0
 @export var scramble_timeout_s: float = 90.0  # if a scramble never completes launches in this long, release it
 var _reported_contacts: Dictionary = {}  # Node3D target -> contact report dictionary
 var _acknowledged_order_keys: Dictionary = {}  # flight name -> last order key that already got a reply
+var _downed_pilots: Array[Node3D] = []
+var _rescue_assignments: Dictionary = {}  # Downed pilot -> assigned helicopter.
+var _rescue_dispatch_timer_s: float = 0.0
+var _pending_rescue_launch_pilot: Node3D = null
+var _pending_rescue_launch_elapsed_s: float = 0.0
 
 # ── Lifecycle ──────────────────────────────────────────────────────────────────
 
@@ -142,6 +161,11 @@ func _process(delta: float) -> void:
 		if not _recovery_supervision_records.is_empty():
 			_recovery_supervision_records.clear()
 		_recovery_supervision_elapsed_s = 0.0
+	_update_rescue_launch_timeout(delta)
+	_rescue_dispatch_timer_s -= delta
+	if _rescue_dispatch_timer_s <= 0.0:
+		_rescue_dispatch_timer_s = maxf(rescue_dispatch_interval_s, 0.25)
+		_update_rescue_operations()
 	if not mission_tasking_enabled:
 		FrameProfiler.end("AirOpsManager.process", _profiler_start)
 		return
@@ -980,13 +1004,27 @@ func _scramble_flight(f: Flight, reason: String = "intercept"):
 			]))
 	return true
 
-## Called by FlightDeckManager after each aircraft launches during a scramble.
-func notify_aircraft_launched(pilot: AIPilot) -> void:
+## Called by FlightDeckManager after an AI aircraft is brought up for launch.
+## The callback is shared by combat scrambles and autonomous rescue launches.
+func notify_aircraft_launched(pilot: Node) -> void:
+	if pilot == null or not is_instance_valid(pilot):
+		return
+	var aircraft := pilot.get("aircraft") as Node3D
+	if is_instance_valid(_pending_rescue_launch_pilot) \
+			and is_instance_valid(aircraft) \
+			and _is_rescue_helicopter(aircraft) \
+			and pilot.has_method("command_rescue"):
+		var rescue_target := _pending_rescue_launch_pilot
+		_pending_rescue_launch_pilot = null
+		_pending_rescue_launch_elapsed_s = 0.0
+		_assign_rescue_helicopter(rescue_target, aircraft, pilot)
+		return
 	if not _scrambling_flight:
 		return
-	var aircraft := pilot.aircraft as Node3D
 	# Aircraft_11 is a utility helicopter — never assign it to combat flights.
 	if aircraft and aircraft.name.begins_with("Aircraft_11"):
+		return
+	if not (pilot is AIPilot):
 		return
 	if aircraft:
 		reassign(aircraft, _scrambling_flight.flight_name)
@@ -1250,29 +1288,140 @@ func _mark_order_acknowledgement_needed(f: Flight, order_key: String) -> bool:
 	_acknowledged_order_keys[f.flight_name] = order_key
 	return true
 
-## Called when a friendly pilot has landed as a downed pilot and needs pickup.
-## Finds the best available friendly helicopter and dispatches it via command_rescue().
+## Called when a friendly pilot reaches the ground. Air Ops keeps the pilot on
+## its board until pickup instead of treating a temporarily busy deck as a
+## failed one-shot rescue request.
 func request_rescue_for(pilot_node: Node3D) -> void:
 	if not is_instance_valid(pilot_node):
 		return
+	if not _downed_pilots.has(pilot_node):
+		_downed_pilots.append(pilot_node)
+		pilot_node.set_meta(RESCUE_STATUS_META, RESCUE_STATUS_WAITING)
+		downed_pilot_registered.emit(pilot_node)
+		var callsign := _downed_pilot_callsign(pilot_node)
+		RadioComms.transmit("Citadel", callsign, RadioComms._pick([
+			"Your position is logged. Air Ops is tasking rescue.",
+			"We have your position. Stand by for rescue tasking.",
+		]))
+		print("[AirOpsManager] Tracking downed pilot %s" % pilot_node.name)
+	_update_rescue_operations()
 
+
+func notify_pilot_rescued(pilot_node: Node3D, helicopter: Node3D = null) -> void:
+	if pilot_node == null:
+		return
+	_downed_pilots.erase(pilot_node)
+	_rescue_assignments.erase(pilot_node)
+	if _pending_rescue_launch_pilot == pilot_node:
+		_pending_rescue_launch_pilot = null
+		_pending_rescue_launch_elapsed_s = 0.0
+	if is_instance_valid(pilot_node) and pilot_node.has_meta(RESCUE_STATUS_META):
+		pilot_node.remove_meta(RESCUE_STATUS_META)
+	downed_pilot_rescued.emit(pilot_node, helicopter)
+	print("[AirOpsManager] Downed pilot %s recovered by %s" % [
+		pilot_node.name if is_instance_valid(pilot_node) else "<freed>",
+		helicopter.name if is_instance_valid(helicopter) else "rescue helicopter",
+	])
+
+
+func get_tracked_downed_pilots() -> Array[Node3D]:
+	_prune_rescue_operations()
+	return _downed_pilots.duplicate()
+
+
+func get_downed_pilot_snapshot() -> Array[Dictionary]:
+	_prune_rescue_operations()
+	var snapshot: Array[Dictionary] = []
+	for pilot_node in _downed_pilots:
+		var helicopter := _rescue_assignments.get(pilot_node, null) as Node3D
+		snapshot.append({
+			"pilot": pilot_node,
+			"callsign": _downed_pilot_callsign(pilot_node),
+			"position": pilot_node.global_position,
+			"status": str(pilot_node.get_meta(RESCUE_STATUS_META, RESCUE_STATUS_WAITING)),
+			"helicopter": helicopter,
+			"helicopter_name": helicopter.name if is_instance_valid(helicopter) else "",
+		})
+	return snapshot
+
+
+func _update_rescue_operations() -> void:
+	_prune_rescue_operations()
+	for pilot_node in _downed_pilots:
+		var assigned_helicopter := _rescue_assignments.get(pilot_node, null) as Node3D
+		if _rescue_assignment_is_active(pilot_node, assigned_helicopter):
+			continue
+		if assigned_helicopter != null:
+			_rescue_assignments.erase(pilot_node)
+			pilot_node.set_meta(RESCUE_STATUS_META, RESCUE_STATUS_WAITING)
+		if pilot_node == _pending_rescue_launch_pilot:
+			continue
+
+		var available_helicopter := _find_available_rescue_helicopter()
+		if available_helicopter != null:
+			var helicopter_pilot := available_helicopter.find_child("HelicopterPilot", true, false)
+			_assign_rescue_helicopter(pilot_node, available_helicopter, helicopter_pilot)
+		elif _pending_rescue_launch_pilot == null:
+			_queue_rescue_helicopter(pilot_node)
+
+
+func _prune_rescue_operations() -> void:
+	for index in range(_downed_pilots.size() - 1, -1, -1):
+		var pilot_node := _downed_pilots[index]
+		if not is_instance_valid(pilot_node) or pilot_node.is_queued_for_deletion():
+			_rescue_assignments.erase(pilot_node)
+			_downed_pilots.remove_at(index)
+	for pilot_variant in _rescue_assignments.keys():
+		if not is_instance_valid(pilot_variant) or not _downed_pilots.has(pilot_variant):
+			_rescue_assignments.erase(pilot_variant)
+	if is_instance_valid(_pending_rescue_launch_pilot) \
+			and not _downed_pilots.has(_pending_rescue_launch_pilot):
+		_pending_rescue_launch_pilot = null
+		_pending_rescue_launch_elapsed_s = 0.0
+	elif _pending_rescue_launch_pilot != null and not is_instance_valid(_pending_rescue_launch_pilot):
+		_pending_rescue_launch_pilot = null
+		_pending_rescue_launch_elapsed_s = 0.0
+
+
+func _update_rescue_launch_timeout(delta: float) -> void:
+	if not is_instance_valid(_pending_rescue_launch_pilot):
+		_pending_rescue_launch_elapsed_s = 0.0
+		return
+	_pending_rescue_launch_elapsed_s += maxf(delta, 0.0)
+	if _pending_rescue_launch_elapsed_s < maxf(rescue_launch_timeout_s, 10.0):
+		return
+	var timed_out_pilot := _pending_rescue_launch_pilot
+	_pending_rescue_launch_pilot = null
+	_pending_rescue_launch_elapsed_s = 0.0
+	if is_instance_valid(timed_out_pilot):
+		timed_out_pilot.set_meta(RESCUE_STATUS_META, RESCUE_STATUS_WAITING)
+		push_warning("[AirOpsManager] Rescue launch timed out for %s; returning it to the task board" % timed_out_pilot.name)
+
+
+func _find_available_rescue_helicopter() -> Node3D:
+	if not is_inside_tree():
+		return null
 	var best_heli: Node3D = null
 	var best_priority := -1
 	for node in get_tree().get_nodes_in_group("friendlies"):
 		var friendly := node as Node3D
 		if friendly == null or not is_instance_valid(friendly):
 			continue
-		if not (friendly.has_meta("is_helicopter") and bool(friendly.get_meta("is_helicopter"))):
+		if not friendly.is_in_group("ai_aircraft"):
+			continue
+		if not _is_rescue_helicopter(friendly):
+			continue
+		if bool(friendly.get_meta("carrier_transport_mode", false)) \
+				or bool(friendly.get_meta("controls_disabled", false)):
 			continue
 		var heli_pilot := friendly.find_child("HelicopterPilot", true, false)
 		if heli_pilot == null or not heli_pilot.has_method("command_rescue"):
 			continue
 		var phase := int(heli_pilot.get("mission_phase"))
-		# Skip INBOUND (2) and already on a RESCUE (4)
+		# Skip INBOUND (2) and already on a RESCUE (4).
 		if phase == 2 or phase == 4:
 			continue
 		# Aircraft_11 is the dedicated rescue/utility type — strongly prefer it.
-		# Priority bands: 10-13 for Aircraft_11, 0-3 for other helis.
 		var is_utility := friendly.name.begins_with("Aircraft_11")
 		var base := 10 if is_utility else 0
 		var priority := -1
@@ -1285,24 +1434,71 @@ func request_rescue_for(pilot_node: Node3D) -> void:
 		if priority > best_priority:
 			best_priority = priority
 			best_heli = friendly
+	return best_heli
 
-	var callsign: String = str(pilot_node.get_meta("pilot_callsign")) if pilot_node.has_meta("pilot_callsign") else "Downed pilot"
 
-	if best_heli != null:
-		var heli_pilot := best_heli.find_child("HelicopterPilot", true, false)
-		heli_pilot.call("command_rescue", pilot_node)
-		RadioComms.transmit("Citadel", callsign, RadioComms._pick([
-			"Rescue helo is on the way. Hold position.",
-			"We have you on scope. Rescue is inbound.",
-			"Hang tight. Rescue helo is en route.",
-		]))
-		print("[AirOpsManager] Dispatched %s on rescue mission for %s" % [best_heli.name, pilot_node.name])
-	else:
-		RadioComms.transmit("Citadel", callsign, RadioComms._pick([
-			"No rescue assets available. Sit tight.",
-			"All rescue assets are tasked. Stay hidden.",
-		]))
-		print("[AirOpsManager] No helicopter available to rescue %s" % pilot_node.name)
+func _queue_rescue_helicopter(pilot_node: Node3D) -> bool:
+	if not is_instance_valid(pilot_node) or not is_inside_tree():
+		return false
+	var flight_deck_manager := get_tree().get_first_node_in_group("flight_deck_manager")
+	if flight_deck_manager == null or not flight_deck_manager.has_method("queue_ai_helicopters"):
+		return false
+	if flight_deck_manager.has_method("can_queue_ai_helicopters") \
+			and not bool(flight_deck_manager.call("can_queue_ai_helicopters", rescue_helicopter_model)):
+		return false
+	var accepted_count := int(flight_deck_manager.call(
+		"queue_ai_helicopters", 1, self, rescue_helicopter_model
+	))
+	if accepted_count <= 0:
+		return false
+	_pending_rescue_launch_pilot = pilot_node
+	_pending_rescue_launch_elapsed_s = 0.0
+	pilot_node.set_meta(RESCUE_STATUS_META, RESCUE_STATUS_LAUNCHING)
+	RadioComms.transmit("Citadel", _downed_pilot_callsign(pilot_node), RadioComms._pick([
+		"Rescue helicopter is coming up from the hangar now.",
+		"Rescue launch is in progress. Hold position.",
+	]))
+	print("[AirOpsManager] Queued %s from the hangar for %s" % [rescue_helicopter_model, pilot_node.name])
+	return true
+
+
+func _assign_rescue_helicopter(pilot_node: Node3D, helicopter: Node3D, helicopter_pilot: Node) -> bool:
+	if not is_instance_valid(pilot_node) or not is_instance_valid(helicopter) \
+			or helicopter_pilot == null or not helicopter_pilot.has_method("command_rescue"):
+		return false
+	helicopter_pilot.call("command_rescue", pilot_node)
+	_rescue_assignments[pilot_node] = helicopter
+	pilot_node.set_meta(RESCUE_STATUS_META, RESCUE_STATUS_ASSIGNED)
+	RadioComms.transmit("Citadel", _downed_pilot_callsign(pilot_node), RadioComms._pick([
+		"Rescue helo is on the way. Hold position.",
+		"We have you on scope. Rescue is inbound.",
+		"Hang tight. Rescue helo is en route.",
+	]))
+	rescue_assigned.emit(pilot_node, helicopter)
+	print("[AirOpsManager] Dispatched %s on rescue mission for %s" % [helicopter.name, pilot_node.name])
+	return true
+
+
+func _rescue_assignment_is_active(pilot_node: Node3D, helicopter: Node3D) -> bool:
+	if not is_instance_valid(pilot_node) or not is_instance_valid(helicopter):
+		return false
+	var helicopter_pilot := helicopter.find_child("HelicopterPilot", true, false)
+	if helicopter_pilot == null:
+		return false
+	if int(helicopter_pilot.get("mission_phase")) != 4: # HelicopterPilot.MissionPhase.RESCUE
+		return false
+	return helicopter_pilot.get("_rescue_target") == pilot_node
+
+
+func _is_rescue_helicopter(aircraft: Node3D) -> bool:
+	return is_instance_valid(aircraft) \
+			and bool(aircraft.get_meta("is_helicopter", false))
+
+
+func _downed_pilot_callsign(pilot_node: Node3D) -> String:
+	if is_instance_valid(pilot_node) and pilot_node.has_meta("pilot_callsign"):
+		return str(pilot_node.get_meta("pilot_callsign"))
+	return "Downed pilot"
 
 
 func issue_ops_order(unit: Node, order: OpsOrder) -> bool:

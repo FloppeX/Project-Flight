@@ -1,5 +1,7 @@
 # Turn Authority Investigation (unresolved as of 2026-07-24 night session)
 
+> **Document status:** Unresolved historical diagnostic baseline. Fixed-wing flight and route code changed substantially afterward, so reproduce the symptom and capture current telemetry before applying these recommendations. See the [README](../README.md#known-problems-and-validation-gaps) for current project status.
+
 ## The actual complaint
 
 User flew manual maneuvers to demonstrate the point: "its possible to fly MUCH tighter turns

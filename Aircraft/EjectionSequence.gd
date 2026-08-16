@@ -16,6 +16,8 @@ const FlightDirectorScript = preload("res://AirOps/FlightDirector.gd")
 @export var canopy_lifetime_s: float = 20.0
 @export var seat_launch_delay_s: float = 0.5
 @export var seat_burn_duration_s: float = 1.0
+## Time from seat launch until the pilot and seat physically separate.
+@export var seat_separation_delay_s: float = 3.0
 @export var seat_mass_kg: float = 125.0
 @export var seat_launch_angle_deg: float = 75.0
 @export var seat_rearward_bias: float = 1.0
@@ -25,20 +27,23 @@ const FlightDirectorScript = preload("res://AirOps/FlightDirector.gd")
 @export var seat_lifetime_s: float = 45.0
 @export_group("Parachute")
 @export var parachute_scene: PackedScene = preload("res://Aircraft/Visuals/Parachute.tscn")
-@export var parachute_deploy_delay_s: float = 0.2
+## Freefall time after seat separation before the canopy opens.
+@export var parachute_deploy_delay_s: float = 1.0
 @export var parachute_local_offset: Vector3 = Vector3.ZERO
 @export var parachute_local_rotation_deg: Vector3 = Vector3.ZERO
 @export var parachute_local_scale: Vector3 = Vector3.ONE
 @export var parachute_harness_node_name: StringName = &"Harness"
 @export var parachute_pilot_mount_node_name: StringName = &"PilotMount"
 @export var parachute_head_camera_mount_node_name: StringName = &"HeadCameraMount"
+@export var parachute_physics_origin_node_name: StringName = &"PhysicsOrigin"
+@export var parachute_pilot_mass_node_name: StringName = &"PilotMass"
+@export var parachute_pilot_collision_node_name: StringName = &"PilotCollision"
 @export var align_parachute_harness_to_pilot: bool = true
 @export var parachute_descent_speed_mps: float = 6.0
 @export var parachute_rope_length_m: float = 6.0
 @export var parachute_vertical_spring_n_per_mps: float = 120.0
 @export var parachute_horizontal_drag_n_per_mps: float = 20.0
-@export var parachute_angular_damp: float = 8.0
-@export var parachute_upright_smoothing: float = 7.0
+@export var parachute_angular_damp: float = 1.5
 @export_group("Parachute Wind")
 @export var wind_velocity: Vector3 = Vector3(4.0, 0.5, 0.0)   ## Persistent world-space wind (x/z = horizontal drift, y = lift)
 @export var wind_gust_speed_mps: float = 3.0                   ## Extra speed added by gusts on top of base wind
@@ -71,7 +76,10 @@ var _pilot_body: RigidBody3D = null
 var _seat_launch_direction: Vector3 = Vector3.UP
 var _seat_burn_elapsed_s: float = 0.0
 var _seat_burn_active: bool = false
+var _seat_separated: bool = false
+var _parachute_deploy_scheduled: bool = false
 var _parachute_deployed: bool = false
+var _parachute_force_offset_local: Vector3 = Vector3.ZERO
 var _pilot_landed: bool = false
 var _pilot_focus_node: Node3D = null
 var _pilot_audio_listener: AudioListener3D = null
@@ -170,8 +178,6 @@ func _update_seat_rocket_burn(delta: float) -> void:
 
 	if _seat_burn_elapsed_s >= seat_burn_duration_s:
 		_seat_burn_active = false
-		if not _parachute_deployed:
-			_set_pilot_ejection_pose(_get_ejected_pilot(), &"falling", 0.25)
 
 
 func _on_aircraft_damaged(_damage_amount: float, current_health: float) -> void:
@@ -293,10 +299,13 @@ func _launch_ejection_seat() -> void:
 	_seat_launch_direction = _calculate_seat_launch_direction(aircraft)
 	_seat_burn_elapsed_s = 0.0
 	_seat_burn_active = seat_burn_duration_s > 0.0
+	_seat_separated = false
+	_parachute_deploy_scheduled = false
 	_parachute_deployed = false
+	_parachute_force_offset_local = Vector3.UP * maxf(parachute_rope_length_m, 0.1)
 	set_physics_process(_seat_burn_active)
 	seat_body.linear_velocity = inherited_velocity + _seat_launch_direction * 8.0
-	_schedule_parachute_deploy()
+	_schedule_seat_separation()
 
 	if seat_lifetime_s > 0.0:
 		var timer := get_tree().create_timer(seat_lifetime_s)
@@ -304,12 +313,27 @@ func _launch_ejection_seat() -> void:
 			if is_instance_valid(seat_body) and not bool(seat_body.get_meta("ejected_pilot_camera_target", false)):
 				seat_body.queue_free()
 		)
-	if should_take_player_view:
-		_detach_sequence_from_aircraft()
+	# From this point on the seat, pilot, cameras, and timing sequence are all
+	# independent of the source aircraft. Retire that aircraft immediately so it
+	# cannot remain as a stale camera target after a manual ejection.
+	_detach_sequence_from_aircraft()
+	_retire_source_aircraft(aircraft)
+
+
+func _schedule_seat_separation() -> void:
+	var delay := maxf(maxf(seat_separation_delay_s, seat_burn_duration_s), 0.0)
+	if delay <= 0.0:
+		_separate_seat_from_pilot()
+		return
+	var timer := get_tree().create_timer(delay)
+	timer.timeout.connect(_separate_seat_from_pilot)
 
 
 func _schedule_parachute_deploy() -> void:
-	var delay := maxf(seat_burn_duration_s + parachute_deploy_delay_s, 0.0)
+	if _parachute_deploy_scheduled or _parachute_deployed:
+		return
+	_parachute_deploy_scheduled = true
+	var delay := maxf(parachute_deploy_delay_s, 0.0)
 	if delay <= 0.0:
 		_deploy_parachute()
 		return
@@ -322,13 +346,15 @@ func _deploy_parachute() -> void:
 		return
 	if _pilot_body == null or not is_instance_valid(_pilot_body):
 		return
+	if not _seat_separated:
+		_separate_seat_from_pilot()
+		return
 	if parachute_scene == null:
 		return
 	var pilot := _get_ejected_pilot()
 	_stabilize_pilot_body_orientation(1.0)
 	_pilot_body.angular_velocity = Vector3.ZERO
 	_pilot_body.angular_damp = maxf(parachute_angular_damp, _pilot_body.angular_damp)
-	_separate_seat_from_pilot()
 
 	var parachute := parachute_scene.instantiate() as Node3D
 	if parachute == null:
@@ -342,6 +368,8 @@ func _deploy_parachute() -> void:
 	)).scaled(parachute_local_scale)
 	parachute.transform = _get_parachute_transform(parachute, basis)
 	_set_pilot_hanging_transform(pilot, parachute)
+	_rebase_pilot_body_to_parachute_origin(parachute)
+	_configure_parachute_mass_properties(parachute)
 	_set_pilot_ejection_pose(pilot, &"parachute", 0.3)
 	_set_head_camera_mount_transform(parachute)
 	_parachute_deployed = true
@@ -349,59 +377,67 @@ func _deploy_parachute() -> void:
 
 
 func _separate_seat_from_pilot() -> void:
+	if _seat_separated or _pilot_body == null or not is_instance_valid(_pilot_body):
+		return
 	var seat := _pilot_body.get_node_or_null("EjectionSeat") as Node3D
 	if seat == null:
-		return
+		push_warning("[EjectionSequence] Seat separation requested without an EjectionSeat child")
+	else:
+		var separated_body := RigidBody3D.new()
+		separated_body.name = "%s_SeparatedSeat" % _pilot_body.name
+		separated_body.mass = maxf(separated_seat_mass_kg, 0.01)
+		separated_body.collision_layer = 0
+		separated_body.collision_mask = 0
+		separated_body.linear_damp = 0.02
+		separated_body.angular_damp = 0.1
 
-	var separated_body := RigidBody3D.new()
-	separated_body.name = "%s_SeparatedSeat" % _pilot_body.name
-	separated_body.mass = maxf(separated_seat_mass_kg, 0.01)
-	separated_body.collision_layer = 0
-	separated_body.collision_mask = 0
-	separated_body.linear_damp = 0.02
-	separated_body.angular_damp = 0.1
-
-	var detached_parent := _pilot_body.get_parent()
-	if detached_parent == null:
-		detached_parent = get_tree().current_scene
-	if detached_parent == null:
-		detached_parent = get_tree().root
-	detached_parent.add_child(separated_body)
-	separated_body.global_transform = seat.global_transform
-	separated_body.contact_monitor = true
-	separated_body.max_contacts_reported = maxi(separated_body.max_contacts_reported, 4)
-	separated_body.body_entered.connect(func(body: Node) -> void:
-		if _is_terrain_body(body) and is_instance_valid(separated_body):
-			separated_body.queue_free()
-	)
-
-	_reparent_preserve_global(seat, separated_body)
-	seat.transform = Transform3D.IDENTITY
-
-	var rear := _pilot_body.global_transform.basis.z.normalized()
-	var inherited_velocity := _pilot_body.linear_velocity
-	separated_body.linear_velocity = Vector3(
-		inherited_velocity.x,
-		minf(inherited_velocity.y - separated_seat_downward_speed_mps, -separated_seat_downward_speed_mps),
-		inherited_velocity.z
-	) + rear * separated_seat_rearward_speed_mps
-	separated_body.angular_velocity = separated_seat_spin_rad_s
-	_pilot_body.mass = maxf(seat_mass_kg - separated_seat_mass_kg, 0.01)
-
-	if separated_seat_lifetime_s > 0.0:
-		var timer := get_tree().create_timer(separated_seat_lifetime_s)
-		timer.timeout.connect(func() -> void:
-			if is_instance_valid(separated_body):
+		var detached_parent := _pilot_body.get_parent()
+		if detached_parent == null:
+			detached_parent = get_tree().current_scene
+		if detached_parent == null:
+			detached_parent = get_tree().root
+		detached_parent.add_child(separated_body)
+		separated_body.global_transform = seat.global_transform
+		separated_body.contact_monitor = true
+		separated_body.max_contacts_reported = maxi(separated_body.max_contacts_reported, 4)
+		separated_body.body_entered.connect(func(body: Node) -> void:
+			if _is_terrain_body(body) and is_instance_valid(separated_body):
 				separated_body.queue_free()
 		)
+
+		_reparent_preserve_global(seat, separated_body)
+		seat.transform = Transform3D.IDENTITY
+
+		var rear := _pilot_body.global_transform.basis.z.normalized()
+		var inherited_velocity := _pilot_body.linear_velocity
+		separated_body.linear_velocity = Vector3(
+			inherited_velocity.x,
+			minf(inherited_velocity.y - separated_seat_downward_speed_mps, -separated_seat_downward_speed_mps),
+			inherited_velocity.z
+		) + rear * separated_seat_rearward_speed_mps
+		separated_body.angular_velocity = separated_seat_spin_rad_s
+		_pilot_body.mass = maxf(seat_mass_kg - separated_seat_mass_kg, 0.01)
+
+		if separated_seat_lifetime_s > 0.0:
+			var timer := get_tree().create_timer(separated_seat_lifetime_s)
+			timer.timeout.connect(func() -> void:
+				if is_instance_valid(separated_body):
+					separated_body.queue_free()
+			)
+
+	_seat_separated = true
+	_seat_burn_active = false
+	_set_pilot_ejection_pose(_get_ejected_pilot(), &"falling", 0.25)
+	_schedule_parachute_deploy()
 
 
 func _update_parachute_descent(delta: float) -> void:
 	var vel := _pilot_body.linear_velocity
 	var mass := _pilot_body.mass
 
-	# Force applied at the canopy point (above the pilot) creates pendulum torque.
-	var canopy_offset := _pilot_body.global_transform.basis.y * maxf(parachute_rope_length_m, 0.1)
+	# The rigid-body origin is at the canopy top while its center of mass is down at
+	# the pilot. Applying canopy force at the origin therefore creates pendulum torque.
+	var canopy_offset := _pilot_body.global_transform.basis * _parachute_force_offset_local
 
 	# Vertical: gravity compensation + spring toward terminal descent speed.
 	# At terminal velocity the spring term is zero and lift exactly cancels gravity.
@@ -420,8 +456,7 @@ func _update_parachute_descent(delta: float) -> void:
 		lift,
 		-rel_z * parachute_horizontal_drag_n_per_mps,
 	)
-	_pilot_body.apply_force(force, canopy_offset)
-	_correct_parachute_body_upright()
+	_apply_canopy_force(force, canopy_offset)
 	_apply_gust_impulse(delta)
 	_check_parachute_landing(delta)
 
@@ -429,38 +464,25 @@ func _update_parachute_descent(delta: float) -> void:
 func _check_parachute_landing(delta: float) -> void:
 	if _pilot_landed or _pilot_body == null or not is_instance_valid(_pilot_body):
 		return
-	var seat_pos := _pilot_body.global_position
-	var surface_point: Variant = _get_nearby_landing_surface_point(seat_pos, _pilot_body.linear_velocity, delta)
+	var pilot_pos := _get_pilot_ground_reference_position()
+	var surface_point: Variant = _get_nearby_landing_surface_point(pilot_pos, _pilot_body.linear_velocity, delta)
 	if surface_point != null:
 		_land_pilot(surface_point)
 		return
 
-	var ground_y := _sample_landing_height(seat_pos)
-	if _is_valid_landing_height(ground_y) and seat_pos.y <= ground_y + pilot_landing_clearance_m:
-		_land_pilot(Vector3(seat_pos.x, ground_y, seat_pos.z))
+	var ground_y := _sample_landing_height(pilot_pos)
+	if _is_valid_landing_height(ground_y) and pilot_pos.y <= ground_y + pilot_landing_clearance_m:
+		_land_pilot(Vector3(pilot_pos.x, ground_y, pilot_pos.z))
 
 
-func _correct_parachute_body_upright() -> void:
-	var body_up := _pilot_body.global_transform.basis.y
-	var dot := body_up.dot(Vector3.UP)
-	if dot >= 0.99:
-		return
-	if dot < -0.95:
-		# Near exactly inverted — cross product is ~zero so torque fails.
-		# Snap directly to upright and kill angular velocity.
-		var z := _pilot_body.global_transform.basis.z
-		z.y = 0.0
-		if z.length_squared() < 0.001:
-			z = Vector3.BACK
-		_pilot_body.global_transform.basis = Basis.looking_at(z.normalized(), Vector3.UP)
-		_pilot_body.angular_velocity = Vector3.ZERO
-		return
-	# Tilted but recoverable: apply a strong restoring angular velocity.
-	var upright_axis := body_up.cross(Vector3.UP)
-	_pilot_body.angular_velocity += upright_axis * parachute_upright_smoothing * (1.0 - dot)
-	# Cancel any tilt angular velocity — only allow yaw rotation.
-	var av := _pilot_body.angular_velocity
-	_pilot_body.angular_velocity = Vector3.UP * av.dot(Vector3.UP) + upright_axis.normalized() * av.dot(upright_axis.normalized())
+func _get_pilot_ground_reference_position() -> Vector3:
+	var pilot := _get_ejected_pilot()
+	if pilot != null and is_instance_valid(pilot):
+		return pilot.global_position
+	if _pilot_body != null and is_instance_valid(_pilot_body) \
+			and _pilot_body.center_of_mass_mode == RigidBody3D.CENTER_OF_MASS_MODE_CUSTOM:
+		return _pilot_body.to_global(_pilot_body.center_of_mass)
+	return _pilot_body.global_position if _pilot_body != null else Vector3.ZERO
 
 
 func _apply_gust_impulse(delta: float) -> void:
@@ -473,7 +495,22 @@ func _apply_gust_impulse(delta: float) -> void:
 	var angle := randf() * TAU
 	var direction := Vector3(cos(angle), 0.0, sin(angle))
 	var strength := randf_range(wind_gust_impulse_n * 0.5, wind_gust_impulse_n)
-	_pilot_body.apply_impulse(direction * strength, _pilot_body.global_transform.basis.y * maxf(parachute_rope_length_m, 0.1))
+	var canopy_offset := _pilot_body.global_transform.basis * _parachute_force_offset_local
+	_apply_canopy_impulse(direction * strength, canopy_offset)
+
+
+func _apply_canopy_force(force: Vector3, canopy_offset_world: Vector3) -> void:
+	_pilot_body.apply_central_force(force)
+	var mass_offset_world := _pilot_body.global_transform.basis * _pilot_body.center_of_mass
+	var lever_arm := canopy_offset_world - mass_offset_world
+	_pilot_body.apply_torque(lever_arm.cross(force))
+
+
+func _apply_canopy_impulse(impulse: Vector3, canopy_offset_world: Vector3) -> void:
+	_pilot_body.apply_central_impulse(impulse)
+	var mass_offset_world := _pilot_body.global_transform.basis * _pilot_body.center_of_mass
+	var lever_arm := canopy_offset_world - mass_offset_world
+	_pilot_body.apply_torque_impulse(lever_arm.cross(impulse))
 
 
 func _get_wind_velocity() -> Vector3:
@@ -551,6 +588,65 @@ func _get_parachute_transform(parachute: Node3D, basis: Basis) -> Transform3D:
 				pilot_local.z + parachute_local_offset.z
 			)
 	return Transform3D(basis, origin)
+
+
+func _rebase_pilot_body_to_parachute_origin(parachute: Node3D) -> void:
+	if _pilot_body == null or not is_instance_valid(_pilot_body):
+		return
+	var physics_origin := parachute.find_child(
+		str(parachute_physics_origin_node_name), true, false
+	) as Node3D
+	var origin_global := _pilot_body.global_position \
+		+ _pilot_body.global_transform.basis.y * maxf(parachute_rope_length_m, 0.1)
+	if physics_origin != null:
+		origin_global = physics_origin.global_position
+
+	# Moving the body origin must not move any of its visuals, pilot, or camera.
+	var saved_children: Array[Dictionary] = []
+	for child_variant in _pilot_body.get_children():
+		var child := child_variant as Node3D
+		if child != null:
+			saved_children.append({"node": child, "global_transform": child.global_transform})
+	var rebased_transform := _pilot_body.global_transform
+	rebased_transform.origin = origin_global
+	_pilot_body.global_transform = rebased_transform
+	for saved in saved_children:
+		var child := saved["node"] as Node3D
+		if child != null and is_instance_valid(child):
+			var saved_transform: Transform3D = saved["global_transform"]
+			child.global_transform = saved_transform
+
+	# Canopy forces are applied at the new body origin. Keep this as a local offset
+	# so force calls continue to work if a fallback marker is used later.
+	_parachute_force_offset_local = _pilot_body.to_local(origin_global)
+
+
+func _configure_parachute_mass_properties(parachute: Node3D) -> void:
+	if _pilot_body == null or not is_instance_valid(_pilot_body):
+		return
+	var pilot_mass := parachute.find_child(
+		str(parachute_pilot_mass_node_name), true, false
+	) as Node3D
+	var mass_global := _pilot_body.global_position \
+		- _pilot_body.global_transform.basis.y * maxf(parachute_rope_length_m, 0.1)
+	if pilot_mass != null:
+		mass_global = pilot_mass.global_position
+	var mass_local := _pilot_body.to_local(mass_global)
+	if mass_local.length_squared() < 0.01:
+		mass_local = Vector3.DOWN * maxf(parachute_rope_length_m, 0.1)
+	_pilot_body.center_of_mass_mode = RigidBody3D.CENTER_OF_MASS_MODE_CUSTOM
+	_pilot_body.center_of_mass = mass_local
+	var suspension_length := maxf(mass_local.length(), 0.1)
+	var pendulum_inertia := _pilot_body.mass * suspension_length * suspension_length
+	_pilot_body.inertia = Vector3.ONE * pendulum_inertia
+
+	# A direct collision shape gives the physics solver the pilot-sized inertia it
+	# needs. It remains non-colliding because the ejected body uses layer/mask zero.
+	var pilot_collision := parachute.find_child(
+		str(parachute_pilot_collision_node_name), true, false
+	) as CollisionShape3D
+	if pilot_collision != null and pilot_collision.get_parent() != _pilot_body:
+		_reparent_preserve_global(pilot_collision, _pilot_body)
 
 
 func _get_harness_lowest_point(parachute: Node3D) -> Variant:
@@ -707,6 +803,26 @@ func _detach_sequence_from_aircraft() -> void:
 	new_parent.add_child(self)
 
 
+func _retire_source_aircraft(aircraft: Node3D) -> void:
+	if aircraft == null or not is_instance_valid(aircraft):
+		return
+	aircraft.set_meta("ejection_source_retired", true)
+	for group_name in ["aircraft", "ai_aircraft", "friendlies", "enemies"]:
+		if aircraft.is_in_group(group_name):
+			aircraft.remove_from_group(group_name)
+
+	var aircraft_body := aircraft as RigidBody3D
+	var flight_director := get_node_or_null("/root/FlightDirector") as FlightDirectorScript
+	if flight_director != null and aircraft_body != null:
+		flight_director.retire_aircraft_after_ejection(aircraft_body)
+
+	if aircraft.has_meta("arresting_cable"):
+		var cable: Variant = aircraft.get_meta("arresting_cable")
+		if is_instance_valid(cable) and cable.has_method("manual_release"):
+			cable.call("manual_release")
+	aircraft.queue_free()
+
+
 func _prepare_camera_for_ejection(camera_rig: Node3D) -> void:
 	camera_rig.set_process(true)
 	camera_rig.set_physics_process(true)
@@ -777,7 +893,7 @@ func _should_take_player_view(aircraft: Node) -> bool:
 	if flight_director != null:
 		if flight_director.is_player_controlling and flight_director.player_controlled_plane == aircraft:
 			return true
-		if flight_director.current_viewed_aircraft == aircraft and not aircraft.is_in_group("ai_aircraft"):
+		if flight_director.current_viewed_aircraft == aircraft:
 			return true
 	return not aircraft.is_in_group("ai_aircraft")
 
@@ -879,7 +995,7 @@ func _land_pilot(surface_position: Variant = null) -> void:
 	if _pilot_body == null or not is_instance_valid(_pilot_body):
 		return
 
-	var land_pos := _pilot_body.global_position
+	var land_pos := _get_pilot_ground_reference_position()
 	if surface_position is Vector3:
 		land_pos = surface_position
 	else:
@@ -917,6 +1033,7 @@ func _land_pilot(surface_position: Variant = null) -> void:
 			camera_rig = _pilot_body.find_child("CameraChase", true, false) as Node3D
 		if camera_rig != null:
 			_reparent_preserve_global(camera_rig, dp)
+			_position_landed_camera_at_head(camera_rig, dp)
 			
 			# Call focus_ejected_pilot on all camera controllers
 			var ccs := get_tree().get_nodes_in_group("camera_controller")
@@ -954,3 +1071,18 @@ func _land_pilot(surface_position: Variant = null) -> void:
 	_pilot_body = null
 	if is_instance_valid(seat_ref):
 		seat_ref.queue_free()
+
+
+func _position_landed_camera_at_head(camera_rig: Node3D, downed_pilot: Node3D) -> void:
+	if camera_rig == null or downed_pilot == null:
+		return
+	var head_mount := downed_pilot.find_child("HeadCameraMount", true, false) as Node3D
+	if head_mount == null:
+		return
+	var camera := camera_rig.find_child("Camera3D", true, false) as Camera3D
+	if camera == null:
+		camera_rig.global_transform = head_mount.global_transform
+	else:
+		var camera_from_rig := camera_rig.global_transform.affine_inverse() * camera.global_transform
+		camera_rig.global_transform = head_mount.global_transform * camera_from_rig.affine_inverse()
+	_sync_cockpit_camera_base_transform(camera_rig)

@@ -1,6 +1,7 @@
 extends Node
 
 const RADIO_TEST_STREAM_PATH := "res://Audio/Citadel voice test.mp3"
+const GAME_SCENE_PATH := "res://Main_Scene.tscn"
 const CITADEL_AUDIO_DIR := "res://Audio"
 const CITADEL_AUDIO_PREFIX := "Citadel - "
 const CITADEL_FLIGHT_NAME_ALIASES := ["Archer", "Bulldog", "Crimson", "Dingo"]
@@ -91,12 +92,14 @@ var _recent_radio_bark_times: Dictionary = {}
 
 func _ready() -> void:
 	_build_display()
+	_update_display_visibility()
 	_radio_rng.randomize()
 	_setup_radio_audio()
 	_build_citadel_voice_library()
 	_build_pilot_voice_library()
 
 func _process(delta: float) -> void:
+	_update_display_visibility()
 	_expire_messages()
 	_pin_to_bottom()
 	_refresh_status()
@@ -918,6 +921,7 @@ func _on_radio_voice_finished() -> void:
 func _build_display() -> void:
 	_canvas = CanvasLayer.new()
 	_canvas.layer = 20  # above all game UI
+	_canvas.visible = false
 	add_child(_canvas)
 
 	# Plain Panel with a fixed size — PanelContainer resizes to content and
@@ -959,6 +963,22 @@ func _build_display() -> void:
 	_status_label.add_theme_color_override("font_color", Color(0.4, 1.0, 0.5))
 	_status_label.add_theme_font_size_override("font_size", 13)
 	_panel.add_child(_status_label)
+
+
+func _update_display_visibility() -> void:
+	if not is_instance_valid(_canvas):
+		return
+	var current_scene := get_tree().current_scene
+	var show_display := current_scene != null \
+			and _is_gameplay_scene_path(current_scene.scene_file_path)
+	var loading_screen := get_node_or_null("/root/LoadingScreen")
+	if is_instance_valid(loading_screen) and bool(loading_screen.get("visible")):
+		show_display = false
+	_canvas.visible = show_display
+
+
+func _is_gameplay_scene_path(scene_path: String) -> bool:
+	return scene_path == GAME_SCENE_PATH
 
 func _refresh_status() -> void:
 	if not _status_label:

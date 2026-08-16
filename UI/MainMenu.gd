@@ -1,6 +1,7 @@
 extends Node3D
 
-const MENU_FONT: FontFile = preload("res://UI/Orbitron-VariableFont_wght.ttf")
+const MenuTypography = preload("res://UI/MenuTypography.gd")
+const TechnicalIndexView = preload("res://UI/TechnicalIndexView.gd")
 const MENU_TERRAIN_SCENE: PackedScene = preload("res://Environment/LowPolyTerrainPrototype.tscn")
 const MENU_CARRIER_SCENE: PackedScene = preload("res://LandCarrier/LandCarrier2.tscn")
 const GAME_SCENE := "res://Main_Scene.tscn"
@@ -12,7 +13,7 @@ const DEFAULT_CARRIER_NAME := "Land Carrier"
 const SHIP_NAME_LIST_PATH := "res://Data/ShipNames.txt"
 const MAP_IDS: Array[String] = ["open_canyons", "layered_badlands"]
 const MAP_NAMES: Array[String] = ["OPEN CANYONS", "FRACTURED BADLANDS"]
-const BASE_UI_SIZE := Vector2(1280.0, 720.0)
+const BASE_UI_SIZE := MenuTypography.CANVAS_SIZE
 const CAMERA_LOOP_S := 56.0
 const CARRIER_RIDE_HEIGHT_M := 40.0
 const CAMERA_TERRAIN_CLEARANCE_M := 180.0
@@ -38,6 +39,16 @@ const ROUTE_SAMPLE_STEP_M := 90.0
 const ROUTE_MAX_HEIGHT_SPAN_M := 70.0
 const MENU_CARRIER_CLEARANCE_M := 120.0
 const MENU_PATH_MAX_SLOPE_M := 12.0
+const OPERATOR_RAIL_WIDTH := 480.0
+
+const UI_PRIMARY := Color(1.0, 0.718, 0.49, 1.0)
+const UI_PRIMARY_ACTIVE := Color(1.0, 0.55, 0.0, 1.0)
+const UI_HAZARD := Color(1.0, 0.86, 0.28, 1.0)
+const UI_SURFACE := Color(0.102, 0.11, 0.118, 0.88)
+const UI_SURFACE_LOW := Color(0.047, 0.055, 0.063, 0.52)
+const UI_OUTLINE := Color(0.337, 0.263, 0.204, 0.78)
+const UI_TEXT := Color(0.886, 0.886, 0.898, 1.0)
+const UI_TEXT_MUTED := Color(0.867, 0.757, 0.682, 0.62)
 
 const PAD_BUTTON_A := 0
 const PAD_BUTTON_B := 1
@@ -61,6 +72,9 @@ var _autoload_overrides: Array[Dictionary] = []
 var _ui_root: Control
 var _main_panel: Control
 var _setup_panel: Control
+var _technical_index: Control
+var _brand_title_label: Label
+var _system_id_label: Label
 var _message_label: Label
 var _name_edit: LineEdit
 var _carrier_colors: Array[Color] = []
@@ -161,6 +175,14 @@ func _input(event: InputEvent) -> void:
 		if _cycle_focused_setup_row(1):
 			viewport.set_input_as_handled()
 			return
+	if _current_screen == "tech_items" and _is_menu_left_event(event):
+		_technical_index.call("rotate_preview", -0.16)
+		viewport.set_input_as_handled()
+		return
+	if _current_screen == "tech_items" and _is_menu_right_event(event):
+		_technical_index.call("rotate_preview", 0.16)
+		viewport.set_input_as_handled()
+		return
 	if _is_menu_accept_event(event):
 		if focus_owner is Button and not (focus_owner as Button).disabled:
 			(focus_owner as Button).pressed.emit()
@@ -804,47 +826,149 @@ func _build_ui() -> void:
 	_ui_root.size = BASE_UI_SIZE
 	layer.add_child(_ui_root)
 
-	var shade_gradient := Gradient.new()
-	shade_gradient.offsets = PackedFloat32Array([0.0, 0.72, 1.0])
-	shade_gradient.colors = PackedColorArray([
-		Color(0.0, 0.0, 0.0, 0.66),
-		Color(0.0, 0.0, 0.0, 0.40),
-		Color(0.0, 0.0, 0.0, 0.0),
+	var atmosphere := ColorRect.new()
+	atmosphere.color = Color(0.008, 0.01, 0.012, 0.08)
+	atmosphere.position = Vector2.ZERO
+	atmosphere.size = BASE_UI_SIZE
+	atmosphere.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_ui_root.add_child(atmosphere)
+	_add_scanline_overlay(_ui_root)
+
+	var operator_rail := Panel.new()
+	operator_rail.name = "OperatorRail"
+	operator_rail.position = Vector2.ZERO
+	operator_rail.size = Vector2(OPERATOR_RAIL_WIDTH, BASE_UI_SIZE.y)
+	operator_rail.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var rail_style := StyleBoxFlat.new()
+	rail_style.bg_color = UI_SURFACE
+	rail_style.border_color = UI_OUTLINE
+	rail_style.border_width_right = 1
+	operator_rail.add_theme_stylebox_override("panel", rail_style)
+	_ui_root.add_child(operator_rail)
+
+	var header_gradient := Gradient.new()
+	header_gradient.offsets = PackedFloat32Array([0.0, 1.0])
+	header_gradient.colors = PackedColorArray([
+		Color(0.025, 0.025, 0.023, 0.50),
+		Color(0.025, 0.025, 0.023, 0.0),
 	])
-	var shade_texture := GradientTexture2D.new()
-	shade_texture.gradient = shade_gradient
-	shade_texture.fill_from = Vector2.ZERO
-	shade_texture.fill_to = Vector2.RIGHT
-	var shade := TextureRect.new()
-	shade.texture = shade_texture
-	shade.position = Vector2.ZERO
-	shade.size = Vector2(560.0, BASE_UI_SIZE.y)
-	_ui_root.add_child(shade)
+	var header_texture := GradientTexture2D.new()
+	header_texture.gradient = header_gradient
+	header_texture.fill_from = Vector2(0.5, 0.0)
+	header_texture.fill_to = Vector2(0.5, 1.0)
+	var header_shade := TextureRect.new()
+	header_shade.texture = header_texture
+	header_shade.position = Vector2(OPERATOR_RAIL_WIDTH, 0.0)
+	header_shade.size = Vector2(BASE_UI_SIZE.x - OPERATOR_RAIL_WIDTH, 210.0)
+	header_shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_ui_root.add_child(header_shade)
 
-	var vignette := ColorRect.new()
-	vignette.color = Color(0.0, 0.0, 0.0, 0.07)
-	vignette.position = Vector2.ZERO
-	vignette.size = BASE_UI_SIZE
-	_ui_root.add_child(vignette)
+	_add_center_reticle(_ui_root)
 
-	_message_label = _make_label("", Vector2(64.0, 665.0), 16, Color(1.0, 1.0, 1.0, 0.52))
-	_message_label.size = Vector2(440.0, 24.0)
+	_brand_title_label = _make_label("LAND CARRIER", Vector2(OPERATOR_RAIL_WIDTH + 76.0, 34.0), MenuTypography.BRAND_TITLE_SIZE, UI_PRIMARY)
+	_brand_title_label.size = Vector2(900.0, 102.0)
+	_brand_title_label.scale = Vector2(1.10, 1.0)
+	_brand_title_label.add_theme_color_override("font_shadow_color", Color(UI_PRIMARY.r, UI_PRIMARY.g, UI_PRIMARY.b, 0.22))
+	_brand_title_label.add_theme_constant_override("shadow_outline_size", 8)
+	_ui_root.add_child(_brand_title_label)
+
+	_system_id_label = _make_label("SYS_ID: LC-992-ALPHA // OPERATOR CONSOLE", Vector2(OPERATOR_RAIL_WIDTH + 80.0, 140.0), MenuTypography.BRAND_META_SIZE, UI_TEXT_MUTED)
+	_system_id_label.add_theme_font_override("font", MenuTypography.TECH_FONT)
+	_ui_root.add_child(_system_id_label)
+
+	_message_label = _make_label("", Vector2(48.0, 968.0), MenuTypography.SUPPORT_SIZE, UI_TEXT_MUTED)
+	_message_label.add_theme_font_override("font", MenuTypography.TECH_FONT)
+	_message_label.size = Vector2(OPERATOR_RAIL_WIDTH - 96.0, 24.0)
 	_ui_root.add_child(_message_label)
 
-	var version := _make_label("MAIN MENU PROTOTYPE", Vector2(64.0, 632.0), 14, Color(1.0, 0.85, 0.60, 0.42))
+	var status_pip := ColorRect.new()
+	status_pip.position = Vector2(BASE_UI_SIZE.x - 242.0, BASE_UI_SIZE.y - 48.0)
+	status_pip.size = Vector2(8.0, 8.0)
+	status_pip.color = Color(UI_PRIMARY.r, UI_PRIMARY.g, UI_PRIMARY.b, 0.62)
+	status_pip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_ui_root.add_child(status_pip)
+	var version := _make_label("v0.1 PROTOTYPE", Vector2(BASE_UI_SIZE.x - 220.0, BASE_UI_SIZE.y - 54.0), MenuTypography.SUPPORT_SIZE, UI_TEXT_MUTED)
+	version.add_theme_font_override("font", MenuTypography.TECH_FONT)
 	_ui_root.add_child(version)
 
 	_main_panel = Control.new()
-	_main_panel.position = Vector2(64.0, 108.0)
-	_main_panel.size = Vector2(400.0, 430.0)
+	_main_panel.position = Vector2(20.0, 235.0)
+	_main_panel.size = Vector2(OPERATOR_RAIL_WIDTH - 40.0, 660.0)
 	_ui_root.add_child(_main_panel)
 	_build_main_menu(_main_panel)
 
 	_setup_panel = Control.new()
-	_setup_panel.position = Vector2(64.0, 20.0)
-	_setup_panel.size = Vector2(480.0, 620.0)
+	_setup_panel.position = Vector2(32.0, 190.0)
+	_setup_panel.size = Vector2(OPERATOR_RAIL_WIDTH - 44.0, 620.0)
 	_ui_root.add_child(_setup_panel)
 	_build_setup_menu(_setup_panel)
+
+	_technical_index = TechnicalIndexView.new()
+	_technical_index.connect(&"exit_requested", _show_main_menu)
+	_technical_index.connect(&"mode_changed", _on_technical_index_mode_changed)
+	_ui_root.add_child(_technical_index)
+
+
+func _add_scanline_overlay(parent: Control) -> void:
+	var scanlines := ColorRect.new()
+	scanlines.position = Vector2.ZERO
+	scanlines.size = BASE_UI_SIZE
+	scanlines.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var scanline_shader := Shader.new()
+	scanline_shader.code = """
+shader_type canvas_item;
+
+void fragment() {
+	float line_alpha = mod(FRAGCOORD.y, 4.0) < 1.0 ? 0.045 : 0.0;
+	COLOR = vec4(0.0, 0.0, 0.0, line_alpha);
+}
+"""
+	var scanline_material := ShaderMaterial.new()
+	scanline_material.shader = scanline_shader
+	scanlines.material = scanline_material
+	parent.add_child(scanlines)
+
+
+func _add_center_reticle(parent: Control) -> void:
+	var center := BASE_UI_SIZE * 0.5
+	var circle_color := Color(UI_PRIMARY.r, UI_PRIMARY.g, UI_PRIMARY.b, 0.12)
+	var reticle_color := Color(UI_PRIMARY.r, UI_PRIMARY.g, UI_PRIMARY.b, 0.16)
+	var radius := 138.0
+	var dash_count := 36
+	for dash_index in range(0, dash_count, 2):
+		var arc := Line2D.new()
+		arc.width = 1.0
+		arc.default_color = circle_color
+		arc.antialiased = true
+		var start_angle := TAU * float(dash_index) / float(dash_count)
+		var end_angle := TAU * float(dash_index + 1) / float(dash_count)
+		for sample_index in 5:
+			var angle := lerpf(start_angle, end_angle, float(sample_index) / 4.0)
+			arc.add_point(center + Vector2(cos(angle), sin(angle)) * radius)
+		parent.add_child(arc)
+	var reticle_frame := Panel.new()
+	reticle_frame.position = center - Vector2(15.0, 15.0)
+	reticle_frame.size = Vector2(30.0, 30.0)
+	reticle_frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var frame_style := StyleBoxFlat.new()
+	frame_style.bg_color = Color.TRANSPARENT
+	frame_style.border_color = reticle_color
+	frame_style.set_border_width_all(1)
+	reticle_frame.add_theme_stylebox_override("panel", frame_style)
+	parent.add_child(reticle_frame)
+	_add_ui_line(parent, center + Vector2(-34.0, -0.5), Vector2(18.0, 1.0), reticle_color)
+	_add_ui_line(parent, center + Vector2(16.0, -0.5), Vector2(18.0, 1.0), reticle_color)
+	_add_ui_line(parent, center + Vector2(-0.5, -34.0), Vector2(1.0, 18.0), reticle_color)
+	_add_ui_line(parent, center + Vector2(-0.5, 16.0), Vector2(1.0, 18.0), reticle_color)
+
+
+func _add_ui_line(parent: Control, pos: Vector2, line_size: Vector2, color: Color) -> void:
+	var line := ColorRect.new()
+	line.position = pos
+	line.size = line_size
+	line.color = color
+	line.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	parent.add_child(line)
 
 
 func _layout_ui_root() -> void:
@@ -863,49 +987,64 @@ func _layout_ui_root() -> void:
 
 
 func _build_main_menu(parent: Control) -> void:
-	var title := _make_label("LAND CARRIER", Vector2.ZERO, 39, Color(1.0, 0.82, 0.34, 1.0))
-	parent.add_child(title)
-
 	var entries := [
 		["CONTINUE", Callable(self, "_continue_game")],
 		["NEW CAMPAIGN", Callable(self, "_show_setup_menu")],
 		["SKIRMISH / TEST FLIGHT", Callable(self, "_start_test_flight")],
 		["LANDING TEST", Callable(self, "_start_landing_test")],
 		["CARRIER COMBAT TEST", Callable(self, "_start_carrier_combat_test")],
+		["TECHNICAL INDEX", Callable(self, "_show_technical_index")],
 		["SETTINGS", Callable(self, "_show_options_menu")],
 		["CREDITS", Callable(self, "_show_credits_stub")],
 		["QUIT", Callable(self, "_quit_game")],
 	]
 	for i in range(entries.size()):
-		var btn := _make_menu_button(str(entries[i][0]), Vector2(0.0, 88.0 + i * 58.0), 390.0)
+		var entry_label := str(entries[i][0])
+		var extra_gap := 80.0 if i == entries.size() - 1 else 0.0
+		var btn := _make_menu_button(entry_label, Vector2(0.0, i * 64.0 + extra_gap), OPERATOR_RAIL_WIDTH - 40.0)
 		btn.pressed.connect(entries[i][1] as Callable)
+		btn.set_meta(&"operator_menu_label", entry_label)
+		btn.text = "   " + entry_label
+		btn.mouse_entered.connect(_refresh_operator_button_indicator.bind(btn))
+		btn.mouse_exited.connect(_refresh_operator_button_indicator.bind(btn))
+		btn.focus_entered.connect(_refresh_operator_button_indicator.bind(btn))
+		btn.focus_exited.connect(_refresh_operator_button_indicator.bind(btn))
 		if i == 0:
 			btn.disabled = true
 		parent.add_child(btn)
 
 
+func _refresh_operator_button_indicator(button: Button) -> void:
+	if button == null:
+		return
+	var label := String(button.get_meta(&"operator_menu_label", button.text.strip_edges()))
+	var is_active := not button.disabled and (button.has_focus() or button.is_hovered())
+	button.text = (">  " if is_active else "   ") + label
+
+
 func _build_setup_menu(parent: Control) -> void:
-	parent.add_child(_make_label("NEW CAMPAIGN", Vector2.ZERO, 34, Color(1.0, 0.82, 0.34, 1.0)))
-	parent.add_child(_make_label("CARRIER NAME", Vector2(0.0, 58.0), 18, Color(1.0, 1.0, 1.0, 0.66)))
+	parent.add_child(_make_label("NEW CAMPAIGN", Vector2.ZERO, MenuTypography.SCREEN_TITLE_SIZE, Color(1.0, 0.82, 0.34, 1.0)))
+	parent.add_child(_make_label("CARRIER NAME", Vector2(0.0, 58.0), MenuTypography.FIELD_LABEL_SIZE, Color(1.0, 1.0, 1.0, 0.66)))
 
 	_name_edit = LineEdit.new()
 	_name_edit.text = _random_default_carrier_name()
 	_name_edit.position = Vector2(0.0, 86.0)
 	_name_edit.size = Vector2(430.0, 42.0)
 	_name_edit.max_length = 32
-	_name_edit.add_theme_font_override("font", MENU_FONT)
-	_name_edit.add_theme_font_size_override("font_size", 22)
+	_name_edit.add_theme_font_override("font", MenuTypography.TECH_FONT)
+	_name_edit.add_theme_font_size_override("font_size", MenuTypography.FIELD_VALUE_SIZE)
+	_apply_operator_line_edit_style(_name_edit)
 	parent.add_child(_name_edit)
 
-	parent.add_child(_make_label("PRIMARY", Vector2(0.0, 146.0), 18, Color(1.0, 1.0, 1.0, 0.66)))
+	parent.add_child(_make_label("PRIMARY", Vector2(0.0, 146.0), MenuTypography.FIELD_LABEL_SIZE, Color(1.0, 1.0, 1.0, 0.66)))
 	_primary_value_button = _build_cycle_row(parent, Vector2(0.0, 172.0), Callable(self, "_change_primary"))
-	parent.add_child(_make_label("SECONDARY", Vector2(0.0, 218.0), 18, Color(1.0, 1.0, 1.0, 0.66)))
+	parent.add_child(_make_label("SECONDARY", Vector2(0.0, 218.0), MenuTypography.FIELD_LABEL_SIZE, Color(1.0, 1.0, 1.0, 0.66)))
 	_secondary_value_button = _build_cycle_row(parent, Vector2(0.0, 244.0), Callable(self, "_change_secondary"))
-	parent.add_child(_make_label("TEXTURE", Vector2(0.0, 290.0), 18, Color(1.0, 1.0, 1.0, 0.66)))
+	parent.add_child(_make_label("TEXTURE", Vector2(0.0, 290.0), MenuTypography.FIELD_LABEL_SIZE, Color(1.0, 1.0, 1.0, 0.66)))
 	_pattern_value_button = _build_cycle_row(parent, Vector2(0.0, 316.0), Callable(self, "_change_pattern"))
-	parent.add_child(_make_label("INSIGNIA", Vector2(0.0, 362.0), 18, Color(1.0, 1.0, 1.0, 0.66)))
+	parent.add_child(_make_label("INSIGNIA", Vector2(0.0, 362.0), MenuTypography.FIELD_LABEL_SIZE, Color(1.0, 1.0, 1.0, 0.66)))
 	_insignia_value_button = _build_cycle_row(parent, Vector2(0.0, 388.0), Callable(self, "_change_insignia"))
-	parent.add_child(_make_label("MAP", Vector2(0.0, 434.0), 18, Color(1.0, 1.0, 1.0, 0.66)))
+	parent.add_child(_make_label("MAP", Vector2(0.0, 434.0), MenuTypography.FIELD_LABEL_SIZE, Color(1.0, 1.0, 1.0, 0.66)))
 	_map_value_button = _build_cycle_row(parent, Vector2(0.0, 460.0), Callable(self, "_change_map"))
 
 	var start_btn := _make_menu_button("START", Vector2(0.0, 538.0), 185.0)
@@ -934,6 +1073,9 @@ func _show_main_menu() -> void:
 	_current_screen = "main"
 	_main_panel.visible = true
 	_setup_panel.visible = false
+	if is_instance_valid(_technical_index):
+		_technical_index.call("close")
+	_set_menu_branding("LAND CARRIER", "SYS_ID: LC-992-ALPHA // OPERATOR CONSOLE")
 	_message_label.text = ""
 	var first := _first_button(_main_panel)
 	if first:
@@ -944,10 +1086,32 @@ func _show_setup_menu() -> void:
 	_current_screen = "setup"
 	_main_panel.visible = false
 	_setup_panel.visible = true
+	if is_instance_valid(_technical_index):
+		_technical_index.call("close")
+	_set_menu_branding("LAND CARRIER", "SYS_ID: LC-992-ALPHA // NEW CAMPAIGN CONFIGURATION")
 	_message_label.text = ""
 	_refresh_setup_buttons()
 	_apply_preview_livery()
 	_name_edit.grab_focus()
+
+
+func _show_technical_index() -> void:
+	_main_panel.visible = false
+	_setup_panel.visible = false
+	_message_label.text = ""
+	_set_menu_branding("TECHNICAL INDEX", "ARCHIVE_ID: LC-992-ALPHA // EQUIPMENT REFERENCE")
+	_technical_index.call("open")
+
+
+func _on_technical_index_mode_changed(mode: String) -> void:
+	_current_screen = mode
+
+
+func _set_menu_branding(title: String, system_id: String) -> void:
+	if is_instance_valid(_brand_title_label):
+		_brand_title_label.text = title
+	if is_instance_valid(_system_id_label):
+		_system_id_label.text = system_id
 
 
 func _continue_game() -> void:
@@ -1085,9 +1249,8 @@ func _refresh_color_value_button(button: Button, index: int) -> void:
 	button.text = _carrier_color_names[index]
 	var style := StyleBoxFlat.new()
 	style.bg_color = color
-	style.border_color = Color(1.0, 0.85, 0.55, 0.55)
-	style.set_border_width_all(2)
-	style.set_corner_radius_all(2)
+	style.border_color = UI_PRIMARY
+	style.set_border_width_all(1)
 	for state in ["normal", "hover", "pressed", "focus"]:
 		button.add_theme_stylebox_override(state, style)
 	var readable := Color.BLACK if color.get_luminance() > 0.58 else Color.WHITE
@@ -1212,7 +1375,7 @@ func _make_label(text: String, pos: Vector2, font_size: int, color: Color) -> La
 	var label := Label.new()
 	label.text = text
 	label.position = pos
-	label.add_theme_font_override("font", MENU_FONT)
+	label.add_theme_font_override("font", MenuTypography.FONT)
 	label.add_theme_font_size_override("font_size", font_size)
 	label.add_theme_color_override("font_color", color)
 	return label
@@ -1227,7 +1390,7 @@ func _make_menu_button(text: String, pos: Vector2, width: float) -> Button:
 	btn.focus_mode = Control.FOCUS_ALL
 	btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	_apply_plain_button_style(btn)
-	btn.add_theme_font_size_override("font_size", 28)
+	btn.add_theme_font_size_override("font_size", MenuTypography.MENU_ITEM_SIZE)
 	btn.add_theme_color_override("font_disabled_color", Color(1.0, 1.0, 1.0, 0.18))
 	return btn
 
@@ -1236,7 +1399,7 @@ func _make_small_button(text: String, pos: Vector2, width: float) -> Button:
 	var btn := _make_menu_button(text, pos, width)
 	btn.size = Vector2(width, 38.0)
 	btn.custom_minimum_size = Vector2(width, 38.0)
-	btn.add_theme_font_size_override("font_size", 21)
+	btn.add_theme_font_size_override("font_size", MenuTypography.SMALL_ACTION_SIZE)
 	return btn
 
 
@@ -1254,14 +1417,52 @@ func _make_value_button(pos: Vector2, width: float) -> Button:
 
 
 func _apply_plain_button_style(button: Button) -> void:
-	var empty := StyleBoxEmpty.new()
-	for state in ["normal", "hover", "pressed", "focus", "disabled"]:
-		button.add_theme_stylebox_override(state, empty)
-	button.add_theme_font_override("font", MENU_FONT)
-	button.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0, 0.62))
-	button.add_theme_color_override("font_hover_color", Color.WHITE)
-	button.add_theme_color_override("font_focus_color", Color.WHITE)
-	button.add_theme_color_override("font_pressed_color", Color(1.0, 0.84, 0.44, 0.9))
+	var normal := _make_operator_button_style(Color.TRANSPARENT, Color.TRANSPARENT, 0)
+	var active := _make_operator_button_style(UI_PRIMARY, UI_HAZARD, 0)
+	active.border_width_left = 4
+	var pressed := _make_operator_button_style(UI_PRIMARY_ACTIVE, UI_HAZARD, 0)
+	pressed.border_width_left = 4
+	var disabled := _make_operator_button_style(Color.TRANSPARENT, Color.TRANSPARENT, 0)
+	button.add_theme_stylebox_override("normal", normal)
+	button.add_theme_stylebox_override("hover", active)
+	button.add_theme_stylebox_override("focus", active)
+	button.add_theme_stylebox_override("pressed", pressed)
+	button.add_theme_stylebox_override("disabled", disabled)
+	button.add_theme_font_override("font", MenuTypography.TECH_FONT)
+	button.add_theme_color_override("font_color", UI_TEXT)
+	button.add_theme_color_override("font_hover_color", Color(0.12, 0.07, 0.025, 1.0))
+	button.add_theme_color_override("font_focus_color", Color(0.12, 0.07, 0.025, 1.0))
+	button.add_theme_color_override("font_pressed_color", Color(0.12, 0.07, 0.025, 1.0))
+	button.add_theme_color_override("font_disabled_color", Color(UI_TEXT.r, UI_TEXT.g, UI_TEXT.b, 0.24))
+
+
+func _make_operator_button_style(background: Color, border: Color, border_width: int) -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = background
+	style.border_color = border
+	style.set_border_width_all(border_width)
+	style.content_margin_left = 18.0
+	style.content_margin_right = 14.0
+	style.content_margin_top = 8.0
+	style.content_margin_bottom = 8.0
+	return style
+
+
+func _apply_operator_line_edit_style(line_edit: LineEdit) -> void:
+	var normal := StyleBoxFlat.new()
+	normal.bg_color = UI_SURFACE_LOW
+	normal.border_color = UI_OUTLINE
+	normal.set_border_width_all(1)
+	normal.content_margin_left = 12.0
+	normal.content_margin_right = 12.0
+	var focus := normal.duplicate() as StyleBoxFlat
+	focus.border_color = UI_PRIMARY
+	focus.set_border_width_all(2)
+	line_edit.add_theme_stylebox_override("normal", normal)
+	line_edit.add_theme_stylebox_override("focus", focus)
+	line_edit.add_theme_color_override("font_color", UI_TEXT)
+	line_edit.add_theme_color_override("caret_color", UI_PRIMARY)
+	line_edit.add_theme_color_override("selection_color", Color(UI_PRIMARY.r, UI_PRIMARY.g, UI_PRIMARY.b, 0.32))
 
 
 func _wrap_index(value: int, size: int) -> int:
@@ -1274,6 +1475,8 @@ func _go_back() -> bool:
 	if _current_screen == "setup":
 		_show_main_menu()
 		return true
+	if _current_screen == "tech_categories" or _current_screen == "tech_items":
+		return bool(_technical_index.call("go_back"))
 	return false
 
 
@@ -1337,7 +1540,16 @@ func _focus_last_button() -> Control:
 
 func _buttons_in_current_screen() -> Array[Button]:
 	var out: Array[Button] = []
-	var screen: Control = _main_panel if _current_screen == "main" else _setup_panel
+	var screen: Control
+	match _current_screen:
+		"main":
+			screen = _main_panel
+		"setup":
+			screen = _setup_panel
+		"tech_categories", "tech_items":
+			screen = _technical_index
+		_:
+			return out
 	var stack: Array[Node] = [screen]
 	while not stack.is_empty():
 		var n: Node = stack.pop_back() as Node

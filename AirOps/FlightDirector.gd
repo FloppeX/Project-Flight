@@ -118,6 +118,7 @@ func replace_aircraft_with_ejected_pilot(old_aircraft: RigidBody3D, ejected_body
 	register_aircraft(ejected_body)
 
 	if is_instance_valid(old_aircraft):
+		active_aircraft.erase(old_aircraft)
 		old_aircraft.set_meta("camera_abandoned", true)
 		old_aircraft.set_meta("camera_replaced_by_ejected_pilot", true)
 		old_aircraft.set_meta("ejected_pilot_body", ejected_body.get_path())
@@ -132,6 +133,24 @@ func replace_aircraft_with_ejected_pilot(old_aircraft: RigidBody3D, ejected_body
 	aircraft_cam_mode = 0
 	_destroyed_plane_linger_active = false
 	_cleanup_destroyed_plane_linger_camera()
+	_activate_view()
+
+
+func retire_aircraft_after_ejection(old_aircraft: RigidBody3D) -> void:
+	if not is_instance_valid(old_aircraft):
+		return
+	active_aircraft.erase(old_aircraft)
+	if player_controlled_plane == old_aircraft:
+		is_player_controlling = false
+		player_controlled_plane = null
+	if current_viewed_aircraft != old_aircraft:
+		return
+
+	var replacement := _get_ejected_pilot_replacement(old_aircraft)
+	current_viewed_aircraft = replacement
+	if is_instance_valid(replacement):
+		current_category = Category.FRIENDLY
+		_select_friendly_index_for(replacement)
 	_activate_view()
 
 var _audio_debug_timer: float = 0.0
@@ -495,18 +514,35 @@ func _view_aircraft(ac: RigidBody3D):
 func _get_player_camera_controller() -> Node:
 	var ccs := get_tree().get_nodes_in_group("camera_controller")
 	if is_instance_valid(current_viewed_aircraft):
-		for cc in ccs:
-			if cc != null and "aircraft" in cc and cc.get("aircraft") == current_viewed_aircraft:
+		for cc: Node in ccs:
+			var controller_aircraft := _get_valid_camera_controller_aircraft(cc)
+			if controller_aircraft == current_viewed_aircraft:
 				return cc
-	for cc in ccs:
-		if cc != null and "aircraft" in cc:
-			var controller_aircraft_variant: Variant = cc.get("aircraft")
-			var controller_aircraft := controller_aircraft_variant as Node
-			if is_instance_valid(controller_aircraft) and not controller_aircraft.is_in_group("ai_aircraft") and not controller_aircraft.is_in_group("enemies"):
-				return cc
-	if ccs.size() > 0:
-		return ccs[0]
-	return null
+
+	var first_valid_controller: Node = null
+	for cc: Node in ccs:
+		var controller_aircraft := _get_valid_camera_controller_aircraft(cc)
+		if controller_aircraft == null:
+			continue
+		if first_valid_controller == null:
+			first_valid_controller = cc
+		if not controller_aircraft.is_in_group("ai_aircraft") \
+				and not controller_aircraft.is_in_group("enemies"):
+			return cc
+	return first_valid_controller
+
+
+func _get_valid_camera_controller_aircraft(camera_controller: Node) -> Node:
+	if not is_instance_valid(camera_controller) or not ("aircraft" in camera_controller):
+		return null
+	var controller_aircraft_variant: Variant = camera_controller.get("aircraft")
+	# A Variant can retain an Object reference after the object has been freed.
+	# Validate it before `as Node`; attempting the cast itself raises a script error.
+	if controller_aircraft_variant == null \
+			or typeof(controller_aircraft_variant) != TYPE_OBJECT \
+			or not is_instance_valid(controller_aircraft_variant):
+		return null
+	return controller_aircraft_variant as Node
 
 func toggle_player_control():
 	if is_player_controlling:

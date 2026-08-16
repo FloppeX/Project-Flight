@@ -4,14 +4,14 @@ extends CanvasLayer
 ## Opening pauses the scene tree; closing unpauses it.
 ## Sub-screens: Controls reference, Codex stub.
 
-const MENU_FONT: FontFile = preload("res://UI/Orbitron-VariableFont_wght.ttf")
+const MenuTypography = preload("res://UI/MenuTypography.gd")
+const MENU_FONT: FontFile = MenuTypography.FONT
 
-const FONT_NORMAL   := 62
-const FONT_SELECTED := 78
+const FONT_NORMAL   := MenuTypography.MENU_ITEM_SIZE
 const MARGIN_X      := 150.0
 const MARGIN_Y      := 80.0
-const ITEM_STEP     := 96.0
-const BASE_UI_SIZE  := Vector2(1280.0, 720.0)
+const ITEM_STEP     := 58.0
+const BASE_UI_SIZE  := MenuTypography.CANVAS_SIZE
 const SUBMENU_X     := 620.0
 
 const PAD_BUTTON_A         := 0
@@ -202,7 +202,7 @@ func _build_main_screen() -> Control:
 	title.position = Vector2(MARGIN_X, MARGIN_Y - 76)
 	title.add_theme_color_override("font_color", Color(1, 1, 1, 0.30))
 	title.add_theme_font_override("font", MENU_FONT)
-	title.add_theme_font_size_override("font_size", 24)
+	title.add_theme_font_size_override("font_size", MenuTypography.FIELD_LABEL_SIZE)
 	root.add_child(title)
 
 	var entries = [
@@ -247,7 +247,7 @@ func _build_options_screen() -> Control:
 	title.position = Vector2(SUBMENU_X, 108)
 	title.add_theme_color_override("font_color", COLOR_WHITE)
 	title.add_theme_font_override("font", MENU_FONT)
-	title.add_theme_font_size_override("font_size", 40)
+	title.add_theme_font_size_override("font_size", MenuTypography.SCREEN_TITLE_SIZE)
 	root.add_child(title)
 
 	# Volume label
@@ -256,7 +256,7 @@ func _build_options_screen() -> Control:
 	vol_label.position = Vector2(SUBMENU_X, 188)
 	vol_label.add_theme_color_override("font_color", Color(1, 1, 1, 0.7))
 	vol_label.add_theme_font_override("font", MENU_FONT)
-	vol_label.add_theme_font_size_override("font_size", 26)
+	vol_label.add_theme_font_size_override("font_size", MenuTypography.FIELD_LABEL_SIZE)
 	root.add_child(vol_label)
 
 	# Slider
@@ -279,7 +279,7 @@ func _build_options_screen() -> Control:
 	pct_label.position = Vector2(SUBMENU_X + 400, 232)
 	pct_label.add_theme_color_override("font_color", Color(1, 1, 1, 0.55))
 	pct_label.add_theme_font_override("font", MENU_FONT)
-	pct_label.add_theme_font_size_override("font_size", 26)
+	pct_label.add_theme_font_size_override("font_size", MenuTypography.FIELD_VALUE_SIZE)
 	root.add_child(pct_label)
 	slider.value_changed.connect(func(v: float): pct_label.text = "%d%%" % roundi(v * 100.0))
 
@@ -318,7 +318,7 @@ func _build_gameplay_screen() -> Control:
 	title.position = Vector2(SUBMENU_X, 108)
 	title.add_theme_color_override("font_color", COLOR_WHITE)
 	title.add_theme_font_override("font", MENU_FONT)
-	title.add_theme_font_size_override("font_size", 40)
+	title.add_theme_font_size_override("font_size", MenuTypography.SCREEN_TITLE_SIZE)
 	root.add_child(title)
 
 	var rudder_btn = _make_row_button("", Vector2(SUBMENU_X, 188), 560.0)
@@ -360,7 +360,7 @@ func _build_graphics_screen() -> Control:
 	title.position = Vector2(SUBMENU_X, 108)
 	title.add_theme_color_override("font_color", COLOR_WHITE)
 	title.add_theme_font_override("font", MENU_FONT)
-	title.add_theme_font_size_override("font_size", 40)
+	title.add_theme_font_size_override("font_size", MenuTypography.SCREEN_TITLE_SIZE)
 	root.add_child(title)
 
 	var vsync_btn = _make_row_button("", Vector2(SUBMENU_X, 188), 560.0)
@@ -660,7 +660,7 @@ func _build_controls_screen() -> Control:
 	title.position = Vector2(SUBMENU_X, 108)
 	title.add_theme_color_override("font_color", COLOR_WHITE)
 	title.add_theme_font_override("font", MENU_FONT)
-	title.add_theme_font_size_override("font_size", 40)
+	title.add_theme_font_size_override("font_size", MenuTypography.SCREEN_TITLE_SIZE)
 	root.add_child(title)
 
 	var scroll = ScrollContainer.new()
@@ -677,8 +677,8 @@ func _build_controls_screen() -> Control:
 	rt.add_theme_color_override("default_color", COLOR_BODY)
 	rt.add_theme_font_override("normal_font", MENU_FONT)
 	rt.add_theme_font_override("bold_font", MENU_FONT)
-	rt.add_theme_font_size_override("normal_font_size", 20)
-	rt.add_theme_font_size_override("bold_font_size", 20)
+	rt.add_theme_font_size_override("normal_font_size", MenuTypography.BODY_SIZE)
+	rt.add_theme_font_size_override("bold_font_size", MenuTypography.BODY_SIZE)
 	rt.text = _controls_bbcode()
 	scroll.add_child(rt)
 
@@ -709,7 +709,7 @@ func _build_codex_screen() -> Control:
 	title.position = Vector2(SUBMENU_X, 108)
 	title.add_theme_color_override("font_color", COLOR_WHITE)
 	title.add_theme_font_override("font", MENU_FONT)
-	title.add_theme_font_size_override("font_size", 40)
+	title.add_theme_font_size_override("font_size", MenuTypography.SCREEN_TITLE_SIZE)
 	root.add_child(title)
 
 	var body = Label.new()
@@ -719,7 +719,7 @@ func _build_codex_screen() -> Control:
 	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	body.add_theme_color_override("font_color", Color(1, 1, 1, 0.45))
 	body.add_theme_font_override("font", MENU_FONT)
-	body.add_theme_font_size_override("font_size", 22)
+	body.add_theme_font_size_override("font_size", MenuTypography.BODY_SIZE)
 	root.add_child(body)
 
 	return root
@@ -733,7 +733,7 @@ func _make_text_button(label_text: String, pos: Vector2) -> Button:
 	var btn = Button.new()
 	btn.text = label_text.to_upper()
 	btn.position = pos
-	btn.custom_minimum_size = Vector2(680, FONT_SELECTED + 26)
+	btn.custom_minimum_size = Vector2(680, 54)
 	btn.focus_mode = Control.FOCUS_ALL
 	btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
 
@@ -748,9 +748,6 @@ func _make_text_button(label_text: String, pos: Vector2) -> Button:
 	btn.add_theme_color_override("font_focus_color",   COLOR_WHITE)
 	btn.add_theme_font_override("font", MENU_FONT)
 	btn.add_theme_font_size_override("font_size", FONT_NORMAL)
-
-	btn.focus_entered.connect(func(): btn.add_theme_font_size_override("font_size", FONT_SELECTED))
-	btn.focus_exited.connect(func():  btn.add_theme_font_size_override("font_size", FONT_NORMAL))
 
 	return btn
 
@@ -773,10 +770,7 @@ func _make_row_button(label_text: String, pos: Vector2, width: float) -> Button:
 	btn.add_theme_color_override("font_focus_color", COLOR_WHITE)
 	btn.add_theme_color_override("font_pressed_color", Color(1, 1, 1, 0.68))
 	btn.add_theme_font_override("font", MENU_FONT)
-	btn.add_theme_font_size_override("font_size", 28)
-
-	btn.focus_entered.connect(func(): btn.add_theme_font_size_override("font_size", 32))
-	btn.focus_exited.connect(func(): btn.add_theme_font_size_override("font_size", 28))
+	btn.add_theme_font_size_override("font_size", MenuTypography.FIELD_VALUE_SIZE)
 
 	return btn
 
@@ -796,7 +790,7 @@ func _make_back_button(pos: Vector2) -> Button:
 	btn.add_theme_color_override("font_focus_color",   COLOR_WHITE)
 	btn.add_theme_color_override("font_pressed_color", Color(1, 1, 1, 0.6))
 	btn.add_theme_font_override("font", MENU_FONT)
-	btn.add_theme_font_size_override("font_size", 24)
+	btn.add_theme_font_size_override("font_size", MenuTypography.SMALL_ACTION_SIZE)
 	return btn
 
 

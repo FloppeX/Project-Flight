@@ -8,6 +8,7 @@ const CARRIER_TREAD_SCRIPT := preload("res://LandCarrier/CarrierTread.gd")
 const VEHICLE_RAMP_SCRIPT := preload("res://LandCarrier/VehicleRamp.gd")
 const VEHICLE_BAY_SCRIPT := preload("res://LandCarrier/VehicleBayManager.gd")
 const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
+const TRACK_MARK_FADE_SHADER := preload("res://LandCarrier/track_mark_fade.gdshader")
 const PERF_OVERRIDE_PATH := "user://land_carrier_perf_override.json"
 
 # --- Waypoints ---
@@ -97,18 +98,16 @@ const MAX_TREAD_STEER: float = 0.4
 @export_group("Ground Track Marks")
 @export var track_marks_enabled: bool = true
 @export var track_mark_lifetime_s: float = 30.0
-@export var track_mark_min_speed_mps: float = 0.75
+@export var track_mark_min_speed_mps: float = 0.1
 @export var track_mark_spawn_spacing_m: float = 0.0
 @export var track_mark_width_m: float = 0.0
 @export var track_mark_length_m: float = 0.0
 @export var track_mark_thickness_m: float = 0.035
 @export var track_mark_ground_offset_m: float = 0.06
-@export_range(0.0, 1.0, 0.01) var track_mark_darken_factor: float = 0.34
-@export_range(0.0, 1.0, 0.01) var track_mark_fade_floor_darken_factor: float = 0.72
-@export_range(0.0, 1.0, 0.01) var track_mark_max_luminance: float = 0.22
-@export var track_mark_fallback_color: Color = Color(0.025, 0.023, 0.018, 1.0)
+@export_range(0.0, 1.0, 0.01) var track_mark_darken_factor: float = 0.82
+@export_range(0.0, 1.0, 0.01) var track_mark_max_luminance: float = 1.0
+@export var track_mark_fallback_color: Color = Color(0.58, 0.39, 0.21, 1.0)
 @export var track_mark_max_active: int = 240
-@export var track_mark_fade_update_rate_hz: float = 5.0
 
 # --- State ---
 var _raw_waypoints: Array[Vector3] = []
@@ -147,13 +146,14 @@ var _deck_audio_player: AudioStreamPlayer3D
 var _track_mark_root: MultiMeshInstance3D = null
 var _track_mark_multimesh: MultiMesh = null
 var _track_mark_mesh: BoxMesh = null
-var _track_mark_material: StandardMaterial3D = null
+var _track_mark_material: ShaderMaterial = null
 var _track_mark_entries: Array[Dictionary] = []
-var _track_mark_distance_accum_m: float = 0.0
+var _track_mark_tread_states: Dictionary = {}
 var _track_mark_debug_log_interval_s: float = 0.0
 var _track_mark_debug_log_timer_s: float = 0.0
 var _track_mark_multimesh_dirty: bool = false
-var _track_mark_fade_update_timer_s: float = 0.0
+var _track_mark_clock_s: float = 0.0
+var _track_mark_free_slots: Array[int] = []
 var _terrain_provider: Node = null
 var _heli_test_stationary: bool = false
 var _tread_detail_enabled: bool = true
@@ -227,18 +227,15 @@ func _apply_perf_override() -> void:
 		track_mark_spawn_spacing_m = maxf(float(data.get("track_mark_spawn_spacing_m")), 0.0)
 	if data.has("track_mark_min_speed_mps"):
 		track_mark_min_speed_mps = maxf(float(data.get("track_mark_min_speed_mps")), 0.0)
-	if data.has("track_mark_fade_update_rate_hz"):
-		track_mark_fade_update_rate_hz = maxf(float(data.get("track_mark_fade_update_rate_hz")), 0.0)
 	if data.has("track_mark_debug_log_interval_s"):
 		_track_mark_debug_log_interval_s = maxf(float(data.get("track_mark_debug_log_interval_s")), 0.0)
 		_track_mark_debug_log_timer_s = _track_mark_debug_log_interval_s
-	print("[LandCarrierPerfOverride] track_marks_enabled=%s max_active=%d lifetime=%.1f spacing=%.2f min_speed=%.2f fade_hz=%.1f debug_interval=%.1f" % [
+	print("[LandCarrierPerfOverride] track_marks_enabled=%s max_active=%d lifetime=%.1f spacing=%.2f min_speed=%.2f gpu_fade=true debug_interval=%.1f" % [
 		str(track_marks_enabled),
 		track_mark_max_active,
 		track_mark_lifetime_s,
 		track_mark_spawn_spacing_m,
 		track_mark_min_speed_mps,
-		track_mark_fade_update_rate_hz,
 		_track_mark_debug_log_interval_s,
 	])
 
@@ -247,6 +244,14 @@ func apply_origin_shift(offset: Vector3) -> void:
 		_raw_waypoints[i] -= offset
 	for i in range(_waypoint_positions.size()):
 		_waypoint_positions[i] -= offset
+	for tread_id_variant in _track_mark_tread_states.keys():
+		var tread_state: Dictionary = _track_mark_tread_states[tread_id_variant]
+		var tread_transform_variant: Variant = tread_state.get("transform", Transform3D.IDENTITY)
+		if tread_transform_variant is Transform3D:
+			var tread_transform: Transform3D = tread_transform_variant
+			tread_transform.origin -= offset
+			tread_state["transform"] = tread_transform
+			_track_mark_tread_states[tread_id_variant] = tread_state
 	for i in _track_mark_entries.size():
 		var entry: Dictionary = _track_mark_entries[i]
 		var transform_variant: Variant = entry.get("transform", Transform3D.IDENTITY)
@@ -1187,25 +1192,58 @@ func _is_ancestor_of(root: Node, possible_child: Node) -> bool:
 	return false
 
 
-func _update_track_marks(delta: float, transform_before: Transform3D) -> void:
+func _update_track_marks(delta: float, _transform_before: Transform3D) -> void:
 	_update_track_mark_lifetimes(delta)
 	_update_track_mark_debug_log(delta)
-	if not track_marks_enabled or _tread_nodes.is_empty():
+	var track_treads := _get_track_mark_treads()
+	if track_treads.is_empty():
+		_track_mark_tread_states.clear()
 		return
 
+	var active_tread_ids: Dictionary = {}
+	for tread in track_treads:
+		var tread_id := tread.get_instance_id()
+		active_tread_ids[tread_id] = true
+		_update_track_marks_for_tread(tread, delta, track_marks_enabled)
+	for tread_id_variant in _track_mark_tread_states.keys():
+		if not active_tread_ids.has(tread_id_variant):
+			_track_mark_tread_states.erase(tread_id_variant)
+
+
+func _update_track_marks_for_tread(tread: Node3D, delta: float, allow_spawn: bool) -> void:
+	var tread_id := tread.get_instance_id()
+	var current_transform := tread.global_transform
+	if not _track_mark_tread_states.has(tread_id):
+		_track_mark_tread_states[tread_id] = {
+			"transform": current_transform,
+			"distance_accum_m": 0.0,
+		}
+		return
+
+	var state: Dictionary = _track_mark_tread_states[tread_id]
+	var previous_transform_variant: Variant = state.get("transform", current_transform)
+	var previous_transform: Transform3D = previous_transform_variant if previous_transform_variant is Transform3D else current_transform
+	var distance_accum_m := maxf(float(state.get("distance_accum_m", 0.0)), 0.0)
 	var travel := Vector2(
-		global_position.x - transform_before.origin.x,
-		global_position.z - transform_before.origin.z
+		current_transform.origin.x - previous_transform.origin.x,
+		current_transform.origin.z - previous_transform.origin.z
 	).length()
-	if delta <= 0.0 or travel / delta < maxf(track_mark_min_speed_mps, 0.0):
-		_track_mark_distance_accum_m = minf(_track_mark_distance_accum_m, _get_track_mark_spacing_m())
+	var spacing := _get_track_mark_spacing_m()
+	if not allow_spawn or delta <= 0.0 or travel / delta < maxf(track_mark_min_speed_mps, 0.0):
+		state["transform"] = current_transform
+		state["distance_accum_m"] = minf(distance_accum_m, spacing)
+		_track_mark_tread_states[tread_id] = state
 		return
 
-	var spacing := _get_track_mark_spacing_m()
-	_track_mark_distance_accum_m += travel
-	while _track_mark_distance_accum_m >= spacing:
-		_track_mark_distance_accum_m -= spacing
-		_spawn_track_mark_set()
+	var distance_to_next_mark := maxf(spacing - distance_accum_m, 0.0)
+	while distance_to_next_mark <= travel + 0.0001:
+		var sample_fraction := clampf(distance_to_next_mark / maxf(travel, 0.0001), 0.0, 1.0)
+		var sampled_tread_transform := previous_transform.interpolate_with(current_transform, sample_fraction)
+		_spawn_track_mark_for_tread(sampled_tread_transform)
+		distance_to_next_mark += spacing
+	state["transform"] = current_transform
+	state["distance_accum_m"] = fmod(distance_accum_m + travel, spacing)
+	_track_mark_tread_states[tread_id] = state
 
 
 func _update_track_mark_debug_log(delta: float) -> void:
@@ -1223,7 +1261,11 @@ func _update_track_mark_debug_log(delta: float) -> void:
 
 
 func _update_track_mark_lifetimes(delta: float) -> void:
-	var removed_any := false
+	_track_mark_clock_s += maxf(delta, 0.0)
+	if _track_mark_material != null:
+		# One uniform update lets the GPU fade every instance smoothly. Rewriting
+		# every MultiMesh color here would scale with the number of marks.
+		_track_mark_material.set_shader_parameter(&"track_time_s", _track_mark_clock_s)
 	for i in range(_track_mark_entries.size() - 1, -1, -1):
 		var entry: Dictionary = _track_mark_entries[i]
 		var age := float(entry.get("age", 0.0)) + delta
@@ -1232,37 +1274,10 @@ func _update_track_mark_lifetimes(delta: float) -> void:
 
 		var lifetime := maxf(float(entry.get("lifetime", track_mark_lifetime_s)), 0.01)
 		if age >= lifetime:
+			_release_track_mark_slot(int(entry.get("slot", -1)))
 			_track_mark_entries.remove_at(i)
-			removed_any = true
-	var update_fade := _should_update_track_mark_fade(delta)
-	if removed_any or _track_mark_multimesh_dirty or update_fade:
-		_sync_track_mark_multimesh(removed_any or _track_mark_multimesh_dirty, update_fade or removed_any or _track_mark_multimesh_dirty)
-
-
-func _should_update_track_mark_fade(delta: float) -> bool:
-	var update_rate := maxf(track_mark_fade_update_rate_hz, 0.0)
-	if update_rate <= 0.0:
-		return false
-	var interval := 1.0 / update_rate
-	_track_mark_fade_update_timer_s -= delta
-	if _track_mark_fade_update_timer_s > 0.0:
-		return false
-	_track_mark_fade_update_timer_s = interval
-	return true
-
-
-func _spawn_track_mark_set() -> void:
-	_ensure_track_mark_resources()
-	if _track_mark_root == null or _track_mark_multimesh == null:
-		return
-
-	for tread in _get_track_mark_treads():
-		_spawn_track_mark_for_tread(tread)
-
-	while _track_mark_entries.size() > maxi(track_mark_max_active, 0):
-		_track_mark_entries.pop_front()
-	_track_mark_multimesh_dirty = true
-	_sync_track_mark_multimesh(true)
+	if _track_mark_multimesh_dirty:
+		_sync_track_mark_multimesh(true)
 
 
 func _get_track_mark_treads() -> Array[Node3D]:
@@ -1280,10 +1295,11 @@ func _get_track_mark_treads() -> Array[Node3D]:
 	return selected
 
 
-func _spawn_track_mark_for_tread(tread: Node3D) -> void:
-	if _track_mark_entries.size() >= maxi(track_mark_max_active, 0):
+func _spawn_track_mark_for_tread(tread_transform: Transform3D) -> void:
+	var slot := _acquire_track_mark_slot()
+	if slot < 0:
 		return
-	var forward := tread.global_transform.basis.z
+	var forward := tread_transform.basis.z
 	forward.y = 0.0
 	if forward.length_squared() < 0.0001:
 		forward = global_transform.basis.z
@@ -1292,22 +1308,72 @@ func _spawn_track_mark_for_tread(tread: Node3D) -> void:
 	var right := Vector3.UP.cross(forward)
 	right = right.normalized() if right.length_squared() > 0.0001 else Vector3.RIGHT
 
-	var terrain_y := _sample_precise_terrain_y(tread.global_position.x, tread.global_position.z)
-	var ground_color := _get_track_mark_ground_color(Vector3(tread.global_position.x, terrain_y, tread.global_position.z))
+	var tread_position := tread_transform.origin
+	var terrain_y := _sample_precise_terrain_y(tread_position.x, tread_position.z)
+	var ground_color := _get_track_mark_ground_color(Vector3(tread_position.x, terrain_y, tread_position.z))
 	var mark_color := _get_track_mark_color_from_ground(ground_color)
 	var basis := Basis(right, Vector3.UP, forward)
 	var origin := Vector3(
-		tread.global_position.x,
+		tread_position.x,
 		terrain_y + maxf(track_mark_ground_offset_m, 0.0) + maxf(track_mark_thickness_m, 0.001) * 0.5,
-		tread.global_position.z
+		tread_position.z
 	)
-	_track_mark_entries.append({
+	var entry := {
 		"transform": Transform3D(basis, origin),
 		"age": 0.0,
 		"lifetime": maxf(track_mark_lifetime_s, 0.01),
+		"spawn_time": _track_mark_clock_s,
 		"color": mark_color,
-		"ground_color": ground_color,
-	})
+		"slot": slot,
+	}
+	_track_mark_entries.append(entry)
+	_write_track_mark_slot(slot, entry)
+
+
+func _acquire_track_mark_slot() -> int:
+	if not _track_mark_free_slots.is_empty():
+		return _track_mark_free_slots.pop_back()
+	# Keep laying a continuous trail at the capacity limit by replacing the
+	# oldest mark. The previous implementation stopped spawning until a timer
+	# expired, leaving a visible gap behind the moving carrier.
+	while not _track_mark_entries.is_empty():
+		var oldest: Dictionary = _track_mark_entries.pop_front()
+		var slot := int(oldest.get("slot", -1))
+		if slot >= 0 and _track_mark_multimesh != null and slot < _track_mark_multimesh.instance_count:
+			return slot
+	return -1
+
+
+func _release_track_mark_slot(slot: int) -> void:
+	if _track_mark_multimesh == null or slot < 0 or slot >= _track_mark_multimesh.instance_count:
+		return
+	_hide_track_mark_slot(slot)
+	if not _track_mark_free_slots.has(slot):
+		_track_mark_free_slots.append(slot)
+
+
+func _hide_track_mark_slot(slot: int) -> void:
+	if _track_mark_multimesh == null or slot < 0 or slot >= _track_mark_multimesh.instance_count:
+		return
+	_track_mark_multimesh.set_instance_transform(slot, Transform3D(Basis().scaled(Vector3.ZERO), Vector3.ZERO))
+	_track_mark_multimesh.set_instance_color(slot, Color(0.0, 0.0, 0.0, 0.0))
+	_track_mark_multimesh.set_instance_custom_data(slot, Color(0.0, 0.01, 0.0, 0.0))
+
+
+func _write_track_mark_slot(slot: int, entry: Dictionary, update_transform: bool = true, update_color: bool = true) -> void:
+	if _track_mark_multimesh == null or slot < 0 or slot >= _track_mark_multimesh.instance_count:
+		return
+	if update_transform:
+		var transform_variant: Variant = entry.get("transform", Transform3D.IDENTITY)
+		var mark_transform: Transform3D = transform_variant if transform_variant is Transform3D else Transform3D.IDENTITY
+		_track_mark_multimesh.set_instance_transform(slot, mark_transform)
+	var spawn_time := maxf(float(entry.get("spawn_time", _track_mark_clock_s)), 0.0)
+	var lifetime := maxf(float(entry.get("lifetime", track_mark_lifetime_s)), 0.01)
+	_track_mark_multimesh.set_instance_custom_data(slot, Color(spawn_time, lifetime, 0.0, 0.0))
+	if update_color:
+		var mark_color_variant: Variant = entry.get("color", track_mark_fallback_color)
+		var mark_color: Color = mark_color_variant if mark_color_variant is Color else track_mark_fallback_color
+		_track_mark_multimesh.set_instance_color(slot, _limit_track_mark_luminance(mark_color))
 
 
 func _ensure_track_mark_resources() -> void:
@@ -1332,13 +1398,9 @@ func _ensure_track_mark_resources() -> void:
 	_track_mark_mesh.size = Vector3(width, thickness, length)
 
 	if _track_mark_material == null:
-		_track_mark_material = StandardMaterial3D.new()
-		_track_mark_material.transparency = BaseMaterial3D.TRANSPARENCY_DISABLED
-		_track_mark_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		_track_mark_material.cull_mode = BaseMaterial3D.CULL_DISABLED
-		_track_mark_material.roughness = 1.0
-		_track_mark_material.vertex_color_use_as_albedo = true
-	_track_mark_material.albedo_color = Color(1.0, 1.0, 1.0, 1.0)
+		_track_mark_material = ShaderMaterial.new()
+		_track_mark_material.shader = TRACK_MARK_FADE_SHADER
+	_track_mark_material.set_shader_parameter(&"track_time_s", _track_mark_clock_s)
 	_track_mark_root.material_override = _track_mark_material
 
 	var capacity := maxi(track_mark_max_active, 0)
@@ -1346,44 +1408,42 @@ func _ensure_track_mark_resources() -> void:
 		_track_mark_multimesh = MultiMesh.new()
 		_track_mark_multimesh.transform_format = MultiMesh.TRANSFORM_3D
 		_track_mark_multimesh.use_colors = true
+		_track_mark_multimesh.use_custom_data = true
 		_track_mark_multimesh.mesh = _track_mark_mesh
 		_track_mark_multimesh.instance_count = capacity
-		_track_mark_multimesh.visible_instance_count = _track_mark_entries.size()
+		_track_mark_multimesh.visible_instance_count = capacity
+		_track_mark_free_slots.clear()
+		for slot in capacity:
+			_hide_track_mark_slot(slot)
+			_track_mark_free_slots.append(slot)
+		while _track_mark_entries.size() > capacity:
+			_track_mark_entries.pop_front()
+		for i in _track_mark_entries.size():
+			var entry: Dictionary = _track_mark_entries[i]
+			var slot: int = _track_mark_free_slots.pop_back()
+			entry["slot"] = slot
+			_track_mark_entries[i] = entry
+			_write_track_mark_slot(slot, entry)
 		_track_mark_root.multimesh = _track_mark_multimesh
-		_track_mark_multimesh_dirty = true
+		_track_mark_multimesh_dirty = false
 
 
 func _sync_track_mark_multimesh(rebuild_transforms: bool = false, update_colors: bool = true) -> void:
-	if _track_mark_entries.is_empty():
-		if _track_mark_multimesh != null:
-			_track_mark_multimesh.visible_instance_count = 0
-		_track_mark_multimesh_dirty = false
-		return
 	if not rebuild_transforms and not update_colors:
 		return
 	_ensure_track_mark_resources()
 	if _track_mark_multimesh == null:
 		return
-	var count := mini(_track_mark_entries.size(), _track_mark_multimesh.instance_count)
-	_track_mark_multimesh.visible_instance_count = count
-	for i in count:
+	for i in _track_mark_entries.size():
 		var entry: Dictionary = _track_mark_entries[i]
-		if rebuild_transforms:
-			var transform_variant: Variant = entry.get("transform", Transform3D.IDENTITY)
-			var mark_transform: Transform3D = transform_variant if transform_variant is Transform3D else Transform3D.IDENTITY
-			_track_mark_multimesh.set_instance_transform(i, mark_transform)
-		if not update_colors:
-			continue
-		var lifetime := maxf(float(entry.get("lifetime", track_mark_lifetime_s)), 0.01)
-		var age := maxf(float(entry.get("age", 0.0)), 0.0)
-		var fade := clampf(1.0 - age / lifetime, 0.0, 1.0)
-		var ground_color_variant: Variant = entry.get("ground_color", track_mark_fallback_color)
-		var mark_color_variant: Variant = entry.get("color", track_mark_fallback_color)
-		var ground_color: Color = ground_color_variant if ground_color_variant is Color else track_mark_fallback_color
-		var mark_color: Color = mark_color_variant if mark_color_variant is Color else track_mark_fallback_color
-		var fade_floor := _get_track_mark_fade_floor_color(ground_color)
-		mark_color = _limit_track_mark_luminance(mark_color)
-		_track_mark_multimesh.set_instance_color(i, fade_floor.lerp(mark_color, fade))
+		var slot := int(entry.get("slot", -1))
+		if slot < 0 or slot >= _track_mark_multimesh.instance_count:
+			if _track_mark_free_slots.is_empty():
+				continue
+			slot = _track_mark_free_slots.pop_back()
+			entry["slot"] = slot
+			_track_mark_entries[i] = entry
+		_write_track_mark_slot(slot, entry, rebuild_transforms, update_colors)
 	_track_mark_multimesh_dirty = false
 
 
@@ -1395,21 +1455,11 @@ func _get_track_mark_ground_color(world_pos: Vector3) -> Color:
 		if color_variant is Color:
 			ground_color = color_variant
 	ground_color.a = 1.0
-	return _limit_track_mark_luminance(ground_color)
+	return ground_color
 
 
 func _get_track_mark_color_from_ground(ground_color: Color) -> Color:
 	var darken := clampf(track_mark_darken_factor, 0.0, 1.0)
-	return _limit_track_mark_luminance(Color(
-		clampf(ground_color.r * darken, 0.0, 1.0),
-		clampf(ground_color.g * darken, 0.0, 1.0),
-		clampf(ground_color.b * darken, 0.0, 1.0),
-		1.0
-	))
-
-
-func _get_track_mark_fade_floor_color(ground_color: Color) -> Color:
-	var darken := clampf(track_mark_fade_floor_darken_factor, 0.0, 1.0)
 	return _limit_track_mark_luminance(Color(
 		clampf(ground_color.r * darken, 0.0, 1.0),
 		clampf(ground_color.g * darken, 0.0, 1.0),

@@ -1,5 +1,7 @@
 # Gunnery Gym
 
+> **Document status:** Specialist test reference. It describes the gunnery harness rather than current project status; reproduce a baseline before treating older optimizer results as current. See the [README](../README.md#development-and-verification).
+
 `GunneryGym.tscn` evaluates the production `Aircraft_5` and `AIPilot` against frozen-physics targets that follow exact analytic paths. It is intended to tune tracking, bank scheduling, pitch/rudder precision aiming, and firing—not aircraft physics.
 
 The default cases include a tail chase, crossing passes, and sustained left/right turns. Targets have deterministic position and velocity, infinite health, zero gun spread is used during tuning, and trials are separated by 14 km so candidates cannot interact.

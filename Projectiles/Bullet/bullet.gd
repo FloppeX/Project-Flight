@@ -19,7 +19,7 @@ class_name Bullet
 @export var visual_lod_enabled: bool = true
 @export var full_tracer_distance_m: float = 600.0
 @export var max_tracer_distance_m: float = 1500.0
-@export var distant_tracer_stride: int = 4
+@export var distant_tracer_stride: int = 1
 @export var visual_policy_interval_s: float = 0.10
 @export var distant_hit_assist_interval_s: float = 0.09
 @export var hidden_hit_assist_interval_s: float = 0.12
@@ -174,17 +174,30 @@ func fire(initial_velocity: Vector3, firing_aircraft: Node3D):
 	
 	# Inherit the firing platform's point velocity at the muzzle so rounds stay
 	# aligned with the gun line during hard turns and rolls.
-	if not firing_aircraft or not is_instance_valid(firing_aircraft):
-		return
+	if firing_aircraft and is_instance_valid(firing_aircraft):
+		linear_velocity += _get_motion_velocity(firing_aircraft)
 
-	linear_velocity += _get_motion_velocity(firing_aircraft)
-
-	var angular_velocity: Vector3 = _get_motion_angular_velocity(firing_aircraft)
-	if angular_velocity.length_squared() > 0.000001 and firing_aircraft is Node3D:
-		var r_offset: Vector3 = global_position - (firing_aircraft as Node3D).global_position
-		linear_velocity += angular_velocity.cross(r_offset)
+		var angular_velocity: Vector3 = _get_motion_angular_velocity(firing_aircraft)
+		if angular_velocity.length_squared() > 0.000001 and firing_aircraft is Node3D:
+			var r_offset: Vector3 = global_position - (firing_aircraft as Node3D).global_position
+			linear_velocity += angular_velocity.cross(r_offset)
 	_debug_initial_speed_mps = linear_velocity.length()
 	_debug_peak_speed_mps = _debug_initial_speed_mps
+	# Pool reuse resets the spawn transform, but that transform still describes
+	# the muzzle rather than the bullet's final inherited velocity. Align now so
+	# the first rendered tracer frame never shows the old/muzzle orientation.
+	_align_visual_to_velocity()
+
+func _align_visual_to_velocity() -> void:
+	if linear_velocity.length_squared() <= 0.01:
+		return
+	var travel_direction: Vector3 = linear_velocity.normalized()
+	var up_hint := Vector3.UP
+	# Node3D.look_at cannot construct a stable basis when travel and up are parallel.
+	if absf(travel_direction.dot(up_hint)) > 0.999:
+		up_hint = Vector3.FORWARD
+	# The tracer mesh extends behind the bullet on local +Z, so local -Z is travel.
+	look_at(global_position + travel_direction, up_hint)
 
 func _get_motion_velocity(node: Node) -> Vector3:
 	if node == null or not is_instance_valid(node):
@@ -237,8 +250,8 @@ func _physics_process(delta):
 	
 	_refresh_visual_policy(delta)
 	# Orientation only matters when a bullet visual is actually being rendered.
-	if _visual_allowed and linear_velocity.length() > 0.1:
-		look_at(global_position + linear_velocity, Vector3.UP)
+	if _visual_allowed:
+		_align_visual_to_velocity()
 	
 	# Update tracer trail
 	if tracer_enabled:

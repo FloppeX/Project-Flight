@@ -44,6 +44,8 @@ func _run() -> void:
 	var first := _acquire_test_bullet()
 	var first_id: int = first.get_instance_id()
 	first.fire(Vector3(0.0, 0.0, 500.0), null)
+	_expect(_is_aligned_to_velocity(first), "new bullet tracer was not aligned on its first rendered frame")
+	_expect(first.distant_tracer_stride == 1, "default distant tracer sampling still hides some rounds")
 	await _wait_physics_frames(20)
 	print("[BulletOptimizationSmoketest] first round complete damage=%.1f pool=%s" % [target.damage_taken, get_tree().root.get_node("BulletPool").call("get_stats")])
 	_expect(target.damage_taken > 0.0, "first pooled bullet did not damage the target")
@@ -52,6 +54,7 @@ func _run() -> void:
 	var second := _acquire_test_bullet()
 	_expect(second.get_instance_id() == first_id, "second shot did not reuse the retired bullet")
 	second.fire(Vector3(0.0, 0.0, 500.0), null)
+	_expect(_is_aligned_to_velocity(second), "reused bullet tracer retained its previous orientation")
 	print("[BulletOptimizationSmoketest] reused fired processing=%s impacted=%s pos=%s vel=%s" % [second.is_physics_processing(), second.has_impacted, second.global_position, second.linear_velocity])
 	await _wait_physics_frames(20)
 	print("[BulletOptimizationSmoketest] reused round complete damage=%.1f parent=%s pos=%s impacted=%s" % [target.damage_taken, second.get_parent().name if second.get_parent() else "none", second.global_position, second.has_impacted])
@@ -155,6 +158,12 @@ func _wait_physics_frames(count: int) -> void:
 	for i in range(count):
 		await get_tree().physics_frame
 		await get_tree().process_frame
+
+func _is_aligned_to_velocity(bullet: Bullet) -> bool:
+	if bullet == null or bullet.linear_velocity.length_squared() <= 0.01:
+		return false
+	var tracer_forward: Vector3 = -bullet.global_transform.basis.z.normalized()
+	return tracer_forward.dot(bullet.linear_velocity.normalized()) > 0.999
 
 func _expect(condition: bool, message: String) -> void:
 	if not condition:

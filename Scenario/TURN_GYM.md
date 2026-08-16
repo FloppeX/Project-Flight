@@ -1,5 +1,7 @@
 # Coordinated-turn optimizer
 
+> **Document status:** Specialist test reference. It describes the turn-gym harness rather than current project status; reproduce a baseline before treating older optimizer results as current. See the [README](../README.md#development-and-verification).
+
 `TurnGym.tscn` evaluates the production `AIPilot` coordinated-turn controller against the
 real `Aircraft_5` rigid-body and `SimpleAero` physics. It bypasses mission decisions so the
 score answers one narrow question: once a combat pilot has chosen a steep bank, how well do
