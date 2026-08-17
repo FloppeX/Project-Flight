@@ -109,6 +109,34 @@ func set_doors_open(open: bool, reason: String = "script") -> void:
 		print("[HeliSwingDoors] %s doors target: open=%s reason=%s" % [craft_name, str(_open_target), reason])
 
 
+func prepare_technical_index_preview() -> bool:
+	if not is_instance_valid(aircraft):
+		aircraft = get_parent()
+	_setup_doors()
+	if not _initialized:
+		return false
+	set_technical_index_preview_fraction(0.0)
+	return true
+
+
+func set_technical_index_preview_fraction(open_fraction: float) -> void:
+	_open_t = clampf(open_fraction, 0.0, 1.0)
+	_open_target = _open_t >= 0.5
+	_apply_door_pose()
+
+
+func get_technical_index_preview_fraction() -> float:
+	return _open_t
+
+
+func get_technical_index_preview_duration() -> float:
+	return maxf(animation_duration_s, 0.01)
+
+
+func get_technical_index_preview_kind() -> StringName:
+	return &"doors"
+
+
 func _setup_doors() -> void:
 	if _initialized:
 		return
@@ -128,26 +156,34 @@ func _setup_doors() -> void:
 
 	# Compute each hinge axis in the hinge's local space from the two authored marker nodes.
 	if left_axis_node != null:
-		var world_axis := (left_axis_node.global_position - _left_hinge.global_position)
-		if world_axis.length_squared() > 0.0001:
-			_left_hinge_axis = (_left_hinge.global_basis.inverse() * world_axis).normalized()
+		var left_hinge_aircraft := _get_transform_to_ancestor(_left_hinge, aircraft)
+		var left_axis_aircraft := _get_transform_to_ancestor(left_axis_node, aircraft)
+		var aircraft_axis := left_axis_aircraft.origin - left_hinge_aircraft.origin
+		if aircraft_axis.length_squared() > 0.0001:
+			_left_hinge_axis = (left_hinge_aircraft.basis.inverse() * aircraft_axis).normalized()
 	if right_axis_node != null:
-		var world_axis := (right_axis_node.global_position - _right_hinge.global_position)
-		if world_axis.length_squared() > 0.0001:
-			_right_hinge_axis = (_right_hinge.global_basis.inverse() * world_axis).normalized()
+		var right_hinge_aircraft := _get_transform_to_ancestor(_right_hinge, aircraft)
+		var right_axis_aircraft := _get_transform_to_ancestor(right_axis_node, aircraft)
+		var aircraft_axis := right_axis_aircraft.origin - right_hinge_aircraft.origin
+		if aircraft_axis.length_squared() > 0.0001:
+			_right_hinge_axis = (right_hinge_aircraft.basis.inverse() * aircraft_axis).normalized()
 
 	# Reparent Left Door to Left Hinge
-	var left_global_trans = _left_door.global_transform
+	var left_aircraft_transform := _get_transform_to_ancestor(_left_door, aircraft)
+	var left_hinge_aircraft_transform := _get_transform_to_ancestor(_left_hinge, aircraft)
+	_left_door.owner = null
 	_left_door.get_parent().remove_child(_left_door)
 	_left_hinge.add_child(_left_door)
-	_left_door.global_transform = left_global_trans
+	_left_door.transform = left_hinge_aircraft_transform.affine_inverse() * left_aircraft_transform
 	_left_door.owner = _left_hinge.owner
 
 	# Reparent Right Door to Right Hinge
-	var right_global_trans = _right_door.global_transform
+	var right_aircraft_transform := _get_transform_to_ancestor(_right_door, aircraft)
+	var right_hinge_aircraft_transform := _get_transform_to_ancestor(_right_hinge, aircraft)
+	_right_door.owner = null
 	_right_door.get_parent().remove_child(_right_door)
 	_right_hinge.add_child(_right_door)
-	_right_door.global_transform = right_global_trans
+	_right_door.transform = right_hinge_aircraft_transform.affine_inverse() * right_aircraft_transform
 	_right_door.owner = _right_hinge.owner
 
 	_initialized = true
@@ -168,6 +204,16 @@ func _apply_door_pose() -> void:
 
 func _smoothstep(value: float) -> float:
 	return value * value * (3.0 - 2.0 * value)
+
+
+func _get_transform_to_ancestor(node: Node3D, ancestor: Node) -> Transform3D:
+	var result := node.transform
+	var parent := node.get_parent()
+	while parent != null and parent != ancestor:
+		if parent is Node3D:
+			result = (parent as Node3D).transform * result
+		parent = parent.get_parent()
+	return result
 
 
 func _is_this_aircraft_player_controlled() -> bool:

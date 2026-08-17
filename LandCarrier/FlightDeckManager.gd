@@ -21,6 +21,7 @@ signal deck_state_changed(new_state)
 ]
 @export var max_hangar_capacity: int = 12
 @export var aircraft_template_scene: PackedScene  # Default aircraft template (Aircraft 5)
+@export var aircraft_1_scene: PackedScene         # Aircraft 1 template
 @export var aircraft_2_scene: PackedScene         # Aircraft 2 template
 @export var aircraft_7_scene: PackedScene         # Aircraft 7 template
 @export var aircraft_8_scene: PackedScene         # Aircraft 8 template
@@ -87,6 +88,7 @@ var _launch_terrain_block_log_s: float = 0.0
 @export var tractor_elevator_floor_offset_m: float = 0.0
 @export var tractor_elevator_align_duration_s: float = 1.2
 
+const AIRCRAFT_1_SCENE_PATH := "res://Aircraft/Aircraft_1.tscn"
 const DEFAULT_AIRCRAFT_SCENE_PATH := "res://Aircraft/Aircraft_5.tscn"
 const LOADOUT_CAP := "cap"
 const LOADOUT_INTERCEPT := "intercept"
@@ -853,6 +855,17 @@ func _queue_aircraft_scene_for_retrieval(aircraft_name: String, scene: PackedSce
 		])
 	start_hangar_retrieval()
 
+func _queue_aircraft_1_hotkey_launch() -> void:
+	if current_state != DeckState.IDLE or _landing_test_active:
+		return
+	var scene := aircraft_1_scene
+	if scene == null:
+		scene = load(AIRCRAFT_1_SCENE_PATH) as PackedScene
+	if scene == null:
+		push_warning("[FlightDeckManager] Aircraft 1 hotkey could not load %s" % AIRCRAFT_1_SCENE_PATH)
+		return
+	_queue_aircraft_scene_for_retrieval("Aircraft_1", scene, AIRCRAFT_1_SCENE_PATH)
+
 func _is_elevator_physically_at_top() -> bool:
 	if not elevator:
 		return false
@@ -928,7 +941,7 @@ func _input(event):
 		else:
 			pass
 
-	# Retrieve aircraft from hangar (key "1" or retrieve_aircraft action)
+	# Retrieve the next existing aircraft through the generic Input Map action.
 	if Input.is_action_just_pressed("retrieve_aircraft"):
 		if current_state == DeckState.IDLE and not stored_aircraft.is_empty():
 			start_hangar_retrieval()
@@ -937,6 +950,11 @@ func _input(event):
 				pass
 			if stored_aircraft.is_empty():
 				pass
+
+	# Summon Aircraft 1 from the hangar and run the normal automatic launch flow.
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_1:
+		_queue_aircraft_1_hotkey_launch()
+		return
 
 	# Direct keyboard shortcuts below this point were development/test controls.
 	# Keep action-based controls above so newly assigned Input Map keys still work.

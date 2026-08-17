@@ -280,6 +280,42 @@ func _ready() -> void:
 	set_process(not Engine.is_editor_hint())
 
 
+## Samples the normal cockpit pose without requiring this node to enter the
+## scene tree. Technical Index previews call this before stripping scripts.
+func apply_static_seated_pose() -> bool:
+	initial_pose_name = &"sitting"
+	_set_parachute_placeholder_active(false)
+	_pose_target_root = _get_pose_target_root()
+	if flat_shade_pilot_visual:
+		PilotVisualMaterials.apply_flat_shading(_pose_target_root)
+
+	_skeleton = _find_skeleton(_pose_target_root)
+	if _skeleton == null:
+		return false
+	_hide_control_shapes(_pose_target_root)
+
+	var pose_applied := _try_apply_baked_sitting_pose()
+	if not pose_applied:
+		_disable_animation_players(_pose_target_root)
+		_build_foot_links()
+		_ready_done = true
+		var values := _get_pose_values(&"sitting")
+		if values.is_empty():
+			return false
+		_apply_pose_values(values, 0.0)
+		pose_applied = true
+
+	# A live cockpit camera can hide the pilot from first-person view. Static
+	# equipment previews always show the complete seated figure.
+	_cache_cockpit_visibility_nodes()
+	for hidden_node in _cockpit_hidden_nodes:
+		if is_instance_valid(hidden_node):
+			hidden_node.visible = true
+	_last_head_hidden = false
+	set_process(false)
+	return pose_applied
+
+
 func _setup_mixamo_animation() -> void:
 	_anim_player = _find_first_animation_player(_pose_target_root)
 	if _anim_player == null:

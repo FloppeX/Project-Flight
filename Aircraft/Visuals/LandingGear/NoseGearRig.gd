@@ -55,10 +55,45 @@ func _ready() -> void:
 	call_deferred("_finish_setup")
 
 func _finish_setup() -> void:
+	if _rig_ready:
+		return
 	_build_runtime_hierarchy()
 	_cache_wheel_contact_geometry()
 	_rig_ready = true
 	_update_pose()
+
+
+func prepare_technical_index_preview() -> bool:
+	_gear_model = get_node_or_null(gear_model_path) as Node3D
+	_landing_gear_module = get_node_or_null(landing_gear_module_path)
+	_steering_module = get_node_or_null(steering_module_path)
+	if _gear_model == null or _landing_gear_module == null:
+		return false
+	if bool(_landing_gear_module.get("lock_deployed")):
+		return false
+	_finish_setup()
+	set_technical_index_preview_fraction(1.0)
+	return _rig_ready
+
+
+func set_technical_index_preview_fraction(deploy_fraction: float) -> void:
+	if is_instance_valid(_landing_gear_module):
+		_landing_gear_module.set("_gear_animation_progress", clampf(deploy_fraction, 0.0, 1.0))
+	_update_pose(-1.0)
+
+
+func get_technical_index_preview_fraction() -> float:
+	return _read_deploy_progress()
+
+
+func get_technical_index_preview_duration() -> float:
+	if is_instance_valid(_landing_gear_module):
+		return maxf(float(_landing_gear_module.get("DeployStowTime")), 0.01)
+	return 1.0
+
+
+func get_technical_index_preview_kind() -> StringName:
+	return &"gear"
 
 func _physics_process(delta: float) -> void:
 	if not _rig_ready:
@@ -113,6 +148,9 @@ func _reparent_part(part_name: String, new_parent: Node3D) -> void:
 	var root_space_transform := _get_transform_to_ancestor(part, self)
 	var parent_root_space_transform := _get_transform_to_ancestor(new_parent, self)
 	var old_parent := part.get_parent()
+	# Imported GLB nodes retain an owner tied to their original hierarchy. Clear it
+	# before moving the part so the preview rig does not create an invalid owner path.
+	part.owner = null
 	if old_parent:
 		old_parent.remove_child(part)
 	new_parent.add_child(part)

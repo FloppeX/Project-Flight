@@ -108,6 +108,34 @@ func set_doors_open(open: bool, reason: String = "script") -> void:
 		print("[HeliSlidingDoors] %s doors target: open=%s reason=%s" % [craft_name, str(_open_target), reason])
 
 
+func prepare_technical_index_preview() -> bool:
+	if not is_instance_valid(aircraft):
+		aircraft = get_parent()
+	_setup_doors()
+	if not _initialized:
+		return false
+	set_technical_index_preview_fraction(0.0)
+	return true
+
+
+func set_technical_index_preview_fraction(open_fraction: float) -> void:
+	_open_t = clampf(open_fraction, 0.0, 1.0)
+	_open_target = _open_t >= 0.5
+	_apply_door_pose()
+
+
+func get_technical_index_preview_fraction() -> float:
+	return _open_t
+
+
+func get_technical_index_preview_duration() -> float:
+	return maxf(animation_duration_s, 0.01)
+
+
+func get_technical_index_preview_kind() -> StringName:
+	return &"doors"
+
+
 func _setup_doors() -> void:
 	if _initialized:
 		return

@@ -28,13 +28,20 @@ var _right_rest_pos: Vector3
 var _stable_poll_timer_s: float = 0.0
 
 func _ready() -> void:
+	_cache_wing_nodes(true)
+
+
+func _cache_wing_nodes(warn_when_missing: bool) -> bool:
+	_left_wing = null
+	_right_wing = null
 	var body := get_parent().get_node_or_null("Aircraft 2 body") as Node3D
 	if body:
 		_left_wing  = body.get_node_or_null("left outer wing")  as Node3D
 		_right_wing = body.get_node_or_null("right outer wing") as Node3D
 	if not _left_wing or not _right_wing:
-		push_warning("[WingFold] Wing nodes not found — check GLB node names")
-		return
+		if warn_when_missing:
+			push_warning("[WingFold] Wing nodes not found — check GLB node names")
+		return false
 	_left_rest_pos = _left_wing.position
 	_right_rest_pos = _right_wing.position
 	_left_rest_quat = _left_wing.quaternion
@@ -42,6 +49,7 @@ func _ready() -> void:
 	# Store the exact authored rest local transforms for livery anchoring.
 	_left_wing.set_meta("livery_rest_transform_local", _left_wing.transform)
 	_right_wing.set_meta("livery_rest_transform_local", _right_wing.transform)
+	return true
 
 func _process(delta: float) -> void:
 	if not _left_wing or not _right_wing:
@@ -72,6 +80,31 @@ func _process(delta: float) -> void:
 	if not is_equal_approx(previous_fold_t, _fold_t) or not stable:
 		var angle := deg_to_rad(fold_angle_deg) * _fold_t
 		_apply_fold_pose(angle)
+
+
+func prepare_technical_index_preview() -> bool:
+	if not _cache_wing_nodes(false):
+		return false
+	set_technical_index_preview_fraction(0.0)
+	return true
+
+
+func set_technical_index_preview_fraction(fold_fraction: float) -> void:
+	_fold_t = clampf(fold_fraction, 0.0, 1.0)
+	_snapped = true
+	_apply_fold_pose(deg_to_rad(fold_angle_deg) * _fold_t)
+
+
+func get_technical_index_preview_fraction() -> float:
+	return _fold_t
+
+
+func get_technical_index_preview_duration() -> float:
+	return maxf(fold_duration, 0.01)
+
+
+func get_technical_index_preview_kind() -> StringName:
+	return &"wings"
 
 func _apply_fold_pose(angle: float) -> void:
 	var left_axis := fold_axis.normalized()

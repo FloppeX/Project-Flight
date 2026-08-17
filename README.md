@@ -102,7 +102,7 @@ This is a short current summary, not a second full changelog.
 - Refined the carrier console, mission flyout, confirmation gating, personnel view, and pilot presentation.
 - Changed AirOps startup behavior so a standing CAP requirement does not empty the hangar automatically; real intercepts, strikes, and explicit player orders can still launch flights.
 - Added persistent Air Ops tracking for downed pilots, automatic Aircraft_11 rescue launch and reassignment, pickup completion, and three configurable utility helicopters in the starting hangar.
-- Added a main-menu Technical Index with nested carrier, airplane, helicopter, structure, and weapon catalogs. Entries load their gameplay scene into an isolated rotatable 3D preview and show a description plus scene-derived specifications.
+- Added a main-menu Technical Index with nested ground-vehicle, airplane, helicopter, structure, and weapon catalogs. Entries load their gameplay scene into an isolated rotatable 3D preview and show a description plus scene-derived specifications.
 
 ### Late July to early August 2026 - operations and validation
 
@@ -193,7 +193,7 @@ Portable Godot on the current development machine:
 & "C:\Godot\Godot_v4.6.2-stable_win64_console.exe" --path "C:\Godot projects\Project-Flight"
 ```
 
-The industrial operator-console starting menu selects carrier identity, livery, insignia, and map profile. Its Technical Index provides a rotatable equipment reference for the primary gameplay vehicles, structures, and weapon assemblies; helper scenes, projectiles, templates, and destroyed variants are intentionally omitted. `M` opens the tactical carrier console. See the [controller guide](docs/CONTROLLER_GUIDE.md) for the broader input map, but treat its dated debug-key notes as needing live verification.
+The industrial operator-console starting menu selects carrier identity, livery, insignia, and map profile. Its Technical Index automatically displays the first entry in each equipment class on a black, green-grid inspection display. The model stays planted on the grid while mouse drag or press-and-hold directional controls orbit the camera; holding the adjacent `-` / `+` controls changes zoom continuously. It covers the primary gameplay vehicles, structures, and weapon assemblies while intentionally omitting helper scenes, projectiles, templates, and destroyed variants. `M` opens the tactical carrier console. See the [controller guide](docs/CONTROLLER_GUIDE.md) for the broader input map, but treat its dated debug-key notes as needing live verification.
 
 ### Focused smoke tests
 

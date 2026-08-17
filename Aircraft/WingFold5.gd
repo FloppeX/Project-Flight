@@ -86,6 +86,33 @@ func _process(delta: float) -> void:
 	if not is_equal_approx(previous_anim_time, _anim_time) or not stable:
 		_apply_pose()
 
+
+func prepare_technical_index_preview() -> bool:
+	_ready()
+	if not is_instance_valid(_left_wing) or not is_instance_valid(_right_wing):
+		return false
+	set_technical_index_preview_fraction(0.0)
+	return true
+
+
+func set_technical_index_preview_fraction(fold_fraction: float) -> void:
+	_anim_time = clampf(fold_fraction, 0.0, 1.0) * _total_duration
+	_snapped = true
+	_folding = _anim_time > 0.0
+	_apply_pose()
+
+
+func get_technical_index_preview_fraction() -> float:
+	return _anim_time / maxf(_total_duration, 0.01)
+
+
+func get_technical_index_preview_duration() -> float:
+	return maxf(_total_duration, 0.01)
+
+
+func get_technical_index_preview_kind() -> StringName:
+	return &"wings"
+
 func _apply_pose() -> void:
 	# Phase 1: lateral slide (0 → phase1_duration)
 	var slide_t: float = clampf(_anim_time / phase1_duration, 0.0, 1.0)

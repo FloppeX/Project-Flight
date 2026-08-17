@@ -175,14 +175,6 @@ func _input(event: InputEvent) -> void:
 		if _cycle_focused_setup_row(1):
 			viewport.set_input_as_handled()
 			return
-	if _current_screen == "tech_items" and _is_menu_left_event(event):
-		_technical_index.call("rotate_preview", -0.16)
-		viewport.set_input_as_handled()
-		return
-	if _current_screen == "tech_items" and _is_menu_right_event(event):
-		_technical_index.call("rotate_preview", 0.16)
-		viewport.set_input_as_handled()
-		return
 	if _is_menu_accept_event(event):
 		if focus_owner is Button and not (focus_owner as Button).disabled:
 			(focus_owner as Button).pressed.emit()
@@ -870,10 +862,12 @@ func _build_ui() -> void:
 	_brand_title_label.scale = Vector2(1.10, 1.0)
 	_brand_title_label.add_theme_color_override("font_shadow_color", Color(UI_PRIMARY.r, UI_PRIMARY.g, UI_PRIMARY.b, 0.22))
 	_brand_title_label.add_theme_constant_override("shadow_outline_size", 8)
+	_brand_title_label.z_index = 20
 	_ui_root.add_child(_brand_title_label)
 
 	_system_id_label = _make_label("SYS_ID: LC-992-ALPHA // OPERATOR CONSOLE", Vector2(OPERATOR_RAIL_WIDTH + 80.0, 140.0), MenuTypography.BRAND_META_SIZE, UI_TEXT_MUTED)
 	_system_id_label.add_theme_font_override("font", MenuTypography.TECH_FONT)
+	_system_id_label.z_index = 20
 	_ui_root.add_child(_system_id_label)
 
 	_message_label = _make_label("", Vector2(48.0, 968.0), MenuTypography.SUPPORT_SIZE, UI_TEXT_MUTED)

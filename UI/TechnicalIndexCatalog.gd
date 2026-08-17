@@ -4,7 +4,7 @@ extends RefCounted
 ## deliberately excluded so the guide describes usable vehicles and equipment.
 
 const CATEGORY_ORDER: Array[String] = [
-	"LAND CARRIER",
+	"GROUND VEHICLES",
 	"AIRPLANES",
 	"HELICOPTERS",
 	"STRUCTURES",
@@ -12,46 +12,33 @@ const CATEGORY_ORDER: Array[String] = [
 ]
 
 static var CATALOG: Dictionary = {
-	"LAND CARRIER": [
+	"GROUND VEHICLES": [
 		{
 			"name": "LAND CARRIER",
 			"scene": "res://LandCarrier/LandCarrier2.tscn",
 			"description": "Mobile carrier and operational base supporting flight, recovery, repair, and ground-force deployment.",
-			"stats": {"CLASS": "MOBILE CARRIER", "SYSTEMS": "FLIGHT DECK / HANGAR / VEHICLE BAY"},
+			"stats": {"CLASS": "MOBILE CARRIER", "ALLEGIANCE": "FRIENDLY", "SYSTEMS": "FLIGHT DECK / HANGAR / VEHICLE BAY"},
 		},
-		{
-			"name": "DECK TRACTOR",
-			"scene": "res://LandCarrier/TractorBot.tscn",
-			"description": "Compact deck-handling vehicle used to position aircraft around the carrier's operating surfaces.",
-			"stats": {"CLASS": "DECK SUPPORT", "CREW": "AUTONOMOUS"},
-		},
-		{
-			"name": "CARRIER DEFENSE TURRET",
-			"scene": "res://LandCarrier/CarrierDefenseTurret.tscn",
-			"description": "Carrier-mounted defensive weapon assembly for local air and surface protection.",
-			"stats": {"CLASS": "DEFENSIVE TURRET", "MOUNT": "CARRIER"},
-		},
+		_ground_vehicle_entry("FRIENDLY LIGHT COMBAT VEHICLE", "res://GroundVehicle/vehicle_friendly_light.tscn", "Carrier-aligned six-wheeled combat vehicle used by deployed ground platoons.", "FRIENDLY"),
+		_ground_vehicle_entry("ENEMY ATTACK BUGGY", "res://GroundVehicle/vehicle_enemy_buggy.tscn", "Fast, tightly turning light attack vehicle mounting a machine-gun turret.", "HOSTILE"),
+		_ground_vehicle_entry("ENEMY ARMED PICKUP", "res://GroundVehicle/vehicle_enemy_pickup.tscn", "Fast armed utility truck with greater durability than the light buggy.", "HOSTILE"),
+		_ground_vehicle_entry("ENEMY BATTLE BUS", "res://GroundVehicle/vehicle_enemy_battle_bus.tscn", "Heavy enemy support vehicle carrying both light and heavy defensive weapons.", "HOSTILE"),
 	],
 	"AIRPLANES": [
-		_aircraft_entry(1),
-		_aircraft_entry(2),
-		_aircraft_entry(3),
-		_aircraft_entry(4),
-		_aircraft_entry(5),
-		_aircraft_entry(6),
-		_aircraft_entry(7),
-		_aircraft_entry(8),
+		_aircraft_entry(1, "SNA AS-20 Sand Sprite", "Light fighter/attack/recon plane; versatile, modular, but slightly underpowered when loaded."),
+		_aircraft_entry(2, "HK A-88 Crusader", "Heavy attack platform; fast, rock-solid bombing platform with low maneuverability."),
+		_aircraft_entry(3, "VMFC F-9 Wasp", "Obsolescent, primitive light fighter/attack plane; low-tech, rugged, and easy to maintain."),
+		_aircraft_entry(4, "OKB TB-60 Vulture", "Slow, heavily armored attack bomber equipped with defensive gun turrets."),
+		_aircraft_entry(5, "SNA JAS-44 Kestrel", "Balanced and capable delta-canard fighter/attack aircraft."),
+		_aircraft_entry(6, "OKB Sh-37 Razorback", "Heavy armored ground-attack aircraft; slow, rugged, and stable, built around a centerline high-velocity 40 mm autocannon. Uses an older high-bypass turboprop, making it practically obsolete against modern opponents but devastating in low-threat airspace."),
+		_aircraft_entry(7, "OKB I-109 Dagger", "High-speed, high-altitude interceptor built for pure climb and sprint rates."),
+		_aircraft_entry(8, "VAS SF/A-21 Ghost", "Stealthy blended-wing attack/fighter aircraft."),
 	],
 	"HELICOPTERS": [
-		_helicopter_entry(9),
-		_helicopter_entry(10),
-		_helicopter_entry(11),
-		{
-			"name": "HELICOPTER 12",
-			"scene": "res://Aircraft/Aircraft_12.tscn",
-			"description": "Rotary-wing aircraft configuration 12. Values shown are read from the active scene definition.",
-			"stats": {"CLASS": "ROTARY-WING", "CONFIGURATION": "12"},
-		},
+		_helicopter_entry(9, "VMFC HH-72 Bumblebee", "Heavy rescue/utility helicopter with defensive guns and an armored tub."),
+		_helicopter_entry(10, "TAG RA-14 Dune Skimmer", "Light recon/attack helicopter."),
+		_helicopter_entry(11, "AD UH-8 Hummingbird", "Zippy, quiet utility/armed recon helicopter built for agility."),
+		_helicopter_entry(12, "HK AH-99 Huntsman", "Heavy armored attack helicopter with coaxial rotors and heavy anti-armor ordnance."),
 	],
 	"STRUCTURES": [
 		_structure_entry("AIRFIELD", "res://Buildings/building_enemy_airfield.tscn", "Complete hostile airfield complex used to support local aviation operations."),
@@ -76,6 +63,12 @@ static var CATALOG: Dictionary = {
 		_weapon_entry("AA MISSILE LAUNCHER", "res://Weapons/AA_Missile/aa_missile_launcher.tscn", "HARDPOINT", "GUIDED"),
 		_weapon_entry("AG MISSILE", "res://Weapons/AG_Missile/missile_visual.tscn", "AIR-LAUNCHED", "GUIDED"),
 		_weapon_entry("GENERAL-PURPOSE BOMB", "res://Weapons/Bomb/bomb.tscn", "AIR-LAUNCHED", "UNGUIDED"),
+		{
+			"name": "CARRIER DEFENSE TURRET",
+			"scene": "res://LandCarrier/CarrierDefenseTurret.tscn",
+			"description": "Carrier-mounted defensive weapon assembly for local air and surface protection.",
+			"stats": {"CLASS": "DEFENSIVE TURRET", "MOUNT": "CARRIER"},
+		},
 	],
 }
 
@@ -93,21 +86,34 @@ static func entries_for(category: String) -> Array[Dictionary]:
 	return entries
 
 
-static func _aircraft_entry(index: int) -> Dictionary:
+static func _aircraft_entry(index: int, display_name: String = "", description: String = "") -> Dictionary:
+	var resolved_name := display_name if not display_name.is_empty() else "AIRCRAFT %02d" % index
+	var resolved_description := description if not description.is_empty() else "Fixed-wing aircraft configuration %02d. Values shown are read from the active scene definition." % index
 	return {
-		"name": "AIRCRAFT %02d" % index,
+		"name": resolved_name,
 		"scene": "res://Aircraft/Aircraft_%d.tscn" % index,
-		"description": "Fixed-wing aircraft configuration %02d. Values shown are read from the active scene definition." % index,
+		"description": resolved_description,
 		"stats": {"CLASS": "FIXED-WING", "CONFIGURATION": "%02d" % index},
 	}
 
 
-static func _helicopter_entry(index: int) -> Dictionary:
+static func _helicopter_entry(index: int, display_name: String = "", description: String = "") -> Dictionary:
+	var resolved_name := display_name if not display_name.is_empty() else "HELICOPTER %02d" % index
+	var resolved_description := description if not description.is_empty() else "Rotary-wing aircraft configuration %02d. Values shown are read from the active scene definition." % index
 	return {
-		"name": "HELICOPTER %02d" % index,
+		"name": resolved_name,
 		"scene": "res://Aircraft/Aircraft_%d.tscn" % index,
-		"description": "Rotary-wing aircraft configuration %02d. Values shown are read from the active scene definition." % index,
+		"description": resolved_description,
 		"stats": {"CLASS": "ROTARY-WING", "CONFIGURATION": "%02d" % index},
+	}
+
+
+static func _ground_vehicle_entry(name: String, scene_path: String, description: String, allegiance: String) -> Dictionary:
+	return {
+		"name": name,
+		"scene": scene_path,
+		"description": description,
+		"stats": {"CLASS": "GROUND VEHICLE", "ALLEGIANCE": allegiance},
 	}
 
 

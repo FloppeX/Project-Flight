@@ -158,6 +158,40 @@ func setup(aircraft_node):
 			collision_shape.disabled = is_stowed
 	_apply_visual_gear_pose()
 
+
+func prepare_technical_index_preview() -> bool:
+	if lock_deployed:
+		return false
+	if not is_instance_valid(aircraft):
+		aircraft = get_parent()
+	_resolve_gear_visuals_from_colliders()
+	_cache_visual_rest_positions()
+	set_technical_index_preview_fraction(1.0)
+	return true
+
+
+func set_technical_index_preview_fraction(deploy_fraction: float) -> void:
+	_gear_animation_progress = clampf(deploy_fraction, 0.0, 1.0)
+	_gear_animation_target = _gear_animation_progress
+	_gear_animation_active = false
+	_apply_visual_gear_pose()
+	if hide_visuals_when_stowed and _gear_animation_progress <= 0.0:
+		for visual in gear_visuals:
+			if is_instance_valid(visual):
+				visual.visible = false
+
+
+func get_technical_index_preview_fraction() -> float:
+	return _gear_animation_progress
+
+
+func get_technical_index_preview_duration() -> float:
+	return maxf(DeployStowTime, 0.01)
+
+
+func get_technical_index_preview_kind() -> StringName:
+	return &"gear"
+
 func process_physic_frame(delta: float):
 	"""Apply spring physics to each wheel"""
 	_update_gear_animation(delta)
