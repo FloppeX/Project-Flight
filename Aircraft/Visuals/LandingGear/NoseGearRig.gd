@@ -23,6 +23,7 @@ class_name NoseGearRigVisual
 @export var connector_stowed_rotation_degrees: Vector3 = Vector3(90.0, 0.0, 0.0)
 @export_range(0.05, 0.95, 0.01) var stow_tuck_phase: float = 0.45
 @export var stowed_lower_leg_retraction_m: float = 0.28
+@export var stow_as_whole_assembly: bool = false
 
 @export var hide_when_stowed: bool = true
 
@@ -180,6 +181,7 @@ func _update_pose(delta: float = -1.0) -> void:
 	var stow_alpha := 1.0 - deploy_progress
 	var tuck_alpha := clampf(stow_alpha / maxf(stow_tuck_phase, 0.001), 0.0, 1.0)
 	var main_rotation_alpha := clampf((stow_alpha - stow_tuck_phase) / maxf(1.0 - stow_tuck_phase, 0.001), 0.0, 1.0)
+	var lower_articulation_alpha := 0.0 if stow_as_whole_assembly else tuck_alpha
 	var compression := _update_visual_compression(delta, deploy_progress)
 	var steering_yaw := _read_steering_yaw()
 	var axis := _compression_axis_normalized()
@@ -190,8 +192,8 @@ func _update_pose(delta: float = -1.0) -> void:
 	_front_pivot.position = _base_front_position
 	_front_pivot.rotation = _base_front_rotation + _deg_vec_to_rad(stowed_rotation_degrees) * stowed_rotation_direction * main_rotation_alpha
 	_lower_leg_slide.position = _base_slide_position + axis * lower_leg_offset
-	_linkage_pivot.rotation = _base_linkage_rotation + Vector3(0.0, steering_yaw, 0.0) + _deg_vec_to_rad(linkage_stowed_rotation_degrees) * tuck_alpha
-	_connector_pivot.rotation = _base_connector_rotation + _deg_vec_to_rad(connector_stowed_rotation_degrees) * tuck_alpha
+	_linkage_pivot.rotation = _base_linkage_rotation + Vector3(0.0, steering_yaw, 0.0) + _deg_vec_to_rad(linkage_stowed_rotation_degrees) * lower_articulation_alpha
+	_connector_pivot.rotation = _base_connector_rotation + _deg_vec_to_rad(connector_stowed_rotation_degrees) * lower_articulation_alpha
 	_wheel_pivot.rotation = _base_wheel_rotation
 
 	visible = deploy_progress > 0.0 or not hide_when_stowed

@@ -9,7 +9,10 @@ const Catalog = preload("res://UI/TechnicalIndexCatalog.gd")
 const MenuTypography = preload("res://UI/MenuTypography.gd")
 const LAND_CARRIER_SCENE_PATH := "res://LandCarrier/LandCarrier2.tscn"
 const CARRIER_TREAD_SCRIPT_PATH := "res://LandCarrier/CarrierTread.gd"
+const VEHICLE_RAMP_SCRIPT_PATH := "res://LandCarrier/VehicleRamp.gd"
 const PILOT_POSE_SCRIPT_PATH := "res://Aircraft/PilotPose.gd"
+const PREVIEW_HIDDEN_HUD_SCRIPT_PATH := "res://HUD/heads_up_display.gd"
+const PREVIEW_INSTRUMENT_PANEL_SCRIPT_PATH := "res://HUD/instrument_panel.gd"
 
 const BASE_UI_SIZE := MenuTypography.CANVAS_SIZE
 const RAIL_WIDTH := 480.0
@@ -28,16 +31,32 @@ const ORBIT_PITCH_SPEED := 0.90
 const ZOOM_SPEED := 0.72
 const GRID_CELL_SIZE_M := 5.0
 const GRID_MAJOR_SIZE_M := 25.0
-const PREVIEW_CONFIGURATION_ORDER: Array[StringName] = [&"wings", &"gear", &"doors"]
+const PREVIEW_CONFIGURATION_BUTTON_SIZE := Vector2(66.0, 30.0)
+const PREVIEW_CONFIGURATION_GAP := 8.0
+const PREVIEW_CONFIGURATION_PADDING := 8.0
+const PREVIEW_CONFIGURATION_ORDER: Array[StringName] = [
+	&"wings",
+	&"gear",
+	&"doors",
+	&"engine",
+	&"elevator",
+	&"bay_door",
+]
 const PREVIEW_CONFIGURATION_LABELS := {
 	&"wings": "WINGS",
 	&"gear": "GEAR",
 	&"doors": "DOORS",
+	&"engine": "ENGINE",
+	&"elevator": "ELEVATOR",
+	&"bay_door": "BAY DOOR",
 }
 const PREVIEW_CONFIGURATION_BUTTON_NAMES := {
 	&"wings": "WingsButton",
 	&"gear": "LandingGearButton",
 	&"doors": "DoorsButton",
+	&"engine": "EngineButton",
+	&"elevator": "ElevatorButton",
+	&"bay_door": "VehicleBayDoorButton",
 }
 
 var current_mode := "tech_categories"
@@ -237,6 +256,12 @@ func _build_preview_area() -> void:
 	_preview_viewport.size = Vector2i(1370, 588)
 	_preview_viewport.render_target_update_mode = SubViewport.UPDATE_WHEN_VISIBLE
 	_preview_viewport.own_world_3d = true
+	_preview_viewport.add_to_group("settings_aa_viewport")
+	var root_viewport := get_tree().root as Viewport
+	if root_viewport != null:
+		_preview_viewport.msaa_3d = root_viewport.msaa_3d
+		_preview_viewport.screen_space_aa = root_viewport.screen_space_aa
+		_preview_viewport.use_taa = root_viewport.use_taa
 	preview_container.add_child(_preview_viewport)
 
 	var environment_node := WorldEnvironment.new()
@@ -390,8 +415,12 @@ func _build_preview_controls(frame: Control) -> void:
 func _build_configuration_controls(rotation_controls: Control) -> void:
 	_configuration_controls = Panel.new()
 	_configuration_controls.name = "PreviewConfigurationControls"
-	_configuration_controls.position = rotation_controls.position + Vector2(0.0, -48.0)
-	_configuration_controls.size = Vector2(230.0, 42.0)
+	var initial_width := _configuration_panel_width(PREVIEW_CONFIGURATION_ORDER.size())
+	_configuration_controls.position = rotation_controls.position + Vector2(
+		rotation_controls.size.x - initial_width,
+		-48.0
+	)
+	_configuration_controls.size = Vector2(initial_width, 42.0)
 	var panel_style := StyleBoxFlat.new()
 	panel_style.bg_color = Color(0.0, 0.025, 0.012, 0.90)
 	panel_style.border_color = GRID_GREEN_MUTED
@@ -404,9 +433,13 @@ func _build_configuration_controls(rotation_controls: Control) -> void:
 		var button := _make_preview_control_button(
 			String(PREVIEW_CONFIGURATION_LABELS[kind]),
 			String(PREVIEW_CONFIGURATION_BUTTON_NAMES[kind]),
-			Vector2(8.0 + float(index) * 74.0, 6.0),
+			Vector2(
+				PREVIEW_CONFIGURATION_PADDING + float(index) \
+						* (PREVIEW_CONFIGURATION_BUTTON_SIZE.x + PREVIEW_CONFIGURATION_GAP),
+				6.0
+			),
 			"Toggle %s preview" % String(PREVIEW_CONFIGURATION_LABELS[kind]).to_lower(),
-			Vector2(66.0, 30.0)
+			PREVIEW_CONFIGURATION_BUTTON_SIZE
 		)
 		button.toggle_mode = true
 		button.add_theme_font_size_override("font_size", MenuTypography.SUPPORT_SIZE)
@@ -512,7 +545,9 @@ func _select_entry(entry: Dictionary) -> void:
 		_show_preview_error("SCENE COULD NOT BE INSTANTIATED")
 		return
 	_prepare_generated_preview_visuals(instance, scene_path)
+	_apply_preview_player_livery(instance, entry, scene_path)
 	_prepare_static_cockpit_pilots(instance)
+	_prepare_static_instrument_panels(instance)
 	_prepare_preview_animation_components(instance)
 	var harvested := _harvest_scene_stats(instance)
 	_stats_label.text = _format_stats(entry.get("stats", {}), harvested)
@@ -539,6 +574,15 @@ func _select_entry(entry: Dictionary) -> void:
 func _prepare_generated_preview_visuals(root: Node, scene_path: String) -> void:
 	if scene_path != LAND_CARRIER_SCENE_PATH:
 		return
+	if root.get_node_or_null("VehicleRamp") == null:
+		var ramp := Node3D.new()
+		ramp.name = "VehicleRamp"
+		var ramp_script := load(VEHICLE_RAMP_SCRIPT_PATH) as Script
+		if ramp_script == null:
+			ramp.free()
+			return
+		ramp.set_script(ramp_script)
+		root.add_child(ramp)
 	var stack: Array[Node] = [root]
 	while not stack.is_empty():
 		var node: Node = stack.pop_back()
@@ -547,6 +591,32 @@ func _prepare_generated_preview_visuals(root: Node, scene_path: String) -> void:
 			_build_static_track_plates(node)
 		for child in node.get_children():
 			stack.append(child as Node)
+
+
+func _apply_preview_player_livery(root: Node, entry: Dictionary, scene_path: String) -> void:
+	if not _entry_uses_player_livery(entry):
+		return
+	var livery := get_node_or_null("/root/Livery")
+	if livery == null or not livery.has_method("apply"):
+		return
+	var added_carrier_group := false
+	if scene_path == LAND_CARRIER_SCENE_PATH and not root.is_in_group("carrier"):
+		root.add_to_group("carrier")
+		added_carrier_group = true
+	livery.call("apply", root)
+	if added_carrier_group:
+		root.remove_from_group("carrier")
+
+
+func _entry_uses_player_livery(entry: Dictionary) -> bool:
+	if _selected_category == "AIRPLANES" or _selected_category == "HELICOPTERS":
+		return true
+	if _selected_category != "GROUND VEHICLES":
+		return false
+	var stats_variant: Variant = entry.get("stats", {})
+	if not stats_variant is Dictionary:
+		return false
+	return String((stats_variant as Dictionary).get("ALLEGIANCE", "")).to_upper() == "FRIENDLY"
 
 
 func _prepare_static_cockpit_pilots(root: Node) -> void:
@@ -559,6 +629,19 @@ func _prepare_static_cockpit_pilots(root: Node) -> void:
 				and node.has_method("apply_static_seated_pose"):
 			var pose_applied := bool(node.call("apply_static_seated_pose"))
 			node.set_meta("technical_index_pilot_pose", "sitting" if pose_applied else "failed")
+		for child in node.get_children():
+			stack.append(child as Node)
+
+
+func _prepare_static_instrument_panels(root: Node) -> void:
+	var stack: Array[Node] = [root]
+	while not stack.is_empty():
+		var node: Node = stack.pop_back()
+		var node_script := node.get_script() as Script
+		if node_script != null \
+				and node_script.resource_path == PREVIEW_INSTRUMENT_PANEL_SCRIPT_PATH \
+				and node.has_method("prepare_technical_index_static_preview"):
+			node.call("prepare_technical_index_static_preview")
 		for child in node.get_children():
 			stack.append(child as Node)
 
@@ -609,19 +692,22 @@ func _advance_preview_configurations(delta: float) -> void:
 		var kind := StringName(kind_variant)
 		var value := float(_preview_animation_values.get(kind, 0.0))
 		var target := float(_preview_animation_targets.get(kind, value))
-		if is_equal_approx(value, target):
-			continue
-		var duration := maxf(float(_preview_animation_durations.get(kind, 1.0)), 0.01)
-		value = move_toward(value, target, maxf(delta, 0.0) / duration)
-		_preview_animation_values[kind] = value
+		var value_changed := not is_equal_approx(value, target)
+		if value_changed:
+			var duration := maxf(float(_preview_animation_durations.get(kind, 1.0)), 0.01)
+			value = move_toward(value, target, maxf(delta, 0.0) / duration)
+			_preview_animation_values[kind] = value
 		for component_variant in _preview_animation_components.get(kind, []):
 			var component := component_variant as Node
 			if is_instance_valid(component):
-				component.call("set_technical_index_preview_fraction", value)
+				if value_changed:
+					component.call("set_technical_index_preview_fraction", value)
+				if component.has_method("advance_technical_index_preview"):
+					component.call("advance_technical_index_preview", maxf(delta, 0.0))
 
 
 func _refresh_configuration_controls() -> void:
-	var any_visible := false
+	var visible_buttons: Array[Button] = []
 	for kind in PREVIEW_CONFIGURATION_ORDER:
 		var button := _configuration_buttons.get(kind) as Button
 		if button == null:
@@ -629,21 +715,36 @@ func _refresh_configuration_controls() -> void:
 		var available := _preview_animation_components.has(kind)
 		button.visible = available
 		button.set_pressed_no_signal(float(_preview_animation_targets.get(kind, 0.0)) >= 0.5)
-		any_visible = any_visible or available
+		if available:
+			visible_buttons.append(button)
 	if is_instance_valid(_configuration_controls):
-		_configuration_controls.visible = any_visible and current_mode == "tech_items"
+		for index in visible_buttons.size():
+			visible_buttons[index].position = Vector2(
+				PREVIEW_CONFIGURATION_PADDING + float(index) \
+						* (PREVIEW_CONFIGURATION_BUTTON_SIZE.x + PREVIEW_CONFIGURATION_GAP),
+				6.0
+			)
+		var panel_width := _configuration_panel_width(visible_buttons.size())
+		_configuration_controls.size.x = panel_width
+		if is_instance_valid(_preview_controls):
+			_configuration_controls.position.x = _preview_controls.position.x \
+					+ _preview_controls.size.x - panel_width
+		_configuration_controls.visible = not visible_buttons.is_empty() and current_mode == "tech_items"
+
+
+func _configuration_panel_width(button_count: int) -> float:
+	if button_count <= 0:
+		return PREVIEW_CONFIGURATION_PADDING * 2.0
+	return PREVIEW_CONFIGURATION_PADDING * 2.0 \
+			+ float(button_count) * PREVIEW_CONFIGURATION_BUTTON_SIZE.x \
+			+ float(button_count - 1) * PREVIEW_CONFIGURATION_GAP
 
 
 func _build_static_track_plates(tread: Node) -> void:
-	var track_path := tread.get_node_or_null("TrackPath") as Path3D
-	if track_path == null or not tread.has_method("_build_default_curve") \
-			or not tread.has_method("_rebuild_track_multimesh"):
+	if not tread.has_method("_rebuild_track_multimesh"):
 		return
-	var curve_variant: Variant = tread.call("_build_default_curve")
-	if not curve_variant is Curve3D:
-		return
-	track_path.curve = curve_variant as Curve3D
-	tread.set("auto_build_path", false)
+	# Use the tread's normal path builder so its authored TrackGuide markers wrap
+	# the plates around the wheels. The generic fallback runs through their centres.
 	tread.call("_rebuild_track_multimesh")
 
 
@@ -684,8 +785,21 @@ func _find_numeric_property(root: Node, candidates: Array) -> Variant:
 	return null
 
 
-func _sanitize_preview_tree(node: Node) -> void:
+func _sanitize_preview_tree(node: Node, preserve_instrument_canvas: bool = false) -> void:
 	node.process_mode = Node.PROCESS_MODE_DISABLED
+	var node_script := node.get_script() as Script
+	var is_instrument_panel := node_script != null \
+			and node_script.resource_path == PREVIEW_INSTRUMENT_PANEL_SCRIPT_PATH
+	var preserve_canvas := preserve_instrument_canvas or is_instrument_panel
+	if node is Node3D and node_script != null \
+			and node_script.resource_path == PREVIEW_HIDDEN_HUD_SCRIPT_PATH:
+		(node as Node3D).visible = false
+	if node is CanvasItem and not preserve_canvas:
+		(node as CanvasItem).visible = false
+	if node is CanvasLayer and not preserve_canvas:
+		(node as CanvasLayer).visible = false
+	if node is SubViewport and not preserve_canvas:
+		(node as SubViewport).render_target_update_mode = SubViewport.UPDATE_DISABLED
 	if node is CollisionObject3D:
 		(node as CollisionObject3D).collision_layer = 0
 		(node as CollisionObject3D).collision_mask = 0
@@ -708,8 +822,10 @@ func _sanitize_preview_tree(node: Node) -> void:
 	if node is AudioStreamPlayer3D:
 		(node as AudioStreamPlayer3D).stop()
 	for child in node.get_children():
-		_sanitize_preview_tree(child as Node)
-	if node.get_script() != null and not bool(node.get_meta("technical_index_preview_component", false)):
+		_sanitize_preview_tree(child as Node, preserve_canvas)
+	var preserve_script := bool(node.get_meta("technical_index_preview_component", false)) \
+			or bool(node.get_meta("technical_index_static_instrument", false))
+	if node_script != null and not preserve_script:
 		node.set_script(null)
 
 

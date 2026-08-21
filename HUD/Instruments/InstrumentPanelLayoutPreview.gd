@@ -285,7 +285,7 @@ func _string_array_text(value: Variant) -> String:
 
 func _default_aircraft_5_layout() -> Array[Dictionary]:
 	return [
-		{"type": "warning_lights", "id": "warning_strip", "title": "WARNINGS", "rect": Rect2(135, 26, 730, 44), "lights": ["ENGINE", "WEAPONS", "CONTROLS", "GEAR", "STALL", "MISSILE"]},
+		{"type": "warning_lights", "id": "warning_strip", "title": "WARNINGS", "rect": Rect2(135, 26, 730, 44), "lights": ["ENGINE", "WEAPONS", "CONTROLS", "GEAR", "STALL"]},
 		{"type": "mfd", "id": "mfd_left", "title": "MFD L", "rect": Rect2(92, 92, 235, 235), "modes": ["MAP", "WEAPONS", "DAMAGE", "SYSTEMS"]},
 		{"type": "mfd", "id": "mfd_right", "title": "MFD R", "rect": Rect2(673, 92, 235, 235), "modes": ["TARGET", "MAP", "WEAPONS", "DAMAGE", "SYSTEMS"]},
 		{"type": "readout", "id": "speed", "title": "SPEED", "instrument": "speed", "rect": Rect2(360, 92, 125, 54)},
@@ -296,7 +296,6 @@ func _default_aircraft_5_layout() -> Array[Dictionary]:
 		{"type": "readout", "id": "flaps", "title": "FLAPS", "instrument": "flaps", "rect": Rect2(515, 224, 125, 54)},
 		{"type": "aoa", "id": "aoa", "title": "AOA", "rect": Rect2(360, 290, 125, 84)},
 		{"type": "readout", "id": "stall", "title": "STALL", "instrument": "stall", "rect": Rect2(515, 290, 125, 40)},
-		{"type": "readout", "id": "missile_lock", "title": "M LOCK", "instrument": "missile_lock", "rect": Rect2(515, 338, 125, 36)},
 		{"type": "slip_ball", "id": "slip_ball", "title": "BALL", "rect": Rect2(120, 376, 220, 68)},
 		{"type": "readout", "id": "engine", "title": "ENGINE", "instrument": "engine", "rect": Rect2(370, 376, 120, 68)},
 		{"type": "readout", "id": "damage", "title": "STRUCT", "instrument": "damage", "rect": Rect2(510, 376, 120, 68)},

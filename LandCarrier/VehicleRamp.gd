@@ -28,6 +28,7 @@ var _inner_pivot: Node3D
 var _middle_pivot: Node3D
 var _outer_pivot: Node3D
 var _tween: Tween
+var _technical_index_preview_fraction: float = 0.0
 
 # Stowed rotations — zig-zag fold:
 # Inner points upward, middle folds opposite direction (down), outer folds same as inner (up)
@@ -36,6 +37,11 @@ const _MIDDLE_STOWED_X: float = -PI         # folded opposite direction (hangs d
 const _OUTER_STOWED_X: float = PI           # folded same direction as inner (extends up)
 
 func _ready() -> void:
+	if bool(get_meta("technical_index_preview_component", false)):
+		if not is_instance_valid(_slider):
+			_find_meshes_and_build(false)
+		set_technical_index_preview_fraction(_technical_index_preview_fraction)
+		return
 	_find_meshes_and_build()
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -51,7 +57,9 @@ func _physics_process(_delta: float) -> void:
 
 # ── Construction from GLB meshes ───────────────────────────────────────────
 
-func _find_meshes_and_build() -> void:
+func _find_meshes_and_build(include_bay_floor: bool = true) -> void:
+	if is_instance_valid(_slider):
+		return
 	var carrier_model: Node3D = get_parent().find_child("CarrierModel")
 	if not carrier_model:
 		push_warning("VehicleRamp: CarrierModel not found")
@@ -91,7 +99,59 @@ func _find_meshes_and_build() -> void:
 	_set_stowed()
 
 	# Add a bay floor collider so vehicles have a surface to stand on
-	_build_bay_floor(hinge_pos)
+	if include_bay_floor:
+		_build_bay_floor(hinge_pos)
+
+
+func prepare_technical_index_preview() -> bool:
+	_find_meshes_and_build(false)
+	if not is_instance_valid(_slider) or not is_instance_valid(_inner_pivot) \
+			or not is_instance_valid(_middle_pivot) or not is_instance_valid(_outer_pivot):
+		return false
+	set_technical_index_preview_fraction(0.0)
+	return true
+
+
+func set_technical_index_preview_fraction(open_fraction: float) -> void:
+	_technical_index_preview_fraction = clampf(open_fraction, 0.0, 1.0)
+	if not is_instance_valid(_slider) or not is_instance_valid(_inner_pivot) \
+			or not is_instance_valid(_middle_pivot) or not is_instance_valid(_outer_pivot):
+		return
+
+	var total_duration := get_technical_index_preview_duration()
+	var elapsed := _technical_index_preview_fraction * total_duration
+	var slide_fraction := clampf(elapsed / maxf(slide_duration_s, 0.01), 0.0, 1.0)
+	var hinge_fraction := clampf(
+		(elapsed - slide_duration_s) / maxf(hinge_duration_s, 0.01),
+		0.0,
+		1.0
+	)
+	slide_fraction = _smooth_preview_fraction(slide_fraction)
+	hinge_fraction = _smooth_preview_fraction(hinge_fraction)
+
+	_slider.position.z = lerpf(0.0, -slide_distance_m, slide_fraction)
+	# The live ramp chooses its final slope from terrain. The isolated index has
+	# no terrain grid, so show the mechanism at the same safe maximum slope.
+	var preview_deploy_angle := asin(0.85)
+	_inner_pivot.rotation.x = lerpf(_INNER_STOWED_X, -preview_deploy_angle, hinge_fraction)
+	_middle_pivot.rotation.x = lerpf(_MIDDLE_STOWED_X, 0.0, hinge_fraction)
+	_outer_pivot.rotation.x = lerpf(_OUTER_STOWED_X, 0.0, hinge_fraction)
+
+
+func get_technical_index_preview_fraction() -> float:
+	return _technical_index_preview_fraction
+
+
+func get_technical_index_preview_duration() -> float:
+	return maxf(slide_duration_s, 0.0) + maxf(hinge_duration_s, 0.0)
+
+
+func get_technical_index_preview_kind() -> StringName:
+	return &"bay_door"
+
+
+func _smooth_preview_fraction(value: float) -> float:
+	return value * value * (3.0 - 2.0 * value)
 
 func _build_hierarchy(inner_src: MeshInstance3D, middle_src: MeshInstance3D, outer_src: MeshInstance3D) -> void:
 	# Slider — handles the initial slide-out along -Z

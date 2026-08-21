@@ -2,14 +2,15 @@ extends Node
 class_name WingFold1
 
 ## Double-fold wing animation for Aircraft_1, inspired by the Fairey Gannet.
-## The middle panels fold upward and inward while the outer panels apply an
-## equal counter-rotation at the second hinge, forming a compact Z profile.
+## The middle panels fold upward and inward while the outer panels apply a
+## stronger counter-rotation at the second hinge, forming a compact Z profile.
 ##
 ## The imported wing objects do not have hinge-centred origins, so the hinge
 ## positions are derived from their authored mesh edges and the rotations are
 ## applied as transforms about those points in aircraft-model space.
 
-@export var fold_angle_deg: float = 120.0
+@export var middle_fold_angle_deg: float = 130.0
+@export var outer_fold_angle_deg: float = 180.0
 @export var fold_duration_s: float = 3.0
 @export var hinge_axis: Vector3 = Vector3.BACK
 @export var stable_poll_interval_s: float = 0.2
@@ -71,8 +72,10 @@ func _ready() -> void:
 		+ _edge_center_in_model_space(right_outer, false, false, true)
 	) * 0.5
 
-	# Livery.gd looks for these two outer-wing references on a node named
-	# WingFold and uses the metadata to anchor markings in the unfolded pose.
+	# Livery.gd projects all split meshes in one shared unfolded coordinate space.
+	# Keep the pattern fixed to the authored wing surfaces while they fold.
+	_left_middle.set_meta("livery_rest_transform_local", _left_middle_rest)
+	_right_middle.set_meta("livery_rest_transform_local", _right_middle_rest)
 	_left_wing.set_meta("livery_rest_transform_local", _left_outer_rest)
 	_right_wing.set_meta("livery_rest_transform_local", _right_outer_rest)
 
@@ -102,13 +105,13 @@ func _process(delta: float) -> void:
 	var target := 1.0 if should_fold else 0.0
 	_fold_t = move_toward(_fold_t, target, delta / maxf(fold_duration_s, 0.01))
 	if not is_equal_approx(previous_fold_t, _fold_t) or not stable:
-		_apply_fold_pose(deg_to_rad(fold_angle_deg) * _smooth(_fold_t))
+		_apply_fold_pose(_smooth(_fold_t))
 
 
 func set_fold_fraction_immediate(fold_fraction: float) -> void:
 	_fold_t = clampf(fold_fraction, 0.0, 1.0)
 	_snapped = true
-	_apply_fold_pose(deg_to_rad(fold_angle_deg) * _smooth(_fold_t))
+	_apply_fold_pose(_smooth(_fold_t))
 
 
 func prepare_technical_index_preview() -> bool:
@@ -135,18 +138,20 @@ func get_technical_index_preview_kind() -> StringName:
 	return &"wings"
 
 
-func _apply_fold_pose(angle: float) -> void:
+func _apply_fold_pose(fold_amount: float) -> void:
 	var axis := hinge_axis.normalized()
 	if axis.length_squared() <= 0.0001:
 		axis = Vector3.BACK
+	var middle_angle := deg_to_rad(middle_fold_angle_deg) * fold_amount
+	var outer_angle := deg_to_rad(outer_fold_angle_deg) * fold_amount
 
 	# Positive X is the left side of this model. Mirrored signs make both
 	# middle panels rise, while the opposite outer rotations keep the tips
 	# nearly horizontal above them.
-	var left_middle_fold := _rotation_about_hinge(_left_inner_hinge, axis, angle)
-	var right_middle_fold := _rotation_about_hinge(_right_inner_hinge, axis, -angle)
-	var left_outer_counter := _rotation_about_hinge(_left_outer_hinge, axis, -angle)
-	var right_outer_counter := _rotation_about_hinge(_right_outer_hinge, axis, angle)
+	var left_middle_fold := _rotation_about_hinge(_left_inner_hinge, axis, middle_angle)
+	var right_middle_fold := _rotation_about_hinge(_right_inner_hinge, axis, -middle_angle)
+	var left_outer_counter := _rotation_about_hinge(_left_outer_hinge, axis, -outer_angle)
+	var right_outer_counter := _rotation_about_hinge(_right_outer_hinge, axis, outer_angle)
 
 	_left_middle.transform = left_middle_fold * _left_middle_rest
 	_right_middle.transform = right_middle_fold * _right_middle_rest

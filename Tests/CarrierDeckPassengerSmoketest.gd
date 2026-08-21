@@ -51,7 +51,43 @@ func _run() -> void:
 		_fail("retrieved aircraft did not retain its carrier-relative deck transform")
 		return
 
-	print("[CarrierDeckPassengerSmoketest] PASS local=%s" % str(actual_local))
+	# Accepting a newly computed route must not snap the carrier onto its first
+	# segment. The normal drive controller will turn it over subsequent physics
+	# frames, allowing deck passengers to receive the same incremental transform.
+	var heading_before_order: float = carrier.rotation.y
+	var route_start: Vector3 = carrier.global_position
+	var route_target: Vector3 = route_start + Vector3(1000.0, 0.0, 0.0)
+	carrier.call("_on_path_ready", [route_start, route_target])
+	if not is_equal_approx(carrier.rotation.y, heading_before_order):
+		_fail("accepting a carrier route snapped its heading before drive steering ran")
+		return
+
+	# Translation and yaw both build through acceleration on the first movement
+	# frame. Use full commands so this catches either channel being assigned
+	# directly in a future refactor.
+	carrier.set("_current_steer", 1.0)
+	var movement_delta := 0.1
+	var transform_before_movement: Transform3D = carrier.global_transform
+	carrier.call("_apply_drive_motion", movement_delta, carrier.max_speed, carrier.turn_speed)
+	var first_speed: float = float(carrier.get("_current_planar_speed_mps"))
+	var first_yaw_rate: float = absf(float(carrier.get("_current_yaw_rate_rad_s")))
+	if first_speed <= 0.0 or first_speed > carrier.acceleration * movement_delta + 0.0001:
+		_fail("carrier translation did not respect first-frame acceleration")
+		return
+	if first_yaw_rate <= 0.0 or first_yaw_rate > carrier.turn_acceleration * movement_delta + 0.0001:
+		_fail("carrier rotation did not respect first-frame angular acceleration")
+		return
+	carrier.call("_carry_deck_passengers", carrier.global_transform, transform_before_movement)
+	var accelerated_local: Transform3D = carrier.global_transform.affine_inverse() * aircraft.global_transform
+	if not accelerated_local.is_equal_approx(expected_local):
+		_fail("accelerating carrier motion did not preserve the aircraft's deck transform")
+		return
+
+	print("[CarrierDeckPassengerSmoketest] PASS local=%s route_heading=continuous speed_ramp=%.3f yaw_ramp=%.5f" % [
+		str(actual_local),
+		first_speed,
+		first_yaw_rate,
+	])
 	quit(0)
 
 

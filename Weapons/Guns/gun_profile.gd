@@ -9,6 +9,15 @@ class_name GunProfile
 @export var recoil_force: float = 1000.0
 @export var damage_per_shot: float = 10.0
 @export var max_range_m: float = 800.0
+## Physical projectile tracer dimensions. These are deliberately larger than
+## the projectile caliber so the emitted taper remains readable at combat range.
+@export var physical_tracer_width_m: float = 0.2
+@export var physical_tracer_length_m: float = 0.8
+## Cosmetic cadence multiplier. Physical projectile rate and DPS are unchanged;
+## intervening rounds are batched, non-damaging tracers.
+@export_range(1, 4, 1) var visible_round_multiplier: int = 1
+@export var virtual_tracer_width_m: float = 0.2
+@export var virtual_tracer_length_m: float = 0.8
 @export var projectile_scene: PackedScene
 @export var use_lmg_sound_set: bool = false
 @export var use_autocannon_sound_set: bool = false

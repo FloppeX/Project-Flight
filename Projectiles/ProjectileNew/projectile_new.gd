@@ -639,13 +639,22 @@ func create_bullet_scorch_mark(aircraft_body: Node) -> void:
 		var outward: Vector3 = global_position - ac_center
 		if outward.length() > 0.01:
 			hit_normal = outward.normalized()
+	create_bullet_scorch_mark_at(aircraft_body, hit_pos, hit_normal)
+
+
+func create_bullet_scorch_mark_at(
+	aircraft_body: Node,
+	hit_pos: Vector3,
+	hit_normal: Vector3,
+	mark_scale: float = 1.0
+) -> bool:
 	var impact_budget: Node = get_node_or_null("/root/BulletImpactBudget")
 	if impact_budget and not bool(impact_budget.call("should_spawn_visual", hit_pos)):
-		return
+		return false
 
 	# Scale mark size with damage. sqrt keeps heavy rounds from looking absurd.
 	# target_mark_size is calibrated for damage = 10.
-	var dmg_scale: float = sqrt(maxf(damage, 1.0) / 10.0)
+	var dmg_scale: float = sqrt(maxf(damage, 1.0) / 10.0) * maxf(mark_scale, 0.1)
 	var scaled_size := Vector3(
 		target_mark_size.x * dmg_scale,
 		target_mark_size.y * dmg_scale,
@@ -699,6 +708,7 @@ func create_bullet_scorch_mark(aircraft_body: Node) -> void:
 			if decal_obj is Node and is_instance_valid(decal_obj):
 				(decal_obj as Node).queue_free()
 		)
+	return true
 
 func _enforce_aircraft_bullet_decal_cap(target: Node, newest_decal: Decal) -> void:
 	if not target or not is_instance_valid(target):

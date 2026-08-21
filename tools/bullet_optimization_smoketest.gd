@@ -19,13 +19,14 @@ func _run() -> void:
 	_ensure_service("ParticleManager", "res://Effects/ParticleManager.gd")
 	_ensure_service("BulletImpactBudget", "res://Effects/BulletImpactBudget.gd")
 	_ensure_service("BulletPool", "res://Projectiles/Bullet/BulletPool.gd")
+	var impact_budget: Node = get_tree().root.get_node("BulletImpactBudget")
 	_world = Node3D.new()
 	_world.name = "BulletOptimizationSmoketestWorld"
 	get_tree().root.add_child(_world)
 	var camera := Camera3D.new()
 	_world.add_child(camera)
 	camera.global_position = Vector3(0.0, 8.0, 20.0)
-	camera.look_at(Vector3(0.0, 0.0, 25.0))
+	camera.look_at(Vector3(0.0, 0.0, 50.0))
 	camera.current = true
 
 	var target := DamageTarget.new()
@@ -41,14 +42,15 @@ func _run() -> void:
 
 	await get_tree().physics_frame
 	print("[BulletOptimizationSmoketest] firing first round")
-	var first := _acquire_test_bullet()
+	var first := _acquire_test_bullet(1)
 	var first_id: int = first.get_instance_id()
 	first.fire(Vector3(0.0, 0.0, 500.0), null)
 	_expect(_is_aligned_to_velocity(first), "new bullet tracer was not aligned on its first rendered frame")
 	_expect(first.distant_tracer_stride == 1, "default distant tracer sampling still hides some rounds")
 	await _wait_physics_frames(20)
 	print("[BulletOptimizationSmoketest] first round complete damage=%.1f pool=%s" % [target.damage_taken, get_tree().root.get_node("BulletPool").call("get_stats")])
-	_expect(target.damage_taken > 0.0, "first pooled bullet did not damage the target")
+	_expect(is_equal_approx(target.damage_taken, 5.0), "cosmetic virtual vehicle impact changed physical bullet damage")
+	_expect(first.virtual_impact_visuals_spawned == 1, "virtual vehicle impact did not create one nearby decal")
 	_expect(first.get_parent() == get_tree().root.get_node("BulletPool"), "retired bullet was not returned to BulletPool")
 
 	var second := _acquire_test_bullet()
@@ -60,9 +62,35 @@ func _run() -> void:
 	print("[BulletOptimizationSmoketest] reused round complete damage=%.1f parent=%s pos=%s impacted=%s" % [target.damage_taken, second.get_parent().name if second.get_parent() else "none", second.global_position, second.has_impacted])
 	_expect(target.damage_taken >= 10.0, "reused bullet did not damage the target")
 
+	# A machine-gun ground hit gets one adjacent cosmetic mark and a second dirt
+	# burst, but still uses the single physical projectile collision.
+	target.position.x = 20.0
+	var ground_target := StaticBody3D.new()
+	ground_target.name = "GroundImpactTarget"
+	ground_target.add_to_group("ground")
+	ground_target.position = Vector3(0.0, 0.0, 50.0)
+	var ground_shape := CollisionShape3D.new()
+	var ground_box := BoxShape3D.new()
+	ground_box.size = Vector3(8.0, 8.0, 2.0)
+	ground_shape.shape = ground_box
+	ground_target.add_child(ground_shape)
+	_world.add_child(ground_target)
+	await get_tree().physics_frame
+	var debris_before_ground := int((impact_budget.call("get_stats") as Dictionary).get("active_debris", 0))
+	var ground_bullet := _acquire_test_bullet(1, 1)
+	ground_bullet.fire(Vector3(0.0, 0.0, 500.0), null)
+	await _wait_physics_frames(20)
+	var ground_impact_stats := impact_budget.call("get_stats") as Dictionary
+	_expect(ground_bullet.virtual_impact_visuals_spawned == 1, "virtual ground impact did not create one nearby marker")
+	_expect(
+		int(ground_impact_stats.get("active_debris", 0)) - debris_before_ground >= 2,
+		"virtual ground impact did not add a second dirt burst"
+	)
+	ground_target.queue_free()
+	await get_tree().physics_frame
+
 	# Exercise the assist-only path: this box does not intersect the x=0 shot,
 	# but its target envelope is within the configured forgiveness radius.
-	target.position.x = 20.0
 	var assist_target := DamageTarget.new()
 	assist_target.name = "AssistTarget"
 	assist_target.add_to_group("ground_vehicles")
@@ -99,7 +127,6 @@ func _run() -> void:
 		get_tree().root.get_node("BulletImpactBudget").call("register_decal", decal, 0.0)
 	await get_tree().process_frame
 	print("[BulletOptimizationSmoketest] decal cap complete")
-	var impact_budget: Node = get_tree().root.get_node("BulletImpactBudget")
 	var impact_stats: Dictionary = impact_budget.call("get_stats")
 	_expect(int(impact_stats.active_decals) <= int(impact_budget.get("max_active_decals")), "global decal cap was exceeded")
 
@@ -135,13 +162,14 @@ func _run() -> void:
 			push_error("[BulletOptimizationSmoketest] " + failure)
 		get_tree().quit(1)
 
-func _acquire_test_bullet() -> Bullet:
+func _acquire_test_bullet(virtual_impacts: int = 0, ground_particles: int = 0) -> Bullet:
 	var bullet := get_tree().root.get_node("BulletPool").call("acquire", BULLET_SCENE, _world, Transform3D(Basis.IDENTITY, Vector3.ZERO)) as Bullet
 	bullet.lifetime = 1.0
 	bullet.gravity_scale = 0.0
 	bullet.damage = 5.0
 	bullet.damage_amount = 5.0
-	bullet.ground_particle_count = 0
+	bullet.virtual_impact_count = virtual_impacts
+	bullet.ground_particle_count = ground_particles
 	bullet.hit_debris_count = 0
 	bullet.tracer_hidden_physics_frames = 0
 	return bullet

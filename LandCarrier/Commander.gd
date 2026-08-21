@@ -14,7 +14,6 @@ class_name Commander
 @export var chase_camera_focus_local_position: Vector3 = Vector3(0.0, 4.0, 0.0)
 @export var cinematic_camera_local_position: Vector3 = Vector3(95.0, 58.0, -125.0)
 @export var cinematic_camera_focus_local_position: Vector3 = Vector3(0.0, 6.0, 0.0)
-@export var external_camera_fov: float = 75.0
 @export var control_room_ambience: AudioStream = preload("res://Audio/Carrier/control_room_ambience.wav")
 @export var control_room_ambience_bus: String = "Master"
 @export var control_room_ambience_volume_db: float = -10.0
@@ -53,6 +52,7 @@ var _active_view_mode: int = 0
 var _chase_camera: Camera3D = null
 var _cinematic_camera: Camera3D = null
 var _walk_area_provider: Node = null
+var _pause_menu_settings: Node = null
 
 const VIEW_CONTROL_ROOM: int = 0
 const VIEW_CHASE: int = 1
@@ -60,6 +60,7 @@ const VIEW_CINEMATIC: int = 2
 const VIEW_MODE_COUNT: int = 3
 
 func _ready() -> void:
+	add_to_group("commander_camera_controller")
 	physics_interpolation_mode = Node3D.PHYSICS_INTERPOLATION_MODE_INHERIT
 	motion_mode = CharacterBody3D.MOTION_MODE_FLOATING
 	if commander_camera:
@@ -76,7 +77,7 @@ func _ready() -> void:
 	if commander_camera:
 		commander_camera.position.y = eye_height_m
 		_look_pitch = commander_camera.rotation.x
-		commander_camera.fov = normal_fov
+		commander_camera.fov = _user_camera_fov()
 		# Force a camera switch to initialize Godot's 3D audio listener.
 		# Just setting current=true on the first camera isn't enough —
 		# Godot needs to see a false→true transition to activate the listener.
@@ -148,9 +149,12 @@ func _physics_process(delta: float) -> void:
 func _update_look(delta: float) -> void:
 	var look_yaw_input := Input.get_action_strength("look_right") - Input.get_action_strength("look_left")
 	var look_pitch_input := Input.get_action_strength("look_up") - Input.get_action_strength("look_down")
+	var sensitivity_scale := _user_look_sensitivity_multiplier()
+	if _user_invert_look_y():
+		look_pitch_input = -look_pitch_input
 
-	_look_yaw -= look_yaw_input * deg_to_rad(look_sensitivity_deg) * delta
-	_look_pitch += look_pitch_input * deg_to_rad(look_sensitivity_deg) * delta
+	_look_yaw -= look_yaw_input * deg_to_rad(look_sensitivity_deg) * sensitivity_scale * delta
+	_look_pitch += look_pitch_input * deg_to_rad(look_sensitivity_deg) * sensitivity_scale * delta
 	_look_pitch = clamp(
 		_look_pitch,
 		deg_to_rad(-pitch_limit_deg),
@@ -267,7 +271,7 @@ func _is_zoom_button_pressed() -> bool:
 func _apply_zoom(instant: bool = false) -> void:
 	if commander_camera == null:
 		return
-	var target_fov: float = zoomed_fov if _is_zoomed else normal_fov
+	var target_fov: float = zoomed_fov if _is_zoomed else _user_camera_fov()
 	if _zoom_tween and _zoom_tween.is_valid():
 		_zoom_tween.kill()
 	if instant:
@@ -275,6 +279,41 @@ func _apply_zoom(instant: bool = false) -> void:
 	else:
 		_zoom_tween = create_tween()
 		_zoom_tween.tween_property(commander_camera, "fov", target_fov, 0.2).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+
+
+func apply_user_camera_settings() -> void:
+	_apply_zoom(true)
+	if is_instance_valid(_chase_camera):
+		_chase_camera.fov = _user_camera_fov()
+	if is_instance_valid(_cinematic_camera):
+		_cinematic_camera.fov = _user_camera_fov()
+
+
+func _user_camera_fov() -> float:
+	var settings := _user_settings_node()
+	if settings != null and settings.has_method("get_camera_fov"):
+		return float(settings.call("get_camera_fov"))
+	return normal_fov
+
+
+func _user_look_sensitivity_multiplier() -> float:
+	var settings := _user_settings_node()
+	if settings != null and settings.has_method("get_look_sensitivity_multiplier"):
+		return float(settings.call("get_look_sensitivity_multiplier"))
+	return 1.0
+
+
+func _user_invert_look_y() -> bool:
+	var settings := _user_settings_node()
+	return settings != null \
+			and settings.has_method("get_invert_look_y") \
+			and bool(settings.call("get_invert_look_y"))
+
+
+func _user_settings_node() -> Node:
+	if not is_instance_valid(_pause_menu_settings):
+		_pause_menu_settings = get_node_or_null("/root/PauseMenu")
+	return _pause_menu_settings
 
 func _setup_control_room_audio() -> void:
 	if control_room_ambience == null:
@@ -361,7 +400,7 @@ func _ensure_external_cameras() -> void:
 func _make_external_camera(camera_name: String) -> Camera3D:
 	var camera := Camera3D.new()
 	camera.name = camera_name
-	camera.fov = external_camera_fov
+	camera.fov = _user_camera_fov()
 	camera.far = 5000.0
 	camera.current = false
 	return camera

@@ -1,6 +1,7 @@
 extends Node3D
 
 const MenuTypography = preload("res://UI/MenuTypography.gd")
+const MenuTheme = preload("res://UI/MenuTheme.gd")
 const TechnicalIndexView = preload("res://UI/TechnicalIndexView.gd")
 const MENU_TERRAIN_SCENE: PackedScene = preload("res://Environment/LowPolyTerrainPrototype.tscn")
 const MENU_CARRIER_SCENE: PackedScene = preload("res://LandCarrier/LandCarrier2.tscn")
@@ -29,26 +30,39 @@ const INSIGNIA_CAMERA_HEIGHT_M := 2.0
 const INSIGNIA_CAMERA_BACK_M := 20.0
 const INSIGNIA_CAMERA_SIDE_M := 145.0
 const MAIN_CAMERA_FOV := 48.0
+const MAIN_CAMERA_SHOT_DURATION_S := 10.5
+const MAIN_CAMERA_SHOT_COUNT := 5
+const MAIN_CAMERA_SHOT_AERIAL_QUARTER := 0
+const MAIN_CAMERA_SHOT_OVERHEAD_ORBIT := 1
+const MAIN_CAMERA_SHOT_HILLTOP := 2
+const MAIN_CAMERA_SHOT_GROUND_APPROACH := 3
+const MAIN_CAMERA_SHOT_LONG_LENS := 4
+const MAIN_CAMERA_AERIAL_FOV := 38.0
+const MAIN_CAMERA_ORBIT_FOV := 34.0
+const MAIN_CAMERA_HILLTOP_FOV := 28.0
+const MAIN_CAMERA_GROUND_FOV := 50.0
+const MAIN_CAMERA_LONG_LENS_FOV := 21.0
 const SETUP_CAMERA_FOV := 28.0
 const INSIGNIA_CAMERA_FOV := 23.0
 const CAMERA_FOV_BLEND := 0.010
 const CAMERA_SETUP_BLEND := 0.018
 const CAMERA_INSIGNIA_BLEND := 0.014
+const MAIN_FRAME_POINT := Vector2(0.66, 0.54)
 const SETUP_FRAME_POINT := Vector2(2.0 / 3.0, 0.5)
 const ROUTE_SAMPLE_STEP_M := 90.0
 const ROUTE_MAX_HEIGHT_SPAN_M := 70.0
 const MENU_CARRIER_CLEARANCE_M := 120.0
 const MENU_PATH_MAX_SLOPE_M := 12.0
-const OPERATOR_RAIL_WIDTH := 480.0
+const OPERATOR_RAIL_WIDTH := MenuTheme.RAIL_WIDTH
 
-const UI_PRIMARY := Color(1.0, 0.718, 0.49, 1.0)
-const UI_PRIMARY_ACTIVE := Color(1.0, 0.55, 0.0, 1.0)
-const UI_HAZARD := Color(1.0, 0.86, 0.28, 1.0)
-const UI_SURFACE := Color(0.102, 0.11, 0.118, 0.88)
-const UI_SURFACE_LOW := Color(0.047, 0.055, 0.063, 0.52)
-const UI_OUTLINE := Color(0.337, 0.263, 0.204, 0.78)
-const UI_TEXT := Color(0.886, 0.886, 0.898, 1.0)
-const UI_TEXT_MUTED := Color(0.867, 0.757, 0.682, 0.62)
+const UI_PRIMARY := MenuTheme.PRIMARY
+const UI_PRIMARY_ACTIVE := MenuTheme.PRIMARY_ACTIVE
+const UI_HAZARD := MenuTheme.HAZARD
+const UI_SURFACE := MenuTheme.SURFACE
+const UI_SURFACE_LOW := MenuTheme.SURFACE_LOW
+const UI_OUTLINE := MenuTheme.OUTLINE
+const UI_TEXT := MenuTheme.TEXT
+const UI_TEXT_MUTED := MenuTheme.TEXT_MUTED
 
 const PAD_BUTTON_A := 0
 const PAD_BUTTON_B := 1
@@ -72,6 +86,7 @@ var _autoload_overrides: Array[Dictionary] = []
 var _ui_root: Control
 var _main_panel: Control
 var _setup_panel: Control
+var _developer_panel: Control
 var _technical_index: Control
 var _brand_title_label: Label
 var _system_id_label: Label
@@ -96,6 +111,11 @@ var _insignia_value_button: Button
 var _map_value_button: Button
 var _menu_rng := RandomNumberGenerator.new()
 var _elapsed := 0.0
+var _main_camera_sequence_elapsed_s := 0.0
+var _main_camera_shot_index := -1
+var _main_camera_fixed_anchor := Vector3.ZERO
+var _main_camera_cut_pending := true
+var _main_camera_fov_cut_pending := true
 
 
 func _ready() -> void:
@@ -115,6 +135,7 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	_elapsed += delta
+	_update_main_camera_sequence(delta)
 	if is_instance_valid(_path_follow):
 		_path_follow.progress_ratio = fposmod(_elapsed / CAMERA_LOOP_S, 1.0)
 	if is_instance_valid(_camera):
@@ -122,7 +143,13 @@ func _process(delta: float) -> void:
 		var look_target := _camera_look_target()
 		_camera.look_at(look_target, Vector3.UP)
 		_apply_setup_screen_framing(look_target)
-		_camera.fov = lerpf(_camera.fov, _target_camera_fov(), CAMERA_FOV_BLEND)
+		_apply_main_screen_framing()
+		var target_fov := _target_camera_fov()
+		if _main_camera_fov_cut_pending and _current_screen != "setup":
+			_camera.fov = target_fov
+			_main_camera_fov_cut_pending = false
+		else:
+			_camera.fov = lerpf(_camera.fov, target_fov, CAMERA_FOV_BLEND)
 	_force_exterior_camera()
 
 
@@ -693,16 +720,9 @@ func _position_exterior_camera() -> void:
 	if not is_instance_valid(_camera) or not is_instance_valid(_carrier_root):
 		return
 	var carrier_pos := _carrier_root.global_position
-	var forward := _carrier_root.global_transform.basis.z
-	forward.y = 0.0
-	if forward.length_squared() < 0.0001:
-		forward = Vector3.FORWARD
-	forward = forward.normalized()
-	var right := _carrier_root.global_transform.basis.x
-	right.y = 0.0
-	if right.length_squared() < 0.0001:
-		right = Vector3(forward.z, 0.0, -forward.x)
-	right = right.normalized()
+	var axes := _carrier_camera_axes()
+	var forward: Vector3 = axes[0]
+	var right: Vector3 = axes[1]
 	var desired: Vector3
 	var blend := 0.035
 	if _current_screen == "setup":
@@ -718,13 +738,134 @@ func _position_exterior_camera() -> void:
 			desired = carrier_pos - forward * SETUP_CAMERA_BACK_M + right * SETUP_CAMERA_SIDE_M
 			desired.y = carrier_pos.y + SETUP_CAMERA_HEIGHT_M
 			blend = CAMERA_SETUP_BLEND
+		_camera.global_position = _camera.global_position.lerp(desired, blend) if _elapsed > 0.2 else desired
 	else:
-		var side_sign := 1.0 if sin(_elapsed * 0.06) >= 0.0 else -1.0
-		var side_amount := CAMERA_CARRIER_SIDE_M * (0.55 + absf(sin(_elapsed * 0.06)) * 0.45)
-		desired = carrier_pos - forward * CAMERA_CARRIER_BACK_M + right * side_amount * side_sign
-		desired.y = carrier_pos.y + CAMERA_CARRIER_HEIGHT_M
-	_camera.global_position = _camera.global_position.lerp(desired, blend) if _elapsed > 0.2 else desired
+		_ensure_main_camera_shot()
+		desired = _main_camera_position(carrier_pos, forward, right)
+		if _main_camera_cut_pending or _is_fixed_main_camera_shot():
+			_camera.global_position = desired
+			_main_camera_cut_pending = false
+		else:
+			_camera.global_position = _camera.global_position.lerp(desired, 0.08)
 	_keep_camera_above_ground()
+
+
+func _update_main_camera_sequence(delta: float) -> void:
+	if _current_screen != "main":
+		return
+	_main_camera_sequence_elapsed_s += maxf(delta, 0.0)
+	var shot_index := int(floor(_main_camera_sequence_elapsed_s / MAIN_CAMERA_SHOT_DURATION_S)) % MAIN_CAMERA_SHOT_COUNT
+	if shot_index != _main_camera_shot_index:
+		_activate_main_camera_shot(shot_index)
+
+
+func _ensure_main_camera_shot() -> void:
+	if _main_camera_shot_index < 0 or _main_camera_shot_index >= MAIN_CAMERA_SHOT_COUNT:
+		_activate_main_camera_shot(0)
+
+
+func _activate_main_camera_shot(shot_index: int) -> void:
+	_main_camera_shot_index = posmod(shot_index, MAIN_CAMERA_SHOT_COUNT)
+	_main_camera_fixed_anchor = _build_fixed_camera_anchor(_main_camera_shot_index)
+	_main_camera_cut_pending = true
+	_main_camera_fov_cut_pending = true
+	if is_instance_valid(_terrain) and _terrain.has_method("prioritize_camera_handoff"):
+		call_deferred("_prioritize_main_camera_terrain")
+
+
+func _prioritize_main_camera_terrain() -> void:
+	if is_instance_valid(_terrain) and is_instance_valid(_camera) and _terrain.has_method("prioritize_camera_handoff"):
+		_terrain.call("prioritize_camera_handoff", _camera)
+
+
+func _carrier_camera_axes() -> Array[Vector3]:
+	var forward := _carrier_root.global_transform.basis.z if is_instance_valid(_carrier_root) else Vector3.FORWARD
+	forward.y = 0.0
+	if forward.length_squared() < 0.0001:
+		forward = Vector3.FORWARD
+	forward = forward.normalized()
+	var right := _carrier_root.global_transform.basis.x if is_instance_valid(_carrier_root) else Vector3.RIGHT
+	right.y = 0.0
+	if right.length_squared() < 0.0001:
+		right = Vector3(forward.z, 0.0, -forward.x)
+	right = right.normalized()
+	return [forward, right]
+
+
+func _main_camera_position(carrier_pos: Vector3, forward: Vector3, right: Vector3) -> Vector3:
+	match _main_camera_shot_index:
+		MAIN_CAMERA_SHOT_AERIAL_QUARTER:
+			var aerial := carrier_pos - forward * 340.0 + right * 215.0
+			aerial.y = carrier_pos.y + 165.0
+			return aerial
+		MAIN_CAMERA_SHOT_OVERHEAD_ORBIT:
+			var phase := fposmod(_main_camera_sequence_elapsed_s, MAIN_CAMERA_SHOT_DURATION_S) / MAIN_CAMERA_SHOT_DURATION_S
+			var angle := deg_to_rad(-135.0 + phase * 105.0)
+			var orbit := carrier_pos + right * cos(angle) * 470.0 + forward * sin(angle) * 470.0
+			orbit.y = carrier_pos.y + 290.0
+			return orbit
+		MAIN_CAMERA_SHOT_HILLTOP, MAIN_CAMERA_SHOT_GROUND_APPROACH, MAIN_CAMERA_SHOT_LONG_LENS:
+			return _main_camera_fixed_anchor
+	return carrier_pos - forward * CAMERA_CARRIER_BACK_M + right * CAMERA_CARRIER_SIDE_M
+
+
+func _build_fixed_camera_anchor(shot_index: int) -> Vector3:
+	if not is_instance_valid(_carrier_root):
+		return Vector3.ZERO
+	var carrier_pos := _carrier_root.global_position
+	var axes := _carrier_camera_axes()
+	var forward: Vector3 = axes[0]
+	var right: Vector3 = axes[1]
+	var candidate := carrier_pos
+	var eye_height_m := 12.0
+	match shot_index:
+		MAIN_CAMERA_SHOT_HILLTOP:
+			candidate += -forward * 470.0 - right * 360.0
+			return _find_hilltop_camera_anchor(candidate, 260.0, 13.0)
+		MAIN_CAMERA_SHOT_GROUND_APPROACH:
+			candidate += forward * 270.0 + right * 105.0
+			eye_height_m = 7.0
+		MAIN_CAMERA_SHOT_LONG_LENS:
+			candidate += -forward * 130.0 + right * 640.0
+			eye_height_m = 18.0
+		_:
+			return Vector3.ZERO
+	var terrain_y := _terrain_height_at(candidate)
+	if is_nan(terrain_y):
+		terrain_y = carrier_pos.y - CARRIER_RIDE_HEIGHT_M
+	candidate.y = terrain_y + eye_height_m
+	return candidate
+
+
+func _find_hilltop_camera_anchor(center: Vector3, search_radius_m: float, eye_height_m: float) -> Vector3:
+	var best := center
+	var best_height := _terrain_height_at(center)
+	if is_nan(best_height):
+		best_height = center.y
+	var best_score := best_height
+	for ring_fraction in [0.45, 0.72, 1.0]:
+		var ring_radius := search_radius_m * float(ring_fraction)
+		for sample_index in range(16):
+			var angle := TAU * float(sample_index) / 16.0
+			var candidate := center + Vector3(cos(angle) * ring_radius, 0.0, sin(angle) * ring_radius)
+			var terrain_y := _terrain_height_at(candidate)
+			if is_nan(terrain_y):
+				continue
+			var score := terrain_y - candidate.distance_to(center) * 0.035
+			if score > best_score:
+				best = candidate
+				best_height = terrain_y
+				best_score = score
+	best.y = best_height + eye_height_m
+	return best
+
+
+func _is_fixed_main_camera_shot() -> bool:
+	return _main_camera_shot_index in [
+		MAIN_CAMERA_SHOT_HILLTOP,
+		MAIN_CAMERA_SHOT_GROUND_APPROACH,
+		MAIN_CAMERA_SHOT_LONG_LENS,
+	]
 
 
 func _keep_camera_above_ground() -> void:
@@ -734,7 +875,7 @@ func _keep_camera_above_ground() -> void:
 	var ground_y := _terrain_height_at(pos)
 	if is_nan(ground_y):
 		return
-	var clearance := CAMERA_TERRAIN_CLEARANCE_M
+	var clearance := _main_camera_ground_clearance_m()
 	if _current_screen == "setup":
 		clearance = INSIGNIA_CAMERA_TERRAIN_CLEARANCE_M if _is_insignia_row_focused() else SETUP_CAMERA_TERRAIN_CLEARANCE_M
 	var min_y := ground_y + clearance
@@ -744,13 +885,47 @@ func _keep_camera_above_ground() -> void:
 
 func _target_camera_fov() -> float:
 	if _current_screen != "setup":
+		match _main_camera_shot_index:
+			MAIN_CAMERA_SHOT_AERIAL_QUARTER:
+				return MAIN_CAMERA_AERIAL_FOV
+			MAIN_CAMERA_SHOT_OVERHEAD_ORBIT:
+				return MAIN_CAMERA_ORBIT_FOV
+			MAIN_CAMERA_SHOT_HILLTOP:
+				return MAIN_CAMERA_HILLTOP_FOV
+			MAIN_CAMERA_SHOT_GROUND_APPROACH:
+				return MAIN_CAMERA_GROUND_FOV
+			MAIN_CAMERA_SHOT_LONG_LENS:
+				return MAIN_CAMERA_LONG_LENS_FOV
 		return MAIN_CAMERA_FOV
 	return INSIGNIA_CAMERA_FOV if _is_insignia_row_focused() else SETUP_CAMERA_FOV
+
+
+func _main_camera_ground_clearance_m() -> float:
+	match _main_camera_shot_index:
+		MAIN_CAMERA_SHOT_HILLTOP:
+			return 10.0
+		MAIN_CAMERA_SHOT_GROUND_APPROACH:
+			return 6.0
+		MAIN_CAMERA_SHOT_LONG_LENS:
+			return 14.0
+		MAIN_CAMERA_SHOT_AERIAL_QUARTER:
+			return 90.0
+	return CAMERA_TERRAIN_CLEARANCE_M
 
 
 func _apply_setup_screen_framing(_look_target: Vector3) -> void:
 	if _current_screen != "setup" or not is_instance_valid(_camera):
 		return
+	_apply_camera_frame_point(SETUP_FRAME_POINT)
+
+
+func _apply_main_screen_framing() -> void:
+	if _current_screen not in ["main", "developer"] or not is_instance_valid(_camera):
+		return
+	_apply_camera_frame_point(MAIN_FRAME_POINT)
+
+
+func _apply_camera_frame_point(frame_point: Vector2) -> void:
 	var viewport := get_viewport()
 	if viewport == null:
 		return
@@ -760,8 +935,8 @@ func _apply_setup_screen_framing(_look_target: Vector3) -> void:
 	var aspect := viewport_size.x / viewport_size.y
 	var vertical_half_angle := deg_to_rad(_camera.fov) * 0.5
 	var horizontal_half_angle := atan(tan(vertical_half_angle) * aspect)
-	var ndc_x := (SETUP_FRAME_POINT.x - 0.5) * 2.0
-	var ndc_y := (0.5 - SETUP_FRAME_POINT.y) * 2.0
+	var ndc_x := (frame_point.x - 0.5) * 2.0
+	var ndc_y := (0.5 - frame_point.y) * 2.0
 	var yaw := atan(ndc_x * tan(horizontal_half_angle))
 	var pitch := atan(ndc_y * tan(vertical_half_angle))
 	_camera.rotate_object_local(Vector3.UP, yaw)
@@ -779,14 +954,50 @@ func _camera_look_target() -> Vector3:
 				return marker.global_position + Vector3(0.0, lift, 0.0)
 			return _carrier_root.global_position + Vector3(0.0, 6.0, -6.0)
 		return _carrier_root.global_position + Vector3(0.0, 2.0, -18.0)
-	var t := fposmod(_elapsed / CAMERA_LOOP_S, 1.0)
-	if t < 0.20:
-		return _carrier_root.global_position + Vector3(0.0, 14.0, 90.0)
-	if t < 0.48:
-		return _carrier_root.global_position + Vector3(0.0, 20.0, 0.0)
-	if t < 0.73:
-		return _carrier_root.global_position + Vector3(12.0, 34.0, -32.0)
-	return _carrier_root.global_position + Vector3(0.0, 26.0, 80.0)
+	match _main_camera_shot_index:
+		MAIN_CAMERA_SHOT_AERIAL_QUARTER:
+			return _carrier_root.global_position + Vector3(0.0, 18.0, 24.0)
+		MAIN_CAMERA_SHOT_OVERHEAD_ORBIT:
+			return _carrier_root.global_position + Vector3(0.0, 24.0, 0.0)
+		MAIN_CAMERA_SHOT_HILLTOP:
+			return _carrier_root.global_position + Vector3(0.0, 14.0, -10.0)
+		MAIN_CAMERA_SHOT_GROUND_APPROACH:
+			return _carrier_root.global_position + Vector3(0.0, 5.0, 0.0)
+		MAIN_CAMERA_SHOT_LONG_LENS:
+			return _carrier_root.global_position + Vector3(0.0, 18.0, 0.0)
+	return _carrier_root.global_position + Vector3(0.0, 18.0, 0.0)
+
+
+func get_main_camera_shot_count() -> int:
+	return MAIN_CAMERA_SHOT_COUNT
+
+
+func get_main_camera_shot_name() -> String:
+	match _main_camera_shot_index:
+		MAIN_CAMERA_SHOT_AERIAL_QUARTER:
+			return "AERIAL QUARTER"
+		MAIN_CAMERA_SHOT_OVERHEAD_ORBIT:
+			return "OVERHEAD ORBIT"
+		MAIN_CAMERA_SHOT_HILLTOP:
+			return "HILLTOP"
+		MAIN_CAMERA_SHOT_GROUND_APPROACH:
+			return "GROUND APPROACH"
+		MAIN_CAMERA_SHOT_LONG_LENS:
+			return "LONG LENS"
+	return "UNKNOWN"
+
+
+func preview_main_camera_shot(shot_index: int, normalized_phase: float = 0.35) -> void:
+	_main_camera_sequence_elapsed_s = float(posmod(shot_index, MAIN_CAMERA_SHOT_COUNT)) * MAIN_CAMERA_SHOT_DURATION_S \
+		+ clampf(normalized_phase, 0.0, 0.999) * MAIN_CAMERA_SHOT_DURATION_S
+	_activate_main_camera_shot(shot_index)
+	if not is_instance_valid(_camera) or not is_instance_valid(_carrier_root):
+		return
+	_position_exterior_camera()
+	_camera.look_at(_camera_look_target(), Vector3.UP)
+	_apply_main_screen_framing()
+	_camera.fov = _target_camera_fov()
+	_main_camera_fov_cut_pending = false
 
 
 func _is_insignia_row_focused() -> bool:
@@ -831,9 +1042,7 @@ func _build_ui() -> void:
 	operator_rail.position = Vector2.ZERO
 	operator_rail.size = Vector2(OPERATOR_RAIL_WIDTH, BASE_UI_SIZE.y)
 	operator_rail.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var rail_style := StyleBoxFlat.new()
-	rail_style.bg_color = UI_SURFACE
-	rail_style.border_color = UI_OUTLINE
+	var rail_style := MenuTheme.make_panel_style(UI_SURFACE, UI_OUTLINE, 0)
 	rail_style.border_width_right = 1
 	operator_rail.add_theme_stylebox_override("panel", rail_style)
 	_ui_root.add_child(operator_rail)
@@ -896,6 +1105,12 @@ func _build_ui() -> void:
 	_setup_panel.size = Vector2(OPERATOR_RAIL_WIDTH - 44.0, 620.0)
 	_ui_root.add_child(_setup_panel)
 	_build_setup_menu(_setup_panel)
+
+	_developer_panel = Control.new()
+	_developer_panel.position = Vector2(20.0, 235.0)
+	_developer_panel.size = Vector2(OPERATOR_RAIL_WIDTH - 40.0, 520.0)
+	_ui_root.add_child(_developer_panel)
+	_build_developer_menu(_developer_panel)
 
 	_technical_index = TechnicalIndexView.new()
 	_technical_index.connect(&"exit_requested", _show_main_menu)
@@ -982,16 +1197,14 @@ func _layout_ui_root() -> void:
 
 func _build_main_menu(parent: Control) -> void:
 	var entries := [
-		["CONTINUE", Callable(self, "_continue_game")],
 		["NEW CAMPAIGN", Callable(self, "_show_setup_menu")],
-		["SKIRMISH / TEST FLIGHT", Callable(self, "_start_test_flight")],
-		["LANDING TEST", Callable(self, "_start_landing_test")],
-		["CARRIER COMBAT TEST", Callable(self, "_start_carrier_combat_test")],
+		["SKIRMISH", Callable(self, "_start_test_flight")],
 		["TECHNICAL INDEX", Callable(self, "_show_technical_index")],
 		["SETTINGS", Callable(self, "_show_options_menu")],
-		["CREDITS", Callable(self, "_show_credits_stub")],
 		["QUIT", Callable(self, "_quit_game")],
 	]
+	if OS.is_debug_build():
+		entries.insert(entries.size() - 1, ["DEVELOPMENT SCENARIOS", Callable(self, "_show_developer_menu")])
 	for i in range(entries.size()):
 		var entry_label := str(entries[i][0])
 		var extra_gap := 80.0 if i == entries.size() - 1 else 0.0
@@ -1003,9 +1216,20 @@ func _build_main_menu(parent: Control) -> void:
 		btn.mouse_exited.connect(_refresh_operator_button_indicator.bind(btn))
 		btn.focus_entered.connect(_refresh_operator_button_indicator.bind(btn))
 		btn.focus_exited.connect(_refresh_operator_button_indicator.bind(btn))
-		if i == 0:
-			btn.disabled = true
 		parent.add_child(btn)
+
+
+func _build_developer_menu(parent: Control) -> void:
+	var entries := [
+		["FREE FLIGHT", Callable(self, "_start_test_flight")],
+		["LANDING TEST", Callable(self, "_start_landing_test")],
+		["CARRIER COMBAT TEST", Callable(self, "_start_carrier_combat_test")],
+		["< MAIN MENU", Callable(self, "_show_main_menu")],
+	]
+	for i in range(entries.size()):
+		var button := _make_menu_button(str(entries[i][0]), Vector2(0.0, i * 64.0), OPERATOR_RAIL_WIDTH - 40.0)
+		button.pressed.connect(entries[i][1] as Callable)
+		parent.add_child(button)
 
 
 func _refresh_operator_button_indicator(button: Button) -> void:
@@ -1064,9 +1288,16 @@ func _build_cycle_row(parent: Control, pos: Vector2, callback: Callable) -> Butt
 
 
 func _show_main_menu() -> void:
+	var returning_to_main := _current_screen != "main"
 	_current_screen = "main"
+	if returning_to_main:
+		_main_camera_sequence_elapsed_s = 0.0
+		_main_camera_shot_index = -1
+		_main_camera_cut_pending = true
+		_main_camera_fov_cut_pending = true
 	_main_panel.visible = true
 	_setup_panel.visible = false
+	_developer_panel.visible = false
 	if is_instance_valid(_technical_index):
 		_technical_index.call("close")
 	_set_menu_branding("LAND CARRIER", "SYS_ID: LC-992-ALPHA // OPERATOR CONSOLE")
@@ -1080,6 +1311,7 @@ func _show_setup_menu() -> void:
 	_current_screen = "setup"
 	_main_panel.visible = false
 	_setup_panel.visible = true
+	_developer_panel.visible = false
 	if is_instance_valid(_technical_index):
 		_technical_index.call("close")
 	_set_menu_branding("LAND CARRIER", "SYS_ID: LC-992-ALPHA // NEW CAMPAIGN CONFIGURATION")
@@ -1089,9 +1321,24 @@ func _show_setup_menu() -> void:
 	_name_edit.grab_focus()
 
 
+func _show_developer_menu() -> void:
+	_current_screen = "developer"
+	_main_panel.visible = false
+	_setup_panel.visible = false
+	_developer_panel.visible = true
+	if is_instance_valid(_technical_index):
+		_technical_index.call("close")
+	_set_menu_branding("SCENARIO LAB", "SYS_ID: LC-992-ALPHA // DEVELOPMENT SCENARIOS")
+	_message_label.text = "DEBUG BUILD // VALIDATION SCENARIOS"
+	var first := _first_button(_developer_panel)
+	if first:
+		first.grab_focus()
+
+
 func _show_technical_index() -> void:
 	_main_panel.visible = false
 	_setup_panel.visible = false
+	_developer_panel.visible = false
 	_message_label.text = ""
 	_set_menu_branding("TECHNICAL INDEX", "ARCHIVE_ID: LC-992-ALPHA // EQUIPMENT REFERENCE")
 	_technical_index.call("open")
@@ -1106,10 +1353,6 @@ func _set_menu_branding(title: String, system_id: String) -> void:
 		_brand_title_label.text = title
 	if is_instance_valid(_system_id_label):
 		_system_id_label.text = system_id
-
-
-func _continue_game() -> void:
-	_message_label.text = "NO SAVE FOUND"
 
 
 func _start_test_flight() -> void:
@@ -1129,16 +1372,17 @@ func _start_carrier_combat_test() -> void:
 
 func _show_options_menu() -> void:
 	var pause_menu := get_node_or_null("/root/PauseMenu")
-	if pause_menu == null or not pause_menu.has_method("_open"):
+	if pause_menu == null:
 		_message_label.text = "SETTINGS NOT READY"
 		return
-	pause_menu.call("_open")
-	if pause_menu.has_method("_show_screen"):
-		pause_menu.call("_show_screen", "options")
-
-
-func _show_credits_stub() -> void:
-	_message_label.text = "CREDITS COMING SOON"
+	if pause_menu.has_method("open_settings_from_main_menu"):
+		pause_menu.call("open_settings_from_main_menu")
+	elif pause_menu.has_method("_open"):
+		pause_menu.call("_open")
+		if pause_menu.has_method("_show_screen"):
+			pause_menu.call("_show_screen", "options")
+	else:
+		_message_label.text = "SETTINGS NOT READY"
 
 
 func _quit_game() -> void:
@@ -1411,35 +1655,11 @@ func _make_value_button(pos: Vector2, width: float) -> Button:
 
 
 func _apply_plain_button_style(button: Button) -> void:
-	var normal := _make_operator_button_style(Color.TRANSPARENT, Color.TRANSPARENT, 0)
-	var active := _make_operator_button_style(UI_PRIMARY, UI_HAZARD, 0)
-	active.border_width_left = 4
-	var pressed := _make_operator_button_style(UI_PRIMARY_ACTIVE, UI_HAZARD, 0)
-	pressed.border_width_left = 4
-	var disabled := _make_operator_button_style(Color.TRANSPARENT, Color.TRANSPARENT, 0)
-	button.add_theme_stylebox_override("normal", normal)
-	button.add_theme_stylebox_override("hover", active)
-	button.add_theme_stylebox_override("focus", active)
-	button.add_theme_stylebox_override("pressed", pressed)
-	button.add_theme_stylebox_override("disabled", disabled)
-	button.add_theme_font_override("font", MenuTypography.TECH_FONT)
-	button.add_theme_color_override("font_color", UI_TEXT)
-	button.add_theme_color_override("font_hover_color", Color(0.12, 0.07, 0.025, 1.0))
-	button.add_theme_color_override("font_focus_color", Color(0.12, 0.07, 0.025, 1.0))
-	button.add_theme_color_override("font_pressed_color", Color(0.12, 0.07, 0.025, 1.0))
-	button.add_theme_color_override("font_disabled_color", Color(UI_TEXT.r, UI_TEXT.g, UI_TEXT.b, 0.24))
+	MenuTheme.apply_operator_button(button, button.get_theme_font_size("font_size"))
 
 
 func _make_operator_button_style(background: Color, border: Color, border_width: int) -> StyleBoxFlat:
-	var style := StyleBoxFlat.new()
-	style.bg_color = background
-	style.border_color = border
-	style.set_border_width_all(border_width)
-	style.content_margin_left = 18.0
-	style.content_margin_right = 14.0
-	style.content_margin_top = 8.0
-	style.content_margin_bottom = 8.0
-	return style
+	return MenuTheme.make_operator_button_style(background, border, border_width)
 
 
 func _apply_operator_line_edit_style(line_edit: LineEdit) -> void:
@@ -1467,6 +1687,9 @@ func _wrap_index(value: int, size: int) -> int:
 
 func _go_back() -> bool:
 	if _current_screen == "setup":
+		_show_main_menu()
+		return true
+	if _current_screen == "developer":
 		_show_main_menu()
 		return true
 	if _current_screen == "tech_categories" or _current_screen == "tech_items":
@@ -1540,6 +1763,8 @@ func _buttons_in_current_screen() -> Array[Button]:
 			screen = _main_panel
 		"setup":
 			screen = _setup_panel
+		"developer":
+			screen = _developer_panel
 		"tech_categories", "tech_items":
 			screen = _technical_index
 		_:

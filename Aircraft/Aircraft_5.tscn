@@ -250,7 +250,7 @@ panel_size = Vector2(1, 0.8)
 viewport_resolution = Vector2i(1000, 480)
 module_layout = Array[Dictionary]([{
 "id": "warning_strip",
-"lights": ["ENGINE", "WEAPONS", "CONTROLS", "GEAR", "STALL", "MISSILE"],
+"lights": ["ENGINE", "WEAPONS", "CONTROLS", "GEAR", "STALL"],
 "rect": Rect2(125, 75, 750, 40),
 "title": "WARNINGS",
 "type": "warning_lights"
@@ -307,12 +307,6 @@ module_layout = Array[Dictionary]([{
 "rect": Rect2(165, 25, 120, 45),
 "title": "AOA",
 "type": "aoa"
-}, {
-"id": "missile_lock",
-"instrument": "missile_lock",
-"rect": Rect2(440, 370, 125, 50),
-"title": "M LOCK",
-"type": "readout"
 }, {
 "id": "slip_ball",
 "rect": Rect2(415, 25, 170, 45),

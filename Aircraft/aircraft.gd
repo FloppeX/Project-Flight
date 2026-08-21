@@ -144,8 +144,6 @@ var shake_time: float = 0.0
 var last_linear_velocity = null
 var last_angular_velocity = null
 var is_velocity_nonzero = false
-const AAM_TARGETING_SCRIPT := preload("res://Weapons/AA_Missile/ControlTargeting_AAM.gd")
-
 # Flight data
 var air_velocity = 0.0
 var forward_air_speed = 0.0
@@ -222,9 +220,7 @@ func _ready():
 	mask |= (1 << 0) | (1 << 9)
 	set_collision_mask(mask)
 
-	# Preserve the editor-authored loadout, but still bootstrap support modules
-	# that some weapon types depend on to function.
-	_ensure_weapon_support_modules()
+	# Preserve the editor-authored non-missile loadout.
 	_ensure_cockpit_pilot()
 	
 	setup()
@@ -281,26 +277,6 @@ func _ensure_cockpit_pilot() -> void:
 	var local_basis: Basis = Basis.from_euler(local_rotation_rad).scaled(Vector3.ONE * uniform_scale)
 	var local_transform: Transform3D = Transform3D(local_basis, cockpit_pilot_local_offset)
 	pilot_node.global_transform = cockpit_node.global_transform * local_transform
-
-func _ensure_weapon_support_modules() -> void:
-	if _has_weapon_type("AAMissile") and not find_child("ControlTargeting_AAM", true, false):
-		var aam_targeting := AAM_TARGETING_SCRIPT.new()
-		aam_targeting.name = "ControlTargeting_AAM"
-		add_child(aam_targeting)
-		modules.append(aam_targeting)
-
-func _has_weapon_type(weapon_name: String) -> bool:
-	for child in get_children():
-		if child is Hardpoint:
-			var hardpoint := child as Hardpoint
-			if hardpoint.weapon_instance and hardpoint.weapon_instance.weapon_name == weapon_name:
-				return true
-		for grandchild in child.get_children():
-			if grandchild is Hardpoint:
-				var nested_hardpoint := grandchild as Hardpoint
-				if nested_hardpoint.weapon_instance and nested_hardpoint.weapon_instance.weapon_name == weapon_name:
-					return true
-	return false
 
 func setup():
 	for module in modules:

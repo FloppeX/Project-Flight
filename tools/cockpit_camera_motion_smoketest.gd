@@ -23,7 +23,12 @@ func _ready() -> void:
 	aircraft.linear_velocity = Vector3(0.0, 0.0, 255.0)
 	camera_rig._physics_process(0.2)
 	var launch_displacement: Vector3 = camera_rig.position - camera_rig.base_position
-	_check(launch_displacement.length() <= camera_rig.max_g_offset + 0.0001, "launch acceleration must respect the 20 cm camera limit")
+	_check(launch_displacement.z >= -camera_rig.max_backward_offset - 0.0001, "launch acceleration must respect the 4 cm rearward camera limit")
+	_check(launch_displacement.length() <= camera_rig.max_g_offset + 0.0001, "launch acceleration must still respect the general camera limit")
+
+	# The new rear cap must not reduce forward head travel.
+	var forward_offset := camera_rig._limit_camera_offset(Vector3(0.0, 0.0, 0.15))
+	_check(is_equal_approx(forward_offset.z, 0.15), "forward camera travel should remain unchanged")
 
 	# The same cap applies laterally without suppressing the effect altogether.
 	camera_rig.g_force_offset = Vector3.ZERO

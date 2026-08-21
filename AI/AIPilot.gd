@@ -1747,6 +1747,11 @@ var launch_position: Vector3 = Vector3.ZERO
 var deck_clearance_distance: float = 300.0  # Distance from launch point to start climbing
 var land_after_launch: bool = false         # If true, start landing approach once climb completes
 var _land_after_climb: bool = false         # Set internally when land_after_launch triggers climb
+## While the aircraft is still in LAUNCHING, compare projected clearance with
+## its present deck-edge clearance instead of the normal cruise AGL floor. This
+## makes rising terrain authoritative immediately after catapult release without
+## treating the carrier's deliberately low deck altitude as an emergency.
+@export var launch_terrain_clearance_loss_trigger_m: float = 12.0
 @export var launch_pullup_pitch_input: float = 0.45   # Pull-up authority after catapult launch
 @export var launch_min_climb_rate_mps: float = 8.0   # Keep pulling until this vertical speed
 @export var launch_target_pitch_deg: float = 20.0
@@ -21523,9 +21528,14 @@ func _check_terrain_avoidance(_delta: float) -> bool:
 	# retaining the exclusions that cover a genuine on-deck launch and established final.
 	# Established final guidance already follows a terrain-checked corridor. After a wave-off the
 	# aircraft is beyond that corridor and needs the normal forward terrain safety net again.
-	if current_state in [State.LAUNCHING, State.IDLE] \
+	# Catapult release removes controls_disabled at the forward deck edge. From
+	# that first pilot-controlled frame onward LAUNCHING gets the same terrain
+	# authority as other airborne states, with a launch-specific margin below.
+	if current_state == State.IDLE \
+			or (current_state == State.LAUNCHING and bool(aircraft.get_meta("controls_disabled", false))) \
 			or (current_state == State.LANDING and not _bolter_go_around):
 		return false
+	var launch_departure_terrain_active: bool = current_state == State.LAUNCHING
 	# A positive climb rate only means the aircraft is gaining altitude -- it says nothing about
 	# whether the terrain ahead is rising even faster (a ridge/cliff in the climb-out path). Two
 	# aircraft flew a nominal, steadily-climbing launch profile straight into a cliff because this
@@ -21537,7 +21547,15 @@ func _check_terrain_avoidance(_delta: float) -> bool:
 
 	# State-specific safety margins (how much clearance we need to feel safe)
 	var safety_margin: float
-	if _is_recovery_route_state():
+	if launch_departure_terrain_active:
+		# The aircraft may be only a few metres above local ground at the deck
+		# edge. Trigger on projected loss of that clearance, not on being below
+		# the normal 180 m cruise margin.
+		safety_margin = maxf(
+			altitude_agl - maxf(launch_terrain_clearance_loss_trigger_m, 0.0),
+			5.0
+		)
+	elif _is_recovery_route_state():
 		# The recovery route is explicitly planned with its own terrain clearance.
 		# Applying the normal-flight 180 m emergency margin here repeatedly lifted
 		# phase-2 aircraft far above the glideslope and guaranteed a high wave-off.
@@ -21584,13 +21602,15 @@ func _check_terrain_avoidance(_delta: float) -> bool:
 	# attack.  For a committed gun/rocket pass, use only the ray cast along the
 	# actual velocity vector; the forward fan still checks the projected trajectory
 	# against terrain heights below.
+	var exact_flight_path_only: bool = direct_fire_attack_path or launch_departure_terrain_active
 	var terrain_threat_distance: float = terrain_flight_path_distance \
-		if direct_fire_attack_path else terrain_ahead_distance
+		if exact_flight_path_only else terrain_ahead_distance
 	var tti: float = terrain_threat_distance / forward_speed
 	var sink_mps: float = maxf(-vel.y, 0.0)
 	var dynamic_margin: float = safety_margin
-	dynamic_margin += clampf((forward_speed - 90.0) * 0.8, 0.0, 120.0)
-	dynamic_margin += clampf(sink_mps * 5.0, 0.0, 80.0)
+	if not launch_departure_terrain_active:
+		dynamic_margin += clampf((forward_speed - 90.0) * 0.8, 0.0, 120.0)
+		dynamic_margin += clampf(sink_mps * 5.0, 0.0, 80.0)
 	var imminent_terrain: bool = terrain_threat_distance < INF and tti <= (emergency_tti_s + 0.8)
 	var critical_terrain: bool = terrain_threat_distance < INF and tti <= emergency_tti_s
 	if direct_fire_attack_path:
@@ -21640,6 +21660,10 @@ func _check_terrain_avoidance(_delta: float) -> bool:
 	if direct_fire_attack_path:
 		# During a strafing pass the warning is whether the projected path intersects
 		# terrain ahead, not the height of the terrain directly under the aircraft.
+		agl_ok = true
+	elif launch_departure_terrain_active:
+		# The launch-specific projected-clearance margin above owns this phase;
+		# current AGL alone must not fire the old violent deck-edge pull-up.
 		agl_ok = true
 	elif current_state == State.APPROACH:
 		agl_ok = altitude_agl > 20.0 or vel.y > -6.0

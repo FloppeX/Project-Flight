@@ -80,6 +80,7 @@ var _destroyed_target_hold_position: Vector3 = Vector3.ZERO
 var _destroyed_target_hold_name: String = ""
 var _destroyed_target_hold_until_s: float = -INF
 var _target_camera_pose_initialized: bool = false
+var _target_camera_local_aim_basis: Basis = Basis.IDENTITY
 var _camera_target_rest_transform: Transform3D = Transform3D.IDENTITY
 var _camera_target_cam_rest_transform: Transform3D = Transform3D.IDENTITY
 var module_root: Control = null
@@ -91,6 +92,9 @@ var model_panel_mesh: MeshInstance3D = null
 var model_panel_surface_indices: PackedInt32Array = PackedInt32Array()
 
 func _ready():
+	if bool(get_meta("technical_index_static_instrument", false)):
+		_setup_technical_index_static_display()
+		return
 	# Set up the panel screen mesh
 	var quad = QuadMesh.new()
 	quad.size = panel_size
@@ -124,6 +128,23 @@ func _ready():
 	add_to_group("instrument_panel")
 	
 	pass
+
+func prepare_technical_index_static_preview() -> bool:
+	if get_node_or_null("SubViewport") == null or get_node_or_null("PanelScreen") == null:
+		return false
+	set_meta("technical_index_static_instrument", true)
+	return true
+
+func _setup_technical_index_static_display() -> void:
+	var quad := QuadMesh.new()
+	quad.size = panel_size
+	panel_mesh.mesh = quad
+	viewport.size = viewport_resolution
+	viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	viewport.transparent_bg = false
+	var material := _create_panel_material()
+	panel_mesh.material_override = material
+	_bind_model_panel_surface(material)
 
 func _create_panel_material() -> ShaderMaterial:
 	var shader := Shader.new()
@@ -198,6 +219,11 @@ func _bind_model_panel_surface(material: Material) -> void:
 		if _surface_material_matches(mesh_instance, surface_index):
 			model_panel_surface_indices.append(surface_index)
 	if model_panel_surface_indices.is_empty():
+		if bool(get_meta("technical_index_static_instrument", false)):
+			# Keep the authored panel quad as the static index fallback when an older
+			# model has no matching embedded display surface.
+			panel_mesh.visible = true
+			return
 		push_warning("[InstrumentPanel] no matching model panel material found on mesh %s." % mesh_instance.name)
 		return
 	if auto_fit_model_panel_local_rect:
@@ -319,6 +345,7 @@ func bind_to_aircraft(new_aircraft: Node3D) -> void:
 	aircraft = new_aircraft as Aircraft
 	_resolve_camera_target()
 	_target_camera_pose_initialized = false
+	_target_camera_local_aim_basis = Basis.IDENTITY
 	for module in instrument_modules:
 		if module != null and is_instance_valid(module):
 			module.set_aircraft_reference(aircraft)
@@ -475,7 +502,7 @@ func _process(delta: float) -> void:
 				# Earlier versions slid the camera toward the target for zoom/composition,
 				# which made the feed feel like it was lagging behind the aircraft and could
 				# jitter when obstruction tests changed frame-to-frame.
-				_slew_target_camera_look_at(source_xform.origin, focus_pos, delta)
+				_slew_target_camera_look_at(source_xform, focus_pos, delta)
 				_ensure_target_view_camera_current()
 				if target_placeholder:
 					target_placeholder.visible = false
@@ -486,7 +513,7 @@ func _process(delta: float) -> void:
 					target_info_label.text = String(target_focus["name"]) + suffix + "\n" + str(int(distance)) + "m"
 			else:
 				# No target: slew the target feed back to the aircraft's forward camera mount.
-				_slew_target_camera_to_transform(source_xform, delta)
+				_slew_target_camera_to_transform(source_xform, source_xform, delta)
 				_ensure_target_view_camera_current()
 				if target_placeholder:
 					target_placeholder.visible = false
@@ -499,7 +526,8 @@ func _process(delta: float) -> void:
 				var focus_pos: Vector3 = target_focus["position"]
 				var aircraft_xform := _get_node_visual_transform(aircraft)
 				var cam_pos = aircraft_xform.origin + aircraft_xform.basis.z * 1.0 + Vector3(0, 0.3, 0)
-				_slew_target_camera_look_at(cam_pos, focus_pos, delta)
+				var mount_xform := Transform3D(aircraft_xform.basis, cam_pos)
+				_slew_target_camera_look_at(mount_xform, focus_pos, delta)
 				if target_placeholder:
 					target_placeholder.visible = false
 				# Update target info label for targeting module target
@@ -512,7 +540,7 @@ func _process(delta: float) -> void:
 				var aircraft_xform := _get_node_visual_transform(aircraft)
 				var cam_pos2 = aircraft_xform.origin + aircraft_xform.basis.z * 1.0 + Vector3(0, 0.3, 0)
 				var forward_xform := Transform3D(aircraft_xform.basis, cam_pos2)
-				_slew_target_camera_to_transform(forward_xform, delta)
+				_slew_target_camera_to_transform(forward_xform, forward_xform, delta)
 				if target_placeholder:
 					target_placeholder.visible = false
 				# Update target info label for no target (idle state)
@@ -638,7 +666,9 @@ func _setup_lower_displays() -> void:
 		# Post-process material (grayscale + scan lines)
 		target_effect_material = ShaderMaterial.new()
 		target_effect_material.shader = _create_target_effect_shader()
-		target_effect_material.set_shader_parameter("texture_size", Vector2(viewport_resolution.x, viewport_resolution.y))
+		# Scanline spacing is measured on this display, not on the much larger
+		# instrument-panel viewport that contains it.
+		target_effect_material.set_shader_parameter("texture_size", target_panel.size)
 		target_effect_material.set_shader_parameter("scan_spacing_px", scan_spacing_px)
 		target_effect_material.set_shader_parameter("scan_thickness_px", scan_thickness_px)
 		target_effect_material.set_shader_parameter("scan_strength", scan_strength)
@@ -833,7 +863,7 @@ func _default_module_layout() -> Array[Dictionary]:
 			"id": "warning_strip",
 			"title": "WARNINGS",
 			"rect": Rect2(10, 8, 780, 54),
-			"lights": ["ENGINE", "WEAPONS", "CONTROLS", "GEAR", "STALL", "MISSILE"],
+			"lights": ["ENGINE", "WEAPONS", "CONTROLS", "GEAR", "STALL"],
 		},
 		{
 			"type": "mfd",
@@ -856,7 +886,6 @@ func _default_module_layout() -> Array[Dictionary]:
 		{"type": "readout", "id": "gear", "title": "GEAR", "instrument": "gear", "rect": Rect2(294, 216, 100, 62)},
 		{"type": "readout", "id": "flaps", "title": "FLAPS", "instrument": "flaps", "rect": Rect2(406, 216, 100, 62)},
 		{"type": "readout", "id": "stall", "title": "STALL", "instrument": "stall", "rect": Rect2(294, 288, 100, 54)},
-		{"type": "readout", "id": "missile_lock", "title": "M LOCK", "instrument": "missile_lock", "rect": Rect2(406, 288, 100, 54)},
 		{"type": "slip_ball", "id": "slip_ball", "title": "BALL", "rect": Rect2(10, 356, 270, 78)},
 		{"type": "readout", "id": "engine", "title": "ENGINE", "instrument": "engine", "rect": Rect2(294, 356, 100, 78)},
 		{"type": "readout", "id": "damage", "title": "STRUCT", "instrument": "damage", "rect": Rect2(406, 356, 100, 78)},
@@ -1132,29 +1161,41 @@ func _get_node_visual_transform(node: Node3D) -> Transform3D:
 func _get_node_visual_position(node: Node3D) -> Vector3:
 	return _get_node_visual_transform(node).origin
 
-func _slew_target_camera_look_at(desired_pos: Vector3, focus_pos: Vector3, delta: float) -> void:
+func _slew_target_camera_look_at(mount_xform: Transform3D, focus_pos: Vector3, delta: float) -> void:
 	if target_camera == null or not is_instance_valid(target_camera):
 		return
-	if desired_pos.distance_squared_to(focus_pos) <= 0.0001:
+	if mount_xform.origin.distance_squared_to(focus_pos) <= 0.0001:
 		return
-	var desired_xform := Transform3D(Basis(), desired_pos).looking_at(focus_pos, Vector3.UP)
-	_slew_target_camera_to_transform(desired_xform, delta)
+	var desired_xform := Transform3D(Basis(), mount_xform.origin).looking_at(focus_pos, Vector3.UP)
+	_slew_target_camera_to_transform(mount_xform, desired_xform, delta)
 
-func _slew_target_camera_to_transform(desired_xform: Transform3D, delta: float) -> void:
+func _slew_target_camera_to_transform(
+		mount_xform: Transform3D,
+		desired_xform: Transform3D,
+		delta: float
+) -> void:
 	if target_camera == null or not is_instance_valid(target_camera):
 		return
+	var mount_basis := mount_xform.basis.orthonormalized()
+	var desired_basis := desired_xform.basis.orthonormalized()
+	var desired_local_aim := (mount_basis.inverse() * desired_basis).orthonormalized()
 	if not _target_camera_pose_initialized:
-		target_camera.global_transform = desired_xform
+		_target_camera_local_aim_basis = desired_local_aim
+		target_camera.global_transform = Transform3D(desired_basis, desired_xform.origin)
 		_target_camera_pose_initialized = true
 		return
-	# Position must stay rigid to the aircraft/mount; smoothing it causes the
-	# target feed to lag into the plane during hard manoeuvres.
-	target_camera.global_position = desired_xform.origin
-	target_camera.global_transform.basis = _slew_basis_toward(
-		target_camera.global_transform.basis,
-		desired_xform.basis,
+	# The gimbal slews relative to its mount. This makes aircraft translation and
+	# attitude immediate while preserving a physical acquisition rate toward the
+	# target instead of smoothing the entire world-space camera transform.
+	_target_camera_local_aim_basis = _slew_basis_toward(
+		_target_camera_local_aim_basis,
+		desired_local_aim,
 		target_camera_slew_deg_s,
 		delta
+	)
+	target_camera.global_transform = Transform3D(
+		(mount_basis * _target_camera_local_aim_basis).orthonormalized(),
+		desired_xform.origin
 	)
 
 func _slew_basis_toward(from_basis: Basis, to_basis: Basis, max_deg_s: float, delta: float) -> Basis:
@@ -1479,9 +1520,10 @@ void fragment() {
 	vec4 c = texture(TEXTURE, UV);
 	float y_px = UV.y * texture_size.y;
 	float spacing = max(scan_spacing_px, 0.0001);
-	float tr = clamp(scan_thickness_px / spacing, 0.0, 1.0);
-	float f = fract(y_px / spacing);
-	float band = 1.0 - step(tr, f);
+	float half_line = max(scan_thickness_px * 0.5, 0.0);
+	float line_distance_px = abs(fract(y_px / spacing + 0.5) - 0.5) * spacing;
+	float edge_softness_px = max(fwidth(y_px), 0.5);
+	float band = 1.0 - smoothstep(half_line, half_line + edge_softness_px, line_distance_px);
 	if (nv_enabled) {
 		float lum = dot(c.rgb, vec3(0.299, 0.587, 0.114));
 		lum = 1.0 - exp(-lum * nv_gain);
@@ -1514,6 +1556,8 @@ func _update_missile_camera() -> void:
 		# Missile was destroyed, exit missile camera mode
 		missile_camera_mode = false
 		tracked_missile = null
+		_target_camera_pose_initialized = false
+		_target_camera_local_aim_basis = Basis.IDENTITY
 		return
 	
 	# Find the missile's nose camera
@@ -1587,6 +1631,8 @@ func _on_missile_destroyed():
 	print("Missile destroyed, returning to normal target view")
 	missile_camera_mode = false
 	tracked_missile = null
+	_target_camera_pose_initialized = false
+	_target_camera_local_aim_basis = Basis.IDENTITY
 	# Target info will be updated in normal _process loop
 
 func _generate_dark_placeholder_texture(size_px: Vector2i) -> Texture2D:

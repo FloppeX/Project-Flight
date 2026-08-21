@@ -2,17 +2,18 @@ extends CanvasLayer
 ## Pause menu autoload.
 ## Opened by the pause_game action (Select/Back on gamepad, P on keyboard).
 ## Opening pauses the scene tree; closing unpauses it.
-## Sub-screens: Controls reference, Codex stub.
+## Sub-screens: Settings, audio, graphics, gameplay, and controls reference.
 
 const MenuTypography = preload("res://UI/MenuTypography.gd")
-const MENU_FONT: FontFile = MenuTypography.FONT
+const MenuTheme = preload("res://UI/MenuTheme.gd")
 
 const FONT_NORMAL   := MenuTypography.MENU_ITEM_SIZE
-const MARGIN_X      := 150.0
-const MARGIN_Y      := 80.0
-const ITEM_STEP     := 58.0
+const MARGIN_X      := 20.0
+const MARGIN_Y      := 235.0
+const ITEM_STEP     := 64.0
 const BASE_UI_SIZE  := MenuTypography.CANVAS_SIZE
-const SUBMENU_X     := 620.0
+const SUBMENU_X     := 32.0
+const OPERATOR_RAIL_WIDTH := MenuTheme.RAIL_WIDTH
 
 const PAD_BUTTON_A         := 0
 const PAD_BUTTON_B         := 1
@@ -20,20 +21,27 @@ const PAD_BUTTON_BACK      := 4
 const PAD_BUTTON_DPAD_UP   := 11
 const PAD_BUTTON_DPAD_DOWN := 12
 
-const COLOR_WHITE   := Color(1.0, 1.0, 1.0, 1.0)
-const COLOR_DIM     := Color(1.0, 1.0, 1.0, 0.40)
-const COLOR_OVERLAY := Color(0.0, 0.0, 0.0, 0.0)
+const COLOR_WHITE   := MenuTheme.TEXT
+const COLOR_OVERLAY := Color(0.008, 0.01, 0.012, 0.72)
 
-# Controls / Codex panel colours (kept minimal for readability)
-const COLOR_PANEL   := Color(0.04, 0.04, 0.04, 0.88)
-const COLOR_AMBER   := Color(0.90, 0.75, 0.20, 1.0)
-const COLOR_BODY    := Color(0.82, 0.82, 0.80, 1.0)
+# Controls reference panel colour.
+const COLOR_BODY    := MenuTheme.TEXT
 
 const SETTINGS_PATH := "user://settings.cfg"
 const SETTINGS_SECTION_AUDIO := "audio"
 const SETTINGS_SECTION_GRAPHICS := "graphics"
 const SETTINGS_SECTION_GAMEPLAY := "gameplay"
-const GRAPHICS_SETTINGS_VERSION := 2
+const GRAPHICS_SETTINGS_VERSION := 5
+const DEFAULT_MASTER_VOLUME := 1.0
+const DEFAULT_RADIO_VOLUME := 1.0
+const DEFAULT_RADIO_CAPTIONS_ENABLED := true
+const DEFAULT_RADIO_CAPTION_DURATION_INDEX := 1
+const DEFAULT_SHOW_FPS_ENABLED := false
+const DEFAULT_STICK_DEADZONE_INDEX := 2
+const DEFAULT_LOOK_SENSITIVITY_INDEX := 2
+const DEFAULT_INVERT_LOOK_Y := false
+const DEFAULT_CAMERA_MOTION_INDEX := 2
+const DEFAULT_CAMERA_FOV_INDEX := 2
 const DEFAULT_VIEW_DISTANCE_LEVEL := 3
 const RUDDER_ASSIST_LABELS := [
 	"OFF",
@@ -46,11 +54,11 @@ const RUDDER_ASSIST_STRENGTHS := [
 	1.0,
 ]
 const RESOLUTION_LABELS := [
-	"1920 X 1080 FULLSCREEN",
-	"1600 X 900 FULLSCREEN",
-	"1280 X 720 FULLSCREEN",
-	"2560 X 1440 FULLSCREEN",
-	"3840 X 2160 FULLSCREEN",
+	"1920 X 1080",
+	"1600 X 900",
+	"1280 X 720",
+	"2560 X 1440",
+	"3840 X 2160",
 ]
 const RESOLUTION_SIZES := [
 	Vector2i(1920, 1080),
@@ -61,18 +69,57 @@ const RESOLUTION_SIZES := [
 ]
 const VIEW_DISTANCE_CHUNK_RADIUS := [2, 3, 4, 6, 8]
 const VIEW_DISTANCE_CAMERA_FAR := [1800.0, 2500.0, 3500.0, 5000.0, 6500.0]
+const DISPLAY_MODE_LABELS := ["WINDOWED", "BORDERLESS", "EXCLUSIVE FULLSCREEN"]
+const FRAME_LIMIT_LABELS := ["UNLIMITED", "30 FPS", "60 FPS", "120 FPS", "144 FPS", "240 FPS"]
+const FRAME_LIMIT_VALUES := [0, 30, 60, 120, 144, 240]
+const ANTI_ALIASING_LABELS := ["OFF", "SMAA", "MSAA 2X", "MSAA 4X", "TAA"]
+const RENDER_SCALE_LABELS := ["50%", "67%", "75%", "85%", "100%"]
+const RENDER_SCALE_VALUES := [0.50, 0.67, 0.75, 0.85, 1.0]
+const UPSCALER_LABELS := ["BILINEAR", "FSR 1"]
+const RADIO_CAPTION_DURATION_LABELS := ["5 S", "9 S", "15 S", "25 S"]
+const RADIO_CAPTION_DURATION_VALUES := [5.0, 9.0, 15.0, 25.0]
+const STICK_DEADZONE_LABELS := ["5%", "10%", "15%", "20%", "25%"]
+const STICK_DEADZONE_VALUES := [0.05, 0.10, 0.15, 0.20, 0.25]
+const STICK_DEADZONE_ACTIONS := [
+	&"pitch_up", &"pitch_down", &"roll_left", &"roll_right",
+	&"look_left", &"look_right", &"look_up", &"look_down",
+]
+const LOOK_SENSITIVITY_LABELS := ["50%", "75%", "100%", "125%", "150%"]
+const LOOK_SENSITIVITY_VALUES := [0.50, 0.75, 1.0, 1.25, 1.50]
+const CAMERA_MOTION_LABELS := ["OFF", "REDUCED", "FULL"]
+const CAMERA_MOTION_VALUES := [0.0, 0.45, 1.0]
+const CAMERA_FOV_LABELS := ["60", "70", "75", "85"]
+const CAMERA_FOV_VALUES := [60.0, 70.0, 75.0, 85.0]
 
 var _screens: Dictionary = {}
 var _current_screen: String = ""
 var _ui_root: Control = null
-var _volume_slider: HSlider = null
+var _audio_sliders: Dictionary = {}
+var _audio_value_labels: Dictionary = {}
+var _audio_buttons: Dictionary = {}
 var _graphics_buttons: Dictionary = {}
 var _gameplay_buttons: Dictionary = {}
+var _master_volume: float = DEFAULT_MASTER_VOLUME
+var _radio_volume: float = DEFAULT_RADIO_VOLUME
+var _radio_captions_enabled: bool = DEFAULT_RADIO_CAPTIONS_ENABLED
+var _radio_caption_duration_index: int = DEFAULT_RADIO_CAPTION_DURATION_INDEX
 var _vsync_enabled: bool = false
 var _resolution_index: int = 0
+var _display_mode_index: int = 2
+var _frame_limit_index: int = 0
+var _anti_aliasing_index: int = 2
+var _render_scale_index: int = 4
+var _upscaler_index: int = 1
 var _view_distance_level: int = DEFAULT_VIEW_DISTANCE_LEVEL
+var _show_fps_enabled: bool = DEFAULT_SHOW_FPS_ENABLED
 var _rudder_assist_level: int = 0
 var _helicopter_rudder_assist_level: int = 1
+var _stick_deadzone_index: int = DEFAULT_STICK_DEADZONE_INDEX
+var _look_sensitivity_index: int = DEFAULT_LOOK_SENSITIVITY_INDEX
+var _invert_look_y: bool = DEFAULT_INVERT_LOOK_Y
+var _camera_motion_index: int = DEFAULT_CAMERA_MOTION_INDEX
+var _camera_fov_index: int = DEFAULT_CAMERA_FOV_INDEX
+var _opened_from_main_menu := false
 
 
 func _ready() -> void:
@@ -86,7 +133,7 @@ func _ready() -> void:
 	_layout_ui_root()
 	if not get_tree().node_added.is_connected(_on_scene_node_added):
 		get_tree().node_added.connect(_on_scene_node_added)
-	call_deferred("_apply_graphics_settings")
+	call_deferred("_apply_all_settings")
 
 
 func _input(event: InputEvent) -> void:
@@ -113,15 +160,24 @@ func _input(event: InputEvent) -> void:
 # ---------------------------------------------------------------------------
 
 func _open() -> void:
+	_opened_from_main_menu = false
 	get_tree().paused = true
 	visible = true
 	_show_screen("main")
+
+
+func open_settings_from_main_menu() -> void:
+	_opened_from_main_menu = true
+	get_tree().paused = true
+	visible = true
+	_show_screen("options")
 
 
 func _close() -> void:
 	get_tree().paused = false
 	visible = false
 	_current_screen = ""
+	_opened_from_main_menu = false
 
 
 # ---------------------------------------------------------------------------
@@ -141,7 +197,9 @@ func _first_button(node: Node) -> Button:
 	if node == null:
 		return null
 	if node is Button:
-		return node as Button
+		var button := node as Button
+		if not button.disabled and button.focus_mode != Control.FOCUS_NONE:
+			return button
 	for child in node.get_children():
 		var found = _first_button(child)
 		if found:
@@ -161,10 +219,10 @@ func _build_ui() -> void:
 
 	_screens["main"]     = _build_main_screen()
 	_screens["options"]  = _build_options_screen()
+	_screens["audio"]    = _build_audio_screen()
 	_screens["gameplay"] = _build_gameplay_screen()
 	_screens["graphics"] = _build_graphics_screen()
 	_screens["controls"] = _build_controls_screen()
-	_screens["codex"]    = _build_codex_screen()
 
 	for s: Control in _screens.values():
 		s.visible = false
@@ -186,215 +244,295 @@ func _layout_ui_root() -> void:
 	_ui_root.position = Vector2.ZERO
 
 
-func _build_main_screen() -> Control:
-	var root = Control.new()
-	root.set_anchors_preset(Control.PRESET_FULL_RECT)
-
-	# Transparent full-screen rect kept for simple style toggling.
-	var overlay = ColorRect.new()
+func _build_screen_chrome(root: Control, title_text: String, system_text: String) -> void:
+	var overlay := ColorRect.new()
 	overlay.color = COLOR_OVERLAY
 	overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(overlay)
 
-	# Small "PAUSED" label above the items
-	var title = Label.new()
-	title.text = "PAUSED"
-	title.position = Vector2(MARGIN_X, MARGIN_Y - 76)
-	title.add_theme_color_override("font_color", Color(1, 1, 1, 0.30))
-	title.add_theme_font_override("font", MENU_FONT)
-	title.add_theme_font_size_override("font_size", MenuTypography.FIELD_LABEL_SIZE)
+	var rail := Panel.new()
+	rail.position = Vector2.ZERO
+	rail.size = Vector2(OPERATOR_RAIL_WIDTH, BASE_UI_SIZE.y)
+	rail.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var rail_style := MenuTheme.make_panel_style(MenuTheme.SURFACE, MenuTheme.OUTLINE, 0)
+	rail_style.border_width_right = 1
+	rail.add_theme_stylebox_override("panel", rail_style)
+	root.add_child(rail)
+
+	var title := _make_console_label(
+		title_text,
+		Vector2(OPERATOR_RAIL_WIDTH + 76.0, 34.0),
+		MenuTypography.BRAND_TITLE_SIZE,
+		MenuTheme.PRIMARY,
+		MenuTypography.FONT
+	)
+	title.size = Vector2(1050.0, 102.0)
+	title.scale = Vector2(1.10, 1.0)
+	title.add_theme_color_override("font_shadow_color", Color(MenuTheme.PRIMARY.r, MenuTheme.PRIMARY.g, MenuTheme.PRIMARY.b, 0.22))
+	title.add_theme_constant_override("shadow_outline_size", 8)
 	root.add_child(title)
 
-	var entries = [
-		["Resume",   func(): _close()],
-		["Options",  func(): _show_screen("options")],
-		["Controls", func(): _show_screen("controls")],
-		["Codex",    func(): _show_screen("codex")],
-		["Restart",  func(): _on_restart()],
-		["Quit",     func(): get_tree().quit()],
-	]
+	var system_id := _make_console_label(
+		system_text,
+		Vector2(OPERATOR_RAIL_WIDTH + 80.0, 140.0),
+		MenuTypography.BRAND_META_SIZE,
+		MenuTheme.TEXT_MUTED,
+		MenuTypography.TECH_FONT
+	)
+	root.add_child(system_id)
 
+
+func _build_main_screen() -> Control:
+	var root := Control.new()
+	root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_build_screen_chrome(root, "PAUSED", "SYS_ID: LC-992-ALPHA // SESSION SUSPENDED")
+
+	var entries = [
+		["RESUME", func(): _close()],
+		["SETTINGS", func(): _show_screen("options")],
+		["CONTROLS", func(): _show_screen("controls")],
+		["RESTART SCENARIO", func(): _on_restart()],
+		["RETURN TO MAIN MENU", func(): _return_to_main_menu()],
+		["QUIT TO DESKTOP", func(): get_tree().quit()],
+	]
 	for i in range(entries.size()):
 		var entry: Array = entries[i]
-		var btn = _make_text_button(entry[0] as String, Vector2(MARGIN_X, MARGIN_Y + i * ITEM_STEP))
-		btn.pressed.connect(entry[1] as Callable)
-		root.add_child(btn)
-
+		var button := _make_text_button(entry[0] as String, Vector2(MARGIN_X, MARGIN_Y + i * ITEM_STEP))
+		button.pressed.connect(entry[1] as Callable)
+		root.add_child(button)
 	return root
 
 
 func _build_options_screen() -> Control:
-	var root = Control.new()
+	var root := Control.new()
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_build_screen_chrome(root, "SETTINGS", "SYS_ID: LC-992-ALPHA // SYSTEM CONFIGURATION")
 
-	var overlay = ColorRect.new()
-	overlay.color = COLOR_OVERLAY
-	overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
-	root.add_child(overlay)
-
-	var panel = ColorRect.new()
-	panel.color = COLOR_PANEL
-	panel.position = Vector2(SUBMENU_X - 20, 60)
-	panel.size = Vector2(560, 380)
-	root.add_child(panel)
-
-	var back = _make_back_button(Vector2(SUBMENU_X, 76))
-	back.pressed.connect(func(): _show_screen("main"))
+	var back := _make_back_button(Vector2(SUBMENU_X, 190.0))
+	back.pressed.connect(_back_from_options)
 	root.add_child(back)
 
-	var title = Label.new()
-	title.text = "OPTIONS"
-	title.position = Vector2(SUBMENU_X, 108)
-	title.add_theme_color_override("font_color", COLOR_WHITE)
-	title.add_theme_font_override("font", MENU_FONT)
-	title.add_theme_font_size_override("font_size", MenuTypography.SCREEN_TITLE_SIZE)
-	root.add_child(title)
+	var audio_btn := _make_row_button("AUDIO >", Vector2(SUBMENU_X, 264.0), OPERATOR_RAIL_WIDTH - 64.0)
+	audio_btn.pressed.connect(func(): _show_screen("audio"))
+	root.add_child(audio_btn)
 
-	# Volume label
-	var vol_label = Label.new()
-	vol_label.text = "MASTER VOLUME"
-	vol_label.position = Vector2(SUBMENU_X, 188)
-	vol_label.add_theme_color_override("font_color", Color(1, 1, 1, 0.7))
-	vol_label.add_theme_font_override("font", MENU_FONT)
-	vol_label.add_theme_font_size_override("font_size", MenuTypography.FIELD_LABEL_SIZE)
-	root.add_child(vol_label)
-
-	# Slider
-	var slider = HSlider.new()
-	slider.min_value = 0.0
-	slider.max_value = 1.0
-	slider.step = 0.01
-	slider.value = db_to_linear(AudioServer.get_bus_volume_db(AudioServer.get_bus_index("Master")))
-	slider.position = Vector2(SUBMENU_X, 232)
-	slider.size = Vector2(390, 40)
-	slider.focus_mode = Control.FOCUS_ALL
-	slider.value_changed.connect(_on_volume_changed)
-	root.add_child(slider)
-	_volume_slider = slider
-
-	# Percentage label
-	var pct_label = Label.new()
-	pct_label.name = "VolumePct"
-	pct_label.text = "%d%%" % roundi(slider.value * 100.0)
-	pct_label.position = Vector2(SUBMENU_X + 400, 232)
-	pct_label.add_theme_color_override("font_color", Color(1, 1, 1, 0.55))
-	pct_label.add_theme_font_override("font", MENU_FONT)
-	pct_label.add_theme_font_size_override("font_size", MenuTypography.FIELD_VALUE_SIZE)
-	root.add_child(pct_label)
-	slider.value_changed.connect(func(v: float): pct_label.text = "%d%%" % roundi(v * 100.0))
-
-	var graphics_btn = _make_row_button("GRAPHICS >", Vector2(SUBMENU_X, 300), 500.0)
+	var graphics_btn := _make_row_button("GRAPHICS >", Vector2(SUBMENU_X, 328.0), OPERATOR_RAIL_WIDTH - 64.0)
 	graphics_btn.pressed.connect(func(): _show_screen("graphics"))
 	root.add_child(graphics_btn)
 
-	var gameplay_btn = _make_row_button("GAMEPLAY >", Vector2(SUBMENU_X, 356), 500.0)
+	var gameplay_btn := _make_row_button("GAMEPLAY >", Vector2(SUBMENU_X, 392.0), OPERATOR_RAIL_WIDTH - 64.0)
 	gameplay_btn.pressed.connect(func(): _show_screen("gameplay"))
 	root.add_child(gameplay_btn)
 
+	var reset_btn := _make_row_button("RESET ALL DEFAULTS", Vector2(SUBMENU_X, 520.0), OPERATOR_RAIL_WIDTH - 64.0)
+	reset_btn.pressed.connect(_reset_all_defaults)
+	root.add_child(reset_btn)
 	return root
 
 
-func _build_gameplay_screen() -> Control:
-	var root = Control.new()
+func _build_audio_screen() -> Control:
+	var root := Control.new()
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_build_screen_chrome(root, "AUDIO", "SYS_ID: LC-992-ALPHA // MIX AND RADIO")
 
-	var overlay = ColorRect.new()
-	overlay.color = COLOR_OVERLAY
-	overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
-	root.add_child(overlay)
-
-	var panel = ColorRect.new()
-	panel.color = COLOR_PANEL
-	panel.position = Vector2(SUBMENU_X - 20, 60)
-	panel.size = Vector2(600, 390)
-	root.add_child(panel)
-
-	var back = _make_back_button(Vector2(SUBMENU_X, 76))
+	var back := _make_back_button(Vector2(SUBMENU_X, 190.0))
 	back.pressed.connect(func(): _show_screen("options"))
 	root.add_child(back)
 
-	var title = Label.new()
-	title.text = "GAMEPLAY"
-	title.position = Vector2(SUBMENU_X, 108)
-	title.add_theme_color_override("font_color", COLOR_WHITE)
-	title.add_theme_font_override("font", MENU_FONT)
-	title.add_theme_font_size_override("font_size", MenuTypography.SCREEN_TITLE_SIZE)
-	root.add_child(title)
+	_build_audio_slider(root, "master", "MASTER VOLUME", 264.0, _master_volume)
+	_build_audio_slider(root, "radio", "RADIO VOLUME", 366.0, _radio_volume)
 
-	var rudder_btn = _make_row_button("", Vector2(SUBMENU_X, 188), 560.0)
+	var captions_btn := _make_row_button("", Vector2(SUBMENU_X, 468.0), OPERATOR_RAIL_WIDTH - 64.0)
+	captions_btn.pressed.connect(_cycle_radio_captions)
+	root.add_child(captions_btn)
+	_audio_buttons["captions"] = captions_btn
+
+	var duration_btn := _make_row_button("", Vector2(SUBMENU_X, 532.0), OPERATOR_RAIL_WIDTH - 64.0)
+	duration_btn.pressed.connect(_cycle_radio_caption_duration)
+	root.add_child(duration_btn)
+	_audio_buttons["caption_duration"] = duration_btn
+	_refresh_audio_controls()
+	return root
+
+
+func _build_audio_slider(root: Control, key: String, label_text: String, row_y: float, value: float) -> void:
+	var label := _make_console_label(label_text, Vector2(SUBMENU_X + 18.0, row_y), MenuTypography.FIELD_LABEL_SIZE, MenuTheme.TEXT_MUTED, MenuTypography.TECH_FONT)
+	root.add_child(label)
+	var slider := HSlider.new()
+	slider.min_value = 0.0
+	slider.max_value = 1.0
+	slider.step = 0.01
+	slider.value = value
+	slider.position = Vector2(SUBMENU_X + 18.0, row_y + 34.0)
+	slider.size = Vector2(320.0, 40.0)
+	slider.focus_mode = Control.FOCUS_ALL
+	slider.value_changed.connect(_on_audio_volume_changed.bind(key))
+	MenuTheme.apply_slider(slider)
+	root.add_child(slider)
+	_audio_sliders[key] = slider
+	var pct_label := _make_console_label("%d%%" % roundi(value * 100.0), Vector2(SUBMENU_X + 356.0, row_y + 40.0), MenuTypography.FIELD_VALUE_SIZE, MenuTheme.TEXT, MenuTypography.TECH_FONT)
+	root.add_child(pct_label)
+	_audio_value_labels[key] = pct_label
+
+
+func _build_gameplay_screen() -> Control:
+	var root := Control.new()
+	root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_build_screen_chrome(root, "GAMEPLAY", "SYS_ID: LC-992-ALPHA // CONTROL ASSISTANCE")
+
+	var back := _make_back_button(Vector2(SUBMENU_X, 190.0))
+	back.pressed.connect(func(): _show_screen("options"))
+	root.add_child(back)
+
+	var row_width := OPERATOR_RAIL_WIDTH - 64.0
+	var row_y := 252.0
+	var rudder_btn := _make_row_button("", Vector2(SUBMENU_X, row_y), row_width)
 	rudder_btn.pressed.connect(_cycle_rudder_assist)
 	root.add_child(rudder_btn)
 	_gameplay_buttons["rudder_assist"] = rudder_btn
 
-	var helicopter_rudder_btn = _make_row_button("", Vector2(SUBMENU_X, 252), 560.0)
+	row_y += 58.0
+	var helicopter_rudder_btn := _make_row_button("", Vector2(SUBMENU_X, row_y), row_width)
 	helicopter_rudder_btn.pressed.connect(_cycle_helicopter_rudder_assist)
 	root.add_child(helicopter_rudder_btn)
 	_gameplay_buttons["helicopter_rudder_assist"] = helicopter_rudder_btn
 
-	_refresh_gameplay_button_labels()
+	row_y += 58.0
+	var deadzone_btn := _make_row_button("", Vector2(SUBMENU_X, row_y), row_width)
+	deadzone_btn.pressed.connect(_cycle_stick_deadzone)
+	root.add_child(deadzone_btn)
+	_gameplay_buttons["stick_deadzone"] = deadzone_btn
 
+	row_y += 58.0
+	var sensitivity_btn := _make_row_button("", Vector2(SUBMENU_X, row_y), row_width)
+	sensitivity_btn.pressed.connect(_cycle_look_sensitivity)
+	root.add_child(sensitivity_btn)
+	_gameplay_buttons["look_sensitivity"] = sensitivity_btn
+
+	row_y += 58.0
+	var invert_y_btn := _make_row_button("", Vector2(SUBMENU_X, row_y), row_width)
+	invert_y_btn.pressed.connect(_cycle_invert_look_y)
+	root.add_child(invert_y_btn)
+	_gameplay_buttons["invert_look_y"] = invert_y_btn
+
+	row_y += 58.0
+	var camera_motion_btn := _make_row_button("", Vector2(SUBMENU_X, row_y), row_width)
+	camera_motion_btn.pressed.connect(_cycle_camera_motion)
+	root.add_child(camera_motion_btn)
+	_gameplay_buttons["camera_motion"] = camera_motion_btn
+
+	row_y += 58.0
+	var camera_fov_btn := _make_row_button("", Vector2(SUBMENU_X, row_y), row_width)
+	camera_fov_btn.pressed.connect(_cycle_camera_fov)
+	root.add_child(camera_fov_btn)
+	_gameplay_buttons["camera_fov"] = camera_fov_btn
+	_refresh_gameplay_button_labels()
 	return root
 
 
 func _build_graphics_screen() -> Control:
-	var root = Control.new()
+	var root := Control.new()
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_build_screen_chrome(root, "GRAPHICS", "SYS_ID: LC-992-ALPHA // DISPLAY AND RENDERING")
 
-	var overlay = ColorRect.new()
-	overlay.color = COLOR_OVERLAY
-	overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
-	root.add_child(overlay)
-
-	var panel = ColorRect.new()
-	panel.color = COLOR_PANEL
-	panel.position = Vector2(SUBMENU_X - 20, 60)
-	panel.size = Vector2(600, 430)
-	root.add_child(panel)
-
-	var back = _make_back_button(Vector2(SUBMENU_X, 76))
+	var back := _make_back_button(Vector2(SUBMENU_X, 190.0))
 	back.pressed.connect(func(): _show_screen("options"))
 	root.add_child(back)
 
-	var title = Label.new()
-	title.text = "GRAPHICS"
-	title.position = Vector2(SUBMENU_X, 108)
-	title.add_theme_color_override("font_color", COLOR_WHITE)
-	title.add_theme_font_override("font", MENU_FONT)
-	title.add_theme_font_size_override("font_size", MenuTypography.SCREEN_TITLE_SIZE)
-	root.add_child(title)
-
-	var vsync_btn = _make_row_button("", Vector2(SUBMENU_X, 188), 560.0)
+	var row_width := OPERATOR_RAIL_WIDTH - 64.0
+	var row_y := 252.0
+	var vsync_btn := _make_row_button("", Vector2(SUBMENU_X, row_y), row_width)
 	vsync_btn.pressed.connect(_cycle_vsync)
 	root.add_child(vsync_btn)
 	_graphics_buttons["vsync"] = vsync_btn
 
-	var resolution_btn = _make_row_button("", Vector2(SUBMENU_X, 252), 560.0)
+	row_y += 58.0
+	var display_mode_btn := _make_row_button("", Vector2(SUBMENU_X, row_y), row_width)
+	display_mode_btn.pressed.connect(_cycle_display_mode)
+	root.add_child(display_mode_btn)
+	_graphics_buttons["display_mode"] = display_mode_btn
+
+	row_y += 58.0
+	var resolution_btn := _make_row_button("", Vector2(SUBMENU_X, row_y), row_width)
 	resolution_btn.pressed.connect(_cycle_resolution)
 	root.add_child(resolution_btn)
 	_graphics_buttons["resolution"] = resolution_btn
 
-	var view_distance_btn = _make_row_button("", Vector2(SUBMENU_X, 316), 560.0)
+	row_y += 58.0
+	var frame_limit_btn := _make_row_button("", Vector2(SUBMENU_X, row_y), row_width)
+	frame_limit_btn.pressed.connect(_cycle_frame_limit)
+	root.add_child(frame_limit_btn)
+	_graphics_buttons["frame_limit"] = frame_limit_btn
+
+	row_y += 58.0
+	var aa_btn := _make_row_button("", Vector2(SUBMENU_X, row_y), row_width)
+	aa_btn.pressed.connect(_cycle_anti_aliasing)
+	root.add_child(aa_btn)
+	_graphics_buttons["anti_aliasing"] = aa_btn
+
+	row_y += 58.0
+	var render_scale_btn := _make_row_button("", Vector2(SUBMENU_X, row_y), row_width)
+	render_scale_btn.pressed.connect(_cycle_render_scale)
+	root.add_child(render_scale_btn)
+	_graphics_buttons["render_scale"] = render_scale_btn
+
+	row_y += 58.0
+	var upscaler_btn := _make_row_button("", Vector2(SUBMENU_X, row_y), row_width)
+	upscaler_btn.pressed.connect(_cycle_upscaler)
+	root.add_child(upscaler_btn)
+	_graphics_buttons["upscaler"] = upscaler_btn
+
+	row_y += 58.0
+	var view_distance_btn := _make_row_button("", Vector2(SUBMENU_X, row_y), row_width)
 	view_distance_btn.pressed.connect(_cycle_view_distance)
 	root.add_child(view_distance_btn)
 	_graphics_buttons["view_distance"] = view_distance_btn
 
+	row_y += 58.0
+	var fps_btn := _make_row_button("", Vector2(SUBMENU_X, row_y), row_width)
+	fps_btn.pressed.connect(_cycle_show_fps)
+	root.add_child(fps_btn)
+	_graphics_buttons["show_fps"] = fps_btn
 	_refresh_graphics_button_labels()
-
 	return root
 
 
-func _on_volume_changed(value: float) -> void:
-	var db := linear_to_db(maxf(value, 0.0001))
-	var bus_idx := AudioServer.get_bus_index("Master")
-	print("[Volume] slider=%.2f db=%.1f bus_idx=%d buses=%d" % [value, db, bus_idx, AudioServer.bus_count])
-	if bus_idx >= 0:
-		AudioServer.set_bus_volume_db(bus_idx, db)
+func _on_audio_volume_changed(value: float, key: String) -> void:
+	var clamped_value := clampf(value, 0.0, 1.0)
+	if key == "radio":
+		_radio_volume = clamped_value
+	else:
+		_master_volume = clamped_value
+	_refresh_audio_controls()
+	_apply_audio_settings()
+	_save_settings()
+
+
+func _cycle_radio_captions() -> void:
+	_radio_captions_enabled = not _radio_captions_enabled
+	_apply_radio_settings()
+	_refresh_audio_controls()
+	_save_settings()
+
+
+func _cycle_radio_caption_duration() -> void:
+	_radio_caption_duration_index = (_radio_caption_duration_index + 1) % RADIO_CAPTION_DURATION_LABELS.size()
+	_apply_radio_settings()
+	_refresh_audio_controls()
 	_save_settings()
 
 
 func _cycle_vsync() -> void:
 	_vsync_enabled = not _vsync_enabled
 	_apply_vsync_setting()
+	_refresh_graphics_button_labels()
+	_save_settings()
+
+
+func _cycle_display_mode() -> void:
+	_display_mode_index = (_display_mode_index + 1) % DISPLAY_MODE_LABELS.size()
+	_apply_resolution_setting()
 	_refresh_graphics_button_labels()
 	_save_settings()
 
@@ -406,9 +544,44 @@ func _cycle_resolution() -> void:
 	_save_settings()
 
 
+func _cycle_frame_limit() -> void:
+	_frame_limit_index = (_frame_limit_index + 1) % FRAME_LIMIT_LABELS.size()
+	_apply_frame_limit_setting()
+	_refresh_graphics_button_labels()
+	_save_settings()
+
+
+func _cycle_anti_aliasing() -> void:
+	_anti_aliasing_index = (_anti_aliasing_index + 1) % ANTI_ALIASING_LABELS.size()
+	_apply_anti_aliasing_setting()
+	_refresh_graphics_button_labels()
+	_save_settings()
+
+
+func _cycle_render_scale() -> void:
+	_render_scale_index = (_render_scale_index + 1) % RENDER_SCALE_LABELS.size()
+	_apply_render_scale_setting()
+	_refresh_graphics_button_labels()
+	_save_settings()
+
+
+func _cycle_upscaler() -> void:
+	_upscaler_index = (_upscaler_index + 1) % UPSCALER_LABELS.size()
+	_apply_render_scale_setting()
+	_refresh_graphics_button_labels()
+	_save_settings()
+
+
 func _cycle_view_distance() -> void:
 	_view_distance_level = (_view_distance_level % 5) + 1
 	_apply_view_distance_setting()
+	_refresh_graphics_button_labels()
+	_save_settings()
+
+
+func _cycle_show_fps() -> void:
+	_show_fps_enabled = not _show_fps_enabled
+	_apply_fps_counter_setting()
 	_refresh_graphics_button_labels()
 	_save_settings()
 
@@ -425,27 +598,112 @@ func _cycle_helicopter_rudder_assist() -> void:
 	_save_settings()
 
 
+func _cycle_stick_deadzone() -> void:
+	_stick_deadzone_index = (_stick_deadzone_index + 1) % STICK_DEADZONE_LABELS.size()
+	_apply_stick_deadzone_setting()
+	_refresh_gameplay_button_labels()
+	_save_settings()
+
+
+func _cycle_look_sensitivity() -> void:
+	_look_sensitivity_index = (_look_sensitivity_index + 1) % LOOK_SENSITIVITY_LABELS.size()
+	_refresh_gameplay_button_labels()
+	_save_settings()
+
+
+func _cycle_invert_look_y() -> void:
+	_invert_look_y = not _invert_look_y
+	_refresh_gameplay_button_labels()
+	_save_settings()
+
+
+func _cycle_camera_motion() -> void:
+	_camera_motion_index = (_camera_motion_index + 1) % CAMERA_MOTION_LABELS.size()
+	_refresh_gameplay_button_labels()
+	_save_settings()
+
+
+func _cycle_camera_fov() -> void:
+	_camera_fov_index = (_camera_fov_index + 1) % CAMERA_FOV_LABELS.size()
+	_apply_camera_settings()
+	_refresh_gameplay_button_labels()
+	_save_settings()
+
+
+func _refresh_audio_controls() -> void:
+	_master_volume = clampf(_master_volume, 0.0, 1.0)
+	_radio_volume = clampf(_radio_volume, 0.0, 1.0)
+	_radio_caption_duration_index = clampi(_radio_caption_duration_index, 0, RADIO_CAPTION_DURATION_LABELS.size() - 1)
+	for key in ["master", "radio"]:
+		var value := _radio_volume if key == "radio" else _master_volume
+		if _audio_sliders.has(key):
+			(_audio_sliders[key] as HSlider).set_value_no_signal(value)
+		if _audio_value_labels.has(key):
+			(_audio_value_labels[key] as Label).text = "%d%%" % roundi(value * 100.0)
+	if _audio_buttons.has("captions"):
+		(_audio_buttons["captions"] as Button).text = "RADIO CAPTIONS: %s" % ("ON" if _radio_captions_enabled else "OFF")
+	if _audio_buttons.has("caption_duration"):
+		var duration_btn := _audio_buttons["caption_duration"] as Button
+		duration_btn.text = "CAPTION DURATION: %s" % RADIO_CAPTION_DURATION_LABELS[_radio_caption_duration_index]
+		duration_btn.disabled = not _radio_captions_enabled
+
+
 func _refresh_graphics_button_labels() -> void:
 	if _graphics_buttons.has("vsync"):
 		var btn := _graphics_buttons["vsync"] as Button
 		btn.text = "V-SYNC: %s" % ("ON" if _vsync_enabled else "OFF")
+	if _graphics_buttons.has("display_mode"):
+		var btn := _graphics_buttons["display_mode"] as Button
+		btn.text = "DISPLAY MODE: %s" % DISPLAY_MODE_LABELS[_display_mode_index]
 	if _graphics_buttons.has("resolution"):
 		var btn := _graphics_buttons["resolution"] as Button
-		btn.text = "RESOLUTION: %s" % RESOLUTION_LABELS[_resolution_index]
+		var borderless := _display_mode_index == 1
+		btn.text = "RESOLUTION: %s" % ("DESKTOP" if borderless else RESOLUTION_LABELS[_resolution_index])
+		btn.disabled = borderless
+	if _graphics_buttons.has("frame_limit"):
+		var btn := _graphics_buttons["frame_limit"] as Button
+		btn.text = "FRAME LIMIT: %s" % FRAME_LIMIT_LABELS[_frame_limit_index]
+	if _graphics_buttons.has("anti_aliasing"):
+		var btn := _graphics_buttons["anti_aliasing"] as Button
+		btn.text = "ANTI-ALIASING: %s" % ANTI_ALIASING_LABELS[_anti_aliasing_index]
+	if _graphics_buttons.has("render_scale"):
+		var btn := _graphics_buttons["render_scale"] as Button
+		btn.text = "RENDER SCALE: %s" % RENDER_SCALE_LABELS[_render_scale_index]
+	if _graphics_buttons.has("upscaler"):
+		var btn := _graphics_buttons["upscaler"] as Button
+		btn.text = "UPSCALE FILTER: %s" % UPSCALER_LABELS[_upscaler_index]
+		btn.disabled = _render_scale_index == RENDER_SCALE_LABELS.size() - 1
 	if _graphics_buttons.has("view_distance"):
 		var btn := _graphics_buttons["view_distance"] as Button
 		btn.text = "VIEW DISTANCE: %d / 5" % _view_distance_level
+	if _graphics_buttons.has("show_fps"):
+		var btn := _graphics_buttons["show_fps"] as Button
+		btn.text = "SHOW FPS: %s" % ("ON" if _show_fps_enabled else "OFF")
 
 
 func _refresh_gameplay_button_labels() -> void:
 	_rudder_assist_level = clampi(_rudder_assist_level, 0, RUDDER_ASSIST_LABELS.size() - 1)
 	_helicopter_rudder_assist_level = clampi(_helicopter_rudder_assist_level, 0, RUDDER_ASSIST_LABELS.size() - 1)
+	_stick_deadzone_index = clampi(_stick_deadzone_index, 0, STICK_DEADZONE_LABELS.size() - 1)
+	_look_sensitivity_index = clampi(_look_sensitivity_index, 0, LOOK_SENSITIVITY_LABELS.size() - 1)
+	_camera_motion_index = clampi(_camera_motion_index, 0, CAMERA_MOTION_LABELS.size() - 1)
+	_camera_fov_index = clampi(_camera_fov_index, 0, CAMERA_FOV_LABELS.size() - 1)
 	if _gameplay_buttons.has("rudder_assist"):
 		var btn := _gameplay_buttons["rudder_assist"] as Button
 		btn.text = "AIRPLANE RUDDER ASSIST: %s" % RUDDER_ASSIST_LABELS[_rudder_assist_level]
 	if _gameplay_buttons.has("helicopter_rudder_assist"):
 		var btn := _gameplay_buttons["helicopter_rudder_assist"] as Button
 		btn.text = "HELI RUDDER ASSIST: %s" % RUDDER_ASSIST_LABELS[_helicopter_rudder_assist_level]
+	if _gameplay_buttons.has("stick_deadzone"):
+		(_gameplay_buttons["stick_deadzone"] as Button).text = "STICK DEADZONE: %s" % STICK_DEADZONE_LABELS[_stick_deadzone_index]
+	if _gameplay_buttons.has("look_sensitivity"):
+		(_gameplay_buttons["look_sensitivity"] as Button).text = "LOOK SENSITIVITY: %s" % LOOK_SENSITIVITY_LABELS[_look_sensitivity_index]
+	if _gameplay_buttons.has("invert_look_y"):
+		(_gameplay_buttons["invert_look_y"] as Button).text = "INVERT LOOK Y: %s" % ("ON" if _invert_look_y else "OFF")
+	if _gameplay_buttons.has("camera_motion"):
+		(_gameplay_buttons["camera_motion"] as Button).text = "CAMERA MOTION: %s" % CAMERA_MOTION_LABELS[_camera_motion_index]
+	if _gameplay_buttons.has("camera_fov"):
+		(_gameplay_buttons["camera_fov"] as Button).text = "CAMERA FOV: %s" % CAMERA_FOV_LABELS[_camera_fov_index]
 
 
 func get_rudder_assist_level() -> int:
@@ -464,10 +722,95 @@ func get_helicopter_rudder_assist_strength() -> float:
 	return float(RUDDER_ASSIST_STRENGTHS[get_helicopter_rudder_assist_level()])
 
 
+func get_radio_volume() -> float:
+	return clampf(_radio_volume, 0.0, 1.0)
+
+
+func get_radio_captions_enabled() -> bool:
+	return _radio_captions_enabled
+
+
+func get_radio_caption_duration_s() -> float:
+	return float(RADIO_CAPTION_DURATION_VALUES[clampi(_radio_caption_duration_index, 0, RADIO_CAPTION_DURATION_VALUES.size() - 1)])
+
+
+func get_show_fps_enabled() -> bool:
+	return _show_fps_enabled
+
+
+func get_look_sensitivity_multiplier() -> float:
+	return float(LOOK_SENSITIVITY_VALUES[clampi(_look_sensitivity_index, 0, LOOK_SENSITIVITY_VALUES.size() - 1)])
+
+
+func get_invert_look_y() -> bool:
+	return _invert_look_y
+
+
+func get_camera_motion_scale() -> float:
+	return float(CAMERA_MOTION_VALUES[clampi(_camera_motion_index, 0, CAMERA_MOTION_VALUES.size() - 1)])
+
+
+func get_camera_fov() -> float:
+	return float(CAMERA_FOV_VALUES[clampi(_camera_fov_index, 0, CAMERA_FOV_VALUES.size() - 1)])
+
+
+func _apply_all_settings() -> void:
+	_apply_audio_settings()
+	_apply_graphics_settings()
+	_apply_gameplay_settings()
+	_refresh_audio_controls()
+	_refresh_graphics_button_labels()
+	_refresh_gameplay_button_labels()
+
+
+func _apply_audio_settings() -> void:
+	_apply_bus_volume("Master", _master_volume)
+	_apply_radio_settings()
+
+
+func _apply_bus_volume(bus_name: String, value: float) -> void:
+	var bus_idx := AudioServer.get_bus_index(bus_name)
+	if bus_idx >= 0:
+		AudioServer.set_bus_volume_db(bus_idx, linear_to_db(maxf(clampf(value, 0.0, 1.0), 0.0001)))
+
+
+func _apply_radio_settings() -> void:
+	_apply_bus_volume("Radio", _radio_volume)
+	var radio_comms := get_node_or_null("/root/RadioComms")
+	if radio_comms != null and radio_comms.has_method("apply_user_settings"):
+		radio_comms.call("apply_user_settings", _radio_volume, _radio_captions_enabled, get_radio_caption_duration_s())
+
+
+func _apply_gameplay_settings() -> void:
+	_apply_stick_deadzone_setting()
+	_apply_camera_settings()
+
+
+func _apply_stick_deadzone_setting() -> void:
+	_stick_deadzone_index = clampi(_stick_deadzone_index, 0, STICK_DEADZONE_VALUES.size() - 1)
+	var deadzone := float(STICK_DEADZONE_VALUES[_stick_deadzone_index])
+	for action: StringName in STICK_DEADZONE_ACTIONS:
+		if InputMap.has_action(action):
+			InputMap.action_set_deadzone(action, deadzone)
+
+
+func _apply_camera_settings() -> void:
+	for controller in get_tree().get_nodes_in_group("camera_controller"):
+		if controller.has_method("apply_user_camera_settings"):
+			controller.call("apply_user_camera_settings")
+	for commander in get_tree().get_nodes_in_group("commander_camera_controller"):
+		if commander.has_method("apply_user_camera_settings"):
+			commander.call("apply_user_camera_settings")
+
+
 func _apply_graphics_settings() -> void:
 	_apply_vsync_setting()
 	_apply_resolution_setting()
+	_apply_frame_limit_setting()
+	_apply_anti_aliasing_setting()
+	_apply_render_scale_setting()
 	_apply_view_distance_setting()
+	_apply_fps_counter_setting()
 
 
 func _apply_vsync_setting() -> void:
@@ -476,6 +819,7 @@ func _apply_vsync_setting() -> void:
 
 func _apply_resolution_setting() -> void:
 	_resolution_index = clampi(_resolution_index, 0, RESOLUTION_LABELS.size() - 1)
+	_display_mode_index = clampi(_display_mode_index, 0, DISPLAY_MODE_LABELS.size() - 1)
 	var target_size: Vector2i = RESOLUTION_SIZES[_resolution_index]
 	var root_window := get_tree().root
 	if root_window != null:
@@ -483,14 +827,72 @@ func _apply_resolution_setting() -> void:
 		root_window.content_scale_aspect = Window.CONTENT_SCALE_ASPECT_KEEP
 		root_window.content_scale_factor = 1.0
 		root_window.content_scale_size = target_size
-	DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
-	DisplayServer.window_set_size(target_size)
-	DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_EXCLUSIVE_FULLSCREEN)
-	var viewport := get_viewport()
-	if viewport != null:
-		viewport.scaling_3d_scale = 1.0
+	match _display_mode_index:
+		0:
+			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
+			DisplayServer.window_set_size(target_size)
+			var screen := DisplayServer.window_get_current_screen()
+			var screen_size := DisplayServer.screen_get_size(screen)
+			var screen_position := DisplayServer.screen_get_position(screen)
+			DisplayServer.window_set_position(screen_position + (screen_size - target_size) / 2)
+		1:
+			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
+		2:
+			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
+			DisplayServer.window_set_size(target_size)
+			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_EXCLUSIVE_FULLSCREEN)
 	call_deferred("_print_resolution_debug", target_size)
 	call_deferred("_layout_ui_root")
+
+
+func _apply_frame_limit_setting() -> void:
+	_frame_limit_index = clampi(_frame_limit_index, 0, FRAME_LIMIT_VALUES.size() - 1)
+	Engine.max_fps = FRAME_LIMIT_VALUES[_frame_limit_index]
+
+
+func _apply_fps_counter_setting() -> void:
+	var fps_counter := get_node_or_null("/root/FPSCounter")
+	if fps_counter != null and fps_counter.has_method("set_display_enabled"):
+		fps_counter.call("set_display_enabled", _show_fps_enabled)
+
+
+func _apply_anti_aliasing_setting() -> void:
+	_anti_aliasing_index = clampi(_anti_aliasing_index, 0, ANTI_ALIASING_LABELS.size() - 1)
+	_apply_anti_aliasing_to_viewport(get_viewport())
+	for viewport_node in get_tree().get_nodes_in_group("settings_aa_viewport"):
+		if viewport_node is Viewport:
+			_apply_anti_aliasing_to_viewport(viewport_node as Viewport)
+
+
+func _apply_anti_aliasing_to_viewport(viewport: Viewport) -> void:
+	if viewport == null:
+		return
+	viewport.msaa_3d = Viewport.MSAA_DISABLED
+	viewport.screen_space_aa = Viewport.SCREEN_SPACE_AA_DISABLED
+	viewport.use_taa = false
+	match _anti_aliasing_index:
+		1:
+			viewport.screen_space_aa = Viewport.SCREEN_SPACE_AA_SMAA
+		2:
+			viewport.msaa_3d = Viewport.MSAA_2X
+		3:
+			viewport.msaa_3d = Viewport.MSAA_4X
+		4:
+			viewport.use_taa = true
+
+
+func _apply_render_scale_setting() -> void:
+	_render_scale_index = clampi(_render_scale_index, 0, RENDER_SCALE_VALUES.size() - 1)
+	_upscaler_index = clampi(_upscaler_index, 0, UPSCALER_LABELS.size() - 1)
+	var viewport := get_viewport()
+	if viewport == null:
+		return
+	viewport.scaling_3d_scale = RENDER_SCALE_VALUES[_render_scale_index]
+	viewport.scaling_3d_mode = (
+		Viewport.SCALING_3D_MODE_FSR
+		if _upscaler_index == 1
+		else Viewport.SCALING_3D_MODE_BILINEAR
+	)
 
 
 func _print_resolution_debug(target_size: Vector2i) -> void:
@@ -566,6 +968,8 @@ func _apply_view_distance_to_terrain(node: Node, radius: int) -> void:
 func _on_scene_node_added(node: Node) -> void:
 	if node is Camera3D:
 		(node as Camera3D).far = VIEW_DISTANCE_CAMERA_FAR[clampi(_view_distance_level, 1, 5) - 1]
+	if node is Viewport and node.is_in_group("settings_aa_viewport"):
+		_apply_anti_aliasing_to_viewport(node as Viewport)
 	if node.is_in_group("terrain") or ("load_radius_chunks" in node):
 		var radius: int = VIEW_DISTANCE_CHUNK_RADIUS[clampi(_view_distance_level, 1, 5) - 1]
 		call_deferred("_apply_view_distance_to_terrain", node, radius)
@@ -574,26 +978,55 @@ func _on_scene_node_added(node: Node) -> void:
 func _load_settings() -> void:
 	var cfg := ConfigFile.new()
 	if cfg.load(SETTINGS_PATH) != OK:
-		_apply_audio_setting(1.0)
+		_apply_bus_volume("Master", _master_volume)
 		return
 	var loaded_graphics_version := int(cfg.get_value(SETTINGS_SECTION_GRAPHICS, "settings_version", 0))
 	var should_migrate_graphics := loaded_graphics_version < GRAPHICS_SETTINGS_VERSION
-	var vol: float = cfg.get_value(SETTINGS_SECTION_AUDIO, "master_volume", 1.0)
-	_apply_audio_setting(vol)
+	_master_volume = clampf(float(cfg.get_value(SETTINGS_SECTION_AUDIO, "master_volume", _master_volume)), 0.0, 1.0)
+	_radio_volume = clampf(float(cfg.get_value(SETTINGS_SECTION_AUDIO, "radio_volume", _radio_volume)), 0.0, 1.0)
+	_radio_captions_enabled = bool(cfg.get_value(SETTINGS_SECTION_AUDIO, "radio_captions_enabled", _radio_captions_enabled))
+	_radio_caption_duration_index = clampi(
+		int(cfg.get_value(SETTINGS_SECTION_AUDIO, "radio_caption_duration_index", _radio_caption_duration_index)),
+		0,
+		RADIO_CAPTION_DURATION_LABELS.size() - 1
+	)
 	_vsync_enabled = bool(cfg.get_value(SETTINGS_SECTION_GRAPHICS, "vsync_enabled", _vsync_enabled))
-	if should_migrate_graphics:
-		_resolution_index = 0
-	else:
-		_resolution_index = clampi(
-			int(cfg.get_value(SETTINGS_SECTION_GRAPHICS, "resolution_index", _resolution_index)),
-			0,
-			RESOLUTION_LABELS.size() - 1
-		)
+	_resolution_index = clampi(
+		int(cfg.get_value(SETTINGS_SECTION_GRAPHICS, "resolution_index", _resolution_index)),
+		0,
+		RESOLUTION_LABELS.size() - 1
+	)
+	_display_mode_index = clampi(
+		int(cfg.get_value(SETTINGS_SECTION_GRAPHICS, "display_mode_index", _display_mode_index)),
+		0,
+		DISPLAY_MODE_LABELS.size() - 1
+	)
+	_frame_limit_index = clampi(
+		int(cfg.get_value(SETTINGS_SECTION_GRAPHICS, "frame_limit_index", _frame_limit_index)),
+		0,
+		FRAME_LIMIT_LABELS.size() - 1
+	)
+	_anti_aliasing_index = clampi(
+		int(cfg.get_value(SETTINGS_SECTION_GRAPHICS, "anti_aliasing_index", _anti_aliasing_index)),
+		0,
+		ANTI_ALIASING_LABELS.size() - 1
+	)
+	_render_scale_index = clampi(
+		int(cfg.get_value(SETTINGS_SECTION_GRAPHICS, "render_scale_index", _render_scale_index)),
+		0,
+		RENDER_SCALE_LABELS.size() - 1
+	)
+	_upscaler_index = clampi(
+		int(cfg.get_value(SETTINGS_SECTION_GRAPHICS, "upscaler_index", _upscaler_index)),
+		0,
+		UPSCALER_LABELS.size() - 1
+	)
 	_view_distance_level = clampi(
 		int(cfg.get_value(SETTINGS_SECTION_GRAPHICS, "view_distance_level", _view_distance_level)),
 		1,
 		5
 	)
+	_show_fps_enabled = bool(cfg.get_value(SETTINGS_SECTION_GRAPHICS, "show_fps_enabled", _show_fps_enabled))
 	_rudder_assist_level = clampi(
 		int(cfg.get_value(SETTINGS_SECTION_GAMEPLAY, "rudder_assist_level", _rudder_assist_level)),
 		0,
@@ -604,124 +1037,116 @@ func _load_settings() -> void:
 		0,
 		RUDDER_ASSIST_LABELS.size() - 1
 	)
+	_stick_deadzone_index = clampi(
+		int(cfg.get_value(SETTINGS_SECTION_GAMEPLAY, "stick_deadzone_index", _stick_deadzone_index)),
+		0,
+		STICK_DEADZONE_LABELS.size() - 1
+	)
+	_look_sensitivity_index = clampi(
+		int(cfg.get_value(SETTINGS_SECTION_GAMEPLAY, "look_sensitivity_index", _look_sensitivity_index)),
+		0,
+		LOOK_SENSITIVITY_LABELS.size() - 1
+	)
+	_invert_look_y = bool(cfg.get_value(SETTINGS_SECTION_GAMEPLAY, "invert_look_y", _invert_look_y))
+	_camera_motion_index = clampi(
+		int(cfg.get_value(SETTINGS_SECTION_GAMEPLAY, "camera_motion_index", _camera_motion_index)),
+		0,
+		CAMERA_MOTION_LABELS.size() - 1
+	)
+	_camera_fov_index = clampi(
+		int(cfg.get_value(SETTINGS_SECTION_GAMEPLAY, "camera_fov_index", _camera_fov_index)),
+		0,
+		CAMERA_FOV_LABELS.size() - 1
+	)
 	if should_migrate_graphics:
 		_save_settings()
-
-
-func _apply_audio_setting(value: float) -> void:
-	var vol := clampf(value, 0.0, 1.0)
-	var bus_idx := AudioServer.get_bus_index("Master")
-	if bus_idx >= 0:
-		AudioServer.set_bus_volume_db(bus_idx, linear_to_db(maxf(vol, 0.0001)))
 
 
 func _save_settings() -> void:
 	var cfg := ConfigFile.new()
 	cfg.load(SETTINGS_PATH)
-	var bus_idx := AudioServer.get_bus_index("Master")
-	var vol := 1.0
-	if bus_idx >= 0:
-		vol = db_to_linear(AudioServer.get_bus_volume_db(bus_idx))
-	cfg.set_value(SETTINGS_SECTION_AUDIO, "master_volume", clampf(vol, 0.0, 1.0))
+	cfg.set_value(SETTINGS_SECTION_AUDIO, "master_volume", _master_volume)
+	cfg.set_value(SETTINGS_SECTION_AUDIO, "radio_volume", _radio_volume)
+	cfg.set_value(SETTINGS_SECTION_AUDIO, "radio_captions_enabled", _radio_captions_enabled)
+	cfg.set_value(SETTINGS_SECTION_AUDIO, "radio_caption_duration_index", _radio_caption_duration_index)
 	cfg.set_value(SETTINGS_SECTION_GRAPHICS, "settings_version", GRAPHICS_SETTINGS_VERSION)
 	cfg.set_value(SETTINGS_SECTION_GRAPHICS, "vsync_enabled", _vsync_enabled)
 	cfg.set_value(SETTINGS_SECTION_GRAPHICS, "resolution_index", _resolution_index)
+	cfg.set_value(SETTINGS_SECTION_GRAPHICS, "display_mode_index", _display_mode_index)
+	cfg.set_value(SETTINGS_SECTION_GRAPHICS, "frame_limit_index", _frame_limit_index)
+	cfg.set_value(SETTINGS_SECTION_GRAPHICS, "anti_aliasing_index", _anti_aliasing_index)
+	cfg.set_value(SETTINGS_SECTION_GRAPHICS, "render_scale_index", _render_scale_index)
+	cfg.set_value(SETTINGS_SECTION_GRAPHICS, "upscaler_index", _upscaler_index)
 	cfg.set_value(SETTINGS_SECTION_GRAPHICS, "view_distance_level", _view_distance_level)
+	cfg.set_value(SETTINGS_SECTION_GRAPHICS, "show_fps_enabled", _show_fps_enabled)
 	cfg.set_value(SETTINGS_SECTION_GAMEPLAY, "rudder_assist_level", _rudder_assist_level)
 	cfg.set_value(SETTINGS_SECTION_GAMEPLAY, "helicopter_rudder_assist_level", _helicopter_rudder_assist_level)
+	cfg.set_value(SETTINGS_SECTION_GAMEPLAY, "stick_deadzone_index", _stick_deadzone_index)
+	cfg.set_value(SETTINGS_SECTION_GAMEPLAY, "look_sensitivity_index", _look_sensitivity_index)
+	cfg.set_value(SETTINGS_SECTION_GAMEPLAY, "invert_look_y", _invert_look_y)
+	cfg.set_value(SETTINGS_SECTION_GAMEPLAY, "camera_motion_index", _camera_motion_index)
+	cfg.set_value(SETTINGS_SECTION_GAMEPLAY, "camera_fov_index", _camera_fov_index)
 	cfg.save(SETTINGS_PATH)
 
 
+func _reset_all_defaults() -> void:
+	_master_volume = DEFAULT_MASTER_VOLUME
+	_radio_volume = DEFAULT_RADIO_VOLUME
+	_radio_captions_enabled = DEFAULT_RADIO_CAPTIONS_ENABLED
+	_radio_caption_duration_index = DEFAULT_RADIO_CAPTION_DURATION_INDEX
+	_vsync_enabled = false
+	_resolution_index = 0
+	_display_mode_index = 2
+	_frame_limit_index = 0
+	_anti_aliasing_index = 2
+	_render_scale_index = 4
+	_upscaler_index = 1
+	_view_distance_level = DEFAULT_VIEW_DISTANCE_LEVEL
+	_show_fps_enabled = DEFAULT_SHOW_FPS_ENABLED
+	_rudder_assist_level = 0
+	_helicopter_rudder_assist_level = 1
+	_stick_deadzone_index = DEFAULT_STICK_DEADZONE_INDEX
+	_look_sensitivity_index = DEFAULT_LOOK_SENSITIVITY_INDEX
+	_invert_look_y = DEFAULT_INVERT_LOOK_Y
+	_camera_motion_index = DEFAULT_CAMERA_MOTION_INDEX
+	_camera_fov_index = DEFAULT_CAMERA_FOV_INDEX
+	_apply_all_settings()
+	_save_settings()
+
+
 func _build_controls_screen() -> Control:
-	var root = Control.new()
+	var root := Control.new()
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_build_screen_chrome(root, "CONTROLS", "SYS_ID: LC-992-ALPHA // INPUT REFERENCE")
 
-	var overlay = ColorRect.new()
-	overlay.color = COLOR_OVERLAY
-	overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
-	root.add_child(overlay)
-
-	var vp = DisplayServer.screen_get_size()
-	var panel_w = mini(600, vp.x - int(SUBMENU_X) - 80)
-	var panel_h = vp.y - 140
-
-	var panel = ColorRect.new()
-	panel.color = COLOR_PANEL
-	panel.position = Vector2(SUBMENU_X - 20, 60)
-	panel.size = Vector2(panel_w, panel_h)
+	var panel := Panel.new()
+	panel.position = Vector2(OPERATOR_RAIL_WIDTH + 56.0, 196.0)
+	panel.size = Vector2(BASE_UI_SIZE.x - OPERATOR_RAIL_WIDTH - 112.0, 790.0)
+	panel.add_theme_stylebox_override("panel", MenuTheme.make_panel_style(MenuTheme.SURFACE_SOLID, MenuTheme.OUTLINE, 1))
 	root.add_child(panel)
 
-	var back = _make_back_button(Vector2(SUBMENU_X, 76))
+	var back := _make_back_button(Vector2(SUBMENU_X, 190.0))
 	back.pressed.connect(func(): _show_screen("main"))
 	root.add_child(back)
 
-	var title = Label.new()
-	title.text = "CONTROLS"
-	title.position = Vector2(SUBMENU_X, 108)
-	title.add_theme_color_override("font_color", COLOR_WHITE)
-	title.add_theme_font_override("font", MENU_FONT)
-	title.add_theme_font_size_override("font_size", MenuTypography.SCREEN_TITLE_SIZE)
-	root.add_child(title)
-
-	var scroll = ScrollContainer.new()
-	scroll.position = Vector2(SUBMENU_X, 188)
-	scroll.size = Vector2(panel_w - 40, panel_h - 120)
+	var scroll := ScrollContainer.new()
+	scroll.position = panel.position + Vector2(24.0, 24.0)
+	scroll.size = panel.size - Vector2(48.0, 48.0)
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	root.add_child(scroll)
 
-	var rt = RichTextLabel.new()
+	var rt := RichTextLabel.new()
 	rt.bbcode_enabled = true
 	rt.fit_content = true
 	rt.scroll_active = false
 	rt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	rt.add_theme_color_override("default_color", COLOR_BODY)
-	rt.add_theme_font_override("normal_font", MENU_FONT)
-	rt.add_theme_font_override("bold_font", MENU_FONT)
+	rt.add_theme_font_override("normal_font", MenuTypography.TECH_FONT)
+	rt.add_theme_font_override("bold_font", MenuTypography.TECH_FONT)
 	rt.add_theme_font_size_override("normal_font_size", MenuTypography.BODY_SIZE)
 	rt.add_theme_font_size_override("bold_font_size", MenuTypography.BODY_SIZE)
 	rt.text = _controls_bbcode()
 	scroll.add_child(rt)
-
-	return root
-
-
-func _build_codex_screen() -> Control:
-	var root = Control.new()
-	root.set_anchors_preset(Control.PRESET_FULL_RECT)
-
-	var overlay = ColorRect.new()
-	overlay.color = COLOR_OVERLAY
-	overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
-	root.add_child(overlay)
-
-	var panel = ColorRect.new()
-	panel.color = COLOR_PANEL
-	panel.position = Vector2(SUBMENU_X - 20, 60)
-	panel.size = Vector2(560, 320)
-	root.add_child(panel)
-
-	var back = _make_back_button(Vector2(SUBMENU_X, 76))
-	back.pressed.connect(func(): _show_screen("main"))
-	root.add_child(back)
-
-	var title = Label.new()
-	title.text = "CODEX"
-	title.position = Vector2(SUBMENU_X, 108)
-	title.add_theme_color_override("font_color", COLOR_WHITE)
-	title.add_theme_font_override("font", MENU_FONT)
-	title.add_theme_font_size_override("font_size", MenuTypography.SCREEN_TITLE_SIZE)
-	root.add_child(title)
-
-	var body = Label.new()
-	body.text = "COMING SOON.\n\nVEHICLE AND WEAPON REFERENCE ENTRIES\nWILL APPEAR HERE."
-	body.position = Vector2(SUBMENU_X, 196)
-	body.size = Vector2(520, 180)
-	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	body.add_theme_color_override("font_color", Color(1, 1, 1, 0.45))
-	body.add_theme_font_override("font", MENU_FONT)
-	body.add_theme_font_size_override("font_size", MenuTypography.BODY_SIZE)
-	root.add_child(body)
-
 	return root
 
 
@@ -729,31 +1154,30 @@ func _build_codex_screen() -> Control:
 # Widget helpers
 # ---------------------------------------------------------------------------
 
+func _make_console_label(text: String, pos: Vector2, font_size: int, color: Color, font: Font) -> Label:
+	var label := Label.new()
+	label.text = text
+	label.position = pos
+	label.add_theme_font_override("font", font)
+	label.add_theme_font_size_override("font_size", font_size)
+	label.add_theme_color_override("font_color", color)
+	return label
+
+
 func _make_text_button(label_text: String, pos: Vector2) -> Button:
-	var btn = Button.new()
+	var btn := Button.new()
 	btn.text = label_text.to_upper()
 	btn.position = pos
-	btn.custom_minimum_size = Vector2(680, 54)
+	btn.size = Vector2(OPERATOR_RAIL_WIDTH - 40.0, 54.0)
+	btn.custom_minimum_size = btn.size
 	btn.focus_mode = Control.FOCUS_ALL
 	btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
-
-	# Fully transparent styleboxes — no backgrounds at all
-	var empty = StyleBoxEmpty.new()
-	for state in ["normal", "hover", "pressed", "focus", "disabled"]:
-		btn.add_theme_stylebox_override(state, empty)
-
-	btn.add_theme_color_override("font_color",         COLOR_DIM)
-	btn.add_theme_color_override("font_hover_color",   COLOR_WHITE)
-	btn.add_theme_color_override("font_pressed_color", Color(1, 1, 1, 0.6))
-	btn.add_theme_color_override("font_focus_color",   COLOR_WHITE)
-	btn.add_theme_font_override("font", MENU_FONT)
-	btn.add_theme_font_size_override("font_size", FONT_NORMAL)
-
+	MenuTheme.apply_operator_button(btn, FONT_NORMAL)
 	return btn
 
 
 func _make_row_button(label_text: String, pos: Vector2, width: float) -> Button:
-	var btn = Button.new()
+	var btn := Button.new()
 	btn.text = label_text.to_upper()
 	btn.position = pos
 	btn.size = Vector2(width, 54.0)
@@ -761,36 +1185,18 @@ func _make_row_button(label_text: String, pos: Vector2, width: float) -> Button:
 	btn.focus_mode = Control.FOCUS_ALL
 	btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
 
-	var empty = StyleBoxEmpty.new()
-	for state in ["normal", "hover", "pressed", "focus", "disabled"]:
-		btn.add_theme_stylebox_override(state, empty)
-
-	btn.add_theme_color_override("font_color", Color(1, 1, 1, 0.58))
-	btn.add_theme_color_override("font_hover_color", COLOR_WHITE)
-	btn.add_theme_color_override("font_focus_color", COLOR_WHITE)
-	btn.add_theme_color_override("font_pressed_color", Color(1, 1, 1, 0.68))
-	btn.add_theme_font_override("font", MENU_FONT)
-	btn.add_theme_font_size_override("font_size", MenuTypography.FIELD_VALUE_SIZE)
-
+	MenuTheme.apply_operator_button(btn, MenuTypography.FIELD_VALUE_SIZE)
 	return btn
 
 
 func _make_back_button(pos: Vector2) -> Button:
-	var btn = Button.new()
+	var btn := Button.new()
 	btn.text = "< BACK"
 	btn.position = pos
 	btn.custom_minimum_size = Vector2(240, 44)
 	btn.focus_mode = Control.FOCUS_ALL
 	btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
-	var empty = StyleBoxEmpty.new()
-	for state in ["normal", "hover", "pressed", "focus", "disabled"]:
-		btn.add_theme_stylebox_override(state, empty)
-	btn.add_theme_color_override("font_color",         Color(1, 1, 1, 0.35))
-	btn.add_theme_color_override("font_hover_color",   COLOR_WHITE)
-	btn.add_theme_color_override("font_focus_color",   COLOR_WHITE)
-	btn.add_theme_color_override("font_pressed_color", Color(1, 1, 1, 0.6))
-	btn.add_theme_font_override("font", MENU_FONT)
-	btn.add_theme_font_size_override("font_size", MenuTypography.SMALL_ACTION_SIZE)
+	MenuTheme.apply_operator_button(btn, MenuTypography.SMALL_ACTION_SIZE)
 	return btn
 
 
@@ -855,6 +1261,30 @@ func _on_restart() -> void:
 	get_tree().reload_current_scene()
 
 
+func _return_to_main_menu() -> void:
+	_close()
+	get_tree().change_scene_to_file("res://UI/MainMenu.tscn")
+
+
+func _back_from_options() -> void:
+	if _opened_from_main_menu:
+		_close()
+	else:
+		_show_screen("main")
+
+
+func _navigate_back() -> void:
+	match _current_screen:
+		"main":
+			_close()
+		"audio", "graphics", "gameplay":
+			_show_screen("options")
+		"options":
+			_back_from_options()
+		"controls":
+			_show_screen("main")
+
+
 # ---------------------------------------------------------------------------
 # Pause navigation input (keyboard + gamepad)
 # ---------------------------------------------------------------------------
@@ -885,10 +1315,7 @@ func _handle_pause_navigation_input(event: InputEvent) -> bool:
 			return true
 		return false
 	if _is_menu_back_event(event):
-		if _current_screen == "main":
-			_close()
-		else:
-			_show_screen("main")
+		_navigate_back()
 		return true
 
 	return false
@@ -901,31 +1328,38 @@ func _move_focus(focus_owner: Control, side: int) -> void:
 		next_focus.grab_focus()
 		return
 
-	var buttons: Array[Button] = _buttons_in_current_screen()
-	if buttons.is_empty():
+	var controls: Array[Control] = _focusable_controls_in_current_screen()
+	if controls.is_empty():
 		return
-	var idx: int = buttons.find(focus_owner as Button)
+	var idx: int = controls.find(focus_owner)
 	if idx < 0:
-		buttons[0].grab_focus()
+		controls[0].grab_focus()
 		return
 	var dir: int = -1 if side == Side.SIDE_TOP else 1
-	var next_idx: int = (idx + dir + buttons.size()) % buttons.size()
-	buttons[next_idx].grab_focus()
+	var next_idx: int = (idx + dir + controls.size()) % controls.size()
+	controls[next_idx].grab_focus()
 
-func _buttons_in_current_screen() -> Array[Button]:
-	var out: Array[Button] = []
+func _focusable_controls_in_current_screen() -> Array[Control]:
+	var out: Array[Control] = []
 	var screen: Control = _screens.get(_current_screen) as Control
 	if screen == null:
 		return out
 	var stack: Array[Node] = [screen]
 	while not stack.is_empty():
 		var n: Node = stack.pop_back() as Node
-		if n is Button and (n as Button).visible:
-			out.append(n as Button)
+		if n is Control:
+			var control := n as Control
+			var disabled := control is BaseButton and (control as BaseButton).disabled
+			if control != screen and control.visible and not disabled and control.focus_mode != Control.FOCUS_NONE:
+				out.append(control)
 		for c in n.get_children():
 			if c is Node:
 				stack.append(c as Node)
-	out.reverse()
+	out.sort_custom(func(a: Control, b: Control) -> bool:
+		if not is_equal_approx(a.global_position.y, b.global_position.y):
+			return a.global_position.y < b.global_position.y
+		return a.global_position.x < b.global_position.x
+	)
 	return out
 
 func _is_menu_up_event(event: InputEvent) -> bool:

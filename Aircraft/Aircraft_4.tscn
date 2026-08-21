@@ -1,4 +1,4 @@
-[gd_scene load_steps=50 format=3 uid="uid://b72ybo5g1cg7i"]
+[gd_scene load_steps=49 format=3 uid="uid://b72ybo5g1cg7i"]
 
 [ext_resource type="Script" uid="uid://c4ltq2v6fji05" path="res://Aircraft/aircraft.gd" id="1_e8t1h"]
 [ext_resource type="PackedScene" uid="uid://cadi81fcpvmuc" path="res://Projectiles/Explosion/explosion.tscn" id="2_x73up"]
@@ -27,7 +27,6 @@
 [ext_resource type="PackedScene" uid="uid://cqyfnpv28jupa" path="res://HUD/HeadsUpDisplay.tscn" id="26_0u53p"]
 [ext_resource type="PackedScene" uid="uid://b4xm8v23opqrs" path="res://HUD/InstrumentPanel.tscn" id="27_h17fj"]
 [ext_resource type="PackedScene" uid="uid://dsnc8jllg42ph" path="res://Weapons/hardpoint.tscn" id="28_ymevh"]
-[ext_resource type="PackedScene" uid="uid://ds5dlvtqfa7tv" path="res://Aircraft/tail_hook.tscn" id="31_3f4kl"]
 [ext_resource type="PackedScene" uid="uid://bc6wrpt4b3m41" path="res://Weapons/Bomb/bomb_rack.tscn" id="32_kq7no"]
 [ext_resource type="Script" uid="uid://ov07c02ulmhl" path="res://Aircraft/AIToggle.gd" id="33_aitgl"]
 [ext_resource type="PackedScene" uid="uid://cn0n757m62w08" path="res://Weapons/RocketPod/rocket_pod.tscn" id="33_rocket"]
@@ -257,11 +256,6 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.22378, 1.04143, 1.78814e-07
 
 [node name="aircraft main gear straight" parent="RightGearCollider/right gear pivot point" instance=ExtResource("36_a2b7b")]
 transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 1.40837, 0.542302, -0.644126)
-
-[node name="TailHook" parent="." instance=ExtResource("31_3f4kl")]
-transform = Transform3D(1, 0, 0, 0, 0.5, -0.866025, 0, 0.866025, 0.5, 0, -1.11709, -2.77791)
-spring_strength = 100.0
-spring_damping = 1000.0
 
 [node name="WingFold" type="Node" parent="."]
 script = ExtResource("35_wingfold")

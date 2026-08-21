@@ -19,18 +19,56 @@ var _body_col: CollisionShape3D
 var _mesh_node: Node3D
 var _aircraft: RigidBody3D
 var _is_deployed: bool = false
+var _technical_index_preview_fraction: float = 1.0
 
 func _ready():
+	_cache_nodes()
+	if bool(get_meta("technical_index_preview_component", false)):
+		set_technical_index_preview_fraction(_technical_index_preview_fraction)
+		return
 	add_to_group("tailhook")
-	_area = get_node_or_null(hook_area)
-	_body_col = get_node_or_null(hook_body_collision) as CollisionShape3D
-	_mesh_node = get_node_or_null(hook_mesh) as Node3D
 	# Ensure the hook Area is in the expected group for the cable to detect
 	if _area and not _area.is_in_group("tailhook"):
 		_area.add_to_group("tailhook")
 	_aircraft = _find_aircraft()
 	# Default to stowed on start
 	stow()
+
+func _cache_nodes() -> void:
+	_area = get_node_or_null(hook_area)
+	_body_col = get_node_or_null(hook_body_collision) as CollisionShape3D
+	_mesh_node = get_node_or_null(hook_mesh) as Node3D
+
+func prepare_technical_index_preview() -> bool:
+	var aircraft_root := get_parent()
+	var landing_gear := aircraft_root.get_node_or_null("LandingGear") if aircraft_root != null else null
+	if landing_gear == null or bool(landing_gear.get("lock_deployed")):
+		return false
+	_cache_nodes()
+	if _mesh_node == null:
+		return false
+	set_technical_index_preview_fraction(1.0)
+	return true
+
+func set_technical_index_preview_fraction(deploy_fraction: float) -> void:
+	_technical_index_preview_fraction = clampf(deploy_fraction, 0.0, 1.0)
+	if _mesh_node == null:
+		_cache_nodes()
+	if _mesh_node != null:
+		_mesh_node.visible = _technical_index_preview_fraction > 0.001
+
+func get_technical_index_preview_fraction() -> float:
+	return _technical_index_preview_fraction
+
+func get_technical_index_preview_duration() -> float:
+	var aircraft_root := get_parent()
+	var landing_gear := aircraft_root.get_node_or_null("LandingGear") if aircraft_root != null else null
+	if landing_gear != null:
+		return maxf(float(landing_gear.get("DeployStowTime")), 0.01)
+	return 1.0
+
+func get_technical_index_preview_kind() -> StringName:
+	return &"gear"
 
 func deploy():
 	_is_deployed = true

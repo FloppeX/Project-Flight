@@ -20,6 +20,18 @@ func _run() -> void:
 	if MenuTypography.CANVAS_SIZE != Vector2(1920.0, 1080.0):
 		_fail("startup UI canvas did not match the 1920x1080 game viewport")
 		return
+	var main_menu_section := main_menu_source.get_slice("func _build_main_menu", 1).get_slice("func _build_developer_menu", 0)
+	for player_entry in ["NEW CAMPAIGN", "SKIRMISH", "TECHNICAL INDEX", "SETTINGS", "QUIT"]:
+		if not main_menu_section.contains(player_entry):
+			_fail("main menu was missing %s" % player_entry)
+			return
+	for development_entry in ["FREE FLIGHT", "LANDING TEST", "CARRIER COMBAT TEST", "CONTINUE", "CREDITS"]:
+		if main_menu_section.contains(development_entry):
+			_fail("main menu still exposed %s as a top-level choice" % development_entry)
+			return
+	if not main_menu_section.contains("DEVELOPMENT SCENARIOS") or not main_menu_section.contains("OS.is_debug_build()"):
+		_fail("development scenarios were not consolidated behind a debug-only submenu")
+		return
 
 	var pause_menu := root.get_node_or_null("PauseMenu")
 	if pause_menu == null:
@@ -31,13 +43,61 @@ func _run() -> void:
 		_fail("settings menu did not use the shared 1920x1080 canvas")
 		return
 	var options_screen := screens.get("options") as Control
-	var options_title := _find_text_control(options_screen, "OPTIONS") as Label
+	var options_title := _find_text_control(options_screen, "SETTINGS") as Label
 	var graphics_action := _find_text_control(options_screen, "GRAPHICS >") as Button
-	if not _matches_typography(options_title, MenuTypography.SCREEN_TITLE_SIZE):
-		_fail("settings title did not match the main-menu title scale")
+	if not _matches_typography(options_title, MenuTypography.BRAND_TITLE_SIZE):
+		_fail("settings title did not match the operator-console brand scale")
 		return
-	if not _matches_typography(graphics_action, MenuTypography.FIELD_VALUE_SIZE):
+	if not _matches_typography(graphics_action, MenuTypography.FIELD_VALUE_SIZE, MenuTypography.TECH_FONT):
 		_fail("settings action did not use the shared field-value style")
+		return
+	var graphics_buttons: Dictionary = pause_menu.get("_graphics_buttons")
+	for setting_key in ["display_mode", "frame_limit", "anti_aliasing", "render_scale", "upscaler", "view_distance"]:
+		if not graphics_buttons.has(setting_key) or not (graphics_buttons[setting_key] is Button):
+			_fail("graphics menu was missing %s" % setting_key)
+			return
+	if screens.has("codex"):
+		_fail("obsolete pause-menu Codex screen was still registered")
+		return
+	var root_viewport := root as Viewport
+	var original_aa_index := int(pause_menu.get("_anti_aliasing_index"))
+	pause_menu.set("_anti_aliasing_index", 1)
+	pause_menu.call("_apply_anti_aliasing_setting")
+	if root_viewport.screen_space_aa != Viewport.SCREEN_SPACE_AA_SMAA \
+			or root_viewport.msaa_3d != Viewport.MSAA_DISABLED \
+			or root_viewport.use_taa:
+		_fail("SMAA selection did not configure the root viewport exclusively")
+		return
+	pause_menu.set("_anti_aliasing_index", 3)
+	pause_menu.call("_apply_anti_aliasing_setting")
+	if root_viewport.msaa_3d != Viewport.MSAA_4X \
+			or root_viewport.screen_space_aa != Viewport.SCREEN_SPACE_AA_DISABLED \
+			or root_viewport.use_taa:
+		_fail("MSAA 4x selection did not configure the root viewport exclusively")
+		return
+	pause_menu.set("_anti_aliasing_index", original_aa_index)
+	pause_menu.call("_apply_anti_aliasing_setting")
+
+	var original_render_scale_index := int(pause_menu.get("_render_scale_index"))
+	var original_upscaler_index := int(pause_menu.get("_upscaler_index"))
+	pause_menu.set("_render_scale_index", 3)
+	pause_menu.set("_upscaler_index", 1)
+	pause_menu.call("_apply_render_scale_setting")
+	if not is_equal_approx(root_viewport.scaling_3d_scale, 0.85) \
+			or root_viewport.scaling_3d_mode != Viewport.SCALING_3D_MODE_FSR:
+		_fail("85 percent FSR render scaling did not reach the root viewport")
+		return
+	pause_menu.set("_render_scale_index", original_render_scale_index)
+	pause_menu.set("_upscaler_index", original_upscaler_index)
+	pause_menu.call("_apply_render_scale_setting")
+
+	pause_menu.call("open_settings_from_main_menu")
+	if pause_menu.get("_current_screen") != "options" or not pause_menu.visible or not paused:
+		_fail("main-menu settings did not open directly into the shared settings screen")
+		return
+	pause_menu.call("_navigate_back")
+	if pause_menu.visible or paused:
+		_fail("backing out of main-menu settings did not return control to the main menu")
 		return
 
 	var loading_screen := root.get_node_or_null("LoadingScreen")
@@ -101,12 +161,12 @@ func _find_text_control(node: Node, target_text: String) -> Control:
 	return null
 
 
-func _matches_typography(control: Control, expected_size: int) -> bool:
+func _matches_typography(control: Control, expected_size: int, expected_font: Font = MenuTypography.FONT) -> bool:
 	if control == null:
 		return false
 	var font := control.get_theme_font("font")
 	return font != null \
-		and font.resource_path == MenuTypography.FONT.resource_path \
+		and font.resource_path == expected_font.resource_path \
 		and control.get_theme_font_size("font_size") == expected_size
 
 

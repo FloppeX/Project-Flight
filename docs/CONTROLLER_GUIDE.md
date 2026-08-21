@@ -94,7 +94,7 @@
 6. Tailhook will catch the cable and stop you
 
 ### Combat
-1. Press **X/Square** to cycle weapons (autocannon, bombs, missiles)
+1. Press **X/Square** to cycle weapons (guns, bombs, and rocket pods)
 2. Point at enemy
 3. Press **A/X** to fire
 4. Use **right stick** to look and aim

@@ -24,6 +24,7 @@ const RADIO_STATIC_MIX_RATE := 22050
 @export var tts_volume: int = 80           ## 0–100
 @export var tts_pitch: float = 1.0
 @export var tts_rate: float = 1.05        ## Slightly clipped = radio effect
+@export var captions_enabled: bool = true
 @export var message_linger_s: float = 9.0 ## How long each line stays visible
 @export var max_visible: int = 7          ## Maximum lines shown at once
 @export var radio_test_hotkey_enabled: bool = false
@@ -95,6 +96,7 @@ func _ready() -> void:
 	_update_display_visibility()
 	_radio_rng.randomize()
 	_setup_radio_audio()
+	_apply_settings_from_pause_menu()
 	_build_citadel_voice_library()
 	_build_pilot_voice_library()
 
@@ -149,6 +151,29 @@ func play_citadel_test() -> void:
 		_radio_voice_player.pitch_scale = 1.0
 		_radio_voice_player.play()
 	)
+
+
+func apply_user_settings(volume_linear: float, show_captions: bool, caption_duration_s: float) -> void:
+	captions_enabled = show_captions
+	message_linger_s = clampf(caption_duration_s, 2.0, 60.0)
+	var bus_index := AudioServer.get_bus_index(RADIO_BUS_NAME)
+	if bus_index >= 0:
+		AudioServer.set_bus_volume_db(bus_index, linear_to_db(maxf(clampf(volume_linear, 0.0, 1.0), 0.0001)))
+	_update_display_visibility()
+
+
+func _apply_settings_from_pause_menu() -> void:
+	var settings := get_node_or_null("/root/PauseMenu")
+	if settings == null:
+		return
+	if settings.has_method("get_radio_volume") \
+			and settings.has_method("get_radio_captions_enabled") \
+			and settings.has_method("get_radio_caption_duration_s"):
+		apply_user_settings(
+			float(settings.call("get_radio_volume")),
+			bool(settings.call("get_radio_captions_enabled")),
+			float(settings.call("get_radio_caption_duration_s"))
+		)
 
 # ── Standard phrase helpers ────────────────────────────────────────────────────
 ## Call these from AirOpsManager / Flight to get consistent phrasing.
@@ -969,7 +994,8 @@ func _update_display_visibility() -> void:
 	if not is_instance_valid(_canvas):
 		return
 	var current_scene := get_tree().current_scene
-	var show_display := current_scene != null \
+	var show_display := captions_enabled \
+			and current_scene != null \
 			and _is_gameplay_scene_path(current_scene.scene_file_path)
 	var loading_screen := get_node_or_null("/root/LoadingScreen")
 	if is_instance_valid(loading_screen) and bool(loading_screen.get("visible")):

@@ -11,7 +11,7 @@ focus_mode = 2
 script = ExtResource("1_preview")
 module_layout = Array[Dictionary]([{
 "id": "warning_strip",
-"lights": ["ENGINE", "WEAPONS", "CONTROLS", "GEAR", "STALL", "MISSILE"],
+"lights": ["ENGINE", "WEAPONS", "CONTROLS", "GEAR", "STALL"],
 "rect": Rect2(135, 26, 730, 44),
 "title": "WARNINGS",
 "type": "warning_lights"
@@ -73,12 +73,6 @@ module_layout = Array[Dictionary]([{
 "instrument": "stall",
 "rect": Rect2(515, 290, 125, 40),
 "title": "STALL",
-"type": "readout"
-}, {
-"id": "missile_lock",
-"instrument": "missile_lock",
-"rect": Rect2(515, 338, 125, 36),
-"title": "M LOCK",
 "type": "readout"
 }, {
 "id": "slip_ball",

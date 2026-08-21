@@ -1,4 +1,4 @@
-[gd_scene load_steps=46 format=3 uid="uid://bm1iw1hw06s0n"]
+[gd_scene load_steps=45 format=3 uid="uid://bm1iw1hw06s0n"]
 
 [ext_resource type="Script" uid="uid://c4ltq2v6fji05" path="res://Aircraft/aircraft.gd" id="1_e8t1h"]
 [ext_resource type="PackedScene" uid="uid://cadi81fcpvmuc" path="res://Projectiles/Explosion/explosion.tscn" id="2_x73up"]
@@ -32,7 +32,6 @@
 [ext_resource type="PackedScene" uid="uid://dsnc8jllg42ph" path="res://Weapons/hardpoint.tscn" id="28_ymevh"]
 [ext_resource type="PackedScene" uid="uid://ds5dlvtqfa7tv" path="res://Aircraft/tail_hook.tscn" id="31_3f4kl"]
 [ext_resource type="PackedScene" uid="uid://bar7l5uwuwevr" path="res://Weapons/Autocannon/Autocannon.tscn" id="31_kq7no"]
-[ext_resource type="PackedScene" uid="uid://yjaa3lj4xxb3" path="res://Weapons/AG_Missile/ag_missile_holder.tscn" id="31_t66al"]
 [ext_resource type="PackedScene" uid="uid://idqmpbpg2jul" path="res://Weapons/Bomb/bomb_holder.tscn" id="32_kq7no"]
 [ext_resource type="Script" uid="uid://ov07c02ulmhl" path="res://Aircraft/AIToggle.gd" id="33_aitgl"]
 [ext_resource type="Script" uid="uid://bwjigrpitv7cm" path="res://AI/AIPilot.gd" id="34_aipil"]
@@ -213,7 +212,7 @@ zoom_distance = 100.0
 
 [node name="Hardpoint1" parent="." instance=ExtResource("28_ymevh")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2.66, -0.387, -0.2)
-mounted_weapon = ExtResource("31_t66al")
+mounted_weapon = ExtResource("31_kq7no")
 
 [node name="Hardpoint2" parent="." instance=ExtResource("28_ymevh")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2.659, -0.386, -0.2)

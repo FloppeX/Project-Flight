@@ -248,8 +248,8 @@ func _build_curve_from_guide_markers() -> Curve3D:
 		var end_marker := _find_curve_marker(guide_root, "curve_end_%d" % i, "curve_end%d" % i)
 		if start_marker == null or end_marker == null:
 			return null
-		starts.append(to_local(start_marker.global_position))
-		ends.append(to_local(end_marker.global_position))
+		starts.append(_node_position_in_tread_space(start_marker))
+		ends.append(_node_position_in_tread_space(end_marker))
 
 	var curve := Curve3D.new()
 	curve.bake_interval = 0.12
@@ -282,6 +282,16 @@ func _find_curve_marker(root: Node, primary_name: String, fallback_name: String)
 	if node:
 		return node
 	return root.get_node_or_null(fallback_name) as Node3D
+
+
+func _node_position_in_tread_space(node: Node3D) -> Vector3:
+	var tread_space_transform := node.transform
+	var parent := node.get_parent()
+	while parent != null and parent != self:
+		if parent is Node3D:
+			tread_space_transform = (parent as Node3D).transform * tread_space_transform
+		parent = parent.get_parent()
+	return tread_space_transform.origin
 
 
 func _build_default_curve() -> Curve3D:

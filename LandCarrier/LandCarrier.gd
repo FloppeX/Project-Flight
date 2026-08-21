@@ -21,7 +21,11 @@ const PERF_OVERRIDE_PATH := "user://land_carrier_perf_override.json"
 @export var acceleration: float = 1.5
 @export var deceleration: float = 2.5
 @export var turn_speed: float = 0.25
-@export var turn_rate_response: float = 1.4
+## Angular acceleration/deceleration in radians per second squared. Keeping
+## these separate from turn_speed gives the carrier rotational inertia instead
+## of stepping directly to the axle-limited yaw rate.
+@export var turn_acceleration: float = 0.04
+@export var turn_deceleration: float = 0.08
 @export_range(0.0, 0.9, 0.05) var turn_speed_slowdown: float = 0.45
 @export var steering_axle_half_wheelbase_m: float = 48.0
 @export_range(0.0, 1.5, 0.05) var rear_axle_steer_ratio: float = 1.0
@@ -75,7 +79,7 @@ const PERF_OVERRIDE_PATH := "user://land_carrier_perf_override.json"
 @export var route_goal_candidate_spacing_m: float = 1200.0
 @export var spawn_clearance_radius_m: float = 320.0
 @export var spawn_clearance_max_height_variation_m: float = 30.0
-@export var aircraft_launch_corridor_distance_m: float = 1400.0
+@export var aircraft_launch_corridor_distance_m: float = 800.0
 @export var aircraft_launch_corridor_half_width_m: float = 140.0
 @export var aircraft_launch_corridor_max_terrain_rise_m: float = 80.0
 @export var route_setup_debug: bool = false
@@ -185,6 +189,11 @@ func _ready():
 		if livery != null and livery.has_method("apply"):
 			livery.call("apply", self)
 	if not use_waypoint_pathfinding:
+		# Initial scene placement may choose its authored heading instantly because
+		# the carrier is still hidden and has no deck passengers yet. Runtime route
+		# changes must go through the tracked steering controller below.
+		if not _raw_waypoints.is_empty():
+			_face_route_destination(_raw_waypoints[0])
 		_apply_direct_waypoints()
 		visible = true
 		_mark_initial_placement_completed()
@@ -193,6 +202,8 @@ func _ready():
 	else:
 		# Authored waypoints keep the carrier at its authored start position; only
 		# the no-waypoint random-patrol branch relocates it asynchronously.
+		if not _raw_waypoints.is_empty():
+			_face_route_destination(_raw_waypoints[0])
 		_mark_initial_placement_completed()
 		call_deferred("_compute_path_to_destination")
 
@@ -387,7 +398,6 @@ func _apply_direct_waypoints() -> void:
 	_waypoint_index = 0
 	_stuck_timer = 0.0
 	_prev_wp_dist = INF
-	_align_to_active_waypoint()
 
 func _set_north_heading() -> void:
 	if not use_waypoint_pathfinding:
@@ -836,7 +846,6 @@ func _on_path_ready(path: Array) -> void:
 	_waypoint_index = 0
 	_stuck_timer = 0.0
 	_prev_wp_dist = INF
-	_align_to_active_waypoint()
 	var total_dist := 0.0
 	for i in range(1, _waypoint_positions.size()):
 		total_dist += Vector2(
@@ -845,28 +854,6 @@ func _on_path_ready(path: Array) -> void:
 		).length()
 	var dest := _raw_waypoints[_raw_waypoint_index] if not _raw_waypoints.is_empty() and _raw_waypoint_index < _raw_waypoints.size() else Vector3.ZERO
 	# TerrainNavGrid.save_debug_image(_waypoint_positions, global_position, dest, path_max_slope_m)
-
-func _align_to_active_waypoint() -> void:
-	if _waypoint_positions.is_empty() or _waypoint_index >= _waypoint_positions.size():
-		return
-	# Waypoint 0 is often the carrier's own position (from NavGraph).
-	# Find the first waypoint that is actually ahead of us.
-	var target: Vector3
-	var found := false
-	for i in range(_waypoint_index, _waypoint_positions.size()):
-		var candidate: Vector3 = _waypoint_positions[i]
-		var to_candidate := candidate - global_position
-		to_candidate.y = 0.0
-		if to_candidate.length_squared() > 100.0:  # > 10m away
-			target = candidate
-			found = true
-			break
-	if not found:
-		return
-	var to_target := (target - global_position)
-	to_target.y = 0.0
-	to_target = to_target.normalized()
-	rotation.y = atan2(to_target.x, to_target.z)
 
 func _advance_waypoint_or_replan() -> void:
 	if _raw_waypoints.is_empty():
@@ -1730,11 +1717,24 @@ func _apply_drive_motion(delta: float, target_speed_mps: float, target_yaw_rate_
 		maxf(speed_rate, 0.0) * delta
 	)
 	var target_axle_yaw_rate := _get_axle_steering_yaw_rate(_current_planar_speed_mps, target_yaw_rate_rad_s)
-	_current_yaw_rate_rad_s = move_toward(
-		_current_yaw_rate_rad_s,
-		target_axle_yaw_rate,
-		maxf(turn_rate_response, 0.0) * delta
-	)
+	var yaw_reversing: bool = _current_yaw_rate_rad_s * target_axle_yaw_rate < 0.0
+	var yaw_braking: bool = yaw_reversing \
+			or absf(target_axle_yaw_rate) < absf(_current_yaw_rate_rad_s)
+	if yaw_reversing:
+		# Shed the existing rotational momentum before accelerating the opposite
+		# way; this avoids an instantaneous left-to-right yaw-rate sign change.
+		_current_yaw_rate_rad_s = move_toward(
+			_current_yaw_rate_rad_s,
+			0.0,
+			maxf(turn_deceleration, 0.0) * delta
+		)
+	else:
+		var yaw_response: float = turn_deceleration if yaw_braking else turn_acceleration
+		_current_yaw_rate_rad_s = move_toward(
+			_current_yaw_rate_rad_s,
+			target_axle_yaw_rate,
+			maxf(yaw_response, 0.0) * delta
+		)
 
 	var yaw_delta := _current_yaw_rate_rad_s * delta
 	if absf(yaw_delta) > 0.00001:

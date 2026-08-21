@@ -62,9 +62,18 @@ var _lower_disc: Node3D = null
 var _rotor_audio_player: AudioStreamPlayer3D = null
 var _rotor_shadow_casting: Dictionary = {}
 var _fast_rotor_shadows_disabled: bool = false
+var _technical_index_preview_fraction: float = 0.0
 
 
 func _ready() -> void:
+	if bool(get_meta("technical_index_preview_component", false)):
+		upper_rotor = get_node_or_null(upper_rotor_path) as Node3D
+		lower_rotor = get_node_or_null(lower_rotor_path) as Node3D
+		_setup_rotor_discs()
+		_fold_t = 0.0
+		_apply_fold_pose()
+		set_technical_index_preview_fraction(_technical_index_preview_fraction)
+		return
 	_cache_blade_rest_pose(upper_rotor)
 	_cache_blade_rest_pose(lower_rotor)
 	_setup_rotor_discs()
@@ -72,6 +81,50 @@ func _ready() -> void:
 	_setup_rotor_audio()
 	_apply_fold_pose()
 	_print_debug_line("ready")
+
+
+func prepare_technical_index_preview() -> bool:
+	upper_rotor = get_node_or_null(upper_rotor_path) as Node3D
+	lower_rotor = get_node_or_null(lower_rotor_path) as Node3D
+	if upper_rotor == null and lower_rotor == null:
+		return false
+	_cache_blade_rest_pose(upper_rotor)
+	_cache_blade_rest_pose(lower_rotor)
+	_setup_rotor_discs()
+	_fold_t = 0.0
+	_apply_fold_pose()
+	set_technical_index_preview_fraction(0.0)
+	return true
+
+
+func set_technical_index_preview_fraction(running_fraction: float) -> void:
+	_technical_index_preview_fraction = clampf(running_fraction, 0.0, 1.0)
+	_power = _technical_index_preview_fraction
+	_update_rotor_transparency()
+	_update_blade_segments()
+	_update_fast_rotor_shadow_casting()
+
+
+func get_technical_index_preview_fraction() -> float:
+	return _technical_index_preview_fraction
+
+
+func get_technical_index_preview_duration() -> float:
+	return 1.0 / maxf(rotor_spool_up_rate, 0.01)
+
+
+func get_technical_index_preview_kind() -> StringName:
+	return &"engine"
+
+
+func advance_technical_index_preview(delta: float) -> void:
+	if _technical_index_preview_fraction <= 0.0:
+		return
+	var step := ROTOR_VISUAL_RATE_RAD_S * _technical_index_preview_fraction * delta
+	if upper_rotor != null:
+		upper_rotor.rotate_y(step * upper_rotor_direction)
+	if lower_rotor != null:
+		lower_rotor.rotate_y(step * lower_rotor_direction)
 
 
 func update_interface(values: Dictionary) -> void:
@@ -596,8 +649,12 @@ func _setup_rotor_discs() -> void:
 			var lower_disc_node := manual_discs[0]
 			var lower_y_offset := lower_disc_node.position.y - lower_rotor.position.y
 			if lower_disc_node.get_parent() != lower_rotor:
+				var lower_owner := lower_disc_node.owner
+				lower_disc_node.owner = null
 				lower_disc_node.get_parent().remove_child(lower_disc_node)
 				lower_rotor.add_child(lower_disc_node)
+				if lower_owner != null and lower_owner.is_ancestor_of(lower_disc_node):
+					lower_disc_node.owner = lower_owner
 			lower_disc_node.name = "RotorDisc"
 			lower_disc_node.position = Vector3(0.0, lower_y_offset, 0.0)
 			_lower_disc = lower_disc_node
@@ -606,8 +663,12 @@ func _setup_rotor_discs() -> void:
 			var upper_disc_node := manual_discs[1]
 			var upper_y_offset := upper_disc_node.position.y - upper_rotor.position.y
 			if upper_disc_node.get_parent() != upper_rotor:
+				var upper_owner := upper_disc_node.owner
+				upper_disc_node.owner = null
 				upper_disc_node.get_parent().remove_child(upper_disc_node)
 				upper_rotor.add_child(upper_disc_node)
+				if upper_owner != null and upper_owner.is_ancestor_of(upper_disc_node):
+					upper_disc_node.owner = upper_owner
 			upper_disc_node.name = "RotorDisc"
 			upper_disc_node.position = Vector3(0.0, upper_y_offset, 0.0)
 			_upper_disc = upper_disc_node
@@ -617,8 +678,12 @@ func _setup_rotor_discs() -> void:
 			var upper_disc_node := manual_discs[0]
 			var upper_y_offset := upper_disc_node.position.y - upper_rotor.position.y
 			if upper_disc_node.get_parent() != upper_rotor:
+				var upper_owner := upper_disc_node.owner
+				upper_disc_node.owner = null
 				upper_disc_node.get_parent().remove_child(upper_disc_node)
 				upper_rotor.add_child(upper_disc_node)
+				if upper_owner != null and upper_owner.is_ancestor_of(upper_disc_node):
+					upper_disc_node.owner = upper_owner
 			upper_disc_node.name = "RotorDisc"
 			upper_disc_node.position = Vector3(0.0, upper_y_offset, 0.0)
 			_upper_disc = upper_disc_node

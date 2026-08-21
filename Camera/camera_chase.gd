@@ -13,6 +13,7 @@ var aircraft: RigidBody3D
 var focus_target: Node3D
 var orbit_yaw: float = 0.0
 var current_offset: Vector3 = Vector3.ZERO
+var _pause_menu_settings: Node = null
 
 func _get_horizontal_forward() -> Vector3:
 	var forward_flat: Vector3 = aircraft.global_transform.basis.z
@@ -59,7 +60,13 @@ func _physics_process(delta: float) -> void:
 
 func handle_input(delta):
 	var look_x = Input.get_action_strength("look_left") - Input.get_action_strength("look_right")
-	orbit_yaw = wrapf(orbit_yaw + deg_to_rad(look_x * orbit_yaw_speed_deg * look_sensitivity * delta), -PI, PI)
+	var user_sensitivity := 1.0
+	if not is_instance_valid(_pause_menu_settings):
+		_pause_menu_settings = get_node_or_null("/root/PauseMenu")
+	var settings := _pause_menu_settings
+	if settings != null and settings.has_method("get_look_sensitivity_multiplier"):
+		user_sensitivity = float(settings.call("get_look_sensitivity_multiplier"))
+	orbit_yaw = wrapf(orbit_yaw + deg_to_rad(look_x * orbit_yaw_speed_deg * look_sensitivity * user_sensitivity * delta), -PI, PI)
 
 func update_position(delta):
 	var orbit_center: Vector3 = _get_orbit_center()

@@ -1,12 +1,19 @@
 extends ProjectileNew
 class_name Bullet
 
+const TRACER_VISUAL_FACTORY := preload("res://Projectiles/Bullet/TracerVisualFactory.gd")
+
 # Visual effects specific to bullets
 @export var tracer_enabled: bool = true
 @export var tracer_color: Color = Color.YELLOW
-@export var tracer_width: float = 0.1
-@export var tracer_visual_length: float = 8.0
-@export var tracer_hidden_physics_frames: int = 2
+@export var tracer_width: float = 0.2
+@export var tracer_visual_length: float = 0.8
+@export var tracer_hidden_physics_frames: int = 1
+@export var tracer_length_ramp_physics_frames: int = 4
+@export_range(0, 3, 1) var virtual_impact_count: int = 0
+@export var virtual_impact_offset_min_m: float = 0.18
+@export var virtual_impact_offset_max_m: float = 0.5
+@export var virtual_impact_mark_scale: float = 0.7
 @export var damage_amount: float = 10.0
 @export var ground_mark_lifetime_s: float = 12.0
 @export var ground_mark_size: Vector3 = Vector3(0.56, 0.05, 0.56)
@@ -25,8 +32,9 @@ class_name Bullet
 @export var hidden_hit_assist_interval_s: float = 0.12
 
 var trail_mesh: MeshInstance3D
-var tracer_box_mesh: BoxMesh
+var tracer_mesh: ArrayMesh
 var tracer_physics_frames_elapsed: int = 0
+var virtual_impact_visuals_spawned: int = 0
 var _debug_target_node: Node3D = null
 var _debug_target_radius_m: float = 0.0
 var _debug_closest_center_distance_m: float = INF
@@ -108,10 +116,11 @@ func create_tracer_mesh():
 	trail_mesh = MeshInstance3D.new()
 	add_child(trail_mesh)
 
-	tracer_box_mesh = _get_cached_tracer_mesh()
-	trail_mesh.mesh = tracer_box_mesh
+	tracer_mesh = _get_cached_tracer_mesh()
+	trail_mesh.mesh = tracer_mesh
 	trail_mesh.material_override = _get_cached_tracer_material()
-	trail_mesh.position = Vector3(0.0, 0.0, tracer_visual_length * 0.5)
+	trail_mesh.scale = Vector3(tracer_width, tracer_width, tracer_visual_length)
+	trail_mesh.position = Vector3.ZERO
 
 func _get_cached_bullet_material() -> StandardMaterial3D:
 	var key: String = _color_cache_key(tracer_color)
@@ -127,13 +136,12 @@ func _get_cached_bullet_material() -> StandardMaterial3D:
 	_bullet_material_cache[key] = material
 	return material
 
-func _get_cached_tracer_mesh() -> BoxMesh:
-	var key: String = "%.3f|%.3f" % [tracer_width, tracer_visual_length]
+func _get_cached_tracer_mesh() -> ArrayMesh:
+	var key := "closed_radial_taper_12_base_at_origin_v2"
 	var cached_variant: Variant = _tracer_mesh_cache.get(key, null)
-	if cached_variant is BoxMesh:
-		return cached_variant as BoxMesh
-	var mesh := BoxMesh.new()
-	mesh.size = Vector3(tracer_width, tracer_width, tracer_visual_length)
+	if cached_variant is ArrayMesh:
+		return cached_variant as ArrayMesh
+	var mesh: ArrayMesh = TRACER_VISUAL_FACTORY.create_unit_tracer_mesh()
 	_tracer_mesh_cache[key] = mesh
 	return mesh
 
@@ -142,13 +150,7 @@ func _get_cached_tracer_material() -> StandardMaterial3D:
 	var cached_variant: Variant = _tracer_material_cache.get(key, null)
 	if cached_variant is StandardMaterial3D:
 		return cached_variant as StandardMaterial3D
-	var material := StandardMaterial3D.new()
-	material.flags_unshaded = true
-	material.emission_enabled = true
-	material.emission = tracer_color
-	material.emission_energy = 2.0
-	material.flags_transparent = true
-	material.albedo_color = tracer_color
+	var material: StandardMaterial3D = TRACER_VISUAL_FACTORY.create_glow_material(tracer_color, 5.0)
 	_tracer_material_cache[key] = material
 	return material
 
@@ -274,6 +276,7 @@ func _on_body_entered(body):
 		_spawn_ground_impact_particles(body)
 	else:
 		_spawn_aircraft_hit_debris(body)
+	_spawn_virtual_impact_cosmetics(body)
 	# Then run default impact handling (damage, cleanup)
 	super._on_body_entered(body)
 
@@ -299,6 +302,7 @@ func prepare_for_pool() -> void:
 	if shooter and is_instance_valid(shooter) and shooter is CollisionObject3D:
 		remove_collision_exception_with(shooter as CollisionObject3D)
 	shooter = null
+	virtual_impact_count = 0
 	visible = false
 	if trail_mesh:
 		trail_mesh.visible = false
@@ -310,6 +314,7 @@ func prepare_for_pool() -> void:
 func prepare_for_reuse() -> void:
 	_activation_serial += 1
 	has_impacted = false
+	virtual_impact_visuals_spawned = 0
 	_lifetime_elapsed_s = 0.0
 	visible = true
 	freeze_mode = RigidBody3D.FREEZE_MODE_STATIC
@@ -382,17 +387,26 @@ func _resolve_impact_surface(body: Object) -> Dictionary:
 func _create_ground_bullet_mark(body: Object) -> void:
 	var impact: Dictionary = _resolve_impact_surface(body)
 	var hit_pos: Vector3 = impact.get("position", global_position)
-	var impact_budget: Node = get_node_or_null("/root/BulletImpactBudget")
-	if impact_budget and not bool(impact_budget.call("should_spawn_visual", hit_pos)):
-		return
 	var hit_normal: Vector3 = impact.get("normal", Vector3.UP)
 	var parent_node: Node3D = impact.get("parent_node", null)
+	_create_ground_bullet_mark_at(hit_pos, hit_normal, parent_node)
+
+
+func _create_ground_bullet_mark_at(
+	hit_pos: Vector3,
+	hit_normal: Vector3,
+	parent_node: Node3D,
+	mark_scale: float = 1.0
+) -> bool:
+	var impact_budget: Node = get_node_or_null("/root/BulletImpactBudget")
+	if impact_budget and not bool(impact_budget.call("should_spawn_visual", hit_pos)):
+		return false
 
 	# Build decal aligned to the surface. Transient marks use the global pool.
 	var decal_parent: Node = parent_node if parent_node and is_instance_valid(parent_node) else get_tree().current_scene
 	var decal: Decal = impact_budget.call("acquire_decal", decal_parent) as Decal if impact_budget else Decal.new()
 	decal.texture_albedo = _scorch_texture if _scorch_texture != null else load(SCORCH_TEXTURE_PATH)
-	decal.size = ground_mark_size
+	decal.size = ground_mark_size * maxf(mark_scale, 0.1)
 	decal.sorting_offset = 20.0
 	if impact_budget == null:
 		decal_parent.add_child(decal)
@@ -422,17 +436,26 @@ func _create_ground_bullet_mark(body: Object) -> void:
 			if decal_obj is Node and is_instance_valid(decal_obj):
 				(decal_obj as Node).queue_free()
 		)
+	return true
 
 func _spawn_ground_impact_particles(body: Object) -> void:
-	var count: int = max(ground_particle_count, 0)
-	if count <= 0:
-		return
 	var impact: Dictionary = _resolve_impact_surface(body)
 	var hit_pos: Vector3 = impact.get("position", global_position)
 	var hit_normal: Vector3 = impact.get("normal", Vector3.UP)
-	if get_node_or_null("/root/BulletImpactBudget") == null:
-		return
+	_spawn_ground_impact_particles_at(hit_pos, hit_normal, ground_particle_count)
 
+
+func _spawn_ground_impact_particles_at(
+	hit_pos: Vector3,
+	hit_normal: Vector3,
+	particle_count: int
+) -> int:
+	var count: int = max(particle_count, 0)
+	var impact_budget: Node = get_node_or_null("/root/BulletImpactBudget")
+	if count <= 0 or impact_budget == null:
+		return 0
+
+	var spawned_count := 0
 	for i in range(count):
 		var size: float = randf_range(0.10, 0.24)
 		var lateral_dir := Vector3(
@@ -441,16 +464,73 @@ func _spawn_ground_impact_particles(body: Object) -> void:
 			randf_range(-1.0, 1.0)
 		).normalized()
 		var launch_velocity: Vector3 = (hit_normal * randf_range(1.5, 3.0) + lateral_dir * randf_range(1.0, 3.0)).normalized() * randf_range(3.0, 8.0)
-		var impact_budget: Node = get_node_or_null("/root/BulletImpactBudget")
-		if impact_budget:
-			impact_budget.call("spawn_debris",
+		if bool(impact_budget.call("spawn_debris",
 			hit_pos + hit_normal * 0.03,
 			Vector3(size, size, size),
 			Color(0.44, 0.34, 0.22, 1.0),
 			0.0,
 			1.0,
 			launch_velocity,
-			ground_particle_lifetime_s)
+			ground_particle_lifetime_s
+		)):
+			spawned_count += 1
+	return spawned_count
+
+
+func _spawn_virtual_impact_cosmetics(body: Object) -> void:
+	var count := maxi(virtual_impact_count, 0)
+	if count <= 0 or not (body is Node):
+		return
+	var impact: Dictionary = _resolve_impact_surface(body)
+	var hit_pos: Vector3 = impact.get("position", global_position)
+	var hit_normal: Vector3 = (impact.get("normal", Vector3.UP) as Vector3).normalized()
+	var parent_node: Node3D = impact.get("parent_node", null)
+	var body_node := body as Node
+	var hit_ground := is_ground_or_terrain(body_node)
+	var damage_target: Node = find_damage_target(body_node) if not hit_ground else null
+	if not hit_ground and not _supports_target_hit_mark(damage_target):
+		return
+
+	for virtual_index in range(count):
+		var nearby_pos := hit_pos + _make_virtual_impact_surface_offset(hit_normal, virtual_index)
+		var visual_spawned := false
+		if hit_ground:
+			visual_spawned = _create_ground_bullet_mark_at(
+				nearby_pos,
+				hit_normal,
+				parent_node,
+				virtual_impact_mark_scale
+			)
+			visual_spawned = _spawn_ground_impact_particles_at(
+				nearby_pos,
+				hit_normal,
+				ground_particle_count
+			) > 0 or visual_spawned
+		else:
+			visual_spawned = create_bullet_scorch_mark_at(
+				damage_target,
+				nearby_pos,
+				hit_normal,
+				virtual_impact_mark_scale
+			)
+		if visual_spawned:
+			virtual_impact_visuals_spawned += 1
+
+
+func _make_virtual_impact_surface_offset(hit_normal: Vector3, virtual_index: int) -> Vector3:
+	var normal := hit_normal.normalized()
+	if normal.length_squared() <= 0.0001:
+		normal = Vector3.UP
+	var tangent_x := normal.cross(Vector3.UP)
+	if tangent_x.length_squared() <= 0.0001:
+		tangent_x = normal.cross(Vector3.FORWARD)
+	tangent_x = tangent_x.normalized()
+	var tangent_z := normal.cross(tangent_x).normalized()
+	var angle := randf() * TAU
+	var min_offset := maxf(virtual_impact_offset_min_m, 0.0)
+	var max_offset := maxf(virtual_impact_offset_max_m, min_offset)
+	var radius := randf_range(min_offset, max_offset) * (1.0 + float(virtual_index) * 0.25)
+	return (tangent_x * cos(angle) + tangent_z * sin(angle)) * radius
 
 
 func _spawn_aircraft_hit_debris(_body: Object) -> void:
@@ -482,15 +562,19 @@ func _spawn_aircraft_hit_debris(_body: Object) -> void:
 			hit_debris_lifetime_s)
 
 func update_tracer_mesh() -> void:
-	if trail_mesh == null or tracer_box_mesh == null:
+	if trail_mesh == null or tracer_mesh == null:
 		return
 	if not _visual_allowed or _should_hide_tracer_for_startup_frames():
 		trail_mesh.visible = false
 		return
 	trail_mesh.visible = true
-	# Keep tracer geometry static to avoid per-frame mesh updates for high bullet counts.
-	# Node3D.look_at points local -Z toward travel, so place the tracer behind the bullet on +Z.
-	trail_mesh.position = Vector3(0.0, 0.0, tracer_visual_length * 0.5)
+	# Grow the taper over its first few frames so it does not flash across the
+	# cockpit while it is still immediately beside the muzzle.
+	var ramp_frames := maxi(tracer_length_ramp_physics_frames, 1)
+	var ramp_t := clampf(float(tracer_physics_frames_elapsed + 1) / float(ramp_frames), 0.0, 1.0)
+	var length_scale := lerpf(0.12, 1.0, smoothstep(0.0, 1.0, ramp_t))
+	trail_mesh.scale = Vector3(tracer_width, tracer_width, tracer_visual_length * length_scale)
+	trail_mesh.position = Vector3.ZERO
 
 func _should_hide_tracer_for_startup_frames() -> bool:
 	return tracer_physics_frames_elapsed < max(tracer_hidden_physics_frames, 0)

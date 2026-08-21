@@ -63,7 +63,7 @@ signal deck_state_changed(new_state)
 # Don't launch into a cliff: sample terrain ahead along the launch heading and refuse if it rises above
 # a shallow climb profile within the check distance.
 @export var launch_terrain_check_enabled: bool = true
-@export var launch_terrain_check_distance_m: float = 1400.0   # how far ahead to look for rising terrain
+@export var launch_terrain_check_distance_m: float = 800.0    # how far ahead to reserve before reactive pilot avoidance takes over
 @export var launch_terrain_check_step_m: float = 80.0         # sampling step along the departure path
 @export var launch_terrain_climb_grade: float = 0.10          # assumed climb-out gradient (rise/run) after launch
 @export var launch_terrain_clearance_m: float = 60.0          # required clearance above terrain along the path
@@ -99,7 +99,6 @@ const LOADOUT_BOMB_STRIKE := "bomb_strike"
 const LOADOUT_RANDOM_GROUND_STRIKE := "random_ground_strike"
 const LOADOUT_GUN_ONLY := "gun_only"
 const WEAPON_SCENE_20MM := "res://Weapons/Guns/Hardpoint/20mm_autocannon_hardpoint.tscn"
-const WEAPON_SCENE_AA_MISSILE := "res://Weapons/AA_Missile/aa_missile_launcher.tscn"
 const WEAPON_SCENE_ROCKET_POD := "res://Weapons/RocketPod/rocket_pod.tscn"
 const WEAPON_SCENE_BOMB_RACK := "res://Weapons/Bomb/bomb_rack.tscn"
 const PRIMARY_TRACTOR_COUNT := 4
@@ -3564,7 +3563,7 @@ func _apply_ai_loadout_profile(aircraft: RigidBody3D, profile: String) -> void:
 		return
 	for i in range(hardpoints.size()):
 		var hardpoint := hardpoints[i]
-		if normalized_profile == LOADOUT_GUN_ONLY:
+		if normalized_profile == LOADOUT_GUN_ONLY or normalized_profile == LOADOUT_INTERCEPT:
 			if i == 0:
 				_mount_weapon_scene_on_hardpoint(hardpoint, WEAPON_SCENE_20MM)
 			else:
@@ -3575,10 +3574,6 @@ func _apply_ai_loadout_profile(aircraft: RigidBody3D, profile: String) -> void:
 	_refresh_weapon_controller_after_loadout(aircraft, normalized_profile)
 
 func _choose_ai_loadout_weapon_scene(hardpoint: Hardpoint, hardpoint_index: int, profile: String) -> String:
-	if profile == LOADOUT_INTERCEPT:
-		if hardpoint_index == 0:
-			return WEAPON_SCENE_20MM
-		return WEAPON_SCENE_AA_MISSILE
 	if profile == LOADOUT_CAP:
 		var current_weapon_name := _get_hardpoint_weapon_name(hardpoint)
 		if _is_gun_weapon_name(current_weapon_name):
@@ -3614,10 +3609,6 @@ func _mount_weapon_scene_on_hardpoint(hardpoint: Hardpoint, weapon_scene_path: S
 		hardpoint.weapon_instance = null
 	hardpoint.mounted_weapon = weapon_scene
 	hardpoint.mount_weapon_from_scene(weapon_scene)
-	if is_instance_valid(hardpoint.weapon_instance) and hardpoint.weapon_instance is AAMissileLauncher:
-		var launcher := hardpoint.weapon_instance as AAMissileLauncher
-		launcher.max_ammo = max(launcher.max_ammo, 1)
-		launcher.ammo_count = max(launcher.ammo_count, launcher.max_ammo)
 
 
 func _clear_hardpoint_weapon(hardpoint: Hardpoint) -> void:
@@ -3651,11 +3642,9 @@ func _refresh_weapon_controller_after_loadout(aircraft: RigidBody3D, profile: St
 		control_weapons.categorize_weapons()
 	if not ("weapon_types" in control_weapons):
 		return
-	var preferred_type := "Bomb" if (profile == LOADOUT_STRIKE or profile == "cas" or profile == LOADOUT_COMBAT_TEST or profile == LOADOUT_BOMB_STRIKE) else "AAMissile"
-	if profile == LOADOUT_CAP:
-		preferred_type = "Autocannon"
-	elif profile == LOADOUT_GUN_ONLY:
-		preferred_type = "Autocannon"
+	var preferred_type := "Autocannon"
+	if profile == LOADOUT_STRIKE or profile == "cas" or profile == LOADOUT_COMBAT_TEST or profile == LOADOUT_BOMB_STRIKE:
+		preferred_type = "Bomb"
 	elif profile == LOADOUT_ROCKET_STRIKE:
 		preferred_type = "Rocket Pod"
 	var selected_idx := -1

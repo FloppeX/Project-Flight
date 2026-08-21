@@ -1,6 +1,10 @@
 extends Weapon
 class_name BulletWeapon
 
+const VIRTUAL_TRACER_MANAGER_SCRIPT := preload(
+	"res://Projectiles/Bullet/MachineGunVirtualTracerManager.gd"
+)
+
 const PROJECTILE_SPEED_CAP_SETTING_KEYS: Array = [
 	"physics/jolt_3d/simulation/limits/max_linear_velocity",
 	"physics/jolt_physics_3d/simulation/limits/max_linear_velocity",
@@ -50,6 +54,11 @@ const AUTOCANNON_SHOT_STREAMS = [
 @export var spread_angle: float = 1.0
 @export var recoil_force: float = 1000.0
 @export var max_range_m: float = 500.0
+@export var physical_tracer_width_m: float = 0.2
+@export var physical_tracer_length_m: float = 0.8
+@export_range(1, 4, 1) var visible_round_multiplier: int = 1
+@export var virtual_tracer_width_m: float = 0.2
+@export var virtual_tracer_length_m: float = 0.8
 @export var infinite_ammo: bool = true
 @export var turret_fire_rate_multiplier: float = 0.5
 @export var host_recoil_enabled: bool = false
@@ -69,6 +78,10 @@ var last_fired_projectile: Node = null
 var _projectile_speed_cap_cached: bool = false
 var _projectile_speed_cap_mps: float = INF
 var _bullet_spawn_point: Node3D = null
+var physical_rounds_fired: int = 0
+var virtual_rounds_fired: int = 0
+var shot_sound_events: int = 0
+var _pending_virtual_rounds: Array[Dictionary] = []
 
 func _ready() -> void:
 	_apply_gun_profile()
@@ -81,6 +94,21 @@ func _ready() -> void:
 	_setup_shot_audio()
 	if _is_mounted_in_turret():
 		fire_rate *= maxf(turret_fire_rate_multiplier, 0.0)
+	set_process(false)
+
+
+func _process(delta: float) -> void:
+	for index in range(_pending_virtual_rounds.size() - 1, -1, -1):
+		var pending: Dictionary = _pending_virtual_rounds[index]
+		var remaining_s := float(pending.get("remaining_s", 0.0)) - delta
+		if remaining_s > 0.0:
+			pending["remaining_s"] = remaining_s
+			_pending_virtual_rounds[index] = pending
+			continue
+		_pending_virtual_rounds.remove_at(index)
+		_fire_virtual_round(pending)
+	if _pending_virtual_rounds.is_empty():
+		set_process(false)
 
 
 func _is_mounted_in_turret() -> bool:
@@ -101,19 +129,21 @@ func fire() -> bool:
 		return false
 
 	set_meta("next_fire_time_s", now_s + cooldown_s)
-
-	# Turret weapons default to sustained fire instead of running dry after a short exchange.
+	# Virtual tracers are cosmetic fillers attached to each real round, so the
+	# original projectile cadence, ammunition use, recoil and DPS stay unchanged.
 	super.fire()
 	if infinite_ammo:
 		ammo_count += 1
 
 	var spawn_transform = global_transform
 	var firing_entity: Node3D = self
+	var firing_turret: Turret = null
 	var parent = get_parent()
 
 	while parent:
 		if parent is Turret:
 			var turret_parent: Turret = parent as Turret
+			firing_turret = turret_parent
 			spawn_transform = turret_parent.get_next_firing_transform()
 			firing_entity = _resolve_firing_entity_from_turret(turret_parent)
 			break
@@ -124,6 +154,14 @@ func fire() -> bool:
 
 	spawn_transform = _get_bullet_spawn_transform(spawn_transform)
 	_spawn_bullet(spawn_transform, firing_entity)
+	if last_fired_projectile != null and is_instance_valid(last_fired_projectile):
+		physical_rounds_fired += 1
+		_queue_virtual_rounds(
+			spawn_transform,
+			firing_entity,
+			firing_turret,
+			cooldown_s
+		)
 	var mounted_hardpoint: Hardpoint = _find_parent_hardpoint()
 	if mounted_hardpoint != null and is_instance_valid(mounted_hardpoint):
 		mounted_hardpoint.apply_recoil_force(recoil_force, false)
@@ -131,6 +169,82 @@ func fire() -> bool:
 		_apply_host_recoil(spawn_transform, firing_entity)
 	_play_shot_sound(spawn_transform.origin)
 	return true
+
+
+func _queue_virtual_rounds(
+	spawn_transform: Transform3D,
+	firing_entity: Node3D,
+	firing_turret: Turret,
+	seconds_per_round: float
+) -> void:
+	var multiplier := maxi(visible_round_multiplier, 1)
+	if multiplier <= 1:
+		return
+	for virtual_index in range(1, multiplier):
+		_pending_virtual_rounds.append({
+			"remaining_s": seconds_per_round * float(virtual_index) / float(multiplier),
+			"fallback_transform": spawn_transform,
+			"firing_entity": firing_entity,
+			"firing_turret": firing_turret,
+		})
+	set_process(true)
+
+
+func _fire_virtual_round(pending: Dictionary) -> void:
+	var root := get_tree().current_scene
+	if root == null:
+		return
+	var manager := _get_virtual_tracer_manager(root)
+	if manager == null:
+		return
+	var fallback_transform: Transform3D = pending.get("fallback_transform", global_transform)
+	var firing_turret: Turret = pending.get("firing_turret", null) as Turret
+	var spawn_transform := fallback_transform
+	if firing_turret != null and is_instance_valid(firing_turret):
+		spawn_transform = firing_turret.get_next_firing_transform()
+	else:
+		spawn_transform = _get_bullet_spawn_transform(fallback_transform)
+	var firing_entity: Node3D = pending.get("firing_entity", self) as Node3D
+	if firing_entity == null or not is_instance_valid(firing_entity):
+		firing_entity = self
+	var lifetime_s := maxf(
+		max_range_m / maxf(_get_effective_projectile_speed_mps(), 1.0),
+		0.05
+	)
+	var direction: Vector3 = spawn_transform.basis.z.normalized()
+	if spread_angle > 0.001:
+		var pitch_offset_rad: float = deg_to_rad(randf_range(-spread_angle, spread_angle))
+		var yaw_offset_rad: float = deg_to_rad(randf_range(-spread_angle, spread_angle))
+		var yaw_basis: Basis = Basis(spawn_transform.basis.y.normalized(), yaw_offset_rad)
+		var pitch_basis: Basis = Basis(spawn_transform.basis.x.normalized(), pitch_offset_rad)
+		direction = (yaw_basis * pitch_basis * direction).normalized()
+	var tracer_origin := spawn_transform.origin + spawn_transform.basis.z.normalized() * 2.5
+	if not bool(manager.call(
+		"spawn_tracer",
+		tracer_origin,
+		direction * bullet_speed,
+		firing_entity,
+		lifetime_s,
+		virtual_tracer_width_m,
+		virtual_tracer_length_m,
+		0.0
+	)):
+		return
+	virtual_rounds_fired += 1
+	_play_shot_sound(tracer_origin)
+
+
+func _get_virtual_tracer_manager(scene_root: Node) -> Node:
+	if scene_root == null or not is_instance_valid(scene_root):
+		return null
+	var manager := scene_root.get_node_or_null("MachineGunVirtualTracers")
+	if manager != null and manager.has_method("spawn_tracer"):
+		return manager
+	manager = Node3D.new()
+	manager.name = "MachineGunVirtualTracers"
+	manager.set_script(VIRTUAL_TRACER_MANAGER_SCRIPT)
+	scene_root.add_child(manager)
+	return manager if manager.has_method("spawn_tracer") else null
 
 func _apply_host_recoil(spawn_transform: Transform3D, firing_entity: Node3D) -> void:
 	if not host_recoil_enabled:
@@ -275,6 +389,11 @@ func _apply_gun_profile() -> void:
 	recoil_force = maxf(gun_profile.recoil_force, 0.0)
 	damage_per_shot = maxf(gun_profile.damage_per_shot, 0.0)
 	max_range_m = maxf(gun_profile.max_range_m, 10.0)
+	physical_tracer_width_m = maxf(gun_profile.physical_tracer_width_m, 0.01)
+	physical_tracer_length_m = maxf(gun_profile.physical_tracer_length_m, 0.05)
+	visible_round_multiplier = maxi(gun_profile.visible_round_multiplier, 1)
+	virtual_tracer_width_m = maxf(gun_profile.virtual_tracer_width_m, 0.01)
+	virtual_tracer_length_m = maxf(gun_profile.virtual_tracer_length_m, 0.05)
 	use_lmg_sound_set = gun_profile.use_lmg_sound_set
 	use_autocannon_sound_set = gun_profile.use_autocannon_sound_set
 	use_heavy_auto_sound_set = gun_profile.use_heavy_auto_sound_set
@@ -290,6 +409,12 @@ func _configure_projectile_instance(projectile: Node) -> void:
 		projectile.damage = damage_per_shot
 	if "lifetime" in projectile:
 		projectile.lifetime = maxf(max_range_m / maxf(_get_effective_projectile_speed_mps(), 1.0), 0.05)
+	if "tracer_width" in projectile:
+		projectile.tracer_width = physical_tracer_width_m
+	if "tracer_visual_length" in projectile:
+		projectile.tracer_visual_length = physical_tracer_length_m
+	if "virtual_impact_count" in projectile:
+		projectile.virtual_impact_count = maxi(visible_round_multiplier - 1, 0)
 
 func _get_effective_projectile_speed_mps() -> float:
 	var nominal_speed_mps: float = maxf(bullet_speed, 50.0)
@@ -345,6 +470,7 @@ func _play_shot_sound(world_pos: Vector3) -> void:
 	player.pitch_scale = randf_range(1.0 - pitch_variation, 1.0 + pitch_variation)
 	player.volume_db = randf_range(-volume_variation_db, volume_variation_db)
 	player.play()
+	shot_sound_events += 1
 
 func _get_shot_sound_bank() -> Array:
 	if use_lmg_sound_set:

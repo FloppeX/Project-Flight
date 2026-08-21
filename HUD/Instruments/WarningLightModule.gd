@@ -1,7 +1,7 @@
 extends InstrumentModule
 class_name WarningLightModule
 
-var lights: Array[String] = ["ENGINE", "WEAPONS", "CONTROLS", "GEAR", "STALL", "MISSILE"]
+var lights: Array[String] = ["ENGINE", "WEAPONS", "CONTROLS", "GEAR", "STALL"]
 var light_rects: Dictionary = {}
 var light_labels: Dictionary = {}
 

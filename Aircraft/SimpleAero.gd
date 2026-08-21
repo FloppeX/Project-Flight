@@ -37,6 +37,9 @@ var rb: RigidBody3D = null
 @export var roll_stability_bank_release_start_deg: float = 55.0  # Start backing off roll self-leveling at aerobatic bank angles
 @export var roll_stability_bank_release_full_deg: float = 100.0  # Roll self-leveling reaches its minimum strength here
 @export var roll_stability_bank_min_factor: float = 0.18  # Keep a little roll damping so the aircraft does not tumble forever
+@export var pitch_stability_input_release_start: float = 0.05  # Small corrections retain the hands-off leveling tendency
+@export var pitch_stability_input_release_full: float = 0.35  # Deliberate elevator input releases pitch self-leveling for aerobatics
+@export var pitch_stability_input_min_factor: float = 0.04  # Keep only a trace of stability during a committed pull/push
 @export var stability_torque_scale: float = 2.0  # Converts attitude error into a noticeable restoring torque
 @export var roll_stability_rate_damping: float = 3.2  # Extra roll-rate damping while the aircraft tries to settle level
 @export var pitch_stability_rate_damping: float = 2.1  # Extra pitch-rate damping while the aircraft tries to settle level
@@ -456,6 +459,7 @@ func _apply_attitude_stability(fwd: Vector3, right: Vector3, up: Vector3, speed:
 	var roll_rate: float = rb.angular_velocity.dot(fwd_dir)
 	var pitch_rate: float = rb.angular_velocity.dot(right_dir)
 	var roll_input_release: float = 1.0 - clampf(absf(roll_input) * roll_stability_input_release, 0.0, 0.95)
+	var pitch_input_release: float = _get_pitch_stability_input_release_factor()
 	var bank_release_t: float = _smoothstep(
 		roll_stability_bank_release_start_deg,
 		maxf(roll_stability_bank_release_full_deg, roll_stability_bank_release_start_deg + 1.0),
@@ -467,12 +471,25 @@ func _apply_attitude_stability(fwd: Vector3, right: Vector3, up: Vector3, speed:
 		roll_input_release * bank_release,
 		clampf(roll_stability_bank_min_factor, 0.0, 1.0)
 	)
+	var pitch_self_level_factor: float = pitch_factor * pitch_input_release
+	var pitch_rate_damping_factor: float = pitch_factor * pitch_input_release
 
 	var roll_torque: Vector3 = fwd_dir * limited_roll_error * stability_strength * roll_self_level_factor * rb.mass * stability_authority * stability_torque_scale
-	var pitch_torque: Vector3 = -right_dir * limited_pitch_error * stability_strength * pitch_factor * rb.mass * stability_authority * stability_torque_scale
+	var pitch_torque: Vector3 = -right_dir * limited_pitch_error * stability_strength * pitch_self_level_factor * rb.mass * stability_authority * stability_torque_scale
 	var roll_rate_damping_torque: Vector3 = -fwd_dir * roll_rate * roll_rate_damping_factor * rb.mass * stability_authority * roll_stability_rate_damping
-	var pitch_rate_damping_torque: Vector3 = -right_dir * pitch_rate * pitch_factor * rb.mass * stability_authority * pitch_stability_rate_damping
+	var pitch_rate_damping_torque: Vector3 = -right_dir * pitch_rate * pitch_rate_damping_factor * rb.mass * stability_authority * pitch_stability_rate_damping
 	rb.apply_torque(roll_torque + pitch_torque + roll_rate_damping_torque + pitch_rate_damping_torque)
+
+
+func _get_pitch_stability_input_release_factor() -> float:
+	var release_start := clampf(pitch_stability_input_release_start, 0.0, 1.0)
+	var release_full := clampf(
+		maxf(pitch_stability_input_release_full, release_start + 0.001),
+		release_start + 0.001,
+		1.0
+	)
+	var release_t := _smoothstep(release_start, release_full, absf(pitch_input))
+	return lerpf(1.0, clampf(pitch_stability_input_min_factor, 0.0, 1.0), release_t)
 
 func get_estimated_angle_of_attack_deg() -> float:
 	if rb == null:

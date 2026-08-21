@@ -13,17 +13,26 @@ uniform int projection_mode = 0; // 0 = legacy side, 1 = normal-selected plane, 
 uniform float projection_blend_sharpness = 4.0;
 uniform float box_top_normal_threshold = 0.55;
 uniform bool side_projection_enabled = false;
+uniform bool use_shared_pattern_space = false;
+uniform mat4 pattern_local_to_root = mat4(1.0);
 
 varying vec3 local_position;
 varying vec3 local_normal;
 
 void vertex() {
-	// Calculate the world-space scale of the local axes to make patterns scale-independent
-	float scale_x = length(MODEL_MATRIX[0].xyz);
-	float scale_y = length(MODEL_MATRIX[1].xyz);
-	float scale_z = length(MODEL_MATRIX[2].xyz);
-	local_position = VERTEX * vec3(scale_x, scale_y, scale_z);
-	local_normal = NORMAL;
+	if (use_shared_pattern_space) {
+		// Every submesh receives its authored transform into one common vehicle
+		// coordinate system, so pattern phase does not restart at object boundaries.
+		local_position = (pattern_local_to_root * vec4(VERTEX, 1.0)).xyz;
+		local_normal = normalize(mat3(pattern_local_to_root) * NORMAL);
+	} else {
+		// Legacy fallback for callers that do not provide a shared pattern transform.
+		float scale_x = length(MODEL_MATRIX[0].xyz);
+		float scale_y = length(MODEL_MATRIX[1].xyz);
+		float scale_z = length(MODEL_MATRIX[2].xyz);
+		local_position = VERTEX * vec3(scale_x, scale_y, scale_z);
+		local_normal = NORMAL;
+	}
 }
 
 float hash21(vec2 p) {
@@ -251,7 +260,10 @@ vec2 projection_uv(vec3 p, int axis) {
 		return vec2(p.z, p.y);
 	}
 	if (axis == 1) {
-		return vec2(p.x, p.z);
+		// On upward-facing surfaces, keep the same longitudinal coordinate
+		// as the side projection. This lets vertical side bands continue
+		// crosswise over the roof instead of turning into fore-aft stripes.
+		return vec2(p.z, p.x);
 	}
 	return vec2(p.x, p.y);
 }

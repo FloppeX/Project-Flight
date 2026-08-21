@@ -65,7 +65,7 @@ The game already supports a substantial combined-arms sandbox. Most major system
 | Carrier deck | Hangar, elevator, tractor bots, catapult launch, deck staging, landing clearance, arresting wires, and recovery flow | Full mission-to-recovery reliability is promising but not yet accepted across the complete validation suite |
 | Air operations | Four named flights, sensor-fused tasking, CAP/intercept/strike roles, autonomous downed-pilot tracking and Aircraft_11 rescue dispatch, player orders, threat-driven scrambling, and direct flight control | Standing CAP no longer auto-launches at startup; the rescue path still needs full live scenario validation, and richer player doctrine and mission editing remain planned |
 | Ground operations | Four named platoons, vehicle-bay deployment/retrieval, formations, escort, move, attack, protect, hold, and map-issued orders | Player ground destinations must already be explored; pathing and steep-terrain behavior still need broad live testing |
-| Combat | Fixed-wing, helicopter, vehicle, turret, missile, rocket, bomb, gun, damage, destruction, and ejection systems | Balance and some AI flight-path integration remain under investigation |
+| Combat | Fixed-wing, helicopter, vehicle, turret, rocket, bomb, gun, damage, destruction, and ejection systems | Balance and some AI flight-path integration remain under investigation |
 | Enemy operations | Bases, patrols, ground forces, emplacements, wind farms, virtualized distant units, and replenishment behavior | Destroying infrastructure does not yet remove a clearly communicated enemy capability |
 | POIs | Procedural POI placement, starting discoveries, aircraft discovery, ground reveal, tactical markers, and choice cards | POI choices currently close the card but do not change game state |
 | Personnel | Persistent-in-session pilot roster, skills, experience, kills, wounds/rest hooks, callsigns, voices, and personnel UI | Careers do not yet persist between scenarios; rescue pickup is implemented but is not yet connected to injury, rest, and career continuity |
@@ -154,6 +154,7 @@ This slice should use temporary scenario-scoped state first. It does not need th
 - Bridges, overpasses, tunnels, and stacked routes using authored connection points and a layered/hybrid navigation graph.
 - Weather with operational effects: sandstorms, electrical storms, reduced visibility, and terrain-dependent hazards.
 - Structural part damage and breakoff for aircraft, vehicles, buildings, and the carrier.
+- Decouple machine-gun presentation from authoritative projectile cadence: retain the current simulated bullets and damage while using high-rate rattling gun audio, a few additional batched cosmetic tracers, and clustered impact art such as three small holes within one pooled decal.
 - Modular aircraft components and upgrades, including engines, control systems, landing gear, weapons, and field repair/fabrication choices.
 - Complete ejection, downed-pilot rescue, injury, rest, and career-continuity loops.
 - Broader helicopter roles: rescue/winch, scout, attack, and gunship support.
@@ -180,6 +181,7 @@ These items are deliberately phrased by evidence level. Older reports may descri
 | Unresolved / needs current retest | Fixed-wing route and turn authority | Historical telemetry found a split between horizontal and vertical guidance and uncertain lift response; later code changed substantially, so the old diagnosis is a baseline rather than proof of the current failure |
 | Needs current measurement | Valley-frame performance | Low frame rates were observed in valleys; terrain/rock streaming and presentation budgets were changed afterward, but no current acceptance measurement is documented here |
 | Needs current retest | Carrier/free-camera 3D audio | The last written investigation from April ended with inconsistent or missing carrier sound; its present state has not been re-verified during this documentation pass |
+| Investigate | 3D texture mipmaps and insignia residency | Enable mipmaps selectively for distance-viewed 3D textures such as tracks, scorch marks, and insignia decals, but first lazy-load or size-limit the 102 insignia images instead of keeping the whole catalog resident |
 | Watch item | Terrain and streamed clutter edge cases | Floating rocks, cliff-edge clearance, delayed chunks/collision, and startup preprocessing should remain in live-test coverage |
 | Resolved | Bridge/commander micro-jitter | Moving the world origin and fixing mixed process/physics camera updates resolved the documented issue; keep the report as historical evidence |
 
@@ -193,7 +195,9 @@ Portable Godot on the current development machine:
 & "C:\Godot\Godot_v4.6.2-stable_win64_console.exe" --path "C:\Godot projects\Project-Flight"
 ```
 
-The industrial operator-console starting menu selects carrier identity, livery, insignia, and map profile. Its Technical Index automatically displays the first entry in each equipment class on a black, green-grid inspection display. The model stays planted on the grid while mouse drag or press-and-hold directional controls orbit the camera; holding the adjacent `-` / `+` controls changes zoom continuously. It covers the primary gameplay vehicles, structures, and weapon assemblies while intentionally omitting helper scenes, projectiles, templates, and destroyed variants. `M` opens the tactical carrier console. See the [controller guide](docs/CONTROLLER_GUIDE.md) for the broader input map, but treat its dated debug-key notes as needing live verification.
+The industrial operator-console starting menu keeps the player-facing choices to New Campaign, Skirmish, Technical Index, Settings, and Quit. Debug builds group Free Flight, Landing Test, and Carrier Combat Test under a single Development Scenarios entry. The main, pause, settings, audio, gameplay, graphics, and controls screens share the same left-rail layout, typography, amber focus treatment, and dark console surfaces. The Settings hub separates Audio, Graphics, and Gameplay and provides a global reset. Audio persists master/radio volume and radio-caption visibility/duration. Graphics persists V-sync, display mode, resolution, frame limit, anti-aliasing, render scale/upscaling, view distance, and the FPS display; MSAA 2x is the default anti-aliasing mode. Gameplay persists rudder assists, stick deadzone, look sensitivity/inversion, cockpit motion, and camera FOV.
+
+The starting menu also selects carrier identity, livery, insignia, and map profile. Behind the operator rail, a five-shot carrier sequence cuts every 10.5 seconds between a tightened aerial quarter, a moving overhead orbit, fixed hilltop and ground-level viewpoints, and a long-lens broadside. The same `Camera3D` is reused for every composition, and fixed terrain viewpoints remain planted while the carrier moves through the scene. Its Technical Index automatically displays the first entry in each equipment class on a black, green-grid inspection display. The model stays planted on the grid while mouse drag or press-and-hold directional controls orbit the camera; holding the adjacent `-` / `+` controls changes zoom continuously. It covers the primary gameplay vehicles, structures, and weapon assemblies while intentionally omitting helper scenes, projectiles, templates, and destroyed variants. `M` opens the tactical carrier console. See the [controller guide](docs/CONTROLLER_GUIDE.md) for the broader input map, but treat its dated debug-key notes as needing live verification.
 
 ### Focused smoke tests
 
@@ -204,6 +208,9 @@ Prefer a focused headless test for the subsystem being changed. Examples:
 & "C:\Godot\Godot_v4.6.2-stable_win64_console.exe" --headless --path . --script res://Tests/MapFogMovingAircraftSmoketest.gd
 & "C:\Godot\Godot_v4.6.2-stable_win64_console.exe" --headless --path . --script res://tools/carrier_console_smoketest.gd
 & "C:\Godot\Godot_v4.6.2-stable_win64_console.exe" --headless --path . --script res://Tests/TechnicalIndexSmoketest.gd
+& "C:\Godot\Godot_v4.6.2-stable_win64_console.exe" --headless --path . --script res://Tests/SettingsOptionsSmoketest.gd
+& "C:\Godot\Godot_v4.6.2-stable_win64_console.exe" --headless --path . res://Tests/StartupCameraSequenceSmoketest.tscn
+& "C:\Godot\Godot_v4.6.2-stable_win64_console.exe" --headless --path . res://Tests/NoMissileLoadoutSmoketest.tscn
 ```
 
 Relevant focused coverage also exists for layered navigation, map startup, loading text, mobility textures, ground initial placement, AirOps scramble reservation, carrier deck passengers, floating-origin rigid bodies, rock streaming, landing gear, aircraft activity budgets, ground combat, dogfighting, and carrier recovery.

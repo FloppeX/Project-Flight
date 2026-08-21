@@ -38,6 +38,9 @@ extends Node
 @export_range(0.01, 0.95, 0.01) var helicopter_upper_pattern_width_fraction := 0.18
 @export var carrier_pattern_frequency_per_meter := 0.055
 @export_range(0.01, 0.95, 0.01) var carrier_pattern_width_fraction := 0.22
+## Surfaces with the same authored albedo as a named livery surface inherit the
+## pattern even when an imported GLB gives the sub-object a different material name.
+@export_range(0.0001, 0.1, 0.0001) var pattern_source_color_tolerance := 0.0025
 
 ## Insignia textures — loaded at startup.
 var insignia_textures: Array[Texture2D] = []
@@ -61,6 +64,8 @@ var _active_apply_pilot_main_dark_color: Color = Color(0.17, 0.18, 0.20)
 var _active_apply_pilot_helmet_color_1: Color = Color(0.36, 0.40, 0.44)
 var _active_apply_pilot_helmet_color_2: Color = Color(0.36, 0.40, 0.44)
 var _active_apply_is_carrier: bool = false
+var _active_apply_pattern_source_colors: Array[Color] = []
+var _active_apply_root_3d: Node3D = null
 var _carrier_pattern_shader: Shader = null
 const PLAYER_TEAM_ID: int = 1
 const PILOT_LIVERY_META_KEY: StringName = &"pilot_livery_colors"
@@ -354,6 +359,9 @@ func apply(root: Node) -> void:
 		_upper_color_preset_index = int(_team_upper_preset_indices.get(PLAYER_TEAM_ID, _upper_color_preset_index))
 		insignia_index = _active_apply_insignia_index
 	_active_apply_is_carrier = root.is_in_group("carrier")
+	_active_apply_root_3d = root as Node3D
+	_active_apply_pattern_source_colors.clear()
+	_collect_pattern_source_colors(root)
 	_apply_recursive(root)
 	if root is RigidBody3D and root.get("team") != null:
 		_apply_insignia(root)
@@ -764,9 +772,10 @@ func _marker_transform_to_host_local(aircraft_root: Node3D, host: Node3D, marker
 	return host.global_transform.affine_inverse() * target_global
 
 func _resolve_host_rest_local_transform(aircraft_root: Node3D, host: Node3D) -> Variant:
-	var meta_rest: Variant = host.get_meta("livery_rest_transform_local", null)
-	if meta_rest is Transform3D:
-		return meta_rest
+	if host.has_meta("livery_rest_transform_local"):
+		var meta_rest: Variant = host.get_meta("livery_rest_transform_local")
+		if meta_rest is Transform3D:
+			return meta_rest
 
 	# Fallback: ask wing-fold scripts for authored rest values if metadata
 	# was not populated yet when livery was first applied.
@@ -852,6 +861,50 @@ func _apply_carrier_insignia(carrier: Node) -> void:
 			)
 			carrier.add_child(decal)
 
+
+func _collect_pattern_source_colors(node: Node) -> void:
+	if node is MeshInstance3D:
+		var mesh_instance := node as MeshInstance3D
+		var mesh := mesh_instance.mesh
+		if mesh != null:
+			for surface_index in range(mesh.get_surface_count()):
+				var material := mesh.surface_get_material(surface_index)
+				if not material is StandardMaterial3D:
+					continue
+				var material_name := _normalized_material_name(material)
+				var is_named_pattern_source := "upper fuselage" in material_name \
+						or ("blue plasteel" in material_name and not "dark blue plasteel" in material_name) \
+						or (_active_apply_is_carrier and _is_carrier_color_1_material_name(material_name))
+				if is_named_pattern_source:
+					_add_pattern_source_color((material as StandardMaterial3D).albedo_color)
+	for child in node.get_children():
+		_collect_pattern_source_colors(child)
+
+
+func _add_pattern_source_color(color: Color) -> void:
+	for existing in _active_apply_pattern_source_colors:
+		if _colors_match_for_pattern(existing, color):
+			return
+	_active_apply_pattern_source_colors.append(color)
+
+
+func _material_matches_pattern_source_color(material: Material) -> bool:
+	if not material is StandardMaterial3D:
+		return false
+	var material_color := (material as StandardMaterial3D).albedo_color
+	for source_color in _active_apply_pattern_source_colors:
+		if _colors_match_for_pattern(material_color, source_color):
+			return true
+	return false
+
+
+func _colors_match_for_pattern(a: Color, b: Color) -> bool:
+	var tolerance := maxf(pattern_source_color_tolerance, 0.0001)
+	return absf(a.r - b.r) <= tolerance \
+			and absf(a.g - b.g) <= tolerance \
+			and absf(a.b - b.b) <= tolerance \
+			and absf(a.a - b.a) <= tolerance
+
 func _apply_recursive(node: Node) -> void:
 	if node is MeshInstance3D:
 		var mi := node as MeshInstance3D
@@ -888,6 +941,7 @@ func _apply_recursive(node: Node) -> void:
 					)
 				elif "blue plasteel" in mat_name:
 					target_color = _active_apply_upper_color
+					is_upper_fuselage_surface = true
 				elif _active_apply_has_pilot_colors and mat_name == "main color":
 					target_color = _active_apply_pilot_main_color
 				elif _active_apply_has_pilot_colors and mat_name == "main color dark":
@@ -896,6 +950,9 @@ func _apply_recursive(node: Node) -> void:
 					target_color = _active_apply_pilot_helmet_color_1
 				elif _active_apply_has_pilot_colors and mat_name == "helmet color 2":
 					target_color = _active_apply_pilot_helmet_color_2
+				elif _material_matches_pattern_source_color(mat):
+					target_color = _active_apply_upper_color
+					is_upper_fuselage_surface = true
 				if target_color.r >= 0.0:
 					var pattern_index := _normalized_aircraft_upper_pattern_index()
 					if is_upper_fuselage_surface and pattern_index > 0:
@@ -907,7 +964,8 @@ func _apply_recursive(node: Node) -> void:
 								pattern_index,
 								UPPER_FUSELAGE_TEST_STRIPE_SHADER,
 								helicopter_upper_pattern_frequency_per_meter,
-								helicopter_upper_pattern_width_fraction
+								helicopter_upper_pattern_width_fraction,
+								_pattern_transform_in_root(mi)
 							)
 						)
 						continue
@@ -920,7 +978,8 @@ func _apply_recursive(node: Node) -> void:
 								pattern_index,
 								_get_carrier_pattern_shader(),
 								carrier_pattern_frequency_per_meter,
-								carrier_pattern_width_fraction
+								carrier_pattern_width_fraction,
+								_pattern_transform_in_root(mi)
 							)
 						)
 						continue
@@ -971,7 +1030,8 @@ func _make_test_pattern_material(
 	pattern_index: int,
 	shader: Shader,
 	frequency_per_meter: float,
-	width_fraction: float
+	width_fraction: float,
+	pattern_local_to_root: Transform3D
 ) -> ShaderMaterial:
 	var pattern_material := ShaderMaterial.new()
 	pattern_material.resource_name = "Livery Test Pattern"
@@ -986,6 +1046,8 @@ func _make_test_pattern_material(
 	pattern_material.set_shader_parameter("projection_blend_sharpness", 4.0)
 	pattern_material.set_shader_parameter("box_top_normal_threshold", 0.55)
 	pattern_material.set_shader_parameter("side_projection_enabled", _active_apply_is_carrier)
+	pattern_material.set_shader_parameter("use_shared_pattern_space", true)
+	pattern_material.set_shader_parameter("pattern_local_to_root", pattern_local_to_root)
 
 	if source_material is StandardMaterial3D:
 		var standard := source_material as StandardMaterial3D
@@ -993,3 +1055,26 @@ func _make_test_pattern_material(
 		pattern_material.set_shader_parameter("metallic", standard.metallic)
 
 	return pattern_material
+
+
+func _pattern_transform_in_root(mesh_instance: MeshInstance3D) -> Transform3D:
+	if _active_apply_root_3d == null or mesh_instance == null:
+		return Transform3D.IDENTITY
+	var chain: Array[Node3D] = []
+	var cursor: Node = mesh_instance
+	while cursor != null and cursor != _active_apply_root_3d:
+		if cursor is Node3D:
+			chain.append(cursor as Node3D)
+		cursor = cursor.get_parent()
+	if cursor != _active_apply_root_3d:
+		return _active_apply_root_3d.global_transform.affine_inverse() * mesh_instance.global_transform
+	var transform_in_root := Transform3D.IDENTITY
+	for index in range(chain.size() - 1, -1, -1):
+		var part := chain[index]
+		var part_transform := part.transform
+		if part.has_meta("livery_rest_transform_local"):
+			var rest_transform: Variant = part.get_meta("livery_rest_transform_local")
+			if rest_transform is Transform3D:
+				part_transform = rest_transform as Transform3D
+		transform_in_root *= part_transform
+	return transform_in_root

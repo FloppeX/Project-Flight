@@ -61,10 +61,16 @@ var _current_blur_t: float = 0.0
 var _prop_blade_mesh_nodes: Array[MeshInstance3D] = []
 var _prop_disc_mesh_nodes: Array[MeshInstance3D] = []
 var _prop_hub_mesh_nodes: Array[MeshInstance3D] = []
+var _technical_index_preview_fraction: float = 0.0
 
 var is_engine_changing_state = false
 
 func _ready():
+	if bool(get_meta("technical_index_preview_component", false)):
+		propeller = get_node_or_null(propeller_node)
+		_setup_propeller_blur()
+		set_technical_index_preview_fraction(_technical_index_preview_fraction)
+		return
 	
 	if EngineSoundLoop:
 		if EngineSoundLoop is AudioStreamWAV:
@@ -107,6 +113,45 @@ func _ready():
 	ModuleType = "engine"
 	UsesEnergy = true
 	EnergyType = "fuel"
+
+func prepare_technical_index_preview() -> bool:
+	propeller = get_node_or_null(propeller_node)
+	if not propeller is Node3D:
+		return false
+	_setup_propeller_blur()
+	set_technical_index_preview_fraction(0.0)
+	return true
+
+func set_technical_index_preview_fraction(running_fraction: float) -> void:
+	_technical_index_preview_fraction = clampf(running_fraction, 0.0, 1.0)
+	if propeller == null or not is_instance_valid(propeller):
+		propeller = get_node_or_null(propeller_node)
+	if enable_propeller_blur:
+		var denominator := maxf(blur_full_power - blur_start_power, 0.001)
+		var blur_t := clampf((_technical_index_preview_fraction - blur_start_power) / denominator, 0.0, 1.0)
+		_apply_propeller_blur_t(blur_t)
+
+func get_technical_index_preview_fraction() -> float:
+	return _technical_index_preview_fraction
+
+func get_technical_index_preview_duration() -> float:
+	return 1.0 / maxf(ThrottleSpoolUpRate, 0.01)
+
+func get_technical_index_preview_kind() -> StringName:
+	return &"engine"
+
+func advance_technical_index_preview(delta: float) -> void:
+	if _technical_index_preview_fraction <= 0.0:
+		return
+	if propeller == null or not is_instance_valid(propeller):
+		propeller = get_node_or_null(propeller_node)
+	if not propeller is Node3D:
+		return
+	var spin_axis: Vector3 = propeller_spin_axis_local
+	if spin_axis.length_squared() <= 0.0001:
+		spin_axis = Vector3.BACK
+	var propeller_speed := _technical_index_preview_fraction * 50.0 + 5.0
+	(propeller as Node3D).rotate_object_local(spin_axis.normalized(), propeller_speed * delta)
 
 func setup(aircraft_node):
 	aircraft = aircraft_node
@@ -412,8 +457,12 @@ func _update_propeller_blur_visuals(delta: float) -> void:
 	var target_t: float = clampf((current_power - blur_start_power) / denom, 0.0, 1.0)
 	var response_t: float = clampf(blur_response_hz * delta, 0.0, 1.0)
 	_current_blur_t = lerpf(_current_blur_t, target_t, response_t)
-	var blade_alpha: float = lerpf(1.0, blade_min_alpha, _current_blur_t)
-	var disc_alpha: float = clampf(disc_max_alpha * _current_blur_t, 0.0, 1.0)
+	_apply_propeller_blur_t(_current_blur_t)
+
+func _apply_propeller_blur_t(blur_t: float) -> void:
+	var clamped_blur_t := clampf(blur_t, 0.0, 1.0)
+	var blade_alpha: float = lerpf(1.0, blade_min_alpha, clamped_blur_t)
+	var disc_alpha: float = clampf(disc_max_alpha * clamped_blur_t, 0.0, 1.0)
 	for blade_mesh in _prop_blade_mesh_nodes:
 		_apply_mesh_alpha(blade_mesh, blade_alpha)
 	for disc_mesh in _prop_disc_mesh_nodes:

@@ -58,6 +58,7 @@ var _carrier_yaw: float = 0.0
 var _carrier_pitch: float = 0.0
 var _zoom_button_prev_pressed: bool = false
 var _pending_forced_camera: Camera3D = null
+var _pause_menu_settings: Node = null
 
 func _ready():
 	# Add to camera controller group for easy finding
@@ -71,9 +72,9 @@ func _ready():
 	bridge_camera = null
 	_apply_cockpit_camera_settings(cockpit_camera)
 	if cockpit_camera:
-		cockpit_camera.fov = normal_fov
+		cockpit_camera.fov = _user_camera_fov()
 	if chase_camera:
-		chase_camera.fov = normal_fov
+		chase_camera.fov = _user_camera_fov()
 	
 	# Set up camera scripts
 	cockpit_tripod.set_script(preload("res://Camera/CockpitCamera.gd"))
@@ -118,7 +119,7 @@ func _ready():
 			cinematic_script.setup_aircraft(aircraft)
 		cinematic_camera = cinematic_tripod.find_child("Camera3D", true, false)
 		if cinematic_camera:
-			cinematic_camera.fov = normal_fov
+			cinematic_camera.fov = _user_camera_fov()
 		_use_external_cinematic = false
 
 	# Build view targets for cycling (player + AI aircraft)
@@ -402,8 +403,11 @@ func _input(event):
 			if t.get("aircraft") == aircraft and t.get("mode") == CameraMode.CINEMATIC:
 				var look_x = Input.get_action_strength("look_left") - Input.get_action_strength("look_right")
 				var look_y = Input.get_action_strength("look_down") - Input.get_action_strength("look_up")
-				_carrier_yaw += look_x * carrier_look_sensitivity * 0.02
-				_carrier_pitch = clamp(_carrier_pitch + look_y * carrier_look_sensitivity * 0.02, deg_to_rad(-carrier_pitch_limit_deg), deg_to_rad(carrier_pitch_limit_deg))
+				var sensitivity_scale := _user_look_sensitivity_multiplier()
+				if _user_invert_look_y():
+					look_y = -look_y
+				_carrier_yaw += look_x * carrier_look_sensitivity * sensitivity_scale * 0.02
+				_carrier_pitch = clamp(_carrier_pitch + look_y * carrier_look_sensitivity * sensitivity_scale * 0.02, deg_to_rad(-carrier_pitch_limit_deg), deg_to_rad(carrier_pitch_limit_deg))
 
 func _process(delta):
 	var zoom_button_pressed := _is_zoom_button_pressed()
@@ -499,7 +503,7 @@ func _switch_to_view_target(target: Dictionary):
 	if mode == CameraMode.COCKPIT:
 		update_camera_zoom(true, cockpit_camera)
 	else:
-		cam.fov = normal_fov
+		cam.fov = _user_camera_fov()
 
 func _deactivate_all_cameras():
 	"""Deactivate every known Camera3D before switching to the selected target."""
@@ -674,7 +678,7 @@ func update_camera_zoom(instant: bool = false, camera_override: Camera3D = null)
 	if not target_camera:
 		return
 
-	var target_fov = zoomed_fov if is_zoomed else normal_fov
+	var target_fov = zoomed_fov if is_zoomed else _user_camera_fov()
 
 	# Kill any existing tween to avoid conflicts
 	if fov_tween and fov_tween.is_valid():
@@ -685,6 +689,43 @@ func update_camera_zoom(instant: bool = false, camera_override: Camera3D = null)
 	else:
 		fov_tween = create_tween()
 		fov_tween.tween_property(target_camera, "fov", target_fov, 0.2).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+
+
+func apply_user_camera_settings() -> void:
+	var configured_fov := _user_camera_fov()
+	if is_instance_valid(cockpit_camera):
+		cockpit_camera.fov = zoomed_fov if is_zoomed else configured_fov
+	if is_instance_valid(chase_camera):
+		chase_camera.fov = configured_fov
+	if is_instance_valid(cinematic_camera):
+		cinematic_camera.fov = configured_fov
+
+
+func _user_camera_fov() -> float:
+	var settings := _user_settings_node()
+	if settings != null and settings.has_method("get_camera_fov"):
+		return float(settings.call("get_camera_fov"))
+	return normal_fov
+
+
+func _user_look_sensitivity_multiplier() -> float:
+	var settings := _user_settings_node()
+	if settings != null and settings.has_method("get_look_sensitivity_multiplier"):
+		return float(settings.call("get_look_sensitivity_multiplier"))
+	return 1.0
+
+
+func _user_invert_look_y() -> bool:
+	var settings := _user_settings_node()
+	return settings != null \
+			and settings.has_method("get_invert_look_y") \
+			and bool(settings.call("get_invert_look_y"))
+
+
+func _user_settings_node() -> Node:
+	if not is_instance_valid(_pause_menu_settings):
+		_pause_menu_settings = get_node_or_null("/root/PauseMenu")
+	return _pause_menu_settings
 
 func activate_deathcam(target_pos: Vector3):
 	if _pilot_ejected:

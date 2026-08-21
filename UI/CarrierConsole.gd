@@ -12,6 +12,7 @@ signal page_changed(page_id: String)
 
 const HEADLINE_FONT: FontFile = preload("res://UI/Fonts/ArchivoNarrow-Variable.ttf")
 const DATA_FONT: FontFile = preload("res://UI/Fonts/JetBrainsMono-Variable.ttf")
+const OPERATIONAL_UNITS_PAGE: Script = preload("res://UI/OperationalUnitsPage.gd")
 
 const PAGE_TACTICAL := "tactical"
 const PAGE_AIR_WING := "air_wing"
@@ -22,16 +23,14 @@ const PAGE_REPLICATOR := "replicator"
 
 const NAV_ITEMS: Array[Dictionary] = [
 	{"id": PAGE_TACTICAL, "label": "TACTICAL"},
-	{"id": PAGE_AIR_WING, "label": "AIR WING"},
+	{"id": PAGE_AIR_WING, "label": "FLIGHTS"},
 	{"id": PAGE_PERSONNEL, "label": "PERSONNEL"},
-	{"id": PAGE_GROUND_BAY, "label": "GROUND"},
+	{"id": PAGE_GROUND_BAY, "label": "PLATOONS"},
 	{"id": PAGE_CARRIER, "label": "CARRIER"},
 	{"id": PAGE_REPLICATOR, "label": "REPLICATOR"},
 ]
 
 const PAGE_DESCRIPTIONS := {
-	PAGE_AIR_WING: "AIRCRAFT INVENTORY, CONDITION, LOADOUTS, AND REPAIR SCHEDULING",
-	PAGE_GROUND_BAY: "GROUND VEHICLE INVENTORY, PLATOONS, CONDITION, AND DEPLOYMENT",
 	PAGE_CARRIER: "CARRIER SUBSYSTEMS, DEFENSIVE WEAPONS, DAMAGE, AND STORES",
 	PAGE_REPLICATOR: "CONSTRUCTION QUEUE, MATERIAL COSTS, AND FABRICATION CAPACITY",
 }
@@ -58,6 +57,8 @@ var _placeholder_title: Label
 var _placeholder_subtitle: Label
 var _placeholder_body: Label
 var _placeholder_footer: Label
+var _air_wing_page: Control
+var _ground_page: Control
 
 var _is_open: bool = false
 var _current_page: String = PAGE_TACTICAL
@@ -143,6 +144,7 @@ func _build_ui() -> void:
 	add_child(_root)
 
 	_build_placeholder()
+	_build_operational_pages()
 	_build_navigation()
 
 	_root.resized.connect(_layout_ui)
@@ -163,6 +165,18 @@ func _build_navigation() -> void:
 		button.pressed.connect(_on_nav_pressed.bind(page_id))
 		_nav_panel.add_child(button)
 		_nav_buttons[page_id] = button
+
+
+func _build_operational_pages() -> void:
+	_air_wing_page = OPERATIONAL_UNITS_PAGE.new() as Control
+	_air_wing_page.name = "ActiveFlightsPage"
+	_air_wing_page.set("unit_kind", OPERATIONAL_UNITS_PAGE.UnitKind.FLIGHTS)
+	_root.add_child(_air_wing_page)
+
+	_ground_page = OPERATIONAL_UNITS_PAGE.new() as Control
+	_ground_page.name = "ActivePlatoonsPage"
+	_ground_page.set("unit_kind", OPERATIONAL_UNITS_PAGE.UnitKind.PLATOONS)
+	_root.add_child(_ground_page)
 
 
 func _build_placeholder() -> void:
@@ -192,7 +206,7 @@ func _build_placeholder() -> void:
 	_placeholder_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_placeholder_panel.add_child(_placeholder_body)
 
-	_placeholder_footer = _make_label("M / ESC: CLOSE // SELECT TACTICAL OR PERSONNEL FOR ACTIVE SYSTEMS", 12, DIM_COLOR, HORIZONTAL_ALIGNMENT_RIGHT, DATA_FONT)
+	_placeholder_footer = _make_label("M / ESC: CLOSE // SELECT AN OPERATIONS TAB", 12, DIM_COLOR, HORIZONTAL_ALIGNMENT_RIGHT, DATA_FONT)
 	_placeholder_panel.add_child(_placeholder_footer)
 
 
@@ -225,6 +239,18 @@ func _layout_ui() -> void:
 	_placeholder_footer.position = Vector2(32.0, panel_size.y - 36.0)
 	_placeholder_footer.size = Vector2(panel_size.x - 64.0, 18.0)
 
+	var operational_position := Vector2(0.0, TOP_BAR_HEIGHT_PX)
+	var operational_size := Vector2(
+		maxf(viewport_size.x, 1.0),
+		maxf(viewport_size.y - TOP_BAR_HEIGHT_PX, 1.0)
+	)
+	if _air_wing_page != null:
+		_air_wing_page.position = operational_position
+		_air_wing_page.size = operational_size
+	if _ground_page != null:
+		_ground_page.position = operational_position
+		_ground_page.size = operational_size
+
 
 func _on_nav_pressed(page_id: String) -> void:
 	show_page(page_id, true)
@@ -233,10 +259,16 @@ func _on_nav_pressed(page_id: String) -> void:
 func _apply_page_visibility() -> void:
 	var tactical_active := _is_open and _current_page == PAGE_TACTICAL
 	var personnel_active := _is_open and _current_page == PAGE_PERSONNEL
+	var air_wing_active := _is_open and _current_page == PAGE_AIR_WING
+	var ground_active := _is_open and _current_page == PAGE_GROUND_BAY
 	_set_external_page_visible("/root/WorldMapOverlay", tactical_active)
 	_set_external_page_visible("/root/PilotRosterOverlay", personnel_active)
+	if _air_wing_page != null:
+		_air_wing_page.call("set_console_visible", air_wing_active)
+	if _ground_page != null:
+		_ground_page.call("set_console_visible", ground_active)
 
-	var placeholder_active := _is_open and not tactical_active and not personnel_active
+	var placeholder_active := _is_open and not tactical_active and not personnel_active and not air_wing_active and not ground_active
 	if _placeholder_root != null:
 		_placeholder_root.visible = placeholder_active
 	if placeholder_active:
@@ -275,6 +307,14 @@ func _refresh_navigation() -> void:
 			)
 		)
 		button.add_theme_color_override("font_color", TEXT_COLOR if active else STATUS_COLOR)
+
+
+func get_page_debug_snapshot(page_id: String) -> Dictionary:
+	if page_id == PAGE_AIR_WING and _air_wing_page != null:
+		return _air_wing_page.call("get_debug_snapshot")
+	if page_id == PAGE_GROUND_BAY and _ground_page != null:
+		return _ground_page.call("get_debug_snapshot")
+	return {}
 
 
 func _make_nav_button(label_text: String) -> Button:

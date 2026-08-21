@@ -60,8 +60,6 @@ static var CATALOG: Dictionary = {
 		_weapon_entry("25 MM GUN TURRET", "res://Weapons/Guns/Turrets/25mm_autocannon_turret_weapon.tscn", "TURRET", "25 MM"),
 		_weapon_entry("40 MM GUN TURRET", "res://Weapons/Guns/Turrets/40mm_autocannon_turret_weapon.tscn", "TURRET", "40 MM"),
 		_weapon_entry("ROCKET POD", "res://Weapons/RocketPod/rocket_pod.tscn", "HARDPOINT", "ROCKET"),
-		_weapon_entry("AA MISSILE LAUNCHER", "res://Weapons/AA_Missile/aa_missile_launcher.tscn", "HARDPOINT", "GUIDED"),
-		_weapon_entry("AG MISSILE", "res://Weapons/AG_Missile/missile_visual.tscn", "AIR-LAUNCHED", "GUIDED"),
 		_weapon_entry("GENERAL-PURPOSE BOMB", "res://Weapons/Bomb/bomb.tscn", "AIR-LAUNCHED", "UNGUIDED"),
 		{
 			"name": "CARRIER DEFENSE TURRET",

@@ -13,6 +13,7 @@ spread_angle_deg = 0.4
 recoil_force = 650.0
 damage_per_shot = 5.0
 max_range_m = 650.0
+visible_round_multiplier = 2
 projectile_scene = ExtResource("2_projectile")
 use_lmg_sound_set = true
 use_heavy_auto_sound_set = false

@@ -14,6 +14,7 @@ extends Node3D
 @export var centerline_height_m: float = -0.05
 @export var edge_height_m: float = 0.05
 @export var edge_front_trim_m: float = 6.0
+@export var centerline_front_trim_m: float = 6.0
 @export var split_centerline_at_elevator: bool = true
 @export var elevator_path: NodePath
 @export var elevator_gap_margin_m: float = 0.0
@@ -64,19 +65,23 @@ func _build_lights():
 		_add_lights_along_segment(A + right * edge_offset_m, edge_end + right * edge_offset_m, edge_color, true)
 		_add_lights_along_segment(A - right * edge_offset_m, edge_end - right * edge_offset_m, edge_color, true)
 
-	# Green centerline can be split around the elevator opening.
+	# Keep the final spotlight back from the beveled bow, where its downward cone
+	# otherwise catches the front face and reads as a large colored glow.
+	var center_end_dist := maxf(len - maxf(0.0, centerline_front_trim_m), 0.0)
+	var center_end := A + dir * center_end_dist
+	# The centerline can also be split around the elevator opening.
 	if split_centerline_at_elevator and is_instance_valid(_elevator):
 		var elevator_center: Vector3 = _elevator.global_position
 		var center_dist_along: float = (elevator_center - A).dot(dir)
 		var half_gap: float = _get_elevator_half_length_along_deck(dir) + maxf(elevator_gap_margin_m, 0.0)
-		var seg1_end_dist: float = clampf(center_dist_along - half_gap, 0.0, len)
-		var seg2_start_dist: float = clampf(center_dist_along + half_gap, 0.0, len)
+		var seg1_end_dist: float = clampf(center_dist_along - half_gap, 0.0, center_end_dist)
+		var seg2_start_dist: float = clampf(center_dist_along + half_gap, 0.0, center_end_dist)
 		if seg1_end_dist > 0.05:
 			_add_lights_along_segment(A, A + dir * seg1_end_dist, centerline_color, false)
-		if seg2_start_dist < len - 0.05:
-			_add_lights_along_segment(A + dir * seg2_start_dist, B, centerline_color, false)
+		if seg2_start_dist < center_end_dist - 0.05:
+			_add_lights_along_segment(A + dir * seg2_start_dist, center_end, centerline_color, false)
 	else:
-		_add_lights_along_segment(A, B, centerline_color, false)
+		_add_lights_along_segment(A, center_end, centerline_color, false)
 
 func _add_lights_along_segment(from_pos: Vector3, to_pos: Vector3, col: Color, is_edge: bool) -> void:
 	var segment: Vector3 = to_pos - from_pos
@@ -106,17 +111,22 @@ func _get_elevator_half_length_along_deck(deck_dir: Vector3) -> float:
 	return maxf(half_len, 0.1)
 
 func _add_light(pos: Vector3, col: Color, is_edge: bool):
-	var o := SpotLight3D.new()
-	o.light_color = col
-	o.light_energy = light_energy
-	o.spot_range = light_range
-	o.spot_angle = 45.0
-	o.shadow_enabled = false
-	# Point downward onto the deck surface
-	o.rotation_degrees = Vector3(-90, 0, 0)
-	add_child(o)
 	var y_offset: float = edge_height_m if is_edge else centerline_height_m
-	o.global_position = pos + Vector3(0, y_offset + 0.5, 0)
+	var marker_position := pos + Vector3(0, y_offset + 0.5, 0)
+	# Embedded deck markers provide their own emissive point. Optional surface
+	# lights are retained for night-scene tuning, but zero-energy lights should
+	# not add dozens of redundant Light3D nodes or overlapping colored pools.
+	if light_energy > 0.001:
+		var spot := SpotLight3D.new()
+		spot.light_color = col
+		spot.light_energy = light_energy
+		spot.spot_range = light_range
+		spot.spot_angle = 45.0
+		spot.shadow_enabled = false
+		# Point downward onto the deck surface.
+		spot.rotation_degrees = Vector3(-90, 0, 0)
+		add_child(spot)
+		spot.global_position = marker_position
 	if use_mesh_markers:
 		var mi := MeshInstance3D.new()
 		var quad := QuadMesh.new()
@@ -131,4 +141,4 @@ func _add_light(pos: Vector3, col: Color, is_edge: bool):
 		mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
 		mi.material_override = mat
 		add_child(mi)
-		mi.global_position = o.global_position
+		mi.global_position = marker_position

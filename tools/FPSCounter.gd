@@ -14,6 +14,7 @@ var _perf_log_timer_s: float = 0.0
 var _perf_flush_timer_s: float = 0.0
 var _perf_log_path: String = ""
 var _report_log_path: String = ""
+var _display_enabled: bool = false
 
 func _ready() -> void:
 	layer = 100
@@ -33,6 +34,10 @@ func _ready() -> void:
 	_label.add_theme_constant_override("shadow_offset_x", 2)
 	_label.add_theme_constant_override("shadow_offset_y", 2)
 	add_child(_label)
+	var settings := get_node_or_null("/root/PauseMenu")
+	if settings != null and settings.has_method("get_show_fps_enabled"):
+		_display_enabled = bool(settings.call("get_show_fps_enabled"))
+	_label.visible = _display_enabled
 
 	if _performance_logging_requested():
 		_open_perf_log()
@@ -58,8 +63,19 @@ func _exit_tree() -> void:
 		_report_file.close()
 
 func _process(delta: float) -> void:
-	_label.text = "%d FPS" % Engine.get_frames_per_second()
+	if _display_enabled:
+		_label.text = "%d FPS" % Engine.get_frames_per_second()
 	_update_perf_log(delta)
+
+
+func set_display_enabled(enabled: bool) -> void:
+	_display_enabled = enabled
+	if is_instance_valid(_label):
+		_label.visible = _display_enabled
+
+
+func is_display_enabled() -> bool:
+	return _display_enabled
 
 func _input(event: InputEvent) -> void:
 	return

@@ -1,4 +1,4 @@
-[gd_scene load_steps=44 format=3 uid="uid://cb0aydc8l6c7b"]
+[gd_scene load_steps=43 format=3 uid="uid://cb0aydc8l6c7b"]
 
 [ext_resource type="Script" uid="uid://c4ltq2v6fji05" path="res://Aircraft/aircraft.gd" id="1_e8t1h"]
 [ext_resource type="PackedScene" uid="uid://cadi81fcpvmuc" path="res://Projectiles/Explosion/explosion.tscn" id="2_x73up"]
@@ -29,7 +29,6 @@
 [ext_resource type="PackedScene" uid="uid://cqyfnpv28jupa" path="res://HUD/HeadsUpDisplay.tscn" id="26_0u53p"]
 [ext_resource type="PackedScene" uid="uid://b4xm8v23opqrs" path="res://HUD/InstrumentPanel.tscn" id="27_h17fj"]
 [ext_resource type="PackedScene" uid="uid://dsnc8jllg42ph" path="res://Weapons/hardpoint.tscn" id="28_ymevh"]
-[ext_resource type="PackedScene" uid="uid://ds5dlvtqfa7tv" path="res://Aircraft/tail_hook.tscn" id="31_3f4kl"]
 [ext_resource type="Script" uid="uid://ov07c02ulmhl" path="res://Aircraft/AIToggle.gd" id="33_aitgl"]
 [ext_resource type="PackedScene" uid="uid://cn0n757m62w08" path="res://Weapons/RocketPod/rocket_pod.tscn" id="33_rocket"]
 [ext_resource type="Script" uid="uid://bwjigrpitv7cm" path="res://AI/AIPilot.gd" id="34_aipil"]
@@ -233,11 +232,6 @@ mounted_weapon = ExtResource("38_10mm")
 [node name="Hardpoint3" parent="." instance=ExtResource("28_ymevh")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.38, 0.39613, 1.57861)
 mounted_weapon = ExtResource("38_10mm")
-
-[node name="TailHook" parent="." instance=ExtResource("31_3f4kl")]
-transform = Transform3D(1, 0, 0, 0, 0.5, -0.866025, 0, 0.866025, 0.5, 0, -1.728, -2.40887)
-spring_strength = 100.0
-spring_damping = 1000.0
 
 [node name="CockpitCanopyVisibility" type="Node" parent="."]
 script = ExtResource("35_canopyvis")

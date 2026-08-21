@@ -2,6 +2,9 @@ extends Weapon
 class_name Autocannon
 
 const HELI_TEST_UNLIMITED_AMMO_META := "heli_test_unlimited_ammo"
+const VIRTUAL_TRACER_MANAGER_SCRIPT := preload(
+	"res://Projectiles/Bullet/MachineGunVirtualTracerManager.gd"
+)
 
 const PROJECTILE_SPEED_CAP_SETTING_KEYS: Array = [
 	"physics/jolt_3d/simulation/limits/max_linear_velocity",
@@ -47,6 +50,11 @@ const AUTOCANNON_SHOT_STREAMS = [
 @export var recoil_force: float = 1000.0
 @export var damage_per_shot: float = 20.0
 @export var max_range_m: float = 900.0
+@export var physical_tracer_width_m: float = 0.2
+@export var physical_tracer_length_m: float = 0.8
+@export_range(1, 4, 1) var visible_round_multiplier: int = 1
+@export var virtual_tracer_width_m: float = 0.2
+@export var virtual_tracer_length_m: float = 0.8
 @export var cockpit_judder_shake_intensity: float = 0.4
 @export var cockpit_judder_shake_duration_s: float = 0.06
 @export var cannon_sound: AudioStream
@@ -70,6 +78,10 @@ var _tuning_shot_callback: Callable = Callable()
 var _tuning_report_callback: Callable = Callable()
 var _tuning_trial_id: int = -1
 var _tuning_target: Node3D = null
+var physical_rounds_fired: int = 0
+var virtual_rounds_fired: int = 0
+var shot_sound_events: int = 0
+var _pending_virtual_round_delays_s: Array[float] = []
 
 func _ready():
 	_apply_gun_profile()
@@ -88,7 +100,8 @@ func _ready():
 func _process(delta):
 	if fire_timer > 0:
 		fire_timer = maxf(fire_timer - delta, 0.0)
-	if fire_timer <= 0.0:
+	_process_pending_virtual_rounds(delta)
+	if fire_timer <= 0.0 and _pending_virtual_round_delays_s.is_empty():
 		set_process(false)
 
 func start_firing():
@@ -122,24 +135,18 @@ func fire() -> bool:
 	if not can_fire() or fire_timer > 0:
 		return false
 
-	var seconds_per_round := 60.0 / rounds_per_minute
+	var seconds_per_round := 60.0 / maxf(rounds_per_minute, 1.0)
 	fire_timer = seconds_per_round
 	set_process(true)
 
 	_play_cannon_sound()
 
 	var spawn_transform: Transform3D = _get_bullet_spawn_transform()
-	var spread := Vector3(
-		randf_range(-spread_angle, spread_angle),
-		randf_range(-spread_angle, spread_angle),
-		0
-	)
-	var projectile_transform := Transform3D(spawn_transform.basis.orthonormalized(), spawn_transform.origin)
-	projectile_transform.basis = projectile_transform.basis * Basis(Vector3.RIGHT, deg_to_rad(spread.x))
-	projectile_transform.basis = projectile_transform.basis * Basis(Vector3.UP, deg_to_rad(spread.y))
+	var projectile_transform := _make_spread_projectile_transform(spawn_transform)
 	var scene_root: Node = get_tree().current_scene
 	if scene_root == null:
 		return false
+	var aircraft = hardpoint.aircraft if hardpoint else null
 	var pool: Node = get_node_or_null("/root/BulletPool")
 	var bullet: Node = pool.call("acquire", bullet_projectile_scene, scene_root, projectile_transform) as Node if pool else null
 	if bullet == null:
@@ -151,12 +158,13 @@ func fire() -> bool:
 		return false
 	_configure_projectile_instance(bullet)
 
-	var aircraft = hardpoint.aircraft if hardpoint else null
 	var muzzle_vel = bullet.global_transform.basis.z.normalized() * muzzle_velocity
 	_configure_tuning_bullet_metadata(bullet)
 	if _tuning_shot_callback.is_valid():
 		_tuning_shot_callback.call(_tuning_trial_id, bullet)
 	bullet.fire(muzzle_vel, aircraft)
+	physical_rounds_fired += 1
+	_queue_virtual_rounds(seconds_per_round)
 
 	if hardpoint:
 		hardpoint.apply_recoil_force(get_recoil_force(), false)
@@ -165,6 +173,86 @@ func fire() -> bool:
 	if not _has_unlimited_test_ammo():
 		ammo_count -= 1
 	return true
+
+
+func _queue_virtual_rounds(seconds_per_round: float) -> void:
+	var multiplier := maxi(visible_round_multiplier, 1)
+	if multiplier <= 1:
+		return
+	for virtual_index in range(1, multiplier):
+		_pending_virtual_round_delays_s.append(
+			seconds_per_round * float(virtual_index) / float(multiplier)
+		)
+	set_process(true)
+
+
+func _process_pending_virtual_rounds(delta: float) -> void:
+	for index in range(_pending_virtual_round_delays_s.size() - 1, -1, -1):
+		var remaining_s := _pending_virtual_round_delays_s[index] - delta
+		if remaining_s > 0.0:
+			_pending_virtual_round_delays_s[index] = remaining_s
+			continue
+		_pending_virtual_round_delays_s.remove_at(index)
+		_fire_virtual_round()
+
+
+func _fire_virtual_round() -> void:
+	var scene_root: Node = get_tree().current_scene
+	if scene_root == null:
+		return
+	var manager := _get_virtual_tracer_manager(scene_root)
+	if manager == null:
+		return
+	var spawn_transform := _get_bullet_spawn_transform()
+	var virtual_transform := _make_spread_projectile_transform(spawn_transform)
+	var firing_entity: Node3D = hardpoint.aircraft if hardpoint else null
+	var lifetime_s := maxf(
+		max_range_m / maxf(_get_effective_projectile_speed_mps(), 1.0),
+		0.05
+	)
+	if not bool(manager.call(
+		"spawn_tracer",
+		virtual_transform.origin,
+		virtual_transform.basis.z.normalized() * muzzle_velocity,
+		firing_entity,
+		lifetime_s,
+		virtual_tracer_width_m,
+		virtual_tracer_length_m,
+		0.0
+	)):
+		return
+	virtual_rounds_fired += 1
+	_play_cannon_sound()
+
+
+func _make_spread_projectile_transform(spawn_transform: Transform3D) -> Transform3D:
+	var spread := Vector3(
+		randf_range(-spread_angle, spread_angle),
+		randf_range(-spread_angle, spread_angle),
+		0.0
+	)
+	var projectile_transform := Transform3D(
+		spawn_transform.basis.orthonormalized(),
+		spawn_transform.origin
+	)
+	projectile_transform.basis = projectile_transform.basis \
+			* Basis(Vector3.RIGHT, deg_to_rad(spread.x))
+	projectile_transform.basis = projectile_transform.basis \
+			* Basis(Vector3.UP, deg_to_rad(spread.y))
+	return projectile_transform
+
+
+func _get_virtual_tracer_manager(scene_root: Node) -> Node:
+	if scene_root == null or not is_instance_valid(scene_root):
+		return null
+	var manager := scene_root.get_node_or_null("MachineGunVirtualTracers")
+	if manager != null and manager.has_method("spawn_tracer"):
+		return manager
+	manager = Node3D.new()
+	manager.name = "MachineGunVirtualTracers"
+	manager.set_script(VIRTUAL_TRACER_MANAGER_SCRIPT)
+	scene_root.add_child(manager)
+	return manager if manager.has_method("spawn_tracer") else null
 
 func _configure_tuning_bullet_metadata(bullet: Node) -> void:
 	if bullet == null or not is_instance_valid(bullet):
@@ -202,6 +290,11 @@ func _apply_gun_profile() -> void:
 	recoil_force = maxf(gun_profile.recoil_force, 0.0)
 	damage_per_shot = maxf(gun_profile.damage_per_shot, 0.0)
 	max_range_m = maxf(gun_profile.max_range_m, 10.0)
+	physical_tracer_width_m = maxf(gun_profile.physical_tracer_width_m, 0.01)
+	physical_tracer_length_m = maxf(gun_profile.physical_tracer_length_m, 0.05)
+	visible_round_multiplier = maxi(gun_profile.visible_round_multiplier, 1)
+	virtual_tracer_width_m = maxf(gun_profile.virtual_tracer_width_m, 0.01)
+	virtual_tracer_length_m = maxf(gun_profile.virtual_tracer_length_m, 0.05)
 	use_lmg_sound_set = gun_profile.use_lmg_sound_set
 	use_autocannon_sound_set = gun_profile.use_autocannon_sound_set
 	use_heavy_auto_sound_set = gun_profile.use_heavy_auto_sound_set
@@ -218,6 +311,12 @@ func _configure_projectile_instance(projectile: Node) -> void:
 	if "lifetime" in projectile:
 		var effective_speed_mps: float = _get_effective_projectile_speed_mps()
 		projectile.lifetime = maxf(max_range_m / maxf(effective_speed_mps, 1.0), 0.05)
+	if "tracer_width" in projectile:
+		projectile.tracer_width = physical_tracer_width_m
+	if "tracer_visual_length" in projectile:
+		projectile.tracer_visual_length = physical_tracer_length_m
+	if "virtual_impact_count" in projectile:
+		projectile.virtual_impact_count = maxi(visible_round_multiplier - 1, 0)
 
 func _get_effective_projectile_speed_mps() -> float:
 	var nominal_speed_mps: float = maxf(muzzle_velocity, 50.0)
@@ -281,6 +380,7 @@ func _play_cannon_sound() -> void:
 	player.pitch_scale = randf_range(1.0 - pitch_variation, 1.0 + pitch_variation)
 	player.volume_db = randf_range(-volume_variation, volume_variation)
 	player.play()
+	shot_sound_events += 1
 
 func _get_shot_sound_bank() -> Array:
 	if use_lmg_sound_set and not LMG_SHOT_STREAMS.is_empty():

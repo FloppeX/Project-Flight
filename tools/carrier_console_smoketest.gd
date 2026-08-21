@@ -1,5 +1,16 @@
 extends SceneTree
 
+const OPERATIONAL_UNITS_PAGE: Script = preload("res://UI/OperationalUnitsPage.gd")
+
+class MockWeapon:
+	extends Node
+	var weapon_name: String = "20mm Autocannon"
+
+class MockHardpoint:
+	extends Node
+	var weapon_instance: Node = null
+	var mounted_weapon: PackedScene = null
+
 var _failures: Array[String] = []
 
 
@@ -104,14 +115,59 @@ func _run() -> void:
 
 	console.call("show_page", "air_wing")
 	await process_frame
-	_expect(not bool(tactical.call("is_console_visible")), "tactical page stays hidden on a planned page")
-	_expect(not bool(personnel.call("is_console_visible")), "personnel page hides on a planned page")
+	_expect(not bool(tactical.call("is_console_visible")), "tactical page stays hidden on the flights page")
+	_expect(not bool(personnel.call("is_console_visible")), "personnel page hides on the flights page")
+	var flights_page := console.get("_air_wing_page") as Control
+	var platoons_page := console.get("_ground_page") as Control
+	_expect(flights_page != null and flights_page.visible, "active flights page is visible")
+	_expect(platoons_page != null and not platoons_page.visible, "active platoons page remains hidden")
+	var flight_snapshot: Dictionary = console.call("get_page_debug_snapshot", "air_wing")
+	_expect(str(flight_snapshot.get("kind", "")) == "flights", "flights page reports its data kind")
+	_expect(str(flight_snapshot.get("layout", "")) == "all_flights", "flights page uses the all-flights board layout")
+	_expect(int(flight_snapshot.get("unit_count", 0)) == 4, "flights page lists all four persistent flight groups")
+	var flight_rows := flights_page.get("_flight_rows") as VBoxContainer
+	_expect(flight_rows != null and flight_rows.get_child_count() == 4, "all four flight rows render simultaneously")
+	var flight_filters: Dictionary = flights_page.get("_filter_buttons")
+	_expect(flight_filters.is_empty(), "flights board no longer uses roster filters")
+	_expect(OPERATIONAL_UNITS_PAGE.map_air_activity("DOGFIGHT") == "ATTACKING", "dogfighting aircraft report attacking")
+	_expect(OPERATIONAL_UNITS_PAGE.map_air_activity("TRANSIT", true) == "EVADING", "defensive manoeuvres override transit with evading")
+	_expect(OPERATIONAL_UNITS_PAGE.map_air_activity("IDLE", false, true) == "DESTROYED", "lost aircraft report destroyed")
+	_expect(str(flights_page.call("_catalog_display_name", "res://Aircraft/Aircraft_1.tscn")) == "SNA AS-20 Sand Sprite", "aircraft cards use the catalog plane type")
+	if pilot_roster != null:
+		var pilots: Array = pilot_roster.call("get_carrier_roster")
+		if not pilots.is_empty():
+			var mock_aircraft := Node3D.new()
+			mock_aircraft.name = "Aircraft_1"
+			mock_aircraft.set_meta("pilot_display_name", "LT TEST PILOT")
+			mock_aircraft.set_meta("pilot_identity", pilots[0])
+			var mock_hardpoint := MockHardpoint.new()
+			var mock_weapon := MockWeapon.new()
+			mock_hardpoint.weapon_instance = mock_weapon
+			mock_hardpoint.add_child(mock_weapon)
+			mock_aircraft.add_child(mock_hardpoint)
+			var card_data: Dictionary = flights_page.call("_aircraft_member_summary", mock_aircraft, 0)
+			_expect(str(card_data.get("portrait_path", "")) == str((pilots[0] as Dictionary).get("portrait_path", "")), "aircraft card uses the assigned pilot portrait")
+			_expect(str(card_data.get("loadout", "")) == "20MM AUTOCANNON", "aircraft card reads its mounted loadout")
+			mock_aircraft.free()
+
+	console.call("show_page", "ground_bay")
+	await process_frame
+	_expect(flights_page != null and not flights_page.visible, "active flights page hides after navigation")
+	_expect(platoons_page != null and platoons_page.visible, "active platoons page is visible")
+	var platoon_snapshot: Dictionary = console.call("get_page_debug_snapshot", "ground_bay")
+	_expect(str(platoon_snapshot.get("kind", "")) == "platoons", "platoons page reports its data kind")
+	_expect(int(platoon_snapshot.get("unit_count", 0)) == 4, "platoons page lists all four persistent platoons")
+	_expect(OPERATIONAL_UNITS_PAGE.map_ground_activity("ATTACK_POSITION", true) == "ATTACKING", "engaged vehicles report attacking")
+	_expect(OPERATIONAL_UNITS_PAGE.map_ground_activity("RETURN_TO_BASE") == "RETURNING", "retrieving vehicles report returning")
+	_expect(OPERATIONAL_UNITS_PAGE.map_ground_activity("NONE", false, false, false, false, true) == "DESTROYED", "lost vehicles report destroyed")
 
 	console.call("set_open", false)
 	await process_frame
 	_expect(not bool(console.call("is_open")), "console closes")
 	_expect(not bool(tactical.call("is_console_visible")), "tactical page closes with the console")
 	_expect(not bool(personnel.call("is_console_visible")), "personnel page closes with the console")
+	_expect(flights_page != null and not flights_page.visible, "flights page closes with the console")
+	_expect(platoons_page != null and not platoons_page.visible, "platoons page closes with the console")
 	_finish()
 
 

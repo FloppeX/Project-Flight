@@ -1,6 +1,8 @@
 extends Node3D
 class_name Hardpoint
 
+const RETIRED_WEAPON_NAME_TOKEN := "missile"
+
 @export var mounted_weapon: PackedScene  # Drag your weapon scenes here
 @export var hardpoint_id: int = 0
 @export var allowed_weapon_scene_paths: PackedStringArray = PackedStringArray()
@@ -16,10 +18,19 @@ func _ready():
 func mount_weapon_from_scene(weapon_scene: PackedScene) -> bool:
 	if not weapon_scene:
 		return false
+	if RETIRED_WEAPON_NAME_TOKEN in weapon_scene.resource_path.to_lower():
+		push_warning("Hardpoint %s rejected retired missile weapon: %s" % [name, weapon_scene.resource_path])
+		mounted_weapon = null
+		return false
 
 	var next_weapon := weapon_scene.instantiate() as Weapon
 	if not next_weapon:
 		push_warning("Hardpoint %s rejected a non-Weapon scene." % name)
+		return false
+	if RETIRED_WEAPON_NAME_TOKEN in _get_candidate_weapon_name(next_weapon).to_lower():
+		push_warning("Hardpoint %s rejected retired missile weapon: %s" % [name, weapon_scene.resource_path])
+		next_weapon.free()
+		mounted_weapon = null
 		return false
 
 	if not _is_weapon_allowed(weapon_scene, next_weapon):

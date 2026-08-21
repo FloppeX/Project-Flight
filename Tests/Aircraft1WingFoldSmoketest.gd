@@ -88,6 +88,28 @@ func _run() -> void:
 	_expect((right_middle.transform * right_hinge_local).distance_to(right_hinge) < 0.001, "right root hinge moved during folding")
 	var left_middle_fold := left_middle.transform * left_rest.affine_inverse()
 	var right_middle_fold := right_middle.transform * right_rest.affine_inverse()
+	var left_outer_counter := left_middle_fold.affine_inverse() * left_outer.transform * left_outer_rest.affine_inverse()
+	var right_outer_counter := right_middle_fold.affine_inverse() * right_outer.transform * right_outer_rest.affine_inverse()
+	var left_middle_angle_deg := _short_rotation_angle_deg(left_middle_fold)
+	var right_middle_angle_deg := _short_rotation_angle_deg(right_middle_fold)
+	var left_outer_angle_deg := _short_rotation_angle_deg(left_outer_counter)
+	var right_outer_angle_deg := _short_rotation_angle_deg(right_outer_counter)
+	_expect(
+		absf(left_middle_angle_deg - 130.0) < 0.05,
+		"left middle panel did not fold 130 degrees (%.3f)" % left_middle_angle_deg
+	)
+	_expect(
+		absf(right_middle_angle_deg - 130.0) < 0.05,
+		"right middle panel did not fold 130 degrees (%.3f)" % right_middle_angle_deg
+	)
+	_expect(
+		absf(left_outer_angle_deg - 180.0) < 0.05,
+		"left outer panel did not counter-fold 180 degrees (%.3f)" % left_outer_angle_deg
+	)
+	_expect(
+		absf(right_outer_angle_deg - 180.0) < 0.05,
+		"right outer panel did not counter-fold 180 degrees (%.3f)" % right_outer_angle_deg
+	)
 	_expect(
 		(left_outer.transform * left_outer_hinge_local).distance_to(left_middle_fold * left_outer_hinge) < 0.001,
 		"left outer hinge separated from the folded middle panel"
@@ -97,8 +119,44 @@ func _run() -> void:
 		"right outer hinge separated from the folded middle panel"
 	)
 
+	var livery := get_node_or_null("/root/Livery")
+	_expect(livery != null, "Livery autoload is unavailable")
+	if livery != null:
+		livery.call("set_player_livery", Color("566b78"), Color("d19a3a"), 4)
+		livery.call("apply", aircraft)
+		var model_root := aircraft.get_node_or_null("aircraft_1") as Node3D
+		if model_root != null:
+			_expect_pattern_transform(left_middle, model_root.transform * left_rest, "left middle")
+			_expect_pattern_transform(right_middle, model_root.transform * right_rest, "right middle")
+			_expect_pattern_transform(left_outer, model_root.transform * left_outer_rest, "left outer")
+			_expect_pattern_transform(right_outer, model_root.transform * right_outer_rest, "right outer")
+
 	aircraft.free()
 	_finish()
+
+
+func _short_rotation_angle_deg(rotation_transform: Transform3D) -> float:
+	var angle_deg := rad_to_deg(rotation_transform.basis.orthonormalized().get_rotation_quaternion().get_angle())
+	return minf(angle_deg, 360.0 - angle_deg)
+
+
+func _expect_pattern_transform(mesh_instance: MeshInstance3D, expected: Transform3D, label: String) -> void:
+	var material := mesh_instance.get_surface_override_material(0)
+	_expect(material is ShaderMaterial, "%s wing surface has no pattern material" % label)
+	if not material is ShaderMaterial:
+		return
+	var shader_material := material as ShaderMaterial
+	_expect(bool(shader_material.get_shader_parameter("use_shared_pattern_space")), "%s wing does not use shared pattern space" % label)
+	var actual_variant: Variant = shader_material.get_shader_parameter("pattern_local_to_root")
+	_expect(actual_variant is Transform3D, "%s wing has no shared pattern transform" % label)
+	if not actual_variant is Transform3D:
+		return
+	var actual := actual_variant as Transform3D
+	var matches := actual.origin.distance_to(expected.origin) <= 0.0001 \
+			and actual.basis.x.distance_to(expected.basis.x) <= 0.0001 \
+			and actual.basis.y.distance_to(expected.basis.y) <= 0.0001 \
+			and actual.basis.z.distance_to(expected.basis.z) <= 0.0001
+	_expect(matches, "%s wing pattern was projected from its folded transform instead of its shared rest-space transform" % label)
 
 
 func _expect(condition: bool, message: String) -> void:

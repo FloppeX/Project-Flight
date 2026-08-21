@@ -48,14 +48,24 @@ var left_cover_target_x: float = 0.0
 var right_cover_target_x: float = 0.0
 var _moving_audio_player: AudioStreamPlayer3D
 var _last_platform_y: float = 0.0
+var _technical_index_preview_fraction: float = 0.0
 
 func _ready():
+	if bool(get_meta("technical_index_preview_component", false)):
+		if not is_instance_valid(platform) or not is_instance_valid(left_cover) \
+				or not is_instance_valid(right_cover):
+			create_elevator_components(false)
+		set_technical_index_preview_fraction(_technical_index_preview_fraction)
+		return
 	print("Setting up elevator system...")
 	create_elevator_components()
 	set_initial_state()
 	print("Elevator setup complete.")
 
-func create_elevator_components():
+func create_elevator_components(include_audio: bool = true):
+	if is_instance_valid(platform) and is_instance_valid(left_cover) \
+			and is_instance_valid(right_cover):
+		return
 	# Create platform
 	platform = create_platform()
 	add_child(platform)
@@ -65,7 +75,59 @@ func create_elevator_components():
 	right_cover = create_cover("RightCover")
 	add_child(left_cover)
 	add_child(right_cover)
-	_setup_moving_audio()
+	if include_audio:
+		_setup_moving_audio()
+
+
+func prepare_technical_index_preview() -> bool:
+	create_elevator_components(false)
+	if not is_instance_valid(platform) or not is_instance_valid(left_cover) \
+			or not is_instance_valid(right_cover):
+		return false
+	set_technical_index_preview_fraction(0.0 if start_at_bottom else 1.0)
+	return true
+
+
+func set_technical_index_preview_fraction(up_fraction: float) -> void:
+	_technical_index_preview_fraction = clampf(up_fraction, 0.0, 1.0)
+	if not is_instance_valid(platform) or not is_instance_valid(left_cover) \
+			or not is_instance_valid(right_cover):
+		return
+
+	var total_duration := get_technical_index_preview_duration()
+	var elapsed := _technical_index_preview_fraction * total_duration
+	var cover_travel := 10.0
+	var cover_duration := cover_travel / maxf(cover_slide_speed, 0.01)
+	# In gameplay the covers begin opening once the rising platform has cleared
+	# the first metre of the shaft. Preserve that overlap in the static preview.
+	var cover_delay := 1.0 / maxf(move_speed, 0.01)
+	var cover_fraction := clampf((elapsed - cover_delay) / maxf(cover_duration, 0.01), 0.0, 1.0)
+	var platform_fraction := _smooth_preview_fraction(_technical_index_preview_fraction)
+	cover_fraction = _smooth_preview_fraction(cover_fraction)
+
+	platform.position.y = lerpf(-shaft_depth, -platform_size.y / 2.0, platform_fraction)
+	left_cover.position.x = lerpf(-5.0, -15.0, cover_fraction)
+	right_cover.position.x = lerpf(5.0, 15.0, cover_fraction)
+
+
+func get_technical_index_preview_fraction() -> float:
+	return _technical_index_preview_fraction
+
+
+func get_technical_index_preview_duration() -> float:
+	var platform_travel := maxf(shaft_depth - platform_size.y / 2.0, 0.0)
+	var platform_duration := platform_travel / maxf(move_speed, 0.01)
+	var cover_duration := 10.0 / maxf(cover_slide_speed, 0.01)
+	var cover_delay := 1.0 / maxf(move_speed, 0.01)
+	return maxf(platform_duration, cover_delay + cover_duration)
+
+
+func get_technical_index_preview_kind() -> StringName:
+	return &"elevator"
+
+
+func _smooth_preview_fraction(value: float) -> float:
+	return value * value * (3.0 - 2.0 * value)
 
 func create_platform() -> Node3D:
 	var platform_node = Node3D.new()
