@@ -12,6 +12,12 @@ signal origin_shifted(offset: Vector3)
 func _physics_process(_delta: float) -> void:
 	if not enabled:
 		return
+	# A continued campaign first performs the carrier's ordinary startup placement,
+	# then SaveGameManager applies the saved coordinate frame. Shifting around that
+	# temporary camera position would move the restored terrain before the saved
+	# transforms are installed.
+	if GameSession != null and GameSession.has_pending_save_state():
+		return
 	
 	var viewport := get_viewport()
 	if not viewport:

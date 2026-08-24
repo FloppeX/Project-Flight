@@ -99,14 +99,18 @@ const PilotVisualMaterials = preload("res://Models/Characters/PilotVisualMateria
 @export var hide_head_in_cockpit: bool = true
 @export var cockpit_camera_path: NodePath = NodePath("../CameraCockpit/Camera3D")
 @export var cockpit_hidden_mesh_names: PackedStringArray = PackedStringArray(["Pilot"])
-@export_group("Temporary Placeholder")
-## The detailed cockpit pilot is replaced by this neutral block under canopy.
-## This is intentionally temporary until a suitable animated character is ready.
-@export var parachute_placeholder_path: NodePath = NodePath("ParachutePlaceholder")
-@export var detailed_visual_path: NodePath = NodePath("Pilot")
 @export_group("Ejection Poses")
 @export var initial_pose_name: StringName = &"sitting"
 @export var pose_blend_time_s: float = 0.18
+@export_group("Baked Character Animation")
+## Optional ARP-native animation started after the initial pose is prepared.
+## CockpitPilot uses the shared looping piloting clip; general character scenes
+## leave this empty and select animations through their gameplay state.
+@export var initial_baked_animation: StringName = &""
+@export var initial_baked_animation_speed: float = 1.0
+## Static sample shown by tool builds so an aircraft scene can align the pilot
+## against its actual runtime animation instead of the rig's standing/rest pose.
+@export var editor_preview_animation_time_s: float = 0.0
 @export_group("Mixamo Animation")
 ## Name of the animation to play in the cockpit (e.g. "mixamo.com"). Leave empty to print available names at startup.
 @export var mixamo_cockpit_animation: StringName = &""
@@ -126,6 +130,10 @@ const PilotVisualMaterials = preload("res://Models/Characters/PilotVisualMateria
 @export var parachute_source_scene: PackedScene
 @export var parachute_source_animation: StringName = &"mixamo_com"
 @export var parachute_animation_speed: float = 1.0
+@export_group("Parachute Pose Tuning")
+## Shared editable offsets used by gameplay and the PilotPoseTuner scene. The
+## resource defaults to zero offsets so the raw source clip remains the baseline.
+@export var parachute_pose_settings: Resource
 
 var _skeleton: Skeleton3D = null
 var _ready_done: bool = false
@@ -148,22 +156,34 @@ var _retarget_source_player: AnimationPlayer = null
 var _retarget_bone_pairs: Array[Dictionary] = []
 var _retarget_loaded_scene: PackedScene = null
 var _retarget_animation_active: bool = false
+var _retarget_parachute_pose_active: bool = false
+var _retarget_preview_paused: bool = false
+var _baked_library_player: AnimationPlayer = null
+var _baked_library_animation_active: bool = false
 
-const LOCOMOTION_RETARGET_BONES := [
+## Mixamo source bones mapped to the exported Auto-Rig Pro bones that deform the
+## retained pilot mesh. The source character is never rendered.
+const MIXAMO_TO_ARP_BONES := [
 	["mixamorig_Hips", "root.x"],
 	["mixamorig_Spine", "spine_01.x"],
 	["mixamorig_Spine2", "spine_02.x"],
 	["mixamorig_Neck", "neck.x"],
 	["mixamorig_Head", "head.x"],
+	["mixamorig_LeftShoulder", "c_shoulder.l"],
+	["mixamorig_RightShoulder", "c_shoulder.r"],
 	["mixamorig_LeftShoulder", "shoulder.l"],
 	["mixamorig_RightShoulder", "shoulder.r"],
-	["mixamorig_LeftArm", "arm_stretch.l"],
+	["mixamorig_LeftArm", "arm.l"],
+	["mixamorig_RightArm", "arm.r"],
 	["mixamorig_LeftArm", "c_arm_twist_offset.l"],
-	["mixamorig_RightArm", "arm_stretch.r"],
 	["mixamorig_RightArm", "c_arm_twist_offset.r"],
+	["mixamorig_LeftArm", "arm_stretch.l"],
+	["mixamorig_RightArm", "arm_stretch.r"],
+	["mixamorig_LeftForeArm", "forearm.l"],
+	["mixamorig_RightForeArm", "forearm.r"],
 	["mixamorig_LeftForeArm", "forearm_stretch.l"],
-	["mixamorig_LeftForeArm", "forearm_twist.l"],
 	["mixamorig_RightForeArm", "forearm_stretch.r"],
+	["mixamorig_LeftForeArm", "forearm_twist.l"],
 	["mixamorig_RightForeArm", "forearm_twist.r"],
 	["mixamorig_LeftHand", "hand.l"],
 	["mixamorig_RightHand", "hand.r"],
@@ -179,20 +199,42 @@ const LOCOMOTION_RETARGET_BONES := [
 	["mixamorig_RightFoot", "foot.r"],
 	["mixamorig_LeftToeBase", "toes_01.l"],
 	["mixamorig_RightToeBase", "toes_01.r"],
-	["mixamorig_LeftHandThumb1", "thumb1.l"],
-	["mixamorig_LeftHandThumb2", "c_thumb2.l"],
-	["mixamorig_LeftHandThumb3", "c_thumb3.l"],
-	["mixamorig_RightHandThumb1", "thumb1.r"],
-	["mixamorig_RightHandThumb2", "c_thumb2.r"],
-	["mixamorig_RightHandThumb3", "c_thumb3.r"],
-	["mixamorig_LeftHandIndex1", "index1.l"],
-	["mixamorig_LeftHandIndex1", "c_index1_base.l"],
-	["mixamorig_LeftHandIndex2", "c_index2.l"],
-	["mixamorig_LeftHandIndex3", "c_index3.l"],
-	["mixamorig_RightHandIndex1", "index1.r"],
-	["mixamorig_RightHandIndex1", "c_index1_base.r"],
-	["mixamorig_RightHandIndex2", "c_index2.r"],
-	["mixamorig_RightHandIndex3", "c_index3.r"],
+]
+
+## These ARP arm bones form a usable shoulder -> arm -> forearm -> hand
+## hierarchy. They are solved from Mixamo joint directions after the torso is
+## retargeted, rather than receiving proportion-dependent joint translations.
+const RETARGET_ARM_TARGETS: Array[StringName] = [
+	&"c_shoulder.l", &"shoulder.l", &"arm.l", &"c_arm_twist_offset.l", &"arm_stretch.l",
+	&"forearm.l", &"forearm_stretch.l", &"forearm_twist.l", &"hand.l",
+	&"c_shoulder.r", &"shoulder.r", &"arm.r", &"c_arm_twist_offset.r", &"arm_stretch.r",
+	&"forearm.r", &"forearm_stretch.r", &"forearm_twist.r", &"hand.r",
+]
+
+const PARACHUTE_GRIP_SOURCE_BONES: Array[StringName] = [
+	&"mixamorig_LeftHandThumb1",
+	&"mixamorig_LeftHandThumb2",
+	&"mixamorig_LeftHandThumb3",
+	&"mixamorig_LeftHandIndex1",
+	&"mixamorig_LeftHandIndex2",
+	&"mixamorig_LeftHandIndex3",
+	&"mixamorig_RightHandThumb1",
+	&"mixamorig_RightHandThumb2",
+	&"mixamorig_RightHandThumb3",
+	&"mixamorig_RightHandIndex1",
+	&"mixamorig_RightHandIndex2",
+	&"mixamorig_RightHandIndex3",
+]
+
+const PARACHUTE_SOURCE_ROTATION_SETTINGS := [
+	[&"mixamorig_LeftShoulder", &"left_shoulder_degrees"],
+	[&"mixamorig_LeftArm", &"left_upper_arm_degrees"],
+	[&"mixamorig_LeftForeArm", &"left_forearm_degrees"],
+	[&"mixamorig_LeftHand", &"left_hand_degrees"],
+	[&"mixamorig_RightShoulder", &"right_shoulder_degrees"],
+	[&"mixamorig_RightArm", &"right_upper_arm_degrees"],
+	[&"mixamorig_RightForeArm", &"right_forearm_degrees"],
+	[&"mixamorig_RightHand", &"right_hand_degrees"],
 ]
 
 const BONE_ALIASES := {
@@ -239,7 +281,6 @@ const BONE_ALIASES := {
 
 
 func _ready() -> void:
-	_set_parachute_placeholder_active(false)
 	_pose_target_root = _get_pose_target_root()
 	if flat_shade_pilot_visual:
 		PilotVisualMaterials.apply_flat_shading(_pose_target_root)
@@ -251,11 +292,11 @@ func _ready() -> void:
 
 	_hide_control_shapes(_pose_target_root)
 
-	var use_imported_animation := not (_is_rigify_rig() or _is_pilot2_rig()) and (_is_mixamo_rig() or _is_arp_rig())
+	var use_imported_animation := not (_is_arp_rig() or _is_pilot2_rig()) and _is_mixamo_rig()
 	if use_imported_animation and not Engine.is_editor_hint():
 		_setup_mixamo_animation()
 	else:
-		if not Engine.is_editor_hint() and not _is_rigify_rig() and not _is_pilot2_rig():
+		if not Engine.is_editor_hint() and not _is_arp_rig() and not _is_pilot2_rig():
 			var bone0 := _skeleton.get_bone_name(0) if _skeleton.get_bone_count() > 0 else "none"
 			print("PilotPose: unrecognised rig. bone[0]='%s', total bones=%d" % [bone0, _skeleton.get_bone_count()])
 		if not _try_apply_baked_sitting_pose():
@@ -278,13 +319,23 @@ func _ready() -> void:
 	_cache_cockpit_visibility_nodes()
 	_update_head_visibility(true)
 	set_process(not Engine.is_editor_hint())
+	if initial_baked_animation != &"":
+		if not play_baked_animation(
+			initial_baked_animation,
+			maxf(initial_baked_animation_speed, 0.01)
+		):
+			push_warning(
+				"PilotPose: initial baked animation '%s' is unavailable"
+				% initial_baked_animation
+			)
+		elif Engine.is_editor_hint():
+			_freeze_baked_animation_for_editor(editor_preview_animation_time_s)
 
 
 ## Samples the normal cockpit pose without requiring this node to enter the
 ## scene tree. Technical Index previews call this before stripping scripts.
 func apply_static_seated_pose() -> bool:
 	initial_pose_name = &"sitting"
-	_set_parachute_placeholder_active(false)
 	_pose_target_root = _get_pose_target_root()
 	if flat_shade_pilot_visual:
 		PilotVisualMaterials.apply_flat_shading(_pose_target_root)
@@ -372,7 +423,7 @@ func _find_first_animation_player(node: Node) -> AnimationPlayer:
 
 
 func _try_apply_baked_sitting_pose() -> bool:
-	if Engine.is_editor_hint() or initial_pose_name != &"sitting" or not _is_rigify_rig():
+	if Engine.is_editor_hint() or initial_pose_name != &"sitting" or not _is_arp_rig():
 		return false
 	_anim_player = _find_first_animation_player(_pose_target_root)
 	if _anim_player == null:
@@ -401,6 +452,9 @@ func _try_apply_baked_sitting_pose() -> bool:
 func _process(_delta: float) -> void:
 	if Engine.is_editor_hint():
 		return
+	if _baked_library_animation_active:
+		_update_head_visibility(false)
+		return
 	if _mixamo_anim_active:
 		_update_head_visibility(false)
 		return
@@ -408,7 +462,8 @@ func _process(_delta: float) -> void:
 		_update_head_visibility(false)
 		return
 	if _retarget_animation_active:
-		_advance_retargeted_animation(_delta)
+		if not _retarget_preview_paused:
+			_advance_retargeted_animation(_delta)
 		_update_head_visibility(false)
 		return
 	if _locomotion_anim_playing:
@@ -511,12 +566,8 @@ func _apply_locomotion_pose(delta: float) -> void:
 
 
 func set_ejection_pose(pose_name: StringName, blend_time_s: float = -1.0) -> void:
+	_stop_baked_library_animation(false)
 	_release_cockpit_visibility()
-	# Keep the normal colored cockpit pilot for the complete seat ride. The
-	# temporary rectangle takes over only once the seat has physically separated.
-	var using_placeholder := _set_parachute_placeholder_active(
-		pose_name == &"falling" or pose_name == &"parachute"
-	)
 	_baked_sitting_pose_active = false
 	set_locomotion_pose(false)
 	if _mixamo_anim_active:
@@ -524,7 +575,7 @@ func set_ejection_pose(pose_name: StringName, blend_time_s: float = -1.0) -> voi
 		if _anim_player != null and is_instance_valid(_anim_player):
 			_anim_player.stop()
 	if pose_name == &"parachute":
-		if using_placeholder or _start_retargeted_parachute():
+		if _start_retargeted_parachute():
 			return
 	var values := _get_pose_values(pose_name)
 	if values.is_empty():
@@ -541,18 +592,8 @@ func _release_cockpit_visibility() -> void:
 	_update_head_visibility(true)
 
 
-func _set_parachute_placeholder_active(active: bool) -> bool:
-	var placeholder := get_node_or_null(parachute_placeholder_path) as Node3D
-	if placeholder == null:
-		return false
-	placeholder.visible = active
-	var detailed_visual := get_node_or_null(detailed_visual_path) as Node3D
-	if detailed_visual != null:
-		detailed_visual.visible = not active
-	return true
-
-
 func set_locomotion_pose(active: bool, speed_mps: float = 0.0) -> void:
+	_stop_baked_library_animation(false)
 	if active:
 		_baked_sitting_pose_active = false
 	_locomotion_active = active
@@ -605,6 +646,7 @@ func _stop_locomotion_animation() -> void:
 
 
 func _start_retargeted_locomotion() -> bool:
+	_retarget_parachute_pose_active = false
 	if locomotion_source_scene == null or _skeleton == null:
 		return false
 	var speed_scale := clampf(
@@ -618,11 +660,15 @@ func _start_retargeted_locomotion() -> bool:
 func _start_retargeted_parachute() -> bool:
 	if parachute_source_scene == null or _skeleton == null:
 		return false
-	return _start_retargeted_animation(
+	_retarget_parachute_pose_active = true
+	var started := _start_retargeted_animation(
 		parachute_source_scene,
 		parachute_source_animation,
 		maxf(parachute_animation_speed, 0.01)
 	)
+	if not started:
+		_retarget_parachute_pose_active = false
+	return started
 
 
 func _start_retargeted_animation(source_scene: PackedScene, animation_name: StringName, speed_scale: float) -> bool:
@@ -639,11 +685,73 @@ func _start_retargeted_animation(source_scene: PackedScene, animation_name: Stri
 	_retarget_source_player.play(resolved)
 	_retarget_source_player.advance(0.0)
 	_retarget_animation_active = true
+	_retarget_preview_paused = false
 	_apply_retargeted_animation_frame()
 	return true
 
 
+## Plays one ARP-native clip from PilotCharacter's shared baked library. This
+## resets the dense ARP control rig first, matching the runtime retargeter's
+## clean rest baseline and avoiding leftover cockpit-pose controls.
+func play_baked_animation(animation_name: StringName, speed_scale: float = 1.0) -> bool:
+	if _skeleton == null:
+		return false
+	if _baked_library_player == null or not is_instance_valid(_baked_library_player):
+		_baked_library_player = get_node_or_null("BakedAnimationPlayer") as AnimationPlayer
+	if _baked_library_player == null or not _baked_library_player.has_animation(animation_name):
+		return false
+
+	_stop_retargeted_animation()
+	_locomotion_active = false
+	_locomotion_anim_playing = false
+	_mixamo_anim_active = false
+	_baked_sitting_pose_active = false
+	if _anim_player != null and is_instance_valid(_anim_player):
+		_anim_player.stop()
+		_anim_player.active = false
+	_skeleton.reset_bone_poses()
+	_baked_library_player.active = true
+	_baked_library_player.speed_scale = maxf(speed_scale, 0.01)
+	_baked_library_player.play(animation_name)
+	_baked_library_player.advance(0.0)
+	_baked_library_animation_active = true
+	set_process(true)
+	return true
+
+
+func _freeze_baked_animation_for_editor(time_s: float) -> void:
+	if _baked_library_player == null or not is_instance_valid(_baked_library_player):
+		return
+	var animation := _baked_library_player.get_animation(
+		_baked_library_player.current_animation
+	)
+	if animation == null:
+		return
+	_baked_library_player.seek(clampf(time_s, 0.0, animation.length), true)
+	_baked_library_player.advance(0.0)
+	_baked_library_player.pause()
+	# The sampled bones stay in place without continuously evaluating an
+	# AnimationPlayer for every aircraft open in the editor.
+	set_process(false)
+
+
+func stop_baked_animation(reset_to_rest: bool = true) -> void:
+	_stop_baked_library_animation(reset_to_rest)
+
+
+func _stop_baked_library_animation(reset_to_rest: bool) -> void:
+	if _baked_library_player != null and is_instance_valid(_baked_library_player):
+		_baked_library_player.stop()
+		_baked_library_player.speed_scale = 1.0
+		_baked_library_player.active = false
+	_baked_library_animation_active = false
+	if reset_to_rest and _skeleton != null:
+		_skeleton.reset_bone_poses()
+
+
 func _stop_retargeted_animation() -> void:
+	_retarget_parachute_pose_active = false
+	_retarget_preview_paused = false
 	if not _retarget_animation_active:
 		return
 	_retarget_animation_active = false
@@ -678,8 +786,11 @@ func _setup_retargeted_animation(source_scene: PackedScene) -> bool:
 	# The source player is sampled explicitly by this node, never by its own process.
 	_retarget_source_root.process_mode = Node.PROCESS_MODE_DISABLED
 	_retarget_bone_pairs.clear()
-	for mapping in LOCOMOTION_RETARGET_BONES:
-		var source_index := _retarget_source_skeleton.find_bone(String(mapping[0]))
+	for mapping in MIXAMO_TO_ARP_BONES:
+		var source_index := _find_mixamo_source_bone(
+			_retarget_source_skeleton,
+			StringName(mapping[0])
+		)
 		var target_index := _skeleton.find_bone(String(mapping[1]))
 		if source_index < 0 or target_index < 0:
 			continue
@@ -688,6 +799,16 @@ func _setup_retargeted_animation(source_scene: PackedScene) -> bool:
 			"target": target_index,
 		})
 	return not _retarget_bone_pairs.is_empty()
+
+
+func _find_mixamo_source_bone(source_skeleton: Skeleton3D, canonical_name: StringName) -> int:
+	if source_skeleton == null:
+		return -1
+	var bone_index := source_skeleton.find_bone(canonical_name)
+	if bone_index >= 0:
+		return bone_index
+	var alternate_name := String(canonical_name).replace("mixamorig_", "mixamorig:")
+	return source_skeleton.find_bone(alternate_name)
 
 
 func _free_retarget_source() -> void:
@@ -708,13 +829,51 @@ func _advance_retargeted_animation(delta: float) -> void:
 	_apply_retargeted_animation_frame()
 
 
+## Preview controls used by the standalone pilot-pose tuner. Gameplay leaves
+## these untouched, so normal parachute animation playback remains automatic.
+func set_retarget_preview_paused(paused: bool) -> void:
+	_retarget_preview_paused = paused
+
+
+func is_retarget_preview_paused() -> bool:
+	return _retarget_preview_paused
+
+
+func get_retarget_preview_position() -> float:
+	if _retarget_source_player == null or not is_instance_valid(_retarget_source_player):
+		return 0.0
+	return _retarget_source_player.current_animation_position
+
+
+func get_retarget_preview_length() -> float:
+	if _retarget_source_player == null or not is_instance_valid(_retarget_source_player):
+		return 0.0
+	return _retarget_source_player.current_animation_length
+
+
+func seek_retarget_preview(time_s: float) -> void:
+	if _retarget_source_player == null or not is_instance_valid(_retarget_source_player):
+		return
+	var length := get_retarget_preview_length()
+	_retarget_source_player.seek(clampf(time_s, 0.0, length), true)
+	_apply_retargeted_animation_frame()
+
+
+func refresh_retarget_preview() -> void:
+	seek_retarget_preview(get_retarget_preview_position())
+
+
 func _apply_retargeted_animation_frame() -> void:
 	if _skeleton == null or _retarget_source_skeleton == null:
 		return
+	if _retarget_parachute_pose_active:
+		_apply_parachute_source_pose_adjustments()
 	_skeleton.reset_bone_poses()
 	for pair in _retarget_bone_pairs:
 		var source_index := int(pair["source"])
 		var target_index := int(pair["target"])
+		if RETARGET_ARM_TARGETS.has(_skeleton.get_bone_name(target_index)):
+			continue
 		var source_rest := _retarget_source_skeleton.get_bone_global_rest(source_index).orthonormalized()
 		var source_pose := _retarget_source_skeleton.get_bone_global_pose(source_index).orthonormalized()
 		var target_rest := _skeleton.get_bone_global_rest(target_index)
@@ -728,10 +887,239 @@ func _apply_retargeted_animation_frame() -> void:
 		var desired_local := desired_global
 		if parent_index >= 0:
 			desired_local = _skeleton.get_bone_global_pose(parent_index).affine_inverse() * desired_global
-		var target_local_rest := _skeleton.get_bone_rest(target_index)
-		var pose_basis := target_local_rest.basis.orthonormalized().inverse() * desired_local.basis
-		_skeleton.set_bone_pose_rotation(target_index, pose_basis.orthonormalized().get_rotation_quaternion())
-		_skeleton.set_bone_pose_position(target_index, desired_local.origin - target_local_rest.origin)
+		# Skeleton3D stores these imported bone poses as complete local transforms;
+		# reset_bone_poses() restores the rest values rather than identity deltas.
+		# Supplying a rest-relative delta here collapses ARP's sibling deformation
+		# bones toward c_traj and visibly stretches the mesh.
+		_skeleton.set_bone_pose_rotation(
+			target_index,
+			desired_local.basis.orthonormalized().get_rotation_quaternion()
+		)
+		_skeleton.set_bone_pose_position(target_index, desired_local.origin)
+	if _retarget_parachute_pose_active:
+		_apply_saved_parachute_arm_pose(false)
+		_apply_saved_parachute_arm_pose(true)
+	else:
+		_apply_retargeted_arm_chain(false)
+		_apply_retargeted_arm_chain(true)
+
+
+func _apply_saved_parachute_arm_pose(right_side: bool) -> void:
+	# The parachute pose predates the general Mixamo library and was tuned by hand
+	# against these weighted ARP bones. Preserve that authored route instead of
+	# passing it through the newer fixed-length locomotion/gesture solver.
+	var source_prefix := "mixamorig_Right" if right_side else "mixamorig_Left"
+	var suffix := ".r" if right_side else ".l"
+	var mappings := [
+		[source_prefix + "Shoulder", "shoulder" + suffix],
+		[source_prefix + "Arm", "c_arm_twist_offset" + suffix],
+		[source_prefix + "Arm", "arm_stretch" + suffix],
+		[source_prefix + "ForeArm", "forearm_stretch" + suffix],
+		[source_prefix + "ForeArm", "forearm_twist" + suffix],
+		[source_prefix + "Hand", "hand" + suffix],
+	]
+	for mapping in mappings:
+		var source_index := _find_mixamo_source_bone(
+			_retarget_source_skeleton, StringName(mapping[0])
+		)
+		var target_index := _skeleton.find_bone(String(mapping[1]))
+		if source_index < 0 or target_index < 0:
+			continue
+		_apply_source_motion_to_target_bone(source_index, target_index)
+
+
+func _apply_source_motion_to_target_bone(source_index: int, target_index: int) -> void:
+	var source_rest := (
+		_retarget_source_skeleton.get_bone_global_rest(source_index).orthonormalized()
+	)
+	var source_pose := (
+		_retarget_source_skeleton.get_bone_global_pose(source_index).orthonormalized()
+	)
+	var target_rest := _skeleton.get_bone_global_rest(target_index).orthonormalized()
+	var desired_global := (source_pose * source_rest.affine_inverse()) * target_rest
+	var parent_index := _skeleton.get_bone_parent(target_index)
+	var desired_local := desired_global
+	if parent_index >= 0:
+		desired_local = (
+			_skeleton.get_bone_global_pose(parent_index).affine_inverse()
+			* desired_global
+		)
+	_skeleton.set_bone_pose_rotation(
+		target_index,
+		desired_local.basis.orthonormalized().get_rotation_quaternion()
+	)
+	_skeleton.set_bone_pose_position(target_index, desired_local.origin)
+
+
+func _apply_retargeted_arm_chain(right_side: bool) -> void:
+	var source_prefix := "mixamorig_Right" if right_side else "mixamorig_Left"
+	var target_suffix := ".r" if right_side else ".l"
+	var source_shoulder := _find_mixamo_source_bone(
+		_retarget_source_skeleton, StringName(source_prefix + "Shoulder")
+	)
+	var source_arm := _find_mixamo_source_bone(
+		_retarget_source_skeleton, StringName(source_prefix + "Arm")
+	)
+	var source_forearm := _find_mixamo_source_bone(
+		_retarget_source_skeleton, StringName(source_prefix + "ForeArm")
+	)
+	var source_hand := _find_mixamo_source_bone(
+		_retarget_source_skeleton, StringName(source_prefix + "Hand")
+	)
+	var target_shoulder := _skeleton.find_bone("c_shoulder" + target_suffix)
+	var target_arm := _skeleton.find_bone("arm" + target_suffix)
+	var target_forearm := _skeleton.find_bone("forearm" + target_suffix)
+	var target_hand := _skeleton.find_bone("hand" + target_suffix)
+	if source_shoulder < 0 or source_arm < 0 or source_forearm < 0 or source_hand < 0 \
+			or target_shoulder < 0 or target_arm < 0 or target_forearm < 0 or target_hand < 0:
+		return
+
+	_aim_target_bone_from_source_segment(
+		target_shoulder, target_arm, source_shoulder, source_arm
+	)
+	_aim_target_bone_from_source_segment(
+		target_arm, target_forearm, source_arm, source_forearm
+	)
+	_aim_target_bone_from_source_segment(
+		target_forearm, target_hand, source_forearm, source_hand
+	)
+	_apply_target_bone_rotation_from_source(target_hand, source_hand)
+	_apply_arm_deform_bones(right_side, target_arm, target_forearm)
+
+
+func _apply_arm_deform_bones(
+		right_side: bool,
+		target_arm: int,
+		target_forearm: int
+) -> void:
+	# Auto-Rig Pro exported both control bones and a separate set of weighted
+	# deformation bones. The visible sleeves use the latter. Move them by the
+	# already-solved ARP control-chain deltas so they stay on the same shoulder,
+	# elbow, and wrist landmarks without importing Mixamo limb translations.
+	var suffix := ".r" if right_side else ".l"
+	var deform_links := [
+		[target_arm, _skeleton.find_bone("c_arm_twist_offset" + suffix)],
+		[target_arm, _skeleton.find_bone("arm_stretch" + suffix)],
+		[target_forearm, _skeleton.find_bone("forearm_stretch" + suffix)],
+		[target_forearm, _skeleton.find_bone("forearm_twist" + suffix)],
+	]
+	for link in deform_links:
+		var control_index := int(link[0])
+		var deform_index := int(link[1])
+		if control_index < 0 or deform_index < 0:
+			continue
+		_apply_control_motion_to_deform_bone(control_index, deform_index)
+
+
+func _apply_control_motion_to_deform_bone(control_index: int, deform_index: int) -> void:
+	var control_rest := _skeleton.get_bone_global_rest(control_index).orthonormalized()
+	var control_pose := _skeleton.get_bone_global_pose(control_index).orthonormalized()
+	var deform_rest := _skeleton.get_bone_global_rest(deform_index).orthonormalized()
+	var desired_global := (control_pose * control_rest.affine_inverse()) * deform_rest
+	var parent_index := _skeleton.get_bone_parent(deform_index)
+	var desired_local := desired_global
+	if parent_index >= 0:
+		desired_local = (
+			_skeleton.get_bone_global_pose(parent_index).affine_inverse()
+			* desired_global
+		)
+	_skeleton.set_bone_pose_rotation(
+		deform_index,
+		desired_local.basis.orthonormalized().get_rotation_quaternion()
+	)
+	_skeleton.set_bone_pose_position(deform_index, desired_local.origin)
+
+
+func _aim_target_bone_from_source_segment(
+		target_bone: int,
+		target_child: int,
+		source_bone: int,
+		source_child: int
+) -> void:
+	var source_from := _retarget_source_skeleton.get_bone_global_pose(source_bone).origin
+	var source_to := _retarget_source_skeleton.get_bone_global_pose(source_child).origin
+	var desired_direction := source_to - source_from
+	var target_rest := _skeleton.get_bone_global_rest(target_bone)
+	var target_child_rest := _skeleton.get_bone_global_rest(target_child)
+	var rest_direction := target_child_rest.origin - target_rest.origin
+	if desired_direction.length_squared() < 0.000001 or rest_direction.length_squared() < 0.000001:
+		return
+	var alignment := Quaternion(rest_direction.normalized(), desired_direction.normalized())
+	var desired_global_basis := (Basis(alignment) * target_rest.basis).orthonormalized()
+	var parent_index := _skeleton.get_bone_parent(target_bone)
+	var desired_local_basis := desired_global_basis
+	if parent_index >= 0:
+		desired_local_basis = (
+			_skeleton.get_bone_global_pose(parent_index).basis.inverse()
+			* desired_global_basis
+		).orthonormalized()
+	_skeleton.set_bone_pose_rotation(
+		target_bone, desired_local_basis.get_rotation_quaternion()
+	)
+
+
+func _apply_target_bone_rotation_from_source(target_bone: int, source_bone: int) -> void:
+	# The arm solver derives shoulder/elbow/wrist positions from segment directions,
+	# but the hand has no child segment to aim. Transfer only its authored rotation;
+	# copying the Mixamo hand translation would reintroduce elastic wrists.
+	var source_rest_basis := (
+		_retarget_source_skeleton.get_bone_global_rest(source_bone).basis.orthonormalized()
+	)
+	var source_pose_basis := (
+		_retarget_source_skeleton.get_bone_global_pose(source_bone).basis.orthonormalized()
+	)
+	var target_rest_basis := _skeleton.get_bone_global_rest(target_bone).basis.orthonormalized()
+	var motion_delta := source_pose_basis * source_rest_basis.inverse()
+	var desired_global_basis := (motion_delta * target_rest_basis).orthonormalized()
+	var parent_index := _skeleton.get_bone_parent(target_bone)
+	var desired_local_basis := desired_global_basis
+	if parent_index >= 0:
+		desired_local_basis = (
+			_skeleton.get_bone_global_pose(parent_index).basis.inverse()
+			* desired_global_basis
+		).orthonormalized()
+	_skeleton.set_bone_pose_rotation(
+		target_bone, desired_local_basis.get_rotation_quaternion()
+	)
+
+
+func _apply_parachute_source_pose_adjustments() -> void:
+	if _retarget_source_skeleton == null or parachute_pose_settings == null:
+		return
+	for mapping in PARACHUTE_SOURCE_ROTATION_SETTINGS:
+		var bone_index := _retarget_source_skeleton.find_bone(StringName(mapping[0]))
+		if bone_index < 0:
+			continue
+		var offset_degrees: Vector3 = parachute_pose_settings.get(StringName(mapping[1]))
+		if offset_degrees.is_zero_approx():
+			continue
+		var animated_rotation := _retarget_source_skeleton.get_bone_pose_rotation(bone_index)
+		var offset_radians := Vector3(
+			deg_to_rad(offset_degrees.x),
+			deg_to_rad(offset_degrees.y),
+			deg_to_rad(offset_degrees.z)
+		)
+		_retarget_source_skeleton.set_bone_pose_rotation(
+			bone_index,
+			animated_rotation * Quaternion.from_euler(offset_radians)
+		)
+
+	var relaxation := clampf(float(parachute_pose_settings.get("grip_relaxation")), 0.0, 1.0)
+	if relaxation <= 0.0:
+		return
+	for bone_name in PARACHUTE_GRIP_SOURCE_BONES:
+		var bone_index := _retarget_source_skeleton.find_bone(bone_name)
+		if bone_index < 0:
+			continue
+		var animated_rotation := _retarget_source_skeleton.get_bone_pose_rotation(bone_index)
+		var rest_rotation := (
+			_retarget_source_skeleton.get_bone_rest(bone_index)
+			.basis.orthonormalized().get_rotation_quaternion()
+		)
+		_retarget_source_skeleton.set_bone_pose_rotation(
+			bone_index,
+			animated_rotation.slerp(rest_rotation, relaxation)
+		)
 
 
 func _resolve_animation_on_player(player: AnimationPlayer, animation_name: StringName) -> StringName:
@@ -749,8 +1137,8 @@ func _resolve_animation_on_player(player: AnimationPlayer, animation_name: Strin
 func _get_pose_values(pose_name: StringName) -> Dictionary:
 	match pose_name:
 		&"sitting":
-			if _is_rigify_rig():
-				# The cockpit Rigify asset stores its seated pose in a one-frame baked animation.
+			if _is_arp_rig():
+				# The Auto-Rig Pro export stores its seated pose in a one-frame baked animation.
 				# Leave procedural offsets neutral after that pose is sampled.
 				return _make_pose(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
 			return _make_pose(0.0, 0.0, 0.0, 3.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 65.0, 0.0, 0.0, 2.0, 0.0, 20.0, 0.0, 0.0)
@@ -762,15 +1150,12 @@ func _get_pose_values(pose_name: StringName) -> Dictionary:
 			if _is_pilot2_rig():
 				# Rest pose is sitting; negative leg values counteract it to hang straight down.
 				return _make_pose(-65.0, -55.0, 15.0, 5.0, -5.0, -25.0, 0.0, 0.0, -60.0, 25.0, 0.0, 55.0, 0.0, 0.0, 0.0, 0.0, 65.0, -10.0, -8.0)
-			if _is_rigify_rig():
-				# The pilot 2 GLB is a Rigify export whose useful rest is already close to seated.
-				# Counteract the seated legs instead of forcing a 180-degree leg flip.
+			if _is_arp_rig():
+				# The retained Auto-Rig Pro export has a seated authored pose. Counteract
+				# the seated legs instead of forcing a 180-degree leg flip.
 				return _make_pose(-65.0, -55.0, 15.0, 5.0, -5.0, -25.0, 0.0, 0.0, -60.0, 25.0, 0.0, 55.0, 0.0, 0.0, 0.0, 0.0, 65.0, -10.0, -8.0)
 			if _is_mixamo_rig():
 				# Mixamo T-pose: legs already hang down at rest (upper_leg_x=0). Arms start horizontal.
-				return _make_pose(0.0, 0.0, 5.0, 5.0, -5.0, -25.0, 0.0, 0.0, 90.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 45.0, 0.0, 0.0)
-			if _is_arp_rig():
-				# ARP rest = T-pose. Legs already hang down. Arms at ~45° A-pose; raise toward risers.
 				return _make_pose(0.0, 0.0, 5.0, 5.0, -5.0, -25.0, 0.0, 0.0, 90.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 45.0, 0.0, 0.0)
 			return _make_pose(90.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 45.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
 		&"grounded":
@@ -904,13 +1289,6 @@ func _hide_control_shapes(node: Node) -> void:
 
 func _is_pilot2_rig() -> bool:
 	return _skeleton != null and _skeleton.find_bone("L_Thigh") >= 0 and _skeleton.find_bone("R_Thigh") >= 0
-
-
-func _is_rigify_rig() -> bool:
-	return _skeleton != null and (
-		_skeleton.find_bone("DEF-thigh.L") >= 0
-		or (_skeleton.find_bone("c_pos") >= 0 and _skeleton.find_bone("thigh_fk.l") >= 0)
-	)
 
 
 func _build_foot_links() -> void:

@@ -10,7 +10,7 @@ This README is the canonical living project document. It describes the current g
 
 **Main scene:** `res://UI/MainMenu.tscn`
 
-**Status reviewed:** 2026-08-15 against the current source tree
+**Status reviewed:** 2026-08-22 against the current source tree
 
 ## Project vision
 
@@ -41,7 +41,7 @@ The long-form campaign is planned as a sequence of large regions rather than one
 6. Recover, repair, rearm, and live with the consequences.
 7. Reach an exit and carry the resulting state into the next region.
 
-The campaign loop is a design direction, not current functionality. The present build contains many of its component systems but no complete region objective, strategic economy, or between-region persistence.
+The campaign loop is a design direction, not complete current functionality. The present build contains many of its component systems and a first same-region strategic checkpoint save, but no complete region objective, strategic economy, or between-region persistence.
 
 <details>
 <summary>Planned ending direction - spoilers</summary>
@@ -60,7 +60,7 @@ The game already supports a substantial combined-arms sandbox. Most major system
 |---|---|---|
 | World and terrain | Streamed procedural low-poly canyon terrain, floating origin, rock streaming, day/night cycle, dust, fog, and two selectable terrain profiles | Large-map preprocessing and valley rendering remain performance watch areas |
 | Strategic map | `50 km x 50 km` navigation and tactical-map coverage, relief shading, mobility overlays, routes, contacts, mission drafting, and loading progress | The map is a command surface, but it does not yet express a regional objective or economy |
-| Exploration | Persistent fog of war: carrier, aircraft, helicopters, and ground vehicles permanently reveal terrain as they travel | Exploration currently resets with the scenario because campaign saving is not implemented |
+| Exploration | Persistent fog of war: carrier, aircraft, helicopters, and ground vehicles permanently reveal terrain as they travel | Exploration persists through strategic checkpoint saves, but not yet between regions |
 | Carrier movement | Player-authored routes over carrier-legal terrain; no automatic route is assigned at scenario start | The carrier cannot be ordered into unexplored terrain |
 | Carrier deck | Hangar, elevator, tractor bots, catapult launch, deck staging, landing clearance, arresting wires, and recovery flow | Full mission-to-recovery reliability is promising but not yet accepted across the complete validation suite |
 | Air operations | Four named flights, sensor-fused tasking, CAP/intercept/strike roles, autonomous downed-pilot tracking and Aircraft_11 rescue dispatch, player orders, threat-driven scrambling, and direct flight control | Standing CAP no longer auto-launches at startup; the rescue path still needs full live scenario validation, and richer player doctrine and mission editing remain planned |
@@ -68,8 +68,9 @@ The game already supports a substantial combined-arms sandbox. Most major system
 | Combat | Fixed-wing, helicopter, vehicle, turret, rocket, bomb, gun, damage, destruction, and ejection systems | Balance and some AI flight-path integration remain under investigation |
 | Enemy operations | Bases, patrols, ground forces, emplacements, wind farms, virtualized distant units, and replenishment behavior | Destroying infrastructure does not yet remove a clearly communicated enemy capability |
 | POIs | Procedural POI placement, starting discoveries, aircraft discovery, ground reveal, tactical markers, and choice cards | POI choices currently close the card but do not change game state |
-| Personnel | Persistent-in-session pilot roster, skills, experience, kills, wounds/rest hooks, callsigns, voices, and personnel UI | Careers do not yet persist between scenarios; rescue pickup is implemented but is not yet connected to injury, rest, and career continuity |
+| Personnel | Pilot roster, skills, experience, kills, wounds/rest hooks, callsigns, voices, personnel UI, and checkpoint persistence | Rescue pickup is implemented but is not yet connected to injury, rest, and full career continuity |
 | Command UI | Carrier console with Tactical and Personnel views, map selection during new game, mission confirmation flow, and live unit state | This is the first command-screen slice, not the final strategic interface |
+| Campaign checkpoints | Validated primary-plus-backup save slot, automatic safe-state checkpoints, pause-menu save status, and main-menu Continue | Calm deployed CAP/transit/RTB flights and moving/protecting/escorting platoons are preserved; active attack orders, combat, tracked mobile enemies, and moving deck machinery must clear first |
 
 ### Map profiles
 
@@ -82,7 +83,7 @@ Both profiles use the same `50 km x 50 km` strategic/nav footprint. The tactical
 
 - Terrain begins greyed out on the tactical map.
 - Exploration is permanent for the duration of the scenario.
-- Fixed-wing aircraft reveal a `3000 m` radius, helicopters `2000 m`, the carrier `1500 m`, and ground vehicles `800 m` by default.
+- Fixed-wing aircraft reveal a `3000 m` radius, helicopters `2000 m`, the carrier `3000 m`, and ground vehicles `800 m` by default.
 - Friendly ground orders and carrier route points are rejected when their destination is unexplored.
 - Enemy AI continues to use global navigation; the exploration restriction is enforced only at the player command boundary.
 - While the tactical map is open, `H` temporarily removes or reapplies the fog mask for debugging. It does not alter exploration state.
@@ -90,6 +91,12 @@ Both profiles use the same `50 km x 50 km` strategic/nav footprint. The tactical
 ## Recent changes
 
 This is a short current summary, not a second full changelog.
+
+### August 2026 - strategic checkpoints
+
+- Added a first same-region checkpoint system which persists carrier position and route, resources, hangar and vehicle-bay inventory, pilot records, exploration, POIs, enemy bases and virtual formations, destroyed infrastructure, and floating-origin terrain state.
+- Added automatic checkpoints after a calm safe-state window, a manually gated `SAVE CAMPAIGN` pause action with a specific blocker message, and a validated `CONTINUE` main-menu action. Writes are validated through a temporary file and retain the previous checkpoint as a backup.
+- Checkpoints deliberately exclude volatile combat state. Calm deployed flights preserve aircraft type, pilot, loadout, damage, fuel, engine and gear state, transform, velocity, and CAP/RTB intent; calm deployed platoons preserve vehicle damage, transform, velocity, and movement/protection/escort intent. Active CAS/intercept/pursuit/attack orders, active combat, downed-pilot rescue, launch/recovery sequences, moving deck or bay machinery, tracked mobile enemies, and enemy attacks or materialized enemy formations must clear before saving.
 
 ### August 2026 - large map and command layer
 
@@ -147,7 +154,7 @@ This slice should use temporary scenario-scoped state first. It does not need th
 - Connect sorties, carrier movement, repair, recovery, POIs, and enemy infrastructure to those resources.
 - Decide deliberately which resources are shared carrier pools and which belong to individual units; avoid per-unit accounting unless it creates a meaningful decision.
 - Make returning aircraft refuel, rearm, and repair through the carrier economy rather than resetting for free.
-- Add checkpoint-style strategic saving: scenario seed, carrier state, roster, hangar, surviving active units, destroyed infrastructure, and simple platoon objectives. Volatile projectiles, particles, in-progress deck animations, async path jobs, and radio queues can be reset or reissued on load.
+- Extend the calm-state checkpoint slice toward region transitions and explicit scenario seeds. Keep volatile projectiles, particles, in-progress deck animations, async path jobs, and radio queues out of the save contract.
 
 ### Later possibilities
 
@@ -175,7 +182,7 @@ These items are deliberately phrased by evidence level. Older reports may descri
 | Status | Problem | Current evidence / next proof |
 |---|---|---|
 | Confirmed | POI decisions have no gameplay effect | `POIManager` records reveal state, but confirming a card currently only closes it |
-| Confirmed | No regional win condition, strategic economy, or campaign persistence | These systems have not been implemented yet |
+| Confirmed | No regional win condition, strategic economy, or between-region persistence | A first same-region calm-state checkpoint exists, but the larger campaign transition and economy systems have not been implemented |
 | Confirmed | Carrier tread animation has visible discontinuities at the lower turnarounds | Debug the baked loop coordinate before further shader tuning; see the track report |
 | Partly resolved | Fixed-wing carrier recovery | Focused dirty-entry and two-aircraft catches succeeded on the current recovery work, but the remaining matrix, 100-attempt final regression, and 20-run mixed suite were not completed |
 | Unresolved / needs current retest | Fixed-wing route and turn authority | Historical telemetry found a split between horizontal and vertical guidance and uncertain lift response; later code changed substantially, so the old diagnosis is a baseline rather than proof of the current failure |
@@ -195,7 +202,7 @@ Portable Godot on the current development machine:
 & "C:\Godot\Godot_v4.6.2-stable_win64_console.exe" --path "C:\Godot projects\Project-Flight"
 ```
 
-The industrial operator-console starting menu keeps the player-facing choices to New Campaign, Skirmish, Technical Index, Settings, and Quit. Debug builds group Free Flight, Landing Test, and Carrier Combat Test under a single Development Scenarios entry. The main, pause, settings, audio, gameplay, graphics, and controls screens share the same left-rail layout, typography, amber focus treatment, and dark console surfaces. The Settings hub separates Audio, Graphics, and Gameplay and provides a global reset. Audio persists master/radio volume and radio-caption visibility/duration. Graphics persists V-sync, display mode, resolution, frame limit, anti-aliasing, render scale/upscaling, view distance, and the FPS display; MSAA 2x is the default anti-aliasing mode. Gameplay persists rudder assists, stick deadzone, look sensitivity/inversion, cockpit motion, and camera FOV.
+The industrial operator-console starting menu keeps the player-facing choices to New Campaign, Continue, Skirmish, Technical Index, Settings, and Quit. Debug builds group Free Flight, Landing Test, and Carrier Combat Test under a single Development Scenarios entry. The pause menu exposes a gated Save Campaign action and explains which strategic condition is still unsafe. The main, pause, settings, audio, gameplay, graphics, and controls screens share the same left-rail layout, typography, amber focus treatment, and dark console surfaces. The Settings hub separates Audio, Graphics, and Gameplay and provides a global reset. Audio persists master/radio volume and radio-caption visibility/duration. Graphics persists V-sync, display mode, resolution, frame limit, anti-aliasing, render scale/upscaling, view distance, and the FPS display; MSAA 2x is the default anti-aliasing mode. Gameplay persists rudder assists, stick deadzone, optional left-stick menu-pointer steering, look sensitivity/inversion, cockpit motion, and camera FOV.
 
 The starting menu also selects carrier identity, livery, insignia, and map profile. Behind the operator rail, a five-shot carrier sequence cuts every 10.5 seconds between a tightened aerial quarter, a moving overhead orbit, fixed hilltop and ground-level viewpoints, and a long-lens broadside. The same `Camera3D` is reused for every composition, and fixed terrain viewpoints remain planted while the carrier moves through the scene. Its Technical Index automatically displays the first entry in each equipment class on a black, green-grid inspection display. The model stays planted on the grid while mouse drag or press-and-hold directional controls orbit the camera; holding the adjacent `-` / `+` controls changes zoom continuously. It covers the primary gameplay vehicles, structures, and weapon assemblies while intentionally omitting helper scenes, projectiles, templates, and destroyed variants. `M` opens the tactical carrier console. See the [controller guide](docs/CONTROLLER_GUIDE.md) for the broader input map, but treat its dated debug-key notes as needing live verification.
 
@@ -211,6 +218,7 @@ Prefer a focused headless test for the subsystem being changed. Examples:
 & "C:\Godot\Godot_v4.6.2-stable_win64_console.exe" --headless --path . --script res://Tests/SettingsOptionsSmoketest.gd
 & "C:\Godot\Godot_v4.6.2-stable_win64_console.exe" --headless --path . res://Tests/StartupCameraSequenceSmoketest.tscn
 & "C:\Godot\Godot_v4.6.2-stable_win64_console.exe" --headless --path . res://Tests/NoMissileLoadoutSmoketest.tscn
+& "C:\Godot\Godot_v4.6.2-stable_win64_console.exe" --headless --path . --scene res://Tests/SaveStateSmoketest.tscn -- --disable-campaign-autosave --test-scenario=0
 ```
 
 Relevant focused coverage also exists for layered navigation, map startup, loading text, mobility textures, ground initial placement, AirOps scramble reservation, carrier deck passengers, floating-origin rigid bodies, rock streaming, landing gear, aircraft activity budgets, ground combat, dogfighting, and carrier recovery.

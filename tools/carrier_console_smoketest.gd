@@ -133,6 +133,9 @@ func _run() -> void:
 	_expect(OPERATIONAL_UNITS_PAGE.map_air_activity("TRANSIT", true) == "EVADING", "defensive manoeuvres override transit with evading")
 	_expect(OPERATIONAL_UNITS_PAGE.map_air_activity("IDLE", false, true) == "DESTROYED", "lost aircraft report destroyed")
 	_expect(str(flights_page.call("_catalog_display_name", "res://Aircraft/Aircraft_1.tscn")) == "SNA AS-20 Sand Sprite", "aircraft cards use the catalog plane type")
+	var aircraft_1_outline_path := str(OPERATIONAL_UNITS_PAGE.aircraft_outline_path_for_reference("res://Aircraft/Aircraft_1.tscn"))
+	_expect(aircraft_1_outline_path == "res://Images/Aircraft Outlines/aircraft_1.png", "aircraft scene paths map to top-down outlines")
+	_expect(ResourceLoader.exists(aircraft_1_outline_path), "Aircraft 1 top-down outline is importable")
 	if pilot_roster != null:
 		var pilots: Array = pilot_roster.call("get_carrier_roster")
 		if not pilots.is_empty():
@@ -147,7 +150,14 @@ func _run() -> void:
 			mock_aircraft.add_child(mock_hardpoint)
 			var card_data: Dictionary = flights_page.call("_aircraft_member_summary", mock_aircraft, 0)
 			_expect(str(card_data.get("portrait_path", "")) == str((pilots[0] as Dictionary).get("portrait_path", "")), "aircraft card uses the assigned pilot portrait")
+			_expect(str(card_data.get("outline_path", "")) == aircraft_1_outline_path, "aircraft card uses its top-down outline")
 			_expect(str(card_data.get("loadout", "")) == "20MM AUTOCANNON", "aircraft card reads its mounted loadout")
+			var card_host := HBoxContainer.new()
+			flights_page.add_child(card_host)
+			flights_page.call("_add_aircraft_card", card_host, card_data)
+			var outline_rect := card_host.find_child("AircraftOutline", true, false) as TextureRect
+			_expect(outline_rect != null and outline_rect.texture != null, "flight card renders the aircraft outline texture")
+			card_host.queue_free()
 			mock_aircraft.free()
 
 	console.call("show_page", "ground_bay")

@@ -14,6 +14,8 @@ const ELITE_XP: int = 7500
 const ACE_AIR_KILLS: int = 5
 const PORTRAIT_CATALOG_PATH := "res://Images/Pilot Portraits/pilot_portrait_catalog.csv"
 const PORTRAIT_DIRECTORY := "res://Images/Pilot Portraits/"
+const PILOT_SURNAME_POOL_PATH := "res://docs/names.txt"
+const PILOT_CALLSIGN_POOL_PATH := "res://docs/callsigns.txt"
 
 const ORIGIN_PORTRAIT_REGIONS := {
 	"Ukraine": "Eastern Europe & Russia",
@@ -26,6 +28,27 @@ const ORIGIN_PORTRAIT_REGIONS := {
 	"Jordan": "Middle East & North Africa",
 	"Nigeria": "Sub-Saharan Africa",
 }
+
+# Zero-based, end-exclusive ranges in docs/names.txt, whose source list is
+# grouped by surname region. Keeping surname, voice, and portrait origin aligned
+# avoids turning campaign randomization into visibly mismatched identities.
+const ORIGIN_SURNAME_RANGES := {
+	"Ukraine": Vector2i(300, 350),
+	"Brazil": Vector2i(850, 900),
+	"Philippines": Vector2i(350, 400),
+	"Scotland": Vector2i(680, 700),
+	"French Canada": Vector2i(150, 200),
+	"Germany": Vector2i(100, 150),
+}
+const MIDDLE_EASTERN_SURNAMES: Array[String] = [
+	"Haddad", "Mansour", "Khoury", "Khalil", "Nasser", "Saleh",
+	"Hamdan", "Najjar", "Awad", "Barakat", "Darwish", "Farah",
+]
+const NIGERIAN_SURNAMES: Array[String] = [
+	"Adebayo", "Okafor", "Balogun", "Nwosu", "Okoro", "Okonkwo",
+	"Chukwu", "Eze", "Kalu", "Uche", "Akinyemi", "Ogunleye",
+	"Folorunsho", "Adeyemi", "Bakare", "Nwachukwu",
+]
 
 const PILOT_POOL: Array[Dictionary] = [
 	{
@@ -303,11 +326,35 @@ const PILOT_POOL: Array[Dictionary] = [
 var _pilots_by_id: Dictionary = {}
 var _assigned_pilot_id_by_callsign: Dictionary = {}
 var _assigned_callsign_by_pilot_id: Dictionary = {}
+var _flight_callsign_by_pilot_id: Dictionary = {}
 var _assigned_aircraft_by_pilot_id: Dictionary = {}
 var _flight_time_xp_remainder_by_pilot_id: Dictionary = {}
 var _damage_credit_by_target_id: Dictionary = {}
+var _pilot_selection_bag: Array[String] = []
+var _roster_rng := RandomNumberGenerator.new()
+var _roster_rng_seeded := false
 
 func _ready() -> void:
+	_randomize_roster_rng()
+	_build_pilot_index()
+
+
+func start_new_campaign(seed: int = 0) -> void:
+	## Generate identity once for a new campaign. Save/load restores these exact
+	## records, so names and personal callsigns do not reroll mid-campaign.
+	if seed == 0:
+		_randomize_roster_rng()
+	else:
+		_roster_rng.seed = seed
+		_roster_rng_seeded = true
+	_pilots_by_id.clear()
+	_assigned_pilot_id_by_callsign.clear()
+	_assigned_callsign_by_pilot_id.clear()
+	_flight_callsign_by_pilot_id.clear()
+	_assigned_aircraft_by_pilot_id.clear()
+	_flight_time_xp_remainder_by_pilot_id.clear()
+	_damage_credit_by_target_id.clear()
+	_pilot_selection_bag.clear()
 	_build_pilot_index()
 
 func _process(delta: float) -> void:
@@ -338,6 +385,63 @@ func get_carrier_roster() -> Array[Dictionary]:
 			result.append(pilot)
 	return result
 
+
+func capture_save_state() -> Dictionary:
+	_build_pilot_index()
+	var pilots: Array[Dictionary] = []
+	for pilot_id in _sorted_pilot_ids():
+		var pilot_variant: Variant = _pilots_by_id.get(pilot_id, {})
+		if pilot_variant is Dictionary:
+			pilots.append((pilot_variant as Dictionary).duplicate(true))
+	return {
+		"pilots": pilots,
+		"assigned_pilot_id_by_callsign": _assigned_pilot_id_by_callsign.duplicate(true),
+		"assigned_callsign_by_pilot_id": _assigned_callsign_by_pilot_id.duplicate(true),
+		"flight_callsign_by_pilot_id": _flight_callsign_by_pilot_id.duplicate(true),
+		"flight_time_xp_remainder_by_pilot_id": _flight_time_xp_remainder_by_pilot_id.duplicate(true),
+		"pilot_selection_bag": _pilot_selection_bag.duplicate(),
+	}
+
+
+func restore_save_state(state: Dictionary) -> bool:
+	if state.is_empty():
+		return false
+	var pilots_variant: Variant = state.get("pilots", [])
+	if not (pilots_variant is Array):
+		return false
+	_pilots_by_id.clear()
+	for pilot_variant in pilots_variant:
+		if not (pilot_variant is Dictionary):
+			continue
+		var pilot := (pilot_variant as Dictionary).duplicate(true)
+		var pilot_id := str(pilot.get("id", ""))
+		if not pilot_id.is_empty():
+			_ensure_pilot_career_fields(pilot)
+			_pilots_by_id[pilot_id] = pilot
+	_assign_missing_personal_callsigns()
+	_assigned_pilot_id_by_callsign = _string_dictionary(state.get("assigned_pilot_id_by_callsign", {}))
+	_assigned_callsign_by_pilot_id = _string_dictionary(state.get("assigned_callsign_by_pilot_id", {}))
+	_flight_callsign_by_pilot_id = _string_dictionary(state.get("flight_callsign_by_pilot_id", {}))
+	_flight_time_xp_remainder_by_pilot_id = _string_dictionary(state.get("flight_time_xp_remainder_by_pilot_id", {}))
+	_pilot_selection_bag = _string_array(state.get("pilot_selection_bag", []))
+	_assigned_aircraft_by_pilot_id.clear()
+	_damage_credit_by_target_id.clear()
+	return not _pilots_by_id.is_empty()
+
+
+func _string_dictionary(value: Variant) -> Dictionary:
+	return (value as Dictionary).duplicate(true) if value is Dictionary else {}
+
+
+func _string_array(value: Variant) -> Array[String]:
+	var result: Array[String] = []
+	if value is Array:
+		for entry in value:
+			var text := str(entry)
+			if text != "":
+				result.append(text)
+	return result
+
 func get_pilot_for_callsign(callsign: String) -> Dictionary:
 	_build_pilot_index()
 	var key := _normalize_callsign(callsign)
@@ -351,6 +455,9 @@ func get_voice_prefix_for_callsign(callsign: String) -> String:
 	return str(pilot.get("voice_prefix", ""))
 
 func assign_aircraft_to_callsign(aircraft: Node3D, callsign: String) -> void:
+	## Bind a roster pilot to a live aircraft. The supplied key may come from
+	## CarrierManager, but it is only an active-assignment alias; the pilot's
+	## campaign callsign is part of their persistent identity.
 	if not is_instance_valid(aircraft):
 		return
 	_build_pilot_index()
@@ -367,14 +474,51 @@ func assign_aircraft_to_callsign(aircraft: Node3D, callsign: String) -> void:
 	_assign_pilot_to_callsign(pilot_id, key)
 	_apply_pilot_to_aircraft(aircraft, _pilot_with_assignment(pilot_id))
 
+
+func assign_aircraft_to_flight_callsign(aircraft: Node3D, callsign: String) -> void:
+	## A formation station such as "Archer Two" is useful for radio routing and
+	## roster status, but must never replace the pilot's personal callsign.
+	if not is_instance_valid(aircraft):
+		return
+	_build_pilot_index()
+	var key := _normalize_callsign(callsign)
+	if key == "":
+		return
+	var pilot_id := _pilot_id_for_aircraft(aircraft)
+	if pilot_id == "":
+		assign_aircraft_to_callsign(aircraft, callsign)
+		pilot_id = _pilot_id_for_aircraft(aircraft)
+	if pilot_id == "":
+		return
+	var old_flight_callsign := str(_flight_callsign_by_pilot_id.get(pilot_id, ""))
+	if old_flight_callsign != "" and old_flight_callsign != key \
+	and str(_assigned_pilot_id_by_callsign.get(old_flight_callsign, "")) == pilot_id:
+		_assigned_pilot_id_by_callsign.erase(old_flight_callsign)
+	var replaced_pilot_id := str(_assigned_pilot_id_by_callsign.get(key, ""))
+	if replaced_pilot_id != "" and replaced_pilot_id != pilot_id \
+	and str(_flight_callsign_by_pilot_id.get(replaced_pilot_id, "")) == key:
+		_flight_callsign_by_pilot_id.erase(replaced_pilot_id)
+	_assigned_pilot_id_by_callsign[key] = pilot_id
+	_assigned_callsign_by_pilot_id[pilot_id] = key
+	_flight_callsign_by_pilot_id[pilot_id] = key
+	_apply_pilot_to_aircraft(aircraft, _pilot_with_assignment(pilot_id))
+
+
+func release_aircraft(aircraft: Node3D) -> void:
+	if not is_instance_valid(aircraft):
+		return
+	var pilot_id := _pilot_id_for_aircraft(aircraft)
+	if pilot_id != "":
+		_release_pilot_assignment(pilot_id)
+
+
 func release_callsign(callsign: String) -> void:
 	var key := _normalize_callsign(callsign)
 	if key == "":
 		return
 	var pilot_id := str(_assigned_pilot_id_by_callsign.get(key, ""))
 	if pilot_id != "":
-		_assigned_callsign_by_pilot_id.erase(pilot_id)
-	_assigned_pilot_id_by_callsign.erase(key)
+		_release_pilot_assignment(pilot_id)
 
 func record_kill_for_aircraft(aircraft: Node3D, target: Node3D) -> void:
 	if not is_instance_valid(aircraft):
@@ -477,13 +621,138 @@ func _award_kill_credit(pilot_id: String, target: Node3D, credit: float = 1.0) -
 func _build_pilot_index() -> void:
 	if not _pilots_by_id.is_empty():
 		return
-	for pilot_template in PILOT_POOL:
+	_ensure_roster_rng_seeded()
+	var surname_pools := _build_campaign_surname_pools()
+	var fallback_surnames := _load_unique_identity_lines(PILOT_SURNAME_POOL_PATH)
+	var callsigns := _load_unique_identity_lines(PILOT_CALLSIGN_POOL_PATH)
+	_shuffle_strings(fallback_surnames)
+	_shuffle_strings(callsigns)
+	for index in range(PILOT_POOL.size()):
+		var pilot_template := PILOT_POOL[index]
 		var pilot := pilot_template.duplicate(true)
 		var pilot_id := str(pilot.get("id", ""))
 		if pilot_id != "":
+			var surname := _take_campaign_surname(
+				str(pilot.get("national_origin", "")), surname_pools, fallback_surnames
+			)
+			if surname != "":
+				var given_name := str(pilot.get("name", "Pilot")).get_slice(" ", 0)
+				pilot["name"] = "%s %s" % [given_name, surname]
+				pilot["short_name"] = surname
+			if index < callsigns.size():
+				pilot["callsign"] = callsigns[index]
 			_ensure_pilot_career_fields(pilot)
 			_pilots_by_id[pilot_id] = pilot
+	_assign_missing_personal_callsigns()
 	_assign_pilot_portraits()
+
+
+func _randomize_roster_rng() -> void:
+	_roster_rng.randomize()
+	_roster_rng_seeded = true
+
+
+func _ensure_roster_rng_seeded() -> void:
+	if not _roster_rng_seeded:
+		_randomize_roster_rng()
+
+
+func _load_unique_identity_lines(path: String) -> Array[String]:
+	var result: Array[String] = []
+	var seen: Dictionary = {}
+	for entry in _load_identity_lines(path):
+		var key := entry.to_lower()
+		if seen.has(key):
+			continue
+		seen[key] = true
+		result.append(entry)
+	return result
+
+
+func _load_identity_lines(path: String) -> Array[String]:
+	var result: Array[String] = []
+	var file := FileAccess.open(path, FileAccess.READ)
+	if file == null:
+		return result
+	while not file.eof_reached():
+		var entry := file.get_line().strip_edges()
+		if entry == "":
+			continue
+		result.append(entry)
+	return result
+
+
+func _build_campaign_surname_pools() -> Dictionary:
+	var source := _load_identity_lines(PILOT_SURNAME_POOL_PATH)
+	var pools: Dictionary = {}
+	for origin_variant in ORIGIN_SURNAME_RANGES.keys():
+		var origin := str(origin_variant)
+		var bounds: Vector2i = ORIGIN_SURNAME_RANGES[origin]
+		var pool: Array[String] = []
+		for index in range(bounds.x, mini(bounds.y, source.size())):
+			pool.append(source[index])
+		_shuffle_strings(pool)
+		pools[origin] = pool
+	var middle_east_pool := MIDDLE_EASTERN_SURNAMES.duplicate()
+	var nigeria_pool := NIGERIAN_SURNAMES.duplicate()
+	_shuffle_strings(middle_east_pool)
+	_shuffle_strings(nigeria_pool)
+	pools["Middle East"] = middle_east_pool
+	pools["Nigeria"] = nigeria_pool
+	return pools
+
+
+func _take_campaign_surname(
+		national_origin: String,
+		pools: Dictionary,
+		fallback_surnames: Array[String]
+) -> String:
+	var pool_key := "Middle East" if national_origin in ["Lebanon", "Jordan"] else national_origin
+	var pool_variant: Variant = pools.get(pool_key, [])
+	if pool_variant is Array:
+		var pool: Array = pool_variant
+		if not pool.is_empty():
+			return str(pool.pop_back())
+	if not fallback_surnames.is_empty():
+		return fallback_surnames.pop_back()
+	return ""
+
+
+func _shuffle_strings(values: Array[String]) -> void:
+	_ensure_roster_rng_seeded()
+	for index in range(values.size() - 1, 0, -1):
+		var swap_index := _roster_rng.randi_range(0, index)
+		var held := values[index]
+		values[index] = values[swap_index]
+		values[swap_index] = held
+
+
+func _assign_missing_personal_callsigns() -> void:
+	var used: Dictionary = {}
+	var missing_ids: Array[String] = []
+	for pilot_id in _sorted_pilot_ids():
+		if not _pilots_by_id.has(pilot_id):
+			continue
+		var pilot: Dictionary = _pilots_by_id[pilot_id]
+		var callsign := str(pilot.get("callsign", "")).strip_edges()
+		var key := _normalize_callsign(callsign)
+		if key == "" or used.has(key):
+			missing_ids.append(pilot_id)
+		else:
+			used[key] = true
+	var candidates := _load_unique_identity_lines(PILOT_CALLSIGN_POOL_PATH)
+	_shuffle_strings(candidates)
+	for pilot_id in missing_ids:
+		var replacement := ""
+		while not candidates.is_empty() and replacement == "":
+			var candidate: String = candidates.pop_back()
+			if not used.has(_normalize_callsign(candidate)):
+				replacement = candidate
+		if replacement == "":
+			replacement = "Pilot %d" % (used.size() + 1)
+		var pilot: Dictionary = _pilots_by_id[pilot_id]
+		pilot["callsign"] = replacement
+		used[_normalize_callsign(replacement)] = true
 
 func _assign_pilot_portraits() -> void:
 	var catalog := _load_portrait_catalog()
@@ -607,9 +876,12 @@ func _pilot_with_assignment(pilot_id: String) -> Dictionary:
 	if not _pilots_by_id.has(pilot_id):
 		return {}
 	var pilot: Dictionary = (_pilots_by_id[pilot_id] as Dictionary).duplicate(true)
-	var assigned_callsign := str(_assigned_callsign_by_pilot_id.get(pilot_id, ""))
-	pilot["assigned_callsign"] = _display_callsign(assigned_callsign) if assigned_callsign != "" else ""
-	pilot["status"] = "assigned" if assigned_callsign != "" else "available"
+	var active_key := str(_assigned_callsign_by_pilot_id.get(pilot_id, ""))
+	var flight_callsign := str(_flight_callsign_by_pilot_id.get(pilot_id, ""))
+	var displayed_flight_callsign := _display_callsign(flight_callsign) if flight_callsign != "" else ""
+	pilot["assigned_callsign"] = displayed_flight_callsign # Backward-compatible UI field.
+	pilot["flight_callsign"] = displayed_flight_callsign
+	pilot["status"] = "assigned" if active_key != "" else "available"
 	return pilot
 
 func _pilot_id_for_aircraft(aircraft: Node3D) -> String:
@@ -625,38 +897,66 @@ func _assigned_pilot_id_for_callsign(callsign: String) -> String:
 	return ""
 
 func _pick_available_pilot_id() -> String:
-	for pilot_id in _sorted_pilot_ids():
-		if not _assigned_callsign_by_pilot_id.has(pilot_id):
+	if _pilot_selection_bag.is_empty():
+		_refill_pilot_selection_bag()
+	while not _pilot_selection_bag.is_empty():
+		var pilot_id: String = _pilot_selection_bag.pop_back()
+		if _pilots_by_id.has(pilot_id) and not _assigned_callsign_by_pilot_id.has(pilot_id):
 			return pilot_id
+	# The bag can contain pilots who became active after it was filled. Rebuild
+	# once from the currently available roster before reporting exhaustion.
+	_refill_pilot_selection_bag()
+	if not _pilot_selection_bag.is_empty():
+		return _pilot_selection_bag.pop_back()
 	return ""
+
+
+func _refill_pilot_selection_bag() -> void:
+	_pilot_selection_bag.clear()
+	for pilot_id in _sorted_pilot_ids():
+		if _pilots_by_id.has(pilot_id) and not _assigned_callsign_by_pilot_id.has(pilot_id):
+			_pilot_selection_bag.append(pilot_id)
+	_shuffle_strings(_pilot_selection_bag)
+
 
 func _assign_pilot_to_callsign(pilot_id: String, callsign: String) -> void:
 	if not _pilots_by_id.has(pilot_id):
 		return
 	var old_callsign := str(_assigned_callsign_by_pilot_id.get(pilot_id, ""))
-	if old_callsign != "" and old_callsign != callsign:
-		_assigned_pilot_id_by_callsign.erase(old_callsign)
 	var replaced_pilot_id := str(_assigned_pilot_id_by_callsign.get(callsign, ""))
 	if replaced_pilot_id != "" and replaced_pilot_id != pilot_id:
-		_assigned_callsign_by_pilot_id.erase(replaced_pilot_id)
-		_assigned_aircraft_by_pilot_id.erase(replaced_pilot_id)
+		_release_pilot_assignment(replaced_pilot_id)
 	if old_callsign == "":
 		var pilot: Dictionary = _pilots_by_id[pilot_id]
 		pilot["sorties_flown"] = int(pilot.get("sorties_flown", 0)) + 1
 		pilot["current_sortie_time_s"] = 0.0
+		_assigned_callsign_by_pilot_id[pilot_id] = callsign
 	_assigned_pilot_id_by_callsign[callsign] = pilot_id
-	_assigned_callsign_by_pilot_id[pilot_id] = callsign
+
+
+func _release_pilot_assignment(pilot_id: String) -> void:
+	if pilot_id == "":
+		return
+	for callsign_variant in _assigned_pilot_id_by_callsign.keys():
+		var callsign := str(callsign_variant)
+		if str(_assigned_pilot_id_by_callsign.get(callsign, "")) == pilot_id:
+			_assigned_pilot_id_by_callsign.erase(callsign)
+	_assigned_callsign_by_pilot_id.erase(pilot_id)
+	_flight_callsign_by_pilot_id.erase(pilot_id)
+	_assigned_aircraft_by_pilot_id.erase(pilot_id)
 
 func _apply_pilot_to_aircraft(aircraft: Node3D, pilot: Dictionary) -> void:
 	if pilot.is_empty():
 		return
-	var display_callsign := str(pilot.get("assigned_callsign", ""))
+	var personal_callsign := str(pilot.get("callsign", ""))
+	var flight_callsign := str(pilot.get("flight_callsign", ""))
 	var pilot_id := str(pilot.get("id", ""))
 	if pilot_id != "":
 		_assigned_aircraft_by_pilot_id[pilot_id] = aircraft
 	aircraft.set_meta("pilot_identity", pilot.duplicate(true))
 	aircraft.set_meta("pilot_roster_id", pilot_id)
-	aircraft.set_meta("pilot_callsign", display_callsign)
+	aircraft.set_meta("pilot_callsign", personal_callsign)
+	aircraft.set_meta("pilot_flight_callsign", flight_callsign)
 	aircraft.set_meta("pilot_rank", str(pilot.get("rank", "")))
 	aircraft.set_meta("pilot_name", str(pilot.get("short_name", pilot.get("name", ""))))
 	aircraft.set_meta("pilot_full_name", str(pilot.get("name", "")))
@@ -768,7 +1068,7 @@ func _skill_to_ai_value(skill_name: String) -> AIPilot.AIPilotSkill:
 			return AIPilot.AIPilotSkill.EXPERIENCED
 
 func _format_display_name(pilot: Dictionary) -> String:
-	var callsign := str(pilot.get("assigned_callsign", ""))
+	var callsign := str(pilot.get("callsign", ""))
 	if callsign == "":
 		return "%s %s" % [str(pilot.get("rank", "")), str(pilot.get("short_name", pilot.get("name", "")))]
 	return "%s \"%s\" %s" % [

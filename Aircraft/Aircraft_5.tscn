@@ -211,7 +211,7 @@ interior_volume_reduction = -2.0
 transform = Transform3D(-1, 0, -8.74213e-08, 0, 0.999983, 0, 8.74228e-08, 0, -0.999983, 0, 0.563369, 2.09922)
 
 [node name="CockpitPilot" parent="." unique_id=1290883956 instance=ExtResource("90_cpilot")]
-transform = Transform3D(0.999958, 0, -0.00842568, 0, 0.999949, 0, 0.00839809, 0, 0.999921, 0, -1.09001, 2.22481)
+transform = Transform3D(0.999958, 0, -0.00842568, 0, 0.999949, 0, 0.00839809, 0, 0.999921, 0, -0.63724387, 2.22481)
 abdomen_pitch = 0.0
 torso_pitch = 0.0
 lower_arm_x = 0.0

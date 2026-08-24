@@ -1,18 +1,7 @@
-[gd_scene load_steps=4 format=3 uid="uid://ba1hsntx8a01y"]
+[gd_scene load_steps=2 format=3 uid="uid://ba1hsntx8a01y"]
 
-[ext_resource type="Script" uid="uid://c5p7knajxhkg6" path="res://Aircraft/PilotPose.gd" id="1_pose"]
-[ext_resource type="PackedScene" uid="uid://bnxo3mvh7eqk2" path="res://Models/Characters/pilot 2 - sitting in cockpit.glb" id="2_pilot"]
-[ext_resource type="PackedScene" path="res://Models/Characters/PilotPlaceholder.tscn" id="3_placeholder"]
+[ext_resource type="PackedScene" path="res://Models/Characters/pilot/PilotCharacter.tscn" id="1_pilot_character"]
 
-[node name="CockpitPilot" type="Node3D" unique_id=1638122682]
-process_priority = 1
-script = ExtResource("1_pose")
-pose_target_path = NodePath("Pilot")
-upper_leg_x = 0.0
-lower_leg_x = 0.0
-upper_leg_spread = 0.0
-
-[node name="Pilot" parent="." unique_id=1845964379 instance=ExtResource("2_pilot")]
-
-[node name="ParachutePlaceholder" parent="." instance=ExtResource("3_placeholder")]
-visible = false
+[node name="CockpitPilot" instance=ExtResource("1_pilot_character")]
+initial_baked_animation = &"piloting"
+editor_preview_animation_time_s = 1.5

@@ -4,7 +4,7 @@
 [ext_resource type="PackedScene" uid="uid://pfnx57rs2d41" path="res://LandCarrier/CarrierTread.tscn" id="3_tread"]
 [ext_resource type="Script" uid="uid://bdcuxticnrnfj" path="res://LandCarrier/FlightDeckManager.gd" id="4_6n087"]
 [ext_resource type="PackedScene" uid="uid://bc6qxmolml7of" path="res://LandCarrier/SimpleTractorBot.tscn" id="5_olyyp"]
-[ext_resource type="PackedScene" uid="uid://bg46ioajfd7yd" path="res://Models/LandCarrier/Land carrier 2.glb" id="6_carrier_model"]
+[ext_resource type="PackedScene" uid="uid://cbi5j1o275n51" path="res://Models/LandCarrier/Land carrier 3.glb" id="6_carrier_model"]
 [ext_resource type="Script" uid="uid://1dc3wqfq3v2j" path="res://LandCarrier/TreadPositionHelper.gd" id="7_tread_helper"]
 [ext_resource type="Script" uid="uid://byhupfh0501o1" path="res://LandCarrier/Catapult.gd" id="8_0rqhh"]
 [ext_resource type="PackedScene" uid="uid://jd7fjuhmfvd4" path="res://LandCarrier/CarrierElevator.tscn" id="8_elevator"]
@@ -39,7 +39,7 @@ script = ExtResource("1_landcarrier")
 transform = Transform3D(-20, 0, -2.62268e-06, 0, 6, 0, 1.74846e-06, 0, -30, 0.149422, -12.9746, -0.181503)
 shape = SubResource("BoxShape3D_main_carrier")
 
-[node name="CarrierModel" parent="." unique_id=1346407114 instance=ExtResource("6_carrier_model")]
+[node name="CarrierModel" parent="." unique_id=1068984431 instance=ExtResource("6_carrier_model")]
 transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, 0, 0)
 
 [node name="Land carrier tread 6" parent="." unique_id=793984869 instance=ExtResource("3_tread")]
@@ -68,13 +68,15 @@ tread_index = 1
 [node name="CarrierManager" type="Node" parent="." unique_id=768930073]
 script = ExtResource("18_carrier_manager")
 
-[node name="FlightDeckManager" type="Node3D" parent="." unique_id=1027014274 node_paths=PackedStringArray("catapult", "elevator_pickup_marker", "elevator", "deck_marker", "tractor_bots")]
+[node name="FlightDeckManager" type="Node3D" parent="." unique_id=1027014274 node_paths=PackedStringArray("catapult", "secondary_catapult", "elevator_pickup_marker", "elevator", "recovery_elevator_pickup_marker", "recovery_elevator", "deck_marker")]
 script = ExtResource("4_6n087")
-catapult = NodePath("../Catapult")
+catapult = NodePath("../Catapult1")
+secondary_catapult = NodePath("../Catapult2")
 elevator_pickup_marker = NodePath("../elevator_marker")
 elevator = NodePath("../Elevator")
+recovery_elevator_pickup_marker = NodePath("../elevator_marker_2")
+recovery_elevator = NodePath("../Elevator2")
 deck_marker = NodePath("../DeckCenterStart")
-tractor_bots = [NodePath("../TractorBot1"), NodePath("../TractorBot2"), NodePath("../TractorBot3"), NodePath("../TractorBot4")]
 aircraft_template_scene = ExtResource("16_default_aircraft")
 aircraft_7_scene = ExtResource("17_aircraft_7")
 aircraft_9_scene = ExtResource("18_aircraft_9")
@@ -84,6 +86,10 @@ aircraft_10_scene = ExtResource("19_aircraft_10")
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 14.273)
 
 [node name="elevator_marker" type="Marker3D" parent="." unique_id=539787924]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -8, 0, 10)
+
+[node name="elevator_marker_2" type="Marker3D" parent="." unique_id=1680313237]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8, 0, -10)
 
 [node name="elevator_approach_marker_a" type="Marker3D" parent="." unique_id=1055781955]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.023, 0, -15.619)
@@ -94,14 +100,50 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.027, 0, 14.862)
 [node name="TractorBot1" parent="." unique_id=1070609294 instance=ExtResource("5_olyyp")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -6, -9.3, -8)
 
+[node name="Tractorbot setup point1" type="Node3D" parent="TractorBot1" unique_id=687202057]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -5.5, 9.3, 12.5)
+
 [node name="TractorBot2" parent="." unique_id=1124242434 instance=ExtResource("5_olyyp")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -9.3, -8)
+
+[node name="Tractorbot setup point2" type="Node3D" parent="TractorBot2" unique_id=440622827]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -11.5, 9.3, 16.15)
 
 [node name="TractorBot3" parent="." unique_id=1219076326 instance=ExtResource("5_olyyp")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 6, -9.3, -8)
 
+[node name="Tractorbot setup point3" type="Node3D" parent="TractorBot3" unique_id=1175436666]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -17.5, 9.3, 19.85)
+
 [node name="TractorBot4" parent="." unique_id=1009962158 instance=ExtResource("5_olyyp")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 12, -9.3, -8)
+
+[node name="Tractorbot setup point4" type="Node3D" parent="TractorBot4" unique_id=2032245211]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -23.5, 9.3, 23.5)
+
+[node name="TractorBot5" parent="." unique_id=1340276577 instance=ExtResource("5_olyyp")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -6, -9.3, -8)
+
+[node name="Tractorbot setup point5" type="Node3D" parent="TractorBot5" unique_id=717547182]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10.5, 9.3, -7.5)
+
+[node name="TractorBot6" parent="." unique_id=241345164 instance=ExtResource("5_olyyp")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -9.3, -8)
+
+[node name="Tractorbot setup point6" type="Node3D" parent="TractorBot6" unique_id=1429270701]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4.5, 9.3, -4)
+
+[node name="TractorBot7" parent="." unique_id=410927047 instance=ExtResource("5_olyyp")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 6, -9.3, -8)
+
+[node name="Tractorbot setup point7" type="Node3D" parent="TractorBot7" unique_id=12344044]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.5, 9.3, 0)
+
+[node name="TractorBot8" parent="." unique_id=436325536 instance=ExtResource("5_olyyp")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 12, -9.3, -8)
+
+[node name="Tractorbot setup point8" type="Node3D" parent="TractorBot8" unique_id=322958830]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -7.5, 9.3, 3.5)
 
 [node name="Shuttle" type="Node3D" parent="." unique_id=1585194178]
 transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, 0, 73)
@@ -113,10 +155,22 @@ transform = Transform3D(1, 0, 0, 0, 0.5, 0, 0, 0, 0.5, 0, 0.25, 0.710272)
 shape = SubResource("BoxShape3D_dnvtn")
 
 [node name="ShuttleModel" parent="Shuttle" unique_id=1545389477 instance=ExtResource("20_catapult_shuttle")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.35, 0)
+transform = Transform3D(1.3190982, 0, 0, 0, 1.3190982, 0, 0, 0, 1.5430442, 0, 0, 0)
 
-[node name="Catapult" type="Node3D" parent="." unique_id=1009800316 node_paths=PackedStringArray("shuttle", "shuttle_area", "latch_marker", "release_marker", "deck_ref")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 63.9417)
+[node name="Shuttle2" type="Node3D" parent="." unique_id=1751864758]
+transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, 0, 73)
+
+[node name="gear_connector" type="Area3D" parent="Shuttle2" unique_id=463226798]
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Shuttle2/gear_connector" unique_id=1393984890]
+transform = Transform3D(1, 0, 0, 0, 0.5, 0, 0, 0, 0.5, 0, 0.25, 0.710272)
+shape = SubResource("BoxShape3D_dnvtn")
+
+[node name="ShuttleModel" parent="Shuttle2" unique_id=1845384299 instance=ExtResource("20_catapult_shuttle")]
+transform = Transform3D(1.3190982, 0, 0, 0, 1.3190982, 0, 0, 0, 1.5430442, 0, 0, 0)
+
+[node name="Catapult1" type="Node3D" parent="." unique_id=1009800316 node_paths=PackedStringArray("shuttle", "shuttle_area", "latch_marker", "release_marker", "deck_ref")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -8, 0, 63.942)
 script = ExtResource("8_0rqhh")
 shuttle = NodePath("../Shuttle")
 shuttle_area = NodePath("../Shuttle/gear_connector")
@@ -127,11 +181,29 @@ shuttle_speed = 40.0
 approach_speed_mps = 30.0
 return_speed_mps = 45.0
 
-[node name="catapult_release_marker" type="Marker3D" parent="Catapult" unique_id=2131180593]
+[node name="catapult_release_marker" type="Marker3D" parent="Catapult1" unique_id=2131180593]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4.20515e-06, 0, 9.15757)
 
-[node name="catapult_latch_marker" type="Marker3D" parent="Catapult" unique_id=1606039653]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -50)
+[node name="catapult_latch_marker" type="Marker3D" parent="Catapult1" unique_id=1606039653]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -35)
+
+[node name="Catapult2" type="Node3D" parent="." unique_id=1761232085 node_paths=PackedStringArray("shuttle", "shuttle_area", "latch_marker", "release_marker", "deck_ref")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8, 0, 63.942)
+script = ExtResource("8_0rqhh")
+shuttle = NodePath("../Shuttle2")
+shuttle_area = NodePath("../Shuttle2/gear_connector")
+latch_marker = NodePath("catapult_latch_marker")
+release_marker = NodePath("catapult_release_marker")
+deck_ref = NodePath("../FlightDeckManager/plane_start_marker")
+shuttle_speed = 40.0
+approach_speed_mps = 30.0
+return_speed_mps = 45.0
+
+[node name="catapult_release_marker" type="Marker3D" parent="Catapult2" unique_id=1608143191]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4.20515e-06, 0, 9.15757)
+
+[node name="catapult_latch_marker" type="Marker3D" parent="Catapult2" unique_id=1192649773]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -35)
 
 [node name="TreadPositionHelper" type="Node3D" parent="." unique_id=1236613043]
 script = ExtResource("7_tread_helper")
@@ -140,6 +212,12 @@ sphere_radius = 0.5
 sphere_color = Color(1, 0, 0, 0.5)
 
 [node name="Elevator" parent="." unique_id=1634191661 instance=ExtResource("8_elevator")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -8, 0, 10)
+move_speed = 3.0
+cover_slide_speed = 4.5
+
+[node name="Elevator2" parent="." unique_id=1915872734 instance=ExtResource("8_elevator")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8, 0, -10)
 move_speed = 3.0
 cover_slide_speed = 4.5
 
@@ -169,9 +247,9 @@ spot_range = 10.0
 spot_angle = 60.0
 
 [node name="BridgeHologram" parent="." unique_id=713542789 instance=ExtResource("14_bridge_holo")]
+process_mode = 4
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -29.5554, 13.5188, 0.00964248)
 visible = false
-process_mode = 4
 
 [node name="Arresting Cable 1" parent="." unique_id=1421598451 instance=ExtResource("12_eyg35")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -62.4367)
@@ -191,7 +269,7 @@ linear_c = 100.0
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -72.9282)
 
 [node name="DeckCenterEnd" type="Marker3D" parent="." unique_id=230425015]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 72.5944)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 72.5944)
 
 [node name="approach_0" type="Marker3D" parent="." unique_id=389240189]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 600, -2000)
@@ -264,5 +342,3 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -24.7722, 5.85398, -0.0404381
 
 [node name="deck_start" type="Node3D" parent="." unique_id=1526523785]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -73.64475)
-
-[connection signal="launch_sequence_complete" from="Catapult" to="FlightDeckManager" method="_on_catapult_launch_sequence_complete"]

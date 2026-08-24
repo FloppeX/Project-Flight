@@ -18,33 +18,86 @@ extends Node3D
 @export var split_centerline_at_elevator: bool = true
 @export var elevator_path: NodePath
 @export var elevator_gap_margin_m: float = 0.0
+@export var debug_height_step_m: float = 0.01
+
+var debug_height_offset_m: float = 0.0
 
 var _start: Node3D
 var _end: Node3D
 var _elevator: Node3D
+var _deck_up: Vector3 = Vector3.UP
+var _height_readout_layer: CanvasLayer
+var _height_readout_label: Label
+var _height_readout_hide_at_ms: int = 0
+
+const HEIGHT_READOUT_DURATION_MS := 4000
 
 func _ready():
 	_start = get_node_or_null(start_marker_path) as Node3D
 	_end = get_node_or_null(end_marker_path) as Node3D
 	_elevator = get_node_or_null(elevator_path) as Node3D
 	set_process_unhandled_input(true)
+	set_process(false)
 	if not (_start and _end):
 		push_warning("DeckLights: assign start/end markers")
 		return
 	_build_lights()
 
 func _unhandled_input(event: InputEvent) -> void:
-	return
 	if event is InputEventKey and event.pressed and not event.echo:
 		var key_event: InputEventKey = event as InputEventKey
-		if key_event.keycode == KEY_COMMA:
-			centerline_height_m -= 0.05
-			_build_lights()
-			print("[DeckLights] Centerline height offset: %.2fm" % centerline_height_m)
-		elif key_event.keycode == KEY_PERIOD:
-			centerline_height_m += 0.05
-			_build_lights()
-			print("[DeckLights] Centerline height offset: %.2fm" % centerline_height_m)
+		if key_event.keycode == KEY_PAGEDOWN:
+			_adjust_debug_height(-debug_height_step_m)
+		elif key_event.keycode == KEY_PAGEUP:
+			_adjust_debug_height(debug_height_step_m)
+
+
+func _process(_delta: float) -> void:
+	if is_instance_valid(_height_readout_label) \
+	and Time.get_ticks_msec() >= _height_readout_hide_at_ms:
+		_height_readout_label.visible = false
+		set_process(false)
+
+
+func _adjust_debug_height(delta_m: float) -> void:
+	debug_height_offset_m = snappedf(debug_height_offset_m + delta_m, 0.001)
+	_build_lights()
+	_show_height_readout()
+	print("[DeckLights] Height offset: %+.3fm" % debug_height_offset_m)
+
+
+func _show_height_readout() -> void:
+	_ensure_height_readout()
+	if not is_instance_valid(_height_readout_label):
+		return
+	_height_readout_label.text = "DECK LIGHT HEIGHT OFFSET  %+.3f m\nPGDN LOWER   •   PGUP RAISE" % debug_height_offset_m
+	_height_readout_label.visible = true
+	_height_readout_hide_at_ms = Time.get_ticks_msec() + HEIGHT_READOUT_DURATION_MS
+	set_process(true)
+
+
+func _ensure_height_readout() -> void:
+	if is_instance_valid(_height_readout_label):
+		return
+	_height_readout_layer = CanvasLayer.new()
+	_height_readout_layer.layer = 120
+	_height_readout_layer.name = "DeckLightHeightDebugOverlay"
+	add_child(_height_readout_layer)
+	_height_readout_label = Label.new()
+	_height_readout_label.name = "Readout"
+	_height_readout_label.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	_height_readout_label.offset_left = -260.0
+	_height_readout_label.offset_top = 24.0
+	_height_readout_label.offset_right = 260.0
+	_height_readout_label.offset_bottom = 88.0
+	_height_readout_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_height_readout_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_height_readout_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_height_readout_label.add_theme_font_size_override("font_size", 20)
+	_height_readout_label.add_theme_color_override("font_color", Color(0.75, 1.0, 0.82, 1.0))
+	_height_readout_label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 0.95))
+	_height_readout_label.add_theme_constant_override("outline_size", 6)
+	_height_readout_layer.add_child(_height_readout_label)
 
 func _build_lights():
 	# Clear previous
@@ -53,12 +106,15 @@ func _build_lights():
 			c.queue_free()
 	var A: Vector3 = _start.global_position
 	var B: Vector3 = _end.global_position
+	_deck_up = global_transform.basis.y.normalized()
+	if _deck_up.is_zero_approx():
+		_deck_up = Vector3.UP
 	var dir: Vector3 = (B - A)
 	var len: float = dir.length()
 	if len < 0.1:
 		return
 	dir /= len
-	var right: Vector3 = dir.cross(Vector3.UP).normalized()
+	var right: Vector3 = dir.cross(_deck_up).normalized()
 	# White edge rows run full deck length.
 	if include_edges:
 		var edge_end: Vector3 = B - dir * maxf(0.0, edge_front_trim_m)
@@ -112,7 +168,7 @@ func _get_elevator_half_length_along_deck(deck_dir: Vector3) -> float:
 
 func _add_light(pos: Vector3, col: Color, is_edge: bool):
 	var y_offset: float = edge_height_m if is_edge else centerline_height_m
-	var marker_position := pos + Vector3(0, y_offset + 0.5, 0)
+	var marker_position := pos + _deck_up * (y_offset + debug_height_offset_m + 0.5)
 	# Embedded deck markers provide their own emissive point. Optional surface
 	# lights are retained for night-scene tuning, but zero-energy lights should
 	# not add dozens of redundant Light3D nodes or overlapping colored pools.
@@ -133,7 +189,7 @@ func _add_light(pos: Vector3, col: Color, is_edge: bool):
 		quad.size = Vector2(billboard_size, billboard_size)
 		mi.mesh = quad
 		var mat := StandardMaterial3D.new()
-		mat.unshaded = true
+		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		mat.vertex_color_use_as_albedo = true
 		mat.albedo_color = col
 		mat.emission_enabled = true

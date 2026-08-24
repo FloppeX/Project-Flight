@@ -1,4 +1,4 @@
-[gd_scene load_steps=47 format=3 uid="uid://cyi3y5qogjcud"]
+[gd_scene format=3 uid="uid://cyi3y5qogjcud"]
 
 [ext_resource type="Script" uid="uid://c4ltq2v6fji05" path="res://Aircraft/aircraft.gd" id="1_e8t1h"]
 [ext_resource type="PackedScene" uid="uid://cadi81fcpvmuc" path="res://Projectiles/Explosion/explosion.tscn" id="2_x73up"]
@@ -31,14 +31,14 @@
 [ext_resource type="PackedScene" uid="uid://dsnc8jllg42ph" path="res://Weapons/hardpoint.tscn" id="28_ymevh"]
 [ext_resource type="PackedScene" uid="uid://ds5dlvtqfa7tv" path="res://Aircraft/tail_hook.tscn" id="31_3f4kl"]
 [ext_resource type="PackedScene" uid="uid://bar7l5uwuwevr" path="res://Weapons/Autocannon/Autocannon.tscn" id="31_kq7no"]
-[ext_resource type="PackedScene" path="res://Weapons/RocketPod/rocket_pod.tscn" id="33_rocket"]
 [ext_resource type="PackedScene" uid="uid://bc6wrpt4b3m41" path="res://Weapons/Bomb/bomb_rack.tscn" id="32_kq7no"]
 [ext_resource type="Script" uid="uid://ov07c02ulmhl" path="res://Aircraft/AIToggle.gd" id="33_aitgl"]
+[ext_resource type="PackedScene" uid="uid://cn0n757m62w08" path="res://Weapons/RocketPod/rocket_pod.tscn" id="33_rocket"]
 [ext_resource type="Script" uid="uid://bwjigrpitv7cm" path="res://AI/AIPilot.gd" id="34_aipil"]
 [ext_resource type="Script" uid="uid://ckyxqpwu5tkkl" path="res://Aircraft/CockpitCanopyVisibility.gd" id="35_canopyvis"]
 [ext_resource type="Script" uid="uid://dkrq0ip0i4pq4" path="res://Aircraft/DamageEffects.gd" id="36_dmgfx"]
 [ext_resource type="AudioStream" uid="uid://o2xkkc5oyh4w" path="res://Audio/cockpit_interior_4.wav" id="38_cpit"]
-[ext_resource type="PackedScene" path="res://Aircraft/CockpitPilot.tscn" id="90_cpilot"]
+[ext_resource type="PackedScene" uid="uid://ba1hsntx8a01y" path="res://Aircraft/CockpitPilot.tscn" id="90_cpilot"]
 [ext_resource type="PackedScene" path="res://Aircraft/Visuals/EjectionSeat.tscn" id="92_ejection_seat"]
 [ext_resource type="Script" uid="uid://baexawx30vqgf" path="res://Aircraft/EjectionSequence.gd" id="93_ejection_sequence"]
 
@@ -58,7 +58,7 @@ radius = 0.3
 [sub_resource type="Resource" id="Resource_qvmvr"]
 metadata/__load_path__ = "res://Audio/flaps_deploy 2.wav"
 
-[node name="Aircraft_8" type="RigidBody3D"]
+[node name="Aircraft_8" type="RigidBody3D" unique_id=941783978]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -0.591083)
 collision_layer = 513
 collision_mask = 513
@@ -76,21 +76,21 @@ wreck_base_impulse = 100.0
 wreck_random_spread = 1.0
 wreck_extra_spin = 15.0
 
-[node name="aircraft_8" parent="." instance=ExtResource("3_kq7no")]
+[node name="aircraft_8" parent="." unique_id=437376084 instance=ExtResource("3_kq7no")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.123306, -0.231455)
 
-[node name="Aircraft 2 propeller" parent="aircraft_8" instance=ExtResource("4_ii5ys")]
+[node name="Aircraft 2 propeller" parent="aircraft_8" unique_id=2130889238 instance=ExtResource("4_ii5ys")]
 transform = Transform3D(1.6, 0, 4.76837e-08, 0, 1.6, 0, -4.76837e-08, 0, 1.6, -2.00808e-09, 0.412803, -4.04907)
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+[node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=2083576305]
 transform = Transform3D(1, 0, 0, 0, -4.37114e-08, -1, 0, 1, -4.37114e-08, 0, 0, 0.51845)
 shape = SubResource("CapsuleShape3D_kq7no")
 
-[node name="WingCollider" type="CollisionShape3D" parent="."]
+[node name="WingCollider" type="CollisionShape3D" parent="." unique_id=27094430]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.01899, 0.0269271, -2.48232)
 shape = SubResource("BoxShape3D_wing_hitbox")
 
-[node name="SimpleAero" type="Node" parent="."]
+[node name="SimpleAero" type="Node" parent="." unique_id=1545239592]
 script = ExtResource("5_8vbcf")
 rb_path = NodePath("..")
 pitch_power = 8.8
@@ -115,41 +115,41 @@ lateral_drag_strength = 1.05
 gear_drag_multiplier = 1.55
 flaps_drag_multiplier = 1.28
 
-[node name="MovingParts" type="Node3D" parent="."]
+[node name="MovingParts" type="Node3D" parent="." unique_id=1687230114]
 
-[node name="CenterGearCollider" type="CollisionShape3D" parent="."]
+[node name="CenterGearCollider" type="CollisionShape3D" parent="." unique_id=574946913]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -1.512, 4.727)
 shape = SubResource("SphereShape3D_gear")
 
-[node name="nose gear pivot point" type="Node3D" parent="CenterGearCollider"]
+[node name="nose gear pivot point" type="Node3D" parent="CenterGearCollider" unique_id=1280156038]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.1597, -0.137423)
 
-[node name="Aircraft nose gear" parent="CenterGearCollider/nose gear pivot point" instance=ExtResource("7_xldsk")]
+[node name="Aircraft nose gear" parent="CenterGearCollider/nose gear pivot point" unique_id=847708749 instance=ExtResource("7_xldsk")]
 transform = Transform3D(1, 0, 2.84217e-14, 0, 1, 0, -2.84217e-14, 0, 1, 5.49129e-07, 0.0679039, -3.49403)
 
-[node name="RightGearCollider" type="CollisionShape3D" parent="."]
+[node name="RightGearCollider" type="CollisionShape3D" parent="." unique_id=633438233]
 transform = Transform3D(1, 0, 1.49012e-07, 0, 1, 0, -1.49012e-07, 0, 1, -2.68079, -1.34749, -1.68588)
 shape = SubResource("SphereShape3D_gear")
 
-[node name="right gear pivot point" type="Node3D" parent="RightGearCollider"]
+[node name="right gear pivot point" type="Node3D" parent="RightGearCollider" unique_id=1021974043]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.22378, 1.04143, 1.78814e-07)
 
-[node name="aircraft main gear straight" parent="RightGearCollider/right gear pivot point" instance=ExtResource("8_ls0dm")]
+[node name="aircraft main gear straight" parent="RightGearCollider/right gear pivot point" unique_id=1128980453 instance=ExtResource("8_ls0dm")]
 transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 1.40837, 0.542302, -0.644126)
 
-[node name="LeftGearCollider" type="CollisionShape3D" parent="."]
+[node name="LeftGearCollider" type="CollisionShape3D" parent="." unique_id=1389991948]
 transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 2.681, -1.34749, -1.68543)
 shape = SubResource("SphereShape3D_gear")
 
-[node name="left gear pivot point" type="Node3D" parent="LeftGearCollider"]
+[node name="left gear pivot point" type="Node3D" parent="LeftGearCollider" unique_id=640775782]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.22378, 1.04143, 1.78814e-07)
 
-[node name="aircraft main gear straight" parent="LeftGearCollider/left gear pivot point" instance=ExtResource("8_ls0dm")]
+[node name="aircraft main gear straight" parent="LeftGearCollider/left gear pivot point" unique_id=917153787 instance=ExtResource("8_ls0dm")]
 transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 1.40837, 0.542302, -0.644126)
 
-[node name="EnergyContainer" parent="." instance=ExtResource("9_n2s36")]
+[node name="EnergyContainer" parent="." unique_id=512523001 instance=ExtResource("9_n2s36")]
 
-[node name="Engine" parent="." instance=ExtResource("10_jemhm")]
+[node name="Engine" parent="." unique_id=1450464726 instance=ExtResource("10_jemhm")]
 transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, 0, 0)
 PowerFactor = 13800.0
 propeller_node = NodePath("../aircraft_8/Aircraft 2 propeller")
@@ -158,12 +158,12 @@ EngineSoundStart = ExtResource("12_sqfht")
 FuelRate = 0.01
 ProcessPhysics = true
 
-[node name="Steering" parent="." instance=ExtResource("13_ldgib")]
+[node name="Steering" parent="." unique_id=1319076685 instance=ExtResource("13_ldgib")]
 
-[node name="Flaps" parent="." instance=ExtResource("14_a4w5w")]
+[node name="Flaps" parent="." unique_id=745860936 instance=ExtResource("14_a4w5w")]
 FlapSoundLoop = SubResource("Resource_qvmvr")
 
-[node name="LandingGear" parent="." node_paths=PackedStringArray("gear_collision_shapes", "gear_visuals") instance=ExtResource("15_bwm4r")]
+[node name="LandingGear" parent="." unique_id=2128599275 node_paths=PackedStringArray("gear_collision_shapes", "gear_visuals") instance=ExtResource("15_bwm4r")]
 gear_collision_shapes = [NodePath("../CenterGearCollider"), NodePath("../RightGearCollider"), NodePath("../LeftGearCollider")]
 gear_visuals = [null, null, null]
 gear_stowed_rotations_degrees = Array[Vector3]([Vector3(90, 0, 0), Vector3(90, 90, -45), Vector3(90, -90, 45)])
@@ -174,109 +174,114 @@ spring_strength = 12000.0
 wheel_rest_height = 0.5
 max_compression = 0.4
 
-[node name="ControlEngine" parent="." instance=ExtResource("18_gjrvb")]
+[node name="ControlEngine" parent="." unique_id=74879880 instance=ExtResource("18_gjrvb")]
 
-[node name="ControlSteering" parent="." instance=ExtResource("19_ubuxl")]
+[node name="ControlSteering" parent="." unique_id=1636561895 instance=ExtResource("19_ubuxl")]
 
-[node name="ControlLandingGear" parent="." instance=ExtResource("20_gd71x")]
+[node name="ControlLandingGear" parent="." unique_id=640284297 instance=ExtResource("20_gd71x")]
 nose_gear_collider_path = NodePath("../CenterGearCollider")
 left_main_gear_collider_path = NodePath("../RightGearCollider")
 gear_visual_root_paths = Array[NodePath]([NodePath("../CenterGearCollider/nose gear pivot point"), NodePath("../RightGearCollider/right gear pivot point"), NodePath("../LeftGearCollider/left gear pivot point")])
 
-[node name="ControlFlaps" parent="." instance=ExtResource("21_rcffs")]
+[node name="ControlFlaps" parent="." unique_id=1229615422 instance=ExtResource("21_rcffs")]
 
-[node name="ControlWeapons" type="Node" parent="." node_paths=PackedStringArray("hardpoints")]
+[node name="ControlWeapons" type="Node" parent="." unique_id=1517494027 node_paths=PackedStringArray("hardpoints")]
 script = ExtResource("22_fi8sb")
 hardpoints = [NodePath("../Hardpoint1"), NodePath("../Hardpoint2")]
 metadata/_custom_type_script = "uid://5l6s62uv3p3a"
 
-[node name="ControlTargeting" type="Node" parent="."]
+[node name="ControlTargeting" type="Node" parent="." unique_id=1257509329]
 script = ExtResource("24_kq7no")
 fov_cone_deg = 90.0
 max_range_m = 2000.0
 
-[node name="CameraController" type="Node3D" parent="." node_paths=PackedStringArray("aircraft", "cockpit_tripod", "chase_tripod", "cinematic_tripod")]
+[node name="CameraController" type="Node3D" parent="." unique_id=877063365 node_paths=PackedStringArray("aircraft", "cockpit_tripod", "chase_tripod", "cinematic_tripod")]
 script = ExtResource("23_6y2pl")
 aircraft = NodePath("..")
 cockpit_tripod = NodePath("../CameraCockpit")
 chase_tripod = NodePath("../CameraChase")
 cinematic_tripod = NodePath("../CameraCinematic")
 
-[node name="AudioManager3D" parent="." instance=ExtResource("24_wyvhj")]
+[node name="AudioManager3D" parent="." unique_id=1744522073 instance=ExtResource("24_wyvhj")]
 cockpit_interior_sound = ExtResource("38_cpit")
 
-[node name="CameraCockpit" parent="." instance=ExtResource("25_lvoxg")]
+[node name="CameraCockpit" parent="." unique_id=377731966 instance=ExtResource("25_lvoxg")]
 transform = Transform3D(-1, 0, -8.74213e-08, 0, 0.999983, 0, 8.74228e-08, 0, -0.999983, 0, 0.843061, 2.48831)
 
-[node name="CockpitPilot" parent="." instance=ExtResource("90_cpilot")]
-transform = Transform3D(0.999958, 0, -0.00842568, 0, 0.999949, 0, 0.00839809, 0, 0.999921, 0, -0.8102, 2.55929)
+[node name="CockpitPilot" parent="." unique_id=2018295462 instance=ExtResource("90_cpilot")]
+transform = Transform3D(0.999958, 0, -0.00842568, 0, 0.999949, 0, 0.00839809, 0, 0.999921, 0, -0.3310716, 2.6061084)
+abdomen_pitch = 0.0
+torso_pitch = 0.0
+lower_arm_x = 0.0
+wrist_x = 0.0
+finger_curl = 0.0
 cockpit_hidden_mesh_names = PackedStringArray("Pilot")
 
-[node name="EjectionSeat" parent="." instance=ExtResource("92_ejection_seat")]
+[node name="EjectionSeat" parent="." unique_id=383247262 instance=ExtResource("92_ejection_seat")]
 transform = Transform3D(0.999958, 0, -0.00842568, 0, 0.999949, 0, 0.00839809, 0, 0.999921, 0, -0.3779195, 2.6171486)
 
-[node name="EjectionSequence" type="Node" parent="."]
+[node name="EjectionSequence" type="Node" parent="." unique_id=830339324]
 script = ExtResource("93_ejection_sequence")
 
-[node name="CameraTarget" type="Node3D" parent="."]
+[node name="CameraTarget" type="Node3D" parent="." unique_id=1950938671]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.906776, 4.87997)
 
-[node name="Camera" type="Camera3D" parent="CameraTarget"]
+[node name="Camera" type="Camera3D" parent="CameraTarget" unique_id=776306024]
 transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, 0.172745, 0.937943)
 
-[node name="CameraChase" parent="." instance=ExtResource("25_lvoxg")]
+[node name="CameraChase" parent="." unique_id=734832805 instance=ExtResource("25_lvoxg")]
 transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, 0, -11.714)
 
-[node name="CameraCinematic" parent="." instance=ExtResource("25_lvoxg")]
+[node name="CameraCinematic" parent="." unique_id=1547355862 instance=ExtResource("25_lvoxg")]
 transform = Transform3D(0.0804371, 0.00133164, 3.19724e-05, -0.00226377, 0.568899, -7.06691e-08, -1.13102, -0.00104375, 2.274e-06, 7729.53, -1105.77, -14248)
 
-[node name="HeadsUpDisplay" parent="." instance=ExtResource("26_0u53p")]
+[node name="HeadsUpDisplay" parent="." unique_id=283325569 instance=ExtResource("26_0u53p")]
 transform = Transform3D(-0.5, 0, -4.37114e-08, 0, 0.5, 0, 4.37114e-08, 0, -0.5, 0, 0.809023, 3.50526)
 camera_path = NodePath("../CameraCockpit")
 aircraft_path = NodePath("..")
 hud_glass_size = Vector2(1, 1)
 
-[node name="InstrumentPanel" parent="." instance=ExtResource("27_h17fj")]
+[node name="InstrumentPanel" parent="." unique_id=1044193052 instance=ExtResource("27_h17fj")]
 transform = Transform3D(-0.6, 1.79402e-08, -4.92904e-08, 0, 0.563816, 0.205212, 5.24537e-08, 0.205212, -0.563816, 0, 0.269971, 3.35526)
 aircraft_path = NodePath("..")
 panel_size = Vector2(1, 0.8)
 camera_target_path = NodePath("../CameraTarget")
 zoom_distance = 100.0
 
-[node name="Hardpoint1" parent="." instance=ExtResource("28_ymevh")]
+[node name="Hardpoint1" parent="." unique_id=1512132600 instance=ExtResource("28_ymevh")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2, -0.27, -1.246)
 mounted_weapon = ExtResource("33_rocket")
 
-[node name="Hardpoint2" parent="." instance=ExtResource("28_ymevh")]
+[node name="Hardpoint2" parent="." unique_id=2006419021 instance=ExtResource("28_ymevh")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2, -0.27, -1.246)
 mounted_weapon = ExtResource("32_kq7no")
 
-[node name="Hardpoint3" parent="." instance=ExtResource("28_ymevh")]
+[node name="Hardpoint3" parent="." unique_id=1583094911 instance=ExtResource("28_ymevh")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.380364, -0.182677, 4.28027)
 mounted_weapon = ExtResource("31_kq7no")
 
-[node name="TailHook" parent="." instance=ExtResource("31_3f4kl")]
+[node name="TailHook" parent="." unique_id=592883554 instance=ExtResource("31_3f4kl")]
 transform = Transform3D(1, 0, 0, 0, 0.5, -0.866025, 0, 0.866025, 0.5, 0, -1.8682, -4.09653)
 spring_strength = 100.0
 spring_damping = 1000.0
 
-[node name="CockpitCanopyVisibility" type="Node" parent="."]
+[node name="CockpitCanopyVisibility" type="Node" parent="." unique_id=1140370832]
 script = ExtResource("35_canopyvis")
 canopy_node_paths = Array[NodePath]([NodePath("../aircraft_8/world/canopy glass")])
 canopy_surface_indices = PackedInt32Array()
 cockpit_shadow_disable_paths = Array[NodePath]([NodePath("../aircraft_8/world/fuselage"), NodePath("../aircraft_8/world/canopy glass"), NodePath("../aircraft_8/world/canopy rim")])
 
-[node name="AIPilot" type="Node" parent="."]
+[node name="AIPilot" type="Node" parent="." unique_id=1393847872]
 script = ExtResource("34_aipil")
 
-[node name="AIToggle" type="Node" parent="."]
+[node name="AIToggle" type="Node" parent="." unique_id=1389874279]
 script = ExtResource("33_aitgl")
 
-[node name="DamageEffects" type="Node" parent="."]
+[node name="DamageEffects" type="Node" parent="." unique_id=1786410101]
 script = ExtResource("36_dmgfx")
 
-[node name="InsigniaWing" type="Marker3D" parent="."]
+[node name="InsigniaWing" type="Marker3D" parent="." unique_id=1102356716]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4.66944, 0.166058, -2.20954)
 
-[node name="InsigniaTail" type="Marker3D" parent="."]
+[node name="InsigniaTail" type="Marker3D" parent="." unique_id=185357127]
 transform = Transform3D(0.971479, 0.237126, 0, -0.237126, 0.971479, 0, 0, 0, 1, 2.5724, 0.934464, -4.48125)

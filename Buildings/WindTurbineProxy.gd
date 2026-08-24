@@ -85,6 +85,31 @@ func is_activated() -> bool:
 	return _activated
 
 
+func capture_save_state() -> Dictionary:
+	var saved_transform := global_transform
+	var saved_health := _saved_health
+	if _activated and is_instance_valid(_active_turbine):
+		saved_transform = _active_turbine.global_transform
+		if "current_health" in _active_turbine:
+			saved_health = float(_active_turbine.get("current_health"))
+	return {
+		"position": saved_transform.origin,
+		"rotation": saved_transform.basis.get_euler(),
+		"health": saved_health,
+		"team": team,
+	}
+
+
+func restore_save_state(state: Dictionary) -> bool:
+	if state.is_empty():
+		return false
+	team = int(state.get("team", team))
+	global_position = state.get("position", global_position) as Vector3
+	global_rotation = state.get("rotation", global_rotation) as Vector3
+	_saved_health = float(state.get("health", -1.0))
+	return true
+
+
 func _nearest_player_distance() -> float:
 	var best_sq: float = INF
 	var viewport := get_viewport()

@@ -1361,6 +1361,11 @@ var _recovery_clearance_granted: bool = false
 ## join before handing the live pose to the terrain arrival planner.
 @export var recovery_hold_release_desired_track_min_dot: float = 0.78
 @export var recovery_hold_release_actual_track_min_dot: float = 0.62
+## Once clearance is reserved, a poor orbit must not strand the flight forever.
+## After this wait the terrain-aware arrival planner may accept the live pose
+## without the ideal once-per-orbit release-sector alignment.
+@export var recovery_hold_permissive_release_s: float = 20.0
+@export var recovery_hold_permissive_max_radius_scale: float = 1.35
 ## Prevent an exit through the carrier-side core of the pattern. The outer bound
 ## is the same local-field radius that admitted the aircraft to RECOVERY_HOLD;
 ## requiring the vector field to converge to the exact authored ring can deadlock
@@ -1386,6 +1391,7 @@ var _recovery_hold_direction: float = 0.0               # latched +1/-1 orbit di
 var _recovery_hold_desired_velocity_world: Vector3 = Vector3.ZERO
 var _recovery_hold_feedforward_accel_world: Vector3 = Vector3.ZERO
 var _recovery_hold_velocity_response_time_s: float = 0.0
+var _recovery_hold_cleared_wait_s: float = 0.0
 @export var landing_path_lookahead_time_s: float = 2.0
 @export var landing_path_min_lookahead_m: float = 35.0
 @export var landing_path_max_lookahead_m: float = 120.0
@@ -1612,7 +1618,7 @@ var throttle_input: float = 0.5 # 0 to 1
 # AI PARAMETERS
 # ============================================================================
 @export var skill: AIPilotSkill = AIPilotSkill.EXPERIENCED
-@export var rtb_health_threshold: float = 0.3  # Return to base below this health %
+@export var rtb_health_threshold: float = 0.5  # Return to base below this health fraction
 @export var rtb_fuel_threshold: float = 0.2    # Return to base below this fuel %
 @export var debug_enabled: bool = false
 @export var show_waypoint_markers: bool = false  # Show green pillar markers at nav waypoints
@@ -2692,6 +2698,15 @@ func _on_aircraft_destroyed() -> void:
 		_landing_snap("CRASH", "destroyed=true  pts=0.0")
 
 func _on_aircraft_damaged(damage_amount: float, new_health: float) -> void:
+	# Damage is an event, so do not wait for the one-second housekeeping poll to
+	# notice that a friendly crossed its withdrawal threshold.
+	if new_health > 0.0 and rtb_health_threshold > 0.0 and is_instance_valid(aircraft):
+		var maximum_variant: Variant = aircraft.get("max_health")
+		if typeof(maximum_variant) in [TYPE_FLOAT, TYPE_INT] \
+				and float(maximum_variant) > 0.0 \
+				and new_health / float(maximum_variant) < rtb_health_threshold:
+			if _check_rtb_triggers():
+				return
 	# BOUNCED FROM BEHIND: getting shot tells you where the enemy is (tracers/impacts). If we're
 	# dogfighting but blind (no valid target -- e.g. our target was killed and someone slid onto our 6),
 	# snap awareness of the nearest enemy up so we re-acquire and react instead of flying straight and
@@ -15025,14 +15040,26 @@ func _state_recovery_hold(delta: float) -> void:
 	if not _recovery_clearance_granted and _request_landing_clearance_from_deck():
 		_recovery_clearance_granted = true
 		_landing_debug_event("recovery clearance reserved while circling; waiting for release sector")
-	if _recovery_clearance_granted and _recovery_hold_exit_is_ready(
+	if _recovery_clearance_granted:
+		_recovery_hold_cleared_wait_s += maxf(delta, 0.0)
+	else:
+		_recovery_hold_cleared_wait_s = 0.0
+	var normal_release_ready := _recovery_hold_exit_is_ready(
 		frame,
 		desired_velocity_flat,
 		radial_distance_m
-	):
+	)
+	var permissive_release_ready := _should_permissively_release_recovery_hold(
+		_recovery_hold_cleared_wait_s,
+		radial_distance_m
+	)
+	if _recovery_clearance_granted and (normal_release_ready or permissive_release_ready):
 		_recovery_phase = 0
 		_approach_route_point = Vector3.INF
-		_landing_debug_event("recovery hold release sector captured; committing to approach")
+		_recovery_hold_cleared_wait_s = 0.0
+		_landing_debug_event("recovery hold committing to approach release=%s" % [
+			"permissive_timeout" if permissive_release_ready and not normal_release_ready else "sector_capture",
+		])
 		change_state(State.RECOVERY_APPROACH)
 		# A hold exit is just as dirty as a mission/combat exit: it may still carry
 		# orbit bank, vertical rate, and more than gate speed. Normalize that live pose
@@ -15091,6 +15118,15 @@ func _recovery_hold_exit_is_ready(
 		-1.0,
 		1.0
 	)
+
+
+func _should_permissively_release_recovery_hold(cleared_wait_s: float, radial_distance_m: float) -> bool:
+	if cleared_wait_s < maxf(recovery_hold_permissive_release_s, 0.0):
+		return false
+	var max_radius := _get_recovery_hold_entry_radius_m() \
+			* maxf(recovery_hold_permissive_max_radius_scale, 1.0)
+	return radial_distance_m <= max_radius
+
 
 func _get_recovery_authored_corridor_behind_m(frame: Dictionary) -> float:
 	## Horizontal extent of the carrier-authored straight-in corridor. Marker altitude is
@@ -23077,10 +23113,10 @@ func _should_run_rtb_check(delta: float) -> bool:
 	_rtb_check_timer_s = maxf(rtb_check_interval_s, 0.1)
 	return true
 
-func _check_rtb_triggers():
+func _check_rtb_triggers() -> bool:
 	"""Monitor health and fuel, trigger RTB if critical"""
 	if current_state in [State.RTB, State.RECOVERY_MARSHAL, State.RECOVERY_HOLD, State.RECOVERY_APPROACH, State.PRE_LANDING, State.APPROACH, State.LANDING, State.MISSED_APPROACH]:
-		return
+		return false
 
 	var needs_rtb: bool = false
 	var rtb_reason: String = ""
@@ -23104,10 +23140,20 @@ func _check_rtb_triggers():
 			_say_bingo_once()
 		elif rtb_reason.begins_with("Health low"):
 			_say_taking_fire_once()
-		if debug_enabled:
-			print("[AIPilot] Triggering RTB: ", rtb_reason)
+		if is_instance_valid(aircraft):
+			aircraft.set_meta("rtb_reason", rtb_reason)
+			aircraft.set_meta("health_rtb_triggered", rtb_reason.begins_with("Health low"))
+		var log_message := "%s returning to carrier: %s (threshold=%.0f%%)" % [
+			_combat_log_self(),
+			rtb_reason,
+			rtb_health_threshold * 100.0 if rtb_reason.begins_with("Health low") else rtb_fuel_threshold * 100.0,
+		]
+		print("[AIPilot RTB_TRIGGER] %s" % log_message)
+		_combat_log_event("RTB", log_message)
 		if not start_recovery():
 			change_state(State.RTB)
+		return true
+	return false
 
 func _get_health_fraction() -> float:
 	if not aircraft:
@@ -23118,7 +23164,10 @@ func _get_health_fraction() -> float:
 		return -1.0
 	var current_num: float = float(current_value)
 	var max_num: float = float(max_value)
-	if max_num <= 0.0:
+	# aircraft.gd initializes health one deferred frame after _ready(). Treat zero
+	# as unavailable here: it is either that initialization window or a destroyed
+	# aircraft, neither of which should issue an RTB order.
+	if current_num <= 0.0 or max_num <= 0.0:
 		return -1.0
 	current_health = current_num
 	max_health = max_num
@@ -26917,6 +26966,7 @@ func _reset_for_carrier_recovery() -> void:
 	_clear_gun_ccip_aim_error()
 	_recovery_final_handoff_stable_s = 0.0
 	_recovery_final_handoff_last_physics_frame = -1
+	_recovery_hold_cleared_wait_s = 0.0
 
 func start_recovery() -> bool:
 	"""Streamlined recovery: if the deck clears us, go straight to the approach; otherwise circle the
@@ -27120,15 +27170,31 @@ func _update_landing_carrier_motion_estimate(delta: float) -> void:
 	_landing_carrier_motion_last_ref = ref_pos
 
 func _get_carrier_velocity() -> Vector3:
-	if landing_carrier_motion_compensation_enabled \
-	and _landing_carrier_motion_has_ref \
-	and _landing_measured_carrier_velocity.length() >= maxf(landing_carrier_motion_min_speed_mps, 0.0):
-		return _landing_measured_carrier_velocity
 	if _approach_wp.is_empty() or not is_instance_valid(_approach_wp[0]):
 		return Vector3.ZERO
 	var carrier: Node = (_approach_wp[0] as Node3D).get_parent()
 	if not is_instance_valid(carrier):
 		return Vector3.ZERO
+	# The current carrier exposes its drive velocity directly. Use that live
+	# value so acceleration and braking are reflected immediately instead of
+	# making final approach chase a smoothed position-difference estimate.
+	if carrier.has_method("get_deck_reference_velocity_vector"):
+		var live_velocity_variant: Variant = carrier.call("get_deck_reference_velocity_vector")
+		if typeof(live_velocity_variant) == TYPE_VECTOR3:
+			var live_velocity := live_velocity_variant as Vector3
+			# Include the current yaw contribution at the touchdown marker. This
+			# preserves the useful point-motion part of the old measured estimate.
+			if carrier.has_method("get_yaw_rate_rad_s") \
+					and _approach_wp.size() >= 5 \
+					and is_instance_valid(_approach_wp[4]):
+				var yaw_rate := float(carrier.call("get_yaw_rate_rad_s"))
+				var touchdown_offset := (_approach_wp[4] as Node3D).global_position - (carrier as Node3D).global_position
+				live_velocity += (Vector3.UP * yaw_rate).cross(touchdown_offset)
+			return live_velocity
+	if landing_carrier_motion_compensation_enabled \
+	and _landing_carrier_motion_has_ref \
+	and _landing_measured_carrier_velocity.length() >= maxf(landing_carrier_motion_min_speed_mps, 0.0):
+		return _landing_measured_carrier_velocity
 	return VelocityFrame.get_node_velocity(carrier)
 
 func _get_landing_carrier_speed_compensation(landing_geom: Dictionary) -> float:

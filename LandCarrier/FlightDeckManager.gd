@@ -6,11 +6,17 @@ const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
 signal deck_state_changed(new_state)
 
 @export var catapult: Node
+@export var secondary_catapult: Node
 @export var tractor_bot: Node
 @export var elevator_pickup_marker: Node3D
 @export var elevator: Node
+## The forward lift remains the outbound/launch elevator. Returning aircraft use
+## the second lift so inbound and outbound deck routes are spatially distinct.
+@export var recovery_elevator_pickup_marker: Node3D
+@export var recovery_elevator: Node
 @export var deck_marker: Node3D  # Marker on deck to derive deck world height
 @export var tractor_bots: Array[Node] = []  # Array of SimpleTractorBot nodes
+@export var tractor_setup_points: Array[Node] = []  # Authored XZ/yaw slots on the elevator platform
 @export var hangar_spawn_points: Array[Vector3] = [
 	Vector3(-8, 0, 0),
 	Vector3(-4, 0, 0), 
@@ -45,7 +51,10 @@ signal deck_state_changed(new_state)
 @export var landing_blocker_cleanup_enabled: bool = true
 @export var landing_blocker_cleanup_timeout_s: float = 35.0
 @export var landing_blocker_cleanup_speed_threshold_mps: float = 2.5
-@export var landing_blocker_cleanup_deck_contact_margin_m: float = 1.0
+## Tolerance around the actual tire/skid contact point, not the gear-node origin.
+## A large origin-space tolerance can freeze a helicopter while its wheels are
+## still visibly above the deck.
+@export var landing_blocker_cleanup_deck_contact_margin_m: float = 0.08
 @export var settled_touchdown_vertical_speed_threshold_mps: float = 1.0
 @export var settled_touchdown_min_upright_dot: float = 0.75
 @export var landing_clearance_abandon_radius_m: float = 8000.0
@@ -67,7 +76,11 @@ signal deck_state_changed(new_state)
 @export var launch_terrain_check_step_m: float = 80.0         # sampling step along the departure path
 @export var launch_terrain_climb_grade: float = 0.10          # assumed climb-out gradient (rise/run) after launch
 @export var launch_terrain_clearance_m: float = 60.0          # required clearance above terrain along the path
+@export var launch_terrain_auto_reposition_enabled: bool = true
+@export var launch_terrain_auto_reposition_delay_s: float = 2.0
 var _launch_terrain_block_log_s: float = 0.0
+var _launch_terrain_blocked_since_s: float = -1.0
+var _launch_terrain_reposition_log_s: float = 0.0
 # Don't clear a fixed-wing recovery into terrain that protrudes through the
 # carrier's glideslope. The carrier keeps moving while clearance is withheld,
 # so queued aircraft can hold until a usable approach corridor opens.
@@ -88,7 +101,6 @@ var _launch_terrain_block_log_s: float = 0.0
 @export var tractor_elevator_floor_offset_m: float = 0.0
 @export var tractor_elevator_align_duration_s: float = 1.2
 
-const AIRCRAFT_1_SCENE_PATH := "res://Aircraft/Aircraft_1.tscn"
 const DEFAULT_AIRCRAFT_SCENE_PATH := "res://Aircraft/Aircraft_5.tscn"
 const LOADOUT_CAP := "cap"
 const LOADOUT_INTERCEPT := "intercept"
@@ -102,6 +114,7 @@ const WEAPON_SCENE_20MM := "res://Weapons/Guns/Hardpoint/20mm_autocannon_hardpoi
 const WEAPON_SCENE_ROCKET_POD := "res://Weapons/RocketPod/rocket_pod.tscn"
 const WEAPON_SCENE_BOMB_RACK := "res://Weapons/Bomb/bomb_rack.tscn"
 const PRIMARY_TRACTOR_COUNT := 4
+const AUTHORED_TRACTOR_COUNT := 8
 const MOTION_REFERENCE_NODE_META := "motion_reference_node"
 const MOTION_REFERENCE_VELOCITY_META := "motion_reference_velocity"
 const LEGACY_CARRIER_VELOCITY_META := "carrier_deck_velocity"
@@ -118,6 +131,13 @@ const HELI_NAVIGATION_HOME_META := "heli_navigation_home_point"
 const HELI_TEST_FLAT_GROUND_Y_META := "heli_test_flat_ground_y"
 const HELI_TEST_ARENA_CENTER_META := "heli_test_arena_center"
 const HELI_TEST_ARENA_RADIUS_META := "heli_test_arena_radius"
+
+var _launch_elevator: Node
+var _launch_elevator_pickup_marker: Node3D
+var _catapults: Array[Node] = []
+var _next_launch_elevator_index: int = 0
+var _tractor_home_transforms_local: Dictionary = {}
+var _current_job_tractor_bots: Array[Node3D] = []
 
 enum DeckState {
 	IDLE,
@@ -148,6 +168,7 @@ var _flight_deck_local_offset_y: float = 0.5  # Fallback local offset if no mark
 var _aircraft_original_collision_layer: int = 0
 var _aircraft_original_collision_mask: int = 0
 var _retrieval_top_handled: bool = false
+var _aircraft_elevator_ride_in_progress: bool = false
 var _recovery_job_dispatched: bool = false
 var _tractor_cleanup_in_progress: bool = false
 var _tractor_cleanup_batch: Array[Node3D] = []
@@ -406,6 +427,33 @@ func _aircraft_debug_name(aircraft: Variant) -> String:
 	var node := aircraft as Node
 	return node.name if is_instance_valid(node) else "none"
 
+func _format_rtb_reason_suffix(aircraft: Node) -> String:
+	if not is_instance_valid(aircraft) or not aircraft.has_meta("rtb_reason"):
+		return ""
+	return " after %s" % str(aircraft.get_meta("rtb_reason"))
+
+func _combat_log_event(category: String, text: String) -> void:
+	var combat_log := get_node_or_null("/root/CombatLog")
+	if combat_log != null and combat_log.has_method("event"):
+		combat_log.call("event", category, text)
+
+func _log_carrier_landing_once(aircraft: RigidBody3D, landing_kind: String) -> void:
+	if not is_instance_valid(aircraft) or bool(aircraft.get_meta("carrier_landing_logged", false)):
+		return
+	aircraft.set_meta("carrier_landing_logged", true)
+	var health_text := ""
+	if "current_health" in aircraft and "max_health" in aircraft:
+		health_text = " hp=%.1f/%.1f" % [
+			float(aircraft.get("current_health")),
+			float(aircraft.get("max_health")),
+		]
+	_combat_log_event("LAND", "%s completed %s%s%s" % [
+		_aircraft_debug_name(aircraft),
+		landing_kind,
+		health_text,
+		_format_rtb_reason_suffix(aircraft),
+	])
+
 func _fmt_vec3(v: Vector3) -> String:
 	return "(%.1f, %.1f, %.1f)" % [v.x, v.y, v.z]
 
@@ -449,6 +497,14 @@ func _launch_path_clear_of_terrain() -> bool:
 	fwd.y = 0.0
 	if fwd.length() < 0.01:
 		return true
+	return _launch_direction_clear_of_terrain(start_pos, fwd.normalized(), terrain)
+
+
+func _launch_direction_clear_of_terrain(start_pos: Vector3, direction: Vector3, terrain: Node) -> bool:
+	var fwd := direction
+	fwd.y = 0.0
+	if fwd.length_squared() <= 0.0001 or terrain == null or not terrain.has_method("get_height"):
+		return true
 	fwd = fwd.normalized()
 	# Climb profile: aircraft is ~deck height at launch and climbs at ~climb_grade. Terrain above
 	# (launch_y + distance*grade + clearance) within the check distance is a wall we'd hit.
@@ -469,6 +525,57 @@ func _launch_path_clear_of_terrain() -> bool:
 				return false
 			dist += step_m
 	return true
+
+
+func _request_launch_terrain_reposition() -> void:
+	if not launch_terrain_auto_reposition_enabled:
+		return
+	var now_s := Time.get_ticks_msec() / 1000.0
+	if _launch_terrain_blocked_since_s < 0.0:
+		_launch_terrain_blocked_since_s = now_s
+	if now_s - _launch_terrain_blocked_since_s < maxf(launch_terrain_auto_reposition_delay_s, 0.0):
+		return
+	var carrier := get_parent() as Node3D
+	if not is_instance_valid(carrier) or not carrier.has_method("request_launch_corridor_reposition"):
+		return
+	if carrier.has_method("is_launch_corridor_reposition_active") \
+			and bool(carrier.call("is_launch_corridor_reposition_active")):
+		return
+	var terrain: Node = get_tree().get_first_node_in_group("terrain_provider")
+	if terrain == null or not terrain.has_method("get_height"):
+		return
+	var origin: Node3D = catapult as Node3D \
+			if is_instance_valid(catapult) and catapult is Node3D else carrier
+	var start_pos := origin.global_position
+	var forward := carrier.global_transform.basis.z
+	forward.y = 0.0
+	forward = forward.normalized() if forward.length_squared() > 0.0001 else Vector3.FORWARD
+	var clear_direction := Vector3.ZERO
+	var selected_offset_deg := 0.0
+	for offset_variant in [30.0, -30.0, 60.0, -60.0, 90.0, -90.0, 135.0, -135.0, 180.0]:
+		var offset_deg := float(offset_variant)
+		var candidate := forward.rotated(Vector3.UP, deg_to_rad(offset_deg)).normalized()
+		if _launch_direction_clear_of_terrain(start_pos, candidate, terrain):
+			clear_direction = candidate
+			selected_offset_deg = offset_deg
+			break
+	if clear_direction.length_squared() <= 0.0001:
+		# Even when no complete corridor exists from the current position, beginning
+		# a broad turn gets the carrier away from the deadlocked heading.
+		clear_direction = forward.rotated(Vector3.UP, deg_to_rad(90.0)).normalized()
+		selected_offset_deg = 90.0
+	if not bool(carrier.call("request_launch_corridor_reposition", clear_direction)):
+		return
+	if now_s >= _launch_terrain_reposition_log_s:
+		_launch_terrain_reposition_log_s = now_s + 2.0
+		_recovery_debug("launch terrain blocked: carrier reposition requested turn=%+.0fdeg" % selected_offset_deg)
+
+
+func _clear_launch_terrain_reposition() -> void:
+	_launch_terrain_blocked_since_s = -1.0
+	var carrier := get_parent()
+	if is_instance_valid(carrier) and carrier.has_method("clear_launch_corridor_reposition"):
+		carrier.call("clear_launch_corridor_reposition")
 
 
 func _landing_path_clear_of_terrain(force_refresh: bool = false) -> bool:
@@ -591,16 +698,18 @@ func _is_carrier_turning_for_launch(log_block: bool = false) -> bool:
 func _ready():
 	if not aircraft_template_scene:
 		aircraft_template_scene = load(DEFAULT_AIRCRAFT_SCENE_PATH) as PackedScene
+	_resolve_elevator_roles()
+	_discover_authored_catapults()
+	_select_catapult_for_elevator(elevator_pickup_marker)
 	_normalize_primary_tractorbots()
-	_place_primary_tractorbots_at_staging_start()
+	# CarrierElevator creates and positions its runtime platform in _ready().
+	# Defer initial tractor placement so sibling ready order cannot make the bots
+	# mistake an uninitialized bottom lift for an open deck-level shaft.
+	_place_primary_tractorbots_at_staging_start.call_deferred()
 	_resolve_carrier_manager()
 	add_to_group("flight_deck_manager")
 	add_to_group("origin_shifter")
-	if catapult:
-		if catapult.has_signal("launch_sequence_complete"):
-			catapult.launch_sequence_complete.connect(_on_catapult_sequence_complete)
-		if catapult.has_signal("launch_sequence_aborted"):
-			catapult.launch_sequence_aborted.connect(_on_catapult_sequence_aborted)
+	_connect_catapult_signals()
 	var cables = get_tree().get_nodes_in_group("arresting_cable")
 	for c in cables:
 		_connect_cable_signals(c)
@@ -720,6 +829,129 @@ func _ensure_elevator_signal_connections() -> void:
 	if elevator.has_signal("covers_opened") and not elevator.covers_opened.is_connected(_on_elevator_covers_opened):
 		elevator.covers_opened.connect(_on_elevator_covers_opened)
 
+
+func _select_launch_elevator() -> void:
+	_resolve_elevator_roles()
+	var launch_options: Array[Dictionary] = []
+	if is_instance_valid(_launch_elevator) and is_instance_valid(_launch_elevator_pickup_marker):
+		launch_options.append({
+			"elevator": _launch_elevator,
+			"marker": _launch_elevator_pickup_marker,
+		})
+	if is_instance_valid(recovery_elevator) and is_instance_valid(recovery_elevator_pickup_marker):
+		launch_options.append({
+			"elevator": recovery_elevator,
+			"marker": recovery_elevator_pickup_marker,
+		})
+	if launch_options.is_empty():
+		return
+	var option: Dictionary = launch_options[_next_launch_elevator_index % launch_options.size()]
+	_next_launch_elevator_index = (_next_launch_elevator_index + 1) % launch_options.size()
+	_set_active_elevator(option["elevator"] as Node, option["marker"] as Node3D)
+
+
+func _select_recovery_elevator() -> void:
+	_resolve_elevator_roles()
+	if is_instance_valid(recovery_elevator) and is_instance_valid(recovery_elevator_pickup_marker):
+		_set_active_elevator(recovery_elevator, recovery_elevator_pickup_marker)
+		return
+	_select_launch_elevator()
+
+
+func _set_active_elevator(selected_elevator: Node, selected_marker: Node3D) -> void:
+	if not is_instance_valid(selected_elevator) or not is_instance_valid(selected_marker):
+		return
+	elevator = selected_elevator
+	elevator_pickup_marker = selected_marker
+	_select_catapult_for_elevator(selected_marker)
+	_ensure_elevator_signal_connections()
+
+
+func _resolve_elevator_roles() -> void:
+	var carrier := get_parent()
+	if not is_instance_valid(_launch_elevator):
+		_launch_elevator = carrier.get_node_or_null("Elevator") if carrier != null else elevator
+	if not is_instance_valid(_launch_elevator_pickup_marker):
+		_launch_elevator_pickup_marker = carrier.get_node_or_null("elevator_marker") as Node3D \
+				if carrier != null else elevator_pickup_marker
+	if not is_instance_valid(recovery_elevator) and carrier != null:
+		recovery_elevator = carrier.get_node_or_null("Elevator2")
+	if not is_instance_valid(recovery_elevator_pickup_marker) and carrier != null:
+		recovery_elevator_pickup_marker = carrier.get_node_or_null("elevator_marker_2") as Node3D
+
+
+func _discover_authored_catapults() -> void:
+	var discovered: Array[Node] = []
+	var carrier := get_parent()
+	if carrier != null:
+		for child in carrier.get_children():
+			var child_script := child.get_script() as Script
+			if child_script != null and child_script.resource_path.ends_with("/Catapult.gd"):
+				discovered.append(child)
+	discovered.sort_custom(func(a: Node, b: Node) -> bool:
+		return str(a.name).naturalnocasecmp_to(str(b.name)) < 0
+	)
+
+	_catapults.clear()
+	for candidate in [catapult, secondary_catapult]:
+		if is_instance_valid(candidate) and not _catapults.has(candidate):
+			_catapults.append(candidate)
+	for candidate in discovered:
+		if is_instance_valid(candidate) and not _catapults.has(candidate):
+			_catapults.append(candidate)
+	_catapults.sort_custom(func(a: Node, b: Node) -> bool:
+		return str(a.name).naturalnocasecmp_to(str(b.name)) < 0
+	)
+	if not _catapults.is_empty():
+		catapult = _catapults[0]
+	if _catapults.size() > 1:
+		secondary_catapult = _catapults[1]
+	elif _catapults.size() < 2:
+		push_warning("[FlightDeckManager] Dual elevators expect two catapults, found %d." % _catapults.size())
+
+
+func _connect_catapult_signals() -> void:
+	for launch_catapult in _catapults:
+		if not is_instance_valid(launch_catapult):
+			continue
+		var completed_callable := _on_catapult_sequence_complete.bind(launch_catapult)
+		if launch_catapult.has_signal("launch_sequence_complete") \
+				and not launch_catapult.is_connected("launch_sequence_complete", completed_callable):
+			launch_catapult.connect("launch_sequence_complete", completed_callable)
+		var aborted_callable := _on_catapult_sequence_aborted.bind(launch_catapult)
+		if launch_catapult.has_signal("launch_sequence_aborted") \
+				and not launch_catapult.is_connected("launch_sequence_aborted", aborted_callable):
+			launch_catapult.connect("launch_sequence_aborted", aborted_callable)
+
+
+func _select_catapult_for_elevator(selected_marker: Node3D) -> void:
+	if _catapults.is_empty() or not is_instance_valid(selected_marker):
+		return
+	var marker_local := _get_node_transform_in_carrier_space(selected_marker).origin
+	var best_catapult: Node = null
+	var best_centerline_distance := INF
+	for candidate in _catapults:
+		if not is_instance_valid(candidate) or not (candidate is Node3D):
+			continue
+		var candidate_local := _get_node_transform_in_carrier_space(candidate as Node3D).origin
+		# Catapults extend forward from the lifts, so lateral distance identifies
+		# which launch lane shares the elevator's centerline.
+		var centerline_distance := absf(candidate_local.x - marker_local.x)
+		if centerline_distance < best_centerline_distance:
+			best_centerline_distance = centerline_distance
+			best_catapult = candidate
+	if is_instance_valid(best_catapult):
+		catapult = best_catapult
+
+
+func _get_active_catapult_latch_marker() -> Node3D:
+	if not is_instance_valid(catapult):
+		return null
+	var configured_marker: Variant = catapult.get("latch_marker")
+	if configured_marker is Node3D and is_instance_valid(configured_marker):
+		return configured_marker as Node3D
+	return catapult.find_child("catapult_latch_marker", true, false) as Node3D
+
 func _resolve_carrier_manager() -> void:
 	if is_instance_valid(carrier_manager):
 		return
@@ -739,71 +971,215 @@ func _resolve_carrier_manager() -> void:
 		push_warning("[FlightDeckManager] CarrierManager not found. Aircraft pilot assignment is unavailable.")
 
 func _get_primary_tractor_bots() -> Array[Node3D]:
-	var primary: Array[Node3D] = []
+	var preferred: Array[Node3D] = []
+	var interchangeable: Array[Node3D] = []
+	var active_marker := elevator_pickup_marker
+	for i in range(tractor_bots.size()):
+		var bot := tractor_bots[i] as Node3D
+		if not is_instance_valid(bot):
+			continue
+		if _get_home_elevator_marker_for_bot(bot, i) == active_marker:
+			preferred.append(bot)
+		else:
+			interchangeable.append(bot)
+	preferred.append_array(interchangeable)
+	if preferred.size() > PRIMARY_TRACTOR_COUNT:
+		preferred.resize(PRIMARY_TRACTOR_COUNT)
+	return preferred
+
+
+func _select_tractor_bots_for_aircraft(aircraft: RigidBody3D, count: int) -> Array[Node3D]:
+	var selected: Array[Node3D] = []
+	var candidates := _get_primary_tractor_bots()
+	for bot_variant in tractor_bots:
+		var bot := bot_variant as Node3D
+		if is_instance_valid(bot) and not candidates.has(bot):
+			candidates.append(bot)
+	for bot in candidates:
+		if selected.size() >= count:
+			break
+		var is_busy := bool(bot.get("is_active"))
+		var assigned_aircraft: Variant = bot.get("target_aircraft")
+		if is_busy and assigned_aircraft != aircraft:
+			continue
+		selected.append(bot)
+	return selected
+
+
+func _get_required_tractor_count(aircraft: RigidBody3D) -> int:
+	if not is_instance_valid(aircraft):
+		return 0
+	return mini(_get_launch_wheel_nodes(aircraft).size(), PRIMARY_TRACTOR_COUNT)
+
+
+func _set_current_job_tractor_bots(selected_bots: Array[Node3D]) -> void:
+	_current_job_tractor_bots.clear()
+	for bot in selected_bots:
+		if is_instance_valid(bot) and not _current_job_tractor_bots.has(bot):
+			_current_job_tractor_bots.append(bot)
+
+
+func _get_current_job_tractor_bots() -> Array[Node3D]:
+	var job_bots: Array[Node3D] = []
+	for bot in _current_job_tractor_bots:
+		if is_instance_valid(bot):
+			job_bots.append(bot)
+	if not job_bots.is_empty():
+		return job_bots
+	# Compatibility fallback for a job begun before its roster was recorded.
+	for bot_variant in tractor_bots:
+		var bot := bot_variant as Node3D
+		if is_instance_valid(bot) and bool(bot.get("is_active")):
+			job_bots.append(bot)
+	return job_bots
+
+
+func _normalize_primary_tractorbots() -> void:
+	_discover_authored_tractorbots()
+	var configured: Array[Node] = []
 	var seen: Dictionary = {}
 	for bot_variant in tractor_bots:
 		if not is_instance_valid(bot_variant) or not (bot_variant is Node3D):
 			continue
-		var bot := bot_variant as Node3D
-		var id := bot.get_instance_id()
-		if seen.has(id):
+		var instance_id := bot_variant.get_instance_id()
+		if seen.has(instance_id):
 			continue
-		seen[id] = true
-		primary.append(bot)
-		if primary.size() >= PRIMARY_TRACTOR_COUNT:
-			break
-	return primary
-
-func _normalize_primary_tractorbots() -> void:
-	var primary := _get_primary_tractor_bots()
+		seen[instance_id] = true
+		configured.append(bot_variant)
 	tractor_bots.clear()
-	for bot in primary:
+	for bot in configured:
 		tractor_bots.append(bot)
 	desired_deck_tractor_count = PRIMARY_TRACTOR_COUNT
-	var primary_lookup: Dictionary = {}
-	for bot in primary:
-		primary_lookup[bot.get_instance_id()] = true
-	for node in _get_all_tractor_nodes():
-		if primary_lookup.has(node.get_instance_id()):
-			continue
-		node.queue_free()
-	if primary.size() < PRIMARY_TRACTOR_COUNT:
-		push_warning("[FlightDeckManager] Expected %d tractorbots, found %d." % [PRIMARY_TRACTOR_COUNT, primary.size()])
+	_cache_tractor_home_transforms()
+	if tractor_bots.size() < PRIMARY_TRACTOR_COUNT:
+		push_warning("[FlightDeckManager] Expected %d tractorbots, found %d." % [PRIMARY_TRACTOR_COUNT, tractor_bots.size()])
+	elif tractor_bots.size() < AUTHORED_TRACTOR_COUNT:
+		push_warning("[FlightDeckManager] Dual elevators expect %d tractorbots, found %d." % [AUTHORED_TRACTOR_COUNT, tractor_bots.size()])
+
+
+func _discover_authored_tractorbots() -> void:
+	var discovered := _get_all_tractor_nodes()
+	for bot in discovered:
+		if not tractor_bots.has(bot):
+			tractor_bots.append(bot)
+	tractor_bots.sort_custom(func(a: Node, b: Node) -> bool:
+		return str(a.name).naturalnocasecmp_to(str(b.name)) < 0
+	)
+
+	# Setup markers are authored as children of their respective bots. Rebuild the
+	# parallel list in bot order so editor saves do not need fragile Node arrays.
+	tractor_setup_points.clear()
+	for bot_variant in tractor_bots:
+		var bot := bot_variant as Node3D
+		var setup_point: Node3D = null
+		if is_instance_valid(bot):
+			for child in bot.get_children():
+				if child is Node3D and str(child.name).to_lower().begins_with("tractorbot setup point"):
+					setup_point = child as Node3D
+					break
+		tractor_setup_points.append(setup_point)
 
 func _get_primary_staging_slots_local(count: int) -> Array[Vector3]:
 	var slots: Array[Vector3] = []
 	var deck_local_y: float = _get_deck_local_y()
-	var slot_offsets: Array[Vector3] = [
-		Vector3(10.0, 0.0, -6.0),
-		Vector3(14.0, 0.0, -6.0),
-		Vector3(18.0, 0.0, -6.0),
-		Vector3(22.0, 0.0, -6.0)
-	]
 	var base_local: Vector3 = elevator_pickup_marker.position if is_instance_valid(elevator_pickup_marker) else Vector3.ZERO
-	for i in range(min(count, slot_offsets.size())):
-		var slot_local: Vector3 = base_local + slot_offsets[i]
+	var inward_sign := -signf(base_local.x)
+	if is_zero_approx(inward_sign):
+		inward_sign = 1.0
+	for i in range(min(count, PRIMARY_TRACTOR_COUNT)):
+		var slot_local := base_local + Vector3(inward_sign * (4.0 + i * 4.0), 0.0, -6.0)
 		slot_local.y = deck_local_y
 		slots.append(slot_local)
 	return slots
 
 func _place_primary_tractorbots_at_staging_start() -> void:
-	var primary := _get_primary_tractor_bots()
-	if primary.is_empty():
+	if tractor_bots.is_empty():
 		return
 
-	var starts_on_bottom_elevator := _is_elevator_physically_at_bottom()
-	var slots := _get_primary_staging_slots_local(primary.size())
-	if starts_on_bottom_elevator:
-		var bottom_slot_y := _get_elevator_platform_top_local_y(-10.0) + tractor_elevator_floor_offset_m
-		slots = _get_primary_elevator_slots_local(primary.size(), bottom_slot_y)
-
-	for i in range(min(primary.size(), slots.size())):
-		var bot := primary[i]
+	# Each authored child marker is cached before any bot moves. Four homes lie on
+	# each elevator; the grouping is a preference, not an ownership restriction.
+	var all_home_elevators_at_bottom := true
+	for i in range(tractor_bots.size()):
+		var bot := tractor_bots[i] as Node3D
+		if not is_instance_valid(bot):
+			continue
+		var home_transform := _get_tractor_home_transform_local(bot, i)
+		var home_elevator := _get_home_elevator_for_bot(bot, i)
+		var platform_slot_y := _get_elevator_platform_top_local_y_for(
+			home_elevator,
+			-10.0
+		) + tractor_elevator_floor_offset_m
 		_set_cleanup_idle_for_tractor_bot(bot)
-		bot.position = slots[i]
+		home_transform.origin.y = platform_slot_y
+		bot.transform = home_transform
+		all_home_elevators_at_bottom = all_home_elevators_at_bottom \
+				and _is_elevator_physically_at_bottom_for(home_elevator)
 
-	_tractorbots_in_hangar = starts_on_bottom_elevator
+	_tractorbots_in_hangar = all_home_elevators_at_bottom
 	_tractor_elevator_transfer_in_progress = false
+
+
+func _cache_tractor_home_transforms() -> void:
+	_tractor_home_transforms_local.clear()
+	for i in range(mini(tractor_bots.size(), tractor_setup_points.size())):
+		var bot := tractor_bots[i] as Node3D
+		var setup_point := _get_tractor_setup_point(i)
+		if not is_instance_valid(bot) or setup_point == null:
+			continue
+		_tractor_home_transforms_local[bot.get_instance_id()] = \
+				_get_node_transform_in_carrier_space(setup_point)
+
+
+func _get_node_transform_in_carrier_space(node: Node3D) -> Transform3D:
+	var carrier := get_parent() as Node3D
+	if carrier == null or not is_instance_valid(node):
+		return Transform3D.IDENTITY
+	var relative := Transform3D.IDENTITY
+	var cursor: Node = node
+	while cursor != null and cursor != carrier:
+		if not (cursor is Node3D):
+			break
+		relative = (cursor as Node3D).transform * relative
+		cursor = cursor.get_parent()
+	if cursor == carrier:
+		return relative
+	if carrier.is_inside_tree() and node.is_inside_tree():
+		return carrier.global_transform.affine_inverse() * node.global_transform
+	return node.transform
+
+
+func _get_tractor_home_transform_local(bot: Node3D, index: int = -1) -> Transform3D:
+	if not is_instance_valid(bot):
+		return Transform3D.IDENTITY
+	var cached: Variant = _tractor_home_transforms_local.get(bot.get_instance_id())
+	if cached is Transform3D:
+		return cached as Transform3D
+	var resolved_index := index if index >= 0 else tractor_bots.find(bot)
+	var setup_point := _get_tractor_setup_point(resolved_index)
+	if setup_point != null:
+		var home_transform := _get_node_transform_in_carrier_space(setup_point)
+		_tractor_home_transforms_local[bot.get_instance_id()] = home_transform
+		return home_transform
+	return bot.transform
+
+
+func _get_home_elevator_marker_for_bot(bot: Node3D, index: int = -1) -> Node3D:
+	_resolve_elevator_roles()
+	var home_position := _get_tractor_home_transform_local(bot, index).origin
+	var launch_position := _get_node_transform_in_carrier_space(_launch_elevator_pickup_marker).origin \
+			if is_instance_valid(_launch_elevator_pickup_marker) else Vector3.ZERO
+	var recovery_position := _get_node_transform_in_carrier_space(recovery_elevator_pickup_marker).origin \
+			if is_instance_valid(recovery_elevator_pickup_marker) else Vector3.INF
+	var launch_distance := Vector2(home_position.x - launch_position.x, home_position.z - launch_position.z).length_squared()
+	var recovery_distance := Vector2(home_position.x - recovery_position.x, home_position.z - recovery_position.z).length_squared()
+	return recovery_elevator_pickup_marker if recovery_distance < launch_distance \
+			else _launch_elevator_pickup_marker
+
+
+func _get_home_elevator_for_bot(bot: Node3D, index: int = -1) -> Node:
+	return recovery_elevator if _get_home_elevator_marker_for_bot(bot, index) == recovery_elevator_pickup_marker \
+			else _launch_elevator
+
 
 func _ensure_pilot_assigned_for_data(aircraft_data: Dictionary) -> bool:
 	_resolve_carrier_manager()
@@ -854,56 +1230,122 @@ func _queue_aircraft_scene_for_retrieval(aircraft_name: String, scene: PackedSce
 		])
 	start_hangar_retrieval()
 
-func _queue_aircraft_1_hotkey_launch() -> void:
+func _queue_aircraft_hotkey_launch(aircraft_number: int) -> void:
 	if current_state != DeckState.IDLE or _landing_test_active:
 		return
-	var scene := aircraft_1_scene
+	var scene_path := "res://Aircraft/Aircraft_%d.tscn" % aircraft_number
+	var scene: PackedScene = null
+	match aircraft_number:
+		1:
+			scene = aircraft_1_scene
+		2:
+			scene = aircraft_2_scene
+		5:
+			scene = aircraft_template_scene
+		7:
+			scene = aircraft_7_scene
+		8:
+			scene = aircraft_8_scene
+		9:
+			scene = aircraft_9_scene
+		10:
+			scene = aircraft_10_scene
 	if scene == null:
-		scene = load(AIRCRAFT_1_SCENE_PATH) as PackedScene
+		scene = load(scene_path) as PackedScene
 	if scene == null:
-		push_warning("[FlightDeckManager] Aircraft 1 hotkey could not load %s" % AIRCRAFT_1_SCENE_PATH)
+		push_warning("[FlightDeckManager] Aircraft %d hotkey could not load %s" % [aircraft_number, scene_path])
 		return
-	_queue_aircraft_scene_for_retrieval("Aircraft_1", scene, AIRCRAFT_1_SCENE_PATH)
+	_queue_aircraft_scene_for_retrieval("Aircraft_%d" % aircraft_number, scene, scene_path)
+
+func _aircraft_number_for_hotkey(keycode: Key) -> int:
+	match keycode:
+		KEY_1:
+			return 1
+		KEY_2:
+			return 2
+		KEY_3:
+			return 3
+		KEY_4:
+			return 4
+		KEY_5:
+			return 5
+		KEY_6:
+			return 6
+		KEY_7:
+			return 7
+		KEY_8:
+			return 8
+		KEY_9:
+			return 9
+		KEY_0:
+			return 10
+	return -1
 
 func _is_elevator_physically_at_top() -> bool:
-	if not elevator:
+	return _is_elevator_physically_at_top_for(elevator)
+
+
+func _is_elevator_physically_at_top_for(selected_elevator: Node) -> bool:
+	if not is_instance_valid(selected_elevator):
 		return false
-	if not ("platform_size" in elevator):
+	if not ("platform_size" in selected_elevator):
 		return false
-	var platform_local_y := _get_elevator_platform_local_y(INF)
+	var platform_local_y := _get_elevator_platform_local_y_for(selected_elevator, INF)
 	if platform_local_y == INF:
 		return false
-	var top_y = -float(elevator.platform_size.y) * 0.5
+	var top_y = -float(selected_elevator.platform_size.y) * 0.5
 	return abs(platform_local_y - top_y) <= 0.15
 
 func _is_elevator_physically_at_bottom() -> bool:
-	if not elevator:
+	return _is_elevator_physically_at_bottom_for(elevator)
+
+
+func _is_elevator_physically_at_bottom_for(selected_elevator: Node) -> bool:
+	if not is_instance_valid(selected_elevator):
 		return false
-	if not ("shaft_depth" in elevator):
+	if not ("shaft_depth" in selected_elevator):
 		return false
-	var platform_local_y := _get_elevator_platform_local_y(INF)
+	var platform_local_y := _get_elevator_platform_local_y_for(selected_elevator, INF)
 	if platform_local_y == INF:
 		return false
-	return abs(platform_local_y + float(elevator.shaft_depth)) <= 0.15
+	return abs(platform_local_y + float(selected_elevator.shaft_depth)) <= 0.15
 
 func _get_elevator_platform_local_y(fallback_y: float = -10.0) -> float:
-	if not elevator or not ("platform" in elevator):
+	return _get_elevator_platform_local_y_for(elevator, fallback_y)
+
+
+func _get_elevator_platform_local_y_for(selected_elevator: Node, fallback_y: float = -10.0) -> float:
+	if not is_instance_valid(selected_elevator):
 		return fallback_y
-	var platform_node: Variant = elevator.platform
+	if selected_elevator.has_method("get_platform_local_y"):
+		return float(selected_elevator.call("get_platform_local_y"))
+	if not ("platform" in selected_elevator):
+		return fallback_y
+	var platform_node: Variant = selected_elevator.platform
 	if not is_instance_valid(platform_node) or not (platform_node is Node3D):
 		return fallback_y
 	return float((platform_node as Node3D).position.y)
 
 func _get_elevator_platform_top_offset_y() -> float:
-	if elevator and "platform_size" in elevator:
-		return float(elevator.platform_size.y) * 0.5
+	return _get_elevator_platform_top_offset_y_for(elevator)
+
+
+func _get_elevator_platform_top_offset_y_for(selected_elevator: Node) -> float:
+	if is_instance_valid(selected_elevator) and "platform_size" in selected_elevator:
+		return float(selected_elevator.platform_size.y) * 0.5
 	return 0.5
 
 func _get_elevator_platform_top_global_y(fallback_platform_local_y: float = -10.0) -> float:
 	return _get_deck_height_y() + _get_elevator_platform_local_y(fallback_platform_local_y) + _get_elevator_platform_top_offset_y()
 
 func _get_elevator_platform_top_local_y(fallback_platform_local_y: float = -10.0) -> float:
-	return _get_deck_local_y() + _get_elevator_platform_local_y(fallback_platform_local_y) + _get_elevator_platform_top_offset_y()
+	return _get_elevator_platform_top_local_y_for(elevator, fallback_platform_local_y)
+
+
+func _get_elevator_platform_top_local_y_for(selected_elevator: Node, fallback_platform_local_y: float = -10.0) -> float:
+	return _get_deck_local_y() \
+			+ _get_elevator_platform_local_y_for(selected_elevator, fallback_platform_local_y) \
+			+ _get_elevator_platform_top_offset_y_for(selected_elevator)
 
 func _get_carrier_forward_yaw() -> float:
 	var carrier := get_parent() as Node3D
@@ -950,71 +1392,18 @@ func _input(event):
 			if stored_aircraft.is_empty():
 				pass
 
-	# Summon Aircraft 1 from the hangar and run the normal automatic launch flow.
-	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_1:
-		_queue_aircraft_1_hotkey_launch()
-		return
+	# Summon Aircraft 1-10 from the hangar and run the normal automatic launch flow.
+	# The zero key maps to Aircraft 10.
+	if event is InputEventKey and event.pressed and not event.echo:
+		var aircraft_number := _aircraft_number_for_hotkey(event.keycode)
+		if aircraft_number > 0:
+			_queue_aircraft_hotkey_launch(aircraft_number)
+			return
 
 	# Direct keyboard shortcuts below this point were development/test controls.
 	# Keep action-based controls above so newly assigned Input Map keys still work.
 	if event is InputEventKey:
 		return
-
-	# Spawn Aircraft 2 from hangar (key "2")
-	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_2:
-		if current_state == DeckState.IDLE:
-			var scene := aircraft_2_scene
-			if not scene:
-				scene = load("res://Aircraft/Aircraft_2.tscn")
-			if scene:
-				_queue_aircraft_scene_for_retrieval("Aircraft_2", scene)
-			else:
-				pass
-		else:
-			pass
-
-	# Spawn Aircraft 5 from hangar (key "5")
-	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_5:
-		if current_state == DeckState.IDLE:
-			var scene: PackedScene = load(DEFAULT_AIRCRAFT_SCENE_PATH)
-			if scene:
-				_queue_aircraft_scene_for_retrieval("Aircraft_5", scene, DEFAULT_AIRCRAFT_SCENE_PATH)
-
-	# Spawn Aircraft 7 from hangar (key "7")
-	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_7:
-		if current_state == DeckState.IDLE:
-			var scene := aircraft_7_scene
-			if not scene:
-				scene = load("res://Aircraft/Aircraft_7.tscn")
-			if scene:
-				_queue_aircraft_scene_for_retrieval("Aircraft_7", scene)
-
-	# Spawn Aircraft 8 from hangar (key "8")
-	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_8:
-		if current_state == DeckState.IDLE:
-			var scene := aircraft_8_scene
-			if not scene:
-				scene = load("res://Aircraft/Aircraft_8.tscn")
-			if scene:
-				_queue_aircraft_scene_for_retrieval("Aircraft_8", scene)
-
-	# Spawn Aircraft 9 rescue helicopter from hangar (key "9")
-	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_9:
-		if current_state == DeckState.IDLE:
-			var scene := aircraft_9_scene
-			if not scene:
-				scene = load("res://Aircraft/Aircraft_9.tscn")
-			if scene:
-				_queue_aircraft_scene_for_retrieval("Aircraft_9", scene)
-
-	# Spawn Aircraft 10 scout helicopter from hangar (key "0")
-	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_0:
-		if current_state == DeckState.IDLE:
-			var scene := aircraft_10_scene
-			if not scene:
-				scene = load("res://Aircraft/Aircraft_10.tscn")
-			if scene:
-				_queue_aircraft_scene_for_retrieval("Aircraft_10", scene)
 
 	# Spawn Aircraft 11 utility helicopter from hangar (key "-")
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_MINUS:
@@ -1081,11 +1470,13 @@ func request_launch_sequence(aircraft: RigidBody3D):
 	# Hold the launch until the departure path is clear -- the carrier will keep moving/turning and the
 	# heading will change, opening a safe launch corridor.
 	if not _launch_path_clear_of_terrain():
+		_request_launch_terrain_reposition()
 		var now_cliff_s := Time.get_ticks_msec() / 1000.0
 		if now_cliff_s >= _launch_terrain_block_log_s:
 			_launch_terrain_block_log_s = now_cliff_s + 2.0
 			_recovery_debug("launch held: terrain/cliff ahead on departure path")
 		return
+	_clear_launch_terrain_reposition()
 
 	# Clear parking brake but keep controls_disabled set until catapult latch/release.
 	# This prevents AIPilot/ControlEngine from spooling before shuttle connection.
@@ -1236,7 +1627,9 @@ func _launch_next_queued_ai() -> void:
 	_ai_launch_queue -= 1
 	start_hangar_retrieval()
 
-func _on_catapult_sequence_complete():
+func _on_catapult_sequence_complete(source_catapult: Node = null):
+	if is_instance_valid(source_catapult) and source_catapult != catapult:
+		return
 	# Notify FlightOps about the aircraft that just launched
 	if _pending_flight_ops and is_instance_valid(deck_aircraft):
 		var pilot = deck_aircraft.get_node_or_null("AIPilot")
@@ -1255,7 +1648,9 @@ func _on_catapult_sequence_complete():
 		_pending_ai_aircraft_kind = "fixed_wing"
 		_pending_ai_aircraft_model = ""
 
-func _on_catapult_sequence_aborted():
+func _on_catapult_sequence_aborted(source_catapult: Node = null):
+	if is_instance_valid(source_catapult) and source_catapult != catapult:
+		return
 	if is_instance_valid(deck_aircraft):
 		if deck_aircraft.has_meta("controls_disabled"):
 			deck_aircraft.remove_meta("controls_disabled")
@@ -1338,6 +1733,7 @@ func _on_cable_released(aircraft_variant: Variant) -> void:
 
 func _dispatch_recovery_job() -> void:
 	"""Move aircraft to elevator using simple movement and visual tractorbots"""
+	_select_recovery_elevator()
 	if not is_instance_valid(deck_aircraft) or not is_instance_valid(elevator_pickup_marker):
 		_recovery_debug("cannot dispatch recovery: aircraft_valid=%s pickup_marker_valid=%s" % [
 			str(is_instance_valid(deck_aircraft)),
@@ -1350,7 +1746,7 @@ func _dispatch_recovery_job() -> void:
 	
 	_recovery_job_dispatched = true
 	_recovery_debug("dispatch recovery job")
-	await _prepare_tractorbots_for_recovery_job()
+	await _prepare_tractorbots_for_recovery_job(deck_aircraft)
 	if not is_instance_valid(deck_aircraft):
 		_recovery_debug("recovery dispatch aborted after tractor prep: aircraft no longer valid")
 		return
@@ -1581,9 +1977,14 @@ func _abort_current_sequence() -> void:
 	_landing_clearance_aircraft = null
 	_landing_clearance_queue.clear()
 	_reset_landing_blocker_cleanup()
-	if catapult and catapult.has_method("_reset_state"):
-		catapult._reset_state()
+	_reset_all_catapults()
 	current_state = DeckState.IDLE
+
+
+func _reset_all_catapults() -> void:
+	for launch_catapult in _catapults:
+		if is_instance_valid(launch_catapult) and launch_catapult.has_method("_reset_state"):
+			launch_catapult.call("_reset_state")
 
 func _find_arrested_aircraft() -> RigidBody3D:
 	for group in ["aircraft", "ai_aircraft", "friendlies"]:
@@ -1694,6 +2095,12 @@ func _get_aircraft_carrier_relative_speed(aircraft: RigidBody3D) -> float:
 	return Vector2(relative_velocity.x, relative_velocity.z).length()
 
 func _get_aircraft_reference_velocity(aircraft: RigidBody3D) -> Vector3:
+	# Every caller in this manager is evaluating motion relative to this carrier.
+	# Prefer its current velocity over snapshots left on the aircraft by an older
+	# elevator, launch, or landing handoff.
+	var live_carrier := get_parent()
+	if live_carrier is Node and is_instance_valid(live_carrier):
+		return _get_node_velocity(live_carrier as Node)
 	if aircraft.has_meta(MOTION_REFERENCE_NODE_META):
 		var reference = aircraft.get_meta(MOTION_REFERENCE_NODE_META)
 		if reference is Node and is_instance_valid(reference):
@@ -1785,14 +2192,10 @@ func _is_helicopter_currently_landing_on_carrier(aircraft: RigidBody3D) -> bool:
 		return false
 	if aircraft.has_meta("carrier_landing_final_active") and bool(aircraft.get_meta("carrier_landing_final_active")):
 		return true
-	var pilot := aircraft.find_child("HelicopterPilot", true, false)
-	if not is_instance_valid(pilot):
-		return false
-	var landing_on_carrier_variant: Variant = pilot.get("_landing_on_carrier")
-	if landing_on_carrier_variant is bool and bool(landing_on_carrier_variant):
-		return true
-	var carrier_approach_phase_variant: Variant = pilot.get("_carrier_approach_phase")
-	return carrier_approach_phase_variant is int and int(carrier_approach_phase_variant) != 0
+	# Holding or manoeuvring at the first gate is not an active deck landing. If
+	# that phase cannot converge, the ordinary clearance timeout must be allowed
+	# to rotate the queue instead of letting one helicopter monopolize it forever.
+	return false
 
 func _is_aircraft_blocking_landing_deck(aircraft: RigidBody3D, requester: RigidBody3D = null) -> bool:
 	if not is_instance_valid(aircraft) or aircraft == requester:
@@ -1840,9 +2243,8 @@ func _find_landing_deck_blocker(requester: RigidBody3D = null) -> RigidBody3D:
 
 func is_aircraft_physically_settled_on_landing_deck(aircraft: RigidBody3D) -> bool:
 	## Authoritative physical touchdown check shared with helicopter landing logic.
-	## This deliberately does not depend on LandingGear's carrier-surface probe:
-	## the skid collision can be resting on the deck even if a short centre ray
-	## momentarily misses while the helicopter rocks after touchdown.
+	## This uses the suspension's carrier contact when available, with an actual
+	## tire/skid contact-point fallback for rigs whose short centre ray misses.
 	if not is_instance_valid(aircraft):
 		return false
 	if not _is_aircraft_physically_in_landing_deck_rectangle(aircraft):
@@ -1884,19 +2286,26 @@ func _landing_blocker_cleanup_has_landing_pressure(blocker: RigidBody3D) -> bool
 func _landing_blocker_has_deck_contact(blocker: RigidBody3D) -> bool:
 	if not is_instance_valid(blocker):
 		return false
-	if blocker.has_meta("carrier_transport_mode") and bool(blocker.get_meta("carrier_transport_mode")):
-		return true
-	if blocker.has_meta("parking_brake") and bool(blocker.get_meta("parking_brake")):
-		return true
 	var deck_y := _get_deck_height_y()
 	var contact_margin := maxf(landing_blocker_cleanup_deck_contact_margin_m, 0.0)
-	var gear_nodes := _find_gear_colliders(blocker)
-	if gear_nodes.is_empty():
-		gear_nodes = _get_launch_wheel_nodes(blocker)
+	var landing_gear_module := _find_landing_gear_module(blocker)
+	if landing_gear_module != null:
+		# Prefer the suspension's direct carrier-surface result when available.
+		var carrier_contacts: Variant = landing_gear_module.get("_wheel_on_carrier_surface")
+		if carrier_contacts is Array:
+			for touching_variant: Variant in carrier_contacts as Array:
+				if bool(touching_variant):
+					return true
+
+	var gear_nodes := _get_launch_wheel_nodes(blocker)
 	if gear_nodes.is_empty():
 		return absf(blocker.global_position.y - deck_y) <= contact_margin
+	var contact_offset := _get_deck_contact_visual_offset(blocker)
 	for gear in gear_nodes:
-		if is_instance_valid(gear) and absf((gear as Node3D).global_position.y - deck_y) <= contact_margin:
+		if not is_instance_valid(gear):
+			continue
+		var contact_y := (gear as Node3D).global_position.y - contact_offset
+		if absf(contact_y - deck_y) <= contact_margin:
 			return true
 	return false
 
@@ -2018,7 +2427,9 @@ func _launch_needs_carrier_constraint() -> bool:
 	# oscillate: settle -> resume turn to waypoint -> turn again). Suppressed if there's a cliff ahead --
 	# then let the carrier keep moving/turning to swing onto a clear heading before it commits to straight.
 	if not _launch_path_clear_of_terrain():
+		_request_launch_terrain_reposition()
 		return false
+	_clear_launch_terrain_reposition()
 	return true
 
 func _has_pending_launch() -> bool:
@@ -2034,8 +2445,10 @@ func _landing_clearance_aircraft_needs_carrier_constraint() -> bool:
 	if _landing_clearance_aircraft.has_meta("carrier_fixed_wing_recovery_active") \
 			and bool(_landing_clearance_aircraft.get_meta("carrier_fixed_wing_recovery_active")):
 		return true
-	if _is_helicopter_aircraft(_landing_clearance_aircraft):
-		return false
+	# Helicopters can match a moving deck while waiting at the gate, but once
+	# FINAL/DESCEND begins give them the same straight, stopped carrier used by a
+	# fixed-wing recovery. Carrier deceleration is gradual and pilots now read it
+	# live, so this no longer invalidates their sampled approach speed.
 	return _landing_clearance_aircraft.has_meta("carrier_landing_final_active") \
 			and bool(_landing_clearance_aircraft.get_meta("carrier_landing_final_active"))
 
@@ -2124,6 +2537,7 @@ func notify_helicopter_landed_on_carrier(aircraft: RigidBody3D) -> void:
 		return
 	if not _is_helicopter_aircraft(aircraft):
 		return
+	_log_carrier_landing_once(aircraft, "helicopter touchdown")
 	var hold_s := maxf(helicopter_recent_landing_clearance_hold_s, 0.0)
 	if hold_s <= 0.0:
 		return
@@ -2315,6 +2729,10 @@ func start_post_arrest_recovery(aircraft_variant: Variant) -> void:
 			_fmt_vec3(aircraft.global_position),
 		])
 		return
+	_log_carrier_landing_once(
+		aircraft,
+		"helicopter touchdown" if _is_helicopter_aircraft(aircraft) else "arrested landing"
+	)
 	release_landing_clearance(aircraft)
 	var arresting_engaged := aircraft.has_meta("arresting_engaged") and bool(aircraft.get_meta("arresting_engaged"))
 	var cable = aircraft.get_meta("arresting_cable") if aircraft.has_meta("arresting_cable") else null
@@ -2494,6 +2912,7 @@ func _find_engine(root: Node) -> Node:
 # --- Hangar Storage and Retrieval ---
 func start_hangar_storage(aircraft: RigidBody3D):
 	"""Start storing aircraft in hangar"""
+	_select_recovery_elevator()
 	if _landing_test_active:
 		return
 	if stored_aircraft.size() >= max_hangar_capacity:
@@ -2509,6 +2928,7 @@ func start_hangar_storage(aircraft: RigidBody3D):
 
 func start_hangar_retrieval():
 	"""Start retrieving aircraft from hangar"""
+	_select_launch_elevator()
 	if _landing_test_active:
 		return
 	if stored_aircraft.is_empty():
@@ -2529,6 +2949,9 @@ func start_hangar_retrieval():
 
 func _on_elevator_at_bottom():
 	"""Handle elevator reaching bottom"""
+	if _aircraft_elevator_ride_in_progress \
+			and current_state in [DeckState.STORING_IN_HANGAR, DeckState.RETRIEVING_FROM_HANGAR]:
+		return
 	if _landing_test_active and current_state in [DeckState.STORING_IN_HANGAR, DeckState.RETRIEVING_FROM_HANGAR]:
 		current_state = DeckState.IDLE
 		deck_aircraft = null
@@ -2568,6 +2991,10 @@ func _store_aircraft_in_hangar():
 	# Store aircraft data for later spawning
 	_recovery_debug("storing aircraft in hangar")
 	var aircraft_data = _extract_aircraft_data(_pending_store_aircraft)
+	_combat_log_event("STORE", "%s secured in carrier hangar%s" % [
+		_aircraft_debug_name(_pending_store_aircraft),
+		_format_rtb_reason_suffix(_pending_store_aircraft),
+	])
 	_resolve_carrier_manager()
 	if is_instance_valid(carrier_manager):
 		carrier_manager.mark_aircraft_stored(_pending_store_aircraft, aircraft_data)
@@ -2575,6 +3002,11 @@ func _store_aircraft_in_hangar():
 		push_warning("[FlightDeckManager] Stored aircraft is missing pilot data and CarrierManager is unavailable.")
 	stored_aircraft.append(aircraft_data)
 	_recovery_debug("aircraft stored; hangar count=%d" % stored_aircraft.size())
+	# Rescue passengers stay aboard through touchdown, tractor handling, and the
+	# elevator descent. They disembark here at the same hangar handoff as the pilot.
+	var helicopter_pilot := _pending_store_aircraft.find_child("HelicopterPilot", true, false)
+	if helicopter_pilot != null and helicopter_pilot.has_method("disembark_passengers"):
+		helicopter_pilot.call("disembark_passengers")
 
 	# Remove aircraft from the scene
 	_pending_store_aircraft.queue_free()
@@ -2639,6 +3071,9 @@ func _spawn_aircraft_at_hangar_level():
 
 func _on_elevator_at_top():
 	"""Handle elevator reaching top"""
+	if _aircraft_elevator_ride_in_progress \
+			and current_state in [DeckState.STORING_IN_HANGAR, DeckState.RETRIEVING_FROM_HANGAR]:
+		return
 	if _heli_test_active:
 		_log_heli_test("elevator top callback state=%s handled=%s physical_top=%s aircraft=%s" % [
 			_deck_state_name(),
@@ -2679,6 +3114,80 @@ func get_hangar_status() -> Dictionary:
 		"available_space": max_hangar_capacity - stored_aircraft.size(),
 		"pending_store": _pending_store_aircraft != null
 	}
+
+
+func get_campaign_save_blocker() -> String:
+	if _active_test_scenario != TestScenario.NORMAL_GAME:
+		return "Campaign saving is unavailable in a test scenario"
+	if current_state != DeckState.IDLE:
+		return "Flight deck operation in progress: %s" % _deck_state_name()
+	if is_instance_valid(deck_aircraft) or is_instance_valid(_pending_store_aircraft) \
+	or is_instance_valid(_landing_clearance_aircraft) or not _landing_clearance_queue.is_empty():
+		return "Aircraft are still moving through the flight deck"
+	if _tractor_cleanup_in_progress or _tractor_elevator_transfer_in_progress:
+		return "Flight deck tractors are still operating"
+	if _ai_launch_queue > 0 or _pending_flight_ops != null:
+		return "An aircraft launch is still queued"
+	if elevator is CarrierElevator:
+		var elevator_state := int((elevator as CarrierElevator).current_state)
+		if elevator_state in [
+			CarrierElevator.ElevatorState.MOVING_DOWN,
+			CarrierElevator.ElevatorState.COVERS_CLOSING,
+			CarrierElevator.ElevatorState.COVERS_RAISING,
+			CarrierElevator.ElevatorState.COVERS_LOWERING,
+			CarrierElevator.ElevatorState.COVERS_OPENING,
+			CarrierElevator.ElevatorState.MOVING_UP,
+		]:
+			return "Carrier elevator is still moving"
+	var carrier := get_parent()
+	if carrier != null:
+		var bay_variant: Variant = carrier.get("vehicle_bay")
+		if bay_variant is VehicleBayManager \
+		and (bay_variant as VehicleBayManager).state != VehicleBayManager.BayState.IDLE:
+			return "Vehicle bay operation in progress"
+		var ramp_variant: Variant = carrier.get("vehicle_ramp")
+		if ramp_variant is VehicleRamp and (ramp_variant as VehicleRamp).state != VehicleRamp.State.STOWED:
+			return "Stow the vehicle bay ramp before saving"
+	return ""
+
+
+func capture_save_state() -> Dictionary:
+	var entries: Array[Dictionary] = []
+	for stored_variant in stored_aircraft:
+		if not (stored_variant is Dictionary):
+			continue
+		var entry := (stored_variant as Dictionary).duplicate(true)
+		entry.erase("scene")
+		entries.append(entry)
+	return {
+		"stored_aircraft": entries,
+		"max_hangar_capacity": max_hangar_capacity,
+	}
+
+
+func restore_save_state(state: Dictionary) -> bool:
+	var entries_variant: Variant = state.get("stored_aircraft", [])
+	if not (entries_variant is Array):
+		return false
+	stored_aircraft.clear()
+	for entry_variant in entries_variant:
+		if not (entry_variant is Dictionary):
+			continue
+		var entry := (entry_variant as Dictionary).duplicate(true)
+		var scene_file := str(entry.get("scene_file", ""))
+		entry["scene"] = load(scene_file) as PackedScene if not scene_file.is_empty() else null
+		stored_aircraft.append(entry)
+	max_hangar_capacity = maxi(int(state.get("max_hangar_capacity", max_hangar_capacity)), stored_aircraft.size())
+	deck_aircraft = null
+	_pending_store_aircraft = null
+	_landing_clearance_aircraft = null
+	_landing_clearance_queue.clear()
+	_ai_launch_queue = 0
+	_pending_flight_ops = null
+	_tractor_cleanup_in_progress = false
+	_tractor_elevator_transfer_in_progress = false
+	current_state = DeckState.IDLE
+	return true
 
 func _initialize_hangar_with_aircraft():
 	"""Pre-populate hangar with aircraft at startup"""
@@ -2736,9 +3245,10 @@ func _activate_tractor_bots(aircraft: RigidBody3D) -> Array[Node]:
 		_recovery_debug("tractor activation found no gear/wheel nodes on %s" % _aircraft_debug_name(aircraft))
 		return active_bots
 	_recovery_debug("tractor activation found %d gear nodes and %d configured bots" % [gear_colliders.size(), tractor_bots.size()])
+	var selected_bots := _select_tractor_bots_for_aircraft(aircraft, gear_colliders.size())
 
-	for i in range(min(tractor_bots.size(), gear_colliders.size())):
-		var bot = tractor_bots[i]
+	for i in range(min(selected_bots.size(), gear_colliders.size())):
+		var bot = selected_bots[i]
 		var gear_collider = gear_colliders[i]
 		if bot and gear_collider and bot.has_method("activate"):
 			# Calculate offset from aircraft center to gear collider
@@ -2750,6 +3260,11 @@ func _activate_tractor_bots(aircraft: RigidBody3D) -> Array[Node]:
 				gear_collider.name,
 				_fmt_vec3(wheel_offset)
 			])
+	var active_job_bots: Array[Node3D] = []
+	for bot in active_bots:
+		if bot is Node3D and is_instance_valid(bot):
+			active_job_bots.append(bot as Node3D)
+	_set_current_job_tractor_bots(active_job_bots)
 	return active_bots
 
 func _get_tractor_wait_status(active_bots: Array[Node]) -> String:
@@ -2853,7 +3368,7 @@ func _deactivate_tractor_bots():
 
 func _return_tractors_to_staging():
 	"""Force tractorbots to drop what they are doing and return to staging"""
-	var primary_bots := _get_primary_tractor_bots()
+	var primary_bots := _get_current_job_tractor_bots()
 	var staging_slots := _get_primary_staging_slots_local(primary_bots.size())
 	for i in range(min(primary_bots.size(), staging_slots.size())):
 		var bot := primary_bots[i]
@@ -2862,6 +3377,7 @@ func _return_tractors_to_staging():
 		_set_cleanup_idle_for_tractor_bot(bot)
 		bot.position = staging_slots[i]
 	_tractorbots_in_hangar = false
+	_current_job_tractor_bots.clear()
 	for bot in tractor_bots:
 		if is_instance_valid(bot):
 			# Drop any active connections
@@ -2885,20 +3401,10 @@ func _start_aircraft_movement(aircraft: RigidBody3D, target_position: Vector3):
 	_prepare_aircraft_for_movement(aircraft)
 	# Use the same tractor-coupled horizontal move used during retrieval so
 	# storage/retrieval have consistent bot motion and pacing.
-	var deck_height = _get_deck_height_y()
 	var gear_colliders = _find_gear_colliders(aircraft)
-	if not _is_helicopter_aircraft(aircraft) and not gear_colliders.is_empty():
+	if not gear_colliders.is_empty():
 		var stance_target_position := Vector3(target_position.x, aircraft.global_position.y, target_position.z)
 		await _move_aircraft_horizontally(aircraft, stance_target_position)
-	elif not gear_colliders.is_empty():
-		var lowest_gear_global_y := INF
-		for gear in gear_colliders:
-			if (gear as Node3D).global_position.y < lowest_gear_global_y:
-				lowest_gear_global_y = (gear as Node3D).global_position.y
-		var gear_to_body_offset: float = aircraft.global_position.y - lowest_gear_global_y
-		var lift_aircraft_y: float = float(deck_height) + _aircraft_lift_height + gear_to_body_offset
-		var lift_target_position = Vector3(target_position.x, lift_aircraft_y, target_position.z)
-		await _move_aircraft_horizontally(aircraft, lift_target_position)
 	else:
 		await _move_aircraft_smoothly(aircraft, target_position)
 	
@@ -2910,7 +3416,7 @@ func _start_aircraft_movement(aircraft: RigidBody3D, target_position: Vector3):
 	if not is_instance_valid(aircraft):
 		current_state = DeckState.IDLE
 		return
-	_place_fixed_wing_in_static_suspension_pose(aircraft, _get_deck_height_y())
+	_place_aircraft_in_static_suspension_pose(aircraft, _get_deck_height_y())
 	# Wait 1 second after aircraft is in position before starting elevator
 	await get_tree().create_timer(1.0).timeout
 
@@ -2923,18 +3429,22 @@ func _start_aircraft_movement(aircraft: RigidBody3D, target_position: Vector3):
 	_start_elevator_sequence(aircraft)
 
 func _prepare_aircraft_for_movement(aircraft: RigidBody3D):
-	"""Disable physics and place aircraft in its supported deck stance."""
+	"""Restrain aircraft for scripted tractor towing without ghosting its collision."""
 
-	# Save original collision settings (only if not already saved)
-	if _aircraft_original_collision_layer == 0:
+	# Refresh the live aircraft settings for each deck operation. A zero value can
+	# only be inherited from an older ghost-transport path, never by this one.
+	if aircraft.collision_layer != 0:
 		_aircraft_original_collision_layer = aircraft.collision_layer
+	if aircraft.collision_mask != 0:
 		_aircraft_original_collision_mask = aircraft.collision_mask
-		# Disable physics
 	aircraft.set_meta("carrier_transport_mode", true)
+	aircraft.freeze_mode = RigidBody3D.FREEZE_MODE_KINEMATIC
 	aircraft.freeze = true
-	aircraft.gravity_scale = 0.0
-	aircraft.collision_layer = 0  # Disable collision with ship
-	aircraft.collision_mask = 0
+	aircraft.gravity_scale = 1.0
+	aircraft.collision_layer = _aircraft_original_collision_layer if _aircraft_original_collision_layer != 0 else 513
+	aircraft.collision_mask = _aircraft_original_collision_mask if _aircraft_original_collision_mask != 0 else 513
+	aircraft.linear_velocity = Vector3.ZERO
+	aircraft.angular_velocity = Vector3.ZERO
 	
 	# Preserve the same spring-loaded stance used when physics becomes active.
 	_position_aircraft_above_deck(aircraft)
@@ -2943,7 +3453,7 @@ func _position_aircraft_above_deck(aircraft: RigidBody3D):
 	"""Position aircraft in its supported deck stance."""
 	var gear_colliders = _find_gear_colliders(aircraft)
 	var deck_height = _get_deck_height_y()
-	if _place_fixed_wing_in_static_suspension_pose(aircraft, deck_height):
+	if _place_aircraft_in_static_suspension_pose(aircraft, deck_height):
 		return
 	var target_gear_height = deck_height + _aircraft_lift_height
 	
@@ -3171,8 +3681,8 @@ func _get_launch_nose_and_main_nodes(aircraft: RigidBody3D, wheel_nodes: Array[N
 	}
 
 
-func _place_fixed_wing_in_static_suspension_pose(aircraft: RigidBody3D, surface_y: float) -> bool:
-	if not is_instance_valid(aircraft) or _is_helicopter_aircraft(aircraft):
+func _place_aircraft_in_static_suspension_pose(aircraft: RigidBody3D, surface_y: float) -> bool:
+	if not is_instance_valid(aircraft):
 		return false
 	var landing_gear_module := _find_landing_gear_module(aircraft)
 	if landing_gear_module == null \
@@ -3246,6 +3756,20 @@ func _place_fixed_wing_in_static_suspension_pose(aircraft: RigidBody3D, surface_
 	_sync_rigidbody_transform_state(aircraft)
 	return true
 
+
+func _place_fixed_wing_in_static_suspension_pose(aircraft: RigidBody3D, surface_y: float) -> bool:
+	## Compatibility wrapper for the existing focused fixed-wing suspension test.
+	if not is_instance_valid(aircraft) or _is_helicopter_aircraft(aircraft):
+		return false
+	return _place_aircraft_in_static_suspension_pose(aircraft, surface_y)
+
+
+func settle_aircraft_on_landing_deck(aircraft: RigidBody3D) -> bool:
+	## Convert the just-contacted landing pose into the same loaded suspension
+	## stance used during deck handling. This keeps the tire contact fixed while
+	## allowing the body and oleos to settle under the aircraft's static weight.
+	return _place_aircraft_in_static_suspension_pose(aircraft, _get_deck_height_y())
+
 func _lower_launch_wheels_to_deck(aircraft: RigidBody3D, wheel_nodes: Array[Node3D], deck_y: float) -> void:
 	if wheel_nodes.is_empty():
 		aircraft.global_position.y = deck_y
@@ -3269,7 +3793,7 @@ func _get_deck_contact_visual_offset(aircraft: RigidBody3D) -> float:
 	return maxf(float(offset), 0.0)
 
 func _settle_launch_aircraft_on_wheels(aircraft: RigidBody3D, wheel_nodes: Array[Node3D], deck_y: float) -> void:
-	if _place_fixed_wing_in_static_suspension_pose(aircraft, deck_y):
+	if _place_aircraft_in_static_suspension_pose(aircraft, deck_y):
 		return
 	if wheel_nodes.is_empty():
 		aircraft.global_position.y = deck_y
@@ -3418,10 +3942,10 @@ func _get_tractor_cleanup_elevator_slots_local(count: int) -> Array[Vector3]:
 	var slots: Array[Vector3] = []
 	var deck_local_y: float = _get_deck_local_y()
 	var slot_offsets: Array[Vector3] = [
-		Vector3(-6.0, 0.0, -3.0),
-		Vector3(-2.0, 0.0, -3.0),
-		Vector3(2.0, 0.0, -3.0),
-		Vector3(6.0, 0.0, -3.0)
+		Vector3(-3.5, 0.0, -5.5),
+		Vector3(-3.5, 0.0, -1.85),
+		Vector3(-3.5, 0.0, 1.85),
+		Vector3(-3.5, 0.0, 5.5)
 	]
 	var base_local: Vector3 = elevator_pickup_marker.position if is_instance_valid(elevator_pickup_marker) else Vector3.ZERO
 	for i in range(min(count, slot_offsets.size())):
@@ -3434,10 +3958,10 @@ func _get_tractor_cleanup_hangar_slots_local(count: int) -> Array[Vector3]:
 	var slots: Array[Vector3] = []
 	var hangar_local_y: float = _get_elevator_platform_top_local_y(-10.0) + tractor_elevator_floor_offset_m
 	var slot_offsets: Array[Vector3] = [
-		Vector3(-9.0, 0.0, -8.0),
-		Vector3(-3.0, 0.0, -8.0),
-		Vector3(3.0, 0.0, -8.0),
-		Vector3(9.0, 0.0, -8.0)
+		Vector3(-3.5, 0.0, -5.5),
+		Vector3(-3.5, 0.0, -1.85),
+		Vector3(-3.5, 0.0, 1.85),
+		Vector3(-3.5, 0.0, 5.5)
 	]
 	var base_local: Vector3 = elevator_pickup_marker.position if is_instance_valid(elevator_pickup_marker) else Vector3.ZERO
 	for i in range(min(count, slot_offsets.size())):
@@ -3660,22 +4184,23 @@ func _refresh_weapon_controller_after_loadout(aircraft: RigidBody3D, profile: St
 		control_weapons.selected_weapon_type = control_weapons.weapon_types[selected_idx]
 
 func _restore_aircraft_runtime_state_deferred(aircraft: RigidBody3D, aircraft_data: Dictionary) -> void:
-	if not is_instance_valid(aircraft):
+	if not is_inside_tree() or not is_instance_valid(aircraft) or not aircraft.is_inside_tree():
 		return
 	await get_tree().process_frame
-	if not is_instance_valid(aircraft):
+	if not is_inside_tree() or not is_instance_valid(aircraft) or not aircraft.is_inside_tree():
 		return
 	if aircraft_data.has("current_health") and "current_health" in aircraft:
 		aircraft.set("current_health", float(aircraft_data.get("current_health", aircraft.get("current_health"))))
 	_restore_aircraft_energy_state(aircraft, aircraft_data.get("energy_state", []))
 	_restore_aircraft_loadout_state(aircraft, aircraft_data.get("loadout_state", {}))
 	_apply_ai_loadout_profile(aircraft, str(aircraft_data.get("requested_ai_loadout_profile", "")))
+	_restore_deployed_aircraft_module_state(aircraft, aircraft_data)
 
 func _extract_aircraft_data(aircraft: RigidBody3D) -> Dictionary:
 	"""Extract aircraft data for storage"""
 	var scene_file := aircraft.scene_file_path if aircraft.scene_file_path else ""
 	var data = {
-		"name": aircraft.name,
+		"name": str(aircraft.name),
 		"scene_file": scene_file,
 		"scene": load(scene_file) as PackedScene if scene_file != "" else null,
 		"position": aircraft.global_position,
@@ -3695,6 +4220,213 @@ func _extract_aircraft_data(aircraft: RigidBody3D) -> Dictionary:
 		data.metadata[key] = aircraft.get_meta(key)
 
 	return data
+
+
+func capture_deployed_aircraft_save_state(aircraft: Node3D) -> Dictionary:
+	if not (aircraft is RigidBody3D) or not is_instance_valid(aircraft):
+		return {}
+	var body := aircraft as RigidBody3D
+	var data := _extract_aircraft_data(body)
+	data.erase("scene")
+	if str(data.get("scene_file", "")).is_empty():
+		return {}
+	data["linear_velocity"] = body.linear_velocity
+	data["angular_velocity"] = body.angular_velocity
+	data["landing_gear_state"] = _capture_deployed_landing_gear_state(body)
+	data["engine_state"] = _capture_deployed_engine_state(body)
+	var safe_metadata: Dictionary = {}
+	var metadata_variant: Variant = data.get("metadata", {})
+	if metadata_variant is Dictionary:
+		for key_variant in (metadata_variant as Dictionary).keys():
+			var key := str(key_variant)
+			if key in [
+				"controls_disabled",
+				"carrier_transport_mode",
+				"parking_brake",
+				"arresting_engaged",
+				"arresting_cable",
+				"carrier_motion_reference",
+			]:
+				continue
+			var original: Variant = (metadata_variant as Dictionary)[key_variant]
+			var copied: Variant = _copy_campaign_save_safe_value(original)
+			if original == null or copied != null:
+				safe_metadata[key] = copied
+	data["metadata"] = safe_metadata
+	return data
+
+
+func restore_deployed_aircraft_save_state(aircraft_data: Dictionary) -> RigidBody3D:
+	var scene_file := str(aircraft_data.get("scene_file", ""))
+	if scene_file.is_empty():
+		return null
+	var scene_to_use := load(scene_file) as PackedScene
+	if scene_to_use == null:
+		push_warning("[FlightDeckManager] Could not restore deployed aircraft scene: %s" % scene_file)
+		return null
+	var aircraft := scene_to_use.instantiate() as RigidBody3D
+	if aircraft == null:
+		push_warning("[FlightDeckManager] Saved deployed aircraft is not a RigidBody3D: %s" % scene_file)
+		return null
+	var main_scene := get_tree().current_scene
+	if main_scene == null:
+		aircraft.free()
+		return null
+
+	# The saved aircraft resumes as an autonomous formation member. Keep controls
+	# muted while its tree and pilot are initialized, then release them only after
+	# all transient deck state has been removed.
+	aircraft.set_meta("controls_disabled", true)
+	main_scene.add_child(aircraft)
+	aircraft.name = str(aircraft_data.get("name", aircraft.name))
+	aircraft.global_position = aircraft_data.get("position", aircraft.global_position) as Vector3
+	aircraft.global_rotation = aircraft_data.get("rotation", aircraft.global_rotation) as Vector3
+	aircraft.scale = aircraft_data.get("scale", aircraft.scale) as Vector3
+
+	var metadata_variant: Variant = aircraft_data.get("metadata", {})
+	if metadata_variant is Dictionary:
+		for key_variant in (metadata_variant as Dictionary).keys():
+			aircraft.set_meta(str(key_variant), (metadata_variant as Dictionary)[key_variant])
+	_configure_retrieved_aircraft_as_ai(aircraft, false)
+	_resolve_carrier_manager()
+	if not is_instance_valid(carrier_manager) \
+	or not carrier_manager.bind_pilot_to_live_aircraft(aircraft, aircraft_data):
+		aircraft.queue_free()
+		return null
+
+	for transient_meta in [
+		"carrier_transport_mode",
+		"parking_brake",
+		"arresting_engaged",
+		"arresting_cable",
+		"carrier_motion_reference",
+	]:
+		aircraft.remove_meta(transient_meta)
+	aircraft.freeze = false
+	aircraft.linear_velocity = aircraft_data.get("linear_velocity", Vector3.ZERO) as Vector3
+	aircraft.angular_velocity = aircraft_data.get("angular_velocity", Vector3.ZERO) as Vector3
+	_release_restored_aircraft_ai(aircraft)
+	PhysicsServer3D.body_set_state(
+		aircraft.get_rid(),
+		PhysicsServer3D.BODY_STATE_TRANSFORM,
+		aircraft.global_transform
+	)
+	aircraft.reset_physics_interpolation()
+	_finalize_deployed_aircraft_restore_deferred.call_deferred(aircraft)
+	_restore_aircraft_runtime_state_deferred.call_deferred(aircraft, aircraft_data)
+	return aircraft
+
+
+func _finalize_deployed_aircraft_restore_deferred(aircraft: RigidBody3D) -> void:
+	if not is_inside_tree() or not is_instance_valid(aircraft) or not aircraft.is_inside_tree():
+		return
+	await get_tree().process_frame
+	if not is_inside_tree() or not is_instance_valid(aircraft) or not aircraft.is_inside_tree():
+		return
+	await get_tree().process_frame
+	if not is_inside_tree() or not is_instance_valid(aircraft) or not aircraft.is_inside_tree():
+		return
+	# Aircraft._ready() performs a one-frame-late group initialization. Reapply
+	# autonomous ownership afterward so a restored flight member cannot remain in
+	# the player-aircraft group, then release its controls for mission execution.
+	_configure_retrieved_aircraft_as_ai(aircraft, false)
+	_release_restored_aircraft_ai(aircraft)
+
+
+func _release_restored_aircraft_ai(aircraft: RigidBody3D) -> void:
+	aircraft.remove_meta("controls_disabled")
+	aircraft.freeze = false
+	var pilot := aircraft.find_child("AIPilot", true, false) as AIPilot
+	if pilot != null and pilot.current_state in [AIPilot.State.IDLE, AIPilot.State.LAUNCHING]:
+		pilot.change_state(AIPilot.State.SEARCH)
+
+
+func _capture_deployed_landing_gear_state(aircraft: RigidBody3D) -> Array[Dictionary]:
+	var result: Array[Dictionary] = []
+	for node in _get_all_children(aircraft):
+		if node is AircraftModule_LandingGear:
+			result.append({
+				"path": str(aircraft.get_path_to(node)),
+				"deployed": bool(node.get("is_deployed")),
+			})
+	return result
+
+
+func _capture_deployed_engine_state(aircraft: RigidBody3D) -> Array[Dictionary]:
+	var result: Array[Dictionary] = []
+	for node in _get_all_children(aircraft):
+		if node is AircraftModule_Engine:
+			result.append({
+				"path": str(aircraft.get_path_to(node)),
+				"working": bool(node.get("is_engine_working")),
+				"current_power": float(node.get("current_power")),
+				"target_power": float(node.get("target_power")),
+				"throttle_input": float(node.get("throttle_input")),
+			})
+	return result
+
+
+func _restore_deployed_aircraft_module_state(aircraft: RigidBody3D, aircraft_data: Dictionary) -> void:
+	var gear_variant: Variant = aircraft_data.get("landing_gear_state", [])
+	if gear_variant is Array:
+		for entry_variant in gear_variant:
+			if not (entry_variant is Dictionary):
+				continue
+			var entry := entry_variant as Dictionary
+			var gear := aircraft.get_node_or_null(NodePath(str(entry.get("path", ""))))
+			if not (gear is AircraftModule_LandingGear):
+				continue
+			if bool(entry.get("deployed", false)):
+				gear.call("deploy")
+			else:
+				gear.call("stow")
+	var engine_variant: Variant = aircraft_data.get("engine_state", [])
+	if engine_variant is Array:
+		for entry_variant in engine_variant:
+			if not (entry_variant is Dictionary):
+				continue
+			var entry := entry_variant as Dictionary
+			var engine := aircraft.get_node_or_null(NodePath(str(entry.get("path", ""))))
+			if not (engine is AircraftModule_Engine):
+				continue
+			engine.set("is_engine_working", bool(entry.get("working", false)))
+			engine.set("current_power", float(entry.get("current_power", 0.0)))
+			engine.set("target_power", float(entry.get("target_power", 0.0)))
+			engine.set("throttle_input", float(entry.get("throttle_input", 0.0)))
+			engine.set("is_engine_changing_state", false)
+			var engine_loop_variant: Variant = engine.get("sfx_engine_loop")
+			if engine_loop_variant is AudioStreamPlayer3D:
+				var engine_loop := engine_loop_variant as AudioStreamPlayer3D
+				if bool(entry.get("working", false)) and not engine_loop.playing:
+					engine_loop.play()
+				elif not bool(entry.get("working", false)) and engine_loop.playing:
+					engine_loop.stop()
+			if engine.has_method("request_update_interface"):
+				engine.call("request_update_interface")
+
+
+func _copy_campaign_save_safe_value(value: Variant) -> Variant:
+	if value == null or value is bool or value is int or value is float or value is String \
+	or value is Vector2 or value is Vector2i or value is Vector3 or value is Color:
+		return value
+	if value is PackedByteArray:
+		return (value as PackedByteArray).duplicate()
+	if value is Array:
+		var copied_array: Array = []
+		for item in value:
+			var copied_item: Variant = _copy_campaign_save_safe_value(item)
+			if item == null or copied_item != null:
+				copied_array.append(copied_item)
+		return copied_array
+	if value is Dictionary:
+		var copied_dictionary: Dictionary = {}
+		for key_variant in (value as Dictionary).keys():
+			var original: Variant = (value as Dictionary)[key_variant]
+			var copied_item: Variant = _copy_campaign_save_safe_value(original)
+			if original == null or copied_item != null:
+				copied_dictionary[str(key_variant)] = copied_item
+		return copied_dictionary
+	return null
 
 func _select_hangar_launch_index() -> int:
 	## Which stored aircraft to launch next. For an AI COMBAT flight launch (a flight-ops scramble), skip
@@ -3803,12 +4535,13 @@ func _create_aircraft_at_hangar_level() -> RigidBody3D:
 	aircraft.set_meta("carrier_transport_mode", true)
 	_aircraft_original_collision_layer = aircraft.collision_layer
 	_aircraft_original_collision_mask = aircraft.collision_mask
-	aircraft.freeze = true
-	aircraft.gravity_scale = 0.0
+	aircraft.freeze_mode = RigidBody3D.FREEZE_MODE_KINEMATIC
+	aircraft.freeze = false
+	aircraft.gravity_scale = 1.0
 	aircraft.linear_velocity = Vector3.ZERO
 	aircraft.angular_velocity = Vector3.ZERO
-	aircraft.collision_layer = 0
-	aircraft.collision_mask = 0
+	aircraft.collision_layer = _aircraft_original_collision_layer if _aircraft_original_collision_layer != 0 else 513
+	aircraft.collision_mask = _aircraft_original_collision_mask if _aircraft_original_collision_mask != 0 else 513
 
 	# Add to scene
 	var main_scene = get_tree().current_scene
@@ -3831,11 +4564,14 @@ func _create_aircraft_at_hangar_level() -> RigidBody3D:
 	aircraft.scale = aircraft_data.scale
 	if _is_helicopter_aircraft(aircraft):
 		_straighten_retrieved_helicopter_on_deck(aircraft)
-	else:
-		_place_fixed_wing_in_static_suspension_pose(
-			aircraft,
-			_get_elevator_platform_top_global_y(-10.0)
-		)
+	_place_aircraft_in_static_suspension_pose(
+		aircraft,
+		_get_elevator_platform_top_global_y(-10.0)
+	)
+	_sync_rigidbody_transform_state(aircraft)
+	_set_manual_transport(aircraft, true)
+	if is_instance_valid(elevator) and elevator.has_method("create_platform_restraint"):
+		elevator.call("create_platform_restraint", aircraft)
 
 	# Restore metadata
 	for key in aircraft_data.metadata:
@@ -3845,10 +4581,12 @@ func _create_aircraft_at_hangar_level() -> RigidBody3D:
 	_restore_aircraft_runtime_state_deferred.call_deferred(aircraft, aircraft_data)
 	_resolve_carrier_manager()
 	if not is_instance_valid(carrier_manager) or not carrier_manager.bind_pilot_to_live_aircraft(aircraft, aircraft_data):
+		if is_instance_valid(elevator) and elevator.has_method("release_platform_restraint"):
+			elevator.call("release_platform_restraint", aircraft)
 		aircraft.queue_free()
 		return null
 
-	# Keep aircraft fully still during elevator movement.
+	# Keep the freshly restored aircraft still while it settles on the platform.
 	aircraft.linear_velocity = Vector3.ZERO
 	aircraft.angular_velocity = Vector3.ZERO
 
@@ -3860,10 +4598,12 @@ func _spawn_tractorbots_at_aircraft(aircraft: RigidBody3D):
 	var gear_colliders: Array[Node3D] = _get_launch_wheel_nodes(aircraft)
 	if gear_colliders.is_empty():
 		return
+	var selected_bots := _select_tractor_bots_for_aircraft(aircraft, gear_colliders.size())
+	_set_current_job_tractor_bots(selected_bots)
 
 	# Position tractorbots directly at aircraft wheels
-	for i in range(min(tractor_bots.size(), gear_colliders.size())):
-		var bot = tractor_bots[i]
+	for i in range(min(selected_bots.size(), gear_colliders.size())):
+		var bot = selected_bots[i]
 		var gear_collider = gear_colliders[i]
 		if bot and gear_collider:
 			# Position bot directly at the gear collider location
@@ -3892,18 +4632,23 @@ func _start_elevator_sequence(aircraft: RigidBody3D):
 
 	# Keep active recovery tractorbots coupled to the aircraft during descent.
 	_disable_tractor_bot_movement()
+	var physical_ride := _begin_physical_elevator_ride(aircraft)
+	# Defer elevator signals until this coroutine has released the restraint and
+	# finished moving the tractorbots, including the collision-safe fallback path.
+	_aircraft_elevator_ride_in_progress = true
 
 	# Start elevator moving down
 	elevator.move_platform_down()
 
 	# Start following the elevator with aircraft and tractorbots
-	_follow_elevator_down(aircraft)
+	_follow_elevator_down(aircraft, physical_ride)
 
 
-func _follow_elevator_down(aircraft: RigidBody3D):
+func _follow_elevator_down(aircraft: RigidBody3D, physical_ride: bool = false):
 	"""Make aircraft and tractorbots follow the elevator down"""
 	if not is_instance_valid(aircraft):
 		_recovery_debug("follow elevator down skipped: invalid aircraft")
+		_aircraft_elevator_ride_in_progress = false
 		return
 	
 	# Store reference to aircraft for elevator following
@@ -3913,8 +4658,7 @@ func _follow_elevator_down(aircraft: RigidBody3D):
 	
 	# Get initial positions relative to deck level (not elevator platform)
 	var deck_height = _get_deck_height_y()
-	var initial_aircraft_position = aircraft.global_position
-	var fixed_wing_surface_offset: float = aircraft.global_position.y - deck_height
+	var surface_offset: float = aircraft.global_position.y - deck_height
 	var active_bots: Array[Node3D] = []
 	var active_bot_offsets: Array[Vector3] = []
 	for bot in tractor_bots:
@@ -3928,42 +4672,26 @@ func _follow_elevator_down(aircraft: RigidBody3D):
 	var aircraft_carrier_local: Vector3 = carrier.to_local(aircraft.global_position) if carrier else aircraft.global_position
 	var aircraft_carrier_local_basis: Basis = carrier.global_transform.basis.inverse() * aircraft.global_transform.basis if carrier else aircraft.global_transform.basis
 	
-	# Calculate the aircraft's gear offset from its center
-	var gear_colliders = _find_gear_colliders(aircraft)
-	var lowest_gear_local_y = INF
-	for gear in gear_colliders:
-		var local_y = aircraft.to_local(gear.global_position).y
-		if local_y < lowest_gear_local_y:
-			lowest_gear_local_y = local_y
-	
-	# Calculate how much the aircraft center needs to be offset to position gear 0.2m above elevator
-	var gear_offset_from_aircraft_center = lowest_gear_local_y
-	var target_gear_height_above_elevator = 0.2  # 20cm above elevator platform
-	
 	# Start following the elevator platform
 	while is_instance_valid(aircraft) and is_instance_valid(elevator) and not _is_elevator_physically_at_bottom():
 		var elevator_top_y = _get_elevator_platform_top_global_y(-10.0)
 
-		var target_aircraft_y: float
-		if _is_helicopter_aircraft(aircraft):
-			# Legacy helicopter transport clearance.
-			var target_gear_height = elevator_top_y + target_gear_height_above_elevator
-			target_aircraft_y = target_gear_height - gear_offset_from_aircraft_center
-		else:
-			target_aircraft_y = elevator_top_y + fixed_wing_surface_offset
+		var target_aircraft_y: float = float(elevator_top_y) + surface_offset
 
-		# Only update Y — carrier delta (LandCarrier._carry_deck_passengers) handles XZ
-		if carrier:
-			var aircraft_transform := aircraft.global_transform
-			aircraft_transform.origin = carrier.to_global(aircraft_carrier_local)
-			aircraft_transform.origin.y = target_aircraft_y
-			aircraft_transform.basis = (carrier.global_transform.basis * aircraft_carrier_local_basis).orthonormalized()
-			aircraft.global_transform = aircraft_transform
-			_sync_rigidbody_transform_state(aircraft)
-		else:
-			aircraft.global_position.y = target_aircraft_y
-			_sync_rigidbody_transform_state(aircraft)
-		aircraft.angular_velocity = Vector3.ZERO
+		if not physical_ride:
+			# Fallback restraint: collision remains enabled because the compound hull
+			# contains a real shaft opening.
+			if carrier:
+				var aircraft_transform := aircraft.global_transform
+				aircraft_transform.origin = carrier.to_global(aircraft_carrier_local)
+				aircraft_transform.origin.y = target_aircraft_y
+				aircraft_transform.basis = (carrier.global_transform.basis * aircraft_carrier_local_basis).orthonormalized()
+				aircraft.global_transform = aircraft_transform
+				_sync_rigidbody_transform_state(aircraft)
+			else:
+				aircraft.global_position.y = target_aircraft_y
+				_sync_rigidbody_transform_state(aircraft)
+			aircraft.angular_velocity = Vector3.ZERO
 		last_aircraft_position = aircraft.global_position
 		for i in range(min(active_bots.size(), active_bot_offsets.size())):
 			if is_instance_valid(active_bots[i]):
@@ -3982,6 +4710,7 @@ func _follow_elevator_down(aircraft: RigidBody3D):
 		])
 		for bot in active_bots:
 			_set_manual_transport(bot, false)
+		_aircraft_elevator_ride_in_progress = false
 		return
 
 	for i in range(min(active_bots.size(), active_bot_offsets.size())):
@@ -3991,10 +4720,54 @@ func _follow_elevator_down(aircraft: RigidBody3D):
 			active_bots[i].global_position = bot_position
 			_set_cleanup_idle_for_tractor_bot(active_bots[i])
 			_set_manual_transport(active_bots[i], false)
+	if physical_ride:
+		_end_physical_elevator_ride(aircraft)
 	_set_manual_transport(aircraft, false)
+	_aircraft_elevator_ride_in_progress = false
 	_tractorbots_in_hangar = not active_bots.is_empty()
+	_current_job_tractor_bots.clear()
 
 	_recovery_debug("elevator reached bottom")
+	if current_state == DeckState.STORING_IN_HANGAR:
+		_on_elevator_at_bottom()
+
+
+func _begin_physical_elevator_ride(aircraft: RigidBody3D) -> bool:
+	"""Attach a live aircraft to the physical platform without disabling collision."""
+	if not is_instance_valid(aircraft):
+		return false
+	aircraft.freeze_mode = RigidBody3D.FREEZE_MODE_KINEMATIC
+	aircraft.freeze = true
+	aircraft.gravity_scale = 1.0
+	aircraft.collision_layer = _aircraft_original_collision_layer if _aircraft_original_collision_layer != 0 else 513
+	aircraft.collision_mask = _aircraft_original_collision_mask if _aircraft_original_collision_mask != 0 else 513
+	aircraft.linear_velocity = Vector3.ZERO
+	aircraft.angular_velocity = Vector3.ZERO
+	aircraft.constant_force = Vector3.ZERO
+	aircraft.constant_torque = Vector3.ZERO
+	_sync_rigidbody_transform_state(aircraft)
+	_set_manual_transport(aircraft, true)
+
+	if not is_instance_valid(elevator) or not elevator.has_method("create_platform_restraint"):
+		_recovery_debug("physical elevator restraint unavailable; using collision-enabled kinematic fallback")
+		return false
+	var restraint: Variant = elevator.call("create_platform_restraint", aircraft)
+	if not (restraint is Generic6DOFJoint3D):
+		_recovery_debug("physical elevator restraint creation failed; using collision-enabled kinematic fallback")
+		return false
+
+	aircraft.freeze = false
+	aircraft.sleeping = false
+	return true
+
+
+func _end_physical_elevator_ride(aircraft: RigidBody3D) -> void:
+	if not is_instance_valid(aircraft):
+		return
+	if is_instance_valid(elevator) and elevator.has_method("release_platform_restraint"):
+		elevator.call("release_platform_restraint", aircraft)
+	aircraft.linear_velocity = Vector3.ZERO
+	aircraft.angular_velocity = Vector3.ZERO
 
 func _restore_aircraft_physics(aircraft_ref: Variant, keep_frozen: bool = false):
 	"""Restore aircraft physics for launch.
@@ -4005,11 +4778,16 @@ func _restore_aircraft_physics(aircraft_ref: Variant, keep_frozen: bool = false)
 		return
 	var aircraft := aircraft_ref as RigidBody3D
 
-	# Force aircraft to be completely still first
+	var default_layer = 513  # Layers 0 and 9 (binary 1000000001)
+	var default_mask = 513
+
+	# Force aircraft to be completely still while preserving the collision and
+	# gravity state used throughout the elevator and tractor handoff.
 	aircraft.freeze = true
-	aircraft.set_gravity_scale(0.0)
-	aircraft.collision_layer = 0
-	aircraft.collision_mask = 0
+	aircraft.freeze_mode = RigidBody3D.FREEZE_MODE_KINEMATIC
+	aircraft.set_gravity_scale(1.0)
+	aircraft.collision_layer = _aircraft_original_collision_layer if _aircraft_original_collision_layer != 0 else default_layer
+	aircraft.collision_mask = _aircraft_original_collision_mask if _aircraft_original_collision_mask != 0 else default_mask
 
 	# Clear ALL forces and momentum aggressively
 	aircraft.linear_velocity = Vector3.ZERO
@@ -4027,29 +4805,9 @@ func _restore_aircraft_physics(aircraft_ref: Variant, keep_frozen: bool = false)
 	aircraft.linear_velocity = Vector3.ZERO
 	aircraft.angular_velocity = Vector3.ZERO
 
-	# Enable physics but keep aircraft frozen initially
-	aircraft.set_gravity_scale(1.0)
-
-	# Let gravity/physics state apply for a frame
-	await get_tree().physics_frame
-	if not is_instance_valid(aircraft):
-		_recovery_debug("restore aircraft physics aborted after gravity frame: invalid aircraft")
-		return
-
-	# Clear velocities one more time before unfreezing
-	aircraft.linear_velocity = Vector3.ZERO
-	aircraft.angular_velocity = Vector3.ZERO
-
-	var default_layer = 513  # Layers 0 and 9 (binary 1000000001)
-	var default_mask = 513
-
 	if keep_frozen:
-		# Retrieval path: aircraft is already correctly positioned on the deck.
-		# Restore collisions and gravity without unfreezing — avoids the moving
-		# deck surface pushing the aircraft before begin_sequence freezes it.
-		aircraft.set_gravity_scale(1.0)
-		aircraft.collision_layer = _aircraft_original_collision_layer if _aircraft_original_collision_layer != 0 else default_layer
-		aircraft.collision_mask  = _aircraft_original_collision_mask  if _aircraft_original_collision_mask  != 0 else default_mask
+		# Retrieval path: aircraft is already correctly positioned on the deck and
+		# remains kinematically restrained until the catapult takes ownership.
 		if aircraft.has_meta("carrier_transport_mode") and not _is_helicopter_aircraft(aircraft):
 			aircraft.remove_meta("carrier_transport_mode")
 		return
@@ -4067,12 +4825,6 @@ func _restore_aircraft_physics(aircraft_ref: Variant, keep_frozen: bool = false)
 
 	aircraft.linear_velocity = Vector3.ZERO
 	aircraft.angular_velocity = Vector3.ZERO
-
-	aircraft.collision_layer = _aircraft_original_collision_layer if _aircraft_original_collision_layer != 0 else default_layer
-	aircraft.collision_mask  = _aircraft_original_collision_mask  if _aircraft_original_collision_mask  != 0 else default_mask
-
-	aircraft.linear_velocity = Vector3.ZERO
-	aircraft.angular_velocity = Vector3.ZERO
 	if aircraft.has_meta("carrier_transport_mode"):
 		aircraft.remove_meta("carrier_transport_mode")
 
@@ -4085,6 +4837,8 @@ func _start_retrieval_ascent_sequence(aircraft: RigidBody3D):
 	# Tractorbots are already spawned at aircraft wheels, so just start elevator
 	_spawn_tractorbots_at_aircraft(aircraft)
 	_disable_tractor_bot_movement()
+	var physical_ride := _begin_physical_elevator_ride(aircraft)
+	_aircraft_elevator_ride_in_progress = true
 
 	# Start elevator moving up
 	_retrieval_top_handled = false
@@ -4092,21 +4846,15 @@ func _start_retrieval_ascent_sequence(aircraft: RigidBody3D):
 	elevator.move_platform_up()
 
 	# Follow elevator up with aircraft and tractorbots
-	_follow_elevator_up_for_retrieval(aircraft)
+	_follow_elevator_up_for_retrieval(aircraft, physical_ride)
 
-func _follow_elevator_up_for_retrieval(aircraft: RigidBody3D):
+func _follow_elevator_up_for_retrieval(aircraft: RigidBody3D, physical_ride: bool = false):
 	"""Make aircraft and tractorbots follow the elevator up during retrieval"""
 	if not is_instance_valid(aircraft):
+		_aircraft_elevator_ride_in_progress = false
 		return
 
-	# Disable collisions for the entire elevator ride — the aircraft passes through
-	# the carrier structure and must not take damage from it.
-	aircraft.collision_layer = 0
-	aircraft.collision_mask = 0
-	aircraft.freeze = true
-
 	# Get initial positions relative to deck level
-	var deck_height = _get_deck_height_y()
 	var active_bots: Array[Node3D] = []
 	var active_bot_offsets: Array[Vector3] = []
 	for bot in tractor_bots:
@@ -4120,42 +4868,28 @@ func _follow_elevator_up_for_retrieval(aircraft: RigidBody3D):
 	var aircraft_carrier_local: Vector3 = carrier.to_local(aircraft.global_position) if carrier else aircraft.global_position
 	var aircraft_carrier_local_basis: Basis = carrier.global_transform.basis.inverse() * aircraft.global_transform.basis if carrier else aircraft.global_transform.basis
 	var initial_elevator_top_y: float = _get_elevator_platform_top_global_y(-10.0)
-	var fixed_wing_surface_offset: float = aircraft.global_position.y - initial_elevator_top_y
-
-	# Calculate gear offset from aircraft center using global Y (tilt-safe).
-	# gear_to_body_offset = how far the aircraft body is above its lowest gear.
-	var gear_colliders = _find_gear_colliders(aircraft)
-	var lowest_gear_global_y := INF
-	for gear in gear_colliders:
-		if (gear as Node3D).global_position.y < lowest_gear_global_y:
-			lowest_gear_global_y = (gear as Node3D).global_position.y
-	var gear_to_body_offset := aircraft.global_position.y - lowest_gear_global_y
-	var target_gear_height_above_elevator = 0.2  # 20cm above elevator platform
+	var surface_offset: float = aircraft.global_position.y - initial_elevator_top_y
 
 	# Follow until the platform is physically at top, not just state transitions.
 	while is_instance_valid(aircraft) and is_instance_valid(elevator) and not _is_elevator_physically_at_top():
 		var elevator_top_y = _get_elevator_platform_top_global_y(-10.0)
 
-		var target_aircraft_y: float
-		if _is_helicopter_aircraft(aircraft):
-			# Aircraft body sits gear_to_body_offset above where the gear needs to be.
-			var target_gear_height = elevator_top_y + target_gear_height_above_elevator
-			target_aircraft_y = target_gear_height + gear_to_body_offset
-		else:
-			target_aircraft_y = elevator_top_y + fixed_wing_surface_offset
+		var target_aircraft_y: float = float(elevator_top_y) + surface_offset
 
-		# Only update Y — carrier delta (LandCarrier._carry_deck_passengers) handles XZ
-		if carrier:
-			var aircraft_transform := aircraft.global_transform
-			aircraft_transform.origin = carrier.to_global(aircraft_carrier_local)
-			aircraft_transform.origin.y = target_aircraft_y
-			aircraft_transform.basis = (carrier.global_transform.basis * aircraft_carrier_local_basis).orthonormalized()
-			aircraft.global_transform = aircraft_transform
-			_sync_rigidbody_transform_state(aircraft)
-		else:
-			aircraft.global_position.y = target_aircraft_y
-			_sync_rigidbody_transform_state(aircraft)
-		aircraft.angular_velocity = Vector3.ZERO
+		if not physical_ride:
+			# Fallback restraint: collision remains enabled because the compound hull
+			# contains a real shaft opening.
+			if carrier:
+				var aircraft_transform := aircraft.global_transform
+				aircraft_transform.origin = carrier.to_global(aircraft_carrier_local)
+				aircraft_transform.origin.y = target_aircraft_y
+				aircraft_transform.basis = (carrier.global_transform.basis * aircraft_carrier_local_basis).orthonormalized()
+				aircraft.global_transform = aircraft_transform
+				_sync_rigidbody_transform_state(aircraft)
+			else:
+				aircraft.global_position.y = target_aircraft_y
+				_sync_rigidbody_transform_state(aircraft)
+			aircraft.angular_velocity = Vector3.ZERO
 		for i in range(min(active_bots.size(), active_bot_offsets.size())):
 			if is_instance_valid(active_bots[i]):
 				var bot_position: Vector3 = aircraft.global_position + active_bot_offsets[i]
@@ -4167,6 +4901,7 @@ func _follow_elevator_up_for_retrieval(aircraft: RigidBody3D):
 	if not is_instance_valid(aircraft):
 		for bot in active_bots:
 			_set_manual_transport(bot, false)
+		_aircraft_elevator_ride_in_progress = false
 		return
 
 	for i in range(min(active_bots.size(), active_bot_offsets.size())):
@@ -4175,7 +4910,12 @@ func _follow_elevator_up_for_retrieval(aircraft: RigidBody3D):
 			bot_position.y = _get_elevator_platform_top_global_y(-0.5) + tractor_elevator_floor_offset_m
 			active_bots[i].global_position = bot_position
 			_set_manual_transport(active_bots[i], false)
+	if physical_ride:
+		_end_physical_elevator_ride(aircraft)
+	# Horizontal tractor movement remains a collision-enabled kinematic tow.
+	_prepare_aircraft_for_movement(aircraft)
 	_set_manual_transport(aircraft, false)
+	_aircraft_elevator_ride_in_progress = false
 
 	# Signal timing can vary (elevator_at_top/covers_opened may have fired early).
 	# Force the handoff once we have physically reached top.
@@ -4205,7 +4945,7 @@ func _complete_retrieval_sequence():
 		if bot and bool(bot.get("is_active")):
 			active_bots.append(bot)
 	if active_bots.is_empty():
-		await _prepare_tractorbots_for_recovery_job()
+		await _prepare_tractorbots_for_recovery_job(aircraft)
 		active_bots = _activate_tractor_bots(aircraft)
 		if not active_bots.is_empty():
 			await _wait_for_tractor_bots_positioned(active_bots)
@@ -4216,14 +4956,13 @@ func _complete_retrieval_sequence():
 	# may shift the whole world during those awaits; retaining the earlier global
 	# coordinate would turn that shift into a multi-kilometre aircraft teleport.
 	var target_position := Vector3.ZERO
-	var launch_marker: Node = get_tree().current_scene.find_child("catapult_latch_marker", true, false)
+	var launch_marker: Node3D = _get_active_catapult_latch_marker()
 	if launch_marker is Node3D:
-		var launch_marker_3d := launch_marker as Node3D
 		var carrier := get_parent() as Node3D
 		if carrier != null:
 			carrier.force_update_transform()
-		launch_marker_3d.force_update_transform()
-		target_position = launch_marker_3d.global_position
+		launch_marker.force_update_transform()
+		target_position = launch_marker.global_position
 	else:
 		# Fallback - position forward of elevator
 		if elevator_pickup_marker is Node3D:
@@ -4287,12 +5026,14 @@ func _complete_retrieval_sequence():
 			await get_tree().physics_frame
 			continue
 		if not _launch_path_clear_of_terrain():
+			_request_launch_terrain_reposition()
 			var now_cliff_s := Time.get_ticks_msec() / 1000.0
 			if now_cliff_s >= _launch_terrain_block_log_s:
 				_launch_terrain_block_log_s = now_cliff_s + 2.0
 				_recovery_debug("launch held: terrain/cliff ahead on departure path")
 			await get_tree().physics_frame
 			continue
+		_clear_launch_terrain_reposition()
 		break
 	if not is_instance_valid(aircraft):
 		return
@@ -4318,7 +5059,7 @@ func _complete_helicopter_retrieval_sequence(aircraft: RigidBody3D) -> void:
 		if bot and bool(bot.get("is_active")):
 			active_bots.append(bot)
 	if active_bots.is_empty():
-		await _prepare_tractorbots_for_recovery_job()
+		await _prepare_tractorbots_for_recovery_job(aircraft)
 		if not is_instance_valid(aircraft):
 			return
 		active_bots = _activate_tractor_bots(aircraft)
@@ -4332,16 +5073,11 @@ func _complete_helicopter_retrieval_sequence(aircraft: RigidBody3D) -> void:
 	target_position = _get_helicopter_takeoff_position()
 	var deck_height := _get_deck_height_y()
 	var gear_colliders := _find_gear_colliders(aircraft)
-	var target_gear_height := deck_height + _aircraft_lift_height
 	if not gear_colliders.is_empty():
-		# Use global Y so tilt doesn't corrupt the offset calculation.
-		var lowest_gear_global_y := INF
-		for gear in gear_colliders:
-			if (gear as Node3D).global_position.y < lowest_gear_global_y:
-				lowest_gear_global_y = (gear as Node3D).global_position.y
-		var gear_to_body_offset := aircraft.global_position.y - lowest_gear_global_y
-		var lift_aircraft_y := target_gear_height + gear_to_body_offset
-		await _move_aircraft_horizontally(aircraft, Vector3(target_position.x, lift_aircraft_y, target_position.z))
+		await _move_aircraft_horizontally(
+			aircraft,
+			Vector3(target_position.x, aircraft.global_position.y, target_position.z)
+		)
 	else:
 		await _move_aircraft_smoothly(aircraft, target_position)
 
@@ -4595,7 +5331,7 @@ func _move_aircraft_horizontally(aircraft: RigidBody3D, target_position: Vector3
 
 func _move_tractorbots_to_staging():
 	"""Move tractorbots to staging at a consistent speed, then deactivate them"""
-	var primary_bots := _get_primary_tractor_bots()
+	var primary_bots := _get_current_job_tractor_bots()
 	if primary_bots.is_empty():
 		return
 	for bot in primary_bots:
@@ -4605,14 +5341,57 @@ func _move_tractorbots_to_staging():
 	for bot in primary_bots:
 		_set_cleanup_idle_for_tractor_bot(bot)
 	_tractorbots_in_hangar = false
+	_current_job_tractor_bots.clear()
 
 func _get_primary_elevator_slots_local(count: int, platform_local_y: float) -> Array[Vector3]:
-	var slots := _get_tractor_cleanup_elevator_slots_local(count)
-	for i in range(slots.size()):
-		var slot_local: Vector3 = slots[i]
+	var fallback_slots := _get_tractor_cleanup_elevator_slots_local(count)
+	var slots: Array[Vector3] = []
+	var home_transforms := _get_active_elevator_home_transforms_local()
+	for i in range(count):
+		var slot_local := fallback_slots[i] if i < fallback_slots.size() else Vector3.ZERO
+		if i < home_transforms.size():
+			slot_local = home_transforms[i].origin
 		slot_local.y = platform_local_y
-		slots[i] = slot_local
+		slots.append(slot_local)
 	return slots
+
+
+func _get_active_elevator_home_transforms_local() -> Array[Transform3D]:
+	var homes: Array[Transform3D] = []
+	for i in range(tractor_bots.size()):
+		var bot := tractor_bots[i] as Node3D
+		if is_instance_valid(bot) \
+				and _get_home_elevator_marker_for_bot(bot, i) == elevator_pickup_marker:
+			homes.append(_get_tractor_home_transform_local(bot, i))
+	return homes
+
+
+func _get_tractor_setup_point(index: int) -> Node3D:
+	if index < 0 or index >= tractor_setup_points.size():
+		return null
+	var point_variant: Variant = tractor_setup_points[index]
+	return point_variant as Node3D if is_instance_valid(point_variant) and point_variant is Node3D else null
+
+
+func _apply_tractor_setup_orientation(bot: Node3D, index: int) -> void:
+	if not is_instance_valid(bot):
+		return
+	var homes := _get_active_elevator_home_transforms_local()
+	if index < 0 or index >= homes.size():
+		return
+	var carrier := get_parent() as Node3D
+	if bot.get_parent() == carrier:
+		bot.basis = homes[index].basis.orthonormalized()
+		return
+	var bot_transform := bot.global_transform
+	bot_transform.basis = (carrier.global_transform.basis * homes[index].basis).orthonormalized() \
+			if carrier != null else homes[index].basis.orthonormalized()
+	bot.global_transform = bot_transform
+
+
+func _apply_primary_tractor_setup_orientations(primary_bots: Array[Node3D]) -> void:
+	for i in range(primary_bots.size()):
+		_apply_tractor_setup_orientation(primary_bots[i], i)
 
 func _wait_for_tractor_elevator_transfer() -> void:
 	while _tractor_elevator_transfer_in_progress:
@@ -4642,10 +5421,12 @@ func _follow_cleanup_tractors_with_elevator_up(nodes: Array[Node3D], local_slots
 		final_local.y = final_local_y
 		nodes[i].position = final_local
 
-func _prepare_tractorbots_for_recovery_job() -> void:
+func _prepare_tractorbots_for_recovery_job(aircraft: RigidBody3D) -> void:
 	_recovery_debug("preparing tractorbots for recovery job")
 	await _wait_for_tractor_elevator_transfer()
-	var primary_bots := _get_primary_tractor_bots()
+	var required_count := _get_required_tractor_count(aircraft)
+	var primary_bots := _select_tractor_bots_for_aircraft(aircraft, required_count)
+	_set_current_job_tractor_bots(primary_bots)
 	if primary_bots.is_empty() or not is_instance_valid(elevator_pickup_marker):
 		_recovery_debug("tractor prep skipped: primary_bots=%d pickup_marker_valid=%s elevator_valid=%s" % [
 			primary_bots.size(),
@@ -4677,6 +5458,7 @@ func _prepare_tractorbots_for_recovery_job() -> void:
 		var bottom_slot_y := _get_elevator_platform_top_local_y(-10.0) + tractor_elevator_floor_offset_m
 		var elevator_slots := _get_primary_elevator_slots_local(primary_bots.size(), bottom_slot_y)
 		await _move_nodes_to_local_targets(primary_bots, elevator_slots, _tractor_staging_speed)
+		_apply_primary_tractor_setup_orientations(primary_bots)
 		if not is_instance_valid(elevator):
 			_tractor_elevator_transfer_in_progress = false
 			return
@@ -4701,7 +5483,7 @@ func _prepare_tractorbots_for_recovery_job() -> void:
 			bot.enable_movement()
 
 	_tractorbots_in_hangar = false
-	_recovery_debug("tractorbots ready on deck")
+	_recovery_debug("tractorbots ready on deck count=%d required=%d" % [primary_bots.size(), required_count])
 
 func _send_primary_tractorbots_to_hangar() -> void:
 	if _tractor_elevator_transfer_in_progress:
@@ -4709,8 +5491,8 @@ func _send_primary_tractorbots_to_hangar() -> void:
 	if not is_instance_valid(elevator_pickup_marker) or not elevator:
 		return
 
-	var primary_bots := _get_primary_tractor_bots()
-	if primary_bots.size() < PRIMARY_TRACTOR_COUNT:
+	var primary_bots := _get_current_job_tractor_bots()
+	if primary_bots.is_empty():
 		return
 
 	_tractor_elevator_transfer_in_progress = true
@@ -4728,6 +5510,7 @@ func _send_primary_tractorbots_to_hangar() -> void:
 	var top_slot_y := _get_elevator_platform_top_local_y(-0.5) + tractor_elevator_floor_offset_m
 	var elevator_slots := _get_primary_elevator_slots_local(primary_bots.size(), top_slot_y)
 	await _move_nodes_to_local_targets(primary_bots, elevator_slots, _tractor_staging_speed)
+	_apply_primary_tractor_setup_orientations(primary_bots)
 	if not is_instance_valid(elevator):
 		_tractor_elevator_transfer_in_progress = false
 		return
@@ -4742,6 +5525,7 @@ func _send_primary_tractorbots_to_hangar() -> void:
 
 	_tractorbots_in_hangar = true
 	_tractor_elevator_transfer_in_progress = false
+	_current_job_tractor_bots.clear()
 
 func _set_cleanup_idle_for_tractor_bot(bot: Node3D) -> void:
 	if not is_instance_valid(bot):
@@ -4885,8 +5669,7 @@ func _enter_landing_test_isolation() -> void:
 	_landing_clearance_aircraft = null
 	_landing_clearance_queue.clear()
 	current_state = DeckState.IDLE
-	if catapult and catapult.has_method("_reset_state"):
-		catapult._reset_state()
+	_reset_all_catapults()
 
 func _strip_test_aircraft_weapons(node: Node) -> void:
 	if "mounted_weapon" in node:
@@ -7104,6 +7887,21 @@ func _log_heli_test(message: String) -> void:
 # Add this to any Y placement so gear rests on the surface rather than clipping through it.
 # Falls back to 0.2 if no "gear_ground_point" group nodes are found on the aircraft.
 func _get_gear_ground_offset(aircraft: RigidBody3D) -> float:
+	var wheel_nodes := _get_launch_wheel_nodes(aircraft)
+	if not wheel_nodes.is_empty():
+		var contact_offset := _get_deck_contact_visual_offset(aircraft)
+		var lowest_contact_local_y := INF
+		for wheel in wheel_nodes:
+			if not is_instance_valid(wheel):
+				continue
+			var contact_world := (wheel as Node3D).global_position - Vector3.UP * contact_offset
+			lowest_contact_local_y = minf(
+				lowest_contact_local_y,
+				aircraft.to_local(contact_world).y
+			)
+		if lowest_contact_local_y < 0.0:
+			return -lowest_contact_local_y
+
 	var lowest_y: float = INF
 	for child in aircraft.find_children("*", "Node3D", true, false):
 		var n := child as Node3D

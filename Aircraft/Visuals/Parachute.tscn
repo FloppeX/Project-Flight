@@ -2,7 +2,7 @@
 
 [ext_resource type="PackedScene" uid="uid://cnmgu8wrl2yjv" path="res://Aircraft/Visuals/Parachute.glb" id="1_parachute_model"]
 [ext_resource type="Script" uid="uid://dtb5hlsithp1h" path="res://Aircraft/Visuals/EditorOnlyPreview.gd" id="2_preview_script"]
-[ext_resource type="PackedScene" path="res://Models/Characters/PilotPlaceholder.tscn" id="3_placeholder"]
+[ext_resource type="PackedScene" path="res://Models/Characters/pilot/PilotCharacter.tscn" id="3_pilot_character"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_8rvbm"]
 size = Vector3(0.8, 1.85, 0.3)
@@ -10,25 +10,41 @@ size = Vector3(0.8, 1.85, 0.3)
 [node name="Parachute" type="Node3D" unique_id=946875874]
 
 [node name="Model" parent="." unique_id=285850252 instance=ExtResource("1_parachute_model")]
-transform = Transform3D(0.8, 0, 0, 0, 0.8, 0, 0, 0, 0.8, 0, 6.541403, 0)
+transform = Transform3D(0.8, 0, 0, 0, 0.8, 0, 0, 0, 0.8, 0, 6.7869987, 0)
 
 [node name="PilotMount" type="Node3D" parent="." unique_id=1632875543]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.006388545, 0.009540319, 0.004)
 
-[node name="PilotMass" type="Marker3D" parent="."]
-position = Vector3(0, 0.934, 0)
-
-[node name="PhysicsOrigin" type="Marker3D" parent="."]
-position = Vector3(0, 7.1, 0)
-
 [node name="PilotPreview" type="Node3D" parent="PilotMount" unique_id=25013851]
 script = ExtResource("2_preview_script")
 
-[node name="PilotPlaceholder" parent="PilotMount/PilotPreview" instance=ExtResource("3_placeholder")]
+[node name="Pilot" parent="PilotMount/PilotPreview" unique_id=1481125821 instance=ExtResource("3_pilot_character")]
+upper_leg_x = -65.0
+lower_leg_x = -55.0
+upper_leg_spread = 15.0
+abdomen_pitch = 5.0
+torso_pitch = -5.0
+shoulder_x = -25.0
+upper_arm_x = -60.0
+upper_arm_y = 25.0
+lower_arm_x = 55.0
+wrist_x = 0.0
+finger_curl = 65.0
+neck_pitch = -10.0
+head_pitch = -8.0
+hide_head_in_cockpit = false
+cockpit_hidden_mesh_names = PackedStringArray()
+initial_pose_name = &"parachute"
 
 [node name="PilotCollision" type="CollisionShape3D" parent="PilotMount" unique_id=243461560]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.925, 0)
 shape = SubResource("BoxShape3D_8rvbm")
+
+[node name="PilotMass" type="Marker3D" parent="." unique_id=252739592]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.934, 0)
+
+[node name="PhysicsOrigin" type="Marker3D" parent="." unique_id=1826219239]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 7.1, 0)
 
 [node name="HeadCameraMount" type="Node3D" parent="." unique_id=215140404]
 transform = Transform3D(-1, 0, -8.742278e-08, 0, 1, 0, 8.742278e-08, 0, -1, 0, 1.55, 0.15)

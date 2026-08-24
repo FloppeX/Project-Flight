@@ -1,0 +1,61 @@
+[gd_scene format=3 uid="uid://b40vwqo6j1bm1"]
+
+[ext_resource type="Script" uid="uid://bssyg450qn8u6" path="res://tools/PilotPoseTuner.gd" id="1_tuner"]
+[ext_resource type="PackedScene" path="res://Models/Characters/pilot/PilotCharacter.tscn" id="2_pilot"]
+
+[sub_resource type="Environment" id="Environment_tuner"]
+background_mode = 1
+background_color = Color(0.035, 0.055, 0.085, 1)
+ambient_light_source = 3
+ambient_light_color = Color(0.69, 0.76, 0.86, 1)
+ambient_light_energy = 0.75
+
+[sub_resource type="StandardMaterial3D" id="Material_floor"]
+albedo_color = Color(0.12, 0.16, 0.22, 1)
+roughness = 0.9
+
+[sub_resource type="BoxMesh" id="Mesh_floor"]
+material = SubResource("Material_floor")
+size = Vector3(5, 0.04, 3)
+
+[sub_resource type="StandardMaterial3D" id="Material_backdrop"]
+albedo_color = Color(0.055, 0.075, 0.11, 1)
+
+[sub_resource type="BoxMesh" id="Mesh_backdrop"]
+material = SubResource("Material_backdrop")
+size = Vector3(5, 3.2, 0.04)
+
+[node name="PilotPoseTuner" type="Node3D" unique_id=1406698915]
+script = ExtResource("1_tuner")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=1304981854]
+environment = SubResource("Environment_tuner")
+
+[node name="KeyLight" type="DirectionalLight3D" parent="." unique_id=103249807]
+transform = Transform3D(0.88294756, 0.26252517, -0.3892096, 0, 0.8290376, 0.5591929, 0.46947157, -0.493738, 0.7319967, 0, 0, 0)
+light_color = Color(1, 0.93, 0.83, 1)
+light_energy = 2.2
+shadow_enabled = true
+
+[node name="FillLight" type="DirectionalLight3D" parent="." unique_id=2143135576]
+transform = Transform3D(-0.84804803, -0.16375408, 0.50398326, 0, 0.95105654, 0.309017, -0.5299193, 0.26206127, -0.8065416, 0, 0, 0)
+light_color = Color(0.55, 0.72, 1, 1)
+
+[node name="Floor" type="MeshInstance3D" parent="." unique_id=1675747485]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.55, -0.05, 0)
+mesh = SubResource("Mesh_floor")
+
+[node name="Backdrop" type="MeshInstance3D" parent="." unique_id=962978835]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.5497578, 1.5019734, -0.8001771)
+mesh = SubResource("Mesh_backdrop")
+
+[node name="Pilot" parent="." unique_id=1445759394 instance=ExtResource("2_pilot")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.55, 0, 0)
+hide_head_in_cockpit = false
+initial_pose_name = &"grounded"
+
+[node name="Camera3D" type="Camera3D" parent="." unique_id=284196161]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.55, 1.08, 6)
+projection = 1
+current = true
+size = 2.45

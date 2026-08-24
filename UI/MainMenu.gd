@@ -109,6 +109,7 @@ var _secondary_value_button: Button
 var _pattern_value_button: Button
 var _insignia_value_button: Button
 var _map_value_button: Button
+var _continue_button: Button
 var _menu_rng := RandomNumberGenerator.new()
 var _elapsed := 0.0
 var _main_camera_sequence_elapsed_s := 0.0
@@ -163,6 +164,12 @@ func _input(event: InputEvent) -> void:
 		return
 	var pause_menu := get_node_or_null("/root/PauseMenu")
 	if pause_menu != null and bool(pause_menu.get("visible")):
+		return
+	if pause_menu != null \
+			and pause_menu.has_method("controller_menu_cursor_claims_event") \
+			and bool(pause_menu.call("controller_menu_cursor_claims_event", event)):
+		# PauseMenu owns pointer steering and click synthesis while this option is
+		# active, so the same stick/A event must not also move or press focus.
 		return
 	if _current_screen == "":
 		return
@@ -1198,6 +1205,7 @@ func _layout_ui_root() -> void:
 func _build_main_menu(parent: Control) -> void:
 	var entries := [
 		["NEW CAMPAIGN", Callable(self, "_show_setup_menu")],
+		["CONTINUE", Callable(self, "_continue_campaign")],
 		["SKIRMISH", Callable(self, "_start_test_flight")],
 		["TECHNICAL INDEX", Callable(self, "_show_technical_index")],
 		["SETTINGS", Callable(self, "_show_options_menu")],
@@ -1217,6 +1225,11 @@ func _build_main_menu(parent: Control) -> void:
 		btn.focus_entered.connect(_refresh_operator_button_indicator.bind(btn))
 		btn.focus_exited.connect(_refresh_operator_button_indicator.bind(btn))
 		parent.add_child(btn)
+		if entry_label == "CONTINUE":
+			_continue_button = btn
+			_continue_button.disabled = not SaveGameManager.has_valid_save()
+			_continue_button.tooltip_text = "Load the latest strategic checkpoint" \
+				if not _continue_button.disabled else "No valid campaign save"
 
 
 func _build_developer_menu(parent: Control) -> void:
@@ -1391,6 +1404,16 @@ func _quit_game() -> void:
 
 func _start_new_campaign() -> void:
 	_configure_session(_name_edit.text, _carrier_colors[_primary_index], _carrier_colors[_secondary_index], _selected_pattern_index(), _insignia_index)
+	_start_game_with_scenario(NORMAL_TEST_SCENARIO)
+
+
+func _continue_campaign() -> void:
+	var result: Dictionary = SaveGameManager.prepare_continue()
+	if not bool(result.get("ok", false)):
+		_message_label.text = str(result.get("message", "COULD NOT LOAD CAMPAIGN")).to_upper()
+		if is_instance_valid(_continue_button):
+			_continue_button.disabled = true
+		return
 	_start_game_with_scenario(NORMAL_TEST_SCENARIO)
 
 

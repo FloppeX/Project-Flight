@@ -40,10 +40,47 @@ func _run() -> void:
 		_fail("graphics menu was missing the FPS toggle")
 		return
 	var gameplay_buttons: Dictionary = pause_menu.get("_gameplay_buttons")
-	for gameplay_key in ["stick_deadzone", "look_sensitivity", "invert_look_y", "camera_motion", "camera_fov"]:
+	for gameplay_key in ["stick_deadzone", "controller_menu_cursor", "look_sensitivity", "invert_look_y", "camera_motion", "camera_fov"]:
 		if not gameplay_buttons.has(gameplay_key) or not (gameplay_buttons[gameplay_key] is Button):
 			_fail("gameplay menu was missing %s" % gameplay_key)
 			return
+
+	var deadzone_motion: Vector2 = pause_menu.call(
+		"controller_menu_cursor_motion",
+		Vector2(0.1, 0.0),
+		1.0,
+		Vector2(1920.0, 1080.0)
+	)
+	var full_motion: Vector2 = pause_menu.call(
+		"controller_menu_cursor_motion",
+		Vector2.RIGHT,
+		1.0,
+		Vector2(1920.0, 1080.0)
+	)
+	if not deadzone_motion.is_zero_approx() or full_motion.x < 1000.0 or not is_zero_approx(full_motion.y):
+		_fail("controller menu cursor did not apply its deadzone and full-stick speed")
+		return
+
+	var original_cursor_enabled := bool(pause_menu.get("_controller_menu_cursor_enabled"))
+	var original_pause_visible := bool(pause_menu.get("visible"))
+	pause_menu.set("_controller_menu_cursor_enabled", true)
+	pause_menu.set("visible", true)
+	pause_menu.call("_refresh_gameplay_button_labels")
+	var a_event := InputEventJoypadButton.new()
+	a_event.button_index = 0
+	a_event.pressed = true
+	var trigger_event := InputEventJoypadMotion.new()
+	trigger_event.axis = JOY_AXIS_TRIGGER_RIGHT
+	trigger_event.axis_value = 1.0
+	var cursor_label := (gameplay_buttons["controller_menu_cursor"] as Button).text
+	var cursor_claims_clicks := bool(pause_menu.call("controller_menu_cursor_claims_event", a_event)) \
+		and bool(pause_menu.call("controller_menu_cursor_claims_event", trigger_event))
+	pause_menu.set("_controller_menu_cursor_enabled", original_cursor_enabled)
+	pause_menu.set("visible", original_pause_visible)
+	pause_menu.call("_refresh_gameplay_button_labels")
+	if cursor_label != "CONTROLLER MENU CURSOR: ON" or not cursor_claims_clicks:
+		_fail("controller menu cursor did not claim A and right trigger as pointer clicks")
+		return
 
 	var original_radio_volume := float(pause_menu.get("_radio_volume"))
 	var original_captions := bool(pause_menu.get("_radio_captions_enabled"))
@@ -110,7 +147,7 @@ func _run() -> void:
 
 	_restore(pause_menu, original_radio_volume, original_captions, original_caption_duration,
 			original_show_fps, original_deadzone, original_sensitivity, original_invert_y, original_motion, original_fov)
-	print("[SettingsOptionsSmoketest] PASS submenus=audio+graphics+gameplay runtime=radio+fps+input+camera")
+	print("[SettingsOptionsSmoketest] PASS submenus=audio+graphics+gameplay runtime=radio+fps+input+camera+menu_cursor")
 	quit(0)
 
 

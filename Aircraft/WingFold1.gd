@@ -19,11 +19,13 @@ class_name WingFold1
 @export var middle_right_path: NodePath = NodePath("../aircraft_1/wing middle right")
 @export var outer_left_path: NodePath = NodePath("../aircraft_1/wing outer left")
 @export var outer_right_path: NodePath = NodePath("../aircraft_1/wing outer right")
+@export var broad_wing_collider_path: NodePath = NodePath("../WingCollider")
 
 var _left_middle: MeshInstance3D
 var _right_middle: MeshInstance3D
 var _left_wing: Node3D
 var _right_wing: Node3D
+var _broad_wing_collider: CollisionShape3D
 
 var _left_middle_rest: Transform3D
 var _right_middle_rest: Transform3D
@@ -41,6 +43,7 @@ var _stable_poll_timer_s: float = 0.0
 
 
 func _ready() -> void:
+	_broad_wing_collider = get_node_or_null(broad_wing_collider_path) as CollisionShape3D
 	_left_middle = get_node_or_null(middle_left_path) as MeshInstance3D
 	_right_middle = get_node_or_null(middle_right_path) as MeshInstance3D
 	_left_wing = get_node_or_null(outer_left_path) as Node3D
@@ -157,6 +160,15 @@ func _apply_fold_pose(fold_amount: float) -> void:
 	_right_middle.transform = right_middle_fold * _right_middle_rest
 	_left_wing.transform = left_middle_fold * left_outer_counter * _left_outer_rest
 	_right_wing.transform = right_middle_fold * right_outer_counter * _right_outer_rest
+	_set_broad_wing_collision_folded(_fold_t > 0.0)
+
+
+func _set_broad_wing_collision_folded(is_folded_or_moving: bool) -> void:
+	# The authored WingCollider is one full-span box, so it cannot represent the
+	# stacked Z shape. Keep it out of the physics world until the wings are fully
+	# deployed; the aircraft's fuselage and landing-gear shapes remain active.
+	if is_instance_valid(_broad_wing_collider):
+		_broad_wing_collider.disabled = is_folded_or_moving
 
 
 func _rotation_about_hinge(pivot: Vector3, axis: Vector3, angle: float) -> Transform3D:

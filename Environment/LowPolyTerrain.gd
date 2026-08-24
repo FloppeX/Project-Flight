@@ -83,11 +83,17 @@ const LAYERED_ROUTE_BLEND_HALF_WIDTH_M := 720.0
 @export var steep_slope_min_ny: float = 0.88
 ## Width of the sand→grey transition in n.y units (smaller = sharper border, e.g. 0.05)
 @export var steep_slope_band: float = 0.08
-## Slate-blue variation on cliff walls so steep faces range from pale grey to cold dark rock.
-@export var cliff_light_grey_color: Color = Color(0.58, 0.58, 0.54)
-@export var cliff_blue_slate_color: Color = Color(0.18, 0.23, 0.29)
-@export var cliff_slate_frequency: float = 0.00028
-@export_range(0.0, 1.0) var cliff_slate_strength: float = 0.46
+## Muted regional palette for steep cliff walls. It follows the broad surface
+## districts without making the rock faces as saturated as the open ground.
+@export var cliff_warm_ochre_color: Color = Color(0.43, 0.31, 0.22)
+@export var cliff_warm_red_color: Color = Color(0.46, 0.23, 0.16)
+@export var cliff_light_grey_color: Color = Color(0.52, 0.51, 0.47)
+@export var cliff_blue_slate_color: Color = Color(0.20, 0.29, 0.41)
+@export var cliff_dark_rock_color: Color = Color(0.17, 0.15, 0.14)
+@export_range(0.0, 1.0) var cliff_region_strength: float = 0.74
+## Secondary broad dark/blue-grey patches crossing the regional cliff palette.
+@export var cliff_slate_frequency: float = 0.00010
+@export_range(0.0, 1.0) var cliff_slate_strength: float = 0.30
 
 @export_group("Color Variation")
 ## Broad rusty ground patches on flat terrain.
@@ -102,16 +108,33 @@ const LAYERED_ROUTE_BLEND_HALF_WIDTH_M := 720.0
 @export var basin_dark_color: Color = Color(0.24, 0.12, 0.07)
 @export var basin_dark_frequency: float = 0.00038
 @export_range(0.0, 1.0) var basin_dark_strength: float = 0.16
-## Larger regional color zones, kept broad so the low-poly terrain still reads cleanly.
-@export var ochre_region_color: Color = Color(0.82, 0.58, 0.25)
-@export var ochre_region_frequency: float = 0.00018
-@export_range(0.0, 1.0) var ochre_region_strength: float = 0.16
-@export var red_oxide_region_color: Color = Color(0.63, 0.22, 0.12)
-@export var red_oxide_region_frequency: float = 0.00022
-@export_range(0.0, 1.0) var red_oxide_region_strength: float = 0.18
-@export var chalk_flat_color: Color = Color(0.93, 0.78, 0.56)
-@export var chalk_flat_frequency: float = 0.00026
-@export_range(0.0, 1.0) var chalk_flat_strength: float = 0.18
+## Large geological colour districts. Their noise fields compete for one shared
+## palette result, rather than layering several warm tints over the same ground.
+## Higher definition makes each district more recognisable while retaining soft borders.
+@export var color_regions_enabled: bool = true
+@export_range(1.0, 16.0, 0.5) var color_region_definition: float = 8.0
+## Transition palettes occupy broad boundaries between compatible base districts.
+@export_range(0.0, 1.0, 0.05) var color_region_accent_strength: float = 0.90
+@export var ochre_region_color: Color = Color(0.88, 0.56, 0.18)
+@export var ochre_region_frequency: float = 0.000045
+@export_range(0.0, 1.0) var ochre_region_strength: float = 0.30
+@export var red_oxide_region_color: Color = Color(0.68, 0.20, 0.12)
+@export var red_oxide_region_frequency: float = 0.000055
+@export_range(0.0, 1.0) var red_oxide_region_strength: float = 0.38
+@export var chalk_flat_color: Color = Color(0.94, 0.83, 0.58)
+@export var chalk_flat_frequency: float = 0.000065
+@export_range(0.0, 1.0) var chalk_flat_strength: float = 0.32
+## Cool mineral/clay terrain: visibly blue, but still muted enough to read as stone.
+@export var cool_mineral_region_color: Color = Color(0.32, 0.45, 0.57)
+@export var cool_mineral_region_frequency: float = 0.000050
+@export_range(0.0, 1.0) var cool_mineral_region_strength: float = 0.34
+## Earthy accent districts formed along selected boundaries of the four base regions.
+@export var yellow_mineral_region_color: Color = Color(0.94, 0.76, 0.18)
+@export_range(0.0, 1.0) var yellow_mineral_region_strength: float = 0.36
+@export var green_mineral_region_color: Color = Color(0.32, 0.53, 0.27)
+@export_range(0.0, 1.0) var green_mineral_region_strength: float = 0.34
+@export var violet_mineral_region_color: Color = Color(0.49, 0.31, 0.58)
+@export_range(0.0, 1.0) var violet_mineral_region_strength: float = 0.34
 ## Subtle cooler tone for shadowed/distant-looking recesses.
 @export var cool_shadow_color: Color = Color(0.34, 0.30, 0.27)
 @export_range(0.0, 1.0) var cool_shadow_strength: float = 0.08
@@ -953,20 +976,46 @@ func _surface_color_for_sample(face_center: Vector3, n: Vector3, sample_id: int)
 		var basin_t: float = _smoothstep(0.52, 0.88, _noise01(basin_dark_noise, face_center.x, face_center.z)) * floor_t
 		base_color = base_color.lerp(basin_dark_color, basin_t * basin_dark_strength)
 
-	var ochre_region_noise := _noises.get("ochre_region") as FastNoiseLite
-	if ochre_region_noise != null:
-		var ochre_t: float = _smoothstep(0.48, 0.86, _noise01(ochre_region_noise, face_center.x, face_center.z)) * maxf(flat_t * 0.85, wall_t * 0.35)
-		base_color = base_color.lerp(ochre_region_color, ochre_t * ochre_region_strength)
+	var region_weights := Vector4(1.0, 0.0, 0.0, 0.0)
+	if color_regions_enabled:
+		# Every point belongs primarily to one broad geological district. Normalized,
+		# sharpened weights make the regions legible while still feathering their borders.
+		# The partial blend preserves the altitude/slope strata underneath the region tint.
+		region_weights = _color_region_weights(face_center)
+		var region_color := (
+			ochre_region_color * region_weights.x
+			+ red_oxide_region_color * region_weights.y
+			+ chalk_flat_color * region_weights.z
+			+ cool_mineral_region_color * region_weights.w
+		)
+		var region_strength := (
+			ochre_region_strength * region_weights.x
+			+ red_oxide_region_strength * region_weights.y
+			+ chalk_flat_strength * region_weights.z
+			+ cool_mineral_region_strength * region_weights.w
+		)
 
-	var red_oxide_region_noise := _noises.get("red_oxide_region") as FastNoiseLite
-	if red_oxide_region_noise != null:
-		var red_t: float = _smoothstep(0.56, 0.92, _noise01(red_oxide_region_noise, face_center.x + 5100.0, face_center.z - 2400.0)) * maxf(wall_t, flat_t * 0.45)
-		base_color = base_color.lerp(red_oxide_region_color, red_t * red_oxide_region_strength)
+		# Use broad base-region boundaries as additional geological districts. This
+		# produces yellow, green, and violet areas without sampling more noise fields.
+		var accent_weights := _color_region_accent_weights(region_weights)
+		var accent_total := accent_weights.x + accent_weights.y + accent_weights.z
+		if accent_total > 0.0001:
+			var accent_color := (
+				yellow_mineral_region_color * accent_weights.x
+				+ green_mineral_region_color * accent_weights.y
+				+ violet_mineral_region_color * accent_weights.z
+			) / accent_total
+			var accent_region_strength := (
+				yellow_mineral_region_strength * accent_weights.x
+				+ green_mineral_region_strength * accent_weights.y
+				+ violet_mineral_region_strength * accent_weights.z
+			) / accent_total
+			var accent_blend := clampf(maxf(accent_weights.x, maxf(accent_weights.y, accent_weights.z)) * color_region_accent_strength, 0.0, 1.0)
+			region_color = region_color.lerp(accent_color, accent_blend)
+			region_strength = lerpf(region_strength, accent_region_strength, accent_blend)
 
-	var chalk_flat_noise := _noises.get("chalk_flat") as FastNoiseLite
-	if chalk_flat_noise != null:
-		var chalk_t: float = _smoothstep(0.62, 0.93, _noise01(chalk_flat_noise, face_center.x - 3400.0, face_center.z + 6200.0)) * maxf(plateau_t, floor_t * 0.65)
-		base_color = base_color.lerp(chalk_flat_color, chalk_t * chalk_flat_strength)
+		var region_surface_response := lerpf(0.78, 1.0, flat_t)
+		base_color = base_color.lerp(region_color, region_strength * region_surface_response)
 
 	if cool_shadow_strength > 0.0:
 		var recess_t: float = clampf(floor_t * 0.45 + wall_t * 0.35 + cliff_t * 0.20, 0.0, 1.0)
@@ -989,12 +1038,24 @@ func _surface_color_for_sample(face_center: Vector3, n: Vector3, sample_id: int)
 	var steep_mask: float = 1.0
 	if ground_patch_noise != null:
 		steep_mask = lerpf(0.62, 1.0, _noise01(ground_patch_noise, face_center.x + 1700.0, face_center.z - 900.0))
-	var cliff_rock_color := steep_slope_color
+	var regional_cliff_color := (
+		cliff_warm_ochre_color * region_weights.x
+		+ cliff_warm_red_color * region_weights.y
+		+ cliff_light_grey_color * region_weights.z
+		+ cliff_blue_slate_color * region_weights.w
+	)
+	var cliff_rock_color := steep_slope_color.lerp(
+		regional_cliff_color,
+		clampf(cliff_region_strength, 0.0, 1.0) if color_regions_enabled else 0.0
+	)
 	var cliff_slate_noise := _noises.get("cliff_slate") as FastNoiseLite
 	if cliff_slate_noise != null:
-		var slate_t: float = _smoothstep(0.18, 0.88, _noise01(cliff_slate_noise, face_center.x, face_center.z + face_y * 4.0))
-		cliff_rock_color = cliff_light_grey_color.lerp(cliff_blue_slate_color, slate_t)
-		cliff_rock_color = steep_slope_color.lerp(cliff_rock_color, clampf(cliff_slate_strength, 0.0, 1.0))
+		var slate_noise_value := _noise01(cliff_slate_noise, face_center.x, face_center.z + face_y * 1.2)
+		var blue_slate_t := _smoothstep(0.56, 0.84, slate_noise_value)
+		var dark_rock_t := _smoothstep(0.56, 0.84, 1.0 - slate_noise_value)
+		var local_cliff_strength := clampf(cliff_slate_strength, 0.0, 1.0)
+		cliff_rock_color = cliff_rock_color.lerp(cliff_blue_slate_color, blue_slate_t * local_cliff_strength)
+		cliff_rock_color = cliff_rock_color.lerp(cliff_dark_rock_color, dark_rock_t * local_cliff_strength)
 	base_color = base_color.lerp(cliff_rock_color, steep_t * steep_mask)
 
 	# Large-scale colour patches: low-frequency noise sampled at the world-space face
@@ -1207,6 +1268,15 @@ func _build_noises() -> Dictionary:
 	chalk_flat.fractal_lacunarity = 2.0
 	chalk_flat.fractal_gain = 0.46
 
+	var cool_mineral_region := FastNoiseLite.new()
+	cool_mineral_region.seed = seed + 646
+	cool_mineral_region.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	cool_mineral_region.frequency = maxf(cool_mineral_region_frequency, 0.000001)
+	cool_mineral_region.fractal_type = FastNoiseLite.FRACTAL_FBM
+	cool_mineral_region.fractal_octaves = 2
+	cool_mineral_region.fractal_lacunarity = 2.0
+	cool_mineral_region.fractal_gain = 0.48
+
 	var cliff_streak := FastNoiseLite.new()
 	cliff_streak.seed = seed + 647
 	cliff_streak.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
@@ -1233,6 +1303,7 @@ func _build_noises() -> Dictionary:
 		"ochre_region": ochre_region,
 		"red_oxide_region": red_oxide_region,
 		"chalk_flat": chalk_flat,
+		"cool_mineral_region": cool_mineral_region,
 		"cliff_streak": cliff_streak,
 	}
 
@@ -1895,6 +1966,36 @@ func _smoothstep(edge0: float, edge1: float, x: float) -> float:
 
 func _noise01(noise: FastNoiseLite, x: float, y: float) -> float:
 	return clampf(noise.get_noise_2d(x, y) * 0.5 + 0.5, 0.0, 1.0)
+
+
+func _color_region_weights(local_position: Vector3) -> Vector4:
+	var ochre_noise := _noises.get("ochre_region") as FastNoiseLite
+	var red_noise := _noises.get("red_oxide_region") as FastNoiseLite
+	var chalk_noise := _noises.get("chalk_flat") as FastNoiseLite
+	var cool_noise := _noises.get("cool_mineral_region") as FastNoiseLite
+	if ochre_noise == null or red_noise == null or chalk_noise == null or cool_noise == null:
+		return Vector4(1.0, 0.0, 0.0, 0.0)
+
+	# Different offsets keep region boundaries from tracing the same contours. Raising
+	# each broad noise field to the definition power behaves like a smooth winner-take-all:
+	# one palette dominates most places, but weights remain continuous at boundaries.
+	var definition := maxf(color_region_definition, 1.0)
+	var ochre_score: float = pow(maxf(_noise01(ochre_noise, local_position.x, local_position.z), 0.001), definition)
+	var red_score: float = pow(maxf(_noise01(red_noise, local_position.x + 5100.0, local_position.z - 2400.0), 0.001), definition)
+	var chalk_score: float = pow(maxf(_noise01(chalk_noise, local_position.x - 3400.0, local_position.z + 6200.0), 0.001), definition)
+	var cool_score: float = pow(maxf(_noise01(cool_noise, local_position.x + 8700.0, local_position.z + 3100.0), 0.001), definition)
+	var score_sum := maxf(ochre_score + red_score + chalk_score + cool_score, 0.000001)
+	return Vector4(ochre_score, red_score, chalk_score, cool_score) / score_sum
+
+
+func _color_region_accent_weights(region_weights: Vector4) -> Vector3:
+	# Yellow bridges ochre/chalk, green bridges ochre/cool mineral, and violet
+	# bridges red/cool mineral. Smoothstep makes them areas rather than thin lines.
+	return Vector3(
+		_smoothstep(0.08, 0.34, minf(region_weights.x, region_weights.z)),
+		_smoothstep(0.08, 0.34, minf(region_weights.x, region_weights.w)),
+		_smoothstep(0.08, 0.34, minf(region_weights.y, region_weights.w))
+	)
 
 func _terrain_color_sample_id(local_x: float, local_z: float) -> int:
 	var gx := int(floor((local_x - _x0) / maxf(cell_size_m, 0.001)))

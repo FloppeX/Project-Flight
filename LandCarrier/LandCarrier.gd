@@ -38,6 +38,13 @@ const PERF_OVERRIDE_PATH := "user://land_carrier_perf_override.json"
 @export var recovery_constraint_log_interval_s: float = 2.0
 @export var debug_motion_constraints: bool = false
 @export var launch_constraint_min_speed_mps: float = 8.0  # keep the deck moving straight (not dead-stopped) while launching
+@export_group("Launch Corridor Reposition")
+## When deck control finds a cliff ahead, it may temporarily steer the carrier
+## toward a clear launch heading. This overlays the current route rather than
+## replacing it, so the carrier resumes the player's order after launch.
+@export var launch_corridor_reposition_speed_mps: float = 4.0
+@export var launch_corridor_reposition_turn_scale: float = 1.35
+@export_group("")
 @export_group("Carrier Command Scheduling")
 @export var multi_rate_drive_commands_enabled: bool = true
 @export_range(0.02, 0.25, 0.01) var drive_command_update_interval_s: float = 0.10
@@ -54,6 +61,8 @@ const PERF_OVERRIDE_PATH := "user://land_carrier_perf_override.json"
 
 @export_group("Carrier Visual Budget")
 @export var tread_detail_budget_enabled: bool = true
+## Retained for compatibility with existing tuning/report files. Treads are no
+## longer distance-culled; their animation budget is driven by camera visibility.
 @export var tread_detail_distance_m: float = 1200.0
 @export var tread_far_update_interval_s: float = 0.5
 
@@ -136,6 +145,8 @@ var _drive_command_elapsed_s: float = 0.0
 var _drive_command_interval_scale: float = 1.0
 var _drive_target_speed_mps: float = 0.0
 var _drive_target_yaw_rate_rad_s: float = 0.0
+var _launch_corridor_reposition_active: bool = false
+var _launch_corridor_reposition_direction: Vector3 = Vector3.ZERO
 var _smoothed_desired_y: float = NAN
 var _using_default_cross_map_route: bool = false
 var _default_cross_map_route_completed: bool = false
@@ -188,6 +199,17 @@ func _ready():
 		var livery := get_node_or_null("/root/Livery")
 		if livery != null and livery.has_method("apply"):
 			livery.call("apply", self)
+	var pending_carrier_state := _get_pending_carrier_save_state()
+	if not pending_carrier_state.is_empty():
+		# A continued campaign already has an authoritative position and heading.
+		# Install them before any random-start route job can reveal the carrier at
+		# a throwaway location. SaveGameManager restores the route and remaining
+		# runtime state once the saved navigation grid is ready.
+		global_position = pending_carrier_state.get("position", global_position) as Vector3
+		global_rotation = pending_carrier_state.get("rotation", global_rotation) as Vector3
+		visible = false
+		_mark_initial_placement_completed()
+		return
 	if not use_waypoint_pathfinding:
 		# Initial scene placement may choose its authored heading instantly because
 		# the carrier is still hidden and has no deck passengers yet. Runtime route
@@ -215,8 +237,19 @@ func is_initial_placement_complete() -> bool:
 func _mark_initial_placement_completed() -> void:
 	if _initial_placement_completed:
 		return
+	# Trail history may have been sampled while the carrier was still hidden at
+	# its authored transform. The safe-start placement is a teleport, not travel.
+	_track_mark_tread_states.clear()
 	_initial_placement_completed = true
 	initial_placement_completed.emit()
+
+
+func _get_pending_carrier_save_state() -> Dictionary:
+	if GameSession == null or not GameSession.has_pending_save_state():
+		return {}
+	var campaign := GameSession.peek_pending_campaign_state()
+	var carrier_variant: Variant = campaign.get("carrier", {})
+	return carrier_variant as Dictionary if carrier_variant is Dictionary else {}
 
 func _apply_perf_override() -> void:
 	if not FileAccess.file_exists(PERF_OVERRIDE_PATH):
@@ -276,6 +309,8 @@ func apply_origin_shift(offset: Vector3) -> void:
 
 func set_heli_test_stationary(active: bool) -> void:
 	_heli_test_stationary = active
+	if active:
+		clear_launch_corridor_reposition()
 	_current_planar_speed_mps = 0.0
 	_last_planar_speed_mps = 0.0
 	_current_yaw_rate_rad_s = 0.0
@@ -292,6 +327,28 @@ func set_heli_test_stationary(active: bool) -> void:
 		_stuck_timer = 0.0
 	else:
 		call_deferred("_compute_path_to_destination")
+
+
+func request_launch_corridor_reposition(clear_direction_world: Vector3) -> bool:
+	var direction := clear_direction_world
+	direction.y = 0.0
+	if direction.length_squared() <= 0.0001 or _heli_test_stationary:
+		return false
+	_launch_corridor_reposition_direction = direction.normalized()
+	_launch_corridor_reposition_active = true
+	# Make the new temporary steering intent visible on the next physics tick even
+	# when the ordinary drive-command cadence has only just refreshed.
+	_drive_command_timer_s = 0.0
+	return true
+
+
+func clear_launch_corridor_reposition() -> void:
+	_launch_corridor_reposition_active = false
+	_launch_corridor_reposition_direction = Vector3.ZERO
+
+
+func is_launch_corridor_reposition_active() -> bool:
+	return _launch_corridor_reposition_active
 
 func _setup_vehicle_ramp() -> void:
 	var ramp_node := Node3D.new()
@@ -392,6 +449,41 @@ func get_active_waypoints() -> Array[Vector3]:
 	if active_waypoints.is_empty() and _raw_waypoint_index < _raw_waypoints.size():
 		active_waypoints.append(_raw_waypoints[_raw_waypoint_index])
 	return active_waypoints
+
+
+func capture_save_state() -> Dictionary:
+	return {
+		"position": global_position,
+		"rotation": global_rotation,
+		"active_waypoints": get_active_waypoints(),
+		"player_route_active": _player_route_active,
+	}
+
+
+func restore_save_state(state: Dictionary) -> bool:
+	if state.is_empty():
+		return false
+	_clear_route_and_hold()
+	global_position = state.get("position", global_position) as Vector3
+	global_rotation = state.get("rotation", global_rotation) as Vector3
+	_track_mark_tread_states.clear()
+	_current_planar_speed_mps = 0.0
+	_last_planar_speed_mps = 0.0
+	_current_yaw_rate_rad_s = 0.0
+	_current_steer = 0.0
+	_tread_steer = 0.0
+	velocity = Vector3.ZERO
+	visible = true
+	var waypoints_variant: Variant = state.get("active_waypoints", [])
+	var restored_waypoints: Array[Vector3] = []
+	if waypoints_variant is Array:
+		for waypoint_variant in waypoints_variant:
+			if waypoint_variant is Vector3:
+				restored_waypoints.append(waypoint_variant as Vector3)
+	if not restored_waypoints.is_empty():
+		set_patrol_waypoints(restored_waypoints)
+		_player_route_active = bool(state.get("player_route_active", true))
+	return true
 
 func _apply_direct_waypoints() -> void:
 	_waypoint_positions = _raw_waypoints.duplicate()
@@ -1127,10 +1219,12 @@ func _should_enable_tread_detail_budget() -> bool:
 		return true
 	var camera := _get_active_camera()
 	if camera == null or not is_instance_valid(camera):
-		return true
-	if _is_ancestor_of(self, camera):
-		return true
-	return global_position.distance_squared_to(camera.global_position) <= tread_detail_distance_m * tread_detail_distance_m
+		return false
+	for tread in _tread_nodes:
+		if is_instance_valid(tread) and tread.has_method("is_visible_to_active_camera") \
+				and bool(tread.call("is_visible_to_active_camera")):
+			return true
+	return false
 
 
 func _should_apply_tread_node_update(detail_enabled: bool, delta: float) -> bool:
@@ -1157,6 +1251,7 @@ func get_visual_budget_report_stats() -> Dictionary:
 	return {
 		"tread_detail_budget_enabled": tread_detail_budget_enabled,
 		"tread_detail_active": _tread_detail_enabled,
+		"tread_visibility_driven": true,
 		"tread_detail_distance_m": tread_detail_distance_m,
 		"tread_far_update_interval_s": tread_far_update_interval_s,
 		"tread_count": _tread_nodes.size(),
@@ -1170,18 +1265,14 @@ func _get_active_camera() -> Camera3D:
 	return viewport.get_camera_3d()
 
 
-func _is_ancestor_of(root: Node, possible_child: Node) -> bool:
-	var current := possible_child
-	while current != null:
-		if current == root:
-			return true
-		current = current.get_parent()
-	return false
-
-
 func _update_track_marks(delta: float, _transform_before: Transform3D) -> void:
 	_update_track_mark_lifetimes(delta)
 	_update_track_mark_debug_log(delta)
+	if not _initial_placement_completed:
+		# The async safe-start search can move the hidden carrier across the map.
+		# Do not seed trail history until that non-physical placement is finished.
+		_track_mark_tread_states.clear()
+		return
 	var track_treads := _get_track_mark_treads()
 	if track_treads.is_empty():
 		_track_mark_tread_states.clear()
@@ -1603,6 +1694,9 @@ func _drive_to_waypoint(delta: float) -> void:
 
 
 func _refresh_drive_command(delta: float) -> void:
+	if _launch_corridor_reposition_active:
+		_refresh_launch_corridor_reposition_command(delta)
+		return
 	if _waypoint_positions.is_empty() or _waypoint_index >= _waypoint_positions.size():
 		if _default_cross_map_route_completed \
 				or (not automatic_patrol_enabled and _raw_waypoints.is_empty()):
@@ -1701,6 +1795,33 @@ func _refresh_drive_command(delta: float) -> void:
 		throttle = maxf(throttle, maxf(hard_turn_crawl_speed_mps, 0.0) / maxf(max_speed, 0.01))
 	_drive_target_speed_mps = throttle * max_speed
 	_drive_target_yaw_rate_rad_s = target_yaw_rate
+
+
+func _refresh_launch_corridor_reposition_command(delta: float) -> void:
+	var current_forward := global_transform.basis.z
+	current_forward.y = 0.0
+	current_forward = current_forward.normalized() \
+			if current_forward.length_squared() > 0.0001 else Vector3.FORWARD
+	var desired_direction := _launch_corridor_reposition_direction
+	desired_direction.y = 0.0
+	if desired_direction.length_squared() <= 0.0001:
+		clear_launch_corridor_reposition()
+		_drive_target_speed_mps = 0.0
+		_drive_target_yaw_rate_rad_s = 0.0
+		return
+	desired_direction = desired_direction.normalized()
+	var turn_angle := current_forward.signed_angle_to(desired_direction, Vector3.UP)
+	var target_steer := clampf(turn_angle / deg_to_rad(60.0), -1.0, 1.0)
+	if absf(target_steer) < steer_deadzone:
+		target_steer = 0.0
+	_current_steer = move_toward(_current_steer, target_steer, steer_response * maxf(delta, 0.0))
+	_drive_target_speed_mps = clampf(
+		maxf(launch_corridor_reposition_speed_mps, hard_turn_crawl_speed_mps),
+		0.0,
+		maxf(max_speed, 0.0)
+	)
+	_drive_target_yaw_rate_rad_s = _current_steer * turn_speed \
+			* maxf(launch_corridor_reposition_turn_scale, 0.1)
 
 
 func _apply_drive_motion(delta: float, target_speed_mps: float, target_yaw_rate_rad_s: float) -> void:

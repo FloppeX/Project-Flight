@@ -37,6 +37,9 @@ func _run() -> void:
 	if is_instance_valid(stale_reference):
 		_fail("test helicopter did not become a freed reference")
 		return
+	if bool(controller.call("_is_ai_or_enemy_aircraft", stale_reference)):
+		_fail("freed aircraft was classified as a live AI camera owner")
+		return
 
 	if controller.call("_get_camera_for", stale_reference, 0) != null:
 		_fail("freed helicopter unexpectedly resolved to a camera")
@@ -63,7 +66,26 @@ func _run() -> void:
 			_fail("invalid-target recovery retained the crashed helicopter")
 			return
 
-	print("[CameraFreedTargetSmoketest] PASS stale_target_pruned=true fallback_preserved=true")
+	# A detached death-camera controller can survive the aircraft it references.
+	# The all-controller pilot-landing broadcast must ignore it without hitting a
+	# typed-argument error or stealing the newly landed pilot's camera.
+	var orphaned_controller := Node.new()
+	orphaned_controller.name = "OrphanedCameraController"
+	orphaned_controller.set_script(load("res://Camera/CameraController.gd") as Script)
+	var destroyed_source := RigidBody3D.new()
+	scene.add_child(destroyed_source)
+	orphaned_controller.set("aircraft", destroyed_source)
+	destroyed_source.free()
+	var landed_pilot := RigidBody3D.new()
+	scene.add_child(landed_pilot)
+	orphaned_controller.call("focus_ejected_pilot", landed_pilot, landed_pilot)
+	if bool(orphaned_controller.get("_pilot_ejected")):
+		_fail("orphaned camera controller accepted the landed-pilot handoff")
+		return
+	orphaned_controller.free()
+	landed_pilot.free()
+
+	print("[CameraFreedTargetSmoketest] PASS stale_target_pruned=true fallback_preserved=true orphan_handoff_ignored=true")
 	controller.free()
 	scene.free()
 	quit(0)

@@ -209,7 +209,14 @@ func _build_view_targets():
 func focus_ejected_pilot(ejected_body: RigidBody3D, pilot_focus: Node3D) -> void:
 	if ejected_body == null or not is_instance_valid(ejected_body):
 		return
-	if _is_ai_or_enemy_aircraft(aircraft) and not bool(aircraft.get_meta("player_ejection_camera_takeover", false)):
+	# Death-camera controllers can survive their aircraft. The landing handoff
+	# broadcasts to every camera controller, so reject an orphaned controller
+	# before passing its freed typed property across another function boundary.
+	var source_aircraft: Variant = aircraft
+	if not is_instance_valid(source_aircraft) or not (source_aircraft is Node):
+		return
+	if _is_ai_or_enemy_aircraft(source_aircraft) \
+			and not bool((source_aircraft as Node).get_meta("player_ejection_camera_takeover", false)):
 		return
 
 	# Ejection supersedes any crash/death-camera state that may have started from
@@ -296,9 +303,13 @@ func _reparent_to_camera_survival_parent(node: Node) -> void:
 		new_parent.add_child(node)
 
 
-func _is_ai_or_enemy_aircraft(aircraft_node: Node) -> bool:
-	if aircraft_node == null:
+func _is_ai_or_enemy_aircraft(aircraft_candidate: Variant) -> bool:
+	# Variant is intentional: a cached Object reference can already be freed when
+	# the all-controller ejection handoff reaches us. Typed Node parameters reject
+	# that value before this function body gets a chance to validate it.
+	if not is_instance_valid(aircraft_candidate) or not (aircraft_candidate is Node):
 		return false
+	var aircraft_node := aircraft_candidate as Node
 	return aircraft_node.is_in_group("ai_aircraft") or aircraft_node.is_in_group("enemies")
 
 

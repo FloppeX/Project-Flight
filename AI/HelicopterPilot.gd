@@ -14,6 +14,7 @@ const HELI_TEST_ARENA_RADIUS_META := "heli_test_arena_radius"
 const HELI_NAVIGATION_TEST_META := "heli_navigation_test_mode"
 const HELI_NAVIGATION_FIXED_LZ_META := "heli_navigation_fixed_lz"
 const HELI_NAVIGATION_HOME_META := "heli_navigation_home_point"
+const PASSENGER_VISUAL_SCENE: PackedScene = preload("res://Aircraft/CockpitPilot.tscn")
 const NAVIGATION_TUNING_PARAM_NAMES := {
 	"terrain_hazard_lookahead_time_s": true,
 	"terrain_hazard_min_lookahead_m": true,
@@ -178,6 +179,8 @@ enum MissionPhase {
 @export var target_node_path: NodePath
 
 @export_group("Mission")
+@export var rtb_health_threshold: float = 0.5
+@export var rtb_health_check_interval_s: float = 0.5
 @export var lz_distance_min_m: float = 4000.0
 @export var lz_distance_max_m: float = 7000.0
 @export var lz_candidate_attempts: int = 80
@@ -206,6 +209,12 @@ enum MissionPhase {
 @export var carrier_approach_wait_log_interval_s: float = 2.0
 @export var carrier_approach_clearance_request_radius_m: float = 140.0
 @export var carrier_approach_clearance_request_interval_s: float = 1.0
+## Once deck control has granted clearance, do not orbit forever trying to make
+## a perfect gate capture. After this dwell, a helicopter near the gate may
+## start final even with imperfect relative speed or heading.
+@export var carrier_approach_permissive_commit_delay_s: float = 8.0
+@export var carrier_approach_permissive_commit_radius_m: float = 120.0
+@export var carrier_approach_permissive_commit_height_m: float = 40.0
 @export var carrier_approach_capture_decel_mps2: float = 5.0
 @export var carrier_approach_capture_min_closure_mps: float = 4.0
 @export var carrier_approach_arrival_relative_speed_mps: float = 2.0
@@ -244,6 +253,10 @@ enum MissionPhase {
 @export var carrier_landing_touchdown_settle_time_s: float = 0.35
 @export var carrier_landing_ground_effect_collective_cap: float = 0.62
 @export var carrier_landing_final_timeout_s: float = 30.0
+## A timed-out final inside this radius commits to the vertical landing phase
+## instead of returning to the gate. The landing controller can still correct
+## horizontally during descent; a rough attempt is preferable to deadlock.
+@export var carrier_landing_final_timeout_commit_radius_m: float = 120.0
 @export var carrier_landing_descent_timeout_s: float = 60.0
 @export var carrier_landing_touchdown_relative_speed_mps: float = 1.0
 @export var carrier_landing_touchdown_min_deck_agl_m: float = -0.25
@@ -272,6 +285,14 @@ enum MissionPhase {
 @export var terrain_landing_settled_speed_mps: float = 3.0
 @export var terrain_landing_settled_vertical_mps: float = 1.0
 @export var terrain_landing_settled_time_s: float = 1.5
+
+@export_group("Rescue Cabin")
+@export_range(0, 16, 1) var passenger_capacity: int = 1
+## Paths are relative to this HelicopterPilot node. Authored marker transforms
+## define the exact position and orientation of each seated passenger.
+@export var passenger_position_paths: Array[NodePath] = []
+## Used only as a fallback when no explicit paths were configured.
+@export var passenger_position_name_prefix: String = "Passenger"
 
 @export_group("Low-Level Navigation")
 @export var cruise_agl_m: float = 55.0
@@ -904,6 +925,9 @@ var destination: Vector3 = Vector3.ZERO
 var _has_destination: bool = false
 var _rescue_target: Node3D = null   # downed pilot we are picking up
 var _passengers: int = 0            # pilots on board
+var _passenger_positions: Array[Node3D] = []
+var _passenger_visuals: Array[Node3D] = []
+var _passenger_positions_warning_emitted: bool = false
 var _nav_waypoint: Vector3 = Vector3.ZERO
 var _desired_altitude_m: float = 0.0
 var _target_speed_mps: float = NAN
@@ -926,6 +950,8 @@ var _combat_shot_report_timer_s: float = 0.0
 var _recorder_fault_timer_s: float = 0.0
 var _transit_speed_limit_timer_s: float = 0.0
 var _transit_speed_limit_cached_mps: float = NAN
+var _health_rtb_check_timer_s: float = 0.0
+var _health_rtb_triggered: bool = false
 var _replan_timer_s: float = 0.0
 var _debug_timer_s: float = 0.0
 var _idle_dwell_timer_s: float = 0.0
@@ -1041,6 +1067,7 @@ var _terrain_landing_settled_timer_s: float = 0.0
 var _carrier_approach_speed_log_s: float = 0.0
 var _carrier_approach_wait_log_s: float = 0.0
 var _carrier_approach_clearance_request_s: float = 0.0
+var _carrier_cleared_gate_wait_s: float = 0.0
 var _missing_carrier_marker_log_once: Dictionary = {}
 var _combat_scan_timer_s: float = 0.0
 # --- New clean attack state machine (atk_*) ---
@@ -1286,6 +1313,11 @@ func initialize(aircraft_node: RigidBody3D) -> void:
 	if crash_log_enabled and aircraft.has_signal("destroyed") \
 			and not aircraft.is_connected("destroyed", _on_aircraft_destroyed_flight_recorder):
 		aircraft.connect("destroyed", _on_aircraft_destroyed_flight_recorder)
+	if aircraft.has_signal("damaged") \
+			and not aircraft.is_connected("damaged", _on_aircraft_damaged_health_rtb):
+		aircraft.connect("damaged", _on_aircraft_damaged_health_rtb)
+	_health_rtb_check_timer_s = 0.0
+	_health_rtb_triggered = false
 
 	var rotor_wash_script = load("res://Effects/RotorWashEffect.gd")
 	if rotor_wash_script:
@@ -1335,9 +1367,11 @@ func deinitialize() -> void:
 	_recorder_fault_timer_s = 0.0
 	_transit_speed_limit_timer_s = 0.0
 	_transit_speed_limit_cached_mps = NAN
+	_health_rtb_check_timer_s = 0.0
 	_landing_on_carrier = false
 	_carrier_landing_clearance_wait_logged = false
 	_carrier_approach_clearance_request_s = 0.0
+	_carrier_cleared_gate_wait_s = 0.0
 	_takeoff_start_altitude_m = NAN
 	_takeoff_started_from_deck = false
 	_prev_fwd_speed = 0.0
@@ -1359,6 +1393,7 @@ func change_state(new_state: State) -> void:
 			_release_carrier_landing_clearance_from_deck()
 			_carrier_landing_clearance_wait_logged = false
 			_carrier_approach_clearance_request_s = 0.0
+			_carrier_cleared_gate_wait_s = 0.0
 	if new_state == State.TAKEOFF:
 		_prime_takeoff_reference()
 		if not _is_deck_takeoff_context() and is_instance_valid(aircraft):
@@ -1511,6 +1546,7 @@ func command_return_to_carrier_and_land() -> bool:
 	_carrier_final_timer_s = 0.0
 	_carrier_touchdown_settle_timer_s = 0.0
 	_carrier_approach_clearance_request_s = 0.0
+	_carrier_cleared_gate_wait_s = 0.0
 	_transit_cruise_altitude_m = NAN
 	_idle_dwell_timer_s = 0.0
 	_update_carrier_destination()
@@ -1556,10 +1592,104 @@ func command_rescue(pilot_node: Node3D) -> void:
 	print("[HelicopterPilot] %s dispatched for rescue of %s" % [aircraft.name if is_instance_valid(aircraft) else name, pilot_node.name])
 
 
-func add_passenger(pilot_node: Node3D) -> void:
+func add_passenger(pilot_node: Node3D) -> bool:
+	if not can_accept_passenger():
+		push_warning("[HelicopterPilot] %s has no free passenger positions" % [
+			aircraft.name if is_instance_valid(aircraft) else name,
+		])
+		return false
+	_create_seated_passenger_visual(pilot_node, _passengers)
 	_passengers += 1
 	_rescue_target = null
-	print("[HelicopterPilot] %s picked up passenger — %d on board. Returning to carrier." % [aircraft.name if is_instance_valid(aircraft) else name, _passengers])
+	_idle_dwell_timer_s = 60.0
+	print("[HelicopterPilot] %s picked up passenger — %d/%d on board." % [
+		aircraft.name if is_instance_valid(aircraft) else name,
+		_passengers,
+		passenger_capacity,
+	])
+	return true
+
+
+func _on_aircraft_damaged_health_rtb(_damage_amount: float, _new_health: float) -> void:
+	_check_health_rtb()
+
+
+func _update_health_rtb(delta: float) -> void:
+	if rtb_health_threshold <= 0.0 or _health_rtb_triggered:
+		return
+	_health_rtb_check_timer_s -= maxf(delta, 0.0)
+	if _health_rtb_check_timer_s > 0.0:
+		return
+	_health_rtb_check_timer_s = maxf(rtb_health_check_interval_s, 0.1)
+	_check_health_rtb()
+
+
+func _check_health_rtb() -> bool:
+	if rtb_health_threshold <= 0.0 or _health_rtb_triggered or not is_instance_valid(aircraft):
+		return false
+	if mission_phase in [MissionPhase.INBOUND, MissionPhase.AT_CARRIER]:
+		return false
+	if bool(aircraft.get_meta("carrier_transport_mode", false)):
+		return false
+	var team := int(aircraft.call("get_team")) if aircraft.has_method("get_team") else 1
+	if team != 1:
+		return false
+	var current_variant: Variant = aircraft.get("current_health")
+	var max_variant: Variant = aircraft.get("max_health")
+	if typeof(current_variant) not in [TYPE_FLOAT, TYPE_INT] \
+			or typeof(max_variant) not in [TYPE_FLOAT, TYPE_INT]:
+		return false
+	var current_health := float(current_variant)
+	var maximum_health := float(max_variant)
+	if current_health <= 0.0 or maximum_health <= 0.0:
+		return false
+	var health_fraction := clampf(current_health / maximum_health, 0.0, 1.0)
+	if health_fraction >= rtb_health_threshold:
+		return false
+	if not command_return_to_carrier_and_land():
+		return false
+
+	_health_rtb_triggered = true
+	combat_enabled = false
+	set_combat_hunt_mode(false)
+	_commanded_attack_target = null
+	_atk_reset("health_rtb")
+	var reason := "Health low (%.1f%%)" % (health_fraction * 100.0)
+	aircraft.set_meta("rtb_reason", reason)
+	aircraft.set_meta("health_rtb_triggered", true)
+	var log_message := "%s returning to carrier: %s (threshold=%.0f%%)" % [
+		aircraft.name,
+		reason,
+		rtb_health_threshold * 100.0,
+	]
+	print("HELI_AI event=health_rtb craft=%s health=%.1f/%.1f threshold=%.2f" % [
+		aircraft.name,
+		current_health,
+		maximum_health,
+		rtb_health_threshold,
+	])
+	_combat_log_event("RTB", log_message)
+	_record_milestone("RTB ordered — %s" % reason)
+	return true
+
+
+func can_accept_passenger() -> bool:
+	return _passengers < maxi(passenger_capacity, 0)
+
+
+func get_passenger_count() -> int:
+	return _passengers
+
+
+## Air Ops calls this after it has had a chance to send the landed helicopter
+## to another survivor. A newly assigned target keeps the rescue active.
+func finish_rescue_pickups() -> void:
+	if mission_phase != MissionPhase.RESCUE or is_instance_valid(_rescue_target):
+		return
+	_record_milestone("Rescue pickup complete — returning to carrier with %d passenger%s" % [
+		_passengers,
+		"" if _passengers == 1 else "s",
+	])
 	_clear_heightmap_path("rescue_complete")
 	_reset_inbound_progress_watchdog()
 	mission_phase = MissionPhase.INBOUND
@@ -1569,6 +1699,82 @@ func add_passenger(pilot_node: Node3D) -> void:
 	_update_carrier_destination()
 	_clear_ground_landing_hold()
 	change_state(State.TAKEOFF)
+
+
+func _create_seated_passenger_visual(pilot_node: Node3D, position_index: int) -> void:
+	_refresh_passenger_positions()
+	if position_index < 0 or position_index >= _passenger_positions.size():
+		if not _passenger_positions_warning_emitted:
+			_passenger_positions_warning_emitted = true
+			push_warning("[HelicopterPilot] %s has capacity for %d passenger%s but only %d passenger position Node3D%s were found" % [
+				aircraft.name if is_instance_valid(aircraft) else name,
+				passenger_capacity,
+				"" if passenger_capacity == 1 else "s",
+				_passenger_positions.size(),
+				"" if _passenger_positions.size() == 1 else "s",
+			])
+		return
+	var passenger_visual := PASSENGER_VISUAL_SCENE.instantiate() as Node3D
+	if passenger_visual == null:
+		return
+	passenger_visual.name = "SeatedPassenger%d" % (position_index + 1)
+	passenger_visual.set("hide_head_in_cockpit", false)
+	for metadata_key: String in [
+		"pilot_display_name", "pilot_rank", "pilot_callsign", "pilot_name", "source_aircraft_name"
+	]:
+		if is_instance_valid(pilot_node) and pilot_node.has_meta(metadata_key):
+			passenger_visual.set_meta(metadata_key, pilot_node.get_meta(metadata_key))
+	var position := _passenger_positions[position_index]
+	position.add_child(passenger_visual)
+	passenger_visual.transform = Transform3D.IDENTITY
+	if passenger_visual.has_method("apply_static_seated_pose"):
+		passenger_visual.call("apply_static_seated_pose")
+	_passenger_visuals.append(passenger_visual)
+
+
+func _refresh_passenger_positions() -> void:
+	_passenger_positions.clear()
+	for position_path in passenger_position_paths:
+		var configured_position := get_node_or_null(position_path) as Node3D
+		if configured_position != null and not _passenger_positions.has(configured_position):
+			_passenger_positions.append(configured_position)
+	if not _passenger_positions.is_empty() or not is_instance_valid(aircraft):
+		return
+	var candidates: Array[Node3D] = []
+	_collect_passenger_position_candidates(aircraft, candidates)
+	# A container named "Passenger Positions" may wrap the actual markers. Do
+	# not mistake that ancestor for one of the seats.
+	for candidate in candidates:
+		var is_container := false
+		for possible_child in candidates:
+			if possible_child != candidate and candidate.is_ancestor_of(possible_child):
+				is_container = true
+				break
+		if not is_container:
+			_passenger_positions.append(candidate)
+	_passenger_positions.sort_custom(func(a: Node3D, b: Node3D) -> bool:
+		return String(a.name).naturalnocasecmp_to(String(b.name)) < 0
+	)
+
+
+func _collect_passenger_position_candidates(parent: Node, results: Array[Node3D]) -> void:
+	var prefix := passenger_position_name_prefix.strip_edges().to_lower()
+	for child in parent.get_children():
+		if child is Node3D:
+			var child_3d := child as Node3D
+			if not prefix.is_empty() and String(child_3d.name).strip_edges().to_lower().begins_with(prefix):
+				results.append(child_3d)
+		_collect_passenger_position_candidates(child, results)
+
+
+## Called at the hangar storage handoff, alongside the aircraft pilot's roster
+## release. Passengers deliberately remain visible throughout deck recovery.
+func disembark_passengers() -> void:
+	for passenger_visual in _passenger_visuals:
+		if is_instance_valid(passenger_visual):
+			passenger_visual.queue_free()
+	_passenger_visuals.clear()
+	_passengers = 0
 
 
 func get_active_waypoints() -> Array[Vector3]:
@@ -1627,6 +1833,7 @@ func _physics_process(delta: float) -> void:
 		return
 	var _profiler_start: int = FrameProfiler.begin("HelicopterPilot.physics")
 	_update_combat_shot_reports_budgeted(delta)
+	_update_health_rtb(delta)
 	if aircraft.get_meta("controls_disabled", false):
 		FrameProfiler.end("HelicopterPilot.physics", _profiler_start)
 		return
@@ -1709,8 +1916,8 @@ func _physics_process(delta: float) -> void:
 			elif mission_phase == MissionPhase.RESCUE:
 				_hold_landed_on_terrain(delta)
 				# Don't tick the timeout while the pilot is still alive and approaching.
-				# Once add_passenger() is called _rescue_target is cleared and we transition
-				# to INBOUND immediately — the timer only fires if no one ever boards.
+				# Once add_passenger() clears the current target, Air Ops either assigns
+				# another survivor or sends us INBOUND. The timer only covers boarding.
 				if is_instance_valid(_rescue_target):
 					_idle_dwell_timer_s = 60.0
 			elif mission_phase == MissionPhase.AT_CARRIER:
@@ -11758,6 +11965,25 @@ func _get_carrier_landing_abort_reason(
 	return ""
 
 
+func _should_permissively_commit_carrier_final(
+		has_landing_clearance: bool,
+		cleared_wait_s: float,
+		distance_to_gate_m: float,
+		height_error_m: float
+) -> bool:
+	if not has_landing_clearance:
+		return false
+	if cleared_wait_s < maxf(carrier_approach_permissive_commit_delay_s, 0.0):
+		return false
+	return distance_to_gate_m <= maxf(carrier_approach_permissive_commit_radius_m, 5.0) \
+			and height_error_m <= maxf(carrier_approach_permissive_commit_height_m, 1.0)
+
+
+func _should_commit_timed_out_carrier_final(distance_to_ap2_m: float, distance_to_landing_m: float) -> bool:
+	var commit_radius := maxf(carrier_landing_final_timeout_commit_radius_m, 5.0)
+	return minf(distance_to_ap2_m, distance_to_landing_m) <= commit_radius
+
+
 func _abort_carrier_landing_attempt(reason: String, approach_world: Vector3) -> void:
 	_debug_event("carrier_landing_abort", "reason=%s cphase=%s pos=%s approach=%s" % [
 		reason,
@@ -11771,6 +11997,7 @@ func _abort_carrier_landing_attempt(reason: String, approach_world: Vector3) -> 
 	_carrier_touchdown_settle_timer_s = 0.0
 	_carrier_landing_clearance_wait_logged = false
 	_carrier_approach_clearance_request_s = 0.0
+	_carrier_cleared_gate_wait_s = 0.0
 	_set_carrier_landing_final_active(false)
 	if is_instance_valid(aircraft):
 		_desired_altitude_m = maxf(approach_world.y, aircraft.global_position.y)
@@ -11820,8 +12047,10 @@ func _run_scripted_carrier_approach(delta: float) -> bool:
 				to_hold.y = 0.0
 				var closing := (aircraft.linear_velocity - carrier_vel).dot(to_hold.normalized() if to_hold.length_squared() > 0.1 else carrier_fwd)
 				if closing < 2.0:
+					_release_carrier_landing_clearance_from_deck()
 					_carrier_approach_phase = CarrierApproachPhase.NONE
 					_landing_on_carrier = false
+					_carrier_cleared_gate_wait_s = 0.0
 					change_state(State.LOW_LEVEL_TRANSIT)
 					_debug_event("carrier_approach", "dropped back to transit: dist=%.0f closing=%.1f" % [dist_to_gate, closing])
 					return true
@@ -11849,6 +12078,10 @@ func _run_scripted_carrier_approach(delta: float) -> bool:
 					_carrier_landing_clearance_wait_logged = true
 				elif has_landing_clearance:
 					_carrier_landing_clearance_wait_logged = false
+			if has_landing_clearance:
+				_carrier_cleared_gate_wait_s += maxf(delta, 0.0)
+			else:
+				_carrier_cleared_gate_wait_s = 0.0
 			var height_ok := absf(pos.y - hold_point.y) < maxf(carrier_approach_capture_height_m, 1.0)
 			var relative_speed_limit := maxf(carrier_approach_capture_relative_speed_mps, 0.1)
 			if has_landing_clearance:
@@ -11881,32 +12114,40 @@ func _run_scripted_carrier_approach(delta: float) -> bool:
 						capture_radius,
 						carrier_approach_navigation_test_capture_radius_m
 					)
-			if dist_to_gate < capture_radius \
+			var permissive_commit := _should_permissively_commit_carrier_final(
+				has_landing_clearance,
+				_carrier_cleared_gate_wait_s,
+				dist_to_gate,
+				absf(pos.y - hold_point.y)
+			)
+			var normal_capture := dist_to_gate < capture_radius \
 					and height_ok \
 					and (relative_speed_ok or forced_final_ok) \
-					and heading_ok:
-				if has_landing_clearance:
-					_carrier_landing_clearance_wait_logged = false
-					# If already past the landing point, skip FINAL and go straight to DESCEND
-					var to_landing_check: Vector3 = landing_world - pos
-					to_landing_check.y = 0.0
-					var already_past: bool = to_landing_check.dot(carrier_fwd) < 0.0 \
-						and _flat_distance(pos, landing_world) < 60.0
-					if already_past:
-						_carrier_approach_phase = CarrierApproachPhase.DESCEND
-						_debug_event("carrier_approach", "phase=DESCEND (skipped FINAL: already past landing point)")
-					else:
-						_carrier_approach_phase = CarrierApproachPhase.FINAL
-						_carrier_final_timer_s = 0.0
-					_debug_event("carrier_approach", "phase=FINAL gate_dist=%.1f rel_speed=%.1f/%.1f forced=%s heading=%.1f/%.1f clearance=%s" % [
-						dist_to_gate,
-						relative_speed,
-						relative_speed_limit,
-						str(not relative_speed_ok and forced_final_ok),
-						heading_error_deg,
-						heading_limit,
-						str(has_landing_clearance),
-					])
+					and heading_ok
+			if has_landing_clearance and (normal_capture or permissive_commit):
+				_carrier_landing_clearance_wait_logged = false
+				_carrier_cleared_gate_wait_s = 0.0
+				# If already past the landing point, skip FINAL and go straight to DESCEND
+				var to_landing_check: Vector3 = landing_world - pos
+				to_landing_check.y = 0.0
+				var already_past: bool = to_landing_check.dot(carrier_fwd) < 0.0 \
+					and _flat_distance(pos, landing_world) < 60.0
+				if already_past:
+					_carrier_approach_phase = CarrierApproachPhase.DESCEND
+					_debug_event("carrier_approach", "phase=DESCEND (skipped FINAL: already past landing point)")
+				else:
+					_carrier_approach_phase = CarrierApproachPhase.FINAL
+					_carrier_final_timer_s = 0.0
+				_debug_event("carrier_approach", "phase=FINAL gate_dist=%.1f rel_speed=%.1f/%.1f forced=%s permissive=%s heading=%.1f/%.1f clearance=%s" % [
+					dist_to_gate,
+					relative_speed,
+					relative_speed_limit,
+					str(not relative_speed_ok and forced_final_ok),
+					str(permissive_commit),
+					heading_error_deg,
+					heading_limit,
+					str(has_landing_clearance),
+				])
 			else:
 				_carrier_approach_wait_log_s -= delta
 				if debug_enabled and _carrier_approach_wait_log_s <= 0.0 and dist_to_gate < maxf(carrier_approach_gate_radius_m, capture_radius):
@@ -11940,7 +12181,17 @@ func _run_scripted_carrier_approach(delta: float) -> bool:
 					pos.y - approach2_world.y,
 				])
 			elif _carrier_final_timer_s > maxf(carrier_landing_final_timeout_s, 0.1):
-				_abort_carrier_landing_attempt("final_timeout", approach_world)
+				var dist_to_landing := _flat_distance(pos, landing_world)
+				if _should_commit_timed_out_carrier_final(dist_to_ap2, dist_to_landing):
+					_carrier_approach_phase = CarrierApproachPhase.DESCEND
+					_carrier_final_timer_s = 0.0
+					_debug_event("carrier_approach", "phase=DESCEND permissive_final_timeout dist_ap2=%.1f dist_land=%.1f rel=%.1f" % [
+						dist_to_ap2,
+						dist_to_landing,
+						relative_speed,
+					])
+				else:
+					_abort_carrier_landing_attempt("final_timeout_far", approach_world)
 		CarrierApproachPhase.DESCEND:
 			_carrier_final_timer_s += delta
 			var timed_out := _carrier_final_timer_s > maxf(carrier_landing_descent_timeout_s, 0.1)
@@ -12326,6 +12577,13 @@ func _is_aircraft_in_carrier_velocity_match_zone() -> bool:
 func _get_deck_reference_velocity() -> Vector3:
 	if not is_instance_valid(aircraft):
 		return Vector3.ZERO
+	# Carrier landing must use the carrier's velocity now, not the snapshot that
+	# was stored during an earlier deck/takeoff handoff. Those metadata fallbacks
+	# remain useful for takeoff and non-landing transport contexts.
+	if _landing_on_carrier:
+		var live_carrier := get_tree().get_first_node_in_group("carrier")
+		if live_carrier is Node:
+			return VelocityFrame.get_node_velocity(live_carrier as Node)
 	if aircraft.has_meta("helicopter_deck_reference_node"):
 		var reference_node = aircraft.get_meta("helicopter_deck_reference_node")
 		if reference_node is Node and is_instance_valid(reference_node):
@@ -12583,6 +12841,7 @@ func _try_finish_landing() -> void:
 	_carrier_approach_phase = CarrierApproachPhase.NONE
 	_carrier_final_timer_s = 0.0
 	_carrier_approach_clearance_request_s = 0.0
+	_carrier_cleared_gate_wait_s = 0.0
 	_stop_rotors_after_landing()
 	match mission_phase:
 		MissionPhase.OUTBOUND:
@@ -12595,8 +12854,8 @@ func _try_finish_landing() -> void:
 			_record_milestone("Landed at LZ — pos=%s" % [str(aircraft.global_position.snapped(Vector3.ONE)) if is_instance_valid(aircraft) else "?"])
 			_write_flight_summary_report("LZ LANDING")
 		MissionPhase.RESCUE:
-			# Stay in RESCUE phase so HeliSwingDoors can open; pilot's DownedPilot script
-			# will call add_passenger() when it reaches us, which triggers INBOUND.
+			# Stay in RESCUE phase so HeliSwingDoors can open. Boarding leaves the
+			# helicopter available for another survivor while cabin space remains.
 			_idle_dwell_timer_s = 60.0  # safety timeout: leave if no one boards within 60 s
 			_record_milestone("Landed for rescue pickup")
 		MissionPhase.INBOUND:
@@ -12631,6 +12890,14 @@ func _hold_landed_on_carrier() -> void:
 	if not is_instance_valid(aircraft):
 		return
 	_zero_flight_controls_now()
+	var flight_deck_manager := get_tree().get_first_node_in_group("flight_deck_manager")
+	if not is_instance_valid(flight_deck_manager):
+		var carrier := get_tree().get_first_node_in_group("carrier")
+		if is_instance_valid(carrier):
+			flight_deck_manager = carrier.find_child("FlightDeckManager", true, false)
+	if is_instance_valid(flight_deck_manager) \
+			and flight_deck_manager.has_method("settle_aircraft_on_landing_deck"):
+		flight_deck_manager.call("settle_aircraft_on_landing_deck", aircraft)
 	var deck_velocity: Vector3 = _get_deck_reference_velocity()
 	aircraft.linear_velocity = deck_velocity
 	aircraft.angular_velocity = Vector3.ZERO
@@ -13414,6 +13681,12 @@ func _carrier_approach_phase_name() -> String:
 
 func _elapsed_s() -> float:
 	return Time.get_ticks_msec() / 1000.0 - _flight_start_time_s
+
+
+func _combat_log_event(category: String, text: String) -> void:
+	var combat_log := get_node_or_null("/root/CombatLog")
+	if combat_log != null and combat_log.has_method("event"):
+		combat_log.call("event", category, text)
 
 
 func _record_milestone(text: String) -> void:

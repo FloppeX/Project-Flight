@@ -95,6 +95,80 @@ func setup(home_pos: Vector3, aircraft_scenes: Array[PackedScene], loadouts: Arr
 	_active_scan_timer = _rng.randf_range(0.0, ACTIVE_CONTACT_SCAN_INTERVAL_S)
 
 
+func capture_save_state() -> Dictionary:
+	var scene_paths: Array[String] = []
+	for scene in _aircraft_slots:
+		scene_paths.append(scene.resource_path if scene != null else "")
+	return {
+		"flight_name": flight_name,
+		"aircraft_count": aircraft_count,
+		"patrol_radius": patrol_radius,
+		"faction_color": faction_color,
+		"role": role,
+		"position": position,
+		"heading": heading,
+		"home_position": home_position,
+		"mission": mission,
+		"aircraft_scene_paths": scene_paths,
+		"loadout_slots": _loadout_slots.duplicate(),
+		"patrol_waypoints": _patrol_waypoints.duplicate(),
+		"patrol_wp_idx": _patrol_wp_idx,
+		"intercept_position": _intercept_position,
+		"investigation_position": _investigation_position,
+		"investigation_search_started": _investigation_search_started,
+		"investigation_search_remaining_s": _investigation_search_remaining_s,
+		"investigation_orbit_angle_rad": _investigation_orbit_angle_rad,
+		"pending_reports": _pending_reports.duplicate(true),
+	}
+
+
+func restore_save_state(state: Dictionary) -> bool:
+	if state.is_empty():
+		return false
+	flight_name = str(state.get("flight_name", flight_name))
+	aircraft_count = maxi(int(state.get("aircraft_count", aircraft_count)), 0)
+	patrol_radius = float(state.get("patrol_radius", patrol_radius))
+	faction_color = state.get("faction_color", faction_color) as Color
+	role = int(state.get("role", role))
+	position = state.get("position", position) as Vector3
+	heading = state.get("heading", heading) as Vector3
+	home_position = state.get("home_position", home_position) as Vector3
+	mission = int(state.get("mission", Mission.PATROL))
+	vstate = VState.VIRTUAL
+	active_aircraft.clear()
+	_active_slot_indices.clear()
+	_aircraft_slots.clear()
+	var paths_variant: Variant = state.get("aircraft_scene_paths", [])
+	if paths_variant is Array:
+		for path_variant in paths_variant:
+			_aircraft_slots.append(load(str(path_variant)) as PackedScene)
+	_loadout_slots.clear()
+	var loadouts_variant: Variant = state.get("loadout_slots", [])
+	if loadouts_variant is Array:
+		for loadout_variant in loadouts_variant:
+			_loadout_slots.append(str(loadout_variant))
+	_patrol_waypoints.clear()
+	var waypoints_variant: Variant = state.get("patrol_waypoints", [])
+	if waypoints_variant is Array:
+		for waypoint_variant in waypoints_variant:
+			if waypoint_variant is Vector3:
+				_patrol_waypoints.append(waypoint_variant as Vector3)
+	_patrol_wp_idx = clampi(int(state.get("patrol_wp_idx", 0)), 0, maxi(_patrol_waypoints.size() - 1, 0))
+	_intercept_position = state.get("intercept_position", Vector3.INF) as Vector3
+	_investigation_position = state.get("investigation_position", Vector3.INF) as Vector3
+	_investigation_search_started = bool(state.get("investigation_search_started", false))
+	_investigation_search_remaining_s = float(state.get("investigation_search_remaining_s", 0.0))
+	_investigation_orbit_angle_rad = float(state.get("investigation_orbit_angle_rad", 0.0))
+	_pending_reports.clear()
+	var reports_variant: Variant = state.get("pending_reports", [])
+	if reports_variant is Array:
+		for report_variant in reports_variant:
+			if report_variant is Dictionary:
+				_pending_reports.append((report_variant as Dictionary).duplicate(true))
+	_rng.randomize()
+	return true
+
+
 func _generate_patrol_waypoints(start_angle: float) -> void:
 	_patrol_waypoints.clear()
 	for i in range(PATROL_WP_COUNT):

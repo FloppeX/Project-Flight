@@ -231,6 +231,14 @@ func _sync_test_profile_flags() -> void:
 func _ready() -> void:
 	_sync_test_profile_flags()
 	_configure_batch_run_from_cli()
+	# Every profile below replaces the ordinary random carrier start with a
+	# deterministic, terrain-validated test pose. Freeze that random patrol before
+	# NavGraph becomes ready so its expensive route search cannot delay the harness.
+	# LandCarrier will still signal initial placement once the grid is ready, after
+	# which _setup_scenario() installs the validated pose and later resumes movement.
+	var startup_carrier := get_tree().get_first_node_in_group("carrier")
+	if is_instance_valid(startup_carrier) and startup_carrier.has_method("set_heli_test_stationary"):
+		startup_carrier.call("set_heli_test_stationary", true)
 	if _rolling_recovery_mode and OS.get_cmdline_user_args().has("--rolling-finite-cohort"):
 		rolling_finite_cohort = true
 		rolling_target_traps = rolling_active_aircraft_max
@@ -2691,7 +2699,9 @@ func _configure_pilot(pilot: Node, friendly: bool) -> void:
 	pilot.set("dogfight_enabled", friendly and not _rolling_recovery_mode)
 	pilot.set("land_after_launch", false)
 	pilot.set("_land_after_climb", false)
-	pilot.set("rtb_health_threshold", 0.0)
+	# Friendly damage withdrawals are part of the end-to-end combat/recovery
+	# observation now. Enemy test aircraft still remain committed to the fight.
+	pilot.set("rtb_health_threshold", 0.5 if friendly else 0.0)
 	pilot.set("rtb_fuel_threshold", 0.0)
 	pilot.set("sensor_range", 12000.0)
 	pilot.set("engagement_radius_from_carrier_m", 0.0)
@@ -2908,6 +2918,31 @@ func _register_aircraft(craft: RigidBody3D, pilot: Node, team: int) -> void:
 func _on_aircraft_damaged(amount: float, health: float, id: int) -> void:
 	var record: Dictionary = _aircraft_records.get(id, {})
 	_log("HIT aircraft=%s team=%d damage=%.1f hp=%.1f" % [record.get("name", "unknown"), int(record.get("team", 0)), amount, health])
+	if int(record.get("team", 0)) != 1 or bool(record.get("health_rtb_threshold_logged", false)):
+		return
+	var craft_variant: Variant = record.get("craft", null)
+	var pilot_variant: Variant = record.get("pilot", null)
+	if not is_instance_valid(craft_variant) or not (craft_variant is RigidBody3D) \
+			or not is_instance_valid(pilot_variant):
+		return
+	var maximum_variant: Variant = (craft_variant as RigidBody3D).get("max_health")
+	var threshold_variant: Variant = pilot_variant.get("rtb_health_threshold")
+	if typeof(maximum_variant) not in [TYPE_FLOAT, TYPE_INT] \
+			or typeof(threshold_variant) not in [TYPE_FLOAT, TYPE_INT]:
+		return
+	var maximum_health := float(maximum_variant)
+	var threshold := float(threshold_variant)
+	if maximum_health <= 0.0 or threshold <= 0.0 or health / maximum_health >= threshold:
+		return
+	record["health_rtb_threshold_logged"] = true
+	_aircraft_records[id] = record
+	_log("HEALTH_RTB aircraft=%s hp=%.1f/%.1f threshold=%.0f%% pilot_state=%s" % [
+		record.get("name", "unknown"),
+		health,
+		maximum_health,
+		threshold * 100.0,
+		_ops_state_name(pilot_variant as Node, str(record.get("ops_domain", "fixed_wing"))),
+	])
 
 
 func _on_aircraft_destroyed(id: int) -> void:

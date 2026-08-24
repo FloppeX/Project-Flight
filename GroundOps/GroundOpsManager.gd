@@ -55,6 +55,8 @@ func _ready() -> void:
 	print("[GroundOps] Ready — platoons: %s" % ", ".join(PLATOON_NAMES))
 
 func _process(delta: float) -> void:
+	if GameSession.has_pending_save_state():
+		return
 	var _profiler_start: int = FrameProfiler.begin("GroundOpsManager.process")
 	_process_deploy_queue()
 	if maintain_carrier_escort and _is_carrier_initial_placement_ready():
@@ -433,6 +435,202 @@ func get_platoon_status(platoon_name: String) -> Dictionary:
 		"position": position,
 		"active_waypoints": p.get_active_waypoints(),
 	}
+
+
+func get_campaign_save_blocker() -> String:
+	if not _deploy_queue.is_empty() or not _deploying_platoon_name.is_empty():
+		return "A ground platoon is still deploying"
+	var assigned_vehicles: Dictionary = {}
+	for platoon_name in PLATOON_NAMES:
+		var platoon_variant: Variant = platoons.get(platoon_name, null)
+		if platoon_variant is GroundVehiclePlatoon:
+			var platoon := platoon_variant as GroundVehiclePlatoon
+			var members := platoon.get_members()
+			for member in members:
+				assigned_vehicles[member] = true
+			if members.is_empty():
+				continue
+			if platoon.has_any_member_in_combat():
+				return "%s platoon is still in combat" % platoon_name
+			if platoon.objective_type in [
+				GroundVehiclePlatoon.ObjectiveType.PURSUE_ENEMIES,
+				GroundVehiclePlatoon.ObjectiveType.ATTACK_NODE,
+				GroundVehiclePlatoon.ObjectiveType.ATTACK_POSITION,
+			]:
+				return "%s platoon still has an attack order" % platoon_name
+			for member in members:
+				if bool(member.get("deploy_mode")) or bool(member.get("retrieve_mode")):
+					return "%s is still deploying or recovering" % member.name
+				if member.scene_file_path.is_empty():
+					return "%s cannot be reconstructed from a saved scene" % member.name
+	# Catch friendly vehicles which are alive but no longer referenced by a
+	# platoon, so a damaged or interrupted deployment cannot slip through.
+	for node_variant in get_tree().get_nodes_in_group("ground_vehicles"):
+		if not (node_variant is Node3D) or not is_instance_valid(node_variant):
+			continue
+		var vehicle := node_variant as Node3D
+		if vehicle.is_in_group("friendlies") and not assigned_vehicles.has(vehicle):
+			return "Recover %s before saving" % vehicle.name
+	return ""
+
+
+func capture_save_state() -> Dictionary:
+	var platoon_entries: Array[Dictionary] = []
+	for platoon_name in PLATOON_NAMES:
+		var platoon := get_platoon(platoon_name)
+		if platoon == null or not platoon.has_members():
+			continue
+		var vehicle_entries: Array[Dictionary] = []
+		for vehicle in platoon.get_members():
+			var scene_file := vehicle.scene_file_path
+			if scene_file.is_empty():
+				push_warning("[GroundOps] Could not capture %s for campaign save" % vehicle.name)
+				return {}
+			vehicle_entries.append({
+				"name": str(vehicle.name),
+				"scene_file": scene_file,
+				"position": vehicle.global_position,
+				"rotation": vehicle.global_rotation,
+				"scale": vehicle.scale,
+				"velocity": vehicle.get("velocity") as Vector3,
+				"current_health": float(vehicle.get("current_health")),
+			})
+		platoon_entries.append({
+			"platoon_name": platoon_name,
+			"objective_state": _capture_platoon_objective(platoon),
+			"vehicles": vehicle_entries,
+		})
+	return {"platoons": platoon_entries}
+
+
+func restore_save_state(state: Dictionary) -> bool:
+	_deploy_queue.clear()
+	_deploying_platoon_name = ""
+	for platoon_name in PLATOON_NAMES:
+		var existing := get_platoon(platoon_name)
+		if existing == null:
+			continue
+		for member in existing.get_members().duplicate():
+			existing.unregister_vehicle(member)
+	_refresh_carrier()
+	var entries_variant: Variant = state.get("platoons", [])
+	if not (entries_variant is Array):
+		return false
+	var main_scene := get_tree().current_scene
+	if main_scene == null:
+		return false
+	for entry_variant in entries_variant:
+		if not (entry_variant is Dictionary):
+			continue
+		var entry := entry_variant as Dictionary
+		var platoon := get_platoon(str(entry.get("platoon_name", "")))
+		if platoon == null:
+			push_warning("[GroundOps] Saved platoon no longer exists")
+			continue
+		var objective_variant: Variant = entry.get("objective_state", {})
+		if objective_variant is Dictionary:
+			_restore_platoon_objective(platoon, objective_variant as Dictionary)
+		var vehicles_variant: Variant = entry.get("vehicles", [])
+		if not (vehicles_variant is Array):
+			return false
+		for data_variant in vehicles_variant:
+			if not (data_variant is Dictionary):
+				continue
+			var data := data_variant as Dictionary
+			var scene_file := str(data.get("scene_file", ""))
+			var vehicle_scene := load(scene_file) as PackedScene
+			if vehicle_scene == null:
+				push_warning("[GroundOps] Could not restore deployed vehicle scene: %s" % scene_file)
+				return false
+			var vehicle := vehicle_scene.instantiate() as Node3D
+			if vehicle == null:
+				return false
+			main_scene.add_child(vehicle)
+			vehicle.name = str(data.get("name", vehicle.name))
+			vehicle.global_position = data.get("position", vehicle.global_position) as Vector3
+			vehicle.global_rotation = data.get("rotation", vehicle.global_rotation) as Vector3
+			vehicle.scale = data.get("scale", vehicle.scale) as Vector3
+			if "current_health" in vehicle:
+				vehicle.set("current_health", float(data.get("current_health", vehicle.get("current_health"))))
+			if "velocity" in vehicle:
+				vehicle.set("velocity", data.get("velocity", Vector3.ZERO) as Vector3)
+			if "deploy_mode" in vehicle:
+				vehicle.set("deploy_mode", false)
+			if "retrieve_mode" in vehicle:
+				vehicle.set("retrieve_mode", false)
+			if "use_waypoint_pathfinding" in vehicle:
+				vehicle.set("use_waypoint_pathfinding", true)
+			if vehicle.has_method("set_patrol_waypoints"):
+				var no_waypoints: Array[Vector3] = []
+				vehicle.call("set_patrol_waypoints", no_waypoints)
+			if vehicle.has_method("assign_platoon"):
+				vehicle.call("assign_platoon", platoon)
+			else:
+				platoon.register_vehicle(vehicle)
+			vehicle.reset_physics_interpolation()
+	return true
+
+
+func _capture_platoon_objective(platoon: GroundVehiclePlatoon) -> Dictionary:
+	var objective_position := platoon.objective_position
+	if platoon.objective_type == GroundVehiclePlatoon.ObjectiveType.PROTECT_NODE \
+	and is_instance_valid(platoon.protected_node):
+		objective_position = platoon.protected_node.global_position
+	elif platoon.objective_type == GroundVehiclePlatoon.ObjectiveType.ATTACK_NODE \
+	and is_instance_valid(platoon.attack_node):
+		objective_position = platoon.attack_node.global_position
+	return {
+		"objective_type": int(platoon.objective_type),
+		"objective_position": objective_position,
+		"pursue_range_m": platoon.pursue_range_m,
+		"protect_radius_m": platoon.protect_radius_m,
+		"attack_radius_m": platoon.attack_radius_m,
+		"move_scatter_radius_m": platoon.move_scatter_radius_m,
+		"escort_distance_m": platoon.escort_distance_m,
+	}
+
+
+func _restore_platoon_objective(platoon: GroundVehiclePlatoon, state: Dictionary) -> void:
+	var objective_type := int(state.get(
+		"objective_type", GroundVehiclePlatoon.ObjectiveType.NONE
+	))
+	var position := state.get("objective_position", Vector3.ZERO) as Vector3
+	platoon.move_scatter_radius_m = float(state.get(
+		"move_scatter_radius_m", platoon.move_scatter_radius_m
+	))
+	match objective_type:
+		GroundVehiclePlatoon.ObjectiveType.MOVE_TO_POSITION:
+			platoon.set_move_objective(position)
+		GroundVehiclePlatoon.ObjectiveType.PURSUE_ENEMIES:
+			platoon.set_pursue_enemies(float(state.get("pursue_range_m", platoon.pursue_range_m)))
+		GroundVehiclePlatoon.ObjectiveType.PROTECT_NODE, \
+		GroundVehiclePlatoon.ObjectiveType.PROTECT_POSITION:
+			platoon.set_protect_position(
+				position,
+				float(state.get("protect_radius_m", platoon.protect_radius_m))
+			)
+		GroundVehiclePlatoon.ObjectiveType.ATTACK_NODE, \
+		GroundVehiclePlatoon.ObjectiveType.ATTACK_POSITION:
+			platoon.set_attack_position(
+				position,
+				float(state.get("attack_radius_m", platoon.attack_radius_m))
+			)
+		GroundVehiclePlatoon.ObjectiveType.ESCORT_CARRIER:
+			platoon.set_escort_carrier(
+				_carrier,
+				float(state.get("escort_distance_m", platoon.escort_distance_m))
+			)
+		GroundVehiclePlatoon.ObjectiveType.RETURN_TO_BASE:
+			platoon.set_return_to_base(
+				_carrier,
+				float(state.get("escort_distance_m", platoon.escort_distance_m))
+			)
+		_:
+			platoon.objective_type = GroundVehiclePlatoon.ObjectiveType.NONE
+			platoon.objective_position = position
+			platoon.protected_node = null
+			platoon.attack_node = null
+			platoon.escort_node = null
 
 func get_platoon_of(vehicle: Node3D) -> GroundVehiclePlatoon:
 	for pname in PLATOON_NAMES:

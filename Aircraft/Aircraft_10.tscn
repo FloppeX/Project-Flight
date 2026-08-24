@@ -250,7 +250,12 @@ interior_volume_reduction = -1.0
 transform = Transform3D(-1, 0, -8.74213e-08, 0, 0.999983, 0, 8.74228e-08, 0, -0.999983, 0.015952379, 0.3609546, 2.333288)
 
 [node name="CockpitPilot" parent="." unique_id=1818466369 instance=ExtResource("32_cockpit_pilot")]
-transform = Transform3D(0.999958, 0, -0.00842568, 0, 0.999949, 0, 0.00839809, 0, 0.999921, 0.015952379, -1.3077002, 2.3143384)
+transform = Transform3D(0.999958, 0, -0.00842568, 0, 0.999949, 0, 0.00839809, 0, 0.999921, 0.015952379, -0.898414, 2.3143384)
+abdomen_pitch = 0.0
+torso_pitch = 0.0
+lower_arm_x = 0.0
+wrist_x = 0.0
+finger_curl = 0.0
 cockpit_hidden_mesh_names = PackedStringArray("Pilot")
 
 [node name="CameraTarget" type="Node3D" parent="." unique_id=71844852]
@@ -283,19 +288,14 @@ script = ExtResource("28_ai_pilot")
 
 [node name="HelicopterPilot" type="Node" parent="." unique_id=1613759425]
 script = ExtResource("43_heli_ai")
-heightmap_path_corner_blend_radius_m = 340.0
-heightmap_path_corner_blend_strength = 0.65
 cruise_speed_mps = 60.0
 max_speed_mps = 65.0
 max_climb_mps = 14.0
 max_descent_mps = 10.0
-collective_rate_up = 0.85
 transit_target_sink_mps = 8.0
-cyclic_rate = 0.5
 transit_max_nose_up = 0.35
 cyclic_altitude_rate_gain = 0.075
 cyclic_vertical_accel_damping = 0.03
-cyclic_target_climb_from_alt_error_mps = 0.18
 altitude_guard_m = 15.0
 sink_guard_mps = 3.0
 decel_distance_m = 1600.0
@@ -303,8 +303,6 @@ transit_speed_target_accel_mps2 = 11.0
 transit_speed_target_decel_mps2 = 28.0
 yaw_rate_damping = 0.38
 yaw_command_rate = 1.15
-transit_turn_roll_gain = 1.1
-transit_lateral_velocity_gain = 0.0269994907826185
 transit_low_speed_bank_start_mps = 8.0
 transit_low_speed_bank_full_mps = 45.0
 transit_low_speed_roll_scale = 0.06
@@ -317,7 +315,6 @@ transit_high_speed_lateral_roll_scale = 0.45
 transit_high_speed_yaw_gain = 0.85
 transit_high_speed_yaw_input = 0.8
 transit_bank_pullback_gain = 0.18
-transit_cruise_forward_lean = 0.5
 transit_descent_lean_bonus = 0.35
 
 [node name="AIToggle" type="Node" parent="." unique_id=611990186]

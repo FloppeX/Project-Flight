@@ -93,12 +93,14 @@ func _walk_toward(target: Vector3, speed: float, delta: float) -> void:
 	_set_locomotion(true, speed)
 
 
-func _set_locomotion(active: bool, _speed: float = 0.0) -> void:
-	if active == _locomotion_active and not active:
+func _set_locomotion(active: bool, speed: float = 0.0) -> void:
+	if active == _locomotion_active:
 		return
 	_locomotion_active = active
 	if _model_node != null:
 		_model_node.visible = true
+		if _model_node.has_method("set_locomotion_pose"):
+			_model_node.call("set_locomotion_pose", active, speed)
 
 
 func _snap_to_terrain() -> void:
@@ -134,6 +136,10 @@ func _find_rescue_heli_with_open_doors() -> Node3D:
 func _heli_is_boardable(heli: Node3D) -> bool:
 	if not is_instance_valid(heli):
 		return false
+	var heli_pilot := heli.find_child("HelicopterPilot", true, false)
+	if heli_pilot != null and heli_pilot.has_method("can_accept_passenger") \
+			and not bool(heli_pilot.call("can_accept_passenger")):
+		return false
 	var terrain_nav = get_node_or_null("/root/TerrainNavGrid")
 	var ground_y := 0.0
 	if terrain_nav != null and terrain_nav.has_method("sample_height"):
@@ -151,17 +157,27 @@ func _heli_is_boardable(heli: Node3D) -> bool:
 # --- Boarding ---
 
 func _board_helicopter(heli: Node3D) -> void:
+	var heli_pilot := heli.find_child("HelicopterPilot", true, false)
+	if heli_pilot == null or not heli_pilot.has_method("add_passenger"):
+		_rescue_heli = null
+		_phase = Phase.WAIT_RESCUE
+		return
+	if heli_pilot.has_method("can_accept_passenger") \
+			and not bool(heli_pilot.call("can_accept_passenger")):
+		_rescue_heli = null
+		_phase = Phase.WAIT_RESCUE
+		return
+	if not bool(heli_pilot.call("add_passenger", self)):
+		_rescue_heli = null
+		_phase = Phase.WAIT_RESCUE
+		return
 	_phase = Phase.RESCUED
 	print("[DownedPilot] %s boarding %s" % [name, heli.name])
 
 	var callsign: String = str(get_meta("pilot_callsign")) if has_meta("pilot_callsign") else "Downed Pilot"
 	var radio = get_node_or_null("/root/RadioComms")
 	if radio != null and radio.has_method("transmit"):
-		radio.call("transmit", callsign, "Citadel", "Aboard rescue helicopter. Returning to carrier.")
-
-	var heli_pilot := heli.find_child("HelicopterPilot", true, false)
-	if heli_pilot != null and heli_pilot.has_method("add_passenger"):
-		heli_pilot.call("add_passenger", self)
+		radio.call("transmit", callsign, "Citadel", "Aboard rescue helicopter. Safe and secure.")
 
 	var air_ops := get_node_or_null("/root/AirOpsManager")
 	if air_ops != null and air_ops.has_method("notify_pilot_rescued"):

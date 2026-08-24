@@ -1,0 +1,14 @@
+[gd_resource type="Resource" script_class="PilotParachutePoseSettings" format=3]
+
+[ext_resource type="Script" path="res://Models/Characters/pilot/PilotParachutePoseSettings.gd" id="1_settings"]
+
+[resource]
+script = ExtResource("1_settings")
+left_shoulder_degrees = Vector3(25, 6, 20)
+left_upper_arm_degrees = Vector3(45, 0, 35)
+left_forearm_degrees = Vector3(-90, 10, 0)
+left_hand_degrees = Vector3(0, -45, 0)
+right_shoulder_degrees = Vector3(25.10159, -6.92697, -19.76767)
+right_upper_arm_degrees = Vector3(48.14013, 3.965608, -28.4185)
+right_forearm_degrees = Vector3(-83.86046, 74.50168, -90.28632)
+right_hand_degrees = Vector3(0.585915, 44.99299, -0.374661)

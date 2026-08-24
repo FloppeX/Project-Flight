@@ -119,11 +119,13 @@ func set_visual_budget_enabled(enabled: bool) -> void:
 		return
 	_visual_budget_enabled = enabled
 	set_physics_process(enabled)
+	# The budget controls animation/effects only. Track geometry must remain
+	# rendered at every distance so the carrier never appears to lose its belts.
 	if _track_multimesh != null:
-		_track_multimesh.visible = enabled
+		_track_multimesh.visible = true
 	for wheel in _wheel_roots:
 		if is_instance_valid(wheel):
-			wheel.visible = enabled
+			wheel.visible = true
 	for child in get_children():
 		if child.has_method("set_visual_budget_enabled"):
 			child.call("set_visual_budget_enabled", enabled)
@@ -134,6 +136,13 @@ func set_visual_budget_enabled(enabled: bool) -> void:
 	else:
 		if _rolling_audio_player != null:
 			_rolling_audio_player.volume_db = rolling_sound_silence_db
+
+
+func is_visible_to_active_camera() -> bool:
+	if _visibility_notifier == null or not is_instance_valid(_visibility_notifier) \
+			or not _visibility_notifier.is_inside_tree():
+		return true
+	return _visibility_notifier.is_on_screen()
 
 
 func setup_tread_offset() -> void:
@@ -575,7 +584,7 @@ func _collect_wheels() -> void:
 
 func _apply_debug_mode() -> void:
 	if _track_multimesh:
-		_track_multimesh.visible = _visual_budget_enabled
+		_track_multimesh.visible = true
 		_update_multimesh_transforms()
 
 

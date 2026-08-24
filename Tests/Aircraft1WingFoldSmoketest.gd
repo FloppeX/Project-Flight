@@ -39,6 +39,17 @@ func _run() -> void:
 		aircraft.free()
 		_finish()
 		return
+	var broad_wing_collider := aircraft.get_node_or_null("WingCollider") as CollisionShape3D
+	_expect(broad_wing_collider != null, "Aircraft 1 broad wing collider was not found")
+	if broad_wing_collider != null:
+		wing_fold.set_fold_fraction_immediate(0.0)
+		_expect(not broad_wing_collider.disabled, "wing collider is disabled while fully unfolded")
+		wing_fold.set_fold_fraction_immediate(0.25)
+		_expect(broad_wing_collider.disabled, "wing collider remains active during a partial fold")
+		wing_fold.set_fold_fraction_immediate(1.0)
+		_expect(broad_wing_collider.disabled, "wing collider remains active while fully folded")
+		wing_fold.set_fold_fraction_immediate(0.0)
+		_expect(not broad_wing_collider.disabled, "wing collider did not return after fully unfolding")
 
 	var left_hinge: Vector3 = wing_fold.get("_left_inner_hinge")
 	var right_hinge: Vector3 = wing_fold.get("_right_inner_hinge")

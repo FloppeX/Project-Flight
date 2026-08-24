@@ -99,6 +99,76 @@ func setup(home_pos: Vector3, scenes: Array[PackedScene], start_angle: float = 0
 	_detection_timer = _rng.randf_range(0.0, DETECTION_SCAN_INTERVAL_S)
 
 
+func capture_save_state() -> Dictionary:
+	var scene_paths: Array[String] = []
+	for scene in _vehicle_scenes:
+		scene_paths.append(scene.resource_path if scene != null else "")
+	return {
+		"platoon_name": platoon_name,
+		"vehicle_count": vehicle_count,
+		"patrol_radius": patrol_radius,
+		"faction_color": faction_color,
+		"position": position,
+		"heading": heading,
+		"home_position": home_position,
+		"mission": mission,
+		"attack_position": attack_position,
+		"vehicle_scene_paths": scene_paths,
+		"patrol_waypoints": _patrol_waypoints.duplicate(),
+		"patrol_wp_idx": _patrol_wp_idx,
+		"pending_reports": _pending_reports.duplicate(true),
+		"virtual_path": _virtual_path.duplicate(),
+		"virtual_path_idx": _virtual_path_idx,
+		"virtual_path_goal": _virtual_path_goal,
+	}
+
+
+func restore_save_state(state: Dictionary) -> bool:
+	if state.is_empty():
+		return false
+	platoon_name = str(state.get("platoon_name", platoon_name))
+	vehicle_count = maxi(int(state.get("vehicle_count", vehicle_count)), 0)
+	patrol_radius = float(state.get("patrol_radius", patrol_radius))
+	faction_color = state.get("faction_color", faction_color) as Color
+	position = state.get("position", position) as Vector3
+	heading = state.get("heading", heading) as Vector3
+	home_position = state.get("home_position", home_position) as Vector3
+	mission = int(state.get("mission", Mission.PATROL))
+	attack_position = state.get("attack_position", attack_position) as Vector3
+	vstate = VState.VIRTUAL
+	_platoon_node = null
+	_active_vehicles.clear()
+	_vehicle_scenes.clear()
+	var paths_variant: Variant = state.get("vehicle_scene_paths", [])
+	if paths_variant is Array:
+		for path_variant in paths_variant:
+			_vehicle_scenes.append(load(str(path_variant)) as PackedScene)
+	_patrol_waypoints.clear()
+	var waypoints_variant: Variant = state.get("patrol_waypoints", [])
+	if waypoints_variant is Array:
+		for waypoint_variant in waypoints_variant:
+			if waypoint_variant is Vector3:
+				_patrol_waypoints.append(waypoint_variant as Vector3)
+	_patrol_wp_idx = clampi(int(state.get("patrol_wp_idx", 0)), 0, maxi(_patrol_waypoints.size() - 1, 0))
+	_pending_reports.clear()
+	var reports_variant: Variant = state.get("pending_reports", [])
+	if reports_variant is Array:
+		for report_variant in reports_variant:
+			if report_variant is Dictionary:
+				_pending_reports.append((report_variant as Dictionary).duplicate(true))
+	_virtual_path.clear()
+	var path_variant: Variant = state.get("virtual_path", [])
+	if path_variant is Array:
+		for waypoint_variant in path_variant:
+			if waypoint_variant is Vector3:
+				_virtual_path.append(waypoint_variant as Vector3)
+	_virtual_path_idx = clampi(int(state.get("virtual_path_idx", 0)), 0, _virtual_path.size())
+	_virtual_path_goal = state.get("virtual_path_goal", Vector3.INF) as Vector3
+	_is_virtual_pathfinding = false
+	_rng.randomize()
+	return true
+
+
 func _generate_patrol_waypoints(start_angle: float) -> void:
 	_patrol_waypoints.clear()
 	for i in range(PATROL_WP_COUNT):

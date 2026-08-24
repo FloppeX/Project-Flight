@@ -84,6 +84,8 @@ func _ready() -> void:
 func _physics_process(delta: float) -> void:
 	if _disabled_for_test:
 		return
+	if GameSession != null and GameSession.has_pending_save_state():
+		return
 	_ops_clock_s += maxf(delta, 0.0)
 	_service_accum_s += maxf(delta, 0.0)
 	if _service_accum_s < OPS_SERVICE_INTERVAL_S:
@@ -185,6 +187,123 @@ func get_report_stats() -> Dictionary:
 		"pending_loss_incidents": _pending_loss_incidents.size(),
 		"investigation_active": _get_investigation_flight() != null,
 	}
+
+
+func get_campaign_save_blocker() -> String:
+	for base in bases:
+		if not is_instance_valid(base):
+			continue
+		for flight in _get_flights(base):
+			if flight.vstate != EnemyVirtualFlight.VState.VIRTUAL:
+				return "Enemy flight %s is still active nearby" % flight.flight_name
+			if flight.mission == EnemyVirtualFlight.Mission.INTERCEPT:
+				return "Enemy flight %s is still attacking" % flight.flight_name
+		for platoon in _get_platoons(base):
+			if platoon.vstate != EnemyVirtualPlatoon.VState.VIRTUAL:
+				return "Enemy platoon %s is still active nearby" % platoon.platoon_name
+			if platoon.mission in [
+				EnemyVirtualPlatoon.Mission.ATTACK_CARRIER,
+				EnemyVirtualPlatoon.Mission.ATTACK_POSITION,
+			]:
+				return "Enemy platoon %s is still attacking" % platoon.platoon_name
+	return ""
+
+
+func capture_save_state() -> Dictionary:
+	var base_entries: Array[Dictionary] = []
+	for base_index in range(bases.size()):
+		var base: EnemyBase = bases[base_index]
+		if not is_instance_valid(base):
+			continue
+		var flight_states: Array[Dictionary] = []
+		for flight in _get_flights(base):
+			flight_states.append(flight.capture_save_state())
+		var platoon_states: Array[Dictionary] = []
+		for platoon in _get_platoons(base):
+			platoon_states.append(platoon.capture_save_state())
+		base_entries.append({
+			"base_index": base_index,
+			"flights": flight_states,
+			"platoons": platoon_states,
+		})
+	return {
+		"base_entries": base_entries,
+		"known_contacts": _known_contacts.duplicate(true),
+		"pending_loss_incidents": _pending_loss_incidents.duplicate(true),
+		"ops_clock_s": _ops_clock_s,
+	}
+
+
+func restore_save_state(state: Dictionary, restored_bases: Array[EnemyBase]) -> bool:
+	if state.is_empty():
+		return false
+	for old_base in bases:
+		if not is_instance_valid(old_base):
+			continue
+		for flight in _get_flights(old_base):
+			_forget_flight_schedule(flight)
+			flight.queue_free()
+		for platoon in _get_platoons(old_base):
+			_forget_platoon_schedule(platoon)
+			platoon.queue_free()
+	bases.clear()
+	_base_flights.clear()
+	_base_platoons.clear()
+	_flight_next_tick_s.clear()
+	_flight_last_tick_s.clear()
+	_platoon_next_tick_s.clear()
+	_platoon_last_tick_s.clear()
+	for base in restored_bases:
+		if not is_instance_valid(base):
+			continue
+		bases.append(base)
+		_base_flights[base] = []
+		_base_platoons[base] = []
+	var entries_variant: Variant = state.get("base_entries", [])
+	if entries_variant is Array:
+		for entry_variant in entries_variant:
+			if not (entry_variant is Dictionary):
+				continue
+			var entry := entry_variant as Dictionary
+			var base_index := int(entry.get("base_index", -1))
+			if base_index < 0 or base_index >= bases.size():
+				continue
+			var base: EnemyBase = bases[base_index]
+			var flights_variant: Variant = entry.get("flights", [])
+			if flights_variant is Array:
+				for flight_state_variant in flights_variant:
+					if not (flight_state_variant is Dictionary):
+						continue
+					var flight := EnemyVirtualFlight.new()
+					flight.restore_save_state(flight_state_variant as Dictionary)
+					_base_flights[base].append(flight)
+					get_tree().current_scene.add_child(flight)
+			var platoons_variant: Variant = entry.get("platoons", [])
+			if platoons_variant is Array:
+				for platoon_state_variant in platoons_variant:
+					if not (platoon_state_variant is Dictionary):
+						continue
+					var platoon := EnemyVirtualPlatoon.new()
+					platoon.restore_save_state(platoon_state_variant as Dictionary)
+					_base_platoons[base].append(platoon)
+					get_tree().current_scene.add_child(platoon)
+	_known_contacts.clear()
+	var contacts_variant: Variant = state.get("known_contacts", [])
+	if contacts_variant is Array:
+		for contact_variant in contacts_variant:
+			if contact_variant is Dictionary:
+				_known_contacts.append((contact_variant as Dictionary).duplicate(true))
+	_pending_loss_incidents.clear()
+	var incidents_variant: Variant = state.get("pending_loss_incidents", [])
+	if incidents_variant is Array:
+		for incident_variant in incidents_variant:
+			if incident_variant is Dictionary:
+				_pending_loss_incidents.append((incident_variant as Dictionary).duplicate(true))
+	_ops_clock_s = maxf(float(state.get("ops_clock_s", 0.0)), 0.0)
+	_eval_timer = EVALUATION_INTERVAL_S
+	_threat_timer = THREAT_SCAN_INTERVAL_S
+	_service_accum_s = 0.0
+	return true
 
 
 func _ensure_flight_schedule(flight: EnemyVirtualFlight) -> void:

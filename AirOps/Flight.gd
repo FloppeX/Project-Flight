@@ -173,6 +173,99 @@ func is_engaged() -> bool:
 			return true
 	return false
 
+
+func get_campaign_save_blocker() -> String:
+	if mission == Mission.CAS:
+		return "%s flight still has an attack order" % flight_name
+	if mission == Mission.INTERCEPT:
+		return "%s flight is still intercepting" % flight_name
+	for aircraft in get_members():
+		if aircraft.scene_file_path.is_empty():
+			return "%s cannot be reconstructed from a saved scene" % aircraft.name
+		if bool(aircraft.get_meta("carrier_transport_mode", false)):
+			return "%s is still in carrier transport" % aircraft.name
+		if bool(aircraft.get_meta("controls_disabled", false)):
+			return "%s is still in a launch or recovery sequence" % aircraft.name
+		var pilot := _get_pilot(aircraft)
+		if pilot == null:
+			return "%s has no restorable AI pilot" % aircraft.name
+		if pilot.current_state in [
+			AIPilot.State.ATTACK_POSITIONING,
+			AIPilot.State.ATTACK_INBOUND,
+			AIPilot.State.ATTACK_DIVE,
+			AIPilot.State.ATTACK_BREAK_OFF,
+			AIPilot.State.DOGFIGHT,
+			AIPilot.State.ENGAGE,
+		]:
+			return "%s is still attacking" % aircraft.name
+		if pilot.current_state in [
+			AIPilot.State.IDLE,
+			AIPilot.State.LAUNCHING,
+			AIPilot.State.RECOVERY_MARSHAL,
+			AIPilot.State.RECOVERY_HOLD,
+			AIPilot.State.RECOVERY_APPROACH,
+			AIPilot.State.PRE_LANDING,
+			AIPilot.State.APPROACH,
+			AIPilot.State.LANDING,
+			AIPilot.State.MISSED_APPROACH,
+		]:
+			return "%s is still in a launch or recovery sequence" % aircraft.name
+	return ""
+
+
+func capture_mission_save_state() -> Dictionary:
+	return {
+		"mission": int(mission),
+		"cap_altitude_m": _cap_altitude_m,
+		"cap_route_points": _cap_route_points.duplicate(),
+		"cas_area_center": _cas_area_center,
+		"cas_area_radius": _cas_area_radius,
+		"cas_altitude_m": _cas_altitude_m,
+		"intercept_altitude_m": _intercept_altitude_m,
+	}
+
+
+func restore_mission_save_state(state: Dictionary, carrier: Node3D) -> bool:
+	var restored_mission := int(state.get("mission", Mission.NONE))
+	match restored_mission:
+		Mission.NONE:
+			mission = Mission.NONE
+			_mark_mission_dirty()
+			_cap_carrier = carrier
+			_cap_route_points.clear()
+			_cap_route_lead = null
+			_cap_route_revision += 1
+			_cap_route_lead_revision = -1
+			_claimed_targets.clear()
+			mission_changed.emit(mission)
+		Mission.CAP:
+			var route_points: Array[Vector3] = []
+			var route_variant: Variant = state.get("cap_route_points", [])
+			if route_variant is Array:
+				for point_variant in route_variant:
+					if point_variant is Vector3:
+						route_points.append(point_variant)
+			var altitude_m := float(state.get("cap_altitude_m", 800.0))
+			if route_points.is_empty():
+				set_cap(carrier, altitude_m)
+			else:
+				set_cap_route(carrier, route_points, altitude_m)
+		Mission.CAS:
+			set_cas(
+				state.get("cas_area_center", Vector3.ZERO) as Vector3,
+				float(state.get("cas_area_radius", 3000.0)),
+				float(state.get("cas_altitude_m", 300.0))
+			)
+		Mission.RTB:
+			set_rtb()
+		Mission.INTERCEPT:
+			# Intercepts depend on a live target reference and are deliberately not
+			# eligible for checkpoints. Reject one if a malformed save contains it.
+			return false
+		_:
+			return false
+	return true
+
 # ── Mission orders ─────────────────────────────────────────────────────────────
 
 func set_cap(carrier: Node3D, altitude_m: float = 800.0) -> void:

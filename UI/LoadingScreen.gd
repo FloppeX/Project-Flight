@@ -135,7 +135,9 @@ func _process(delta: float) -> void:
 	_update_nonsense_message(delta)
 	_update_progress_display()
 
-	if _navgrid_done and _terrain_done and _elapsed >= MIN_DISPLAY_S:
+	var campaign_restore_done := GameSession == null or not GameSession.has_pending_save_state()
+	if _navgrid_done and _terrain_done and campaign_restore_done \
+	and _elapsed >= MIN_DISPLAY_S:
 		_fading = true
 		_fade_t = 0.0
 

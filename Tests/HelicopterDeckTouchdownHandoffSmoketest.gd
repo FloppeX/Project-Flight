@@ -43,6 +43,12 @@ func _run() -> void:
 		gear.position = Vector3(-1.0 if gear_name.begins_with("Left") else 1.0, -2.0, 0.0)
 		helicopter.add_child(gear)
 
+	helicopter.global_position.y = 2.2
+	if bool(flight_deck_manager.call("is_aircraft_physically_settled_on_landing_deck", helicopter)):
+		_fail("deck manager accepted gear still 20 cm above the deck")
+		return
+	helicopter.global_position.y = 2.0
+
 	if not bool(flight_deck_manager.call("is_aircraft_physically_settled_on_landing_deck", helicopter)):
 		_fail("deck manager did not recognize low-speed upright skid contact")
 		return

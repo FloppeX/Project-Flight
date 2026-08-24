@@ -130,6 +130,46 @@ func get_pilot_roster_snapshot() -> Array[Dictionary]:
 		snapshot.append(pilot)
 	return snapshot
 
+
+func capture_save_state() -> Dictionary:
+	ensure_initialized()
+	var records: Array[Dictionary] = []
+	for pilot_id in _pilot_order:
+		var record_variant: Variant = _pilot_records.get(pilot_id, {})
+		if record_variant is Dictionary:
+			records.append((record_variant as Dictionary).duplicate(true))
+	return {
+		"corium_units": corium_units,
+		"plasteel_units": plasteel_units,
+		"pilot_records": records,
+		"next_pilot_id": _next_pilot_id,
+	}
+
+
+func restore_save_state(state: Dictionary) -> bool:
+	if state.is_empty():
+		return false
+	corium_units = float(state.get("corium_units", corium_units))
+	plasteel_units = float(state.get("plasteel_units", plasteel_units))
+	var records_variant: Variant = state.get("pilot_records", [])
+	if not (records_variant is Array):
+		return false
+	_pilot_records.clear()
+	_pilot_order.clear()
+	_active_pilot_by_aircraft_id.clear()
+	for record_variant in records_variant:
+		if not (record_variant is Dictionary):
+			continue
+		var record := (record_variant as Dictionary).duplicate(true)
+		var pilot_id := int(record.get("id", -1))
+		if pilot_id <= 0:
+			continue
+		_pilot_records[pilot_id] = record
+		_pilot_order.append(pilot_id)
+	_next_pilot_id = maxi(int(state.get("next_pilot_id", 1)), 1)
+	_initialized = true
+	return true
+
 func get_pilot_display_name_from_aircraft(aircraft: RigidBody3D) -> String:
 	if not is_instance_valid(aircraft):
 		return ""
@@ -293,6 +333,9 @@ func _sync_pilot_roster_assignment(aircraft: RigidBody3D, metadata: Dictionary) 
 
 func _release_pilot_roster_assignment(aircraft: RigidBody3D) -> void:
 	if PilotRoster == null or not is_instance_valid(PilotRoster):
+		return
+	if PilotRoster.has_method("release_aircraft"):
+		PilotRoster.release_aircraft(aircraft)
 		return
 	if not PilotRoster.has_method("release_callsign"):
 		return

@@ -42,6 +42,14 @@ const DEFAULT_LOOK_SENSITIVITY_INDEX := 2
 const DEFAULT_INVERT_LOOK_Y := false
 const DEFAULT_CAMERA_MOTION_INDEX := 2
 const DEFAULT_CAMERA_FOV_INDEX := 2
+const DEFAULT_CONTROLLER_MENU_CURSOR_ENABLED := false
+const MENU_CURSOR_DEADZONE := 0.18
+const MENU_CURSOR_SPEED_PX_S := 1050.0
+const MENU_CURSOR_TRIGGER_PRESS_THRESHOLD := 0.55
+const MENU_CURSOR_TRIGGER_RELEASE_THRESHOLD := 0.35
+const MENU_CURSOR_SCENES: Array[String] = [
+	"res://UI/MainMenu.tscn",
+]
 const DEFAULT_VIEW_DISTANCE_LEVEL := 3
 const RUDDER_ASSIST_LABELS := [
 	"OFF",
@@ -119,7 +127,16 @@ var _look_sensitivity_index: int = DEFAULT_LOOK_SENSITIVITY_INDEX
 var _invert_look_y: bool = DEFAULT_INVERT_LOOK_Y
 var _camera_motion_index: int = DEFAULT_CAMERA_MOTION_INDEX
 var _camera_fov_index: int = DEFAULT_CAMERA_FOV_INDEX
+var _controller_menu_cursor_enabled: bool = DEFAULT_CONTROLLER_MENU_CURSOR_ENABLED
+var _menu_cursor_device_id := -1
+var _menu_cursor_a_pressed := false
+var _menu_cursor_trigger_pressed := false
+var _menu_cursor_context_was_active := false
+var _menu_cursor_previous_mouse_mode := -1
 var _opened_from_main_menu := false
+var _save_button: Button = null
+var _save_status_label: Label = null
+var _save_feedback_until_ms: int = 0
 
 
 func _ready() -> void:
@@ -136,7 +153,40 @@ func _ready() -> void:
 	call_deferred("_apply_all_settings")
 
 
+func _process(delta: float) -> void:
+	if visible and _current_screen == "main":
+		_refresh_save_controls()
+	var cursor_active := is_controller_menu_cursor_active()
+	if not cursor_active:
+		_deactivate_controller_menu_cursor()
+		return
+	if not _menu_cursor_context_was_active:
+		_menu_cursor_previous_mouse_mode = Input.mouse_mode
+		_menu_cursor_context_was_active = true
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+
+	var device_id := _active_menu_cursor_device_id()
+	if device_id < 0:
+		return
+	var stick := Vector2(
+		Input.get_joy_axis(device_id, JOY_AXIS_LEFT_X),
+		Input.get_joy_axis(device_id, JOY_AXIS_LEFT_Y)
+	)
+	var viewport := get_viewport()
+	if viewport == null:
+		return
+	var viewport_size := viewport.get_visible_rect().size
+	var cursor_motion := controller_menu_cursor_motion(stick, delta, viewport_size)
+	if cursor_motion.is_zero_approx():
+		return
+	var next_position := viewport.get_mouse_position() + cursor_motion
+	next_position.x = clampf(next_position.x, 0.0, maxf(viewport_size.x - 1.0, 0.0))
+	next_position.y = clampf(next_position.y, 0.0, maxf(viewport_size.y - 1.0, 0.0))
+	viewport.warp_mouse(next_position)
+
+
 func _input(event: InputEvent) -> void:
+	_remember_menu_cursor_device(event)
 	var viewport := get_viewport()
 	if viewport == null:
 		return
@@ -145,6 +195,11 @@ func _input(event: InputEvent) -> void:
 			_open()
 		else:
 			_close()
+		viewport.set_input_as_handled()
+		return
+
+	if controller_menu_cursor_claims_event(event):
+		_handle_controller_menu_cursor_input(event)
 		viewport.set_input_as_handled()
 		return
 
@@ -164,6 +219,7 @@ func _open() -> void:
 	get_tree().paused = true
 	visible = true
 	_show_screen("main")
+	_refresh_save_controls()
 
 
 func open_settings_from_main_menu() -> void:
@@ -171,6 +227,119 @@ func open_settings_from_main_menu() -> void:
 	get_tree().paused = true
 	visible = true
 	_show_screen("options")
+
+
+func get_controller_menu_cursor_enabled() -> bool:
+	return _controller_menu_cursor_enabled
+
+
+func is_controller_menu_cursor_active() -> bool:
+	return _controller_menu_cursor_enabled and _is_menu_cursor_context_active()
+
+
+func controller_menu_cursor_claims_event(event: InputEvent) -> bool:
+	if not is_controller_menu_cursor_active():
+		return false
+	if event is InputEventJoypadButton:
+		return (event as InputEventJoypadButton).button_index == PAD_BUTTON_A
+	if event is InputEventJoypadMotion:
+		var axis := (event as InputEventJoypadMotion).axis
+		return axis == JOY_AXIS_LEFT_X or axis == JOY_AXIS_LEFT_Y or axis == JOY_AXIS_TRIGGER_RIGHT
+	return false
+
+
+static func controller_menu_cursor_motion(stick: Vector2, delta: float, viewport_size: Vector2) -> Vector2:
+	var stick_length := minf(stick.length(), 1.0)
+	if stick_length <= MENU_CURSOR_DEADZONE or delta <= 0.0:
+		return Vector2.ZERO
+	var strength := (stick_length - MENU_CURSOR_DEADZONE) / (1.0 - MENU_CURSOR_DEADZONE)
+	var resolution_scale := maxf(viewport_size.y / BASE_UI_SIZE.y, 0.5)
+	return stick.normalized() * strength * MENU_CURSOR_SPEED_PX_S * resolution_scale * delta
+
+
+func _is_menu_cursor_context_active() -> bool:
+	if visible:
+		return true
+	var current_scene := get_tree().current_scene
+	if current_scene != null and MENU_CURSOR_SCENES.has(current_scene.scene_file_path):
+		return true
+	var carrier_console := get_node_or_null("/root/CarrierConsole")
+	return carrier_console != null \
+		and carrier_console.has_method("is_open") \
+		and bool(carrier_console.call("is_open"))
+
+
+func _remember_menu_cursor_device(event: InputEvent) -> void:
+	if event is InputEventJoypadButton or event is InputEventJoypadMotion:
+		_menu_cursor_device_id = event.device
+
+
+func _active_menu_cursor_device_id() -> int:
+	var connected_devices := Input.get_connected_joypads()
+	if connected_devices.has(_menu_cursor_device_id):
+		return _menu_cursor_device_id
+	if not connected_devices.is_empty():
+		_menu_cursor_device_id = int(connected_devices[0])
+		return _menu_cursor_device_id
+	return -1
+
+
+func _handle_controller_menu_cursor_input(event: InputEvent) -> void:
+	if event is InputEventJoypadButton:
+		var button_event := event as InputEventJoypadButton
+		_set_controller_menu_click_source(&"a", button_event.pressed)
+		return
+	var motion_event := event as InputEventJoypadMotion
+	if motion_event.axis != JOY_AXIS_TRIGGER_RIGHT:
+		return
+	var trigger_pressed := _menu_cursor_trigger_pressed
+	if trigger_pressed and motion_event.axis_value <= MENU_CURSOR_TRIGGER_RELEASE_THRESHOLD:
+		trigger_pressed = false
+	elif not trigger_pressed and motion_event.axis_value >= MENU_CURSOR_TRIGGER_PRESS_THRESHOLD:
+		trigger_pressed = true
+	_set_controller_menu_click_source(&"trigger", trigger_pressed)
+
+
+func _set_controller_menu_click_source(source: StringName, pressed: bool) -> void:
+	var was_pressed := _menu_cursor_a_pressed or _menu_cursor_trigger_pressed
+	if source == &"a":
+		_menu_cursor_a_pressed = pressed
+	else:
+		_menu_cursor_trigger_pressed = pressed
+	var is_pressed := _menu_cursor_a_pressed or _menu_cursor_trigger_pressed
+	if was_pressed != is_pressed:
+		_emit_controller_menu_mouse_button(is_pressed)
+
+
+func _emit_controller_menu_mouse_button(pressed: bool) -> void:
+	var viewport := get_viewport()
+	if viewport == null:
+		return
+	var mouse_event := InputEventMouseButton.new()
+	mouse_event.button_index = MOUSE_BUTTON_LEFT
+	mouse_event.pressed = pressed
+	mouse_event.button_mask = MOUSE_BUTTON_MASK_LEFT if pressed else 0
+	mouse_event.position = viewport.get_mouse_position()
+	mouse_event.global_position = mouse_event.position
+	viewport.push_input(mouse_event, true)
+
+
+func _release_controller_menu_click() -> void:
+	var was_pressed := _menu_cursor_a_pressed or _menu_cursor_trigger_pressed
+	_menu_cursor_a_pressed = false
+	_menu_cursor_trigger_pressed = false
+	if was_pressed:
+		_emit_controller_menu_mouse_button(false)
+
+
+func _deactivate_controller_menu_cursor() -> void:
+	_release_controller_menu_click()
+	if not _menu_cursor_context_was_active:
+		return
+	_menu_cursor_context_was_active = false
+	if _menu_cursor_previous_mouse_mode >= 0:
+		Input.mouse_mode = _menu_cursor_previous_mouse_mode
+	_menu_cursor_previous_mouse_mode = -1
 
 
 func _close() -> void:
@@ -188,6 +357,8 @@ func _show_screen(name: String) -> void:
 	for key: String in _screens:
 		(_screens[key] as Control).visible = (key == name)
 	_current_screen = name
+	if name == "main":
+		_refresh_save_controls()
 	var first = _first_button(_screens.get(name) as Control)
 	if first:
 		first.grab_focus()
@@ -290,6 +461,7 @@ func _build_main_screen() -> Control:
 
 	var entries = [
 		["RESUME", func(): _close()],
+		["SAVE CAMPAIGN", func(): _on_save_campaign()],
 		["SETTINGS", func(): _show_screen("options")],
 		["CONTROLS", func(): _show_screen("controls")],
 		["RESTART SCENARIO", func(): _on_restart()],
@@ -301,7 +473,47 @@ func _build_main_screen() -> Control:
 		var button := _make_text_button(entry[0] as String, Vector2(MARGIN_X, MARGIN_Y + i * ITEM_STEP))
 		button.pressed.connect(entry[1] as Callable)
 		root.add_child(button)
+		if str(entry[0]) == "SAVE CAMPAIGN":
+			_save_button = button
+	_save_status_label = _make_console_label(
+		"",
+		Vector2(OPERATOR_RAIL_WIDTH + 80.0, 216.0),
+		MenuTypography.FIELD_VALUE_SIZE,
+		MenuTheme.TEXT_MUTED,
+		MenuTypography.TECH_FONT
+	)
+	_save_status_label.size = Vector2(1050.0, 90.0)
+	_save_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	root.add_child(_save_status_label)
 	return root
+
+
+func _refresh_save_controls() -> void:
+	if not is_instance_valid(_save_button) or not is_instance_valid(_save_status_label):
+		return
+	var can_save := SaveGameManager.can_save_campaign()
+	_save_button.disabled = not can_save
+	var now_ms := Time.get_ticks_msec()
+	if now_ms >= _save_feedback_until_ms:
+		_save_status_label.text = SaveGameManager.get_save_status_message().to_upper()
+	_save_status_label.add_theme_color_override(
+		"font_color",
+		MenuTheme.PRIMARY if can_save else MenuTheme.TEXT_MUTED
+	)
+	_save_button.tooltip_text = "Write the latest strategic checkpoint" \
+		if can_save else SaveGameManager.get_save_status_message()
+
+
+func _on_save_campaign() -> void:
+	var result: Dictionary = SaveGameManager.request_manual_save()
+	var succeeded := bool(result.get("ok", false))
+	if is_instance_valid(_save_status_label):
+		_save_status_label.text = str(result.get("message", "Campaign save failed")).to_upper()
+		_save_status_label.add_theme_color_override(
+			"font_color",
+			MenuTheme.PRIMARY if succeeded else Color(1.0, 0.45, 0.30, 1.0)
+		)
+	_save_feedback_until_ms = Time.get_ticks_msec() + 2500
 
 
 func _build_options_screen() -> Control:
@@ -403,6 +615,12 @@ func _build_gameplay_screen() -> Control:
 	deadzone_btn.pressed.connect(_cycle_stick_deadzone)
 	root.add_child(deadzone_btn)
 	_gameplay_buttons["stick_deadzone"] = deadzone_btn
+
+	row_y += 58.0
+	var menu_cursor_btn := _make_row_button("", Vector2(SUBMENU_X, row_y), row_width)
+	menu_cursor_btn.pressed.connect(_cycle_controller_menu_cursor)
+	root.add_child(menu_cursor_btn)
+	_gameplay_buttons["controller_menu_cursor"] = menu_cursor_btn
 
 	row_y += 58.0
 	var sensitivity_btn := _make_row_button("", Vector2(SUBMENU_X, row_y), row_width)
@@ -605,6 +823,14 @@ func _cycle_stick_deadzone() -> void:
 	_save_settings()
 
 
+func _cycle_controller_menu_cursor() -> void:
+	_controller_menu_cursor_enabled = not _controller_menu_cursor_enabled
+	if not _controller_menu_cursor_enabled:
+		_deactivate_controller_menu_cursor()
+	_refresh_gameplay_button_labels()
+	_save_settings()
+
+
 func _cycle_look_sensitivity() -> void:
 	_look_sensitivity_index = (_look_sensitivity_index + 1) % LOOK_SENSITIVITY_LABELS.size()
 	_refresh_gameplay_button_labels()
@@ -696,6 +922,8 @@ func _refresh_gameplay_button_labels() -> void:
 		btn.text = "HELI RUDDER ASSIST: %s" % RUDDER_ASSIST_LABELS[_helicopter_rudder_assist_level]
 	if _gameplay_buttons.has("stick_deadzone"):
 		(_gameplay_buttons["stick_deadzone"] as Button).text = "STICK DEADZONE: %s" % STICK_DEADZONE_LABELS[_stick_deadzone_index]
+	if _gameplay_buttons.has("controller_menu_cursor"):
+		(_gameplay_buttons["controller_menu_cursor"] as Button).text = "CONTROLLER MENU CURSOR: %s" % ("ON" if _controller_menu_cursor_enabled else "OFF")
 	if _gameplay_buttons.has("look_sensitivity"):
 		(_gameplay_buttons["look_sensitivity"] as Button).text = "LOOK SENSITIVITY: %s" % LOOK_SENSITIVITY_LABELS[_look_sensitivity_index]
 	if _gameplay_buttons.has("invert_look_y"):
@@ -1058,6 +1286,11 @@ func _load_settings() -> void:
 		0,
 		CAMERA_FOV_LABELS.size() - 1
 	)
+	_controller_menu_cursor_enabled = bool(cfg.get_value(
+		SETTINGS_SECTION_GAMEPLAY,
+		"controller_menu_cursor_enabled",
+		_controller_menu_cursor_enabled
+	))
 	if should_migrate_graphics:
 		_save_settings()
 
@@ -1086,6 +1319,7 @@ func _save_settings() -> void:
 	cfg.set_value(SETTINGS_SECTION_GAMEPLAY, "invert_look_y", _invert_look_y)
 	cfg.set_value(SETTINGS_SECTION_GAMEPLAY, "camera_motion_index", _camera_motion_index)
 	cfg.set_value(SETTINGS_SECTION_GAMEPLAY, "camera_fov_index", _camera_fov_index)
+	cfg.set_value(SETTINGS_SECTION_GAMEPLAY, "controller_menu_cursor_enabled", _controller_menu_cursor_enabled)
 	cfg.save(SETTINGS_PATH)
 
 
@@ -1110,6 +1344,8 @@ func _reset_all_defaults() -> void:
 	_invert_look_y = DEFAULT_INVERT_LOOK_Y
 	_camera_motion_index = DEFAULT_CAMERA_MOTION_INDEX
 	_camera_fov_index = DEFAULT_CAMERA_FOV_INDEX
+	_controller_menu_cursor_enabled = DEFAULT_CONTROLLER_MENU_CURSOR_ENABLED
+	_deactivate_controller_menu_cursor()
 	_apply_all_settings()
 	_save_settings()
 
@@ -1208,6 +1444,10 @@ func _controls_bbcode() -> String:
 	var w = COLOR_WHITE.to_html(false)
 	var d = Color(1, 1, 1, 0.50).to_html(false)
 	return """
+[color=#{w}][b]MENUS (OPTIONAL CURSOR MODE)[/b][/color]
+[color=#{d}]LEFT STICK[/color]       MOVE POINTER
+[color=#{d}]A / RIGHT TRIGGER[/color] LEFT CLICK
+
 [color=#{w}][b]FLIGHT[/b][/color]
 [color=#{d}]LEFT STICK[/color]       PITCH / ROLL
 [color=#{d}]LT / RT[/color]          YAW LEFT / RIGHT

@@ -150,6 +150,8 @@ func _apply_default_missions() -> void:
 			order_cas(f.flight_name)
 
 func _process(delta: float) -> void:
+	if GameSession.has_pending_save_state():
+		return
 	var _profiler_start: int = FrameProfiler.begin("AirOpsManager.process")
 	_recovery_supervision_elapsed_s += maxf(delta, 0.0)
 	_recovery_supervision_timer_s -= delta
@@ -465,6 +467,136 @@ func is_contact_detected(node: Node3D) -> bool:
 		return false
 	_prune_reported_contacts()
 	return _reported_contacts.has(node)
+
+
+func get_reported_mobile_contact_count(prune_stale: bool = true) -> int:
+	if prune_stale:
+		_prune_reported_contacts()
+	var count := 0
+	for target_variant in _reported_contacts.keys():
+		if not (target_variant is Node3D) or not is_instance_valid(target_variant):
+			continue
+		var target := target_variant as Node3D
+		if target.is_in_group("aircraft") or target.is_in_group("ai_aircraft") \
+		or target.is_in_group("ground_vehicles"):
+			count += 1
+	return count
+
+
+func get_campaign_save_blocker(prune_stale_contacts: bool = true) -> String:
+	var contacts := get_reported_mobile_contact_count(prune_stale_contacts)
+	if contacts > 0:
+		return "%d mobile enemy contact%s still tracked" % [contacts, "" if contacts == 1 else "s"]
+	if _scrambling_flight != null or _scrambling_expected_count > 0:
+		return "A flight is still launching"
+	var downed_pilots := get_tracked_downed_pilots()
+	if not downed_pilots.is_empty():
+		return "Recover %d downed pilot%s before saving" % [
+			downed_pilots.size(),
+			"" if downed_pilots.size() == 1 else "s",
+		]
+	if is_instance_valid(_pending_rescue_launch_pilot) or not _rescue_assignments.is_empty():
+		return "A rescue operation is still active"
+	var assigned_aircraft: Dictionary = {}
+	for flight in flights:
+		for aircraft in flight.get_members():
+			assigned_aircraft[aircraft] = true
+		if flight.strength() <= 0:
+			continue
+		var flight_message := flight.get_campaign_save_blocker()
+		if not flight_message.is_empty():
+			return flight_message
+	# Catch manually flown or otherwise unassigned friendly aircraft too.
+	for node_variant in get_tree().get_nodes_in_group("friendlies"):
+		if not (node_variant is Node3D) or not is_instance_valid(node_variant):
+			continue
+		var node := node_variant as Node3D
+		if (node.is_in_group("aircraft") or node.is_in_group("ai_aircraft")) \
+		and not assigned_aircraft.has(node):
+			return "Recover %s before saving" % node.name
+	return ""
+
+
+func capture_save_state(flight_deck: Node) -> Dictionary:
+	if flight_deck == null or not flight_deck.has_method("capture_deployed_aircraft_save_state"):
+		return {}
+	var flight_entries: Array[Dictionary] = []
+	for flight in flights:
+		var members := flight.get_members()
+		if members.is_empty():
+			continue
+		var aircraft_entries: Array[Dictionary] = []
+		for aircraft in members:
+			var aircraft_variant: Variant = flight_deck.call(
+				"capture_deployed_aircraft_save_state", aircraft
+			)
+			if not (aircraft_variant is Dictionary) or (aircraft_variant as Dictionary).is_empty():
+				push_warning("[AirOpsManager] Could not capture %s for campaign save" % aircraft.name)
+				return {}
+			aircraft_entries.append(aircraft_variant as Dictionary)
+		flight_entries.append({
+			"flight_name": flight.flight_name,
+			"mission_state": flight.capture_mission_save_state(),
+			"aircraft": aircraft_entries,
+		})
+	return {"flights": flight_entries}
+
+
+func restore_save_state(state: Dictionary, flight_deck: Node) -> bool:
+	if flight_deck == null or not flight_deck.has_method("restore_deployed_aircraft_save_state"):
+		return false
+	for flight in flights:
+		for aircraft in flight.get_members().duplicate():
+			flight.unregister(aircraft)
+	_cap_flight = null
+	_intercept_flight = null
+	_cas_flight = null
+	_scrambling_flight = null
+	_scrambling_expected_count = 0
+	_scrambling_elapsed_s = 0.0
+	_tasks.clear()
+	_flight_task.clear()
+	_flight_role.clear()
+	_reported_contacts.clear()
+	_recovery_supervision_records.clear()
+	_refresh_carrier()
+
+	var entries_variant: Variant = state.get("flights", [])
+	if not (entries_variant is Array):
+		return false
+	for entry_variant in entries_variant:
+		if not (entry_variant is Dictionary):
+			continue
+		var entry := entry_variant as Dictionary
+		var flight := get_flight(str(entry.get("flight_name", "")))
+		if flight == null:
+			push_warning("[AirOpsManager] Saved flight no longer exists")
+			continue
+		var mission_variant: Variant = entry.get("mission_state", {})
+		if not (mission_variant is Dictionary) \
+		or not flight.restore_mission_save_state(mission_variant as Dictionary, _carrier):
+			push_warning("[AirOpsManager] Could not restore mission for %s" % flight.flight_name)
+			return false
+		var aircraft_variant: Variant = entry.get("aircraft", [])
+		if not (aircraft_variant is Array):
+			return false
+		for data_variant in aircraft_variant:
+			if not (data_variant is Dictionary):
+				continue
+			var restored_variant: Variant = flight_deck.call(
+				"restore_deployed_aircraft_save_state", data_variant as Dictionary
+			)
+			if not (restored_variant is RigidBody3D):
+				push_warning("[AirOpsManager] Could not restore an aircraft in %s" % flight.flight_name)
+				return false
+			var aircraft := restored_variant as RigidBody3D
+			flight.register(aircraft)
+			_assign_pilot_identity(aircraft, flight)
+		if flight.mission == Flight.Mission.CAP and _cap_flight == null:
+			_cap_flight = flight
+		elif flight.mission == Flight.Mission.CAS and _cas_flight == null:
+			_cas_flight = flight
+	return true
 
 func get_flight_of(aircraft: Node3D) -> Flight:
 	for f in flights:
@@ -1246,14 +1378,18 @@ func _assign_pilot_identity(aircraft: Node3D, flight: Flight) -> void:
 		return
 	if PilotRoster == null or not is_instance_valid(PilotRoster):
 		return
-	if not PilotRoster.has_method("assign_aircraft_to_callsign"):
+	if not PilotRoster.has_method("assign_aircraft_to_flight_callsign") \
+	and not PilotRoster.has_method("assign_aircraft_to_callsign"):
 		return
 	var members := flight.get_members()
 	var member_index := members.find(aircraft)
 	if member_index < 0:
 		return
 	var callsign := "%s %s" % [flight.flight_name, _callsign_suffix_for_member_index(member_index)]
-	PilotRoster.assign_aircraft_to_callsign(aircraft, callsign)
+	if PilotRoster.has_method("assign_aircraft_to_flight_callsign"):
+		PilotRoster.assign_aircraft_to_flight_callsign(aircraft, callsign)
+	else:
+		PilotRoster.assign_aircraft_to_callsign(aircraft, callsign)
 
 func _callsign_suffix_for_member_index(index: int) -> String:
 	match index:
@@ -1322,6 +1458,14 @@ func notify_pilot_rescued(pilot_node: Node3D, helicopter: Node3D = null) -> void
 		pilot_node.name if is_instance_valid(pilot_node) else "<freed>",
 		helicopter.name if is_instance_valid(helicopter) else "rescue helicopter",
 	])
+	# Re-run tasking now that this survivor is aboard. A rescue helicopter with
+	# another free passenger position can collect the next waiting survivor;
+	# otherwise it is released to return to the carrier.
+	_update_rescue_operations()
+	if is_instance_valid(helicopter):
+		var helicopter_pilot := helicopter.find_child("HelicopterPilot", true, false)
+		if helicopter_pilot != null and helicopter_pilot.has_method("finish_rescue_pickups"):
+			helicopter_pilot.call("finish_rescue_pickups")
 
 
 func get_tracked_downed_pilots() -> Array[Node3D]:
@@ -1417,15 +1561,22 @@ func _find_available_rescue_helicopter() -> Node3D:
 		var heli_pilot := friendly.find_child("HelicopterPilot", true, false)
 		if heli_pilot == null or not heli_pilot.has_method("command_rescue"):
 			continue
+		if heli_pilot.has_method("can_accept_passenger") \
+				and not bool(heli_pilot.call("can_accept_passenger")):
+			continue
 		var phase := int(heli_pilot.get("mission_phase"))
-		# Skip INBOUND (2) and already on a RESCUE (4).
-		if phase == 2 or phase == 4:
+		# Skip INBOUND (2) and helicopters already flying an assigned RESCUE (4).
+		# A landed rescue helicopter with no current target can take another.
+		var rescue_target: Variant = heli_pilot.get("_rescue_target") if phase == 4 else null
+		if phase == 2 or (phase == 4 and is_instance_valid(rescue_target)):
 			continue
 		# Aircraft_11 is the dedicated rescue/utility type — strongly prefer it.
 		var is_utility := friendly.name.begins_with("Aircraft_11")
 		var base := 10 if is_utility else 0
 		var priority := -1
-		if phase == 3:   # AT_CARRIER: on deck, ready to launch
+		if phase == 4:   # RESCUE, landed after pickup with another seat free
+			priority = base + 4
+		elif phase == 3: # AT_CARRIER: on deck, ready to launch
 			priority = base + 3
 		elif phase == 0: # OUTBOUND: airborne, can be rerouted
 			priority = base + 2

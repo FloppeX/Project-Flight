@@ -67,6 +67,23 @@ func _run() -> void:
 	carrier.track_mark_min_speed_mps = 0.1
 	var test_tread := Node3D.new()
 	carrier.add_child(test_tread)
+	carrier._tread_nodes = [test_tread]
+	var samples_before_startup_placement := carrier.spawned_track_samples.size()
+	carrier._initial_placement_completed = false
+	carrier._update_track_marks(1.0, carrier.global_transform)
+	test_tread.global_position = Vector3(5000.0, 0.0, 5000.0)
+	carrier._mark_initial_placement_completed()
+	carrier._update_track_marks(1.0, carrier.global_transform)
+	_expect(
+		carrier.spawned_track_samples.size() == samples_before_startup_placement,
+		"startup placement teleport emitted a cross-map track trail"
+	)
+	_expect(
+		carrier._track_mark_tread_states.has(test_tread.get_instance_id()),
+		"first post-placement frame did not seed tread history at the final position"
+	)
+	carrier._track_mark_tread_states.clear()
+	test_tread.global_position = Vector3.ZERO
 	carrier._update_track_marks_for_tread(test_tread, 1.0, true)
 	test_tread.global_position = Vector3(0.0, 0.0, 5.0)
 	carrier._update_track_marks_for_tread(test_tread, 1.0, true)

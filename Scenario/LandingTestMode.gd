@@ -123,6 +123,7 @@ var _focused_final_diagnostic: bool = false
 var _queue_diagnostic: bool = false
 var _dirty_recovery_diagnostic: bool = false
 var _dirty_two_aircraft_diagnostic: bool = false
+var _health_rtb_diagnostic: bool = false
 var _force_full_rate_guidance: bool = false
 var _attempt_limit: int = -1
 var _dirty_start_case_index: int = 0
@@ -144,6 +145,7 @@ func _ready() -> void:
 	_dirty_recovery_diagnostic = user_args.has("--landing-dirty-recovery") \
 		or user_args.has("--landing-dirty-two-aircraft")
 	_dirty_two_aircraft_diagnostic = user_args.has("--landing-dirty-two-aircraft")
+	_health_rtb_diagnostic = user_args.has("--landing-health-rtb")
 	_force_full_rate_guidance = user_args.has("--landing-full-rate-guidance")
 	_attempt_limit = _parse_positive_int_arg(user_args, "--landing-attempt-limit=")
 	var attempt_timeout_override_s: int = _parse_positive_int_arg(
@@ -184,6 +186,11 @@ func _ready() -> void:
 			teleport_recycle_dist_m,
 			furthest_dirty_start_m * 2.0
 		)
+	if _health_rtb_diagnostic:
+		max_simultaneous = 1
+		spawn_interval_s = minf(spawn_interval_s, 2.0)
+		if _attempt_limit < 1:
+			_attempt_limit = 1
 	if genetic_tuning_enabled:
 		# Sequential trials avoid deck-clearance queue time contaminating fitness. The tuner saves
 		# after every result, so this can safely run unattended and resume after a restart.
@@ -216,11 +223,19 @@ func _ready() -> void:
 		_log("DIRTY_PROFILE cases=%d start_case=%d simultaneous=%d attempt_limit=%d" % [
 			DIRTY_RECOVERY_CASES.size(), _dirty_start_case_index,
 			max_simultaneous, _attempt_limit])
+	if _health_rtb_diagnostic:
+		_log("HEALTH_RTB_PROFILE threshold=50%% damage_to=49%% attempts=%d" % _attempt_limit)
 	if genetic_tuning_enabled and is_instance_valid(_ga_tuner):
 		_log("GA_ENABLED curricula=%d deterministic_cases_per_level=%d status=%s" % [
 			GA_CURRICULA.size(), (GA_CURRICULA[0] as Array).size(), JSON.stringify(_ga_tuner.call("get_status"))])
 	_suppress_carrier_air_ops()
 	_clear_scene_clutter()
+	# This harness always replaces the ordinary random carrier start with a
+	# terrain-validated landing pose. Prevent the discarded random patrol search
+	# from delaying the test while NavGraph is being prepared.
+	var startup_carrier := _carrier()
+	if is_instance_valid(startup_carrier) and startup_carrier.has_method("set_heli_test_stationary"):
+		startup_carrier.call("set_heli_test_stationary", true)
 	# LandCarrier starts hidden at the scene origin while its asynchronous NavGraph job
 	# chooses the real safe start (often tens of kilometres away). Spawning before it
 	# becomes visible strands test aircraft at the temporary origin; the first camera-
@@ -466,6 +481,8 @@ func _spawn_lander() -> void:
 		flow = "direct"
 	if _focused_final_diagnostic:
 		flow = "direct"
+	if _health_rtb_diagnostic:
+		flow = "recovery"
 	var ga_assignment: Dictionary = {}
 	if genetic_tuning_enabled and is_instance_valid(_ga_tuner):
 		ga_assignment = _ga_tuner.call("next_assignment") as Dictionary
@@ -621,7 +638,7 @@ func _spawn_lander() -> void:
 		pilot.set("dogfight_enabled", false)
 		pilot.set("ground_attack_enabled", false)
 		pilot.set("land_after_launch", false)
-		pilot.set("rtb_health_threshold", 0.0)
+		pilot.set("rtb_health_threshold", 0.5 if _health_rtb_diagnostic else 0.0)
 		pilot.set("rtb_fuel_threshold", 0.0)
 		pilot.set("carrier_position", carrier.global_position)
 		# Diagnostic A/B switch: leave all slower tactical/sensor scheduling intact,
@@ -629,7 +646,10 @@ func _spawn_lander() -> void:
 		if _force_full_rate_guidance:
 			pilot.set("adaptive_guidance_cadence_enabled", false)
 		# Kick off the chosen landing flow next frame (after the pilot's own _ready has run).
-		call_deferred("_begin_landing_flow", pilot, flow)
+		if _health_rtb_diagnostic:
+			call_deferred("_begin_health_rtb_flow", pilot)
+		else:
+			call_deferred("_begin_landing_flow", pilot, flow)
 
 	_attempts[craft_name] = {
 		"node": craft,
@@ -750,6 +770,39 @@ func _begin_landing_flow(pilot: Node, flow: String) -> void:
 			str(craft.is_inside_tree()) if is_instance_valid(craft) else "false",
 			craft.global_position.distance_to(_carrier().global_position) if is_instance_valid(craft) and is_instance_valid(_carrier()) else -1.0,
 		])
+
+
+func _begin_health_rtb_flow(pilot: Node) -> void:
+	# aircraft.gd and AIToggle finish their deferred initialization on the next
+	# frame. Apply real damage only after the pilot has connected its damaged signal.
+	await get_tree().process_frame
+	if pilot == null or not is_instance_valid(pilot):
+		return
+	var craft_variant: Variant = pilot.get("aircraft")
+	var craft := craft_variant as RigidBody3D
+	if not is_instance_valid(craft):
+		return
+	if craft.is_in_group("aircraft"):
+		craft.remove_from_group("aircraft")
+	if pilot.has_method("change_state"):
+		pilot.call("change_state", 4)  # AIPilot.State.SEARCH
+	var maximum_health := float(craft.get("max_health"))
+	var target_health := maximum_health * 0.49
+	var damage_amount := maxf(float(craft.get("current_health")) - target_health, 0.0)
+	craft.set_meta("health_rtb_test", true)
+	if craft.has_method("take_damage"):
+		craft.call("take_damage", damage_amount)
+	else:
+		craft.set("current_health", target_health)
+	await get_tree().process_frame
+	_log("HEALTH_DAMAGE craft=%s hp=%.1f/%.1f threshold=50%% rtb_triggered=%s state=%d reason=%s" % [
+		craft.name,
+		float(craft.get("current_health")),
+		maximum_health,
+		str(bool(craft.get_meta("health_rtb_triggered", false))),
+		int(pilot.get("current_state")),
+		str(craft.get_meta("rtb_reason", "none")),
+	])
 
 
 func _poll_outcomes(delta: float) -> void:

@@ -258,3 +258,19 @@ func _stow_ramp() -> void:
 	if _ramp and _ramp.is_deployed():
 		_ramp.stow()
 		print("[VehicleBay] Stowing ramp")
+
+
+func capture_save_state() -> Dictionary:
+	return {"stored_vehicles": stored_vehicles}
+
+
+func restore_save_state(save_state: Dictionary) -> bool:
+	if save_state.is_empty():
+		return false
+	stored_vehicles = clampi(int(save_state.get("stored_vehicles", max_bay_capacity)), 0, max_bay_capacity)
+	state = BayState.IDLE
+	_deploy_queue = 0
+	_deploy_pending_vehicles = 0
+	_current_platoon = null
+	_retrieve_vehicles.clear()
+	return true

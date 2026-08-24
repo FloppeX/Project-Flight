@@ -3,7 +3,7 @@
 [ext_resource type="Script" uid="uid://c4ltq2v6fji05" path="res://Aircraft/aircraft.gd" id="1_e8t1h"]
 [ext_resource type="PackedScene" uid="uid://cadi81fcpvmuc" path="res://Projectiles/Explosion/explosion.tscn" id="2_x73up"]
 [ext_resource type="PackedScene" uid="uid://djtbinx1svo2u" path="res://Aircraft/Aircraft wreck/aircraft_1_wreck.tscn" id="3_x73up"]
-[ext_resource type="PackedScene" uid="uid://byx6gtcy8ggbm" path="res://Models/Aircraft_2/Aircraft 2 body.glb" id="4_fx6wc"]
+[ext_resource type="PackedScene" uid="uid://cneke25lacigq" path="res://Models/Aircraft_2/Aircraft 2 body.glb" id="4_fx6wc"]
 [ext_resource type="PackedScene" uid="uid://p831mbxhqubt" path="res://Models/Aircraft_1/aircraft 2 propeller.glb" id="4_ii5ys"]
 [ext_resource type="Script" uid="uid://cyxrx2cid1gt" path="res://Aircraft/SimpleAero.gd" id="5_8vbcf"]
 [ext_resource type="PackedScene" uid="uid://diddm04vtjnny" path="res://addons/simplified_flightsim/aircraft_modules/EnergyContainer/EnergyContainer.tscn" id="9_n2s36"]
@@ -38,7 +38,7 @@
 [ext_resource type="PackedScene" uid="uid://bifk2d4o2un2l" path="res://Models/Aircraft_1/Aircraft main gear.glb" id="36_ondnd"]
 [ext_resource type="AudioStream" uid="uid://c0ax7nrniu8x3" path="res://Audio/cockpit_interior_2.wav" id="37_cpit"]
 [ext_resource type="PackedScene" uid="uid://cldno3ei7eqts" path="res://Weapons/Guns/Hardpoint/25mm_autocannon_hardpoint.tscn" id="38_25mm"]
-[ext_resource type="PackedScene" path="res://Aircraft/CockpitPilot.tscn" id="90_cpilot"]
+[ext_resource type="PackedScene" uid="uid://ba1hsntx8a01y" path="res://Aircraft/CockpitPilot.tscn" id="90_cpilot"]
 [ext_resource type="PackedScene" path="res://Aircraft/Visuals/EjectionSeat.tscn" id="92_ejection_seat"]
 [ext_resource type="Script" uid="uid://baexawx30vqgf" path="res://Aircraft/EjectionSequence.gd" id="93_ejection_sequence"]
 
@@ -168,13 +168,18 @@ cockpit_interior_sound = ExtResource("37_cpit")
 transform = Transform3D(-1, 0, -8.74213e-08, 0, 0.999983, 0, 8.74228e-08, 0, -0.999983, 0, 0.92, 2.27966)
 
 [node name="CockpitPilot" parent="." unique_id=520620902 instance=ExtResource("90_cpilot")]
-transform = Transform3D(0.999958, 0, -0.00842568, 0, 0.999949, 0, 0.00839809, 0, 0.999921, 0, -0.743205, 2.37969)
+transform = Transform3D(0.999958, 0, -0.00842568, 0, 0.999949, 0, 0.00839809, 0, 0.999921, 0, -0.29883376, 2.37969)
+abdomen_pitch = 0.0
+torso_pitch = 0.0
+lower_arm_x = 0.0
+wrist_x = 0.0
+finger_curl = 0.0
 cockpit_hidden_mesh_names = PackedStringArray("Pilot")
 
 [node name="EjectionSeat" parent="." unique_id=1392064387 instance=ExtResource("92_ejection_seat")]
 transform = Transform3D(0.999958, 0, -0.00842568, 0, 0.999949, 0, 0.00839809, 0, 0.999921, 0, -0.3109245, 2.4375486)
 
-[node name="EjectionSequence" type="Node" parent="."]
+[node name="EjectionSequence" type="Node" parent="." unique_id=1039055606]
 script = ExtResource("93_ejection_sequence")
 
 [node name="CameraTarget" type="Node3D" parent="." unique_id=706367461]

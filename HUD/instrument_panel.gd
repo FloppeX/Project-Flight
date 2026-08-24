@@ -6,6 +6,7 @@ const TEXT_MODULE_SCRIPT := preload("res://HUD/Instruments/TextInstrumentModule.
 const WARNING_LIGHT_MODULE_SCRIPT := preload("res://HUD/Instruments/WarningLightModule.gd")
 const SLIP_BALL_MODULE_SCRIPT := preload("res://HUD/Instruments/SlipBallModule.gd")
 const AOA_MODULE_SCRIPT := preload("res://HUD/Instruments/AoAModule.gd")
+const TECHNICAL_INDEX_CATALOG := preload("res://UI/TechnicalIndexCatalog.gd")
 
 @export var aircraft_path: NodePath
 @export var panel_size: Vector2 = Vector2(0.4, 0.3)  # Size in meters (40cm x 30cm)
@@ -24,6 +25,9 @@ const AOA_MODULE_SCRIPT := preload("res://HUD/Instruments/AoAModule.gd")
 @export var hide_panel_quad_when_rendering_to_model: bool = true
 @export var auto_fit_model_panel_local_rect: bool = true
 @export var model_panel_local_rect: Rect2 = Rect2(-0.5, -0.5, 1.0, 1.0)
+## Use the model surface's authored UV unwrap instead of projecting the display
+## across local XY. This is required for angled or multi-plane cockpit panels.
+@export var model_panel_use_mesh_uv: bool = false
 @export var model_panel_flip_x: bool = false
 
 @onready var aircraft: Aircraft = get_node(aircraft_path) as Aircraft
@@ -58,7 +62,9 @@ var test_pattern_tex: Texture2D
 var camera_target: Node3D
 var camera_target_cam: Camera3D
 @export var assumed_target_width_m: float = 10.0
-@export var min_fov_deg: float = 10.0
+## The camera is physically fixed to its aircraft mount, so distant targets
+## need a genuinely narrow optical FOV instead of the old positional camera dolly.
+@export_range(1.0, 10.0, 0.05) var min_fov_deg: float = 1.0
 @export var max_fov_deg: float = 60.0
 @export var fov_lerp_speed: float = 8.0
 @export var idle_fov_deg: float = 30.0
@@ -79,6 +85,7 @@ var _last_display_target_name: String = ""
 var _destroyed_target_hold_position: Vector3 = Vector3.ZERO
 var _destroyed_target_hold_name: String = ""
 var _destroyed_target_hold_until_s: float = -INF
+var _catalog_target_names_by_scene: Dictionary = {}
 var _target_camera_pose_initialized: bool = false
 var _target_camera_local_aim_basis: Basis = Basis.IDENTITY
 var _camera_target_rest_transform: Transform3D = Transform3D.IDENTITY
@@ -226,12 +233,20 @@ func _bind_model_panel_surface(material: Material) -> void:
 			return
 		push_warning("[InstrumentPanel] no matching model panel material found on mesh %s." % mesh_instance.name)
 		return
-	if auto_fit_model_panel_local_rect:
+	if model_panel_use_mesh_uv:
+		for surface_index in model_panel_surface_indices:
+			var arrays := mesh.surface_get_arrays(surface_index)
+			var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+			var texture_uvs: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
+			if vertices.is_empty() or texture_uvs.size() != vertices.size():
+				push_warning("[InstrumentPanel] model panel surface %d on %s has no usable UV map." % [surface_index, mesh_instance.name])
+				return
+	elif auto_fit_model_panel_local_rect:
 		model_panel_local_rect = _calculate_surface_local_xy_bounds(mesh, model_panel_surface_indices)
 		_apply_panel_material_local_rect(material, model_panel_local_rect)
 	var shader_material := material as ShaderMaterial
 	if shader_material != null:
-		shader_material.set_shader_parameter("use_local_panel_projection", true)
+		shader_material.set_shader_parameter("use_local_panel_projection", not model_panel_use_mesh_uv)
 		shader_material.set_shader_parameter("panel_flip_x", model_panel_flip_x)
 	for surface_index in model_panel_surface_indices:
 		mesh_instance.set_surface_override_material(surface_index, material)
@@ -550,11 +565,7 @@ func _process(delta: float) -> void:
 		# Auto-zoom to fit target width assuming ~assumed_target_width_m across
 		if not target_focus.is_empty():
 			var dist: float = max(0.1, target_camera.global_position.distance_to(target_focus["position"]))
-			var aspect: float = float(viewport_resolution.x) / float(viewport_resolution.y)
-			var desired_vfov_rad: float = 2.0 * atan( (assumed_target_width_m) / (2.0 * dist * aspect) )
-			var desired_vfov_deg: float = rad_to_deg(desired_vfov_rad)
-			desired_vfov_deg = clamp(desired_vfov_deg, min_fov_deg, max_fov_deg)
-			_slew_target_camera_fov(desired_vfov_deg, delta)
+			_slew_target_camera_fov(_calculate_target_camera_fov(dist), delta)
 		else:
 			_slew_target_camera_fov(idle_fov_deg, delta)
 	
@@ -1032,27 +1043,36 @@ func _project_ray_to_model_panel_point(ray_origin: Vector3, ray_direction: Vecto
 	local_dir = local_dir.normalized()
 	var closest_t := INF
 	var found := false
+	var closest_mesh_uv := Vector2.ZERO
 	for surface_index in model_panel_surface_indices:
 		var arrays := mesh.surface_get_arrays(surface_index)
 		var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
 		if vertices.is_empty():
 			continue
 		var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+		var texture_uvs: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
 		if indices.is_empty():
 			for vertex_index in range(0, vertices.size() - 2, 3):
-				var direct_t := _ray_triangle_t(local_origin, local_dir, vertices, vertex_index, vertex_index + 1, vertex_index + 2)
-				if is_inf(direct_t):
+				var direct_hit := _ray_triangle_hit(local_origin, local_dir, vertices, vertex_index, vertex_index + 1, vertex_index + 2)
+				if is_inf(direct_hit.x):
 					continue
-				if direct_t < closest_t:
-					closest_t = direct_t
+				if direct_hit.x < closest_t:
+					closest_t = direct_hit.x
+					if texture_uvs.size() == vertices.size():
+						closest_mesh_uv = _interpolate_triangle_uv(texture_uvs, vertex_index, vertex_index + 1, vertex_index + 2, direct_hit.y, direct_hit.z)
 					found = true
 		else:
 			for index_offset in range(0, indices.size() - 2, 3):
-				var indexed_t := _ray_triangle_t(local_origin, local_dir, vertices, indices[index_offset], indices[index_offset + 1], indices[index_offset + 2])
-				if is_inf(indexed_t):
+				var i0 := indices[index_offset]
+				var i1 := indices[index_offset + 1]
+				var i2 := indices[index_offset + 2]
+				var indexed_hit := _ray_triangle_hit(local_origin, local_dir, vertices, i0, i1, i2)
+				if is_inf(indexed_hit.x):
 					continue
-				if indexed_t < closest_t:
-					closest_t = indexed_t
+				if indexed_hit.x < closest_t:
+					closest_t = indexed_hit.x
+					if texture_uvs.size() == vertices.size():
+						closest_mesh_uv = _interpolate_triangle_uv(texture_uvs, i0, i1, i2, indexed_hit.y, indexed_hit.z)
 					found = true
 	if not found:
 		return null
@@ -1060,11 +1080,13 @@ func _project_ray_to_model_panel_point(ray_origin: Vector3, ray_direction: Vecto
 	var world_hit := mesh_instance.global_transform * local_hit
 	if ray_origin.distance_to(world_hit) > max_distance_m:
 		return null
-	var rect_size := Vector2(maxf(model_panel_local_rect.size.x, 0.0001), maxf(model_panel_local_rect.size.y, 0.0001))
-	var panel_uv := Vector2(
-		(local_hit.x - model_panel_local_rect.position.x) / rect_size.x,
-		1.0 - ((local_hit.y - model_panel_local_rect.position.y) / rect_size.y)
-	)
+	var panel_uv := closest_mesh_uv
+	if not model_panel_use_mesh_uv:
+		var rect_size := Vector2(maxf(model_panel_local_rect.size.x, 0.0001), maxf(model_panel_local_rect.size.y, 0.0001))
+		panel_uv = Vector2(
+			(local_hit.x - model_panel_local_rect.position.x) / rect_size.x,
+			1.0 - ((local_hit.y - model_panel_local_rect.position.y) / rect_size.y)
+		)
 	if model_panel_flip_x:
 		panel_uv.x = 1.0 - panel_uv.x
 	return Vector2(
@@ -1073,18 +1095,18 @@ func _project_ray_to_model_panel_point(ray_origin: Vector3, ray_direction: Vecto
 	)
 
 
-func _ray_triangle_t(
+func _ray_triangle_hit(
 	origin: Vector3,
 	direction: Vector3,
 	vertices: PackedVector3Array,
 	i0: int,
 	i1: int,
 	i2: int
-) -> float:
+) -> Vector3:
 	if i0 < 0 or i1 < 0 or i2 < 0:
-		return INF
+		return Vector3(INF, 0.0, 0.0)
 	if i0 >= vertices.size() or i1 >= vertices.size() or i2 >= vertices.size():
-		return INF
+		return Vector3(INF, 0.0, 0.0)
 	var a := vertices[i0]
 	var b := vertices[i1]
 	var c := vertices[i2]
@@ -1093,20 +1115,31 @@ func _ray_triangle_t(
 	var pvec := direction.cross(edge2)
 	var det := edge1.dot(pvec)
 	if absf(det) <= 0.000001:
-		return INF
+		return Vector3(INF, 0.0, 0.0)
 	var inv_det := 1.0 / det
 	var tvec := origin - a
 	var u := tvec.dot(pvec) * inv_det
 	if u < 0.0 or u > 1.0:
-		return INF
+		return Vector3(INF, 0.0, 0.0)
 	var qvec := tvec.cross(edge1)
 	var v := direction.dot(qvec) * inv_det
 	if v < 0.0 or u + v > 1.0:
-		return INF
+		return Vector3(INF, 0.0, 0.0)
 	var t := edge2.dot(qvec) * inv_det
 	if t < 0.0:
-		return INF
-	return t
+		return Vector3(INF, 0.0, 0.0)
+	return Vector3(t, u, v)
+
+
+func _interpolate_triangle_uv(
+	texture_uvs: PackedVector2Array,
+	i0: int,
+	i1: int,
+	i2: int,
+	u: float,
+	v: float
+) -> Vector2:
+	return texture_uvs[i0] * (1.0 - u - v) + texture_uvs[i1] * u + texture_uvs[i2] * v
 
 
 func interact_at_panel_uv(uv: Vector2) -> bool:
@@ -1213,6 +1246,18 @@ func _slew_target_camera_fov(desired_fov_deg: float, delta: float) -> void:
 		return
 	var blend := _smooth_blend(target_camera_zoom_lerp_speed, delta)
 	target_camera.fov = lerpf(target_camera.fov, desired_fov_deg, blend)
+
+
+func _calculate_target_camera_fov(distance_m: float) -> float:
+	var target_feed_size := viewport_resolution
+	if target_viewport != null and is_instance_valid(target_viewport):
+		target_feed_size = target_viewport.size
+	var aspect := float(maxi(target_feed_size.x, 1)) / float(maxi(target_feed_size.y, 1))
+	var distance := maxf(distance_m, 0.1)
+	var target_width := maxf(assumed_target_width_m, 0.1)
+	var desired_vfov_rad := 2.0 * atan(target_width / (2.0 * distance * aspect))
+	# Camera3D rejects perspective FOV values below one degree.
+	return clampf(rad_to_deg(desired_vfov_rad), maxf(min_fov_deg, 1.0), max_fov_deg)
 
 func _ensure_target_view_camera_current() -> void:
 	if target_viewport == null or not is_instance_valid(target_viewport):
@@ -1360,12 +1405,13 @@ func _get_target_camera_focus() -> Dictionary:
 		_clear_destroyed_target_hold()
 		_watch_display_target(live_target)
 		var live_target_pos := _get_node_visual_position(live_target)
+		var live_target_name := _get_target_display_name(live_target)
 		_last_display_target_position = live_target_pos
-		_last_display_target_name = live_target.name
+		_last_display_target_name = live_target_name
 		return {
 			"target": live_target,
 			"position": live_target_pos,
-			"name": live_target.name,
+			"name": live_target_name,
 			"destroyed": false,
 		}
 
@@ -1425,7 +1471,7 @@ func _on_display_target_destroyed(arg0: Variant = null, arg1: Variant = null) ->
 	var hold_name := _last_display_target_name
 	if target != null and is_instance_valid(target):
 		hold_position = _get_node_visual_position(target)
-		hold_name = target.name
+		hold_name = _get_target_display_name(target)
 	_begin_destroyed_target_hold(hold_position, hold_name)
 
 func _on_display_target_tree_exiting(watched_target: Node3D = null) -> void:
@@ -1436,8 +1482,104 @@ func _on_display_target_tree_exiting(watched_target: Node3D = null) -> void:
 	var hold_name := _last_display_target_name
 	if target != null and is_instance_valid(target):
 		hold_position = _get_node_visual_position(target)
-		hold_name = target.name
+		hold_name = _get_target_display_name(target)
 	_begin_destroyed_target_hold(hold_position, hold_name)
+
+
+func _get_target_display_name(target: Node3D) -> String:
+	if target == null or not is_instance_valid(target):
+		return "TARGET"
+
+	# Allow a spawned unit to provide a deliberate label without falling back to
+	# its runtime physics-node name.
+	for metadata_key in [&"target_display_name", &"unit_display_name", &"display_name"]:
+		if not target.has_meta(metadata_key):
+			continue
+		var metadata_name := str(target.get_meta(metadata_key)).strip_edges()
+		if not metadata_name.is_empty() and not _is_generated_target_name(metadata_name):
+			return metadata_name
+
+	var scene_path := _get_target_source_scene_path(target)
+	var catalog_name := _get_catalog_target_name(scene_path)
+	if not catalog_name.is_empty():
+		return catalog_name
+
+	var node_name := str(target.name).strip_edges()
+	if not node_name.is_empty() and not _is_generated_target_name(node_name):
+		return _humanize_target_name(node_name)
+
+	if not scene_path.is_empty():
+		return _humanize_target_name(scene_path.get_file().get_basename())
+	if target.is_in_group("aircraft"):
+		return "AIRCRAFT"
+	if target.is_in_group("ground_vehicles"):
+		return "GROUND VEHICLE"
+	if target.is_in_group("buildings"):
+		return "STRUCTURE"
+	if target.is_in_group("carrier"):
+		return "LAND CARRIER"
+	return "UNKNOWN CONTACT"
+
+
+func _get_target_source_scene_path(target: Node) -> String:
+	var current: Node = target
+	while current != null:
+		if current.has_meta("source_scene_path"):
+			var metadata_path := str(current.get_meta("source_scene_path")).strip_edges()
+			if not metadata_path.is_empty():
+				return metadata_path
+		if not current.scene_file_path.is_empty():
+			return current.scene_file_path
+		current = current.get_parent()
+	return ""
+
+
+func _get_catalog_target_name(scene_path: String) -> String:
+	if scene_path.is_empty():
+		return ""
+	if _catalog_target_names_by_scene.is_empty():
+		for category_variant in TECHNICAL_INDEX_CATALOG.categories():
+			var category := str(category_variant)
+			if category == "WEAPONS":
+				continue
+			for entry_variant in TECHNICAL_INDEX_CATALOG.entries_for(category):
+				var entry: Dictionary = entry_variant
+				var entry_path := str(entry.get("scene", "")).strip_edges().to_lower()
+				if not entry_path.is_empty():
+					_catalog_target_names_by_scene[entry_path] = str(entry.get("name", "")).strip_edges()
+	return str(_catalog_target_names_by_scene.get(scene_path.to_lower(), ""))
+
+
+func _is_generated_target_name(value: String) -> bool:
+	var compact := value.strip_edges().to_lower()
+	for character in [" ", "_", "-", "@"]:
+		compact = compact.replace(character, "")
+	for prefix in ["rigidbody3d", "rigidbody", "characterbody3d", "characterbody", "staticbody3d", "staticbody", "node3d", "node"]:
+		if not compact.begins_with(prefix):
+			continue
+		var suffix := compact.trim_prefix(prefix)
+		if suffix.is_empty() or suffix.is_valid_int():
+			return true
+	return false
+
+
+func _humanize_target_name(value: String) -> String:
+	var separated := ""
+	for index in range(value.length()):
+		var character := value.substr(index, 1)
+		if index > 0:
+			var previous := value.substr(index - 1, 1)
+			var starts_word := character == character.to_upper() \
+				and character != character.to_lower() \
+				and previous == previous.to_lower() \
+				and previous != previous.to_upper()
+			if starts_word:
+				separated += " "
+		separated += character
+	var words := separated.replace("_", " ").replace("-", " ").strip_edges()
+	while words.contains("  "):
+		words = words.replace("  ", " ")
+	return words.to_upper()
 
 func _begin_destroyed_target_hold(position: Vector3, target_name: String) -> void:
 	if target_name.is_empty():

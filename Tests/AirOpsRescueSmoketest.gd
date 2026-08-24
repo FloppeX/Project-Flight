@@ -7,10 +7,26 @@ class FakeHelicopterPilot:
 	var aircraft: Node3D = null
 	var mission_phase: int = 3
 	var _rescue_target: Node3D = null
+	var passenger_capacity: int = 3
+	var passenger_count: int = 0
 
 	func command_rescue(pilot_node: Node3D) -> void:
 		_rescue_target = pilot_node
 		mission_phase = 4
+
+	func can_accept_passenger() -> bool:
+		return passenger_count < passenger_capacity
+
+	func add_passenger(_pilot_node: Node3D) -> bool:
+		if not can_accept_passenger():
+			return false
+		passenger_count += 1
+		_rescue_target = null
+		return true
+
+	func finish_rescue_pickups() -> void:
+		if mission_phase == 4 and _rescue_target == null:
+			mission_phase = 2
 
 
 class FakeFlightDeckManager:
@@ -120,8 +136,12 @@ func _run() -> void:
 
 	if not _verify_starting_helicopter_inventory():
 		return
+	await process_frame
 
-	print("[AirOpsRescueSmoketest] PASS tracked=true retry=true callback=true parked_takeoff=true Aircraft_11_start=3")
+	if not _verify_multi_passenger_retasking(air_ops):
+		return
+
+	print("[AirOpsRescueSmoketest] PASS tracked=true retry=true callback=true parked_takeoff=true Aircraft_11_start=3 multi_pickup=3")
 	quit(0)
 
 
@@ -227,6 +247,38 @@ func _verify_starting_helicopter_inventory() -> bool:
 		return false
 	flight_deck_manager.free()
 	carrier_manager.free()
+	return true
+
+
+func _verify_multi_passenger_retasking(air_ops: Node) -> bool:
+	air_ops.set("_downed_pilots", [])
+	air_ops.set("_rescue_assignments", {})
+	air_ops.set("_pending_rescue_launch_pilot", null)
+	var helicopter := _make_rescue_helicopter("Aircraft_11_MultiRescue", true)
+	var helicopter_pilot := helicopter.get_node("HelicopterPilot") as FakeHelicopterPilot
+	var pilots: Array[Node3D] = []
+	for index in range(3):
+		var pilot := _make_downed_pilot("MultiDowned%d" % (index + 1), "Mako %d" % (index + 1))
+		pilots.append(pilot)
+		air_ops.call("request_rescue_for", pilot)
+	if helicopter_pilot._rescue_target != pilots[0]:
+		_fail("multi-passenger rescue did not begin with the first survivor")
+		return false
+	for index in range(3):
+		var pilot := pilots[index]
+		if not helicopter_pilot.add_passenger(pilot):
+			_fail("multi-passenger helicopter rejected survivor %d" % (index + 1))
+			return false
+		air_ops.call("notify_pilot_rescued", pilot, helicopter)
+		if index < 2 and helicopter_pilot._rescue_target != pilots[index + 1]:
+			_fail("multi-passenger helicopter was not retasked to survivor %d" % (index + 2))
+			return false
+	if helicopter_pilot.passenger_count != 3 or helicopter_pilot.mission_phase != 2:
+		_fail("full rescue helicopter did not return inbound after three pickups")
+		return false
+	for pilot in pilots:
+		pilot.queue_free()
+	helicopter.queue_free()
 	return true
 
 

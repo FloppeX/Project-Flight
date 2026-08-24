@@ -16,9 +16,11 @@ class_name WingFold5
 @export var x_fold_deg: float = 90.0      ## X-axis fold angle
 @export var y_fold_deg: float = 90.0      ## Y-axis fold angle
 @export var stable_poll_interval_s: float = 0.2
+@export var broad_wing_collider_path: NodePath = NodePath("../WingCollider")
 
 var _left_wing: Node3D
 var _right_wing: Node3D
+var _broad_wing_collider: CollisionShape3D
 var _left_rest_pos: Vector3
 var _right_rest_pos: Vector3
 var _left_rest_quat: Quaternion
@@ -36,6 +38,7 @@ var _stable_poll_timer_s: float = 0.0
 
 func _ready() -> void:
 	_total_duration = phase1_duration + phase3_delay + phase3_duration
+	_broad_wing_collider = get_node_or_null(broad_wing_collider_path) as CollisionShape3D
 
 	var body := get_parent().get_node_or_null("aircraft_5") as Node3D
 	if body:
@@ -140,6 +143,14 @@ func _apply_pose() -> void:
 	var rq := _right_wing.quaternion
 	_left_wing.position = _left_rest_pos + Vector3(slide_distance * slide_t, 0.0, 0.0)
 	_left_wing.quaternion = Quaternion(rq.x, -rq.y, -rq.z, rq.w) * _right_rest_quat
+	_set_broad_wing_collision_folded(_anim_time > 0.0)
+
+
+func _set_broad_wing_collision_folded(is_folded_or_moving: bool) -> void:
+	# This is a single full-span box rather than panel-by-panel collision. It is
+	# only valid in the completely unfolded pose.
+	if is_instance_valid(_broad_wing_collider):
+		_broad_wing_collider.disabled = is_folded_or_moving
 
 func _smooth(t: float) -> float:
 	return t * t * (3.0 - 2.0 * t)

@@ -11,7 +11,7 @@ signal exploration_changed
 @export var aircraft_reveal_radius_m: float = 3000.0
 @export var helicopter_reveal_radius_m: float = 2000.0
 @export var ground_vehicle_reveal_radius_m: float = 800.0
-@export var carrier_reveal_radius_m: float = 1500.0
+@export var carrier_reveal_radius_m: float = 3000.0
 
 @export_group("Updates")
 @export_range(0.05, 2.0, 0.05) var observer_update_interval_s: float = 0.25
@@ -125,6 +125,53 @@ func _geometry_matches_navgrid() -> bool:
 
 func is_initialized() -> bool:
 	return _initialized and TerrainNavGrid.is_ready() and _geometry_matches_navgrid()
+
+
+func capture_save_state() -> Dictionary:
+	if not is_initialized():
+		return {}
+	return {
+		"cols": _cols,
+		"rows": _rows,
+		"origin_x": _origin_x,
+		"origin_z": _origin_z,
+		"cell_size_m": _cell_size_m,
+		"explored": _explored,
+	}
+
+
+func restore_save_state(state: Dictionary) -> bool:
+	if state.is_empty() or not TerrainNavGrid.is_ready():
+		return false
+	if not _initialized or not _geometry_matches_navgrid():
+		_initialize_from_navgrid()
+	if int(state.get("cols", -1)) != _cols or int(state.get("rows", -1)) != _rows:
+		push_warning("[MapFogOfWar] Save geometry does not match the current map")
+		return false
+	if not is_equal_approx(float(state.get("cell_size_m", -1.0)), _cell_size_m):
+		push_warning("[MapFogOfWar] Save cell size does not match the current map")
+		return false
+	if not is_equal_approx(float(state.get("origin_x", INF)), _origin_x) \
+	or not is_equal_approx(float(state.get("origin_z", INF)), _origin_z):
+		push_warning("[MapFogOfWar] Save origin does not match the current map")
+		return false
+	var explored_variant: Variant = state.get("explored", PackedByteArray())
+	if not (explored_variant is PackedByteArray):
+		return false
+	var restored := explored_variant as PackedByteArray
+	if restored.size() != _cols * _rows:
+		return false
+	_explored = restored.duplicate()
+	_mask_image = Image.create(_cols, _rows, false, Image.FORMAT_L8)
+	for row in range(_rows):
+		for col in range(_cols):
+			var value := float(_explored[row * _cols + col]) / 255.0
+			_mask_image.set_pixel(col, row, Color(value, value, value, 1.0))
+	_mask_texture = ImageTexture.create_from_image(_mask_image)
+	_observer_last_cells.clear()
+	_texture_dirty = false
+	exploration_changed.emit()
+	return true
 
 
 func is_world_explored(world_pos: Vector3) -> bool:

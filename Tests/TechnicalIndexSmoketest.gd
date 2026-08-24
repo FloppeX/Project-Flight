@@ -197,6 +197,7 @@ func _run() -> void:
 			var elevator_down_y := elevator_platform.position.y
 			var elevator_closed_left_x := elevator_left_cover.position.x
 			var elevator_closed_right_x := elevator_right_cover.position.x
+			var elevator_closed_cover_y := elevator_left_cover.position.y
 			var ramp_stowed_slider_z := ramp_slider.position.z
 			var ramp_stowed_inner_x := ramp_inner_pivot.rotation.x
 			var ramp_stowed_middle_x := ramp_middle_pivot.rotation.x
@@ -207,22 +208,31 @@ func _run() -> void:
 			view.call("_process", 0.5)
 			var partial_elevator_raise := float(carrier_animation_values.get(&"elevator", 0.0))
 			if partial_elevator_raise <= 0.0 or partial_elevator_raise >= 1.0 \
-					or is_equal_approx(elevator_platform.position.y, elevator_down_y):
+					or (is_equal_approx(elevator_platform.position.y, elevator_down_y) \
+					and is_equal_approx(elevator_left_cover.position.y, elevator_closed_cover_y)):
 				_fail("elevator control did not begin raising the carrier elevator")
 				return
-			view.call("_process", 4.0)
+			view.call("_process", 6.0)
+			var carrier_elevator_component := carrier_elevator as CarrierElevator
+			var expected_open_cover_x := carrier_elevator_component.platform_size.x * 0.5 \
+					+ carrier_elevator_component.cover_size.z * 0.5 \
+					+ carrier_elevator_component.cover_recess_margin_m
+			var expected_open_cover_y := -carrier_elevator_component.cover_size.y * 0.5 \
+					- carrier_elevator_component.cover_recess_depth_m
 			if not is_equal_approx(float(carrier_animation_values.get(&"elevator", 0.0)), 1.0) \
 					or absf(elevator_platform.position.y + 0.5) > 0.01 \
-					or absf(elevator_left_cover.position.x + 15.0) > 0.01 \
-					or absf(elevator_right_cover.position.x - 15.0) > 0.01:
+					or absf(elevator_left_cover.position.x + expected_open_cover_x) > 0.01 \
+					or absf(elevator_right_cover.position.x - expected_open_cover_x) > 0.01 \
+					or absf(elevator_left_cover.position.y - expected_open_cover_y) > 0.01:
 				_fail("elevator control did not bring the carrier elevator fully up")
 				return
 			elevator_button.pressed.emit()
-			view.call("_process", 4.0)
+			view.call("_process", 6.0)
 			if not is_equal_approx(float(carrier_animation_values.get(&"elevator", 1.0)), 0.0) \
 					or not is_equal_approx(elevator_platform.position.y, elevator_down_y) \
 					or not is_equal_approx(elevator_left_cover.position.x, elevator_closed_left_x) \
-					or not is_equal_approx(elevator_right_cover.position.x, elevator_closed_right_x):
+					or not is_equal_approx(elevator_right_cover.position.x, elevator_closed_right_x) \
+					or not is_equal_approx(elevator_left_cover.position.y, elevator_closed_cover_y):
 				_fail("second elevator press did not lower and close the carrier elevator")
 				return
 

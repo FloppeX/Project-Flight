@@ -52,6 +52,10 @@ func _spawn_bases() -> void:
 		return
 	bases.clear()
 	_clear_managed_emplacements()
+	var pending := _get_pending_save_state()
+	if not pending.is_empty():
+		_spawn_bases_from_save(pending)
+		return
 
 	var center: Vector3 = TerrainNavGrid.get_bake_center()
 	var half_ext: float = TerrainNavGrid.bake_half_extent_m
@@ -333,3 +337,61 @@ func get_all_bases() -> Array[EnemyBase]:
 
 	bases = valid
 	return valid
+
+
+func capture_save_state() -> Dictionary:
+	var base_states: Array[Dictionary] = []
+	for base in get_all_bases():
+		base_states.append(base.capture_save_state())
+	var emplacement_states: Array[Dictionary] = []
+	for emplacement in emplacements:
+		if not is_instance_valid(emplacement):
+			continue
+		emplacement_states.append({
+			"position": emplacement.global_position,
+			"rotation": emplacement.global_rotation,
+			"team": int(emplacement.get("team")) if emplacement.get("team") != null else 2,
+			"current_health": float(emplacement.get("current_health")) if emplacement.get("current_health") != null else -1.0,
+			"enemy_faction_id": int(emplacement.get_meta("enemy_faction_id", 0)),
+		})
+	return {"bases": base_states, "emplacements": emplacement_states}
+
+
+func _get_pending_save_state() -> Dictionary:
+	if GameSession == null or not GameSession.has_pending_save_state():
+		return {}
+	var campaign := GameSession.peek_pending_campaign_state()
+	var state_variant: Variant = campaign.get("enemy_bases", {})
+	return state_variant as Dictionary if state_variant is Dictionary else {}
+
+
+func _spawn_bases_from_save(state: Dictionary) -> void:
+	var bases_variant: Variant = state.get("bases", [])
+	if bases_variant is Array:
+		for base_state_variant in bases_variant:
+			if not (base_state_variant is Dictionary):
+				continue
+			var base_state := base_state_variant as Dictionary
+			var base := EnemyBase.new()
+			base.faction_id = int(base_state.get("faction_id", 0))
+			base.position = base_state.get("position", Vector3.ZERO) as Vector3
+			get_tree().current_scene.add_child(base)
+			base.restore_save_state(base_state)
+			bases.append(base)
+	var emplacements_variant: Variant = state.get("emplacements", [])
+	if emplacements_variant is Array:
+		for emplacement_state_variant in emplacements_variant:
+			if not (emplacement_state_variant is Dictionary):
+				continue
+			var emplacement_state := emplacement_state_variant as Dictionary
+			_spawn_single_emplacement(
+				emplacement_state.get("position", Vector3.ZERO) as Vector3,
+				int(emplacement_state.get("enemy_faction_id", 0))
+			)
+			if not emplacements.is_empty():
+				var emplacement: Node3D = emplacements.back()
+				emplacement.global_rotation = emplacement_state.get("rotation", Vector3.ZERO) as Vector3
+				var saved_health := float(emplacement_state.get("current_health", -1.0))
+				if saved_health >= 0.0 and "current_health" in emplacement:
+					emplacement.set("current_health", saved_health)
+	print("[EnemyBaseManager] Restored %d enemy base(s)" % bases.size())

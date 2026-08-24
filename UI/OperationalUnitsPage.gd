@@ -13,6 +13,7 @@ enum UnitKind {
 const HEADLINE_FONT: FontFile = preload("res://UI/Fonts/ArchivoNarrow-Variable.ttf")
 const DATA_FONT: FontFile = preload("res://UI/Fonts/JetBrainsMono-Variable.ttf")
 const TECHNICAL_INDEX_CATALOG: Script = preload("res://UI/TechnicalIndexCatalog.gd")
+const AIRCRAFT_OUTLINE_DIRECTORY := "res://Images/Aircraft Outlines"
 
 const TEXT_COLOR := Color("e5e2e1")
 const STATUS_COLOR := Color("c4c7c7")
@@ -61,6 +62,7 @@ var _empty_label: Label
 var _filter_buttons: Dictionary = {}
 var _flight_rows: VBoxContainer
 var _portrait_texture_cache: Dictionary = {}
+var _aircraft_outline_texture_cache: Dictionary = {}
 
 var _selected_unit: String = ""
 var _filter_mode: String = "ALL"
@@ -484,6 +486,7 @@ func _aircraft_member_summary(member: Node3D, index: int) -> Dictionary:
 		"name": _aircraft_display_name(member, index),
 		"pilot": _aircraft_display_name(member, index),
 		"portrait_path": _aircraft_portrait_path(member),
+		"outline_path": _aircraft_outline_path(member),
 		"type": _member_type_name(member, "AIRCRAFT"),
 		"loadout": _aircraft_loadout_name(member),
 		"slot": _flight_slot_name(index),
@@ -714,8 +717,9 @@ func _add_aircraft_card(cards: HBoxContainer, member: Dictionary) -> void:
 	column.add_child(type_label)
 	var identity_row := HBoxContainer.new()
 	identity_row.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	identity_row.add_theme_constant_override("separation", 9)
+	identity_row.add_theme_constant_override("separation", 7)
 	column.add_child(identity_row)
+	_add_aircraft_outline(identity_row, str(member.get("outline_path", "")))
 	_add_aircraft_portrait(identity_row, str(member.get("portrait_path", "")))
 	var facts := VBoxContainer.new()
 	facts.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -742,6 +746,31 @@ func _add_aircraft_card(cards: HBoxContainer, member: Dictionary) -> void:
 	var health := int(member.get("health_percent", 100))
 	var condition_label := _make_label("COND %d%%" % health, 10, STATUS_COLOR if health >= 50 else AMBER_COLOR, HORIZONTAL_ALIGNMENT_RIGHT, DATA_FONT)
 	status_row.add_child(condition_label)
+
+
+func _add_aircraft_outline(parent: HBoxContainer, outline_path: String) -> void:
+	var frame := Panel.new()
+	frame.name = "AircraftOutlineFrame"
+	frame.custom_minimum_size = Vector2(64.0, 56.0)
+	frame.add_theme_stylebox_override("panel", _make_style(PAGE_BG, BORDER_COLOR, 1))
+	parent.add_child(frame)
+	var texture := _get_aircraft_outline_texture(outline_path)
+	if texture != null:
+		var outline := TextureRect.new()
+		outline.name = "AircraftOutline"
+		outline.position = Vector2(2.0, 2.0)
+		outline.size = Vector2(60.0, 52.0)
+		outline.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		outline.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		outline.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+		outline.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		outline.texture = texture
+		frame.add_child(outline)
+		return
+	var placeholder := _make_label("AIR", 10, DIM_COLOR, HORIZONTAL_ALIGNMENT_CENTER, DATA_FONT)
+	placeholder.set_anchors_preset(Control.PRESET_FULL_RECT)
+	placeholder.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	frame.add_child(placeholder)
 
 
 func _add_aircraft_portrait(parent: HBoxContainer, portrait_path: String) -> void:
@@ -775,6 +804,17 @@ func _get_portrait_texture(path: String) -> Texture2D:
 	var texture := load(path) as Texture2D
 	if texture != null:
 		_portrait_texture_cache[path] = texture
+	return texture
+
+
+func _get_aircraft_outline_texture(path: String) -> Texture2D:
+	if path.is_empty() or not ResourceLoader.exists(path):
+		return null
+	if _aircraft_outline_texture_cache.has(path):
+		return _aircraft_outline_texture_cache[path] as Texture2D
+	var texture := load(path) as Texture2D
+	if texture != null:
+		_aircraft_outline_texture_cache[path] = texture
 	return texture
 
 
@@ -940,6 +980,37 @@ func _aircraft_portrait_path(member: Node3D) -> String:
 	if identity_variant is Dictionary:
 		return str((identity_variant as Dictionary).get("portrait_path", ""))
 	return ""
+
+
+func _aircraft_outline_path(member: Node3D) -> String:
+	if member == null or not is_instance_valid(member):
+		return ""
+	for reference in [member.scene_file_path, str(member.name)]:
+		var outline_path := aircraft_outline_path_for_reference(str(reference))
+		if not outline_path.is_empty() and ResourceLoader.exists(outline_path):
+			return outline_path
+	return ""
+
+
+static func aircraft_outline_path_for_reference(reference: String) -> String:
+	var normalized := reference.to_lower()
+	var marker := "aircraft_"
+	var marker_position := normalized.find(marker)
+	if marker_position < 0:
+		return ""
+	var suffix := normalized.substr(marker_position + marker.length())
+	var digits := ""
+	for character_index in range(suffix.length()):
+		var code := suffix.unicode_at(character_index)
+		if code < 48 or code > 57:
+			break
+		digits += suffix[character_index]
+	if digits.is_empty():
+		return ""
+	var aircraft_index := int(digits)
+	if aircraft_index < 1 or aircraft_index > 12:
+		return ""
+	return AIRCRAFT_OUTLINE_DIRECTORY.path_join("aircraft_%d.png" % aircraft_index)
 
 
 func _aircraft_loadout_name(member: Node3D) -> String:

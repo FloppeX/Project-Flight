@@ -1,0 +1,26 @@
+[gd_scene load_steps=7 format=3]
+
+[ext_resource type="Script" uid="uid://c5p7knajxhkg6" path="res://Aircraft/PilotPose.gd" id="1_pose"]
+[ext_resource type="PackedScene" uid="uid://bnxo3mvh7eqk2" path="res://Models/Characters/pilot/pilot.glb" id="2_pilot"]
+[ext_resource type="PackedScene" uid="uid://ctqy76sqfod4c" path="res://Models/Characters/pilot/animations/running.fbx" id="3_running"]
+[ext_resource type="PackedScene" uid="uid://btdsqb46u6dw8" path="res://Models/Characters/pilot/animations/parachuting.fbx" id="4_parachuting"]
+[ext_resource type="Resource" path="res://Models/Characters/pilot/parachute_pose_settings.tres" id="5_pose_settings"]
+[ext_resource type="AnimationLibrary" path="res://Models/Characters/pilot/animations/pilot_animation_library.tres" id="6_animation_library"]
+
+[node name="PilotCharacter" type="Node3D"]
+process_priority = 1
+script = ExtResource("1_pose")
+pose_target_path = NodePath("Pilot")
+locomotion_source_scene = ExtResource("3_running")
+parachute_source_scene = ExtResource("4_parachuting")
+parachute_pose_settings = ExtResource("5_pose_settings")
+upper_leg_x = 0.0
+lower_leg_x = 0.0
+upper_leg_spread = 0.0
+
+[node name="Pilot" parent="." instance=ExtResource("2_pilot")]
+
+[node name="BakedAnimationPlayer" type="AnimationPlayer" parent="."]
+libraries = {
+&"": ExtResource("6_animation_library")
+}

@@ -16,9 +16,11 @@ class_name WingFold
 ## point slightly up and back.
 @export var fold_axis: Vector3 = Vector3(0.0, 0.258819, 0.965926)
 @export var stable_poll_interval_s: float = 0.2
+@export var broad_wing_collider_path: NodePath = NodePath("../WingCollider")
 
 var _left_wing:  Node3D
 var _right_wing: Node3D
+var _broad_wing_collider: CollisionShape3D
 var _fold_t: float = 0.0   # 0.0 = unfolded, 1.0 = fully folded
 var _snapped: bool = false  # true after first-frame snap
 var _left_rest_quat: Quaternion
@@ -28,6 +30,7 @@ var _right_rest_pos: Vector3
 var _stable_poll_timer_s: float = 0.0
 
 func _ready() -> void:
+	_broad_wing_collider = get_node_or_null(broad_wing_collider_path) as CollisionShape3D
 	_cache_wing_nodes(true)
 
 
@@ -115,3 +118,11 @@ func _apply_fold_pose(angle: float) -> void:
 	# Mirror the full hinge rotation on the opposite wing so the aft/up tilt
 	# stays symmetrical when the fold axis itself is canted.
 	_right_wing.quaternion = _right_rest_quat * Quaternion(left_axis, -angle)
+	_set_broad_wing_collision_folded(_fold_t > 0.0)
+
+
+func _set_broad_wing_collision_folded(is_folded_or_moving: bool) -> void:
+	# The full-span box only matches the authored unfolded pose. Disabling it
+	# during the fold prevents the invisible span hitting elevator geometry.
+	if is_instance_valid(_broad_wing_collider):
+		_broad_wing_collider.disabled = is_folded_or_moving

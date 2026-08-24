@@ -25,6 +25,7 @@ const COLUMNS: Array[Dictionary] = [
 	{"title": "PHOTO", "width": 66.0, "kind": "portrait"},
 	{"title": "RANK", "width": 72.0},
 	{"title": "PILOT", "width": 176.0},
+	{"title": "CALLSIGN", "width": 116.0},
 	{"title": "ORIGIN", "width": 136.0},
 	{"title": "LANGUAGE", "width": 150.0},
 	{"title": "SKILL", "width": 116.0},
@@ -188,13 +189,14 @@ func _header_values() -> Array[String]:
 
 func _pilot_values(pilot: Dictionary) -> Array[String]:
 	var status := str(pilot.get("status", "available")).to_upper()
-	var callsign := str(pilot.get("assigned_callsign", ""))
-	if callsign != "":
-		status = "ASSIGNED " + callsign.to_upper()
+	var flight_callsign := str(pilot.get("flight_callsign", pilot.get("assigned_callsign", "")))
+	if flight_callsign != "":
+		status = "FLYING " + flight_callsign.to_upper()
 	return [
 		"",
 		str(pilot.get("rank", "")),
 		str(pilot.get("name", "")),
+		str(pilot.get("callsign", "")),
 		str(pilot.get("national_origin", "")),
 		str(pilot.get("language", "")),
 		_pretty_skill(str(pilot.get("skill", ""))),

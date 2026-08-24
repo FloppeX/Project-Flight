@@ -59,6 +59,10 @@ func _wait_for_terrain() -> void:
 	_place_pois()
 
 func _place_pois() -> void:
+	var pending := _get_pending_save_state()
+	if not pending.is_empty():
+		restore_save_state(pending)
+		return
 	var attempts := 0
 	while _pois.size() < SPAWN_COUNT and attempts < SPAWN_COUNT * 30:
 		attempts += 1
@@ -264,6 +268,54 @@ func get_active_discovered_positions() -> Array[Vector3]:
 		if poi.discovered and not poi.revealed:
 			result.append(poi.world_pos)
 	return result
+
+
+func has_active_decision() -> bool:
+	return _active_card != null and is_instance_valid(_active_card)
+
+
+func capture_save_state() -> Dictionary:
+	var entries: Array[Dictionary] = []
+	for poi: POIInstance in _pois:
+		entries.append({
+			"id": poi.id,
+			"world_pos": poi.world_pos,
+			"discovered": poi.discovered,
+			"revealed": poi.revealed,
+		})
+	return {
+		"pois": entries,
+		"starting_reveal_done": _starting_reveal_done,
+	}
+
+
+func restore_save_state(state: Dictionary) -> bool:
+	var entries_variant: Variant = state.get("pois", [])
+	if not (entries_variant is Array):
+		return false
+	_pois.clear()
+	for entry_variant in entries_variant:
+		if not (entry_variant is Dictionary):
+			continue
+		var entry := entry_variant as Dictionary
+		var inst := POIInstance.new()
+		inst.id = int(entry.get("id", _pois.size()))
+		inst.world_pos = entry.get("world_pos", Vector3.ZERO) as Vector3
+		inst.data = _make_data(inst.id)
+		inst.discovered = bool(entry.get("discovered", false))
+		inst.revealed = bool(entry.get("revealed", false))
+		_pois.append(inst)
+	_starting_reveal_done = bool(state.get("starting_reveal_done", true))
+	_starting_reveal_attempts = 0
+	return not _pois.is_empty()
+
+
+func _get_pending_save_state() -> Dictionary:
+	if GameSession == null or not GameSession.has_pending_save_state():
+		return {}
+	var campaign := GameSession.peek_pending_campaign_state()
+	var state_variant: Variant = campaign.get("pois", {})
+	return state_variant as Dictionary if state_variant is Dictionary else {}
 
 func apply_origin_shift(offset: Vector3) -> void:
 	for poi: POIInstance in _pois:

@@ -382,6 +382,43 @@ func get_faction_color() -> Color:
 	return faction_color
 
 
+func capture_save_state() -> Dictionary:
+	return {
+		"faction_id": faction_id,
+		"position": global_position,
+		"rotation": global_rotation,
+		"aircraft_max": aircraft_max,
+		"aircraft_reserve": aircraft_reserve,
+		"vehicle_max": vehicle_max,
+		"vehicle_reserve": vehicle_reserve,
+		"aircraft_replenish_interval_s": aircraft_replenish_interval_s,
+		"vehicle_replenish_interval_s": vehicle_replenish_interval_s,
+		"aircraft_replenish_timer": _aircraft_replenish_timer,
+		"vehicle_replenish_timer": _vehicle_replenish_timer,
+		"flight_counter": _flight_counter,
+		"platoon_counter": _platoon_counter,
+	}
+
+
+func restore_save_state(state: Dictionary) -> bool:
+	if state.is_empty():
+		return false
+	faction_id = int(state.get("faction_id", faction_id))
+	global_position = state.get("position", global_position) as Vector3
+	global_rotation = state.get("rotation", global_rotation) as Vector3
+	aircraft_max = maxi(int(state.get("aircraft_max", aircraft_max)), 0)
+	aircraft_reserve = clampi(int(state.get("aircraft_reserve", aircraft_reserve)), 0, aircraft_max)
+	vehicle_max = maxi(int(state.get("vehicle_max", vehicle_max)), 0)
+	vehicle_reserve = clampi(int(state.get("vehicle_reserve", vehicle_reserve)), 0, vehicle_max)
+	aircraft_replenish_interval_s = maxf(float(state.get("aircraft_replenish_interval_s", aircraft_replenish_interval_s)), 0.1)
+	vehicle_replenish_interval_s = maxf(float(state.get("vehicle_replenish_interval_s", vehicle_replenish_interval_s)), 0.1)
+	_aircraft_replenish_timer = maxf(float(state.get("aircraft_replenish_timer", 0.0)), 0.0)
+	_vehicle_replenish_timer = maxf(float(state.get("vehicle_replenish_timer", 0.0)), 0.0)
+	_flight_counter = maxi(int(state.get("flight_counter", 0)), 0)
+	_platoon_counter = maxi(int(state.get("platoon_counter", 0)), 0)
+	return true
+
+
 ## Legacy accessor — EnemyOpsManager is now the authority on active flights.
 func get_flights() -> Array[EnemyVirtualFlight]:
 	return EnemyOpsManager._get_flights(self)

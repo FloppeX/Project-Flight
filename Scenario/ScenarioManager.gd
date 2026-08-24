@@ -255,6 +255,9 @@ func _configure_play_area_for_run() -> void:
 	var terrain := get_node_or_null(terrain_node_path) as Node3D
 	if terrain == null:
 		return
+	var saved_terrain_position := _get_pending_saved_terrain_position()
+	if saved_terrain_position != Vector3.INF:
+		terrain.position = saved_terrain_position
 	var selected_map_id := _get_selected_map_id()
 	if terrain.has_method("set_map_profile"):
 		terrain.call("set_map_profile", selected_map_id)
@@ -269,7 +272,10 @@ func _configure_play_area_for_run() -> void:
 	var landing_test_requested: bool = test_scenario == LANDING_TEST_SCENARIO
 	var carrier_combat_test_requested: bool = test_scenario == CARRIER_COMBAT_TEST_SCENARIO
 	var ground_combat_test_requested: bool = test_scenario == GROUND_COMBAT_TEST_SCENARIO
-	if navigation_test_requested or airplane_test_requested:
+	var saved_center := _get_pending_saved_play_area_center()
+	if saved_center != Vector3.INF and test_scenario <= 0:
+		center = saved_center
+	elif navigation_test_requested or airplane_test_requested:
 		center.x = navigation_test_fixed_play_area_xz.x
 		center.z = navigation_test_fixed_play_area_xz.y
 	elif carrier_combat_test_requested or ground_combat_test_requested or landing_test_requested:
@@ -534,6 +540,10 @@ func _spawn_startup_wind_turbine_groups() -> void:
 	if _wind_turbines_spawned or wind_turbine_scene == null or not TerrainNavGrid.is_ready():
 		return
 	_wind_turbines_spawned = true
+	var pending_state := _get_pending_scenario_state()
+	if not pending_state.is_empty():
+		_restore_world_sites(pending_state)
+		return
 	_wind_turbine_rng.randomize()
 
 	var root := get_tree().current_scene
@@ -849,6 +859,108 @@ func _get_wind_turbine_start_avoid_position() -> Vector3:
 	if _scenario_play_area_center_valid:
 		return _scenario_play_area_center
 	return Vector3.INF
+
+
+func capture_save_state() -> Dictionary:
+	var turbines: Array[Dictionary] = []
+	var guards: Array[Dictionary] = []
+	var container := get_node_or_null("WindTurbines")
+	if container != null:
+		for child in container.get_children():
+			if child is WindTurbineProxy and child.has_method("capture_save_state"):
+				turbines.append(child.call("capture_save_state"))
+			elif child is GunEmplacement and is_instance_valid(child):
+				var guard := child as GunEmplacement
+				guards.append({
+					"position": guard.global_position,
+					"rotation": guard.global_rotation,
+					"team": guard.team,
+					"current_health": guard.current_health,
+				})
+	return {"wind_turbines": turbines, "wind_farm_guards": guards}
+
+
+func restore_save_state(state: Dictionary) -> bool:
+	if state.is_empty():
+		return false
+	var container := get_node_or_null("WindTurbines")
+	if container != null and container.get_child_count() > 0:
+		return true
+	_restore_world_sites(state)
+	return true
+
+
+func _get_pending_saved_play_area_center() -> Vector3:
+	if GameSession == null or not GameSession.has_pending_save_state():
+		return Vector3.INF
+	var campaign := GameSession.peek_pending_campaign_state()
+	var world_variant: Variant = campaign.get("world", {})
+	if not (world_variant is Dictionary):
+		return Vector3.INF
+	var center_variant: Variant = (world_variant as Dictionary).get("terrain_bake_center", Vector3.INF)
+	return center_variant as Vector3 if center_variant is Vector3 else Vector3.INF
+
+
+func _get_pending_saved_terrain_position() -> Vector3:
+	if GameSession == null or not GameSession.has_pending_save_state():
+		return Vector3.INF
+	var campaign := GameSession.peek_pending_campaign_state()
+	var world_variant: Variant = campaign.get("world", {})
+	if not (world_variant is Dictionary):
+		return Vector3.INF
+	var position_variant: Variant = (world_variant as Dictionary).get("terrain_position", Vector3.INF)
+	return position_variant as Vector3 if position_variant is Vector3 else Vector3.INF
+
+
+func _get_pending_scenario_state() -> Dictionary:
+	if GameSession == null or not GameSession.has_pending_save_state():
+		return {}
+	var campaign := GameSession.peek_pending_campaign_state()
+	var state_variant: Variant = campaign.get("scenario", {})
+	return state_variant as Dictionary if state_variant is Dictionary else {}
+
+
+func _restore_world_sites(state: Dictionary) -> void:
+	var root := get_tree().current_scene
+	if root == null:
+		return
+	var container := root.get_node_or_null("WindTurbines") as Node3D
+	if container == null:
+		container = Node3D.new()
+		container.name = "WindTurbines"
+		root.add_child(container)
+	for child in container.get_children():
+		child.queue_free()
+	var turbines_variant: Variant = state.get("wind_turbines", [])
+	if turbines_variant is Array:
+		for turbine_state_variant in turbines_variant:
+			if not (turbine_state_variant is Dictionary):
+				continue
+			var proxy := WIND_TURBINE_PROXY_SCRIPT.new() as Node3D
+			if proxy == null:
+				continue
+			proxy.set("turbine_scene", wind_turbine_scene)
+			proxy.set("activation_distance_m", wind_turbine_activation_distance_m)
+			proxy.set("deactivation_distance_m", wind_turbine_deactivation_distance_m)
+			proxy.set("check_interval_s", wind_turbine_activation_check_interval_s)
+			container.add_child(proxy)
+			proxy.call("restore_save_state", turbine_state_variant as Dictionary)
+	var guards_variant: Variant = state.get("wind_farm_guards", [])
+	if guards_variant is Array and wind_turbine_guard_emplacement_scene != null:
+		for guard_state_variant in guards_variant:
+			if not (guard_state_variant is Dictionary):
+				continue
+			var guard_state := guard_state_variant as Dictionary
+			var guard := wind_turbine_guard_emplacement_scene.instantiate() as Node3D
+			if guard == null:
+				continue
+			if "team" in guard:
+				guard.set("team", int(guard_state.get("team", wind_turbine_team)))
+			container.add_child(guard)
+			guard.global_position = guard_state.get("position", Vector3.ZERO) as Vector3
+			guard.global_rotation = guard_state.get("rotation", Vector3.ZERO) as Vector3
+			if "current_health" in guard:
+				guard.set("current_health", float(guard_state.get("current_health", guard.get("current_health"))))
 
 
 func _xz_distance(a: Vector3, b: Vector3) -> float:
