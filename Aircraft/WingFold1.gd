@@ -166,9 +166,17 @@ func _apply_fold_pose(fold_amount: float) -> void:
 func _set_broad_wing_collision_folded(is_folded_or_moving: bool) -> void:
 	# The authored WingCollider is one full-span box, so it cannot represent the
 	# stacked Z shape. Keep it out of the physics world until the wings are fully
-	# deployed; the aircraft's fuselage and landing-gear shapes remain active.
+	# deployed. Localized wing colliders supersede it in every pose.
 	if is_instance_valid(_broad_wing_collider):
-		_broad_wing_collider.disabled = is_folded_or_moving
+		_broad_wing_collider.disabled = _has_localized_wing_colliders() or is_folded_or_moving
+
+
+func _has_localized_wing_colliders() -> bool:
+	var aircraft := get_parent()
+	return (
+		aircraft.get_node_or_null("LeftWingDamageCollider") is CollisionShape3D
+		and aircraft.get_node_or_null("RightWingDamageCollider") is CollisionShape3D
+	)
 
 
 func _rotation_about_hinge(pivot: Vector3, axis: Vector3, angle: float) -> Transform3D:

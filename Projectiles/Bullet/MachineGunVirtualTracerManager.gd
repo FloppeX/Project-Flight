@@ -185,7 +185,14 @@ func _make_tracer_transform(
 	var z_axis := -travel_direction
 	var x_axis := up_hint.cross(z_axis).normalized()
 	var y_axis := z_axis.cross(x_axis).normalized()
-	var basis := Basis(x_axis, y_axis, z_axis).scaled(Vector3(width_m, width_m, length_m))
+	# Scale the already-rotated local axes explicitly. Basis.scaled() applies a
+	# non-uniform scale in parent/world axes, which made the long dimension swap
+	# with the width when firing east/west instead of north/south.
+	var basis := Basis(
+		x_axis * width_m,
+		y_axis * width_m,
+		z_axis * length_m
+	)
 	# Unit mesh base is at local Z=0, so the wide end remains at the bullet and
 	# local +Z tapers backward along -travel_direction.
 	return Transform3D(basis, position_value)

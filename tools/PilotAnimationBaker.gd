@@ -6,6 +6,7 @@ extends SceneTree
 
 const PILOT_SCENE := "res://Models/Characters/pilot/PilotCharacter.tscn"
 const OUTPUT_LIBRARY := "res://Models/Characters/pilot/animations/pilot_animation_library.tres"
+const APPROVED_RUN_ANIMATION := "res://Models/Characters/pilot/animations/approved_run_animation.tres"
 const SAMPLE_FPS := 30.0
 ## The source piloting clip bows the helmet forward by about 38 degrees, which
 ## reads as the pilot nodding off. Keep subtle attentive movement, compress the
@@ -13,6 +14,11 @@ const SAMPLE_FPS := 30.0
 const PILOTING_HEAD_NOD_SOFT_LIMIT_DEGREES := 8.0
 const PILOTING_HEAD_NOD_EXCESS_SCALE := 0.15
 const PILOTING_HEAD_NOD_HARD_LIMIT_DEGREES := 12.0
+## DownedPilot moves and turns its character root in world space. Strip the
+## source FBXs' trajectory motion so the visible mesh does not double-move or
+## snap back to its parent when a loop wraps.
+const IN_PLACE_LOCOMOTION_CLIPS := [&"walk", &"run", &"turn_left", &"turn_right"]
+const PROCEDURAL_YAW_CLIPS := [&"turn_left", &"turn_right"]
 const CLIPS := [
 	{"file": "Breathing Idle.fbx", "name": &"idle_breathing", "loop": true},
 	{"file": "Neutral Idle.fbx", "name": &"idle_neutral", "loop": true},
@@ -53,6 +59,25 @@ func _bake() -> void:
 	var library := AnimationLibrary.new()
 
 	for clip in CLIPS:
+		var clip_name := StringName(clip["name"])
+		# The running clip was already approved in motion before the general Mixamo
+		# repair. Preserve that exact bake as data: attempting to recreate it with a
+		# special-case solver twice produced visibly different, bad arm motion.
+		if clip_name == &"run":
+			var approved_run := load(APPROVED_RUN_ANIMATION) as Animation
+			if approved_run == null:
+				_fail("approved run reference did not load: %s" % APPROVED_RUN_ANIMATION)
+				return
+			var baked_run := approved_run.duplicate(true) as Animation
+			_lock_horizontal_root_motion(baked_run)
+			var run_add_error := library.add_animation(clip_name, baked_run)
+			if run_add_error != OK:
+				_fail("could not add approved run clip (error %d)" % run_add_error)
+				return
+			print("[PilotAnimationBaker] run <- approved reference length=%.2fs tracks=%d loop=true" % [
+				baked_run.length, baked_run.get_track_count(),
+			])
+			continue
 		var source_path := "res://Models/Characters/pilot/animations/%s" % String(clip["file"])
 		var source_scene := load(source_path) as PackedScene
 		if source_scene == null:
@@ -82,21 +107,22 @@ func _bake() -> void:
 		source_player.active = true
 		source_player.play(source_animation_name)
 		source_player.advance(0.0)
-		pilot.set("_retarget_parachute_pose_active", StringName(clip["name"]) == &"parachute")
+		pilot.set("_retarget_parachute_pose_active", clip_name == &"parachute")
 		var baked := _bake_clip(
 			pilot,
 			target_skeleton,
 			skeleton_from_player,
 			source_player,
+			source_skeleton,
 			source_animation.length,
 			bone_pairs,
 			bool(clip["loop"]),
-			StringName(clip["name"])
+			clip_name
 		)
 		if baked == null:
 			_fail("bake failed: %s" % source_path)
 			return
-		var add_error := library.add_animation(StringName(clip["name"]), baked)
+		var add_error := library.add_animation(clip_name, baked)
 		if add_error != OK:
 			_fail("could not add baked clip %s (error %d)" % [clip["name"], add_error])
 			return
@@ -124,6 +150,7 @@ func _bake_clip(
 		target_skeleton: Skeleton3D,
 		skeleton_from_player: NodePath,
 		source_player: AnimationPlayer,
+		source_skeleton: Skeleton3D,
 		length_s: float,
 		bone_pairs: Array,
 		looping: bool,
@@ -154,11 +181,30 @@ func _bake_clip(
 		}
 
 	var head_index := target_skeleton.find_bone("head.x")
+	var source_root_index := _find_mixamo_bone(source_skeleton, &"mixamorig_Hips")
 	var piloting_head_reference_basis := Basis.IDENTITY
+	var source_root_reference_position := Vector3.ZERO
+	var source_root_reference_basis := Basis.IDENTITY
 	var frame_count := ceili(length_s * SAMPLE_FPS) + 1
 	for frame in range(frame_count):
 		var time_s := minf(float(frame) / SAMPLE_FPS, length_s)
 		source_player.seek(time_s, true)
+		# Remove trajectory on the coherent Mixamo hierarchy before retargeting.
+		# Editing target root.x afterwards separates ARP deformation bones under
+		# c_traj from feet and controls under the root/FK chains.
+		if source_root_index >= 0 and IN_PLACE_LOCOMOTION_CLIPS.has(clip_name):
+			if frame == 0:
+				source_root_reference_position = source_skeleton.get_bone_pose_position(source_root_index)
+				source_root_reference_basis = (
+					source_skeleton.get_bone_global_pose(source_root_index).basis.orthonormalized()
+				)
+			_remove_bone_trajectory(
+				source_skeleton,
+				source_root_index,
+				source_root_reference_position,
+				source_root_reference_basis,
+				PROCEDURAL_YAW_CLIPS.has(clip_name)
+			)
 		pilot.call("_apply_retargeted_animation_frame")
 		if clip_name == &"piloting" and head_index >= 0:
 			if frame == 0:
@@ -181,6 +227,56 @@ func _bake_clip(
 				target_skeleton.get_bone_pose_rotation(target_index)
 			)
 	return baked
+
+
+func _lock_horizontal_root_motion(animation: Animation) -> void:
+	for track_index in range(animation.get_track_count()):
+		if animation.track_get_type(track_index) != Animation.TYPE_POSITION_3D:
+			continue
+		if not String(animation.track_get_path(track_index)).ends_with(":root.x"):
+			continue
+		var key_count := animation.track_get_key_count(track_index)
+		if key_count <= 0:
+			continue
+		var anchor := animation.track_get_key_value(track_index, 0) as Vector3
+		for key_index in range(key_count):
+			var value := animation.track_get_key_value(track_index, key_index) as Vector3
+			value.x = anchor.x
+			value.z = anchor.z
+			animation.track_set_key_value(track_index, key_index, value)
+
+
+func _remove_bone_trajectory(
+		skeleton: Skeleton3D,
+		root_index: int,
+		reference_position: Vector3,
+		reference_basis: Basis,
+		remove_yaw: bool
+) -> void:
+	var local_position := skeleton.get_bone_pose_position(root_index)
+	local_position.x = reference_position.x
+	local_position.z = reference_position.z
+	skeleton.set_bone_pose_position(root_index, local_position)
+	if not remove_yaw:
+		return
+	var current_global_basis := (
+		skeleton.get_bone_global_pose(root_index).basis.orthonormalized()
+	)
+	var motion_euler := (current_global_basis * reference_basis.inverse()).get_euler()
+	motion_euler.y = 0.0
+	var desired_global_basis := (
+		Basis(Quaternion.from_euler(motion_euler)) * reference_basis
+	).orthonormalized()
+	var parent_index := skeleton.get_bone_parent(root_index)
+	var desired_local_basis := desired_global_basis
+	if parent_index >= 0:
+		desired_local_basis = (
+			skeleton.get_bone_global_pose(parent_index).basis.inverse()
+			* desired_global_basis
+		).orthonormalized()
+	skeleton.set_bone_pose_rotation(
+		root_index, desired_local_basis.get_rotation_quaternion()
+	)
 
 
 func _limit_piloting_head_nod(

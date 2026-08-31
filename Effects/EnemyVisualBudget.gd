@@ -3,6 +3,9 @@ extends Node
 const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
 const VISUAL_FOCUS_HELPER = preload("res://Effects/VisualFocus.gd")
 const AircraftPresentationDormancy = preload("res://Aircraft/AircraftPresentationDormancy.gd")
+const DistantEnemyContrast = preload("res://Effects/DistantEnemyContrast.gd")
+const PRE_TREE_PRESENTATION_META: StringName = &"visual_budget_pre_tree_presentation_prepared"
+const PRE_TREE_DETACHED_COUNT_META: StringName = &"visual_budget_pre_tree_detached_nodes"
 
 enum BudgetBand { HUMAN, NEAR, MID, FAR, CULLED }
 
@@ -18,6 +21,16 @@ enum BudgetBand { HUMAN, NEAR, MID, FAR, CULLED }
 @export var ai_aircraft_detail_distance_m: float = 1400.0
 @export var ai_aircraft_audio_distance_m: float = 1200.0
 @export var detach_ai_presentation_subtrees: bool = true
+@export_group("Distant Enemy Contrast")
+@export var distant_enemy_contrast_enabled: bool = true
+@export_range(1, 100, 1) var max_contrast_units_per_update: int = 24
+@export_range(0.0, 10000.0, 100.0) var enemy_contrast_start_distance_m: float = 1800.0
+@export_range(100.0, 12000.0, 100.0) var enemy_contrast_full_distance_m: float = 5200.0
+@export_range(0.0, 0.3, 0.01) var enemy_max_contrast_strength: float = 0.18
+@export var enemy_sky_contrast_color: Color = Color(0.025, 0.03, 0.035, 1.0)
+@export var enemy_terrain_contrast_color: Color = Color(0.78, 0.80, 0.76, 1.0)
+@export_range(-45.0, 45.0, 0.5) var enemy_terrain_angle_deg: float = -5.0
+@export_range(-45.0, 45.0, 0.5) var enemy_sky_angle_deg: float = 1.0
 @export_group("Aircraft Physics Budget")
 @export var budget_distant_aircraft_contact_monitoring: bool = true
 @export_range(500.0, 8000.0, 100.0) var aircraft_contact_monitor_distance_m: float = 2600.0
@@ -29,8 +42,12 @@ enum BudgetBand { HUMAN, NEAR, MID, FAR, CULLED }
 var _update_timer_s: float = 0.0
 var _prune_timer_s: float = 0.0
 var _candidate_cursor: int = 0
+var _contrast_candidate_cursor: int = 0
 var _root_cache: Dictionary = {}
+var _contrast_cache: Dictionary = {}
 var _stats: Dictionary = {}
+var _pre_tree_prepared_total: int = 0
+var _pre_tree_nodes_detached_total: int = 0
 
 
 func _ready() -> void:
@@ -56,8 +73,74 @@ func _process(delta: float) -> void:
 func get_report_stats() -> Dictionary:
 	var copy := _stats.duplicate(true)
 	copy["cache_roots"] = _root_cache.size()
+	copy["contrast_cache_roots"] = _contrast_cache.size()
 	copy["enabled"] = enabled
+	copy["pre_tree_prepared_total"] = _pre_tree_prepared_total
+	copy["pre_tree_nodes_detached_total"] = _pre_tree_nodes_detached_total
 	return copy
+
+
+## Inventories an off-tree aircraft while every authored node is still present,
+## then detaches player-only presentation branches before SceneTree entry. The
+## cached dormancy session owns those exact instances until focus restores them.
+func prepare_ai_aircraft_for_tree_entry(unit: Node3D) -> Dictionary:
+	var result: Dictionary = {
+		"prepared": false,
+		"detached_nodes": 0,
+	}
+	if unit == null or not is_instance_valid(unit) or unit.is_inside_tree():
+		return result
+	if not enabled or not detach_ai_presentation_subtrees:
+		return result
+
+	var profiler_start: int = FrameProfiler.begin("EnemyVisualBudget.prepare_ai_aircraft_for_tree_entry")
+	var cache := _get_cache_for_root(unit)
+	var session = cache.get("presentation_session")
+	if session == null:
+		FrameProfiler.end("EnemyVisualBudget.prepare_ai_aircraft_for_tree_entry", profiler_start)
+		return result
+
+	var detached_nodes: int = int(session.detach())
+	var prepared: bool = session.is_detached()
+	unit.set_meta(PRE_TREE_PRESENTATION_META, prepared)
+	unit.set_meta(PRE_TREE_DETACHED_COUNT_META, detached_nodes)
+	if prepared:
+		_pre_tree_prepared_total += 1
+		_pre_tree_nodes_detached_total += detached_nodes
+	result["prepared"] = prepared
+	result["detached_nodes"] = detached_nodes
+	FrameProfiler.end("EnemyVisualBudget.prepare_ai_aircraft_for_tree_entry", profiler_start)
+	return result
+
+
+## Releases a cached aircraft immediately. Dematerialization uses discard=true
+## because detached presentation nodes are no longer children of the aircraft and
+## would otherwise wait for the periodic cache-prune pass before being freed.
+func release_aircraft_cache(unit: Node3D, discard_presentation: bool = true) -> void:
+	if unit == null or not is_instance_valid(unit):
+		return
+	var id := unit.get_instance_id()
+	var cached: Dictionary = _root_cache.get(id, {})
+	var root_ref: WeakRef = cached.get("root_ref", null) as WeakRef
+	var cached_root: Object = root_ref.get_ref() if root_ref != null else null
+	if not cached.is_empty() and cached_root == unit:
+		var session = cached.get("presentation_session")
+		if session != null:
+			if discard_presentation:
+				session.discard_detached()
+			else:
+				session.dispose()
+		_root_cache.erase(id)
+	var contrast_cached: Dictionary = _contrast_cache.get(id, {})
+	var contrast_root_ref: WeakRef = contrast_cached.get("root_ref", null) as WeakRef
+	var contrast_root: Object = contrast_root_ref.get_ref() if contrast_root_ref != null else null
+	if not contrast_cached.is_empty() and contrast_root == unit:
+		var contrast_session = contrast_cached.get("contrast_session")
+		if contrast_session != null:
+			contrast_session.dispose()
+		_contrast_cache.erase(id)
+	unit.remove_meta(PRE_TREE_PRESENTATION_META)
+	unit.remove_meta(PRE_TREE_DETACHED_COUNT_META)
 
 
 func ensure_aircraft_presentation_attached(unit: Node3D) -> void:
@@ -72,24 +155,26 @@ func ensure_aircraft_presentation_attached(unit: Node3D) -> void:
 func _update_visual_budget() -> void:
 	var camera := _get_active_camera()
 	var candidates := _collect_candidates()
+	var contrast_candidates := _collect_contrast_candidates()
 	_reset_stats()
 	_stats["candidate_count"] = candidates.size()
-	if candidates.is_empty():
+	_stats["contrast_candidate_count"] = contrast_candidates.size()
+	if not candidates.is_empty():
+		var update_count: int = mini(maxi(max_units_per_update, 1), candidates.size())
+		if _candidate_cursor >= candidates.size():
+			_candidate_cursor = 0
+
+		for i in range(update_count):
+			var index: int = (_candidate_cursor + i) % candidates.size()
+			var unit := candidates[index] as Node3D
+			if unit == null or not is_instance_valid(unit):
+				continue
+			_apply_budget_to_unit(unit, camera)
+
+		_candidate_cursor = (_candidate_cursor + update_count) % candidates.size()
+	else:
 		_candidate_cursor = 0
-		return
-
-	var update_count: int = mini(maxi(max_units_per_update, 1), candidates.size())
-	if _candidate_cursor >= candidates.size():
-		_candidate_cursor = 0
-
-	for i in range(update_count):
-		var index: int = (_candidate_cursor + i) % candidates.size()
-		var unit := candidates[index] as Node3D
-		if unit == null or not is_instance_valid(unit):
-			continue
-		_apply_budget_to_unit(unit, camera)
-
-	_candidate_cursor = (_candidate_cursor + update_count) % candidates.size()
+	_update_enemy_contrast(contrast_candidates, camera)
 
 
 func _collect_candidates() -> Array[Node3D]:
@@ -126,6 +211,35 @@ func _collect_candidates() -> Array[Node3D]:
 		result.append(node)
 
 	return result
+
+
+func _collect_contrast_candidates() -> Array[Node3D]:
+	var result: Array[Node3D] = []
+	var tree := get_tree()
+	if tree == null:
+		return result
+	for node_value in tree.get_nodes_in_group("enemies"):
+		var node := node_value as Node3D
+		if node == null or not is_instance_valid(node) or _is_player_controlled(node):
+			continue
+		result.append(node)
+	return result
+
+
+func _update_enemy_contrast(candidates: Array[Node3D], camera: Camera3D) -> void:
+	if candidates.is_empty():
+		_contrast_candidate_cursor = 0
+		return
+	var update_count: int = mini(maxi(max_contrast_units_per_update, 1), candidates.size())
+	if _contrast_candidate_cursor >= candidates.size():
+		_contrast_candidate_cursor = 0
+	for i in range(update_count):
+		var index: int = (_contrast_candidate_cursor + i) % candidates.size()
+		var unit := candidates[index] as Node3D
+		if unit == null or not is_instance_valid(unit):
+			continue
+		_apply_distant_enemy_contrast(unit, camera)
+	_contrast_candidate_cursor = (_contrast_candidate_cursor + update_count) % candidates.size()
 
 
 func _apply_budget_to_unit(unit: Node3D, camera: Camera3D) -> void:
@@ -250,6 +364,45 @@ func _get_cache_for_root(root: Node3D) -> Dictionary:
 		"last_seen_frame": Engine.get_process_frames(),
 	}
 	_root_cache[id] = cached
+	return cached
+
+
+func _apply_distant_enemy_contrast(unit: Node3D, camera: Camera3D) -> void:
+	var cache := _get_contrast_cache_for_root(unit)
+	var session = cache.get("contrast_session")
+	if session == null:
+		return
+	session.configure(
+		enemy_contrast_start_distance_m,
+		enemy_contrast_full_distance_m,
+		enemy_max_contrast_strength,
+		enemy_sky_contrast_color,
+		enemy_terrain_contrast_color,
+		enemy_terrain_angle_deg,
+		enemy_sky_angle_deg
+	)
+	session.set_enabled(distant_enemy_contrast_enabled)
+	session.refresh_for_camera(camera)
+	if session.is_active():
+		_stats["contrast_units_active"] = int(_stats["contrast_units_active"]) + 1
+		_stats["contrast_geometry_active"] = int(_stats["contrast_geometry_active"]) + int(session.get_eligible_geometry_count())
+
+
+func _get_contrast_cache_for_root(root: Node3D) -> Dictionary:
+	var id := root.get_instance_id()
+	var cached: Dictionary = _contrast_cache.get(id, {})
+	var root_ref: WeakRef = cached.get("root_ref", null) as WeakRef
+	var cached_root: Object = root_ref.get_ref() if root_ref != null else null
+	if not cached.is_empty() and cached_root == root:
+		cached["last_seen_frame"] = Engine.get_process_frames()
+		_contrast_cache[id] = cached
+		return cached
+	cached = {
+		"root_ref": weakref(root),
+		"contrast_session": DistantEnemyContrast.new(root),
+		"last_seen_frame": Engine.get_process_frames(),
+	}
+	_contrast_cache[id] = cached
 	return cached
 
 
@@ -453,7 +606,7 @@ func _restore_node_state(node: Node) -> void:
 
 
 func _is_budget_effect_node(node: Node) -> bool:
-	return node is DustEffect or node is RotorWashEffect
+	return node is DustEffect or node is RotorWashEffect or node is WingtipVortexEffect
 
 
 func _is_player_only_aircraft_node(node: Node) -> bool:
@@ -609,11 +762,27 @@ func _prune_cache() -> void:
 	for id in stale_ids:
 		_root_cache.erase(id)
 
+	var stale_contrast_ids: Array[int] = []
+	for id in _contrast_cache.keys():
+		var cached: Dictionary = _contrast_cache[id]
+		var root_ref: WeakRef = cached.get("root_ref", null) as WeakRef
+		var root: Object = root_ref.get_ref() if root_ref != null else null
+		if root != null and is_instance_valid(root) \
+				and current_frame - int(cached.get("last_seen_frame", current_frame)) <= 600:
+			continue
+		var contrast_session = cached.get("contrast_session")
+		if contrast_session != null:
+			contrast_session.dispose()
+		stale_contrast_ids.append(int(id))
+	for id in stale_contrast_ids:
+		_contrast_cache.erase(id)
+
 
 func _reset_stats() -> void:
 	_stats = {
 		"enabled": enabled,
 		"candidate_count": 0,
+		"contrast_candidate_count": 0,
 		"units_touched": 0,
 		"air_units": 0,
 		"ground_units": 0,
@@ -626,6 +795,8 @@ func _reset_stats() -> void:
 		"shadows_disabled": 0,
 		"effect_nodes": 0,
 		"effects_disabled": 0,
+		"contrast_units_active": 0,
+		"contrast_geometry_active": 0,
 		"player_only_disabled": 0,
 		"presentation_aircraft_detached": 0,
 		"presentation_nodes_detached": 0,

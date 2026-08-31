@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://desiqcl06l7ac"
+path="res://.godot/imported/Ukrainian - Roger Cleared hot I see my line.wav-5c1fcf4c9f06b88cdb23ca0ae325804e.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/Ukrainian/Ukrainian - Roger Cleared hot I see my line.wav"
+dest_files=["res://.godot/imported/Ukrainian - Roger Cleared hot I see my line.wav-5c1fcf4c9f06b88cdb23ca0ae325804e.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

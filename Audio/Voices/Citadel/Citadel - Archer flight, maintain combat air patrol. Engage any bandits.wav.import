@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://dnrvq0t0uw1x5"
+path="res://.godot/imported/Citadel - Archer flight, maintain combat air patrol. Engage any bandits.wav-560a8fcdf9edd58bf74ef026d5a67c23.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Citadel/Citadel - Archer flight, maintain combat air patrol. Engage any bandits.wav"
+dest_files=["res://.godot/imported/Citadel - Archer flight, maintain combat air patrol. Engage any bandits.wav-560a8fcdf9edd58bf74ef026d5a67c23.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

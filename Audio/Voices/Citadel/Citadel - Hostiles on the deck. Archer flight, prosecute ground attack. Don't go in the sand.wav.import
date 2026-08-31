@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://dlcob1osvph17"
+path="res://.godot/imported/Citadel - Hostiles on the deck. Archer flight, prosecute ground attack. Don't go in the sand.wav-70869114a6e2f6932b4fc4540969a0eb.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Citadel/Citadel - Hostiles on the deck. Archer flight, prosecute ground attack. Don't go in the sand.wav"
+dest_files=["res://.godot/imported/Citadel - Hostiles on the deck. Archer flight, prosecute ground attack. Don't go in the sand.wav-70869114a6e2f6932b4fc4540969a0eb.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

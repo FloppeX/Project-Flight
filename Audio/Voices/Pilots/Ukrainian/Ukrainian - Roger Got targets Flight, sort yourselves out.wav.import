@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://cwdp38mkao8ga"
+path="res://.godot/imported/Ukrainian - Roger Got targets Flight, sort yourselves out.wav-99b8a839037f53ee0c1d1c12af2db4dc.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/Ukrainian/Ukrainian - Roger Got targets Flight, sort yourselves out.wav"
+dest_files=["res://.godot/imported/Ukrainian - Roger Got targets Flight, sort yourselves out.wav-99b8a839037f53ee0c1d1c12af2db4dc.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

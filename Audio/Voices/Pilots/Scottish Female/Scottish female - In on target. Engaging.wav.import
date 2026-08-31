@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://csx0efnf3y4pa"
+path="res://.godot/imported/Scottish female - In on target. Engaging.wav-ff12c4b506e20430a6a8fc0450c41556.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/Scottish Female/Scottish female - In on target. Engaging.wav"
+dest_files=["res://.godot/imported/Scottish female - In on target. Engaging.wav-ff12c4b506e20430a6a8fc0450c41556.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

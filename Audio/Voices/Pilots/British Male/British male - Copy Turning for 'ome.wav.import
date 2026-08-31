@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://p24e5ovk63c0"
+path="res://.godot/imported/British male - Copy Turning for 'ome.wav-90a8ee00c836d28459db6c7ca3a01e38.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/British Male/British male - Copy Turning for 'ome.wav"
+dest_files=["res://.godot/imported/British male - Copy Turning for 'ome.wav-90a8ee00c836d28459db6c7ca3a01e38.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

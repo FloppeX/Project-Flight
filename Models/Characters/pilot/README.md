@@ -46,10 +46,10 @@ C:\Godot\Godot_v4.6.2-stable_win64_console.exe --headless --path . --audio-drive
 
 The baker chooses the imported take that contains actual movement. Some Mixamo
 FBXs also contain a longer static `Take 001`, which must not be selected merely
-because it is longer. Arms are solved through the fixed-length
-`c_shoulder -> arm -> forearm -> hand` control chains, using the approved
-running clip as the visual reference; Mixamo joint translations are not copied
-into the differently proportioned ARP limbs. Those solved transforms then drive
+because it is longer. Except for the separately preserved `run`, arms are solved
+through the fixed-length `c_shoulder -> arm -> forearm -> hand` control chains;
+Mixamo joint translations are not copied into the differently proportioned ARP
+limbs. Those solved transforms then drive
 the separate `shoulder`, `arm_stretch`, `forearm_stretch`, and `forearm_twist`
 bones that actually deform the sleeves. Hand rotation is transferred
 separately.
@@ -61,6 +61,45 @@ The baker also corrects only the `piloting` clip's excessive forward head nod:
 motion above 8 degrees is compressed and capped at 12 degrees. Keep this in the
 baker rather than hand-editing the generated head track so future rebuilds
 retain the correction.
+`walk`, `run`, `turn_left`, and `turn_right` are baked in place. DownedPilot
+moves and rotates the character root itself, avoiding doubled travel and the
+visible snap that imported Mixamo root motion would cause when a loop wraps.
+The general retargeter solves both arms and legs as fixed-length joint chains.
+ARP's calf deformation bones and FK feet belong to separate hierarchy branches,
+so feet are explicitly anchored to the solved ankles instead of receiving an
+independent Mixamo translation. Hands and feet take their direction and roll
+from their terminal source segments rather than copying incompatible global
+Mixamo rotations. `run` is a deliberate exception: its complete, previously
+approved bake is stored in `animations/approved_run_animation.tres`. The baker
+copies that reference unchanged except for removing horizontal root travel. It
+does not attempt to recreate the pose with a special retarget solver; that
+approach produced visibly different arm and hand motion. The reference was
+recovered from the pre-retarget-change library in commit `ab7633b`. `piloting`
+remains the approved seated reference.
+
+`PilotAnimationLibrarySmoketest.gd` checks the hierarchical arm chain and the
+visible knee/ankle chain at multiple samples. It compares every key of `run`
+against the approved reference, because generic anatomical limits did not catch
+the visually broken rebake. `PilotArmMotionPreview.gd` renders at a three-quarter
+angle because a front view can hide depth-axis stretching.
+
+## Gameplay animation states
+
+- Cockpit: looping `piloting`.
+- Seat separation and canopy descent: looping `parachute`, started at physical
+  seat release and not restarted when the canopy opens.
+- Ground movement: `walk` below 4.6 m/s and `run` at or above it.
+- Large heading changes while stationary: `turn_left` or `turn_right`; movement
+  resumes with the normal walk/run clip once aligned.
+- Waiting for rescue: `idle_breathing`.
+- Friendly helicopter within 1 km: turn to face it, wave once when noticed, and
+  repeat `wave` about every 10 seconds while it remains nearby.
+
+The carrier-deck animation reviewer keeps its outer node at one fixed position.
+It supplies the same 90-degree visible-root rotation that gameplay supplies for
+the turn clips, preserves authored looping versus one-shot playback, and retains
+the death clip's internal forward root travel so the fall does not stretch in
+place or snap-repeat.
 
 `parachute` is the established exception: it retains the arm-routing behavior
 used by the pose tuner and bakes the saved `parachute_pose_settings.tres`

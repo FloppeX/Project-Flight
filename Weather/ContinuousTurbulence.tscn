@@ -1,7 +1,7 @@
 [gd_scene load_steps=3 format=3 uid="uid://c2s8c25rpg1df"]
 
 [ext_resource type="Script" uid="uid://dii6fjpt1sxl1" path="res://Weather/ContinuousTurbulence.gd" id="1_yrho2"]
-[ext_resource type="AudioStream" uid="uid://fw6styeqfphy" path="res://Audio/wind_sound_cockpit.wav" id="2_uuof8"]
+[ext_resource type="AudioStream" uid="uid://fw6styeqfphy" path="res://Audio/cockpit/wind_sound_cockpit.wav" id="2_uuof8"]
 
 [node name="ContinuousTurbulence" type="Node3D"]
 script = ExtResource("1_yrho2")

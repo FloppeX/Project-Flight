@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://c10mxy2ux8ien"
+path="res://.godot/imported/Citadel - Bulldog flight, execute ground attack. Cleared hot on enemy armor.wav-aa3e9147012a420bf3228178d6261bca.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Citadel/Citadel - Bulldog flight, execute ground attack. Cleared hot on enemy armor.wav"
+dest_files=["res://.godot/imported/Citadel - Bulldog flight, execute ground attack. Cleared hot on enemy armor.wav-aa3e9147012a420bf3228178d6261bca.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://mn3iphvnb8jq"
+path="res://.godot/imported/Citadel - Ground targets clear. Dingo flight, return to CAP.wav-9173f6f737bb17c03185a399513cfdfd.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Citadel/Citadel - Ground targets clear. Dingo flight, return to CAP.wav"
+dest_files=["res://.godot/imported/Citadel - Ground targets clear. Dingo flight, return to CAP.wav-9173f6f737bb17c03185a399513cfdfd.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://ckuary8ipqba3"
+path="res://.godot/imported/Scottish female - Got him. Blyad, good kill.wav-966b92c2fdb51ed96e90495873e747fb.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/Scottish Female/Scottish female - Got him. Blyad, good kill.wav"
+dest_files=["res://.godot/imported/Scottish female - Got him. Blyad, good kill.wav-966b92c2fdb51ed96e90495873e747fb.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

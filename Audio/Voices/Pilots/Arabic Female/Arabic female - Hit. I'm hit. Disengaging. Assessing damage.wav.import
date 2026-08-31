@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://8odvnasool1p"
+path="res://.godot/imported/Arabic female - Hit. I'm hit. Disengaging. Assessing damage.wav-e0668fe909c66f502948ded89993f2e0.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/Arabic Female/Arabic female - Hit. I'm hit. Disengaging. Assessing damage.wav"
+dest_files=["res://.godot/imported/Arabic female - Hit. I'm hit. Disengaging. Assessing damage.wav-e0668fe909c66f502948ded89993f2e0.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

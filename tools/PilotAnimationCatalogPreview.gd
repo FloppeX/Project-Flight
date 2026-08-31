@@ -81,6 +81,7 @@ func _render() -> void:
 			return
 		player.seek(animation.length * float(clip["sample"]), true)
 		player.advance(0.0)
+		pilot.call("_apply_seated_pose_corrections", clip["name"])
 		player.pause()
 		_add_ground_pad(world, Vector3(x, y, 0.0))
 

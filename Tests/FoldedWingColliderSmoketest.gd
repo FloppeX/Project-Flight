@@ -3,6 +3,7 @@ extends Node3D
 const AIRCRAFT_1_SCENE: PackedScene = preload("res://Aircraft/Aircraft_1.tscn")
 const AIRCRAFT_2_SCENE: PackedScene = preload("res://Aircraft/Aircraft_2.tscn")
 const AIRCRAFT_5_SCENE: PackedScene = preload("res://Aircraft/Aircraft_5.tscn")
+const AIRCRAFT_14_SCENE: PackedScene = preload("res://Aircraft/Aircraft_14.tscn")
 
 var _failures: PackedStringArray = []
 
@@ -15,6 +16,7 @@ func _run() -> void:
 	await _check_aircraft(AIRCRAFT_1_SCENE, NodePath("WingFold"), "Aircraft 1")
 	await _check_aircraft(AIRCRAFT_2_SCENE, NodePath("WingFold"), "Aircraft 2")
 	await _check_aircraft(AIRCRAFT_5_SCENE, NodePath("WingFold5"), "Aircraft 5")
+	await _check_aircraft(AIRCRAFT_14_SCENE, NodePath("WingFold"), "Aircraft 14")
 	_finish()
 
 
@@ -29,6 +31,9 @@ func _check_aircraft(scene: PackedScene, controller_path: NodePath, label: Strin
 
 	var controller := aircraft.get_node_or_null(controller_path)
 	var broad_wing_collider := aircraft.get_node_or_null("WingCollider") as CollisionShape3D
+	var left_panel_collider := aircraft.get_node_or_null("LeftWingDamageCollider") as CollisionShape3D
+	var right_panel_collider := aircraft.get_node_or_null("RightWingDamageCollider") as CollisionShape3D
+	var has_precise_fold_colliders := left_panel_collider != null and right_panel_collider != null
 	_expect(controller != null, "%s has no wing-fold controller" % label)
 	_expect(broad_wing_collider != null, "%s has no broad wing collider" % label)
 	if controller == null or broad_wing_collider == null:
@@ -38,13 +43,24 @@ func _check_aircraft(scene: PackedScene, controller_path: NodePath, label: Strin
 
 	controller.set_process(false)
 	controller.call("set_technical_index_preview_fraction", 0.0)
-	_expect(not broad_wing_collider.disabled, "%s collider is disabled while unfolded" % label)
+	if has_precise_fold_colliders:
+		_expect(broad_wing_collider.disabled, "%s obsolete broad collider is active while unfolded" % label)
+		_expect(not left_panel_collider.disabled and not right_panel_collider.disabled, "%s panel colliders are disabled while unfolded" % label)
+	else:
+		_expect(not broad_wing_collider.disabled, "%s collider is disabled while unfolded" % label)
 	controller.call("set_technical_index_preview_fraction", 0.25)
-	_expect(broad_wing_collider.disabled, "%s collider remains active during folding" % label)
+	_expect(broad_wing_collider.disabled, "%s broad collider remains active during folding" % label)
+	if has_precise_fold_colliders:
+		_expect(not left_panel_collider.disabled and not right_panel_collider.disabled, "%s panel colliders disabled during folding" % label)
 	controller.call("set_technical_index_preview_fraction", 1.0)
-	_expect(broad_wing_collider.disabled, "%s collider remains active while folded" % label)
+	_expect(broad_wing_collider.disabled, "%s broad collider remains active while folded" % label)
+	if has_precise_fold_colliders:
+		_expect(not left_panel_collider.disabled and not right_panel_collider.disabled, "%s panel colliders disabled while folded" % label)
 	controller.call("set_technical_index_preview_fraction", 0.0)
-	_expect(not broad_wing_collider.disabled, "%s collider did not return after unfolding" % label)
+	if has_precise_fold_colliders:
+		_expect(broad_wing_collider.disabled, "%s obsolete broad collider became active after unfolding" % label)
+	else:
+		_expect(not broad_wing_collider.disabled, "%s collider did not return after unfolding" % label)
 
 	aircraft.free()
 	await get_tree().process_frame

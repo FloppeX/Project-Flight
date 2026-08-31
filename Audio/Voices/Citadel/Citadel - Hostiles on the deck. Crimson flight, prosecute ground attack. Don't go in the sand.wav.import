@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://dd42cf8ib2a3u"
+path="res://.godot/imported/Citadel - Hostiles on the deck. Crimson flight, prosecute ground attack. Don't go in the sand.wav-46996121be73f7184728530947a2a98f.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Citadel/Citadel - Hostiles on the deck. Crimson flight, prosecute ground attack. Don't go in the sand.wav"
+dest_files=["res://.godot/imported/Citadel - Hostiles on the deck. Crimson flight, prosecute ground attack. Don't go in the sand.wav-46996121be73f7184728530947a2a98f.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

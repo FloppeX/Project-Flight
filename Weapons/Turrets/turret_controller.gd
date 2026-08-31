@@ -877,9 +877,21 @@ func _solve_intercept_time_no_gravity(relative_pos: Vector3, relative_vel: Vecto
 
 func _get_active_camera(delta: float) -> Camera3D:
     _camera_cache_timer = maxf(_camera_cache_timer - delta, 0.0)
-    if _cached_camera and is_instance_valid(_cached_camera) and _camera_cache_timer > 0.0:
+    if not is_inside_tree():
+        _cached_camera = null
+        _camera_cache_timer = 0.0
+        return null
+    if _cached_camera and is_instance_valid(_cached_camera) \
+            and _cached_camera.is_inside_tree() and _cached_camera.get_world_3d() != null \
+            and _camera_cache_timer > 0.0:
         return _cached_camera
-    _cached_camera = get_viewport().get_camera_3d()
+    var viewport := get_viewport()
+    _cached_camera = viewport.get_camera_3d() if viewport != null else null
+    if _cached_camera != null and (
+            not is_instance_valid(_cached_camera) \
+            or not _cached_camera.is_inside_tree() \
+            or _cached_camera.get_world_3d() == null):
+        _cached_camera = null
     _camera_cache_timer = 0.25
     return _cached_camera
 
@@ -907,12 +919,24 @@ func _update_targeting_detail_cache(delta: float) -> void:
 
 func _refresh_targeting_detail_cache(delta: float) -> void:
     var focus_node: Node3D = host_actor if host_actor and is_instance_valid(host_actor) else self
+    if not is_inside_tree() or focus_node == null or not is_instance_valid(focus_node) \
+            or not focus_node.is_inside_tree():
+        _cached_camera = null
+        _cached_targeting_camera_visible = false
+        _cached_detailed_targeting = false
+        return
     if VISUAL_FOCUS_HELPER.is_node_in_target_camera_focus(self, focus_node):
         _cached_targeting_camera_visible = true
         _cached_detailed_targeting = true
         return
     var camera := _get_active_camera(delta)
-    if camera == null or not is_instance_valid(camera):
+    if camera == null or not is_instance_valid(camera) or not camera.is_inside_tree():
+        _cached_targeting_camera_visible = false
+        _cached_detailed_targeting = false
+        return
+    var focus_world: World3D = focus_node.get_world_3d()
+    var camera_world: World3D = camera.get_world_3d()
+    if focus_world == null or camera_world == null or focus_world != camera_world:
         _cached_targeting_camera_visible = false
         _cached_detailed_targeting = false
         return
@@ -930,9 +954,15 @@ func _refresh_targeting_detail_cache(delta: float) -> void:
 
 func _get_legacy_distance_interval(delta: float, near_interval: float, far_interval: float) -> float:
     var camera := _get_active_camera(delta)
-    if camera == null or not is_instance_valid(camera):
+    if camera == null or not is_instance_valid(camera) or not camera.is_inside_tree():
         return far_interval
     var focus_node: Node3D = host_actor if host_actor and is_instance_valid(host_actor) else self
+    if focus_node == null or not is_instance_valid(focus_node) or not focus_node.is_inside_tree():
+        return far_interval
+    var focus_world: World3D = focus_node.get_world_3d()
+    var camera_world: World3D = camera.get_world_3d()
+    if focus_world == null or camera_world == null or focus_world != camera_world:
+        return far_interval
     if focus_node.global_position.distance_squared_to(camera.global_position) <= detailed_targeting_distance_m * detailed_targeting_distance_m:
         return near_interval
     return far_interval

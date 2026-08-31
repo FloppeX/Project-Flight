@@ -144,6 +144,11 @@ func _open_perf_log() -> void:
 		"enemy_count",
 		"ground_vehicle_count",
 		"ground_platoon_count",
+		"pilot_pool_created",
+		"pilot_pool_available",
+		"pilot_pool_checked_out",
+		"pilot_pool_overflow_created_total",
+		"pilot_pool_acquire_max_ms",
 	]))
 	_perf_file.flush()
 	print("[PerfLog] Writing %s" % ProjectSettings.globalize_path(_perf_log_path))
@@ -207,6 +212,7 @@ func _write_perf_sample() -> void:
 	var enemy_count: int = get_tree().get_nodes_in_group("enemies").size()
 	var ground_vehicle_count: int = get_tree().get_nodes_in_group("ground_vehicles").size()
 	var ground_platoon_count: int = get_tree().get_nodes_in_group("ground_vehicle_platoons").size()
+	var pilot_pool_counts: Dictionary = _collect_cockpit_pilot_pool_counts()
 
 	var values: Array[String] = [
 		"%.3f" % _perf_elapsed_s,
@@ -244,6 +250,11 @@ func _write_perf_sample() -> void:
 		str(enemy_count),
 		str(ground_vehicle_count),
 		str(ground_platoon_count),
+		str(int(pilot_pool_counts["created"])),
+		str(int(pilot_pool_counts["available"])),
+		str(int(pilot_pool_counts["checked_out"])),
+		str(int(pilot_pool_counts["overflow_created_total"])),
+		"%.3f" % float(pilot_pool_counts["acquire_max_ms"]),
 	]
 	_perf_file.store_line(",".join(values))
 
@@ -262,6 +273,7 @@ func _write_performance_report_sample() -> void:
 	var enemy_ops_counts: Dictionary = _collect_enemy_ops_counts()
 	var render_breakdown: Dictionary = _collect_render_breakdown(camera)
 	var visual_budget_counts: Dictionary = _collect_enemy_visual_budget_counts()
+	var pilot_pool_counts: Dictionary = _collect_cockpit_pilot_pool_counts()
 	var static_presence_counts: Dictionary = _collect_static_presence_counts()
 	var carrier_visual_budget_counts: Dictionary = _collect_carrier_visual_budget_counts()
 	var profiler_rows: Array[Dictionary] = FrameProfiler.consume_report_rows(PERFORMANCE_REPORT_TOP_COUNT)
@@ -343,7 +355,7 @@ func _write_performance_report_sample() -> void:
 		int(enemy_ops_counts["flight_schedules"]),
 		int(enemy_ops_counts["platoon_schedules"]),
 	])
-	_report_file.store_line("  enemy_visual_budget enabled=%d candidates=%d touched=%d air=%d ground=%d human=%d near=%d mid=%d far=%d culled=%d shadow_nodes=%d shadows_disabled=%d effect_nodes=%d effects_disabled=%d player_only_disabled=%d presentation_aircraft_detached=%d presentation_nodes_detached=%d contact_monitors_disabled=%d ai_detail_nodes=%d ai_detail_disabled=%d ai_audio_nodes=%d ai_audio_disabled=%d ai_engine_visual_disabled=%d ai_engine_audio_disabled=%d cache_roots=%d" % [
+	_report_file.store_line("  enemy_visual_budget enabled=%d candidates=%d touched=%d air=%d ground=%d human=%d near=%d mid=%d far=%d culled=%d shadow_nodes=%d shadows_disabled=%d effect_nodes=%d effects_disabled=%d player_only_disabled=%d presentation_aircraft_detached=%d presentation_nodes_detached=%d pre_tree_prepared_total=%d pre_tree_nodes_detached_total=%d contact_monitors_disabled=%d ai_detail_nodes=%d ai_detail_disabled=%d ai_audio_nodes=%d ai_audio_disabled=%d ai_engine_visual_disabled=%d ai_engine_audio_disabled=%d cache_roots=%d" % [
 		1 if bool(visual_budget_counts["enabled"]) else 0,
 		int(visual_budget_counts["candidate_count"]),
 		int(visual_budget_counts["units_touched"]),
@@ -361,6 +373,8 @@ func _write_performance_report_sample() -> void:
 		int(visual_budget_counts["player_only_disabled"]),
 		int(visual_budget_counts["presentation_aircraft_detached"]),
 		int(visual_budget_counts["presentation_nodes_detached"]),
+		int(visual_budget_counts["pre_tree_prepared_total"]),
+		int(visual_budget_counts["pre_tree_nodes_detached_total"]),
 		int(visual_budget_counts["aircraft_contact_monitors_disabled"]),
 		int(visual_budget_counts["ai_detail_nodes"]),
 		int(visual_budget_counts["ai_detail_disabled"]),
@@ -369,6 +383,22 @@ func _write_performance_report_sample() -> void:
 		int(visual_budget_counts["ai_engine_visual_disabled"]),
 		int(visual_budget_counts["ai_engine_audio_disabled"]),
 		int(visual_budget_counts["cache_roots"]),
+	])
+	_report_file.store_line("  cockpit_pilot_pool reserve=%d created=%d available=%d checked_out=%d peak_checked_out=%d acquire_count=%d release_count=%d overflow_created_total=%d failed_acquire_total=%d acquire_total_ms=%.3f acquire_max_ms=%.3f animation_prepare_count=%d animation_prepare_total_ms=%.3f animation_prepare_max_ms=%.3f" % [
+		int(pilot_pool_counts["reserve_size"]),
+		int(pilot_pool_counts["created"]),
+		int(pilot_pool_counts["available"]),
+		int(pilot_pool_counts["checked_out"]),
+		int(pilot_pool_counts["peak_checked_out"]),
+		int(pilot_pool_counts["acquire_count"]),
+		int(pilot_pool_counts["release_count"]),
+		int(pilot_pool_counts["overflow_created_total"]),
+		int(pilot_pool_counts["failed_acquire_total"]),
+		float(pilot_pool_counts["acquire_total_ms"]),
+		float(pilot_pool_counts["acquire_max_ms"]),
+		int(pilot_pool_counts["animation_prepare_count"]),
+		float(pilot_pool_counts["animation_prepare_total_ms"]),
+		float(pilot_pool_counts["animation_prepare_max_ms"]),
 	])
 	_report_file.store_line("  static_presence wind_proxies=%d wind_proxy_active=%d wind_turbines=%d gun_total=%d gun_presence_active=%d gun_presence_inactive=%d gun_turret_active=%d" % [
 		int(static_presence_counts["wind_proxies"]),
@@ -555,6 +585,8 @@ func _collect_enemy_visual_budget_counts() -> Dictionary:
 		"player_only_disabled": 0,
 		"presentation_aircraft_detached": 0,
 		"presentation_nodes_detached": 0,
+		"pre_tree_prepared_total": 0,
+		"pre_tree_nodes_detached_total": 0,
 		"aircraft_contact_monitors_disabled": 0,
 		"ai_detail_nodes": 0,
 		"ai_detail_disabled": 0,
@@ -568,6 +600,36 @@ func _collect_enemy_visual_budget_counts() -> Dictionary:
 	if budget == null or not budget.has_method("get_report_stats"):
 		return result
 	var stats_variant: Variant = budget.call("get_report_stats")
+	if not (stats_variant is Dictionary):
+		return result
+	var stats: Dictionary = stats_variant
+	for key in result.keys():
+		if stats.has(key):
+			result[key] = stats[key]
+	return result
+
+
+func _collect_cockpit_pilot_pool_counts() -> Dictionary:
+	var result: Dictionary = {
+		"reserve_size": 0,
+		"created": 0,
+		"available": 0,
+		"checked_out": 0,
+		"peak_checked_out": 0,
+		"acquire_count": 0,
+		"release_count": 0,
+		"overflow_created_total": 0,
+		"failed_acquire_total": 0,
+		"acquire_total_ms": 0.0,
+		"acquire_max_ms": 0.0,
+		"animation_prepare_count": 0,
+		"animation_prepare_total_ms": 0.0,
+		"animation_prepare_max_ms": 0.0,
+	}
+	var pilot_pool: Node = get_node_or_null("/root/CockpitPilotPool")
+	if pilot_pool == null or not pilot_pool.has_method("get_pool_stats"):
+		return result
+	var stats_variant: Variant = pilot_pool.call("get_pool_stats")
 	if not (stats_variant is Dictionary):
 		return result
 	var stats: Dictionary = stats_variant

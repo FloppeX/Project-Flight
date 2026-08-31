@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://dfmnau2v4ortu"
+path="res://.godot/imported/French Canadian female - Understood. Tally. Stay sharp out there.wav-f76e22b5a0636eadcbc0e8ae4dce49a0.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/French Canadian Female/French Canadian female - Understood. Tally. Stay sharp out there.wav"
+dest_files=["res://.godot/imported/French Canadian female - Understood. Tally. Stay sharp out there.wav-f76e22b5a0636eadcbc0e8ae4dce49a0.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

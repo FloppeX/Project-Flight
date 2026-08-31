@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://drgx50y063swm"
+path="res://.godot/imported/Nigerian male - Bingo fuel. RTB. Hold my spot.wav-b5ff670d734b2bd6ae1f5c0a6da49e3d.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/Nigerian Male/Nigerian male - Bingo fuel. RTB. Hold my spot.wav"
+dest_files=["res://.godot/imported/Nigerian male - Bingo fuel. RTB. Hold my spot.wav-b5ff670d734b2bd6ae1f5c0a6da49e3d.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

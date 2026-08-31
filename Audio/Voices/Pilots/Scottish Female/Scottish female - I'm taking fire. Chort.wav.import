@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://cvtdxq7487en"
+path="res://.godot/imported/Scottish female - I'm taking fire. Chort.wav-aab7013b810a1029a722d3fc034ac027.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/Scottish Female/Scottish female - I'm taking fire. Chort.wav"
+dest_files=["res://.godot/imported/Scottish female - I'm taking fire. Chort.wav-aab7013b810a1029a722d3fc034ac027.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

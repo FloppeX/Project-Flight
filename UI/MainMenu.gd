@@ -53,6 +53,7 @@ const ROUTE_SAMPLE_STEP_M := 90.0
 const ROUTE_MAX_HEIGHT_SPAN_M := 70.0
 const MENU_CARRIER_CLEARANCE_M := 120.0
 const MENU_PATH_MAX_SLOPE_M := 12.0
+const MENU_INITIAL_TRACK_LENGTH_M := 28.0
 const OPERATOR_RAIL_WIDTH := MenuTheme.RAIL_WIDTH
 
 const UI_PRIMARY := MenuTheme.PRIMARY
@@ -81,6 +82,7 @@ var _camera: Camera3D
 var _path_follow: PathFollow3D
 var _terrain: Node3D
 var _carrier_root: Node3D
+var _startup_music: AudioStreamPlayer
 var _restored_autoloads := false
 var _autoload_overrides: Array[Dictionary] = []
 var _ui_root: Control
@@ -121,6 +123,7 @@ var _main_camera_fov_cut_pending := true
 
 func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	_startup_music = get_node_or_null("StartupMusic") as AudioStreamPlayer
 	_menu_rng.randomize()
 	_load_ship_names()
 	_load_livery_palette()
@@ -132,6 +135,31 @@ func _ready() -> void:
 		get_tree().root.size_changed.connect(_layout_ui_root)
 	_layout_ui_root()
 	_show_main_menu()
+	call_deferred("_start_music_after_carrier_is_visible")
+
+
+func _start_music_after_carrier_is_visible() -> void:
+	if not is_instance_valid(_startup_music) or not is_instance_valid(_carrier_root):
+		return
+
+	# Crossing two process boundaries from this deferred call guarantees that the
+	# menu camera and carrier have had a complete frame on screen. This also works
+	# with Godot's headless renderer, which does not emit frame_post_draw.
+	await get_tree().process_frame
+	await get_tree().process_frame
+	while is_inside_tree() and _loading_screen_is_visible():
+		await get_tree().process_frame
+
+	if is_inside_tree() \
+			and is_instance_valid(_startup_music) \
+			and is_instance_valid(_carrier_root) \
+			and not _startup_music.playing:
+		_startup_music.play()
+
+
+func _loading_screen_is_visible() -> bool:
+	var loading_screen := get_node_or_null("/root/LoadingScreen")
+	return loading_screen != null and bool(loading_screen.get("visible"))
 
 
 func _process(delta: float) -> void:
@@ -259,7 +287,7 @@ func _build_actual_menu_world() -> void:
 		route.append(pos)
 		var marker := Marker3D.new()
 		marker.name = "MenuCarrierWaypoint%d" % i
-		marker.global_position = pos
+		marker.position = pos
 		add_child(marker)
 
 	_carrier_root = MENU_CARRIER_SCENE.instantiate() as Node3D
@@ -271,9 +299,16 @@ func _build_actual_menu_world() -> void:
 	_carrier_root.set("deceleration", 1.4)
 	_carrier_root.set("turn_speed", 0.18)
 	_carrier_root.set("track_marks_enabled", true)
-	_carrier_root.global_position = route[0]
+	_carrier_root.position = route[0]
+	if route.size() >= 2:
+		var initial_direction := route[1] - route[0]
+		initial_direction.y = 0.0
+		if initial_direction.length_squared() > 1.0:
+			_carrier_root.rotation.y = atan2(initial_direction.x, initial_direction.z)
 	_strip_menu_carrier_systems(_carrier_root)
 	add_child(_carrier_root)
+	if _carrier_root.has_method("settle_after_nonphysical_placement"):
+		_carrier_root.call("settle_after_nonphysical_placement", MENU_INITIAL_TRACK_LENGTH_M)
 	_carrier_root.remove_from_group("carrier")
 	_apply_preview_livery()
 	call_deferred("_start_menu_carrier_path", route)
@@ -303,8 +338,14 @@ func _start_menu_carrier_path(route: Array[Vector3]) -> void:
 		return
 	var nav_route := _build_nav_follow_route()
 	if nav_route.size() >= 2:
-		_carrier_root.global_position = nav_route[0]
+		var settled_start := nav_route[0]
+		var precise_height := _terrain_height_at(settled_start)
+		if not is_nan(precise_height):
+			settled_start.y = precise_height + CARRIER_RIDE_HEIGHT_M
+		_carrier_root.global_position = settled_start
 		_face_carrier_toward(nav_route[1])
+		if _carrier_root.has_method("settle_after_nonphysical_placement"):
+			_carrier_root.call("settle_after_nonphysical_placement", MENU_INITIAL_TRACK_LENGTH_M)
 		route = nav_route
 	_carrier_root.set("use_waypoint_pathfinding", true)
 	_carrier_root.set("loop_waypoints", true)
@@ -509,7 +550,7 @@ func _route_segment_height_span(a: Vector3, b: Vector3, step_m: float) -> float:
 
 
 func _strip_menu_carrier_systems(carrier: Node3D) -> void:
-	for child_name in ["LandCarrierInput", "FlightDeckManager", "BridgeHologram", "StandaloneCameraSwitcher", "CommanderWalkArea", "Commander"]:
+	for child_name in ["LandCarrierInput", "FlightDeckManager", "BridgeHologram", "StandaloneCameraSwitcher", "CommanderWalkArea", "Commander", "DeckAnimationPilot"]:
 		var child := carrier.get_node_or_null(child_name)
 		if child != null:
 			carrier.remove_child(child)
@@ -1404,7 +1445,7 @@ func _quit_game() -> void:
 
 func _start_new_campaign() -> void:
 	_configure_session(_name_edit.text, _carrier_colors[_primary_index], _carrier_colors[_secondary_index], _selected_pattern_index(), _insignia_index)
-	_start_game_with_scenario(NORMAL_TEST_SCENARIO)
+	_start_game_with_scenario(NORMAL_TEST_SCENARIO, true)
 
 
 func _continue_campaign() -> void:
@@ -1414,10 +1455,10 @@ func _continue_campaign() -> void:
 		if is_instance_valid(_continue_button):
 			_continue_button.disabled = true
 		return
-	_start_game_with_scenario(NORMAL_TEST_SCENARIO)
+	_start_game_with_scenario(NORMAL_TEST_SCENARIO, true)
 
 
-func _start_game_with_scenario(scenario: int) -> void:
+func _start_game_with_scenario(scenario: int, continue_music_through_loading: bool = false) -> void:
 	var file := FileAccess.open(TEST_SCENARIO_SETTINGS_PATH, FileAccess.WRITE)
 	if file == null:
 		_message_label.text = "COULD NOT SAVE GAME MODE"
@@ -1425,11 +1466,27 @@ func _start_game_with_scenario(scenario: int) -> void:
 		return
 	file.store_string(JSON.stringify({"scenario": scenario}))
 	file.close()
-	_restore_autoloads()
 	var loading_screen: Node = get_node_or_null("/root/LoadingScreen")
+	var music_handed_off := false
+	if continue_music_through_loading:
+		music_handed_off = _handoff_startup_music_to_loading_screen(loading_screen)
+	if not music_handed_off and is_instance_valid(_startup_music):
+		_startup_music.stop()
+	_restore_autoloads()
 	if loading_screen != null and loading_screen.has_method("begin_scenario_load"):
 		loading_screen.call("begin_scenario_load")
 	get_tree().change_scene_to_file(GAME_SCENE)
+
+
+func _handoff_startup_music_to_loading_screen(loading_screen: Node) -> bool:
+	if not is_instance_valid(_startup_music) \
+			or loading_screen == null \
+			or not loading_screen.has_method("continue_music_through_next_load"):
+		return false
+	var handed_off := bool(loading_screen.call("continue_music_through_next_load", _startup_music))
+	if handed_off:
+		_startup_music = null
+	return handed_off
 
 
 func _configure_session(carrier_name: String, primary: Color, secondary: Color, pattern_index: int, insignia_index: int) -> void:

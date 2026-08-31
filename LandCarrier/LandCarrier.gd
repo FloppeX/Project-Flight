@@ -118,6 +118,8 @@ const MAX_TREAD_STEER: float = 0.4
 @export var track_mark_thickness_m: float = 0.035
 @export var track_mark_ground_offset_m: float = 0.06
 @export_range(0.0, 1.0, 0.01) var track_mark_darken_factor: float = 0.82
+@export_range(1.0, 1.5, 0.01) var track_mark_fresh_brightness: float = 1.06
+@export_range(0.01, 1.0, 0.01) var track_mark_fresh_lift_fraction: float = 0.33
 @export_range(0.0, 1.0, 0.01) var track_mark_max_luminance: float = 1.0
 @export var track_mark_fallback_color: Color = Color(0.58, 0.39, 0.21, 1.0)
 @export var track_mark_max_active: int = 240
@@ -242,6 +244,26 @@ func _mark_initial_placement_completed() -> void:
 	_track_mark_tread_states.clear()
 	_initial_placement_completed = true
 	initial_placement_completed.emit()
+
+
+func settle_after_nonphysical_placement(preseed_track_length_m: float = 0.0) -> void:
+	# Menu and safe-start placement can move the carrier without driving it. Make
+	# that handoff atomic so neither suspension smoothing nor trail sampling turns
+	# the placement into visible motion on the first rendered frames.
+	velocity = Vector3.ZERO
+	_current_planar_speed_mps = 0.0
+	_last_planar_speed_mps = 0.0
+	_current_yaw_rate_rad_s = 0.0
+	_current_steer = 0.0
+	_tread_steer = 0.0
+	_drive_target_speed_mps = 0.0
+	_drive_target_yaw_rate_rad_s = 0.0
+	_drive_command_timer_s = 0.0
+	_smoothed_desired_y = NAN
+	_clear_track_marks()
+	_update_tread_visuals(1.0, global_transform)
+	_track_mark_tread_states.clear()
+	_seed_track_marks_behind(preseed_track_length_m)
 
 
 func _get_pending_carrier_save_state() -> Dictionary:
@@ -1277,6 +1299,13 @@ func _update_track_marks(delta: float, _transform_before: Transform3D) -> void:
 	if track_treads.is_empty():
 		_track_mark_tread_states.clear()
 		return
+	if track_marks_enabled \
+			and track_mark_max_active > 0 \
+			and (_track_mark_multimesh == null or not is_instance_valid(_track_mark_root)):
+		# The normal driving path is the first consumer of track marks. Previously
+		# the pool was only created by an explicit sync (such as an origin shift),
+		# so the intro carrier had no slots and silently discarded every mark.
+		_ensure_track_mark_resources()
 
 	var active_tread_ids: Dictionary = {}
 	for tread in track_treads:
@@ -1356,6 +1385,42 @@ func _update_track_mark_lifetimes(delta: float) -> void:
 			_track_mark_entries.remove_at(i)
 	if _track_mark_multimesh_dirty:
 		_sync_track_mark_multimesh(true)
+
+
+func _clear_track_marks() -> void:
+	for entry in _track_mark_entries:
+		_release_track_mark_slot(int(entry.get("slot", -1)))
+	_track_mark_entries.clear()
+	_track_mark_tread_states.clear()
+
+
+func _seed_track_marks_behind(distance_m: float) -> void:
+	var trail_length := maxf(distance_m, 0.0)
+	if not track_marks_enabled or track_mark_max_active <= 0 or trail_length <= 0.01:
+		return
+	var track_treads := _get_track_mark_treads()
+	if track_treads.is_empty():
+		return
+	_ensure_track_mark_resources()
+	if _track_mark_multimesh == null:
+		return
+
+	var travel_forward := global_transform.basis.z
+	travel_forward.y = 0.0
+	travel_forward = travel_forward.normalized() \
+			if travel_forward.length_squared() > 0.0001 else Vector3.FORWARD
+	var spacing := _get_track_mark_spacing_m()
+	for tread in track_treads:
+		var trail_offset := spacing
+		while trail_offset <= trail_length + 0.0001:
+			var mark_transform := tread.global_transform
+			mark_transform.origin -= travel_forward * trail_offset
+			_spawn_track_mark_for_tread(mark_transform)
+			trail_offset += spacing
+		_track_mark_tread_states[tread.get_instance_id()] = {
+			"transform": tread.global_transform,
+			"distance_accum_m": 0.0,
+		}
 
 
 func _get_track_mark_treads() -> Array[Node3D]:
@@ -1479,6 +1544,8 @@ func _ensure_track_mark_resources() -> void:
 		_track_mark_material = ShaderMaterial.new()
 		_track_mark_material.shader = TRACK_MARK_FADE_SHADER
 	_track_mark_material.set_shader_parameter(&"track_time_s", _track_mark_clock_s)
+	_track_mark_material.set_shader_parameter(&"fresh_brightness", maxf(track_mark_fresh_brightness, 1.0))
+	_track_mark_material.set_shader_parameter(&"fresh_lift_fraction", clampf(track_mark_fresh_lift_fraction, 0.01, 1.0))
 	_track_mark_root.material_override = _track_mark_material
 
 	var capacity := maxi(track_mark_max_active, 0)

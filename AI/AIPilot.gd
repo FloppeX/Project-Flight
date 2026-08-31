@@ -2322,9 +2322,11 @@ func _set_external_targeting_authority(enabled: bool) -> void:
 			targeting_node.set("external_target_authority", enabled)
 	if not enabled and control_targeting != null and is_instance_valid(control_targeting):
 		# AI makes its tactical target authoritative while active. Return the
-		# legacy selector to its normal player-facing acquisition behavior.
+		# selector to manual player authority without inventing a new target.
 		if "auto_target_when_none" in control_targeting:
-			control_targeting.set("auto_target_when_none", true)
+			control_targeting.set("auto_target_when_none", false)
+		if "auto_replace_target" in control_targeting:
+			control_targeting.set("auto_replace_target", false)
 
 func _physics_process(delta: float):
 	if not aircraft or not is_instance_valid(aircraft):
@@ -2860,6 +2862,19 @@ func _landing_snap(label: String, extra: String = "") -> void:
 	if label in ["BOLTER", "WAVE-OFF", "CRASH", "DESTROYED"] and is_instance_valid(aircraft):
 		_landing_go_around_outcome = label
 		_record_landing_test_failure(label)
+	if label in ["BOLTER", "WAVE-OFF", "CRASH", "DESTROYED", "CAUGHT"] \
+			and is_instance_valid(aircraft) \
+			and (bool(aircraft.get_meta("carrier_combat_test", false)) \
+				or bool(aircraft.get_meta("landing_test_aircraft", false))):
+		var handoff_mode := "diagnostic" \
+			if bool(aircraft.get_meta("recovery_diagnostic_handoff", false)) \
+			else "strict"
+		print("[AIPilot FINAL_OUTCOME] aircraft=%s handoff=%s outcome=%s %s" % [
+			aircraft.name,
+			handoff_mode,
+			label,
+			extra,
+		])
 	if not _landing_debug_enabled() or not is_instance_valid(aircraft):
 		return
 	var pos: Vector3 = aircraft.global_position
@@ -5632,11 +5647,19 @@ func _estimate_roll_control_authority() -> float:
 	if aircraft == null or not is_instance_valid(aircraft) \
 			or simple_aero == null or not is_instance_valid(simple_aero):
 		return 0.0
+	if simple_aero.has_method("get_axis_control_authority_at_speed"):
+		return clampf(
+			float(simple_aero.call(
+				"get_axis_control_authority_at_speed",
+				aircraft.linear_velocity.length(),
+				&"roll"
+			)),
+			0.0,
+			1.0
+		)
 	# SimpleAero's control_authority is a per-physics-frame local, not a property
-	# that can be read with Object.get(). Reconstruct its speed schedule from the
-	# same exported values here. The residual stall/AoA loss can only reduce this
-	# estimate, so this remains the optimistic (maximum) acceleration appropriate
-	# for deciding how early an arc must begin rolling out.
+	# that can be read with Object.get(). Older aero implementations do not expose
+	# the per-axis envelope, so reconstruct their low-speed schedule as a fallback.
 	var effective_stall_speed_mps: float = stall_speed_mps
 	if simple_aero.has_method("get_effective_stall_speed_mps"):
 		effective_stall_speed_mps = float(simple_aero.call("get_effective_stall_speed_mps"))
@@ -5894,7 +5917,10 @@ func _recovery_transition_dynamics_are_flyable(
 		legs[leg_index] = leg
 		if bool(dynamics.get("valid", false)):
 			continue
-		if diagnostic_candidate_rank >= 0:
+		# Candidate shaping can reject dozens of variants in one planning pass.
+		# Printing every rejection through the editor remote debugger stalls the
+		# main thread, so retain this detail only for explicitly debugged pilots.
+		if diagnostic_candidate_rank >= 0 and debug_enabled:
 			print("[AIPilot ROUTE] recovery dynamics reject candidate=%d leg=%d speed=%.1f radius=%.0f bank=%.1fdeg load=%.2f available=%.2f margin=%.2f" % [
 				diagnostic_candidate_rank,
 				leg_index,
@@ -5928,7 +5954,9 @@ func _recovery_transition_arc_sweeps_are_acceptable(
 		var sweep_rad: float = maxf(float(leg.get("arc_sweep_rad", 0.0)), 0.0)
 		if sweep_rad <= maximum_sweep_rad + deg_to_rad(0.1):
 			continue
-		if diagnostic_candidate_rank >= 0:
+		# This is another candidate-loop diagnostic; keep normal play free of
+		# synchronous editor-output bursts just like the dynamics rejection above.
+		if diagnostic_candidate_rank >= 0 and debug_enabled:
 			print("[AIPilot ROUTE] recovery sweep reject candidate=%d leg=%d sweep=%.1fdeg limit=%.1fdeg" % [
 				diagnostic_candidate_rank,
 				leg_index,
@@ -11759,9 +11787,9 @@ func _state_dogfight(delta: float):
 		# kept accelerating all the way toward the target and routinely coasted a
 		# 40-degree reversal through 90+ degrees before it could apply any braking.
 		# Scale that requested rate by the same speed envelope SimpleAero uses for
-		# control authority.  Near stall the ailerons retain only about one third of
-		# their normal torque; commanding the high-speed roll rate there creates
-		# angular momentum the weakened controls cannot arrest.
+		# control authority. Near the stall the ailerons lose airflow authority; near
+		# Vne their travel is restricted. In either case, commanding the normal roll
+		# rate creates angular momentum the weakened controls cannot arrest.
 		var roll_authority_scale: float = 1.0
 		if simple_aero != null and is_instance_valid(simple_aero):
 			var effective_stall_speed_mps: float = float(simple_aero.call("get_effective_stall_speed_mps")) \
@@ -11783,6 +11811,16 @@ func _state_dogfight(delta: float):
 				1.0,
 				pow(authority_t, maxf(float(simple_aero.get("control_authority_curve")), 0.1))
 			)
+			if simple_aero.has_method("get_axis_control_authority_at_speed"):
+				roll_authority_scale = clampf(
+					float(simple_aero.call(
+						"get_axis_control_authority_at_speed",
+						speed_mps,
+						&"roll"
+					)),
+					0.05,
+					1.0
+				)
 		var max_desired_roll_rate_rad_s: float = 1.20 * roll_authority_scale
 		var desired_roll_rate_rad_s := clampf(
 			bank_error * 2.5,
@@ -15876,6 +15914,7 @@ func _handoff_recovery_to_final_or_wave_off(source: String, delta: float = 0.0) 
 		and _recovery_final_handoff_stable_s \
 			>= maxf(recovery_final_handoff_stable_time_s, 0.0)
 	if handoff_valid:
+		aircraft.set_meta("recovery_diagnostic_handoff", false)
 		print("[AIPilot RECOVERY_HANDOFF] accepted source=%s remaining=%.0f lat=%+.1f track=%.1f fpa_err=%.1f bank=%.1f speed=%.1f stable=%.2f" % [
 			source,
 			remaining_m,
@@ -15912,6 +15951,64 @@ func _handoff_recovery_to_final_or_wave_off(source: String, delta: float = 0.0) 
 	# pressing toward the deck.
 	if remaining_m > handoff_reject_remaining_m:
 		return false
+
+	var failed_gates: PackedStringArray = []
+	if not bool(assessment.get("valid", false)):
+		failed_gates.append("geometry")
+	if absf(lateral_m) > allowed_lateral_m:
+		failed_gates.append("corridor_lateral")
+	if vertical_m > allowed_vertical_high_m:
+		failed_gates.append("corridor_high")
+	elif vertical_m < -allowed_vertical_low_m:
+		failed_gates.append("corridor_low")
+	if absf(lateral_m) > handoff_lateral_limit_m:
+		failed_gates.append("handoff_lateral")
+	if track_yaw_error_deg > maxf(landing_final_settled_track_yaw_deg, 0.1):
+		failed_gates.append("track")
+	if fpa_error_deg > maxf(landing_final_capture_max_fpa_error_deg, 0.1):
+		failed_gates.append("fpa")
+	if bank_deg > maxf(landing_final_settled_bank_deg, 0.1):
+		failed_gates.append("bank")
+	if carrier_relative_speed_mps > maxf(recovery_final_handoff_max_speed_mps, 1.0):
+		failed_gates.append("speed")
+	if _recovery_final_handoff_stable_s \
+			< maxf(recovery_final_handoff_stable_time_s, 0.0):
+		failed_gates.append("stable_time")
+	var failed_gate_summary := ",".join(failed_gates) if not failed_gates.is_empty() else "unknown"
+	var diagnostic_force_final := bool(aircraft.get_meta(
+		"recovery_diagnostic_force_final_handoff",
+		false
+	))
+	if diagnostic_force_final:
+		aircraft.set_meta("recovery_diagnostic_handoff", true)
+		var diagnostic_reason := (
+			"source=%s remaining=%.0fm failed=%s cone=%.2f " \
+			+ "lat=%+.1f/%.1fm vert=%+.1fm[-%.1f,+%.1f] " \
+			+ "track=%.1fdeg fpa_err=%.1fdeg bank=%.1fdeg speed=%.1f " \
+			+ "stable=%.2fs normal_gate_passed=false"
+		) % [
+			source,
+			remaining_m,
+			failed_gate_summary,
+			ellipse_ratio,
+			lateral_m,
+			handoff_lateral_limit_m,
+			vertical_m,
+			allowed_vertical_low_m,
+			allowed_vertical_high_m,
+			track_yaw_error_deg,
+			fpa_error_deg,
+			bank_deg,
+			carrier_relative_speed_mps,
+			_recovery_final_handoff_stable_s,
+		]
+		print("[AIPilot RECOVERY_HANDOFF] diagnostic_override %s" % diagnostic_reason)
+		_landing_snap("DIAGNOSTIC-HANDOFF", diagnostic_reason)
+		_landing_debug_event("diagnostic final handoff %s" % diagnostic_reason)
+		if not start_landing():
+			_release_landing_clearance_from_deck()
+			change_state(State.RTB)
+		return true
 
 	var escape_direction := Vector3(
 		aircraft.linear_velocity.x,

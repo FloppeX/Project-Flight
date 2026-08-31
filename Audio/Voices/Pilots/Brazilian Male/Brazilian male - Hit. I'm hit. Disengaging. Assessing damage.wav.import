@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://b6mqt7u61r7ju"
+path="res://.godot/imported/Brazilian male - Hit. I'm hit. Disengaging. Assessing damage.wav-f4cff4df69171bfe93eb68b9088255ec.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/Brazilian Male/Brazilian male - Hit. I'm hit. Disengaging. Assessing damage.wav"
+dest_files=["res://.godot/imported/Brazilian male - Hit. I'm hit. Disengaging. Assessing damage.wav-f4cff4df69171bfe93eb68b9088255ec.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

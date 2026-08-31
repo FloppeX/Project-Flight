@@ -2,13 +2,21 @@ extends Node
 class_name EjectionSequence
 
 const FlightDirectorScript = preload("res://AirOps/FlightDirector.gd")
+const PilotAppearance := preload("res://Aircraft/PilotAppearance.gd")
 @export var canopy_path: NodePath
+@export var canopy_optional: bool = false
 @export var cockpit_canopy_visibility_path: NodePath
 @export var ejection_seat_path: NodePath
 @export var cockpit_pilot_path: NodePath
 @export var cockpit_camera_rig_path: NodePath
+@export_group("Automatic Ejection")
 @export var auto_start_on_critical_damage: bool = true
-@export var auto_start_on_destroyed: bool = true
+## Terminal destruction normally frees the aircraft immediately, so automatic
+## ejection is initiated from the preceding critical-damage state instead.
+@export var auto_start_on_destroyed: bool = false
+@export_range(0.0, 10.0, 0.1) var ai_ejection_delay_min_s: float = 1.0
+@export_range(0.0, 10.0, 0.1) var ai_ejection_delay_max_s: float = 4.0
+@export_group("")
 @export var canopy_upward_speed_mps: float = 28.0
 @export var canopy_rearward_speed_mps: float = 4.0
 @export var canopy_spin_rad_s: Vector3 = Vector3(3.0, 6.0, 2.0)
@@ -85,6 +93,9 @@ var _pilot_focus_node: Node3D = null
 var _pilot_audio_listener: AudioListener3D = null
 var _dpad_ejection_press_times_ms: Array[int] = []
 var _ejection_seat_available: bool = false
+var _ai_ejection_scheduled: bool = false
+var _scheduled_ai_ejection_delay_s: float = -1.0
+var _manual_ejection_required: bool = false
 
 
 func _ready() -> void:
@@ -103,11 +114,11 @@ func _connect_aircraft_signals() -> void:
 	if auto_start_on_critical_damage and aircraft.has_signal("damaged"):
 		aircraft.connect("damaged", Callable(self, "_on_aircraft_damaged"))
 	if auto_start_on_destroyed and aircraft.has_signal("destroyed"):
-		aircraft.connect("destroyed", Callable(self, "start_ejection"))
+		aircraft.connect("destroyed", Callable(self, "_on_aircraft_destroyed"))
 
 
 func start_ejection() -> void:
-	if _has_started:
+	if _has_started or _pilot_is_dead():
 		return
 	if not _ejection_seat_available and not _has_ejection_seat():
 		return
@@ -181,8 +192,71 @@ func _update_seat_rocket_burn(delta: float) -> void:
 
 
 func _on_aircraft_damaged(_damage_amount: float, current_health: float) -> void:
-	if current_health <= 0.0:
-		start_ejection()
+	if current_health > 0.0 or _has_started or _ai_ejection_scheduled or _pilot_is_dead():
+		return
+	var aircraft := get_parent()
+	if _is_player_controlling_aircraft(aircraft):
+		# The damage signal is emitted before Aircraft releases disabled player
+		# controls, so this preserves ownership at the fatal-damage boundary.
+		_manual_ejection_required = true
+		return
+	_schedule_ai_ejection()
+
+
+func _on_aircraft_destroyed() -> void:
+	if _has_started or _ai_ejection_scheduled or _pilot_is_dead():
+		return
+	var aircraft := get_parent()
+	if _manual_ejection_required or _is_player_controlling_aircraft(aircraft):
+		_manual_ejection_required = true
+		return
+	_schedule_ai_ejection()
+
+
+func _schedule_ai_ejection() -> void:
+	if _has_started or _ai_ejection_scheduled or _manual_ejection_required or _pilot_is_dead():
+		return
+	var minimum_delay := maxf(minf(ai_ejection_delay_min_s, ai_ejection_delay_max_s), 0.0)
+	var maximum_delay := maxf(maxf(ai_ejection_delay_min_s, ai_ejection_delay_max_s), minimum_delay)
+	_scheduled_ai_ejection_delay_s = randf_range(minimum_delay, maximum_delay)
+	_ai_ejection_scheduled = true
+	if _scheduled_ai_ejection_delay_s <= 0.0:
+		call_deferred("_on_ai_ejection_delay_elapsed")
+		return
+	var timer := get_tree().create_timer(_scheduled_ai_ejection_delay_s)
+	timer.timeout.connect(_on_ai_ejection_delay_elapsed)
+
+
+func _on_ai_ejection_delay_elapsed() -> void:
+	_ai_ejection_scheduled = false
+	if _manual_ejection_required or _has_started or _pilot_is_dead():
+		return
+	start_ejection()
+
+
+func disable_for_pilot_death() -> void:
+	_ai_ejection_scheduled = false
+	_manual_ejection_required = false
+	_dpad_ejection_press_times_ms.clear()
+	set_process_input(false)
+
+
+func _pilot_is_dead() -> bool:
+	var aircraft := get_parent()
+	return aircraft != null and (
+		bool(aircraft.get_meta("pilot_dead", false))
+		or bool(aircraft.get_meta("ejection_disabled", false))
+	)
+
+
+func _is_player_controlling_aircraft(aircraft: Node) -> bool:
+	if aircraft == null:
+		return false
+	var flight_director := get_node_or_null("/root/FlightDirector") as FlightDirectorScript
+	if flight_director == null:
+		return false
+	return flight_director.is_player_controlling \
+			and flight_director.player_controlled_plane == aircraft
 
 
 func _jettison_canopy() -> void:
@@ -192,7 +266,10 @@ func _jettison_canopy() -> void:
 		if aircraft_root != null:
 			canopy = aircraft_root.find_child("canopy", true, false) as Node3D
 	if canopy == null:
-		push_warning("[EjectionSequence] Canopy node not found: %s" % canopy_path)
+		if not canopy_optional:
+			push_warning("[EjectionSequence] Canopy node not found: %s" % canopy_path)
+		return
+	if bool(canopy.get_meta("damage_detached", false)):
 		return
 
 	var aircraft := get_parent() as Node3D
@@ -282,6 +359,11 @@ func _launch_ejection_seat() -> void:
 
 	var pilot := _find_aircraft_child(cockpit_pilot_path, "CockpitPilot") as Node3D
 	if pilot != null:
+		# A routine aircraft carries only a pooled-pilot mount. Check out the
+		# physical visual while the mount still belongs to the aircraft so its
+		# authored palette and cockpit placement are preserved through reparenting.
+		if pilot.has_method("ensure_pilot_visual"):
+			pilot.call("ensure_pilot_visual", false)
 		_reparent_preserve_global(pilot, seat_body)
 		_set_pilot_ejection_pose(pilot, &"seat_firing", 0.12)
 
@@ -314,8 +396,8 @@ func _launch_ejection_seat() -> void:
 				seat_body.queue_free()
 		)
 	# From this point on the seat, pilot, cameras, and timing sequence are all
-	# independent of the source aircraft. Retire that aircraft immediately so it
-	# cannot remain as a stale camera target after a manual ejection.
+	# independent of the source aircraft. Retire the airframe from camera and ops
+	# selection, but leave its physics and normal destruction lifecycle running.
 	_detach_sequence_from_aircraft()
 	_retire_source_aircraft(aircraft)
 
@@ -370,7 +452,9 @@ func _deploy_parachute() -> void:
 	_set_pilot_hanging_transform(pilot, parachute)
 	_rebase_pilot_body_to_parachute_origin(parachute)
 	_configure_parachute_mass_properties(parachute)
-	_set_pilot_ejection_pose(pilot, &"parachute", 0.3)
+	# Seat separation already starts the parachute body animation. Keep it running
+	# continuously when the canopy opens instead of visibly restarting the loop.
+	_ensure_pilot_parachute_animation(pilot)
 	_set_head_camera_mount_transform(parachute)
 	_parachute_deployed = true
 	set_physics_process(true)
@@ -427,7 +511,9 @@ func _separate_seat_from_pilot() -> void:
 
 	_seat_separated = true
 	_seat_burn_active = false
-	_set_pilot_ejection_pose(_get_ejected_pilot(), &"falling", 0.25)
+	# Switch immediately at physical seat release, including the short freefall
+	# before canopy deployment, as this is when the pilot reaches for the risers.
+	_ensure_pilot_parachute_animation(_get_ejected_pilot())
 	_schedule_parachute_deploy()
 
 
@@ -820,7 +906,9 @@ func _retire_source_aircraft(aircraft: Node3D) -> void:
 		var cable: Variant = aircraft.get_meta("arresting_cable")
 		if is_instance_valid(cable) and cable.has_method("manual_release"):
 			cable.call("manual_release")
-	aircraft.queue_free()
+	# The empty aircraft remains a live physics body. A critically damaged source
+	# continues its normal bleed/fire sequence and is removed only when it actually
+	# explodes or crashes; ejection itself must not make the airframe disappear.
 
 
 func _prepare_camera_for_ejection(camera_rig: Node3D) -> void:
@@ -873,9 +961,18 @@ func _prepare_ejected_pilot_camera_target(aircraft: Node, ejected_body: RigidBod
 	aircraft.set_meta("camera_replaced_by_ejected_pilot", true)
 	aircraft.set_meta("ejected_pilot_body", ejected_body.get_path())
 	ejected_body.set_meta("source_aircraft_name", aircraft.name)
-	for key in ["pilot_display_name", "pilot_rank", "pilot_callsign", "pilot_name"]:
+	for key in [
+		"pilot_identity", "pilot_roster_id", "pilot_display_name", "pilot_rank",
+		"pilot_callsign", "pilot_name", "pilot_full_name", "pilot_gender",
+		"pilot_national_origin"
+	]:
 		if aircraft.has_meta(key):
-			ejected_body.set_meta(key, aircraft.get_meta(key))
+			var metadata_value: Variant = aircraft.get_meta(key)
+			ejected_body.set_meta(
+				key,
+				metadata_value.duplicate(true) if metadata_value is Dictionary else metadata_value
+			)
+	PilotAppearance.copy_palette_metadata(aircraft, ejected_body)
 
 
 func _notify_flight_director_ejected_pilot_took_over(old_aircraft: RigidBody3D, ejected_body: RigidBody3D) -> void:
@@ -901,6 +998,8 @@ func _should_take_player_view(aircraft: Node) -> bool:
 func _should_accept_player_ejection_input() -> bool:
 	var aircraft := get_parent()
 	if aircraft == null:
+		return false
+	if _pilot_is_dead():
 		return false
 	if aircraft.is_in_group("enemies"):
 		return false
@@ -966,6 +1065,21 @@ func _set_pilot_ejection_pose(pilot: Node3D, pose_name: StringName, blend_time_s
 		pilot.call("set_ejection_pose", pose_name, blend_time_s)
 
 
+func _ensure_pilot_parachute_animation(pilot: Node3D) -> void:
+	if pilot == null or not is_instance_valid(pilot):
+		return
+	# Pooled pilots nest their animation player below the lightweight mount;
+	# legacy cockpit pilots may still carry it directly.
+	var player := pilot.find_child("BakedAnimationPlayer", true, false) as AnimationPlayer
+	if player != null and player.assigned_animation == &"parachute" and player.is_playing():
+		return
+	if pilot.has_method("play_baked_animation") \
+			and bool(pilot.call("play_baked_animation", &"parachute", 1.0)):
+		return
+	# Compatibility fallback for any older pilot scene without the baked library.
+	_set_pilot_ejection_pose(pilot, &"parachute", 0.0)
+
+
 func _is_terrain_body(body: Node) -> bool:
 	if body == null:
 		return false
@@ -1016,14 +1130,26 @@ func _land_pilot(surface_position: Variant = null) -> void:
 		
 	if dp != null:
 		# Copy metadata from pilot body
-		for key in ["ejected_pilot_camera_target", "player_control_locked", "non_aircraft_body", 
-					"pilot_display_name", "pilot_rank", "pilot_callsign", "pilot_name", "source_aircraft_name"]:
+		for key in [
+			"ejected_pilot_camera_target", "player_control_locked", "non_aircraft_body",
+			"pilot_identity", "pilot_roster_id", "pilot_display_name", "pilot_rank",
+			"pilot_callsign", "pilot_name", "pilot_full_name", "pilot_gender",
+			"pilot_national_origin", "source_aircraft_name"
+		]:
 			if _pilot_body.has_meta(key):
-				dp.set_meta(key, _pilot_body.get_meta(key))
+				var metadata_value: Variant = _pilot_body.get_meta(key)
+				dp.set_meta(
+					key,
+					metadata_value.duplicate(true) if metadata_value is Dictionary else metadata_value
+				)
+		PilotAppearance.copy_palette_metadata(_pilot_body, dp)
 		
 		# Put downed pilot on ground
 		dp.global_transform = Transform3D(Basis.IDENTITY, land_pos)
 		scene_root.add_child(dp)
+		var livery := get_node_or_null("/root/Livery")
+		if livery != null and livery.has_method("apply_pilot_palette_to_visual"):
+			livery.call("apply_pilot_palette_to_visual", dp, dp)
 		dp.add_to_group("ejected_pilots")
 		dp.add_to_group("downed_pilot")
 		

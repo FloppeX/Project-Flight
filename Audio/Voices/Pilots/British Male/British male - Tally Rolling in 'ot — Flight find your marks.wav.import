@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://dr03bly40s5u7"
+path="res://.godot/imported/British male - Tally Rolling in 'ot — Flight find your marks.wav-b6d3c3735c15693ddb552a08b6d4d31d.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/British Male/British male - Tally Rolling in 'ot — Flight find your marks.wav"
+dest_files=["res://.godot/imported/British male - Tally Rolling in 'ot — Flight find your marks.wav-b6d3c3735c15693ddb552a08b6d4d31d.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://ciotbue26uq6p"
+path="res://.godot/imported/German female - Roger. Cleared hot. I see my line.wav-9c1e8bb9360c2ec11bfe98a6a2dc4332.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/German Female/German female - Roger. Cleared hot. I see my line.wav"
+dest_files=["res://.godot/imported/German female - Roger. Cleared hot. I see my line.wav-9c1e8bb9360c2ec11bfe98a6a2dc4332.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

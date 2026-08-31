@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://dgcc3qro8skxt"
+path="res://.godot/imported/French Canadian female - Ground fire. Yob tvoyu mat. Taking evasive.wav-112a8bd07729b3c1d56139cc2c3eb2fe.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/French Canadian Female/French Canadian female - Ground fire. Yob tvoyu mat. Taking evasive.wav"
+dest_files=["res://.godot/imported/French Canadian female - Ground fire. Yob tvoyu mat. Taking evasive.wav-112a8bd07729b3c1d56139cc2c3eb2fe.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

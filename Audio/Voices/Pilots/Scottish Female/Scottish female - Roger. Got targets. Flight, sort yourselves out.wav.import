@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://bye5s0nn54fdl"
+path="res://.godot/imported/Scottish female - Roger. Got targets. Flight, sort yourselves out.wav-bb0745c2b9a1ec5b12f41895521f5487.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/Scottish Female/Scottish female - Roger. Got targets. Flight, sort yourselves out.wav"
+dest_files=["res://.godot/imported/Scottish female - Roger. Got targets. Flight, sort yourselves out.wav-bb0745c2b9a1ec5b12f41895521f5487.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

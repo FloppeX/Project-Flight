@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://csue702hfjl6q"
+path="res://.godot/imported/Scottish female - Lead's in on target. Committing.wav-2baceea8b9337b67406d59015dab6bbb.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/Scottish Female/Scottish female - Lead's in on target. Committing.wav"
+dest_files=["res://.godot/imported/Scottish female - Lead's in on target. Committing.wav-2baceea8b9337b67406d59015dab6bbb.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

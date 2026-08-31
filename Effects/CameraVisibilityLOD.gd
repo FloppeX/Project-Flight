@@ -13,9 +13,18 @@ static func is_node_camera_relevant(
 ) -> bool:
 	if context == null or node == null or not is_instance_valid(node):
 		return false
+	# Scene removal can leave valid Node3D references alive until queue_free is
+	# committed. Global transforms and frustum queries are invalid during that
+	# interval, so treat the node as irrelevant until both ends share a world.
+	if not context.is_inside_tree() or not node.is_inside_tree():
+		return false
 	if VISUAL_FOCUS_HELPER.is_node_in_target_camera_focus(context, node):
 		return true
-	if camera == null or not is_instance_valid(camera):
+	if camera == null or not is_instance_valid(camera) or not camera.is_inside_tree():
+		return false
+	var node_world: World3D = node.get_world_3d()
+	var camera_world: World3D = camera.get_world_3d()
+	if node_world == null or camera_world == null or node_world != camera_world:
 		return false
 
 	var center := node.global_position

@@ -1,7 +1,9 @@
 [gd_scene load_steps=2 format=3 uid="uid://ba1hsntx8a01y"]
 
-[ext_resource type="PackedScene" path="res://Models/Characters/pilot/PilotCharacter.tscn" id="1_pilot_character"]
+[ext_resource type="Script" path="res://Aircraft/CockpitPilotMount.gd" id="1_mount"]
 
-[node name="CockpitPilot" instance=ExtResource("1_pilot_character")]
+[node name="CockpitPilot" type="Node3D"]
+script = ExtResource("1_mount")
 initial_baked_animation = &"piloting"
+defer_initial_baked_animation_until_presented = true
 editor_preview_animation_time_s = 1.5

@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://dspo0p80r5hlr"
+path="res://.godot/imported/stall buffet sound.wav-d7e0b20ff7299d939383912853b971ec.sample"
+
+[deps]
+
+source_file="res://Audio/cockpit/stall buffet sound.wav"
+dest_files=["res://.godot/imported/stall buffet sound.wav-d7e0b20ff7299d939383912853b971ec.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=2
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

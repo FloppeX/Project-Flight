@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://byo7ug1gce5ee"
+path="res://.godot/imported/British male - Wilco Flight — weapons free Call your targets.wav-8b5d5419b90fb2fb81c74a197308fee1.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/British Male/British male - Wilco Flight — weapons free Call your targets.wav"
+dest_files=["res://.godot/imported/British male - Wilco Flight — weapons free Call your targets.wav-8b5d5419b90fb2fb81c74a197308fee1.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://b0sofmmosf0tj"
+path="res://.godot/imported/Citadel - Crimson flight, scramble for CAS. Cleared hot after departure.wav-2ab66aaee7d255af84e80a87ba92d34a.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Citadel/Citadel - Crimson flight, scramble for CAS. Cleared hot after departure.wav"
+dest_files=["res://.godot/imported/Citadel - Crimson flight, scramble for CAS. Cleared hot after departure.wav-2ab66aaee7d255af84e80a87ba92d34a.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://d38jehbqtvcsd"
+path="res://.godot/imported/Citadel - Area clear. Dingo flight, resume patrol.wav-2483079866085e6cadf5a67f912746da.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Citadel/Citadel - Area clear. Dingo flight, resume patrol.wav"
+dest_files=["res://.godot/imported/Citadel - Area clear. Dingo flight, resume patrol.wav-2483079866085e6cadf5a67f912746da.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

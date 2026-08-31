@@ -27,8 +27,9 @@
 [ext_resource type="PackedScene" uid="uid://b4xm8v23opqrs" path="res://HUD/InstrumentPanel.tscn" id="26_panel"]
 [ext_resource type="Script" uid="uid://ov07c02ulmhl" path="res://Aircraft/AIToggle.gd" id="27_ai_toggle"]
 [ext_resource type="Script" uid="uid://bwjigrpitv7cm" path="res://AI/AIPilot.gd" id="28_ai_pilot"]
+[ext_resource type="Script" uid="uid://ckyxqpwu5tkkl" path="res://Aircraft/CockpitCanopyVisibility.gd" id="29_canopy"]
 [ext_resource type="Script" uid="uid://dkrq0ip0i4pq4" path="res://Aircraft/DamageEffects.gd" id="30_damage"]
-[ext_resource type="AudioStream" uid="uid://o2xkkc5oyh4w" path="res://Audio/cockpit_interior_4.wav" id="31_cockpit"]
+[ext_resource type="AudioStream" uid="uid://o2xkkc5oyh4w" path="res://Audio/cockpit/cockpit_interior_4.wav" id="31_cockpit"]
 [ext_resource type="PackedScene" uid="uid://ba1hsntx8a01y" path="res://Aircraft/CockpitPilot.tscn" id="32_cockpit_pilot"]
 [ext_resource type="PackedScene" uid="uid://d0r3ka52tjbb4" path="res://Models/Aircraft_9/Rotor blade.glb" id="33_rotor_blade"]
 [ext_resource type="PackedScene" uid="uid://8a1uo1i0xu5n" path="res://Models/Aircraft_9/tail rotor.glb" id="35_tail_propeller"]
@@ -36,7 +37,9 @@
 [ext_resource type="PackedScene" uid="uid://cn0n757m62w08" path="res://Weapons/RocketPod/rocket_pod.tscn" id="41_rocket"]
 [ext_resource type="PackedScene" path="res://Weapons/Guns/Hardpoint/15mm_machine_gun_hardpoint.tscn" id="42_15mm"]
 [ext_resource type="Script" uid="uid://ljqeb30m632d" path="res://AI/HelicopterPilot.gd" id="43_heli_ai"]
-[ext_resource type="AudioStream" uid="uid://wdbe4uteu61h" path="res://Audio/helicopter_rotor_1.ogg" id="44_rotor_audio"]
+[ext_resource type="AudioStream" uid="uid://hc5s8h1mbj2t" path="res://Audio/engine/helicopter/Helicopter3SlowExt.wav" id="101_rotor_slow"]
+[ext_resource type="AudioStream" uid="uid://b8qaayg6jjf6u" path="res://Audio/engine/helicopter/Helicopter3MedExt.wav" id="102_rotor_medium"]
+[ext_resource type="AudioStream" uid="uid://b63dtvvrs03bl" path="res://Audio/engine/helicopter/Helicopter3FastExt.wav" id="103_rotor_fast"]
 [ext_resource type="PackedScene" path="res://Aircraft/Visuals/InsigniaMarker.tscn" id="45_insignia"]
 
 [sub_resource type="PhysicsMaterial" id="PhysicsMaterial_lowfriction"]
@@ -90,6 +93,9 @@ shape = SubResource("BoxShape3D_idarv")
 transform = Transform3D(0.9, 0, 0, 0, 0.9, 0, 0, 0, 0.9, 0, -0.5471029, 0)
 script = ExtResource("6_rotor_script")
 upper_blade_yaws_deg = PackedFloat32Array(0, 72, 144, -144, -72)
+rotor_audio_slow_stream = ExtResource("101_rotor_slow")
+rotor_audio_medium_stream = ExtResource("102_rotor_medium")
+rotor_audio_fast_stream = ExtResource("103_rotor_fast")
 
 [node name="rotor disc2" parent="RotorAssembly" unique_id=1135955000 instance=ExtResource("6_dt0rw")]
 transform = Transform3D(0.72, 0, 0, 0, 0.72, 0, 0, 0, 0.72, 0, 2.2864976, 0.015043683)
@@ -164,15 +170,12 @@ deck_takeoff_brake_release_collective = 0.72
 [node name="Engine" parent="." unique_id=1819551411 instance=ExtResource("8_engine")]
 PowerFactor = 0.0
 propeller_node = NodePath("../TailRotor")
-EngineSoundLoop = ExtResource("44_rotor_audio")
+EngineSoundLoop = null
+EngineSoundStart = null
 GovernPropellerVisualSpeed = true
 FuelRate = 0.006
 ThrottleSpoolUpRate = 0.48
 ThrottleSpoolDownRate = 0.82
-EngineLoopTargetVolumeDb = 7.0
-EngineSoundVolumeFollowsPower = true
-EngineLoopInteriorVolumeOffsetDb = -12.0
-EngineSoundPitchFollowsPower = false
 UINode = NodePath("../RotorAssembly")
 StartupInterlockNode = NodePath("../RotorAssembly")
 ProcessPhysics = true
@@ -242,9 +245,6 @@ cinematic_tripod = NodePath("../CameraCinematic")
 
 [node name="AudioManager3D" parent="." unique_id=159966699 instance=ExtResource("23_audio_manager")]
 cockpit_interior_sound = ExtResource("31_cockpit")
-interior_lowpass_cutoff = 4200.0
-interior_secondary_lowpass_cutoff = 2600.0
-interior_volume_reduction = -1.0
 
 [node name="CameraCockpit" parent="." unique_id=1856683597 instance=ExtResource("24_camera_tripod")]
 transform = Transform3D(-1, 0, -8.74213e-08, 0, 0.999983, 0, 8.74228e-08, 0, -0.999983, 0.015952379, 0.3609546, 2.333288)
@@ -257,6 +257,9 @@ lower_arm_x = 0.0
 wrist_x = 0.0
 finger_curl = 0.0
 cockpit_hidden_mesh_names = PackedStringArray("Pilot")
+
+[node name="CockpitCanopyVisibility" type="Node" parent="."]
+script = ExtResource("29_canopy")
 
 [node name="CameraTarget" type="Node3D" parent="." unique_id=71844852]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.4, 4.8)

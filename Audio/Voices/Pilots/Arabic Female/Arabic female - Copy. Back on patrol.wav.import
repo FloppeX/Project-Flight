@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://bnmwoxcb3xrj7"
+path="res://.godot/imported/Arabic female - Copy. Back on patrol.wav-45ef0982b28029d28e87de8a63cba3f8.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/Arabic Female/Arabic female - Copy. Back on patrol.wav"
+dest_files=["res://.godot/imported/Arabic female - Copy. Back on patrol.wav-45ef0982b28029d28e87de8a63cba3f8.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

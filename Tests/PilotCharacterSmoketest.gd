@@ -116,8 +116,9 @@ func _run() -> void:
 	pilot.call("set_locomotion_pose", false, 0.0)
 
 	var cockpit := _instantiate("res://Aircraft/CockpitPilot.tscn")
-	if cockpit == null or cockpit.get_node_or_null("Pilot") == null:
-		_fail("cockpit does not instance the canonical pilot")
+	if cockpit == null or not cockpit.has_method("ensure_pilot_visual") \
+			or cockpit.call("get_pilot_visual") != null:
+		_fail("cockpit is not a dormant pooled-pilot mount")
 		return
 	if cockpit.get_node_or_null("ParachutePlaceholder") != null:
 		_fail("cockpit still contains a legacy placeholder")

@@ -21,9 +21,11 @@ func _run() -> void:
 	host.add_child(pilot)
 	await process_frame
 
-	var player := pilot.get_node_or_null("BakedAnimationPlayer") as AnimationPlayer
+	var pooled_visual := pilot.call("get_pilot_visual") as Node3D
+	var player := pooled_visual.get_node_or_null("BakedAnimationPlayer") as AnimationPlayer \
+			if pooled_visual != null else null
 	if player == null:
-		_fail("cockpit pilot has no baked AnimationPlayer")
+		_fail("cockpit mount has no editor-preview pilot")
 		return
 	if player.assigned_animation != "piloting":
 		_fail(
@@ -45,7 +47,7 @@ func _run() -> void:
 			% [player.current_animation_position, EXPECTED_PREVIEW_TIME_S]
 		)
 		return
-	var skeleton := pilot.find_child("Skeleton3D", true, false) as Skeleton3D
+	var skeleton := pooled_visual.find_child("Skeleton3D", true, false) as Skeleton3D
 	if skeleton == null:
 		_fail("cockpit pilot has no visible skeleton")
 		return

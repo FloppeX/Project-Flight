@@ -1,8 +1,9 @@
 extends Node
 
-const RADIO_TEST_STREAM_PATH := "res://Audio/Citadel voice test.mp3"
+const RADIO_TEST_STREAM_PATH := "res://Audio/Voices/Citadel/Citadel voice test.mp3"
 const GAME_SCENE_PATH := "res://Main_Scene.tscn"
-const CITADEL_AUDIO_DIR := "res://Audio"
+const CITADEL_AUDIO_DIR := "res://Audio/Voices/Citadel"
+const PILOT_AUDIO_DIR := "res://Audio/Voices/Pilots"
 const CITADEL_AUDIO_PREFIX := "Citadel - "
 const CITADEL_FLIGHT_NAME_ALIASES := ["Archer", "Bulldog", "Crimson", "Dingo"]
 const PILOT_AUDIO_PREFIXES := ["Ukrainian - ", "British male - ", "Filipino - ", "Arabic female - ", "German female - ", "Scottish female - ", "Brazilian male - ", "French Canadian female - ", "Nigerian male - "]
@@ -255,21 +256,19 @@ func say_taking_fire(callsign: String) -> void:
 
 func _build_citadel_voice_library() -> void:
 	_citadel_voice_streams.clear()
-	var dir := DirAccess.open(CITADEL_AUDIO_DIR)
-	if dir == null:
+	var audio_paths := _collect_audio_file_paths(CITADEL_AUDIO_DIR)
+	if audio_paths.is_empty() and not DirAccess.dir_exists_absolute(CITADEL_AUDIO_DIR):
 		push_warning("Citadel voice directory is unavailable: %s" % CITADEL_AUDIO_DIR)
 		return
 
-	for file_name in dir.get_files():
+	for resource_path in audio_paths:
+		var file_name := resource_path.get_file()
 		if not file_name.begins_with(CITADEL_AUDIO_PREFIX):
-			continue
-		var extension := file_name.get_extension().to_lower()
-		if extension != "wav" and extension != "ogg" and extension != "mp3":
 			continue
 		var base_name := file_name.get_basename()
 		var phrase := base_name.substr(CITADEL_AUDIO_PREFIX.length())
 		var key := _normalize_citadel_phrase(phrase)
-		var stream := load(CITADEL_AUDIO_DIR.path_join(file_name)) as AudioStream
+		var stream := load(resource_path) as AudioStream
 		if stream != null and not key.is_empty():
 			_citadel_voice_streams[key] = stream
 
@@ -288,22 +287,20 @@ func _build_pilot_voice_library() -> void:
 	_pilot_voice_streams.clear()
 	_pilot_voice_prefixes_available.clear()
 	_pilot_sender_voice_prefixes.clear()
-	var dir := DirAccess.open(CITADEL_AUDIO_DIR)
-	if dir == null:
-		push_warning("Pilot voice directory is unavailable: %s" % CITADEL_AUDIO_DIR)
+	var audio_paths := _collect_audio_file_paths(PILOT_AUDIO_DIR)
+	if audio_paths.is_empty() and not DirAccess.dir_exists_absolute(PILOT_AUDIO_DIR):
+		push_warning("Pilot voice directory is unavailable: %s" % PILOT_AUDIO_DIR)
 		return
 
-	for file_name in dir.get_files():
+	for resource_path in audio_paths:
+		var file_name := resource_path.get_file()
 		var voice_prefix := _pilot_voice_prefix_for_file(file_name)
 		if voice_prefix == "":
-			continue
-		var extension := file_name.get_extension().to_lower()
-		if extension != "wav" and extension != "ogg" and extension != "mp3":
 			continue
 		var base_name := file_name.get_basename()
 		var phrase := base_name.substr(voice_prefix.length())
 		var key := _canonical_pilot_voice_key(phrase)
-		var stream := load(CITADEL_AUDIO_DIR.path_join(file_name)) as AudioStream
+		var stream := load(resource_path) as AudioStream
 		if stream != null and not key.is_empty():
 			if not _pilot_voice_streams.has(key):
 				_pilot_voice_streams[key] = {}
@@ -312,6 +309,28 @@ func _build_pilot_voice_library() -> void:
 				streams_by_prefix[voice_prefix] = []
 			(streams_by_prefix[voice_prefix] as Array).append(stream)
 			_pilot_voice_prefixes_available[voice_prefix] = true
+
+
+func _collect_audio_file_paths(directory_path: String) -> PackedStringArray:
+	var paths := PackedStringArray()
+	var dir := DirAccess.open(directory_path)
+	if dir == null:
+		return paths
+	dir.list_dir_begin()
+	var entry_name := dir.get_next()
+	while entry_name != "":
+		if entry_name != "." and entry_name != "..":
+			var resource_path := directory_path.path_join(entry_name)
+			if dir.current_is_dir():
+				paths.append_array(_collect_audio_file_paths(resource_path))
+			else:
+				var extension := entry_name.get_extension().to_lower()
+				if extension == "wav" or extension == "ogg" or extension == "mp3":
+					paths.append(resource_path)
+		entry_name = dir.get_next()
+	dir.list_dir_end()
+	paths.sort()
+	return paths
 
 func _queue_radio_voice_clip(sender: String, recipient: String, body: String) -> void:
 	var stream: AudioStream = null

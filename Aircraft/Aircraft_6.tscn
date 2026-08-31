@@ -10,8 +10,8 @@
 [ext_resource type="PackedScene" uid="uid://bifk2d4o2un2l" path="res://Models/Aircraft_1/Aircraft main gear.glb" id="8_xnqm1"]
 [ext_resource type="PackedScene" uid="uid://diddm04vtjnny" path="res://addons/simplified_flightsim/aircraft_modules/EnergyContainer/EnergyContainer.tscn" id="9_n2s36"]
 [ext_resource type="PackedScene" uid="uid://bxmk3xwsygst" path="res://addons/simplified_flightsim/aircraft_modules/Engine/Engine.tscn" id="10_jemhm"]
-[ext_resource type="AudioStream" uid="uid://c3k88yn1mcnfm" path="res://Audio/airplane_propeller 3.wav" id="11_btnkm"]
-[ext_resource type="AudioStream" uid="uid://dscm8ajwonvl5" path="res://Audio/prop startup 3.wav" id="12_sqfht"]
+[ext_resource type="AudioStream" uid="uid://c3k88yn1mcnfm" path="res://Audio/engine/fixed_wing/airplane_propeller 3.wav" id="11_btnkm"]
+[ext_resource type="AudioStream" uid="uid://dscm8ajwonvl5" path="res://Audio/engine/fixed_wing/prop startup 3.wav" id="12_sqfht"]
 [ext_resource type="PackedScene" uid="uid://dtqtmiqu6tnjn" path="res://addons/simplified_flightsim/aircraft_modules/Steering/Steering.tscn" id="13_ldgib"]
 [ext_resource type="PackedScene" uid="uid://cjfopuepgkub3" path="res://addons/simplified_flightsim/aircraft_modules/Flaps/Flaps.tscn" id="14_a4w5w"]
 [ext_resource type="PackedScene" uid="uid://byum6h2if6b1a" path="res://addons/simplified_flightsim/aircraft_modules/LandingGear/LandingGear.tscn" id="15_bwm4r"]
@@ -34,9 +34,13 @@
 [ext_resource type="Script" uid="uid://bwjigrpitv7cm" path="res://AI/AIPilot.gd" id="34_aipil"]
 [ext_resource type="Script" uid="uid://ckyxqpwu5tkkl" path="res://Aircraft/CockpitCanopyVisibility.gd" id="35_canopyvis"]
 [ext_resource type="Script" uid="uid://dkrq0ip0i4pq4" path="res://Aircraft/DamageEffects.gd" id="36_dmgfx"]
-[ext_resource type="AudioStream" uid="uid://bbrf4t56r5uti" path="res://Audio/cockpit_interior_3.wav" id="37_cpit"]
+[ext_resource type="AudioStream" uid="uid://bbrf4t56r5uti" path="res://Audio/cockpit/cockpit_interior_3.wav" id="37_cpit"]
 [ext_resource type="PackedScene" path="res://Weapons/Guns/Hardpoint/10mm_machine_gun_hardpoint.tscn" id="38_10mm"]
 [ext_resource type="PackedScene" uid="uid://ba1hsntx8a01y" path="res://Aircraft/CockpitPilot.tscn" id="90_cpilot"]
+
+[ext_resource type="PackedScene" path="res://Aircraft/Visuals/InsigniaMarker.tscn" id="45_insignia"]
+[ext_resource type="Script" path="res://Aircraft/AircraftPartDamageModel.gd" id="94_part_damage"]
+[ext_resource type="Script" uid="uid://bqmqqce7tx3a8" path="res://Effects/WingtipVortexEffect.gd" id="96_vortex"]
 
 [sub_resource type="PhysicsMaterial" id="PhysicsMaterial_lowfriction"]
 friction = 0.1
@@ -48,6 +52,21 @@ height = 6.96977
 [sub_resource type="BoxShape3D" id="BoxShape3D_wing_hitbox"]
 size = Vector3(11.4543, 0.24, 1.40179)
 
+[sub_resource type="BoxShape3D" id="BoxShape3D_left_wing_damage"]
+size = Vector3(5.5, 0.55, 1.7)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_right_wing_damage"]
+size = Vector3(5.5, 0.55, 1.7)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_cockpit_damage"]
+size = Vector3(1.3, 1.4, 1.8)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_horizontal_stabilizer_damage"]
+size = Vector3(3.8, 0.55, 3)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_vertical_stabilizer_damage"]
+size = Vector3(0.65, 2.8, 3)
+
 [sub_resource type="SphereShape3D" id="SphereShape3D_gear"]
 radius = 0.3
 
@@ -57,7 +76,7 @@ metadata/__load_path__ = "res://Audio/flaps_deploy 2.wav"
 [node name="Aircraft_6" type="RigidBody3D" unique_id=198660557]
 collision_layer = 513
 collision_mask = 513
-mass = 700.0
+mass = 1100.0
 physics_material_override = SubResource("PhysicsMaterial_lowfriction")
 center_of_mass_mode = 1
 center_of_mass = Vector3(0, 0, 0.5)
@@ -77,41 +96,96 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.00140202, 0)
 [node name="Aircraft 2 propeller" parent="aircraft_6" unique_id=1848082562 instance=ExtResource("4_ii5ys")]
 transform = Transform3D(-1.2, 0, -1.81195e-07, 0, 1.2, 0, 1.81195e-07, 0, -1.2, -2.00808e-09, 1.76411, 1.57289)
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=1930297708]
+[node name="FuselageDamageCollider" type="CollisionShape3D" parent="." unique_id=1930297708]
 transform = Transform3D(1, 0, 0, 0, -0.0487452, -0.998811, 0, 0.998811, -0.0487452, 0, -0.0558118, -1.42614)
 shape = SubResource("CapsuleShape3D_kq7no")
 
 [node name="WingCollider" type="CollisionShape3D" parent="." unique_id=1633660534]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.0273018, 0.92849, -0.263161)
 shape = SubResource("BoxShape3D_wing_hitbox")
+disabled = true
+
+[node name="LeftWingDamageCollider" type="CollisionShape3D" parent="."]
+position = Vector3(3.05, 0.8, -0.263)
+shape = SubResource("BoxShape3D_left_wing_damage")
+
+[node name="RightWingDamageCollider" type="CollisionShape3D" parent="."]
+position = Vector3(-3.05, 0.8, -0.263)
+shape = SubResource("BoxShape3D_right_wing_damage")
+
+[node name="CockpitDamageCollider" type="CollisionShape3D" parent="."]
+position = Vector3(0, 0.1, 1.55)
+shape = SubResource("BoxShape3D_cockpit_damage")
+
+[node name="HorizontalStabilizerDamageCollider" type="CollisionShape3D" parent="."]
+position = Vector3(0, -0.1, -5.1)
+shape = SubResource("BoxShape3D_horizontal_stabilizer_damage")
+
+[node name="VerticalStabilizerDamageCollider" type="CollisionShape3D" parent="."]
+position = Vector3(0, 0.8, -5.1)
+shape = SubResource("BoxShape3D_vertical_stabilizer_damage")
 
 [node name="SimpleAero" type="Node" parent="." unique_id=1499778524]
 script = ExtResource("5_8vbcf")
 rb_path = NodePath("..")
-pitch_power = 7.2
-roll_power = 14.0
-yaw_power = 4.6
+pitch_power = 5.5
+roll_power = 7.5
+yaw_power = 3.2
 min_control_speed = 48.0
+control_authority_full_stall_margin = 1.2
+control_authority_taper_stall_margin = 0.98
+control_stiffening_start_speed_mps = 75.0
+never_exceed_speed_mps = 115.0
+control_stiffening_full_speed_mps = 145.0
+pitch_control_limit_at_vne = 0.45
+roll_control_limit_at_vne = 0.52
+yaw_control_limit_at_vne = 0.48
+pitch_control_limit_full_stiffening = 0.2
+roll_control_limit_full_stiffening = 0.3
+yaw_control_limit_full_stiffening = 0.24
+pitch_surface_rate_per_s = 3.0
+roll_surface_rate_per_s = 3.8
+yaw_surface_rate_per_s = 3.0
+pitch_surface_rate_stiffened_per_s = 0.6
+roll_surface_rate_stiffened_per_s = 1.0
+yaw_surface_rate_stiffened_per_s = 0.55
+simplified_pitch_power_override = 7.2
 alignment_strength = 3.4
 alignment_low_speed_strength = 1.8
-angular_damping_strength = 20.0
-drag_base_multiplier = 1.18
-stability_strength = 1.55
-roll_stability_factor = 0.85
-pitch_stability_factor = 0.72
-stability_torque_scale = 1.65
-roll_stability_rate_damping = 2.4
-pitch_stability_rate_damping = 1.8
+directional_stability_strength = 4.0
+directional_stability_yaw_rate_damping = 1.3
+directional_stability_max_torque_per_mass = 1.1
+angular_damping_strength = 22.0
+drag_base_multiplier = 1.22
+stability_strength = 4.0
+roll_stability_factor = 1.15
+pitch_stability_factor = 0.95
+stability_torque_scale = 2.35
+roll_stability_rate_damping = 4.4
+pitch_stability_rate_damping = 3.3
 stability_start_speed_mps = 4.0
 stability_full_speed_mps = 18.0
 stall_speed = 32.0
-auto_rudder_strength = 0.55
+auto_rudder_strength = 0.4
 lift_gain = 0.0029
 aligned_level_speed_mps = 50.0
 slow_flight_alignment_start_speed_mps = 65.0
 slow_flight_alignment_release_speed_mps = 38.0
-forward_drag_strength = 0.3
+aoa_lift_bonus_factor = 1.7
+max_lift_ratio = 3.4
+aoa_stall_start_deg = 24.0
+aoa_stall_full_deg = 46.0
+aoa_stall_lift_loss = 0.5
+forward_drag_strength = 0.34
 lateral_drag_strength = 1.35
+induced_drag_strength = 0.25
+stall_nose_drop_torque = 9.0
+stall_wing_drop_torque = 2.5
+stall_autorotation_yaw_torque = 3.0
+stall_departure_build_rate_per_s = 1.8
+stall_departure_recovery_rate_per_s = 2.1
+stall_shake_intensity = 0.75
+deep_stall_body_drag_strength = 8.0
 flaps_stall_speed_factor = 0.72
 
 [node name="MovingParts" type="Node3D" parent="." unique_id=1564783457]
@@ -150,7 +224,7 @@ transform = Transform3D(1, 0, -2.9803e-08, 0, 1, 0, 2.9803e-08, 0, 1, -0.456, 0.
 
 [node name="Engine" parent="." unique_id=1961462598 instance=ExtResource("10_jemhm")]
 transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, 0, 0)
-PowerFactor = 5200.0
+PowerFactor = 3600.0
 propeller_node = NodePath("../aircraft_6/Aircraft 2 propeller")
 EngineSoundLoop = ExtResource("11_btnkm")
 EngineSoundStart = ExtResource("12_sqfht")
@@ -264,11 +338,27 @@ script = ExtResource("34_aipil")
 [node name="AIToggle" type="Node" parent="." unique_id=801084071]
 script = ExtResource("33_aitgl")
 
+[node name="PartDamageModel" type="Node" parent="."]
+script = ExtResource("94_part_damage")
+
 [node name="DamageEffects" type="Node" parent="." unique_id=1986826685]
 script = ExtResource("36_dmgfx")
 
-[node name="InsigniaWing" type="Marker3D" parent="." unique_id=545894693]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3, 0.908297, -0.204647)
+[node name="InsigniaWing" parent="." unique_id=545894693 instance=ExtResource("45_insignia")]
+transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, 3, 0.908297, -0.204647)
+diameter = 1.0
+depth = 0.6
 
-[node name="InsigniaTail" type="Marker3D" parent="." unique_id=82420987]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.181655, 0.476152, -5.41958)
+[node name="InsigniaTail" parent="." unique_id=82420987 instance=ExtResource("45_insignia")]
+transform = Transform3D(0, 1, 0, 0, 0, -1, -1, 0, 0, 0.181655, 0.476152, -5.41958)
+diameter = 0.65
+depth = 0.35
+
+[node name="WingtipLeft" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 5.949574, 0.640714, -0.133599)
+
+[node name="WingtipRight" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -5.949724, 0.640714, -0.133599)
+
+[node name="WingtipVortexEffect" type="Node3D" parent="."]
+script = ExtResource("96_vortex")

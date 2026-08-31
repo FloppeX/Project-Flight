@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://c0808ndovynr0"
+path="res://.godot/imported/French Canadian female - Off the deck. Gear up, climbing to station.wav-a6f5b896d9f8e15aa30222ae331f5b29.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/French Canadian Female/French Canadian female - Off the deck. Gear up, climbing to station.wav"
+dest_files=["res://.godot/imported/French Canadian female - Off the deck. Gear up, climbing to station.wav-a6f5b896d9f8e15aa30222ae331f5b29.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

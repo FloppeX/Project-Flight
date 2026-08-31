@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://5yknpu2qltlv"
+path="res://.godot/imported/Citadel - Crimson flight, maintain combat air patrol. Engage any bandits.wav-04b3f3f6174084f29496cad0641515c7.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Citadel/Citadel - Crimson flight, maintain combat air patrol. Engage any bandits.wav"
+dest_files=["res://.godot/imported/Citadel - Crimson flight, maintain combat air patrol. Engage any bandits.wav-04b3f3f6174084f29496cad0641515c7.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

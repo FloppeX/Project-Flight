@@ -9,7 +9,8 @@ func _run() -> void:
 	var pause_menu := root.get_node_or_null("PauseMenu")
 	var radio_comms := root.get_node_or_null("RadioComms")
 	var fps_counter := root.get_node_or_null("FPSCounter")
-	if pause_menu == null or radio_comms == null or fps_counter == null:
+	var enemy_visual_budget := root.get_node_or_null("EnemyVisualBudget")
+	if pause_menu == null or radio_comms == null or fps_counter == null or enemy_visual_budget == null:
 		_fail("required settings autoloads were unavailable")
 		return
 
@@ -36,14 +37,25 @@ func _run() -> void:
 			return
 
 	var graphics_buttons: Dictionary = pause_menu.get("_graphics_buttons")
-	if not graphics_buttons.has("show_fps") or not (graphics_buttons["show_fps"] is Button):
-		_fail("graphics menu was missing the FPS toggle")
-		return
+	for graphics_key in ["show_fps", "enemy_visibility"]:
+		if not graphics_buttons.has(graphics_key) or not (graphics_buttons[graphics_key] is Button):
+			_fail("graphics menu was missing %s" % graphics_key)
+			return
 	var gameplay_buttons: Dictionary = pause_menu.get("_gameplay_buttons")
-	for gameplay_key in ["stick_deadzone", "controller_menu_cursor", "look_sensitivity", "invert_look_y", "camera_motion", "camera_fov"]:
+	for gameplay_key in ["flight_model", "stick_deadzone", "controller_menu_cursor", "look_sensitivity", "invert_look_y", "camera_motion", "camera_fov"]:
 		if not gameplay_buttons.has(gameplay_key) or not (gameplay_buttons[gameplay_key] is Button):
 			_fail("gameplay menu was missing %s" % gameplay_key)
 			return
+	var original_flight_model := int(pause_menu.get("_flight_model_index"))
+	pause_menu.set("_flight_model_index", 0)
+	pause_menu.call("_refresh_gameplay_button_labels")
+	var simplified_model_exposed := not bool(pause_menu.call("is_advanced_flight_model")) \
+		and (gameplay_buttons["flight_model"] as Button).text == "FLIGHT MODEL: SIMPLIFIED"
+	pause_menu.set("_flight_model_index", original_flight_model)
+	pause_menu.call("_refresh_gameplay_button_labels")
+	if not simplified_model_exposed:
+		_fail("gameplay flight-model selector did not expose Simplified mode")
+		return
 
 	var deadzone_motion: Vector2 = pause_menu.call(
 		"controller_menu_cursor_motion",
@@ -86,6 +98,7 @@ func _run() -> void:
 	var original_captions := bool(pause_menu.get("_radio_captions_enabled"))
 	var original_caption_duration := int(pause_menu.get("_radio_caption_duration_index"))
 	var original_show_fps := bool(pause_menu.get("_show_fps_enabled"))
+	var original_enemy_visibility := int(pause_menu.get("_enemy_visibility_index"))
 	var original_deadzone := int(pause_menu.get("_stick_deadzone_index"))
 	var original_sensitivity := int(pause_menu.get("_look_sensitivity_index"))
 	var original_invert_y := bool(pause_menu.get("_invert_look_y"))
@@ -116,6 +129,24 @@ func _run() -> void:
 		_fail("FPS preference did not reach FPSCounter")
 		return
 
+	pause_menu.set("_enemy_visibility_index", 1)
+	pause_menu.call("_apply_enemy_visibility_setting")
+	pause_menu.call("_refresh_graphics_button_labels")
+	var enhanced_visibility_applied := (
+		is_equal_approx(float(enemy_visual_budget.get("enemy_contrast_start_distance_m")), 900.0)
+		and is_equal_approx(float(enemy_visual_budget.get("enemy_contrast_full_distance_m")), 3500.0)
+		and is_equal_approx(float(enemy_visual_budget.get("enemy_max_contrast_strength")), 0.26)
+		and (graphics_buttons["enemy_visibility"] as Button).text == "ENEMY VISIBILITY: ENHANCED"
+	)
+	pause_menu.set("_enemy_visibility_index", original_enemy_visibility)
+	pause_menu.call("_apply_enemy_visibility_setting")
+	pause_menu.call("_refresh_graphics_button_labels")
+	if not enhanced_visibility_applied:
+		_restore(pause_menu, original_radio_volume, original_captions, original_caption_duration,
+				original_show_fps, original_deadzone, original_sensitivity, original_invert_y, original_motion, original_fov)
+		_fail("enhanced enemy visibility did not reach the contrast budget")
+		return
+
 	pause_menu.set("_stick_deadzone_index", 4)
 	pause_menu.set("_look_sensitivity_index", 4)
 	pause_menu.set("_invert_look_y", true)
@@ -123,6 +154,7 @@ func _run() -> void:
 	pause_menu.set("_camera_fov_index", 3)
 	pause_menu.call("_apply_gameplay_settings")
 	if not is_equal_approx(InputMap.action_get_deadzone("look_left"), 0.25) \
+			or not is_equal_approx(float(pause_menu.call("get_stick_deadzone")), 0.25) \
 			or not is_equal_approx(float(pause_menu.call("get_look_sensitivity_multiplier")), 1.5) \
 			or not bool(pause_menu.call("get_invert_look_y")) \
 			or not is_equal_approx(float(pause_menu.call("get_camera_motion_scale")), 0.45) \
@@ -147,7 +179,7 @@ func _run() -> void:
 
 	_restore(pause_menu, original_radio_volume, original_captions, original_caption_duration,
 			original_show_fps, original_deadzone, original_sensitivity, original_invert_y, original_motion, original_fov)
-	print("[SettingsOptionsSmoketest] PASS submenus=audio+graphics+gameplay runtime=radio+fps+input+camera+menu_cursor")
+	print("[SettingsOptionsSmoketest] PASS submenus=audio+graphics+gameplay runtime=flight_model+radio+fps+enemy_visibility+input+camera+menu_cursor")
 	quit(0)
 
 

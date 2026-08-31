@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://cbgb6mrx6or1e"
+path="res://.godot/imported/Filipino - Copy. Turning for home.wav-c3d01b8faf8738fd4ef6e895fd15279a.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/Filipino/Filipino - Copy. Turning for home.wav"
+dest_files=["res://.godot/imported/Filipino - Copy. Turning for home.wav-c3d01b8faf8738fd4ef6e895fd15279a.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

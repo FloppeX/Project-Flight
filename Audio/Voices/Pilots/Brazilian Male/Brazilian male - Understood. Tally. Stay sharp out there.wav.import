@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://bk1xpm8javbx1"
+path="res://.godot/imported/Brazilian male - Understood. Tally. Stay sharp out there.wav-e5511ad4ce766000a40e4522426feb88.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/Brazilian Male/Brazilian male - Understood. Tally. Stay sharp out there.wav"
+dest_files=["res://.godot/imported/Brazilian male - Understood. Tally. Stay sharp out there.wav-e5511ad4ce766000a40e4522426feb88.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

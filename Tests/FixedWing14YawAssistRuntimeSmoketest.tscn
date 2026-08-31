@@ -1,0 +1,11 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://Tests/FixedWingYawAssistRuntimeSmoketest.gd" id="1"]
+[ext_resource type="PackedScene" path="res://Aircraft/Aircraft_14.tscn" id="2"]
+
+[node name="FixedWing14YawAssistRuntimeSmoketest" type="Node3D"]
+script = ExtResource("1")
+aircraft_scene = ExtResource("2")
+aircraft_label = "Aircraft_14"
+expect_passive_directional_stability = true
+isolate_rudder_loop = false

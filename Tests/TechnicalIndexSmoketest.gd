@@ -63,6 +63,7 @@ func _run() -> void:
 		"res://Aircraft/Aircraft_6.tscn": "OKB Sh-37 Razorback",
 		"res://Aircraft/Aircraft_7.tscn": "OKB I-109 Dagger",
 		"res://Aircraft/Aircraft_8.tscn": "VAS SF/A-21 Ghost",
+		"res://Aircraft/Aircraft_14.tscn": "KAW FX-5 Spitewing",
 		"res://Aircraft/Aircraft_9.tscn": "VMFC HH-72 Bumblebee",
 		"res://Aircraft/Aircraft_10.tscn": "TAG RA-14 Dune Skimmer",
 		"res://Aircraft/Aircraft_11.tscn": "AD UH-8 Hummingbird",
@@ -78,6 +79,14 @@ func _run() -> void:
 			if expected_aircraft_names.has(scene_path) and String(entry.get("description", "")).is_empty():
 				_fail("named aircraft had no description: %s" % scene_path)
 				return
+			if category == "AIRPLANES":
+				if String(entry.get("pilot_notes", "")).is_empty():
+					_fail("fixed-wing aircraft had no pilot flight notes: %s" % scene_path)
+					return
+				var entry_stats := entry.get("stats", {}) as Dictionary
+				if String(entry_stats.get("ROLE", "")).is_empty():
+					_fail("fixed-wing aircraft had no operational role: %s" % scene_path)
+					return
 
 	var scene_count := 0
 	for category in expected_categories:
@@ -281,6 +290,32 @@ func _run() -> void:
 	for airplane_entry in airplane_entries:
 		view.call("_select_entry", airplane_entry)
 		var airplane_scene_path := String(airplane_entry.get("scene", ""))
+		var flight_description := view.get("_description_label") as Label
+		var flight_stats := view.get("_stats_label") as Label
+		if flight_description == null or not flight_description.text.contains("FLIGHT NOTES //"):
+			_fail("airplane pilot notes were not rendered: %s" % airplane_scene_path)
+			return
+		if flight_stats == null \
+				or not flight_stats.text.contains("EST CLEAN SPEED") \
+				or not flight_stats.text.contains("STALL CLEAN / FLAPS") \
+				or not flight_stats.text.contains("STIFFEN / VNE") \
+				or not flight_stats.text.contains("CONTROL POWER P/R/Y") \
+				or not flight_stats.text.contains("SURFACE RATE P/R/Y") \
+				or not flight_stats.text.contains("STALL AOA") \
+				or not flight_stats.text.contains("MODEL LIFT LIMIT"):
+			_fail("airplane flight-envelope data was incomplete: %s" % airplane_scene_path)
+			return
+		if airplane_scene_path == "res://Aircraft/Aircraft_14.tscn" \
+				and (not flight_stats.text.contains("110 / 165 m/s") \
+				or not flight_stats.text.contains("7 / 18 / 2.8") \
+				or not flight_stats.text.contains("16-29 deg")):
+			_fail("Spitewing index did not expose its authored control and stall envelope")
+			return
+		if airplane_scene_path == "res://Aircraft/Aircraft_6.tscn" \
+				and (not flight_stats.text.contains("75 / 115 m/s") \
+				or not flight_stats.text.contains("24-46 deg")):
+			_fail("Razorback index did not expose its low-speed benign envelope")
+			return
 		var airplane_model_root := view.get_node_or_null("RotatablePreview/EquipmentViewport/PreviewPivot/ModelRoot")
 		if not _preview_uses_only_livery_pattern(airplane_model_root, TEST_PLAYER_PATTERN_INDEX):
 			_fail("airplane preview did not inherit the selected player pattern: %s" % airplane_scene_path)
@@ -308,9 +343,22 @@ func _run() -> void:
 			_fail("airplane preview pilot was not frozen seated: %s" % String(airplane_entry.get("scene", "")))
 			return
 		var pilot_visual := cockpit_pilot.get_node_or_null("Pilot") as Node3D
+		if pilot_visual == null:
+			pilot_visual = cockpit_pilot.get_node_or_null("PilotVisual") as Node3D
 		if pilot_visual == null or not pilot_visual.visible or not _has_skeleton_pose_delta(pilot_visual):
 			_fail("airplane preview did not retain a visible seated pilot: %s" % String(airplane_entry.get("scene", "")))
 			return
+		var preview_skeleton := _find_skeleton(pilot_visual)
+		for suffix in [".l", ".r"]:
+			var seated_geometry := _seated_pilot_geometry(preview_skeleton, suffix)
+			var knee_bend := float(seated_geometry.get("knee_bend_degrees", INF))
+			var toe_up := float(seated_geometry.get("toe_up_degrees", INF))
+			if absf(knee_bend - 45.0) > 0.25 or absf(toe_up - 15.0) > 0.25:
+				_fail(
+					"airplane preview retained old seated legs: %s %s knee=%.2f toe=%.2f"
+					% [airplane_scene_path, suffix, knee_bend, toe_up]
+				)
+				return
 	livery.call(
 		"set_player_livery",
 		Color(0.16, 0.47, 0.20),
@@ -350,6 +398,8 @@ func _run() -> void:
 		return
 	var aircraft_one_root := view.get_node_or_null("RotatablePreview/EquipmentViewport/PreviewPivot/ModelRoot")
 	var middle_left := aircraft_one_root.find_child("wing middle left", true, false) as Node3D
+	var wing_insignia_marker := aircraft_one_root.find_child("InsigniaWing", true, false) as Node3D
+	var wing_insignia_decal := aircraft_one_root.find_child("InsigniaDecal_InsigniaWing", true, false) as Decal
 	var nose_gear_rig := aircraft_one_root.find_child("NoseGearRig", true, false) as Node3D
 	var nose_gear_pivot := nose_gear_rig.find_child("FrontGearPivot", true, false) as Node3D if nose_gear_rig != null else null
 	var nose_gear_slide := nose_gear_rig.find_child("LowerLegSlide", true, false) as Node3D if nose_gear_rig != null else null
@@ -369,7 +419,13 @@ func _run() -> void:
 	var tailhook_mesh := tailhook.get_node_or_null("Tailhook") as Node3D if tailhook != null else null
 	var propeller := aircraft_one_root.find_child("Aircraft 2 propeller", true, false) as Node3D
 	var propeller_disc := propeller.find_child("propeller disc", true, false) as GeometryInstance3D if propeller != null else null
-	if middle_left == null or nose_gear_rig == null or nose_gear_pivot == null or nose_gear_slide == null \
+	if middle_left == null or wing_insignia_marker == null or wing_insignia_decal == null \
+			or not wing_insignia_decal.visible \
+			or wing_insignia_decal.get_script() == null \
+			or (wing_insignia_decal.get_script() as Script).resource_path != "res://Aircraft/Visuals/InsigniaDecalFollower.gd" \
+			or wing_insignia_decal.process_mode != Node.PROCESS_MODE_ALWAYS \
+			or not wing_insignia_decal.global_transform.is_equal_approx(wing_insignia_marker.global_transform) \
+			or nose_gear_rig == null or nose_gear_pivot == null or nose_gear_slide == null \
 			or left_main_pivot == null or right_main_pivot == null \
 			or left_main_slide == null or right_main_slide == null \
 			or left_main_linkage == null or right_main_linkage == null \
@@ -377,9 +433,11 @@ func _run() -> void:
 			or left_main_wheel == null or right_main_wheel == null \
 			or tailhook == null or tailhook_mesh == null or not tailhook_mesh.visible \
 			or propeller == null or propeller_disc == null or propeller_disc.visible:
-		_fail("Sand Sprite preview did not retain its stopped propeller and other animated visuals")
+		_fail("Sand Sprite preview did not retain its wing insignia, stopped propeller, and other animated visuals")
 		return
 	var unfolded_wing_transform := middle_left.transform
+	var unfolded_insignia_transform := wing_insignia_decal.transform
+	var unfolded_insignia_size := wing_insignia_decal.size
 	var deployed_gear_slide_transform := nose_gear_slide.transform
 	var left_main_pivot_deployed_rotation := left_main_pivot.rotation
 	var right_main_pivot_deployed_rotation := right_main_pivot.rotation
@@ -418,15 +476,21 @@ func _run() -> void:
 		_fail("wing control did not begin a timed fold animation")
 		return
 	view.call("_process", 4.0)
+	wing_insignia_decal.call("update_follow_transform")
 	if not is_equal_approx(float(animation_values.get(&"wings", 0.0)), 1.0) \
-			or middle_left.transform.is_equal_approx(unfolded_wing_transform):
-		_fail("wing control did not finish folding the Sand Sprite wings")
+			or middle_left.transform.is_equal_approx(unfolded_wing_transform) \
+			or wing_insignia_decal.transform.is_equal_approx(unfolded_insignia_transform) \
+			or not wing_insignia_decal.size.is_equal_approx(unfolded_insignia_size):
+		_fail("wing control did not fold the Sand Sprite wings and insignia together")
 		return
 	wings_button.pressed.emit()
 	view.call("_process", 4.0)
+	wing_insignia_decal.call("update_follow_transform")
 	if not is_equal_approx(float(animation_values.get(&"wings", 1.0)), 0.0) \
-			or not middle_left.transform.is_equal_approx(unfolded_wing_transform):
-		_fail("wing control did not unfold the Sand Sprite wings")
+			or not middle_left.transform.is_equal_approx(unfolded_wing_transform) \
+			or not wing_insignia_decal.transform.is_equal_approx(unfolded_insignia_transform) \
+			or not wing_insignia_decal.size.is_equal_approx(unfolded_insignia_size):
+		_fail("wing control did not unfold the Sand Sprite wings and insignia together")
 		return
 	gear_button.pressed.emit()
 	view.call("_process", 0.2)
@@ -794,6 +858,47 @@ func _has_skeleton_pose_delta(root_node: Node) -> bool:
 		if _has_skeleton_pose_delta(child as Node):
 			return true
 	return false
+
+
+func _find_skeleton(root_node: Node) -> Skeleton3D:
+	if root_node == null:
+		return null
+	if root_node is Skeleton3D:
+		return root_node as Skeleton3D
+	for child in root_node.get_children():
+		var found := _find_skeleton(child as Node)
+		if found != null:
+			return found
+	return null
+
+
+func _seated_pilot_geometry(skeleton: Skeleton3D, suffix: String) -> Dictionary:
+	if skeleton == null:
+		return {}
+	var thigh_index := skeleton.find_bone("thigh_stretch" + suffix)
+	var shin_index := skeleton.find_bone("leg_stretch" + suffix)
+	var foot_index := skeleton.find_bone("foot" + suffix)
+	var toe_index := skeleton.find_bone("toes_01" + suffix)
+	if thigh_index < 0 or shin_index < 0 or foot_index < 0 or toe_index < 0:
+		return {}
+	skeleton.force_update_all_bone_transforms()
+	var hip := skeleton.get_bone_global_pose(thigh_index).origin
+	var knee := skeleton.get_bone_global_pose(shin_index).origin
+	var ankle := skeleton.get_bone_global_pose(foot_index).origin
+	var toe := skeleton.get_bone_global_pose(toe_index).origin
+	var upper := Vector2(knee.y - hip.y, knee.z - hip.z).normalized()
+	var lower := Vector2(ankle.y - knee.y, ankle.z - knee.z).normalized()
+	var foot_vector := toe - ankle
+	var rest_foot := skeleton.get_bone_global_rest(foot_index)
+	var rest_toe := skeleton.get_bone_global_rest(toe_index)
+	var rest_foot_vector := rest_toe.origin - rest_foot.origin
+	return {
+		"knee_bend_degrees": rad_to_deg(acos(clampf(upper.dot(lower), -1.0, 1.0))),
+		"toe_up_degrees": rad_to_deg(
+			atan2(-rest_foot_vector.y, rest_foot_vector.z)
+			- atan2(-foot_vector.y, foot_vector.z)
+		),
+	}
 
 
 func _fail(reason: String) -> void:

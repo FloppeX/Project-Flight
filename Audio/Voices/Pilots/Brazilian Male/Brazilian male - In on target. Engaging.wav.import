@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://b1f4cqkbihln6"
+path="res://.godot/imported/Brazilian male - In on target. Engaging.wav-ae085bdbdb5203256a93a6b6a7a99d52.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/Brazilian Male/Brazilian male - In on target. Engaging.wav"
+dest_files=["res://.godot/imported/Brazilian male - In on target. Engaging.wav-ae085bdbdb5203256a93a6b6a7a99d52.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

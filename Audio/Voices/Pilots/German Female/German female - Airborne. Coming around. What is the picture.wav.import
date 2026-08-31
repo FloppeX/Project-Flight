@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://cvsmyv54j6xct"
+path="res://.godot/imported/German female - Airborne. Coming around. What is the picture.wav-784e7913f4652d1066c6e8a8b1e05340.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/German Female/German female - Airborne. Coming around. What is the picture.wav"
+dest_files=["res://.godot/imported/German female - Airborne. Coming around. What is the picture.wav-784e7913f4652d1066c6e8a8b1e05340.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

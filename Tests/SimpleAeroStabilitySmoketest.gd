@@ -6,19 +6,19 @@ var _failures: Array[String] = []
 func _ready() -> void:
 	var aero := SimpleAero.new()
 
-	aero.pitch_input = 0.0
+	aero.actual_pitch_control = 0.0
 	var neutral_factor := aero._get_pitch_stability_input_release_factor()
 	_expect(is_equal_approx(neutral_factor, 1.0), "neutral controls did not retain full pitch stability")
 
-	aero.pitch_input = 0.1
+	aero.actual_pitch_control = 0.1
 	var correction_factor := aero._get_pitch_stability_input_release_factor()
 	_expect(correction_factor > 0.75, "a small pitch correction released too much hands-off stability")
 
-	aero.pitch_input = 0.5
+	aero.actual_pitch_control = 0.5
 	var pull_factor := aero._get_pitch_stability_input_release_factor()
 	_expect(pull_factor <= 0.05, "a deliberate pull did not release pitch stability")
 
-	aero.pitch_input = -1.0
+	aero.actual_pitch_control = -1.0
 	var push_factor := aero._get_pitch_stability_input_release_factor()
 	_expect(is_equal_approx(push_factor, aero.pitch_stability_input_min_factor), "full nose-down input did not receive the same stability release")
 

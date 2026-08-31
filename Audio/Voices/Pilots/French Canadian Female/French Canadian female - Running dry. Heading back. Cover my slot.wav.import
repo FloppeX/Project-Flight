@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://cl6xsrdequ0lo"
+path="res://.godot/imported/French Canadian female - Running dry. Heading back. Cover my slot.wav-a10735bcbdaba72fc7914a869183e43d.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/French Canadian Female/French Canadian female - Running dry. Heading back. Cover my slot.wav"
+dest_files=["res://.godot/imported/French Canadian female - Running dry. Heading back. Cover my slot.wav-a10735bcbdaba72fc7914a869183e43d.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

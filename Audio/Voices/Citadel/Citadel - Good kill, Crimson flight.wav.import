@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://s16fsddtaqxh"
+path="res://.godot/imported/Citadel - Good kill, Crimson flight.wav-f8e52060079846635921e09d4fccb62d.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Citadel/Citadel - Good kill, Crimson flight.wav"
+dest_files=["res://.godot/imported/Citadel - Good kill, Crimson flight.wav-f8e52060079846635921e09d4fccb62d.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

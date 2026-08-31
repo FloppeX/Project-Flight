@@ -1,15 +1,16 @@
 extends RefCounted
 class_name TracerVisualFactory
 
-## A round tapered solid avoids the direction-dependent flat "blade" silhouette
-## produced by the old four-sided pyramid while retaining a broad bullet-end base.
-const RADIAL_SEGMENTS: int = 12
+## A deliberately faceted pyramid reads as a fast streak instead of a glowing
+## capsule. Rotation is handled by the projectile/virtual-tracer transform, so
+## the shape remains aligned with the shot rather than with a world axis.
+const RADIAL_SEGMENTS: int = 4
 
 
 static func create_unit_tracer_mesh() -> ArrayMesh:
 	var vertices := PackedVector3Array()
 	for segment in RADIAL_SEGMENTS:
-		var angle := TAU * float(segment) / float(RADIAL_SEGMENTS)
+		var angle := PI * 0.25 + TAU * float(segment) / float(RADIAL_SEGMENTS)
 		vertices.append(Vector3(cos(angle) * 0.5, sin(angle) * 0.5, 0.0))
 	var tip_index := vertices.size()
 	vertices.append(Vector3(0.0, 0.0, 1.0))
@@ -37,7 +38,7 @@ static func create_glow_material(color: Color, emission_energy: float) -> Standa
 	material.emission_enabled = true
 	material.emission = color
 	material.emission_energy_multiplier = maxf(emission_energy, 0.0)
-	# Transparent additive faces stack on top of one another inside a closed cone.
+	# Transparent additive faces stack on top of one another inside a closed taper.
 	# From the side that turns the tracer into an over-bright flat strip. An opaque
 	# emissive core lets depth/culling preserve the intended volumetric silhouette;
 	# the WorldEnvironment glow still supplies the soft halo.

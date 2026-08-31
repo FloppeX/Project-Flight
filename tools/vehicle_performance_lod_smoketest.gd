@@ -218,6 +218,13 @@ func _check_vehicle_scene(world: Node3D, scene_path: String) -> void:
 	world.remove_child(vehicle)
 	if dust != null:
 		_check(not dust._compute_should_emit_for_camera(0.0), "%s skips dust work while detached" % scene_path)
+	if turret != null:
+		turret._refresh_targeting_detail_cache(0.0)
+		_check(
+			not bool(turret.get("_cached_targeting_camera_visible")) \
+				and not bool(turret.get("_cached_detailed_targeting")),
+			"%s rejects camera-detail work while detached" % scene_path
+		)
 	vehicle.free()
 	await process_frame
 

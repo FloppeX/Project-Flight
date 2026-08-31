@@ -4,6 +4,7 @@ extends SceneTree
 ##   Godot --headless --path <project> --audio-driver Dummy --script res://Tests/PilotAnimationLibrarySmoketest.gd
 
 const PILOT_SCENE := "res://Models/Characters/pilot/PilotCharacter.tscn"
+const APPROVED_RUN_ANIMATION := "res://Models/Characters/pilot/animations/approved_run_animation.tres"
 const EXPECTED_CLIPS := {
 	&"idle_breathing": true,
 	&"idle_neutral": true,
@@ -20,8 +21,8 @@ const EXPECTED_CLIPS := {
 	&"parachute": true,
 }
 const ARM_CHAINS := [
-	[&"shoulder.l", &"c_arm_twist_offset.l", &"forearm_stretch.l", &"hand.l"],
-	[&"shoulder.r", &"c_arm_twist_offset.r", &"forearm_stretch.r", &"hand.r"],
+	[&"c_shoulder.l", &"arm.l", &"forearm.l", &"hand.l"],
+	[&"c_shoulder.r", &"arm.r", &"forearm.r", &"hand.r"],
 ]
 const ARM_DEFORM_MIDPOINTS := [
 	[&"arm_stretch.l", &"c_arm_twist_offset.l", &"forearm_stretch.l"],
@@ -29,7 +30,21 @@ const ARM_DEFORM_MIDPOINTS := [
 	[&"arm_stretch.r", &"c_arm_twist_offset.r", &"forearm_stretch.r"],
 	[&"forearm_twist.r", &"forearm_stretch.r", &"hand.r"],
 ]
+const LEG_CHAINS := [
+	[&"leg_stretch.l", &"foot.l", &"toes_01.l"],
+	[&"leg_stretch.r", &"foot.r", &"toes_01.r"],
+]
+const LEG_DEFORM_MIDPOINTS := [
+	[&"leg_twist.l", &"leg_stretch.l", &"foot.l"],
+	[&"leg_twist.r", &"leg_stretch.r", &"foot.r"],
+]
 const MAX_ARM_SEGMENT_ERROR_M := 0.002
+const MAX_LEG_SEGMENT_ERROR_M := 0.005
+const APPROVED_RUN_KEY_TOLERANCE := 0.000001
+## ARP's sleeve deformation helpers do not sit on the hierarchical control
+## chain. The non-run repaired clips establish their rendered-safe envelope; the
+## separately preserved run is checked byte-for-byte at the animation-key level.
+const MAX_ARM_DEFORM_OFFSET_M := 0.12
 
 
 func _initialize() -> void:
@@ -88,7 +103,15 @@ func _run() -> void:
 			return
 		var start_pose := _sample_pose(player, skeleton, clip_name, 0.0)
 		var pose_delta := 0.0
-		var max_arm_length_error := _largest_arm_segment_length_error(skeleton)
+		var max_arm_length_error := _largest_segment_length_error(
+			skeleton, ARM_CHAINS, []
+		)
+		var max_arm_deform_offset := _largest_segment_length_error(
+			skeleton, [], ARM_DEFORM_MIDPOINTS
+		)
+		var max_leg_length_error := _largest_segment_length_error(
+			skeleton, LEG_CHAINS, LEG_DEFORM_MIDPOINTS
+		)
 		for sample_fraction in [0.18, 0.37, 0.61, 0.83]:
 			var sample_pose := _sample_pose(
 				player, skeleton, clip_name, animation.length * sample_fraction
@@ -96,7 +119,15 @@ func _run() -> void:
 			pose_delta = maxf(pose_delta, _largest_pose_delta(start_pose, sample_pose))
 			max_arm_length_error = maxf(
 				max_arm_length_error,
-				_largest_arm_segment_length_error(skeleton)
+				_largest_segment_length_error(skeleton, ARM_CHAINS, [])
+			)
+			max_arm_deform_offset = maxf(
+				max_arm_deform_offset,
+				_largest_segment_length_error(skeleton, [], ARM_DEFORM_MIDPOINTS)
+			)
+			max_leg_length_error = maxf(
+				max_leg_length_error,
+				_largest_segment_length_error(skeleton, LEG_CHAINS, LEG_DEFORM_MIDPOINTS)
 			)
 		if pose_delta < 0.001:
 			_fail("clip %s did not move the visible pilot skeleton (raw_track_delta=%.3f)" % [
@@ -105,15 +136,32 @@ func _run() -> void:
 			return
 		# Parachute deliberately preserves the separately hand-authored pose route.
 		# The fixed-length invariant applies to the newly imported general library.
-		if clip_name != &"parachute" and max_arm_length_error > MAX_ARM_SEGMENT_ERROR_M:
+		if clip_name not in [&"parachute", &"run"] \
+				and max_arm_length_error > MAX_ARM_SEGMENT_ERROR_M:
 			_fail("clip %s stretches an arm segment by %.4fm (limit %.4fm)" % [
 				clip_name, max_arm_length_error, MAX_ARM_SEGMENT_ERROR_M,
 			])
 			return
+		if clip_name not in [&"parachute", &"run"] \
+				and max_arm_deform_offset > MAX_ARM_DEFORM_OFFSET_M:
+			_fail("clip %s displaces an arm deform helper by %.4fm (limit %.4fm)" % [
+				clip_name, max_arm_deform_offset, MAX_ARM_DEFORM_OFFSET_M,
+			])
+			return
+		if clip_name != &"run" and max_leg_length_error > MAX_LEG_SEGMENT_ERROR_M:
+			_fail("clip %s stretches a leg segment by %.4fm (limit %.4fm)" % [
+				clip_name, max_leg_length_error, MAX_LEG_SEGMENT_ERROR_M,
+			])
+			return
+		if clip_name == &"run":
+			var reference_error := _approved_run_reference_error(animation)
+			if reference_error != "":
+				_fail(reference_error)
+				return
 		var root_travel := _root_translation_range(animation)
-		summaries.append("%s=%.2fs loop=%s pose_delta=%.3f arm_error=%.4fm root_span=(%.2f,%.2f,%.2f)m" % [
+		summaries.append("%s=%.2fs loop=%s pose_delta=%.3f arm_error=%.4fm arm_deform=%.4fm leg_error=%.4fm root_span=(%.2f,%.2f,%.2f)m" % [
 			clip_name, animation.length, does_loop, pose_delta,
-			max_arm_length_error,
+			max_arm_length_error, max_arm_deform_offset, max_leg_length_error,
 			root_travel.x, root_travel.y, root_travel.z,
 		])
 
@@ -122,6 +170,81 @@ func _run() -> void:
 	])
 	pilot.free()
 	quit(0)
+
+
+func _approved_run_reference_error(animation: Animation) -> String:
+	var source_reference := load(APPROVED_RUN_ANIMATION) as Animation
+	if source_reference == null:
+		return "approved run reference could not be loaded"
+	var reference := source_reference.duplicate(true) as Animation
+	_lock_horizontal_root_motion(reference)
+	if animation.get_track_count() != reference.get_track_count():
+		return "approved run track count changed from %d to %d" % [
+			reference.get_track_count(), animation.get_track_count(),
+		]
+	if absf(animation.length - reference.length) > APPROVED_RUN_KEY_TOLERANCE:
+		return "approved run length changed from %.6f to %.6f" % [reference.length, animation.length]
+	for track_index in range(reference.get_track_count()):
+		if animation.track_get_type(track_index) != reference.track_get_type(track_index) \
+				or animation.track_get_path(track_index) != reference.track_get_path(track_index):
+			return "approved run track %d identity changed" % track_index
+		var expected_keys := reference.track_get_key_count(track_index)
+		if animation.track_get_key_count(track_index) != expected_keys:
+			return "approved run track %d key count changed" % track_index
+		for key_index in range(expected_keys):
+			if absf(
+				animation.track_get_key_time(track_index, key_index)
+				- reference.track_get_key_time(track_index, key_index)
+			) > APPROVED_RUN_KEY_TOLERANCE:
+				return "approved run track %d key %d time changed" % [track_index, key_index]
+			var actual: Variant = animation.track_get_key_value(track_index, key_index)
+			var expected: Variant = reference.track_get_key_value(track_index, key_index)
+			var value_error := _animation_value_error(actual, expected)
+			if value_error > APPROVED_RUN_KEY_TOLERANCE:
+				return "approved run track %d key %d value changed by %.9f" % [
+					track_index, key_index, value_error,
+				]
+	return ""
+
+
+func _animation_value_error(actual: Variant, expected: Variant) -> float:
+	if actual is Vector3 and expected is Vector3:
+		return (actual as Vector3).distance_to(expected as Vector3)
+	if actual is Quaternion and expected is Quaternion:
+		var actual_quaternion := actual as Quaternion
+		var expected_quaternion := expected as Quaternion
+		var direct := Vector4(
+			actual_quaternion.x - expected_quaternion.x,
+			actual_quaternion.y - expected_quaternion.y,
+			actual_quaternion.z - expected_quaternion.z,
+			actual_quaternion.w - expected_quaternion.w
+		).length()
+		var flipped := Vector4(
+			actual_quaternion.x + expected_quaternion.x,
+			actual_quaternion.y + expected_quaternion.y,
+			actual_quaternion.z + expected_quaternion.z,
+			actual_quaternion.w + expected_quaternion.w
+		).length()
+		return minf(direct, flipped)
+	if actual is float and expected is float:
+		return absf(float(actual) - float(expected))
+	return 0.0 if actual == expected else INF
+
+
+func _lock_horizontal_root_motion(animation: Animation) -> void:
+	for track_index in range(animation.get_track_count()):
+		if animation.track_get_type(track_index) != Animation.TYPE_POSITION_3D:
+			continue
+		if not String(animation.track_get_path(track_index)).ends_with(":root.x"):
+			continue
+		if animation.track_get_key_count(track_index) <= 0:
+			continue
+		var anchor := animation.track_get_key_value(track_index, 0) as Vector3
+		for key_index in range(animation.track_get_key_count(track_index)):
+			var value := animation.track_get_key_value(track_index, key_index) as Vector3
+			value.x = anchor.x
+			value.z = anchor.z
+			animation.track_set_key_value(track_index, key_index, value)
 
 
 func _sample_pose(
@@ -160,9 +283,13 @@ func _largest_pose_delta(first: Array, second: Array) -> float:
 	return largest
 
 
-func _largest_arm_segment_length_error(skeleton: Skeleton3D) -> float:
+func _largest_segment_length_error(
+		skeleton: Skeleton3D,
+		chains: Array,
+		midpoint_definitions: Array
+) -> float:
 	var largest := 0.0
-	for chain in ARM_CHAINS:
+	for chain in chains:
 		for index in range(chain.size() - 1):
 			var first_index := skeleton.find_bone(chain[index])
 			var second_index := skeleton.find_bone(chain[index + 1])
@@ -175,7 +302,7 @@ func _largest_arm_segment_length_error(skeleton: Skeleton3D) -> float:
 				skeleton.get_bone_global_pose(second_index).origin
 			)
 			largest = maxf(largest, absf(pose_length - rest_length))
-	for midpoint_definition in ARM_DEFORM_MIDPOINTS:
+	for midpoint_definition in midpoint_definitions:
 		var midpoint_index := skeleton.find_bone(midpoint_definition[0])
 		var start_index := skeleton.find_bone(midpoint_definition[1])
 		var end_index := skeleton.find_bone(midpoint_definition[2])

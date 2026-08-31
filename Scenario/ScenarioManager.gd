@@ -11,12 +11,14 @@ const LANDING_TEST_SCENARIO: int = 5
 const CARRIER_COMBAT_TEST_SCENARIO: int = 6
 const GROUND_COMBAT_TEST_SCENARIO: int = 7
 const CARRIER_COMBAT_DEFAULT_PROFILE := "continuous_intercept"
+const CARRIER_DESERT_RECOVERY_PROFILE := "desert_recovery"
 const MAP_LAYERED_BADLANDS := "layered_badlands"
 const AIRPLANE_TEST_MODE_SCRIPT: Script = preload("res://Scenario/AirplaneTestMode.gd")
 const DOGFIGHT_TEST_MODE_SCRIPT: Script = preload("res://Scenario/DogfightTestMode.gd")
 const LANDING_TEST_MODE_SCRIPT: Script = preload("res://Scenario/LandingTestMode.gd")
 const CARRIER_COMBAT_TEST_MODE_SCRIPT: Script = preload("res://Scenario/CarrierCombatTestMode.gd")
 const GROUND_COMBAT_TEST_MODE_SCRIPT: Script = preload("res://Scenario/GroundCombatTestMode.gd")
+const VEHICLE_SPAWN_MENU_SCRIPT: Script = preload("res://UI/VehicleSpawnMenu.gd")
 
 var restart_timer: Timer
 
@@ -86,12 +88,14 @@ var _dogfight_test_mode: Node = null
 var _landing_test_mode: Node = null
 var _carrier_combat_test_mode: Node = null
 var _ground_combat_test_mode: Node = null
+var _vehicle_spawn_menu: CanvasLayer = null
 
 func _enter_tree() -> void:
 	_configure_play_area_for_run()
 
 func _ready():
 	Engine.time_scale = 1.0
+	_setup_vehicle_spawn_menu()
 	add_to_group("origin_shifter")
 	_reset_helicopter_log()
 	var profiler_override := _load_frame_profiler_override()
@@ -164,9 +168,35 @@ func disable_structures_for_navigation_test() -> void:
 			turbine_container.queue_free()
 
 
-func _input(_event):
-	if Input.is_action_just_pressed("ui_cancel"):
+func _input(event: InputEvent):
+	if _is_vehicle_spawn_key_event(event):
+		if _vehicle_spawn_menu != null and not get_tree().paused:
+			_vehicle_spawn_menu.call("set_open", true)
+			get_viewport().set_input_as_handled()
+		return
+	if event.is_action_pressed("ui_cancel", false):
 		get_tree().quit()
+
+
+func _setup_vehicle_spawn_menu() -> void:
+	if _vehicle_spawn_menu != null and is_instance_valid(_vehicle_spawn_menu):
+		return
+	_vehicle_spawn_menu = VEHICLE_SPAWN_MENU_SCRIPT.new() as CanvasLayer
+	if _vehicle_spawn_menu == null:
+		push_warning("ScenarioManager: vehicle spawn menu could not be created")
+		return
+	_vehicle_spawn_menu.name = "VehicleSpawnMenu"
+	add_child(_vehicle_spawn_menu)
+
+
+func _is_vehicle_spawn_key_event(event: InputEvent) -> bool:
+	if not (event is InputEventKey):
+		return false
+	var key_event := event as InputEventKey
+	if not key_event.pressed or key_event.echo \
+			or key_event.ctrl_pressed or key_event.alt_pressed or key_event.meta_pressed:
+		return false
+	return key_event.physical_keycode == KEY_S or key_event.keycode == KEY_S
 
 
 func _process(delta: float) -> void:
@@ -258,7 +288,7 @@ func _configure_play_area_for_run() -> void:
 	var saved_terrain_position := _get_pending_saved_terrain_position()
 	if saved_terrain_position != Vector3.INF:
 		terrain.position = saved_terrain_position
-	var selected_map_id := _get_selected_map_id()
+	var selected_map_id := _get_effective_map_id()
 	if terrain.has_method("set_map_profile"):
 		terrain.call("set_map_profile", selected_map_id)
 
@@ -324,8 +354,17 @@ func _get_selected_map_id() -> String:
 	return str(map_value) if map_value != null else "open_canyons"
 
 
+func _get_effective_map_id() -> String:
+	# The recovery range is deliberately a desert baseline, independent of the
+	# last campaign map selected in GameSession. Other scenarios retain that choice.
+	if _get_requested_test_scenario() == CARRIER_COMBAT_TEST_SCENARIO \
+			and _get_requested_carrier_combat_profile() == CARRIER_DESERT_RECOVERY_PROFILE:
+		return "open_canyons"
+	return _get_selected_map_id()
+
+
 func _schedule_selected_map_validation() -> void:
-	if _get_selected_map_id() != MAP_LAYERED_BADLANDS:
+	if _get_effective_map_id() != MAP_LAYERED_BADLANDS:
 		return
 	if TerrainNavGrid.is_ready():
 		call_deferred("_validate_selected_map_profile")

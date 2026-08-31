@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://dixp3rwt7teeg"
+path="res://.godot/imported/British male - Tally I'm in Engaging.wav-83e871a415a98a8a32f545cc25b2b5f1.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/British Male/British male - Tally I'm in Engaging.wav"
+dest_files=["res://.godot/imported/British male - Tally I'm in Engaging.wav-83e871a415a98a8a32f545cc25b2b5f1.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

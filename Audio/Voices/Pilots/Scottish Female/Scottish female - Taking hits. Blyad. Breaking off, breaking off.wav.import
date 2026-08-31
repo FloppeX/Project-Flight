@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://cbm214kitidxl"
+path="res://.godot/imported/Scottish female - Taking hits. Blyad. Breaking off, breaking off.wav-65c76a95981499e66a0e4a99b7cf6cf6.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/Scottish Female/Scottish female - Taking hits. Blyad. Breaking off, breaking off.wav"
+dest_files=["res://.godot/imported/Scottish female - Taking hits. Blyad. Breaking off, breaking off.wav-65c76a95981499e66a0e4a99b7cf6cf6.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

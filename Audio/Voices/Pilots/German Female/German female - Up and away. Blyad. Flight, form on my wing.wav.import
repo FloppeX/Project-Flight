@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://b5rimfrer7mef"
+path="res://.godot/imported/German female - Up and away. Blyad. Flight, form on my wing.wav-ce9769df1f78cb922efe04ed5be89261.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/German Female/German female - Up and away. Blyad. Flight, form on my wing.wav"
+dest_files=["res://.godot/imported/German female - Up and away. Blyad. Flight, form on my wing.wav-ce9769df1f78cb922efe04ed5be89261.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

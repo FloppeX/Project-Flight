@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://dooarw2u87ung"
+path="res://.godot/imported/German female - Splash one. Slava Ukraini.wav-de056dfc2e191f470c5089d2ba137c3a.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/German Female/German female - Splash one. Slava Ukraini.wav"
+dest_files=["res://.godot/imported/German female - Splash one. Slava Ukraini.wav-de056dfc2e191f470c5089d2ba137c3a.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://bgvi3fkc1xs4a"
+path="res://.godot/imported/Brazilian male - Splash one. Slava Ukraini.wav-e636e7645261c23116a7a3322f385915.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/Brazilian Male/Brazilian male - Splash one. Slava Ukraini.wav"
+dest_files=["res://.godot/imported/Brazilian male - Splash one. Slava Ukraini.wav-e636e7645261c23116a7a3322f385915.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

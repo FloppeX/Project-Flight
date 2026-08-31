@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://cb4adyliq4k43"
+path="res://.godot/imported/Citadel - Dingo flight, bandits on scope. Intercept. Weapons free.wav-2237b8ab7f829c9e3d7754bfd60cba48.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Citadel/Citadel - Dingo flight, bandits on scope. Intercept. Weapons free.wav"
+dest_files=["res://.godot/imported/Citadel - Dingo flight, bandits on scope. Intercept. Weapons free.wav-2237b8ab7f829c9e3d7754bfd60cba48.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

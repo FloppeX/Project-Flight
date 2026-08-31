@@ -33,8 +33,22 @@ const PROFILE_INTEGRATED := "integrated"
 const PROFILE_FULL_CYCLE := "full_cycle"
 const PROFILE_ROLLING_RECOVERY := "rolling_recovery"
 const PROFILE_MIXED_RECOVERY := "mixed_recovery"
+const PROFILE_DESERT_RECOVERY := "desert_recovery"
 const PROFILE_ROLE_STRESS := "role_stress"
 const PROJECT_ROCKET_SPECIALIST_PATH := "res://Scenario/airplane_test_best_rocket_genome.json"
+const DESERT_RECOVERY_MODEL_ROSTER: PackedStringArray = [
+	"Aircraft_1", "Aircraft_2", "Aircraft_5", "Aircraft_7",
+	"Aircraft_8", "Aircraft_5", "Aircraft_1", "Aircraft_7",
+]
+const DESERT_RECOVERY_STAGE_KEYS: PackedStringArray = [
+	"launch_complete",
+	"outbound_complete",
+	"rtb_started",
+	"recovery_route",
+	"pre_landing",
+	"final_handoff",
+	"confirmed_landing",
+]
 
 enum Stage { SETUP, GROUND_STRIKE, AIR_COMBAT, RECOVERY, ROLLING, COMPLETE }
 
@@ -79,12 +93,12 @@ enum Stage { SETUP, GROUND_STRIKE, AIR_COMBAT, RECOVERY, ROLLING, COMPLETE }
 @export var initial_launch_watchdog_s: float = 90.0
 @export var ground_assignment_min_agl_m: float = 300.0
 @export var keep_carrier_at_verified_pose: bool = true
-@export_enum("continuous_intercept", "isolated_ground_attack", "integrated", "full_cycle", "rolling_recovery", "mixed_recovery", "role_stress") var test_profile: String = PROFILE_CONTINUOUS_INTERCEPT
+@export_enum("continuous_intercept", "isolated_ground_attack", "integrated", "full_cycle", "rolling_recovery", "mixed_recovery", "desert_recovery", "role_stress") var test_profile: String = PROFILE_CONTINUOUS_INTERCEPT
 @export var continuous_intercept_mode: bool = true
 @export_range(1, 8, 1) var continuous_friendly_count: int = 2
 @export_range(1, 8, 1) var continuous_enemy_count: int = 2
 @export_group("Rolling Recovery")
-@export_range(1, 5, 1) var rolling_active_aircraft_max: int = 5
+@export_range(1, 8, 1) var rolling_active_aircraft_max: int = 5
 @export var rolling_outbound_min_m: float = 4000.0
 @export var rolling_outbound_max_m: float = 6000.0
 @export var rolling_outbound_altitude_agl_m: float = 520.0
@@ -94,6 +108,27 @@ enum Stage { SETUP, GROUND_STRIKE, AIR_COMBAT, RECOVERY, ROLLING, COMPLETE }
 @export_range(0, 1000, 1) var rolling_target_traps: int = 10
 @export var rolling_random_seed: int = 20260801
 @export var rolling_finite_cohort: bool = false
+@export_group("Desert Recovery")
+@export_range(1, 8, 1) var desert_recovery_active_cap: int = 6
+## Keep refilling the active pool until several complete rotations have been
+## observed. Set to 0 from the command line for an intentionally unlimited run.
+@export_range(0, 1000, 1) var desert_recovery_target_traps: int = 24
+@export var desert_recovery_open_radius_m: float = 900.0
+@export var desert_recovery_max_relief_m: float = 30.0
+## PRE_LANDING starts about 2.8 km behind touchdown. Keep the carrier bubble
+## modest, then validate this longer strip along each candidate landing heading.
+@export var desert_recovery_final_corridor_length_m: float = 3200.0
+@export var desert_recovery_final_corridor_half_width_m: float = 350.0
+@export var desert_recovery_final_corridor_max_relief_m: float = 80.0
+@export var desert_recovery_initial_launch_timeout_s: float = 240.0
+@export var desert_recovery_outbound_distance_m: float = 10000.0
+@export_range(0.1, 0.9, 0.05) var desert_recovery_recall_arm_fraction: float = 0.5
+@export var desert_recovery_recall_delay_min_s: float = 5.0
+@export var desert_recovery_recall_delay_max_s: float = 35.0
+## Test-only diagnosis: let the final controller receive a dirty approach after
+## logging the normal handoff-gate failures. Final capture, wire and confirmed-
+## landing gates remain unchanged, so a bad attempt still fails noisily.
+@export var desert_recovery_diagnostic_final_attempt: bool = true
 @export_group("Mixed Recovery")
 @export_range(1, 3, 1) var mixed_helicopter_count: int = 2
 @export_range(1, 3, 1) var mixed_fixed_wing_count: int = 2
@@ -147,6 +182,7 @@ var _isolated_ground_attack_mode: bool = false
 var _full_cycle_mode: bool = false
 var _rolling_recovery_mode: bool = false
 var _mixed_recovery_mode: bool = false
+var _desert_recovery_mode: bool = false
 var _role_stress_mode: bool = false
 var _weapon_focus_override_requested: bool = false
 var _rolling_rng := RandomNumberGenerator.new()
@@ -174,6 +210,8 @@ var _role_stress_patrol_requested: bool = false
 var _role_stress_enemy_fighters_spawned: bool = false
 var _role_stress_recovery_started: bool = false
 var _role_stress_role_violations: int = 0
+var _desert_recovery_stage_counts: Dictionary = {}
+var _completion_reason: String = ""
 
 
 func configure(play_area_center: Vector3) -> void:
@@ -188,6 +226,7 @@ func set_test_profile(profile: String) -> void:
 		PROFILE_FULL_CYCLE,
 		PROFILE_ROLLING_RECOVERY,
 		PROFILE_MIXED_RECOVERY,
+		PROFILE_DESERT_RECOVERY,
 		PROFILE_ROLE_STRESS,
 	]:
 		push_warning("[CarrierCombatTest] Unknown profile '%s'; using %s" % [profile, PROFILE_CONTINUOUS_INTERCEPT])
@@ -216,11 +255,24 @@ func _sync_test_profile_flags() -> void:
 	_role_stress_mode = test_profile == PROFILE_ROLE_STRESS
 	_full_cycle_mode = test_profile in [PROFILE_FULL_CYCLE, PROFILE_ROLE_STRESS]
 	_mixed_recovery_mode = test_profile == PROFILE_MIXED_RECOVERY
-	_rolling_recovery_mode = test_profile in [PROFILE_ROLLING_RECOVERY, PROFILE_MIXED_RECOVERY]
+	_desert_recovery_mode = test_profile == PROFILE_DESERT_RECOVERY
+	_rolling_recovery_mode = test_profile in [
+		PROFILE_ROLLING_RECOVERY,
+		PROFILE_MIXED_RECOVERY,
+		PROFILE_DESERT_RECOVERY,
+	]
 	if _mixed_recovery_mode:
 		rolling_finite_cohort = true
 		rolling_active_aircraft_max = mixed_helicopter_count + mixed_fixed_wing_count
 		rolling_target_traps = rolling_active_aircraft_max
+	elif _desert_recovery_mode:
+		desert_recovery_active_cap = clampi(desert_recovery_active_cap, 1, 8)
+		rolling_active_aircraft_max = desert_recovery_active_cap
+		rolling_target_traps = maxi(desert_recovery_target_traps, 0)
+		rolling_finite_cohort = false
+		rolling_outbound_min_m = maxf(desert_recovery_outbound_distance_m, 1000.0)
+		rolling_outbound_max_m = rolling_outbound_min_m
+		rolling_outbound_altitude_agl_m = 500.0
 	# Existing observation profiles deliberately keep their verified static pose.
 	# The end-to-end mission explicitly tests launch, combat and recovery from a
 	# carrier that resumes its patrol after the second catapult shot.
@@ -261,6 +313,13 @@ func _ready() -> void:
 			_log("START requested: strike-to-recovery cycle; moving carrier; 4-vehicle enemy platoon (truck/buggy/pickup) advancing from 5000m; 2x Aircraft_5 independently randomized to 2x finite rocket canisters + gun or 2x finite bomb racks + gun; survivors recover immediately after the vehicles are destroyed; enemy air skipped")
 		else:
 			_log("START requested: full cycle; moving carrier; 4-vehicle enemy platoon (truck/buggy/pickup) advancing from 5000m; 2x Aircraft_5 independently randomized to 2x finite rocket canisters + gun or 2x finite bomb racks + gun; then 2x live Aircraft_4 bombers at 6000m; survivors recover")
+	elif _desert_recovery_mode:
+		_log("START requested: dedicated desert land-carrier recovery; models=%s active_cap=%d (expandable_to=8) outbound=%.0f-%.0fm; autonomous catapult launch, controlled transit, recall, RTB route, strict final handoff, wire catch, and hangar recovery" % [
+			", ".join(_desert_recovery_models_for_cap()),
+			rolling_active_aircraft_max,
+			rolling_outbound_min_m,
+			rolling_outbound_max_m,
+		])
 	elif _rolling_recovery_mode:
 		var recovery_test_name := "mixed helicopter/fixed-wing recovery" if _mixed_recovery_mode else "rolling recovery"
 		_log("START requested: %s; max_active=%d outbound=%.0f-%.0fm target_traps=%s seed=%d mode=%s; real hangar launch, shared FIFO landing clearance, recovery hold, touchdown/arrest, tractor, hangar%s" % [
@@ -290,8 +349,15 @@ func _configure_batch_run_from_cli() -> void:
 		rolling_active_aircraft_max = clampi(
 			int(rolling_active_text),
 			1,
-			5
+			8
 		)
+		if _desert_recovery_mode:
+			desert_recovery_active_cap = rolling_active_aircraft_max
+	var rolling_target_text := _get_cmdline_option("--rolling-target-traps=")
+	if rolling_target_text.is_valid_int():
+		rolling_target_traps = clampi(int(rolling_target_text), 0, 1000)
+		if _desert_recovery_mode:
+			desert_recovery_target_traps = rolling_target_traps
 	_test_run_id = _sanitize_run_id(_get_cmdline_option("--test-run-id="))
 	_quit_on_test_complete = OS.get_cmdline_user_args().has("--quit-on-test-complete")
 	if OS.get_cmdline_user_args().has("--include-enemy-air"):
@@ -346,6 +412,13 @@ func _setup_scenario() -> void:
 	if not _hold_carrier_for_launches():
 		_log("ERROR setup failed: no terrain-safe carrier launch/recovery pose found")
 		return
+	# The contained profiles can move the already-instantiated carrier many
+	# kilometres in one assignment. Give top-level elevator physics bodies and
+	# cached catapult transforms two physics ticks to adopt the new carrier pose
+	# before any aircraft is spawned for retrieval.
+	for _settle_frame in range(2):
+		await get_tree().physics_frame
+		await get_tree().process_frame
 	_connect_arresting_cables()
 	if _role_stress_mode:
 		# Keep the platoon live and dangerous, but make this role/recovery stress test
@@ -369,7 +442,20 @@ func _setup_scenario() -> void:
 		_stage = Stage.ROLLING
 		_stage_started_s = _elapsed_s
 		_started = true
-		if _mixed_recovery_mode:
+		if _desert_recovery_mode:
+			_initialize_desert_recovery_stage_counts()
+			if not _ensure_desert_recovery_hangar_stock():
+				_stage = Stage.COMPLETE
+				_completion_reason = "desert_hangar_preparation_failed"
+				_log("FAILED desert recovery: compatible hangar stock could not be prepared")
+				return
+			_fdm.set("prioritize_ai_launch_refill_over_waiting_recovery", true)
+			_request_desert_recovery_launches()
+			_log("PHASE desert recovery active; fixed-wing=%d models=%s combat=disabled carrier=held site=open_level_desert" % [
+				rolling_active_aircraft_max,
+				", ".join(_desert_recovery_models_for_cap()),
+			])
+		elif _mixed_recovery_mode:
 			_request_mixed_launches()
 			_log("PHASE mixed recovery active; %d helicopters + %d fixed-wing aircraft; combat disabled, carrier held at verified launch/recovery pose" % [
 				mixed_helicopter_count,
@@ -949,10 +1035,19 @@ func notify_aircraft_launched(pilot: Node) -> void:
 		_role_stress_patrol_launches += 1
 	if _mixed_recovery_mode:
 		_mixed_fixed_wing_launches += 1
+	var desert_model := _desert_recovery_model_for_craft(craft) if _desert_recovery_mode else ""
 	craft.name = ("RoleStress_CAP_%02d" % _role_stress_patrol_launches) if _role_stress_mode else (
-		("RecoveryCycle_%03d" if _rolling_recovery_mode else "Combat_Friendly_%d") % _friendly_launches
+		("DesertRecovery_%02d_%s" % [_friendly_launches, desert_model]) if _desert_recovery_mode else (
+			("RecoveryCycle_%03d" if _rolling_recovery_mode else "Combat_Friendly_%d") % _friendly_launches
+		)
 	)
 	craft.set_meta("carrier_combat_test", true)
+	if _desert_recovery_mode:
+		craft.set_meta(
+			"recovery_diagnostic_force_final_handoff",
+			desert_recovery_diagnostic_final_attempt
+		)
+		craft.set_meta("recovery_diagnostic_handoff", false)
 	_configure_pilot(pilot, true)
 	if _role_stress_mode:
 		pilot.set("ground_attack_enabled", false)
@@ -980,7 +1075,9 @@ func notify_aircraft_launched(pilot: Node) -> void:
 		record["rolling_hold_started_s"] = -1.0
 		record["rolling_clearance_s"] = -1.0
 		record["rolling_queue_position"] = -2
-	_aircraft_records[id] = record
+		_aircraft_records[id] = record
+		if _desert_recovery_mode:
+			_record_desert_recovery_stage(id, "launch_complete", "model=%s" % desert_model)
 	if _rolling_recovery_mode:
 		_log("ROLLING_SLOT launched aircraft=%s active=%d pending=%d traps=%d/%s" % [
 			craft.name,
@@ -1120,10 +1217,137 @@ func _request_rolling_launches() -> void:
 
 
 func _request_recovery_test_launches() -> void:
-	if _mixed_recovery_mode:
+	if _desert_recovery_mode:
+		_request_desert_recovery_launches()
+	elif _mixed_recovery_mode:
 		_request_mixed_launches()
 	else:
 		_request_rolling_launches()
+
+
+func _request_desert_recovery_launches() -> void:
+	if not _desert_recovery_mode or _stage != Stage.ROLLING or not is_instance_valid(_fdm):
+		return
+	if _friendly_launch_requests_outstanding > 0:
+		return
+	var active_count := _rolling_active_aircraft_count()
+	var committed_active := active_count + _friendly_launch_requests_outstanding
+	if committed_active >= rolling_active_aircraft_max:
+		return
+	if rolling_target_traps > 0 and _rolling_traps >= rolling_target_traps:
+		return
+	# Reserve the complete airborne deficit in one operation. The prepared hangar
+	# order supplies the varied authored roster, followed by physical spares and
+	# returned aircraft, without serializing the refill behind one model callback.
+	var request_count := rolling_active_aircraft_max - committed_active
+	var queued := int(_fdm.call(
+		"queue_ai_flight",
+		request_count,
+		self,
+		INTERCEPT_LOADOUT_PROFILE
+	))
+	_friendly_launch_requests_outstanding = queued
+	if queued <= 0:
+		if _elapsed_s - _rolling_last_refill_log_s >= 10.0:
+			_rolling_last_refill_log_s = _elapsed_s
+			_log("DESERT_REFILL_WAIT requested=%d active=%d/%d traps=%d/%s hangar_turnaround=true" % [
+				request_count,
+				active_count,
+				rolling_active_aircraft_max,
+				_rolling_traps,
+				str(rolling_target_traps) if rolling_target_traps > 0 else "unlimited",
+			])
+		return
+	_rolling_last_refill_log_s = _elapsed_s
+	_log("DESERT_REFILL_ORDER requested=%d queued=%d active=%d committed=%d/%d traps=%d/%s priority=waiting_recovery" % [
+		request_count,
+		queued,
+		active_count,
+		active_count + queued,
+		rolling_active_aircraft_max,
+		_rolling_traps,
+		str(rolling_target_traps) if rolling_target_traps > 0 else "unlimited",
+	])
+
+
+func _desert_recovery_models_for_cap() -> PackedStringArray:
+	var models := PackedStringArray()
+	var count := mini(clampi(rolling_active_aircraft_max, 1, 8), DESERT_RECOVERY_MODEL_ROSTER.size())
+	for i in range(count):
+		models.append(DESERT_RECOVERY_MODEL_ROSTER[i])
+	return models
+
+
+func _desert_recovery_model_for_craft(craft: Node) -> String:
+	if not is_instance_valid(craft):
+		return "Aircraft_unknown"
+	var scene_path := craft.scene_file_path.to_lower()
+	for model in DESERT_RECOVERY_MODEL_ROSTER:
+		if scene_path.contains(model.to_lower() + ".tscn"):
+			return model
+	return "Aircraft_unknown"
+
+
+func _ensure_desert_recovery_hangar_stock() -> bool:
+	if not is_instance_valid(_fdm):
+		return false
+	var stored_variant: Variant = _fdm.get("stored_aircraft")
+	if not (stored_variant is Array):
+		return false
+	var stored: Array = stored_variant
+	var fixed_wing_indices: Array[int] = []
+	for i in range(stored.size()):
+		if not (stored[i] is Dictionary):
+			continue
+		var entry := stored[i] as Dictionary
+		var scene_file := str(entry.get("scene_file", "")).to_lower()
+		var entry_name := str(entry.get("name", "")).to_lower()
+		var helicopter := scene_file.contains("aircraft_9.tscn") \
+				or scene_file.contains("aircraft_10.tscn") \
+				or scene_file.contains("aircraft_11.tscn") \
+				or entry_name.begins_with("aircraft_9") \
+				or entry_name.begins_with("aircraft_10") \
+				or entry_name.begins_with("aircraft_11")
+		if not helicopter:
+			fixed_wing_indices.append(i)
+	# Provision all eight authored roster entries. With the default six-aircraft
+	# active cap this leaves two physical spares ready while a caught aircraft is
+	# still being tractored to the hangar.
+	var models := PackedStringArray()
+	var stock_count := mini(fixed_wing_indices.size(), DESERT_RECOVERY_MODEL_ROSTER.size())
+	for i in range(stock_count):
+		models.append(DESERT_RECOVERY_MODEL_ROSTER[i])
+	if fixed_wing_indices.size() < models.size():
+		_log("DESERT_HANGAR insufficient fixed_wing_slots=%d required=%d" % [
+			fixed_wing_indices.size(),
+			models.size(),
+		])
+		return false
+	for slot in range(models.size()):
+		var model := models[slot]
+		var path := "res://Aircraft/%s.tscn" % model
+		var scene := load(path) as PackedScene
+		if scene == null:
+			_log("DESERT_HANGAR missing model=%s path=%s" % [model, path])
+			return false
+		var index := fixed_wing_indices[slot]
+		var entry := stored[index] as Dictionary
+		entry["name"] = "DesertRecoveryStored_%02d_%s" % [slot + 1, model]
+		entry["scene_file"] = path
+		entry["scene"] = scene
+		var metadata: Dictionary = entry.get("metadata", {})
+		metadata["desert_recovery_model"] = model
+		entry["metadata"] = metadata
+		stored[index] = entry
+	_fdm.set("stored_aircraft", stored)
+	_log("DESERT_HANGAR prepared=%d models=%s fixed_wing_slots=%d active_cap=%d spares=%d" % [
+		models.size(),
+		", ".join(models),
+		fixed_wing_indices.size(),
+		rolling_active_aircraft_max,
+		maxi(models.size() - rolling_active_aircraft_max, 0),
+	])
+	return true
 
 
 func _request_mixed_launches() -> void:
@@ -1320,6 +1544,11 @@ func _assign_rolling_outbound(id: int, record: Dictionary) -> bool:
 	record["rolling_status"] = "outbound"
 	record["rolling_outbound_point"] = outbound_point
 	record["rolling_outbound_range_m"] = range_m
+	record["rolling_outbound_origin"] = _carrier.global_position
+	record["rolling_outbound_bearing_rad"] = bearing_rad
+	if _desert_recovery_mode:
+		record["desert_recall_due_s"] = -1.0
+		record["desert_recall_delay_s"] = -1.0
 	_aircraft_records[id] = record
 	_log("ROLLING_OUTBOUND aircraft=%s point=%s range=%.0fm bearing=%.1fdeg altitude=%.0fm agl=%.0fm" % [
 		craft.name,
@@ -1408,14 +1637,87 @@ func _poll_rolling_aircraft() -> void:
 			var outbound_value: Variant = record.get("rolling_outbound_point", Vector3.INF)
 			if outbound_value is Vector3 and outbound_value != Vector3.INF:
 				var outbound_point: Vector3 = outbound_value
-				var distance_m := _flat_distance(craft.global_position, outbound_point)
+				var distance_to_point_m := _flat_distance(craft.global_position, outbound_point)
+				var outbound_origin_value: Variant = record.get(
+					"rolling_outbound_origin",
+					_carrier.global_position if is_instance_valid(_carrier) else Vector3.ZERO
+				)
+				var outbound_origin: Vector3 = outbound_origin_value \
+						if outbound_origin_value is Vector3 else Vector3.ZERO
+				var outbound_distance_m := _flat_distance(craft.global_position, outbound_origin)
 				# A finite one-leg plan changes to SEARCH after crossing its terminal
 				# gate. Accept that contract as well as spatial capture so a high-speed
 				# endpoint miss cannot wander indefinitely before returning.
 				var outbound_route_complete := ops_domain == "fixed_wing" \
 						and state == AIPilot.State.SEARCH
-				if distance_m <= maxf(rolling_outbound_capture_radius_m, 50.0) \
-						or outbound_route_complete:
+				var desert_initial_cohort_ready := not _desert_recovery_mode \
+						or (
+							_friendly_launches >= _desert_recovery_models_for_cap().size() \
+							and _friendly_launch_requests_outstanding <= 0
+						)
+				var recall_trigger := "route_complete" if outbound_route_complete else "radius"
+				var outbound_reached := distance_to_point_m <= maxf(rolling_outbound_capture_radius_m, 50.0) \
+						or outbound_route_complete
+				if _desert_recovery_mode:
+					# Each aircraft owns a random 10 km bearing. Crossing the configured
+					# fraction arms an independent delay; the plane keeps flying its route
+					# until that timer expires, producing dispersed return geometry.
+					var target_range_m := maxf(
+						float(record.get("rolling_outbound_range_m", desert_recovery_outbound_distance_m)),
+						1000.0
+					)
+					var recall_arm_distance_m := target_range_m * clampf(
+						desert_recovery_recall_arm_fraction,
+						0.1,
+						0.9
+					)
+					var recall_due_s := float(record.get("desert_recall_due_s", -1.0))
+					if recall_due_s < 0.0 \
+							and desert_initial_cohort_ready \
+							and outbound_distance_m >= recall_arm_distance_m:
+						var min_delay_s := maxf(desert_recovery_recall_delay_min_s, 0.0)
+						var max_delay_s := maxf(desert_recovery_recall_delay_max_s, min_delay_s)
+						var recall_delay_s := _rolling_rng.randf_range(min_delay_s, max_delay_s)
+						recall_due_s = _elapsed_s + recall_delay_s
+						record["desert_recall_due_s"] = recall_due_s
+						record["desert_recall_delay_s"] = recall_delay_s
+						record["desert_recall_arm_distance_m"] = outbound_distance_m
+						if not bool(record.get("rolling_outbound_complete", false)):
+							record["rolling_outbound_complete"] = true
+							_record_desert_recovery_stage(
+								id,
+								"outbound_complete",
+								"trigger=halfway distance=%.0fm target=%.0fm recall_delay=%.1fs" % [
+									outbound_distance_m,
+									target_range_m,
+									recall_delay_s,
+								]
+							)
+						_aircraft_records[id] = record
+						_log("DESERT_RECALL_ARMED aircraft=%s distance=%.0fm target=%.0fm delay=%.1fs due=%.1fs" % [
+							craft.name,
+							outbound_distance_m,
+							target_range_m,
+							recall_delay_s,
+							recall_due_s,
+						])
+					outbound_reached = recall_due_s >= 0.0 and _elapsed_s >= recall_due_s
+					recall_trigger = "random_delay_after_halfway"
+				if outbound_reached:
+					if not bool(record.get("rolling_outbound_complete", false)):
+						record["rolling_outbound_complete"] = true
+						_aircraft_records[id] = record
+						if _desert_recovery_mode:
+							_record_desert_recovery_stage(
+								id,
+								"outbound_complete",
+								"trigger=%s distance=%.0fm" % [
+									recall_trigger,
+									outbound_distance_m,
+								]
+							)
+					if not desert_initial_cohort_ready:
+						continue
 					if ops_domain == "fixed_wing":
 						pilot.set("ground_attack_enabled", false)
 						pilot.set("dogfight_enabled", false)
@@ -1427,12 +1729,21 @@ func _poll_rolling_aircraft() -> void:
 						record["rolling_recovery_started_s"] = _elapsed_s
 						_recovery_requested[id] = true
 						_aircraft_records[id] = record
+						if _desert_recovery_mode:
+							_record_desert_recovery_stage(
+								id,
+								"rtb_started",
+								"recall_accepted=true trigger=%s distance=%.0fm" % [
+									recall_trigger,
+									outbound_distance_m,
+								]
+							)
 						_log("ROLLING_RETURN aircraft=%s type=%s outbound_reached=%.0fm recovery_accepted=true state=%s trigger=%s" % [
 							craft.name,
 							ops_domain,
-							float(record.get("rolling_outbound_range_m", 0.0)),
+							outbound_distance_m,
 							_ops_state_name(pilot, ops_domain),
-							"route_complete" if outbound_route_complete else "radius",
+							recall_trigger,
 						])
 			continue
 		if status != "recovery":
@@ -1544,7 +1855,7 @@ func _stage_carrier_at_safe_test_pose() -> bool:
 	# at the live grid centre and search outward from there. Other observation
 	# profiles preserve their established nearest-to-normal-start behavior.
 	var staging_center := original_transform.origin
-	if _full_cycle_mode:
+	if _full_cycle_mode or _desert_recovery_mode:
 		staging_center = _tactical_map_center_world()
 		staging_center.y = original_transform.origin.y
 	# Ordered nearest-first around the selected anchor. Rotation is cheaper than
@@ -1576,9 +1887,17 @@ func _stage_carrier_at_safe_test_pose() -> bool:
 			candidate_ground_m + ride_height_m,
 			candidate_xz.z
 		)
+		if _desert_recovery_mode and not _desert_recovery_site_is_open(candidate_position):
+			continue
 		for heading_offset_deg in heading_offsets_deg:
 			var candidate_heading_rad: float = original_heading_rad + deg_to_rad(heading_offset_deg)
 			var candidate_basis := Basis(Vector3.UP, candidate_heading_rad)
+			if _desert_recovery_mode \
+					and not _desert_recovery_final_corridor_is_open(
+						candidate_position,
+						candidate_basis
+					):
+				continue
 			if not _carrier_staging_surface_is_flat(candidate_position, candidate_basis):
 				continue
 			_carrier.global_transform = Transform3D(candidate_basis, candidate_position)
@@ -1591,7 +1910,7 @@ func _stage_carrier_at_safe_test_pose() -> bool:
 					and _fdm.has_method("_landing_path_clear_of_terrain") \
 					and not bool(_fdm.call("_landing_path_clear_of_terrain", true)):
 				continue
-			if not continuous_intercept_mode:
+			if not continuous_intercept_mode and not _rolling_recovery_mode:
 				var carrier_forward := candidate_basis.z.normalized()
 				var carrier_right := candidate_basis.x.normalized()
 				if _find_ground_target_cluster_site(carrier_forward, carrier_right, target_offsets).is_empty():
@@ -1602,7 +1921,9 @@ func _stage_carrier_at_safe_test_pose() -> bool:
 				# choose legal destinations inside the same navigation/map footprint.
 				var flat_forward := Vector3(candidate_basis.z.x, 0.0, candidate_basis.z.z).normalized()
 				_carrier_resume_route_offset = flat_forward * maxf(full_cycle_carrier_initial_patrol_leg_m, 500.0)
-			var validated_for := "launch+climb" if continuous_intercept_mode else "launch+climb+recovery+targets"
+			var validated_for := "launch+climb+recovery+open_level_desert" if _desert_recovery_mode else (
+				"launch+climb" if continuous_intercept_mode else "launch+climb+recovery+targets"
+			)
 			_log("CARRIER_STAGED pos=%s heading=%.1fdeg moved=%.0fm map_center=%s poses_tested=%d validated=%s" % [
 				_fmt(candidate_position),
 				rad_to_deg(candidate_heading_rad),
@@ -1619,6 +1940,66 @@ func _stage_carrier_at_safe_test_pose() -> bool:
 		_fmt(original_transform.origin),
 	])
 	return false
+
+
+func _desert_recovery_site_is_open(position: Vector3) -> bool:
+	var center_ground_m := _ground_height(position)
+	if not is_finite(center_ground_m):
+		return false
+	var radius_m := maxf(desert_recovery_open_radius_m, 300.0)
+	var max_relief_m := maxf(desert_recovery_final_corridor_max_relief_m, 5.0)
+	var min_height_m := center_ground_m
+	var max_height_m := center_ground_m
+	# Three rings reject carrier starts beside narrow ridges or cliff shelves. The
+	# longer, heading-dependent final strip is checked separately below.
+	for ring_fraction in [0.33, 0.66, 1.0]:
+		var ring_radius_m: float = radius_m * float(ring_fraction)
+		for bearing_deg in range(0, 360, 30):
+			var direction := Vector3.FORWARD.rotated(Vector3.UP, deg_to_rad(float(bearing_deg)))
+			var ground_m := _ground_height(position + direction * ring_radius_m)
+			if not is_finite(ground_m):
+				return false
+			min_height_m = minf(min_height_m, ground_m)
+			max_height_m = maxf(max_height_m, ground_m)
+			if absf(ground_m - center_ground_m) > max_relief_m:
+				return false
+	return max_height_m - min_height_m <= max_relief_m
+
+
+func _desert_recovery_final_corridor_is_open(
+	carrier_position: Vector3,
+	carrier_basis: Basis
+) -> bool:
+	## The generic FlightDeckManager check protects the close final. This profile
+	## additionally guarantees that the entire authored PRE_LANDING straight is on
+	## the same broad desert level, with enough width for normal lateral correction.
+	var center_ground_m := _ground_height(carrier_position)
+	if not is_finite(center_ground_m):
+		return false
+	var corridor_length_m := maxf(desert_recovery_final_corridor_length_m, 2800.0)
+	var half_width_m := maxf(desert_recovery_final_corridor_half_width_m, 100.0)
+	var max_relief_m := maxf(desert_recovery_max_relief_m, 5.0)
+	var approach_axis := Vector3(
+		carrier_basis.z.x,
+		0.0,
+		carrier_basis.z.z
+	).normalized()
+	var lateral_axis := Vector3(
+		carrier_basis.x.x,
+		0.0,
+		carrier_basis.x.z
+	).normalized()
+	for along_fraction in [0.25, 0.5, 0.75, 1.0]:
+		var along_m: float = corridor_length_m * float(along_fraction)
+		for lateral_fraction in [-1.0, -0.5, 0.0, 0.5, 1.0]:
+			var probe := carrier_position \
+					+ approach_axis * along_m \
+					+ lateral_axis * half_width_m * float(lateral_fraction)
+			var ground_m := _ground_height(probe)
+			if not is_finite(ground_m) \
+					or absf(ground_m - center_ground_m) > max_relief_m:
+				return false
+	return true
 
 
 func _tactical_map_center_world() -> Vector3:
@@ -3163,6 +3544,8 @@ func _on_cable_engaged(aircraft_variant: Variant, cable: Node) -> void:
 	var lateral: float = float(cable.call("get_engage_lateral_m")) if is_instance_valid(cable) and cable.has_method("get_engage_lateral_m") else NAN
 	_log("LANDING caught aircraft=%s wire=%d lateral=%.2fm speed=%.1fm/s" % [craft.name, wire, lateral, craft.linear_velocity.length()])
 	if _rolling_recovery_mode and _stage == Stage.ROLLING:
+		if _desert_recovery_mode:
+			_record_desert_recovery_stage(id, "confirmed_landing", "wire=%d lateral=%.2fm" % [wire, lateral])
 		_record_rolling_recovery(craft, wire, lateral, "fixed_wing")
 		return
 	_caught_aircraft[id] = true
@@ -3513,6 +3896,18 @@ func _physics_process(delta: float) -> void:
 			# otherwise waits forever even though the deck is physically empty.
 			_fdm.set("current_state", 0) # FlightDeckManager.DeckState.IDLE
 			_fdm.call("_launch_next_queued_ai")
+	if _desert_recovery_mode \
+			and _stage == Stage.ROLLING \
+			and _friendly_launches == 0 \
+			and _elapsed_s - _stage_started_s >= maxf(desert_recovery_initial_launch_timeout_s, 30.0):
+		var launch_snapshot := _desert_deck_launch_snapshot()
+		_completion_reason = "initial_launch_timeout"
+		_stage = Stage.COMPLETE
+		_log("FAILED desert recovery: initial launch timeout after %.0fs snapshot=%s" % [
+			_elapsed_s - _stage_started_s,
+			JSON.stringify(launch_snapshot),
+		])
+		return
 	_update_g_force_tracking(delta)
 	_summary_s += delta
 	_poll_s += delta
@@ -3610,7 +4005,10 @@ func _finalize_completed_run() -> void:
 			and rolling_target_traps > 0 \
 			and _rolling_traps >= rolling_target_traps \
 			and _rolling_losses == 0 \
-			and _friendly_launches == rolling_target_traps
+			and (
+				_friendly_launches == rolling_target_traps if rolling_finite_cohort \
+				else _friendly_launches >= _rolling_traps
+			)
 	var role_stress_success := _role_stress_mode \
 			and _ground_targets_destroyed >= 4 \
 			and enemy_spawned == 2 \
@@ -3630,6 +4028,7 @@ func _finalize_completed_run() -> void:
 		"seed": _test_seed,
 		"profile": test_profile,
 		"status": "PASS" if strict_success else "FAIL",
+		"failure_reason": "" if strict_success else _completion_reason,
 		"sim_time_s": snappedf(_elapsed_s, 0.1),
 		"ground_destroyed": _ground_targets_destroyed,
 		"enemy_air_skipped": full_cycle_skip_enemy_air,
@@ -3641,6 +4040,7 @@ func _finalize_completed_run() -> void:
 		"friendly_crashes": _friendly_crash_count,
 		"recovery_requested": _recovery_requested.size(),
 		"caught": _caught_aircraft.size(),
+		"recovery_stages": _desert_recovery_stage_counts.duplicate(true) if _desert_recovery_mode else {},
 		"role_attack_helicopters": _role_stress_helicopter_launches,
 		"role_cap_aircraft": _role_stress_patrol_launches,
 		"role_violations": _role_stress_role_violations,
@@ -3679,6 +4079,28 @@ func _poll_aircraft_events() -> void:
 				_state_name(state), _target_name_for_id(id), _aircraft_diagnostics(record),
 			])
 			record["last_state"] = state
+			if _desert_recovery_mode:
+				if state == AIPilot.State.RTB:
+					_record_desert_recovery_stage(id, "rtb_started", "state=RTB")
+				elif state == AIPilot.State.RECOVERY_APPROACH:
+					_record_desert_recovery_stage(id, "recovery_route", "state=RECOVERY_APPROACH")
+				elif state == AIPilot.State.PRE_LANDING:
+					_record_desert_recovery_stage(id, "pre_landing", "state=PRE_LANDING")
+				elif state == AIPilot.State.LANDING:
+					var craft_variant: Variant = record.get("craft", null)
+					var diagnostic_handoff := is_instance_valid(craft_variant) \
+							and bool((craft_variant as Node).get_meta(
+								"recovery_diagnostic_handoff",
+								false
+							))
+					_record_desert_recovery_stage(
+						id,
+						"final_handoff",
+						"state=LANDING strict_gate_passed=%s diagnostic_override=%s" % [
+							str(not diagnostic_handoff),
+							str(diagnostic_handoff),
+						]
+					)
 		if state in [AIPilot.State.ATTACK_POSITIONING, AIPilot.State.ATTACK_INBOUND] \
 				and pilot.has_method("get_attack_last_commit_reason"):
 			var commit_reason := str(pilot.call("get_attack_last_commit_reason"))
@@ -3723,6 +4145,81 @@ func _poll_aircraft_events() -> void:
 	if continuous_intercept_mode:
 		_assign_missing_intercept_targets()
 	_try_resume_carrier_after_launches()
+
+
+func _initialize_desert_recovery_stage_counts() -> void:
+	_desert_recovery_stage_counts.clear()
+	for stage_key in DESERT_RECOVERY_STAGE_KEYS:
+		_desert_recovery_stage_counts[stage_key] = 0
+
+
+func _desert_deck_launch_snapshot() -> Dictionary:
+	if not is_instance_valid(_fdm):
+		return {"flight_deck_valid": false}
+	var elevator_variant: Variant = _fdm.get("elevator")
+	var elevator_state := -1
+	var elevator_platform_y := NAN
+	if is_instance_valid(elevator_variant) and elevator_variant is Node:
+		var elevator_node := elevator_variant as Node
+		if "current_state" in elevator_node:
+			elevator_state = int(elevator_node.get("current_state"))
+		if elevator_node.has_method("get_platform_local_y"):
+			elevator_platform_y = float(elevator_node.call("get_platform_local_y"))
+	var deck_aircraft_variant: Variant = _fdm.get("deck_aircraft")
+	var deck_aircraft_position := Vector3.INF
+	var distance_to_catapult_m := NAN
+	var carrier_transport_mode := false
+	if is_instance_valid(deck_aircraft_variant) and deck_aircraft_variant is Node3D:
+		var deck_aircraft_node := deck_aircraft_variant as Node3D
+		deck_aircraft_position = deck_aircraft_node.global_position
+		carrier_transport_mode = bool(deck_aircraft_node.get_meta("carrier_transport_mode", false))
+		if _fdm.has_method("_get_active_catapult_latch_marker"):
+			var latch_variant: Variant = _fdm.call("_get_active_catapult_latch_marker")
+			if is_instance_valid(latch_variant) and latch_variant is Node3D:
+				distance_to_catapult_m = deck_aircraft_node.global_position.distance_to(
+					(latch_variant as Node3D).global_position
+				)
+	var job_bots_variant: Variant = _fdm.get("_current_job_tractor_bots")
+	return {
+		"flight_deck_valid": true,
+		"deck_state": int(_fdm.get("current_state")),
+		"queued_launches": int(_fdm.get("_ai_launch_queue")),
+		"pending_callback": is_instance_valid(_fdm.get("_pending_flight_ops")),
+		"deck_aircraft": str((deck_aircraft_variant as Node).name) \
+				if is_instance_valid(deck_aircraft_variant) and deck_aircraft_variant is Node else "none",
+		"deck_aircraft_position": deck_aircraft_position,
+		"distance_to_catapult_m": distance_to_catapult_m,
+		"carrier_transport_mode": carrier_transport_mode,
+		"retrieval_top_handled": bool(_fdm.get("_retrieval_top_handled")),
+		"elevator_ride_in_progress": bool(_fdm.get("_aircraft_elevator_ride_in_progress")),
+		"tractor_transfer_in_progress": bool(_fdm.get("_tractor_elevator_transfer_in_progress")),
+		"tractorbots_in_hangar": bool(_fdm.get("_tractorbots_in_hangar")),
+		"job_tractor_count": job_bots_variant.size() if job_bots_variant is Array else -1,
+		"elevator_state": elevator_state,
+		"elevator_platform_local_y": elevator_platform_y,
+	}
+
+
+func _record_desert_recovery_stage(id: int, stage_key: String, detail: String = "") -> void:
+	if not _desert_recovery_mode or stage_key not in DESERT_RECOVERY_STAGE_KEYS:
+		return
+	var record: Dictionary = _aircraft_records.get(id, {})
+	if record.is_empty():
+		return
+	var marker_key := "desert_stage_%s" % stage_key
+	if bool(record.get(marker_key, false)):
+		return
+	record[marker_key] = true
+	_aircraft_records[id] = record
+	_desert_recovery_stage_counts[stage_key] = int(_desert_recovery_stage_counts.get(stage_key, 0)) + 1
+	_log("RECOVERY_STAGE aircraft=%s stage=%s count=%d active_cap=%d target_traps=%s%s" % [
+		record.get("name", "unknown"),
+		stage_key.to_upper(),
+		int(_desert_recovery_stage_counts[stage_key]),
+		rolling_active_aircraft_max,
+		str(rolling_target_traps) if rolling_target_traps > 0 else "unlimited",
+		(" " + detail) if not detail.is_empty() else "",
+	])
 
 
 ## Real load factor (g), computed the same way the in-cockpit slip ball reads it: specific force

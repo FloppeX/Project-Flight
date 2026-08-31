@@ -11,8 +11,10 @@ const LAND_CARRIER_SCENE_PATH := "res://LandCarrier/LandCarrier2.tscn"
 const CARRIER_TREAD_SCRIPT_PATH := "res://LandCarrier/CarrierTread.gd"
 const VEHICLE_RAMP_SCRIPT_PATH := "res://LandCarrier/VehicleRamp.gd"
 const PILOT_POSE_SCRIPT_PATH := "res://Aircraft/PilotPose.gd"
+const COCKPIT_PILOT_MOUNT_SCRIPT_PATH := "res://Aircraft/CockpitPilotMount.gd"
 const PREVIEW_HIDDEN_HUD_SCRIPT_PATH := "res://HUD/heads_up_display.gd"
 const PREVIEW_INSTRUMENT_PANEL_SCRIPT_PATH := "res://HUD/instrument_panel.gd"
+const INSIGNIA_DECAL_FOLLOWER_SCRIPT_PATH := "res://Aircraft/Visuals/InsigniaDecalFollower.gd"
 
 const BASE_UI_SIZE := MenuTypography.CANVAS_SIZE
 const RAIL_WIDTH := 480.0
@@ -357,7 +359,7 @@ void fragment() {
 	_name_label.size = Vector2(780.0, 48.0)
 	add_child(_name_label)
 	_description_label = _make_label("", Vector2(RAIL_WIDTH + 64.0, 870.0), MenuTypography.FIELD_VALUE_SIZE, UI_TEXT)
-	_description_label.size = Vector2(760.0, 120.0)
+	_description_label.size = Vector2(820.0, 160.0)
 	_description_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	add_child(_description_label)
 	_stats_label = _make_label("", Vector2(BASE_UI_SIZE.x - 515.0, 822.0), MenuTypography.SUPPORT_SIZE, UI_TEXT)
@@ -528,7 +530,11 @@ func _show_category(category: String) -> void:
 func _select_entry(entry: Dictionary) -> void:
 	_clear_preview()
 	_name_label.text = String(entry.get("name", "UNKNOWN"))
-	_description_label.text = String(entry.get("description", "No description available."))
+	var description := String(entry.get("description", "No description available."))
+	var pilot_notes := String(entry.get("pilot_notes", ""))
+	_description_label.text = description
+	if not pilot_notes.is_empty():
+		_description_label.text += "\n\nFLIGHT NOTES // " + pilot_notes
 	var scene_path := String(entry.get("scene", ""))
 	if scene_path.is_empty() or not ResourceLoader.exists(scene_path):
 		_stats_label.text = _format_stats(entry.get("stats", {}))
@@ -624,13 +630,61 @@ func _prepare_static_cockpit_pilots(root: Node) -> void:
 	while not stack.is_empty():
 		var node: Node = stack.pop_back()
 		var node_script := node.get_script() as Script
+		var handled_cockpit_mount := false
 		if node_script != null \
-				and node_script.resource_path == PILOT_POSE_SCRIPT_PATH \
+				and node_script.resource_path in [PILOT_POSE_SCRIPT_PATH, COCKPIT_PILOT_MOUNT_SCRIPT_PATH] \
 				and node.has_method("apply_static_seated_pose"):
-			var pose_applied := bool(node.call("apply_static_seated_pose"))
+			# Pooled cockpit mounts are deliberately empty while off-tree. The
+			# Technical Index owns a static preview, so acquire its visual before
+			# sampling and then strip all runtime scripts below.
+			var staged_pilot: Node = node
+			if node_script.resource_path == COCKPIT_PILOT_MOUNT_SCRIPT_PATH \
+					and node.has_method("ensure_static_preview_visual"):
+				staged_pilot = node.call("ensure_static_preview_visual") as Node
+				handled_cockpit_mount = true
+			var pose_applied := _sample_static_pilot_pose_in_tree(node, staged_pilot)
 			node.set_meta("technical_index_pilot_pose", "sitting" if pose_applied else "failed")
+		# The mount has already sampled its generated PilotVisual. Traversing into
+		# that child used to invoke PilotPose.apply_static_seated_pose a second time
+		# and overwrite the approved clip with the legacy imported rest action.
+		if handled_cockpit_mount:
+			continue
 		for child in node.get_children():
 			stack.append(child as Node)
+
+
+func _sample_static_pilot_pose_in_tree(pose_owner: Node, staged_pilot: Node) -> bool:
+	if pose_owner == null or staged_pilot == null:
+		return false
+	if staged_pilot.is_inside_tree() \
+			or not is_instance_valid(_preview_model_root) \
+			or not _preview_model_root.is_inside_tree():
+		return bool(pose_owner.call("apply_static_seated_pose"))
+
+	# AnimationPlayer resolves and writes bone tracks only while its root is in a
+	# SceneTree. Stage just the pilot under the hidden preview root long enough to
+	# sample one frame, then restore it to the still-off-tree aircraft before the
+	# full preview hierarchy is sanitized and attached. No rendered frame occurs
+	# between these synchronous operations.
+	var original_parent := staged_pilot.get_parent()
+	if original_parent == null:
+		return bool(pose_owner.call("apply_static_seated_pose"))
+	var original_owner := staged_pilot.owner
+	if original_owner != null:
+		staged_pilot.owner = null
+	var original_transform := Transform3D.IDENTITY
+	if staged_pilot is Node3D:
+		original_transform = (staged_pilot as Node3D).transform
+	original_parent.remove_child(staged_pilot)
+	_preview_model_root.add_child(staged_pilot)
+	var pose_applied := bool(pose_owner.call("apply_static_seated_pose"))
+	_preview_model_root.remove_child(staged_pilot)
+	original_parent.add_child(staged_pilot)
+	if original_owner != null:
+		staged_pilot.owner = original_owner
+	if staged_pilot is Node3D:
+		(staged_pilot as Node3D).transform = original_transform
+	return pose_applied
 
 
 func _prepare_static_instrument_panels(root: Node) -> void:
@@ -749,6 +803,9 @@ func _build_static_track_plates(tread: Node) -> void:
 
 
 func _harvest_scene_stats(root: Node) -> Dictionary:
+	var aero := root.find_child("SimpleAero", true, false)
+	if aero != null and _find_numeric_property(aero, ["stall_speed"]) != null:
+		return _harvest_fixed_wing_stats(root, aero)
 	var specs := [
 		["MASS", ["mass"], " kg"],
 		["MAX SPEED", ["max_speed", "max_forward_speed"], " m/s"],
@@ -770,6 +827,72 @@ func _harvest_scene_stats(root: Node) -> Dictionary:
 	return out
 
 
+func _harvest_fixed_wing_stats(root: Node, aero: Node) -> Dictionary:
+	var out := {}
+	var mass_value: Variant = _find_numeric_property(root, ["mass"])
+	if mass_value != null:
+		out["MASS"] = _format_number(float(mass_value)) + " kg"
+
+	var thrust: Variant = _find_numeric_property(root, ["PowerFactor"])
+	var forward_drag: Variant = _find_numeric_property(aero, ["forward_drag_strength"])
+	var drag_scale: Variant = _find_numeric_property(aero, ["forward_drag_scale"])
+	var drag_multiplier: Variant = _find_numeric_property(aero, ["drag_base_multiplier"])
+	if thrust != null and forward_drag != null and drag_scale != null and drag_multiplier != null:
+		var coefficient: float = float(forward_drag) * float(drag_scale) * float(drag_multiplier)
+		if coefficient > 0.001:
+			out["EST CLEAN SPEED"] = _format_speed(sqrt(float(thrust) / coefficient))
+
+	var stall_speed: Variant = _find_numeric_property(aero, ["stall_speed"])
+	var flap_factor: Variant = _find_numeric_property(aero, ["flaps_stall_speed_factor"])
+	if stall_speed != null:
+		var flap_stall: float = float(stall_speed) * float(flap_factor) if flap_factor != null else float(stall_speed)
+		out["STALL CLEAN / FLAPS"] = "%s / %s m/s" % [
+			_format_number(float(stall_speed)),
+			_format_number(flap_stall),
+		]
+
+	var stiffening_speed: Variant = _find_numeric_property(aero, ["control_stiffening_start_speed_mps"])
+	var vne_speed: Variant = _find_numeric_property(aero, ["never_exceed_speed_mps"])
+	if stiffening_speed != null and vne_speed != null:
+		out["STIFFEN / VNE"] = "%s / %s m/s" % [
+			_format_number(float(stiffening_speed)),
+			_format_number(float(vne_speed)),
+		]
+
+	var pitch_power: Variant = _find_numeric_property(aero, ["pitch_power"])
+	var roll_power: Variant = _find_numeric_property(aero, ["roll_power"])
+	var yaw_power: Variant = _find_numeric_property(aero, ["yaw_power"])
+	if pitch_power != null and roll_power != null and yaw_power != null:
+		out["CONTROL POWER P/R/Y"] = "%s / %s / %s" % [
+			_format_number(float(pitch_power)),
+			_format_number(float(roll_power)),
+			_format_number(float(yaw_power)),
+		]
+
+	var pitch_rate: Variant = _find_numeric_property(aero, ["pitch_surface_rate_per_s"])
+	var roll_rate: Variant = _find_numeric_property(aero, ["roll_surface_rate_per_s"])
+	var yaw_rate: Variant = _find_numeric_property(aero, ["yaw_surface_rate_per_s"])
+	if pitch_rate != null and roll_rate != null and yaw_rate != null:
+		out["SURFACE RATE P/R/Y"] = "%s / %s / %s /s" % [
+			_format_number(float(pitch_rate)),
+			_format_number(float(roll_rate)),
+			_format_number(float(yaw_rate)),
+		]
+
+	var stall_aoa_start: Variant = _find_numeric_property(aero, ["aoa_stall_start_deg"])
+	var stall_aoa_full: Variant = _find_numeric_property(aero, ["aoa_stall_full_deg"])
+	if stall_aoa_start != null and stall_aoa_full != null:
+		out["STALL AOA"] = "%s-%s deg" % [
+			_format_number(float(stall_aoa_start)),
+			_format_number(float(stall_aoa_full)),
+		]
+
+	var lift_limit: Variant = _find_numeric_property(aero, ["max_lift_ratio"])
+	if lift_limit != null:
+		out["MODEL LIFT LIMIT"] = _format_number(float(lift_limit)) + " g"
+	return out
+
+
 func _find_numeric_property(root: Node, candidates: Array) -> Variant:
 	var queue: Array[Node] = [root]
 	while not queue.is_empty():
@@ -786,8 +909,10 @@ func _find_numeric_property(root: Node, candidates: Array) -> Variant:
 
 
 func _sanitize_preview_tree(node: Node, preserve_instrument_canvas: bool = false) -> void:
-	node.process_mode = Node.PROCESS_MODE_DISABLED
 	var node_script := node.get_script() as Script
+	var is_insignia_follower := node_script != null \
+			and node_script.resource_path == INSIGNIA_DECAL_FOLLOWER_SCRIPT_PATH
+	node.process_mode = Node.PROCESS_MODE_ALWAYS if is_insignia_follower else Node.PROCESS_MODE_DISABLED
 	var is_instrument_panel := node_script != null \
 			and node_script.resource_path == PREVIEW_INSTRUMENT_PANEL_SCRIPT_PATH
 	var preserve_canvas := preserve_instrument_canvas or is_instrument_panel
@@ -824,7 +949,8 @@ func _sanitize_preview_tree(node: Node, preserve_instrument_canvas: bool = false
 	for child in node.get_children():
 		_sanitize_preview_tree(child as Node, preserve_canvas)
 	var preserve_script := bool(node.get_meta("technical_index_preview_component", false)) \
-			or bool(node.get_meta("technical_index_static_instrument", false))
+			or bool(node.get_meta("technical_index_static_instrument", false)) \
+			or is_insignia_follower
 	if node_script != null and not preserve_script:
 		node.set_script(null)
 
@@ -923,7 +1049,7 @@ func _format_stats(base_variant: Variant, harvested: Dictionary = {}) -> String:
 		for key in (base_variant as Dictionary).keys():
 			lines.append("%-20s %s" % [String(key), String((base_variant as Dictionary)[key])])
 	for key in harvested.keys():
-		if lines.size() >= 7:
+		if lines.size() >= 10:
 			break
 		lines.append("%-20s %s" % [String(key), String(harvested[key])])
 	return "\n".join(lines)
@@ -933,6 +1059,13 @@ func _format_number(value: float) -> String:
 	if is_equal_approx(value, roundf(value)):
 		return str(int(roundf(value)))
 	return "%.1f" % value
+
+
+func _format_speed(speed_mps: float) -> String:
+	return "%s m/s / %d km/h" % [
+		_format_number(speed_mps),
+		int(roundf(speed_mps * 3.6)),
+	]
 
 
 func _on_preview_gui_input(event: InputEvent) -> void:

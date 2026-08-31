@@ -148,9 +148,18 @@ func _apply_pose() -> void:
 
 func _set_broad_wing_collision_folded(is_folded_or_moving: bool) -> void:
 	# This is a single full-span box rather than panel-by-panel collision. It is
-	# only valid in the completely unfolded pose.
+	# only valid in the completely unfolded pose. Localized wing colliders
+	# supersede it in every pose when installed.
 	if is_instance_valid(_broad_wing_collider):
-		_broad_wing_collider.disabled = is_folded_or_moving
+		_broad_wing_collider.disabled = _has_localized_wing_colliders() or is_folded_or_moving
+
+
+func _has_localized_wing_colliders() -> bool:
+	var aircraft := get_parent()
+	return (
+		aircraft.get_node_or_null("LeftWingDamageCollider") is CollisionShape3D
+		and aircraft.get_node_or_null("RightWingDamageCollider") is CollisionShape3D
+	)
 
 func _smooth(t: float) -> float:
 	return t * t * (3.0 - 2.0 * t)

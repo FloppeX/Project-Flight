@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://cu2kks8qa6e58"
+path="res://.godot/imported/Citadel - Bulldog flight, engage ground targets. Cleared hot. Keep it tight.wav-9e3c4cec9797e1285bb964baf654aa36.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Citadel/Citadel - Bulldog flight, engage ground targets. Cleared hot. Keep it tight.wav"
+dest_files=["res://.godot/imported/Citadel - Bulldog flight, engage ground targets. Cleared hot. Keep it tight.wav-9e3c4cec9797e1285bb964baf654aa36.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

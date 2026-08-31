@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://vl4np20abiux"
+path="res://.godot/imported/German female - Wilco. Climbing to altitude. Watch your spacing.wav-ee1ddec828827d7a03091abfaabaa533.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/German Female/German female - Wilco. Climbing to altitude. Watch your spacing.wav"
+dest_files=["res://.godot/imported/German female - Wilco. Climbing to altitude. Watch your spacing.wav-ee1ddec828827d7a03091abfaabaa533.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://doa72ktxqn4q6"
+path="res://.godot/imported/Citadel - Dingo, launch immediately. Ground targets marked.wav-b85a710592a0370ab3d9a01dede1228b.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Citadel/Citadel - Dingo, launch immediately. Ground targets marked.wav"
+dest_files=["res://.godot/imported/Citadel - Dingo, launch immediately. Ground targets marked.wav-b85a710592a0370ab3d9a01dede1228b.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

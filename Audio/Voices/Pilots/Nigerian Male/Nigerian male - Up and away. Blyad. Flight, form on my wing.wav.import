@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://c7prs626douf4"
+path="res://.godot/imported/Nigerian male - Up and away. Blyad. Flight, form on my wing.wav-faac85d646084151bba524a6c98a8102.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/Nigerian Male/Nigerian male - Up and away. Blyad. Flight, form on my wing.wav"
+dest_files=["res://.godot/imported/Nigerian male - Up and away. Blyad. Flight, form on my wing.wav-faac85d646084151bba524a6c98a8102.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

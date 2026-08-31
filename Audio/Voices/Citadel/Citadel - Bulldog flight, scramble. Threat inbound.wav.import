@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://mker3jshex3c"
+path="res://.godot/imported/Citadel - Bulldog flight, scramble. Threat inbound.wav-515ceb31652e754992f827a78075dc65.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Citadel/Citadel - Bulldog flight, scramble. Threat inbound.wav"
+dest_files=["res://.godot/imported/Citadel - Bulldog flight, scramble. Threat inbound.wav-515ceb31652e754992f827a78075dc65.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

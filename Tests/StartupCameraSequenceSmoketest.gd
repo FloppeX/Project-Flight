@@ -26,6 +26,31 @@ func _run() -> void:
 	if camera == null or carrier == null:
 		_fail("startup camera or carrier was not created")
 		return
+	if carrier.get("_track_mark_root") == null or carrier.get("_track_mark_multimesh") == null:
+		_fail("startup carrier did not initialize its track-mark pool")
+		return
+	var startup_marks: Array = carrier.get("_track_mark_entries") as Array
+	if startup_marks.is_empty():
+		_fail("startup carrier did not begin with a short settled trail")
+		return
+	var carrier_forward := carrier.global_transform.basis.z.normalized()
+	var farthest_mark_distance := 0.0
+	for entry_variant in startup_marks:
+		var entry := entry_variant as Dictionary
+		var mark_transform := entry.get("transform", Transform3D.IDENTITY) as Transform3D
+		var relative_mark := mark_transform.origin - carrier.global_position
+		farthest_mark_distance = maxf(farthest_mark_distance, relative_mark.length())
+		if relative_mark.dot(carrier_forward) > 0.1:
+			_fail("startup trail extended ahead of the carrier heading")
+			return
+	if farthest_mark_distance > 100.0:
+		_fail("startup trail retained a placement teleport (%.1f m)" % farthest_mark_distance)
+		return
+	var settled_body_y := carrier.global_position.y
+	carrier.call("_update_tread_visuals", 1.0 / 60.0, carrier.global_transform)
+	if absf(carrier.global_position.y - settled_body_y) > 0.05:
+		_fail("startup carrier body was still settling vertically on its first frame")
+		return
 	var deck_lights := carrier.get_node_or_null("DeckLights")
 	if deck_lights == null:
 		_fail("startup carrier deck lights were not created")

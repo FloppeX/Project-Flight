@@ -6,6 +6,7 @@ class_name CockpitCanopyVisibility
 @export var canopy_surface_mesh_paths: Array[NodePath] = []
 @export var canopy_surface_indices: PackedInt32Array = PackedInt32Array()
 @export var material_scan_root_paths: Array[NodePath] = []
+@export var scan_aircraft_for_hidden_materials: bool = true
 @export var hidden_material_names: PackedStringArray = PackedStringArray(["glass"])
 @export var cockpit_shadow_disable_paths: Array[NodePath] = []
 @export var warn_on_missing_configuration: bool = false
@@ -36,6 +37,14 @@ func _ready() -> void:
 			"original_override": mesh_instance.get_surface_override_material(surface_index),
 			"hidden_override": _make_hidden_material(mesh_instance, surface_index),
 		})
+	# Imported aircraft do not use consistent mesh-node or surface layouts. Scan
+	# every model branch once so any material named Glass is handled regardless
+	# of which sub-object owns it. Explicit paths above remain supported for
+	# exceptional materials whose names do not identify them as glass.
+	if scan_aircraft_for_hidden_materials:
+		var aircraft_root := get_parent() as Node3D
+		if aircraft_root:
+			_cache_material_surfaces(aircraft_root)
 	for root_path in material_scan_root_paths:
 		var root := get_node_or_null(root_path) as Node3D
 		if root:

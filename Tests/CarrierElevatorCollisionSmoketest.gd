@@ -64,6 +64,22 @@ func _run() -> void:
 	_expect(platform_body != null, "elevator platform is not an AnimatableBody3D")
 	_expect(elevator.has_physical_platform(), "elevator platform has no collision shape")
 	_expect(elevator.left_cover is AnimatableBody3D and elevator.right_cover is AnimatableBody3D, "elevator covers are not physical moving bodies")
+	var shaft_lighting_root := elevator.get_shaft_lighting_root()
+	_expect(shaft_lighting_root != null, "elevator shaft lighting root is missing")
+	if shaft_lighting_root != null:
+		var shaft_lights := shaft_lighting_root.find_children("ShaftLight*", "OmniLight3D", true, false)
+		var shaft_fixtures := shaft_lighting_root.find_children("ShaftLightFixture*", "Node3D", false, false)
+		var shaft_lenses := shaft_lighting_root.find_children("ShaftLightLens*", "MeshInstance3D", true, false)
+		_expect(shaft_lights.size() == 4, "shaft does not have four local wall lights")
+		_expect(shaft_fixtures.size() == 4 and shaft_lenses.size() == 4, "shaft light fixture geometry is incomplete")
+		for light_node in shaft_lights:
+			var shaft_light := light_node as OmniLight3D
+			_expect(shaft_light != null and not shaft_light.shadow_enabled, "shaft light unexpectedly casts expensive dynamic shadows")
+			_expect(shaft_light != null and is_equal_approx(shaft_light.omni_range, elevator.shaft_light_range_m), "shaft light range ignored the elevator setting")
+		for lens_node in shaft_lenses:
+			var lens := lens_node as MeshInstance3D
+			var lens_material := lens.material_override as StandardMaterial3D if lens != null else null
+			_expect(lens_material != null and lens_material.emission_enabled, "shaft light lens is not emissive")
 	if platform_body != null:
 		_expect(platform_body.collision_layer == 512 and platform_body.collision_mask == 512, "platform was not isolated from the carrier hull collision layer")
 		var platform_visual_root := elevator.get_platform_visual_root()

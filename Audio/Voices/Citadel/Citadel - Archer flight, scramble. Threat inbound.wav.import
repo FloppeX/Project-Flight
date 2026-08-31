@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://b010ijk70sdjr"
+path="res://.godot/imported/Citadel - Archer flight, scramble. Threat inbound.wav-24cc4d9bab2179832940f621dd46ad18.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Citadel/Citadel - Archer flight, scramble. Threat inbound.wav"
+dest_files=["res://.godot/imported/Citadel - Archer flight, scramble. Threat inbound.wav-24cc4d9bab2179832940f621dd46ad18.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

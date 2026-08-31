@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://bnxo3djguolpn"
+path="res://.godot/imported/French Canadian female - Got him. Blyad, good kill.wav-e6b0805ba1e0d67e7e7dc36991e73394.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/French Canadian Female/French Canadian female - Got him. Blyad, good kill.wav"
+dest_files=["res://.godot/imported/French Canadian female - Got him. Blyad, good kill.wav-e6b0805ba1e0d67e7e7dc36991e73394.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

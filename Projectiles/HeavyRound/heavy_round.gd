@@ -42,7 +42,7 @@ func _on_body_entered(body: Node) -> void:
 		create_bullet_scorch_mark(damage_target)
 	if damage_target and damage_target.has_method("take_damage"):
 		_report_damage_credit(damage_target, damage)
-		damage_target.take_damage(damage)
+		_apply_impact_damage(damage_target, damage)
 	# Heavy/autocannon rounds use the same reusable lifecycle as ordinary bullets.
 	# They previously bypassed BulletPool and allocated a new projectile every shot.
 	_retire_projectile()

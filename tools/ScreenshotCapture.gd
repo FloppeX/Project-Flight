@@ -16,7 +16,7 @@ func _ready() -> void:
 func _input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_INSERT:
-			_take_screenshot()
+			take_screenshot()
 		elif event.keycode == KEY_DELETE:
 			if event.shift_pressed:
 				DustEffect.dust_enabled = not DustEffect.dust_enabled
@@ -24,7 +24,7 @@ func _input(event: InputEvent) -> void:
 			else:
 				_record_clip()
 
-func _take_screenshot() -> void:
+func take_screenshot() -> String:
 	var image := get_viewport().get_texture().get_image()
 	var timestamp := Time.get_datetime_string_from_system().replace(":", "-").replace("T", "_")
 	var file_name := "screenshot_%s.jpg" % timestamp
@@ -34,8 +34,10 @@ func _take_screenshot() -> void:
 	var err := image.save_jpg(absolute_path, 0.9)
 	if err == OK:
 		print("[ScreenshotCapture] Saved screenshot to %s" % absolute_path)
+		return absolute_path
 	else:
 		push_error("[ScreenshotCapture] Failed to save screenshot to %s (err=%d)" % [absolute_path, err])
+		return ""
 
 func _record_clip() -> void:
 	if _clip_recording_active:

@@ -39,6 +39,12 @@ class_name InsigniaMarker
 		cross_diameter = maxf(value, 0.0)
 		_rebuild()
 
+## Optional moving aircraft part that owns the generated decal at runtime. The
+## marker stays easy to author in aircraft-root space; Livery converts that pose
+## into the target's unfolded local space so the decal follows folding wings,
+## doors, or other animated sub-objects.
+@export var follow_target_path: NodePath
+
 var _mesh: MeshInstance3D
 var _symbol: MeshInstance3D
 

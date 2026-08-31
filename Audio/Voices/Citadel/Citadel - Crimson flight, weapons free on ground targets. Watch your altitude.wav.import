@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://bcrtrr7ikmupa"
+path="res://.godot/imported/Citadel - Crimson flight, weapons free on ground targets. Watch your altitude.wav-5c25cf1749af3bb24a96ae218e2bbdaf.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Citadel/Citadel - Crimson flight, weapons free on ground targets. Watch your altitude.wav"
+dest_files=["res://.godot/imported/Citadel - Crimson flight, weapons free on ground targets. Watch your altitude.wav-5c25cf1749af3bb24a96ae218e2bbdaf.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

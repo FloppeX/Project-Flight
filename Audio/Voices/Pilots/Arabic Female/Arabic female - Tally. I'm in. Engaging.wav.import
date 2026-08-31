@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://dqq7gsvl46fw5"
+path="res://.godot/imported/Arabic female - Tally. I'm in. Engaging.wav-24430219266eea6cab75c5cc3b555f40.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/Arabic Female/Arabic female - Tally. I'm in. Engaging.wav"
+dest_files=["res://.godot/imported/Arabic female - Tally. I'm in. Engaging.wav-24430219266eea6cab75c5cc3b555f40.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

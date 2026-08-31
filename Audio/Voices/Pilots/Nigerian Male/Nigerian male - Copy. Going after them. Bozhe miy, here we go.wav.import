@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://cnp2rc2v02is"
+path="res://.godot/imported/Nigerian male - Copy. Going after them. Bozhe miy, here we go.wav-3326504384da33911790b0cd02a23f4e.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/Nigerian Male/Nigerian male - Copy. Going after them. Bozhe miy, here we go.wav"
+dest_files=["res://.godot/imported/Nigerian male - Copy. Going after them. Bozhe miy, here we go.wav-3326504384da33911790b0cd02a23f4e.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

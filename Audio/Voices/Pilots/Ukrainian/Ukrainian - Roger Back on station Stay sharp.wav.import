@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://cqmns7c1kl2h"
+path="res://.godot/imported/Ukrainian - Roger Back on station Stay sharp.wav-82a8d01ab268cec926576cd15ac4add1.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/Ukrainian/Ukrainian - Roger Back on station Stay sharp.wav"
+dest_files=["res://.godot/imported/Ukrainian - Roger Back on station Stay sharp.wav-82a8d01ab268cec926576cd15ac4add1.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

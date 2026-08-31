@@ -4,6 +4,13 @@ extends Node3D
 ## Attach to the root node of the pilot character instance.
 
 const PilotVisualMaterials = preload("res://Models/Characters/PilotVisualMaterials.gd")
+const SEATED_BAKED_ANIMATIONS: Array[StringName] = [
+	&"sit_1",
+	&"sit_2",
+	&"piloting",
+]
+const DEFAULT_STATIC_SEATED_ANIMATION: StringName = &"piloting"
+const DEFAULT_STATIC_SEATED_TIME_S := 1.5
 
 @export_group("Legs")
 @export var upper_leg_x: float = 66.0:
@@ -18,6 +25,14 @@ const PilotVisualMaterials = preload("res://Models/Characters/PilotVisualMateria
 	set(v):
 		upper_leg_spread = v
 		_apply_pose()
+## Angle between the upper and lower leg in the cockpit's side view. Positive
+## bend carries the ankle down and forward (+Z in pilot seat space), toward the
+## rudder pedals.
+@export_range(0.0, 120.0, 1.0, "degrees") var seated_knee_bend_degrees: float = 45.0
+## Raises the toe from the rig's neutral standing foot angle. The rest-pose
+## ankle-to-toe direction is the shared reference, which keeps every seated
+## clip and both feet at the same visible pitch despite their imported poses.
+@export_range(-30.0, 45.0, 1.0, "degrees") var seated_foot_toe_up_degrees: float = 15.0
 
 @export_group("Torso")
 @export var abdomen_pitch: float = 3.0:
@@ -92,6 +107,9 @@ const PilotVisualMaterials = preload("res://Models/Characters/PilotVisualMateria
 	set(v):
 		head_pitch = v
 		_apply_pose()
+## Additional backward lean applied at the base neck joint for every approved
+## seated clip. Negative seat-space X rotation moves the head rearward (-Z).
+@export_range(0.0, 30.0, 1.0, "degrees") var seated_neck_recline_degrees: float = 10.0
 
 @export_group("Cockpit Visibility")
 @export var pose_target_path: NodePath = NodePath(".")
@@ -108,6 +126,13 @@ const PilotVisualMaterials = preload("res://Models/Characters/PilotVisualMateria
 ## leave this empty and select animations through their gameplay state.
 @export var initial_baked_animation: StringName = &""
 @export var initial_baked_animation_speed: float = 1.0
+## Cockpit pilots remain in their inexpensive static seated pose until the
+## aircraft presentation is explicitly restored for player viewing. Editor
+## previews still sample the configured animation for placement work.
+@export var defer_initial_baked_animation_until_presented: bool = false
+## Optional lazy library used by lightweight cockpit scenes. General character
+## scenes keep their authored BakedAnimationPlayer and leave this empty.
+@export_file("*.tres") var baked_animation_library_path: String = ""
 ## Static sample shown by tool builds so an aircraft scene can align the pilot
 ## against its actual runtime animation instead of the rig's standing/rest pose.
 @export var editor_preview_animation_time_s: float = 0.0
@@ -160,6 +185,7 @@ var _retarget_parachute_pose_active: bool = false
 var _retarget_preview_paused: bool = false
 var _baked_library_player: AnimationPlayer = null
 var _baked_library_animation_active: bool = false
+var _baked_bone_track_cache: Dictionary = {}
 
 ## Mixamo source bones mapped to the exported Auto-Rig Pro bones that deform the
 ## retained pilot mesh. The source character is never rendered.
@@ -209,6 +235,18 @@ const RETARGET_ARM_TARGETS: Array[StringName] = [
 	&"forearm.l", &"forearm_stretch.l", &"forearm_twist.l", &"hand.l",
 	&"c_shoulder.r", &"shoulder.r", &"arm.r", &"c_arm_twist_offset.r", &"arm_stretch.r",
 	&"forearm.r", &"forearm_stretch.r", &"forearm_twist.r", &"hand.r",
+]
+
+## The ARP leg deformation bones are siblings under c_traj while the visible
+## feet live under a separate FK chain. Copying Mixamo joint translations into
+## both chains independently separates ankle from knee. Solve a fixed-length
+## control chain, drive the deformation bones from it, and anchor each foot to
+## the solved ankle instead.
+const RETARGET_LEG_TARGETS: Array[StringName] = [
+	&"thigh_stretch.l", &"thigh_twist.l", &"leg_stretch.l", &"leg_twist.l",
+	&"foot.l", &"toes_01.l",
+	&"thigh_stretch.r", &"thigh_twist.r", &"leg_stretch.r", &"leg_twist.r",
+	&"foot.r", &"toes_01.r",
 ]
 
 const PARACHUTE_GRIP_SOURCE_BONES: Array[StringName] = [
@@ -319,7 +357,9 @@ func _ready() -> void:
 	_cache_cockpit_visibility_nodes()
 	_update_head_visibility(true)
 	set_process(not Engine.is_editor_hint())
-	if initial_baked_animation != &"":
+	var should_start_initial_animation := not defer_initial_baked_animation_until_presented \
+			or Engine.is_editor_hint()
+	if initial_baked_animation != &"" and should_start_initial_animation:
 		if not play_baked_animation(
 			initial_baked_animation,
 			maxf(initial_baked_animation_speed, 0.01)
@@ -330,11 +370,26 @@ func _ready() -> void:
 			)
 		elif Engine.is_editor_hint():
 			_freeze_baked_animation_for_editor(editor_preview_animation_time_s)
+	elif defer_initial_baked_animation_until_presented and not Engine.is_editor_hint():
+		# The static pose was applied above. Do not evaluate the dense control rig
+		# every frame while this cockpit is not being shown to the player.
+		set_process(false)
 
 
-## Samples the normal cockpit pose without requiring this node to enter the
-## scene tree. Technical Index previews call this before stripping scripts.
+## Samples the normal cockpit pose for a static preview. The approved baked clip
+## requires SceneTree context while AnimationPlayer evaluates it; callers may
+## detach the pilot and strip its scripts after this method returns.
 func apply_static_seated_pose() -> bool:
+	# The canonical pilot has an approved shared cockpit clip. Prefer a frozen
+	# sample from it over the GLB's legacy one-frame rigAction so standalone
+	# previews (including the Technical Index) match live cockpit occupants.
+	if not baked_animation_library_path.is_empty() \
+			and apply_static_baked_pose(
+				DEFAULT_STATIC_SEATED_ANIMATION,
+				DEFAULT_STATIC_SEATED_TIME_S
+			):
+		return true
+
 	initial_pose_name = &"sitting"
 	_pose_target_root = _get_pose_target_root()
 	if flat_shade_pilot_visual:
@@ -365,6 +420,48 @@ func apply_static_seated_pose() -> bool:
 	_last_head_hidden = false
 	set_process(false)
 	return pose_applied
+
+
+## Samples one frame from an approved baked seated animation, then releases the
+## AnimationPlayer while retaining the sampled bone transforms. Passenger mounts
+## use this to match the visible cockpit pose without evaluating an animation on
+## every frame.
+func apply_static_baked_pose(animation_name: StringName, time_s: float = 0.0) -> bool:
+	initial_pose_name = &"sitting"
+	_pose_target_root = _get_pose_target_root()
+	if flat_shade_pilot_visual:
+		PilotVisualMaterials.apply_flat_shading(_pose_target_root)
+
+	_skeleton = _find_skeleton(_pose_target_root)
+	if _skeleton == null:
+		return false
+	_hide_control_shapes(_pose_target_root)
+	_ready_done = true
+
+	if not play_baked_animation(animation_name, 1.0):
+		return false
+	var animation := _baked_library_player.get_animation(animation_name) \
+			if _baked_library_player != null else null
+	if animation == null:
+		_stop_baked_library_animation(true)
+		return false
+	_baked_library_player.seek(clampf(time_s, 0.0, animation.length), true)
+	_baked_library_player.advance(0.0)
+	_apply_seated_pose_corrections(animation_name)
+	# stop(true) preserves the sampled pose. Mark it as the static sitting state
+	# so a pooled body can later restart the live cockpit animation cleanly.
+	_baked_library_player.stop(true)
+	_baked_library_player.active = false
+	_baked_library_animation_active = false
+	_baked_sitting_pose_active = true
+
+	_cache_cockpit_visibility_nodes()
+	for hidden_node in _cockpit_hidden_nodes:
+		if is_instance_valid(hidden_node):
+			hidden_node.visible = true
+	_last_head_hidden = false
+	set_process(false)
+	return true
 
 
 func _setup_mixamo_animation() -> void:
@@ -453,6 +550,7 @@ func _process(_delta: float) -> void:
 	if Engine.is_editor_hint():
 		return
 	if _baked_library_animation_active:
+		_apply_seated_pose_corrections(_current_baked_animation())
 		_update_head_visibility(false)
 		return
 	if _mixamo_anim_active:
@@ -566,6 +664,9 @@ func _apply_locomotion_pose(delta: float) -> void:
 
 
 func set_ejection_pose(pose_name: StringName, blend_time_s: float = -1.0) -> void:
+	# Ejection is a real presentation state even when the source aircraft was not
+	# previously being viewed. Its animation must not inherit cockpit dormancy.
+	set_process(true)
 	_stop_baked_library_animation(false)
 	_release_cockpit_visibility()
 	_baked_sitting_pose_active = false
@@ -696,8 +797,7 @@ func _start_retargeted_animation(source_scene: PackedScene, animation_name: Stri
 func play_baked_animation(animation_name: StringName, speed_scale: float = 1.0) -> bool:
 	if _skeleton == null:
 		return false
-	if _baked_library_player == null or not is_instance_valid(_baked_library_player):
-		_baked_library_player = get_node_or_null("BakedAnimationPlayer") as AnimationPlayer
+	_ensure_baked_library_player()
 	if _baked_library_player == null or not _baked_library_player.has_animation(animation_name):
 		return false
 
@@ -714,9 +814,65 @@ func play_baked_animation(animation_name: StringName, speed_scale: float = 1.0) 
 	_baked_library_player.speed_scale = maxf(speed_scale, 0.01)
 	_baked_library_player.play(animation_name)
 	_baked_library_player.advance(0.0)
+	_apply_seated_pose_corrections(animation_name)
 	_baked_library_animation_active = true
 	set_process(true)
 	return true
+
+
+func _ensure_baked_library_player() -> void:
+	if _baked_library_player != null and is_instance_valid(_baked_library_player):
+		return
+	_baked_library_player = get_node_or_null("BakedAnimationPlayer") as AnimationPlayer
+	if _baked_library_player != null or baked_animation_library_path.is_empty():
+		return
+	var loaded_resource: Resource = load(baked_animation_library_path)
+	var animation_library := loaded_resource as AnimationLibrary
+	if animation_library == null:
+		push_warning(
+			"PilotPose: baked animation library could not be loaded: %s"
+			% baked_animation_library_path
+		)
+		return
+	_baked_library_player = AnimationPlayer.new()
+	_baked_library_player.name = "BakedAnimationPlayer"
+	_baked_library_player.add_animation_library(&"", animation_library)
+	add_child(_baked_library_player)
+
+
+## Starts the normal cockpit loop only while this pilot can be presented to the
+## player. Ejection/locomotion animations are deliberately left alone.
+func set_presentation_active(active: bool) -> void:
+	if not defer_initial_baked_animation_until_presented or Engine.is_editor_hint():
+		return
+	if active:
+		# Pooled cockpit pilots run _ready() while parked under the reserve, where
+		# the aircraft cockpit camera is not in their tree. Refresh these references
+		# after checkout so first-person visibility follows the borrowing aircraft.
+		_cache_cockpit_visibility_nodes()
+		_update_head_visibility(true)
+		if initial_baked_animation == &"" or _baked_library_animation_active:
+			return
+		play_baked_animation(
+			initial_baked_animation,
+			maxf(initial_baked_animation_speed, 0.01)
+		)
+		return
+
+	# Once cockpit-only visibility has been released, ejection owns this pilot.
+	# A later visual-budget pass must not put that sequence back to sleep.
+	if not hide_head_in_cockpit:
+		return
+	if not _baked_library_animation_active:
+		set_process(false)
+		return
+	if _baked_library_player == null or not is_instance_valid(_baked_library_player):
+		return
+	if StringName(_baked_library_player.current_animation) != initial_baked_animation:
+		# A parachute or another gameplay animation owns the pilot now.
+		return
+	_stop_baked_library_animation(false)
+	set_process(false)
 
 
 func _freeze_baked_animation_for_editor(time_s: float) -> void:
@@ -729,10 +885,287 @@ func _freeze_baked_animation_for_editor(time_s: float) -> void:
 		return
 	_baked_library_player.seek(clampf(time_s, 0.0, animation.length), true)
 	_baked_library_player.advance(0.0)
+	_apply_seated_pose_corrections(_current_baked_animation())
 	_baked_library_player.pause()
 	# The sampled bones stay in place without continuously evaluating an
 	# AnimationPlayer for every aircraft open in the editor.
 	set_process(false)
+
+
+func _current_baked_animation() -> StringName:
+	if _baked_library_player == null or not is_instance_valid(_baked_library_player):
+		return &""
+	return StringName(_baked_library_player.current_animation)
+
+
+## Normalizes every seated baked clip to the same leg, boot, and base-neck
+## geometry. Auto-Rig Pro exports the weighted shin and FK foot under different
+## parents, while the animated neck pitch is retained beneath a shared offset.
+func _apply_seated_pose_corrections(animation_name: StringName) -> void:
+	if animation_name not in SEATED_BAKED_ANIMATIONS or _skeleton == null:
+		return
+	_skeleton.force_update_all_bone_transforms()
+	for suffix in [".l", ".r"]:
+		_apply_seated_knee_bend(suffix)
+	_skeleton.force_update_all_bone_transforms()
+	for suffix in [".l", ".r"]:
+		_apply_seated_foot_pitch(suffix)
+	_skeleton.force_update_all_bone_transforms()
+	_apply_seated_neck_recline(animation_name)
+	_skeleton.force_update_all_bone_transforms()
+
+
+func _apply_seated_knee_bend(suffix: String) -> void:
+	var thigh_index := _skeleton.find_bone("thigh_stretch" + suffix)
+	var shin_index := _skeleton.find_bone("leg_stretch" + suffix)
+	var foot_index := _skeleton.find_bone("foot" + suffix)
+	if thigh_index < 0 or shin_index < 0 or foot_index < 0:
+		return
+
+	var thigh_global := _skeleton.get_bone_global_pose(thigh_index)
+	var shin_global := _skeleton.get_bone_global_pose(shin_index)
+	var foot_global := _skeleton.get_bone_global_pose(foot_index)
+	var thigh_vector := shin_global.origin - thigh_global.origin
+	var shin_vector := foot_global.origin - shin_global.origin
+	var thigh_sagittal_length := Vector2(thigh_vector.y, thigh_vector.z).length()
+	var shin_sagittal_length := Vector2(shin_vector.y, shin_vector.z).length()
+	if thigh_sagittal_length < 0.0001 or shin_sagittal_length < 0.0001:
+		return
+
+	# Measure both segments in the seat's side view. Zero points forward (+Z),
+	# and a positive angle moves downward (-Y), so upper + 45 degrees puts the
+	# feet both below and in front of the knees instead of tucking them backward.
+	var upper_leg_angle := atan2(-thigh_vector.y, thigh_vector.z)
+	var current_lower_leg_angle := atan2(-shin_vector.y, shin_vector.z)
+	var target_lower_leg_angle := upper_leg_angle + deg_to_rad(seated_knee_bend_degrees)
+	var correction_angle := wrapf(
+		target_lower_leg_angle - current_lower_leg_angle,
+		-PI,
+		PI
+	)
+	if absf(correction_angle) < 0.00001:
+		return
+	var correction_basis := Basis(Vector3.RIGHT, correction_angle)
+
+	var shin_parent := _skeleton.get_bone_parent(shin_index)
+	var desired_shin_basis := (
+		correction_basis * shin_global.basis.orthonormalized()
+	).orthonormalized()
+	var desired_shin_local_basis := desired_shin_basis
+	if shin_parent >= 0:
+		desired_shin_local_basis = (
+			_skeleton.get_bone_global_pose(shin_parent).basis.inverse()
+			* desired_shin_basis
+		).orthonormalized()
+	_skeleton.set_bone_pose_rotation(
+		shin_index,
+		desired_shin_local_basis.get_rotation_quaternion()
+	)
+
+	var desired_ankle_position := (
+		shin_global.origin + correction_basis * shin_vector
+	)
+	var foot_parent := _skeleton.get_bone_parent(foot_index)
+	var desired_foot_local_position := desired_ankle_position
+	if foot_parent >= 0:
+		desired_foot_local_position = (
+			_skeleton.get_bone_global_pose(foot_parent).affine_inverse()
+			* Transform3D(Basis.IDENTITY, desired_ankle_position)
+		).origin
+	_skeleton.set_bone_pose_position(foot_index, desired_foot_local_position)
+
+
+func _apply_seated_foot_pitch(suffix: String) -> void:
+	var foot_index := _skeleton.find_bone("foot" + suffix)
+	var toe_index := _skeleton.find_bone("toes_01" + suffix)
+	if foot_index < 0 or toe_index < 0:
+		return
+
+	var foot_global := _skeleton.get_bone_global_pose(foot_index)
+	var toe_global := _skeleton.get_bone_global_pose(toe_index)
+	var current_foot_vector := toe_global.origin - foot_global.origin
+	var rest_foot := _skeleton.get_bone_global_rest(foot_index)
+	var rest_toe := _skeleton.get_bone_global_rest(toe_index)
+	var rest_foot_vector := rest_toe.origin - rest_foot.origin
+	if Vector2(current_foot_vector.y, current_foot_vector.z).length() < 0.0001 \
+			or Vector2(rest_foot_vector.y, rest_foot_vector.z).length() < 0.0001:
+		return
+
+	# Bone joints sit inside the boot, so a visually neutral foot does not have
+	# a zero-degree ankle-to-toe vector. Use the neutral rig as calibration, then
+	# lift the visible toe by the requested amount in seat space.
+	var current_foot_angle := atan2(-current_foot_vector.y, current_foot_vector.z)
+	var neutral_foot_angle := atan2(-rest_foot_vector.y, rest_foot_vector.z)
+	var target_foot_angle := neutral_foot_angle - deg_to_rad(seated_foot_toe_up_degrees)
+	var correction_angle := wrapf(
+		target_foot_angle - current_foot_angle,
+		-PI,
+		PI
+	)
+	if absf(correction_angle) < 0.00001:
+		return
+
+	var correction_basis := Basis(Vector3.RIGHT, correction_angle)
+	var desired_foot_basis := (
+		correction_basis * foot_global.basis.orthonormalized()
+	).orthonormalized()
+	var foot_parent := _skeleton.get_bone_parent(foot_index)
+	var desired_foot_local_basis := desired_foot_basis
+	if foot_parent >= 0:
+		desired_foot_local_basis = (
+			_skeleton.get_bone_global_pose(foot_parent).basis.inverse()
+			* desired_foot_basis
+		).orthonormalized()
+	_skeleton.set_bone_pose_rotation(
+		foot_index,
+		desired_foot_local_basis.get_rotation_quaternion()
+	)
+
+
+func _apply_seated_neck_recline(animation_name: StringName) -> void:
+	var neck_index := _skeleton.find_bone("neck.x")
+	var head_index := _skeleton.find_bone("head.x")
+	if neck_index < 0 or head_index < 0:
+		return
+	var authored_neck_rotation: Variant = _sample_baked_bone_rotation(
+		animation_name, &"neck.x"
+	)
+	var authored_neck_position: Variant = _sample_baked_bone_position(
+		animation_name, &"neck.x"
+	)
+	var authored_head_rotation: Variant = _sample_baked_bone_rotation(
+		animation_name, &"head.x"
+	)
+	var authored_head_position: Variant = _sample_baked_bone_position(
+		animation_name, &"head.x"
+	)
+	if not authored_neck_rotation is Quaternion \
+			or not authored_neck_position is Vector3 \
+			or not authored_head_rotation is Quaternion \
+			or not authored_head_position is Vector3:
+		return
+
+	# Restore the animation-authored local transforms before applying the offset.
+	# This makes the correction idempotent when a paused/static pose is sampled
+	# more than once, while preserving the clip's subtle head movement.
+	_skeleton.set_bone_pose_position(neck_index, authored_neck_position as Vector3)
+	_skeleton.set_bone_pose_rotation(neck_index, authored_neck_rotation as Quaternion)
+	_skeleton.set_bone_pose_position(head_index, authored_head_position as Vector3)
+	_skeleton.set_bone_pose_rotation(head_index, authored_head_rotation as Quaternion)
+	_skeleton.force_update_all_bone_transforms()
+	var neck_global := _skeleton.get_bone_global_pose(neck_index)
+	var head_global := _skeleton.get_bone_global_pose(head_index)
+	var correction_basis := Basis(
+		Vector3.RIGHT,
+		-deg_to_rad(seated_neck_recline_degrees)
+	)
+	var desired_neck_basis := (
+		correction_basis * neck_global.basis.orthonormalized()
+	).orthonormalized()
+	var neck_parent := _skeleton.get_bone_parent(neck_index)
+	var desired_neck_local_basis := desired_neck_basis
+	if neck_parent >= 0:
+		desired_neck_local_basis = (
+			_skeleton.get_bone_global_pose(neck_parent).basis.inverse()
+			* desired_neck_basis
+		).orthonormalized()
+	_skeleton.set_bone_pose_rotation(
+		neck_index,
+		desired_neck_local_basis.get_rotation_quaternion()
+	)
+
+	# ARP's exported head deformation bone is not a child of neck.x. Carry its
+	# complete transform around the base-neck pivot explicitly so the helmet and
+	# face follow the recline instead of leaving only the neck bent backward.
+	var desired_head_origin := (
+		neck_global.origin
+		+ correction_basis * (head_global.origin - neck_global.origin)
+	)
+	var desired_head_basis := (
+		correction_basis * head_global.basis.orthonormalized()
+	).orthonormalized()
+	var head_parent := _skeleton.get_bone_parent(head_index)
+	var desired_head_local := Transform3D(desired_head_basis, desired_head_origin)
+	if head_parent >= 0:
+		desired_head_local = (
+			_skeleton.get_bone_global_pose(head_parent).affine_inverse()
+			* desired_head_local
+		)
+	_skeleton.set_bone_pose_position(head_index, desired_head_local.origin)
+	_skeleton.set_bone_pose_rotation(
+		head_index,
+		desired_head_local.basis.orthonormalized().get_rotation_quaternion()
+	)
+
+
+func _sample_baked_bone_rotation(
+		animation_name: StringName,
+		bone_name: StringName
+) -> Variant:
+	if _baked_library_player == null \
+			or not is_instance_valid(_baked_library_player) \
+			or not _baked_library_player.has_animation(animation_name):
+		return null
+	var animation := _baked_library_player.get_animation(animation_name)
+	if animation == null:
+		return null
+	var track_index := _find_baked_bone_track(
+		animation_name,
+		bone_name,
+		Animation.TYPE_ROTATION_3D
+	)
+	if track_index < 0:
+		return null
+	return animation.rotation_track_interpolate(
+		track_index,
+		_baked_library_player.current_animation_position
+	)
+
+
+func _sample_baked_bone_position(
+		animation_name: StringName,
+		bone_name: StringName
+) -> Variant:
+	if _baked_library_player == null \
+			or not is_instance_valid(_baked_library_player) \
+			or not _baked_library_player.has_animation(animation_name):
+		return null
+	var animation := _baked_library_player.get_animation(animation_name)
+	if animation == null:
+		return null
+	var track_index := _find_baked_bone_track(
+		animation_name,
+		bone_name,
+		Animation.TYPE_POSITION_3D
+	)
+	if track_index < 0:
+		return null
+	return animation.position_track_interpolate(
+		track_index,
+		_baked_library_player.current_animation_position
+	)
+
+
+func _find_baked_bone_track(
+		animation_name: StringName,
+		bone_name: StringName,
+		track_type: Animation.TrackType
+) -> int:
+	var cache_key := "%s|%s|%d" % [animation_name, bone_name, track_type]
+	if _baked_bone_track_cache.has(cache_key):
+		return int(_baked_bone_track_cache[cache_key])
+	var animation := _baked_library_player.get_animation(animation_name)
+	if animation == null:
+		_baked_bone_track_cache[cache_key] = -1
+		return -1
+	var bone_path_suffix := ":" + String(bone_name)
+	for track_index in range(animation.get_track_count()):
+		if animation.track_get_type(track_index) == track_type \
+				and String(animation.track_get_path(track_index)).ends_with(bone_path_suffix):
+			_baked_bone_track_cache[cache_key] = track_index
+			return track_index
+	_baked_bone_track_cache[cache_key] = -1
+	return -1
 
 
 func stop_baked_animation(reset_to_rest: bool = true) -> void:
@@ -872,7 +1305,9 @@ func _apply_retargeted_animation_frame() -> void:
 	for pair in _retarget_bone_pairs:
 		var source_index := int(pair["source"])
 		var target_index := int(pair["target"])
-		if RETARGET_ARM_TARGETS.has(_skeleton.get_bone_name(target_index)):
+		var target_bone_name := _skeleton.get_bone_name(target_index)
+		if RETARGET_ARM_TARGETS.has(target_bone_name) \
+				or RETARGET_LEG_TARGETS.has(target_bone_name):
 			continue
 		var source_rest := _retarget_source_skeleton.get_bone_global_rest(source_index).orthonormalized()
 		var source_pose := _retarget_source_skeleton.get_bone_global_pose(source_index).orthonormalized()
@@ -896,6 +1331,8 @@ func _apply_retargeted_animation_frame() -> void:
 			desired_local.basis.orthonormalized().get_rotation_quaternion()
 		)
 		_skeleton.set_bone_pose_position(target_index, desired_local.origin)
+	_apply_retargeted_leg_chain(false)
+	_apply_retargeted_leg_chain(true)
 	if _retarget_parachute_pose_active:
 		_apply_saved_parachute_arm_pose(false)
 		_apply_saved_parachute_arm_pose(true)
@@ -966,12 +1403,17 @@ func _apply_retargeted_arm_chain(right_side: bool) -> void:
 	var source_hand := _find_mixamo_source_bone(
 		_retarget_source_skeleton, StringName(source_prefix + "Hand")
 	)
+	var source_palm := _find_mixamo_source_bone(
+		_retarget_source_skeleton, StringName(source_prefix + "HandMiddle1")
+	)
 	var target_shoulder := _skeleton.find_bone("c_shoulder" + target_suffix)
 	var target_arm := _skeleton.find_bone("arm" + target_suffix)
 	var target_forearm := _skeleton.find_bone("forearm" + target_suffix)
 	var target_hand := _skeleton.find_bone("hand" + target_suffix)
+	var target_palm := _skeleton.find_bone("c_middle1_base" + target_suffix)
 	if source_shoulder < 0 or source_arm < 0 or source_forearm < 0 or source_hand < 0 \
-			or target_shoulder < 0 or target_arm < 0 or target_forearm < 0 or target_hand < 0:
+			or source_palm < 0 or target_shoulder < 0 or target_arm < 0 \
+			or target_forearm < 0 or target_hand < 0 or target_palm < 0:
 		return
 
 	_aim_target_bone_from_source_segment(
@@ -983,8 +1425,86 @@ func _apply_retargeted_arm_chain(right_side: bool) -> void:
 	_aim_target_bone_from_source_segment(
 		target_forearm, target_hand, source_forearm, source_hand
 	)
-	_apply_target_bone_rotation_from_source(target_hand, source_hand)
+	_aim_target_bone_from_source_segment(
+		target_hand, target_palm, source_hand, source_palm, true
+	)
 	_apply_arm_deform_bones(right_side, target_arm, target_forearm)
+
+
+func _apply_retargeted_leg_chain(right_side: bool) -> void:
+	var source_prefix := "mixamorig_Right" if right_side else "mixamorig_Left"
+	var suffix := ".r" if right_side else ".l"
+	var source_thigh := _find_mixamo_source_bone(
+		_retarget_source_skeleton, StringName(source_prefix + "UpLeg")
+	)
+	var source_leg := _find_mixamo_source_bone(
+		_retarget_source_skeleton, StringName(source_prefix + "Leg")
+	)
+	var source_foot := _find_mixamo_source_bone(
+		_retarget_source_skeleton, StringName(source_prefix + "Foot")
+	)
+	var source_toe := _find_mixamo_source_bone(
+		_retarget_source_skeleton, StringName(source_prefix + "ToeBase")
+	)
+	var target_thigh := _skeleton.find_bone("thigh" + suffix)
+	var target_leg := _skeleton.find_bone("leg" + suffix)
+	var target_foot := _skeleton.find_bone("foot" + suffix)
+	var target_toe := _skeleton.find_bone("toes_01" + suffix)
+	if source_thigh < 0 or source_leg < 0 or source_foot < 0 or source_toe < 0 \
+			or target_thigh < 0 or target_leg < 0 or target_foot < 0 or target_toe < 0:
+		return
+
+	_aim_target_bone_from_source_segment(
+		target_thigh, target_leg, source_thigh, source_leg
+	)
+	_aim_target_bone_from_source_segment(
+		target_leg, target_foot, source_leg, source_foot
+	)
+	_apply_leg_deform_bones(right_side, target_thigh, target_leg)
+	_anchor_target_bone_to_solved_parent(target_leg, target_foot)
+	_aim_target_bone_from_source_segment(
+		target_foot, target_toe, source_foot, source_toe, true
+	)
+
+
+func _apply_leg_deform_bones(
+		right_side: bool,
+		target_thigh: int,
+		target_leg: int
+) -> void:
+	var suffix := ".r" if right_side else ".l"
+	var deform_links := [
+		[target_thigh, _skeleton.find_bone("thigh_stretch" + suffix)],
+		[target_thigh, _skeleton.find_bone("thigh_twist" + suffix)],
+		[target_leg, _skeleton.find_bone("leg_stretch" + suffix)],
+		[target_leg, _skeleton.find_bone("leg_twist" + suffix)],
+	]
+	for link in deform_links:
+		var control_index := int(link[0])
+		var deform_index := int(link[1])
+		if control_index < 0 or deform_index < 0:
+			continue
+		_apply_control_motion_to_deform_bone(control_index, deform_index)
+
+
+func _anchor_target_bone_to_solved_parent(
+		solved_parent: int,
+		target_bone: int
+) -> void:
+	var solved_parent_rest := _skeleton.get_bone_global_rest(solved_parent)
+	var target_rest := _skeleton.get_bone_global_rest(target_bone)
+	var rest_offset := solved_parent_rest.affine_inverse() * target_rest
+	var desired_global_position := (
+		_skeleton.get_bone_global_pose(solved_parent) * rest_offset
+	).origin
+	var actual_parent := _skeleton.get_bone_parent(target_bone)
+	var desired_local_position := desired_global_position
+	if actual_parent >= 0:
+		desired_local_position = (
+			_skeleton.get_bone_global_pose(actual_parent).affine_inverse()
+			* Transform3D(Basis.IDENTITY, desired_global_position)
+		).origin
+	_skeleton.set_bone_pose_position(target_bone, desired_local_position)
 
 
 func _apply_arm_deform_bones(
@@ -1034,18 +1554,43 @@ func _aim_target_bone_from_source_segment(
 		target_bone: int,
 		target_child: int,
 		source_bone: int,
-		source_child: int
+		source_child: int,
+		transfer_twist: bool = false
 ) -> void:
+	var source_rest := _retarget_source_skeleton.get_bone_global_rest(source_bone)
+	var source_child_rest := _retarget_source_skeleton.get_bone_global_rest(source_child)
 	var source_from := _retarget_source_skeleton.get_bone_global_pose(source_bone).origin
 	var source_to := _retarget_source_skeleton.get_bone_global_pose(source_child).origin
 	var desired_direction := source_to - source_from
 	var target_rest := _skeleton.get_bone_global_rest(target_bone)
 	var target_child_rest := _skeleton.get_bone_global_rest(target_child)
 	var rest_direction := target_child_rest.origin - target_rest.origin
-	if desired_direction.length_squared() < 0.000001 or rest_direction.length_squared() < 0.000001:
+	var source_rest_direction := source_child_rest.origin - source_rest.origin
+	if desired_direction.length_squared() < 0.000001 \
+			or rest_direction.length_squared() < 0.000001 \
+			or source_rest_direction.length_squared() < 0.000001:
 		return
-	var alignment := Quaternion(rest_direction.normalized(), desired_direction.normalized())
+	var desired_axis := desired_direction.normalized()
+	var alignment := Quaternion(rest_direction.normalized(), desired_axis)
 	var desired_global_basis := (Basis(alignment) * target_rest.basis).orthonormalized()
+	if transfer_twist:
+		# Hands and feet need the source roll as well as its segment direction.
+		# Extract only the residual twist after the source rest segment has been
+		# swung to its animated direction, then apply it about the shared axis.
+		var source_swing := Quaternion(source_rest_direction.normalized(), desired_axis)
+		var source_swing_basis := (
+			Basis(source_swing) * source_rest.basis
+		).orthonormalized()
+		var source_pose_basis := (
+			_retarget_source_skeleton.get_bone_global_pose(source_bone).basis.orthonormalized()
+		)
+		var residual_rotation := (
+			source_pose_basis * source_swing_basis.inverse()
+		).orthonormalized().get_rotation_quaternion()
+		var source_twist := _extract_twist_about_axis(residual_rotation, desired_axis)
+		desired_global_basis = (
+			Basis(source_twist) * desired_global_basis
+		).orthonormalized()
 	var parent_index := _skeleton.get_bone_parent(target_bone)
 	var desired_local_basis := desired_global_basis
 	if parent_index >= 0:
@@ -1058,29 +1603,14 @@ func _aim_target_bone_from_source_segment(
 	)
 
 
-func _apply_target_bone_rotation_from_source(target_bone: int, source_bone: int) -> void:
-	# The arm solver derives shoulder/elbow/wrist positions from segment directions,
-	# but the hand has no child segment to aim. Transfer only its authored rotation;
-	# copying the Mixamo hand translation would reintroduce elastic wrists.
-	var source_rest_basis := (
-		_retarget_source_skeleton.get_bone_global_rest(source_bone).basis.orthonormalized()
-	)
-	var source_pose_basis := (
-		_retarget_source_skeleton.get_bone_global_pose(source_bone).basis.orthonormalized()
-	)
-	var target_rest_basis := _skeleton.get_bone_global_rest(target_bone).basis.orthonormalized()
-	var motion_delta := source_pose_basis * source_rest_basis.inverse()
-	var desired_global_basis := (motion_delta * target_rest_basis).orthonormalized()
-	var parent_index := _skeleton.get_bone_parent(target_bone)
-	var desired_local_basis := desired_global_basis
-	if parent_index >= 0:
-		desired_local_basis = (
-			_skeleton.get_bone_global_pose(parent_index).basis.inverse()
-			* desired_global_basis
-		).orthonormalized()
-	_skeleton.set_bone_pose_rotation(
-		target_bone, desired_local_basis.get_rotation_quaternion()
-	)
+func _extract_twist_about_axis(rotation: Quaternion, axis: Vector3) -> Quaternion:
+	var unit_axis := axis.normalized()
+	var vector_part := Vector3(rotation.x, rotation.y, rotation.z)
+	var projected := unit_axis * vector_part.dot(unit_axis)
+	var twist := Quaternion(projected.x, projected.y, projected.z, rotation.w)
+	if twist.length_squared() < 0.000001:
+		return Quaternion.IDENTITY
+	return twist.normalized()
 
 
 func _apply_parachute_source_pose_adjustments() -> void:

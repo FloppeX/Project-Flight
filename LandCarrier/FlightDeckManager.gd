@@ -400,6 +400,10 @@ var _pending_ai_loadout_profile: String = ""
 var _pending_ai_aircraft_kind: String = "fixed_wing"
 var _pending_ai_aircraft_model: String = ""
 var _pending_launch_hangar_index: int = 0   # hangar slot chosen for the current launch (skips utility helis for AI scrambles)
+# Dedicated rolling-recovery tests may reserve replacement launches while the
+# deck is still storing an arrested aircraft.  Existing final clearances retain
+# priority; only aircraft waiting in the recovery stack yield to the refill.
+var prioritize_ai_launch_refill_over_waiting_recovery: bool = false
 
 func _deck_state_name(state: int = -1) -> String:
 	var resolved_state := current_state if state == -1 else state
@@ -1148,6 +1152,18 @@ func _get_node_transform_in_carrier_space(node: Node3D) -> Transform3D:
 	return node.transform
 
 
+func _get_node_world_transform_from_carrier_hierarchy(node: Node3D) -> Transform3D:
+	## Rebuild a deck component's world transform from its authored hierarchy.
+	## A carrier can be relocated after its children enter the tree (notably by
+	## contained test scenarios), while a cached child global_transform may still
+	## describe the old carrier pose for the remainder of that frame.
+	var carrier := get_parent() as Node3D
+	if carrier == null or not is_instance_valid(node):
+		return Transform3D.IDENTITY
+	carrier.force_update_transform()
+	return carrier.global_transform * _get_node_transform_in_carrier_space(node)
+
+
 func _get_tractor_home_transform_local(bot: Node3D, index: int = -1) -> Transform3D:
 	if not is_instance_valid(bot):
 		return Transform3D.IDENTITY
@@ -1594,7 +1610,8 @@ func can_queue_ai_helicopters(aircraft_model: String = "") -> bool:
 
 func _can_accept_ai_ops_launch_request() -> bool:
 	return not _landing_test_active \
-			and current_state == DeckState.IDLE \
+			and (current_state == DeckState.IDLE \
+					or prioritize_ai_launch_refill_over_waiting_recovery) \
 			and _ai_launch_queue <= 0 \
 			and _pending_flight_ops == null
 
@@ -1622,7 +1639,8 @@ func _launch_next_queued_ai() -> void:
 	_prune_landing_clearance_aircraft()
 	if is_instance_valid(_pending_store_aircraft) \
 			or is_instance_valid(_landing_clearance_aircraft) \
-			or not _landing_clearance_queue.is_empty():
+			or (not _landing_clearance_queue.is_empty() \
+					and not prioritize_ai_launch_refill_over_waiting_recovery):
 		return
 	_ai_launch_queue -= 1
 	start_hangar_retrieval()
@@ -2371,6 +2389,11 @@ func _can_grant_landing_clearance_to(requester: RigidBody3D = null) -> bool:
 	# other caller (_queued_fixed_wing_recovery_has_clear_corridor / carrier motion constraint) -- only
 	# its use as a clearance gate here is removed.
 	if _landing_deck_state_busy_for_clearance():
+		return false
+	# In the rolling recovery diagnostic, replenish the airborne cohort before
+	# admitting another waiter. This changes deck sequencing only: it does not
+	# bypass any launch, final-approach, arrest, or wire-capture gate.
+	if prioritize_ai_launch_refill_over_waiting_recovery and _ai_launch_queue > 0:
 		return false
 	if _is_recent_helicopter_landing_hold_active(requester):
 		return false
@@ -4552,9 +4575,10 @@ func _create_aircraft_at_hangar_level() -> RigidBody3D:
 	aircraft.name = "%s_%d" % [aircraft_data.name, _retrieval_sequence]
 
 	# Position aircraft on elevator platform at hangar level (where elevator currently is)
-	if elevator_pickup_marker and elevator_pickup_marker is Node3D:
-		(elevator_pickup_marker as Node3D).force_update_transform()
-	var elevator_hangar_pos = elevator_pickup_marker.global_position
+	var elevator_hangar_transform := _get_node_world_transform_from_carrier_hierarchy(
+		elevator_pickup_marker as Node3D
+	)
+	var elevator_hangar_pos := elevator_hangar_transform.origin
 	elevator_hangar_pos.y = _get_elevator_platform_top_global_y(-10.0) + _get_gear_ground_offset(aircraft)
 	aircraft.global_position = elevator_hangar_pos
 
@@ -4958,16 +4982,13 @@ func _complete_retrieval_sequence():
 	var target_position := Vector3.ZERO
 	var launch_marker: Node3D = _get_active_catapult_latch_marker()
 	if launch_marker is Node3D:
-		var carrier := get_parent() as Node3D
-		if carrier != null:
-			carrier.force_update_transform()
-		launch_marker.force_update_transform()
-		target_position = launch_marker.global_position
+		target_position = _get_node_world_transform_from_carrier_hierarchy(launch_marker).origin
 	else:
 		# Fallback - position forward of elevator
 		if elevator_pickup_marker is Node3D:
-			(elevator_pickup_marker as Node3D).force_update_transform()
-			target_position = elevator_pickup_marker.global_position + Vector3(0, 0, 20)
+			target_position = _get_node_world_transform_from_carrier_hierarchy(
+				elevator_pickup_marker as Node3D
+			).origin + Vector3(0, 0, 20)
 
 	var deck_height = _get_deck_height_y()
 	var gear_colliders = _find_gear_colliders(aircraft)

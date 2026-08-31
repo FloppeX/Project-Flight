@@ -7,6 +7,8 @@ class_name VisualFocus
 static func is_node_in_target_camera_focus(context: Node, node: Node3D) -> bool:
 	if context == null or node == null or not is_instance_valid(node):
 		return false
+	if not context.is_inside_tree() or not node.is_inside_tree():
+		return false
 	var tree: SceneTree = context.get_tree()
 	if tree == null:
 		return false

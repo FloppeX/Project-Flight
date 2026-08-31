@@ -40,11 +40,20 @@ signal covers_opened
 ## the marking begin exactly at the physical perimeter and extend inward.
 @export_range(0.0, 0.5, 0.01) var marking_inset_m: float = 0.0
 @export_range(0.05, 1.0, 0.01) var warning_stripe_width_m: float = 0.28
-@export_range(0.0, 1.0, 0.05) var surface_emission_energy: float = 0.3
+@export_range(0.0, 1.0, 0.05) var surface_emission_energy: float = 0.1
 @export var platform_color: Color = Color(0.25, 0.32, 0.34, 1.0)
 @export var cover_color: Color = Color(0.32, 0.36, 0.38, 1.0)
 @export var perimeter_marking_color: Color = Color(0.95, 0.72, 0.08, 1.0)
 @export var perimeter_marking_black_color: Color = Color(0.025, 0.03, 0.028, 1.0)
+## Stationary wall fixtures make the platform and the shaft's vertical depth
+## readable while the lift moves. Their local lights deliberately cast no
+## shadows: each carrier has two shafts, so this keeps the added cost bounded.
+@export var shaft_lights_enabled: bool = true
+@export var shaft_light_color: Color = Color(1.0, 0.82, 0.58, 1.0)
+@export_range(0.0, 8.0, 0.1) var shaft_light_energy: float = 4.2
+@export_range(2.0, 14.0, 0.25) var shaft_light_range_m: float = 7.0
+@export_range(0.0, 12.0, 0.25) var shaft_fixture_emission_energy: float = 4.0
+@export_range(0.0, 0.6, 0.01) var shaft_fixture_wall_offset_m: float = 0.07
 @export var moving_sound: AudioStream = preload("res://Audio/Carrier/elevator_moving_mono.wav")
 @export var moving_sound_bus: String = "Master"
 @export var moving_sound_min_volume_db: float = -20.0
@@ -74,6 +83,7 @@ var right_cover: Node3D
 var _platform_visual_root: Node3D
 var _left_cover_visual_root: Node3D
 var _right_cover_visual_root: Node3D
+var _shaft_lighting_root: Node3D
 # Animation targets
 var platform_target_y: float = 0.0
 var left_cover_target_x: float = 0.0
@@ -105,7 +115,8 @@ func create_elevator_components(include_audio: bool = true):
 			and is_instance_valid(right_cover) \
 			and is_instance_valid(_platform_visual_root) \
 			and is_instance_valid(_left_cover_visual_root) \
-			and is_instance_valid(_right_cover_visual_root):
+			and is_instance_valid(_right_cover_visual_root) \
+			and (not shaft_lights_enabled or is_instance_valid(_shaft_lighting_root)):
 		return
 	# Create platform
 	if not is_instance_valid(platform):
@@ -155,6 +166,9 @@ func create_elevator_components(include_audio: bool = true):
 			0.42
 		)
 		add_child(_right_cover_visual_root)
+	if shaft_lights_enabled and not is_instance_valid(_shaft_lighting_root):
+		_shaft_lighting_root = _create_shaft_lighting()
+		add_child(_shaft_lighting_root)
 	_sync_physical_transforms()
 	_sync_visual_transforms()
 	if include_audio:
@@ -338,6 +352,78 @@ func _create_surface_visual(
 	return visual_root
 
 
+func _create_shaft_lighting() -> Node3D:
+	var lighting_root := Node3D.new()
+	lighting_root.name = "ShaftLighting"
+
+	# Two opposing fixtures at two elevations reveal the full 10 m travel and
+	# keep the light pools within the opening. The fixtures are attached to the
+	# stationary elevator root rather than the moving platform render root.
+	var upper_y := -minf(shaft_depth * 0.28, 2.8)
+	var lower_y := -maxf(shaft_depth * 0.72, shaft_depth - 2.8)
+	var light_index := 0
+	for fixture_y in [upper_y, lower_y]:
+		for wall_sign in [-1.0, 1.0]:
+			_add_shaft_light_fixture(lighting_root, light_index, wall_sign, fixture_y)
+			light_index += 1
+	return lighting_root
+
+
+func _add_shaft_light_fixture(
+		parent: Node3D,
+		fixture_index: int,
+		wall_sign: float,
+		fixture_y: float
+) -> void:
+	var fixture := Node3D.new()
+	fixture.name = "ShaftLightFixture%d" % fixture_index
+	parent.add_child(fixture)
+
+	var wall_x := wall_sign * (platform_size.x * 0.5 + shaft_fixture_wall_offset_m)
+	fixture.position = Vector3(wall_x, fixture_y, 0.0)
+
+	var housing := MeshInstance3D.new()
+	housing.name = "ShaftLightHousing%d" % fixture_index
+	var housing_mesh := BoxMesh.new()
+	housing_mesh.size = Vector3(0.16, 0.58, 1.45)
+	housing.mesh = housing_mesh
+	var housing_material := StandardMaterial3D.new()
+	housing_material.albedo_color = Color(0.055, 0.065, 0.068, 1.0)
+	housing_material.metallic = 0.7
+	housing_material.roughness = 0.34
+	housing.material_override = housing_material
+	fixture.add_child(housing)
+
+	var lens := MeshInstance3D.new()
+	lens.name = "ShaftLightLens%d" % fixture_index
+	var lens_mesh := BoxMesh.new()
+	lens_mesh.size = Vector3(0.05, 0.34, 1.12)
+	lens.mesh = lens_mesh
+	lens.position.x = -wall_sign * 0.105
+	var lens_material := StandardMaterial3D.new()
+	lens_material.albedo_color = shaft_light_color
+	lens_material.roughness = 0.24
+	lens_material.emission_enabled = true
+	lens_material.emission = shaft_light_color
+	lens_material.emission_energy_multiplier = shaft_fixture_emission_energy
+	lens.material_override = lens_material
+	fixture.add_child(lens)
+
+	if shaft_light_energy <= 0.001:
+		return
+	var light := OmniLight3D.new()
+	light.name = "ShaftLight%d" % fixture_index
+	light.light_color = shaft_light_color
+	light.light_energy = shaft_light_energy
+	light.omni_range = shaft_light_range_m
+	light.omni_attenuation = 1.45
+	light.shadow_enabled = false
+	# Move the source just clear of the lens so the wall does not absorb the
+	# centre of the pool when shadows are enabled globally for other lights.
+	light.position.x = -wall_sign * 0.55
+	fixture.add_child(light)
+
+
 func _get_platform_local_transform() -> Transform3D:
 	return Transform3D(Basis.IDENTITY, Vector3(0.0, _platform_local_y, 0.0))
 
@@ -403,6 +489,10 @@ func get_left_cover_visual_root() -> Node3D:
 
 func get_right_cover_visual_root() -> Node3D:
 	return _right_cover_visual_root
+
+
+func get_shaft_lighting_root() -> Node3D:
+	return _shaft_lighting_root
 
 
 func _add_perimeter_markings(parent: Node3D, width: float, depth: float, surface_y: float) -> void:

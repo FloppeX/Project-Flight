@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://jffbtmd84fke"
+path="res://.godot/imported/Citadel - Archer flight, good work. Return to patrol.wav-6f7cf86c4429bf162fd1fbdfc3ba4fdf.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Citadel/Citadel - Archer flight, good work. Return to patrol.wav"
+dest_files=["res://.godot/imported/Citadel - Archer flight, good work. Return to patrol.wav-6f7cf86c4429bf162fd1fbdfc3ba4fdf.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

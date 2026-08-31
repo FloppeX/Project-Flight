@@ -1,5 +1,9 @@
 extends Node
 
+const PilotAppearance := preload("res://Aircraft/PilotAppearance.gd")
+
+signal pilot_killed(pilot_id: String, aircraft: Node3D)
+
 const CALLSIGN_SUFFIXES := ["lead", "two", "three", "four"]
 const FLIGHT_TIME_XP_PER_SECOND: float = 1.0 / 30.0
 const AIR_KILL_XP: int = 200
@@ -417,6 +421,7 @@ func restore_save_state(state: Dictionary) -> bool:
 		var pilot_id := str(pilot.get("id", ""))
 		if not pilot_id.is_empty():
 			_ensure_pilot_career_fields(pilot)
+			_ensure_pilot_appearance(pilot)
 			_pilots_by_id[pilot_id] = pilot
 	_assign_missing_personal_callsigns()
 	_assigned_pilot_id_by_callsign = _string_dictionary(state.get("assigned_pilot_id_by_callsign", {}))
@@ -426,6 +431,11 @@ func restore_save_state(state: Dictionary) -> bool:
 	_pilot_selection_bag = _string_array(state.get("pilot_selection_bag", []))
 	_assigned_aircraft_by_pilot_id.clear()
 	_damage_credit_by_target_id.clear()
+	for pilot_id_variant in _assigned_callsign_by_pilot_id.keys():
+		var pilot_id := str(pilot_id_variant)
+		if _pilots_by_id.has(pilot_id) \
+		and not bool((_pilots_by_id[pilot_id] as Dictionary).get("is_alive", true)):
+			_release_pilot_assignment(pilot_id)
 	return not _pilots_by_id.is_empty()
 
 
@@ -519,6 +529,31 @@ func release_callsign(callsign: String) -> void:
 	var pilot_id := str(_assigned_pilot_id_by_callsign.get(key, ""))
 	if pilot_id != "":
 		_release_pilot_assignment(pilot_id)
+
+
+func mark_pilot_killed_for_aircraft(aircraft: Node3D) -> bool:
+	if not is_instance_valid(aircraft):
+		return false
+	_build_pilot_index()
+	var pilot_id := _pilot_id_for_aircraft(aircraft)
+	if pilot_id == "" or not _pilots_by_id.has(pilot_id):
+		return false
+	var pilot: Dictionary = _pilots_by_id[pilot_id]
+	if not bool(pilot.get("is_alive", true)):
+		return false
+	pilot["is_alive"] = false
+	pilot["death_reason"] = "cockpit_destroyed"
+	pilot["death_aircraft"] = aircraft.name
+	pilot["death_unix_time"] = int(Time.get_unix_time_from_system())
+	pilot["current_sortie_time_s"] = float(pilot.get("current_sortie_time_s", 0.0))
+	_pilots_by_id[pilot_id] = pilot
+	_pilot_selection_bag.erase(pilot_id)
+	_release_pilot_assignment(pilot_id)
+	aircraft.set_meta("pilot_identity", pilot.duplicate(true))
+	aircraft.set_meta("pilot_dead", true)
+	aircraft.set_meta("pilot_alive", false)
+	pilot_killed.emit(pilot_id, aircraft)
+	return true
 
 func record_kill_for_aircraft(aircraft: Node3D, target: Node3D) -> void:
 	if not is_instance_valid(aircraft):
@@ -642,6 +677,7 @@ func _build_pilot_index() -> void:
 			if index < callsigns.size():
 				pilot["callsign"] = callsigns[index]
 			_ensure_pilot_career_fields(pilot)
+			_ensure_pilot_appearance(pilot)
 			_pilots_by_id[pilot_id] = pilot
 	_assign_missing_personal_callsigns()
 	_assign_pilot_portraits()
@@ -881,7 +917,10 @@ func _pilot_with_assignment(pilot_id: String) -> Dictionary:
 	var displayed_flight_callsign := _display_callsign(flight_callsign) if flight_callsign != "" else ""
 	pilot["assigned_callsign"] = displayed_flight_callsign # Backward-compatible UI field.
 	pilot["flight_callsign"] = displayed_flight_callsign
-	pilot["status"] = "assigned" if active_key != "" else "available"
+	if not bool(pilot.get("is_alive", true)):
+		pilot["status"] = "killed"
+	else:
+		pilot["status"] = "assigned" if active_key != "" else "available"
 	return pilot
 
 func _pilot_id_for_aircraft(aircraft: Node3D) -> String:
@@ -892,7 +931,8 @@ func _pilot_id_for_aircraft(aircraft: Node3D) -> String:
 
 func _assigned_pilot_id_for_callsign(callsign: String) -> String:
 	var pilot_id := str(_assigned_pilot_id_by_callsign.get(callsign, ""))
-	if pilot_id != "" and _pilots_by_id.has(pilot_id):
+	if pilot_id != "" and _pilots_by_id.has(pilot_id) \
+	and bool((_pilots_by_id[pilot_id] as Dictionary).get("is_alive", true)):
 		return pilot_id
 	return ""
 
@@ -901,7 +941,9 @@ func _pick_available_pilot_id() -> String:
 		_refill_pilot_selection_bag()
 	while not _pilot_selection_bag.is_empty():
 		var pilot_id: String = _pilot_selection_bag.pop_back()
-		if _pilots_by_id.has(pilot_id) and not _assigned_callsign_by_pilot_id.has(pilot_id):
+		if _pilots_by_id.has(pilot_id) \
+		and bool((_pilots_by_id[pilot_id] as Dictionary).get("is_alive", true)) \
+		and not _assigned_callsign_by_pilot_id.has(pilot_id):
 			return pilot_id
 	# The bag can contain pilots who became active after it was filled. Rebuild
 	# once from the currently available roster before reporting exhaustion.
@@ -914,13 +956,17 @@ func _pick_available_pilot_id() -> String:
 func _refill_pilot_selection_bag() -> void:
 	_pilot_selection_bag.clear()
 	for pilot_id in _sorted_pilot_ids():
-		if _pilots_by_id.has(pilot_id) and not _assigned_callsign_by_pilot_id.has(pilot_id):
+		if _pilots_by_id.has(pilot_id) \
+		and bool((_pilots_by_id[pilot_id] as Dictionary).get("is_alive", true)) \
+		and not _assigned_callsign_by_pilot_id.has(pilot_id):
 			_pilot_selection_bag.append(pilot_id)
 	_shuffle_strings(_pilot_selection_bag)
 
 
 func _assign_pilot_to_callsign(pilot_id: String, callsign: String) -> void:
 	if not _pilots_by_id.has(pilot_id):
+		return
+	if not bool((_pilots_by_id[pilot_id] as Dictionary).get("is_alive", true)):
 		return
 	var old_callsign := str(_assigned_callsign_by_pilot_id.get(pilot_id, ""))
 	var replaced_pilot_id := str(_assigned_pilot_id_by_callsign.get(callsign, ""))
@@ -946,15 +992,22 @@ func _release_pilot_assignment(pilot_id: String) -> void:
 	_assigned_aircraft_by_pilot_id.erase(pilot_id)
 
 func _apply_pilot_to_aircraft(aircraft: Node3D, pilot: Dictionary) -> void:
-	if pilot.is_empty():
+	if pilot.is_empty() or not bool(pilot.get("is_alive", true)):
 		return
+	_ensure_pilot_appearance(pilot)
 	var personal_callsign := str(pilot.get("callsign", ""))
 	var flight_callsign := str(pilot.get("flight_callsign", ""))
 	var pilot_id := str(pilot.get("id", ""))
 	if pilot_id != "":
 		_assigned_aircraft_by_pilot_id[pilot_id] = aircraft
 	aircraft.set_meta("pilot_identity", pilot.duplicate(true))
+	var palette: Variant = pilot.get(PilotAppearance.IDENTITY_FIELD, null)
+	if PilotAppearance.is_valid_palette(palette):
+		aircraft.set_meta(PilotAppearance.META_KEY, (palette as Dictionary).duplicate(true))
 	aircraft.set_meta("pilot_roster_id", pilot_id)
+	aircraft.set_meta("pilot_alive", true)
+	aircraft.set_meta("pilot_dead", false)
+	aircraft.set_meta("ejection_disabled", false)
 	aircraft.set_meta("pilot_callsign", personal_callsign)
 	aircraft.set_meta("pilot_flight_callsign", flight_callsign)
 	aircraft.set_meta("pilot_rank", str(pilot.get("rank", "")))
@@ -973,7 +1026,14 @@ func _apply_pilot_to_aircraft(aircraft: Node3D, pilot: Dictionary) -> void:
 	aircraft.set_meta("pilot_current_sortie_time_s", float(pilot.get("current_sortie_time_s", 0.0)))
 	aircraft.set_meta("pilot_sorties_flown", int(pilot.get("sorties_flown", 0)))
 	aircraft.set_meta("pilot_display_name", _format_display_name(pilot))
+	var cockpit_pilot := aircraft.get_node_or_null("CockpitPilot")
+	if cockpit_pilot != null and cockpit_pilot.has_method("refresh_pilot_appearance"):
+		cockpit_pilot.call("refresh_pilot_appearance")
 	_apply_skill_to_aircraft(aircraft, str(pilot.get("skill", "EXPERIENCED")))
+
+
+func _ensure_pilot_appearance(pilot: Dictionary) -> void:
+	PilotAppearance.ensure_identity_palette(pilot, _roster_rng)
 
 func _apply_pilot_to_assigned_aircraft(pilot_id: String) -> void:
 	if not _pilots_by_id.has(pilot_id):
@@ -985,6 +1045,7 @@ func _apply_pilot_to_assigned_aircraft(pilot_id: String) -> void:
 	_apply_pilot_to_aircraft(aircraft_ref as Node3D, _pilot_with_assignment(pilot_id))
 
 func _ensure_pilot_career_fields(pilot: Dictionary) -> void:
+	pilot["is_alive"] = bool(pilot.get("is_alive", true))
 	pilot["air_kills"] = float(pilot.get("air_kills", 0.0))
 	pilot["ground_kills"] = float(pilot.get("ground_kills", 0.0))
 	pilot["experience_points"] = int(pilot.get("experience_points", 0))
@@ -1029,6 +1090,9 @@ func _refresh_ace_status(pilot: Dictionary) -> void:
 		pilot["ace_status"] = "%dx Ace" % ace_level
 
 func _is_pilot_actively_flying(pilot_id: String) -> bool:
+	if not _pilots_by_id.has(pilot_id) \
+	or not bool((_pilots_by_id[pilot_id] as Dictionary).get("is_alive", true)):
+		return false
 	var aircraft_ref = _assigned_aircraft_by_pilot_id.get(pilot_id, null)
 	if not is_instance_valid(aircraft_ref):
 		return false

@@ -1,20 +1,24 @@
 extends SceneTree
-## Renders several times through each arm-heavy clip, with the approved run as
-## the first-row reference.
+## Renders several times through each arm-heavy clip at a three-quarter angle,
+## with the approved run as the first-row reference. The rotated view exposes
+## depth-axis limb stretching and wrist roll that a front render can hide.
 
 const PILOT_SCENE := "res://Models/Characters/pilot/PilotCharacter.tscn"
 const OUTPUT_PATH := "res://screenshots/pilot_arm_motion_catalog.png"
-const PREVIEW_SIZE := Vector2i(2000, 2200)
+const PREVIEW_SIZE := Vector2i(2000, 2600)
 const FRACTIONS := [0.15, 0.38, 0.62, 0.85]
 const CLIPS := [
 	{"name": &"run", "label": "RUN  (REFERENCE)"},
 	{"name": &"walk", "label": "WALK"},
+	{"name": &"turn_left", "label": "TURN LEFT"},
+	{"name": &"turn_right", "label": "TURN RIGHT"},
 	{"name": &"idle_breathing", "label": "IDLE BREATHING"},
 	{"name": &"sit_1", "label": "SIT 1"},
 	{"name": &"sit_2", "label": "SIT 2"},
 	{"name": &"piloting", "label": "PILOTING  (COCKPIT)"},
 	{"name": &"salute", "label": "SALUTE"},
 	{"name": &"wave", "label": "WAVE"},
+	{"name": &"die", "label": "DIE  (ROOT TRAVEL RETAINED)"},
 	{"name": &"parachute", "label": "PARACHUTE  (SAVED POSE)"},
 ]
 const CELL_WORLD_SIZE := Vector2(2.45, 2.45)
@@ -47,6 +51,11 @@ func _render() -> void:
 			var y := ((float(CLIPS.size()) - 1.0) * 0.5 - float(row)) * CELL_WORLD_SIZE.y
 			var pilot := packed.instantiate() as Node3D
 			pilot.position = Vector3(x, y, 0.0)
+			var preview_yaw := 35.0
+			if clip["name"] in [&"turn_left", &"turn_right"]:
+				var turn_sign := 1.0 if clip["name"] == &"turn_left" else -1.0
+				preview_yaw += 90.0 * turn_sign * float(FRACTIONS[column])
+			pilot.rotation_degrees.y = preview_yaw
 			pilot.set("hide_head_in_cockpit", false)
 			world.add_child(pilot)
 			await process_frame

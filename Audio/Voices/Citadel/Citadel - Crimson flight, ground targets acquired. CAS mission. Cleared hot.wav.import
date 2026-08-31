@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://bbpaqcf5g52rc"
+path="res://.godot/imported/Citadel - Crimson flight, ground targets acquired. CAS mission. Cleared hot.wav-dfea9c4dbc1d34a35e63f5c4daa6691c.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Citadel/Citadel - Crimson flight, ground targets acquired. CAS mission. Cleared hot.wav"
+dest_files=["res://.godot/imported/Citadel - Crimson flight, ground targets acquired. CAS mission. Cleared hot.wav-dfea9c4dbc1d34a35e63f5c4daa6691c.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

@@ -1477,7 +1477,7 @@ func get_downed_pilot_snapshot() -> Array[Dictionary]:
 	_prune_rescue_operations()
 	var snapshot: Array[Dictionary] = []
 	for pilot_node in _downed_pilots:
-		var helicopter := _rescue_assignments.get(pilot_node, null) as Node3D
+		var helicopter := _get_valid_rescue_helicopter(pilot_node)
 		snapshot.append({
 			"pilot": pilot_node,
 			"callsign": _downed_pilot_callsign(pilot_node),
@@ -1492,7 +1492,7 @@ func get_downed_pilot_snapshot() -> Array[Dictionary]:
 func _update_rescue_operations() -> void:
 	_prune_rescue_operations()
 	for pilot_node in _downed_pilots:
-		var assigned_helicopter := _rescue_assignments.get(pilot_node, null) as Node3D
+		var assigned_helicopter := _get_valid_rescue_helicopter(pilot_node)
 		if _rescue_assignment_is_active(pilot_node, assigned_helicopter):
 			continue
 		if assigned_helicopter != null:
@@ -1518,6 +1518,11 @@ func _prune_rescue_operations() -> void:
 	for pilot_variant in _rescue_assignments.keys():
 		if not is_instance_valid(pilot_variant) or not _downed_pilots.has(pilot_variant):
 			_rescue_assignments.erase(pilot_variant)
+			continue
+		var helicopter_variant: Variant = _rescue_assignments.get(pilot_variant, null)
+		if not is_instance_valid(helicopter_variant):
+			_rescue_assignments.erase(pilot_variant)
+			pilot_variant.set_meta(RESCUE_STATUS_META, RESCUE_STATUS_WAITING)
 	if is_instance_valid(_pending_rescue_launch_pilot) \
 			and not _downed_pilots.has(_pending_rescue_launch_pilot):
 		_pending_rescue_launch_pilot = null
@@ -1525,6 +1530,13 @@ func _prune_rescue_operations() -> void:
 	elif _pending_rescue_launch_pilot != null and not is_instance_valid(_pending_rescue_launch_pilot):
 		_pending_rescue_launch_pilot = null
 		_pending_rescue_launch_elapsed_s = 0.0
+
+
+func _get_valid_rescue_helicopter(pilot_node: Node3D) -> Node3D:
+	var helicopter_variant: Variant = _rescue_assignments.get(pilot_node, null)
+	if not is_instance_valid(helicopter_variant):
+		return null
+	return helicopter_variant as Node3D
 
 
 func _update_rescue_launch_timeout(delta: float) -> void:

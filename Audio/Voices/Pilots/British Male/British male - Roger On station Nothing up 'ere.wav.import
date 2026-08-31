@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://dh6p8yo1xainc"
+path="res://.godot/imported/British male - Roger On station Nothing up 'ere.wav-25a6a1c343c858d5b090071495a492cd.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/British Male/British male - Roger On station Nothing up 'ere.wav"
+dest_files=["res://.godot/imported/British male - Roger On station Nothing up 'ere.wav-25a6a1c343c858d5b090071495a492cd.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

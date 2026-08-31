@@ -42,6 +42,49 @@ class CCIPSymbol:
 		draw_line(center + Vector2(0.0, tick_start), center + Vector2(0.0, tick_end), symbol_color, ring_width_px, true)
 		draw_line(center + Vector2(-tick_start, 0.0), center + Vector2(-tick_end, 0.0), symbol_color, ring_width_px, true)
 
+class TargetDirectionArrow:
+	extends Control
+
+	var symbol_color: Color = Color.GREEN
+	var arrow_length_px: float = 34.0
+	var arrow_head_length_px: float = 12.0
+	var arrow_head_width_px: float = 15.0
+	var line_width_px: float = 3.5
+
+	func _ready() -> void:
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	func configure(
+		color: Color,
+		length_px: float,
+		head_length_px: float,
+		head_width_px: float,
+		width_px: float
+	) -> void:
+		symbol_color = color
+		arrow_length_px = maxf(length_px, 8.0)
+		arrow_head_length_px = clampf(head_length_px, 4.0, arrow_length_px * 0.6)
+		arrow_head_width_px = maxf(head_width_px, 6.0)
+		line_width_px = maxf(width_px, 1.0)
+		size = Vector2(
+			arrow_length_px + line_width_px * 2.0,
+			arrow_head_width_px + line_width_px * 2.0
+		)
+		pivot_offset = size * 0.5
+		queue_redraw()
+
+	func _draw() -> void:
+		var center := size * 0.5
+		var tail := center - Vector2(arrow_length_px * 0.5, 0.0)
+		var tip := center + Vector2(arrow_length_px * 0.5, 0.0)
+		var head_base_x := tip.x - arrow_head_length_px
+		draw_line(tail, Vector2(head_base_x, center.y), symbol_color, line_width_px, true)
+		draw_colored_polygon(PackedVector2Array([
+			tip,
+			Vector2(head_base_x, center.y - arrow_head_width_px * 0.5),
+			Vector2(head_base_x, center.y + arrow_head_width_px * 0.5),
+		]), symbol_color)
+
 @export var camera_path: NodePath
 @export var aircraft_path: NodePath
 @export var crosshair_color: Color = Color.GREEN
@@ -76,6 +119,12 @@ class CCIPSymbol:
 @export var speed_alt_box_side_margin_px: float = 14.0
 @export var speed_alt_box_vertical_ratio: float = 0.40
 @export var speed_alt_box_fill_alpha: float = 0.08
+@export_group("Target Direction Cue")
+@export var show_target_direction_arrow: bool = true
+@export var target_arrow_edge_margin_px: float = 64.0
+@export var target_arrow_length_px: float = 34.0
+@export var target_arrow_head_length_px: float = 12.0
+@export var target_arrow_head_width_px: float = 15.0
 
 var cam: Camera3D
 var aircraft: Node3D
@@ -98,6 +147,7 @@ var ccip_update_timer: Timer
 # Target overlay elements
 var target_overlay: Control
 var target_box_lines: Array[ColorRect] = []
+var target_direction_arrow: TargetDirectionArrow
 
 # AA missile lock diamond elements
 var lock_diamond: Control
@@ -234,6 +284,7 @@ func _ready():
 
 	# Set up target overlay elements
 	setup_target_overlay()
+	setup_target_direction_arrow()
 
 	# Set up AA lock diamond
 	setup_lock_diamond()
@@ -394,6 +445,20 @@ func setup_target_overlay():
 		line.visible = false
 		target_overlay.add_child(line)
 		target_box_lines.append(line)
+
+func setup_target_direction_arrow() -> void:
+	"""Set up the edge cue used when the selected target is outside the HUD glass."""
+	target_direction_arrow = TargetDirectionArrow.new()
+	target_direction_arrow.name = "TargetDirectionArrow"
+	target_direction_arrow.configure(
+		_opaque(hud_primary_color),
+		target_arrow_length_px,
+		target_arrow_head_length_px,
+		target_arrow_head_width_px,
+		hud_line_thickness_px
+	)
+	target_direction_arrow.visible = false
+	viewport.add_child(target_direction_arrow)
 
 func setup_lock_diamond():
 	"""Set up the 4-line diamond shape for AA missile lock indication."""
@@ -671,6 +736,11 @@ func _set_target_box_visible(p_visible: bool):
 		if is_instance_valid(line):
 			line.visible = p_visible
 
+func _set_target_direction_arrow_visible(p_visible: bool) -> void:
+	if not is_instance_valid(target_direction_arrow):
+		return
+	target_direction_arrow.visible = p_visible and show_target_direction_arrow
+
 func _is_gear_down() -> bool:
 	if not is_instance_valid(aircraft):
 		return false
@@ -700,54 +770,54 @@ func _get_nearest_landing_target() -> Node3D:
 				best = node as Node3D
 	return best
 
+func _resolve_hud_tracking_target() -> Node3D:
+	# Gear down: landing guidance remains more important than a combat selection.
+	if _is_gear_down():
+		var landing_target := _get_nearest_landing_target()
+		if is_instance_valid(landing_target):
+			return landing_target
+
+	var targeting_system = get_targeting_system()
+	if is_instance_valid(targeting_system) and "current_target" in targeting_system:
+		var raw_target = targeting_system.current_target
+		if is_instance_valid(raw_target) and raw_target is Node3D:
+			return raw_target as Node3D
+	return null
+
 func update_target_overlay():
-	"""Update the green target box overlay when target is visible in HUD"""
+	"""Update the target box or edge arrow for the selected HUD target."""
 	# Ensure all required nodes are valid before proceeding
 	var required_nodes = [target_overlay, cam, aircraft, hud_mesh]
 	for node in required_nodes:
 		if not is_instance_valid(node):
 			_set_target_box_visible(false)
+			_set_target_direction_arrow_visible(false)
 			return
 
-	# Gear down: landing target always takes priority over combat target.
-	var target: Node3D = null
-	if _is_gear_down():
-		target = _get_nearest_landing_target()
-
-	# Fall back to combat target when gear is up.
-	if not is_instance_valid(target):
-		var targeting_system = get_targeting_system()
-		if is_instance_valid(targeting_system) and "current_target" in targeting_system:
-			var raw_target = targeting_system.current_target
-			if is_instance_valid(raw_target):
-				target = raw_target
-
-	# Hide overlay if no valid target exists
+	var target := _resolve_hud_tracking_target()
 	if not is_instance_valid(target):
 		_set_target_box_visible(false)
+		_set_target_direction_arrow_visible(false)
 		return
+	_update_target_cues_for_target(target)
 
-	var hud_projection: Dictionary = _project_world_to_hud(target.global_position)
-	if not bool(hud_projection.get("visible", false)):
+func _update_target_cues_for_target(target: Node3D) -> void:
+	if not is_instance_valid(target):
 		_set_target_box_visible(false)
+		_set_target_direction_arrow_visible(false)
+		return
+	var hud_projection: Dictionary = _project_world_to_hud(target.global_position, true)
+	if not bool(hud_projection.get("on_glass", false)):
+		_set_target_box_visible(false)
+		_update_target_direction_arrow(target.global_position, hud_projection)
 		return
 
-	var hud_size_px := Vector2(viewport.size)
+	_set_target_direction_arrow_visible(false)
 	var hud_pos := hud_projection.get("hud_pos", Vector2.ZERO) as Vector2
-
-	# Check if the target is within the HUD viewport bounds (with some margin)
-	var margin = 50.0
-	if (hud_pos.x < -margin or hud_pos.x > (hud_size_px.x + margin) or 
-		hud_pos.y < -margin or hud_pos.y > (hud_size_px.y + margin)):
-		_set_target_box_visible(false)
-		return
-
-	# Target is visible in HUD, so show and position the box
 	_set_target_box_visible(true)
-	
-	var box_size = Vector2(40, 40)
+	var box_size := Vector2(40, 40)
 	var line_thickness: float = hud_line_thickness_px
-	var top_left = hud_pos - (box_size * 0.5)
+	var top_left := hud_pos - (box_size * 0.5)
 	
 	# Position the 4 lines that form the box
 	var top_line := target_box_lines[0]
@@ -766,6 +836,58 @@ func update_target_overlay():
 	
 	right_line.position = Vector2(top_left.x + box_size.x - line_thickness, top_left.y)
 	right_line.size = Vector2(line_thickness, box_size.y)
+
+func _update_target_direction_arrow(world_pos: Vector3, projection: Dictionary = {}) -> void:
+	if not show_target_direction_arrow or not is_instance_valid(target_direction_arrow):
+		_set_target_direction_arrow_visible(false)
+		return
+	var direction := _target_direction_on_hud(world_pos, projection)
+	if direction.length_squared() < 0.000001:
+		_set_target_direction_arrow_visible(false)
+		return
+	var hud_size := Vector2(viewport.size)
+	var hud_center := hud_size * 0.5
+	var max_margin := maxf(minf(hud_center.x, hud_center.y) - 1.0, 0.0)
+	var margin := clampf(target_arrow_edge_margin_px, 0.0, max_margin)
+	var half_extent := Vector2(
+		maxf(hud_center.x - margin, 1.0),
+		maxf(hud_center.y - margin, 1.0)
+	)
+	var arrow_center := _edge_point_for_direction(hud_center, half_extent, direction)
+	target_direction_arrow.position = arrow_center - target_direction_arrow.pivot_offset
+	target_direction_arrow.rotation = direction.angle()
+	_set_target_direction_arrow_visible(true)
+
+func _target_direction_on_hud(world_pos: Vector3, projection: Dictionary = {}) -> Vector2:
+	var hud_center := Vector2(viewport.size) * 0.5
+	if bool(projection.get("projected", false)):
+		var projected_pos := projection.get("hud_pos", hud_center) as Vector2
+		var projected_direction := projected_pos - hud_center
+		if projected_direction.length_squared() >= 0.000001:
+			return projected_direction.normalized()
+
+	var to_target := world_pos - cam.global_position
+	if to_target.length_squared() < 0.000001:
+		return Vector2.ZERO
+	to_target = to_target.normalized()
+	var camera_basis := cam.global_transform.basis.orthonormalized()
+	var direction := Vector2(
+		to_target.dot(camera_basis.x),
+		-to_target.dot(camera_basis.y)
+	)
+	if direction.length_squared() < 0.000001:
+		# A target exactly aft has no unique 2D bearing. Down is a consistent
+		# cockpit convention and avoids a disappearing cue at the worst moment.
+		return Vector2.DOWN
+	return direction.normalized()
+
+static func _edge_point_for_direction(center: Vector2, half_extent: Vector2, direction: Vector2) -> Vector2:
+	var normalized_direction := direction.normalized()
+	if normalized_direction.length_squared() < 0.000001:
+		return center
+	var scale_x := half_extent.x / maxf(absf(normalized_direction.x), 0.000001)
+	var scale_y := half_extent.y / maxf(absf(normalized_direction.y), 0.000001)
+	return center + normalized_direction * minf(scale_x, scale_y)
 
 
 func get_targeting_system():

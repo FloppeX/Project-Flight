@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://el3vefqojak"
+path="res://.godot/imported/Nigerian male - Two, tally. Target is mine.wav-24304197bcb9a481db2db08b0c2d70f4.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/Nigerian Male/Nigerian male - Two, tally. Target is mine.wav"
+dest_files=["res://.godot/imported/Nigerian male - Two, tally. Target is mine.wav-24304197bcb9a481db2db08b0c2d70f4.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://bl8btrl7m6sud"
+path="res://.godot/imported/Ukrainian - Off the deck Gear up, climbing to station.wav-57a5e803a690618a16aa05d68b46c2c2.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/Ukrainian/Ukrainian - Off the deck Gear up, climbing to station.wav"
+dest_files=["res://.godot/imported/Ukrainian - Off the deck Gear up, climbing to station.wav-57a5e803a690618a16aa05d68b46c2c2.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

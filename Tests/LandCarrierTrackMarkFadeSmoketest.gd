@@ -8,6 +8,11 @@ class TestCarrier:
 	func _spawn_track_mark_for_tread(tread_transform: Transform3D) -> void:
 		spawned_track_samples.append(tread_transform)
 
+class LazyResourceCarrier:
+	extends LandCarrier
+	func _ready() -> void:
+		pass
+
 var _failures: Array[String] = []
 
 func _ready() -> void:
@@ -28,7 +33,15 @@ func _run() -> void:
 	var fade_shader: Shader = carrier._track_mark_material.shader
 	_expect(fade_shader.code.contains("INSTANCE_CUSTOM"), "fade shader does not read per-mark lifetime data")
 	_expect(fade_shader.code.contains("ALPHA"), "fade shader does not write transparent opacity")
+	_expect(fade_shader.code.contains("fresh_brightness"), "fade shader does not lighten newly created marks")
+	_expect(fade_shader.code.contains("fresh_lift_fraction"), "fade shader does not limit the fresh color lift by age")
 	_expect(not fade_shader.code.contains("unshaded"), "track marks do not receive the terrain's scene lighting")
+	var fresh_brightness: Variant = carrier._track_mark_material.get_shader_parameter(&"fresh_brightness")
+	_expect(
+		is_equal_approx(float(fresh_brightness), carrier.track_mark_fresh_brightness),
+		"fresh track brightness did not reach the shared material"
+	)
+	_expect(float(fresh_brightness) > 1.0, "new track marks still begin at the darker aged color")
 
 	var sand_color := Color(0.88, 0.80, 0.42, 1.0)
 	var deeper_sand := carrier._get_track_mark_color_from_ground(sand_color)
@@ -60,6 +73,44 @@ func _run() -> void:
 	_expect(carrier._track_mark_entries.is_empty(), "expired track mark was not removed")
 	if slot >= 0:
 		_expect(carrier._track_mark_free_slots.has(slot), "expired track mark slot was not released")
+
+	# Normal movement must initialize the pool itself. The intro carrier does not
+	# perform an origin shift or explicit MultiMesh sync before it starts driving.
+	var lazy_carrier := LazyResourceCarrier.new()
+	lazy_carrier.track_mark_max_active = 4
+	lazy_carrier.track_mark_spawn_spacing_m = 2.0
+	lazy_carrier.track_mark_min_speed_mps = 0.1
+	lazy_carrier.set_physics_process(false)
+	get_tree().root.add_child(lazy_carrier)
+	lazy_carrier.set_physics_process(false)
+	var lazy_tread := Node3D.new()
+	lazy_carrier.add_child(lazy_tread)
+	lazy_carrier._tread_nodes = [lazy_tread]
+	lazy_carrier._mark_initial_placement_completed()
+	lazy_carrier._update_track_marks(1.0, lazy_carrier.global_transform)
+	lazy_tread.global_position = Vector3(0.0, 0.0, 3.0)
+	lazy_carrier._update_track_marks(1.0, lazy_carrier.global_transform)
+	_expect(lazy_carrier._track_mark_multimesh != null, "normal movement did not lazily create the track mark pool")
+	_expect(lazy_carrier._track_mark_entries.size() == 1, "normal movement discarded its first track mark")
+
+	# A menu/nav handoff is a teleport. It must replace the old trail with a
+	# short heading-aligned seed and fully settle the suspension in that frame.
+	lazy_carrier._tread_local_xz = [Vector2.ZERO]
+	lazy_carrier._tread_initial_rot_y = [0.0]
+	lazy_carrier.global_position = Vector3(1000.0, 40.0, 1000.0)
+	lazy_carrier.settle_after_nonphysical_placement(6.0)
+	var post_teleport_y := lazy_carrier.global_position.y
+	lazy_carrier._update_tread_visuals(1.0 / 60.0, lazy_carrier.global_transform)
+	_expect(
+		absf(lazy_carrier.global_position.y - post_teleport_y) <= 0.05,
+		"non-physical placement left the carrier body visibly settling"
+	)
+	for teleported_entry in lazy_carrier._track_mark_entries:
+		var teleported_mark_transform := teleported_entry.get("transform", Transform3D.IDENTITY) as Transform3D
+		_expect(
+			teleported_mark_transform.origin.distance_to(lazy_carrier.global_position) < 100.0,
+			"non-physical placement retained a cross-map trail segment"
+		)
 
 	# Each tread needs its own distance history: a shared carrier-centre distance
 	# leaves holes on the outside track during turns.

@@ -1,0 +1,11 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://LandCarrier/DeckAnimationPilot.gd" id="1_controller"]
+[ext_resource type="PackedScene" path="res://Models/Characters/pilot/PilotCharacter.tscn" id="2_pilot"]
+
+[node name="DeckAnimationPilot" type="Node3D" groups=["deck_animation_pilot"]]
+script = ExtResource("1_controller")
+
+[node name="Pilot" parent="." instance=ExtResource("2_pilot")]
+hide_head_in_cockpit = false
+initial_pose_name = &"grounded"

@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://du5nymuae6045"
+path="res://.godot/imported/Ukrainian - Wilco Climbing to altitude Watch your spacing.wav-02df257d27a4a5e538a2cfab201fd70f.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/Ukrainian/Ukrainian - Wilco Climbing to altitude Watch your spacing.wav"
+dest_files=["res://.godot/imported/Ukrainian - Wilco Climbing to altitude Watch your spacing.wav-02df257d27a4a5e538a2cfab201fd70f.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

@@ -17,6 +17,7 @@ signal parked
 signal moved
 signal damaged(damage_amount, current_health)
 signal destroyed
+signal pilot_killed(pilot_id: String)
 
 # Health/Damage System
 @export var max_health: float = 100.0
@@ -264,7 +265,9 @@ func _ensure_cockpit_pilot() -> void:
 		return
 
 	pilot_node.name = str(COCKPIT_PILOT_NODE_NAME)
-	if cockpit_pilot_pose_script != null:
+	# Legacy fallback scenes may be scriptless. Modern CockpitPilot is a
+	# lightweight pooled mount and must retain its forwarding script.
+	if cockpit_pilot_pose_script != null and pilot_node.get_script() == null:
 		pilot_node.set_script(cockpit_pilot_pose_script)
 	add_child(pilot_node)
 
@@ -868,10 +871,30 @@ func check_movement_state():
 #  DAMAGE SYSTEM
 # ----------------------------------------------------------------------------
 
+func take_damage_at(
+	damage_amount: float,
+	world_position: Vector3 = Vector3.INF,
+	local_shape_index: int = -1
+) -> StringName:
+	var part_damage_model := get_node_or_null("PartDamageModel")
+	if part_damage_model != null and part_damage_model.has_method("take_damage_at"):
+		return part_damage_model.call("take_damage_at", damage_amount, world_position, local_shape_index) as StringName
+	take_damage(damage_amount)
+	return &"fuselage"
+
+
+func get_part_damage_state() -> Dictionary:
+	var part_damage_model := get_node_or_null("PartDamageModel")
+	if part_damage_model != null and part_damage_model.has_method("get_damage_state"):
+		return part_damage_model.call("get_damage_state") as Dictionary
+	return {}
+
 func take_damage(damage_amount: float):
 	if current_health <= 0 or _critical_damage_active or _has_exploded:
 		return  # Already destroyed
-	# Simple damage cooldown to prevent multiple applications from a single collision frame
+	# Keep the collision-frame cooldown for both legacy and regional aircraft.
+	# Projectile hits normally use take_damage_at(), so this primarily prevents
+	# sustained body contact from consuming a fuselage region every physics tick.
 	var now_ms: int = Time.get_ticks_msec()
 	var time_since_last = now_ms - _last_damage_ms
 	if time_since_last < int(damage_cooldown_s * 1000.0):
@@ -879,6 +902,12 @@ func take_damage(damage_amount: float):
 			print("[Aircraft] Damage BLOCKED by cooldown - ", time_since_last, "ms since last (need ", int(damage_cooldown_s * 1000.0), "ms)")
 		return
 	_last_damage_ms = now_ms
+	# Aircraft with localized damage no longer spend a second shared hull pool.
+	# Damage without shape information is treated as a fuselage hit.
+	var part_damage_model := get_node_or_null("PartDamageModel")
+	if part_damage_model != null and part_damage_model.has_method("damage_zone"):
+		part_damage_model.call("damage_zone", &"fuselage", damage_amount)
+		return
 	
 	# Apply damage
 	current_health -= damage_amount
@@ -890,6 +919,42 @@ func take_damage(damage_amount: float):
 	
 	if current_health <= 0:
 		_begin_critical_damage_sequence()
+
+
+func kill_pilot_due_to_cockpit_damage() -> void:
+	if bool(get_meta("pilot_dead", false)):
+		return
+	set_meta("pilot_dead", true)
+	set_meta("pilot_alive", false)
+	set_meta("ejection_disabled", true)
+	set_meta("player_control_locked", true)
+	_disable_ai_for_critical_damage()
+	_disable_player_control_for_critical_damage()
+	_disable_non_jam_control_modules()
+	_neutralize_flight_controls_after_pilot_death()
+	var ejection_sequence := get_node_or_null("EjectionSequence")
+	if ejection_sequence != null and ejection_sequence.has_method("disable_for_pilot_death"):
+		ejection_sequence.call("disable_for_pilot_death")
+	var roster := get_node_or_null("/root/PilotRoster")
+	if roster != null and roster.has_method("mark_pilot_killed_for_aircraft"):
+		roster.call("mark_pilot_killed_for_aircraft", self)
+	var pilot_id := str(get_meta("pilot_roster_id", ""))
+	pilot_killed.emit(pilot_id)
+
+
+func _neutralize_flight_controls_after_pilot_death() -> void:
+	_cache_control_jam_targets()
+	if _jam_steering_module != null:
+		if _jam_steering_module.has_method("set_x"):
+			_jam_steering_module.call("set_x", 0.0)
+		if _jam_steering_module.has_method("set_y"):
+			_jam_steering_module.call("set_y", 0.0)
+		if _jam_steering_module.has_method("set_z"):
+			_jam_steering_module.call("set_z", 0.0)
+	if _jam_simple_aero != null:
+		_jam_simple_aero.pitch_input = 0.0
+		_jam_simple_aero.yaw_input = 0.0
+		_jam_simple_aero.roll_input = 0.0
 
 func explode():
 	if _has_exploded:

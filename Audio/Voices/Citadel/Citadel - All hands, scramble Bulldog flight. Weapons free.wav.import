@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://ba8x8467bx5ju"
+path="res://.godot/imported/Citadel - All hands, scramble Bulldog flight. Weapons free.wav-e0c4e302680f7850d9b6abb62513135a.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Citadel/Citadel - All hands, scramble Bulldog flight. Weapons free.wav"
+dest_files=["res://.godot/imported/Citadel - All hands, scramble Bulldog flight. Weapons free.wav-e0c4e302680f7850d9b6abb62513135a.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

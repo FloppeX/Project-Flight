@@ -1,5 +1,7 @@
 extends SceneTree
 
+const PilotAppearance := preload("res://Aircraft/PilotAppearance.gd")
+
 var _failures: Array[String] = []
 
 
@@ -68,6 +70,12 @@ func _run() -> void:
 		)
 		var station_pilot: Dictionary = pilot_roster.call("get_pilot_for_callsign", station)
 		_expect(str(station_pilot.get("id", "")) == pilot_id, "formation radio lookup resolves the assigned pilot")
+		_expect(
+			PilotAppearance.is_valid_palette(aircraft.get_meta(PilotAppearance.META_KEY, {}))
+					and aircraft.get_meta(PilotAppearance.META_KEY, {}) \
+					== station_pilot.get(PilotAppearance.IDENTITY_FIELD, {}),
+			"aircraft receives its assigned pilot's persistent appearance"
+		)
 		selected_pilot_ids[pilot_id] = true
 		pilot_roster.call("release_aircraft", aircraft)
 		aircraft.free()
@@ -80,6 +88,7 @@ func _validate_campaign_roster(roster: Array[Dictionary]) -> void:
 	_expect(not roster.is_empty(), "campaign roster is populated")
 	var names: Dictionary = {}
 	var callsigns: Dictionary = {}
+	var helmet_combinations: Dictionary = {}
 	for pilot in roster:
 		var full_name := str(pilot.get("name", "")).strip_edges()
 		var callsign := str(pilot.get("callsign", "")).strip_edges()
@@ -87,14 +96,26 @@ func _validate_campaign_roster(roster: Array[Dictionary]) -> void:
 		_expect(callsign != "", "campaign pilot has a personal callsign")
 		_expect(not names.has(full_name.to_lower()), "campaign pilot names are unique")
 		_expect(not callsigns.has(callsign.to_lower()), "campaign pilot callsigns are unique")
+		var palette: Variant = pilot.get(PilotAppearance.IDENTITY_FIELD, null)
+		_expect(PilotAppearance.is_valid_palette(palette), "campaign pilot has a valid appearance palette")
+		if PilotAppearance.is_valid_palette(palette):
+			var colors := palette as Dictionary
+			helmet_combinations[
+				"%s|%s" % [colors.get("helmet_color_1"), colors.get("helmet_color_2")]
+			] = true
 		names[full_name.to_lower()] = true
 		callsigns[callsign.to_lower()] = true
+	_expect(helmet_combinations.size() > 1, "campaign pilots have visibly varied helmet palettes")
 
 
 func _identity_signature(roster: Array[Dictionary]) -> String:
 	var identities: Array[String] = []
 	for pilot in roster:
-		identities.append("%s|%s" % [pilot.get("name", ""), pilot.get("callsign", "")])
+		identities.append("%s|%s|%s" % [
+			pilot.get("name", ""),
+			pilot.get("callsign", ""),
+			pilot.get(PilotAppearance.IDENTITY_FIELD, {}),
+		])
 	identities.sort()
 	return "\n".join(identities)
 

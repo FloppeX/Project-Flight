@@ -39,6 +39,7 @@ PauseMenu="*res://UI/PauseMenu.gd"
 WorldMapOverlay="*res://UI/WorldMapOverlay.gd"
 PilotRosterOverlay="*res://UI/PilotRosterOverlay.gd"
 CarrierConsole="*res://UI/CarrierConsole.gd"
+CockpitPilotPool="*res://Aircraft/CockpitPilotPool.gd"
 FlightDirector="*res://AirOps/FlightDirector.gd"
 PilotRoster="*res://AirOps/PilotRoster.gd"
 AirOpsManager="*res://AirOps/AirOpsManager.gd"
@@ -90,22 +91,22 @@ common/drop_mouse_on_gui_input_disabled=true
 [input]
 
 pitch_up={
-"deadzone": 0.15,
+"deadzone": 0.05,
 "events": [Object(InputEventJoypadMotion,"resource_local_to_scene":false,"resource_name":"","device":-1,"axis":1,"axis_value":1.0,"script":null)
 ]
 }
 pitch_down={
-"deadzone": 0.15,
+"deadzone": 0.05,
 "events": [Object(InputEventJoypadMotion,"resource_local_to_scene":false,"resource_name":"","device":-1,"axis":1,"axis_value":-1.0,"script":null)
 ]
 }
 roll_left={
-"deadzone": 0.15,
+"deadzone": 0.05,
 "events": [Object(InputEventJoypadMotion,"resource_local_to_scene":false,"resource_name":"","device":-1,"axis":0,"axis_value":-1.0,"script":null)
 ]
 }
 roll_right={
-"deadzone": 0.15,
+"deadzone": 0.05,
 "events": [Object(InputEventJoypadMotion,"resource_local_to_scene":false,"resource_name":"","device":-1,"axis":0,"axis_value":1.0,"script":null)
 ]
 }
@@ -155,22 +156,22 @@ gear_toggle={
 ]
 }
 look_right={
-"deadzone": 0.15,
+"deadzone": 0.05,
 "events": [Object(InputEventJoypadMotion,"resource_local_to_scene":false,"resource_name":"","device":-1,"axis":2,"axis_value":1.0,"script":null)
 ]
 }
 look_left={
-"deadzone": 0.15,
+"deadzone": 0.05,
 "events": [Object(InputEventJoypadMotion,"resource_local_to_scene":false,"resource_name":"","device":-1,"axis":2,"axis_value":-1.0,"script":null)
 ]
 }
 look_up={
-"deadzone": 0.15,
+"deadzone": 0.05,
 "events": [Object(InputEventJoypadMotion,"resource_local_to_scene":false,"resource_name":"","device":-1,"axis":3,"axis_value":-1.0,"script":null)
 ]
 }
 look_down={
-"deadzone": 0.15,
+"deadzone": 0.05,
 "events": [Object(InputEventJoypadMotion,"resource_local_to_scene":false,"resource_name":"","device":-1,"axis":3,"axis_value":1.0,"script":null)
 ]
 }
@@ -202,6 +203,11 @@ target_prev={
 toggle_zoom={
 "deadzone": 0.2,
 "events": [Object(InputEventJoypadButton,"resource_local_to_scene":false,"resource_name":"","device":-1,"button_index":8,"pressure":0.0,"pressed":false,"script":null)
+]
+}
+flight_log_mark={
+"deadzone": 0.2,
+"events": [Object(InputEventJoypadButton,"resource_local_to_scene":false,"resource_name":"","device":-1,"button_index":7,"pressure":0.0,"pressed":false,"script":null)
 ]
 }
 catapult_align={

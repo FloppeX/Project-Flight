@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://jk4j4vinrqwe"
+path="res://.godot/imported/Citadel - Good hunting. Bulldog flight, back on station.wav-df967e3100fbcbbeea837997170621d1.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Citadel/Citadel - Good hunting. Bulldog flight, back on station.wav"
+dest_files=["res://.godot/imported/Citadel - Good hunting. Bulldog flight, back on station.wav-df967e3100fbcbbeea837997170621d1.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

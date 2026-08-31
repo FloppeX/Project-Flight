@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://cu7cy1i7omri3"
+path="res://.godot/imported/German female - Lead's in on target. Committing.wav-5644200f64e3f836572e73687008b0db.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/German Female/German female - Lead's in on target. Committing.wav"
+dest_files=["res://.godot/imported/German female - Lead's in on target. Committing.wav-5644200f64e3f836572e73687008b0db.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

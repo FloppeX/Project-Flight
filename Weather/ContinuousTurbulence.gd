@@ -25,9 +25,9 @@ class_name ContinuousTurbulence
 @export var debug_output: bool = false  # Toggle debug messages
 
 # Audio settings
-@export var wind_sound: AudioStream = preload("res://Audio/wind_sound_cockpit.wav")
-@export var air_rush_sound: AudioStream = preload("res://Audio/air rush sound.wav")
-@export var stall_buffet_sound: AudioStream = preload("res://Audio/stall buffet sound.wav")
+@export var wind_sound: AudioStream = preload("res://Audio/cockpit/wind_sound_cockpit.wav")
+@export var air_rush_sound: AudioStream = preload("res://Audio/cockpit/air rush sound.wav")
+@export var stall_buffet_sound: AudioStream = preload("res://Audio/cockpit/stall buffet sound.wav")
 @export var layer_silence_db: float = -80.0
 @export var turbulence_max_volume_db: float = -48.0
 @export var turbulence_min_volume_db: float = -62.0

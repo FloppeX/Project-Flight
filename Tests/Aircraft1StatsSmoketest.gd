@@ -26,7 +26,8 @@ func _ready() -> void:
 	if engine_1 != null and engine_5 != null:
 		var thrust_1 := float(engine_1.get("PowerFactor"))
 		var thrust_5 := float(engine_5.get("PowerFactor"))
-		_expect(is_equal_approx(thrust_1, 9000.0), "Aircraft 1 engine thrust is not 9000")
+		_expect(is_equal_approx(thrust_1, 4500.0), "Aircraft 1 engine thrust is not 4500")
+		_expect(is_equal_approx(thrust_5, 6250.0), "Aircraft 5 engine thrust is not 6250")
 		_expect(thrust_1 < thrust_5, "Aircraft 1 engine is not weaker than Aircraft 5")
 		_expect(thrust_1 / aircraft_1.mass < thrust_5 / aircraft_5.mass, "Aircraft 1 thrust-to-mass ratio is not lower than Aircraft 5")
 	if aero_1 != null and aero_5 != null:

@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://crr7jb3o5urcs"
+path="res://.godot/imported/British male - Copy Breaking off Let's 'ave it.wav-3fc00490ae7196a627d0cdf3a78dcddf.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/British Male/British male - Copy Breaking off Let's 'ave it.wav"
+dest_files=["res://.godot/imported/British male - Copy Breaking off Let's 'ave it.wav-3fc00490ae7196a627d0cdf3a78dcddf.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

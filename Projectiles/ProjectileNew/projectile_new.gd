@@ -45,6 +45,8 @@ var _hit_assist_segment_start: Vector3 = Vector3.ZERO
 var _hit_assist_broadphase_shape: SphereShape3D = null
 var _lifetime_elapsed_s: float = 0.0
 var _activation_serial: int = 0
+var _impact_target_shape_index: int = -1
+var _impact_world_position: Vector3 = Vector3.INF
 
 static func get_hit_assist_radius_m() -> float:
 	return hit_assist_radius_m
@@ -65,10 +67,10 @@ static func _ensure_sounds_loaded() -> void:
 		return
 	_sounds_loaded = true
 	for i in range(1, 9):
-		var metal := load("res://Audio/bullet_impact_metal_heavy_%02d.wav" % i)
+		var metal := load("res://Audio/impacts/bullet_impact_metal_heavy_%02d.wav" % i)
 		if metal:
 			_metal_sounds.append(metal)
-		var dirt := load("res://Audio/bullet_impact_dirt_%02d.wav" % i)
+		var dirt := load("res://Audio/impacts/bullet_impact_dirt_%02d.wav" % i)
 		if dirt:
 			_dirt_sounds.append(dirt)
 	_scorch_texture = load("res://Projectiles/Explosion/scorch_mark.png")
@@ -121,6 +123,8 @@ func _physics_process(delta):
 			
 		var result: Dictionary = space_state.intersect_ray(query)
 		if result and not has_impacted:
+			_impact_target_shape_index = int(result.get("shape", -1))
+			_impact_world_position = result.get("position", global_position) as Vector3
 			global_position = result.position
 			# Call _on_body_entered BEFORE setting has_impacted to avoid early return
 			_on_body_entered(result.collider)
@@ -133,6 +137,8 @@ func _physics_process(delta):
 				_hit_assist_segment_start = global_position
 				_hit_assist_time_accum_s = 0.0
 				if not assist_hit.is_empty() and not has_impacted:
+					_impact_target_shape_index = -1
+					_impact_world_position = assist_hit.get("position", global_position) as Vector3
 					global_position = assist_hit.get("position", global_position)
 					_on_body_entered(assist_hit.get("target", null))
 					return
@@ -160,6 +166,8 @@ func fire(initial_velocity: Vector3, firing_aircraft: Node3D):
 	_activation_serial += 1
 	_lifetime_elapsed_s = 0.0
 	has_impacted = false
+	_impact_target_shape_index = -1
+	_impact_world_position = Vector3.INF
 	shooter = firing_aircraft
 	linear_velocity = initial_velocity
 	_hit_assist_time_accum_s = 0.0
@@ -539,8 +547,20 @@ func _on_body_entered(body):
 	# Apply damage if target has health
 	if damage_target and damage_target.has_method("take_damage"):
 		_report_damage_credit(damage_target, damage)
-		damage_target.take_damage(damage)
+		_apply_impact_damage(damage_target, damage)
 	_retire_projectile()
+
+
+func _apply_impact_damage(damage_target: Node, damage_amount: float) -> void:
+	if damage_target == null or not is_instance_valid(damage_target):
+		return
+	var impact_position := _impact_world_position
+	if not is_finite(impact_position.x) or not is_finite(impact_position.y) or not is_finite(impact_position.z):
+		impact_position = global_position
+	if damage_target.has_method("take_damage_at"):
+		damage_target.call("take_damage_at", damage_amount, impact_position, _impact_target_shape_index)
+	elif damage_target.has_method("take_damage"):
+		damage_target.call("take_damage", damage_amount)
 
 func _report_damage_credit(damage_target: Node, damage_amount: float) -> void:
 	if shooter == null or not is_instance_valid(shooter):

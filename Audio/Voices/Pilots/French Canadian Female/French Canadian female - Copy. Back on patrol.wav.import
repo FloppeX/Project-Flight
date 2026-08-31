@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://brej77a6vobng"
+path="res://.godot/imported/French Canadian female - Copy. Back on patrol.wav-9c5f1726170ed75a4e3a90d9aed81917.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/French Canadian Female/French Canadian female - Copy. Back on patrol.wav"
+dest_files=["res://.godot/imported/French Canadian female - Copy. Back on patrol.wav-9c5f1726170ed75a4e3a90d9aed81917.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

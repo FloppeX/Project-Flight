@@ -4,9 +4,9 @@ class_name AircraftModule_ControlTargeting_AAM
 @export var fov_cone_deg: float = 60.0
 @export var max_range_m: float = 3000.0
 @export var targeting_update_rate_hz: float = 5.0
-@export var auto_target_when_none: bool = true
+@export var auto_target_when_none: bool = false
 @export var auto_replace_target: bool = false
-@export var relaxed_lock_when_none: bool = true  # If true, pick nearest in range even if out of cone
+@export var relaxed_lock_when_none: bool = false
 @export var enable_legacy_keyboard_shortcuts: bool = false
 @export var external_target_authority: bool = false
 
@@ -64,7 +64,7 @@ func process_physic_frame(delta):
 		current_target = null
 		target_lock_time = 0.0
 
-	if not external_target_authority:
+	if not external_target_authority and (auto_target_when_none or auto_replace_target):
 		_time_accum += delta
 		var interval = 1.0 / max(targeting_update_rate_hz, 0.1)
 		if _time_accum >= interval:
@@ -100,6 +100,10 @@ func _update_best_target_if_needed():
 	if current_target != null and not is_instance_valid(current_target):
 		current_target = null
 		target_lock_time = 0.0
+	if current_target != null and is_instance_valid(current_target) and not auto_replace_target:
+		return
+	if not auto_target_when_none and not auto_replace_target:
+		return
 	var enemies: Array = _get_hostile_enemies()
 	# Filter by cone and range
 	var forward: Vector3 = aircraft.global_transform.basis.z
@@ -148,7 +152,7 @@ func _update_best_target_if_needed():
 		return
 	# Select nearest in-cone
 	candidates.sort_custom(func(a, b): return a["dist"] < b["dist"]) 
-	if auto_target_when_none or auto_replace_target or (current_target == null or not is_instance_valid(current_target)):
+	if auto_target_when_none or auto_replace_target:
 		var new_target = candidates[0]["node"]
 		set_target(new_target)
 		if debug_enabled:

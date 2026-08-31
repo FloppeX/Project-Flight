@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://vnhpoji3q44m"
+path="res://.godot/imported/German female - Target acquired. I'm going in. Cover my six.wav-6f1780290d7fd65114e445963da2f157.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/German Female/German female - Target acquired. I'm going in. Cover my six.wav"
+dest_files=["res://.godot/imported/German female - Target acquired. I'm going in. Cover my six.wav-6f1780290d7fd65114e445963da2f157.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

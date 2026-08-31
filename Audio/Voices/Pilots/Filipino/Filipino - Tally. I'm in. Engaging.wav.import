@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://cw870xlbitrtk"
+path="res://.godot/imported/Filipino - Tally. I'm in. Engaging.wav-2a8fe3ee10e6c1967fc7090baeee7e12.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/Filipino/Filipino - Tally. I'm in. Engaging.wav"
+dest_files=["res://.godot/imported/Filipino - Tally. I'm in. Engaging.wav-2a8fe3ee10e6c1967fc7090baeee7e12.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

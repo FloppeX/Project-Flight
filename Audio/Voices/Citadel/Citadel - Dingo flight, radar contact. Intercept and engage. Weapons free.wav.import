@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://byeudn1s0qlff"
+path="res://.godot/imported/Citadel - Dingo flight, radar contact. Intercept and engage. Weapons free.wav-9d9308722acc97c09a1bdc25ff57ab60.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Citadel/Citadel - Dingo flight, radar contact. Intercept and engage. Weapons free.wav"
+dest_files=["res://.godot/imported/Citadel - Dingo flight, radar contact. Intercept and engage. Weapons free.wav-9d9308722acc97c09a1bdc25ff57ab60.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

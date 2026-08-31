@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://cy8xqugiap7lg"
+path="res://.godot/imported/Ukrainian - Copy Breaking off Blyad, let's go get them.wav-54999bbc2bfabfea8ae2a336a43e68e6.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/Ukrainian/Ukrainian - Copy Breaking off Blyad, let's go get them.wav"
+dest_files=["res://.godot/imported/Ukrainian - Copy Breaking off Blyad, let's go get them.wav-54999bbc2bfabfea8ae2a336a43e68e6.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

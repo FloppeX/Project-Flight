@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://cr7v4ppif3ue6"
+path="res://.godot/imported/Citadel - Dingo flight, launch for close air support.wav-943be7bd60bff20e9dd31d5be29bd0f7.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Citadel/Citadel - Dingo flight, launch for close air support.wav"
+dest_files=["res://.godot/imported/Citadel - Dingo flight, launch for close air support.wav-943be7bd60bff20e9dd31d5be29bd0f7.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

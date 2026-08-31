@@ -20,7 +20,7 @@ class_name Commander
 @export var control_room_ambience_pitch_scale: float = 1.0
 @export var control_room_ambience_silence_db: float = -80.0
 @export_group("Control Room Wind")
-@export var control_room_wind: AudioStream = preload("res://Audio/wind_sound_cockpit.wav")
+@export var control_room_wind: AudioStream = preload("res://Audio/cockpit/wind_sound_cockpit.wav")
 @export var control_room_wind_bus: String = "Master"
 @export var control_room_wind_idle_volume_db: float = -34.0
 @export var control_room_wind_max_volume_db: float = -22.0

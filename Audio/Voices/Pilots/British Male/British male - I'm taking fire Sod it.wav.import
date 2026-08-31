@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://f084eump6q5a"
+path="res://.godot/imported/British male - I'm taking fire Sod it.wav-bbcc20bcd1698aa5bf7709b0670a5035.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/British Male/British male - I'm taking fire Sod it.wav"
+dest_files=["res://.godot/imported/British male - I'm taking fire Sod it.wav-bbcc20bcd1698aa5bf7709b0670a5035.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

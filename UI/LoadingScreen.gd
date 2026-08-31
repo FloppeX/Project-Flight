@@ -54,6 +54,7 @@ var _source_scene_id: int = 0
 var _bound_scene_id: int = 0
 var _terrain_node: Node = null
 var _nav_grid: Node = null
+var _carried_music: AudioStreamPlayer = null
 
 
 func _ready() -> void:
@@ -71,6 +72,19 @@ func begin_scenario_load() -> void:
 	var current_scene: Node = get_tree().current_scene
 	var source_id: int = current_scene.get_instance_id() if current_scene != null else 0
 	_start_loading(source_id)
+
+
+## Keeps already-playing menu music alive across the campaign scene change.
+## The player is stopped and retired when this loading overlay disappears.
+func continue_music_through_next_load(music: AudioStreamPlayer) -> bool:
+	if not is_instance_valid(music) or not music.is_inside_tree():
+		return false
+	_release_carried_music()
+	music.reparent(self)
+	_carried_music = music
+	if not _carried_music.playing:
+		_carried_music.play()
+	return true
 
 
 func disable_for_test_mode() -> void:
@@ -313,6 +327,16 @@ func _hide_immediately() -> void:
 	_fading = false
 	visible = false
 	set_process(false)
+	_release_carried_music()
 	if _root != null:
 		_root.visible = false
 		_root.modulate = Color.WHITE
+
+
+func _release_carried_music() -> void:
+	if not is_instance_valid(_carried_music):
+		_carried_music = null
+		return
+	_carried_music.stop()
+	_carried_music.queue_free()
+	_carried_music = null

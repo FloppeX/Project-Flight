@@ -31,18 +31,20 @@ const SETTINGS_PATH := "user://settings.cfg"
 const SETTINGS_SECTION_AUDIO := "audio"
 const SETTINGS_SECTION_GRAPHICS := "graphics"
 const SETTINGS_SECTION_GAMEPLAY := "gameplay"
-const GRAPHICS_SETTINGS_VERSION := 5
+const GRAPHICS_SETTINGS_VERSION := 6
+const GAMEPLAY_SETTINGS_VERSION := 1
 const DEFAULT_MASTER_VOLUME := 1.0
 const DEFAULT_RADIO_VOLUME := 1.0
 const DEFAULT_RADIO_CAPTIONS_ENABLED := true
 const DEFAULT_RADIO_CAPTION_DURATION_INDEX := 1
 const DEFAULT_SHOW_FPS_ENABLED := false
-const DEFAULT_STICK_DEADZONE_INDEX := 2
+const DEFAULT_STICK_DEADZONE_INDEX := 0
 const DEFAULT_LOOK_SENSITIVITY_INDEX := 2
 const DEFAULT_INVERT_LOOK_Y := false
 const DEFAULT_CAMERA_MOTION_INDEX := 2
 const DEFAULT_CAMERA_FOV_INDEX := 2
 const DEFAULT_CONTROLLER_MENU_CURSOR_ENABLED := false
+const DEFAULT_FLIGHT_MODEL_INDEX := 1
 const MENU_CURSOR_DEADZONE := 0.18
 const MENU_CURSOR_SPEED_PX_S := 1050.0
 const MENU_CURSOR_TRIGGER_PRESS_THRESHOLD := 0.55
@@ -51,6 +53,7 @@ const MENU_CURSOR_SCENES: Array[String] = [
 	"res://UI/MainMenu.tscn",
 ]
 const DEFAULT_VIEW_DISTANCE_LEVEL := 3
+const DEFAULT_ENEMY_VISIBILITY_INDEX := 0
 const RUDDER_ASSIST_LABELS := [
 	"OFF",
 	"LIGHT",
@@ -60,6 +63,10 @@ const RUDDER_ASSIST_STRENGTHS := [
 	0.0,
 	0.45,
 	1.0,
+]
+const FLIGHT_MODEL_LABELS := [
+	"SIMPLIFIED",
+	"ADVANCED",
 ]
 const RESOLUTION_LABELS := [
 	"1920 X 1080",
@@ -77,6 +84,10 @@ const RESOLUTION_SIZES := [
 ]
 const VIEW_DISTANCE_CHUNK_RADIUS := [2, 3, 4, 6, 8]
 const VIEW_DISTANCE_CAMERA_FAR := [1800.0, 2500.0, 3500.0, 5000.0, 6500.0]
+const ENEMY_VISIBILITY_LABELS := ["STANDARD", "ENHANCED"]
+const ENEMY_VISIBILITY_START_DISTANCE_M := [1800.0, 900.0]
+const ENEMY_VISIBILITY_FULL_DISTANCE_M := [5200.0, 3500.0]
+const ENEMY_VISIBILITY_MAX_STRENGTH := [0.18, 0.26]
 const DISPLAY_MODE_LABELS := ["WINDOWED", "BORDERLESS", "EXCLUSIVE FULLSCREEN"]
 const FRAME_LIMIT_LABELS := ["UNLIMITED", "30 FPS", "60 FPS", "120 FPS", "144 FPS", "240 FPS"]
 const FRAME_LIMIT_VALUES := [0, 30, 60, 120, 144, 240]
@@ -119,6 +130,7 @@ var _anti_aliasing_index: int = 2
 var _render_scale_index: int = 4
 var _upscaler_index: int = 1
 var _view_distance_level: int = DEFAULT_VIEW_DISTANCE_LEVEL
+var _enemy_visibility_index: int = DEFAULT_ENEMY_VISIBILITY_INDEX
 var _show_fps_enabled: bool = DEFAULT_SHOW_FPS_ENABLED
 var _rudder_assist_level: int = 0
 var _helicopter_rudder_assist_level: int = 1
@@ -128,6 +140,7 @@ var _invert_look_y: bool = DEFAULT_INVERT_LOOK_Y
 var _camera_motion_index: int = DEFAULT_CAMERA_MOTION_INDEX
 var _camera_fov_index: int = DEFAULT_CAMERA_FOV_INDEX
 var _controller_menu_cursor_enabled: bool = DEFAULT_CONTROLLER_MENU_CURSOR_ENABLED
+var _flight_model_index: int = DEFAULT_FLIGHT_MODEL_INDEX
 var _menu_cursor_device_id := -1
 var _menu_cursor_a_pressed := false
 var _menu_cursor_trigger_pressed := false
@@ -137,6 +150,8 @@ var _opened_from_main_menu := false
 var _save_button: Button = null
 var _save_status_label: Label = null
 var _save_feedback_until_ms: int = 0
+var _photo_mode_active: bool = false
+var _photo_mode_canvas_visibility: Dictionary = {}
 
 
 func _ready() -> void:
@@ -154,6 +169,9 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	if _photo_mode_active:
+		_suppress_photo_mode_ui()
+		return
 	if visible and _current_screen == "main":
 		_refresh_save_controls()
 	var cursor_active := is_controller_menu_cursor_active()
@@ -189,6 +207,15 @@ func _input(event: InputEvent) -> void:
 	_remember_menu_cursor_device(event)
 	var viewport := get_viewport()
 	if viewport == null:
+		return
+	if _photo_mode_active:
+		if _is_menu_accept_event(event):
+			_capture_photo()
+			viewport.set_input_as_handled()
+			return
+		if _is_menu_back_event(event) or event.is_action_pressed("pause_game", false):
+			exit_photo_mode()
+			viewport.set_input_as_handled()
 		return
 	if event.is_action_pressed("pause_game", false):
 		if not visible:
@@ -343,6 +370,8 @@ func _deactivate_controller_menu_cursor() -> void:
 
 
 func _close() -> void:
+	if _photo_mode_active:
+		exit_photo_mode()
 	get_tree().paused = false
 	visible = false
 	_current_screen = ""
@@ -461,6 +490,7 @@ func _build_main_screen() -> Control:
 
 	var entries = [
 		["RESUME", func(): _close()],
+		["PHOTO MODE", func(): enter_photo_mode()],
 		["SAVE CAMPAIGN", func(): _on_save_campaign()],
 		["SETTINGS", func(): _show_screen("options")],
 		["CONTROLS", func(): _show_screen("controls")],
@@ -486,6 +516,75 @@ func _build_main_screen() -> Control:
 	_save_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	root.add_child(_save_status_label)
 	return root
+
+
+func enter_photo_mode() -> void:
+	if _photo_mode_active:
+		return
+	var flight_director := get_node_or_null("/root/FlightDirector")
+	if flight_director == null or not flight_director.has_method("begin_photo_mode_camera"):
+		push_error("PauseMenu: FlightDirector photo camera is unavailable")
+		return
+	if not bool(flight_director.call("begin_photo_mode_camera")):
+		push_error("PauseMenu: Could not activate the free camera for photo mode")
+		return
+
+	_photo_mode_active = true
+	_photo_mode_canvas_visibility.clear()
+	_suppress_photo_mode_ui()
+
+
+func exit_photo_mode() -> void:
+	if not _photo_mode_active:
+		return
+	_photo_mode_active = false
+
+	var flight_director := get_node_or_null("/root/FlightDirector")
+	if flight_director != null and flight_director.has_method("end_photo_mode_camera"):
+		flight_director.call("end_photo_mode_camera")
+
+	_restore_photo_mode_ui()
+	visible = true
+	_show_screen("main")
+
+
+func is_photo_mode_active() -> bool:
+	return _photo_mode_active
+
+
+func _capture_photo() -> void:
+	var screenshot_capture := get_node_or_null("/root/ScreenshotCapture")
+	if screenshot_capture == null or not screenshot_capture.has_method("take_screenshot"):
+		push_error("PauseMenu: ScreenshotCapture service is unavailable")
+		return
+	screenshot_capture.call("take_screenshot")
+
+
+func _suppress_photo_mode_ui() -> void:
+	var canvas_layers: Array[CanvasLayer] = []
+	_collect_main_viewport_canvas_layers(get_tree().root, canvas_layers)
+	for canvas_layer in canvas_layers:
+		if not _photo_mode_canvas_visibility.has(canvas_layer):
+			_photo_mode_canvas_visibility[canvas_layer] = canvas_layer.visible
+		canvas_layer.visible = false
+
+
+func _collect_main_viewport_canvas_layers(node: Node, result: Array[CanvasLayer]) -> void:
+	if node is CanvasLayer:
+		var canvas_layer := node as CanvasLayer
+		if canvas_layer.get_viewport() == get_viewport():
+			result.append(canvas_layer)
+	for child in node.get_children():
+		_collect_main_viewport_canvas_layers(child, result)
+
+
+func _restore_photo_mode_ui() -> void:
+	for canvas_layer_variant: Variant in _photo_mode_canvas_visibility:
+		if not is_instance_valid(canvas_layer_variant) or not (canvas_layer_variant is CanvasLayer):
+			continue
+		var canvas_layer := canvas_layer_variant as CanvasLayer
+		canvas_layer.visible = bool(_photo_mode_canvas_visibility[canvas_layer_variant])
+	_photo_mode_canvas_visibility.clear()
 
 
 func _refresh_save_controls() -> void:
@@ -599,6 +698,12 @@ func _build_gameplay_screen() -> Control:
 
 	var row_width := OPERATOR_RAIL_WIDTH - 64.0
 	var row_y := 252.0
+	var flight_model_btn := _make_row_button("", Vector2(SUBMENU_X, row_y), row_width)
+	flight_model_btn.pressed.connect(_cycle_flight_model)
+	root.add_child(flight_model_btn)
+	_gameplay_buttons["flight_model"] = flight_model_btn
+
+	row_y += 58.0
 	var rudder_btn := _make_row_button("", Vector2(SUBMENU_X, row_y), row_width)
 	rudder_btn.pressed.connect(_cycle_rudder_assist)
 	root.add_child(rudder_btn)
@@ -708,6 +813,12 @@ func _build_graphics_screen() -> Control:
 	_graphics_buttons["view_distance"] = view_distance_btn
 
 	row_y += 58.0
+	var enemy_visibility_btn := _make_row_button("", Vector2(SUBMENU_X, row_y), row_width)
+	enemy_visibility_btn.pressed.connect(_cycle_enemy_visibility)
+	root.add_child(enemy_visibility_btn)
+	_graphics_buttons["enemy_visibility"] = enemy_visibility_btn
+
+	row_y += 58.0
 	var fps_btn := _make_row_button("", Vector2(SUBMENU_X, row_y), row_width)
 	fps_btn.pressed.connect(_cycle_show_fps)
 	root.add_child(fps_btn)
@@ -797,6 +908,13 @@ func _cycle_view_distance() -> void:
 	_save_settings()
 
 
+func _cycle_enemy_visibility() -> void:
+	_enemy_visibility_index = (_enemy_visibility_index + 1) % ENEMY_VISIBILITY_LABELS.size()
+	_apply_enemy_visibility_setting()
+	_refresh_graphics_button_labels()
+	_save_settings()
+
+
 func _cycle_show_fps() -> void:
 	_show_fps_enabled = not _show_fps_enabled
 	_apply_fps_counter_setting()
@@ -806,6 +924,12 @@ func _cycle_show_fps() -> void:
 
 func _cycle_rudder_assist() -> void:
 	_rudder_assist_level = (_rudder_assist_level + 1) % RUDDER_ASSIST_LABELS.size()
+	_refresh_gameplay_button_labels()
+	_save_settings()
+
+
+func _cycle_flight_model() -> void:
+	_flight_model_index = (_flight_model_index + 1) % FLIGHT_MODEL_LABELS.size()
 	_refresh_gameplay_button_labels()
 	_save_settings()
 
@@ -902,18 +1026,24 @@ func _refresh_graphics_button_labels() -> void:
 	if _graphics_buttons.has("view_distance"):
 		var btn := _graphics_buttons["view_distance"] as Button
 		btn.text = "VIEW DISTANCE: %d / 5" % _view_distance_level
+	if _graphics_buttons.has("enemy_visibility"):
+		var btn := _graphics_buttons["enemy_visibility"] as Button
+		btn.text = "ENEMY VISIBILITY: %s" % ENEMY_VISIBILITY_LABELS[_enemy_visibility_index]
 	if _graphics_buttons.has("show_fps"):
 		var btn := _graphics_buttons["show_fps"] as Button
 		btn.text = "SHOW FPS: %s" % ("ON" if _show_fps_enabled else "OFF")
 
 
 func _refresh_gameplay_button_labels() -> void:
+	_flight_model_index = clampi(_flight_model_index, 0, FLIGHT_MODEL_LABELS.size() - 1)
 	_rudder_assist_level = clampi(_rudder_assist_level, 0, RUDDER_ASSIST_LABELS.size() - 1)
 	_helicopter_rudder_assist_level = clampi(_helicopter_rudder_assist_level, 0, RUDDER_ASSIST_LABELS.size() - 1)
 	_stick_deadzone_index = clampi(_stick_deadzone_index, 0, STICK_DEADZONE_LABELS.size() - 1)
 	_look_sensitivity_index = clampi(_look_sensitivity_index, 0, LOOK_SENSITIVITY_LABELS.size() - 1)
 	_camera_motion_index = clampi(_camera_motion_index, 0, CAMERA_MOTION_LABELS.size() - 1)
 	_camera_fov_index = clampi(_camera_fov_index, 0, CAMERA_FOV_LABELS.size() - 1)
+	if _gameplay_buttons.has("flight_model"):
+		(_gameplay_buttons["flight_model"] as Button).text = "FLIGHT MODEL: %s" % FLIGHT_MODEL_LABELS[_flight_model_index]
 	if _gameplay_buttons.has("rudder_assist"):
 		var btn := _gameplay_buttons["rudder_assist"] as Button
 		btn.text = "AIRPLANE RUDDER ASSIST: %s" % RUDDER_ASSIST_LABELS[_rudder_assist_level]
@@ -921,7 +1051,7 @@ func _refresh_gameplay_button_labels() -> void:
 		var btn := _gameplay_buttons["helicopter_rudder_assist"] as Button
 		btn.text = "HELI RUDDER ASSIST: %s" % RUDDER_ASSIST_LABELS[_helicopter_rudder_assist_level]
 	if _gameplay_buttons.has("stick_deadzone"):
-		(_gameplay_buttons["stick_deadzone"] as Button).text = "STICK DEADZONE: %s" % STICK_DEADZONE_LABELS[_stick_deadzone_index]
+		(_gameplay_buttons["stick_deadzone"] as Button).text = "FLIGHT CONTROL DEADZONE: %s" % STICK_DEADZONE_LABELS[_stick_deadzone_index]
 	if _gameplay_buttons.has("controller_menu_cursor"):
 		(_gameplay_buttons["controller_menu_cursor"] as Button).text = "CONTROLLER MENU CURSOR: %s" % ("ON" if _controller_menu_cursor_enabled else "OFF")
 	if _gameplay_buttons.has("look_sensitivity"):
@@ -936,6 +1066,19 @@ func _refresh_gameplay_button_labels() -> void:
 
 func get_rudder_assist_level() -> int:
 	return clampi(_rudder_assist_level, 0, RUDDER_ASSIST_LABELS.size() - 1)
+
+
+func get_flight_model_index() -> int:
+	return clampi(_flight_model_index, 0, FLIGHT_MODEL_LABELS.size() - 1)
+
+
+func is_advanced_flight_model() -> bool:
+	return get_flight_model_index() == 1
+
+
+func get_stick_deadzone() -> float:
+	var index := clampi(_stick_deadzone_index, 0, STICK_DEADZONE_VALUES.size() - 1)
+	return float(STICK_DEADZONE_VALUES[index])
 
 
 func get_rudder_assist_strength() -> float:
@@ -1038,6 +1181,7 @@ func _apply_graphics_settings() -> void:
 	_apply_anti_aliasing_setting()
 	_apply_render_scale_setting()
 	_apply_view_distance_setting()
+	_apply_enemy_visibility_setting()
 	_apply_fps_counter_setting()
 
 
@@ -1165,6 +1309,25 @@ func _apply_view_distance_setting() -> void:
 	_apply_view_distance_to_tree(radius, camera_far)
 
 
+func _apply_enemy_visibility_setting() -> void:
+	_enemy_visibility_index = clampi(_enemy_visibility_index, 0, ENEMY_VISIBILITY_LABELS.size() - 1)
+	var budget := get_node_or_null("/root/EnemyVisualBudget")
+	if budget == null:
+		return
+	budget.set(
+		"enemy_contrast_start_distance_m",
+		float(ENEMY_VISIBILITY_START_DISTANCE_M[_enemy_visibility_index])
+	)
+	budget.set(
+		"enemy_contrast_full_distance_m",
+		float(ENEMY_VISIBILITY_FULL_DISTANCE_M[_enemy_visibility_index])
+	)
+	budget.set(
+		"enemy_max_contrast_strength",
+		float(ENEMY_VISIBILITY_MAX_STRENGTH[_enemy_visibility_index])
+	)
+
+
 func _apply_view_distance_to_tree(radius: int, camera_far: float) -> void:
 	var root := get_tree().current_scene
 	if root == null:
@@ -1210,6 +1373,8 @@ func _load_settings() -> void:
 		return
 	var loaded_graphics_version := int(cfg.get_value(SETTINGS_SECTION_GRAPHICS, "settings_version", 0))
 	var should_migrate_graphics := loaded_graphics_version < GRAPHICS_SETTINGS_VERSION
+	var loaded_gameplay_version := int(cfg.get_value(SETTINGS_SECTION_GAMEPLAY, "settings_version", 0))
+	var should_migrate_gameplay := loaded_gameplay_version < GAMEPLAY_SETTINGS_VERSION
 	_master_volume = clampf(float(cfg.get_value(SETTINGS_SECTION_AUDIO, "master_volume", _master_volume)), 0.0, 1.0)
 	_radio_volume = clampf(float(cfg.get_value(SETTINGS_SECTION_AUDIO, "radio_volume", _radio_volume)), 0.0, 1.0)
 	_radio_captions_enabled = bool(cfg.get_value(SETTINGS_SECTION_AUDIO, "radio_captions_enabled", _radio_captions_enabled))
@@ -1254,11 +1419,21 @@ func _load_settings() -> void:
 		1,
 		5
 	)
+	_enemy_visibility_index = clampi(
+		int(cfg.get_value(SETTINGS_SECTION_GRAPHICS, "enemy_visibility_index", _enemy_visibility_index)),
+		0,
+		ENEMY_VISIBILITY_LABELS.size() - 1
+	)
 	_show_fps_enabled = bool(cfg.get_value(SETTINGS_SECTION_GRAPHICS, "show_fps_enabled", _show_fps_enabled))
 	_rudder_assist_level = clampi(
 		int(cfg.get_value(SETTINGS_SECTION_GAMEPLAY, "rudder_assist_level", _rudder_assist_level)),
 		0,
 		RUDDER_ASSIST_LABELS.size() - 1
+	)
+	_flight_model_index = clampi(
+		int(cfg.get_value(SETTINGS_SECTION_GAMEPLAY, "flight_model_index", _flight_model_index)),
+		0,
+		FLIGHT_MODEL_LABELS.size() - 1
 	)
 	_helicopter_rudder_assist_level = clampi(
 		int(cfg.get_value(SETTINGS_SECTION_GAMEPLAY, "helicopter_rudder_assist_level", _helicopter_rudder_assist_level)),
@@ -1291,7 +1466,12 @@ func _load_settings() -> void:
 		"controller_menu_cursor_enabled",
 		_controller_menu_cursor_enabled
 	))
-	if should_migrate_graphics:
+	if should_migrate_gameplay:
+		# The previous 15% default was followed by another steering deadzone and
+		# a zero-slope power curve. Start the new Advanced fixed-wing response at
+		# one explicit 5% Input Map deadzone instead.
+		_stick_deadzone_index = DEFAULT_STICK_DEADZONE_INDEX
+	if should_migrate_graphics or should_migrate_gameplay:
 		_save_settings()
 
 
@@ -1311,8 +1491,11 @@ func _save_settings() -> void:
 	cfg.set_value(SETTINGS_SECTION_GRAPHICS, "render_scale_index", _render_scale_index)
 	cfg.set_value(SETTINGS_SECTION_GRAPHICS, "upscaler_index", _upscaler_index)
 	cfg.set_value(SETTINGS_SECTION_GRAPHICS, "view_distance_level", _view_distance_level)
+	cfg.set_value(SETTINGS_SECTION_GRAPHICS, "enemy_visibility_index", _enemy_visibility_index)
 	cfg.set_value(SETTINGS_SECTION_GRAPHICS, "show_fps_enabled", _show_fps_enabled)
+	cfg.set_value(SETTINGS_SECTION_GAMEPLAY, "settings_version", GAMEPLAY_SETTINGS_VERSION)
 	cfg.set_value(SETTINGS_SECTION_GAMEPLAY, "rudder_assist_level", _rudder_assist_level)
+	cfg.set_value(SETTINGS_SECTION_GAMEPLAY, "flight_model_index", _flight_model_index)
 	cfg.set_value(SETTINGS_SECTION_GAMEPLAY, "helicopter_rudder_assist_level", _helicopter_rudder_assist_level)
 	cfg.set_value(SETTINGS_SECTION_GAMEPLAY, "stick_deadzone_index", _stick_deadzone_index)
 	cfg.set_value(SETTINGS_SECTION_GAMEPLAY, "look_sensitivity_index", _look_sensitivity_index)
@@ -1336,8 +1519,10 @@ func _reset_all_defaults() -> void:
 	_render_scale_index = 4
 	_upscaler_index = 1
 	_view_distance_level = DEFAULT_VIEW_DISTANCE_LEVEL
+	_enemy_visibility_index = DEFAULT_ENEMY_VISIBILITY_INDEX
 	_show_fps_enabled = DEFAULT_SHOW_FPS_ENABLED
 	_rudder_assist_level = 0
+	_flight_model_index = DEFAULT_FLIGHT_MODEL_INDEX
 	_helicopter_rudder_assist_level = 1
 	_stick_deadzone_index = DEFAULT_STICK_DEADZONE_INDEX
 	_look_sensitivity_index = DEFAULT_LOOK_SENSITIVITY_INDEX
@@ -1463,7 +1648,7 @@ func _controls_bbcode() -> String:
 [color=#{w}][b]COMBAT[/b][/color]
 [color=#{d}]A / X[/color]            FIRE WEAPON
 [color=#{d}]X / SQUARE[/color]       CYCLE WEAPON
-[color=#{d}]D-PAD LEFT/RIGHT[/color] NEXT / PREVIOUS TARGET
+[color=#{d}]D-PAD LEFT/RIGHT[/color] PREVIOUS / NEXT TARGET
 [color=#{d}]L-STICK CLICK[/color]    LOCK TARGET AT HUD CENTER
 
 [color=#{w}][b]CAMERA[/b][/color]

@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://b04pbrd0eo8ta"
+path="res://.godot/imported/Arabic female - Up and away. Blyad. Flight, form on my wing.wav-685925b2997eb6c95b1edd371a095990.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/Arabic Female/Arabic female - Up and away. Blyad. Flight, form on my wing.wav"
+dest_files=["res://.godot/imported/Arabic female - Up and away. Blyad. Flight, form on my wing.wav-685925b2997eb6c95b1edd371a095990.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

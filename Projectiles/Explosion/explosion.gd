@@ -205,7 +205,7 @@ func _setup_and_play_explosion_audio() -> void:
 	if not explosion_sounds.is_empty():
 		selected_sound = explosion_sounds[randi() % explosion_sounds.size()]
 	else:
-		selected_sound = load("res://Audio/explosion_large_01.wav")
+		selected_sound = load("res://Audio/explosion/explosion_large_01.wav")
 	if selected_sound == null:
 		return
 	var particle_manager := get_node_or_null("/root/ParticleManager")
@@ -230,7 +230,10 @@ func cleanup_explosion() -> void:
 		print("=== CLEANING UP EXPLOSION ===")
 	queue_free()
 
-func create_scorch_mark() -> void:
+func create_scorch_mark(
+	excluded_colliders: Array[CollisionObject3D] = [],
+	force_spawn: bool = false
+) -> void:
 	var scene_root: Node = get_tree().current_scene if get_tree() != null else null
 	if scene_root == null:
 		return
@@ -238,7 +241,11 @@ func create_scorch_mark() -> void:
 	var origin: Vector3 = global_position + Vector3.UP * 5.0
 	var end: Vector3 = global_position - Vector3.UP * 200.0
 	var params: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(origin, end)
-	params.exclude = [self]
+	var exclusion_rids: Array[RID] = []
+	for collider in excluded_colliders:
+		if is_instance_valid(collider):
+			exclusion_rids.append(collider.get_rid())
+	params.exclude = exclusion_rids
 	params.collision_mask = 0xFFFFFFFF
 	var hit: Dictionary = space_state.intersect_ray(params)
 	var hit_pos: Vector3 = global_position + Vector3.UP * 0.02
@@ -246,7 +253,11 @@ func create_scorch_mark() -> void:
 		hit_pos = hit.position + Vector3.UP * 0.02
 
 	var impact_budget: Node = get_node_or_null("/root/BulletImpactBudget")
-	if impact_budget and not bool(impact_budget.call("should_spawn_visual", hit_pos)):
+	# Bomb craters are persistent scene information rather than disposable impact
+	# particles. They still use the global decal cap/lifetime, but must not vanish
+	# merely because the main camera is distant or looking through another viewport.
+	if impact_budget and not force_spawn \
+			and not bool(impact_budget.call("should_spawn_visual", hit_pos)):
 		return
 	var decal: Decal = impact_budget.call("acquire_decal", scene_root) as Decal if impact_budget else Decal.new()
 	if decal == null:
@@ -287,6 +298,7 @@ func deal_explosion_damage() -> void:
 
 	var results: Array[Dictionary] = space_state.intersect_shape(params, maxi(max_damage_query_results, 1))
 	var targets_hit: int = 0
+	var damaged_target_ids: Dictionary = {}
 	for hit in results:
 		var collider_variant: Variant = hit.get("collider", null)
 		if typeof(collider_variant) != TYPE_OBJECT or not is_instance_valid(collider_variant):
@@ -296,6 +308,10 @@ func deal_explosion_damage() -> void:
 		var target := collider_variant as Node3D
 		if target == self or (not target.has_method("take_damage") and not (target is RigidBody3D)):
 			continue
+		var target_instance_id := target.get_instance_id()
+		if damaged_target_ids.has(target_instance_id):
+			continue
+		damaged_target_ids[target_instance_id] = true
 		var distance: float = minf(global_position.distance_to(target.global_position), safe_radius)
 		if use_line_of_sight:
 			var ray_params := PhysicsRayQueryParameters3D.create(global_position, target.global_position)
@@ -307,7 +323,10 @@ func deal_explosion_damage() -> void:
 		var damage_amount: float = lerpf(min_damage, max_damage, damage_ratio)
 		if target.has_method("take_damage"):
 			_report_damage_credit(target, damage_amount)
-			target.take_damage(damage_amount)
+			if target.has_method("take_damage_at"):
+				target.call("take_damage_at", damage_amount, global_position, -1)
+			else:
+				target.take_damage(damage_amount)
 			targets_hit += 1
 		if target is RigidBody3D:
 			var body := target as RigidBody3D

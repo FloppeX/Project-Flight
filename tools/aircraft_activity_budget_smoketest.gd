@@ -67,6 +67,8 @@ func _run() -> void:
 	_require(bool(targeting.get("external_target_authority")), "AI did not claim targeting authority")
 	pilot.call("deinitialize")
 	_require(not bool(targeting.get("external_target_authority")), "player targeting authority did not restore")
+	_require(not bool(targeting.get("auto_target_when_none")), "AI handoff re-enabled automatic player target acquisition")
+	_require(not bool(targeting.get("auto_replace_target")), "AI handoff re-enabled automatic player target replacement")
 	var disposable_target := Node3D.new()
 	var disposable_target_id := disposable_target.get_instance_id()
 	disposable_target.free()
@@ -112,6 +114,79 @@ func _run() -> void:
 
 	var budget := get_node_or_null("/root/EnemyVisualBudget")
 	_require(budget != null, "visual budget autoload missing")
+	var pilot_pool := get_node_or_null("/root/CockpitPilotPool")
+	_require(pilot_pool != null and pilot_pool.has_method("get_pool_stats"), "cockpit pilot pool missing")
+	var pre_tree_aircraft := AIRCRAFT_SCENE.instantiate() as RigidBody3D
+	_require(pre_tree_aircraft != null, "pre-tree Aircraft_5 did not instantiate")
+	pre_tree_aircraft.freeze = true
+	pre_tree_aircraft.position = Vector3(300.0, 1000.0, 300.0)
+	var pre_tree_ai_toggle := pre_tree_aircraft.get_node_or_null("AIToggle")
+	if pre_tree_ai_toggle != null:
+		pre_tree_ai_toggle.set("ai_enabled_at_start", false)
+	var pre_tree_hud := pre_tree_aircraft.get_node_or_null("HeadsUpDisplay")
+	var pre_tree_pilot_mount := pre_tree_aircraft.get_node_or_null("CockpitPilot")
+	var pool_before_pre_tree: Dictionary = pilot_pool.call("get_pool_stats")
+	var prepare_result: Dictionary = budget.call("prepare_ai_aircraft_for_tree_entry", pre_tree_aircraft)
+	_require(bool(prepare_result.get("prepared", false)), "off-tree AI presentation was not prepared")
+	_require(int(prepare_result.get("detached_nodes", 0)) > 0, "off-tree AI presentation detached no nodes")
+	_require(pre_tree_aircraft.get_node_or_null("HeadsUpDisplay") == null, "off-tree HUD remained attached")
+	_require(pre_tree_aircraft.get_node_or_null("CockpitPilot") == null, "off-tree pilot mount remained attached")
+	add_child(pre_tree_aircraft)
+	await get_tree().process_frame
+	await get_tree().process_frame
+	_require(pre_tree_aircraft.get_node_or_null("HeadsUpDisplay") == null, "dormant HUD entered the SceneTree")
+	_require(pre_tree_aircraft.get_node_or_null("CockpitPilot") == null, "dormant pilot mount entered the SceneTree")
+	var pool_after_pre_tree: Dictionary = pilot_pool.call("get_pool_stats")
+	_require(
+		int(pool_after_pre_tree.get("created", -1)) == int(pool_before_pre_tree.get("created", -2)) \
+			and int(pool_after_pre_tree.get("checked_out", -1)) == int(pool_before_pre_tree.get("checked_out", -2)) \
+			and int(pool_after_pre_tree.get("acquire_count", -1)) == int(pool_before_pre_tree.get("acquire_count", -2)),
+		"off-tree AI preparation checked out or created a pilot rig"
+	)
+	var pre_tree_cache: Dictionary = budget.call("_get_cache_for_root", pre_tree_aircraft)
+	var pre_tree_session = pre_tree_cache.get("presentation_session")
+	_require(pre_tree_session != null, "prepared AI presentation session was not retained")
+	pre_tree_session.restore(false)
+	_require(pre_tree_aircraft.get_node_or_null("HeadsUpDisplay") == pre_tree_hud, "prepared HUD identity did not restore")
+	_require(pre_tree_aircraft.get_node_or_null("CockpitPilot") == pre_tree_pilot_mount, "prepared pilot mount identity did not restore")
+	var pool_after_restore: Dictionary = pilot_pool.call("get_pool_stats")
+	_require(
+		int(pool_after_restore.get("acquire_count", -1)) == int(pool_before_pre_tree.get("acquire_count", -2)),
+		"non-presented restoration checked out a pilot rig"
+	)
+	budget.call("release_aircraft_cache", pre_tree_aircraft, true)
+	pre_tree_aircraft.queue_free()
+	await get_tree().process_frame
+	var materialize_flight := preload("res://Enemies/EnemyVirtualFlight.gd").new()
+	materialize_flight.flight_name = "SMOKE-01"
+	var materialize_scenes: Array[PackedScene] = [AIRCRAFT_SCENE]
+	var materialize_loadouts: Array[String] = ["guns"]
+	materialize_flight.setup(Vector3(1200.0, 1000.0, 1200.0), materialize_scenes, materialize_loadouts)
+	add_child(materialize_flight)
+	var pool_before_materialize: Dictionary = pilot_pool.call("get_pool_stats")
+	materialize_flight.call("_begin_materialize")
+	materialize_flight.call("_tick_materialize_step")
+	var materialized_aircraft_list: Array = materialize_flight.get("active_aircraft") as Array
+	_require(materialized_aircraft_list.size() == 1, "virtual flight did not materialize one aircraft")
+	var materialized_aircraft := materialized_aircraft_list[0] as RigidBody3D
+	_require(materialized_aircraft != null and is_instance_valid(materialized_aircraft), "materialized aircraft is invalid")
+	materialized_aircraft.freeze = true
+	_require(materialized_aircraft.get_node_or_null("HeadsUpDisplay") == null, "virtual-flight HUD entered the SceneTree")
+	_require(materialized_aircraft.get_node_or_null("CockpitPilot") == null, "virtual-flight pilot mount entered the SceneTree")
+	_require(bool(materialized_aircraft.get_meta("visual_budget_pre_tree_presentation_prepared", false)), "virtual-flight presentation was not prepared off-tree")
+	var pool_after_materialize: Dictionary = pilot_pool.call("get_pool_stats")
+	_require(
+		int(pool_after_materialize.get("created", -1)) == int(pool_before_materialize.get("created", -2)) \
+			and int(pool_after_materialize.get("acquire_count", -1)) == int(pool_before_materialize.get("acquire_count", -2)),
+		"virtual-flight materialization checked out or created a pilot rig"
+	)
+	var budget_report: Dictionary = budget.call("get_report_stats")
+	_require(int(budget_report.get("pre_tree_prepared_total", 0)) >= 2, "pre-tree preparation telemetry did not advance")
+	materialize_flight.dematerialize()
+	await get_tree().process_frame
+	materialize_flight.queue_free()
+	await get_tree().process_frame
+
 	var detached_audio := AudioStreamPlayer.new()
 	detached_audio.stream = AudioStreamGenerator.new()
 	add_child(detached_audio)
@@ -125,11 +200,14 @@ func _run() -> void:
 	var cache: Dictionary = budget.call("_get_cache_for_root", aircraft)
 	var detail_nodes: Array = budget.call("_resolve_ref_array", cache.get("ai_detail_refs", []))
 	var original_hud := aircraft.get_node_or_null("HeadsUpDisplay")
+	var original_audio_manager := aircraft.get_node_or_null("AudioManager3D")
 	budget.call("_apply_ai_aircraft_player_only_budget", aircraft, false, cache)
 	_require(aircraft.get_node_or_null("HeadsUpDisplay") == null, "dormant AI presentation remained attached")
 	_require(flight_director != null and bool(flight_director.call("_node_has_cameras", aircraft)), "detached AI aircraft disappeared from camera cycling")
-	budget.call("ensure_aircraft_presentation_attached", aircraft)
+	flight_director.call("_set_aircraft_view_ui_enabled", aircraft, true)
 	_require(aircraft.get_node_or_null("HeadsUpDisplay") == original_hud, "AI presentation did not restore the original nodes")
+	_require(aircraft.get_node_or_null("AudioManager3D") == original_audio_manager, "AI audio manager did not restore with the viewed aircraft")
+	_require(original_audio_manager != null and original_audio_manager.is_processing(), "viewed AI aircraft audio manager remained dormant")
 	var gear_visibility_before: Dictionary = {}
 	for gear_name in ["NoseGearRig", "LeftGearRig", "RightGearRig"]:
 		var gear_rig := aircraft.find_child(gear_name, true, false) as Node3D

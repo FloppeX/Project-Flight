@@ -1,5 +1,8 @@
 extends Node3D
 
+signal enemy_flight_spawned(aircraft: Array[RigidBody3D], role_name: String)
+signal enemy_platoon_spawned(platoon: GroundVehiclePlatoon)
+
 @export var spawn_altitude: float = 600.0
 @export var spawn_speed: float = 60.0
 @export var respawn_delay: float = 3.0
@@ -41,6 +44,7 @@ var _active_ai_planes: Array[RigidBody3D] = []
 var _enemy_vehicle_scenes: Array[PackedScene] = []
 var _friendly_vehicle_scene: PackedScene
 var _ground_platoon_counter: int = 0
+var _enemy_flight_counter: int = 0
 var _disabled_for_heli_test: bool = false
 
 func _ready():
@@ -77,6 +81,94 @@ func _ready():
 func _input(event):
 	pass
 
+func spawn_enemy_flight_by_role(role_name: String, count: int = 4) -> Array[RigidBody3D]:
+	var spawned: Array[RigidBody3D] = []
+	if _disabled_for_heli_test:
+		return spawned
+	var normalized_role := role_name.strip_edges().to_lower()
+	var scene: PackedScene = null
+	match normalized_role:
+		"fighter":
+			scene = _aircraft_3_scene
+		"bomber":
+			scene = _aircraft_4_scene
+		"attack":
+			scene = _aircraft_6_scene
+		_:
+			push_warning("[EnemyAircraftSpawner] Unknown enemy flight role: %s" % role_name)
+			return spawned
+	if scene == null:
+		push_warning("[EnemyAircraftSpawner] Enemy %s scene is unavailable" % normalized_role)
+		return spawned
+
+	_prune_active_ai_planes()
+	var requested_count := maxi(count, 1)
+	var available_slots := maxi(max_ai_planes - _active_ai_planes.size(), 0)
+	if available_slots < requested_count:
+		print("[EnemyAircraftSpawner] Spawn menu: %s flight needs %d free AI slots; only %d available" % [
+			normalized_role, requested_count, available_slots,
+		])
+		return spawned
+	var spawn_count := requested_count
+
+	var carrier := get_tree().get_first_node_in_group("carrier") as Node3D
+	var carrier_pos := _get_carrier_position()
+	var spawn_dir := _get_random_valid_air_spawn_direction(
+		carrier_pos,
+		enemy_debug_flight_range_from_carrier_m,
+		debug_air_spawn_map_margin_m
+	)
+	var spawn_center := carrier_pos + spawn_dir * enemy_debug_flight_range_from_carrier_m
+	spawn_center.y = carrier_pos.y + strike_flight_altitude_m
+	var formation_right := Vector3(-spawn_dir.z, 0.0, spawn_dir.x).normalized()
+	if formation_right.length() < 0.01:
+		formation_right = Vector3.RIGHT
+	_enemy_flight_counter += 1
+
+	for i in range(spawn_count):
+		var slot_offset := (float(i) - float(spawn_count - 1) * 0.5) * debug_air_spawn_spacing_m
+		var spawn_pos := spawn_center + formation_right * slot_offset
+		spawn_pos.y = spawn_center.y
+		var aircraft := await _spawn_ai_fighter(
+			scene,
+			"SpawnMenu_%s_%02d_%02d" % [normalized_role.capitalize(), _enemy_flight_counter, i + 1],
+			2,
+			"enemies",
+			spawn_pos,
+			-spawn_dir,
+			maxf(spawn_speed, 85.0)
+		)
+		if is_instance_valid(aircraft):
+			aircraft.set_meta("spawned_from_vehicle_menu", true)
+			aircraft.set_meta("spawned_enemy_role", normalized_role)
+			spawned.append(aircraft)
+
+	if not spawned.is_empty():
+		await get_tree().create_timer(0.5).timeout
+		for aircraft in spawned:
+			_configure_enemy_strike_pilot(aircraft, carrier, normalized_role == "fighter")
+			var pilot := aircraft.find_child("AIPilot", true, false) as AIPilot
+			if pilot != null:
+				if normalized_role == "bomber":
+					pilot.ground_attack_forced_weapon_type = "Bomb"
+				elif normalized_role == "attack":
+					pilot.ground_attack_forced_weapon_type = "Rocket Pod"
+		print("[EnemyAircraftSpawner] Spawn menu: %d/%d %s aircraft inbound" % [
+			spawned.size(), requested_count, normalized_role,
+		])
+		enemy_flight_spawned.emit(spawned, normalized_role)
+	return spawned
+
+func spawn_random_enemy_platoon(count: int = 4) -> GroundVehiclePlatoon:
+	var platoon := _spawn_enemy_vehicle_mix(maxi(count, 1))
+	if platoon != null:
+		platoon.set_meta("spawned_from_vehicle_menu", true)
+		for vehicle in platoon.get_members():
+			if is_instance_valid(vehicle):
+				vehicle.set_meta("spawned_from_vehicle_menu", true)
+		enemy_platoon_spawned.emit(platoon)
+	return platoon
+
 func _spawn_ground_vehicles(scene: PackedScene, count: int) -> void:
 	if _disabled_for_heli_test:
 		return
@@ -94,12 +186,12 @@ func _spawn_ground_vehicles(scene: PackedScene, count: int) -> void:
 	var scenes: Array[PackedScene] = [scene]
 	_spawn_ground_vehicle_wave(scenes, count, team_id, carrier_pos, base_pos, carrier_node)
 
-func _spawn_enemy_vehicle_mix(count: int) -> void:
+func _spawn_enemy_vehicle_mix(count: int) -> GroundVehiclePlatoon:
 	if _disabled_for_heli_test:
-		return
+		return null
 	if _enemy_vehicle_scenes.is_empty():
 		print("[EnemyAircraftSpawner] E: no enemy vehicle scenes loaded")
-		return
+		return null
 	var carrier_pos: Vector3 = _get_carrier_position()
 	var carrier_node := get_tree().get_first_node_in_group("carrier") as CollisionObject3D
 	var base_pos := _find_enemy_platoon_staging_position(carrier_pos, carrier_node)
@@ -110,11 +202,11 @@ func _spawn_enemy_vehicle_mix(count: int) -> void:
 		Vector3(-6, 0, 12),
 		Vector3(14, 0, 10),
 	]
-	_spawn_ground_vehicle_wave(_enemy_vehicle_scenes, count, 2, carrier_pos, base_pos, carrier_node, compact_offsets, true, enemy_platoon_spawn_map_margin_m)
+	return _spawn_ground_vehicle_wave(_enemy_vehicle_scenes, count, 2, carrier_pos, base_pos, carrier_node, compact_offsets, true, enemy_platoon_spawn_map_margin_m)
 
-func _spawn_ground_vehicle_wave(scenes: Array[PackedScene], count: int, team_id: int, carrier_pos: Vector3, base_pos: Vector3, carrier_node: CollisionObject3D = null, offsets_override: Array[Vector3] = [], require_map_bounds: bool = false, map_margin_m: float = 0.0) -> void:
+func _spawn_ground_vehicle_wave(scenes: Array[PackedScene], count: int, team_id: int, carrier_pos: Vector3, base_pos: Vector3, carrier_node: CollisionObject3D = null, offsets_override: Array[Vector3] = [], require_map_bounds: bool = false, map_margin_m: float = 0.0) -> GroundVehiclePlatoon:
 	if scenes.is_empty():
-		return
+		return null
 	if debug_ground_vehicle_spawns:
 		print("[GroundSpawn] team=%d carrier=%s base=%s" % [
 			team_id,
@@ -135,8 +227,8 @@ func _spawn_ground_vehicle_wave(scenes: Array[PackedScene], count: int, team_id:
 	platoon.name = "GroundPlatoon_%d" % _ground_platoon_counter
 	platoon.platoon_id = platoon.name
 	platoon.team = team_id
-	platoon.global_position = base_pos
 	get_tree().current_scene.add_child(platoon)
+	platoon.global_position = base_pos
 	if platoon.team == 1:
 		var carrier := get_tree().get_first_node_in_group("carrier") as Node3D
 		if carrier:
@@ -176,6 +268,7 @@ func _spawn_ground_vehicle_wave(scenes: Array[PackedScene], count: int, team_id:
 			vehicle.set_patrol_waypoints(staggered)
 		if vehicle.has_method("assign_platoon"):
 			vehicle.assign_platoon(platoon)
+	return platoon
 
 func _find_enemy_vehicle_staging_position(carrier_pos: Vector3, carrier_node: CollisionObject3D = null) -> Vector3:
 	var carrier_ground_y: float = _sample_ground_height(carrier_pos)

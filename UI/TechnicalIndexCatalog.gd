@@ -25,14 +25,15 @@ static var CATALOG: Dictionary = {
 		_ground_vehicle_entry("ENEMY BATTLE BUS", "res://GroundVehicle/vehicle_enemy_battle_bus.tscn", "Heavy enemy support vehicle carrying both light and heavy defensive weapons.", "HOSTILE"),
 	],
 	"AIRPLANES": [
-		_aircraft_entry(1, "SNA AS-20 Sand Sprite", "Light fighter/attack/recon plane; versatile, modular, but slightly underpowered when loaded."),
-		_aircraft_entry(2, "HK A-88 Crusader", "Heavy attack platform; fast, rock-solid bombing platform with low maneuverability."),
-		_aircraft_entry(3, "VMFC F-9 Wasp", "Obsolescent, primitive light fighter/attack plane; low-tech, rugged, and easy to maintain."),
-		_aircraft_entry(4, "OKB TB-60 Vulture", "Slow, heavily armored attack bomber equipped with defensive gun turrets."),
-		_aircraft_entry(5, "SNA JAS-44 Kestrel", "Balanced and capable delta-canard fighter/attack aircraft."),
-		_aircraft_entry(6, "OKB Sh-37 Razorback", "Heavy armored ground-attack aircraft; slow, rugged, and stable, built around a centerline high-velocity 40 mm autocannon. Uses an older high-bypass turboprop, making it practically obsolete against modern opponents but devastating in low-threat airspace."),
-		_aircraft_entry(7, "OKB I-109 Dagger", "High-speed, high-altitude interceptor built for pure climb and sprint rates."),
-		_aircraft_entry(8, "VAS SF/A-21 Ghost", "Stealthy blended-wing attack/fighter aircraft."),
+		_aircraft_entry(1, "SNA AS-20 Sand Sprite", "Light fighter/attack/recon plane; versatile, modular, but slightly underpowered when loaded.", "LIGHT MULTIROLE", "Forgiving low-speed response and a moderate stall break. Payload quickly costs climb and sustained-turn energy."),
+		_aircraft_entry(2, "HK A-88 Crusader", "Heavy attack platform; fast, rock-solid bombing platform with low maneuverability.", "HEAVY ATTACK", "Stable at speed, but slow surface response and a high approach speed demand planning. The stall develops progressively; recovery still needs altitude."),
+		_aircraft_entry(3, "VMFC F-9 Wasp", "Obsolescent, primitive light fighter/attack plane; low-tech, rugged, and easy to maintain.", "LIGHT FIGHTER", "Very quick ailerons at low speed, but the controls stiffen early and sustained turns bleed energy. Expect a distinct wing drop at the stall."),
+		_aircraft_entry(4, "OKB TB-60 Vulture", "Slow, heavily armored attack bomber equipped with defensive gun turrets.", "ATTACK BOMBER", "Extremely stable and slow to respond. The stall is well telegraphed and breaks nose-down; low-altitude recovery is not assured."),
+		_aircraft_entry(5, "SNA JAS-44 Kestrel", "Balanced and capable delta-canard fighter/attack aircraft.", "MULTIROLE FIGHTER", "Reference handling with predictable high-speed stiffening and a conventional asymmetric stall. No major vice, but no extreme strength."),
+		_aircraft_entry(6, "OKB Sh-37 Razorback", "Heavy armored ground-attack aircraft; slow, rugged, and stable, built around a centerline high-velocity 40 mm autocannon. Uses an older high-bypass turboprop, making it practically obsolete against modern opponents but devastating in low-threat airspace.", "ARMORED CAS", "Excellent low-speed manners, strong rudder authority, and the fleet's most benign stall. Its low Vne makes prolonged dive chases dangerous."),
+		_aircraft_entry(7, "OKB I-109 Dagger", "High-speed, high-altitude interceptor built for pure climb and sprint rates.", "INTERCEPTOR", "Best sprint envelope and late high-speed stiffening, but high stall and approach speeds. High-AoA departure is abrupt; preserve energy."),
+		_aircraft_entry(8, "VAS SF/A-21 Ghost", "Stealthy blended-wing attack/fighter aircraft.", "STEALTH STRIKE", "Efficient and smooth with strong pitch stability, slower roll, and limited yaw authority. The stall is comparatively gentle, but yaw recovery is deliberate."),
+		_aircraft_entry(14, "KAW FX-5 Spitewing", "Ultra-compact interceptor/point-defense aircraft; fast roll rate and exceptional climb, but notoriously twitchy controls with almost zero stall margin.", "POINT DEFENSE", "Exceptional roll response with little damping. Stall onset arrives early and rapidly becomes wing drop and autorotation; make small inputs."),
 	],
 	"HELICOPTERS": [
 		_helicopter_entry(9, "VMFC HH-72 Bumblebee", "Heavy rescue/utility helicopter with defensive guns and an armored tub."),
@@ -84,14 +85,21 @@ static func entries_for(category: String) -> Array[Dictionary]:
 	return entries
 
 
-static func _aircraft_entry(index: int, display_name: String = "", description: String = "") -> Dictionary:
+static func _aircraft_entry(
+		index: int,
+		display_name: String = "",
+		description: String = "",
+		role: String = "FIXED-WING",
+		pilot_notes: String = ""
+) -> Dictionary:
 	var resolved_name := display_name if not display_name.is_empty() else "AIRCRAFT %02d" % index
 	var resolved_description := description if not description.is_empty() else "Fixed-wing aircraft configuration %02d. Values shown are read from the active scene definition." % index
 	return {
 		"name": resolved_name,
 		"scene": "res://Aircraft/Aircraft_%d.tscn" % index,
 		"description": resolved_description,
-		"stats": {"CLASS": "FIXED-WING", "CONFIGURATION": "%02d" % index},
+		"pilot_notes": pilot_notes,
+		"stats": {"CLASS": "FIXED-WING", "ROLE": role},
 	}
 
 

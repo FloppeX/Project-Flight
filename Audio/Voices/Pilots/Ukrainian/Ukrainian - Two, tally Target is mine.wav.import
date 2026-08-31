@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://c6i1yl402ddem"
+path="res://.godot/imported/Ukrainian - Two, tally Target is mine.wav-830540704b0af9acd4512ac16de773c4.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/Ukrainian/Ukrainian - Two, tally Target is mine.wav"
+dest_files=["res://.godot/imported/Ukrainian - Two, tally Target is mine.wav-830540704b0af9acd4512ac16de773c4.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

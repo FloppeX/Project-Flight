@@ -4,7 +4,7 @@ class_name RocketProjectile
 signal tuning_impact(position: Vector3)
 signal tuning_impact_detail(position: Vector3, body: Node)
 
-const DEFAULT_ROCKET_LOOP: AudioStream = preload("res://Audio/rocket.wav")
+const DEFAULT_ROCKET_LOOP: AudioStream = preload("res://Audio/rockets/rocket.wav")
 
 @export var tracer_enabled: bool = false
 @export var damage_amount: float = 45.0
@@ -246,7 +246,7 @@ func _on_body_entered(body: Node) -> void:
 
 	if damage_target and damage_target.has_method("take_damage"):
 		_report_damage_credit(damage_target, damage)
-		damage_target.take_damage(damage)
+		_apply_impact_damage(damage_target, damage)
 	queue_free()
 
 func _spawn_custom_explosion(hit_ground: bool, hit_aircraft: bool) -> void:

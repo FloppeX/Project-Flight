@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://buv01wx52d5xw"
+path="res://.godot/imported/French Canadian female - I'm taking fire. Chort.wav-a25af5580eff6fccd6d3e33df3169ecd.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/French Canadian Female/French Canadian female - I'm taking fire. Chort.wav"
+dest_files=["res://.godot/imported/French Canadian female - I'm taking fire. Chort.wav-a25af5580eff6fccd6d3e33df3169ecd.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

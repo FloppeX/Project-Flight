@@ -80,6 +80,22 @@ func _run() -> void:
 	first_helicopter.queue_free()
 	await process_frame
 
+	# A destroyed rescue helicopter can remain in the assignment dictionary until
+	# the next dispatch tick. The stale value must be pruned before any typed cast.
+	var stale_pilot := _make_downed_pilot("DownedStaleAssignment", "Rook Stale")
+	var stale_helicopter := _make_rescue_helicopter("Aircraft_11_StaleAssignment", true)
+	air_ops.call("request_rescue_for", stale_pilot)
+	stale_helicopter.free()
+	air_ops.call("_update_rescue_operations")
+	var stale_assignments: Dictionary = air_ops.get("_rescue_assignments")
+	if stale_assignments.has(stale_pilot) \
+			or str(stale_pilot.get_meta("air_ops_rescue_status", "")) != "waiting":
+		_fail("freed rescue helicopter assignment was not safely pruned")
+		return
+	air_ops.call("notify_pilot_rescued", stale_pilot)
+	stale_pilot.queue_free()
+	await process_frame
+
 	# A request made with no live helicopter must remain tracked and be retried
 	# when an AI rescue helicopter later becomes available.
 	var waiting_pilot := _make_downed_pilot("DownedTwo", "Rook 2")
@@ -141,7 +157,7 @@ func _run() -> void:
 	if not _verify_multi_passenger_retasking(air_ops):
 		return
 
-	print("[AirOpsRescueSmoketest] PASS tracked=true retry=true callback=true parked_takeoff=true Aircraft_11_start=3 multi_pickup=3")
+	print("[AirOpsRescueSmoketest] PASS tracked=true freed_helicopter_pruned=true retry=true callback=true parked_takeoff=true Aircraft_11_start=3 multi_pickup=3")
 	quit(0)
 
 

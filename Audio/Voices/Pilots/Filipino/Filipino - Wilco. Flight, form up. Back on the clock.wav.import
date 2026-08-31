@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://cebmyq2n3yfov"
+path="res://.godot/imported/Filipino - Wilco. Flight, form up. Back on the clock.wav-e4f1e74d5d146e5e6a00301f79ca670c.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/Filipino/Filipino - Wilco. Flight, form up. Back on the clock.wav"
+dest_files=["res://.godot/imported/Filipino - Wilco. Flight, form up. Back on the clock.wav-e4f1e74d5d146e5e6a00301f79ca670c.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

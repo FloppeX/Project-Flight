@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://t5sg2104ghee"
+path="res://.godot/imported/Filipino - Copy lead. Pickle is hot.wav-727f3ec013e08eed9e55d16ff618f261.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/Filipino/Filipino - Copy lead. Pickle is hot.wav"
+dest_files=["res://.godot/imported/Filipino - Copy lead. Pickle is hot.wav-727f3ec013e08eed9e55d16ff618f261.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

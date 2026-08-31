@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://be2njc03fp4ah"
+path="res://.godot/imported/Brazilian male - Copy lead. Pickle is hot.wav-ae7a3a8de29fc4c16ef7b92d6ba31c44.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/Brazilian Male/Brazilian male - Copy lead. Pickle is hot.wav"
+dest_files=["res://.godot/imported/Brazilian male - Copy lead. Pickle is hot.wav-ae7a3a8de29fc4c16ef7b92d6ba31c44.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

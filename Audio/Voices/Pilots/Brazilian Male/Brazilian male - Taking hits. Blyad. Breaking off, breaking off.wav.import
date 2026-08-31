@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://dqiky7qmf2veu"
+path="res://.godot/imported/Brazilian male - Taking hits. Blyad. Breaking off, breaking off.wav-9ee6dd14db7e1071ac6cdf75adc46809.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/Brazilian Male/Brazilian male - Taking hits. Blyad. Breaking off, breaking off.wav"
+dest_files=["res://.godot/imported/Brazilian male - Taking hits. Blyad. Breaking off, breaking off.wav-9ee6dd14db7e1071ac6cdf75adc46809.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

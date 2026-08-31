@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://6m35fu7t7u2x"
+path="res://.godot/imported/wind woosh loop.wav-8b5155a23957590d1028660a397ed911.sample"
+
+[deps]
+
+source_file="res://Audio/wind woosh loop.wav"
+dest_files=["res://.godot/imported/wind woosh loop.wav-8b5155a23957590d1028660a397ed911.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://dstgd2wieoofy"
+path="res://.godot/imported/Scottish female - Wilco. Flight. Push it low. Watch for ground fire.wav-990ad4e0c403d7aadb1146a104ed57ab.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/Scottish Female/Scottish female - Wilco. Flight. Push it low. Watch for ground fire.wav"
+dest_files=["res://.godot/imported/Scottish female - Wilco. Flight. Push it low. Watch for ground fire.wav-990ad4e0c403d7aadb1146a104ed57ab.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

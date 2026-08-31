@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://bgrha6gq0kqcm"
+path="res://.godot/imported/British male - [shouting] In on target Engaging.wav-2b58c40453302b041edf991d7d31fb1f.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/British Male/British male - [shouting] In on target Engaging.wav"
+dest_files=["res://.godot/imported/British male - [shouting] In on target Engaging.wav-2b58c40453302b041edf991d7d31fb1f.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

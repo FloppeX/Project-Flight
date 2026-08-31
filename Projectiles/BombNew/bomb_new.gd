@@ -112,8 +112,14 @@ func _trigger_explosion(hit_body: Node = null):
 		if "source_attacker" in explosion and is_instance_valid(shooter):
 			explosion.source_attacker = shooter
 
-		# Always create scorch mark for missile explosions since they detonate near ground
-		explosion.create_scorch_mark()
+		# A bomb crater is a persistent result, even when the main cockpit camera is
+		# looking elsewhere and the impact is visible through the target feed. Ignore
+		# the bomb and a directly-hit damageable target so the mark projects onto the
+		# terrain that will remain after that target is removed.
+		var scorch_exclusions: Array[CollisionObject3D] = [self]
+		if hit_body is CollisionObject3D and hit_body.has_method("take_damage"):
+			scorch_exclusions.append(hit_body as CollisionObject3D)
+		explosion.create_scorch_mark(scorch_exclusions, true)
 
 	# Mark as impacted and cleanup
 	has_impacted = true

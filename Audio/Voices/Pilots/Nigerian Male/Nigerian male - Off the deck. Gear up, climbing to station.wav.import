@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://c2gv12bhm0elq"
+path="res://.godot/imported/Nigerian male - Off the deck. Gear up, climbing to station.wav-5b7f8168392e43a15eddce1d82850b6e.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/Nigerian Male/Nigerian male - Off the deck. Gear up, climbing to station.wav"
+dest_files=["res://.godot/imported/Nigerian male - Off the deck. Gear up, climbing to station.wav-5b7f8168392e43a15eddce1d82850b6e.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

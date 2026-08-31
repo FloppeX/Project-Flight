@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://b1s1g6hhknao4"
+path="res://.godot/imported/German female - Copy. Orbiting. Keeping watch.wav-f4904a7de1fc4fba4115bfa36c6e3785.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/German Female/German female - Copy. Orbiting. Keeping watch.wav"
+dest_files=["res://.godot/imported/German female - Copy. Orbiting. Keeping watch.wav-f4904a7de1fc4fba4115bfa36c6e3785.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

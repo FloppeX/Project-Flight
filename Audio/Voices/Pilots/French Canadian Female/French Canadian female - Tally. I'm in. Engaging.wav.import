@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://ur22il6x3ocg"
+path="res://.godot/imported/French Canadian female - Tally. I'm in. Engaging.wav-4c44eee864e8d8e9add7bc5a6d1dd258.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/French Canadian Female/French Canadian female - Tally. I'm in. Engaging.wav"
+dest_files=["res://.godot/imported/French Canadian female - Tally. I'm in. Engaging.wav-4c44eee864e8d8e9add7bc5a6d1dd258.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

@@ -32,7 +32,7 @@
 [ext_resource type="Script" uid="uid://bwjigrpitv7cm" path="res://AI/AIPilot.gd" id="28_ai_pilot"]
 [ext_resource type="Script" uid="uid://ckyxqpwu5tkkl" path="res://Aircraft/CockpitCanopyVisibility.gd" id="29_canopy"]
 [ext_resource type="Script" uid="uid://dkrq0ip0i4pq4" path="res://Aircraft/DamageEffects.gd" id="30_damage"]
-[ext_resource type="AudioStream" uid="uid://o2xkkc5oyh4w" path="res://Audio/cockpit_interior_4.wav" id="31_cockpit"]
+[ext_resource type="AudioStream" uid="uid://o2xkkc5oyh4w" path="res://Audio/cockpit/cockpit_interior_4.wav" id="31_cockpit"]
 [ext_resource type="PackedScene" uid="uid://ba1hsntx8a01y" path="res://Aircraft/CockpitPilot.tscn" id="32_cockpit_pilot"]
 [ext_resource type="PackedScene" uid="uid://d0r3ka52tjbb4" path="res://Models/Aircraft_9/Rotor blade.glb" id="33_rotor_blade"]
 [ext_resource type="PackedScene" path="res://Aircraft/Visuals/LandingGear/NoseGearRig.tscn" id="34_heli_gear"]
@@ -42,7 +42,10 @@
 [ext_resource type="PackedScene" uid="uid://x4bqvteq35p5" path="res://Weapons/Turrets/helicopter_side_gun_turret.tscn" id="38_side_gun_turret"]
 [ext_resource type="PackedScene" path="res://Weapons/Guns/Turrets/10mm_machine_gun_turret_weapon.tscn" id="39_side_gun_weapon"]
 [ext_resource type="Script" uid="uid://ljqeb30m632d" path="res://AI/HelicopterPilot.gd" id="40_heli_ai"]
-[ext_resource type="AudioStream" uid="uid://dh1fo34j0ephu" path="res://Audio/helicopter_rotor_3.ogg" id="41_rotor_audio"]
+[ext_resource type="PackedScene" path="res://Aircraft/Visuals/InsigniaMarker.tscn" id="45_insignia"]
+[ext_resource type="AudioStream" uid="uid://hc5s8h1mbj2t" path="res://Audio/engine/helicopter/Helicopter3SlowExt.wav" id="101_rotor_slow"]
+[ext_resource type="AudioStream" uid="uid://b8qaayg6jjf6u" path="res://Audio/engine/helicopter/Helicopter3MedExt.wav" id="102_rotor_medium"]
+[ext_resource type="AudioStream" uid="uid://b63dtvvrs03bl" path="res://Audio/engine/helicopter/Helicopter3FastExt.wav" id="103_rotor_fast"]
 
 [sub_resource type="PhysicsMaterial" id="PhysicsMaterial_lowfriction"]
 friction = 0.75
@@ -97,6 +100,9 @@ script = ExtResource("35_sliding_doors")
 
 [node name="RotorAssembly" type="Node3D" parent="." unique_id=1697660502]
 script = ExtResource("6_rotor_script")
+rotor_audio_slow_stream = ExtResource("101_rotor_slow")
+rotor_audio_medium_stream = ExtResource("102_rotor_medium")
+rotor_audio_fast_stream = ExtResource("103_rotor_fast")
 
 [node name="rotor disc 1" parent="RotorAssembly" unique_id=1135955000 instance=ExtResource("7_ipfui")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3.1544917, 0)
@@ -216,14 +222,11 @@ transform = Transform3D(0.99999976, 0, 0, 0, 0.99999976, 0, 0, 0, 0.99999976, 0,
 [node name="Engine" parent="." unique_id=1819551411 instance=ExtResource("8_engine")]
 PowerFactor = 0.0
 propeller_node = NodePath("")
-EngineSoundLoop = ExtResource("41_rotor_audio")
+EngineSoundLoop = null
+EngineSoundStart = null
 FuelRate = 0.012
 ThrottleSpoolUpRate = 0.35
 ThrottleSpoolDownRate = 0.7
-EngineLoopTargetVolumeDb = 8.0
-EngineSoundVolumeFollowsPower = true
-EngineLoopInteriorVolumeOffsetDb = -12.0
-EngineSoundPitchFollowsPower = false
 enable_propeller_blur = false
 UINode = NodePath("../RotorAssembly")
 StartupInterlockNode = NodePath("../RotorAssembly")
@@ -310,9 +313,6 @@ cinematic_tripod = NodePath("../CameraCinematic")
 
 [node name="AudioManager3D" parent="." unique_id=159966699 instance=ExtResource("23_audio_manager")]
 cockpit_interior_sound = ExtResource("31_cockpit")
-interior_lowpass_cutoff = 4200.0
-interior_secondary_lowpass_cutoff = 2600.0
-interior_volume_reduction = -1.0
 
 [node name="CameraCockpit" parent="." unique_id=1856683597 instance=ExtResource("24_camera_tripod")]
 transform = Transform3D(-1, 0, -8.74213e-08, 0, 0.999983, 0, 8.74228e-08, 0, -0.999983, -0.3067834, 0.5282383, 2.6159933)
@@ -380,11 +380,20 @@ script = ExtResource("30_damage")
 [node name="RescueWinchMarker" type="Marker3D" parent="." unique_id=730709132]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -1.1, 0.1)
 
-[node name="InsigniaSide" type="Marker3D" parent="." unique_id=1137083662]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.3624146, 0.6425961, -1.3172371)
+[node name="InsigniaSide" parent="." unique_id=1137083662 instance=ExtResource("45_insignia")]
+transform = Transform3D(-4.371139e-08, 6, -4.371139e-08, 0, -2.6226832e-07, -1, -1, -2.6226832e-07, 1.9106855e-15, -0.18687892, 0.6425961, -0.5573456)
 
-[node name="InsigniaTail" type="Marker3D" parent="." unique_id=749541890]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.739895, 0.65, -5.113805)
+[node name="InsigniaTail" parent="." unique_id=749541890 instance=ExtResource("45_insignia")]
+transform = Transform3D(-4.371139e-08, 1, -4.371139e-08, 0, -4.371139e-08, -1, -1, -4.371139e-08, 1.9106855e-15, 1.6520597, 0.65, -5.113805)
+diameter = 0.65
+depth = 0.35
 
-[node name="InsigniaNose" type="Marker3D" parent="." unique_id=818750703]
-transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, 0.20737785, 4.074005)
+[node name="InsigniaTail2" parent="." unique_id=1368545371 instance=ExtResource("45_insignia")]
+transform = Transform3D(-4.371139e-08, 1, -4.371139e-08, 0, -4.371139e-08, -1, -1, -4.371139e-08, 1.9106855e-15, -1.5489129, 0.65, -5.113805)
+diameter = 0.65
+depth = 0.35
+
+[node name="InsigniaNose" parent="." unique_id=818750703 instance=ExtResource("45_insignia")]
+transform = Transform3D(1, 0, 0, 0, 0.8756079, -0.48302257, 0, 0.48302257, 0.8756079, 0, 0.0986051, 4.142639)
+diameter = 0.55
+depth = 0.55

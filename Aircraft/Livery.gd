@@ -70,6 +70,7 @@ var _carrier_pattern_shader: Shader = null
 const PLAYER_TEAM_ID: int = 1
 const PILOT_LIVERY_META_KEY: StringName = &"pilot_livery_colors"
 const UPPER_FUSELAGE_TEST_STRIPE_SHADER: Shader = preload("res://Shaders/upper_fuselage_test_stripes.gdshader")
+const INSIGNIA_DECAL_FOLLOWER_SCRIPT: Script = preload("res://Aircraft/Visuals/InsigniaDecalFollower.gd")
 const AIRCRAFT_UPPER_PATTERN_NAMES: Array[String] = [
 	"off",
 	"vertical stripes",
@@ -448,6 +449,11 @@ func _activate_pilot_colors_for_root(root: Node) -> void:
 	if root.get_node_or_null("CockpitPilot") == null:
 		return
 	var palette: Dictionary = _get_or_assign_pilot_palette(root)
+	_activate_pilot_palette(palette)
+
+
+func _activate_pilot_palette(palette: Dictionary) -> void:
+	_active_apply_has_pilot_colors = false
 	if palette.is_empty():
 		return
 
@@ -463,6 +469,26 @@ func _activate_pilot_colors_for_root(root: Node) -> void:
 	_active_apply_pilot_helmet_color_1 = helmet_1_variant as Color
 	_active_apply_pilot_helmet_color_2 = helmet_2_variant as Color
 	_active_apply_has_pilot_colors = true
+
+
+## Applies the aircraft's persistent pilot palette only to a pooled visual.
+## This avoids re-running the full aircraft material traversal when a pilot is
+## moved from the reserve into a viewed cockpit.
+func apply_pilot_palette_to_visual(aircraft_root: Node, pilot_visual: Node) -> void:
+	if aircraft_root == null or pilot_visual == null \
+			or not is_instance_valid(aircraft_root) or not is_instance_valid(pilot_visual):
+		return
+	# The appearance source may be an aircraft, an ejected/downed pilot, or a
+	# lightweight passenger seat record. Only the full-aircraft apply path
+	# requires a direct child named CockpitPilot.
+	_activate_pilot_palette(_get_or_assign_pilot_palette(aircraft_root))
+	if not _active_apply_has_pilot_colors:
+		return
+	_active_apply_is_carrier = false
+	_active_apply_root_3d = pilot_visual as Node3D
+	_active_apply_pattern_source_colors.clear()
+	_apply_recursive(pilot_visual)
+	_active_apply_has_pilot_colors = false
 
 func _get_or_assign_pilot_palette(root: Node) -> Dictionary:
 	if root.has_meta(PILOT_LIVERY_META_KEY):
@@ -552,7 +578,16 @@ func _shift_hue(color: Color, hue_offset: float) -> Color:
 	return Color.from_hsv(fposmod(color.h + hue_offset, 1.0), color.s, color.v, color.a)
 
 func _normalized_material_name(material: Material) -> String:
-	return String(material.resource_name).to_lower().replace("_", " ").replace("-", " ").strip_edges()
+	var normalized := String(material.resource_name).to_lower() \
+			.replace("_", " ").replace("-", " ").strip_edges()
+	# Blender/Godot duplicate-material suffixes such as Main_Color.002 still
+	# describe the same semantic pilot or fuselage surface.
+	var suffix_separator := normalized.rfind(".")
+	if suffix_separator >= 0:
+		var suffix := normalized.substr(suffix_separator + 1)
+		if suffix.is_valid_int():
+			normalized = normalized.substr(0, suffix_separator)
+	return normalized
 
 func _hue_distance(a: float, b: float) -> float:
 	var d := absf(a - b)
@@ -620,8 +655,18 @@ func _apply_insignia(aircraft: Node) -> void:
 			continue
 		# Hide the editor gizmo in-game.
 		marker.visible = false
+		var follow_target: Node3D = null
+		var follow_path_variant: Variant = marker.get("follow_target_path")
+		if follow_path_variant is NodePath and not (follow_path_variant as NodePath).is_empty():
+			follow_target = marker.get_node_or_null(follow_path_variant as NodePath) as Node3D
+			if follow_target == null:
+				push_warning("[Livery] %s could not resolve insignia follow target %s" % [marker.get_path(), follow_path_variant])
 
-		var decal := Decal.new()
+		var decal: Decal
+		if follow_target != null:
+			decal = INSIGNIA_DECAL_FOLLOWER_SCRIPT.new() as Decal
+		else:
+			decal = Decal.new()
 		decal.name = "InsigniaDecal_%s" % marker.name
 		decal.add_to_group("livery_insignia")
 		decal.texture_albedo = tex
@@ -635,14 +680,20 @@ func _apply_insignia(aircraft: Node) -> void:
 		else:
 			decal.size = Vector3(1.0, 0.6, aspect)
 
-		# Parent the decal to the marker's own parent so it inherits the exact same
-		# transform context (and follows folding wing parts, tail sections, etc.).
-		var host: Node = marker.get_parent()
-		if not (host is Node3D):
-			host = aircraft_3d
-		(host as Node3D).add_child(decal)
-		# The decal sits exactly where the cylinder is, projecting along the same -Y.
-		decal.transform = (marker as Node3D).transform
+		if follow_target == null:
+			var host := marker.get_parent() as Node3D
+			if host == null:
+				host = aircraft_3d
+			host.add_child(decal)
+			# The decal sits exactly where the cylinder is, projecting along the same -Y.
+			decal.transform = marker.transform
+		else:
+			# Keep followed decals under the aircraft root. Imported mesh transforms can
+			# contain scale that changes Decal projection size when used as a parent.
+			aircraft_3d.add_child(decal)
+			var marker_in_aircraft := _node_transform_in_ancestor_space(aircraft_3d, marker)
+			var host_rest_in_aircraft := _host_rest_transform_in_aircraft(aircraft_3d, follow_target)
+			decal.call("configure_follow", aircraft_3d, follow_target, host_rest_in_aircraft, marker_in_aircraft)
 
 ## Recursively collect every InsigniaMarker under `node`. Detected by duck-typing
 ## (the get_decal_size method) so this doesn't depend on the global class_name being
@@ -748,28 +799,39 @@ func _resolve_wing_hosts_by_aircraft_x(aircraft_root: Node3D, left_host: Node3D,
 	return {"positive": positive_host, "negative": negative_host}
 
 func _host_origin_x_in_aircraft_space(aircraft_root: Node3D, host: Node3D) -> float:
-	var rest_local_variant: Variant = _resolve_host_rest_local_transform(aircraft_root, host)
-	var host_global: Transform3D
-	if rest_local_variant is Transform3D:
-		var host_parent: Node3D = host.get_parent() as Node3D
-		if host_parent != null:
-			host_global = host_parent.global_transform * (rest_local_variant as Transform3D)
-		else:
-			host_global = host.global_transform
-	else:
-		host_global = host.global_transform
-	var host_in_aircraft: Transform3D = aircraft_root.global_transform.affine_inverse() * host_global
+	var host_in_aircraft := _host_rest_transform_in_aircraft(aircraft_root, host)
 	return host_in_aircraft.origin.x
 
-func _marker_transform_to_host_local(aircraft_root: Node3D, host: Node3D, marker_local_to_aircraft: Transform3D) -> Transform3D:
-	var target_global: Transform3D = aircraft_root.global_transform * marker_local_to_aircraft
+
+func _host_rest_transform_in_aircraft(aircraft_root: Node3D, host: Node3D) -> Transform3D:
 	var rest_local_variant: Variant = _resolve_host_rest_local_transform(aircraft_root, host)
-	if rest_local_variant is Transform3D:
-		var host_parent: Node3D = host.get_parent() as Node3D
-		if host_parent != null:
-			var host_rest_global: Transform3D = host_parent.global_transform * (rest_local_variant as Transform3D)
-			return host_rest_global.affine_inverse() * target_global
-	return host.global_transform.affine_inverse() * target_global
+	var host_parent := host.get_parent() as Node3D
+	if rest_local_variant is Transform3D and host_parent != null:
+		return (
+			_node_transform_in_ancestor_space(aircraft_root, host_parent)
+			* (rest_local_variant as Transform3D)
+		)
+	return _node_transform_in_ancestor_space(aircraft_root, host)
+
+
+func _node_transform_in_ancestor_space(ancestor: Node3D, node: Node3D) -> Transform3D:
+	var local_chain: Array[Transform3D] = []
+	var current: Node = node
+	while current != null and current != ancestor:
+		if current is Node3D:
+			local_chain.push_front((current as Node3D).transform)
+		current = current.get_parent()
+	if current != ancestor:
+		if ancestor.is_inside_tree() and node.is_inside_tree():
+			return ancestor.global_transform.affine_inverse() * node.global_transform
+		return node.transform
+	var result := Transform3D.IDENTITY
+	for local_transform in local_chain:
+		result *= local_transform
+	return result
+
+func _marker_transform_to_host_local(aircraft_root: Node3D, host: Node3D, marker_local_to_aircraft: Transform3D) -> Transform3D:
+	return _host_rest_transform_in_aircraft(aircraft_root, host).affine_inverse() * marker_local_to_aircraft
 
 func _resolve_host_rest_local_transform(aircraft_root: Node3D, host: Node3D) -> Variant:
 	if host.has_meta("livery_rest_transform_local"):

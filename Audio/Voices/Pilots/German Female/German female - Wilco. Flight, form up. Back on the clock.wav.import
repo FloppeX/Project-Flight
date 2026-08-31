@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://dh4gsojevxx82"
+path="res://.godot/imported/German female - Wilco. Flight, form up. Back on the clock.wav-43080215946ff0f0cfe34d2845f7a5a4.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/German Female/German female - Wilco. Flight, form up. Back on the clock.wav"
+dest_files=["res://.godot/imported/German female - Wilco. Flight, form up. Back on the clock.wav-43080215946ff0f0cfe34d2845f7a5a4.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

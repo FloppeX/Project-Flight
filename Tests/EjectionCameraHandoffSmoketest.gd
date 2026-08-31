@@ -100,7 +100,7 @@ func _run() -> void:
 	source_aircraft.add_child(sequence)
 	sequence.call("_detach_sequence_from_aircraft")
 	sequence.call("_retire_source_aircraft", source_aircraft)
-	if sequence.get_parent() != scene or not source_aircraft.is_queued_for_deletion():
+	if sequence.get_parent() != scene or source_aircraft.is_queued_for_deletion():
 		_fail("ejection sequence did not retire its source aircraft")
 		return
 	if source_aircraft.is_in_group("aircraft") or source_aircraft.is_in_group("friendlies"):
@@ -108,19 +108,19 @@ func _run() -> void:
 		return
 
 	await process_frame
-	if is_instance_valid(source_aircraft):
-		_fail("source aircraft remained in the scene after the handoff frame")
+	if not is_instance_valid(source_aircraft) or source_aircraft.get_parent() != scene:
+		_fail("source aircraft despawned during the ejection handoff")
 		return
 	if not is_instance_valid(controller) or not is_instance_valid(ejected_pilot):
-		_fail("pilot camera ownership did not survive source-aircraft deletion")
+		_fail("pilot camera ownership did not survive the ejection handoff")
 		return
 	for mode in range(3):
 		controller.call("switch_to_aircraft_and_mode", ejected_pilot, mode)
 		if controller.call("get_current_camera") == null:
-			_fail("pilot camera mode %d was unavailable after aircraft deletion" % mode)
+			_fail("pilot camera mode %d was unavailable after aircraft ejection" % mode)
 			return
 
-	print("[EjectionCameraHandoffSmoketest] PASS cameras=3 source_freed=true target=EjectedPilot")
+	print("[EjectionCameraHandoffSmoketest] PASS cameras=3 source_retained=true target=EjectedPilot")
 	scene.free()
 	quit(0)
 

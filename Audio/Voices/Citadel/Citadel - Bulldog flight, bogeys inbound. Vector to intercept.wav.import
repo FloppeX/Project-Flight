@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://b53jnyq1i0hvj"
+path="res://.godot/imported/Citadel - Bulldog flight, bogeys inbound. Vector to intercept.wav-bfa58113081629dc61b360663c1e9bbf.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Citadel/Citadel - Bulldog flight, bogeys inbound. Vector to intercept.wav"
+dest_files=["res://.godot/imported/Citadel - Bulldog flight, bogeys inbound. Vector to intercept.wav-bfa58113081629dc61b360663c1e9bbf.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

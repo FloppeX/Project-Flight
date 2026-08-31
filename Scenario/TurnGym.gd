@@ -5,6 +5,7 @@ extends Node3D
 ## Output: user://turn_gym_result.json
 
 const AIRCRAFT_SCENE: PackedScene = preload("res://Aircraft/Aircraft_5.tscn")
+const DEFAULT_AIRCRAFT_SCENE_PATH := "res://Aircraft/Aircraft_5.tscn"
 const INPUT_PATH := "user://turn_gym_batch.json"
 const OUTPUT_PATH := "user://turn_gym_result.json"
 const GRAVITY_MPS2 := 9.80665
@@ -39,6 +40,9 @@ func _ready() -> void:
 
 func _run() -> void:
 	var batch: Dictionary = _read_batch()
+	var fleet_smoke := OS.get_cmdline_user_args().has("--fleet-smoke")
+	if fleet_smoke:
+		batch = _build_fleet_smoke_batch()
 	var candidates_value: Variant = batch.get("candidates", [])
 	var candidates: Array = candidates_value as Array if candidates_value is Array else []
 	if candidates.is_empty():
@@ -75,16 +79,19 @@ func _run() -> void:
 			if elapsed_s <= float(trial.get("duration_s", 0.0)) + delta_s:
 				_sample_trial(trial, delta_s, elapsed_s)
 
+	var candidate_results := _build_candidate_results(candidates)
 	var output := {
 		"schema_version": 1,
+		"mode": "fleet_smoke" if fleet_smoke else "controller_evaluation",
 		"physics_ticks_per_second": Engine.physics_ticks_per_second,
-		"candidate_results": _build_candidate_results(candidates),
+		"candidate_results": candidate_results,
 	}
 	_write_json(OUTPUT_PATH, output)
 	print("TURN_GYM_COMPLETE candidates=%d trials=%d output=%s" % [
 		candidates.size(), _trials.size(), OUTPUT_PATH,
 	])
-	get_tree().quit(0)
+	var exit_code := _validate_fleet_smoke(candidate_results) if fleet_smoke else 0
+	get_tree().quit(exit_code)
 
 
 func _spawn_trial(
@@ -94,15 +101,26 @@ func _spawn_trial(
 	case_index: int,
 	warmup_s: float
 ) -> void:
-	var instance: Node = AIRCRAFT_SCENE.instantiate()
+	var aircraft_scene_path := str(candidate.get("aircraft_scene", DEFAULT_AIRCRAFT_SCENE_PATH))
+	var packed_aircraft := AIRCRAFT_SCENE
+	if aircraft_scene_path != DEFAULT_AIRCRAFT_SCENE_PATH:
+		packed_aircraft = load(aircraft_scene_path) as PackedScene
+	if packed_aircraft == null:
+		push_error("[TurnGym] Could not load aircraft scene %s" % aircraft_scene_path)
+		return
+	var instance: Node = packed_aircraft.instantiate()
 	var aircraft := instance as RigidBody3D
 	if aircraft == null:
-		push_error("[TurnGym] Aircraft_5 did not instantiate as RigidBody3D")
+		push_error("[TurnGym] %s did not instantiate as RigidBody3D" % aircraft_scene_path)
 		return
 	aircraft.name = "TurnGym_C%d_K%d" % [candidate_index, case_index]
 	add_child(aircraft)
 
-	var speed_mps: float = clampf(float(turn_case.get("speed_mps", 82.0)), 45.0, 180.0)
+	var speed_mps: float = clampf(
+		float(candidate.get("speed_mps", turn_case.get("speed_mps", 82.0))),
+		40.0,
+		180.0
+	)
 	var spawn := Vector3(float(candidate_index) * 6000.0, 2400.0, float(case_index) * 6000.0)
 	aircraft.global_transform = Transform3D(Basis.IDENTITY, spawn)
 	# This project's aircraft scenes use Basis.z as the nose/forward axis.
@@ -120,6 +138,7 @@ func _spawn_trial(
 	var trial := {
 		"candidate_id": str(candidate.get("id", candidate_index)),
 		"candidate_index": candidate_index,
+		"aircraft_scene": aircraft_scene_path,
 		"case_name": str(turn_case.get("name", case_index)),
 		"case_index": case_index,
 		"aircraft": aircraft,
@@ -366,12 +385,70 @@ func _build_candidate_results(candidates: Array) -> Array[Dictionary]:
 		var candidate: Dictionary = candidate_value as Dictionary if candidate_value is Dictionary else {}
 		results.append({
 			"id": str(candidate.get("id", candidate_index)),
+			"aircraft_scene": str(candidate.get("aircraft_scene", DEFAULT_AIRCRAFT_SCENE_PATH)),
 			"gains": candidate.get("gains", {}),
 			"fitness": fitness_sum / float(valid_cases) if valid_cases > 0 else -1000.0,
 			"valid_cases": valid_cases,
 			"case_results": case_results,
 		})
 	return results
+
+
+func _build_fleet_smoke_batch() -> Dictionary:
+	var candidates: Array[Dictionary] = []
+	var representative_speeds := {
+		1: 78.0,
+		2: 88.0,
+		3: 74.0,
+		4: 68.0,
+		5: 82.0,
+		6: 50.0,
+		7: 105.0,
+		8: 92.0,
+		14: 82.0,
+	}
+	for aircraft_index in representative_speeds:
+		candidates.append({
+			"id": "aircraft_%d" % aircraft_index,
+			"aircraft_scene": "res://Aircraft/Aircraft_%d.tscn" % aircraft_index,
+			"speed_mps": representative_speeds[aircraft_index],
+			"gains": DEFAULT_GAINS.duplicate(true),
+		})
+	return {
+		"candidates": candidates,
+		"cases": [
+			{"name": "right_moderate", "bank_deg": 45.0, "duration_s": 6.0},
+		],
+		"warmup_s": 1.0,
+	}
+
+
+func _validate_fleet_smoke(candidate_results: Array[Dictionary]) -> int:
+	var failures: Array[String] = []
+	for candidate in candidate_results:
+		var candidate_id := str(candidate.get("id", "unknown"))
+		if int(candidate.get("valid_cases", 0)) != 1:
+			failures.append("%s did not complete its turn trial" % candidate_id)
+			continue
+		var case_results: Array = candidate.get("case_results", [])
+		if case_results.is_empty():
+			failures.append("%s produced no turn metrics" % candidate_id)
+			continue
+		var result: Dictionary = case_results[0] as Dictionary
+		if bool(result.get("invalid", true)):
+			failures.append("%s turn metrics were invalid" % candidate_id)
+		if float(result.get("max_stall_severity", 1.0)) > 0.05:
+			failures.append("%s stalled during the moderate turn" % candidate_id)
+		if float(result.get("saturation_fraction", 1.0)) > 0.05:
+			failures.append("%s saturated its controls during the moderate turn" % candidate_id)
+		if float(result.get("min_speed_mps", 0.0)) < 35.0:
+			failures.append("%s lost unsafe energy during the moderate turn" % candidate_id)
+	if failures.is_empty():
+		print("[TurnGym] FLEET_SMOKE PASS aircraft=%d stalls=0 saturation=0" % candidate_results.size())
+		return 0
+	for failure in failures:
+		push_error("[TurnGym] FLEET_SMOKE FAIL %s" % failure)
+	return 1
 
 
 func _score_trial(trial: Dictionary) -> Dictionary:

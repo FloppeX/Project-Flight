@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://d34f4h66fdjt5"
+path="res://.godot/imported/German female - Tally. I'm in. Engaging.wav-51aac04e99aa8cc1de12b2438bbbe229.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/German Female/German female - Tally. I'm in. Engaging.wav"
+dest_files=["res://.godot/imported/German female - Tally. I'm in. Engaging.wav-51aac04e99aa8cc1de12b2438bbbe229.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

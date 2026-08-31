@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://cr8y6xxrk0uma"
+path="res://.godot/imported/British male - Wilco Climbing to altitude Watch your spacing yeah.wav-c0f87e0c44d434860f1670babdb3ba3e.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/British Male/British male - Wilco Climbing to altitude Watch your spacing yeah.wav"
+dest_files=["res://.godot/imported/British male - Wilco Climbing to altitude Watch your spacing yeah.wav-c0f87e0c44d434860f1670babdb3ba3e.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

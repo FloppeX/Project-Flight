@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://ceudwvyhb107o"
+path="res://.godot/imported/Citadel - Archer flight, execute ground attack. Cleared hot on enemy armor.wav-78380ac5f38e80c21d446f34e160b497.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Citadel/Citadel - Archer flight, execute ground attack. Cleared hot on enemy armor.wav"
+dest_files=["res://.godot/imported/Citadel - Archer flight, execute ground attack. Cleared hot on enemy armor.wav-78380ac5f38e80c21d446f34e160b497.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

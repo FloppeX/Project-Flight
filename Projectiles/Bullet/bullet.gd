@@ -6,8 +6,8 @@ const TRACER_VISUAL_FACTORY := preload("res://Projectiles/Bullet/TracerVisualFac
 # Visual effects specific to bullets
 @export var tracer_enabled: bool = true
 @export var tracer_color: Color = Color.YELLOW
-@export var tracer_width: float = 0.2
-@export var tracer_visual_length: float = 0.8
+@export var tracer_width: float = 0.18
+@export var tracer_visual_length: float = 4.8
 @export var tracer_hidden_physics_frames: int = 1
 @export var tracer_length_ramp_physics_frames: int = 4
 @export_range(0, 3, 1) var virtual_impact_count: int = 0
@@ -137,7 +137,7 @@ func _get_cached_bullet_material() -> StandardMaterial3D:
 	return material
 
 func _get_cached_tracer_mesh() -> ArrayMesh:
-	var key := "closed_radial_taper_12_base_at_origin_v2"
+	var key := "closed_square_pyramid_base_at_origin_v3"
 	var cached_variant: Variant = _tracer_mesh_cache.get(key, null)
 	if cached_variant is ArrayMesh:
 		return cached_variant as ArrayMesh

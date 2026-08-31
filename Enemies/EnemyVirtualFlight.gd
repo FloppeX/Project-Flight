@@ -29,6 +29,7 @@ const REPORT_DELAY_MIN_S      := 25.0    # radio delay range
 const REPORT_DELAY_MAX_S      := 75.0
 const ACTIVE_CONTACT_SCAN_INTERVAL_S := 2.0
 const MAX_MATERIALIZE_SPAWNS_PER_TICK := 1
+const MATERIALIZE_EVENT_LOG_THRESHOLD_MS := 8.0
 const INVESTIGATION_ARRIVAL_RANGE_M := 700.0
 const INVESTIGATION_SEARCH_RADIUS_M := 1200.0
 const INVESTIGATION_SEARCH_DURATION_S := 50.0
@@ -480,16 +481,32 @@ func _tick_materialize_step() -> void:
 	var spawned_this_tick: int = 0
 	var slot_count: int = _aircraft_slots.size()
 	while _materialize_next_slot_idx < slot_count and spawned_this_tick < MAX_MATERIALIZE_SPAWNS_PER_TICK:
+		var slot_start_usec: int = Time.get_ticks_usec()
 		var slot_idx: int = _materialize_next_slot_idx
 		_materialize_next_slot_idx += 1
 		var scene: PackedScene = _aircraft_slots[slot_idx]
 		if scene == null:
 			continue
+		var pool_before: Dictionary = _get_cockpit_pilot_pool_stats()
+		var instantiate_start_usec: int = Time.get_ticks_usec()
 		var ac: Node3D = scene.instantiate() as Node3D
+		var instantiate_usec: int = maxi(Time.get_ticks_usec() - instantiate_start_usec, 0)
+		FrameProfiler.end("EnemyVirtualFlight.materialize_instantiate", instantiate_start_usec)
 		if ac == null:
 			continue
-		scene_root.add_child(ac)
+		# Team identity is safe to establish off-tree and lets retained child _ready()
+		# paths observe the correct faction as soon as the aircraft enters the tree.
 		ac.set_meta("faction_color", faction_color)
+		if "team" in ac:
+			ac.set("team", 2)
+		var prepare_start_usec: int = Time.get_ticks_usec()
+		var presentation_prepare: Dictionary = _prepare_materialized_enemy_presentation(ac)
+		var prepare_usec: int = maxi(Time.get_ticks_usec() - prepare_start_usec, 0)
+		FrameProfiler.end("EnemyVirtualFlight.materialize_prepare_presentation", prepare_start_usec)
+		var add_child_start_usec: int = Time.get_ticks_usec()
+		scene_root.add_child(ac)
+		var add_child_usec: int = maxi(Time.get_ticks_usec() - add_child_start_usec, 0)
+		FrameProfiler.end("EnemyVirtualFlight.materialize_add_child", add_child_start_usec)
 		var spread := Vector3(
 			cos(float(slot_idx) * TAU / float(maxi(slot_count, 1))) * 110.0,
 			float(slot_idx) * 30.0,
@@ -499,14 +516,91 @@ func _tick_materialize_step() -> void:
 		if "linear_velocity" in ac:
 			ac.set("linear_velocity", heading * 75.0)
 		var loadout: String = _loadout_slots[slot_idx] if slot_idx < _loadout_slots.size() else "guns"
+		var configure_start_usec: int = Time.get_ticks_usec()
 		_configure_materialized_enemy_aircraft(ac, loadout, slot_idx)
+		var configure_usec: int = maxi(Time.get_ticks_usec() - configure_start_usec, 0)
+		FrameProfiler.end("EnemyVirtualFlight.materialize_configure", configure_start_usec)
 		active_aircraft.append(ac)
 		_active_slot_indices.append(slot_idx)
 		_materialize_spawned_count += 1
 		spawned_this_tick += 1
+		var slot_total_usec: int = maxi(Time.get_ticks_usec() - slot_start_usec, 0)
+		FrameProfiler.end("EnemyVirtualFlight.materialize_slot_total", slot_start_usec)
+		_log_materialization_event(
+			scene,
+			ac,
+			slot_idx,
+			presentation_prepare,
+			pool_before,
+			_get_cockpit_pilot_pool_stats(),
+			instantiate_usec,
+			prepare_usec,
+			add_child_usec,
+			configure_usec,
+			slot_total_usec
+		)
 	if _materialize_next_slot_idx >= slot_count:
 		_finish_materialize()
 	FrameProfiler.end("EnemyVirtualFlight.materialize_step", _materialize_profiler_start)
+
+
+func _prepare_materialized_enemy_presentation(ac: Node3D) -> Dictionary:
+	var result: Dictionary = {
+		"prepared": false,
+		"detached_nodes": 0,
+	}
+	var visual_budget := get_node_or_null("/root/EnemyVisualBudget")
+	if visual_budget == null or not visual_budget.has_method("prepare_ai_aircraft_for_tree_entry"):
+		return result
+	var prepared_variant: Variant = visual_budget.call("prepare_ai_aircraft_for_tree_entry", ac)
+	return prepared_variant as Dictionary if prepared_variant is Dictionary else result
+
+
+func _get_cockpit_pilot_pool_stats() -> Dictionary:
+	var pilot_pool := get_node_or_null("/root/CockpitPilotPool")
+	if pilot_pool == null or not pilot_pool.has_method("get_pool_stats"):
+		return {}
+	var stats_variant: Variant = pilot_pool.call("get_pool_stats")
+	return stats_variant as Dictionary if stats_variant is Dictionary else {}
+
+
+func _log_materialization_event(
+		scene: PackedScene,
+		ac: Node3D,
+		slot_idx: int,
+		presentation_prepare: Dictionary,
+		pool_before: Dictionary,
+		pool_after: Dictionary,
+		instantiate_usec: int,
+		prepare_usec: int,
+		add_child_usec: int,
+		configure_usec: int,
+		total_usec: int) -> void:
+	var total_ms: float = float(total_usec) * 0.001
+	var created_delta: int = int(pool_after.get("created", -1)) - int(pool_before.get("created", -1)) \
+			if not pool_before.is_empty() and not pool_after.is_empty() else 0
+	if not FrameProfiler.report_capture_enabled \
+			and total_ms < MATERIALIZE_EVENT_LOG_THRESHOLD_MS \
+			and created_delta <= 0:
+		return
+	print("[EnemyMaterialize] flight=%s slot=%d aircraft=%s scene=%s total_ms=%.3f instantiate_ms=%.3f prepare_ms=%.3f add_child_ms=%.3f configure_ms=%.3f presentation_prepared=%s detached_nodes=%d pilot_created=%d pilot_available=%d pilot_checked_out=%d pilot_overflow_total=%d pilot_created_delta=%d" % [
+		flight_name,
+		slot_idx,
+		ac.name if ac != null and is_instance_valid(ac) else "invalid",
+		scene.resource_path if scene != null else "",
+		total_ms,
+		float(instantiate_usec) * 0.001,
+		float(prepare_usec) * 0.001,
+		float(add_child_usec) * 0.001,
+		float(configure_usec) * 0.001,
+		str(bool(presentation_prepare.get("prepared", false))),
+		int(presentation_prepare.get("detached_nodes", 0)),
+		int(pool_after.get("created", -1)),
+		int(pool_after.get("available", -1)),
+		int(pool_after.get("checked_out", -1)),
+		int(pool_after.get("overflow_created_total", -1)),
+		created_delta,
+	])
 
 
 func _finish_materialize() -> void:
@@ -630,8 +724,11 @@ func dematerialize() -> void:
 			remaining_loadouts.append(_loadout_slots[slot_idx] if slot_idx < _loadout_slots.size() else "guns")
 	if not active_aircraft.is_empty():
 		position = _active_aircraft_centroid()
+	var visual_budget := get_node_or_null("/root/EnemyVisualBudget")
 	for ac in active_aircraft:
 		if is_instance_valid(ac):
+			if visual_budget != null and visual_budget.has_method("release_aircraft_cache"):
+				visual_budget.call("release_aircraft_cache", ac, true)
 			ac.queue_free()
 	active_aircraft.clear()
 	_active_slot_indices.clear()

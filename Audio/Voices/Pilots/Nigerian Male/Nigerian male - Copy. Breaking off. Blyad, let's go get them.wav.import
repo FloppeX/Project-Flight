@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://c6r1n0rnq2bpj"
+path="res://.godot/imported/Nigerian male - Copy. Breaking off. Blyad, let's go get them.wav-2b039db2ad5ef16c713c78ae2919ac6b.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/Nigerian Male/Nigerian male - Copy. Breaking off. Blyad, let's go get them.wav"
+dest_files=["res://.godot/imported/Nigerian male - Copy. Breaking off. Blyad, let's go get them.wav-2b039db2ad5ef16c713c78ae2919ac6b.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

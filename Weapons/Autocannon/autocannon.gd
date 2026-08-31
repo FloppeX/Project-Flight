@@ -50,11 +50,11 @@ const AUTOCANNON_SHOT_STREAMS = [
 @export var recoil_force: float = 1000.0
 @export var damage_per_shot: float = 20.0
 @export var max_range_m: float = 900.0
-@export var physical_tracer_width_m: float = 0.2
-@export var physical_tracer_length_m: float = 0.8
+@export var physical_tracer_width_m: float = 0.18
+@export var physical_tracer_length_m: float = 4.8
 @export_range(1, 4, 1) var visible_round_multiplier: int = 1
-@export var virtual_tracer_width_m: float = 0.2
-@export var virtual_tracer_length_m: float = 0.8
+@export var virtual_tracer_width_m: float = 0.18
+@export var virtual_tracer_length_m: float = 4.8
 @export var cockpit_judder_shake_intensity: float = 0.4
 @export var cockpit_judder_shake_duration_s: float = 0.06
 @export var cannon_sound: AudioStream

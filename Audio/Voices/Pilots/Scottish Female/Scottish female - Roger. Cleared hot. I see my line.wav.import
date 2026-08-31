@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://dqlx48rl3ll8b"
+path="res://.godot/imported/Scottish female - Roger. Cleared hot. I see my line.wav-0ac8c3dac2218b26ea84de63a8e4a47e.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/Scottish Female/Scottish female - Roger. Cleared hot. I see my line.wav"
+dest_files=["res://.godot/imported/Scottish female - Roger. Cleared hot. I see my line.wav-0ac8c3dac2218b26ea84de63a8e4a47e.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

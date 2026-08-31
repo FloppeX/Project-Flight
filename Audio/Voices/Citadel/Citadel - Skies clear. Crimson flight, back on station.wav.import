@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://djd0hj5olw0tw"
+path="res://.godot/imported/Citadel - Skies clear. Crimson flight, back on station.wav-d254b68e1b54ab4eabef34049c33e572.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Citadel/Citadel - Skies clear. Crimson flight, back on station.wav"
+dest_files=["res://.godot/imported/Citadel - Skies clear. Crimson flight, back on station.wav-d254b68e1b54ab4eabef34049c33e572.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

@@ -23,6 +23,7 @@
 [ext_resource type="PackedScene" uid="uid://iajmne1rqhv0" path="res://Aircraft/Aircraft_10.tscn" id="19_aircraft_10"]
 [ext_resource type="PackedScene" uid="uid://bg86eyrsmule2" path="res://Models/LandCarrier/Catapult/catapult shuttle.glb" id="20_catapult_shuttle"]
 [ext_resource type="Script" uid="uid://bcabu3b1gglby" path="res://LandCarrier/CommanderWalkArea.gd" id="21_commander_walk_area"]
+[ext_resource type="PackedScene" path="res://LandCarrier/DeckAnimationPilot.tscn" id="22_deck_animation_pilot"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_main_carrier"]
 size = Vector3(2.51178, 4.34025, 4.92171)
@@ -270,6 +271,10 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -72.9282)
 
 [node name="DeckCenterEnd" type="Marker3D" parent="." unique_id=230425015]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 72.5944)
+
+[node name="DeckAnimationPilot" parent="." instance=ExtResource("22_deck_animation_pilot")]
+position = Vector3(14, 0.03, 16)
+rotation_degrees = Vector3(0, 20, 0)
 
 [node name="approach_0" type="Marker3D" parent="." unique_id=389240189]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 600, -2000)

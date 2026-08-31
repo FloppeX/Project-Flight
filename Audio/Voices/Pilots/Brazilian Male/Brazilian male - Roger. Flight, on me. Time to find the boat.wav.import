@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://ckr63edxses6k"
+path="res://.godot/imported/Brazilian male - Roger. Flight, on me. Time to find the boat.wav-1b8ff744fb9ee213fcfd5102d4837c84.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/Brazilian Male/Brazilian male - Roger. Flight, on me. Time to find the boat.wav"
+dest_files=["res://.godot/imported/Brazilian male - Roger. Flight, on me. Time to find the boat.wav-1b8ff744fb9ee213fcfd5102d4837c84.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

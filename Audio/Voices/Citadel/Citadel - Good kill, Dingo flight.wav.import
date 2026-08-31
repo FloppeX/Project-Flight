@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://dgk1x8l5ueme4"
+path="res://.godot/imported/Citadel - Good kill, Dingo flight.wav-e29109d48f063b33d8ed1b69921f161c.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Citadel/Citadel - Good kill, Dingo flight.wav"
+dest_files=["res://.godot/imported/Citadel - Good kill, Dingo flight.wav-e29109d48f063b33d8ed1b69921f161c.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

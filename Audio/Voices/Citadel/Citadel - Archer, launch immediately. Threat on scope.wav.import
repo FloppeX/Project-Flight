@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://c13g8td5dgeab"
+path="res://.godot/imported/Citadel - Archer, launch immediately. Threat on scope.wav-d8d76d78e9cf59a42d540397c229993b.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Citadel/Citadel - Archer, launch immediately. Threat on scope.wav"
+dest_files=["res://.godot/imported/Citadel - Archer, launch immediately. Threat on scope.wav-d8d76d78e9cf59a42d540397c229993b.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

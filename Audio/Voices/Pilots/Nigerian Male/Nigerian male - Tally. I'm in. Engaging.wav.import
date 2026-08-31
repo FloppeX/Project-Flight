@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://bmimf3s3carnd"
+path="res://.godot/imported/Nigerian male - Tally. I'm in. Engaging.wav-308ff06b33ea2bbce791c8a754fb660e.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/Nigerian Male/Nigerian male - Tally. I'm in. Engaging.wav"
+dest_files=["res://.godot/imported/Nigerian male - Tally. I'm in. Engaging.wav-308ff06b33ea2bbce791c8a754fb660e.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

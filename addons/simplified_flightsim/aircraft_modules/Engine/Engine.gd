@@ -7,6 +7,7 @@ class_name AircraftModule_Engine
 signal update_interface(values)
 
 @export var PowerFactor: float = 20.0
+@export var simplified_fixed_wing_thrust_multiplier: float = 2.0
 @export var EnginePosition: Vector3 = Vector3.ZERO # Deprecated, use node's own position instead
 
 @export var propeller_node: NodePath = "../Model/propeller_spin"  # Adjust path
@@ -167,7 +168,7 @@ func process_physic_frame(delta):
 			engine_stop()
 			return
 		
-		var force_vector = -global_transform.basis.z * PowerFactor * current_power
+		var force_vector = -global_transform.basis.z * get_effective_power_factor() * current_power
 		
 		# Engine position must be in local position but global rotation
 		var engine_rotated_position = global_transform.origin - aircraft.global_transform.origin
@@ -197,6 +198,24 @@ func request_update_interface():
 		"engine_power": current_power
 	}
 	emit_signal("update_interface", message)
+
+
+func get_effective_power_factor() -> float:
+	return PowerFactor * _get_fixed_wing_flight_model_thrust_multiplier()
+
+
+func _get_fixed_wing_flight_model_thrust_multiplier() -> float:
+	var host: Node = aircraft if aircraft != null and is_instance_valid(aircraft) else get_parent()
+	var aero: Node = host.get_node_or_null("SimpleAero") if host != null else null
+	if aero == null:
+		return 1.0
+	var aero_script := aero.get_script() as Script
+	if aero_script == null or not aero_script.resource_path.ends_with("/Aircraft/SimpleAero.gd"):
+		return 1.0
+	if aero.has_method("is_advanced_flight_model") \
+			and not bool(aero.call("is_advanced_flight_model")):
+		return maxf(simplified_fixed_wing_thrust_multiplier, 0.0)
+	return 1.0
 
 func power_to_pitch(value: float) -> float:
 	return 0.2 + value*0.8

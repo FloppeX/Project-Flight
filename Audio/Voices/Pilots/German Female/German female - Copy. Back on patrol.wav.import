@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://6hw8sv84wis3"
+path="res://.godot/imported/German female - Copy. Back on patrol.wav-b084a9d46fde311450a0890f1e65e760.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/German Female/German female - Copy. Back on patrol.wav"
+dest_files=["res://.godot/imported/German female - Copy. Back on patrol.wav-b084a9d46fde311450a0890f1e65e760.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://0pfsx2jvyv4b"
+path="res://.godot/imported/Citadel - Archer flight, return to base. Good hunting.wav-eaabf2df2fc3aca5855f29c24c6591a5.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Citadel/Citadel - Archer flight, return to base. Good hunting.wav"
+dest_files=["res://.godot/imported/Citadel - Archer flight, return to base. Good hunting.wav-eaabf2df2fc3aca5855f29c24c6591a5.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://da6jcapm5v0ql"
+path="res://.godot/imported/Scottish female - Roger. Back on station. Stay sharp.wav-736a8a440f21e47dfb93e7cf34a8ca47.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/Scottish Female/Scottish female - Roger. Back on station. Stay sharp.wav"
+dest_files=["res://.godot/imported/Scottish female - Roger. Back on station. Stay sharp.wav-736a8a440f21e47dfb93e7cf34a8ca47.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

@@ -50,6 +50,8 @@ var _free_camera_active: bool = false
 var _free_camera: Camera3D = null
 var _free_camera_yaw: float = 0.0
 var _free_camera_pitch: float = 0.0
+var _photo_mode_camera_active: bool = false
+var _photo_mode_started_free_camera: bool = false
 var _status_overlay_layer: CanvasLayer = null
 var _ai_status_label: Label = null
 var _pilot_name_label: Label = null
@@ -181,6 +183,11 @@ func _physics_process(delta: float) -> void:
 		_update_free_camera(delta)
 
 func _input(event):
+	# Photo mode owns the face buttons while this camera remains available for
+	# continuous stick input in _physics_process().
+	if _photo_mode_camera_active:
+		return
+
 	if event is InputEventKey and event.pressed and not event.echo and event.physical_keycode == KEY_SPACE:
 		if not _destroyed_plane_linger_active:
 			_toggle_free_camera()
@@ -756,7 +763,7 @@ func _set_aircraft_view_ui_enabled(ac: RigidBody3D, enabled: bool) -> void:
 		return
 	if enabled:
 		_ensure_aircraft_presentation_attached(ac)
-	for node_name in ["CameraController", "HeadsUpDisplay", "InstrumentPanel"]:
+	for node_name in ["CameraController", "HeadsUpDisplay", "InstrumentPanel", "AudioManager3D"]:
 		var node := ac.find_child(node_name, true, false) as Node
 		if node == null:
 			continue
@@ -995,8 +1002,8 @@ func _toggle_free_camera() -> void:
 
 	_enter_free_camera()
 
-func _enter_free_camera() -> void:
-	if is_player_controlling:
+func _enter_free_camera(preserve_player_control: bool = false) -> void:
+	if is_player_controlling and not preserve_player_control:
 		_return_control_to_ai()
 
 	var source_camera: Camera3D = _get_current_active_camera()
@@ -1035,6 +1042,39 @@ func _enter_free_camera() -> void:
 	_free_camera_active = true
 	_sync_free_camera_angles()
 	_force_current_camera(_free_camera)
+
+func begin_photo_mode_camera() -> bool:
+	if _photo_mode_camera_active:
+		return _free_camera_active
+
+	_photo_mode_camera_active = true
+	_photo_mode_started_free_camera = not _free_camera_active
+	if _photo_mode_started_free_camera:
+		# The scene tree remains paused in photo mode, so retaining the current
+		# player-control assignment cannot make the aircraft fly unattended.
+		_enter_free_camera(true)
+
+	if not _free_camera_active:
+		_photo_mode_camera_active = false
+		_photo_mode_started_free_camera = false
+		return false
+	return true
+
+func end_photo_mode_camera() -> void:
+	if not _photo_mode_camera_active:
+		return
+
+	var should_exit_free_camera := _photo_mode_started_free_camera
+	_photo_mode_camera_active = false
+	_photo_mode_started_free_camera = false
+	if should_exit_free_camera:
+		_exit_free_camera()
+
+func is_photo_mode_camera_active() -> bool:
+	return _photo_mode_camera_active
+
+func is_free_camera_active() -> bool:
+	return _free_camera_active
 
 func _exit_free_camera() -> void:
 	if not _free_camera_active:
@@ -1254,7 +1294,7 @@ func _print_audio_debug() -> void:
 
 func _start_audio_test() -> void:
 	# Test A: known-working sound (propeller)
-	var test_a = load("res://Audio/airplane_propeller 1.wav")
+	var test_a = load("res://Audio/engine/fixed_wing/airplane_propeller 1.wav")
 	# Test B: carrier deck sound (not working)
 	var test_b = load("res://Audio/Carrier/carrier_deck_sound.wav")
 

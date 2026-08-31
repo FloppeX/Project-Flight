@@ -408,7 +408,10 @@ func _trigger_explosion(hit_body: Node = null):
 		
 	if hit_body and hit_body.has_method("take_damage"):
 		_report_damage_credit(hit_body, damage_direct_hit)
-		hit_body.take_damage(damage_direct_hit)
+		if hit_body.has_method("take_damage_at"):
+			hit_body.call("take_damage_at", damage_direct_hit, global_position, -1)
+		else:
+			hit_body.take_damage(damage_direct_hit)
 	
 	# Mark as impacted and cleanup
 	has_impacted = true

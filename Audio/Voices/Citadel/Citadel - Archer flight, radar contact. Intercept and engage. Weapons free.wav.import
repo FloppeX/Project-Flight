@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://ex4v6wikxutj"
+path="res://.godot/imported/Citadel - Archer flight, radar contact. Intercept and engage. Weapons free.wav-d8be649f80fae96a8ecbd141d0fedb84.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Citadel/Citadel - Archer flight, radar contact. Intercept and engage. Weapons free.wav"
+dest_files=["res://.godot/imported/Citadel - Archer flight, radar contact. Intercept and engage. Weapons free.wav-d8be649f80fae96a8ecbd141d0fedb84.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

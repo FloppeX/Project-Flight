@@ -15,6 +15,7 @@ const HELI_NAVIGATION_TEST_META := "heli_navigation_test_mode"
 const HELI_NAVIGATION_FIXED_LZ_META := "heli_navigation_fixed_lz"
 const HELI_NAVIGATION_HOME_META := "heli_navigation_home_point"
 const PASSENGER_VISUAL_SCENE: PackedScene = preload("res://Aircraft/CockpitPilot.tscn")
+const PilotAppearance := preload("res://Aircraft/PilotAppearance.gd")
 const NAVIGATION_TUNING_PARAM_NAMES := {
 	"terrain_hazard_lookahead_time_s": true,
 	"terrain_hazard_min_lookahead_m": true,
@@ -1383,6 +1384,12 @@ func deinitialize() -> void:
 
 
 func change_state(new_state: State) -> void:
+	# Door modules normally notice an AI leaving its LZ during their render tick,
+	# but a currently viewed AI aircraft is treated as player-presented and skips
+	# that automatic branch. Flight-state entry is the authoritative safety latch:
+	# any departure closes authored swing/sliding doors through their own animator.
+	if new_state == State.TAKEOFF or new_state == State.LOW_LEVEL_TRANSIT:
+		_close_aircraft_doors_for_flight()
 	if state == new_state:
 		return
 	_prev_forward_lean = 0.0
@@ -1447,6 +1454,15 @@ func change_state(new_state: State) -> void:
 	var previous_state := state
 	state = new_state
 	_debug_event("state", "from=%s to=%s" % [_state_name_for(previous_state), _state_name()])
+
+
+func _close_aircraft_doors_for_flight() -> void:
+	if not is_instance_valid(aircraft):
+		return
+	for controller_name: StringName in [&"SwingDoors", &"SlidingDoors"]:
+		var controller := aircraft.find_child(String(controller_name), true, false)
+		if controller != null and controller.has_method("close_doors"):
+			controller.call("close_doors", "flight_state")
 
 
 func set_destination(world_position: Vector3, target_speed_mps: float = -1.0) -> void:
@@ -1720,16 +1736,34 @@ func _create_seated_passenger_visual(pilot_node: Node3D, position_index: int) ->
 	passenger_visual.name = "SeatedPassenger%d" % (position_index + 1)
 	passenger_visual.set("hide_head_in_cockpit", false)
 	for metadata_key: String in [
-		"pilot_display_name", "pilot_rank", "pilot_callsign", "pilot_name", "source_aircraft_name"
+		"pilot_identity", "pilot_roster_id", "pilot_display_name", "pilot_rank",
+		"pilot_callsign", "pilot_name", "pilot_full_name", "pilot_gender",
+		"pilot_national_origin", "source_aircraft_name"
 	]:
 		if is_instance_valid(pilot_node) and pilot_node.has_meta(metadata_key):
-			passenger_visual.set_meta(metadata_key, pilot_node.get_meta(metadata_key))
+			var metadata_value: Variant = pilot_node.get_meta(metadata_key)
+			passenger_visual.set_meta(
+				metadata_key,
+				metadata_value.duplicate(true) if metadata_value is Dictionary else metadata_value
+			)
+	PilotAppearance.copy_palette_metadata(pilot_node, passenger_visual)
 	var position := _passenger_positions[position_index]
 	position.add_child(passenger_visual)
 	passenger_visual.transform = Transform3D.IDENTITY
 	if passenger_visual.has_method("apply_static_seated_pose"):
 		passenger_visual.call("apply_static_seated_pose")
+	if _aircraft_occupants_are_presented() \
+			and passenger_visual.has_method("set_presentation_active"):
+		passenger_visual.call("set_presentation_active", true)
 	_passenger_visuals.append(passenger_visual)
+
+
+func _aircraft_occupants_are_presented() -> bool:
+	if not is_instance_valid(aircraft):
+		return false
+	var cockpit_mount := aircraft.get_node_or_null("CockpitPilot")
+	return cockpit_mount != null and cockpit_mount.has_method("get_pilot_visual") \
+			and cockpit_mount.call("get_pilot_visual") != null
 
 
 func _refresh_passenger_positions() -> void:

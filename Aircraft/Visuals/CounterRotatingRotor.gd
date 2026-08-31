@@ -27,6 +27,9 @@ extends Node3D
 @export var shadow_disable_power: float = 0.45
 @export var shadow_restore_power: float = 0.30
 @export var rotor_audio_stream: AudioStream = null
+@export var rotor_audio_slow_stream: AudioStream = null
+@export var rotor_audio_medium_stream: AudioStream = null
+@export var rotor_audio_fast_stream: AudioStream = null
 @export var rotor_audio_volume_db: float = 6.0
 @export var rotor_audio_silent_db: float = -24.0
 @export var rotor_audio_min_pitch: float = 0.82
@@ -60,6 +63,10 @@ var _last_lower_step_rad: float = 0.0
 var _upper_disc: Node3D = null
 var _lower_disc: Node3D = null
 var _rotor_audio_player: AudioStreamPlayer3D = null
+var _rotor_audio_slow_player: AudioStreamPlayer3D = null
+var _rotor_audio_medium_player: AudioStreamPlayer3D = null
+var _rotor_audio_fast_player: AudioStreamPlayer3D = null
+var _rotor_audio_enabled: bool = true
 var _rotor_shadow_casting: Dictionary = {}
 var _fast_rotor_shadows_disabled: bool = false
 var _technical_index_preview_fraction: float = 0.0
@@ -182,19 +189,29 @@ func _physics_process(delta: float) -> void:
 
 
 func _setup_rotor_audio() -> void:
-	if rotor_audio_stream == null:
+	if rotor_audio_slow_stream != null or rotor_audio_medium_stream != null or rotor_audio_fast_stream != null:
+		_rotor_audio_slow_player = _create_rotor_audio_player("RotorAudioSlow", rotor_audio_slow_stream)
+		_rotor_audio_medium_player = _create_rotor_audio_player("RotorAudioMedium", rotor_audio_medium_stream)
+		_rotor_audio_fast_player = _create_rotor_audio_player("RotorAudioFast", rotor_audio_fast_stream)
 		return
-	_make_stream_loop(rotor_audio_stream)
-	_rotor_audio_player = AudioStreamPlayer3D.new()
-	_rotor_audio_player.name = "RotorAudio"
-	_rotor_audio_player.stream = rotor_audio_stream
-	_rotor_audio_player.bus = "Master"
-	_rotor_audio_player.volume_db = rotor_audio_silent_db
-	_rotor_audio_player.unit_size = maxf(rotor_audio_unit_size, 1.0)
-	_rotor_audio_player.max_distance = maxf(rotor_audio_max_distance, rotor_audio_unit_size)
-	_rotor_audio_player.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE
-	_rotor_audio_player.add_to_group("3d_audio")
-	add_child(_rotor_audio_player)
+	_rotor_audio_player = _create_rotor_audio_player("RotorAudio", rotor_audio_stream)
+
+
+func _create_rotor_audio_player(player_name: String, stream: AudioStream) -> AudioStreamPlayer3D:
+	if stream == null:
+		return null
+	_make_stream_loop(stream)
+	var player := AudioStreamPlayer3D.new()
+	player.name = player_name
+	player.stream = stream
+	player.bus = "Master"
+	player.volume_db = rotor_audio_silent_db
+	player.unit_size = maxf(rotor_audio_unit_size, 1.0)
+	player.max_distance = maxf(rotor_audio_max_distance, rotor_audio_unit_size)
+	player.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE
+	player.add_to_group("3d_audio")
+	add_child(player)
+	return player
 
 
 func _make_stream_loop(stream: AudioStream) -> void:
@@ -207,6 +224,12 @@ func _make_stream_loop(stream: AudioStream) -> void:
 
 
 func _update_rotor_audio() -> void:
+	if not _rotor_audio_enabled:
+		_stop_all_rotor_audio()
+		return
+	if _rotor_audio_slow_player != null or _rotor_audio_medium_player != null or _rotor_audio_fast_player != null:
+		_update_layered_rotor_audio()
+		return
 	if _rotor_audio_player == null:
 		return
 	var audio_power: float = clampf(_power, 0.0, 1.0)
@@ -224,6 +247,54 @@ func _update_rotor_audio() -> void:
 		maxf(rotor_audio_max_pitch, 0.01),
 		audible_power
 	)
+
+
+func _update_layered_rotor_audio() -> void:
+	var audio_power := clampf(_power, 0.0, 1.0)
+	if audio_power <= 0.01:
+		_stop_all_rotor_audio()
+		return
+
+	var slow_to_medium := _smoothstep(0.15, 0.55, audio_power)
+	var medium_to_fast := _smoothstep(0.55, 0.90, audio_power)
+	var slow_weight := cos(slow_to_medium * PI * 0.5)
+	var medium_weight := sin(slow_to_medium * PI * 0.5) * cos(medium_to_fast * PI * 0.5)
+	var fast_weight := sin(medium_to_fast * PI * 0.5)
+	var envelope_db := lerpf(rotor_audio_silent_db, rotor_audio_volume_db, sqrt(audio_power))
+
+	_update_rotor_audio_layer(_rotor_audio_slow_player, slow_weight, envelope_db)
+	_update_rotor_audio_layer(_rotor_audio_medium_player, medium_weight, envelope_db)
+	_update_rotor_audio_layer(_rotor_audio_fast_player, fast_weight, envelope_db)
+
+
+func _update_rotor_audio_layer(player: AudioStreamPlayer3D, weight: float, envelope_db: float) -> void:
+	if player == null:
+		return
+	var clamped_weight := clampf(weight, 0.0, 1.0)
+	if clamped_weight <= 0.001:
+		if player.playing:
+			player.stop()
+		player.volume_db = rotor_audio_silent_db
+		return
+	if not player.playing:
+		player.play()
+	player.pitch_scale = 1.0
+	player.volume_db = envelope_db + linear_to_db(clamped_weight)
+
+
+func _stop_all_rotor_audio() -> void:
+	for player in [_rotor_audio_player, _rotor_audio_slow_player, _rotor_audio_medium_player, _rotor_audio_fast_player]:
+		if player == null:
+			continue
+		if player.playing:
+			player.stop()
+		player.volume_db = rotor_audio_silent_db
+
+
+func set_aircraft_audio_budget_enabled(enabled: bool) -> void:
+	_rotor_audio_enabled = enabled
+	if not enabled:
+		_stop_all_rotor_audio()
 
 
 func _update_targets() -> void:

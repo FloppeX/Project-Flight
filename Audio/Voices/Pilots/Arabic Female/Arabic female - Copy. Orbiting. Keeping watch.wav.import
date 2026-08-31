@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://dirqv4lnbh1ba"
+path="res://.godot/imported/Arabic female - Copy. Orbiting. Keeping watch.wav-5d282dca5dfc9ef2ffae1ec39569edba.sample"
+
+[deps]
+
+source_file="res://Audio/Voices/Pilots/Arabic Female/Arabic female - Copy. Orbiting. Keeping watch.wav"
+dest_files=["res://.godot/imported/Arabic female - Copy. Orbiting. Keeping watch.wav-5d282dca5dfc9ef2ffae1ec39569edba.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2
