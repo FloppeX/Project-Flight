@@ -94,7 +94,10 @@ var module_root: Control = null
 var instrument_modules: Array[InstrumentModule] = []
 var mfd_modules: Array[MFDModule] = []
 var interaction_cursor: Panel = null
-var _panel_updates_active: bool = true
+## Newly materialized aircraft are normally not the viewed cockpit. Start both
+## render targets cold so they cannot submit an expensive hidden frame before
+## the visual budget or this script gets its first _process() callback.
+var _panel_updates_active: bool = false
 var model_panel_mesh: MeshInstance3D = null
 var model_panel_surface_indices: PackedInt32Array = PackedInt32Array()
 
@@ -109,7 +112,7 @@ func _ready():
 	
 	# Set up viewport
 	viewport.size = viewport_resolution
-	viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	viewport.render_target_update_mode = SubViewport.UPDATE_DISABLED
 	viewport.transparent_bg = false
 	
 	# Create material for the panel screen
@@ -133,6 +136,10 @@ func _ready():
 	
 	# Add to group so weapon systems can find us for missile camera
 	add_to_group("instrument_panel")
+	# _ready() runs while a staged hangar root is being reattached, before the
+	# normal visual-budget pass can classify it as focused. Enable the viewports
+	# only when this exact aircraft already owns the live cockpit camera.
+	_set_panel_updates_active(_should_update_panel_this_frame())
 	
 	pass
 
@@ -645,7 +652,11 @@ func _setup_lower_displays() -> void:
 		target_panel.clip_contents = true  # Clip content to panel bounds
 		# Create viewport and camera for target feed
 		target_viewport = SubViewport.new()
-		target_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+		# Keep the secondary 3D world view cold until this panel is actually
+		# visible. UPDATE_ALWAYS here used to render one hidden full-world frame
+		# for every spawned/restored aircraft, which correlated with multi-second
+		# renderer stalls in the hitch trace.
+		target_viewport.render_target_update_mode = SubViewport.UPDATE_DISABLED
 		target_viewport.size = Vector2i(200, 200)  # Larger viewport size for better quality
 		target_viewport.transparent_bg = false
 		# Share the main 3D world so the camera renders the scene
@@ -1437,8 +1448,23 @@ func _watch_display_target(target: Node3D) -> void:
 		return
 	if target == _watched_display_target:
 		return
+	var previous_label := "none"
+	if _watched_display_target != null and is_instance_valid(_watched_display_target):
+		previous_label = "%s#%d" % [
+			_get_target_display_name(_watched_display_target),
+			_watched_display_target.get_instance_id(),
+		]
 	_unwatch_display_target()
 	_watched_display_target = target
+	var aircraft_label: String = str(aircraft.name) \
+		if aircraft != null and is_instance_valid(aircraft) else "unknown"
+	print("[TargetCameraFocus] elapsed_s=%.3f viewer=%s previous=%s target=%s#%d" % [
+		Time.get_ticks_msec() / 1000.0,
+		aircraft_label,
+		previous_label,
+		_get_target_display_name(target),
+		target.get_instance_id(),
+	])
 	if target.has_signal("destroyed"):
 		var destroyed_cb := _on_display_target_destroyed.bind(target)
 		if not target.destroyed.is_connected(destroyed_cb):

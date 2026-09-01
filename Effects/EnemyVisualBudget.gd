@@ -6,6 +6,8 @@ const AircraftPresentationDormancy = preload("res://Aircraft/AircraftPresentatio
 const DistantEnemyContrast = preload("res://Effects/DistantEnemyContrast.gd")
 const PRE_TREE_PRESENTATION_META: StringName = &"visual_budget_pre_tree_presentation_prepared"
 const PRE_TREE_DETACHED_COUNT_META: StringName = &"visual_budget_pre_tree_detached_nodes"
+const PRESENTATION_STAGING_META: StringName = &"visual_budget_presentation_staging"
+const PRESENTATION_KEEP_ATTACHED_META: StringName = &"visual_budget_presentation_keep_attached"
 
 enum BudgetBand { HUMAN, NEAR, MID, FAR, CULLED }
 
@@ -113,6 +115,65 @@ func prepare_ai_aircraft_for_tree_entry(unit: Node3D) -> Dictionary:
 	return result
 
 
+## Hangar retrieval uses the otherwise idle elevator travel to admit one
+## presentation root per frame. The keep-attached lock prevents the regular AI
+## budget from immediately undoing that warm-up before launch.
+func prepare_aircraft_presentation_for_staged_tree_entry(unit: Node3D) -> Dictionary:
+	if unit == null or not is_instance_valid(unit):
+		return {"prepared": false, "detached_nodes": 0, "detached_roots": 0}
+	var result := prepare_ai_aircraft_for_tree_entry(unit)
+	var prepared := bool(result.get("prepared", false))
+	unit.set_meta(PRESENTATION_STAGING_META, prepared)
+	unit.set_meta(PRESENTATION_KEEP_ATTACHED_META, prepared)
+	if prepared:
+		var cache := _get_cache_for_root(unit)
+		var session = cache.get("presentation_session")
+		if session != null:
+			result["detached_roots"] = int(session.get_detached_root_count())
+			result["root_names"] = session.get_detached_root_names()
+	return result
+
+
+func restore_next_staged_aircraft_presentation_root(unit: Node3D) -> Dictionary:
+	var result: Dictionary = {
+		"restored": false,
+		"root_name": "",
+		"node_count": 0,
+		"remaining_roots": 0,
+		"remaining_nodes": 0,
+		"complete": true,
+	}
+	if unit == null or not is_instance_valid(unit):
+		return result
+	var cache := _get_cache_for_root(unit)
+	var session = cache.get("presentation_session")
+	if session == null:
+		unit.remove_meta(PRESENTATION_STAGING_META)
+		return result
+	result = session.restore_next_root(false)
+	if bool(result.get("complete", false)):
+		unit.remove_meta(PRESENTATION_STAGING_META)
+	return result
+
+
+func complete_aircraft_presentation_staging(unit: Node3D) -> void:
+	if unit == null or not is_instance_valid(unit):
+		return
+	var cache := _get_cache_for_root(unit)
+	var session = cache.get("presentation_session")
+	if session != null:
+		while session.is_detached():
+			session.restore_next_root(false)
+	unit.remove_meta(PRESENTATION_STAGING_META)
+
+
+func release_aircraft_presentation_keep_attached(unit: Node3D) -> void:
+	if unit == null or not is_instance_valid(unit):
+		return
+	unit.remove_meta(PRESENTATION_STAGING_META)
+	unit.remove_meta(PRESENTATION_KEEP_ATTACHED_META)
+
+
 ## Releases a cached aircraft immediately. Dematerialization uses discard=true
 ## because detached presentation nodes are no longer children of the aircraft and
 ## would otherwise wait for the periodic cache-prune pass before being freed.
@@ -141,6 +202,8 @@ func release_aircraft_cache(unit: Node3D, discard_presentation: bool = true) -> 
 		_contrast_cache.erase(id)
 	unit.remove_meta(PRE_TREE_PRESENTATION_META)
 	unit.remove_meta(PRE_TREE_DETACHED_COUNT_META)
+	unit.remove_meta(PRESENTATION_STAGING_META)
+	unit.remove_meta(PRESENTATION_KEEP_ATTACHED_META)
 
 
 func ensure_aircraft_presentation_attached(unit: Node3D) -> void:
@@ -245,24 +308,31 @@ func _update_enemy_contrast(candidates: Array[Node3D], camera: Camera3D) -> void
 func _apply_budget_to_unit(unit: Node3D, camera: Camera3D) -> void:
 	var cache := _get_cache_for_root(unit)
 	var distance_m: float = _distance_to_camera(unit, camera)
-	var focused: bool = _is_unit_focused(unit, camera)
+	var player_focused: bool = _is_unit_player_focused(unit, camera)
+	var target_feed_focused: bool = VISUAL_FOCUS_HELPER.is_node_in_target_camera_focus(self, unit)
+	var focused: bool = player_focused or target_feed_focused
 	var in_frustum: bool = _is_unit_in_frustum(unit, camera)
 	var is_air: bool = unit.is_in_group("ai_aircraft") or unit.is_in_group("aircraft")
-	var band: int = _classify_band(distance_m, focused)
+	# The inset target feed is a visual focus, not a player-control focus. Keep
+	# distance-based AI cadence instead of promoting its pilot to the human band.
+	var band: int = _classify_band(distance_m, player_focused)
 	var shadow_distance: float = air_shadow_distance_m if is_air else ground_shadow_distance_m
 	var allow_shadows: bool = focused or distance_m <= shadow_distance
 	var allow_effects: bool = focused or (distance_m <= effect_distance_m and (in_frustum or not require_effect_frustum))
 	var allow_ai_detail: bool = focused or (distance_m <= ai_aircraft_detail_distance_m and in_frustum)
-	var allow_ai_audio: bool = focused or distance_m <= ai_aircraft_audio_distance_m
+	var allow_ai_audio: bool = player_focused or distance_m <= ai_aircraft_audio_distance_m
 
 	_stats["units_touched"] = int(_stats["units_touched"]) + 1
 	if is_air:
 		_stats["air_units"] = int(_stats["air_units"]) + 1
-		_apply_ai_aircraft_player_only_budget(unit, focused, cache)
+		# A target-feed aircraft needs exterior detail, but not its cockpit HUD,
+		# instrument viewports, audio manager, cameras, or pooled occupant. Restoring
+		# those player-only roots on each target change caused the visible hitch.
+		_apply_ai_aircraft_player_only_budget(unit, player_focused, cache)
 		_apply_ai_aircraft_detail_budget(_resolve_ref_array(cache.get("ai_detail_refs", [])), allow_ai_detail)
 		_apply_aircraft_engine_budget(_resolve_ref_array(cache.get("aircraft_engine_refs", [])), allow_ai_detail, allow_ai_audio)
 		_apply_aircraft_audio_budget(_resolve_ref_array(cache.get("audio_refs", [])), allow_ai_audio)
-		_apply_aircraft_contact_monitor_budget(unit, focused, distance_m)
+		_apply_aircraft_contact_monitor_budget(unit, player_focused, distance_m)
 	else:
 		_stats["ground_units"] = int(_stats["ground_units"]) + 1
 	match band:
@@ -467,8 +537,17 @@ func _apply_effect_budget(effect_nodes: Array, allow_effects: bool) -> void:
 
 func _apply_ai_aircraft_player_only_budget(unit: Node3D, focused: bool, cache: Dictionary) -> void:
 	var presentation_session = cache.get("presentation_session")
-	if (focused or not detach_ai_presentation_subtrees) and presentation_session != null:
-		presentation_session.restore()
+	if bool(unit.get_meta(PRESENTATION_STAGING_META, false)):
+		return
+	var keep_attached := bool(unit.get_meta(PRESENTATION_KEEP_ATTACHED_META, false))
+	if presentation_session != null:
+		if focused:
+			presentation_session.restore()
+		elif keep_attached:
+			if presentation_session.is_detached():
+				presentation_session.restore(false)
+		elif not detach_ai_presentation_subtrees:
+			presentation_session.restore()
 	var player_only_nodes: Array = _resolve_ref_array(cache.get("player_only_refs", []))
 	for node_value in player_only_nodes:
 		var node := node_value as Node
@@ -493,7 +572,7 @@ func _apply_ai_aircraft_player_only_budget(unit: Node3D, focused: bool, cache: D
 				(node as Node3D).visible = false
 			_stop_audio_players_recursive(node)
 			_stats["player_only_disabled"] = int(_stats["player_only_disabled"]) + 1
-	if not focused and detach_ai_presentation_subtrees and presentation_session != null:
+	if not focused and not keep_attached and detach_ai_presentation_subtrees and presentation_session != null:
 		var detached_nodes: int = int(presentation_session.detach())
 		if detached_nodes > 0:
 			_stats["presentation_aircraft_detached"] = int(_stats["presentation_aircraft_detached"]) + 1
@@ -694,6 +773,11 @@ func _distance_to_camera(unit: Node3D, camera: Camera3D) -> float:
 
 
 func _is_unit_focused(unit: Node3D, camera: Camera3D) -> bool:
+	return _is_unit_player_focused(unit, camera) \
+		or VISUAL_FOCUS_HELPER.is_node_in_target_camera_focus(self, unit)
+
+
+func _is_unit_player_focused(unit: Node3D, camera: Camera3D) -> bool:
 	if _is_player_controlled(unit):
 		return true
 	var director := get_node_or_null("/root/FlightDirector")
@@ -704,7 +788,7 @@ func _is_unit_focused(unit: Node3D, camera: Camera3D) -> bool:
 		return true
 	if camera != null and is_instance_valid(camera) and _is_ancestor_of(unit, camera):
 		return true
-	return VISUAL_FOCUS_HELPER.is_node_in_target_camera_focus(self, unit)
+	return false
 
 
 func _is_unit_in_frustum(unit: Node3D, camera: Camera3D) -> bool:

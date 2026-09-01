@@ -102,6 +102,7 @@ const EARTH_GRAVITY = 9.8 # for g-force calculation
 const DEFAULT_COCKPIT_PILOT_SCENE: PackedScene = preload("res://Aircraft/CockpitPilot.tscn")
 const DEFAULT_COCKPIT_PILOT_POSE_SCRIPT: Script = preload("res://Aircraft/PilotPose.gd")
 const COCKPIT_PILOT_NODE_NAME: StringName = &"CockpitPilot"
+const COCKPIT_PILOT_DETACHED_META: StringName = &"presentation_dormant_cockpit_pilot_detached"
 const AIRCRAFT_DEBRIS_BURST_SCRIPT: Script = preload("res://Aircraft/AircraftDebrisBurst.gd")
 const TERRAIN_SAFETY_SAMPLE_DIRECTIONS := [
 	Vector2(1.0, 0.0),
@@ -252,6 +253,12 @@ func _ensure_cockpit_pilot() -> void:
 	if cockpit_pilot_scene == null:
 		return
 	if get_node_or_null(str(COCKPIT_PILOT_NODE_NAME)) != null:
+		return
+	# Pre-tree performance staging temporarily removes the authored mount. It is
+	# still alive and will be restored by AircraftPresentationDormancy, so the
+	# compatibility fallback must not create a second, differently positioned
+	# pilot in the meantime.
+	if bool(get_meta(COCKPIT_PILOT_DETACHED_META, false)):
 		return
 
 	var cockpit_node: Node3D = get_node_or_null(cockpit_pilot_camera_path) as Node3D

@@ -28,6 +28,10 @@ var last_velocity: Vector3 = Vector3.ZERO
 var _pause_menu_settings: Node = null
 
 func _ready():
+	initialize_camera_state()
+
+
+func initialize_camera_state() -> void:
 	base_position = position
 	base_rotation = rotation
 	var aircraft := get_parent() as RigidBody3D
@@ -37,6 +41,8 @@ func _ready():
 		last_velocity = aircraft.linear_velocity
 
 func _process(delta):
+	if not _is_current_camera():
+		return
 	# Get right stick input
 	var look_x = Input.get_action_strength("look_left") - Input.get_action_strength("look_right")
 	var look_y = Input.get_action_strength("look_down") - Input.get_action_strength("look_up") 
@@ -69,6 +75,11 @@ func _physics_process(delta: float):
 	if not aircraft:
 		return
 	var current_velocity = aircraft.linear_velocity
+	if not _is_current_camera():
+		# Keep the velocity baseline fresh without spending time on hidden camera
+		# motion or turning a later camera switch into a false acceleration spike.
+		last_velocity = current_velocity
+		return
 
 	# Calculate acceleration (change in velocity)
 	var acceleration = (current_velocity - last_velocity) / delta
@@ -107,6 +118,19 @@ func _physics_process(delta: float):
 	# as forward, so negative local Z is movement back into the seat.
 	var total_offset := _limit_camera_offset(g_force_offset + airflow_buffet_offset)
 	position = base_position + total_offset
+
+
+func reset_look() -> void:
+	current_look = Vector3.ZERO
+	airflow_buffet_rotation = Vector3.ZERO
+	rotation = base_rotation
+
+
+func _is_current_camera() -> bool:
+	var camera := find_child("Camera3D", true, false) as Camera3D
+	# Script-only smoke hosts have no Camera3D; keep their deterministic motion
+	# API active while real tripods remain gated by viewport ownership.
+	return camera == null or not is_instance_valid(camera) or camera.current
 
 
 func _limit_camera_offset(offset: Vector3) -> Vector3:

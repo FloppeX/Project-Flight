@@ -97,7 +97,7 @@ func _check_aircraft(host: Node3D, aircraft_number: int, scene_path: String) -> 
 		"%s obsolete full-span wing collider is active or missing" % label
 	)
 	if damage_model != null:
-		_expect(is_equal_approx(float(damage_model.get("single_wing_loss_roll_torque_per_kg")), 40.0), "%s does not use the shared rapid wing-loss roll torque" % label)
+		_expect(is_equal_approx(float(damage_model.get("single_wing_loss_roll_torque_per_kg")), 36.0), "%s does not use the shared controlled wing-loss roll torque" % label)
 		_expect(is_zero_approx(float(damage_model.get("wing_loss_roll_authority_scale"))), "%s retains roll authority after wing loss" % label)
 		_expect(bool(damage_model.get("wing_loss_disable_all_control_inputs")), "%s does not disable every control input after wing loss" % label)
 		var expected_region_health := float(aircraft.get("max_health")) * 0.5
@@ -219,7 +219,7 @@ func _check_aircraft_3_breakaway_wiring(
 				steering.call("set_y", 1.0)
 				steering.call("set_z", 1.0)
 			damage_model.call("_physics_process", 0.1)
-			_expect(is_equal_approx(float(damage_model.get("single_wing_loss_roll_torque_per_kg")), 40.0), "%s wing-loss roll torque is not configured for a fast roll" % label)
+			_expect(is_equal_approx(float(damage_model.get("single_wing_loss_roll_torque_per_kg")), 36.0), "%s wing-loss roll torque is not configured for the controlled fast roll" % label)
 			_expect(bool(damage_model.get("wing_loss_disable_all_control_inputs")), "%s wing loss does not disable all flight-control inputs" % label)
 			if aero != null:
 				_expect(is_zero_approx(float(aero.get("pitch_power"))) and is_zero_approx(float(aero.get("roll_power"))) and is_zero_approx(float(aero.get("yaw_power"))), "%s retained SimpleAero control power after wing loss" % label)
@@ -280,15 +280,53 @@ func _check_uncontrolled_wing_loss_roll(
 		return
 	aircraft.linear_velocity = aircraft.global_transform.basis.z * 100.0
 	aircraft.angular_velocity = Vector3.ZERO
+	var initial_flight_direction := aircraft.linear_velocity.normalized()
 	damage_model.call("damage_zone", &"left_wing", damage_model.call("get_zone_max_health", &"left_wing"))
+	var maximum_expected_roll_rate := 0.0
+	var maximum_pitch_rate := 0.0
+	var maximum_yaw_rate := 0.0
+	var maximum_departure_angle_deg := 0.0
 	for _frame_index in range(45):
 		await physics_frame
-	var local_roll_rate := aircraft.angular_velocity.dot(
-		aircraft.global_transform.basis.z.normalized()
+		var basis := aircraft.global_transform.basis.orthonormalized()
+		maximum_expected_roll_rate = maxf(
+			maximum_expected_roll_rate,
+			-aircraft.angular_velocity.dot(basis.z)
+		)
+		maximum_pitch_rate = maxf(maximum_pitch_rate, absf(aircraft.angular_velocity.dot(basis.x)))
+		maximum_yaw_rate = maxf(maximum_yaw_rate, absf(aircraft.angular_velocity.dot(basis.y)))
+		if aircraft.linear_velocity.length_squared() > 0.01:
+			maximum_departure_angle_deg = maxf(
+				maximum_departure_angle_deg,
+				rad_to_deg(initial_flight_direction.angle_to(aircraft.linear_velocity.normalized()))
+			)
+	_expect(
+		maximum_expected_roll_rate >= deg_to_rad(85.0),
+		"%s damaged left wing did not roll left fast enough: %.1f deg/s" % [label, rad_to_deg(maximum_expected_roll_rate)]
 	)
 	_expect(
-		local_roll_rate >= deg_to_rad(90.0),
-		"%s damaged-wing roll was not fast enough: %.1f deg/s" % [label, rad_to_deg(local_roll_rate)]
+		maximum_expected_roll_rate <= deg_to_rad(225.0),
+		"%s damaged-wing roll is excessively fast: %.1f deg/s" % [label, rad_to_deg(maximum_expected_roll_rate)]
+	)
+	_expect(
+		maximum_pitch_rate >= deg_to_rad(25.0),
+		"%s wing loss did not produce a strong pitch tumble: %.1f deg/s" % [label, rad_to_deg(maximum_pitch_rate)]
+	)
+	_expect(
+		maximum_pitch_rate <= deg_to_rad(160.0),
+		"%s damaged-wing pitch tumble is excessively fast: %.1f deg/s" % [label, rad_to_deg(maximum_pitch_rate)]
+	)
+	_expect(
+		maximum_yaw_rate >= deg_to_rad(18.0),
+		"%s wing loss did not produce a strong yaw spin: %.1f deg/s" % [label, rad_to_deg(maximum_yaw_rate)]
+	)
+	_expect(
+		maximum_yaw_rate <= deg_to_rad(120.0),
+		"%s damaged-wing yaw spin is excessively fast: %.1f deg/s" % [label, rad_to_deg(maximum_yaw_rate)]
+	)
+	_expect(
+		maximum_departure_angle_deg >= 2.0,
+		"%s wing loss kept an almost straight trajectory: %.1f degrees" % [label, maximum_departure_angle_deg]
 	)
 	var control_steering := aircraft.get_node_or_null("ControlSteering")
 	_expect(

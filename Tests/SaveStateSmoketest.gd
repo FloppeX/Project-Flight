@@ -336,6 +336,11 @@ func _spawn_deployed_friendly_probes(deck: Node) -> Dictionary:
 	var aircraft := deck.call("restore_deployed_aircraft_save_state", source_data) as RigidBody3D
 	if aircraft == null:
 		return {"ok": false, "message": "deployed aircraft probe could not be restored"}
+	if bool(aircraft.get_meta("visual_budget_pre_tree_presentation_prepared", false)) \
+	or aircraft.get_node_or_null("CameraController") == null \
+	or aircraft.get_node_or_null("HeadsUpDisplay") == null \
+	or aircraft.get_node_or_null("InstrumentPanel") == null:
+		return {"ok": false, "message": "restored player-viewable aircraft did not retain its presentation"}
 	AirOpsManager.reassign(aircraft, "Archer")
 	AirOpsManager.order_cap("Archer", 900.0)
 

@@ -364,6 +364,7 @@ func _consume_vehicle_simulation_delta(delta: float) -> float:
 	var camera_visible: bool = _is_camera_visible(safe_delta)
 	var camera := _get_active_camera(0.0)
 	var within_full_rate_distance: bool = camera == null or not is_instance_valid(camera) \
+		or not camera.is_inside_tree() \
 		or global_position.distance_squared_to(camera.global_position) \
 			<= full_rate_simulation_distance_m * full_rate_simulation_distance_m
 	if camera_visible or within_full_rate_distance or _simulation_lod_wake_timer_s > 0.0:

@@ -11,6 +11,10 @@ var focus_target: Node3D
 var current_rotation: Vector3
 
 func _ready():
+	initialize_camera_state()
+
+
+func initialize_camera_state() -> void:
 	# Make this node ignore parent transforms so it doesn't move with the aircraft
 	top_level = true
 	current_rotation = rotation
@@ -30,7 +34,7 @@ func _get_focus_position() -> Vector3:
 	return global_position
 
 func _process(delta):
-	if aircraft and is_instance_valid(aircraft):
+	if aircraft and is_instance_valid(aircraft) and _is_current_camera():
 		update_look()
 
 func setup_shot():
@@ -54,9 +58,15 @@ func setup_shot():
 	
 	# Set position once and stay there (completely stationary)
 	global_position = cinematic_pos
+	update_look()
 
 func update_look():
 	var focus_position := _get_focus_position()
 	if focus_position.is_equal_approx(global_position):
 		return
 	look_at(focus_position, Vector3.UP)
+
+
+func _is_current_camera() -> bool:
+	var camera := find_child("Camera3D", true, false) as Camera3D
+	return camera == null or not is_instance_valid(camera) or camera.current

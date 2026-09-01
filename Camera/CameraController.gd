@@ -79,12 +79,15 @@ func _ready():
 	# Set up camera scripts
 	cockpit_tripod.set_script(preload("res://Camera/CockpitCamera.gd"))
 	cockpit_script = cockpit_tripod as CockpitCamera
+	if cockpit_script:
+		cockpit_script.initialize_camera_state()
 	
 	# For chase and cinematic cameras, we need to detach them from aircraft transform
 	# by using global positioning instead of inheriting aircraft movement
 	chase_tripod.set_script(preload("res://Camera/camera_chase.gd"))
 	chase_script = chase_tripod as ChaseCamera
 	if chase_script:
+		chase_script.initialize_camera_state()
 		chase_script.setup_aircraft(aircraft)
 	
 	# Set up bridge camera
@@ -116,6 +119,7 @@ func _ready():
 		cinematic_tripod.set_script(preload("res://Camera/CinematicCamera.gd"))
 		cinematic_script = cinematic_tripod as CinematicCamera
 		if cinematic_script:
+			cinematic_script.initialize_camera_state()
 			cinematic_script.setup_aircraft(aircraft)
 		cinematic_camera = cinematic_tripod.find_child("Camera3D", true, false)
 		if cinematic_camera:
@@ -355,6 +359,12 @@ func _apply_cockpit_camera_settings(cam: Camera3D) -> void:
 		return
 	cam.near = cockpit_near
 
+func _get_cockpit_script_for(ac: RigidBody3D) -> CockpitCamera:
+	if ac == aircraft:
+		return cockpit_script
+	var tripod = ac.get_node_or_null("CameraCockpit") as Node3D
+	return tripod as CockpitCamera if tripod else null
+
 func _get_chase_script_for(ac: RigidBody3D) -> ChaseCamera:
 	if ac == aircraft:
 		return chase_script
@@ -482,6 +492,10 @@ func _switch_to_view_target(target: Dictionary):
 	var cam = _get_camera_for(ac, mode)
 	if not cam:
 		return
+	if mode == CameraMode.COCKPIT:
+		var co := _get_cockpit_script_for(ac)
+		if co != null and co.has_method("reset_look"):
+			co.reset_look()
 	
 	# Ensure chase/cinematic scripts are set up for this aircraft
 	if mode == CameraMode.CHASE:

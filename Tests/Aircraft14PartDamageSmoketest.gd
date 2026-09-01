@@ -100,7 +100,7 @@ func _check_zone_configuration_and_wing_detachment() -> void:
 	if aero != null:
 		aircraft.linear_velocity = Vector3(0, 0, 100)
 		damage_model.call("_physics_process", 0.1)
-		_expect(is_equal_approx(float(aircraft.get_meta("wing_failure_roll_direction", 0.0)), 1.0), "left-wing loss did not produce the mirrored left-roll direction")
+		_expect(is_equal_approx(float(aircraft.get_meta("wing_failure_roll_direction", 0.0)), -1.0), "left-wing loss did not produce the rendered left-roll direction")
 		_expect(is_zero_approx(float(aero.get("pitch_power"))) and is_zero_approx(float(aero.get("roll_power"))) and is_zero_approx(float(aero.get("yaw_power"))), "wing loss did not remove all flight-control authority")
 		_expect(float(aero.get("structural_damage_drag_accel_mps2")) >= 6.9, "wing loss did not add speed-scaled structural drag")
 		_expect(float(aero.get("structural_damage_buffet_intensity")) >= 0.89, "wing loss did not add severe airflow buffet")
@@ -127,8 +127,7 @@ func _check_right_wing_failure_direction() -> void:
 	damage_model.call("damage_zone", &"right_wing", damage_model.call("get_zone_max_health", &"right_wing"))
 	aircraft.linear_velocity = Vector3(0, 0, 100)
 	damage_model.call("_physics_process", 0.1)
-	# SimpleAero's normal right-roll command applies torque around -local Z.
-	_expect(is_equal_approx(float(aircraft.get_meta("wing_failure_roll_direction", 0.0)), -1.0), "right-wing loss did not produce a right-roll torque direction")
+	_expect(is_equal_approx(float(aircraft.get_meta("wing_failure_roll_direction", 0.0)), 1.0), "right-wing loss did not produce the rendered right-roll direction")
 	_cleanup_detached("DetachedRightWing")
 	_cleanup_aircraft(aircraft)
 	await get_tree().process_frame

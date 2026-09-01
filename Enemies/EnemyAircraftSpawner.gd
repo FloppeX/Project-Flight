@@ -1,5 +1,7 @@
 extends Node3D
 
+const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
+
 signal enemy_flight_spawned(aircraft: Array[RigidBody3D], role_name: String)
 signal enemy_platoon_spawned(platoon: GroundVehiclePlatoon)
 
@@ -899,13 +901,17 @@ func _spawn_enemy():
 		print("[EnemyAircraftSpawner] Max AI planes reached: ", max_ai_planes)
 		return
 
+	var instantiate_profiler_start: int = FrameProfiler.begin("EnemyAircraftSpawner.spawn_enemy_instantiate")
 	var aircraft = _aircraft_scene.instantiate() as RigidBody3D
+	FrameProfiler.end("EnemyAircraftSpawner.spawn_enemy_instantiate", instantiate_profiler_start)
 	if not aircraft:
 		push_error("[EnemyAircraftSpawner] Failed to instantiate enemy aircraft")
 		return
 
 	aircraft.name = "FriendlyAI"
+	var add_child_profiler_start: int = FrameProfiler.begin("EnemyAircraftSpawner.spawn_enemy_add_child")
 	get_tree().current_scene.add_child(aircraft)
+	FrameProfiler.end("EnemyAircraftSpawner.spawn_enemy_add_child", add_child_profiler_start)
 
 	var spawn_pos = _get_carrier_position()
 	spawn_pos.y += spawn_altitude
@@ -951,14 +957,25 @@ func _spawn_enemy():
 func _spawn_ai_fighter(scene: PackedScene, display_name: String, team_id: int, extra_group: String, spawn_pos: Vector3, forward_dir: Vector3, initial_speed: float) -> RigidBody3D:
 	if not scene:
 		return null
+	var instantiate_profiler_start: int = FrameProfiler.begin("EnemyAircraftSpawner.spawn_fighter_instantiate")
 	var aircraft := scene.instantiate() as RigidBody3D
+	FrameProfiler.end("EnemyAircraftSpawner.spawn_fighter_instantiate", instantiate_profiler_start)
 	if not aircraft:
 		return null
 	aircraft.set_meta("source_scene_path", scene.resource_path)
 	aircraft.name = display_name
 	if "team" in aircraft:
 		aircraft.team = team_id
+	# Enemy aircraft are never player-viewable, so their cockpit presentation can
+	# safely stay out of the SceneTree. Friendlies must complete their normal
+	# _ready lifecycle before the visual budget is allowed to make them dormant.
+	if team_id == 2:
+		var prepare_profiler_start: int = FrameProfiler.begin("EnemyAircraftSpawner.spawn_fighter_prepare_presentation")
+		_prepare_ai_aircraft_for_tree_entry(aircraft)
+		FrameProfiler.end("EnemyAircraftSpawner.spawn_fighter_prepare_presentation", prepare_profiler_start)
+	var add_child_profiler_start: int = FrameProfiler.begin("EnemyAircraftSpawner.spawn_fighter_add_child")
 	get_tree().current_scene.add_child(aircraft)
+	FrameProfiler.end("EnemyAircraftSpawner.spawn_fighter_add_child", add_child_profiler_start)
 
 	aircraft.global_position = spawn_pos
 	var flat_fwd := Vector3(forward_dir.x, 0.0, forward_dir.z).normalized()
@@ -969,8 +986,12 @@ func _spawn_ai_fighter(scene: PackedScene, display_name: String, team_id: int, e
 	aircraft.linear_velocity = flat_fwd * initial_speed
 
 	# Wait for aircraft._ready() to finish adding default groups.
+	var first_ready_frame_start: int = FrameProfiler.begin("EnemyAircraftSpawner.spawn_fighter_tree_settle_frame_1")
 	await get_tree().process_frame
+	FrameProfiler.end("EnemyAircraftSpawner.spawn_fighter_tree_settle_frame_1", first_ready_frame_start)
+	var second_ready_frame_start: int = FrameProfiler.begin("EnemyAircraftSpawner.spawn_fighter_tree_settle_frame_2")
 	await get_tree().process_frame
+	FrameProfiler.end("EnemyAircraftSpawner.spawn_fighter_tree_settle_frame_2", second_ready_frame_start)
 	aircraft.remove_from_group("aircraft")
 	aircraft.add_to_group("ai_aircraft")
 	if not extra_group.is_empty():
@@ -1045,6 +1066,20 @@ func _apply_ai_aircraft_spawn_budget(aircraft: Node) -> void:
 			node.call("set_aircraft_visual_budget_enabled", false)
 		if node.has_method("set_aircraft_audio_budget_enabled"):
 			node.call("set_aircraft_audio_budget_enabled", false)
+
+
+func _prepare_ai_aircraft_for_tree_entry(aircraft: Node3D) -> Dictionary:
+	var result: Dictionary = {
+		"prepared": false,
+		"detached_nodes": 0,
+	}
+	if aircraft == null or not is_instance_valid(aircraft) or aircraft.is_inside_tree():
+		return result
+	var visual_budget := get_node_or_null("/root/EnemyVisualBudget")
+	if visual_budget == null or not visual_budget.has_method("prepare_ai_aircraft_for_tree_entry"):
+		return result
+	var prepared_variant: Variant = visual_budget.call("prepare_ai_aircraft_for_tree_entry", aircraft)
+	return prepared_variant as Dictionary if prepared_variant is Dictionary else result
 
 func _stop_audio_players_recursive(node: Node) -> void:
 	if node == null or not is_instance_valid(node):
@@ -1157,23 +1192,32 @@ func _on_enemy_destroyed(aircraft: RigidBody3D):
 	_schedule_respawn(aircraft)
 
 func _schedule_respawn(aircraft: RigidBody3D):
+	var aircraft_ref: WeakRef = weakref(aircraft) if is_instance_valid(aircraft) else null
 	if is_instance_valid(aircraft):
 		if aircraft.crashed.is_connected(_on_enemy_crashed):
 			aircraft.crashed.disconnect(_on_enemy_crashed)
 		if aircraft.destroyed.is_connected(_on_enemy_destroyed):
 			aircraft.destroyed.disconnect(_on_enemy_destroyed)
+	# Do not retain a typed reference across the respawn delay. Destruction can
+	# free it first, and TypedArray.erase() rejects that stale object before the
+	# function can validate it.
+	aircraft = null
 
 	await get_tree().create_timer(respawn_delay).timeout
 
-	if is_instance_valid(aircraft):
-		aircraft.queue_free()
-	_active_ai_planes.erase(aircraft)
-	_prune_active_ai_planes()
+	var delayed_aircraft_variant: Variant = aircraft_ref.get_ref() if aircraft_ref != null else null
+	if is_instance_valid(delayed_aircraft_variant) and delayed_aircraft_variant is Node:
+		(delayed_aircraft_variant as Node).queue_free()
+	_prune_active_ai_planes(delayed_aircraft_variant)
 
 	# No automatic respawn — planes are only spawned manually via key press.
 
-func _prune_active_ai_planes():
-	_active_ai_planes = _active_ai_planes.filter(func(p): return is_instance_valid(p))
+func _prune_active_ai_planes(remove_candidate: Variant = null):
+	for index in range(_active_ai_planes.size() - 1, -1, -1):
+		var candidate_variant: Variant = _active_ai_planes[index]
+		if not is_instance_valid(candidate_variant) \
+				or (is_instance_valid(remove_candidate) and candidate_variant == remove_candidate):
+			_active_ai_planes.remove_at(index)
 
 
 func disable_for_heli_test() -> void:
@@ -1211,12 +1255,16 @@ func _spawn_on_approach():
 		print("[EnemyAircraftSpawner] U: max AI planes reached")
 		return
 
+	var instantiate_profiler_start: int = FrameProfiler.begin("EnemyAircraftSpawner.spawn_approach_instantiate")
 	var aircraft = _aircraft_scene.instantiate() as RigidBody3D
+	FrameProfiler.end("EnemyAircraftSpawner.spawn_approach_instantiate", instantiate_profiler_start)
 	if not aircraft:
 		return
 
 	aircraft.name = "FriendlyAI"
+	var add_child_profiler_start: int = FrameProfiler.begin("EnemyAircraftSpawner.spawn_approach_add_child")
 	get_tree().current_scene.add_child(aircraft)
+	FrameProfiler.end("EnemyAircraftSpawner.spawn_approach_add_child", add_child_profiler_start)
 
 	# Place at approach_0 XZ, altitude 450 m, pointed toward approach_1
 	var spawn_pos := Vector3(wp0.global_position.x, 450.0, wp0.global_position.z)

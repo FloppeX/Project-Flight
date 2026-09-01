@@ -80,6 +80,13 @@ func _run() -> void:
 	if aircraft == null or aircraft.linear_velocity.length() < 80.0:
 		_fail("aircraft did not spawn airborne with safe forward speed")
 		return
+	if bool(aircraft.get_meta("visual_budget_pre_tree_presentation_prepared", false)) \
+	or aircraft.get_node_or_null("CameraController") == null \
+	or aircraft.get_node_or_null("HeadsUpDisplay") == null \
+	or aircraft.get_node_or_null("InstrumentPanel") == null \
+	or aircraft.get_node_or_null("CockpitPilot") == null:
+		_fail("player-viewable spawn-menu aircraft did not retain its complete presentation")
+		return
 	for _frame in range(3):
 		await process_frame
 	if not aircraft.is_in_group("friendlies") or not aircraft.is_in_group("ai_aircraft") \
@@ -87,7 +94,7 @@ func _run() -> void:
 		_fail("spawned aircraft was not finalized as friendly AI")
 		return
 
-	print("[VehicleSpawnMenuSmoketest] PASS entries=%d pause_restore=true ground_spawn=true aircraft_spawn=true enemy_presets=4 aircraft14_named=%s land_carrier_excluded=true" % [
+	print("[VehicleSpawnMenuSmoketest] PASS entries=%d pause_restore=true ground_spawn=true aircraft_spawn=true player_presentation_retained=true enemy_presets=4 aircraft14_named=%s land_carrier_excluded=true" % [
 		entries.size(),
 		str(not spitewing_entry.is_empty()),
 	])

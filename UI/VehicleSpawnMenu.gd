@@ -8,6 +8,7 @@ signal enemy_force_spawned(force: Node, entry: Dictionary, member_count: int)
 signal spawn_failed(message: String)
 
 const Catalog: Script = preload("res://UI/TechnicalIndexCatalog.gd")
+const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
 const HEADLINE_FONT: FontFile = preload("res://UI/Fonts/ArchivoNarrow-Variable.ttf")
 const DATA_FONT: FontFile = preload("res://UI/Fonts/JetBrainsMono-Variable.ttf")
 
@@ -111,11 +112,15 @@ func spawn_entry(entry: Dictionary) -> Node3D:
 		_report_failure("FORMATION PRESETS MUST BE DEPLOYED AS A GROUP")
 		return null
 	var scene_path := str(entry.get("scene", ""))
+	var load_profiler_start: int = FrameProfiler.begin("VehicleSpawnMenu.load_scene")
 	var packed := load(scene_path) as PackedScene
+	FrameProfiler.end("VehicleSpawnMenu.load_scene", load_profiler_start)
 	if packed == null:
 		_report_failure("SCENE UNAVAILABLE: %s" % scene_path)
 		return null
+	var instantiate_profiler_start: int = FrameProfiler.begin("VehicleSpawnMenu.instantiate")
 	var vehicle := packed.instantiate() as Node3D
+	FrameProfiler.end("VehicleSpawnMenu.instantiate", instantiate_profiler_start)
 	if vehicle == null:
 		_report_failure("SCENE IS NOT A 3D VEHICLE: %s" % scene_path)
 		return null
@@ -137,7 +142,9 @@ func spawn_entry(entry: Dictionary) -> Node3D:
 	var is_aircraft := category == "AIRPLANES" or category == "HELICOPTERS"
 	if is_aircraft and "team" in vehicle:
 		vehicle.set("team", 1)
+	var add_child_profiler_start: int = FrameProfiler.begin("VehicleSpawnMenu.add_child")
 	world_root.add_child(vehicle)
+	FrameProfiler.end("VehicleSpawnMenu.add_child", add_child_profiler_start)
 	if is_aircraft:
 		_place_aircraft(vehicle, category == "HELICOPTERS")
 		_finalize_aircraft.call_deferred(vehicle, category == "HELICOPTERS")
@@ -397,8 +404,12 @@ func _place_ground_vehicle(vehicle: Node3D) -> void:
 
 
 func _finalize_aircraft(vehicle: Node3D, _is_helicopter: bool) -> void:
+	var first_ready_frame_start: int = FrameProfiler.begin("VehicleSpawnMenu.aircraft_tree_settle_frame_1")
 	await get_tree().process_frame
+	FrameProfiler.end("VehicleSpawnMenu.aircraft_tree_settle_frame_1", first_ready_frame_start)
+	var second_ready_frame_start: int = FrameProfiler.begin("VehicleSpawnMenu.aircraft_tree_settle_frame_2")
 	await get_tree().process_frame
+	FrameProfiler.end("VehicleSpawnMenu.aircraft_tree_settle_frame_2", second_ready_frame_start)
 	if not is_instance_valid(vehicle) or not (vehicle is RigidBody3D):
 		return
 	vehicle.remove_from_group("aircraft")

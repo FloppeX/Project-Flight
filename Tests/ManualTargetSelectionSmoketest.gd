@@ -37,6 +37,12 @@ class TestNoArgumentTarget:
 		return team
 
 
+class TestRadar:
+	extends Node
+
+	var terrain_map_range_m: float = 1200.0
+
+
 var _failures: Array[String] = []
 
 
@@ -57,10 +63,15 @@ func _run() -> void:
 	targeting.name = "ControlTargeting"
 	aircraft.add_child(targeting)
 	targeting.setup(aircraft)
+	targeting.manual_cycle_range_m = 10000.0
+	var radar := TestRadar.new()
+	radar.name = "RadarCanvas"
+	aircraft.add_child(radar)
 
 	var registered_air := _make_target(scene, "RegisteredAir", Vector3(0.0, 0.0, 1000.0), ["enemies", "aircraft"])
 	var ground_vehicle := _make_target(scene, "GroundVehicle", Vector3(-500.0, 0.0, 1000.0), ["enemies", "ground_vehicles"])
 	var structure := _make_target(scene, "Structure", Vector3(500.0, 0.0, 1000.0), ["enemies", "buildings"])
+	var unknown_far := _make_target(scene, "UnknownFar", Vector3(0.0, 0.0, 8000.0), ["enemies", "aircraft"])
 	var friendly := _make_target(scene, "Friendly", Vector3(0.0, 0.0, 800.0), ["enemies", "friendlies"])
 	friendly.team = 1
 
@@ -73,7 +84,12 @@ func _run() -> void:
 	_expect(hostiles.has(registered_air), "registered aircraft was missing from target candidates")
 	_expect(hostiles.has(ground_vehicle), "unregistered ground vehicle was hidden by registry aircraft")
 	_expect(hostiles.has(structure), "unregistered structure was hidden by registry aircraft")
+	_expect(hostiles.has(unknown_far), "far enemy was missing from the global enemy set used by the regression")
 	_expect(not hostiles.has(friendly), "friendly node in the enemies group became targetable")
+	_expect(_action_has_joy_button("target_closest_ahead", JOY_BUTTON_DPAD_DOWN), "D-pad down was not bound to closest-ahead targeting")
+	_expect(not _action_has_joy_button("flaps_down", JOY_BUTTON_DPAD_DOWN), "D-pad down still also operated the flaps")
+	_expect(not _action_has_joy_button("engine_start", JOY_BUTTON_DPAD_RIGHT), "D-pad right still also started the engine")
+	_expect(not _action_has_joy_button("engine_stop", JOY_BUTTON_DPAD_LEFT), "D-pad left still also stopped the engine")
 
 	for i in range(10):
 		targeting.process_physic_frame(0.2)
@@ -87,6 +103,15 @@ func _run() -> void:
 	_expect(targeting.current_target == registered_air, "D-pad left did not return to the center contact")
 	_send_dpad(targeting, JOY_BUTTON_DPAD_LEFT)
 	_expect(targeting.current_target == ground_vehicle, "D-pad left did not move to the contact on the left")
+	_expect(targeting.current_target != unknown_far, "D-pad cycling exposed a contact outside the visible radar radius")
+
+	var chased_air := _make_target(scene, "ChasedAir", Vector3(100.0, 0.0, 450.0), ["enemies", "aircraft"])
+	var closer_but_off_axis := _make_target(scene, "OffAxisAir", Vector3(400.0, 0.0, 100.0), ["enemies", "aircraft"])
+	_send_dpad(targeting, JOY_BUTTON_DPAD_DOWN)
+	_expect(targeting.current_target == chased_air, "D-pad down did not select the closest radar contact inside the forward cone")
+	_expect(targeting.current_target != closer_but_off_axis, "D-pad down selected a closer contact outside the forward cone")
+	chased_air.position = Vector3(5000.0, 0.0, 5000.0)
+	closer_but_off_axis.position = Vector3(5000.0, 0.0, -5000.0)
 
 	registered_air.position = Vector3(0.0, 0.0, 15000.0)
 	targeting.set_target(registered_air)
@@ -119,6 +144,8 @@ func _run() -> void:
 	targeting.external_target_authority = true
 	_send_dpad(targeting, JOY_BUTTON_DPAD_LEFT)
 	_expect(targeting.current_target == structure, "manual D-pad input overrode external AI target authority")
+	_send_dpad(targeting, JOY_BUTTON_DPAD_DOWN)
+	_expect(targeting.current_target == structure, "closest-ahead D-pad input overrode external AI target authority")
 	targeting.external_target_authority = false
 
 	if registry != null:
@@ -143,6 +170,15 @@ func _send_dpad(targeting: Node, button_index: int) -> void:
 	targeting.call("receive_input", event)
 
 
+func _action_has_joy_button(action: StringName, button_index: int) -> bool:
+	if not InputMap.has_action(action):
+		return false
+	for event in InputMap.action_get_events(action):
+		if event is InputEventJoypadButton and (event as InputEventJoypadButton).button_index == button_index:
+			return true
+	return false
+
+
 func _finish(scene: Node3D) -> void:
 	var passed := _failures.is_empty()
 	current_scene = null
@@ -150,7 +186,7 @@ func _finish(scene: Node3D) -> void:
 	scene.free()
 	await process_frame
 	if passed:
-		print("[ManualTargetSelectionSmoketest] PASS input=dpad_left_right authority=manual retention=until_destroyed candidates=registry_plus_groups")
+		print("[ManualTargetSelectionSmoketest] PASS input=dpad_left_right_radar_only+dpad_down_forward authority=manual retention=until_destroyed")
 		quit(0)
 		return
 	print("[ManualTargetSelectionSmoketest] %d failure(s)" % _failures.size())

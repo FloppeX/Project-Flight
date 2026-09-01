@@ -33,17 +33,15 @@
 | Button | Action |
 |--------|--------|
 | **B / Circle** | Toggle landing gear |
-| **D-pad Up** | Start engine |
-| **D-pad Down** | Stop engine |
-| **D-pad Left** | Flaps down |
-| **D-pad Right** | Flaps up |
+| **D-pad Up** | Flaps up / request launch (contextual) |
 
 ### Combat
 | Button | Action |
 |--------|--------|
 | **A / X** | Fire weapon |
 | **X / Square** | Change weapon |
-| **D-pad Up/Down** | Target next/previous enemy |
+| **D-pad Left/Right** | Select previous/next hostile visible on radar |
+| **D-pad Down** | Select closest radar-known hostile in the forward cone |
 
 ### Camera
 | Button | Action |

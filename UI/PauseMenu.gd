@@ -1641,14 +1641,13 @@ func _controls_bbcode() -> String:
 
 [color=#{w}][b]AIRCRAFT SYSTEMS[/b][/color]
 [color=#{d}]B / CIRCLE[/color]       LANDING GEAR
-[color=#{d}]D-PAD UP[/color]         START ENGINE
-[color=#{d}]D-PAD DOWN[/color]       STOP ENGINE
-[color=#{d}]D-PAD LEFT/RIGHT[/color] FLAPS DOWN / UP
+[color=#{d}]D-PAD UP[/color]         FLAPS UP / REQUEST LAUNCH
 
 [color=#{w}][b]COMBAT[/b][/color]
 [color=#{d}]A / X[/color]            FIRE WEAPON
 [color=#{d}]X / SQUARE[/color]       CYCLE WEAPON
-[color=#{d}]D-PAD LEFT/RIGHT[/color] PREVIOUS / NEXT TARGET
+[color=#{d}]D-PAD LEFT/RIGHT[/color] PREVIOUS / NEXT RADAR TARGET
+[color=#{d}]D-PAD DOWN[/color]       CLOSEST RADAR TARGET AHEAD
 [color=#{d}]L-STICK CLICK[/color]    LOCK TARGET AT HUD CENTER
 
 [color=#{w}][b]CAMERA[/b][/color]

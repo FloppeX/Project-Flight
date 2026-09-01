@@ -34,6 +34,10 @@ func _get_orbit_center() -> Vector3:
 	return aircraft.global_position
 
 func _ready():
+	initialize_camera_state()
+
+
+func initialize_camera_state() -> void:
 	# Make this node ignore parent transforms so it doesn't move with the aircraft
 	top_level = true
 
@@ -49,12 +53,12 @@ func setup_follow_target(aircraft_node: RigidBody3D, target_node: Node3D = null)
 		current_offset = Vector3(sin(orbit_yaw), 0.0, cos(orbit_yaw)) * chase_distance + Vector3.UP * chase_height
 
 func _process(delta):
-	if not aircraft:
+	if not aircraft or not _is_current_camera():
 		return
 	handle_input(delta)
 
 func _physics_process(delta: float) -> void:
-	if not aircraft:
+	if not aircraft or not _is_current_camera():
 		return
 	update_position(delta)
 
@@ -97,3 +101,8 @@ func reset_look():
 	else:
 		orbit_yaw = 0.0
 		current_offset = Vector3(0.0, chase_height, chase_distance)
+
+
+func _is_current_camera() -> bool:
+	var camera := find_child("Camera3D", true, false) as Camera3D
+	return camera == null or not is_instance_valid(camera) or camera.current

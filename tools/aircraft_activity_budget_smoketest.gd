@@ -3,6 +3,14 @@ extends Node3D
 const AIRCRAFT_SCENE := preload("res://Aircraft/Aircraft_5.tscn")
 
 
+class TargetFocusPanel:
+	extends Node
+	var focused_node: Node3D = null
+
+	func is_target_camera_focusing_node(candidate: Node3D) -> bool:
+		return candidate == focused_node
+
+
 func _ready() -> void:
 	call_deferred("_run")
 
@@ -126,9 +134,10 @@ func _run() -> void:
 	var pre_tree_hud := pre_tree_aircraft.get_node_or_null("HeadsUpDisplay")
 	var pre_tree_pilot_mount := pre_tree_aircraft.get_node_or_null("CockpitPilot")
 	var pool_before_pre_tree: Dictionary = pilot_pool.call("get_pool_stats")
-	var prepare_result: Dictionary = budget.call("prepare_ai_aircraft_for_tree_entry", pre_tree_aircraft)
+	var prepare_result: Dictionary = budget.call("prepare_aircraft_presentation_for_staged_tree_entry", pre_tree_aircraft)
 	_require(bool(prepare_result.get("prepared", false)), "off-tree AI presentation was not prepared")
 	_require(int(prepare_result.get("detached_nodes", 0)) > 0, "off-tree AI presentation detached no nodes")
+	_require(int(prepare_result.get("detached_roots", 0)) > 1, "staged preparation did not retain multiple roots")
 	_require(pre_tree_aircraft.get_node_or_null("HeadsUpDisplay") == null, "off-tree HUD remained attached")
 	_require(pre_tree_aircraft.get_node_or_null("CockpitPilot") == null, "off-tree pilot mount remained attached")
 	add_child(pre_tree_aircraft)
@@ -146,7 +155,24 @@ func _run() -> void:
 	var pre_tree_cache: Dictionary = budget.call("_get_cache_for_root", pre_tree_aircraft)
 	var pre_tree_session = pre_tree_cache.get("presentation_session")
 	_require(pre_tree_session != null, "prepared AI presentation session was not retained")
-	pre_tree_session.restore(false)
+	var restored_root_names: Array[String] = []
+	var staged_node_total := 0
+	while bool(pre_tree_aircraft.get_meta("visual_budget_presentation_staging", false)):
+		var staged_result: Dictionary = budget.call(
+			"restore_next_staged_aircraft_presentation_root",
+			pre_tree_aircraft
+		)
+		var staged_root_name := str(staged_result.get("root_name", ""))
+		_require(not staged_root_name.is_empty(), "staged restoration returned no root")
+		restored_root_names.append(staged_root_name)
+		staged_node_total += int(staged_result.get("node_count", 0))
+		await get_tree().process_frame
+	_require(restored_root_names.size() == int(prepare_result.get("detached_roots", 0)), "staged restoration skipped a root")
+	_require(restored_root_names[-1] == "AudioManager3D", "audio manager was not restored after its camera dependency")
+	_require(restored_root_names.find("CameraController") < restored_root_names.find("AudioManager3D"), "camera controller was not restored before audio")
+	_require(staged_node_total == int(prepare_result.get("detached_nodes", 0)), "staged node accounting changed during restoration")
+	_require(bool(pre_tree_aircraft.get_meta("visual_budget_presentation_keep_attached", false)), "completed staging lost its keep-attached lock")
+	budget.call("release_aircraft_presentation_keep_attached", pre_tree_aircraft)
 	_require(pre_tree_aircraft.get_node_or_null("HeadsUpDisplay") == pre_tree_hud, "prepared HUD identity did not restore")
 	_require(pre_tree_aircraft.get_node_or_null("CockpitPilot") == pre_tree_pilot_mount, "prepared pilot mount identity did not restore")
 	var pool_after_restore: Dictionary = pilot_pool.call("get_pool_stats")
@@ -186,6 +212,40 @@ func _run() -> void:
 	await get_tree().process_frame
 	materialize_flight.queue_free()
 	await get_tree().process_frame
+	var direct_spawner := preload("res://Enemies/EnemyAircraftSpawner.gd").new()
+	add_child(direct_spawner)
+	await get_tree().process_frame
+	var direct_spawned_variant: Variant = await direct_spawner.call(
+		"_spawn_ai_fighter",
+		AIRCRAFT_SCENE,
+		"PresentationPreparedDirectSpawn",
+		2,
+		"enemies",
+		Vector3(1800.0, 1000.0, 1800.0),
+		Vector3.FORWARD,
+		80.0
+	)
+	var direct_spawned := direct_spawned_variant as RigidBody3D
+	_require(direct_spawned != null and is_instance_valid(direct_spawned), "direct AI spawner did not create an aircraft")
+	_require(bool(direct_spawned.get_meta("visual_budget_pre_tree_presentation_prepared", false)), "direct AI spawn presentation was not prepared off-tree")
+	_require(int(direct_spawned.get_meta("visual_budget_pre_tree_detached_nodes", 0)) > 0, "direct AI spawn detached no presentation nodes")
+	_require(direct_spawned.get_node_or_null("HeadsUpDisplay") == null, "direct AI spawn HUD entered the SceneTree")
+	_require(direct_spawned.get_node_or_null("CockpitPilot") == null, "direct AI spawn pilot mount entered the SceneTree")
+	var active_planes: Array = direct_spawner.get("_active_ai_planes") as Array
+	var active_count_before_stale_cleanup := active_planes.size()
+	var stale_respawn_aircraft := AIRCRAFT_SCENE.instantiate() as RigidBody3D
+	_require(stale_respawn_aircraft != null, "stale respawn aircraft did not instantiate")
+	if stale_respawn_aircraft != null:
+		active_planes.append(stale_respawn_aircraft)
+		direct_spawner.set("respawn_delay", 0.01)
+		direct_spawner.call("_schedule_respawn", stale_respawn_aircraft)
+		stale_respawn_aircraft.free()
+		await get_tree().create_timer(0.05).timeout
+		_require(active_planes.size() == active_count_before_stale_cleanup, "freed enemy remained in the typed active-aircraft array")
+	budget.call("release_aircraft_cache", direct_spawned, true)
+	direct_spawned.queue_free()
+	direct_spawner.queue_free()
+	await get_tree().process_frame
 
 	var detached_audio := AudioStreamPlayer.new()
 	detached_audio.stream = AudioStreamGenerator.new()
@@ -203,6 +263,31 @@ func _run() -> void:
 	var original_audio_manager := aircraft.get_node_or_null("AudioManager3D")
 	budget.call("_apply_ai_aircraft_player_only_budget", aircraft, false, cache)
 	_require(aircraft.get_node_or_null("HeadsUpDisplay") == null, "dormant AI presentation remained attached")
+	var target_focus_panel := TargetFocusPanel.new()
+	target_focus_panel.focused_node = aircraft
+	target_focus_panel.add_to_group("instrument_panel")
+	add_child(target_focus_panel)
+	var target_pool_before: Dictionary = pilot_pool.call("get_pool_stats")
+	var target_saved_viewed: Variant = flight_director.get("current_viewed_aircraft")
+	var target_saved_player: Variant = flight_director.get("player_controlled_plane")
+	flight_director.set("current_viewed_aircraft", null)
+	flight_director.set("player_controlled_plane", null)
+	budget.call("_apply_budget_to_unit", aircraft, null)
+	flight_director.set("current_viewed_aircraft", target_saved_viewed)
+	flight_director.set("player_controlled_plane", target_saved_player)
+	var target_pool_after: Dictionary = pilot_pool.call("get_pool_stats")
+	_require(aircraft.get_node_or_null("HeadsUpDisplay") == null, "target feed restored the target aircraft HUD")
+	_require(aircraft.get_node_or_null("CockpitPilot") == null, "target feed restored the target aircraft pilot")
+	_require(str(aircraft.get_meta("visual_budget_band", "")) != "human", "target feed promoted target AI to player cadence")
+	_require(bool(aircraft.get_meta("visual_budget_ai_detail_enabled", false)), "target feed did not retain exterior detail")
+	_require(bool(aircraft.get_meta("visual_budget_shadows_enabled", false)), "target feed did not retain exterior shadows")
+	_require(not bool(aircraft.get_meta("visual_budget_ai_audio_enabled", true)), "target feed enabled distant target audio")
+	_require(
+		int(target_pool_after.get("acquire_count", -1)) == int(target_pool_before.get("acquire_count", -2)),
+		"target-feed switch checked out a pooled pilot"
+	)
+	target_focus_panel.queue_free()
+	await get_tree().process_frame
 	_require(flight_director != null and bool(flight_director.call("_node_has_cameras", aircraft)), "detached AI aircraft disappeared from camera cycling")
 	flight_director.call("_set_aircraft_view_ui_enabled", aircraft, true)
 	_require(aircraft.get_node_or_null("HeadsUpDisplay") == original_hud, "AI presentation did not restore the original nodes")

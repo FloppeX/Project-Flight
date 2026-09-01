@@ -3,20 +3,41 @@ extends CanvasLayer
 const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
 
 const PERF_LOG_INTERVAL_S := 1.0
+const DETAILED_REPORT_INTERVAL_S := 5.0
 const PERF_FLUSH_INTERVAL_S := 10.0
 const PERFORMANCE_REPORT_TOP_COUNT := 16
+const HITCH_THRESHOLD_MS := 33.0
+const SEVERE_HITCH_THRESHOLD_MS := 100.0
+const HITCH_EVENT_COOLDOWN_S := 0.25
+const HITCH_SCOPE_EVENT_THRESHOLD_MS := 0.5
+const HITCH_SCOPE_EVENT_CAPACITY := 2048
+const HITCH_SCOPE_TOP_COUNT := 12
+const PERFORMANCE_MARK_ACTION: StringName = &"flight_log_mark"
+const AMBIENT_HITCH_TRACE_SETTING := "debug/performance_logging/ambient_hitch_trace_enabled"
 
 var _label: Label
 var _perf_file: FileAccess = null
 var _report_file: FileAccess = null
+var _hitch_file: FileAccess = null
 var _perf_elapsed_s: float = 0.0
 var _perf_log_timer_s: float = 0.0
+var _detailed_report_timer_s: float = 0.0
 var _perf_flush_timer_s: float = 0.0
 var _perf_log_path: String = ""
 var _report_log_path: String = ""
+var _hitch_log_path: String = ""
 var _display_enabled: bool = false
+var _capture_start_usec: int = 0
+var _last_process_tick_usec: int = 0
+var _last_hitch_event_elapsed_s: float = -INF
+var _hitch_episode_peak_ms: float = 0.0
+var _hitch_event_id: int = 0
+var _performance_mark_action_was_pressed: bool = false
 
 func _ready() -> void:
+	process_mode = Node.PROCESS_MODE_ALWAYS
+	_capture_start_usec = Time.get_ticks_usec()
+	_last_process_tick_usec = _capture_start_usec
 	layer = 100
 	set_process_input(true)
 	_label = Label.new()
@@ -39,10 +60,18 @@ func _ready() -> void:
 		_display_enabled = bool(settings.call("get_show_fps_enabled"))
 	_label.visible = _display_enabled
 
-	if _performance_logging_requested():
+	var full_performance_logging := _performance_logging_requested()
+	if full_performance_logging:
 		_open_perf_log()
 		_open_performance_report()
-		_enable_performance_report_profiler()
+		_open_hitch_log()
+		_enable_performance_report_profiler("performance_report")
+	elif bool(ProjectSettings.get_setting(AMBIENT_HITCH_TRACE_SETTING, true)):
+		# Ordinary editor/game runs retain only the cheap event-driven trace. This
+		# deliberately skips the one-second metrics scan and five-second detailed
+		# scene traversal used by a full logged session.
+		_open_hitch_log()
+		_enable_performance_report_profiler("ambient_hitch_trace")
 
 
 func _performance_logging_requested() -> bool:
@@ -61,11 +90,19 @@ func _exit_tree() -> void:
 	if _report_file != null:
 		_report_file.flush()
 		_report_file.close()
+	if _hitch_file != null:
+		_hitch_file.flush()
+		_hitch_file.close()
 
 func _process(delta: float) -> void:
+	var now_usec: int = Time.get_ticks_usec()
+	var previous_process_tick_usec: int = _last_process_tick_usec
+	var wall_delta_ms: float = float(maxi(now_usec - previous_process_tick_usec, 0)) * 0.001
+	_last_process_tick_usec = now_usec
 	if _display_enabled:
 		_label.text = "%d FPS" % Engine.get_frames_per_second()
 	_update_perf_log(delta)
+	_update_hitch_trace(delta, wall_delta_ms, previous_process_tick_usec, now_usec)
 
 
 func set_display_enabled(enabled: bool) -> void:
@@ -169,32 +206,97 @@ func _open_performance_report() -> void:
 
 	_report_file.store_line("performance_report")
 	_report_file.store_line("started=%s" % Time.get_datetime_string_from_system(false, true))
-	_report_file.store_line("interval_s=%.1f" % PERF_LOG_INTERVAL_S)
+	_report_file.store_line("interval_s=%.1f" % DETAILED_REPORT_INTERVAL_S)
 	_report_file.store_line("note=compute_top uses existing FrameProfiler labels via report capture; engine/internal work appears in process/render/navigation totals.")
 	_report_file.store_line("")
 	_report_file.flush()
 	print("[PerformanceReport] Writing %s" % ProjectSettings.globalize_path(_report_log_path))
 
-func _enable_performance_report_profiler() -> void:
-	FrameProfiler.set_report_capture_enabled(true, "performance_report")
+
+func _open_hitch_log() -> void:
+	var dir_path := "user://perf_logs"
+	var absolute_dir := ProjectSettings.globalize_path(dir_path)
+	var dir_result := DirAccess.make_dir_recursive_absolute(absolute_dir)
+	if dir_result != OK:
+		push_warning("[PerfHitch] Could not create %s (err=%d)" % [dir_path, dir_result])
+		return
+
+	_hitch_log_path = "%s/hitch_events.csv" % dir_path
+	_hitch_file = FileAccess.open(_hitch_log_path, FileAccess.WRITE)
+	if _hitch_file == null:
+		push_warning("[PerfHitch] Could not open %s (err=%d)" % [_hitch_log_path, FileAccess.get_open_error()])
+		return
+
+	_hitch_file.store_line(",".join([
+		"event_id",
+		"event_type",
+		"elapsed_s",
+		"wall_time",
+		"process_frame",
+		"physics_frame",
+		"wall_delta_ms",
+		"engine_delta_ms",
+		"fps",
+		"process_ms",
+		"physics_ms",
+		"navigation_ms",
+		"draw_calls",
+		"render_objects",
+		"static_mem_mb",
+		"node_count",
+		"orphan_node_count",
+		"camera_path",
+		"camera_x",
+		"camera_y",
+		"camera_z",
+		"terrain_chunks",
+		"nav_path_pending",
+		"nav_path_running",
+		"enemy_count",
+		"aircraft_count",
+		"ai_aircraft_count",
+		"ground_vehicle_count",
+		"materializing_flights",
+		"scope_top",
+	]))
+	_hitch_file.flush()
+	print("[PerfHitch] Writing %s threshold_ms=%.1f mark_action=%s" % [
+		ProjectSettings.globalize_path(_hitch_log_path),
+		HITCH_THRESHOLD_MS,
+		str(PERFORMANCE_MARK_ACTION),
+	])
+
+
+func _enable_performance_report_profiler(reason: String) -> void:
+	FrameProfiler.configure_scope_event_capture(HITCH_SCOPE_EVENT_THRESHOLD_MS, HITCH_SCOPE_EVENT_CAPACITY)
+	FrameProfiler.set_report_capture_enabled(true, reason)
 
 func _update_perf_log(delta: float) -> void:
-	if _perf_file == null and _report_file == null:
+	if _perf_file == null and _report_file == null and _hitch_file == null:
 		return
-	_perf_elapsed_s += maxf(delta, 0.0)
+	_perf_elapsed_s = float(maxi(Time.get_ticks_usec() - _capture_start_usec, 0)) * 0.000001
 	_perf_log_timer_s += maxf(delta, 0.0)
+	_detailed_report_timer_s += maxf(delta, 0.0)
 	_perf_flush_timer_s += maxf(delta, 0.0)
-	if _perf_log_timer_s < PERF_LOG_INTERVAL_S:
-		return
-	_perf_log_timer_s = 0.0
-	_write_perf_sample()
-	_write_performance_report_sample()
+	if _perf_log_timer_s >= PERF_LOG_INTERVAL_S:
+		_perf_log_timer_s = 0.0
+		if _perf_file != null:
+			var perf_sample_start_usec: int = FrameProfiler.begin("FPSCounter.engine_metrics_sample")
+			_write_perf_sample()
+			FrameProfiler.end("FPSCounter.engine_metrics_sample", perf_sample_start_usec)
+	if _report_file != null and _detailed_report_timer_s >= DETAILED_REPORT_INTERVAL_S:
+		_detailed_report_timer_s = 0.0
+		var detailed_sample_start_usec: int = FrameProfiler.begin("FPSCounter.detailed_report_sample")
+		_write_performance_report_sample()
+		FrameProfiler.end("FPSCounter.detailed_report_sample", detailed_sample_start_usec)
 	if _perf_flush_timer_s >= PERF_FLUSH_INTERVAL_S:
 		_perf_flush_timer_s = 0.0
 		if _perf_file != null:
 			_perf_file.flush()
 		if _report_file != null:
 			_report_file.flush()
+		if _hitch_file != null:
+			_hitch_file.flush()
 
 func _write_perf_sample() -> void:
 	if _perf_file == null:
@@ -257,6 +359,118 @@ func _write_perf_sample() -> void:
 		"%.3f" % float(pilot_pool_counts["acquire_max_ms"]),
 	]
 	_perf_file.store_line(",".join(values))
+
+
+func _update_hitch_trace(
+		engine_delta_s: float,
+		wall_delta_ms: float,
+		window_start_usec: int,
+		window_end_usec: int) -> void:
+	if _hitch_file == null:
+		return
+	var mark_pressed: bool = InputMap.has_action(PERFORMANCE_MARK_ACTION) \
+			and Input.is_action_pressed(PERFORMANCE_MARK_ACTION)
+	if mark_pressed and not _performance_mark_action_was_pressed:
+		_write_hitch_event(
+			"player_mark",
+			engine_delta_s,
+			wall_delta_ms,
+			window_start_usec,
+			window_end_usec
+		)
+	_performance_mark_action_was_pressed = mark_pressed
+
+	if wall_delta_ms < HITCH_THRESHOLD_MS:
+		_hitch_episode_peak_ms = 0.0
+		return
+	var previous_episode_peak_ms: float = _hitch_episode_peak_ms
+	_hitch_episode_peak_ms = maxf(_hitch_episode_peak_ms, wall_delta_ms)
+	var is_new_peak: bool = previous_episode_peak_ms <= 0.0 \
+			or wall_delta_ms >= previous_episode_peak_ms * 1.5
+	if _perf_elapsed_s - _last_hitch_event_elapsed_s < HITCH_EVENT_COOLDOWN_S and not is_new_peak:
+		return
+	var event_type := "severe_hitch" if wall_delta_ms >= SEVERE_HITCH_THRESHOLD_MS else "hitch"
+	_write_hitch_event(
+		event_type,
+		engine_delta_s,
+		wall_delta_ms,
+		window_start_usec,
+		window_end_usec
+	)
+	_last_hitch_event_elapsed_s = _perf_elapsed_s
+
+
+func _write_hitch_event(
+		event_type: String,
+		engine_delta_s: float,
+		wall_delta_ms: float,
+		window_start_usec: int,
+		window_end_usec: int) -> void:
+	if _hitch_file == null:
+		return
+	_hitch_event_id += 1
+	var camera: Camera3D = _get_active_camera()
+	var camera_pos: Vector3 = camera.global_position if camera != null else Vector3.ZERO
+	var terrain: Node = get_tree().get_first_node_in_group("terrain_provider")
+	var nav_scheduler: Node = get_node_or_null("/root/NavPathScheduler")
+	var nav_pending: int = int(nav_scheduler.call("get_pending_count")) \
+			if nav_scheduler != null and nav_scheduler.has_method("get_pending_count") else -1
+	var nav_running: int = int(nav_scheduler.call("get_running_count")) \
+			if nav_scheduler != null and nav_scheduler.has_method("get_running_count") else -1
+	var enemy_ops_counts: Dictionary = _collect_enemy_ops_counts()
+	var scope_rows: Array[Dictionary] = FrameProfiler.summarize_scope_events(
+		window_start_usec,
+		window_end_usec,
+		HITCH_SCOPE_TOP_COUNT
+	)
+	var values: Array[String] = [
+		str(_hitch_event_id),
+		event_type,
+		"%.3f" % _perf_elapsed_s,
+		_csv_text(Time.get_datetime_string_from_system(false, true)),
+		str(Engine.get_process_frames()),
+		str(Engine.get_physics_frames()),
+		"%.3f" % wall_delta_ms,
+		"%.3f" % (maxf(engine_delta_s, 0.0) * 1000.0),
+		str(Engine.get_frames_per_second()),
+		"%.3f" % (Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0),
+		"%.3f" % (Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0),
+		"%.3f" % (Performance.get_monitor(Performance.TIME_NAVIGATION_PROCESS) * 1000.0),
+		"%.0f" % Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME),
+		"%.0f" % Performance.get_monitor(Performance.RENDER_TOTAL_OBJECTS_IN_FRAME),
+		"%.3f" % (Performance.get_monitor(Performance.MEMORY_STATIC) * 0.000001),
+		"%.0f" % Performance.get_monitor(Performance.OBJECT_NODE_COUNT),
+		"%.0f" % Performance.get_monitor(Performance.OBJECT_ORPHAN_NODE_COUNT),
+		_csv_text(str(camera.get_path()) if camera != null else ""),
+		"%.3f" % camera_pos.x,
+		"%.3f" % camera_pos.y,
+		"%.3f" % camera_pos.z,
+		str(_get_terrain_chunk_count(terrain)),
+		str(nav_pending),
+		str(nav_running),
+		str(get_tree().get_nodes_in_group("enemies").size()),
+		str(get_tree().get_nodes_in_group("aircraft").size()),
+		str(get_tree().get_nodes_in_group("ai_aircraft").size()),
+		str(get_tree().get_nodes_in_group("ground_vehicles").size()),
+		str(int(enemy_ops_counts.get("materializing_flights", -1))),
+		_csv_text(_format_scope_rows(scope_rows)),
+	]
+	_hitch_file.store_line(",".join(values))
+
+
+func _format_scope_rows(rows: Array[Dictionary]) -> String:
+	if rows.is_empty():
+		return "none"
+	var parts: Array[String] = []
+	for row in rows:
+		parts.append("%s total_ms=%.3f max_ms=%.3f count=%d" % [
+			str(row.get("label", "unknown")),
+			float(row.get("total_us", 0)) * 0.001,
+			float(row.get("max_us", 0)) * 0.001,
+			int(row.get("count", 0)),
+		])
+	return " | ".join(parts)
+
 
 func _write_performance_report_sample() -> void:
 	if _report_file == null:

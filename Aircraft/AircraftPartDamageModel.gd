@@ -49,15 +49,23 @@ const ZONE_ORDER: Array[StringName] = [
 @export_group("Failure behavior")
 @export var detached_part_lifetime_s: float = 20.0
 @export var detached_part_impulse_mps: float = 7.0
-@export var single_wing_loss_roll_torque_per_kg: float = 40.0
+@export var single_wing_loss_roll_torque_per_kg: float = 36.0
+@export var wing_loss_max_roll_rate_deg_s: float = 180.0
+@export var wing_loss_max_pitch_rate_deg_s: float = 120.0
+@export var wing_loss_max_yaw_rate_deg_s: float = 90.0
 @export_range(0.0, 1.0, 0.05) var wing_loss_roll_authority_scale: float = 0.0
 ## Optional terminal wing-loss behavior for aircraft whose remaining geometry
 ## cannot plausibly retain any useful flight control.
 @export var wing_loss_disable_all_control_inputs: bool = true
 @export var wing_loss_drag_accel_at_100_mps: float = 7.0
 @export var wing_loss_max_drag_accel_mps2: float = 24.0
-@export var wing_loss_turbulence_torque_per_kg: float = 1.2
+@export var wing_loss_turbulence_torque_per_kg: float = 0.9
 @export_range(0.0, 1.0, 0.05) var wing_loss_buffet_intensity: float = 0.9
+@export var wing_loss_pitch_tumble_torque_per_kg: float = 14.0
+@export var wing_loss_yaw_spin_torque_per_kg: float = 11.0
+@export var wing_loss_side_accel_at_100_mps: float = 6.0
+@export var wing_loss_sink_accel_at_100_mps: float = 5.0
+@export var wing_loss_max_departure_accel_mps2: float = 18.0
 @export_range(0.0, 1.0, 0.05) var horizontal_stabilizer_control_scale: float = 0.1
 @export_range(0.0, 1.0, 0.05) var vertical_stabilizer_control_scale: float = 0.1
 
@@ -95,20 +103,33 @@ func _physics_process(delta: float) -> void:
 		_neutralize_all_flight_control_inputs()
 	var imbalance := 0.0
 	if is_zone_destroyed(ZONE_LEFT_WING):
-		imbalance += 1.0
-	if is_zone_destroyed(ZONE_RIGHT_WING):
 		imbalance -= 1.0
+	if is_zone_destroyed(ZONE_RIGHT_WING):
+		imbalance += 1.0
 	_aircraft.set_meta("wing_failure_roll_direction", imbalance)
 	var velocity := _aircraft.linear_velocity
 	var speed := velocity.length()
 	var forward_axis := _aircraft.global_transform.basis.z.normalized()
 	var right_axis := _aircraft.global_transform.basis.x.normalized()
 	var up_axis := _aircraft.global_transform.basis.y.normalized()
+	_limit_wing_failure_angular_velocity()
 	if not is_zero_approx(imbalance):
-		# Right-wing loss produces negative-forward torque, matching the
-		# aircraft's normal right-roll control convention. Left loss mirrors it.
+		# In the rendered aircraft convention, a missing right wing rolls around
+		# +local Z; a missing left wing mirrors it around -local Z.
+		var expected_roll_rate := _aircraft.angular_velocity.dot(forward_axis) * imbalance
+		var roll_torque_scale := clampf(
+			(
+				deg_to_rad(wing_loss_max_roll_rate_deg_s)
+				- expected_roll_rate
+			) / deg_to_rad(60.0),
+			0.0,
+			1.0
+		)
 		_aircraft.apply_torque(
-			forward_axis * imbalance * single_wing_loss_roll_torque_per_kg * _aircraft.mass
+			(
+				forward_axis * imbalance * single_wing_loss_roll_torque_per_kg
+				* roll_torque_scale * _aircraft.mass
+			)
 		)
 	var drag_accel := 0.0
 	if speed > 0.1:
@@ -120,6 +141,26 @@ func _physics_process(delta: float) -> void:
 	_aircraft.set_meta("structural_damage_drag_accel_mps2", drag_accel)
 	_turbulence_phase_s += delta
 	var turbulence_speed_scale := clampf(speed / 45.0, 0.2, 1.6)
+	var pitch_tumble_wave := 0.72 + sin(_turbulence_phase_s * 5.7 + imbalance * 0.8) * 0.28
+	var yaw_spin_wave := imbalance * 0.7 + sin(_turbulence_phase_s * 7.9 + 1.1) * 0.3
+	_aircraft.apply_torque(
+		(
+			right_axis * pitch_tumble_wave * wing_loss_pitch_tumble_torque_per_kg
+			+ up_axis * yaw_spin_wave * wing_loss_yaw_spin_torque_per_kg
+		) * turbulence_speed_scale * _aircraft.mass
+	)
+	var departure_speed_scale := clampf(pow(speed / 100.0, 2.0), 0.0, 3.0)
+	var side_accel := minf(
+		wing_loss_side_accel_at_100_mps * departure_speed_scale * float(lost_wing_count),
+		wing_loss_max_departure_accel_mps2
+	)
+	var sink_accel := minf(
+		wing_loss_sink_accel_at_100_mps * departure_speed_scale * float(lost_wing_count),
+		wing_loss_max_departure_accel_mps2
+	)
+	var departure_acceleration := right_axis * imbalance * side_accel - up_axis * sink_accel
+	_aircraft.apply_central_force(departure_acceleration * _aircraft.mass)
+	_aircraft.set_meta("wing_failure_departure_acceleration", departure_acceleration)
 	var turbulence := (
 		forward_axis * sin(_turbulence_phase_s * 19.0)
 		+ right_axis * sin(_turbulence_phase_s * 13.0 + 1.7) * 0.45
@@ -540,6 +581,7 @@ func _apply_zone_failure(zone: StringName) -> void:
 				var control_steering := _aircraft.get_node_or_null("ControlSteering")
 				if control_steering != null and "ControlActive" in control_steering:
 					control_steering.set("ControlActive", false)
+				_disable_passive_stability_after_wing_loss(aero)
 				_neutralize_all_flight_control_inputs()
 			_set_structural_airflow_feedback(0.0, wing_loss_buffet_intensity)
 			set_physics_process(true)
@@ -619,6 +661,42 @@ func _neutralize_all_flight_control_inputs() -> void:
 			steering_module.call("set_y", 0.0)
 		if steering_module.has_method("set_z"):
 			steering_module.call("set_z", 0.0)
+
+
+func _disable_passive_stability_after_wing_loss(aero: Node) -> void:
+	if aero == null:
+		return
+	for stability_property: StringName in [
+		&"stability_strength",
+		&"directional_stability_strength",
+		&"alignment_strength",
+		&"alignment_low_speed_strength",
+	]:
+		if stability_property in aero:
+			aero.set(stability_property, 0.0)
+
+
+func _limit_wing_failure_angular_velocity() -> void:
+	if _aircraft == null:
+		return
+	var basis := _aircraft.global_transform.basis.orthonormalized()
+	var local_angular_velocity := basis.transposed() * _aircraft.angular_velocity
+	local_angular_velocity.x = clampf(
+		local_angular_velocity.x,
+		-deg_to_rad(wing_loss_max_pitch_rate_deg_s),
+		deg_to_rad(wing_loss_max_pitch_rate_deg_s)
+	)
+	local_angular_velocity.y = clampf(
+		local_angular_velocity.y,
+		-deg_to_rad(wing_loss_max_yaw_rate_deg_s),
+		deg_to_rad(wing_loss_max_yaw_rate_deg_s)
+	)
+	local_angular_velocity.z = clampf(
+		local_angular_velocity.z,
+		-deg_to_rad(wing_loss_max_roll_rate_deg_s),
+		deg_to_rad(wing_loss_max_roll_rate_deg_s)
+	)
+	_aircraft.angular_velocity = basis * local_angular_velocity
 
 
 func _is_finite_position(position: Vector3) -> bool:

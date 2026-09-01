@@ -246,7 +246,12 @@ func _input(event):
 		get_viewport().set_input_as_handled()
 
 func _is_action_pressed_event(event: InputEvent, action: StringName) -> bool:
-	return event != null and event.is_action_pressed(action, false, true)
+	# Some optional/test actions are not present in the shipping InputMap. Godot
+	# logs an error every time is_action_pressed() receives a missing action, so a
+	# held stick could otherwise turn one harmless compatibility check into a
+	# high-volume error stream.
+	return event != null and InputMap.has_action(action) \
+		and event.is_action_pressed(action, false, true)
 
 func _is_refill_ordnance_key_event(event: InputEvent) -> bool:
 	if not (event is InputEventKey):
@@ -359,7 +364,10 @@ func _get_enemy_aircraft() -> Array:
 	return result
 
 func _is_camera_cycle_excluded(node: Node) -> bool:
-	return node != null and bool(node.get_meta("camera_abandoned", false))
+	return node != null and (
+		bool(node.get_meta("camera_abandoned", false))
+		or bool(node.get_meta("visual_budget_presentation_staging", false))
+	)
 
 func _select_friendly_index_for(target: RigidBody3D) -> void:
 	var friendlies := _get_friendly_aircraft()
@@ -443,6 +451,15 @@ func _cycle_aircraft_view():
 		if cc != null and cc.has_method("switch_to_aircraft_and_mode"):
 			cc.switch_to_aircraft_and_mode(current_viewed_aircraft, aircraft_cam_mode)
 			active_controller_camera_system = cc
+			return
+	# Camera-mode cycling must preserve the aircraft already on screen. The
+	# friendly group can be reordered when aircraft spawn or return to the deck,
+	# so friendly_index is only a navigation cursor, not stable identity.
+	if current_category == Category.FRIENDLY and is_instance_valid(current_viewed_aircraft):
+		var friendlies := _get_friendly_aircraft()
+		if current_viewed_aircraft in friendlies:
+			_select_friendly_index_for(current_viewed_aircraft)
+			_view_aircraft(current_viewed_aircraft)
 			return
 	_activate_view()
 
@@ -568,6 +585,12 @@ func toggle_player_control():
 
 	is_player_controlling = true
 	player_controlled_plane = target
+	# Taking control also makes this aircraft the authoritative camera target.
+	# This reattaches and re-enables its cockpit presentation synchronously.
+	current_category = Category.FRIENDLY
+	current_viewed_aircraft = target
+	_select_friendly_index_for(target)
+	_view_aircraft(target)
 	print("[FlightDirector] Player took control of: ", target.name)
 
 func _return_control_to_ai() -> void:

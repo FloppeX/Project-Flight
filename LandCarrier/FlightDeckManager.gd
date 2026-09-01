@@ -168,6 +168,9 @@ var _flight_deck_local_offset_y: float = 0.5  # Fallback local offset if no mark
 var _aircraft_original_collision_layer: int = 0
 var _aircraft_original_collision_mask: int = 0
 var _retrieval_top_handled: bool = false
+var _retrieval_spawn_started: bool = false
+var _retrieval_spawn_armed: bool = false
+var _retrieval_spawn_generation: int = 0
 var _aircraft_elevator_ride_in_progress: bool = false
 var _recovery_job_dispatched: bool = false
 var _tractor_cleanup_in_progress: bool = false
@@ -1648,6 +1651,8 @@ func _launch_next_queued_ai() -> void:
 func _on_catapult_sequence_complete(source_catapult: Node = null):
 	if is_instance_valid(source_catapult) and source_catapult != catapult:
 		return
+	if is_instance_valid(deck_aircraft):
+		_release_aircraft_presentation_keep_attached(deck_aircraft)
 	# Notify FlightOps about the aircraft that just launched
 	if _pending_flight_ops and is_instance_valid(deck_aircraft):
 		var pilot = deck_aircraft.get_node_or_null("AIPilot")
@@ -1670,6 +1675,7 @@ func _on_catapult_sequence_aborted(source_catapult: Node = null):
 	if is_instance_valid(source_catapult) and source_catapult != catapult:
 		return
 	if is_instance_valid(deck_aircraft):
+		_release_aircraft_presentation_keep_attached(deck_aircraft)
 		if deck_aircraft.has_meta("controls_disabled"):
 			deck_aircraft.remove_meta("controls_disabled")
 	_return_tractors_to_staging()
@@ -1681,6 +1687,14 @@ func _on_catapult_sequence_aborted(source_catapult: Node = null):
 	_pending_ai_aircraft_model = ""
 	current_state = DeckState.IDLE
 	deck_aircraft = null
+
+
+func _release_aircraft_presentation_keep_attached(aircraft: RigidBody3D) -> void:
+	if not is_instance_valid(aircraft):
+		return
+	var visual_budget := get_node_or_null("/root/EnemyVisualBudget")
+	if visual_budget != null and visual_budget.has_method("release_aircraft_presentation_keep_attached"):
+		visual_budget.call("release_aircraft_presentation_keep_attached", aircraft)
 
 
 func _notify_pending_ops_launched(pilot: Node) -> void:
@@ -2956,17 +2970,34 @@ func start_hangar_retrieval():
 		return
 	if stored_aircraft.is_empty():
 		return
-	while _tractor_elevator_transfer_in_progress:
-		await get_tree().physics_frame
+	if current_state != DeckState.IDLE:
+		return
 
+	# Reserve the operation before the tractor wait so a second same-frame caller
+	# cannot begin another retrieval from the same hangar entry.
 	current_state = DeckState.RETRIEVING_FROM_HANGAR
 	_retrieval_top_handled = false
+	_retrieval_spawn_generation += 1
+	var retrieval_generation := _retrieval_spawn_generation
+	_retrieval_spawn_started = false
+	_retrieval_spawn_armed = false
+	while _tractor_elevator_transfer_in_progress:
+		await get_tree().physics_frame
+	if current_state != DeckState.RETRIEVING_FROM_HANGAR \
+			or retrieval_generation != _retrieval_spawn_generation:
+		return
+	if stored_aircraft.is_empty():
+		_retrieval_spawn_started = false
+		_retrieval_spawn_armed = false
+		current_state = DeckState.IDLE
+		return
+	_retrieval_spawn_armed = true
 
 	# Move elevator down to hangar level (empty)
 	if elevator and elevator.has_method("move_platform_down"):
 		_ensure_elevator_signal_connections()
 		if "current_state" in elevator and elevator.current_state == elevator.ElevatorState.AT_BOTTOM:
-			_spawn_aircraft_at_hangar_level.call_deferred()
+			_spawn_aircraft_at_hangar_level.call_deferred(retrieval_generation)
 		else:
 			elevator.move_platform_down()
 
@@ -3048,22 +3079,44 @@ func _store_aircraft_in_hangar():
 	_prune_landing_clearance_aircraft()
 	_grant_next_landing_clearance_if_possible()
 
-func _spawn_aircraft_at_hangar_level():
+func _claim_hangar_retrieval_spawn(expected_generation: int = -1) -> bool:
+	if current_state != DeckState.RETRIEVING_FROM_HANGAR:
+		return false
+	if expected_generation >= 0 and expected_generation != _retrieval_spawn_generation:
+		return false
+	if _retrieval_spawn_started or is_instance_valid(deck_aircraft):
+		push_warning("[FlightDeckManager] Duplicate hangar retrieval spawn suppressed generation=%d" % _retrieval_spawn_generation)
+		return false
+	if not _retrieval_spawn_armed:
+		return false
+	_retrieval_spawn_started = true
+	_retrieval_spawn_armed = false
+	return true
+
+
+func _spawn_aircraft_at_hangar_level(expected_generation: int = -1):
 	"""Spawn aircraft at hangar level when elevator reaches bottom during retrieval"""
+	if not _claim_hangar_retrieval_spawn(expected_generation):
+		return
 	if _landing_test_active:
+		_retrieval_spawn_started = false
 		current_state = DeckState.IDLE
 		deck_aircraft = null
 		return
 	if stored_aircraft.is_empty():
+		_retrieval_spawn_started = false
 		current_state = DeckState.IDLE
 		return
 
 
 	# Create aircraft at hangar level
 	_pending_launch_hangar_index = 0
+	var _hangar_create_profiler_start: int = FrameProfiler.begin("FlightDeckManager.hangar_retrieval_create")
 	var aircraft = _create_aircraft_at_hangar_level()
+	FrameProfiler.end("FlightDeckManager.hangar_retrieval_create", _hangar_create_profiler_start)
 
 	if not aircraft:
+		_retrieval_spawn_started = false
 		current_state = DeckState.IDLE
 		# If an AI scramble couldn't find a suitable aircraft, drop the queue so we do not retry forever.
 		if _pending_flight_ops != null and _select_hangar_launch_index() < 0:
@@ -3081,6 +3134,8 @@ func _spawn_aircraft_at_hangar_level():
 
 	# Store reference for the retrieval sequence
 	deck_aircraft = aircraft
+	if bool(aircraft.get_meta("visual_budget_presentation_staging", false)):
+		_stage_hangar_aircraft_presentation.call_deferred(aircraft)
 
 	# Short settle so the fresh spawn is stable before the elevator starts up.
 	await get_tree().create_timer(_retrieval_spawn_settle_s).timeout
@@ -3123,6 +3178,7 @@ func _on_elevator_at_top():
 			if _retrieval_top_handled:
 				return
 			_retrieval_top_handled = true
+			_ensure_hangar_aircraft_presentation_complete(deck_aircraft)
 			_complete_retrieval_sequence()
 		DeckState.TRACTOR_CLEANUP:
 			pass
@@ -3209,6 +3265,8 @@ func restore_save_state(state: Dictionary) -> bool:
 	_pending_flight_ops = null
 	_tractor_cleanup_in_progress = false
 	_tractor_elevator_transfer_in_progress = false
+	_retrieval_spawn_started = false
+	_retrieval_spawn_armed = false
 	current_state = DeckState.IDLE
 	return true
 
@@ -4212,12 +4270,20 @@ func _restore_aircraft_runtime_state_deferred(aircraft: RigidBody3D, aircraft_da
 	await get_tree().process_frame
 	if not is_inside_tree() or not is_instance_valid(aircraft) or not aircraft.is_inside_tree():
 		return
+	var _restore_profiler_start: int = FrameProfiler.begin("FlightDeckManager.hangar_restore_deferred")
 	if aircraft_data.has("current_health") and "current_health" in aircraft:
 		aircraft.set("current_health", float(aircraft_data.get("current_health", aircraft.get("current_health"))))
+	var _energy_profiler_start: int = FrameProfiler.begin("FlightDeckManager.hangar_restore_energy")
 	_restore_aircraft_energy_state(aircraft, aircraft_data.get("energy_state", []))
+	FrameProfiler.end("FlightDeckManager.hangar_restore_energy", _energy_profiler_start)
+	var _loadout_profiler_start: int = FrameProfiler.begin("FlightDeckManager.hangar_restore_loadout")
 	_restore_aircraft_loadout_state(aircraft, aircraft_data.get("loadout_state", {}))
 	_apply_ai_loadout_profile(aircraft, str(aircraft_data.get("requested_ai_loadout_profile", "")))
+	FrameProfiler.end("FlightDeckManager.hangar_restore_loadout", _loadout_profiler_start)
+	var _module_profiler_start: int = FrameProfiler.begin("FlightDeckManager.hangar_restore_modules")
 	_restore_deployed_aircraft_module_state(aircraft, aircraft_data)
+	FrameProfiler.end("FlightDeckManager.hangar_restore_modules", _module_profiler_start)
+	FrameProfiler.end("FlightDeckManager.hangar_restore_deferred", _restore_profiler_start)
 
 func _extract_aircraft_data(aircraft: RigidBody3D) -> Dictionary:
 	"""Extract aircraft data for storage"""
@@ -4520,21 +4586,29 @@ func _create_aircraft_at_hangar_level() -> RigidBody3D:
 	"""Create aircraft at hangar level from stored data and template"""
 	if stored_aircraft.is_empty():
 		return null
+	var _create_profiler_start: int = FrameProfiler.begin("FlightDeckManager.hangar_create_total")
 
+	var _select_profiler_start: int = FrameProfiler.begin("FlightDeckManager.hangar_select_and_assign")
 	var idx := _select_hangar_launch_index()
 	if idx < 0:
 		# No suitable aircraft (e.g. an AI scramble but only utility helicopters remain).
+		FrameProfiler.end("FlightDeckManager.hangar_select_and_assign", _select_profiler_start)
+		FrameProfiler.end("FlightDeckManager.hangar_create_total", _create_profiler_start)
 		return null
 	var aircraft_data = stored_aircraft[idx]
 	if not _ensure_pilot_assigned_for_data(aircraft_data):
 		push_warning("[FlightDeckManager] Retrieval blocked: no available pilot for aircraft.")
+		FrameProfiler.end("FlightDeckManager.hangar_select_and_assign", _select_profiler_start)
+		FrameProfiler.end("FlightDeckManager.hangar_create_total", _create_profiler_start)
 		return null
 	if not _pending_ai_loadout_profile.is_empty():
 		aircraft_data["requested_ai_loadout_profile"] = _pending_ai_loadout_profile
 	stored_aircraft[idx] = aircraft_data
 	_pending_launch_hangar_index = idx
+	FrameProfiler.end("FlightDeckManager.hangar_select_and_assign", _select_profiler_start)
 
 	# Use scene embedded in data dict (e.g. Aircraft 2), otherwise fall back to template
+	var _scene_profiler_start: int = FrameProfiler.begin("FlightDeckManager.hangar_resolve_scene")
 	var scene_to_use: PackedScene = aircraft_data.get("scene", null)
 	if not scene_to_use:
 		var scene_file := str(aircraft_data.get("scene_file", ""))
@@ -4545,12 +4619,18 @@ func _create_aircraft_at_hangar_level() -> RigidBody3D:
 	if not scene_to_use:
 		scene_to_use = load(DEFAULT_AIRCRAFT_SCENE_PATH)
 		if not scene_to_use:
+			FrameProfiler.end("FlightDeckManager.hangar_resolve_scene", _scene_profiler_start)
+			FrameProfiler.end("FlightDeckManager.hangar_create_total", _create_profiler_start)
 			return null
+	FrameProfiler.end("FlightDeckManager.hangar_resolve_scene", _scene_profiler_start)
 
 
 	# Instantiate new aircraft from template
+	var _instantiate_profiler_start: int = FrameProfiler.begin("FlightDeckManager.hangar_instantiate")
 	var aircraft = scene_to_use.instantiate() as RigidBody3D
+	FrameProfiler.end("FlightDeckManager.hangar_instantiate", _instantiate_profiler_start)
 	if not aircraft:
+		FrameProfiler.end("FlightDeckManager.hangar_create_total", _create_profiler_start)
 		return null
 
 	# Mute all controls immediately — before add_child so _physics_process never sees an open throttle.
@@ -4568,13 +4648,28 @@ func _create_aircraft_at_hangar_level() -> RigidBody3D:
 
 	# Add to scene
 	var main_scene = get_tree().current_scene
+	var visual_budget := get_node_or_null("/root/EnemyVisualBudget")
+	var _prepare_presentation_profiler_start: int = FrameProfiler.begin("FlightDeckManager.hangar_prepare_presentation")
+	if visual_budget != null and visual_budget.has_method("prepare_aircraft_presentation_for_staged_tree_entry"):
+		var preparation: Dictionary = visual_budget.call(
+			"prepare_aircraft_presentation_for_staged_tree_entry",
+			aircraft
+		)
+		aircraft.set_meta("hangar_presentation_detached_nodes", int(preparation.get("detached_nodes", 0)))
+		aircraft.set_meta("hangar_presentation_detached_roots", int(preparation.get("detached_roots", 0)))
+		aircraft.set_meta("hangar_presentation_stage_remaining_roots", int(preparation.get("detached_roots", 0)))
+	FrameProfiler.end("FlightDeckManager.hangar_prepare_presentation", _prepare_presentation_profiler_start)
+	var _add_child_profiler_start: int = FrameProfiler.begin("FlightDeckManager.hangar_add_child")
 	main_scene.add_child(aircraft)
+	FrameProfiler.end("FlightDeckManager.hangar_add_child", _add_child_profiler_start)
+	_profile_aircraft_tree_settle.call_deferred(aircraft)
 
 	# Restore aircraft properties from stored data
 	_retrieval_sequence += 1
 	aircraft.name = "%s_%d" % [aircraft_data.name, _retrieval_sequence]
 
 	# Position aircraft on elevator platform at hangar level (where elevator currently is)
+	var _placement_profiler_start: int = FrameProfiler.begin("FlightDeckManager.hangar_placement")
 	var elevator_hangar_transform := _get_node_world_transform_from_carrier_hierarchy(
 		elevator_pickup_marker as Node3D
 	)
@@ -4596,8 +4691,10 @@ func _create_aircraft_at_hangar_level() -> RigidBody3D:
 	_set_manual_transport(aircraft, true)
 	if is_instance_valid(elevator) and elevator.has_method("create_platform_restraint"):
 		elevator.call("create_platform_restraint", aircraft)
+	FrameProfiler.end("FlightDeckManager.hangar_placement", _placement_profiler_start)
 
 	# Restore metadata
+	var _bind_profiler_start: int = FrameProfiler.begin("FlightDeckManager.hangar_metadata_and_pilot")
 	for key in aircraft_data.metadata:
 		aircraft.set_meta(key, aircraft_data.metadata[key])
 	if _is_helicopter_aircraft(aircraft):
@@ -4608,13 +4705,77 @@ func _create_aircraft_at_hangar_level() -> RigidBody3D:
 		if is_instance_valid(elevator) and elevator.has_method("release_platform_restraint"):
 			elevator.call("release_platform_restraint", aircraft)
 		aircraft.queue_free()
+		FrameProfiler.end("FlightDeckManager.hangar_metadata_and_pilot", _bind_profiler_start)
+		FrameProfiler.end("FlightDeckManager.hangar_create_total", _create_profiler_start)
 		return null
+	FrameProfiler.end("FlightDeckManager.hangar_metadata_and_pilot", _bind_profiler_start)
 
 	# Keep the freshly restored aircraft still while it settles on the platform.
 	aircraft.linear_velocity = Vector3.ZERO
 	aircraft.angular_velocity = Vector3.ZERO
 
+	FrameProfiler.end("FlightDeckManager.hangar_create_total", _create_profiler_start)
 	return aircraft
+
+
+func _stage_hangar_aircraft_presentation(aircraft: RigidBody3D) -> void:
+	if not is_instance_valid(aircraft) or not aircraft.is_inside_tree():
+		return
+	var visual_budget := get_node_or_null("/root/EnemyVisualBudget")
+	if visual_budget == null or not visual_budget.has_method("restore_next_staged_aircraft_presentation_root"):
+		return
+	var stage_frames := 0
+	while is_instance_valid(aircraft) \
+			and bool(aircraft.get_meta("visual_budget_presentation_staging", false)):
+		var stage_profiler_start: int = FrameProfiler.begin("FlightDeckManager.hangar_stage_presentation_root")
+		var result: Dictionary = visual_budget.call(
+			"restore_next_staged_aircraft_presentation_root",
+			aircraft
+		)
+		var root_name := str(result.get("root_name", "unknown"))
+		FrameProfiler.end("FlightDeckManager.hangar_stage_%s" % root_name, stage_profiler_start)
+		stage_frames += 1
+		aircraft.set_meta("hangar_presentation_stage_frames", stage_frames)
+		aircraft.set_meta("hangar_presentation_stage_remaining_roots", int(result.get("remaining_roots", 0)))
+		var complete := bool(result.get("complete", true))
+		if complete:
+			aircraft.set_meta("hangar_presentation_stage_complete", true)
+		var settle_profiler_start: int = FrameProfiler.begin("FlightDeckManager.hangar_stage_settle")
+		await get_tree().process_frame
+		FrameProfiler.end("FlightDeckManager.hangar_stage_settle_after_%s" % root_name, settle_profiler_start)
+		if not is_instance_valid(aircraft) or not aircraft.is_inside_tree():
+			return
+		if complete:
+			break
+
+
+func _ensure_hangar_aircraft_presentation_complete(aircraft: RigidBody3D) -> void:
+	if not is_instance_valid(aircraft):
+		return
+	var remaining_roots := int(aircraft.get_meta("hangar_presentation_stage_remaining_roots", 0))
+	if not bool(aircraft.get_meta("visual_budget_presentation_staging", false)) and remaining_roots <= 0:
+		return
+	var visual_budget := get_node_or_null("/root/EnemyVisualBudget")
+	if visual_budget == null or not visual_budget.has_method("complete_aircraft_presentation_staging"):
+		return
+	var profiler_start: int = FrameProfiler.begin("FlightDeckManager.hangar_stage_completion_fallback")
+	visual_budget.call("complete_aircraft_presentation_staging", aircraft)
+	FrameProfiler.end("FlightDeckManager.hangar_stage_completion_fallback", profiler_start)
+	aircraft.set_meta("hangar_presentation_stage_remaining_roots", 0)
+	aircraft.set_meta("hangar_presentation_stage_complete", true)
+
+
+func _profile_aircraft_tree_settle(aircraft: RigidBody3D) -> void:
+	if not is_instance_valid(aircraft) or not aircraft.is_inside_tree():
+		return
+	var first_ready_frame_start: int = FrameProfiler.begin("FlightDeckManager.hangar_tree_settle_frame_1")
+	await get_tree().process_frame
+	FrameProfiler.end("FlightDeckManager.hangar_tree_settle_frame_1", first_ready_frame_start)
+	if not is_instance_valid(aircraft) or not aircraft.is_inside_tree():
+		return
+	var second_ready_frame_start: int = FrameProfiler.begin("FlightDeckManager.hangar_tree_settle_frame_2")
+	await get_tree().process_frame
+	FrameProfiler.end("FlightDeckManager.hangar_tree_settle_frame_2", second_ready_frame_start)
 
 func _spawn_tractorbots_at_aircraft(aircraft: RigidBody3D):
 	"""Spawn tractorbots directly at aircraft wheel positions at hangar level"""
@@ -5173,6 +5334,7 @@ func _complete_helicopter_retrieval_sequence(aircraft: RigidBody3D) -> void:
 		if ai_toggle and ai_toggle.has_method("enable_ai"):
 			ai_toggle.enable_ai()
 	FrameProfiler.end("FlightDeckManager.heli_retrieval_ai_enable", _ai_profiler_start)
+	_release_aircraft_presentation_keep_attached(aircraft)
 
 	current_state = DeckState.AIRCRAFT_ON_DECK
 	deck_aircraft = aircraft

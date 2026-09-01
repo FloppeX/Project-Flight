@@ -7,7 +7,7 @@ class_name AircraftModule_ControlTargeting
 @export var auto_target_when_none: bool = false
 @export var auto_replace_target: bool = false
 @export var relaxed_lock_when_none: bool = false
-@export var manual_cycle_range_m: float = 10000.0
+@export var manual_cycle_range_m: float = 3500.0
 @export var enable_legacy_keyboard_shortcuts: bool = false
 @export var external_target_authority: bool = false
 
@@ -24,6 +24,9 @@ func _ready():
 	ModuleType = "targeting"
 
 func receive_input(event):
+	if event != null and event.is_action_pressed("target_closest_ahead", false, true):
+		target_closest_ahead()
+		return
 	if event != null and event.is_action_pressed("target_next", false, true):
 		target_next()
 		return
@@ -38,6 +41,9 @@ func receive_input(event):
 			return
 		if button_event.button_index == JOY_BUTTON_DPAD_LEFT:
 			target_prev()
+			return
+		if button_event.button_index == JOY_BUTTON_DPAD_DOWN:
+			target_closest_ahead()
 			return
 
 	if not enable_legacy_keyboard_shortcuts:
@@ -168,30 +174,39 @@ func target_prev():
 		return
 	_cycle_target(-1)
 
+func target_closest_ahead() -> bool:
+	if external_target_authority or not is_instance_valid(aircraft):
+		return false
+	var aircraft_node := aircraft as Node3D
+	if aircraft_node == null:
+		return false
+	var forward: Vector3 = aircraft_node.global_transform.basis.z.normalized()
+	var cos_half_cone: float = cos(deg_to_rad(maxf(fov_cone_deg, 0.0) * 0.5))
+	var best_target: Node3D = null
+	var best_distance := INF
+	for candidate in _get_radar_visible_hostile_candidates():
+		var target := candidate.get("node") as Node3D
+		if not _is_live_target(target):
+			continue
+		var to_target: Vector3 = target.global_position - aircraft_node.global_position
+		var distance: float = to_target.length()
+		if distance <= 0.1 or forward.dot(to_target / distance) < cos_half_cone:
+			continue
+		if distance < best_distance:
+			best_distance = distance
+			best_target = target
+	if not is_instance_valid(best_target):
+		return false
+	set_target(best_target)
+	return true
+
 func clear_target():
 	set_target(null)
 
 func _cycle_target(direction: int):
 	if not is_instance_valid(aircraft):
 		return
-	var enemies: Array[Node3D] = _get_hostile_targets()
-	if enemies.is_empty():
-		return
-	# Manual cycling uses a broader situational-awareness range than weapon lock.
-	# A selected target is retained outside this range until destroyed or replaced.
-	var origin: Vector3 = aircraft.global_position
-	var candidates: Array[Dictionary] = []
-	for e in enemies:
-		if _is_live_target(e):
-			var to_vec: Vector3 = e.global_position - origin
-			var dist: float = to_vec.length()
-			if dist <= maxf(manual_cycle_range_m, max_range_m) and dist > 0.1:
-				candidates.append({
-					"node": e,
-					"dist": dist,
-					"bearing": _signed_bearing_to(e),
-					"id": e.get_instance_id(),
-				})
+	var candidates := _get_radar_visible_hostile_candidates()
 	if candidates.is_empty():
 		return
 	candidates.sort_custom(_cycle_candidate_less)
@@ -224,6 +239,43 @@ func _cycle_target(direction: int):
 			set_target(candidates[i].get("node") as Node3D)
 			return
 	set_target(candidates[-1].get("node") as Node3D)
+
+
+func _get_radar_visible_hostile_candidates() -> Array[Dictionary]:
+	var candidates: Array[Dictionary] = []
+	if not is_instance_valid(aircraft):
+		return candidates
+	var aircraft_node := aircraft as Node3D
+	if aircraft_node == null:
+		return candidates
+	var origin: Vector3 = aircraft_node.global_position
+	var radar_range_m: float = _get_radar_display_range_m()
+	var radar_range_sq: float = radar_range_m * radar_range_m
+	for target in _get_hostile_targets():
+		if not _is_live_target(target):
+			continue
+		var to_target: Vector3 = target.global_position - origin
+		var flat_distance_sq: float = Vector2(to_target.x, to_target.z).length_squared()
+		# RadarCanvas is a heading-up, top-down display and applies this same flat
+		# range gate before drawing a contact. Manual selection must never reveal a
+		# target that is outside that display.
+		if flat_distance_sq > radar_range_sq or to_target.length_squared() <= 0.01:
+			continue
+		candidates.append({
+			"node": target,
+			"dist": to_target.length(),
+			"bearing": _signed_bearing_to(target),
+			"id": target.get_instance_id(),
+		})
+	return candidates
+
+
+func _get_radar_display_range_m() -> float:
+	var radar: Node = (aircraft as Node).find_child("RadarCanvas", true, false) \
+			if is_instance_valid(aircraft) else null
+	if radar != null and is_instance_valid(radar) and "terrain_map_range_m" in radar:
+		return maxf(float(radar.get("terrain_map_range_m")), 0.0)
+	return maxf(manual_cycle_range_m, 0.0)
 
 
 func _get_hostile_targets() -> Array[Node3D]:

@@ -7,12 +7,16 @@ static var report_interval_s: float = 1.0
 static var summary_interval_s: float = 10.0
 static var spike_threshold_ms: float = 8.0
 static var top_count: int = 8
+static var scope_event_threshold_ms: float = 0.5
+static var scope_event_capacity: int = 2048
 
 static var _frame_index: int = -1
 static var _frame_entries: Dictionary = {}
 static var _interval_entries: Dictionary = {}
 static var _summary_entries: Dictionary = {}
 static var _report_entries: Dictionary = {}
+static var _scope_events: Array = []
+static var _scope_event_write_index: int = 0
 static var _interval_elapsed_s: float = 0.0
 static var _summary_elapsed_s: float = 0.0
 
@@ -22,6 +26,16 @@ static func configure(interval_s: float, threshold_ms: float, count: int, summar
 	summary_interval_s = maxf(summary_s, 0.1)
 	spike_threshold_ms = maxf(threshold_ms, 0.0)
 	top_count = maxi(count, 1)
+
+
+static func configure_scope_event_capture(threshold_ms: float, capacity: int = 2048) -> void:
+	scope_event_threshold_ms = maxf(threshold_ms, 0.0)
+	var resolved_capacity: int = maxi(capacity, 32)
+	if resolved_capacity == scope_event_capacity:
+		return
+	scope_event_capacity = resolved_capacity
+	_scope_events.clear()
+	_scope_event_write_index = 0
 
 
 static func set_enabled(value: bool, reason: String = "") -> void:
@@ -43,6 +57,8 @@ static func set_report_capture_enabled(value: bool, reason: String = "") -> void
 		return
 	report_capture_enabled = value
 	_report_entries.clear()
+	_scope_events.clear()
+	_scope_event_write_index = 0
 	var suffix := " (%s)" % reason if not reason.is_empty() else ""
 	print("[FrameProfilerReportCapture] %s%s" % ["enabled" if report_capture_enabled else "disabled", suffix])
 
@@ -56,13 +72,16 @@ static func begin(_label: String) -> int:
 static func end(label: String, start_usec: int) -> void:
 	if (not enabled and not report_capture_enabled) or start_usec <= 0:
 		return
-	var elapsed_us: int = maxi(Time.get_ticks_usec() - start_usec, 0)
+	var end_usec: int = Time.get_ticks_usec()
+	var elapsed_us: int = maxi(end_usec - start_usec, 0)
 	if enabled:
 		_record(_frame_entries, label, elapsed_us)
 		_record(_interval_entries, label, elapsed_us)
 		_record(_summary_entries, label, elapsed_us)
 	if report_capture_enabled:
 		_record(_report_entries, label, elapsed_us)
+		if elapsed_us >= int(scope_event_threshold_ms * 1000.0):
+			_record_scope_event(label, start_usec, end_usec, elapsed_us)
 
 
 static func consume_report_rows(max_rows: int = 12) -> Array[Dictionary]:
@@ -73,6 +92,32 @@ static func consume_report_rows(max_rows: int = 12) -> Array[Dictionary]:
 	for i in range(limit):
 		var row: Dictionary = rows[i]
 		result.append(row)
+	return result
+
+
+static func summarize_scope_events(
+		window_start_usec: int,
+		window_end_usec: int,
+		max_rows: int = 12) -> Array[Dictionary]:
+	var entries: Dictionary = {}
+	var event_count: int = _scope_events.size()
+	for offset in range(event_count):
+		var event_index: int = offset
+		if event_count >= scope_event_capacity:
+			event_index = (_scope_event_write_index + offset) % event_count
+		var event_variant: Variant = _scope_events[event_index]
+		if not (event_variant is Dictionary):
+			continue
+		var event: Dictionary = event_variant
+		var event_end_usec: int = int(event.get("end_usec", 0))
+		if event_end_usec < window_start_usec or event_end_usec > window_end_usec:
+			continue
+		_record(entries, str(event.get("label", "unknown")), int(event.get("elapsed_us", 0)))
+	var rows: Array[Dictionary] = _sorted_rows(entries)
+	var result: Array[Dictionary] = []
+	var limit: int = mini(maxi(max_rows, 1), rows.size())
+	for i in range(limit):
+		result.append(rows[i])
 	return result
 
 
@@ -105,6 +150,20 @@ static func _record(entries: Dictionary, label: String, elapsed_us: int) -> void
 	entry["max_us"] = maxi(int(entry["max_us"]), elapsed_us)
 	entry["count"] = int(entry["count"]) + 1
 	entries[label] = entry
+
+
+static func _record_scope_event(label: String, start_usec: int, end_usec: int, elapsed_us: int) -> void:
+	var event: Dictionary = {
+		"label": label,
+		"start_usec": start_usec,
+		"end_usec": end_usec,
+		"elapsed_us": elapsed_us,
+	}
+	if _scope_events.size() < scope_event_capacity:
+		_scope_events.append(event)
+		return
+	_scope_events[_scope_event_write_index] = event
+	_scope_event_write_index = (_scope_event_write_index + 1) % scope_event_capacity
 
 
 static func _flush_frame_if_spike() -> void:
