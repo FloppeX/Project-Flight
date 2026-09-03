@@ -264,29 +264,60 @@ func _run() -> void:
 	budget.call("_apply_ai_aircraft_player_only_budget", aircraft, false, cache)
 	_require(aircraft.get_node_or_null("HeadsUpDisplay") == null, "dormant AI presentation remained attached")
 	var target_focus_panel := TargetFocusPanel.new()
-	target_focus_panel.focused_node = aircraft
 	target_focus_panel.add_to_group("instrument_panel")
 	add_child(target_focus_panel)
+	var target_focus_aircraft: Array[Node3D] = [aircraft]
+	for target_index in range(2):
+		var additional_target := AIRCRAFT_SCENE.instantiate() as RigidBody3D
+		_require(additional_target != null, "additional target aircraft did not instantiate")
+		additional_target.freeze = true
+		additional_target.position = Vector3(350.0 + target_index * 80.0, 1000.0, 350.0)
+		var additional_toggle := additional_target.get_node_or_null("AIToggle")
+		if additional_toggle != null:
+			additional_toggle.set("ai_enabled_at_start", false)
+		budget.call("prepare_ai_aircraft_for_tree_entry", additional_target)
+		add_child(additional_target)
+		target_focus_aircraft.append(additional_target)
+	await get_tree().process_frame
+	await get_tree().process_frame
 	var target_pool_before: Dictionary = pilot_pool.call("get_pool_stats")
 	var target_saved_viewed: Variant = flight_director.get("current_viewed_aircraft")
 	var target_saved_player: Variant = flight_director.get("player_controlled_plane")
 	flight_director.set("current_viewed_aircraft", null)
 	flight_director.set("player_controlled_plane", null)
-	budget.call("_apply_budget_to_unit", aircraft, null)
+	var target_budget_elapsed_ms := 0.0
+	for target_aircraft in target_focus_aircraft:
+		target_focus_panel.focused_node = target_aircraft
+		var target_budget_start_usec := Time.get_ticks_usec()
+		budget.call("_apply_budget_to_unit", target_aircraft, null)
+		target_budget_elapsed_ms = maxf(
+			target_budget_elapsed_ms,
+			float(Time.get_ticks_usec() - target_budget_start_usec) * 0.001
+		)
+		_require(target_aircraft.get_node_or_null("HeadsUpDisplay") == null, "target feed restored the target aircraft HUD")
+		_require(target_aircraft.get_node_or_null("CockpitPilot") == null, "target feed restored the target aircraft pilot")
+		_require(str(target_aircraft.get_meta("visual_budget_band", "")) != "human", "target feed promoted target AI to player cadence")
+		_require(bool(target_aircraft.get_meta("visual_budget_ai_detail_enabled", false)), "target feed did not retain exterior detail")
+		_require(bool(target_aircraft.get_meta("visual_budget_shadows_enabled", false)), "target feed did not retain exterior shadows")
+		_require(not bool(target_aircraft.get_meta("visual_budget_ai_audio_enabled", true)), "target feed enabled distant target audio")
 	flight_director.set("current_viewed_aircraft", target_saved_viewed)
 	flight_director.set("player_controlled_plane", target_saved_player)
 	var target_pool_after: Dictionary = pilot_pool.call("get_pool_stats")
-	_require(aircraft.get_node_or_null("HeadsUpDisplay") == null, "target feed restored the target aircraft HUD")
-	_require(aircraft.get_node_or_null("CockpitPilot") == null, "target feed restored the target aircraft pilot")
-	_require(str(aircraft.get_meta("visual_budget_band", "")) != "human", "target feed promoted target AI to player cadence")
-	_require(bool(aircraft.get_meta("visual_budget_ai_detail_enabled", false)), "target feed did not retain exterior detail")
-	_require(bool(aircraft.get_meta("visual_budget_shadows_enabled", false)), "target feed did not retain exterior shadows")
-	_require(not bool(aircraft.get_meta("visual_budget_ai_audio_enabled", true)), "target feed enabled distant target audio")
 	_require(
 		int(target_pool_after.get("acquire_count", -1)) == int(target_pool_before.get("acquire_count", -2)),
 		"target-feed switch checked out a pooled pilot"
 	)
+	print("[AircraftActivityBudgetSmoketest] target_focus_ok switches=%d max_budget_ms=%.3f pilot_acquire_delta=%d exterior_detail=%s" % [
+		target_focus_aircraft.size(),
+		target_budget_elapsed_ms,
+		int(target_pool_after.get("acquire_count", 0)) - int(target_pool_before.get("acquire_count", 0)),
+		str(bool(aircraft.get_meta("visual_budget_ai_detail_enabled", false))),
+	])
 	target_focus_panel.queue_free()
+	for target_index in range(1, target_focus_aircraft.size()):
+		var cleanup_target := target_focus_aircraft[target_index]
+		budget.call("release_aircraft_cache", cleanup_target, true)
+		cleanup_target.queue_free()
 	await get_tree().process_frame
 	_require(flight_director != null and bool(flight_director.call("_node_has_cameras", aircraft)), "detached AI aircraft disappeared from camera cycling")
 	flight_director.call("_set_aircraft_view_ui_enabled", aircraft, true)
@@ -350,7 +381,10 @@ func _run() -> void:
 		if String(child.name).begins_with("AircraftDebrisChunk_"):
 			destruction_chunk_count += 1
 	_require(destruction_chunk_count == 0, "aircraft debris was allocated in the destruction frame")
-	for _frame in range(40):
+	# The debris burst is deliberately spread over 0.28 seconds. A fixed frame
+	# count can expire too early in an uncapped Forward+ validation run.
+	var destruction_deadline_msec := Time.get_ticks_msec() + 1500
+	while Time.get_ticks_msec() < destruction_deadline_msec:
 		await get_tree().process_frame
 		destruction_chunk_count = 0
 		for child in get_children():
@@ -365,7 +399,12 @@ func _run() -> void:
 			child.queue_free()
 	await get_tree().process_frame
 
-	print("[AircraftActivityBudgetSmoketest] PASS viewports=%d detail_nodes=%d" % [viewports.size(), detail_nodes.size()])
+	print("[AircraftActivityBudgetSmoketest] PASS viewports=%d detail_nodes=%d target_budget_ms=%.3f target_pool_acquire_delta=%d" % [
+		viewports.size(),
+		detail_nodes.size(),
+		target_budget_elapsed_ms,
+		int(target_pool_after.get("acquire_count", 0)) - int(target_pool_before.get("acquire_count", 0)),
+	])
 	get_tree().quit(0)
 
 

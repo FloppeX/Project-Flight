@@ -4,7 +4,7 @@ extends Node
 
 @export var phase_duration_s: float = 300.0   ## 5 min per phase
 @export var start_phase: int = 0              ## 0=Dawn 1=Day 2=Dusk 3=Twilight
-@export var freeze_daytime: bool = true       ## Hold the cycle at noon/day for visual testing
+@export var freeze_daytime: bool = false      ## Test modes may hold the cycle at noon/day
 @export_range(0.0, 1.0, 0.001) var frozen_daytime_t: float = 0.25
 @export_range(1.0, 89.9, 0.1) var sun_max_elevation_deg: float = 89.0
 

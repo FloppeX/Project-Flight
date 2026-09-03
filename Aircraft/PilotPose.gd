@@ -1302,6 +1302,7 @@ func _apply_retargeted_animation_frame() -> void:
 	if _retarget_parachute_pose_active:
 		_apply_parachute_source_pose_adjustments()
 	_skeleton.reset_bone_poses()
+	var solve_full_control_chains := _has_full_arp_control_chains()
 	for pair in _retarget_bone_pairs:
 		var source_index := int(pair["source"])
 		var target_index := int(pair["target"])
@@ -1331,14 +1332,116 @@ func _apply_retargeted_animation_frame() -> void:
 			desired_local.basis.orthonormalized().get_rotation_quaternion()
 		)
 		_skeleton.set_bone_pose_position(target_index, desired_local.origin)
-	_apply_retargeted_leg_chain(false)
-	_apply_retargeted_leg_chain(true)
-	if _retarget_parachute_pose_active:
-		_apply_saved_parachute_arm_pose(false)
-		_apply_saved_parachute_arm_pose(true)
+	if solve_full_control_chains:
+		_apply_retargeted_leg_chain(false)
+		_apply_retargeted_leg_chain(true)
+		if _retarget_parachute_pose_active:
+			_apply_saved_parachute_arm_pose(false)
+			_apply_saved_parachute_arm_pose(true)
+		else:
+			_apply_retargeted_arm_chain(false)
+			_apply_retargeted_arm_chain(true)
 	else:
-		_apply_retargeted_arm_chain(false)
-		_apply_retargeted_arm_chain(true)
+		_apply_retargeted_simplified_leg_chain(false)
+		_apply_retargeted_simplified_leg_chain(true)
+		_apply_retargeted_simplified_arm_chain(false)
+		_apply_retargeted_simplified_arm_chain(true)
+
+
+func _has_full_arp_control_chains() -> bool:
+	return _skeleton != null \
+			and _skeleton.find_bone("arm.l") >= 0 \
+			and _skeleton.find_bone("forearm.l") >= 0 \
+			and _skeleton.find_bone("thigh.l") >= 0 \
+			and _skeleton.find_bone("leg.l") >= 0
+
+
+func _apply_retargeted_simplified_arm_chain(right_side: bool) -> void:
+	var source_prefix := "mixamorig_Right" if right_side else "mixamorig_Left"
+	var suffix := ".r" if right_side else ".l"
+	var source_shoulder := _find_mixamo_source_bone(
+		_retarget_source_skeleton, StringName(source_prefix + "Shoulder")
+	)
+	var source_arm := _find_mixamo_source_bone(
+		_retarget_source_skeleton, StringName(source_prefix + "Arm")
+	)
+	var source_forearm := _find_mixamo_source_bone(
+		_retarget_source_skeleton, StringName(source_prefix + "ForeArm")
+	)
+	var source_hand := _find_mixamo_source_bone(
+		_retarget_source_skeleton, StringName(source_prefix + "Hand")
+	)
+	var source_palm := _find_mixamo_source_bone(
+		_retarget_source_skeleton, StringName(source_prefix + "HandMiddle1")
+	)
+	var target_shoulder := _skeleton.find_bone("shoulder" + suffix)
+	var target_arm := _skeleton.find_bone("arm_stretch" + suffix)
+	var target_forearm := _skeleton.find_bone("forearm_stretch" + suffix)
+	var target_hand := _skeleton.find_bone("hand" + suffix)
+	var target_palm := _skeleton.find_bone("middle1_base" + suffix)
+	if source_shoulder < 0 or source_arm < 0 or source_forearm < 0 \
+			or source_hand < 0 or source_palm < 0 or target_shoulder < 0 \
+			or target_arm < 0 or target_forearm < 0 or target_hand < 0 \
+			or target_palm < 0:
+		return
+	_aim_target_bone_from_source_segment(
+		target_shoulder, target_arm, source_shoulder, source_arm
+	)
+	_aim_target_bone_from_source_segment(
+		target_arm, target_forearm, source_arm, source_forearm
+	)
+	_aim_target_bone_from_source_segment(
+		target_forearm, target_hand, source_forearm, source_hand
+	)
+	_aim_target_bone_from_source_segment(
+		target_hand, target_palm, source_hand, source_palm, true
+	)
+	_apply_control_motion_to_deform_bone(
+		target_arm, _skeleton.find_bone("arm_twist" + suffix)
+	)
+	_apply_control_motion_to_deform_bone(
+		target_forearm, _skeleton.find_bone("forearm_twist" + suffix)
+	)
+
+
+func _apply_retargeted_simplified_leg_chain(right_side: bool) -> void:
+	var source_prefix := "mixamorig_Right" if right_side else "mixamorig_Left"
+	var suffix := ".r" if right_side else ".l"
+	var source_thigh := _find_mixamo_source_bone(
+		_retarget_source_skeleton, StringName(source_prefix + "UpLeg")
+	)
+	var source_leg := _find_mixamo_source_bone(
+		_retarget_source_skeleton, StringName(source_prefix + "Leg")
+	)
+	var source_foot := _find_mixamo_source_bone(
+		_retarget_source_skeleton, StringName(source_prefix + "Foot")
+	)
+	var source_toe := _find_mixamo_source_bone(
+		_retarget_source_skeleton, StringName(source_prefix + "ToeBase")
+	)
+	var target_thigh := _skeleton.find_bone("thigh_stretch" + suffix)
+	var target_leg := _skeleton.find_bone("leg_stretch" + suffix)
+	var target_foot := _skeleton.find_bone("foot" + suffix)
+	var target_toe := _skeleton.find_bone("toes_01" + suffix)
+	if source_thigh < 0 or source_leg < 0 or source_foot < 0 or source_toe < 0 \
+			or target_thigh < 0 or target_leg < 0 or target_foot < 0 \
+			or target_toe < 0:
+		return
+	_aim_target_bone_from_source_segment(
+		target_thigh, target_leg, source_thigh, source_leg
+	)
+	_aim_target_bone_from_source_segment(
+		target_leg, target_foot, source_leg, source_foot
+	)
+	_aim_target_bone_from_source_segment(
+		target_foot, target_toe, source_foot, source_toe, true
+	)
+	_apply_control_motion_to_deform_bone(
+		target_thigh, _skeleton.find_bone("thigh_twist" + suffix)
+	)
+	_apply_control_motion_to_deform_bone(
+		target_leg, _skeleton.find_bone("leg_twist" + suffix)
+	)
 
 
 func _apply_saved_parachute_arm_pose(right_side: bool) -> void:

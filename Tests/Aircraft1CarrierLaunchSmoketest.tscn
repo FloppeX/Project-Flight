@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://Tests/Aircraft1CarrierLaunchSmoketest.gd" id="1"]
+
+[node name="Aircraft1CarrierLaunchSmoketest" type="Node3D"]
+script = ExtResource("1")

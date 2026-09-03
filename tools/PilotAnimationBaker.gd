@@ -6,6 +6,7 @@ extends SceneTree
 
 const PILOT_SCENE := "res://Models/Characters/pilot/PilotCharacter.tscn"
 const OUTPUT_LIBRARY := "res://Models/Characters/pilot/animations/pilot_animation_library.tres"
+const OFFICER_IDLE_OUTPUT_LIBRARY := "res://Models/Characters/pilot/animations/officer_idle_animation_library.tres"
 const APPROVED_RUN_ANIMATION := "res://Models/Characters/pilot/animations/approved_run_animation.tres"
 const SAMPLE_FPS := 30.0
 ## The source piloting clip bows the helmet forward by about 38 degrees, which
@@ -22,6 +23,11 @@ const PROCEDURAL_YAW_CLIPS := [&"turn_left", &"turn_right"]
 const CLIPS := [
 	{"file": "Breathing Idle.fbx", "name": &"idle_breathing", "loop": true},
 	{"file": "Neutral Idle.fbx", "name": &"idle_neutral", "loop": true},
+	{"file": "Idle 3.fbx", "name": &"idle_3", "loop": true, "officer_only": true},
+	{"file": "Idle 4.fbx", "name": &"idle_4", "loop": true, "officer_only": true},
+	{"file": "Idle 5.fbx", "name": &"idle_5", "loop": true, "officer_only": true},
+	{"file": "Idle 6.fbx", "name": &"idle_6", "loop": true, "officer_only": true},
+	{"file": "Idle 7.fbx", "name": &"idle_7", "loop": true, "officer_only": true},
 	{"file": "Walking.fbx", "name": &"walk", "loop": true},
 	{"file": "running.fbx", "name": &"run", "loop": true},
 	{"file": "Left Turn.fbx", "name": &"turn_left", "loop": false},
@@ -57,9 +63,12 @@ func _bake() -> void:
 	# track path starts at the visible Pilot branch rather than at the player.
 	var skeleton_from_player := pilot.get_path_to(target_skeleton)
 	var library := AnimationLibrary.new()
+	var officer_idle_library := AnimationLibrary.new()
 
 	for clip in CLIPS:
 		var clip_name := StringName(clip["name"])
+		var target_library := officer_idle_library \
+			if bool(clip.get("officer_only", false)) else library
 		# The running clip was already approved in motion before the general Mixamo
 		# repair. Preserve that exact bake as data: attempting to recreate it with a
 		# special-case solver twice produced visibly different, bad arm motion.
@@ -122,7 +131,7 @@ func _bake() -> void:
 		if baked == null:
 			_fail("bake failed: %s" % source_path)
 			return
-		var add_error := library.add_animation(clip_name, baked)
+		var add_error := target_library.add_animation(clip_name, baked)
 		if add_error != OK:
 			_fail("could not add baked clip %s (error %d)" % [clip["name"], add_error])
 			return
@@ -138,8 +147,17 @@ func _bake() -> void:
 	if save_error != OK:
 		_fail("could not save animation library (error %d)" % save_error)
 		return
-	print("[PilotAnimationBaker] PASS clips=%d output=%s" % [
-		library.get_animation_list().size(), ProjectSettings.globalize_path(OUTPUT_LIBRARY),
+	var officer_save_error := ResourceSaver.save(
+		officer_idle_library, OFFICER_IDLE_OUTPUT_LIBRARY
+	)
+	if officer_save_error != OK:
+		_fail("could not save officer idle library (error %d)" % officer_save_error)
+		return
+	print("[PilotAnimationBaker] PASS clips=%d officer_idle_clips=%d output=%s officer_output=%s" % [
+		library.get_animation_list().size(),
+		officer_idle_library.get_animation_list().size(),
+		ProjectSettings.globalize_path(OUTPUT_LIBRARY),
+		ProjectSettings.globalize_path(OFFICER_IDLE_OUTPUT_LIBRARY),
 	])
 	pilot.free()
 	quit(0)

@@ -40,16 +40,25 @@ func _run() -> void:
 		_finish()
 		return
 	var broad_wing_collider := aircraft.get_node_or_null("WingCollider") as CollisionShape3D
+	var left_panel_collider := aircraft.get_node_or_null("LeftWingDamageCollider") as CollisionShape3D
+	var right_panel_collider := aircraft.get_node_or_null("RightWingDamageCollider") as CollisionShape3D
+	var has_localized_wing_colliders := left_panel_collider != null and right_panel_collider != null
 	_expect(broad_wing_collider != null, "Aircraft 1 broad wing collider was not found")
 	if broad_wing_collider != null:
 		wing_fold.set_fold_fraction_immediate(0.0)
-		_expect(not broad_wing_collider.disabled, "wing collider is disabled while fully unfolded")
+		_expect(
+			broad_wing_collider.disabled if has_localized_wing_colliders else not broad_wing_collider.disabled,
+			"broad wing collider state does not match the localized-collider setup while unfolded"
+		)
 		wing_fold.set_fold_fraction_immediate(0.25)
 		_expect(broad_wing_collider.disabled, "wing collider remains active during a partial fold")
 		wing_fold.set_fold_fraction_immediate(1.0)
 		_expect(broad_wing_collider.disabled, "wing collider remains active while fully folded")
 		wing_fold.set_fold_fraction_immediate(0.0)
-		_expect(not broad_wing_collider.disabled, "wing collider did not return after fully unfolding")
+		_expect(
+			broad_wing_collider.disabled if has_localized_wing_colliders else not broad_wing_collider.disabled,
+			"broad wing collider state does not match the localized-collider setup after unfolding"
+		)
 
 	var left_hinge: Vector3 = wing_fold.get("_left_inner_hinge")
 	var right_hinge: Vector3 = wing_fold.get("_right_inner_hinge")

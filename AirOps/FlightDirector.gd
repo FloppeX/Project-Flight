@@ -1,6 +1,7 @@
 extends Node
 
 const AirTaskModel: Script = preload("res://AI/AirTask.gd")
+const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
 
 ## Global Flight Director
 ## Manages spectator mode, pilot handoff, and tracking all active aircraft.
@@ -13,6 +14,7 @@ const AirTaskModel: Script = preload("res://AI/AirTask.gd")
 ##   W                 - place a wind turbine at the free camera position
 
 enum Category { BRIDGE, FRIENDLY, ENEMY }
+enum AircraftTransitionPhase { NONE, EGRESS, TRANSFER, WAITING_FOR_PRESENTATION, ARRIVAL }
 
 const WIND_TURBINE_SCENE: PackedScene = preload("res://Buildings/building_wind_turbine.tscn")
 
@@ -38,9 +40,27 @@ var player_controlled_plane: RigidBody3D = null
 @export var free_camera_max_speed_mps: float = 100.0
 @export var free_camera_look_sensitivity_deg: float = 120.0
 @export var free_camera_pitch_limit_deg: float = 85.0
+@export var bridge_free_camera_rear_distance_m: float = 2.5
+@export var bridge_free_camera_above_focus_m: float = 1.25
+@export var bridge_free_camera_focus_height_m: float = 1.05
 @export var enable_audio_debug_logging: bool = false
 @export var enable_audio_test_tones: bool = false
 @export var audio_debug_interval_s: float = 3.0
+@export_group("Aircraft View Transition")
+@export var aircraft_view_transition_enabled: bool = true
+@export_range(0.1, 1.5, 0.05) var aircraft_transition_egress_s: float = 0.50
+@export_range(0.1, 1.5, 0.05) var aircraft_transition_arrival_s: float = 0.70
+@export_range(0.1, 2.0, 0.05) var aircraft_transition_min_transfer_s: float = 0.70
+@export_range(0.5, 5.0, 0.05) var aircraft_transition_max_transfer_s: float = 3.40
+@export_range(100.0, 100000.0, 100.0) var aircraft_transition_full_duration_distance_m: float = 15000.0
+@export_range(1.0, 30.0, 0.5) var aircraft_transition_gate_behind_m: float = 7.0
+@export_range(0.5, 15.0, 0.25) var aircraft_transition_gate_above_m: float = 3.0
+@export_range(0.25, 5.0, 0.25) var aircraft_transition_canopy_clearance_m: float = 1.5
+@export_range(1.0, 30.0, 0.5) var helicopter_transition_gate_ahead_m: float = 10.0
+@export_range(0.5, 15.0, 0.25) var helicopter_transition_gate_above_m: float = 4.0
+@export_range(0.25, 8.0, 0.25) var helicopter_transition_clearance_m: float = 2.5
+@export_range(0.0, 25.0, 0.5) var aircraft_transition_max_fov_boost_deg: float = 8.0
+@export_group("")
 
 var _destroyed_plane_linger_active: bool = false
 var _destroyed_plane_linger_until_s: float = 0.0
@@ -56,6 +76,25 @@ var _status_overlay_layer: CanvasLayer = null
 var _ai_status_label: Label = null
 var _pilot_name_label: Label = null
 var _ui_visible_aircraft: RigidBody3D = null
+var _aircraft_transition_active: bool = false
+var _aircraft_transition_phase: AircraftTransitionPhase = AircraftTransitionPhase.NONE
+var _aircraft_transition_camera: Camera3D = null
+var _aircraft_transition_source: RigidBody3D = null
+var _aircraft_transition_target: RigidBody3D = null
+var _aircraft_transition_source_endpoint: Node3D = null
+var _aircraft_transition_target_endpoint: Node3D = null
+var _aircraft_transition_source_category: Category = Category.BRIDGE
+var _aircraft_transition_target_category: Category = Category.FRIENDLY
+var _aircraft_transition_source_camera: Camera3D = null
+var _aircraft_transition_bridge_camera: Camera3D = null
+var _aircraft_transition_phase_elapsed_s: float = 0.0
+var _aircraft_transition_transfer_duration_s: float = 0.0
+var _aircraft_transition_transfer_distance_m: float = 0.0
+var _aircraft_transition_source_start_local: Transform3D = Transform3D.IDENTITY
+var _aircraft_transition_transfer_start: Transform3D = Transform3D.IDENTITY
+var _aircraft_transition_arrival_start_local: Transform3D = Transform3D.IDENTITY
+var _aircraft_transition_base_fov: float = 75.0
+var _aircraft_transition_presentation_complete: bool = true
 
 # Legacy - kept so AIToggle.register_aircraft still compiles
 var active_aircraft: Array[RigidBody3D] = []
@@ -159,6 +198,7 @@ var _audio_debug_timer: float = 0.0
 var _audio_test_player: AudioStreamPlayer = null
 var _audio_test_started: bool = false
 func _process(delta: float) -> void:
+	_update_aircraft_camera_transition(delta)
 	_sync_viewed_aircraft_ui()
 	_update_ai_status_overlay()
 	_update_pilot_name_overlay()
@@ -189,6 +229,9 @@ func _input(event):
 		return
 
 	if event is InputEventKey and event.pressed and not event.echo and event.physical_keycode == KEY_SPACE:
+		if _aircraft_transition_active:
+			get_viewport().set_input_as_handled()
+			return
 		if not _destroyed_plane_linger_active:
 			_toggle_free_camera()
 		get_viewport().set_input_as_handled()
@@ -213,6 +256,24 @@ func _input(event):
 			_finish_destroyed_plane_linger()
 			# Don't return — let the input fall through to normal handling below
 		else:
+			return
+
+	# Target cycling may retarget a transition already in flight. Camera-mode and
+	# possession changes wait for the short handoff to finish so they cannot make
+	# the temporary camera select or control the source aircraft by accident.
+	if _aircraft_transition_active:
+		if not is_player_controlling:
+			if _is_action_pressed_event(event, "spectate_next"):
+				cycle_target(1)
+				get_viewport().set_input_as_handled()
+				return
+			elif _is_action_pressed_event(event, "spectate_prev"):
+				cycle_target(-1)
+				get_viewport().set_input_as_handled()
+				return
+		if _is_action_pressed_event(event, "switch_camera") \
+		or _is_action_pressed_event(event, "toggle_player_control"):
+			get_viewport().set_input_as_handled()
 			return
 
 	if _free_camera_active:
@@ -366,7 +427,10 @@ func _get_enemy_aircraft() -> Array:
 func _is_camera_cycle_excluded(node: Node) -> bool:
 	return node != null and (
 		bool(node.get_meta("camera_abandoned", false))
-		or bool(node.get_meta("visual_budget_presentation_staging", false))
+		or (
+			bool(node.get_meta("visual_budget_presentation_staging", false))
+			and (not _aircraft_transition_active or node != _aircraft_transition_target)
+		)
 	)
 
 func _select_friendly_index_for(target: RigidBody3D) -> void:
@@ -403,6 +467,9 @@ func _has_bridge_camera() -> bool:
 func cycle_target(direction: int):
 	var friendlies := _get_friendly_aircraft()
 	var has_bridge := _has_bridge_camera()
+	var navigation_aircraft: RigidBody3D = _aircraft_transition_target \
+		if _aircraft_transition_active and is_instance_valid(_aircraft_transition_target) \
+		else current_viewed_aircraft
 
 	var slots: Array = []
 	if has_bridge:
@@ -422,7 +489,7 @@ func cycle_target(direction: int):
 				break
 			elif s.cat == Category.FRIENDLY:
 				var ac = friendlies[s.idx] if s.idx < friendlies.size() else null
-				if is_instance_valid(current_viewed_aircraft) and ac == current_viewed_aircraft:
+				if is_instance_valid(navigation_aircraft) and ac == navigation_aircraft:
 					cur = i
 					break
 				elif s.idx == friendly_index and not is_instance_valid(current_viewed_aircraft):
@@ -472,14 +539,16 @@ func _activate_view():
 
 	match current_category:
 		Category.BRIDGE:
-			current_viewed_aircraft = null
+			if _aircraft_transition_active:
+				var transition_bridge_cam := _activate_bridge_camera_mode(carrier_cam_mode)
+				if _aircraft_transition_target_category != Category.BRIDGE:
+					_retarget_bridge_camera_transition(transition_bridge_cam)
+				return
 			var bridge_cam := _activate_bridge_camera_mode(carrier_cam_mode)
-			if is_instance_valid(bridge_cam):
-				_force_current_camera(bridge_cam)
-				active_controller_camera_system = cc
-			elif cc and cc.has_method("switch_to_camera"):
-				cc.switch_to_camera(3)
-				active_controller_camera_system = cc
+			if _should_transition_to_bridge(bridge_cam):
+				_begin_bridge_camera_transition(bridge_cam)
+				return
+			_activate_bridge_view_now(bridge_cam, cc)
 
 		Category.FRIENDLY:
 			var friendlies := _get_friendly_aircraft()
@@ -515,6 +584,17 @@ func _sync_view_target_for_free_camera() -> void:
 			current_viewed_aircraft = null
 
 func _view_aircraft(ac: RigidBody3D):
+	if _aircraft_transition_active:
+		if ac != _aircraft_transition_target:
+			_retarget_aircraft_camera_transition(ac)
+		return
+	if _should_transition_to_aircraft(ac):
+		_begin_aircraft_camera_transition(ac)
+		return
+	_activate_aircraft_view_now(ac)
+
+
+func _activate_aircraft_view_now(ac: RigidBody3D) -> void:
 	current_viewed_aircraft = ac
 	_ensure_aircraft_presentation_attached(ac)
 
@@ -534,6 +614,668 @@ func _view_aircraft(ac: RigidBody3D):
 	elif player_cc and player_cc.has_method("switch_to_camera"):
 		player_cc.switch_to_camera(aircraft_cam_mode)
 		active_controller_camera_system = player_cc
+
+
+func _activate_bridge_view_now(bridge_cam: Camera3D, fallback_controller: Node = null) -> void:
+	current_viewed_aircraft = null
+	if is_instance_valid(bridge_cam):
+		_force_current_camera(bridge_cam)
+		active_controller_camera_system = fallback_controller
+	elif fallback_controller and fallback_controller.has_method("switch_to_camera"):
+		fallback_controller.switch_to_camera(3)
+		active_controller_camera_system = fallback_controller
+
+
+func _should_transition_to_aircraft(ac: RigidBody3D) -> bool:
+	if not aircraft_view_transition_enabled \
+	or _free_camera_active \
+	or _destroyed_plane_linger_active \
+	or not is_instance_valid(ac) \
+	or ac == current_viewed_aircraft:
+		return false
+	# Ejected bodies use the player aircraft's camera controller as a remote
+	# focus target and do not have a cockpit envelope of their own.
+	if ac.is_in_group("ejected_pilots") \
+	or (is_instance_valid(current_viewed_aircraft) and current_viewed_aircraft.is_in_group("ejected_pilots")):
+		return false
+	var viewport := get_viewport()
+	if viewport == null or not is_instance_valid(viewport.get_camera_3d()):
+		return false
+	return is_instance_valid(current_viewed_aircraft) \
+		or _is_carrier_camera(viewport.get_camera_3d())
+
+
+func _should_transition_to_bridge(bridge_cam: Camera3D) -> bool:
+	if not aircraft_view_transition_enabled \
+	or _free_camera_active \
+	or _destroyed_plane_linger_active \
+	or not is_instance_valid(bridge_cam) \
+	or not is_instance_valid(current_viewed_aircraft) \
+	or current_viewed_aircraft.is_in_group("ejected_pilots"):
+		return false
+	var viewport := get_viewport()
+	return viewport != null and is_instance_valid(viewport.get_camera_3d())
+
+
+func _begin_aircraft_camera_transition(ac: RigidBody3D) -> void:
+	_begin_view_camera_transition(ac, Category.FRIENDLY, ac, null)
+
+
+func _begin_bridge_camera_transition(bridge_cam: Camera3D) -> void:
+	var provider := _get_bridge_camera_provider() as Node3D
+	if not is_instance_valid(provider) or not is_instance_valid(bridge_cam):
+		_activate_bridge_view_now(bridge_cam, _get_player_camera_controller())
+		return
+	_begin_view_camera_transition(provider, Category.BRIDGE, null, bridge_cam)
+
+
+func _begin_view_camera_transition(
+	target_endpoint: Node3D,
+	target_category: Category,
+	target_aircraft: RigidBody3D,
+	bridge_camera: Camera3D
+) -> void:
+	var viewport := get_viewport()
+	var source_camera: Camera3D = viewport.get_camera_3d() if viewport != null else null
+	if not is_instance_valid(source_camera):
+		if target_category == Category.FRIENDLY and is_instance_valid(target_aircraft):
+			_activate_aircraft_view_now(target_aircraft)
+		elif target_category == Category.BRIDGE:
+			_activate_bridge_view_now(bridge_camera, _get_player_camera_controller())
+		return
+
+	_aircraft_transition_active = true
+	_aircraft_transition_source = current_viewed_aircraft
+	_aircraft_transition_target = target_aircraft
+	_aircraft_transition_source_category = Category.FRIENDLY \
+		if is_instance_valid(current_viewed_aircraft) else Category.BRIDGE
+	_aircraft_transition_target_category = target_category
+	_aircraft_transition_source_endpoint = current_viewed_aircraft \
+		if is_instance_valid(current_viewed_aircraft) \
+		else _get_bridge_camera_provider() as Node3D
+	_aircraft_transition_target_endpoint = target_endpoint
+	_aircraft_transition_source_camera = source_camera
+	_aircraft_transition_bridge_camera = bridge_camera
+	_aircraft_transition_phase_elapsed_s = 0.0
+	_aircraft_transition_base_fov = source_camera.fov
+	_aircraft_transition_presentation_complete = true
+
+	var transition_camera := _get_or_create_aircraft_transition_camera()
+	_copy_camera_settings(source_camera, transition_camera)
+	transition_camera.global_transform = source_camera.global_transform
+	_force_current_camera(transition_camera)
+
+	if is_instance_valid(_ui_visible_aircraft):
+		_set_aircraft_view_ui_enabled(_ui_visible_aircraft, false)
+	_ui_visible_aircraft = null
+	if is_instance_valid(target_aircraft):
+		_begin_aircraft_transition_presentation(target_aircraft)
+
+	if is_instance_valid(_aircraft_transition_source_endpoint) \
+	and _camera_requires_transition_egress(source_camera, _aircraft_transition_source_category):
+		_aircraft_transition_source_start_local = \
+			_aircraft_transition_source_endpoint.global_transform.affine_inverse() \
+			* source_camera.global_transform
+		_aircraft_transition_phase = AircraftTransitionPhase.EGRESS
+	else:
+		_begin_aircraft_transition_transfer()
+
+
+func _retarget_aircraft_camera_transition(ac: RigidBody3D) -> void:
+	if not _aircraft_transition_active or not is_instance_valid(ac):
+		return
+	_release_aircraft_transition_presentation(_aircraft_transition_target)
+	_aircraft_transition_target = ac
+	_aircraft_transition_target_endpoint = ac
+	_aircraft_transition_target_category = Category.FRIENDLY
+	_aircraft_transition_bridge_camera = null
+	_aircraft_transition_presentation_complete = true
+	_begin_aircraft_transition_presentation(ac)
+	_begin_aircraft_transition_transfer()
+
+
+func _retarget_bridge_camera_transition(bridge_cam: Camera3D) -> void:
+	if not _aircraft_transition_active or not is_instance_valid(bridge_cam):
+		return
+	var provider := _get_bridge_camera_provider() as Node3D
+	if not is_instance_valid(provider):
+		return
+	_release_aircraft_transition_presentation(_aircraft_transition_target)
+	_aircraft_transition_target = null
+	_aircraft_transition_target_endpoint = provider
+	_aircraft_transition_target_category = Category.BRIDGE
+	_aircraft_transition_bridge_camera = bridge_cam
+	_aircraft_transition_presentation_complete = true
+	_begin_aircraft_transition_transfer()
+
+
+func _get_or_create_aircraft_transition_camera() -> Camera3D:
+	if is_instance_valid(_aircraft_transition_camera):
+		return _aircraft_transition_camera
+	var camera := Camera3D.new()
+	camera.name = "AircraftViewTransitionCamera"
+	var parent: Node = get_tree().current_scene if get_tree().current_scene != null else self
+	parent.add_child(camera)
+	_aircraft_transition_camera = camera
+	return camera
+
+
+func _copy_camera_settings(source: Camera3D, destination: Camera3D) -> void:
+	if not is_instance_valid(source) or not is_instance_valid(destination):
+		return
+	destination.projection = source.projection
+	destination.fov = source.fov
+	destination.size = source.size
+	destination.near = source.near
+	destination.far = source.far
+	destination.keep_aspect = source.keep_aspect
+	destination.cull_mask = source.cull_mask
+	destination.environment = source.environment
+	destination.attributes = source.attributes
+	destination.doppler_tracking = source.doppler_tracking
+
+
+func _begin_aircraft_transition_presentation(ac: RigidBody3D) -> void:
+	var visual_budget := get_node_or_null("/root/EnemyVisualBudget")
+	if visual_budget == null \
+	or not visual_budget.has_method("begin_aircraft_view_transition_staging"):
+		return
+	var result: Dictionary = visual_budget.call("begin_aircraft_view_transition_staging", ac)
+	_aircraft_transition_presentation_complete = bool(result.get("complete", true))
+
+
+func _advance_aircraft_transition_presentation() -> void:
+	if _aircraft_transition_presentation_complete \
+	or not is_instance_valid(_aircraft_transition_target):
+		return
+	var visual_budget := get_node_or_null("/root/EnemyVisualBudget")
+	if visual_budget == null \
+	or not visual_budget.has_method("restore_next_staged_aircraft_presentation_root"):
+		_aircraft_transition_presentation_complete = true
+		return
+	var profiler_start: int = FrameProfiler.begin("FlightDirector.aircraft_transition_stage_root")
+	var result: Dictionary = visual_budget.call(
+		"restore_next_staged_aircraft_presentation_root",
+		_aircraft_transition_target
+	)
+	var root_name := str(result.get("root_name", "unknown")).to_snake_case()
+	FrameProfiler.end("FlightDirector.aircraft_transition_stage_%s" % root_name, profiler_start)
+	_aircraft_transition_presentation_complete = bool(result.get("complete", true))
+
+
+func _release_aircraft_transition_presentation(ac: RigidBody3D) -> void:
+	if not is_instance_valid(ac):
+		return
+	var visual_budget := get_node_or_null("/root/EnemyVisualBudget")
+	if visual_budget != null \
+	and visual_budget.has_method("release_aircraft_presentation_keep_attached"):
+		visual_budget.call("release_aircraft_presentation_keep_attached", ac)
+
+
+func _update_aircraft_camera_transition(delta: float) -> void:
+	if not _aircraft_transition_active:
+		return
+	if not is_instance_valid(_aircraft_transition_camera) \
+	or not is_instance_valid(_aircraft_transition_target_endpoint):
+		_cancel_aircraft_camera_transition(true)
+		return
+
+	_advance_aircraft_transition_presentation()
+	match _aircraft_transition_phase:
+		AircraftTransitionPhase.EGRESS:
+			_update_aircraft_transition_egress(delta)
+		AircraftTransitionPhase.TRANSFER:
+			_update_aircraft_transition_transfer(delta)
+		AircraftTransitionPhase.WAITING_FOR_PRESENTATION:
+			_update_aircraft_transition_waiting()
+		AircraftTransitionPhase.ARRIVAL:
+			_update_aircraft_transition_arrival(delta)
+		_:
+			_cancel_aircraft_camera_transition(true)
+
+
+func _update_aircraft_transition_egress(delta: float) -> void:
+	if not is_instance_valid(_aircraft_transition_source_endpoint):
+		_begin_aircraft_transition_transfer()
+		return
+	_aircraft_transition_phase_elapsed_s += maxf(delta, 0.0)
+	var duration := maxf(aircraft_transition_egress_s, 0.01)
+	var linear_t := clampf(_aircraft_transition_phase_elapsed_s / duration, 0.0, 1.0)
+	var eased_t := _aircraft_transition_smootherstep(linear_t)
+	var gate_local := _get_transition_gate_local(
+		_aircraft_transition_source_endpoint,
+		_aircraft_transition_source_category
+	)
+	var start_position := _aircraft_transition_source_start_local.origin
+	var clearance := _get_transition_clearance_m(
+		_aircraft_transition_source_endpoint,
+		_aircraft_transition_source_category
+	)
+	var first_control := _get_transition_interior_control_position(
+		start_position,
+		gate_local.origin,
+		clearance,
+		_aircraft_transition_source_endpoint,
+		_aircraft_transition_source_category
+	)
+	var second_control := gate_local.origin + Vector3.UP * clearance * 0.5
+	var local_position := start_position.bezier_interpolate(
+		first_control,
+		second_control,
+		gate_local.origin,
+		eased_t
+	)
+	var local_basis := _aircraft_transition_source_start_local.basis.orthonormalized().slerp(
+		gate_local.basis.orthonormalized(),
+		eased_t
+	)
+	var local_transform := Transform3D(local_basis, local_position)
+	_aircraft_transition_camera.global_transform = \
+		_aircraft_transition_source_endpoint.global_transform * local_transform
+	# Keep the cockpit's very small near plane while crossing the transparent
+	# canopy, then adopt a stable exterior value before the fast transfer.
+	_aircraft_transition_camera.near = lerpf(
+		_aircraft_transition_camera.near,
+		maxf(_aircraft_transition_camera.near, 0.1),
+		eased_t
+	)
+	if linear_t >= 1.0:
+		_begin_aircraft_transition_transfer()
+
+
+func _begin_aircraft_transition_transfer() -> void:
+	if not is_instance_valid(_aircraft_transition_camera) \
+	or not is_instance_valid(_aircraft_transition_target_endpoint):
+		_cancel_aircraft_camera_transition(true)
+		return
+	_aircraft_transition_phase = AircraftTransitionPhase.TRANSFER
+	_aircraft_transition_phase_elapsed_s = 0.0
+	_aircraft_transition_transfer_start = _aircraft_transition_camera.global_transform
+	var target_gate := _get_transition_gate_world(
+		_aircraft_transition_target_endpoint,
+		_aircraft_transition_target_category
+	)
+	_aircraft_transition_transfer_distance_m = \
+		_aircraft_transition_transfer_start.origin.distance_to(target_gate.origin)
+	_aircraft_transition_transfer_duration_s = _calculate_aircraft_transition_transfer_duration(
+		_aircraft_transition_transfer_distance_m
+	)
+	print("[FlightDirector] View transition source=%s target=%s distance_m=%.1f transfer_s=%.2f" % [
+		_aircraft_transition_source_endpoint.name if is_instance_valid(_aircraft_transition_source_endpoint) else "none",
+		_aircraft_transition_target_endpoint.name,
+		_aircraft_transition_transfer_distance_m,
+		_aircraft_transition_transfer_duration_s,
+	])
+
+
+func _update_aircraft_transition_transfer(delta: float) -> void:
+	_aircraft_transition_phase_elapsed_s += maxf(delta, 0.0)
+	var duration := maxf(_aircraft_transition_transfer_duration_s, 0.01)
+	var linear_t := clampf(_aircraft_transition_phase_elapsed_s / duration, 0.0, 1.0)
+	var eased_t := _aircraft_transition_smootherstep(linear_t)
+	var start_position := _aircraft_transition_transfer_start.origin
+	var target_gate := _get_transition_gate_world(
+		_aircraft_transition_target_endpoint,
+		_aircraft_transition_target_category
+	)
+	var end_position := target_gate.origin
+	var displacement := end_position - start_position
+	var distance_m := maxf(displacement.length(), 0.001)
+	var direction := displacement / distance_m
+	var clearance := clampf(_aircraft_transition_transfer_distance_m * 0.08, 8.0, 400.0)
+	var first_control := start_position + direction * distance_m * 0.28 + Vector3.UP * clearance
+	var second_control := end_position - direction * distance_m * 0.22 + Vector3.UP * clearance
+	var camera_position := start_position.bezier_interpolate(
+		first_control,
+		second_control,
+		end_position,
+		eased_t
+	)
+	var focus_position := _get_transition_focus_world(
+		_aircraft_transition_target_endpoint,
+		_aircraft_transition_target_category
+	)
+	var look_basis := _aircraft_transition_look_basis(
+		camera_position,
+		focus_position,
+		_aircraft_transition_transfer_start.basis
+	)
+	var turn_t := _aircraft_transition_smootherstep(clampf(linear_t / 0.3, 0.0, 1.0))
+	var camera_basis := _aircraft_transition_transfer_start.basis.orthonormalized().slerp(
+		look_basis,
+		turn_t
+	)
+	_aircraft_transition_camera.global_transform = Transform3D(camera_basis, camera_position)
+	var distance_fraction := clampf(
+		_aircraft_transition_transfer_distance_m \
+			/ maxf(aircraft_transition_full_duration_distance_m, 1.0),
+		0.0,
+		1.0
+	)
+	var fov_boost := sin(linear_t * PI) \
+		* aircraft_transition_max_fov_boost_deg \
+		* sqrt(distance_fraction)
+	_aircraft_transition_camera.fov = _aircraft_transition_base_fov + fov_boost
+	_aircraft_transition_camera.near = maxf(_aircraft_transition_camera.near, 0.1)
+
+	if linear_t < 1.0:
+		return
+	if _is_aircraft_transition_destination_ready():
+		_begin_aircraft_transition_arrival()
+	else:
+		_aircraft_transition_phase = AircraftTransitionPhase.WAITING_FOR_PRESENTATION
+		_aircraft_transition_phase_elapsed_s = 0.0
+
+
+func _update_aircraft_transition_waiting() -> void:
+	var gate := _get_transition_gate_world(
+		_aircraft_transition_target_endpoint,
+		_aircraft_transition_target_category
+	)
+	var focus := _get_transition_focus_world(
+		_aircraft_transition_target_endpoint,
+		_aircraft_transition_target_category
+	)
+	gate.basis = _aircraft_transition_look_basis(gate.origin, focus, gate.basis)
+	_aircraft_transition_camera.global_transform = gate
+	_aircraft_transition_camera.fov = _aircraft_transition_base_fov
+	if _is_aircraft_transition_destination_ready():
+		_begin_aircraft_transition_arrival()
+
+
+func _begin_aircraft_transition_arrival() -> void:
+	if not _is_aircraft_transition_destination_ready():
+		_aircraft_transition_phase = AircraftTransitionPhase.WAITING_FOR_PRESENTATION
+		return
+	_aircraft_transition_phase = AircraftTransitionPhase.ARRIVAL
+	_aircraft_transition_phase_elapsed_s = 0.0
+	_aircraft_transition_arrival_start_local = \
+		_aircraft_transition_target_endpoint.global_transform.affine_inverse() \
+		* _aircraft_transition_camera.global_transform
+
+
+func _update_aircraft_transition_arrival(delta: float) -> void:
+	var destination_camera := _get_transition_destination_camera()
+	if not is_instance_valid(destination_camera):
+		_aircraft_transition_phase = AircraftTransitionPhase.WAITING_FOR_PRESENTATION
+		return
+	_aircraft_transition_phase_elapsed_s += maxf(delta, 0.0)
+	var duration := maxf(aircraft_transition_arrival_s, 0.01)
+	var linear_t := clampf(_aircraft_transition_phase_elapsed_s / duration, 0.0, 1.0)
+	var eased_t := _aircraft_transition_smootherstep(linear_t)
+	var destination_local := _aircraft_transition_target_endpoint.global_transform.affine_inverse() \
+		* destination_camera.global_transform
+	var start_position := _aircraft_transition_arrival_start_local.origin
+	var clearance := _get_transition_clearance_m(
+		_aircraft_transition_target_endpoint,
+		_aircraft_transition_target_category
+	)
+	var first_control := start_position + Vector3.UP * clearance
+	var second_control := _get_transition_interior_control_position(
+		destination_local.origin,
+		start_position,
+		clearance,
+		_aircraft_transition_target_endpoint,
+		_aircraft_transition_target_category
+	)
+	var local_position := start_position.bezier_interpolate(
+		first_control,
+		second_control,
+		destination_local.origin,
+		eased_t
+	)
+	var local_basis := _aircraft_transition_arrival_start_local.basis.orthonormalized().slerp(
+		destination_local.basis.orthonormalized(),
+		eased_t
+	)
+	_aircraft_transition_camera.global_transform = _aircraft_transition_target_endpoint.global_transform \
+		* Transform3D(local_basis, local_position)
+	_aircraft_transition_camera.fov = lerpf(
+		_aircraft_transition_base_fov,
+		destination_camera.fov,
+		eased_t
+	)
+	_aircraft_transition_camera.near = lerpf(
+		maxf(_aircraft_transition_camera.near, 0.1),
+		destination_camera.near,
+		eased_t
+	)
+	if linear_t >= 1.0:
+		_aircraft_transition_camera.global_transform = destination_camera.global_transform
+		_aircraft_transition_camera.fov = destination_camera.fov
+		_complete_aircraft_camera_transition()
+
+
+func _complete_aircraft_camera_transition() -> void:
+	var target_endpoint := _aircraft_transition_target_endpoint
+	var target_category := _aircraft_transition_target_category
+	var target_aircraft := _aircraft_transition_target
+	var target_bridge_camera := _aircraft_transition_bridge_camera
+	if not is_instance_valid(target_endpoint):
+		_cancel_aircraft_camera_transition(true)
+		return
+	if target_category == Category.FRIENDLY and not is_instance_valid(target_aircraft):
+		_cancel_aircraft_camera_transition(true)
+		return
+	_aircraft_transition_active = false
+	_aircraft_transition_phase = AircraftTransitionPhase.NONE
+	var profiler_start: int = FrameProfiler.begin("FlightDirector.aircraft_transition_final_handoff")
+	if target_category == Category.FRIENDLY:
+		current_category = Category.FRIENDLY
+		current_viewed_aircraft = target_aircraft
+		_select_friendly_index_for(target_aircraft)
+		_release_aircraft_transition_presentation(target_aircraft)
+		_activate_aircraft_view_now(target_aircraft)
+	else:
+		current_category = Category.BRIDGE
+		_activate_bridge_view_now(target_bridge_camera, _get_player_camera_controller())
+	FrameProfiler.end("FlightDirector.aircraft_transition_final_handoff", profiler_start)
+	print("[FlightDirector] View transition complete target=%s" % target_endpoint.name)
+	_clear_aircraft_transition_references()
+
+
+func _cancel_aircraft_camera_transition(restore_source_view: bool) -> void:
+	if not _aircraft_transition_active:
+		return
+	var source := _aircraft_transition_source
+	var source_category := _aircraft_transition_source_category
+	var source_camera := _aircraft_transition_source_camera
+	_release_aircraft_transition_presentation(_aircraft_transition_target)
+	_aircraft_transition_active = false
+	_aircraft_transition_phase = AircraftTransitionPhase.NONE
+	if is_instance_valid(_aircraft_transition_camera):
+		_aircraft_transition_camera.current = false
+	_clear_aircraft_transition_references()
+	if restore_source_view and source_category == Category.FRIENDLY and is_instance_valid(source):
+		current_category = Category.FRIENDLY
+		current_viewed_aircraft = source
+		_select_friendly_index_for(source)
+		_activate_aircraft_view_now(source)
+	elif restore_source_view and source_category == Category.BRIDGE:
+		current_viewed_aircraft = null
+		current_category = Category.BRIDGE
+		if is_instance_valid(source_camera):
+			_force_current_camera(source_camera)
+		else:
+			_activate_view()
+	elif restore_source_view:
+		current_viewed_aircraft = null
+		current_category = Category.BRIDGE
+		_activate_view()
+
+
+func _clear_aircraft_transition_references() -> void:
+	_aircraft_transition_source = null
+	_aircraft_transition_target = null
+	_aircraft_transition_source_endpoint = null
+	_aircraft_transition_target_endpoint = null
+	_aircraft_transition_source_camera = null
+	_aircraft_transition_bridge_camera = null
+
+
+func _is_aircraft_transition_destination_ready() -> bool:
+	return _aircraft_transition_presentation_complete \
+		and is_instance_valid(_aircraft_transition_target_endpoint) \
+		and is_instance_valid(_get_transition_destination_camera())
+
+
+func _get_transition_destination_camera() -> Camera3D:
+	if _aircraft_transition_target_category == Category.BRIDGE:
+		return _aircraft_transition_bridge_camera
+	return _get_aircraft_camera(_aircraft_transition_target, "CameraCockpit")
+
+
+func _get_aircraft_cockpit_transform_local(ac: RigidBody3D) -> Transform3D:
+	var cockpit_camera := _get_aircraft_camera(ac, "CameraCockpit")
+	if is_instance_valid(cockpit_camera):
+		return ac.global_transform.affine_inverse() * cockpit_camera.global_transform
+	return Transform3D(Basis.IDENTITY, Vector3(0.0, 1.5, 0.0))
+
+
+func _get_aircraft_transition_gate_local(ac: RigidBody3D) -> Transform3D:
+	return _get_transition_gate_local(ac, Category.FRIENDLY)
+
+
+func _get_transition_gate_local(endpoint: Node3D, category: Category) -> Transform3D:
+	var authored_anchor := endpoint.get_node_or_null("CameraTransitionAnchor") as Node3D
+	if is_instance_valid(authored_anchor):
+		return endpoint.global_transform.affine_inverse() * authored_anchor.global_transform
+	var endpoint_camera := _get_endpoint_camera(endpoint, category)
+	var camera_local := endpoint.global_transform.affine_inverse() * endpoint_camera.global_transform \
+		if is_instance_valid(endpoint_camera) \
+		else Transform3D(Basis.IDENTITY, Vector3(0.0, 1.5, 0.0))
+	var gate_position := camera_local.origin
+	if category == Category.BRIDGE:
+		gate_position += -camera_local.basis.z.normalized() * 12.0 + Vector3.UP * 3.0
+	elif _is_helicopter_endpoint(endpoint):
+		# Helicopter cockpits sit below the rotor. Exit over the nose rather than
+		# backing through the cabin or rising through the rotor disc.
+		gate_position += Vector3.BACK * helicopter_transition_gate_ahead_m \
+			+ Vector3.UP * helicopter_transition_gate_above_m
+	else:
+		gate_position += Vector3.FORWARD * aircraft_transition_gate_behind_m \
+			+ Vector3.UP * aircraft_transition_gate_above_m
+	var gate_basis := _aircraft_transition_look_basis(
+		gate_position,
+		camera_local.origin,
+		camera_local.basis
+	)
+	return Transform3D(gate_basis, gate_position)
+
+
+func _get_aircraft_transition_gate_world(ac: RigidBody3D) -> Transform3D:
+	return _get_transition_gate_world(ac, Category.FRIENDLY)
+
+
+func _get_transition_gate_world(endpoint: Node3D, category: Category) -> Transform3D:
+	return endpoint.global_transform * _get_transition_gate_local(endpoint, category)
+
+
+func _get_aircraft_transition_focus_world(ac: RigidBody3D) -> Vector3:
+	return _get_transition_focus_world(ac, Category.FRIENDLY)
+
+
+func _get_transition_focus_world(endpoint: Node3D, category: Category) -> Vector3:
+	var endpoint_camera := _get_endpoint_camera(endpoint, category)
+	if is_instance_valid(endpoint_camera):
+		return endpoint_camera.global_position
+	return endpoint.global_position + endpoint.global_transform.basis.y.normalized() * 1.5
+
+
+func _get_endpoint_camera(endpoint: Node3D, category: Category) -> Camera3D:
+	if category == Category.BRIDGE:
+		if endpoint == _aircraft_transition_target_endpoint \
+		and is_instance_valid(_aircraft_transition_bridge_camera):
+			return _aircraft_transition_bridge_camera
+		if endpoint != null and endpoint.has_method("get_camera"):
+			var camera_variant: Variant = endpoint.call("get_camera")
+			if is_instance_valid(camera_variant) and camera_variant is Camera3D:
+				return camera_variant as Camera3D
+		return null
+	return _get_aircraft_camera(endpoint as RigidBody3D, "CameraCockpit")
+
+
+func _get_transition_clearance_m(endpoint: Node3D, category: Category) -> float:
+	if category == Category.BRIDGE:
+		return 3.0
+	if _is_helicopter_endpoint(endpoint):
+		return helicopter_transition_clearance_m
+	return aircraft_transition_canopy_clearance_m
+
+
+func _get_transition_interior_control_position(
+	interior_position: Vector3,
+	gate_position: Vector3,
+	clearance_m: float,
+	endpoint: Node3D,
+	category: Category
+) -> Vector3:
+	var result := interior_position + Vector3.UP * clearance_m
+	if category == Category.BRIDGE or _is_helicopter_endpoint(endpoint):
+		var horizontal_offset := gate_position - interior_position
+		horizontal_offset.y = 0.0
+		result += horizontal_offset * 0.45
+	return result
+
+
+func _is_helicopter_endpoint(endpoint: Node3D) -> bool:
+	return is_instance_valid(endpoint) and (
+		bool(endpoint.get_meta("is_helicopter", false))
+		or endpoint.find_child("HelicopterPilot", true, false) != null
+	)
+
+
+func _aircraft_transition_look_basis(
+	from_position: Vector3,
+	target_position: Vector3,
+	fallback_basis: Basis
+) -> Basis:
+	var direction := target_position - from_position
+	if direction.length_squared() < 0.0001:
+		return fallback_basis.orthonormalized()
+	var up := Vector3.UP
+	if absf(direction.normalized().dot(up)) > 0.98:
+		up = Vector3.FORWARD
+	return Transform3D(Basis.IDENTITY, from_position).looking_at(target_position, up).basis
+
+
+func _calculate_aircraft_transition_transfer_duration(distance_m: float) -> float:
+	var minimum := maxf(aircraft_transition_min_transfer_s, 0.01)
+	var maximum := maxf(aircraft_transition_max_transfer_s, minimum)
+	var full_distance := maxf(aircraft_transition_full_duration_distance_m, 1.0)
+	# Logarithmic growth lets very distant aircraft travel much faster in metres
+	# per second without making nearby deck-to-deck switches abrupt.
+	var fraction := log(1.0 + maxf(distance_m, 0.0) / 100.0) \
+		/ log(1.0 + full_distance / 100.0)
+	return lerpf(minimum, maximum, clampf(fraction, 0.0, 1.0))
+
+
+func _aircraft_transition_smootherstep(value: float) -> float:
+	var t := clampf(value, 0.0, 1.0)
+	# Cubic smoothstep reaches useful speed earlier than quintic smootherstep,
+	# avoiding the impression that the camera pauses at every phase boundary.
+	return t * t * (3.0 - 2.0 * t)
+
+
+func is_aircraft_view_transition_active() -> bool:
+	return _aircraft_transition_active
+
+
+func get_aircraft_view_transition_state() -> Dictionary:
+	return {
+		"active": _aircraft_transition_active,
+		"phase": int(_aircraft_transition_phase),
+		"source": _aircraft_transition_source,
+		"target": _aircraft_transition_target,
+		"source_endpoint": _aircraft_transition_source_endpoint,
+		"target_endpoint": _aircraft_transition_target_endpoint,
+		"source_category": int(_aircraft_transition_source_category),
+		"target_category": int(_aircraft_transition_target_category),
+		"transfer_distance_m": _aircraft_transition_transfer_distance_m,
+		"transfer_duration_s": _aircraft_transition_transfer_duration_s,
+		"presentation_complete": _aircraft_transition_presentation_complete,
+	}
+
 
 func _get_player_camera_controller() -> Node:
 	var ccs := get_tree().get_nodes_in_group("camera_controller")
@@ -697,7 +1439,10 @@ func _setup_status_overlay() -> void:
 func _update_ai_status_overlay() -> void:
 	if _ai_status_label == null:
 		return
-	var show_ai := not _free_camera_active and is_instance_valid(current_viewed_aircraft) and _is_aircraft_ai_controlled(current_viewed_aircraft)
+	var show_ai := not _free_camera_active \
+		and not _aircraft_transition_active \
+		and is_instance_valid(current_viewed_aircraft) \
+		and _is_aircraft_ai_controlled(current_viewed_aircraft)
 	_ai_status_label.visible = show_ai
 	if show_ai and is_instance_valid(current_viewed_aircraft):
 		_ai_status_label.text = "AI  %s" % current_viewed_aircraft.name
@@ -709,7 +1454,9 @@ func _update_pilot_name_overlay() -> void:
 	var show_label := false
 	var display_text := ""
 
-	if not _free_camera_active and not _destroyed_plane_linger_active:
+	if not _free_camera_active \
+	and not _destroyed_plane_linger_active \
+	and not _aircraft_transition_active:
 		var active_camera := _get_current_active_camera()
 		if _camera_is_in_cockpit_mount(active_camera):
 			# Use current_viewed_aircraft as authority; fall back to camera tree walk
@@ -734,6 +1481,28 @@ func _camera_is_in_cockpit_mount(camera: Camera3D) -> bool:
 		if node.name == "CameraCockpit":
 			return true
 		node = node.get_parent()
+	return false
+
+
+func _camera_requires_transition_egress(camera: Camera3D, source_category: Category) -> bool:
+	if source_category == Category.FRIENDLY:
+		return _camera_is_in_cockpit_mount(camera)
+	var provider := _get_bridge_camera_provider()
+	return provider != null \
+		and provider.has_method("is_control_room_camera") \
+		and bool(provider.call("is_control_room_camera", camera))
+
+
+func _is_carrier_camera(camera: Camera3D) -> bool:
+	if not is_instance_valid(camera):
+		return false
+	var provider := _get_bridge_camera_provider()
+	if provider == null:
+		return false
+	if provider.has_method("is_carrier_camera"):
+		return bool(provider.call("is_carrier_camera", camera))
+	if provider.has_method("get_camera"):
+		return provider.call("get_camera") == camera
 	return false
 
 func _get_aircraft_for_camera(camera: Camera3D) -> RigidBody3D:
@@ -770,7 +1539,9 @@ func _is_aircraft_ai_controlled(ac: RigidBody3D) -> bool:
 
 func _sync_viewed_aircraft_ui() -> void:
 	var desired_aircraft: RigidBody3D = null
-	if not _free_camera_active and is_instance_valid(current_viewed_aircraft):
+	if not _free_camera_active \
+	and not _aircraft_transition_active \
+	and is_instance_valid(current_viewed_aircraft):
 		desired_aircraft = current_viewed_aircraft
 
 	if _ui_visible_aircraft != desired_aircraft:
@@ -786,7 +1557,16 @@ func _set_aircraft_view_ui_enabled(ac: RigidBody3D, enabled: bool) -> void:
 		return
 	if enabled:
 		_ensure_aircraft_presentation_attached(ac)
-	for node_name in ["CameraController", "HeadsUpDisplay", "InstrumentPanel", "AudioManager3D"]:
+	for node_name in [
+		"CameraController",
+		"CameraCockpit",
+		"CameraChase",
+		"CameraCinematic",
+		"HeadsUpDisplay",
+		"InstrumentPanel",
+		"CockpitCanopyVisibility",
+		"AudioManager3D",
+	]:
 		var node := ac.find_child(node_name, true, false) as Node
 		if node == null:
 			continue
@@ -1032,11 +1812,27 @@ func _enter_free_camera(preserve_player_control: bool = false) -> void:
 	var source_camera: Camera3D = _get_current_active_camera()
 	var free_camera := _get_or_create_free_camera()
 	if source_camera:
+		var bridge_provider := _get_bridge_camera_provider()
+		var is_bridge_control_room_camera := current_category == Category.BRIDGE \
+			and bridge_provider != null \
+			and bridge_provider.has_method("is_control_room_camera") \
+			and bool(bridge_provider.call("is_control_room_camera", source_camera))
 		# Cockpit cameras have a very small near plane (inside the aircraft mesh).
 		# Starting free-look there makes the aircraft invisible and hides the pilot.
 		# Instead, snap to the chase camera position so the cockpit is visible from outside.
 		var is_cockpit_cam: bool = source_camera.near < 0.05
-		if is_cockpit_cam:
+		if is_bridge_control_room_camera and bridge_provider is Node3D:
+			_place_free_camera_behind_bridge_officer(
+				free_camera,
+				source_camera,
+				bridge_provider as Node3D
+			)
+			free_camera.near = 0.1
+			free_camera.fov = source_camera.fov
+			free_camera.far = source_camera.far
+			free_camera.keep_aspect = source_camera.keep_aspect
+			free_camera.projection = source_camera.projection
+		elif is_cockpit_cam:
 			# Find the chase camera for the CURRENTLY VIEWED aircraft specifically.
 			# _get_player_camera_controller() always returns aircraft 1's CC, so it gives
 			# the wrong chase camera when viewing aircraft 2 through its own CameraController.
@@ -1065,6 +1861,25 @@ func _enter_free_camera(preserve_player_control: bool = false) -> void:
 	_free_camera_active = true
 	_sync_free_camera_angles()
 	_force_current_camera(_free_camera)
+
+
+func _place_free_camera_behind_bridge_officer(
+		free_camera: Camera3D,
+		source_camera: Camera3D,
+		officer: Node3D
+) -> void:
+	var rear_direction := source_camera.global_basis.z
+	rear_direction.y = 0.0
+	if rear_direction.length_squared() < 0.0001:
+		rear_direction = officer.global_basis.z
+		rear_direction.y = 0.0
+	rear_direction = rear_direction.normalized()
+	var focus_position := officer.global_position \
+		+ Vector3.UP * bridge_free_camera_focus_height_m
+	free_camera.global_position = focus_position \
+		+ rear_direction * bridge_free_camera_rear_distance_m \
+		+ Vector3.UP * bridge_free_camera_above_focus_m
+	free_camera.look_at(focus_position, Vector3.UP)
 
 func begin_photo_mode_camera() -> bool:
 	if _photo_mode_camera_active:
@@ -1189,6 +2004,8 @@ func _force_current_camera_deferred(camera: Camera3D) -> void:
 	if camera == _free_camera and not _free_camera_active:
 		return
 	if camera == _destroyed_plane_linger_camera and not _destroyed_plane_linger_active:
+		return
+	if camera == _aircraft_transition_camera and not _aircraft_transition_active:
 		return
 
 	var viewport := get_viewport()

@@ -1,10 +1,10 @@
 63f7b34db8d8cdea90c76aacccf841ec
-::res://::1788283552
+::res://::1788457661
 .attack_rewrite_plan.md::TextFile::-1::1786800597::0::1::::<><><>0<>0<><>::
 aircraft4_power_full_cycle_visible_20260730_182056.log::TextFile::-1::1785430151::0::1::::<><><>0<>0<><>::
 aircraft4_power_parse_20260730_182022.log::TextFile::-1::1785428440::0::1::::<><><>0<>0<><>::
 aircraft 13.glb::PackedScene::2774379875175136933::1784417220::1784417221::1::::<><><>0<>0<>7505318a29712a48e435e418b03f9a5d<>res://.godot/imported/aircraft 13.glb-c6bdadf20ad6ca8b80a402055ba0f09b.scn::
-airplane_aero_report.log::TextFile::-1::1788285888::0::1::::<><><>0<>0<><>::
+airplane_aero_report.log::TextFile::-1::1788467510::0::1::::<><><>0<>0<><>::
 ai_cost_cached_moving_rockets_visible_20260731_015711.log::TextFile::-1::1785458346::0::1::::<><><>0<>0<><>::
 ai_cost_optimized_moving_rockets_visible_20260731_015017.log::TextFile::-1::1785455523::0::1::::<><><>0<>0<><>::
 ai_cost_optimized_moving_rockets_visible_20260731_015244.log::TextFile::-1::1785455799::0::1::::<><><>0<>0<><>::
@@ -312,11 +312,11 @@ gun_same_pass_retarget_rotate_visible_20260730_164310.log::TextFile::-1::1785422
 helicopter_paths.log::TextFile/TextFile::-1::1782160918::0::1::::<><><>0<>0<><>::
 heli_combat_champion.json::JSON/JSON::-1::1782108804::0::1::::<><><>0<>0<><>::
 heli_combat_report.log::TextFile/TextFile::-1::1782160757::0::1::::<><><>0<>0<><>::
-heli_combat_tuning.log::TextFile::-1::1788285351::0::1::::<><><>0<>0<><>::
+heli_combat_tuning.log::TextFile::-1::1788469248::0::1::::<><><>0<>0<><>::
 heli_navigation_aircraft_9_champion.json::JSON/JSON::-1::1782101087::0::1::::<><><>0<>0<><>::
 heli_navigation_aircraft_9_tuning.log::TextFile/TextFile::-1::1782104406::0::1::::<><><>0<>0<><>::
 heli_navigation_aircraft_11_champion.json::JSON/JSON::-1::1782142624::0::1::::<><><>0<>0<><>::
-heli_navigation_aircraft_11_tuning.log::TextFile::-1::1788285351::0::1::::<><><>0<>0<><>::
+heli_navigation_aircraft_11_tuning.log::TextFile::-1::1788469248::0::1::::<><><>0<>0<><>::
 heli_navigation_champion.json::JSON/JSON::-1::1782079124::0::1::::<><><>0<>0<><>::
 heli_navigation_report.log::TextFile::-1::1782563474::0::1::::<><><>0<>0<><>::
 heli_navigation_tuning.log::TextFile/TextFile::-1::1782080145::0::1::::<><><>0<>0<><>::
@@ -740,7 +740,7 @@ rail_parse_check_20260726.log::TextFile::-1::1785020844::0::1::::<><><>0<>0<><>:
 random_full_cycle_parse_20260730_164601.log::TextFile::-1::1785422778::0::1::::<><><>0<>0<><>::
 random_loadout_full_cycle_visible_20260730_164640.log::TextFile::-1::1785428405::0::1::::<><><>0<>0<><>::
 rate_damped_turn_visible_20260726_135434.log::TextFile::-1::1785067115::0::1::::<><><>0<>0<><>::
-README.md::TextFile::-1::1788048859::0::1::::<><><>0<>0<><>::
+README.md::TextFile::-1::1788290382::0::1::::<><><>0<>0<><>::
 reciprocal_corridor_parse_20260726_213702.log::TextFile::-1::1785094638::0::1::::<><><>0<>0<><>::
 reciprocal_corridor_visible_20260726_213720.log::TextFile::-1::1785095243::0::1::::<><><>0<>0<><>::
 recovery_arc_capture_parser_20260729_143143_249.log::TextFile::-1::1785328311::0::1::::<><><>0<>0<><>::
@@ -1078,7 +1078,7 @@ ControlLandingGear.gd::GDScript::4571001372849916451::1782308901::0::1::::Aircra
 ControlLandingGear.tscn::PackedScene/PackedScene::3740935361982568792::1756034488::0::1::::<><><>0<>0<><>::uid://b6ehyv3yrllap::::res://addons/simplified_flightsim/aircraft_modules/Controls/ControlLandingGear.gd
 ControlSteering.gd::GDScript::46650950441067335::1788037287::0::1::::AircraftModule_ControlSteering<>AircraftModule<><>0<>0<><>::
 ControlSteering.tscn::PackedScene/PackedScene::3399482824584195869::1756034488::0::1::::<><><>0<>0<><>::uid://wulmq24ws6b::::res://addons/simplified_flightsim/aircraft_modules/Controls/ControlSteering.gd
-ControlTargeting.gd::GDScript::3380802731348927525::1787775009::0::1::::AircraftModule_ControlTargeting<>AircraftModule<><>0<>0<><>::
+ControlTargeting.gd::GDScript::3380802731348927525::1788297664::0::1::::AircraftModule_ControlTargeting<>AircraftModule<><>0<>0<><>::
 ::res://addons/simplified_flightsim/aircraft_modules/EnergyContainer/::1757263361
 EnergyContainer.gd::GDScript/GDScript::5178256421269441966::1755622869::0::1::::AircraftModule_EnergyContainer<>AircraftModule<><>0<>0<><>::
 EnergyContainer.tscn::PackedScene/PackedScene::7727170872813884894::1756034488::0::1::::<><><>0<>0<><>::uid://cf1nekqbht2ik::::res://addons/simplified_flightsim/aircraft_modules/EnergyContainer/EnergyContainer.gd
@@ -1116,13 +1116,13 @@ PIDController.gd::GDScript/GDScript::544009418448571083::1759580000::0::1::::PID
 ::res://Aircraft/::1788198088
 AeroForces.gd::GDScript/GDScript::1135991637474094000::1758962403::0::1::::AeroForces<>Node<><>0<>0<><>::
 aircraft 10.glb::PackedScene/PackedScene::243649464504035648::1781196049::1781427566::1::::<><><>0<>0<>30b427cf594403d4df4bd6fc192c30ec<>res://.godot/imported/aircraft 10.glb-87cc9bcb1979f6865026a864648fb1b5.scn::
-aircraft.gd::GDScript::6832209635735730248::1788205729::0::1::::Aircraft<>RigidBody3D<><>0<>0<><>::
+aircraft.gd::GDScript::6832209635735730248::1788301568::0::1::::Aircraft<>RigidBody3D<><>0<>0<><>::
 Aircraft.tscn::PackedScene/PackedScene::1756625952029027202::1772985118::0::1::::<><><>0<>0<><>::
 AircraftDebrisBurst.gd::GDScript::9146106435429660360::1785750294::0::1::::AircraftDebrisBurst<>RefCounted<><>0<>0<><>::
 AircraftDebrisChunk.gd::GDScript::6980109251572437367::1785712636::0::1::::AircraftDebrisChunk<>RigidBody3D<><>0<>0<><>::
 AircraftDebrisStagedSpawner.gd::GDScript::6546297333085066196::1785750294::0::1::::<>Node<><>0<>0<><>::
 AircraftPartDamageModel.gd::GDScript::1702105900062819707::1788284467::0::1::::AircraftPartDamageModel<>Node<><>0<>0<><>::
-AircraftPresentationDormancy.gd::GDScript::5730765407250489351::1788045104::0::1::::AircraftPresentationDormancy<>RefCounted<><>0<>0<><>::
+AircraftPresentationDormancy.gd::GDScript::5730765407250489351::1788301568::0::1::::AircraftPresentationDormancy<>RefCounted<><>0<>0<><>::
 AircraftWingDamageColliderFollower.gd::GDScript::7488032043036090876::1788196291::0::1::::AircraftWingDamageColliderFollower<>Node<><>0<>0<><>::
 Aircraft_1.tscn::PackedScene::9159952316602117729::1788205296::0::1::::<><><>0<>0<><>::uid://c4ltq2v6fji05::::res://Aircraft/aircraft.gd<>uid://cadi81fcpvmuc::::res://Projectiles/Explosion/explosion.tscn<>uid://beulwaipljj1x::::res://Models/Aircraft_1/Aircraft_1.glb<>uid://djtbinx1svo2u::::res://Aircraft/Aircraft wreck/aircraft_1_wreck.tscn<>uid://p831mbxhqubt::::res://Models/Aircraft_1/aircraft 2 propeller.glb<>uid://cyxrx2cid1gt::::res://Aircraft/SimpleAero.gd<>res://Aircraft/Visuals/LandingGear/NoseGearRig.tscn<>uid://diddm04vtjnny::::res://addons/simplified_flightsim/aircraft_modules/EnergyContainer/EnergyContainer.tscn<>uid://bxmk3xwsygst::::res://addons/simplified_flightsim/aircraft_modules/Engine/Engine.tscn<>uid://c3k88yn1mcnfm::::res://Audio/engine/fixed_wing/airplane_propeller 3.wav<>uid://dscm8ajwonvl5::::res://Audio/engine/fixed_wing/prop startup 3.wav<>uid://dtqtmiqu6tnjn::::res://addons/simplified_flightsim/aircraft_modules/Steering/Steering.tscn<>uid://cjfopuepgkub3::::res://addons/simplified_flightsim/aircraft_modules/Flaps/Flaps.tscn<>uid://byum6h2if6b1a::::res://addons/simplified_flightsim/aircraft_modules/LandingGear/LandingGear.tscn<>uid://cvxa8h3yftguj::::res://Audio/landing_gear/deploy.wav<>uid://ch1k8klfyw0mq::::res://Audio/landing_gear/stow.wav<>uid://chvx807lmr2rs::::res://addons/simplified_flightsim/aircraft_modules/Controls/ControlEngine.tscn<>uid://booy8rgevyscb::::res://addons/simplified_flightsim/aircraft_modules/Controls/ControlSteering.tscn<>uid://btkewnvu2bgu7::::res://addons/simplified_flightsim/aircraft_modules/Controls/ControlLandingGear.tscn<>uid://dmkf543ywx7dl::::res://addons/simplified_flightsim/aircraft_modules/Controls/ControlFlaps.tscn<>uid://cmcm4b17iaaro::::res://Weapons/ControlWeapons.gd<>uid://nduup0ehe83b::::res://Camera/CameraController.gd<>uid://bofxleceqjey4::::res://addons/simplified_flightsim/aircraft_modules/Controls/ControlTargeting.gd<>uid://drhynljb0dts8::::res://Audio/AudioManager3D.tscn<>uid://5f7vvtjcqw00::::res://Camera/CameraTripod.tscn<>uid://cqyfnpv28jupa::::res://HUD/HeadsUpDisplay.tscn<>uid://b4xm8v23opqrs::::res://HUD/InstrumentPanel.tscn<>uid://dsnc8jllg42ph::::res://Weapons/hardpoint.tscn<>uid://ds5dlvtqfa7tv::::res://Aircraft/tail_hook.tscn<>uid://bar7l5uwuwevr::::res://Weapons/Autocannon/Autocannon.tscn<>uid://ov07c02ulmhl::::res://Aircraft/AIToggle.gd<>uid://cn0n757m62w08::::res://Weapons/RocketPod/rocket_pod.tscn<>uid://bwjigrpitv7cm::::res://AI/AIPilot.gd<>uid://ckyxqpwu5tkkl::::res://Aircraft/CockpitCanopyVisibility.gd<>uid://dkrq0ip0i4pq4::::res://Aircraft/DamageEffects.gd<>uid://3qogtb8pnsj8::::res://Aircraft/WingFold1.gd<>uid://o2xkkc5oyh4w::::res://Audio/cockpit/cockpit_interior_4.wav<>res://Aircraft/Visuals/InsigniaMarker.tscn<>uid://bqmqqce7tx3a8::::res://Effects/WingtipVortexEffect.gd<>uid://ba1hsntx8a01y::::res://Aircraft/CockpitPilot.tscn<>res://Aircraft/Visuals/EjectionSeat.tscn<>uid://baexawx30vqgf::::res://Aircraft/EjectionSequence.gd<>res://Aircraft/AircraftPartDamageModel.gd<>res://Aircraft/AircraftWingDamageColliderFollower.gd
 Aircraft_2.tscn::PackedScene::5674526121794524765::1788205296::0::1::::<><><>0<>0<><>::uid://c4ltq2v6fji05::::res://Aircraft/aircraft.gd<>uid://cadi81fcpvmuc::::res://Projectiles/Explosion/explosion.tscn<>uid://djtbinx1svo2u::::res://Aircraft/Aircraft wreck/aircraft_1_wreck.tscn<>uid://cneke25lacigq::::res://Models/Aircraft_2/Aircraft 2 body.glb<>uid://p831mbxhqubt::::res://Models/Aircraft_1/aircraft 2 propeller.glb<>uid://cyxrx2cid1gt::::res://Aircraft/SimpleAero.gd<>uid://diddm04vtjnny::::res://addons/simplified_flightsim/aircraft_modules/EnergyContainer/EnergyContainer.tscn<>uid://bxmk3xwsygst::::res://addons/simplified_flightsim/aircraft_modules/Engine/Engine.tscn<>uid://dkgrtqcvax58r::::res://Audio/engine/fixed_wing/airplane_propeller 1.wav<>uid://dscm8ajwonvl5::::res://Audio/engine/fixed_wing/prop startup 3.wav<>uid://dtqtmiqu6tnjn::::res://addons/simplified_flightsim/aircraft_modules/Steering/Steering.tscn<>uid://cjfopuepgkub3::::res://addons/simplified_flightsim/aircraft_modules/Flaps/Flaps.tscn<>uid://byum6h2if6b1a::::res://addons/simplified_flightsim/aircraft_modules/LandingGear/LandingGear.tscn<>uid://cvxa8h3yftguj::::res://Audio/landing_gear/deploy.wav<>uid://ch1k8klfyw0mq::::res://Audio/landing_gear/stow.wav<>uid://chvx807lmr2rs::::res://addons/simplified_flightsim/aircraft_modules/Controls/ControlEngine.tscn<>uid://booy8rgevyscb::::res://addons/simplified_flightsim/aircraft_modules/Controls/ControlSteering.tscn<>uid://btkewnvu2bgu7::::res://addons/simplified_flightsim/aircraft_modules/Controls/ControlLandingGear.tscn<>uid://dmkf543ywx7dl::::res://addons/simplified_flightsim/aircraft_modules/Controls/ControlFlaps.tscn<>uid://cmcm4b17iaaro::::res://Weapons/ControlWeapons.gd<>uid://nduup0ehe83b::::res://Camera/CameraController.gd<>uid://bofxleceqjey4::::res://addons/simplified_flightsim/aircraft_modules/Controls/ControlTargeting.gd<>uid://drhynljb0dts8::::res://Audio/AudioManager3D.tscn<>uid://5f7vvtjcqw00::::res://Camera/CameraTripod.tscn<>uid://cqyfnpv28jupa::::res://HUD/HeadsUpDisplay.tscn<>uid://b4xm8v23opqrs::::res://HUD/InstrumentPanel.tscn<>uid://dsnc8jllg42ph::::res://Weapons/hardpoint.tscn<>uid://ds5dlvtqfa7tv::::res://Aircraft/tail_hook.tscn<>uid://bc6wrpt4b3m41::::res://Weapons/Bomb/bomb_rack.tscn<>uid://ov07c02ulmhl::::res://Aircraft/AIToggle.gd<>uid://cn0n757m62w08::::res://Weapons/RocketPod/rocket_pod.tscn<>uid://bwjigrpitv7cm::::res://AI/AIPilot.gd<>uid://c2skyi8tilc13::::res://Models/Aircraft_1/Aircraft nose gear.glb<>uid://bmdbl71mniagw::::res://Aircraft/WingFold.gd<>uid://ckyxqpwu5tkkl::::res://Aircraft/CockpitCanopyVisibility.gd<>uid://bifk2d4o2un2l::::res://Models/Aircraft_1/Aircraft main gear.glb<>uid://c0ax7nrniu8x3::::res://Audio/cockpit/cockpit_interior_2.wav<>uid://cldno3ei7eqts::::res://Weapons/Guns/Hardpoint/25mm_autocannon_hardpoint.tscn<>uid://ba1hsntx8a01y::::res://Aircraft/CockpitPilot.tscn<>res://Aircraft/Visuals/EjectionSeat.tscn<>uid://baexawx30vqgf::::res://Aircraft/EjectionSequence.gd<>res://Aircraft/Visuals/InsigniaMarker.tscn<>uid://bqmqqce7tx3a8::::res://Effects/WingtipVortexEffect.gd<>res://Aircraft/AircraftPartDamageModel.gd<>res://Aircraft/AircraftWingDamageColliderFollower.gd
@@ -1150,7 +1150,7 @@ EjectionSequence.gd::GDScript::2396075877893617929::1788205145::0::1::::Ejection
 HelicopterFlight.gd::GDScript/GDScript::5065820879159399910::1781804552::0::1::::HelicopterFlight<>Node<><>0<>0<><>::
 Livery.gd::GDScript::4731253780550172796::1788127707::0::1::::<>Node<><>0<>0<><>::
 PilotAppearance.gd::GDScript::5721285632172921658::1787861852::0::1::::<>RefCounted<><>0<>0<><>::
-PilotPose.gd::GDScript::6911433827789139419::1788117031::0::1::::<>Node3D<><>0<>1<><>::
+PilotPose.gd::GDScript::6911433827789139419::1788469021::0::1::::<>Node3D<><>0<>1<><>::
 SimpleAero.gd::GDScript::191350852551993567::1788205091::0::1::::SimpleAero<>Node<><>0<>0<><>::
 TailhookSimple.gd::GDScript::5747246484961308110::1787075323::0::1::::<>Node3D<><>0<>0<><>::
 tail_hook.tscn::PackedScene/PackedScene::8484795496972255659::1776444843::0::1::::<><><>0<>0<><>::uid://bg63t1r0rh3f8::::res://Models/Aircraft_1/Tailhook.glb<>uid://cn5aksjiys7pa::::res://Aircraft/TailhookSimple.gd
@@ -1205,7 +1205,7 @@ Temperature.tscn::PackedScene/PackedScene::3243135553407383265::1772981390::0::1
 ::res://AirOps/::1784204316
 AirOpsManager.gd::GDScript::4181195112635122307::1788212144::0::1::::<>Node<><>0<>0<><>::
 Flight.gd::GDScript::6750539532784240709::1787411084::0::1::::Flight<>Node<><>0<>0<><>::
-FlightDirector.gd::GDScript::5643928265913984941::1788039569::0::1::::<>Node<><>0<>0<><>::
+FlightDirector.gd::GDScript::5643928265913984941::1788466338::0::1::::<>Node<><>0<>0<><>::
 PilotRoster.gd::GDScript::7675292923941737034::1788205232::0::1::::<>Node<><>0<>0<><>::
 ::res://Audio/::1788078066
 AudioDebug.gd::GDScript/GDScript::3333354915971447590::1764319345::0::1::::AudioDebug<>Node<><>0<>0<><>::
@@ -2345,22 +2345,34 @@ WindTurbine.gd::GDScript::823124416188513420::1785715289::0::1::::WindTurbine<>B
 WindTurbineDestroyed.gd::GDScript/GDScript::3391505087793163223::1776807989::0::1::::WindTurbineDestroyed<>Node3D<><>0<>0<><>::
 WindTurbineProxy.gd::GDScript::7935933194829804654::1787406863::0::1::::WindTurbineProxy<>Node3D<><>0<>0<><>::
 ::res://Camera/::1781466782
-CameraController.gd::GDScript::919898982951682445::1787500493::0::1::::CameraController<>Node<><>0<>0<><>::
+CameraController.gd::GDScript::919898982951682445::1788298958::0::1::::CameraController<>Node<><>0<>0<><>::
 CameraTripod.tscn::PackedScene/PackedScene::2117968776105683651::1775398923::0::1::::<><><>0<>0<><>::
-camera_chase.gd::GDScript::1616194709763496418::1787137869::0::1::::ChaseCamera<>Node3D<><>0<>0<><>::
-CinematicCamera.gd::GDScript/GDScript::7284193983602213474::1779563682::0::1::::CinematicCamera<>Node3D<><>0<>0<><>::
-CockpitCamera.gd::GDScript::2060324542412616423::1787157554::0::1::::CockpitCamera<>Node3D<><>0<>0<><>::
+camera_chase.gd::GDScript::1616194709763496418::1788299001::0::1::::ChaseCamera<>Node3D<><>0<>0<><>::
+CinematicCamera.gd::GDScript::7284193983602213474::1788299001::0::1::::CinematicCamera<>Node3D<><>0<>0<><>::
+CockpitCamera.gd::GDScript::2060324542412616423::1788299001::0::1::::CockpitCamera<>Node3D<><>0<>0<><>::
 Deathcam.gd::GDScript/GDScript::3953706259424291985::1758370564::0::1::::<>Node3D<><>0<>0<><>::
 Deathcam.tscn::PackedScene/PackedScene::4482108662107571940::1772981390::0::1::::<><><>0<>0<><>::uid://bwlg715x6o7y8::::res://Camera/Deathcam.gd
 NightVisionOverlay.gd::GDScript::6946027949957953620::1784399577::0::1::::<>CanvasLayer<><>0<>0<><>::
-::res://captures/::1788104023
+::res://captures/::1788467127
+::res://captures/_clip_analysis_2026-09-03/::1788467757
+latest_contact.jpg::CompressedTexture2D::5380810119074482970::1788467128::1788467757::1::::<><><>0<>0<>9c81707aab6e99bae2cfd42cd6552fcb<>res://.godot/imported/latest_contact.jpg-83dfc7a35eba17ba59c827494ae60a68.ctex::
+previous_contact.jpg::CompressedTexture2D::897635643870131317::1788467128::1788467757::1::::<><><>0<>0<>f77e50e2471ef393674be893f24dbbf6<>res://.godot/imported/previous_contact.jpg-973c1a8eebb70d70713e880305aca5e2.ctex::
+::res://captures/bridge_officer_animation_probe/::1788467757
+idle_6_later.png::CompressedTexture2D::2392817634629172773::1788469251::1788469292::1::::<><><>0<>0<>b55f191d13206919cad26f18e60312e6<>res://.godot/imported/idle_6_later.png-4317b1183c68dba2d0416f0d7992695b.ctex::
+idle_6_start.png::CompressedTexture2D::3077029926653577224::1788469249::1788469292::1::::<><><>0<>0<>d59516b0ce072001215d40af9a13edf2<>res://.godot/imported/idle_6_start.png-5c27a96769ebe2b431e5a35c938ce690.ctex::
+walk_0.png::CompressedTexture2D::8410252861386465763::1788469251::1788469292::1::::<><><>0<>0<>862baa299002add896f4ee05899800d3<>res://.godot/imported/walk_0.png-25b41cb37f5d0c24f1087590919b1b38.ctex::
+walk_1.png::CompressedTexture2D::9110913612618161041::1788469251::1788469292::1::::<><><>0<>0<>88218865507af7e28219f2b9f5ccce38<>res://.godot/imported/walk_1.png-1cac8d7d0cc2acced7a33892af968e01.ctex::
+walk_2.png::CompressedTexture2D::5566021785399688327::1788469251::1788469292::1::::<><><>0<>0<>377b8483a03052021c2d85ae75b70ae2<>res://.godot/imported/walk_2.png-e9e39e3e7e0a2bae4b24a72d69f847dc.ctex::
+walk_3.png::CompressedTexture2D::2541971602846708785::1788469252::1788469292::1::::<><><>0<>0<>017b6bed2933ca9fa14370ce0ee5654a<>res://.godot/imported/walk_3.png-c1b8b02d7a4753bd4f3659a04343fa76.ctex::
+walk_4.png::CompressedTexture2D::3950417421226548145::1788469252::1788469292::1::::<><><>0<>0<>50d1654779bccfb692ff6e5df258603f<>res://.godot/imported/walk_4.png-782c58a31d403454bb1ab16c6a85d110.ctex::
+walk_contact.png::CompressedTexture2D::5467702761281192968::1788467263::1788467757::1::::<><><>0<>0<>4c33ae7f9a8c0af758b44ff955372bb0<>res://.godot/imported/walk_contact.png-544cb7ce259e359c8764939e01021aa5.ctex::
 ::res://captures/perf_investigation/::1787862305
 aircraft_spawn_ab.gd::GDScript::5846211109412459162::1787860577::0::1::::<>SceneTree<><>0<>0<><>::
 pilot_material_inventory.gd::GDScript::2379803489421970630::1787862003::0::1::::<>SceneTree<><>0<>0<><>::
 pilot_pool_aircraft_compat.gd::GDScript::9026458057954613635::1787861620::0::1::::<>SceneTree<><>0<>0<><>::
 pilot_scene_inventory.gd::GDScript::5967809573471790143::1787859756::0::1::::<>SceneTree<><>0<>0<><>::
 ::res://captures/perf_play_sessions/::1788285344
-active_session.txt::TextFile::-1::1788286057::0::1::::<><><>0<>0<><>::
+active_session.txt::TextFile::-1::1788333532::0::1::::<><><>0<>0<><>::
 ::res://captures/perf_play_sessions/20260827_212125/::1787859565
 engine_metrics.buffer.translation::OptimizedTranslation::721128450162166393::1787859564::0::1::::<><><>0<>0<><>::
 engine_metrics.camera.translation::OptimizedTranslation::5769392523215415582::1787859564::0::1::::<><><>0<>0<><>::
@@ -2396,123 +2408,123 @@ process_samples.private.translation::OptimizedTranslation::8554319153085475493::
 process_samples.threads.translation::OptimizedTranslation::8029013769856770463::1787859564::0::1::::<><><>0<>0<><>::
 process_samples.working.translation::OptimizedTranslation::3283976915752672990::1787859564::0::1::::<><><>0<>0<><>::
 session.txt::TextFile::-1::1787858864::0::1::::<><><>0<>0<><>::
-::res://captures/perf_play_sessions/20260901_195544/::1788286057
+::res://captures/perf_play_sessions/20260901_195544/::1788286063
+engine_metrics.buffer.translation::OptimizedTranslation::4122506163428497191::1788286061::0::1::::<><><>0<>0<><>::
+engine_metrics.camera.translation::OptimizedTranslation::3876294138260476778::1788286061::0::1::::<><><>0<>0<><>::
 engine_metrics.csv::Translation::7140062661052656342::1788286053::1788286062::1::::<><><>0<>0<>495b2b3870103a131661c45512a5852f<>res://captures/perf_play_sessions/20260901_195544/engine_metrics.fps.translation<*>res://captures/perf_play_sessions/20260901_195544/engine_metrics.process.translation<*>res://captures/perf_play_sessions/20260901_195544/engine_metrics.physics.translation<*>res://captures/perf_play_sessions/20260901_195544/engine_metrics.navigation.translation<*>res://captures/perf_play_sessions/20260901_195544/engine_metrics.draw.translation<*>res://captures/perf_play_sessions/20260901_195544/engine_metrics.render.translation<*>res://captures/perf_play_sessions/20260901_195544/engine_metrics.render.translation<*>res://captures/perf_play_sessions/20260901_195544/engine_metrics.video.translation<*>res://captures/perf_play_sessions/20260901_195544/engine_metrics.texture.translation<*>res://captures/perf_play_sessions/20260901_195544/engine_metrics.buffer.translation<*>res://captures/perf_play_sessions/20260901_195544/engine_metrics.static.translation<*>res://captures/perf_play_sessions/20260901_195544/engine_metrics.node.translation<*>res://captures/perf_play_sessions/20260901_195544/engine_metrics.resource.translation<*>res://captures/perf_play_sessions/20260901_195544/engine_metrics.orphan.translation<*>res://captures/perf_play_sessions/20260901_195544/engine_metrics.physics.translation<*>res://captures/perf_play_sessions/20260901_195544/engine_metrics.physics.translation<*>res://captures/perf_play_sessions/20260901_195544/engine_metrics.physics.translation<*>res://captures/perf_play_sessions/20260901_195544/engine_metrics.camera.translation<*>res://captures/perf_play_sessions/20260901_195544/engine_metrics.camera.translation<*>res://captures/perf_play_sessions/20260901_195544/engine_metrics.camera.translation<*>res://captures/perf_play_sessions/20260901_195544/engine_metrics.camera.translation<*>res://captures/perf_play_sessions/20260901_195544/engine_metrics.camera.translation<*>res://captures/perf_play_sessions/20260901_195544/engine_metrics.terrain.translation<*>res://captures/perf_play_sessions/20260901_195544/engine_metrics.terrain.translation<*>res://captures/perf_play_sessions/20260901_195544/engine_metrics.holo.translation<*>res://captures/perf_play_sessions/20260901_195544/engine_metrics.holo.translation<*>res://captures/perf_play_sessions/20260901_195544/engine_metrics.holo.translation<*>res://captures/perf_play_sessions/20260901_195544/engine_metrics.holo.translation<*>res://captures/perf_play_sessions/20260901_195544/engine_metrics.holo.translation<*>res://captures/perf_play_sessions/20260901_195544/engine_metrics.nav.translation<*>res://captures/perf_play_sessions/20260901_195544/engine_metrics.nav.translation<*>res://captures/perf_play_sessions/20260901_195544/engine_metrics.enemy.translation<*>res://captures/perf_play_sessions/20260901_195544/engine_metrics.ground.translation<*>res://captures/perf_play_sessions/20260901_195544/engine_metrics.ground.translation<*>res://captures/perf_play_sessions/20260901_195544/engine_metrics.pilot.translation<*>res://captures/perf_play_sessions/20260901_195544/engine_metrics.pilot.translation<*>res://captures/perf_play_sessions/20260901_195544/engine_metrics.pilot.translation<*>res://captures/perf_play_sessions/20260901_195544/engine_metrics.pilot.translation<*>res://captures/perf_play_sessions/20260901_195544/engine_metrics.pilot.translation::
+engine_metrics.draw.translation::OptimizedTranslation::9164304044455296272::1788286061::0::1::::<><><>0<>0<><>::
+engine_metrics.enemy.translation::OptimizedTranslation::1122333338158563907::1788286062::0::1::::<><><>0<>0<><>::
+engine_metrics.fps.translation::OptimizedTranslation::5720899695263053130::1788286061::0::1::::<><><>0<>0<><>::
+engine_metrics.ground.translation::OptimizedTranslation::8360822386159420225::1788286062::0::1::::<><><>0<>0<><>::
+engine_metrics.holo.translation::OptimizedTranslation::7421124686197143801::1788286062::0::1::::<><><>0<>0<><>::
+engine_metrics.nav.translation::OptimizedTranslation::8285874701182912011::1788286062::0::1::::<><><>0<>0<><>::
+engine_metrics.navigation.translation::OptimizedTranslation::9102571195894084302::1788286061::0::1::::<><><>0<>0<><>::
+engine_metrics.node.translation::OptimizedTranslation::844893872104792073::1788286061::0::1::::<><><>0<>0<><>::
+engine_metrics.orphan.translation::OptimizedTranslation::6849142490039632591::1788286061::0::1::::<><><>0<>0<><>::
+engine_metrics.physics.translation::OptimizedTranslation::8509761004246338726::1788286061::0::1::::<><><>0<>0<><>::
+engine_metrics.pilot.translation::OptimizedTranslation::4157260273229841236::1788286062::0::1::::<><><>0<>0<><>::
+engine_metrics.process.translation::OptimizedTranslation::3104374368535049979::1788286061::0::1::::<><><>0<>0<><>::
+engine_metrics.render.translation::OptimizedTranslation::41775984948824819::1788286061::0::1::::<><><>0<>0<><>::
+engine_metrics.resource.translation::OptimizedTranslation::7322189421014320674::1788286061::0::1::::<><><>0<>0<><>::
+engine_metrics.static.translation::OptimizedTranslation::501589635677232195::1788286061::0::1::::<><><>0<>0<><>::
+engine_metrics.terrain.translation::OptimizedTranslation::4800664510292515564::1788286061::0::1::::<><><>0<>0<><>::
+engine_metrics.texture.translation::OptimizedTranslation::1338806712058481719::1788286061::0::1::::<><><>0<>0<><>::
+engine_metrics.video.translation::OptimizedTranslation::5650874728147010105::1788286061::0::1::::<><><>0<>0<><>::
 godot_engine.log::TextFile::-1::1788286054::0::1::::<><><>0<>0<><>::
 godot_stderr.log::TextFile::-1::1788286054::0::1::::<><><>0<>0<><>::
 godot_stdout.log::TextFile::-1::1788286053::0::1::::<><><>0<>0<><>::
+hitch_events.ai.translation::OptimizedTranslation::734798559500692238::1788286061::0::1::::<><><>0<>0<><>::
+hitch_events.aircraft.translation::OptimizedTranslation::6753685145139657865::1788286061::0::1::::<><><>0<>0<><>::
+hitch_events.camera.translation::OptimizedTranslation::8546964294137076370::1788286061::0::1::::<><><>0<>0<><>::
 hitch_events.csv::Translation::3122950363452376832::1788286034::1788286061::1::::<><><>0<>0<>33825feedb8610285c85f48cf768afb5<>res://captures/perf_play_sessions/20260901_195544/hitch_events.event.translation<*>res://captures/perf_play_sessions/20260901_195544/hitch_events.elapsed.translation<*>res://captures/perf_play_sessions/20260901_195544/hitch_events.wall.translation<*>res://captures/perf_play_sessions/20260901_195544/hitch_events.process.translation<*>res://captures/perf_play_sessions/20260901_195544/hitch_events.physics.translation<*>res://captures/perf_play_sessions/20260901_195544/hitch_events.wall.translation<*>res://captures/perf_play_sessions/20260901_195544/hitch_events.engine.translation<*>res://captures/perf_play_sessions/20260901_195544/hitch_events.fps.translation<*>res://captures/perf_play_sessions/20260901_195544/hitch_events.process.translation<*>res://captures/perf_play_sessions/20260901_195544/hitch_events.physics.translation<*>res://captures/perf_play_sessions/20260901_195544/hitch_events.navigation.translation<*>res://captures/perf_play_sessions/20260901_195544/hitch_events.draw.translation<*>res://captures/perf_play_sessions/20260901_195544/hitch_events.render.translation<*>res://captures/perf_play_sessions/20260901_195544/hitch_events.static.translation<*>res://captures/perf_play_sessions/20260901_195544/hitch_events.node.translation<*>res://captures/perf_play_sessions/20260901_195544/hitch_events.orphan.translation<*>res://captures/perf_play_sessions/20260901_195544/hitch_events.camera.translation<*>res://captures/perf_play_sessions/20260901_195544/hitch_events.camera.translation<*>res://captures/perf_play_sessions/20260901_195544/hitch_events.camera.translation<*>res://captures/perf_play_sessions/20260901_195544/hitch_events.camera.translation<*>res://captures/perf_play_sessions/20260901_195544/hitch_events.terrain.translation<*>res://captures/perf_play_sessions/20260901_195544/hitch_events.nav.translation<*>res://captures/perf_play_sessions/20260901_195544/hitch_events.nav.translation<*>res://captures/perf_play_sessions/20260901_195544/hitch_events.enemy.translation<*>res://captures/perf_play_sessions/20260901_195544/hitch_events.aircraft.translation<*>res://captures/perf_play_sessions/20260901_195544/hitch_events.ai.translation<*>res://captures/perf_play_sessions/20260901_195544/hitch_events.ground.translation<*>res://captures/perf_play_sessions/20260901_195544/hitch_events.materializing.translation<*>res://captures/perf_play_sessions/20260901_195544/hitch_events.scope.translation::
-hitch_summary.txt::TextFile::-1::1788286057::0::1::::<><><>0<>0<><>::
-performance_report.log::TextFile::-1::1788286053::0::1::::<><><>0<>0<><>::
-player_flight.csv::Translation::8108593478105526007::1788285888::1788286063::1::::<><><>0<>0<>9e490c5203df7ee70f59211fe486293f<>res://captures/perf_play_sessions/20260901_195544/player_flight.utc.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.session.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.t.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.physics.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.render.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.en.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.event.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.control.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.flight.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.aircraft.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.aircraft.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.pos.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.pos.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.pos.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.ground.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.agl.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.speed.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.forward.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.lateral.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.local.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.local.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.local.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.vertical.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.motion.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.local.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.local.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.local.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.lateral.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.normal.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.longitudinal.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.speed.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.specific.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.specific.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.aircraft.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.aircraft.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.pitch.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.roll.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.heading.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.aoa.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.cmd.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.actual.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.stall.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.control.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.pitch.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.roll.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.yaw.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.raw.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.raw.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.raw.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.shaped.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.shaped.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.shaped.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.rudder.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.rudder.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.rudder.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.rudder.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.rudder.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.rudder.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.pitch.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.roll.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.yaw.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.actual.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.actual.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.actual.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.high.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.control.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.sideslip.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.directional.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.directional.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.departure.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.stall.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.throttle.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.engine.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.thrust.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.forward.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.gear.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.flap.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.grounded.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.frozen.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.sleeping.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.health.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.max.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.ai.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.controls.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.arresting.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.carrier.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.parking.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.gear.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.forward.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.lateral.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.total.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.departure.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.alignment.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.alignment.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.alignment.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.lift.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.ang.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.ang.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.ang.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.local.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.local.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.local.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.mass.translation::
-process_samples.csv::Translation::2687146818440134972::1788286056::1788286061::1::::<><><>0<>0<>63849788d551561741a13249382f1097<>res://captures/perf_play_sessions/20260901_195544/process_samples.elapsed.translation<*>res://captures/perf_play_sessions/20260901_195544/process_samples.pid.translation<*>res://captures/perf_play_sessions/20260901_195544/process_samples.cpu.translation<*>res://captures/perf_play_sessions/20260901_195544/process_samples.delta.translation<*>res://captures/perf_play_sessions/20260901_195544/process_samples.cpu.translation<*>res://captures/perf_play_sessions/20260901_195544/process_samples.working.translation<*>res://captures/perf_play_sessions/20260901_195544/process_samples.private.translation<*>res://captures/perf_play_sessions/20260901_195544/process_samples.threads.translation<*>res://captures/perf_play_sessions/20260901_195544/process_samples.handles.translation::
-hitch_events.event.translation::OptimizedTranslation::820505375953376198::1788286061::0::1::::<><><>0<>0<><>::
-process_samples.elapsed.translation::OptimizedTranslation::6115447163335012439::1788286061::0::1::::<><><>0<>0<><>::
-engine_metrics.fps.translation::OptimizedTranslation::5720899695263053130::1788286061::0::1::::<><><>0<>0<><>::
-hitch_events.elapsed.translation::OptimizedTranslation::206959508240317882::1788286061::0::1::::<><><>0<>0<><>::
-process_samples.pid.translation::OptimizedTranslation::2743051837844573950::1788286061::0::1::::<><><>0<>0<><>::
-engine_metrics.process.translation::OptimizedTranslation::3104374368535049979::1788286061::0::1::::<><><>0<>0<><>::
-hitch_events.wall.translation::OptimizedTranslation::8785385287614506647::1788286061::0::1::::<><><>0<>0<><>::
-process_samples.cpu.translation::OptimizedTranslation::8342976031924849599::1788286061::0::1::::<><><>0<>0<><>::
-engine_metrics.physics.translation::OptimizedTranslation::8509761004246338726::1788286061::0::1::::<><><>0<>0<><>::
-player_flight.utc.translation::OptimizedTranslation::7532978303828222118::1788286061::0::1::::<><><>0<>0<><>::
-hitch_events.process.translation::OptimizedTranslation::4848976797665862661::1788286061::0::1::::<><><>0<>0<><>::
-process_samples.delta.translation::OptimizedTranslation::3261100226075664823::1788286061::0::1::::<><><>0<>0<><>::
-engine_metrics.navigation.translation::OptimizedTranslation::9102571195894084302::1788286061::0::1::::<><><>0<>0<><>::
-player_flight.session.translation::OptimizedTranslation::601121875722264734::1788286061::0::1::::<><><>0<>0<><>::
-hitch_events.physics.translation::OptimizedTranslation::4069423828840162018::1788286061::0::1::::<><><>0<>0<><>::
-engine_metrics.draw.translation::OptimizedTranslation::9164304044455296272::1788286061::0::1::::<><><>0<>0<><>::
-player_flight.t.translation::OptimizedTranslation::1139012039946293379::1788286061::0::1::::<><><>0<>0<><>::
-process_samples.working.translation::OptimizedTranslation::2437537527114923746::1788286061::0::1::::<><><>0<>0<><>::
-engine_metrics.render.translation::OptimizedTranslation::41775984948824819::1788286061::0::1::::<><><>0<>0<><>::
-player_flight.physics.translation::OptimizedTranslation::3290821321557016079::1788286061::0::1::::<><><>0<>0<><>::
-process_samples.private.translation::OptimizedTranslation::3748061824974724922::1788286061::0::1::::<><><>0<>0<><>::
-hitch_events.engine.translation::OptimizedTranslation::1379644755901711048::1788286061::0::1::::<><><>0<>0<><>::
-player_flight.render.translation::OptimizedTranslation::7042305147208168291::1788286061::0::1::::<><><>0<>0<><>::
-hitch_events.fps.translation::OptimizedTranslation::7962962926057737043::1788286061::0::1::::<><><>0<>0<><>::
-process_samples.threads.translation::OptimizedTranslation::1408472992282460414::1788286061::0::1::::<><><>0<>0<><>::
-player_flight.en.translation::OptimizedTranslation::368815236810804851::1788286061::0::1::::<><><>0<>0<><>::
-engine_metrics.video.translation::OptimizedTranslation::5650874728147010105::1788286061::0::1::::<><><>0<>0<><>::
-process_samples.handles.translation::OptimizedTranslation::3831814799875177397::1788286061::0::1::::<><><>0<>0<><>::
-player_flight.event.translation::OptimizedTranslation::2121901560252216396::1788286061::0::1::::<><><>0<>0<><>::
-engine_metrics.texture.translation::OptimizedTranslation::1338806712058481719::1788286061::0::1::::<><><>0<>0<><>::
-player_flight.control.translation::OptimizedTranslation::6114127664102935641::1788286062::0::1::::<><><>0<>0<><>::
-engine_metrics.buffer.translation::OptimizedTranslation::4122506163428497191::1788286061::0::1::::<><><>0<>0<><>::
-player_flight.flight.translation::OptimizedTranslation::4438408427546651434::1788286061::0::1::::<><><>0<>0<><>::
-engine_metrics.static.translation::OptimizedTranslation::501589635677232195::1788286061::0::1::::<><><>0<>0<><>::
-player_flight.aircraft.translation::OptimizedTranslation::7945734560117052197::1788286062::0::1::::<><><>0<>0<><>::
-hitch_events.navigation.translation::OptimizedTranslation::6519006470570017941::1788286061::0::1::::<><><>0<>0<><>::
-engine_metrics.node.translation::OptimizedTranslation::844893872104792073::1788286061::0::1::::<><><>0<>0<><>::
 hitch_events.draw.translation::OptimizedTranslation::1063753262965566124::1788286061::0::1::::<><><>0<>0<><>::
-engine_metrics.resource.translation::OptimizedTranslation::7322189421014320674::1788286061::0::1::::<><><>0<>0<><>::
-hitch_events.render.translation::OptimizedTranslation::3066944623513055591::1788286061::0::1::::<><><>0<>0<><>::
-player_flight.pos.translation::OptimizedTranslation::4871691356515083789::1788286061::0::1::::<><><>0<>0<><>::
-engine_metrics.orphan.translation::OptimizedTranslation::6849142490039632591::1788286061::0::1::::<><><>0<>0<><>::
-hitch_events.static.translation::OptimizedTranslation::8289074899455651420::1788286061::0::1::::<><><>0<>0<><>::
+hitch_events.elapsed.translation::OptimizedTranslation::206959508240317882::1788286061::0::1::::<><><>0<>0<><>::
+hitch_events.enemy.translation::OptimizedTranslation::736477726773103916::1788286061::0::1::::<><><>0<>0<><>::
+hitch_events.engine.translation::OptimizedTranslation::1379644755901711048::1788286061::0::1::::<><><>0<>0<><>::
+hitch_events.event.translation::OptimizedTranslation::820505375953376198::1788286061::0::1::::<><><>0<>0<><>::
+hitch_events.fps.translation::OptimizedTranslation::7962962926057737043::1788286061::0::1::::<><><>0<>0<><>::
+hitch_events.ground.translation::OptimizedTranslation::5356203955459384623::1788286061::0::1::::<><><>0<>0<><>::
+hitch_events.materializing.translation::OptimizedTranslation::7005660336497945632::1788286061::0::1::::<><><>0<>0<><>::
+hitch_events.nav.translation::OptimizedTranslation::5214448477507351501::1788286061::0::1::::<><><>0<>0<><>::
+hitch_events.navigation.translation::OptimizedTranslation::6519006470570017941::1788286061::0::1::::<><><>0<>0<><>::
 hitch_events.node.translation::OptimizedTranslation::6892932701700143194::1788286061::0::1::::<><><>0<>0<><>::
 hitch_events.orphan.translation::OptimizedTranslation::4755511440740457380::1788286061::0::1::::<><><>0<>0<><>::
-player_flight.ground.translation::OptimizedTranslation::6944631343348664448::1788286061::0::1::::<><><>0<>0<><>::
-hitch_events.camera.translation::OptimizedTranslation::8546964294137076370::1788286061::0::1::::<><><>0<>0<><>::
-player_flight.agl.translation::OptimizedTranslation::7028468126522659793::1788286061::0::1::::<><><>0<>0<><>::
-player_flight.speed.translation::OptimizedTranslation::5644101403788435657::1788286061::0::1::::<><><>0<>0<><>::
-engine_metrics.camera.translation::OptimizedTranslation::3876294138260476778::1788286061::0::1::::<><><>0<>0<><>::
-player_flight.forward.translation::OptimizedTranslation::7373410569615776760::1788286063::0::1::::<><><>0<>0<><>::
-player_flight.lateral.translation::OptimizedTranslation::6652681326359895447::1788286063::0::1::::<><><>0<>0<><>::
-player_flight.local.translation::OptimizedTranslation::2295726191438080371::1788286063::0::1::::<><><>0<>0<><>::
-hitch_events.terrain.translation::OptimizedTranslation::7388244195671741214::1788286061::0::1::::<><><>0<>0<><>::
-hitch_events.nav.translation::OptimizedTranslation::5214448477507351501::1788286061::0::1::::<><><>0<>0<><>::
-player_flight.vertical.translation::OptimizedTranslation::322083505473220248::1788286061::0::1::::<><><>0<>0<><>::
-hitch_events.enemy.translation::OptimizedTranslation::736477726773103916::1788286061::0::1::::<><><>0<>0<><>::
-player_flight.motion.translation::OptimizedTranslation::6375172061112866605::1788286061::0::1::::<><><>0<>0<><>::
-engine_metrics.terrain.translation::OptimizedTranslation::4800664510292515564::1788286061::0::1::::<><><>0<>0<><>::
-hitch_events.aircraft.translation::OptimizedTranslation::6753685145139657865::1788286061::0::1::::<><><>0<>0<><>::
-hitch_events.ai.translation::OptimizedTranslation::734798559500692238::1788286061::0::1::::<><><>0<>0<><>::
-hitch_events.ground.translation::OptimizedTranslation::5356203955459384623::1788286061::0::1::::<><><>0<>0<><>::
-engine_metrics.holo.translation::OptimizedTranslation::4463933219296966506::1788286061::0::1::::<><><>0<>0<><>::
-hitch_events.materializing.translation::OptimizedTranslation::7005660336497945632::1788286061::0::1::::<><><>0<>0<><>::
+hitch_events.physics.translation::OptimizedTranslation::4069423828840162018::1788286061::0::1::::<><><>0<>0<><>::
+hitch_events.process.translation::OptimizedTranslation::4848976797665862661::1788286061::0::1::::<><><>0<>0<><>::
+hitch_events.render.translation::OptimizedTranslation::3066944623513055591::1788286061::0::1::::<><><>0<>0<><>::
 hitch_events.scope.translation::OptimizedTranslation::3163024777174787382::1788286061::0::1::::<><><>0<>0<><>::
-player_flight.normal.translation::OptimizedTranslation::9192231208237511864::1788286061::0::1::::<><><>0<>0<><>::
-player_flight.longitudinal.translation::OptimizedTranslation::4632010095636264667::1788286061::0::1::::<><><>0<>0<><>::
-player_flight.specific.translation::OptimizedTranslation::8318148912312423684::1788286062::0::1::::<><><>0<>0<><>::
-engine_metrics.nav.translation::OptimizedTranslation::8285874701182912011::1788286062::0::1::::<><><>0<>0<><>::
-engine_metrics.enemy.translation::OptimizedTranslation::1122333338158563907::1788286062::0::1::::<><><>0<>0<><>::
-engine_metrics.ground.translation::OptimizedTranslation::8360822386159420225::1788286062::0::1::::<><><>0<>0<><>::
-player_flight.pitch.translation::OptimizedTranslation::1969461872310323625::1788286062::0::1::::<><><>0<>0<><>::
-player_flight.roll.translation::OptimizedTranslation::7585074366080764979::1788286062::0::1::::<><><>0<>0<><>::
-player_flight.heading.translation::OptimizedTranslation::7002814560850600030::1788286062::0::1::::<><><>0<>0<><>::
-engine_metrics.pilot.translation::OptimizedTranslation::4157260273229841236::1788286062::0::1::::<><><>0<>0<><>::
-player_flight.aoa.translation::OptimizedTranslation::6608520627699051681::1788286062::0::1::::<><><>0<>0<><>::
-player_flight.cmd.translation::OptimizedTranslation::7770564885236735408::1788286062::0::1::::<><><>0<>0<><>::
+hitch_events.static.translation::OptimizedTranslation::8289074899455651420::1788286061::0::1::::<><><>0<>0<><>::
+hitch_events.terrain.translation::OptimizedTranslation::7388244195671741214::1788286061::0::1::::<><><>0<>0<><>::
+hitch_events.wall.translation::OptimizedTranslation::8785385287614506647::1788286061::0::1::::<><><>0<>0<><>::
+hitch_summary.txt::TextFile::-1::1788286057::0::1::::<><><>0<>0<><>::
+performance_report.log::TextFile::-1::1788286053::0::1::::<><><>0<>0<><>::
 player_flight.actual.translation::OptimizedTranslation::5762307218164931296::1788286062::0::1::::<><><>0<>0<><>::
-player_flight.stall.translation::OptimizedTranslation::3925083612995278415::1788286062::0::1::::<><><>0<>0<><>::
-player_flight.yaw.translation::OptimizedTranslation::4728064960035221319::1788286062::0::1::::<><><>0<>0<><>::
-player_flight.raw.translation::OptimizedTranslation::1640313029443171113::1788286062::0::1::::<><><>0<>0<><>::
-player_flight.shaped.translation::OptimizedTranslation::8517647969322976989::1788286062::0::1::::<><><>0<>0<><>::
-player_flight.rudder.translation::OptimizedTranslation::4084022833327993783::1788286062::0::1::::<><><>0<>0<><>::
-player_flight.high.translation::OptimizedTranslation::6162025563949665865::1788286062::0::1::::<><><>0<>0<><>::
-player_flight.sideslip.translation::OptimizedTranslation::4723143879521890288::1788286062::0::1::::<><><>0<>0<><>::
-player_flight.directional.translation::OptimizedTranslation::5104600709541933360::1788286062::0::1::::<><><>0<>0<><>::
-player_flight.departure.translation::OptimizedTranslation::6545840825682481821::1788286063::0::1::::<><><>0<>0<><>::
-player_flight.throttle.translation::OptimizedTranslation::166186180020593380::1788286062::0::1::::<><><>0<>0<><>::
-player_flight.engine.translation::OptimizedTranslation::8709448132418818445::1788286062::0::1::::<><><>0<>0<><>::
-player_flight.thrust.translation::OptimizedTranslation::1446049668687618423::1788286062::0::1::::<><><>0<>0<><>::
-player_flight.gear.translation::OptimizedTranslation::6956376710664572754::1788286063::0::1::::<><><>0<>0<><>::
-player_flight.flap.translation::OptimizedTranslation::6024956998388242439::1788286062::0::1::::<><><>0<>0<><>::
-player_flight.grounded.translation::OptimizedTranslation::7977716427353175965::1788286062::0::1::::<><><>0<>0<><>::
-player_flight.frozen.translation::OptimizedTranslation::4934649965416501140::1788286062::0::1::::<><><>0<>0<><>::
-player_flight.sleeping.translation::OptimizedTranslation::8407553689795164694::1788286062::0::1::::<><><>0<>0<><>::
-player_flight.health.translation::OptimizedTranslation::4999917924705034710::1788286062::0::1::::<><><>0<>0<><>::
-player_flight.max.translation::OptimizedTranslation::8343598602319929863::1788286062::0::1::::<><><>0<>0<><>::
+player_flight.agl.translation::OptimizedTranslation::7028468126522659793::1788286061::0::1::::<><><>0<>0<><>::
 player_flight.ai.translation::OptimizedTranslation::5286659500422686307::1788286063::0::1::::<><><>0<>0<><>::
-player_flight.controls.translation::OptimizedTranslation::270251760044608812::1788286063::0::1::::<><><>0<>0<><>::
+player_flight.aircraft.translation::OptimizedTranslation::7945734560117052197::1788286062::0::1::::<><><>0<>0<><>::
+player_flight.alignment.translation::OptimizedTranslation::8386722252826664879::1788286063::0::1::::<><><>0<>0<><>::
+player_flight.ang.translation::OptimizedTranslation::6821762938332488868::1788286063::0::1::::<><><>0<>0<><>::
+player_flight.aoa.translation::OptimizedTranslation::6608520627699051681::1788286062::0::1::::<><><>0<>0<><>::
 player_flight.arresting.translation::OptimizedTranslation::2151625517946558557::1788286063::0::1::::<><><>0<>0<><>::
 player_flight.carrier.translation::OptimizedTranslation::3650472590605153832::1788286063::0::1::::<><><>0<>0<><>::
-player_flight.parking.translation::OptimizedTranslation::2503888106626065016::1788286063::0::1::::<><><>0<>0<><>::
-player_flight.total.translation::OptimizedTranslation::6120679138085394351::1788286063::0::1::::<><><>0<>0<><>::
-player_flight.alignment.translation::OptimizedTranslation::8386722252826664879::1788286063::0::1::::<><><>0<>0<><>::
+player_flight.cmd.translation::OptimizedTranslation::7770564885236735408::1788286062::0::1::::<><><>0<>0<><>::
+player_flight.control.translation::OptimizedTranslation::6114127664102935641::1788286062::0::1::::<><><>0<>0<><>::
+player_flight.controls.translation::OptimizedTranslation::270251760044608812::1788286063::0::1::::<><><>0<>0<><>::
+player_flight.csv::Translation::8108593478105526007::1788285888::1788286063::1::::<><><>0<>0<>9e490c5203df7ee70f59211fe486293f<>res://captures/perf_play_sessions/20260901_195544/player_flight.utc.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.session.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.t.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.physics.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.render.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.en.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.event.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.control.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.flight.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.aircraft.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.aircraft.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.pos.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.pos.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.pos.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.ground.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.agl.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.speed.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.forward.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.lateral.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.local.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.local.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.local.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.vertical.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.motion.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.local.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.local.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.local.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.lateral.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.normal.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.longitudinal.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.speed.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.specific.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.specific.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.aircraft.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.aircraft.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.pitch.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.roll.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.heading.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.aoa.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.cmd.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.actual.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.stall.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.control.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.pitch.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.roll.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.yaw.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.raw.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.raw.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.raw.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.shaped.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.shaped.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.shaped.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.rudder.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.rudder.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.rudder.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.rudder.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.rudder.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.rudder.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.pitch.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.roll.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.yaw.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.actual.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.actual.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.actual.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.high.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.control.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.sideslip.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.directional.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.directional.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.departure.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.stall.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.throttle.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.engine.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.thrust.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.forward.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.gear.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.flap.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.grounded.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.frozen.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.sleeping.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.health.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.max.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.ai.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.controls.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.arresting.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.carrier.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.parking.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.gear.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.forward.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.lateral.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.total.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.departure.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.alignment.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.alignment.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.alignment.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.lift.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.ang.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.ang.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.ang.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.local.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.local.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.local.translation<*>res://captures/perf_play_sessions/20260901_195544/player_flight.mass.translation::
+player_flight.departure.translation::OptimizedTranslation::6545840825682481821::1788286063::0::1::::<><><>0<>0<><>::
+player_flight.directional.translation::OptimizedTranslation::5104600709541933360::1788286062::0::1::::<><><>0<>0<><>::
+player_flight.en.translation::OptimizedTranslation::368815236810804851::1788286061::0::1::::<><><>0<>0<><>::
+player_flight.engine.translation::OptimizedTranslation::8709448132418818445::1788286062::0::1::::<><><>0<>0<><>::
+player_flight.event.translation::OptimizedTranslation::2121901560252216396::1788286061::0::1::::<><><>0<>0<><>::
+player_flight.flap.translation::OptimizedTranslation::6024956998388242439::1788286062::0::1::::<><><>0<>0<><>::
+player_flight.flight.translation::OptimizedTranslation::4438408427546651434::1788286061::0::1::::<><><>0<>0<><>::
+player_flight.forward.translation::OptimizedTranslation::7373410569615776760::1788286063::0::1::::<><><>0<>0<><>::
+player_flight.frozen.translation::OptimizedTranslation::4934649965416501140::1788286062::0::1::::<><><>0<>0<><>::
+player_flight.gear.translation::OptimizedTranslation::6956376710664572754::1788286063::0::1::::<><><>0<>0<><>::
+player_flight.ground.translation::OptimizedTranslation::6944631343348664448::1788286061::0::1::::<><><>0<>0<><>::
+player_flight.grounded.translation::OptimizedTranslation::7977716427353175965::1788286062::0::1::::<><><>0<>0<><>::
+player_flight.heading.translation::OptimizedTranslation::7002814560850600030::1788286062::0::1::::<><><>0<>0<><>::
+player_flight.health.translation::OptimizedTranslation::4999917924705034710::1788286062::0::1::::<><><>0<>0<><>::
+player_flight.high.translation::OptimizedTranslation::6162025563949665865::1788286062::0::1::::<><><>0<>0<><>::
+player_flight.lateral.translation::OptimizedTranslation::6652681326359895447::1788286063::0::1::::<><><>0<>0<><>::
 player_flight.lift.translation::OptimizedTranslation::4477339830553221007::1788286063::0::1::::<><><>0<>0<><>::
-player_flight.ang.translation::OptimizedTranslation::6821762938332488868::1788286063::0::1::::<><><>0<>0<><>::
+player_flight.local.translation::OptimizedTranslation::2295726191438080371::1788286063::0::1::::<><><>0<>0<><>::
+player_flight.longitudinal.translation::OptimizedTranslation::4632010095636264667::1788286061::0::1::::<><><>0<>0<><>::
 player_flight.mass.translation::OptimizedTranslation::7810306328050090982::1788286063::0::1::::<><><>0<>0<><>::
+player_flight.max.translation::OptimizedTranslation::4478588427622833250::1788286063::0::1::::<><><>0<>0<><>::
+player_flight.motion.translation::OptimizedTranslation::6375172061112866605::1788286061::0::1::::<><><>0<>0<><>::
+player_flight.normal.translation::OptimizedTranslation::9192231208237511864::1788286061::0::1::::<><><>0<>0<><>::
+player_flight.parking.translation::OptimizedTranslation::2503888106626065016::1788286063::0::1::::<><><>0<>0<><>::
+player_flight.physics.translation::OptimizedTranslation::3290821321557016079::1788286061::0::1::::<><><>0<>0<><>::
+player_flight.pitch.translation::OptimizedTranslation::1969461872310323625::1788286062::0::1::::<><><>0<>0<><>::
+player_flight.pos.translation::OptimizedTranslation::4871691356515083789::1788286061::0::1::::<><><>0<>0<><>::
+player_flight.raw.translation::OptimizedTranslation::1640313029443171113::1788286062::0::1::::<><><>0<>0<><>::
+player_flight.render.translation::OptimizedTranslation::7042305147208168291::1788286061::0::1::::<><><>0<>0<><>::
+player_flight.roll.translation::OptimizedTranslation::7585074366080764979::1788286062::0::1::::<><><>0<>0<><>::
+player_flight.rudder.translation::OptimizedTranslation::4084022833327993783::1788286062::0::1::::<><><>0<>0<><>::
+player_flight.session.translation::OptimizedTranslation::601121875722264734::1788286061::0::1::::<><><>0<>0<><>::
+player_flight.shaped.translation::OptimizedTranslation::8517647969322976989::1788286062::0::1::::<><><>0<>0<><>::
+player_flight.sideslip.translation::OptimizedTranslation::4723143879521890288::1788286062::0::1::::<><><>0<>0<><>::
+player_flight.sleeping.translation::OptimizedTranslation::8407553689795164694::1788286062::0::1::::<><><>0<>0<><>::
+player_flight.specific.translation::OptimizedTranslation::8318148912312423684::1788286062::0::1::::<><><>0<>0<><>::
+player_flight.speed.translation::OptimizedTranslation::5644101403788435657::1788286061::0::1::::<><><>0<>0<><>::
+player_flight.stall.translation::OptimizedTranslation::3925083612995278415::1788286062::0::1::::<><><>0<>0<><>::
+player_flight.t.translation::OptimizedTranslation::1139012039946293379::1788286061::0::1::::<><><>0<>0<><>::
+player_flight.throttle.translation::OptimizedTranslation::166186180020593380::1788286062::0::1::::<><><>0<>0<><>::
+player_flight.thrust.translation::OptimizedTranslation::1446049668687618423::1788286062::0::1::::<><><>0<>0<><>::
+player_flight.total.translation::OptimizedTranslation::6120679138085394351::1788286063::0::1::::<><><>0<>0<><>::
+player_flight.utc.translation::OptimizedTranslation::7532978303828222118::1788286061::0::1::::<><><>0<>0<><>::
+player_flight.vertical.translation::OptimizedTranslation::322083505473220248::1788286061::0::1::::<><><>0<>0<><>::
+player_flight.yaw.translation::OptimizedTranslation::4728064960035221319::1788286062::0::1::::<><><>0<>0<><>::
+process_samples.cpu.translation::OptimizedTranslation::8342976031924849599::1788286061::0::1::::<><><>0<>0<><>::
+process_samples.csv::Translation::2687146818440134972::1788286056::1788286061::1::::<><><>0<>0<>63849788d551561741a13249382f1097<>res://captures/perf_play_sessions/20260901_195544/process_samples.elapsed.translation<*>res://captures/perf_play_sessions/20260901_195544/process_samples.pid.translation<*>res://captures/perf_play_sessions/20260901_195544/process_samples.cpu.translation<*>res://captures/perf_play_sessions/20260901_195544/process_samples.delta.translation<*>res://captures/perf_play_sessions/20260901_195544/process_samples.cpu.translation<*>res://captures/perf_play_sessions/20260901_195544/process_samples.working.translation<*>res://captures/perf_play_sessions/20260901_195544/process_samples.private.translation<*>res://captures/perf_play_sessions/20260901_195544/process_samples.threads.translation<*>res://captures/perf_play_sessions/20260901_195544/process_samples.handles.translation::
+process_samples.delta.translation::OptimizedTranslation::3261100226075664823::1788286061::0::1::::<><><>0<>0<><>::
+process_samples.elapsed.translation::OptimizedTranslation::6115447163335012439::1788286061::0::1::::<><><>0<>0<><>::
+process_samples.handles.translation::OptimizedTranslation::3831814799875177397::1788286061::0::1::::<><><>0<>0<><>::
+process_samples.pid.translation::OptimizedTranslation::2743051837844573950::1788286061::0::1::::<><><>0<>0<><>::
+process_samples.private.translation::OptimizedTranslation::3748061824974724922::1788286061::0::1::::<><><>0<>0<><>::
+process_samples.threads.translation::OptimizedTranslation::1408472992282460414::1788286061::0::1::::<><><>0<>0<><>::
+process_samples.working.translation::OptimizedTranslation::2437537527114923746::1788286061::0::1::::<><><>0<>0<><>::
 session.txt::TextFile::-1::1788286057::0::1::::<><><>0<>0<><>::
 ::res://Data/::1783337379
 ShipNames.txt::TextFile::-1::1783337379::0::1::::<><><>0<>0<><>::
@@ -2523,7 +2535,7 @@ FrameProfiler.gd::GDScript::3018144258874101709::1788284975::0::1::::FrameProfil
 AI Pilot Ground Attack Handoff 2026-07-27.md::TextFile::-1::1786800597::0::1::::<><><>0<>0<><>::
 asset_icon.png::CompressedTexture2D/CompressedTexture2D::3416171847850100584::1755622869::1776250865::1::::<><><>0<>0<>544503958a3f4067b5d71d7fc452c572<>res://.godot/imported/asset_icon.png-1733024c90fb1b859c2d8a7c9aac7ad7.ctex::
 callsigns.txt::TextFile/TextFile::-1::1775313793::0::1::::<><><>0<>0<><>::
-CONTROLLER_GUIDE.md::TextFile::-1::1787157015::0::1::::<><><>0<>0<><>::
+CONTROLLER_GUIDE.md::TextFile::-1::1788297788::0::1::::<><><>0<>0<><>::
 drag_point.png::CompressedTexture2D/CompressedTexture2D::2740083161763301754::1755622869::1776250865::1::::<><><>0<>0<>d7172418b7212f07e31234beb94c6321<>res://.godot/imported/drag_point.png-40b5f6e5e4a70b9a10d51b438ebc208d.ctex::
 Land Carrier Bridge Jitter Problem.md::TextFile::-1::1786800597::0::1::::<><><>0<>0<><>::
 Land Carrier Changelog.md::TextFile::-1::1786802020::0::1::::<><><>0<>0<><>::
@@ -2540,7 +2552,7 @@ BulletImpactBudget.gd::GDScript::8863312581701859069::1785712480::0::1::::<>Node
 CameraVisibilityLOD.gd::GDScript::2313496454957020874::1788044899::0::1::::<>RefCounted<><>0<>0<><>::
 DistantEnemyContrast.gd::GDScript::5092007181440876287::1787774397::0::1::::<>RefCounted<><>0<>0<><>::
 DustEffect.gd::GDScript::8659127724830883951::1785704015::0::1::::DustEffect<>Node3D<><>0<>0<><>::
-EnemyVisualBudget.gd::GDScript::5261696837064685928::1788079190::0::1::::<>Node<><>0<>0<><>::
+EnemyVisualBudget.gd::GDScript::5261696837064685928::1788338759::0::1::::<>Node<><>0<>0<><>::
 FireTrail.gd::GDScript::6945428177180704798::1785712636::0::1::::FireTrail<>Node<><>0<>0<><>::
 ParticleManager.gd::GDScript::8735500278856960486::1785713292::0::1::::<>Node<><>0<>0<><>::
 RotorWashEffect.gd::GDScript::7574257152114466231::1783440488::0::1::::RotorWashEffect<>Node3D<><>0<>0<><>::
@@ -2550,7 +2562,7 @@ WingtipVortexEffect.gd::GDScript::3535214872243256569::1788166831::0::1::::Wingt
 ::res://Enemies/::1777999764
 EnemyAircraft.gd::GDScript::8358739335297264816::1785646238::0::1::::EnemyAircraft<>RigidBody3D<><>0<>0<><>::
 EnemyAircraft.tscn::PackedScene/PackedScene::2233219823724232898::1782161090::0::1::::<><><>0<>0<><>::uid://drdbhli61pkei::::res://Enemies/EnemyAircraft.gd<>uid://cadi81fcpvmuc::::res://Projectiles/Explosion/explosion.tscn<>uid://cqw36derm5yh1::::res://Weapons/Turrets/turret_controller.gd<>uid://38xqikpdfhdk::::res://Weapons/Turrets/turret.tscn<>res://Weapons/Turrets/bullet_weapon.tscn
-EnemyAircraftSpawner.gd::GDScript::4294221024142035906::1788117412::0::1::::<>Node3D<><>0<>0<><>::
+EnemyAircraftSpawner.gd::GDScript::4294221024142035906::1788299103::0::1::::<>Node3D<><>0<>0<><>::
 EnemyBase.gd::GDScript::6699634435759442965::1787406751::0::1::::EnemyBase<>Node3D<><>0<>0<><>::
 EnemyBaseManager.gd::GDScript::5955495886369433956::1787406948::0::1::::<>Node<><>0<>0<><>::
 EnemyController.gd::GDScript/GDScript::6928803896767239951::1775989481::0::1::::EnemyController<>Node3D<><>0<>0<><>::
@@ -2596,7 +2608,7 @@ VehicleWreck.gd::GDScript::1291464888403236022::1785749334::0::1::::VehicleWreck
 VehicleWreckStagedSpawner.gd::GDScript::81105362045524075::1785749334::0::1::::<>Node<><>0<>0<><>::
 vehicle_enemy_battle_bus.tscn::PackedScene/PackedScene::191393782098002944::1782161249::0::1::::<><><>0<>0<><>::uid://dqqkx5fyusdg3::::res://GroundVehicle/vehicle_enemy_light.gd<>uid://mceg3hp1h2ya::::res://Models/Vehicles/Vehicle battle bus.glb<>uid://b03dvb4ispa4f::::res://Models/Vehicles/Vehicle wheel large.glb<>uid://cqw36derm5yh1::::res://Weapons/Turrets/turret_controller.gd<>res://Weapons/Turrets/vehicle_lmg_turret.tscn<>res://Weapons/Turrets/bullet_weapon.tscn<>uid://btkbb354s6pxl::::res://Weapons/Turrets/vehicle_heavy_gun_turret.tscn<>res://Weapons/Turrets/heavy_gun_weapon.tscn
 vehicle_enemy_buggy.tscn::PackedScene/PackedScene::3141519446145868607::1782161249::0::1::::<><><>0<>0<><>::uid://dqqkx5fyusdg3::::res://GroundVehicle/vehicle_enemy_light.gd<>uid://5lw4li0uds08::::res://Models/Vehicles/vehicle enemy buggy.glb<>uid://defg5afi6cn7v::::res://Models/Vehicles/Vehicle wheel small.glb<>uid://cqw36derm5yh1::::res://Weapons/Turrets/turret_controller.gd<>res://Weapons/Turrets/vehicle_lmg_turret.tscn<>res://Weapons/Turrets/bullet_weapon.tscn
-vehicle_enemy_light.gd::GDScript::8315963421082669444::1785749350::0::1::::VehicleEnemyLight<>CharacterBody3D<><>0<>0<><>::
+vehicle_enemy_light.gd::GDScript::8315963421082669444::1788300047::0::1::::VehicleEnemyLight<>CharacterBody3D<><>0<>0<><>::
 vehicle_enemy_pickup.tscn::PackedScene/PackedScene::9108816662543240491::1782161249::0::1::::<><><>0<>0<><>::uid://dqqkx5fyusdg3::::res://GroundVehicle/vehicle_enemy_light.gd<>uid://b3lfv77b46q30::::res://Models/Vehicles/vehicle enemy pickup.glb<>uid://duc1jx1m3f54d::::res://Models/Vehicles/Vehicle wheel medium.glb<>uid://cqw36derm5yh1::::res://Weapons/Turrets/turret_controller.gd<>res://Weapons/Turrets/vehicle_lmg_turret.tscn<>res://Weapons/Turrets/bullet_weapon.tscn
 vehicle_friendly_light.gd::GDScript::170103758433859676::1785749350::0::1::::VehicleFriendlyLight<>CharacterBody3D<><>0<>0<><>::
 vehicle_friendly_light.tscn::PackedScene/PackedScene::6978407560766576540::1777154300::0::1::::<><><>0<>0<><>::uid://cont4fpva1hw::::res://GroundVehicle/vehicle_friendly_light.gd<>uid://derhabj65mpc6::::res://Models/Vehicles/ground vehicle new friendly.glb<>uid://cqw36derm5yh1::::res://Weapons/Turrets/turret_controller.gd<>uid://38xqikpdfhdk::::res://Weapons/Turrets/turret.tscn<>res://Weapons/Turrets/bullet_weapon.tscn<>uid://duc1jx1m3f54d::::res://Models/Vehicles/Vehicle wheel medium.glb
@@ -2634,7 +2646,7 @@ baseline_result.json::JSON::-1::1785066131::0::1::::<><><>0<>0<><>::
 HeadsUpDisplay.tscn::PackedScene/PackedScene::5945735553539128646::1759786546::0::1::::<><><>0<>0<><>::uid://c1ssam4fb2lxq::::res://HUD/heads_up_display.gd
 heads_up_display.gd::GDScript::6636003682727034386::1787776354::0::1::::<>Node3D<><>0<>0<><>::
 InstrumentPanel.tscn::PackedScene/PackedScene::4470166518643055660::1757704919::0::1::::<><><>0<>0<><>::uid://frnf1mg4wvlr::::res://HUD/instrument_panel.gd
-instrument_panel.gd::GDScript::386838274341679003::1787427766::0::1::::<>Node3D<><>0<>0<><>::
+instrument_panel.gd::GDScript::386838274341679003::1788302132::0::1::::<>Node3D<><>0<>0<><>::
 RadarCanvas.gd::GDScript::3681656257658558508::1785197023::0::1::::<>Control<><>0<>0<><>::
 ::res://HUD/Instruments/::1782556789
 AoAModule.gd::GDScript::4762467367092780112::1782556775::0::1::::AoAModule<>InstrumentModule<><>0<>0<><>::
@@ -2901,14 +2913,14 @@ CarrierPathfinder.gd::GDScript/GDScript::6790620073226475721::1773080559::0::1::
 CarrierTread.gd::GDScript::8393597097382259651::1787417360::0::1::::CarrierTread<>StaticBody3D<><>0<>0<><>::
 CarrierTread.tscn::PackedScene/PackedScene::1063986563438328856::1780178790::0::1::::<><><>0<>0<><>::uid://drt6k2pyqc1pn::::res://LandCarrier/CarrierTread.gd<>uid://dv8clvbts5mhw::::res://Models/LandCarrier/carrier track wheel.glb
 Catapult.gd::GDScript::4086644976655569894::1785874378::0::1::::<>Node3D<><>0<>0<><>::
-Commander.gd::GDScript::6277292916130117920::1788039569::0::1::::Commander<>CharacterBody3D<><>0<>0<><>::
-Commander.tscn::PackedScene/PackedScene::5402173798185974286::1775203644::0::1::::<><><>0<>0<><>::uid://cvo1dkmsekwhk::::res://LandCarrier/Commander.gd
-CommanderWalkArea.gd::GDScript::2526896277228226294::1783785284::0::1::::CommanderWalkArea<>Node3D<><>0<>0<><>::
+Commander.gd::GDScript::6277292916130117920::1788468674::0::1::::Commander<>CharacterBody3D<><>0<>0<><>::
+Commander.tscn::PackedScene::5402173798185974286::1788468674::0::1::::<><><>0<>0<><>::uid://cvo1dkmsekwhk::::res://LandCarrier/Commander.gd<>uid://dqnrk20ay1rsj::::res://Models/Characters/Bridge officer.glb<>uid://c5p7knajxhkg6::::res://Aircraft/PilotPose.gd<>uid://iiiiwhbo3jgq::::res://Models/Characters/pilot/animations/pilot_animation_library.tres<>res://Models/Characters/pilot/animations/officer_idle_animation_library.tres
+CommanderWalkArea.gd::GDScript::2526896277228226294::1788463851::0::1::::CommanderWalkArea<>Node3D<><>0<>0<><>::
 DeckAnimationPilot.gd::GDScript::1488039265316955280::1787699235::0::1::::DeckAnimationPilot<>Node3D<><>0<>0<><>::
 DeckAnimationPilot.tscn::PackedScene::-1::1787680768::0::1::::<><><>0<>0<><>::
 DeckLights.gd::GDScript::4728596478209612037::1787433997::0::1::::<>Node3D<><>0<>0<><>::
 DeckLights.tscn::PackedScene/PackedScene::-1::1759786547::0::1::::<><><>0<>0<><>::res://LandCarrier/DeckLights.gd
-FlightDeckManager.gd::GDScript::2602372393641474303::1788285108::0::1::::FlightDeckManager<>Node<><>0<>0<><>::
+FlightDeckManager.gd::GDScript::2602372393641474303::1788301849::0::1::::FlightDeckManager<>Node<><>0<>0<><>::
 GroundShape.tres::BoxShape3D/BoxShape3D::-1::1759786546::0::1::::<><><>0<>0<><>::
 LandCarrier2.tscn::PackedScene::3083647028776159795::1787680768::0::1::::<><><>0<>0<><>::uid://dqly5yht3qjks::::res://LandCarrier/LandCarrier.gd<>uid://pfnx57rs2d41::::res://LandCarrier/CarrierTread.tscn<>uid://bdcuxticnrnfj::::res://LandCarrier/FlightDeckManager.gd<>uid://bc6qxmolml7of::::res://LandCarrier/SimpleTractorBot.tscn<>uid://cbi5j1o275n51::::res://Models/LandCarrier/Land carrier 3.glb<>uid://1dc3wqfq3v2j::::res://LandCarrier/TreadPositionHelper.gd<>uid://byhupfh0501o1::::res://LandCarrier/Catapult.gd<>uid://jd7fjuhmfvd4::::res://LandCarrier/CarrierElevator.tscn<>uid://cwglf226m425r::::res://LandCarrier/CarrierCollisionSetup.gd<>uid://b6ioeynvc7a1n::::res://LandCarrier/LandCarrierInput.gd<>uid://ci74apimqcahq::::res://LandCarrier/Commander.tscn<>uid://bfg081xviy2ej::::res://LandCarrier/StandaloneCameraSwitcher.gd<>uid://c31lkp3a7sq3a::::res://LandCarrier/arresting_cable.tscn<>res://LandCarrier/DeckLights.tscn<>res://LandCarrier/BridgeHologram.tscn<>uid://bn2n77puha7py::::res://LandCarrier/CarrierDefenseTurret.tscn<>uid://b27lalggxf8ui::::res://Aircraft/Aircraft_5.tscn<>uid://d2j0ldfmxq1m6::::res://Aircraft/Aircraft_7.tscn<>uid://ct4jod4xjuu2p::::res://Aircraft/Aircraft_9.tscn<>uid://cld3amq1vrrs3::::res://LandCarrier/CarrierManager.gd<>uid://iajmne1rqhv0::::res://Aircraft/Aircraft_10.tscn<>uid://bg86eyrsmule2::::res://Models/LandCarrier/Catapult/catapult shuttle.glb<>uid://bcabu3b1gglby::::res://LandCarrier/CommanderWalkArea.gd
 LandCarrier.gd::GDScript::8306503758501385322::1787868451::0::1::::LandCarrier<>CharacterBody3D<><>0<>0<><>::
@@ -2991,7 +3003,8 @@ building barracks.glb::PackedScene/PackedScene::859852313999679421::1775254298::
 runway.glb::PackedScene/PackedScene::3688005664998619663::1755980795::1776445771::1::::<><><>0<>0<>9be9f24cdf330901db7dbbb102d74f75<>res://.godot/imported/runway.glb-2064c0a36bc5125ae440de0cf2038d88.scn::
 wind turbine exploded.glb::PackedScene/PackedScene::2734680964009509853::1776807664::1776807664::1::::<><><>0<>0<>62818a07a44331b5ac72aa224a596049<>res://.godot/imported/wind turbine exploded.glb-682164ba3a4d9f01c3902149d9efd102.scn::
 wind turbine.glb::PackedScene/PackedScene::3854539907391156116::1776793892::1776793893::1::::<><><>0<>0<>552f477966c1cf0483f309265e8ebfbd<>res://.godot/imported/wind turbine.glb-4b05e1d58d0b96f460a5165dd8f9b523.scn::
-::res://Models/Characters/::1787516574
+::res://Models/Characters/::1788469165
+Bridge officer.glb::PackedScene::8310171963690355777::1788468474::1788468475::1::::<><><>0<>0<>739876eec68e94d6abd9d16d9d26f910<>res://.godot/imported/Bridge officer.glb-16018e82a8a4624fb6d952eb5513b69a.scn::
 DownedPilot.gd::GDScript::6836800640617379284::1788210723::0::1::::<>RigidBody3D<><>0<>0<><>::
 DownedPilot.tscn::PackedScene::-1::1787516659::0::1::::<><><>0<>0<><>::res://Models/Characters/DownedPilot.gd<>res://Models/Characters/PilotPlaceholder.tscn
 PilotVisualMaterials.gd::GDScript::3300559315579785657::1782419843::0::1::::<>RefCounted<><>0<>0<><>::
@@ -3001,16 +3014,23 @@ parachute_pose_settings.tres::Resource/PilotParachutePoseSettings::-1::178760918
 pilot.glb::PackedScene::3347257042541045743::1779918369::1787516741::1::::<><><>0<>0<>8ea81e58494013dc29b54ab3141bc632<>res://.godot/imported/pilot.glb-50f2a7bd767a183539a03a8e321feaa7.scn::
 PilotCharacter.tscn::PackedScene::-1::1787605056::0::1::::<><><>0<>0<><>::uid://c5p7knajxhkg6::::res://Aircraft/PilotPose.gd<>uid://bnxo3mvh7eqk2::::res://Models/Characters/pilot/pilot.glb<>uid://ctqy76sqfod4c::::res://Models/Characters/pilot/animations/running.fbx<>uid://btdsqb46u6dw8::::res://Models/Characters/pilot/animations/parachuting.fbx<>res://Models/Characters/pilot/parachute_pose_settings.tres<>res://Models/Characters/pilot/animations/pilot_animation_library.tres
 PilotParachutePoseSettings.gd::GDScript::5685683790769422588::1787605988::0::1::::PilotParachutePoseSettings<>Resource<><>0<>0<><>::
-README.md::TextFile::-1::1787699314::0::1::::<><><>0<>0<><>::
-::res://Models/Characters/pilot/animations/::1788197697
+README.md::TextFile::-1::1788465468::0::1::::<><><>0<>0<><>::
+::res://Models/Characters/pilot/animations/::1788468648
 approved_run_animation.tres::Animation::-1::1787698748::0::1::::<><><>0<>0<><>::
 Breathing Idle.fbx::PackedScene::7673323906624417679::1787604265::1787604267::1::::<><><>0<>0<>cb03840967f69f12ca2816554c83ad64<>res://.godot/imported/Breathing Idle.fbx-e59ddd4dbf1baed7c640cefb11832e53.scn::
+bridge_officer_animation_library.tres::AnimationLibrary::-1::1788469034::0::1::::<><><>0<>0<><>::
 Dying.fbx::PackedScene::1596797304176390256::1787604265::1787604267::1::::<><><>0<>0<>5647b194fa35acf8af2e7be566055a9b<>res://.godot/imported/Dying.fbx-f2a0d5d61cf403ea4d937ac591991364.scn::
+Idle 3.fbx::PackedScene::7361762711965884319::1788465000::1788464989::1::::<><><>0<>0<>1a5498d27c6439c10579313cb4739d6a<>res://.godot/imported/Idle 3.fbx-c1af3b38356f45fad2963580467549d3.scn::
+Idle 4.fbx::PackedScene::2882345147200722208::1788464999::1788464989::1::::<><><>0<>0<>377e70441691f94bba29c9132b4b930b<>res://.godot/imported/Idle 4.fbx-441aab848a3659428f6b1516d95e31db.scn::
+Idle 5.fbx::PackedScene::681507829658417111::1788464999::1788464990::1::::<><><>0<>0<>64ca97f97f013f5a56f1a1000ab6514c<>res://.godot/imported/Idle 5.fbx-b05755d79652de49d618c4d211156d73.scn::
+Idle 6.fbx::PackedScene::8270838810718627939::1788465000::1788464990::1::::<><><>0<>0<>cf1521583e182e41c160515c411b1b3c<>res://.godot/imported/Idle 6.fbx-4c0e81c081d81bf2b46770436ef0ec7d.scn::
+Idle 7.fbx::PackedScene::8332298906639654680::1788465000::1788464990::1::::<><><>0<>0<>6796eb06efbfcfdd64c3081c100f0c59<>res://.godot/imported/Idle 7.fbx-fad2d881730acc4387481c50cd790390.scn::
 Left Turn.fbx::PackedScene::6422615349234543108::1787604265::1787604268::1::::<><><>0<>0<>6c1bddc00e1e63f302e2107239db532f<>res://.godot/imported/Left Turn.fbx-c82d299b8c0bfc95fca0aff4c2a39085.scn::
 Neutral Idle.fbx::PackedScene::1002311148308800928::1787604265::1787604268::1::::<><><>0<>0<>9c67dae930a3bcd2a0e205733ee98d3c<>res://.godot/imported/Neutral Idle.fbx-4a0a1f80f4bacb4b51f026ea108e0e75.scn::
+officer_idle_animation_library.tres::AnimationLibrary::-1::1788465482::0::1::::<><><>0<>0<><>::
 parachuting.fbx::PackedScene::3727323423409296113::1779782121::1787517315::1::::<><><>0<>0<>7afdb4352de89349b306367ec7221462<>res://.godot/imported/parachuting.fbx-36ec2fab015c742abb86a0ad459f3cf2.scn::
 Piloting.fbx::PackedScene::8604171347682785242::1787604265::1787604269::1::::<><><>0<>0<>41ec0fc1e7e2003bdda0f2ab6f72faf5<>res://.godot/imported/Piloting.fbx-61fb060096bb831872d2066eca94b06f.scn::
-pilot_animation_library.tres::AnimationLibrary::578526959822697504::1788197697::0::1::::<><><>0<>0<><>::
+pilot_animation_library.tres::AnimationLibrary::578526959822697504::1788465505::0::1::::<><><>0<>0<><>::
 Right Turn.fbx::PackedScene::743066227410069094::1787604265::1787604270::1::::<><><>0<>0<>f3d71dbf587c545daa3c147e6ea90ce8<>res://.godot/imported/Right Turn.fbx-b6263ba029fcefd74a9cf34aef076138.scn::
 running.fbx::PackedScene::6140975450569662760::1779782121::1787516740::1::::<><><>0<>0<>65b1bfaefc2be6ee3a88207abf4b082a<>res://.godot/imported/running.fbx-a7c5e396112be648110fbfd55f84b397.scn::
 Salute.fbx::PackedScene::6647698426190814845::1787604265::1787604270::1::::<><><>0<>0<>aa220c4aa805da88c032159b576da44f<>res://.godot/imported/Salute.fbx-fa00fac6e800bcb19c9ea3e026bb5d0d.scn::
@@ -3021,13 +3041,13 @@ Waving.fbx::PackedScene::506183914042082469::1787604265::1787604272::1::::<><><>
 ::res://Models/InstrumentPanel/::1788109569
 AircraftInstrumentPanel.tscn::PackedScene::-1::1788110420::0::1::::<><><>0<>0<><>::uid://b4xm8v23opqrs::::res://HUD/InstrumentPanel.tscn<>uid://0cialxpuk7ko::::res://Models/InstrumentPanel/instrument_panel.glb
 instrument_panel.glb::PackedScene::1759336196397102482::1788109249::1788109358::1::::<><><>0<>0<>0b756710d12bb332b4bb0f6f040f8afe<>res://.godot/imported/instrument_panel.glb-447a6dc0d7dbef9d28772ea03280f4a0.scn::
-::res://Models/LandCarrier/::1788008852
+::res://Models/LandCarrier/::1788464280
 carrier track tread.glb::PackedScene/PackedScene::722016960778396637::1774045690::1776250885::1::::<><><>0<>0<>64630a33e9ba941929830b9fc9646b2a<>res://.godot/imported/carrier track tread.glb-851fc930d0ae5a6df9ec79507b594294.scn::
 carrier track wheel.glb::PackedScene/PackedScene::8701494416504120420::1773162425::1776250885::1::::<><><>0<>0<>4c27a897712a1ec676a31cd3a7ff3e6e<>res://.godot/imported/carrier track wheel.glb-fc2fcdc3c0e68fffa733df9af5fcab6c.scn::
 carrier_track_texture.png::CompressedTexture2D/CompressedTexture2D::8825715516252873354::1773172437::1776250865::1::::<><><>0<>0<>8347d6cd1da941bdfc95d2d809dbf48c<>res://.godot/imported/carrier_track_texture.png-7691814dd47174c0a45b73346de3a555.ctex::
 Land carrier 1 new.glb::PackedScene/PackedScene::8303952885149675727::1757256081::1776250885::1::::<><><>0<>0<>3f46feac25e25f9f4d5c37aac2e754db<>res://.godot/imported/Land carrier 1 new.glb-4b523f56db5763c59ee3ddb7bb6a74a0.scn::
 Land carrier 2.glb::PackedScene::2869317949258686651::1787485539::1787485540::1::::<><><>0<>0<>0ef5cc04e706fbe5e44253cf8a891a53<>res://.godot/imported/Land carrier 2.glb-9834f4e25e64787d7795170bb2c43abe.scn::
-Land carrier 3.glb::PackedScene::4861384203489930650::1788008850::1788008852::1::::<><><>0<>0<>ef678215ab5bc28571fec97850f004c0<>res://.godot/imported/Land carrier 3.glb-e7de396b18cedefce299225253641679.scn::
+Land carrier 3.glb::PackedScene::4861384203489930650::1788464279::1788464280::1::::<><><>0<>0<>ef678215ab5bc28571fec97850f004c0<>res://.godot/imported/Land carrier 3.glb-e7de396b18cedefce299225253641679.scn::
 Land carrier body.glb::PackedScene/PackedScene::1860435847055742544::1783339396::1783339396::1::::<><><>0<>0<>7fb0eecf555d7adc34681a0407e2942e<>res://.godot/imported/Land carrier body.glb-4ad58e1db4ff1e691009f2bc6b0ffb6b.scn::
 Land carrier static.glb::PackedScene/PackedScene::839645442805328148::1756539901::1776250884::1::::<><><>0<>0<>e3c0e6a5b631f533bdb0405710a897be<>res://.godot/imported/Land carrier static.glb-8bcbda96b31ec0026f90237679001686.scn::
 Land carrier turret base.glb::PackedScene/PackedScene::8787851304321656395::1773952455::1776250884::1::::<><><>0<>0<>47cc79629910f08e27f9b128adab23bd<>res://.godot/imported/Land carrier turret base.glb-88a4c5d627279708eeb89f2882c31769.scn::
@@ -3205,7 +3225,7 @@ nightvision.gdshader::Shader/Shader::6732151471364268055::1778103693::0::1::::<>
 nightvision_hud.gdshader::Shader/Shader::5968299606827452007::1778018266::0::1::::<><><>0<>0<><>::
 nightvision_spatial.gdshader::Shader/Shader::4309698005930189886::1778098413::0::1::::<><><>0<>0<><>::
 upper_fuselage_test_stripes.gdshader::Shader::7551709097952990935::1787351799::0::1::::<><><>0<>0<><>::
-::res://Tests/::1788285234
+::res://Tests/::1788469139
 Aircraft1HotkeySmoketest.gd::GDScript::2875208133144858163::1787426637::0::1::::<>Node<><>0<>0<><>::
 Aircraft1HotkeySmoketest.tscn::PackedScene::-1::1787002418::0::1::::<><><>0<>0<><>::
 Aircraft1InstrumentPanelSmoketest.gd::GDScript::2138319104158853973::1787432407::0::1::::<>Node<><>0<>0<><>::
@@ -3234,6 +3254,8 @@ AirOpsScrambleReservationSmoketest.gd::GDScript::8847754864026003737::1785878666
 AutocannonTracerSmoketest.gd::GDScript::2942379539310450876::1788116748::0::1::::<>Node<><>0<>0<><>::
 AutocannonTracerSmoketest.tscn::PackedScene::-1::1787262097::0::1::::<><><>0<>0<><>::
 BombBlastMarkerSmoketest.gd::GDScript::4721209542746925519::1787772310::0::1::::<>SceneTree<><>0<>0<><>::
+BridgeOfficerRenderedAnimationProbe.gd::GDScript::3450013122378968286::1788468674::0::1::::<>SceneTree<><>0<>0<><>::
+BridgeOfficerSmoketest.gd::GDScript::3911496768619214780::1788468699::0::1::::<>SceneTree<><>0<>0<><>::
 CameraFreedTargetSmoketest.gd::GDScript::-1::1787500493::0::1::::<>SceneTree<><>0<>0<><>::
 CarrierDeckPassengerSmoketest.gd::GDScript::1893907883272446616::1787335713::0::1::::<>SceneTree<><>0<>0<><>::
 CarrierElevatorCollisionSmoketest.gd::GDScript::3550043372695194223::1787933859::0::1::::<>SceneTree<><>0<>0<><>::
@@ -3247,6 +3269,7 @@ CockpitGlassMaterialVisibilitySmoketest.gd::GDScript::4392403560308437803::17880
 CockpitGlassMaterialVisibilitySmoketest.tscn::PackedScene::-1::1788008645::0::1::::<><><>0<>0<><>::
 CockpitPilotAnimationSmoketest.gd::GDScript::7506142446124618513::1788044973::0::1::::<>SceneTree<><>0<>0<><>::
 CockpitPilotEditorPreviewSmoketest.gd::GDScript::3600245448126586742::1787861041::0::1::::<>SceneTree<><>0<>0<><>::
+CommanderWalkAreaScaleSmoketest.gd::GDScript::2948916665277044065::1788464387::0::1::::<>SceneTree<><>0<>0<><>::
 DeckAnimationPilotSmoketest.gd::GDScript::4511655538237806789::1787699257::0::1::::<>SceneTree<><>0<>0<><>::
 DeckLightsHeightHotkeySmoketest.gd::GDScript::8726810381545122841::1787433997::0::1::::<>Node<><>0<>0<><>::
 DeckLightsHeightHotkeySmoketest.tscn::PackedScene::-1::1787433147::0::1::::<><><>0<>0<><>::
@@ -3283,6 +3306,8 @@ FixedWingYawAssistRuntimeSmoketest.gd::GDScript::3782001131053239209::1788039176
 FixedWingYawAssistRuntimeSmoketest.tscn::PackedScene::-1::1787863945::0::1::::<><><>0<>0<><>::
 FixedWingYawAssistSmoketest.gd::GDScript::5819790079054645522::1788023254::0::1::::<>Node<><>0<>0<><>::
 FixedWingYawAssistSmoketest.tscn::PackedScene::-1::1787863409::0::1::::<><><>0<>0<><>::
+FlightDirectorAircraftTransitionSmoketest.gd::GDScript::6823708195331154804::1788459410::0::1::::<>SceneTree<><>0<>0<><>::
+FlightDirectorCameraIdentitySmoketest.gd::GDScript::7429585747504686149::1788290481::0::1::::<>SceneTree<><>0<>0<><>::
 FlightDirectorFreedCameraTargetSmoketest.gd::GDScript::-1::1786894554::0::1::::<>SceneTree<><>0<>0<><>::
 FlightModelModeSmoketest.gd::GDScript::1599383521315951120::1787926635::0::1::::<>Node3D<><>0<>0<><>::
 FlightModelModeSmoketest.tscn::PackedScene::-1::1787870185::0::1::::<><><>0<>0<><>::res://Tests/FlightModelModeSmoketest.gd
@@ -3290,6 +3315,8 @@ FloatingOriginRigidBodySmoketest.gd::GDScript::4008984411728512658::1785876067::
 FoldedWingColliderSmoketest.gd::GDScript::8878458934529835406::1788178903::0::1::::<>Node3D<><>0<>0<><>::
 FoldedWingColliderSmoketest.tscn::PackedScene::-1::1787514515::0::1::::<><><>0<>0<><>::
 GroundOpsInitialPlacementSmoketest.gd::GDScript::2453102722911967486::1785885826::0::1::::<>SceneTree<><>0<>0<><>::
+HangarPresentationStagingSmoketest.gd::GDScript::5692620722603236605::1788334643::0::1::::<>Node<><>0<>0<><>::
+HangarPresentationStagingSmoketest.tscn::PackedScene::-1::1788296287::0::1::::<><><>0<>0<><>::res://Tests/HangarPresentationStagingSmoketest.gd
 HealthRtbThresholdSmoketest.gd::GDScript::3919305628512369785::1787507335::0::1::::<>SceneTree<><>0<>0<><>::
 HelicopterAudioSmoketest.gd::GDScript::-1::1788039960::0::1::::<>Node<><>0<>0<><>::
 HelicopterAudioSmoketest.tscn::PackedScene::-1::1788039740::0::1::::<><><>0<>0<><>::
@@ -3306,7 +3333,7 @@ LayeredMapStartupSmoketest.gd::GDScript::7644207422434752942::1785948581::0::1::
 LiveryHierarchySmoketest.gd::GDScript::5386943245156936864::1787350936::0::1::::<>Node<><>0<>0<><>::
 LiveryHierarchySmoketest.tscn::PackedScene::-1::1787350746::0::1::::<><><>0<>0<><>::
 LoadingScreenNonsenseSmoketest.gd::GDScript::1224671284012468798::1786904382::0::1::::<>SceneTree<><>0<>0<><>::
-ManualTargetSelectionSmoketest.gd::GDScript::7095671360149098014::1787774964::0::1::::<>SceneTree<><>0<>0<><>::
+ManualTargetSelectionSmoketest.gd::GDScript::7095671360149098014::1788297788::0::1::::<>SceneTree<><>0<>0<><>::
 MapFogMovingAircraftSmoketest.gd::GDScript::9150694427089332765::1785885851::0::1::::<>SceneTree<><>0<>0<><>::
 NoMissileLoadoutSmoketest.gd::GDScript::2654788895106268679::1787157186::0::1::::<>Node<><>0<>0<><>::
 NoMissileLoadoutSmoketest.tscn::PackedScene::-1::1787157116::0::1::::<><><>0<>0<><>::res://Tests/NoMissileLoadoutSmoketest.gd
@@ -3315,7 +3342,7 @@ PerformanceHitchTraceSmoketest.gd::GDScript::7918294389033599223::1788285261::0:
 PerformanceHitchTraceSmoketest.tscn::PackedScene::-1::1788285234::0::1::::<><><>0<>0<><>::
 PhotoModePilotPoseSmoketest.gd::GDScript::7062093683526193843::1788019535::0::1::::<>SceneTree<><>0<>0<><>::
 PhotoModeSmoketest.gd::GDScript::4381241308621632259::1787993602::0::1::::<>SceneTree<><>0<>0<><>::
-PilotAnimationLibrarySmoketest.gd::GDScript::4400984839336460384::1787699040::0::1::::<>SceneTree<><>0<>0<><>::
+PilotAnimationLibrarySmoketest.gd::GDScript::4400984839336460384::1788465534::0::1::::<>SceneTree<><>0<>0<><>::
 PilotAnimationViewerSmoketest.gd::GDScript::-1::1787609721::0::1::::<>SceneTree<><>0<>0<><>::
 PilotCharacterSmoketest.gd::GDScript::5734585649896498744::1787861041::0::1::::<>SceneTree<><>0<>0<><>::
 PilotingHeadCorrectionSmoketest.gd::GDScript::-1::1787611973::0::1::::<>SceneTree<><>0<>0<><>::
@@ -3325,7 +3352,7 @@ PilotSeatedLegBendSmoketest.gd::GDScript::4457699182651978037::1788116870::0::1:
 PlayerFlightRecorderSmoketest.gd::GDScript::8185253295153419881::1787870364::0::1::::<>Node3D<><>0<>0<><>::
 PlayerFlightRecorderSmoketest.tscn::PackedScene::-1::1787865403::0::1::::<><><>0<>0<><>::
 RockStreamIncrementalSmoketest.gd::GDScript::7331878381082803127::1785973441::0::1::::<>SceneTree<><>0<>0<><>::
-SaveStateSmoketest.gd::GDScript::8536525868193104965::1787412314::0::1::::<>Node<><>0<>0<><>::
+SaveStateSmoketest.gd::GDScript::8536525868193104965::1788290158::0::1::::<>Node<><>0<>0<><>::
 SaveStateSmoketest.tscn::PackedScene::-1::1787407067::0::1::::<><><>0<>0<><>::
 SettingsOptionsSmoketest.gd::GDScript::8515741016404720496::1787923717::0::1::::<>SceneTree<><>0<>0<><>::
 SimpleAeroStabilitySmoketest.gd::GDScript::7897912366964062528::1787853127::0::1::::<>Node<><>0<>0<><>::
@@ -3340,7 +3367,7 @@ TerrainColorRegionsSmoketest.gd::GDScript::8361609703425112582::1787520814::0::1
 TractorElevatorSetupPointsSmoketest.gd::GDScript::2566388773443782291::1787500819::0::1::::<>Node<><>0<>0<><>::
 TractorElevatorSetupPointsSmoketest.tscn::PackedScene::-1::1787436198::0::1::::<><><>0<>0<><>::
 VehicleSpawnHotkeyIntegrationSmoketest.gd::GDScript::4594338442762491143::1788117388::0::1::::<>SceneTree<><>0<>0<><>::
-VehicleSpawnMenuSmoketest.gd::GDScript::4231869907651895806::1788117250::0::1::::<>SceneTree<><>0<>0<><>::
+VehicleSpawnMenuSmoketest.gd::GDScript::4231869907651895806::1788290158::0::1::::<>SceneTree<><>0<>0<><>::
 WingtipVortexEffectSmoketest.gd::GDScript::8511677073886398623::1788105472::0::1::::<>Node3D<><>0<>0<><>::
 WingtipVortexEffectSmoketest.tscn::PackedScene::-1::1788079190::0::1::::<><><>0<>0<><>::res://Tests/WingtipVortexEffectSmoketest.gd
 WingtipVortexFleetSmoketest.gd::GDScript::1531982257586611174::1788166831::0::1::::<>Node3D<><>0<>0<><>::
@@ -3348,13 +3375,14 @@ WingtipVortexFleetSmoketest.tscn::PackedScene::-1::1788166759::0::1::::<><><>0<>
 WorldMapMobilityTextureSmoketest.gd::GDScript::4660459290662699086::1786016918::0::1::::<>SceneTree<><>0<>0<><>::
 ::res://tmp/::1785948042
 ::res://tmp/pdfs/::1785948380
-::res://tools/::1788009506
+::res://tools/::1788469094
 AircraftOutlineRenderer.gd::GDScript::4289544975910843645::1787389499::0::1::::<>Node<><>0<>0<><>::
 AircraftOutlineRenderer.tscn::PackedScene::-1::1787385954::0::1::::<><><>0<>0<><>::res://tools/AircraftOutlineRenderer.gd
-aircraft_activity_budget_smoketest.gd::GDScript::5355483084243871998::1788045179::0::1::::<>Node3D<><>0<>0<><>::
+aircraft_activity_budget_smoketest.gd::GDScript::5355483084243871998::1788334460::0::1::::<>Node3D<><>0<>0<><>::
 aircraft_activity_budget_smoketest.tscn::PackedScene::-1::1785667602::0::1::::<><><>0<>0<><>::res://tools/aircraft_activity_budget_smoketest.gd
 ai_aircraft_presentation_ab_benchmark.gd::GDScript::7325714641590487695::1785673160::0::1::::<>Node3D<><>0<>0<><>::
 ai_aircraft_presentation_ab_benchmark.tscn::PackedScene::-1::1785673116::0::1::::<><><>0<>0<><>::res://tools/ai_aircraft_presentation_ab_benchmark.gd
+BridgeOfficerAnimationLibraryBuilder.gd::GDScript::4432568944732710918::1788468910::0::1::::<>SceneTree<><>0<>0<><>::
 bullet_cost_benchmark.gd::GDScript::3590245666059091020::1785646121::0::1::::<>SceneTree<><>0<>0<><>::
 bullet_optimization_smoketest.gd::GDScript::6549191923817506237::1787254106::0::1::::<>Node3D<><>0<>0<><>::
 bullet_optimization_smoketest.tscn::PackedScene::-1::1785645863::0::1::::<><><>0<>0<><>::res://tools/bullet_optimization_smoketest.gd
@@ -3369,7 +3397,7 @@ destruction_staging_smoketest.gd::GDScript::8090321245344417251::1785750263::0::
 dump_heli_trees.gd::GDScript/GDScript::-1::1781211898::0::1::::<>SceneTree<><>0<>0<><>::
 enemy_investigation_smoketest.gd::GDScript::1551199387417788175::1785715493::0::1::::<>Node<><>0<>0<><>::
 enemy_investigation_smoketest.tscn::PackedScene::-1::1785715463::0::1::::<><><>0<>0<><>::res://tools/enemy_investigation_smoketest.gd
-FPSCounter.gd::GDScript::3274924968743197879::1788285072::0::1::::<>CanvasLayer<><>0<>0<><>::
+FPSCounter.gd::GDScript::3274924968743197879::1788298854::0::1::::<>CanvasLayer<><>0<>0<><>::
 ground_vehicle_path_smoketest.gd::GDScript/GDScript::808162828925204607::1773606014::0::1::::<>SceneTree<><>0<>0<><>::
 inspect_tread_mapping.gd::GDScript/GDScript::2956001574535728510::1774815710::0::1::::<>SceneTree<><>0<>0<><>::
 landing_ga_tuner_smoketest.gd::GDScript::6531344530973063795::1784434331::0::1::::<>SceneTree<><>0<>0<><>::
@@ -3380,7 +3408,7 @@ machine_gun_virtual_rounds_smoketest.gd::GDScript::8229806092906243145::17873388
 machine_gun_virtual_rounds_smoketest.tscn::PackedScene::-1::1787240579::0::1::::<><><>0<>0<><>::
 operations_contract_smoketest.gd::GDScript::1945463972230564599::1785607297::0::1::::<>Node<><>0<>0<><>::
 operations_contract_smoketest.tscn::PackedScene::-1::1785607297::0::1::::<><><>0<>0<><>::res://tools/operations_contract_smoketest.gd
-PilotAnimationBaker.gd::GDScript::3883126830518054855::1787698860::0::1::::<>SceneTree<><>0<>0<><>::
+PilotAnimationBaker.gd::GDScript::3883126830518054855::1788465468::0::1::::<>SceneTree<><>0<>0<><>::
 PilotAnimationCatalogPreview.gd::GDScript::-1::1788116769::0::1::::<>SceneTree<><>0<>0<><>::
 PilotAnimationViewer.gd::GDScript::-1::1787609721::0::1::::<>Node3D<><>0<>0<><>::
 PilotAnimationViewer.tscn::PackedScene::-1::1787609699::0::1::::<><><>0<>0<><>::
@@ -3474,7 +3502,7 @@ MenuTypography.gd::GDScript::590446456600284970::1786905468::0::1::::<>RefCounte
 OperationalUnitsPage.gd::GDScript::7589912377206654053::1787389888::0::1::::OperationalUnitsPage<>Control<><>0<>0<><>::
 Orbitron-VariableFont_wght.ttf::FontFile/FontFile::6505815225066891081::1775476593::1776250864::1::::<><><>0<>0<>4f80f24c29159ef2178fb1dd7a1dad24<>res://.godot/imported/Orbitron-VariableFont_wght.ttf-ab905aabdfc0460cce37efe42bb07e75.fontdata::
 panel_bg9.png::CompressedTexture2D/CompressedTexture2D::3728881769383455180::1755622868::1776250865::1::::<><><>0<>0<>2f7d1b21b352fcccf281468b8cd68582<>res://.godot/imported/panel_bg9.png-a59c086143c7100b221edcb6a31d5294.ctex::
-PauseMenu.gd::GDScript::6080581625316998193::1787993500::0::1::::<>CanvasLayer<><>0<>0<><>::
+PauseMenu.gd::GDScript::6080581625316998193::1788297788::0::1::::<>CanvasLayer<><>0<>0<><>::
 PilotRosterOverlay.gd::GDScript::4477530480290393392::1787514464::0::1::::<>CanvasLayer<><>0<>0<><>::
 Pixel.ttf::FontFile/FontFile::7213217598237149007::1755622867::1776250864::1::::<><><>0<>0<>504edd7c3e8ee86bd45bcf8eef873082<>res://.godot/imported/Pixel.ttf-eb164d9f2b8e608b0cf0bb38289729a3.fontdata::
 POICard.gd::GDScript/GDScript::7324414107112321581::1776197505::0::1::::POICard<>CanvasLayer<><>0<>0<><>::
@@ -3482,7 +3510,7 @@ TechnicalIndexCatalog.gd::GDScript::4989513047565288383::1788040135::0::1::::<>R
 TechnicalIndexView.gd::GDScript::1706229809709208321::1788127707::0::1::::<>Control<><>0<>0<><>::
 TitleScreen.gd::GDScript::8396682492951270689::1785873122::0::1::::<>Node3D<><>0<>0<><>::
 TitleScreen.tscn::PackedScene::-1::1783245647::0::1::::<><><>0<>0<><>::
-VehicleSpawnMenu.gd::GDScript::7316017472801705342::1788117235::0::1::::<>CanvasLayer<><>0<>0<><>::
+VehicleSpawnMenu.gd::GDScript::7316017472801705342::1788290382::0::1::::<>CanvasLayer<><>0<>0<><>::
 WorldMapOverlay.gd::GDScript::5239527523328355352::1786017259::0::1::::<>CanvasLayer<><>0<>0<><>::
 WorldMapSymbolLayer.gd::GDScript::4610482999799860263::1785922485::0::1::::<>Control<><>0<>0<><>::
 WorldMapTextureBuilder.gd::GDScript::5688710516319159727::1786017461::0::1::::<>RefCounted<><>0<>0<><>::

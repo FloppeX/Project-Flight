@@ -28,6 +28,7 @@ signal launch_sequence_aborted
 @export var spool_duration_s: float = 2.0     # Time to ramp throttle from 0 → 100%
 @export var hold_duration_s: float = 2.5      # Time to hold at full power before stroke
 @export var settle_duration_s: float = 0.2    # Physics settle time after alignment
+@export var launch_carrier_contact_grace_s: float = 0.75 # Ignore only carrier-body damage while the tail clears the deck edge
 
 # Input
 @export var launch_action: String = "fire_weapon"
@@ -445,6 +446,12 @@ func _release() -> void:
 	if debug_enabled: print("[CATAPULT] Releasing aircraft.")
 	if is_instance_valid(_aircraft):
 		_sync_aircraft_rotation_to_carrier()
+		# The release marker tracks the nose gear and sits at the carrier's forward
+		# edge, so the rest of the airframe is still over the deck for a fraction of
+		# a second. Keep carrier-body contacts under deck-ops ownership until the
+		# tail clears; all non-carrier collision and damage paths remain active.
+		if _aircraft.has_method("begin_carrier_launch_contact_grace"):
+			_aircraft.call("begin_carrier_launch_contact_grace", launch_carrier_contact_grace_s)
 		# Perform a clean handover to the aircraft's own engine controller.
 		# Set its target power to 1.0 so it doesn't immediately shut down the engine.
 		var engine_controller = _find_engine_controller(_aircraft)

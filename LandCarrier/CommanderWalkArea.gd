@@ -7,6 +7,7 @@ class_name CommanderWalkArea
 @export var commander_path: NodePath = NodePath("../Commander")
 @export var spawn_reference_path: NodePath = NodePath("../CarrierModel/human")
 @export var elevator_travel_m: float = 5.223
+@export var derive_elevator_travel_from_floors: bool = true
 @export var elevator_speed_mps: float = 1.75
 @export var elevator_trigger_delay_s: float = 0.35
 @export var elevator_edge_margin_m: float = 0.2
@@ -27,6 +28,7 @@ var _elevator_lower_position: Vector3 = Vector3.ZERO
 var _elevator_min_xz: Vector2 = Vector2.ZERO
 var _elevator_max_xz: Vector2 = Vector2.ZERO
 var _elevator_top_y: float = 0.0
+var _resolved_elevator_travel_m: float = 0.0
 
 var _initialized: bool = false
 var _initial_position_resolved: bool = false
@@ -172,6 +174,7 @@ func _ensure_initialized() -> bool:
 	_upper_floor_y = _get_mesh_top_y(_upper_floor)
 	_elevator_lower_position = _elevator.position
 	_update_elevator_geometry()
+	_resolve_elevator_travel()
 
 	if _lower_triangles.is_empty() or _upper_triangles.is_empty():
 		push_warning("CommanderWalkArea: An authored walkable-floor mesh has no triangles")
@@ -195,9 +198,10 @@ func _begin_elevator_trip() -> void:
 
 func _update_elevator_motion(delta: float) -> void:
 	var target_progress := 0.0 if _elevator_at_upper else 1.0
-	var progress_speed := elevator_speed_mps / maxf(elevator_travel_m, 0.001)
+	var progress_speed := elevator_speed_mps / maxf(_resolved_elevator_travel_m, 0.001)
 	_elevator_progress = move_toward(_elevator_progress, target_progress, progress_speed * delta)
-	_elevator.position = _elevator_lower_position + Vector3.UP * (elevator_travel_m * _elevator_progress)
+	_elevator.position = _elevator_lower_position \
+		+ Vector3.UP * (_resolved_elevator_travel_m * _elevator_progress)
 	_update_elevator_geometry()
 	if _commander_riding:
 		var commander_position := _commander.position
@@ -218,16 +222,32 @@ func _platform_is_at_active_floor() -> bool:
 
 
 func _get_lower_spawn_position() -> Vector3:
-	var spawn_position := _commander.position
+	var fallback_reference := _commander.position
 	if _spawn_reference != null:
-		spawn_position = _carrier.to_local(_spawn_reference.global_position)
-	spawn_position.y = _lower_floor_y
-	if _is_walkable_floor_position(Vector2(spawn_position.x, spawn_position.z), _lower_triangles):
-		return spawn_position
+		var reference_position := _carrier.to_local(_spawn_reference.global_position)
+		reference_position.y = _lower_floor_y
+		fallback_reference = reference_position
+		if _is_walkable_floor_position(
+			Vector2(reference_position.x, reference_position.z),
+			_lower_triangles
+		):
+			return reference_position
+
+	# Imported reference markers can move outside their companion floor when a
+	# modeller rescales the bridge. Preserve the scene-authored Commander start
+	# when it still lies on the current floor instead of snapping to an arbitrary
+	# triangle center.
+	var commander_position := _commander.position
+	commander_position.y = _lower_floor_y
+	if _is_walkable_floor_position(
+		Vector2(commander_position.x, commander_position.z),
+		_lower_triangles
+	):
+		return commander_position
 
 	# Find the closest triangle center that also has enough clearance for the
 	# commander capsule when the reference is outside the lower walk area.
-	var reference_xz := Vector2(spawn_position.x, spawn_position.z)
+	var reference_xz := Vector2(fallback_reference.x, fallback_reference.z)
 	var best_center := Vector2.ZERO
 	var best_distance_squared := INF
 	for triangle in _lower_triangles:
@@ -246,6 +266,26 @@ func _get_lower_spawn_position() -> Vector3:
 	var first_triangle := _lower_triangles[0]
 	var fallback_center := (first_triangle[0] + first_triangle[1] + first_triangle[2]) / 3.0
 	return Vector3(fallback_center.x, _lower_floor_y, fallback_center.y)
+
+
+func _resolve_elevator_travel() -> void:
+	_resolved_elevator_travel_m = maxf(elevator_travel_m, 0.001)
+	if not derive_elevator_travel_from_floors:
+		return
+	var geometry_travel := _upper_floor_y - _elevator_top_y
+	if geometry_travel <= 0.001:
+		push_warning(
+			"CommanderWalkArea: Could not derive positive bridge elevator travel; "
+			+ "using authored %.3f m" % elevator_travel_m
+		)
+		return
+	_resolved_elevator_travel_m = geometry_travel
+
+
+func get_resolved_elevator_travel_m() -> float:
+	if not _ensure_initialized():
+		return maxf(elevator_travel_m, 0.001)
+	return _resolved_elevator_travel_m
 
 
 func _extract_floor_triangles(mesh_instance: MeshInstance3D) -> Array[PackedVector2Array]:

@@ -9,6 +9,21 @@ class_name Commander
 @export var bridge_wall_margin_m: float = 0.55
 @export var normal_fov: float = 75.0
 @export var zoomed_fov: float = 30.0
+@export_group("Keyboard Control")
+@export var keyboard_turn_speed_degrees_s: float = 120.0
+@export_group("Officer Animation")
+@export var officer_idle_animation: StringName = &"idle_neutral"
+@export var officer_idle_animations: Array[StringName] = [
+	&"idle_neutral",
+	&"idle_3",
+	&"idle_4",
+	&"idle_5",
+	&"idle_6",
+	&"idle_7",
+	&"idle_breathing",
+]
+@export var officer_walk_animation: StringName = &"walk"
+@export var officer_walk_reference_speed_mps: float = 2.4
 @export_group("Carrier Cameras")
 @export var chase_camera_local_position: Vector3 = Vector3(0.0, 42.0, 120.0)
 @export var chase_camera_focus_local_position: Vector3 = Vector3(0.0, 4.0, 0.0)
@@ -30,7 +45,7 @@ class_name Commander
 @export var control_room_wind_silence_db: float = -80.0
 
 @onready var commander_camera: Camera3D = $Camera3D
-@onready var body_mesh: MeshInstance3D = $BodyMesh
+@onready var body_visual: Node3D = $BodyVisual
 
 var _look_yaw: float = 0.0
 var _look_pitch: float = 0.0
@@ -53,6 +68,13 @@ var _chase_camera: Camera3D = null
 var _cinematic_camera: Camera3D = null
 var _walk_area_provider: Node = null
 var _pause_menu_settings: Node = null
+var _officer_animation_player: AnimationPlayer = null
+var _officer_animation: StringName = &""
+var _officer_moving: bool = false
+var _arrow_forward_pressed: bool = false
+var _arrow_backward_pressed: bool = false
+var _arrow_left_pressed: bool = false
+var _arrow_right_pressed: bool = false
 
 const VIEW_CONTROL_ROOM: int = 0
 const VIEW_CHASE: int = 1
@@ -66,8 +88,13 @@ func _ready() -> void:
 	if commander_camera:
 		commander_camera.physics_interpolation_mode = Node3D.PHYSICS_INTERPOLATION_MODE_INHERIT
 		commander_camera.top_level = false
-	if body_mesh:
-		body_mesh.physics_interpolation_mode = Node3D.PHYSICS_INTERPOLATION_MODE_INHERIT
+	if body_visual:
+		body_visual.physics_interpolation_mode = Node3D.PHYSICS_INTERPOLATION_MODE_INHERIT
+		var rig_controls := body_visual.find_child("cs_grp", true, false) as Node3D
+		if rig_controls != null:
+			rig_controls.visible = false
+		_officer_animation_player = body_visual.get_node_or_null("BakedAnimationPlayer") as AnimationPlayer
+		_set_officer_moving(false)
 
 	_anchor_local_position = position
 	_cache_bridge_bounds()
@@ -87,6 +114,33 @@ func _ready() -> void:
 		print("[Commander] WARNING: No commander_camera found!")
 	_setup_control_room_audio()
 	_setup_control_room_wind_audio()
+
+
+func _input(event: InputEvent) -> void:
+	var key_event := event as InputEventKey
+	if key_event == null:
+		return
+	var keycode := key_event.physical_keycode
+	if keycode == KEY_NONE:
+		keycode = key_event.keycode
+	match keycode:
+		KEY_UP:
+			_arrow_backward_pressed = key_event.pressed
+		KEY_DOWN:
+			_arrow_forward_pressed = key_event.pressed
+		KEY_LEFT:
+			_arrow_left_pressed = key_event.pressed
+		KEY_RIGHT:
+			_arrow_right_pressed = key_event.pressed
+		KEY_I:
+			if key_event.pressed and not key_event.echo \
+					and (_is_active_view() or _is_free_camera_view()):
+				_cycle_officer_idle()
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_APPLICATION_FOCUS_OUT:
+		_reset_arrow_key_state()
 
 func _activate_initial_camera() -> void:
 	if commander_camera:
@@ -112,16 +166,25 @@ func _process(delta: float) -> void:
 	_update_external_camera_transforms()
 
 func _physics_process(delta: float) -> void:
-	if not _is_active_view():
+	var active_commander_view := _is_active_view()
+	var active_free_camera_view := _is_free_camera_view()
+	if not active_commander_view and not active_free_camera_view:
 		velocity = Vector3.ZERO
+		_set_officer_moving(false)
 		return
 
 	position = _constrain_walk_position(position, position)
 
-	_update_look(delta)
+	_update_look(delta, active_commander_view)
 
-	var forward_input := Input.get_action_strength("pitch_up") - Input.get_action_strength("pitch_down")
-	var strafe_input := Input.get_action_strength("roll_left") - Input.get_action_strength("roll_right")
+	var forward_input := _keyboard_forward_input()
+	var strafe_input := 0.0
+	if active_commander_view:
+		forward_input += Input.get_action_strength("pitch_up") \
+			- Input.get_action_strength("pitch_down")
+		strafe_input = Input.get_action_strength("roll_left") \
+			- Input.get_action_strength("roll_right")
+	forward_input = clampf(forward_input, -1.0, 1.0)
 	var move_input := Vector2(strafe_input, forward_input)
 	if move_input.length_squared() > 1.0:
 		move_input = move_input.normalized()
@@ -140,20 +203,80 @@ func _physics_process(delta: float) -> void:
 	# When standing still, just hold the last valid local spot.
 	if move_input.length_squared() < 0.001:
 		velocity = Vector3.ZERO
+		_set_officer_moving(false)
 		return
 
 	velocity = Vector3.ZERO
+	var previous_position := position
 	position = _constrain_walk_position(position, position + move_velocity * delta)
 	_anchor_local_position = position
+	_set_officer_moving(position.distance_squared_to(previous_position) > 0.000001)
 
-func _update_look(delta: float) -> void:
-	var look_yaw_input := Input.get_action_strength("look_right") - Input.get_action_strength("look_left")
-	var look_pitch_input := Input.get_action_strength("look_up") - Input.get_action_strength("look_down")
-	var sensitivity_scale := _user_look_sensitivity_multiplier()
-	if _user_invert_look_y():
-		look_pitch_input = -look_pitch_input
+
+func _set_officer_moving(moving: bool) -> void:
+	_officer_moving = moving
+	if body_visual == null:
+		return
+	var target_animation := officer_walk_animation if moving else officer_idle_animation
+	if target_animation == &"":
+		return
+	var playback_speed := 1.0
+	if moving:
+		playback_speed = clampf(
+			walk_speed_mps / maxf(officer_walk_reference_speed_mps, 0.1),
+			0.55,
+			1.6
+		)
+	if target_animation == _officer_animation \
+			and _officer_animation_player != null \
+			and _officer_animation_player.is_playing():
+		_officer_animation_player.speed_scale = playback_speed
+		return
+	var played := false
+	if body_visual.has_method("play_baked_animation"):
+		played = bool(body_visual.call("play_baked_animation", target_animation, playback_speed))
+	elif _officer_animation_player != null and _officer_animation_player.has_animation(target_animation):
+		_officer_animation_player.speed_scale = playback_speed
+		_officer_animation_player.play(target_animation)
+		played = true
+	if played:
+		_officer_animation = target_animation
+
+
+func _cycle_officer_idle() -> void:
+	if _officer_animation_player == null:
+		return
+	var available_idles: Array[StringName] = []
+	for animation_name in officer_idle_animations:
+		if animation_name != &"" and _officer_animation_player.has_animation(animation_name):
+			available_idles.append(animation_name)
+	if available_idles.is_empty():
+		return
+	var current_index := available_idles.find(officer_idle_animation)
+	officer_idle_animation = available_idles[(current_index + 1) % available_idles.size()]
+	if not _officer_moving:
+		_officer_animation = &""
+		_set_officer_moving(false)
+	print(
+		"[Commander] Officer idle animation: %s"
+		% officer_idle_animation
+	)
+
+func _update_look(delta: float, include_gamepad_look: bool = true) -> void:
+	var look_yaw_input := 0.0
+	var look_pitch_input := 0.0
+	var sensitivity_scale := 1.0
+	if include_gamepad_look:
+		look_yaw_input = Input.get_action_strength("look_right") \
+			- Input.get_action_strength("look_left")
+		look_pitch_input = Input.get_action_strength("look_up") \
+			- Input.get_action_strength("look_down")
+		sensitivity_scale = _user_look_sensitivity_multiplier()
+		if _user_invert_look_y():
+			look_pitch_input = -look_pitch_input
 
 	_look_yaw -= look_yaw_input * deg_to_rad(look_sensitivity_deg) * sensitivity_scale * delta
+	_look_yaw -= _keyboard_turn_input() * deg_to_rad(keyboard_turn_speed_degrees_s) * delta
 	_look_pitch += look_pitch_input * deg_to_rad(look_sensitivity_deg) * sensitivity_scale * delta
 	_look_pitch = clamp(
 		_look_pitch,
@@ -162,10 +285,33 @@ func _update_look(delta: float) -> void:
 	)
 
 	rotation.y = _look_yaw
-	commander_camera.rotation.x = _look_pitch
+	if include_gamepad_look and commander_camera != null:
+		commander_camera.rotation.x = _look_pitch
+
+
+func _keyboard_forward_input() -> float:
+	return float(_arrow_forward_pressed) - float(_arrow_backward_pressed)
+
+
+func _keyboard_turn_input() -> float:
+	return float(_arrow_right_pressed) - float(_arrow_left_pressed)
+
+
+func _reset_arrow_key_state() -> void:
+	_arrow_forward_pressed = false
+	_arrow_backward_pressed = false
+	_arrow_left_pressed = false
+	_arrow_right_pressed = false
 
 func _is_active_view() -> bool:
 	return commander_camera != null and commander_camera.current
+
+
+func _is_free_camera_view() -> bool:
+	var flight_director := get_node_or_null("/root/FlightDirector")
+	return flight_director != null \
+			and flight_director.has_method("is_free_camera_active") \
+			and bool(flight_director.call("is_free_camera_active"))
 
 func get_camera() -> Camera3D:
 	return get_camera_for_mode(_active_view_mode)
@@ -257,10 +403,13 @@ func _constrain_walk_position(current_position: Vector3, desired_position: Vecto
 	return _clamp_to_bridge_bounds(desired_position)
 
 func _update_body_visibility(active_view: bool) -> void:
-	if body_mesh == null:
+	if body_visual == null:
 		return
-	body_mesh.visible = not active_view
-	body_mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF if active_view else GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+	body_visual.visible = not active_view
+	for child in body_visual.find_children("*", "GeometryInstance3D", true, false):
+		var geometry := child as GeometryInstance3D
+		geometry.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF \
+			if active_view else GeometryInstance3D.SHADOW_CASTING_SETTING_ON
 
 func _is_zoom_button_pressed() -> bool:
 	for device in Input.get_connected_joypads():

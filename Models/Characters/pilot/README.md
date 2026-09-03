@@ -26,6 +26,11 @@ One-shot clips:
 
 - `turn_left`, `turn_right`, `salute`, `wave`, `die`
 
+`animations/officer_idle_animation_library.tres` contains the five additional
+looping bridge-officer idles as `officer/idle_3` through `officer/idle_7` when
+mounted beside the shared library on the officer's `AnimationPlayer`. Keeping
+them officer-only avoids binding those long clips on every pooled cockpit pilot.
+
 `Aircraft/CockpitPilot.tscn` starts the looping `piloting` clip automatically.
 It is the shared cockpit-pilot scene used by the aircraft variants. The visible
 pilot branch is hidden only while that aircraft's cockpit camera is current and

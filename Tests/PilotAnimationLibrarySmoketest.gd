@@ -5,9 +5,15 @@ extends SceneTree
 
 const PILOT_SCENE := "res://Models/Characters/pilot/PilotCharacter.tscn"
 const APPROVED_RUN_ANIMATION := "res://Models/Characters/pilot/animations/approved_run_animation.tres"
+const OFFICER_IDLE_LIBRARY := "res://Models/Characters/pilot/animations/officer_idle_animation_library.tres"
 const EXPECTED_CLIPS := {
 	&"idle_breathing": true,
 	&"idle_neutral": true,
+	&"officer/idle_3": true,
+	&"officer/idle_4": true,
+	&"officer/idle_5": true,
+	&"officer/idle_6": true,
+	&"officer/idle_7": true,
 	&"walk": true,
 	&"run": true,
 	&"turn_left": false,
@@ -67,6 +73,13 @@ func _run() -> void:
 	var skeleton := _find_skeleton(pilot.get_node_or_null("Pilot"))
 	if player == null or skeleton == null:
 		_fail("baked player or canonical skeleton is missing")
+		return
+	var officer_idle_library := load(OFFICER_IDLE_LIBRARY) as AnimationLibrary
+	if officer_idle_library == null:
+		_fail("officer idle animation library is missing")
+		return
+	if player.add_animation_library(&"officer", officer_idle_library) != OK:
+		_fail("officer idle animation library could not be mounted for validation")
 		return
 	var actual_clips := player.get_animation_list()
 	if actual_clips.size() != EXPECTED_CLIPS.size():

@@ -134,6 +134,39 @@ func prepare_aircraft_presentation_for_staged_tree_entry(unit: Node3D) -> Dictio
 	return result
 
 
+## Starts a staged restore for an aircraft that is already in the SceneTree.
+## Unlike the hangar-entry path, this never detaches an initialized presentation:
+## it only adopts roots that are already dormant and keeps an already-live
+## presentation attached for the duration of the camera handoff.
+func begin_aircraft_view_transition_staging(unit: Node3D) -> Dictionary:
+	var result: Dictionary = {
+		"prepared": false,
+		"detached_roots": 0,
+		"root_names": PackedStringArray(),
+		"complete": true,
+	}
+	if unit == null or not is_instance_valid(unit):
+		return result
+
+	var cache := _get_cache_for_root(unit)
+	var session = cache.get("presentation_session")
+	if session == null:
+		return result
+
+	# The pending viewed aircraft must not be detached again by the periodic
+	# distance budget while the transition camera is approaching it.
+	unit.set_meta(PRESENTATION_KEEP_ATTACHED_META, true)
+	if not session.is_detached():
+		return result
+
+	unit.set_meta(PRESENTATION_STAGING_META, true)
+	result["prepared"] = true
+	result["detached_roots"] = int(session.get_detached_root_count())
+	result["root_names"] = session.get_detached_root_names()
+	result["complete"] = false
+	return result
+
+
 func restore_next_staged_aircraft_presentation_root(unit: Node3D) -> Dictionary:
 	var result: Dictionary = {
 		"restored": false,

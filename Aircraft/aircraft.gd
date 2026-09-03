@@ -3,6 +3,7 @@ extends RigidBody3D
 
 const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
 const ROCKET_CCIP_TARGET_ALONG_MARGIN_M: float = 35.0
+const CARRIER_LAUNCH_CONTACT_GRACE_META: StringName = &"carrier_launch_contact_grace_until_msec"
 const ROCKET_CCIP_MIN_GROUND_NORMAL_Y: float = 0.42
 const PROJECTILE_SPEED_CAP_SETTING_KEYS: Array[String] = [
 	"physics/jolt_3d/simulation/limits/max_linear_velocity",
@@ -462,6 +463,8 @@ func _handle_carrier_body_contact(body: Node) -> void:
 
 
 func _is_managed_by_carrier_deck_ops() -> bool:
+	if _is_carrier_launch_contact_grace_active():
+		return true
 	if has_meta("carrier_transport_mode") and bool(get_meta("carrier_transport_mode")):
 		return true
 	if has_meta("helicopter_deck_takeoff_ready") and bool(get_meta("helicopter_deck_takeoff_ready")):
@@ -470,6 +473,21 @@ func _is_managed_by_carrier_deck_ops() -> bool:
 		var fdm := get_tree().get_first_node_in_group("flight_deck_manager")
 		if fdm != null:
 			return true
+	return false
+
+
+func begin_carrier_launch_contact_grace(duration_s: float) -> void:
+	var grace_duration_msec := int(ceil(maxf(duration_s, 0.0) * 1000.0))
+	set_meta(CARRIER_LAUNCH_CONTACT_GRACE_META, Time.get_ticks_msec() + grace_duration_msec)
+
+
+func _is_carrier_launch_contact_grace_active() -> bool:
+	if not has_meta(CARRIER_LAUNCH_CONTACT_GRACE_META):
+		return false
+	var until_msec := int(get_meta(CARRIER_LAUNCH_CONTACT_GRACE_META, 0))
+	if Time.get_ticks_msec() <= until_msec:
+		return true
+	remove_meta(CARRIER_LAUNCH_CONTACT_GRACE_META)
 	return false
 
 
