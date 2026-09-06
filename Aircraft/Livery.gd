@@ -1004,6 +1004,10 @@ func _apply_recursive(node: Node) -> void:
 				elif "blue plasteel" in mat_name:
 					target_color = _active_apply_upper_color
 					is_upper_fuselage_surface = true
+				elif _is_uniform_color_1_material_name(mat_name):
+					# Bridge officers share the player's selected fleet primary color.
+					# Keep this solid rather than treating it as a patterned carrier surface.
+					target_color = _active_apply_upper_color
 				elif _active_apply_has_pilot_colors and mat_name == "main color":
 					target_color = _active_apply_pilot_main_color
 				elif _active_apply_has_pilot_colors and mat_name == "main color dark":
@@ -1077,6 +1081,9 @@ func _is_carrier_color_2_material_name(mat_name: String) -> bool:
 func _is_carrier_color_3_material_name(mat_name: String) -> bool:
 	return "main color 3" in mat_name or "maincolor3" in mat_name \
 			or "base color 3" in mat_name or "basecolor3" in mat_name
+
+func _is_uniform_color_1_material_name(mat_name: String) -> bool:
+	return mat_name == "uniform color 1" or mat_name == "uniformcolor1"
 
 func _get_carrier_pattern_shader() -> Shader:
 	if _carrier_pattern_shader != null:

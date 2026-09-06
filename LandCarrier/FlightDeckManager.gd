@@ -545,6 +545,11 @@ func _request_launch_terrain_reposition() -> void:
 	var carrier := get_parent() as Node3D
 	if not is_instance_valid(carrier) or not carrier.has_method("request_launch_corridor_reposition"):
 		return
+	# HOLD is a player command, not a launch-safety suggestion. Avoid both the
+	# autonomous reposition and its repeated terrain-direction search while held.
+	if carrier.has_method("has_active_navigation_order") \
+			and not bool(carrier.call("has_active_navigation_order")):
+		return
 	if carrier.has_method("is_launch_corridor_reposition_active") \
 			and bool(carrier.call("is_launch_corridor_reposition_active")):
 		return

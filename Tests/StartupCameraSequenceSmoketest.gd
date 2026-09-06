@@ -60,13 +60,29 @@ func _run() -> void:
 	for child in deck_lights.get_children():
 		if child is Light3D:
 			surface_light_count += 1
+			var surface_light := child as SpotLight3D
+			if surface_light == null or surface_light.shadow_enabled:
+				_fail("startup deck wash is not a non-shadowed spotlight")
+				return
+			if surface_light.light_energy <= 0.0 or surface_light.spot_range < 10.0:
+				_fail("startup deck wash has no useful illumination")
+				return
 		elif child is MeshInstance3D:
 			marker_count += 1
-	if surface_light_count != 0:
-		_fail("marker-only startup deck lights still created %d surface lights" % surface_light_count)
+			var marker := child as MeshInstance3D
+			var marker_material := marker.material_override as StandardMaterial3D
+			if marker_material == null or not marker_material.emission_enabled \
+			or marker_material.emission_energy_multiplier < 3.0:
+				_fail("startup deck marker is not strongly emissive")
+				return
+	if surface_light_count == 0:
+		_fail("startup deck lights did not create any surface illumination")
 		return
 	if marker_count == 0:
-		_fail("marker-only startup deck lights did not retain emissive markers")
+		_fail("startup deck lights did not retain emissive markers")
+		return
+	if surface_light_count >= marker_count / 2:
+		_fail("startup deck wash created too many local lights (%d for %d markers)" % [surface_light_count, marker_count])
 		return
 	if int(menu.call("get_main_camera_shot_count")) != EXPECTED_NAMES.size():
 		_fail("startup camera sequence did not expose all five shots")
@@ -115,7 +131,7 @@ func _run() -> void:
 
 	menu.queue_free()
 	await get_tree().process_frame
-	print("[StartupCameraSequenceSmoketest] PASS shots=5 deck_lights=marker_only modes=orbit+hilltop+ground+long_lens")
+	print("[StartupCameraSequenceSmoketest] PASS shots=5 deck_lights=%d_wash/%d_markers modes=orbit+hilltop+ground+long_lens" % [surface_light_count, marker_count])
 	get_tree().quit(0)
 
 

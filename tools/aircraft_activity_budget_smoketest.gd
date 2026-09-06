@@ -31,15 +31,20 @@ func _run() -> void:
 	hud.call("set_view_updates_active", false)
 	panel.call("set_view_updates_active", false)
 	var viewports := _collect_subviewports(aircraft)
-	_require(viewports.size() >= 3, "expected HUD, panel, and target viewports")
+	_require(viewports.size() >= 1, "expected the aircraft-owned HUD viewport")
 	for viewport in viewports:
 		_require(viewport.render_target_update_mode == SubViewport.UPDATE_DISABLED, "hidden viewport still active")
-	var radar := panel.find_child("RadarCanvas", true, false)
-	_require(radar != null and not radar.is_processing(), "hidden radar still processing")
 	hud.call("set_view_updates_active", true)
 	panel.call("set_view_updates_active", true)
+	await get_tree().process_frame
+	var live_panel := panel.call("get_live_panel") as Node3D
+	_require(live_panel != null, "viewed aircraft did not check out its pooled panel")
+	viewports = _collect_subviewports(aircraft)
+	viewports.append_array(_collect_subviewports(live_panel))
+	_require(viewports.size() >= 3, "expected HUD plus pooled panel and target viewports")
 	for viewport in viewports:
 		_require(viewport.render_target_update_mode == SubViewport.UPDATE_ALWAYS, "viewed viewport did not restore")
+	var radar := live_panel.find_child("RadarCanvas", true, false)
 	_require(radar.is_processing(), "viewed radar did not restore")
 
 	var tailhook := aircraft.find_child("TailHook", true, false)
@@ -115,6 +120,38 @@ func _run() -> void:
 	pilot.set("adaptive_guidance_cadence_enabled", false)
 	_require(is_zero_approx(float(pilot.call("_get_guidance_update_interval_s"))), "fixed-wing guidance rollback switch did not restore full rate")
 	pilot.set("adaptive_guidance_cadence_enabled", saved_adaptive_guidance)
+
+	var saved_transition_active: bool = bool(flight_director.get("_aircraft_transition_active"))
+	var saved_transition_source: Variant = flight_director.get("_aircraft_transition_source")
+	var saved_transition_target: Variant = flight_director.get("_aircraft_transition_target")
+	var transition_source := RigidBody3D.new()
+	add_child(transition_source)
+	flight_director.set("_aircraft_transition_active", true)
+	flight_director.set("_aircraft_transition_source", transition_source)
+	flight_director.set("_aircraft_transition_target", null)
+	var divisor := 2
+	pilot.set("view_transition_background_physics_divisor", divisor)
+	pilot.set("_view_transition_deferred_delta_s", 0.0)
+	var physics_frame := Engine.get_physics_frames()
+	pilot.set("_view_transition_tick_phase", int(posmod(1 - physics_frame, divisor)))
+	_require(
+		is_zero_approx(float(pilot.call("_consume_view_transition_physics_delta", 0.01))),
+		"background transition AI did not reuse one physics control step"
+	)
+	pilot.set("_view_transition_tick_phase", int(posmod(-physics_frame, divisor)))
+	_require(
+		is_equal_approx(float(pilot.call("_consume_view_transition_physics_delta", 0.01)), 0.02),
+		"background transition AI did not preserve deferred elapsed time"
+	)
+	flight_director.set("_aircraft_transition_source", aircraft)
+	_require(
+		is_equal_approx(float(pilot.call("_consume_view_transition_physics_delta", 0.01)), 0.01),
+		"transition source aircraft was throttled"
+	)
+	flight_director.set("_aircraft_transition_active", saved_transition_active)
+	flight_director.set("_aircraft_transition_source", saved_transition_source)
+	flight_director.set("_aircraft_transition_target", saved_transition_target)
+	transition_source.queue_free()
 	flight_director.set("current_viewed_aircraft", saved_viewed_aircraft)
 	flight_director.set("player_controlled_plane", saved_player_aircraft)
 	aircraft.remove_meta("visual_budget_band")

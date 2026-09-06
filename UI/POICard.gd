@@ -1,8 +1,9 @@
 extends CanvasLayer
 class_name POICard
 ## POI reveal card. Shown over a paused game. Built entirely in code.
-## Emits confirmed(choice_idx) when the player dismisses or picks a choice.
-## choice_idx == -1 means plain Confirm/Dismiss.
+## Emits confirmed(choice_idx) when the player confirms or picks a choice.
+## choice_idx == -1 means the plain no-choice Confirm button.
+## Dismiss/Cancel is separate so postponing a decision never consumes the POI.
 
 const MENU_FONT: FontFile = preload("res://UI/Orbitron-VariableFont_wght.ttf")
 
@@ -33,6 +34,7 @@ const BRACKET_ARM    := 144.0
 const BRACKET_THICK  := 6.0
 
 signal confirmed(choice_idx: int)
+signal dismissed
 
 var _data: POIData = null
 var _confirm_btn: Button = null
@@ -164,6 +166,7 @@ func _build_ui() -> void:
 	vbox.add_child(_make_spacer(16))
 
 	# Choice buttons
+	var initial_focus: Button = null
 	if _data.choices.size() > 0:
 		var hbox := HBoxContainer.new()
 		hbox.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -173,14 +176,19 @@ func _build_ui() -> void:
 			var idx := i
 			btn.pressed.connect(func(): confirmed.emit(idx))
 			hbox.add_child(btn)
+			if initial_focus == null:
+				initial_focus = btn
 		vbox.add_child(hbox)
 
-	# Confirm / Dismiss
-	var confirm_text := "CONFIRM" if _data.choices.is_empty() else "DISMISS"
+	# Confirm / Defer
+	var confirm_text := "CONFIRM" if _data.choices.is_empty() else "DEFER"
 	_confirm_btn = _make_button(confirm_text)
-	_confirm_btn.pressed.connect(func(): confirmed.emit(-1))
+	if _data.choices.is_empty():
+		_confirm_btn.pressed.connect(func(): confirmed.emit(-1))
+	else:
+		_confirm_btn.pressed.connect(func(): dismissed.emit())
 	vbox.add_child(_confirm_btn)
-	_confirm_btn.call_deferred("grab_focus")
+	(initial_focus if initial_focus != null else _confirm_btn).call_deferred("grab_focus")
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 func _center_rect(ctrl: Control, parent: Control) -> void:
@@ -219,8 +227,12 @@ func _make_button(label_text: String) -> Button:
 	return btn
 
 func _input(event: InputEvent) -> void:
-	if event.is_action_pressed("ui_accept") or event.is_action_pressed("ui_cancel"):
+	if event.is_action_pressed("ui_cancel"):
+		dismissed.emit()
+		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("ui_accept") and _data != null and _data.choices.is_empty():
 		confirmed.emit(-1)
+		get_viewport().set_input_as_handled()
 
 func _category_string(cat: int) -> String:
 	match cat:

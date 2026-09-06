@@ -38,6 +38,9 @@ func configure_new_game(
 	if PilotRoster != null and is_instance_valid(PilotRoster) \
 	and PilotRoster.has_method("start_new_campaign"):
 		PilotRoster.start_new_campaign()
+	var poi_manager := get_node_or_null("/root/POIManager")
+	if poi_manager != null and poi_manager.has_method("start_new_campaign"):
+		poi_manager.call("start_new_campaign")
 
 
 func normalize_map_id(map_id: String) -> String:

@@ -13,6 +13,8 @@ signal page_changed(page_id: String)
 const HEADLINE_FONT: FontFile = preload("res://UI/Fonts/ArchivoNarrow-Variable.ttf")
 const DATA_FONT: FontFile = preload("res://UI/Fonts/JetBrainsMono-Variable.ttf")
 const OPERATIONAL_UNITS_PAGE: Script = preload("res://UI/OperationalUnitsPage.gd")
+const CARRIER_PAGE: Script = preload("res://UI/CarrierPage.gd")
+const REPLICATOR_PAGE: Script = preload("res://UI/ReplicatorPage.gd")
 
 const PAGE_TACTICAL := "tactical"
 const PAGE_AIR_WING := "air_wing"
@@ -59,6 +61,8 @@ var _placeholder_body: Label
 var _placeholder_footer: Label
 var _air_wing_page: Control
 var _ground_page: Control
+var _carrier_page: Control
+var _replicator_page: Control
 
 var _is_open: bool = false
 var _current_page: String = PAGE_TACTICAL
@@ -178,6 +182,14 @@ func _build_operational_pages() -> void:
 	_ground_page.set("unit_kind", OPERATIONAL_UNITS_PAGE.UnitKind.PLATOONS)
 	_root.add_child(_ground_page)
 
+	_carrier_page = CARRIER_PAGE.new() as Control
+	_carrier_page.name = "CarrierPage"
+	_root.add_child(_carrier_page)
+
+	_replicator_page = REPLICATOR_PAGE.new() as Control
+	_replicator_page.name = "ReplicatorPage"
+	_root.add_child(_replicator_page)
+
 
 func _build_placeholder() -> void:
 	_placeholder_root = Control.new()
@@ -250,6 +262,12 @@ func _layout_ui() -> void:
 	if _ground_page != null:
 		_ground_page.position = operational_position
 		_ground_page.size = operational_size
+	if _carrier_page != null:
+		_carrier_page.position = operational_position
+		_carrier_page.size = operational_size
+	if _replicator_page != null:
+		_replicator_page.position = operational_position
+		_replicator_page.size = operational_size
 
 
 func _on_nav_pressed(page_id: String) -> void:
@@ -261,14 +279,26 @@ func _apply_page_visibility() -> void:
 	var personnel_active := _is_open and _current_page == PAGE_PERSONNEL
 	var air_wing_active := _is_open and _current_page == PAGE_AIR_WING
 	var ground_active := _is_open and _current_page == PAGE_GROUND_BAY
+	var carrier_active := _is_open and _current_page == PAGE_CARRIER
+	var replicator_active := _is_open and _current_page == PAGE_REPLICATOR
 	_set_external_page_visible("/root/WorldMapOverlay", tactical_active)
 	_set_external_page_visible("/root/PilotRosterOverlay", personnel_active)
 	if _air_wing_page != null:
 		_air_wing_page.call("set_console_visible", air_wing_active)
 	if _ground_page != null:
 		_ground_page.call("set_console_visible", ground_active)
+	if _carrier_page != null:
+		_carrier_page.call("set_console_visible", carrier_active)
+	if _replicator_page != null:
+		_replicator_page.call("set_console_visible", replicator_active)
 
-	var placeholder_active := _is_open and not tactical_active and not personnel_active and not air_wing_active and not ground_active
+	var placeholder_active := _is_open \
+		and not tactical_active \
+		and not personnel_active \
+		and not air_wing_active \
+		and not ground_active \
+		and not carrier_active \
+		and not replicator_active
 	if _placeholder_root != null:
 		_placeholder_root.visible = placeholder_active
 	if placeholder_active:
@@ -314,6 +344,10 @@ func get_page_debug_snapshot(page_id: String) -> Dictionary:
 		return _air_wing_page.call("get_debug_snapshot")
 	if page_id == PAGE_GROUND_BAY and _ground_page != null:
 		return _ground_page.call("get_debug_snapshot")
+	if page_id == PAGE_CARRIER and _carrier_page != null:
+		return _carrier_page.call("get_debug_snapshot")
+	if page_id == PAGE_REPLICATOR and _replicator_page != null:
+		return _replicator_page.call("get_debug_snapshot")
 	return {}
 
 

@@ -3,8 +3,8 @@ extends SceneTree
 ## skeleton and saves those local poses as one compact runtime library.
 
 const PILOT_POSE_SCRIPT: Script = preload("res://Aircraft/PilotPose.gd")
-const OFFICER_SCENE_PATH := "res://Models/Characters/Bridge officer.glb"
-const OUTPUT_LIBRARY_PATH := "res://Models/Characters/pilot/animations/bridge_officer_animation_library.tres"
+const DEFAULT_OFFICER_SCENE_PATH := "res://Models/Characters/Bridge officer.glb"
+const DEFAULT_OUTPUT_LIBRARY_PATH := "res://Models/Characters/pilot/animations/bridge_officer_animation_library.tres"
 const TARGET_SKELETON_PATH := "Pilot/root/Skeleton3D"
 const SAMPLE_FPS := 30.0
 
@@ -17,6 +17,13 @@ const CLIPS := [
 	{"file": "Idle 6.fbx", "name": &"idle_6", "loop": true},
 	{"file": "Idle 7.fbx", "name": &"idle_7", "loop": true},
 	{"file": "Walking.fbx", "name": &"walk", "loop": true},
+	{"file": "dance - Belly Dance.fbx", "name": &"dance_belly", "loop": false},
+	{"file": "dance - Booty Hip Hop Dance.fbx", "name": &"dance_booty_hip_hop", "loop": false},
+	{"file": "dance - Chicken Dance.fbx", "name": &"dance_chicken", "loop": false},
+	{"file": "dance - Gangnam Style.fbx", "name": &"dance_gangnam", "loop": false},
+	{"file": "dance - Hip Hop Dancing.fbx", "name": &"dance_hip_hop", "loop": false},
+	{"file": "dance - Locking Hip Hop Dance.fbx", "name": &"dance_locking_hip_hop", "loop": false},
+	{"file": "dance - Northern Soul Floor Combo.fbx", "name": &"dance_northern_soul", "loop": false},
 ]
 
 
@@ -25,7 +32,15 @@ func _initialize() -> void:
 
 
 func _bake() -> void:
-	var packed_officer := load(OFFICER_SCENE_PATH) as PackedScene
+	var officer_scene_path := DEFAULT_OFFICER_SCENE_PATH
+	var output_library_path := DEFAULT_OUTPUT_LIBRARY_PATH
+	for argument in OS.get_cmdline_user_args():
+		if argument.begins_with("--officer-scene="):
+			officer_scene_path = argument.trim_prefix("--officer-scene=")
+		elif argument.begins_with("--output-library="):
+			output_library_path = argument.trim_prefix("--output-library=")
+
+	var packed_officer := load(officer_scene_path) as PackedScene
 	if packed_officer == null:
 		_fail("officer scene did not load")
 		return
@@ -78,13 +93,13 @@ func _bake() -> void:
 			_fail("could not add %s: %d" % [clip["name"], add_error])
 			return
 
-	var save_error := ResourceSaver.save(library, OUTPUT_LIBRARY_PATH)
+	var save_error := ResourceSaver.save(library, output_library_path)
 	if save_error != OK:
 		_fail("save failed: %d" % save_error)
 		return
 	print(
 		"[BridgeOfficerAnimationLibraryBuilder] PASS clips=%d output=%s"
-		% [library.get_animation_list().size(), ProjectSettings.globalize_path(OUTPUT_LIBRARY_PATH)]
+		% [library.get_animation_list().size(), ProjectSettings.globalize_path(output_library_path)]
 	)
 	target.free()
 	quit(0)
@@ -147,7 +162,7 @@ func _bake_clip(
 				times[frame_index],
 				pose.basis.orthonormalized().get_rotation_quaternion()
 			)
-	if clip_name == &"walk":
+	if clip_name == &"walk" or String(clip_name).begins_with("dance_"):
 		_lock_horizontal_root_motion(baked)
 	print(
 		"[BridgeOfficerAnimationLibraryBuilder] %s length=%.2f bones=%d tracks=%d"

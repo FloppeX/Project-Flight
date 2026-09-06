@@ -803,8 +803,15 @@ func _advance_aircraft_transition_presentation() -> void:
 	_aircraft_transition_presentation_complete = bool(result.get("complete", true))
 
 
-func _release_aircraft_transition_presentation(ac: RigidBody3D) -> void:
-	if not is_instance_valid(ac):
+func _release_aircraft_transition_presentation(aircraft_variant: Variant) -> void:
+	# A transition target can be freed before the cancellation path releases its
+	# presentation lock. Keep the argument untyped until after validation: Godot
+	# rejects a freed Object while binding a typed Object-derived parameter, before
+	# this function body (and its validity guard) can run.
+	if not is_instance_valid(aircraft_variant):
+		return
+	var ac := aircraft_variant as RigidBody3D
+	if ac == null:
 		return
 	var visual_budget := get_node_or_null("/root/EnemyVisualBudget")
 	if visual_budget != null \
@@ -900,6 +907,7 @@ func _begin_aircraft_transition_transfer() -> void:
 	_aircraft_transition_transfer_duration_s = _calculate_aircraft_transition_transfer_duration(
 		_aircraft_transition_transfer_distance_m
 	)
+	_begin_transition_terrain_prefetch()
 	print("[FlightDirector] View transition source=%s target=%s distance_m=%.1f transfer_s=%.2f" % [
 		_aircraft_transition_source_endpoint.name if is_instance_valid(_aircraft_transition_source_endpoint) else "none",
 		_aircraft_transition_target_endpoint.name,
@@ -1069,6 +1077,7 @@ func _complete_aircraft_camera_transition() -> void:
 	else:
 		current_category = Category.BRIDGE
 		_activate_bridge_view_now(target_bridge_camera, _get_player_camera_controller())
+	_end_transition_terrain_prefetch()
 	FrameProfiler.end("FlightDirector.aircraft_transition_final_handoff", profiler_start)
 	print("[FlightDirector] View transition complete target=%s" % target_endpoint.name)
 	_clear_aircraft_transition_references()
@@ -1102,6 +1111,38 @@ func _cancel_aircraft_camera_transition(restore_source_view: bool) -> void:
 		current_viewed_aircraft = null
 		current_category = Category.BRIDGE
 		_activate_view()
+	_end_transition_terrain_prefetch()
+
+
+func _begin_transition_terrain_prefetch() -> void:
+	var stream_target: Node3D = _get_transition_destination_camera()
+	if not is_instance_valid(stream_target):
+		stream_target = _aircraft_transition_target_endpoint
+	if not is_instance_valid(stream_target):
+		return
+	for terrain_variant in get_tree().get_nodes_in_group("terrain_streamer"):
+		var terrain := terrain_variant as Node
+		if terrain != null and terrain.has_method("begin_view_transition_streaming"):
+			terrain.call("begin_view_transition_streaming", stream_target)
+
+
+func _end_transition_terrain_prefetch() -> void:
+	for terrain_variant in get_tree().get_nodes_in_group("terrain_streamer"):
+		var terrain := terrain_variant as Node
+		if terrain != null and terrain.has_method("end_view_transition_streaming"):
+			terrain.call("end_view_transition_streaming")
+
+
+func should_throttle_background_ai_during_view_transition(candidate: Node) -> bool:
+	if not _aircraft_transition_active or candidate == null or not is_instance_valid(candidate):
+		return false
+	# Source and destination remain at full precision because the player can see
+	# both ends of the move. Only unrelated aircraft use the temporary half-rate
+	# budget while the cinematic camera is in flight.
+	return candidate != _aircraft_transition_source \
+		and candidate != _aircraft_transition_target \
+		and candidate != current_viewed_aircraft \
+		and candidate != player_controlled_plane
 
 
 func _clear_aircraft_transition_references() -> void:

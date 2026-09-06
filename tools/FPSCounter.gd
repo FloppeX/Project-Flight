@@ -257,6 +257,16 @@ func _open_hitch_log() -> void:
 		"ai_aircraft_count",
 		"ground_vehicle_count",
 		"materializing_flights",
+		"panel_pool_checked_out",
+		"panel_render_warm_count",
+		"panel_render_warm_complete",
+		"terrain_transition_active",
+		"terrain_handoff_active",
+		"terrain_pending_builds",
+		"terrain_building",
+		"terrain_pending_unloads",
+		"view_transition_active",
+		"view_transition_phase",
 		"scope_top",
 	]))
 	_hitch_file.flush()
@@ -418,6 +428,20 @@ func _write_hitch_event(
 	var nav_running: int = int(nav_scheduler.call("get_running_count")) \
 			if nav_scheduler != null and nav_scheduler.has_method("get_running_count") else -1
 	var enemy_ops_counts: Dictionary = _collect_enemy_ops_counts()
+	var panel_pool_counts: Dictionary = _collect_instrument_panel_pool_counts()
+	var terrain_streaming_stats: Dictionary = {}
+	if terrain != null and terrain.has_method("get_streaming_stats"):
+		var terrain_stats_variant: Variant = terrain.call("get_streaming_stats")
+		if terrain_stats_variant is Dictionary:
+			terrain_streaming_stats = terrain_stats_variant
+	var flight_director: Node = get_node_or_null("/root/FlightDirector")
+	var view_transition_active := false
+	var view_transition_phase := -1
+	if flight_director != null:
+		if _object_has_property(flight_director, "_aircraft_transition_active"):
+			view_transition_active = bool(flight_director.get("_aircraft_transition_active"))
+		if _object_has_property(flight_director, "_aircraft_transition_phase"):
+			view_transition_phase = int(flight_director.get("_aircraft_transition_phase"))
 	var scope_rows: Array[Dictionary] = FrameProfiler.summarize_scope_events(
 		window_start_usec,
 		window_end_usec,
@@ -453,6 +477,16 @@ func _write_hitch_event(
 		str(get_tree().get_nodes_in_group("ai_aircraft").size()),
 		str(get_tree().get_nodes_in_group("ground_vehicles").size()),
 		str(int(enemy_ops_counts.get("materializing_flights", -1))),
+		str(int(panel_pool_counts["checked_out"])),
+		str(int(panel_pool_counts["render_warm_count"])),
+		str(1 if bool(panel_pool_counts["render_warm_complete"]) else 0),
+		str(1 if bool(terrain_streaming_stats.get("view_transition_active", false)) else 0),
+		str(1 if bool(terrain_streaming_stats.get("camera_handoff_active", false)) else 0),
+		str(int(terrain_streaming_stats.get("pending_chunks", -1))),
+		str(int(terrain_streaming_stats.get("building_chunks", -1))),
+		str(int(terrain_streaming_stats.get("pending_unloads", -1))),
+		str(1 if view_transition_active else 0),
+		str(view_transition_phase),
 		_csv_text(_format_scope_rows(scope_rows)),
 	]
 	_hitch_file.store_line(",".join(values))
@@ -488,6 +522,12 @@ func _write_performance_report_sample() -> void:
 	var render_breakdown: Dictionary = _collect_render_breakdown(camera)
 	var visual_budget_counts: Dictionary = _collect_enemy_visual_budget_counts()
 	var pilot_pool_counts: Dictionary = _collect_cockpit_pilot_pool_counts()
+	var panel_pool_counts: Dictionary = _collect_instrument_panel_pool_counts()
+	var terrain_streaming_stats: Dictionary = {}
+	if terrain != null and terrain.has_method("get_streaming_stats"):
+		var terrain_stats_variant: Variant = terrain.call("get_streaming_stats")
+		if terrain_stats_variant is Dictionary:
+			terrain_streaming_stats = terrain_stats_variant
 	var static_presence_counts: Dictionary = _collect_static_presence_counts()
 	var carrier_visual_budget_counts: Dictionary = _collect_carrier_visual_budget_counts()
 	var profiler_rows: Array[Dictionary] = FrameProfiler.consume_report_rows(PERFORMANCE_REPORT_TOP_COUNT)
@@ -614,6 +654,15 @@ func _write_performance_report_sample() -> void:
 		float(pilot_pool_counts["animation_prepare_total_ms"]),
 		float(pilot_pool_counts["animation_prepare_max_ms"]),
 	])
+	_report_file.store_line("  instrument_panel_pool capacity=%d available=%d checked_out=%d render_warm_count=%d render_warm_complete=%d render_warm_total_ms=%.3f render_warm_max_ms=%.3f" % [
+		int(panel_pool_counts["capacity"]),
+		int(panel_pool_counts["available"]),
+		int(panel_pool_counts["checked_out"]),
+		int(panel_pool_counts["render_warm_count"]),
+		1 if bool(panel_pool_counts["render_warm_complete"]) else 0,
+		float(panel_pool_counts["render_warm_total_ms"]),
+		float(panel_pool_counts["render_warm_max_ms"]),
+	])
 	_report_file.store_line("  static_presence wind_proxies=%d wind_proxy_active=%d wind_turbines=%d gun_total=%d gun_presence_active=%d gun_presence_inactive=%d gun_turret_active=%d" % [
 		int(static_presence_counts["wind_proxies"]),
 		int(static_presence_counts["wind_proxy_active"]),
@@ -630,11 +679,16 @@ func _write_performance_report_sample() -> void:
 		float(carrier_visual_budget_counts["tread_far_update_interval_s"]),
 		int(carrier_visual_budget_counts["tread_count"]),
 	])
-	_report_file.store_line("  nav pending=%d running=%d terrain_chunks=%d terrain_load_radius_chunks=%d holo_present=%d holo_visible=%d holo_lines_visible=%d holo_lines_instances=%d camera=%s path=%s" % [
+	_report_file.store_line("  nav pending=%d running=%d terrain_chunks=%d terrain_load_radius_chunks=%d terrain_transition_active=%d terrain_handoff_active=%d terrain_pending_builds=%d terrain_building=%d terrain_pending_unloads=%d holo_present=%d holo_visible=%d holo_lines_visible=%d holo_lines_instances=%d camera=%s path=%s" % [
 		nav_pending,
 		nav_running,
 		_get_terrain_chunk_count(terrain),
 		int(terrain.get("load_radius_chunks")) if terrain != null and _object_has_property(terrain, "load_radius_chunks") else -1,
+		1 if bool(terrain_streaming_stats.get("view_transition_active", false)) else 0,
+		1 if bool(terrain_streaming_stats.get("camera_handoff_active", false)) else 0,
+		int(terrain_streaming_stats.get("pending_chunks", -1)),
+		int(terrain_streaming_stats.get("building_chunks", -1)),
+		int(terrain_streaming_stats.get("pending_unloads", -1)),
 		1 if holomap != null else 0,
 		1 if holomap is Node3D and (holomap as Node3D).visible else 0,
 		holo_multimesh.visible_instance_count if holo_multimesh != null else -1,
@@ -844,6 +898,29 @@ func _collect_cockpit_pilot_pool_counts() -> Dictionary:
 	if pilot_pool == null or not pilot_pool.has_method("get_pool_stats"):
 		return result
 	var stats_variant: Variant = pilot_pool.call("get_pool_stats")
+	if not (stats_variant is Dictionary):
+		return result
+	var stats: Dictionary = stats_variant
+	for key in result.keys():
+		if stats.has(key):
+			result[key] = stats[key]
+	return result
+
+
+func _collect_instrument_panel_pool_counts() -> Dictionary:
+	var result: Dictionary = {
+		"capacity": 0,
+		"available": 0,
+		"checked_out": 0,
+		"render_warm_count": 0,
+		"render_warm_complete": false,
+		"render_warm_total_ms": 0.0,
+		"render_warm_max_ms": 0.0,
+	}
+	var panel_pool: Node = get_node_or_null("/root/InstrumentPanelPool")
+	if panel_pool == null or not panel_pool.has_method("get_pool_stats"):
+		return result
+	var stats_variant: Variant = panel_pool.call("get_pool_stats")
 	if not (stats_variant is Dictionary):
 		return result
 	var stats: Dictionary = stats_variant

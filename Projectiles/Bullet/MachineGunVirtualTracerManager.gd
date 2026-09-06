@@ -8,7 +8,7 @@ const TRACER_VISUAL_FACTORY := preload("res://Projectiles/Bullet/TracerVisualFac
 
 @export var max_active_tracers: int = 512
 @export var tracer_color: Color = Color(1.0, 0.72, 0.16, 1.0)
-@export var tracer_emission_energy: float = 5.0
+@export var tracer_emission_energy: float = 7.0
 @export var tracer_length_ramp_s: float = 0.05
 
 var _tracers: Array[Dictionary] = []
@@ -127,11 +127,11 @@ func _build_batch() -> void:
 	add_child(_multimesh_instance)
 
 	var mesh: ArrayMesh = TRACER_VISUAL_FACTORY.create_unit_tracer_mesh()
-	var material: StandardMaterial3D = TRACER_VISUAL_FACTORY.create_glow_material(
+	TRACER_VISUAL_FACTORY.configure_tracer_mesh_materials(
+		mesh,
 		tracer_color,
 		tracer_emission_energy
 	)
-	mesh.surface_set_material(0, material)
 
 	_multimesh = MultiMesh.new()
 	_multimesh.transform_format = MultiMesh.TRANSFORM_3D

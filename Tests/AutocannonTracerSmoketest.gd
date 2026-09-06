@@ -20,11 +20,11 @@ func _ready() -> void:
 
 
 func _run() -> void:
-	_check_profile(PROFILE_10, 0.18, 4.8, 2, 800.0 / 60.0 * 5.0, "10 mm")
-	_check_profile(PROFILE_15, 0.18, 4.8, 2, 600.0 / 60.0 * 10.0, "15 mm")
-	_check_profile(PROFILE_20, 0.22, 5.6, 1, 400.0 / 60.0 * 20.0, "20 mm")
-	_check_profile(PROFILE_25, 0.26, 6.4, 1, 300.0 / 60.0 * 30.0, "25 mm")
-	_check_profile(PROFILE_40, 0.34, 8.4, 1, 120.0 / 60.0 * 42.0, "40 mm")
+	_check_profile(PROFILE_10, 0.15, 4.8, 2, 800.0 / 60.0 * 5.0, "10 mm")
+	_check_profile(PROFILE_15, 0.15, 4.8, 2, 600.0 / 60.0 * 10.0, "15 mm")
+	_check_profile(PROFILE_20, 0.19, 5.6, 1, 400.0 / 60.0 * 20.0, "20 mm")
+	_check_profile(PROFILE_25, 0.22, 6.4, 1, 300.0 / 60.0 * 30.0, "25 mm")
+	_check_profile(PROFILE_40, 0.29, 8.4, 1, 120.0 / 60.0 * 42.0, "40 mm")
 	_check_tracer_geometry_and_material()
 	_check_virtual_tracer_cardinal_alignment()
 
@@ -35,7 +35,7 @@ func _run() -> void:
 		await get_tree().process_frame
 		_expect(round.tracer_enabled, "explosive autocannon round disabled its tracer")
 		_expect(round.tracer_mesh is ArrayMesh, "explosive autocannon round did not build tapered tracer geometry")
-		_expect(round.tracer_width >= 0.22, "explosive autocannon fallback tracer became too narrow")
+		_expect(round.tracer_width >= 0.19, "explosive autocannon fallback tracer became too narrow")
 		_expect(round.tracer_visual_length >= round.tracer_width * 20.0, "explosive autocannon fallback tracer is not elongated")
 		_check_physical_tracer_cardinal_alignment(round)
 
@@ -86,8 +86,8 @@ func _check_profile(
 
 func _check_tracer_geometry_and_material() -> void:
 	var mesh: ArrayMesh = TRACER_VISUAL_FACTORY.create_unit_tracer_mesh()
-	_expect(mesh != null and mesh.get_surface_count() == 1, "shared tracer mesh was not created")
-	if mesh != null and mesh.get_surface_count() == 1:
+	_expect(mesh != null and mesh.get_surface_count() == 2, "shared tracer mesh is missing its core or daylight outline")
+	if mesh != null and mesh.get_surface_count() == 2:
 		var arrays: Array = mesh.surface_get_arrays(0)
 		var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
 		var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
@@ -96,10 +96,30 @@ func _check_tracer_geometry_and_material() -> void:
 		var bounds := mesh.get_aabb()
 		_expect(is_equal_approx(bounds.position.z, 0.0), "tracer base moved away from the bullet origin")
 		_expect(is_equal_approx(bounds.end.z, 1.0), "tracer tip no longer extends behind the bullet")
-	var material: StandardMaterial3D = TRACER_VISUAL_FACTORY.create_glow_material(Color.YELLOW, 5.0)
+		var outline_arrays: Array = mesh.surface_get_arrays(1)
+		var outline_vertices: PackedVector3Array = outline_arrays[Mesh.ARRAY_VERTEX]
+		var outline_indices: PackedInt32Array = outline_arrays[Mesh.ARRAY_INDEX]
+		_expect(outline_vertices.size() == 6 and outline_indices.size() == 24, "daylight outline geometry does not match the tracer core")
+		var core_width := (arrays[Mesh.ARRAY_VERTEX] as PackedVector3Array)[0].length()
+		var outline_width := outline_vertices[0].length()
+		_expect(outline_width >= core_width * 1.6, "daylight outline is too narrow to survive subpixel sampling")
+	TRACER_VISUAL_FACTORY.configure_tracer_mesh_materials(mesh, Color.YELLOW, 7.0)
+	var material := mesh.surface_get_material(0) as StandardMaterial3D
+	var outline_material := mesh.surface_get_material(1) as StandardMaterial3D
+	_expect(material != null, "tracer core material was not installed")
+	_expect(outline_material != null, "bright tracer outline material was not installed")
+	if material == null or outline_material == null:
+		return
 	_expect(material.transparency == BaseMaterial3D.TRANSPARENCY_DISABLED, "tracer core still uses direction-dependent transparent face stacking")
 	_expect(material.blend_mode == BaseMaterial3D.BLEND_MODE_MIX, "tracer core still uses additive face stacking")
 	_expect(material.cull_mode == BaseMaterial3D.CULL_BACK, "tracer core still draws overlapping back faces")
+	_expect(material.emission_energy_multiplier >= 7.0, "tracer core did not receive the daylight emission boost")
+	_expect(material.albedo_color.r > 0.99 and material.albedo_color.b >= 0.3, "tracer core was not whitened for daylight")
+	_expect(outline_material.shading_mode == BaseMaterial3D.SHADING_MODE_UNSHADED, "bright tracer outline is affected by scene lighting")
+	_expect(outline_material.emission_enabled, "bright tracer outline is not emissive")
+	_expect(outline_material.emission_energy_multiplier > 5.0, "bright tracer outline emission is too weak for daylight or HDR glow")
+	_expect(outline_material.emission.get_luminance() > 0.5, "bright tracer outline color is too dark")
+	_expect(outline_material.cull_mode == BaseMaterial3D.CULL_FRONT, "bright tracer outline does not preserve the enlarged silhouette")
 
 
 func _check_virtual_tracer_cardinal_alignment() -> void:
@@ -135,7 +155,7 @@ func _expect(condition: bool, message: String) -> void:
 
 func _finish() -> void:
 	if _failures.is_empty():
-		print("[AutocannonTracerSmoketest] PASS square_pyramid aspect_ratio>=20 cardinal_alignment=physical+virtual lengths=4.8/5.6/6.4/8.4 cadence=profile_preserved")
+		print("[AutocannonTracerSmoketest] PASS bright_all_light_outline widths=0.15/0.19/0.22/0.29 cardinal_alignment=physical+virtual lengths=4.8/5.6/6.4/8.4 cadence=profile_preserved")
 		get_tree().quit(0)
 		return
 	for failure in _failures:

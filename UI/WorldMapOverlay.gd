@@ -17,6 +17,13 @@ const ASSET_BUTTON_HEIGHT_PX: float = 48.0
 const GRID_COORD_DIVISIONS: int = 8
 const GRID_COORD_BAND_HEIGHT_PX: float = 18.0
 const GRID_COORD_BAND_WIDTH_PX: float = 18.0
+const MAP_SCROLLBAR_THICKNESS_PX: float = 16.0
+const MAP_SCROLLBAR_GAP_PX: float = 6.0
+const MAP_MIN_ZOOM: float = 1.0
+const MAP_MAX_ZOOM: float = 8.0
+const MAP_ZOOM_STEP: float = 1.5
+const MAP_TRIGGER_PRESS_THRESHOLD: float = 0.55
+const MAP_TRIGGER_RELEASE_THRESHOLD: float = 0.30
 const GRID_COORD_COLUMNS: PackedStringArray = ["A", "B", "C", "D", "E", "F", "G", "H"]
 const ROUTE_NODE_HIT_RADIUS_PX: float = 10.0
 const ROUTE_SEGMENT_HIT_RADIUS_PX: float = 8.0
@@ -78,12 +85,15 @@ var _cancel_button: Button
 
 var _center_panel: Panel
 var _map_frame: Panel
+var _map_viewport: Control
 var _map_rect: TextureRect
 var _mobility_rect: TextureRect
 var _mobility_material: ShaderMaterial
 var _fog_rect: TextureRect
 var _map_input: Control
 var _symbol_layer: Control
+var _horizontal_pan: HScrollBar
+var _vertical_pan: VScrollBar
 var _map_meta: Label
 var _map_hint: Label
 var _map_status: Label
@@ -119,6 +129,11 @@ var _command_error_text: String = ""
 var _command_error_until_ms: int = 0
 var _carrier_route_signal_source: Node = null
 var _fog_mask_suppressed: bool = false
+var _map_zoom: float = MAP_MIN_ZOOM
+var _map_view_center_uv: Vector2 = Vector2(0.5, 0.5)
+var _syncing_pan_controls: bool = false
+var _right_trigger_pressed: bool = false
+var _left_trigger_pressed: bool = false
 
 func _ready() -> void:
 	add_to_group("origin_shifter")
@@ -144,15 +159,19 @@ func apply_origin_shift(offset: Vector3) -> void:
 	_refresh_ui()
 
 func _input(event: InputEvent) -> void:
-	if _root == null or not _root.visible or not (event is InputEventKey):
+	if _root == null or not _root.visible:
 		return
-	var key_event := event as InputEventKey
-	if not key_event.pressed or key_event.echo:
+	if event is InputEventKey:
+		var key_event := event as InputEventKey
+		if not key_event.pressed or key_event.echo:
+			return
+		if key_event.keycode != KEY_H and key_event.physical_keycode != KEY_H:
+			return
+		set_fog_mask_suppressed(not _fog_mask_suppressed)
+		get_viewport().set_input_as_handled()
 		return
-	if key_event.keycode != KEY_H and key_event.physical_keycode != KEY_H:
-		return
-	set_fog_mask_suppressed(not _fog_mask_suppressed)
-	get_viewport().set_input_as_handled()
+	if event is InputEventJoypadMotion:
+		_handle_map_trigger_zoom(event as InputEventJoypadMotion)
 
 func _process(delta: float) -> void:
 	if _root == null or not _root.visible:
@@ -256,12 +275,17 @@ func _build_ui() -> void:
 	_root.add_child(_center_panel)
 	_map_frame = _make_panel(Color("161a22"), VECTOR_CONTEXT_BORDER, 1)
 	_center_panel.add_child(_map_frame)
+	_map_viewport = Control.new()
+	_map_viewport.name = "MapViewport"
+	_map_viewport.clip_contents = true
+	_map_viewport.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_center_panel.add_child(_map_viewport)
 	_map_rect = TextureRect.new()
 	_map_rect.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	_map_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	_map_rect.stretch_mode = TextureRect.STRETCH_SCALE
 	_map_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_center_panel.add_child(_map_rect)
+	_map_viewport.add_child(_map_rect)
 	_mobility_rect = TextureRect.new()
 	_mobility_rect.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	_mobility_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
@@ -269,21 +293,39 @@ func _build_ui() -> void:
 	_mobility_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_mobility_material = _make_mobility_material()
 	_mobility_rect.material = _mobility_material
-	_center_panel.add_child(_mobility_rect)
+	_map_viewport.add_child(_mobility_rect)
 	_fog_rect = TextureRect.new()
 	_fog_rect.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	_fog_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	_fog_rect.stretch_mode = TextureRect.STRETCH_SCALE
 	_fog_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_fog_rect.material = _make_fog_material()
-	_center_panel.add_child(_fog_rect)
+	_map_viewport.add_child(_fog_rect)
+	_symbol_layer = preload("res://UI/WorldMapSymbolLayer.gd").new()
+	_map_viewport.add_child(_symbol_layer)
 	_map_input = Control.new()
 	_map_input.mouse_filter = Control.MOUSE_FILTER_STOP
 	_map_input.gui_input.connect(_on_map_gui_input)
 	_map_input.mouse_exited.connect(_on_map_mouse_exited)
-	_center_panel.add_child(_map_input)
-	_symbol_layer = preload("res://UI/WorldMapSymbolLayer.gd").new()
-	_center_panel.add_child(_symbol_layer)
+	_map_viewport.add_child(_map_input)
+	_horizontal_pan = HScrollBar.new()
+	_horizontal_pan.name = "MapHorizontalPan"
+	_horizontal_pan.min_value = 0.0
+	_horizontal_pan.max_value = 1.0
+	_horizontal_pan.step = 0.001
+	_horizontal_pan.focus_mode = Control.FOCUS_NONE
+	_horizontal_pan.value_changed.connect(_on_horizontal_pan_changed)
+	_style_map_scrollbar(_horizontal_pan)
+	_center_panel.add_child(_horizontal_pan)
+	_vertical_pan = VScrollBar.new()
+	_vertical_pan.name = "MapVerticalPan"
+	_vertical_pan.min_value = 0.0
+	_vertical_pan.max_value = 1.0
+	_vertical_pan.step = 0.001
+	_vertical_pan.focus_mode = Control.FOCUS_NONE
+	_vertical_pan.value_changed.connect(_on_vertical_pan_changed)
+	_style_map_scrollbar(_vertical_pan)
+	_center_panel.add_child(_vertical_pan)
 	_map_meta = _make_label("GRID_REF: TACTICAL\nSCALE: 1:50000", 13, VECTOR_STATUS_COLOR, HORIZONTAL_ALIGNMENT_LEFT, DATA_FONT)
 	_center_panel.add_child(_map_meta)
 	_map_hint = _make_label("", 13, VECTOR_STATUS_COLOR, HORIZONTAL_ALIGNMENT_LEFT, DATA_FONT)
@@ -323,7 +365,7 @@ func _build_ui() -> void:
 
 	_footer_panel = _make_panel(Color("353434"), VECTOR_BORDER_COLOR, 1)
 	_root.add_child(_footer_panel)
-	_footer_left = _make_label("SYSTEM ONLINE // TACTICAL GRID", 12, VECTOR_STATUS_COLOR, HORIZONTAL_ALIGNMENT_LEFT, DATA_FONT)
+	_footer_left = _make_label("MAP: LMB / RT ZOOM IN // RMB / LT ZOOM OUT // BARS PAN", 12, VECTOR_STATUS_COLOR, HORIZONTAL_ALIGNMENT_LEFT, DATA_FONT)
 	_footer_left.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_footer_panel.add_child(_footer_left)
 	_footer_right = _make_label("GLOBAL ALERTS    RESOURCES    MISSION TIMER", 12, VECTOR_STATUS_COLOR, HORIZONTAL_ALIGNMENT_RIGHT, DATA_FONT)
@@ -387,34 +429,31 @@ func _layout_ui() -> void:
 	_draft_summary.size = Vector2(left_inner_w, maxf(remaining_h, 56.0))
 
 	var map_side: float = minf(
-		_center_panel.size.x - 48.0 - GRID_COORD_BAND_WIDTH_PX,
-		_center_panel.size.y - 36.0 - GRID_COORD_BAND_HEIGHT_PX
+		_center_panel.size.x - 48.0 - GRID_COORD_BAND_WIDTH_PX - MAP_SCROLLBAR_GAP_PX - MAP_SCROLLBAR_THICKNESS_PX,
+		_center_panel.size.y - 36.0 - GRID_COORD_BAND_HEIGHT_PX - MAP_SCROLLBAR_GAP_PX - MAP_SCROLLBAR_THICKNESS_PX
 	)
 	map_side = maxf(map_side, MIN_MAP_SIDE_PX)
-	var map_block_width: float = map_side + GRID_COORD_BAND_WIDTH_PX
-	var map_pos := Vector2(
-		(_center_panel.size.x - map_block_width) * 0.5 + GRID_COORD_BAND_WIDTH_PX,
-		(_center_panel.size.y - map_side) * 0.5
+	var map_block_size := Vector2(
+		GRID_COORD_BAND_WIDTH_PX + map_side + MAP_SCROLLBAR_GAP_PX + MAP_SCROLLBAR_THICKNESS_PX,
+		GRID_COORD_BAND_HEIGHT_PX + map_side + MAP_SCROLLBAR_GAP_PX + MAP_SCROLLBAR_THICKNESS_PX
 	)
+	var map_block_origin := (_center_panel.size - map_block_size) * 0.5
+	var map_pos := map_block_origin + Vector2(GRID_COORD_BAND_WIDTH_PX, GRID_COORD_BAND_HEIGHT_PX)
 	_map_frame.position = map_pos - Vector2(8.0, 8.0)
 	_map_frame.size = Vector2(map_side + 16.0, map_side + 16.0)
-	_map_rect.position = map_pos
-	_map_rect.size = Vector2(map_side, map_side)
-	_mobility_rect.position = map_pos
-	_mobility_rect.size = Vector2(map_side, map_side)
-	_fog_rect.position = map_pos
-	_fog_rect.size = Vector2(map_side, map_side)
-	_map_input.position = map_pos
-	_map_input.size = Vector2(map_side, map_side)
-	_symbol_layer.position = map_pos
-	_symbol_layer.size = Vector2(map_side, map_side)
+	_map_viewport.position = map_pos
+	_map_viewport.size = Vector2(map_side, map_side)
+	_horizontal_pan.position = map_pos + Vector2(0.0, map_side + MAP_SCROLLBAR_GAP_PX)
+	_horizontal_pan.size = Vector2(map_side, MAP_SCROLLBAR_THICKNESS_PX)
+	_vertical_pan.position = map_pos + Vector2(map_side + MAP_SCROLLBAR_GAP_PX, 0.0)
+	_vertical_pan.size = Vector2(MAP_SCROLLBAR_THICKNESS_PX, map_side)
 	_map_meta.position = map_pos + Vector2(16.0, 14.0)
 	_map_meta.size = Vector2(390.0, 62.0)
 	_map_hint.position = Vector2(map_pos.x + 16.0, map_pos.y + map_side - 34.0)
 	_map_hint.size = Vector2(map_side - 32.0, 24.0)
-	_map_status.position = _map_rect.position
-	_map_status.size = _map_rect.size
-	_layout_grid_coord_labels(map_pos, map_side)
+	_map_status.position = map_pos
+	_map_status.size = Vector2(map_side, map_side)
+	_apply_map_view()
 
 	var right_inner_x: float = 20.0
 	var right_inner_w: float = _right_panel.size.x - right_inner_x * 2.0
@@ -453,11 +492,15 @@ func _set_open(is_open: bool) -> void:
 	if _root == null:
 		return
 	_root.visible = is_open
-	if not is_open and _mission_popup != null:
-		_mission_popup.visible = false
-		_mission_popup_source = null
+	if not is_open:
+		_right_trigger_pressed = false
+		_left_trigger_pressed = false
+		if _mission_popup != null:
+			_mission_popup.visible = false
+			_mission_popup_source = null
 	if is_open:
 		_ensure_map_texture()
+		_apply_map_view()
 		_refresh_ui(true)
 
 func set_console_visible(is_visible: bool) -> void:
@@ -472,6 +515,168 @@ func set_fog_mask_suppressed(suppressed: bool) -> void:
 
 func is_fog_mask_suppressed() -> bool:
 	return _fog_mask_suppressed
+
+
+func _get_map_view_uv_rect() -> Rect2:
+	var safe_zoom := clampf(_map_zoom, MAP_MIN_ZOOM, MAP_MAX_ZOOM)
+	var view_size := Vector2.ONE / safe_zoom
+	var half_view := view_size * 0.5
+	var safe_center := Vector2(
+		clampf(_map_view_center_uv.x, half_view.x, 1.0 - half_view.x),
+		clampf(_map_view_center_uv.y, half_view.y, 1.0 - half_view.y)
+	)
+	return Rect2(safe_center - half_view, view_size)
+
+
+func _viewport_to_map_uv(local_pos: Vector2) -> Vector2:
+	var viewport_size := _map_viewport.size if _map_viewport != null else Vector2.ONE
+	var local_fraction := Vector2(
+		clampf(local_pos.x / maxf(viewport_size.x, 1.0), 0.0, 1.0),
+		clampf(local_pos.y / maxf(viewport_size.y, 1.0), 0.0, 1.0)
+	)
+	var view_rect := _get_map_view_uv_rect()
+	return view_rect.position + local_fraction * view_rect.size
+
+
+func _map_uv_to_viewport(map_uv: Vector2) -> Vector2:
+	var viewport_size := _map_viewport.size if _map_viewport != null else Vector2.ONE
+	var view_rect := _get_map_view_uv_rect()
+	return Vector2(
+		(map_uv.x - view_rect.position.x) / maxf(view_rect.size.x, 0.0001) * viewport_size.x,
+		(map_uv.y - view_rect.position.y) / maxf(view_rect.size.y, 0.0001) * viewport_size.y
+	)
+
+
+func _apply_map_view() -> void:
+	if _map_viewport == null or _map_rect == null or _map_input == null or _symbol_layer == null:
+		return
+	var viewport_size := _map_viewport.size
+	if viewport_size.x <= 1.0 or viewport_size.y <= 1.0:
+		return
+	_map_zoom = clampf(_map_zoom, MAP_MIN_ZOOM, MAP_MAX_ZOOM)
+	var view_rect := _get_map_view_uv_rect()
+	_map_view_center_uv = view_rect.get_center()
+	var content_size := viewport_size * _map_zoom
+	var content_position := -view_rect.position * content_size
+	for texture_rect in [_map_rect, _mobility_rect, _fog_rect]:
+		texture_rect.position = content_position
+		texture_rect.size = content_size
+	_symbol_layer.position = Vector2.ZERO
+	_symbol_layer.size = viewport_size
+	if _symbol_layer.has_method("set_map_view"):
+		_symbol_layer.call("set_map_view", view_rect)
+	_map_input.position = Vector2.ZERO
+	_map_input.size = viewport_size
+	_sync_pan_controls()
+	_layout_grid_coord_labels(_map_viewport.position, viewport_size.x)
+	_refresh_mobility_display()
+	if _map_hover_active:
+		_update_map_hover_readout(_map_input.get_local_mouse_position())
+
+
+func _sync_pan_controls() -> void:
+	if _horizontal_pan == null or _vertical_pan == null:
+		return
+	var view_rect := _get_map_view_uv_rect()
+	_syncing_pan_controls = true
+	_horizontal_pan.page = view_rect.size.x
+	_vertical_pan.page = view_rect.size.y
+	_horizontal_pan.set_value_no_signal(view_rect.position.x)
+	_vertical_pan.set_value_no_signal(view_rect.position.y)
+	_syncing_pan_controls = false
+	var active := _map_zoom > MAP_MIN_ZOOM + 0.001
+	var tint := Color.WHITE if active else Color(0.55, 0.58, 0.58, 0.55)
+	_horizontal_pan.modulate = tint
+	_vertical_pan.modulate = tint
+	_horizontal_pan.mouse_filter = Control.MOUSE_FILTER_STOP if active else Control.MOUSE_FILTER_IGNORE
+	_vertical_pan.mouse_filter = Control.MOUSE_FILTER_STOP if active else Control.MOUSE_FILTER_IGNORE
+
+
+func _on_horizontal_pan_changed(value: float) -> void:
+	if _syncing_pan_controls:
+		return
+	var view_rect := _get_map_view_uv_rect()
+	_map_view_center_uv.x = clampf(value + view_rect.size.x * 0.5, view_rect.size.x * 0.5, 1.0 - view_rect.size.x * 0.5)
+	_apply_map_view()
+
+
+func _on_vertical_pan_changed(value: float) -> void:
+	if _syncing_pan_controls:
+		return
+	var view_rect := _get_map_view_uv_rect()
+	_map_view_center_uv.y = clampf(value + view_rect.size.y * 0.5, view_rect.size.y * 0.5, 1.0 - view_rect.size.y * 0.5)
+	_apply_map_view()
+
+
+func _zoom_map_at(direction: int, anchor_local: Vector2) -> void:
+	if direction == 0 or _map_viewport == null:
+		return
+	var old_zoom := _map_zoom
+	var target_zoom := old_zoom * MAP_ZOOM_STEP if direction > 0 else old_zoom / MAP_ZOOM_STEP
+	target_zoom = clampf(target_zoom, MAP_MIN_ZOOM, MAP_MAX_ZOOM)
+	if is_equal_approx(target_zoom, old_zoom):
+		return
+	var viewport_size := _map_viewport.size
+	var local_fraction := Vector2(
+		clampf(anchor_local.x / maxf(viewport_size.x, 1.0), 0.0, 1.0),
+		clampf(anchor_local.y / maxf(viewport_size.y, 1.0), 0.0, 1.0)
+	)
+	var anchor_uv := _viewport_to_map_uv(anchor_local)
+	_map_zoom = target_zoom
+	var new_view_size := Vector2.ONE / _map_zoom
+	_map_view_center_uv = anchor_uv + (Vector2(0.5, 0.5) - local_fraction) * new_view_size
+	var half_view := new_view_size * 0.5
+	_map_view_center_uv.x = clampf(_map_view_center_uv.x, half_view.x, 1.0 - half_view.x)
+	_map_view_center_uv.y = clampf(_map_view_center_uv.y, half_view.y, 1.0 - half_view.y)
+	_apply_map_view()
+
+
+func _get_map_zoom_anchor_local() -> Vector2:
+	if _map_input == null:
+		return Vector2.ZERO
+	var local_mouse := _map_input.get_local_mouse_position()
+	if Rect2(Vector2.ZERO, _map_input.size).has_point(local_mouse):
+		return local_mouse
+	return _map_input.size * 0.5
+
+
+func _handle_map_trigger_zoom(event: InputEventJoypadMotion) -> void:
+	var is_map_trigger := event.axis == JOY_AXIS_TRIGGER_RIGHT or event.axis == JOY_AXIS_TRIGGER_LEFT
+	if not is_map_trigger:
+		return
+	var pressed_now := event.axis_value >= MAP_TRIGGER_PRESS_THRESHOLD
+	var released_now := event.axis_value <= MAP_TRIGGER_RELEASE_THRESHOLD
+	if event.axis == JOY_AXIS_TRIGGER_RIGHT:
+		if pressed_now and not _right_trigger_pressed:
+			_right_trigger_pressed = true
+			_zoom_map_at(1, _get_map_zoom_anchor_local())
+		elif released_now:
+			_right_trigger_pressed = false
+	else:
+		if pressed_now and not _left_trigger_pressed:
+			_left_trigger_pressed = true
+			_zoom_map_at(-1, _get_map_zoom_anchor_local())
+		elif released_now:
+			_left_trigger_pressed = false
+	get_viewport().set_input_as_handled()
+
+
+func _handle_map_mouse_zoom(event: InputEvent) -> bool:
+	if not (event is InputEventMouseButton):
+		return false
+	var mouse_event := event as InputEventMouseButton
+	if not mouse_event.pressed or mouse_event.double_click:
+		return false
+	var direction := 0
+	if mouse_event.button_index == MOUSE_BUTTON_LEFT:
+		direction = 1
+	elif mouse_event.button_index == MOUSE_BUTTON_RIGHT:
+		direction = -1
+	if direction == 0:
+		return false
+	_zoom_map_at(direction, mouse_event.position)
+	get_viewport().set_input_as_handled()
+	return true
 
 func _ensure_map_texture() -> void:
 	if _map_ready:
@@ -590,7 +795,7 @@ func _refresh_mobility_display() -> void:
 	_mobility_material.set_shader_parameter("carrier_strength", carrier_strength)
 	if not _map_hover_active and _map_meta != null:
 		_map_meta.text = (
-			"GRID_REF: TACTICAL // SCALE 1:50000\n"
+			"GRID_REF: TACTICAL // SCALE 1:%d // ZOOM %.2fX\n" % [int(round(50000.0 / _map_zoom)), _map_zoom]
 			+ "CYAN: CARRIER // AMBER: VEHICLE\n"
 			+ "FILTER: %s" % filter_label
 		)
@@ -752,6 +957,9 @@ func _refresh_map_hint() -> void:
 		_map_hint.text = command_error
 		return
 	var status := _get_selected_asset_status()
+	if _selected_mission_id.is_empty() and POIManager.has_awaiting_orders():
+		_map_hint.text = "FIELD SITE AWAITING ORDERS: click the pulsing yellow star to review the report."
+		return
 	if _selected_asset_kind == AssetKind.NONE:
 		_map_hint.text = "Select the Carrier, a flight, or a platoon to issue a command."
 		return
@@ -981,7 +1189,10 @@ func _on_map_gui_input(event: InputEvent) -> void:
 	var status := _get_selected_asset_status()
 	if _handle_selected_flight_route_input(event, status):
 		return
+	if _selected_mission_id.is_empty() and _try_open_pending_poi(event):
+		return
 	if not _mission_requires_target(_selected_mission_id):
+		_handle_map_mouse_zoom(event)
 		return
 	if event is InputEventMouseButton and event.pressed and not event.double_click:
 		var mouse_event := event as InputEventMouseButton
@@ -1019,12 +1230,15 @@ func _on_map_gui_input(event: InputEvent) -> void:
 				_draft_points = [world_pos]
 			_refresh_ui()
 			get_viewport().set_input_as_handled()
+			return
 		elif mouse_event.button_index == MOUSE_BUTTON_RIGHT and not _draft_points.is_empty():
 			if _selected_asset_kind == AssetKind.FLIGHT and _selected_mission_id == "CAP":
 				return
 			_draft_points.pop_back()
 			_refresh_ui()
 			get_viewport().set_input_as_handled()
+			return
+	_handle_map_mouse_zoom(event)
 
 
 func _on_map_mouse_exited() -> void:
@@ -1038,21 +1252,21 @@ func _update_map_hover_readout(local_pos: Vector2) -> void:
 	var world_pos := _map_to_world(local_pos)
 	var grid_reference := _format_map_grid_reference(local_pos)
 	if not _fog_mask_suppressed and not _is_world_explored(world_pos):
-		_map_meta.text = "GRID %s // TERRAIN UNKNOWN\nMOBILITY DATA WITHHELD" % grid_reference
+		_map_meta.text = "GRID %s // ZOOM %.2fX // TERRAIN UNKNOWN\nMOBILITY DATA WITHHELD" % [grid_reference, _map_zoom]
 		return
 	var grade_degrees := _sample_map_grade_degrees(world_pos)
 	var mobility_class := WorldMapTextureBuilder.sample_world_mobility_class(world_pos.x, world_pos.z)
 	var mobility_label := WorldMapTextureBuilder.mobility_class_label(mobility_class)
 	_map_meta.text = (
-		"GRID %s // ELEV: %.0f M // GRADE: %.0f DEG\n" % [grid_reference, world_pos.y, grade_degrees]
+		"GRID %s // ZOOM %.2fX // ELEV: %.0f M // GRADE: %.0f DEG\n" % [grid_reference, _map_zoom, world_pos.y, grade_degrees]
 		+ "MOBILITY: %s" % mobility_label
 	)
 
 
 func _format_map_grid_reference(local_pos: Vector2) -> String:
-	var map_size := _map_input.size if _map_input != null else Vector2.ONE
-	var column := clampi(int(floor(local_pos.x / maxf(map_size.x, 1.0) * GRID_COORD_DIVISIONS)), 0, GRID_COORD_DIVISIONS - 1)
-	var row := clampi(int(floor(local_pos.y / maxf(map_size.y, 1.0) * GRID_COORD_DIVISIONS)), 0, GRID_COORD_DIVISIONS - 1)
+	var map_uv := _viewport_to_map_uv(local_pos)
+	var column := clampi(int(floor(map_uv.x * GRID_COORD_DIVISIONS)), 0, GRID_COORD_DIVISIONS - 1)
+	var row := clampi(int(floor(map_uv.y * GRID_COORD_DIVISIONS)), 0, GRID_COORD_DIVISIONS - 1)
 	return "%s%d" % [GRID_COORD_COLUMNS[column], row + 1]
 
 
@@ -1278,8 +1492,9 @@ func _rotate_cap_route_preview_to_nearest_waypoint(route_points: Array[Vector3],
 func _map_to_world(local_pos: Vector2) -> Vector3:
 	var span_x: float = float(TerrainNavGrid._cols - 1) * TerrainNavGrid.cell_size_m
 	var span_z: float = float(TerrainNavGrid._rows - 1) * TerrainNavGrid.cell_size_m
-	var u: float = clampf(local_pos.x / maxf(_map_input.size.x, 1.0), 0.0, 1.0)
-	var v: float = clampf(local_pos.y / maxf(_map_input.size.y, 1.0), 0.0, 1.0)
+	var map_uv := _viewport_to_map_uv(local_pos)
+	var u: float = map_uv.x
+	var v: float = map_uv.y
 	var world_x: float = TerrainNavGrid._origin_x + span_x * u
 	var world_z: float = TerrainNavGrid._origin_z + span_z * v
 	var world_y: float = TerrainNavGrid.sample_height(world_x, world_z)
@@ -1486,7 +1701,7 @@ func _world_to_map_local(world_pos: Vector3) -> Vector2:
 		return Vector2.ZERO
 	var u: float = (world_pos.x - TerrainNavGrid._origin_x) / span_x
 	var v: float = (world_pos.z - TerrainNavGrid._origin_z) / span_z
-	return Vector2(u * _map_input.size.x, v * _map_input.size.y)
+	return _map_uv_to_viewport(Vector2(u, v))
 
 ## Returns the world position of the nearest discovered POI to a map click,
 ## or Vector3.INF if no POI is within the snap radius.
@@ -1501,6 +1716,30 @@ func _snap_to_poi_world(map_click: Vector2) -> Vector3:
 			best_dist = dist
 			best_world = poi_world
 	return best_world
+
+
+func _try_open_pending_poi(event: InputEvent) -> bool:
+	if not (event is InputEventMouseButton):
+		return false
+	var mouse_event := event as InputEventMouseButton
+	if not mouse_event.pressed or mouse_event.double_click \
+	or mouse_event.button_index != MOUSE_BUTTON_LEFT:
+		return false
+	const SNAP_PX: float = 28.0
+	var best_id := -1
+	var best_distance := SNAP_PX
+	for marker: Dictionary in POIManager.get_awaiting_order_markers():
+		var poi_world: Vector3 = marker.get("position", Vector3.INF)
+		if poi_world == Vector3.INF:
+			continue
+		var distance := mouse_event.position.distance_to(_world_to_map_local(poi_world))
+		if distance < best_distance:
+			best_distance = distance
+			best_id = int(marker.get("id", -1))
+	if best_id < 0 or not POIManager.open_pending_decision(best_id):
+		return false
+	get_viewport().set_input_as_handled()
+	return true
 
 func _distance_to_segment(point: Vector2, seg_a: Vector2, seg_b: Vector2) -> float:
 	var segment := seg_b - seg_a
@@ -1528,16 +1767,39 @@ func _get_mission_panel_height() -> float:
 	return clampf(content_height, 120.0, 360.0)
 
 func _layout_grid_coord_labels(map_pos: Vector2, map_side: float) -> void:
-	var column_width: float = map_side / float(GRID_COORD_DIVISIONS)
-	var row_height: float = map_side / float(GRID_COORD_DIVISIONS)
+	var projected_cell_size := map_side * _map_zoom / float(GRID_COORD_DIVISIONS)
 	for i in range(_grid_col_labels.size()):
 		var label := _grid_col_labels[i]
-		label.position = Vector2(map_pos.x + column_width * float(i), map_pos.y - GRID_COORD_BAND_HEIGHT_PX)
-		label.size = Vector2(column_width, GRID_COORD_BAND_HEIGHT_PX)
+		var center_x := _map_uv_to_viewport(Vector2((float(i) + 0.5) / float(GRID_COORD_DIVISIONS), 0.5)).x
+		label.visible = center_x >= -projected_cell_size * 0.5 and center_x <= map_side + projected_cell_size * 0.5
+		label.position = Vector2(map_pos.x + center_x - projected_cell_size * 0.5, map_pos.y - GRID_COORD_BAND_HEIGHT_PX)
+		label.size = Vector2(projected_cell_size, GRID_COORD_BAND_HEIGHT_PX)
 	for i in range(_grid_row_labels.size()):
 		var label := _grid_row_labels[i]
-		label.position = Vector2(map_pos.x - GRID_COORD_BAND_WIDTH_PX, map_pos.y + row_height * float(i))
-		label.size = Vector2(GRID_COORD_BAND_WIDTH_PX, row_height)
+		var center_y := _map_uv_to_viewport(Vector2(0.5, (float(i) + 0.5) / float(GRID_COORD_DIVISIONS))).y
+		label.visible = center_y >= -projected_cell_size * 0.5 and center_y <= map_side + projected_cell_size * 0.5
+		label.position = Vector2(map_pos.x - GRID_COORD_BAND_WIDTH_PX, map_pos.y + center_y - projected_cell_size * 0.5)
+		label.size = Vector2(GRID_COORD_BAND_WIDTH_PX, projected_cell_size)
+
+
+func _style_map_scrollbar(scrollbar: ScrollBar) -> void:
+	var rail := StyleBoxFlat.new()
+	rail.bg_color = Color("111313")
+	rail.border_color = VECTOR_BORDER_COLOR
+	rail.set_border_width_all(1)
+	var grabber := StyleBoxFlat.new()
+	grabber.bg_color = VECTOR_CONTEXT_BORDER
+	grabber.border_color = VECTOR_CYAN_COLOR
+	grabber.set_border_width_all(1)
+	var grabber_hover := grabber.duplicate() as StyleBoxFlat
+	grabber_hover.bg_color = Color("4d7777")
+	var grabber_pressed := grabber.duplicate() as StyleBoxFlat
+	grabber_pressed.bg_color = VECTOR_AMBER_COLOR.darkened(0.25)
+	scrollbar.add_theme_stylebox_override("scroll", rail)
+	scrollbar.add_theme_stylebox_override("scroll_focus", rail)
+	scrollbar.add_theme_stylebox_override("grabber", grabber)
+	scrollbar.add_theme_stylebox_override("grabber_highlight", grabber_hover)
+	scrollbar.add_theme_stylebox_override("grabber_pressed", grabber_pressed)
 
 func _make_panel(color: Color, border: Color = VECTOR_BORDER_COLOR, border_width: int = 1) -> Panel:
 	var panel := Panel.new()

@@ -91,6 +91,21 @@ func _run() -> void:
 	_expect(bool(director.call("is_aircraft_view_transition_active")), "aircraft-to-aircraft switch did not start a transition")
 	_expect(director.get("current_viewed_aircraft") == source, "source stopped being authoritative before arrival")
 	_expect(director.get("_aircraft_transition_target") == target, "pending target identity was not retained")
+	var background := RigidBody3D.new()
+	background.name = "TransitionBackgroundAircraft"
+	scene.add_child(background)
+	_expect(
+		not bool(director.call("should_throttle_background_ai_during_view_transition", source)),
+		"transition source was incorrectly assigned the background AI budget"
+	)
+	_expect(
+		not bool(director.call("should_throttle_background_ai_during_view_transition", target)),
+		"transition destination was incorrectly assigned the background AI budget"
+	)
+	_expect(
+		bool(director.call("should_throttle_background_ai_during_view_transition", background)),
+		"unrelated aircraft did not receive the transition AI budget"
+	)
 	_expect(bool(target.get_meta("visual_budget_presentation_staging", false)), "pending target was not staged")
 	_expect(target.get_node_or_null("CameraCockpit") == null, "detached cockpit restored synchronously at transition start")
 	var source_hud := source.get_node("HeadsUpDisplay") as Control
@@ -155,8 +170,20 @@ func _run() -> void:
 	_expect(return_frames < 600, "carrier-to-aircraft transition did not complete")
 	_expect(director.get("current_viewed_aircraft") == source, "aircraft did not become authoritative after leaving the carrier")
 
+	var freed_target := _make_aircraft(
+		"FreedTransitionTarget",
+		Vector3(2400.0, 320.0, -1700.0)
+	)
+	scene.add_child(freed_target)
+	director.call("_view_aircraft", freed_target)
+	_expect(bool(director.call("is_aircraft_view_transition_active")), "freed-target regression transition did not start")
+	freed_target.free()
+	director.call("_update_aircraft_camera_transition", 1.0 / 60.0)
+	_expect(not bool(director.call("is_aircraft_view_transition_active")), "freed transition target did not cancel safely")
+	_expect(director.get("current_viewed_aircraft") == source, "freed-target cancellation did not restore the source aircraft")
+
 	if _failures.is_empty():
-		print("[FlightDirectorAircraftTransitionSmoketest] PASS frames=%d near_s=%.3f far_s=%.3f staged_one_root_per_frame=true moving_target=true ui_handoff=true helicopter_frames=%d carrier_frames=%d return_frames=%d" % [
+		print("[FlightDirectorAircraftTransitionSmoketest] PASS frames=%d near_s=%.3f far_s=%.3f staged_one_root_per_frame=true moving_target=true ui_handoff=true freed_target_cancel=true helicopter_frames=%d carrier_frames=%d return_frames=%d" % [
 			frame_count,
 			near_duration,
 			far_duration,

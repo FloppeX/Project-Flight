@@ -37,7 +37,7 @@ const PERF_OVERRIDE_PATH := "user://land_carrier_perf_override.json"
 @export var recovery_constraint_default_speed_limit_mps: float = 0.0
 @export var recovery_constraint_log_interval_s: float = 2.0
 @export var debug_motion_constraints: bool = false
-@export var launch_constraint_min_speed_mps: float = 8.0  # keep the deck moving straight (not dead-stopped) while launching
+@export var launch_constraint_min_speed_mps: float = 8.0  # preserve straight motion for an active route; never override HOLD
 @export_group("Launch Corridor Reposition")
 ## When deck control finds a cliff ahead, it may temporarily steer the carrier
 ## toward a clear launch heading. This overlays the current route rather than
@@ -354,7 +354,11 @@ func set_heli_test_stationary(active: bool) -> void:
 func request_launch_corridor_reposition(clear_direction_world: Vector3) -> bool:
 	var direction := clear_direction_world
 	direction.y = 0.0
-	if direction.length_squared() <= 0.0001 or _heli_test_stationary:
+	# Launch safety may temporarily bend an existing movement order, but it must
+	# never manufacture movement after the player has explicitly ordered HOLD.
+	if direction.length_squared() <= 0.0001 \
+			or _heli_test_stationary \
+			or not has_active_navigation_order():
 		return false
 	_launch_corridor_reposition_direction = direction.normalized()
 	_launch_corridor_reposition_active = true
@@ -371,6 +375,11 @@ func clear_launch_corridor_reposition() -> void:
 
 func is_launch_corridor_reposition_active() -> bool:
 	return _launch_corridor_reposition_active
+
+
+func has_active_navigation_order() -> bool:
+	return _waypoint_index < _waypoint_positions.size() \
+			or _raw_waypoint_index < _raw_waypoints.size()
 
 func _setup_vehicle_ramp() -> void:
 	var ramp_node := Node3D.new()
@@ -801,6 +810,7 @@ func _face_route_destination(destination: Vector3) -> void:
 
 
 func _clear_route_and_hold() -> void:
+	clear_launch_corridor_reposition()
 	_raw_waypoints.clear()
 	_raw_waypoint_index = 0
 	_waypoint_positions.clear()
@@ -1972,11 +1982,12 @@ func _apply_recovery_motion_constraint(target_speed_mps: float, target_yaw_rate_
 	# leaving residual steer (still aimed at the patrol waypoint) makes the carrier read "turning" forever
 	# even while stopped -> the launch never fires. Forcing steer to 0 settles it onto a straight heading.
 	_current_steer = move_toward(_current_steer, 0.0, 4.0 * delta)
-	# For a LAUNCH constraint, keep moving straight (a moving straight deck is a valid launch platform and
-	# avoids a dead stop that can't change heading). For a recovery/landing constraint, keep the low cap.
+	# For a LAUNCH constraint, keep an already-commanded route moving straight. An
+	# explicit HOLD remains authoritative: launching must not create movement when
+	# there is no navigation order. Recovery/landing constraints keep the low cap.
 	var launch_constraint: bool = deck_manager.has_method("is_launch_constraint_active") \
 			and bool(deck_manager.call("is_launch_constraint_active"))
-	if launch_constraint:
+	if launch_constraint and has_active_navigation_order():
 		constrained_speed = maxf(constrained_speed, maxf(launch_constraint_min_speed_mps, 0.0))
 	if debug_motion_constraints and _recovery_constraint_log_s <= 0.0:
 		_recovery_constraint_log_s = maxf(recovery_constraint_log_interval_s, 0.1)

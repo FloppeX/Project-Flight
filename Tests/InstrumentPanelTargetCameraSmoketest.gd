@@ -21,8 +21,7 @@ func _ready() -> void:
 		Vector3(12.0, 3.0, -7.0)
 	)
 	# Hold the desired world aim steady while the aircraft turns. The camera must
-	# inherit the 90-degree mount turn immediately, minus only the 12 degrees the
-	# gimbal can counter-slew during this 0.1-second frame.
+	# move with the sensor mount without inheriting the aircraft's 90-degree turn.
 	var steady_world_aim := Transform3D(Basis.IDENTITY, turned_mount.origin)
 	panel._slew_target_camera_to_transform(turned_mount, steady_world_aim, 0.1)
 	var world_turn_deg := rad_to_deg(
@@ -31,7 +30,21 @@ func _ready() -> void:
 		)
 	)
 	_require(is_equal_approx(camera.global_position.x, turned_mount.origin.x), "camera mount position lagged")
-	_require(world_turn_deg > 75.0 and world_turn_deg < 81.0, "camera did not inherit mount turn immediately: %.2f deg" % world_turn_deg)
+	_require(world_turn_deg < 0.1, "camera aim inherited aircraft rotation: %.2f deg" % world_turn_deg)
+
+	# A genuinely new target direction should still use the configured acquisition
+	# rate instead of snapping across the display.
+	var new_world_aim := Transform3D(Basis(Vector3.UP, deg_to_rad(90.0)), turned_mount.origin)
+	panel._slew_target_camera_to_transform(turned_mount, new_world_aim, 0.1)
+	var acquisition_turn_deg := rad_to_deg(
+		Basis.IDENTITY.get_rotation_quaternion().angle_to(
+			camera.global_basis.get_rotation_quaternion()
+		)
+	)
+	_require(
+		acquisition_turn_deg > 11.9 and acquisition_turn_deg < 12.1,
+		"new aim ignored the 120 deg/s acquisition rate: %.2f deg" % acquisition_turn_deg
+	)
 
 	var target_viewport := SubViewport.new()
 	target_viewport.size = Vector2i(200, 200)
@@ -92,7 +105,7 @@ func _ready() -> void:
 		get_tree().quit(1)
 		return
 
-	print("[InstrumentPanelTargetCameraSmoketest] PASS mount_turn=%.2f zoom_2km=%.3fdeg labels=catalog_names scanlines=display_pixels+soft_edges" % [world_turn_deg, far_target_fov])
+	print("[InstrumentPanelTargetCameraSmoketest] PASS stabilized_mount_turn=%.2f acquisition_turn=%.2f zoom_2km=%.3fdeg labels=catalog_names scanlines=display_pixels+soft_edges" % [world_turn_deg, acquisition_turn_deg, far_target_fov])
 	unknown_body.free()
 	structure.free()
 	vehicle.free()

@@ -2,11 +2,12 @@ extends ProjectileNew
 class_name Bullet
 
 const TRACER_VISUAL_FACTORY := preload("res://Projectiles/Bullet/TracerVisualFactory.gd")
+const TRACER_EMISSION_ENERGY: float = 7.0
 
 # Visual effects specific to bullets
 @export var tracer_enabled: bool = true
 @export var tracer_color: Color = Color.YELLOW
-@export var tracer_width: float = 0.18
+@export var tracer_width: float = 0.15
 @export var tracer_visual_length: float = 4.8
 @export var tracer_hidden_physics_frames: int = 1
 @export var tracer_length_ramp_physics_frames: int = 4
@@ -55,7 +56,6 @@ var _visual_distance_m: float = 0.0
 
 const SCORCH_TEXTURE_PATH: String = "res://Projectiles/Explosion/scorch_mark.png"
 static var _tracer_mesh_cache: Dictionary = {}
-static var _tracer_material_cache: Dictionary = {}
 static var _bullet_material_cache: Dictionary = {}
 static var _activation_counter: int = 0
 
@@ -118,7 +118,6 @@ func create_tracer_mesh():
 
 	tracer_mesh = _get_cached_tracer_mesh()
 	trail_mesh.mesh = tracer_mesh
-	trail_mesh.material_override = _get_cached_tracer_material()
 	trail_mesh.scale = Vector3(tracer_width, tracer_width, tracer_visual_length)
 	trail_mesh.position = Vector3.ZERO
 
@@ -137,22 +136,18 @@ func _get_cached_bullet_material() -> StandardMaterial3D:
 	return material
 
 func _get_cached_tracer_mesh() -> ArrayMesh:
-	var key := "closed_square_pyramid_base_at_origin_v3"
+	var key := "bright_all_light_square_pyramid_v6|%s" % _color_cache_key(tracer_color)
 	var cached_variant: Variant = _tracer_mesh_cache.get(key, null)
 	if cached_variant is ArrayMesh:
 		return cached_variant as ArrayMesh
 	var mesh: ArrayMesh = TRACER_VISUAL_FACTORY.create_unit_tracer_mesh()
+	TRACER_VISUAL_FACTORY.configure_tracer_mesh_materials(
+		mesh,
+		tracer_color,
+		TRACER_EMISSION_ENERGY
+	)
 	_tracer_mesh_cache[key] = mesh
 	return mesh
-
-func _get_cached_tracer_material() -> StandardMaterial3D:
-	var key: String = _color_cache_key(tracer_color)
-	var cached_variant: Variant = _tracer_material_cache.get(key, null)
-	if cached_variant is StandardMaterial3D:
-		return cached_variant as StandardMaterial3D
-	var material: StandardMaterial3D = TRACER_VISUAL_FACTORY.create_glow_material(tracer_color, 5.0)
-	_tracer_material_cache[key] = material
-	return material
 
 func _color_cache_key(color: Color) -> String:
 	return "%.3f|%.3f|%.3f|%.3f" % [color.r, color.g, color.b, color.a]

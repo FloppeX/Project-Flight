@@ -171,6 +171,74 @@ func _run() -> void:
 	_expect(OPERATIONAL_UNITS_PAGE.map_ground_activity("RETURN_TO_BASE") == "RETURNING", "retrieving vehicles report returning")
 	_expect(OPERATIONAL_UNITS_PAGE.map_ground_activity("NONE", false, false, false, false, true) == "DESTROYED", "lost vehicles report destroyed")
 
+	console.call("show_page", "carrier")
+	var carrier_load_deadline := Time.get_ticks_msec() + 10000
+	while Time.get_ticks_msec() < carrier_load_deadline:
+		var pending_snapshot: Dictionary = console.call("get_page_debug_snapshot", "carrier")
+		var pending_wireframe: Dictionary = pending_snapshot.get("wireframe", {})
+		if bool(pending_wireframe.get("model_loaded", false)) \
+				or not bool(pending_wireframe.get("load_requested", true)):
+			break
+		await create_timer(0.02).timeout
+	await process_frame
+	var carrier_page := console.get("_carrier_page") as Control
+	_expect(platoons_page != null and not platoons_page.visible, "active platoons page hides on the carrier page")
+	_expect(carrier_page != null and carrier_page.visible, "carrier schematic page is visible")
+	var carrier_snapshot: Dictionary = console.call("get_page_debug_snapshot", "carrier")
+	var wireframe_snapshot: Dictionary = carrier_snapshot.get("wireframe", {})
+	_expect(str(carrier_snapshot.get("kind", "")) == "carrier", "carrier page reports its data kind")
+	_expect(str(carrier_snapshot.get("mode", "")) == "interactive_mockup", "carrier page reports its interactive mockup mode")
+	_expect(bool(carrier_snapshot.get("mock_data", false)), "carrier page labels its fictional scenario data as mock data")
+	_expect(not bool(carrier_snapshot.get("telemetry_connected", true)), "carrier page does not claim unimplemented live telemetry")
+	_expect(int(carrier_snapshot.get("system_count", 0)) == 10, "carrier mockup exposes all ten proposed subsystem targets")
+	_expect(str(carrier_snapshot.get("selected_system", "")) == "defenses", "carrier mockup opens on its degraded defense exception")
+	_expect(str(wireframe_snapshot.get("scene_path", "")) == "res://LandCarrier/LandCarrier2.tscn", "carrier schematic resolves the Technical Index carrier scene")
+	_expect(bool(wireframe_snapshot.get("model_loaded", false)), "carrier schematic instantiates the catalog model")
+	_expect(str(wireframe_snapshot.get("edge_mode", "")) == "crease_filtered", "carrier schematic uses crease-filtered feature edges")
+	_expect(is_equal_approx(float(wireframe_snapshot.get("crease_angle_degrees", 0.0)), 25.0), "carrier schematic reports its crease threshold")
+	_expect(int(wireframe_snapshot.get("wire_geometry_count", 0)) > 0, "carrier schematic applies wireframe overrides to visible geometry")
+	_expect(int(wireframe_snapshot.get("wire_segment_count", 0)) > 0, "carrier schematic generates visible feature segments")
+	_expect(int(wireframe_snapshot.get("source_triangle_count", 0)) > int(wireframe_snapshot.get("wire_segment_count", 0)), "crease filtering reduces the displayed carrier topology")
+	_expect(bool(wireframe_snapshot.get("presentation_only", false)), "carrier schematic identifies itself as presentation-only")
+	_expect(str(wireframe_snapshot.get("selected_region", "")) == "defenses", "default defense selection reaches the 3D schematic")
+	_expect(bool(wireframe_snapshot.get("highlight_warning", false)), "degraded defense selection uses warning highlighting")
+	_expect(int(wireframe_snapshot.get("highlighted_geometry_count", 0)) > 0, "defense selection highlights carrier geometry")
+	carrier_page.call("_select_system", "elevators")
+	carrier_snapshot = console.call("get_page_debug_snapshot", "carrier")
+	wireframe_snapshot = carrier_snapshot.get("wireframe", {})
+	_expect(str(carrier_snapshot.get("selected_system", "")) == "elevators", "carrier mockup changes selected system")
+	_expect(str(wireframe_snapshot.get("selected_region", "")) == "elevators", "system selection changes the 3D highlighted region")
+	_expect(not bool(wireframe_snapshot.get("highlight_warning", true)), "nominal system selection uses cyan highlighting")
+	carrier_page.call("_cycle_repair_priority")
+	carrier_page.call("_cycle_defense_posture")
+	carrier_snapshot = console.call("get_page_debug_snapshot", "carrier")
+	_expect(str(carrier_snapshot.get("repair_priority", "")) == "DEFENSES FIRST", "mock repair priority control cycles")
+	_expect(str(carrier_snapshot.get("defense_posture", "")) == "CONSERVE", "mock defense posture control cycles")
+	carrier_page.call("_select_system", "defenses")
+
+	console.call("show_page", "replicator")
+	await process_frame
+	var replicator_page := console.get("_replicator_page") as Control
+	_expect(carrier_page != null and not carrier_page.visible, "carrier schematic page hides on the replicator page")
+	_expect(replicator_page != null and replicator_page.visible, "replicator concept page is visible")
+	var replicator_snapshot: Dictionary = console.call("get_page_debug_snapshot", "replicator")
+	_expect(str(replicator_snapshot.get("kind", "")) == "replicator", "replicator page reports its data kind")
+	_expect(str(replicator_snapshot.get("mode", "")) == "concept_preview", "replicator page labels its data as a concept preview")
+	_expect(int(replicator_snapshot.get("blueprint_count", 0)) == 5, "replicator concept lists the five starter blueprints")
+	_expect(int(replicator_snapshot.get("queue_count", 0)) == 2, "replicator concept starts with two illustrative queue rows")
+	replicator_page.call("_on_blueprint_pressed", "light_combat_vehicle")
+	replicator_page.call("_change_quantity", 1)
+	replicator_page.call("_on_add_to_queue_pressed")
+	replicator_snapshot = console.call("get_page_debug_snapshot", "replicator")
+	_expect(int(replicator_snapshot.get("queue_count", 0)) == 3, "replicator preview can add an illustrative order")
+	_expect(int(replicator_snapshot.get("plasteel", 0)) == 840, "preview order updates the displayed plasteel balance only")
+	_expect(int(replicator_snapshot.get("corium", 0)) == 976, "preview order updates the displayed corium balance only")
+	replicator_page.call("_on_cancel_order_pressed", 2)
+	replicator_snapshot = console.call("get_page_debug_snapshot", "replicator")
+	_expect(int(replicator_snapshot.get("queue_count", 0)) == 2, "replicator preview can cancel the illustrative order")
+	_expect(int(replicator_snapshot.get("plasteel", 0)) == 1000, "cancelling restores the preview plasteel balance")
+	_expect(int(replicator_snapshot.get("corium", 0)) == 1000, "cancelling restores the preview corium balance")
+
 	console.call("set_open", false)
 	await process_frame
 	_expect(not bool(console.call("is_open")), "console closes")
@@ -178,6 +246,8 @@ func _run() -> void:
 	_expect(not bool(personnel.call("is_console_visible")), "personnel page closes with the console")
 	_expect(flights_page != null and not flights_page.visible, "flights page closes with the console")
 	_expect(platoons_page != null and not platoons_page.visible, "platoons page closes with the console")
+	_expect(carrier_page != null and not carrier_page.visible, "carrier page closes with the console")
+	_expect(replicator_page != null and not replicator_page.visible, "replicator page closes with the console")
 	_finish()
 
 

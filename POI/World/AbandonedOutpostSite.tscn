@@ -1,0 +1,22 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://POI/World/POIWorldSite.gd" id="1_site"]
+[ext_resource type="PackedScene" path="res://Models/ruin - building.glb" id="2_outpost"]
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_outpost"]
+size = Vector3(6.8, 7.5, 6.8)
+
+[node name="AbandonedOutpostSite" type="Node3D"]
+script = ExtResource("1_site")
+
+[node name="OutpostPose" type="Node3D" parent="."]
+position = Vector3(0, 0.03, 0)
+rotation = Vector3(0, 0.38, 0)
+
+[node name="RuinBuildingMesh" parent="OutpostPose" instance=ExtResource("2_outpost")]
+
+[node name="StaticBody3D" type="StaticBody3D" parent="OutpostPose"]
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="OutpostPose/StaticBody3D"]
+position = Vector3(0, 3.75, 0)
+shape = SubResource("BoxShape3D_outpost")

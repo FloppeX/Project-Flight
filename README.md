@@ -10,7 +10,7 @@ This README is the canonical living project document. It describes the current g
 
 **Main scene:** `res://UI/MainMenu.tscn`
 
-**Status reviewed:** 2026-08-22 against the current source tree
+**Status reviewed:** 2026-09-04 against the current source tree
 
 ## Project vision
 
@@ -59,7 +59,7 @@ The game already supports a substantial combined-arms sandbox. Most major system
 | Area | Current capability | Important limit |
 |---|---|---|
 | World and terrain | Streamed procedural low-poly canyon terrain, floating origin, rock streaming, day/night cycle, dust, fog, and two selectable terrain profiles | Large-map preprocessing and valley rendering remain performance watch areas |
-| Strategic map | `50 km x 50 km` navigation and tactical-map coverage, relief shading, mobility overlays, routes, contacts, mission drafting, and loading progress | The map is a command surface, but it does not yet express a regional objective or economy |
+| Strategic map | `50 km x 50 km` navigation and tactical-map coverage, cursor-centred zoom and scrollbar panning, relief shading, mobility overlays, routes, contacts, mission drafting, and loading progress | The map is a command surface, but it does not yet express a regional objective or economy |
 | Exploration | Persistent fog of war: carrier, aircraft, helicopters, and ground vehicles permanently reveal terrain as they travel | Exploration persists through strategic checkpoint saves, but not yet between regions |
 | Carrier movement | Player-authored routes over carrier-legal terrain; no automatic route is assigned at scenario start | The carrier cannot be ordered into unexplored terrain |
 | Carrier deck | Hangar, elevator, tractor bots, catapult launch, deck staging, landing clearance, arresting wires, and recovery flow | Full mission-to-recovery reliability is promising but not yet accepted across the complete validation suite |
@@ -67,7 +67,7 @@ The game already supports a substantial combined-arms sandbox. Most major system
 | Ground operations | Four named platoons, vehicle-bay deployment/retrieval, formations, escort, move, attack, protect, hold, and map-issued orders | Player ground destinations must already be explored; pathing and steep-terrain behavior still need broad live testing |
 | Combat | Fixed-wing, helicopter, vehicle, turret, rocket, bomb, gun, damage, destruction, and ejection systems | Balance and some AI flight-path integration remain under investigation |
 | Enemy operations | Bases, patrols, ground forces, emplacements, wind farms, virtualized distant units, and replenishment behavior | Destroying infrastructure does not yet remove a clearly communicated enemy capability |
-| POIs | Procedural POI placement, starting discoveries, aircraft discovery, ground reveal, tactical markers, and choice cards | POI choices currently close the card but do not change game state |
+| POIs | Procedural placement, physical world-site hooks, aircraft discovery, ground investigation, non-modal awaiting-orders notices, tactical markers, and choice cards | Wrecked Scout Car and Abandoned Outpost now provide real intelligence consequences; the other nine POI definitions remain presentation-only |
 | Personnel | Pilot roster, skills, experience, kills, wounds/rest hooks, callsigns, voices, personnel UI, and checkpoint persistence | Rescue pickup is implemented but is not yet connected to injury, rest, and full career continuity |
 | Command UI | Carrier console with Tactical and Personnel views, map selection during new game, mission confirmation flow, and live unit state | This is the first command-screen slice, not the final strategic interface |
 | Campaign checkpoints | Validated primary-plus-backup save slot, automatic safe-state checkpoints, pause-menu save status, and main-menu Continue | Calm deployed CAP/transit/RTB flights and moving/protecting/escorting platoons are preserved; active attack orders, combat, tracked mobile enemies, and moving deck machinery must clear first |
@@ -91,6 +91,23 @@ Both profiles use the same `50 km x 50 km` strategic/nav footprint. The tactical
 ## Recent changes
 
 This is a short current summary, not a second full changelog.
+
+### September 2026 - first consequential POI
+
+- Added a physical Wrecked Scout Car site using the authored `Models/wrecked car.glb` asset, with a grounded wreck pose and physical collision.
+- A ground team reaching the site now files a non-modal `AWAITING ORDERS` notice instead of interrupting play. The decision can be opened from the notice or its pulsing tactical-map star, and deferring it leaves the order pending.
+- Recovering the patrol log reveals the nearest enemy base and a five-kilometre sector around it. Pending/resolved choice state and the revealed intelligence target persist through campaign checkpoints.
+- Turned the former Abandoned Settlement card into a physical Abandoned Outpost using `Models/ruin - building.glb`. Recovering its survey records reveals the two nearest unknown POIs and enough surrounding terrain to dispatch ground teams to them.
+
+### September 2026 - carrier command authority
+
+- Made the tactical-map `HOLD` order authoritative during aircraft launches. Launch safety can straighten and slow an actively routed carrier, but it no longer creates movement or requests an autonomous launch-corridor reposition after the player has stopped the carrier; a terrain-blocked launch now waits for a new movement order.
+
+### September 2026 - tactical-map navigation
+
+- Added cursor-centred tactical-map zoom from `1x` to `8x`. Right trigger or left mouse button zooms in; left trigger or right mouse button zooms out.
+- Added horizontal and vertical map scrollbars for panning the zoomed view. Terrain, fog, mobility, symbols, routes, hit-testing, grid references, and hover readouts now share the same view transform.
+- Mouse clicks retain their target/waypoint editing roles while an order is being drafted; controller triggers remain available for zoom at all times.
 
 ### August 2026 - strategic checkpoints
 
@@ -139,7 +156,7 @@ The next feature should make the existing systems form one small playable game:
 - Put one enemy base or capability network across the fastest carrier route while retaining slower or riskier alternatives.
 - Give scouting enough information to compare those routes without revealing the whole solution.
 - Make at least one target change a concrete enemy capability, such as patrol generation, radar coverage, ground reinforcement, or repair/rearm rate.
-- Give at least one POI a real consequence: supplies, intelligence, a rescue opportunity, route access, or a difficult trade-off.
+- Expand real POI consequences beyond the first Wrecked Scout Car intelligence reward into supplies, rescue opportunities, route access, and difficult trade-offs.
 - End the region with a concise operational summary: time, losses, pilots, surviving vehicles, resources gained/spent, infrastructure destroyed, and route taken.
 
 This slice should use temporary scenario-scoped state first. It does not need the entire campaign persistence system before it can prove the loop.
@@ -184,7 +201,7 @@ These items are deliberately phrased by evidence level. Older reports may descri
 
 | Status | Problem | Current evidence / next proof |
 |---|---|---|
-| Confirmed | POI decisions have no gameplay effect | `POIManager` records reveal state, but confirming a card currently only closes it |
+| Partly resolved | Most POI decisions have no gameplay effect | Wrecked Scout Car reveals the nearest enemy base and its five-kilometre sector; Abandoned Outpost reveals two nearby unknown POIs; the other nine definitions still only close their cards |
 | Confirmed | No regional win condition, strategic economy, or between-region persistence | A first same-region calm-state checkpoint exists, but the larger campaign transition and economy systems have not been implemented |
 | Confirmed | Carrier tread animation has visible discontinuities at the lower turnarounds | Debug the baked loop coordinate before further shader tuning; see the track report |
 | Partly resolved | Fixed-wing carrier recovery | Focused dirty-entry and two-aircraft catches succeeded on the current recovery work, but the remaining matrix, 100-attempt final regression, and 20-run mixed suite were not completed |
@@ -316,6 +333,9 @@ Prefer a focused headless test for the subsystem being changed. Examples:
 ```powershell
 & "C:\Godot\Godot_v4.6.2-stable_win64_console.exe" --headless --path . --script res://Tests/LayeredMapProfileSmoketest.gd
 & "C:\Godot\Godot_v4.6.2-stable_win64_console.exe" --headless --path . --script res://Tests/MapFogMovingAircraftSmoketest.gd
+& "C:\Godot\Godot_v4.6.2-stable_win64_console.exe" --headless --path . --script res://Tests/POIWreckedScoutCarSmoketest.gd
+& "C:\Godot\Godot_v4.6.2-stable_win64_console.exe" --headless --path . --script res://Tests/WorldMapZoomSmoketest.gd
+& "C:\Godot\Godot_v4.6.2-stable_win64_console.exe" --headless --path . --script res://Tests/LaunchTerrainRepositionSmoketest.gd
 & "C:\Godot\Godot_v4.6.2-stable_win64_console.exe" --headless --path . --script res://tools/carrier_console_smoketest.gd
 & "C:\Godot\Godot_v4.6.2-stable_win64_console.exe" --headless --path . --script res://Tests/TechnicalIndexSmoketest.gd
 & "C:\Godot\Godot_v4.6.2-stable_win64_console.exe" --headless --path . --script res://Tests/SettingsOptionsSmoketest.gd

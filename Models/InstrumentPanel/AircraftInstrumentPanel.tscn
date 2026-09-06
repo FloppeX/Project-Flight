@@ -1,6 +1,6 @@
 [gd_scene load_steps=3 format=3]
 
-[ext_resource type="PackedScene" uid="uid://b4xm8v23opqrs" path="res://HUD/InstrumentPanel.tscn" id="1_display"]
+[ext_resource type="PackedScene" path="res://HUD/InstrumentPanelMount.tscn" id="1_display"]
 [ext_resource type="PackedScene" uid="uid://0cialxpuk7ko" path="res://Models/InstrumentPanel/instrument_panel.glb" id="2_model"]
 
 [node name="InstrumentPanel" instance=ExtResource("1_display")]
@@ -102,8 +102,5 @@ model_panel_material_names = PackedStringArray("Instrument panel material")
 model_panel_flip_x = true
 camera_target_path = NodePath("../CameraTarget")
 zoom_distance = 100.0
-
-[node name="PanelScreen" parent="." index="0"]
-visible = false
 
 [node name="PanelModel" parent="." instance=ExtResource("2_model")]

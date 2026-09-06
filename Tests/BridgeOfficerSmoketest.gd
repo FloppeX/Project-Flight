@@ -2,6 +2,15 @@ extends SceneTree
 
 
 var _failures: Array[String] = []
+const DANCE_ANIMATIONS: Array[StringName] = [
+	&"dance_belly",
+	&"dance_booty_hip_hop",
+	&"dance_chicken",
+	&"dance_gangnam",
+	&"dance_hip_hop",
+	&"dance_locking_hip_hop",
+	&"dance_northern_soul",
+]
 
 
 func _initialize() -> void:
@@ -40,6 +49,32 @@ func _run() -> void:
 				_expect(height_m > 1.7 and height_m < 2.0, "bridge officer is not human scale: %.3f m" % height_m)
 			officer.free()
 
+	var male_officer_scene := load("res://Models/Characters/Bridge officer 2.glb") as PackedScene
+	_expect(male_officer_scene != null, "male bridge officer GLB did not import as a PackedScene")
+	if male_officer_scene != null:
+		var male_officer := male_officer_scene.instantiate() as Node3D
+		_expect(male_officer != null, "male bridge officer GLB did not instantiate")
+		if male_officer != null:
+			scene.add_child(male_officer)
+			var male_body_mesh := male_officer.find_child("Officer male", true, false) as MeshInstance3D
+			var male_sunglasses := male_officer.find_child("sunglasses", true, false) as MeshInstance3D
+			var male_skeleton := male_officer.find_child("Skeleton3D", true, false) as Skeleton3D
+			_expect(male_body_mesh != null, "male bridge officer body mesh is missing")
+			_expect(male_sunglasses != null, "male bridge officer sunglasses are missing")
+			_expect(male_skeleton != null and male_skeleton.get_bone_count() >= 60, "male bridge officer skeleton did not import")
+			_expect(
+				male_body_mesh != null and male_body_mesh.get_skin_reference() != null,
+				"male bridge officer body mesh is not bound to its skeleton"
+			)
+			_expect(
+				male_sunglasses != null and male_sunglasses.get_skin_reference() != null,
+				"male bridge officer sunglasses are not bound to the skeleton"
+			)
+			if male_body_mesh != null:
+				var male_height_m := male_body_mesh.get_aabb().size.y * male_body_mesh.scale.y
+				_expect(male_height_m > 1.7 and male_height_m < 2.0, "male bridge officer is not human scale: %.3f m" % male_height_m)
+			male_officer.free()
+
 	var commander_scene := load("res://LandCarrier/Commander.tscn") as PackedScene
 	_expect(commander_scene != null, "Commander scene did not load")
 	if commander_scene != null:
@@ -47,33 +82,129 @@ func _run() -> void:
 		scene.add_child(commander)
 		await process_frame
 		var body_visual := commander.get_node_or_null("BodyVisual") as Node3D
+		var male_body_visual := commander.get_node_or_null("BodyVisualMale") as Node3D
 		var rig_controls := body_visual.find_child("cs_grp", true, false) as Node3D \
 			if body_visual != null else null
 		var animation_player := body_visual.get_node_or_null("BakedAnimationPlayer") as AnimationPlayer \
 			if body_visual != null else null
 		var officer_skeleton := body_visual.find_child("Skeleton3D", true, false) as Skeleton3D \
 			if body_visual != null else null
+		var male_rig_controls := male_body_visual.find_child("cs_grp", true, false) as Node3D \
+			if male_body_visual != null else null
+		var male_animation_player := male_body_visual.get_node_or_null("BakedAnimationPlayer") as AnimationPlayer \
+			if male_body_visual != null else null
+		var male_officer_skeleton := male_body_visual.find_child("Skeleton3D", true, false) as Skeleton3D \
+			if male_body_visual != null else null
+		var male_commander_body := male_body_visual.find_child("Officer male", true, false) as MeshInstance3D \
+			if male_body_visual != null else null
 		_expect(body_visual != null, "Commander does not instance the bridge officer")
+		_expect(male_body_visual != null, "Commander does not instance the male bridge officer")
 		_expect(rig_controls == null or not rig_controls.visible, "exported bridge-officer rig controls remain visible")
+		_expect(male_rig_controls == null or not male_rig_controls.visible, "exported male bridge-officer rig controls remain visible")
 		_expect(animation_player != null, "bridge officer animation player is missing")
+		_expect(male_animation_player != null, "male bridge officer animation player is missing")
 		_expect(officer_skeleton != null, "bridge officer visible skeleton is missing")
+		_expect(male_officer_skeleton != null, "male bridge officer visible skeleton is missing")
+		_expect(
+			male_commander_body != null and not _skin_has_bind(male_commander_body.skin, &"neutral_bone"),
+			"male bridge officer headwear remains bound to the non-animated neutral bone"
+		)
 		_expect(animation_player != null and animation_player.has_animation(&"idle_breathing"), "bridge officer breathing idle animation is missing")
 		_expect(animation_player != null and animation_player.has_animation(&"idle_neutral"), "bridge officer neutral idle animation is missing")
 		for idle_index in range(3, 8):
 			var idle_name := StringName("idle_%d" % idle_index)
 			_expect(
-				animation_player != null and animation_player.has_animation(idle_name),
-				"bridge officer %s animation is missing" % idle_name
+				animation_player != null and animation_player.has_animation(idle_name) \
+					and male_animation_player != null and male_animation_player.has_animation(idle_name),
+				"an officer %s animation is missing" % idle_name
 			)
 		_expect(animation_player != null and animation_player.has_animation(&"walk"), "bridge officer walk animation is missing")
+		_expect(male_animation_player != null and male_animation_player.has_animation(&"idle_neutral"), "male bridge officer neutral idle animation is missing")
+		_expect(male_animation_player != null and male_animation_player.has_animation(&"walk"), "male bridge officer walk animation is missing")
+		for dance_name in DANCE_ANIMATIONS:
+			var female_dance := animation_player.get_animation(dance_name) \
+				if animation_player != null and animation_player.has_animation(dance_name) else null
+			var male_dance := male_animation_player.get_animation(dance_name) \
+				if male_animation_player != null and male_animation_player.has_animation(dance_name) else null
+			_expect(female_dance != null, "female officer %s animation is missing" % dance_name)
+			_expect(male_dance != null, "male officer %s animation is missing" % dance_name)
+			_expect(
+				female_dance != null and female_dance.loop_mode == Animation.LOOP_NONE \
+					and male_dance != null and male_dance.loop_mode == Animation.LOOP_NONE,
+				"officer %s is not a one-shot animation" % dance_name
+			)
 		_expect(commander.get_node_or_null("CollisionShape3D") != null, "Commander collision was lost")
 		_expect(commander.get_node_or_null("Camera3D") != null, "Commander first-person camera was lost")
 		_expect(commander.get_node_or_null("CameraTransitionAnchor") != null, "Commander transition anchor was lost")
+		var livery := root.get_node_or_null("Livery")
+		var test_primary_color := Color("b14c76")
+		_expect(livery != null, "Livery autoload is unavailable")
+		if livery != null:
+			livery.call("set_player_livery", test_primary_color, Color("d4c6ad"), 0)
+			livery.call("apply", commander)
+			_expect(
+				_uniform_color_surface_count(body_visual, test_primary_color) > 0,
+				"female officer Uniform Color 1 did not receive the player primary color"
+			)
+			_expect(
+				_uniform_color_surface_count(male_body_visual, test_primary_color) > 0,
+				"male officer Uniform Color 1 did not receive the player primary color"
+			)
 
 		commander.call("_update_body_visibility", false)
-		_expect(body_visual != null and body_visual.visible, "bridge officer is hidden in external carrier views")
+		_expect(body_visual != null and body_visual.visible and male_body_visual != null and not male_body_visual.visible, "female bridge officer is not the initial external character")
 		commander.call("_update_body_visibility", true)
-		_expect(body_visual != null and not body_visual.visible, "bridge officer obstructs the first-person carrier view")
+		_expect(body_visual != null and not body_visual.visible and male_body_visual != null and not male_body_visual.visible, "a bridge officer obstructs the first-person carrier view")
+
+		_send_physical_key(commander, KEY_O, true)
+		_send_physical_key(commander, KEY_O, false)
+		commander.call("_update_body_visibility", false)
+		_expect(
+			commander.get("_active_officer_index") == 1 \
+				and body_visual != null and not body_visual.visible \
+				and male_body_visual != null and male_body_visual.visible,
+			"O did not switch from the female to the male bridge officer"
+		)
+		_expect(
+			male_animation_player != null \
+				and male_animation_player.active \
+				and male_animation_player.assigned_animation == &"idle_neutral" \
+				and male_animation_player.is_playing(),
+			"male bridge officer did not keep the selected idle animation"
+		)
+		_expect(
+			_animation_moves_skeleton(male_animation_player, male_officer_skeleton, &"idle_neutral"),
+			"male bridge officer idle did not move its visible skeleton"
+		)
+		_expect(
+			bool(commander.call("_play_officer_dance", &"dance_chicken")) \
+				and bool(commander.get("_officer_dancing")) \
+				and male_animation_player != null \
+				and male_animation_player.assigned_animation == &"dance_chicken",
+			"male bridge officer could not start a dance"
+		)
+		if male_animation_player != null and male_animation_player.has_animation(&"dance_chicken"):
+			male_animation_player.advance(
+				male_animation_player.get_animation(&"dance_chicken").length + 0.1
+			)
+		_expect(
+			not bool(commander.get("_officer_dancing")) \
+				and male_animation_player != null \
+				and male_animation_player.assigned_animation == &"idle_neutral",
+			"male bridge officer did not return to idle after dancing"
+		)
+		_send_physical_key(commander, KEY_O, true)
+		_send_physical_key(commander, KEY_O, false)
+		commander.call("_update_body_visibility", false)
+		_expect(
+			commander.get("_active_officer_index") == 0 \
+				and body_visual != null and body_visual.visible \
+				and male_body_visual != null and not male_body_visual.visible \
+				and animation_player != null and animation_player.active \
+				and male_animation_player != null and not male_animation_player.active \
+				and male_body_visual.process_mode == Node.PROCESS_MODE_DISABLED,
+			"O did not switch back cleanly to the female bridge officer"
+		)
 
 		commander.set_physics_process(false)
 		commander.call("_set_officer_moving", false)
@@ -83,6 +214,40 @@ func _run() -> void:
 				and animation_player.is_playing(),
 			"stationary Commander did not select the officer idle animation"
 		)
+		_send_physical_key(commander, KEY_D, true)
+		_send_physical_key(commander, KEY_D, false)
+		var selected_dance := commander.get("_officer_animation") as StringName
+		_expect(
+			DANCE_ANIMATIONS.has(selected_dance) \
+				and bool(commander.get("_officer_dancing")) \
+				and animation_player != null \
+				and animation_player.assigned_animation == selected_dance \
+				and animation_player.is_playing(),
+			"D did not start one random officer dance"
+		)
+		_expect(
+			_animation_moves_skeleton(animation_player, officer_skeleton, selected_dance),
+			"selected officer dance did not move the visible skeleton"
+		)
+		_send_physical_key(commander, KEY_I, true)
+		_send_physical_key(commander, KEY_I, false)
+		_expect(
+			commander.get("officer_idle_animation") == &"idle_3" \
+				and animation_player != null \
+				and animation_player.assigned_animation == selected_dance,
+			"changing the selected idle interrupted the one-shot dance"
+		)
+		if animation_player != null and animation_player.has_animation(selected_dance):
+			animation_player.advance(animation_player.get_animation(selected_dance).length + 0.1)
+		_expect(
+			not bool(commander.get("_officer_dancing")) \
+				and animation_player != null \
+				and animation_player.assigned_animation == &"idle_3" \
+				and animation_player.is_playing(),
+			"officer did not return to the selected idle after dancing"
+		)
+		commander.set("officer_idle_animation", &"idle_neutral")
+		commander.call("_set_officer_moving", false)
 		var movement_start := commander.position
 		Input.action_press("pitch_up", 1.0)
 		commander.call("_physics_process", 0.1)
@@ -222,7 +387,7 @@ func _run() -> void:
 		commander.queue_free()
 
 	if _failures.is_empty():
-		print("[BridgeOfficerSmoketest] PASS imported=true human_scale=true rig_controls_hidden=true external_visible=true first_person_hidden=true idle_cycle=7 visible_skeleton_motion=true walk=true arrows_switched=true arrow_left_right=true free_camera_third_person=true free_camera_officer_control=true gamepad_camera_only=true")
+		print("[BridgeOfficerSmoketest] PASS female_imported=true male_imported=true human_scale=true skinned=true rig_controls_hidden=true player_primary_uniform=true officer_switch_o=true inactive_rig_stopped=true dance_count=7 dance_random_d=true dance_one_shot=true dance_returns_selected_idle=true external_visible=true first_person_hidden=true idle_cycle=7 visible_skeleton_motion=true walk=true arrows_switched=true arrow_left_right=true free_camera_third_person=true free_camera_officer_control=true gamepad_camera_only=true")
 		quit(0)
 	else:
 		for failure in _failures:
@@ -233,6 +398,46 @@ func _run() -> void:
 func _expect(condition: bool, message: String) -> void:
 	if not condition:
 		_failures.append(message)
+
+
+func _skin_has_bind(skin: Skin, bind_name: StringName) -> bool:
+	if skin == null:
+		return false
+	for bind_index in range(skin.get_bind_count()):
+		if skin.get_bind_name(bind_index) == bind_name:
+			return true
+	return false
+
+
+func _uniform_color_surface_count(node: Node, expected_color: Color) -> int:
+	if node == null:
+		return 0
+	var matching_surfaces := 0
+	if node is MeshInstance3D:
+		var mesh_instance := node as MeshInstance3D
+		var mesh := mesh_instance.mesh
+		if mesh != null:
+			for surface_index in range(mesh.get_surface_count()):
+				var source_material := mesh.surface_get_material(surface_index)
+				if source_material == null:
+					continue
+				var material_name := String(source_material.resource_name).to_lower() \
+						.replace("_", " ").replace("-", " ").strip_edges()
+				var suffix_separator := material_name.rfind(".")
+				if suffix_separator >= 0 \
+						and material_name.substr(suffix_separator + 1).is_valid_int():
+					material_name = material_name.substr(0, suffix_separator)
+				if material_name != "uniform color 1" and material_name != "uniformcolor1":
+					continue
+				var override_material := mesh_instance.get_surface_override_material(surface_index)
+				if override_material is StandardMaterial3D \
+						and (override_material as StandardMaterial3D).albedo_color.is_equal_approx(
+							expected_color
+						):
+					matching_surfaces += 1
+	for child in node.get_children():
+		matching_surfaces += _uniform_color_surface_count(child, expected_color)
+	return matching_surfaces
 
 
 func _send_physical_key(target: Node, keycode: Key, pressed: bool) -> void:

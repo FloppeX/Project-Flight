@@ -42,8 +42,6 @@ func _run() -> void:
 
 	var model_panel_mesh := panel_14.get_node_or_null(panel_mesh_path) as MeshInstance3D
 	_expect(model_panel_mesh != null and model_panel_mesh.mesh != null, "standalone instrument panel mesh could not be resolved")
-	var fallback_panel_mesh := panel_14.get_node_or_null("PanelScreen") as MeshInstance3D
-	_expect(fallback_panel_mesh != null and not fallback_panel_mesh.visible, "standalone panel still exposes the old fallback screen")
 	if model_panel_mesh != null and model_panel_mesh.mesh != null:
 		var matching_surfaces := PackedInt32Array()
 		for surface_index in range(model_panel_mesh.mesh.get_surface_count()):
@@ -54,11 +52,19 @@ func _run() -> void:
 
 	aircraft_14.freeze = true
 	add_child(aircraft_14)
+	var cockpit_camera := aircraft_14.get_node_or_null("CameraCockpit/Camera3D") as Camera3D
+	if cockpit_camera != null:
+		cockpit_camera.current = true
+	panel_14.call("set_view_updates_active", true)
 	await get_tree().process_frame
-	var bound_mesh := panel_14.get("model_panel_mesh") as MeshInstance3D
-	var bound_surfaces := panel_14.get("model_panel_surface_indices") as PackedInt32Array
+	var live_panel := panel_14.call("get_live_panel") as Node3D
+	_expect(live_panel != null, "Aircraft 14 did not check out a pooled live display")
+	var bound_mesh := live_panel.get("model_panel_mesh") as MeshInstance3D if live_panel != null else null
+	var bound_surfaces := live_panel.get("model_panel_surface_indices") as PackedInt32Array if live_panel != null else PackedInt32Array()
 	_expect(bound_mesh == model_panel_mesh, "instrument panel projection did not bind to the Aircraft 14 mesh")
 	_expect(bound_surfaces == PackedInt32Array([1]), "instrument panel projection did not bind only to surface 1")
+	var fallback_panel_mesh := live_panel.get_node_or_null("PanelScreen") as MeshInstance3D if live_panel != null else null
+	_expect(fallback_panel_mesh != null and not fallback_panel_mesh.visible, "pooled Aircraft 14 display exposed its fallback screen")
 	if model_panel_mesh != null:
 		var camera := aircraft_14.get_node_or_null("CameraCockpit/Camera3D") as Camera3D
 		var arrays := model_panel_mesh.mesh.surface_get_arrays(1)

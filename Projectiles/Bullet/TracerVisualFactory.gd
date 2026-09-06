@@ -5,13 +5,24 @@ class_name TracerVisualFactory
 ## capsule. Rotation is handled by the projectile/virtual-tracer transform, so
 ## the shape remains aligned with the shot rather than with a world axis.
 const RADIAL_SEGMENTS: int = 4
+const BRIGHT_OUTLINE_RADIUS_SCALE: float = 1.65
+const DAYLIGHT_CORE_WHITE_MIX: float = 0.35
+const BRIGHT_OUTLINE_WHITE_MIX: float = 0.12
+const BRIGHT_OUTLINE_EMISSION_SCALE: float = 0.9
 
 
 static func create_unit_tracer_mesh() -> ArrayMesh:
+	var mesh := ArrayMesh.new()
+	_add_pyramid_surface(mesh, 0.5)
+	_add_pyramid_surface(mesh, 0.5 * BRIGHT_OUTLINE_RADIUS_SCALE)
+	return mesh
+
+
+static func _add_pyramid_surface(mesh: ArrayMesh, radius: float) -> void:
 	var vertices := PackedVector3Array()
 	for segment in RADIAL_SEGMENTS:
 		var angle := PI * 0.25 + TAU * float(segment) / float(RADIAL_SEGMENTS)
-		vertices.append(Vector3(cos(angle) * 0.5, sin(angle) * 0.5, 0.0))
+		vertices.append(Vector3(cos(angle) * radius, sin(angle) * radius, 0.0))
 	var tip_index := vertices.size()
 	vertices.append(Vector3(0.0, 0.0, 1.0))
 	var base_center_index := vertices.size()
@@ -27,16 +38,16 @@ static func create_unit_tracer_mesh() -> ArrayMesh:
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = vertices
 	arrays[Mesh.ARRAY_INDEX] = indices
-	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-	return mesh
 
 
 static func create_glow_material(color: Color, emission_energy: float) -> StandardMaterial3D:
 	var material := StandardMaterial3D.new()
+	var daylight_core := color.lerp(Color.WHITE, DAYLIGHT_CORE_WHITE_MIX)
+	daylight_core.a = 1.0
 	material.flags_unshaded = true
 	material.emission_enabled = true
-	material.emission = color
+	material.emission = daylight_core
 	material.emission_energy_multiplier = maxf(emission_energy, 0.0)
 	# Transparent additive faces stack on top of one another inside a closed taper.
 	# From the side that turns the tracer into an over-bright flat strip. An opaque
@@ -45,5 +56,39 @@ static func create_glow_material(color: Color, emission_energy: float) -> Standa
 	material.transparency = BaseMaterial3D.TRANSPARENCY_DISABLED
 	material.blend_mode = BaseMaterial3D.BLEND_MODE_MIX
 	material.cull_mode = BaseMaterial3D.CULL_BACK
-	material.albedo_color = Color(color.r, color.g, color.b, 1.0)
+	material.albedo_color = daylight_core
 	return material
+
+
+static func create_bright_outline_material(
+	color: Color,
+	emission_energy: float
+) -> StandardMaterial3D:
+	var material := StandardMaterial3D.new()
+	var bright_outline := color.lerp(Color.WHITE, BRIGHT_OUTLINE_WHITE_MIX)
+	bright_outline.a = 1.0
+	material.flags_unshaded = true
+	material.emission_enabled = true
+	material.emission = bright_outline
+	material.emission_energy_multiplier = maxf(
+		emission_energy * BRIGHT_OUTLINE_EMISSION_SCALE,
+		0.0
+	)
+	material.transparency = BaseMaterial3D.TRANSPARENCY_DISABLED
+	material.blend_mode = BaseMaterial3D.BLEND_MODE_MIX
+	# The enlarged back faces provide the readable silhouette. Keeping that
+	# silhouette emissive avoids a dark shell covering the bright inner core.
+	material.cull_mode = BaseMaterial3D.CULL_FRONT
+	material.albedo_color = bright_outline
+	return material
+
+
+static func configure_tracer_mesh_materials(
+	mesh: ArrayMesh,
+	color: Color,
+	emission_energy: float
+) -> void:
+	if mesh == null or mesh.get_surface_count() < 2:
+		return
+	mesh.surface_set_material(0, create_glow_material(color, emission_energy))
+	mesh.surface_set_material(1, create_bright_outline_material(color, emission_energy))

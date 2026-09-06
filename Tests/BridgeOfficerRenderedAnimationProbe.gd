@@ -2,6 +2,15 @@ extends SceneTree
 
 
 const OUTPUT_DIR := "res://captures/bridge_officer_animation_probe"
+const DANCE_ANIMATIONS: Array[StringName] = [
+	&"dance_belly",
+	&"dance_booty_hip_hop",
+	&"dance_chicken",
+	&"dance_gangnam",
+	&"dance_hip_hop",
+	&"dance_locking_hip_hop",
+	&"dance_northern_soul",
+]
 
 
 func _initialize() -> void:
@@ -54,6 +63,7 @@ func _run() -> void:
 	commander.set_physics_process(false)
 	commander.get_node("Camera3D").current = false
 	camera.current = true
+	commander.call("_activate_officer", 1)
 	commander.call("_update_body_visibility", false)
 	commander.set("officer_idle_animation", &"idle_6")
 	commander.set("_officer_animation", &"")
@@ -62,20 +72,36 @@ func _run() -> void:
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(OUTPUT_DIR))
 	await create_timer(0.1).timeout
 	await RenderingServer.frame_post_draw
-	_save_frame("idle_6_start.png")
+	_save_frame("male_idle_6_start.png")
 	await create_timer(1.7).timeout
 	await RenderingServer.frame_post_draw
-	_save_frame("idle_6_later.png")
+	_save_frame("male_idle_6_later.png")
 
 	commander.call("_set_officer_moving", true)
 	await create_timer(0.05).timeout
 	await RenderingServer.frame_post_draw
-	_save_frame("walk_0.png")
+	_save_frame("male_walk_0.png")
 	for walk_index in range(1, 5):
 		await create_timer(0.16).timeout
 		await RenderingServer.frame_post_draw
-		_save_frame("walk_%d.png" % walk_index)
-	print("[BridgeOfficerRenderedAnimationProbe] PASS output=%s" % ProjectSettings.globalize_path(OUTPUT_DIR))
+		_save_frame("male_walk_%d.png" % walk_index)
+
+	commander.call("_set_officer_moving", false)
+	var male_animation_player := commander.get_node(
+		"BodyVisualMale/BakedAnimationPlayer"
+	) as AnimationPlayer
+	for dance_name in DANCE_ANIMATIONS:
+		if not bool(commander.call("_play_officer_dance", dance_name)):
+			push_error("[BridgeOfficerRenderedAnimationProbe] could not play %s" % dance_name)
+			quit(1)
+			return
+		var dance := male_animation_player.get_animation(dance_name)
+		male_animation_player.seek(dance.length * 0.35, true)
+		male_animation_player.advance(0.0)
+		await create_timer(0.08).timeout
+		await RenderingServer.frame_post_draw
+		_save_frame("male_%s.png" % dance_name)
+	print("[BridgeOfficerRenderedAnimationProbe] PASS officer=male dances=7 output=%s" % ProjectSettings.globalize_path(OUTPUT_DIR))
 	quit(0)
 
 

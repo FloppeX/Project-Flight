@@ -56,22 +56,42 @@ func _ready() -> void:
 		return
 
 	await get_tree().process_frame
+	# A cinematic transfer should prefetch the destination without following the
+	# temporary camera across every intermediate chunk or retiring the source ring.
 	var start_ms: int = Time.get_ticks_msec()
+	terrain.begin_view_transition_streaming(camera_b)
+	await get_tree().process_frame
+	var prefetch_stats: Dictionary = terrain.get_streaming_stats()
+	_assert(bool(prefetch_stats.get("view_transition_active", false)), "explicit transition prefetch did not activate")
+	var switched_visible: bool = await _wait_for_chunk(terrain, camera_b.global_position, TEST_TIMEOUT_S)
+	var visible_delay_s: float = float(Time.get_ticks_msec() - start_ms) / 1000.0
+	_assert(switched_visible, "prefetched destination camera chunk did not become visible")
+	_assert(terrain.is_chunk_loaded_at_world_position(camera_a.global_position), "source terrain was retired before camera arrival")
+
 	camera_a.current = false
 	camera_b.current = true
+	terrain.end_view_transition_streaming()
 	await get_tree().process_frame
 	var handoff_stats: Dictionary = terrain.get_streaming_stats()
 	_assert(bool(handoff_stats.get("camera_handoff_active", false)), "camera switch did not activate terrain handoff priority")
-	var switched_visible: bool = await _wait_for_chunk(terrain, camera_b.global_position, TEST_TIMEOUT_S)
-	var visible_delay_s: float = float(Time.get_ticks_msec() - start_ms) / 1000.0
-	_assert(switched_visible, "new camera chunk did not become visible")
+	_assert(not bool(handoff_stats.get("view_transition_active", true)), "transition prefetch remained active after arrival")
 	_assert(visible_delay_s < HANDOFF_MAX_VISIBLE_DELAY_S, "terrain handoff waited too long: %.3f s" % visible_delay_s)
+	var source_released := await _wait_for_chunk_unloaded(terrain, camera_a.global_position, TEST_TIMEOUT_S)
+	_assert(source_released, "source terrain was not retired incrementally after arrival")
 	_finish(terrain, visible_delay_s)
 
 func _wait_for_chunk(terrain: LowPolyTerrain, world_position: Vector3, timeout_s: float) -> bool:
 	var start_ms: int = Time.get_ticks_msec()
 	while float(Time.get_ticks_msec() - start_ms) / 1000.0 < timeout_s:
 		if terrain.is_chunk_loaded_at_world_position(world_position):
+			return true
+		await get_tree().process_frame
+	return false
+
+func _wait_for_chunk_unloaded(terrain: LowPolyTerrain, world_position: Vector3, timeout_s: float) -> bool:
+	var start_ms: int = Time.get_ticks_msec()
+	while float(Time.get_ticks_msec() - start_ms) / 1000.0 < timeout_s:
+		if not terrain.is_chunk_loaded_at_world_position(world_position):
 			return true
 		await get_tree().process_frame
 	return false

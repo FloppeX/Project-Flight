@@ -24,7 +24,7 @@
 [ext_resource type="PackedScene" uid="uid://drhynljb0dts8" path="res://Audio/AudioManager3D.tscn" id="23_audio_manager"]
 [ext_resource type="PackedScene" uid="uid://5f7vvtjcqw00" path="res://Camera/CameraTripod.tscn" id="24_camera_tripod"]
 [ext_resource type="PackedScene" uid="uid://cqyfnpv28jupa" path="res://HUD/HeadsUpDisplay.tscn" id="25_hud"]
-[ext_resource type="PackedScene" uid="uid://b4xm8v23opqrs" path="res://HUD/InstrumentPanel.tscn" id="26_panel"]
+[ext_resource type="PackedScene" path="res://HUD/InstrumentPanelMount.tscn" id="26_panel"]
 [ext_resource type="Script" uid="uid://ov07c02ulmhl" path="res://Aircraft/AIToggle.gd" id="27_ai_toggle"]
 [ext_resource type="Script" uid="uid://bwjigrpitv7cm" path="res://AI/AIPilot.gd" id="28_ai_pilot"]
 [ext_resource type="Script" uid="uid://ckyxqpwu5tkkl" path="res://Aircraft/CockpitCanopyVisibility.gd" id="29_canopy"]
@@ -264,7 +264,7 @@ script = ExtResource("29_canopy")
 [node name="CameraTarget" type="Node3D" parent="." unique_id=71844852]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.4, 4.8)
 
-[node name="Camera" type="Camera3D" parent="CameraTarget" unique_id=1211835143]
+[node name="SensorOrigin" type="Node3D" parent="CameraTarget" unique_id=1211835143]
 transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, -0.63764405, -1.0189381)
 
 [node name="CameraChase" parent="." unique_id=367720983 instance=ExtResource("24_camera_tripod")]

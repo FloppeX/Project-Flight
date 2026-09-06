@@ -6,7 +6,12 @@ extends Node3D
 @export var centerline_color: Color = Color(0.2, 0.8, 1.0)
 @export var edge_color: Color = Color(0.8, 0.8, 0.6)
 @export var light_energy: float = 2.0
-@export var light_range: float = 6.0
+@export var light_range: float = 12.0
+@export_range(1, 8, 1) var surface_light_stride: int = 3
+@export_range(0.5, 12.0, 0.25) var surface_light_height_m: float = 5.0
+@export_range(1.0, 89.0, 1.0) var surface_light_angle_deg: float = 65.0
+@export var follow_day_night_cycle: bool = true
+@export_range(0.0, 12.0, 0.25) var marker_emission_energy: float = 4.0
 @export var include_edges: bool = true
 @export var edge_offset_m: float = 5.0
 @export var billboard_size: float = 0.18
@@ -29,19 +34,24 @@ var _deck_up: Vector3 = Vector3.UP
 var _height_readout_layer: CanvasLayer
 var _height_readout_label: Label
 var _height_readout_hide_at_ms: int = 0
+var _surface_lights: Array[SpotLight3D] = []
+var _day_night_cycle: Node
+var _lighting_update_accum_s: float = 0.0
 
 const HEIGHT_READOUT_DURATION_MS := 4000
+const LIGHTING_UPDATE_INTERVAL_S := 0.25
 
 func _ready():
 	_start = get_node_or_null(start_marker_path) as Node3D
 	_end = get_node_or_null(end_marker_path) as Node3D
 	_elevator = get_node_or_null(elevator_path) as Node3D
 	set_process_unhandled_input(true)
-	set_process(false)
+	set_process(true)
 	if not (_start and _end):
 		push_warning("DeckLights: assign start/end markers")
 		return
 	_build_lights()
+	_update_surface_light_state()
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
@@ -56,7 +66,10 @@ func _process(_delta: float) -> void:
 	if is_instance_valid(_height_readout_label) \
 	and Time.get_ticks_msec() >= _height_readout_hide_at_ms:
 		_height_readout_label.visible = false
-		set_process(false)
+	_lighting_update_accum_s += _delta
+	if _lighting_update_accum_s >= LIGHTING_UPDATE_INTERVAL_S:
+		_lighting_update_accum_s = 0.0
+		_update_surface_light_state()
 
 
 func _adjust_debug_height(delta_m: float) -> void:
@@ -73,7 +86,6 @@ func _show_height_readout() -> void:
 	_height_readout_label.text = "DECK LIGHT HEIGHT OFFSET  %+.3f m\nPGDN LOWER   •   PGUP RAISE" % debug_height_offset_m
 	_height_readout_label.visible = true
 	_height_readout_hide_at_ms = Time.get_ticks_msec() + HEIGHT_READOUT_DURATION_MS
-	set_process(true)
 
 
 func _ensure_height_readout() -> void:
@@ -101,6 +113,7 @@ func _ensure_height_readout() -> void:
 
 func _build_lights():
 	# Clear previous
+	_surface_lights.clear()
 	for c in get_children():
 		if c is Light3D or c is MeshInstance3D:
 			c.queue_free()
@@ -149,7 +162,8 @@ func _add_lights_along_segment(from_pos: Vector3, to_pos: Vector3, col: Color, i
 	for i in range(count):
 		var t: float = clamp(float(i) / float(max(1, count - 1)), 0.0, 1.0)
 		var p: Vector3 = from_pos + seg_dir * (t * segment_len)
-		_add_light(p, col, is_edge)
+		var casts_surface_light := i % maxi(surface_light_stride, 1) == 0 or i == count - 1
+		_add_light(p, col, is_edge, casts_surface_light)
 
 func _get_elevator_half_length_along_deck(deck_dir: Vector3) -> float:
 	if not is_instance_valid(_elevator):
@@ -166,23 +180,25 @@ func _get_elevator_half_length_along_deck(deck_dir: Vector3) -> float:
 			half_len = (psize.z * 0.5) * dz + (psize.x * 0.5) * dx
 	return maxf(half_len, 0.1)
 
-func _add_light(pos: Vector3, col: Color, is_edge: bool):
+func _add_light(pos: Vector3, col: Color, is_edge: bool, casts_surface_light: bool):
 	var y_offset: float = edge_height_m if is_edge else centerline_height_m
 	var marker_position := pos + _deck_up * (y_offset + debug_height_offset_m + 0.5)
-	# Embedded deck markers provide their own emissive point. Optional surface
-	# lights are retained for night-scene tuning, but zero-energy lights should
-	# not add dozens of redundant Light3D nodes or overlapping colored pools.
-	if light_energy > 0.001:
+	# Every embedded fixture stays visibly emissive, while only a spaced subset
+	# creates a broad, non-shadowed deck wash. This avoids the old all-or-nothing
+	# choice between marker-only lights and roughly seventy overlapping spots.
+	if casts_surface_light and light_energy > 0.001:
 		var spot := SpotLight3D.new()
+		spot.name = "DeckSurfaceLight"
 		spot.light_color = col
 		spot.light_energy = light_energy
 		spot.spot_range = light_range
-		spot.spot_angle = 45.0
+		spot.spot_angle = surface_light_angle_deg
 		spot.shadow_enabled = false
 		# Point downward onto the deck surface.
 		spot.rotation_degrees = Vector3(-90, 0, 0)
 		add_child(spot)
-		spot.global_position = marker_position
+		spot.global_position = pos + _deck_up * surface_light_height_m
+		_surface_lights.append(spot)
 	if use_mesh_markers:
 		var mi := MeshInstance3D.new()
 		var quad := QuadMesh.new()
@@ -193,8 +209,24 @@ func _add_light(pos: Vector3, col: Color, is_edge: bool):
 		mat.vertex_color_use_as_albedo = true
 		mat.albedo_color = col
 		mat.emission_enabled = true
-		mat.emission = col * 4.0
+		mat.emission = col
+		mat.emission_energy_multiplier = marker_emission_energy
 		mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
 		mi.material_override = mat
 		add_child(mi)
 		mi.global_position = marker_position
+
+
+func _update_surface_light_state() -> void:
+	var darkness := 1.0
+	if follow_day_night_cycle:
+		if not is_instance_valid(_day_night_cycle) and get_tree() != null:
+			_day_night_cycle = get_tree().get_first_node_in_group("day_night_cycle")
+		if is_instance_valid(_day_night_cycle) and _day_night_cycle.has_method("get_ai_darkness_factor"):
+			darkness = clampf(float(_day_night_cycle.call("get_ai_darkness_factor")), 0.0, 1.0)
+	var night_weight := smoothstep(0.08, 0.62, darkness)
+	for light in _surface_lights:
+		if not is_instance_valid(light):
+			continue
+		light.light_energy = light_energy * night_weight
+		light.visible = light.light_energy > 0.02

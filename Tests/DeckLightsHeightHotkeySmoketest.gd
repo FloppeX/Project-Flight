@@ -2,6 +2,16 @@ extends Node
 
 const DECK_LIGHTS_SCRIPT := preload("res://LandCarrier/DeckLights.gd")
 
+
+class FakeDayNightCycle:
+	extends Node
+
+	var darkness: float = 1.0
+
+	func get_ai_darkness_factor() -> float:
+		return darkness
+
+
 var _failures: PackedStringArray = []
 
 
@@ -10,6 +20,9 @@ func _ready() -> void:
 
 
 func _run() -> void:
+	var cycle := FakeDayNightCycle.new()
+	cycle.add_to_group("day_night_cycle")
+	add_child(cycle)
 	var deck_lights := DECK_LIGHTS_SCRIPT.new()
 	deck_lights.start_marker_path = NodePath("Start")
 	deck_lights.end_marker_path = NodePath("End")
@@ -24,6 +37,17 @@ func _run() -> void:
 	deck_lights.add_child(end)
 	add_child(deck_lights)
 	deck_lights.set_process_unhandled_input(false)
+	var surface_lights := _surface_lights(deck_lights)
+	_expect(not surface_lights.is_empty(), "night deck markers created no surface illumination")
+	for light in surface_lights:
+		_expect(light.visible and light.light_energy > 0.0, "night deck surface light was not active")
+		_expect(not light.shadow_enabled, "deck surface light enabled expensive dynamic shadows")
+	cycle.darkness = 0.0
+	deck_lights.call("_update_surface_light_state")
+	for light in surface_lights:
+		_expect(not light.visible and is_zero_approx(light.light_energy), "daylight did not disable deck surface lighting")
+	cycle.darkness = 1.0
+	deck_lights.call("_update_surface_light_state")
 
 	var page_down := InputEventKey.new()
 	page_down.keycode = KEY_PAGEDOWN
@@ -65,6 +89,14 @@ func _active_marker_height(deck_lights: Node) -> float:
 		if child is MeshInstance3D and not child.is_queued_for_deletion():
 			return (child as MeshInstance3D).global_position.y
 	return INF
+
+
+func _surface_lights(deck_lights: Node) -> Array[SpotLight3D]:
+	var result: Array[SpotLight3D] = []
+	for child in deck_lights.get_children():
+		if child is SpotLight3D and not child.is_queued_for_deletion():
+			result.append(child as SpotLight3D)
+	return result
 
 
 func _expect(condition: bool, message: String) -> void:

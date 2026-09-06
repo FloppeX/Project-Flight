@@ -2,7 +2,7 @@ extends CharacterBody3D
 class_name Commander
 
 @export var eye_height_m: float = 1.8
-@export var walk_speed_mps: float = 3.5
+@export var walk_speed_mps: float = 2.5
 @export var look_sensitivity_deg: float = 120.0
 @export var pitch_limit_deg: float = 85.0
 @export var gravity_mps2: float = 9.8
@@ -24,6 +24,15 @@ class_name Commander
 ]
 @export var officer_walk_animation: StringName = &"walk"
 @export var officer_walk_reference_speed_mps: float = 2.4
+@export var officer_dance_animations: Array[StringName] = [
+	&"dance_belly",
+	&"dance_booty_hip_hop",
+	&"dance_chicken",
+	&"dance_gangnam",
+	&"dance_hip_hop",
+	&"dance_locking_hip_hop",
+	&"dance_northern_soul",
+]
 @export_group("Carrier Cameras")
 @export var chase_camera_local_position: Vector3 = Vector3(0.0, 42.0, 120.0)
 @export var chase_camera_focus_local_position: Vector3 = Vector3(0.0, 4.0, 0.0)
@@ -46,6 +55,7 @@ class_name Commander
 
 @onready var commander_camera: Camera3D = $Camera3D
 @onready var body_visual: Node3D = $BodyVisual
+@onready var male_body_visual: Node3D = $BodyVisualMale
 
 var _look_yaw: float = 0.0
 var _look_pitch: float = 0.0
@@ -71,6 +81,10 @@ var _pause_menu_settings: Node = null
 var _officer_animation_player: AnimationPlayer = null
 var _officer_animation: StringName = &""
 var _officer_moving: bool = false
+var _officer_visuals: Array[Node3D] = []
+var _active_officer_index: int = 0
+var _officer_dancing: bool = false
+var _last_officer_dance: StringName = &""
 var _arrow_forward_pressed: bool = false
 var _arrow_backward_pressed: bool = false
 var _arrow_left_pressed: bool = false
@@ -88,13 +102,24 @@ func _ready() -> void:
 	if commander_camera:
 		commander_camera.physics_interpolation_mode = Node3D.PHYSICS_INTERPOLATION_MODE_INHERIT
 		commander_camera.top_level = false
-	if body_visual:
-		body_visual.physics_interpolation_mode = Node3D.PHYSICS_INTERPOLATION_MODE_INHERIT
-		var rig_controls := body_visual.find_child("cs_grp", true, false) as Node3D
+	if body_visual != null:
+		_officer_visuals.append(body_visual)
+	if male_body_visual != null:
+		_officer_visuals.append(male_body_visual)
+	for officer_index in range(_officer_visuals.size()):
+		var officer_visual := _officer_visuals[officer_index]
+		officer_visual.physics_interpolation_mode = Node3D.PHYSICS_INTERPOLATION_MODE_INHERIT
+		var rig_controls := officer_visual.find_child("cs_grp", true, false) as Node3D
 		if rig_controls != null:
 			rig_controls.visible = false
-		_officer_animation_player = body_visual.get_node_or_null("BakedAnimationPlayer") as AnimationPlayer
-		_set_officer_moving(false)
+		var animation_player := officer_visual.get_node_or_null(
+			"BakedAnimationPlayer"
+		) as AnimationPlayer
+		if animation_player != null:
+			animation_player.animation_finished.connect(
+				_on_officer_animation_finished.bind(officer_index)
+			)
+	_activate_officer(0)
 
 	_anchor_local_position = position
 	_cache_bridge_bounds()
@@ -136,6 +161,14 @@ func _input(event: InputEvent) -> void:
 			if key_event.pressed and not key_event.echo \
 					and (_is_active_view() or _is_free_camera_view()):
 				_cycle_officer_idle()
+		KEY_O:
+			if key_event.pressed and not key_event.echo \
+					and (_is_active_view() or _is_free_camera_view()):
+				_switch_officer()
+		KEY_D:
+			if key_event.pressed and not key_event.echo \
+					and (_is_active_view() or _is_free_camera_view()):
+				_start_random_officer_dance()
 
 
 func _notification(what: int) -> void:
@@ -215,7 +248,12 @@ func _physics_process(delta: float) -> void:
 
 func _set_officer_moving(moving: bool) -> void:
 	_officer_moving = moving
-	if body_visual == null:
+	if _officer_dancing:
+		if not moving:
+			return
+		_officer_dancing = false
+	var active_visual := _active_officer_visual()
+	if active_visual == null:
 		return
 	var target_animation := officer_walk_animation if moving else officer_idle_animation
 	if target_animation == &"":
@@ -233,8 +271,8 @@ func _set_officer_moving(moving: bool) -> void:
 		_officer_animation_player.speed_scale = playback_speed
 		return
 	var played := false
-	if body_visual.has_method("play_baked_animation"):
-		played = bool(body_visual.call("play_baked_animation", target_animation, playback_speed))
+	if active_visual.has_method("play_baked_animation"):
+		played = bool(active_visual.call("play_baked_animation", target_animation, playback_speed))
 	elif _officer_animation_player != null and _officer_animation_player.has_animation(target_animation):
 		_officer_animation_player.speed_scale = playback_speed
 		_officer_animation_player.play(target_animation)
@@ -254,13 +292,110 @@ func _cycle_officer_idle() -> void:
 		return
 	var current_index := available_idles.find(officer_idle_animation)
 	officer_idle_animation = available_idles[(current_index + 1) % available_idles.size()]
-	if not _officer_moving:
+	if not _officer_moving and not _officer_dancing:
 		_officer_animation = &""
 		_set_officer_moving(false)
 	print(
 		"[Commander] Officer idle animation: %s"
 		% officer_idle_animation
 	)
+
+
+func _start_random_officer_dance() -> void:
+	if _officer_dancing or _officer_moving or _officer_animation_player == null:
+		return
+	var available_dances: Array[StringName] = []
+	for animation_name in officer_dance_animations:
+		if animation_name != &"" and _officer_animation_player.has_animation(animation_name):
+			available_dances.append(animation_name)
+	if available_dances.is_empty():
+		return
+	var dance_index := randi_range(0, available_dances.size() - 1)
+	if available_dances.size() > 1 and available_dances[dance_index] == _last_officer_dance:
+		dance_index = (dance_index + 1) % available_dances.size()
+	_play_officer_dance(available_dances[dance_index])
+
+
+func _play_officer_dance(animation_name: StringName) -> bool:
+	var active_visual := _active_officer_visual()
+	if active_visual == null or _officer_animation_player == null \
+			or not _officer_animation_player.has_animation(animation_name):
+		return false
+	var played := false
+	if active_visual.has_method("play_baked_animation"):
+		played = bool(active_visual.call("play_baked_animation", animation_name, 1.0))
+	else:
+		_officer_animation_player.speed_scale = 1.0
+		_officer_animation_player.play(animation_name)
+		played = true
+	if not played:
+		return false
+	_officer_dancing = true
+	_officer_animation = animation_name
+	_last_officer_dance = animation_name
+	print("[Commander] Officer dance: %s" % animation_name)
+	return true
+
+
+func _on_officer_animation_finished(
+		animation_name: StringName,
+		officer_index: int
+) -> void:
+	if officer_index != _active_officer_index \
+			or not _officer_dancing \
+			or animation_name != _officer_animation:
+		return
+	_officer_dancing = false
+	_officer_animation = &""
+	_set_officer_moving(false)
+
+
+func _switch_officer() -> void:
+	if _officer_visuals.size() < 2:
+		return
+	_activate_officer((_active_officer_index + 1) % _officer_visuals.size())
+	print(
+		"[Commander] Officer: %s"
+		% ("male" if _active_officer_index == 1 else "female")
+	)
+
+
+func _activate_officer(officer_index: int) -> void:
+	if _officer_visuals.is_empty():
+		_officer_animation_player = null
+		return
+	_officer_dancing = false
+	_active_officer_index = wrapi(officer_index, 0, _officer_visuals.size())
+	for index in range(_officer_visuals.size()):
+		var animation_player := _officer_visuals[index].get_node_or_null(
+			"BakedAnimationPlayer"
+		) as AnimationPlayer
+		if animation_player == null:
+			continue
+		if index == _active_officer_index:
+			_officer_visuals[index].process_mode = Node.PROCESS_MODE_INHERIT
+			animation_player.active = true
+		else:
+			if _officer_visuals[index].has_method("stop_baked_animation"):
+				_officer_visuals[index].call("stop_baked_animation", false)
+			else:
+				animation_player.stop()
+			animation_player.active = false
+			_officer_visuals[index].process_mode = Node.PROCESS_MODE_DISABLED
+	_officer_animation_player = _active_officer_visual().get_node_or_null(
+		"BakedAnimationPlayer"
+	) as AnimationPlayer
+	_officer_animation = &""
+	_set_officer_moving(_officer_moving)
+	_update_body_visibility(_is_active_view())
+
+
+func _active_officer_visual() -> Node3D:
+	if _officer_visuals.is_empty() \
+			or _active_officer_index < 0 \
+			or _active_officer_index >= _officer_visuals.size():
+		return null
+	return _officer_visuals[_active_officer_index]
 
 func _update_look(delta: float, include_gamepad_look: bool = true) -> void:
 	var look_yaw_input := 0.0
@@ -403,13 +538,15 @@ func _constrain_walk_position(current_position: Vector3, desired_position: Vecto
 	return _clamp_to_bridge_bounds(desired_position)
 
 func _update_body_visibility(active_view: bool) -> void:
-	if body_visual == null:
-		return
-	body_visual.visible = not active_view
-	for child in body_visual.find_children("*", "GeometryInstance3D", true, false):
-		var geometry := child as GeometryInstance3D
-		geometry.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF \
-			if active_view else GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+	for index in range(_officer_visuals.size()):
+		var officer_visual := _officer_visuals[index]
+		var is_selected := index == _active_officer_index
+		officer_visual.visible = is_selected and not active_view
+		for child in officer_visual.find_children("*", "GeometryInstance3D", true, false):
+			var geometry := child as GeometryInstance3D
+			geometry.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON \
+				if is_selected and not active_view \
+				else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 
 func _is_zoom_button_pressed() -> bool:
 	for device in Input.get_connected_joypads():

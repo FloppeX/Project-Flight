@@ -25,7 +25,7 @@
 [ext_resource type="PackedScene" uid="uid://drhynljb0dts8" path="res://Audio/AudioManager3D.tscn" id="24_wyvhj"]
 [ext_resource type="PackedScene" uid="uid://5f7vvtjcqw00" path="res://Camera/CameraTripod.tscn" id="25_lvoxg"]
 [ext_resource type="PackedScene" uid="uid://cqyfnpv28jupa" path="res://HUD/HeadsUpDisplay.tscn" id="26_0u53p"]
-[ext_resource type="PackedScene" uid="uid://b4xm8v23opqrs" path="res://HUD/InstrumentPanel.tscn" id="27_h17fj"]
+[ext_resource type="PackedScene" path="res://HUD/InstrumentPanelMount.tscn" id="27_h17fj"]
 [ext_resource type="PackedScene" uid="uid://dsnc8jllg42ph" path="res://Weapons/hardpoint.tscn" id="28_ymevh"]
 [ext_resource type="PackedScene" uid="uid://bc6wrpt4b3m41" path="res://Weapons/Bomb/bomb_rack.tscn" id="32_kq7no"]
 [ext_resource type="Script" uid="uid://ov07c02ulmhl" path="res://Aircraft/AIToggle.gd" id="33_aitgl"]
@@ -270,7 +270,7 @@ cockpit_hidden_mesh_names = PackedStringArray("Pilot")
 [node name="CameraTarget" type="Node3D" parent="." unique_id=1326036493]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -1.1063, 3.26843)
 
-[node name="Camera" type="Camera3D" parent="CameraTarget" unique_id=1798304512]
+[node name="SensorOrigin" type="Node3D" parent="CameraTarget" unique_id=1798304512]
 transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, 0, 0)
 
 [node name="CameraChase" parent="." unique_id=1898155122 instance=ExtResource("25_lvoxg")]

@@ -1,9 +1,11 @@
-[gd_scene load_steps=6 format=3 uid="uid://ci74apimqcahq"]
+[gd_scene load_steps=8 format=3 uid="uid://ci74apimqcahq"]
 
 [ext_resource type="Script" uid="uid://cvo1dkmsekwhk" path="res://LandCarrier/Commander.gd" id="1_commander"]
 [ext_resource type="PackedScene" uid="uid://dqnrk20ay1rsj" path="res://Models/Characters/Bridge officer.glb" id="2_bridge_officer"]
 [ext_resource type="Script" uid="uid://c5p7knajxhkg6" path="res://Aircraft/PilotPose.gd" id="3_officer_pose"]
 [ext_resource type="AnimationLibrary" path="res://Models/Characters/pilot/animations/bridge_officer_animation_library.tres" id="4_officer_animations"]
+[ext_resource type="PackedScene" uid="uid://rav0xlwqhl2t" path="res://Models/Characters/Bridge officer 2.glb" id="5_bridge_officer_male"]
+[ext_resource type="AnimationLibrary" path="res://Models/Characters/pilot/animations/bridge_officer_male_animation_library.tres" id="6_officer_male_animations"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_body"]
 radius = 0.35
@@ -29,6 +31,22 @@ initial_baked_animation = &"idle_neutral"
 [node name="BakedAnimationPlayer" type="AnimationPlayer" parent="BodyVisual"]
 libraries = {
 &"": ExtResource("4_officer_animations")
+}
+
+[node name="BodyVisualMale" type="Node3D" parent="."]
+visible = false
+script = ExtResource("3_officer_pose")
+pose_target_path = NodePath("Pilot")
+flat_shade_pilot_visual = false
+hide_head_in_cockpit = false
+initial_pose_name = &""
+initial_baked_animation = &"idle_neutral"
+
+[node name="Pilot" parent="BodyVisualMale" instance=ExtResource("5_bridge_officer_male")]
+
+[node name="BakedAnimationPlayer" type="AnimationPlayer" parent="BodyVisualMale"]
+libraries = {
+&"": ExtResource("6_officer_male_animations")
 }
 
 [node name="Camera3D" type="Camera3D" parent="."]

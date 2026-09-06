@@ -1,0 +1,22 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://POI/World/POIWorldSite.gd" id="1_site"]
+[ext_resource type="PackedScene" path="res://Models/wrecked car.glb" id="2_wreck"]
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_wreck"]
+size = Vector3(2.5, 2.1, 4.4)
+
+[node name="WreckedScoutCarSite" type="Node3D"]
+script = ExtResource("1_site")
+
+[node name="WreckPose" type="Node3D" parent="."]
+position = Vector3(0, 0.05, 0)
+rotation = Vector3(0.035, 0.62, 0.14)
+
+[node name="WreckedCarMesh" parent="WreckPose" instance=ExtResource("2_wreck")]
+
+[node name="StaticBody3D" type="StaticBody3D" parent="WreckPose"]
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="WreckPose/StaticBody3D"]
+position = Vector3(0, 1.05, 0)
+shape = SubResource("BoxShape3D_wreck")

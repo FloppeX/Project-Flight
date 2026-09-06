@@ -69,6 +69,7 @@ var _draft_origin_world: Vector3 = Vector3.INF
 var _draft_points: Array[Vector3] = []
 var _draft_color: Color = draft_waypoint_color
 var _draft_closed_loop: bool = false
+var _view_uv_rect: Rect2 = Rect2(Vector2.ZERO, Vector2.ONE)
 
 func _ready() -> void:
 	add_to_group("origin_shifter")
@@ -106,6 +107,19 @@ func apply_origin_shift(offset: Vector3) -> void:
 		_draft_origin_world -= offset
 	for i in range(_draft_points.size()):
 		_draft_points[i] -= offset
+
+
+func set_map_view(view_uv_rect: Rect2) -> void:
+	var safe_size := Vector2(
+		clampf(view_uv_rect.size.x, 0.0001, 1.0),
+		clampf(view_uv_rect.size.y, 0.0001, 1.0)
+	)
+	var safe_position := Vector2(
+		clampf(view_uv_rect.position.x, 0.0, 1.0 - safe_size.x),
+		clampf(view_uv_rect.position.y, 0.0, 1.0 - safe_size.y)
+	)
+	_view_uv_rect = Rect2(safe_position, safe_size)
+	queue_redraw()
 
 func _draw() -> void:
 	if not TerrainNavGrid.is_ready():
@@ -477,7 +491,10 @@ func _world_to_map(world_pos: Vector3) -> Vector2:
 	var span_z: float = float(TerrainNavGrid._rows - 1) * TerrainNavGrid.cell_size_m
 	var u: float = (world_pos.x - TerrainNavGrid._origin_x) / span_x
 	var v: float = (world_pos.z - TerrainNavGrid._origin_z) / span_z
-	return Vector2(u * size.x, v * size.y)
+	return Vector2(
+		(u - _view_uv_rect.position.x) / maxf(_view_uv_rect.size.x, 0.0001) * size.x,
+		(v - _view_uv_rect.position.y) / maxf(_view_uv_rect.size.y, 0.0001) * size.y
+	)
 
 func _basis_to_map_forward(basis: Basis) -> Vector2:
 	var forward_3d: Vector3 = basis.z
@@ -567,11 +584,13 @@ func _draw_vector_decor() -> void:
 func _draw_grid() -> void:
 	for i in range(GRID_DIVISIONS + 1):
 		var t: float = float(i) / float(GRID_DIVISIONS)
-		var x: float = size.x * t
-		var y: float = size.y * t
+		var x: float = (t - _view_uv_rect.position.x) / maxf(_view_uv_rect.size.x, 0.0001) * size.x
+		var y: float = (t - _view_uv_rect.position.y) / maxf(_view_uv_rect.size.y, 0.0001) * size.y
 		var color := MAJOR_GRID_COLOR if i == GRID_DIVISIONS / 2 else GRID_COLOR
-		draw_line(Vector2(x, 0.0), Vector2(x, size.y), color, 1.0)
-		draw_line(Vector2(0.0, y), Vector2(size.x, y), color, 1.0)
+		if x >= 0.0 and x <= size.x:
+			draw_line(Vector2(x, 0.0), Vector2(x, size.y), color, 1.0)
+		if y >= 0.0 and y <= size.y:
+			draw_line(Vector2(0.0, y), Vector2(size.x, y), color, 1.0)
 
 func _draw_border_brackets() -> void:
 	var min_x := CORNER_BRACKET_INSET_PX
@@ -659,8 +678,15 @@ func _draw_poi_markers() -> void:
 		var pos: Vector3 = marker.get("position", Vector3.INF)
 		if not _is_world_in_map_bounds(pos) or not _is_world_explored(pos):
 			continue
+		var awaiting_orders := bool(marker.get("awaiting_orders", false))
 		var color := POI_USED_COLOR if bool(marker.get("revealed", false)) else POI_ACTIVE_COLOR
-		_draw_star(_world_to_map(pos), 7.0, color)
+		var map_pos := _world_to_map(pos)
+		var radius := 7.0
+		if awaiting_orders:
+			var pulse := 0.5 + 0.5 * sin(float(Time.get_ticks_msec()) * 0.006)
+			radius += pulse * 2.0
+			draw_arc(map_pos, radius + 5.0 + pulse * 3.0, 0.0, TAU, 24, Color(1.0, 0.69, 0.0, 0.35 + pulse * 0.35), 1.5)
+		_draw_star(map_pos, radius, color)
 
 func _draw_star(center: Vector2, radius: float, color: Color) -> void:
 	var pts := PackedVector2Array()

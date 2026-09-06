@@ -60,7 +60,7 @@ var tracked_missile: Node3D = null     # Reference to the missile we're followin
 var test_pattern_tex: Texture2D
 @export var camera_target_path: NodePath
 var camera_target: Node3D
-var camera_target_cam: Camera3D
+var camera_target_cam: Node3D
 @export var assumed_target_width_m: float = 10.0
 ## The camera is physically fixed to its aircraft mount, so distant targets
 ## need a genuinely narrow optical FOV instead of the old positional camera dolly.
@@ -87,7 +87,7 @@ var _destroyed_target_hold_name: String = ""
 var _destroyed_target_hold_until_s: float = -INF
 var _catalog_target_names_by_scene: Dictionary = {}
 var _target_camera_pose_initialized: bool = false
-var _target_camera_local_aim_basis: Basis = Basis.IDENTITY
+var _target_camera_world_aim_basis: Basis = Basis.IDENTITY
 var _camera_target_rest_transform: Transform3D = Transform3D.IDENTITY
 var _camera_target_cam_rest_transform: Transform3D = Transform3D.IDENTITY
 var module_root: Control = null
@@ -98,8 +98,11 @@ var interaction_cursor: Panel = null
 ## render targets cold so they cannot submit an expensive hidden frame before
 ## the visual budget or this script gets its first _process() callback.
 var _panel_updates_active: bool = false
+var _pooled_mount_ref: WeakRef = null
+var _panel_material: ShaderMaterial = null
 var model_panel_mesh: MeshInstance3D = null
 var model_panel_surface_indices: PackedInt32Array = PackedInt32Array()
+var _model_panel_original_overrides: Dictionary = {}
 
 func _ready():
 	if bool(get_meta("technical_index_static_instrument", false)):
@@ -116,9 +119,9 @@ func _ready():
 	viewport.transparent_bg = false
 	
 	# Create material for the panel screen
-	var material := _create_panel_material()
-	panel_mesh.material_override = material
-	_bind_model_panel_surface(material)
+	_panel_material = _create_panel_material()
+	panel_mesh.material_override = _panel_material
+	_bind_model_panel_surface(_panel_material)
 	
 	# Create a top row container and move the five value labels into it
 	_relayout_top_row()
@@ -129,13 +132,14 @@ func _ready():
 	_resolve_camera_target()
 	_update_lower_layout_sizes()
 	# Auto-bind aircraft if not provided via export, so radar works by default
-	if aircraft == null:
+	if aircraft == null and not bool(get_meta("pooled_instrument_panel", false)):
 		aircraft = get_tree().get_first_node_in_group("aircraft") as Aircraft
 	# Also defer one more bind in case aircraft registers after us
-	call_deferred("_ensure_aircraft_bound")
+	if not bool(get_meta("pooled_instrument_panel", false)):
+		call_deferred("_ensure_aircraft_bound")
 	
 	# Add to group so weapon systems can find us for missile camera
-	add_to_group("instrument_panel")
+	add_to_group("pooled_instrument_panel" if bool(get_meta("pooled_instrument_panel", false)) else "instrument_panel")
 	# _ready() runs while a staged hangar root is being reattached, before the
 	# normal visual-budget pass can classify it as focused. Enable the viewports
 	# only when this exact aircraft already owns the live cockpit camera.
@@ -216,12 +220,15 @@ func _apply_panel_material_local_rect(material: Material, local_rect: Rect2) -> 
 	)
 
 
-func _bind_model_panel_surface(material: Material) -> void:
+func _bind_model_panel_surface(material: Material, explicit_mesh: MeshInstance3D = null) -> void:
+	_unbind_model_panel_surface()
 	model_panel_mesh = null
 	model_panel_surface_indices = PackedInt32Array()
 	if not render_to_model_surface:
+		if panel_mesh != null:
+			panel_mesh.visible = true
 		return
-	var mesh_instance := _resolve_model_panel_mesh()
+	var mesh_instance := explicit_mesh if explicit_mesh != null else _resolve_model_panel_mesh()
 	if mesh_instance == null:
 		push_warning("[InstrumentPanel] render_to_model_surface enabled, but no model panel mesh was found.")
 		return
@@ -256,10 +263,26 @@ func _bind_model_panel_surface(material: Material) -> void:
 		shader_material.set_shader_parameter("use_local_panel_projection", not model_panel_use_mesh_uv)
 		shader_material.set_shader_parameter("panel_flip_x", model_panel_flip_x)
 	for surface_index in model_panel_surface_indices:
+		_model_panel_original_overrides[surface_index] = mesh_instance.get_surface_override_material(surface_index)
 		mesh_instance.set_surface_override_material(surface_index, material)
 	model_panel_mesh = mesh_instance
 	if hide_panel_quad_when_rendering_to_model and panel_mesh != null:
 		panel_mesh.visible = false
+
+
+func _unbind_model_panel_surface() -> void:
+	if model_panel_mesh != null and is_instance_valid(model_panel_mesh):
+		for surface_index_variant in _model_panel_original_overrides:
+			var surface_index := int(surface_index_variant)
+			if surface_index >= 0 and model_panel_mesh.mesh != null \
+					and surface_index < model_panel_mesh.mesh.get_surface_count():
+				var original_material: Material = _model_panel_original_overrides[surface_index_variant] as Material
+				model_panel_mesh.set_surface_override_material(surface_index, original_material)
+	_model_panel_original_overrides.clear()
+	model_panel_mesh = null
+	model_panel_surface_indices = PackedInt32Array()
+	if panel_mesh != null:
+		panel_mesh.visible = true
 
 
 func _calculate_surface_local_xy_bounds(mesh: Mesh, surface_indices: PackedInt32Array) -> Rect2:
@@ -341,10 +364,11 @@ func _resolve_camera_target() -> void:
 		return
 
 	_camera_target_rest_transform = camera_target.transform
-	camera_target_cam = _find_first_child_camera(camera_target)
+	camera_target_cam = _find_target_sensor_origin(camera_target)
 	if camera_target_cam != null:
 		_camera_target_cam_rest_transform = camera_target_cam.transform
-		camera_target_cam.current = false
+		if camera_target_cam is Camera3D:
+			(camera_target_cam as Camera3D).current = false
 
 
 func _find_first_child_camera(root: Node) -> Camera3D:
@@ -359,6 +383,15 @@ func _find_first_child_camera(root: Node) -> Camera3D:
 	return null
 
 
+func _find_target_sensor_origin(root: Node) -> Node3D:
+	if root == null:
+		return null
+	var sensor_origin := root.find_child("SensorOrigin", true, false) as Node3D
+	if sensor_origin != null:
+		return sensor_origin
+	return _find_first_child_camera(root)
+
+
 ## Called by FlightDirector when switching spectated aircraft.
 ## Rebinds the instrument panel so all gauges reflect the new plane.
 func bind_to_aircraft(new_aircraft: Node3D) -> void:
@@ -367,10 +400,77 @@ func bind_to_aircraft(new_aircraft: Node3D) -> void:
 	aircraft = new_aircraft as Aircraft
 	_resolve_camera_target()
 	_target_camera_pose_initialized = false
-	_target_camera_local_aim_basis = Basis.IDENTITY
+	_target_camera_world_aim_basis = Basis.IDENTITY
 	for module in instrument_modules:
 		if module != null and is_instance_valid(module):
 			module.set_aircraft_reference(aircraft)
+
+
+## Binds a prewarmed live display to a lightweight per-aircraft mount. The
+## pooled target-camera viewport and Camera3D remain owned by this node; only
+## their sensor origin and data provider change.
+func configure_for_pooled_mount(mount: Node3D) -> void:
+	if mount == null or not is_instance_valid(mount):
+		return
+	_unbind_model_panel_surface()
+	_unwatch_display_target()
+	_stop_missile_camera_tracking()
+	_pooled_mount_ref = weakref(mount)
+	global_transform = mount.get_global_transform_interpolated()
+
+	panel_size = mount.get("panel_size") as Vector2
+	viewport_resolution = mount.get("viewport_resolution") as Vector2i
+	if panel_mesh != null and panel_mesh.mesh is QuadMesh:
+		(panel_mesh.mesh as QuadMesh).size = panel_size
+	if viewport != null:
+		viewport.size = viewport_resolution
+
+	render_to_model_surface = bool(mount.get("render_to_model_surface"))
+	model_panel_mesh_path = mount.get("model_panel_mesh_path") as NodePath
+	model_panel_mesh_name = str(mount.get("model_panel_mesh_name"))
+	model_panel_material_names = mount.get("model_panel_material_names") as PackedStringArray
+	hide_panel_quad_when_rendering_to_model = bool(mount.get("hide_panel_quad_when_rendering_to_model"))
+	auto_fit_model_panel_local_rect = bool(mount.get("auto_fit_model_panel_local_rect"))
+	model_panel_local_rect = mount.get("model_panel_local_rect") as Rect2
+	model_panel_use_mesh_uv = bool(mount.get("model_panel_use_mesh_uv"))
+	model_panel_flip_x = bool(mount.get("model_panel_flip_x"))
+
+	assumed_target_width_m = float(mount.get("assumed_target_width_m"))
+	min_fov_deg = float(mount.get("min_fov_deg"))
+	max_fov_deg = float(mount.get("max_fov_deg"))
+	fov_lerp_speed = float(mount.get("fov_lerp_speed"))
+	idle_fov_deg = float(mount.get("idle_fov_deg"))
+	target_camera_slew_deg_s = float(mount.get("target_camera_slew_deg_s"))
+	target_camera_zoom_lerp_speed = float(mount.get("target_camera_zoom_lerp_speed"))
+	zoom_distance = float(mount.get("zoom_distance"))
+	obstacle_margin = float(mount.get("obstacle_margin"))
+	destroyed_target_hold_s = float(mount.get("destroyed_target_hold_s"))
+
+	var new_aircraft := mount.call("get_aircraft") as Node3D if mount.has_method("get_aircraft") else mount.get_parent() as Node3D
+	bind_to_aircraft(new_aircraft)
+	var explicit_mesh := mount.call("resolve_model_panel_mesh") as MeshInstance3D \
+		if mount.has_method("resolve_model_panel_mesh") else null
+	if _panel_material != null:
+		_bind_model_panel_surface(_panel_material, explicit_mesh)
+	_target_camera_pose_initialized = false
+	_target_camera_world_aim_basis = Basis.IDENTITY
+	_destroyed_target_hold_until_s = -INF
+	_last_display_target_name = ""
+	_last_display_target_position = Vector3.ZERO
+
+
+func release_pooled_mount() -> void:
+	_set_panel_updates_active(false)
+	_unbind_model_panel_surface()
+	_unwatch_display_target()
+	_stop_missile_camera_tracking()
+	_pooled_mount_ref = null
+	aircraft = null
+	camera_target = null
+	camera_target_cam = null
+	_target_camera_pose_initialized = false
+	_target_camera_world_aim_basis = Basis.IDENTITY
+	_destroyed_target_hold_until_s = -INF
 
 
 ## Public lifecycle hook used by FlightDirector and the visual budget. This also
@@ -393,9 +493,11 @@ func _physics_process(delta: float) -> void:
 		_update_missile_camera()
 
 func _process(delta: float) -> void:
+	_sync_pooled_mount_transform()
 	# Keep aircraft reference alive if it spawns late or was freed
 	if aircraft == null or not is_instance_valid(aircraft):
-		_ensure_aircraft_bound()
+		if not bool(get_meta("pooled_instrument_panel", false)):
+			_ensure_aircraft_bound()
 	if aircraft == null or not is_instance_valid(aircraft):
 		_set_interaction_cursor_visible(false)
 		_set_panel_updates_active(false)
@@ -576,6 +678,18 @@ func _process(delta: float) -> void:
 		else:
 			_slew_target_camera_fov(idle_fov_deg, delta)
 	
+
+func _sync_pooled_mount_transform() -> void:
+	if _pooled_mount_ref == null:
+		return
+	var mount := _pooled_mount_ref.get_ref() as Node3D
+	if mount == null or not is_instance_valid(mount) or not mount.is_inside_tree():
+		return
+	# The live panel sits under the global pool instead of under the aircraft.
+	# Match the mount's rendered pose so physics interpolation cannot make the
+	# cockpit display appear to drift by a frame during manoeuvres.
+	global_transform = mount.get_global_transform_interpolated()
+
 
 func _should_update_panel_this_frame() -> bool:
 	if not update_only_when_viewed:
@@ -1220,26 +1334,24 @@ func _slew_target_camera_to_transform(
 ) -> void:
 	if target_camera == null or not is_instance_valid(target_camera):
 		return
-	var mount_basis := mount_xform.basis.orthonormalized()
 	var desired_basis := desired_xform.basis.orthonormalized()
-	var desired_local_aim := (mount_basis.inverse() * desired_basis).orthonormalized()
 	if not _target_camera_pose_initialized:
-		_target_camera_local_aim_basis = desired_local_aim
-		target_camera.global_transform = Transform3D(desired_basis, desired_xform.origin)
+		_target_camera_world_aim_basis = desired_basis
+		target_camera.global_transform = Transform3D(desired_basis, mount_xform.origin)
 		_target_camera_pose_initialized = true
 		return
-	# The gimbal slews relative to its mount. This makes aircraft translation and
-	# attitude immediate while preserving a physical acquisition rate toward the
-	# target instead of smoothing the entire world-space camera transform.
-	_target_camera_local_aim_basis = _slew_basis_toward(
-		_target_camera_local_aim_basis,
-		desired_local_aim,
+	# Keep the sensor position rigidly attached to the aircraft, but stabilize its
+	# aim in world space. Aircraft pitch and roll therefore do not kick a locked
+	# target around the display; the slew rate is used only to acquire a new aim.
+	_target_camera_world_aim_basis = _slew_basis_toward(
+		_target_camera_world_aim_basis,
+		desired_basis,
 		target_camera_slew_deg_s,
 		delta
 	)
 	target_camera.global_transform = Transform3D(
-		(mount_basis * _target_camera_local_aim_basis).orthonormalized(),
-		desired_xform.origin
+		_target_camera_world_aim_basis.orthonormalized(),
+		mount_xform.origin
 	)
 
 func _slew_basis_toward(from_basis: Basis, to_basis: Basis, max_deg_s: float, delta: float) -> Basis:
@@ -1725,7 +1837,7 @@ func _update_missile_camera() -> void:
 		missile_camera_mode = false
 		tracked_missile = null
 		_target_camera_pose_initialized = false
-		_target_camera_local_aim_basis = Basis.IDENTITY
+		_target_camera_world_aim_basis = Basis.IDENTITY
 		return
 	
 	# Find the missile's nose camera
@@ -1779,15 +1891,16 @@ func start_missile_camera_tracking(missile: Node3D) -> void:
 	"""Switch target view to follow the missile camera"""
 	if not is_instance_valid(missile):
 		return
+	_stop_missile_camera_tracking()
 	
 	print("Starting missile camera tracking for: ", missile.name)
 	missile_camera_mode = true
 	tracked_missile = missile
 	
 	# Connect to missile destruction signal to stop tracking when it hits
-	if missile.has_signal("tree_exiting"):
+	if missile.has_signal("tree_exiting") and not missile.tree_exiting.is_connected(_on_missile_destroyed):
 		missile.tree_exiting.connect(_on_missile_destroyed)
-	elif missile.has_signal("destroyed"):
+	elif missile.has_signal("destroyed") and not missile.destroyed.is_connected(_on_missile_destroyed):
 		missile.destroyed.connect(_on_missile_destroyed)
 	
 	# Update target info label
@@ -1797,11 +1910,22 @@ func start_missile_camera_tracking(missile: Node3D) -> void:
 func _on_missile_destroyed():
 	"""Called when tracked missile is destroyed, return to normal target view"""
 	print("Missile destroyed, returning to normal target view")
+	_stop_missile_camera_tracking()
+	_target_camera_pose_initialized = false
+	_target_camera_world_aim_basis = Basis.IDENTITY
+	# Target info will be updated in normal _process loop
+
+
+func _stop_missile_camera_tracking() -> void:
+	if tracked_missile != null and is_instance_valid(tracked_missile):
+		if tracked_missile.has_signal("tree_exiting") \
+				and tracked_missile.tree_exiting.is_connected(_on_missile_destroyed):
+			tracked_missile.tree_exiting.disconnect(_on_missile_destroyed)
+		if tracked_missile.has_signal("destroyed") \
+				and tracked_missile.destroyed.is_connected(_on_missile_destroyed):
+			tracked_missile.destroyed.disconnect(_on_missile_destroyed)
 	missile_camera_mode = false
 	tracked_missile = null
-	_target_camera_pose_initialized = false
-	_target_camera_local_aim_basis = Basis.IDENTITY
-	# Target info will be updated in normal _process loop
 
 func _generate_dark_placeholder_texture(size_px: Vector2i) -> Texture2D:
 	var width: int = max(8, size_px.x)

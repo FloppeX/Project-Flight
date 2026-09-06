@@ -84,17 +84,9 @@ func _run() -> void:
 		_expect(occupant_mount_count == 1, "staged aircraft restored %d cockpit occupant mounts" % occupant_mount_count)
 		var instrument_panel := aircraft.get_node_or_null("InstrumentPanel")
 		if instrument_panel != null:
-			var panel_viewport := instrument_panel.get_node_or_null("SubViewport") as SubViewport
-			var target_viewport_variant: Variant = instrument_panel.get("target_viewport")
-			var target_viewport := target_viewport_variant as SubViewport
-			_expect(
-				panel_viewport != null and panel_viewport.render_target_update_mode == SubViewport.UPDATE_DISABLED,
-				"unviewed staged instrument viewport submitted a hidden render frame"
-			)
-			_expect(
-				target_viewport != null and target_viewport.render_target_update_mode == SubViewport.UPDATE_DISABLED,
-				"unviewed staged target viewport submitted a hidden full-world render frame"
-			)
+			_expect(instrument_panel.has_method("is_pooled_instrument_panel_mount"), "staged aircraft restored a heavy instrument panel")
+			_expect(instrument_panel.call("get_live_panel") == null, "unviewed staged aircraft checked out a live panel")
+			_expect(instrument_panel.get_node_or_null("SubViewport") == null, "unviewed staged aircraft owns a render viewport")
 		_expect(
 			flight_director != null and not bool(flight_director.call("_is_camera_cycle_excluded", aircraft)),
 			"fully staged aircraft remained excluded from camera cycling"
@@ -112,8 +104,9 @@ func _run() -> void:
 			await get_tree().process_frame
 			if instrument_panel != null:
 				instrument_panel.call("set_view_updates_active", true)
-				var active_panel_viewport := instrument_panel.get_node_or_null("SubViewport") as SubViewport
-				var active_target_viewport := instrument_panel.get("target_viewport") as SubViewport
+				var live_panel := instrument_panel.call("get_live_panel") as Node3D
+				var active_panel_viewport := live_panel.get_node_or_null("SubViewport") as SubViewport if live_panel != null else null
+				var active_target_viewport := live_panel.get("target_viewport") as SubViewport if live_panel != null else null
 				_expect(
 					active_panel_viewport != null and active_panel_viewport.render_target_update_mode == SubViewport.UPDATE_ALWAYS,
 					"selected instrument viewport did not resume"

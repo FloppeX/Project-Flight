@@ -327,6 +327,7 @@ func _ready() -> void:
 	if _skeleton == null:
 		push_warning("PilotPose: No Skeleton3D found in children")
 		return
+	_redirect_root_level_head_accessory_skin_bind(_pose_target_root)
 
 	_hide_control_shapes(_pose_target_root)
 
@@ -398,6 +399,7 @@ func apply_static_seated_pose() -> bool:
 	_skeleton = _find_skeleton(_pose_target_root)
 	if _skeleton == null:
 		return false
+	_redirect_root_level_head_accessory_skin_bind(_pose_target_root)
 	_hide_control_shapes(_pose_target_root)
 
 	var pose_applied := _try_apply_baked_sitting_pose()
@@ -435,6 +437,7 @@ func apply_static_baked_pose(animation_name: StringName, time_s: float = 0.0) ->
 	_skeleton = _find_skeleton(_pose_target_root)
 	if _skeleton == null:
 		return false
+	_redirect_root_level_head_accessory_skin_bind(_pose_target_root)
 	_hide_control_shapes(_pose_target_root)
 	_ready_done = true
 
@@ -1895,6 +1898,30 @@ func _find_bone_index(bone_name: String) -> int:
 				return idx
 
 	return -1
+
+
+## Some generated character exports bind rigid headwear to a root-level
+## neutral_bone. Redirect that skin slot to the head's bind so the accessory
+## follows head animation while preserving its authored rest placement.
+func _redirect_root_level_head_accessory_skin_bind(node: Node) -> void:
+	var mesh_instance := node as MeshInstance3D
+	if mesh_instance != null and mesh_instance.skin != null:
+		var neutral_bind := -1
+		var head_bind := -1
+		for bind_index in range(mesh_instance.skin.get_bind_count()):
+			var bind_name := String(mesh_instance.skin.get_bind_name(bind_index))
+			if bind_name == "neutral_bone":
+				neutral_bind = bind_index
+			elif bind_name == "head.x":
+				head_bind = bind_index
+		if neutral_bind >= 0 and head_bind >= 0:
+			var corrected_skin := mesh_instance.skin.duplicate(true) as Skin
+			corrected_skin.set_bind_name(neutral_bind, corrected_skin.get_bind_name(head_bind))
+			corrected_skin.set_bind_bone(neutral_bind, corrected_skin.get_bind_bone(head_bind))
+			corrected_skin.set_bind_pose(neutral_bind, corrected_skin.get_bind_pose(head_bind))
+			mesh_instance.skin = corrected_skin
+	for child in node.get_children():
+		_redirect_root_level_head_accessory_skin_bind(child)
 
 
 func _get_pose_target_root() -> Node:

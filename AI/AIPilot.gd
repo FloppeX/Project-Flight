@@ -171,6 +171,10 @@ var _terrain_check_counter: int = 0
 @export_range(0.016, 0.10, 0.001) var guidance_near_interval_s: float = 0.033
 @export_range(0.016, 0.15, 0.001) var guidance_far_interval_s: float = 0.050
 @export_range(250.0, 5000.0, 50.0) var guidance_far_distance_m: float = 1800.0
+## During a short cinematic view transfer, unrelated aircraft can safely reuse
+## their previous controls for one physics step. Source, destination, and player
+## aircraft remain full-rate through FlightDirector's policy hook.
+@export_range(1, 4, 1) var view_transition_background_physics_divisor: int = 2
 @export_group("")
 @export_group("Radio Callouts")
 @export var radio_damage_call_min_damage: float = 8.0
@@ -194,6 +198,8 @@ var _guidance_update_timer_s: float = 0.0
 var _guidance_elapsed_s: float = 0.0
 var _force_guidance_update: bool = true
 var _guidance_interval_scale: float = 1.0
+var _view_transition_tick_phase: int = 0
+var _view_transition_deferred_delta_s: float = 0.0
 var _radio_last_damage_call_s: float = -INF
 var _radio_last_kill_call_s: float = -INF
 var _radio_last_bingo_call_s: float = -INF
@@ -2206,6 +2212,8 @@ func initialize(aircraft_node: RigidBody3D):
 	_guidance_update_timer_s = maxf(_get_guidance_update_interval_s(), 0.0) * slow_tick_phase
 	_guidance_elapsed_s = 0.0
 	_force_guidance_update = true
+	_view_transition_tick_phase = int(aircraft.get_instance_id() % maxi(view_transition_background_physics_divisor, 1))
+	_view_transition_deferred_delta_s = 0.0
 
 	# Team-driven contact groups used by sensor scans.
 	var my_team: int = aircraft.get_team() if aircraft.has_method("get_team") else 1
@@ -2340,8 +2348,15 @@ func _physics_process(delta: float):
 	# Do NOT call _apply_controls() here ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â the catapult owns the engine and
 	# set_target_power(0) would trigger engine_stop(), killing the spool-up.
 	if aircraft.get_meta("controls_disabled", false):
+		_view_transition_deferred_delta_s = 0.0
 		FrameProfiler.end("AIPilot.physics", _profiler_start)
 		return
+
+	var scheduled_delta: float = _consume_view_transition_physics_delta(delta)
+	if scheduled_delta <= 0.0:
+		FrameProfiler.end("AIPilot.physics", _profiler_start)
+		return
+	delta = scheduled_delta
 
 	_update_scheduled_work_clocks(delta)
 
@@ -2434,6 +2449,26 @@ func _physics_process(delta: float):
 	_apply_controls()
 	FrameProfiler.end("AIPilot.controls", _controls_profiler_start)
 	FrameProfiler.end("AIPilot.physics", _profiler_start)
+
+
+func _consume_view_transition_physics_delta(delta: float) -> float:
+	var safe_delta := maxf(delta, 0.0)
+	var divisor := maxi(view_transition_background_physics_divisor, 1)
+	var director := get_node_or_null("/root/FlightDirector")
+	var throttle := divisor > 1 \
+		and director != null \
+		and director.has_method("should_throttle_background_ai_during_view_transition") \
+		and bool(director.call("should_throttle_background_ai_during_view_transition", aircraft))
+	if not throttle:
+		var full_delta := safe_delta + _view_transition_deferred_delta_s
+		_view_transition_deferred_delta_s = 0.0
+		return full_delta
+	if (Engine.get_physics_frames() + _view_transition_tick_phase) % divisor != 0:
+		_view_transition_deferred_delta_s += safe_delta
+		return 0.0
+	var budgeted_delta := safe_delta + _view_transition_deferred_delta_s
+	_view_transition_deferred_delta_s = 0.0
+	return budgeted_delta
 
 func _update_scheduled_work_clocks(delta: float) -> void:
 	"""Schedule thinking separately from the continuous flight-control loop."""

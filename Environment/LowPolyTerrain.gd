@@ -209,9 +209,16 @@ var _fast_fill_active: bool = false
 ## interval, so a viewed-aircraft switch cannot sit idle behind the 0.5 s timer.
 @export var camera_handoff_min_jump_chunks: int = 2
 @export var camera_handoff_priority_radius_chunks: int = 2
-@export var camera_handoff_builds_per_frame: int = 12
-@export var camera_handoff_finalizes_per_frame: int = 8
+@export var camera_handoff_builds_per_frame: int = 4
+@export var camera_handoff_finalizes_per_frame: int = 2
 @export var camera_handoff_priority_duration_s: float = 0.75
+## Smooth cinematic transfers know their destination in advance. Build that ring
+## progressively while retaining the source ring, then retire old chunks over
+## several frames after arrival instead of streaming every point on the flight.
+@export var view_transition_builds_per_frame: int = 2
+@export var view_transition_finalizes_per_frame: int = 2
+@export var view_transition_post_arrival_budget_s: float = 2.0
+@export var max_chunk_unloads_per_frame: int = 4
 
 var _mesh_node: MeshInstance3D
 var _body_node: StaticBody3D
@@ -239,6 +246,10 @@ var _last_center_chunk: Vector2i = Vector2i(-999999, -999999)
 var _last_active_camera_id: int = 0
 var _last_active_camera_chunk: Vector2i = Vector2i(-999999, -999999)
 var _camera_handoff_remaining_s: float = 0.0
+var _view_transition_stream_active: bool = false
+var _view_transition_stream_target_ref: WeakRef = null
+var _pending_unloads: Array[String] = []
+var _pending_unload_set: Dictionary = {}
 
 # Async chunk building — _build_chunk_arrays runs on WorkerThreadPool, node creation finalizes on main thread
 var _async_tasks: Array = []              # [{coord, task_id, holder}]
@@ -270,9 +281,12 @@ func _process(delta: float) -> void:
 	var _profiler_start: int = FrameProfiler.begin("LowPolyTerrain.process")
 	var camera_handoff_detected: bool = _detect_camera_handoff()
 	_camera_handoff_remaining_s = maxf(_camera_handoff_remaining_s - delta, 0.0)
+	_drain_pending_unloads(max_chunk_unloads_per_frame)
 	# Finalize completed chunk nodes -- fast while catching up from a jump, low in steady state.
 	var finalize_budget: int
-	if _camera_handoff_remaining_s > 0.0:
+	if _view_transition_stream_active:
+		finalize_budget = view_transition_finalizes_per_frame
+	elif _camera_handoff_remaining_s > 0.0:
 		finalize_budget = camera_handoff_finalizes_per_frame
 	else:
 		finalize_budget = fast_fill_finalizes_per_frame if _fast_fill_active else max_chunk_finalizes_per_frame
@@ -282,7 +296,7 @@ func _process(delta: float) -> void:
 		_stream_timer = 0.0
 		_update_streaming(true)
 	# While fast-filling, re-check every frame (skip the 0.25s throttle) so builds launch immediately.
-	elif _camera_handoff_remaining_s > 0.0 or _fast_fill_active or _stream_timer >= maxf(stream_update_interval_s, 0.01):
+	elif _view_transition_stream_active or _camera_handoff_remaining_s > 0.0 or _fast_fill_active or _stream_timer >= maxf(stream_update_interval_s, 0.01):
 		_stream_timer = 0.0
 		_update_streaming(false)
 	FrameProfiler.end("LowPolyTerrain.process", _profiler_start)
@@ -571,6 +585,8 @@ func _clear_chunks() -> void:
 	_async_tasks.clear()
 	_building_set.clear()
 	_discard_on_complete.clear()
+	_pending_unloads.clear()
+	_pending_unload_set.clear()
 	if not _chunk_root:
 		return
 	for child in _chunk_root.get_children():
@@ -617,6 +633,7 @@ func _refresh_chunk_targets(center_chunk: Vector2i) -> void:
 			if not _is_chunk_in_bounds(cx, cz):
 				continue
 			var key := _chunk_key(cx, cz)
+			_cancel_chunk_unload(key)
 			if _chunks.has(key) or _pending_set.has(key) or _building_set.has(key):
 				continue
 			var d2: int = dx * dx + dz * dz
@@ -633,7 +650,10 @@ func _refresh_chunk_targets(center_chunk: Vector2i) -> void:
 	for key in _chunks.keys():
 		var c: Vector2i = _key_to_chunk(str(key))
 		if abs(c.x - center_chunk.x) > keep_radius or abs(c.y - center_chunk.y) > keep_radius:
-			_remove_chunk(str(key))
+			if not _view_transition_stream_active:
+				_queue_chunk_unload(str(key))
+		else:
+			_cancel_chunk_unload(str(key))
 
 	# Worker tasks cannot be cancelled safely, but stale results can be discarded.
 	# If the camera returns while a task is still running, remove that discard mark.
@@ -668,7 +688,9 @@ func _build_pending_chunks() -> void:
 	if initial_fill and _initial_pending_total == 0:
 		_initial_pending_total = _pending_builds.size()
 	var budget: int
-	if _camera_handoff_remaining_s > 0.0:
+	if _view_transition_stream_active:
+		budget = max(view_transition_builds_per_frame, 1)
+	elif _camera_handoff_remaining_s > 0.0:
 		budget = max(camera_handoff_builds_per_frame, 1)
 	elif initial_fill:
 		budget = max(initial_chunk_builds_per_update, 1)
@@ -1640,6 +1662,15 @@ func _strata_with_slopes(h: float, step: float, shelf_frac: float) -> float:
 	return (band + shaped) * step
 
 func _get_stream_center_local() -> Vector3:
+	var transition_target := _get_view_transition_stream_target()
+	if transition_target != null:
+		var transition_world_pos := transition_target.global_position
+		if transition_target is Camera3D:
+			var transition_forward := -transition_target.global_basis.z
+			transition_forward.y = 0.0
+			if transition_forward.length_squared() > 0.0001:
+				transition_world_pos += transition_forward.normalized() * maxf(stream_preload_ahead_m, 0.0)
+		return to_local(transition_world_pos)
 	var target: Node3D = null
 	if stream_target_path != NodePath(""):
 		target = get_node_or_null(stream_target_path) as Node3D
@@ -1661,6 +1692,10 @@ func _get_stream_center_local() -> Vector3:
 	return Vector3.ZERO
 
 func _get_active_camera_chunk() -> Vector2i:
+	var transition_target := _get_view_transition_stream_target()
+	if transition_target != null:
+		var transition_local := to_local(transition_target.global_position)
+		return _world_to_chunk(transition_local.x, transition_local.z)
 	var viewport := get_viewport()
 	var active_camera: Camera3D = viewport.get_camera_3d() if viewport != null else null
 	if active_camera != null and is_instance_valid(active_camera):
@@ -1669,6 +1704,8 @@ func _get_active_camera_chunk() -> Vector2i:
 	return _last_center_chunk
 
 func _detect_camera_handoff() -> bool:
+	if _view_transition_stream_active:
+		return false
 	var viewport := get_viewport()
 	var active_camera: Camera3D = viewport.get_camera_3d() if viewport != null else null
 	if active_camera == null or not is_instance_valid(active_camera):
@@ -1707,6 +1744,50 @@ func prioritize_camera_handoff(camera: Camera3D = null) -> void:
 	_stream_timer = 0.0
 	_update_streaming(true)
 
+
+func begin_view_transition_streaming(target: Node3D) -> void:
+	if target == null or not is_instance_valid(target):
+		return
+	_view_transition_stream_active = true
+	_view_transition_stream_target_ref = weakref(target)
+	# Anything already loaded is the source ring. Cancel retirement until the
+	# destination has been prefetched and the cinematic camera has arrived.
+	_pending_unloads.clear()
+	_pending_unload_set.clear()
+	_stream_timer = 0.0
+	_fast_fill_active = true
+	_update_streaming(true)
+
+
+func end_view_transition_streaming() -> void:
+	if not _view_transition_stream_active:
+		return
+	_view_transition_stream_active = false
+	_view_transition_stream_target_ref = null
+	# Keep the bounded handoff budgets active while the last destination chunks
+	# settle. Otherwise a remaining backlog can immediately fall through to the
+	# old 24-build/16-finalize fast-fill burst at the end of the camera move.
+	_camera_handoff_remaining_s = maxf(
+		maxf(camera_handoff_priority_duration_s, 0.0),
+		maxf(view_transition_post_arrival_budget_s, 0.0)
+	)
+	_stream_timer = 0.0
+	_fast_fill_active = true
+	# Reconcile against the now-current destination camera. Old source chunks are
+	# queued and drained by max_chunk_unloads_per_frame rather than freed together.
+	_update_streaming(true)
+
+
+func _get_view_transition_stream_target() -> Node3D:
+	if not _view_transition_stream_active or _view_transition_stream_target_ref == null:
+		return null
+	var target := _view_transition_stream_target_ref.get_ref() as Node3D
+	if target == null or not is_instance_valid(target) or not target.is_inside_tree():
+		_view_transition_stream_active = false
+		_view_transition_stream_target_ref = null
+		return null
+	return target
+
 func is_chunk_loaded_at_world_position(world_position: Vector3) -> bool:
 	var local_position: Vector3 = to_local(world_position)
 	var coord: Vector2i = _world_to_chunk(local_position.x, local_position.z)
@@ -1719,6 +1800,8 @@ func get_streaming_stats() -> Dictionary:
 		"building_chunks": _async_tasks.size(),
 		"fast_fill_active": _fast_fill_active,
 		"camera_handoff_active": _camera_handoff_remaining_s > 0.0,
+		"view_transition_active": _view_transition_stream_active,
+		"pending_unloads": _pending_unload_set.size(),
 		"last_center_chunk": _last_center_chunk,
 		"active_camera_chunk": _get_active_camera_chunk(),
 	}
@@ -1753,6 +1836,27 @@ func _remove_chunk(key: String) -> void:
 	# If a worker is still building this chunk, mark the result for discard on completion.
 	if _building_set.has(key):
 		_discard_on_complete[key] = true
+
+
+func _queue_chunk_unload(key: String) -> void:
+	if _pending_unload_set.has(key):
+		return
+	_pending_unload_set[key] = true
+	_pending_unloads.push_back(key)
+
+
+func _cancel_chunk_unload(key: String) -> void:
+	_pending_unload_set.erase(key)
+
+
+func _drain_pending_unloads(max_to_remove: int) -> void:
+	var remaining := maxi(max_to_remove, 0)
+	while remaining > 0 and not _pending_unloads.is_empty():
+		var key: String = _pending_unloads.pop_front()
+		if not _pending_unload_set.erase(key):
+			continue
+		_remove_chunk(key)
+		remaining -= 1
 
 func _set_owner_recursive(node: Node) -> void:
 	var root: Node = get_tree().edited_scene_root

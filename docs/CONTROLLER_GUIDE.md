@@ -1,8 +1,8 @@
 # Controller Guide - Land Carrier Project
 
-> **Document status:** Player/control reference last fully audited on 2026-03-17. Core controls remain useful, but debug keys and newer tactical-map interactions may have drifted. Use the [README](../README.md) for current project status.
+> **Document status:** Player/control reference last fully audited on 2026-03-17; tactical-map navigation was refreshed on 2026-09-04. Core controls remain useful, but debug keys and other newer interactions may have drifted. Use the [README](../README.md) for current project status.
 
-**Updated:** 2026-03-17  
+**Updated:** 2026-09-04
 **Default Control:** Spectator mode with AI active
 
 ---
@@ -50,6 +50,15 @@
 | **Start / Options** | Toggle spectator / pilot mode |
 | **LB / L1** | Previous spectate target (spectator mode only) |
 | **RB / R1** | Next spectate target (spectator mode only) |
+
+### Tactical Map
+| Control | Action |
+|---------|--------|
+| **RT / R2** or **left mouse button** | Zoom in toward the map cursor |
+| **LT / L2** or **right mouse button** | Zoom out from the map cursor |
+| **Bottom / right scrollbars** | Pan horizontally / vertically while zoomed in |
+
+The map supports `1x` through `8x` zoom. While an order is being drafted, mouse clicks keep their target and waypoint-editing roles; the controller triggers continue to zoom.
 
 ---
 
