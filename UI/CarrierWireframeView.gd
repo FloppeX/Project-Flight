@@ -15,11 +15,25 @@ const CARRIER_TREAD_SCRIPT_PATH := "res://LandCarrier/CarrierTread.gd"
 const CARRIER_CATALOG_NAME := "LAND CARRIER"
 const CREASE_ANGLE_DEGREES := 25.0
 const EDGE_POSITION_QUANTIZATION_M := 0.001
+const SOURCE_MESH_META := &"carrier_schematic_source_mesh"
+const SOURCE_MULTIMESH_META := &"carrier_schematic_source_multimesh"
+const AUTHORED_REGION_MESH_NAMES: Dictionary = {
+	"flight_deck": ["flight deck"],
+	"catapults": ["catapult 1", "catapult 2"],
+	"hangar": ["hangar"],
+	"elevators": ["elevators"],
+	"island": ["superstructure main island", "superstructure floor lower", "superstructure floor upper"],
+	"vehicle_bay": ["vehicle bay"],
+	"reactor": ["reactor", "power banks"],
+	"replicator": ["replicator"],
+	"habitation": ["habitation"],
+	"stores": ["storage"],
+}
 
 const BACKGROUND_COLOR := Color("090d0d")
 const WIREFRAME_COLOR := Color("76c7c7")
-const HIGHLIGHT_COLOR := Color("b9ffff")
-const WARNING_HIGHLIGHT_COLOR := Color("ffb000")
+const HIGHLIGHT_COLOR := Color("ffae24")
+const WARNING_HIGHLIGHT_COLOR := Color("ff9418")
 const TEXT_COLOR := Color("c4c7c7")
 const ERROR_COLOR := Color("ffb000")
 
@@ -46,8 +60,58 @@ var _load_requested: bool = false
 var _load_request_start_usec: int = 0
 var _feature_mesh_cache: Dictionary = {}
 var _geometry_records: Array[Dictionary] = []
+var _authored_region_geometry_counts: Dictionary = {}
 var _selected_region_id: String = "defenses"
 var _selected_region_warning: bool = true
+var _region_statuses: Dictionary = {}
+var _status_materials: Dictionary = {}
+var _mount_markers: Dictionary = {}
+
+func set_region_statuses(states: Dictionary) -> void:
+	if states == _region_statuses:
+		return
+	_region_statuses = states.duplicate()
+	if _model_loaded:
+		_apply_region_highlight()
+		_sync_mount_markers()
+
+func _status_material(status: String, selected: bool) -> ShaderMaterial:
+	var key := status + str(selected)
+	if not _status_materials.has(key):
+		var material := ShaderMaterial.new()
+		material.shader = WIREFRAME_SHADER
+		var color := Color("6ddd98") if status == "OPERATIONAL" else Color("ffb454") if status == "DEGRADED" else Color("ff626d")
+		material.set_shader_parameter("wire_color", color)
+		material.set_shader_parameter("emission_strength", 1.8 if selected else 0.9)
+		_status_materials[key] = material
+	return _status_materials[key]
+
+func _sync_mount_markers() -> void:
+	if not is_instance_valid(_model_instance):
+		return
+	for key in _mount_markers.keys():
+		if not _region_statuses.has(key):
+			_mount_markers[key].queue_free()
+			_mount_markers.erase(key)
+	for key in _region_statuses:
+		if not str(key).begins_with("mount:"):
+			continue
+		var site := _model_instance.get_node_or_null(str(key).trim_prefix("mount:")) as Node3D
+		if site == null:
+			continue
+		if not _mount_markers.has(key):
+			var marker := MeshInstance3D.new()
+			var sphere := SphereMesh.new()
+			sphere.radius = 1.0
+			sphere.height = 2.0
+			marker.mesh = sphere
+			var anchor := site.get_node_or_null("TurretPosition") as Node3D
+			if anchor == null:
+				anchor = site
+			anchor.add_child(marker)
+			marker.position.y = 1.5
+			_mount_markers[key] = marker
+		_mount_markers[key].material_override = _status_material(_region_statuses[key], true)
 var _highlighted_geometry_count: int = 0
 var _dragging: bool = false
 var _orbit_yaw: float = 0.68
@@ -75,6 +139,8 @@ func set_console_visible(value: bool) -> void:
 		_preview_viewport.render_target_update_mode = (
 			SubViewport.UPDATE_ALWAYS if value else SubViewport.UPDATE_DISABLED
 		)
+		if value and is_instance_valid(_preview_camera):
+			_preview_camera.make_current()
 
 
 func get_debug_snapshot() -> Dictionary:
@@ -92,11 +158,16 @@ func get_debug_snapshot() -> Dictionary:
 		"selected_region": _selected_region_id,
 		"highlight_warning": _selected_region_warning,
 		"highlighted_geometry_count": _highlighted_geometry_count,
+		"highlight_style": "solid_mesh",
+		"highlight_source": "authored_meshes" if _has_authored_region_geometry(_selected_region_id) else "fallback",
+		"authored_region_geometry_counts": _authored_region_geometry_counts.duplicate(),
 		"build_time_ms": _build_time_ms,
 		"build_profile_ms": _build_profile_ms.duplicate(),
 		"bounds_size": _model_bounds.size,
 		"viewport_size": _preview_viewport.size if _preview_viewport != null else Vector2i.ZERO,
+		"schematic_camera_current": is_instance_valid(_preview_camera) and _preview_camera.is_current(),
 		"presentation_only": true,
+		"region_statuses": _region_statuses.duplicate(),
 	}
 
 
@@ -131,6 +202,8 @@ func reset_view() -> void:
 
 
 func set_highlighted_region(region_id: String, warning: bool = false) -> void:
+	if region_id == _selected_region_id and warning == _selected_region_warning:
+		return
 	_selected_region_id = region_id
 	_selected_region_warning = warning
 	_apply_region_highlight()
@@ -261,7 +334,9 @@ func _build_loaded_carrier(packed: PackedScene) -> void:
 	_capture_geometry_records()
 	_apply_region_highlight()
 	_fit_camera(_model_bounds.size)
+	_preview_camera.make_current()
 	_model_loaded = true
+	_sync_mount_markers()
 	_build_profile_ms["finish"] = float(Time.get_ticks_usec() - phase_start_usec) / 1000.0
 	_build_profile_ms["main_thread_finalize"] = float(Time.get_ticks_usec() - build_start_usec) / 1000.0
 	_build_time_ms = float(Time.get_ticks_usec() - _load_request_start_usec) / 1000.0
@@ -299,9 +374,11 @@ func _replace_geometry_with_feature_edges(root: Node) -> Dictionary:
 		var node: Node = stack.pop_back()
 		if node is MeshInstance3D and (node as MeshInstance3D).mesh != null:
 			var mesh_node := node as MeshInstance3D
-			var edge_data := _feature_edges_for_mesh(mesh_node.mesh)
+			var source_mesh := mesh_node.mesh
+			var edge_data := _feature_edges_for_mesh(source_mesh)
 			var feature_mesh := edge_data.get("mesh") as Mesh
 			if feature_mesh != null:
+				mesh_node.set_meta(SOURCE_MESH_META, source_mesh)
 				mesh_node.mesh = feature_mesh
 				mesh_node.material_override = _wireframe_material
 				mesh_node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -318,6 +395,7 @@ func _replace_geometry_with_feature_edges(root: Node) -> Dictionary:
 				var feature_mesh := edge_data.get("mesh") as Mesh
 				if feature_mesh != null:
 					var feature_multimesh := _copy_multimesh_with_mesh(source_multimesh, feature_mesh)
+					multimesh_node.set_meta(SOURCE_MULTIMESH_META, source_multimesh)
 					multimesh_node.multimesh = feature_multimesh
 					multimesh_node.material_override = _wireframe_material
 					multimesh_node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -532,6 +610,7 @@ func _topology_point_id(point: Vector3, point_ids: Dictionary) -> int:
 
 func _capture_geometry_records() -> void:
 	_geometry_records.clear()
+	_authored_region_geometry_counts.clear()
 	if not is_instance_valid(_model_instance):
 		return
 	var root_inverse := _preview_model_root.global_transform.affine_inverse()
@@ -549,11 +628,25 @@ func _capture_geometry_records() -> void:
 			local_bounds = (root_inverse * multimesh_node.global_transform) * multimesh_node.get_aabb()
 			has_geometry = true
 		if has_geometry:
+			var authored_region := _authored_region_for_mesh_name(str(node.name))
+			var solid_mesh: Mesh = null
+			var solid_multimesh: MultiMesh = null
+			if node is MeshInstance3D:
+				solid_mesh = node.get_meta(SOURCE_MESH_META, null) as Mesh
+			elif node is MultiMeshInstance3D:
+				solid_multimesh = node.get_meta(SOURCE_MULTIMESH_META, null) as MultiMesh
 			_geometry_records.append({
 				"node": node,
 				"path": str(_model_instance.get_path_to(node)).to_lower(),
 				"bounds": local_bounds,
+				"authored_region": authored_region,
+				"wire_mesh": (node as MeshInstance3D).mesh if node is MeshInstance3D else null,
+				"solid_mesh": solid_mesh,
+				"wire_multimesh": (node as MultiMeshInstance3D).multimesh if node is MultiMeshInstance3D else null,
+				"solid_multimesh": solid_multimesh,
 			})
+			if not authored_region.is_empty():
+				_authored_region_geometry_counts[authored_region] = int(_authored_region_geometry_counts.get(authored_region, 0)) + 1
 		for child in node.get_children():
 			stack.append(child as Node)
 
@@ -566,11 +659,35 @@ func _apply_region_highlight() -> void:
 		if not is_instance_valid(geometry):
 			continue
 		var highlighted := _record_matches_region(record, _selected_region_id)
-		geometry.material_override = active_material if highlighted else _wireframe_material
+		var region := str(record.get("authored_region", ""))
+		if region.is_empty():
+			var path := str(record.get("path", ""))
+			if "tread" in path or "track" in path or "wheel" in path:
+				region = "drive"
+			elif "turret" in path:
+				region = "defenses"
+		if geometry is MeshInstance3D:
+			var mesh_node := geometry as MeshInstance3D
+			var wire_mesh := record.get("wire_mesh") as Mesh
+			var solid_mesh := record.get("solid_mesh") as Mesh
+			mesh_node.mesh = solid_mesh if highlighted and solid_mesh != null else wire_mesh
+		elif geometry is MultiMeshInstance3D:
+			var multimesh_node := geometry as MultiMeshInstance3D
+			var wire_multimesh := record.get("wire_multimesh") as MultiMesh
+			var solid_multimesh := record.get("solid_multimesh") as MultiMesh
+			multimesh_node.multimesh = solid_multimesh if highlighted and solid_multimesh != null else wire_multimesh
+		if _region_statuses.has(region):
+			geometry.material_override = _status_material(str(_region_statuses[region]), highlighted)
+		else:
+			geometry.material_override = active_material if highlighted else _wireframe_material
 		if highlighted:
 			_highlighted_geometry_count += 1
 	_clear_highlight_box()
 	if _selected_region_id == "overview" or not _model_loaded and _geometry_records.is_empty():
+		return
+	# Authored selection meshes describe the intended volume precisely; only
+	# legacy regions need the broader inferred bounds overlay.
+	if _has_authored_region_geometry(_selected_region_id):
 		return
 	var region_bounds := _region_bounds(_selected_region_id)
 	if region_bounds.size.length_squared() > 0.001:
@@ -582,6 +699,8 @@ func _record_matches_region(record: Dictionary, region_id: String) -> bool:
 	var path := str(record.get("path", ""))
 	if region_id == "overview":
 		return false
+	if _has_authored_region_geometry(region_id):
+		return str(record.get("authored_region", "")) == region_id
 	if region_id == "defenses":
 		return "carrierdefenseturret" in path or "turret" in path
 	if region_id == "elevators":
@@ -590,6 +709,21 @@ func _record_matches_region(record: Dictionary, region_id: String) -> bool:
 		return "tread" in path or "track" in path or "wheel" in path
 	var bounds: AABB = record.get("bounds", AABB()) as AABB
 	return bounds.intersects(_region_bounds(region_id))
+
+
+func _authored_region_for_mesh_name(mesh_name: String) -> String:
+	var normalized_name := mesh_name.strip_edges().to_lower().replace("_", " ")
+	for region_variant in AUTHORED_REGION_MESH_NAMES.keys():
+		var region_id := str(region_variant)
+		for expected_variant in AUTHORED_REGION_MESH_NAMES[region_id]:
+			var expected_name := str(expected_variant)
+			if normalized_name == expected_name or normalized_name.begins_with(expected_name + " "):
+				return region_id
+	return ""
+
+
+func _has_authored_region_geometry(region_id: String) -> bool:
+	return int(_authored_region_geometry_counts.get(region_id, 0)) > 0
 
 
 func _region_bounds(region_id: String) -> AABB:

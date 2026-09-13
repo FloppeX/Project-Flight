@@ -79,7 +79,7 @@ func process_physic_frame(delta):
 
 
 func flap_set_position(value: float):
-	if flap_position == value:
+	if target_flap_position == value:
 		return
 	
 	target_flap_position = value

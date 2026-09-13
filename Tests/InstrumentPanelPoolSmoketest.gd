@@ -114,6 +114,8 @@ func _run() -> void:
 	_expect(int(stats.get("checked_out", 0)) == 1, "AI aircraft checked out extra live panels")
 	_expect(int(stats.get("render_warm_count", 0)) == 2, "both pooled viewports were not render-warmed")
 	_expect(bool(stats.get("render_warm_complete", false)), "pooled viewport render warmup did not complete")
+	_expect(bool(stats.get("hud_render_warmed", false)), "HUD shader warmup did not complete")
+	_expect(live_2.get_parent() == pool, "live panel escaped pool ownership during render priming")
 	mount_2.call("set_view_updates_active", false)
 	_finish(aircraft_1, aircraft_2)
 

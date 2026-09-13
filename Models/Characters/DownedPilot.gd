@@ -38,6 +38,83 @@ var _phase: Phase = Phase.FIND_CLEARING
 var _model_node: Node3D = null
 var _clearing_target: Vector3 = Vector3.ZERO
 var _rescue_heli: Node3D = null
+var _ground_transport: Node3D = null
+var _ground_boarding_pending := false
+
+func prepare_for_ground_rescue() -> void:
+	# Keep the validated ground pickup location instead of seeking a heli clearing.
+	if _phase == Phase.RESCUED: return
+	_phase = Phase.WAIT_RESCUE
+	_rescue_heli = null
+	_turning_in_place = false
+
+func approach_ground_transport(vehicle: Node3D) -> void:
+	if _phase == Phase.RESCUED or _ground_boarding_pending: return
+	if not is_instance_valid(vehicle) or not vehicle.can_accept_passenger(): return
+	if vehicle.velocity.length() > 1.0: return
+	var point: Vector3 = vehicle.get_boarding_position()
+	if global_position.distance_to(point) > 45.0: return
+	if not _ground_walk_is_clear(vehicle, point): return
+	_ground_transport = vehicle
+	_phase = Phase.WAIT_RESCUE
+
+func cancel_ground_transport() -> void:
+	_ground_transport = null
+	_ground_boarding_pending = false
+
+func _walk_to_ground_transport(delta: float) -> bool:
+	if not is_instance_valid(_ground_transport):
+		_ground_transport = null
+		return false
+	if not _ground_transport.can_accept_passenger() or _ground_transport.velocity.length() > 1.0:
+		cancel_ground_transport()
+		return false
+	var point: Vector3 = _ground_transport.get_boarding_position()
+	if not _ground_walk_is_clear(_ground_transport, point):
+		cancel_ground_transport()
+		return false
+	_walk_toward(point, run_speed, delta)
+	_snap_to_terrain()
+	if Vector2(global_position.x - point.x, global_position.z - point.z).length() <= rescue_board_distance and not _ground_boarding_pending:
+		_ground_boarding_pending = true
+		call_deferred("_board_ground_transport")
+	return true
+
+func _ground_walk_is_clear(vehicle: Node3D, point: Vector3) -> bool:
+	if not preload("res://GroundOps/GroundRescue.gd").walk_is_clear(global_position, point): return false
+	var query := PhysicsRayQueryParameters3D.create(global_position + Vector3.UP, point + Vector3.UP, 1)
+	query.exclude = [get_rid(), vehicle.get_rid()]
+	return get_world_3d().direct_space_state.intersect_ray(query).is_empty()
+
+func _board_ground_transport() -> void:
+	_ground_boarding_pending = false
+	if not is_instance_valid(_ground_transport): return
+	var transport := _ground_transport
+	if transport.velocity.length() > 1.0 or global_position.distance_to(transport.get_boarding_position()) > 5.0: return
+	if not transport.add_passenger(self): return
+	_phase = Phase.RESCUED
+	collision_layer = 0
+	collision_mask = 0
+	var director := get_node_or_null("/root/FlightDirector")
+	if director != null:
+		# Ground vehicles are CharacterBody3D; FlightDirector's aircraft field is
+		# RigidBody3D-only. Never assign a vehicle into that field.
+		if director.current_viewed_aircraft == self: director._enter_free_camera()
+		director.unregister_aircraft(self)
+	GroundOpsManager.rescue_service.complete(self)
+	AirOpsManager.notify_pilot_rescued(self, transport)
+	RadioComms.transmit(str(get_meta("pilot_callsign", "Downed Pilot")), "Citadel", "Aboard ground transport. Returning to carrier.")
+	_ground_transport = null
+
+func resume_ground_rescue() -> void:
+	process_mode = Node.PROCESS_MODE_INHERIT
+	show()
+	_phase = Phase.WAIT_RESCUE
+	collision_layer = 1
+	collision_mask = 513
+	cancel_ground_transport()
+	PilotRoster.set_recovery_status(self, "downed")
+	AirOpsManager.request_rescue_for(self)
 var _attention_heli: Node3D = null
 var _nearby_helicopter: Node3D = null
 var _boardable_helicopter: Node3D = null
@@ -71,6 +148,7 @@ func _ready() -> void:
 func _physics_process(delta: float) -> void:
 	if Engine.is_editor_hint() or _phase == Phase.RESCUED:
 		return
+	if _walk_to_ground_transport(delta): return
 	_refresh_helicopter_candidates(delta)
 	# Godot validates typed arguments before entering the called function. A
 	# helicopter can be freed between scan ticks, so clear stale Object handles

@@ -33,9 +33,9 @@ const EXPECTED_MARKER_COUNTS: Dictionary = {
 }
 
 const EXPECTED_WING_FOLLOW_TARGETS: Dictionary = {
-	"res://Aircraft/Aircraft_1.tscn": NodePath("../aircraft_1/wing outer left"),
-	"res://Aircraft/Aircraft_2.tscn": NodePath("../Aircraft 2 body/left outer wing"),
-	"res://Aircraft/Aircraft_5.tscn": NodePath("../aircraft_5/outer wing left"),
+	"res://Aircraft/Aircraft_1.tscn": NodePath("../aircraft_1/wing outer left/OuterWingLeft"),
+	"res://Aircraft/Aircraft_2.tscn": NodePath("../Aircraft 2 body/left outer wing/OuterWingLeft"),
+	"res://Aircraft/Aircraft_5.tscn": NodePath("../aircraft_5/outer wing left/OuterWingLeft"),
 	"res://Aircraft/Aircraft_14.tscn": NodePath("../aircraft_14/left wing"),
 }
 
@@ -132,7 +132,7 @@ func _verify_runtime_decals() -> void:
 		_expect(decal.size.x > 0.0 and decal.size.y > 0.0 and decal.size.z > 0.0, "%s has an invalid runtime decal volume" % decal.name)
 	var wing_marker := _find_named_node(markers, &"InsigniaWing") as Node3D
 	var wing_decal := _find_named_node(decals, &"InsigniaDecal_InsigniaWing") as Decal
-	var outer_wing := aircraft.get_node_or_null("aircraft_1/wing outer left") as Node3D
+	var outer_wing := aircraft.get_node_or_null("aircraft_1/wing outer left/OuterWingLeft") as Node3D
 	_expect(wing_marker != null, "Aircraft 1 runtime wing marker is missing")
 	_expect(wing_decal != null, "Aircraft 1 runtime wing decal is missing")
 	_expect(outer_wing != null, "Aircraft 1 outer-left wing is missing")

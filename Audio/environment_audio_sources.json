@@ -1,0 +1,244 @@
+[
+  {
+    "file": "Audio\\Carrier\\track_links.ogg",
+    "sources": [
+      "D:\\Game audio\\Game effects\\Vehicles Heavy\\Tank\\Tank Tread Loop A.wav"
+    ],
+    "loop": true,
+    "channels": 1,
+    "seconds": 15.167,
+    "rms_db": -22.0,
+    "peak_db": -8.93,
+    "bytes": 136955,
+    "loop_endpoint_delta": 0.001787,
+    "processing": "highpass=f=90,lowpass=f=5000",
+    "review": "Technically checked; subjective listening review pending"
+  },
+  {
+    "file": "Audio\\Carrier\\interior_ventilation.ogg",
+    "sources": [
+      "D:\\Game audio\\Gamemaster Audio - Pro Sound Collection v1.3 - 16bit 48k\\Backgrounds\\background_room_interior_hum_loop_02.wav",
+      "D:\\Game audio\\Gamemaster Audio - Pro Sound Collection v1.3 - 16bit 48k\\Backgrounds\\background_air_vent_fan_loop_02.wav"
+    ],
+    "loop": true,
+    "channels": 2,
+    "seconds": 9.572,
+    "rms_db": -24.67,
+    "peak_db": -10.61,
+    "bytes": 151114,
+    "loop_endpoint_delta": 0.001589,
+    "processing": "highpass=f=70,lowpass=f=4500",
+    "review": "Technically checked; subjective listening review pending"
+  },
+  {
+    "file": "Audio\\cockpit\\cabin_systems.ogg",
+    "sources": [
+      "D:\\Game audio\\Gamemaster Audio - Pro Sound Collection v1.3 - 16bit 48k\\Backgrounds\\background_air_vent_fan_loop_02.wav",
+      "D:\\Game audio\\Gamemaster Audio - Pro Sound Collection v1.3 - 16bit 48k\\Electricity_Hums\\hum_motor_elec_neon_loop_02.wav"
+    ],
+    "loop": true,
+    "channels": 2,
+    "seconds": 6.62,
+    "rms_db": -25.42,
+    "peak_db": -11.81,
+    "bytes": 106021,
+    "loop_endpoint_delta": 0.00384,
+    "processing": "highpass=f=100,lowpass=f=3800",
+    "review": "Technically checked; subjective listening review pending"
+  },
+  {
+    "file": "Audio\\mechanisms\\electric_servo.ogg",
+    "sources": [
+      "D:\\Game audio\\Game effects\\Vehicles Heavy\\Mechanisms\\Mechanism Turning Loop.wav"
+    ],
+    "loop": true,
+    "channels": 1,
+    "seconds": 20.871,
+    "rms_db": -22.0,
+    "peak_db": -6.7,
+    "bytes": 181186,
+    "loop_endpoint_delta": 0.002097,
+    "processing": "highpass=f=150,lowpass=f=4500",
+    "review": "Technically checked; subjective listening review pending"
+  },
+  {
+    "file": "Audio\\mechanisms\\door_slide.wav",
+    "sources": [
+      "D:\\Game audio\\Gamemaster Audio - Pro Sound Collection v1.3 - 16bit 48k\\Doors\\hydraulic_strut_air_gas_shock_door_02.wav"
+    ],
+    "loop": false,
+    "channels": 1,
+    "seconds": 0.822,
+    "rms_db": -22.0,
+    "peak_db": -6.98,
+    "bytes": 78966,
+    "loop_endpoint_delta": null,
+    "processing": "highpass=f=140,lowpass=f=6000",
+    "review": "Technically checked; subjective listening review pending"
+  },
+  {
+    "file": "Audio\\footsteps\\metal_01.wav",
+    "sources": [
+      "D:\\Game audio\\Gamemaster Audio - Pro Sound Collection v1.3 - 16bit 48k\\Footsteps\\footstep_metal_low_walk_01.wav"
+    ],
+    "loop": false,
+    "channels": 1,
+    "seconds": 0.336,
+    "rms_db": -24.89,
+    "peak_db": -3.1,
+    "bytes": 32346,
+    "loop_endpoint_delta": null,
+    "processing": "highpass=f=90,lowpass=f=6500",
+    "review": "Technically checked; subjective listening review pending"
+  },
+  {
+    "file": "Audio\\footsteps\\metal_02.wav",
+    "sources": [
+      "D:\\Game audio\\Gamemaster Audio - Pro Sound Collection v1.3 - 16bit 48k\\Footsteps\\footstep_metal_low_walk_02.wav"
+    ],
+    "loop": false,
+    "channels": 1,
+    "seconds": 0.374,
+    "rms_db": -26.78,
+    "peak_db": -3.1,
+    "bytes": 35916,
+    "loop_endpoint_delta": null,
+    "processing": "highpass=f=90,lowpass=f=6500",
+    "review": "Technically checked; subjective listening review pending"
+  },
+  {
+    "file": "Audio\\footsteps\\metal_03.wav",
+    "sources": [
+      "D:\\Game audio\\Gamemaster Audio - Pro Sound Collection v1.3 - 16bit 48k\\Footsteps\\footstep_metal_low_walk_03.wav"
+    ],
+    "loop": false,
+    "channels": 1,
+    "seconds": 0.314,
+    "rms_db": -28.8,
+    "peak_db": -3.1,
+    "bytes": 30200,
+    "loop_endpoint_delta": null,
+    "processing": "highpass=f=90,lowpass=f=6500",
+    "review": "Technically checked; subjective listening review pending"
+  },
+  {
+    "file": "Audio\\footsteps\\metal_04.wav",
+    "sources": [
+      "D:\\Game audio\\Gamemaster Audio - Pro Sound Collection v1.3 - 16bit 48k\\Footsteps\\footstep_metal_low_walk_04.wav"
+    ],
+    "loop": false,
+    "channels": 1,
+    "seconds": 0.331,
+    "rms_db": -26.47,
+    "peak_db": -3.1,
+    "bytes": 31802,
+    "loop_endpoint_delta": null,
+    "processing": "highpass=f=90,lowpass=f=6500",
+    "review": "Technically checked; subjective listening review pending"
+  },
+  {
+    "file": "Audio\\footsteps\\metal_05.wav",
+    "sources": [
+      "D:\\Game audio\\Gamemaster Audio - Pro Sound Collection v1.3 - 16bit 48k\\Footsteps\\footstep_metal_low_walk_05.wav"
+    ],
+    "loop": false,
+    "channels": 1,
+    "seconds": 0.304,
+    "rms_db": -25.39,
+    "peak_db": -3.1,
+    "bytes": 29260,
+    "loop_endpoint_delta": null,
+    "processing": "highpass=f=90,lowpass=f=6500",
+    "review": "Technically checked; subjective listening review pending"
+  },
+  {
+    "file": "Audio\\footsteps\\metal_06.wav",
+    "sources": [
+      "D:\\Game audio\\Gamemaster Audio - Pro Sound Collection v1.3 - 16bit 48k\\Footsteps\\footstep_metal_low_walk_06.wav"
+    ],
+    "loop": false,
+    "channels": 1,
+    "seconds": 0.364,
+    "rms_db": -22.91,
+    "peak_db": -3.1,
+    "bytes": 35036,
+    "loop_endpoint_delta": null,
+    "processing": "highpass=f=90,lowpass=f=6500",
+    "review": "Technically checked; subjective listening review pending"
+  },
+  {
+    "file": "Audio\\footsteps\\metal_07.wav",
+    "sources": [
+      "D:\\Game audio\\Gamemaster Audio - Pro Sound Collection v1.3 - 16bit 48k\\Footsteps\\footstep_metal_low_walk_07.wav"
+    ],
+    "loop": false,
+    "channels": 1,
+    "seconds": 0.373,
+    "rms_db": -25.35,
+    "peak_db": -3.1,
+    "bytes": 35812,
+    "loop_endpoint_delta": null,
+    "processing": "highpass=f=90,lowpass=f=6500",
+    "review": "Technically checked; subjective listening review pending"
+  },
+  {
+    "file": "Audio\\footsteps\\metal_08.wav",
+    "sources": [
+      "D:\\Game audio\\Gamemaster Audio - Pro Sound Collection v1.3 - 16bit 48k\\Footsteps\\footstep_metal_low_walk_08.wav"
+    ],
+    "loop": false,
+    "channels": 1,
+    "seconds": 0.332,
+    "rms_db": -21.79,
+    "peak_db": -3.1,
+    "bytes": 31922,
+    "loop_endpoint_delta": null,
+    "processing": "highpass=f=90,lowpass=f=6500",
+    "review": "Technically checked; subjective listening review pending"
+  },
+  {
+    "file": "Audio\\UI\\click.wav",
+    "sources": [
+      "D:\\Game audio\\Gamemaster Audio - Pro Sound Collection v1.3 - 16bit 48k\\User_Interface_Menu\\ui_button_simple_click_02.wav"
+    ],
+    "loop": false,
+    "channels": 1,
+    "seconds": 0.081,
+    "rms_db": -21.69,
+    "peak_db": -4.3,
+    "bytes": 7802,
+    "loop_endpoint_delta": null,
+    "processing": "",
+    "review": "Technically checked; subjective listening review pending"
+  },
+  {
+    "file": "Audio\\UI\\confirm.wav",
+    "sources": [
+      "D:\\Game audio\\Gamemaster Audio - Pro Sound Collection v1.3 - 16bit 48k\\User_Interface_Menu\\ui_menu_button_beep_03.wav"
+    ],
+    "loop": false,
+    "channels": 1,
+    "seconds": 0.125,
+    "rms_db": -24.0,
+    "peak_db": -14.91,
+    "bytes": 12028,
+    "loop_endpoint_delta": null,
+    "processing": "",
+    "review": "Technically checked; subjective listening review pending"
+  },
+  {
+    "file": "Audio\\UI\\cancel.wav",
+    "sources": [
+      "D:\\Game audio\\Gamemaster Audio - Pro Sound Collection v1.3 - 16bit 48k\\User_Interface_Menu\\ui_menu_button_cancel_01.wav"
+    ],
+    "loop": false,
+    "channels": 1,
+    "seconds": 0.404,
+    "rms_db": -24.0,
+    "peak_db": -10.37,
+    "bytes": 38866,
+    "loop_endpoint_delta": null,
+    "processing": "",
+    "review": "Technically checked; subjective listening review pending"
+  }
+]

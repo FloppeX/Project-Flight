@@ -151,13 +151,18 @@ static func solve_velocity_guidance(
 				and absf(signed_right_accel_mps2) \
 					< actual_velocity_world.length() * absf(track_error_rad) / response_time_s:
 			var turn_side: float = signf(track_error_rad)
-			if absf(turn_side) < 0.5:
+			if absf(desired_track_right_component) < 0.001:
 				# Positive controller bank corresponds to acceleration toward track-left.
 				turn_side = -signf(fallback_horizontal_bank_rad)
 			if absf(turn_side) < 0.5:
 				turn_side = 1.0
 			signed_right_accel_mps2 = turn_side \
 				* actual_velocity_world.length() * absf(track_error_rad) / response_time_s
+
+	# The reciprocal correction above must reach the vector solver, not remain
+	# an unused scalar. Preserve longitudinal acceleration and replace only lateral.
+	requested_accel_world += track_right * (
+		signed_right_accel_mps2 - requested_accel_world.dot(track_right))
 
 	var desired_vs_mps: float = desired_velocity_world.y
 	var vertical_accel_mps2: float = (

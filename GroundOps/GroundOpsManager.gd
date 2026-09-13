@@ -30,6 +30,7 @@ const PLATOON_NAMES := ["Ember", "Ferret", "Grizzly", "Hammer"]
 @export var carrier_escort_distance_m: float = 100.0
 
 var platoons: Dictionary = {}  # name → GroundVehiclePlatoon
+var rescue_service: Node
 
 var _carrier: Node3D = null
 var _vehicle_bay: VehicleBayManager = null
@@ -42,6 +43,9 @@ var _deploying_platoon_name: String = ""
 # ── Lifecycle ────────────────────────────────────────────────────────────────
 
 func _ready() -> void:
+	rescue_service = preload("res://GroundOps/GroundRescue.gd").new()
+	rescue_service.name = "GroundRescue"
+	add_child(rescue_service)
 	for pname in PLATOON_NAMES:
 		var p := GroundVehiclePlatoon.new()
 		p.name = "Platoon_" + pname
@@ -59,7 +63,7 @@ func _process(delta: float) -> void:
 		return
 	var _profiler_start: int = FrameProfiler.begin("GroundOpsManager.process")
 	_process_deploy_queue()
-	if maintain_carrier_escort and _is_carrier_initial_placement_ready():
+	if maintain_carrier_escort and not GameSession.is_trailer_scenario and _is_carrier_initial_placement_ready():
 		_escort_check_timer_s -= delta
 		if _escort_check_timer_s <= 0.0:
 			_escort_check_timer_s = carrier_escort_check_interval_s
@@ -143,6 +147,21 @@ func _on_platoon_deployed(platoon: GroundVehiclePlatoon) -> void:
 	_deploying_platoon_name = ""
 
 # ── Orders ───────────────────────────────────────────────────────────────────
+
+func order_rescue(platoon_name: String, pilot_node: Node3D) -> bool:
+	var p := get_platoon(platoon_name)
+	if p == null or not is_instance_valid(pilot_node): return false
+	return rescue_service.assign(p, pilot_node)
+
+func order_rescue_near(platoon_name: String, position: Vector3) -> bool:
+	var nearest: Node3D = null
+	var distance := 250.0
+	for pilot in AirOpsManager.get_tracked_downed_pilots():
+		var d := Vector2(pilot.global_position.x - position.x, pilot.global_position.z - position.z).length()
+		if d < distance:
+			distance = d
+			nearest = pilot
+	return order_rescue(platoon_name, nearest) if nearest != null else false
 
 ## Move platoon to a world position.
 func order_move(platoon_name: String, target: Vector3) -> void:
@@ -429,6 +448,7 @@ func get_platoon_status(platoon_name: String) -> Dictionary:
 		"kind": "platoon",
 		"name": platoon_name,
 		"objective": p.get_objective_name(),
+		"passengers": p.get_passenger_count(),
 		"strength": p.get_members().size(),
 		"deployed": has_members,
 		"queued": platoon_name in _deploy_queue or _deploying_platoon_name == platoon_name,
@@ -438,6 +458,12 @@ func get_platoon_status(platoon_name: String) -> Dictionary:
 
 
 func get_campaign_save_blocker() -> String:
+	if is_instance_valid(rescue_service) and not rescue_service.jobs.is_empty():
+		return "A ground rescue is still active"
+	for pname in get_platoon_names():
+		var rescue_platoon := get_platoon(pname)
+		if rescue_platoon != null and rescue_platoon.get_passenger_count() > 0:
+			return "Return rescued passengers to the carrier before saving"
 	if not _deploy_queue.is_empty() or not _deploying_platoon_name.is_empty():
 		return "A ground platoon is still deploying"
 	var assigned_vehicles: Dictionary = {}

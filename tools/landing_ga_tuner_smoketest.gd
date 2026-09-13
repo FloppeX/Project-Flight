@@ -22,6 +22,10 @@ func _run() -> void:
 	tuner.set("case_count", 2)
 	tuner.set("curriculum_level_count", 2)
 	tuner.set("curriculum_promote_catches", 1)
+	tuner.set("baseline_genome", {
+		"landing_final_pitch_gain": 3.125,
+		"landing_sight_guidance_full_remaining_m": 275.0,
+	})
 	tuner.set("state_path", TEMP_PATHS[0])
 	tuner.set("log_path", TEMP_PATHS[1])
 	tuner.set("champion_project_path", TEMP_PATHS[2])
@@ -32,6 +36,7 @@ func _run() -> void:
 		var caught := trial % 2 == 0
 		tuner.call("record_result", assignment, {
 			"outcome": "CAUGHT" if caught else "BOLTER",
+			"stopped": caught,
 			"duration_s": 90.0 + trial,
 			"reached_glideslope": true,
 			"reached_final": true,
@@ -43,11 +48,18 @@ func _run() -> void:
 			"mean_fpv_pitch_error_deg": 0.8,
 		})
 	var status: Dictionary = tuner.call("get_status")
+	var clean_score := float(tuner.call("_score_trial", {"outcome": "CAUGHT", "stopped": true}))
+	var provisional_score := float(tuner.call("_score_trial", {"outcome": "CAUGHT", "stopped": false}))
+	var damaged_score := float(tuner.call("_score_trial", {"outcome": "CAUGHT", "stopped": true, "damage_taken": 10.0}))
+	var baseline: Dictionary = status.get("baseline_genome", {}) as Dictionary
 	var passed := int(status.get("generation", -1)) == 1 \
+		and clean_score > provisional_score and clean_score > damaged_score \
 		and int(status.get("curriculum", -1)) == 1 \
 		and int(status.get("candidate", -1)) == 0 \
 		and int(status.get("case", -1)) == 0 \
-		and FileAccess.file_exists(TEMP_PATHS[2])
+		and FileAccess.file_exists(TEMP_PATHS[2]) \
+		and is_equal_approx(float(baseline.get("landing_final_pitch_gain", 0.0)), 3.125) \
+		and is_equal_approx(float(baseline.get("landing_sight_guidance_full_remaining_m", 0.0)), 275.0)
 	print("LANDING_GA_SMOKETEST %s status=%s" % ["PASS" if passed else "FAIL", JSON.stringify(status)])
 	tuner.queue_free()
 	for path in TEMP_PATHS:

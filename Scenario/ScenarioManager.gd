@@ -96,6 +96,10 @@ func _enter_tree() -> void:
 func _ready():
 	Engine.time_scale = 1.0
 	_setup_vehicle_spawn_menu()
+	if GameSession.is_trailer_scenario:
+		var trailer: Node = load("res://Scenario/Trailer/TrailerScenario.gd").new()
+		trailer.name = "TrailerScenario"
+		add_child(trailer)
 	add_to_group("origin_shifter")
 	_reset_helicopter_log()
 	var profiler_override := _load_frame_profiler_override()

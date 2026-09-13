@@ -253,6 +253,7 @@ func _spawn_custom_explosion(hit_ground: bool, hit_aircraft: bool) -> void:
 	if explosion_scene == null:
 		return
 	var explosion := explosion_scene.instantiate()
+	explosion.set_meta("carrier_damage_event", _carrier_damage_event_id())
 	if not (explosion is Explosion):
 		get_tree().current_scene.add_child(explosion)
 		explosion.global_position = global_position

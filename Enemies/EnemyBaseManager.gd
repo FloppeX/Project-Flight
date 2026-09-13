@@ -50,6 +50,12 @@ func _ready() -> void:
 func _spawn_bases() -> void:
 	if _disabled_for_test:
 		return
+	# Anchor validation is mandatory once the grid is ready. Graph construction
+	# now yields, so grid readiness no longer implies graph readiness.
+	if not NavGraph.is_ready():
+		if not NavGraph.graph_ready.is_connected(_spawn_bases):
+			NavGraph.graph_ready.connect(_spawn_bases, CONNECT_ONE_SHOT)
+		return
 	bases.clear()
 	_clear_managed_emplacements()
 	var pending := _get_pending_save_state()
@@ -240,6 +246,8 @@ func _clear_managed_emplacements() -> void:
 
 func disable_for_heli_test() -> void:
 	_disabled_for_test = true
+	if NavGraph.graph_ready.is_connected(_spawn_bases):
+		NavGraph.graph_ready.disconnect(_spawn_bases)
 	if TerrainNavGrid.bake_complete.is_connected(_spawn_bases):
 		TerrainNavGrid.bake_complete.disconnect(_spawn_bases)
 	for base in bases:

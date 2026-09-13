@@ -89,6 +89,8 @@ func release_pilot(pilot: Node3D) -> void:
 		return
 	if pilot.has_method("set_presentation_active"):
 		pilot.call("set_presentation_active", false)
+	if pilot.has_method("reset_for_pool_storage"):
+		pilot.call("reset_for_pool_storage")
 	if pilot.get_parent() != null:
 		pilot.get_parent().remove_child(pilot)
 	_park_pilot(pilot)

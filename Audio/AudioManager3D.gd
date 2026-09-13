@@ -14,6 +14,8 @@ class_name AudioManager3D
 @export var cockpit_interior_volume_db: float = -36.0
 @export var cockpit_interior_pitch_scale: float = 1.0
 @export var cockpit_interior_silence_db: float = -80.0
+@export var cabin_systems_sound: AudioStream = preload("res://Audio/cockpit/cabin_systems.ogg")
+@export var cabin_systems_volume_db: float = -12.0
 @export var bridge_interior_sound: AudioStream = preload("res://Audio/cockpit/wind_sound_cockpit.wav")
 @export var bridge_interior_bus: String = "Interior"
 @export var bridge_interior_min_volume_db: float = -24.0
@@ -51,6 +53,7 @@ var bridge_audio_effect_secondary: AudioEffectLowPassFilter
 var bridge_audio_effect_high: AudioEffectHighPassFilter
 var bridge_audio_effect_volume: AudioEffectAmplify
 var cockpit_interior_player: AudioStreamPlayer
+var cabin_systems_player: AudioStreamPlayer
 var bridge_interior_player: AudioStreamPlayer
 var carrier: Node3D
 var _aircraft_audio_destroyed: bool = false
@@ -76,6 +79,13 @@ func _ready():
 	_connect_aircraft_audio_signals()
 	create_audio_buses()
 	create_cockpit_interior_player()
+	if cabin_systems_sound:
+		cabin_systems_player = AudioStreamPlayer.new()
+		cabin_systems_player.name = "CabinVentilationAndAvionics"
+		cabin_systems_player.stream = preload("res://Audio/RuntimeAudio.gd").loop_stream(cabin_systems_sound)
+		cabin_systems_player.volume_db = -80.0
+		cabin_systems_player.bus = "Master"
+		add_child(cabin_systems_player)
 	create_bridge_interior_player()
 	setup_audio_effects()
 
@@ -185,6 +195,7 @@ func _process(delta):
 	var control_room_active: bool = has_authority and _is_control_room_camera(current_camera)
 
 	_update_cockpit_interior_player(delta, has_authority and is_cockpit_camera_active())
+	_update_cabin_systems(delta, has_authority and is_cockpit_camera_active())
 	_update_bridge_interior_player(delta, control_room_active)
 
 	# Prevent multiple aircraft audio managers from fighting over the same global buses.
@@ -256,6 +267,17 @@ func _update_cockpit_interior_player(delta: float, cockpit_active: bool):
 
 	if not cockpit_interior_player.playing:
 		cockpit_interior_player.play()
+
+func _update_cabin_systems(delta: float, active: bool) -> void:
+	if cabin_systems_player == null:
+		return
+	active = active and _is_aircraft_audio_alive() and not _ejected_pilot_audio_active
+	var target := cabin_systems_volume_db if active else -80.0
+	cabin_systems_player.volume_db = lerpf(cabin_systems_player.volume_db, target, clampf(delta * 5.0, 0.0, 1.0))
+	if active and not cabin_systems_player.playing:
+		cabin_systems_player.play()
+	elif not active and cabin_systems_player.volume_db < -65.0:
+		cabin_systems_player.stop()
 
 func _update_bridge_interior_player(delta: float, bridge_active: bool):
 	if not bridge_interior_player:

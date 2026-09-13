@@ -14,9 +14,10 @@ max_tension = 850000.0
 linear_k = 1000.0
 linear_c = 3000.0
 braking_damping_n_s_per_m = 3000.0
+max_pay_out = 20.0
 roll_stabilize_gain = 2.0
 roll_level_gain = 10.0
-engaged_downforce_g = 2.0
+engaged_downforce_g = 0.0
 
 [node name="cable_area" type="Area3D" parent="." unique_id=1321572212]
 transform = Transform3D(4982.27, 0, 0, 0, 100, 0, 0, 0, 120, 0, 0.2, -1.58627)

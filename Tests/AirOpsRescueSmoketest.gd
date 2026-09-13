@@ -157,7 +157,7 @@ func _run() -> void:
 	if not _verify_multi_passenger_retasking(air_ops):
 		return
 
-	print("[AirOpsRescueSmoketest] PASS tracked=true freed_helicopter_pruned=true retry=true callback=true parked_takeoff=true Aircraft_11_start=3 multi_pickup=3")
+	print("[AirOpsRescueSmoketest] PASS tracked=true freed_helicopter_pruned=true retry=true callback=true parked_takeoff=true Aircraft_5_start=4 Aircraft_11_start=2 multi_pickup=3")
 	quit(0)
 
 
@@ -236,19 +236,35 @@ func _verify_starting_helicopter_inventory() -> bool:
 	flight_deck_manager.call("_initialize_hangar_with_aircraft")
 	var stored_aircraft: Array = flight_deck_manager.get("stored_aircraft")
 	var utility_count := 0
+	var aircraft_5_count := 0
 	for stored_variant in stored_aircraft:
-		if stored_variant is Dictionary \
-				and str((stored_variant as Dictionary).get("name", "")).begins_with("Aircraft_11"):
+		if not (stored_variant is Dictionary):
+			continue
+		var stored := stored_variant as Dictionary
+		var scene_file := str(stored.get("scene_file", ""))
+		if scene_file.ends_with("/Aircraft_11.tscn"):
 			utility_count += 1
-	if utility_count != 3:
+		elif scene_file.ends_with("/Aircraft_5.tscn"):
+			aircraft_5_count += 1
+	if utility_count != 2:
 		flight_deck_manager.free()
 		carrier_manager.free()
-		_fail("expected 3 starting Aircraft_11 helicopters, got %d" % utility_count)
+		_fail("expected 2 starting Aircraft_11 helicopters, got %d" % utility_count)
 		return false
-	if stored_aircraft.size() != int(flight_deck_manager.get("max_hangar_capacity")):
+	if aircraft_5_count != 4:
 		flight_deck_manager.free()
 		carrier_manager.free()
-		_fail("starting helicopter inventory did not preserve total hangar capacity")
+		_fail("expected 4 starting Aircraft_5 fixed-wing aircraft, got %d" % aircraft_5_count)
+		return false
+	if stored_aircraft.size() != 6:
+		flight_deck_manager.free()
+		carrier_manager.free()
+		_fail("expected 6 aircraft in the starting hangar, got %d" % stored_aircraft.size())
+		return false
+	if int(flight_deck_manager.get("max_hangar_capacity")) != 12:
+		flight_deck_manager.free()
+		carrier_manager.free()
+		_fail("starting loadout unexpectedly changed maximum hangar capacity")
 		return false
 	if not bool(flight_deck_manager.call("can_queue_ai_helicopters", "Aircraft_11")):
 		flight_deck_manager.free()

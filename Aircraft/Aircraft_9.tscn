@@ -94,6 +94,7 @@ hardpoint_id = 1
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.775692, -1.2679851, -0.55)
 mounted_weapon = ExtResource("7_px4s7")
 hardpoint_id = 2
+allowed_weapon_scene_paths = PackedStringArray("res://Weapons/Guns/Hardpoint/10mm_machine_gun_hardpoint.tscn", "res://Weapons/Guns/Hardpoint/15mm_machine_gun_hardpoint.tscn", "res://Weapons/Guns/Hardpoint/20mm_autocannon_hardpoint.tscn", "res://Weapons/Guns/Hardpoint/25mm_autocannon_hardpoint.tscn", "res://Weapons/Guns/Hardpoint/30mm_autocannon_hardpoint.tscn", "res://Weapons/Guns/Hardpoint/40mm_autocannon_hardpoint.tscn", "res://Weapons/RocketPod/rocket_pod.tscn")
 
 [node name="SlidingDoors" type="Node" parent="." unique_id=973064611]
 script = ExtResource("35_sliding_doors")
@@ -282,7 +283,6 @@ script = ExtResource("37_turret_controller")
 weapon_scene = ExtResource("39_side_gun_weapon")
 team = 1
 max_range = 650.0
-aim_skill = 0.72
 burst_length = 1.1
 delay_length = 1.8
 fire_angle_tolerance_deg = 12.0
@@ -296,7 +296,6 @@ script = ExtResource("37_turret_controller")
 weapon_scene = ExtResource("39_side_gun_weapon")
 team = 1
 max_range = 650.0
-aim_skill = 0.72
 burst_length = 1.1
 delay_length = 1.8
 fire_angle_tolerance_deg = 12.0

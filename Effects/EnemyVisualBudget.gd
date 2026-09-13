@@ -568,6 +568,18 @@ func _apply_effect_budget(effect_nodes: Array, allow_effects: bool) -> void:
 			_stats["effects_disabled"] = int(_stats["effects_disabled"]) + 1
 
 
+func set_recording_occupants_active(unit: Node3D, active: bool, owner_key: StringName = &"recording") -> void:
+	if not is_instance_valid(unit): return
+	var cache := _get_cache_for_root(unit)
+	# Replay capture and live trailer cameras can independently request the body.
+	# Repeated requests are idempotent; releasing one owner must not hide another's pilot.
+	var owners: Dictionary = cache.get("occupant_presentation_owners", {})
+	if active: owners[owner_key] = true
+	else: owners.erase(owner_key)
+	cache["occupant_presentation_owners"] = owners
+	var session: Variant = cache.get("presentation_session")
+	if session != null: session.set_recording_occupants_active(not owners.is_empty())
+
 func _apply_ai_aircraft_player_only_budget(unit: Node3D, focused: bool, cache: Dictionary) -> void:
 	var presentation_session = cache.get("presentation_session")
 	if bool(unit.get_meta(PRESENTATION_STAGING_META, false)):
@@ -586,6 +598,8 @@ func _apply_ai_aircraft_player_only_budget(unit: Node3D, focused: bool, cache: D
 		var node := node_value as Node
 		if node == null or not is_instance_valid(node):
 			continue
+		if node.has_method("set_recording_presentation_active") and bool(node.get("_recording_presentation_active")):
+			continue # Only the body is pinned; other cockpit branches stay dormant.
 		_store_original_node_state(node)
 		if node.has_method("set_view_updates_active"):
 			node.call("set_view_updates_active", focused)
@@ -814,10 +828,15 @@ func _is_unit_player_focused(unit: Node3D, camera: Camera3D) -> bool:
 	if _is_player_controlled(unit):
 		return true
 	var director := get_node_or_null("/root/FlightDirector")
-	if director != null and director.get("current_viewed_aircraft") == unit:
+	var presentation_focus: Variant = null
+	if director != null and director.has_method("get_presentation_focus_aircraft"):
+		presentation_focus = director.call("get_presentation_focus_aircraft")
+	elif director != null:
+		presentation_focus = director.get("current_viewed_aircraft")
+	if is_instance_valid(presentation_focus) and presentation_focus == unit:
 		# Camera handoffs can briefly leave the viewport without the final camera.
-		# The director's viewed-aircraft record is the stable authority for UI
-		# budgeting during that handoff.
+		# The director's presentation-focus record is the stable authority for UI
+		# budgeting during that handoff and follows the nearest aircraft in photo mode.
 		return true
 	if camera != null and is_instance_valid(camera) and _is_ancestor_of(unit, camera):
 		return true

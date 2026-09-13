@@ -8,6 +8,31 @@ extends Node
 ## authoritative and can fall back to SceneTree group scans when this is disabled.
 
 const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
+
+## Exact, short-lived view for budgeted sensor batches. Unlike the persistent
+## broad phase, this includes buildings/bases and uses current-frame positions.
+func build_spatial_snapshot(nodes: Array, size_m: float = 2000.0) -> Dictionary:
+	var buckets := {}
+	for value: Variant in nodes:
+		if not is_instance_valid(value) or not value is Node3D or not value.is_inside_tree(): continue
+		var cell := Vector2i(floori(value.global_position.x / size_m), floori(value.global_position.z / size_m))
+		if not buckets.has(cell): buckets[cell] = []
+		buckets[cell].append(value)
+	return {"size": size_m, "buckets": buckets}
+
+func query_spatial_snapshot(snapshot: Dictionary, center: Vector3, radius: float) -> Array[Node3D]:
+	var found: Array[Node3D] = []
+	if radius <= 0.0: return found
+	var size_m: float = snapshot.size
+	var lower := Vector2i(floori((center.x - radius) / size_m), floori((center.z - radius) / size_m))
+	var upper := Vector2i(floori((center.x + radius) / size_m), floori((center.z + radius) / size_m))
+	for x in range(lower.x, upper.x + 1):
+		for z in range(lower.y, upper.y + 1):
+			for value: Variant in snapshot.buckets.get(Vector2i(x, z), []):
+				if is_instance_valid(value) and value.is_inside_tree() and center.distance_squared_to(value.global_position) <= radius * radius:
+					found.append(value)
+	return found
+
 const GROUP_BITS: Dictionary = {
 	"aircraft": 1 << 0,
 	"ai_aircraft": 1 << 1,

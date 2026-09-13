@@ -6,6 +6,7 @@
 [resource]
 script = ExtResource("1_profile_script")
 profile_name = "20 mm Autocannon"
+caliber_mm = 20
 weapon_name = "20 mm Autocannon"
 rounds_per_minute = 400.0
 spread_angle_deg = 0.35

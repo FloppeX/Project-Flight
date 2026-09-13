@@ -1,0 +1,14 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="PackedScene" path="res://Models/Characters/OfficerFemaleCoffee.glb" id="1_officer"]
+[ext_resource type="AnimationLibrary" path="res://Models/Characters/OfficerFemaleCoffeeAnimations.tres" id="2_animations"]
+[ext_resource type="Script" path="res://Models/Characters/OfficerFemaleCoffee.gd" id="3_controller"]
+
+[node name="OfficerFemaleCoffee" instance=ExtResource("1_officer")]
+script = ExtResource("3_controller")
+
+[node name="AnimationPlayer" parent="." index="1"]
+libraries = {
+&"": ExtResource("2_animations")
+}
+autoplay = "Coffee_Hold"

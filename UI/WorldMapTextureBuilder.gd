@@ -69,11 +69,23 @@ static func build_images() -> Dictionary:
 		return {}
 	if not bool(terrain_nav.call("is_ready")) or not bool(nav_graph.call("is_ready")):
 		return {}
+	var profile_started := FrameProfiler.begin("WorldMapTextureBuilder.build_images")
 	var cols: int = int(terrain_nav.get("_cols"))
 	var rows: int = int(terrain_nav.get("_rows"))
 	var heights: PackedFloat32Array = terrain_nav.get("_heights")
 	var clearance: PackedFloat32Array = nav_graph.get("_cl_map")
 	var cell_size := float(terrain_nav.get("cell_size_m"))
+	var layers := build_images_from_snapshot(heights, clearance, cols, rows, cell_size)
+	FrameProfiler.end("WorldMapTextureBuilder.build_images", profile_started)
+	return layers
+
+
+## Pure data path: no SceneTree/autoload/render-server access. Worker-safe when
+## the input arrays are immutable snapshots owned by the calling job.
+static func build_images_from_snapshot(heights: PackedFloat32Array, clearance: PackedFloat32Array,
+		cols: int, rows: int, cell_size: float) -> Dictionary:
+	if cols <= 1 or rows <= 1 or heights.size() != cols * rows or clearance.size() != cols * rows:
+		return {}
 	var render_data := _downsample_for_display(heights, clearance, cols, rows, cell_size)
 	var render_heights: PackedFloat32Array = render_data.get("heights", PackedFloat32Array())
 	var render_clearance: PackedFloat32Array = render_data.get("clearance", PackedFloat32Array())

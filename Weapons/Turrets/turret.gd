@@ -28,8 +28,9 @@ signal fired()
 @export var enable_barrel_recoil: bool = false
 @export_group("Rig Axes")
 @export var auto_detect_barrel_axes: bool = false
-@export var derive_forward_from_muzzle: bool = false
-@export var barrel_forward_axis_local: Vector3 = Vector3.UP
+## Gameplay barrel mounts use +Z forward, +Y up, and +X as the pitch hinge.
+## Correct imported mesh axes on the visual child, not on the aiming pivot.
+@export var barrel_forward_axis_local: Vector3 = Vector3.BACK
 @export var barrel_pitch_axis_local: Vector3 = Vector3.RIGHT
 
 # --- State ---
@@ -45,7 +46,7 @@ var _barrel_rest_basis: Basis = Basis.IDENTITY
 var _barrel_rest_scale: Vector3 = Vector3.ONE
 var _barrel_rest_rotation_basis: Basis = Basis.IDENTITY
 var _barrel_rest_quaternion: Quaternion = Quaternion.IDENTITY
-var _barrel_forward_axis_local: Vector3 = Vector3.FORWARD
+var _barrel_forward_axis_local: Vector3 = Vector3.BACK
 var _barrel_pitch_axis_local: Vector3 = Vector3.RIGHT
 var _barrel_current_pitch: float = 0.0
 
@@ -68,6 +69,9 @@ func _ready() -> void:
 			_barrel_forward_axis_local = barrel_forward_axis_local.normalized()
 			_barrel_pitch_axis_local = barrel_pitch_axis_local.normalized()
 		_barrel_current_pitch = 0.0
+	var servo := preload("res://Audio/TurretServoAudio.gd").new()
+	servo.name = "TurretServoAudio"
+	add_child(servo)
 
 func set_target(target: Node3D) -> void:
 	if current_target != target:
@@ -209,34 +213,16 @@ func get_fallback_firing_origin() -> Vector3:
 	return barrel_mount.global_position
 
 func get_next_firing_transform() -> Transform3D:
-	var valid_points: Array[Node3D] = []
+	# Measure and fire along exactly the same barrel direction. A target request
+	# must not redirect shots while the physical turret is still turning.
+	var result := _get_current_muzzle_transform()
+	var valid_count := 0
 	for point in firing_points:
 		if point and is_instance_valid(point):
-			valid_points.append(point)
-
-	var origin_transform: Transform3D
-	if valid_points.is_empty() and barrel_mount:
-		origin_transform = Transform3D(barrel_mount.global_transform.basis, get_fallback_firing_origin())
-	elif valid_points.is_empty():
-		origin_transform = global_transform
-	else:
-		var point := valid_points[_current_fire_point_idx % valid_points.size()]
-		_current_fire_point_idx = (_current_fire_point_idx + 1) % valid_points.size()
-		origin_transform = point.global_transform
-
-	if not _has_target_position():
-		return origin_transform
-	var target_pos: Vector3 = _get_target_position()
-
-	var fire_dir: Vector3 = (target_pos - origin_transform.origin).normalized()
-	if fire_dir.length_squared() <= 0.0001:
-		return origin_transform
-	var up := Vector3.UP
-	var right := up.cross(fire_dir).normalized()
-	if right.length_squared() <= 0.0001:
-		right = Vector3.RIGHT
-	var corrected_up: Vector3 = fire_dir.cross(right).normalized()
-	return Transform3D(Basis(right, corrected_up, fire_dir), origin_transform.origin)
+			valid_count += 1
+	if valid_count > 0:
+		_current_fire_point_idx = (_current_fire_point_idx + 1) % valid_count
+	return result
 
 func _get_current_muzzle_transform() -> Transform3D:
 	var valid_points: Array[Node3D] = []
@@ -246,10 +232,6 @@ func _get_current_muzzle_transform() -> Transform3D:
 
 	if not valid_points.is_empty():
 		var point := valid_points[_current_fire_point_idx % valid_points.size()]
-		if derive_forward_from_muzzle and barrel_mount and is_instance_valid(barrel_mount):
-			var pivot_to_muzzle: Vector3 = point.global_position - barrel_mount.global_position
-			if pivot_to_muzzle.length_squared() > 0.0001:
-				return _build_forward_transform(point.global_position, pivot_to_muzzle.normalized())
 		return _get_barrel_forward_transform(point.global_position)
 
 	if barrel_mount and is_instance_valid(barrel_mount):
@@ -304,7 +286,7 @@ func _get_yaw_mount() -> Node3D:
 
 func _determine_barrel_forward_axis_local() -> Vector3:
 	if not (barrel_mount is MeshInstance3D):
-		return Vector3.FORWARD
+		return Vector3.BACK
 	var mesh_instance := barrel_mount as MeshInstance3D
 	var aabb: AABB = mesh_instance.get_aabb()
 	var extents := [aabb.size.x, aabb.size.y, aabb.size.z]

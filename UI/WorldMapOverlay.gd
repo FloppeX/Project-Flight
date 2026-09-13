@@ -134,6 +134,10 @@ var _map_view_center_uv: Vector2 = Vector2(0.5, 0.5)
 var _syncing_pan_controls: bool = false
 var _right_trigger_pressed: bool = false
 var _left_trigger_pressed: bool = false
+var _monitor_preview_viewport: Viewport = null
+var _monitor_preview_only: bool = false
+var _console_visible: bool = false
+var _main_viewport_size: Vector2 = Vector2.ZERO
 
 func _ready() -> void:
 	add_to_group("origin_shifter")
@@ -141,6 +145,7 @@ func _ready() -> void:
 	layer = 190
 	set_process(true)
 	_build_ui()
+	_main_viewport_size = _root.size
 	_rebuild_asset_buttons()
 	_rebuild_mission_buttons()
 	_refresh_ui(true)
@@ -149,6 +154,8 @@ func _ready() -> void:
 		TerrainNavGrid.bake_complete.connect(_on_navgrid_bake_complete)
 	if not NavGraph.graph_ready.is_connected(_on_navgraph_ready):
 		NavGraph.graph_ready.connect(_on_navgraph_ready)
+	TerrainMapCache.map_invalidated.connect(_invalidate_map_layers)
+	TerrainMapCache.map_ready.connect(_ensure_map_texture)
 	if TerrainNavGrid.is_ready():
 		call_deferred("_ensure_map_texture")
 	call_deferred("_ensure_carrier_route_signal")
@@ -159,7 +166,7 @@ func apply_origin_shift(offset: Vector3) -> void:
 	_refresh_ui()
 
 func _input(event: InputEvent) -> void:
-	if _root == null or not _root.visible:
+	if _root == null or not _console_visible:
 		return
 	if event is InputEventKey:
 		var key_event := event as InputEventKey
@@ -174,7 +181,7 @@ func _input(event: InputEvent) -> void:
 		_handle_map_trigger_zoom(event as InputEventJoypadMotion)
 
 func _process(delta: float) -> void:
-	if _root == null or not _root.visible:
+	if _root == null or not _console_visible:
 		return
 	_ui_refresh_timer_s -= delta
 	if _ui_refresh_timer_s <= 0.0:
@@ -265,9 +272,11 @@ func _build_ui() -> void:
 	_left_panel.add_child(_draft_summary)
 
 	_confirm_button = _make_button("CONFIRM", VECTOR_TEXT_COLOR)
+	_confirm_button.set_meta("audio_cue", &"confirm")
 	_confirm_button.pressed.connect(_confirm_draft)
 	_confirm_button.alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_cancel_button = _make_button("CANCEL", VECTOR_AMBER_COLOR)
+	_cancel_button.set_meta("audio_cue", &"cancel")
 	_cancel_button.pressed.connect(_cancel_draft)
 	_cancel_button.alignment = HORIZONTAL_ALIGNMENT_CENTER
 
@@ -372,7 +381,13 @@ func _build_ui() -> void:
 	_footer_right.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_footer_panel.add_child(_footer_right)
 
-	_root.resized.connect(_layout_ui)
+	_root.resized.connect(_on_root_resized)
+	_layout_ui()
+
+
+func _on_root_resized() -> void:
+	if not _monitor_preview_only:
+		_main_viewport_size = _root.size
 	_layout_ui()
 
 func _layout_ui() -> void:
@@ -491,14 +506,34 @@ func _layout_ui() -> void:
 func _set_open(is_open: bool) -> void:
 	if _root == null:
 		return
-	_root.visible = is_open
+	_console_visible = is_open
+	_monitor_preview_only = not is_open and is_instance_valid(_monitor_preview_viewport)
+	if is_open:
+		custom_viewport = get_tree().root
+		if not _main_viewport_size.is_zero_approx():
+			_root.size = _main_viewport_size
+	elif _monitor_preview_only:
+		custom_viewport = _monitor_preview_viewport
+		_root.size = Vector2(_monitor_preview_viewport.size)
+	_root.visible = is_open or _monitor_preview_only
+	# A CanvasLayer routed to a SubViewport can still participate in the main
+	# window's GUI hit test. Disable the entire tactical control branch while it
+	# is only being used as a read-only physical-monitor texture.
+	_root.mouse_behavior_recursive = (
+		Control.MOUSE_BEHAVIOR_INHERITED
+		if is_open
+		else Control.MOUSE_BEHAVIOR_DISABLED
+	)
+	set_process(is_open)
+	if _symbol_layer != null and _symbol_layer.has_method("set_continuous_updates"):
+		_symbol_layer.call("set_continuous_updates", is_open)
 	if not is_open:
 		_right_trigger_pressed = false
 		_left_trigger_pressed = false
 		if _mission_popup != null:
 			_mission_popup.visible = false
 			_mission_popup_source = null
-	if is_open:
+	if _root.visible:
 		_ensure_map_texture()
 		_apply_map_view()
 		_refresh_ui(true)
@@ -506,8 +541,43 @@ func _set_open(is_open: bool) -> void:
 func set_console_visible(is_visible: bool) -> void:
 	_set_open(is_visible)
 
+
+func set_monitor_preview_viewport(viewport: Viewport) -> void:
+	_monitor_preview_viewport = viewport
+	_set_open(_console_visible)
+
+
+func clear_monitor_preview_viewport(viewport: Viewport) -> void:
+	if viewport != _monitor_preview_viewport:
+		return
+	_monitor_preview_viewport = null
+	_monitor_preview_only = false
+	custom_viewport = get_tree().root
+	if _root != null:
+		_root.visible = _console_visible
+		_root.mouse_behavior_recursive = (
+			Control.MOUSE_BEHAVIOR_INHERITED
+			if _console_visible
+			else Control.MOUSE_BEHAVIOR_DISABLED
+		)
+	set_process(_console_visible)
+	if _symbol_layer != null and _symbol_layer.has_method("set_continuous_updates"):
+		_symbol_layer.call("set_continuous_updates", _console_visible)
+
+
+func request_monitor_preview_refresh(delta: float = 0.1) -> void:
+	if not _monitor_preview_only or _root == null or not _root.visible:
+		return
+	_ui_refresh_timer_s -= maxf(delta, 0.0)
+	if _ui_refresh_timer_s <= 0.0:
+		_refresh_ui()
+		_ui_refresh_timer_s = 0.2
+	elif _symbol_layer != null and _symbol_layer.has_method("refresh_now"):
+		_symbol_layer.call("refresh_now")
+
+
 func is_console_visible() -> bool:
-	return _root != null and _root.visible
+	return _console_visible
 
 func set_fog_mask_suppressed(suppressed: bool) -> void:
 	_fog_mask_suppressed = suppressed
@@ -693,11 +763,11 @@ func _ensure_map_texture() -> void:
 		return
 	_map_status.text = "Rendering relief and mobility..."
 	_map_status.visible = true
-	var textures := WorldMapTextureBuilder.build_textures()
+	var textures := TerrainMapCache.get_textures()
 	var relief_texture := textures.get("relief") as ImageTexture
 	var mobility_texture := textures.get("mobility") as ImageTexture
 	if relief_texture == null or mobility_texture == null:
-		_map_status.text = "Map render failed"
+		_map_status.text = "Rendering relief and mobility..."
 		return
 	_map_texture = relief_texture
 	_mobility_texture = mobility_texture
@@ -1095,7 +1165,13 @@ func _confirm_draft() -> void:
 		AssetKind.FLIGHT:
 			_confirm_flight_order()
 		AssetKind.PLATOON:
-			_confirm_platoon_order()
+			if _selected_mission_id == "RESCUE":
+				accepted = not _draft_points.is_empty() and GroundOpsManager.order_rescue_near(_selected_asset_name, _draft_points[0])
+				if not accepted:
+					_set_command_error("NO AVAILABLE GROUND RESCUE: select an unassigned downed pilot near a usable route")
+					_refresh_ui()
+			else:
+				_confirm_platoon_order()
 		AssetKind.CARRIER:
 			accepted = _confirm_carrier_order()
 		_:
@@ -1326,6 +1402,7 @@ func _get_selected_mission_specs() -> Array[Dictionary]:
 			return [
 				{"id": "MOVE", "label": "> MOVE", "accent": VECTOR_TEXT_COLOR},
 				{"id": "RECON", "label": "> RECON", "accent": VECTOR_TEXT_COLOR},
+				{"id": "RESCUE", "label": "> RESCUE PILOT", "accent": VECTOR_STATUS_COLOR},
 				{"id": "ATTACK", "label": "> ATTACK", "accent": VECTOR_AMBER_COLOR},
 				{"id": "PROTECT", "label": "> PROTECT", "accent": VECTOR_STATUS_COLOR},
 				{"id": "ESCORT", "label": "> ESCORT", "accent": VECTOR_TEXT_COLOR},
@@ -1430,7 +1507,7 @@ func _get_active_command_error() -> String:
 	return ""
 
 func _mission_requires_target(mission_id: String) -> bool:
-	return mission_id in ["CAP", "CAS", "INTERDICTION", "STRIKE", "MOVE", "RECON", "ATTACK", "PROTECT"]
+	return mission_id in ["CAP", "CAS", "INTERDICTION", "STRIKE", "MOVE", "RECON", "RESCUE", "ATTACK", "PROTECT"]
 
 func _mission_allows_waypoints(mission_id: String) -> bool:
 	return mission_id == "CAP"

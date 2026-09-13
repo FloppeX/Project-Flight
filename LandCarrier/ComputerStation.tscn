@@ -1,0 +1,34 @@
+[gd_scene format=3 uid="uid://okhrh7g8al0e"]
+
+[ext_resource type="Script" uid="uid://c4nra4h3plxhc" path="res://LandCarrier/ComputerStation.gd" id="1_station"]
+[ext_resource type="PackedScene" uid="uid://d03ge4ojfpcdy" path="res://Models/computer station.glb" id="2_model"]
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_station"]
+size = Vector3(1.55, 1.5, 0.8144287)
+
+[node name="ComputerStation" type="Node3D" unique_id=352409899 groups=["computer_station"]]
+script = ExtResource("1_station")
+
+[node name="Model" parent="." unique_id=959687557 instance=ExtResource("2_model")]
+
+[node name="InteractionTarget" type="Marker3D" parent="." unique_id=1089659773]
+transform = Transform3D(1, 0, 0, 0, 0.85172695, 0.5239859, 0, -0.5239859, 0.85172695, 0.0243, 1.0643, -0.3025)
+
+[node name="UsePrompt" type="Label3D" parent="InteractionTarget" unique_id=1368424814]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0.006)
+visible = false
+pixel_size = 0.0018
+modulate = Color(0.462745, 0.780392, 0.780392, 1)
+outline_modulate = Color(0.0352941, 0.0470588, 0.0470588, 0.95)
+text = "[A]  OPEN TACTICAL"
+outline_size = 5
+
+[node name="CameraAnchor" type="Marker3D" parent="." unique_id=1548896479]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.5816084, 0.5704622)
+
+[node name="PhysicsBody" type="StaticBody3D" parent="." unique_id=1675839942]
+collision_mask = 0
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="PhysicsBody" unique_id=359437550]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.75, -0.21968988)
+shape = SubResource("BoxShape3D_station")

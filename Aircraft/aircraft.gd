@@ -13,10 +13,18 @@ const PROJECTILE_SPEED_CAP_SETTING_KEYS: Array[String] = [
 	"physics/3d/max_linear_velocity",
 ]
 
+## Reserved for damaging/fatal impacts rather than ordinary gear contact.
 signal crashed(impact_velocity)
+## Emitted once per runway/carrier gear-contact episode. `details` contains surface,
+## descent_speed_mps, relative_speed_mps, hard, damaging, and position.
+signal touchdown(details: Dictionary)
+## A touchdown above max_landing_force. Check `details.damaging` to distinguish
+## a rough but survivable arrival from one that also emits `crashed`.
+signal hard_landing(details: Dictionary)
 signal parked
 signal moved
 signal damaged(damage_amount, current_health)
+signal combat_damage_received(amount: float, source: StringName)
 signal destroyed
 signal pilot_killed(pilot_id: String)
 
@@ -87,6 +95,7 @@ var current_health: float:
 
 
 @export var max_landing_force: float = 3.0
+@export var touchdown_signal_cooldown_s: float = 1.5
 @export var gravity_factor: float = 1.0 # Normalized to Earth average at sea level
 @export var sea_level_from_origin: float = 0.0
 @export var altitude_enabled: bool = true
@@ -169,6 +178,8 @@ var _terrain_safety_cache_center_ground_y: float = NAN
 var _terrain_safety_cache_result: bool = true
 var _effective_agl_cache_physics_frame: int = -1
 var _effective_agl_cache_value_m: float = NAN
+var _last_touchdown_signal_physics_frame: int = -1000000
+var _last_touchdown_signal_severity: int = -1
 
 func _ready():
 	# Register before the startup-frame await. FloatingOrigin may shift as soon as
@@ -379,22 +390,35 @@ func _on_Aircraft_body_shape_entered(body_rid, body, body_shape_index, local_sha
 	# If the colliding body is a projectile, let the projectile's script handle the damage.
 	if body is ProjectileNew:
 		return
-	var collider_shape = shape_owner_get_owner(local_shape_index)
+	# Contact signals carry a physics shape index, not a shape-owner ID.
+	# Replacing a folding-wing shape can reorder indices without changing owners.
+	if local_shape_index < 0 or local_shape_index >= PhysicsServer3D.body_get_shape_count(get_rid()):
+		return
+	var shape_owner_id := shape_find_owner(local_shape_index)
+	if shape_owner_id < 0:
+		return
+	var collider_shape = shape_owner_get_owner(shape_owner_id)
+	set_meta("last_collision_local_shape", str(collider_shape.name) if is_instance_valid(collider_shape) else "unknown")
+	set_meta("last_collision_local_shape_index", local_shape_index)
+	set_meta("last_collision_other_shape_index", body_shape_index)
+	set_meta("last_collision_safe_gear", collider_shape in safe_colliders)
 	var impact_force = linear_velocity.length()
 	_record_collision_diagnostics(body, impact_force)
 	if _is_runway_surface(body):
 		if collider_shape in safe_colliders:
-			var landing_force = linear_velocity.dot(global_transform.basis.y)
-			land(landing_force, impact_force)
+			var descent_speed_mps := maxf(-linear_velocity.dot(Vector3.UP), 0.0)
+			land(descent_speed_mps, impact_force, "runway")
 		else:
 			_evaluate_terrain_impact()
 		return
 	if _is_carrier_body(body):
 		if collider_shape in safe_colliders:
-			var landing_force = linear_velocity.dot(global_transform.basis.y)
-			land(landing_force, impact_force)
+			var carrier_velocity := _get_carrier_contact_velocity(body)
+			var relative_velocity := linear_velocity - carrier_velocity
+			var descent_speed_mps := maxf(-relative_velocity.dot(Vector3.UP), 0.0)
+			land(descent_speed_mps, relative_velocity.length(), "carrier")
 		else:
-			_handle_carrier_body_contact(body)
+			_handle_carrier_body_contact(body, local_shape_index)
 		return
 	# Terrain-specific handling
 	if _is_ground_or_terrain(body):
@@ -404,8 +428,8 @@ func _on_Aircraft_body_shape_entered(body_rid, body, body_shape_index, local_sha
 		return
 	
 	if collider_shape in safe_colliders:
-		var landing_force = linear_velocity.dot(global_transform.basis.y)
-		land(landing_force, impact_force)
+		var descent_speed_mps := maxf(-linear_velocity.dot(Vector3.UP), 0.0)
+		land(descent_speed_mps, impact_force, "other")
 	else:
 		crash(impact_force)
 
@@ -437,11 +461,56 @@ func unregister_safe_collider(collider: CollisionShape3D):
 	if collider in safe_colliders:
 		safe_colliders.erase(collider)
 
-func land(landing_velocity: float, impact_velocity: float):
-	if landing_velocity > max_landing_force:
-		crash(landing_velocity)
+func land(
+	descent_speed_mps: float,
+	relative_speed_mps: float,
+	surface: String = "other"
+) -> void:
+	## Gear contact is not automatically a crash. The old implementation used
+	## velocity along the aircraft's tilted up axis and emitted `crashed` above
+	## 3 m/s even when no damage was applied. Classify the contact from the
+	## surface-relative vertical speed and publish its severity explicitly.
+	descent_speed_mps = maxf(descent_speed_mps, 0.0)
+	relative_speed_mps = maxf(relative_speed_mps, 0.0)
+	var hard_threshold_mps := maxf(max_landing_force, 0.0)
+	var crash_threshold_mps := maxf(hard_crash_vertical_speed, hard_threshold_mps)
+	var is_hard := descent_speed_mps > hard_threshold_mps
+	var is_damaging := descent_speed_mps > crash_threshold_mps
+	var details := {
+		"surface": surface,
+		"descent_speed_mps": descent_speed_mps,
+		"relative_speed_mps": relative_speed_mps,
+		"hard": is_hard,
+		"damaging": is_damaging,
+		"hard_threshold_mps": hard_threshold_mps,
+		"crash_threshold_mps": crash_threshold_mps,
+		"position": global_position,
+	}
+	_publish_touchdown(details)
+	if is_damaging:
+		crash(descent_speed_mps)
 
-func _handle_carrier_body_contact(body: Node) -> void:
+
+func _publish_touchdown(details: Dictionary) -> void:
+	set_meta("last_touchdown_details", details.duplicate(true))
+	var severity := 2 if bool(details.get("damaging", false)) \
+		else (1 if bool(details.get("hard", false)) else 0)
+	var now_frame := Engine.get_physics_frames()
+	var cooldown_frames := ceili(
+		maxf(touchdown_signal_cooldown_s, 0.0) * float(Engine.physics_ticks_per_second)
+	)
+	var inside_cooldown := now_frame - _last_touchdown_signal_physics_frame < cooldown_frames
+	# Multiple gear shapes normally contact within a few physics ticks. Publish
+	# the first contact and any later severity escalation, not one event per wheel.
+	if inside_cooldown and severity <= _last_touchdown_signal_severity:
+		return
+	_last_touchdown_signal_physics_frame = now_frame
+	_last_touchdown_signal_severity = severity
+	touchdown.emit(details)
+	if bool(details.get("hard", false)):
+		hard_landing.emit(details)
+
+func _handle_carrier_body_contact(body: Node, local_shape_index: int = -1) -> void:
 	if _is_managed_by_carrier_deck_ops():
 		if debug_damage:
 			print("[Aircraft] ignored carrier body contact during deck ops body=", body.name if body != null else "?")
@@ -455,7 +524,7 @@ func _handle_carrier_body_contact(body: Node) -> void:
 	var damage_amount := maxf(carrier_body_contact_min_damage, 0.0) \
 			+ relative_speed * maxf(carrier_body_contact_damage_per_mps, 0.0)
 	if damage_amount > 0.0:
-		take_damage(damage_amount)
+		take_damage(damage_amount, local_shape_index)
 	if debug_damage:
 		print("[Aircraft] carrier body contact body=", body.name if body != null else "?",
 				" rel_speed=", snapped(relative_speed, 0.1),
@@ -523,16 +592,22 @@ func _handle_safe_gear_terrain_contact() -> bool:
 	return true
 
 func crash(impact_velocity: float):
-	emit_signal("crashed", impact_velocity)
 	# If we are already under terrain, force destruction instead of ignoring impact.
 	# This prevents the aircraft from tunneling through ground and recovering later.
 	var is_below_ground: bool = _is_below_terrain()
+	var damage_threshold_mps := maxf(hard_crash_vertical_speed, 0.0)
+	# A low-speed collision that neither damages nor destroys the aircraft is not
+	# a crash. Callers that need contact telemetry should use touchdown instead.
+	if not is_below_ground and impact_velocity <= damage_threshold_mps:
+		return
+	emit_signal("crashed", impact_velocity)
 	if is_below_ground:
 		explode()
 		return
-	# Apply a mild crash damage if speed is high
-	if impact_velocity > 10.0:
-		var damage_amount = (impact_velocity - 10.0) * 2.0
+	# Apply mild crash damage above the same threshold used by gear-contact
+	# classification, so `crashed` always denotes a damaging or fatal event.
+	if impact_velocity > damage_threshold_mps:
+		var damage_amount = (impact_velocity - damage_threshold_mps) * 2.0
 		take_damage(damage_amount)
 
 func _is_below_terrain() -> bool:
@@ -545,14 +620,9 @@ func _is_below_terrain() -> bool:
 
 func _evaluate_terrain_impact_normal() -> Vector3:
 	# Try to get terrain normal beneath aircraft by raycast down
-	var space_state: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
 	var from: Vector3 = global_position + Vector3.UP * ground_probe_up
 	var to: Vector3 = global_position - Vector3.UP * ground_probe_down
-	var params: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(from, to)
-	params.exclude = [self]
-	# Use all physics layers so terrain checks work with any Terrain3D layer setup.
-	params.collision_mask = 0xFFFFFFFF
-	var hit: Dictionary = space_state.intersect_ray(params)
+	var hit := _raycast_ground_surface(from, to)
 	if hit and hit.has("normal"):
 		return (hit.normal as Vector3).normalized()
 	return Vector3.UP
@@ -631,16 +701,40 @@ func _get_ground_height_at_position(world_pos: Vector3) -> float:
 		if not is_nan(terrain_h):
 			return terrain_h
 
-	var space_state: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
 	var from: Vector3 = world_pos + Vector3.UP * ground_probe_up
 	var to: Vector3 = world_pos - Vector3.UP * ground_probe_down
-	var params: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(from, to)
-	params.exclude = [self]
-	params.collision_mask = 0xFFFFFFFF
-	var hit: Dictionary = space_state.intersect_ray(params)
+	var hit := _raycast_ground_surface(from, to)
 	if hit and hit.has("position"):
 		return float(hit.position.y)
 	return NAN
+
+func _raycast_ground_surface(from: Vector3, to: Vector3) -> Dictionary:
+	# Airborne traffic is not terrain. In terrain-less scenes the old upward-start
+	# ray could hit an aircraft overhead and make the lower aircraft "underground."
+	# Keep carrier/terrain hits and skip aircraft bodies without changing collisions.
+	var params: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(from, to)
+	params.exclude = [get_rid()]
+	params.collision_mask = 0xFFFFFFFF
+	var space_state := get_world_3d().direct_space_state
+	for attempt in 16:
+		var hit := space_state.intersect_ray(params)
+		if hit.is_empty():
+			return {}
+		var body: Node = hit.get("collider")
+		var ancestor := body
+		var aircraft_hit := false
+		while ancestor != null:
+			if ancestor is RigidBody3D and ancestor.has_method("_enforce_above_terrain"):
+				aircraft_hit = true
+				break
+			ancestor = ancestor.get_parent()
+		if not aircraft_hit:
+			return hit
+		var excluded := params.exclude
+		excluded.append(hit.rid)
+		params.exclude = excluded
+	# Too many overlapping aircraft: unknown is safer than a fabricated ground hit.
+	return {}
 
 func _get_terrain_height_api(terrain: Node, world_pos: Vector3) -> float:
 	if terrain == null:
@@ -896,6 +990,14 @@ func check_movement_state():
 #  DAMAGE SYSTEM
 # ----------------------------------------------------------------------------
 
+func take_projectile_damage_at(damage_amount: float, world_position: Vector3, local_shape_index: int = -1) -> StringName:
+	if damage_amount <= 0.0 or current_health <= 0.0 or _has_exploded:
+		return &""
+	# Source only: the victim is not given the shooter's identity or hidden position.
+	# Emit before regional damage; component hits need not spend hull health.
+	combat_damage_received.emit(damage_amount, &"projectile")
+	return take_damage_at(damage_amount, world_position, local_shape_index)
+
 func take_damage_at(
 	damage_amount: float,
 	world_position: Vector3 = Vector3.INF,
@@ -914,7 +1016,7 @@ func get_part_damage_state() -> Dictionary:
 		return part_damage_model.call("get_damage_state") as Dictionary
 	return {}
 
-func take_damage(damage_amount: float):
+func take_damage(damage_amount: float, local_shape_index: int = -1):
 	if current_health <= 0 or _critical_damage_active or _has_exploded:
 		return  # Already destroyed
 	# Keep the collision-frame cooldown for both legacy and regional aircraft.
@@ -928,10 +1030,14 @@ func take_damage(damage_amount: float):
 		return
 	_last_damage_ms = now_ms
 	# Aircraft with localized damage no longer spend a second shared hull pool.
-	# Damage without shape information is treated as a fuselage hit.
+	# Preserve the contact's actual region without bypassing the collision cooldown.
+	# Damage without shape information is still treated as a fuselage hit.
 	var part_damage_model := get_node_or_null("PartDamageModel")
 	if part_damage_model != null and part_damage_model.has_method("damage_zone"):
-		part_damage_model.call("damage_zone", &"fuselage", damage_amount)
+		var zone: StringName = &"fuselage"
+		if local_shape_index >= 0 and part_damage_model.has_method("resolve_zone_from_contact"):
+			zone = part_damage_model.call("resolve_zone_from_contact", local_shape_index)
+		part_damage_model.call("damage_zone", zone, damage_amount)
 		return
 	
 	# Apply damage
@@ -1457,6 +1563,29 @@ func calculate_ccip_impact_point() -> Dictionary:
 	return result
 
 
+# Shared by the player sight and AI. The comparison switch is diagnostic-only;
+# projectile collision behavior and the RocketPod burst scheduler are untouched.
+var rocket_ccip_ignore_projectiles: bool = true
+
+func _intersect_rocket_ccip_segment(space: PhysicsDirectSpaceState3D, query: PhysicsRayQueryParameters3D) -> Dictionary:
+	var hit: Dictionary = space.intersect_ray(query)
+	if not rocket_ccip_ignore_projectiles:
+		return hit
+	# A snapshot ray treats a previously fired rocket as motionless scenery. That
+	# produces a near-muzzle "impact" and a violent false correction mid-salvo.
+	# Skip only projectile bodies, then test the SAME segment for real obstructions.
+	# No scene-wide scan; extra queries occur only on projectile intersections.
+	for attempt in 16:
+		var body: Variant = hit.get("collider", null)
+		if not is_instance_valid(body) or not body is ProjectileNew:
+			return hit
+		var exclusions := query.exclude
+		exclusions.append(hit.rid)
+		query.exclude = exclusions
+		hit = space.intersect_ray(query)
+	# If the bounded retry budget is exhausted, keep the remaining obstruction.
+	return hit
+
 func calculate_rocket_ccip_impact_point(target_pos: Vector3 = Vector3.INF, intended_target: Node = null) -> Dictionary:
 	"""Calculate where a rocket would hit if fired right now"""
 	var result = {
@@ -1567,7 +1696,7 @@ func calculate_rocket_ccip_impact_point(target_pos: Vector3 = Vector3.INF, inten
 		var query: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(current_pos, next_pos)
 		query.exclude = [self]
 		query.collision_mask = 0xFFFFFFFF
-		var hit_result: Dictionary = space_state.intersect_ray(query)
+		var hit_result: Dictionary = _intersect_rocket_ccip_segment(space_state, query)
 		if hit_result:
 			result.has_impact = true
 			result.impact_position = hit_result.position

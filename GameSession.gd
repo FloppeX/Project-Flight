@@ -10,6 +10,10 @@ const MAP_LAYERED_BADLANDS := "layered_badlands"
 const DEFAULT_MAP_ID := MAP_OPEN_CANYONS
 
 var is_new_game: bool = false
+var is_trailer_scenario: bool = false
+# Filming preferences only; intentionally survive scenario resets, never saved
+# into a campaign or held as references to live aircraft.
+var trailer_camera_presets: Dictionary = {}
 var carrier_name: String = DEFAULT_CARRIER_NAME
 var carrier_primary_color: Color = DEFAULT_PRIMARY_COLOR
 var carrier_secondary_color: Color = DEFAULT_SECONDARY_COLOR
@@ -28,6 +32,7 @@ func configure_new_game(
 		map_id: String = DEFAULT_MAP_ID
 ) -> void:
 	is_new_game = true
+	is_trailer_scenario = false
 	_pending_save_state.clear()
 	carrier_name = _clean_carrier_name(new_carrier_name)
 	carrier_primary_color = primary_color
@@ -67,6 +72,7 @@ func apply_to_carrier(carrier: Node) -> void:
 
 func reset_to_defaults() -> void:
 	is_new_game = false
+	is_trailer_scenario = false
 	_pending_save_state.clear()
 	carrier_name = DEFAULT_CARRIER_NAME
 	carrier_primary_color = DEFAULT_PRIMARY_COLOR
@@ -87,6 +93,7 @@ func prepare_loaded_game(save_state: Dictionary) -> bool:
 	if not (session_variant is Dictionary):
 		return false
 	_pending_save_state = save_state.duplicate(true)
+	is_trailer_scenario = false
 	var session := session_variant as Dictionary
 	is_new_game = false
 	carrier_name = _clean_carrier_name(str(session.get("carrier_name", DEFAULT_CARRIER_NAME)))

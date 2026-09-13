@@ -11,12 +11,14 @@ const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
 ##   Y (switch_camera) - cycle cockpit / chase / cinematic for the viewed aircraft
 ##   Start             - toggle player / AI control for the viewed aircraft
 ##   Spacebar          - enter free camera / cycle free camera anchor target
+##   L                 - order the friendly fixed-wing nearest the camera to recover
 ##   W                 - place a wind turbine at the free camera position
 
 enum Category { BRIDGE, FRIENDLY, ENEMY }
 enum AircraftTransitionPhase { NONE, EGRESS, TRANSFER, WAITING_FOR_PRESENTATION, ARRIVAL }
 
 const WIND_TURBINE_SCENE: PackedScene = preload("res://Buildings/building_wind_turbine.tscn")
+const FREE_CAMERA_VIEW_SOURCE_META: StringName = &"free_camera_view_source"
 
 var current_category: Category = Category.BRIDGE
 var friendly_index: int = 0
@@ -40,9 +42,6 @@ var player_controlled_plane: RigidBody3D = null
 @export var free_camera_max_speed_mps: float = 100.0
 @export var free_camera_look_sensitivity_deg: float = 120.0
 @export var free_camera_pitch_limit_deg: float = 85.0
-@export var bridge_free_camera_rear_distance_m: float = 2.5
-@export var bridge_free_camera_above_focus_m: float = 1.25
-@export var bridge_free_camera_focus_height_m: float = 1.05
 @export var enable_audio_debug_logging: bool = false
 @export var enable_audio_test_tones: bool = false
 @export var audio_debug_interval_s: float = 3.0
@@ -70,7 +69,10 @@ var _free_camera_active: bool = false
 var _free_camera: Camera3D = null
 var _free_camera_yaw: float = 0.0
 var _free_camera_pitch: float = 0.0
+var _free_camera_roll: float = 0.0
 var _photo_mode_camera_active: bool = false
+var recording_camera_active: bool = false
+var trailer_camera_active: bool = false
 var _photo_mode_started_free_camera: bool = false
 var _status_overlay_layer: CanvasLayer = null
 var _ai_status_label: Label = null
@@ -198,6 +200,7 @@ var _audio_debug_timer: float = 0.0
 var _audio_test_player: AudioStreamPlayer = null
 var _audio_test_started: bool = false
 func _process(delta: float) -> void:
+	if recording_camera_active or trailer_camera_active: return
 	_update_aircraft_camera_transition(delta)
 	_sync_viewed_aircraft_ui()
 	_update_ai_status_overlay()
@@ -219,10 +222,12 @@ func _process(delta: float) -> void:
 	_finish_destroyed_plane_linger()
 
 func _physics_process(delta: float) -> void:
+	if recording_camera_active or trailer_camera_active: return
 	if _free_camera_active:
 		_update_free_camera(delta)
 
 func _input(event):
+	if recording_camera_active or trailer_camera_active: return
 	# Photo mode owns the face buttons while this camera remains available for
 	# continuous stick input in _physics_process().
 	if _photo_mode_camera_active:
@@ -237,8 +242,16 @@ func _input(event):
 		get_viewport().set_input_as_handled()
 		return
 
-	# Space is the sole direct gameplay key handled here. All other keyboard
-	# controls must be assigned through the Input Map.
+	if event is InputEventKey and event.pressed and not event.echo \
+	and event.physical_keycode == KEY_L \
+	and not event.shift_pressed and not event.ctrl_pressed \
+	and not event.alt_pressed and not event.meta_pressed:
+		command_closest_friendly_to_land()
+		get_viewport().set_input_as_handled()
+		return
+
+	# Space and L are direct camera-context commands. All other keyboard controls
+	# must be assigned through the Input Map.
 	if event is InputEventKey:
 		return
 
@@ -596,14 +609,20 @@ func _view_aircraft(ac: RigidBody3D):
 
 func _activate_aircraft_view_now(ac: RigidBody3D) -> void:
 	current_viewed_aircraft = ac
+	var stage_start: int = FrameProfiler.begin("FlightDirector.view_attach")
 	_ensure_aircraft_presentation_attached(ac)
+	FrameProfiler.end("FlightDirector.view_attach", stage_start)
 
 	# FlightDeckManager disables these on AI aircraft. Re-enable them for viewing.
+	stage_start = FrameProfiler.begin("FlightDirector.view_ui_enable")
 	_set_aircraft_view_ui_enabled(ac, true)
+	FrameProfiler.end("FlightDirector.view_ui_enable", stage_start)
 
 	var ac_cc := ac.find_child("CameraController", true, false) as Node
 	if ac_cc and ac_cc.has_method("switch_to_camera"):
+		stage_start = FrameProfiler.begin("FlightDirector.view_camera_switch")
 		ac_cc.switch_to_camera(aircraft_cam_mode)
+		FrameProfiler.end("FlightDirector.view_camera_switch", stage_start)
 		active_controller_camera_system = ac_cc
 		return
 
@@ -1072,7 +1091,9 @@ func _complete_aircraft_camera_transition() -> void:
 		current_category = Category.FRIENDLY
 		current_viewed_aircraft = target_aircraft
 		_select_friendly_index_for(target_aircraft)
+		var release_start: int = FrameProfiler.begin("FlightDirector.view_release_staging")
 		_release_aircraft_transition_presentation(target_aircraft)
+		FrameProfiler.end("FlightDirector.view_release_staging", release_start)
 		_activate_aircraft_view_now(target_aircraft)
 	else:
 		current_category = Category.BRIDGE
@@ -1357,6 +1378,9 @@ func toggle_player_control():
 		return
 
 	var target: RigidBody3D = _get_toggle_target_aircraft()
+	_take_player_control(target)
+
+func _take_player_control(target: RigidBody3D) -> void:
 	if not is_instance_valid(target):
 		return
 	if target.has_meta("player_control_locked") and bool(target.get_meta("player_control_locked")):
@@ -1375,6 +1399,24 @@ func toggle_player_control():
 	_select_friendly_index_for(target)
 	_view_aircraft(target)
 	print("[FlightDirector] Player took control of: ", target.name)
+
+func enter_trailer_pilot(target: Variant) -> bool:
+	# Explicit trailer handoff uses the ordinary AI/player toggle and cockpit,
+	# but cuts directly so a paused timeline does not stall a camera transition.
+	if not GameSession.is_trailer_scenario or not is_instance_valid(target) or not target is RigidBody3D: return false
+	if not (target.is_in_group("aircraft") or target.is_in_group("ai_aircraft")): return false
+	if bool(target.get_meta("player_control_locked", false)): return false
+	var ai_toggle: Node = target.get_node_or_null("AIToggle")
+	if ai_toggle == null or not ai_toggle.has_method("disable_ai"): return false
+	if is_player_controlling: _return_control_to_ai()
+	_cancel_aircraft_camera_transition(false)
+	_free_camera_active = false
+	aircraft_cam_mode = 0
+	_activate_aircraft_view_now(target)
+	_take_player_control(target)
+	# Taking control must not change the aircraft's allegiance in this experiment.
+	current_category = Category.ENEMY if target.is_in_group("enemies") else Category.FRIENDLY
+	return is_player_controlling and player_controlled_plane == target
 
 func _return_control_to_ai() -> void:
 	# Returning to spectator mode must not change focus or camera mode.
@@ -1580,7 +1622,9 @@ func _is_aircraft_ai_controlled(ac: RigidBody3D) -> bool:
 
 func _sync_viewed_aircraft_ui() -> void:
 	var desired_aircraft: RigidBody3D = null
-	if not _free_camera_active \
+	if _photo_mode_camera_active and _free_camera_active:
+		desired_aircraft = _find_closest_aircraft_to_camera()
+	elif not _free_camera_active \
 	and not _aircraft_transition_active \
 	and is_instance_valid(current_viewed_aircraft):
 		desired_aircraft = current_viewed_aircraft
@@ -1592,6 +1636,15 @@ func _sync_viewed_aircraft_ui() -> void:
 
 	if is_instance_valid(_ui_visible_aircraft):
 		_set_aircraft_view_ui_enabled(_ui_visible_aircraft, true)
+
+
+func get_presentation_focus_aircraft() -> RigidBody3D:
+	# Photo mode owns a movable camera, so its presentation focus follows spatial
+	# proximity without changing the aircraft the player will return to on exit.
+	if _photo_mode_camera_active:
+		return _ui_visible_aircraft if is_instance_valid(_ui_visible_aircraft) else null
+	return current_viewed_aircraft if is_instance_valid(current_viewed_aircraft) else null
+
 
 func _set_aircraft_view_ui_enabled(ac: RigidBody3D, enabled: bool) -> void:
 	if not is_instance_valid(ac):
@@ -1620,6 +1673,43 @@ func _set_aircraft_view_ui_enabled(ac: RigidBody3D, enabled: bool) -> void:
 			(node as CanvasItem).visible = enabled
 		elif node is Node3D:
 			(node as Node3D).visible = enabled
+	_set_aircraft_occupant_presentation_active(ac, enabled)
+
+
+func _set_aircraft_occupant_presentation_active(root: Node, active: bool) -> void:
+	for child: Node in root.get_children():
+		if child.has_method("is_pooled_aircraft_occupant_mount") \
+		and bool(child.call("is_pooled_aircraft_occupant_mount")) \
+		and child.has_method("set_presentation_active"):
+			child.call("set_presentation_active", active)
+		_set_aircraft_occupant_presentation_active(child, active)
+
+
+func _find_closest_aircraft_to_camera() -> RigidBody3D:
+	var viewport := get_viewport()
+	var active_camera: Camera3D = viewport.get_camera_3d() if viewport != null else null
+	if not is_instance_valid(active_camera):
+		return null
+
+	var best_aircraft: RigidBody3D = null
+	var best_distance_squared := INF
+	var seen: Dictionary = {}
+	for group_name in [&"aircraft", &"ai_aircraft"]:
+		for node_variant: Variant in get_tree().get_nodes_in_group(group_name):
+			if not (node_variant is RigidBody3D):
+				continue
+			var aircraft := node_variant as RigidBody3D
+			if not is_instance_valid(aircraft) or _is_camera_cycle_excluded(aircraft):
+				continue
+			var aircraft_id := aircraft.get_instance_id()
+			if seen.has(aircraft_id):
+				continue
+			seen[aircraft_id] = true
+			var distance_squared := aircraft.global_position.distance_squared_to(active_camera.global_position)
+			if distance_squared < best_distance_squared:
+				best_distance_squared = distance_squared
+				best_aircraft = aircraft
+	return best_aircraft
 
 
 func _ensure_aircraft_presentation_attached(ac: RigidBody3D) -> void:
@@ -1652,20 +1742,25 @@ func _find_closest_friendly_aircraft() -> RigidBody3D:
 
 	return best_aircraft
 
-func command_closest_friendly_to_land() -> void:
-	var target := _find_closest_friendly_aircraft_to_carrier()
+func command_closest_friendly_to_land() -> bool:
+	var target := _find_closest_friendly_aircraft_to_camera()
 	if not is_instance_valid(target):
-		print("[FlightDirector] L: no eligible friendly aircraft available for landing command")
-		return
+		print("[FlightDirector] L: no eligible friendly fixed-wing near the active camera")
+		return false
 
-	var ai_toggle = target.get_node_or_null("AIToggle")
-	if ai_toggle and ai_toggle.has_method("enable_ai"):
-		ai_toggle.enable_ai()
+	if _is_aircraft_in_landing_flow(target) and _is_aircraft_ai_controlled(target):
+		print("[FlightDirector] L: ", target.name, " is already returning to the carrier")
+		return true
 
 	var ai_pilot = target.find_child("AIPilot", true, false)
 	if not ai_pilot or not ai_pilot.has_method("start_recovery"):
-		print("[FlightDirector] L: no AIPilot found on ", target.name)
-		return
+		print("[FlightDirector] L: no fixed-wing AIPilot found on ", target.name)
+		return false
+
+	var ai_toggle = target.get_node_or_null("AIToggle")
+	if ai_toggle and ai_toggle.has_method("enable_ai") \
+	and (not ("ai_active" in ai_toggle) or not bool(ai_toggle.get("ai_active"))):
+		ai_toggle.enable_ai()
 
 	# Use the same staged recovery as autonomous RTB: queue for a clear, steady carrier corridor,
 	# establish the inbound axis and glideslope, then hand the final segment to start_landing().
@@ -1673,47 +1768,62 @@ func command_closest_friendly_to_land() -> void:
 	var ok: bool = bool(ai_pilot.call("assign_air_task", recovery_task)) \
 		if ai_pilot.has_method("assign_air_task") else ai_pilot.start_recovery()
 	if ok:
+		force_release_player_control_for(target)
+		target.set_meta("rtb_reason", "Player camera command (L)")
 		print("[FlightDirector] L: staged carrier recovery commanded for ", target.name)
+		var combat_log := get_node_or_null("/root/CombatLog")
+		if combat_log != null and combat_log.has_method("event"):
+			combat_log.call("event", "RTB", "%s ordered to return to the carrier" % target.name)
 	else:
 		print("[FlightDirector] L: approach waypoints not found for ", target.name)
+	return ok
 
 func _is_aircraft_in_landing_flow(aircraft: RigidBody3D) -> bool:
 	var ai_pilot := aircraft.find_child("AIPilot", true, false) as AIPilot
 	if ai_pilot == null:
 		return false
 	return ai_pilot.current_state in [
+		AIPilot.State.RTB,
 		AIPilot.State.RECOVERY_MARSHAL,
 		AIPilot.State.RECOVERY_HOLD,
 		AIPilot.State.RECOVERY_APPROACH,
+		AIPilot.State.PRE_LANDING,
 		AIPilot.State.APPROACH,
 		AIPilot.State.LANDING,
 		AIPilot.State.MISSED_APPROACH,
 	]
 
-func _find_closest_friendly_aircraft_to_carrier() -> RigidBody3D:
-	var carrier := get_tree().get_first_node_in_group("carrier") as Node3D
-	if carrier == null:
+func _find_closest_friendly_aircraft_to_camera() -> RigidBody3D:
+	var viewport := get_viewport()
+	var active_camera: Camera3D = viewport.get_camera_3d() if viewport != null else null
+	if not is_instance_valid(active_camera):
 		return null
 
 	var best_aircraft: RigidBody3D = null
 	var best_distance := INF
 
-	for node in _get_friendly_aircraft():
+	for node in get_tree().get_nodes_in_group("friendlies"):
+		if not (node is RigidBody3D):
+			continue
 		var aircraft := node as RigidBody3D
 		if not is_instance_valid(aircraft):
 			continue
-		if aircraft.get_meta("carrier_transport_mode", false):
+		if bool(aircraft.get_meta("carrier_transport_mode", false)):
 			continue
-		if aircraft.get_meta("parking_brake", false):
+		if bool(aircraft.get_meta("parking_brake", false)):
 			continue
-		if aircraft.get_meta("arresting_engaged", false):
+		if bool(aircraft.get_meta("controls_disabled", false)):
 			continue
-		if _is_aircraft_in_landing_flow(aircraft):
+		if bool(aircraft.get_meta("arresting_engaged", false)):
+			continue
+		if bool(aircraft.get_meta("is_helicopter", false)) \
+		or str(aircraft.get_meta("aircraft_role", "")).to_lower().contains("helicopter") \
+		or aircraft.find_child("HelicopterPilot", true, false) != null:
 			continue
 		var ai_pilot = aircraft.find_child("AIPilot", true, false)
 		if not ai_pilot or not ai_pilot.has_method("start_recovery"):
 			continue
-		var distance := aircraft.global_position.distance_squared_to(carrier.global_position)
+		var distance := aircraft.global_position.distance_squared_to(active_camera.global_position)
 		if distance < best_distance:
 			best_distance = distance
 			best_aircraft = aircraft
@@ -1790,8 +1900,13 @@ func _get_aircraft_camera(ac: RigidBody3D, tripod_name: String) -> Camera3D:
 	return null
 
 func _get_current_active_camera() -> Camera3D:
-	if _free_camera_active and is_instance_valid(_free_camera) and _free_camera.current:
-		return _free_camera
+	# The viewport is the authority for what the player can actually see. Camera
+	# controllers may retain a valid but inactive camera for another aircraft.
+	var viewport := get_viewport()
+	if viewport:
+		var viewport_camera: Variant = viewport.get_camera_3d()
+		if is_instance_valid(viewport_camera) and viewport_camera is Camera3D:
+			return viewport_camera as Camera3D
 
 	var bridge_cam: Camera3D = _get_bridge_camera()
 	if is_instance_valid(bridge_cam) and bridge_cam.current:
@@ -1810,33 +1925,6 @@ func _get_current_active_camera() -> Camera3D:
 			if is_instance_valid(cam) and cam.current:
 				return cam
 
-	var viewport := get_viewport()
-	if viewport:
-		var viewport_camera: Variant = viewport.get_camera_3d()
-		if is_instance_valid(viewport_camera) and viewport_camera is Camera3D:
-			return viewport_camera as Camera3D
-	return null
-
-func _get_chase_camera_for_viewed_aircraft() -> Camera3D:
-	# Priority 1: the viewed aircraft's own CameraController (has its own chase_camera)
-	if is_instance_valid(current_viewed_aircraft):
-		var ac_cc := current_viewed_aircraft.find_child("CameraController", true, false)
-		if ac_cc and "chase_camera" in ac_cc:
-			var cam_variant: Variant = ac_cc.get("chase_camera")
-			if is_instance_valid(cam_variant) and cam_variant is Camera3D:
-				return cam_variant as Camera3D
-		# Priority 2: a bare CameraChase tripod (no CC, but camera tripod present)
-		var chase_tripod := current_viewed_aircraft.get_node_or_null("CameraChase")
-		if chase_tripod:
-			var cam := (chase_tripod as Node).find_child("Camera3D", true, false) as Camera3D
-			if is_instance_valid(cam):
-				return cam
-	# Priority 3: the player camera controller (works when player aircraft is viewed)
-	var cc := _get_player_camera_controller()
-	if cc and "chase_camera" in cc:
-		var cam_variant: Variant = cc.get("chase_camera")
-		if is_instance_valid(cam_variant) and cam_variant is Camera3D:
-			return cam_variant as Camera3D
 	return null
 
 func _toggle_free_camera() -> void:
@@ -1847,55 +1935,17 @@ func _toggle_free_camera() -> void:
 	_enter_free_camera()
 
 func _enter_free_camera(preserve_player_control: bool = false) -> void:
+	# Snapshot the rendered camera before returning control to AI; control handoff
+	# must not get a chance to redirect which camera seeds free-look.
+	var source_camera: Camera3D = _get_current_active_camera()
 	if is_player_controlling and not preserve_player_control:
 		_return_control_to_ai()
 
-	var source_camera: Camera3D = _get_current_active_camera()
 	var free_camera := _get_or_create_free_camera()
 	if source_camera:
-		var bridge_provider := _get_bridge_camera_provider()
-		var is_bridge_control_room_camera := current_category == Category.BRIDGE \
-			and bridge_provider != null \
-			and bridge_provider.has_method("is_control_room_camera") \
-			and bool(bridge_provider.call("is_control_room_camera", source_camera))
-		# Cockpit cameras have a very small near plane (inside the aircraft mesh).
-		# Starting free-look there makes the aircraft invisible and hides the pilot.
-		# Instead, snap to the chase camera position so the cockpit is visible from outside.
-		var is_cockpit_cam: bool = source_camera.near < 0.05
-		if is_bridge_control_room_camera and bridge_provider is Node3D:
-			_place_free_camera_behind_bridge_officer(
-				free_camera,
-				source_camera,
-				bridge_provider as Node3D
-			)
-			free_camera.near = 0.1
-			free_camera.fov = source_camera.fov
-			free_camera.far = source_camera.far
-			free_camera.keep_aspect = source_camera.keep_aspect
-			free_camera.projection = source_camera.projection
-		elif is_cockpit_cam:
-			# Find the chase camera for the CURRENTLY VIEWED aircraft specifically.
-			# _get_player_camera_controller() always returns aircraft 1's CC, so it gives
-			# the wrong chase camera when viewing aircraft 2 through its own CameraController.
-			var chase_cam: Camera3D = _get_chase_camera_for_viewed_aircraft()
-			if chase_cam and is_instance_valid(chase_cam):
-				free_camera.global_transform = chase_cam.global_transform
-			elif is_instance_valid(current_viewed_aircraft):
-				var basis: Basis = current_viewed_aircraft.global_transform.basis
-				free_camera.global_position = current_viewed_aircraft.global_position \
-					- basis.z * 15.0 + Vector3.UP * 4.0
-				free_camera.look_at(current_viewed_aircraft.global_position + Vector3.UP * 1.5, Vector3.UP)
-			else:
-				free_camera.global_transform = source_camera.global_transform
-			free_camera.near = 0.1
-		else:
-			free_camera.global_transform = source_camera.global_transform
-			free_camera.near = source_camera.near
-		free_camera.fov = source_camera.fov
-		free_camera.far = source_camera.far
-		free_camera.keep_aspect = source_camera.keep_aspect
-		free_camera.projection = source_camera.projection
+		_copy_camera_view_state(source_camera, free_camera)
 	else:
+		free_camera.remove_meta(FREE_CAMERA_VIEW_SOURCE_META)
 		free_camera.global_position = _get_focus_position() + Vector3(0.0, 20.0, 0.0)
 
 	_free_camera = free_camera
@@ -1904,27 +1954,27 @@ func _enter_free_camera(preserve_player_control: bool = false) -> void:
 	_force_current_camera(_free_camera)
 
 
-func _place_free_camera_behind_bridge_officer(
-		free_camera: Camera3D,
-		source_camera: Camera3D,
-		officer: Node3D
-) -> void:
-	var rear_direction := source_camera.global_basis.z
-	rear_direction.y = 0.0
-	if rear_direction.length_squared() < 0.0001:
-		rear_direction = officer.global_basis.z
-		rear_direction.y = 0.0
-	rear_direction = rear_direction.normalized()
-	var focus_position := officer.global_position \
-		+ Vector3.UP * bridge_free_camera_focus_height_m
-	free_camera.global_position = focus_position \
-		+ rear_direction * bridge_free_camera_rear_distance_m \
-		+ Vector3.UP * bridge_free_camera_above_focus_m
-	free_camera.look_at(focus_position, Vector3.UP)
+func _copy_camera_view_state(source: Camera3D, destination: Camera3D) -> void:
+	destination.global_transform = source.global_transform
+	destination.set_meta(FREE_CAMERA_VIEW_SOURCE_META, source)
+	destination.projection = source.projection
+	destination.fov = source.fov
+	destination.size = source.size
+	destination.frustum_offset = source.frustum_offset
+	destination.near = source.near
+	destination.far = source.far
+	destination.keep_aspect = source.keep_aspect
+	destination.h_offset = source.h_offset
+	destination.v_offset = source.v_offset
+	destination.cull_mask = source.cull_mask
+	destination.environment = source.environment
+	destination.attributes = source.attributes
+	destination.doppler_tracking = source.doppler_tracking
 
 func begin_photo_mode_camera() -> bool:
 	if _photo_mode_camera_active:
 		return _free_camera_active
+	get_tree().call_group("trailer_aircraft_cameras", "release_camera")
 
 	_photo_mode_camera_active = true
 	_photo_mode_started_free_camera = not _free_camera_active
@@ -1937,6 +1987,7 @@ func begin_photo_mode_camera() -> bool:
 		_photo_mode_camera_active = false
 		_photo_mode_started_free_camera = false
 		return false
+	_sync_viewed_aircraft_ui()
 	return true
 
 func end_photo_mode_camera() -> void:
@@ -1948,6 +1999,7 @@ func end_photo_mode_camera() -> void:
 	_photo_mode_started_free_camera = false
 	if should_exit_free_camera:
 		_exit_free_camera()
+	_sync_viewed_aircraft_ui()
 
 func is_photo_mode_camera_active() -> bool:
 	return _photo_mode_camera_active
@@ -1989,7 +2041,12 @@ func _update_free_camera(delta: float) -> void:
 		deg_to_rad(-free_camera_pitch_limit_deg),
 		deg_to_rad(free_camera_pitch_limit_deg)
 	)
-	_free_camera.rotation = Vector3(_free_camera_pitch, _free_camera_yaw, 0.0)
+	if not is_zero_approx(look_yaw_input) or not is_zero_approx(look_pitch_input):
+		_free_camera.global_rotation = Vector3(
+			_free_camera_pitch,
+			_free_camera_yaw,
+			_free_camera_roll
+		)
 
 	var forward_input := Input.get_action_strength("pitch_down") - Input.get_action_strength("pitch_up")
 	var strafe_input := Input.get_action_strength("roll_right") - Input.get_action_strength("roll_left")
@@ -2016,8 +2073,9 @@ func _snap_free_camera_to_target() -> void:
 
 	var source_camera := _get_free_camera_anchor_camera()
 	if source_camera:
-		_free_camera.global_transform = source_camera.global_transform
+		_copy_camera_view_state(source_camera, _free_camera)
 	else:
+		_free_camera.remove_meta(FREE_CAMERA_VIEW_SOURCE_META)
 		_free_camera.global_position = _get_focus_position() + Vector3(0.0, 20.0, 0.0)
 	_force_current_camera(_free_camera)
 	_sync_free_camera_angles()
@@ -2081,7 +2139,7 @@ func _sync_free_camera_angles() -> void:
 		deg_to_rad(free_camera_pitch_limit_deg)
 	)
 	_free_camera_yaw = camera_rotation.y
-	_free_camera.rotation = Vector3(_free_camera_pitch, _free_camera_yaw, 0.0)
+	_free_camera_roll = camera_rotation.z
 
 func _get_bridge_camera() -> Camera3D:
 	var provider := _get_bridge_camera_provider()

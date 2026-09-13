@@ -4,6 +4,7 @@ class_name LowPolyTerrain
 const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
 const MAP_OPEN_CANYONS := "open_canyons"
 const MAP_LAYERED_BADLANDS := "layered_badlands"
+const HEIGHT_PROFILE_REVISION := 2
 const LAYERED_PLAYABLE_HALF_EXTENT_M := 25000.0
 const LAYERED_ROUTE_COUNT := 3
 const LAYERED_CONNECTOR_COUNT := 4
@@ -36,17 +37,19 @@ const LAYERED_ROUTE_BLEND_HALF_WIDTH_M := 720.0
 @export var canyon_warp_amplitude_m: float = 220.0
 ## Tributary canyons are this fraction as deep as the main canyons
 @export var tributary_depth_fraction: float = 0.60
-## Amplitude of surface variation on the plateau top
-@export var plateau_surface_amplitude_m: float = 60.0
-## Frequency of plateau surface variation
-@export var plateau_surface_frequency: float = 0.0014
+## Broad regional elevation drift across plateau tops. This stays deliberately
+## small so mountains read as usable flat-topped landforms rather than peaks.
+@export var plateau_surface_amplitude_m: float = 8.0
+## Low frequency keeps each summit area coherent instead of changing every few cells.
+@export var plateau_surface_frequency: float = 0.00020
+@export_range(1, 6, 1) var plateau_surface_octaves: int = 2
 ## Very low-frequency relief added to otherwise flat surfaces such as plateau tops
 ## and broad canyon floors so they read as shallow terrain instead of perfect planes.
-@export var flat_surface_undulation_amplitude_m: float = 12.0
+@export var flat_surface_undulation_amplitude_m: float = 5.0
 ## Frequency of the broad flat-surface undulation layer.
 @export var flat_surface_undulation_frequency: float = 0.00032
 ## Smaller-scale detail on broad flat areas so they do not read as ironed flat.
-@export var flat_surface_detail_amplitude_m: float = 4.5
+@export var flat_surface_detail_amplitude_m: float = 1.0
 ## Frequency of the subtle flat-surface detail layer.
 @export var flat_surface_detail_frequency: float = 0.0011
 ## Height of visible strata bands in canyon walls
@@ -196,6 +199,12 @@ const LAYERED_ROUTE_BLEND_HALF_WIDTH_M := 720.0
 @export var max_chunk_builds_per_update: int = 2
 @export var initial_chunk_builds_per_update: int = 4
 @export var max_chunk_finalizes_per_frame: int = 2
+## Includes running jobs AND completed arrays awaiting main-thread installation.
+@export_range(1, 32, 1) var max_in_flight_chunk_tasks: int = 8
+## Soft budget: an individual mesh/physics operation cannot be interrupted.
+@export var streaming_main_thread_budget_ms: float = 2.0
+## Only used when explicitly requested by the opaque scenario-loading overlay.
+@export var loading_main_thread_budget_ms: float = 8.0
 # Fast-fill: when the view JUMPS (camera switch/teleport) or there's a big backlog, burst-load chunks so
 # terrain appears quickly, then relax back to the low steady-state rates (which avoid in-flight hitches).
 @export var fast_fill_chunk_builds_per_update: int = 24
@@ -258,6 +267,11 @@ var _discard_on_complete: Dictionary = {} # chunk_key -> true for results to thr
 
 # Initial load tracking — used by LoadingScreen to show chunk fill progress
 var _initial_pending_total: int = 0  # size of the first pending queue, set once
+var _scenario_loading_active: bool = false
+var _stream_timings: Dictionary = {}
+var _stream_peak_jobs: int = 0
+var _stream_last_finalized: int = 0
+var _stream_budget_yields: int = 0
 
 func _ready() -> void:
 	if not is_in_group("terrain_provider"):
@@ -275,22 +289,33 @@ func _ready() -> void:
 func _exit_tree() -> void:
 	_clear_chunks()
 
+func update_paused_camera_stream(delta: float) -> void:
+	# Trailer camera framing may move kilometres without advancing simulation.
+	# Run only the usual budgeted chunk work, without enabling paused children.
+	if get_tree().paused and not can_process() and is_processing():
+		_process(delta)
+
 func _process(delta: float) -> void:
 	if not use_streaming:
 		return
 	var _profiler_start: int = FrameProfiler.begin("LowPolyTerrain.process")
 	var camera_handoff_detected: bool = _detect_camera_handoff()
 	_camera_handoff_remaining_s = maxf(_camera_handoff_remaining_s - delta, 0.0)
-	_drain_pending_unloads(max_chunk_unloads_per_frame)
+	var process_started := Time.get_ticks_usec()
+	var budget_ms := loading_main_thread_budget_ms if _scenario_loading_active else streaming_main_thread_budget_ms
+	var deadline_usec := process_started + int(maxf(budget_ms, 0.1) * 1000.0)
 	# Finalize completed chunk nodes -- fast while catching up from a jump, low in steady state.
 	var finalize_budget: int
-	if _view_transition_stream_active:
+	if _scenario_loading_active:
+		finalize_budget = fast_fill_finalizes_per_frame
+	elif _view_transition_stream_active:
 		finalize_budget = view_transition_finalizes_per_frame
 	elif _camera_handoff_remaining_s > 0.0:
 		finalize_budget = camera_handoff_finalizes_per_frame
 	else:
 		finalize_budget = fast_fill_finalizes_per_frame if _fast_fill_active else max_chunk_finalizes_per_frame
-	_finalize_ready_tasks(finalize_budget)
+	_finalize_ready_tasks(finalize_budget, deadline_usec)
+	_drain_pending_unloads(max_chunk_unloads_per_frame, deadline_usec)
 	_stream_timer += delta
 	if camera_handoff_detected:
 		_stream_timer = 0.0
@@ -300,16 +325,19 @@ func _process(delta: float) -> void:
 		_stream_timer = 0.0
 		_update_streaming(false)
 	FrameProfiler.end("LowPolyTerrain.process", _profiler_start)
+	_record_stream_timing("process", Time.get_ticks_usec() - process_started)
 
 func rebuild() -> void:
 	_ensure_nodes()
+	# Workers read these configuration/noise fields: join before replacing them.
+	_clear_chunks()
+	_initial_pending_total = 0
 	_refresh_layout()
 	_noises = _build_noises()
 	_shared_material = _build_material()
 
 	if use_streaming:
 		_clear_legacy_mesh()
-		_clear_chunks()
 		_pending_builds.clear()
 		_pending_set.clear()
 		_stream_timer = 0.0
@@ -318,7 +346,6 @@ func rebuild() -> void:
 		set_process(true)
 		return
 
-	_clear_chunks()
 	var mesh: ArrayMesh = _build_full_mesh()
 	_mesh_node.mesh = mesh
 	_mesh_node.material_override = _shared_material
@@ -337,6 +364,10 @@ func set_map_profile(profile_id: String) -> void:
 
 func get_map_profile_id() -> String:
 	return map_profile_id
+
+
+func get_height_profile_revision() -> int:
+	return HEIGHT_PROFILE_REVISION
 
 
 func get_map_profile_display_name() -> String:
@@ -471,6 +502,17 @@ func is_initial_load_complete() -> bool:
 		return true
 	return _initial_pending_total > 0 and _pending_builds.is_empty() and _async_tasks.is_empty()
 
+
+## Loading can poll before this node's _process after a camera/carrier relocation.
+## An empty queue for the previous view does not mean the new view is ready.
+func is_current_view_load_complete() -> bool:
+	if not use_streaming:
+		return true
+	var center_local := _get_stream_center_local()
+	if _world_to_chunk(center_local.x, center_local.z) != _last_center_chunk:
+		return false
+	return is_initial_load_complete()
+
 func get_height(world_pos: Vector3) -> float:
 	if _noises.is_empty():
 		_refresh_layout()
@@ -482,6 +524,34 @@ func get_height(world_pos: Vector3) -> float:
 	if quant_step_m > 0.1:
 		h = round(h / quant_step_m) * quant_step_m
 	return h + global_position.y
+
+## Exact get_height() sampling for a navigation bake slice. Keep world Vector3
+## rounding and transform multiplication identical to the scalar public API.
+func sample_height_grid_rows(origin_x: float, origin_z: float, spacing: float, first_row: int, row_count: int, columns: int) -> Dictionary:
+	if _noises.is_empty():
+		_refresh_layout()
+		_noises = _build_noises()
+	var inverse := global_transform.affine_inverse()
+	var terrain_y := global_position.y
+	var heights := PackedFloat32Array()
+	heights.resize(row_count * columns)
+	var minimum := INF
+	for row in row_count:
+		var world_z := origin_z + (first_row + row) * spacing
+		for column in columns:
+			var world_x := origin_x + column * spacing
+			var local: Vector3 = inverse * Vector3(world_x, terrain_y, world_z)
+			var h := NAN
+			if local.x >= _x0 and local.x <= _x0 + _span_x and local.z >= _z0 and local.z <= _z0 + _span_z:
+				h = _sample_height(local.x, local.z, _noises)
+				if quant_step_m > 0.1:
+					h = round(h / quant_step_m) * quant_step_m
+				h += terrain_y
+				if not is_nan(h):
+					minimum = minf(minimum, h)
+			heights[row * columns + column] = h
+	return {"heights": heights, "minimum": minimum}
+
 
 func get_surface_color(world_pos: Vector3) -> Color:
 	if _noises.is_empty():
@@ -679,6 +749,8 @@ func _refresh_chunk_targets(center_chunk: Vector2i) -> void:
 		var key := _chunk_key(coord.x, coord.y)
 		_pending_builds.push_back(coord)
 		_pending_set[key] = true
+	if _initial_pending_total == 0:
+		_initial_pending_total = _pending_builds.size() + _async_tasks.size()
 
 func _build_pending_chunks() -> void:
 	# Use a higher budget during initial fill (many pending chunks) to reduce pop-in delay.
@@ -698,7 +770,7 @@ func _build_pending_chunks() -> void:
 		budget = max(fast_fill_chunk_builds_per_update, 1)   # camera-switch / jump burst
 	else:
 		budget = max(max_chunk_builds_per_update, 1)         # hitch-free steady state
-	while budget > 0 and not _pending_builds.is_empty():
+	while budget > 0 and not _pending_builds.is_empty() and _async_tasks.size() < maxi(max_in_flight_chunk_tasks, 1):
 		var coord: Vector2i = _pending_builds.pop_front()
 		var key := _chunk_key(coord.x, coord.y)
 		_pending_set.erase(key)
@@ -719,17 +791,29 @@ func _launch_chunk_task(coord: Vector2i) -> void:
 	if qx0 >= _size_x or qz0 >= _size_z:
 		_building_set.erase(_chunk_key(coord.x, coord.y))
 		return
-	var holder := {"arrays": null}
+	var holder := {"arrays": null, "build_usec": 0, "finished_usec": 0}
 	var task_id := WorkerThreadPool.add_task(func():
+		var started := Time.get_ticks_usec()
 		holder["arrays"] = _build_chunk_arrays(qx0, qx1, qz0, qz1)
+		holder["build_usec"] = Time.get_ticks_usec() - started
+		holder["finished_usec"] = Time.get_ticks_usec()
 	)
 	_async_tasks.append({coord = coord, task_id = task_id, holder = holder})
+	_stream_peak_jobs = maxi(_stream_peak_jobs, _async_tasks.size())
 
-func _finalize_ready_tasks(max_to_finalize: int = -1) -> void:
+func _finalize_ready_tasks(max_to_finalize: int = -1, deadline_usec: int = 0) -> void:
 	var finalized_count := 0
-	var i := _async_tasks.size() - 1
-	while i >= 0:
+	_stream_last_finalized = 0
+	var camera_chunk := _get_active_camera_chunk()
+	while not _async_tasks.is_empty():
 		if max_to_finalize >= 0 and finalized_count >= max_to_finalize:
+			break
+		# Always permit one ready chunk, even if it alone exceeds the soft budget.
+		if finalized_count > 0 and deadline_usec > 0 and Time.get_ticks_usec() >= deadline_usec:
+			_stream_budget_yields += 1
+			break
+		var i := _next_ready_chunk_index(camera_chunk)
+		if i < 0:
 			break
 		var task: Dictionary = _async_tasks[i]
 		if WorkerThreadPool.is_task_completed(task.task_id):
@@ -739,22 +823,64 @@ func _finalize_ready_tasks(max_to_finalize: int = -1) -> void:
 			var coord: Vector2i = task.coord
 			var key := _chunk_key(coord.x, coord.y)
 			_building_set.erase(key)
+			_record_stream_timing("worker_build", int(task.holder["build_usec"]))
+			_record_stream_timing("ready_wait", Time.get_ticks_usec() - int(task.holder["finished_usec"]))
 			if _discard_on_complete.erase(key):
-				i -= 1
 				continue
 			if not _chunks.has(key):
 				var arrays: Array = task.holder["arrays"]
 				if arrays != null and not (arrays[Mesh.ARRAY_VERTEX] as PackedVector3Array).is_empty():
+					var started := Time.get_ticks_usec()
 					var chunk := _make_chunk_node(coord, arrays)
 					if chunk:
+						var attach_started: int = FrameProfiler.begin("LowPolyTerrain.attach_chunk")
 						_chunk_root.add_child(chunk)
 						_set_owner_recursive(chunk)
 						_chunks[key] = chunk
-		i -= 1
+						FrameProfiler.end("LowPolyTerrain.attach_chunk", attach_started)
+						_stream_last_finalized += 1
+					_record_stream_timing("finalize", Time.get_ticks_usec() - started)
+
+
+func _next_ready_chunk_index(camera_chunk: Vector2i) -> int:
+	var best_index := -1
+	var best_priority := Vector3i(2147483647, 2147483647, 2147483647)
+	var radius_sq := maxi(camera_handoff_priority_radius_chunks, 0) ** 2
+	for i in _async_tasks.size():
+		var task: Dictionary = _async_tasks[i]
+		if not WorkerThreadPool.is_task_completed(task.task_id):
+			continue
+		var coord: Vector2i = task.coord
+		# Retire stale arrays immediately; they use a slot without creating a node.
+		if _discard_on_complete.has(_chunk_key(coord.x, coord.y)):
+			return i
+		var camera_d2 := (coord - camera_chunk).length_squared()
+		var center_d2 := (coord - _last_center_chunk).length_squared()
+		var priority := Vector3i(0 if camera_d2 <= radius_sq else 1, camera_d2 if camera_d2 <= radius_sq else center_d2, center_d2)
+		if priority.x < best_priority.x or (priority.x == best_priority.x and (priority.y < best_priority.y or (priority.y == best_priority.y and priority.z < best_priority.z))):
+			best_priority = priority
+			best_index = i
+	return best_index
+
+
+func set_scenario_loading_active(active: bool) -> void:
+	_scenario_loading_active = active
+
+
+func _record_stream_timing(label: String, elapsed_usec: int) -> void:
+	var row: Dictionary = _stream_timings.get(label, {"count": 0, "total_ms": 0.0, "max_ms": 0.0})
+	row["count"] += 1
+	row["total_ms"] += elapsed_usec / 1000.0
+	row["max_ms"] = maxf(row["max_ms"], elapsed_usec / 1000.0)
+	_stream_timings[label] = row
 
 func _make_chunk_node(coord: Vector2i, arrays: Array) -> Node3D:
+	var mesh_started := Time.get_ticks_usec()
+	var mesh_profile: int = FrameProfiler.begin("LowPolyTerrain.mesh_create")
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	FrameProfiler.end("LowPolyTerrain.mesh_create", mesh_profile)
+	_record_stream_timing("mesh_create", Time.get_ticks_usec() - mesh_started)
 
 	var root := Node3D.new()
 	root.name = "Chunk_%d_%d" % [coord.x, coord.y]
@@ -767,16 +893,21 @@ func _make_chunk_node(coord: Vector2i, arrays: Array) -> Node3D:
 	root.add_child(mi)
 
 	if generate_collision:
+		var collision_started := Time.get_ticks_usec()
+		var collision_profile: int = FrameProfiler.begin("LowPolyTerrain.collision_create")
 		var body := StaticBody3D.new()
 		body.name = "Body"
 		body.add_to_group("terrain")
 		var shape_node := CollisionShape3D.new()
 		shape_node.name = "CollisionShape3D"
 		var shape := ConcavePolygonShape3D.new()
-		shape.set_faces(mesh.get_faces())
+		# The mesh is non-indexed triangle triples already; no mesh face extraction.
+		shape.set_faces(arrays[Mesh.ARRAY_VERTEX])
 		shape_node.shape = shape
 		body.add_child(shape_node)
 		root.add_child(body)
+		FrameProfiler.end("LowPolyTerrain.collision_create", collision_profile)
+		_record_stream_timing("collision_create", Time.get_ticks_usec() - collision_started)
 
 	return root
 
@@ -1169,13 +1300,14 @@ func _build_noises() -> Dictionary:
 	tributary.fractal_lacunarity = 2.1
 	tributary.fractal_gain = 0.48
 
-	# Plateau surface: medium frequency for rolling plateau texture
+	# Plateau surface: one broad, low-octave field gives neighboring summit cells
+	# a shared elevation while retaining restrained regional variation.
 	var plateau_surface := FastNoiseLite.new()
 	plateau_surface.seed = seed + 313
 	plateau_surface.noise_type = FastNoiseLite.TYPE_SIMPLEX
 	plateau_surface.frequency = maxf(plateau_surface_frequency, 0.000005)
 	plateau_surface.fractal_type = FastNoiseLite.FRACTAL_FBM
-	plateau_surface.fractal_octaves = 4
+	plateau_surface.fractal_octaves = clampi(plateau_surface_octaves, 1, 6)
 	plateau_surface.fractal_lacunarity = 2.0
 	plateau_surface.fractal_gain = 0.5
 
@@ -1795,6 +1927,11 @@ func is_chunk_loaded_at_world_position(world_position: Vector3) -> bool:
 
 func get_streaming_stats() -> Dictionary:
 	return {
+		"peak_in_flight_jobs": _stream_peak_jobs,
+		"in_flight_limit": max_in_flight_chunk_tasks,
+		"last_finalized_chunks": _stream_last_finalized,
+		"budget_yields": _stream_budget_yields,
+		"scenario_loading_active": _scenario_loading_active,
 		"loaded_chunks": _chunks.size(),
 		"pending_chunks": _pending_builds.size(),
 		"building_chunks": _async_tasks.size(),
@@ -1817,6 +1954,10 @@ func _world_to_chunk(local_x: float, local_z: float) -> Vector2i:
 
 func _is_chunk_in_bounds(cx: int, cz: int) -> bool:
 	return cx >= 0 and cz >= 0 and cx < _chunk_count_x and cz < _chunk_count_z
+
+func get_streaming_timing_stats() -> Dictionary:
+	return {"streaming": get_streaming_stats(), "timings": _stream_timings.duplicate(true)}
+
 
 func _chunk_key(cx: int, cz: int) -> String:
 	return "%d:%d" % [cx, cz]
@@ -1849,14 +1990,21 @@ func _cancel_chunk_unload(key: String) -> void:
 	_pending_unload_set.erase(key)
 
 
-func _drain_pending_unloads(max_to_remove: int) -> void:
+func _drain_pending_unloads(max_to_remove: int, deadline_usec: int = 0) -> void:
+	var started := Time.get_ticks_usec()
+	var profiler_start: int = FrameProfiler.begin("LowPolyTerrain.queue_unloads")
 	var remaining := maxi(max_to_remove, 0)
 	while remaining > 0 and not _pending_unloads.is_empty():
+		# One retirement per frame guarantees progress under sustained fill pressure.
+		if remaining < max_to_remove and deadline_usec > 0 and Time.get_ticks_usec() >= deadline_usec:
+			break
 		var key: String = _pending_unloads.pop_front()
 		if not _pending_unload_set.erase(key):
 			continue
 		_remove_chunk(key)
 		remaining -= 1
+	FrameProfiler.end("LowPolyTerrain.queue_unloads", profiler_start)
+	_record_stream_timing("queue_unloads", Time.get_ticks_usec() - started)
 
 func _set_owner_recursive(node: Node) -> void:
 	var root: Node = get_tree().edited_scene_root

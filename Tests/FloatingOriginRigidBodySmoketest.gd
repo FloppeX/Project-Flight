@@ -1,6 +1,5 @@
 extends SceneTree
 
-const FloatingOriginScript: Script = preload("res://Environment/FloatingOrigin.gd")
 const SHIFT := Vector3(24000.0, 0.0, -7000.0)
 const EPSILON_M := 0.05
 
@@ -29,7 +28,8 @@ func _run() -> void:
 	await physics_frame
 	var before := body.global_position
 	var expected := before - SHIFT
-	var floating_origin: Node = FloatingOriginScript.new()
+	# Load after autoload registration: this script now references GameSession.
+	var floating_origin: Node = load("res://Environment/FloatingOrigin.gd").new()
 	floating_origin.set("enabled", false)
 	scene.add_child(floating_origin)
 	floating_origin.call("shift_origin", SHIFT)

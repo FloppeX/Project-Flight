@@ -54,9 +54,9 @@ func update_policy(
 	if _meshes.is_empty():
 		return
 
-	_apply_wheel_visibility_range(wheel_visibility_distance_m)
 	var distance_m := INF
 	var force_near_detail := VISUAL_FOCUS_HELPER.is_node_in_target_camera_focus(self, _host)
+	_apply_wheel_visibility_range(0.0 if force_near_detail else wheel_visibility_distance_m)
 	if camera != null and is_instance_valid(camera):
 		distance_m = _host.global_position.distance_to(camera.global_position)
 	var tier := DetailTier.FAR

@@ -1,8 +1,10 @@
 extends Node
+signal player_insignia_changed(texture: Texture2D)
 ## Livery — Autoload singleton that stores the player's chosen colors
 ## and applies them to aircraft and the carrier.
 ##
-## Aircraft materials "upper fuselage" / "lower fuselage" use the chosen colors.
+## Aircraft upper-fuselage patterns use both chosen colors; "lower fuselage"
+## remains a fixed cream identification surface.
 ## Carrier materials "main color 1/2/3", "base color 1/2/3", and legacy "blue plasteel" derive
 ## from upper_color so the whole fleet matches.
 ##
@@ -13,7 +15,7 @@ extends Node
 ## Adjust marker position in the editor per aircraft.
 
 @export var upper_color := Color(0.28, 0.33, 0.38)   # Dark blue-grey
-@export var lower_color := Color(0.72, 0.73, 0.74)   # Light grey
+@export var aircraft_lower_fuselage_color := Color(0.96, 0.93, 0.82)   # Cream
 ## How much darker "dark blue plasteel" is relative to the base carrier color.
 @export var carrier_dark_factor := 0.6
 ## Hue offset for carrier base color variants 2 and 3.
@@ -45,6 +47,7 @@ extends Node
 ## Insignia textures — loaded at startup.
 var insignia_textures: Array[Texture2D] = []
 var insignia_index: int = 0   # Which insignia is active
+var _last_notified_player_insignia: Texture2D = null
 var _upper_color_preset_index: int = 0
 var _rng: RandomNumberGenerator = RandomNumberGenerator.new()
 var _team_upper_preset_indices: Dictionary = {}
@@ -181,7 +184,6 @@ func set_player_livery(primary_color: Color, secondary_color: Color, pattern_ind
 	_player_custom_secondary_color = secondary_color
 	_player_custom_pattern_index = clampi(pattern_index, 0, max(AIRCRAFT_UPPER_PATTERN_NAMES.size() - 1, 0))
 	upper_color = primary_color
-	lower_color = secondary_color
 	helicopter_upper_pattern_index = _player_custom_pattern_index
 	_reapply_all()
 
@@ -212,6 +214,12 @@ func get_preset_upper_color_name(index: int) -> String:
 
 func get_insignia_count() -> int:
 	return insignia_textures.size()
+
+
+func get_player_insignia_texture() -> Texture2D:
+	if insignia_textures.is_empty():
+		return null
+	return insignia_textures[_get_team_insignia_index(PLAYER_TEAM_ID)]
 
 
 func get_insignia_name(index: int) -> String:
@@ -335,6 +343,10 @@ func _reapply_all() -> void:
 			seen_ids[instance_id] = true
 			if _can_apply_to_node(node):
 				apply(node)
+	var player_texture := get_player_insignia_texture()
+	if player_texture != _last_notified_player_insignia:
+		_last_notified_player_insignia = player_texture
+		player_insignia_changed.emit(player_texture)
 
 func _can_apply_to_node(node: Node) -> bool:
 	if node == null or not is_instance_valid(node):
@@ -368,6 +380,13 @@ func apply(root: Node) -> void:
 		_apply_insignia(root)
 	if root.is_in_group("carrier"):
 		_apply_carrier_insignia(root)
+		refresh_ship_name_markers(root)
+
+func refresh_ship_name_markers(node: Node) -> void:
+	if node.has_method("refresh_ship_name"):
+		node.call("refresh_ship_name")
+	for child in node.get_children():
+		refresh_ship_name_markers(child)
 
 func _reset_team_livery_assignments() -> void:
 	_team_upper_preset_indices.clear()
@@ -888,10 +907,12 @@ func _resolve_rest_from_wing_fold(wing_fold: Node, host: Node3D) -> Variant:
 	return null
 
 func _apply_carrier_insignia(carrier: Node) -> void:
-	# Remove old carrier decals
-	for child in carrier.get_children():
-		if child.is_in_group("livery_carrier_insignia"):
-			child.queue_free()
+	# Include nested placers, and remove old stamps immediately from the tree so
+	# repeated preview changes never briefly render two overlapping insignia.
+	for old in get_tree().get_nodes_in_group("livery_carrier_insignia"):
+		if carrier.is_ancestor_of(old):
+			old.get_parent().remove_child(old)
+			old.queue_free()
 
 	if insignia_textures.is_empty() or _active_apply_insignia_index < 0:
 		return
@@ -902,10 +923,10 @@ func _apply_carrier_insignia(carrier: Node) -> void:
 	var aspect := tex_h / maxf(tex_w, 1.0)
 	var decal_size := Vector3(carrier_insignia_width, carrier_insignia_depth, carrier_insignia_width * aspect)
 
-	# Place a decal at each InsigniaHull marker. Only position matters — rotation is ignored.
-	# Name ending with "R" projects toward +X (starboard), otherwise toward -X (port).
-	for child in carrier.get_children():
-		if child is Marker3D and child.name.begins_with("InsigniaHull"):
+	var markers: Array[Node] = []
+	_collect_carrier_markers(carrier, markers)
+	for child in markers:
+		if child is Node3D:
 			var inward := -1.0 if child.name.ends_with("R") else 1.0
 			var decal := Decal.new()
 			decal.name = child.name + "Decal"
@@ -921,7 +942,22 @@ func _apply_carrier_insignia(carrier: Node) -> void:
 				Vector3(inward, 0, 0),     # decal -Y → projects into wall
 				Vector3(0, -1, 0)          # decal Z → down
 			)
-			carrier.add_child(decal)
+			if child.has_method("get_decal_size"):
+				decal.size = child.call("get_decal_size", aspect)
+				decal.transform = child.transform
+				child.visible = false
+			child.get_parent().add_child(decal)
+
+
+func _collect_carrier_markers(node: Node, markers: Array[Node]) -> void:
+	for child in node.get_children():
+		# A carried aircraft/vehicle owns its own livery, not a second hull stamp.
+		if child is RigidBody3D:
+			continue
+		if child is Node3D and (child.has_method("get_decal_size") \
+				or (child is Marker3D and child.name.begins_with("InsigniaHull"))):
+			markers.append(child)
+		_collect_carrier_markers(child, markers)
 
 
 func _collect_pattern_source_colors(node: Node) -> void:
@@ -985,7 +1021,7 @@ func _apply_recursive(node: Node) -> void:
 					target_color = _active_apply_upper_color
 					is_upper_fuselage_surface = true
 				elif "lower fuselage" in mat_name:
-					target_color = lower_color
+					target_color = aircraft_lower_fuselage_color
 					is_lower_fuselage_surface = true
 				elif _active_apply_is_carrier and _is_carrier_color_2_material_name(mat_name):
 					target_color = _active_apply_secondary_color

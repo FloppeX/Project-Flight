@@ -8,7 +8,21 @@ This README is the canonical living project document. It describes the current g
 
 **Engine:** Godot 4.6.2
 
+**Fixed time of day:** Settings → Gameplay → Fix Time of Day reveals a 24-hour hour/minute selector. The preference is saved, applies immediately to the current world and new scenarios, and resumes the day/night cycle when disabled. Gameplay and weather animation keep running.
+
 **Main scene:** `res://UI/MainMenu.tscn`
+
+**Trailer scenario:** Main menu → Trailer Scenario loads a protected snapshot of the 2026-09-13 Continue checkpoint. The current setup replaces deployed forces with four friendly vehicles 3 km northwest of the carrier and eight mixed enemies 2 km from them on the same plain, with mutual attack orders and two Aircraft 5 rocket-strike launches queued at startup. Space starts/pauses the action; AltGr starts video + resumes or stops video + pauses; Left/Right select any vehicle on either team (including the carrier), and Up/Down cycle its three mounted cameras. Ground vehicles share editable camera presets; aircraft keep independent presets. F7 reloads the baseline once recording/encoding finishes. Layout, timed vehicle spawns, and launch requests are authored in `Scenario/Trailer/timeline.json`. See [Trailer scenario](docs/TRAILER_SCENARIO.md) for controls, coordinate conventions, and repeatability limits.
+
+**Direct camera video:** Ctrl+F10 starts/stops a live 1080p/30 MP4 with game audio, including F1–F4 aircraft camera cuts. Ctrl+Shift+F10 opens the videos folder. Main HUD overlays are hidden during capture; five-minute safety limit and FFmpeg dependency apply. Ctrl+F9 remains the separate replay-data recorder. See [Direct video capture](docs/DIRECT_VIDEO_CAPTURE.md) for usage, recovery, and measured overhead.
+
+Trailer camera view cycling now also includes **Free Cam** and **Free Cam Anchored**, alongside mounted cameras 1–3. Anchored keeps the pilot/commander centred without inheriting vehicle bank. In all five views, controller D-pad Left/Right rolls the camera; LT/RT zoom out/in; left stick moves, right stick aims/orbits, and LB/RB move down/up. The selected aircraft's pilot remains visible while framing, including while paused.
+
+Controllable aircraft also offer **Cockpit / Pilot** as a sixth view: actual cockpit, normal flight/weapon inputs, and no cinematic controller overrides. Switching back hands control to AI. Space/AltGr and arrow-key transport still work. Trailer radio captions are suppressed; direct video excludes screen overlays while preserving cockpit instruments, including UI created or re-shown during a clip. A rendered cockpit recording and AI handback passed; the previously observed renderer crash on full-scenario shutdown remains unresolved.
+
+Pilot meshes are hidden only in their own actual cockpit camera, not nearby free/anchored cameras. Visibility updates before rendering even during paused camera cuts; all five filming views were checked after leaving cockpit mode, with rendered close-up confirmation.
+
+Trailer startup now lets terrain finish streaming behind the loading screen after the scenario pauses for filming. Previously checkpoint restoration could finish while terrain jobs stayed queued indefinitely. A rendered paused-start regression revealed the scene in 6.198 seconds from loading-overlay activation without advancing the battle or changing the Continue save; this is not an engine-launch timing guarantee.
 
 **Status reviewed:** 2026-09-04 against the current source tree
 
@@ -64,7 +78,7 @@ The game already supports a substantial combined-arms sandbox. Most major system
 | Carrier movement | Player-authored routes over carrier-legal terrain; no automatic route is assigned at scenario start | The carrier cannot be ordered into unexplored terrain |
 | Carrier deck | Hangar, elevator, tractor bots, catapult launch, deck staging, landing clearance, arresting wires, and recovery flow | Full mission-to-recovery reliability is promising but not yet accepted across the complete validation suite |
 | Air operations | Four named flights, sensor-fused tasking, CAP/intercept/strike roles, autonomous downed-pilot tracking and Aircraft_11 rescue dispatch, player orders, threat-driven scrambling, and direct flight control | Standing CAP no longer auto-launches at startup; the rescue path still needs full live scenario validation, and richer player doctrine and mission editing remain planned |
-| Ground operations | Four named platoons, vehicle-bay deployment/retrieval, formations, escort, move, attack, protect, hold, and map-issued orders | Player ground destinations must already be explored; pathing and steep-terrain behavior still need broad live testing |
+| Ground operations | Four named platoons, vehicle-bay deployment/retrieval, formations, escort, move, attack, protect, hold, and map-issued pilot rescue with vehicle passengers | Normal player ground destinations must already be explored; rescue may target a known downed-pilot marker. Pathing and steep-terrain behavior still need broad live testing |
 | Combat | Fixed-wing, helicopter, vehicle, turret, rocket, bomb, gun, damage, destruction, and ejection systems | Balance and some AI flight-path integration remain under investigation |
 | Enemy operations | Bases, patrols, ground forces, emplacements, wind farms, virtualized distant units, and replenishment behavior | Destroying infrastructure does not yet remove a clearly communicated enemy capability |
 | POIs | Procedural placement, physical world-site hooks, aircraft discovery, ground investigation, non-modal awaiting-orders notices, tactical markers, and choice cards | Wrecked Scout Car and Abandoned Outpost now provide real intelligence consequences; the other nine POI definitions remain presentation-only |
@@ -72,12 +86,42 @@ The game already supports a substantial combined-arms sandbox. Most major system
 | Command UI | Carrier console with Tactical and Personnel views, map selection during new game, mission confirmation flow, and live unit state | This is the first command-screen slice, not the final strategic interface |
 | Campaign checkpoints | Validated primary-plus-backup save slot, automatic safe-state checkpoints, pause-menu save status, and main-menu Continue | Calm deployed CAP/transit/RTB flights and moving/protecting/escorting platoons are preserved; active attack orders, combat, tracked mobile enemies, and moving deck machinery must clear first |
 
+### Cinematic recording prototype
+
+**Ctrl+F9** starts/stops background recording while you play normally, without handing aircraft control to AI or replacing the gameplay camera/HUD. This replaces F8, which stops editor-launched games. The pause menu also offers **Start/Stop Recording**. After stopping, **Pause → Recording Mode** opens the take for scrubbing, camera shots, saving, and export. One pending take is protected from overwrite; save it before clearing or quitting. The existing short-take budgets remain in force. Background capture passes focused input/state/rendered checks; full player-flown battle validation remains open.
+
+Pause-menu **Recording Mode** provides movable vehicle-relative cameras, scrub-able visual takes, two independent camera-shot tracks, saved-take reopening, and silent offline AVI export. Takes discover nearby spawned aircraft/vehicles and newly attached visual parts, preserve spawn/removal timing, and request exterior detail for recorded subjects. A real carrier retrieval/launch has been captured and exported. Recorded aircraft retain pooled pilots without activating dormant cockpit systems; carrier tread motion survives rewind/save/export. Bounded combat visual tracks now include projectiles/tracers, managed hit sparks/explosion meshes, and fixed-wing detached parts, with independent pooled lifetimes and sampled fades. Focused rendered/reload/export tests pass; a full battle remains unvalidated. Display viewports become frozen images; terrain selection uses world-space mesh bounds. Audio, GPU-only effects, whole-wreck/ejection transitions, live instruments, and trailer staging remain future work. See the [recording-mode guide, measurements, and remaining limitations](docs/RECORDING_MODE_2026-09-12.md).
+
+### Ground pilot rescue
+
+Ground rescue update (2026-09-12): platoons can receive **RESCUE PILOT** orders from the tactical map. Air Ops compares eligible ground routes against helicopter pickup estimates, including deployment time and known route threats. Picked-up pilots remain passengers until carrier retrieval finishes. Focused ground pickup and helicopter regression tests pass; full canyon/moving-carrier rescue validation remains open. See [implementation and test notes](docs/GROUND_PILOT_RESCUE_2026-09-12.md).
+
+### Modular carrier defenses
+
+The carrier starts with two turrets in distinct random locations among nine authored build sites: four hull-mounted `CarrierDefenseTurretPosition` scenes and five island markers. Each starting turret independently receives a random 10, 15, 20, 25, or 40 mm gun. DefenseOps discovers the built turrets; empty positions have no targeting or weapon processing. The positions and gun profiles persist in campaign checkpoints (older saves without a loadout receive the two-turret starting setup).
+
+Carrier and friendly-vehicle turrets use the matching `gun barrel <caliber> mm.glb` at the model's `barrel position`, with the muzzle derived from the barrel geometry. Build sites expose `build_turret(caliber_mm)` for future construction; a player-facing construction interface and costs are not implemented yet. Details: [modular turret implementation and checks](docs/MODULAR_CARRIER_TURRETS.md).
+
+**Shared AI turret gunnery (2026-09-13):** vehicle, carrier, aircraft and emplacement turrets now use the same distance-proportional aim-error, reaction and correction model. This supersedes the earlier enemy-vehicle-only adjustment. `aim_skill = -1` chooses centralized faction defaults: friendly 0.8, enemy 0.35; explicit 0–1 values override crew skill. Old per-model defaults were removed from production turret scenes and vehicle scripts. Under equal daylight/target conditions, friendlies have a ±1.22%-of-range horizontal error envelope, 0.52 s acquisition delay and 1.02 s correction interval; enemies have ±2.60%, 0.79 s and 1.29 s respectively. Vertical error is 30% of the horizontal envelope. Night and anti-air role penalties use the same formula; legacy anti-air extra spread is interpreted at a 500 m reference distance and scales with range too. Errors are held between corrections, not re-randomized per bullet. These are aim-command envelopes, not guaranteed hit/miss rates. Projectile spread, damage, salvo timing and physical/manual turret controls are unchanged. The legacy `EnemyAircraft` actor no longer fires a second body-origin gun when its real turret controller is present. Shared-model tests cover both teams across four host roles, 50–2,000 m scaling, reaction/firing, destroyed-target safety, 12 authored turret configurations and the legacy bypass (`captures/shared_turret_gunnery_final.log`); modular carrier gun tests also passed. Full battle balance still needs playtesting.
+
+### Carrier damage control
+
+The live Carrier command tab now shows 2,000-point structural integrity, 20-point flat armor, subsystem condition, active fires, installed turret status, response-team assignments and plasteel spending. Its authored 3D schematic uses green/orange/red status colors. Players can prioritize a repair, isolate/return a system, change repair doctrine, pause repairs, and protect a material reserve. Two autonomous teams contain fires before making emergency patches and permanent repairs.
+
+The first slice affects mobility, individual turrets, carrier radar, new flight-handling operations and new vehicle deployments. Detailed reactor/power failures, fabrication, crew casualties, specialists and spare parts remain planned; those compartments currently track condition and fires only. [Damage-control behavior, tuning and checks](docs/CARRIER_DAMAGE_CONTROL.md).
+
 ### Map profiles
 
 - **Open Canyons** is the original procedural canyon landscape and the default map.
 - **Fractured Badlands** adds stronger continuous vertical variation, irregular ridges, mesas, basins, three protected carrier-scale cross-map routes, and four cross-connectors. Its protected routes are validated at a maximum `20 degree` grade across the carrier-width traces.
 
 Both profiles use the same `50 km x 50 km` strategic/nav footprint. The tactical map distinguishes general vehicle terrain from the more restrictive carrier corridors. Potential bridges and overpasses are a future extension; they are not currently represented as separate stacked navigation layers.
+
+Terrain streaming now bounds outstanding chunk jobs and uses soft main-thread installation budgets. Exact safety-grid neighborhood analysis is faster without reducing terrain or navigation detail; an isolated full-grid bake improved from 40.7 to 26.9 seconds. Startup timings distinguish terrain, grid baking and graph initialization, and the loading screen waits for the final carrier/view position. Graph cache misses remain a major loading cost; full headless scenario probes currently encounter a renderer shutdown crash. [Measurements and validation limits](docs/TERRAIN_STREAMING_AND_STARTUP_2026-09-11.md).
+
+A second optimization pass reduced a matched full-size cold navigation-graph build from 29.7 to 15.8 seconds. All node, connection-order and clearance data matched exactly; redundant checks and millions of temporary edge arrays were removed. This is a component benchmark, not a measured 47% reduction in total scenario loading time.
+
+Height-grid batching subsequently reduced the isolated bake to about 23.4 seconds (scalar runs: 26.9-29.2 seconds). Cold graph initialization now yields between bounded work groups instead of freezing for the whole build; startup consumers wait for its completed result. The measured graph calculation slices peaked at about 11 ms, but other startup work can still stall, and frame-capped time-slicing can increase total loading latency. Exact height/graph and cancellation regressions passed; rendered end-to-end loading remains unverified.
 
 ### Fog of war and order rules
 
@@ -90,7 +134,24 @@ Both profiles use the same `50 km x 50 km` strategic/nav footprint. The tactical
 
 ## Recent changes
 
+- Corrected the shared vehicle LMG's sideways aiming axes to +Z forward and unified barrel measurement/projectile direction across turret rigs. Corrected legacy muzzle markers and removed duplicate heavy-gun visuals. Details and verification: [barrel orientation fix](docs/TURRET_BARREL_ORIENTATION_2026-09-11.md).
+
+- Added exact navigation-grid disk caching, one-vehicle-per-frame enemy platoon materialization, spatial/budgeted friendly sensor updates and viewport-local camera switching. Measured repeat startup fell from 40.6 to 11.7 seconds; a 32-vehicle sustained-fire test reduced sensor-batch peaks from 2.67 to 1.10 ms. Seven focused regressions passed. Whole-battle frame times and the first-cockpit hitch remain open, as does renderer teardown. Testing separately exposed a 90-degree aim mismatch in the shared vehicle LMG rig; it is documented, not changed here. [Implementation, captures and limits](docs/NAV_CACHE_SPAWNING_AND_SENSOR_OPTIMIZATION_2026-09-11.md).
+
 This is a short current summary, not a second full changelog.
+
+### September 2026 - helicopter attack first slices
+
+- Helicopters 9/10/11 accept rockets on every hardpoint while retaining gun options; 11 now defaults to a rocket pod.
+- Added shoot-and-scoot and terrain-qualified rocket pop-ups: rise, fire a normal salvo, descend behind cover and relocate. Helicopter physics and salvo timing remain unchanged.
+- In one 85-second ridge test per model, all three hit, completed their first concealed relocation and survived. Varied terrain, moving targets and simultaneous threats remain to be validated; [results and limitations](docs/HELICOPTER_POPUP_2026-09-11.md).
+
+### September 2026 - vehicle-transition presentation
+
+- Prime and retain the HUD material variant during startup; measured cold HUD root restoration fell from about 39 ms to 5 ms in the focused rendered probe. Cache panel geometry and disable unused 3D rendering on the 2D display viewports, retaining the two-panel pool.
+- A roughly 46–48 ms first-arrival frame remains in the simple fixture; [measurements, verification and scope](docs/VEHICLE_TRANSITION_PERFORMANCE_2026-09-11.md).
+- Cockpit radars and the tactical map now share one asynchronously generated terrain-map pair. Navigation retains stable build-frame coordinates, making origin shifts offset-only and rejecting stale asynchronous results. In the rendered scenario, first-cockpit max frame fell from 1930 to 65 ms and the largest captured whole-world shift from 567 to 9 ms. Five focused regressions passed; that capture identified rock rebuilding as the next 81–131 ms long-transfer bottleneck. [Implementation, measurements and limits](docs/TRANSITION_SHARED_MAP_STABLE_NAV_2026-09-11.md); [original diagnosis](docs/SCENARIO_TRANSITION_DIAGNOSIS_2026-09-11.md).
+- Rock population is now near-first and frame-budgeted, with stable placement across origin shifts and collision-aware deferred placement. Two rendered captures measured rock slices below 2.5 ms; final long-transfer maxima were 24–46 ms. Ground vehicles share corrected contact/steering transforms, bounded wheel travel and adaptive support detail; wheels no longer disappear at 450 m, and zoom requests detailed support. Four focused suites passed and 30 stationary vehicles retained support in both rendered captures. Nearby support math costs more than before; rough-terrain driving and full carrier-bay cycles still need coverage. Both captures exited 0, but renderer teardown errors remain. [Implementation and measured limits](docs/ROCK_AND_WHEEL_IMPLEMENTATION_2026-09-11.md).
 
 ### September 2026 - first consequential POI
 
@@ -98,6 +159,21 @@ This is a short current summary, not a second full changelog.
 - A ground team reaching the site now files a non-modal `AWAITING ORDERS` notice instead of interrupting play. The decision can be opened from the notice or its pulsing tactical-map star, and deferring it leaves the order pending.
 - Recovering the patrol log reveals the nearest enemy base and a five-kilometre sector around it. Pending/resolved choice state and the revealed intelligence target persist through campaign checkpoints.
 - Turned the former Abandoned Settlement card into a physical Abandoned Outpost using `Models/ruin - building.glb`. Recovering its survey records reveals the two nearest unknown POIs and enough surrounding terrain to dispatch ground teams to them.
+
+### September 2026 - observed-contact evasive flight
+
+- Confirmed bullet/autocannon target impacts now produce brief white-hot spark streaks, shared by player and AI. Sparks use the existing bounded particle pool and real impact geometry; misses and cosmetic extra hits do not trigger them. Day/night Forward+ renders were checked; damage and collision rules are unchanged.
+- Bullet collision now uses a single swept-point path for player, aircraft AI and turrets, including heavy/autocannon rounds. Removed unused physical spheres and bullet target-envelope assistance; tracers, firing cadence and explosive splash are unchanged. Sixty-one collision checks and a production AI gun run passed. Earlier assisted gunnery scores need a new baseline: [point-collision contract and verification](docs/BULLET_POINT_COLLISION_2026-09-10.md).
+- Added five-tier combat recognition and motion-estimation profiles, with shared stable aiming control and independent skill selection/verification in the test harnesses. The initial turning-target matrix distinguishes recruits through elites while recruits remain effective against an easy tail target. Existing roster temperaments are mapped in a [separate temperament design](docs/PILOT_SKILL_AND_TEMPERAMENT_2026-09-09.md); personality does not yet change flight behavior.
+- Ground attacks now use direct interception with terrain/pull-out validation, shared threat-first pilot/CAS selection, and protected recovery before automatic retasking. Fixed a no-navigation-grid fallback that could wait forever for an unqueued route. The initial off-axis/ridge diagnostics kept all six aircraft alive, but repeat-pass alignment and bomb/rocket accuracy remain open: [ground-attack findings and results](docs/GROUND_ATTACK_DIAGNOSTIC_2026-09-09.md).
+- Ground-attack follow-up: direct intercept curvature now reaches the shared 3D controller, rocket salvos retain live aiming feedback, and bomb fallbacks reject known misses outside the useful release envelope. Aircraft 5 completed two attack entries with each weapon in the flat 120-second tests; larger terrain/airframe coverage and rocket-burst precision remain open: [repeat-pass results](docs/GROUND_ATTACK_REPEAT_PASSES_2026-09-10.md).
+- Experimental ground-attack approach alignment now retains the selected attack direction, captures a line rather than an outbound staging point, and uses a weapon-appropriate inner alignment deadline. The alternate planner remains opt-in pending broader acceptance: [alignment changes and physical comparisons](docs/GROUND_ATTACK_APPROACH_ALIGNMENT_2026-09-10.md).
+- Broader ground-attack testing now compares explicit starting headings/speeds for guns, bombs and rockets, with first-damage and per-commit pose telemetry. The alternate planner remains disabled: several entries finish horizontal alignment too close/high to establish useful weapon aim. The next slice is a range/altitude-aware entry pose, not more steering authority: [matrix evidence and next steps](docs/GROUND_ATTACK_ALIGNMENT_MATRIX_2026-09-10.md).
+- Ground-attack entry poses retain descent/aiming space and now permit predicted early joins for guns and bombs. The guarded validation retained 6/6 damaging first passes; oblique gun/bomb first hits were about 4.5/9.7 seconds earlier. Rockets retain prior staging after a shortcut accuracy regression. The alternate planner remains opt-in: repeat-route quality and rocket salvo precision still need work. See [entry-pose baseline](docs/GROUND_ATTACK_ENTRY_POSE_2026-09-10.md) and [short-join results](docs/GROUND_ATTACK_SHORT_JOIN_2026-09-10.md).
+- Ground-attack re-entry now revalidates the new direct corridor before the opt-in alternate search, retaining the accepted entry height/range and all live safety/release checks. Eight matched runs survived: crosswise gun first damage improved from 62.3 to 28.7 seconds, and the oblique bomber made a useful repeat pass. Natural bomb-cycle timing and rocket damage were not universally better; the planner remains opt-in. See [direct-revalidation results](docs/GROUND_ATTACK_DIRECT_REVALIDATION_2026-09-10.md).
+- Rocket salvo follow-up: the shared player/AI impact predictor now skips airborne projectiles instead of mistaking preceding rockets for stationary obstacles. Four paired runs survived and retained full six-rocket salvos; kilometre-scale false aim jumps disappeared, but actual accuracy remains unresolved and rocket-projectile collisions also occurred. Salvo timing and physical collisions are unchanged: [aim-signal fix and measured limits](docs/ROCKET_SALVO_AIM_SIGNAL_2026-09-10.md).
+- Ground weapon release: faster rocket prediction near firing improved both paired entry tests, and bomb racks now check separation from preceding bombs before consuming another store. The alternate-terrain-approach prototype remains off by default because it has not yet demonstrated better repeat-pass throughput: [release safety and approach experiments](docs/GROUND_ATTACK_AXIS_AND_RELEASE_SAFETY_2026-09-10.md).
+- Fixed-wing pilots now make short, energy-aware evasive breaks from observed attack geometry or source-aware projectile damage, then extend and reacquire from finite visual memory. A legacy turn-pull floor no longer overrides downward gun aiming when the coordinated controller is active. Controlled tail/side tests show fewer received hits, but fine crossing-aim settling and prolonged post-break fights remain open; see [implementation and measured limits](docs/EVASIVE_FLIGHT_IMPLEMENTATION_2026-09-09.md).
 
 ### September 2026 - carrier command authority
 
@@ -128,7 +204,7 @@ This is a short current summary, not a second full changelog.
 - Added incremental rock streaming and more generous rock placement away from steep slopes while suppressing rocks on or near near-vertical terrain.
 - Refined the carrier console, mission flyout, confirmation gating, personnel view, and pilot presentation.
 - Changed AirOps startup behavior so a standing CAP requirement does not empty the hangar automatically; real intercepts, strikes, and explicit player orders can still launch flights.
-- Added persistent Air Ops tracking for downed pilots, automatic Aircraft_11 rescue launch and reassignment, pickup completion, and three configurable utility helicopters in the starting hangar.
+- Added persistent Air Ops tracking for downed pilots, automatic Aircraft_11 rescue launch and reassignment, and pickup completion. A fresh carrier starts with four Aircraft_5 fixed-wing aircraft and two Aircraft_11 utility helicopters, while retaining twelve total hangar slots.
 - Added a main-menu Technical Index with nested ground-vehicle, airplane, helicopter, structure, and weapon catalogs. Entries load their gameplay scene into an isolated rotatable 3D preview and show a description plus scene-derived specifications.
 
 ### Late July to early August 2026 - operations and validation
@@ -178,6 +254,7 @@ This slice should use temporary scenario-scoped state first. It does not need th
 
 ### Later possibilities
 
+- Pilot temperament independent of skill: commitment, tactical risk, persistence and shot patience using the existing roster labels. Deferred by choice; [design and proposed mappings](docs/PILOT_SKILL_AND_TEMPERAMENT_2026-09-09.md).
 - Bridges, overpasses, tunnels, and stacked routes using authored connection points and a layered/hybrid navigation graph.
 - Weather with operational effects: sandstorms, electrical storms, reduced visibility, and terrain-dependent hazards.
 - Structural part damage and breakoff for aircraft, vehicles, buildings, and the carrier.
@@ -185,6 +262,7 @@ This slice should use temporary scenario-scoped state first. It does not need th
 - Modular aircraft components and upgrades, including engines, control systems, landing gear, weapons, and field repair/fabrication choices.
 - Complete ejection, downed-pilot rescue, injury, rest, and career-continuity loops.
 - Broader helicopter roles: rescue/winch, scout, attack, and gunship support.
+- Broaden helicopter pop-up validation to varied terrain, moving targets and multiple threats. A terrain-qualified rocket pop-up first slice is implemented for 9/10/11, alongside shoot-and-scoot; [behavior and test limitations](docs/HELICOPTER_POPUP_2026-09-11.md).
 - More terrain profiles, regional biomes, upgrades, fabrication, and an in-game vehicle/weapon codex.
 
 ### Open design decisions
@@ -204,7 +282,7 @@ These items are deliberately phrased by evidence level. Older reports may descri
 | Partly resolved | Most POI decisions have no gameplay effect | Wrecked Scout Car reveals the nearest enemy base and its five-kilometre sector; Abandoned Outpost reveals two nearby unknown POIs; the other nine definitions still only close their cards |
 | Confirmed | No regional win condition, strategic economy, or between-region persistence | A first same-region calm-state checkpoint exists, but the larger campaign transition and economy systems have not been implemented |
 | Confirmed | Carrier tread animation has visible discontinuities at the lower turnarounds | Debug the baked loop coordinate before further shader tuning; see the track report |
-| Partly resolved | Fixed-wing carrier recovery | Focused dirty-entry and two-aircraft catches succeeded on the current recovery work, but the remaining matrix, 100-attempt final regression, and 20-run mixed suite were not completed |
+| Partly resolved | Fixed-wing carrier recovery | Terrain-climb ownership fixed; seeded five-aircraft bingo-fuel rerun stowed 3/5, with two losses after usable-fuel exhaustion. Blocked approach sites and recovery throughput remain unresolved; see [the follow-up](docs/RECOVERY_TERRAIN_AND_BINGO_2026-09-11.md). The wider final/mixed regression matrix remains incomplete |
 | Implemented / fleet tuning pending | Advanced fixed-wing energy, parasite drag, control envelope, and stall departure | Advanced removes hidden combined linear damping, uses the half-power baseline, and models explicit drag, axis-specific authority, rate-limited surfaces, progressive departure, and stress feedback; Simplified preserves the former response, and each airframe still needs rendered level/dive/pullout/stall tuning |
 | Unresolved / needs current retest | Fixed-wing route and turn authority | Historical telemetry found a split between horizontal and vertical guidance and uncertain lift response; later code changed substantially, so the old diagnosis is a baseline rather than proof of the current failure |
 | Needs current measurement | Valley-frame performance | Low frame rates were observed in valleys; terrain/rock streaming and presentation budgets were changed afterward, but no current acceptance measurement is documented here |

@@ -26,6 +26,7 @@ buses/default_bus_layout=""
 
 [autoload]
 
+InterfaceAudio="*res://Audio/InterfaceAudio.gd"
 EnemyRegistry="*res://Enemies/EnemyRegistry.gd"
 ControllerDebug="*res://tools/ControllerDebug.gd"
 TerrainNavGrid="*res://Environment/TerrainNavGrid.gd"
@@ -49,6 +50,7 @@ WorldUnitIndex="*res://Operations/WorldUnitIndex.gd"
 RadioComms="*res://Radio/RadioComms.gd"
 CombatLog="*res://Debug/CombatLog.gd"
 NavGraph="*res://AI/NavGraph.gd"
+TerrainMapCache="*res://UI/TerrainMapCache.gd"
 NavPathScheduler="*res://AI/NavPathScheduler.gd"
 HelicopterCombatTuner="*res://AI/HelicopterCombatTuner.gd"
 HelicopterNavigationTuner="*res://AI/HelicopterNavigationTuner.gd"
@@ -64,6 +66,8 @@ FPSCounter="*res://tools/FPSCounter.gd"
 Livery="*res://Aircraft/Livery.gd"
 FloatingOrigin="*res://Environment/FloatingOrigin.gd"
 POIManager="*res://POI/POIManager.gd"
+RecordingMode="*res://Recording/RecordingMode.gd"
+DirectVideoCapture="*res://Recording/DirectVideoCapture.gd"
 
 [display]
 
@@ -260,6 +264,11 @@ map_toggle={
 "events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":77,"key_label":0,"unicode":109,"location":0,"echo":false,"script":null)
 ]
 }
+toggle_nightvision={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":78,"key_label":0,"unicode":110,"location":0,"echo":false,"script":null)
+]
+}
 pilot_roster_toggle={
 "deadzone": 0.5,
 "events": []
@@ -275,6 +284,8 @@ pause_game={
 3d_physics/layer_5="Tailhook"
 3d_physics/layer_6="Cable"
 3d_physics/layer_10="Terrain"
+3d_physics/layer_20="Carrier projectile hit volumes"
+3d_physics/layer_21="Carrier interior walking"
 
 [physics]
 

@@ -29,7 +29,7 @@ signal cable_released(aircraft: RigidBody3D)
 
 @export var mass_adaptive_quadratic_damping_factor: float = 0.008 # kg/m, scales quadratic damping with mass
 
-@export var max_pay_out: float = 16.0           # Desired arresting stroke before the hard-stop spring ramps up (m)
+@export var max_pay_out: float = 20.0           # Desired arresting stroke before the hard-stop spring ramps up (m)
 @export var braking_planned_stop_enabled: bool = true
 @export var braking_min_remaining_distance_m: float = 2.0
 @export var hard_stop_stiffness_n_per_m: float = 8000.0
@@ -51,8 +51,11 @@ signal cable_released(aircraft: RigidBody3D)
 @export var roll_stabilize_enabled: bool = true
 @export var roll_stabilize_gain: float = 4.0          # torque per rad/s (scaled by mass)
 @export var roll_level_gain: float = 20.0             # leveling torque toward upright (N·m per rad per kg)
-@export var roll_max_torque_g_m: float = 30.0         # clamp per (mass*9.8) so torque stays sane
-@export var engaged_downforce_g: float = 1.2          # extra downforce in multiples of weight while engaged
+@export var roll_max_torque_g_m: float = 1.0          # bounded attitude assistance, not a rigid orientation lock
+@export var engaged_downforce_g: float = 0.0          # legacy diagnostic override; no artificial wheel loading by default
+@export var pitch_rate_damping_enabled: bool = true
+@export var pitch_rate_response_s: float = 0.25
+@export var pitch_max_torque_g_m: float = 3.0
 
 var _area: Area3D
 var _left_anchor: Node3D
@@ -76,6 +79,10 @@ var _gear_module: Node = null
 var _orig_sideways_friction: float = NAN
 var _orig_friction_multiplier: float = NAN
 var _hook_previous_positions: Dictionary = {}
+var last_braking_force_n := Vector3.ZERO
+var last_lateral_force_n := Vector3.ZERO
+var last_attitude_torque_nm := Vector3.ZERO
+var hard_stop_corrections := 0
 
 func _ready():
 	add_to_group("arresting_cable")
@@ -161,16 +168,29 @@ func _physics_process(delta: float) -> void:
 	# Braking force applied at CG — avoids pitch torque from hook offset (hook is ~1.7m below
 	# and ~2.4m behind CG; applying there creates nose-down pitching that lifts the main gear).
 	_aircraft.apply_central_force(force_vec)
+	last_braking_force_n = force_vec
 	_force_along_prev = force_along
 	# Lateral centering applied at CG — avoids the roll/yaw torque that the hook's tail
 	# offset creates when lateral force is applied there (~2.4m behind, ~1.7m below CG).
-	var lateral_rel = rel - axis * rel.dot(axis)
-	var v_lat_vec = rel_v - axis * v_along
+	# Lateral means across the deck, not every direction perpendicular to forward.
+	# Including Y here created a hidden vertical spring/damper at the hook.
+	var deck_up := global_basis.y.normalized()
+	var lateral_axis := deck_up.cross(axis).normalized()
+	var lateral_rel = lateral_axis * rel.dot(lateral_axis)
+	var v_lat_vec = lateral_axis * rel_v.dot(lateral_axis)
 	var f_lat_vec = -(lateral_centering_stiffness_n_per_m * lateral_rel + lateral_damping_n_s_per_m * v_lat_vec)
 	var f_lat_limit = max_tension * 0.25
 	if f_lat_vec.length() > f_lat_limit:
 		f_lat_vec = f_lat_vec.normalized() * f_lat_limit
 	_aircraft.apply_central_force(f_lat_vec)
+	last_lateral_force_n = f_lat_vec
+	last_attitude_torque_nm = Vector3.ZERO
+	# Arrestment can unload the nose wheel while aerodynamic/ground forces keep
+	# rotating the body. Dissipate pitch rotation directly without choosing a
+	# pitch angle or adding vertical load. Torque always opposes pitch rate.
+	var pitch_damping := _pitch_damping_torque(delta)
+	_aircraft.apply_torque(pitch_damping)
+	last_attitude_torque_nm = pitch_damping
 
 	# Roll stabilization torque around aircraft forward axis to resist flipping
 	if roll_stabilize_enabled and is_instance_valid(_aircraft):
@@ -181,16 +201,21 @@ func _physics_process(delta: float) -> void:
 		var damp_torque: float = -roll_rate * roll_stabilize_gain * _aircraft.mass
 		# Gentle leveling toward world up using signed angle around forward axis
 		var up_proj: Vector3 = (up_axis - fwd_axis * up_axis.dot(fwd_axis)).normalized()
-		var world_up_proj: Vector3 = (Vector3.UP - fwd_axis * Vector3.UP.dot(fwd_axis)).normalized()
+		var world_up_proj: Vector3 = (deck_up - fwd_axis * deck_up.dot(fwd_axis)).normalized()
 		if up_proj.length() > 0.0 and world_up_proj.length() > 0.0:
 			var sin_a: float = up_proj.cross(world_up_proj).dot(fwd_axis)
 			var cos_a: float = up_proj.dot(world_up_proj)
 			var roll_err: float = atan2(sin_a, cos_a)  # positive means need +roll around fwd to align
-			var level_torque: float = -roll_err * roll_level_gain * _aircraft.mass
+			# roll_err is already the signed rotation FROM aircraft up TO deck up.
+			# Negating it drove both left and right banks farther away from level.
+			# Let the suspension determine resting attitude once motion has ceased.
+			var leveling_weight := clampf(rel_v.length() / 8.0, 0.0, 1.0)
+			var level_torque: float = roll_err * roll_level_gain * _aircraft.mass * leveling_weight
 			# Clamp total torque to avoid violent reactions
 			var max_torque: float = max(0.0, _aircraft.mass * 9.8 * roll_max_torque_g_m)
 			var total_torque: float = clamp(damp_torque + level_torque, -max_torque, max_torque)
 			_aircraft.apply_torque(fwd_axis * total_torque)
+			last_attitude_torque_nm += fwd_axis * total_torque
 		# Pull each landing gear toward the deck individually.
 		# Applying at each gear's position creates a restoring roll torque: if the aircraft
 		# tips right, the left gear (now higher) gets pulled down, and so does the right,
@@ -330,6 +355,7 @@ func _engage_hook_area(area: Area3D, source: String) -> bool:
 	_engaged = true
 	_engaged_elapsed = 0.0
 	_force_along_prev = 0.0
+	hard_stop_corrections = 0
 	_debug_t = 0.0
 	_cut_aircraft_engine(_aircraft)
 	print("[Cable] ENGAGED with ", _aircraft.name, " (Mass: ", _aircraft.mass, " kg)")
@@ -416,6 +442,19 @@ func get_wire_number() -> int:
 			return i + 1
 	return 1
 
+func get_capture_half_span_m() -> float:
+	## Public geometry for observers such as the AI landing sight. This reports the
+	## real cable span; it does not change engagement permissiveness.
+	if is_instance_valid(_left_anchor) and is_instance_valid(_right_anchor):
+		return _left_anchor.global_position.distance_to(_right_anchor.global_position) * 0.5
+	return 0.0
+
+func get_swept_hook_vertical_tolerance_m() -> float:
+	return maxf(swept_hook_vertical_tolerance_m, 0.05)
+
+func get_swept_hook_lateral_margin_m() -> float:
+	return maxf(swept_hook_lateral_margin_m, 0.0)
+
 # --- Helpers ---
 func _find_aircraft(from_node: Node) -> RigidBody3D:
 	var n: Node = from_node
@@ -429,6 +468,19 @@ func _anchor_midpoint() -> Vector3:
 	if _left_anchor and _right_anchor:
 		return 0.5 * (_left_anchor.global_position + _right_anchor.global_position)
 	return global_position
+
+func _pitch_damping_torque(delta: float) -> Vector3:
+	if not pitch_rate_damping_enabled or not is_instance_valid(_aircraft):
+		return Vector3.ZERO
+	var pitch_axis := _aircraft.global_basis.x.normalized()
+	var inverse_inertia := pitch_axis.dot(_aircraft.get_inverse_inertia_tensor() * pitch_axis)
+	if inverse_inertia <= 0.0000001:
+		return Vector3.ZERO
+	var rate := _aircraft.angular_velocity.dot(pitch_axis)
+	var angular_accel := -rate / maxf(pitch_rate_response_s, maxf(delta * 2.0, 0.01))
+	var limit := maxf(pitch_max_torque_g_m, 0.0) * _aircraft.mass * 9.8
+	return pitch_axis * clampf(angular_accel / inverse_inertia, -limit, limit)
+
 
 func _hook_global_position() -> Vector3:
 	if _hook_node and _hook_node is Node3D:
@@ -461,6 +513,7 @@ func _enforce_max_payout(axis: Vector3, x: float, rel_v_along: float, deck_veloc
 	if not hard_stop_enforce_position or max_pay_out <= 0.0 or absf(x) <= position_limit:
 		return x
 	var clamped_x: float = clampf(x, -position_limit, position_limit)
+	hard_stop_corrections += 1
 	var correction: Vector3 = axis * (clamped_x - x)
 	_aircraft.global_position += correction
 

@@ -189,6 +189,7 @@ deep_stall_yaw_authority_cap = 0.18
 stall_shake_intensity = 0.9
 deep_stall_body_drag_strength = 6.0
 forward_drag_strength = 0.17
+gear_drag_multiplier = 1.5
 flaps_drag_multiplier = 3.55
 flaps_lift_bonus = 0.13
 
@@ -237,6 +238,7 @@ propeller_node = NodePath("../aircraft_14/Aircraft 2 propeller")
 EngineSoundLoop = ExtResource("11_btnkm")
 EngineSoundStart = ExtResource("12_sqfht")
 FuelRate = 0.01
+FuelBaseRate = 0.065
 ProcessPhysics = true
 
 [node name="Steering" parent="." unique_id=118195988 instance=ExtResource("13_ldgib")]
@@ -337,6 +339,7 @@ mounted_weapon = ExtResource("33_rocket")
 [node name="Hardpoint2" parent="." unique_id=251222435 instance=ExtResource("28_ymevh")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.319274, -0.817209, 2.50435)
 mounted_weapon = ExtResource("31_kq7no")
+gun_only = true
 
 [node name="TailHook" parent="." unique_id=1440700676 instance=ExtResource("31_3f4kl")]
 transform = Transform3D(1, 0, 0, 0, 0.5, -0.866025, 0, 0.866025, 0.5, 0, -1.728, -2.12017)
@@ -356,6 +359,7 @@ fold_angle_deg = 110.0
 
 [node name="AIPilot" type="Node" parent="." unique_id=1913933624]
 script = ExtResource("34_aipil")
+rtb_fuel_threshold = 0.35
 
 [node name="AIToggle" type="Node" parent="." unique_id=528784645]
 script = ExtResource("33_aitgl")

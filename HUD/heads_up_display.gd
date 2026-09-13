@@ -205,6 +205,7 @@ func _opaque(color: Color) -> Color:
 	return Color(color.r, color.g, color.b, 1.0)
 
 func _ready():
+	var ready_start := FrameProfiler.begin("HUD.ready")
 	# Manually resolve NodePath references
 	if camera_path != NodePath():
 		var camera_node: Node = get_node_or_null(camera_path)
@@ -218,6 +219,7 @@ func _ready():
 	if aircraft_path != NodePath():
 		aircraft = get_node(aircraft_path) as Node3D
 	_resolve_bound_cockpit_camera()
+	FrameProfiler.end("HUD.resolve", ready_start)
 	
 	# Exit early if any critical nodes are missing
 	if hud_mesh == null:
@@ -228,6 +230,7 @@ func _ready():
 		return
 	
 	# Set up the HUD glass mesh
+	var material_start := FrameProfiler.begin("HUD.material")
 	var quad = QuadMesh.new()
 	quad.size = hud_glass_size
 	hud_mesh.mesh = quad
@@ -248,12 +251,16 @@ func _ready():
 	
 	# Apply material
 	hud_mesh.material_override = material
+	FrameProfiler.end("HUD.material", material_start)
 	
 	# Set up viewport size - make it bigger for more text room
+	var viewport_start := FrameProfiler.begin("HUD.viewport")
 	viewport.size = Vector2i(512, 512)
 	viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
 	# Transparent background so only reticle shows on glass
 	viewport.transparent_bg = true
+	FrameProfiler.end("HUD.viewport", viewport_start)
+	var controls_start := FrameProfiler.begin("HUD.controls")
 	
 	# Set up crosshair size to match viewport
 	var hud_size: Vector2 = Vector2(viewport.size)
@@ -311,6 +318,8 @@ func _ready():
 	add_child(ccip_update_timer)
 	ccip_update_timer.timeout.connect(update_ccip)
 	ccip_update_timer.start()
+	FrameProfiler.end("HUD.controls", controls_start)
+	FrameProfiler.end("HUD.ready", ready_start)
 
 func setup_weapon_status():
 	"""Set up the weapon status display in lower left corner"""

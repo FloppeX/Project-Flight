@@ -1,0 +1,23 @@
+[gd_scene format=3 uid="uid://cttyb65rjjlfx"]
+
+[ext_resource type="Script" path="res://LandCarrier/MonitorStation.gd" id="1_station"]
+[ext_resource type="PackedScene" uid="uid://10encn4j8lq1" path="res://LandCarrier/monitor station.glb" id="2_model"]
+
+[node name="MonitorStation" type="Node3D" unique_id=1049478346 groups=["monitor_station"]]
+script = ExtResource("1_station")
+screen_focus_margin = 1.04
+
+[node name="InteractionTarget" type="Marker3D" parent="."]
+
+[node name="UsePrompt" type="Label3D" parent="InteractionTarget"]
+position = Vector3(0, 0, 0.006)
+visible = false
+pixel_size = 0.0018
+modulate = Color(0.46, 0.78, 0.78, 1)
+text = "[A]  MAST CAMERA"
+outline_size = 5
+
+[node name="CameraAnchor" type="Marker3D" parent="."]
+
+[node name="Model" parent="." unique_id=466736258 instance=ExtResource("2_model")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.052278996, 0.22801983, 0.54179955)

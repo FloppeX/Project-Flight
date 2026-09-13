@@ -73,6 +73,12 @@ var _carrier: Node3D = null
 var _assign_timer: float = 0.0
 var _threat_timer: float = 0.0
 var _sensor_picture_timer: float = 0.0
+@export var sensor_batch_budget_ms: float = 1.0
+@export var spatial_sensor_queries_enabled: bool = true
+var _pending_sensor_observers: Array[WeakRef] = []
+var _sensor_batch_candidates: Array[Node3D] = []
+var _sensor_batch_index := 0
+var sensor_diagnostics := {"cycles": 0, "observers": 0, "candidate_tests": 0, "max_batch_ms": 0.0}
 var _recovery_supervision_timer_s: float = 0.0
 var _recovery_supervision_elapsed_s: float = 0.0
 var _recovery_supervision_records: Dictionary = {}
@@ -165,16 +171,22 @@ func _process(delta: float) -> void:
 		_recovery_supervision_elapsed_s = 0.0
 	_update_rescue_launch_timeout(delta)
 	_rescue_dispatch_timer_s -= delta
-	if _rescue_dispatch_timer_s <= 0.0:
+	if _rescue_dispatch_timer_s <= 0.0 and not GameSession.is_trailer_scenario:
 		_rescue_dispatch_timer_s = maxf(rescue_dispatch_interval_s, 0.25)
 		_update_rescue_operations()
 	if not mission_tasking_enabled:
 		FrameProfiler.end("AirOpsManager.process", _profiler_start)
 		return
 	_sensor_picture_timer -= delta
-	if _sensor_picture_timer <= 0.0:
+	if _sensor_picture_timer <= 0.0 and _pending_sensor_observers.is_empty():
 		_sensor_picture_timer = maxf(sensor_picture_update_interval_s, 0.1)
-		_update_friendly_sensor_picture()
+		_update_friendly_sensor_picture(true)
+	_service_sensor_batch()
+	# Keep sensors/recovery active, but let the trailer director own new tasking
+	# and launch timing instead of reacting to the checkpoint's mission board.
+	if GameSession.is_trailer_scenario:
+		FrameProfiler.end("AirOpsManager.process", _profiler_start)
+		return
 
 	# Release a scramble that never completed its launches (deck jammed / aircraft stuck) so it doesn't
 	# block all future tasking forever.
@@ -1257,7 +1269,7 @@ func _pick_flight(exclude: Flight = null) -> Flight:
 	return best
 
 func _ensure_carrier_cap() -> void:
-	if not maintain_carrier_cap:
+	if not maintain_carrier_cap or GameSession.is_trailer_scenario:
 		return
 	_refresh_carrier()
 	if not _carrier or not is_instance_valid(_carrier):
@@ -1485,6 +1497,7 @@ func get_downed_pilot_snapshot() -> Array[Dictionary]:
 			"status": str(pilot_node.get_meta(RESCUE_STATUS_META, RESCUE_STATUS_WAITING)),
 			"helicopter": helicopter,
 			"helicopter_name": helicopter.name if is_instance_valid(helicopter) else "",
+			"ground_platoon": str(pilot_node.get_meta("ground_rescue_platoon", "")),
 		})
 	return snapshot
 
@@ -1502,6 +1515,10 @@ func _update_rescue_operations() -> void:
 			continue
 
 		var available_helicopter := _find_available_rescue_helicopter()
+		var ground_ops := get_node_or_null("/root/GroundOpsManager")
+		if ground_ops != null and is_instance_valid(ground_ops.rescue_service) \
+				and ground_ops.rescue_service.consider(pilot_node, available_helicopter):
+			continue
 		if available_helicopter != null:
 			var helicopter_pilot := available_helicopter.find_child("HelicopterPilot", true, false)
 			_assign_rescue_helicopter(pilot_node, available_helicopter, helicopter_pilot)
@@ -1688,11 +1705,15 @@ func _refresh_carrier() -> void:
 	if not _carrier or not is_instance_valid(_carrier):
 		_carrier = get_tree().get_first_node_in_group("carrier") as Node3D
 
-func _update_friendly_sensor_picture() -> void:
+func _update_friendly_sensor_picture(budgeted: bool = false) -> void:
+	var started: int = FrameProfiler.begin("AirOpsManager.sensor_collect")
 	_refresh_carrier()
-	var target_candidates := _collect_contact_candidates()
+	_sensor_batch_candidates = _collect_contact_candidates()
+	_pending_sensor_observers.clear()
+	_sensor_batch_index = 0
+	sensor_diagnostics.cycles += 1
 	if carrier_radar_enabled and _carrier and is_instance_valid(_carrier):
-		_report_contacts_seen_by_sensor(_carrier, carrier_radar_range_m, target_candidates)
+		_pending_sensor_observers.append(weakref(_carrier))
 	if ground_vehicle_radar_enabled:
 		for sensor_ref in get_tree().get_nodes_in_group("ground_vehicles"):
 			if not is_instance_valid(sensor_ref) or not (sensor_ref is Node3D):
@@ -1702,23 +1723,152 @@ func _update_friendly_sensor_picture() -> void:
 				continue
 			if bool(sensor.get_meta("carrier_transport_mode", false)):
 				continue
-			_report_contacts_seen_by_sensor(sensor, ground_vehicle_radar_range_m, target_candidates)
+			_pending_sensor_observers.append(weakref(sensor))
+	FrameProfiler.end("AirOpsManager.sensor_collect", started)
 	_prune_reported_contacts()
+	if not budgeted: _service_sensor_batch(false)
+
+func _service_sensor_batch(budgeted: bool = true) -> void:
+	if _pending_sensor_observers.is_empty(): return
+	var started: int = FrameProfiler.begin("AirOpsManager.sensor_batch")
+	var clock_start := Time.get_ticks_usec()
+	var snapshot := WorldUnitIndex.build_spatial_snapshot(_sensor_batch_candidates) if spatial_sensor_queries_enabled else {}
+	while _sensor_batch_index < _pending_sensor_observers.size():
+		var sensor: Variant = _pending_sensor_observers[_sensor_batch_index].get_ref()
+		_sensor_batch_index += 1
+		if is_instance_valid(sensor) and sensor.is_inside_tree():
+			var is_carrier: bool = sensor == _carrier
+			var enabled_now: bool = carrier_radar_enabled if is_carrier else ground_vehicle_radar_enabled
+			if enabled_now and not bool(sensor.get_meta("carrier_transport_mode", false)):
+				var radius := _carrier_sensor_radius(sensor) if is_carrier else ground_vehicle_radar_range_m
+				var candidates := WorldUnitIndex.query_spatial_snapshot(snapshot, sensor.global_position, radius) if spatial_sensor_queries_enabled else _sensor_batch_candidates
+				sensor_diagnostics.observers += 1
+				sensor_diagnostics.candidate_tests += candidates.size()
+				_report_contacts_seen_by_sensor(sensor, radius, candidates)
+		if budgeted and Time.get_ticks_usec() - clock_start >= maxf(sensor_batch_budget_ms, 0.1) * 1000.0: break
+	if _sensor_batch_index >= _pending_sensor_observers.size():
+		_pending_sensor_observers.clear()
+		_sensor_batch_candidates.clear()
+	sensor_diagnostics.max_batch_ms = maxf(sensor_diagnostics.max_batch_ms, (Time.get_ticks_usec() - clock_start) / 1000.0)
+	FrameProfiler.end("AirOpsManager.sensor_batch", started)
+
+func _carrier_sensor_radius(carrier: Node3D) -> float:
+	var factor := 1.0
+	if is_instance_valid(carrier) and carrier.has_method("get_system_capability"):
+		factor = float(carrier.call("get_system_capability", "island"))
+	return maxf(carrier_radar_range_m, 0.0) * factor
+
+func get_carrier_sensor_contacts(carrier: Node3D) -> Array[Node3D]:
+	## Live carrier-local radar picture, independent of weapon assignments and
+	## stale reports from other observers. Reading it does not issue combat orders.
+	var result: Array[Node3D] = []
+	if not carrier_radar_enabled or not is_instance_valid(carrier) \
+			or not carrier.is_inside_tree() or _get_node_team(carrier, 1) != 1:
+		return result
+	var radius := _carrier_sensor_radius(carrier)
+	if radius <= 0.0:
+		return result
+	var candidates: Array[Node3D] = []
+	if WorldUnitIndex.enabled and WorldUnitIndex.spatial_queries_enabled:
+		candidates = WorldUnitIndex.query_nodes_in_groups(carrier.global_position, radius,
+			["enemies", "aircraft", "ai_aircraft", "ground_vehicles"])
+		# Static objectives need not belong to the mobile-unit spatial directory.
+		for group_name in ["enemy_bases", "gun_emplacements", "buildings"]:
+			for node in get_tree().get_nodes_in_group(group_name):
+				if node is Node3D:
+					candidates.append(node as Node3D)
+	else:
+		candidates = _collect_contact_candidates()
+	var seen: Dictionary = {}
+	for target in candidates:
+		if not is_instance_valid(target) or target == carrier \
+				or not target.is_inside_tree() or target.is_queued_for_deletion():
+			continue
+		if ("is_destroyed" in target and bool(target.get("is_destroyed"))) \
+				or ("is_dying" in target and bool(target.get("is_dying"))):
+			continue
+		if not _is_valid_report_target_for_team(target, 1) \
+				or carrier.global_position.distance_squared_to(target.global_position) > radius * radius:
+			continue
+		var id := target.get_instance_id()
+		if not seen.has(id):
+			seen[id] = true
+			result.append(target)
+	return result
+
+func get_carrier_monitor_contacts(carrier: Node3D) -> Array[Node3D]:
+	# Observation may include friendly recoveries; never feed this mixed list to
+	# hostile-contact reporting or weapon allocation.
+	var result := get_carrier_sensor_contacts(carrier)
+	if not is_instance_valid(carrier) or not carrier.is_inside_tree():
+		return result
+	var radius := _carrier_sensor_radius(carrier)
+	if radius <= 0.0:
+		return result
+	var candidates: Array[Node3D] = []
+	if WorldUnitIndex.enabled and WorldUnitIndex.spatial_queries_enabled:
+		candidates = WorldUnitIndex.query_nodes_in_groups(carrier.global_position, radius,
+			["aircraft", "ai_aircraft", "friendlies"])
+	else:
+		for group_name in ["aircraft", "ai_aircraft", "friendlies"]:
+			for node in get_tree().get_nodes_in_group(group_name):
+				if node is Node3D:
+					candidates.append(node as Node3D)
+	for aircraft in candidates:
+		if is_friendly_carrier_recovery_contact(aircraft, carrier) \
+				and carrier.global_position.distance_squared_to(aircraft.global_position) <= radius * radius \
+				and not result.has(aircraft):
+			result.append(aircraft)
+	return result
+
+func is_friendly_carrier_recovery_contact(aircraft: Node3D, carrier: Node3D) -> bool:
+	if not is_instance_valid(aircraft) or not aircraft.is_inside_tree() \
+			or aircraft.is_queued_for_deletion() or _get_node_team(aircraft, 0) != 1:
+		return false
+	if not (aircraft.is_in_group("aircraft") or aircraft.is_in_group("ai_aircraft")) \
+			or aircraft.is_in_group("ground_vehicles"):
+		return false
+	if ("is_destroyed" in aircraft and bool(aircraft.get("is_destroyed"))) \
+			or ("is_dying" in aircraft and bool(aircraft.get("is_dying"))):
+		return false
+	if aircraft is RigidBody3D and aircraft.freeze:
+		return false
+	for flag in ["carrier_transport_mode", "carrier_manual_transport", "parking_brake"]:
+		if bool(aircraft.get_meta(flag, false)):
+			return false
+	var deck := carrier.get_node_or_null("FlightDeckManager")
+	if deck != null and aircraft is RigidBody3D \
+			and deck.has_method("is_aircraft_physically_settled_on_landing_deck") \
+			and bool(deck.call("is_aircraft_physically_settled_on_landing_deck", aircraft)):
+		return false
+	var pilot := aircraft.find_child("AIPilot", true, false)
+	if pilot == null or not "current_state" in pilot:
+		return false
+	if "_cached_carrier_node" in pilot:
+		var destination: Variant = pilot.get("_cached_carrier_node")
+		if is_instance_valid(destination) and destination != carrier:
+			return false
+	return int(pilot.get("current_state")) in [AIPilot.State.RTB,
+		AIPilot.State.RECOVERY_MARSHAL, AIPilot.State.RECOVERY_HOLD,
+		AIPilot.State.RECOVERY_APPROACH, AIPilot.State.APPROACH,
+		AIPilot.State.PRE_LANDING, AIPilot.State.LANDING, AIPilot.State.MISSED_APPROACH]
 
 func _collect_contact_candidates() -> Array[Node3D]:
 	var result: Array[Node3D] = []
+	var seen := {}
 	for group_name in ["enemies", "enemy_bases", "aircraft", "ai_aircraft", "ground_vehicles", "gun_emplacements", "buildings"]:
 		for node_ref in get_tree().get_nodes_in_group(group_name):
 			if not is_instance_valid(node_ref) or not (node_ref is Node3D):
 				continue
 			var node := node_ref as Node3D
-			if result.has(node):
+			if seen.has(node.get_instance_id()):
 				continue
+			seen[node.get_instance_id()] = true
 			result.append(node)
 	return result
 
 func _report_contacts_seen_by_sensor(sensor: Node3D, range_m: float, candidates: Array[Node3D]) -> void:
-	if sensor == null or not is_instance_valid(sensor):
+	if sensor == null or not is_instance_valid(sensor) or range_m <= 0.0:
 		return
 	var sensor_team: int = _get_node_team(sensor, 1)
 	if sensor_team != 1:

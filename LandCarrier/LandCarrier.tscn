@@ -23,6 +23,9 @@
 [ext_resource type="PackedScene" uid="uid://iajmne1rqhv0" path="res://Aircraft/Aircraft_10.tscn" id="19_aircraft_10"]
 [ext_resource type="PackedScene" uid="uid://bg86eyrsmule2" path="res://Models/LandCarrier/Catapult/catapult shuttle.glb" id="20_catapult_shuttle"]
 
+[ext_resource type="PackedScene" path="res://Aircraft/Visuals/InsigniaMarker.tscn" id="99_insignia_marker"]
+[ext_resource type="PackedScene" path="res://LandCarrier/ShipNameMarker.tscn" id="100_ship_name"]
+
 [sub_resource type="BoxShape3D" id="BoxShape3D_main_carrier"]
 size = Vector3(2.51178, 4.34025, 4.92171)
 
@@ -285,11 +288,18 @@ transform = Transform3D(-4.37114e-08, 0, -1, 0, 1, 0, 1, 0, -4.37114e-08, -28, -
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.258278, -24.5711, -41.1594)
 shape = SubResource("BoxShape3D_1sulk")
 
-[node name="InsigniaHull" type="Marker3D" parent="." unique_id=1250517830]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -34.3519, 5.85398, 0.197454)
+[node name="InsigniaHull" parent="." unique_id=1250517830 instance=ExtResource("99_insignia_marker")]
+transform = Transform3D(0, 1, 0, 0, 0, -1, -1, 0, 0, -34.3519, 5.85398, 0.197454)
+diameter = 6.0
+depth = 4.0
 
-[node name="InsigniaHullR" type="Marker3D" parent="." unique_id=1332794678]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -24.7722, 5.85398, -0.0404381)
+[node name="InsigniaHullR" parent="." unique_id=1332794678 instance=ExtResource("99_insignia_marker")]
+transform = Transform3D(0, -1, 0, 0, 0, -1, 1, 0, 0, -24.7722, 5.85398, -0.0404381)
+diameter = 6.0
+depth = 4.0
+
+[node name="ShipNameMarker" parent="." instance=ExtResource("100_ship_name")]
+transform = Transform3D(0, -1, 0, 0, 0, -1, 1, 0, 0, -29, -12, 15)
 
 [node name="deck_start" type="Node3D" parent="." unique_id=1526523785]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -73.64475)

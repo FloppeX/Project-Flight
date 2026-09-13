@@ -130,6 +130,38 @@ func _run() -> void:
 		_fail("pilot remained hidden after switching to an external camera")
 		return
 
+	# Reproduce the reported pool contamination: this same physical actor has
+	# just been used for an ejected pilot and is still running the parachute clip.
+	if not bool(pooled_visual.call("play_baked_animation", &"parachute")) \
+			or player.current_animation != "parachute" or not player.is_playing():
+		_fail("could not stage a parachuting pooled pilot")
+		return
+	# A repeated presentation request must repair a stale pose even if the mount
+	# never left the visual budget between two aircraft-camera selections.
+	cockpit_pilot.call("set_presentation_active", true)
+	if player.current_animation != "piloting" or not player.is_playing():
+		_fail("active aircraft retained a stale parachute animation")
+		return
+
+	# Exercise the full return/checkout boundary as well. The actor most recently
+	# released is the first one borrowed again by the reserve.
+	pooled_visual.call("play_baked_animation", &"parachute")
+	cockpit_pilot.call("set_presentation_active", false)
+	if player.is_playing() \
+			or bool(pooled_visual.get("_baked_library_animation_active")) \
+			or bool(pooled_visual.get("_retarget_parachute_pose_active")):
+		_fail("pool return did not clear the parachute animation state")
+		return
+	cockpit_pilot.call("set_presentation_active", true)
+	var reused_visual := cockpit_pilot.call("get_pilot_visual") as Node3D
+	player = reused_visual.get_node_or_null("BakedAnimationPlayer") as AnimationPlayer \
+			if reused_visual != null else null
+	if reused_visual != pooled_visual or player == null \
+			or player.current_animation != "piloting" or not player.is_playing():
+		_fail("reused parachuting actor did not restart in the piloting pose")
+		return
+	pooled_visual = reused_visual
+
 	var second_host := Node3D.new()
 	second_host.name = "SecondAircraftHost"
 	root.add_child(second_host)
@@ -171,7 +203,7 @@ func _run() -> void:
 			or int(final_pool_stats.get("checked_out", 0)) != 0:
 		_fail("released overflow did not settle back to a two-pilot reserve")
 		return
-	print("[CockpitPilotAnimationSmoketest] PASS reserve=2 simultaneous=2 overflow_safe=true returned=2 activation_ms=%.3f pooled=true deferred=true dormant_returned=true restored=true clip=piloting loop=true motion=%.2fdeg cockpit_hidden=true external_visible=true" % [
+	print("[CockpitPilotAnimationSmoketest] PASS reserve=2 simultaneous=2 overflow_safe=true returned=2 activation_ms=%.3f pooled=true deferred=true dormant_returned=true restored=true parachute_state_cleared=true reused_clip=piloting loop=true motion=%.2fdeg cockpit_hidden=true external_visible=true" % [
 		activation_ms,
 		rad_to_deg(motion_delta),
 	])

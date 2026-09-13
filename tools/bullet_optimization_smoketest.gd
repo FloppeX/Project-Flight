@@ -76,6 +76,9 @@ func _run() -> void:
 	ground_target.add_child(ground_shape)
 	_world.add_child(ground_target)
 	await get_tree().physics_frame
+	# Let the previous target's short spark burst retire before measuring the
+	# separate ground-dirt count; unrelated expiry must not subtract from it.
+	await get_tree().create_timer(0.35).timeout
 	var debris_before_ground := int((impact_budget.call("get_stats") as Dictionary).get("active_debris", 0))
 	var ground_bullet := _acquire_test_bullet(1, 1)
 	ground_bullet.fire(Vector3(0.0, 0.0, 500.0), null)
@@ -89,8 +92,8 @@ func _run() -> void:
 	ground_target.queue_free()
 	await get_tree().physics_frame
 
-	# Exercise the assist-only path: this box does not intersect the x=0 shot,
-	# but its target envelope is within the configured forgiveness radius.
+	# This box's broad target envelope surrounds the shot, but its real collider
+	# does not. A point bullet must miss it even among many candidate targets.
 	var assist_target := DamageTarget.new()
 	assist_target.name = "AssistTarget"
 	assist_target.add_to_group("ground_vehicles")
@@ -101,8 +104,7 @@ func _run() -> void:
 	assist_shape.shape = assist_box
 	assist_target.add_child(assist_shape)
 	_world.add_child(assist_target)
-	# Push the candidate population above the adaptive direct-list threshold so
-	# this shot exercises the staggered physics broadphase branch as well.
+	# A dense target population must not revive the old broadphase/assist path.
 	for i in range(25):
 		var decoy := DamageTarget.new()
 		decoy.name = "AssistBroadphaseDecoy%d" % i
@@ -114,12 +116,11 @@ func _run() -> void:
 		decoy_shape.shape = decoy_box
 		decoy.add_child(decoy_shape)
 		_world.add_child(decoy)
-	ProjectileNew.clear_hit_assist_candidate_cache()
 	await get_tree().physics_frame
 	var assist_bullet := _acquire_test_bullet()
 	assist_bullet.fire(Vector3(0.0, 0.0, 500.0), null)
 	await _wait_physics_frames(20)
-	_expect(assist_target.damage_taken > 0.0, "staggered hit-assist path did not register the near miss")
+	_expect(is_zero_approx(assist_target.damage_taken), "point bullet incorrectly damaged a near-miss target")
 
 	for i in range(220):
 		var decal := Decal.new()

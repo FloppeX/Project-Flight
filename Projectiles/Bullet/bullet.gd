@@ -22,15 +22,13 @@ const TRACER_EMISSION_ENERGY: float = 7.0
 @export var ground_particle_lifetime_s: float = 0.75
 @export var hit_debris_count: int = 4
 @export var hit_debris_lifetime_s: float = 0.6
-@export var use_manual_ballistics: bool = true
+@export var target_hit_spark_count: int = 6
 @export var bullet_body_visual_enabled: bool = false
 @export var visual_lod_enabled: bool = true
 @export var full_tracer_distance_m: float = 600.0
 @export var max_tracer_distance_m: float = 1500.0
 @export var distant_tracer_stride: int = 1
 @export var visual_policy_interval_s: float = 0.10
-@export var distant_hit_assist_interval_s: float = 0.09
-@export var hidden_hit_assist_interval_s: float = 0.12
 
 var trail_mesh: MeshInstance3D
 var tracer_mesh: ArrayMesh
@@ -59,13 +57,13 @@ static var _tracer_mesh_cache: Dictionary = {}
 static var _bullet_material_cache: Dictionary = {}
 static var _activation_counter: int = 0
 
+func uses_swept_point_collision() -> bool:
+	return true
+
 func _ready():
+	add_to_group("origin_shifter")
 	reusable_lifecycle = true
-	hit_assist_enabled = true
-	# The segment ray remains authoritative. Hit assist is only a forgiving
-	# secondary query, so its broadphase can be much tighter than the old 20 m.
-	hit_assist_broadphase_extra_radius_m = 6.0
-	hit_assist_broadphase_max_results = mini(hit_assist_broadphase_max_results, 16)
+	hit_assist_enabled = false
 	# Call parent's _ready first to get all the base functionality
 	super._ready()
 
@@ -76,20 +74,6 @@ func _ready():
 	linear_damp = 0.0
 	angular_damp = 0.0
 
-	# Keep bullets as real rigid bodies for flight/gravity, but avoid physical shove-on-contact.
-	# Impact resolution already comes from ProjectileNew's raycast path.
-	collision_layer = 0
-	collision_mask = 0
-	# Bullet impacts are resolved by ProjectileNew's raycast path, so we do not need
-	# rigid-body contact reporting for every round.
-	contact_monitor = false
-	max_contacts_reported = 0
-	if body_entered.is_connected(_on_body_entered):
-		body_entered.disconnect(_on_body_entered)
-	if use_manual_ballistics:
-		freeze_mode = RigidBody3D.FREEZE_MODE_STATIC
-		freeze = true
-	
 	# This projectile should not create an explosion on impact
 	creates_explosion = false
 	# Set base damage lower than default ProjectileNew
@@ -155,18 +139,13 @@ func _color_cache_key(color: Color) -> String:
 func fire(initial_velocity: Vector3, firing_aircraft: Node3D):
 	# Call parent's fire method to get all the base functionality
 	super.fire(initial_velocity, firing_aircraft)
-	if use_manual_ballistics:
-		freeze_mode = RigidBody3D.FREEZE_MODE_STATIC
-		freeze = true
+	freeze_mode = RigidBody3D.FREEZE_MODE_STATIC
+	freeze = true
 	tracer_physics_frames_elapsed = 0
 	_activation_counter += 1
 	_visual_sample_selected = distant_tracer_stride <= 1 or (_activation_counter % distant_tracer_stride) == 0
 	_visual_policy_accum_s = visual_policy_interval_s
 	_refresh_visual_policy(0.0, true)
-	var assist_interval_s: float = maxf(_get_hit_assist_check_interval_s(), 0.001)
-	# Spread optional broadphase work across physics frames. The per-frame segment
-	# ray still runs for every bullet, so this does not defer real collider hits.
-	_hit_assist_time_accum_s = -fmod(float(_activation_counter) * 0.61803398875, 1.0) * assist_interval_s
 	_setup_debug_target_tracking()
 	
 	# Inherit the firing platform's point velocity at the muzzle so rounds stay
@@ -184,6 +163,7 @@ func fire(initial_velocity: Vector3, firing_aircraft: Node3D):
 	# the muzzle rather than the bullet's final inherited velocity. Align now so
 	# the first rendered tracer frame never shows the old/muzzle orientation.
 	_align_visual_to_velocity()
+	RECORDING_HOOKS.begin(self, "bullet")
 
 func _align_visual_to_velocity() -> void:
 	if linear_velocity.length_squared() <= 0.01:
@@ -229,7 +209,7 @@ func _get_motion_angular_velocity(node: Node) -> Vector3:
 
 func _physics_process(delta):
 	var prev_pos: Vector3 = global_position
-	if use_manual_ballistics and not has_impacted:
+	if not has_impacted:
 		_apply_manual_ballistics(delta)
 	# Call parent's physics process first
 	super._physics_process(delta)
@@ -266,6 +246,7 @@ func _on_body_entered(body):
 	if has_impacted or is_shooter_body(body):
 		return
 	_emit_debug_report("impact", body)
+	_spawn_target_hit_sparks(body)
 	if is_ground_or_terrain(body):
 		_create_ground_bullet_mark(body)
 		_spawn_ground_impact_particles(body)
@@ -280,6 +261,7 @@ func _on_timeout() -> void:
 	super._on_timeout()
 
 func _retire_projectile() -> void:
+	RECORDING_HOOKS.end(self)
 	var pool: Node = get_node_or_null("/root/BulletPool")
 	if pool and pool.has_method("release"):
 		pool.call("release", self)
@@ -287,6 +269,8 @@ func _retire_projectile() -> void:
 		queue_free()
 
 func prepare_for_pool() -> void:
+	RECORDING_HOOKS.end(self)
+	remove_from_group("origin_shifter")
 	_activation_serial += 1
 	has_impacted = true
 	set_physics_process(false)
@@ -294,8 +278,6 @@ func prepare_for_pool() -> void:
 	freeze = true
 	linear_velocity = Vector3.ZERO
 	angular_velocity = Vector3.ZERO
-	if shooter and is_instance_valid(shooter) and shooter is CollisionObject3D:
-		remove_collision_exception_with(shooter as CollisionObject3D)
 	shooter = null
 	virtual_impact_count = 0
 	visible = false
@@ -307,6 +289,7 @@ func prepare_for_pool() -> void:
 	_debug_tracking_enabled = false
 
 func prepare_for_reuse() -> void:
+	add_to_group("origin_shifter")
 	_activation_serial += 1
 	has_impacted = false
 	virtual_impact_visuals_spawned = 0
@@ -322,14 +305,12 @@ func prepare_for_reuse() -> void:
 	if trail_mesh:
 		trail_mesh.visible = false
 
-func _get_hit_assist_check_interval_s() -> float:
-	if not visual_lod_enabled:
-		return hit_assist_check_interval_s
-	if not _visual_allowed:
-		return hidden_hit_assist_interval_s
-	if _visual_is_distant:
-		return distant_hit_assist_interval_s
-	return hit_assist_check_interval_s
+func apply_origin_shift(offset: Vector3) -> void:
+	# FloatingOrigin moves the live body. Its sweep start must follow the same
+	# translation or the next tick casts a kilometres-long fictitious shot.
+	last_position -= offset
+	if _impact_world_position.is_finite():
+		_impact_world_position -= offset
 
 func _refresh_visual_policy(delta: float, force: bool = false) -> void:
 	if not visual_lod_enabled:
@@ -352,7 +333,28 @@ func _refresh_visual_policy(delta: float, force: bool = false) -> void:
 		and camera.is_position_in_frustum(global_position) \
 		and (not _visual_is_distant or _visual_sample_selected)
 
+func _spawn_target_hit_sparks(body: Node) -> void:
+	if target_hit_spark_count <= 0 or is_shooter_body(body):
+		return
+	var target := find_damage_target(body)
+	if target == null and is_ground_or_terrain(body):
+		return
+	var budget := get_node_or_null("/root/BulletImpactBudget")
+	if budget == null:
+		return
+	var normal := _impact_world_normal
+	if normal.length_squared() < 0.01:
+		normal = -linear_velocity.normalized()
+	var point := _impact_world_position if _impact_world_position.is_finite() else global_position
+	var platform: Node = target if target != null else body
+	var inherited_velocity := _get_motion_velocity(platform)
+	if platform is Node3D:
+		inherited_velocity += _get_motion_angular_velocity(platform).cross(point - platform.global_position)
+	budget.spawn_hit_sparks(point, normal, inherited_velocity, target_hit_spark_count)
+
 func _resolve_impact_surface(body: Object) -> Dictionary:
+	if _impact_world_position.is_finite() and _impact_world_normal.length_squared() > 0.01:
+		return {"position": _impact_world_position, "normal": _impact_world_normal, "parent_node": body as Node3D}
 	var space_state: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
 	var dir: Vector3 = linear_velocity.normalized()
 	if dir == Vector3.ZERO:

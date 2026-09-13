@@ -3,6 +3,7 @@ class_name GunProfile
 
 @export var profile_name: String = "Gun Profile"
 @export var weapon_name: String = "Autocannon"
+@export var caliber_mm: int = 0
 @export var rounds_per_minute: float = 600.0
 @export var muzzle_velocity_mps: float = 500.0
 @export var spread_angle_deg: float = 1.0

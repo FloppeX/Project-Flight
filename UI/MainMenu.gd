@@ -20,6 +20,7 @@ const CARRIER_RIDE_HEIGHT_M := 40.0
 const CAMERA_TERRAIN_CLEARANCE_M := 180.0
 const SETUP_CAMERA_TERRAIN_CLEARANCE_M := 80.0
 const INSIGNIA_CAMERA_TERRAIN_CLEARANCE_M := 16.0
+const NAME_CAMERA_TERRAIN_CLEARANCE_M := 12.0
 const CAMERA_CARRIER_HEIGHT_M := 360.0
 const CAMERA_CARRIER_BACK_M := 780.0
 const CAMERA_CARRIER_SIDE_M := 520.0
@@ -29,6 +30,9 @@ const SETUP_CAMERA_SIDE_M := 215.0
 const INSIGNIA_CAMERA_HEIGHT_M := 2.0
 const INSIGNIA_CAMERA_BACK_M := 20.0
 const INSIGNIA_CAMERA_SIDE_M := 145.0
+const NAME_CAMERA_HEIGHT_M := 8.0
+const NAME_CAMERA_BACK_M := 35.0
+const NAME_CAMERA_SIDE_M := 120.0
 const MAIN_CAMERA_FOV := 48.0
 const MAIN_CAMERA_SHOT_DURATION_S := 10.5
 const MAIN_CAMERA_SHOT_COUNT := 5
@@ -44,11 +48,13 @@ const MAIN_CAMERA_GROUND_FOV := 50.0
 const MAIN_CAMERA_LONG_LENS_FOV := 21.0
 const SETUP_CAMERA_FOV := 28.0
 const INSIGNIA_CAMERA_FOV := 23.0
+const NAME_CAMERA_FOV := 20.0
 const CAMERA_FOV_BLEND := 0.010
 const CAMERA_SETUP_BLEND := 0.018
 const CAMERA_INSIGNIA_BLEND := 0.014
 const MAIN_FRAME_POINT := Vector2(0.66, 0.54)
 const SETUP_FRAME_POINT := Vector2(2.0 / 3.0, 0.5)
+const NAME_FRAME_POINT := Vector2(0.61, 0.52)
 const ROUTE_SAMPLE_STEP_M := 90.0
 const ROUTE_MAX_HEIGHT_SPAN_M := 70.0
 const MENU_CARRIER_CLEARANCE_M := 120.0
@@ -77,6 +83,13 @@ const DEFAULT_PRIMARY_COLOR_INDEX := 23
 const DEFAULT_SECONDARY_COLOR_INDEX := 8
 const FALLBACK_PATTERN_NAMES: Array[String] = ["SOLID", "STRIPES", "CHECKS", "CAMO"]
 const FALLBACK_PATTERN_INDICES: Array[int] = [0, 1, 9, 4]
+const TEXT_ENTRY_BLOCKED_INPUT_AUTOLOADS: Array[NodePath] = [
+	NodePath("/root/FlightDirector"),
+	NodePath("/root/CarrierConsole"),
+	NodePath("/root/PauseMenu"),
+	NodePath("/root/WorldMapOverlay"),
+	NodePath("/root/ScreenshotCapture"),
+]
 
 var _camera: Camera3D
 var _path_follow: PathFollow3D
@@ -85,6 +98,7 @@ var _carrier_root: Node3D
 var _startup_music: AudioStreamPlayer
 var _restored_autoloads := false
 var _autoload_overrides: Array[Dictionary] = []
+var _text_entry_input_overrides: Array[Dictionary] = []
 var _ui_root: Control
 var _main_panel: Control
 var _setup_panel: Control
@@ -183,6 +197,7 @@ func _process(delta: float) -> void:
 
 
 func _exit_tree() -> void:
+	_restore_text_entry_input()
 	_restore_autoloads()
 
 
@@ -207,15 +222,15 @@ func _input(event: InputEvent) -> void:
 		focus_owner = _focus_first_button()
 
 	if focus_owner is LineEdit:
-		if _is_menu_back_event(event):
+		if _is_text_entry_back_event(event):
 			_go_back()
 			viewport.set_input_as_handled()
 			return
-		if _is_menu_accept_event(event) or _is_menu_down_event(event):
+		if _is_text_entry_accept_event(event) or _is_text_entry_down_event(event):
 			_focus_first_button()
 			viewport.set_input_as_handled()
 			return
-		if _is_menu_up_event(event):
+		if _is_text_entry_up_event(event):
 			_focus_last_button()
 			viewport.set_input_as_handled()
 			return
@@ -550,12 +565,43 @@ func _route_segment_height_span(a: Vector3, b: Vector3, step_m: float) -> float:
 
 
 func _strip_menu_carrier_systems(carrier: Node3D) -> void:
-	for child_name in ["LandCarrierInput", "FlightDeckManager", "BridgeHologram", "StandaloneCameraSwitcher", "CommanderWalkArea", "Commander", "DeckAnimationPilot"]:
+	# This runs before the preview carrier enters the tree. Keep every room
+	# display out of the decorative copy so its _ready() cannot create a tactical
+	# SubViewport/CanvasLayer that competes with the title-screen GUI.
+	for child_name in [
+		"LandCarrierInput",
+		"FlightDeckManager",
+		"BridgeHologram",
+		"StandaloneCameraSwitcher",
+		"CarrierTargetCamera",
+		"DefenseOps",
+		"CarrierDefenseLoadout",
+		"CarrierDamageControl",
+		"ComputerStation",
+		"ComputerStation2",
+		"ComputerStation3",
+		"ComputerStation4",
+		"MonitorStationCommand",
+		"MonitorStationAirOps",
+		"CommanderWalkArea",
+		"Commander",
+		"DeckAnimationPilot",
+	]:
 		var child := carrier.get_node_or_null(child_name)
 		if child != null:
 			carrier.remove_child(child)
 			child.free()
 	_deactivate_descendant_cameras(carrier)
+	_strip_room_displays(carrier)
+
+func _strip_room_displays(node: Node) -> void:
+	# Handle renamed, duplicated and nested stations before their _ready runs.
+	for child in node.get_children():
+		if child.has_method("get_interaction_score") or child.is_in_group("monitor_station"):
+			node.remove_child(child)
+			child.free()
+		else:
+			_strip_room_displays(child)
 
 
 func _deactivate_descendant_cameras(node: Node) -> void:
@@ -596,6 +642,43 @@ func _configure_menu_autoloads() -> void:
 			nav_grid.call("set_bake_center_override", Vector3.ZERO)
 		if nav_grid.has_method("_reset_bake_state"):
 			nav_grid.call("_reset_bake_state")
+
+
+func _on_name_edit_focus_entered() -> void:
+	_suspend_text_entry_input()
+
+
+func _on_name_edit_focus_exited() -> void:
+	_restore_text_entry_input()
+
+
+func _suspend_text_entry_input() -> void:
+	if not _text_entry_input_overrides.is_empty():
+		return
+	for node_path in TEXT_ENTRY_BLOCKED_INPUT_AUTOLOADS:
+		var node := get_node_or_null(node_path)
+		if node == null:
+			continue
+		_text_entry_input_overrides.append({
+			"node": node,
+			"input": node.is_processing_input(),
+			"unhandled_input": node.is_processing_unhandled_input(),
+			"unhandled_key_input": node.is_processing_unhandled_key_input(),
+		})
+		node.set_process_input(false)
+		node.set_process_unhandled_input(false)
+		node.set_process_unhandled_key_input(false)
+
+
+func _restore_text_entry_input() -> void:
+	for entry in _text_entry_input_overrides:
+		var node: Node = entry.get("node", null)
+		if not is_instance_valid(node):
+			continue
+		node.set_process_input(bool(entry.get("input", false)))
+		node.set_process_unhandled_input(bool(entry.get("unhandled_input", false)))
+		node.set_process_unhandled_key_input(bool(entry.get("unhandled_key_input", false)))
+	_text_entry_input_overrides.clear()
 
 
 func _override_autoload_property(node_path: NodePath, property_name: StringName, value: Variant) -> void:
@@ -774,7 +857,15 @@ func _position_exterior_camera() -> void:
 	var desired: Vector3
 	var blend := 0.035
 	if _current_screen == "setup":
-		if _is_insignia_row_focused():
+		if _is_name_field_focused():
+			var marker := _carrier_ship_name_marker()
+			var marker_pos := marker.global_position if marker != null else carrier_pos + Vector3(0.0, 4.0, 36.0)
+			var marker_local_x := marker.position.x if marker != null else -1.0
+			var side_dir := right * (1.0 if marker_local_x < 0.0 else -1.0)
+			desired = marker_pos + side_dir * NAME_CAMERA_SIDE_M - forward * NAME_CAMERA_BACK_M
+			desired.y = marker_pos.y + NAME_CAMERA_HEIGHT_M
+			blend = CAMERA_INSIGNIA_BLEND
+		elif _is_insignia_row_focused():
 			var marker := _carrier_insignia_marker()
 			var marker_pos := marker.global_position if marker != null else carrier_pos + Vector3(0.0, 34.0, 0.0)
 			var marker_local_x := marker.position.x if marker != null else -1.0
@@ -925,7 +1016,12 @@ func _keep_camera_above_ground() -> void:
 		return
 	var clearance := _main_camera_ground_clearance_m()
 	if _current_screen == "setup":
-		clearance = INSIGNIA_CAMERA_TERRAIN_CLEARANCE_M if _is_insignia_row_focused() else SETUP_CAMERA_TERRAIN_CLEARANCE_M
+		if _is_name_field_focused():
+			clearance = NAME_CAMERA_TERRAIN_CLEARANCE_M
+		elif _is_insignia_row_focused():
+			clearance = INSIGNIA_CAMERA_TERRAIN_CLEARANCE_M
+		else:
+			clearance = SETUP_CAMERA_TERRAIN_CLEARANCE_M
 	var min_y := ground_y + clearance
 	if pos.y < min_y:
 		_camera.global_position.y = min_y
@@ -945,6 +1041,8 @@ func _target_camera_fov() -> float:
 			MAIN_CAMERA_SHOT_LONG_LENS:
 				return MAIN_CAMERA_LONG_LENS_FOV
 		return MAIN_CAMERA_FOV
+	if _is_name_field_focused():
+		return NAME_CAMERA_FOV
 	return INSIGNIA_CAMERA_FOV if _is_insignia_row_focused() else SETUP_CAMERA_FOV
 
 
@@ -964,7 +1062,7 @@ func _main_camera_ground_clearance_m() -> float:
 func _apply_setup_screen_framing(_look_target: Vector3) -> void:
 	if _current_screen != "setup" or not is_instance_valid(_camera):
 		return
-	_apply_camera_frame_point(SETUP_FRAME_POINT)
+	_apply_camera_frame_point(NAME_FRAME_POINT if _is_name_field_focused() else SETUP_FRAME_POINT)
 
 
 func _apply_main_screen_framing() -> void:
@@ -995,6 +1093,11 @@ func _camera_look_target() -> Vector3:
 	if not is_instance_valid(_carrier_root):
 		return Vector3.ZERO
 	if _current_screen == "setup":
+		if _is_name_field_focused():
+			var marker := _carrier_ship_name_marker()
+			if marker != null:
+				return marker.global_position + Vector3(0.0, 1.0, 0.0)
+			return _carrier_root.global_position + Vector3(0.0, 4.0, 36.0)
 		if _is_insignia_row_focused():
 			var marker := _carrier_insignia_marker()
 			if marker != null:
@@ -1055,15 +1158,34 @@ func _is_insignia_row_focused() -> bool:
 	return viewport != null and viewport.gui_get_focus_owner() == _insignia_value_button
 
 
-func _carrier_insignia_marker() -> Marker3D:
+func _is_name_field_focused() -> bool:
+	if _current_screen != "setup" or not is_instance_valid(_name_edit):
+		return false
+	var viewport := get_viewport()
+	return viewport != null and viewport.gui_get_focus_owner() == _name_edit
+
+
+func _carrier_ship_name_marker() -> Node3D:
 	if not is_instance_valid(_carrier_root):
 		return null
-	var preferred := _carrier_root.get_node_or_null("InsigniaHullR") as Marker3D
+	var preferred := _carrier_root.get_node_or_null("ShipNameMarkerRight") as Node3D
 	if preferred != null:
 		return preferred
 	for child in _carrier_root.get_children():
-		if child is Marker3D and String(child.name).begins_with("InsigniaHull"):
-			return child as Marker3D
+		if child is Node3D and String(child.name).begins_with("ShipNameMarker"):
+			return child as Node3D
+	return null
+
+
+func _carrier_insignia_marker() -> Node3D:
+	if not is_instance_valid(_carrier_root):
+		return null
+	var preferred := _carrier_root.get_node_or_null("InsigniaHullR") as Node3D
+	if preferred != null:
+		return preferred
+	for child in _carrier_root.get_children():
+		if child is Node3D and String(child.name).begins_with("InsigniaHull"):
+			return child as Node3D
 	return null
 
 
@@ -1247,6 +1369,7 @@ func _build_main_menu(parent: Control) -> void:
 	var entries := [
 		["NEW CAMPAIGN", Callable(self, "_show_setup_menu")],
 		["CONTINUE", Callable(self, "_continue_campaign")],
+		["TRAILER SCENARIO", Callable(self, "_start_trailer_scenario")],
 		["SKIRMISH", Callable(self, "_start_test_flight")],
 		["TECHNICAL INDEX", Callable(self, "_show_technical_index")],
 		["SETTINGS", Callable(self, "_show_options_menu")],
@@ -1303,6 +1426,9 @@ func _build_setup_menu(parent: Control) -> void:
 	_name_edit.position = Vector2(0.0, 86.0)
 	_name_edit.size = Vector2(430.0, 42.0)
 	_name_edit.max_length = 32
+	_name_edit.text_changed.connect(_update_preview_ship_name)
+	_name_edit.focus_entered.connect(_on_name_edit_focus_entered)
+	_name_edit.focus_exited.connect(_on_name_edit_focus_exited)
 	_name_edit.add_theme_font_override("font", MenuTypography.TECH_FONT)
 	_name_edit.add_theme_font_size_override("font_size", MenuTypography.FIELD_VALUE_SIZE)
 	_apply_operator_line_edit_style(_name_edit)
@@ -1373,6 +1499,7 @@ func _show_setup_menu() -> void:
 	_refresh_setup_buttons()
 	_apply_preview_livery()
 	_name_edit.grab_focus()
+	_name_edit.select_all()
 
 
 func _show_developer_menu() -> void:
@@ -1458,6 +1585,14 @@ func _continue_campaign() -> void:
 	_start_game_with_scenario(NORMAL_TEST_SCENARIO, true)
 
 
+func _start_trailer_scenario() -> void:
+	var result := SaveGameManager.prepare_trailer_scenario()
+	if not bool(result.get("ok", false)):
+		_message_label.text = str(result.get("message", "Could not load trailer")).to_upper()
+		return
+	_start_game_with_scenario(NORMAL_TEST_SCENARIO, true)
+
+
 func _start_game_with_scenario(scenario: int, continue_music_through_loading: bool = false) -> void:
 	var file := FileAccess.open(TEST_SCENARIO_SETTINGS_PATH, FileAccess.WRITE)
 	if file == null:
@@ -1538,9 +1673,20 @@ func _refresh_setup_buttons() -> void:
 		_apply_plain_button_style(_map_value_button)
 
 
+func _update_preview_ship_name(text: String) -> void:
+	if not is_instance_valid(_carrier_root):
+		return
+	_carrier_root.set_meta("carrier_display_name", text.strip_edges())
+	var livery := get_node_or_null("/root/Livery")
+	if livery != null:
+		livery.call("refresh_ship_name_markers", _carrier_root)
+
+
 func _apply_preview_livery() -> void:
 	if not is_instance_valid(_carrier_root) or _carrier_colors.is_empty():
 		return
+	if is_instance_valid(_name_edit):
+		_carrier_root.set_meta("carrier_display_name", _name_edit.text.strip_edges())
 	var livery := get_node_or_null("/root/Livery")
 	if livery == null:
 		return
@@ -1926,6 +2072,43 @@ func _is_menu_accept_event(event: InputEvent) -> bool:
 		return key == KEY_ENTER or key == KEY_KP_ENTER or key == KEY_SPACE
 	if event is InputEventJoypadButton and event.pressed:
 		return (event as InputEventJoypadButton).button_index == PAD_BUTTON_A
+	return false
+
+
+func _is_text_entry_accept_event(event: InputEvent) -> bool:
+	if event is InputEventKey and event.pressed and not event.echo:
+		var key_event := event as InputEventKey
+		return key_event.physical_keycode in [KEY_ENTER, KEY_KP_ENTER] \
+				or key_event.keycode in [KEY_ENTER, KEY_KP_ENTER]
+	if event is InputEventJoypadButton and event.pressed:
+		return (event as InputEventJoypadButton).button_index == PAD_BUTTON_A
+	return false
+
+
+func _is_text_entry_back_event(event: InputEvent) -> bool:
+	if event is InputEventKey and event.pressed and not event.echo:
+		var key_event := event as InputEventKey
+		return key_event.physical_keycode == KEY_ESCAPE or key_event.keycode == KEY_ESCAPE
+	if event is InputEventJoypadButton and event.pressed:
+		return (event as InputEventJoypadButton).button_index in [PAD_BUTTON_B, PAD_BUTTON_BACK]
+	return false
+
+
+func _is_text_entry_up_event(event: InputEvent) -> bool:
+	if event is InputEventKey and event.pressed and not event.echo:
+		var key_event := event as InputEventKey
+		return key_event.physical_keycode == KEY_UP or key_event.keycode == KEY_UP
+	if event is InputEventJoypadButton and event.pressed:
+		return (event as InputEventJoypadButton).button_index == PAD_BUTTON_DPAD_UP
+	return false
+
+
+func _is_text_entry_down_event(event: InputEvent) -> bool:
+	if event is InputEventKey and event.pressed and not event.echo:
+		var key_event := event as InputEventKey
+		return key_event.physical_keycode == KEY_DOWN or key_event.keycode == KEY_DOWN
+	if event is InputEventJoypadButton and event.pressed:
+		return (event as InputEventJoypadButton).button_index == PAD_BUTTON_DPAD_DOWN
 	return false
 
 

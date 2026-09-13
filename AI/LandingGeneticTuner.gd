@@ -15,44 +15,38 @@ extends Node
 @export var champion_project_path: String = "res://landing_ga_champion.json"
 @export var project_log_path: String = "res://landing_ga_tuning.log"
 
-const FITNESS_VERSION: int = 36 # Tunable pre-gate bank-settling schedule.
-const CURRICULUM_VERSION: int = 1
+const FITNESS_VERSION: int = 41 # Success requires sustained arrest; retain damage and terminal drift costs.
+const CURRICULUM_VERSION: int = 2
 const PARAM_SPECS := [
-	# Final horizontal FPV PID and the bank/rudder authority it can use.
-	{"name":"landing_final_fpv_pid_kp", "base":4.2, "min":1.8, "max":10.0, "sigma":0.70},
-	{"name":"landing_final_fpv_pid_ki", "base":0.30, "min":0.0, "max":0.9, "sigma":0.10},
-	{"name":"landing_final_fpv_pid_kd", "base":0.05, "min":0.0, "max":0.20, "sigma":0.025},
-	{"name":"landing_final_fpv_pid_output_limit", "base":0.85, "min":0.45, "max":1.0, "sigma":0.07},
-	{"name":"landing_final_lateral_bank_gain", "base":1.0, "min":0.45, "max":2.0, "sigma":0.18},
-	{"name":"landing_final_lateral_bank_limit_deg", "base":8.0, "min":4.0, "max":15.0, "sigma":1.3},
-	{"name":"landing_final_lateral_slew_deg_per_s", "base":18.0, "min":10.0, "max":36.0, "sigma":3.0},
-	{"name":"landing_final_rudder_rate_damping", "base":0.7, "min":0.25, "max":1.4, "sigma":0.13},
-	{"name":"landing_final_lateral_pd_lookahead_m", "base":130.0, "min":70.0, "max":220.0, "sigma":18.0},
-	{"name":"landing_final_lateral_velocity_damping_s", "base":2.0, "min":0.5, "max":4.0, "sigma":0.35},
-	{"name":"landing_final_lateral_pd_limit_deg", "base":12.0, "min":8.0, "max":18.0, "sigma":1.2},
-	{"name":"landing_final_axis_track_blend_start_m", "base":800.0, "min":600.0, "max":1000.0, "sigma":55.0},
-	{"name":"landing_final_axis_track_blend_full_m", "base":450.0, "min":350.0, "max":600.0, "sigma":35.0},
-	{"name":"landing_final_rudder_primary_bank_scale", "base":0.60, "min":0.35, "max":0.90, "sigma":0.08},
-	{"name":"landing_final_bank_settle_start_remaining_m", "base":650.0, "min":500.0, "max":850.0, "sigma":45.0},
-	{"name":"landing_final_bank_scale_at_gate", "base":0.45, "min":0.20, "max":0.75, "sigma":0.07},
-	# Existing vertical FPV controller. Keeping these in the genome makes the optimized error 2D.
+	# Optimize the new physical hook/deck prediction and the vertical controller that executes its cue.
+	# Horizontal tracking is intentionally fixed for this first run: the baseline matrix already showed
+	# sub-metre centerline errors, while most misses crossed above a wire.
+	{"name":"landing_sight_guidance_start_remaining_m", "base":700.0, "min":500.0, "max":1200.0, "sigma":90.0},
+	{"name":"landing_sight_guidance_full_remaining_m", "base":350.0, "min":180.0, "max":600.0, "sigma":55.0},
+	{"name":"landing_sight_guidance_time_floor_s", "base":1.0, "min":0.3, "max":2.2, "sigma":0.25},
+	{"name":"landing_sight_guidance_max_sink_mps", "base":12.0, "min":8.0, "max":14.0, "sigma":0.8},
+	{"name":"landing_sight_guidance_max_climb_mps", "base":2.0, "min":0.0, "max":4.0, "sigma":0.5},
+	{"name":"landing_sight_guidance_target_hook_vertical_m", "base":0.0, "min":-5.0, "max":1.0, "sigma":0.6},
+	{"name":"landing_sight_guidance_pitch_gain", "base":4.0, "min":1.0, "max":10.0, "sigma":0.9},
+	{"name":"landing_sight_guidance_max_lateral_intercept_deg", "base":16.0, "min":12.0, "max":28.0, "sigma":2.0},
+	{"name":"landing_sight_guidance_terminal_lateral_power", "base":2.0, "min":1.1, "max":2.8, "sigma":0.2},
+	{"name":"landing_sight_guidance_terminal_lateral_accel_mps2", "base":4.0, "min":2.0, "max":7.0, "sigma":0.5},
 	{"name":"landing_final_pitch_gain", "base":2.4, "min":0.8, "max":4.0, "sigma":0.30},
 	{"name":"landing_final_pitch_rate_damping", "base":1.35, "min":0.55, "max":2.4, "sigma":0.20},
 	{"name":"landing_final_pitch_smoothing", "base":0.34, "min":0.15, "max":0.75, "sigma":0.07},
 	{"name":"landing_final_glide_error_fpa_gain", "base":0.018, "min":0.005, "max":0.035, "sigma":0.003},
-	{"name":"landing_final_low_cone_intercept_max_correction_deg", "base":3.0, "min":1.0, "max":5.0, "sigma":0.45},
 	{"name":"landing_final_target_aoa_deg", "base":8.0, "min":6.0, "max":10.0, "sigma":0.45},
-	{"name":"landing_final_aoa_gain", "base":4.0, "min":2.0, "max":6.5, "sigma":0.45},
-	# Aircraft 5's approach configuration is part of the equilibrium: enough flap lift to remain
-	# controllable, with enough drag to settle near the target AoA instead of floating over the wires.
-	{"name":"flaps_lift_bonus", "base":0.15, "min":0.05, "max":0.30, "sigma":0.025},
-	{"name":"flaps_drag_multiplier", "base":4.0, "min":2.5, "max":5.5, "sigma":0.35},
-	# Carrot geometry becomes important when there is little time to settle before the wires.
-	{"name":"landing_carrot_min_gap_m", "base":45.0, "min":25.0, "max":80.0, "sigma":7.0},
-	{"name":"landing_carrot_final_max_gap_m", "base":120.0, "min":70.0, "max":180.0, "sigma":15.0},
+	{"name":"landing_final_aoa_gain", "base":4.0, "min":2.0, "max":7.0, "sigma":0.55},
+	{"name":"landing_final_aoa_pitch_input_limit", "base":0.16, "min":0.05, "max":0.35, "sigma":0.04},
+	{"name":"landing_final_speed_far_mps", "base":52.0, "min":46.0, "max":60.0, "sigma":1.8},
+	{"name":"landing_final_speed_touchdown_mps", "base":42.0, "min":38.0, "max":50.0, "sigma":1.5},
 ]
 
 var _rng := RandomNumberGenerator.new()
+## Populated by the landing harness from the selected aircraft scene before this node enters the
+## tree. This keeps candidate zero tied to that airframe's real scene overrides instead of a stale
+## set of shared defaults. PARAM_SPECS.base remains a safe fallback for direct tuner smoke tests.
+var baseline_genome: Dictionary = {}
 var _generation: int = 0
 var _population: Array[Dictionary] = []
 var _candidate_index: int = 0
@@ -139,20 +133,30 @@ func get_status() -> Dictionary:
 		"generation_trials": _population.size() * maxi(case_count, 1),
 		"best_fitness": _best_fitness,
 		"best_genome": _best_genome.duplicate(true),
+		"baseline_genome": _base_genome(),
 	}
+
+
+func parameter_names() -> Array[String]:
+	var names: Array[String] = []
+	for spec in PARAM_SPECS:
+		names.append(String(spec["name"]))
+	return names
 
 
 func _score_trial(result: Dictionary) -> float:
 	var outcome := String(result.get("outcome", "GONE"))
+	if outcome == "CAUGHT" and not bool(result.get("stopped", false)):
+		outcome = "BOLTER" # Old engagement-only results cannot win under the new contract.
 	var score := {
-		"CAUGHT": 10000.0,
-		"WAVE-OFF": 2200.0,
-		"BOLTER": 2200.0,
-		"TIMEOUT": -2200.0,
-		"CRASH": -4000.0,
-		"TELEPORT": -4000.0,
-		"GONE": -3500.0,
-	}.get(outcome, -3000.0) as float
+		"CAUGHT": 12000.0,
+		"BOLTER": 1500.0,
+		"WAVE-OFF": -500.0,
+		"CRASH": -800.0,
+		"TIMEOUT": -8000.0,
+		"TELEPORT": -8500.0,
+		"GONE": -8500.0,
+	}.get(outcome, -8000.0) as float
 	if bool(result.get("reached_glideslope", false)):
 		score += 800.0
 	if bool(result.get("reached_final", false)):
@@ -170,7 +174,10 @@ func _score_trial(result: Dictionary) -> float:
 	if is_finite(min_wire_hook_vertical):
 		# A bolter that passes just above a wire is more useful genetically than one that reaches
 		# deck height only after all wires. The actual CAUGHT outcome still dominates this shaping.
-		score += clampf(6.0 - min_wire_hook_vertical, 0.0, 6.0) * 200.0
+		score += clampf(7.0 - min_wire_hook_vertical, 0.0, 7.0) * 300.0
+	# The sight should create and hold a physical capture solution, not merely cross it for one frame.
+	score += clampf(float(result.get("sight_viable_fraction", 0.0)), 0.0, 1.0) * 1600.0
+	score += clampf(float(result.get("sight_capture_fraction", 0.0)), 0.0, 1.0) * 2200.0
 	var final_samples := int(result.get("final_samples", 0))
 	if final_samples > 0:
 		# Integrated mean errors reward actually keeping the FPV centered, not crossing it once.
@@ -180,9 +187,11 @@ func _score_trial(result: Dictionary) -> float:
 		# descending flight path instead of winning solely by pointing the fuselage at the deck.
 		score -= float(result.get("mean_aoa_error_deg", 0.0)) * 35.0
 	var duration_s := float(result.get("duration_s", 0.0))
+	score -= clampf(float(result.get("damage_taken", 0.0)), 0.0, 100.0) * 40.0
+	score -= absf(float(result.get("catch_lateral_speed_mps", 0.0))) * 60.0
 	if outcome == "CAUGHT":
 		score += clampf(240.0 - duration_s, 0.0, 240.0) * 2.0
-	else:
+	elif outcome not in ["TIMEOUT", "TELEPORT", "GONE"]:
 		score -= minf(duration_s, 360.0) * 0.35
 	return score
 
@@ -191,18 +200,33 @@ func _finish_generation() -> void:
 	var ranked: Array[Dictionary] = []
 	for candidate in range(_population.size()):
 		var scores: Array[float] = []
+		var model_scores: Dictionary = {}
 		var catches := 0
 		for result in _results:
 			if int(result.get("candidate", -1)) == candidate:
-				scores.append(float(result.get("fitness", -1.0e30)))
-				if String(result.get("outcome", "")) == "CAUGHT":
+				var trial_score := float(result.get("fitness", -1.0e30))
+				scores.append(trial_score)
+				var model := str(result.get("aircraft_model", "unknown"))
+				if not model_scores.has(model):
+					model_scores[model] = []
+				(model_scores[model] as Array).append(trial_score)
+				if String(result.get("outcome", "")) == "CAUGHT" and bool(result.get("stopped", false)):
 					catches += 1
 		var mean := _mean(scores)
-		var robust_fitness := mean - _standard_deviation(scores, mean) * 0.25
+		var worst_model_mean := mean
+		for model_values_variant in model_scores.values():
+			var model_values: Array[float] = []
+			var untyped_model_values := model_values_variant as Array
+			for model_value in untyped_model_values:
+				model_values.append(float(model_value))
+			worst_model_mean = minf(worst_model_mean, _mean(model_values))
+		var robust_fitness := mean * 0.7 + worst_model_mean * 0.3 \
+			- _standard_deviation(scores, mean) * 0.25
 		ranked.append({
 			"candidate": candidate,
 			"fitness": robust_fitness,
 			"mean_fitness": mean,
+			"worst_model_mean": worst_model_mean,
 			"catches": catches,
 			"genome": (_population[candidate] as Dictionary).duplicate(true),
 		})
@@ -280,7 +304,8 @@ func _breed_next_population(ranked: Array[Dictionary]) -> void:
 func _base_genome() -> Dictionary:
 	var genome := {}
 	for spec in PARAM_SPECS:
-		genome[String(spec["name"])] = float(spec["base"])
+		var key := String(spec["name"])
+		genome[key] = float(baseline_genome.get(key, spec["base"]))
 	return genome
 
 
@@ -314,6 +339,13 @@ func _clamp_genome(source: Dictionary) -> Dictionary:
 	for spec in PARAM_SPECS:
 		var key := String(spec["name"])
 		genome[key] = clampf(float(source.get(key, spec["base"])), float(spec["min"]), float(spec["max"]))
+	# Keep paired schedules ordered after independent mutation.
+	genome["landing_sight_guidance_full_remaining_m"] = minf(
+		float(genome["landing_sight_guidance_full_remaining_m"]),
+		float(genome["landing_sight_guidance_start_remaining_m"]) - 50.0)
+	genome["landing_final_speed_touchdown_mps"] = minf(
+		float(genome["landing_final_speed_touchdown_mps"]),
+		float(genome["landing_final_speed_far_mps"]) - 1.0)
 	return genome
 
 
@@ -341,12 +373,13 @@ func _load_state() -> void:
 		state = _read_json(champion_project_path)
 	if state.is_empty():
 		return
+	if int(state.get("fitness_version", 0)) != FITNESS_VERSION \
+			or int(state.get("curriculum_version", 0)) != CURRICULUM_VERSION:
+		return
 	var best_variant: Variant = state.get("best_genome", {})
 	if best_variant is Dictionary:
 		_best_genome = _clamp_genome(best_variant as Dictionary)
-	if int(state.get("fitness_version", 0)) != FITNESS_VERSION \
-			or int(state.get("curriculum_version", 0)) != CURRICULUM_VERSION \
-			or int(state.get("case_count", 0)) != maxi(case_count, 1) \
+	if int(state.get("case_count", 0)) != maxi(case_count, 1) \
 			or int(state.get("curriculum_level_count", 0)) != maxi(curriculum_level_count, 1):
 		return
 	_generation = maxi(int(state.get("generation", 0)), 0)

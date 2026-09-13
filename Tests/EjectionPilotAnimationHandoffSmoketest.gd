@@ -25,6 +25,13 @@ func _run() -> void:
 	var pilot_body := RigidBody3D.new()
 	pilot_body.name = "AnimationHandoffPilotBody"
 	root.add_child(pilot_body)
+	var camera_rig := Node3D.new()
+	camera_rig.name = "CameraCockpit"
+	var cockpit_camera := Camera3D.new()
+	cockpit_camera.name = "Camera3D"
+	camera_rig.add_child(cockpit_camera)
+	pilot_body.add_child(camera_rig)
+	cockpit_camera.current = true
 	var source_aircraft := Node3D.new()
 	source_aircraft.name = "AppearanceSourceAircraft"
 	source_aircraft.set_meta("pilot_livery_colors", TEST_PALETTE.duplicate(true))
@@ -71,6 +78,24 @@ func _run() -> void:
 	if player.assigned_animation != &"parachute" or not player.is_playing():
 		_fail("seat separation did not start the baked parachute animation")
 		return
+	pilot.call("set_presentation_active", true)
+	if player.assigned_animation != &"parachute" or not player.is_playing():
+		_fail("ejection presentation refresh replaced the parachute animation")
+		return
+	var pilot_mesh_root := pooled_visual.get_node_or_null("Pilot") as Node3D
+	if pilot_mesh_root == null or pilot_mesh_root.visible:
+		_fail("current first-person ejection camera did not hide the pilot mesh")
+		return
+	cockpit_camera.current = false
+	pooled_visual.call("_process", 0.0)
+	if not pilot_mesh_root.visible:
+		_fail("external ejection view did not restore the pilot mesh")
+		return
+	cockpit_camera.current = true
+	pooled_visual.call("_process", 0.0)
+	if pilot_mesh_root.visible:
+		_fail("returning to first-person ejection view exposed the pilot mesh")
+		return
 	pilot.call("set_presentation_active", false)
 	if player.assigned_animation != &"parachute" or not player.is_playing():
 		_fail("presentation dormancy interrupted the active ejection animation")
@@ -83,10 +108,36 @@ func _run() -> void:
 		_fail("parachute confirmation restarted the active animation")
 		return
 
+	var downed_scene := load("res://Models/Characters/DownedPilot.tscn") as PackedScene
+	var downed_pilot := downed_scene.instantiate() as RigidBody3D
+	root.add_child(downed_pilot)
+	var landed_camera_rig := Node3D.new()
+	landed_camera_rig.name = "CameraCockpit"
+	var landed_camera := Camera3D.new()
+	landed_camera.name = "Camera3D"
+	landed_camera_rig.add_child(landed_camera)
+	downed_pilot.add_child(landed_camera_rig)
+	landed_camera.current = true
+	sequence.call("_position_landed_camera_at_head", landed_camera_rig, downed_pilot)
+	var downed_visual := downed_pilot.get_node_or_null("Model") as Node3D
+	var downed_mesh_root := downed_visual.get_node_or_null("Pilot") as Node3D \
+			if downed_visual != null else null
+	if downed_mesh_root == null or downed_mesh_root.visible:
+		_fail("landed first-person camera did not hide the downed pilot mesh")
+		return
+	landed_camera.current = false
+	downed_visual.call("_process", 0.0)
+	if not downed_mesh_root.visible:
+		_fail("landed external view did not restore the downed pilot mesh")
+		return
+
 	print(
 		"[EjectionPilotAnimationHandoffSmoketest] PASS "
-		+ "pooled=true appearance_retained=true dormant_to_parachute=seat_separation continuous_at_canopy=true"
+		+ "pooled=true appearance_retained=true dormant_to_parachute=seat_separation "
+		+ "continuous_at_canopy=true first_person_hidden=true external_visible=true "
+		+ "landed_first_person_hidden=true"
 	)
+	downed_pilot.free()
 	pilot_body.free()
 	source_aircraft.free()
 	sequence.free()

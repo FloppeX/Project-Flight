@@ -16,7 +16,6 @@ yaw_right_limit_deg = 90.0
 yaw_mount = NodePath("GunYawPivot")
 barrel_mount = NodePath("GunYawPivot/BarrelMount")
 firing_points = [NodePath("GunYawPivot/BarrelMount/Muzzle")]
-derive_forward_from_muzzle = true
 barrel_forward_axis_local = Vector3(0, 0, 1)
 
 [node name="SideGunModel" parent="." unique_id=1844548177 instance=ExtResource("2_model")]
@@ -27,7 +26,7 @@ barrel_forward_axis_local = Vector3(0, 0, 1)
 transform = Transform3D(1, 0, 0, 0, 1.0000002, 0, 0, 0, 1.0000002, 0, 0.797724, 0)
 
 [node name="Muzzle" type="Node3D" parent="GunYawPivot/BarrelMount" unique_id=13914519]
-transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, -0.020005167, 1.0816424)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.0011, -0.021672, 1.106656)
 
 [node name="VisualRig" type="Node" parent="." node_paths=PackedStringArray("yaw_pivot", "barrel_mount", "shaft_mesh", "gun_mesh")]
 script = ExtResource("3_visual_rig")

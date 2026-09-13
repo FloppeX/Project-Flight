@@ -15,7 +15,7 @@ signal destroyed(vehicle)
 @export var burst_length: float = 1.5
 @export var delay_length: float = 3.0
 @export var turret_weapon: PackedScene
-@export var aim_skill: float = 0.75
+@export_range(-1.0, 1.0, 0.01) var aim_skill: float = -1.0 # Shared faction default.
 @export var explosion_scene: PackedScene
 @export var staged_wreck_breakup_enabled: bool = true
 @export_range(0.0, 0.6, 0.01) var wreck_breakup_spread_duration_s: float = 0.28

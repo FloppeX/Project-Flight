@@ -45,6 +45,7 @@ const DEFAULT_CAMERA_MOTION_INDEX := 2
 const DEFAULT_CAMERA_FOV_INDEX := 2
 const DEFAULT_CONTROLLER_MENU_CURSOR_ENABLED := false
 const DEFAULT_FLIGHT_MODEL_INDEX := 1
+const DEFAULT_FIXED_TIME_MINUTES := 12 * 60
 const MENU_CURSOR_DEADZONE := 0.18
 const MENU_CURSOR_SPEED_PX_S := 1050.0
 const MENU_CURSOR_TRIGGER_PRESS_THRESHOLD := 0.55
@@ -141,6 +142,11 @@ var _camera_motion_index: int = DEFAULT_CAMERA_MOTION_INDEX
 var _camera_fov_index: int = DEFAULT_CAMERA_FOV_INDEX
 var _controller_menu_cursor_enabled: bool = DEFAULT_CONTROLLER_MENU_CURSOR_ENABLED
 var _flight_model_index: int = DEFAULT_FLIGHT_MODEL_INDEX
+var _fixed_time_enabled := false
+var _fixed_time_minutes := DEFAULT_FIXED_TIME_MINUTES
+var _fixed_time_controls: HBoxContainer
+var _fixed_time_hour: SpinBox
+var _fixed_time_minute: SpinBox
 var _menu_cursor_device_id := -1
 var _menu_cursor_a_pressed := false
 var _menu_cursor_trigger_pressed := false
@@ -151,6 +157,8 @@ var _save_button: Button = null
 var _save_status_label: Label = null
 var _save_feedback_until_ms: int = 0
 var _photo_mode_active: bool = false
+var _recording_button: Button
+var _video_button: Button
 var _photo_mode_canvas_visibility: Dictionary = {}
 
 
@@ -204,6 +212,8 @@ func _process(delta: float) -> void:
 
 
 func _input(event: InputEvent) -> void:
+	var recording_mode := get_node_or_null("/root/RecordingMode")
+	if recording_mode != null and recording_mode.active: return
 	_remember_menu_cursor_device(event)
 	var viewport := get_viewport()
 	if viewport == null:
@@ -491,6 +501,9 @@ func _build_main_screen() -> Control:
 	var entries = [
 		["RESUME", func(): _close()],
 		["PHOTO MODE", func(): enter_photo_mode()],
+		["START RECORDING", func(): _toggle_background_recording()],
+		["START VIDEO CAPTURE", func(): _toggle_direct_video()],
+		["RECORDING MODE", func(): get_node("/root/RecordingMode").enter()],
 		["SAVE CAMPAIGN", func(): _on_save_campaign()],
 		["SETTINGS", func(): _show_screen("options")],
 		["CONTROLS", func(): _show_screen("controls")],
@@ -503,6 +516,8 @@ func _build_main_screen() -> Control:
 		var button := _make_text_button(entry[0] as String, Vector2(MARGIN_X, MARGIN_Y + i * ITEM_STEP))
 		button.pressed.connect(entry[1] as Callable)
 		root.add_child(button)
+		if str(entry[0]) == "START RECORDING": _recording_button = button
+		if str(entry[0]) == "START VIDEO CAPTURE": _video_button = button
 		if str(entry[0]) == "SAVE CAMPAIGN":
 			_save_button = button
 	_save_status_label = _make_console_label(
@@ -588,6 +603,16 @@ func _restore_photo_mode_ui() -> void:
 
 
 func _refresh_save_controls() -> void:
+	var video := get_node_or_null("/root/DirectVideoCapture")
+	if video != null and is_instance_valid(_video_button):
+		_video_button.text = "FINISHING VIDEO…" if video.finalizing else ("STOP VIDEO CAPTURE" if video.recording else "START VIDEO CAPTURE")
+		_video_button.disabled = video.finalizing
+		_video_button.tooltip_text = "Ctrl+F10: actual camera video with game audio. Ctrl+Shift+F10: open videos folder."
+	var recorder := get_node_or_null("/root/RecordingMode")
+	if recorder != null and is_instance_valid(_recording_button):
+		_recording_button.text = "STOP RECORDING" if recorder.background_recording else "START RECORDING"
+		_recording_button.disabled = recorder.take != null and not recorder.background_recording
+		_recording_button.tooltip_text = "Ctrl+F9 also starts/stops capture during normal gameplay. Save and clear an existing take in Recording Mode before recording another."
 	if not is_instance_valid(_save_button) or not is_instance_valid(_save_status_label):
 		return
 	var can_save := SaveGameManager.can_save_campaign()
@@ -602,6 +627,20 @@ func _refresh_save_controls() -> void:
 	_save_button.tooltip_text = "Write the latest strategic checkpoint" \
 		if can_save else SaveGameManager.get_save_status_message()
 
+
+func _toggle_direct_video() -> void:
+	var video := get_node("/root/DirectVideoCapture")
+	var was_recording: bool = video.recording
+	if video.toggle_capture() and not was_recording: _close()
+	else: _refresh_save_controls()
+
+func _toggle_background_recording() -> void:
+	var recorder := get_node("/root/RecordingMode")
+	var was_recording: bool = recorder.background_recording
+	if recorder.toggle_background_recording() and not was_recording:
+		_close()
+	else:
+		_refresh_save_controls()
 
 func _on_save_campaign() -> void:
 	var result: Dictionary = SaveGameManager.request_manual_save()
@@ -750,8 +789,67 @@ func _build_gameplay_screen() -> Control:
 	camera_fov_btn.pressed.connect(_cycle_camera_fov)
 	root.add_child(camera_fov_btn)
 	_gameplay_buttons["camera_fov"] = camera_fov_btn
+	row_y += 58.0
+	var fixed_time_btn := _make_row_button("", Vector2(SUBMENU_X, row_y), row_width)
+	fixed_time_btn.pressed.connect(func(): set_fixed_time_of_day(not _fixed_time_enabled, _fixed_time_minutes))
+	root.add_child(fixed_time_btn)
+	_gameplay_buttons["fixed_time"] = fixed_time_btn
+	_fixed_time_controls = HBoxContainer.new()
+	_fixed_time_controls.position = Vector2(SUBMENU_X + 18.0, row_y + 58.0)
+	_fixed_time_controls.size = Vector2(row_width - 36.0, 48.0)
+	_fixed_time_controls.add_theme_constant_override("separation", 12)
+	root.add_child(_fixed_time_controls)
+	_fixed_time_controls.add_child(_make_console_label("TIME (24H)", Vector2.ZERO, 20, COLOR_WHITE, MenuTypography.TECH_FONT))
+	_fixed_time_hour = _make_time_spinbox(23, "Hour (0–23)")
+	_fixed_time_minute = _make_time_spinbox(59, "Minute (0–59)")
+	_fixed_time_controls.add_child(_fixed_time_hour)
+	_fixed_time_controls.add_child(_make_console_label(":", Vector2.ZERO, 20, COLOR_WHITE, MenuTypography.TECH_FONT))
+	_fixed_time_controls.add_child(_fixed_time_minute)
+	_fixed_time_hour.value_changed.connect(_on_fixed_time_clock_changed)
+	_fixed_time_minute.value_changed.connect(_on_fixed_time_clock_changed)
 	_refresh_gameplay_button_labels()
 	return root
+
+
+func _make_time_spinbox(maximum: int, hint: String) -> SpinBox:
+	var spin := SpinBox.new()
+	spin.max_value = maximum
+	spin.custom_minimum_size = Vector2(88, 48)
+	spin.tooltip_text = hint
+	var edit := spin.get_line_edit()
+	edit.add_theme_font_override("font", MenuTypography.TECH_FONT)
+	edit.add_theme_font_size_override("font_size", 22)
+	edit.add_theme_color_override("font_color", COLOR_WHITE)
+	edit.add_theme_stylebox_override("normal", MenuTheme.make_panel_style(MenuTheme.SURFACE_SOLID))
+	edit.add_theme_stylebox_override("focus", MenuTheme.make_panel_style(MenuTheme.SURFACE_SOLID, MenuTheme.PRIMARY))
+	return spin
+
+
+func _on_fixed_time_clock_changed(_value: float) -> void:
+	set_fixed_time_of_day(_fixed_time_enabled, int(_fixed_time_hour.value) * 60 + int(_fixed_time_minute.value))
+
+
+func set_fixed_time_of_day(enabled: bool, minutes: int, persist: bool = true) -> void:
+	_fixed_time_enabled = enabled
+	_fixed_time_minutes = clampi(minutes, 0, 1439)
+	_apply_fixed_time_setting()
+	_refresh_gameplay_button_labels()
+	if persist:
+		_save_settings()
+
+
+func is_time_of_day_fixed() -> bool:
+	return _fixed_time_enabled
+
+
+func get_fixed_time_minutes() -> int:
+	return _fixed_time_minutes
+
+
+func _apply_fixed_time_setting() -> void:
+	for cycle in get_tree().get_nodes_in_group("day_night_cycle"):
+		if cycle.has_method("apply_fixed_time_setting"):
+			cycle.apply_fixed_time_setting(_fixed_time_enabled, _fixed_time_minutes)
 
 
 func _build_graphics_screen() -> Control:
@@ -1035,6 +1133,12 @@ func _refresh_graphics_button_labels() -> void:
 
 
 func _refresh_gameplay_button_labels() -> void:
+	if _gameplay_buttons.has("fixed_time"):
+		(_gameplay_buttons["fixed_time"] as Button).text = "FIX TIME OF DAY: %s" % ("ON" if _fixed_time_enabled else "OFF")
+	if is_instance_valid(_fixed_time_controls):
+		_fixed_time_controls.visible = _fixed_time_enabled
+		_fixed_time_hour.set_value_no_signal(_fixed_time_minutes / 60)
+		_fixed_time_minute.set_value_no_signal(_fixed_time_minutes % 60)
 	_flight_model_index = clampi(_flight_model_index, 0, FLIGHT_MODEL_LABELS.size() - 1)
 	_rudder_assist_level = clampi(_rudder_assist_level, 0, RUDDER_ASSIST_LABELS.size() - 1)
 	_helicopter_rudder_assist_level = clampi(_helicopter_rudder_assist_level, 0, RUDDER_ASSIST_LABELS.size() - 1)
@@ -1155,6 +1259,7 @@ func _apply_radio_settings() -> void:
 func _apply_gameplay_settings() -> void:
 	_apply_stick_deadzone_setting()
 	_apply_camera_settings()
+	_apply_fixed_time_setting()
 
 
 func _apply_stick_deadzone_setting() -> void:
@@ -1366,9 +1471,9 @@ func _on_scene_node_added(node: Node) -> void:
 		call_deferred("_apply_view_distance_to_terrain", node, radius)
 
 
-func _load_settings() -> void:
+func _load_settings(path: String = SETTINGS_PATH) -> void:
 	var cfg := ConfigFile.new()
-	if cfg.load(SETTINGS_PATH) != OK:
+	if cfg.load(path) != OK:
 		_apply_bus_volume("Master", _master_volume)
 		return
 	var loaded_graphics_version := int(cfg.get_value(SETTINGS_SECTION_GRAPHICS, "settings_version", 0))
@@ -1425,6 +1530,8 @@ func _load_settings() -> void:
 		ENEMY_VISIBILITY_LABELS.size() - 1
 	)
 	_show_fps_enabled = bool(cfg.get_value(SETTINGS_SECTION_GRAPHICS, "show_fps_enabled", _show_fps_enabled))
+	_fixed_time_enabled = bool(cfg.get_value(SETTINGS_SECTION_GAMEPLAY, "fixed_time_enabled", false))
+	_fixed_time_minutes = clampi(int(cfg.get_value(SETTINGS_SECTION_GAMEPLAY, "fixed_time_minutes", DEFAULT_FIXED_TIME_MINUTES)), 0, 1439)
 	_rudder_assist_level = clampi(
 		int(cfg.get_value(SETTINGS_SECTION_GAMEPLAY, "rudder_assist_level", _rudder_assist_level)),
 		0,
@@ -1472,12 +1579,12 @@ func _load_settings() -> void:
 		# one explicit 5% Input Map deadzone instead.
 		_stick_deadzone_index = DEFAULT_STICK_DEADZONE_INDEX
 	if should_migrate_graphics or should_migrate_gameplay:
-		_save_settings()
+		_save_settings(path)
 
 
-func _save_settings() -> void:
+func _save_settings(path: String = SETTINGS_PATH) -> void:
 	var cfg := ConfigFile.new()
-	cfg.load(SETTINGS_PATH)
+	cfg.load(path)
 	cfg.set_value(SETTINGS_SECTION_AUDIO, "master_volume", _master_volume)
 	cfg.set_value(SETTINGS_SECTION_AUDIO, "radio_volume", _radio_volume)
 	cfg.set_value(SETTINGS_SECTION_AUDIO, "radio_captions_enabled", _radio_captions_enabled)
@@ -1503,7 +1610,9 @@ func _save_settings() -> void:
 	cfg.set_value(SETTINGS_SECTION_GAMEPLAY, "camera_motion_index", _camera_motion_index)
 	cfg.set_value(SETTINGS_SECTION_GAMEPLAY, "camera_fov_index", _camera_fov_index)
 	cfg.set_value(SETTINGS_SECTION_GAMEPLAY, "controller_menu_cursor_enabled", _controller_menu_cursor_enabled)
-	cfg.save(SETTINGS_PATH)
+	cfg.set_value(SETTINGS_SECTION_GAMEPLAY, "fixed_time_enabled", _fixed_time_enabled)
+	cfg.set_value(SETTINGS_SECTION_GAMEPLAY, "fixed_time_minutes", _fixed_time_minutes)
+	cfg.save(path)
 
 
 func _reset_all_defaults() -> void:
@@ -1530,6 +1639,8 @@ func _reset_all_defaults() -> void:
 	_camera_motion_index = DEFAULT_CAMERA_MOTION_INDEX
 	_camera_fov_index = DEFAULT_CAMERA_FOV_INDEX
 	_controller_menu_cursor_enabled = DEFAULT_CONTROLLER_MENU_CURSOR_ENABLED
+	_fixed_time_enabled = false
+	_fixed_time_minutes = DEFAULT_FIXED_TIME_MINUTES
 	_deactivate_controller_menu_cursor()
 	_apply_all_settings()
 	_save_settings()
@@ -1726,6 +1837,20 @@ func _handle_pause_navigation_input(event: InputEvent) -> bool:
 		if first:
 			first.grab_focus()
 			focus_owner = first
+
+	# Clock fields own text editing (including Backspace and arrow keys).
+	# Escape still exits the submenu; controller up/down still navigates.
+	if focus_owner is LineEdit and event is InputEventKey:
+		if event.keycode != KEY_ESCAPE and event.physical_keycode != KEY_ESCAPE:
+			return false
+	if focus_owner is LineEdit and focus_owner.get_parent() is SpinBox and event is InputEventJoypadButton:
+		var spin := focus_owner.get_parent() as SpinBox
+		if event.is_action_pressed("ui_left"):
+			spin.value -= spin.step
+			return true
+		if event.is_action_pressed("ui_right"):
+			spin.value += spin.step
+			return true
 
 	if _is_menu_up_event(event):
 		_move_focus(focus_owner, Side.SIDE_TOP)

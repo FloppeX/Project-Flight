@@ -83,7 +83,8 @@ func release_canopy(canopy: Node3D) -> void:
 func _update_canopy_visibility() -> void:
 	if _canopy_nodes.is_empty() and _canopy_surfaces.is_empty() and _shadow_nodes.is_empty():
 		return
-	var should_hide := _cockpit_camera != null and _cockpit_camera.current
+	var should_hide := _cockpit_camera != null \
+		and (_cockpit_camera.current or _is_nearby_free_camera_from_cockpit())
 	if should_hide == _last_hidden:
 		return
 	_last_hidden = should_hide
@@ -102,6 +103,19 @@ func _update_canopy_visibility() -> void:
 		if mesh_instance == null or not is_instance_valid(mesh_instance):
 			continue
 		mesh_instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF if should_hide else int(shadow_data.get("original_cast_shadow", GeometryInstance3D.SHADOW_CASTING_SETTING_ON))
+
+
+func _is_nearby_free_camera_from_cockpit() -> bool:
+	if not is_instance_valid(_cockpit_camera) or not _cockpit_camera.is_inside_tree():
+		return false
+	var viewport := _cockpit_camera.get_viewport()
+	var active_camera: Camera3D = viewport.get_camera_3d() if viewport != null else null
+	if not is_instance_valid(active_camera) \
+		or not active_camera.has_meta(&"free_camera_view_source"):
+		return false
+	var source: Variant = active_camera.get_meta(&"free_camera_view_source")
+	return is_instance_valid(source) and source == _cockpit_camera \
+		and active_camera.global_position.distance_to(_cockpit_camera.global_position) <= 1.5
 
 func _make_hidden_material(mesh_instance: MeshInstance3D, surface_index: int) -> Material:
 	var source: Material = mesh_instance.get_active_material(surface_index)

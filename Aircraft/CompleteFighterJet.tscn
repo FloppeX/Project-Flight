@@ -205,6 +205,7 @@ zoom_distance = 100.0
 [node name="Hardpoint1" parent="." instance=ExtResource("28_ymevh")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2.66, -0.387, -0.2)
 mounted_weapon = ExtResource("31_kq7no")
+gun_only = true
 
 [node name="Hardpoint2" parent="." instance=ExtResource("28_ymevh")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2.659, -0.386, -0.2)

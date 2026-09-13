@@ -68,6 +68,10 @@ func _ready():
 	sleeping = false
 
 func _process(delta):
+	# The authored actor has a real turret; do not bypass its crew accuracy with
+	# a second body-origin gun. Retain the legacy fallback for turretless actors.
+	if has_node("TurretController"):
+		return
 	# If dying, do nothing else
 	if is_dying:
 		return

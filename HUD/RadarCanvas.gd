@@ -28,6 +28,12 @@ const CONTACT_CACHE_INTERVAL_S: float = 0.2
 
 func _ready() -> void:
 	add_to_group("origin_shifter")
+	TerrainMapCache.map_invalidated.connect(_invalidate_terrain_map)
+
+func _invalidate_terrain_map() -> void:
+	_terrain_map_ready = false
+	_terrain_map_texture = null
+	queue_redraw()
 
 func apply_origin_shift(_offset: Vector3) -> void:
 	# TerrainNavGrid owns map-origin shifting. The radar samples that live origin
@@ -347,10 +353,7 @@ func _ensure_terrain_map_cache() -> void:
 		Vector2(TerrainNavGrid._origin_x, TerrainNavGrid._origin_z),
 		Vector2(span_x, span_z)
 	)
-	var img := WorldMapTextureBuilder.build_image()
-	if img == null:
-		return
-	_terrain_map_texture = ImageTexture.create_from_image(img)
+	_terrain_map_texture = TerrainMapCache.get_textures().get("relief") as ImageTexture
 	_terrain_map_ready = _terrain_map_texture != null
 
 func _draw_terrain_map(center: Vector2, radius: float, origin: Vector3, flat_forward: Vector3, range_m: float) -> void:

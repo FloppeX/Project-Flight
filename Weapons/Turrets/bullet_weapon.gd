@@ -78,6 +78,7 @@ var last_fired_projectile: Node = null
 var _projectile_speed_cap_cached: bool = false
 var _projectile_speed_cap_mps: float = INF
 var _bullet_spawn_point: Node3D = null
+var _uses_modular_barrel: bool = false
 var physical_rounds_fired: int = 0
 var virtual_rounds_fired: int = 0
 var shot_sound_events: int = 0
@@ -265,10 +266,20 @@ func _apply_host_recoil(spawn_transform: Transform3D, firing_entity: Node3D) -> 
 		character_body.velocity += planar_impulse.limit_length(maxf(host_recoil_speed_cap_mps, 0.0))
 
 func _get_bullet_spawn_transform(fallback_transform: Transform3D) -> Transform3D:
+	if _uses_modular_barrel or _is_mounted_in_turret():
+		# Turret owns both muzzle position and direction; an optional weapon-model
+		# marker must not bypass its actual barrel orientation.
+		return fallback_transform
 	var spawn_point := _get_bullet_spawn_point()
 	if spawn_point != null and is_instance_valid(spawn_point):
 		return spawn_point.global_transform
 	return fallback_transform
+
+func use_turret_barrel_visual() -> void:
+	_uses_modular_barrel = true
+	var gun_model := get_node_or_null("GunModel") as Node3D
+	if gun_model != null:
+		gun_model.hide()
 
 func _get_bullet_spawn_point() -> Node3D:
 	if _bullet_spawn_point != null and is_instance_valid(_bullet_spawn_point):

@@ -2,6 +2,7 @@ extends Node3D
 
 const PANEL_SCENE: PackedScene = preload("res://HUD/InstrumentPanel.tscn")
 const POOL_CAPACITY: int = 2
+const HUD_WARM_SCENE := preload("res://HUD/HeadsUpDisplay.tscn")
 
 var _available: Array[Node3D] = []
 var _mount_to_panel: Dictionary = {}
@@ -10,6 +11,9 @@ var _render_warming: Dictionary = {}
 var _render_warm_count: int = 0
 var _render_warm_total_ms: float = 0.0
 var _render_warm_max_ms: float = 0.0
+var _warm_viewport: SubViewport
+var _hud_render_warmed := false
+var _hud_warm_material: Material
 
 
 func _ready() -> void:
@@ -18,6 +22,27 @@ func _ready() -> void:
 
 
 func _prewarm_remaining() -> void:
+	# A small isolated render world exercises the material as well as its UI
+	# texture. Hidden world-space quads never prime their first-draw pipelines.
+	_warm_viewport = SubViewport.new()
+	_warm_viewport.size = Vector2i(256, 256)
+	_warm_viewport.own_world_3d = true
+	_warm_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	add_child(_warm_viewport)
+	var warm_camera := Camera3D.new()
+	_warm_viewport.add_child(warm_camera)
+	warm_camera.position = Vector3(0, 0, 2)
+	warm_camera.current = true
+	var hud := HUD_WARM_SCENE.instantiate() as Node3D
+	_warm_viewport.add_child(hud)
+	# Keep the material alive after freeing the temporary UI. Otherwise Godot
+	# can drop the last reference to this StandardMaterial shader variant.
+	_hud_warm_material = (hud.get_node("HUDglass") as MeshInstance3D).material_override
+	hud.set_process(false)
+	await get_tree().process_frame
+	await get_tree().process_frame
+	_hud_render_warmed = true
+	hud.queue_free()
 	while _available.size() + _mount_to_panel.size() < POOL_CAPACITY:
 		_available.append(_create_warm_panel())
 	# Instantiation alone does not initialize SubViewport render targets. Exercise
@@ -28,6 +53,8 @@ func _prewarm_remaining() -> void:
 		if panel == null or not is_instance_valid(panel) or not _available.has(panel):
 			continue
 		await _render_warm_panel(panel)
+	_warm_viewport.queue_free()
+	_warm_viewport = null
 
 
 func _render_warm_panel(panel: Node3D) -> void:
@@ -36,6 +63,9 @@ func _render_warm_panel(panel: Node3D) -> void:
 	var panel_id := panel.get_instance_id()
 	_render_warming[panel_id] = true
 	var started_us := Time.get_ticks_usec()
+	panel.reparent(_warm_viewport, false)
+	panel.transform = Transform3D.IDENTITY
+	panel.visible = true
 	panel.call("set_view_updates_active", true)
 	await get_tree().process_frame
 	await get_tree().process_frame
@@ -47,6 +77,8 @@ func _render_warm_panel(panel: Node3D) -> void:
 	if not _available.has(panel):
 		return
 	panel.call("set_view_updates_active", false)
+	panel.visible = false
+	panel.reparent(self, false)
 	panel.set_meta("pool_render_warmed", true)
 	var elapsed_ms := float(Time.get_ticks_usec() - started_us) / 1000.0
 	_render_warm_count += 1
@@ -77,6 +109,9 @@ func acquire(mount: Node3D) -> Node3D:
 		FrameProfiler.end("InstrumentPanelPool.checkout", profiler_start)
 		return null
 	_render_warming.erase(panel.get_instance_id())
+	# Startup checkout can race with priming. Ownership wins immediately; never
+	# leave a live display under the temporary render world that will be freed.
+	if panel.get_parent() != self: panel.reparent(self, false)
 	_mount_to_panel[mount_id] = panel
 	panel.call("configure_for_pooled_mount", mount)
 	panel.visible = true
@@ -127,6 +162,7 @@ func get_pool_stats() -> Dictionary:
 		"render_warm_complete": _render_warm_count >= POOL_CAPACITY,
 		"render_warm_total_ms": _render_warm_total_ms,
 		"render_warm_max_ms": _render_warm_max_ms,
+		"hud_render_warmed": _hud_render_warmed,
 	}
 
 

@@ -42,6 +42,12 @@ const ZONE_ORDER: Array[StringName] = [
 ## away only after both stabilizer regions have been destroyed.
 @export var tail_section_visual_paths: Array[NodePath] = []
 @export var align_companion_wing_visuals_to_outer_fold: bool = false
+## Opt-in for disconnected pieces sharing a damage pool (e.g. two tail tips).
+## Compound authored sections continue to fall as a single body by default.
+@export var independent_debris_zones: Array[StringName] = []
+## T/H-tail airframes lose the supported horizontal surface when the fin
+## structure fails. Off for conventional tails and all existing bindings.
+@export var vertical_stabilizer_supports_horizontal: bool = false
 
 @export_group("Zone health")
 @export_range(0.05, 2.0, 0.05) var region_health_fraction_of_legacy_total: float = 0.5
@@ -195,6 +201,13 @@ func damage_zone(zone: StringName, damage_amount: float) -> bool:
 	if new_health <= 0.0:
 		_destroy_zone(zone)
 	return true
+
+
+func resolve_zone_from_contact(local_shape_index: int) -> StringName:
+	# A known physical contact belongs to that part even if another callback
+	# destroyed it this frame. Do not redirect a spent wing collider into the hull.
+	var zone := _zone_for_collider(_shape_node_for_local_index(local_shape_index))
+	return zone if zone != StringName() else ZONE_FUSELAGE
 
 
 func resolve_zone_from_hit(world_position: Vector3, local_shape_index: int = -1) -> StringName:
@@ -360,6 +373,8 @@ func _destroy_zone(zone: StringName) -> void:
 		_aircraft.set_meta("destroyed_part_%s" % zone, true)
 	_detach_zone_visuals(zone)
 	_apply_zone_failure(zone)
+	if zone == ZONE_VERTICAL_STABILIZER and vertical_stabilizer_supports_horizontal:
+		damage_zone(ZONE_HORIZONTAL_STABILIZER, get_zone_health(ZONE_HORIZONTAL_STABILIZER))
 	_try_detach_tail_section()
 	zone_destroyed.emit(zone)
 
@@ -394,7 +409,12 @@ func _detach_zone_visuals(zone: StringName) -> void:
 	if visuals.is_empty():
 		return
 	_align_wing_break_sections(zone, visuals)
-	_spawn_visual_debris(visuals, zone)
+	if zone in independent_debris_zones:
+		for visual in visuals:
+			var piece: Array[MeshInstance3D] = [visual]
+			_spawn_visual_debris(piece, zone)
+	else:
+		_spawn_visual_debris(visuals, zone)
 	for visual in visuals:
 		visual.visible = false
 		visual.set_meta("damage_detached", true)
@@ -514,6 +534,7 @@ func _spawn_visual_debris(sources: Array[MeshInstance3D], zone: StringName) -> v
 		outward = Vector3.UP
 	outward = (outward + Vector3.UP * 0.25).normalized()
 	debris.apply_central_impulse(outward * detached_part_impulse_mps * debris.mass)
+	preload("res://Recording/CaptureHooks.gd").begin(debris, "detached_part")
 
 	if detached_part_lifetime_s > 0.0:
 		var debris_ref: WeakRef = weakref(debris)

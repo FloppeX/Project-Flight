@@ -68,7 +68,7 @@ The map supports `1x` through `8x` zoom. While an order is being drafted, mouse 
 |-----|--------|
 | **R** or **1** | Retrieve aircraft from hangar |
 | **S** | Store aircraft in hangar |
-| **L** | Order the nearest eligible friendly aircraft to begin its landing approach |
+| **L** | Order the friendly fixed-wing nearest the active player camera to return to the carrier |
 | **Shift+L** | Debug enemy landing shortcut |
 | **V** | Play the Citadel radio test call |
 | **ESC** | Quit game |
@@ -142,6 +142,26 @@ If you want the AI to fly for you:
 ---
 
 ## Advanced: Carrier Operations
+
+### Mast Camera Monitors
+
+- Look directly at the monitor screen and press **A** to focus it (keyboard **E** also enters).
+- Each session starts in **Free Look**. Use the **right stick** to pan and tilt.
+- Hold **RT** to zoom in or **LT** to zoom out, in either free look or target tracking.
+- **D-pad left/right** cycles live hostile contacts and friendly aircraft returning for landing within the carrier's radar radius (currently 5 km), with Free Look included in the cycle. Contacts remain selectable even outside turret range, outside firing arcs, or with no guns engaging them.
+- **B** backs away and restores the standing camera.
+
+All monitors show one shared 640 x 360 mast-camera feed, updated at up to 15 Hz while a screen is in view. After the A-button zoom-in finishes, the mast camera takes over the main view at the game's rendering resolution and frame rate, with sharp on-screen controls. The small preview pauses during full-screen use; B restores the physical monitor, resumes the preview and backs away. No second full-resolution scene is rendered. Camera target selection is observation only; it does not command the guns.
+
+When unattended, the mast automatically tracks the closest available contact. With none available, it scans clockwise, level with the horizon and zoomed out, completing one revolution every 20 seconds. Player control always takes precedence. Friendly returning/holding/approaching aircraft leave the list once they resume another mission or are settled/stored on deck; they never become turret targets.
+
+Automatic light enhancement uses the aircraft HUD night-vision shader in both the physical monitor and full-resolution view. It turns on in darkness and off in daylight, with separate dusk/dawn thresholds to prevent flicker. It affects only the mast-camera image, not the room or other cameras.
+
+### Automatic Carrier Defense
+
+DefenseOps reviews turret assignments four times per second. It allocates guns with fewer reachable targets first, spreads fire across available threats, and favors keeping useful assignments. Range, team, firing-arc and host-plane limits still apply; each gun retains its existing aiming, line-of-sight and firing checks. Destroyed or lost contacts are removed automatically. This is a first-pass allocator, not predictive threat assessment or missile interception planning.
+
+Its separate monitor contact list uses AirOps' live carrier radar settings, not turret target lists or previously explored map cells. Aircraft, ground units and hostile structures within that radius can be observed without authorizing a gun to fire. The list updates even if the carrier has no turrets; contacts drop out when they leave the radar radius or are destroyed.
 
 ### Hangar System
 - **R** or **1** = Retrieve aircraft from hangar

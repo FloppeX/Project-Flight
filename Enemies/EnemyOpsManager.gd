@@ -82,6 +82,9 @@ func _ready() -> void:
 
 
 func _physics_process(delta: float) -> void:
+	# Trailer events own reinforcement timing; existing units still fly/fight.
+	if GameSession.is_trailer_scenario:
+		return
 	if _disabled_for_test:
 		return
 	if GameSession != null and GameSession.has_pending_save_state():

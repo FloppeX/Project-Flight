@@ -1068,13 +1068,17 @@ func _set_pilot_ejection_pose(pilot: Node3D, pose_name: StringName, blend_time_s
 func _ensure_pilot_parachute_animation(pilot: Node3D) -> void:
 	if pilot == null or not is_instance_valid(pilot):
 		return
+	if pilot.has_method("commit_ejection_presentation"):
+		pilot.call("commit_ejection_presentation")
 	# Pooled pilots nest their animation player below the lightweight mount;
 	# legacy cockpit pilots may still carry it directly.
 	var player := pilot.find_child("BakedAnimationPlayer", true, false) as AnimationPlayer
 	if player != null and player.assigned_animation == &"parachute" and player.is_playing():
+		_refresh_pilot_cockpit_visibility(pilot)
 		return
 	if pilot.has_method("play_baked_animation") \
 			and bool(pilot.call("play_baked_animation", &"parachute", 1.0)):
+		_refresh_pilot_cockpit_visibility(pilot)
 		return
 	# Compatibility fallback for any older pilot scene without the baked library.
 	_set_pilot_ejection_pose(pilot, &"parachute", 0.0)
@@ -1212,3 +1216,16 @@ func _position_landed_camera_at_head(camera_rig: Node3D, downed_pilot: Node3D) -
 		var camera_from_rig := camera_rig.global_transform.affine_inverse() * camera.global_transform
 		camera_rig.global_transform = head_mount.global_transform * camera_from_rig.affine_inverse()
 	_sync_cockpit_camera_base_transform(camera_rig)
+	_refresh_pilot_cockpit_visibility(downed_pilot)
+
+
+func _refresh_pilot_cockpit_visibility(pilot_root: Node) -> void:
+	if pilot_root == null:
+		return
+	if pilot_root.has_method("refresh_cockpit_visibility"):
+		pilot_root.call("refresh_cockpit_visibility")
+		return
+	for candidate in pilot_root.find_children("*", "", true, false):
+		if candidate.has_method("refresh_cockpit_visibility"):
+			candidate.call("refresh_cockpit_visibility")
+			return

@@ -21,4 +21,13 @@ static func is_node_in_target_camera_focus(context: Node, node: Node3D) -> bool:
 		var result = panel.call("is_target_camera_focusing_node", node)
 		if result is bool and result:
 			return true
+
+	for provider in tree.get_nodes_in_group("target_camera_focus_provider"):
+		if provider == null or not is_instance_valid(provider):
+			continue
+		if not provider.has_method("is_target_camera_focusing_node"):
+			continue
+		var result = provider.call("is_target_camera_focusing_node", node)
+		if result is bool and result:
+			return true
 	return false

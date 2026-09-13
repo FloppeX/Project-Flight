@@ -88,7 +88,25 @@ func acquire_decal(parent_node: Node) -> Decal:
 	decal.set_meta(&"_bullet_impact_poolable_decal", true)
 	return decal
 
-func spawn_debris(world_position: Vector3, size: Vector3, color: Color, metallic: float, roughness: float, velocity: Vector3, lifetime_s: float) -> bool:
+func spawn_hit_sparks(world_position: Vector3, surface_normal: Vector3, platform_velocity: Vector3 = Vector3.ZERO, count: int = 6) -> int:
+	var normal := surface_normal.normalized()
+	if normal.length_squared() < 0.5:
+		normal = Vector3.UP
+	var tangent := normal.cross(Vector3.UP).normalized()
+	if tangent.length_squared() < 0.5:
+		tangent = normal.cross(Vector3.RIGHT).normalized()
+	var bitangent := normal.cross(tangent)
+	var spawned := 0
+	for i in clampi(count, 0, 12):
+		var angle := TAU * float(i) / float(maxi(count, 1)) + randf_range(-0.2, 0.2)
+		var radial := tangent * cos(angle) + bitangent * sin(angle)
+		var velocity := platform_velocity + normal * randf_range(4.0, 9.0) + radial * randf_range(5.0, 13.0)
+		if spawn_debris(world_position + normal * 0.04, Vector3(0.065, 0.065, randf_range(0.35, 0.7)),
+			Color(1.0, 0.86, 0.48), 0.0, 1.0, velocity, randf_range(0.18, 0.3), 8.0):
+			spawned += 1
+	return spawned
+
+func spawn_debris(world_position: Vector3, size: Vector3, color: Color, metallic: float, roughness: float, velocity: Vector3, lifetime_s: float, spark_emission: float = 0.0) -> bool:
 	if _active_debris.size() >= max(max_active_debris, 0):
 		return false
 	if not should_spawn_visual(world_position):
@@ -106,12 +124,26 @@ func spawn_debris(world_position: Vector3, size: Vector3, color: Color, metallic
 	material.albedo_color = color
 	material.metallic = metallic
 	material.roughness = roughness
+	# Reset every presentation field when reusing a spark as ordinary dirt/metal.
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED if spark_emission > 0.0 else BaseMaterial3D.SHADING_MODE_PER_PIXEL
+	material.emission_enabled = spark_emission > 0.0
+	material.emission = color
+	material.emission_energy_multiplier = spark_emission
+	# Opaque HDR streaks keep a white-hot core in daylight; shrinking provides
+	# the short fade without alpha washing the spark into a dim orange line.
+	if spark_emission > 0.0:
+		material.albedo_color = Color(color.r * spark_emission, color.g * spark_emission, color.b * spark_emission, 1.0)
+	material.transparency = BaseMaterial3D.TRANSPARENCY_DISABLED
+	debris.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF if spark_emission > 0.0 else GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+	debris.rotation = Vector3.ZERO
+	if spark_emission > 0.0 and velocity.length_squared() > 0.01:
+		debris.look_at(world_position + velocity, Vector3.RIGHT if absf(velocity.normalized().dot(Vector3.UP)) > 0.99 else Vector3.UP)
 	_active_debris[debris.get_instance_id()] = debris
 	var particle_manager: Node = get_node_or_null("/root/ParticleManager")
 	if particle_manager == null:
 		_release_debris(debris)
 		return false
-	particle_manager.call("add_spark_particle", debris, lifetime_s, size, velocity, {"on_finish": Callable(self, "_release_debris")})
+	particle_manager.call("add_spark_particle", debris, lifetime_s, size, velocity, {"on_finish": Callable(self, "_release_debris"), "hot_spark": spark_emission > 0.0})
 	return true
 
 func should_play_impact_sound(world_position: Vector3) -> bool:

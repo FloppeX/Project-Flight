@@ -20,6 +20,17 @@ const VECTOR_BORDER_COLOR: Color = Color("434747")
 const VECTOR_CYAN_COLOR: Color = Color("76c7c7")
 const VECTOR_AMBER_COLOR: Color = Color("ffb000")
 const VECTOR_DIM_COLOR: Color = Color("7d8282")
+const KIA_BAND_COLOR: Color = Color(0.02, 0.02, 0.02, 0.88)
+
+const KIA_PORTRAIT_SHADER_CODE := """
+shader_type canvas_item;
+
+void fragment() {
+	vec4 source = texture(TEXTURE, UV);
+	float luminance = dot(source.rgb, vec3(0.299, 0.587, 0.114));
+	COLOR = vec4(vec3(luminance), source.a);
+}
+"""
 
 const COLUMNS: Array[Dictionary] = [
 	{"title": "PHOTO", "width": 66.0, "kind": "portrait"},
@@ -50,6 +61,7 @@ var _footer_panel: Panel
 var _footer: Label
 var _refresh_timer_s: float = 0.0
 var _portrait_texture_cache: Dictionary = {}
+var _kia_portrait_material: ShaderMaterial
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -233,18 +245,21 @@ func _make_row(values: Array[String], is_header: bool, alternate: bool, pilot: D
 	return row
 
 func _add_portrait_to_row(row: Control, pilot: Dictionary, column_x: float, column_width: float, row_height: float) -> void:
+	var is_kia := _is_pilot_kia(pilot)
 	var frame := Panel.new()
+	frame.name = "PortraitFrame"
 	frame.position = Vector2(
 		column_x + (column_width - PORTRAIT_FRAME_SIZE_PX.x) * 0.5,
 		(row_height - PORTRAIT_FRAME_SIZE_PX.y) * 0.5
 	)
 	frame.size = PORTRAIT_FRAME_SIZE_PX
 	frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	frame.add_theme_stylebox_override("panel", _portrait_frame_style())
+	frame.add_theme_stylebox_override("panel", _portrait_frame_style(is_kia))
 	frame.tooltip_text = str(pilot.get("name", "Pilot portrait"))
 	row.add_child(frame)
 
 	var portrait := TextureRect.new()
+	portrait.name = "PortraitImage"
 	portrait.position = Vector2(2.0, 2.0)
 	portrait.size = PORTRAIT_FRAME_SIZE_PX - Vector2(4.0, 4.0)
 	portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
@@ -252,7 +267,26 @@ func _add_portrait_to_row(row: Control, pilot: Dictionary, column_x: float, colu
 	portrait.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	portrait.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	portrait.texture = _get_portrait_texture(str(pilot.get("portrait_path", "")))
+	if is_kia:
+		portrait.material = _get_kia_portrait_material()
 	frame.add_child(portrait)
+
+	if is_kia:
+		var band := ColorRect.new()
+		band.name = "KIAOverlay"
+		band.position = Vector2(2.0, PORTRAIT_FRAME_SIZE_PX.y - 17.0)
+		band.size = Vector2(PORTRAIT_FRAME_SIZE_PX.x - 4.0, 15.0)
+		band.color = KIA_BAND_COLOR
+		band.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		frame.add_child(band)
+
+		var kia_label := _make_label("KIA", 12, Color("f3f0ef"), HORIZONTAL_ALIGNMENT_CENTER, DATA_FONT)
+		kia_label.name = "KIALabel"
+		kia_label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		kia_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		kia_label.add_theme_color_override("font_outline_color", Color.BLACK)
+		kia_label.add_theme_constant_override("outline_size", 2)
+		band.add_child(kia_label)
 
 func _get_portrait_texture(path: String) -> Texture2D:
 	if path == "":
@@ -264,10 +298,26 @@ func _get_portrait_texture(path: String) -> Texture2D:
 		_portrait_texture_cache[path] = texture
 	return texture
 
-func _portrait_frame_style() -> StyleBoxFlat:
+
+func _get_kia_portrait_material() -> ShaderMaterial:
+	if _kia_portrait_material == null:
+		var grayscale_shader := Shader.new()
+		grayscale_shader.code = KIA_PORTRAIT_SHADER_CODE
+		_kia_portrait_material = ShaderMaterial.new()
+		_kia_portrait_material.shader = grayscale_shader
+	return _kia_portrait_material
+
+
+func _is_pilot_kia(pilot: Dictionary) -> bool:
+	if not bool(pilot.get("is_alive", true)):
+		return true
+	return str(pilot.get("status", "")).strip_edges().to_lower() in ["killed", "dead", "kia"]
+
+
+func _portrait_frame_style(is_kia: bool = false) -> StyleBoxFlat:
 	var style := StyleBoxFlat.new()
 	style.bg_color = Color("0e0e0e")
-	style.border_color = VECTOR_CYAN_COLOR
+	style.border_color = VECTOR_DIM_COLOR if is_kia else VECTOR_CYAN_COLOR
 	style.set_border_width_all(1)
 	style.corner_radius_top_left = 2
 	style.corner_radius_top_right = 2

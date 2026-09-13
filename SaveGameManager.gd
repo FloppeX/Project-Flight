@@ -10,6 +10,7 @@ const SAVE_PATH := "user://saves/campaign_01.json"
 const TEMP_PATH := "user://saves/campaign_01.tmp"
 const BACKUP_PATH := "user://saves/campaign_01.bak"
 const GAME_SCENE := "res://Main_Scene.tscn"
+const TRAILER_BASELINE_PATH := "res://Scenario/Trailer/baseline.json"
 const CALM_WINDOW_S := 5.0
 const AUTOSAVE_INTERVAL_S := 120.0
 const AVAILABILITY_POLL_INTERVAL_S := 0.25
@@ -132,6 +133,18 @@ func prepare_continue() -> Dictionary:
 	return {"ok": true, "message": "Loading campaign", "path": source_path}
 
 
+func prepare_trailer_scenario() -> Dictionary:
+	var state := _read_valid_save(TRAILER_BASELINE_PATH)
+	if not state.is_empty():
+		# Change only the in-memory trailer copy, never the archived checkpoint.
+		load("res://Scenario/Trailer/TrailerBattleSetup.gd").isolate_baseline(state)
+	if state.is_empty() or not GameSession.prepare_loaded_game(state):
+		return {"ok": false, "message": "Trailer baseline is missing or incompatible"}
+	GameSession.is_trailer_scenario = true
+	clear_cached_runtime_state()
+	return {"ok": true, "message": "Loading trailer baseline", "path": TRAILER_BASELINE_PATH}
+
+
 func clear_cached_runtime_state() -> void:
 	_raw_blockers.clear()
 	_calm_elapsed_s = 0.0
@@ -153,9 +166,15 @@ func _set_cached_availability(ready: bool, message: String) -> void:
 
 func _collect_raw_blockers(prune_stale_contacts: bool = true) -> Array[Dictionary]:
 	var blockers: Array[Dictionary] = []
+	if GameSession.is_trailer_scenario:
+		blockers.append({"code": "trailer", "message": "Trailer scenario — campaign save protected"})
+		return blockers
 	var carrier := get_tree().get_first_node_in_group("carrier") as Node3D
 	if carrier == null or not is_instance_valid(carrier):
 		blockers.append({"code": "no_carrier", "message": "Carrier is not ready"})
+		return blockers
+	if "is_destroyed" in carrier and bool(carrier.get("is_destroyed")):
+		blockers.append({"code": "carrier_lost", "message": "Carrier lost — previous checkpoint preserved"})
 		return blockers
 	if carrier.has_method("is_initial_placement_complete") \
 	and not bool(carrier.call("is_initial_placement_complete")):
@@ -199,6 +218,9 @@ func _collect_raw_blockers(prune_stale_contacts: bool = true) -> Array[Dictionar
 
 
 func _save_campaign(automatic: bool) -> Dictionary:
+	# Enforce this at the write entry point as well as in the pause-menu status.
+	if GameSession.is_trailer_scenario:
+		return {"ok": false, "message": "Trailer scenario cannot overwrite the campaign"}
 	var was_paused := get_tree().paused
 	get_tree().paused = true
 	var campaign := _capture_campaign_state()
@@ -337,7 +359,7 @@ func _try_begin_pending_restore() -> bool:
 		return true
 	if get_tree().current_scene == null or get_tree().current_scene.scene_file_path != GAME_SCENE:
 		return false
-	if not TerrainNavGrid.is_ready():
+	if not TerrainNavGrid.is_ready() or not NavGraph.is_ready():
 		return true
 	var carrier := get_tree().get_first_node_in_group("carrier")
 	if carrier == null or not is_instance_valid(carrier):
@@ -403,7 +425,7 @@ func _restore_pending_campaign() -> void:
 	_calm_elapsed_s = 0.0
 	_last_saved_fingerprint = JSON.stringify(_encode_json_value(campaign)).hash()
 	_set_cached_availability(false, "Loaded campaign is settling")
-	campaign_loaded.emit(SAVE_PATH)
+	campaign_loaded.emit(TRAILER_BASELINE_PATH if GameSession.is_trailer_scenario else SAVE_PATH)
 	print("[SaveGame] Campaign restored")
 
 

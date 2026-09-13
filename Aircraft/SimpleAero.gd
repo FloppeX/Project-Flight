@@ -1,6 +1,9 @@
 extends Node
 class_name SimpleAero
 
+## Opt-in diagnostic hook; no sample allocation or force changes without a listener.
+signal force_audit_sample(sample: Dictionary)
+
 const AIRFLOW_FEEDBACK_SCRIPT := preload("res://Aircraft/AirflowFeedback.gd")
 
 @export var rb_path: NodePath
@@ -160,8 +163,11 @@ var rb: RigidBody3D = null
 # Drag tuning
 @export var forward_drag_strength: float = 0.22
 @export var lateral_drag_strength: float = 1.2
-@export var gear_drag_multiplier: float = 1.5
-@export var flaps_drag_multiplier: float = 1.4   # When flaps deployed (approach config: gear+flaps together)
+@export var gear_drag_multiplier: float = 1.7
+@export var flaps_drag_multiplier: float = 1.8   # Default gear+flaps approach drag is 3.06x; clean drag remains unchanged
+## Scale only the EXTRA longitudinal drag from deployed gear/flaps. Clean drag
+## and lateral damping remain unchanged; 2 doubles the configuration increment.
+@export var configuration_forward_drag_scale: float = 1.0
 @export var flaps_stall_speed_factor: float = 0.78  # Stall speed multiplier when flaps deployed (0.78 = 22% lower -> slower approach)
 @export var flaps_lift_bonus: float = 0.25       # Extra lift ratio when flaps deployed (more lift per speed -> slower, higher-AoA approach)
 
@@ -248,11 +254,10 @@ func _ready() -> void:
 		_landing_gear_node = rb.get_node_or_null("LandingGear")
 		_gear_controller = rb.get_node_or_null("ControlLandingGear")
 		_control_steering_node = rb.get_node_or_null("ControlSteering")
-		# Flaps: find AircraftModule_Flaps (gear+flaps deployed together on approach)
+		# Child _ready runs before the parent's module registry is populated.
+		# Resolve the actual typed flap node independently of that registry.
+		_resolve_flaps_module()
 		if rb.has_method("find_modules_by_type"):
-			var found = rb.find_modules_by_type("flaps")
-			if not found.is_empty():
-				_flaps_module = found[0]
 			_engine_modules = rb.find_modules_by_type("engine")
 	_setup_airflow_feedback()
 
@@ -307,8 +312,10 @@ func _physics_process(delta: float) -> void:
 		# Lateral (velocity minus forward component)
 		var lat_dir: Vector3 = (-lateral_vel / lateral_speed) if lateral_speed > 0.001 else Vector3.ZERO
 		lateral_drag_force = lat_dir * lateral_drag_strength * lateral_speed * lateral_speed
-		# Combine and scale (gear+flaps multiply drag when deployed)
-		total_drag_force = (forward_drag_force + lateral_drag_force) * drag_base_multiplier * approach_mult
+		# Extra speed braking is longitudinal only: do not also amplify sideslip
+		# damping and silently alter the centerline-capture response.
+		total_drag_force = (forward_drag_force * get_configuration_forward_drag_multiplier(approach_mult)
+			+ lateral_drag_force * approach_mult) * drag_base_multiplier
 		lateral_drag_feedback_n = lateral_drag_force.length() * drag_base_multiplier * approach_mult
 		rb.apply_central_force(total_drag_force)
 
@@ -659,6 +666,11 @@ func _physics_process(delta: float) -> void:
 	if speed > 5.0 and stability_strength > 0.0:
 		_apply_attitude_stability(fwd, right, up, speed, forward_speed, stall_control_loss)
 
+	if force_audit_sample.has_connections():
+		force_audit_sample.emit({"delta": delta, "velocity": vel,
+			"lift": lift_force, "drag": total_drag_force, "alignment": alignment_force,
+			"induced_drag_n": induced_drag_feedback_n, "load": actual_lift_ratio,
+			"aoa": alpha_deg, "advanced": advanced_flight_model})
 	_update_aero_report(
 		delta,
 		local_vel,
@@ -758,6 +770,10 @@ func get_simplified_control_authority(
 
 func get_induced_drag_rate_proxy_factor(advanced: bool, departure_severity: float) -> float:
 	return 1.0 - clampf(departure_severity, 0.0, 1.0) if advanced else 1.0
+
+
+func get_configuration_forward_drag_multiplier(configuration_multiplier: float) -> float:
+	return 1.0 + maxf(configuration_multiplier - 1.0, 0.0) * maxf(configuration_forward_drag_scale, 0.0)
 
 
 func get_dirty_airflow_drag_accel_mps2(
@@ -1502,6 +1518,7 @@ func _build_aero_report_line(
 		str(carrier_transport),
 		str(parking_brake),
 		_fmt_float(approach_mult, 3),
+		_fmt_float(get_configuration_forward_drag_multiplier(approach_mult), 3),
 		_fmt_float(forward_drag_force.length(), 1),
 		_fmt_float(lateral_drag_force.length(), 1),
 		_fmt_float(total_drag_force.length(), 1),
@@ -1611,6 +1628,7 @@ func _aero_report_header() -> String:
 		"carrier_transport",
 		"parking_brake",
 		"gear_flap_drag_mult",
+		"configuration_forward_drag_mult",
 		"forward_drag_n",
 		"lateral_drag_n",
 		"total_drag_n",
@@ -1988,8 +2006,18 @@ func _collect_engine_modules_recursive(node: Node, result: Array) -> void:
 		_collect_engine_modules_recursive(child, result)
 
 
+func _resolve_flaps_module() -> void:
+	if is_instance_valid(_flaps_module) or not is_instance_valid(rb):
+		return
+	for child in rb.get_children():
+		if child is AircraftModule_Flaps:
+			_flaps_module = child
+			return
+
+
 func _get_flap_position() -> float:
-	if _flaps_module != null and "flap_position" in _flaps_module:
+	_resolve_flaps_module()
+	if is_instance_valid(_flaps_module) and "flap_position" in _flaps_module:
 		return float(_flaps_module.get("flap_position"))
 	return 0.0
 
@@ -2042,11 +2070,7 @@ func _is_gear_deployed() -> bool:
 
 func _is_flaps_deployed() -> bool:
 	"""True when flaps are extended (flap_position > 0.5). Gear+flaps deployed together on approach."""
-	if _flaps_module == null:
-		return false
-	if "flap_position" in _flaps_module:
-		return float(_flaps_module.flap_position) > 0.5
-	return false
+	return _get_flap_position() > 0.5
 
 func _get_ground_rudder_assist_strength(forward_speed: float) -> float:
 	if not ground_rudder_assist_enabled or not _is_gear_deployed() or _landing_gear_node == null:

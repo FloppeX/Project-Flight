@@ -75,7 +75,9 @@ func _process(delta: float) -> void:
 	if _update_timer > 0.0:
 		return
 	_update_timer = maxf(update_interval_s, 0.05)
+	var profile_started := FrameProfiler.begin("PlantPatchStreamer.update")
 	_update_streamed_plants()
+	FrameProfiler.end("PlantPatchStreamer.update", profile_started)
 
 
 func apply_origin_shift(_offset: Vector3) -> void:

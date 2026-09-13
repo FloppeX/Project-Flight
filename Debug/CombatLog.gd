@@ -3,7 +3,7 @@ extends Node
 ## crashes, flight taskings), NOT a per-frame trace of every aircraft. Autoload singleton.
 ##
 ## Two ways events get in:
-##   1. Auto: connects to each aircraft's damaged/destroyed/crashed signals (polls the "aircraft" group
+##   1. Auto: connects to each aircraft's damage, touchdown, crash, and destruction signals (polls the "aircraft" group
 ##      for new spawns). Hits are COALESCED per aircraft so a burst doesn't spam the log.
 ##   2. Manual: any system calls CombatLog.event("CATEGORY", "text") for things it alone knows about
 ##      (e.g. AirOpsManager on a scramble/role change, AIPilot when it commits an attack run).
@@ -88,6 +88,8 @@ func _scan_aircraft() -> void:
 				node.connect("destroyed", _on_destroyed.bind(node))
 			if node.has_signal("crashed") and not node.is_connected("crashed", _on_crashed):
 				node.connect("crashed", _on_crashed.bind(node))
+			if node.has_signal("touchdown") and not node.is_connected("touchdown", _on_touchdown):
+				node.connect("touchdown", _on_touchdown.bind(node))
 
 
 func _label_for(node: Node) -> String:
@@ -165,5 +167,20 @@ func _on_crashed(impact_velocity, node: Node) -> void:
 	var spd := ""
 	if impact_velocity is Vector3:
 		spd = " @%.0f m/s" % (impact_velocity as Vector3).length()
+	elif impact_velocity is float or impact_velocity is int:
+		spd = " @%.1f m/s" % float(impact_velocity)
 	event("CRASH", "%s crashed%s" % [_label_for(node), spd])
 	_hit_state.erase(id)
+
+
+func _on_touchdown(details: Dictionary, node: Node) -> void:
+	if not enabled or node == null or not is_instance_valid(node):
+		return
+	var category := "HARD" if bool(details.get("hard", false)) else "LAND"
+	var surface := str(details.get("surface", "surface"))
+	var damaging := " damaging" if bool(details.get("damaging", false)) else ""
+	event(category, "%s %s touchdown%s sink=%.1f m/s relative=%.1f m/s" % [
+		_label_for(node), surface, damaging,
+		float(details.get("descent_speed_mps", 0.0)),
+		float(details.get("relative_speed_mps", 0.0)),
+	])

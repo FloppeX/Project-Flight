@@ -521,6 +521,19 @@ func release_aircraft(aircraft: Node3D) -> void:
 	if pilot_id != "":
 		_release_pilot_assignment(pilot_id)
 
+func set_recovery_status(survivor: Node3D, status: String) -> void:
+	var pilot_id := _pilot_id_for_aircraft(survivor)
+	if pilot_id != "":
+		_pilots_by_id[pilot_id]["recovery_status"] = status
+		_release_pilot_assignment(pilot_id) # Reserve by recovery status, not a stale aircraft callsign.
+		_pilot_selection_bag.erase(pilot_id)
+
+func finish_pilot_recovery(survivor: Node3D) -> void:
+	var pilot_id := _pilot_id_for_aircraft(survivor)
+	if pilot_id != "":
+		_pilots_by_id[pilot_id].erase("recovery_status")
+		_release_pilot_assignment(pilot_id)
+
 
 func release_callsign(callsign: String) -> void:
 	var key := _normalize_callsign(callsign)
@@ -921,6 +934,7 @@ func _pilot_with_assignment(pilot_id: String) -> Dictionary:
 		pilot["status"] = "killed"
 	else:
 		pilot["status"] = "assigned" if active_key != "" else "available"
+		if not str(pilot.get("recovery_status", "")).is_empty(): pilot["status"] = pilot.recovery_status
 	return pilot
 
 func _pilot_id_for_aircraft(aircraft: Node3D) -> String:
@@ -944,6 +958,7 @@ func _pick_available_pilot_id() -> String:
 		if _pilots_by_id.has(pilot_id) \
 		and bool((_pilots_by_id[pilot_id] as Dictionary).get("is_alive", true)) \
 		and not _assigned_callsign_by_pilot_id.has(pilot_id):
+			if not str(_pilots_by_id[pilot_id].get("recovery_status", "")).is_empty(): continue
 			return pilot_id
 	# The bag can contain pilots who became active after it was filled. Rebuild
 	# once from the currently available roster before reporting exhaustion.
@@ -959,6 +974,7 @@ func _refill_pilot_selection_bag() -> void:
 		if _pilots_by_id.has(pilot_id) \
 		and bool((_pilots_by_id[pilot_id] as Dictionary).get("is_alive", true)) \
 		and not _assigned_callsign_by_pilot_id.has(pilot_id):
+			if not str(_pilots_by_id[pilot_id].get("recovery_status", "")).is_empty(): continue
 			_pilot_selection_bag.append(pilot_id)
 	_shuffle_strings(_pilot_selection_bag)
 

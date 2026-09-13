@@ -1016,10 +1016,20 @@ func _update_display_visibility() -> void:
 	var show_display := captions_enabled \
 			and current_scene != null \
 			and _is_gameplay_scene_path(current_scene.scene_file_path)
+	if GameSession.is_trailer_scenario: show_display = false
+	if show_display and _is_free_camera_active():
+		show_display = false
 	var loading_screen := get_node_or_null("/root/LoadingScreen")
 	if is_instance_valid(loading_screen) and bool(loading_screen.get("visible")):
 		show_display = false
 	_canvas.visible = show_display
+
+
+func _is_free_camera_active() -> bool:
+	var flight_director := get_node_or_null("/root/FlightDirector")
+	return flight_director != null \
+			and flight_director.has_method("is_free_camera_active") \
+			and bool(flight_director.call("is_free_camera_active"))
 
 
 func _is_gameplay_scene_path(scene_path: String) -> bool:

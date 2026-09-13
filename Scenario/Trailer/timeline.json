@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "description": "Ground battle on the verified NW plain. Bearings: north=-Z, west=-X. Ground forces exist and orders are queued before F6 starts the action.",
+  "startup": {
+    "friendly_bearing_deg": 320,
+    "friendly_distance_m": 3000,
+    "enemy_bearing_deg": 285,
+    "separation_m": 2000,
+    "friendly_vehicles": [
+      "res://GroundVehicle/vehicle_friendly_light.tscn",
+      "res://GroundVehicle/vehicle_friendly_light.tscn",
+      "res://GroundVehicle/vehicle_friendly_light.tscn",
+      "res://GroundVehicle/vehicle_friendly_light.tscn"
+    ],
+    "enemy_vehicles": [
+      "res://GroundVehicle/vehicle_enemy_buggy.tscn",
+      "res://GroundVehicle/vehicle_enemy_pickup.tscn",
+      "res://GroundVehicle/vehicle_enemy_battle_bus.tscn",
+      "res://GroundVehicle/vehicle_enemy_pickup.tscn",
+      "res://GroundVehicle/vehicle_enemy_buggy.tscn",
+      "res://GroundVehicle/vehicle_enemy_battle_bus.tscn",
+      "res://GroundVehicle/vehicle_enemy_pickup.tscn",
+      "res://GroundVehicle/vehicle_enemy_buggy.tscn"
+    ]
+  },
+  "events": [
+    {"id": "establish", "time": 0, "action": "cue", "text": "Ground forces engage — Aircraft 5 strike flight launching"},
+    {"id": "launch_pair", "time": 0, "action": "launch", "count": 2, "aircraft_model": "Aircraft_5", "loadout_profile": "rocket_strike"}
+  ]
+}

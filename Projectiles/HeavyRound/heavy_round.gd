@@ -25,10 +25,11 @@ func _ready() -> void:
 func _on_body_entered(body: Node) -> void:
 	if has_impacted:
 		return
-	if body == shooter:
+	if is_shooter_body(body):
 		return
 
 	_emit_debug_report("impact", body)
+	_spawn_target_hit_sparks(body)
 
 	var damage_target: Node = find_damage_target(body)
 	var hit_ground: bool = is_ground_or_terrain(body)
@@ -51,6 +52,7 @@ func _spawn_custom_explosion(hit_ground: bool, hit_aircraft: bool) -> void:
 	if explosion_scene == null:
 		return
 	var explosion := explosion_scene.instantiate()
+	explosion.set_meta("carrier_damage_event", _carrier_damage_event_id())
 	if not (explosion is Explosion):
 		get_tree().current_scene.add_child(explosion)
 		explosion.global_position = global_position

@@ -531,21 +531,13 @@ func _switch_to_view_target(target: Dictionary):
 		cam.fov = _user_camera_fov()
 
 func _deactivate_all_cameras():
-	"""Deactivate every known Camera3D before switching to the selected target."""
+	"""Deactivate gameplay cameras without interrupting independent UI/monitor views."""
 	if not is_inside_tree():
 		return
-	var scene_tree := get_tree()
-	var root := scene_tree.root
-	if root == null:
-		return
-	_deactivate_cameras_recursive(root)
-
-
-func _deactivate_cameras_recursive(node: Node) -> void:
-	if node is Camera3D:
-		(node as Camera3D).current = false
-	for child in node.get_children():
-		_deactivate_cameras_recursive(child)
+	# A viewport has exactly one current camera. No world-tree scan is needed,
+	# and disabling automatic fallback avoids briefly activating another camera.
+	var camera := get_viewport().get_camera_3d()
+	if is_instance_valid(camera): camera.clear_current(false)
 
 
 func _force_current_camera(camera: Camera3D) -> void:

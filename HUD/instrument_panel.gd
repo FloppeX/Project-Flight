@@ -7,6 +7,7 @@ const WARNING_LIGHT_MODULE_SCRIPT := preload("res://HUD/Instruments/WarningLight
 const SLIP_BALL_MODULE_SCRIPT := preload("res://HUD/Instruments/SlipBallModule.gd")
 const AOA_MODULE_SCRIPT := preload("res://HUD/Instruments/AoAModule.gd")
 const TECHNICAL_INDEX_CATALOG := preload("res://UI/TechnicalIndexCatalog.gd")
+const PanelSurfaceCache := preload("res://HUD/PanelSurfaceCache.gd")
 
 @export var aircraft_path: NodePath
 @export var panel_size: Vector2 = Vector2(0.4, 0.3)  # Size in meters (40cm x 30cm)
@@ -248,15 +249,19 @@ func _bind_model_panel_surface(material: Material, explicit_mesh: MeshInstance3D
 		push_warning("[InstrumentPanel] no matching model panel material found on mesh %s." % mesh_instance.name)
 		return
 	if model_panel_use_mesh_uv:
+		var geometry_start := FrameProfiler.begin("InstrumentPanel.surface_arrays")
 		for surface_index in model_panel_surface_indices:
-			var arrays := mesh.surface_get_arrays(surface_index)
+			var arrays := PanelSurfaceCache.arrays(mesh, surface_index)
 			var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
 			var texture_uvs: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
 			if vertices.is_empty() or texture_uvs.size() != vertices.size():
 				push_warning("[InstrumentPanel] model panel surface %d on %s has no usable UV map." % [surface_index, mesh_instance.name])
 				return
+		FrameProfiler.end("InstrumentPanel.surface_arrays", geometry_start)
 	elif auto_fit_model_panel_local_rect:
+		var geometry_start := FrameProfiler.begin("InstrumentPanel.surface_bounds")
 		model_panel_local_rect = _calculate_surface_local_xy_bounds(mesh, model_panel_surface_indices)
+		FrameProfiler.end("InstrumentPanel.surface_bounds", geometry_start)
 		_apply_panel_material_local_rect(material, model_panel_local_rect)
 	var shader_material := material as ShaderMaterial
 	if shader_material != null:
@@ -290,7 +295,7 @@ func _calculate_surface_local_xy_bounds(mesh: Mesh, surface_indices: PackedInt32
 	var min_xy := Vector2.ZERO
 	var max_xy := Vector2.ZERO
 	for surface_index in surface_indices:
-		var arrays := mesh.surface_get_arrays(surface_index)
+		var arrays := PanelSurfaceCache.arrays(mesh, surface_index)
 		var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
 		for vertex in vertices:
 			var xy := Vector2(vertex.x, vertex.y)
@@ -447,11 +452,15 @@ func configure_for_pooled_mount(mount: Node3D) -> void:
 	destroyed_target_hold_s = float(mount.get("destroyed_target_hold_s"))
 
 	var new_aircraft := mount.call("get_aircraft") as Node3D if mount.has_method("get_aircraft") else mount.get_parent() as Node3D
+	var binding_start := FrameProfiler.begin("InstrumentPanel.bind_aircraft")
 	bind_to_aircraft(new_aircraft)
+	FrameProfiler.end("InstrumentPanel.bind_aircraft", binding_start)
+	var surface_start := FrameProfiler.begin("InstrumentPanel.bind_surface")
 	var explicit_mesh := mount.call("resolve_model_panel_mesh") as MeshInstance3D \
 		if mount.has_method("resolve_model_panel_mesh") else null
 	if _panel_material != null:
 		_bind_model_panel_surface(_panel_material, explicit_mesh)
+	FrameProfiler.end("InstrumentPanel.bind_surface", surface_start)
 	_target_camera_pose_initialized = false
 	_target_camera_world_aim_basis = Basis.IDENTITY
 	_destroyed_target_hold_until_s = -INF
@@ -1170,7 +1179,7 @@ func _project_ray_to_model_panel_point(ray_origin: Vector3, ray_direction: Vecto
 	var found := false
 	var closest_mesh_uv := Vector2.ZERO
 	for surface_index in model_panel_surface_indices:
-		var arrays := mesh.surface_get_arrays(surface_index)
+		var arrays := PanelSurfaceCache.arrays(mesh, surface_index)
 		var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
 		if vertices.is_empty():
 			continue

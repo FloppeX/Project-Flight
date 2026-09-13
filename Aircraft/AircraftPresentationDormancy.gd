@@ -39,6 +39,7 @@ const COCKPIT_PILOT_DETACHED_META: StringName = &"presentation_dormant_cockpit_p
 var _aircraft_ref: WeakRef
 var _detached_entries: Array[Dictionary] = []
 var _detached_node_count: int = 0
+var _recording_pilot_entry: Dictionary = {}
 
 
 func _init(aircraft: Node = null) -> void:
@@ -57,6 +58,8 @@ func detach() -> int:
 	for root_name in PRESENTATION_ROOT_NAMES:
 		var node := aircraft.get_node_or_null(NodePath(String(root_name)))
 		if node == null:
+			continue
+		if root_name == &"CockpitPilot" and bool(node.get("_recording_presentation_active")):
 			continue
 		if root_name in [&"CameraController", &"CameraCockpit", &"CameraChase", &"CameraCinematic"]:
 			has_camera_capability = true
@@ -94,6 +97,35 @@ func detach() -> int:
 	aircraft.set_meta(CAMERA_CAPABILITY_META, has_camera_capability)
 	return _detached_node_count
 
+
+func set_recording_occupants_active(active: bool) -> void:
+	var aircraft := _get_aircraft()
+	if aircraft == null: return
+	if active:
+		for index in range(_detached_entries.size()):
+			var entry: Dictionary = _detached_entries[index]
+			if entry.get("root_name") != &"CockpitPilot": continue
+			if _restore_entry(entry):
+				_recording_pilot_entry = entry
+				_detached_entries.remove_at(index)
+				_detached_node_count -= int(entry.get("node_count", 0))
+			break
+	_set_recording_occupants_recursive(aircraft, active)
+	if not active and not _recording_pilot_entry.is_empty():
+		var node: Variant = _recording_pilot_entry.get("node")
+		if is_instance_valid(node) and node.get_parent() == aircraft and is_detached() and not bool(node.get("_ejection_committed")):
+			node.owner = null
+			aircraft.remove_child(node)
+			_detached_entries.append(_recording_pilot_entry)
+			_detached_node_count += int(_recording_pilot_entry.get("node_count", 0))
+			aircraft.set_meta(COCKPIT_PILOT_DETACHED_META, true)
+		_recording_pilot_entry = {}
+
+func _set_recording_occupants_recursive(node: Node, active: bool) -> void:
+	if node is SubViewport: return
+	if node.has_method("set_recording_presentation_active"):
+		node.call("set_recording_presentation_active", active)
+	for child in node.get_children(): _set_recording_occupants_recursive(child, active)
 
 func restore(activate_presentation: bool = true) -> void:
 	var aircraft := _get_aircraft()

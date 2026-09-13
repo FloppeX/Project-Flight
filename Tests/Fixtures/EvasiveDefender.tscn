@@ -1,0 +1,8 @@
+[gd_scene load_steps=4 format=3]
+[ext_resource type="PackedScene" path="res://Aircraft/Aircraft_5.tscn" id="1"]
+[ext_resource type="Script" path="res://Tests/Fixtures/EvasiveDefender.gd" id="2"]
+[ext_resource type="Script" path="res://Tests/Fixtures/EvasiveDefenderPilot.gd" id="3"]
+[node name="EvasiveDefender" instance=ExtResource("1")]
+script = ExtResource("2")
+[node name="AIPilot" parent="."]
+script = ExtResource("3")

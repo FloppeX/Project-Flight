@@ -1,0 +1,1505 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="PackedScene" path="res://Models/LandCarrier/CarrierUnified.glb" id="1"]
+[ext_resource type="Script" path="res://LandCarrier/CarrierIslandIntegration.gd" id="2"]
+[ext_resource type="Script" path="res://LandCarrier/CarrierSlidingDoor.gd" id="3"]
+
+[node name="CarrierWithInterior" instance=ExtResource("1")]
+script = ExtResource("2")
+metadata/island_baked = true
+
+[node name="00 | entry and service deck" parent="." index="0"]
+metadata/carrier_interior = true
+
+[node name="00 | stair hall" parent="." index="1"]
+metadata/carrier_interior = true
+
+[node name="01 | operations deck" parent="." index="2"]
+metadata/carrier_interior = true
+
+[node name="01 | forward room" parent="." index="3"]
+metadata/carrier_interior = true
+
+[node name="01 | port gallery threshold" parent="." index="4"]
+metadata/carrier_interior = true
+
+[node name="01 | starboard gallery threshold" parent="." index="5"]
+metadata/carrier_interior = true
+
+[node name="01 | port access vestibule" parent="." index="6"]
+metadata/carrier_interior = true
+
+[node name="01 | vestibule to stair lobby" parent="." index="7"]
+metadata/carrier_interior = true
+
+[node name="Port vestibule | guard rail" parent="." index="8"]
+metadata/carrier_interior = true
+
+[node name="Port vestibule | guard post" parent="." index="9"]
+metadata/carrier_interior = true
+
+[node name="Port vestibule | guard post_001" parent="." index="10"]
+metadata/carrier_interior = true
+
+[node name="Port vestibule | guard post_002" parent="." index="11"]
+metadata/carrier_interior = true
+
+[node name="02 | aft rooms" parent="." index="12"]
+metadata/carrier_interior = true
+
+[node name="S1_1 | tread 01" parent="." index="13"]
+metadata/carrier_interior = true
+
+[node name="Stair | ochre nosing" parent="." index="14"]
+metadata/carrier_interior = true
+
+[node name="Stair | closed riser" parent="." index="15"]
+metadata/carrier_interior = true
+
+[node name="S1_1 | tread 02" parent="." index="16"]
+metadata/carrier_interior = true
+
+[node name="Stair | ochre nosing_001" parent="." index="17"]
+metadata/carrier_interior = true
+
+[node name="Stair | closed riser_001" parent="." index="18"]
+metadata/carrier_interior = true
+
+[node name="S1_1 | tread 03" parent="." index="19"]
+metadata/carrier_interior = true
+
+[node name="Stair | ochre nosing_002" parent="." index="20"]
+metadata/carrier_interior = true
+
+[node name="Stair | closed riser_002" parent="." index="21"]
+metadata/carrier_interior = true
+
+[node name="S1_1 | tread 04" parent="." index="22"]
+metadata/carrier_interior = true
+
+[node name="Stair | ochre nosing_003" parent="." index="23"]
+metadata/carrier_interior = true
+
+[node name="Stair | closed riser_003" parent="." index="24"]
+metadata/carrier_interior = true
+
+[node name="S1_1 | tread 05" parent="." index="25"]
+metadata/carrier_interior = true
+
+[node name="Stair | ochre nosing_004" parent="." index="26"]
+metadata/carrier_interior = true
+
+[node name="Stair | closed riser_004" parent="." index="27"]
+metadata/carrier_interior = true
+
+[node name="S1_1 | tread 06" parent="." index="28"]
+metadata/carrier_interior = true
+
+[node name="Stair | ochre nosing_005" parent="." index="29"]
+metadata/carrier_interior = true
+
+[node name="Stair | closed riser_005" parent="." index="30"]
+metadata/carrier_interior = true
+
+[node name="S1_1 | tread 07" parent="." index="31"]
+metadata/carrier_interior = true
+
+[node name="Stair | ochre nosing_006" parent="." index="32"]
+metadata/carrier_interior = true
+
+[node name="Stair | closed riser_006" parent="." index="33"]
+metadata/carrier_interior = true
+
+[node name="S1_1 | tread 08" parent="." index="34"]
+metadata/carrier_interior = true
+
+[node name="Stair | ochre nosing_007" parent="." index="35"]
+metadata/carrier_interior = true
+
+[node name="Stair | closed riser_007" parent="." index="36"]
+metadata/carrier_interior = true
+
+[node name="S1_1 | tread 09" parent="." index="37"]
+metadata/carrier_interior = true
+
+[node name="Stair | ochre nosing_008" parent="." index="38"]
+metadata/carrier_interior = true
+
+[node name="Stair | closed riser_008" parent="." index="39"]
+metadata/carrier_interior = true
+
+[node name="S1_1 | tread 10" parent="." index="40"]
+metadata/carrier_interior = true
+
+[node name="Stair | ochre nosing_009" parent="." index="41"]
+metadata/carrier_interior = true
+
+[node name="Stair | closed riser_009" parent="." index="42"]
+metadata/carrier_interior = true
+
+[node name="S1_1 | tread 11" parent="." index="43"]
+metadata/carrier_interior = true
+
+[node name="Stair | ochre nosing_010" parent="." index="44"]
+metadata/carrier_interior = true
+
+[node name="Stair | closed riser_010" parent="." index="45"]
+metadata/carrier_interior = true
+
+[node name="S1_1 | tread 12" parent="." index="46"]
+metadata/carrier_interior = true
+
+[node name="Stair | ochre nosing_011" parent="." index="47"]
+metadata/carrier_interior = true
+
+[node name="Stair | closed riser_011" parent="." index="48"]
+metadata/carrier_interior = true
+
+[node name="Stair | sloped handrail" parent="." index="49"]
+metadata/carrier_interior = true
+
+[node name="Stair | baluster" parent="." index="50"]
+metadata/carrier_interior = true
+
+[node name="Stair | baluster_001" parent="." index="51"]
+metadata/carrier_interior = true
+
+[node name="Stair | baluster_002" parent="." index="52"]
+metadata/carrier_interior = true
+
+[node name="Stair | baluster_003" parent="." index="53"]
+metadata/carrier_interior = true
+
+[node name="Stair | sloped handrail_001" parent="." index="54"]
+metadata/carrier_interior = true
+
+[node name="Stair | baluster_004" parent="." index="55"]
+metadata/carrier_interior = true
+
+[node name="Stair | baluster_005" parent="." index="56"]
+metadata/carrier_interior = true
+
+[node name="Stair | baluster_006" parent="." index="57"]
+metadata/carrier_interior = true
+
+[node name="Stair | baluster_007" parent="." index="58"]
+metadata/carrier_interior = true
+
+[node name="S1_2 | tread 01" parent="." index="59"]
+metadata/carrier_interior = true
+
+[node name="Stair | ochre nosing_012" parent="." index="60"]
+metadata/carrier_interior = true
+
+[node name="Stair | closed riser_012" parent="." index="61"]
+metadata/carrier_interior = true
+
+[node name="S1_2 | tread 02" parent="." index="62"]
+metadata/carrier_interior = true
+
+[node name="Stair | ochre nosing_013" parent="." index="63"]
+metadata/carrier_interior = true
+
+[node name="Stair | closed riser_013" parent="." index="64"]
+metadata/carrier_interior = true
+
+[node name="S1_2 | tread 03" parent="." index="65"]
+metadata/carrier_interior = true
+
+[node name="Stair | ochre nosing_014" parent="." index="66"]
+metadata/carrier_interior = true
+
+[node name="Stair | closed riser_014" parent="." index="67"]
+metadata/carrier_interior = true
+
+[node name="S1_2 | tread 04" parent="." index="68"]
+metadata/carrier_interior = true
+
+[node name="Stair | ochre nosing_015" parent="." index="69"]
+metadata/carrier_interior = true
+
+[node name="Stair | closed riser_015" parent="." index="70"]
+metadata/carrier_interior = true
+
+[node name="S1_2 | tread 05" parent="." index="71"]
+metadata/carrier_interior = true
+
+[node name="Stair | ochre nosing_016" parent="." index="72"]
+metadata/carrier_interior = true
+
+[node name="Stair | closed riser_016" parent="." index="73"]
+metadata/carrier_interior = true
+
+[node name="S1_2 | tread 06" parent="." index="74"]
+metadata/carrier_interior = true
+
+[node name="Stair | ochre nosing_017" parent="." index="75"]
+metadata/carrier_interior = true
+
+[node name="Stair | closed riser_017" parent="." index="76"]
+metadata/carrier_interior = true
+
+[node name="S1_2 | tread 07" parent="." index="77"]
+metadata/carrier_interior = true
+
+[node name="Stair | ochre nosing_018" parent="." index="78"]
+metadata/carrier_interior = true
+
+[node name="Stair | closed riser_018" parent="." index="79"]
+metadata/carrier_interior = true
+
+[node name="S1_2 | tread 08" parent="." index="80"]
+metadata/carrier_interior = true
+
+[node name="Stair | ochre nosing_019" parent="." index="81"]
+metadata/carrier_interior = true
+
+[node name="Stair | closed riser_019" parent="." index="82"]
+metadata/carrier_interior = true
+
+[node name="S1_2 | tread 09" parent="." index="83"]
+metadata/carrier_interior = true
+
+[node name="Stair | ochre nosing_020" parent="." index="84"]
+metadata/carrier_interior = true
+
+[node name="Stair | closed riser_020" parent="." index="85"]
+metadata/carrier_interior = true
+
+[node name="S1_2 | tread 10" parent="." index="86"]
+metadata/carrier_interior = true
+
+[node name="Stair | ochre nosing_021" parent="." index="87"]
+metadata/carrier_interior = true
+
+[node name="Stair | closed riser_021" parent="." index="88"]
+metadata/carrier_interior = true
+
+[node name="S1_2 | tread 11" parent="." index="89"]
+metadata/carrier_interior = true
+
+[node name="Stair | ochre nosing_022" parent="." index="90"]
+metadata/carrier_interior = true
+
+[node name="Stair | closed riser_022" parent="." index="91"]
+metadata/carrier_interior = true
+
+[node name="S1_2 | tread 12" parent="." index="92"]
+metadata/carrier_interior = true
+
+[node name="Stair | ochre nosing_023" parent="." index="93"]
+metadata/carrier_interior = true
+
+[node name="Stair | closed riser_023" parent="." index="94"]
+metadata/carrier_interior = true
+
+[node name="Stair | sloped handrail_002" parent="." index="95"]
+metadata/carrier_interior = true
+
+[node name="Stair | baluster_008" parent="." index="96"]
+metadata/carrier_interior = true
+
+[node name="Stair | baluster_009" parent="." index="97"]
+metadata/carrier_interior = true
+
+[node name="Stair | baluster_010" parent="." index="98"]
+metadata/carrier_interior = true
+
+[node name="Stair | sloped handrail_003" parent="." index="99"]
+metadata/carrier_interior = true
+
+[node name="Stair | baluster_012" parent="." index="100"]
+metadata/carrier_interior = true
+
+[node name="Stair | baluster_013" parent="." index="101"]
+metadata/carrier_interior = true
+
+[node name="Stair | baluster_014" parent="." index="102"]
+metadata/carrier_interior = true
+
+[node name="S1 | half landing" parent="." index="103"]
+metadata/carrier_interior = true
+
+[node name="S1 | arrival threshold" parent="." index="104"]
+metadata/carrier_interior = true
+
+[node name="00 | service corridor" parent="." index="105"]
+metadata/carrier_interior = true
+
+[node name="00 | service corridor | lintel" parent="." index="106"]
+metadata/carrier_interior = true
+
+[node name="00 | service corridor_001" parent="." index="107"]
+metadata/carrier_interior = true
+
+[node name="00 | service corridor | lintel_001" parent="." index="108"]
+metadata/carrier_interior = true
+
+[node name="00 | service corridor_002" parent="." index="109"]
+metadata/carrier_interior = true
+
+[node name="00 | locker room division" parent="." index="110"]
+metadata/carrier_interior = true
+
+[node name="00 | stair lobby" parent="." index="111"]
+metadata/carrier_interior = true
+
+[node name="00 | stair lobby | lintel" parent="." index="112"]
+metadata/carrier_interior = true
+
+[node name="00 | stair lobby_001" parent="." index="113"]
+metadata/carrier_interior = true
+
+[node name="01 | operations bulkhead" parent="." index="114"]
+metadata/carrier_interior = true
+
+[node name="01 | operations bulkhead | lintel" parent="." index="115"]
+metadata/carrier_interior = true
+
+[node name="01 | operations bulkhead_001" parent="." index="116"]
+metadata/carrier_interior = true
+
+[node name="01 | communications room" parent="." index="117"]
+metadata/carrier_interior = true
+
+[node name="01 | communications room | lintel" parent="." index="118"]
+metadata/carrier_interior = true
+
+[node name="01 | communications room_001" parent="." index="119"]
+metadata/carrier_interior = true
+
+[node name="00 | crew locker" parent="." index="120"]
+metadata/carrier_interior = true
+
+[node name="Locker | handle" parent="." index="121"]
+metadata/carrier_interior = true
+
+[node name="00 | crew locker_001" parent="." index="122"]
+metadata/carrier_interior = true
+
+[node name="Locker | handle_001" parent="." index="123"]
+metadata/carrier_interior = true
+
+[node name="00 | crew locker_002" parent="." index="124"]
+metadata/carrier_interior = true
+
+[node name="Locker | handle_002" parent="." index="125"]
+metadata/carrier_interior = true
+
+[node name="00 | crew locker_003" parent="." index="126"]
+metadata/carrier_interior = true
+
+[node name="Locker | handle_003" parent="." index="127"]
+metadata/carrier_interior = true
+
+[node name="00 | crew locker_004" parent="." index="128"]
+metadata/carrier_interior = true
+
+[node name="Locker | handle_004" parent="." index="129"]
+metadata/carrier_interior = true
+
+[node name="00 | changing bench" parent="." index="130"]
+metadata/carrier_interior = true
+
+[node name="01 | communications rack" parent="." index="131"]
+metadata/carrier_interior = true
+
+[node name="01 | communications rack_001" parent="." index="132"]
+metadata/carrier_interior = true
+
+[node name="01 | communications rack_002" parent="." index="133"]
+metadata/carrier_interior = true
+
+[node name="01 | operations desk" parent="." index="134"]
+metadata/carrier_interior = true
+
+[node name="01 | desk top" parent="." index="135"]
+metadata/carrier_interior = true
+
+[node name="01 | operations desk_001" parent="." index="136"]
+metadata/carrier_interior = true
+
+[node name="01 | desk top_001" parent="." index="137"]
+metadata/carrier_interior = true
+
+[node name="01 | operations desk_002" parent="." index="138"]
+metadata/carrier_interior = true
+
+[node name="01 | desk top_002" parent="." index="139"]
+metadata/carrier_interior = true
+
+[node name="02 | chart table" parent="." index="140"]
+metadata/carrier_interior = true
+
+[node name="02 | chart surface" parent="." index="141"]
+metadata/carrier_interior = true
+
+[node name="Corridor | ceiling luminaire" parent="." index="142"]
+metadata/carrier_interior = true
+
+[node name="Corridor | ceiling luminaire_001" parent="." index="143"]
+metadata/carrier_interior = true
+
+[node name="Corridor | ceiling luminaire_002" parent="." index="144"]
+metadata/carrier_interior = true
+
+[node name="Corridor | ceiling luminaire_003" parent="." index="145"]
+metadata/carrier_interior = true
+
+[node name="Corridor | ceiling luminaire_004" parent="." index="146"]
+metadata/carrier_interior = true
+
+[node name="Corridor | ceiling luminaire_005" parent="." index="147"]
+metadata/carrier_interior = true
+
+[node name="Corridor | ceiling luminaire_006" parent="." index="148"]
+metadata/carrier_interior = true
+
+[node name="Corridor | ceiling luminaire_007" parent="." index="149"]
+metadata/carrier_interior = true
+
+[node name="Corridor | ceiling luminaire_008" parent="." index="150"]
+metadata/carrier_interior = true
+
+[node name="DECK ACCESS" parent="." index="151"]
+metadata/carrier_interior = true
+
+[node name="01 _ OPERATIONS" parent="." index="152"]
+metadata/carrier_interior = true
+
+[node name="02 _ FLIGHT CONTROL" parent="." index="153"]
+metadata/carrier_interior = true
+
+[node name="03 _ BRIDGE" parent="." index="154"]
+metadata/carrier_interior = true
+
+[node name="SD_00_DeckExit" parent="." index="155"]
+script = ExtResource("3")
+metadata/door_type = "center_split_sliding"
+metadata/opening_width_m = 1.11
+metadata/opening_height_m = 2.12
+metadata/slide_distance_m = 0.6200000000000001
+metadata/proximity_radius_m = 2.0
+metadata/opening_time_s = 0.65
+metadata/close_delay_s = 1.25
+metadata/retraction_style = "Implied concealed travel; mask leaves at jambs in Godot if the wall does not hide them."
+metadata/visual_style = "Flat-shaded armoured bulkhead; solid plates, straight clipped corners and structural rib. Slim frame, implied concealed retraction."
+metadata/carrier_interior = true
+
+[node name="SD_00_DeckExit_Frame" parent="SD_00_DeckExit" index="0"]
+metadata/carrier_interior = true
+
+[node name="SD_00_DeckExit_LeftLeaf" parent="SD_00_DeckExit" index="1"]
+metadata/open_offset_x_m = -0.6200000000000001
+metadata/closed_local_x = -0.2775
+metadata/carrier_interior = true
+
+[node name="SD_00_DeckExit_RightLeaf" parent="SD_00_DeckExit" index="2"]
+metadata/open_offset_x_m = 0.6200000000000001
+metadata/closed_local_x = 0.2775
+metadata/carrier_interior = true
+
+[node name="SD_00_EntryCorridor" parent="." index="156"]
+script = ExtResource("3")
+metadata/door_type = "center_split_sliding"
+metadata/opening_width_m = 1.35
+metadata/opening_height_m = 2.06
+metadata/slide_distance_m = 0.74
+metadata/proximity_radius_m = 2.0
+metadata/opening_time_s = 0.65
+metadata/close_delay_s = 1.25
+metadata/retraction_style = "Implied concealed travel; mask leaves at jambs in Godot if the wall does not hide them."
+metadata/visual_style = "Flat-shaded armoured bulkhead; solid plates, straight clipped corners and structural rib. Slim frame, implied concealed retraction."
+metadata/carrier_interior = true
+
+[node name="SD_00_EntryCorridor_Frame" parent="SD_00_EntryCorridor" index="0"]
+metadata/carrier_interior = true
+
+[node name="SD_00_EntryCorridor_LeftLeaf" parent="SD_00_EntryCorridor" index="1"]
+metadata/open_offset_x_m = -0.74
+metadata/closed_local_x = -0.3375
+metadata/carrier_interior = true
+
+[node name="SD_00_EntryCorridor_RightLeaf" parent="SD_00_EntryCorridor" index="2"]
+metadata/open_offset_x_m = 0.74
+metadata/closed_local_x = 0.3375
+metadata/carrier_interior = true
+
+[node name="SD_00_LockerCorridor" parent="." index="157"]
+script = ExtResource("3")
+metadata/door_type = "center_split_sliding"
+metadata/opening_width_m = 1.1
+metadata/opening_height_m = 2.06
+metadata/slide_distance_m = 0.615
+metadata/proximity_radius_m = 2.0
+metadata/opening_time_s = 0.65
+metadata/close_delay_s = 1.25
+metadata/retraction_style = "Implied concealed travel; mask leaves at jambs in Godot if the wall does not hide them."
+metadata/visual_style = "Flat-shaded armoured bulkhead; solid plates, straight clipped corners and structural rib. Slim frame, implied concealed retraction."
+metadata/carrier_interior = true
+
+[node name="SD_00_LockerCorridor_Frame" parent="SD_00_LockerCorridor" index="0"]
+metadata/carrier_interior = true
+
+[node name="SD_00_LockerCorridor_LeftLeaf" parent="SD_00_LockerCorridor" index="1"]
+metadata/open_offset_x_m = -0.615
+metadata/closed_local_x = -0.275
+metadata/carrier_interior = true
+
+[node name="SD_00_LockerCorridor_RightLeaf" parent="SD_00_LockerCorridor" index="2"]
+metadata/open_offset_x_m = 0.615
+metadata/closed_local_x = 0.275
+metadata/carrier_interior = true
+
+[node name="SD_00_StairLobby" parent="." index="158"]
+script = ExtResource("3")
+metadata/door_type = "center_split_sliding"
+metadata/opening_width_m = 1.3
+metadata/opening_height_m = 2.06
+metadata/slide_distance_m = 0.7150000000000001
+metadata/proximity_radius_m = 2.0
+metadata/opening_time_s = 0.65
+metadata/close_delay_s = 1.25
+metadata/retraction_style = "Implied concealed travel; mask leaves at jambs in Godot if the wall does not hide them."
+metadata/visual_style = "Flat-shaded armoured bulkhead; solid plates, straight clipped corners and structural rib. Slim frame, implied concealed retraction."
+metadata/carrier_interior = true
+
+[node name="SD_00_StairLobby_Frame" parent="SD_00_StairLobby" index="0"]
+metadata/carrier_interior = true
+
+[node name="SD_00_StairLobby_LeftLeaf" parent="SD_00_StairLobby" index="1"]
+metadata/open_offset_x_m = -0.7150000000000001
+metadata/closed_local_x = -0.325
+metadata/carrier_interior = true
+
+[node name="SD_00_StairLobby_RightLeaf" parent="SD_00_StairLobby" index="2"]
+metadata/open_offset_x_m = 0.7150000000000001
+metadata/closed_local_x = 0.325
+metadata/carrier_interior = true
+
+[node name="SD_01_OperationsCorridor" parent="." index="159"]
+script = ExtResource("3")
+metadata/door_type = "center_split_sliding"
+metadata/opening_width_m = 1.3
+metadata/opening_height_m = 2.06
+metadata/slide_distance_m = 0.7150000000000001
+metadata/proximity_radius_m = 2.0
+metadata/opening_time_s = 0.65
+metadata/close_delay_s = 1.25
+metadata/retraction_style = "Implied concealed travel; mask leaves at jambs in Godot if the wall does not hide them."
+metadata/visual_style = "Flat-shaded armoured bulkhead; solid plates, straight clipped corners and structural rib. Slim frame, implied concealed retraction."
+metadata/carrier_interior = true
+
+[node name="SD_01_OperationsCorridor_Frame" parent="SD_01_OperationsCorridor" index="0"]
+metadata/carrier_interior = true
+
+[node name="SD_01_OperationsCorridor_LeftLeaf" parent="SD_01_OperationsCorridor" index="1"]
+metadata/open_offset_x_m = -0.7150000000000001
+metadata/closed_local_x = -0.325
+metadata/carrier_interior = true
+
+[node name="SD_01_OperationsCorridor_RightLeaf" parent="SD_01_OperationsCorridor" index="2"]
+metadata/open_offset_x_m = 0.7150000000000001
+metadata/closed_local_x = 0.325
+metadata/carrier_interior = true
+
+[node name="SD_01_CommsCorridor" parent="." index="160"]
+script = ExtResource("3")
+metadata/door_type = "center_split_sliding"
+metadata/opening_width_m = 1.1
+metadata/opening_height_m = 2.06
+metadata/slide_distance_m = 0.615
+metadata/proximity_radius_m = 2.0
+metadata/opening_time_s = 0.65
+metadata/close_delay_s = 1.25
+metadata/retraction_style = "Implied concealed travel; mask leaves at jambs in Godot if the wall does not hide them."
+metadata/visual_style = "Flat-shaded armoured bulkhead; solid plates, straight clipped corners and structural rib. Slim frame, implied concealed retraction."
+metadata/carrier_interior = true
+
+[node name="SD_01_CommsCorridor_Frame" parent="SD_01_CommsCorridor" index="0"]
+metadata/carrier_interior = true
+
+[node name="SD_01_CommsCorridor_LeftLeaf" parent="SD_01_CommsCorridor" index="1"]
+metadata/open_offset_x_m = -0.615
+metadata/closed_local_x = -0.275
+metadata/carrier_interior = true
+
+[node name="SD_01_CommsCorridor_RightLeaf" parent="SD_01_CommsCorridor" index="2"]
+metadata/open_offset_x_m = 0.615
+metadata/closed_local_x = 0.275
+metadata/carrier_interior = true
+
+[node name="SD_01_TerraceExit" parent="." index="161"]
+script = ExtResource("3")
+metadata/door_type = "center_split_sliding"
+metadata/opening_width_m = 1.12
+metadata/opening_height_m = 2.12
+metadata/slide_distance_m = 0.625
+metadata/proximity_radius_m = 2.0
+metadata/opening_time_s = 0.65
+metadata/close_delay_s = 1.25
+metadata/retraction_style = "Implied concealed travel; mask leaves at jambs in Godot if the wall does not hide them."
+metadata/visual_style = "Flat-shaded armoured bulkhead; solid plates, straight clipped corners and structural rib. Slim frame, implied concealed retraction."
+metadata/carrier_interior = true
+
+[node name="SD_01_TerraceExit_Frame" parent="SD_01_TerraceExit" index="0"]
+metadata/carrier_interior = true
+
+[node name="SD_01_TerraceExit_LeftLeaf" parent="SD_01_TerraceExit" index="1"]
+metadata/open_offset_x_m = -0.625
+metadata/closed_local_x = -0.28
+metadata/carrier_interior = true
+
+[node name="SD_01_TerraceExit_RightLeaf" parent="SD_01_TerraceExit" index="2"]
+metadata/open_offset_x_m = 0.625
+metadata/closed_local_x = 0.28
+metadata/carrier_interior = true
+
+[node name="SD_01_PortExit" parent="." index="162"]
+script = ExtResource("3")
+metadata/door_type = "center_split_sliding"
+metadata/opening_width_m = 1.1
+metadata/opening_height_m = 1.91
+metadata/slide_distance_m = 0.615
+metadata/proximity_radius_m = 2.0
+metadata/opening_time_s = 0.65
+metadata/close_delay_s = 1.25
+metadata/retraction_style = "Implied concealed travel; mask leaves at jambs in Godot if the wall does not hide them."
+metadata/visual_style = "Flat-shaded armoured bulkhead; solid plates, straight clipped corners and structural rib. Slim frame, implied concealed retraction."
+metadata/carrier_interior = true
+
+[node name="SD_01_PortExit_Frame" parent="SD_01_PortExit" index="0"]
+metadata/carrier_interior = true
+
+[node name="SD_01_PortExit_LeftLeaf" parent="SD_01_PortExit" index="1"]
+metadata/open_offset_x_m = -0.615
+metadata/closed_local_x = -0.275
+metadata/carrier_interior = true
+
+[node name="SD_01_PortExit_RightLeaf" parent="SD_01_PortExit" index="2"]
+metadata/open_offset_x_m = 0.615
+metadata/closed_local_x = 0.275
+metadata/carrier_interior = true
+
+[node name="SD_01_StarboardExit" parent="." index="163"]
+script = ExtResource("3")
+metadata/door_type = "center_split_sliding"
+metadata/opening_width_m = 1.1
+metadata/opening_height_m = 1.91
+metadata/slide_distance_m = 0.615
+metadata/proximity_radius_m = 2.0
+metadata/opening_time_s = 0.65
+metadata/close_delay_s = 1.25
+metadata/retraction_style = "Implied concealed travel; mask leaves at jambs in Godot if the wall does not hide them."
+metadata/visual_style = "Flat-shaded armoured bulkhead; solid plates, straight clipped corners and structural rib. Slim frame, implied concealed retraction."
+metadata/carrier_interior = true
+
+[node name="SD_01_StarboardExit_Frame" parent="SD_01_StarboardExit" index="0"]
+metadata/carrier_interior = true
+
+[node name="SD_01_StarboardExit_LeftLeaf" parent="SD_01_StarboardExit" index="1"]
+metadata/open_offset_x_m = -0.615
+metadata/closed_local_x = -0.275
+metadata/carrier_interior = true
+
+[node name="SD_01_StarboardExit_RightLeaf" parent="SD_01_StarboardExit" index="2"]
+metadata/open_offset_x_m = 0.615
+metadata/closed_local_x = 0.275
+metadata/carrier_interior = true
+
+[node name="SD_02_FlightControlCorridor" parent="." index="164"]
+script = ExtResource("3")
+metadata/door_type = "center_split_sliding"
+metadata/opening_width_m = 1.45
+metadata/opening_height_m = 2.08
+metadata/slide_distance_m = 0.79
+metadata/proximity_radius_m = 2.0
+metadata/opening_time_s = 0.65
+metadata/close_delay_s = 1.25
+metadata/retraction_style = "Implied concealed travel; mask leaves at jambs in Godot if the wall does not hide them."
+metadata/visual_style = "Flat-shaded armoured bulkhead; solid plates, straight clipped corners and structural rib. Slim frame, implied concealed retraction."
+metadata/carrier_interior = true
+
+[node name="SD_02_FlightControlCorridor_Frame" parent="SD_02_FlightControlCorridor" index="0"]
+metadata/carrier_interior = true
+
+[node name="SD_02_FlightControlCorridor_LeftLeaf" parent="SD_02_FlightControlCorridor" index="1"]
+metadata/open_offset_x_m = -0.79
+metadata/closed_local_x = -0.3625
+metadata/carrier_interior = true
+
+[node name="SD_02_FlightControlCorridor_RightLeaf" parent="SD_02_FlightControlCorridor" index="2"]
+metadata/open_offset_x_m = 0.79
+metadata/closed_local_x = 0.3625
+metadata/carrier_interior = true
+
+[node name="SD_02_ElevatorLobby" parent="." index="165"]
+script = ExtResource("3")
+metadata/door_type = "center_split_sliding"
+metadata/opening_width_m = 1.45
+metadata/opening_height_m = 2.08
+metadata/slide_distance_m = 0.79
+metadata/proximity_radius_m = 2.0
+metadata/opening_time_s = 0.65
+metadata/close_delay_s = 1.25
+metadata/retraction_style = "Implied concealed travel; mask leaves at jambs in Godot if the wall does not hide them."
+metadata/visual_style = "Flat-shaded armoured bulkhead; solid plates, straight clipped corners and structural rib. Slim frame, implied concealed retraction."
+metadata/carrier_interior = true
+
+[node name="SD_02_ElevatorLobby_Frame" parent="SD_02_ElevatorLobby" index="0"]
+metadata/carrier_interior = true
+
+[node name="SD_02_ElevatorLobby_LeftLeaf" parent="SD_02_ElevatorLobby" index="1"]
+metadata/open_offset_x_m = -0.79
+metadata/closed_local_x = -0.3625
+metadata/carrier_interior = true
+
+[node name="SD_02_ElevatorLobby_RightLeaf" parent="SD_02_ElevatorLobby" index="2"]
+metadata/open_offset_x_m = 0.79
+metadata/closed_local_x = 0.3625
+metadata/carrier_interior = true
+
+[node name="00 | service corridor | ceiling infill" parent="." index="166"]
+metadata/carrier_interior = true
+
+[node name="00 | service corridor | ceiling infill_001" parent="." index="167"]
+metadata/carrier_interior = true
+
+[node name="00 | service corridor | ceiling infill_002" parent="." index="168"]
+metadata/carrier_interior = true
+
+[node name="00 | service corridor | ceiling infill_003" parent="." index="169"]
+metadata/carrier_interior = true
+
+[node name="00 | service corridor | ceiling infill_004" parent="." index="170"]
+metadata/carrier_interior = true
+
+[node name="00 | locker room division | ceiling infill" parent="." index="171"]
+metadata/carrier_interior = true
+
+[node name="00 | stair lobby | ceiling infill" parent="." index="172"]
+metadata/carrier_interior = true
+
+[node name="00 | stair lobby | ceiling infill_001" parent="." index="173"]
+metadata/carrier_interior = true
+
+[node name="00 | stair lobby | ceiling infill_002" parent="." index="174"]
+metadata/carrier_interior = true
+
+[node name="01 | operations bulkhead | ceiling infill" parent="." index="175"]
+metadata/carrier_interior = true
+
+[node name="01 | operations bulkhead | ceiling infill_001" parent="." index="176"]
+metadata/carrier_interior = true
+
+[node name="01 | operations bulkhead | ceiling infill_002" parent="." index="177"]
+metadata/carrier_interior = true
+
+[node name="01 | communications room | ceiling infill" parent="." index="178"]
+metadata/carrier_interior = true
+
+[node name="01 | communications room | ceiling infill_001" parent="." index="179"]
+metadata/carrier_interior = true
+
+[node name="01 | communications room | ceiling infill_002" parent="." index="180"]
+metadata/carrier_interior = true
+
+[node name="00 | entry exterior lining" parent="." index="181"]
+metadata/carrier_interior = true
+
+[node name="00 | entry exterior lining header" parent="." index="182"]
+metadata/carrier_interior = true
+
+[node name="00 | entry exterior lining_001" parent="." index="183"]
+metadata/carrier_interior = true
+
+[node name="00 | corridor outer lining" parent="." index="184"]
+metadata/carrier_interior = true
+
+[node name="00 | forward end bulkhead" parent="." index="185"]
+metadata/carrier_interior = true
+
+[node name="00 | forward ceiling" parent="." index="186"]
+metadata/carrier_interior = true
+
+[node name="00 | port service room lining" parent="." index="187"]
+metadata/carrier_interior = true
+
+[node name="00 | aft end lining" parent="." index="188"]
+metadata/carrier_interior = true
+
+[node name="00 | starboard service lining" parent="." index="189"]
+metadata/carrier_interior = true
+
+[node name="00 | service bay partition" parent="." index="190"]
+metadata/carrier_interior = true
+
+[node name="00 | service bay partition header" parent="." index="191"]
+metadata/carrier_interior = true
+
+[node name="00 | service bay partition_001" parent="." index="192"]
+metadata/carrier_interior = true
+
+[node name="01 | operations port lining" parent="." index="193"]
+metadata/carrier_interior = true
+
+[node name="01 | operations starboard lining" parent="." index="194"]
+metadata/carrier_interior = true
+
+[node name="01 | operations terrace lining" parent="." index="195"]
+metadata/carrier_interior = true
+
+[node name="01 | operations terrace lining header" parent="." index="196"]
+metadata/carrier_interior = true
+
+[node name="01 | operations terrace lining_001" parent="." index="197"]
+metadata/carrier_interior = true
+
+[node name="01 | operations ceiling" parent="." index="198"]
+metadata/carrier_interior = true
+
+[node name="01 | communications aft lining" parent="." index="199"]
+metadata/carrier_interior = true
+
+[node name="01 | communications outer lining" parent="." index="200"]
+metadata/carrier_interior = true
+
+[node name="01 | communications outer lining header" parent="." index="201"]
+metadata/carrier_interior = true
+
+[node name="01 | communications outer lining_001" parent="." index="202"]
+metadata/carrier_interior = true
+
+[node name="Balcony lobby | walking floor" parent="." index="203"]
+metadata/carrier_interior = true
+
+[node name="Balcony lobby | aft stair landing" parent="." index="204"]
+metadata/carrier_interior = true
+
+[node name="Balcony lobby | aft cross passage" parent="." index="205"]
+metadata/carrier_interior = true
+
+[node name="Stair hall | lower turn landing" parent="." index="206"]
+metadata/carrier_interior = true
+
+[node name="Balcony | flush threshold" parent="." index="207"]
+metadata/carrier_interior = true
+
+[node name="Balcony | flush threshold_001" parent="." index="208"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | tread 01" parent="." index="209"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | riser" parent="." index="210"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | nosing" parent="." index="211"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | tread 02" parent="." index="212"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | riser_001" parent="." index="213"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | nosing_001" parent="." index="214"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | tread 03" parent="." index="215"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | riser_002" parent="." index="216"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | nosing_002" parent="." index="217"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | tread 04" parent="." index="218"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | riser_003" parent="." index="219"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | nosing_003" parent="." index="220"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | tread 05" parent="." index="221"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | riser_004" parent="." index="222"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | nosing_004" parent="." index="223"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | tread 06" parent="." index="224"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | riser_005" parent="." index="225"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | nosing_005" parent="." index="226"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | tread 07" parent="." index="227"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | riser_006" parent="." index="228"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | nosing_006" parent="." index="229"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | tread 08" parent="." index="230"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | riser_007" parent="." index="231"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | nosing_007" parent="." index="232"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | tread 09" parent="." index="233"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | riser_008" parent="." index="234"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | nosing_008" parent="." index="235"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | tread 10" parent="." index="236"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | riser_009" parent="." index="237"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | nosing_009" parent="." index="238"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | tread 11" parent="." index="239"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | riser_010" parent="." index="240"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | nosing_010" parent="." index="241"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | tread 12" parent="." index="242"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | riser_011" parent="." index="243"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | nosing_011" parent="." index="244"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | tread 13" parent="." index="245"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | riser_012" parent="." index="246"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | nosing_012" parent="." index="247"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | tread 14" parent="." index="248"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | riser_013" parent="." index="249"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | nosing_013" parent="." index="250"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | tread 15" parent="." index="251"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | riser_014" parent="." index="252"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | nosing_014" parent="." index="253"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | tread 16" parent="." index="254"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | riser_015" parent="." index="255"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | nosing_015" parent="." index="256"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | handrail" parent="." index="257"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | post" parent="." index="258"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | post_001" parent="." index="259"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | post_002" parent="." index="260"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | post_003" parent="." index="261"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | post_004" parent="." index="262"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | handrail_001" parent="." index="263"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | post_005" parent="." index="264"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | post_006" parent="." index="265"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | post_007" parent="." index="266"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | post_008" parent="." index="267"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | post_009" parent="." index="268"]
+metadata/carrier_interior = true
+
+[node name="Balcony lobby | forward turn" parent="." index="269"]
+metadata/carrier_interior = true
+
+[node name="S2C balcony to control | tread 01" parent="." index="270"]
+metadata/carrier_interior = true
+
+[node name="S2C balcony to control | riser" parent="." index="271"]
+metadata/carrier_interior = true
+
+[node name="S2C balcony to control | nosing" parent="." index="272"]
+metadata/carrier_interior = true
+
+[node name="S2C balcony to control | tread 02" parent="." index="273"]
+metadata/carrier_interior = true
+
+[node name="S2C balcony to control | riser_001" parent="." index="274"]
+metadata/carrier_interior = true
+
+[node name="S2C balcony to control | nosing_001" parent="." index="275"]
+metadata/carrier_interior = true
+
+[node name="S2C balcony to control | tread 03" parent="." index="276"]
+metadata/carrier_interior = true
+
+[node name="S2C balcony to control | riser_002" parent="." index="277"]
+metadata/carrier_interior = true
+
+[node name="S2C balcony to control | nosing_002" parent="." index="278"]
+metadata/carrier_interior = true
+
+[node name="S2C balcony to control | tread 04" parent="." index="279"]
+metadata/carrier_interior = true
+
+[node name="S2C balcony to control | riser_003" parent="." index="280"]
+metadata/carrier_interior = true
+
+[node name="S2C balcony to control | nosing_003" parent="." index="281"]
+metadata/carrier_interior = true
+
+[node name="S2C balcony to control | tread 05" parent="." index="282"]
+metadata/carrier_interior = true
+
+[node name="S2C balcony to control | riser_004" parent="." index="283"]
+metadata/carrier_interior = true
+
+[node name="S2C balcony to control | nosing_004" parent="." index="284"]
+metadata/carrier_interior = true
+
+[node name="S2C balcony to control | tread 06" parent="." index="285"]
+metadata/carrier_interior = true
+
+[node name="S2C balcony to control | riser_005" parent="." index="286"]
+metadata/carrier_interior = true
+
+[node name="S2C balcony to control | nosing_005" parent="." index="287"]
+metadata/carrier_interior = true
+
+[node name="Control | stair arrival landing" parent="." index="288"]
+metadata/carrier_interior = true
+
+[node name="Control corridor | old opening infill" parent="." index="289"]
+metadata/carrier_interior = true
+
+[node name="Balcony lobby | port lining" parent="." index="290"]
+metadata/carrier_interior = true
+
+[node name="Balcony lobby | port lining header" parent="." index="291"]
+metadata/carrier_interior = true
+
+[node name="Balcony lobby | port lining_001" parent="." index="292"]
+metadata/carrier_interior = true
+
+[node name="Balcony lobby | port lining header_001" parent="." index="293"]
+metadata/carrier_interior = true
+
+[node name="Balcony lobby | port lining_002" parent="." index="294"]
+metadata/carrier_interior = true
+
+[node name="Control | aft service bulkhead" parent="." index="295"]
+metadata/carrier_interior = true
+
+[node name="Control | services outer lining" parent="." index="296"]
+metadata/carrier_interior = true
+
+[node name="SD_02_BalconyAft" parent="." index="297"]
+script = ExtResource("3")
+metadata/door_type = "center_split_sliding"
+metadata/opening_width_m = 1.66
+metadata/opening_height_m = 2.015
+metadata/slide_distance_m = 0.895
+metadata/proximity_radius_m = 2.0
+metadata/opening_time_s = 0.65
+metadata/close_delay_s = 1.25
+metadata/retraction_style = "Implied concealed travel; mask leaves at jambs in Godot if the wall does not hide them."
+metadata/visual_style = "Flat-shaded armoured bulkhead; solid plates, straight clipped corners and structural rib. Slim frame, implied concealed retraction."
+metadata/carrier_interior = true
+
+[node name="SD_02_BalconyAft_Frame" parent="SD_02_BalconyAft" index="0"]
+metadata/carrier_interior = true
+
+[node name="SD_02_BalconyAft_LeftLeaf" parent="SD_02_BalconyAft" index="1"]
+metadata/open_offset_x_m = -0.895
+metadata/closed_local_x = -0.415
+metadata/carrier_interior = true
+
+[node name="SD_02_BalconyAft_RightLeaf" parent="SD_02_BalconyAft" index="2"]
+metadata/open_offset_x_m = 0.895
+metadata/closed_local_x = 0.415
+metadata/carrier_interior = true
+
+[node name="SD_02_BalconyForward" parent="." index="298"]
+script = ExtResource("3")
+metadata/door_type = "center_split_sliding"
+metadata/opening_width_m = 1.66
+metadata/opening_height_m = 2.015
+metadata/slide_distance_m = 0.895
+metadata/proximity_radius_m = 2.0
+metadata/opening_time_s = 0.65
+metadata/close_delay_s = 1.25
+metadata/retraction_style = "Implied concealed travel; mask leaves at jambs in Godot if the wall does not hide them."
+metadata/visual_style = "Flat-shaded armoured bulkhead; solid plates, straight clipped corners and structural rib. Slim frame, implied concealed retraction."
+metadata/carrier_interior = true
+
+[node name="SD_02_BalconyForward_Frame" parent="SD_02_BalconyForward" index="0"]
+metadata/carrier_interior = true
+
+[node name="SD_02_BalconyForward_LeftLeaf" parent="SD_02_BalconyForward" index="1"]
+metadata/open_offset_x_m = -0.895
+metadata/closed_local_x = -0.415
+metadata/carrier_interior = true
+
+[node name="SD_02_BalconyForward_RightLeaf" parent="SD_02_BalconyForward" index="2"]
+metadata/open_offset_x_m = 0.895
+metadata/closed_local_x = 0.415
+metadata/carrier_interior = true
+
+[node name="Stair compartment | starboard wall" parent="." index="299"]
+metadata/carrier_interior = true
+
+[node name="Stair compartment | aft wall" parent="." index="300"]
+metadata/carrier_interior = true
+
+[node name="Stair compartment | port lower wall" parent="." index="301"]
+metadata/carrier_interior = true
+
+[node name="Stair compartment | port upper aft" parent="." index="302"]
+metadata/carrier_interior = true
+
+[node name="Stair compartment | port upper forward" parent="." index="303"]
+metadata/carrier_interior = true
+
+[node name="Stair compartment | port entry lintel" parent="." index="304"]
+metadata/carrier_interior = true
+
+[node name="Stair compartment | entrance return" parent="." index="305"]
+metadata/carrier_interior = true
+
+[node name="Stair compartment | entrance side" parent="." index="306"]
+metadata/carrier_interior = true
+
+[node name="Stair compartment | central spine" parent="." index="307"]
+metadata/carrier_interior = true
+
+[node name="Stair compartment | half landing extension" parent="." index="308"]
+metadata/carrier_interior = true
+
+[node name="Stair compartment | half landing rear upstand" parent="." index="309"]
+metadata/carrier_interior = true
+
+[node name="Stair compartment | ground sill" parent="." index="310"]
+metadata/carrier_interior = true
+
+[node name="Stair compartment | operations landing collar" parent="." index="311"]
+metadata/carrier_interior = true
+
+[node name="Stair compartment | entrance deck" parent="." index="312"]
+metadata/carrier_interior = true
+
+[node name="Stair compartment | entrance overhead" parent="." index="313"]
+metadata/carrier_interior = true
+
+[node name="Balcony compartment | stair divider" parent="." index="314"]
+metadata/carrier_interior = true
+
+[node name="Balcony compartment | overhead" parent="." index="315"]
+metadata/carrier_interior = true
+
+[node name="Balcony compartment | port ceiling closure" parent="." index="316"]
+metadata/carrier_interior = true
+
+[node name="Control access | port wall" parent="." index="317"]
+metadata/carrier_interior = true
+
+[node name="Control access | starboard wall" parent="." index="318"]
+metadata/carrier_interior = true
+
+[node name="Control access | overhead" parent="." index="319"]
+metadata/carrier_interior = true
+
+[node name="Control access | overhead transition" parent="." index="320"]
+metadata/carrier_interior = true
+
+[node name="Control access | landing parapet" parent="." index="321"]
+metadata/carrier_interior = true
+
+[node name="Control access | parapet cap" parent="." index="322"]
+metadata/carrier_interior = true
+
+[node name="S1_1 | plasteel underside" parent="." index="323"]
+metadata/carrier_interior = true
+
+[node name="S1_1 | sealed cheek plate" parent="." index="324"]
+metadata/carrier_interior = true
+
+[node name="S1_2 | plasteel underside" parent="." index="325"]
+metadata/carrier_interior = true
+
+[node name="S1_2 | sealed cheek plate" parent="." index="326"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | plasteel underside" parent="." index="327"]
+metadata/carrier_interior = true
+
+[node name="S2B operations to balcony | sealed cheek plate" parent="." index="328"]
+metadata/carrier_interior = true
+
+[node name="S2C balcony to control | plasteel underside" parent="." index="329"]
+metadata/carrier_interior = true
+
+[node name="S2C balcony to control | sealed cheek plate" parent="." index="330"]
+metadata/carrier_interior = true
+
+[node name="S2C balcony to control | sealed cheek plate_001" parent="." index="331"]
+metadata/carrier_interior = true
+
+[node name="Balcony compartment | floor edge seal" parent="." index="332"]
+metadata/carrier_interior = true
+
+[node name="Balcony compartment | rear corner seal" parent="." index="333"]
+metadata/carrier_interior = true
+
+[node name="Control access | landing edge seal" parent="." index="334"]
+metadata/carrier_interior = true
+
+[node name="SD_01_PortStairCompartment" parent="." index="335"]
+script = ExtResource("3")
+metadata/door_type = "center_split_sliding"
+metadata/opening_width_m = 1.1
+metadata/opening_height_m = 2.06
+metadata/slide_distance_m = 0.615
+metadata/proximity_radius_m = 2.0
+metadata/opening_time_s = 0.65
+metadata/close_delay_s = 1.25
+metadata/retraction_style = "Implied concealed travel; mask leaves at jambs in Godot if the wall does not hide them."
+metadata/visual_style = "Flat-shaded armoured bulkhead; solid plates, straight clipped corners and structural rib. Slim frame, implied concealed retraction."
+metadata/carrier_interior = true
+
+[node name="SD_01_PortStairCompartment_Frame" parent="SD_01_PortStairCompartment" index="0"]
+metadata/carrier_interior = true
+
+[node name="SD_01_PortStairCompartment_LeftLeaf" parent="SD_01_PortStairCompartment" index="1"]
+metadata/open_offset_x_m = -0.615
+metadata/closed_local_x = -0.275
+metadata/carrier_interior = true
+
+[node name="SD_01_PortStairCompartment_RightLeaf" parent="SD_01_PortStairCompartment" index="2"]
+metadata/open_offset_x_m = 0.615
+metadata/closed_local_x = 0.275
+metadata/carrier_interior = true
+
+[node name="SD_00_EngineeringCompartment" parent="." index="336"]
+script = ExtResource("3")
+metadata/door_type = "center_split_sliding"
+metadata/opening_width_m = 1.1
+metadata/opening_height_m = 2.06
+metadata/slide_distance_m = 0.602962962962963
+metadata/proximity_radius_m = 2.0
+metadata/opening_time_s = 0.65
+metadata/close_delay_s = 1.25
+metadata/retraction_style = "Implied concealed travel; mask leaves at jambs in Godot if the wall does not hide them."
+metadata/visual_style = "Flat-shaded armoured bulkhead; solid plates, straight clipped corners and structural rib. Slim frame, implied concealed retraction."
+metadata/carrier_interior = true
+
+[node name="SD_00_EngineeringCompartment_Frame" parent="SD_00_EngineeringCompartment" index="0"]
+metadata/carrier_interior = true
+
+[node name="SD_00_EngineeringCompartment_LeftLeaf" parent="SD_00_EngineeringCompartment" index="1"]
+metadata/open_offset_x_m = -0.602962962962963
+metadata/closed_local_x = -0.275
+metadata/carrier_interior = true
+
+[node name="SD_00_EngineeringCompartment_RightLeaf" parent="SD_00_EngineeringCompartment" index="2"]
+metadata/open_offset_x_m = 0.602962962962963
+metadata/closed_local_x = 0.275
+metadata/carrier_interior = true
+
+[node name="SD_01_CommsAccess" parent="." index="337"]
+script = ExtResource("3")
+metadata/door_type = "center_split_sliding"
+metadata/opening_width_m = 0.95
+metadata/opening_height_m = 2.06
+metadata/slide_distance_m = 0.5207407407407406
+metadata/proximity_radius_m = 2.0
+metadata/opening_time_s = 0.65
+metadata/close_delay_s = 1.25
+metadata/retraction_style = "Implied concealed travel; mask leaves at jambs in Godot if the wall does not hide them."
+metadata/visual_style = "Flat-shaded armoured bulkhead; solid plates, straight clipped corners and structural rib. Slim frame, implied concealed retraction."
+metadata/carrier_interior = true
+
+[node name="SD_01_CommsAccess_Frame" parent="SD_01_CommsAccess" index="0"]
+metadata/carrier_interior = true
+
+[node name="SD_01_CommsAccess_LeftLeaf" parent="SD_01_CommsAccess" index="1"]
+metadata/open_offset_x_m = -0.5207407407407406
+metadata/closed_local_x = -0.2375
+metadata/carrier_interior = true
+
+[node name="SD_01_CommsAccess_RightLeaf" parent="SD_01_CommsAccess" index="2"]
+metadata/open_offset_x_m = 0.5207407407407406
+metadata/closed_local_x = 0.2375
+metadata/carrier_interior = true
+
+[node name="Island | laminated plate glass" parent="." index="338"]
+metadata/carrier_interior = true
+
+[node name="Stair compartment | recessed lamp housing" parent="." index="339"]
+metadata/carrier_interior = true
+
+[node name="Stair compartment | recessed lamp face" parent="." index="340"]
+metadata/carrier_interior = true
+
+[node name="Stair compartment | recessed lamp housing_001" parent="." index="341"]
+metadata/carrier_interior = true
+
+[node name="Stair compartment | recessed lamp face_001" parent="." index="342"]
+metadata/carrier_interior = true
+
+[node name="Stair compartment | recessed lamp housing_002" parent="." index="343"]
+metadata/carrier_interior = true
+
+[node name="Stair compartment | recessed lamp face_002" parent="." index="344"]
+metadata/carrier_interior = true
+
+[node name="Stair compartment | recessed lamp housing_003" parent="." index="345"]
+metadata/carrier_interior = true
+
+[node name="Stair compartment | recessed lamp face_003" parent="." index="346"]
+metadata/carrier_interior = true
+
+[node name="Stair compartment | recessed lamp housing_004" parent="." index="347"]
+metadata/carrier_interior = true
+
+[node name="Stair compartment | recessed lamp face_004" parent="." index="348"]
+metadata/carrier_interior = true
+
+[node name="00 | synthetic fibre bench pad" parent="." index="349"]
+metadata/carrier_interior = true
+
+[node name="Runtime | terrace threshold" parent="." index="350"]
+metadata/carrier_interior = true
+
+[node name="Runtime | starboard threshold" parent="." index="351"]
+metadata/carrier_interior = true
+
+[node name="Runtime | port stair threshold" parent="." index="352"]
+metadata/carrier_interior = true
+
+[node name="Runtime | port gallery threshold" parent="." index="353"]
+metadata/carrier_interior = true
+
+[node name="Catapult 1" parent="." index="354"]
+metadata/carrier_interior = false
+
+[node name="Catapult 2" parent="." index="355"]
+metadata/carrier_interior = false
+
+[node name="Hangar" parent="." index="356"]
+metadata/carrier_interior = false
+
+[node name="Reactor" parent="." index="357"]
+metadata/carrier_interior = false
+
+[node name="Replicator" parent="." index="358"]
+metadata/carrier_interior = false
+
+[node name="Vehicle bay" parent="." index="359"]
+metadata/carrier_interior = false
+
+[node name="Habitation 1" parent="." index="360"]
+metadata/carrier_interior = false
+
+[node name="Power banks" parent="." index="361"]
+metadata/carrier_interior = false
+
+[node name="Habitation 2" parent="." index="362"]
+metadata/carrier_interior = false
+
+[node name="Storage" parent="." index="363"]
+metadata/carrier_interior = false
+
+[node name="Flight deck" parent="." index="364"]
+metadata/carrier_interior = false
+
+[node name="Ramp inner" parent="." index="365"]
+metadata/carrier_interior = false
+
+[node name="Ramp middle" parent="." index="366"]
+metadata/carrier_interior = false
+
+[node name="Ramp outer" parent="." index="367"]
+metadata/carrier_interior = false
+
+[node name="human" parent="." index="368"]
+metadata/carrier_interior = false
+
+[node name="main hull" parent="." index="369"]
+metadata/carrier_interior = false
+
+[node name="side skirts" parent="." index="370"]
+metadata/carrier_interior = false
+
+[node name="Elevators" parent="." index="371"]
+metadata/carrier_interior = false
+
+[node name="superstructure floor lower" parent="." index="372"]
+metadata/carrier_interior = true
+
+[node name="superstructure floor upper" parent="." index="373"]
+metadata/carrier_interior = true
+
+[node name="Superstructure elevator" parent="." index="374"]
+metadata/carrier_interior = true
+
+[node name="superstructure main island" parent="." index="375"]
+metadata/carrier_interior = true

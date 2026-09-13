@@ -1,0 +1,17 @@
+[gd_scene format=3 uid="uid://bck1iwpr3vnvw"]
+
+[ext_resource type="Script" uid="uid://cqw36derm5yh1" path="res://Weapons/Turrets/turret_controller.gd" id="1_controller"]
+[ext_resource type="PackedScene" uid="uid://38xqikpdfhdk" path="res://Weapons/Turrets/turret.tscn" id="2_turret"]
+[ext_resource type="PackedScene" path="res://Weapons/Turrets/bullet_weapon.tscn" id="3_weapon"]
+
+[node name="TurretController" type="Node3D" unique_id=388868909]
+script = ExtResource("1_controller")
+weapon_scene = ExtResource("3_weapon")
+team = 1
+max_range = 1400.0
+burst_length = 1.2
+delay_length = 1.6
+fire_angle_tolerance_deg = 14.0
+
+[node name="TurretScene" parent="." unique_id=2144714463 instance=ExtResource("2_turret")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.42016923, 0)

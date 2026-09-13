@@ -1,6 +1,7 @@
 [gd_scene format=3 uid="uid://pfnx57rs2d41"]
 
 [ext_resource type="Script" uid="uid://drt6k2pyqc1pn" path="res://LandCarrier/CarrierTread.gd" id="1_script"]
+[ext_resource type="PackedScene" uid="uid://crcgihm4jmqvg" path="res://Models/LandCarrier/land carrier track back plate.glb" id="2_mtwxr"]
 [ext_resource type="PackedScene" uid="uid://dv8clvbts5mhw" path="res://Models/LandCarrier/carrier track wheel.glb" id="3_r01ng"]
 
 [node name="CarrierTread" type="StaticBody3D" unique_id=382987775]
@@ -33,6 +34,9 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.026431084, 9.071911, -11.5
 
 [node name="curve_end_4" type="Marker3D" parent="TrackGuide" unique_id=1196060164]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.026431084, 10.880936, -7.898396)
+
+[node name="land carrier track back plate" parent="TrackGuide" unique_id=787047519 instance=ExtResource("2_mtwxr")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 6.0954914, 0, 0.8297453)
 
 [node name="carrier track wheel" parent="." unique_id=1317861125 instance=ExtResource("3_r01ng")]
 transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, -4.00431, 0)

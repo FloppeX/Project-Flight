@@ -53,10 +53,10 @@ const DEBUG_MODE_NAMES := [
 @export var wheel_visual_direction_sign: float = -1.0
 
 @export_group("Audio")
-@export var rolling_sound: AudioStream = preload("res://Audio/Carrier/Rolling_tracks_mono.wav")
+@export var rolling_sound: AudioStream = preload("res://Audio/Carrier/track_links.ogg")
 @export var rolling_sound_bus: String = "Master"
-@export var rolling_sound_min_volume_db: float = -16.0
-@export var rolling_sound_max_volume_db: float = -7.0
+@export var rolling_sound_min_volume_db: float = -20.0
+@export var rolling_sound_max_volume_db: float = -12.0
 @export var rolling_sound_pitch_min: float = 0.78
 @export var rolling_sound_pitch_max: float = 1.18
 @export var rolling_sound_silence_db: float = -80.0
@@ -139,10 +139,19 @@ func set_visual_budget_enabled(enabled: bool) -> void:
 
 
 func is_visible_to_active_camera() -> bool:
+	if _recording_focused(): return true
 	if _visibility_notifier == null or not is_instance_valid(_visibility_notifier) \
 			or not _visibility_notifier.is_inside_tree():
 		return true
 	return _visibility_notifier.is_on_screen()
+
+func _recording_focused() -> bool:
+	var recorder := get_node_or_null("/root/RecordingMode")
+	return recorder != null and recorder.recording and recorder.is_target_camera_focusing_node(self)
+
+func prepare_recording_instances() -> void:
+	if _recording_focused() and is_instance_valid(_track_multimesh) and not _track_multimesh.has_meta("recording_instance_poses"):
+		_update_multimesh_transforms()
 
 
 func setup_tread_offset() -> void:
@@ -436,6 +445,7 @@ func _advance_tracks(signed_travel_m: float) -> void:
 
 
 func _should_update_track_visuals() -> bool:
+	if _recording_focused(): return true
 	if not skip_offscreen_plate_animation:
 		_track_visual_refresh_required = false
 		return true
@@ -531,12 +541,21 @@ func _update_multimesh_transforms() -> void:
 	if auto_fit_plate_length_to_path and source_size.z > 0.001 and target_length > 0.001:
 		scale.z *= target_length / source_size.z
 
+	var capture := _recording_focused()
+	var recording_poses: Array[Transform3D] = []
 	for i in range(plate_count):
 		if belt_debug_mode == 2 and i % 2 != 0:
 			_track_multimesh.multimesh.set_instance_transform(i, Transform3D(Basis().scaled(Vector3.ZERO), Vector3.ZERO))
+			if capture: recording_poses.append(Transform3D(Basis().scaled(Vector3.ZERO), Vector3.ZERO))
 			continue
 		var progress := _wrap_distance(_travel_m + spacing * float(i))
-		_track_multimesh.multimesh.set_instance_transform(i, _sample_track_transform(progress, scale))
+		var pose := _sample_track_transform(progress, scale)
+		_track_multimesh.multimesh.set_instance_transform(i, pose)
+		if capture: recording_poses.append(pose)
+	if capture:
+		_track_multimesh.set_meta("recording_instance_poses", recording_poses)
+	elif _track_multimesh.has_meta("recording_instance_poses"):
+		_track_multimesh.remove_meta("recording_instance_poses")
 
 
 func _sample_track_transform(progress_m: float, scale: Vector3) -> Transform3D:
@@ -619,8 +638,7 @@ func _setup_rolling_audio() -> void:
 	if rolling_sound == null:
 		return
 
-	if rolling_sound is AudioStreamWAV:
-		rolling_sound.loop_mode = AudioStreamWAV.LOOP_FORWARD
+	rolling_sound = preload("res://Audio/RuntimeAudio.gd").loop_stream(rolling_sound)
 
 	_rolling_audio_player = AudioStreamPlayer3D.new()
 	_rolling_audio_player.name = "RollingTracksAudio"
@@ -633,7 +651,6 @@ func _setup_rolling_audio() -> void:
 	_rolling_audio_player.pitch_scale = rolling_sound_pitch_min
 	_rolling_audio_player.add_to_group("3d_audio")
 	add_child(_rolling_audio_player)
-	_rolling_audio_player.call_deferred("play")
 
 
 func _update_rolling_audio(delta: float, tread_speed_mps: float) -> void:
@@ -647,5 +664,9 @@ func _update_rolling_audio(delta: float, tread_speed_mps: float) -> void:
 	var blend := clampf(delta * 5.0, 0.0, 1.0)
 	_rolling_audio_player.volume_db = lerpf(_rolling_audio_player.volume_db, target_volume, blend)
 	_rolling_audio_player.pitch_scale = lerpf(_rolling_audio_player.pitch_scale, target_pitch, blend)
-	if not _rolling_audio_player.playing:
-		_rolling_audio_player.call_deferred("play")
+	var audible := preload("res://Audio/RuntimeAudio.gd").listener_near(self, rolling_sound_max_distance_m)
+	if tread_speed_mps >= 0.05 and audible and not _rolling_audio_player.playing:
+		# Avoid phase-locked copies across the carrier's tread units.
+		_rolling_audio_player.play(randf() * rolling_sound.get_length())
+	elif (tread_speed_mps < 0.05 and _rolling_audio_player.volume_db < -65.0) or not audible:
+		_rolling_audio_player.stop()

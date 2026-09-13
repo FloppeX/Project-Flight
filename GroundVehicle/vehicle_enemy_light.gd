@@ -22,7 +22,10 @@ const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
 @export var spring_tilt_damping: float = 18.0
 @export var suspension_probe_interval_frames: int = 2
 @export var spacing_cache_refresh_s: float = 0.35
-@export var detailed_suspension_distance_m: float = 800.0
+@export var detailed_suspension_distance_m: float = 250.0
+@export var distant_support_interval_s: float = 0.20
+@export var wheel_max_compression_m: float = 0.6
+@export var wheel_max_extension_m: float = 0.65
 @export var distant_suspension_height_lerp: float = 8.0
 @export_group("Vehicle Performance LOD")
 @export var performance_lod_enabled: bool = true
@@ -46,7 +49,7 @@ const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
 @export var mesh_lod_far_distance_m: float = 600.0
 @export_range(0.02, 1.0, 0.01) var mesh_lod_mid_bias: float = 0.55
 @export_range(0.02, 1.0, 0.01) var mesh_lod_far_bias: float = 0.22
-@export var wheel_mesh_visibility_distance_m: float = 450.0
+@export var wheel_mesh_visibility_distance_m: float = 0.0
 @export var mesh_shadow_visibility_distance_m: float = 600.0
 @export_group("")
 
@@ -75,7 +78,7 @@ const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
 @export var burst_length: float = 1.5
 @export var delay_length: float = 3.0
 @export var turret_weapon: PackedScene
-@export var aim_skill: float = 0.35
+@export_range(-1.0, 1.0, 0.01) var aim_skill: float = -1.0 # Shared faction default.
 @export var staged_wreck_breakup_enabled: bool = true
 @export_range(0.0, 0.6, 0.01) var wreck_breakup_spread_duration_s: float = 0.28
 @export var platoon_min_neighbor_distance_m: float = 30.0
@@ -139,6 +142,7 @@ var _suspension_probe_ready: bool = false
 var _suspension_has_ground: bool = false
 var _cached_corner_target_ys: Array[float] = []
 var _cached_wheel_target_ys: Array[float] = []
+var _wheel_support = preload("res://GroundVehicle/WheelSupport.gd").new()
 var _cached_carrier: Node3D = null
 var _cached_spacing_candidates: Array[Node3D] = []
 var _spacing_cache_timer_s: float = 0.0
@@ -254,6 +258,7 @@ func _collect_wheel_nodes() -> void:
 				_wheel_contact_local_positions.append(w.position + Vector3(0.0, -WHEEL_RADIUS, 0.0))
 			if wname.ends_with("_1"):
 				_front_wheels.append(w)
+	_wheel_support.setup(self)
 
 func _compute_corner_probes() -> void:
 	## Build 4 corner probe positions from the CollisionShape3D box.
@@ -302,6 +307,7 @@ func assign_platoon(new_platoon: GroundVehiclePlatoon) -> void:
 	_nav_repath_timer_s = randf() * _get_navigation_replan_interval_s()
 
 func apply_origin_shift(offset: Vector3) -> void:
+	_wheel_support.invalidate(self)
 	for i in range(_waypoint_positions.size()):
 		_waypoint_positions[i] -= offset
 	for i in range(_nav_path_positions.size()):
@@ -432,176 +438,10 @@ func _set_simulation_lod_band(band: StringName) -> void:
 
 func _update_wheel_visuals(delta_override: float = -1.0, visibility_already_sampled: bool = false) -> void:
 	var delta: float = delta_override if delta_override >= 0.0 else get_physics_process_delta_time()
+	var physical_only: bool = false
 	var camera_visible: bool = _cached_camera_visible if visibility_already_sampled else _is_camera_visible(delta)
-	if performance_lod_enabled and suspension_requires_camera_visibility and not camera_visible:
-		_apply_offscreen_ground_support(delta)
-		return
-	if not _should_use_detailed_suspension(delta):
-		_apply_distant_suspension_visuals(delta)
-		return
-	if _should_refresh_suspension_probes():
-		_refresh_suspension_targets()
-
-	if not _suspension_probe_ready:
-		return
-
-	if not _suspension_has_ground:
-		_spring_velocity_y -= GRAVITY * delta
-		for i in range(_all_wheel_nodes.size()):
-			_all_wheel_nodes[i].position.y = lerpf(_all_wheel_nodes[i].position.y, _wheel_nominal_positions[i].y, 0.1)
-		return
-
-	var fast_corner_targets := _cached_corner_target_ys
-	var fast_target_y: float = (fast_corner_targets[0] + fast_corner_targets[1] + fast_corner_targets[2] + fast_corner_targets[3]) / 4.0
-	var fast_front_avg_y: float = (fast_corner_targets[0] + fast_corner_targets[1]) / 2.0
-	var fast_rear_avg_y: float = (fast_corner_targets[2] + fast_corner_targets[3]) / 2.0
-	var fast_target_pitch: float = atan2(fast_rear_avg_y - fast_front_avg_y, _corner_half_z * 2.0)
-	var fast_left_avg_y: float = (fast_corner_targets[0] + fast_corner_targets[2]) / 2.0
-	var fast_right_avg_y: float = (fast_corner_targets[1] + fast_corner_targets[3]) / 2.0
-	var fast_target_roll: float = atan2(fast_right_avg_y - fast_left_avg_y, _corner_half_x * 2.0)
-
-	if not _spring_initialized:
-		global_position.y = fast_target_y
-		_spring_velocity_y = 0.0
-		_spring_pitch_velocity = 0.0
-		_spring_roll_velocity = 0.0
-		_spring_initialized = true
-	else:
-		var displacement_fast: float = global_position.y - fast_target_y
-		var spring_force_fast: float = -spring_stiffness * displacement_fast - spring_damping * _spring_velocity_y
-		_spring_velocity_y += spring_force_fast * delta
-		_spring_velocity_y = clampf(_spring_velocity_y, -50.0, 50.0)
-
-	var current_yaw_fast: float = atan2(global_basis.z.x, global_basis.z.z)
-	var current_pitch_fast: float = asin(clampf(-global_basis.z.y, -1.0, 1.0))
-	var current_roll_fast: float = atan2(global_basis.x.y, global_basis.y.y)
-	var pitch_torque_fast: float = -spring_tilt_stiffness * (current_pitch_fast - fast_target_pitch) - spring_tilt_damping * _spring_pitch_velocity
-	_spring_pitch_velocity += pitch_torque_fast * delta
-	_spring_pitch_velocity = clampf(_spring_pitch_velocity, -5.0, 5.0)
-	var roll_torque_fast: float = -spring_tilt_stiffness * (current_roll_fast - fast_target_roll) - spring_tilt_damping * _spring_roll_velocity
-	_spring_roll_velocity += roll_torque_fast * delta
-	_spring_roll_velocity = clampf(_spring_roll_velocity, -5.0, 5.0)
-	var new_pitch_fast: float = current_pitch_fast + _spring_pitch_velocity * delta
-	var new_roll_fast: float = current_roll_fast + _spring_roll_velocity * delta
-	global_basis = Basis.from_euler(Vector3(new_pitch_fast, current_yaw_fast, new_roll_fast), EULER_ORDER_YXZ).orthonormalized()
-
-	for i in range(_all_wheel_nodes.size()):
-		var nominal_fast: Vector3 = _wheel_nominal_positions[i]
-		var target_wheel_y_fast: float = nominal_fast.y
-		if i < _cached_wheel_target_ys.size():
-			target_wheel_y_fast = _cached_wheel_target_ys[i]
-		var blend_fast: float = clampf(wheel_suspension_smoothing * delta, 0.0, 1.0)
-		_all_wheel_nodes[i].position.y = lerpf(_all_wheel_nodes[i].position.y, target_wheel_y_fast, blend_fast)
-
-	if _body_node:
-		_body_node.position = _body_rest_position
-		_body_node.rotation = _body_rest_rotation
-	return
-	var space_state := get_world_3d().direct_space_state
-	var params := PhysicsRayQueryParameters3D.new()
-	params.exclude = [get_rid()]
-
-	# --- 1. Corner probes: determine target height & tilt ---
-	var corner_target_ys: Array[float] = []
-	var hit_count: int = 0
-	for corner_local in _corner_probes:
-		# Use only XZ from corner, probe straight down in world Y
-		var corner_world: Vector3 = to_global(corner_local)
-		params.from = corner_world + Vector3.UP * 5.0
-		params.to = corner_world - Vector3.UP * wheel_probe_down_m
-		var hit := space_state.intersect_ray(params)
-		if hit:
-			corner_target_ys.append(hit.position.y + chassis_ride_height_m)
-			hit_count += 1
-		else:
-			corner_target_ys.append(-99999.0)
-
-	if hit_count == 0:
-		# No ground — free-fall
-		_spring_velocity_y -= GRAVITY * delta
-		# Settle wheels to nominal
-		for i in range(_all_wheel_nodes.size()):
-			_all_wheel_nodes[i].position.y = lerpf(_all_wheel_nodes[i].position.y, _wheel_nominal_positions[i].y, 0.1)
-		return
-
-	# Fill missing corners with average of valid ones
-	var valid_sum: float = 0.0
-	for y in corner_target_ys:
-		if y > -90000.0:
-			valid_sum += y
-	var valid_avg: float = valid_sum / float(hit_count)
-	for i in range(corner_target_ys.size()):
-		if corner_target_ys[i] < -90000.0:
-			corner_target_ys[i] = valid_avg
-
-	# Target height = average of 4 corners
-	var target_y: float = (corner_target_ys[0] + corner_target_ys[1] + corner_target_ys[2] + corner_target_ys[3]) / 4.0
-
-	# Target pitch from front vs rear (positive pitch = nose up)
-	var front_avg_y: float = (corner_target_ys[0] + corner_target_ys[1]) / 2.0
-	var rear_avg_y: float = (corner_target_ys[2] + corner_target_ys[3]) / 2.0
-	var target_pitch: float = atan2(rear_avg_y - front_avg_y, _corner_half_z * 2.0)
-
-	# Target roll from right vs left (positive roll = right side up)
-	var left_avg_y: float = (corner_target_ys[0] + corner_target_ys[2]) / 2.0
-	var right_avg_y: float = (corner_target_ys[1] + corner_target_ys[3]) / 2.0
-	var target_roll: float = atan2(right_avg_y - left_avg_y, _corner_half_x * 2.0)
-
-	# --- 2. Height spring ---
-	if not _spring_initialized:
-		global_position.y = target_y
-		_spring_velocity_y = 0.0
-		_spring_pitch_velocity = 0.0
-		_spring_roll_velocity = 0.0
-		_spring_initialized = true
-	else:
-		var displacement: float = global_position.y - target_y
-		var spring_force: float = -spring_stiffness * displacement - spring_damping * _spring_velocity_y
-		_spring_velocity_y += spring_force * delta
-		_spring_velocity_y = clampf(_spring_velocity_y, -50.0, 50.0)
-
-	# --- 3. Tilt spring (pitch & roll only, never yaw) ---
-	# Extract current yaw from basis
-	var current_yaw: float = atan2(global_basis.z.x, global_basis.z.z)
-	# Extract current pitch and roll
-	var current_pitch: float = asin(clampf(-global_basis.z.y, -1.0, 1.0))
-	var current_roll: float = atan2(global_basis.x.y, global_basis.y.y)
-
-	var pitch_torque: float = -spring_tilt_stiffness * (current_pitch - target_pitch) - spring_tilt_damping * _spring_pitch_velocity
-	_spring_pitch_velocity += pitch_torque * delta
-	_spring_pitch_velocity = clampf(_spring_pitch_velocity, -5.0, 5.0)
-
-	var roll_torque: float = -spring_tilt_stiffness * (current_roll - target_roll) - spring_tilt_damping * _spring_roll_velocity
-	_spring_roll_velocity += roll_torque * delta
-	_spring_roll_velocity = clampf(_spring_roll_velocity, -5.0, 5.0)
-
-	var new_pitch: float = current_pitch + _spring_pitch_velocity * delta
-	var new_roll: float = current_roll + _spring_roll_velocity * delta
-
-	# Rebuild basis from yaw (preserved), new pitch, new roll
-	global_basis = Basis.from_euler(Vector3(new_pitch, current_yaw, new_roll), EULER_ORDER_YXZ).orthonormalized()
-
-	# --- 4. Position wheels visually on the ground ---
-	for i in range(_all_wheel_nodes.size()):
-		if i >= _wheel_contact_local_positions.size():
-			continue
-		var nominal: Vector3 = _wheel_nominal_positions[i]
-		var contact_local: Vector3 = _wheel_contact_local_positions[i]
-		var contact_world: Vector3 = to_global(contact_local)
-		params.from = contact_world + Vector3.UP * 3.0
-		params.to = contact_world - Vector3.UP * wheel_probe_down_m
-		var hit := space_state.intersect_ray(params)
-		if hit:
-			var hit_local_y: float = to_local(hit.position).y
-			var target_wheel_y: float = nominal.y + (hit_local_y - contact_local.y)
-			var blend: float = clampf(wheel_suspension_smoothing * delta, 0.0, 1.0)
-			_all_wheel_nodes[i].position.y = lerpf(_all_wheel_nodes[i].position.y, target_wheel_y, blend)
-		else:
-			_all_wheel_nodes[i].position.y = lerpf(_all_wheel_nodes[i].position.y, nominal.y, 0.1)
-
-	if _body_node:
-		_body_node.position = _body_rest_position
-		_body_node.rotation = _body_rest_rotation
+	var detailed := physical_only or (_should_use_detailed_suspension(delta) and (camera_visible or not performance_lod_enabled))
+	_wheel_support.update(self, delta, detailed, physical_only)
 
 func _should_refresh_suspension_probes() -> bool:
 	if not _suspension_probe_ready:
@@ -613,66 +453,7 @@ func _should_refresh_suspension_probes() -> bool:
 	return _suspension_probe_counter == 0
 
 func _refresh_suspension_targets() -> void:
-	var space_state := get_world_3d().direct_space_state
-	var params := PhysicsRayQueryParameters3D.new()
-	params.exclude = [get_rid()]
-
-	_cached_corner_target_ys.clear()
-	_cached_wheel_target_ys.clear()
-	var hit_count: int = 0
-	for corner_local in _corner_probes:
-		var corner_world: Vector3 = to_global(corner_local)
-		params.from = corner_world + Vector3.UP * 5.0
-		params.to = corner_world - Vector3.UP * wheel_probe_down_m
-		var hit := space_state.intersect_ray(params)
-		if hit:
-			_cached_corner_target_ys.append(hit.position.y + chassis_ride_height_m)
-			hit_count += 1
-		else:
-			var terrain_y: float = TerrainNavGrid.sample_height(corner_world.x, corner_world.z)
-			if terrain_y > TerrainNavGrid.IMPASSABLE * 0.5:
-				_cached_corner_target_ys.append(terrain_y + chassis_ride_height_m)
-				hit_count += 1
-			else:
-				_cached_corner_target_ys.append(-99999.0)
-
-	if hit_count == 0:
-		_suspension_has_ground = false
-		for nominal in _wheel_nominal_positions:
-			_cached_wheel_target_ys.append(nominal.y)
-		_suspension_probe_ready = true
-		return
-
-	var valid_sum: float = 0.0
-	for y in _cached_corner_target_ys:
-		if y > -90000.0:
-			valid_sum += y
-	var valid_avg: float = valid_sum / float(hit_count)
-	for i in range(_cached_corner_target_ys.size()):
-		if _cached_corner_target_ys[i] < -90000.0:
-			_cached_corner_target_ys[i] = valid_avg
-
-	for i in range(_all_wheel_nodes.size()):
-		var nominal: Vector3 = _wheel_nominal_positions[i]
-		var target_wheel_y: float = nominal.y
-		if i < _wheel_contact_local_positions.size():
-			var contact_local: Vector3 = _wheel_contact_local_positions[i]
-			var contact_world: Vector3 = to_global(contact_local)
-			params.from = contact_world + Vector3.UP * 3.0
-			params.to = contact_world - Vector3.UP * wheel_probe_down_m
-			var hit := space_state.intersect_ray(params)
-			if hit:
-				var hit_local_y: float = to_local(hit.position).y
-				target_wheel_y = nominal.y + (hit_local_y - contact_local.y)
-			else:
-				var terrain_y: float = TerrainNavGrid.sample_height(contact_world.x, contact_world.z)
-				if terrain_y > TerrainNavGrid.IMPASSABLE * 0.5:
-					var baked_hit_local_y: float = to_local(Vector3(contact_world.x, terrain_y, contact_world.z)).y
-					target_wheel_y = nominal.y + (baked_hit_local_y - contact_local.y)
-		_cached_wheel_target_ys.append(target_wheel_y)
-
-	_suspension_has_ground = true
-	_suspension_probe_ready = true
+	_wheel_support.refresh(self, false)
 
 func _get_active_camera(delta: float) -> Camera3D:
 	_camera_cache_timer_s = maxf(_camera_cache_timer_s - delta, 0.0)
@@ -688,7 +469,9 @@ func _should_use_detailed_suspension(delta: float) -> bool:
 	var camera := _get_active_camera(delta)
 	if camera == null or not is_instance_valid(camera):
 		return false
-	return global_position.distance_squared_to(camera.global_position) <= detailed_suspension_distance_m * detailed_suspension_distance_m
+	var zoom_scale := maxf(1.0, tan(deg_to_rad(35.0)) / maxf(tan(deg_to_rad(camera.fov * 0.5)), 0.01))
+	var detail_range := detailed_suspension_distance_m * zoom_scale
+	return global_position.distance_squared_to(camera.global_position) <= detail_range * detail_range
 
 func _is_camera_visible(delta: float) -> bool:
 	if not performance_lod_enabled or not suspension_requires_camera_visibility:
@@ -711,37 +494,10 @@ func _is_camera_visible(delta: float) -> bool:
 	return _cached_camera_visible
 
 func _apply_offscreen_ground_support(delta: float) -> void:
-	_offscreen_ground_accumulated_delta_s += delta
-	_offscreen_ground_timer_s -= delta
-	if _offscreen_ground_timer_s > 0.0:
-		return
-	var support_delta := maxf(_offscreen_ground_accumulated_delta_s, delta)
-	_offscreen_ground_accumulated_delta_s = 0.0
-	_offscreen_ground_timer_s = maxf(offscreen_ground_update_interval_s, 0.01)
-	var terrain_y: float = TerrainNavGrid.sample_height(global_position.x, global_position.z)
-	if terrain_y > TerrainNavGrid.IMPASSABLE * 0.5:
-		global_position.y = lerpf(
-			global_position.y,
-			terrain_y + chassis_ride_height_m,
-			clampf(distant_suspension_height_lerp * support_delta, 0.0, 1.0)
-		)
-	_spring_velocity_y = 0.0
+	_wheel_support.update(self, delta, false)
 
 func _apply_distant_suspension_visuals(delta: float) -> void:
-	var terrain_y: float = TerrainNavGrid.sample_height(global_position.x, global_position.z)
-	if terrain_y > TerrainNavGrid.IMPASSABLE * 0.5:
-		global_position.y = lerpf(global_position.y, terrain_y + chassis_ride_height_m, clampf(distant_suspension_height_lerp * delta, 0.0, 1.0))
-	var current_yaw: float = atan2(global_basis.z.x, global_basis.z.z)
-	global_basis = Basis.from_euler(Vector3(0.0, current_yaw, 0.0), EULER_ORDER_YXZ).orthonormalized()
-	_spring_pitch_velocity = 0.0
-	_spring_roll_velocity = 0.0
-	for i in range(_all_wheel_nodes.size()):
-		_all_wheel_nodes[i].position.y = lerpf(_all_wheel_nodes[i].position.y, _wheel_nominal_positions[i].y, 0.15)
-	if _body_node:
-		_body_node.position = _body_rest_position
-		_body_node.rotation = _body_rest_rotation
-
-# --- Driving AI ---
+	_wheel_support.update(self, delta, false)
 
 func _update_navigation_path(delta: float) -> void:
 	_advance_patrol_waypoint_if_reached()
@@ -1283,8 +1039,7 @@ func _apply_cached_drive_motion(delta: float, coarse_motion: bool = false) -> vo
 	velocity.z = forward.z * forward_speed
 	_move_vehicle_body(delta, coarse_motion)
 	if not coarse_motion:
-		for wheel in _front_wheels:
-			wheel.rotation.y = _drive_command_steer * max_steering_angle
+		_wheel_support.steer(self, _drive_command_steer * max_steering_angle)
 
 func _move_vehicle_body(delta: float, coarse_motion: bool) -> void:
 	if coarse_motion:

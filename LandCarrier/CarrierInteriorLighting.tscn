@@ -1,0 +1,56 @@
+[gd_scene load_steps=4 format=3]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_fixture"]
+shading_mode = 0
+albedo_color = Color(0.78, 0.9, 1, 1)
+emission_enabled = true
+emission = Color(0.78, 0.9, 1, 1)
+emission_energy_multiplier = 4.0
+
+[sub_resource type="BoxMesh" id="BoxMesh_command_fixture"]
+material = SubResource("StandardMaterial3D_fixture")
+size = Vector3(3.2, 0.035, 0.34)
+
+[sub_resource type="BoxMesh" id="BoxMesh_air_ops_fixture"]
+material = SubResource("StandardMaterial3D_fixture")
+size = Vector3(0.34, 0.035, 3.2)
+
+[node name="CarrierInteriorLighting" type="Node3D"]
+
+[node name="CommandRoomFixture" type="Node3D" parent="." groups=["carrier_interior_fixture"]]
+position = Vector3(-21.048, 11.12, 1.22)
+
+[node name="EmissivePanel" type="MeshInstance3D" parent="CommandRoomFixture"]
+mesh = SubResource("BoxMesh_command_fixture")
+
+[node name="RoomLight" type="OmniLight3D" parent="CommandRoomFixture" groups=["carrier_interior_light"]]
+position = Vector3(0, -0.3, 0.45)
+light_color = Color(0.78, 0.9, 1, 1)
+light_energy = 2.5
+shadow_enabled = false
+omni_range = 3.5
+omni_attenuation = 1.6
+
+[node name="AirOpsFixture" type="Node3D" parent="." groups=["carrier_interior_fixture"]]
+position = Vector3(-21.048, 16.04, -6.296)
+
+[node name="EmissivePanel" type="MeshInstance3D" parent="AirOpsFixture"]
+mesh = SubResource("BoxMesh_air_ops_fixture")
+
+[node name="LightA" type="SpotLight3D" parent="AirOpsFixture" groups=["carrier_interior_light"]]
+position = Vector3(0, -0.07, -0.9)
+rotation_degrees = Vector3(-90, 0, 0)
+light_color = Color(0.78, 0.9, 1, 1)
+light_energy = 4.5
+shadow_enabled = false
+spot_range = 5.0
+spot_angle = 70.0
+
+[node name="LightB" type="SpotLight3D" parent="AirOpsFixture" groups=["carrier_interior_light"]]
+position = Vector3(0, -0.07, 0.9)
+rotation_degrees = Vector3(-90, 0, 0)
+light_color = Color(0.78, 0.9, 1, 1)
+light_energy = 4.5
+shadow_enabled = false
+spot_range = 5.0
+spot_angle = 70.0

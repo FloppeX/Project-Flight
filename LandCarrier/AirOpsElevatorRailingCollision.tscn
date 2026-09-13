@@ -1,0 +1,24 @@
+[gd_scene load_steps=3 format=3]
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_side"]
+size = Vector3(0.0856, 0.91414, 1.66251)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_back"]
+size = Vector3(1.81507, 0.91414, 0.08354)
+
+[node name="AirOpsElevatorRailingCollision" type="StaticBody3D"]
+position = Vector3(-21.797075, 13.34352, -6.603835)
+collision_layer = 1
+collision_mask = 0
+
+[node name="LeftRail" type="CollisionShape3D" parent="."]
+position = Vector3(-0.86473, 0.45707, 0)
+shape = SubResource("BoxShape3D_side")
+
+[node name="RightRail" type="CollisionShape3D" parent="."]
+position = Vector3(0.86473, 0.45707, 0)
+shape = SubResource("BoxShape3D_side")
+
+[node name="BackRail" type="CollisionShape3D" parent="."]
+position = Vector3(0, 0.45707, -0.789485)
+shape = SubResource("BoxShape3D_back")

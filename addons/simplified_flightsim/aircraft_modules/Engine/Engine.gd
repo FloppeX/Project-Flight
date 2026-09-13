@@ -19,6 +19,7 @@ signal update_interface(values)
 @export var GovernPropellerVisualSpeed: bool = false
 
 @export var FuelRate: float = 1.0 # Fuel units per second, at max power
+@export var FuelBaseRate: float = 0.0 # Fuel units per second whenever the engine is running
 @export var ThrottleSpoolUpRate: float = 0.55 # Power units per second when increasing throttle
 @export var ThrottleSpoolDownRate: float = 0.9 # Power units per second when reducing throttle
 @export var EngineSoundResponseRate: float = 7.5 # How quickly loop pitch follows live engine power
@@ -163,7 +164,7 @@ func process_physic_frame(delta):
 	if aircraft and is_engine_working:
 		_update_power_response(delta)
 
-		var fuel_budget = current_power * FuelRate * delta
+		var fuel_budget = (maxf(FuelBaseRate, 0.0) + current_power * FuelRate) * delta
 		if not aircraft.request_energy(EnergyType, fuel_budget):
 			engine_stop()
 			return

@@ -1,5 +1,6 @@
 extends RigidBody3D
 class_name ProjectileNew
+const RECORDING_HOOKS := preload("res://Recording/CaptureHooks.gd")
 
 @export var damage: float = 10.0
 @export var lifetime: float = 1.0
@@ -47,6 +48,7 @@ var _lifetime_elapsed_s: float = 0.0
 var _activation_serial: int = 0
 var _impact_target_shape_index: int = -1
 var _impact_world_position: Vector3 = Vector3.INF
+var _impact_world_normal: Vector3 = Vector3.ZERO
 
 static func get_hit_assist_radius_m() -> float:
 	return hit_assist_radius_m
@@ -75,29 +77,40 @@ static func _ensure_sounds_loaded() -> void:
 			_dirt_sounds.append(dirt)
 	_scorch_texture = load("res://Projectiles/Explosion/scorch_mark.png")
 
+func uses_swept_point_collision() -> bool:
+	return false
+
 func _ready():
 	_ensure_sounds_loaded()
 	mass = 0.01
 	gravity_scale = maxf(gravity_scale, 0.0)
-	physics_material_override = PhysicsMaterial.new()
-	physics_material_override.bounce = 0.0
-	physics_material_override.friction = 0.0
-	# IMPORTANT: Enable collision detection
-	contact_monitor = true
-	max_contacts_reported = 10
+	if uses_swept_point_collision():
+		# Bullet subclasses keep a RigidBody shell for existing velocity/pool APIs,
+		# but never register physical shapes, contact callbacks or rigid-body motion.
+		collision_layer = 0
+		collision_mask = 0
+		contact_monitor = false
+		max_contacts_reported = 0
+		freeze_mode = RigidBody3D.FREEZE_MODE_STATIC
+		freeze = true
+	else:
+		physics_material_override = PhysicsMaterial.new()
+		physics_material_override.bounce = 0.0
+		physics_material_override.friction = 0.0
+		contact_monitor = true
+		max_contacts_reported = 10
+		body_entered.connect(_on_body_entered)
 	
 	# Auto-destroy after lifetime. Reusable bullets cannot keep one-shot timers
 	# because an old activation's timer could retire a newly reused round.
 	if not reusable_lifecycle:
 		get_tree().create_timer(lifetime).timeout.connect(_on_timeout)
 	
-	# Connect collision detection
-	body_entered.connect(_on_body_entered)
-	
 	# Initialize last position for raycast tunneling detection
 	last_position = global_position
 	_hit_assist_segment_start = global_position
-	_hit_assist_broadphase_shape = SphereShape3D.new()
+	if hit_assist_enabled and not uses_swept_point_collision():
+		_hit_assist_broadphase_shape = SphereShape3D.new()
 
 func get_child_collision_shape() -> CollisionShape3D:
 	for child in get_children():
@@ -113,8 +126,13 @@ func _physics_process(delta):
 		if _lifetime_elapsed_s >= maxf(lifetime, 0.001):
 			_on_timeout()
 			return
-	# Raycast between last position and current position to catch tunneling
-	if last_position != Vector3.ZERO:
+	if uses_swept_point_collision():
+		_sweep_point_collision(last_position, global_position)
+		last_position = global_position
+		return # No target envelopes, contact path or height-map fallback for bullets.
+	# Raycast between last position and current position to catch tunneling.
+	# World origin is a valid launch position, not an uninitialized sentinel.
+	if last_position != global_position:
 		var space_state: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
 		var query: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(last_position, global_position)
 		query.exclude = _get_projectile_query_excludes()
@@ -168,6 +186,7 @@ func fire(initial_velocity: Vector3, firing_aircraft: Node3D):
 	has_impacted = false
 	_impact_target_shape_index = -1
 	_impact_world_position = Vector3.INF
+	_impact_world_normal = Vector3.ZERO
 	shooter = firing_aircraft
 	linear_velocity = initial_velocity
 	_hit_assist_time_accum_s = 0.0
@@ -178,9 +197,10 @@ func fire(initial_velocity: Vector3, firing_aircraft: Node3D):
 	_hit_assist_segment_start = global_position
 	
 	# Disable collision with the firing entity initially.
+	if not uses_swept_point_collision(): RECORDING_HOOKS.begin(self, "projectile")
 	# Ground vehicles are CharacterBody3D, not RigidBody3D, and turret bullets can
 	# otherwise spawn inside the host collider and die immediately.
-	if firing_aircraft and firing_aircraft is CollisionObject3D:
+	if not uses_swept_point_collision() and firing_aircraft and firing_aircraft is CollisionObject3D:
 		add_collision_exception_with(firing_aircraft)
 		# Re-enable collision after a short delay (once projectile is clear)
 		var projectile_ref: WeakRef = weakref(self)
@@ -192,6 +212,35 @@ func fire(initial_velocity: Vector3, firing_aircraft: Node3D):
 			if projectile_obj is ProjectileNew and is_instance_valid(projectile_obj) and (projectile_obj as ProjectileNew)._activation_serial == activation_serial and shooter_obj is CollisionObject3D and is_instance_valid(shooter_obj):
 				(projectile_obj as ProjectileNew).remove_collision_exception_with(shooter_obj as CollisionObject3D)
 		)
+
+func _sweep_point_collision(from: Vector3, to: Vector3) -> void:
+	if from == to:
+		return
+	var query := PhysicsRayQueryParameters3D.create(from, to, 0xFFFFFFFF, _get_projectile_query_excludes())
+	query.hit_from_inside = true
+	var space := get_world_3d().direct_space_state
+	# Normally one query. Child physics bodies on the firing platform must also
+	# be skipped, without losing an enemy or wall farther along the SAME segment.
+	for attempt in 32:
+		var hit := space.intersect_ray(query)
+		if hit.is_empty():
+			return
+		var body: Node = hit.collider
+		if is_shooter_body(body):
+			var exclusions := query.exclude
+			exclusions.append(hit.rid)
+			query.exclude = exclusions
+			continue
+		_impact_target_shape_index = int(hit.get("shape", -1))
+		_impact_world_position = hit.position
+		_impact_world_normal = hit.normal
+		global_position = hit.position
+		_on_body_entered(body)
+		return
+	# Pathological overlapping shooter bodies: retire without inventing a hit or
+	# allowing an unchecked segment to pass through other geometry.
+	has_impacted = true
+	_retire_projectile()
 
 func _get_hit_assist_check_interval_s() -> float:
 	return hit_assist_check_interval_s
@@ -523,6 +572,7 @@ func _on_body_entered(body):
 	# Create explosion effect
 	if creates_explosion and explosion_scene:
 		var explosion = explosion_scene.instantiate()
+		explosion.set_meta("carrier_damage_event", _carrier_damage_event_id())
 		get_tree().current_scene.add_child(explosion)
 		explosion.global_position = global_position
 		
@@ -551,13 +601,20 @@ func _on_body_entered(body):
 	_retire_projectile()
 
 
+func _carrier_damage_event_id() -> String:
+	return "%d:%d" % [get_instance_id(), Engine.get_physics_frames()]
+
 func _apply_impact_damage(damage_target: Node, damage_amount: float) -> void:
 	if damage_target == null or not is_instance_valid(damage_target):
 		return
 	var impact_position := _impact_world_position
 	if not is_finite(impact_position.x) or not is_finite(impact_position.y) or not is_finite(impact_position.z):
 		impact_position = global_position
-	if damage_target.has_method("take_damage_at"):
+	if damage_target.has_method("take_damage_event"):
+		damage_target.call("take_damage_event", damage_amount, impact_position, _carrier_damage_event_id())
+	elif damage_target.has_method("take_projectile_damage_at"):
+		damage_target.call("take_projectile_damage_at", damage_amount, impact_position, _impact_target_shape_index)
+	elif damage_target.has_method("take_damage_at"):
 		damage_target.call("take_damage_at", damage_amount, impact_position, _impact_target_shape_index)
 	elif damage_target.has_method("take_damage"):
 		damage_target.call("take_damage", damage_amount)
@@ -827,4 +884,5 @@ func _on_timeout():
 	_retire_projectile()
 
 func _retire_projectile() -> void:
+	RECORDING_HOOKS.end(self)
 	queue_free()

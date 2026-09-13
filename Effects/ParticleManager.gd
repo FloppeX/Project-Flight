@@ -1,4 +1,5 @@
 extends Node
+const RECORDING_HOOKS := preload("res://Recording/CaptureHooks.gd")
 
 const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
 
@@ -99,6 +100,7 @@ func _process(delta):
 		
 		# Remove expired particles
 		if particle.life_time >= particle.max_life:
+			RECORDING_HOOKS.end(particle.mesh_instance)
 			if "on_finish" in particle and particle.on_finish is Callable and (particle.on_finish as Callable).is_valid():
 				(particle.on_finish as Callable).call(particle.mesh_instance)
 			else:
@@ -156,6 +158,8 @@ func _update_spark_particle(particle: Dictionary, delta: float):
 	
 	# Fade out
 	var life_progress = particle.life_time / particle.max_life
+	if bool(particle.get("hot_spark", false)):
+		particle.mesh_instance.scale = particle.initial_scale * maxf(1.0 - life_progress * 0.75, 0.05)
 	if particle.mesh_instance.material_override:
 		var alpha = 1.0 - life_progress
 		particle.mesh_instance.material_override.albedo_color.a = alpha
@@ -230,6 +234,7 @@ func add_particle(mesh_instance: MeshInstance3D, type: String, max_life: float, 
 		particle_data[key] = extra_data[key]
 	
 	particles.append(particle_data)
+	RECORDING_HOOKS.begin(mesh_instance, type)
 	set_process(true)
 
 # Convenience functions for common particle types

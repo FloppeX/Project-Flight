@@ -235,6 +235,7 @@ hardpoint_id = 1
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.4433124, -0.444, 0.123)
 mounted_weapon = ExtResource("42_15mm")
 hardpoint_id = 2
+allowed_weapon_scene_paths = PackedStringArray("res://Weapons/Guns/Hardpoint/10mm_machine_gun_hardpoint.tscn", "res://Weapons/Guns/Hardpoint/15mm_machine_gun_hardpoint.tscn", "res://Weapons/Guns/Hardpoint/20mm_autocannon_hardpoint.tscn", "res://Weapons/Guns/Hardpoint/25mm_autocannon_hardpoint.tscn", "res://Weapons/Guns/Hardpoint/30mm_autocannon_hardpoint.tscn", "res://Weapons/Guns/Hardpoint/40mm_autocannon_hardpoint.tscn", "res://Weapons/RocketPod/rocket_pod.tscn")
 
 [node name="CameraController" type="Node3D" parent="." unique_id=811743349 node_paths=PackedStringArray("aircraft", "cockpit_tripod", "chase_tripod", "cinematic_tripod")]
 script = ExtResource("21_camera_controller")

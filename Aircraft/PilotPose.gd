@@ -318,6 +318,22 @@ const BONE_ALIASES := {
 }
 
 
+func _enter_tree() -> void:
+	if not Engine.is_editor_hint():
+		RenderingServer.frame_pre_draw.connect(_refresh_visibility_before_draw)
+
+
+func _exit_tree() -> void:
+	if RenderingServer.frame_pre_draw.is_connected(_refresh_visibility_before_draw):
+		RenderingServer.frame_pre_draw.disconnect(_refresh_visibility_before_draw)
+
+
+func _refresh_visibility_before_draw() -> void:
+	# Camera cuts can occur after pilot animation processing, or while paused.
+	# Refresh just the cached visibility nodes, without advancing the animation.
+	_update_head_visibility(false)
+
+
 func _ready() -> void:
 	_pose_target_root = _get_pose_target_root()
 	if flat_shade_pilot_visual:
@@ -671,7 +687,7 @@ func set_ejection_pose(pose_name: StringName, blend_time_s: float = -1.0) -> voi
 	# previously being viewed. Its animation must not inherit cockpit dormancy.
 	set_process(true)
 	_stop_baked_library_animation(false)
-	_release_cockpit_visibility()
+	refresh_cockpit_visibility()
 	_baked_sitting_pose_active = false
 	set_locomotion_pose(false)
 	if _mixamo_anim_active:
@@ -688,11 +704,11 @@ func set_ejection_pose(pose_name: StringName, blend_time_s: float = -1.0) -> voi
 	_apply_pose_values(values, maxf(duration, 0.0))
 
 
-func _release_cockpit_visibility() -> void:
-	# The cockpit camera is reparented with the pilot during player ejection. It can
-	# remain current all the way down, but it must no longer hide the pilot mesh.
-	hide_head_in_cockpit = false
-	_cockpit_camera = null
+func refresh_cockpit_visibility() -> void:
+	# Ejection reparents the cockpit camera alongside the pilot. Keep the normal
+	# first-person exclusion active so the current camera cannot enter the visible
+	# head, while chase/cinematic cameras still restore the complete pilot mesh.
+	_cache_cockpit_visibility_nodes()
 	_update_head_visibility(true)
 
 
@@ -854,7 +870,13 @@ func set_presentation_active(active: bool) -> void:
 		# after checkout so first-person visibility follows the borrowing aircraft.
 		_cache_cockpit_visibility_nodes()
 		_update_head_visibility(true)
-		if initial_baked_animation == &"" or _baked_library_animation_active:
+		if initial_baked_animation == &"":
+			return
+		if _baked_library_animation_active \
+				and _baked_library_player != null \
+				and is_instance_valid(_baked_library_player) \
+				and StringName(_baked_library_player.current_animation) == initial_baked_animation \
+				and _baked_library_player.is_playing():
 			return
 		play_baked_animation(
 			initial_baked_animation,
@@ -862,8 +884,8 @@ func set_presentation_active(active: bool) -> void:
 		)
 		return
 
-	# Once cockpit-only visibility has been released, ejection owns this pilot.
-	# A later visual-budget pass must not put that sequence back to sleep.
+	# Ejection animations own the pilot even while cockpit-camera visibility
+	# tracking remains active. A later visual-budget pass must not put them to sleep.
 	if not hide_head_in_cockpit:
 		return
 	if not _baked_library_animation_active:
@@ -875,6 +897,45 @@ func set_presentation_active(active: bool) -> void:
 		# A parachute or another gameplay animation owns the pilot now.
 		return
 	_stop_baked_library_animation(false)
+	set_process(false)
+
+
+## Clears every gameplay pose before this physical rig returns to the shared
+## reserve. Appearance is deliberately retained; the next mount reapplies its
+## pilot identity while activation selects the pose required by that aircraft.
+func reset_for_pool_storage() -> void:
+	if _pose_tween != null and _pose_tween.is_valid():
+		_pose_tween.kill()
+	_pose_tween = null
+
+	_stop_baked_library_animation(false)
+	_stop_retargeted_animation()
+	if _retarget_source_player != null and is_instance_valid(_retarget_source_player):
+		_retarget_source_player.stop()
+		_retarget_source_player.speed_scale = 1.0
+		_retarget_source_player.active = false
+	if _anim_player != null and is_instance_valid(_anim_player):
+		_anim_player.stop()
+		_anim_player.speed_scale = 1.0
+		_anim_player.active = false
+
+	_mixamo_anim_active = false
+	_baked_sitting_pose_active = false
+	_locomotion_active = false
+	_locomotion_speed_mps = 0.0
+	_locomotion_time_s = 0.0
+	_locomotion_anim_playing = false
+	_retarget_animation_active = false
+	_retarget_parachute_pose_active = false
+	_retarget_preview_paused = false
+	if _skeleton != null and is_instance_valid(_skeleton):
+		_skeleton.reset_bone_poses()
+
+	for hidden_node in _cockpit_hidden_nodes:
+		if is_instance_valid(hidden_node):
+			hidden_node.visible = true
+	_cockpit_camera = null
+	_last_head_hidden = false
 	set_process(false)
 
 
@@ -2114,11 +2175,14 @@ func _should_hide_node_in_cockpit(node: Node3D) -> bool:
 
 func _update_head_visibility(force: bool) -> void:
 	var should_hide: bool = false
-	if hide_head_in_cockpit and _cockpit_camera != null:
-		should_hide = _cockpit_camera.current
+	if hide_head_in_cockpit and is_instance_valid(_cockpit_camera) and _cockpit_camera.is_inside_tree():
+		# Only this pilot's actual first-person camera hides its mesh. A detached
+		# camera's stale `current` flag, nearby free cam, or copied view is not it.
+		should_hide = get_viewport().get_camera_3d() == _cockpit_camera
 	if not force and should_hide == _last_head_hidden:
 		return
 	_last_head_hidden = should_hide
 	for node in _cockpit_hidden_nodes:
 		if is_instance_valid(node):
 			node.visible = not should_hide
+			node.set_meta("recording_cockpit_hidden", should_hide)

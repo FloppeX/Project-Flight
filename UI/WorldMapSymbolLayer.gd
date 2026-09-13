@@ -13,6 +13,7 @@ const POI_ACTIVE_COLOR: Color = Color("ffb000")
 const POI_USED_COLOR: Color = Color("7d8282")
 const PLANT_PATCH_COLOR: Color = Color(0.42, 0.68, 0.34, 0.62)
 const PLANT_PATCH_OUTLINE_COLOR: Color = Color(0.74, 0.92, 0.58, 0.38)
+const DOWNED_PILOT_OUTLINE_COLOR: Color = Color(0.03, 0.03, 0.03, 0.92)
 
 @export var player_color: Color = Color("ffb000")
 @export var friendly_color: Color = Color("76c7c7")
@@ -33,6 +34,8 @@ const PLANT_PATCH_OUTLINE_COLOR: Color = Color(0.74, 0.92, 0.58, 0.38)
 @export var aircraft_marker_size_px: float = 13.0
 @export var carrier_marker_length_px: float = 18.0
 @export var carrier_marker_width_px: float = 12.0
+@export var downed_pilot_marker_size_px: float = 20.0
+@export var downed_pilot_color: Color = Color("ffb000")
 @export var platoon_reveal_observer_height_m: float = 12.0
 @export var platoon_reveal_target_height_m: float = 10.0
 @export var platoon_reveal_sample_step_m: float = 80.0
@@ -70,6 +73,7 @@ var _draft_points: Array[Vector3] = []
 var _draft_color: Color = draft_waypoint_color
 var _draft_closed_loop: bool = false
 var _view_uv_rect: Rect2 = Rect2(Vector2.ZERO, Vector2.ONE)
+var _continuous_updates: bool = true
 
 func _ready() -> void:
 	add_to_group("origin_shifter")
@@ -89,12 +93,25 @@ func _ready() -> void:
 	_layout_counts_label()
 
 func _process(_delta: float) -> void:
-	if visible:
-		if show_contact_counters:
-			_update_counts_label()
-		elif _counts_label != null:
-			_counts_label.visible = false
-		queue_redraw()
+	if _continuous_updates:
+		refresh_now()
+
+
+func set_continuous_updates(enabled: bool) -> void:
+	_continuous_updates = enabled
+	set_process(enabled)
+	if not enabled:
+		refresh_now()
+
+
+func refresh_now() -> void:
+	if not visible:
+		return
+	if show_contact_counters:
+		_update_counts_label()
+	elif _counts_label != null:
+		_counts_label.visible = false
+	queue_redraw()
 
 func apply_origin_shift(offset: Vector3) -> void:
 	if _selection_world_pos != Vector3.INF:
@@ -130,6 +147,7 @@ func _draw() -> void:
 	if carrier and is_instance_valid(carrier):
 		_draw_route_from_points(carrier.global_position, _get_active_route_points(carrier), carrier_waypoint_color, true)
 		_draw_carrier_marker(carrier)
+	_draw_downed_pilot_markers()
 
 	for group_name: String in TRACKED_TEAMS:
 		for node in get_tree().get_nodes_in_group(group_name):
@@ -266,6 +284,74 @@ func _draw_ground_marker(node_3d: Node3D) -> void:
 		_draw_square_marker(map_pos, building_marker_size_px, color, false)
 	else:
 		draw_circle(map_pos, ground_marker_size_px * 0.55, color)
+
+
+func _draw_downed_pilot_markers() -> void:
+	if AirOpsManager == null or not is_instance_valid(AirOpsManager) \
+			or not AirOpsManager.has_method("get_downed_pilot_snapshot"):
+		return
+	var snapshot_variant: Variant = AirOpsManager.call("get_downed_pilot_snapshot")
+	if not (snapshot_variant is Array):
+		return
+	for entry_variant in snapshot_variant:
+		if not (entry_variant is Dictionary):
+			continue
+		var world_pos_variant: Variant = (entry_variant as Dictionary).get("position", Vector3.INF)
+		if not (world_pos_variant is Vector3):
+			continue
+		var world_pos := world_pos_variant as Vector3
+		# Air Ops has explicitly logged this friendly survivor's location, so the
+		# rescue marker remains visible even if the surrounding terrain is fogged.
+		if not _is_world_in_map_bounds(world_pos):
+			continue
+		_draw_downed_pilot_marker(_world_to_map(world_pos))
+
+
+func _draw_downed_pilot_marker(center: Vector2) -> void:
+	var geometry := _downed_pilot_marker_geometry(center, downed_pilot_marker_size_px)
+	var head_center: Vector2 = geometry.get("head_center", center)
+	var head_radius: float = float(geometry.get("head_radius", 2.0))
+	var segments: Array = geometry.get("segments", [])
+	for segment_variant in segments:
+		if segment_variant is PackedVector2Array:
+			draw_polyline(segment_variant, DOWNED_PILOT_OUTLINE_COLOR, 4.5, true)
+	draw_circle(head_center, head_radius + 1.4, DOWNED_PILOT_OUTLINE_COLOR, true, -1.0, true)
+	for segment_variant in segments:
+		if segment_variant is PackedVector2Array:
+			draw_polyline(segment_variant, downed_pilot_color, 2.4, true)
+	draw_circle(head_center, head_radius, downed_pilot_color, true, -1.0, true)
+
+
+func _downed_pilot_marker_geometry(center: Vector2, marker_size_px: float) -> Dictionary:
+	var marker_size := maxf(marker_size_px, 8.0)
+	var head_center := center + Vector2(0.0, -marker_size * 0.22)
+	var shoulder := center + Vector2(0.0, -marker_size * 0.04)
+	var hips := center + Vector2(0.0, marker_size * 0.20)
+	return {
+		"head_center": head_center,
+		"head_radius": marker_size * 0.105,
+		"segments": [
+			PackedVector2Array([shoulder, hips]),
+			PackedVector2Array([
+				shoulder,
+				center + Vector2(-marker_size * 0.23, -marker_size * 0.25),
+				center + Vector2(-marker_size * 0.39, -marker_size * 0.48),
+			]),
+			PackedVector2Array([
+				shoulder,
+				center + Vector2(marker_size * 0.23, -marker_size * 0.25),
+				center + Vector2(marker_size * 0.39, -marker_size * 0.48),
+			]),
+			PackedVector2Array([
+				hips,
+				center + Vector2(-marker_size * 0.25, marker_size * 0.50),
+			]),
+			PackedVector2Array([
+				hips,
+				center + Vector2(marker_size * 0.25, marker_size * 0.50),
+			]),
+		],
+	}
 
 
 func _draw_plant_patch_markers() -> void:

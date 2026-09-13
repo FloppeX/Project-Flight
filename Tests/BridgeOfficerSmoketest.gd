@@ -337,7 +337,9 @@ func _run() -> void:
 		if flight_director != null:
 			if bool(flight_director.call("is_free_camera_active")):
 				flight_director.call("_toggle_free_camera")
-			commander.get_node("Camera3D").current = true
+			var commander_camera := commander.get_node("Camera3D") as Camera3D
+			commander_camera.current = true
+			var expected_free_camera_transform := commander_camera.global_transform
 			flight_director.call("_toggle_free_camera")
 			var free_camera := scene.get_node_or_null("FreeCamera") as Camera3D
 			_expect(
@@ -347,14 +349,9 @@ func _run() -> void:
 				"test could not enter the free camera"
 			)
 			if free_camera != null:
-				var officer_focus := commander.global_position + Vector3.UP * 1.05
-				var camera_to_officer := (
-					officer_focus - free_camera.global_position
-				).normalized()
 				_expect(
-					free_camera.global_position.distance_to(officer_focus) > 2.0 \
-						and (-free_camera.global_basis.z).dot(camera_to_officer) > 0.99,
-					"bridge free camera did not start outside and aimed at the officer"
+					free_camera.global_transform.is_equal_approx(expected_free_camera_transform),
+					"bridge free camera did not preserve the player's exact viewpoint"
 				)
 
 			var free_cam_walk_start := commander.position
@@ -387,7 +384,7 @@ func _run() -> void:
 		commander.queue_free()
 
 	if _failures.is_empty():
-		print("[BridgeOfficerSmoketest] PASS female_imported=true male_imported=true human_scale=true skinned=true rig_controls_hidden=true player_primary_uniform=true officer_switch_o=true inactive_rig_stopped=true dance_count=7 dance_random_d=true dance_one_shot=true dance_returns_selected_idle=true external_visible=true first_person_hidden=true idle_cycle=7 visible_skeleton_motion=true walk=true arrows_switched=true arrow_left_right=true free_camera_third_person=true free_camera_officer_control=true gamepad_camera_only=true")
+		print("[BridgeOfficerSmoketest] PASS female_imported=true male_imported=true human_scale=true skinned=true rig_controls_hidden=true player_primary_uniform=true officer_switch_o=true inactive_rig_stopped=true dance_count=7 dance_random_d=true dance_one_shot=true dance_returns_selected_idle=true external_visible=true first_person_hidden=true idle_cycle=7 visible_skeleton_motion=true walk=true arrows_switched=true arrow_left_right=true free_camera_view_preserved=true free_camera_officer_control=true gamepad_camera_only=true")
 		quit(0)
 	else:
 		for failure in _failures:

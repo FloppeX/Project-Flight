@@ -38,7 +38,7 @@ class_name Commander
 @export var chase_camera_focus_local_position: Vector3 = Vector3(0.0, 4.0, 0.0)
 @export var cinematic_camera_local_position: Vector3 = Vector3(95.0, 58.0, -125.0)
 @export var cinematic_camera_focus_local_position: Vector3 = Vector3(0.0, 6.0, 0.0)
-@export var control_room_ambience: AudioStream = preload("res://Audio/Carrier/control_room_ambience.wav")
+@export var control_room_ambience: AudioStream = preload("res://Audio/Carrier/interior_ventilation.ogg")
 @export var control_room_ambience_bus: String = "Master"
 @export var control_room_ambience_volume_db: float = -10.0
 @export var control_room_ambience_pitch_scale: float = 1.0
@@ -52,6 +52,10 @@ class_name Commander
 @export var control_room_wind_pitch_max: float = 1.02
 @export var control_room_wind_full_speed_mps: float = 12.0
 @export var control_room_wind_silence_db: float = -80.0
+@export_group("Computer Stations")
+@export var computer_camera_transition_s: float = 0.45
+@export var computer_screen_focus_s: float = 0.24
+@export var computer_interact_keyboard_key: Key = KEY_E
 
 @onready var commander_camera: Camera3D = $Camera3D
 @onready var body_visual: Node3D = $BodyVisual
@@ -73,6 +77,8 @@ var _was_active_view: bool = false
 var _zoom_button_prev_pressed: bool = false
 var _control_room_audio_player: AudioStreamPlayer
 var _control_room_wind_player: AudioStreamPlayer
+var _audio_room_check_time: float = 0.0
+var _audio_inside_room: bool = true
 var _active_view_mode: int = 0
 var _chase_camera: Camera3D = null
 var _cinematic_camera: Camera3D = null
@@ -85,10 +91,17 @@ var _officer_visuals: Array[Node3D] = []
 var _active_officer_index: int = 0
 var _officer_dancing: bool = false
 var _last_officer_dance: StringName = &""
+var _coffee_visual: Node3D = null
 var _arrow_forward_pressed: bool = false
 var _arrow_backward_pressed: bool = false
 var _arrow_left_pressed: bool = false
 var _arrow_right_pressed: bool = false
+var _computer_station_candidate: Node3D = null
+var _active_computer_station: Node3D = null
+var _computer_camera_tween: Tween = null
+var _computer_camera_transitioning: bool = false
+var _standing_camera_transform: Transform3D = Transform3D.IDENTITY
+var _standing_camera_fov: float = 75.0
 
 const VIEW_CONTROL_ROOM: int = 0
 const VIEW_CHASE: int = 1
@@ -138,10 +151,18 @@ func _ready() -> void:
 	else:
 		print("[Commander] WARNING: No commander_camera found!")
 	_setup_control_room_audio()
+	var footsteps := preload("res://Audio/OfficerFootsteps.gd").new()
+	footsteps.name = "OfficerFootsteps"
+	add_child(footsteps)
 	_setup_control_room_wind_audio()
+	_connect_carrier_console()
 
 
 func _input(event: InputEvent) -> void:
+	if FlightDirector.recording_camera_active: return
+	if _handle_computer_station_input(event):
+		get_viewport().set_input_as_handled()
+		return
 	var key_event := event as InputEventKey
 	if key_event == null:
 		return
@@ -169,6 +190,14 @@ func _input(event: InputEvent) -> void:
 			if key_event.pressed and not key_event.echo \
 					and (_is_active_view() or _is_free_camera_view()):
 				_start_random_officer_dance()
+		KEY_B:
+			if key_event.pressed and not key_event.echo \
+					and (_is_active_view() or _is_free_camera_view()) \
+					and _active_computer_station == null \
+					and not _computer_camera_transitioning \
+					and get_viewport().gui_get_focus_owner() == null:
+				_start_officer_sip()
+				get_viewport().set_input_as_handled()
 
 
 func _notification(what: int) -> void:
@@ -185,22 +214,46 @@ func _process(delta: float) -> void:
 	var zoom_button_just_pressed := zoom_button_pressed and not _zoom_button_prev_pressed
 	_zoom_button_prev_pressed = zoom_button_pressed
 	if active_view and not _was_active_view:
-		_apply_zoom(true)
+		if _active_computer_station == null and not _computer_camera_transitioning:
+			_apply_zoom(true)
 		_set_glass_visible(false)
 	elif not active_view and _was_active_view:
 		_set_glass_visible(true)
-	if active_view and (Input.is_action_just_pressed("toggle_zoom") or zoom_button_just_pressed):
+	if active_view and _active_computer_station == null and not _computer_camera_transitioning \
+			and (Input.is_action_just_pressed("toggle_zoom") or zoom_button_just_pressed):
 		_is_zoomed = not _is_zoomed
 		_apply_zoom()
 	_was_active_view = active_view
 	_update_body_visibility(active_view)
-	_update_control_room_audio(delta, active_view)
-	_update_control_room_wind_audio(delta, active_view)
+	_audio_room_check_time -= delta
+	if _audio_room_check_time <= 0.0:
+		_audio_room_check_time = 0.25
+		_audio_inside_room = _has_interior_ceiling()
+	_update_control_room_audio(delta, active_view and _audio_inside_room)
+	_update_control_room_wind_audio(delta, active_view and _audio_inside_room)
 	_update_external_camera_transforms()
+	_update_computer_station_candidate()
 
 func _physics_process(delta: float) -> void:
+	if FlightDirector.recording_camera_active:
+		velocity = Vector3.ZERO
+		_set_officer_moving(false)
+		return
 	var active_commander_view := _is_active_view()
 	var active_free_camera_view := _is_free_camera_view()
+	if _active_computer_station != null or _computer_camera_transitioning:
+		if not is_instance_valid(_active_computer_station) and not _computer_camera_transitioning:
+			leave_computer_station()
+		elif not _computer_camera_transitioning \
+				and _active_computer_station.has_method("update_station_control"):
+			if _active_computer_station.has_method("is_station_control_active") \
+					and not bool(_active_computer_station.call("is_station_control_active")):
+				leave_computer_station()
+			else:
+				_active_computer_station.call("update_station_control", delta)
+		velocity = Vector3.ZERO
+		_set_officer_moving(false)
+		return
 	if not active_commander_view and not active_free_camera_view:
 		velocity = Vector3.ZERO
 		_set_officer_moving(false)
@@ -248,6 +301,9 @@ func _physics_process(delta: float) -> void:
 
 func _set_officer_moving(moving: bool) -> void:
 	_officer_moving = moving
+	if _coffee_visual != null and _active_officer_visual() == _coffee_visual:
+		_coffee_visual.call("set_walking", moving, walk_speed_mps)
+		return
 	if _officer_dancing:
 		if not moving:
 			return
@@ -279,6 +335,29 @@ func _set_officer_moving(moving: bool) -> void:
 		played = true
 	if played:
 		_officer_animation = target_animation
+
+
+func _start_officer_sip() -> void:
+	if _officer_moving:
+		return
+	if _coffee_visual == null:
+		_coffee_visual = load("res://Models/Characters/OfficerFemaleCoffee.tscn").instantiate()
+		_coffee_visual.name = "BodyVisualCoffee"
+		add_child(_coffee_visual)
+		_officer_visuals.append(_coffee_visual)
+		var livery := get_node_or_null("/root/Livery")
+		if livery != null:
+			livery.call("apply", _coffee_visual)
+	if _active_officer_visual() != _coffee_visual:
+		_activate_officer(_officer_visuals.find(_coffee_visual))
+	var player := _coffee_visual.get_node("AnimationPlayer") as AnimationPlayer
+	if player.current_animation != &"Coffee_Sip" or not player.is_playing():
+		_coffee_visual.call("play_sip")
+
+
+func _visual_animation_player(visual: Node3D) -> AnimationPlayer:
+	var player := visual.get_node_or_null("BakedAnimationPlayer") as AnimationPlayer
+	return player if player != null else visual.get_node_or_null("AnimationPlayer") as AnimationPlayer
 
 
 func _cycle_officer_idle() -> void:
@@ -356,7 +435,7 @@ func _switch_officer() -> void:
 	_activate_officer((_active_officer_index + 1) % _officer_visuals.size())
 	print(
 		"[Commander] Officer: %s"
-		% ("male" if _active_officer_index == 1 else "female")
+		% ("coffee officer" if _active_officer_visual() == _coffee_visual else "male" if _active_officer_index == 1 else "female")
 	)
 
 
@@ -367,14 +446,15 @@ func _activate_officer(officer_index: int) -> void:
 	_officer_dancing = false
 	_active_officer_index = wrapi(officer_index, 0, _officer_visuals.size())
 	for index in range(_officer_visuals.size()):
-		var animation_player := _officer_visuals[index].get_node_or_null(
-			"BakedAnimationPlayer"
-		) as AnimationPlayer
+		var animation_player := _visual_animation_player(_officer_visuals[index])
 		if animation_player == null:
 			continue
 		if index == _active_officer_index:
 			_officer_visuals[index].process_mode = Node.PROCESS_MODE_INHERIT
 			animation_player.active = true
+			if _officer_visuals[index] == _coffee_visual:
+				_coffee_visual.call("set_walking", false)
+				animation_player.play(&"Coffee_Hold")
 		else:
 			if _officer_visuals[index].has_method("stop_baked_animation"):
 				_officer_visuals[index].call("stop_baked_animation", false)
@@ -382,9 +462,7 @@ func _activate_officer(officer_index: int) -> void:
 				animation_player.stop()
 			animation_player.active = false
 			_officer_visuals[index].process_mode = Node.PROCESS_MODE_DISABLED
-	_officer_animation_player = _active_officer_visual().get_node_or_null(
-		"BakedAnimationPlayer"
-	) as AnimationPlayer
+	_officer_animation_player = _visual_animation_player(_active_officer_visual())
 	_officer_animation = &""
 	_set_officer_moving(_officer_moving)
 	_update_body_visibility(_is_active_view())
@@ -437,6 +515,273 @@ func _reset_arrow_key_state() -> void:
 	_arrow_backward_pressed = false
 	_arrow_left_pressed = false
 	_arrow_right_pressed = false
+
+
+func _handle_computer_station_input(event: InputEvent) -> bool:
+	if _active_computer_station != null or _computer_camera_transitioning:
+		if _is_computer_exit_event(event):
+			leave_computer_station()
+			return true
+		if is_instance_valid(_active_computer_station) \
+				and _active_computer_station.has_method("handle_station_input"):
+			if _computer_camera_transitioning:
+				return event is InputEventJoypadButton or event is InputEventJoypadMotion
+			return bool(_active_computer_station.call("handle_station_input", event))
+		return false
+	if not _is_computer_use_event(event):
+		return false
+	_update_computer_station_candidate()
+	if _computer_station_candidate == null:
+		return false
+	return enter_computer_station(_computer_station_candidate)
+
+
+func _is_computer_use_event(event: InputEvent) -> bool:
+	if event is InputEventJoypadButton:
+		var button_event := event as InputEventJoypadButton
+		return button_event.pressed and button_event.button_index == JOY_BUTTON_A
+	if event is InputEventKey:
+		var key_event := event as InputEventKey
+		var keycode := key_event.physical_keycode
+		if keycode == KEY_NONE:
+			keycode = key_event.keycode
+		return key_event.pressed and not key_event.echo and keycode == computer_interact_keyboard_key
+	return false
+
+
+func _is_computer_exit_event(event: InputEvent) -> bool:
+	if event is InputEventJoypadButton:
+		var button_event := event as InputEventJoypadButton
+		return button_event.pressed and button_event.button_index == JOY_BUTTON_B
+	return event.is_action_pressed("ui_cancel", false)
+
+
+func _update_computer_station_candidate() -> void:
+	var previous_candidate := _computer_station_candidate
+	_computer_station_candidate = null
+	if _can_offer_computer_station_interaction():
+		var best_score := -INF
+		for node in get_tree().get_nodes_in_group("computer_station"):
+			if not is_instance_valid(node) or not node.has_method("get_interaction_score"):
+				continue
+			var score := float(node.call("get_interaction_score", commander_camera))
+			if score > best_score:
+				best_score = score
+				_computer_station_candidate = node as Node3D
+	if previous_candidate != _computer_station_candidate \
+			and is_instance_valid(previous_candidate) \
+			and previous_candidate.has_method("set_interaction_available"):
+		previous_candidate.call("set_interaction_available", false)
+	if is_instance_valid(_computer_station_candidate) \
+			and _computer_station_candidate.has_method("set_interaction_available"):
+		_computer_station_candidate.call("set_interaction_available", true)
+
+
+func _can_offer_computer_station_interaction() -> bool:
+	if not _is_active_view() or _active_view_mode != VIEW_CONTROL_ROOM \
+			or _active_computer_station != null or _computer_camera_transitioning:
+		return false
+	var console := _carrier_console()
+	return console == null or not console.has_method("is_open") \
+		or not bool(console.call("is_open"))
+
+
+func enter_computer_station(station: Node3D) -> bool:
+	if station == null or not is_instance_valid(station) \
+			or not station.has_method("get_camera_anchor_transform") \
+			or commander_camera == null or not _is_active_view() \
+			or _active_computer_station != null:
+		return false
+	_active_computer_station = station
+	_computer_camera_transitioning = true
+	_standing_camera_transform = commander_camera.transform
+	_standing_camera_fov = commander_camera.fov
+	velocity = Vector3.ZERO
+	_set_officer_moving(false)
+	_clear_computer_station_candidate()
+	if station.has_method("set_in_use"):
+		station.call("set_in_use", true)
+
+	var anchor_global: Transform3D = station.call("get_camera_anchor_transform") as Transform3D
+	var target_transform := global_transform.affine_inverse() * anchor_global
+	var target_fov := _standing_camera_fov
+	if station.has_method("get_seated_camera_fov"):
+		target_fov = float(station.call("get_seated_camera_fov"))
+	var focus_transform := target_transform
+	if station.has_method("get_screen_focus_camera_transform"):
+		var focus_global: Transform3D = station.call(
+			"get_screen_focus_camera_transform"
+		) as Transform3D
+		focus_transform = global_transform.affine_inverse() * focus_global
+	var focus_fov := target_fov
+	if station.has_method("get_screen_focus_fov"):
+		var viewport_size := get_viewport().get_visible_rect().size
+		var viewport_aspect := 16.0 / 9.0
+		if viewport_size.y > 0.0:
+			viewport_aspect = viewport_size.x / viewport_size.y
+		focus_fov = float(station.call("get_screen_focus_fov", viewport_aspect))
+	_start_computer_enter_camera_tween(
+		target_transform,
+		target_fov,
+		focus_transform,
+		focus_fov
+	)
+	return true
+
+
+func leave_computer_station(close_console: bool = true) -> bool:
+	if _active_computer_station == null and not _computer_camera_transitioning:
+		return false
+	var station := _active_computer_station
+	_active_computer_station = null
+	_computer_camera_transitioning = true
+	if is_instance_valid(station) and station.has_method("set_in_use"):
+		station.call("set_in_use", false)
+	if close_console:
+		var console := _carrier_console()
+		if console != null and console.has_method("is_open") \
+				and bool(console.call("is_open")) and console.has_method("set_open"):
+			console.call("set_open", false)
+	_start_computer_camera_tween(
+		_standing_camera_transform,
+		_standing_camera_fov,
+		false
+	)
+	return true
+
+
+func is_using_computer_station() -> bool:
+	return _active_computer_station != null
+
+
+func _start_computer_enter_camera_tween(
+	anchor_transform: Transform3D,
+	anchor_fov: float,
+	focus_transform: Transform3D,
+	focus_fov: float
+) -> void:
+	if _computer_camera_tween != null and _computer_camera_tween.is_valid():
+		_computer_camera_tween.kill()
+	var seat_duration := maxf(computer_camera_transition_s, 0.0)
+	var focus_duration := maxf(computer_screen_focus_s, 0.0)
+	if seat_duration <= 0.0 and focus_duration <= 0.0:
+		_apply_computer_camera_pose(focus_transform, focus_fov)
+		_finish_computer_camera_transition(true)
+		return
+
+	_computer_camera_tween = create_tween()
+	if seat_duration > 0.0:
+		_computer_camera_tween.tween_property(
+			commander_camera,
+			"transform",
+			anchor_transform,
+			seat_duration
+		).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+		_computer_camera_tween.parallel().tween_property(
+			commander_camera,
+			"fov",
+			anchor_fov,
+			seat_duration
+		).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	else:
+		_apply_computer_camera_pose(anchor_transform, anchor_fov)
+
+	if focus_duration > 0.0:
+		_computer_camera_tween.tween_property(
+			commander_camera,
+			"transform",
+			focus_transform,
+			focus_duration
+		).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+		_computer_camera_tween.parallel().tween_property(
+			commander_camera,
+			"fov",
+			focus_fov,
+			focus_duration
+		).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	elif seat_duration > 0.0:
+		_computer_camera_tween.tween_callback(
+			_apply_computer_camera_pose.bind(focus_transform, focus_fov)
+		)
+	else:
+		_apply_computer_camera_pose(focus_transform, focus_fov)
+
+	_computer_camera_tween.tween_callback(
+		_finish_computer_camera_transition.bind(true)
+	)
+
+
+func _apply_computer_camera_pose(target_transform: Transform3D, target_fov: float) -> void:
+	commander_camera.transform = target_transform
+	commander_camera.fov = target_fov
+
+
+func _start_computer_camera_tween(
+		target_transform: Transform3D,
+		target_fov: float,
+		entering: bool
+) -> void:
+	if _computer_camera_tween != null and _computer_camera_tween.is_valid():
+		_computer_camera_tween.kill()
+	var duration := maxf(computer_camera_transition_s, 0.0)
+	if duration <= 0.0:
+		commander_camera.transform = target_transform
+		commander_camera.fov = target_fov
+		_finish_computer_camera_transition(entering)
+		return
+	_computer_camera_tween = create_tween()
+	_computer_camera_tween.set_parallel(true)
+	_computer_camera_tween.tween_property(
+		commander_camera,
+		"transform",
+		target_transform,
+		duration
+	).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	_computer_camera_tween.tween_property(
+		commander_camera,
+		"fov",
+		target_fov,
+		duration
+	).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	_computer_camera_tween.chain().tween_callback(
+		_finish_computer_camera_transition.bind(entering)
+	)
+
+
+func _finish_computer_camera_transition(entering: bool) -> void:
+	_computer_camera_transitioning = false
+	if not entering or _active_computer_station == null:
+		return
+	if _active_computer_station.has_method("activate_station"):
+		_active_computer_station.call("activate_station")
+		return
+	var console := _carrier_console()
+	if console != null and console.has_method("show_page"):
+		console.call("show_page", "tactical", true)
+
+
+func _clear_computer_station_candidate() -> void:
+	if is_instance_valid(_computer_station_candidate) \
+			and _computer_station_candidate.has_method("set_interaction_available"):
+		_computer_station_candidate.call("set_interaction_available", false)
+	_computer_station_candidate = null
+
+
+func _connect_carrier_console() -> void:
+	var console := _carrier_console()
+	var callback := Callable(self, "_on_carrier_console_closed")
+	if console != null and console.has_signal("closed") \
+			and not console.is_connected("closed", callback):
+		console.connect("closed", callback)
+
+
+func _on_carrier_console_closed() -> void:
+	if _active_computer_station != null:
+		leave_computer_station(false)
+
+
+func _carrier_console() -> Node:
+	return get_node_or_null("/root/CarrierConsole")
 
 func _is_active_view() -> bool:
 	return commander_camera != null and commander_camera.current
@@ -605,8 +950,7 @@ func _setup_control_room_audio() -> void:
 	if control_room_ambience == null:
 		return
 
-	if control_room_ambience is AudioStreamWAV:
-		control_room_ambience.loop_mode = AudioStreamWAV.LOOP_FORWARD
+	control_room_ambience = preload("res://Audio/RuntimeAudio.gd").loop_stream(control_room_ambience)
 
 	_control_room_audio_player = AudioStreamPlayer.new()
 	_control_room_audio_player.name = "ControlRoomAmbience"
@@ -616,6 +960,15 @@ func _setup_control_room_audio() -> void:
 	_control_room_audio_player.volume_db = control_room_ambience_silence_db
 	add_child(_control_room_audio_player)
 	_control_room_audio_player.play()
+
+func _has_interior_ceiling() -> bool:
+	var carrier := get_parent() as Node3D
+	if carrier.get_node_or_null("CommanderWalkArea") == null:
+		return true
+	var head := position + Vector3.UP * 1.8
+	var query := PhysicsRayQueryParameters3D.create(carrier.to_global(head), carrier.to_global(head + Vector3.UP * 6.0), 1 << 20)
+	query.hit_back_faces = true
+	return not get_world_3d().direct_space_state.intersect_ray(query).is_empty()
 
 func _setup_control_room_wind_audio() -> void:
 	if control_room_wind == null:

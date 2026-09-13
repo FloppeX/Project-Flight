@@ -58,6 +58,9 @@ var _ejection_committed: bool = false
 var _using_pool: bool = false
 var _pilot_pool: Node = null
 var _static_seated_pose_requested: bool = false
+var _recording_presentation_active := false
+var _normal_presentation_active := false
+var _recording_previous_visibility := true
 
 
 func _ready() -> void:
@@ -79,9 +82,26 @@ func is_pooled_aircraft_occupant_mount() -> bool:
 
 
 func set_presentation_active(active: bool) -> void:
+	_normal_presentation_active = active
+	_apply_presentation_active(active or _recording_presentation_active)
+
+func set_recording_presentation_active(active: bool) -> void:
+	if _recording_presentation_active == active: return
+	if active:
+		_recording_previous_visibility = visible
+		visible = true
+	else:
+		visible = true if _normal_presentation_active else _recording_previous_visibility
+	_recording_presentation_active = active
+	_apply_presentation_active(active or _normal_presentation_active)
+
+func _apply_presentation_active(active: bool) -> void:
 	if active:
 		var pilot := _acquire_visual(false, false)
-		if pilot != null and _static_seated_pose_requested:
+		if pilot != null and _ejection_committed:
+			if pilot.has_method("refresh_cockpit_visibility"):
+				pilot.call("refresh_cockpit_visibility")
+		elif pilot != null and _static_seated_pose_requested:
 			_apply_static_seated_pose_to_visual(pilot)
 		elif pilot != null and pilot.has_method("set_presentation_active"):
 			pilot.call("set_presentation_active", true)
@@ -96,6 +116,12 @@ func set_ejection_pose(pose_name: StringName, blend_time_s: float = -1.0) -> voi
 	var pilot := _acquire_visual(false, false)
 	if pilot != null and pilot.has_method("set_ejection_pose"):
 		pilot.call("set_ejection_pose", pose_name, blend_time_s)
+
+
+func commit_ejection_presentation() -> void:
+	# Once the body has left the aircraft, ordinary aircraft visual budgeting no
+	# longer owns this checked-out actor. Keep it until the ejection mount exits.
+	_ejection_committed = true
 
 
 func play_baked_animation(animation_name: StringName, speed_scale: float = 1.0) -> bool:

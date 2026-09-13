@@ -83,6 +83,23 @@ var _has_aircraft_carrier_local_basis: bool = false
 
 var _is_ready: bool = false
 
+
+func is_available_for_launch() -> bool:
+	## A second launch lane may prepare independently, but it must not hand a new
+	## aircraft to this controller until the previous shuttle is back at its latch.
+	return _is_ready \
+			and not is_instance_valid(_aircraft) \
+			and not _alignment_pending \
+			and not _settling \
+			and not _moving_to_latch \
+			and not _latched \
+			and not _launching \
+			and not _engine_starting \
+			and not _spooling_up \
+			and not _hold_at_power \
+			and not _returning_to_connect \
+			and _pin_at_connect_point
+
 func _ready():
 	if not shuttle or not latch_marker or not release_marker:
 		print("ERROR: Catapult requires shuttle, latch_marker, and release_marker to be assigned in the Inspector!")

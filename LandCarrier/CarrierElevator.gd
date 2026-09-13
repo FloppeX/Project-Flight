@@ -106,6 +106,7 @@ func _ready():
 		set_technical_index_preview_fraction(_technical_index_preview_fraction)
 		return
 	print("Setting up elevator system...")
+	add_to_group("origin_shifter")
 	create_elevator_components()
 	set_initial_state()
 	print("Elevator setup complete.")
@@ -459,6 +460,33 @@ func _sync_physical_transforms() -> void:
 	_sync_physical_part(right_cover, _get_right_cover_local_transform())
 
 
+func _sync_transport_frame_immediate() -> void:
+	# These AnimatableBody3Ds are top-level, not RigidBody3Ds: translating the
+	# carrier (including FloatingOrigin's rigid-body pass) does not move them.
+	# Tie-down anchors must see the same world frame as the retrieved aircraft,
+	# even when retrieval happens before this elevator's next physics callback.
+	force_update_transform()
+	var parts := [platform, left_cover, right_cover]
+	var locals := [_get_platform_local_transform(), _get_left_cover_local_transform(), _get_right_cover_local_transform()]
+	for i in parts.size():
+		var part := parts[i] as AnimatableBody3D
+		if part == null: continue
+		var target: Transform3D = global_transform * locals[i]
+		# sync_to_physics defers node motion and can leave global_transform at
+		# its previous value until the next tick. A frame change is a teleport,
+		# not elevator motion; install it synchronously on both sides.
+		var was_synced := part.sync_to_physics
+		part.sync_to_physics = false
+		part.global_transform = target
+		PhysicsServer3D.body_set_state(part.get_rid(), PhysicsServer3D.BODY_STATE_TRANSFORM, target)
+		part.sync_to_physics = was_synced
+		part.reset_physics_interpolation()
+
+
+func apply_origin_shift(_offset: Vector3) -> void:
+	_sync_transport_frame_immediate()
+
+
 func _sync_visual_transforms() -> void:
 	# Render roots stay ordinary carrier children. Never copy a physics body's
 	# compensated local transform here: that is what left the old visuals behind
@@ -555,6 +583,7 @@ func create_platform_restraint(body: RigidBody3D) -> Generic6DOFJoint3D:
 	if is_instance_valid(existing_joint):
 		return existing_joint
 	release_platform_restraint(body)
+	_sync_transport_frame_immediate()
 	var joint := Generic6DOFJoint3D.new()
 	joint.name = "ElevatorRestraint_%s" % body.name
 	joint.exclude_nodes_from_collision = false

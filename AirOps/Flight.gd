@@ -2,6 +2,7 @@ class_name Flight
 extends Node
 
 const AirTaskModel: Script = preload("res://AI/AirTask.gd")
+const GroundTargetPriority: Script = preload("res://AI/GroundTargetPriority.gd")
 
 ## Manages a single named flight of 2-4 aircraft.
 ## Applies mission settings to each pilot and handles per-aircraft target
@@ -451,7 +452,9 @@ func _update_cas_assignments() -> void:
 			continue
 
 		# Only assign to aircraft that are free to accept a new target
-		if pilot.current_state not in [AIPilot.State.SEARCH, AIPilot.State.ATTACK_BREAK_OFF]:
+		# The pilot owns physical pull-out/egress. Assigning a fresh attack during
+		# BREAK_OFF used to cancel that recovery as soon as a claim disappeared.
+		if pilot.current_state != AIPilot.State.SEARCH:
 			continue
 
 		# Skip if this aircraft already has a live claim
@@ -472,6 +475,7 @@ func _update_cas_assignments() -> void:
 func _pick_unclaimed_target(from_pos: Vector3) -> Node3D:
 	var best: Node3D = null
 	var best_dist: float = INF
+	var best_threat_tier: int = 2
 	for node in _get_cas_target_nodes():
 		if not is_instance_valid(node):
 			continue
@@ -484,7 +488,9 @@ func _pick_unclaimed_target(from_pos: Vector3) -> Node3D:
 		if flat_dist > _cas_area_radius:
 			continue  # outside assigned area
 		var d := from_pos.distance_to(node.global_position)
-		if d < best_dist:
+		var threat_tier: int = GroundTargetPriority.threat_tier(node)
+		if threat_tier < best_threat_tier or (threat_tier == best_threat_tier and d < best_dist):
+			best_threat_tier = threat_tier
 			best_dist = d
 			best = node
 	return best
@@ -507,6 +513,11 @@ func _get_cas_target_nodes() -> Array[Node3D]:
 func _is_valid_cas_target(node: Node3D) -> bool:
 	if node == null or not is_instance_valid(node):
 		return false
+	for health_key in ["current_health", "health"]:
+		if health_key in node:
+			var health: Variant = node.get(health_key)
+			if typeof(health) in [TYPE_FLOAT, TYPE_INT] and float(health) <= 0.0:
+				return false
 	if node.has_method("get_team") and int(node.get_team()) == 1:
 		return false
 	if node.is_in_group("carrier"):
@@ -523,7 +534,7 @@ func _prune_stale_claims(report_splashes: bool) -> void:
 	var stale_claims: Array = []
 	for target_ref in _claimed_targets.keys():
 		var claimer_ref = _claimed_targets.get(target_ref)
-		var target_valid: bool = _is_live_node3d_ref(target_ref)
+		var target_valid: bool = _is_live_node3d_ref(target_ref) and _is_valid_cas_target(target_ref as Node3D)
 		var claimer_valid: bool = _is_live_node3d_ref(claimer_ref)
 		if not target_valid:
 			if report_splashes and claimer_valid:

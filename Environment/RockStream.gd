@@ -66,6 +66,7 @@ const SUPPORT_SAMPLE_DIRECTIONS := [
 ## Minimum cell movement before rebuilding the rock set
 @export var cells_threshold: int = 2
 @export var seed: int = 12345
+@export var population_budget_ms: float = 2.0
 
 var _mmi: MultiMeshInstance3D
 var _mm: MultiMesh
@@ -81,10 +82,24 @@ var _detail_mask: FastNoiseLite
 var _cell_cache: Dictionary = {}
 var _last_candidate_evaluation_count: int = 0
 var _last_reused_cell_count: int = 0
+var _world_offset := Vector3.ZERO
+var _pending: Array[Vector2i] = []
+var _pending_index := 0
+var _snap_pending: Dictionary = {}
+var _snap_queue: Array = []
+var _snap_index := 0
+var _next_snap_msec := 0
+var _last_snap_valid := false
+var _dirty := false
+var _visible_count := 0
+var _max_slice_ms := 0.0
 
 func _ready() -> void:
 	add_to_group("origin_shifter")
 	_mmi = MultiMeshInstance3D.new()
+	# Slots may be repacked as cells leave. Static scenery must not interpolate
+	# from a different rock's former slot position.
+	_mmi.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	add_child(_mmi)
 	_mm = MultiMesh.new()
 	_mm.transform_format = MultiMesh.TRANSFORM_3D
@@ -99,11 +114,22 @@ func _ready() -> void:
 	_build_detail_mask()
 	# Terrain lookup — find via group set in LowPolyTerrain._ready()
 	_terrain = get_tree().get_first_node_in_group("terrain_provider") as LowPolyTerrain
+	var grid := get_node_or_null("/root/TerrainNavGrid")
+	if grid != null: grid.bake_invalidated.connect(invalidate)
 
-func apply_origin_shift(_offset: Vector3) -> void:
-	# Force a full rebuild on the next _process — the camera's cell will have changed
+func invalidate() -> void:
 	_last_center_cell = Vector2i(1_000_000, 1_000_000)
 	_cell_cache.clear()
+	_pending.clear()
+	_snap_pending.clear()
+	_snap_queue.clear()
+	_pending_index = 0
+	_dirty = true
+
+func apply_origin_shift(offset: Vector3) -> void:
+	# The hierarchy moves the MultiMesh with the terrain. Keys, seeds, queued
+	# work and local transforms remain in their original frame.
+	_world_offset -= offset
 
 func _process(_delta: float) -> void:
 	if _terrain == null:
@@ -128,64 +154,96 @@ func _process(_delta: float) -> void:
 		forward.y = 0.0
 		if forward.length_squared() > 0.0001:
 			center += forward.normalized() * minf(preload_margin_m, radius_m * 0.5)
-	var cell := Vector2i(int(floor(center.x / cell_size_m)), int(floor(center.z / cell_size_m)))
+	var stable_center := center - _world_offset
+	var cell := Vector2i(int(floor(stable_center.x / cell_size_m)), int(floor(stable_center.z / cell_size_m)))
 	var delta_cells := cell - _last_center_cell
-	if abs(delta_cells.x) < cells_threshold and abs(delta_cells.y) < cells_threshold and _mm.instance_count > 0:
-		return
-	_last_center_cell = cell
-	_rebuild(center)
+	var profile_started := FrameProfiler.begin("RockStream.population")
+	var started := Time.get_ticks_usec()
+	if abs(delta_cells.x) >= cells_threshold or abs(delta_cells.y) >= cells_threshold:
+		_last_center_cell = cell
+		_queue_footprint(center)
+	_process_work(started + int(maxf(population_budget_ms, 0.1) * 1000.0))
+	_max_slice_ms = maxf(_max_slice_ms, (Time.get_ticks_usec() - started) / 1000.0)
+	FrameProfiler.end("RockStream.population", profile_started)
 
 func _rebuild(center: Vector3) -> void:
-	if _terrain == null or _rock_mesh == null:
-		return
-	var effective_radius := radius_m + preload_margin_m
-	var cell_radius := int(ceil(effective_radius / cell_size_m))
-	var center_cell := Vector2i(
-		int(floor(center.x / cell_size_m)),
-		int(floor(center.z / cell_size_m))
-	)
-	var desired_cells: Dictionary = {}
-	for gx in range(-cell_radius, cell_radius + 1):
-		for gz in range(-cell_radius, cell_radius + 1):
-			var cell_coord := center_cell + Vector2i(gx, gz)
-			var world_x: float = float(cell_coord.x) * cell_size_m + cell_size_m * 0.5
-			var world_z: float = float(cell_coord.y) * cell_size_m + cell_size_m * 0.5
-			var dx: float = world_x - center.x
-			var dz: float = world_z - center.z
-			if dx * dx + dz * dz <= effective_radius * effective_radius:
-				desired_cells[cell_coord] = true
+	# Synchronous fixture/tool entry point. Runtime only uses budgeted work.
+	_queue_footprint(center)
+	while _pending_index < _pending.size():
+		_process_work(Time.get_ticks_usec() + 1000000)
 
-	# Preserve both occupied and empty cells while they remain inside the stream
-	# circle. Only the newly entered edge strip needs terrain checks and raycasts.
-	for cell_variant in _cell_cache.keys():
-		if not desired_cells.has(cell_variant):
-			_cell_cache.erase(cell_variant)
+func _queue_footprint(center_world: Vector3) -> void:
+	if not is_instance_valid(_terrain) or _rock_mesh == null: return
+	var center := center_world - _world_offset
+	var radius := radius_m + preload_margin_m
+	var cell_radius := int(ceil(radius / cell_size_m))
+	var center_cell := Vector2i(int(floor(center.x / cell_size_m)), int(floor(center.z / cell_size_m)))
+	var desired: Dictionary = {}
+	# Square rings give near-first ordering without a per-transfer sort.
+	for ring in range(cell_radius + 1):
+		for gx in range(-ring, ring + 1):
+			var z_values = range(-ring, ring + 1) if absi(gx) == ring else [-ring, ring]
+			for gz in z_values:
+				var key := center_cell + Vector2i(gx, gz)
+				var point := (Vector2(key) + Vector2.ONE * 0.5) * cell_size_m
+				if point.distance_squared_to(Vector2(center.x, center.z)) <= radius * radius:
+					desired[key] = true
+	for key in _cell_cache.keys():
+		if not desired.has(key):
+			_cell_cache.erase(key)
+			_snap_pending.erase(key)
+			_dirty = true
+	_pending.clear()
+	_pending_index = 0
 	_last_candidate_evaluation_count = 0
 	_last_reused_cell_count = 0
-	for cell_variant in desired_cells.keys():
-		var cell_coord: Vector2i = cell_variant
-		if _cell_cache.has(cell_coord):
+	for key in desired:
+		if _cell_cache.has(key):
 			_last_reused_cell_count += 1
-			continue
+		else:
+			_pending.append(key)
+	# Old retry entries are validated against _snap_pending when processed.
+
+func _process_work(deadline: int) -> void:
+	while _pending_index < _pending.size() and Time.get_ticks_usec() < deadline:
+		var key := _pending[_pending_index]
+		_pending_index += 1
+		var value: Variant = _evaluate_rock_cell(key)
+		_cell_cache[key] = null if _snap_pending.has(key) else value
 		_last_candidate_evaluation_count += 1
-		_cell_cache[cell_coord] = _evaluate_rock_cell(cell_coord)
+		_dirty = _dirty or value is Transform3D
+	if _snap_index >= _snap_queue.size() and Time.get_ticks_msec() >= _next_snap_msec:
+		_snap_queue = _snap_pending.keys()
+		_snap_index = 0
+		_next_snap_msec = Time.get_ticks_msec() + 250
+	while _snap_index < _snap_queue.size() and Time.get_ticks_usec() < deadline:
+		var key: Vector2i = _snap_queue[_snap_index]
+		_snap_index += 1
+		if not _snap_pending.has(key): continue
+		var candidate: Transform3D = _snap_pending[key]
+		var point := to_global(candidate.origin)
+		if _terrain.use_streaming and not _terrain.is_chunk_loaded_at_world_position(point): continue
+		var embed := embed_depth_m + _rock_local_height * candidate.basis.get_scale().y * embed_depth_fraction_of_height
+		var fallback := point.y + _rock_local_min_y * candidate.basis.get_scale().y + embed
+		var height := _get_collision_surface_height(point.x, point.z, fallback)
+		if not _last_snap_valid: continue
+		candidate.origin.y += height - fallback
+		_cell_cache[key] = candidate
+		_snap_pending.erase(key)
+		_dirty = true
+	if _dirty: _upload_instances()
 
-	var transforms: Array[Transform3D] = []
-	for transform_variant in _cell_cache.values():
-		if transform_variant is Transform3D:
-			transforms.append(transform_variant as Transform3D)
-			if transforms.size() >= max_instances:
-				break
-	var count := transforms.size()
-	var new_multimesh := MultiMesh.new()
-	new_multimesh.transform_format = MultiMesh.TRANSFORM_3D
-	new_multimesh.mesh = _rock_mesh
-	new_multimesh.instance_count = count
-	for i in range(count):
-		new_multimesh.set_instance_transform(i, transforms[i])
-	_mm = new_multimesh
-	_mmi.multimesh = _mm
-
+func _upload_instances() -> void:
+	if _mm.instance_count != maxi(max_instances, 1):
+		_mm.instance_count = maxi(max_instances, 1)
+	_visible_count = 0
+	for value in _cell_cache.values():
+		if value is Transform3D:
+			if _visible_count >= max_instances: break
+			_mm.set_instance_transform(_visible_count, value)
+			_visible_count += 1
+	_mm.visible_instance_count = _visible_count
+	_dirty = false
 
 func _evaluate_rock_cell(cell_coord: Vector2i) -> Variant:
 	var world_x: float = float(cell_coord.x) * cell_size_m + cell_size_m * 0.5
@@ -196,6 +254,8 @@ func _evaluate_rock_cell(cell_coord: Vector2i) -> Variant:
 	rng.seed = _hash2i(int(world_x / cell_size_m), int(world_z / cell_size_m)) ^ seed
 	var px: float = world_x + rng.randf_range(-cell_size_m * 0.45, cell_size_m * 0.45)
 	var pz: float = world_z + rng.randf_range(-cell_size_m * 0.45, cell_size_m * 0.45)
+	px += _world_offset.x
+	pz += _world_offset.z
 	var yaw := rng.randf() * TAU
 	var rock_scale := rng.randf_range(min_scale, max_scale)
 	var height: float = _terrain.get_height(Vector3(px, 0.0, pz))
@@ -221,7 +281,10 @@ func _evaluate_rock_cell(cell_coord: Vector2i) -> Variant:
 	var embed: float = embed_depth_m + _rock_local_height * rock_scale * embed_depth_fraction_of_height
 	var rock_y: float = placement_height - _rock_local_min_y * rock_scale - embed
 	var local_pos := Vector3(px, rock_y, pz) - global_position
-	return Transform3D(basis, local_pos)
+	var candidate := Transform3D(basis, local_pos)
+	if snap_to_collision_surface and not _last_snap_valid:
+		_snap_pending[cell_coord] = candidate
+	return candidate
 
 
 func get_streaming_diagnostics() -> Dictionary:
@@ -229,7 +292,10 @@ func get_streaming_diagnostics() -> Dictionary:
 		"cached_cells": _cell_cache.size(),
 		"evaluated_cells": _last_candidate_evaluation_count,
 		"reused_cells": _last_reused_cell_count,
-		"rock_instances": _mm.instance_count if _mm != null else 0,
+		"rock_instances": _visible_count,
+		"pending_cells": _pending.size() - _pending_index,
+		"pending_collision": _snap_pending.size(),
+		"max_slice_ms": _max_slice_ms,
 	}
 
 
@@ -251,7 +317,7 @@ func _build_detail_mask() -> void:
 func _terrain_detail_density(px: float, pz: float, h: float, slope_amount: float) -> float:
 	var mask_t: float = 1.0
 	if _detail_mask != null:
-		var raw: float = clampf(_detail_mask.get_noise_2d(px, pz) * 0.5 + 0.5, 0.0, 1.0)
+		var raw: float = clampf(_detail_mask.get_noise_2d(px - _world_offset.x, pz - _world_offset.z) * 0.5 + 0.5, 0.0, 1.0)
 		var clustered: float = _smoothstep(detail_cluster_threshold, 1.0, raw)
 		mask_t = lerpf(1.0 - detail_mask_strength, 1.0 + detail_mask_strength, clustered)
 
@@ -278,6 +344,7 @@ func _smoothstep(edge0: float, edge1: float, x: float) -> float:
 	return t * t * (3.0 - 2.0 * t)
 
 func _get_collision_surface_height(px: float, pz: float, fallback_h: float) -> float:
+	_last_snap_valid = not snap_to_collision_surface
 	if not snap_to_collision_surface:
 		return fallback_h
 	var world := get_world_3d()
@@ -294,6 +361,7 @@ func _get_collision_surface_height(px: float, pz: float, fallback_h: float) -> f
 	if body is Node:
 		var body_node := body as Node
 		if body_node.is_in_group("terrain") or body_node.is_in_group("ground") or "terrain" in body_node.name.to_lower():
+			_last_snap_valid = true
 			return float(hit.position.y)
 	return fallback_h
 
@@ -340,8 +408,9 @@ func _load_mesh_from_scene(path: String) -> Mesh:
 	if res is PackedScene:
 		var inst := (res as PackedScene).instantiate()
 		var mi := _find_mesh_instance(inst)
-		if mi != null:
-			return mi.mesh
+		var mesh: Mesh = mi.mesh if mi != null else null
+		inst.free()
+		return mesh
 	elif res is Mesh:
 		return res as Mesh
 	return null

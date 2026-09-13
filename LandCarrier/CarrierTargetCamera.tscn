@@ -1,0 +1,6 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://LandCarrier/CarrierTargetCamera.gd" id="1_camera"]
+
+[node name="CarrierTargetCamera" type="Node3D" groups=["carrier_target_camera", "target_camera_focus_provider"]]
+script = ExtResource("1_camera")

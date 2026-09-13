@@ -228,6 +228,7 @@ cockpit_shadow_disable_paths = Array[NodePath]([NodePath("../Aircraft 1 new/Airc
 [node name="Hardpoint3" parent="." instance=ExtResource("28_ymevh")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.147108, 3.19015)
 mounted_weapon = ExtResource("31_kq7no")
+gun_only = true
 
 [node name="TailHook" parent="." instance=ExtResource("31_3f4kl")]
 transform = Transform3D(1, 0, 0, 0, 0.5, -0.866025, 0, 0.866025, 0.5, 0, -1.728, -2.409)

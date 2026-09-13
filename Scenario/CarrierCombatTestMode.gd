@@ -129,6 +129,13 @@ enum Stage { SETUP, GROUND_STRIKE, AIR_COMBAT, RECOVERY, ROLLING, COMPLETE }
 ## logging the normal handoff-gate failures. Final capture, wire and confirmed-
 ## landing gates remain unchanged, so a bad attempt still fails noisily.
 @export var desert_recovery_diagnostic_final_attempt: bool = true
+## Test-only late-abort probe. A positive value forces the first fixed-wing final
+## to wave off at this many metres before touchdown, then scores whether it clears
+## the carrier alive and climbing. Normal runs leave this disabled at -1.
+@export var desert_recovery_forced_waveoff_remaining_m: float = -1.0
+@export var desert_recovery_forced_waveoff_clearance_ahead_m: float = 75.0
+@export var desert_recovery_forced_waveoff_climb_m: float = 15.0
+@export var desert_recovery_forced_waveoff_timeout_s: float = 20.0
 @export_group("Mixed Recovery")
 @export_range(1, 3, 1) var mixed_helicopter_count: int = 2
 @export_range(1, 3, 1) var mixed_fixed_wing_count: int = 2
@@ -188,6 +195,9 @@ var _weapon_focus_override_requested: bool = false
 var _rolling_rng := RandomNumberGenerator.new()
 var _rolling_traps: int = 0
 var _rolling_losses: int = 0
+var _observe_through_stow: bool = false
+var _cycle_observations: Dictionary = {}
+var _cycle_timeout_s: float = 2400.0
 var _rolling_last_queue_signature: String = ""
 var _rolling_last_refill_log_s: float = -100.0
 var _rolling_max_queue_depth: int = 0
@@ -211,7 +221,14 @@ var _role_stress_enemy_fighters_spawned: bool = false
 var _role_stress_recovery_started: bool = false
 var _role_stress_role_violations: int = 0
 var _desert_recovery_stage_counts: Dictionary = {}
+var _desert_recovery_model_override: String = ""
 var _completion_reason: String = ""
+var _forced_waveoff_aircraft_id: int = 0
+var _forced_waveoff_triggered: bool = false
+var _forced_waveoff_cleared: bool = false
+var _forced_waveoff_trigger_time_s: float = -1.0
+var _forced_waveoff_trigger_altitude_m: float = 0.0
+var _forced_waveoff_trigger_remaining_m: float = INF
 
 
 func configure(play_area_center: Vector3) -> void:
@@ -294,6 +311,10 @@ func _ready() -> void:
 	if _rolling_recovery_mode and OS.get_cmdline_user_args().has("--rolling-finite-cohort"):
 		rolling_finite_cohort = true
 		rolling_target_traps = rolling_active_aircraft_max
+	_observe_through_stow = _desert_recovery_mode and OS.get_cmdline_user_args().has("--observe-through-stow")
+	if _observe_through_stow:
+		rolling_finite_cohort = true
+		rolling_target_traps = rolling_active_aircraft_max
 	var report := FileAccess.open(_report_path, FileAccess.WRITE)
 	if report != null:
 		report.store_line("Carrier combat test report")
@@ -314,11 +335,12 @@ func _ready() -> void:
 		else:
 			_log("START requested: full cycle; moving carrier; 4-vehicle enemy platoon (truck/buggy/pickup) advancing from 5000m; 2x Aircraft_5 independently randomized to 2x finite rocket canisters + gun or 2x finite bomb racks + gun; then 2x live Aircraft_4 bombers at 6000m; survivors recover")
 	elif _desert_recovery_mode:
-		_log("START requested: dedicated desert land-carrier recovery; models=%s active_cap=%d (expandable_to=8) outbound=%.0f-%.0fm; autonomous catapult launch, controlled transit, recall, RTB route, strict final handoff, wire catch, and hangar recovery" % [
+		_log("START requested: dedicated desert land-carrier recovery; models=%s active_cap=%d (expandable_to=8) outbound=%.0f-%.0fm final_mode=%s; autonomous catapult launch, controlled transit, recall, RTB route, wire catch, and hangar recovery" % [
 			", ".join(_desert_recovery_models_for_cap()),
 			rolling_active_aircraft_max,
 			rolling_outbound_min_m,
 			rolling_outbound_max_m,
+			"diagnostic" if desert_recovery_diagnostic_final_attempt else "strict",
 		])
 	elif _rolling_recovery_mode:
 		var recovery_test_name := "mixed helicopter/fixed-wing recovery" if _mixed_recovery_mode else "rolling recovery"
@@ -334,6 +356,13 @@ func _ready() -> void:
 		])
 	else:
 		_log("START requested: carrier + 4 non-firing enemy turrets; 2x Aircraft_5 strike; 2x kinematic-rail Aircraft_4 gunnery targets inbound at 550m AGL; survivors recover")
+	if _desert_recovery_mode and desert_recovery_forced_waveoff_remaining_m > 0.0:
+		_log("FORCED_WAVEOFF_TEST armed requested=%.1fm clear_ahead=%.1fm climb=%.1fm timeout=%.1fs" % [
+			desert_recovery_forced_waveoff_remaining_m,
+			desert_recovery_forced_waveoff_clearance_ahead_m,
+			desert_recovery_forced_waveoff_climb_m,
+			desert_recovery_forced_waveoff_timeout_s,
+		])
 	_suppress_normal_ops()
 	_clear_unrelated_units()
 	call_deferred("_setup_scenario")
@@ -358,6 +387,21 @@ func _configure_batch_run_from_cli() -> void:
 		rolling_target_traps = clampi(int(rolling_target_text), 0, 1000)
 		if _desert_recovery_mode:
 			desert_recovery_target_traps = rolling_target_traps
+	if OS.get_cmdline_user_args().has("--strict-recovery-handoff"):
+		desert_recovery_diagnostic_final_attempt = false
+	var forced_waveoff_text := _get_cmdline_option("--force-waveoff-at-m=")
+	if forced_waveoff_text.is_valid_float():
+		desert_recovery_forced_waveoff_remaining_m = clampf(
+			float(forced_waveoff_text),
+			1.0,
+			500.0
+		)
+	var desert_model_text := _get_cmdline_option("--desert-aircraft-model=")
+	if not desert_model_text.is_empty():
+		if DESERT_RECOVERY_MODEL_ROSTER.has(desert_model_text):
+			_desert_recovery_model_override = desert_model_text
+		else:
+			push_warning("[CarrierCombatTest] Unknown desert recovery aircraft model '%s'" % desert_model_text)
 	_test_run_id = _sanitize_run_id(_get_cmdline_option("--test-run-id="))
 	_quit_on_test_complete = OS.get_cmdline_user_args().has("--quit-on-test-complete")
 	if OS.get_cmdline_user_args().has("--include-enemy-air"):
@@ -420,6 +464,8 @@ func _setup_scenario() -> void:
 		await get_tree().physics_frame
 		await get_tree().process_frame
 	_connect_arresting_cables()
+	if _observe_through_stow and is_instance_valid(_fdm):
+		_fdm.connect("aircraft_stored", _on_cycle_aircraft_stored)
 	if _role_stress_mode:
 		# Keep the platoon live and dangerous, but make this role/recovery stress test
 		# resistant to a lucky long-range gunner hit ending a helicopter on ingress.
@@ -1240,6 +1286,10 @@ func _request_desert_recovery_launches() -> void:
 	# order supplies the varied authored roster, followed by physical spares and
 	# returned aircraft, without serializing the refill behind one model callback.
 	var request_count := rolling_active_aircraft_max - committed_active
+	if rolling_finite_cohort:
+		request_count = mini(request_count, maxi(rolling_active_aircraft_max - _friendly_launches, 0))
+	if request_count <= 0:
+		return
 	var queued := int(_fdm.call(
 		"queue_ai_flight",
 		request_count,
@@ -1274,7 +1324,11 @@ func _desert_recovery_models_for_cap() -> PackedStringArray:
 	var models := PackedStringArray()
 	var count := mini(clampi(rolling_active_aircraft_max, 1, 8), DESERT_RECOVERY_MODEL_ROSTER.size())
 	for i in range(count):
-		models.append(DESERT_RECOVERY_MODEL_ROSTER[i])
+		models.append(
+			_desert_recovery_model_override
+			if not _desert_recovery_model_override.is_empty()
+			else DESERT_RECOVERY_MODEL_ROSTER[i]
+		)
 	return models
 
 
@@ -1316,7 +1370,11 @@ func _ensure_desert_recovery_hangar_stock() -> bool:
 	var models := PackedStringArray()
 	var stock_count := mini(fixed_wing_indices.size(), DESERT_RECOVERY_MODEL_ROSTER.size())
 	for i in range(stock_count):
-		models.append(DESERT_RECOVERY_MODEL_ROSTER[i])
+		models.append(
+			_desert_recovery_model_override
+			if not _desert_recovery_model_override.is_empty()
+			else DESERT_RECOVERY_MODEL_ROSTER[i]
+		)
 	if fixed_wing_indices.size() < models.size():
 		_log("DESERT_HANGAR insufficient fixed_wing_slots=%d required=%d" % [
 			fixed_wing_indices.size(),
@@ -1780,6 +1838,118 @@ func _poll_rolling_aircraft() -> void:
 		_aircraft_records[id] = record
 	_rolling_max_holding_aircraft = maxi(_rolling_max_holding_aircraft, holding_count)
 	_log_rolling_queue_snapshot()
+
+
+func _poll_desert_forced_waveoff_test() -> void:
+	if not _desert_recovery_mode \
+			or desert_recovery_forced_waveoff_remaining_m <= 0.0 \
+			or _forced_waveoff_cleared \
+			or _stage != Stage.ROLLING:
+		return
+	if not _forced_waveoff_triggered:
+		for id_variant in _aircraft_records.keys():
+			var id := int(id_variant)
+			var record: Dictionary = _aircraft_records[id]
+			if int(record.get("team", 0)) != 1 \
+					or not bool(record.get("alive", false)) \
+					or str(record.get("ops_domain", "fixed_wing")) != "fixed_wing" \
+					or str(record.get("rolling_status", "")) != "recovery":
+				continue
+			var craft_variant: Variant = record.get("craft", null)
+			var pilot_variant: Variant = record.get("pilot", null)
+			if not is_instance_valid(craft_variant) or not (craft_variant is RigidBody3D) \
+					or not is_instance_valid(pilot_variant) or not (pilot_variant is Node):
+				continue
+			var craft := craft_variant as RigidBody3D
+			var pilot := pilot_variant as Node
+			if int(pilot.get("current_state")) != AIPilot.State.LANDING \
+					or not pilot.has_method("get_landing_remaining_to_touchdown_m") \
+					or not pilot.has_method("request_landing_wave_off"):
+				continue
+			var remaining_m := float(pilot.call("get_landing_remaining_to_touchdown_m"))
+			if not is_finite(remaining_m) \
+					or remaining_m > desert_recovery_forced_waveoff_remaining_m:
+				continue
+			if remaining_m < 0.0:
+				_completion_reason = "forced_waveoff_trigger_passed_touchdown"
+				_stage = Stage.COMPLETE
+				_log("FAILED forced wave-off trigger was reached after touchdown aircraft=%s actual=%.1fm" % [
+					craft.name,
+					remaining_m,
+				])
+				return
+			_forced_waveoff_triggered = true
+			_forced_waveoff_aircraft_id = id
+			_forced_waveoff_trigger_time_s = _elapsed_s
+			_forced_waveoff_trigger_altitude_m = craft.global_position.y
+			_forced_waveoff_trigger_remaining_m = remaining_m
+			var accepted := bool(pilot.call(
+				"request_landing_wave_off",
+				"forced test at %.1fm remaining" % remaining_m
+			))
+			_log("FORCED_WAVEOFF_TRIGGER aircraft=%s requested=%.1fm actual=%.1fm accepted=%s pos=%s speed=%.1f vertical_speed=%+.1f" % [
+				craft.name,
+				desert_recovery_forced_waveoff_remaining_m,
+				remaining_m,
+				str(accepted),
+				_fmt(craft.global_position),
+				craft.linear_velocity.length(),
+				craft.linear_velocity.y,
+			])
+			if not accepted:
+				_completion_reason = "forced_waveoff_rejected"
+				_stage = Stage.COMPLETE
+			return
+		return
+
+	var record: Dictionary = _aircraft_records.get(_forced_waveoff_aircraft_id, {})
+	if record.is_empty() or not bool(record.get("alive", false)):
+		return
+	var craft_variant: Variant = record.get("craft", null)
+	var pilot_variant: Variant = record.get("pilot", null)
+	if not is_instance_valid(craft_variant) or not (craft_variant is RigidBody3D) \
+			or not is_instance_valid(pilot_variant) or not (pilot_variant is Node):
+		_completion_reason = "forced_waveoff_aircraft_missing"
+		_stage = Stage.COMPLETE
+		return
+	var craft := craft_variant as RigidBody3D
+	var pilot := pilot_variant as Node
+	var remaining_m := float(pilot.call("get_landing_remaining_to_touchdown_m")) \
+			if pilot.has_method("get_landing_remaining_to_touchdown_m") else INF
+	var climbed_m := craft.global_position.y - _forced_waveoff_trigger_altitude_m
+	var passed_clear: bool = is_finite(remaining_m) \
+			and remaining_m <= -maxf(desert_recovery_forced_waveoff_clearance_ahead_m, 1.0)
+	var climbing_clear: bool = climbed_m >= maxf(desert_recovery_forced_waveoff_climb_m, 1.0) \
+			and craft.linear_velocity.y > 0.0
+	if passed_clear and climbing_clear \
+			and int(pilot.get("current_state")) != AIPilot.State.LANDING:
+		_forced_waveoff_cleared = true
+		# A combined escape/recovery test must keep observing the return and stow.
+		if not _observe_through_stow:
+			_completion_reason = "forced_waveoff_cleared"
+			_stage = Stage.COMPLETE
+		_log("FORCED_WAVEOFF_CLEAR aircraft=%s actual=%.1fm passed=%.1fm climbed=%.1fm speed=%.1f vertical_speed=%+.1f state=%s" % [
+			craft.name,
+			_forced_waveoff_trigger_remaining_m,
+			-remaining_m,
+			climbed_m,
+			craft.linear_velocity.length(),
+			craft.linear_velocity.y,
+			_state_name(int(pilot.get("current_state"))),
+		])
+		return
+	if _elapsed_s - _forced_waveoff_trigger_time_s \
+			>= maxf(desert_recovery_forced_waveoff_timeout_s, 1.0):
+		_completion_reason = "forced_waveoff_clearance_timeout"
+		_stage = Stage.COMPLETE
+		_log("FAILED forced wave-off clearance timeout aircraft=%s remaining=%.1fm climbed=%+.1fm speed=%.1f vertical_speed=%+.1f state=%s" % [
+			craft.name,
+			remaining_m,
+			climbed_m,
+			craft.linear_velocity.length(),
+			craft.linear_velocity.y,
+			_state_name(int(pilot.get("current_state"))),
+		])
 
 
 func _ops_state_name(pilot: Node, ops_domain: String) -> String:
@@ -3275,6 +3445,14 @@ func _apply_rocket_specialist_aim_genes(pilot: Node) -> void:
 
 func _register_aircraft(craft: RigidBody3D, pilot: Node, team: int) -> void:
 	var id := craft.get_instance_id()
+	if _observe_through_stow and team == 1:
+		_cycle_observations[id] = {
+			"name": str(craft.name), "model": _desert_recovery_model_for_craft(craft),
+			"launched": true, "launch_time_s": _elapsed_s, "wire_caught": false,
+			"stopped": false, "stowed": false, "destroyed": false,
+			"damage_taken": 0.0, "health": float(craft.get("current_health")),
+			"status": "launched", "stop_stable_s": 0.0,
+		}
 	_aircraft_records[id] = {
 		"craft": craft,
 		"pilot": pilot,
@@ -3297,6 +3475,9 @@ func _register_aircraft(craft: RigidBody3D, pilot: Node, team: int) -> void:
 
 
 func _on_aircraft_damaged(amount: float, health: float, id: int) -> void:
+	if _cycle_observations.has(id):
+		_cycle_observations[id]["damage_taken"] += maxf(amount, 0.0)
+		_cycle_observations[id]["health"] = health
 	var record: Dictionary = _aircraft_records.get(id, {})
 	_log("HIT aircraft=%s team=%d damage=%.1f hp=%.1f" % [record.get("name", "unknown"), int(record.get("team", 0)), amount, health])
 	if int(record.get("team", 0)) != 1 or bool(record.get("health_rtb_threshold_logged", false)):
@@ -3327,6 +3508,9 @@ func _on_aircraft_damaged(amount: float, health: float, id: int) -> void:
 
 
 func _on_aircraft_destroyed(id: int) -> void:
+	if _cycle_observations.has(id):
+		_cycle_observations[id]["destroyed"] = true
+		_cycle_observations[id]["status"] = "destroyed"
 	var record: Dictionary = _aircraft_records.get(id, {})
 	if not bool(record.get("alive", false)):
 		return
@@ -3351,13 +3535,18 @@ func _on_aircraft_destroyed(id: int) -> void:
 			_log("FAILED role stress: all friendly aircraft lost")
 		return
 	if _rolling_recovery_mode and _stage == Stage.ROLLING and team == 1:
+		if desert_recovery_forced_waveoff_remaining_m > 0.0 \
+				and not _forced_waveoff_cleared \
+				and (_forced_waveoff_aircraft_id == 0 or id == _forced_waveoff_aircraft_id):
+			_completion_reason = "forced_waveoff_destroyed" \
+					if _forced_waveoff_triggered else "forced_waveoff_not_reached_destroyed"
 		record["rolling_status"] = "lost"
 		_aircraft_records[id] = record
 		_rolling_losses += 1
 		_log("ROLLING_LOSS aircraft=%s reason=destroyed losses=%d active=%d" % [
 			record.get("name", "unknown"), _rolling_losses, _rolling_active_aircraft_count(),
 		])
-		if rolling_finite_cohort:
+		if rolling_finite_cohort and not _observe_through_stow:
 			_stage = Stage.COMPLETE
 			_log("FAILED rolling finite cohort; traps=%d/%d losses=%d launches=%d reason=destroyed" % [
 				_rolling_traps, rolling_target_traps, _rolling_losses, _friendly_launches,
@@ -3383,6 +3572,12 @@ func _on_aircraft_destroyed(id: int) -> void:
 
 
 func _on_aircraft_crashed(impact_velocity: float, id: int) -> void:
+	if _cycle_observations.has(id):
+		# Keep the callback as evidence; observe actual destruction/catch/storage
+		# independently, including a catch later in this same physics step.
+		_cycle_observations[id]["crash_signal_mps"] = impact_velocity
+		_log("CYCLE_CRASH_SIGNAL aircraft=%s speed=%.1f" % [_cycle_observations[id].name, impact_velocity])
+		return
 	var record: Dictionary = _aircraft_records.get(id, {})
 	if int(record.get("team", 0)) == 1 and not bool(record.get("crash_recorded", false)):
 		record["crash_recorded"] = true
@@ -3391,6 +3586,11 @@ func _on_aircraft_crashed(impact_velocity: float, id: int) -> void:
 	_log("CRASH aircraft=%s team=%d impact_speed=%.1fm/s %s" % [record.get("name", "unknown"), int(record.get("team", 0)), impact_velocity, _aircraft_diagnostics(record)])
 	if _rolling_recovery_mode and _stage == Stage.ROLLING \
 			and int(record.get("team", 0)) == 1 and bool(record.get("alive", false)):
+		if desert_recovery_forced_waveoff_remaining_m > 0.0 \
+				and not _forced_waveoff_cleared \
+				and (_forced_waveoff_aircraft_id == 0 or id == _forced_waveoff_aircraft_id):
+			_completion_reason = "forced_waveoff_crash" \
+					if _forced_waveoff_triggered else "forced_waveoff_not_reached_crash"
 		record["alive"] = false
 		record["rolling_status"] = "lost"
 		_aircraft_records[id] = record
@@ -3564,6 +3764,10 @@ func _record_rolling_recovery(
 	if _caught_aircraft.has(id):
 		return
 	_caught_aircraft[id] = true
+	if _cycle_observations.has(id):
+		_cycle_observations[id]["wire_caught"] = true
+		_cycle_observations[id]["catch_time_s"] = _elapsed_s
+		_cycle_observations[id]["status"] = "caught"
 	var record: Dictionary = _aircraft_records.get(id, {})
 	# A safely landed aircraft no longer occupies an active airborne slot. The deck
 	# manager may subsequently store and free it, so stop harness polling now.
@@ -3590,6 +3794,8 @@ func _record_rolling_recovery(
 		_rolling_max_queue_depth,
 		_rolling_max_holding_aircraft,
 	])
+	if _observe_through_stow:
+		return # Storage, not engagement, terminates this observation profile.
 	if rolling_target_traps > 0 and _rolling_traps >= rolling_target_traps:
 		_stage = Stage.COMPLETE
 		_log("COMPLETE recovery target reached; traps=%d losses=%d launches=%d max_active=%d max_queue=%d max_holding=%d mode=%s" % [
@@ -3605,6 +3811,71 @@ func _record_rolling_recovery(
 		])
 	else:
 		call_deferred("_request_recovery_test_launches")
+
+
+func _on_cycle_aircraft_stored(craft: RigidBody3D) -> void:
+	if not is_instance_valid(craft) or not _cycle_observations.has(craft.get_instance_id()):
+		return
+	var observation: Dictionary = _cycle_observations[craft.get_instance_id()]
+	observation["stowed"] = true
+	observation["stow_time_s"] = _elapsed_s
+	observation["health"] = float(craft.get("current_health"))
+	observation["status"] = "stowed"
+	_log("CYCLE_STOWED aircraft=%s model=%s caught=%s stopped=%s health=%.1f damage=%.1f elapsed=%.1fs" % [
+		observation.name, observation.model, str(observation.wire_caught), str(observation.stopped),
+		observation.health, observation.damage_taken, _elapsed_s - float(observation.launch_time_s)])
+
+
+func _poll_cycle_observations(delta: float) -> void:
+	if _stage != Stage.ROLLING:
+		return
+	var terminal_count := 0
+	var carrier_velocity := Vector3.ZERO
+	if is_instance_valid(_carrier) and _carrier.has_method("get_deck_reference_velocity_vector"):
+		carrier_velocity = _carrier.call("get_deck_reference_velocity_vector")
+	for id in _cycle_observations:
+		var observation: Dictionary = _cycle_observations[id]
+		if observation.stowed or observation.destroyed or observation.status == "missing":
+			terminal_count += 1
+			continue
+		var record: Dictionary = _aircraft_records.get(id, {})
+		var craft_variant: Variant = record.get("craft")
+		if not is_instance_valid(craft_variant):
+			observation["status"] = "missing"
+			_log("CYCLE_MISSING aircraft=%s no storage event received" % observation.name)
+			terminal_count += 1
+			continue
+		var craft := craft_variant as RigidBody3D
+		observation["health"] = float(craft.get("current_health"))
+		observation["last_position"] = str(craft.global_position)
+		observation["speed_mps"] = (craft.linear_velocity - carrier_velocity).length()
+		observation["rolling_status"] = str(record.get("rolling_status", ""))
+		var pilot_variant: Variant = record.get("pilot")
+		if is_instance_valid(pilot_variant):
+			observation["pilot_state"] = _ops_state_name(pilot_variant as Node, "fixed_wing")
+		for key in DESERT_RECOVERY_STAGE_KEYS:
+			observation[key] = bool(record.get("desert_stage_%s" % key, false))
+		if observation.health <= 0.0:
+			observation["destroyed"] = true
+			observation["status"] = "destroyed"
+		elif observation.wire_caught:
+			observation["stop_stable_s"] = float(observation.stop_stable_s) + delta \
+				if float(observation.speed_mps) < 1.5 else 0.0
+			if float(observation.stop_stable_s) >= 2.0 and not observation.stopped:
+				observation["stopped"] = true
+				observation["stop_time_s"] = _elapsed_s
+				_log("CYCLE_STOPPED aircraft=%s speed=%.2f health=%.1f managed_recovery=true" % [
+					observation.name, observation.speed_mps, observation.health])
+	if terminal_count >= rolling_active_aircraft_max and _friendly_launches >= rolling_active_aircraft_max:
+		_completion_reason = "cohort_finished_with_failures"
+		_stage = Stage.COMPLETE
+	elif _elapsed_s - _stage_started_s >= _cycle_timeout_s:
+		_completion_reason = "full_recovery_cycle_timeout"
+		for observation: Dictionary in _cycle_observations.values():
+			if not observation.stowed and not observation.destroyed and observation.status != "missing":
+				observation["status"] = "timeout"
+		_log("CYCLE_TIMEOUT deck=%s" % JSON.stringify(_desert_deck_launch_snapshot()))
+		_stage = Stage.COMPLETE
 
 
 func _check_recovery_end() -> void:
@@ -3826,6 +4097,10 @@ func _physics_process(delta: float) -> void:
 	if _stage == Stage.COMPLETE:
 		_finalize_completed_run()
 		return
+	if _observe_through_stow:
+		_poll_cycle_observations(delta)
+		if _stage == Stage.COMPLETE:
+			return
 	if continuous_intercept_mode and _stage == Stage.AIR_COMBAT:
 		_continuous_force_check_s += delta
 		if _continuous_force_check_s >= 2.0:
@@ -3909,6 +4184,9 @@ func _physics_process(delta: float) -> void:
 		])
 		return
 	_update_g_force_tracking(delta)
+	_poll_desert_forced_waveoff_test()
+	if _stage == Stage.COMPLETE:
+		return
 	_summary_s += delta
 	_poll_s += delta
 	if _poll_s >= 0.5:
@@ -4022,7 +4300,20 @@ func _finalize_completed_run() -> void:
 			and _friendly_destroyed_count == 0 \
 			and _friendly_crash_count == 0 \
 			and _role_stress_role_violations == 0
-	var strict_success := full_cycle_success or rolling_success or role_stress_success
+	var forced_waveoff_success := desert_recovery_forced_waveoff_remaining_m > 0.0 \
+			and _forced_waveoff_triggered \
+			and _forced_waveoff_cleared \
+			and _rolling_losses == 0
+	var strict_success := full_cycle_success or rolling_success or role_stress_success \
+			or forced_waveoff_success
+	if _observe_through_stow:
+		strict_success = _cycle_observations.size() == rolling_active_aircraft_max
+		if desert_recovery_forced_waveoff_remaining_m > 0.0:
+			strict_success = strict_success and forced_waveoff_success
+		for observation: Dictionary in _cycle_observations.values():
+			strict_success = strict_success and bool(observation.get("stowed", false)) \
+				and bool(observation.get("wire_caught", false)) and bool(observation.get("stopped", false)) \
+				and not bool(observation.get("destroyed", false)) and float(observation.get("health", 0.0)) > 0.0
 	var result := {
 		"run_id": _test_run_id,
 		"seed": _test_seed,
@@ -4040,7 +4331,17 @@ func _finalize_completed_run() -> void:
 		"friendly_crashes": _friendly_crash_count,
 		"recovery_requested": _recovery_requested.size(),
 		"caught": _caught_aircraft.size(),
+		"observe_through_stow": _observe_through_stow,
+		"cycles": _cycle_observations.values(),
 		"recovery_stages": _desert_recovery_stage_counts.duplicate(true) if _desert_recovery_mode else {},
+		"forced_waveoff": {
+			"enabled": desert_recovery_forced_waveoff_remaining_m > 0.0,
+			"requested_remaining_m": desert_recovery_forced_waveoff_remaining_m,
+			"actual_remaining_m": _forced_waveoff_trigger_remaining_m \
+				if is_finite(_forced_waveoff_trigger_remaining_m) else -1.0,
+			"triggered": _forced_waveoff_triggered,
+			"cleared": _forced_waveoff_cleared,
+		},
 		"role_attack_helicopters": _role_stress_helicopter_launches,
 		"role_cap_aircraft": _role_stress_patrol_launches,
 		"role_violations": _role_stress_role_violations,
@@ -4093,12 +4394,19 @@ func _poll_aircraft_events() -> void:
 								"recovery_diagnostic_handoff",
 								false
 							))
+					var press_handoff := is_instance_valid(craft_variant) \
+						and bool((craft_variant as Node).get_meta("recovery_press_handoff", false))
+					if _cycle_observations.has(id):
+						_cycle_observations[id]["strict_gate_passed"] = not diagnostic_handoff and not press_handoff
+						_cycle_observations[id]["press_handoff"] = press_handoff
+						_cycle_observations[id]["diagnostic_handoff"] = diagnostic_handoff
 					_record_desert_recovery_stage(
 						id,
 						"final_handoff",
-						"state=LANDING strict_gate_passed=%s diagnostic_override=%s" % [
-							str(not diagnostic_handoff),
+						"state=LANDING strict_gate_passed=%s diagnostic_override=%s press_commit=%s" % [
+							str(not diagnostic_handoff and not press_handoff),
 							str(diagnostic_handoff),
+							str(press_handoff),
 						]
 					)
 		if state in [AIPilot.State.ATTACK_POSITIONING, AIPilot.State.ATTACK_INBOUND] \

@@ -13,6 +13,7 @@ enum ObjectiveType {
 	PROTECT_POSITION,
 	ATTACK_POSITION,
 	RETURN_TO_BASE,
+	RESCUE,
 }
 
 @export var platoon_id: String = ""
@@ -251,6 +252,8 @@ func get_platoon_speed_limit(default_speed_mps: float) -> float:
 	return _member_speed_cache_mps
 
 func get_formation_destination_for(vehicle: Node3D, fallback_destination: Vector3) -> Vector3:
+	if objective_type == ObjectiveType.RESCUE:
+		return fallback_destination
 	var members: Array[Node3D] = get_members()
 	var slot_index: int = members.find(vehicle)
 	if slot_index < 0 or members.size() <= 1:
@@ -283,6 +286,16 @@ func set_move_objective(position: Vector3) -> void:
 	protected_node = null
 	attack_node = null
 	escort_node = null
+
+func set_rescue_objective(position: Vector3) -> void:
+	set_move_objective(position)
+	objective_type = ObjectiveType.RESCUE
+
+func get_passenger_count() -> int:
+	var count := 0
+	for member in get_members():
+		if member.has_method("get_passenger_count"): count += member.get_passenger_count()
+	return count
 
 func set_pursue_enemies(range_m: float = 1200.0) -> void:
 	objective_type = ObjectiveType.PURSUE_ENEMIES
@@ -353,11 +366,20 @@ func get_objective_name() -> String:
 			return "ESCORT"
 		ObjectiveType.RETURN_TO_BASE:
 			return "RTB"
+		ObjectiveType.RESCUE:
+			return "RESCUE"
 		_:
 			return "UNKNOWN"
 
 func get_destination_for(vehicle: Node3D) -> Vector3:
 	match objective_type:
+		ObjectiveType.RESCUE:
+			# One vehicle closes on the survivor; the others cover the pickup area.
+			for member in get_members():
+				if member.has_method("can_accept_passenger") and member.can_accept_passenger():
+					if member == vehicle: return objective_position
+					break
+			return _get_slot_position_around(objective_position, vehicle, 45.0)
 		ObjectiveType.MOVE_TO_POSITION:
 			return _get_slot_position_around(objective_position, vehicle, move_scatter_radius_m)
 		ObjectiveType.PURSUE_ENEMIES:
@@ -886,7 +908,7 @@ func _get_route_preview_goal() -> Vector3:
 	if not members.is_empty():
 		return _project_contact_to_ground(get_destination_for(members[0]))
 	match objective_type:
-		ObjectiveType.MOVE_TO_POSITION:
+		ObjectiveType.MOVE_TO_POSITION, ObjectiveType.RESCUE:
 			return _project_contact_to_ground(objective_position)
 		ObjectiveType.PURSUE_ENEMIES:
 			var center: Vector3 = get_center_position()

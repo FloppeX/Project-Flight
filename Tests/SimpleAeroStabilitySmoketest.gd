@@ -5,6 +5,12 @@ var _failures: Array[String] = []
 
 func _ready() -> void:
 	var aero := SimpleAero.new()
+	_expect(is_equal_approx(aero.gear_drag_multiplier, 1.7), "default landing-gear drag was not strengthened")
+	_expect(is_equal_approx(aero.flaps_drag_multiplier, 1.8), "default flap drag was not strengthened")
+	_expect(
+		is_equal_approx(aero.gear_drag_multiplier * aero.flaps_drag_multiplier, 3.06),
+		"default gear+flaps approach drag is not the intended 3.06x"
+	)
 
 	aero.actual_pitch_control = 0.0
 	var neutral_factor := aero._get_pitch_stability_input_release_factor()
@@ -24,13 +30,15 @@ func _ready() -> void:
 
 	_expect(pull_factor < correction_factor and correction_factor < neutral_factor, "pitch stability release was not progressive")
 
+	var approach_drag_multiplier := aero.gear_drag_multiplier * aero.flaps_drag_multiplier
 	aero.free()
 	if _failures.is_empty():
-		print("[SimpleAeroStabilitySmoketest] PASS neutral=%.3f correction=%.3f pull=%.3f push=%.3f" % [
+		print("[SimpleAeroStabilitySmoketest] PASS neutral=%.3f correction=%.3f pull=%.3f push=%.3f approach_drag=%.2fx" % [
 			neutral_factor,
 			correction_factor,
 			pull_factor,
 			push_factor,
+			approach_drag_multiplier,
 		])
 		get_tree().quit(0)
 		return

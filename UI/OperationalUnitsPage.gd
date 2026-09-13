@@ -608,6 +608,8 @@ func _flight_activity(summary: Dictionary, members: Array[Dictionary]) -> String
 
 
 func _platoon_activity(summary: Dictionary, members: Array[Dictionary]) -> String:
+	if int(summary.get("passengers", 0)) > 0: return "RECOVERING PASSENGERS"
+	if str(summary.get("objective", "")) == "RESCUE": return "RESCUING"
 	if bool(summary.get("queued", false)):
 		return "DEPLOYING"
 	if members.is_empty():

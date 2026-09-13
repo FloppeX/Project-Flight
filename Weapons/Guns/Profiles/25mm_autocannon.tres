@@ -6,6 +6,7 @@
 [resource]
 script = ExtResource("1_profile_script")
 profile_name = "25 mm Autocannon"
+caliber_mm = 25
 weapon_name = "25 mm Autocannon"
 rounds_per_minute = 300.0
 muzzle_velocity_mps = 400.0

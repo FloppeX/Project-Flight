@@ -38,6 +38,7 @@ func shift_origin(offset: Vector3) -> void:
 	var root := get_tree().current_scene
 	if not root:
 		return
+	var profile_started := FrameProfiler.begin("FloatingOrigin.shift_origin")
 
 	# RigidBody3D transforms are owned by the physics server. Moving a scene-root
 	# parent updates the visible Node3D hierarchy immediately, but a live body can
@@ -87,6 +88,7 @@ func shift_origin(offset: Vector3) -> void:
 	# Notify all systems that cache global coordinates about the shift
 	origin_shifted.emit(offset)
 	get_tree().call_group("origin_shifter", "apply_origin_shift", offset)
+	FrameProfiler.end("FloatingOrigin.shift_origin", profile_started)
 
 
 func _collect_rigid_bodies(node: Node, bodies: Array[RigidBody3D]) -> void:

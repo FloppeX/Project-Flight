@@ -21,5 +21,3 @@ position = Vector3(0, 1.7, 0)
 
 [node name="Model" parent="." instance=ExtResource("2_pilot_character")]
 initial_pose_name = &"grounded"
-hide_head_in_cockpit = false
-cockpit_hidden_mesh_names = PackedStringArray()

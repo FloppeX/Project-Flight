@@ -12,7 +12,11 @@ const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
 ## range than air. Reports are delayed 40–90 s before reaching EnemyOpsManager.
 
 enum Mission { PATROL, ATTACK_CARRIER, ATTACK_POSITION, RTB, HOLD }
-enum VState  { VIRTUAL, ACTIVE }
+enum VState  { VIRTUAL, ACTIVE, MATERIALIZING }
+static var _last_spawn_frame: int = -1
+var _spawn_index := 0
+var _spawn_total := 0
+var materialization_max_slice_ms := 0.0
 
 const ACTIVATE_RANGE_M          := 3000.0
 const DEACTIVATE_RANGE_M        := 4400.0
@@ -74,11 +78,14 @@ signal unit_destroyed(platoon: EnemyVirtualPlatoon)
 
 
 func _ready() -> void:
+	set_process(false)
 	if WorldUnitIndex != null:
 		WorldUnitIndex.register_formation(self, "platoon", platoon_name)
 
 
 func _exit_tree() -> void:
+	if vstate == VState.MATERIALIZING:
+		dematerialize()
 	if WorldUnitIndex != null:
 		WorldUnitIndex.unregister_formation(self)
 
@@ -203,6 +210,9 @@ func _update_heading_toward_next_patrol_waypoint(fallback_angle: float) -> void:
 func tick(delta: float) -> void:
 	var _profiler_start: int = FrameProfiler.begin("EnemyVirtualPlatoon.tick")
 	_active_vehicles = _active_vehicles.filter(func(v): return is_instance_valid(v))
+	if vstate == VState.MATERIALIZING:
+		FrameProfiler.end("EnemyVirtualPlatoon.tick", _profiler_start)
+		return
 
 	if vstate == VState.ACTIVE:
 		if _platoon_node == null or not is_instance_valid(_platoon_node):
@@ -477,7 +487,7 @@ func _process_pending_reports(delta: float) -> void:
 # ── Materialize / dematerialize ───────────────────────────────────────────────
 
 func _check_materialize() -> void:
-	if _vehicle_scenes.is_empty() or vstate == VState.ACTIVE:
+	if _vehicle_scenes.is_empty() or vstate != VState.VIRTUAL:
 		return
 	if _should_materialize():
 		_materialize()
@@ -504,10 +514,13 @@ func _should_materialize() -> bool:
 
 
 func _materialize() -> void:
-	if _vehicle_scenes.is_empty() or vstate == VState.ACTIVE or vehicle_count <= 0:
+	if _vehicle_scenes.is_empty() or vstate != VState.VIRTUAL or vehicle_count <= 0:
 		return
-	vstate = VState.ACTIVE
+	vstate = VState.MATERIALIZING
 	var scene_root := get_tree().current_scene
+	if not is_instance_valid(scene_root):
+		vstate = VState.VIRTUAL
+		return
 
 	_platoon_node = GroundVehiclePlatoon.new()
 	_platoon_node.name      = "EnemyPlatoon_" + platoon_name
@@ -516,25 +529,52 @@ func _materialize() -> void:
 	scene_root.add_child(_platoon_node)
 	_platoon_node.global_position = position
 
-	for i in range(vehicle_count):
+	_spawn_index = 0
+	_spawn_total = vehicle_count
+	set_process(true)
+
+func _process(_delta: float) -> void:
+	if vstate != VState.MATERIALIZING: return
+	# One vehicle globally per rendered frame, including simultaneously arriving
+	# platoons. A single scene activation is indivisible, so this is a soft limit.
+	var frame := Engine.get_process_frames()
+	if _last_spawn_frame == frame: return
+	_last_spawn_frame = frame
+	var scene_root := get_tree().current_scene
+	if not is_instance_valid(scene_root) or not is_instance_valid(_platoon_node):
+		dematerialize()
+		return
+	var started: int = FrameProfiler.begin("EnemyVirtualPlatoon.spawn_slice")
+	var clock_start := Time.get_ticks_usec()
+	if _spawn_index < _spawn_total:
+		var i := _spawn_index
+		_spawn_index += 1
 		var scene := _vehicle_scenes[_rng.randi() % _vehicle_scenes.size()]
-		var veh   := scene.instantiate() as Node3D
+		var veh := scene.instantiate() as Node3D if scene != null else null
 		if veh == null:
-			continue
-		scene_root.add_child(veh)
-		var angle  := float(i) * TAU / float(maxi(vehicle_count, 1))
+			FrameProfiler.end("EnemyVirtualPlatoon.spawn_slice", started)
+			return
+		var angle  := float(i) * TAU / float(maxi(_spawn_total, 1))
 		var spread := Vector3(cos(angle) * 28.0, 0.0, sin(angle) * 28.0)
 		var spawn_pos := _find_driveable_position_near(position + spread, position, false)
 		if not _is_valid_world_position(spawn_pos):
 			spawn_pos = _project_to_ground(position + spread)
-		veh.global_position = spawn_pos
+		# Configure before tree entry so _ready sees the intended team and position.
+		veh.position = scene_root.to_local(spawn_pos) if scene_root is Node3D else spawn_pos
 		veh.set_meta("faction_color", faction_color)
 		if "team" in veh:
 			veh.set("team", 2)
+		scene_root.add_child(veh)
 		if veh.has_method("assign_platoon"):
 			veh.call("assign_platoon", _platoon_node)
 		_active_vehicles.append(veh)
 
+	FrameProfiler.end("EnemyVirtualPlatoon.spawn_slice", started)
+	materialization_max_slice_ms = maxf(materialization_max_slice_ms, (Time.get_ticks_usec() - clock_start) / 1000.0)
+	if _spawn_index < _spawn_total: return
+	set_process(false)
+	vstate = VState.ACTIVE
+	vehicle_count = _platoon_node.get_members().size()
 	_last_live_count = vehicle_count
 	_apply_mission_to_platoon()
 	# Immediate intel — we can see the player
@@ -576,6 +616,9 @@ func _on_platoon_gone() -> void:
 
 
 func dematerialize() -> void:
+	set_process(false)
+	_spawn_index = 0
+	_spawn_total = 0
 	for veh in _active_vehicles:
 		if is_instance_valid(veh):
 			veh.queue_free()

@@ -293,7 +293,7 @@ func deal_explosion_damage() -> void:
 	params.transform = Transform3D(Basis(), global_position)
 	params.collide_with_areas = true
 	params.collide_with_bodies = true
-	params.collision_mask = (1 << 0) | (1 << 3)
+	params.collision_mask = (1 << 0) | (1 << 3) | (1 << 19) # Carrier projectile-only hit volumes.
 	params.exclude = [self]
 
 	var results: Array[Dictionary] = space_state.intersect_shape(params, maxi(max_damage_query_results, 1))
@@ -306,15 +306,24 @@ func deal_explosion_damage() -> void:
 		if not (collider_variant is Node3D):
 			continue
 		var target := collider_variant as Node3D
+		var ancestor: Node = target
+		while ancestor != null:
+			if ancestor.has_method("get_explosion_damage_point"):
+				target = ancestor as Node3D
+				break
+			ancestor = ancestor.get_parent()
 		if target == self or (not target.has_method("take_damage") and not (target is RigidBody3D)):
 			continue
 		var target_instance_id := target.get_instance_id()
 		if damaged_target_ids.has(target_instance_id):
 			continue
 		damaged_target_ids[target_instance_id] = true
-		var distance: float = minf(global_position.distance_to(target.global_position), safe_radius)
-		if use_line_of_sight:
-			var ray_params := PhysicsRayQueryParameters3D.create(global_position, target.global_position)
+		var damage_point := target.global_position
+		if target.has_method("get_explosion_damage_point"):
+			damage_point = target.call("get_explosion_damage_point", global_position)
+		var distance: float = minf(global_position.distance_to(damage_point), safe_radius)
+		if use_line_of_sight and distance > 0.01:
+			var ray_params := PhysicsRayQueryParameters3D.create(global_position, damage_point)
 			ray_params.exclude = [self, target]
 			var ray_hit: Dictionary = space_state.intersect_ray(ray_params)
 			if not ray_hit.is_empty() and ray_hit.get("collider", null) != target:
@@ -323,7 +332,9 @@ func deal_explosion_damage() -> void:
 		var damage_amount: float = lerpf(min_damage, max_damage, damage_ratio)
 		if target.has_method("take_damage"):
 			_report_damage_credit(target, damage_amount)
-			if target.has_method("take_damage_at"):
+			if target.has_method("take_damage_event"):
+				target.call("take_damage_event", damage_amount, damage_point, str(get_meta("carrier_damage_event", "blast:%d" % get_instance_id())))
+			elif target.has_method("take_damage_at"):
 				target.call("take_damage_at", damage_amount, global_position, -1)
 			else:
 				target.take_damage(damage_amount)

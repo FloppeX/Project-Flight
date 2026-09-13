@@ -1,41 +1,25 @@
-[gd_scene load_steps=5 format=3 uid="uid://bn2n77puha7py"]
+[gd_scene format=3 uid="uid://bn2n77puha7py"]
 
 [ext_resource type="PackedScene" uid="uid://dxg5vk5ah7gb8" path="res://Models/LandCarrier/Land carrier turret base.glb" id="1_base"]
 [ext_resource type="Script" uid="uid://cqw36derm5yh1" path="res://Weapons/Turrets/turret_controller.gd" id="2_controller"]
 [ext_resource type="PackedScene" uid="uid://38xqikpdfhdk" path="res://Weapons/Turrets/turret.tscn" id="3_turret"]
 [ext_resource type="PackedScene" path="res://Weapons/Turrets/bullet_weapon.tscn" id="4_weapon"]
 
-[node name="CarrierDefenseTurret" type="Node3D"]
+[node name="CarrierDefenseTurret" type="Node3D" unique_id=459268602]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3.269197, 0, 0)
 
-[node name="TurretBase" parent="." instance=ExtResource("1_base")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 63.0013, 0, 105.102)
+[node name="TurretBase" parent="." unique_id=629108100 instance=ExtResource("1_base")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3.0582113, 0, -0.64572144)
 
-[node name="TurretController" type="Node3D" parent="."]
+[node name="TurretController" type="Node3D" parent="." unique_id=2035758536]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.1, 0)
 script = ExtResource("2_controller")
 weapon_scene = ExtResource("4_weapon")
-debug_enabled = false
 team = 1
 max_range = 1400.0
-aim_skill = 0.8
 burst_length = 1.2
 delay_length = 1.6
 fire_angle_tolerance_deg = 14.0
 
-[node name="TurretScene" parent="TurretController" instance=ExtResource("3_turret")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4.9969, -0.786896, 2.47782)
-
-[node name="TurretController2" type="Node3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.1, 0)
-script = ExtResource("2_controller")
-weapon_scene = ExtResource("4_weapon")
-debug_enabled = false
-team = 1
-max_range = 1400.0
-aim_skill = 0.8
-burst_length = 1.2
-delay_length = 1.6
-fire_angle_tolerance_deg = 14.0
-
-[node name="TurretScene" parent="TurretController2" instance=ExtResource("3_turret")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.00325, -0.800789, 2.48606)
+[node name="TurretScene" parent="TurretController" unique_id=1498785435 instance=ExtResource("3_turret")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3.2450364, -0.786896, 2.47782)

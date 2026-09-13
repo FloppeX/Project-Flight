@@ -60,11 +60,24 @@ func _run() -> void:
 		mount.call("set_presentation_active", true)
 	for _frame in range(10):
 		await process_frame
+	var photo_camera := flight_director.get("_free_camera") as Camera3D
+	if photo_camera != null:
+		photo_camera.global_position = aircraft.global_position + Vector3(0.0, 6.0, 12.0)
+		flight_director.call("_sync_viewed_aircraft_ui")
 	var after := _pose_signature(skeleton)
 	_expect(bool(pause_menu.call("is_photo_mode_active")), "photo mode remains active")
 	_expect(player.active and player.is_playing() and player.current_animation == "piloting",
 		"piloting animation remains selected in photo mode")
 	_expect(before == after, "photo mode preserves the evaluated seated pilot skeleton")
+	var cockpit_hidden_nodes: Array = pilot.get("_cockpit_hidden_nodes") as Array
+	_expect(not cockpit_hidden_nodes.is_empty() and _all_nodes_visible(cockpit_hidden_nodes),
+		"photo mode reveals the closest aircraft pilot after the camera clears the cockpit")
+	var hud := aircraft.get_node_or_null("HeadsUpDisplay") as Node3D
+	var panel := aircraft.get_node_or_null("InstrumentPanel") as Node3D
+	_expect(hud != null and hud.visible and hud.is_processing(),
+		"photo mode shows and updates the closest aircraft HUD")
+	_expect(panel != null and panel.visible and bool(panel.get("_view_updates_active")),
+		"photo mode shows and updates the closest aircraft instrument panel")
 
 	pause_menu.call("exit_photo_mode")
 	pause_menu.call("_close")
@@ -102,6 +115,14 @@ func _pose_signature(skeleton: Skeleton3D) -> String:
 	return "|".join(parts)
 
 
+func _all_nodes_visible(nodes: Array) -> bool:
+	for node_variant: Variant in nodes:
+		var node := node_variant as Node3D
+		if node == null or not is_instance_valid(node) or not node.visible:
+			return false
+	return true
+
+
 func _expect(condition: bool, description: String) -> void:
 	if not condition:
 		_failures.append(description)
@@ -111,7 +132,7 @@ func _expect(condition: bool, description: String) -> void:
 func _finish() -> void:
 	paused = false
 	if _failures.is_empty():
-		print("[PhotoModePilotPoseSmoketest] PASS clip=piloting seated_pose_preserved=true repeated_activation=idempotent")
+		print("[PhotoModePilotPoseSmoketest] PASS clip=piloting seated_pose_preserved=true repeated_activation=idempotent pilot_visible=true hud=true instrument_panel=true")
 		quit(0)
 		return
 	quit(1)

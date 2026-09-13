@@ -3,6 +3,31 @@ class_name LandCarrier
 
 signal initial_placement_completed
 signal player_route_rejected(message: String)
+var is_destroyed: bool:
+	get:
+		var control := get_node_or_null("CarrierDamageControl")
+		return bool(control.get("lost")) if control != null else false
+
+func take_damage(amount: float) -> void:
+	take_damage_at(amount, global_position, -1)
+
+func take_damage_at(amount: float, point: Vector3, _shape: int = -1) -> void:
+	var control := get_node_or_null("CarrierDamageControl")
+	if control != null:
+		control.call("apply_hit", amount, point)
+
+func take_damage_event(amount: float, point: Vector3, event_id: String) -> void:
+	var control := get_node_or_null("CarrierDamageControl")
+	if control != null:
+		control.call("queue_hit", amount, point, event_id)
+
+func get_explosion_damage_point(point: Vector3) -> Vector3:
+	var control := get_node_or_null("CarrierDamageControl")
+	return control.call("explosion_sample", point) if control != null else global_position
+
+func get_system_capability(id: String, component: Node = null) -> float:
+	var control := get_node_or_null("CarrierDamageControl")
+	return float(control.call("capability", id, component)) if control != null else 1.0
 
 const CARRIER_TREAD_SCRIPT := preload("res://LandCarrier/CarrierTread.gd")
 const VEHICLE_RAMP_SCRIPT := preload("res://LandCarrier/VehicleRamp.gd")
@@ -81,6 +106,8 @@ const PERF_OVERRIDE_PATH := "user://land_carrier_perf_override.json"
 ## Disabled in normal play: after safe placement, the carrier waits for a player order.
 @export var automatic_patrol_enabled: bool = false
 @export var default_cross_map_route: bool = true
+## Zero preserves random gameplay placement; nonzero makes diagnostic starts repeatable.
+@export var startup_placement_seed: int = 0
 @export var route_start_edge_margin_m: float = 1800.0
 @export var route_goal_edge_margin_m: float = 0.0
 @export var route_center_search_width_m: float = 4200.0
@@ -483,17 +510,33 @@ func get_active_waypoints() -> Array[Vector3]:
 
 
 func capture_save_state() -> Dictionary:
-	return {
+	var state := {
 		"position": global_position,
 		"rotation": global_rotation,
 		"active_waypoints": get_active_waypoints(),
 		"player_route_active": _player_route_active,
 	}
+	var loadout := get_node_or_null("CarrierDefenseLoadout")
+	if loadout != null:
+		state["defense_loadout"] = loadout.call("capture_save_state")
+	var damage_control := get_node_or_null("CarrierDamageControl")
+	if damage_control != null:
+		state["damage_control"] = damage_control.call("capture_save_state")
+	return state
 
 
 func restore_save_state(state: Dictionary) -> bool:
 	if state.is_empty():
 		return false
+	var damage_control := get_node_or_null("CarrierDamageControl")
+	if damage_control != null and state.get("damage_control") is Dictionary:
+		if not damage_control.call("restore_save_state", state.damage_control):
+			return false
+	var loadout := get_node_or_null("CarrierDefenseLoadout")
+	if loadout != null and state.get("defense_loadout") is Dictionary:
+		if not bool(loadout.call("restore_save_state", state.defense_loadout)):
+			push_warning("[LandCarrier] Invalid saved defense loadout.")
+			return false
 	_clear_route_and_hold()
 	global_position = state.get("position", global_position) as Vector3
 	global_rotation = state.get("rotation", global_rotation) as Vector3
@@ -523,6 +566,9 @@ func _apply_direct_waypoints() -> void:
 	_prev_wp_dist = INF
 
 func _set_north_heading() -> void:
+	if _heli_test_stationary:
+		_start_random_patrol() # Marks the stationary test pose ready without waiting for NavGraph.
+		return
 	if not use_waypoint_pathfinding:
 		visible = true
 		return
@@ -541,7 +587,10 @@ func _start_random_patrol() -> void:
 	_is_pathfinding = true
 
 	var rng := RandomNumberGenerator.new()
-	rng.randomize()
+	if startup_placement_seed == 0:
+		rng.randomize()
+	else:
+		rng.seed = startup_placement_seed
 	_using_default_cross_map_route = false
 	_default_cross_map_route_completed = false
 
@@ -736,8 +785,9 @@ func _start_random_patrol() -> void:
 func _on_random_patrol_job_result(result: Variant) -> void:
 	if not result is Dictionary:
 		_is_pathfinding = false
-		visible = true
-		_mark_initial_placement_completed()
+		# A coordinate-frame change invalidated the queued startup placement.
+		# Retry from the live frame instead of declaring an unplaced carrier ready.
+		_start_random_patrol.call_deferred()
 		return
 	var data: Dictionary = result as Dictionary
 	_on_random_patrol_computed(
@@ -1904,6 +1954,9 @@ func _refresh_launch_corridor_reposition_command(delta: float) -> void:
 func _apply_drive_motion(delta: float, target_speed_mps: float, target_yaw_rate_rad_s: float) -> void:
 	if delta <= 0.0:
 		return
+	var drive_capability := get_system_capability("drive")
+	target_speed_mps *= drive_capability
+	target_yaw_rate_rad_s *= drive_capability
 	var constrained_motion := _apply_recovery_motion_constraint(target_speed_mps, target_yaw_rate_rad_s, delta)
 	target_speed_mps = float(constrained_motion.get("speed", target_speed_mps))
 	target_yaw_rate_rad_s = float(constrained_motion.get("yaw_rate", target_yaw_rate_rad_s))

@@ -6,6 +6,11 @@ param(
     [int]$TargetTraps = 24,
     [ValidateRange(5, 120)]
     [int]$TimeoutMinutes = 45,
+    [string]$AircraftModel = "",
+    [switch]$StrictFinalHandoff,
+    [switch]$ObserveThroughStow,
+    [ValidateRange(0, 500)]
+    [double]$ForceWaveoffAtM = 0,
     [string]$GodotPath = "C:\Godot\Godot_v4.6.2-stable_win64_console.exe"
 )
 
@@ -18,6 +23,11 @@ $reportPath = Join-Path $settingsDir ("carrier_combat_test_" + $runId + ".log")
 
 if (-not (Test-Path -LiteralPath $GodotPath)) {
     throw "Godot executable not found: $GodotPath"
+}
+
+$supportedAircraftModels = @("Aircraft_1", "Aircraft_2", "Aircraft_5", "Aircraft_7", "Aircraft_8")
+if (-not [string]::IsNullOrWhiteSpace($AircraftModel) -and $AircraftModel -notin $supportedAircraftModels) {
+    throw "Unsupported aircraft model '$AircraftModel'. Choose one of: $($supportedAircraftModels -join ', ')"
 }
 
 $arguments = @(
@@ -35,7 +45,26 @@ $arguments = @(
     "--quit-on-test-complete"
 )
 
-Write-Host "Starting accelerated desert carrier recovery: $runId active=$ActiveAircraft target_traps=$TargetTraps"
+if (-not [string]::IsNullOrWhiteSpace($AircraftModel)) {
+    $arguments += "--desert-aircraft-model=$AircraftModel"
+    # A model-isolation run should terminate with that one airframe's result;
+    # rolling replacement would turn one failure into an unbounded relaunch test.
+    $arguments += "--rolling-finite-cohort"
+}
+if ($StrictFinalHandoff) {
+    $arguments += "--strict-recovery-handoff"
+}
+if ($ObserveThroughStow) {
+    $arguments += "--observe-through-stow"
+    $arguments += "--rolling-finite-cohort"
+}
+if ($ForceWaveoffAtM -gt 0) {
+    $arguments += "--force-waveoff-at-m=$ForceWaveoffAtM"
+}
+
+$finalMode = if ($StrictFinalHandoff) { "strict" } else { "diagnostic" }
+$waveoffMode = if ($ForceWaveoffAtM -gt 0) { " waveoff=${ForceWaveoffAtM}m" } else { "" }
+Write-Host "Starting accelerated desert carrier recovery: $runId active=$ActiveAircraft target_traps=$TargetTraps model=$AircraftModel final=$finalMode$waveoffMode"
 $process = Start-Process -FilePath $GodotPath -ArgumentList $arguments `
     -WindowStyle Hidden -RedirectStandardOutput $stdoutPath `
     -RedirectStandardError $stderrPath -PassThru
@@ -71,7 +100,21 @@ if ($null -ne $result.recovery_stages) {
         $result.recovery_stages.final_handoff,
         $result.recovery_stages.confirmed_landing)
 }
+if ($null -ne $result.forced_waveoff -and $result.forced_waveoff.enabled) {
+    Write-Host ("Waveoff: requested={0}m actual={1}m triggered={2} cleared={3}" -f `
+        $result.forced_waveoff.requested_remaining_m,
+        $result.forced_waveoff.actual_remaining_m,
+        $result.forced_waveoff.triggered,
+        $result.forced_waveoff.cleared)
+}
 Write-Host "Report: $reportPath"
+if ($result.observe_through_stow) {
+    foreach ($cycle in $result.cycles) {
+        Write-Host ("  {0} {1}: launched={2} returned={3} caught={4} stopped={5} stowed={6} health={7} damage={8}" -f `
+            $cycle.model, $cycle.status, $cycle.launched, $cycle.rtb_started,
+            $cycle.wire_caught, $cycle.stopped, $cycle.stowed, $cycle.health, $cycle.damage_taken)
+    }
+}
 if ($result.status -ne "PASS") {
     exit 1
 }

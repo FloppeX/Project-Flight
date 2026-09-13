@@ -230,6 +230,7 @@ propeller_node = NodePath("../aircraft_7/Aircraft 2 propeller")
 EngineSoundLoop = ExtResource("11_btnkm")
 EngineSoundStart = ExtResource("12_sqfht")
 FuelRate = 0.01
+FuelBaseRate = 0.065
 ProcessPhysics = true
 
 [node name="Steering" parent="." unique_id=1973645655 instance=ExtResource("13_ldgib")]
@@ -333,6 +334,7 @@ mounted_weapon = ExtResource("32_kq7no")
 [node name="Hardpoint3" parent="." unique_id=49527940 instance=ExtResource("28_ymevh")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.182677, 5.72788)
 mounted_weapon = ExtResource("39_20mm")
+gun_only = true
 
 [node name="TailHook" parent="." unique_id=745457871 instance=ExtResource("31_3f4kl")]
 transform = Transform3D(1, 0, 0, 0, 0.5, -0.866025, 0, 0.866025, 0.5, 0, -1.8682, -4.09653)
@@ -347,6 +349,7 @@ cockpit_shadow_disable_paths = Array[NodePath]([NodePath("../aircraft_7/world/fu
 
 [node name="AIPilot" type="Node" parent="." unique_id=1691229574]
 script = ExtResource("34_aipil")
+rtb_fuel_threshold = 0.35
 
 [node name="AIToggle" type="Node" parent="." unique_id=1522207075]
 script = ExtResource("33_aitgl")

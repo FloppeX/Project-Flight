@@ -69,6 +69,8 @@ var _sky: ProceduralSkyMaterial
 var _t: float = 0.0  # normalized 0..1 over full cycle
 var _update_acc: float = 0.0
 var _night_mode: bool = false
+var _user_fixed_time_enabled := false
+var _user_fixed_time_t := 0.25
 var _ai_darkness_factor: float = 0.0
 var _dust_top_noise: FastNoiseLite
 var _dust_volume: FogVolume
@@ -160,28 +162,36 @@ func _ready() -> void:
 	_ensure_sun_breaks()
 
 	_t = frozen_daytime_t if freeze_daytime else float(start_phase) / float(_KF.size())
+	var settings := get_node_or_null("/root/PauseMenu")
+	if settings != null and settings.has_method("is_time_of_day_fixed"):
+		apply_fixed_time_setting(settings.is_time_of_day_fixed(), settings.get_fixed_time_minutes())
 	_update(_t)
+
+
+func apply_fixed_time_setting(enabled: bool, minutes: int) -> void:
+	_user_fixed_time_enabled = enabled
+	# Cycle zero is dawn (06:00), a quarter cycle is noon (12:00).
+	_user_fixed_time_t = fposmod(float(clampi(minutes, 0, 1439) - 360) / 1440.0, 1.0)
+	if enabled:
+		_t = _user_fixed_time_t
+	elif freeze_daytime:
+		_t = frozen_daytime_t
+	# Settings also work while the world is paused. Preserve authored/test
+	# freezes separately, and leave dust motion and other simulation running.
+	if _env != null:
+		_update(_t)
 
 func get_ai_darkness_factor() -> float:
 	"""0.0 in good daylight, 1.0 in the darkest twilight/night phase."""
 	return _ai_darkness_factor
 
-func _unhandled_input(event: InputEvent) -> void:
-	return
-	if event is InputEventKey and (event as InputEventKey).pressed \
-			and not (event as InputEventKey).echo \
-			and (event as InputEventKey).keycode == KEY_N:
-		_night_mode = not _night_mode
-		_t = 0.875 if _night_mode else frozen_daytime_t  # TWILIGHT mid vs frozen day test time
-		_update(_t)
-		get_viewport().set_input_as_handled()
-
-
 func _process(delta: float) -> void:
 	_sun_break_time += delta
 	_update_sun_breaks(_last_sun_break_color, _last_clear_air_factor)
 
-	if freeze_daytime:
+	if _user_fixed_time_enabled:
+		_t = _user_fixed_time_t
+	elif freeze_daytime:
 		_t = frozen_daytime_t
 	elif not _night_mode:
 		_t = fmod(_t + delta / (phase_duration_s * float(_KF.size())), 1.0)

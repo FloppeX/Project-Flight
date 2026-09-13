@@ -6,6 +6,14 @@ extends Node
 ## Requests are queued and processed one per frame to avoid physics spikes.
 
 signal bake_complete
+signal bake_invalidated
+
+const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
+const GridCache = preload("res://Environment/NavigationGridCache.gd")
+@export var disk_cache_enabled: bool = true
+var _grid_cache_key := ""
+var _grid_cache_hit := false
+var _grid_cache_io_ms := 0.0
 
 enum BakeStage {
 	WAITING_FOR_TERRAIN,
@@ -36,6 +44,8 @@ func apply_origin_shift(offset: Vector3) -> void:
 @export var bake_half_extent_m: float = 25000.0 ## Half-side of baked square around terrain centre (50 km × 50 km map)
 @export var search_padding_m: float = 400.0    ## Extra A* search area beyond start→goal bbox
 @export_range(1, 20) var rows_per_frame: int = 12 ## Terrain rows sampled per frame while loading
+## Disable to compare against scalar provider calls in diagnostic runs.
+@export var prefer_batch_height_sampling: bool = true
 ## Clearance radius in cells required around each path node.
 ## Carrier is ~76m wide; at 40m/cell use 2 so a 160m corridor is needed.
 @export_range(0, 8) var body_clearance_cells: int = 3
@@ -88,6 +98,14 @@ var _bake_gz: int = 0  # next row to bake
 var _query_bake_gz: int = 0
 var _query_analysis_gz: int = 0
 var _bake_stage: BakeStage = BakeStage.WAITING_FOR_TERRAIN
+# Horizontal min/max windows for only the rows needed by the vertical pass.
+# This retains exact square-neighborhood semantics without a full-map scratch grid.
+var _query_window_min := PackedFloat32Array()
+var _query_window_max := PackedFloat32Array()
+var _query_window_next_row: int = 0
+var _bake_started_usec: int = 0
+var _bake_finished_usec: int = 0
+var _bake_timings: Dictionary = {}
 
 # --- Request queue ---
 # Each entry: { from_world, to_world, max_slope_m, max_segment_m, callback }
@@ -343,6 +361,16 @@ func get_bake_profile_id() -> String:
 	return _bake_profile_id
 
 func _reset_bake_state() -> void:
+	bake_invalidated.emit()
+	_grid_cache_key = ""
+	_grid_cache_hit = false
+	_grid_cache_io_ms = 0.0
+	_query_window_min = PackedFloat32Array()
+	_query_window_max = PackedFloat32Array()
+	_query_window_next_row = 0
+	_bake_timings.clear()
+	_bake_started_usec = 0
+	_bake_finished_usec = 0
 	_heights = PackedFloat32Array()
 	_cols = 0
 	_rows = 0
@@ -408,6 +436,9 @@ func _try_start_bake() -> void:
 	var terrain := get_tree().get_first_node_in_group("terrain_provider") as Node3D
 	if not is_instance_valid(terrain):
 		return
+	_bake_started_usec = Time.get_ticks_usec()
+	_bake_finished_usec = 0
+	_bake_timings.clear()
 	var cx: float = _bake_center_override_x if _bake_center_override_enabled else terrain.global_position.x
 	var cz: float = _bake_center_override_z if _bake_center_override_enabled else terrain.global_position.z
 	_bake_center_x = cx
@@ -420,6 +451,26 @@ func _try_start_bake() -> void:
 	_query_origin_z = _origin_z
 	_cols = int(bake_half_extent_m * 2.0 / cell_size_m) + 1
 	_rows = int(bake_half_extent_m * 2.0 / cell_size_m) + 1
+	_grid_cache_hit = false
+	_grid_cache_io_ms = 0.0
+	_grid_cache_key = GridCache.fingerprint(self, terrain) if disk_cache_enabled else ""
+	if not _grid_cache_key.is_empty():
+		var started := Time.get_ticks_usec()
+		var q_size := int(bake_half_extent_m * 2.0 / maxf(query_cell_size_m, 1.0)) + 1 if query_grid_enabled else 0
+		var cached := GridCache.read(_grid_cache_key, _cols * _rows, q_size * q_size)
+		_grid_cache_io_ms = (Time.get_ticks_usec() - started) / 1000.0
+		if not cached.is_empty():
+			_heights = cached.heights
+			_query_heights = cached.query
+			_query_height_variation = cached.variation
+			_query_max_heights = cached.maxima
+			_h_min_passable = cached.minimum
+			_query_cols = q_size
+			_query_rows = q_size
+			_query_is_baked = query_grid_enabled
+			_grid_cache_hit = true
+			_finish_bake()
+			return
 	_heights.resize(_cols * _rows)
 	_heights.fill(IMPASSABLE)
 	_bake_terrain = terrain
@@ -431,6 +482,9 @@ func _try_start_bake() -> void:
 
 
 func _bake_rows() -> void:
+	var stage_name: String = BakeStage.keys()[_bake_stage]
+	var started := Time.get_ticks_usec()
+	var profiler_start: int = FrameProfiler.begin("TerrainNavGrid." + stage_name)
 	match _bake_stage:
 		BakeStage.HEIGHTS:
 			_bake_height_rows()
@@ -440,6 +494,22 @@ func _bake_rows() -> void:
 			_analyze_query_rows()
 		BakeStage.FINALIZING:
 			_finish_bake()
+	FrameProfiler.end("TerrainNavGrid." + stage_name, profiler_start)
+	var elapsed := Time.get_ticks_usec() - started
+	var timing: Dictionary = _bake_timings.get(stage_name, {"total_ms": 0.0, "max_slice_ms": 0.0, "slices": 0})
+	timing["total_ms"] += elapsed / 1000.0
+	timing["max_slice_ms"] = maxf(timing["max_slice_ms"], elapsed / 1000.0)
+	timing["slices"] += 1
+	_bake_timings[stage_name] = timing
+
+
+func get_bake_timing_stats() -> Dictionary:
+	var end_usec := _bake_finished_usec if _bake_finished_usec > 0 else Time.get_ticks_usec()
+	return {"stage": get_bake_stage_label(), "complete": _is_baked,
+		"cache_hit": _grid_cache_hit, "cache_io_ms": _grid_cache_io_ms,
+		"wall_ms": (end_usec - _bake_started_usec) / 1000.0 if _bake_started_usec > 0 else 0.0,
+		"coarse_cells": _heights.size(), "query_cells": _query_heights.size(),
+		"stages": _bake_timings.duplicate(true)}
 
 
 func _bake_height_rows() -> void:
@@ -449,6 +519,21 @@ func _bake_height_rows() -> void:
 		return
 	var end_gz: int = mini(_bake_gz + rows_per_frame, _rows)
 	var terrain_y: float = terrain.global_position.y
+	if prefer_batch_height_sampling and terrain.has_method("sample_height_grid_rows"):
+		var batch: Dictionary = terrain.call("sample_height_grid_rows", _origin_x, _origin_z, cell_size_m, _bake_gz, end_gz - _bake_gz, _cols)
+		var samples: PackedFloat32Array = batch["heights"]
+		var offset := _bake_gz * _cols
+		for i in samples.size():
+			if not is_nan(samples[i]):
+				_heights[offset + i] = samples[i]
+		_h_min_passable = minf(_h_min_passable, float(batch["minimum"]))
+		_bake_gz = end_gz
+		if _bake_gz >= _rows:
+			if query_grid_enabled:
+				_begin_query_grid()
+			else:
+				_bake_stage = BakeStage.FINALIZING
+		return
 	for gz in range(_bake_gz, end_gz):
 		for gx in range(_cols):
 			var world_x: float = _origin_x + gx * cell_size_m
@@ -495,6 +580,17 @@ func _bake_query_rows() -> void:
 	var q_cell: float = maxf(query_cell_size_m, 1.0)
 	var end_gz: int = mini(_query_bake_gz + rows_per_frame, _query_rows)
 	var terrain_y: float = terrain.global_position.y
+	if prefer_batch_height_sampling and terrain.has_method("sample_height_grid_rows"):
+		var batch: Dictionary = terrain.call("sample_height_grid_rows", _query_origin_x, _query_origin_z, q_cell, _query_bake_gz, end_gz - _query_bake_gz, _query_cols)
+		var samples: PackedFloat32Array = batch["heights"]
+		var offset := _query_bake_gz * _query_cols
+		for i in samples.size():
+			if not is_nan(samples[i]):
+				_query_heights[offset + i] = samples[i]
+		_query_bake_gz = end_gz
+		if _query_bake_gz >= _query_rows:
+			_begin_query_analysis()
+		return
 	for gz in range(_query_bake_gz, end_gz):
 		for gx in range(_query_cols):
 			var world_x: float = _query_origin_x + gx * q_cell
@@ -513,50 +609,76 @@ func _begin_query_analysis() -> void:
 	_query_max_heights.resize(_query_cols * _query_rows)
 	_query_max_heights.fill(-INF)
 	_query_analysis_gz = 0
+	var window_rows := maxi(query_edge_radius_cells, 1) * 2 + 1
+	_query_window_min.resize(window_rows * _query_cols)
+	_query_window_max.resize(window_rows * _query_cols)
+	_query_window_next_row = 0
 	_bake_stage = BakeStage.QUERY_ANALYSIS
 
 
 func _analyze_query_rows() -> void:
 	var r: int = maxi(query_edge_radius_cells, 1)
+	var window_rows := r * 2 + 1
 	var end_gz: int = mini(_query_analysis_gz + rows_per_frame, _query_rows)
 	for gz in range(_query_analysis_gz, end_gz):
-		for gx in range(_query_cols):
+		# Out-of-bounds neighborhoods remain unsafe, exactly as before.
+		if gz < r or gz >= _query_rows - r:
+			continue
+		while _query_window_next_row <= gz + r:
+			_build_query_window_row(_query_window_next_row, r)
+			_query_window_next_row += 1
+		for gx in range(r, _query_cols - r):
 			var idx: int = gz * _query_cols + gx
-			var h: float = _query_heights[idx]
-			if h <= IMPASSABLE * 0.5:
-				continue
-			var min_h: float = h
-			var max_h: float = h
-			var valid: bool = true
-			for dz in range(-r, r + 1):
-				for dx in range(-r, r + 1):
-					var nx: int = gx + dx
-					var nz: int = gz + dz
-					if nx < 0 or nx >= _query_cols or nz < 0 or nz >= _query_rows:
-						valid = false
-						break
-					var nh: float = _query_heights[nz * _query_cols + nx]
-					if nh <= IMPASSABLE * 0.5:
-						valid = false
-						break
-					min_h = minf(min_h, nh)
-					max_h = maxf(max_h, nh)
-				if not valid:
+			var min_h := INF
+			var max_h := -INF
+			for nz in range(gz - r, gz + r + 1):
+				var window_idx := (nz % window_rows) * _query_cols + gx
+				var row_min := _query_window_min[window_idx]
+				if row_min == -INF:
+					min_h = -INF
 					break
-			if valid:
+				min_h = minf(min_h, row_min)
+				max_h = maxf(max_h, _query_window_max[window_idx])
+			if min_h != -INF:
 				_query_height_variation[idx] = max_h - min_h
 				_query_max_heights[idx] = max_h
 	_query_analysis_gz = end_gz
 	if _query_analysis_gz >= _query_rows:
+		_query_window_min = PackedFloat32Array()
+		_query_window_max = PackedFloat32Array()
 		_query_is_baked = true
 		_bake_stage = BakeStage.FINALIZING
 
 
+func _build_query_window_row(gz: int, radius: int) -> void:
+	var slot := (gz % (radius * 2 + 1)) * _query_cols
+	var source_row := gz * _query_cols
+	for gx in range(radius, _query_cols - radius):
+		var min_h := INF
+		var max_h := -INF
+		for nx in range(gx - radius, gx + radius + 1):
+			var h := _query_heights[source_row + nx]
+			if h <= IMPASSABLE * 0.5:
+				min_h = -INF
+				break
+			min_h = minf(min_h, h)
+			max_h = maxf(max_h, h)
+		_query_window_min[slot + gx] = min_h
+		_query_window_max[slot + gx] = max_h
+
+
 func _finish_bake() -> void:
+	if disk_cache_enabled and not _grid_cache_hit and not _grid_cache_key.is_empty() and is_instance_valid(_bake_terrain):
+		# A moved/reconfigured terrain during baking must never poison its old key.
+		if GridCache.fingerprint(self, _bake_terrain) == _grid_cache_key:
+			var started := Time.get_ticks_usec()
+			GridCache.write(_grid_cache_key, self)
+			_grid_cache_io_ms += (Time.get_ticks_usec() - started) / 1000.0
 	_is_baked = true
 	_bake_terrain = null
 	_bake_stage = BakeStage.COMPLETE
 	bake_complete.emit()
+	_bake_finished_usec = Time.get_ticks_usec()
 
 
 # --- A* ---

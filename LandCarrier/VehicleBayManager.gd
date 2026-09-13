@@ -101,6 +101,9 @@ func deploy_platoon() -> void:
 	deploy_platoon_for(p)
 
 func deploy_platoon_for(platoon: GroundVehiclePlatoon) -> void:
+	if is_instance_valid(_carrier) and _carrier.has_method("get_system_capability"):
+		if float(_carrier.call("get_system_capability", "vehicle_bay")) <= 0.0:
+			return
 	var count: int = mini(PLATOON_SIZE, stored_vehicles)
 	if count <= 0:
 		push_warning("VehicleBayManager: No vehicles in bay to deploy")
@@ -175,6 +178,11 @@ func _finish_deployment() -> void:
 # ── Retrieve ─────────────────────────────────────────────────────────────────
 
 ## Retrieve a list of vehicles back into the bay.
+func can_retrieve_vehicles() -> bool:
+	if state != BayState.IDLE or not is_instance_valid(_carrier): return false
+	if not is_instance_valid(_ramp): _find_ramp()
+	return is_instance_valid(_ramp)
+
 func retrieve_vehicles(vehicles: Array[Node3D]) -> void:
 	if vehicles.is_empty():
 		return

@@ -12,15 +12,20 @@ max_pitch_down = -10.0
 base_mesh = NodePath("StandModel/base")
 barrel_mount = NodePath("BarrelMount")
 firing_points = [NodePath("BarrelMount/Muzzle")]
-derive_forward_from_muzzle = true
 barrel_forward_axis_local = Vector3(0, 0, 1)
 barrel_pitch_axis_local = Vector3(1, 0, 0)
 
 [node name="StandModel" parent="." instance=ExtResource("2_model")]
 
+[node name="heavy gun" parent="StandModel" index="0"]
+visible = false
+
 [node name="BarrelMount" type="Node3D" parent="."]
 
 [node name="GunModel" parent="BarrelMount" instance=ExtResource("2_model")]
 
+[node name="base" parent="BarrelMount/GunModel" index="1"]
+visible = false
+
 [node name="Muzzle" type="Node3D" parent="BarrelMount"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.06, 1.72)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.006476, 0.006308, 2.91772)

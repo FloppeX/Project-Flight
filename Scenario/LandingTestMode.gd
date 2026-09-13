@@ -1,15 +1,57 @@
 extends Node3D
-## Landing test harness (scenario 5). Spawns Aircraft_5 aircraft near the carrier whose only job is to
-## LAND. In the normal path-development mode one aircraft at a time spawns at a random point
+## Landing test harness (scenario 5). Spawns a selected fixed-wing aircraft near the carrier whose
+## only job is to LAND. In the normal path-development mode one aircraft at a time spawns at a random point
 ## 5-6 km from the carrier at 450-2000 m altitude and flies the complete recovery path. The optional
 ## genetic mode retains its deterministic close-final curriculum. In normal path-development mode,
 ## wave-offs and bolters are logged as retry events and the same aircraft keeps flying until it catches
 ## a wire, crashes, or times out. Genetic trials retain one-final-attempt scoring. Outcome records are
 ## structured for a future genetic-algorithm tuner.
 
-const AIRCRAFT_SCENE: PackedScene = preload("res://Aircraft/Aircraft_5.tscn")
 const LANDING_GA_SCRIPT: Script = preload("res://AI/LandingGeneticTuner.gd")
 const REPORT_PATH := "user://landing_test_report.log"
+const GO_AROUND_TEST: Script = preload("res://Scenario/GoAroundTestObserver.gd")
+const AIRCRAFT_SCENE_PATHS := {
+	"Aircraft_1": "res://Aircraft/Aircraft_1.tscn",
+	"Aircraft_2": "res://Aircraft/Aircraft_2.tscn",
+	"Aircraft_5": "res://Aircraft/Aircraft_5.tscn",
+}
+
+# First map the controller's capture basin before asking an optimizer to move it. The nine nominal
+# cases isolate distance and energy; the four offset cases then test whether the landing sight can
+# repair a modest lateral or vertical error. Each case is deterministic and terminates on its first
+# catch, wave-off, bolter, crash, or timeout.
+const LANDING_SIGHT_MATRIX_CASES := [
+	{"label": "d700_v50", "behind_m": 700.0, "lateral_m": 0.0, "alt_m": 73.0, "heading_offset_deg": 0.0, "speed_mps": 50.0, "fpa_deg": 5.9},
+	{"label": "d700_v60", "behind_m": 700.0, "lateral_m": 0.0, "alt_m": 73.0, "heading_offset_deg": 0.0, "speed_mps": 60.0, "fpa_deg": 5.9},
+	{"label": "d700_v70", "behind_m": 700.0, "lateral_m": 0.0, "alt_m": 73.0, "heading_offset_deg": 0.0, "speed_mps": 70.0, "fpa_deg": 5.9},
+	{"label": "d1000_v50", "behind_m": 1000.0, "lateral_m": 0.0, "alt_m": 105.0, "heading_offset_deg": 0.0, "speed_mps": 50.0, "fpa_deg": 5.9},
+	{"label": "d1000_v60", "behind_m": 1000.0, "lateral_m": 0.0, "alt_m": 105.0, "heading_offset_deg": 0.0, "speed_mps": 60.0, "fpa_deg": 5.9},
+	{"label": "d1000_v70", "behind_m": 1000.0, "lateral_m": 0.0, "alt_m": 105.0, "heading_offset_deg": 0.0, "speed_mps": 70.0, "fpa_deg": 5.9},
+	{"label": "d1300_v50", "behind_m": 1300.0, "lateral_m": 0.0, "alt_m": 136.0, "heading_offset_deg": 0.0, "speed_mps": 50.0, "fpa_deg": 5.9},
+	{"label": "d1300_v60", "behind_m": 1300.0, "lateral_m": 0.0, "alt_m": 136.0, "heading_offset_deg": 0.0, "speed_mps": 60.0, "fpa_deg": 5.9},
+	{"label": "d1300_v70", "behind_m": 1300.0, "lateral_m": 0.0, "alt_m": 136.0, "heading_offset_deg": 0.0, "speed_mps": 70.0, "fpa_deg": 5.9},
+	{"label": "d1000_right60", "behind_m": 1000.0, "lateral_m": 60.0, "alt_m": 105.0, "heading_offset_deg": 0.0, "speed_mps": 60.0, "fpa_deg": 5.9},
+	{"label": "d1000_left60", "behind_m": 1000.0, "lateral_m": -60.0, "alt_m": 105.0, "heading_offset_deg": 0.0, "speed_mps": 60.0, "fpa_deg": 5.9},
+	{"label": "d1000_high20", "behind_m": 1000.0, "lateral_m": 0.0, "alt_m": 125.0, "heading_offset_deg": 0.0, "speed_mps": 60.0, "fpa_deg": 5.9},
+	{"label": "d1000_low20", "behind_m": 1000.0, "lateral_m": 0.0, "alt_m": 85.0, "heading_offset_deg": 0.0, "speed_mps": 60.0, "fpa_deg": 5.9},
+	# High-path regression cases: outer height capture, a combined height/offset
+	# correction, and an intentionally unreachable late arrival for the escape gate.
+	{"label": "d1000_high120", "behind_m": 1000.0, "lateral_m": 0.0, "alt_m": 225.0, "heading_offset_deg": 0.0, "speed_mps": 70.0, "fpa_deg": 5.9, "press_final": true},
+	{"label": "d1000_high80_right", "behind_m": 1000.0, "lateral_m": 100.0, "alt_m": 185.0, "heading_offset_deg": 0.0, "speed_mps": 70.0, "fpa_deg": 5.9, "press_final": true},
+	{"label": "d200_high50", "behind_m": 200.0, "lateral_m": 0.0, "alt_m": 72.0, "heading_offset_deg": 0.0, "speed_mps": 60.0, "fpa_deg": 5.9, "press_final": true},
+]
+
+# A base-to-final test of the requested quick recovery. Each aircraft starts on a short roll-in
+# segment tangent to a 90-degree descending arc and should roll out on centreline 1000 m behind the
+# carrier. Both sides and three entry speeds expose asymmetric control or gear/aero behavior.
+const TURN_IN_MATRIX_CASES := [
+	{"label": "right_v50", "side": 1.0, "rollout_behind_m": 1000.0, "turn_radius_m": 450.0, "settle_distance_m": 600.0, "turn_altitude_buffer_m": 50.0, "roll_in_m": 750.0, "speed_mps": 50.0, "minimum_bank_deg": 60.0, "bank_limit_deg": 70.0, "descent_angle_deg": 5.9},
+	{"label": "right_v60", "side": 1.0, "rollout_behind_m": 1000.0, "turn_radius_m": 450.0, "settle_distance_m": 600.0, "turn_altitude_buffer_m": 50.0, "roll_in_m": 750.0, "speed_mps": 60.0, "minimum_bank_deg": 60.0, "bank_limit_deg": 70.0, "descent_angle_deg": 5.9},
+	{"label": "right_v70", "side": 1.0, "rollout_behind_m": 1000.0, "turn_radius_m": 450.0, "settle_distance_m": 600.0, "turn_altitude_buffer_m": 50.0, "roll_in_m": 750.0, "speed_mps": 70.0, "minimum_bank_deg": 60.0, "bank_limit_deg": 70.0, "descent_angle_deg": 5.9},
+	{"label": "left_v50", "side": -1.0, "rollout_behind_m": 1000.0, "turn_radius_m": 450.0, "settle_distance_m": 600.0, "turn_altitude_buffer_m": 50.0, "roll_in_m": 750.0, "speed_mps": 50.0, "minimum_bank_deg": 60.0, "bank_limit_deg": 70.0, "descent_angle_deg": 5.9},
+	{"label": "left_v60", "side": -1.0, "rollout_behind_m": 1000.0, "turn_radius_m": 450.0, "settle_distance_m": 600.0, "turn_altitude_buffer_m": 50.0, "roll_in_m": 750.0, "speed_mps": 60.0, "minimum_bank_deg": 60.0, "bank_limit_deg": 70.0, "descent_angle_deg": 5.9},
+	{"label": "left_v70", "side": -1.0, "rollout_behind_m": 1000.0, "turn_radius_m": 450.0, "settle_distance_m": 600.0, "turn_altitude_buffer_m": 50.0, "roll_in_m": 750.0, "speed_mps": 70.0, "minimum_bank_deg": 60.0, "bank_limit_deg": 70.0, "descent_angle_deg": 5.9},
+]
 
 # Deterministic, pairwise-style recovery entries. These are deliberately awkward rather than
 # uniformly extreme: each case combines a few adverse conditions while leaving the aircraft enough
@@ -36,50 +78,35 @@ const DIRTY_RECOVERY_CASES := [
 	{"label": "very_far_cross_heavy", "distance_m": 20000.0, "radial_deg": 100.0, "alt_m": 2000.0, "heading_offset_deg": -100.0, "speed_mps": 90.0, "bank_deg": 52.0, "vertical_speed_mps": 0.0, "retain_stores": true},
 ]
 
-# Every candidate in a generation sees the same six cases. Five catches promote the population to
-# the next level, preserving useful genes while shortening and dirtying the entry in modest steps.
-# Coordinates are carrier-relative: positive behind_m is on the approach side; lateral_m is deck-right;
-# altitude is above the carrier root. Altitudes approximate the 5.9deg slope with deliberate errors.
+# Each airframe owns a separate population and sees the same geometry curriculum. This lets the
+# shared pilot code learn different landing profiles for Aircraft_1 and Aircraft_5 rather than
+# compromising between their different mass, control authority, and hook geometry.
+# Coordinates are carrier-relative: positive behind_m is on the approach side, lateral_m is deck-right,
+# and altitude is above the carrier root.
 const GA_CURRICULA := [
 	[
-		{"behind_m": 1000.0, "lateral_m": 0.0, "alt_m": 105.0, "heading_offset_deg": 0.0},
-		{"behind_m": 950.0, "lateral_m": 40.0, "alt_m": 108.0, "heading_offset_deg": -3.0},
-		{"behind_m": 950.0, "lateral_m": -40.0, "alt_m": 90.0, "heading_offset_deg": 3.0},
-		{"behind_m": 900.0, "lateral_m": 60.0, "alt_m": 104.0, "heading_offset_deg": -4.0},
-		{"behind_m": 900.0, "lateral_m": -60.0, "alt_m": 84.0, "heading_offset_deg": 4.0},
-		{"behind_m": 850.0, "lateral_m": 70.0, "alt_m": 96.0, "heading_offset_deg": -5.0},
+		{"label": "d1000_v50", "behind_m": 1000.0, "lateral_m": 0.0, "alt_m": 105.0, "heading_offset_deg": 0.0, "speed_mps": 50.0, "fpa_deg": 5.9},
+		{"label": "d1000_v60", "behind_m": 1000.0, "lateral_m": 0.0, "alt_m": 105.0, "heading_offset_deg": 0.0, "speed_mps": 60.0, "fpa_deg": 5.9},
+		{"label": "d1000_v70", "behind_m": 1000.0, "lateral_m": 0.0, "alt_m": 105.0, "heading_offset_deg": 0.0, "speed_mps": 70.0, "fpa_deg": 5.9},
+		{"label": "d1300_v50", "behind_m": 1300.0, "lateral_m": 0.0, "alt_m": 136.0, "heading_offset_deg": 0.0, "speed_mps": 50.0, "fpa_deg": 5.9},
+		{"label": "d1300_v60", "behind_m": 1300.0, "lateral_m": 0.0, "alt_m": 136.0, "heading_offset_deg": 0.0, "speed_mps": 60.0, "fpa_deg": 5.9},
+		{"label": "d1300_v70", "behind_m": 1300.0, "lateral_m": 0.0, "alt_m": 136.0, "heading_offset_deg": 0.0, "speed_mps": 70.0, "fpa_deg": 5.9},
 	],
 	[
-		{"behind_m": 900.0, "lateral_m": 0.0, "alt_m": 94.0, "heading_offset_deg": 0.0},
-		{"behind_m": 850.0, "lateral_m": 60.0, "alt_m": 96.0, "heading_offset_deg": -4.0},
-		{"behind_m": 850.0, "lateral_m": -60.0, "alt_m": 80.0, "heading_offset_deg": 4.0},
-		{"behind_m": 800.0, "lateral_m": 75.0, "alt_m": 94.0, "heading_offset_deg": -5.0},
-		{"behind_m": 800.0, "lateral_m": -75.0, "alt_m": 72.0, "heading_offset_deg": 5.0},
-		{"behind_m": 750.0, "lateral_m": 85.0, "alt_m": 88.0, "heading_offset_deg": -6.0},
+		{"label": "d700_v50", "behind_m": 700.0, "lateral_m": 0.0, "alt_m": 73.0, "heading_offset_deg": 0.0, "speed_mps": 50.0, "fpa_deg": 5.9},
+		{"label": "d700_v60", "behind_m": 700.0, "lateral_m": 0.0, "alt_m": 73.0, "heading_offset_deg": 0.0, "speed_mps": 60.0, "fpa_deg": 5.9},
+		{"label": "d700_v70", "behind_m": 700.0, "lateral_m": 0.0, "alt_m": 73.0, "heading_offset_deg": 0.0, "speed_mps": 70.0, "fpa_deg": 5.9},
+		{"label": "right60", "behind_m": 1000.0, "lateral_m": 60.0, "alt_m": 105.0, "heading_offset_deg": 0.0, "speed_mps": 60.0, "fpa_deg": 5.9},
+		{"label": "left60", "behind_m": 1000.0, "lateral_m": -60.0, "alt_m": 105.0, "heading_offset_deg": 0.0, "speed_mps": 60.0, "fpa_deg": 5.9},
+		{"label": "d1000_v60_repeat", "behind_m": 1000.0, "lateral_m": 0.0, "alt_m": 105.0, "heading_offset_deg": 0.0, "speed_mps": 60.0, "fpa_deg": 5.9},
 	],
 	[
-		{"behind_m": 800.0, "lateral_m": 0.0, "alt_m": 84.0, "heading_offset_deg": 0.0},
-		{"behind_m": 750.0, "lateral_m": 75.0, "alt_m": 88.0, "heading_offset_deg": -5.0},
-		{"behind_m": 750.0, "lateral_m": -75.0, "alt_m": 68.0, "heading_offset_deg": 5.0},
-		{"behind_m": 700.0, "lateral_m": 90.0, "alt_m": 86.0, "heading_offset_deg": -6.0},
-		{"behind_m": 700.0, "lateral_m": -90.0, "alt_m": 62.0, "heading_offset_deg": 6.0},
-		{"behind_m": 650.0, "lateral_m": 100.0, "alt_m": 80.0, "heading_offset_deg": -7.0},
-	],
-	[
-		{"behind_m": 700.0, "lateral_m": 0.0, "alt_m": 73.0, "heading_offset_deg": 0.0},
-		{"behind_m": 650.0, "lateral_m": 90.0, "alt_m": 80.0, "heading_offset_deg": -6.0},
-		{"behind_m": 650.0, "lateral_m": -90.0, "alt_m": 60.0, "heading_offset_deg": 6.0},
-		{"behind_m": 600.0, "lateral_m": 105.0, "alt_m": 76.0, "heading_offset_deg": -7.0},
-		{"behind_m": 600.0, "lateral_m": -105.0, "alt_m": 54.0, "heading_offset_deg": 7.0},
-		{"behind_m": 550.0, "lateral_m": 100.0, "alt_m": 70.0, "heading_offset_deg": -8.0},
-	],
-	[
-		{"behind_m": 600.0, "lateral_m": 0.0, "alt_m": 63.0, "heading_offset_deg": 0.0},
-		{"behind_m": 550.0, "lateral_m": 90.0, "alt_m": 70.0, "heading_offset_deg": -7.0},
-		{"behind_m": 550.0, "lateral_m": -90.0, "alt_m": 50.0, "heading_offset_deg": 7.0},
-		{"behind_m": 500.0, "lateral_m": 90.0, "alt_m": 62.0, "heading_offset_deg": -8.0},
-		{"behind_m": 500.0, "lateral_m": -90.0, "alt_m": 46.0, "heading_offset_deg": 8.0},
-		{"behind_m": 450.0, "lateral_m": 80.0, "alt_m": 56.0, "heading_offset_deg": -8.0},
+		{"label": "high20", "behind_m": 1000.0, "lateral_m": 0.0, "alt_m": 125.0, "heading_offset_deg": 0.0, "speed_mps": 60.0, "fpa_deg": 5.9},
+		{"label": "low20", "behind_m": 1000.0, "lateral_m": 0.0, "alt_m": 85.0, "heading_offset_deg": 0.0, "speed_mps": 60.0, "fpa_deg": 5.9},
+		{"label": "d700_v70", "behind_m": 700.0, "lateral_m": 0.0, "alt_m": 73.0, "heading_offset_deg": 0.0, "speed_mps": 70.0, "fpa_deg": 5.9},
+		{"label": "d1300_v70", "behind_m": 1300.0, "lateral_m": 0.0, "alt_m": 136.0, "heading_offset_deg": 0.0, "speed_mps": 70.0, "fpa_deg": 5.9},
+		{"label": "right90", "behind_m": 900.0, "lateral_m": 90.0, "alt_m": 95.0, "heading_offset_deg": 0.0, "speed_mps": 60.0, "fpa_deg": 5.9},
+		{"label": "left90", "behind_m": 900.0, "lateral_m": -90.0, "alt_m": 95.0, "heading_offset_deg": 0.0, "speed_mps": 60.0, "fpa_deg": 5.9},
 	],
 ]
 
@@ -110,8 +137,14 @@ const GA_CURRICULA := [
 @export var genetic_freeze_carrier: bool = true
 @export var freeze_carrier_for_test: bool = true
 @export var remove_bombs_from_test_aircraft: bool = true
+@export var terminal_bolter_catch_grace_s: float = 0.5
+@export var arrest_stop_speed_mps: float = 1.5
+@export var arrest_stop_hold_s: float = 2.0
+@export var arrest_observation_timeout_s: float = 12.0
 
 var _play_area_center: Vector3 = Vector3.ZERO
+var _guidance_variant: String = "current"
+var _holdout_entries: bool = false
 var _elapsed_s: float = 0.0
 var _spawn_timer: float = 0.0
 var _summary_timer: float = 0.0
@@ -124,9 +157,20 @@ var _queue_diagnostic: bool = false
 var _dirty_recovery_diagnostic: bool = false
 var _dirty_two_aircraft_diagnostic: bool = false
 var _health_rtb_diagnostic: bool = false
+var _random_rtb_enabled: bool = false
+var _random_rtb_seed: int = 20260908
 var _force_full_rate_guidance: bool = false
+var _landing_matrix_enabled: bool = false
+var _go_around_matrix_enabled: bool = false
+var _landing_retry_test_enabled: bool = false
+var _visible_observer_enabled: bool = false
+var _turn_in_matrix_enabled: bool = false
+var _aircraft_model: String = "Aircraft_5"
+var _aircraft_scene: PackedScene = null
 var _attempt_limit: int = -1
 var _dirty_start_case_index: int = 0
+var _matrix_start_case_index: int = 0
+var _matrix_repeats: int = 1
 var _suite_completion_scheduled: bool = false
 # name -> {node, flow, spawn_t, spawn_pos, spawn_alt, spawn_dist, outcome, waveoffs, bolters}
 var _attempts: Dictionary = {}
@@ -140,6 +184,54 @@ func configure(play_area_center: Vector3) -> void:
 
 func _ready() -> void:
 	var user_args := OS.get_cmdline_user_args()
+	_random_rtb_enabled = user_args.has("--landing-random-rtb")
+	var requested_rtb_seed := _parse_positive_int_arg(user_args, "--landing-rtb-seed=")
+	if requested_rtb_seed > 0:
+		_random_rtb_seed = requested_rtb_seed
+	if _random_rtb_enabled and (user_args.has("--landing-sight-matrix") \
+		or user_args.has("--landing-turn-in-matrix") or user_args.has("--landing-genetic-tuning") \
+		or user_args.has("--landing-dirty-recovery") or user_args.has("--landing-dirty-two-aircraft") \
+		or user_args.has("--landing-health-rtb") or user_args.has("--landing-final-diagnostic") \
+		or user_args.has("--landing-queue-diagnostic")):
+		push_error("Random RTB is a standalone suite; do not combine diagnostic modes")
+		get_tree().quit(2)
+		return
+	_landing_retry_test_enabled = user_args.has("--landing-retry-test")
+	_go_around_matrix_enabled = user_args.has("--landing-go-around-test") or _landing_retry_test_enabled
+	_landing_matrix_enabled = user_args.has("--landing-sight-matrix") or _go_around_matrix_enabled
+	_visible_observer_enabled = _go_around_matrix_enabled or user_args.has("--landing-visible-observer")
+	if _go_around_matrix_enabled:
+		if _random_rtb_enabled or user_args.has("--landing-turn-in-matrix") or user_args.has("--landing-genetic-tuning"):
+			push_error("Go-around test requires its own standalone scenario")
+			get_tree().quit(2)
+			return
+	if _visible_observer_enabled:
+		var observer := Node3D.new()
+		observer.set_script(GO_AROUND_TEST)
+		observer.set("harness", self)
+		observer.set("landing_retry_mode", _landing_retry_test_enabled or _random_rtb_enabled)
+		add_child(observer)
+	_turn_in_matrix_enabled = user_args.has("--landing-turn-in-matrix")
+	if _landing_matrix_enabled and _turn_in_matrix_enabled:
+		push_error("LandingTestMode accepts only one landing matrix mode per run")
+		get_tree().quit(2)
+		return
+	genetic_tuning_enabled = genetic_tuning_enabled or user_args.has("--landing-genetic-tuning")
+	var requested_aircraft_model := _parse_string_arg(user_args, "--landing-aircraft-model=")
+	if not requested_aircraft_model.is_empty():
+		_aircraft_model = requested_aircraft_model
+	if not AIRCRAFT_SCENE_PATHS.has(_aircraft_model):
+		push_error("LandingTestMode unsupported aircraft model '%s'; supported=%s" % [
+			_aircraft_model,
+			", ".join(AIRCRAFT_SCENE_PATHS.keys()),
+		])
+		get_tree().quit(2)
+		return
+	_aircraft_scene = load(str(AIRCRAFT_SCENE_PATHS[_aircraft_model])) as PackedScene
+	if _aircraft_scene == null:
+		push_error("LandingTestMode could not load %s" % str(AIRCRAFT_SCENE_PATHS[_aircraft_model]))
+		get_tree().quit(2)
+		return
 	_focused_final_diagnostic = user_args.has("--landing-final-diagnostic")
 	_queue_diagnostic = user_args.has("--landing-queue-diagnostic")
 	_dirty_recovery_diagnostic = user_args.has("--landing-dirty-recovery") \
@@ -147,7 +239,14 @@ func _ready() -> void:
 	_dirty_two_aircraft_diagnostic = user_args.has("--landing-dirty-two-aircraft")
 	_health_rtb_diagnostic = user_args.has("--landing-health-rtb")
 	_force_full_rate_guidance = user_args.has("--landing-full-rate-guidance")
+	_guidance_variant = _parse_string_arg(user_args, "--landing-guidance-variant=")
+	if _guidance_variant.is_empty():
+		_guidance_variant = "current"
+	_holdout_entries = user_args.has("--landing-holdout-entries")
 	_attempt_limit = _parse_positive_int_arg(user_args, "--landing-attempt-limit=")
+	var requested_ga_population := _parse_positive_int_arg(user_args, "--landing-ga-population=")
+	if requested_ga_population > 0:
+		genetic_population_size = maxi(requested_ga_population, 4)
 	var attempt_timeout_override_s: int = _parse_positive_int_arg(
 		user_args,
 		"--landing-attempt-timeout="
@@ -156,7 +255,31 @@ func _ready() -> void:
 		user_args,
 		"--landing-dirty-start-case="
 	)
-	if _focused_final_diagnostic:
+	_matrix_start_case_index = _parse_nonnegative_int_arg(
+		user_args,
+		"--landing-matrix-start-case="
+	)
+	var requested_matrix_repeats := _parse_positive_int_arg(
+		user_args,
+		"--landing-matrix-repeats="
+	)
+	if requested_matrix_repeats > 0:
+		_matrix_repeats = requested_matrix_repeats
+	if _random_rtb_enabled:
+		max_simultaneous = 1
+		compare_flows = false
+		spawn_interval_s = 2.0
+		attempt_timeout_s = 900.0
+		spawn_dist_min_m = 0.0
+		spawn_dist_max_m = 8000.0
+		spawn_alt_min_m = 500.0
+		spawn_alt_max_m = 1000.0
+		spawn_speed_mps = 90.0
+		spawn_min_agl_m = 100.0
+		teleport_recycle_dist_m = 40000.0
+		if _attempt_limit < 1:
+			_attempt_limit = 10
+	elif _focused_final_diagnostic:
 		max_simultaneous = 1
 		spawn_interval_s = minf(spawn_interval_s, 2.0)
 		attempt_timeout_s = 75.0
@@ -167,6 +290,19 @@ func _ready() -> void:
 		# releases the deck, then complete its own recovery.
 		max_simultaneous = maxi(max_simultaneous, 2)
 		spawn_interval_s = minf(spawn_interval_s, 2.0)
+	elif _landing_matrix_enabled or _turn_in_matrix_enabled:
+		max_simultaneous = 1
+		spawn_interval_s = minf(spawn_interval_s, 2.0)
+		attempt_timeout_s = 90.0
+		spawn_min_agl_m = 60.0
+		if _attempt_limit < 1:
+			var active_matrix_case_count := TURN_IN_MATRIX_CASES.size() \
+				if _turn_in_matrix_enabled else (GO_AROUND_TEST.CASES.size() if _go_around_matrix_enabled else LANDING_SIGHT_MATRIX_CASES.size())
+			_attempt_limit = active_matrix_case_count * _matrix_repeats
+		if _landing_retry_test_enabled:
+			attempt_timeout_s = 480.0
+			if _parse_positive_int_arg(user_args, "--landing-attempt-limit=") < 1:
+				_attempt_limit = GO_AROUND_TEST.LANDING_RETRY_CASES.size() * _matrix_repeats
 	elif _dirty_recovery_diagnostic:
 		max_simultaneous = 2 if _dirty_two_aircraft_diagnostic else 1
 		spawn_interval_s = minf(spawn_interval_s, 2.0)
@@ -210,6 +346,12 @@ func _ready() -> void:
 		_ga_tuner.set("mutation_scale", genetic_mutation_scale)
 		_ga_tuner.set("case_count", (GA_CURRICULA[0] as Array).size())
 		_ga_tuner.set("curriculum_level_count", GA_CURRICULA.size())
+		_ga_tuner.set("baseline_genome", _landing_ga_baseline_from_scene())
+		var ga_model_slug := _aircraft_model.to_lower()
+		_ga_tuner.set("state_path", "user://landing_ga_state_%s.json" % ga_model_slug)
+		_ga_tuner.set("log_path", "user://landing_ga_tuning_%s.log" % ga_model_slug)
+		_ga_tuner.set("champion_project_path", "res://landing_ga_champion_%s.json" % ga_model_slug)
+		_ga_tuner.set("project_log_path", "res://landing_ga_tuning_%s.log" % ga_model_slug)
 		add_child(_ga_tuner)
 	else:
 		var truncate: FileAccess = FileAccess.open(REPORT_PATH, FileAccess.WRITE)
@@ -217,8 +359,20 @@ func _ready() -> void:
 			truncate.close()
 	if attempt_timeout_override_s > 0:
 		attempt_timeout_s = float(attempt_timeout_override_s)
-	_log("START landing test: Aircraft_5 every %.0fs up to %d, %.0f-%.0fm out, %.0f-%.0fm alt" % [
-		spawn_interval_s, max_simultaneous, spawn_dist_min_m, spawn_dist_max_m, spawn_alt_min_m, spawn_alt_max_m])
+	_log("START landing test: %s every %.0fs up to %d, %.0f-%.0fm out, %.0f-%.0fm alt" % [
+		_aircraft_model, spawn_interval_s, max_simultaneous, spawn_dist_min_m, spawn_dist_max_m,
+		spawn_alt_min_m, spawn_alt_max_m])
+	if _landing_matrix_enabled:
+		_log("SIGHT_MATRIX model=%s cases=%d repeats=%d start_case=%d attempts=%d" % [
+			_aircraft_model, LANDING_SIGHT_MATRIX_CASES.size(), _matrix_repeats,
+			_matrix_start_case_index, _attempt_limit])
+	if _random_rtb_enabled:
+		_log("RANDOM_RTB seed=%d model=%s attempts=%d radius=8000 altitude_above_deck=500..1000 speed=90 heading=random timeout=%.0f stores=removed carrier=stationary" % [
+			_random_rtb_seed, _aircraft_model, _attempt_limit, attempt_timeout_s])
+	if _turn_in_matrix_enabled:
+		_log("TURN_IN_MATRIX model=%s cases=%d repeats=%d start_case=%d attempts=%d rollout=1000m bank_limit=70deg" % [
+			_aircraft_model, TURN_IN_MATRIX_CASES.size(), _matrix_repeats,
+			_matrix_start_case_index, _attempt_limit])
 	if _dirty_recovery_diagnostic:
 		_log("DIRTY_PROFILE cases=%d start_case=%d simultaneous=%d attempt_limit=%d" % [
 			DIRTY_RECOVERY_CASES.size(), _dirty_start_case_index,
@@ -226,8 +380,9 @@ func _ready() -> void:
 	if _health_rtb_diagnostic:
 		_log("HEALTH_RTB_PROFILE threshold=50%% damage_to=49%% attempts=%d" % _attempt_limit)
 	if genetic_tuning_enabled and is_instance_valid(_ga_tuner):
-		_log("GA_ENABLED curricula=%d deterministic_cases_per_level=%d status=%s" % [
-			GA_CURRICULA.size(), (GA_CURRICULA[0] as Array).size(), JSON.stringify(_ga_tuner.call("get_status"))])
+		_log("GA_ENABLED model=%s curricula=%d deterministic_cases_per_level=%d status=%s" % [
+			_aircraft_model, GA_CURRICULA.size(), (GA_CURRICULA[0] as Array).size(),
+			JSON.stringify(_ga_tuner.call("get_status"))])
 	_suppress_carrier_air_ops()
 	_clear_scene_clutter()
 	# This harness always replaces the ordinary random carrier start with a
@@ -242,6 +397,29 @@ func _ready() -> void:
 	# driven origin shift then makes that look like an aircraft teleport.
 	_waiting_for_carrier_placement = true
 	_log("WAITING for carrier initial placement")
+
+
+func _landing_ga_baseline_from_scene() -> Dictionary:
+	var baseline: Dictionary = {}
+	if _aircraft_scene == null or not is_instance_valid(_ga_tuner):
+		return baseline
+	var aircraft_probe := _aircraft_scene.instantiate()
+	if aircraft_probe == null:
+		push_warning("LandingTestMode could not instantiate %s to read its GA baseline" % _aircraft_model)
+		return baseline
+	var pilot := aircraft_probe.get_node_or_null("AIPilot")
+	if pilot == null:
+		push_warning("LandingTestMode %s has no AIPilot node for its GA baseline" % _aircraft_model)
+		aircraft_probe.free()
+		return baseline
+	var parameter_names_variant: Variant = _ga_tuner.call("parameter_names")
+	if parameter_names_variant is Array:
+		for key_variant in parameter_names_variant as Array:
+			var key := String(key_variant)
+			if key in pilot:
+				baseline[key] = float(pilot.get(key))
+	aircraft_probe.free()
+	return baseline
 
 
 func _parse_positive_int_arg(args: PackedStringArray, prefix: String) -> int:
@@ -262,6 +440,21 @@ func _parse_nonnegative_int_arg(args: PackedStringArray, prefix: String) -> int:
 		if value_text.is_valid_int():
 			return maxi(int(value_text), 0)
 	return 0
+
+
+func _parse_string_arg(args: PackedStringArray, prefix: String) -> String:
+	for arg in args:
+		if arg.begins_with(prefix):
+			return arg.substr(prefix.length()).strip_edges()
+	return ""
+
+
+func _load_supported_aircraft_scene(model: String) -> PackedScene:
+	if not AIRCRAFT_SCENE_PATHS.has(model):
+		return null
+	if model == _aircraft_model and _aircraft_scene != null:
+		return _aircraft_scene
+	return load(str(AIRCRAFT_SCENE_PATHS[model])) as PackedScene
 
 
 func _suppress_carrier_air_ops() -> void:
@@ -338,6 +531,10 @@ func _physics_process(delta: float) -> void:
 func _try_start_after_carrier_placement() -> void:
 	if not _waiting_for_carrier_placement:
 		return
+	if _visible_observer_enabled and DisplayServer.get_name() != "headless":
+		var loading := get_node_or_null("/root/LoadingScreen")
+		if is_instance_valid(loading) and bool(loading.get("visible")):
+			return # Never run the watchable cases behind the startup overlay.
 	var carrier := _carrier()
 	if not is_instance_valid(carrier):
 		return
@@ -353,6 +550,13 @@ func _try_start_after_carrier_placement() -> void:
 			return
 	_waiting_for_carrier_placement = false
 	_started = true
+	if _visible_observer_enabled:
+		_spawn_timer = 5.0
+		if DisplayServer.get_name() != "headless":
+			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
+			DisplayServer.window_set_size(Vector2i(1280, 800))
+			get_tree().root.content_scale_size = Vector2i(1280, 800)
+			DisplayServer.window_set_title("Project Flight - %s recovery test" % _aircraft_model)
 	_log("READY carrier placed at %s" % _vec3_text(carrier.global_position))
 
 
@@ -458,22 +662,193 @@ func _maybe_complete_finite_suite() -> void:
 	if _spawn_index < _attempt_limit or _terminal_count() < _attempt_limit:
 		return
 	_suite_completion_scheduled = true
+	call_deferred("_complete_finite_suite_after_terminal_contact")
+
+
+func _complete_finite_suite_after_terminal_contact() -> void:
+	# Hook engagement normally precedes wheel contact by a few physics frames.
+	# Keep flight behavior and outcome timing unchanged, but let the structured
+	# touchdown signal arrive before serializing the final report.
+	await get_tree().create_timer(
+		maxf(terminal_bolter_catch_grace_s, 0.0),
+		false,
+		true
+	).timeout
 	_log("COMPLETE finite landing suite attempts=%d tally=%s" % [_attempt_limit, JSON.stringify(_tally)])
 	_log_summary()
+	if _landing_retry_test_enabled:
+		_log("LANDING_RETRY_RESULT json=%s" % JSON.stringify(_build_matrix_result("landing_retry")))
+	elif _go_around_matrix_enabled:
+		_log("GO_AROUND_RESULT json=%s" % JSON.stringify(_build_matrix_result("go_around")))
+	elif _random_rtb_enabled:
+		_log("RTB_RESULT json=%s" % JSON.stringify(_build_matrix_result("random_rtb")))
+	elif _turn_in_matrix_enabled:
+		_log("TURN_IN_RESULT json=%s" % JSON.stringify(_build_matrix_result("turn_in")))
+	elif _landing_matrix_enabled:
+		_log("MATRIX_RESULT json=%s" % JSON.stringify(_build_matrix_result()))
+	elif genetic_tuning_enabled and is_instance_valid(_ga_tuner):
+		_log("GA_RUN_RESULT json=%s" % JSON.stringify({
+			"status": "COMPLETE",
+			"aircraft_model": _aircraft_model,
+			"attempts": _attempt_limit,
+			"tally": _tally,
+			"tuner": _ga_tuner.call("get_status"),
+		}))
 	get_tree().create_timer(2.0).timeout.connect(func(): get_tree().quit())
+
+
+func _build_matrix_result(matrix_type: String = "straight_final") -> Dictionary:
+	var case_results: Array[Dictionary] = []
+	var outcomes: Dictionary = {}
+	var touchdown_classes: Dictionary = {}
+	for attempt_variant in _attempts.values():
+		var attempt := attempt_variant as Dictionary
+		var outcome := str(attempt.get("outcome", "GONE"))
+		outcomes[outcome] = int(outcomes.get(outcome, 0)) + 1
+		var touchdown_class := str(attempt.get("touchdown_class", "NONE"))
+		if touchdown_class != "NONE":
+			touchdown_classes[touchdown_class] = int(touchdown_classes.get(touchdown_class, 0)) + 1
+		var entry_variant: Variant = attempt.get("entry_case", {})
+		var entry: Dictionary = entry_variant as Dictionary if entry_variant is Dictionary else {}
+		var sight_valid_samples := int(attempt.get("sight_valid_samples", 0))
+		case_results.append({
+			"recovery_quality": _recovery_quality(attempt),
+			"aircraft_model": str(attempt.get("aircraft_model", _aircraft_model)),
+			"entry": entry.duplicate(true),
+			"active_s": float(attempt.get("active_elapsed_s", 0.0)),
+			"queue_s": float(attempt.get("deck_queue_wait_s", 0.0)),
+			"last_state": int(attempt.get("last_state", -1)),
+			"max_carrier_distance_m": float(attempt.get("max_carrier_distance_m", 0.0)),
+			"spawn_index": int(attempt.get("spawn_index", -1)),
+			"case_index": int(entry.get("case_index", -1)),
+			"repeat_index": int(entry.get("repeat_index", 0)),
+			"label": str(entry.get("label", "standard")),
+			"outcome": outcome,
+			"duration_s": float(attempt.get(
+				"duration_s", _elapsed_s - float(attempt.get("spawn_t", 0.0)))),
+			"behind_m": float(entry.get("behind_m", attempt.get("spawn_dist", 0.0))),
+			"lateral_m": float(entry.get("lateral_m", 0.0)),
+			"alt_m": float(entry.get("alt_m", attempt.get("spawn_alt", 0.0))),
+			"speed_mps": float(attempt.get("initial_speed_mps", 0.0)),
+			"initial_sink_mps": -float(attempt.get("initial_vertical_speed_mps", 0.0)),
+			"cone_captured": bool(attempt.get("cone_capture_logged", false)),
+			"cone_gate_passed": bool(attempt.get("cone_gate_passed", false)),
+			"waveoffs": int(attempt.get("waveoffs", 0)),
+			"bolters": int(attempt.get("bolters", 0)),
+			"sight_valid_samples": sight_valid_samples,
+			"sight_viable_fraction": float(attempt.get("sight_viable_samples", 0)) / maxf(sight_valid_samples, 1),
+			"sight_capture_fraction": float(attempt.get("sight_capture_samples", 0)) / maxf(sight_valid_samples, 1),
+			"min_sight_lateral_m": _finite_or_large(float(attempt.get("min_sight_lateral_m", INF))),
+			"min_sight_longitudinal_m": _finite_or_large(float(attempt.get("min_sight_longitudinal_m", INF))),
+			"last_sight_sink_mps": float(attempt.get("last_sight_sink_mps", NAN)) \
+				if is_finite(float(attempt.get("last_sight_sink_mps", NAN))) else 0.0,
+			"touchdown_class": touchdown_class,
+			"wire_caught": bool(attempt.get("wire_caught", false)),
+			"hook_armed_final_samples": int(attempt.get("hook_armed_final_samples", 0)),
+			"hook_inactive_final_samples": int(attempt.get("hook_inactive_final_samples", 0)),
+			"catch_speed_mps": float(attempt.get("catch_speed_mps", 0.0)),
+			"catch_lateral_speed_mps": float(attempt.get("catch_lateral_speed_mps", 0.0)),
+			"pre_contact_sink_mps": float(attempt.get("pre_contact_sink_mps", 0.0)),
+			"stopped": bool(attempt.get("stopped", false)),
+			"stop_stable_s": float(attempt.get("stop_stable_s", 0.0)),
+			"arrest_max_bank_deg": float(attempt.get("arrest_max_bank_deg", 0.0)),
+			"arrest_max_pitch_deg": float(attempt.get("arrest_max_pitch_deg", 0.0)),
+			"arrest_hard_stop_corrections": int(attempt.get("arrest_hard_stop_corrections", 0)),
+			"damage_taken": float(attempt.get("damage_taken", 0.0)),
+			"last_health": float(attempt.get("last_health", -1.0)),
+			"part_damage_observed": bool(attempt.get("part_damage_observed", false)),
+			"part_health_loss": float(attempt.get("part_health_loss", -1.0)),
+			"part_damage_state": attempt.get("part_damage_state", {}),
+			"body_contact_signals": int(attempt.get("body_contact_signals", 0)),
+			"destroyed": bool(attempt.get("destroyed", false)),
+			"recovery_status": str(attempt.get("recovery_status", "not_exercised")),
+			"touchdown_count": int(attempt.get("touchdown_count", 0)),
+			"touchdown_surface": str(attempt.get("touchdown_surface", "")),
+			"touchdown_descent_mps": float(attempt.get("touchdown_descent_mps", 0.0)),
+			"touchdown_relative_speed_mps": float(attempt.get("touchdown_relative_speed_mps", 0.0)),
+			"reached_pre_landing": bool(attempt.get("reached_pre_landing", false)),
+			"pre_landing_active_s": float(attempt.get("pre_landing_active_s", -1.0)),
+			"maximum_bank_deg": float(attempt.get("maximum_bank_deg", 0.0)),
+			"rollout_behind_m": float(attempt.get("rollout_behind_m", -1.0)),
+			"rollout_lateral_m": float(attempt.get("rollout_lateral_m", 1000000000.0)),
+			"rollout_track_error_deg": float(attempt.get("rollout_track_error_deg", 180.0)),
+			"rollout_bank_deg": float(attempt.get("rollout_bank_deg", 180.0)),
+		})
+	case_results.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return int(a.get("spawn_index", 0)) < int(b.get("spawn_index", 0)))
+	return {
+		"status": "COMPLETE",
+		"matrix_type": matrix_type,
+		"seed": _random_rtb_seed if _random_rtb_enabled else -1,
+		"guidance_variant": _guidance_variant,
+		"holdout_entries": _holdout_entries,
+		"success_definition": "go-around observed, beyond carrier bow + 30m, height >=35m, bank <15deg, non-descending, speed >=stall+5m/s for 2s; damage separate" if matrix_type == "go_around" else "wire catch followed by %.1fs continuously below %.1fm/s; damage reported separately" % [arrest_stop_hold_s, arrest_stop_speed_mps],
+		"aircraft_model": _aircraft_model,
+		"attempts": case_results.size(),
+		"outcomes": outcomes,
+		"touchdowns": touchdown_classes,
+		"cases": case_results,
+	}
+
+
+func _recovery_quality(attempt: Dictionary) -> String:
+	if str(attempt.get("outcome", "")) == "ESCAPED":
+		if not bool(attempt.get("part_damage_observed", false)):
+			return "escaped_damage_unknown"
+		return "damaged_escape" if float(attempt.get("part_health_loss", 0.0)) > 0.0 \
+			or float(attempt.get("damage_taken", 0.0)) > 0.0 else "clean_escape"
+	if not bool(attempt.get("stopped", false)):
+		return "failed"
+	if not bool(attempt.get("part_damage_observed", false)):
+		return "stopped_damage_unknown"
+	if float(attempt.get("part_health_loss", 0.0)) > 0.0 or float(attempt.get("damage_taken", 0.0)) > 0.0:
+		return "damaged_stop"
+	return "clean_stop"
 
 
 func _carrier() -> Node3D:
 	return get_tree().get_first_node_in_group("carrier") as Node3D
 
 
+func _random_rtb_entry(case_index: int, candidate_index: int = 0) -> Dictionary:
+	# Local RNG: loading different airframes cannot perturb the matched start manifest.
+	# sqrt(U) samples area uniformly, not a ring biased toward the centre.
+	var rng := RandomNumberGenerator.new()
+	rng.seed = _random_rtb_seed + case_index * 104729 + candidate_index * 7919
+	return {
+		"case_index": case_index, "label": "random_%02d" % (case_index + 1),
+		"candidate_index": candidate_index,
+		"distance_m": 8000.0 * sqrt(rng.randf()),
+		"radial_deg": rng.randf_range(-180.0, 180.0),
+		"alt_m": rng.randf_range(500.0, 1000.0),
+		"heading_offset_deg": rng.randf_range(-180.0, 180.0),
+		"speed_mps": 90.0,
+	}
+
+
 func _spawn_lander() -> void:
 	var carrier := _carrier()
 	if not is_instance_valid(carrier):
 		return
-	var craft := AIRCRAFT_SCENE.instantiate() as RigidBody3D
+	var ga_assignment: Dictionary = {}
+	var ga_spawn_case: Dictionary = {}
+	if genetic_tuning_enabled and is_instance_valid(_ga_tuner):
+		ga_assignment = _ga_tuner.call("next_assignment") as Dictionary
+	if not ga_assignment.is_empty():
+		var ga_curriculum_index := clampi(
+			int(ga_assignment.get("curriculum", 0)), 0, GA_CURRICULA.size() - 1)
+		var ga_cases: Array = GA_CURRICULA[ga_curriculum_index]
+		var ga_case_index := clampi(int(ga_assignment.get("case", 0)), 0, ga_cases.size() - 1)
+		ga_spawn_case = (ga_cases[ga_case_index] as Dictionary).duplicate(true)
+		ga_spawn_case["case_index"] = ga_case_index
+	var spawn_aircraft_model := str(ga_spawn_case.get("aircraft_model", _aircraft_model))
+	var spawn_aircraft_scene := _load_supported_aircraft_scene(spawn_aircraft_model)
+	if spawn_aircraft_scene == null:
+		_log("ERROR could not load supported aircraft model %s" % spawn_aircraft_model)
+		return
+	var craft := spawn_aircraft_scene.instantiate() as RigidBody3D
 	if craft == null:
-		_log("ERROR could not instantiate Aircraft_5")
+		_log("ERROR could not instantiate %s" % spawn_aircraft_model)
 		return
 	_spawn_index += 1
 	var flow: String = "recovery"
@@ -483,9 +858,10 @@ func _spawn_lander() -> void:
 		flow = "direct"
 	if _health_rtb_diagnostic:
 		flow = "recovery"
-	var ga_assignment: Dictionary = {}
-	if genetic_tuning_enabled and is_instance_valid(_ga_tuner):
-		ga_assignment = _ga_tuner.call("next_assignment") as Dictionary
+	if _landing_matrix_enabled:
+		flow = "direct"
+	if _turn_in_matrix_enabled:
+		flow = "recovery"
 	if not ga_assignment.is_empty():
 		flow = "direct"
 	var craft_name: String
@@ -506,11 +882,41 @@ func _spawn_lander() -> void:
 	var heading_offset_deg: float
 	var spawn_pos: Vector3
 	var dirty_case: Dictionary = {}
+	var entry_case: Dictionary = {}
 	var initial_bank_deg: float = 0.0
 	var initial_vertical_speed_mps: float = 0.0
 	var initial_speed_mps: float = spawn_speed_mps
+	var initial_fpa_deg: float = 0.0
+	var initial_heading_dir: Vector3 = Vector3.ZERO
 	var retain_stores: bool = false
-	if _focused_final_diagnostic:
+	if _random_rtb_enabled:
+		var carrier_forward := carrier.global_basis.z.slide(Vector3.UP).normalized()
+		var terrain_provider := get_tree().get_first_node_in_group("terrain_provider")
+		var legal_start := false
+		for candidate_index in range(1000):
+			entry_case = _random_rtb_entry(_matrix_start_case_index + _spawn_index - 1, candidate_index)
+			dist = float(entry_case["distance_m"])
+			alt = float(entry_case["alt_m"])
+			heading_offset_deg = float(entry_case["heading_offset_deg"])
+			var radial_dir := (-carrier_forward).rotated(Vector3.UP, deg_to_rad(float(entry_case["radial_deg"])))
+			spawn_pos = carrier.global_position + radial_dir * dist
+			spawn_pos.y = _landing_test_deck_y(carrier) + alt
+			bearing = atan2(radial_dir.x, radial_dir.z)
+			var ground_y := float(terrain_provider.call("get_height", spawn_pos)) \
+				if terrain_provider != null and terrain_provider.has_method("get_height") else NAN
+			if is_finite(ground_y) and spawn_pos.y - ground_y >= spawn_min_agl_m:
+				entry_case["spawn_agl_m"] = spawn_pos.y - ground_y
+				entry_case["offset_x_m"] = spawn_pos.x - carrier.global_position.x
+				entry_case["offset_z_m"] = spawn_pos.z - carrier.global_position.z
+				legal_start = true
+				break
+		if not legal_start:
+			craft.free()
+			push_error("Random RTB could not find a terrain-clear start within requested bounds")
+			get_tree().quit(2)
+			return
+		_log("RTB_ENTRY model=%s json=%s" % [spawn_aircraft_model, JSON.stringify(entry_case)])
+	elif _focused_final_diagnostic:
 		var carrier_forward := carrier.global_transform.basis.z
 		carrier_forward.y = 0.0
 		carrier_forward = carrier_forward.normalized() if carrier_forward.length_squared() > 0.001 else Vector3.FORWARD
@@ -522,10 +928,7 @@ func _spawn_lander() -> void:
 		dist = behind_m
 		bearing = atan2(spawn_pos.x - carrier.global_position.x, spawn_pos.z - carrier.global_position.z)
 	elif not ga_assignment.is_empty():
-		var curriculum_index := clampi(int(ga_assignment.get("curriculum", 0)), 0, GA_CURRICULA.size() - 1)
-		var curriculum_cases: Array = GA_CURRICULA[curriculum_index]
-		var case_index := clampi(int(ga_assignment.get("case", 0)), 0, curriculum_cases.size() - 1)
-		var spawn_case: Dictionary = curriculum_cases[case_index]
+		var spawn_case: Dictionary = ga_spawn_case
 		var carrier_forward := carrier.global_transform.basis.z
 		var carrier_right := carrier.global_transform.basis.x
 		carrier_forward.y = 0.0
@@ -536,6 +939,79 @@ func _spawn_lander() -> void:
 		var lateral_m := float(spawn_case["lateral_m"])
 		alt = float(spawn_case["alt_m"])
 		heading_offset_deg = float(spawn_case["heading_offset_deg"])
+		initial_speed_mps = float(spawn_case.get("speed_mps", genetic_spawn_speed_mps))
+		initial_fpa_deg = float(spawn_case.get("fpa_deg", genetic_spawn_fpa_deg))
+		entry_case = spawn_case.duplicate(true)
+		spawn_pos = carrier.global_position - carrier_forward * behind_m + carrier_right * lateral_m
+		spawn_pos.y = carrier.global_position.y + alt
+		dist = Vector2(spawn_pos.x - carrier.global_position.x, spawn_pos.z - carrier.global_position.z).length()
+		bearing = atan2(spawn_pos.x - carrier.global_position.x, spawn_pos.z - carrier.global_position.z)
+	elif _turn_in_matrix_enabled:
+		var absolute_case_index := _matrix_start_case_index + _spawn_index - 1
+		var matrix_case_index := posmod(absolute_case_index, TURN_IN_MATRIX_CASES.size())
+		entry_case = (TURN_IN_MATRIX_CASES[matrix_case_index] as Dictionary).duplicate(true)
+		if _holdout_entries:
+			# Predeclared validation set, never fed to the genetic tuner.
+			entry_case["label"] = "holdout_" + str(entry_case["label"])
+			entry_case["speed_mps"] = float(entry_case["speed_mps"]) + 5.0
+			entry_case["roll_in_m"] = float(entry_case["roll_in_m"]) + 100.0
+			entry_case["turn_altitude_buffer_m"] = float(entry_case["turn_altitude_buffer_m"]) + 15.0
+		entry_case["case_index"] = matrix_case_index
+		entry_case["repeat_index"] = absolute_case_index / TURN_IN_MATRIX_CASES.size()
+		var carrier_forward := carrier.global_transform.basis.z
+		var carrier_right := carrier.global_transform.basis.x
+		carrier_forward.y = 0.0
+		carrier_right.y = 0.0
+		carrier_forward = carrier_forward.normalized() if carrier_forward.length_squared() > 0.001 else Vector3.FORWARD
+		carrier_right = carrier_right.normalized() if carrier_right.length_squared() > 0.001 else Vector3.RIGHT
+		var side := signf(float(entry_case.get("side", 1.0)))
+		var rollout_behind_m := float(entry_case.get("rollout_behind_m", 1000.0))
+		var turn_radius_m := float(entry_case.get("turn_radius_m", 300.0))
+		var settle_distance_m := float(entry_case.get("settle_distance_m", 300.0))
+		var turn_altitude_buffer_m := float(entry_case.get("turn_altitude_buffer_m", 50.0))
+		var roll_in_m := float(entry_case.get("roll_in_m", 140.0))
+		var descent_angle_deg := float(entry_case.get("descent_angle_deg", 5.9))
+		var arc_end_behind_m := rollout_behind_m + settle_distance_m
+		var arc_start_behind_m := arc_end_behind_m + turn_radius_m
+		var arc_start_lateral_m := side * turn_radius_m
+		var arc_start_alt_above_deck_m := arc_end_behind_m \
+			* tan(deg_to_rad(descent_angle_deg)) + turn_altitude_buffer_m
+		var deck_y := _landing_test_deck_y(carrier)
+		spawn_pos = carrier.global_position \
+			- carrier_forward * arc_start_behind_m \
+			+ carrier_right * side * (turn_radius_m + roll_in_m)
+		spawn_pos.y = deck_y + arc_start_alt_above_deck_m
+		initial_heading_dir = -carrier_right * side
+		initial_speed_mps = float(entry_case.get("speed_mps", 60.0))
+		initial_fpa_deg = 0.0
+		heading_offset_deg = side * 90.0
+		alt = spawn_pos.y - carrier.global_position.y
+		dist = Vector2(spawn_pos.x - carrier.global_position.x, spawn_pos.z - carrier.global_position.z).length()
+		bearing = atan2(spawn_pos.x - carrier.global_position.x, spawn_pos.z - carrier.global_position.z)
+		entry_case["behind_m"] = arc_start_behind_m
+		entry_case["lateral_m"] = side * (turn_radius_m + roll_in_m)
+		entry_case["alt_m"] = alt
+	elif _landing_matrix_enabled:
+		var absolute_case_index := _matrix_start_case_index + _spawn_index - 1
+		var matrix_cases: Array = GO_AROUND_TEST.CASES if _go_around_matrix_enabled else LANDING_SIGHT_MATRIX_CASES
+		if _landing_retry_test_enabled:
+			matrix_cases = GO_AROUND_TEST.LANDING_RETRY_CASES
+		var matrix_case_index := posmod(absolute_case_index, matrix_cases.size())
+		entry_case = (matrix_cases[matrix_case_index] as Dictionary).duplicate(true)
+		entry_case["case_index"] = matrix_case_index
+		entry_case["repeat_index"] = absolute_case_index / matrix_cases.size()
+		var carrier_forward := carrier.global_transform.basis.z
+		var carrier_right := carrier.global_transform.basis.x
+		carrier_forward.y = 0.0
+		carrier_right.y = 0.0
+		carrier_forward = carrier_forward.normalized() if carrier_forward.length_squared() > 0.001 else Vector3.FORWARD
+		carrier_right = carrier_right.normalized() if carrier_right.length_squared() > 0.001 else Vector3.RIGHT
+		var behind_m := float(entry_case.get("behind_m", 1000.0))
+		var lateral_m := float(entry_case.get("lateral_m", 0.0))
+		alt = float(entry_case.get("alt_m", 105.0))
+		heading_offset_deg = float(entry_case.get("heading_offset_deg", 0.0))
+		initial_speed_mps = float(entry_case.get("speed_mps", 60.0))
+		initial_fpa_deg = float(entry_case.get("fpa_deg", genetic_spawn_fpa_deg))
 		spawn_pos = carrier.global_position - carrier_forward * behind_m + carrier_right * lateral_m
 		spawn_pos.y = carrier.global_position.y + alt
 		dist = Vector2(spawn_pos.x - carrier.global_position.x, spawn_pos.z - carrier.global_position.z).length()
@@ -547,6 +1023,7 @@ func _spawn_lander() -> void:
 		)
 		dirty_case = (DIRTY_RECOVERY_CASES[dirty_case_index] as Dictionary).duplicate(true)
 		dirty_case["case_index"] = dirty_case_index
+		entry_case = dirty_case.duplicate(true)
 		var carrier_forward := carrier.global_transform.basis.z
 		carrier_forward.y = 0.0
 		carrier_forward = carrier_forward.normalized() if carrier_forward.length_squared() > 0.001 else Vector3.FORWARD
@@ -576,7 +1053,7 @@ func _spawn_lander() -> void:
 	# -- low spawns were appearing right on ridge tops and crashing in seconds. Never spawn below
 	# terrain + spawn_min_agl_m.
 	var terrain: Node = get_tree().get_first_node_in_group("terrain_provider")
-	if terrain != null and terrain.has_method("get_height"):
+	if not _random_rtb_enabled and not _go_around_matrix_enabled and terrain != null and terrain.has_method("get_height"):
 		var th: float = float(terrain.call("get_height", spawn_pos))
 		if is_finite(th):
 			spawn_pos.y = maxf(spawn_pos.y, th + spawn_min_agl_m)
@@ -589,29 +1066,33 @@ func _spawn_lander() -> void:
 	craft.set_meta("carrier_transport_mode", false)
 	craft.set_meta("controls_disabled", false)
 	craft.set_meta("landing_test_aircraft", true)
+	craft.set_meta("landing_test_observer_owned", true)
 	craft.freeze = false
 	get_tree().current_scene.add_child(craft)
 	var removed_bomb_mass_kg := 0.0
 	if remove_bombs_from_test_aircraft and not retain_stores:
 		removed_bomb_mass_kg = _remove_bombs(craft)
 	craft.global_position = spawn_pos
-	# Face roughly toward the carrier with some heading jitter.
-	var look: Vector3 = carrier.global_position
+	# Face roughly toward the carrier with some heading jitter, except for the authored base leg in
+	# the turn-in matrix where the aircraft begins perpendicular to the landing axis.
+	var look: Vector3 = spawn_pos + initial_heading_dir \
+		if initial_heading_dir.length_squared() > 0.001 else carrier.global_position
 	look.y = spawn_pos.y
 	craft.look_at(look, Vector3.UP)
-	craft.rotate_y(PI)  # Aircraft_5 nose is +Z; look_at aims -Z.
-	var jitter: float = deg_to_rad(heading_offset_deg)
-	craft.rotate_y(jitter)
+	craft.rotate_y(PI)  # The supported fixed-wing scenes use local +Z as the nose; look_at aims -Z.
+	if initial_heading_dir.length_squared() <= 0.001:
+		var jitter: float = deg_to_rad(heading_offset_deg)
+		craft.rotate_y(jitter)
 	if absf(initial_bank_deg) > 0.01:
 		craft.rotate_object_local(Vector3.FORWARD, deg_to_rad(initial_bank_deg))
-	# Aircraft_5 flies nose-first along local +Z. After look_at()+PI above, +Z points
+	# The supported aircraft fly nose-first along local +Z. After look_at()+PI above, +Z points
 	# at the carrier; using -Z here launched the test aircraft tail-first, causing an
 	# immediate airspeed loss, stall, and near-vertical dive.
 	var spawn_velocity_dir: Vector3 = craft.global_transform.basis.z.normalized()
-	if not ga_assignment.is_empty():
+	if initial_fpa_deg > 0.0:
 		# Deterministic final-approach cases begin with the FPV already on the nominal slope. Starting
 		# level this close to the carrier turns every trial into an artificial dive-capture transient.
-		spawn_velocity_dir.y = -tan(deg_to_rad(maxf(genetic_spawn_fpa_deg, 0.0)))
+		spawn_velocity_dir.y = -tan(deg_to_rad(initial_fpa_deg))
 		spawn_velocity_dir = spawn_velocity_dir.normalized()
 	if not dirty_case.is_empty():
 		spawn_velocity_dir.y = 0.0
@@ -619,7 +1100,8 @@ func _spawn_lander() -> void:
 		craft.linear_velocity = spawn_velocity_dir * initial_speed_mps
 		craft.linear_velocity.y = initial_vertical_speed_mps
 	else:
-		craft.linear_velocity = spawn_velocity_dir * spawn_speed_mps
+		craft.linear_velocity = spawn_velocity_dir * initial_speed_mps
+		initial_vertical_speed_mps = craft.linear_velocity.y
 	craft.angular_velocity = Vector3.ZERO
 	# Push the spawn transform into the physics server -- setting global_position on a RigidBody3D far
 	# from origin doesn't update the server's authoritative transform, so it snaps/teleports on the next
@@ -638,9 +1120,16 @@ func _spawn_lander() -> void:
 		pilot.set("dogfight_enabled", false)
 		pilot.set("ground_attack_enabled", false)
 		pilot.set("land_after_launch", false)
-		pilot.set("rtb_health_threshold", 0.5 if _health_rtb_diagnostic else 0.0)
-		pilot.set("rtb_fuel_threshold", 0.0)
+		if not _random_rtb_enabled:
+			pilot.set("rtb_health_threshold", 0.5 if _health_rtb_diagnostic else 0.0)
+			pilot.set("rtb_fuel_threshold", 0.0)
 		pilot.set("carrier_position", carrier.global_position)
+		if _guidance_variant in ["baseline", "energy"]:
+			pilot.set("landing_final_energy_aware_throttle", _guidance_variant == "energy")
+			pilot.set("landing_sight_acceleration_guidance_enabled", false)
+			pilot.set("landing_sight_active_distance_m", 1300.0)
+			pilot.set("landing_sight_guidance_start_remaining_m", 700.0)
+			pilot.set("landing_sight_guidance_full_remaining_m", 305.836078643799)
 		# Diagnostic A/B switch: leave all slower tactical/sensor scheduling intact,
 		# but run the fixed-wing guidance solver on every physics frame.
 		if _force_full_rate_guidance:
@@ -648,8 +1137,10 @@ func _spawn_lander() -> void:
 		# Kick off the chosen landing flow next frame (after the pilot's own _ready has run).
 		if _health_rtb_diagnostic:
 			call_deferred("_begin_health_rtb_flow", pilot)
+		elif _turn_in_matrix_enabled:
+			call_deferred("_begin_turn_in_flow", pilot, entry_case.duplicate(true))
 		else:
-			call_deferred("_begin_landing_flow", pilot, flow)
+			call_deferred("_begin_landing_flow", pilot, flow, entry_case.duplicate(true))
 
 	_attempts[craft_name] = {
 		"node": craft,
@@ -660,11 +1151,18 @@ func _spawn_lander() -> void:
 		"deck_queue_wait_s": 0.0,
 		"reached_pre_landing": false,
 		"pre_landing_active_s": -1.0,
+		"maximum_bank_deg": 0.0,
+		"rollout_behind_m": -1.0,
+		"rollout_lateral_m": 1000000000.0,
+		"rollout_track_error_deg": 180.0,
+		"rollout_bank_deg": 180.0,
 		"max_carrier_distance_m": dist,
 		"spawn_pos": spawn_pos,
 		"spawn_alt": alt,
 		"spawn_dist": dist,
 		"dirty_case": dirty_case.duplicate(true),
+		"entry_case": entry_case.duplicate(true),
+		"aircraft_model": spawn_aircraft_model,
 		"initial_speed_mps": initial_speed_mps,
 		"initial_bank_deg": initial_bank_deg,
 		"initial_vertical_speed_mps": initial_vertical_speed_mps,
@@ -673,6 +1171,8 @@ func _spawn_lander() -> void:
 		"waveoffs": 0,
 		"bolters": 0,
 		"go_around_active_prev": false,
+		"pending_go_around_outcome": "",
+		"pending_go_around_elapsed_s": 0.0,
 		"ga_assignment": ga_assignment.duplicate(true),
 		"reached_glideslope": false,
 		"reached_final": false,
@@ -691,6 +1191,17 @@ func _spawn_lander() -> void:
 		"final_settled_behind_m": NAN,
 		"cone_gate_passed": false,
 		"cone_latest_status": {},
+		"sight_valid_samples": 0,
+		"sight_viable_samples": 0,
+		"sight_capture_samples": 0,
+		"min_sight_lateral_m": INF,
+		"min_sight_longitudinal_m": INF,
+		"last_sight_sink_mps": NAN,
+		"touchdown_class": "NONE",
+		"touchdown_count": 0,
+		"touchdown_surface": "",
+		"touchdown_descent_mps": 0.0,
+		"touchdown_relative_speed_mps": 0.0,
 		"trace_next_t": 0.0,
 		"trace_last_global": craft.global_position,
 		"trace_last_parent_id": craft.get_parent().get_instance_id() if craft.get_parent() != null else 0,
@@ -699,8 +1210,12 @@ func _spawn_lander() -> void:
 		craft.connect("destroyed", Callable(self, "_on_craft_destroyed").bind(craft_name))
 	if craft.has_signal("crashed"):
 		craft.connect("crashed", Callable(self, "_on_craft_crashed").bind(craft_name))
-	_log("SPAWN %s flow=%s case=%s dist=%.0f alt=%.0f bearing=%.0fdeg hdg_err=%+.0fdeg speed=%.0f bank=%+.0fdeg vs=%+.0f stores=%s bomb_mass_removed=%.0fkg mass=%.0fkg ga=%s" % [
-		craft_name, flow, str(dirty_case.get("label", "standard")), dist, spawn_pos.y - carrier.global_position.y,
+	if craft.has_signal("touchdown"):
+		craft.connect("touchdown", Callable(self, "_on_craft_touchdown").bind(craft_name))
+	if craft.has_signal("damaged"):
+		craft.connect("damaged", Callable(self, "_on_craft_damaged").bind(craft_name))
+	_log("SPAWN %s model=%s flow=%s case=%s dist=%.0f alt=%.0f bearing=%.0fdeg hdg_err=%+.0fdeg speed=%.0f bank=%+.0fdeg vs=%+.0f stores=%s bomb_mass_removed=%.0fkg mass=%.0fkg ga=%s" % [
+		craft_name, spawn_aircraft_model, flow, str(entry_case.get("label", "standard")), dist, spawn_pos.y - carrier.global_position.y,
 		rad_to_deg(bearing), heading_offset_deg, craft.linear_velocity.length(), initial_bank_deg,
 		initial_vertical_speed_mps, str(retain_stores), removed_bomb_mass_kg, craft.mass,
 		JSON.stringify(ga_assignment)])
@@ -725,7 +1240,55 @@ func _remove_bombs(craft: RigidBody3D) -> float:
 	return maxf(loaded_mass_kg - craft.mass, 0.0)
 
 
-func _begin_landing_flow(pilot: Node, flow: String) -> void:
+func _landing_test_deck_y(carrier: Node3D) -> float:
+	var root := get_tree().current_scene
+	var touchdown := root.find_child("approach_4", true, false) as Node3D if root != null else null
+	if is_instance_valid(touchdown):
+		return touchdown.global_position.y
+	return carrier.global_position.y + 22.0
+
+
+func _begin_turn_in_flow(pilot: Node, entry_case: Dictionary) -> void:
+	await get_tree().process_frame
+	if pilot == null or not is_instance_valid(pilot):
+		return
+	var craft_variant: Variant = pilot.get("aircraft")
+	var craft := craft_variant as RigidBody3D
+	if not is_instance_valid(craft):
+		return
+	if craft.is_in_group("aircraft"):
+		craft.remove_from_group("aircraft")
+	if pilot.has_method("change_state"):
+		pilot.call("change_state", 4)  # AIPilot.State.SEARCH
+	var started := false
+	if pilot.has_method("start_quick_turn_in_recovery"):
+		started = bool(pilot.call(
+			"start_quick_turn_in_recovery",
+			float(entry_case.get("side", 1.0)),
+			float(entry_case.get("rollout_behind_m", 1000.0)),
+			float(entry_case.get("turn_radius_m", 300.0)),
+			float(entry_case.get("speed_mps", 60.0)),
+			float(entry_case.get("bank_limit_deg", 70.0)),
+			float(entry_case.get("descent_angle_deg", 5.9)),
+			float(entry_case.get("settle_distance_m", 300.0)),
+			float(entry_case.get("turn_altitude_buffer_m", 50.0)),
+			float(entry_case.get("minimum_bank_deg", 60.0)),
+			float(entry_case.get("roll_in_m", 450.0))
+		))
+	_log("TURN_IN_BEGIN craft=%s started=%s side=%+.0f rollout=%.0fm radius=%.0fm speed=%.0fm/s bank_limit=%.0fdeg" % [
+		craft.name,
+		str(started),
+		float(entry_case.get("side", 1.0)),
+		float(entry_case.get("rollout_behind_m", 1000.0)),
+		float(entry_case.get("turn_radius_m", 300.0)),
+		float(entry_case.get("speed_mps", 60.0)),
+		float(entry_case.get("bank_limit_deg", 70.0)),
+	])
+	if not started and _attempts.has(craft.name):
+		_finish(craft.name, "ROUTE-FAIL")
+
+
+func _begin_landing_flow(pilot: Node, flow: String, entry_case: Dictionary = {}) -> void:
 	# aircraft.gd intentionally completes initialization one process frame after _ready(). A deferred
 	# call still runs before that await resumes, leaving current_health at its default 0 and making the
 	# deck manager correctly reject the fresh aircraft as stale.
@@ -743,10 +1306,23 @@ func _begin_landing_flow(pilot: Node, flow: String) -> void:
 	if pilot.has_method("change_state"):
 		pilot.call("change_state", 4)  # State.SEARCH
 	var started: Variant = null
-	if flow == "recovery" and pilot.has_method("start_recovery"):
+	if _random_rtb_enabled and pilot.has_method("return_to_base"):
+		pilot.call("return_to_base")
+		started = true
+	elif flow == "recovery" and pilot.has_method("start_recovery"):
 		started = pilot.call("start_recovery")
 	elif pilot.has_method("start_straight_in_landing"):
 		started = pilot.call("start_straight_in_landing")
+	if bool(started) and flow == "direct" and bool(entry_case.get("press_final", false)):
+		# Reproduce the operational aggressive final state, without changing the
+		# normal gate or mislabelling this prepared entry as a strict handoff.
+		pilot.set("_recovery_press_final_active", true)
+		initialized_craft.set_meta("recovery_press_handoff", true)
+		_log("PREPARED_PRESS_FINAL craft=%s case=%s" % [initialized_craft.name, entry_case.get("label", "")])
+	if _go_around_matrix_enabled and (entry_case.has("force_height_m") or bool(entry_case.get("suppress_automatic_miss", false))):
+		# Isolate escape response at the authored spawn height. Automatic-decision
+		# behavior has a separate case; it must not pre-empt these forced probes.
+		pilot.set("landing_sight_high_miss_waveoff_enabled", false)
 	var craft_variant: Variant = pilot.get("aircraft")
 	var craft := craft_variant as RigidBody3D
 	var managers := get_tree().get_nodes_in_group("flight_deck_manager")
@@ -815,7 +1391,18 @@ func _poll_outcomes(delta: float) -> void:
 			_finish(name, "GONE")   # freed without a signal (shouldn't normally happen)
 			continue
 		var craft := node as RigidBody3D
+		var sample_carrier := _carrier()
+		var sample_deck_velocity := Vector3.ZERO
+		if is_instance_valid(sample_carrier) and sample_carrier.has_method("get_deck_reference_velocity_vector"):
+			sample_deck_velocity = sample_carrier.call("get_deck_reference_velocity_vector")
+		a["sampled_descent_mps"] = maxf(-(craft.linear_velocity - sample_deck_velocity).y, 0.0)
 		var pilot: Node = craft.find_child("AIPilot", true, false)
+		a["last_state"] = int(pilot.get("current_state")) if pilot != null else -1
+		var live_bank_deg := absf(rad_to_deg(atan2(
+			craft.global_transform.basis.x.y,
+			craft.global_transform.basis.y.y
+		)))
+		a["maximum_bank_deg"] = maxf(float(a.get("maximum_bank_deg", 0.0)), live_bank_deg)
 		var waiting_for_deck: bool = pilot != null \
 			and int(pilot.get("current_state")) == 13 # AIPilot.State.RECOVERY_HOLD
 		if waiting_for_deck:
@@ -835,16 +1422,51 @@ func _poll_outcomes(delta: float) -> void:
 			and not bool(a.get("reached_pre_landing", false)):
 			a["reached_pre_landing"] = true
 			a["pre_landing_active_s"] = float(a.get("active_elapsed_s", 0.0))
-			_log("MILESTONE %s state=PRE_LANDING active=%.1f carrier_dist=%.0f" % [
-				name, float(a["pre_landing_active_s"]), carrier_distance_m])
+			if is_instance_valid(carrier):
+				var carrier_forward := carrier.global_transform.basis.z
+				var carrier_right := carrier.global_transform.basis.x
+				carrier_forward.y = 0.0
+				carrier_right.y = 0.0
+				carrier_forward = carrier_forward.normalized() if carrier_forward.length_squared() > 0.001 else Vector3.FORWARD
+				carrier_right = carrier_right.normalized() if carrier_right.length_squared() > 0.001 else Vector3.RIGHT
+				var carrier_relative := craft.global_position - carrier.global_position
+				a["rollout_behind_m"] = -carrier_relative.dot(carrier_forward)
+				a["rollout_lateral_m"] = carrier_relative.dot(carrier_right)
+				var ground_track := craft.linear_velocity
+				ground_track.y = 0.0
+				if ground_track.length_squared() > 0.001:
+					a["rollout_track_error_deg"] = rad_to_deg(acos(clampf(
+						ground_track.normalized().dot(carrier_forward), -1.0, 1.0)))
+				a["rollout_bank_deg"] = live_bank_deg
+			_log("MILESTONE %s state=PRE_LANDING active=%.1f carrier_dist=%.0f rollout_behind=%.0f lat=%+.1f track=%.1fdeg bank=%.1fdeg max_bank=%.1fdeg" % [
+				name, float(a["pre_landing_active_s"]), carrier_distance_m,
+				float(a.get("rollout_behind_m", -1.0)), float(a.get("rollout_lateral_m", 1000000000.0)),
+				float(a.get("rollout_track_error_deg", 180.0)), float(a.get("rollout_bank_deg", 180.0)),
+				float(a.get("maximum_bank_deg", 0.0))])
 		_attempts[name] = a
 		if carrier_distance_m > teleport_recycle_dist_m:
 			_trace_crash(name, "TELEPORT_THRESHOLD")
 			_finish(name, "TELEPORT")
 			continue
-		# CAUGHT: arresting hook engaged a wire.
-		if craft.has_meta("arresting_engaged") and bool(craft.get_meta("arresting_engaged")):
-			_finish(name, "CAUGHT")
+		# Engagement is a milestone. Keep observing through a sustained stop.
+		if bool(craft.get_meta("arresting_engaged", false)) or bool(a.get("wire_caught", false)):
+			_observe_arrest(name, craft, delta)
+			continue
+		# A nonfatal gear-contact signal can arrive between two spaced arresting
+		# wires. Keep the terminal result open until the hook clears the catch
+		# window so neither a provisional bolter nor a soft contact beats a real
+		# cable engagement.
+		if bool(a.get("crash_pending", false)):
+			continue
+		# The pilot can declare a bolter on the same physics step in which its swept hook reaches a
+		# wire. Cable overlap is then delivered a frame later. Give that physical result precedence
+		# instead of scoring a catch as a bolter because the poll happened between those two events.
+		var pending_go_around_outcome := str(a.get("pending_go_around_outcome", ""))
+		if not pending_go_around_outcome.is_empty():
+			a["pending_go_around_elapsed_s"] = float(a.get("pending_go_around_elapsed_s", 0.0)) + delta
+			_attempts[name] = a
+			if float(a["pending_go_around_elapsed_s"]) >= maxf(terminal_bolter_catch_grace_s, 0.0):
+				_finish(name, pending_go_around_outcome)
 			continue
 		# A go-around can be either an early WAVE-OFF or a true BOLTER after the
 		# touchdown/wire region. In the normal repeating test this is an event, not a
@@ -873,8 +1495,14 @@ func _poll_outcomes(delta: float) -> void:
 						if bool(track.get("valid", false)) and float(track.get("remaining_m", 0.0)) > 1.0:
 							go_around_outcome = "WAVE-OFF"
 			_log_go_around_geometry(name, craft, pilot, go_around_outcome)
-			if genetic_tuning_enabled:
-				_finish(name, go_around_outcome)
+			if (genetic_tuning_enabled or _landing_matrix_enabled or _turn_in_matrix_enabled) and not _go_around_matrix_enabled:
+				a["go_around_active_prev"] = go_around_active
+				if go_around_outcome == "BOLTER" and terminal_bolter_catch_grace_s > 0.0:
+					a["pending_go_around_outcome"] = go_around_outcome
+					a["pending_go_around_elapsed_s"] = 0.0
+					_attempts[name] = a
+				else:
+					_finish(name, go_around_outcome)
 				continue
 			var retry_key: String = "waveoffs" if go_around_outcome == "WAVE-OFF" else "bolters"
 			a[retry_key] = int(a.get(retry_key, 0)) + 1
@@ -889,22 +1517,25 @@ func _poll_outcomes(delta: float) -> void:
 		# TIMEOUT: took too long.
 		# Queue time is deck scheduling, not a failed pilot attempt. Give each aircraft
 		# the full recovery timeout after it actually receives the landing lane.
-		if float(a.get("active_elapsed_s", 0.0)) > attempt_timeout_s:
+		var timed_elapsed_s := _elapsed_s - float(a.get("spawn_t", 0.0)) \
+			if _random_rtb_enabled else float(a.get("active_elapsed_s", 0.0))
+		if timed_elapsed_s > attempt_timeout_s:
 			_finish(name, "TIMEOUT")
 
 
 func _sample_ga_metrics() -> void:
-	if not genetic_tuning_enabled:
+	if not genetic_tuning_enabled and not _landing_matrix_enabled and not _turn_in_matrix_enabled and not _random_rtb_enabled:
 		return
 	for craft_name in _attempts.keys():
 		var attempt: Dictionary = _attempts[craft_name]
-		if attempt.get("outcome", "") != "":
+		if attempt.get("outcome", "") != "" or bool(attempt.get("wire_caught", false)):
 			continue
 		var node: Variant = attempt.get("node")
 		if not is_instance_valid(node):
 			continue
 		var craft := node as RigidBody3D
 		var pilot: Node = craft.find_child("AIPilot", true, false)
+		attempt["last_health"] = float(craft.get("current_health"))
 		if pilot == null:
 			continue
 		var state := int(pilot.get("current_state"))
@@ -930,7 +1561,7 @@ func _sample_ga_metrics() -> void:
 					attempt["cone_capture_logged"] = true
 					attempt["cone_capture_remaining_m"] = float(cone.get("capture_remaining_m", NAN))
 					attempt["cone_capture_behind_m"] = float(cone.get("capture_behind_carrier_m", NAN))
-					_log("CONE_CAPTURE %s remaining=%.1f behind=%.1f lat=%+.1f/%0.1f vert=%+.1f/%0.1f track=%.1fdeg fpa_err=%.1fdeg bank=%.1f/%.1fdeg settle=%.2f ctrl=R%+.2f Y%+.2f speed=%.1f pitch=%+.1fdeg aoa=%+.1f/%.1fdeg path=%+.1fdeg" % [
+					_log("CONE_CAPTURE %s remaining=%.1f behind=%.1f lat=%+.1f/%0.1f vert=%+.1f/%0.1f track=%.1fdeg fpa_err=%.1fdeg bank=%.1f/%.1fdeg auth=B%.1f Y%.2f settle=%.2f ctrl=R%+.2f Y%+.2f speed=%.1f pitch=%+.1fdeg aoa=%+.1f/%.1fdeg path=%+.1fdeg" % [
 						craft_name,
 						float(cone.get("capture_remaining_m", NAN)),
 						float(cone.get("capture_behind_carrier_m", NAN)),
@@ -942,6 +1573,8 @@ func _sample_ga_metrics() -> void:
 						float(cone.get("fpa_error_deg", NAN)),
 						float(cone.get("bank_deg", NAN)),
 						float(cone.get("commanded_bank_deg", NAN)),
+						float(cone.get("active_bank_limit_deg", NAN)),
+						float(cone.get("active_yaw_correction_limit", NAN)),
 						float(cone.get("bank_settle_scale", NAN)),
 						float(cone.get("roll_input", NAN)),
 						float(cone.get("yaw_input", NAN)),
@@ -967,7 +1600,7 @@ func _sample_ga_metrics() -> void:
 				if bool(cone.get("gate_checked", false)) and not bool(attempt.get("cone_gate_logged", false)):
 					attempt["cone_gate_logged"] = true
 					attempt["cone_gate_passed"] = bool(cone.get("gate_passed", false))
-					_log("CONE_GATE %s result=%s remaining=%.1f behind=%.1f ratio=%.2f lat=%+.1f/%0.1f vert=%+.1f/%0.1f track=%.1fdeg fpa_err=%.1fdeg bank=%.1f/%.1fdeg settle=%.2f ctrl=R%+.2f Y%+.2f speed=%.1f pitch=%+.1fdeg aoa=%+.1f/%.1fdeg path=%+.1fdeg thr=%.2f/%.2f reason=%s" % [
+					_log("CONE_GATE %s result=%s remaining=%.1f behind=%.1f ratio=%.2f lat=%+.1f/%0.1f vert=%+.1f/%0.1f track=%.1fdeg fpa_err=%.1fdeg bank=%.1f/%.1fdeg auth=B%.1f Y%.2f settle=%.2f ctrl=R%+.2f Y%+.2f speed=%.1f pitch=%+.1fdeg aoa=%+.1f/%.1fdeg path=%+.1fdeg thr=%.2f/%.2f reason=%s" % [
 						craft_name,
 						"PASS" if bool(cone.get("gate_passed", false)) else "WAVE_OFF",
 						float(cone.get("remaining_m", NAN)),
@@ -981,6 +1614,8 @@ func _sample_ga_metrics() -> void:
 						float(cone.get("fpa_error_deg", NAN)),
 						float(cone.get("bank_deg", NAN)),
 						float(cone.get("commanded_bank_deg", NAN)),
+						float(cone.get("active_bank_limit_deg", NAN)),
+						float(cone.get("active_yaw_correction_limit", NAN)),
 						float(cone.get("bank_settle_scale", NAN)),
 						float(cone.get("roll_input", NAN)),
 						float(cone.get("yaw_input", NAN)),
@@ -1013,6 +1648,25 @@ func _sample_ga_metrics() -> void:
 						attempt["aoa_integral"] = float(attempt.get("aoa_integral", 0.0)) + aoa_deg
 						attempt["body_pitch_integral"] = float(attempt.get("body_pitch_integral", 0.0)) \
 							+ float(attitude.get("body_pitch_deg", 0.0))
+		if pilot.has_method("get_landing_sight_snapshot"):
+			var sight_variant: Variant = pilot.call("get_landing_sight_snapshot")
+			if sight_variant is Dictionary:
+				var sight := sight_variant as Dictionary
+				if bool(sight.get("valid", false)):
+					attempt["sight_valid_samples"] = int(attempt.get("sight_valid_samples", 0)) + 1
+					if int(sight.get("predicted_viable_wire_number", 0)) > 0:
+						attempt["sight_viable_samples"] = int(attempt.get("sight_viable_samples", 0)) + 1
+					if int(sight.get("predicted_capture_wire_number", 0)) > 0:
+						attempt["sight_capture_samples"] = int(attempt.get("sight_capture_samples", 0)) + 1
+					var sight_lateral_m := absf(float(sight.get("hook_deck_lateral_error_m", INF)))
+					if is_finite(sight_lateral_m):
+						attempt["min_sight_lateral_m"] = minf(
+							float(attempt.get("min_sight_lateral_m", INF)), sight_lateral_m)
+					var sight_longitudinal_m := absf(float(sight.get("hook_deck_longitudinal_error_m", INF)))
+					if is_finite(sight_longitudinal_m):
+						attempt["min_sight_longitudinal_m"] = minf(
+							float(attempt.get("min_sight_longitudinal_m", INF)), sight_longitudinal_m)
+					attempt["last_sight_sink_mps"] = float(sight.get("sink_rate_at_contact_mps", NAN))
 		_attempts[craft_name] = attempt
 
 
@@ -1084,6 +1738,13 @@ func _trace_crash(craft_name: String, reason: String, impact: Variant = null) ->
 		_log("XFORM %s reason=%s node_invalid impact=%s" % [craft_name, reason, str(impact)])
 		return
 	var craft := node as RigidBody3D
+	_log("CONTACT_DETAIL %s reason=%s shape=%s local_index=%s other_index=%s gear=%s body=%s health=%s" % [
+		craft_name, reason, craft.get_meta("last_collision_local_shape", "unknown"),
+		craft.get_meta("last_collision_local_shape_index", -1), craft.get_meta("last_collision_other_shape_index", -1),
+		craft.get_meta("last_collision_safe_gear", false), craft.get_meta("last_collision_body_path", "unknown"),
+		craft.get("current_health")])
+	_log("CONTACT_ATTITUDE %s roll=%+.1f pitch=%+.1f angular=%s" % [craft_name,
+		rad_to_deg(craft.rotation.z), rad_to_deg(craft.rotation.x), _vec3_text(craft.angular_velocity)])
 	var physics_xform: Transform3D = PhysicsServer3D.body_get_state(
 		craft.get_rid(), PhysicsServer3D.BODY_STATE_TRANSFORM)
 	_log_transform_trace(craft_name, craft,
@@ -1153,14 +1814,172 @@ func _log_go_around_geometry(craft_name: String, craft: RigidBody3D, pilot: Node
 
 func _on_craft_destroyed(craft_name: String) -> void:
 	if _attempts.has(craft_name) and _attempts[craft_name].get("outcome", "") == "":
+		_attempts[craft_name]["destroyed"] = true
 		_trace_crash(craft_name, "DESTROYED")
 		_finish(craft_name, "CRASH")
 
 
-func _on_craft_crashed(impact, craft_name: String) -> void:
-	if _attempts.has(craft_name) and _attempts[craft_name].get("outcome", "") == "":
-		_trace_crash(craft_name, "CRASH_SIGNAL", impact)
+func _on_craft_damaged(amount: float, health: float, craft_name: String) -> void:
+	if not _attempts.has(craft_name):
+		return
+	var attempt: Dictionary = _attempts[craft_name]
+	attempt["damage_taken"] = float(attempt.get("damage_taken", 0.0)) + maxf(amount, 0.0)
+	attempt["last_health"] = health
+	_attempts[craft_name] = attempt
+
+func _observe_arrest(craft_name: String, craft: RigidBody3D, delta: float) -> void:
+	var attempt: Dictionary = _attempts[craft_name]
+	if not bool(attempt.get("wire_caught", false)):
+		attempt["wire_caught"] = true
+		attempt["catch_time_s"] = _elapsed_s - float(attempt.get("spawn_t", 0.0))
+		attempt["catch_speed_mps"] = craft.linear_velocity.length()
+		var catch_carrier := _carrier()
+		if is_instance_valid(catch_carrier):
+			var catch_velocity := craft.linear_velocity
+			if catch_carrier.has_method("get_deck_reference_velocity_vector"):
+				catch_velocity -= Vector3(catch_carrier.call("get_deck_reference_velocity_vector"))
+			attempt["catch_speed_mps"] = catch_velocity.length()
+			attempt["catch_lateral_speed_mps"] = catch_velocity.dot(catch_carrier.global_basis.x.normalized())
+		_log("WIRE_CAUGHT %s speed=%.1f" % [craft_name, craft.linear_velocity.length()])
+	var carrier_velocity := Vector3.ZERO
+	var carrier := _carrier()
+	if is_instance_valid(carrier) and carrier.has_method("get_deck_reference_velocity_vector"):
+		carrier_velocity = carrier.call("get_deck_reference_velocity_vector")
+	var speed := (craft.linear_velocity - carrier_velocity).length()
+	attempt["arrest_elapsed_s"] = float(attempt.get("arrest_elapsed_s", 0.0)) + delta
+	var deck_up := carrier.global_basis.y.normalized() if is_instance_valid(carrier) else Vector3.UP
+	var arrest_bank := rad_to_deg(atan2(craft.global_basis.x.dot(deck_up), craft.global_basis.y.dot(deck_up)))
+	var arrest_pitch := rad_to_deg(asin(clampf(craft.global_basis.z.normalized().dot(deck_up), -1.0, 1.0)))
+	attempt["arrest_max_bank_deg"] = maxf(float(attempt.get("arrest_max_bank_deg", 0.0)), absf(arrest_bank))
+	attempt["arrest_max_pitch_deg"] = maxf(float(attempt.get("arrest_max_pitch_deg", 0.0)), absf(arrest_pitch))
+	var cable: Variant = craft.get_meta("arresting_cable") if craft.has_meta("arresting_cable") else null
+	if is_instance_valid(cable):
+		attempt["arrest_hard_stop_corrections"] = int(cable.get("hard_stop_corrections"))
+		if float(attempt["arrest_elapsed_s"]) >= float(attempt.get("next_arrest_sample_s", 0.0)):
+			attempt["next_arrest_sample_s"] = float(attempt["arrest_elapsed_s"]) + 0.2
+			var gear := craft.get_node_or_null("LandingGear")
+			_log("ARREST_SAMPLE %s t=%.2f speed=%.2f bank=%+.1f pitch=%+.1f comp=%s brake=%s lateral=%s torque=%s hard_stop=%d" % [
+				craft_name, float(attempt["arrest_elapsed_s"]), speed, arrest_bank, arrest_pitch,
+				str(gear.get("gear_compressions")) if gear != null else "unknown",
+				str(cable.get("last_braking_force_n")), str(cable.get("last_lateral_force_n")),
+				str(cable.get("last_attitude_torque_nm")), int(attempt["arrest_hard_stop_corrections"])])
+	attempt["stop_stable_s"] = float(attempt.get("stop_stable_s", 0.0)) + delta \
+		if speed <= arrest_stop_speed_mps else 0.0
+	attempt["last_health"] = float(craft.get("current_health"))
+	attempt["recovery_status"] = "transport_started" \
+		if bool(craft.get_meta("carrier_transport_mode", false)) else "not_exercised"
+	_attempts[craft_name] = attempt
+	if float(attempt["last_health"]) <= 0.0:
 		_finish(craft_name, "CRASH")
+	elif float(attempt["stop_stable_s"]) >= arrest_stop_hold_s:
+		attempt["stopped"] = true
+		_attempts[craft_name] = attempt
+		_log("ARREST_STOPPED %s stable=%.2fs health=%.1f damage=%.1f recovery=%s" % [
+			craft_name, float(attempt["stop_stable_s"]), float(attempt["last_health"]),
+			float(attempt.get("damage_taken", 0.0)), str(attempt["recovery_status"])])
+		_finish(craft_name, "CAUGHT")
+	elif float(attempt["arrest_elapsed_s"]) >= arrest_observation_timeout_s:
+		_finish(craft_name, "ARREST-FAIL")
+
+func _on_craft_touchdown(details: Dictionary, craft_name: String) -> void:
+	if not _attempts.has(craft_name):
+		return
+	var attempt: Dictionary = _attempts[craft_name]
+	# Keep the last pre-contact physics sample separate from collision-callback
+	# velocity, which can already include a solver impulse. Do not relabel it as
+	# an exact impact measurement or use it to change damage physics.
+	if int(attempt.get("touchdown_count", 0)) == 0:
+		attempt["pre_contact_sink_mps"] = float(attempt.get("sampled_descent_mps", 0.0))
+	attempt["touchdown_count"] = int(attempt.get("touchdown_count", 0)) + 1
+	attempt["touchdown_surface"] = str(details.get("surface", "other"))
+	attempt["touchdown_descent_mps"] = maxf(
+		float(attempt.get("touchdown_descent_mps", 0.0)),
+		float(details.get("descent_speed_mps", 0.0))
+	)
+	attempt["touchdown_relative_speed_mps"] = maxf(
+		float(attempt.get("touchdown_relative_speed_mps", 0.0)),
+		float(details.get("relative_speed_mps", 0.0))
+	)
+	var touchdown_class := "DAMAGING" if bool(details.get("damaging", false)) \
+		else ("HARD" if bool(details.get("hard", false)) else "NORMAL")
+	var previous_class := str(attempt.get("touchdown_class", "NONE"))
+	var severity := {"NONE": -1, "NORMAL": 0, "HARD": 1, "DAMAGING": 2}
+	if int(severity.get(touchdown_class, -1)) > int(severity.get(previous_class, -1)):
+		attempt["touchdown_class"] = touchdown_class
+	_attempts[craft_name] = attempt
+	_log("TOUCHDOWN %s class=%s surface=%s sink=%.1fm/s relative=%.1fm/s count=%d" % [
+		craft_name, touchdown_class, str(details.get("surface", "other")),
+		float(details.get("descent_speed_mps", 0.0)),
+		float(details.get("relative_speed_mps", 0.0)),
+		int(attempt["touchdown_count"]),
+	])
+
+
+func _on_craft_crashed(impact, craft_name: String) -> void:
+	if not _attempts.has(craft_name) or _attempts[craft_name].get("outcome", "") != "":
+		return
+	var attempt: Dictionary = _attempts[craft_name]
+	if bool(attempt.get("crash_pending", false)):
+		return
+	attempt["body_contact_signals"] = int(attempt.get("body_contact_signals", 0)) + 1
+	_trace_crash(craft_name, "CONTACT_SIGNAL", impact)
+	attempt["crash_pending"] = true
+	_attempts[craft_name] = attempt
+	# A damaging gear contact may still precede the hook reaching a later, spaced-out wire.
+	# Resolve after the same short terminal window used for provisional bolters so
+	# an actual wire engagement takes precedence in the test result.
+	call_deferred("_resolve_pending_craft_crash", craft_name, impact)
+
+
+func _resolve_pending_craft_crash(craft_name: String, impact) -> void:
+	await get_tree().create_timer(
+		maxf(terminal_bolter_catch_grace_s, 0.0),
+		false,
+		true
+	).timeout
+	if not _attempts.has(craft_name) or _attempts[craft_name].get("outcome", "") != "":
+		return
+	var attempt: Dictionary = _attempts[craft_name]
+	var craft_variant: Variant = attempt.get("node")
+	if is_instance_valid(craft_variant):
+		var craft := craft_variant as Node
+		if craft != null and float(craft.get("current_health")) > 0.0:
+			# Legacy crashed also reports survivable body scrapes. Keep observing.
+			attempt["crash_pending"] = false
+			attempt["last_health"] = float(craft.get("current_health"))
+			_attempts[craft_name] = attempt
+			return
+		if craft != null \
+				and (bool(craft.get_meta("arresting_engaged", false)) or bool(attempt.get("wire_caught", false))):
+			# The physics poll owns catch -> sustained stop observation.
+			attempt["crash_pending"] = false
+			_attempts[craft_name] = attempt
+			return
+	_trace_crash(craft_name, "CRASH_SIGNAL", impact)
+	_finish(craft_name, "CRASH")
+
+
+func _part_damage_snapshot(craft_variant: Variant) -> Dictionary:
+	# Regional damage deliberately does not spend the legacy aggregate hull pool.
+	# Missing evidence must remain unavailable, not look like a damage-free stop.
+	var snapshot := {"part_damage_observed": false, "part_health_loss": -1.0, "part_damage_state": {}}
+	if not is_instance_valid(craft_variant):
+		return snapshot
+	var craft := craft_variant as Node
+	if craft == null or not craft.has_method("get_part_damage_state"):
+		return snapshot
+	var state: Variant = craft.call("get_part_damage_state")
+	if not state is Dictionary or state.is_empty():
+		return snapshot
+	var loss := 0.0
+	for zone: Variant in state.values():
+		if not zone is Dictionary or not zone.has("health") or not zone.has("max_health"):
+			return snapshot
+		loss += maxf(float(zone["max_health"]) - float(zone["health"]), 0.0)
+	snapshot["part_damage_observed"] = true
+	snapshot["part_health_loss"] = loss
+	snapshot["part_damage_state"] = state.duplicate(true)
+	return snapshot
 
 
 func _finish(craft_name: String, outcome: String) -> void:
@@ -1170,12 +1989,18 @@ func _finish(craft_name: String, outcome: String) -> void:
 	if a.get("outcome", "") != "":
 		return
 	a["outcome"] = outcome
+	var final_craft: Variant = a.get("node")
+	a.merge(_part_damage_snapshot(final_craft), true)
+	if is_instance_valid(final_craft):
+		a["last_health"] = float(final_craft.get("current_health"))
 	_attempts[craft_name] = a
 	var flow: String = str(a.get("flow", "recovery"))
 	var t: Dictionary = _tally.get(flow, {})
 	t[outcome] = int(t.get(outcome, 0)) + 1
 	_tally[flow] = t
 	var dur: float = _elapsed_s - float(a.get("spawn_t", 0.0))
+	a["duration_s"] = dur
+	_attempts[craft_name] = a
 	var ga_fitness: float = NAN
 	var ga_assignment_variant: Variant = a.get("ga_assignment", {})
 	if genetic_tuning_enabled and is_instance_valid(_ga_tuner) \
@@ -1186,6 +2011,10 @@ func _finish(craft_name: String, outcome: String) -> void:
 			if is_instance_valid(trial_craft) else INF
 		var ga_metrics := {
 			"outcome": outcome,
+			"stopped": bool(a.get("stopped", false)),
+			"damage_taken": float(a.get("damage_taken", 0.0)),
+			"catch_lateral_speed_mps": float(a.get("catch_lateral_speed_mps", 0.0)),
+			"aircraft_model": str(a.get("aircraft_model", _aircraft_model)),
 			"duration_s": dur,
 			"reached_glideslope": bool(a.get("reached_glideslope", false)),
 			"reached_final": bool(a.get("reached_final", false)),
@@ -1209,26 +2038,51 @@ func _finish(craft_name: String, outcome: String) -> void:
 			"final_settled_behind_m": float(a.get("final_settled_behind_m", -1.0)) \
 				if is_finite(float(a.get("final_settled_behind_m", NAN))) else -1.0,
 			"cone_gate_passed": bool(a.get("cone_gate_passed", false)),
+			"sight_valid_samples": int(a.get("sight_valid_samples", 0)),
+			"sight_viable_fraction": float(a.get("sight_viable_samples", 0)) \
+				/ maxf(int(a.get("sight_valid_samples", 0)), 1),
+			"sight_capture_fraction": float(a.get("sight_capture_samples", 0)) \
+				/ maxf(int(a.get("sight_valid_samples", 0)), 1),
+			"min_sight_lateral_m": _finite_or_large(float(a.get("min_sight_lateral_m", INF))),
+			"min_sight_longitudinal_m": _finite_or_large(float(a.get("min_sight_longitudinal_m", INF))),
+			"touchdown_class": str(a.get("touchdown_class", "NONE")),
+			"touchdown_descent_mps": float(a.get("touchdown_descent_mps", 0.0)),
 		}
 		ga_fitness = float(_ga_tuner.call("record_result", ga_assignment_variant, ga_metrics))
 	# GA-ready outcome line: flow, outcome, time, spawn geometry.
-	var dirty_case_variant: Variant = a.get("dirty_case", {})
-	var dirty_case: Dictionary = dirty_case_variant as Dictionary if dirty_case_variant is Dictionary else {}
-	_log("OUTCOME %s flow=%s result=%s dur=%.1f active=%.1f queue=%.1f case=%d:%s pre=%.1f max_cdist=%.0f spawn_dist=%.0f spawn_alt=%.0f speed=%.0f bank=%+.0f vs=%+.0f stores=%s retries=W%d/B%d cone_capture=%.1f cone_gate=%s ga_fitness=%.1f" % [
-		craft_name, flow, outcome, dur, float(a.get("active_elapsed_s", dur)),
-		float(a.get("deck_queue_wait_s", 0.0)), int(dirty_case.get("case_index", -1)),
-		str(dirty_case.get("label", "standard")), float(a.get("pre_landing_active_s", -1.0)),
+	var entry_case_variant: Variant = a.get("entry_case", a.get("dirty_case", {}))
+	var entry_case: Dictionary = entry_case_variant as Dictionary if entry_case_variant is Dictionary else {}
+	var sight_valid_samples := int(a.get("sight_valid_samples", 0))
+	_log("OUTCOME %s model=%s flow=%s result=%s dur=%.1f active=%.1f queue=%.1f case=%d:%s pre=%.1f max_cdist=%.0f spawn_dist=%.0f spawn_alt=%.0f speed=%.0f bank=%+.0f vs=%+.0f stores=%s retries=W%d/B%d cone_capture=%.1f cone_gate=%s sight=V%d/viable%.2f/capture%.2f/minLat%.1f/minLong%.1f/sink%+.1f touchdown=%s@%.1fmps ga_fitness=%.1f" % [
+		craft_name, str(a.get("aircraft_model", _aircraft_model)), flow, outcome, dur,
+		float(a.get("active_elapsed_s", dur)),
+		float(a.get("deck_queue_wait_s", 0.0)), int(entry_case.get("case_index", -1)),
+		str(entry_case.get("label", "standard")), float(a.get("pre_landing_active_s", -1.0)),
 		float(a.get("max_carrier_distance_m", 0.0)),
 		float(a.get("spawn_dist", 0.0)), float(a.get("spawn_alt", 0.0)),
 		float(a.get("initial_speed_mps", 0.0)), float(a.get("initial_bank_deg", 0.0)),
 		float(a.get("initial_vertical_speed_mps", 0.0)), str(bool(a.get("retain_stores", false))),
 		int(a.get("waveoffs", 0)), int(a.get("bolters", 0)),
-		float(a.get("cone_capture_behind_m", NAN)), str(bool(a.get("cone_gate_passed", false))), ga_fitness])
+		float(a.get("cone_capture_behind_m", NAN)), str(bool(a.get("cone_gate_passed", false))),
+		sight_valid_samples,
+		float(a.get("sight_viable_samples", 0)) / maxf(sight_valid_samples, 1),
+		float(a.get("sight_capture_samples", 0)) / maxf(sight_valid_samples, 1),
+		_finite_or_large(float(a.get("min_sight_lateral_m", INF))),
+		_finite_or_large(float(a.get("min_sight_longitudinal_m", INF))),
+		float(a.get("last_sight_sink_mps", NAN)),
+		str(a.get("touchdown_class", "NONE")), float(a.get("touchdown_descent_mps", 0.0)),
+		ga_fitness])
 	_maybe_complete_finite_suite()
 	# Despawn shortly after (let a CAUGHT settle on the wire first).
 	var node: Variant = a.get("node")
 	if is_instance_valid(node):
 		var delay: float = 1.5 if outcome == "CAUGHT" else 0.3
+		if genetic_tuning_enabled or _landing_matrix_enabled or _turn_in_matrix_enabled or _random_rtb_enabled:
+			# The finite suites run one aircraft at a time. Their global spawn timer can
+			# already be near zero when a result arrives, so explicitly leave enough time
+			# for the previous body and cable overlap to clear the deck before asking the
+			# next case for clearance.
+			_spawn_timer = maxf(_spawn_timer, delay + 0.25)
 		get_tree().create_timer(delay).timeout.connect(func():
 			if is_instance_valid(node):
 				var craft_node := node as Node
@@ -1247,9 +2101,9 @@ func _log_summary() -> void:
 	var parts: Array[String] = []
 	for flow in ["recovery", "direct"]:
 		var t: Dictionary = _tally.get(flow, {})
-		parts.append("%s{C=%d W=%d B=%d X=%d T=%d}" % [
+		parts.append("%s{C=%d W=%d B=%d X=%d T=%d A=%d}" % [
 			flow, int(t.get("CAUGHT", 0)), int(t.get("WAVE-OFF", 0)), int(t.get("BOLTER", 0)),
-			int(t.get("CRASH", 0)), int(t.get("TIMEOUT", 0))])
+			int(t.get("CRASH", 0)), int(t.get("TIMEOUT", 0)), int(t.get("ARREST-FAIL", 0))])
 	_log("SUMMARY t=%.0f live=%d spawned=%d | %s" % [_elapsed_s, _live_count(), _spawn_index, " ".join(parts)])
 	if genetic_tuning_enabled and is_instance_valid(_ga_tuner):
 		_log("  GA %s" % JSON.stringify(_ga_tuner.call("get_status")))
@@ -1310,7 +2164,12 @@ func _log_summary() -> void:
 				float(pilot.get("pitch_input")),
 				float(pilot.get("yaw_input")),
 			]
-		if pilot != null and st == 14 and "_route_follow_debug" in pilot:
+		if pilot != null and st in [14, 18] and "_route_follow_debug" in pilot:
+			recovery_detail += " safety=%s agl=%.0f fan=%.0f exact=%.0f floor=%+.1f" % [
+				str(pilot.get("_safety_override_active")), float(pilot.get("altitude_agl")),
+				float(pilot.get("_terrain_fan_clearances")[2]),
+				float(pilot.get("terrain_flight_path_distance")),
+				float(pilot.get("_recovery_terrain_vs_floor_mps"))]
 			var route_debug_variant: Variant = pilot.get("_route_follow_debug")
 			if route_debug_variant is Dictionary and not (route_debug_variant as Dictionary).is_empty():
 				var route_debug := route_debug_variant as Dictionary
@@ -1334,7 +2193,9 @@ func _log_summary() -> void:
 					recovery_detail += " tag=%s" % route_debug_tag
 				var arc_remaining_m: float = float(route_debug.get("arc_remaining_m", NAN))
 				if is_finite(arc_remaining_m):
-					recovery_detail += " arc_rem=%.0f" % arc_remaining_m
+					recovery_detail += " arc_rem=%.0f captured=%s capture_fix=%s" % [arc_remaining_m,
+						str(route_debug.get("arc_capture_ready", false)),
+						str(route_debug.get("arc_capture_enabled", false))]
 				var arc_signed_error_m: float = float(route_debug.get("arc_signed_radial_error_m", NAN))
 				if is_finite(arc_signed_error_m):
 					recovery_detail += " arc=(e=%+.0f vr=%+.1f vt=%+.1f ain=%+.1f)" % [

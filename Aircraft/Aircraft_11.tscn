@@ -35,6 +35,7 @@
 [ext_resource type="PackedScene" uid="uid://8a1uo1i0xu5n" path="res://Models/Aircraft_9/tail rotor.glb" id="35_tail_propeller"]
 [ext_resource type="PackedScene" uid="uid://dsnc8jllg42ph" path="res://Weapons/hardpoint.tscn" id="40_hardpoint"]
 [ext_resource type="PackedScene" uid="uid://cn0n757m62w08" path="res://Weapons/RocketPod/rocket_pod.tscn" id="41_rocket"]
+[ext_resource type="PackedScene" path="res://Weapons/Guns/Hardpoint/15mm_machine_gun_hardpoint.tscn" id="42_15mm"]
 [ext_resource type="Script" uid="uid://ljqeb30m632d" path="res://AI/HelicopterPilot.gd" id="43_heli_ai"]
 [ext_resource type="Script" uid="uid://q2od5mw1veln" path="res://Aircraft/Visuals/HeliSwingDoors.gd" id="44_swing_doors"]
 [ext_resource type="AudioStream" uid="uid://hc5s8h1mbj2t" path="res://Audio/engine/helicopter/Helicopter3SlowExt.wav" id="101_rotor_slow"]
@@ -243,8 +244,8 @@ max_range_m = 1500.0
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.00035607815, -1.3903153, 0.4254153)
 mounted_weapon = ExtResource("41_rocket")
 hardpoint_id = 1
-allowed_weapon_scene_paths = PackedStringArray("res://Weapons/Guns/Hardpoint/10mm_machine_gun_hardpoint.tscn", "res://Weapons/Guns/Hardpoint/15mm_machine_gun_hardpoint.tscn", "res://Weapons/Guns/Hardpoint/25mm_autocannon_hardpoint.tscn", "res://Weapons/Guns/Hardpoint/30mm_autocannon_hardpoint.tscn", "res://Weapons/RocketPod/rocket_pod.tscn")
-allowed_weapon_names = PackedStringArray("10 mm Machine Gun", "15 mm Machine Gun", "25 mm Autocannon", "25 mm Cannon", "30 mm Autocannon", "30 mm Cannon", "Rocket Pod")
+allowed_weapon_scene_paths = PackedStringArray("res://Weapons/Guns/Hardpoint/10mm_machine_gun_hardpoint.tscn", "res://Weapons/Guns/Hardpoint/15mm_machine_gun_hardpoint.tscn", "res://Weapons/Guns/Hardpoint/20mm_autocannon_hardpoint.tscn", "res://Weapons/Guns/Hardpoint/25mm_autocannon_hardpoint.tscn", "res://Weapons/Guns/Hardpoint/30mm_autocannon_hardpoint.tscn", "res://Weapons/RocketPod/rocket_pod.tscn")
+allowed_weapon_names = PackedStringArray("10 mm Machine Gun", "15 mm Machine Gun", "20 mm Autocannon", "20 mm Cannon", "25 mm Autocannon", "25 mm Cannon", "30 mm Autocannon", "30 mm Cannon")
 
 [node name="CameraController" type="Node3D" parent="." unique_id=811743349 node_paths=PackedStringArray("aircraft", "cockpit_tripod", "chase_tripod", "cinematic_tripod")]
 script = ExtResource("21_camera_controller")

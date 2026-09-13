@@ -2,6 +2,9 @@ extends Node
 
 const AIRCRAFT_1_MODEL := "res://Models/Aircraft_1/Aircraft_1.glb"
 const TEST_PATTERN_INDEX := 4
+const TEST_PRIMARY_COLOR := Color("566b78")
+const TEST_SECONDARY_COLOR := Color("d19a3a")
+const EXPECTED_LOWER_FUSELAGE_CREAM := Color(0.96, 0.93, 0.82)
 
 var _failures: Array[String] = []
 
@@ -19,7 +22,7 @@ func _run() -> void:
 		_finish()
 		return
 
-	livery.call("set_player_livery", Color("566b78"), Color("d19a3a"), TEST_PATTERN_INDEX)
+	livery.call("set_player_livery", TEST_PRIMARY_COLOR, TEST_SECONDARY_COLOR, TEST_PATTERN_INDEX)
 	var model := packed.instantiate()
 	add_child(model)
 	var source_color := _find_named_source_color(model, "upper fuselage")
@@ -40,6 +43,19 @@ func _run() -> void:
 	_expect(patterned_non_target_count == 0, "non-target materials do not receive the livery pattern")
 	_expect(shared_space_count == patterned_target_count, "every patterned target uses the shared object-space projection")
 	_expect(mismatched_transform_count == 0, "each submesh contributes its authored transform to the shared pattern coordinates")
+	_expect(int(coverage.get("primary_color_count", 0)) == patterned_target_count,
+		"every upper-fuselage pattern retains the player's primary color")
+	_expect(int(coverage.get("secondary_color_count", 0)) == patterned_target_count,
+		"every upper-fuselage pattern retains the player's secondary color")
+	var lower_coverage := _collect_named_surface_color_coverage(
+		model,
+		"lower fuselage",
+		EXPECTED_LOWER_FUSELAGE_CREAM
+	)
+	var lower_count := int(lower_coverage.get("surface_count", 0))
+	_expect(lower_count > 0, "Aircraft 1 exposes a lower-fuselage material")
+	_expect(int(lower_coverage.get("matching_count", 0)) == lower_count,
+		"every lower-fuselage surface is cream rather than a selected player color")
 
 	model.queue_free()
 	_finish()
@@ -53,6 +69,8 @@ func _collect_pattern_coverage(node: Node) -> Dictionary:
 		"patterned_mesh_ids": {},
 		"shared_space_count": 0,
 		"mismatched_transform_count": 0,
+		"primary_color_count": 0,
+		"secondary_color_count": 0,
 	}
 	_collect_pattern_coverage_recursive(node, node as Node3D, result)
 	return result
@@ -106,6 +124,12 @@ func _collect_pattern_coverage_recursive(node: Node, asset_root: Node3D, result:
 				var is_patterned := _is_test_pattern_material(override)
 				if is_patterned:
 					var shader_material := override as ShaderMaterial
+					var base_color: Variant = shader_material.get_shader_parameter("base_color")
+					if typeof(base_color) == TYPE_COLOR and (base_color as Color).is_equal_approx(TEST_PRIMARY_COLOR):
+						result["primary_color_count"] = int(result["primary_color_count"]) + 1
+					var pattern_color: Variant = shader_material.get_shader_parameter("pattern_color")
+					if typeof(pattern_color) == TYPE_COLOR and (pattern_color as Color).is_equal_approx(TEST_SECONDARY_COLOR):
+						result["secondary_color_count"] = int(result["secondary_color_count"]) + 1
 					if bool(shader_material.get_shader_parameter("use_shared_pattern_space")):
 						result["shared_space_count"] = int(result["shared_space_count"]) + 1
 					var actual_transform: Variant = shader_material.get_shader_parameter("pattern_local_to_root")
@@ -121,6 +145,34 @@ func _collect_pattern_coverage_recursive(node: Node, asset_root: Node3D, result:
 					result["patterned_non_target_count"] = int(result["patterned_non_target_count"]) + 1
 	for child in node.get_children():
 		_collect_pattern_coverage_recursive(child, asset_root, result)
+
+
+func _collect_named_surface_color_coverage(node: Node, wanted_name: String, wanted_color: Color) -> Dictionary:
+	var result := {"surface_count": 0, "matching_count": 0}
+	_collect_named_surface_color_coverage_recursive(node, wanted_name, wanted_color, result)
+	return result
+
+
+func _collect_named_surface_color_coverage_recursive(
+		node: Node,
+		wanted_name: String,
+		wanted_color: Color,
+		result: Dictionary
+) -> void:
+	if node is MeshInstance3D:
+		var mesh_instance := node as MeshInstance3D
+		var mesh := mesh_instance.mesh
+		if mesh != null:
+			for surface_index in range(mesh.get_surface_count()):
+				var source_material := mesh.surface_get_material(surface_index)
+				if source_material == null or not wanted_name in source_material.resource_name.to_lower():
+					continue
+				result["surface_count"] = int(result["surface_count"]) + 1
+				var override := mesh_instance.get_surface_override_material(surface_index) as StandardMaterial3D
+				if override != null and override.albedo_color.is_equal_approx(wanted_color):
+					result["matching_count"] = int(result["matching_count"]) + 1
+	for child in node.get_children():
+		_collect_named_surface_color_coverage_recursive(child, wanted_name, wanted_color, result)
 
 
 func _transforms_match(a: Transform3D, b: Transform3D) -> bool:

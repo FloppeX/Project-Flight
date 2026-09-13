@@ -55,6 +55,9 @@ var _bound_scene_id: int = 0
 var _terrain_node: Node = null
 var _nav_grid: Node = null
 var _carried_music: AudioStreamPlayer = null
+var _load_started_usec: int = 0
+var _load_milestones: Dictionary = {}
+var _ready_frames: int = 0
 
 
 func _ready() -> void:
@@ -101,6 +104,10 @@ func _activate_for_direct_game_launch() -> void:
 
 
 func _start_loading(source_scene_id: int) -> void:
+	_set_terrain_loading_budget(false)
+	_load_started_usec = Time.get_ticks_usec()
+	_load_milestones.clear()
+	_ready_frames = 0
 	_disabled_for_test_mode = false
 	_active = true
 	_fading = false
@@ -136,8 +143,22 @@ func _process(delta: float) -> void:
 	if not _active or _disabled_for_test_mode:
 		return
 	_elapsed += delta
+	# Trailer staging pauses simulation as soon as its checkpoint is restored.
+	# The current-view terrain ring can still be unfinished at that point. Keep
+	# its existing budgeted streaming work alive until reveal, without running
+	# aircraft, deck machinery, or other paused scene children.
+	if get_tree().paused and is_instance_valid(_terrain_node) \
+			and _terrain_node.has_method("update_paused_camera_stream"):
+		_terrain_node.call("update_paused_camera_stream", delta)
 
 	if _fading:
+		_update_completion_state()
+		if not _navgrid_done or not _terrain_done or not _scenario_placement_complete():
+			_fading = false
+			_ready_frames = 0
+			_root.modulate.a = 1.0
+			_set_terrain_loading_budget(true)
+			return
 		_fade_t += delta / FADE_DURATION_S
 		_root.modulate.a = 1.0 - clampf(_fade_t, 0.0, 1.0)
 		if _fade_t >= 1.0:
@@ -150,8 +171,13 @@ func _process(delta: float) -> void:
 	_update_progress_display()
 
 	var campaign_restore_done := GameSession == null or not GameSession.has_pending_save_state()
-	if _navgrid_done and _terrain_done and campaign_restore_done \
+	var ready_now := _navgrid_done and _terrain_done and campaign_restore_done and _scenario_placement_complete()
+	_ready_frames = _ready_frames + 1 if ready_now else 0
+	if _ready_frames >= 3 \
 	and _elapsed >= MIN_DISPLAY_S:
+		_mark_load_milestone("ready_to_reveal")
+		# Resume the gameplay budget before the first frame of the fade.
+		_set_terrain_loading_budget(false)
 		_fading = true
 		_fade_t = 0.0
 
@@ -164,7 +190,9 @@ func _try_bind_scenario_nodes() -> void:
 	if current_id == _source_scene_id:
 		return
 	if current_id != _bound_scene_id:
+		_set_terrain_loading_budget(false)
 		_bound_scene_id = current_id
+		_mark_load_milestone("scene_bound")
 		_terrain_node = null
 		_navgrid_done = false
 		_terrain_done = false
@@ -172,24 +200,75 @@ func _try_bind_scenario_nodes() -> void:
 		var candidate_node: Node = candidate as Node
 		if candidate_node == current_scene or current_scene.is_ancestor_of(candidate_node):
 			_terrain_node = candidate_node
+			_set_terrain_loading_budget(true)
 			break
 	if _nav_grid == null:
 		_nav_grid = get_node_or_null("/root/TerrainNavGrid")
 		_connect_navgrid_signal()
 	if _nav_grid != null and _nav_grid.has_method("is_ready"):
-		_navgrid_done = bool(_nav_grid.call("is_ready"))
+		_navgrid_done = _navigation_is_ready()
+
+
+func _scenario_placement_complete() -> bool:
+	var scene := get_tree().current_scene
+	var carrier := scene.get_node_or_null("LandCarrier") if scene != null else null
+	return carrier == null or not carrier.has_method("is_initial_placement_complete") \
+		or bool(carrier.call("is_initial_placement_complete"))
+
+
+func _navigation_is_ready() -> bool:
+	var graph := get_node_or_null("/root/NavGraph")
+	return is_instance_valid(_nav_grid) and bool(_nav_grid.call("is_ready")) \
+		and (graph == null or bool(graph.call("is_ready")))
 
 
 func _update_completion_state() -> void:
 	if _bound_scene_id == 0:
 		return
-	if not _navgrid_done and _nav_grid != null and _nav_grid.has_method("is_ready"):
-		_navgrid_done = bool(_nav_grid.call("is_ready"))
-	if _navgrid_done and not _terrain_done and is_instance_valid(_terrain_node):
-		if _terrain_node.has_method("is_initial_load_complete"):
+	# Diagnostic only: the pre-navigation ring may move when the carrier is placed.
+	# Do not use this early milestone to release the loading screen.
+	if is_instance_valid(_terrain_node) and _terrain_node.has_method("is_initial_load_complete"):
+		if bool(_terrain_node.call("is_initial_load_complete")):
+			_mark_load_milestone("terrain_first_fill")
+	_navgrid_done = _navigation_is_ready()
+	_terrain_done = false
+	if _navgrid_done and _scenario_placement_complete() and is_instance_valid(_terrain_node):
+		if _terrain_node.has_method("is_current_view_load_complete"):
+			_terrain_done = bool(_terrain_node.call("is_current_view_load_complete"))
+		elif _terrain_node.has_method("is_initial_load_complete"):
 			_terrain_done = bool(_terrain_node.call("is_initial_load_complete"))
 		else:
 			_terrain_done = true
+	if _navgrid_done:
+		_mark_load_milestone("navigation_ready")
+	if _terrain_done:
+		_mark_load_milestone("terrain_ready")
+	if GameSession == null or not GameSession.has_pending_save_state():
+		_mark_load_milestone("restore_ready")
+
+
+func _set_terrain_loading_budget(active: bool) -> void:
+	if is_instance_valid(_terrain_node) and _terrain_node.has_method("set_scenario_loading_active"):
+		_terrain_node.call("set_scenario_loading_active", active)
+
+
+func _mark_load_milestone(stage: String) -> void:
+	if _load_started_usec <= 0 or _load_milestones.has(stage):
+		return
+	_load_milestones[stage] = (Time.get_ticks_usec() - _load_started_usec) / 1000.0
+	print("[ScenarioLoading] %s elapsed_ms=%.3f" % [stage, _load_milestones[stage]])
+
+
+func get_load_timing_stats() -> Dictionary:
+	var result := {"milestones_ms": _load_milestones.duplicate(), "active": _active}
+	if is_instance_valid(_nav_grid) and _nav_grid.has_method("get_bake_timing_stats"):
+		result["navigation"] = _nav_grid.call("get_bake_timing_stats")
+	var graph := get_node_or_null("/root/NavGraph")
+	if graph != null and graph.has_method("get_startup_timing_stats"):
+		result["graph"] = graph.call("get_startup_timing_stats")
+	if is_instance_valid(_terrain_node) and _terrain_node.has_method("get_streaming_timing_stats"):
+		result["terrain"] = _terrain_node.call("get_streaming_timing_stats")
+	return result
 
 
 func _update_progress_display() -> void:
@@ -250,7 +329,7 @@ func _current_nonsense_message() -> String:
 
 func _on_navgrid_bake_complete() -> void:
 	if _active and _bound_scene_id != 0:
-		_navgrid_done = true
+		_navgrid_done = _navigation_is_ready()
 
 
 func _build_ui() -> void:
@@ -323,6 +402,10 @@ func _build_ui() -> void:
 
 
 func _hide_immediately() -> void:
+	_set_terrain_loading_budget(false)
+	if _active:
+		_mark_load_milestone("hidden")
+		print("[ScenarioLoadingReport] ", JSON.stringify(get_load_timing_stats()))
 	_active = false
 	_fading = false
 	visible = false

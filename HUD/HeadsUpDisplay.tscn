@@ -12,6 +12,7 @@ script = ExtResource("1_prtlp")
 mesh = SubResource("QuadMesh_prtlp")
 
 [node name="SubViewport" type="SubViewport" parent="."]
+disable_3d = true
 render_target_update_mode = 4
 
 [node name="Reticle" type="Control" parent="SubViewport"]

@@ -18,6 +18,8 @@ func _ready() -> void:
 	cycle.set_script(DAY_NIGHT_CYCLE_SCRIPT)
 	cycle.set("dust_deck_grid_cells", 8)
 	add_child(cycle)
+	# This fixture tests authored cycle behavior independently of user preferences.
+	cycle.call("apply_fixed_time_setting", false, 720)
 	_expect(not bool(cycle.get("freeze_daytime")), "normal day/night cycle still starts frozen")
 
 	cycle.set("phase_duration_s", 300.0)

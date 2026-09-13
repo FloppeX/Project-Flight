@@ -5,6 +5,9 @@ const RETIRED_WEAPON_NAME_TOKEN := "missile"
 
 @export var mounted_weapon: PackedScene  # Drag your weapon scenes here
 @export var hardpoint_id: int = 0
+## Reserved internal/forward gun station. Stores such as rockets and bombs are
+## rejected here as a final guard, regardless of which loadout system calls us.
+@export var gun_only: bool = false
 @export var allowed_weapon_scene_paths: PackedStringArray = PackedStringArray()
 @export var allowed_weapon_names: PackedStringArray = PackedStringArray()
 
@@ -26,6 +29,7 @@ func mount_weapon_from_scene(weapon_scene: PackedScene) -> bool:
 	var next_weapon := weapon_scene.instantiate() as Weapon
 	if not next_weapon:
 		push_warning("Hardpoint %s rejected a non-Weapon scene." % name)
+		mounted_weapon = null
 		return false
 	if RETIRED_WEAPON_NAME_TOKEN in _get_candidate_weapon_name(next_weapon).to_lower():
 		push_warning("Hardpoint %s rejected retired missile weapon: %s" % [name, weapon_scene.resource_path])
@@ -35,13 +39,15 @@ func mount_weapon_from_scene(weapon_scene: PackedScene) -> bool:
 
 	if not _is_weapon_allowed(weapon_scene, next_weapon):
 		push_warning("Hardpoint %s rejected weapon scene: %s" % [name, weapon_scene.resource_path])
-		next_weapon.queue_free()
+		next_weapon.free()
+		mounted_weapon = null
 		return false
 
 	if weapon_instance:
 		weapon_instance.queue_free()
 
 	weapon_instance = next_weapon
+	mounted_weapon = weapon_scene
 	add_child(weapon_instance)
 
 	var attachment_point := weapon_instance.get_node_or_null("AttachmentPoint") as Node3D
@@ -61,6 +67,8 @@ func _find_parent_aircraft() -> RigidBody3D:
 	return null
 
 func _is_weapon_allowed(weapon_scene: PackedScene, candidate_weapon: Weapon) -> bool:
+	if gun_only and not _is_gun_weapon(weapon_scene, candidate_weapon):
+		return false
 	if allowed_weapon_scene_paths.size() == 0 and allowed_weapon_names.size() == 0:
 		return true
 
@@ -70,6 +78,28 @@ func _is_weapon_allowed(weapon_scene: PackedScene, candidate_weapon: Weapon) -> 
 
 	var weapon_name := _get_candidate_weapon_name(candidate_weapon)
 	return not weapon_name.is_empty() and allowed_weapon_names.has(weapon_name)
+
+
+func has_gun_mounted() -> bool:
+	if is_instance_valid(weapon_instance):
+		return _is_gun_weapon(mounted_weapon, weapon_instance)
+	if mounted_weapon == null:
+		return false
+	var scene_path := mounted_weapon.resource_path.to_lower()
+	return "/guns/" in scene_path or "/autocannon/" in scene_path
+
+
+func _is_gun_weapon(weapon_scene: PackedScene, candidate_weapon: Weapon) -> bool:
+	if weapon_scene != null:
+		var scene_path := weapon_scene.resource_path.to_lower()
+		if "/guns/" in scene_path or "/autocannon/" in scene_path:
+			return true
+	if candidate_weapon == null:
+		return false
+	if candidate_weapon.weapon_category.to_lower() == "guns":
+		return true
+	var lower_name := _get_candidate_weapon_name(candidate_weapon).to_lower()
+	return "autocannon" in lower_name or "machine gun" in lower_name
 
 func _get_candidate_weapon_name(candidate_weapon: Weapon) -> String:
 	if not candidate_weapon.weapon_name.is_empty() and candidate_weapon.weapon_name != "Generic Weapon":

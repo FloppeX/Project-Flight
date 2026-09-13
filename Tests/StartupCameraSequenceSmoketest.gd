@@ -26,6 +26,31 @@ func _run() -> void:
 	if camera == null or carrier == null:
 		_fail("startup camera or carrier was not created")
 		return
+	for stripped_system in [
+		"DefenseOps",
+		"CarrierDefenseLoadout",
+		"CarrierDamageControl",
+		"CarrierTargetCamera",
+		"ComputerStation",
+		"ComputerStation2",
+		"ComputerStation3",
+		"ComputerStation4",
+		"MonitorStationCommand",
+		"MonitorStationAirOps",
+	]:
+		if carrier.get_node_or_null(stripped_system) != null:
+			_fail("startup carrier retained gameplay-only system %s" % stripped_system)
+			return
+	for node in carrier.find_children("*", "Node", true, false):
+		if node.has_method("get_interaction_score"):
+			_fail("startup carrier retained a renamed interactive screen")
+			return
+	var world_map := get_tree().root.get_node_or_null("WorldMapOverlay")
+	var world_map_root := world_map.get("_root") as Control if world_map != null else null
+	if world_map_root == null or world_map_root.visible \
+			or world_map_root.mouse_behavior_recursive != Control.MOUSE_BEHAVIOR_DISABLED:
+		_fail("hidden tactical overlay could intercept startup-menu input")
+		return
 	if carrier.get("_track_mark_root") == null or carrier.get("_track_mark_multimesh") == null:
 		_fail("startup carrier did not initialize its track-mark pool")
 		return

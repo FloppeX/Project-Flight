@@ -3,24 +3,28 @@ class_name TurretController
 
 const VISUAL_FOCUS_HELPER = preload("res://Effects/VisualFocus.gd")
 const CAMERA_VISIBILITY_LOD = preload("res://Effects/CameraVisibilityLOD.gd")
+const FRIENDLY_GUNNER_SKILL := 0.8
+const ENEMY_GUNNER_SKILL := 0.35
 const PROJECTILE_SPEED_CAP_SETTING_KEYS: Array = [
-    "physics/jolt_3d/simulation/limits/max_linear_velocity",
-    "physics/jolt_physics_3d/simulation/limits/max_linear_velocity",
-    "physics/jolt_3d/limits/max_linear_velocity",
-    "physics/jolt_physics_3d/limits/max_linear_velocity",
-    "physics/3d/max_linear_velocity",
+	"physics/jolt_3d/simulation/limits/max_linear_velocity",
+	"physics/jolt_physics_3d/simulation/limits/max_linear_velocity",
+	"physics/jolt_3d/limits/max_linear_velocity",
+	"physics/jolt_physics_3d/limits/max_linear_velocity",
+	"physics/3d/max_linear_velocity",
 ]
 
 # --- Dependencies ---
 @export var turret: Turret
 @export var weapon_scene: PackedScene
+@export var gun_profile_override: GunProfile
 
 # --- Targeting configuration ---
 @export_group("AI Targeting")
 @export var team: int = 2
 @export var max_range: float = 400.0
 @export var field_of_view: float = 360.0 # degrees
-@export var aim_skill: float = 1.0 # 0.0 to 1.0 (adds noise)
+## -1 uses the common faction default. 0..1 explicitly overrides crew skill.
+@export_range(-1.0, 1.0, 0.01) var aim_skill: float = -1.0
 @export var target_search_interval_s: float = 0.25
 @export var distant_target_search_interval_s: float = 1.0
 @export var detailed_targeting_distance_m: float = 1000.0
@@ -53,6 +57,15 @@ const PROJECTILE_SPEED_CAP_SETTING_KEYS: Array = [
 @export var ground_target_retention_radius_m: float = 500.0
 @export_range(1, 8, 1) var air_target_vehicle_gunner_limit: int = 2
 @export var saturated_air_target_priority_penalty: int = 10
+@export_group("Shared AI Gunnery")
+## One angular-error/reaction model for vehicle, carrier and aircraft turrets.
+@export var gunnery_error_enabled: bool = true
+@export_range(0.0, 5.0, 0.05) var aim_error_skilled_deg: float = 0.35
+@export_range(0.0, 5.0, 0.05) var aim_error_unskilled_deg: float = 2.1
+@export_range(0.0, 3.0, 0.05) var reaction_skilled_s: float = 0.4
+@export_range(0.0, 3.0, 0.05) var reaction_unskilled_s: float = 1.0
+@export_range(0.05, 3.0, 0.05) var correction_skilled_s: float = 0.9
+@export_range(0.05, 3.0, 0.05) var correction_unskilled_s: float = 1.5
 @export_group("Host Aircraft Limits")
 @export var block_targets_below_host_plane: bool = false
 @export var host_plane_fire_margin_m: float = 0.0
@@ -81,6 +94,7 @@ const PROJECTILE_SPEED_CAP_SETTING_KEYS: Array = [
 
 # State
 var current_target: Node3D = null
+var defense_coordinator: Node = null
 var target_search_timer: float = 0.0
 
 enum FireState { IDLE, BURSTING, DELAYING }
@@ -105,6 +119,7 @@ var _ai_darkness_cache_at_ms: int = -100000
 @export var noise_update_interval_s: float = 0.45
 var _noise_offset: Vector3 = Vector3.ZERO
 var _noise_timer: float = 0.0
+var _reaction_remaining_s: float = 0.0
 
 # Target acceleration tracking for second-order lead prediction.
 # Linear-only prediction systematically under-leads accelerating targets.
@@ -132,976 +147,1056 @@ var _tracking_lod_accumulated_delta_s: float = 0.0
 var _tracking_lod_phase: float = 0.0
 
 func _ready() -> void:
-    if not turret:
-        # Try to find a child turret
-        for child in get_children():
-            if child is Turret:
-                turret = child
-                break
+	if not turret:
+		# Try to find a child turret
+		for child in get_children():
+			if child is Turret:
+				turret = child
+				break
 
-    if not turret:
-        push_warning("TurretController: No Turret assigned or found as child!")
-        return
+	if not turret:
+		push_warning("TurretController: No Turret assigned or found as child!")
+		return
 
-    host_actor = _resolve_host_actor()
-    if host_actor and is_instance_valid(host_actor) and host_actor.has_method("get_team"):
-        team = int(host_actor.get_team())
+	host_actor = _resolve_host_actor()
+	if host_actor and is_instance_valid(host_actor) and host_actor.has_method("get_team"):
+		team = int(host_actor.get_team())
 
-    if weapon_scene:
-        mount_weapon(weapon_scene)
+	if weapon_scene:
+		mount_weapon(weapon_scene)
 
-    _refresh_targeting_detail_cache(0.0)
-    _targeting_visibility_timer_s = randf_range(0.0, maxf(targeting_visibility_check_interval_s, 0.01))
-    _tracking_lod_phase = float(get_instance_id() % 983) / 983.0
-    _tracking_lod_timer_s = maxf(offscreen_tracking_update_interval_s, 0.04) * _tracking_lod_phase
+	_refresh_targeting_detail_cache(0.0)
+	_targeting_visibility_timer_s = randf_range(0.0, maxf(targeting_visibility_check_interval_s, 0.01))
+	_tracking_lod_phase = float(get_instance_id() % 983) / 983.0
+	_tracking_lod_timer_s = maxf(offscreen_tracking_update_interval_s, 0.04) * _tracking_lod_phase
 
-    # Stagger recurring scans across instances so turret fields do not all query
-    # targets and LOS on the same physics frame.
-    target_search_timer = randf_range(0.0, maxf(_get_effective_target_search_interval(0.0), 0.05))
-    _line_of_sight_timer = randf_range(0.0, maxf(line_of_sight_check_interval_s, 0.05))
-    _aim_solution_timer = randf_range(0.0, maxf(aim_solution_update_interval_s, 0.02))
+	# Stagger recurring scans across instances so turret fields do not all query
+	# targets and LOS on the same physics frame.
+	target_search_timer = randf_range(0.0, maxf(_get_effective_target_search_interval(0.0), 0.05))
+	_line_of_sight_timer = randf_range(0.0, maxf(line_of_sight_check_interval_s, 0.05))
+	_aim_solution_timer = randf_range(0.0, maxf(aim_solution_update_interval_s, 0.02))
 
 func _exit_tree() -> void:
-    if WorldUnitIndex != null and WorldUnitIndex.has_method("clear_target_engagement"):
-        WorldUnitIndex.clear_target_engagement(self)
+	if WorldUnitIndex != null and WorldUnitIndex.has_method("clear_target_engagement"):
+		WorldUnitIndex.clear_target_engagement(self)
 
 func mount_weapon(scene: PackedScene) -> void:
-    if weapon_instance:
-        weapon_instance.queue_free()
+	if scene == null:
+		return
+	var replacement := scene.instantiate()
+	if not replacement is Weapon:
+		replacement.free()
+		push_warning("TurretController: Failed to instantiate weapon scene.")
+		return
 
-    weapon_instance = scene.instantiate() as Weapon
-    if not weapon_instance:
-        push_warning("TurretController: Failed to instantiate weapon scene.")
-        return
+	if is_instance_valid(weapon_instance):
+		weapon_instance.get_parent().remove_child(weapon_instance)
+		weapon_instance.queue_free()
+	weapon_instance = replacement as Weapon
+	weapon_scene = scene
+	if weapon_instance is BulletWeapon and gun_profile_override != null:
+		weapon_instance.gun_profile = gun_profile_override
 
-    # Mount under the turret so muzzle transforms come from the actual aiming rig.
-    if turret and is_instance_valid(turret):
-        turret.add_child(weapon_instance)
-    else:
-        add_child(weapon_instance)
+	# Mount under the turret so muzzle transforms come from the actual aiming rig.
+	if turret and is_instance_valid(turret):
+		turret.add_child(weapon_instance)
+	else:
+		add_child(weapon_instance)
+
+	if turret and turret.has_method("configure_weapon_barrel"):
+		turret.call("configure_weapon_barrel", weapon_instance)
 
 func _physics_process(delta: float) -> void:
-    if not turret:
-        return
+	if not turret:
+		return
+	if is_instance_valid(host_actor) and host_actor.has_method("get_system_capability"):
+		var capability := float(host_actor.call("get_system_capability", "defenses", self))
+		if capability <= 0.0:
+			stop_firing()
+			fire_state = FireState.IDLE
+			return
+		delta *= capability
 
-    _update_targeting_detail_cache(delta)
+	_update_targeting_detail_cache(delta)
 
-    if current_target and not is_instance_valid(current_target):
-        _set_current_target(null)
-        fire_state = FireState.IDLE
+	if not is_instance_valid(current_target):
+		_set_current_target(null)
+		fire_state = FireState.IDLE
 
-    var tracking_delta: float = _consume_tracking_lod_delta(delta)
-    if tracking_delta <= 0.0:
-        return
-    delta = tracking_delta
+	var tracking_delta: float = _consume_tracking_lod_delta(delta)
+	if tracking_delta <= 0.0:
+		return
+	delta = tracking_delta
 
-    # 1. Target finding
-    target_search_timer += delta
-    if target_search_timer >= maxf(_get_effective_target_search_interval(delta), 0.05):
-        target_search_timer = 0.0
-        find_and_set_best_target()
+	# 1. Target finding
+	target_search_timer += delta
+	if target_search_timer >= maxf(_get_effective_target_search_interval(delta), 0.05):
+		target_search_timer = 0.0
+		find_and_set_best_target()
+	_reaction_remaining_s = maxf(0.0, _reaction_remaining_s - delta)
 
-    # Noise offset: refresh on a timer so the aim point is stable between updates.
-    # Per-frame randomness causes 60 Hz jitter that the turret physically cannot track.
-    _noise_timer -= delta
-    if _noise_timer <= 0.0:
-        _noise_timer = maxf(noise_update_interval_s * lerpf(1.0, night_noise_interval_multiplier, _get_ai_darkness_factor()), 0.05)
-        if current_target and is_instance_valid(current_target):
-            var effective_aim_skill: float = _get_effective_aim_skill(current_target)
-            var spread: float = (1.0 - effective_aim_skill) * 15.0
-            if _is_air_target(current_target):
-                spread += air_target_extra_spread_m
-            if spread > 0.01:
-                _noise_offset = Vector3(
-                    randf_range(-spread, spread),
-                    randf_range(-spread * 0.3, spread * 0.3),
-                    randf_range(-spread, spread)
-                )
-            else:
-                _noise_offset = Vector3.ZERO
-        else:
-            _noise_offset = Vector3.ZERO
+	# Noise offset: refresh on a timer so the aim point is stable between updates.
+	# Per-frame randomness causes 60 Hz jitter that the turret physically cannot track.
+	_noise_timer -= delta
+	if _noise_timer <= 0.0:
+		var correction_interval := noise_update_interval_s
+		if gunnery_error_enabled and is_instance_valid(current_target):
+			correction_interval = maxf(correction_interval, lerpf(correction_unskilled_s, correction_skilled_s, _get_effective_aim_skill(current_target)))
+		_noise_timer = maxf(correction_interval * lerpf(1.0, night_noise_interval_multiplier, _get_ai_darkness_factor()), 0.05)
+		if current_target and is_instance_valid(current_target):
+			var spread := _get_aim_error_spread_m(current_target)
+			if spread > 0.01:
+				_noise_offset = Vector3(
+					randf_range(-spread, spread),
+					randf_range(-spread * 0.3, spread * 0.3),
+					randf_range(-spread, spread)
+				)
+			else:
+				_noise_offset = Vector3.ZERO
+		else:
+			_noise_offset = Vector3.ZERO
 
-    # 2. Target Tracking + Rotation
-    if current_target and is_instance_valid(current_target):
-        turret.set_target(current_target)
+	# 2. Target Tracking + Rotation
+	if current_target and is_instance_valid(current_target):
+		turret.set_target(current_target)
 
-        var target_aim_point: Vector3 = _get_target_aim_point(current_target)
-        var lead_position: Vector3 = _get_cached_lead_position(delta, current_target, target_aim_point)
-        var within_fire_arc: bool = true
-        if turret and is_instance_valid(turret):
-            within_fire_arc = turret.is_point_within_yaw_arc(lead_position)
-            if turret.limit_yaw_arc:
-                lead_position = turret.get_point_clamped_to_yaw_arc(lead_position)
-        turret.aim_at_point(lead_position)
-        turret.tick(delta, lead_position)
+		var target_aim_point: Vector3 = _get_target_aim_point(current_target)
+		var lead_position: Vector3 = _get_cached_lead_position(delta, current_target, target_aim_point)
+		var within_fire_arc: bool = true
+		if turret and is_instance_valid(turret):
+			within_fire_arc = turret.is_point_within_yaw_arc(lead_position)
+			if turret.limit_yaw_arc:
+				lead_position = turret.get_point_clamped_to_yaw_arc(lead_position)
+		turret.aim_at_point(lead_position)
+		turret.tick(delta, lead_position)
 
-        var aim_angle := turret.get_aim_angle_to_target()
-        var aimed := aim_angle >= 0.0 and aim_angle <= _get_effective_fire_angle_tolerance_deg(current_target)
-        var has_line_of_sight: bool = _get_cached_line_of_sight(delta, lead_position, current_target)
-        var above_host_plane: bool = _is_target_above_host_plane(lead_position)
-        var aim_origin: Vector3 = _get_aim_origin()
-        var target_distance_m: float = aim_origin.distance_to(target_aim_point)
-        var effective_range_m: float = _get_effective_range_for_target(current_target)
-        var in_range: bool = target_distance_m <= effective_range_m
-        # 3. Burst firing logic
-        if aimed and has_line_of_sight and above_host_plane and within_fire_arc and in_range:
-            update_burst_firing(delta)
-        elif fire_state == FireState.DELAYING:
-            update_burst_firing(delta)
-        else:
-            if fire_state == FireState.BURSTING:
-                fire_state = FireState.DELAYING
-                delay_timer = 0.0
-            stop_firing()
+		var aim_angle := turret.get_aim_angle_to_target()
+		var aimed := aim_angle >= 0.0 and aim_angle <= _get_effective_fire_angle_tolerance_deg(current_target)
+		var has_line_of_sight: bool = _get_cached_line_of_sight(delta, lead_position, current_target)
+		var above_host_plane: bool = _is_target_above_host_plane(lead_position)
+		var aim_origin: Vector3 = _get_aim_origin()
+		var target_distance_m: float = aim_origin.distance_to(target_aim_point)
+		var effective_range_m: float = _get_effective_range_for_target(current_target)
+		var in_range: bool = target_distance_m <= effective_range_m
+		# 3. Burst firing logic
+		if aimed and has_line_of_sight and above_host_plane and within_fire_arc and in_range and _reaction_remaining_s <= 0.0:
+			update_burst_firing(delta)
+		elif fire_state == FireState.DELAYING:
+			update_burst_firing(delta)
+		else:
+			if fire_state == FireState.BURSTING:
+				fire_state = FireState.DELAYING
+				delay_timer = 0.0
+			stop_firing()
 
-    else:
-        turret.set_target(null)
-        stop_firing()
-        fire_state = FireState.IDLE
-        _reset_target_motion_tracking()
+	else:
+		turret.set_target(null)
+		stop_firing()
+		fire_state = FireState.IDLE
+		_reset_target_motion_tracking()
 
 func _consume_tracking_lod_delta(delta: float) -> float:
-    var safe_delta: float = maxf(delta, 0.0)
-    if not performance_lod_enabled or not multi_rate_tracking_enabled:
-        _reset_tracking_lod_accumulator()
-        _tracking_lod_band = &"near"
-        return safe_delta
+	var safe_delta: float = maxf(delta, 0.0)
+	if not performance_lod_enabled or not multi_rate_tracking_enabled:
+		_reset_tracking_lod_accumulator()
+		_tracking_lod_band = &"near"
+		return safe_delta
 
-    var band: StringName = &"near"
-    if host_actor != null and is_instance_valid(host_actor) \
-            and host_actor.has_meta("ground_simulation_lod_band"):
-        band = StringName(str(host_actor.get_meta("ground_simulation_lod_band", &"near")))
-        if band != &"near" and current_target != null and is_instance_valid(current_target):
-            band = &"offscreen_combat"
-    elif not _cached_targeting_camera_visible:
-        band = &"offscreen_combat" if current_target != null and is_instance_valid(current_target) \
-            else &"offscreen"
+	var band: StringName = &"near"
+	if host_actor != null and is_instance_valid(host_actor) \
+			and host_actor.has_meta("ground_simulation_lod_band"):
+		band = StringName(str(host_actor.get_meta("ground_simulation_lod_band", &"near")))
+		if band != &"near" and current_target != null and is_instance_valid(current_target):
+			band = &"offscreen_combat"
+	elif not _cached_targeting_camera_visible:
+		band = &"offscreen_combat" if current_target != null and is_instance_valid(current_target) \
+			else &"offscreen"
 
-    if band == &"near":
-        _reset_tracking_lod_accumulator()
-        _tracking_lod_band = band
-        return safe_delta
+	if band == &"near":
+		_reset_tracking_lod_accumulator()
+		_tracking_lod_band = band
+		return safe_delta
 
-    var interval_s: float = maxf(
-        offscreen_combat_tracking_update_interval_s if band == &"offscreen_combat" \
-            else offscreen_tracking_update_interval_s,
-        0.03
-    )
-    if band != _tracking_lod_band:
-        _tracking_lod_timer_s = interval_s * _tracking_lod_phase
-        _tracking_lod_accumulated_delta_s = 0.0
-        _tracking_lod_band = band
+	var interval_s: float = maxf(
+		offscreen_combat_tracking_update_interval_s if band == &"offscreen_combat" \
+			else offscreen_tracking_update_interval_s,
+		0.03
+	)
+	if band != _tracking_lod_band:
+		_tracking_lod_timer_s = interval_s * _tracking_lod_phase
+		_tracking_lod_accumulated_delta_s = 0.0
+		_tracking_lod_band = band
 
-    _tracking_lod_accumulated_delta_s += safe_delta
-    _tracking_lod_timer_s -= safe_delta
-    if _tracking_lod_timer_s > 0.0:
-        return 0.0
+	_tracking_lod_accumulated_delta_s += safe_delta
+	_tracking_lod_timer_s -= safe_delta
+	if _tracking_lod_timer_s > 0.0:
+		return 0.0
 
-    var tracking_delta: float = minf(
-        maxf(_tracking_lod_accumulated_delta_s, safe_delta),
-        maxf(tracking_max_catchup_delta_s, interval_s)
-    )
-    _tracking_lod_accumulated_delta_s = maxf(
-        _tracking_lod_accumulated_delta_s - tracking_delta,
-        0.0
-    )
-    _tracking_lod_timer_s = interval_s
-    return tracking_delta
+	var tracking_delta: float = minf(
+		maxf(_tracking_lod_accumulated_delta_s, safe_delta),
+		maxf(tracking_max_catchup_delta_s, interval_s)
+	)
+	_tracking_lod_accumulated_delta_s = maxf(
+		_tracking_lod_accumulated_delta_s - tracking_delta,
+		0.0
+	)
+	_tracking_lod_timer_s = interval_s
+	return tracking_delta
 
 func reset_tracking_lod_schedule() -> void:
-    _tracking_lod_accumulated_delta_s = 0.0
-    _tracking_lod_timer_s = maxf(offscreen_tracking_update_interval_s, 0.04) * _tracking_lod_phase
-    _tracking_lod_band = &"near"
+	_tracking_lod_accumulated_delta_s = 0.0
+	_tracking_lod_timer_s = maxf(offscreen_tracking_update_interval_s, 0.04) * _tracking_lod_phase
+	_tracking_lod_band = &"near"
 
 func get_tracking_lod_band() -> StringName:
-    return _tracking_lod_band
+	return _tracking_lod_band
 
 func _reset_tracking_lod_accumulator() -> void:
-    _tracking_lod_accumulated_delta_s = 0.0
-    _tracking_lod_timer_s = 0.0
+	_tracking_lod_accumulated_delta_s = 0.0
+	_tracking_lod_timer_s = 0.0
 
 func update_burst_firing(delta: float) -> void:
-    match fire_state:
-        FireState.IDLE:
-            start_burst()
-        FireState.BURSTING:
-            burst_timer += delta
-            if burst_timer >= burst_length:
-                stop_firing()
-                fire_state = FireState.DELAYING
-                delay_timer = 0.0
-            else:
-                fire_weapon()
-        FireState.DELAYING:
-            delay_timer += delta
-            if delay_timer >= delay_length:
-                fire_state = FireState.IDLE
+	match fire_state:
+		FireState.IDLE:
+			start_burst()
+		FireState.BURSTING:
+			burst_timer += delta
+			if burst_timer >= burst_length:
+				stop_firing()
+				fire_state = FireState.DELAYING
+				delay_timer = 0.0
+			else:
+				fire_weapon()
+		FireState.DELAYING:
+			delay_timer += delta
+			if delay_timer >= delay_length:
+				fire_state = FireState.IDLE
 
 func start_burst() -> void:
-    fire_state = FireState.BURSTING
-    burst_timer = 0.0
-    fire_weapon()
+	fire_state = FireState.BURSTING
+	burst_timer = 0.0
+	fire_weapon()
 
 func stop_firing() -> void:
-    if weapon_instance and weapon_instance.has_method("stop_firing"):
-        weapon_instance.stop_firing()
+	if weapon_instance and weapon_instance.has_method("stop_firing"):
+		weapon_instance.stop_firing()
 
 func fire_weapon() -> void:
-    if not weapon_instance or not turret:
-        return
-    if weapon_instance.can_fire():
-        turret.fire()
-        weapon_instance.fire()
+	if not weapon_instance or not turret:
+		return
+	if weapon_instance.can_fire():
+		turret.fire()
+		weapon_instance.fire()
 
 # --- Advanced targeting ---
 
 func find_and_set_best_target() -> void:
-    var best_target: Node3D = null
-    var best_priority: int = 999999
-    var best_distance: float = INF
+	if is_instance_valid(defense_coordinator):
+		return # DefenseOps owns assignment; local aiming and firing stay here.
+	var best_target: Node3D = null
+	var best_priority: int = 999999
+	var best_distance: float = INF
 
-    var candidates = _get_hostile_targets_in_range(_get_effective_detection_range_m())
-    var immediate_ground_threat: bool = _has_immediate_ground_threat(candidates)
-    for enemy in candidates:
-        var enemy_node := enemy as Node3D
-        if enemy_node == null or not is_instance_valid(enemy_node):
-            continue
-        var d: float = global_position.distance_to(enemy_node.global_position)
-        if d > _get_effective_range_for_target(enemy_node):
-            continue
-        if not _is_target_above_host_plane(enemy_node.global_position):
-            continue
-        if turret and is_instance_valid(turret) and not turret.is_point_within_yaw_arc(enemy_node.global_position):
-            continue
-        if not _is_within_targeting_fov(enemy_node):
-            continue
-        var priority: int = _get_target_priority(enemy_node, d, immediate_ground_threat)
-        if priority < best_priority or (priority == best_priority and d < best_distance):
-            best_target = enemy_node
-            best_priority = priority
-            best_distance = d
+	var candidates = _get_hostile_targets_in_range(_get_effective_detection_range_m())
+	var immediate_ground_threat: bool = _has_immediate_ground_threat(candidates)
+	for enemy in candidates:
+		var enemy_node := enemy as Node3D
+		if enemy_node == null or not is_instance_valid(enemy_node):
+			continue
+		var d: float = global_position.distance_to(enemy_node.global_position)
+		if d > _get_effective_range_for_target(enemy_node):
+			continue
+		if not _is_target_above_host_plane(enemy_node.global_position):
+			continue
+		if turret and is_instance_valid(turret) and not turret.is_point_within_yaw_arc(enemy_node.global_position):
+			continue
+		if not _is_within_targeting_fov(enemy_node):
+			continue
+		var priority: int = _get_target_priority(enemy_node, d, immediate_ground_threat)
+		if priority < best_priority or (priority == best_priority and d < best_distance):
+			best_target = enemy_node
+			best_priority = priority
+			best_distance = d
 
-    _set_current_target(best_target)
+	_set_current_target(best_target)
+
+func get_defense_candidates() -> Array[Node3D]:
+	if is_instance_valid(host_actor) and host_actor.has_method("get_system_capability"):
+		if float(host_actor.call("get_system_capability", "defenses", self)) <= 0.0:
+			return []
+	var result: Array[Node3D] = []
+	for candidate in _get_hostile_targets_in_range(_get_effective_detection_range_m()):
+		if can_engage_defense_target(candidate):
+			result.append(candidate as Node3D)
+	return result
+
+func can_engage_defense_target(candidate: Variant) -> bool:
+	if not is_instance_valid(candidate) or not candidate is Node3D:
+		return false
+	var target := candidate as Node3D
+	if not target.is_inside_tree() or target.is_queued_for_deletion():
+		return false
+	if ("is_destroyed" in target and bool(target.get("is_destroyed"))) \
+			or ("is_dying" in target and bool(target.get("is_dying"))):
+		return false
+	if target.has_method("get_team"):
+		if int(target.call("get_team")) == _get_effective_team():
+			return false
+	elif not target.is_in_group("enemies"):
+		return false
+	if turret == null or not is_instance_valid(turret):
+		return false
+	return global_position.distance_to(target.global_position) <= _get_effective_range_for_target(target) \
+		and _is_target_above_host_plane(target.global_position) \
+		and turret.is_point_within_yaw_arc(target.global_position) \
+		and _is_within_targeting_fov(target)
+
+func set_defense_assignment(coordinator: Node, candidate: Variant) -> void:
+	defense_coordinator = coordinator
+	_set_current_target(candidate as Node3D if can_engage_defense_target(candidate) else null)
 
 func _set_current_target(next_target: Node3D) -> void:
-    if current_target == null and next_target == null:
-        return
-    if is_instance_valid(current_target) and current_target == next_target:
-        return
-    if WorldUnitIndex != null and WorldUnitIndex.has_method("clear_target_engagement"):
-        WorldUnitIndex.clear_target_engagement(self)
-    current_target = next_target if is_instance_valid(next_target) else null
-    _reset_target_motion_tracking()
-    if turret and is_instance_valid(turret):
-        turret.set_target(current_target)
-    if _uses_vehicle_target_allocation() and current_target != null \
-            and WorldUnitIndex != null \
-            and WorldUnitIndex.has_method("report_target_engagement"):
-        WorldUnitIndex.report_target_engagement(self, current_target)
+	if current_target == null and next_target == null:
+		current_target = null # Normalize a freed reference as well as literal null.
+		return
+	if is_instance_valid(current_target) and current_target == next_target:
+		return
+	if WorldUnitIndex != null and WorldUnitIndex.has_method("clear_target_engagement"):
+		WorldUnitIndex.clear_target_engagement(self)
+	current_target = next_target if is_instance_valid(next_target) else null
+	_reset_target_motion_tracking()
+	_reaction_remaining_s = 0.0
+	if gunnery_error_enabled:
+		# New target, new estimate. Do not carry an accurate old firing solution
+		# (or an already-running burst) straight onto a newly selected victim.
+		_noise_timer = 0.0
+		_noise_offset = Vector3.ZERO
+		stop_firing()
+		fire_state = FireState.IDLE
+		if current_target != null:
+			_reaction_remaining_s = lerpf(reaction_unskilled_s, reaction_skilled_s, _get_effective_aim_skill(current_target))
+	if turret and is_instance_valid(turret):
+		turret.set_target(current_target)
+	if _uses_vehicle_target_allocation() and current_target != null \
+			and WorldUnitIndex != null \
+			and WorldUnitIndex.has_method("report_target_engagement"):
+		WorldUnitIndex.report_target_engagement(self, current_target)
 
 func _has_immediate_ground_threat(candidates: Array) -> bool:
-    if not _uses_vehicle_target_allocation():
-        return false
-    var threat_radius_sq := maxf(immediate_ground_threat_radius_m, 0.0) \
-            * maxf(immediate_ground_threat_radius_m, 0.0)
-    for candidate_variant in candidates:
-        if not is_instance_valid(candidate_variant) or not (candidate_variant is Node3D):
-            continue
-        var candidate := candidate_variant as Node3D
-        if not _is_ground_combat_target(candidate):
-            continue
-        if global_position.distance_squared_to(candidate.global_position) <= threat_radius_sq:
-            return true
-    return false
+	if not _uses_vehicle_target_allocation():
+		return false
+	var threat_radius_sq := maxf(immediate_ground_threat_radius_m, 0.0) \
+			* maxf(immediate_ground_threat_radius_m, 0.0)
+	for candidate_variant in candidates:
+		if not is_instance_valid(candidate_variant) or not (candidate_variant is Node3D):
+			continue
+		var candidate := candidate_variant as Node3D
+		if not _is_ground_combat_target(candidate):
+			continue
+		if global_position.distance_squared_to(candidate.global_position) <= threat_radius_sq:
+			return true
+	return false
 
 func _get_hostile_targets_in_range(range_limit: float) -> Array:
-    var results: Array = []
+	var results: Array = []
 
-    # Determine hostile groups based on our team:
-    #   team 1 (friendly/carrier) shoots at enemies
-    #   team 2 (enemy) shoots at player and friendly aircraft
-    var target_groups: Array
-    var effective_team: int = _get_effective_team()
-    if effective_team == 1:
-        target_groups = ["enemies", "aircraft", "ai_aircraft", "ground_vehicles"]
-    else:
-        target_groups = ["enemies", "aircraft", "friendlies", "ai_aircraft", "carrier", "ground_vehicles"]
+	# Determine hostile groups based on our team:
+	#   team 1 (friendly/carrier) shoots at enemies
+	#   team 2 (enemy) shoots at player and friendly aircraft
+	var target_groups: Array
+	var effective_team: int = _get_effective_team()
+	if effective_team == 1:
+		target_groups = ["enemies", "aircraft", "ai_aircraft", "ground_vehicles"]
+	else:
+		target_groups = ["enemies", "aircraft", "friendlies", "ai_aircraft", "carrier", "ground_vehicles"]
 
-    var candidate_nodes: Array = []
-    if WorldUnitIndex != null and WorldUnitIndex.enabled and WorldUnitIndex.spatial_queries_enabled:
-        candidate_nodes = WorldUnitIndex.query_nodes_in_groups(global_position, range_limit, target_groups)
-    else:
-        for group_name in target_groups:
-            candidate_nodes.append_array(get_tree().get_nodes_in_group(group_name))
+	var candidate_nodes: Array = []
+	if WorldUnitIndex != null and WorldUnitIndex.enabled and WorldUnitIndex.spatial_queries_enabled:
+		candidate_nodes = WorldUnitIndex.query_nodes_in_groups(global_position, range_limit, target_groups)
+	else:
+		for group_name in target_groups:
+			candidate_nodes.append_array(get_tree().get_nodes_in_group(group_name))
 
-    for node in candidate_nodes:
-        if not is_instance_valid(node) or not node is Node3D:
-            continue
-        if node == self or node == get_parent() or node == host_actor:
-            continue
-        if node.has_method("get_team"):
-            var node_team: int = int(node.call("get_team"))
-            if node_team == effective_team:
-                continue
-        if global_position.distance_to((node as Node3D).global_position) <= range_limit:
-            results.append(node)
+	for node in candidate_nodes:
+		if not is_instance_valid(node) or not node is Node3D:
+			continue
+		if node == self or node == get_parent() or node == host_actor:
+			continue
+		if node.has_method("get_team"):
+			var node_team: int = int(node.call("get_team"))
+			if node_team == effective_team:
+				continue
+		if global_position.distance_to((node as Node3D).global_position) <= range_limit:
+			results.append(node)
 
-    # Deduplicate
-    var unique_results = []
-    for node in results:
-        if not unique_results.has(node):
-            unique_results.append(node)
+	# Deduplicate
+	var unique_results = []
+	for node in results:
+		if not unique_results.has(node):
+			unique_results.append(node)
 
-    return unique_results
+	return unique_results
 
 func _get_effective_team() -> int:
-    if host_actor and is_instance_valid(host_actor) and host_actor.has_method("get_team"):
-        return int(host_actor.get_team())
-    return team
+	if host_actor and is_instance_valid(host_actor) and host_actor.has_method("get_team"):
+		return int(host_actor.get_team())
+	return team
 
 func _is_within_targeting_fov(target: Node3D) -> bool:
-    if target == null or not is_instance_valid(target):
-        return false
-    var clamped_fov: float = clampf(field_of_view, 0.0, 360.0)
-    if clamped_fov >= 359.9:
-        return true
-    var forward: Vector3 = global_transform.basis.z.normalized()
-    if forward.length_squared() <= 0.0001:
-        return true
-    var to_target: Vector3 = (target.global_position - global_position).normalized()
-    if to_target.length_squared() <= 0.0001:
-        return true
-    var cos_half_fov: float = cos(deg_to_rad(clamped_fov * 0.5))
-    return forward.dot(to_target) >= cos_half_fov
+	if target == null or not is_instance_valid(target):
+		return false
+	var clamped_fov: float = clampf(field_of_view, 0.0, 360.0)
+	if clamped_fov >= 359.9:
+		return true
+	var forward: Vector3 = global_transform.basis.z.normalized()
+	if forward.length_squared() <= 0.0001:
+		return true
+	var to_target: Vector3 = (target.global_position - global_position).normalized()
+	if to_target.length_squared() <= 0.0001:
+		return true
+	var cos_half_fov: float = cos(deg_to_rad(clamped_fov * 0.5))
+	return forward.dot(to_target) >= cos_half_fov
 
 func _is_target_above_host_plane(world_point: Vector3) -> bool:
-    if not block_targets_below_host_plane:
-        return true
-    if host_actor == null or not is_instance_valid(host_actor):
-        return true
-    var local_point: Vector3 = host_actor.to_local(world_point)
-    return local_point.y >= host_plane_fire_margin_m
+	if not block_targets_below_host_plane:
+		return true
+	if host_actor == null or not is_instance_valid(host_actor):
+		return true
+	var local_point: Vector3 = host_actor.to_local(world_point)
+	return local_point.y >= host_plane_fire_margin_m
 
 func _get_target_priority(
-    target: Node3D,
-    distance_m: float = INF,
-    immediate_ground_threat: bool = false
+	target: Node3D,
+	distance_m: float = INF,
+	immediate_ground_threat: bool = false
 ) -> int:
-    if target == null or not is_instance_valid(target):
-        return 1000
-    if _uses_vehicle_target_allocation():
-        if _is_ground_combat_target(target):
-            if retain_current_ground_target \
-                    and is_instance_valid(current_target) \
-                    and current_target == target \
-                    and distance_m <= maxf(ground_target_retention_radius_m, 0.0):
-                return -20
-            if immediate_ground_threat \
-                    and distance_m <= maxf(immediate_ground_threat_radius_m, 0.0):
-                return -10
-            return 1
-        if _is_air_target(target):
-            var priority := 0
-            if WorldUnitIndex != null \
-                    and WorldUnitIndex.has_method("get_target_engagement_count"):
-                var other_gunners := int(WorldUnitIndex.get_target_engagement_count(target, self))
-                if other_gunners >= maxi(air_target_vehicle_gunner_limit, 1):
-                    priority += maxi(saturated_air_target_priority_penalty, 1)
-            return priority
-    if _is_air_target(target):
-        return 0
-    if target.is_in_group("ground_vehicles"):
-        return 1
-    if target.is_in_group("carrier"):
-        return 2
-    return 3
+	if target == null or not is_instance_valid(target):
+		return 1000
+	if _uses_vehicle_target_allocation():
+		if _is_ground_combat_target(target):
+			if retain_current_ground_target \
+					and is_instance_valid(current_target) \
+					and current_target == target \
+					and distance_m <= maxf(ground_target_retention_radius_m, 0.0):
+				return -20
+			if immediate_ground_threat \
+					and distance_m <= maxf(immediate_ground_threat_radius_m, 0.0):
+				return -10
+			return 1
+		if _is_air_target(target):
+			var priority := 0
+			if WorldUnitIndex != null \
+					and WorldUnitIndex.has_method("get_target_engagement_count"):
+				var other_gunners := int(WorldUnitIndex.get_target_engagement_count(target, self))
+				if other_gunners >= maxi(air_target_vehicle_gunner_limit, 1):
+					priority += maxi(saturated_air_target_priority_penalty, 1)
+			return priority
+	if _is_air_target(target):
+		return 0
+	if target.is_in_group("ground_vehicles"):
+		return 1
+	if target.is_in_group("carrier"):
+		return 2
+	return 3
 
 func _uses_vehicle_target_allocation() -> bool:
-    return vehicle_target_allocation_enabled \
-        and host_actor != null \
-        and is_instance_valid(host_actor) \
-        and host_actor.is_in_group("ground_vehicles")
+	return vehicle_target_allocation_enabled \
+		and host_actor != null \
+		and is_instance_valid(host_actor) \
+		and host_actor.is_in_group("ground_vehicles")
+
+func _get_aim_error_spread_m(target: Node3D) -> float:
+	if not gunnery_error_enabled or not is_instance_valid(target): return 0.0
+	var skill := _get_effective_aim_skill(target)
+	var error_deg := lerpf(aim_error_unskilled_deg, aim_error_skilled_deg, skill)
+	var error_fraction := tan(deg_to_rad(error_deg))
+	# Retain authored anti-air role penalties, but make those scale too. The
+	# legacy metre value is now the additional error at a 500 m reference range.
+	if _is_air_target(target): error_fraction += maxf(air_target_extra_spread_m, 0.0) / 500.0
+	return _get_aim_origin().distance_to(_get_target_aim_point(target)) * error_fraction
 
 func _is_ground_combat_target(target: Node3D) -> bool:
-    return target != null \
-        and is_instance_valid(target) \
-        and target.is_in_group("ground_vehicles") \
-        and not _is_air_target(target)
+	return target != null \
+		and is_instance_valid(target) \
+		and target.is_in_group("ground_vehicles") \
+		and not _is_air_target(target)
 
 func _resolve_host_actor() -> Node3D:
-    var node: Node = self
-    while node:
-        if node != self and node.has_method("get_team") and node is Node3D:
-            return node as Node3D
-        node = node.get_parent()
-    return null
+	var node: Node = self
+	while node:
+		if node != self and node.has_method("get_team") and node is Node3D:
+			return node as Node3D
+		node = node.get_parent()
+	return null
 
 func _reset_target_motion_tracking() -> void:
-    _accel_tracking_active = false
-    _target_acceleration = Vector3.ZERO
-    _prev_target_velocity = Vector3.ZERO
-    _current_target_velocity = Vector3.ZERO
-    _current_target_velocity_valid = false
-    _measured_target_velocity = Vector3.ZERO
-    _last_target_position = Vector3.ZERO
-    _last_target_position_valid = false
-    _line_of_sight_timer = 0.0
-    _cached_has_line_of_sight = false
-    _cached_line_of_sight_target = null
-    _cached_line_of_sight_aim_point = Vector3.ZERO
-    _aim_solution_timer = 0.0
-    _aim_solution_velocity_delta_s = 0.0
-    _cached_lead_position = Vector3.ZERO
-    _cached_lead_position_valid = false
+	_accel_tracking_active = false
+	_target_acceleration = Vector3.ZERO
+	_prev_target_velocity = Vector3.ZERO
+	_current_target_velocity = Vector3.ZERO
+	_current_target_velocity_valid = false
+	_measured_target_velocity = Vector3.ZERO
+	_last_target_position = Vector3.ZERO
+	_last_target_position_valid = false
+	_line_of_sight_timer = 0.0
+	_cached_has_line_of_sight = false
+	_cached_line_of_sight_target = null
+	_cached_line_of_sight_aim_point = Vector3.ZERO
+	_aim_solution_timer = 0.0
+	_aim_solution_velocity_delta_s = 0.0
+	_cached_lead_position = Vector3.ZERO
+	_cached_lead_position_valid = false
 
 func _get_cached_lead_position(delta: float, target: Node3D, target_aim_point: Vector3) -> Vector3:
-    _aim_solution_timer -= delta
-    _aim_solution_velocity_delta_s += delta
-    if _cached_lead_position_valid and _aim_solution_timer > 0.0:
-        return _cached_lead_position
+	_aim_solution_timer -= delta
+	_aim_solution_velocity_delta_s += delta
+	if _cached_lead_position_valid and _aim_solution_timer > 0.0:
+		return _cached_lead_position
 
-    var velocity_delta: float = maxf(_aim_solution_velocity_delta_s, delta)
-    _aim_solution_velocity_delta_s = 0.0
+	var velocity_delta: float = maxf(_aim_solution_velocity_delta_s, delta)
+	_aim_solution_velocity_delta_s = 0.0
 
-    # Estimate actual world-space target velocity from position deltas (with
-    # fallback to reported linear_velocity/velocity). This avoids wrappers
-    # or stale properties causing systematic under-lead.
-    var cur_target_vel: Vector3 = _get_effective_target_velocity(target, velocity_delta)
-    _current_target_velocity = cur_target_vel
-    _current_target_velocity_valid = true
+	# Estimate actual world-space target velocity from position deltas (with
+	# fallback to reported linear_velocity/velocity). This avoids wrappers
+	# or stale properties causing systematic under-lead.
+	var cur_target_vel: Vector3 = _get_effective_target_velocity(target, velocity_delta)
+	_current_target_velocity = cur_target_vel
+	_current_target_velocity_valid = true
 
-    # Update acceleration estimate from velocity changes between aim-solution
-    # samples. The turret still rotates every frame toward the cached solution.
-    if _accel_tracking_active:
-        var raw_accel: Vector3 = (cur_target_vel - _prev_target_velocity) / maxf(velocity_delta, 0.001)
-        _target_acceleration = _target_acceleration.lerp(raw_accel, clampf(4.0 * velocity_delta, 0.0, 1.0))
-    else:
-        _accel_tracking_active = true
-        _target_acceleration = Vector3.ZERO
-    _prev_target_velocity = cur_target_vel
+	# Update acceleration estimate from velocity changes between aim-solution
+	# samples. The turret still rotates every frame toward the cached solution.
+	if _accel_tracking_active:
+		var raw_accel: Vector3 = (cur_target_vel - _prev_target_velocity) / maxf(velocity_delta, 0.001)
+		_target_acceleration = _target_acceleration.lerp(raw_accel, clampf(4.0 * velocity_delta, 0.0, 1.0))
+	else:
+		_accel_tracking_active = true
+		_target_acceleration = Vector3.ZERO
+	_prev_target_velocity = cur_target_vel
 
-    _cached_lead_position = calculate_lead_position(target, target_aim_point)
-    _cached_lead_position_valid = true
-    _aim_solution_timer = _get_effective_aim_solution_update_interval(delta)
-    return _cached_lead_position
+	_cached_lead_position = calculate_lead_position(target, target_aim_point)
+	_cached_lead_position_valid = true
+	_aim_solution_timer = _get_effective_aim_solution_update_interval(delta)
+	return _cached_lead_position
 
 func _get_effective_aim_solution_update_interval(delta: float) -> float:
-    var near_interval: float = maxf(aim_solution_update_interval_s, 0.02)
-    var far_interval: float = maxf(distant_aim_solution_update_interval_s, near_interval)
-    var offscreen_interval: float = maxf(offscreen_aim_solution_update_interval_s, far_interval)
-    var night_multiplier: float = lerpf(1.0, night_aim_solution_interval_multiplier, _get_ai_darkness_factor())
-    if not performance_lod_enabled:
-        return _get_legacy_distance_interval(delta, near_interval, far_interval) * night_multiplier
-    if _cached_detailed_targeting:
-        return near_interval * night_multiplier
-    if not _cached_targeting_camera_visible:
-        return offscreen_interval * night_multiplier
-    return far_interval * night_multiplier
+	var near_interval: float = maxf(aim_solution_update_interval_s, 0.02)
+	var far_interval: float = maxf(distant_aim_solution_update_interval_s, near_interval)
+	var offscreen_interval: float = maxf(offscreen_aim_solution_update_interval_s, far_interval)
+	var night_multiplier: float = lerpf(1.0, night_aim_solution_interval_multiplier, _get_ai_darkness_factor())
+	if not performance_lod_enabled:
+		return _get_legacy_distance_interval(delta, near_interval, far_interval) * night_multiplier
+	if _cached_detailed_targeting:
+		return near_interval * night_multiplier
+	if not _cached_targeting_camera_visible:
+		return offscreen_interval * night_multiplier
+	return far_interval * night_multiplier
 
 func _get_cached_line_of_sight(delta: float, aim_point: Vector3, target: Node3D) -> bool:
-    if not require_line_of_sight_to_fire:
-        return true
-    if target == null or not is_instance_valid(target):
-        _cached_has_line_of_sight = false
-        _cached_line_of_sight_target = null
-        return false
+	if not require_line_of_sight_to_fire:
+		return true
+	if target == null or not is_instance_valid(target):
+		_cached_has_line_of_sight = false
+		_cached_line_of_sight_target = null
+		return false
 
-    _line_of_sight_timer -= delta
-    var aim_point_changed: bool = _cached_line_of_sight_aim_point.distance_squared_to(aim_point) > 36.0
-    var target_changed: bool = _cached_line_of_sight_target != target
-    if _line_of_sight_timer > 0.0 and not target_changed and not aim_point_changed:
-        return _cached_has_line_of_sight
+	_line_of_sight_timer -= delta
+	var aim_point_changed: bool = _cached_line_of_sight_aim_point.distance_squared_to(aim_point) > 36.0
+	var target_changed: bool = _cached_line_of_sight_target != target
+	if _line_of_sight_timer > 0.0 and not target_changed and not aim_point_changed:
+		return _cached_has_line_of_sight
 
-    _cached_has_line_of_sight = _has_line_of_sight_to_aim_point(aim_point, target)
-    _cached_line_of_sight_target = target
-    _cached_line_of_sight_aim_point = aim_point
-    _line_of_sight_timer = _get_effective_line_of_sight_check_interval(delta)
-    if WorldUnitIndex != null and WorldUnitIndex.enabled and WorldUnitIndex.observation_cache_enabled:
-        var observer: Node = host_actor if host_actor != null and is_instance_valid(host_actor) else self
-        WorldUnitIndex.report_observation(observer, target, _cached_has_line_of_sight, _line_of_sight_timer * 1.25)
-    return _cached_has_line_of_sight
+	_cached_has_line_of_sight = _has_line_of_sight_to_aim_point(aim_point, target)
+	_cached_line_of_sight_target = target
+	_cached_line_of_sight_aim_point = aim_point
+	_line_of_sight_timer = _get_effective_line_of_sight_check_interval(delta)
+	if WorldUnitIndex != null and WorldUnitIndex.enabled and WorldUnitIndex.observation_cache_enabled:
+		var observer: Node = host_actor if host_actor != null and is_instance_valid(host_actor) else self
+		WorldUnitIndex.report_observation(observer, target, _cached_has_line_of_sight, _line_of_sight_timer * 1.25)
+	return _cached_has_line_of_sight
 
 func _get_effective_line_of_sight_check_interval(delta: float) -> float:
-    var near_interval: float = maxf(line_of_sight_check_interval_s, 0.02)
-    var far_interval: float = maxf(distant_line_of_sight_check_interval_s, near_interval)
-    var offscreen_interval: float = maxf(offscreen_line_of_sight_check_interval_s, far_interval)
-    var night_multiplier: float = lerpf(1.0, night_line_of_sight_interval_multiplier, _get_ai_darkness_factor())
-    if not performance_lod_enabled:
-        return _get_legacy_distance_interval(delta, near_interval, far_interval) * night_multiplier
-    if _cached_detailed_targeting:
-        return near_interval * night_multiplier
-    if not _cached_targeting_camera_visible:
-        return offscreen_interval * night_multiplier
-    return far_interval * night_multiplier
+	var near_interval: float = maxf(line_of_sight_check_interval_s, 0.02)
+	var far_interval: float = maxf(distant_line_of_sight_check_interval_s, near_interval)
+	var offscreen_interval: float = maxf(offscreen_line_of_sight_check_interval_s, far_interval)
+	var night_multiplier: float = lerpf(1.0, night_line_of_sight_interval_multiplier, _get_ai_darkness_factor())
+	if not performance_lod_enabled:
+		return _get_legacy_distance_interval(delta, near_interval, far_interval) * night_multiplier
+	if _cached_detailed_targeting:
+		return near_interval * night_multiplier
+	if not _cached_targeting_camera_visible:
+		return offscreen_interval * night_multiplier
+	return far_interval * night_multiplier
 
 func _get_effective_target_velocity(target: Node3D, delta: float) -> Vector3:
-    var reported_velocity: Vector3 = _get_node_velocity(target)
-    if not prefer_measured_target_velocity:
-        return reported_velocity
-    if _is_reported_target_velocity_reliable(target, reported_velocity):
-        _measured_target_velocity = reported_velocity
-        _last_target_position = target.global_position
-        _last_target_position_valid = true
-        return reported_velocity
-    return _measure_target_world_velocity(target, delta, reported_velocity)
+	var reported_velocity: Vector3 = _get_node_velocity(target)
+	if not prefer_measured_target_velocity:
+		return reported_velocity
+	if _is_reported_target_velocity_reliable(target, reported_velocity):
+		_measured_target_velocity = reported_velocity
+		_last_target_position = target.global_position
+		_last_target_position_valid = true
+		return reported_velocity
+	return _measure_target_world_velocity(target, delta, reported_velocity)
 
 func _is_reported_target_velocity_reliable(target: Node3D, reported_velocity: Vector3) -> bool:
-    if target == null or not is_instance_valid(target):
-        return false
-    if reported_velocity.length_squared() <= 1.0:
-        return false
-    if not prefer_reported_velocity_for_physics_targets:
-        return false
-    if target is PhysicsBody3D:
-        return true
-    if target.has_method("get_velocity_vector"):
-        return true
-    return false
+	if target == null or not is_instance_valid(target):
+		return false
+	if reported_velocity.length_squared() <= 1.0:
+		return false
+	if not prefer_reported_velocity_for_physics_targets:
+		return false
+	if target is PhysicsBody3D:
+		return true
+	if target.has_method("get_velocity_vector"):
+		return true
+	return false
 
 func _measure_target_world_velocity(target: Node3D, delta: float, fallback_velocity: Vector3) -> Vector3:
-    if not target or not is_instance_valid(target):
-        _last_target_position_valid = false
-        return fallback_velocity
+	if not target or not is_instance_valid(target):
+		_last_target_position_valid = false
+		return fallback_velocity
 
-    var current_pos: Vector3 = target.global_position
-    if (not _last_target_position_valid) or delta <= 0.0:
-        _last_target_position = current_pos
-        _last_target_position_valid = true
-        _measured_target_velocity = fallback_velocity
-        return _measured_target_velocity
+	var current_pos: Vector3 = target.global_position
+	if (not _last_target_position_valid) or delta <= 0.0:
+		_last_target_position = current_pos
+		_last_target_position_valid = true
+		_measured_target_velocity = fallback_velocity
+		return _measured_target_velocity
 
-    var displacement: Vector3 = current_pos - _last_target_position
-    _last_target_position = current_pos
+	var displacement: Vector3 = current_pos - _last_target_position
+	_last_target_position = current_pos
 
-    if displacement.length() > measured_target_velocity_max_step_m:
-        # Likely teleport/origin shift; trust reported velocity this frame.
-        _measured_target_velocity = fallback_velocity
-        return _measured_target_velocity
+	if displacement.length() > measured_target_velocity_max_step_m:
+		# Likely teleport/origin shift; trust reported velocity this frame.
+		_measured_target_velocity = fallback_velocity
+		return _measured_target_velocity
 
-    var raw_velocity: Vector3 = displacement / maxf(delta, 0.001)
-    if raw_velocity.length() > measured_target_velocity_max_speed_mps:
-        _measured_target_velocity = fallback_velocity
-        return _measured_target_velocity
+	var raw_velocity: Vector3 = displacement / maxf(delta, 0.001)
+	if raw_velocity.length() > measured_target_velocity_max_speed_mps:
+		_measured_target_velocity = fallback_velocity
+		return _measured_target_velocity
 
-    var blend: float = clampf(measured_target_velocity_smoothing_hz * delta, 0.0, 1.0)
-    _measured_target_velocity = _measured_target_velocity.lerp(raw_velocity, blend)
-    if fallback_velocity.length_squared() > 0.01:
-        _measured_target_velocity = _measured_target_velocity.lerp(fallback_velocity, minf(blend * 0.35, 0.35))
-    return _measured_target_velocity
+	var blend: float = clampf(measured_target_velocity_smoothing_hz * delta, 0.0, 1.0)
+	_measured_target_velocity = _measured_target_velocity.lerp(raw_velocity, blend)
+	if fallback_velocity.length_squared() > 0.01:
+		_measured_target_velocity = _measured_target_velocity.lerp(fallback_velocity, minf(blend * 0.35, 0.35))
+	return _measured_target_velocity
 
 func _get_last_fired_projectile_from_weapon() -> Node:
-    if not weapon_instance or not is_instance_valid(weapon_instance):
-        return null
-    var projectile_variant: Variant = weapon_instance.get("last_fired_projectile")
-    if typeof(projectile_variant) != TYPE_OBJECT:
-        return null
-    if not (projectile_variant is Node):
-        return null
-    var projectile_node: Node = projectile_variant as Node
-    if projectile_node == null or not is_instance_valid(projectile_node):
-        return null
-    return projectile_node
+	if not weapon_instance or not is_instance_valid(weapon_instance):
+		return null
+	var projectile_variant: Variant = weapon_instance.get("last_fired_projectile")
+	if typeof(projectile_variant) != TYPE_OBJECT:
+		return null
+	if not (projectile_variant is Node):
+		return null
+	var projectile_node: Node = projectile_variant as Node
+	if projectile_node == null or not is_instance_valid(projectile_node):
+		return null
+	return projectile_node
 
 func _get_node_velocity(node: Node) -> Vector3:
-    if not node or not is_instance_valid(node):
-        return Vector3.ZERO
-    var linear = node.get("linear_velocity")
-    if linear is Vector3:
-        return linear
-    var velocity = node.get("velocity")
-    if velocity is Vector3:
-        return velocity
-    if node.has_method("get_linear_velocity"):
-        var getter_velocity = node.call("get_linear_velocity")
-        if getter_velocity is Vector3:
-            return getter_velocity
-    if node.has_method("get_velocity_vector"):
-        var vector_velocity = node.call("get_velocity_vector")
-        if vector_velocity is Vector3:
-            return vector_velocity
-    return Vector3.ZERO
+	if not node or not is_instance_valid(node):
+		return Vector3.ZERO
+	var linear = node.get("linear_velocity")
+	if linear is Vector3:
+		return linear
+	var velocity = node.get("velocity")
+	if velocity is Vector3:
+		return velocity
+	if node.has_method("get_linear_velocity"):
+		var getter_velocity = node.call("get_linear_velocity")
+		if getter_velocity is Vector3:
+			return getter_velocity
+	if node.has_method("get_velocity_vector"):
+		var vector_velocity = node.call("get_velocity_vector")
+		if vector_velocity is Vector3:
+			return vector_velocity
+	return Vector3.ZERO
 
 func _get_node_angular_velocity(node: Node) -> Vector3:
-    if not node or not is_instance_valid(node):
-        return Vector3.ZERO
-    var angular = node.get("angular_velocity")
-    if angular is Vector3:
-        return angular
-    if node.has_method("get_angular_velocity"):
-        var getter_velocity = node.call("get_angular_velocity")
-        if getter_velocity is Vector3:
-            return getter_velocity
-    return Vector3.ZERO
+	if not node or not is_instance_valid(node):
+		return Vector3.ZERO
+	var angular = node.get("angular_velocity")
+	if angular is Vector3:
+		return angular
+	if node.has_method("get_angular_velocity"):
+		var getter_velocity = node.call("get_angular_velocity")
+		if getter_velocity is Vector3:
+			return getter_velocity
+	return Vector3.ZERO
 
 func _get_point_velocity_at_world_position(world_pos: Vector3) -> Vector3:
-    var point_velocity: Vector3 = _get_node_velocity(host_actor)
-    if not host_actor or not is_instance_valid(host_actor):
-        return point_velocity
+	var point_velocity: Vector3 = _get_node_velocity(host_actor)
+	if not host_actor or not is_instance_valid(host_actor):
+		return point_velocity
 
-    var angular_velocity: Vector3 = _get_node_angular_velocity(host_actor)
-    if angular_velocity.length_squared() > 0.000001:
-        var r_offset: Vector3 = world_pos - host_actor.global_position
-        point_velocity += angular_velocity.cross(r_offset)
-    return point_velocity
+	var angular_velocity: Vector3 = _get_node_angular_velocity(host_actor)
+	if angular_velocity.length_squared() > 0.000001:
+		var r_offset: Vector3 = world_pos - host_actor.global_position
+		point_velocity += angular_velocity.cross(r_offset)
+	return point_velocity
 
 func _has_line_of_sight_to_aim_point(aim_point: Vector3, target: Node3D) -> bool:
-    if not require_line_of_sight_to_fire:
-        return true
-    if target == null or not is_instance_valid(target):
-        return false
+	if not require_line_of_sight_to_fire:
+		return true
+	if target == null or not is_instance_valid(target):
+		return false
 
-    var origin: Vector3 = _get_aim_origin()
-    if origin.distance_squared_to(aim_point) <= 0.0001:
-        return true
+	var origin: Vector3 = _get_aim_origin()
+	if origin.distance_squared_to(aim_point) <= 0.0001:
+		return true
 
-    var params: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(origin, aim_point)
-    params.collision_mask = 0xFFFFFFFF
-    params.exclude = _build_los_exclusion_rids()
-    var hit: Dictionary = get_world_3d().direct_space_state.intersect_ray(params)
-    if hit.is_empty():
-        return true
+	var params: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(origin, aim_point)
+	params.collision_mask = 0xFFFFFFFF
+	params.exclude = _build_los_exclusion_rids()
+	var hit: Dictionary = get_world_3d().direct_space_state.intersect_ray(params)
+	if hit.is_empty():
+		return true
 
-    var collider_variant: Variant = hit.get("collider", null)
-    if typeof(collider_variant) != TYPE_OBJECT or not is_instance_valid(collider_variant):
-        return false
-    return _is_target_or_target_child(collider_variant as Object, target)
+	var collider_variant: Variant = hit.get("collider", null)
+	if typeof(collider_variant) != TYPE_OBJECT or not is_instance_valid(collider_variant):
+		return false
+	return _is_target_or_target_child(collider_variant as Object, target)
 
 func _build_los_exclusion_rids() -> Array:
-    var exclude_rids: Array = []
-    var node: Node = self
-    while node != null:
-        if node is CollisionObject3D and is_instance_valid(node):
-            exclude_rids.append((node as CollisionObject3D).get_rid())
-        node = node.get_parent()
-    return exclude_rids
+	var exclude_rids: Array = []
+	var node: Node = self
+	while node != null:
+		if node is CollisionObject3D and is_instance_valid(node):
+			exclude_rids.append((node as CollisionObject3D).get_rid())
+		node = node.get_parent()
+	return exclude_rids
 
 func _is_target_or_target_child(collider_obj: Object, target: Node3D) -> bool:
-    if collider_obj == null or target == null:
-        return false
-    if collider_obj == target:
-        return true
-    if collider_obj is Node:
-        var node: Node = collider_obj as Node
-        while node != null:
-            if node == target:
-                return true
-            node = node.get_parent()
-    return false
+	if collider_obj == null or target == null:
+		return false
+	if collider_obj == target:
+		return true
+	if collider_obj is Node:
+		var node: Node = collider_obj as Node
+		while node != null:
+			if node == target:
+				return true
+			node = node.get_parent()
+	return false
 
 func _get_weapon_projectile_speed() -> float:
-    var nominal_speed_mps: float = 600.0
-    if weapon_instance:
-        var muzzle_speed = weapon_instance.get("muzzle_velocity")
-        if typeof(muzzle_speed) in [TYPE_FLOAT, TYPE_INT]:
-            nominal_speed_mps = maxf(float(muzzle_speed), 50.0)
-        else:
-            var bullet_speed = weapon_instance.get("bullet_speed")
-            if typeof(bullet_speed) in [TYPE_FLOAT, TYPE_INT]:
-                nominal_speed_mps = maxf(float(bullet_speed), 50.0)
-    var speed_cap_mps: float = _get_projectile_linear_speed_cap_mps()
-    if is_finite(speed_cap_mps):
-        return maxf(minf(nominal_speed_mps, speed_cap_mps), 50.0)
-    return nominal_speed_mps
+	var nominal_speed_mps: float = 600.0
+	if weapon_instance:
+		var muzzle_speed = weapon_instance.get("muzzle_velocity")
+		if typeof(muzzle_speed) in [TYPE_FLOAT, TYPE_INT]:
+			nominal_speed_mps = maxf(float(muzzle_speed), 50.0)
+		else:
+			var bullet_speed = weapon_instance.get("bullet_speed")
+			if typeof(bullet_speed) in [TYPE_FLOAT, TYPE_INT]:
+				nominal_speed_mps = maxf(float(bullet_speed), 50.0)
+	var speed_cap_mps: float = _get_projectile_linear_speed_cap_mps()
+	if is_finite(speed_cap_mps):
+		return maxf(minf(nominal_speed_mps, speed_cap_mps), 50.0)
+	return nominal_speed_mps
 
 func _get_weapon_max_range_m() -> float:
-    if not weapon_instance or not is_instance_valid(weapon_instance):
-        return INF
-    var range_variant: Variant = weapon_instance.get("max_range_m")
-    if typeof(range_variant) in [TYPE_FLOAT, TYPE_INT]:
-        return maxf(float(range_variant), 1.0)
-    return INF
+	if not weapon_instance or not is_instance_valid(weapon_instance):
+		return INF
+	var range_variant: Variant = weapon_instance.get("max_range_m")
+	if typeof(range_variant) in [TYPE_FLOAT, TYPE_INT]:
+		return maxf(float(range_variant), 1.0)
+	return INF
 
 func _get_projectile_linear_speed_cap_mps() -> float:
-    if _projectile_speed_cap_cached:
-        return _projectile_speed_cap_mps
-    _projectile_speed_cap_cached = true
-    _projectile_speed_cap_mps = INF
-    for key_variant in PROJECTILE_SPEED_CAP_SETTING_KEYS:
-        var key: String = str(key_variant)
-        if not ProjectSettings.has_setting(key):
-            continue
-        var cap_variant: Variant = ProjectSettings.get_setting(key)
-        if typeof(cap_variant) in [TYPE_FLOAT, TYPE_INT]:
-            var cap_mps: float = float(cap_variant)
-            if cap_mps > 0.0:
-                _projectile_speed_cap_mps = cap_mps
-                break
-    return _projectile_speed_cap_mps
+	if _projectile_speed_cap_cached:
+		return _projectile_speed_cap_mps
+	_projectile_speed_cap_cached = true
+	_projectile_speed_cap_mps = INF
+	for key_variant in PROJECTILE_SPEED_CAP_SETTING_KEYS:
+		var key: String = str(key_variant)
+		if not ProjectSettings.has_setting(key):
+			continue
+		var cap_variant: Variant = ProjectSettings.get_setting(key)
+		if typeof(cap_variant) in [TYPE_FLOAT, TYPE_INT]:
+			var cap_mps: float = float(cap_variant)
+			if cap_mps > 0.0:
+				_projectile_speed_cap_mps = cap_mps
+				break
+	return _projectile_speed_cap_mps
 
 func _get_aim_origin() -> Vector3:
-    if turret:
-        for point in turret.firing_points:
-            if point and is_instance_valid(point):
-                return point.global_position
-        if turret.has_method("get_fallback_firing_origin"):
-            return turret.get_fallback_firing_origin()
-        if turret.barrel_mount and is_instance_valid(turret.barrel_mount):
-            return turret.barrel_mount.global_position
-    return global_position
+	if turret:
+		for point in turret.firing_points:
+			if point and is_instance_valid(point):
+				return point.global_position
+		if turret.has_method("get_fallback_firing_origin"):
+			return turret.get_fallback_firing_origin()
+		if turret.barrel_mount and is_instance_valid(turret.barrel_mount):
+			return turret.barrel_mount.global_position
+	return global_position
 
 func _get_world_gravity_vector() -> Vector3:
-    var gravity_dir: Vector3 = ProjectSettings.get_setting("physics/3d/default_gravity_vector", Vector3(0, -1, 0))
-    var gravity_mag: float = float(ProjectSettings.get_setting("physics/3d/default_gravity", 9.8))
-    return gravity_dir * gravity_mag
+	var gravity_dir: Vector3 = ProjectSettings.get_setting("physics/3d/default_gravity_vector", Vector3(0, -1, 0))
+	var gravity_mag: float = float(ProjectSettings.get_setting("physics/3d/default_gravity", 9.8))
+	return gravity_dir * gravity_mag
 
 func _solve_intercept_time_no_gravity(relative_pos: Vector3, relative_vel: Vector3, projectile_speed: float) -> float:
-    var speed_sq: float = projectile_speed * projectile_speed
-    var a: float = relative_vel.length_squared() - speed_sq
-    var b: float = 2.0 * relative_pos.dot(relative_vel)
-    var c: float = relative_pos.length_squared()
+	var speed_sq: float = projectile_speed * projectile_speed
+	var a: float = relative_vel.length_squared() - speed_sq
+	var b: float = 2.0 * relative_pos.dot(relative_vel)
+	var c: float = relative_pos.length_squared()
 
-    # Degenerate to linear equation when quadratic term is near zero.
-    if absf(a) <= 0.0001:
-        if absf(b) <= 0.0001:
-            return -1.0
-        var linear_t: float = -c / b
-        return linear_t if linear_t > 0.0 else -1.0
+	# Degenerate to linear equation when quadratic term is near zero.
+	if absf(a) <= 0.0001:
+		if absf(b) <= 0.0001:
+			return -1.0
+		var linear_t: float = -c / b
+		return linear_t if linear_t > 0.0 else -1.0
 
-    var discriminant: float = b * b - 4.0 * a * c
-    if discriminant < 0.0:
-        return -1.0
+	var discriminant: float = b * b - 4.0 * a * c
+	if discriminant < 0.0:
+		return -1.0
 
-    var sqrt_discriminant: float = sqrt(discriminant)
-    var inv_2a: float = 0.5 / a
-    var t0: float = (-b - sqrt_discriminant) * inv_2a
-    var t1: float = (-b + sqrt_discriminant) * inv_2a
+	var sqrt_discriminant: float = sqrt(discriminant)
+	var inv_2a: float = 0.5 / a
+	var t0: float = (-b - sqrt_discriminant) * inv_2a
+	var t1: float = (-b + sqrt_discriminant) * inv_2a
 
-    var best_t: float = INF
-    if t0 > 0.0 and t0 < best_t:
-        best_t = t0
-    if t1 > 0.0 and t1 < best_t:
-        best_t = t1
+	var best_t: float = INF
+	if t0 > 0.0 and t0 < best_t:
+		best_t = t0
+	if t1 > 0.0 and t1 < best_t:
+		best_t = t1
 
-    return -1.0 if best_t == INF else best_t
+	return -1.0 if best_t == INF else best_t
 
 func _get_active_camera(delta: float) -> Camera3D:
-    _camera_cache_timer = maxf(_camera_cache_timer - delta, 0.0)
-    if not is_inside_tree():
-        _cached_camera = null
-        _camera_cache_timer = 0.0
-        return null
-    if _cached_camera and is_instance_valid(_cached_camera) \
-            and _cached_camera.is_inside_tree() and _cached_camera.get_world_3d() != null \
-            and _camera_cache_timer > 0.0:
-        return _cached_camera
-    var viewport := get_viewport()
-    _cached_camera = viewport.get_camera_3d() if viewport != null else null
-    if _cached_camera != null and (
-            not is_instance_valid(_cached_camera) \
-            or not _cached_camera.is_inside_tree() \
-            or _cached_camera.get_world_3d() == null):
-        _cached_camera = null
-    _camera_cache_timer = 0.25
-    return _cached_camera
+	_camera_cache_timer = maxf(_camera_cache_timer - delta, 0.0)
+	if not is_inside_tree():
+		_cached_camera = null
+		_camera_cache_timer = 0.0
+		return null
+	if _cached_camera and is_instance_valid(_cached_camera) \
+			and _cached_camera.is_inside_tree() and _cached_camera.get_world_3d() != null \
+			and _camera_cache_timer > 0.0:
+		return _cached_camera
+	var viewport := get_viewport()
+	_cached_camera = viewport.get_camera_3d() if viewport != null else null
+	if _cached_camera != null and (
+			not is_instance_valid(_cached_camera) \
+			or not _cached_camera.is_inside_tree() \
+			or _cached_camera.get_world_3d() == null):
+		_cached_camera = null
+	_camera_cache_timer = 0.25
+	return _cached_camera
 
 func _get_effective_target_search_interval(delta: float) -> float:
-    var near_interval: float = maxf(target_search_interval_s, 0.05)
-    var far_interval: float = maxf(distant_target_search_interval_s, near_interval)
-    var offscreen_interval: float = maxf(offscreen_target_search_interval_s, far_interval)
-    var night_multiplier: float = lerpf(1.0, night_target_search_interval_multiplier, _get_ai_darkness_factor())
-    if not performance_lod_enabled:
-        return _get_legacy_distance_interval(delta, near_interval, far_interval) * night_multiplier
-    if _cached_detailed_targeting:
-        return near_interval * night_multiplier
-    if not _cached_targeting_camera_visible:
-        return offscreen_interval * night_multiplier
-    return far_interval * night_multiplier
+	var near_interval: float = maxf(target_search_interval_s, 0.05)
+	var far_interval: float = maxf(distant_target_search_interval_s, near_interval)
+	var offscreen_interval: float = maxf(offscreen_target_search_interval_s, far_interval)
+	var night_multiplier: float = lerpf(1.0, night_target_search_interval_multiplier, _get_ai_darkness_factor())
+	if not performance_lod_enabled:
+		return _get_legacy_distance_interval(delta, near_interval, far_interval) * night_multiplier
+	if _cached_detailed_targeting:
+		return near_interval * night_multiplier
+	if not _cached_targeting_camera_visible:
+		return offscreen_interval * night_multiplier
+	return far_interval * night_multiplier
 
 func _update_targeting_detail_cache(delta: float) -> void:
-    if not performance_lod_enabled:
-        return
-    _targeting_visibility_timer_s -= delta
-    if _targeting_visibility_timer_s > 0.0:
-        return
-    _refresh_targeting_detail_cache(delta)
-    _targeting_visibility_timer_s = maxf(targeting_visibility_check_interval_s, 0.01)
+	if not performance_lod_enabled:
+		return
+	_targeting_visibility_timer_s -= delta
+	if _targeting_visibility_timer_s > 0.0:
+		return
+	_refresh_targeting_detail_cache(delta)
+	_targeting_visibility_timer_s = maxf(targeting_visibility_check_interval_s, 0.01)
 
 func _refresh_targeting_detail_cache(delta: float) -> void:
-    var focus_node: Node3D = host_actor if host_actor and is_instance_valid(host_actor) else self
-    if not is_inside_tree() or focus_node == null or not is_instance_valid(focus_node) \
-            or not focus_node.is_inside_tree():
-        _cached_camera = null
-        _cached_targeting_camera_visible = false
-        _cached_detailed_targeting = false
-        return
-    if VISUAL_FOCUS_HELPER.is_node_in_target_camera_focus(self, focus_node):
-        _cached_targeting_camera_visible = true
-        _cached_detailed_targeting = true
-        return
-    var camera := _get_active_camera(delta)
-    if camera == null or not is_instance_valid(camera) or not camera.is_inside_tree():
-        _cached_targeting_camera_visible = false
-        _cached_detailed_targeting = false
-        return
-    var focus_world: World3D = focus_node.get_world_3d()
-    var camera_world: World3D = camera.get_world_3d()
-    if focus_world == null or camera_world == null or focus_world != camera_world:
-        _cached_targeting_camera_visible = false
-        _cached_detailed_targeting = false
-        return
-    _cached_targeting_camera_visible = (
-        not detailed_targeting_requires_camera_visibility
-        or CAMERA_VISIBILITY_LOD.is_node_camera_relevant(
-            self,
-            focus_node,
-            camera,
-            targeting_visibility_padding_m
-        )
-    )
-    var within_detail_distance := focus_node.global_position.distance_squared_to(camera.global_position) <= detailed_targeting_distance_m * detailed_targeting_distance_m
-    _cached_detailed_targeting = _cached_targeting_camera_visible and within_detail_distance
+	var focus_node: Node3D = host_actor if host_actor and is_instance_valid(host_actor) else self
+	if not is_inside_tree() or focus_node == null or not is_instance_valid(focus_node) \
+			or not focus_node.is_inside_tree():
+		_cached_camera = null
+		_cached_targeting_camera_visible = false
+		_cached_detailed_targeting = false
+		return
+	if VISUAL_FOCUS_HELPER.is_node_in_target_camera_focus(self, focus_node):
+		_cached_targeting_camera_visible = true
+		_cached_detailed_targeting = true
+		return
+	var camera := _get_active_camera(delta)
+	if camera == null or not is_instance_valid(camera) or not camera.is_inside_tree():
+		_cached_targeting_camera_visible = false
+		_cached_detailed_targeting = false
+		return
+	var focus_world: World3D = focus_node.get_world_3d()
+	var camera_world: World3D = camera.get_world_3d()
+	if focus_world == null or camera_world == null or focus_world != camera_world:
+		_cached_targeting_camera_visible = false
+		_cached_detailed_targeting = false
+		return
+	_cached_targeting_camera_visible = (
+		not detailed_targeting_requires_camera_visibility
+		or CAMERA_VISIBILITY_LOD.is_node_camera_relevant(
+			self,
+			focus_node,
+			camera,
+			targeting_visibility_padding_m
+		)
+	)
+	var within_detail_distance := focus_node.global_position.distance_squared_to(camera.global_position) <= detailed_targeting_distance_m * detailed_targeting_distance_m
+	_cached_detailed_targeting = _cached_targeting_camera_visible and within_detail_distance
 
 func _get_legacy_distance_interval(delta: float, near_interval: float, far_interval: float) -> float:
-    var camera := _get_active_camera(delta)
-    if camera == null or not is_instance_valid(camera) or not camera.is_inside_tree():
-        return far_interval
-    var focus_node: Node3D = host_actor if host_actor and is_instance_valid(host_actor) else self
-    if focus_node == null or not is_instance_valid(focus_node) or not focus_node.is_inside_tree():
-        return far_interval
-    var focus_world: World3D = focus_node.get_world_3d()
-    var camera_world: World3D = camera.get_world_3d()
-    if focus_world == null or camera_world == null or focus_world != camera_world:
-        return far_interval
-    if focus_node.global_position.distance_squared_to(camera.global_position) <= detailed_targeting_distance_m * detailed_targeting_distance_m:
-        return near_interval
-    return far_interval
+	var camera := _get_active_camera(delta)
+	if camera == null or not is_instance_valid(camera) or not camera.is_inside_tree():
+		return far_interval
+	var focus_node: Node3D = host_actor if host_actor and is_instance_valid(host_actor) else self
+	if focus_node == null or not is_instance_valid(focus_node) or not focus_node.is_inside_tree():
+		return far_interval
+	var focus_world: World3D = focus_node.get_world_3d()
+	var camera_world: World3D = camera.get_world_3d()
+	if focus_world == null or camera_world == null or focus_world != camera_world:
+		return far_interval
+	if focus_node.global_position.distance_squared_to(camera.global_position) <= detailed_targeting_distance_m * detailed_targeting_distance_m:
+		return near_interval
+	return far_interval
 
 func _predict_ballistic_aim_point(
-    shooter_pos: Vector3,
-    shooter_vel: Vector3,
-    target_pos: Vector3,
-    target_vel: Vector3,
-    projectile_speed: float,
-    target_accel: Vector3 = Vector3.ZERO
+	shooter_pos: Vector3,
+	shooter_vel: Vector3,
+	target_pos: Vector3,
+	target_vel: Vector3,
+	projectile_speed: float,
+	target_accel: Vector3 = Vector3.ZERO
 ) -> Vector3:
-    var muzzle_speed: float = maxf(projectile_speed, 50.0)
-    var gravity_vec: Vector3 = _get_world_gravity_vector()
-    var relative_pos: Vector3 = target_pos - shooter_pos
-    var relative_vel: Vector3 = target_vel - shooter_vel
+	var muzzle_speed: float = maxf(projectile_speed, 50.0)
+	var gravity_vec: Vector3 = _get_world_gravity_vector()
+	var relative_pos: Vector3 = target_pos - shooter_pos
+	var relative_vel: Vector3 = target_vel - shooter_vel
 
-    var intercept_t: float = _solve_intercept_time_no_gravity(relative_pos, relative_vel, muzzle_speed)
-    if intercept_t <= 0.0:
-        intercept_t = relative_pos.length() / muzzle_speed
-    intercept_t = clampf(intercept_t, 0.05, 6.0)
+	var intercept_t: float = _solve_intercept_time_no_gravity(relative_pos, relative_vel, muzzle_speed)
+	if intercept_t <= 0.0:
+		intercept_t = relative_pos.length() / muzzle_speed
+	intercept_t = clampf(intercept_t, 0.05, 6.0)
 
-    var best_intercept: Vector3 = target_pos + target_vel * intercept_t
-    var best_muzzle_vec: Vector3 = Vector3.ZERO
+	var best_intercept: Vector3 = target_pos + target_vel * intercept_t
+	var best_muzzle_vec: Vector3 = Vector3.ZERO
 
-    # Refine time-of-flight with gravity by matching required muzzle speed.
-    # Include target acceleration for second-order prediction.
-    for _i in range(4):
-        var future_target: Vector3 = target_pos + target_vel * intercept_t + 0.5 * target_accel * intercept_t * intercept_t
-        var required_muzzle_vec: Vector3 = (future_target - shooter_pos - shooter_vel * intercept_t - 0.5 * gravity_vec * intercept_t * intercept_t) / intercept_t
-        var required_speed: float = required_muzzle_vec.length()
-        if required_speed <= 0.0001:
-            break
+	# Refine time-of-flight with gravity by matching required muzzle speed.
+	# Include target acceleration for second-order prediction.
+	for _i in range(4):
+		var future_target: Vector3 = target_pos + target_vel * intercept_t + 0.5 * target_accel * intercept_t * intercept_t
+		var required_muzzle_vec: Vector3 = (future_target - shooter_pos - shooter_vel * intercept_t - 0.5 * gravity_vec * intercept_t * intercept_t) / intercept_t
+		var required_speed: float = required_muzzle_vec.length()
+		if required_speed <= 0.0001:
+			break
 
-        best_intercept = future_target
-        best_muzzle_vec = required_muzzle_vec
+		best_intercept = future_target
+		best_muzzle_vec = required_muzzle_vec
 
-        var speed_error: float = required_speed - muzzle_speed
-        if absf(speed_error) <= 0.5:
-            break
+		var speed_error: float = required_speed - muzzle_speed
+		if absf(speed_error) <= 0.5:
+			break
 
-        intercept_t = clampf(intercept_t * (required_speed / muzzle_speed), 0.05, 6.0)
+		intercept_t = clampf(intercept_t * (required_speed / muzzle_speed), 0.05, 6.0)
 
-    if best_muzzle_vec.length_squared() < 0.001:
-        var fallback_t: float = shooter_pos.distance_to(target_pos) / muzzle_speed
-        return target_pos + target_vel * fallback_t + 0.5 * target_accel * fallback_t * fallback_t
+	if best_muzzle_vec.length_squared() < 0.001:
+		var fallback_t: float = shooter_pos.distance_to(target_pos) / muzzle_speed
+		return target_pos + target_vel * fallback_t + 0.5 * target_accel * fallback_t * fallback_t
 
-    var launch_dir: Vector3 = best_muzzle_vec.normalized()
-    var aim_dist: float = maxf((best_intercept - shooter_pos).length(), 50.0)
-    return shooter_pos + launch_dir * aim_dist
+	var launch_dir: Vector3 = best_muzzle_vec.normalized()
+	var aim_dist: float = maxf((best_intercept - shooter_pos).length(), 50.0)
+	return shooter_pos + launch_dir * aim_dist
 
 func calculate_lead_position(target: Node3D, target_pos: Vector3) -> Vector3:
-    var target_velocity: Vector3 = _get_node_velocity(target)
-    if target == current_target and _current_target_velocity_valid:
-        target_velocity = _current_target_velocity
-    var shooter_pos: Vector3 = _get_aim_origin()
-    var shooter_velocity: Vector3 = _get_point_velocity_at_world_position(shooter_pos)
-    var bullet_speed: float = _get_weapon_projectile_speed()
-    var lead_position: Vector3 = _predict_ballistic_aim_point(
-        shooter_pos,
-        shooter_velocity,
-        target_pos,
-        target_velocity,
-        bullet_speed,
-        _target_acceleration
-    )
+	var target_velocity: Vector3 = _get_node_velocity(target)
+	if target == current_target and _current_target_velocity_valid:
+		target_velocity = _current_target_velocity
+	var shooter_pos: Vector3 = _get_aim_origin()
+	var shooter_velocity: Vector3 = _get_point_velocity_at_world_position(shooter_pos)
+	var bullet_speed: float = _get_weapon_projectile_speed()
+	var lead_position: Vector3 = _predict_ballistic_aim_point(
+		shooter_pos,
+		shooter_velocity,
+		target_pos,
+		target_velocity,
+		bullet_speed,
+		_target_acceleration
+	)
 
-    # Apply pre-computed noise offset (updated on a timer, not per frame).
-    return lead_position + _noise_offset
+	# Apply pre-computed noise offset (updated on a timer, not per frame).
+	return lead_position + _noise_offset
 
 func _get_target_aim_point(target: Node3D) -> Vector3:
-    if not target or not is_instance_valid(target):
-        return global_position
-    var collision_shape: CollisionShape3D = _find_collision_shape(target)
-    if collision_shape and is_instance_valid(collision_shape):
-        # Use world-up for vertical bias. Some target colliders are rotated so their
-        # local Y axis points forward/backward, which can bias aim behind/ahead.
-        return collision_shape.global_position + Vector3.UP * _get_shape_vertical_extent(collision_shape) * 0.35
-    var body_node: Node3D = target.get_node_or_null("Body") as Node3D
-    if body_node and is_instance_valid(body_node):
-        return body_node.global_position + Vector3.UP * target_aim_height_bias_m
-    return target.global_position + Vector3.UP * target_aim_height_bias_m
+	if not target or not is_instance_valid(target):
+		return global_position
+	var collision_shape: CollisionShape3D = _find_collision_shape(target)
+	if collision_shape and is_instance_valid(collision_shape):
+		# Use world-up for vertical bias. Some target colliders are rotated so their
+		# local Y axis points forward/backward, which can bias aim behind/ahead.
+		return collision_shape.global_position + Vector3.UP * _get_shape_vertical_extent(collision_shape) * 0.35
+	var body_node: Node3D = target.get_node_or_null("Body") as Node3D
+	if body_node and is_instance_valid(body_node):
+		return body_node.global_position + Vector3.UP * target_aim_height_bias_m
+	return target.global_position + Vector3.UP * target_aim_height_bias_m
 
 func _find_collision_shape(node: Node) -> CollisionShape3D:
-    if not node or not is_instance_valid(node):
-        return null
-    for child in node.get_children():
-        if child is CollisionShape3D:
-            return child as CollisionShape3D
-    return null
+	if not node or not is_instance_valid(node):
+		return null
+	for child in node.get_children():
+		if child is CollisionShape3D:
+			return child as CollisionShape3D
+	return null
 
 func _get_shape_vertical_extent(collision_shape: CollisionShape3D) -> float:
-    if not collision_shape or not is_instance_valid(collision_shape) or collision_shape.shape == null:
-        return target_aim_height_bias_m
-    var shape: Shape3D = collision_shape.shape
-    if shape is BoxShape3D:
-        return (shape as BoxShape3D).size.y * 0.5
-    if shape is CapsuleShape3D:
-        var capsule := shape as CapsuleShape3D
-        return capsule.height * 0.5 + capsule.radius
-    if shape is SphereShape3D:
-        return (shape as SphereShape3D).radius
-    if shape is CylinderShape3D:
-        return (shape as CylinderShape3D).height * 0.5
-    return target_aim_height_bias_m
+	if not collision_shape or not is_instance_valid(collision_shape) or collision_shape.shape == null:
+		return target_aim_height_bias_m
+	var shape: Shape3D = collision_shape.shape
+	if shape is BoxShape3D:
+		return (shape as BoxShape3D).size.y * 0.5
+	if shape is CapsuleShape3D:
+		var capsule := shape as CapsuleShape3D
+		return capsule.height * 0.5 + capsule.radius
+	if shape is SphereShape3D:
+		return (shape as SphereShape3D).radius
+	if shape is CylinderShape3D:
+		return (shape as CylinderShape3D).height * 0.5
+	return target_aim_height_bias_m
 
 func _is_air_target(target: Node3D) -> bool:
-    return target != null and (target.is_in_group("aircraft") or target.is_in_group("ai_aircraft"))
+	return target != null and (target.is_in_group("aircraft") or target.is_in_group("ai_aircraft"))
 
 func _get_effective_range_for_target(target: Node3D) -> float:
-    var range_multiplier: float = air_target_range_multiplier if _is_air_target(target) else 1.0
-    var ai_range_m: float = maxf(_get_effective_detection_range_m() * range_multiplier, 1.0)
-    var weapon_range_m: float = _get_weapon_max_range_m()
-    if is_finite(weapon_range_m):
-        return minf(ai_range_m, weapon_range_m)
-    return ai_range_m
+	var range_multiplier: float = air_target_range_multiplier if _is_air_target(target) else 1.0
+	var ai_range_m: float = maxf(_get_effective_detection_range_m() * range_multiplier, 1.0)
+	var weapon_range_m: float = _get_weapon_max_range_m()
+	if is_finite(weapon_range_m):
+		return minf(ai_range_m, weapon_range_m)
+	return ai_range_m
 
 func _get_effective_aim_skill(target: Node3D) -> float:
-    var skill_multiplier: float = air_target_aim_skill_multiplier if _is_air_target(target) else 1.0
-    skill_multiplier *= lerpf(1.0, night_aim_skill_multiplier, _get_ai_darkness_factor())
-    return clampf(aim_skill * skill_multiplier, 0.0, 1.0)
+	var skill_multiplier: float = air_target_aim_skill_multiplier if _is_air_target(target) else 1.0
+	skill_multiplier *= lerpf(1.0, night_aim_skill_multiplier, _get_ai_darkness_factor())
+	var crew_skill := aim_skill
+	if crew_skill < 0.0:
+		crew_skill = FRIENDLY_GUNNER_SKILL if _get_effective_team() == 1 else ENEMY_GUNNER_SKILL
+	return clampf(crew_skill * skill_multiplier, 0.0, 1.0)
 
 func _get_effective_fire_angle_tolerance_deg(target: Node3D) -> float:
-    var tolerance_multiplier: float = air_target_fire_angle_tolerance_multiplier if _is_air_target(target) else 1.0
-    return maxf(fire_angle_tolerance_deg * tolerance_multiplier, 0.5)
+	var tolerance_multiplier: float = air_target_fire_angle_tolerance_multiplier if _is_air_target(target) else 1.0
+	return maxf(fire_angle_tolerance_deg * tolerance_multiplier, 0.5)
 
 func _get_ai_darkness_factor() -> float:
-    var now_ms: int = Time.get_ticks_msec()
-    if now_ms - _ai_darkness_cache_at_ms <= 500:
-        return _cached_ai_darkness_factor
-    _ai_darkness_cache_at_ms = now_ms
-    if not is_instance_valid(_cached_day_night_cycle):
-        _cached_day_night_cycle = get_tree().get_first_node_in_group("day_night_cycle")
-    var cycle := _cached_day_night_cycle
-    if cycle != null and cycle.has_method("get_ai_darkness_factor"):
-        _cached_ai_darkness_factor = clampf(float(cycle.call("get_ai_darkness_factor")), 0.0, 1.0)
-    else:
-        _cached_ai_darkness_factor = 0.0
-    return _cached_ai_darkness_factor
+	var now_ms: int = Time.get_ticks_msec()
+	if now_ms - _ai_darkness_cache_at_ms <= 500:
+		return _cached_ai_darkness_factor
+	_ai_darkness_cache_at_ms = now_ms
+	if not is_instance_valid(_cached_day_night_cycle):
+		_cached_day_night_cycle = get_tree().get_first_node_in_group("day_night_cycle")
+	var cycle := _cached_day_night_cycle
+	if cycle != null and cycle.has_method("get_ai_darkness_factor"):
+		_cached_ai_darkness_factor = clampf(float(cycle.call("get_ai_darkness_factor")), 0.0, 1.0)
+	else:
+		_cached_ai_darkness_factor = 0.0
+	return _cached_ai_darkness_factor
 
 func _get_effective_detection_range_m() -> float:
-    return maxf(max_range * lerpf(1.0, night_detection_range_multiplier, _get_ai_darkness_factor()), 1.0)
+	return maxf(max_range * lerpf(1.0, night_detection_range_multiplier, _get_ai_darkness_factor()), 1.0)

@@ -34,6 +34,10 @@ func _run() -> void:
 	if walk_area == null or commander == null or elevator == null:
 		_finish()
 		return
+	# This suite tests the legacy two-deck polygon/railing controller with physics
+	# disabled. The mesh-backed interior controller requires active colliders and
+	# is covered by CarrierStairWalkingSmoketest and carrier_interior/game_smoke.
+	walk_area.set("_interior_walking", null)
 
 	var lower_y := float(walk_area.get("_lower_floor_y"))
 	var upper_y := float(walk_area.get("_upper_floor_y"))
@@ -100,6 +104,10 @@ func _run() -> void:
 		bool(walk_area.call("_is_safely_on_elevator", commander.position)),
 		"Commander could not safely board the scaled elevator footprint"
 	)
+	# A rider near the rear corner must arrive inside the new upper railing,
+	# with room to walk out; the old center-only margin allowed body overlap.
+	commander.position.x = elevator_min.x + 0.21
+	commander.position.z = elevator_min.y + 0.21
 	walk_area.call("_begin_elevator_trip")
 	for unused_step in range(600):
 		if not bool(walk_area.get("_elevator_moving")):
@@ -116,6 +124,10 @@ func _run() -> void:
 		absf(commander.position.y - upper_y) < 0.001,
 		"Commander did not remain on the bridge elevator platform"
 	)
+	var upper_center := Vector3(elevator_center.x, upper_y, elevator_center.y)
+	var clear_arrival: Vector3 = walk_area.call("constrain_commander_position", commander.position, upper_center)
+	_expect(clear_arrival.distance_to(upper_center) < 0.01, "rider arrived stuck inside an upper railing")
+	await _test_railing_access(carrier, walk_area, commander, elevator_center, upper_y)
 
 	walk_area.call("_begin_elevator_trip")
 	for unused_step in range(600):
@@ -136,9 +148,70 @@ func _run() -> void:
 	_finish()
 
 
+func _test_railing_access(
+	carrier: Node3D,
+	walk_area: Node,
+	commander: CharacterBody3D,
+	elevator_center: Vector2,
+	upper_y: float
+) -> void:
+	var railing := carrier.get_node_or_null("AirOpsElevatorRailingCollision") as StaticBody3D
+	_expect(railing != null, "upper landing railing has no physics body")
+	if railing == null:
+		return
+	# The surrounding carrier is frozen by this test. Keep these bodies active
+	# so the physics checks exercise the same colliders as normal gameplay.
+	railing.process_mode = Node.PROCESS_MODE_ALWAYS
+	await physics_frame
+	await physics_frame
+	var center := Vector3(elevator_center.x, upper_y, elevator_center.y)
+	var original_transform := carrier.transform
+	# The walking sweep uses carrier-local positions. Verify the same access after
+	# relocation/rotation, as carriers move and the world periodically rebases.
+	for pose in [original_transform, Transform3D(Basis(Vector3.UP, 0.7), Vector3(180, 20, -250))]:
+		carrier.transform = pose
+		carrier.force_update_transform()
+		for direction in [Vector3.LEFT, Vector3.RIGHT, Vector3.FORWARD]:
+			var outside: Vector3 = center + direction * 1.5
+			var result: Vector3 = walk_area.call("constrain_commander_position", outside, center)
+			_expect(result.distance_to(outside) < 0.01, "could board through closed railing side %s" % direction)
+			result = walk_area.call("constrain_commander_position", center, outside)
+			_expect(result.distance_to(center) < 0.01, "could leave through closed railing side %s" % direction)
+			var far_side: Vector3 = center - direction * 1.5
+			result = walk_area.call("constrain_commander_position", outside, far_side)
+			_expect(result.distance_to(outside) < 0.01, "long movement tunneled through a railing")
+
+		var entrance := center + Vector3.BACK * 1.5
+		var entry: Vector3 = walk_area.call("constrain_commander_position", entrance, center)
+		_expect(entry.distance_to(center) < 0.01, "open side prevented boarding")
+		var exit_position: Vector3 = walk_area.call("constrain_commander_position", center, entrance)
+		_expect(exit_position.distance_to(entrance) < 0.01, "open side prevented leaving")
+		var outside_right := center + Vector3.RIGHT * 1.5
+		var slide: Vector3 = walk_area.call("constrain_commander_position", outside_right, center + Vector3.BACK * 0.1)
+		_expect(is_equal_approx(slide.x, outside_right.x) and slide.z > outside_right.z + 0.09,
+			"diagonal movement did not slide along the railing")
+
+	carrier.transform = original_transform
+	carrier.force_update_transform()
+	await physics_frame
+	await physics_frame
+	var space := carrier.get_world_3d().direct_space_state
+	for direction in [Vector3.LEFT, Vector3.RIGHT, Vector3.FORWARD, Vector3.BACK]:
+		var from_local: Vector3 = center + direction * 1.5 + Vector3.UP * 0.6
+		var to_local := center + Vector3.UP * 0.6
+		var query := PhysicsRayQueryParameters3D.create(carrier.to_global(from_local), carrier.to_global(to_local), 1)
+		query.exclude = [commander.get_rid()]
+		var hit := space.intersect_ray(query)
+		if direction == Vector3.BACK:
+			_expect(hit.is_empty(), "physics collision blocks the authored open side")
+		else:
+			_expect(hit.get("collider") == railing, "railing side %s has no matching physical collider" % direction)
+	commander.position = center
+
+
 func _finish() -> void:
 	if _failures.is_empty():
-		print("[CommanderWalkAreaScaleSmoketest] PASS scaled_spawn=true walk_route=true boarding=true derived_travel=true ascent=true descent=true rider_alignment=true")
+		print("[CommanderWalkAreaScaleSmoketest] PASS scaled_spawn=true walk_route=true boarding=true derived_travel=true ascent=true descent=true rider_alignment=true railing_three_sides=true open_side_access=true swept_collision=true translated_rotated_carrier=true")
 		quit(0)
 		return
 	for failure in _failures:

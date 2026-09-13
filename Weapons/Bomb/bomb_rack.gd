@@ -3,12 +3,17 @@ class_name BombRack
 
 const HELI_TEST_UNLIMITED_AMMO_META := "heli_test_unlimited_ammo"
 const AIRPLANE_TEST_PERSISTENT_TUNING_META := "airplane_test_persistent_bomb_tuning"
+const RELEASE_TRACK_META := "bomb_release_predecessors"
+const RELEASE_PENDING_META := "bomb_release_pending"
 
 @export var bomb_projectile_scene: PackedScene
 @export var drop_force: float = 0.0
 @export var fire_cooldown: float = 0.2
 @export var bomb_mass_kg: float = 50.0
 @export var debug_drop_logging: bool = false
+## Default bomb is about 1.03 m long. Keep a conservative separation between
+## successive stores without disabling their physical collision response.
+@export var release_clearance_m: float = 1.25
 
 var hardpoint: Hardpoint
 var _slots: Array[Node3D] = []
@@ -134,7 +139,45 @@ func get_predicted_initial_velocity(aircraft: RigidBody3D) -> Vector3:
 
 func can_fire() -> bool:
 	var t := Time.get_ticks_msec() / 1000.0
-	return not _slots.is_empty() and (_has_unlimited_test_ammo() or ammo_count > 0) and (t - _last_fire_time) >= fire_cooldown
+	return not _slots.is_empty() and (_has_unlimited_test_ammo() or ammo_count > 0) \
+		and (t - _last_fire_time) >= fire_cooldown and _release_corridor_is_clear()
+
+func _release_corridor_is_clear() -> bool:
+	var aircraft := _get_parent_rigidbody()
+	if aircraft == null:
+		return true
+	if bool(aircraft.get_meta(RELEASE_PENDING_META, false)):
+		return false
+	var slot: Node3D = _slots.back() if not _slots.is_empty() else self
+	if not is_instance_valid(slot):
+		return false
+	var visible_bomb := slot.get_node_or_null("bomb") as Node3D
+	var release_pos: Vector3 = visible_bomb.global_position if visible_bomb else slot.global_position
+	var release_velocity: Vector3 = get_predicted_initial_velocity(aircraft)
+	var predecessors: Array = aircraft.get_meta(RELEASE_TRACK_META, [])
+	for reference in predecessors:
+		var previous: Variant = reference.get_ref() if reference is WeakRef else null
+		if not is_instance_valid(previous) or not previous is RigidBody3D:
+			continue
+		var relative: Vector3 = previous.global_position - release_pos
+		var relative_velocity: Vector3 = previous.linear_velocity - release_velocity
+		var closest_time: float = clampf(-relative.dot(relative_velocity) \
+			/ maxf(relative_velocity.length_squared(), 0.001), 0.0, 0.2)
+		if (relative + relative_velocity * closest_time).length() < maxf(release_clearance_m, 0.0):
+			return false
+	return true
+
+func _register_released_bomb(projectile: RigidBody3D, aircraft: RigidBody3D) -> void:
+	if not is_instance_valid(aircraft):
+		return
+	var predecessors: Array = aircraft.get_meta(RELEASE_TRACK_META, [])
+	var live: Array = []
+	for reference in predecessors:
+		if reference is WeakRef and is_instance_valid(reference.get_ref()):
+			live.append(reference)
+	live.append(weakref(projectile))
+	aircraft.set_meta(RELEASE_TRACK_META, live)
+	aircraft.set_meta(RELEASE_PENDING_META, false)
 
 func fire() -> bool:
 	if not can_fire():
@@ -155,8 +198,13 @@ func fire() -> bool:
 	return true
 
 func _spawn_bomb_next_physics(slot: Node3D, consume_slot: bool = true) -> void:
+	var release_owner := _get_parent_rigidbody()
+	if is_instance_valid(release_owner):
+		release_owner.set_meta(RELEASE_PENDING_META, true)
 	await get_tree().physics_frame
 	if not is_instance_valid(slot):
+		if is_instance_valid(release_owner):
+			release_owner.set_meta(RELEASE_PENDING_META, false)
 		return
 
 	var visible_bomb: Node3D = slot.get_node_or_null("bomb") as Node3D
@@ -181,6 +229,7 @@ func _spawn_bomb_next_physics(slot: Node3D, consume_slot: bool = true) -> void:
 	var aircraft_velocity := aircraft.linear_velocity if aircraft else Vector3.ZERO
 	var initial_velocity := Vector3.DOWN * drop_force + aircraft_velocity
 	proj.fire(initial_velocity, aircraft)
+	_register_released_bomb(proj, aircraft)
 	last_bomb_dropped = proj
 	if _has_pending_debug_metadata:
 		proj.set_meta("debug_aim_target", _pending_debug_aim_target)

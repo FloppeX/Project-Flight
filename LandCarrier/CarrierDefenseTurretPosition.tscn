@@ -1,0 +1,15 @@
+[gd_scene format=3 uid="uid://dcv5ehxbh7wks"]
+
+[ext_resource type="PackedScene" uid="uid://dxg5vk5ah7gb8" path="res://Models/LandCarrier/Land carrier turret base.glb" id="1_m1kj7"]
+[ext_resource type="Script" path="res://LandCarrier/CarrierTurretBuildSite.gd" id="2_site"]
+
+[node name="CarrierDefenseTurretPosition" type="Node3D" unique_id=459268602]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3.269197, 0, 0)
+script = ExtResource("2_site")
+turret_anchor_path = NodePath("TurretPosition")
+
+[node name="TurretBase" parent="." unique_id=629108100 instance=ExtResource("1_m1kj7")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3.0582113, 0, -0.64572144)
+
+[node name="TurretPosition" type="Node3D" parent="." unique_id=1491018565]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3.2450364, 0.31310403, 2.47782)

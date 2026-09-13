@@ -313,10 +313,12 @@ mounted_weapon = ExtResource("33_rocket")
 [node name="Hardpoint2" parent="." unique_id=1264040889 instance=ExtResource("28_ymevh")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.38, 0.39613, 1.57861)
 mounted_weapon = ExtResource("38_10mm")
+gun_only = true
 
 [node name="Hardpoint3" parent="." unique_id=1735158015 instance=ExtResource("28_ymevh")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.38, 0.39613, 1.57861)
 mounted_weapon = ExtResource("38_10mm")
+gun_only = true
 
 [node name="CockpitCanopyVisibility" type="Node" parent="." unique_id=390526592]
 script = ExtResource("35_canopyvis")

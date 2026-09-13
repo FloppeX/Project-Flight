@@ -1,4 +1,4 @@
-[gd_scene load_steps=6 format=3]
+[gd_scene load_steps=5 format=3]
 
 [ext_resource type="Script" path="res://Projectiles/HeavyRound/heavy_round.gd" id="1_heavy_round"]
 [ext_resource type="PackedScene" path="res://Projectiles/Explosion/explosion.tscn" id="2_explosion"]
@@ -12,9 +12,6 @@ albedo_color = Color(1, 0.72, 0.24, 1)
 emission_enabled = true
 emission = Color(1, 0.55, 0.08, 1)
 emission_energy_multiplier = 4.5
-
-[sub_resource type="SphereShape3D" id="SphereShape3D_small_explosive"]
-radius = 0.18
 
 [node name="SmallExplosiveRound" type="RigidBody3D"]
 mass = 0.12
@@ -44,6 +41,3 @@ explosion_audio_enabled = false
 transform = Transform3D(0.18, 0, 0, 0, 0.18, 0, 0, 0, 0.85, 0, 0, 0)
 mesh = SubResource("SphereMesh_small_explosive")
 surface_material_override/0 = SubResource("StandardMaterial3D_small_explosive")
-
-[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
-shape = SubResource("SphereShape3D_small_explosive")

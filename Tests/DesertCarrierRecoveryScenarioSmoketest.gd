@@ -45,8 +45,16 @@ func _run() -> void:
 		"random_delay_after_halfway",
 		"OpsOrderModel.recover()",
 		"desert_recovery_diagnostic_final_attempt: bool = true",
+		"--strict-recovery-handoff",
+		"--desert-aircraft-model=",
+		"_desert_recovery_model_override",
 		"recovery_diagnostic_force_final_handoff",
 		"strict_gate_passed=%s diagnostic_override=%s",
+		"desert_recovery_forced_waveoff_remaining_m: float = -1.0",
+		"--force-waveoff-at-m=",
+		"FORCED_WAVEOFF_TRIGGER",
+		"FORCED_WAVEOFF_CLEAR",
+		"forced_waveoff_clearance_timeout",
 	]:
 		if not mode_source.contains(required_text):
 			_fail("missing dedicated recovery contract: %s" % required_text)
@@ -97,7 +105,13 @@ func _run() -> void:
 			or not runner_source.contains("[int]$ActiveAircraft = 6") \
 			or not runner_source.contains("[int]$TargetTraps = 24") \
 			or not runner_source.contains("--rolling-target-traps=$TargetTraps") \
-			or not runner_source.contains("--test-profile=desert_recovery"):
+			or not runner_source.contains("--test-profile=desert_recovery") \
+			or not runner_source.contains("[switch]$StrictFinalHandoff") \
+			or not runner_source.contains("[double]$ForceWaveoffAtM = 0") \
+			or not runner_source.contains("--strict-recovery-handoff") \
+			or not runner_source.contains("--force-waveoff-at-m=$ForceWaveoffAtM") \
+			or not runner_source.contains("--desert-aircraft-model=$AircraftModel") \
+			or not runner_source.contains("--rolling-finite-cohort"):
 		_fail("focused runner does not expose the six-to-eight active cap")
 		return
 
@@ -112,17 +126,20 @@ func _run() -> void:
 
 	var ai_source := _read_text("res://AI/AIPilot.gd")
 	for diagnostic_token in [
-		"[AIPilot RECOVERY_HANDOFF] diagnostic_override",
+		"\"diagnostic_override\" if diagnostic_force_final else \"press_commit\"",
 		"failed_gate_summary",
 		"normal_gate_passed=false",
 		"_landing_snap(\"DIAGNOSTIC-HANDOFF\"",
+		"else \"PRESS-HANDOFF\"",
+		"continuing through final cone",
 		"[AIPilot FINAL_OUTCOME] aircraft=%s handoff=%s outcome=%s",
+		"func request_landing_wave_off(reason: String = \"external wave-off\") -> bool:",
 	]:
 		if not ai_source.contains(diagnostic_token):
 			_fail("missing noisy final-attempt telemetry: %s" % diagnostic_token)
 			return
 
-	print("[DesertCarrierRecoveryScenarioSmoketest] PASS cap=6 expandable=8 target_traps=24 rolling_refill=full_deficit launch_priority=waiting_recovery models=1,2,5,7,8 outbound=10km recall=random_after_halfway autonomous=launch+outbound+recall+recovery telemetry=gate_failures+7_stages diagnostic_final=true final_capture+wire_gates=unchanged")
+	print("[DesertCarrierRecoveryScenarioSmoketest] PASS cap=6 expandable=8 target_traps=24 rolling_refill=full_deficit launch_priority=waiting_recovery models=1,2,5,7,8 outbound=10km recall=random_after_halfway autonomous=launch+outbound+recall+recovery telemetry=gate_failures+7_stages diagnostic_final=true press_final=true forced_waveoff=measured wire_gates=unchanged")
 	quit(0)
 
 
