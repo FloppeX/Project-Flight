@@ -6,6 +6,9 @@ const FPS := 30
 const MAX_SECONDS := 300.0
 const MAX_QUEUE := 4
 const OUTPUT_SIZE := Vector2i(1920, 1080)
+const AudioWriter = preload("res://Recording/VideoAudioWriter.gd")
+const AUDIO_BUFFER_SECONDS := 2.0
+const AUDIO_QUEUE_SECONDS := 4.0
 var recording := false
 var finalizing := false
 var last_directory := ""
@@ -16,7 +19,12 @@ var _mutex := Mutex.new()
 var _semaphore := Semaphore.new()
 var _queue: Array[Dictionary] = []
 var _worker_error := ""
-var _audio: AudioEffectRecord
+var _audio: AudioEffectCapture
+var _audio_rate := 48000
+var _audio_discard_start := 0
+var _audio_error := ""
+var _queued_images := 0
+var _queued_audio_frames := 0
 var _scene: WeakRef
 var _started_usec := 0
 var _last_index := -1
@@ -86,6 +94,9 @@ func start_capture() -> bool:
 		_notify("Cannot create video output folder.")
 		return false
 	_queue.clear()
+	_queued_images = 0
+	_queued_audio_frames = 0
+	_audio_error = ""
 	_worker_error = ""
 	_started_usec = 0
 	_last_index = -1
@@ -95,11 +106,12 @@ func start_capture() -> bool:
 	_captured = 0
 	last_result = {}
 	_scene = weakref(get_tree().current_scene)
-	_audio = AudioEffectRecord.new()
-	_audio.format = AudioStreamWAV.FORMAT_16_BITS
+	_audio_rate = int(AudioServer.get_mix_rate())
+	_audio = AudioEffectCapture.new()
+	_audio.buffer_length = AUDIO_BUFFER_SECONDS
 	AudioServer.add_bus_effect(0, _audio)
 	_old_title = get_window().title
-	var error := _thread.start(_encode_worker.bind(ffmpeg, last_directory))
+	var error := _thread.start(_encode_worker.bind(ffmpeg, last_directory, _audio_rate))
 	if error != OK:
 		_remove_audio()
 		_notify("Could not start video writer: %s" % error)
@@ -142,7 +154,7 @@ func _after_draw() -> void:
 	var index := 0 if _started_usec == 0 else int((now - _started_usec) * FPS / 1000000)
 	if index <= _last_index: return
 	_mutex.lock()
-	var full := _queue.size() >= MAX_QUEUE
+	var full := _queued_images >= MAX_QUEUE
 	_mutex.unlock()
 	if full:
 		_dropped += 1
@@ -157,15 +169,36 @@ func _after_draw() -> void:
 	_captured += 1
 	if _started_usec == 0:
 		_started_usec = now
-		_audio.set_recording_active(true)
+		# Discard pre-roll only; never clear the ring during a recording.
+		_audio.clear_buffer()
+		_audio_discard_start = _audio.get_discarded_frames()
 	_last_index = index
 	_push({"image": image, "index": index})
 
 func _push(job: Dictionary) -> void:
 	_mutex.lock()
+	if job.has("image"): _queued_images += 1
+	if job.has("audio"): _queued_audio_frames += job.audio.size()
 	_queue.append(job)
 	_mutex.unlock()
 	_semaphore.post()
+
+func _drain_audio() -> void:
+	if _audio == null or _started_usec == 0: return
+	if _audio.get_discarded_frames() > _audio_discard_start:
+		_audio_error = "Audio buffer overrun — capture stopped; source files retained"
+	var count := _audio.get_frames_available()
+	if count == 0: return
+	_mutex.lock()
+	var overloaded := _queued_audio_frames + count > int(_audio_rate * AUDIO_QUEUE_SECONDS)
+	_mutex.unlock()
+	if overloaded:
+		_audio_error = "Audio writer fell behind — capture stopped; source files retained"
+		return
+	# Bus effects run before the Master fader. Apply its output gain to the
+	# recording copy in the worker, without touching live playback or bus routing.
+	var gain := 0.0 if AudioServer.is_bus_mute(0) else db_to_linear(AudioServer.get_bus_volume_db(0))
+	_push({"audio": _audio.get_buffer(count), "gain": gain})
 
 func _remove_audio() -> void:
 	if _audio == null: return
@@ -176,12 +209,15 @@ func stop_capture(reason: String = "") -> void:
 	if not recording: return
 	recording = false
 	finalizing = true
-	_audio.set_recording_active(false)
-	var wav := _audio.get_recording() if _started_usec != 0 else null
 	_remove_audio()
+	# The effect retains its ring after removal; no new mixer writes can race
+	# the final drain. Gain changes are sampled at main-frame granularity.
+	_drain_audio()
+	var discarded := maxi(0, _audio.get_discarded_frames() - _audio_discard_start)
 	_audio = null
 	var duration := (Time.get_ticks_usec() - _started_usec) / 1000000.0 if _started_usec != 0 else 0.0
-	_push({"stop": true, "audio": wav, "frames": maxi(1, ceili(duration * FPS)), "stats": {
+	_push({"stop": true, "audio_error": _audio_error, "frames": maxi(1, ceili(duration * FPS)), "stats": {
+		"audio_discarded_frames": discarded,
 		"seconds": duration, "captured_frames": _captured, "queue_skips": _dropped,
 		"readback_mean_ms": _readback_usec / maxf(_captured, 1) / 1000.0,
 		"readback_max_ms": _readback_max_usec / 1000.0, "stop_reason": reason}})
@@ -197,9 +233,11 @@ func _restore_ui() -> void:
 
 func _process(_delta: float) -> void:
 	if recording:
+		_drain_audio()
 		_mutex.lock()
 		var error := _worker_error
 		_mutex.unlock()
+		if not _audio_error.is_empty(): error = _audio_error
 		if not error.is_empty(): stop_capture(error)
 		elif PauseMenu.visible or PauseMenu.is_photo_mode_active() or RecordingMode.active: stop_capture("Stopped before camera editor / pause menu")
 		elif _scene.get_ref() != get_tree().current_scene: stop_capture("Scenario changed")
@@ -231,10 +269,11 @@ func _input(event: InputEvent) -> void:
 		if toggle_capture() and not was_recording and PauseMenu.visible: PauseMenu._close()
 	get_viewport().set_input_as_handled()
 
-func _encode_worker(ffmpeg: String, directory: String) -> Dictionary:
+func _encode_worker(ffmpeg: String, directory: String, audio_rate: int) -> Dictionary:
 	# The worker touches only private images/files, never the live scene tree.
 	var raw_path := directory.path_join("frames.mjpeg")
 	var raw := FileAccess.open(raw_path, FileAccess.WRITE)
+	var audio := AudioWriter.new(directory, audio_rate)
 	var last_jpeg := PackedByteArray()
 	var written := 0
 	var failure := "" if raw != null else "Cannot write frame stream"
@@ -243,11 +282,16 @@ func _encode_worker(ffmpeg: String, directory: String) -> Dictionary:
 		_semaphore.wait()
 		_mutex.lock()
 		var job: Dictionary = _queue.pop_front()
+		if job.has("image"): _queued_images -= 1
+		if job.has("audio"): _queued_audio_frames -= job.audio.size()
 		_mutex.unlock()
 		if job.has("stop"):
 			stop = job
 			break
-		if failure.is_empty():
+		if failure.is_empty() and job.has("audio"):
+			if not audio.append(job.audio, float(job.gain)):
+				failure = "Game audio write failed (disk full or invalid samples)"
+		elif failure.is_empty():
 			var source: Image = job.image
 			source.convert(Image.FORMAT_RGB8)
 			if source.get_size() != OUTPUT_SIZE:
@@ -278,9 +322,9 @@ func _encode_worker(ffmpeg: String, directory: String) -> Dictionary:
 		if raw.get_error() != OK: failure = "Frame stream write failed (disk full?)"
 		raw.close()
 	var wav_path := directory.path_join("audio.wav")
-	var wav: AudioStreamWAV = stop.get("audio")
-	if wav == null or wav.data.is_empty(): failure = "No game audio stream captured"
-	elif wav.save_to_wav(wav_path) != OK: failure = "Cannot save game audio"
+	var audio_failure := audio.finish(ffmpeg, wav_path)
+	if failure.is_empty(): failure = audio_failure
+	if failure.is_empty(): failure = str(stop.get("audio_error", ""))
 	if written == 0: failure = "No rendered frames captured"
 	var output := directory.path_join("video.mp4")
 	var encoder_output: Array = []
@@ -289,17 +333,20 @@ func _encode_worker(ffmpeg: String, directory: String) -> Dictionary:
 		var exit_code := OS.execute(ffmpeg, args, encoder_output, true, false)
 		if exit_code != 0 or not FileAccess.file_exists(output): failure = "FFmpeg exit %d: %s" % [exit_code, str(encoder_output)]
 	var stats: Dictionary = stop.stats
+	stats.merge(audio.stats())
 	stats["output_frames"] = written
 	stats["repeated_frames"] = maxi(0, written - int(stats.captured_frames))
 	stats["ok"] = failure.is_empty()
 	stats["error"] = failure
 	stats["path"] = output
-	stats["audio_seconds"] = wav.get_length() if wav != null else 0
+	stats["audio_wall_drift_ms"] = (float(stats.audio_seconds) - float(stats.seconds)) * 1000.0
 	var manifest := FileAccess.open(directory.path_join("capture.json"), FileAccess.WRITE)
 	if manifest != null: manifest.store_string(JSON.stringify(stats, "\t"))
 	# Only this recording's generated raw frames, after successful MP4 encoding.
 	# Keep the WAV for editing, and retain everything on failure for recovery.
-	if failure.is_empty(): DirAccess.remove_absolute(raw_path)
+	if failure.is_empty():
+		DirAccess.remove_absolute(raw_path)
+		DirAccess.remove_absolute(audio.path)
 	return stats
 
 func _exit_tree() -> void:

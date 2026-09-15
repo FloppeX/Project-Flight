@@ -78,18 +78,7 @@ const FORMATION_BREAK_STATES: Array = [
 	AIPilot.State.LAUNCHING,
 	AIPilot.State.CLIMBING,
 ]
-const FORMATION_REJOIN_DISTANCE_M: float = 60.0
-const FORMATION_CLOSE_DISTANCE_M: float = 25.0
-const FORMATION_MATCH_SPEED_DISTANCE_M: float = 110.0
-const FORMATION_SOFT_JOIN_START_M: float = 180.0
-const FORMATION_REJOIN_EXTRA_TRAIL_M: float = 80.0
 const FORMATION_FORWARD_HOLD_START_M: float = 8.0
-const FORMATION_FORWARD_HOLD_AHEAD_BUFFER_M: float = 14.0
-const FORMATION_FORWARD_HOLD_MAX_SHIFT_M: float = 120.0
-const FORMATION_FORWARD_HOLD_LATERAL_BLEND: float = 0.35
-const FORMATION_FORWARD_HOLD_VERTICAL_BLEND: float = 0.30
-const FORMATION_REJOIN_LATERAL_FAR_SCALE: float = 0.35
-const FORMATION_REJOIN_VERTICAL_FAR_BLEND: float = 0.45
 const FORMATION_SLOT_FORWARD_CLOSE_M: float = 14.0
 const FORMATION_SLOT_FORWARD_SOFT_M: float = 95.0
 const FORMATION_SLOT_LATERAL_CLOSE_M: float = 10.0
@@ -98,10 +87,8 @@ const FORMATION_SLOT_VERTICAL_CLOSE_M: float = 8.0
 const FORMATION_SLOT_VERTICAL_SOFT_M: float = 35.0
 const FORMATION_WINGMAN_MAX_SPEED_BONUS_MPS: float = 20.0
 const FORMATION_WINGMAN_MAX_SPEED_REDUCTION_MPS: float = 12.0
-const FORMATION_WINGMAN_CLOSE_SPEED_BUFFER_MPS: float = 4.0
-const FORMATION_WINGMAN_HOLD_SPEED_REDUCTION_MPS: float = 6.0
-const FORMATION_LEAD_SLOWDOWN_START_M: float = 90.0
-const FORMATION_LEAD_FULL_WAIT_M: float = 180.0
+const FORMATION_LEAD_SLOWDOWN_START_M: float = 40.0
+const FORMATION_LEAD_FULL_WAIT_M: float = 120.0
 const FORMATION_LEAD_MAX_SLOWDOWN_MPS: float = 24.0
 const FORMATION_LEAD_MIN_SPEED_MPS: float = 62.0
 const CAP_ROUTE_ENTRY_SKIP_DISTANCE_M: float = 140.0
@@ -580,7 +567,7 @@ func _update_formation() -> void:
 	if not _can_pilot_hold_formation(lead_pilot):
 		return
 	_refresh_lead_guidance(lead, lead_pilot)
-	var lead_basis: Basis = lead.global_transform.basis.orthonormalized()
+	var lead_basis := _formation_heading_basis(lead)
 	var lead_speed_mps := _get_aircraft_speed_mps(lead, lead_pilot)
 	var formation_members: Array[Dictionary] = []
 	var formation_slot: int = 1
@@ -588,30 +575,35 @@ func _update_formation() -> void:
 	for wingman in members:
 		if wingman == lead:
 			continue
+		var member_slot := formation_slot
+		formation_slot += 1
 		var pilot := _get_pilot(wingman)
 		if _is_aircraft_unavailable_for_formation(wingman, pilot):
 			continue
 		if not _can_pilot_hold_formation(pilot):
 			continue
-		var form_pos := _formation_position(lead, lead_basis, formation_slot)
-		var guidance_anchor := _formation_guidance_anchor(wingman, lead, lead_basis, formation_slot, form_pos)
+		var form_pos := _formation_position(lead, lead_basis, member_slot)
+		var guidance_anchor := _formation_guidance_anchor(wingman, lead, lead_basis, member_slot, form_pos)
 		var slot_quality := _formation_slot_quality(wingman, lead_basis, form_pos)
 		var ahead_hold_t := _formation_ahead_hold_t(wingman, lead_basis, form_pos)
 		formation_members.append({
 			"aircraft": wingman,
 			"pilot": pilot,
-			"slot": formation_slot,
+			"slot": member_slot,
 			"slot_anchor": form_pos,
 			"anchor": guidance_anchor,
 			"slot_quality": slot_quality,
 			"ahead_hold_t": ahead_hold_t,
 		})
 		max_slot_error_m = maxf(max_slot_error_m, wingman.global_position.distance_to(form_pos))
-		formation_slot += 1
 
 	if formation_members.is_empty():
 		return
 
+	var peer_ids := PackedInt64Array([lead.get_instance_id()])
+	for entry in formation_members:
+		peer_ids.append(entry["aircraft"].get_instance_id())
+	lead_pilot.formation_peer_ids = peer_ids.duplicate()
 	for entry in formation_members:
 		var wingman: Node3D = entry.get("aircraft")
 		var pilot: AIPilot = entry.get("pilot")
@@ -619,11 +611,15 @@ func _update_formation() -> void:
 		var slot_anchor: Vector3 = entry.get("slot_anchor")
 		var slot_quality: float = entry.get("slot_quality", 0.0)
 		var ahead_hold_t: float = entry.get("ahead_hold_t", 0.0)
-		var speed_bias_mps := _formation_wingman_speed_bias(wingman, lead_basis, slot_anchor, slot_quality, ahead_hold_t)
-		var speed_cap_mps := _formation_wingman_speed_cap(wingman, lead_basis, slot_anchor, lead_speed_mps, slot_quality, ahead_hold_t)
+		var desired_speed_mps := _formation_wingman_target_speed(wingman, lead, lead_basis, slot_anchor, lead_speed_mps)
+		var speed_bias_mps := desired_speed_mps - pilot.target_speed
+		var speed_cap_mps := desired_speed_mps
+		pilot.formation_peer_ids = peer_ids.duplicate()
 		pilot.set_formation_anchor(anchor)
 		pilot.set_formation_speed_guidance(speed_cap_mps, speed_bias_mps)
-		pilot.set_formation_handling(slot_quality, ahead_hold_t)
+		var lead_bank_rad := atan2(lead.global_basis.x.y, lead.global_basis.y.y)
+		var lead_vertical_speed_mps: float = lead.linear_velocity.y if "linear_velocity" in lead else 0.0
+		pilot.set_formation_handling(slot_quality, ahead_hold_t, lead_bank_rad, lead_vertical_speed_mps)
 
 	var leader_speed_cap := _formation_lead_speed_cap(lead_pilot, max_slot_error_m)
 	lead_pilot.set_formation_speed_guidance(leader_speed_cap, 0.0)
@@ -639,46 +635,37 @@ func _formation_position(lead: Node3D, lead_basis: Basis, formation_slot: int) -
 	pos.y = lead.global_position.y
 	return pos
 
-func _formation_guidance_anchor(wingman: Node3D, lead: Node3D, lead_basis: Basis, formation_slot: int, slot_anchor: Vector3) -> Vector3:
-	if not wingman or not is_instance_valid(wingman) or not lead or not is_instance_valid(lead):
+func _formation_heading_basis(lead: Node3D) -> Basis:
+	# Roll must not squeeze the horizontal spacing during a turn.
+	var forward := lead.global_basis.z
+	forward.y = 0.0
+	if forward.length_squared() < 0.001:
+		forward = Vector3.BACK
+	forward = forward.normalized()
+	return Basis(Vector3.UP.cross(forward), Vector3.UP, forward)
+
+func _formation_guidance_anchor(wingman: Node3D, lead: Node3D, lead_basis: Basis, _formation_slot: int, slot_anchor: Vector3) -> Vector3:
+	if not is_instance_valid(wingman) or not is_instance_valid(lead):
 		return slot_anchor
-	var error_vec := wingman.global_position - slot_anchor
-	var forward_error_m := error_vec.dot(lead_basis.z)
-	var lateral_error_m := error_vec.dot(lead_basis.x)
-	var slot_error_m := error_vec.length()
-	if forward_error_m > FORMATION_FORWARD_HOLD_START_M:
-		var hold_offset := FORMATION_OFFSETS[min(formation_slot, FORMATION_OFFSETS.size() - 1)]
-		var hold_shift_m := clampf(
-			forward_error_m + FORMATION_FORWARD_HOLD_AHEAD_BUFFER_M,
-			0.0,
-			FORMATION_FORWARD_HOLD_MAX_SHIFT_M
-		)
-		hold_offset.z += hold_shift_m
-		hold_offset.x = lerpf(hold_offset.x, hold_offset.x + lateral_error_m, FORMATION_FORWARD_HOLD_LATERAL_BLEND)
-		var hold_world_offset := lead_basis.x * hold_offset.x \
-							   + lead_basis.y * hold_offset.y \
-							   + lead_basis.z * hold_offset.z
-		var hold_anchor := lead.global_position + hold_world_offset
-		hold_anchor.y = lerpf(wingman.global_position.y, slot_anchor.y, FORMATION_FORWARD_HOLD_VERTICAL_BLEND)
-		return hold_anchor
-	if slot_error_m <= FORMATION_REJOIN_DISTANCE_M:
-		return slot_anchor
-	var soften_t := clampf(
-		(slot_error_m - FORMATION_REJOIN_DISTANCE_M) / maxf(FORMATION_SOFT_JOIN_START_M - FORMATION_REJOIN_DISTANCE_M, 1.0),
-		0.0,
-		1.0
-	)
-	var softened_offset := FORMATION_OFFSETS[min(formation_slot, FORMATION_OFFSETS.size() - 1)]
-	softened_offset.x *= lerpf(1.0, FORMATION_REJOIN_LATERAL_FAR_SCALE, soften_t)
-	if forward_error_m < -10.0:
-		softened_offset.z -= FORMATION_REJOIN_EXTRA_TRAIL_M * soften_t
-	var world_offset := lead_basis.x * softened_offset.x \
-					  + lead_basis.y * softened_offset.y \
-					  + lead_basis.z * softened_offset.z
-	var guidance_anchor := lead.global_position + world_offset
-	var vertical_blend := lerpf(1.0, FORMATION_REJOIN_VERTICAL_FAR_BLEND, soften_t)
-	guidance_anchor.y = lerpf(wingman.global_position.y, slot_anchor.y, vertical_blend)
-	return guidance_anchor
+	# Fly parallel to the moving slot. A waypoint at the slot itself makes a
+	# correctly positioned aircraft turn around as soon as it passes the point.
+	# Fore/aft error belongs to throttle, not to a turn back through the flight.
+	var error_vec := slot_anchor - wingman.global_position
+	var lookahead_m := clampf(_get_aircraft_speed_mps(lead, _get_pilot(lead)) * 2.0, 120.0, 260.0)
+	var lateral_m := clampf(error_vec.dot(lead_basis.x), -lookahead_m * 0.6, lookahead_m * 0.6)
+	var anchor := wingman.global_position + lead_basis.z * lookahead_m + lead_basis.x * lateral_m
+	anchor.y = slot_anchor.y
+	return anchor
+
+func _formation_wingman_target_speed(wingman: Node3D, lead: Node3D, lead_basis: Basis, slot_anchor: Vector3, lead_speed_mps: float) -> float:
+	var forward_error_m := (slot_anchor - wingman.global_position).dot(lead_basis.z)
+	# The outer slot travels faster in a turn; the inner slot travels slower.
+	var turn_speed_mps := 0.0
+	if "angular_velocity" in lead:
+		var slot_velocity: Vector3 = lead.angular_velocity.cross(slot_anchor - lead.global_position)
+		turn_speed_mps = slot_velocity.dot(lead_basis.z)
+	var correction_mps := clampf(forward_error_m * 0.12, -FORMATION_WINGMAN_MAX_SPEED_REDUCTION_MPS, FORMATION_WINGMAN_MAX_SPEED_BONUS_MPS)
+	return maxf(lead_speed_mps + turn_speed_mps + correction_mps, FORMATION_LEAD_MIN_SPEED_MPS)
 
 func _formation_slot_quality(wingman: Node3D, lead_basis: Basis, slot_anchor: Vector3) -> float:
 	if not wingman or not is_instance_valid(wingman):
@@ -717,50 +704,8 @@ func _get_aircraft_speed_mps(aircraft: Node3D, pilot: AIPilot) -> float:
 		return maxf(pilot.target_speed, FORMATION_LEAD_MIN_SPEED_MPS)
 	return FORMATION_LEAD_MIN_SPEED_MPS
 
-func _formation_wingman_speed_bias(wingman: Node3D, lead_basis: Basis, slot_anchor: Vector3, slot_quality: float = 0.0, ahead_hold_t: float = 0.0) -> float:
-	if not wingman or not is_instance_valid(wingman):
-		return 0.0
-	var error_vec := wingman.global_position - slot_anchor
-	var slot_error_m := error_vec.length()
-	var forward_error_m := error_vec.dot(lead_basis.z)
-	var speed_bias_mps: float = 0.0
-	if forward_error_m < -10.0:
-		speed_bias_mps += clampf((-forward_error_m - 10.0) * 0.20, 0.0, FORMATION_WINGMAN_MAX_SPEED_BONUS_MPS)
-	elif forward_error_m > FORMATION_FORWARD_HOLD_START_M:
-		speed_bias_mps -= lerpf(
-			clampf((forward_error_m - FORMATION_FORWARD_HOLD_START_M) * 0.16, 0.0, FORMATION_WINGMAN_MAX_SPEED_REDUCTION_MPS),
-			clampf((forward_error_m - FORMATION_FORWARD_HOLD_START_M) * 0.24, 0.0, FORMATION_WINGMAN_MAX_SPEED_REDUCTION_MPS),
-			ahead_hold_t
-		)
-	if slot_error_m > FORMATION_REJOIN_DISTANCE_M and forward_error_m < FORMATION_FORWARD_HOLD_START_M:
-		speed_bias_mps += clampf((slot_error_m - FORMATION_REJOIN_DISTANCE_M) * 0.06, 0.0, 6.0)
-	speed_bias_mps -= lerpf(0.0, 3.0, slot_quality)
-	return clampf(speed_bias_mps, -FORMATION_WINGMAN_MAX_SPEED_REDUCTION_MPS, FORMATION_WINGMAN_MAX_SPEED_BONUS_MPS)
-
-func _formation_wingman_speed_cap(wingman: Node3D, lead_basis: Basis, anchor: Vector3, lead_speed_mps: float, slot_quality: float = 0.0, ahead_hold_t: float = 0.0) -> float:
-	if not wingman or not is_instance_valid(wingman):
-		return -1.0
-	var error_vec := wingman.global_position - anchor
-	var slot_error_m := error_vec.length()
-	var forward_error_m := error_vec.dot(lead_basis.z)
-	if slot_error_m > FORMATION_MATCH_SPEED_DISTANCE_M and forward_error_m < -20.0:
-		return -1.0
-	var speed_cap_mps := lead_speed_mps + FORMATION_WINGMAN_CLOSE_SPEED_BUFFER_MPS
-	speed_cap_mps = minf(
-		speed_cap_mps,
-		lerpf(lead_speed_mps + 1.5, lead_speed_mps - FORMATION_WINGMAN_HOLD_SPEED_REDUCTION_MPS, slot_quality)
-	)
-	if forward_error_m > 10.0:
-		var ahead_cap_mps := lead_speed_mps - lerpf(
-			clampf(forward_error_m * 0.12, 1.0, FORMATION_WINGMAN_HOLD_SPEED_REDUCTION_MPS),
-			clampf(forward_error_m * 0.20, 2.0, FORMATION_WINGMAN_HOLD_SPEED_REDUCTION_MPS + 4.0),
-			ahead_hold_t
-		)
-		speed_cap_mps = minf(speed_cap_mps, ahead_cap_mps)
-	return maxf(speed_cap_mps, FORMATION_LEAD_MIN_SPEED_MPS)
-
 func _formation_lead_speed_cap(lead_pilot: AIPilot, max_slot_error_m: float) -> float:
-	if not lead_pilot or max_slot_error_m <= FORMATION_LEAD_SLOWDOWN_START_M:
+	if not lead_pilot:
 		return -1.0
 	var wait_t := clampf(
 		(max_slot_error_m - FORMATION_LEAD_SLOWDOWN_START_M) / maxf(FORMATION_LEAD_FULL_WAIT_M - FORMATION_LEAD_SLOWDOWN_START_M, 1.0),
@@ -768,7 +713,9 @@ func _formation_lead_speed_cap(lead_pilot: AIPilot, max_slot_error_m: float) -> 
 		1.0
 	)
 	var nominal_speed_mps := maxf(lead_pilot.target_speed, 80.0)
-	return maxf(nominal_speed_mps - FORMATION_LEAD_MAX_SLOWDOWN_MPS * wait_t, FORMATION_LEAD_MIN_SPEED_MPS)
+	# Reserve cruise headroom so identical aircraft can catch up and fly the
+	# longer outer arc without requiring more than their available full power.
+	return maxf(nominal_speed_mps * 0.9 - FORMATION_LEAD_MAX_SLOWDOWN_MPS * wait_t, FORMATION_LEAD_MIN_SPEED_MPS)
 
 func _say_cas_assignment(aircraft: Node3D, target: Node3D) -> void:
 	var members := get_members()

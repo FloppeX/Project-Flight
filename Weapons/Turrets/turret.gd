@@ -25,7 +25,7 @@ signal fired()
 @export var yaw_mount: Node3D # Optional Y-axis rotation pivot. Defaults to this turret node.
 @export var barrel_mount: Node3D # The X-axis pitch part (child of base)
 @export var firing_points: Array[Node3D] = [] # Where projectiles spawn
-@export var enable_barrel_recoil: bool = false
+@export var enable_barrel_recoil: bool = true
 @export_group("Rig Axes")
 @export var auto_detect_barrel_axes: bool = false
 ## Gameplay barrel mounts use +Z forward, +Y up, and +X as the pitch hinge.
@@ -49,6 +49,7 @@ var _barrel_rest_quaternion: Quaternion = Quaternion.IDENTITY
 var _barrel_forward_axis_local: Vector3 = Vector3.BACK
 var _barrel_pitch_axis_local: Vector3 = Vector3.RIGHT
 var _barrel_current_pitch: float = 0.0
+var _barrel_recoil: Node
 
 func _ready() -> void:
 	_turret_rest_rotation = rotation
@@ -263,11 +264,29 @@ func _build_forward_transform(origin: Vector3, forward: Vector3) -> Transform3D:
 
 func fire() -> void:
 	emit_signal("fired")
-	if enable_barrel_recoil and barrel_mount:
-		var tween := create_tween()
-		var original_z := barrel_mount.position.z
-		tween.tween_property(barrel_mount, "position:z", original_z + 0.1, 0.05)
-		tween.tween_property(barrel_mount, "position:z", original_z, 0.1)
+
+func reset_barrel_recoil() -> void:
+	if is_instance_valid(_barrel_recoil):
+		_barrel_recoil.reset()
+		_barrel_recoil.free()
+	_barrel_recoil = null
+
+func kick_barrel_recoil(caliber_mm: int, shot_interval_s: float) -> void:
+	if not enable_barrel_recoil or not is_instance_valid(barrel_mount):
+		return
+	if _barrel_recoil == null:
+		var visuals: Array[Node3D] = []
+		for child in barrel_mount.get_children():
+			if child is Node3D and (child is MeshInstance3D or not child.find_children("*", "MeshInstance3D", true, false).is_empty()):
+				visuals.append(child)
+		for point in firing_points:
+			if is_instance_valid(point) and point.get_parent() == barrel_mount:
+				visuals.append(point)
+		_barrel_recoil = preload("res://Weapons/Guns/BarrelRecoil.gd").new()
+		_barrel_recoil.name = "BarrelRecoil"
+		add_child(_barrel_recoil)
+		_barrel_recoil.configure(barrel_mount, visuals)
+	_barrel_recoil.kick(caliber_mm, shot_interval_s)
 
 func _has_target_position() -> bool:
 	return is_aiming_at_point or (current_target and is_instance_valid(current_target))

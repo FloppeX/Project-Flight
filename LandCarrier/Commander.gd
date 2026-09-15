@@ -133,6 +133,8 @@ func _ready() -> void:
 				_on_officer_animation_finished.bind(officer_index)
 			)
 	_activate_officer(0)
+	if GameSession.is_trailer_scenario:
+		hold_coffee_cup()
 
 	_anchor_local_position = position
 	_cache_bridge_bounds()
@@ -340,6 +342,15 @@ func _set_officer_moving(moving: bool) -> void:
 func _start_officer_sip() -> void:
 	if _officer_moving:
 		return
+	hold_coffee_cup()
+	var player := _coffee_visual.get_node("AnimationPlayer") as AnimationPlayer
+	if player.current_animation != &"Coffee_Sip" or not player.is_playing():
+		_coffee_visual.call("play_sip")
+
+
+func hold_coffee_cup() -> void:
+	# Prepare the existing coffee rig without starting a sip. This also works
+	# before a paused trailer's first frame, so the cup is already in her hand.
 	if _coffee_visual == null:
 		_coffee_visual = load("res://Models/Characters/OfficerFemaleCoffee.tscn").instantiate()
 		_coffee_visual.name = "BodyVisualCoffee"
@@ -350,9 +361,7 @@ func _start_officer_sip() -> void:
 			livery.call("apply", _coffee_visual)
 	if _active_officer_visual() != _coffee_visual:
 		_activate_officer(_officer_visuals.find(_coffee_visual))
-	var player := _coffee_visual.get_node("AnimationPlayer") as AnimationPlayer
-	if player.current_animation != &"Coffee_Sip" or not player.is_playing():
-		_coffee_visual.call("play_sip")
+		(_coffee_visual.get_node("AnimationPlayer") as AnimationPlayer).advance(0.0)
 
 
 func _visual_animation_player(visual: Node3D) -> AnimationPlayer:

@@ -112,8 +112,6 @@ func _run() -> void:
 			expected_palette["main_color"] as Color
 		) or not _find_pilot_material_color(passenger_visual, "main color dark").is_equal_approx(
 			expected_palette["main_color_dark"] as Color
-		) or not _find_pilot_material_color(passenger_visual, "helmet color").is_equal_approx(
-			expected_palette["helmet_color_1"] as Color
 		) or not _find_pilot_material_color(passenger_visual, "helmet color 2").is_equal_approx(
 			expected_palette["helmet_color_2"] as Color
 		):

@@ -35,7 +35,7 @@ const PilotAppearance := preload("res://Aircraft/PilotAppearance.gd")
 @export var seat_lifetime_s: float = 45.0
 @export_group("Parachute")
 @export var parachute_scene: PackedScene = preload("res://Aircraft/Visuals/Parachute.tscn")
-## Freefall time after seat separation before the canopy opens.
+## Minimum time after separation; the pilot must also have started descending.
 @export var parachute_deploy_delay_s: float = 1.0
 @export var parachute_local_offset: Vector3 = Vector3.ZERO
 @export var parachute_local_rotation_deg: Vector3 = Vector3.ZERO
@@ -49,9 +49,13 @@ const PilotAppearance := preload("res://Aircraft/PilotAppearance.gd")
 @export var align_parachute_harness_to_pilot: bool = true
 @export var parachute_descent_speed_mps: float = 6.0
 @export var parachute_rope_length_m: float = 6.0
+## Legacy linear spring tuning; retained for authored scene compatibility.
 @export var parachute_vertical_spring_n_per_mps: float = 120.0
 @export var parachute_horizontal_drag_n_per_mps: float = 20.0
-@export var parachute_angular_damp: float = 1.5
+@export var parachute_angular_damp: float = 0.35
+@export var parachute_inflation_time_s: float = 0.8
+@export var parachute_canopy_lateral_drag_n_per_mps: float = 12.0
+@export var parachute_max_drag_g: float = 4.0
 @export_group("Parachute Wind")
 @export var wind_velocity: Vector3 = Vector3(4.0, 0.5, 0.0)   ## Persistent world-space wind (x/z = horizontal drift, y = lift)
 @export var wind_gust_speed_mps: float = 3.0                   ## Extra speed added by gusts on top of base wind
@@ -87,6 +91,8 @@ var _seat_burn_active: bool = false
 var _seat_separated: bool = false
 var _parachute_deploy_scheduled: bool = false
 var _parachute_deployed: bool = false
+var _parachute_wait_elapsed_s: float = 0.0
+var _parachute_inflation_elapsed_s: float = 0.0
 var _parachute_force_offset_local: Vector3 = Vector3.ZERO
 var _pilot_landed: bool = false
 var _pilot_focus_node: Node3D = null
@@ -165,12 +171,17 @@ func _physics_process(delta: float) -> void:
 		_parachute_deployed = false
 		set_physics_process(false)
 		return
-	if not _seat_burn_active and not _parachute_deployed:
+	if not _seat_burn_active and not _parachute_deployed and not _parachute_deploy_scheduled:
 		set_physics_process(false)
 		return
 	if _seat_burn_active:
 		_update_seat_rocket_burn(delta)
+	if _parachute_deploy_scheduled and not _parachute_deployed:
+		_parachute_wait_elapsed_s += delta
+		_deploy_parachute()
+		_check_parachute_landing(delta)
 	if _parachute_deployed:
+		_parachute_inflation_elapsed_s += delta
 		_wind_time += delta * wind_gust_time_scale
 		_update_parachute_descent(delta)
 
@@ -415,28 +426,30 @@ func _schedule_parachute_deploy() -> void:
 	if _parachute_deploy_scheduled or _parachute_deployed:
 		return
 	_parachute_deploy_scheduled = true
-	var delay := maxf(parachute_deploy_delay_s, 0.0)
-	if delay <= 0.0:
-		_deploy_parachute()
-		return
-	var timer := get_tree().create_timer(delay)
-	timer.timeout.connect(_deploy_parachute)
+	_parachute_wait_elapsed_s = 0.0
+	set_physics_process(true)
+
 
 
 func _deploy_parachute() -> void:
-	if _parachute_deployed:
+	if _parachute_deployed or _pilot_landed:
 		return
 	if _pilot_body == null or not is_instance_valid(_pilot_body):
 		return
 	if not _seat_separated:
 		_separate_seat_from_pilot()
 		return
+	if _parachute_wait_elapsed_s < maxf(parachute_deploy_delay_s, 0.0) or _pilot_body.linear_velocity.y >= -0.1:
+		return
 	if parachute_scene == null:
 		return
 	var pilot := _get_ejected_pilot()
 	_stabilize_pilot_body_orientation(1.0)
 	_pilot_body.angular_velocity = Vector3.ZERO
-	_pilot_body.angular_damp = maxf(parachute_angular_damp, _pilot_body.angular_damp)
+	_pilot_body.angular_damp = maxf(parachute_angular_damp, 0.0)
+	_pilot_body.linear_damp = 0.0
+	_pilot_body.linear_damp_mode = RigidBody3D.DAMP_MODE_REPLACE
+	_pilot_body.angular_damp_mode = RigidBody3D.DAMP_MODE_REPLACE
 
 	var parachute := parachute_scene.instantiate() as Node3D
 	if parachute == null:
@@ -450,13 +463,15 @@ func _deploy_parachute() -> void:
 	)).scaled(parachute_local_scale)
 	parachute.transform = _get_parachute_transform(parachute, basis)
 	_set_pilot_hanging_transform(pilot, parachute)
-	_rebase_pilot_body_to_parachute_origin(parachute)
+	_rebase_pilot_body_to_mass_origin(parachute)
 	_configure_parachute_mass_properties(parachute)
 	# Seat separation already starts the parachute body animation. Keep it running
 	# continuously when the canopy opens instead of visibly restarting the loop.
 	_ensure_pilot_parachute_animation(pilot)
 	_set_head_camera_mount_transform(parachute)
 	_parachute_deployed = true
+	_parachute_deploy_scheduled = false
+	_parachute_inflation_elapsed_s = 0.0
 	set_physics_process(true)
 
 
@@ -519,32 +534,24 @@ func _separate_seat_from_pilot() -> void:
 
 func _update_parachute_descent(delta: float) -> void:
 	var vel := _pilot_body.linear_velocity
-	var mass := _pilot_body.mass
-
-	# The rigid-body origin is at the canopy top while its center of mass is down at
-	# the pilot. Applying canopy force at the origin therefore creates pendulum torque.
-	var canopy_offset := _pilot_body.global_transform.basis * _parachute_force_offset_local
-
-	# Vertical: gravity compensation + spring toward terminal descent speed.
-	# At terminal velocity the spring term is zero and lift exactly cancels gravity.
-	var target_vy := -absf(parachute_descent_speed_mps)
-	var lift := mass * 9.8 + (target_vy - vel.y) * parachute_vertical_spring_n_per_mps
-	lift = maxf(lift, 0.0)  # canopy pulls up only
-
-	# Horizontal: drag opposes velocity relative to the air mass (wind).
-	# Pilot is pushed toward wind speed; force at canopy point still creates pendulum torque.
+	var canopy_offset := _pilot_body.global_basis * _parachute_force_offset_local
+	var canopy_velocity := vel + _pilot_body.angular_velocity.cross(canopy_offset)
 	var wind := _get_wind_velocity()
-	var rel_x := vel.x - wind.x
-	var rel_z := vel.z - wind.z
-	lift += maxf(wind.y, 0.0) * mass  # upward wind adds lift; downdrafts don't pull through the canopy
-	var force := Vector3(
-		-rel_x * parachute_horizontal_drag_n_per_mps,
-		lift,
-		-rel_z * parachute_horizontal_drag_n_per_mps,
-	)
-	_apply_canopy_force(force, canopy_offset)
+	# Wind acts on the pilot's mass, rather than treating the canopy as a balloon.
+	_pilot_body.apply_central_force((wind - vel) * parachute_horizontal_drag_n_per_mps)
+	# Passive drag at the actual canopy: it can only oppose downward motion.
+	# Point velocity includes swinging, so this force cannot pump energy into it.
+	var fall_speed := maxf(-canopy_velocity.y, 0.0)
+	var terminal_speed := maxf(absf(parachute_descent_speed_mps), 1.0)
+	var gravity := float(ProjectSettings.get_setting("physics/3d/default_gravity", 9.8)) * _pilot_body.gravity_scale
+	var inflation := clampf(_parachute_inflation_elapsed_s / maxf(parachute_inflation_time_s, 0.01), 0.0, 1.0)
+	var lift := _pilot_body.mass * gravity * minf(pow(fall_speed / terminal_speed, 2.0), maxf(parachute_max_drag_g, 1.0)) * inflation
+	# Lateral canopy resistance lets wind displace the body beneath its support.
+	var canopy_drag := Vector3(-canopy_velocity.x, 0.0, -canopy_velocity.z) * maxf(parachute_canopy_lateral_drag_n_per_mps, 0.0) * inflation
+	_apply_canopy_force(canopy_drag + Vector3.UP * lift, canopy_offset)
 	_apply_gust_impulse(delta)
 	_check_parachute_landing(delta)
+
 
 
 func _check_parachute_landing(delta: float) -> void:
@@ -581,8 +588,7 @@ func _apply_gust_impulse(delta: float) -> void:
 	var angle := randf() * TAU
 	var direction := Vector3(cos(angle), 0.0, sin(angle))
 	var strength := randf_range(wind_gust_impulse_n * 0.5, wind_gust_impulse_n)
-	var canopy_offset := _pilot_body.global_transform.basis * _parachute_force_offset_local
-	_apply_canopy_impulse(direction * strength, canopy_offset)
+	_pilot_body.apply_central_impulse(direction * strength)
 
 
 func _apply_canopy_force(force: Vector3, canopy_offset_world: Vector3) -> void:
@@ -590,13 +596,6 @@ func _apply_canopy_force(force: Vector3, canopy_offset_world: Vector3) -> void:
 	var mass_offset_world := _pilot_body.global_transform.basis * _pilot_body.center_of_mass
 	var lever_arm := canopy_offset_world - mass_offset_world
 	_pilot_body.apply_torque(lever_arm.cross(force))
-
-
-func _apply_canopy_impulse(impulse: Vector3, canopy_offset_world: Vector3) -> void:
-	_pilot_body.apply_central_impulse(impulse)
-	var mass_offset_world := _pilot_body.global_transform.basis * _pilot_body.center_of_mass
-	var lever_arm := canopy_offset_world - mass_offset_world
-	_pilot_body.apply_torque_impulse(lever_arm.cross(impulse))
 
 
 func _get_wind_velocity() -> Vector3:
@@ -676,16 +675,11 @@ func _get_parachute_transform(parachute: Node3D, basis: Basis) -> Transform3D:
 	return Transform3D(basis, origin)
 
 
-func _rebase_pilot_body_to_parachute_origin(parachute: Node3D) -> void:
+func _rebase_pilot_body_to_mass_origin(parachute: Node3D) -> void:
 	if _pilot_body == null or not is_instance_valid(_pilot_body):
 		return
-	var physics_origin := parachute.find_child(
-		str(parachute_physics_origin_node_name), true, false
-	) as Node3D
-	var origin_global := _pilot_body.global_position \
-		+ _pilot_body.global_transform.basis.y * maxf(parachute_rope_length_m, 0.1)
-	if physics_origin != null:
-		origin_global = physics_origin.global_position
+	var mass_marker := parachute.find_child(str(parachute_pilot_mass_node_name), true, false) as Node3D
+	var origin_global := mass_marker.global_position if mass_marker != null else _get_pilot_ground_reference_position() + Vector3.UP * 0.9
 
 	# Moving the body origin must not move any of its visuals, pilot, or camera.
 	var saved_children: Array[Dictionary] = []
@@ -702,29 +696,20 @@ func _rebase_pilot_body_to_parachute_origin(parachute: Node3D) -> void:
 			var saved_transform: Transform3D = saved["global_transform"]
 			child.global_transform = saved_transform
 
-	# Canopy forces are applied at the new body origin. Keep this as a local offset
-	# so force calls continue to work if a fallback marker is used later.
-	_parachute_force_offset_local = _pilot_body.to_local(origin_global)
+	var canopy_marker := parachute.find_child(str(parachute_physics_origin_node_name), true, false) as Node3D
+	_parachute_force_offset_local = _pilot_body.to_local(canopy_marker.global_position) if canopy_marker != null else Vector3.UP * maxf(parachute_rope_length_m, 0.1)
+
 
 
 func _configure_parachute_mass_properties(parachute: Node3D) -> void:
 	if _pilot_body == null or not is_instance_valid(_pilot_body):
 		return
-	var pilot_mass := parachute.find_child(
-		str(parachute_pilot_mass_node_name), true, false
-	) as Node3D
-	var mass_global := _pilot_body.global_position \
-		- _pilot_body.global_transform.basis.y * maxf(parachute_rope_length_m, 0.1)
-	if pilot_mass != null:
-		mass_global = pilot_mass.global_position
-	var mass_local := _pilot_body.to_local(mass_global)
-	if mass_local.length_squared() < 0.01:
-		mass_local = Vector3.DOWN * maxf(parachute_rope_length_m, 0.1)
 	_pilot_body.center_of_mass_mode = RigidBody3D.CENTER_OF_MASS_MODE_CUSTOM
-	_pilot_body.center_of_mass = mass_local
-	var suspension_length := maxf(mass_local.length(), 0.1)
-	var pendulum_inertia := _pilot_body.mass * suspension_length * suspension_length
-	_pilot_body.inertia = Vector3.ONE * pendulum_inertia
+	_pilot_body.center_of_mass = Vector3.ZERO
+	# Effective suspended-system inertia keeps the long suspension's swing slow;
+	# its translational mass and wind-force origin remain at the pilot's torso.
+	var suspension_length := maxf(_parachute_force_offset_local.length(), 0.1)
+	_pilot_body.inertia = Vector3.ONE * _pilot_body.mass * suspension_length * suspension_length
 
 	# A direct collision shape gives the physics solver the pilot-sized inertia it
 	# needs. It remains non-colliding because the ejected body uses layer/mask zero.
@@ -1107,6 +1092,7 @@ func _on_pilot_body_entered(body: Node) -> void:
 
 func _land_pilot(surface_position: Variant = null) -> void:
 	_pilot_landed = true
+	_parachute_deploy_scheduled = false
 	_parachute_deployed = false
 	_seat_burn_active = false
 	set_physics_process(false)

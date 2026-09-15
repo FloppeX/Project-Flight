@@ -17,7 +17,12 @@ func run() -> void:
 	var timeline: RefCounted = load("res://Scenario/Trailer/TrailerTimeline.gd").new()
 	var data: Variant = JSON.parse_string(FileAccess.get_file_as_string("res://Scenario/Trailer/timeline.json"))
 	expect(timeline.configure(data), "authored timeline must validate")
-	expect(timeline.advance(0.0).size() == 2, "startup cue and launch are both time zero")
+	expect(timeline.advance(0.0).size() == 1, "startup cue only at time zero")
+	expect(timeline.advance(19.0).is_empty(), "no launch during first nineteen simulation seconds")
+	expect(timeline.advance(0.0).is_empty(), "paused clock does not advance launch")
+	var launch_events: Array = timeline.advance(1.0)
+	expect(launch_events.size() == 1 and launch_events[0].id == "launch_pair" and launch_events[0].count == 2, "strike pair requested at twenty simulation seconds")
+	expect(timeline.advance(1.0).is_empty(), "strike request fires only once")
 	timeline.configure({"version":1, "events":[{"id":"a", "time":0, "action":"cue"},{"id":"b", "time":10, "action":"cue"},{"id":"c", "time":20, "action":"cue"},{"id":"d", "time":40, "action":"cue"}]})
 	expect(timeline.advance(0.0).size() == 1, "time-zero cue")
 	expect(timeline.advance(9.0).is_empty(), "no early event")
@@ -28,6 +33,7 @@ func run() -> void:
 	var result: Dictionary = saves.prepare_trailer_scenario()
 	expect(result.ok and session.is_trailer_scenario and session.has_pending_save_state(), "baseline prepared as isolated session")
 	var campaign: Dictionary = session.peek_pending_campaign_state()
+	expect(not campaign.carrier.active_waypoints.is_empty(), "carrier retains its driving route during launch delay")
 	expect(campaign.friendly_air_ops.flights.is_empty() and campaign.friendly_ground_ops.platoons.is_empty(), "previous friendly forces excluded")
 	expect(campaign.enemy_bases.bases.is_empty() and campaign.enemy_bases.emplacements.is_empty() and campaign.enemy_ops.base_entries.is_empty(), "previous enemies excluded")
 	expect(not saves.request_manual_save().ok, "manual campaign save blocked")
@@ -87,8 +93,13 @@ func run() -> void:
 			expect(absf(battle._flat_distance(battle.friendly_start, battle.enemy_start) - 2000.0) < 1.0, "platoons start two kilometres apart")
 			expect(battle.friendly.attack_node == battle.enemy and battle.enemy.attack_node == battle.friendly, "platoons ordered to attack each other")
 			await create_timer(2.0).timeout
-			expect(director.timeline.elapsed == 0.0 and director.launch_requests.is_empty() and director._pending_launch_orders.size() == 1, "paused staging retains launch order without starting deck machinery")
+			expect(director.timeline.elapsed == 0.0 and director.launch_requests.is_empty() and director._pending_launch_orders.is_empty(), "paused staging has no premature launch order")
 			expect(get_nodes_in_group("ai_aircraft").is_empty(), "no unrelated aircraft or premature launches remain")
+			if "--restart-only" in OS.get_cmdline_user_args():
+				await verify_restart_routes(director, save_path, before)
+				print("TRAILER_RESTART_FULL_%s failures=%s" % ["PASS" if failures.is_empty() else "FAIL", failures])
+				quit(0 if failures.is_empty() else 1)
+				return
 			if "--vehicle-cameras" in OS.get_cmdline_user_args():
 				var cameras := get_first_node_in_group("trailer_aircraft_cameras")
 				expect(cameras.vehicle_list().size() == 13, "all twelve ground vehicles and carrier viewable before launch")
@@ -122,7 +133,7 @@ func run() -> void:
 			key.keycode = KEY_SPACE
 			root.push_input(key)
 			expect(not paused and director.started, "Space starts full scenario through viewport input")
-			var duration := 150.0 if "--battle-long" in OS.get_cmdline_user_args() else 42.0
+			var duration := 150.0 if "--battle-long" in OS.get_cmdline_user_args() else 62.0
 			var sample_at := 10.0
 			var cameras_checked := false
 			var direct_video_at := -1.0
@@ -142,6 +153,8 @@ func run() -> void:
 					expect(cameras.active and cameras.slot == 0, "F1 selects trailer camera through actual input routing")
 					var deck := get_first_node_in_group("flight_deck_manager")
 					expect(not deck._landing_test_active and battle.strike.strength() == 2, "F1 does not start landing debug or despawn strike")
+					if "--camera-motion" in OS.get_cmdline_user_args():
+						await check_live_camera_motion(cameras)
 					if "--render" in OS.get_cmdline_user_args():
 						paused = true
 						for camera_slot in 3:
@@ -158,7 +171,7 @@ func run() -> void:
 							cameras.select_slot(4)
 							expect(cameras._focus_node == cameras.subject.get_node("CockpitPilot"), "actual anchored aircraft uses pilot body mount")
 							expect(cameras._focus_node.get_pilot_visual() != null and cameras._focus_node.is_visible_in_tree(), "pilot presentation exists while framing a paused aircraft")
-							cameras._orbit_offset = cameras.subject.global_basis * Vector3(3, 1.7, 3)
+							cameras.camera.offset.origin = cameras._focus_point() + cameras.subject.global_basis * Vector3(3, 1.7, 3)
 							cameras._orbit_roll = 0.15
 							cameras.camera.fov = 50
 							for frame in 20: await process_frame
@@ -166,14 +179,14 @@ func run() -> void:
 							root.get_texture().get_image().save_png("res://captures/trailer_anchored_pilot.png")
 							cameras.select_slot(4, get_first_node_in_group("carrier"))
 							expect(cameras._focus_node == cameras.subject.get_node("Commander"), "actual carrier anchored view follows commander")
-							cameras._orbit_offset = cameras._focus_node.global_basis * Vector3(1, 0.2, 2.5)
+							cameras.camera.offset.origin = cameras._focus_point() + cameras._focus_node.global_basis * Vector3(1, 0.2, 2.5)
 							cameras._orbit_roll = -0.1
 							for frame in 20: await process_frame
 							await RenderingServer.frame_post_draw
 							root.get_texture().get_image().save_png("res://captures/trailer_anchored_commander.png")
 						if "--pilot-view" in OS.get_cmdline_user_args():
 							var plane: Node3D = battle.strike.get_members()[0]
-							expect(cameras.select_slot(5, plane), "pilot cockpit view selectable")
+							expect(cameras.select_slot(cameras.PILOT, plane), "pilot cockpit view selectable")
 							var flight := root.get_node("FlightDirector")
 							var toggle := plane.get_node("AIToggle")
 							expect(cameras.piloting and not cameras.active and not flight.trailer_camera_active, "film controller releases ownership in pilot mode")
@@ -202,7 +215,7 @@ func run() -> void:
 							expect(bool(video.last_result.get("ok", false)), "cockpit MP4 encoded")
 							print("TRAILER_PILOT_VIDEO ", JSON.stringify(video.last_result))
 							for film_slot in 5:
-								cameras.select_slot(5, plane)
+								cameras.select_slot(cameras.PILOT, plane)
 								await RenderingServer.frame_post_draw
 								var seated: Node3D = plane.get_node("CockpitPilot").get_pilot_visual()
 								expect(seated != null and seated._last_head_hidden, "actual cockpit hides its pilot while paused")
@@ -213,7 +226,7 @@ func run() -> void:
 								if seated != null:
 									for mesh in seated._cockpit_hidden_nodes:
 										expect(mesh.is_visible_in_tree(), "film view %d pilot mesh visible" % film_slot)
-							cameras._orbit_offset = plane.global_basis * Vector3(1.0, 0.2, 2.5)
+							cameras.camera.offset.origin = cameras._focus_point() + plane.global_basis * Vector3(1.0, 0.2, 2.5)
 							for frame in 3: await process_frame
 							await RenderingServer.frame_post_draw
 							root.get_texture().get_image().save_png("res://captures/trailer_pilot_restored_after_cockpit.png")
@@ -273,7 +286,7 @@ func run() -> void:
 					if director != null and director.get_instance_id() != old_id and bool(director.get("ready_to_run")): break
 				expect(director != null and director.get_instance_id() != old_id and bool(director.get("ready_to_run")), "restart restores and arms a new director")
 				if director != null:
-					expect(director.timeline.elapsed == 0.0 and director.timeline.cursor == 2 and paused, "restart reissues time-zero orders and waits paused")
+					expect(director.timeline.elapsed == 0.0 and director.timeline.cursor == 1 and paused, "restart resets launch delay and waits paused")
 					expect(director.battle.friendly.get_members().size() == 4 and director.battle.enemy.get_members().size() == 8, "restart rebuilds exact ground forces")
 					expect(director.anchor.origin.distance_to(initial_anchor.origin) < 0.1, "restart restores the original staging frame")
 				expect(FileAccess.get_sha256(save_path) == before, "restart leaves campaign untouched")
@@ -282,3 +295,83 @@ func run() -> void:
 	# autoloads dispatch campaign missions during the final shutdown frame.
 	print("TRAILER_SCENARIO_SMOKETEST_%s failures=%s" % ["PASS" if failures.is_empty() else "FAIL", failures])
 	quit(0 if failures.is_empty() else 1)
+
+func verify_restart_routes(director: Node, save_path: String, before: String) -> void:
+	var origin: Vector3 = director.anchor.origin
+	for route in ["F7", "pause menu"]:
+		var cameras := get_first_node_in_group("trailer_aircraft_cameras")
+		cameras.select_slot(1, get_first_node_in_group("carrier"))
+		cameras.camera.fov = 47.0
+		cameras._save_pose()
+		director.toggle_pause()
+		var deadline := Time.get_ticks_msec() + 90000
+		var during_cleanup := false
+		while Time.get_ticks_msec() < deadline:
+			await process_frame
+			if "--restart-after-launch" not in OS.get_cmdline_user_args():
+				if director.timeline.elapsed >= 2.0: break
+			else:
+				var deck := get_first_node_in_group("flight_deck_manager")
+				if director.battle.aircraft_launched >= 1:
+					for job in deck._parallel_launch_jobs.values():
+						if not bool(job.get("cleanup_complete", false)): during_cleanup = true
+				if during_cleanup: break
+		if "--restart-after-launch" in OS.get_cmdline_user_args():
+			expect(during_cleanup, "reset occurs while post-launch cleanup is still running")
+			print("TRAILER_RESTART_DURING_CLEANUP route=%s time=%.3f launched=%d" % [route, director.timeline.elapsed, director.battle.aircraft_launched])
+		expect(director.timeline.elapsed >= 2.0, "scenario advances before " + route)
+		paused = true
+		var old_id: int = director.get_instance_id()
+		if route == "F7":
+			var key := InputEventKey.new()
+			key.physical_keycode = KEY_F7
+			key.pressed = true
+			root.push_input(key)
+		else:
+			root.get_node("PauseMenu")._open()
+			root.get_node("PauseMenu")._on_restart()
+		director = null
+		deadline = Time.get_ticks_msec() + 180000
+		while Time.get_ticks_msec() < deadline:
+			await process_frame
+			director = get_first_node_in_group("trailer_scenario")
+			if director != null and director.get_instance_id() != old_id and director.ready_to_run and not root.get_node("LoadingScreen").visible: break
+		if director == null or director.get_instance_id() == old_id or not director.ready_to_run:
+			expect(false, route + " failed to restore a fresh director")
+			return
+		expect(not root.get_node("LoadingScreen").visible, route + " loading overlay completes")
+		expect(paused and director.timeline.elapsed == 0.0 and director.timeline.cursor == 1, route + " reset clock and pause")
+		expect(director.launch_requests.is_empty() and director._pending_launch_orders.is_empty(), route + " restores full 20-second launch delay")
+		expect(director.battle.friendly.get_members().size() == 4 and director.battle.enemy.get_members().size() == 8, route + " exact fresh ground forces")
+		expect(director.anchor.origin.distance_to(origin) < 0.1, route + " original carrier position")
+		cameras = get_first_node_in_group("trailer_aircraft_cameras")
+		cameras.select_slot(1, get_first_node_in_group("carrier"))
+		expect(is_equal_approx(cameras.camera.fov, 47.0), route + " preserves camera preset")
+		expect(FileAccess.get_sha256(save_path) == before, route + " leaves Continue save unchanged")
+		print("TRAILER_RESTART_ROUTE_CHECKED ", route)
+
+func check_live_camera_motion(cameras: Node) -> void:
+	for camera_slot in [0, 1, 2, 4]:
+		cameras.select_slot(camera_slot)
+		var local_pose: Transform3D = cameras.camera.offset
+		var fixed_position: Vector3 = cameras.camera.global_position
+		var max_angle := 0.0
+		var max_position := 0.0
+		var owns_view := true
+		for frame in 90:
+			await process_frame
+			await RenderingServer.frame_post_draw
+			owns_view = owns_view and root.get_camera_3d() == cameras.camera
+			if camera_slot < 3:
+				var expected_pose: Transform3D = cameras.subject.get_global_transform_interpolated() * local_pose
+				max_angle = maxf(max_angle, cameras.camera.global_basis.get_rotation_quaternion().angle_to(expected_pose.basis.get_rotation_quaternion()))
+				max_position = maxf(max_position, cameras.camera.global_position.distance_to(expected_pose.origin))
+			else:
+				max_position = maxf(max_position, cameras.camera.global_position.distance_to(fixed_position))
+				var focus: Vector3 = cameras._focus_point()
+				var aim: Vector3 = (focus - fixed_position).normalized()
+				max_angle = maxf(max_angle, (-cameras.camera.global_basis.z).angle_to(aim))
+		print("TRAILER_LIVE_CAMERA slot=%d owns_view=%s max_angle_deg=%.4f max_position_m=%.4f" % [camera_slot, owns_view, rad_to_deg(max_angle), max_position])
+		expect(owns_view and max_angle < 0.005 and max_position < 0.01, "live camera %d retains rotation/position contract in full scenario" % camera_slot)
+		if "--render" in OS.get_cmdline_user_args():
+			root.get_texture().get_image().save_png("res://captures/trailer_live_motion_slot_%d.png" % camera_slot)

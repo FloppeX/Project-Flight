@@ -2,7 +2,7 @@
 
 [ext_resource type="Script" uid="uid://c4ltq2v6fji05" path="res://Aircraft/aircraft.gd" id="1_e8t1h"]
 [ext_resource type="PackedScene" uid="uid://cadi81fcpvmuc" path="res://Projectiles/Explosion/explosion.tscn" id="2_x73up"]
-[ext_resource type="PackedScene" path="res://Models/Aircraft_5/aircraft_5_breakaway.glb" id="3_kq7no"]
+[ext_resource type="PackedScene" uid="uid://bnjfxxv1dbs0o" path="res://Models/Aircraft_5/aircraft_5_breakaway.glb" id="3_kq7no"]
 [ext_resource type="PackedScene" uid="uid://djtbinx1svo2u" path="res://Aircraft/Aircraft wreck/aircraft_1_wreck.tscn" id="3_x73up"]
 [ext_resource type="PackedScene" uid="uid://p831mbxhqubt" path="res://Models/Aircraft_1/aircraft 2 propeller.glb" id="4_ii5ys"]
 [ext_resource type="Script" uid="uid://cyxrx2cid1gt" path="res://Aircraft/SimpleAero.gd" id="5_8vbcf"]
@@ -216,7 +216,6 @@ spring_strength = 30000.0
 wheel_rest_height = 0.3
 wheel_rest_heights = Array[float]([0.2, 0.3, 0.3])
 max_compression = 0.4
-move_colliders_with_suspension = true
 
 [node name="ControlEngine" parent="." unique_id=1866200711 instance=ExtResource("18_gjrvb")]
 
@@ -412,23 +411,23 @@ script = ExtResource("37_wf5")
 
 [node name="AIPilot" type="Node" parent="." unique_id=1913933624]
 script = ExtResource("34_aipil")
-recovery_press_max_lateral_m = 290.0
-recovery_press_max_bank_deg = 35.0
 landing_bolter_retry_cooldown_s = 20.0
+recovery_press_max_lateral_m = 290.0
 recovery_press_max_track_yaw_deg = 25.0
+recovery_press_max_bank_deg = 35.0
 recovery_press_lateral_bank_limit_deg = 30.0
-landing_final_outer_bank_limit_deg = 30.0
 landing_final_glide_error_fpa_gain = 0.0109634924046695
+landing_final_outer_bank_limit_deg = 30.0
+landing_final_energy_aware_throttle = true
 landing_final_target_aoa_deg = 8.0
+landing_final_aoa_pitch_input_limit = 0.16
 landing_final_pitch_gain = 2.4
 landing_final_pitch_rate_damping = 1.35
 landing_final_pitch_smoothing = 0.34
-landing_final_aoa_pitch_input_limit = 0.16
-landing_final_energy_aware_throttle = true
 rtb_fuel_threshold = 0.35
-landing_sight_guidance_full_remaining_m = 305.836078643799
 landing_sight_active_distance_m = 1800.0
 landing_sight_guidance_start_remaining_m = 1800.0
+landing_sight_guidance_full_remaining_m = 305.836078643799
 landing_sight_guidance_time_floor_s = 1.29365774989128
 landing_sight_guidance_max_climb_mps = 1.05116057395935
 landing_sight_guidance_target_hook_vertical_m = -3.0
@@ -470,12 +469,12 @@ transform = Transform3D(-1.2, 0, -1.04907336e-07, 0, 1, 0, 1.04907336e-07, 0, -1
 follow_target_path = NodePath("../aircraft_5/outer wing right/OuterWingRight")
 
 [node name="InsigniaTail" parent="." unique_id=1687275190 instance=ExtResource("45_insignia")]
-transform = Transform3D(-6.556708e-08, 1.5, -6.556708e-08, 0, -6.556708e-08, -1.5, -1.5, -6.556708e-08, 2.8660283e-15, 2.4220324, 0.35, -3.5480113)
+transform = Transform3D(-6.556708e-08, 1.5, -6.556708e-08, 0, -6.556708e-08, -1.5, -1.5, -6.556708e-08, 2.8660283e-15, 2.6834347, 0.35, -3.5480113)
 diameter = 0.65
 depth = 0.35
 
 [node name="InsigniaTail2" parent="." unique_id=748510981 instance=ExtResource("45_insignia")]
-transform = Transform3D(-6.556708e-08, 1.5, -6.556708e-08, 0, -6.556708e-08, -1.5, -1.5, -6.556708e-08, 2.8660283e-15, -2.4261708, 0.35, -3.5480113)
+transform = Transform3D(-6.556708e-08, 1.5, -6.556708e-08, 0, -6.556708e-08, -1.5, -1.5, -6.556708e-08, 2.8660283e-15, -2.683, 0.35, -3.548)
 diameter = 0.65
 depth = 0.35
 

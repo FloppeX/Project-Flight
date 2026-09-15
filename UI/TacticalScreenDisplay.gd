@@ -6,6 +6,9 @@ extends Node
 ## closed, then returns to the main viewport when the player uses a station.
 
 const VIEWPORT_SIZE := Vector2i(1024, 576)
+## Lay out the desktop UI at a readable logical size, then downsample once.
+## Increasing layout space does not increase the shared render texture cost.
+const LAYOUT_SIZE := Vector2i(1600, 900)
 const REFRESH_INTERVAL_S := 0.1
 
 var _preview_viewport: SubViewport = null
@@ -67,6 +70,8 @@ func _ensure_preview_viewport() -> void:
 	_preview_viewport = SubViewport.new()
 	_preview_viewport.name = "TacticalMonitorViewport"
 	_preview_viewport.size = VIEWPORT_SIZE
+	_preview_viewport.size_2d_override = LAYOUT_SIZE
+	_preview_viewport.size_2d_override_stretch = true
 	_preview_viewport.disable_3d = true
 	_preview_viewport.transparent_bg = false
 	_preview_viewport.render_target_clear_mode = SubViewport.CLEAR_MODE_ALWAYS

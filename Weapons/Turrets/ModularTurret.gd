@@ -62,6 +62,7 @@ func configure_weapon_barrel(weapon: Node) -> bool:
 	return true
 
 func _clear_barrel() -> void:
+	reset_barrel_recoil()
 	if is_instance_valid(mounted_barrel):
 		mounted_barrel.get_parent().remove_child(mounted_barrel)
 		mounted_barrel.queue_free()

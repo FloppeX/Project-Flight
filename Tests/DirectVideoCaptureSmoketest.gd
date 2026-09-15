@@ -1,5 +1,17 @@
 extends SceneTree
 var failures: Array[String] = []
+var pad_controls := "--pad-controls" in OS.get_cmdline_user_args()
+
+func record_input(key: InputEventKey) -> void:
+	if not pad_controls:
+		root.push_input(key)
+		return
+	var button := InputEventJoypadButton.new()
+	button.button_index = JOY_BUTTON_B
+	button.pressed = true
+	root.push_input(button)
+	button.pressed = false
+	root.push_input(button)
 
 func _initialize() -> void: run.call_deferred()
 
@@ -98,7 +110,7 @@ func run() -> void:
 		root.push_input(key)
 		expect(not capture.recording and paused, "left Ctrl+Alt does not record or unpause")
 		key.location = KEY_LOCATION_RIGHT
-	root.push_input(key)
+	record_input(key)
 	expect(capture.recording, "Ctrl+F10 starts direct video")
 	if trailer != null:
 		expect(not paused, "AltGr starts video and unpauses trailer")
@@ -129,7 +141,7 @@ func run() -> void:
 			box.rotation.y += 0.025
 			await process_frame
 		await create_timer(2.0).timeout
-		root.push_input(key)
+		record_input(key)
 		expect(not capture.recording and capture.finalizing, "Ctrl+F10 stops and finalizes")
 		if trailer != null: expect(paused, "AltGr stop immediately pauses action during encoding")
 		expect(hud.visible, "HUD restored")

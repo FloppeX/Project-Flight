@@ -683,6 +683,12 @@ func _apply_locomotion_pose(delta: float) -> void:
 
 
 func set_ejection_pose(pose_name: StringName, blend_time_s: float = -1.0) -> void:
+	# The authored seated clip already drives the ARP deformation bones. Applying
+	# the legacy procedural seat-firing pose on top distorts that skinned rig.
+	if pose_name == &"seat_firing" and apply_static_baked_pose(&"piloting", 1.5):
+		refresh_cockpit_visibility()
+		set_process(true)
+		return
 	# Ejection is a real presentation state even when the source aircraft was not
 	# previously being viewed. Its animation must not inherit cockpit dormancy.
 	set_process(true)

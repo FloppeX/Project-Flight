@@ -47,6 +47,9 @@ signal player_insignia_changed(texture: Texture2D)
 ## Insignia textures — loaded at startup.
 var insignia_textures: Array[Texture2D] = []
 var insignia_index: int = 0   # Which insignia is active
+const TRAILER_ENEMY_PRIMARY := Color(0.03, 0.03, 0.03)
+const TRAILER_ENEMY_SECONDARY := Color(0.53, 0.09, 0.18)
+const TRAILER_ENEMY_INSIGNIA = preload("res://Images/Insignia/insignia_skull.png")
 var _last_notified_player_insignia: Texture2D = null
 var _upper_color_preset_index: int = 0
 var _rng: RandomNumberGenerator = RandomNumberGenerator.new()
@@ -71,7 +74,12 @@ var _active_apply_pattern_source_colors: Array[Color] = []
 var _active_apply_root_3d: Node3D = null
 var _carrier_pattern_shader: Shader = null
 const PLAYER_TEAM_ID: int = 1
+## Tunable gameplay separation, not a perceptual/accessibility guarantee.
+const ENEMY_COLOR_MIN_DISTANCE := 0.35
 const PILOT_LIVERY_META_KEY: StringName = &"pilot_livery_colors"
+const PILOT_APPEARANCE := preload("res://Aircraft/PilotAppearance.gd")
+const PILOT_HELMET_PATTERN := preload("res://Aircraft/Visuals/PilotHelmetPattern.gd")
+var _active_apply_pilot_palette: Dictionary = {}
 const UPPER_FUSELAGE_TEST_STRIPE_SHADER: Shader = preload("res://Shaders/upper_fuselage_test_stripes.gdshader")
 const INSIGNIA_DECAL_FOLLOWER_SCRIPT: Script = preload("res://Aircraft/Visuals/InsigniaDecalFollower.gd")
 const AIRCRAFT_UPPER_PATTERN_NAMES: Array[String] = [
@@ -179,12 +187,16 @@ func _ready() -> void:
 	call_deferred("_reapply_all")
 
 func set_player_livery(primary_color: Color, secondary_color: Color, pattern_index: int) -> void:
+	var colors_changed := not primary_color.is_equal_approx(_get_team_upper_color(PLAYER_TEAM_ID)) \
+			or not secondary_color.is_equal_approx(_get_team_secondary_color(PLAYER_TEAM_ID))
 	_player_custom_livery_enabled = true
 	_player_custom_primary_color = primary_color
 	_player_custom_secondary_color = secondary_color
 	_player_custom_pattern_index = clampi(pattern_index, 0, max(AIRCRAFT_UPPER_PATTERN_NAMES.size() - 1, 0))
 	upper_color = primary_color
 	helicopter_upper_pattern_index = _player_custom_pattern_index
+	if colors_changed:
+		_refresh_conflicting_enemy_colors()
 	_reapply_all()
 
 
@@ -293,6 +305,7 @@ func cycle_upper_color() -> void:
 	_upper_color_preset_index = (int(_team_upper_preset_indices.get(PLAYER_TEAM_ID, 0)) + 1) % PRESET_UPPER_COLORS.size()
 	_team_upper_preset_indices[PLAYER_TEAM_ID] = _upper_color_preset_index
 	upper_color = PRESET_UPPER_COLORS[_upper_color_preset_index]
+	_refresh_conflicting_enemy_colors()
 	_reapply_all()
 
 func _nearest_upper_color_preset_index(col: Color) -> int:
@@ -376,7 +389,8 @@ func apply(root: Node) -> void:
 	_active_apply_pattern_source_colors.clear()
 	_collect_pattern_source_colors(root)
 	_apply_recursive(root)
-	if root is RigidBody3D and root.get("team") != null:
+	# Ground vehicles use CharacterBody3D and the same authored insignia markers.
+	if (root is RigidBody3D or root is CharacterBody3D) and root.get("team") != null:
 		_apply_insignia(root)
 	if root.is_in_group("carrier"):
 		_apply_carrier_insignia(root)
@@ -424,7 +438,10 @@ func _ensure_team_livery(team_id: int) -> void:
 		else:
 			_team_upper_preset_indices[team_id] = _pick_random_unassigned_index(PRESET_UPPER_COLORS.size(), _team_upper_preset_indices)
 	if not _team_secondary_preset_indices.has(team_id):
-		_team_secondary_preset_indices[team_id] = _rng.randi_range(0, PRESET_UPPER_COLORS.size() - 1)
+		if team_id != PLAYER_TEAM_ID:
+			_team_secondary_preset_indices[team_id] = _pick_distant_index_from_player(int(_team_upper_preset_indices[team_id]))
+		else:
+			_team_secondary_preset_indices[team_id] = _rng.randi_range(0, PRESET_UPPER_COLORS.size() - 1)
 	if not _team_insignia_indices.has(team_id):
 		if insignia_textures.is_empty():
 			_team_insignia_indices[team_id] = 0
@@ -447,7 +464,13 @@ func _pick_random_unassigned_index(pool_size: int, assignments: Dictionary) -> i
 		return _rng.randi_range(0, pool_size - 1)
 	return available_indices[_rng.randi_range(0, available_indices.size() - 1)]
 
+func _uses_trailer_enemy_livery(team_id: int) -> bool:
+	# Presentation override only: never replace the saved campaign assignments.
+	return team_id == 2 and GameSession.is_trailer_scenario
+
 func _get_team_upper_color(team_id: int) -> Color:
+	if _uses_trailer_enemy_livery(team_id):
+		return TRAILER_ENEMY_PRIMARY
 	_ensure_team_livery(team_id)
 	if team_id == PLAYER_TEAM_ID and _player_custom_livery_enabled:
 		return _player_custom_primary_color
@@ -456,6 +479,10 @@ func _get_team_upper_color(team_id: int) -> Color:
 	return PRESET_UPPER_COLORS[idx]
 
 func _get_team_insignia_index(team_id: int) -> int:
+	if _uses_trailer_enemy_livery(team_id):
+		var skull_index := insignia_textures.find(TRAILER_ENEMY_INSIGNIA)
+		if skull_index >= 0:
+			return skull_index
 	_ensure_team_livery(team_id)
 	if insignia_textures.is_empty():
 		return 0
@@ -473,6 +500,7 @@ func _activate_pilot_colors_for_root(root: Node) -> void:
 
 func _activate_pilot_palette(palette: Dictionary) -> void:
 	_active_apply_has_pilot_colors = false
+	_active_apply_pilot_palette = {}
 	if palette.is_empty():
 		return
 
@@ -487,6 +515,7 @@ func _activate_pilot_palette(palette: Dictionary) -> void:
 	_active_apply_pilot_main_dark_color = main_dark_variant as Color
 	_active_apply_pilot_helmet_color_1 = helmet_1_variant as Color
 	_active_apply_pilot_helmet_color_2 = helmet_2_variant as Color
+	_active_apply_pilot_palette = palette
 	_active_apply_has_pilot_colors = true
 
 
@@ -529,19 +558,7 @@ func _is_valid_pilot_palette(palette: Dictionary) -> bool:
 	return main_variant is Color and main_dark_variant is Color and helmet_1_variant is Color and helmet_2_variant is Color
 
 func _make_random_pilot_palette() -> Dictionary:
-	var helmet_1: Color = _pick_random_color(PRESET_UPPER_COLORS)
-	var helmet_2: Color = _pick_random_color(PRESET_UPPER_COLORS)
-	if PRESET_UPPER_COLORS.size() > 1:
-		var safety: int = 4
-		while helmet_2 == helmet_1 and safety > 0:
-			helmet_2 = _pick_random_color(PRESET_UPPER_COLORS)
-			safety -= 1
-	return {
-		"main_color": _pick_random_color(PILOT_MAIN_COLOR_POOL),
-		"main_color_dark": _pick_random_color(PILOT_MAIN_DARK_COLOR_POOL),
-		"helmet_color_1": helmet_1,
-		"helmet_color_2": helmet_2,
-	}
+	return PILOT_APPEARANCE.make_random_palette(_rng)
 
 func _pick_random_color(pool: Array[Color]) -> Color:
 	if pool.is_empty():
@@ -553,6 +570,8 @@ func get_team_upper_color(team_id: int) -> Color:
 	return _get_team_upper_color(team_id)
 
 func _get_team_secondary_color(team_id: int) -> Color:
+	if _uses_trailer_enemy_livery(team_id):
+		return TRAILER_ENEMY_SECONDARY
 	_ensure_team_livery(team_id)
 	if team_id == PLAYER_TEAM_ID and _player_custom_livery_enabled:
 		return _player_custom_secondary_color
@@ -578,6 +597,7 @@ func cycle_secondary_color() -> void:
 	_ensure_team_livery(PLAYER_TEAM_ID)
 	var index := (int(_team_secondary_preset_indices.get(PLAYER_TEAM_ID, 0)) + 1) % PRESET_UPPER_COLORS.size()
 	_team_secondary_preset_indices[PLAYER_TEAM_ID] = index
+	_refresh_conflicting_enemy_colors()
 	_reapply_all()
 	print("[Livery] Aircraft pattern secondary color changed to preset index: ", index, " (", PRESET_UPPER_COLORS[index], ")")
 
@@ -614,37 +634,66 @@ func _hue_distance(a: float, b: float) -> float:
 		d = 1.0 - d
 	return d
 
-## Picks the preset index most hue-distant from the player's current color,
-## preferring saturated colors so the enemy has a readable distinct map tint.
-func _pick_distant_index_from_player() -> int:
-	var player_idx: int = int(_team_upper_preset_indices.get(PLAYER_TEAM_ID, 0))
-	var player_col: Color = PRESET_UPPER_COLORS[clampi(player_idx, 0, PRESET_UPPER_COLORS.size() - 1)]
-	var used: Dictionary = {}
-	for tid in _team_upper_preset_indices.keys():
-		used[int(_team_upper_preset_indices[tid])] = true
+## Hue wraps continuously; saturation/value suppress meaningless hue differences
+## near grey and black. Brightness still separates neutral paint colours.
+func _color_separation(a: Color, b: Color) -> float:
+	var a_chroma := a.s * a.v
+	var b_chroma := b.s * b.v
+	var a_point := Vector3(cos(a.h * TAU) * a_chroma, sin(a.h * TAU) * a_chroma, a.v)
+	var b_point := Vector3(cos(b.h * TAU) * b_chroma, sin(b.h * TAU) * b_chroma, b.v)
+	return a_point.distance_to(b_point)
 
-	var best_idx: int = -1
-	var best_dist: float = -1.0
-	for i in range(PRESET_UPPER_COLORS.size()):
-		if used.has(i):
-			continue
-		var col: Color = PRESET_UPPER_COLORS[i]
-		if col.s < 0.2:   # skip near-greyscale presets for enemy tint
-			continue
-		var dist: float
-		if player_col.s < 0.1:
-			# Player is achromatic — prefer more saturated enemy colors
-			dist = col.s + col.v * 0.2
-		else:
-			dist = _hue_distance(player_col.h, col.h)
-		if dist > best_dist:
-			best_dist = dist
-			best_idx = i
+func _distance_from_player_palette(color: Color) -> float:
+	return minf(
+		_color_separation(color, _get_team_upper_color(PLAYER_TEAM_ID)),
+		_color_separation(color, _get_team_secondary_color(PLAYER_TEAM_ID))
+	)
 
-	if best_idx == -1:
-		# Fallback: any unassigned index
-		return _pick_random_unassigned_index(PRESET_UPPER_COLORS.size(), _team_upper_preset_indices)
-	return best_idx
+## Random among the strongest choices, not always the same opposite hue.
+## For secondary paint, also favour separation from that enemy's primary.
+func _pick_distant_index_from_player(primary_index: int = -1) -> int:
+	var scores: Array[float] = []
+	var best := -1.0
+	var best_index := 0
+	for i in PRESET_UPPER_COLORS.size():
+		var score := _distance_from_player_palette(PRESET_UPPER_COLORS[i])
+		if primary_index >= 0:
+			score = minf(score, _color_separation(PRESET_UPPER_COLORS[i], PRESET_UPPER_COLORS[primary_index]))
+		scores.append(score)
+		if score > best:
+			best = score
+			best_index = i
+	var cutoff := maxf(ENEMY_COLOR_MIN_DISTANCE, best * 0.75)
+	var candidates: Array[int] = []
+	var unused: Array[int] = []
+	for i in scores.size():
+		if scores[i] < cutoff:
+			continue
+		candidates.append(i)
+		if primary_index < 0 and not _team_upper_preset_indices.values().has(i):
+			unused.append(i)
+	if not unused.is_empty():
+		candidates = unused
+	# A crowded/changed palette must still choose the best available separation,
+	# never fall back to unrestricted random colours or retry indefinitely.
+	if candidates.is_empty():
+		return best_index
+	return candidates[_rng.randi_range(0, candidates.size() - 1)]
+
+func _refresh_conflicting_enemy_colors() -> void:
+	# Run only on player palette edits. Normal apply/spawn calls preserve each
+	# faction's assigned identity, and an insignia/pattern edit does not reroll it.
+	for team_id in _team_upper_preset_indices.keys():
+		if int(team_id) == PLAYER_TEAM_ID:
+			continue
+		var primary := int(_team_upper_preset_indices[team_id])
+		var secondary := int(_team_secondary_preset_indices.get(team_id, primary))
+		if _distance_from_player_palette(PRESET_UPPER_COLORS[primary]) < ENEMY_COLOR_MIN_DISTANCE:
+			primary = _pick_distant_index_from_player()
+			_team_upper_preset_indices[team_id] = primary
+		if _distance_from_player_palette(PRESET_UPPER_COLORS[secondary]) < ENEMY_COLOR_MIN_DISTANCE \
+				or _color_separation(PRESET_UPPER_COLORS[primary], PRESET_UPPER_COLORS[secondary]) < ENEMY_COLOR_MIN_DISTANCE:
+			_team_secondary_preset_indices[team_id] = _pick_distant_index_from_player(primary)
 
 func _apply_insignia(aircraft: Node) -> void:
 	# Remove old decals from the full aircraft subtree.
@@ -1017,7 +1066,13 @@ func _apply_recursive(node: Node) -> void:
 				var is_upper_fuselage_surface := false
 				var is_lower_fuselage_surface := false
 				var is_carrier_pattern_surface := false
-				if "upper fuselage" in mat_name:
+				# Ground vehicle paint slots are authored separately from aircraft
+				# camouflage. Keep their two-tone layout and mechanical materials.
+				if mat_name == "body main color":
+					target_color = _active_apply_upper_color
+				elif mat_name == "body secondary color":
+					target_color = _active_apply_secondary_color
+				elif "upper fuselage" in mat_name:
 					target_color = _active_apply_upper_color
 					is_upper_fuselage_surface = true
 				elif "lower fuselage" in mat_name:
@@ -1056,6 +1111,12 @@ func _apply_recursive(node: Node) -> void:
 					target_color = _active_apply_upper_color
 					is_upper_fuselage_surface = true
 				if target_color.r >= 0.0:
+					if _active_apply_has_pilot_colors and PILOT_HELMET_PATTERN.is_helmet_material(mat) \
+							and PILOT_APPEARANCE.helmet_pattern(_active_apply_pilot_palette) != "plain" \
+							and PILOT_HELMET_PATTERN.prepare_mesh(mi):
+						mi.set_surface_override_material(i, PILOT_HELMET_PATTERN.make_material(
+								mat, target_color, _active_apply_pilot_palette))
+						continue
 					var pattern_index := _normalized_aircraft_upper_pattern_index()
 					if is_upper_fuselage_surface and pattern_index > 0:
 						mi.set_surface_override_material(

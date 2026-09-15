@@ -83,6 +83,7 @@ var physical_rounds_fired: int = 0
 var virtual_rounds_fired: int = 0
 var shot_sound_events: int = 0
 var _pending_virtual_rounds: Array[Dictionary] = []
+var _barrel_recoil: Node
 
 func _ready() -> void:
 	_apply_gun_profile()
@@ -95,6 +96,8 @@ func _ready() -> void:
 	_setup_shot_audio()
 	if _is_mounted_in_turret():
 		fire_rate *= maxf(turret_fire_rate_multiplier, 0.0)
+	else:
+		_barrel_recoil = preload("res://Weapons/Guns/BarrelRecoil.gd").mount_hardpoint(self)
 	set_process(false)
 
 
@@ -157,6 +160,7 @@ func fire() -> bool:
 	_spawn_bullet(spawn_transform, firing_entity)
 	if last_fired_projectile != null and is_instance_valid(last_fired_projectile):
 		physical_rounds_fired += 1
+		_kick_barrel_recoil(firing_turret, cooldown_s)
 		_queue_virtual_rounds(
 			spawn_transform,
 			firing_entity,
@@ -232,7 +236,14 @@ func _fire_virtual_round(pending: Dictionary) -> void:
 	)):
 		return
 	virtual_rounds_fired += 1
+	_kick_barrel_recoil(firing_turret, 1.0 / maxf(fire_rate, 0.01))
 	_play_shot_sound(tracer_origin)
+
+func _kick_barrel_recoil(firing_turret: Turret, shot_interval_s: float) -> void:
+	if is_instance_valid(firing_turret) and gun_profile != null:
+		firing_turret.kick_barrel_recoil(gun_profile.caliber_mm, shot_interval_s / maxi(visible_round_multiplier, 1))
+	elif is_instance_valid(_barrel_recoil) and gun_profile != null:
+		_barrel_recoil.kick(gun_profile.caliber_mm, shot_interval_s / maxi(visible_round_multiplier, 1))
 
 
 func _get_virtual_tracer_manager(scene_root: Node) -> Node:

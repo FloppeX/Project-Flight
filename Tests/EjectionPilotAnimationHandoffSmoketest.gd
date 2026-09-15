@@ -64,6 +64,13 @@ func _run() -> void:
 		_fail("dormant cockpit pilot did not stop piloting")
 		return
 
+	pilot.call("set_ejection_pose", &"seat_firing", 0.12)
+	if not bool(pooled_visual.get("_baked_sitting_pose_active")) or player.is_playing():
+		_fail("seat ride did not hold the authored seated pose")
+		return
+	pilot.call("set_presentation_active", true)
+	if not bool(pooled_visual.get("_baked_sitting_pose_active")):
+		_fail("presentation refresh replaced the seat ride pose")
 	sequence.set("_pilot_body", pilot_body)
 	sequence.call("_separate_seat_from_pilot")
 	if not bool(sequence.get("_seat_separated")) or pilot_body.has_node("EjectionSeat"):

@@ -3,6 +3,8 @@ class_name BombProjectile
 
 signal tuning_impact(position: Vector3)
 signal tuning_impact_detail(position: Vector3, body: Node)
+## Presentation hook; unlike tuning_impact this never fires on despawn/reset.
+signal detonated(position: Vector3, explosion: Node)
 
 # =============================================================================
 # BOMB PROJECTILE - Specialized bomb with arming delay
@@ -25,6 +27,7 @@ func _init():
 
 func _ready():
 	super._ready()
+	add_to_group("live_bombs")
 	mass = 50.0
 	damage = 200.0
 	if explosion_scene == null:
@@ -120,6 +123,7 @@ func _trigger_explosion(hit_body: Node = null):
 		if hit_body is CollisionObject3D and hit_body.has_method("take_damage"):
 			scorch_exclusions.append(hit_body as CollisionObject3D)
 		explosion.create_scorch_mark(scorch_exclusions, true)
+		detonated.emit(impact_pos, explosion)
 
 	# Mark as impacted and cleanup
 	has_impacted = true

@@ -635,6 +635,11 @@ func _recompute_navigation_path(raw_target: Vector3) -> void:
 		_nav_retry_cooldown_s = maxf(_nav_retry_cooldown_s, retry_cooldown)
 
 func _on_navigation_path_job_result(result: Variant) -> void:
+	# Deferred jobs can outlive a scene reload: detached nodes are still valid
+	# Objects, but must not ask their old platoon/SceneTree for new destinations.
+	if not is_inside_tree() or is_queued_for_deletion():
+		_is_pathfinding = false
+		return
 	if not result is Dictionary:
 		_is_pathfinding = false
 		_nav_retry_cooldown_s = maxf(_nav_retry_cooldown_s, path_retry_cooldown_s)
@@ -649,7 +654,7 @@ func _on_navigation_path_job_result(result: Variant) -> void:
 
 func _on_navigation_path_computed(best_path: Array[Vector3], target_at_request_time: Vector3, status_code: int, no_anchor_cooldown: float, path_cooldown: float) -> void:
 	_is_pathfinding = false
-	if not is_instance_valid(self):
+	if not is_inside_tree() or is_queued_for_deletion():
 		return
 	
 	# If the target changed while queued/running, wait for the regular repath cadence.
@@ -701,7 +706,9 @@ func _clear_navigation_path() -> void:
 	_nav_retry_cooldown_s = 0.0
 
 func _get_raw_navigation_destination() -> Vector3:
-	if platoon and is_instance_valid(platoon) and platoon.has_active_objective():
+	if not is_inside_tree() or is_queued_for_deletion():
+		return Vector3.INF
+	if is_instance_valid(platoon) and platoon.is_inside_tree() and not platoon.is_queued_for_deletion() and platoon.has_active_objective():
 		var platoon_destination: Vector3 = platoon.get_destination_for(self)
 		if _use_platoon_shared_route_navigation():
 			return platoon.get_shared_route_destination_for(self, platoon_destination)

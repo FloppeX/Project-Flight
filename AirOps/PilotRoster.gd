@@ -464,6 +464,21 @@ func get_voice_prefix_for_callsign(callsign: String) -> String:
 	var pilot := get_pilot_for_callsign(callsign)
 	return str(pilot.get("voice_prefix", ""))
 
+
+## Identity-owned paint, independent of the two authored helmet color slots.
+## Later manual choices remain stable after the one-time helmet randomization.
+func set_pilot_helmet_pattern(pilot_id: String, pattern: String, marking_color: Color) -> bool:
+	_build_pilot_index()
+	if not _pilots_by_id.has(pilot_id) or pattern not in PilotAppearance.HELMET_PATTERNS:
+		return false
+	var pilot: Dictionary = _pilots_by_id[pilot_id]
+	_ensure_pilot_appearance(pilot)
+	var palette: Dictionary = pilot[PilotAppearance.IDENTITY_FIELD]
+	palette["helmet_pattern"] = pattern
+	palette["helmet_marking_color"] = marking_color
+	_apply_pilot_to_assigned_aircraft(pilot_id)
+	return true
+
 func assign_aircraft_to_callsign(aircraft: Node3D, callsign: String) -> void:
 	## Bind a roster pilot to a live aircraft. The supplied key may come from
 	## CarrierManager, but it is only an active-assignment alias; the pilot's

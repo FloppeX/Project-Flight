@@ -9,6 +9,9 @@ var move_speed := 25.0
 var smoothing := 10.0
 var motion := Vector3.ZERO
 var interpolated_target := false
+## Opt-in for live mounted filming: smoothing and yaw travel with the mount.
+## Replay/free-camera behavior stays unchanged unless explicitly enabled.
+var attachment_local_controls := false
 
 func _init() -> void:
 	# This camera follows a replay/process clock, not the live physics clock.
@@ -36,6 +39,17 @@ func move_camera(direction: Vector3, look: Vector2, roll: float, delta: float) -
 	if attachment != Attachment.WORLD and not is_instance_valid(target):
 		attach(null, Attachment.WORLD)
 	var frame := anchor()
+	if attachment_local_controls and attachment == Attachment.FULL and is_instance_valid(target):
+		# Integrate only the operator's motion in the attachment frame. World
+		# velocity smoothing lags behind a turning vehicle, while world-UP yaw
+		# changes its meaning as the vehicle banks. Neither belongs in this rig.
+		var wanted_local := offset.basis * direction.limit_length() * move_speed
+		motion = motion.lerp(wanted_local, 1.0 - exp(-smoothing * delta))
+		offset.origin += motion * delta
+		offset.basis = Basis(Vector3.UP, -look.x) * offset.basis
+		offset.basis = (offset.basis * Basis(Vector3.RIGHT, -look.y) * Basis(Vector3.BACK, roll * delta)).orthonormalized()
+		global_transform = frame * offset
+		return
 	var pose := frame * offset
 	var wanted := pose.basis * direction.limit_length() * move_speed
 	motion = motion.lerp(wanted, 1.0 - exp(-smoothing * delta))

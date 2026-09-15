@@ -5,6 +5,12 @@ extends RefCounted
 
 const META_KEY: StringName = &"pilot_livery_colors"
 const IDENTITY_FIELD: String = "pilot_livery_colors"
+const HELMET_RANDOMIZATION_VERSION := 1
+# Append only: these indices also identify modes in the helmet paint shader.
+const HELMET_PATTERNS: Array[String] = [
+	"plain", "racing_stripes", "stars", "camo",
+	"lightning_bolts", "shooting_stars", "flames", "checkerboard", "chevrons",
+]
 
 const HELMET_COLORS: Array[Color] = [
 	Color(0.03, 0.03, 0.03),
@@ -37,19 +43,59 @@ const SUIT_DARK_COLORS: Array[Color] = [
 
 
 static func make_random_palette(rng: RandomNumberGenerator) -> Dictionary:
-	var helmet_1 := HELMET_COLORS[rng.randi_range(0, HELMET_COLORS.size() - 1)]
-	var helmet_2 := HELMET_COLORS[rng.randi_range(0, HELMET_COLORS.size() - 1)]
-	if HELMET_COLORS.size() > 1:
-		while helmet_2 == helmet_1:
-			helmet_2 = HELMET_COLORS[rng.randi_range(0, HELMET_COLORS.size() - 1)]
-	return {
+	var palette := {
 		"main_color": SUIT_COLORS[rng.randi_range(0, SUIT_COLORS.size() - 1)],
 		"main_color_dark": SUIT_DARK_COLORS[
 			rng.randi_range(0, SUIT_DARK_COLORS.size() - 1)
 		],
-		"helmet_color_1": helmet_1,
-		"helmet_color_2": helmet_2,
 	}
+	randomize_helmet(palette, rng)
+	return palette
+
+
+## Randomize only personal helmet paint; leave suit colors and identity intact.
+static func randomize_helmet(palette: Dictionary, rng: RandomNumberGenerator) -> void:
+	var first := HELMET_COLORS[rng.randi_range(0, HELMET_COLORS.size() - 1)]
+	var secondary_options: Array[Color] = []
+	for color in HELMET_COLORS:
+		if _color_distance_squared(first, color) >= 0.08:
+			secondary_options.append(color)
+	var second := secondary_options[rng.randi_range(0, secondary_options.size() - 1)]
+	var ink_options: Array[Color] = []
+	for color in HELMET_COLORS:
+		if _color_distance_squared(first, color) >= 0.25 \
+				and _color_distance_squared(second, color) >= 0.25:
+			ink_options.append(color)
+	palette["helmet_color_1"] = first
+	palette["helmet_color_2"] = second
+	# Every generated pilot gets a visible design; plain remains a manual option.
+	palette["helmet_pattern"] = HELMET_PATTERNS[rng.randi_range(1, HELMET_PATTERNS.size() - 1)]
+	palette["helmet_marking_color"] = ink_options[rng.randi_range(0, ink_options.size() - 1)] \
+			if not ink_options.is_empty() else contrasting_marking_color(first, second)
+	palette["helmet_randomization_version"] = HELMET_RANDOMIZATION_VERSION
+
+
+static func _color_distance_squared(first: Color, second: Color) -> float:
+	return Vector3(first.r, first.g, first.b).distance_squared_to(Vector3(second.r, second.g, second.b))
+
+
+static func helmet_pattern(palette: Dictionary) -> String:
+	var pattern := str(palette.get("helmet_pattern", "plain"))
+	return pattern if pattern in HELMET_PATTERNS else "plain"
+
+
+static func contrasting_marking_color(first: Color, second: Color) -> Color:
+	var average := first.lerp(second, 0.5)
+	var brightness := average.r * 0.2126 + average.g * 0.7152 + average.b * 0.0722
+	return Color(0.96, 0.93, 0.82) if brightness < 0.48 else Color(0.035, 0.04, 0.05)
+
+
+static func helmet_marking_color(palette: Dictionary) -> Color:
+	var supplied: Variant = palette.get("helmet_marking_color")
+	if supplied is Color:
+		return supplied as Color
+	return contrasting_marking_color(palette.get("helmet_color_1", Color.GRAY),
+			palette.get("helmet_color_2", Color.GRAY))
 
 
 static func is_valid_palette(value: Variant) -> bool:
@@ -68,7 +114,19 @@ static func ensure_identity_palette(
 ) -> Dictionary:
 	var existing: Variant = identity.get(IDENTITY_FIELD, null)
 	if is_valid_palette(existing):
-		return (existing as Dictionary).duplicate(true)
+		var palette := (existing as Dictionary).duplicate(true)
+		if int(palette.get("helmet_randomization_version", 0)) < HELMET_RANDOMIZATION_VERSION:
+			# A deterministic, per-identity upgrade makes Continue/Trailer resets
+			# stable even before the upgraded campaign has been saved again. Do not
+			# consume the roster RNG or change subsequent pilot assignment draws.
+			var upgrade_rng := RandomNumberGenerator.new()
+			var seed_text := "%s|%s|%s|%s|helmet-v1" % [identity.get("id", ""),
+				identity.get("name", ""), (palette["helmet_color_1"] as Color).to_html(),
+				(palette["helmet_color_2"] as Color).to_html()]
+			upgrade_rng.seed = seed_text.hash()
+			randomize_helmet(palette, upgrade_rng)
+			identity[IDENTITY_FIELD] = palette.duplicate(true)
+		return palette
 	var created := make_random_palette(rng)
 	identity[IDENTITY_FIELD] = created.duplicate(true)
 	return created

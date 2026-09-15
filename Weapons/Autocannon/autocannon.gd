@@ -82,6 +82,7 @@ var physical_rounds_fired: int = 0
 var virtual_rounds_fired: int = 0
 var shot_sound_events: int = 0
 var _pending_virtual_round_delays_s: Array[float] = []
+var _barrel_recoil: Node
 
 func _ready():
 	_apply_gun_profile()
@@ -95,7 +96,15 @@ func _ready():
 	if bullet_projectile_scene == null:
 		bullet_projectile_scene = load("res://Projectiles/Bullet/bullet.tscn")
 	_setup_cannon_audio()
+	_setup_barrel_recoil()
 	set_process(false)
+
+func _setup_barrel_recoil() -> void:
+	_barrel_recoil = preload("res://Weapons/Guns/BarrelRecoil.gd").mount_hardpoint(self)
+
+func _kick_barrel_recoil() -> void:
+	if _barrel_recoil != null and gun_profile != null:
+		_barrel_recoil.kick(gun_profile.caliber_mm, 60.0 / maxf(rounds_per_minute * visible_round_multiplier, 1.0))
 
 func _process(delta):
 	if fire_timer > 0:
@@ -164,6 +173,7 @@ func fire() -> bool:
 		_tuning_shot_callback.call(_tuning_trial_id, bullet)
 	bullet.fire(muzzle_vel, aircraft)
 	physical_rounds_fired += 1
+	_kick_barrel_recoil()
 	_queue_virtual_rounds(seconds_per_round)
 
 	if hardpoint:
@@ -222,6 +232,7 @@ func _fire_virtual_round() -> void:
 	)):
 		return
 	virtual_rounds_fired += 1
+	_kick_barrel_recoil()
 	_play_cannon_sound()
 
 

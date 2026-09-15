@@ -1,14 +1,20 @@
 extends Node
 ## Three rigid vehicle-relative poses. Aircraft are independent; ground presets shared.
 const Rig = preload("res://Recording/RecordingCamera.gd")
+const BombRig = preload("res://Scenario/Trailer/TrailerBombCamera.gd")
 const FREE := 3
 const ANCHORED := 4
-const PILOT := 5
-const VIEW_COUNT := 6
-const VIEW_NAMES := ["CAMERA 1", "CAMERA 2", "CAMERA 3", "FREE CAM", "FREE CAM ANCHORED", "COCKPIT / PILOT"]
+const BOMB := 5
+const PILOT := 6
+const VIEW_COUNT := 7
+const VIEW_NAMES := ["CAMERA 1", "CAMERA 2", "CAMERA 3", "FREE CAM", "FREE CAM ANCHORED", "BOMB CAM", "COCKPIT / PILOT"]
+const MOVE_SPEED_LEVELS := [0.625, 1.25, 2.5, 5.0, 10.0, 20.0, 40.0, 80.0, 160.0, 320.0]
+var move_speed_level := 4
 var camera: Camera3D
 var active := false
 var piloting := false
+var anchored := false
+var _free_anchor_modes: Dictionary = {}
 var subject: Node3D
 var slot := 0
 var banks: Dictionary = {}
@@ -19,12 +25,12 @@ var _editing := false
 var _label: Label
 var _focus_node: Node3D
 var _focus_offset := Vector3.ZERO
-var _orbit_offset := Vector3.ZERO
 var _orbit_roll := 0.0
 var _pad_device := -1
 var _pad_axes: Dictionary = {}
 var _pad_buttons: Dictionary = {}
 var _presented_subject: WeakRef
+var bomb_camera: Node
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -36,7 +42,11 @@ func _ready() -> void:
 	camera = Rig.new()
 	camera.name = "TrailerAircraftCamera"
 	add_child(camera)
+	bomb_camera = BombRig.new()
+	add_child(bomb_camera)
+	bomb_camera.finished.connect(_on_bomb_camera_finished)
 	camera.interpolated_target = true
+	camera.attachment_local_controls = true
 	var canvas := CanvasLayer.new()
 	canvas.layer = 31
 	add_child(canvas)
@@ -92,8 +102,8 @@ func _is_ground(vehicle: Node3D) -> bool:
 	return not vehicle.is_in_group("carrier") and (vehicle.is_in_group("ground_vehicles") or vehicle is GroundVehicle)
 
 func view_count(vehicle: Variant = subject) -> int:
-	if not is_instance_valid(vehicle) or not vehicle is RigidBody3D: return PILOT
-	if not (vehicle.is_in_group("aircraft") or vehicle.is_in_group("ai_aircraft")): return PILOT
+	if not is_instance_valid(vehicle) or not vehicle is RigidBody3D: return BOMB
+	if not (vehicle.is_in_group("aircraft") or vehicle.is_in_group("ai_aircraft")): return BOMB
 	return VIEW_COUNT if vehicle.has_node("AIToggle") and not bool(vehicle.get_meta("player_control_locked", false)) else PILOT
 
 func select_slot(index: int, aircraft: Node3D = null) -> bool:
@@ -106,6 +116,7 @@ func select_slot(index: int, aircraft: Node3D = null) -> bool:
 			return false
 		var viewed: Variant = FlightDirector.current_viewed_aircraft
 		aircraft = viewed if is_instance_valid(viewed) and available.has(viewed) else available[0]
+	if index >= view_count(aircraft): return false
 	if index == PILOT:
 		if view_count(aircraft) <= PILOT: return false
 		release_camera(false)
@@ -118,6 +129,7 @@ func select_slot(index: int, aircraft: Node3D = null) -> bool:
 		if FlightDirector.player_controlled_plane == subject: FlightDirector._return_control_to_ai()
 		piloting = false
 	_save_pose()
+	bomb_camera.stop()
 	var previous_view := camera if active else get_viewport().get_camera_3d()
 	var opening_pose := previous_view.global_transform if is_instance_valid(previous_view) else Transform3D.IDENTITY
 	var opening_fov := previous_view.fov if is_instance_valid(previous_view) else 65.0
@@ -137,6 +149,7 @@ func select_slot(index: int, aircraft: Node3D = null) -> bool:
 	subject = aircraft
 	_present_occupants(subject)
 	slot = index
+	anchored = false
 	camera.aim_target = null
 	if slot < FREE:
 		var saved: Dictionary = _bank(subject)[slot]
@@ -151,18 +164,39 @@ func select_slot(index: int, aircraft: Node3D = null) -> bool:
 		camera.fov = opening_fov
 	camera.motion = Vector3.ZERO
 	camera.move_camera(Vector3.ZERO, Vector2.ZERO, 0.0, 0.0)
-	if slot == ANCHORED:
-		_resolve_focus()
-		_orbit_offset = camera.global_position - _focus_point()
-		if _orbit_offset.length() < 0.3: _orbit_offset = camera.global_basis.z * 3.0
-		var aimed := _orbit_basis()
-		_orbit_roll = atan2(camera.global_basis.x.dot(aimed.y), camera.global_basis.x.dot(aimed.x))
-		_move_anchored(Vector3.ZERO, Vector2.ZERO, 0.0, 0.0)
+	var wants_anchor: bool = bool(_bank(subject)[slot].get("anchored", false)) if slot < FREE else bool(_free_anchor_modes.get(_free_anchor_key(), slot == ANCHORED))
+	if slot == BOMB:
+		bomb_camera.begin(subject)
+	elif wants_anchor: _set_anchored(true)
 	camera.make_current()
 	var terrain := TerrainReference.get_terrain_node()
 	if terrain != null and terrain.has_method("prioritize_camera_handoff"):
 		terrain.call("prioritize_camera_handoff", camera)
 	return true
+
+func _free_anchor_key() -> String:
+	return "%s::%d" % [_preset_key(subject), slot]
+
+func toggle_anchored() -> void:
+	if not active or slot == BOMB or not is_instance_valid(subject): return
+	_set_anchored(not anchored)
+	_save_pose()
+	if slot >= FREE: _free_anchor_modes[_free_anchor_key()] = anchored
+
+func _set_anchored(enabled: bool) -> void:
+	anchored = enabled
+	camera.motion = Vector3.ZERO
+	_look = Vector2.ZERO
+	if anchored:
+		# Aim lock must not detach a mounted camera from its moving vehicle.
+		camera.attach(subject if slot < FREE else null, Rig.Attachment.FULL if slot < FREE else Rig.Attachment.WORLD)
+		_resolve_focus()
+		# Read optical-axis tilt before changing aim, never from the new heading.
+		var level := _level_basis(-camera.offset.basis.z)
+		_orbit_roll = atan2(camera.offset.basis.x.dot(level.y), camera.offset.basis.x.dot(level.x))
+		_move_anchored(Vector3.ZERO, Vector2.ZERO, 0.0, 0.0)
+	else:
+		camera.attach(subject if slot < FREE else null, Rig.Attachment.FULL if slot < FREE else Rig.Attachment.WORLD)
 
 func cycle_aircraft(step: int = 1) -> void:
 	cycle_vehicle(step)
@@ -182,10 +216,11 @@ func cycle_vehicle(step: int = 1) -> void:
 
 func _save_pose() -> void:
 	if active and slot < FREE and is_instance_valid(subject):
-		_bank(subject)[slot] = {"pose": camera.offset, "fov": camera.fov}
+		_bank(subject)[slot] = {"pose": camera.offset, "fov": camera.fov, "anchored": anchored}
 		GameSession.trailer_camera_presets[_preset_key(subject)] = _bank(subject).duplicate(true)
 
 func release_camera(restore_view: bool = true) -> void:
+	bomb_camera.stop()
 	if piloting:
 		if FlightDirector.player_controlled_plane == subject: FlightDirector._return_control_to_ai()
 		piloting = false
@@ -213,7 +248,7 @@ func _process(delta: float) -> void:
 	if RecordingMode.active or PauseMenu.is_photo_mode_active():
 		release_camera(false)
 		return
-	if slot != FREE and (not is_instance_valid(subject) or subject.is_queued_for_deletion()):
+	if (slot != FREE or anchored) and slot != BOMB and (not is_instance_valid(subject) or subject.is_queued_for_deletion()):
 		release_camera()
 		subject = null
 		return
@@ -221,6 +256,9 @@ func _process(delta: float) -> void:
 		_editing = false
 		_look = Vector2.ZERO
 		_clear_pad()
+		return
+	if slot == BOMB:
+		_process_bomb_camera(delta)
 		return
 	var focus := get_viewport().gui_get_focus_owner()
 	if focus is LineEdit or focus is TextEdit:
@@ -238,10 +276,10 @@ func _process(delta: float) -> void:
 	roll += pad.roll
 	var old_fov := camera.fov
 	camera.fov = clampf(camera.fov + float(pad.zoom) * 40.0 * delta, 15.0, 110.0)
-	camera.move_speed = 10.0 * (4.0 if Input.is_physical_key_pressed(KEY_SHIFT) else (0.2 if Input.is_physical_key_pressed(KEY_CTRL) else 1.0))
+	camera.move_speed = clampf(float(MOVE_SPEED_LEVELS[move_speed_level]) * (4.0 if Input.is_physical_key_pressed(KEY_SHIFT) else (0.2 if Input.is_physical_key_pressed(KEY_CTRL) else 1.0)), MOVE_SPEED_LEVELS.front(), MOVE_SPEED_LEVELS.back())
 	# No residual drift when the operator stops moving the rig.
 	if direction.is_zero_approx(): camera.motion = Vector3.ZERO
-	if slot == ANCHORED:
+	if anchored:
 		_move_anchored(direction, _look, roll, delta)
 	elif direction.is_zero_approx() and _look.is_zero_approx() and is_zero_approx(roll):
 		# Preserve the authored local pose exactly, avoiding world/local rounding
@@ -257,7 +295,28 @@ func _process(delta: float) -> void:
 		var terrain := TerrainReference.get_terrain_node()
 		if terrain != null and terrain.has_method("update_paused_camera_stream"):
 			terrain.call("update_paused_camera_stream", delta)
-	_label.text = "%s · %s\n←/→ vehicle · ↑/↓ view · Space pause/play · AltGr record · Backspace exit\nRMB + mouse/WASD/QE: position · Z/C: roll · Wheel: zoom\nPad: LS move · RS aim/orbit · LB/RB down/up · D-pad ←/→ roll · LT/RT zoom out/in" % [subject.name if is_instance_valid(subject) else "World", VIEW_NAMES[slot]]
+	_label.text = "%s · %s · ANCHOR %s · SPEED %s m/s\n←/→ vehicle · ↑/↓ view · Space pause/play · AltGr record · Backspace exit\nRMB + mouse/WASD/QE: position · Z/C: roll · Wheel: zoom\nPad: A anchor · X vehicle · Y camera · B record\nLS move · RS aim/orbit · LB/RB down/up · D-pad ↑/↓ speed · ←/→ roll · LT/RT zoom out/in" % [subject.name if is_instance_valid(subject) else "World", VIEW_NAMES[slot], "ON" if anchored else "OFF", str(camera.move_speed)]
+
+func _process_bomb_camera(delta: float) -> void:
+	if bomb_camera.state == BombRig.State.WAITING or not bomb_camera.has_prediction:
+		if not is_instance_valid(subject) or not subject.is_inside_tree():
+			release_camera()
+			return
+		camera.offset = subject.get_global_transform_interpolated() * (_bank(subject)[0].pose as Transform3D)
+	else:
+		camera.offset = bomb_camera.render_pose()
+	camera.global_transform = camera.offset
+	camera.fov = clampf(camera.fov + float(_pad_motion().zoom) * 40.0 * delta, 15.0, 110.0)
+	camera.make_current()
+	_look = Vector2.ZERO
+	var status: String = ["OFF", "WAITING FOR BOMB", "FOLLOWING BOMB", "HOLDING AT 40 m", "EXPLOSION / AFTERMATH"][bomb_camera.state]
+	if bomb_camera.state == BombRig.State.FOLLOWING and not bomb_camera.has_prediction: status = "WAITING FOR IMPACT SOLUTION"
+	_label.text = "BOMB CAM · %s\n↑/↓ or Y: change camera · X: vehicle · B / AltGr: record · LT/RT: zoom" % status
+
+func _on_bomb_camera_finished() -> void:
+	if active and slot == BOMB:
+		if is_instance_valid(subject) and subject.is_inside_tree() and not subject.is_queued_for_deletion(): select_slot(0, subject)
+		else: release_camera()
 
 func _resolve_focus() -> void:
 	_focus_node = subject
@@ -307,25 +366,43 @@ func _focus_point() -> Vector3:
 	var frame := _focus_node.get_global_transform_interpolated() if camera.interpolated_target else _focus_node.global_transform
 	return frame * _focus_offset
 
-func _orbit_basis() -> Basis:
-	var direction := -_orbit_offset.normalized()
+func _anchor_basis(focus_offset: Vector3) -> Basis:
+	# A target passing through the lens must not teleport the camera or create
+	# an invalid look-at basis. Keep the last viewing direction at coincidence.
+	if focus_offset.length_squared() < 0.0001:
+		return camera.offset.basis * Basis(Vector3.BACK, -_orbit_roll)
+	return _level_basis(-focus_offset.normalized())
+
+func _level_basis(direction: Vector3) -> Basis:
 	var up := Vector3.RIGHT if absf(direction.dot(Vector3.UP)) > 0.999 else Vector3.UP
 	return Basis.looking_at(direction, up)
 
 func _move_anchored(direction: Vector3, look: Vector2, roll: float, delta: float) -> void:
-	_orbit_offset = Basis(Vector3.UP, -look.x) * _orbit_offset
-	var pitched := Basis(_orbit_basis().x, -look.y) * _orbit_offset
-	if absf(pitched.normalized().dot(Vector3.UP)) < 0.995: _orbit_offset = pitched
-	var moved: Vector3 = _orbit_offset + _orbit_basis() * direction.limit_length() * camera.move_speed * delta
-	if moved.length() >= 0.3: _orbit_offset = moved
+	# Work in the camera's original attachment space: vehicle-local for regular
+	# cameras, world-space for free cameras. Anchoring changes aim, not transport.
+	var frame: Transform3D = camera.anchor()
+	var focus: Vector3 = frame.affine_inverse() * _focus_point()
+	var position: Vector3 = camera.offset.origin
+	var focus_offset := position - focus
+	if not look.is_zero_approx():
+		focus_offset = Basis(Vector3.UP, -look.x) * focus_offset
+		var pitched := Basis(_anchor_basis(focus_offset).x, -look.y) * focus_offset
+		if absf(pitched.normalized().dot(Vector3.UP)) < 0.995: focus_offset = pitched
+		position = focus + focus_offset
+	position += _anchor_basis(focus_offset) * direction.limit_length() * camera.move_speed * delta
 	_orbit_roll = wrapf(_orbit_roll + roll * delta, -PI, PI)
-	camera.global_transform = Transform3D(_orbit_basis() * Basis(Vector3.BACK, _orbit_roll), _focus_point() + _orbit_offset)
-	camera.offset = camera.global_transform
+	camera.offset = Transform3D(_anchor_basis(position - focus) * Basis(Vector3.BACK, _orbit_roll), position)
+	camera.global_transform = frame * camera.offset
 
 func _clear_pad() -> void:
 	_pad_axes.clear()
 	_pad_buttons.clear()
 	_pad_device = -1
+
+func _step_move_speed(step: int) -> void:
+	move_speed_level = clampi(move_speed_level + step, 0, MOVE_SPEED_LEVELS.size() - 1)
+	# Do not coast at the previous faster speed after stepping down.
+	camera.motion = Vector3.ZERO
 
 func _on_pad_connection(device: int, connected: bool) -> void:
 	if not connected and device == _pad_device: _clear_pad()
@@ -344,16 +421,36 @@ func _pad_motion() -> Dictionary:
 	return {
 		"move": Vector3(_pad_axis(JOY_AXIS_LEFT_X), float(_pad_buttons.get(JOY_BUTTON_RIGHT_SHOULDER, false)) - float(_pad_buttons.get(JOY_BUTTON_LEFT_SHOULDER, false)), _pad_axis(JOY_AXIS_LEFT_Y)),
 		"look": Vector2(_pad_axis(JOY_AXIS_RIGHT_X), _pad_axis(JOY_AXIS_RIGHT_Y)),
-		"roll": float(_pad_buttons.get(JOY_BUTTON_DPAD_RIGHT, false)) - float(_pad_buttons.get(JOY_BUTTON_DPAD_LEFT, false)),
+		"roll": float(_pad_buttons.get(JOY_BUTTON_DPAD_LEFT, false)) - float(_pad_buttons.get(JOY_BUTTON_DPAD_RIGHT, false)),
 		"zoom": maxf(0.0, _pad_axis(JOY_AXIS_TRIGGER_LEFT, 0.05)) - maxf(0.0, _pad_axis(JOY_AXIS_TRIGGER_RIGHT, 0.05))}
 
 func _input(event: InputEvent) -> void:
 	if RecordingMode.active or PauseMenu.visible or PauseMenu.is_photo_mode_active(): return
 	var focus := get_viewport().gui_get_focus_owner()
 	if focus is LineEdit or focus is TextEdit: return
+	# Film-only face buttons: leave the player's real cockpit bindings alone.
+	if not piloting and event is InputEventJoypadButton and event.button_index in [JOY_BUTTON_A, JOY_BUTTON_B, JOY_BUTTON_X, JOY_BUTTON_Y]:
+		if event.pressed:
+			match event.button_index:
+				JOY_BUTTON_A:
+					if not active: select_slot(mini(slot, FREE))
+					toggle_anchored()
+				JOY_BUTTON_X: cycle_vehicle()
+				JOY_BUTTON_Y: select_slot(posmod(slot + 1, view_count()))
+				JOY_BUTTON_B:
+					var director := get_tree().get_first_node_in_group("trailer_scenario")
+					if is_instance_valid(director): director.toggle_recording()
+		get_viewport().set_input_as_handled()
+		return
 	if event is InputEventKey and event.pressed and not event.echo:
 		var key: int = event.physical_keycode if event.physical_keycode != 0 else event.keycode
 		if not event.ctrl_pressed and not event.alt_pressed and not event.meta_pressed:
+			if active and key == KEY_B:
+				var commander := get_tree().get_first_node_in_group("commander_camera_controller")
+				if is_instance_valid(commander):
+					commander.call("_start_officer_sip")
+				get_viewport().set_input_as_handled()
+				return
 			if key in [KEY_LEFT, KEY_RIGHT]:
 				cycle_vehicle(-1 if key == KEY_LEFT else 1)
 				get_viewport().set_input_as_handled()
@@ -376,12 +473,16 @@ func _input(event: InputEvent) -> void:
 				return
 	if not active: return
 	if event is InputEventJoypadMotion or event is InputEventJoypadButton:
-		if event is InputEventJoypadButton and event.button_index not in [JOY_BUTTON_DPAD_LEFT, JOY_BUTTON_DPAD_RIGHT, JOY_BUTTON_LEFT_SHOULDER, JOY_BUTTON_RIGHT_SHOULDER]: return
+		if event is InputEventJoypadButton and event.button_index not in [JOY_BUTTON_DPAD_UP, JOY_BUTTON_DPAD_DOWN, JOY_BUTTON_DPAD_LEFT, JOY_BUTTON_DPAD_RIGHT, JOY_BUTTON_LEFT_SHOULDER, JOY_BUTTON_RIGHT_SHOULDER]: return
 		if _pad_device != event.device:
 			_clear_pad()
 			_pad_device = event.device
 		if event is InputEventJoypadMotion: _pad_axes[event.axis] = event.axis_value
-		else: _pad_buttons[event.button_index] = event.pressed
+		else:
+			var was_pressed := bool(_pad_buttons.get(event.button_index, false))
+			_pad_buttons[event.button_index] = event.pressed
+			if event.pressed and not was_pressed and event.button_index in [JOY_BUTTON_DPAD_UP, JOY_BUTTON_DPAD_DOWN]:
+				_step_move_speed(1 if event.button_index == JOY_BUTTON_DPAD_UP else -1)
 		# Own camera axes/buttons without swallowing the normal pause-menu button.
 		get_viewport().set_input_as_handled()
 		return
@@ -404,11 +505,13 @@ func is_target_camera_focusing_node(node: Node3D) -> bool:
 	return active and is_instance_valid(subject) and node == subject
 
 func apply_origin_shift(offset: Vector3) -> void:
+	if is_instance_valid(bomb_camera): bomb_camera.apply_origin_shift(offset)
 	if active:
 		camera.global_position -= offset
 		if slot >= FREE: camera.offset.origin -= offset
 
 func _exit_tree() -> void:
+	if is_instance_valid(bomb_camera): bomb_camera.stop()
 	_release_occupants()
 	if active:
 		_save_pose()

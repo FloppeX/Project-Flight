@@ -83,6 +83,7 @@ func _ready() -> void:
 func _exit_tree() -> void:
 	if _is_route_preview_pathfinding:
 		_global_route_preview_jobs = maxi(_global_route_preview_jobs - 1, 0)
+		_is_route_preview_pathfinding = false
 
 func apply_origin_shift(offset: Vector3) -> void:
 	objective_position -= offset
@@ -531,6 +532,8 @@ func _get_formation_offset(slot_index: int) -> Vector2:
 	return Vector2(lateral, longitudinal)
 
 func _find_shared_hostile(cache_key: String, origin: Vector3, range_limit: float, excluded_node: Node3D = null) -> Node3D:
+	if not is_inside_tree() or is_queued_for_deletion():
+		return null
 	var now_ms: int = Time.get_ticks_msec()
 	var cache_fresh: bool = now_ms - _shared_hostile_cache_at_ms <= 250
 	var cache_matches: bool = (
@@ -552,6 +555,8 @@ func _find_shared_hostile(cache_key: String, origin: Vector3, range_limit: float
 	return _shared_hostile_cache_target
 
 func _find_nearest_hostile(origin: Vector3, range_limit: float, excluded_node: Node3D = null) -> Node3D:
+	if not is_inside_tree() or is_queued_for_deletion():
+		return null
 	range_limit *= _get_night_hostile_search_range_multiplier()
 	var best_target: Node3D = null
 	var best_distance: float = maxf(range_limit, 1.0)
@@ -840,6 +845,9 @@ func _recompute_route_preview(start_world_pos: Vector3, target_world_pos: Vector
 
 
 func _on_route_preview_job_result(result: Variant) -> void:
+	# The scheduler may deliver after scene detachment but before object freeing.
+	# _exit_tree already released this job's shared budget in that case.
+	if not is_inside_tree() or is_queued_for_deletion(): return
 	if not result is Dictionary:
 		_global_route_preview_jobs = maxi(_global_route_preview_jobs - 1, 0)
 		_is_route_preview_pathfinding = false

@@ -2094,6 +2094,10 @@ func _move_parallel_aircraft_horizontally(
 	var carrier := get_parent() as Node3D
 	var start_local := carrier.to_local(aircraft.global_position) if carrier else aircraft.global_position
 	var target_local := carrier.to_local(target_position) if carrier else target_position
+	# _prepare_aircraft_for_movement solved the loaded wheel/strut stance.
+	# The latch marker locates a point ON the deck, not the aircraft body origin.
+	# Preserve that supported stance along the carrier's plane during towing.
+	target_local.y = start_local.y
 	var local_basis := carrier.global_transform.basis.inverse() * aircraft.global_transform.basis \
 			if carrier else aircraft.global_transform.basis
 	var bot_offsets: Array[Vector3] = []
@@ -2120,7 +2124,7 @@ func _move_parallel_aircraft_horizontally(
 		await get_tree().physics_frame
 	if not is_instance_valid(aircraft):
 		return
-	aircraft.global_position = carrier.to_global(target_local) if carrier else target_position
+	aircraft.global_position = carrier.to_global(target_local) if carrier else target_local
 	_sync_rigidbody_transform_state(aircraft)
 	aircraft.angular_velocity = Vector3.ZERO
 	for i in range(mini(selected_bots.size(), bot_offsets.size())):
@@ -2147,7 +2151,9 @@ func _begin_parallel_catapult_launch(aircraft: RigidBody3D, selected_catapult: N
 
 
 func _cleanup_parallel_launch_lane(job: Dictionary) -> void:
-	var selected_elevator := job.get("elevator") as Node
+	if not is_inside_tree() or is_queued_for_deletion(): return
+	var elevator_variant: Variant = job.get("elevator")
+	var selected_elevator := elevator_variant as Node if is_instance_valid(elevator_variant) else null
 	var selected_bots_variant: Variant = job.get("tractors", [])
 	var selected_bots: Array[Node3D] = []
 	for bot_variant in selected_bots_variant:
@@ -2163,17 +2169,22 @@ func _cleanup_parallel_launch_lane(job: Dictionary) -> void:
 		home.y = top_y
 		targets.append(home)
 	await _move_nodes_to_local_targets(selected_bots, targets, _tractor_staging_speed)
+	# A scene reload detaches the old carrier before its objects are freed.
+	# Cancel rather than advancing its elevator or completing an old launch job.
+	if not is_inside_tree() or is_queued_for_deletion(): return
 	if is_instance_valid(selected_elevator) and selected_elevator.has_method("move_platform_down"):
 		selected_elevator.call("move_platform_down")
 		while is_instance_valid(selected_elevator) \
 		and not _is_elevator_physically_at_bottom_for(selected_elevator):
+			if not is_inside_tree() or is_queued_for_deletion(): return
 			var bot_y := _get_deck_local_y() \
 					+ _get_elevator_platform_local_y_for(selected_elevator, -10.0) \
 					+ _get_elevator_platform_top_offset_y_for(selected_elevator) \
 					+ tractor_elevator_floor_offset_m
 			for i in range(mini(selected_bots.size(), targets.size())):
-				selected_bots[i].position.y = bot_y
+				if is_instance_valid(selected_bots[i]): selected_bots[i].position.y = bot_y
 			await get_tree().physics_frame
+	if not is_inside_tree() or is_queued_for_deletion(): return
 	for bot in selected_bots:
 		_set_cleanup_idle_for_tractor_bot(bot)
 	job["cleanup_complete"] = true
@@ -6146,6 +6157,10 @@ func _move_aircraft_horizontally(aircraft: RigidBody3D, target_position: Vector3
 		carrier.force_update_transform()
 	var start_local: Vector3 = carrier.to_local(aircraft.global_position) if carrier else aircraft.global_position
 	var target_local: Vector3 = carrier.to_local(target_position) if carrier else target_position
+	# Same wheel-supported transport contract as the parallel launch lanes.
+	# A marker's Y (or a caller's stale world Y) must not compress the aircraft
+	# through the surface. Keep the existing suspension-derived carrier-local Y.
+	target_local.y = start_local.y
 	var aircraft_carrier_local_basis: Basis = carrier.global_transform.basis.inverse() * aircraft.global_transform.basis if carrier else aircraft.global_transform.basis
 
 	# Get initial tractorbot offsets from aircraft
@@ -6207,7 +6222,7 @@ func _move_aircraft_horizontally(aircraft: RigidBody3D, target_position: Vector3
 				_set_manual_transport(bot, false)
 		return
 
-	aircraft.global_position = carrier.to_global(target_local) if carrier else target_position
+	aircraft.global_position = carrier.to_global(target_local) if carrier else target_local
 	if carrier:
 		var final_transform := aircraft.global_transform
 		final_transform.basis = (carrier.global_transform.basis * aircraft_carrier_local_basis).orthonormalized()
@@ -6440,7 +6455,7 @@ func _set_cleanup_idle_for_tractor_bot(bot: Node3D) -> void:
 		bot.disable_movement()
 
 func _move_nodes_to_local_targets(nodes: Array[Node3D], local_targets: Array[Vector3], speed: float) -> void:
-	if nodes.is_empty() or local_targets.is_empty():
+	if not is_inside_tree() or is_queued_for_deletion() or nodes.is_empty() or local_targets.is_empty():
 		return
 	var max_distance: float = 0.0
 	var start_positions: Array[Vector3] = []
@@ -6455,6 +6470,7 @@ func _move_nodes_to_local_targets(nodes: Array[Node3D], local_targets: Array[Vec
 	var duration: float = maxf(max_distance / maxf(speed, 0.1), 0.01)
 	var elapsed: float = 0.0
 	while elapsed < duration:
+		if not is_inside_tree() or is_queued_for_deletion(): return
 		elapsed += get_physics_process_delta_time()
 		var t := ease_in_out_cubic(clampf(elapsed / duration, 0.0, 1.0))
 		for i in range(min(nodes.size(), local_targets.size())):
@@ -6462,6 +6478,7 @@ func _move_nodes_to_local_targets(nodes: Array[Node3D], local_targets: Array[Vec
 				continue
 			nodes[i].position = start_positions[i].lerp(local_targets[i], t)
 		await get_tree().physics_frame
+	if not is_inside_tree() or is_queued_for_deletion(): return
 	for i in range(min(nodes.size(), local_targets.size())):
 		if not is_instance_valid(nodes[i]):
 			continue

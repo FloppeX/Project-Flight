@@ -13,6 +13,7 @@ var launch_requests: Array[Dictionary] = []
 var _pending_launch_orders: Array[Dictionary] = []
 var battle: RefCounted
 var _label: Label
+var _restarting := false
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -92,6 +93,9 @@ func toggle_pause() -> void:
 	started = true
 	get_tree().paused = not get_tree().paused
 
+func toggle_recording() -> void:
+	if ready_to_run: DirectVideoCapture.toggle_capture()
+
 func _input(event: InputEvent) -> void:
 	if not event is InputEventKey: return
 	if RecordingMode.active or PauseMenu.visible or PauseMenu.is_photo_mode_active(): return
@@ -101,7 +105,7 @@ func _input(event: InputEvent) -> void:
 	# AltGr is right Alt, including Windows' accompanying synthetic Ctrl flag.
 	# Do not interpret left Ctrl+Alt as the recording key.
 	if key == KEY_ALT and event.location == KEY_LOCATION_RIGHT:
-		if event.pressed and not event.echo and ready_to_run: DirectVideoCapture.toggle_capture()
+		if event.pressed and not event.echo: toggle_recording()
 		get_viewport().set_input_as_handled()
 		return
 	if key == KEY_SPACE and not event.ctrl_pressed and not event.alt_pressed and not event.meta_pressed:
@@ -115,14 +119,17 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		return
 	if RecordingMode.active or PauseMenu.visible or PauseMenu.is_photo_mode_active(): return
 	if get_viewport().gui_get_focus_owner() is LineEdit or get_viewport().gui_get_focus_owner() is TextEdit: return
-	if event.keycode == KEY_F6:
+	var key: int = event.physical_keycode if event.physical_keycode != 0 else event.keycode
+	if key == KEY_F6:
 		toggle_pause()
 		get_viewport().set_input_as_handled()
-	elif event.keycode == KEY_F7:
-		restart()
+	elif key == KEY_F7:
+		# Reload removes this director from the tree immediately.
 		get_viewport().set_input_as_handled()
+		restart()
 
 func restart() -> void:
+	if _restarting: return
 	if DirectVideoCapture.recording or DirectVideoCapture.finalizing:
 		status = "Stop video and wait for encoding before restarting."
 		return
@@ -133,6 +140,7 @@ func restart() -> void:
 	if not bool(result.get("ok", false)):
 		_on_restore_failed(str(result.get("message")))
 		return
+	_restarting = true
 	get_tree().paused = false
 	LoadingScreen.begin_scenario_load()
 	get_tree().reload_current_scene()

@@ -1,6 +1,11 @@
 extends Node3D
 class_name Explosion
 
+## Pooled visuals outlive this coordinator. Film cameras track their actual
+## spawn times/lifetimes instead of treating coordinator deletion as the end.
+signal visual_tail_started(duration_s: float)
+signal visuals_scheduled
+
 enum VisualPreset {
 	AUTO,
 	LIGHT,
@@ -67,6 +72,7 @@ func trigger_explosion() -> void:
 
 func _spawn_visual_effects() -> void:
 	if not visual_effects_enabled or get_node_or_null("/root/ParticleManager") == null:
+		visuals_scheduled.emit()
 		return
 	var preset: VisualPreset = _resolved_visual_preset()
 	var burst_count: int = 3
@@ -160,9 +166,10 @@ func _spawn_next_visual_event() -> void:
 		return
 	var event: Dictionary = _visual_events[_visual_event_index]
 	_visual_event_index += 1
+	var spawned := false
 	match str(event.get("kind", "")):
 		"flash":
-			particle_manager.call("spawn_explosion_flash",
+			spawned = bool(particle_manager.call("spawn_explosion_flash",
 				global_position,
 				event["target_scale"],
 				event["albedo"],
@@ -170,9 +177,9 @@ func _spawn_next_visual_event() -> void:
 				float(event["duration_s"]),
 				event["rotation"],
 				bool(event["important"])
-			)
+			))
 		"debris":
-			particle_manager.call("spawn_managed_debris",
+			spawned = bool(particle_manager.call("spawn_managed_debris",
 				global_position,
 				event["size"],
 				event["color"],
@@ -180,14 +187,17 @@ func _spawn_next_visual_event() -> void:
 				float(event["lifetime_s"]),
 				5.0,
 				bool(event["important"])
-			)
+			))
 		"wave":
-			particle_manager.call("spawn_blast_wave",
+			spawned = bool(particle_manager.call("spawn_blast_wave",
 				global_position,
 				float(event["radius"]),
 				float(event["duration_s"]),
 				bool(event["important"])
-			)
+			))
+	if spawned:
+		visual_tail_started.emit(maxf(float(event.get("lifetime_s", event.get("duration_s", 0.05))), 0.05))
+	if _visual_event_index >= _visual_events.size(): visuals_scheduled.emit()
 
 func _resolved_visual_preset() -> VisualPreset:
 	if visual_preset != VisualPreset.AUTO:

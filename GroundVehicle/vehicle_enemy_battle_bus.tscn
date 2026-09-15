@@ -89,12 +89,12 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.98, 0.02)
 
 [node name="InsigniaHood" parent="." unique_id=62397043 instance=ExtResource("9_bwjhb")]
 transform = Transform3D(0.8, 0, 0, 0, 0.7825181, -0.16632937, 0, 0.16632937, 0.7825181, 0, 1.2706957, 3.1075864)
-follow_target_path = NodePath("../Aircraft 3/left wing")
+follow_target_path = NodePath("")
 
 [node name="InsigniaSide" parent="." unique_id=900086752 instance=ExtResource("9_bwjhb")]
 transform = Transform3D(-5.2453668e-08, 1.2, -5.2453668e-08, 0, -5.2453668e-08, -1.2, -1.2, -5.2453668e-08, 2.2928227e-15, 1.617342, 1.317141, 0.08390105)
-follow_target_path = NodePath("../Aircraft 3/left wing")
+follow_target_path = NodePath("")
 
 [node name="InsigniaSide2" parent="." unique_id=471377384 instance=ExtResource("9_bwjhb")]
 transform = Transform3D(-5.2453668e-08, 1.2, -5.2453668e-08, 0, -5.2453668e-08, -1.2, -1.2, -5.2453668e-08, 2.2928227e-15, -1.6059752, 1.317141, 0.08390105)
-follow_target_path = NodePath("../Aircraft 3/left wing")
+follow_target_path = NodePath("")

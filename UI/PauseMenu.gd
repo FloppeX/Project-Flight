@@ -1790,6 +1790,16 @@ func _controls_bbcode() -> String:
 
 func _on_restart() -> void:
 	_close()
+	if GameSession.is_trailer_scenario:
+		var trailer := get_tree().get_first_node_in_group("trailer_scenario")
+		if is_instance_valid(trailer):
+			trailer.restart()
+			return
+		# Recover even if staging failed before its director was installed.
+		var result := SaveGameManager.prepare_trailer_scenario()
+		if not bool(result.get("ok", false)):
+			push_error("Trailer restart failed: %s" % result.get("message", "Unknown error"))
+			return
 	var loading_screen: Node = get_node_or_null("/root/LoadingScreen")
 	if loading_screen != null and loading_screen.has_method("begin_scenario_load"):
 		loading_screen.call("begin_scenario_load")

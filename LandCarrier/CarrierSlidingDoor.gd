@@ -2,6 +2,10 @@ extends Node3D
 ## Imported centre-split door. Travel stays local to the moving carrier.
 
 const CLIP_SHADER = preload("res://LandCarrier/CarrierDoor.gdshader")
+@export var approach_distance_m: float = 0.80
+@export var travel_time_s: float = 0.40
+@export var close_delay_s: float = 0.45
+var _previous_positions: Dictionary = {}
 var openness: float = 0.0
 var occupied: bool = false
 var _delay: float = 0.0
@@ -69,16 +73,29 @@ func _ready() -> void:
 
 func _physics_process(delta: float) -> void:
 	occupied = false
+	var approaching := false
+	var positions: Dictionary = {}
 	for body in _sensor.get_overlapping_bodies():
 		if (body is CharacterBody3D and not body.is_ancestor_of(self)) or body.is_in_group("door_users"):
-			occupied = true
-			break
-	if occupied:
-		_delay = float(get_meta("close_delay_s", 1.25))
+			# Measure actual movement relative to the door: the commander is moved
+			# directly and reports zero velocity, even while walking. Carrier motion
+			# must not count as a person approaching.
+			var point := to_local(body.global_position)
+			var id: int = body.get_instance_id()
+			positions[id] = point
+			if _previous_positions.has(id):
+				var motion: Vector3 = (point - Vector3(_previous_positions[id])) / maxf(delta, 0.001)
+				approaching = approaching or _is_approaching(point, motion)
+			# Once opening, keep the leaves clear of a person in the threshold,
+			# including someone who stops or turns around while passing through.
+			occupied = occupied or (absf(point.x) < _width * 0.5 + 0.28 and absf(point.z) < 0.45)
+	_previous_positions = positions
+	if approaching or (openness > 0.0 and occupied):
+		_delay = close_delay_s
 	else:
 		_delay = maxf(0.0, _delay - delta)
-	var target := 1.0 if occupied or _delay > 0.0 else 0.0
-	var next := move_toward(openness, target, delta / maxf(float(get_meta("opening_time_s", 0.65)), 0.01))
+	var target := 1.0 if _delay > 0.0 else 0.0
+	var next := move_toward(openness, target, delta / maxf(travel_time_s, 0.01))
 	var direction := signf(next - openness)
 	if direction != 0.0 and direction != _motion_direction:
 		_motion_audio.pitch_scale = 1.05 if direction > 0.0 else 0.95
@@ -87,6 +104,13 @@ func _physics_process(delta: float) -> void:
 	if next != openness:
 		openness = next
 		_apply_pose()
+
+func _is_approaching(point: Vector3, motion: Vector3) -> bool:
+	if absf(point.z) > approach_distance_m or absf(point.x) > _width * 0.5 + 0.15:
+		return false
+	var planar_speed := Vector2(motion.x, motion.z).length()
+	var toward_speed := -signf(point.z) * motion.z
+	return toward_speed > 0.05 and toward_speed > planar_speed * 0.5
 
 func _apply_pose() -> void:
 	for entry in _leaves:

@@ -118,14 +118,43 @@ func run() -> void:
 	controller._process(0.1)
 	expect(controller.camera.global_position.distance_to(mounted_pose.origin - shift) < 0.01, "free camera retains rebased world position after process")
 	controller.select_slot(4)
-	var orbit_offset: Vector3 = controller.camera.global_position - cockpit.global_position
+	var anchored_position: Vector3 = controller.camera.global_position
 	aircraft.position += Vector3(7, 3, 4)
 	aircraft.rotation.z += 0.5
 	controller._process(0.1)
-	expect((controller.camera.global_position - cockpit.global_position).distance_to(orbit_offset) < 0.01, "anchored camera follows pilot position without inheriting vehicle bank")
+	expect(controller.camera.global_position.distance_to(anchored_position) < 0.001, "anchored camera holds world position while the aircraft moves and banks")
 	expect((-controller.camera.global_basis.z).dot((cockpit.global_position - controller.camera.global_position).normalized()) > 0.9999, "pilot stays centred while vehicle moves and rolls")
+	aircraft.position -= shift
+	controller.apply_origin_shift(shift)
+	controller._process(0.1)
+	expect(controller.camera.global_position.distance_to(anchored_position - shift) < 0.001, "anchored world position survives origin shifts without following subject")
+	var before_move: Vector3 = controller.camera.global_position
+	controller._move_anchored(Vector3.RIGHT, Vector2.ZERO, 0.0, 0.25)
+	expect(controller.camera.global_position.distance_to(before_move) > 1.0, "anchored view can translate freely while keeping aim lock")
+	var after_move: Vector3 = controller.camera.global_position
+	aircraft.position += Vector3(3, 7, -9)
+	controller._process(0.1)
+	expect(controller.camera.global_position.distance_to(after_move) < 0.001, "anchored view stops translating when operator releases input")
+	aircraft.position += after_move - cockpit.global_position
+	controller._process(0.1)
+	expect(controller.camera.global_position.distance_to(after_move) < 0.001 and controller.camera.global_basis.is_finite(), "target at lens does not displace camera or invalidate its basis")
+	aircraft.position += Vector3(0, 0, 5)
+	controller._process(0.1)
+	expect((-controller.camera.global_basis.z).dot((cockpit.global_position - after_move).normalized()) > 0.9999, "aim tracking resumes after target passes the lens")
 	controller.select_slot(4, carrier)
 	expect(controller._focus_node == commander and controller._focus_point().distance_to(commander.global_position + Vector3.UP * 1.8) < 0.01, "carrier anchored camera centres commander eye height")
+	# Starting an aim lock must not mistake an opposite heading for 180-degree
+	# roll. Test both level shots and deliberately authored optical-axis tilt.
+	for heading in [0.0, PI * 0.5, PI, PI * 1.5]:
+		for tilt in [0.0, 0.35, -0.5]:
+			controller.select_slot(3, carrier)
+			controller.camera.offset = Transform3D(Basis(Vector3.UP, heading) * Basis(Vector3.BACK, tilt), commander.global_position + Vector3(0, 2, 10))
+			controller._process(0.0)
+			controller.select_slot(4)
+			expect(absf(wrapf(controller._orbit_roll - tilt, -PI, PI)) < 0.001, "anchored entry preserves actual tilt, not heading: heading=%.2f tilt=%.2f" % [heading, tilt])
+			var anchored_basis: Basis = controller.camera.global_basis
+			controller.select_slot(4)
+			expect(controller.camera.global_basis.is_equal_approx(anchored_basis), "reselecting anchored view does not accumulate roll")
 	for view in 5:
 		controller.select_slot(view, aircraft)
 		controller._clear_pad()
@@ -134,8 +163,16 @@ func run() -> void:
 		button.button_index = JOY_BUTTON_DPAD_RIGHT
 		button.pressed = true
 		root.push_input(button)
+		expect(controller._pad_motion().roll == -1.0, "D-pad right uses reversed roll in view %d" % view)
 		controller._process(0.3)
 		expect(controller.camera.global_basis.x.dot(initial_basis.x) < 0.99, "D-pad rolls view %d" % view)
+		expect(controller.camera.global_basis.x.dot(initial_basis.y) < -0.2, "D-pad right rotates in the requested direction in view %d" % view)
+		button.pressed = false
+		root.push_input(button)
+		button.button_index = JOY_BUTTON_DPAD_LEFT
+		button.pressed = true
+		root.push_input(button)
+		expect(controller._pad_motion().roll == 1.0, "D-pad left uses reversed roll in view %d" % view)
 		button.pressed = false
 		root.push_input(button)
 		var rolled: Basis = controller.camera.global_basis

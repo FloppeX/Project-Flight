@@ -514,7 +514,9 @@ func _set_open(is_open: bool) -> void:
 			_root.size = _main_viewport_size
 	elif _monitor_preview_only:
 		custom_viewport = _monitor_preview_viewport
-		_root.size = Vector2(_monitor_preview_viewport.size)
+		# The monitor uses a larger logical canvas than its physical texture so
+		# desktop columns and map labels do not collide on the small 3D screen.
+		_root.size = _monitor_preview_viewport.get_visible_rect().size
 	_root.visible = is_open or _monitor_preview_only
 	# A CanvasLayer routed to a SubViewport can still participate in the main
 	# window's GUI hit test. Disable the entire tactical control branch while it

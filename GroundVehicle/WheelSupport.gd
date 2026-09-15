@@ -10,14 +10,17 @@ var support_center := Vector3.ZERO
 var support_normal := Vector3.UP
 var wheel_points := PackedVector3Array()
 var wheel_normals := PackedVector3Array()
+var rolling_wheels: Array[Dictionary] = []
 
 func setup(host) -> void:
 	rest_bases.clear()
+	rolling_wheels.clear()
 	host._wheel_contact_local_positions.clear()
 	for i in host._all_wheel_nodes.size():
 		var wheel: Node3D = host._all_wheel_nodes[i]
 		rest_bases.append(wheel.basis)
 		host._wheel_contact_local_positions.append(_rest_contact(host, i))
+		rolling_wheels.append(_prepare_rolling_wheel(host, wheel, i))
 	coarse_timer = float(host.get_instance_id() % 15) / 100.0
 
 func _rest_contact(host, i: int) -> Vector3:
@@ -36,6 +39,8 @@ func invalidate(host) -> void:
 	hits.clear()
 	host._suspension_probe_ready = false
 	previous_detail = -1
+	for wheel in rolling_wheels:
+		wheel["sampled"] = false
 
 func refresh(host, physical_only: bool = false, coarse: bool = false) -> void:
 	hits.clear()
@@ -176,6 +181,85 @@ func _apply_wheels(host, delta: float) -> void:
 	if host._body_node:
 		host._body_node.position = host._body_rest_position
 		host._body_node.rotation = host._body_rest_rotation
+	_update_wheel_spin(host, delta)
+
+
+func _prepare_rolling_wheel(host, wheel: Node3D, index: int) -> Dictionary:
+	var visuals: Array[Node3D] = []
+	var transforms: Array[Transform3D] = []
+	var bounds := AABB()
+	var has_bounds := false
+	# Preserve authored node paths (LOD/replay uses them). Move only branches
+	# containing wheel meshes, never the steering pivot or ground-contact marker.
+	for child in wheel.get_children():
+		if not child is Node3D or child == host._wheel_contact_nodes[index]:
+			continue
+		var meshes := child.find_children("*", "MeshInstance3D", true, false)
+		if child is MeshInstance3D:
+			meshes.append(child)
+		if meshes.is_empty():
+			continue
+		visuals.append(child)
+		transforms.append(child.transform)
+		for mesh: MeshInstance3D in meshes:
+			if mesh.mesh == null:
+				continue
+			var local_transform := wheel.global_transform.affine_inverse() * mesh.global_transform
+			var box := local_transform * mesh.mesh.get_aabb()
+			bounds = bounds.merge(box) if has_bounds else box
+			has_bounds = true
+	var center := bounds.get_center() if has_bounds else Vector3.ZERO
+	var radius := maxf(bounds.size.y, bounds.size.z) * 0.5 if has_bounds else float(host.WHEEL_RADIUS)
+	return {"visuals": visuals, "rest": transforms, "center": center,
+		"radius": maxf(radius, 0.01), "angle": 0.0, "sampled": false,
+		"axle_in_host": host._wheel_nominal_positions[index] + wheel.basis * center}
+
+
+func _update_wheel_spin(host, delta: float) -> void:
+	if delta <= 0.0:
+		return
+	for i in rolling_wheels.size():
+		var state: Dictionary = rolling_wheels[i]
+		var pivot: Node3D = host._all_wheel_nodes[i]
+		# Sample a fixed chassis point: suspension travel and stationary steering
+		# must not masquerade as rolling, but inner/outer wheels turn differently.
+		var axle: Vector3 = host.global_transform * state.axle_in_host
+		var support: Variant = null
+		for hit in hits:
+			if hit.has("body") and (support == null or int(hit.wheel) == i):
+				support = hit.body.get_ref()
+				if int(hit.wheel) == i:
+					break
+		if not is_instance_valid(support) or not support.is_inside_tree():
+			support = null
+		var previous_support: Variant = state.get("support")
+		if previous_support is WeakRef:
+			previous_support = previous_support.get_ref()
+		var distance := 0.0
+		if bool(state.sampled) and previous_support == support and host._suspension_has_ground:
+			var previous: Vector3 = state.previous_position
+			if support != null:
+				previous = support.to_global(state.previous_local)
+			var displacement := axle - previous
+			# Explicit origin invalidation handles normal shifts; this also rejects
+			# teleports/reset placement without multiplying the wheel phase wildly.
+			if displacement.length() <= maxf(10.0, float(host.max_speed) * delta * 3.0):
+				distance = displacement.dot(pivot.global_basis.z.normalized())
+		state["previous_position"] = axle
+		state["previous_local"] = support.to_local(axle) if support != null else axle
+		state["support"] = weakref(support) if support != null else null
+		state["sampled"] = true
+		if absf(distance) < 0.00001:
+			continue
+		var radius: float = state.radius * pivot.global_basis.y.length()
+		state.angle = fposmod(float(state.angle) + distance / maxf(radius, 0.01), TAU)
+		var spin := Basis(Vector3.RIGHT, float(state.angle))
+		var center: Vector3 = state.center
+		var rotation_about_axle := Transform3D(spin, center - spin * center)
+		for j in state.visuals.size():
+			var visual: Node3D = state.visuals[j]
+			if is_instance_valid(visual):
+				visual.transform = rotation_about_axle * state.rest[j]
 
 func _integrate_chassis(host, delta: float) -> void:
 	var targets: Array = host._cached_corner_target_ys

@@ -1,7 +1,7 @@
 extends SceneTree
 
-const STATION_SCENE := preload("res://LandCarrier/ComputerStation.tscn")
-const COMMANDER_SCENE := preload("res://LandCarrier/Commander.tscn")
+const STATION_SCENE := "res://LandCarrier/ComputerStation.tscn"
+const COMMANDER_SCENE := "res://LandCarrier/Commander.tscn"
 
 var _failures: Array[String] = []
 
@@ -15,17 +15,19 @@ func _run() -> void:
 	world.name = "ComputerStationTestWorld"
 	root.add_child(world)
 
-	var station := STATION_SCENE.instantiate() as Node3D
+	# Load after autoload initialization; Commander references FlightDirector.
+	var station := (load(STATION_SCENE) as PackedScene).instantiate() as Node3D
 	station.position = Vector3(0.0, 0.0, 2.2)
 	station.rotation.y = PI
 	world.add_child(station)
 
-	var second_station := STATION_SCENE.instantiate() as Node3D
+	var second_station := (load(STATION_SCENE) as PackedScene).instantiate() as Node3D
 	second_station.position = Vector3(20.0, 0.0, 20.0)
 	world.add_child(second_station)
 
-	var commander := COMMANDER_SCENE.instantiate() as CharacterBody3D
+	var commander := (load(COMMANDER_SCENE) as PackedScene).instantiate() as CharacterBody3D
 	commander.set("computer_camera_transition_s", 0.04)
+	commander.set("computer_screen_focus_s", 0.04)
 	commander.set("computer_screen_focus_s", 0.04)
 	world.add_child(commander)
 	await process_frame
@@ -54,6 +56,9 @@ func _run() -> void:
 	var world_map_root := world_map.get("_root") as Control if world_map != null else null
 	_expect(world_map_root != null, "WorldMapOverlay control root is unavailable")
 	if world_map_root != null:
+		_expect(world_map_root.size.is_equal_approx(Vector2(1600, 900)), "monitor preview does not use the logical desktop layout")
+		var map_control := world_map.get("_map_rect") as Control
+		_expect(map_control != null and map_control.size.x >= 600.0, "monitor map is too narrow for its labels")
 		_expect(
 			world_map_root.mouse_behavior_recursive == Control.MOUSE_BEHAVIOR_DISABLED,
 			"monitor preview can intercept unrelated main-window mouse input"
@@ -77,7 +82,7 @@ func _run() -> void:
 		_expect(entered, "commander could not enter the computer station")
 		_expect(bool(commander.call("is_using_computer_station")), "commander did not retain station-use state")
 		_expect(bool(station.call("is_in_use")), "station did not retain in-use state")
-		await create_timer(0.12).timeout
+		await _wait_for_camera_transition(commander)
 
 		var expected_focus_global: Transform3D = station.call(
 			"get_screen_focus_camera_transform"
@@ -96,6 +101,7 @@ func _run() -> void:
 			_expect(str(console.call("get_current_page")) == "tactical", "station did not select the tactical page")
 			_expect(bool(console.call("is_open")), "station did not open the carrier console")
 			if world_map_root != null:
+				_expect(not bool(world_map.get("_monitor_preview_only")), "fullscreen console retained monitor layout mode")
 				_expect(
 					world_map_root.mouse_behavior_recursive == Control.MOUSE_BEHAVIOR_INHERITED,
 					"fullscreen tactical console did not restore mouse input"
@@ -104,11 +110,12 @@ func _run() -> void:
 				var active_snapshot: Dictionary = tactical_display.call("get_debug_snapshot")
 				_expect(not bool(active_snapshot.get("preview_enabled", true)), "monitor viewport kept rendering beneath the fullscreen console")
 			console.call("set_open", false)
-			await create_timer(0.08).timeout
+			await _wait_for_camera_transition(commander)
 			if tactical_display != null:
 				var resumed_snapshot: Dictionary = tactical_display.call("get_debug_snapshot")
 				_expect(bool(resumed_snapshot.get("preview_enabled", false)), "monitor viewport did not resume after closing the console")
 			if world_map_root != null:
+				_expect(world_map_root.size.is_equal_approx(Vector2(1600, 900)), "closing the console did not restore the monitor logical canvas")
 				_expect(
 					world_map_root.mouse_behavior_recursive == Control.MOUSE_BEHAVIOR_DISABLED,
 					"closed tactical console resumed intercepting main-window mouse input"
@@ -127,6 +134,14 @@ func _run() -> void:
 	for failure in _failures:
 		push_error("[ComputerStationSmoketest] %s" % failure)
 	quit(1)
+
+
+func _wait_for_camera_transition(commander: Node) -> void:
+	for attempt in 100:
+		await create_timer(0.01).timeout
+		if not bool(commander.get("_computer_camera_transitioning")):
+			return
+	_expect(false, "computer camera transition timed out")
 
 
 func _expect(condition: bool, message: String) -> void:

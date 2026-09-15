@@ -24,7 +24,7 @@
     ]
   },
   "events": [
-    {"id": "establish", "time": 0, "action": "cue", "text": "Ground forces engage — Aircraft 5 strike flight launching"},
-    {"id": "launch_pair", "time": 0, "action": "launch", "count": 2, "aircraft_model": "Aircraft_5", "loadout_profile": "rocket_strike"}
+    {"id": "establish", "time": 0, "action": "cue", "text": "Dune Strider underway — strike launch preparation begins at 20 seconds"},
+    {"id": "launch_pair", "time": 20, "action": "launch", "count": 2, "aircraft_model": "Aircraft_5", "loadout_profile": "strike"}
   ]
 }

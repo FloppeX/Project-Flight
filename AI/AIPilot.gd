@@ -302,6 +302,9 @@ var formation_speed_cap_mps: float = -1.0
 var formation_speed_bias_mps: float = 0.0
 var formation_slot_quality: float = 0.0
 var formation_ahead_hold_t: float = 0.0
+var formation_peer_ids: PackedInt64Array = []
+var formation_lead_bank_rad: float = 0.0
+var formation_lead_vertical_speed_mps: float = 0.0
 
 # Two-layer waypoint system
 var nav_waypoint: Vector3 = Vector3.ZERO  # High-level navigation goal
@@ -457,7 +460,8 @@ var maneuver_waypoint: Vector3 = Vector3.ZERO  # Short-term maneuvering target
 @export var aircraft_route_radius_constraint_enabled: bool = true
 @export var aircraft_route_radius_constraint_margin: float = 0.85
 @export var aircraft_route_departure_turn_enabled: bool = true
-@export var formation_close_bank_limit_deg: float = 30.0
+@export var formation_lead_bank_limit_deg: float = 25.0
+@export var formation_close_bank_limit_deg: float = 45.0
 @export var formation_close_pitch_limit_deg: float = 12.0
 @export var formation_close_vs_limit_mps: float = 4.0
 @export var formation_close_pitch_gain_scale: float = 0.65
@@ -21898,6 +21902,8 @@ func _navigate_to_waypoint(delta: float):
 		var nav_bank_t: float = clampf((altitude_agl - emergency_min_agl_m) / 220.0, 0.0, 1.0)
 		var low_nav_bank_limit: float = lerpf(bank_limit_when_low_deg, bank_limit_deg, nav_bank_t)
 		bank_limit_deg = minf(bank_limit_deg, low_nav_bank_limit)
+	if formation_peer_ids.size() > 1 and not formation_anchor_active and current_state in [State.SEARCH, State.TRANSIT]:
+		bank_limit_deg = minf(bank_limit_deg, formation_lead_bank_limit_deg)
 	if formation_soft_t > 0.0:
 		bank_limit_deg = lerpf(bank_limit_deg, minf(bank_limit_deg, formation_close_bank_limit_deg), formation_soft_t)
 	if current_state == State.DOGFIGHT and _dogfight_recovery_timer_s > 0.0:
@@ -22215,6 +22221,11 @@ func _navigate_to_waypoint(delta: float):
 				clampf(ccip_bank_target, -precision_bank_limit_rad, precision_bank_limit_rad),
 				fine_roll_blend
 			)
+
+	if formation_anchor_active and current_state in [State.SEARCH, State.TRANSIT]:
+		# Match the lead's bank immediately; slot error adds a gentle correction.
+		desired_bank = clampf(desired_bank + formation_lead_bank_rad,
+			-deg_to_rad(bank_limit_deg), deg_to_rad(bank_limit_deg))
 
 	# Ground-attack positioning should visibly TURN to its next attack leg. Route projection can
 	# otherwise blend the bank command almost to zero while the yaw controller still sees a large
@@ -23472,7 +23483,7 @@ func _navigate_to_waypoint(delta: float):
 	elif in_dive_state and abs(alt_err) < 35.0:
 		desired_vs = clamp(alt_err * 0.15, -8.0, 8.0)  # Gentle correction when close
 	if formation_soft_t > 0.0 and not needs_high_authority and not in_dogfight:
-		var formation_vs := clampf(alt_err * 0.045, -formation_close_vs_limit_mps, formation_close_vs_limit_mps)
+		var formation_vs := formation_lead_vertical_speed_mps + clampf(alt_err * 0.1, -formation_close_vs_limit_mps, formation_close_vs_limit_mps)
 		desired_vs = lerpf(desired_vs, formation_vs, formation_soft_t)
 	var dogfight_speed_deficit: float = 0.0
 	# Dogfight turn-pull assist: compensate lift loss in steep bank.
@@ -23563,6 +23574,7 @@ func _navigate_to_waypoint(delta: float):
 	# before the roll/load inner loop sees either one.
 	if _is_recovery_route_state():
 		desired_vs = maxf(desired_vs, _recovery_terrain_vs_floor_mps)
+	var formation_leader_guidance := formation_peer_ids.size() > 1 and not formation_anchor_active and current_state in [State.SEARCH, State.TRANSIT]
 	var final_3d_path_guidance: Dictionary = {"active": false}
 	if _uses_shared_waypoint_turn_controller():
 		var path_curvature_bank_hint_rad: float = desired_bank
@@ -23581,6 +23593,12 @@ func _navigate_to_waypoint(delta: float):
 				final_3d_bank_limit_deg,
 				attack_assertive_turn_overbank_max_deg
 			)
+		if formation_leader_guidance:
+			# Authored route curvature also passes through the formation bank limit.
+			final_3d_bank_limit_deg = minf(final_3d_bank_limit_deg, formation_lead_bank_limit_deg)
+			if is_finite(supplied_signed_left_accel_mps2):
+				var formation_accel_limit := 9.80665 * tan(deg_to_rad(final_3d_bank_limit_deg))
+				supplied_signed_left_accel_mps2 = clampf(supplied_signed_left_accel_mps2, -formation_accel_limit, formation_accel_limit)
 		final_3d_path_guidance = _get_3d_bank_vertical_path_guidance(
 			desired_bank,
 			desired_vs,
@@ -23602,7 +23620,7 @@ func _navigate_to_waypoint(delta: float):
 				"target_load_g",
 				route_arc_acceleration_target_g
 			))
-			if route_geometry_lateral_accel_valid:
+			if route_geometry_lateral_accel_valid and not formation_leader_guidance:
 				# Exact primitives already resolved lateral and vertical acceleration into
 				# an attainable bank/load pair above. The generic shared resolver projects
 				# the vector again at its bank limit and may lower its magnitude to favor the
@@ -24301,6 +24319,10 @@ func _navigate_to_waypoint(delta: float):
 		thr_min = minf(thr_min, clampf(aircraft_route_turn_speed_throttle_min, 0.0, 1.0))
 		thr_max = minf(thr_max, lerpf(1.0, clampf(aircraft_route_turn_speed_throttle_cut, 0.0, 1.0), _route_turn_speed_brake_t))
 		bank_throttle_scale = lerpf(1.0, clampf(aircraft_route_turn_speed_bank_throttle_scale, 0.0, 1.0), _route_turn_speed_brake_t)
+	if formation_speed_cap_mps > 0.0 and current_state in [State.SEARCH, State.TRANSIT]:
+		# Cruise's 40% floor prevented leaders waiting and wingmen shedding speed.
+		# The existing stall protection below still owns low-speed recovery.
+		thr_min = minf(thr_min, 0.1)
 	if navigation_turn_pull_t > 0.0:
 		thr_max = minf(thr_max, lerpf(1.0, clampf(navigation_turn_backpressure_throttle_cut, 0.0, 1.0), navigation_turn_pull_t))
 		bank_throttle_scale = minf(bank_throttle_scale, lerpf(1.0, clampf(aircraft_route_turn_speed_bank_throttle_scale, 0.0, 1.0), navigation_turn_pull_t))
@@ -24325,7 +24347,10 @@ func _navigate_to_waypoint(delta: float):
 			pitch_input = clamp(pitch_input, -0.5, 0.3)
 		throttle_input = 1.0
 	if current_state not in [State.IDLE, State.RECOVERY_APPROACH, State.PRE_LANDING, State.APPROACH, State.LANDING]:
-		throttle_input = maxf(throttle_input, clampf(airborne_min_throttle, 0.0, 1.0))
+		var active_throttle_floor := clampf(airborne_min_throttle, 0.0, 1.0)
+		if formation_speed_cap_mps > 0.0 and current_state in [State.SEARCH, State.TRANSIT]:
+			active_throttle_floor = minf(active_throttle_floor, 0.1)
+		throttle_input = maxf(throttle_input, active_throttle_floor)
 	if attack_full_throttle_enabled and current_state in [
 		State.ATTACK_POSITIONING,
 		State.ATTACK_INBOUND,
@@ -25544,7 +25569,10 @@ func _check_collision_avoidance(_delta: float) -> bool:
 			if v is Vector3:
 				contact_vel = v
 		var horizontal_dist := Vector2(rel_pos.x, rel_pos.z).length()
-		var safe_distance := maxf(airborne_safe_distance_m, 0.0)
+		# Only actively coordinated peers use the formation clearance. Breaking
+		# away clears membership; unrelated traffic keeps the full safety bubble.
+		var formation_peer := formation_peer_ids.has(id)
+		var safe_distance := minf(airborne_safe_distance_m, 20.0) if formation_peer else maxf(airborne_safe_distance_m, 0.0)
 		if safe_distance > 0.0 and horizontal_dist < safe_distance:
 			if horizontal_dist < closest_miss:
 				closest_tca = 0.0
@@ -25563,7 +25591,7 @@ func _check_collision_avoidance(_delta: float) -> bool:
 		# Miss distance at closest approach
 		var miss_vec: Vector3 = rel_pos + rel_vel * tca
 		var miss_dist: float = miss_vec.length()
-		var coll_miss_threshold: float = maxf(
+		var coll_miss_threshold: float = 20.0 if formation_peer else maxf(
 			maxf(airborne_safe_distance_m, 0.0),
 			25.0 if current_state == State.ATTACK_DIVE else 80.0
 		)
@@ -26277,6 +26305,11 @@ func _check_terrain_ahead():
 		(forward_dir + Vector3.DOWN * 0.42).normalized(),
 	]
 
+	var terrain_exclusions: Array[RID] = [aircraft.get_rid()]
+	for peer_id in formation_peer_ids:
+		var peer: Variant = instance_from_id(peer_id)
+		if is_instance_valid(peer) and peer is CollisionObject3D:
+			terrain_exclusions.append(peer.get_rid())
 	terrain_ahead_distance = INF
 	terrain_flight_path_distance = INF
 	for probe_index in range(probe_dirs.size()):
@@ -26285,7 +26318,7 @@ func _check_terrain_ahead():
 			ray_start,
 			ray_start + probe_dir * terrain_ahead_check_distance
 		)
-		query.exclude = [aircraft]
+		query.exclude = terrain_exclusions
 		# Use all layers so this works with project-specific Terrain3D collision settings.
 		query.collision_mask = 0xFFFFFFFF
 		var result = space_state.intersect_ray(query)
@@ -27004,6 +27037,10 @@ func _compute_coordinated_turn_controls(
 	)
 	bank_established_t = bank_established_t * bank_established_t \
 		* (3.0 - 2.0 * bank_established_t)
+	if formation_peer_ids.size() > 1 and target_bank_abs_rad < deg_to_rad(8.0):
+		# A level formation still needs vertical acceleration to capture its slot.
+		# Waiting for a bank to establish erased that load in straight flight.
+		bank_established_t = 1.0
 	if _recovery_lift_escape_active or (current_state == State.MISSED_APPROACH and landing_bolter_response_control_enabled):
 		# A wings-level escape still needs more than 1G to arrest descent. The
 		# turn-roll-in blend must not discard its explicit vertical load demand.
@@ -27785,6 +27822,10 @@ func _combat_log_dogfight_engagement() -> void:
 
 func change_state(new_state: State):
 	"""Change AI state with logging"""
+	# Combat owns steering and speed immediately, even when the flight manager
+	# has already updated this physics frame. Only transit/search hold slots.
+	if new_state not in [State.SEARCH, State.TRANSIT]:
+		clear_formation_guidance()
 	if current_state == State.ATTACK_POSITIONING \
 			and new_state != State.ATTACK_POSITIONING \
 			and not _attack_geometry_job.is_empty():
@@ -30055,9 +30096,11 @@ func set_formation_speed_guidance(speed_cap_mps: float = -1.0, speed_bias_mps: f
 	formation_speed_cap_mps = speed_cap_mps
 	formation_speed_bias_mps = speed_bias_mps
 
-func set_formation_handling(slot_quality: float = 0.0, ahead_hold_t: float = 0.0) -> void:
+func set_formation_handling(slot_quality: float = 0.0, ahead_hold_t: float = 0.0, lead_bank_rad: float = 0.0, lead_vertical_speed_mps: float = 0.0) -> void:
 	formation_slot_quality = clampf(slot_quality, 0.0, 1.0)
 	formation_ahead_hold_t = clampf(ahead_hold_t, 0.0, 1.0)
+	formation_lead_bank_rad = lead_bank_rad
+	formation_lead_vertical_speed_mps = lead_vertical_speed_mps
 
 func clear_formation_guidance() -> void:
 	formation_anchor_active = false
@@ -30066,6 +30109,9 @@ func clear_formation_guidance() -> void:
 	formation_speed_bias_mps = 0.0
 	formation_slot_quality = 0.0
 	formation_ahead_hold_t = 0.0
+	formation_peer_ids.clear()
+	formation_lead_bank_rad = 0.0
+	formation_lead_vertical_speed_mps = 0.0
 
 func _is_debugging_custom_cap_route() -> bool:
 	return cap_route_debug_enabled \
@@ -30175,7 +30221,7 @@ func _normalize_waypoint_speeds(source_speeds: Array, target_count: int) -> Arra
 func _get_effective_target_speed() -> float:
 	var effective_target_speed: float = target_speed + formation_speed_bias_mps
 	if formation_speed_cap_mps > 0.0:
-		effective_target_speed = minf(effective_target_speed, formation_speed_cap_mps)
+		effective_target_speed = formation_speed_cap_mps if formation_anchor_active else minf(effective_target_speed, formation_speed_cap_mps)
 	return maxf(effective_target_speed, stall_speed_mps + stall_margin_mps + 2.0)
 
 func build_terrain_safe_waypoints(new_waypoints: Array[Vector3], minimum_agl_m: float = 260.0, include_return_leg: bool = false, keep_uniform_altitude: bool = false) -> Array[Vector3]:
