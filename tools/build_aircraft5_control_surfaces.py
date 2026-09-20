@@ -180,10 +180,54 @@ def apply_boolean(obj, cutter, operation):
     obj.modifiers.clear()
 
 
+def hinge_from_cut(obj, plane_point, plane_normal, tolerance=1e-4):
+    """Derive the hinge straight from the face the cut actually produced.
+
+    Every vertex the boolean placed on the cutting plane belongs to the new
+    cut face, so its centroid is the middle of the hinge line and its longest
+    in-plane direction is the hinge axis. Deriving both from the geometry keeps
+    the hinge aligned with the slot the surface came out of; restating the axis
+    by hand lets the two drift apart, which mirrored parts do silently.
+    """
+    matrix = obj.matrix_world
+    on_plane = [
+        matrix @ vertex.co for vertex in obj.data.vertices
+        if abs(((matrix @ vertex.co) - plane_point).dot(plane_normal)) < tolerance
+    ]
+    if len(on_plane) < 3:
+        raise RuntimeError(f"{obj.name}: found no cut face to hinge on")
+
+    centroid = Vector((0.0, 0.0, 0.0))
+    for point in on_plane:
+        centroid += point
+    centroid /= len(on_plane)
+
+    # Build any orthonormal basis inside the plane, then rotate it onto the
+    # principal axis of the cut face.
+    seed = Vector((1.0, 0.0, 0.0))
+    if abs(seed.dot(plane_normal)) > 0.9:
+        seed = Vector((0.0, 0.0, 1.0))
+    u = (seed - plane_normal * seed.dot(plane_normal)).normalized()
+    v = plane_normal.cross(u).normalized()
+
+    suu = svv = suv = 0.0
+    for point in on_plane:
+        offset = point - centroid
+        a, b = offset.dot(u), offset.dot(v)
+        suu += a * a
+        svv += b * b
+        suv += a * b
+    from math import atan2, cos, sin
+    angle = 0.5 * atan2(2.0 * suv, suu - svv)
+    axis = (u * cos(angle) + v * sin(angle)).normalized()
+    return centroid, axis
+
+
 def place_on_hinge(obj, hinge_point, hinge_axis):
     """Move the object's origin onto its hinge and point local X along the axis,
-    so deflection is a single rotation about local X."""
-    x_axis = to_blender(*hinge_axis).normalized()
+    so deflection is a single rotation about local X. Both arguments are already
+    in Blender space."""
+    x_axis = hinge_axis.normalized()
     reference = Vector((0.0, 0.0, 1.0))
     if abs(x_axis.dot(reference)) > 0.9:
         reference = Vector((0.0, 1.0, 0.0))
@@ -191,7 +235,7 @@ def place_on_hinge(obj, hinge_point, hinge_axis):
     z_axis = x_axis.cross(y_axis).normalized()
 
     basis = Matrix((x_axis, y_axis, z_axis)).transposed().to_4x4()
-    basis.translation = to_blender(*hinge_point)
+    basis.translation = hinge_point.copy()
 
     bpy.context.view_layer.update()
     obj.data.transform(basis.inverted() @ obj.matrix_world)
@@ -199,7 +243,7 @@ def place_on_hinge(obj, hinge_point, hinge_axis):
     bpy.context.view_layer.update()
 
 
-def carve(parent, name, cutter_fn, hinge_point, hinge_axis):
+def carve(parent, name, cutter_fn):
     """Split one surface out of `parent` and return it, hinged and parented."""
     surface = parent.copy()
     surface.data = parent.data.copy()
@@ -227,6 +271,11 @@ def carve(parent, name, cutter_fn, hinge_point, hinge_axis):
     match_materials(tight, parent)
     match_materials(loose, parent)
 
+    # Face 0 of every cutter prism is its hinge plane, by construction.
+    hinge_face = tight.data.polygons[0]
+    plane_point = hinge_face.center.copy()
+    plane_normal = hinge_face.normal.normalized()
+
     apply_boolean(surface, tight, "INTERSECT")
     apply_boolean(parent, loose, "DIFFERENCE")
 
@@ -236,11 +285,47 @@ def carve(parent, name, cutter_fn, hinge_point, hinge_axis):
     if not surface.data.polygons:
         raise RuntimeError(f"{name}: intersection produced no geometry")
 
+    hinge_point, hinge_axis = hinge_from_cut(surface, plane_point, plane_normal)
     place_on_hinge(surface, hinge_point, hinge_axis)
     surface.parent = parent
     surface.matrix_parent_inverse = parent_world.inverted()
     bpy.context.view_layer.update()
     return surface
+
+
+def godot_hinge(obj):
+    """Return the object's hinge point and local X axis in Godot coordinates."""
+    matrix = obj.matrix_world
+    t = matrix.translation
+    a = matrix.to_3x3() @ Vector((1.0, 0.0, 0.0))
+    return Vector((t.x, t.z, -t.y)), Vector((a.x, a.z, -a.y))
+
+
+def check_mirror(left, right, tolerance=1e-4):
+    """A mirrored surface must get a mirrored hinge.
+
+    The original hand-written axes passed this pair the same Z slope instead of
+    opposite ones, so the right aileron and both rudders hinged out of their own
+    slots. Deriving the hinge from the cut fixed that; this keeps it fixed.
+    """
+    left_point, left_axis = godot_hinge(left)
+    right_point, right_axis = godot_hinge(right)
+
+    expected_point = Vector((-left_point.x, left_point.y, left_point.z))
+    if (right_point - expected_point).length > tolerance:
+        raise RuntimeError(
+            f"{right.name}: hinge point {tuple(round(v, 4) for v in right_point)} "
+            f"is not the mirror of {left.name} {tuple(round(v, 4) for v in left_point)}"
+        )
+
+    expected_axis = Vector((-left_axis.x, left_axis.y, left_axis.z))
+    # An axis and its negation describe the same hinge line.
+    if min((right_axis - expected_axis).length,
+           (right_axis + expected_axis).length) > tolerance:
+        raise RuntimeError(
+            f"{right.name}: hinge axis {tuple(round(v, 4) for v in right_axis)} "
+            f"is not the mirror of {left.name} {tuple(round(v, 4) for v in left_axis)}"
+        )
 
 
 def build():
@@ -252,40 +337,32 @@ def build():
 
     for side, label in ((1, "left"), (-1, "right")):
         wing = bpy.data.objects[f"outer wing {label}"]
-        x_mid = side * (AILERON_X_INBOARD + AILERON_X_OUTBOARD) / 2.0
-        hinge_point = (x_mid, -0.14, trailing_edge_z(x_mid) + AILERON_CHORD)
         built.append(carve(
             wing,
             f"aileron {label}",
             lambda name, margin, s=side: aileron_cutter(name, s, margin),
-            hinge_point,
-            (side, 0.0, side * TE_SLOPE),
         ))
 
-    built.append(carve(
-        body,
-        "elevator",
-        elevator_cutter,
-        (0.0, 1.80, ELEVATOR_HINGE_Z),
-        (1.0, 0.0, 0.0),
-    ))
+    built.append(carve(body, "elevator", elevator_cutter))
 
     for side, label in ((1, "left"), (-1, "right")):
-        y_mid = (RUDDER_Y_LOW + RUDDER_Y_HIGH) / 2.0
-        hinge_point = (side * 2.43, y_mid, boom_aft_z(y_mid) + RUDDER_CHORD)
         built.append(carve(
             body,
             f"rudder {label}",
             lambda name, margin, s=side: rudder_cutter(name, s, margin),
-            hinge_point,
-            (0.0, 1.0, -BOOM_AFT_SLOPE),
         ))
 
+    by_name = {surface.name: surface for surface in built}
+    check_mirror(by_name["aileron left"], by_name["aileron right"])
+    check_mirror(by_name["rudder left"], by_name["rudder right"])
+
     for surface in built:
-        t = surface.matrix_world.translation
-        godot_origin = (round(t.x, 3), round(t.z, 3), round(-t.y, 3))
+        point, axis = godot_hinge(surface)
         print(f"  {surface.name:<16} verts={len(surface.data.vertices):>4} "
-              f"faces={len(surface.data.polygons):>4} hinge(godot)={godot_origin}")
+              f"faces={len(surface.data.polygons):>4}\n"
+              f"{'':<18} hinge(godot) point={tuple(round(v, 3) for v in point)} "
+              f"axis={tuple(round(v, 4) for v in axis)}")
+    print("  mirror symmetry: ok")
 
     bpy.ops.export_scene.gltf(
         filepath=str(OUTPUT),
