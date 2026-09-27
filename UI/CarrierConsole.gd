@@ -49,6 +49,8 @@ const NAV_LEFT_RESERVE_PX := 360.0
 const NAV_RIGHT_MARGIN_PX := 20.0
 const NAV_MIN_TAB_WIDTH_PX := 104.0
 const TOP_BAR_HEIGHT_PX := 64.0
+const CURSOR_DEADZONE := 0.20
+const CURSOR_SPEED_PX_S := 900.0
 
 var _root: Control
 var _nav_panel: Panel
@@ -66,6 +68,9 @@ var _replicator_page: Control
 
 var _is_open: bool = false
 var _current_page: String = PAGE_TACTICAL
+var _cursor_device_id: int = -1
+var _cursor_a_pressed: bool = false
+var _previous_mouse_mode: int = -1
 
 
 func _ready() -> void:
@@ -74,6 +79,39 @@ func _ready() -> void:
 	_build_ui()
 	set_process_input(true)
 	call_deferred("_apply_page_visibility")
+
+func _process(delta: float) -> void:
+	if not _is_open:
+		return
+	var connected := Input.get_connected_joypads()
+	if connected.is_empty():
+		return
+	if not connected.has(_cursor_device_id):
+		_cursor_device_id = int(connected[0])
+	var stick := Vector2(
+		Input.get_joy_axis(_cursor_device_id, JOY_AXIS_LEFT_X),
+		Input.get_joy_axis(_cursor_device_id, JOY_AXIS_LEFT_Y)
+	)
+	var viewport := get_viewport()
+	if viewport == null:
+		return
+	var viewport_size := viewport.get_visible_rect().size
+	var motion := controller_cursor_motion(stick, delta, viewport_size)
+	if motion.is_zero_approx():
+		return
+	var next_position := viewport.get_mouse_position() + motion
+	next_position.x = clampf(next_position.x, 0.0, maxf(viewport_size.x - 1.0, 0.0))
+	next_position.y = clampf(next_position.y, 0.0, maxf(viewport_size.y - 1.0, 0.0))
+	viewport.warp_mouse(next_position)
+
+
+static func controller_cursor_motion(stick: Vector2, delta: float, viewport_size: Vector2) -> Vector2:
+	var magnitude := minf(stick.length(), 1.0)
+	if magnitude <= CURSOR_DEADZONE or delta <= 0.0:
+		return Vector2.ZERO
+	var strength := (magnitude - CURSOR_DEADZONE) / (1.0 - CURSOR_DEADZONE)
+	var resolution_scale := maxf(viewport_size.y / 1080.0, 0.5)
+	return stick.normalized() * strength * strength * CURSOR_SPEED_PX_S * resolution_scale * delta
 
 
 func _input(event: InputEvent) -> void:
@@ -89,6 +127,27 @@ func _input(event: InputEvent) -> void:
 
 	if not _is_open:
 		return
+	if event is InputEventJoypadMotion:
+		var motion := event as InputEventJoypadMotion
+		if motion.axis == JOY_AXIS_LEFT_X or motion.axis == JOY_AXIS_LEFT_Y:
+			_cursor_device_id = motion.device
+			get_viewport().set_input_as_handled()
+			return
+	if event is InputEventJoypadButton:
+		var button := event as InputEventJoypadButton
+		_cursor_device_id = button.device
+		if button.button_index == JOY_BUTTON_LEFT_SHOULDER \
+				or button.button_index == JOY_BUTTON_RIGHT_SHOULDER:
+			if button.pressed:
+				_cycle_page(-1 if button.button_index == JOY_BUTTON_LEFT_SHOULDER else 1)
+			get_viewport().set_input_as_handled()
+			return
+		if button.button_index == JOY_BUTTON_A:
+			if button.pressed != _cursor_a_pressed:
+				_cursor_a_pressed = button.pressed
+				_emit_cursor_click(button.pressed)
+			get_viewport().set_input_as_handled()
+			return
 
 	# Let the pause action continue to PauseMenu, but do not leave two modal
 	# interfaces stacked when it opens.
@@ -107,6 +166,18 @@ func set_open(value: bool) -> void:
 			_apply_page_visibility()
 		return
 	_is_open = value
+	if value:
+		if Input.mouse_mode != Input.MOUSE_MODE_VISIBLE:
+			_previous_mouse_mode = Input.mouse_mode
+			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	else:
+		if _cursor_a_pressed:
+			_cursor_a_pressed = false
+			_emit_cursor_click(false)
+		_cursor_device_id = -1
+		if _previous_mouse_mode >= 0:
+			Input.mouse_mode = _previous_mouse_mode
+			_previous_mouse_mode = -1
 	_root.visible = value
 	_apply_page_visibility()
 	if value:
@@ -138,6 +209,29 @@ func show_page(page_id: String, open_console: bool = true) -> void:
 
 func get_current_page() -> String:
 	return _current_page
+
+
+func _cycle_page(direction: int) -> void:
+	var current_index := 0
+	for index in range(NAV_ITEMS.size()):
+		if str(NAV_ITEMS[index].get("id", "")) == _current_page:
+			current_index = index
+			break
+	var next_index := posmod(current_index + direction, NAV_ITEMS.size())
+	show_page(str(NAV_ITEMS[next_index].get("id", PAGE_TACTICAL)), true)
+
+
+func _emit_cursor_click(pressed: bool) -> void:
+	var viewport := get_viewport()
+	if viewport == null:
+		return
+	var click := InputEventMouseButton.new()
+	click.button_index = MOUSE_BUTTON_LEFT
+	click.pressed = pressed
+	click.button_mask = MOUSE_BUTTON_MASK_LEFT if pressed else 0
+	click.position = viewport.get_mouse_position()
+	click.global_position = click.position
+	viewport.push_input(click, true)
 
 
 func _build_ui() -> void:

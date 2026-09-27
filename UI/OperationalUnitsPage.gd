@@ -362,7 +362,7 @@ func _build_platoons_ui() -> void:
 	_empty_label.custom_minimum_size.y = 120.0
 	_member_list.add_child(_empty_label)
 
-	var footer_text := "STATUS FOLLOWS EACH AIRCRAFT'S PILOT STATE // ASSIGNMENT CONTROLS CAN BE ADDED NEXT" if unit_kind == UnitKind.FLIGHTS else "STATUS FOLLOWS EACH VEHICLE'S OBJECTIVE, MOTION, AND COMBAT STATE // FORMATION CONTROLS CAN BE ADDED NEXT"
+	var footer_text := "USE THE TACTICAL MAP TO ASSIGN, RECALL, OR RELEASE A FLIGHT TO AIROPS" if unit_kind == UnitKind.FLIGHTS else "STATUS FOLLOWS EACH VEHICLE'S OBJECTIVE, MOTION, AND COMBAT STATE // FORMATION CONTROLS CAN BE ADDED NEXT"
 	var footer := _make_label(footer_text, 10, DIM_COLOR, HORIZONTAL_ALIGNMENT_RIGHT, DATA_FONT)
 	page_column.add_child(footer)
 
@@ -470,6 +470,10 @@ func _collect_units() -> Array[Dictionary]:
 
 
 func _aircraft_member_summary(member: Node3D, index: int) -> Dictionary:
+	var readiness: Dictionary = {}
+	var air_ops := get_node_or_null("/root/AirOpsManager")
+	if air_ops != null:
+		readiness = air_ops.call("get_aircraft_readiness", member)
 	var health := _health_summary(member)
 	var pilot := member.find_child("AIPilot", true, false) if member and is_instance_valid(member) else null
 	var state_name := "INACTIVE"
@@ -483,6 +487,7 @@ func _aircraft_member_summary(member: Node3D, index: int) -> Dictionary:
 	var activity := map_air_activity(state_name, evading, bool(health.get("destroyed", false)))
 	return {
 		"source_id": member.get_instance_id(),
+		"readiness": readiness,
 		"name": _aircraft_display_name(member, index),
 		"pilot": _aircraft_display_name(member, index),
 		"portrait_path": _aircraft_portrait_path(member),
@@ -608,6 +613,7 @@ func _flight_activity(summary: Dictionary, members: Array[Dictionary]) -> String
 
 
 func _platoon_activity(summary: Dictionary, members: Array[Dictionary]) -> String:
+	if bool(summary.get("order_stalled", false)): return "STALLED"
 	if int(summary.get("passengers", 0)) > 0: return "RECOVERING PASSENGERS"
 	if str(summary.get("objective", "")) == "RESCUE": return "RESCUING"
 	if bool(summary.get("queued", false)):
@@ -662,10 +668,11 @@ func _add_flight_row(unit: Dictionary) -> void:
 	var flight_name := _make_label(str(unit.get("name", "FLIGHT")).to_upper(), 23, TEXT_COLOR)
 	flight_summary.add_child(flight_name)
 	var mission := str(unit.get("mission", "NONE")).replace("_", " ")
-	var role := str(unit.get("role", "UNASSIGNED")).replace("_", " ")
+	var role := str(unit.get("order_source", "automatic")).to_upper()
 	var mission_label := _make_label("MISSION  %s" % mission, 11, STATUS_COLOR, HORIZONTAL_ALIGNMENT_LEFT, DATA_FONT)
 	flight_summary.add_child(mission_label)
-	var role_label := _make_label("ROLE     %s" % role, 10, DIM_COLOR, HORIZONTAL_ALIGNMENT_LEFT, DATA_FONT)
+	mission_label.tooltip_text = str(unit.get("order_reason", ""))
+	var role_label := _make_label("ORDERS   %s" % role, 10, DIM_COLOR, HORIZONTAL_ALIGNMENT_LEFT, DATA_FONT)
 	flight_summary.add_child(role_label)
 	var summary_spacer := Control.new()
 	summary_spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -673,7 +680,7 @@ func _add_flight_row(unit: Dictionary) -> void:
 	var flight_status := _make_label("● %s" % activity, 12, _status_color(activity), HORIZONTAL_ALIGNMENT_LEFT, DATA_FONT)
 	flight_summary.add_child(flight_status)
 	var strength := int(unit.get("strength", 0))
-	var strength_label := _make_label("%d / 4 AIRCRAFT" % strength, 10, DIM_COLOR, HORIZONTAL_ALIGNMENT_LEFT, DATA_FONT)
+	var strength_label := _make_label("%d READY / %d AIRCRAFT" % [int(unit.get("ready_count", 0)), strength], 10, DIM_COLOR, HORIZONTAL_ALIGNMENT_LEFT, DATA_FONT)
 	flight_summary.add_child(strength_label)
 
 	var divider := ColorRect.new()
@@ -708,6 +715,12 @@ func _add_aircraft_card(cards: HBoxContainer, member: Dictionary) -> void:
 	card.custom_minimum_size = Vector2(285.0, 138.0)
 	card.add_theme_stylebox_override("panel", _make_style(PANEL_ALT_BG, _status_color(activity), 1, 11.0))
 	cards.add_child(card)
+	var readiness: Dictionary = member.get("readiness", {})
+	if not readiness.is_empty():
+		var fuel: float = readiness.get("fuel", -1.0)
+		var fuel_text := "%d%%" % roundi(fuel * 100.0) if fuel >= 0.0 else "Unknown"
+		var weapons_text := "Guns %d / Bombs %d / Rockets %d" % [readiness.guns, readiness.bombs, readiness.rockets] if readiness.weapons_known else "Weapons unknown"
+		card.tooltip_text = "%s\nFuel: %s\n%s\n%s" % [readiness.reason, fuel_text, weapons_text, readiness.task]
 	var card_margin := _make_margin(10)
 	card.add_child(card_margin)
 	var column := VBoxContainer.new()
@@ -869,9 +882,10 @@ func _rebuild_details(unit: Dictionary) -> void:
 	_detail_status.add_theme_color_override("font_color", _status_color(activity))
 	var strength := int(unit.get("strength", 0))
 	if unit_kind == UnitKind.FLIGHTS:
-		_detail_meta.text = "MISSION  %s     ROLE  %s     STRENGTH  %d / 4" % [
+		_detail_meta.text = "MISSION  %s     ORDERS  %s     READY  %d / %d" % [
 			str(unit.get("mission", "NONE")).replace("_", " "),
-			str(unit.get("role", "UNASSIGNED")).replace("_", " "),
+			str(unit.get("order_source", "automatic")).to_upper(),
+			int(unit.get("ready_count", 0)),
 			strength,
 		]
 	else:

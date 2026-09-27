@@ -61,6 +61,7 @@ var _body_scan_timer_s: float = 0.0
 var _cached_bodies: Array = []
 
 func _ready():
+	add_to_group("weather_legacy_turbulence")
 	noise = FastNoiseLite.new()
 	noise.frequency = turbulence_scale
 	noise.seed = randi()
@@ -131,6 +132,16 @@ func find_aircraft_recursive(node: Node, aircraft_array: Array):
 		find_aircraft_recursive(child, aircraft_array)
 
 func apply_continuous_turbulence(body: RigidBody3D, delta: float, active_camera: Camera3D):
+	var aero := body.get_node_or_null("SimpleAero")
+	if aero != null and aero.has_method("has_wind_field") and aero.call("has_wind_field"):
+		# Fixed-wing forces now come from sampled air velocity. Retain audio but
+		# do not stack the legacy impulses or physical camera-shake forces on top.
+		var field := get_tree().get_first_node_in_group("atmospheric_wind")
+		var variation: Vector3 = aero.call("get_wind_velocity_at", body.global_position) - field.get("prevailing_velocity_mps")
+		if not field.get("enabled"):
+			variation = Vector3.ZERO
+		update_wind_audio(body, variation.length(), active_camera)
+		return
 	var pos = body.global_position
 
 	# Define aerodynamic points on the aircraft

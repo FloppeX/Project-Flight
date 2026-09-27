@@ -17,7 +17,6 @@ const REFRESH_INTERVAL_S := 1.0 / 15.0
 @export var target_camera_zoom_lerp_speed: float = 6.0
 @export var target_provider_refresh_interval_s: float = 1.0
 @export var render_only_when_monitor_visible: bool = true
-@export var search_revolution_s: float = 20.0
 @export var search_fov_deg: float = 70.0
 
 ## Kept as Variant so a target freed by combat can be validity-checked before
@@ -119,6 +118,7 @@ func _ensure_fullscreen_view() -> void:
 	_fullscreen_hud.hide()
 	add_child(_fullscreen_hud)
 	_fullscreen_low_light = _create_low_light_overlay(_fullscreen_hud)
+	_fullscreen_hud.add_child(preload("res://UI/MastCameraViewfinder.gd").new())
 	_fullscreen_status = _status_label.duplicate() as Label
 	_fullscreen_status.position = Vector2(28, 24)
 	_fullscreen_status.add_theme_font_size_override("font_size", 24)
@@ -290,6 +290,7 @@ func _ensure_feed_viewport() -> void:
 	_feed_viewport.add_child(_feed_camera)
 	_feed_camera.current = true
 	_feed_low_light = _create_low_light_overlay(_feed_viewport)
+	_feed_viewport.add_child(preload("res://UI/MastCameraViewfinder.gd").new())
 	_status_label = Label.new()
 	_status_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_status_label.position = Vector2(12, 10)
@@ -392,31 +393,56 @@ func _refresh_target_providers() -> void:
 func _update_current_target() -> void:
 	var targets := get_available_targets()
 	if not _controlled:
+		var previous: Variant = current_target
+		var fired_targets: Array[Node3D] = []
+		var defense_ops := get_parent().get_node_or_null("DefenseOps")
+		if defense_ops != null and defense_ops.has_method("get_recently_fired_targets"):
+			fired_targets = defense_ops.get_recently_fired_targets()
+		else:
+			for provider_ref in _target_providers:
+				var provider: Variant = provider_ref.get_ref()
+				if is_instance_valid(provider) and provider.has_method("get_recently_fired_target"):
+					var target: Variant = provider.get_recently_fired_target()
+					if _is_live_target(target):
+						fired_targets.append(target)
 		current_target = null
+		var best_priority := 99
 		var nearest_sq := INF
 		for target in targets:
+			if not _is_live_target(target):
+				continue
+			var priority := 2 if _is_friendly_target(target) else (0 if fired_targets.has(target) else 1)
 			var distance_sq := global_position.distance_squared_to(target.global_position)
-			if distance_sq < nearest_sq:
+			# Stay with a live subject within its priority tier instead of hopping
+			# between nearby units as their distances fluctuate.
+			if target == previous:
+				distance_sq = -1.0
+			if priority < best_priority or (priority == best_priority and distance_sq < nearest_sq):
+				best_priority = priority
 				nearest_sq = distance_sq
 				current_target = target
 		if current_target != null:
-			_manual_fov = _calculate_target_fov(sqrt(nearest_sq))
+			_manual_fov = _calculate_target_fov(global_position.distance_to(current_target.global_position))
 	elif not _is_live_target(current_target) or not targets.has(current_target):
 		current_target = null
 
-func _update_automatic_camera(delta: float) -> void:
+func _is_friendly_target(target: Node3D) -> bool:
+	if target.has_method("get_team"):
+		return int(target.call("get_team")) == 1
+	if "team" in target:
+		return int(target.get("team")) == 1
+	return target.is_in_group("friendlies")
+
+func _update_automatic_camera(_delta: float) -> void:
 	if _controlled:
 		return
 	_update_current_target()
 	if _is_live_target(current_target):
 		_auto_searching = false
 		return
-	if not _auto_searching:
-		_scan_yaw = _aim_basis.get_euler().y
 	_auto_searching = true
-	# Negative yaw is clockwise when viewed from above. Advance even off-screen,
-	# while leaving the costly viewport render subject to the visibility gate.
-	_scan_yaw = wrapf(_scan_yaw - TAU * maxf(delta, 0.0) / maxf(search_revolution_s, 0.1), -PI, PI)
+	# Use the authored mast forward direction, level with the horizon. No orbit.
+	_scan_yaw = atan2(global_basis.z.x, global_basis.z.z)
 	_free_pitch = 0.0
 	_manual_fov = search_fov_deg
 
@@ -485,12 +511,11 @@ func _update_feed_camera(delta: float) -> void:
 	if _status_label != null:
 		var mode := "TRACK: %s" % current_target.name if _is_live_target(current_target) else "FREE LOOK"
 		if _auto_searching and not _controlled:
-			mode = "AUTO SCAN"
+			mode = "FORWARD"
 		elif not _controlled:
 			mode = "AUTO " + mode
-		if _is_live_target(current_target) and current_target.has_method("get_team") \
-				and int(current_target.call("get_team")) == 1:
-			mode += " [FRIENDLY LANDING]"
+		if _is_live_target(current_target) and _is_friendly_target(current_target):
+			mode += " [FRIENDLY]"
 		_status_label.text = "%s   %.1fx" % [mode, idle_fov_deg / maxf(_manual_fov, 1.0)]
 		if _low_light_enabled:
 			_status_label.text += "   LOW LIGHT"

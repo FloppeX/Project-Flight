@@ -88,6 +88,8 @@ func accepts(order: OpsOrder) -> bool:
 				OpsOrder.Kind.ATTACK_TARGET,
 				OpsOrder.Kind.ATTACK_POSITION,
 				OpsOrder.Kind.PROTECT_TARGET,
+				OpsOrder.Kind.PROTECT_POSITION,
+				OpsOrder.Kind.PURSUE_ENEMIES,
 				OpsOrder.Kind.ESCORT_CARRIER,
 				OpsOrder.Kind.HOLD_POSITION,
 				OpsOrder.Kind.RETURN_TO_BASE,
@@ -118,8 +120,6 @@ func set_supervised_patrol_leg(order: OpsOrder, leg_index: int) -> bool:
 	var patrol_task: Variant = AirTaskModel.patrol(order.position, order.radius_m, order.altitude_m)
 	patrol_task.requested_speed_mps = order.speed_mps
 	patrol_task.metadata = order.metadata.duplicate(true)
-	if not bool(controller.call("assign_air_task", patrol_task)):
-		return false
 	var patrol_radius := maxf(order.radius_m if is_finite(order.radius_m) else 1200.0, 400.0)
 	var offsets: Array[Vector3] = [
 		Vector3.FORWARD,
@@ -128,27 +128,8 @@ func set_supervised_patrol_leg(order: OpsOrder, leg_index: int) -> bool:
 		Vector3.LEFT,
 	]
 	var destination: Vector3 = order.position + offsets[posmod(leg_index, offsets.size())] * patrol_radius
-	if controller.has_method("build_terrain_safe_waypoints"):
-		var requested_points: Array[Vector3] = [destination]
-		var safe_points: Variant = controller.call(
-			"build_terrain_safe_waypoints",
-			requested_points,
-			maxf(float(order.metadata.get("minimum_agl_m", 260.0)), 50.0),
-			false,
-			false
-		)
-		if safe_points is Array and not safe_points.is_empty() and safe_points[0] is Vector3:
-			destination = safe_points[0]
-	var patrol_speed := order.speed_mps if is_finite(order.speed_mps) else -1.0
-	controller.call("set_flight_plan_legs", "ops_patrol_leg", [{
-		"position": destination,
-		"role": "ops_patrol",
-		"speed_mps": patrol_speed,
-		"capture_radius_m": 400.0,
-	}], false, false)
-	controller.set("nav_waypoint", destination)
-	controller.call("change_state", AIPilot.State.TRANSIT)
-	return true
+	return controller.assign_navigation_leg(patrol_task, destination, "ops_patrol_leg", 400.0,
+		float(order.metadata.get("minimum_agl_m", 260.0)))
 
 
 func get_status() -> Dictionary:
@@ -219,37 +200,16 @@ func try_begin_ground_retrieval() -> bool:
 func _accept_fixed_wing_order(order: OpsOrder) -> bool:
 	match order.kind:
 		OpsOrder.Kind.TRANSIT_TO_POSITION:
-			var destination := order.position
-			if controller.has_method("build_terrain_safe_waypoints"):
-				var requested_points: Array[Vector3] = [order.position]
-				var safe_points: Variant = controller.call(
-					"build_terrain_safe_waypoints",
-					requested_points,
-					maxf(float(order.metadata.get("minimum_agl_m", 260.0)), 50.0),
-					false,
-					false
-				)
-				if safe_points is Array and not safe_points.is_empty() and safe_points[0] is Vector3:
-					destination = safe_points[0]
 			var task: Variant = AirTaskModel.patrol(
-				destination,
+				order.position,
 				order.radius_m if is_finite(order.radius_m) else 250.0,
 				order.altitude_m
 			)
 			task.requested_speed_mps = order.speed_mps
 			task.metadata = order.metadata.duplicate(true)
-			if not bool(controller.call("assign_air_task", task)):
-				return false
-			var leg_speed := order.speed_mps if is_finite(order.speed_mps) else -1.0
-			controller.call("set_flight_plan_legs", "ops_transit", [{
-				"position": destination,
-				"role": "ops_transit",
-				"speed_mps": leg_speed,
-				"capture_radius_m": order.radius_m if is_finite(order.radius_m) else 250.0,
-			}], false, false)
-			controller.set("nav_waypoint", destination)
-			controller.call("change_state", AIPilot.State.TRANSIT)
-			return true
+			return controller.assign_navigation_leg(task, order.position, "ops_transit",
+				order.radius_m if is_finite(order.radius_m) else 250.0,
+				float(order.metadata.get("minimum_agl_m", 260.0)))
 		OpsOrder.Kind.PATROL_POSITION:
 			return set_supervised_patrol_leg(order, 0)
 		OpsOrder.Kind.INTERCEPT_TARGET:
@@ -300,13 +260,17 @@ func _accept_ground_order(order: OpsOrder) -> bool:
 			platoon.set_attack_position(order.position, order.radius_m if is_finite(order.radius_m) else 300.0)
 		OpsOrder.Kind.PROTECT_TARGET:
 			platoon.set_protect_node(order.target, order.radius_m if is_finite(order.radius_m) else 250.0)
+		OpsOrder.Kind.PROTECT_POSITION:
+			platoon.set_protect_position(order.position, order.radius_m)
+		OpsOrder.Kind.PURSUE_ENEMIES:
+			platoon.set_pursue_enemies(order.radius_m)
 		OpsOrder.Kind.ESCORT_CARRIER:
 			var escort_carrier := _get_carrier()
 			if escort_carrier == null:
 				return false
 			platoon.set_escort_carrier(escort_carrier, order.radius_m if is_finite(order.radius_m) else 100.0)
 		OpsOrder.Kind.HOLD_POSITION:
-			platoon.set("objective_type", GroundVehiclePlatoon.ObjectiveType.NONE)
+			platoon.set_hold_objective()
 		OpsOrder.Kind.RETURN_TO_BASE, OpsOrder.Kind.RECOVER:
 			var return_carrier := _get_carrier()
 			if return_carrier == null:

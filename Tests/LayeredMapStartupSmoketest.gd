@@ -8,6 +8,7 @@ func _initialize() -> void:
 
 
 func _run() -> void:
+	var profile := "canyon_highlands" if OS.get_cmdline_user_args().has("--highlands") else "layered_badlands"
 	var game_session := root.get_node_or_null("GameSession")
 	var terrain_nav := root.get_node_or_null("TerrainNavGrid")
 	_expect(game_session != null, "GameSession autoload is missing")
@@ -22,7 +23,7 @@ func _run() -> void:
 		Color.BLACK,
 		0,
 		0,
-		"layered_badlands"
+		profile
 	)
 	# This smoke test verifies startup wiring, not the full 50 km bake. The full
 	# route geometry is covered by LayeredMapProfileSmoketest.
@@ -44,7 +45,7 @@ func _run() -> void:
 	var terrain := scene.get_node_or_null("LowPolyTerrainPrototype") as LowPolyTerrain
 	_expect(terrain != null, "main scene terrain was not found")
 	if terrain != null:
-		_expect(terrain.get_map_profile_id() == "layered_badlands", "selected profile was not applied before terrain startup")
+		_expect(terrain.get_map_profile_id() == profile, "selected profile was not applied before terrain startup")
 	var configured_center: Vector3 = scene.get("_scenario_play_area_center")
 	_expect(Vector2(configured_center.x, configured_center.z).length() <= 0.1, "layered map did not use its deterministic play-area centre")
 	var carrier := scene.get_node_or_null("LandCarrier")

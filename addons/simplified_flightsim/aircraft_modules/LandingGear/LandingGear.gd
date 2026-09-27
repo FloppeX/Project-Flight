@@ -11,6 +11,7 @@ signal update_interface(values)
 @export var GearCollisionShape: NodePath
 @export var lock_deployed: bool = false
 @export var gear_collision_shapes: Array[CollisionShape3D] = []  # Array for wheel collision shapes
+@export var auxiliary_safe_collision_shapes: Array[CollisionShape3D] = []  # Rigid skid shapes supported by separate suspension contacts
 @export var gear_visuals: Array[Node3D] = []  # Array for visual gear meshes
 @export var gear_rotation_axes: Array[Vector3] = []  # Rotation axis for each gear (empty = no rotation)
 @export var gear_rotation_angles: Array[float] = []  # Rotation angle in degrees for each gear when stowed
@@ -51,6 +52,7 @@ enum LandingGearInitialStates {
 @export var suspension_contact_skin_m: float = 0.025
 @export var use_accel_lean: bool = true        # Programmatic fore/aft weight transfer
 @export var nose_gear_index: int = 0           # Index in gear_collision_shapes for nose gear
+@export var front_gear_indices: Array[int] = []  # Paired front contacts on skid gear
 @export var rear_gear_indices: Array[int] = [1, 2]  # Indices for main/rear gears
 @export var accel_lean_sign: float = -1.0      # Set to 1 or -1 depending on aircraft forward-axis convention
 @export var accel_lean_per_mps2: float = 0.16  # Metres of strut offset per m/s^2 longitudinal accel
@@ -82,6 +84,8 @@ enum LandingGearInitialStates {
 @export var friction_force_multiplier: float = 1000.0  # Overall friction strength
 @export var ground_longitudinal_damping: float = 5000.0  # Extra along-forward damping (N per m/s)
 @export var ground_lateral_damping: float = 15000.0      # Extra side damping (N per m/s)
+@export var skid_terrain_damping: float = 0.0  # Per-skid low-collective grip on terrain (N per m/s)
+@export var skid_terrain_grip_release_power: float = 0.55
 @export var nose_wheel_taxi_steering_enabled: bool = true
 @export var nose_wheel_taxi_full_effect_speed_mps: float = 4.0
 @export var nose_wheel_taxi_cutoff_speed_mps: float = 10.0
@@ -149,6 +153,9 @@ func setup(aircraft_node):
 	
 	# Register wheel colliders as safe colliders (for landing detection)
 	for collider in gear_collision_shapes:
+		if collider:
+			aircraft.register_safe_collider(collider)
+	for collider in auxiliary_safe_collision_shapes:
 		if collider:
 			aircraft.register_safe_collider(collider)
 	_resolve_gear_visuals_from_colliders()
@@ -530,6 +537,29 @@ func get_static_wheel_loads_n() -> Array[float]:
 	for rear_index in rear_gear_indices:
 		if rear_index >= 0 and rear_index < count and rear_index != nose_gear_index:
 			valid_rears.append(rear_index)
+	var valid_fronts: Array[int] = []
+	for front_index in front_gear_indices:
+		if front_index >= 0 and front_index < count and not valid_rears.has(front_index) and not valid_fronts.has(front_index):
+			valid_fronts.append(front_index)
+	if not valid_fronts.is_empty() and not valid_rears.is_empty():
+		var front_z := 0.0
+		var rear_z := 0.0
+		for front_index in valid_fronts:
+			front_z += _get_gear_base_aircraft_local_position(front_index).z
+		for rear_index in valid_rears:
+			rear_z += _get_gear_base_aircraft_local_position(rear_index).z
+		front_z /= float(valid_fronts.size())
+		rear_z /= float(valid_rears.size())
+		var cg_z: float = aircraft.center_of_mass.z if aircraft.center_of_mass_mode == RigidBody3D.CENTER_OF_MASS_MODE_CUSTOM else 0.0
+		var span := front_z - rear_z
+		if absf(span) > 0.001:
+			var front_fraction := clampf((cg_z - rear_z) / span, 0.0, 1.0)
+			loads_n.fill(0.0)
+			for front_index in valid_fronts:
+				loads_n[front_index] = total_weight_n * front_fraction / float(valid_fronts.size())
+			for rear_index in valid_rears:
+				loads_n[rear_index] = total_weight_n * (1.0 - front_fraction) / float(valid_rears.size())
+			return loads_n
 	if count >= 3 and nose_gear_index >= 0 and nose_gear_index < count and not valid_rears.is_empty():
 		var nose_local := _get_gear_base_aircraft_local_position(nose_gear_index)
 		var rear_z := 0.0
@@ -1066,6 +1096,14 @@ func apply_wheel_friction(collision_shape: CollisionShape3D, gear_index: int, co
 	var relative_velocity = aircraft.linear_velocity
 	if on_carrier_surface:
 		relative_velocity = VelocityFrame.get_relative_velocity(aircraft)
+	elif _is_aircraft_helicopter():
+		# A turning helicopter has opposite velocities at its skids even when its
+		# centre barely moves. Friction at each contact must see that yaw motion.
+		var skid_point := collision_shape.global_position
+		var centre_of_mass: Vector3 = aircraft.to_global(aircraft.center_of_mass)
+		var yaw_velocity: Vector3 = Vector3.UP * aircraft.angular_velocity.dot(Vector3.UP)
+		relative_velocity += yaw_velocity.cross(skid_point - centre_of_mass)
+		relative_velocity -= _surface_point_velocity(surface, skid_point)
 
 	if nose_wheel_taxi_steering_enabled and gear_index == nose_gear_index and nose_wheel_taxi_cutoff_speed_mps > 0.0:
 		var surface_velocity: Vector3 = relative_velocity - contact_normal * relative_velocity.dot(contact_normal)
@@ -1097,6 +1135,13 @@ func apply_wheel_friction(collision_shape: CollisionShape3D, gear_index: int, co
 		if not arresting_engaged:
 			forward_friction_force += -forward_velocity * ground_longitudinal_damping
 		sideways_friction_force += -sideways_velocity * ground_lateral_damping
+	elif not on_carrier_surface and _is_aircraft_helicopter() and skid_terrain_damping > 0.0:
+		var engine: Node = aircraft.find_child("Engine", true, false)
+		var engine_power: Variant = engine.get("current_power") if engine != null else null
+		var power := float(engine_power) if engine_power is float or engine_power is int else 0.0
+		var grip := 1.0 - smoothstep(0.0, maxf(skid_terrain_grip_release_power, 0.01), power)
+		forward_friction_force -= forward_velocity * skid_terrain_damping * grip
+		sideways_friction_force -= sideways_velocity * skid_terrain_damping * grip
 	
 	# Apply friction forces in aircraft's local coordinate system
 	var total_friction = (wheel_forward * forward_friction_force) + (wheel_right * sideways_friction_force)

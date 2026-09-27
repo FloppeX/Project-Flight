@@ -7,6 +7,7 @@ const DEFAULT_PATTERN_INDEX := 0
 const DEFAULT_INSIGNIA_INDEX := 0
 const MAP_OPEN_CANYONS := "open_canyons"
 const MAP_LAYERED_BADLANDS := "layered_badlands"
+const MAP_CANYON_HIGHLANDS := "canyon_highlands"
 const DEFAULT_MAP_ID := MAP_OPEN_CANYONS
 
 var is_new_game: bool = false
@@ -20,7 +21,32 @@ var carrier_secondary_color: Color = DEFAULT_SECONDARY_COLOR
 var carrier_pattern_index: int = DEFAULT_PATTERN_INDEX
 var carrier_insignia_index: int = DEFAULT_INSIGNIA_INDEX
 var selected_map_id: String = DEFAULT_MAP_ID
+var public_approval: int = 100
+var wildlife_incidents: int = 0
 var _pending_save_state: Dictionary = {}
+
+
+func _ready() -> void:
+	get_tree().scene_changed.connect(_watch_current_scene)
+	_watch_current_scene.call_deferred()
+
+
+func _watch_current_scene() -> void:
+	var scene := get_tree().current_scene
+	if is_instance_valid(scene) and not scene.tree_exiting.is_connected(reset_runtime_operations):
+		scene.tree_exiting.connect(reset_runtime_operations, CONNECT_ONE_SHOT)
+
+
+func reset_runtime_operations() -> void:
+	# Autoloads outlive scenes. Reset before the next scene can register units;
+	# leave pending checkpoint data and user preferences intact.
+	for service_name in ["OperationsCoordinator", "AirOpsManager", "GroundOpsManager", "EnemyOpsManager"]:
+		var service := get_node_or_null("/root/" + service_name)
+		if is_instance_valid(service):
+			service.reset_runtime_state()
+	var saves := get_node_or_null("/root/SaveGameManager")
+	if is_instance_valid(saves):
+		saves.clear_cached_runtime_state()
 
 
 func configure_new_game(
@@ -31,6 +57,7 @@ func configure_new_game(
 		insignia_index: int = DEFAULT_INSIGNIA_INDEX,
 		map_id: String = DEFAULT_MAP_ID
 ) -> void:
+	reset_runtime_operations()
 	is_new_game = true
 	is_trailer_scenario = false
 	_pending_save_state.clear()
@@ -40,6 +67,8 @@ func configure_new_game(
 	carrier_pattern_index = maxi(pattern_index, 0)
 	carrier_insignia_index = maxi(insignia_index, 0)
 	selected_map_id = normalize_map_id(map_id)
+	public_approval = 100
+	wildlife_incidents = 0
 	if PilotRoster != null and is_instance_valid(PilotRoster) \
 	and PilotRoster.has_method("start_new_campaign"):
 		PilotRoster.start_new_campaign()
@@ -50,6 +79,8 @@ func configure_new_game(
 
 func normalize_map_id(map_id: String) -> String:
 	match map_id.strip_edges().to_lower():
+		MAP_CANYON_HIGHLANDS:
+			return MAP_CANYON_HIGHLANDS
 		MAP_LAYERED_BADLANDS:
 			return MAP_LAYERED_BADLANDS
 		_:
@@ -80,6 +111,8 @@ func reset_to_defaults() -> void:
 	carrier_pattern_index = DEFAULT_PATTERN_INDEX
 	carrier_insignia_index = DEFAULT_INSIGNIA_INDEX
 	selected_map_id = DEFAULT_MAP_ID
+	public_approval = 100
+	wildlife_incidents = 0
 
 
 func prepare_loaded_game(save_state: Dictionary) -> bool:
@@ -102,6 +135,8 @@ func prepare_loaded_game(save_state: Dictionary) -> bool:
 	carrier_pattern_index = maxi(int(session.get("carrier_pattern_index", DEFAULT_PATTERN_INDEX)), 0)
 	carrier_insignia_index = maxi(int(session.get("carrier_insignia_index", DEFAULT_INSIGNIA_INDEX)), 0)
 	selected_map_id = normalize_map_id(str(session.get("selected_map_id", DEFAULT_MAP_ID)))
+	public_approval = clampi(int(session.get("public_approval", 100)), 0, 100)
+	wildlife_incidents = maxi(int(session.get("wildlife_incidents", 0)), 0)
 	return true
 
 
@@ -130,7 +165,15 @@ func capture_save_state() -> Dictionary:
 		"carrier_pattern_index": carrier_pattern_index,
 		"carrier_insignia_index": carrier_insignia_index,
 		"selected_map_id": selected_map_id,
+		"public_approval": public_approval,
+		"wildlife_incidents": wildlife_incidents,
 	}
+
+
+func record_wildlife_kill() -> int:
+	wildlife_incidents += 1
+	public_approval = maxi(public_approval - 15, 0)
+	return public_approval
 
 
 func _clean_carrier_name(value: String) -> String:

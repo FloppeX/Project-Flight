@@ -4,19 +4,24 @@ class_name WingFold
 ## Animates outer wing fold/unfold on Aircraft_2.
 ## Wings fold when the parking brake is set, unfold when it is released.
 ##
-## The fold pivot is the wing node's local origin — make sure the origin
-## is at the fold hinge in Blender, not the mesh centre.
+## Uses the authored node origins unless model-space hinge overrides are enabled.
 
 ## Degrees the wing tip rotates upward when fully folded.
 @export var fold_angle_deg: float = 120.0
 ## Time in seconds to complete a full fold or unfold.
 @export var fold_duration:  float = 2.0
-## Local hinge axis for the LEFT wing. Right wing mirrors the Z component.
+## Hinge axis for the LEFT wing, mirrored on the right. Local by default;
+## expressed in the wing parent's space when model-space hinges are enabled.
 ## Default is tilted 15 degrees upward from the fore-aft axis so folded wings
 ## point slightly up and back.
 @export var fold_axis: Vector3 = Vector3(0.0, 0.258819, 0.965926)
 @export var stable_poll_interval_s: float = 0.2
 @export var broad_wing_collider_path: NodePath = NodePath("../WingCollider")
+## Optional hinge lines in the wing parent's model space. These let a revised
+## mesh retain its authored origin and non-uniform scale.
+@export var use_model_space_hinges: bool = false
+@export var left_hinge_origin: Vector3 = Vector3.ZERO
+@export var right_hinge_origin: Vector3 = Vector3.ZERO
 
 var _left_wing:  Node3D
 var _right_wing: Node3D
@@ -28,6 +33,8 @@ var _right_rest_quat: Quaternion
 var _left_rest_pos: Vector3
 var _right_rest_pos: Vector3
 var _stable_poll_timer_s: float = 0.0
+var _left_authored_transform: Transform3D
+var _right_authored_transform: Transform3D
 
 func _ready() -> void:
 	_broad_wing_collider = get_node_or_null(broad_wing_collider_path) as CollisionShape3D
@@ -45,13 +52,15 @@ func _cache_wing_nodes(warn_when_missing: bool) -> bool:
 		if warn_when_missing:
 			push_warning("[WingFold] Wing nodes not found — check GLB node names")
 		return false
-	_left_rest_pos = _left_wing.position
-	_right_rest_pos = _right_wing.position
-	_left_rest_quat = _left_wing.quaternion
-	_right_rest_quat = _right_wing.quaternion
+	_left_authored_transform = _left_wing.get_meta("livery_rest_transform_local", _left_wing.transform)
+	_right_authored_transform = _right_wing.get_meta("livery_rest_transform_local", _right_wing.transform)
+	_left_rest_pos = _left_authored_transform.origin
+	_right_rest_pos = _right_authored_transform.origin
+	_left_rest_quat = _left_authored_transform.basis.get_rotation_quaternion()
+	_right_rest_quat = _right_authored_transform.basis.get_rotation_quaternion()
 	# Store the exact authored rest local transforms for livery anchoring.
-	_left_wing.set_meta("livery_rest_transform_local", _left_wing.transform)
-	_right_wing.set_meta("livery_rest_transform_local", _right_wing.transform)
+	_left_wing.set_meta("livery_rest_transform_local", _left_authored_transform)
+	_right_wing.set_meta("livery_rest_transform_local", _right_authored_transform)
 	return true
 
 func _process(delta: float) -> void:
@@ -114,10 +123,18 @@ func _apply_fold_pose(angle: float) -> void:
 	if left_axis.length_squared() <= 0.0001:
 		left_axis = Vector3.FORWARD
 
-	_left_wing.quaternion = _left_rest_quat * Quaternion(left_axis, angle)
-	# Mirror the full hinge rotation on the opposite wing so the aft/up tilt
-	# stays symmetrical when the fold axis itself is canted.
-	_right_wing.quaternion = _right_rest_quat * Quaternion(left_axis, -angle)
+	if use_model_space_hinges:
+		var left_rotation := Basis(left_axis, angle)
+		# Mirroring an axial rotation across X reverses its Y/Z components.
+		var right_axis := Vector3(left_axis.x, -left_axis.y, -left_axis.z)
+		var right_rotation := Basis(right_axis, angle)
+		_left_wing.transform = Transform3D(left_rotation,
+			left_hinge_origin - left_rotation * left_hinge_origin) * _left_authored_transform
+		_right_wing.transform = Transform3D(right_rotation,
+			right_hinge_origin - right_rotation * right_hinge_origin) * _right_authored_transform
+	else:
+		_left_wing.quaternion = _left_rest_quat * Quaternion(left_axis, angle)
+		_right_wing.quaternion = _right_rest_quat * Quaternion(left_axis, -angle)
 	_set_broad_wing_collision_folded(_fold_t > 0.0)
 
 

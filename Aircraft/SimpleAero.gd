@@ -18,6 +18,8 @@ var rb: RigidBody3D = null
 @export var control_authority_taper_stall_margin: float = 1.05  # Authority starts tapering below this multiple of stall speed (i.e. only right near the stall)
 @export var control_authority_stall_floor: float = 0.35  # Minimum authority retained at the stall so it can still be flown out
 @export var control_authority_curve: float = 1.0  # Shape of the taper between the two margins (1 = linear)
+@export var progressive_control_authority_enabled: bool = true  # Shared Advanced fixed-wing control response
+@export var control_reference_speed_mps: float = 70.0  # Restore normal control power sooner after launch
 @export var control_slip_speed_blend: float = 0.55  # Arcade assist: let some total airspeed count for controls while slipping/skidding
 @export var stall_control_loss_strength: float = 0.70  # Elevator authority lost at full stall/high AoA
 @export var roll_stall_control_loss_strength: float = 0.90  # Ailerons become nearly ineffective in a deep departure
@@ -182,7 +184,7 @@ var rb: RigidBody3D = null
 @export var aero_report_mark_action: StringName = &"flight_log_mark"
 @export var aero_report_path: String = "user://airplane_aero_report.log"
 @export var aero_report_project_mirror_enabled: bool = true
-@export var aero_report_project_mirror_path: String = "res://airplane_aero_report.log"
+@export var aero_report_project_mirror_path: String = "res://logs/airplane_aero_report.log"
 @export var aero_report_reset_on_first_aircraft: bool = true
 @export_group("")
 
@@ -238,6 +240,11 @@ var _control_steering_node: Node = null
 var _stall_departure_active: bool = false
 var _stall_departure_bias: float = 1.0
 var _stall_entry_count: int = 0
+var _wind_field: Node
+var _next_wind_lookup_frame := 0
+var _wing_lift_arm_m := 3.0
+var current_wind_velocity_mps := Vector3.ZERO
+var current_gust_torque_nm := Vector3.ZERO
 
 static var _aero_report_reset_done: bool = false
 static var _aero_report_session_id: String = ""
@@ -257,6 +264,9 @@ func _ready() -> void:
 		# Child _ready runs before the parent's module registry is populated.
 		# Resolve the actual typed flap node independently of that registry.
 		_resolve_flaps_module()
+		var wingtip := rb.get_node_or_null("WingtipLeft") as Node3D
+		if wingtip != null:
+			_wing_lift_arm_m = maxf(absf(wingtip.position.x) * 0.5, 0.5)
 		if rb.has_method("find_modules_by_type"):
 			_engine_modules = rb.find_modules_by_type("engine")
 	_setup_airflow_feedback()
@@ -272,7 +282,8 @@ func _physics_process(delta: float) -> void:
 	_apply_flight_model_body_damping(advanced_flight_model)
 
 	# --- Basic kinematics ---
-	var vel: Vector3 = rb.linear_velocity
+	current_wind_velocity_mps = get_wind_velocity_at(rb.global_position)
+	var vel: Vector3 = rb.linear_velocity - current_wind_velocity_mps
 	var speed: float = vel.length()
 	var fwd: Vector3 = rb.global_transform.basis.z
 	var right: Vector3 = rb.global_transform.basis.x
@@ -343,7 +354,7 @@ func _physics_process(delta: float) -> void:
 		lift_ceiling
 	)
 	var gravity_mag: float = float(ProjectSettings.get_setting("physics/3d/default_gravity", 9.8))
-	var base_lift_mag: float = rb.mass * gravity_mag * maxf(rb.gravity_scale, 0.0) * commanded_lift_ratio
+	var base_lift_mag: float = get_lift_reference_mass_kg() * gravity_mag * maxf(rb.gravity_scale, 0.0) * commanded_lift_ratio
 
 	# Calculate stall effects
 	var speed_stall_severity: float = 0.0
@@ -437,6 +448,20 @@ func _physics_process(delta: float) -> void:
 
 	# Apply lift at center of mass
 	rb.apply_central_force(lift_force)
+	# Sample each half-wing. Differences from the centre airflow act at their
+	# spanwise positions, creating a physical moment without prescribed wobble.
+	current_gust_torque_nm = Vector3.ZERO
+	if has_wind_field():
+		var center_sample := _get_wind_sample_lift(vel, advanced_flight_model)
+		for side in [-1.0, 1.0]:
+			var offset: Vector3 = right * _wing_lift_arm_m * float(side)
+			var local_wind := get_wind_velocity_at(rb.global_position + offset)
+			var wing_velocity := vel + current_wind_velocity_mps - local_wind
+			var difference := (_get_wind_sample_lift(wing_velocity, advanced_flight_model) - center_sample) * 0.5
+			rb.apply_force(difference, offset)
+			lift_force += difference
+			current_gust_torque_nm += offset.cross(difference)
+		actual_lift_ratio = lift_force.length() / maxf(rb.mass * gravity_mag * maxf(rb.gravity_scale, 0.0), 0.001)
 
 	# --- Induced drag (energy bleed from maneuvering / pulling G) ---
 	# In this arcade model the velocity vector tracks the nose, so angle of attack stays near zero
@@ -639,7 +664,9 @@ func _physics_process(delta: float) -> void:
 	# The normal scalar damping is preserved outside a stall. During a departure,
 	# reduce it per axis so roll/yaw autorotation can develop while pitch remains
 	# damped enough for a readable recovery.
-	var damping_factor: float = max(control_authority, 0.3)  # Minimum 30% damping
+	var damping_factor: float = maxf(control_authority, 0.3)
+	if advanced_flight_model and progressive_control_authority_enabled:
+		damping_factor = get_rate_damping_factor_at_speed(speed, effective_stall_speed, stall_control_loss)
 	var angular_damping := Vector3.ZERO
 	if advanced_flight_model:
 		var local_angular_velocity := rb.global_transform.basis.inverse() * rb.angular_velocity
@@ -667,7 +694,9 @@ func _physics_process(delta: float) -> void:
 		_apply_attitude_stability(fwd, right, up, speed, forward_speed, stall_control_loss)
 
 	if force_audit_sample.has_connections():
-		force_audit_sample.emit({"delta": delta, "velocity": vel,
+		force_audit_sample.emit({"delta": delta, "velocity": rb.linear_velocity,
+			"air_velocity": vel, "wind_velocity": current_wind_velocity_mps,
+			"gust_torque_nm": current_gust_torque_nm,
 			"lift": lift_force, "drag": total_drag_force, "alignment": alignment_force,
 			"induced_drag_n": induced_drag_feedback_n, "load": actual_lift_ratio,
 			"aoa": alpha_deg, "advanced": advanced_flight_model})
@@ -707,6 +736,8 @@ func _smoothstep(edge0: float, edge1: float, x: float) -> float:
 func is_advanced_flight_model() -> bool:
 	if _flight_model_override >= 0:
 		return _flight_model_override == 1
+	if not is_inside_tree():
+		return true
 	var pause_menu := get_node_or_null("/root/PauseMenu")
 	if pause_menu != null and pause_menu.has_method("is_advanced_flight_model"):
 		return bool(pause_menu.call("is_advanced_flight_model"))
@@ -955,8 +986,10 @@ func _update_control_envelope(
 	# Automatic coordination follows the aileron's physical position, not the raw
 	# stick command. This removes the phase mismatch that previously reversed the
 	# rudder while a rate-limited aileron was still travelling the other way.
+	# Reserve rudder authority for the explicit command (manual or slip feedback).
+	# A roll reversal must not subtract coordination feed-forward from full rudder.
 	var coordinated_yaw_command := clampf(
-		yaw_input + actual_roll_control * auto_rudder_strength,
+		yaw_input + actual_roll_control * auto_rudder_strength * (1.0 - absf(clampf(yaw_input, -1.0, 1.0))),
 		-1.0,
 		1.0
 	)
@@ -1063,6 +1096,11 @@ func _get_low_speed_axis_authority(
 		effective_stall_speed_mps: float,
 		axis: StringName
 ) -> float:
+	if progressive_control_authority_enabled and is_advanced_flight_model():
+		# Use a fixed airframe reference: flaps must not boost control force simply
+		# by lowering the wing's stall speed. Stall losses are applied separately.
+		var speed_ratio := maxf(control_speed_mps, 0.0) / maxf(control_reference_speed_mps, 1.0)
+		return minf(speed_ratio * speed_ratio, 1.0)
 	var effective_stall := maxf(effective_stall_speed_mps, 1.0)
 	var full_speed := effective_stall * maxf(control_authority_full_stall_margin, 1.05)
 	var taper_speed := effective_stall * clampf(
@@ -1086,6 +1124,25 @@ func _get_low_speed_axis_authority(
 		1.0,
 		pow(authority_t, maxf(control_authority_curve, 0.1))
 	)
+
+
+func get_rate_damping_factor_at_speed(
+		speed_mps: float,
+		effective_stall_speed_mps: float = -1.0,
+		stall_loss: float = 0.0
+) -> float:
+	# Share the applied damping schedule with AI response prediction. Progressive
+	# damping follows speed, while control torque follows speed squared.
+	if is_advanced_flight_model() and progressive_control_authority_enabled:
+		return get_progressive_rate_damping_factor(speed_mps, stall_loss)
+	return maxf(get_axis_control_authority_at_speed(
+		speed_mps, &"pitch", effective_stall_speed_mps, stall_loss
+	), 0.3)
+
+
+func get_progressive_rate_damping_factor(speed_mps: float, stall_loss: float) -> float:
+	var speed_ratio := clampf(speed_mps / maxf(control_reference_speed_mps, 1.0), 0.0, 1.0)
+	return maxf(speed_ratio * (1.0 - clampf(stall_control_loss_strength * stall_loss, 0.0, 1.0)), 0.3)
 
 
 func get_high_speed_control_limit(speed_mps: float, axis: StringName) -> float:
@@ -1219,7 +1276,7 @@ func _get_pitch_stability_input_release_factor() -> float:
 func get_estimated_angle_of_attack_deg() -> float:
 	if rb == null:
 		return 0.0
-	var local_vel: Vector3 = rb.global_transform.basis.inverse() * rb.linear_velocity
+	var local_vel: Vector3 = rb.global_transform.basis.inverse() * get_air_relative_velocity()
 	return rad_to_deg(atan2(-local_vel.y, maxf(local_vel.z, 0.1)))
 
 func _get_aoa_stall_severity(alpha_deg: float) -> float:
@@ -1236,10 +1293,62 @@ func _get_aoa_stall_severity_for_model(alpha_deg: float, advanced: bool) -> floa
 		return 0.0
 	return clampf((abs_alpha - start_deg) / (full_deg - start_deg), 0.0, 1.0)
 
+func has_wind_field() -> bool:
+	if not is_instance_valid(_wind_field) and is_inside_tree() and Engine.get_physics_frames() >= _next_wind_lookup_frame:
+		_wind_field = get_tree().get_first_node_in_group("atmospheric_wind")
+		_next_wind_lookup_frame = Engine.get_physics_frames() + 60
+	return is_instance_valid(_wind_field)
+
+func get_wind_velocity_at(world_position: Vector3) -> Vector3:
+	if has_wind_field():
+		return _wind_field.call("get_velocity_at", world_position)
+	return Vector3.ZERO
+
+func get_air_relative_velocity() -> Vector3:
+	if rb == null:
+		return Vector3.ZERO
+	return rb.linear_velocity - get_wind_velocity_at(rb.global_position)
+
+func _get_wind_sample_lift(velocity: Vector3, advanced: bool) -> Vector3:
+	var speed := velocity.length()
+	if speed < 0.001:
+		return Vector3.ZERO
+	var local := rb.global_basis.inverse() * velocity
+	var direction := velocity / speed
+	var up := rb.global_basis.y
+	var lift_direction := (up - direction * up.dot(direction)).normalized()
+	var alpha := rad_to_deg(atan2(-local.y, maxf(local.z, 0.1)))
+	var flap := (1.0 + flaps_lift_bonus) if _is_flaps_deployed() else 1.0
+	var stall := get_effective_stall_speed_mps()
+	var ratio := minf(pow(speed / maxf(aligned_level_speed_mps, stall + 1.0), 2.0), 1.0)
+	var coefficient := 1.0 + clampf(alpha / maxf(aoa_lift_full_deg, 0.1), 0.0, 1.0) * aoa_lift_bonus_factor - clampf(-alpha / maxf(aoa_lift_full_deg, 0.1), 0.0, 1.0) * aoa_negative_lift_penalty_factor
+	ratio = clampf(ratio * maxf(coefficient, 0.0) * flap, 0.0, max_lift_ratio * flap)
+	var speed_stall := maxf(1.0 - maxf(local.z, 0.0) / maxf(stall, 0.1), 0.0) if speed > 5.0 else 0.0
+	var loss := maxf(speed_stall * (stall_lift_loss if advanced else simplified_stall_lift_loss), _get_aoa_stall_severity_for_model(alpha, advanced) * (aoa_stall_lift_loss if advanced else simplified_aoa_stall_lift_loss))
+	var gravity := float(ProjectSettings.get_setting("physics/3d/default_gravity", 9.8))
+	return lift_direction * get_lift_reference_mass_kg() * gravity * maxf(rb.gravity_scale, 0.0) * ratio * (1.0 - clampf(loss, 0.0, 0.95))
+
+func get_lift_reference_mass_kg() -> float:
+	if rb == null:
+		return 0.0
+	# Preserve the authored unloaded wing tuning. A loaded aircraft needs more
+	# airspeed/AoA to support its weight instead of acquiring free extra lift.
+	if is_advanced_flight_model() and rb.has_method("get_unloaded_mass_kg"):
+		return maxf(float(rb.call("get_unloaded_mass_kg")), 0.001)
+	return rb.mass
+
+func get_lift_load_scale() -> float:
+	# Convert authored wing coefficients to acceleration of the currently loaded
+	# body. Keep this shared with AI estimates: stores add weight, not wing area.
+	if rb == null:
+		return 1.0
+	var flap_scale := (1.0 + flaps_lift_bonus) if _is_flaps_deployed() else 1.0
+	return flap_scale * get_lift_reference_mass_kg() / maxf(rb.mass, 0.001)
+
 func get_estimated_lift_ratio() -> float:
 	if rb == null:
 		return 0.0
-	var speed: float = rb.linear_velocity.length()
+	var speed: float = get_air_relative_velocity().length()
 	var effective_stall_speed: float = stall_speed * (flaps_stall_speed_factor if _is_flaps_deployed() else 1.0)
 	var aligned_level_speed: float = maxf(aligned_level_speed_mps, effective_stall_speed + 1.0)
 	var zero_aoa_lift_ratio: float = minf(pow(speed / aligned_level_speed, 2.0), 1.0)
@@ -1255,6 +1364,13 @@ func get_estimated_lift_ratio() -> float:
 	var advanced := is_advanced_flight_model()
 	var aoa_stall_severity: float = _get_aoa_stall_severity_for_model(alpha_deg, advanced)
 	var active_aoa_lift_loss := aoa_stall_lift_loss if advanced else simplified_aoa_stall_lift_loss
+	if advanced:
+		var flap_scale := (1.0 + flaps_lift_bonus) if _is_flaps_deployed() else 1.0
+		commanded_ratio *= flap_scale
+		var forward_speed := maxf(get_air_relative_velocity().dot(rb.global_basis.z), 0.0)
+		var speed_stall := maxf(1.0 - forward_speed / maxf(effective_stall_speed, 0.1), 0.0) if speed > 5.0 else 0.0
+		var loss := maxf(stall_lift_loss * speed_stall, active_aoa_lift_loss * aoa_stall_severity)
+		return commanded_ratio * (1.0 - clampf(loss, 0.0, 0.95)) * get_lift_reference_mass_kg() / maxf(rb.mass, 0.001)
 	return commanded_ratio * (1.0 - clampf(active_aoa_lift_loss * aoa_stall_severity, 0.0, 0.95))
 
 func get_stall_severity() -> float:

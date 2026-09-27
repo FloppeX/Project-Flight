@@ -610,7 +610,9 @@ func _apply_impact_damage(damage_target: Node, damage_amount: float) -> void:
 	var impact_position := _impact_world_position
 	if not is_finite(impact_position.x) or not is_finite(impact_position.y) or not is_finite(impact_position.z):
 		impact_position = global_position
-	if damage_target.has_method("take_damage_event"):
+	if damage_target.has_method("take_damage_from"):
+		damage_target.call("take_damage_from", damage_amount, shooter)
+	elif damage_target.has_method("take_damage_event"):
 		damage_target.call("take_damage_event", damage_amount, impact_position, _carrier_damage_event_id())
 	elif damage_target.has_method("take_projectile_damage_at"):
 		damage_target.call("take_projectile_damage_at", damage_amount, impact_position, _impact_target_shape_index)
@@ -620,6 +622,8 @@ func _apply_impact_damage(damage_target: Node, damage_amount: float) -> void:
 		damage_target.call("take_damage", damage_amount)
 
 func _report_damage_credit(damage_target: Node, damage_amount: float) -> void:
+	if damage_target.is_in_group("wildlife"):
+		return
 	if shooter == null or not is_instance_valid(shooter):
 		return
 	if PilotRoster == null or not is_instance_valid(PilotRoster):

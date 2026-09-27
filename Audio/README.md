@@ -15,6 +15,15 @@
 
 Runtime voice discovery intentionally scans only `Voices/Citadel/` and `Voices/Pilots/`; files in `Voices/SourcePacks/` are archival inputs, not in-game clips.
 
+`cockpit/canopy_sand_ticks.wav` and `canopy_sand_rattle.wav` are original synthetic
+stereo grain-impact loops, rebuilt by `tools/generate_canopy_sand_audio.py` without
+external recordings. `Weather/CanopySandAudio.gd` mixes them according to local
+dust exposure, storm strength and visual airflow speed. They play through Master
+only in active cockpit views, pause with the simulation, and stop on exterior
+view switches or leaving the dust. The two loop lengths differ to reduce obvious
+repetition. `Tests/CanopySandAudioSmoketest.gd` checks actual mixer output, strength
+scaling and exterior silence; subjective mix balance still needs in-flight review.
+
 ## Electric vehicle and interior pass
 
 `environment_audio_sources.json` records exact local source files, processing,

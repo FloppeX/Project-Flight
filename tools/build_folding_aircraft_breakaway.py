@@ -4,6 +4,7 @@ Blender 4.5, --background --factory-startup --python-exit-code 1 --python this.p
 Pass -- --build to export derivatives; originals remain untouched.
 """
 import sys
+import argparse
 import json
 from pathlib import Path
 import bpy
@@ -16,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from build_aircraft6_breakaway import godot_position, make_cutter, boolean, surface_geometry, validate, restore_skin_normals
 
 SOURCES = {
-    1: 'Models/Aircraft_1/Aircraft_1.glb',
+    1: 'Models/Aircraft_1/aircraft 1.glb',
     2: 'Models/Aircraft_2/aircraft 2 body.glb',
     5: 'Models/Aircraft_5/aircraft_5.glb',
 }
@@ -148,6 +149,18 @@ def cut_object(obj, specs, number):
         for points, normal, material_index in slivers:
             thicken_edge_sliver(piece, points, normal, material_index)
         pieces.append(piece)
+    if number == 5 and obj.name == 'body':
+        # The bridge meets the newly open elevator hinge. Blender's exact
+        # Boolean keeps the correct matching side polygons there but can retain
+        # the cutter's former Glass slot instead of the fracture slot.
+        for candidate in pieces:
+            fracture_index = candidate.data.materials.find(mat.name)
+            for face in candidate.data.polygons:
+                source_material = candidate.data.materials[face.material_index]
+                if (source_material is not None and source_material.name.startswith('Glass')
+                        and abs(face.center.x) > 1.5 and face.center.y > 3.8
+                        and face.center.z > 1.2):
+                    face.material_index = fracture_index
     if number == 1 and obj.name == 'fuselage':
         bm = bmesh.new()
         bm.from_mesh(obj.data)
@@ -163,7 +176,8 @@ def cut_object(obj, specs, number):
         bm.free()
         bpy.data.meshes.remove(preserved_hinge)
     validate(original, pieces, 'AIRCRAFT%d_%s' % (number, obj.name), allow_overlap_cleanup=True,
-             allow_closed_shell_junctions=(number == 2 and obj.name == 'main fuselage.001') or (number == 5 and obj.name == 'body'))
+             allow_closed_shell_junctions=(number == 2 and obj.name in ('main fuselage', 'main fuselage.001')) or (number == 5 and obj.name == 'body') or (number == 3 and obj.name == 'tail.002'),
+             allow_authored_control_openings=(number == 5 and obj.name == 'body'))
     restore_skin_normals(pieces, (*original, normals))
     # Restore original origins and hierarchy. The new wing tips are children of
     # the existing moving panel, so fold pivots/controllers need no replacement.
@@ -176,7 +190,58 @@ def cut_object(obj, specs, number):
         piece.matrix_basis = Matrix.Identity(4)
 
 
-def build(number):
+def rig_aircraft_controls(number):
+    """Keep authored vertices, but give separate controls leading-edge hinges."""
+    parents = {'left aileron': 'left outer wing', 'right aileron': 'right outer wing',
+               'elevator': 'main fuselage', 'rudder': 'main fuselage'}
+    if number == 1:
+        parents = {'aileron left': 'wing outer left', 'aileron right': 'wing outer right',
+                   'elevator': 'fuselage', 'rudder': 'fuselage'}
+    elif number == 3:
+        parents = {'aileron left': 'wing left', 'aileron right': 'wing right',
+                   'elevator': 'tail.002', 'rudder': 'tail.002'}
+    bpy.context.view_layer.update()
+    for name, parent_name in parents.items():
+        obj = bpy.data.objects.get(name)
+        if obj is None:
+            continue  # Older source exports do not have separate controls.
+        world = obj.matrix_world.copy()
+        points = [world @ v.co for v in obj.data.vertices]
+        span = 2 if name == 'rudder' else 0
+        ends = []
+        for limit in (min(p[span] for p in points), max(p[span] for p in points)):
+            row = [p for p in points if abs(p[span] - limit) < 0.0001]
+            forward = min(p.y for p in row)  # Blender -Y is aircraft forward.
+            edge = [p for p in row if abs(p.y - forward) < 0.0001]
+            ends.append(sum(edge, Vector()) / len(edge))
+        axis = (ends[1] - ends[0]).normalized()
+        reference = Vector((0, 0, 1)) if name == 'rudder' else Vector((1, 0, 0))
+        hinge = reference.rotation_difference(axis).to_matrix().to_4x4()
+        hinge.translation = (ends[0] + ends[1]) * 0.5
+        obj.data.transform(hinge.inverted() @ world)
+        obj.parent = bpy.data.objects[parent_name]
+        obj.matrix_parent_inverse = Matrix.Identity(4)
+        obj.matrix_basis = obj.parent.matrix_world.inverted() @ hinge
+    bpy.context.view_layer.update()
+
+
+def build(number, output=None):
+    if number == 1:
+        # The authored elevator was separated without closing its fixed-tail
+        # hinge opening. Close only that rim in the generated derivative so
+        # the tail fractures remain solid; leave the source GLB untouched.
+        body = bpy.data.objects['fuselage']
+        bm = bmesh.new()
+        bm.from_mesh(body.data)
+        bmesh.ops.remove_doubles(bm, verts=list(bm.verts), dist=0.00001)
+        rim = [e for e in bm.edges if e.is_boundary and all(
+            (body.matrix_world @ v.co).y > 4.96 and
+            (body.matrix_world @ v.co).z > 0.77 for v in e.verts)]
+        filled = bmesh.ops.holes_fill(bm, edges=rim, sides=0)['faces']
+        bmesh.ops.triangulate(bm, faces=filled)
+        bmesh.ops.recalc_face_normals(bm, faces=list(bm.faces))
+        bm.to_mesh(body.data)
+        bm.free()
     wing_names = {1: ('wing outer left', 'wing outer right'),
                   2: ('left outer wing', 'right outer wing'),
                   5: ('outer wing left', 'outer wing right')}[number]
@@ -187,6 +252,8 @@ def build(number):
         cutter = make_cutter('FractureTool', 'X', sign, profile(wing_cut, *z_bounds, 0.07 if number == 2 else 0.11), 5)
         cut_object(bpy.data.objects[name], [('OuterWingLeft' if sign == 1 else 'OuterWingRight', cutter)], number)
     body_name = {1: 'fuselage', 2: 'main fuselage.001', 5: 'body'}[number]
+    if number == 2 and 'main fuselage' in bpy.data.objects:
+        body_name = 'main fuselage'
     body = bpy.data.objects[body_name]
     if number in (1, 2):
         distance = 0.73 if number == 1 else 1.1
@@ -213,7 +280,21 @@ def build(number):
     cut_object(body, specs, number)
     if number == 2:
         body.name = 'main fuselage'  # Match the existing canopy/shadow scene path.
-    output = ROOT / ('Models/Aircraft_%d/aircraft_%d_breakaway.glb' % (number, number))
+    if number in (1, 2):
+        rig_aircraft_controls(number)
+    if number == 1:
+        # Aircraft 1's source carries blended corner normals on the fuselage.
+        # Shade every exported mesh face flat, including the newly cut pieces,
+        # without changing the authored source or the breakaway hierarchy.
+        for mesh_obj in bpy.data.objects:
+            if mesh_obj.type == 'MESH':
+                custom_normals = mesh_obj.data.attributes.get('custom_normal')
+                if custom_normals is not None:
+                    mesh_obj.data.attributes.remove(custom_normals)
+                for face in mesh_obj.data.polygons:
+                    face.use_smooth = False
+                mesh_obj.data.update()
+    output = output or ROOT / ('Models/Aircraft_%d/aircraft_%d_breakaway.glb' % (number, number))
     bpy.ops.object.select_all(action='SELECT')
     bpy.ops.export_scene.gltf(filepath=str(output), export_format='GLB', use_selection=True,
                              export_cameras=False, export_lights=False)
@@ -245,11 +326,17 @@ def inspect(number):
 
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--build', action='store_true')
+    parser.add_argument('--aircraft', type=int, choices=list(SOURCES), help='Rebuild only this aircraft')
+    args = parser.parse_args(sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else [])
     for number, path in SOURCES.items():
+        if args.aircraft is not None and number != args.aircraft:
+            continue
         bpy.ops.object.select_all(action='SELECT')
         bpy.ops.object.delete(use_global=False)
         bpy.ops.outliner.orphans_purge(do_recursive=True)
         bpy.ops.import_scene.gltf(filepath=str(ROOT / path))
         inspect(number)
-        if '--build' in sys.argv:
+        if args.build:
             build(number)

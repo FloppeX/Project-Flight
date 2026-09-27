@@ -68,9 +68,29 @@ func _run() -> void:
 	_expect(rising_elevators == 2, "both elevators did not rise concurrently")
 
 	var launch_wait_frames := 0
+	var overlap := false
+	var launches_started := 0
+	var previous_launching: Dictionary = {}
+	var last_release_frame := -10000
 	while _launched_count < 2 and launch_wait_frames < 1200:
 		launch_wait_frames += 1
 		await get_tree().physics_frame
+		var active := 0
+		for launch_catapult: Node in manager.get("_catapults"):
+			var launching := bool(launch_catapult.get("_launching"))
+			var was_launching := bool(previous_launching.get(launch_catapult.get_instance_id(), false))
+			if was_launching and not launching:
+				last_release_frame = launch_wait_frames
+			if launching:
+				active += 1
+				if not was_launching:
+					launches_started += 1
+					if launches_started > 1:
+						_expect(launch_wait_frames - last_release_frame >= 178, "second launch did not wait three seconds after release")
+			previous_launching[launch_catapult.get_instance_id()] = launching
+		overlap = overlap or active > 1
+	_expect(not overlap, "catapults launched simultaneously")
+	_expect(launches_started == 2, "did not observe two separate launch strokes")
 	_expect(_launched_count == 2, "both catapults did not complete their launch")
 	var cleanup_wait_frames := 0
 	while not (manager.get("_parallel_launch_jobs") as Dictionary).is_empty() \

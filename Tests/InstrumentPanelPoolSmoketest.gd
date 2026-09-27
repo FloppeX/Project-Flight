@@ -108,6 +108,32 @@ func _run() -> void:
 		_expect(live_2.get_instance_id() == first_panel_id, "released panel instance was not reused")
 		_expect(live_2.get("aircraft") == aircraft_2, "reused panel retained the old aircraft binding")
 		_expect(live_2.global_transform.is_equal_approx(mount_2.global_transform), "reused panel did not move to Aircraft 2")
+	# The destination panel must render while the source cockpit camera still
+	# owns the viewport, before the camera transition reaches the new aircraft.
+	var director := get_node_or_null("/root/FlightDirector")
+	_expect(director != null, "FlightDirector autoload is missing")
+	if director != null:
+		director.call("_prepare_transition_instrument_panel", aircraft_1)
+		await get_tree().process_frame
+		var pending_panel := mount_1.call("get_live_panel") as Node3D
+		_expect(pending_panel != null, "destination did not check out a panel before camera arrival")
+		_expect(camera_2 != null and camera_2.current, "preparing the destination changed the current cockpit camera")
+		if pending_panel != null:
+			_expect(pending_panel.get("aircraft") == aircraft_1, "pending display was bound to the wrong aircraft")
+			var pending_viewport := pending_panel.get_node_or_null("SubViewport") as SubViewport
+			_expect(pending_viewport != null and pending_viewport.render_target_update_mode == SubViewport.UPDATE_ALWAYS,
+				"pending display stopped rendering before camera arrival")
+			if pending_viewport != null and DisplayServer.get_name() != "headless":
+				await get_tree().process_frame
+				await get_tree().process_frame
+				var pending_image := pending_viewport.get_texture().get_image()
+				var pending_capture := "user://instrument_panel_transition_pending.png"
+				var pending_error := pending_image.save_png(pending_capture) if pending_image != null else ERR_CANT_CREATE
+				_expect(pending_error == OK, "pending panel screenshot could not be saved")
+				if pending_error == OK:
+					print("[InstrumentPanelPoolSmoketest] pending_screenshot=%s" % ProjectSettings.globalize_path(pending_capture))
+		director.call("_stop_transition_instrument_panel", aircraft_1, true)
+		_expect(mount_1.call("get_live_panel") == null, "canceled destination retained its pooled panel")
 
 	var stats: Dictionary = pool.call("get_pool_stats")
 	_expect(int(stats.get("capacity", 0)) == 2, "panel pool capacity is not two")

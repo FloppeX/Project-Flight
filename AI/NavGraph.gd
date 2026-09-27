@@ -455,6 +455,8 @@ func _build_clearance_map(cols: int, rows: int, cell: float, cooperative: bool =
 	cl.fill(1e9)
 
 	var allow_elevated_routes := _current_map_supports_elevated_routes()
+	# Reserve grade headroom for the 36 m mesh between the 40 m nav samples.
+	var clearance_grade := minf(max_slope_degrees, 14.0) if TerrainNavGrid.get_bake_profile_id() == "canyon_highlands" else max_slope_degrees
 	var h_ceil := TerrainNavGrid._h_min_passable + TerrainNavGrid.low_level_tolerance_m
 	var queue: PackedInt32Array = []
 	for gz in rows:
@@ -466,7 +468,7 @@ func _build_clearance_map(cols: int, rows: int, cell: float, cooperative: bool =
 			var is_obstacle := (
 				h <= TerrainNavGrid.IMPASSABLE * 0.5
 				or (not allow_elevated_routes and h > h_ceil)
-				or TerrainNavGrid.is_cell_near_steep_grade(gx, gz, max_slope_degrees, 1)
+				or TerrainNavGrid.is_cell_near_steep_grade(gx, gz, clearance_grade, 1)
 			)
 			if is_obstacle:
 				cl[gz * cols + gx] = 0.0
@@ -493,6 +495,18 @@ func _build_clearance_map(cols: int, rows: int, cell: float, cooperative: bool =
 			if d < cl[ni]:
 				cl[ni] = d
 				queue.append(ni)
+	# Apply route-specific vehicle limits after distance propagation so these do
+	# not become physical obstacles for the small-vehicle graph.
+	var terrain := get_tree().get_first_node_in_group("terrain_provider")
+	if TerrainNavGrid.get_bake_profile_id() == "canyon_highlands" and terrain != null:
+		for gz in rows:
+			if cooperative and _build_budget_expired():
+				if not await _yield_build_slice(generation):
+					return PackedFloat32Array()
+			for gx in cols:
+				var cap: float = terrain.get_navigation_clearance_cap(
+					TerrainNavGrid._origin_x + gx * cell, TerrainNavGrid._origin_z + gz * cell)
+				cl[gz * cols + gx] = minf(cl[gz * cols + gx], cap)
 	return cl
 
 
@@ -501,14 +515,18 @@ func _current_map_supports_elevated_routes() -> bool:
 	if terrain == null:
 		return false
 	var profile_value: Variant = terrain.get("map_profile_id")
-	return profile_value != null and str(profile_value) == "layered_badlands"
+	return profile_value != null and str(profile_value) in ["layered_badlands", "canyon_highlands"]
 
 
 func _effective_node_spacing_m() -> float:
+	if TerrainNavGrid.get_bake_profile_id() == "canyon_highlands":
+		return maxf(80.0, TerrainNavGrid.cell_size_m)
 	return maxf(layered_node_spacing_m, TerrainNavGrid.cell_size_m) if _current_map_supports_elevated_routes() else node_spacing_m
 
 
 func _effective_max_edge_length_m() -> float:
+	if TerrainNavGrid.get_bake_profile_id() == "canyon_highlands":
+		return maxf(180.0, _effective_node_spacing_m())
 	return maxf(layered_max_edge_length_m, _effective_node_spacing_m()) if _current_map_supports_elevated_routes() else max_edge_length_m
 
 # ── Passability helpers ─────────────────────────────────────────────────────
@@ -545,7 +563,8 @@ func _edge_clearance(pa: Vector3, pb: Vector3, ia: int, ib: int) -> float:
 	var oz := TerrainNavGrid._origin_z
 	var heights := TerrainNavGrid._heights
 	var impassable := TerrainNavGrid.IMPASSABLE
-	var max_grade := tan(deg_to_rad(clampf(max_slope_degrees, 0.1, 89.0)))
+	var edge_grade := minf(max_slope_degrees, 14.0) if TerrainNavGrid.get_bake_profile_id() == "canyon_highlands" else max_slope_degrees
+	var max_grade := tan(deg_to_rad(clampf(edge_grade, 0.1, 89.0)))
 	while prev_d < dist - 0.001:
 		var sample_d := minf(d, dist)
 		var px := pa.x + dir.x * sample_d
@@ -574,7 +593,15 @@ func _edge_clearance(pa: Vector3, pb: Vector3, ia: int, ib: int) -> float:
 		prev_h = h
 		prev_d = sample_d
 		# Sample clearance at this intermediate point from the clearance map
-		min_cl = minf(min_cl, _cl_map[index])
+		var sampled_cl := _cl_map[index]
+		if TerrainNavGrid.get_bake_profile_id() == "canyon_highlands":
+			# A sample occupies the area between four cells; one safe corner
+			# cannot justify cutting across a cliff in the other three.
+			if gx < cols - 1 and gz < rows - 1:
+				sampled_cl = minf(sampled_cl, minf(_cl_map[index + 1], minf(_cl_map[index + cols], _cl_map[index + cols + 1])))
+			if sampled_cl <= 0.0:
+				return -1.0
+		min_cl = minf(min_cl, sampled_cl)
 		d += step_m
 	return min_cl
 
@@ -654,7 +681,7 @@ func _simplify_path(path: Array[Vector3], min_cl: float) -> Array[Vector3]:
 	if path.size() <= 2:
 		return path
 	var simplify_cl := min_cl * 1.5
-	var max_seg_m := 400.0
+	var max_seg_m := 160.0 if _query_grid.get("profile_id", "") == "canyon_highlands" else 400.0
 	var result: Array[Vector3] = [path[0]]
 	var i := 0
 	while i < path.size() - 1:
@@ -707,8 +734,13 @@ func _check_segment_clearance(from: Vector3, to: Vector3, min_cl: float) -> floa
 			var cl_here: float
 			if _cl_map.size() > 0:
 				cl_here = _cl_map[gz * cols + gx]
+				if _query_grid.get("profile_id", "") == "canyon_highlands" and gx < cols - 1 and gz < rows - 1:
+					var index := gz * cols + gx
+					cl_here = minf(cl_here, minf(_cl_map[index + 1], minf(_cl_map[index + cols], _cl_map[index + cols + 1])))
 			else:
 				cl_here = 1e9
+			if _query_grid.get("profile_id", "") == "canyon_highlands" and cl_here <= 0.0:
+				return -1.0
 			result_cl = minf(result_cl, cl_here)
 			if result_cl < min_cl:
 				return result_cl
@@ -722,7 +754,8 @@ func _grade_exceeds_limit(from_height: float, to_height: float, horizontal_run_m
 	if horizontal_run_m <= 0.001:
 		return true
 	var rise_over_run := absf(to_height - from_height) / horizontal_run_m
-	return rise_over_run > tan(deg_to_rad(clampf(max_slope_degrees, 0.1, 89.0)))
+	var segment_grade := minf(max_slope_degrees, 14.0) if _query_grid.get("profile_id", "") == "canyon_highlands" else max_slope_degrees
+	return rise_over_run > tan(deg_to_rad(clampf(segment_grade, 0.1, 89.0)))
 
 # ── Spatial index ───────────────────────────────────────────────────────────
 
@@ -891,7 +924,7 @@ func _load(path: String) -> bool:
 	return true
 
 func _capture_query_grid() -> void:
-	_query_grid = {"heights": TerrainNavGrid._heights.duplicate(),
+	_query_grid = {"profile_id": TerrainNavGrid.get_bake_profile_id(), "heights": TerrainNavGrid._heights.duplicate(),
 		"origin_x": TerrainNavGrid._origin_x, "origin_z": TerrainNavGrid._origin_z,
 		"cols": TerrainNavGrid._cols, "rows": TerrainNavGrid._rows, "cell_size": TerrainNavGrid.cell_size_m}
 

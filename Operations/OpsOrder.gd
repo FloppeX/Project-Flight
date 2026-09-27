@@ -18,6 +18,8 @@ enum Kind {
 	HOLD_POSITION,
 	RETURN_TO_BASE,
 	RECOVER,
+	PROTECT_POSITION,
+	PURSUE_ENEMIES,
 }
 
 var kind: Kind = Kind.NONE
@@ -103,6 +105,21 @@ static func rescue_target(target_node: Node3D) -> OpsOrder:
 	return order
 
 
+static func protect_position(at: Vector3, radius: float = 250.0) -> OpsOrder:
+	var order := OpsOrder.new()
+	order.kind = Kind.PROTECT_POSITION
+	order.position = at
+	order.radius_m = radius
+	return order
+
+
+static func pursue_enemies(radius: float = 1200.0) -> OpsOrder:
+	var order := OpsOrder.new()
+	order.kind = Kind.PURSUE_ENEMIES
+	order.radius_m = radius
+	return order
+
+
 static func hold_position(hold_at: Vector3 = Vector3.INF) -> OpsOrder:
 	var order := OpsOrder.new()
 	order.kind = Kind.HOLD_POSITION
@@ -127,7 +144,7 @@ func is_actionable() -> bool:
 		return false
 	if kind in [Kind.INTERCEPT_TARGET, Kind.ATTACK_TARGET, Kind.PROTECT_TARGET, Kind.RESCUE_TARGET]:
 		return target != null and is_instance_valid(target)
-	if kind in [Kind.TRANSIT_TO_POSITION, Kind.PATROL_POSITION, Kind.ATTACK_POSITION]:
+	if kind in [Kind.TRANSIT_TO_POSITION, Kind.PATROL_POSITION, Kind.ATTACK_POSITION, Kind.PROTECT_POSITION]:
 		return _is_finite_position(position)
 	return true
 

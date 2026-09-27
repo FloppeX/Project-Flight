@@ -177,6 +177,61 @@ enum MissionPhase {
 	RESCUE,      # flying to pick up a downed pilot
 }
 
+# Outpost flights supply a looping route instead of the friendly LZ/carrier loop.
+var outpost_patrol_mode: bool = false
+var _outpost_route: Array[Vector3] = []
+var _outpost_route_index: int = 0
+const AirAwareness = preload("res://AI/HelicopterAirAwareness.gd")
+var _air_awareness = AirAwareness.new()
+var _air_attack_return_destination := Vector3.INF
+var _air_attack_origin := Vector3.ZERO
+var _air_attack_elapsed_s := 0.0
+var _air_attack_cooldown_s := 0.0
+
+func _mission_allows_helicopter_attack(target: Node3D) -> bool:
+	if mission_phase != MissionPhase.OUTBOUND or _passengers > 0 or is_instance_valid(_rescue_target): return false
+	if _commanded_attack_target != null: return _commanded_attack_target == target
+	return outpost_patrol_mode or str(aircraft.get_meta("aircraft_role", "")) == "attack_helicopter"
+
+func _can_engage_helicopter(target: Node3D) -> bool:
+	return AirAwareness.is_helicopter(target) and _mission_allows_helicopter_attack(target) \
+		and _air_attack_cooldown_s <= 0 and not _air_awareness.observation(target).is_empty()
+
+func _select_attack_weapon(target: Node3D, options: Array) -> Dictionary:
+	var preferred := COMBAT_WEAPON_GUN if AirAwareness.is_helicopter(target) else COMBAT_WEAPON_ROCKET
+	for option: Dictionary in options:
+		if option.get("kind", "") == preferred: return option
+	for option: Dictionary in options:
+		if option.get("kind", "") in [COMBAT_WEAPON_GUN, COMBAT_WEAPON_ROCKET]: return option
+	return {} if AirAwareness.is_helicopter(target) else options[0]
+
+func _update_air_defense(delta: float, speed: float) -> bool:
+	var goal := destination if _has_destination else aircraft.global_position + aircraft.global_basis.z * 500.0
+	var point: Vector3 = _air_awareness.defensive_waypoint(delta, aircraft, goal, _get_ground_height_at_position, min_terrain_clearance_m)
+	if point == Vector3.INF or _landing_on_carrier or _carrier_approach_phase != CarrierApproachPhase.NONE: return false
+	_stop_pending_rocket_bursts()
+	# Temporarily suppress attack-specific aim inputs; keep the order and route.
+	var was_atk_enabled := atk_enabled
+	atk_enabled = false
+	_fly_toward(point, speed, delta)
+	atk_enabled = was_atk_enabled
+	return true
+
+func set_outpost_patrol_route(route: Array[Vector3]) -> void:
+	outpost_patrol_mode = true
+	_outpost_route = route.duplicate()
+	_outpost_route_index = 0
+	if is_instance_valid(aircraft) and not _outpost_route.is_empty() and _atk_state == AtkState.SELECT and mission_phase == MissionPhase.OUTBOUND:
+		mission_phase = MissionPhase.OUTBOUND
+		set_destination(_outpost_route[0], cruise_speed_mps)
+
+func _update_outpost_patrol_route() -> void:
+	if not outpost_patrol_mode or mission_phase != MissionPhase.OUTBOUND or _outpost_route.is_empty() or _atk_state != AtkState.SELECT:
+		return
+	if not _has_destination or _flat_distance(aircraft.global_position, destination) < 200.0:
+		_outpost_route_index = (_outpost_route_index + 1) % _outpost_route.size()
+		set_destination(_outpost_route[_outpost_route_index], cruise_speed_mps)
+
 @export_group("References")
 @export var helicopter_flight_path: NodePath
 @export var control_engine_path: NodePath
@@ -766,7 +821,7 @@ enum MissionPhase {
 @export var combat_report_gun_projectiles_enabled: bool = false
 @export var combat_report_path: String = "user://heli_combat_report.log"
 @export var combat_report_project_mirror_enabled: bool = false
-@export var combat_report_project_mirror_path: String = "res://heli_combat_report.log"
+@export var combat_report_project_mirror_path: String = "res://logs/heli_combat_report.log"
 @export var combat_gun_shot_assess_time_s: float = 0.35
 @export var combat_alternate_hardpoint_guns_enabled: bool = true
 @export var combat_preferred_gun_score_bias: float = 3.6
@@ -1238,6 +1293,11 @@ func _exit_tree() -> void:
 
 
 func apply_origin_shift(offset: Vector3) -> void:
+	_air_awareness.shift_origin(offset)
+	_air_attack_origin -= offset
+	if _air_attack_return_destination != Vector3.INF: _air_attack_return_destination -= offset
+	for i in _outpost_route.size():
+		_outpost_route[i] -= offset
 	_popup.shift(offset)
 	if _popup_last_site != Vector3.INF:
 		_popup_last_site -= offset
@@ -1305,6 +1365,9 @@ func apply_origin_shift(offset: Vector3) -> void:
 
 
 func initialize(aircraft_node: RigidBody3D) -> void:
+	_air_awareness.reset()
+	_air_attack_return_destination = Vector3.INF
+	_air_attack_cooldown_s = 0.0
 	aircraft = aircraft_node
 	if not is_instance_valid(aircraft):
 		push_error("[HelicopterPilot] Parent aircraft is not valid.")
@@ -1341,6 +1404,8 @@ func initialize(aircraft_node: RigidBody3D) -> void:
 	if aircraft.has_signal("damaged") \
 			and not aircraft.is_connected("damaged", _on_aircraft_damaged_health_rtb):
 		aircraft.connect("damaged", _on_aircraft_damaged_health_rtb)
+	if aircraft.has_signal("combat_damage_received") and not aircraft.is_connected("combat_damage_received", _air_awareness.report_damage):
+		aircraft.connect("combat_damage_received", _air_awareness.report_damage)
 	_health_rtb_check_timer_s = 0.0
 	_health_rtb_triggered = false
 
@@ -1351,7 +1416,9 @@ func initialize(aircraft_node: RigidBody3D) -> void:
 
 	mission_phase = MissionPhase.OUTBOUND
 	_combat_hunt_mode = bool(aircraft.get_meta(COMBAT_HUNT_MODE_META, false))
-	if _combat_hunt_mode:
+	if outpost_patrol_mode and not _outpost_route.is_empty():
+		set_destination(_outpost_route[0], cruise_speed_mps)
+	elif _combat_hunt_mode:
 		use_heightmap_pathfinding = false
 		_clear_heightmap_path("heli_test_flat_range")
 		_update_combat_hunt_destination(true)
@@ -1543,6 +1610,7 @@ func command_attack_target(target_node: Node3D) -> bool:
 
 
 func _cancel_attack_order(reason: String) -> void:
+	_stop_pending_rocket_bursts()
 	_commanded_attack_target = null
 	set_combat_hunt_mode(false)
 	_atk_reset(reason)
@@ -1550,6 +1618,12 @@ func _cancel_attack_order(reason: String) -> void:
 	_clear_combat_turret_targets()
 	_cancel_combat_plan_job()
 	_cancel_combat_route_job()
+
+
+func _stop_pending_rocket_bursts() -> void:
+	if not is_instance_valid(aircraft): return
+	for pod in aircraft.find_children("*", "RocketPod", true, false):
+		pod.cancel_burst()
 
 
 func command_hover(world_position: Variant = null) -> void:
@@ -1913,6 +1987,9 @@ func _physics_process(delta: float) -> void:
 		FrameProfiler.end("HelicopterPilot.physics", _profiler_start)
 		return
 	_physics_delta = delta
+	_air_attack_cooldown_s = maxf(0.0, _air_attack_cooldown_s - delta)
+	if state == State.LOW_LEVEL_TRANSIT:
+		_air_awareness.update_observations(delta, aircraft, _get_ground_height_at_position)
 	_navigation_elapsed_s += delta
 	_heightmap_path_timer_s = maxf(_heightmap_path_timer_s - delta, 0.0)
 	_terrain_climb_speed_log_s = maxf(_terrain_climb_speed_log_s - delta, 0.0)
@@ -2039,7 +2116,7 @@ func _physics_process(delta: float) -> void:
 			var transit_speed := _get_path_fail_escape_speed(_get_current_leg_target_speed_mps(cruise_speed_mps))
 			transit_speed = _apply_transit_speed_limits_budgeted(transit_speed, delta)
 			var _combat_profiler_start: int = FrameProfiler.begin("HelicopterPilot.combat")
-			if _update_combat_attack(delta, transit_speed):
+			if _update_air_defense(delta, transit_speed) or _update_combat_attack(delta, transit_speed):
 				_emit_debug(delta)
 				_update_recorder_faults_budgeted(delta)
 				FrameProfiler.end("HelicopterPilot.combat", _combat_profiler_start)
@@ -2062,6 +2139,8 @@ func _physics_process(delta: float) -> void:
 						and _flat_distance(aircraft.global_position, destination) <= maxf(waypoint_accept_radius_m, 100.0):
 					_has_destination = false
 					_update_combat_hunt_destination(true)
+			elif outpost_patrol_mode and mission_phase == MissionPhase.OUTBOUND:
+				_update_outpost_patrol_route()
 			elif mission_phase == MissionPhase.INBOUND and not _is_navigation_shuttle():
 				# For carrier landing, only enter LANDING once through the approach gate.
 				# The gate is the approach marker position — stay in transit until then
@@ -2879,6 +2958,7 @@ func _update_combat_hunt_destination(force: bool = false) -> void:
 
 
 func _update_navigation_plan() -> void:
+	_update_outpost_patrol_route()
 	var navigation_delta := _navigation_elapsed_s
 	_navigation_elapsed_s = 0.0
 	# Keep tracking the moving carrier while inbound
@@ -3330,6 +3410,8 @@ func _get_heightmap_route_point(current_pos: Vector3, goal: Vector3) -> Vector3:
 	var goal_repath_threshold: float = maxf(heightmap_path_goal_move_recompute_m, 1.0)
 	if mission_phase == MissionPhase.INBOUND and not _is_navigation_shuttle():
 		goal_repath_threshold = maxf(carrier_goal_repath_threshold_m, 1.0)
+	if _has_overshot_final_heightmap_waypoint(current_pos, goal):
+		_clear_heightmap_path("terminal_waypoint_overshot")
 	if not _heightmap_path.is_empty() and _flat_distance(_heightmap_path_goal, goal) > goal_repath_threshold:
 		if not _should_keep_inbound_heightmap_route_for_moving_goal():
 			_clear_heightmap_path("goal_moved")
@@ -3419,6 +3501,20 @@ func _get_heightmap_route_point(current_pos: Vector3, goal: Vector3) -> Vector3:
 		if _heightmap_path_index >= _heightmap_path.size():
 			return goal
 	return _get_heightmap_path_carrot_point(current_pos)
+
+
+func _has_overshot_final_heightmap_waypoint(current_pos: Vector3, goal: Vector3) -> bool:
+	if _heightmap_path.size() < 2 or _heightmap_path_index != _heightmap_path.size() - 1:
+		return false
+	var last_point: Vector3 = _heightmap_path[-1]
+	var previous_point: Vector3 = _heightmap_path[-2]
+	var final_leg := Vector2(last_point.x - previous_point.x, last_point.z - previous_point.z)
+	if final_leg.length_squared() <= 1.0:
+		return false
+	var past_end := Vector2(current_pos.x - last_point.x, current_pos.z - last_point.z)
+	var overshoot_m := past_end.dot(final_leg.normalized())
+	var repath_margin := maxf(heightmap_path_advance_radius_m * 2.0, 200.0)
+	return overshoot_m > repath_margin and _flat_distance(current_pos, goal) > repath_margin
 
 
 func _should_keep_inbound_heightmap_route_for_moving_goal() -> bool:
@@ -6061,6 +6157,10 @@ func _apply_cached_control_outputs() -> void:
 	_apply_collective(_control_cached_collective_target)
 
 
+func _get_path_follow_blend(goal_dir: Vector3, route_dir: Vector3) -> float:
+	return clampf(path_follow_line_blend, 0.0, 1.0) * clampf(goal_dir.dot(route_dir), 0.0, 1.0)
+
+
 func _fly_transit_vector(target: Vector3, desired_speed: float, delta: float) -> void:
 	var control_delta := _consume_control_update_delta(delta)
 	if control_delta <= 0.0:
@@ -6101,7 +6201,9 @@ func _fly_transit_vector(target: Vector3, desired_speed: float, delta: float) ->
 				route_capture_dir.y = 0.0
 				if route_capture_dir.length_squared() > 0.001:
 					route_capture_dir = route_capture_dir.normalized()
-					var blend := clampf(path_follow_line_blend, 0.0, 1.0)
+					# A path segment can point away after its last waypoint has been
+					# overshot. Never let its tangent override the actual waypoint.
+					var blend := _get_path_follow_blend(path_dir, route_capture_dir)
 					path_dir = path_dir.lerp(route_capture_dir, blend)
 					path_dir.y = 0.0
 					path_dir = path_dir.normalized() if path_dir.length_squared() > 0.001 else route_capture_dir
@@ -7922,6 +8024,11 @@ func _notify_helicopter_landed_on_carrier_deck() -> void:
 
 
 func _update_combat_attack(delta: float, fallback_speed_mps: float) -> bool:
+	# Rescue/passenger carriage is defensive even with outbound-only disabled.
+	if mission_phase == MissionPhase.RESCUE or _passengers > 0:
+		_atk_reset("protected_mission")
+		_clear_combat_attack("protected_mission")
+		return false
 	if not combat_enabled or not is_instance_valid(aircraft):
 		_clear_combat_attack("disabled")
 		_clear_combat_plan_job()
@@ -7993,6 +8100,13 @@ func _update_combat_attack(delta: float, fallback_speed_mps: float) -> bool:
 # normal transit flight run with the destination it set.
 # =====================================================================================
 func _update_atk(delta: float, fallback_speed_mps: float) -> bool:
+	if _air_attack_return_destination != Vector3.INF:
+		_air_attack_elapsed_s += delta
+		if not is_instance_valid(_atk_target) or not _mission_allows_helicopter_attack(_atk_target) \
+			or _air_awareness.observation(_atk_target).is_empty() \
+			or _air_attack_elapsed_s > 60.0 or aircraft.global_position.distance_to(_air_attack_origin) > 2000.0:
+			_atk_reset("air_engagement_ended")
+			return false
 	# Only attack while outbound and in normal transit flight.
 	if combat_outbound_only and mission_phase != MissionPhase.OUTBOUND:
 		_atk_reset("not_outbound")
@@ -8034,10 +8148,13 @@ func _atk_target_valid() -> bool:
 		return false
 	if _combat_variant_truthy(_atk_target.get("is_destroyed")):
 		return false
+	if AirAwareness.is_helicopter(_atk_target):
+		return _mission_allows_helicopter_attack(_atk_target) and not _air_awareness.observation(_atk_target).is_empty()
 	return true
 
 
 func _atk_try_retarget_current_pass() -> bool:
+	if _air_attack_return_destination != Vector3.INF: return false
 	if not atk_same_pass_retarget_enabled \
 			or _atk_same_pass_retargets >= maxi(atk_max_same_pass_retargets, 0) \
 			or not is_instance_valid(aircraft):
@@ -8277,6 +8394,11 @@ func _atk_set_state(new_state: int) -> void:
 
 
 func _atk_reset(reason: String) -> void:
+	if _air_attack_return_destination != Vector3.INF:
+		var return_point := _air_attack_return_destination
+		_air_attack_return_destination = Vector3.INF
+		_air_attack_cooldown_s = 10.0
+		set_destination(return_point, cruise_speed_mps)
 	_popup.plan.clear()
 	_popup_capture = false
 	if _atk_state != AtkState.SELECT or _atk_target != null:
@@ -8358,15 +8480,13 @@ func _atk_select(delta: float) -> bool:
 			best_target = t
 	if best_target == null:
 		return false
-	# Aircraft_10 doctrine: expend rockets first against both stationary and moving
-	# vehicles. The rocket sight uses observed motion; guns become the natural
-	# fallback once no ready rocket pod remains.
-	var weapon: Dictionary = weapon_options[0] as Dictionary
-	for option_variant in weapon_options:
-		if option_variant is Dictionary \
-				and String((option_variant as Dictionary).get("kind", "")) == COMBAT_WEAPON_ROCKET:
-			weapon = option_variant as Dictionary
-			break
+	# Ground attacks retain rockets first; helicopter encounters prefer guns.
+	var weapon := _select_attack_weapon(best_target, weapon_options)
+	if weapon.is_empty(): return false
+	if AirAwareness.is_helicopter(best_target):
+		_air_attack_return_destination = destination if _has_destination else aircraft.global_position
+		_air_attack_origin = aircraft.global_position
+		_air_attack_elapsed_s = 0.0
 
 	_atk_target = best_target
 	_atk_last_target_position = best_target.global_position
@@ -8602,7 +8722,7 @@ func _atk_ingress(delta: float, fallback_speed_mps: float) -> bool:
 	# point-radius and altitude-radius gate on the same physics frame.
 	var current := aircraft.global_position
 	var target_pos := _atk_target.global_position
-	if atk_shoot_and_scoot_enabled and _flat_distance(current, target_pos) <= _atk_turnaway_distance_m():
+	if atk_shoot_and_scoot_enabled and not AirAwareness.is_helicopter(_atk_target) and _flat_distance(current, target_pos) <= _atk_turnaway_distance_m():
 		_atk_begin_egress("lineup_inside_breakoff")
 		return false
 	var progress_distance := _flat_distance(current, target_pos if _atk_ingress_aligning else _atk_attack_point)
@@ -8755,7 +8875,8 @@ func _atk_run(delta: float, fallback_speed_mps: float) -> bool:
 			maxf(atk_gun_breakoff_distance_m, 1.0)
 		)
 	var reached_breakoff := target_dist <= effective_breakoff_m
-	if atk_shoot_and_scoot_enabled:
+	if AirAwareness.is_helicopter(_atk_target): reached_breakoff = target_dist <= 150.0
+	if atk_shoot_and_scoot_enabled and not AirAwareness.is_helicopter(_atk_target):
 		reached_breakoff = target_dist <= maxf(effective_breakoff_m, _atk_turnaway_distance_m())
 		# Do not start a fresh shot at the turn-away boundary. An already-started
 		# pod burst retains its normal timing and aim until its last rocket exits.
@@ -8770,6 +8891,7 @@ func _atk_run(delta: float, fallback_speed_mps: float) -> bool:
 	var lead := _atk_target_lead_point(target_pos, current)
 	var desired_run_altitude := _atk_desired_run_altitude_m \
 			if is_finite(_atk_desired_run_altitude_m) else _atk_attack_point.y
+	if AirAwareness.is_helicopter(_atk_target): desired_run_altitude = target_pos.y + atk_target_run_altitude_offset_m
 	var run_altitude := desired_run_altitude
 	var run_max_ground := _atk_max_ground_height_on_segment(current, target_pos)
 	if is_finite(run_max_ground):
@@ -8905,6 +9027,7 @@ func _atk_effective_fire_cone_deg() -> float:
 	# limit here as the final release authority.
 	if _atk_weapon_kind == COMBAT_WEAPON_GUN:
 		cone_deg = minf(cone_deg, maxf(combat_gun_fire_alignment_deg, 0.1))
+	if AirAwareness.is_helicopter(_atk_target): cone_deg = minf(cone_deg, 4.0)
 	return cone_deg
 
 
@@ -8930,6 +9053,7 @@ func _atk_rocket_burst_in_progress() -> bool:
 
 
 func _atk_aim_and_fire(target_dist: float) -> void:
+	if AirAwareness.is_helicopter(_atk_target) and not _atk_target_valid(): return
 	if _atk_weapon.is_empty():
 		return
 	if _atk_weapon_kind == COMBAT_WEAPON_GUN:
@@ -8947,7 +9071,7 @@ func _atk_aim_and_fire(target_dist: float) -> void:
 	_atk_last_aim_dot = aim_dot
 	var fire_cone_cos := cos(deg_to_rad(_atk_effective_fire_cone_deg()))
 	var is_rocket_volley := _atk_weapon_kind == COMBAT_WEAPON_ROCKET
-	if atk_shoot_and_scoot_enabled and is_rocket_volley:
+	if atk_shoot_and_scoot_enabled and is_rocket_volley and not AirAwareness.is_helicopter(_atk_target):
 		var pod := hardpoint.weapon_instance
 		var burst_time := 0.0
 		if pod is RocketPod:
@@ -9078,6 +9202,7 @@ func _atk_owns_terminal_guidance() -> bool:
 
 
 func _atk_try_begin_popup() -> bool:
+	if AirAwareness.is_helicopter(_atk_target): return false
 	if not atk_popup_enabled or _atk_weapon_kind != COMBAT_WEAPON_ROCKET or not _atk_target_valid(): return false
 	if _elapsed_s() < _popup_retry_until_s: return false
 	_popup_retry_until_s = _elapsed_s() + 3.0
@@ -9274,6 +9399,9 @@ func _atk_turnaway_distance_m() -> float:
 
 
 func _atk_begin_egress(reason: String) -> void:
+	if _air_attack_return_destination != Vector3.INF:
+		_atk_reset(reason)
+		return
 	_atk_tuning_exit_reason = reason
 	_atk_log_fire_gate_summary(reason)
 	_atk_escape_covered = false
@@ -9310,6 +9438,7 @@ func _atk_egress(fallback_speed_mps: float) -> bool:
 
 
 func _can_start_combat_attack() -> bool:
+	if mission_phase == MissionPhase.RESCUE or _passengers > 0: return false
 	if state != State.LOW_LEVEL_TRANSIT:
 		_log_combat_debug("not_ready", "reason=state current=%s" % _state_name())
 		return false
@@ -10693,6 +10822,12 @@ func _get_combat_predicted_aim_point(target: Node3D, hardpoint: Hardpoint) -> Ve
 	var target_velocity := _get_node_velocity(target)
 	if target == _atk_target and _atk_target_observation_time_s > 0.0:
 		target_velocity = _atk_filtered_target_velocity
+	if AirAwareness.is_helicopter(target):
+		var observed: Dictionary = _air_awareness.observation(target)
+		if observed.is_empty(): return aircraft.global_position + aircraft.global_basis.z * 100.0
+		return _predict_combat_ballistic_aim_point(hardpoint.global_position,
+			_get_combat_launch_point_velocity(hardpoint.global_position), observed.position, observed.velocity,
+			muzzle_speed + (maxf(combat_rocket_motor_speed_bias_mps, 0.0) if weapon_kind == COMBAT_WEAPON_ROCKET else 0.0), 1.0)
 	if weapon_kind == COMBAT_WEAPON_ROCKET:
 		target_pos.y -= maxf(combat_rocket_aim_lower_bias_m, 0.0)
 		# Pure CCIP feedback: the impact sim already models the full rocket arc
@@ -10857,6 +10992,12 @@ func _get_combat_rocket_ccip_miss_m(target: Node3D, ccip_solution: Dictionary) -
 
 
 func _is_combat_rocket_ccip_ready_for_fire(target: Node3D, tolerance_override_m: float = -1.0) -> bool:
+	# Airborne intercepts use the 3D ballistic sight, not a terrain-impact pipper.
+	if AirAwareness.is_helicopter(target):
+		var hp := _get_primary_combat_hardpoint(_atk_weapon)
+		if hp == null or _air_awareness.observation(target).is_empty(): return false
+		var aim := (_get_combat_predicted_aim_point(target, hp) - aircraft.global_position).normalized()
+		return _get_best_combat_weapon_alignment_dot(_atk_weapon, aim) >= cos(deg_to_rad(4.0))
 	if not combat_rocket_ccip_guidance_enabled:
 		return true
 	var ccip_solution: Dictionary = _get_combat_rocket_ccip_solution(target)
@@ -11566,6 +11707,12 @@ func _get_uncommanded_combat_target_candidates() -> Array:
 	var target_groups: Array = ["dummy_turrets"] if _combat_hunt_mode else [
 		"gun_emplacements", "ground_vehicles", "buildings", "enemies", "dummy_turrets"
 	]
+	if outpost_patrol_mode:
+		target_groups = ["ground_vehicles", "carrier"]
+	for helicopter: Node3D in _air_awareness.visible_helicopters():
+		if _is_valid_combat_target(helicopter):
+			out.append(helicopter)
+			seen[helicopter.get_instance_id()] = true
 	for group_name in target_groups:
 		var nodes := get_tree().get_nodes_in_group(group_name)
 		for node_variant in nodes:
@@ -11586,7 +11733,9 @@ func _is_valid_commanded_combat_target(target: Node3D) -> bool:
 	## attack FSM still computes live moving-target geometry and weapon constraints.
 	if target == null or target == aircraft:
 		return false
-	if target.is_in_group("aircraft") or target.is_in_group("ai_aircraft") or target.is_in_group("carrier"):
+	if (target.is_in_group("aircraft") or target.is_in_group("ai_aircraft")) and not _can_engage_helicopter(target):
+		return false
+	if target.is_in_group("carrier") and not outpost_patrol_mode:
 		return false
 	if _combat_variant_truthy(target.get("is_destroyed")):
 		return false
@@ -11599,7 +11748,9 @@ func _is_valid_commanded_combat_target(target: Node3D) -> bool:
 func _is_valid_combat_target(target: Node3D) -> bool:
 	if target == aircraft:
 		return false
-	if target.is_in_group("aircraft") or target.is_in_group("ai_aircraft") or target.is_in_group("carrier"):
+	if (target.is_in_group("aircraft") or target.is_in_group("ai_aircraft")) and not _can_engage_helicopter(target):
+		return false
+	if target.is_in_group("carrier") and not outpost_patrol_mode:
 		return false
 	if _combat_variant_truthy(target.get("is_destroyed")):
 		return false
@@ -14377,7 +14528,7 @@ func _write_to_helicopter_paths_log(msg: String) -> void:
 		return
 	var lines := PackedStringArray()
 	lines.append(msg)
-	_append_lines_to_log("res://helicopter_paths.log", lines, "helicopter paths log")
+	_append_lines_to_log("res://logs/helicopter_paths.log", lines, "helicopter paths log")
 	_append_lines_to_log("user://helicopter_paths.log", lines, "helicopter paths log")
 	print("[helicopter_paths] " + msg)
 

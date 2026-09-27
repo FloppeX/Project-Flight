@@ -1,7 +1,7 @@
 [gd_scene load_steps=5 format=3 uid="uid://bpna5btnwpvpr"]
 
 [ext_resource type="Script" uid="uid://8ie7f13q4qh0" path="res://Aircraft/Visuals/Engine/Engine.gd" id="1"]
-[ext_resource type="Texture2D" uid="uid://c4frdb71hah6s" path="res://Materials/fire_gradient.png" id="2_qam1w"]
+[ext_resource type="Texture2D" uid="uid://dsv5ugjg0n4vn" path="res://Materials/fire_gradient.png" id="2_qam1w"]
 
 [sub_resource type="SphereMesh" id="1"]
 radius = 0.3

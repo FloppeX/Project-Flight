@@ -1,7 +1,7 @@
 [gd_scene format=3 uid="uid://cttyb65rjjlfx"]
 
 [ext_resource type="Script" path="res://LandCarrier/MonitorStation.gd" id="1_station"]
-[ext_resource type="PackedScene" uid="uid://10encn4j8lq1" path="res://LandCarrier/monitor station.glb" id="2_model"]
+[ext_resource type="PackedScene" uid="uid://10encn4j8lq1" path="res://Models/LandCarrier/monitor_station.glb" id="2_model"]
 
 [node name="MonitorStation" type="Node3D" unique_id=1049478346 groups=["monitor_station"]]
 script = ExtResource("1_station")

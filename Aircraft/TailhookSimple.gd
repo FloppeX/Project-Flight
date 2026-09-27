@@ -3,6 +3,9 @@ extends Node3D
 @export var hook_area: NodePath
 @export var hook_body_collision: NodePath
 @export var hook_mesh: NodePath
+## Mount in aircraft-local coordinates: lower middle of the fuselage centerline.
+@export var stowed_mount_position := Vector3(0.0, -0.65, 0.0)
+@export_range(0.05, 5.0) var deployment_duration_s: float = 0.8
 
 # Identify this module for external systems (e.g., FlightDeckManager)
 var ModuleType: String = "tailhook"
@@ -20,6 +23,9 @@ var _mesh_node: Node3D
 var _aircraft: RigidBody3D
 var _is_deployed: bool = false
 var _technical_index_preview_fraction: float = 1.0
+var _visual_fraction: float = 0.0
+var _visual_tween: Tween
+var _shaft_length: float = 0.0
 
 func _ready():
 	_cache_nodes()
@@ -38,6 +44,18 @@ func _cache_nodes() -> void:
 	_area = get_node_or_null(hook_area)
 	_body_col = get_node_or_null(hook_body_collision) as CollisionShape3D
 	_mesh_node = get_node_or_null(hook_mesh) as Node3D
+	if _mesh_node != null and _shaft_length <= 0.0:
+		for child in _mesh_node.find_children("*", "MeshInstance3D", true, false):
+			var mesh := child as MeshInstance3D
+			if mesh.mesh != null:
+				var local_transform := mesh.transform
+				var ancestor := mesh.get_parent() as Node3D
+				while ancestor != null and ancestor != _mesh_node:
+					local_transform = ancestor.transform * local_transform
+					ancestor = ancestor.get_parent() as Node3D
+				var bounds: AABB = local_transform * mesh.mesh.get_aabb()
+				_shaft_length = maxf(_shaft_length, bounds.end.y)
+		_shaft_length = maxf(_shaft_length, 0.01)
 
 func prepare_technical_index_preview() -> bool:
 	var aircraft_root := get_parent()
@@ -54,18 +72,15 @@ func set_technical_index_preview_fraction(deploy_fraction: float) -> void:
 	_technical_index_preview_fraction = clampf(deploy_fraction, 0.0, 1.0)
 	if _mesh_node == null:
 		_cache_nodes()
-	if _mesh_node != null:
-		_mesh_node.visible = _technical_index_preview_fraction > 0.001
+	if _visual_tween != null:
+		_visual_tween.kill()
+	_apply_visual_fraction(_technical_index_preview_fraction)
 
 func get_technical_index_preview_fraction() -> float:
 	return _technical_index_preview_fraction
 
 func get_technical_index_preview_duration() -> float:
-	var aircraft_root := get_parent()
-	var landing_gear := aircraft_root.get_node_or_null("LandingGear") if aircraft_root != null else null
-	if landing_gear != null:
-		return maxf(float(landing_gear.get("DeployStowTime")), 0.01)
-	return 1.0
+	return deployment_duration_s
 
 func get_technical_index_preview_kind() -> StringName:
 	return &"gear"
@@ -80,8 +95,7 @@ func deploy():
 			cs.disabled = false
 	if _body_col:
 		_body_col.disabled = false
-	if _mesh_node and _mesh_node.has_method("set_visible"):
-		_mesh_node.visible = true
+	_animate_visual_to(1.0)
 
 func stow():
 	_is_deployed = false
@@ -93,8 +107,39 @@ func stow():
 			cs.disabled = true
 	if _body_col:
 		_body_col.disabled = true
-	if _mesh_node and _mesh_node.has_method("set_visible"):
-		_mesh_node.visible = false
+	_animate_visual_to(0.0)
+
+func _animate_visual_to(target: float) -> void:
+	if _visual_tween != null:
+		_visual_tween.kill()
+	if is_equal_approx(_visual_fraction, target):
+		_apply_visual_fraction(target)
+		return
+	_visual_tween = create_tween()
+	_visual_tween.tween_method(_apply_visual_fraction, _visual_fraction, target,
+		deployment_duration_s * absf(target - _visual_fraction)).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+
+func _apply_visual_fraction(fraction: float) -> void:
+	_visual_fraction = clampf(fraction, 0.0, 1.0)
+	if _mesh_node == null:
+		return
+	_mesh_node.visible = _visual_fraction > 0.001
+	# Keep the scene root and cable detector at the authored deployed tip. Only
+	# the visual shaft telescopes from the belly mount toward that exact point.
+	var tip := position
+	var shaft := stowed_mount_position - tip
+	if shaft.length_squared() < 0.0001:
+		return
+	var axis_y := shaft.normalized()
+	var axis_x := Vector3.RIGHT
+	if absf(axis_y.dot(axis_x)) > 0.99:
+		axis_x = Vector3.FORWARD
+	var axis_z := axis_x.cross(axis_y).normalized()
+	axis_x = axis_y.cross(axis_z).normalized()
+	var extension := maxf(_visual_fraction, 0.001)
+	var visual_basis := Basis(axis_x, axis_y * shaft.length() * extension / _shaft_length, axis_z)
+	var visual_tip := stowed_mount_position.lerp(tip, _visual_fraction)
+	_mesh_node.transform = transform.affine_inverse() * Transform3D(visual_basis, visual_tip)
 
 func _physics_process(delta: float) -> void:
 	if not _is_deployed:

@@ -2,7 +2,7 @@
 
 [ext_resource type="Script" uid="uid://d2tcsb6gkpxmv" path="res://Projectiles/Rocket/rocket.gd" id="1_rocket_script"]
 [ext_resource type="PackedScene" uid="uid://cadi81fcpvmuc" path="res://Projectiles/Explosion/explosion.tscn" id="2_explosion"]
-[ext_resource type="PackedScene" uid="uid://cqpecrkv0s0h6" path="res://Projectiles/Rocket/rocket.glb" id="3_rocket_model"]
+[ext_resource type="PackedScene" uid="uid://cqpecrkv0s0h6" path="res://Models/Weapons/rocket.glb" id="3_rocket_model"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_rocket"]
 size = Vector3(0.18, 0.18, 1.1)

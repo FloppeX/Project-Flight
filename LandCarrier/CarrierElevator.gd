@@ -56,8 +56,8 @@ signal covers_opened
 @export_range(0.0, 0.6, 0.01) var shaft_fixture_wall_offset_m: float = 0.07
 @export var moving_sound: AudioStream = preload("res://Audio/Carrier/elevator_moving_mono.wav")
 @export var moving_sound_bus: String = "Master"
-@export var moving_sound_min_volume_db: float = -20.0
-@export var moving_sound_max_volume_db: float = -10.0
+@export var moving_sound_min_volume_db: float = -16.0
+@export var moving_sound_max_volume_db: float = -7.0
 @export var moving_sound_pitch_min: float = 0.82
 @export var moving_sound_pitch_max: float = 1.08
 @export var moving_sound_silence_db: float = -80.0
@@ -95,6 +95,9 @@ var _cover_local_y: float = -0.1
 var _cover_target_y: float = -0.1
 var _moving_audio_player: AudioStreamPlayer3D
 var _last_platform_y: float = 0.0
+var _last_left_cover_x: float = 0.0
+var _last_right_cover_x: float = 0.0
+var _last_cover_y: float = 0.0
 var _technical_index_preview_fraction: float = 0.0
 var _platform_restraints: Dictionary = {}
 
@@ -647,6 +650,9 @@ func set_initial_state():
 		_cover_target_y = _cover_deck_y()
 		current_state = ElevatorState.AT_BOTTOM
 		_last_platform_y = _platform_local_y
+		_last_left_cover_x = _left_cover_local_x
+		_last_right_cover_x = _right_cover_local_x
+		_last_cover_y = _cover_local_y
 		left_cover_target_x = _left_cover_local_x
 		right_cover_target_x = _right_cover_local_x
 		_sync_physical_transforms()
@@ -668,6 +674,9 @@ func set_initial_state():
 	
 	current_state = ElevatorState.AT_TOP
 	_last_platform_y = _platform_local_y
+	_last_left_cover_x = _left_cover_local_x
+	_last_right_cover_x = _right_cover_local_x
+	_last_cover_y = _cover_local_y
 	_sync_physical_transforms()
 	_sync_visual_transforms()
 	print("Elevator initialized at top")
@@ -832,12 +841,9 @@ func _setup_moving_audio() -> void:
 	if moving_sound == null or platform == null:
 		return
 
-	if moving_sound is AudioStreamWAV:
-		moving_sound.loop_mode = AudioStreamWAV.LOOP_FORWARD
-
 	_moving_audio_player = AudioStreamPlayer3D.new()
 	_moving_audio_player.name = "ElevatorMovingAudio"
-	_moving_audio_player.stream = moving_sound
+	_moving_audio_player.stream = preload("res://Audio/RuntimeAudio.gd").loop_stream(moving_sound)
 	_moving_audio_player.bus = moving_sound_bus
 	_moving_audio_player.max_distance = moving_sound_max_distance_m
 	_moving_audio_player.unit_size = moving_sound_unit_size_m
@@ -845,6 +851,7 @@ func _setup_moving_audio() -> void:
 	_moving_audio_player.volume_db = moving_sound_silence_db
 	_moving_audio_player.pitch_scale = moving_sound_pitch_min
 	_moving_audio_player.add_to_group("3d_audio")
+	_moving_audio_player.add_to_group("carrier_local_audio")
 	platform.add_child(_moving_audio_player)
 	_moving_audio_player.call_deferred("play")
 
@@ -852,14 +859,28 @@ func _update_moving_audio(delta: float) -> void:
 	if _moving_audio_player == null or platform == null:
 		return
 
-	var movement_speed_mps: float = 0.0
+	var platform_speed_mps: float = 0.0
+	var cover_slide_speed_mps: float = 0.0
+	var cover_lift_speed_mps: float = 0.0
 	if delta > 0.0:
-		movement_speed_mps = absf(_platform_local_y - _last_platform_y) / delta
+		platform_speed_mps = absf(_platform_local_y - _last_platform_y) / delta
+		cover_slide_speed_mps = maxf(
+			absf(_left_cover_local_x - _last_left_cover_x),
+			absf(_right_cover_local_x - _last_right_cover_x)) / delta
+		cover_lift_speed_mps = absf(_cover_local_y - _last_cover_y) / delta
 	_last_platform_y = _platform_local_y
+	_last_left_cover_x = _left_cover_local_x
+	_last_right_cover_x = _right_cover_local_x
+	_last_cover_y = _cover_local_y
 
-	var speed_factor := clampf(movement_speed_mps / maxf(move_speed, 0.01), 0.0, 1.0)
+	var speed_factor := maxf(
+		platform_speed_mps / maxf(move_speed, 0.01),
+		maxf(
+			cover_slide_speed_mps / maxf(cover_slide_speed, 0.01) * 0.65,
+			cover_lift_speed_mps / maxf(cover_lift_speed, 0.01) * 0.55))
+	speed_factor = clampf(speed_factor, 0.0, 1.0)
 	speed_factor = speed_factor * speed_factor * (3.0 - 2.0 * speed_factor)
-	var target_volume := moving_sound_silence_db if movement_speed_mps < 0.01 else lerpf(moving_sound_min_volume_db, moving_sound_max_volume_db, speed_factor)
+	var target_volume := moving_sound_silence_db if speed_factor < 0.01 else lerpf(moving_sound_min_volume_db, moving_sound_max_volume_db, speed_factor)
 	var target_pitch := lerpf(moving_sound_pitch_min, moving_sound_pitch_max, speed_factor)
 	var blend := clampf(delta * 6.0, 0.0, 1.0)
 	_moving_audio_player.volume_db = lerpf(_moving_audio_player.volume_db, target_volume, blend)

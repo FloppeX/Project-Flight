@@ -2,7 +2,7 @@
 
 [ext_resource type="Script" uid="uid://c4ltq2v6fji05" path="res://Aircraft/aircraft.gd" id="1_e8t1h"]
 [ext_resource type="PackedScene" uid="uid://cadi81fcpvmuc" path="res://Projectiles/Explosion/explosion.tscn" id="2_x73up"]
-[ext_resource type="PackedScene" path="res://Models/Aircraft_1/aircraft_1_breakaway.glb" id="3_kq7no"]
+[ext_resource type="PackedScene" uid="uid://cyajx725ey3g1" path="res://Models/Aircraft_1/aircraft_1_breakaway.glb" id="3_kq7no"]
 [ext_resource type="PackedScene" uid="uid://djtbinx1svo2u" path="res://Aircraft/Aircraft wreck/aircraft_1_wreck.tscn" id="3_x73up"]
 [ext_resource type="PackedScene" uid="uid://p831mbxhqubt" path="res://Models/Aircraft_1/aircraft 2 propeller.glb" id="4_ii5ys"]
 [ext_resource type="Script" uid="uid://cyxrx2cid1gt" path="res://Aircraft/SimpleAero.gd" id="5_8vbcf"]
@@ -43,6 +43,7 @@
 [ext_resource type="Script" uid="uid://baexawx30vqgf" path="res://Aircraft/EjectionSequence.gd" id="93_ejection_sequence"]
 [ext_resource type="Script" uid="uid://yiro2ovkqmed" path="res://Aircraft/AircraftPartDamageModel.gd" id="94_part_damage"]
 [ext_resource type="Script" uid="uid://dexi18s53c2d1" path="res://Aircraft/AircraftWingDamageColliderFollower.gd" id="95_wing_damage_follow"]
+[ext_resource type="Script" path="res://Aircraft/Aircraft1ControlSurfaces.gd" id="96_control_surfaces"]
 [ext_resource type="Script" uid="uid://bqmqqce7tx3a8" path="res://Effects/WingtipVortexEffect.gd" id="96_vortex"]
 
 [sub_resource type="PhysicsMaterial" id="PhysicsMaterial_lowfriction"]
@@ -52,14 +53,11 @@ friction = 0.1
 radius = 0.66503906
 height = 6.092672
 
-[sub_resource type="BoxShape3D" id="BoxShape3D_wing_hitbox"]
-size = Vector3(11.875217, 0.24, 1.3763264)
-
 [sub_resource type="BoxShape3D" id="BoxShape3D_left_wing_damage"]
-size = Vector3(4.35, 0.65, 1.8)
+size = Vector3(6.0539064, 0.65, 1.8)
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_right_wing_damage"]
-size = Vector3(4.35, 0.65, 1.8)
+size = Vector3(6.0333986, 0.65, 1.8)
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_cockpit_damage"]
 size = Vector3(1.35, 1, 2.19115)
@@ -103,17 +101,12 @@ transform = Transform3D(0.94, 0, 2.801419e-08, 0, 0.94, 0, -2.801419e-08, 0, 0.9
 transform = Transform3D(1, 0, 0, 0, -4.37114e-08, -1, 0, 1, -4.37114e-08, 0, -0.20697665, 0.908111)
 shape = SubResource("CapsuleShape3D_kq7no")
 
-[node name="WingCollider" type="CollisionShape3D" parent="." unique_id=1020961555]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.008801907, -0.326932, 0.3296445)
-shape = SubResource("BoxShape3D_wing_hitbox")
-disabled = true
-
 [node name="LeftWingDamageCollider" type="CollisionShape3D" parent="." unique_id=449631454]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3.878, -0.36499047, 0.37)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3.0260468, -0.36499047, 0.37)
 shape = SubResource("BoxShape3D_left_wing_damage")
 
 [node name="RightWingDamageCollider" type="CollisionShape3D" parent="." unique_id=1361977103]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3.878, -0.36499047, 0.37)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3.0363007, -0.36499047, 0.37)
 shape = SubResource("BoxShape3D_right_wing_damage")
 
 [node name="CockpitDamageCollider" type="CollisionShape3D" parent="." unique_id=1990637495]
@@ -189,11 +182,14 @@ flaps_lift_bonus = 0.13
 
 [node name="MovingParts" type="Node3D" parent="." unique_id=760134183]
 
+[node name="ControlSurfaces" type="Node" parent="." unique_id=1797578949]
+script = ExtResource("96_control_surfaces")
+
 [node name="NoseGearRig" parent="." unique_id=1989279822 instance=ExtResource("8_5euge")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.004081011, -0.8462819, 3.5628262)
 
 [node name="LeftGearRig" parent="." unique_id=2111367781 instance=ExtResource("8_5euge")]
-transform = Transform3D(1.2, 0, 0, 0, 1.2, 0, 0, 0, 1.2, 1.8, -0.8388845, -0.12683374)
+transform = Transform3D(1.2, 0, 0, 0, 1.2, 0, 0, 0, 1.2, 1.8, -0.8839139, -0.12683374)
 steering_enabled = false
 gear_index = 2
 stowed_rotation_degrees = Vector3(0, 0, -90)
@@ -201,7 +197,7 @@ connector_stowed_rotation_degrees = Vector3(0, 0, 0)
 stow_as_whole_assembly = true
 
 [node name="RightGearRig" parent="." unique_id=4853174 instance=ExtResource("8_5euge")]
-transform = Transform3D(-1.2, 0, -1.04907365e-07, 0, 1.2, 0, 1.04907365e-07, 0, -1.2, -1.8, -0.839, -0.12683374)
+transform = Transform3D(-1.2, 0, -1.04907365e-07, 0, 1.2, 0, 1.04907365e-07, 0, -1.2, -1.8, -0.8840294, -0.12683374)
 steering_enabled = false
 gear_index = 1
 stowed_rotation_degrees = Vector3(0, 0, -90)
@@ -209,11 +205,11 @@ connector_stowed_rotation_degrees = Vector3(0, 0, 0)
 stow_as_whole_assembly = true
 
 [node name="RightGearCollider" type="CollisionShape3D" parent="." unique_id=1372842700]
-transform = Transform3D(1, 0, 1.748456e-07, 0, 1, 0, -1.748456e-07, 0, 1, -1.8, -1.964, -0.12683374)
+transform = Transform3D(1, 0, 1.748456e-07, 0, 1, 0, -1.748456e-07, 0, 1, -1.8, -2.0090294, -0.12683374)
 shape = SubResource("SphereShape3D_gear")
 
 [node name="LeftGearCollider" type="CollisionShape3D" parent="." unique_id=1862900054]
-transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 1.8, -1.9637557, -0.12683374)
+transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 1.8, -2.0087852, -0.12683374)
 shape = SubResource("SphereShape3D_gear")
 
 [node name="CenterGearCollider" type="CollisionShape3D" parent="." unique_id=51071281]
@@ -252,7 +248,6 @@ spring_strength = 30000.0
 wheel_rest_height = 0.3
 wheel_rest_heights = Array[float]([0.2, 0.3, 0.3])
 max_compression = 0.4
-move_colliders_with_suspension = true
 
 [node name="ControlEngine" parent="." unique_id=1866200711 instance=ExtResource("18_gjrvb")]
 
@@ -442,26 +437,26 @@ cockpit_shadow_disable_paths = Array[NodePath]([NodePath("../aircraft_1/fuselage
 
 [node name="WingFold" type="Node" parent="." unique_id=1044052547]
 script = ExtResource("37_wf1")
+broad_wing_collider_path = NodePath("")
 
 [node name="AIPilot" type="Node" parent="." unique_id=1913933624]
 script = ExtResource("34_aipil")
-rtb_fuel_threshold = 0.35
 recovery_press_max_lateral_m = 290.0
-recovery_press_max_bank_deg = 35.0
-landing_bolter_retry_cooldown_s = 20.0
 recovery_press_max_track_yaw_deg = 25.0
+recovery_press_max_bank_deg = 35.0
 recovery_press_lateral_bank_limit_deg = 30.0
-landing_final_outer_bank_limit_deg = 30.0
 landing_final_glide_error_fpa_gain = 0.0109634924046695
+landing_final_outer_bank_limit_deg = 30.0
+landing_final_energy_aware_throttle = true
 landing_final_target_aoa_deg = 8.0
+landing_final_aoa_pitch_input_limit = 0.16
 landing_final_pitch_gain = 2.4
 landing_final_pitch_rate_damping = 1.35
 landing_final_pitch_smoothing = 0.34
-landing_final_aoa_pitch_input_limit = 0.16
-landing_final_energy_aware_throttle = true
-landing_sight_guidance_full_remaining_m = 305.836078643799
+rtb_fuel_threshold = 0.35
 landing_sight_active_distance_m = 1800.0
 landing_sight_guidance_start_remaining_m = 1800.0
+landing_sight_guidance_full_remaining_m = 305.836078643799
 landing_sight_guidance_time_floor_s = 1.29365774989128
 landing_sight_guidance_max_climb_mps = 1.05116057395935
 landing_sight_guidance_target_hook_vertical_m = -3.0
@@ -486,6 +481,10 @@ right_wing_visual_paths = Array[NodePath]([NodePath("../aircraft_1/wing outer ri
 cockpit_visual_paths = Array[NodePath]([NodePath("../aircraft_1/canopy")])
 horizontal_stabilizer_visual_paths = Array[NodePath]([NodePath("../aircraft_1/fuselage/HorizontalTipLeft"), NodePath("../aircraft_1/fuselage/HorizontalTipRight")])
 vertical_stabilizer_visual_paths = Array[NodePath]([NodePath("../aircraft_1/fuselage/VerticalTip")])
+left_wing_attached_visual_paths = Array[NodePath]([NodePath("../aircraft_1/wing outer left/aileron left")])
+right_wing_attached_visual_paths = Array[NodePath]([NodePath("../aircraft_1/wing outer right/aileron right")])
+horizontal_stabilizer_attached_visual_paths = Array[NodePath]([NodePath("../aircraft_1/fuselage/elevator")])
+vertical_stabilizer_attached_visual_paths = Array[NodePath]([NodePath("../aircraft_1/fuselage/rudder")])
 independent_debris_zones = Array[StringName]([&"horizontal_stabilizer"])
 vertical_stabilizer_supports_horizontal = true
 
@@ -495,8 +494,12 @@ left_visual_paths = Array[NodePath]([NodePath("../aircraft_1/wing middle left"),
 right_visual_paths = Array[NodePath]([NodePath("../aircraft_1/wing middle right"), NodePath("../aircraft_1/wing outer right"), NodePath("../aircraft_1/wing outer right/OuterWingRight")])
 fit_multi_panel_bounds = true
 
-[node name="InsigniaWing" parent="." unique_id=1171960425 instance=ExtResource("45_insignia")]
-transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, 4.9060287, -0.54194397, 0.2945125)
+[node name="InsigniaWingLeft" parent="." unique_id=1171960425 instance=ExtResource("45_insignia")]
+transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, 4.9, -0.542, 0.295)
+follow_target_path = NodePath("../aircraft_1/wing outer left/OuterWingLeft")
+
+[node name="InsigniaWingRight" parent="." unique_id=1864471687 instance=ExtResource("45_insignia")]
+transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, -4.9, -0.542, 0.295)
 follow_target_path = NodePath("../aircraft_1/wing outer left/OuterWingLeft")
 
 [node name="InsigniaTail" parent="." unique_id=1687275190 instance=ExtResource("45_insignia")]

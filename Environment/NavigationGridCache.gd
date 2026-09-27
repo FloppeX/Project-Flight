@@ -9,6 +9,7 @@ static func fingerprint(grid, terrain: Node3D) -> String:
 	if terrain.get_script() != load("res://Environment/LowPolyTerrain.gd"): return ""
 	var settings: Array = [VERSION, Engine.get_version_info().string,
 		FileAccess.get_sha256("res://Environment/LowPolyTerrain.gd"),
+		FileAccess.get_sha256("res://Environment/HighlandsProfile.gd"),
 		FileAccess.get_sha256("res://Environment/TerrainNavGrid.gd"),
 		terrain.global_transform, grid._bake_center_x, grid._bake_center_z,
 		grid.bake_half_extent_m, grid.cell_size_m, grid.query_grid_enabled,

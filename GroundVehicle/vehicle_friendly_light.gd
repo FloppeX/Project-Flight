@@ -8,6 +8,7 @@ signal retrieve_complete(vehicle)
 @export_range(0, 8, 1) var passenger_capacity: int = 2
 var _rescue_passengers: Array[Node3D] = []
 var _pre_rescue_reach_m := -1.0
+var _rescue_doors: Node
 
 func set_rescue_driving(active: bool) -> void:
 	if active and _pre_rescue_reach_m < 0.0:
@@ -18,6 +19,7 @@ func set_rescue_driving(active: bool) -> void:
 		waypoint_reach_distance = _pre_rescue_reach_m
 		_pre_rescue_reach_m = -1.0
 		_arrived_at_destination = false
+		set_rescue_doors_open(false)
 
 func can_accept_passenger() -> bool:
 	return not is_dying and current_health > 0.0 and not deploy_mode and not retrieve_mode \
@@ -28,12 +30,24 @@ func get_passenger_count() -> int:
 	return _rescue_passengers.size()
 
 func get_boarding_position() -> Vector3:
-	# Side of the enclosed passenger cabin, outside the vehicle collision shape.
+	return get_boarding_position_for(global_position + global_basis.x)
+
+func get_boarding_position_for(from_position: Vector3) -> Vector3:
+	if is_instance_valid(_rescue_doors):
+		return _rescue_doors.call("get_boarding_position", from_position)
 	return global_position + global_basis.x.normalized() * 4.0
+
+func set_rescue_doors_open(open: bool) -> void:
+	if is_instance_valid(_rescue_doors):
+		_rescue_doors.call("set_open", open)
+
+func is_rescue_door_open() -> bool:
+	return not is_instance_valid(_rescue_doors) or bool(_rescue_doors.call("is_open_for_boarding"))
 
 func add_passenger(pilot: Node3D) -> bool:
 	if not is_instance_valid(pilot) or _rescue_passengers.has(pilot) or not can_accept_passenger(): return false
 	_rescue_passengers.append(pilot)
+	set_rescue_doors_open(false)
 	pilot.reparent(self)
 	pilot.position = Vector3(0.0, 1.5, -1.0)
 	pilot.hide() # Opaque armored cabin; retain the actual survivor and identity.
@@ -248,6 +262,7 @@ var _simulation_lod_accumulated_delta_s: float = 0.0
 var _simulation_lod_wake_timer_s: float = 0.0
 var _simulation_lod_phase: float = 0.0
 func _ready() -> void:
+	_rescue_doors = get_node_or_null("RescueDoors")
 	current_health = max_health
 	floor_snap_length = 0.0
 	floor_max_angle = deg_to_rad(50.0)
@@ -891,16 +906,8 @@ func _update_navigation_path(delta: float) -> void:
 	_advance_patrol_waypoint_if_reached()
 	if _nav_retry_cooldown_s > 0.0:
 		_nav_retry_cooldown_s = maxf(_nav_retry_cooldown_s - delta, 0.0)
-	if _use_direct_escort_navigation():
-		_clear_navigation_path()
-		return
 	if not use_waypoint_pathfinding:
 		_clear_navigation_path()
-		return
-	if _has_combat_target():
-		_nav_repath_timer_s = 0.0
-		_nav_stuck_timer_s = 0.0
-		_nav_prev_wp_distance = INF
 		return
 	if not _has_navigation_destination():
 		_clear_navigation_path()
@@ -908,6 +915,8 @@ func _update_navigation_path(delta: float) -> void:
 	if not NavGraph.is_ready():
 		return
 	var raw_target: Vector3 = _get_raw_navigation_destination()
+	if _has_combat_target() and _flat_distance(global_position, current_target.global_position) > combat_stop_distance_m:
+		raw_target = current_target.global_position
 	_consume_reached_nav_waypoints(raw_target)
 	var dynamic_goal: bool = platoon != null and is_instance_valid(platoon) and platoon.has_active_objective()
 	var goal_shifted: bool = _flat_distance(raw_target, _nav_path_goal) > path_goal_repath_distance_m
@@ -1086,16 +1095,14 @@ func _get_raw_navigation_destination() -> Vector3:
 
 func _get_follow_navigation_destination() -> Vector3:
 	var raw_target := _get_raw_navigation_destination()
-	if _use_direct_escort_navigation():
-		return raw_target
 	if not use_waypoint_pathfinding or not NavGraph.is_ready():
 		return raw_target
 	if _nav_path_index < _nav_path_positions.size():
 		return _nav_path_positions[_nav_path_index]
-	return raw_target
-
-func _use_direct_escort_navigation() -> bool:
-	return platoon != null and is_instance_valid(platoon) and platoon.objective_type == GroundVehiclePlatoon.ObjectiveType.ESCORT_CARRIER
+	# A missing or pending route is not permission to drive straight at the raw
+	# order through terrain which NavGraph rejected. Wait here and let the normal
+	# retry cadence find a navigable route.
+	return global_position
 
 func _update_path_stuck_state(delta: float, follow_destination: Vector3) -> void:
 	if not use_waypoint_pathfinding or _nav_path_index >= _nav_path_positions.size():
@@ -1255,19 +1262,20 @@ func _refresh_drive_command(delta: float) -> void:
 	var current_forward: Vector3 = global_basis.z
 	current_forward.y = 0.0
 	current_forward = current_forward.normalized() if current_forward.length_squared() > 0.0001 else Vector3.FORWARD
-	var desired_dir: Vector3 = current_forward
+	var target_distance: float = INF
 	if hold_in_combat and current_target and is_instance_valid(current_target):
-		desired_dir = current_target.global_position - global_position
-		desired_dir.y = 0.0
-	else:
-		var to_dest: Vector3 = dest - global_position
-		to_dest.y = 0.0
-		if to_dest.length_squared() <= 0.01:
-			_drive_command_has_destination = false
-			_drive_command_steer = 0.0
-			_drive_command_throttle = 0.0
-			return
-		desired_dir = to_dest
+		target_distance = _flat_distance(global_position, current_target.global_position)
+	# Keep driving the terrain route while the independently aimed turret tracks
+	# the target. Only turn the hull directly toward it after reaching the firing
+	# stand-off distance.
+	var steering_destination := _select_steering_destination(dest)
+	var desired_dir: Vector3 = steering_destination - global_position
+	desired_dir.y = 0.0
+	if desired_dir.length_squared() <= 0.01:
+		_drive_command_has_destination = false
+		_drive_command_steer = 0.0
+		_drive_command_throttle = 0.0
+		return
 	if desired_dir.length_squared() <= 0.0001:
 		desired_dir = current_forward
 	else:
@@ -1329,7 +1337,6 @@ func _refresh_drive_command(delta: float) -> void:
 
 	var cross_y: float = current_forward.cross(desired_dir).y
 	var dot: float = clampf(current_forward.dot(desired_dir), -1.0, 1.0)
-	var turn_angle_deg: float = rad_to_deg(acos(dot))
 	var planar_speed: float = Vector2(velocity.x, velocity.z).length()
 
 	var steer_target: float = clamp(cross_y, -1.0, 1.0)
@@ -1346,11 +1353,8 @@ func _refresh_drive_command(delta: float) -> void:
 		var alignment: float = clampf((dot + 1.0) * 0.5, 0.0, 1.0)
 		throttle = lerpf(0.45, 1.0, alignment)
 	if hold_in_combat and current_target and is_instance_valid(current_target):
-		var target_distance: float = global_position.distance_to(current_target.global_position)
-		if target_distance <= combat_stop_distance_m and turn_angle_deg <= combat_track_angle_deg:
+		if target_distance <= combat_stop_distance_m:
 			throttle = 0.0
-		elif target_distance <= combat_stop_distance_m:
-			throttle = combat_creep_speed_mps / maxf(max_speed, 0.1)
 		else:
 			var closing_speed: float = clampf((target_distance - combat_stop_distance_m) / maxf(combat_hold_distance_m - combat_stop_distance_m, 1.0), 0.25, 0.7)
 			throttle = maxf(closing_speed, combat_creep_speed_mps / maxf(max_speed, 0.1))
@@ -1402,7 +1406,9 @@ func _get_navigation_destination() -> Vector3:
 	return _get_follow_navigation_destination()
 
 func _has_navigation_destination() -> bool:
-	return (platoon and is_instance_valid(platoon) and platoon.has_active_objective()) or not _waypoint_positions.is_empty()
+	return _has_combat_target() \
+		or (platoon and is_instance_valid(platoon) and platoon.has_active_objective()) \
+		or not _waypoint_positions.is_empty()
 
 func _get_platoon_speed_limit() -> float:
 	if not platoon or not is_instance_valid(platoon):
@@ -1452,7 +1458,7 @@ func _apply_platoon_cohesion(base_destination: Vector3) -> Vector3:
 	if is_instance_valid(platoon) and platoon.objective_type == GroundVehiclePlatoon.ObjectiveType.RESCUE:
 		return base_destination
 	if _has_combat_target():
-		return global_position
+		return base_destination
 	if not platoon or not is_instance_valid(platoon):
 		return base_destination
 	if platoon.objective_type == GroundVehiclePlatoon.ObjectiveType.ESCORT_CARRIER:
@@ -1494,9 +1500,13 @@ func _update_shoot_and_scoot(delta: float) -> void:
 	_combat_scoot_destination = _choose_scoot_destination()
 
 func _apply_combat_mobility(base_destination: Vector3) -> Vector3:
-	if not _has_combat_target():
-		return base_destination
-	return global_position
+	return base_destination
+
+
+func _select_steering_destination(route_destination: Vector3) -> Vector3:
+	if _has_combat_target() and _flat_distance(global_position, current_target.global_position) <= combat_stop_distance_m:
+		return current_target.global_position
+	return route_destination
 
 func _has_combat_target() -> bool:
 	if is_instance_valid(platoon) and platoon.objective_type == GroundVehiclePlatoon.ObjectiveType.RESCUE:

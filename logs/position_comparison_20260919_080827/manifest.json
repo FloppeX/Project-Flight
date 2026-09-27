@@ -1,0 +1,30 @@
+{
+  "directory": "C:\\Godot projects\\Project-Flight\\logs\\position_comparison_20260919_080827",
+  "started": "2026-09-19T08:08:27.6480775+02:00",
+  "workers": [
+    {
+      "location": "obstructed",
+      "label": "position_comparison_20260919_080827_obstructed",
+      "pid": 14052
+    },
+    {
+      "location": "clear",
+      "label": "position_comparison_20260919_080827_clear",
+      "pid": 53968
+    }
+  ],
+  "source_hashes": [
+    {
+      "Path": "C:\\Godot projects\\Project-Flight\\AI\\AIPilot.gd",
+      "Hash": "5A19215B657FFA54B6F4BFE0845EEA4C1199CFC8B39430C7F38B80407B8CF584"
+    },
+    {
+      "Path": "C:\\Godot projects\\Project-Flight\\AI\\LandingSight.gd",
+      "Hash": "7DC732BF93FF8D024A02B7D5FC355F189E87584EB6E337807169AA54B38F42AC"
+    },
+    {
+      "Path": "C:\\Godot projects\\Project-Flight\\Aircraft\\SimpleAero.gd",
+      "Hash": "4E264A61E9D46686A7B4E31FBF2EFFD78DEFFBCA28032895505B7222011DF910"
+    }
+  ]
+}

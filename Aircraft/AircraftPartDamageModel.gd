@@ -38,6 +38,14 @@ const ZONE_ORDER: Array[StringName] = [
 @export var cockpit_visual_paths: Array[NodePath] = []
 @export var horizontal_stabilizer_visual_paths: Array[NodePath] = []
 @export var vertical_stabilizer_visual_paths: Array[NodePath] = []
+@export_group("Attached visuals")
+## Moving or decorative meshes that should disappear with a destroyed zone,
+## but should not become separate uncapped debris bodies.
+@export var left_wing_attached_visual_paths: Array[NodePath] = []
+@export var right_wing_attached_visual_paths: Array[NodePath] = []
+@export var horizontal_stabilizer_attached_visual_paths: Array[NodePath] = []
+@export var vertical_stabilizer_attached_visual_paths: Array[NodePath] = []
+@export_group("Detachable visuals")
 ## Optional common tail structure. It is not a seventh damage pool: it breaks
 ## away only after both stabilizer regions have been destroyed.
 @export var tail_section_visual_paths: Array[NodePath] = []
@@ -80,7 +88,9 @@ var _zone_health: Dictionary = {}
 var _zone_max_health: Dictionary = {}
 var _zone_colliders: Dictionary = {}
 var _zone_visual_paths: Dictionary = {}
+var _zone_attached_visual_paths: Dictionary = {}
 var _destroyed_zones: Dictionary = {}
+var _restoring_damage_state := false
 var _turbulence_phase_s: float = 0.0
 var _tail_section_detached: bool = false
 
@@ -196,7 +206,8 @@ func damage_zone(zone: StringName, damage_amount: float) -> bool:
 	var applied_damage := minf(damage_amount, previous_health)
 	var new_health := maxf(previous_health - damage_amount, 0.0)
 	_zone_health[zone] = new_health
-	zone_damaged.emit(zone, applied_damage, new_health, zone_max)
+	if not _restoring_damage_state:
+		zone_damaged.emit(zone, applied_damage, new_health, zone_max)
 
 	if new_health <= 0.0:
 		_destroy_zone(zone)
@@ -257,6 +268,19 @@ func get_damage_state() -> Dictionary:
 	return state
 
 
+func restore_damage_state(state: Dictionary) -> void:
+	# Restore into a freshly spawned model without replaying hits or debris.
+	_restoring_damage_state = true
+	for zone in ZONE_ORDER:
+		var entry: Dictionary = state.get(str(zone), state.get(zone, {}))
+		if entry.is_empty():
+			continue
+		_zone_health[zone] = clampf(float(entry.get("health", get_zone_max_health(zone))), 0.0, get_zone_max_health(zone))
+		if bool(entry.get("destroyed", false)):
+			_destroy_zone(zone)
+	_restoring_damage_state = false
+
+
 func _cache_configuration() -> void:
 	var legacy_total_health := 100.0
 	if "max_health" in _aircraft:
@@ -290,6 +314,12 @@ func _cache_configuration() -> void:
 		ZONE_HORIZONTAL_STABILIZER: horizontal_stabilizer_visual_paths,
 		ZONE_VERTICAL_STABILIZER: vertical_stabilizer_visual_paths,
 		ZONE_TAIL_SECTION: tail_section_visual_paths,
+	}
+	_zone_attached_visual_paths = {
+		ZONE_LEFT_WING: left_wing_attached_visual_paths,
+		ZONE_RIGHT_WING: right_wing_attached_visual_paths,
+		ZONE_HORIZONTAL_STABILIZER: horizontal_stabilizer_attached_visual_paths,
+		ZONE_VERTICAL_STABILIZER: vertical_stabilizer_attached_visual_paths,
 	}
 	_tail_section_detached = false
 	_aircraft.set_meta("regional_damage_enabled", true)
@@ -376,7 +406,8 @@ func _destroy_zone(zone: StringName) -> void:
 	if zone == ZONE_VERTICAL_STABILIZER and vertical_stabilizer_supports_horizontal:
 		damage_zone(ZONE_HORIZONTAL_STABILIZER, get_zone_health(ZONE_HORIZONTAL_STABILIZER))
 	_try_detach_tail_section()
-	zone_destroyed.emit(zone)
+	if not _restoring_damage_state:
+		zone_destroyed.emit(zone)
 
 
 func _try_detach_tail_section() -> void:
@@ -394,6 +425,7 @@ func _try_detach_tail_section() -> void:
 func _detach_zone_visuals(zone: StringName) -> void:
 	var paths_variant: Variant = _zone_visual_paths.get(zone, [])
 	if not (paths_variant is Array):
+		_hide_attached_zone_visuals(zone)
 		return
 	var visuals: Array[MeshInstance3D] = []
 	for path_variant in paths_variant:
@@ -406,18 +438,31 @@ func _detach_zone_visuals(zone: StringName) -> void:
 			var canopy_visibility := _aircraft.get_node_or_null("CockpitCanopyVisibility")
 			if canopy_visibility != null and canopy_visibility.has_method("release_canopy"):
 				canopy_visibility.call("release_canopy", visual)
-	if visuals.is_empty():
-		return
-	_align_wing_break_sections(zone, visuals)
-	if zone in independent_debris_zones:
+	if not visuals.is_empty():
+		_align_wing_break_sections(zone, visuals)
+		if zone in independent_debris_zones:
+			for visual in visuals:
+				var piece: Array[MeshInstance3D] = [visual]
+				_spawn_visual_debris(piece, zone)
+		else:
+			_spawn_visual_debris(visuals, zone)
 		for visual in visuals:
-			var piece: Array[MeshInstance3D] = [visual]
-			_spawn_visual_debris(piece, zone)
-	else:
-		_spawn_visual_debris(visuals, zone)
-	for visual in visuals:
+			visual.visible = false
+			visual.set_meta("damage_detached", true)
+			_hide_decals_following(visual)
+	_hide_attached_zone_visuals(zone)
+
+
+func _hide_attached_zone_visuals(zone: StringName) -> void:
+	var paths_variant: Variant = _zone_attached_visual_paths.get(zone, [])
+	if not (paths_variant is Array):
+		return
+	for path_variant in paths_variant:
+		var visual := get_node_or_null(path_variant as NodePath) as Node3D
+		if visual == null or not is_instance_valid(visual):
+			continue
 		visual.visible = false
-		visual.set_meta("damage_detached", true)
+		visual.set_meta("damage_attached_hidden", true)
 		_hide_decals_following(visual)
 
 
@@ -443,6 +488,8 @@ func _align_wing_break_sections(zone: StringName, visuals: Array[MeshInstance3D]
 
 
 func _spawn_visual_debris(sources: Array[MeshInstance3D], zone: StringName) -> void:
+	if _restoring_damage_state:
+		return
 	if _aircraft == null or sources.is_empty():
 		return
 	var debris_parent := _aircraft.get_parent()

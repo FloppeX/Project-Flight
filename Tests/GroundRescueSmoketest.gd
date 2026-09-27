@@ -167,6 +167,13 @@ func _test_physical_pickup(p: Node, old_vehicle: Node, bay: Node) -> void:
 	floor_body.position.y = -1.0
 	var vehicle: Node3D = load("res://GroundVehicle/vehicle_friendly_light.tscn").instantiate()
 	scene.add_child(vehicle)
+	var doors := vehicle.get_node("RescueDoors")
+	_expect(doors._left_hinge != null and doors._right_hinge != null,
+		"new friendly vehicle did not bind both authored doors")
+	var left_board: Vector3 = vehicle.get_boarding_position_for(vehicle.to_global(Vector3(-10, 0, 0)))
+	var right_board: Vector3 = vehicle.get_boarding_position_for(vehicle.to_global(Vector3(10, 0, 0)))
+	_expect(vehicle.to_local(left_board).x < -2.0 and vehicle.to_local(right_board).x > 2.0,
+		"ground pilot did not select the nearer side doorway")
 	vehicle.global_position = Vector3(0, 2, -150)
 	vehicle.assign_platoon(p)
 	p.objective_type = 0
@@ -174,6 +181,10 @@ func _test_physical_pickup(p: Node, old_vehicle: Node, bay: Node) -> void:
 	service.process_mode = Node.PROCESS_MODE_ALWAYS
 	var pilot: RigidBody3D = load("res://Models/Characters/DownedPilot.tscn").instantiate()
 	scene.add_child(pilot)
+	var roster := root.get_node("PilotRoster")
+	roster.assign_aircraft_to_callsign(pilot, "PhysicalRescueTest")
+	var identity: String = pilot.get_meta("pilot_roster_id", "")
+	_expect(not identity.is_empty(), "physical pickup pilot identity was not assigned")
 	pilot.global_position = Vector3.ZERO
 	pilot._phase = 1 # Already waiting at its clearing.
 	pilot.process_mode = Node.PROCESS_MODE_ALWAYS
@@ -182,14 +193,28 @@ func _test_physical_pickup(p: Node, old_vehicle: Node, bay: Node) -> void:
 	_expect(ops.order_rescue("Ember", pilot), "physical pickup assignment rejected")
 	Engine.time_scale = 4.0
 	var deadline := Time.get_ticks_msec() + 20000
+	var saw_door_open := false
+	var saw_pilot_run := false
 	while vehicle.get_passenger_count() == 0 and Time.get_ticks_msec() < deadline:
 		await physics_frame
+		saw_door_open = saw_door_open or doors._open_t >= 0.85
+		if is_instance_valid(pilot):
+			saw_pilot_run = saw_pilot_run or pilot.global_position.distance_to(Vector3.ZERO) > 2.0
 	Engine.time_scale = 1.0
+	_expect(saw_door_open, "rescue doors did not open before boarding")
+	_expect(saw_pilot_run, "pilot did not run toward ground transport")
 	_expect(vehicle.get_passenger_count() == 1, "real driver/pilot did not complete pickup: vehicle=%s pilot=%s status=%s" % [vehicle.global_position, pilot.global_position, pilot.get_meta("air_ops_rescue_status", "")])
+	_expect(_roster_status(roster, identity) == "passenger", "physical pickup marked pilot available before vehicle returned")
+	_expect(not doors._open_target, "rescue doors stayed commanded open after boarding")
+	for i in 70:
+		await physics_frame
+	_expect(doors._open_t < 0.05, "rescue doors did not close after boarding")
 	_expect(bay.returned.has(vehicle), "physical pickup did not start carrier retrieval")
 	print("[GroundRescueSmoketest] physical_pickup passengers=%d vehicle=%s" % [vehicle.get_passenger_count(), vehicle.global_position])
-	vehicle.disembark_passengers()
-	vehicle.queue_free()
+	var status_at_stow_signal: Array[String] = []
+	vehicle.retrieve_complete.connect(func(_retrieved: Node): status_at_stow_signal.append(_roster_status(roster, identity)))
+	vehicle._finish_retrieve()
+	_expect(status_at_stow_signal == ["available"], "pilot was not available when vehicle finished stowing in the bay")
 	p.process_mode = Node.PROCESS_MODE_DISABLED
 	service.process_mode = Node.PROCESS_MODE_DISABLED
 	await process_frame

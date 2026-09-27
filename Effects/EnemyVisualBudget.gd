@@ -601,8 +601,18 @@ func _apply_ai_aircraft_player_only_budget(unit: Node3D, focused: bool, cache: D
 		if node.has_method("set_recording_presentation_active") and bool(node.get("_recording_presentation_active")):
 			continue # Only the body is pinned; other cockpit branches stay dormant.
 		_store_original_node_state(node)
+		var preparing_panel := node.name == "InstrumentPanel" \
+			and bool(unit.get_meta(&"instrument_panel_transition_preparing", false))
 		if node.has_method("set_view_updates_active"):
-			node.call("set_view_updates_active", focused)
+			node.call("set_view_updates_active", focused or preparing_panel)
+		if preparing_panel:
+			# The pending cockpit display renders during the camera approach;
+			# every other player-only root still waits for the final handoff.
+			node.set_process(true)
+			node.set_physics_process(true)
+			if node is Node3D:
+				(node as Node3D).visible = true
+			continue
 		if focused:
 			# FlightDirector owns the live UI/camera state of the aircraft being
 			# watched. AI aircraft are commonly spawned with these nodes disabled,

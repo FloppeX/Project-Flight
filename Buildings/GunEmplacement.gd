@@ -15,6 +15,7 @@ signal damaged(amount: float, health: float)
 @export var full_deactivation_when_no_targets: bool = true
 @export var collider_ground_clearance_m: float = 0.0
 @export var is_dummy: bool = false
+@export var authored_model_path: NodePath = NodePath("")
 @export var weapon_scene_10mm: PackedScene = preload("res://Weapons/Turrets/bullet_weapon.tscn")
 @export var weapon_scene_15mm: PackedScene = preload("res://Weapons/Turrets/bullet_weapon_15mm.tscn")
 @export var weapon_scene_20mm: PackedScene = preload("res://Weapons/Turrets/bullet_weapon_20mm.tscn")
@@ -28,6 +29,7 @@ var _full_presence_active: bool = true
 var _activation_timer_s: float = 0.0
 var _presence_collision_shape_refs: Array[WeakRef] = []
 var _original_root_visible: bool = true
+var _authored_collisions: Array[Dictionary] = []
 
 func _ready() -> void:
 	current_health = max_health
@@ -47,8 +49,13 @@ func _ready() -> void:
 		_turret_controller.team = team
 		if is_dummy:
 			_turret_controller.weapon_scene = null
+			if is_instance_valid(_turret_controller.weapon_instance):
+				_turret_controller.stop_firing()
+				_turret_controller.weapon_instance.queue_free()
+				_turret_controller.weapon_instance = null
 		else:
 			_assign_random_weapon_scene()
+	_build_authored_collision()
 	_apply_team_main_color()
 	call_deferred("_apply_team_main_color")
 	if inactive_when_no_targets:
@@ -57,6 +64,37 @@ func _ready() -> void:
 			_set_full_presence_active(false)
 		_activation_timer_s = randf_range(0.0, maxf(activation_check_interval_s, 0.1))
 	set_process(true)
+	set_physics_process(not _authored_collisions.is_empty())
+
+func _build_authored_collision() -> void:
+	if authored_model_path.is_empty():
+		return
+	var model := get_node_or_null(authored_model_path)
+	if model == null:
+		return
+	for mesh: MeshInstance3D in model.find_children("*", "MeshInstance3D", true, false):
+		if mesh.mesh == null:
+			continue
+		# The thin replaceable gun barrel is cosmetic; the authored housing takes hits.
+		if _turret_controller != null and _turret_controller.turret != null:
+			var mount := _turret_controller.turret.barrel_mount
+			if mount != null and mount.is_ancestor_of(mesh):
+				continue
+		var shape := CollisionShape3D.new()
+		shape.shape = mesh.mesh.create_trimesh_shape()
+		add_child(shape)
+		shape.transform = global_transform.affine_inverse() * mesh.global_transform
+		_authored_collisions.append({"mesh": mesh, "shape": shape})
+
+func _physics_process(_delta: float) -> void:
+	if is_destroyed or not _active:
+		return
+	for entry in _authored_collisions:
+		var mesh: MeshInstance3D = entry.mesh
+		var shape: CollisionShape3D = entry.shape
+		var pose := global_transform.affine_inverse() * mesh.global_transform
+		if not shape.transform.is_equal_approx(pose):
+			shape.transform = pose
 
 func _process(delta: float) -> void:
 	if is_destroyed or not inactive_when_no_targets:
@@ -92,6 +130,7 @@ func _destroy() -> void:
 	if is_destroyed:
 		return
 	is_destroyed = true
+	_set_turret_active(false)
 	if team != 1 and not bool(get_meta("suppress_enemy_ops_on_destroy", false)):
 		EnemyOpsManager.report_asset_loss(global_position, "gun emplacement")
 	destroyed.emit(self)
@@ -102,6 +141,11 @@ func _destroy() -> void:
 			var wreck: Node3D = destroyed_scene.instantiate()
 			get_tree().current_scene.add_child(wreck)
 			wreck.global_transform = global_transform
+			_apply_main_color_recursive(wreck, _get_team_main_color())
+			wreck.set_meta("emplacement_main_color", _get_team_main_color())
+			if bool(get_meta("managed_enemy_emplacement", false)):
+				wreck.set_meta("managed_enemy_emplacement_wreck", true)
+				wreck.set_meta("enemy_faction_id", get_meta("enemy_faction_id", 0))
 
 	if _explosion_scene:
 		var exp: Node3D = _explosion_scene.instantiate()

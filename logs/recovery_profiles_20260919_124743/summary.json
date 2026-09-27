@@ -1,0 +1,884 @@
+{
+  "complete": true,
+  "workers": [
+    {
+      "pid": 37704,
+      "model": 1,
+      "label": "recovery_profiles_20260919_124743_aircraft_1_fast",
+      "complete": true,
+      "completion": [
+        {
+          "reason": "requested_trials_complete"
+        }
+      ],
+      "position_checks": [
+        {
+          "carrier_position": "(-144.3647, 524.2687, -2375.053)",
+          "carrier_rotation": "(0.0, -3.133704, 0.0)",
+          "corridor_clear": true,
+          "location": "clear",
+          "site_status": {
+            "message": "Fixed-wing final approach: terrain clear",
+            "status": "clear"
+          },
+          "terrain_position": "(22618.79, 62.0, 3722.299)",
+          "wind_enabled": false
+        }
+      ],
+      "corridor_samples": {
+        "clear": 69,
+        "obstructed": 0,
+        "unknown": 0
+      },
+      "handoffs": [
+        {
+          "decision": "accepted",
+          "remaining": 1219.0,
+          "lat": -16.2,
+          "track": 3.6,
+          "bank": 2.0,
+          "speed": 48.7
+        },
+        {
+          "decision": "accepted",
+          "remaining": 1168.0,
+          "lat": 16.4,
+          "track": 3.9,
+          "bank": 1.8,
+          "speed": 48.2
+        }
+      ],
+      "results": [
+        {
+          "case": {
+            "behind": 450.0,
+            "heading": 180.0,
+            "height": 260.0,
+            "lateral": 900.0,
+            "name": "near_outbound",
+            "repeat": 1,
+            "side": 1.0,
+            "speed": 60.0
+          },
+          "duration_s": 131.983333333333,
+          "model": 1,
+          "outcome": "STOWED",
+          "record": {
+            "caught": true,
+            "caught_at": 102.516666666667,
+            "crash_signals": 0,
+            "destroyed": false,
+            "flight": "Archer",
+            "fuel": {
+              "current_burn_per_s": 0.0,
+              "fuel": 93.2947977264055,
+              "full_power_burn_per_s": 0.075,
+              "full_power_endurance_s": 1243.93063635207,
+              "valid": true
+            },
+            "health": 100.0,
+            "initial_health": 100.0,
+            "launched_at": 8.75,
+            "missed_approaches": 0,
+            "model": "Aircraft_1.tscn",
+            "name": "RTB_1_Aircraft_1",
+            "press_handoffs": 0,
+            "state": "LANDING",
+            "stowed": true,
+            "stowed_at": 140.233333333333,
+            "strict_handoffs": 1,
+            "touchdowns": 2,
+            "unavailable": false
+          },
+          "totals": {
+            "1": {
+              "failed": 0,
+              "stowed": 1,
+              "trials": 1
+            },
+            "2": {
+              "failed": 0,
+              "stowed": 0,
+              "trials": 0
+            },
+            "5": {
+              "failed": 0,
+              "stowed": 0,
+              "trials": 0
+            },
+            "14": {
+              "failed": 0,
+              "stowed": 0,
+              "trials": 0
+            }
+          },
+          "trial": 1
+        },
+        {
+          "case": {
+            "behind": 3200.0,
+            "heading": 0.0,
+            "height": 500.0,
+            "lateral": 1400.0,
+            "name": "standard_inbound",
+            "repeat": 1,
+            "side": -1.0,
+            "speed": 75.0
+          },
+          "duration_s": 209.983333333333,
+          "model": 1,
+          "outcome": "STOWED",
+          "record": {
+            "caught": true,
+            "caught_at": 315.233333333333,
+            "crash_signals": 0,
+            "destroyed": false,
+            "flight": "Archer",
+            "fuel": {
+              "current_burn_per_s": 0.0,
+              "fuel": 87.8869198238492,
+              "full_power_burn_per_s": 0.075,
+              "full_power_endurance_s": 1171.82559765132,
+              "valid": true
+            },
+            "health": 100.0,
+            "initial_health": 100.0,
+            "launched_at": 144.816666666667,
+            "missed_approaches": 0,
+            "model": "Aircraft_1.tscn",
+            "name": "RTB_2_Aircraft_1",
+            "press_handoffs": 0,
+            "state": "LANDING",
+            "stowed": true,
+            "stowed_at": 354.366666666667,
+            "strict_handoffs": 1,
+            "touchdowns": 2,
+            "unavailable": false
+          },
+          "totals": {
+            "1": {
+              "failed": 0,
+              "stowed": 2,
+              "trials": 2
+            },
+            "2": {
+              "failed": 0,
+              "stowed": 0,
+              "trials": 0
+            },
+            "5": {
+              "failed": 0,
+              "stowed": 0,
+              "trials": 0
+            },
+            "14": {
+              "failed": 0,
+              "stowed": 0,
+              "trials": 0
+            }
+          },
+          "trial": 2
+        }
+      ],
+      "status": {
+        "aircraft": [
+          {
+            "caught": true,
+            "caught_at": 315.233333333333,
+            "crash_signals": 0,
+            "destroyed": false,
+            "flight": "Archer",
+            "fuel": {
+              "current_burn_per_s": 0.0,
+              "fuel": 87.8869198238492,
+              "full_power_burn_per_s": 0.075,
+              "full_power_endurance_s": 1171.82559765132,
+              "valid": true
+            },
+            "health": 100.0,
+            "initial_health": 100.0,
+            "launched_at": 144.816666666667,
+            "missed_approaches": 0,
+            "model": "Aircraft_1.tscn",
+            "name": "RTB_2_Aircraft_1",
+            "press_handoffs": 0,
+            "state": "LANDING",
+            "stowed": true,
+            "stowed_at": 354.366666666667,
+            "strict_handoffs": 1,
+            "touchdowns": 2,
+            "unavailable": false
+          }
+        ],
+        "carrier_distance_m": 0.5938720703125,
+        "elapsed_s": 358.833333333333,
+        "reason": "requested_trials_complete",
+        "recall_at": 144.816666666667,
+        "route_ordered": false,
+        "stage": "complete",
+        "status": "COMPLETE"
+      },
+      "script_errors": 0
+    },
+    {
+      "pid": 50836,
+      "model": 2,
+      "label": "recovery_profiles_20260919_124743_aircraft_2_fast",
+      "complete": true,
+      "completion": [
+        {
+          "reason": "requested_trials_complete"
+        }
+      ],
+      "position_checks": [
+        {
+          "carrier_position": "(-144.3647, 524.2687, -2375.053)",
+          "carrier_rotation": "(0.0, -3.133704, 0.0)",
+          "corridor_clear": true,
+          "location": "clear",
+          "site_status": {
+            "message": "Fixed-wing final approach: terrain clear",
+            "status": "clear"
+          },
+          "terrain_position": "(22618.79, 62.0, 3722.299)",
+          "wind_enabled": false
+        }
+      ],
+      "corridor_samples": {
+        "clear": 63,
+        "obstructed": 0,
+        "unknown": 0
+      },
+      "handoffs": [
+        {
+          "decision": "press",
+          "remaining": 998.0,
+          "lat": -16.2,
+          "vert": 40.7,
+          "track": 0.0,
+          "bank": 26.3,
+          "speed": 65.6
+        },
+        {
+          "decision": "accepted",
+          "remaining": 1356.0,
+          "lat": -32.9,
+          "track": 4.6,
+          "bank": 2.1,
+          "speed": 64.5
+        }
+      ],
+      "results": [
+        {
+          "case": {
+            "behind": 450.0,
+            "heading": 180.0,
+            "height": 260.0,
+            "lateral": 900.0,
+            "name": "near_outbound",
+            "repeat": 1,
+            "side": 1.0,
+            "speed": 60.0
+          },
+          "duration_s": 116.983333333333,
+          "model": 2,
+          "outcome": "STOWED",
+          "record": {
+            "caught": true,
+            "caught_at": 92.1666666666667,
+            "crash_signals": 0,
+            "destroyed": false,
+            "flight": "Archer",
+            "fuel": {
+              "current_burn_per_s": 0.0,
+              "fuel": 94.3643666931911,
+              "full_power_burn_per_s": 0.075,
+              "full_power_endurance_s": 1258.19155590921,
+              "valid": true
+            },
+            "health": 150.0,
+            "initial_health": 150.0,
+            "launched_at": 12.1166666666667,
+            "missed_approaches": 0,
+            "model": "Aircraft_2.tscn",
+            "name": "RTB_1_Aircraft_2",
+            "press_handoffs": 1,
+            "state": "LANDING",
+            "stowed": true,
+            "stowed_at": 128.683333333333,
+            "strict_handoffs": 0,
+            "touchdowns": 3,
+            "unavailable": false
+          },
+          "totals": {
+            "1": {
+              "failed": 0,
+              "stowed": 0,
+              "trials": 0
+            },
+            "2": {
+              "failed": 0,
+              "stowed": 1,
+              "trials": 1
+            },
+            "5": {
+              "failed": 0,
+              "stowed": 0,
+              "trials": 0
+            },
+            "14": {
+              "failed": 0,
+              "stowed": 0,
+              "trials": 0
+            }
+          },
+          "trial": 1
+        },
+        {
+          "case": {
+            "behind": 3200.0,
+            "heading": 0.0,
+            "height": 500.0,
+            "lateral": 1400.0,
+            "name": "standard_inbound",
+            "repeat": 1,
+            "side": -1.0,
+            "speed": 75.0
+          },
+          "duration_s": 197.983333333333,
+          "model": 2,
+          "outcome": "STOWED",
+          "record": {
+            "caught": true,
+            "caught_at": 292.566666666667,
+            "crash_signals": 0,
+            "destroyed": false,
+            "flight": "Archer",
+            "fuel": {
+              "current_burn_per_s": 0.0,
+              "fuel": 88.757523627552,
+              "full_power_burn_per_s": 0.075,
+              "full_power_endurance_s": 1183.43364836736,
+              "valid": true
+            },
+            "health": 150.0,
+            "initial_health": 150.0,
+            "launched_at": 133.183333333333,
+            "missed_approaches": 0,
+            "model": "Aircraft_2.tscn",
+            "name": "RTB_2_Aircraft_2",
+            "press_handoffs": 0,
+            "state": "LANDING",
+            "stowed": true,
+            "stowed_at": 330.95,
+            "strict_handoffs": 1,
+            "touchdowns": 3,
+            "unavailable": false
+          },
+          "totals": {
+            "1": {
+              "failed": 0,
+              "stowed": 0,
+              "trials": 0
+            },
+            "2": {
+              "failed": 0,
+              "stowed": 2,
+              "trials": 2
+            },
+            "5": {
+              "failed": 0,
+              "stowed": 0,
+              "trials": 0
+            },
+            "14": {
+              "failed": 0,
+              "stowed": 0,
+              "trials": 0
+            }
+          },
+          "trial": 2
+        }
+      ],
+      "status": {
+        "aircraft": [
+          {
+            "caught": true,
+            "caught_at": 292.566666666667,
+            "crash_signals": 0,
+            "destroyed": false,
+            "flight": "Archer",
+            "fuel": {
+              "current_burn_per_s": 0.0,
+              "fuel": 88.757523627552,
+              "full_power_burn_per_s": 0.075,
+              "full_power_endurance_s": 1183.43364836736,
+              "valid": true
+            },
+            "health": 150.0,
+            "initial_health": 150.0,
+            "launched_at": 133.183333333333,
+            "missed_approaches": 0,
+            "model": "Aircraft_2.tscn",
+            "name": "RTB_2_Aircraft_2",
+            "press_handoffs": 0,
+            "state": "LANDING",
+            "stowed": true,
+            "stowed_at": 330.95,
+            "strict_handoffs": 1,
+            "touchdowns": 3,
+            "unavailable": false
+          }
+        ],
+        "carrier_distance_m": 0.5938720703125,
+        "elapsed_s": 335.2,
+        "reason": "requested_trials_complete",
+        "recall_at": 133.183333333333,
+        "route_ordered": false,
+        "stage": "complete",
+        "status": "COMPLETE"
+      },
+      "script_errors": 0
+    },
+    {
+      "pid": 7816,
+      "model": 5,
+      "label": "recovery_profiles_20260919_124743_aircraft_5_fast",
+      "complete": true,
+      "completion": [
+        {
+          "reason": "requested_trials_complete"
+        }
+      ],
+      "position_checks": [
+        {
+          "carrier_position": "(-144.3647, 524.2687, -2375.053)",
+          "carrier_rotation": "(0.0, -3.133704, 0.0)",
+          "corridor_clear": true,
+          "location": "clear",
+          "site_status": {
+            "message": "Fixed-wing final approach: terrain clear",
+            "status": "clear"
+          },
+          "terrain_position": "(22618.79, 62.0, 3722.299)",
+          "wind_enabled": false
+        }
+      ],
+      "corridor_samples": {
+        "clear": 67,
+        "obstructed": 0,
+        "unknown": 0
+      },
+      "handoffs": [
+        {
+          "decision": "press",
+          "remaining": 998.0,
+          "lat": -14.7,
+          "vert": 18.4,
+          "track": 0.8,
+          "bank": 18.2,
+          "speed": 62.8
+        },
+        {
+          "decision": "accepted",
+          "remaining": 1147.0,
+          "lat": -20.2,
+          "track": 3.7,
+          "bank": 4.5,
+          "speed": 62.3
+        }
+      ],
+      "results": [
+        {
+          "case": {
+            "behind": 450.0,
+            "heading": 180.0,
+            "height": 260.0,
+            "lateral": 900.0,
+            "name": "near_outbound",
+            "repeat": 1,
+            "side": 1.0,
+            "speed": 60.0
+          },
+          "duration_s": 131.983333333333,
+          "model": 5,
+          "outcome": "STOWED",
+          "record": {
+            "caught": true,
+            "caught_at": 97.15,
+            "crash_signals": 0,
+            "destroyed": false,
+            "flight": "Archer",
+            "fuel": {
+              "current_burn_per_s": 0.0,
+              "fuel": 93.7637795934669,
+              "full_power_burn_per_s": 0.075,
+              "full_power_endurance_s": 1250.18372791289,
+              "valid": true
+            },
+            "health": 100.0,
+            "initial_health": 100.0,
+            "launched_at": 7.8,
+            "missed_approaches": 0,
+            "model": "Aircraft_5.tscn",
+            "name": "RTB_1_Aircraft_5",
+            "press_handoffs": 1,
+            "state": "LANDING",
+            "stowed": true,
+            "stowed_at": 138.833333333333,
+            "strict_handoffs": 0,
+            "touchdowns": 3,
+            "unavailable": false
+          },
+          "totals": {
+            "1": {
+              "failed": 0,
+              "stowed": 0,
+              "trials": 0
+            },
+            "2": {
+              "failed": 0,
+              "stowed": 0,
+              "trials": 0
+            },
+            "5": {
+              "failed": 0,
+              "stowed": 1,
+              "trials": 1
+            },
+            "14": {
+              "failed": 0,
+              "stowed": 0,
+              "trials": 0
+            }
+          },
+          "trial": 1
+        },
+        {
+          "case": {
+            "behind": 3200.0,
+            "heading": 0.0,
+            "height": 500.0,
+            "lateral": 1400.0,
+            "name": "standard_inbound",
+            "repeat": 1,
+            "side": -1.0,
+            "speed": 75.0
+          },
+          "duration_s": 202.983333333333,
+          "model": 5,
+          "outcome": "STOWED",
+          "record": {
+            "caught": true,
+            "caught_at": 303.116666666667,
+            "crash_signals": 0,
+            "destroyed": false,
+            "flight": "Archer",
+            "fuel": {
+              "current_burn_per_s": 0.0,
+              "fuel": 88.8315397491075,
+              "full_power_burn_per_s": 0.075,
+              "full_power_endurance_s": 1184.4205299881,
+              "valid": true
+            },
+            "health": 100.0,
+            "initial_health": 100.0,
+            "launched_at": 143.866666666667,
+            "missed_approaches": 1,
+            "model": "Aircraft_5.tscn",
+            "name": "RTB_2_Aircraft_5",
+            "press_handoffs": 0,
+            "state": "LANDING",
+            "stowed": true,
+            "stowed_at": 346.033333333333,
+            "strict_handoffs": 1,
+            "touchdowns": 3,
+            "unavailable": false
+          },
+          "totals": {
+            "1": {
+              "failed": 0,
+              "stowed": 0,
+              "trials": 0
+            },
+            "2": {
+              "failed": 0,
+              "stowed": 0,
+              "trials": 0
+            },
+            "5": {
+              "failed": 0,
+              "stowed": 2,
+              "trials": 2
+            },
+            "14": {
+              "failed": 0,
+              "stowed": 0,
+              "trials": 0
+            }
+          },
+          "trial": 2
+        }
+      ],
+      "status": {
+        "aircraft": [
+          {
+            "caught": true,
+            "caught_at": 303.116666666667,
+            "crash_signals": 0,
+            "destroyed": false,
+            "flight": "Archer",
+            "fuel": {
+              "current_burn_per_s": 0.0,
+              "fuel": 88.8315397491075,
+              "full_power_burn_per_s": 0.075,
+              "full_power_endurance_s": 1184.4205299881,
+              "valid": true
+            },
+            "health": 100.0,
+            "initial_health": 100.0,
+            "launched_at": 143.866666666667,
+            "missed_approaches": 1,
+            "model": "Aircraft_5.tscn",
+            "name": "RTB_2_Aircraft_5",
+            "press_handoffs": 0,
+            "state": "LANDING",
+            "stowed": true,
+            "stowed_at": 346.033333333333,
+            "strict_handoffs": 1,
+            "touchdowns": 3,
+            "unavailable": false
+          }
+        ],
+        "carrier_distance_m": 0.5938720703125,
+        "elapsed_s": 350.883333333333,
+        "reason": "requested_trials_complete",
+        "recall_at": 143.866666666667,
+        "route_ordered": false,
+        "stage": "complete",
+        "status": "COMPLETE"
+      },
+      "script_errors": 0
+    },
+    {
+      "pid": 11248,
+      "model": 14,
+      "label": "recovery_profiles_20260919_124743_aircraft_14_fast",
+      "complete": true,
+      "completion": [
+        {
+          "reason": "requested_trials_complete"
+        }
+      ],
+      "position_checks": [
+        {
+          "carrier_position": "(-144.3647, 524.2687, -2375.053)",
+          "carrier_rotation": "(0.0, -3.133704, 0.0)",
+          "corridor_clear": true,
+          "location": "clear",
+          "site_status": {
+            "message": "Fixed-wing final approach: terrain clear",
+            "status": "clear"
+          },
+          "terrain_position": "(22618.79, 62.0, 3722.299)",
+          "wind_enabled": false
+        }
+      ],
+      "corridor_samples": {
+        "clear": 55,
+        "obstructed": 0,
+        "unknown": 0
+      },
+      "handoffs": [
+        {
+          "decision": "accepted",
+          "remaining": 1190.0,
+          "lat": -16.7,
+          "track": 2.9,
+          "bank": 3.9,
+          "speed": 57.6
+        },
+        {
+          "decision": "press",
+          "remaining": 999.0,
+          "lat": 112.7,
+          "vert": 56.9,
+          "track": 0.1,
+          "bank": 9.4,
+          "speed": 55.3
+        }
+      ],
+      "results": [
+        {
+          "case": {
+            "behind": 450.0,
+            "heading": 180.0,
+            "height": 260.0,
+            "lateral": 900.0,
+            "name": "near_outbound",
+            "repeat": 1,
+            "side": 1.0,
+            "speed": 60.0
+          },
+          "duration_s": 119.983333333333,
+          "model": 14,
+          "outcome": "STOWED",
+          "record": {
+            "caught": true,
+            "caught_at": 99.55,
+            "crash_signals": 0,
+            "destroyed": false,
+            "flight": "Archer",
+            "fuel": {
+              "current_burn_per_s": 0.0,
+              "fuel": 93.8477790532609,
+              "full_power_burn_per_s": 0.075,
+              "full_power_endurance_s": 1251.30372071015,
+              "valid": true
+            },
+            "health": 100.0,
+            "initial_health": 100.0,
+            "launched_at": 10.9333333333333,
+            "missed_approaches": 0,
+            "model": "Aircraft_14.tscn",
+            "name": "RTB_1_Aircraft_14",
+            "press_handoffs": 0,
+            "state": "LANDING",
+            "stowed": true,
+            "stowed_at": 130.233333333333,
+            "strict_handoffs": 1,
+            "touchdowns": 4,
+            "unavailable": false
+          },
+          "totals": {
+            "1": {
+              "failed": 0,
+              "stowed": 0,
+              "trials": 0
+            },
+            "2": {
+              "failed": 0,
+              "stowed": 0,
+              "trials": 0
+            },
+            "5": {
+              "failed": 0,
+              "stowed": 0,
+              "trials": 0
+            },
+            "14": {
+              "failed": 0,
+              "stowed": 1,
+              "trials": 1
+            }
+          },
+          "trial": 1
+        },
+        {
+          "case": {
+            "behind": 3200.0,
+            "heading": 0.0,
+            "height": 500.0,
+            "lateral": 1400.0,
+            "name": "standard_inbound",
+            "repeat": 1,
+            "side": -1.0,
+            "speed": 75.0
+          },
+          "duration_s": 141.983333333333,
+          "model": 14,
+          "outcome": "STOWED",
+          "record": {
+            "caught": true,
+            "caught_at": 244.333333333333,
+            "crash_signals": 0,
+            "destroyed": false,
+            "flight": "Archer",
+            "fuel": {
+              "current_burn_per_s": 0.0,
+              "fuel": 92.368336238586,
+              "full_power_burn_per_s": 0.075,
+              "full_power_endurance_s": 1231.57781651448,
+              "valid": true
+            },
+            "health": 100.0,
+            "initial_health": 100.0,
+            "launched_at": 135.0,
+            "missed_approaches": 0,
+            "model": "Aircraft_14.tscn",
+            "name": "RTB_2_Aircraft_14",
+            "press_handoffs": 1,
+            "state": "LANDING",
+            "stowed": true,
+            "stowed_at": 276.266666666667,
+            "strict_handoffs": 0,
+            "touchdowns": 4,
+            "unavailable": false
+          },
+          "totals": {
+            "1": {
+              "failed": 0,
+              "stowed": 0,
+              "trials": 0
+            },
+            "2": {
+              "failed": 0,
+              "stowed": 0,
+              "trials": 0
+            },
+            "5": {
+              "failed": 0,
+              "stowed": 0,
+              "trials": 0
+            },
+            "14": {
+              "failed": 0,
+              "stowed": 2,
+              "trials": 2
+            }
+          },
+          "trial": 2
+        }
+      ],
+      "status": {
+        "aircraft": [
+          {
+            "caught": true,
+            "caught_at": 244.333333333333,
+            "crash_signals": 0,
+            "destroyed": false,
+            "flight": "Archer",
+            "fuel": {
+              "current_burn_per_s": 0.0,
+              "fuel": 92.368336238586,
+              "full_power_burn_per_s": 0.075,
+              "full_power_endurance_s": 1231.57781651448,
+              "valid": true
+            },
+            "health": 100.0,
+            "initial_health": 100.0,
+            "launched_at": 135.0,
+            "missed_approaches": 0,
+            "model": "Aircraft_14.tscn",
+            "name": "RTB_2_Aircraft_14",
+            "press_handoffs": 1,
+            "state": "LANDING",
+            "stowed": true,
+            "stowed_at": 276.266666666667,
+            "strict_handoffs": 0,
+            "touchdowns": 4,
+            "unavailable": false
+          }
+        ],
+        "carrier_distance_m": 0.5938720703125,
+        "elapsed_s": 281.016666666667,
+        "reason": "requested_trials_complete",
+        "recall_at": 135.0,
+        "route_ordered": false,
+        "stage": "complete",
+        "status": "COMPLETE"
+      },
+      "script_errors": 0
+    }
+  ]
+}

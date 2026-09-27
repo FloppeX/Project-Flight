@@ -7,6 +7,10 @@ var barrel_attachment: Node3D
 var muzzle: Marker3D
 
 func _ready() -> void:
+	_bind_rig()
+	super._ready()
+
+func _bind_rig() -> void:
 	base_mesh = find_child("turret body", true, false) as Node3D
 	barrel_attachment = find_child("barrel position", true, false) as Node3D
 	if barrel_attachment != null:
@@ -25,7 +29,6 @@ func _ready() -> void:
 		muzzle.name = "Muzzle"
 		barrel_mount.add_child(muzzle)
 		firing_points.assign([muzzle])
-	super._ready()
 
 func configure_weapon_barrel(weapon: Node) -> bool:
 	if barrel_mount == null or not "gun_profile" in weapon:

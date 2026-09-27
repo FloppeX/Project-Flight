@@ -3,6 +3,7 @@ extends RigidBody3D
 @export var walk_speed: float = 3.8
 @export var run_speed: float = 5.5
 @export var rescue_board_distance: float = 3.0
+@export var ground_board_distance_m: float = 0.85
 @export var clearing_search_radius_m: float = 80.0
 @export var clearing_flat_radius_m: float = 12.0
 @export var clearing_max_height_var_m: float = 2.0
@@ -23,6 +24,7 @@ extends RigidBody3D
 @export var turn_speed_degrees_s: float = 90.0
 @export_group("Rescue Signalling")
 @export var helicopter_attention_range_m: float = 1000.0
+@export var ground_vehicle_attention_range_m: float = 1000.0
 @export var helicopter_scan_interval_s: float = 0.5
 @export var wave_interval_s: float = 10.0
 @export var wave_interval_jitter_s: float = 1.5
@@ -39,11 +41,13 @@ var _model_node: Node3D = null
 var _clearing_target: Vector3 = Vector3.ZERO
 var _rescue_heli: Node3D = null
 var _ground_transport: Node3D = null
+var _ground_board_local_point: Vector3 = Vector3.ZERO
 var _ground_boarding_pending := false
 
 func prepare_for_ground_rescue() -> void:
 	# Keep the validated ground pickup location instead of seeking a heli clearing.
 	if _phase == Phase.RESCUED: return
+	cancel_ground_transport()
 	_phase = Phase.WAIT_RESCUE
 	_rescue_heli = null
 	_turning_in_place = false
@@ -52,14 +56,20 @@ func approach_ground_transport(vehicle: Node3D) -> void:
 	if _phase == Phase.RESCUED or _ground_boarding_pending: return
 	if not is_instance_valid(vehicle) or not vehicle.can_accept_passenger(): return
 	if vehicle.velocity.length() > 1.0: return
-	var point: Vector3 = vehicle.get_boarding_position()
+	var point: Vector3 = _ground_boarding_position(vehicle)
 	if global_position.distance_to(point) > 45.0: return
 	if not _ground_walk_is_clear(vehicle, point): return
 	_ground_transport = vehicle
+	_ground_board_local_point = vehicle.to_local(point)
+	if vehicle.has_method("set_rescue_doors_open"):
+		vehicle.set_rescue_doors_open(true)
 	_phase = Phase.WAIT_RESCUE
 
 func cancel_ground_transport() -> void:
+	if is_instance_valid(_ground_transport) and _ground_transport.has_method("set_rescue_doors_open"):
+		_ground_transport.set_rescue_doors_open(false)
 	_ground_transport = null
+	_ground_board_local_point = Vector3.ZERO
 	_ground_boarding_pending = false
 
 func _walk_to_ground_transport(delta: float) -> bool:
@@ -69,13 +79,16 @@ func _walk_to_ground_transport(delta: float) -> bool:
 	if not _ground_transport.can_accept_passenger() or _ground_transport.velocity.length() > 1.0:
 		cancel_ground_transport()
 		return false
-	var point: Vector3 = _ground_transport.get_boarding_position()
+	var point: Vector3 = _ground_transport.to_global(_ground_board_local_point)
 	if not _ground_walk_is_clear(_ground_transport, point):
 		cancel_ground_transport()
 		return false
 	_walk_toward(point, run_speed, delta)
 	_snap_to_terrain()
-	if Vector2(global_position.x - point.x, global_position.z - point.z).length() <= rescue_board_distance and not _ground_boarding_pending:
+	var doors_ready: bool = not _ground_transport.has_method("is_rescue_door_open") \
+		or bool(_ground_transport.call("is_rescue_door_open"))
+	if Vector2(global_position.x - point.x, global_position.z - point.z).length() <= ground_board_distance_m \
+			and doors_ready and not _ground_boarding_pending:
 		_ground_boarding_pending = true
 		call_deferred("_board_ground_transport")
 	return true
@@ -86,11 +99,20 @@ func _ground_walk_is_clear(vehicle: Node3D, point: Vector3) -> bool:
 	query.exclude = [get_rid(), vehicle.get_rid()]
 	return get_world_3d().direct_space_state.intersect_ray(query).is_empty()
 
+func _ground_boarding_position(vehicle: Node3D) -> Vector3:
+	if vehicle.has_method("get_boarding_position_for"):
+		return vehicle.get_boarding_position_for(global_position)
+	return vehicle.get_boarding_position()
+
 func _board_ground_transport() -> void:
 	_ground_boarding_pending = false
 	if not is_instance_valid(_ground_transport): return
 	var transport := _ground_transport
-	if transport.velocity.length() > 1.0 or global_position.distance_to(transport.get_boarding_position()) > 5.0: return
+	var point := transport.to_global(_ground_board_local_point)
+	if transport.velocity.length() > 1.0 \
+			or Vector2(global_position.x - point.x, global_position.z - point.z).length() > ground_board_distance_m + 0.3:
+		return
+	if transport.has_method("is_rescue_door_open") and not transport.is_rescue_door_open(): return
 	if not transport.add_passenger(self): return
 	_phase = Phase.RESCUED
 	collision_layer = 0
@@ -115,8 +137,9 @@ func resume_ground_rescue() -> void:
 	cancel_ground_transport()
 	PilotRoster.set_recovery_status(self, "downed")
 	AirOpsManager.request_rescue_for(self)
-var _attention_heli: Node3D = null
+var _attention_rescuer: Node3D = null
 var _nearby_helicopter: Node3D = null
+var _nearby_ground_vehicle: Node3D = null
 var _boardable_helicopter: Node3D = null
 var _helicopter_scan_remaining_s: float = 0.0
 var _animation_player: AnimationPlayer = null
@@ -142,26 +165,60 @@ func _ready() -> void:
 	_play_model_animation(idle_animation)
 
 	_clearing_target = _find_clearing()
+	call_deferred("ensure_spectator_cameras")
 	print("[DownedPilot] %s spawned — walking to clearing at %s" % [name, str(_clearing_target.snapped(Vector3.ONE))])
+
+
+func ensure_spectator_cameras() -> void:
+	# Landing transfers the ejection cockpit tripod before this deferred call.
+	# A directly spawned pilot gets the same three selectable views.
+	var tripod_scene := preload("res://Camera/CameraTripod.tscn")
+	if get_node_or_null("CameraCockpit") == null:
+		var cockpit := tripod_scene.instantiate() as Node3D
+		cockpit.name = "CameraCockpit"
+		cockpit.set_script(preload("res://Camera/CockpitCamera.gd"))
+		cockpit.transform = $HeadCameraMount.transform
+		add_child(cockpit)
+	if get_node_or_null("CameraChase") == null:
+		var chase_node := tripod_scene.instantiate() as Node3D
+		chase_node.name = "CameraChase"
+		chase_node.set_script(preload("res://Camera/camera_chase.gd"))
+		var chase := chase_node as ChaseCamera
+		chase.chase_distance = 4.0
+		chase.chase_height = 1.8
+		add_child(chase)
+		chase.setup_aircraft(self)
+	if get_node_or_null("CameraCinematic") == null:
+		var cinematic_node := tripod_scene.instantiate() as Node3D
+		cinematic_node.name = "CameraCinematic"
+		cinematic_node.set_script(preload("res://Camera/CinematicCamera.gd"))
+		var cinematic := cinematic_node as CinematicCamera
+		cinematic.distance_range = Vector2(15.0, 25.0)
+		cinematic.height_offset_range = Vector2(2.0, 6.0)
+		cinematic.side_offset_range = Vector2(-8.0, 8.0)
+		add_child(cinematic)
+		cinematic.setup_aircraft(self)
 
 
 func _physics_process(delta: float) -> void:
 	if Engine.is_editor_hint() or _phase == Phase.RESCUED:
 		return
 	if _walk_to_ground_transport(delta): return
-	_refresh_helicopter_candidates(delta)
+	_refresh_rescue_candidates(delta)
 	# Godot validates typed arguments before entering the called function. A
 	# helicopter can be freed between scan ticks, so clear stale Object handles
 	# before passing the cached reference to a Node3D-typed parameter.
 	if not is_instance_valid(_nearby_helicopter):
 		_nearby_helicopter = null
+	if not is_instance_valid(_nearby_ground_vehicle):
+		_nearby_ground_vehicle = null
 	if not is_instance_valid(_boardable_helicopter):
 		_boardable_helicopter = null
-	_update_helicopter_attention(_nearby_helicopter, delta)
+	_update_rescuer_attention(_nearest_attention_rescuer(), delta)
 
 	match _phase:
 		Phase.FIND_CLEARING:
-			_walk_toward(_clearing_target, walk_speed, delta)
+			_walk_toward(_clearing_target, run_speed, delta)
 			var flat_dist := Vector2(global_position.x - _clearing_target.x, global_position.z - _clearing_target.z).length()
 			if flat_dist < 2.0:
 				_phase = Phase.WAIT_RESCUE
@@ -293,16 +350,16 @@ func _turn_model_toward(
 	return true
 
 
-func _update_helicopter_attention(heli: Node3D, delta: float) -> void:
-	if heli != null and not is_instance_valid(heli):
-		heli = null
-	if _attention_heli != null and not is_instance_valid(_attention_heli):
-		_attention_heli = null
-	if heli != _attention_heli:
-		_attention_heli = heli
-		_wave_due = heli != null
+func _update_rescuer_attention(rescuer: Node3D, delta: float) -> void:
+	if rescuer != null and not is_instance_valid(rescuer):
+		rescuer = null
+	if _attention_rescuer != null and not is_instance_valid(_attention_rescuer):
+		_attention_rescuer = null
+	if rescuer != _attention_rescuer:
+		_attention_rescuer = rescuer
+		_wave_due = rescuer != null
 		_wave_cooldown_s = 0.0
-	if _attention_heli == null:
+	if _attention_rescuer == null:
 		_wave_due = false
 		return
 	_wave_cooldown_s = maxf(_wave_cooldown_s - delta, 0.0)
@@ -315,20 +372,20 @@ func _update_waiting_animation(delta: float) -> void:
 		if _animation_player != null \
 				and _animation_player.assigned_animation == wave_animation \
 				and _animation_player.is_playing():
-			if is_instance_valid(_attention_heli):
+			if is_instance_valid(_attention_rescuer):
 				_rotate_model_toward_without_animation(
-					_attention_heli.global_position - global_position, delta
+					_attention_rescuer.global_position - global_position, delta
 				)
 			return
 		_wave_active = false
 
-	if not is_instance_valid(_attention_heli):
+	if not is_instance_valid(_attention_rescuer):
 		_turning_in_place = false
 		_play_model_animation(idle_animation)
 		return
-	var to_helicopter := _attention_heli.global_position - global_position
-	to_helicopter.y = 0.0
-	if _turn_model_toward(to_helicopter, delta, turn_in_place_finish_degrees):
+	var to_rescuer := _attention_rescuer.global_position - global_position
+	to_rescuer.y = 0.0
+	if _turn_model_toward(to_rescuer, delta, turn_in_place_finish_degrees):
 		return
 	if _wave_due:
 		_wave_due = false
@@ -358,24 +415,60 @@ func _next_wave_interval() -> float:
 
 
 func _snap_to_terrain() -> void:
-	var terrain_nav = get_node_or_null("/root/TerrainNavGrid")
-	var ground_y := 0.0
+	var ground_y := _sample_ground_height(global_position)
+	if not is_nan(ground_y):
+		global_position.y = ground_y
+
+
+func _sample_ground_height(world_pos: Vector3) -> float:
+	# The navigation grid interpolates a coarser height field than the rendered
+	# terrain. Use the terrain's collision-mesh triangle interpolation for feet.
+	var terrain := get_tree().get_first_node_in_group("terrain_provider")
+	if terrain != null and terrain.has_method("get_height"):
+		var height := float(terrain.call("get_height", world_pos))
+		if not is_nan(height) and not is_inf(height) and height > -9000.0:
+			return height
+	var terrain_nav := get_node_or_null("/root/TerrainNavGrid")
 	if terrain_nav != null and terrain_nav.has_method("sample_height"):
-		ground_y = float(terrain_nav.call("sample_height", global_position.x, global_position.z))
-	if is_nan(ground_y) or ground_y < -9000.0:
-		ground_y = 0.0
-	global_position.y = ground_y
+		var height := float(terrain_nav.call("sample_height", world_pos.x, world_pos.z))
+		if not is_nan(height) and not is_inf(height) and height > -9000.0:
+			return height
+	return NAN
 
 
-# --- Rescue helicopter detection ---
+# --- Rescue vehicle detection ---
 
-func _refresh_helicopter_candidates(delta: float) -> void:
+func _refresh_rescue_candidates(delta: float) -> void:
 	_helicopter_scan_remaining_s -= delta
 	if _helicopter_scan_remaining_s > 0.0:
 		return
 	_helicopter_scan_remaining_s = maxf(helicopter_scan_interval_s, 0.0)
 	_nearby_helicopter = _find_nearest_helicopter()
+	_nearby_ground_vehicle = _find_nearest_friendly_ground_vehicle()
 	_boardable_helicopter = _find_rescue_heli_with_open_doors()
+
+func _nearest_attention_rescuer() -> Node3D:
+	if _nearby_helicopter == null:
+		return _nearby_ground_vehicle
+	if _nearby_ground_vehicle == null:
+		return _nearby_helicopter
+	if global_position.distance_squared_to(_nearby_ground_vehicle.global_position) \
+			< global_position.distance_squared_to(_nearby_helicopter.global_position):
+		return _nearby_ground_vehicle
+	return _nearby_helicopter
+
+func _find_nearest_friendly_ground_vehicle() -> Node3D:
+	var best: Node3D = null
+	var best_distance_squared := pow(maxf(ground_vehicle_attention_range_m, 0.0), 2.0)
+	for node in get_tree().get_nodes_in_group("ground_vehicles"):
+		var vehicle := node as Node3D
+		if vehicle == null or not vehicle.is_in_group("friendlies"):
+			continue
+		var distance_squared := global_position.distance_squared_to(vehicle.global_position)
+		if distance_squared <= best_distance_squared:
+			best_distance_squared = distance_squared
+			best = vehicle
+	return best
 
 
 func _find_nearest_helicopter() -> Node3D:

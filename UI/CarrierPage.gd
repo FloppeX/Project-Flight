@@ -33,6 +33,7 @@ var _buttons: Dictionary = {}
 var _integrity: Label
 var _bar: ProgressBar
 var _alert: Label
+var _recovery_site: Label
 var _title: Label
 var _state: Label
 var _consequence: Label
@@ -88,6 +89,9 @@ func _build_ui() -> void:
 	column.add_child(_label("CARRIER  /  DAMAGE CONTROL", 24, TEXT))
 	_alert = _label("Awaiting carrier telemetry", 13, DIM)
 	column.add_child(_alert)
+	_recovery_site = _label("Fixed-wing approach: terrain clearance unverified", 13, DIM)
+	_recovery_site.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	column.add_child(_recovery_site)
 	var content := HBoxContainer.new()
 	content.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	content.add_theme_constant_override("separation", 16)
@@ -173,6 +177,10 @@ func _build_ui() -> void:
 func _refresh() -> void:
 	if not is_instance_valid(_control):
 		_control = get_tree().get_first_node_in_group("carrier_damage_control")
+	var deck := _control.get_parent().find_child("FlightDeckManager", true, false) if is_instance_valid(_control) else null
+	var site: Dictionary = deck.get_recovery_site_status() if is_instance_valid(deck) else {"status": "unchecked", "message": "Fixed-wing approach: terrain clearance unverified"}
+	_recovery_site.text = str(site.message)
+	_recovery_site.add_theme_color_override("font_color", ORANGE if site.status == "obstructed" else DIM)
 	var connected := is_instance_valid(_control)
 	for button in [_urgent, _isolate, _priority, _reserve, _repairs]:
 		button.disabled = not connected or (connected and bool(_control.get("lost")))

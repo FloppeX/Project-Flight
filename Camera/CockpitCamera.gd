@@ -58,10 +58,16 @@ func _process(delta):
 	)
 	
 	# Smoothly move to target
-	current_look = current_look.lerp(target_look, return_speed * delta)
+	current_look = current_look.lerp(target_look, 1.0 - exp(-maxf(return_speed, 0.0) * delta))
 	
 	# Apply to camera
-	rotation = base_rotation + current_look + airflow_buffet_rotation
+	basis = Basis.from_euler(base_rotation + current_look + airflow_buffet_rotation)
+	var tracking := get_node_or_null("/root/OpenTrackReceiver")
+	if tracking != null and tracking.enabled:
+		# Compose in view space after normal stick look; never feed tracking back
+		# into current_look or the authored neutral transform.
+		basis = basis * Basis(tracking.head_orientation)
+	_apply_position()
 
 
 func _input(event: InputEvent) -> void:
@@ -116,8 +122,17 @@ func _physics_process(delta: float):
 
 	# Apply the general travel cap, then a tighter rearward limit. Aircraft use +Z
 	# as forward, so negative local Z is movement back into the seat.
-	var total_offset := _limit_camera_offset(g_force_offset + airflow_buffet_offset)
-	position = base_position + total_offset
+	_apply_position()
+
+
+func _apply_position() -> void:
+	var offset := _limit_camera_offset(g_force_offset + airflow_buffet_offset)
+	var tracking := get_node_or_null("/root/OpenTrackReceiver")
+	if tracking != null and tracking.enabled:
+		offset += Basis.from_euler(base_rotation) * tracking.head_position
+		# Keep combined rearward motion out of the seat, including launch G.
+		offset.z = maxf(offset.z, -maxf(max_backward_offset, 0.0))
+	position = base_position + offset
 
 
 func reset_look() -> void:

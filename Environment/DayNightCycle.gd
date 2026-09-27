@@ -9,37 +9,40 @@ extends Node
 @export_range(1.0, 89.9, 0.1) var sun_max_elevation_deg: float = 89.0
 
 @export var vol_length_m: float = 5000.0      ## How far volumetric fog extends
+@export var ambient_visibility_m: float = 10000.0 ## Weather-limited range; camera far is still the graphics ceiling.
 @export var sky_ground_darkening: float = 0.0
 @export var update_interval_s: float = 0.25  ## How often to recalculate sky/fog (cycle is 1200s total)
+@export_range(0.0, 1.0) var background_haze_density_scale: float = 1.0 ## Local weather scenes need clearer air outside their fronts.
 
 @export_group("Dust Layer")
 @export var altitude_clears_dust: bool = true
-@export var dust_layer_top_m: float = 4000.0
-@export var dust_layer_fade_m: float = 900.0
+@export var dust_layer_top_m: float = 2000.0 ## Metres above the carrier flight deck.
+@export var dust_layer_fade_m: float = 160.0
 @export_range(0.0, 1.0) var clear_air_density_multiplier: float = 0.08
 @export var clear_air_vol_length_multiplier: float = 1.8
-@export var dust_layer_top_variation_m: float = 450.0
+@export var dust_layer_top_variation_m: float = 0.0
 @export var dust_layer_top_variation_frequency: float = 0.00016
 @export var dust_layer_noise_seed: int = 24681
-@export var dust_layer_bottom_m: float = -500.0
+@export var dust_layer_bottom_m: float = -500.0 ## Metres above the carrier flight deck.
+@export_range(0.0, 1.0) var dust_layer_below_haze_scale: float = 0.45
 @export var dust_layer_horizontal_size_m: float = 80000.0
 @export var dust_layer_volume_density: float = 0.002
 @export var dust_layer_red_color: Color = Color(0.70, 0.22, 0.10)
 @export_range(0.0, 1.0) var dust_layer_red_blend: float = 0.55
 @export var dust_deck_enabled: bool = true
-@export_range(0.0, 1.0) var dust_deck_alpha_above: float = 0.88
-@export_range(0.0, 1.0) var dust_deck_alpha_below: float = 1.0
-@export var dust_deck_vertical_offset_m: float = -850.0
-@export var dust_deck_upper_vertical_offset_m: float = -80.0
+@export_range(0.0, 1.0) var dust_deck_alpha_above: float = 0.65
+@export_range(0.0, 1.0) var dust_deck_alpha_below: float = 0.90
+@export var dust_deck_vertical_offset_m: float = -800.0
+@export var dust_deck_upper_vertical_offset_m: float = 0.0
 @export_range(8, 160, 1) var dust_deck_grid_cells: int = 128
-@export var dust_deck_height_variation_m: float = 520.0
+@export var dust_deck_height_variation_m: float = 160.0
 @export var dust_deck_mesh_noise_frequency: float = 0.00055
 @export_range(0.0, 1.0) var dust_deck_face_color_variation: float = 0.72
 @export_range(0, 24, 1) var dust_deck_break_count: int = 0
 @export var dust_deck_break_min_radius_m: float = 450.0
 @export var dust_deck_break_max_radius_m: float = 1250.0
 @export_range(0.0, 1.0) var dust_deck_break_edge_jitter: float = 0.42
-@export var dust_deck_vertex_motion_amplitude_m: float = 90.0
+@export var dust_deck_vertex_motion_amplitude_m: float = 30.0
 @export var dust_deck_vertex_motion_speed: float = 0.055
 @export var dust_deck_vertex_motion_frequency: float = 0.00125
 @export var clear_air_sky_top_color: Color = Color(0.24, 0.46, 0.78)
@@ -74,7 +77,7 @@ var _user_fixed_time_t := 0.25
 var _ai_darkness_factor: float = 0.0
 var _dust_top_noise: FastNoiseLite
 var _dust_volume: FogVolume
-var _dust_volume_material: FogMaterial
+var _dust_volume_material: ShaderMaterial
 var _dust_deck: MeshInstance3D
 var _dust_deck_upper: MeshInstance3D
 var _dust_deck_walls: MeshInstance3D
@@ -82,6 +85,9 @@ var _dust_deck_material: ShaderMaterial
 var _dust_deck_upper_material: ShaderMaterial
 var _dust_deck_wall_material: ShaderMaterial
 var _dust_deck_breaks: Array[Dictionary] = []
+var _dust_layer_anchor_xz := Vector2.ZERO
+var _dust_layer_deck_y := 0.0
+var _dust_layer_deck_manager: Variant = null
 var _sun_break_root: Node3D
 var _sun_breaks: Array[Dictionary] = []
 var _sun_break_material: StandardMaterial3D
@@ -155,8 +161,18 @@ func _ready() -> void:
 
 	_env.background_mode = Environment.BG_SKY
 	_env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	_env.fog_enabled = false
+	_env.fog_enabled = true
+	_env.fog_mode = Environment.FOG_MODE_DEPTH
+	_env.fog_density = 1.0
+	_env.fog_aerial_perspective = 1.0
+	_env.fog_sky_affect = 0.0
+	_env.fog_sun_scatter = 0.0
+	_env.fog_height_density = 0.0
+	_env.fog_depth_curve = 1.25
 	_build_dust_top_noise()
+	var floating_origin := get_node_or_null("/root/FloatingOrigin")
+	if floating_origin != null:
+		floating_origin.connect("origin_shifted", _on_dust_layer_origin_shift)
 	_ensure_dust_volume()
 	_ensure_dust_deck()
 	_ensure_sun_breaks()
@@ -186,6 +202,8 @@ func get_ai_darkness_factor() -> float:
 	return _ai_darkness_factor
 
 func _process(delta: float) -> void:
+	_refresh_dust_layer_deck_y()
+	_update_electrical_storm_uniforms()
 	_sun_break_time += delta
 	_update_sun_breaks(_last_sun_break_color, _last_clear_air_factor)
 
@@ -202,6 +220,7 @@ func _process(delta: float) -> void:
 	_update(_t)
 
 func _update(t: float) -> void:
+	_refresh_dust_layer_deck_y()
 	var n := _KF.size()
 	var pos := t * float(n)
 	var idx_a := int(pos) % n
@@ -233,13 +252,44 @@ func _update(t: float) -> void:
 
 	_env.volumetric_fog_enabled = true
 	var base_vol_density: float = lerpf(float(a.vol_density), float(b.vol_density), f)
-	_env.volumetric_fog_density = base_vol_density * lerpf(1.0, clear_air_density_multiplier, clear_t)
+	_env.volumetric_fog_density = base_vol_density * lerpf(1.0, clear_air_density_multiplier, clear_t) * background_haze_density_scale * _get_below_layer_haze_scale(_get_weather_sample_position())
 	_env.volumetric_fog_albedo = dust_col
 	_env.volumetric_fog_emission = Color(0, 0, 0)
 	_env.volumetric_fog_emission_energy = 0.0
 	_env.volumetric_fog_anisotropy = lerpf(float(a.vol_anisotropy), float(b.vol_anisotropy), f)
 	_env.volumetric_fog_length = vol_length_m * lerpf(1.0, maxf(clear_air_vol_length_multiplier, 0.01), clear_t)
 	_env.volumetric_fog_detail_spread = 1.0
+	# Dense local storms need near-camera precision, especially at cockpit depth.
+	# Reuse the existing froxel budget; restore the normal range outside storms.
+	var weather_camera := get_viewport().get_camera_3d()
+	if weather_camera != null:
+		# Local volumetric weather can shorten its sampling range. A separate
+		# distant fade keeps the camera cutoff hidden at every view-distance setting.
+		_env.fog_depth_end = minf(weather_camera.far * 0.94, maxf(ambient_visibility_m, 300.0))
+		_env.fog_depth_begin = minf(weather_camera.far * 0.5, _env.fog_depth_end * 0.55)
+		_env.fog_light_color = dust_col
+		# Sky and fully faded geometry must traverse the same fog depth; otherwise
+		# the sky integrates fog beyond the clip plane and leaves a colored seam.
+		_env.volumetric_fog_length = minf(_env.volumetric_fog_length, weather_camera.far * 0.9)
+		for front in get_tree().get_nodes_in_group("dust_front"):
+			var exposure: float = front.get_intensity_at(weather_camera.global_position)
+			var blend := smoothstep(0.02, 0.3, exposure)
+			if blend <= 0.0:
+				continue
+			var local_range := maxf(120.0, front.get_visibility_m(weather_camera.global_position) * 3.0)
+			_env.volumetric_fog_length = lerpf(_env.volumetric_fog_length, minf(_env.volumetric_fog_length, local_range), blend)
+			_env.volumetric_fog_detail_spread = maxf(_env.volumetric_fog_detail_spread, lerpf(1.0, 4.0, blend))
+		for twister in get_tree().get_nodes_in_group("twister"):
+			var exposure: float = twister.get_core_intensity_at(weather_camera.global_position)
+			var blend := smoothstep(0.02, 0.3, exposure)
+			_env.volumetric_fog_length = lerpf(_env.volumetric_fog_length, minf(_env.volumetric_fog_length, 330.0), blend)
+			_env.volumetric_fog_detail_spread = maxf(_env.volumetric_fog_detail_spread, lerpf(1.0, 4.0, blend))
+		for bank in get_tree().get_nodes_in_group("faceted_fog_bank"):
+			var exposure: float = bank.get_intensity_at(weather_camera.global_position)
+			var blend := smoothstep(0.02, 0.3, exposure)
+			var local_range := maxf(120.0, bank.get_visibility_m(weather_camera.global_position) * 3.0)
+			_env.volumetric_fog_length = lerpf(_env.volumetric_fog_length, minf(_env.volumetric_fog_length, local_range), blend)
+			_env.volumetric_fog_detail_spread = maxf(_env.volumetric_fog_detail_spread, lerpf(1.0, 4.0, blend))
 	_update_dust_volume(dust_ocean_col, clear_t)
 	_update_dust_deck(dust_ocean_col, clear_t)
 	_last_sun_break_color = sun_break_color.lerp(dust_col, 0.22)
@@ -293,7 +343,8 @@ func _ensure_dust_volume() -> void:
 		return
 	_dust_volume = FogVolume.new()
 	_dust_volume.name = "DustLayerVolume"
-	_dust_volume_material = FogMaterial.new()
+	_dust_volume_material = ShaderMaterial.new()
+	_dust_volume_material.shader = preload("res://Environment/dust_layer_volume.gdshader")
 	_dust_volume.material = _dust_volume_material
 	var scene_root := get_tree().current_scene
 	if scene_root != null:
@@ -347,33 +398,7 @@ func _make_dust_deck_material() -> ShaderMaterial:
 	return mat
 
 func _create_dust_deck_shader() -> Shader:
-	var code := """
-shader_type spatial;
-render_mode blend_mix, cull_disabled, depth_prepass_alpha, diffuse_burley;
-
-uniform vec4 tint : source_color = vec4(0.70, 0.22, 0.10, 0.85);
-uniform float motion_amplitude_m = 90.0;
-uniform float motion_speed = 0.055;
-uniform float motion_frequency = 0.00125;
-uniform float motion_phase = 0.0;
-
-void vertex() {
-	float t = TIME * motion_speed + motion_phase;
-	float wave_a = sin((VERTEX.x + VERTEX.z * 0.37) * motion_frequency + t);
-	float wave_b = sin((VERTEX.z - VERTEX.x * 0.41) * motion_frequency * 1.73 - t * 1.41);
-	float wave_c = sin((VERTEX.x * 0.31 - VERTEX.z * 0.29) * motion_frequency * 2.67 + t * 0.73);
-	VERTEX.y += (wave_a * 0.52 + wave_b * 0.32 + wave_c * 0.16) * motion_amplitude_m;
-}
-
-void fragment() {
-	ALBEDO = COLOR.rgb * tint.rgb;
-	ROUGHNESS = 1.0;
-	ALPHA = tint.a;
-}
-"""
-	var shader := Shader.new()
-	shader.code = code
-	return shader
+	return preload("res://Environment/dust_layer_surface.gdshader")
 
 func _build_dust_deck_mesh() -> ArrayMesh:
 	var size_m := maxf(dust_layer_horizontal_size_m, 1.0)
@@ -607,21 +632,37 @@ func _update_dust_volume(dust_color: Color, clear_t: float) -> void:
 	if not _dust_volume.is_inside_tree():
 		return
 	if _dust_volume_material == null:
-		_dust_volume_material = FogMaterial.new()
+		_dust_volume_material = ShaderMaterial.new()
+		_dust_volume_material.shader = preload("res://Environment/dust_layer_volume.gdshader")
 		_dust_volume.material = _dust_volume_material
 	var sample_pos := _get_weather_sample_position()
-	var layer_top := _get_dust_layer_top_for_position(sample_pos)
-	var bottom := minf(dust_layer_bottom_m, layer_top - 1.0)
-	var height := maxf(layer_top - bottom, 1.0)
+	var layer_top := _get_dust_layer_top_for_position(Vector3(_dust_layer_anchor_xz.x, 0.0, _dust_layer_anchor_xz.y))
+	var bottom := minf(_dust_layer_deck_y + dust_layer_bottom_m, layer_top - 1.0)
+	var volume_top := layer_top + 80.0
+	var height := maxf(volume_top - bottom, 1.0)
 	_dust_volume.size = Vector3(
 		maxf(dust_layer_horizontal_size_m, 1.0),
 		height,
 		maxf(dust_layer_horizontal_size_m, 1.0)
 	)
-	_dust_volume.global_position = Vector3(sample_pos.x, bottom + height * 0.5, sample_pos.z)
+	_dust_volume.global_position = Vector3(_dust_layer_anchor_xz.x, bottom + height * 0.5, _dust_layer_anchor_xz.y)
 	var inside_layer_density_scale := lerpf(0.12, 1.0, clear_t)
-	_dust_volume_material.density = maxf(dust_layer_volume_density, 0.0) * inside_layer_density_scale
-	_dust_volume_material.albedo = dust_color
+	var lower := layer_top + dust_deck_vertical_offset_m
+	var upper := layer_top + dust_deck_upper_vertical_offset_m
+	_dust_volume_material.set_shader_parameter("bottom_world", bottom)
+	_dust_volume_material.set_shader_parameter("top_world", volume_top)
+	_dust_volume_material.set_shader_parameter("lower_world", lower)
+	_dust_volume_material.set_shader_parameter("upper_world", upper)
+	_dust_volume_material.set_shader_parameter("base_density", maxf(dust_layer_volume_density, 0.0) * inside_layer_density_scale * background_haze_density_scale * _get_below_layer_haze_scale(sample_pos))
+	_dust_volume_material.set_shader_parameter("bank_density", 0.006 * background_haze_density_scale if dust_deck_enabled else 0.0)
+	_dust_volume_material.set_shader_parameter("volume_size", _dust_volume.size)
+	_dust_volume_material.set_shader_parameter("clear_center", sample_pos - _dust_volume.global_position)
+	_dust_volume_material.set_shader_parameter("tint", dust_color)
+	if dust_deck_enabled:
+		var inside_band := smoothstep(lower - 25.0, lower + 110.0, sample_pos.y) \
+			* (1.0 - smoothstep(upper - 110.0, upper + 35.0, sample_pos.y))
+		_env.volumetric_fog_length = lerpf(_env.volumetric_fog_length, minf(_env.volumetric_fog_length, 1600.0), inside_band)
+		_env.volumetric_fog_detail_spread = maxf(_env.volumetric_fog_detail_spread, lerpf(1.0, 3.0, inside_band))
 
 func _update_dust_deck(dust_color: Color, clear_t: float) -> void:
 	_ensure_dust_deck()
@@ -651,15 +692,15 @@ func _update_dust_deck(dust_color: Color, clear_t: float) -> void:
 	if _dust_deck_wall_material == null:
 		_dust_deck_wall_material = _make_dust_deck_material()
 		_dust_deck_walls.material_override = _dust_deck_wall_material
-	var sample_pos := _get_weather_sample_position()
-	var layer_top := _get_dust_layer_top_for_position(sample_pos)
-	_dust_deck.global_position = Vector3(sample_pos.x, layer_top + dust_deck_vertical_offset_m, sample_pos.z)
-	_dust_deck_upper.global_position = Vector3(sample_pos.x, layer_top + dust_deck_upper_vertical_offset_m, sample_pos.z)
-	_dust_deck_walls.global_position = Vector3(sample_pos.x, layer_top, sample_pos.z)
+	var layer_top := _get_dust_layer_top_for_position(Vector3(_dust_layer_anchor_xz.x, 0.0, _dust_layer_anchor_xz.y))
+	_dust_deck.global_position = Vector3(_dust_layer_anchor_xz.x, layer_top + dust_deck_vertical_offset_m, _dust_layer_anchor_xz.y)
+	_dust_deck_upper.global_position = Vector3(_dust_layer_anchor_xz.x, layer_top + dust_deck_upper_vertical_offset_m, _dust_layer_anchor_xz.y)
+	_dust_deck_walls.global_position = Vector3(_dust_layer_anchor_xz.x, layer_top, _dust_layer_anchor_xz.y)
 	var alpha := lerpf(dust_deck_alpha_below, dust_deck_alpha_above, clear_t)
-	_apply_dust_deck_material(_dust_deck_material, dust_color, alpha, 0.0)
-	_apply_dust_deck_material(_dust_deck_upper_material, dust_color.lerp(Color(1.0, 0.72, 0.48), 0.12), alpha * 0.92, 11.7)
-	_apply_dust_deck_material(_dust_deck_wall_material, dust_color.darkened(0.12), minf(alpha + 0.08, 1.0), 5.35)
+	var pale_dust := dust_color.lerp(Color(0.94, 0.87, 0.76), 0.76)
+	_apply_dust_deck_material(_dust_deck_material, pale_dust, alpha, 0.0)
+	_apply_dust_deck_material(_dust_deck_upper_material, pale_dust.lightened(0.04), alpha * 0.78, 11.7)
+	_apply_dust_deck_material(_dust_deck_wall_material, pale_dust, alpha * 0.85, 5.35)
 
 func _apply_dust_deck_material(mat: ShaderMaterial, dust_color: Color, alpha: float, phase: float) -> void:
 	if mat == null:
@@ -669,6 +710,27 @@ func _apply_dust_deck_material(mat: ShaderMaterial, dust_color: Color, alpha: fl
 	mat.set_shader_parameter("motion_speed", maxf(dust_deck_vertex_motion_speed, 0.0))
 	mat.set_shader_parameter("motion_frequency", maxf(dust_deck_vertex_motion_frequency, 0.0))
 	mat.set_shader_parameter("motion_phase", phase)
+
+func _update_electrical_storm_uniforms() -> void:
+	# Darken the authored dust decks themselves. A separate overlaid cloud sheet
+	# disappears into their existing fog and does not read as part of the layer.
+	var center := Vector3.ZERO
+	var radius := 0.0
+	for storm in get_tree().get_nodes_in_group("electrical_storm"):
+		if is_instance_valid(storm) and storm.active:
+			center = storm.global_position
+			radius = maxf(float(storm.cloud_radius_m), 0.0)
+			break
+	for material in [_dust_deck_material, _dust_deck_upper_material, _dust_deck_wall_material]:
+		if material == null:
+			continue
+		material.set_shader_parameter("storm_center_world", center)
+		material.set_shader_parameter("storm_radius_m", radius)
+	if _dust_volume_material != null:
+		_dust_volume_material.set_shader_parameter("storm_center_world", center)
+		_dust_volume_material.set_shader_parameter("storm_radius_m", radius)
+		if is_instance_valid(_dust_volume) and _dust_volume.is_inside_tree():
+			_dust_volume_material.set_shader_parameter("volume_center_world", _dust_volume.global_position)
 
 func _ensure_sun_breaks() -> void:
 	if _sun_break_root == null or not is_instance_valid(_sun_break_root):
@@ -905,11 +967,45 @@ func _get_clear_air_factor() -> float:
 	return smoothstep(top_m - fade_m * 0.5, top_m + fade_m * 0.5, camera.global_position.y)
 
 func _get_dust_layer_top_for_position(pos: Vector3) -> float:
-	var top_m := dust_layer_top_m
+	var top_m := _dust_layer_deck_y + dust_layer_top_m
 	if _dust_top_noise != null and dust_layer_top_variation_m > 0.0:
 		var n := _dust_top_noise.get_noise_2d(pos.x, pos.z)
 		top_m += n * dust_layer_top_variation_m
 	return top_m
+
+func _refresh_dust_layer_deck_y() -> void:
+	var deck_y := _get_carrier_deck_y()
+	var movement := deck_y - _dust_layer_deck_y
+	if absf(movement) < 0.001:
+		return
+	_dust_layer_deck_y = deck_y
+	# The carrier climbs and descends with the terrain. Translate the existing
+	# volume and sheets each frame; the quarter-second sky update must not step them.
+	for part in [_dust_volume, _dust_deck, _dust_deck_upper, _dust_deck_walls]:
+		if is_instance_valid(part) and part.is_inside_tree():
+			part.global_position.y += movement
+
+func _get_carrier_deck_y() -> float:
+	if not is_instance_valid(_dust_layer_deck_manager):
+		_dust_layer_deck_manager = get_tree().get_first_node_in_group("flight_deck_manager")
+	var manager := _dust_layer_deck_manager as Node
+	if manager != null and manager.has_method("get_deck_height"):
+		return float(manager.call("get_deck_height"))
+	var carrier := get_tree().get_first_node_in_group("carrier") as Node3D
+	if carrier != null:
+		return carrier.global_position.y
+	return 0.0
+
+func _get_below_layer_haze_scale(pos: Vector3) -> float:
+	if not dust_deck_enabled:
+		return 1.0
+	var lower := _get_dust_layer_top_for_position(pos) + dust_deck_vertical_offset_m
+	return lerpf(clampf(dust_layer_below_haze_scale, 0.0, 1.0), 1.0, smoothstep(lower - 40.0, lower + 110.0, pos.y))
+
+func _on_dust_layer_origin_shift(offset: Vector3) -> void:
+	# FloatingOrigin moves the meshes/volume as root children. Retain that new
+	# position on the next weather update rather than snapping them back.
+	_dust_layer_anchor_xz -= Vector2(offset.x, offset.z)
 
 func _get_weather_sample_position() -> Vector3:
 	var camera := _get_active_camera()

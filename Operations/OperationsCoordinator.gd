@@ -7,6 +7,7 @@ extends Node
 signal order_accepted(unit: Node, order: OpsOrder)
 signal order_rejected(unit: Node, order: OpsOrder, reason: String)
 signal order_completed(unit: Node, order: OpsOrder)
+signal order_ended(unit: Node, order: OpsOrder, reason: String)
 signal unit_stalled(unit: Node, order: OpsOrder, stalled_for_s: float)
 signal ground_retrieval_started(unit: Node)
 
@@ -25,6 +26,12 @@ var _simulation_elapsed_s: float = 0.0
 
 func _ready() -> void:
 	add_to_group("origin_shifter")
+
+
+func reset_runtime_state() -> void:
+	_assignments.clear()
+	_supervision_elapsed_s = 0.0
+	_simulation_elapsed_s = 0.0
 
 
 func apply_origin_shift(offset: Vector3) -> void:
@@ -49,11 +56,34 @@ func issue_order(unit: Node, order: OpsOrder) -> bool:
 	if not adapter.accepts(order):
 		order_rejected.emit(unit, order, "capability mismatch")
 		return false
+	if adapter.domain == OpsUnitAdapter.Domain.FIXED_WING and order.kind not in [OpsOrder.Kind.RETURN_TO_BASE, OpsOrder.Kind.RECOVER]:
+		var readiness: Dictionary = preload("res://Operations/OperationalReadiness.gd").aircraft_status(adapter.unit)
+		if readiness.recovering or readiness.departing or readiness.player_controlled:
+			order_rejected.emit(unit, order, "protected flight phase")
+			return false
 	if not adapter.accept_order(order):
 		order_rejected.emit(unit, order, "controller rejected order")
 		return false
+	track_accepted_order(adapter.unit, order)
+	return true
+
+
+func track_accepted_order(unit: Node, order: OpsOrder) -> void:
+	## Domain managers call this after accepting an order through their own APIs.
+	## It records intent without dispatching a second command to the vehicle.
+	if not is_instance_valid(unit) or order == null:
+		return
+	var adapter := OpsUnitAdapter.create(unit)
+	if not adapter.is_valid():
+		return
+	if _assignments.has(unit.get_instance_id()):
+		var previous: Dictionary = _assignments[unit.get_instance_id()]
+		order_ended.emit(unit, previous.order, "superseded")
 	var now_s := _simulation_elapsed_s
 	var status := adapter.get_status()
+	if unit is GroundVehiclePlatoon:
+		unit.set_meta("ops_order_source", str(order.metadata.get("source", "external")))
+		unit.set_meta("ops_order_phase", "ACTIVE" if unit.has_members() else "PENDING DEPLOYMENT")
 	var patrol_leg_index := 0
 	var goal := _get_patrol_leg_position(order, patrol_leg_index) \
 			if order.kind == OpsOrder.Kind.PATROL_POSITION \
@@ -66,16 +96,19 @@ func issue_order(unit: Node, order: OpsOrder) -> bool:
 		"last_progress_s": now_s,
 		"last_distance_m": _distance_to_goal(status.get("position", Vector3.ZERO), goal),
 		"stall_reported": false,
-		"ground_retrieval_started": false,
+		"ground_retrieval_started": bool(order.metadata.get("retrieval_started", false)),
 		"patrol_leg_index": patrol_leg_index,
 		"patrol_corrections": 0,
 		"patrol_last_command_s": now_s,
+		"objective_type": int(unit.get("objective_type")) if unit is GroundVehiclePlatoon else -1,
+		"had_members": unit.has_members() if unit is GroundVehiclePlatoon else true,
 	}
 	order_accepted.emit(unit, order)
-	return true
 
 
 func get_unit_status(unit: Node) -> Dictionary:
+	if is_instance_valid(unit) and (unit is AIPilot or unit is HelicopterPilot):
+		unit = OpsUnitAdapter.create(unit).unit
 	if unit == null or not is_instance_valid(unit):
 		return {"valid": false}
 	var assignment: Dictionary = _assignments.get(unit.get_instance_id(), {})
@@ -86,6 +119,8 @@ func get_unit_status(unit: Node) -> Dictionary:
 			var order: OpsOrder = assignment.get("order", null)
 			status["order"] = order
 			status["order_name"] = order.describe() if order != null else "NONE"
+			status["order_source"] = str(order.metadata.get("source", "external")) if order != null else "automatic"
+			status["order_stalled"] = bool(assignment.get("stall_reported", false))
 			return status
 	return OpsUnitAdapter.create(unit).get_status()
 
@@ -98,12 +133,31 @@ func get_all_statuses() -> Array[Dictionary]:
 		var unit: Variant = unit_ref.get_ref() if unit_ref != null else null
 		if unit is Node and is_instance_valid(unit):
 			statuses.append(get_unit_status(unit))
+	var air_ops := get_node_or_null("/root/AirOpsManager")
+	if air_ops != null:
+		for fname in air_ops.get_flight_names():
+			statuses.append(air_ops.get_flight_status(fname))
+	var ground_ops := get_node_or_null("/root/GroundOpsManager")
+	if ground_ops != null:
+		for pname in ground_ops.get_platoon_names():
+			var platoon: Variant = ground_ops.get_platoon(pname)
+			if is_instance_valid(platoon) and not _assignments.has(platoon.get_instance_id()):
+				statuses.append(ground_ops.get_platoon_status(pname))
 	return statuses
 
 
-func clear_order(unit: Node) -> void:
+func has_individual_order(aircraft: Node) -> bool:
+	return is_instance_valid(aircraft) and _assignments.has(aircraft.get_instance_id())
+
+
+func clear_order(unit: Node, reason: String = "cancelled") -> void:
+	if is_instance_valid(unit) and (unit is AIPilot or unit is HelicopterPilot):
+		unit = OpsUnitAdapter.create(unit).unit
 	if unit != null and is_instance_valid(unit):
+		var previous: Dictionary = _assignments.get(unit.get_instance_id(), {})
 		_assignments.erase(unit.get_instance_id())
+		if not previous.is_empty():
+			order_ended.emit(unit, previous.order, reason)
 
 
 func _process(delta: float) -> void:
@@ -133,7 +187,35 @@ func _supervise_assignments() -> void:
 			completed_ids.append(id)
 			continue
 		var status := adapter.get_status()
+		if unit is GroundVehiclePlatoon:
+			if int(unit.objective_type) != int(assignment.get("objective_type", -1)):
+				order_ended.emit(unit, order, "objective changed")
+				completed_ids.append(id)
+				continue
+			if unit.has_members():
+				assignment["had_members"] = true
+				unit.set_meta("ops_order_phase", "ACTIVE")
+			elif not bool(assignment.get("had_members", false)):
+				# Deployment is queued or waiting for a vehicle bay; no progress yet.
+				assignment["last_progress_s"] = now_s
+				_assignments[id] = assignment
+				continue
+		if order.kind in [OpsOrder.Kind.ATTACK_TARGET, OpsOrder.Kind.INTERCEPT_TARGET]:
+			var target: Variant = order.target
+			if not is_instance_valid(target) or target.is_queued_for_deletion() or bool(target.get_meta("destroyed", false)) \
+					or ("current_health" in target and float(target.current_health) <= 0.0):
+				if unit is GroundVehiclePlatoon: unit.set_meta("ops_order_phase", "COMPLETED")
+				order_completed.emit(unit, order)
+				completed_ids.append(id)
+				continue
+		if adapter.domain == OpsUnitAdapter.Domain.FIXED_WING \
+				and int(status.get("state", -1)) in preload("res://Operations/OperationalReadiness.gd").RECOVERY_STATES \
+				and order.kind not in [OpsOrder.Kind.RETURN_TO_BASE, OpsOrder.Kind.RECOVER]:
+			order_ended.emit(unit, order, "returning for recovery")
+			completed_ids.append(id)
+			continue
 		if bool(status.get("recovered", false)) and order.kind in [OpsOrder.Kind.RETURN_TO_BASE, OpsOrder.Kind.RECOVER]:
+			if unit is GroundVehiclePlatoon: unit.set_meta("ops_order_phase", "COMPLETED")
 			order_completed.emit(unit, order)
 			completed_ids.append(id)
 			continue
@@ -155,6 +237,7 @@ func _supervise_assignments() -> void:
 		if order.kind == OpsOrder.Kind.TRANSIT_TO_POSITION \
 				and is_finite(distance_m) \
 				and distance_m <= (order.radius_m if is_finite(order.radius_m) else 100.0):
+			if unit is GroundVehiclePlatoon: unit.set_meta("ops_order_phase", "COMPLETED")
 			order_completed.emit(unit, order)
 			completed_ids.append(id)
 			continue
@@ -185,11 +268,17 @@ func _supervise_assignments() -> void:
 			if adapter.try_begin_ground_retrieval():
 				assignment["ground_retrieval_started"] = true
 				ground_retrieval_started.emit(unit)
+		var standing := order.kind in [OpsOrder.Kind.HOLD_POSITION, OpsOrder.Kind.PROTECT_POSITION,
+			OpsOrder.Kind.PROTECT_TARGET, OpsOrder.Kind.ESCORT_CARRIER, OpsOrder.Kind.PURSUE_ENEMIES]
+		if standing and (not is_finite(distance_m) or distance_m <= maxf(order.radius_m if is_finite(order.radius_m) else 100.0, 150.0)):
+			assignment["last_progress_s"] = now_s
+			assignment["stall_reported"] = false
 		var stalled_s := now_s - float(assignment.get("last_progress_s", now_s))
 		if not bool(status.get("waiting_for_clearance", false)) \
 				and stalled_s >= maxf(stalled_report_after_s, 5.0) \
 				and not bool(assignment.get("stall_reported", false)):
 			assignment["stall_reported"] = true
+			if unit is GroundVehiclePlatoon: unit.set_meta("ops_order_phase", "STALLED")
 			unit_stalled.emit(unit, order, stalled_s)
 		_assignments[id] = assignment
 	for id in completed_ids:

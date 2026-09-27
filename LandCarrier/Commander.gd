@@ -189,7 +189,7 @@ func _input(event: InputEvent) -> void:
 					and (_is_active_view() or _is_free_camera_view()):
 				_switch_officer()
 		KEY_D:
-			if key_event.pressed and not key_event.echo \
+			if key_event.pressed and not key_event.echo and key_event.shift_pressed \
 					and (_is_active_view() or _is_free_camera_view()):
 				_start_random_officer_dance()
 		KEY_B:
@@ -208,6 +208,7 @@ func _notification(what: int) -> void:
 
 func _activate_initial_camera() -> void:
 	if commander_camera:
+		get_viewport().audio_listener_enable_3d = true
 		commander_camera.current = true
 
 func _process(delta: float) -> void:

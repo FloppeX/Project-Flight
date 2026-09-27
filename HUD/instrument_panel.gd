@@ -703,6 +703,9 @@ func _sync_pooled_mount_transform() -> void:
 func _should_update_panel_this_frame() -> bool:
 	if not update_only_when_viewed:
 		return true
+	if _pooled_mount_ref != null and is_instance_valid(aircraft) \
+			and bool(aircraft.get_meta(&"instrument_panel_transition_preparing", false)):
+		return true
 	return _is_panel_aircraft_currently_viewed()
 
 

@@ -7,7 +7,7 @@ extends SceneTree
 const EPSILON := 0.001
 const PROFILES := {
 	1: {"mass": 720.0, "pitch": 6.6, "roll": 14.0, "yaw": 2.2, "damping": 14.5, "stability": 1.9, "stall": 39.0, "autorudder": 0.28, "induced_drag": 0.21, "simplified_pitch": 7.5, "control_full": 1.30, "control_taper": 1.03, "stiffen": 115.0, "vne": 160.0, "stiffen_full": 200.0, "pitch_rate": 4.5, "roll_rate": 6.8, "yaw_rate": 3.8, "aoa_start": 21.0, "aoa_full": 40.0, "aoa_loss": 0.58, "lift_limit": 4.2, "nose_drop": 9.0, "wing_drop": 4.0, "autorotation": 4.2, "departure_build": 2.6, "departure_recovery": 2.3, "directional": 1.8},
-	2: {"mass": 1200.0, "pitch": 5.0, "roll": 8.5, "yaw": 1.8, "damping": 19.0, "stability": 3.6, "stall": 50.0, "autorudder": 0.35, "induced_drag": 0.24, "simplified_pitch": 6.0, "control_full": 1.42, "control_taper": 1.08, "stiffen": 145.0, "vne": 195.0, "stiffen_full": 240.0, "pitch_rate": 3.2, "roll_rate": 4.2, "yaw_rate": 3.0, "aoa_start": 22.0, "aoa_full": 43.0, "aoa_loss": 0.55, "lift_limit": 3.6, "nose_drop": 9.0, "wing_drop": 3.2, "autorotation": 3.5, "departure_build": 2.2, "departure_recovery": 1.6, "directional": 3.8},
+	2: {"mass": 1200.0, "pitch": 5.0, "roll": 9.35, "yaw": 2.7, "damping": 19.0, "stability": 3.6, "stall": 50.0, "autorudder": 0.35, "induced_drag": 0.24, "simplified_pitch": 6.0, "control_full": 1.42, "control_taper": 1.08, "stiffen": 145.0, "vne": 195.0, "stiffen_full": 240.0, "pitch_rate": 3.2, "roll_rate": 4.5, "yaw_rate": 3.25, "aoa_start": 22.0, "aoa_full": 43.0, "aoa_loss": 0.55, "lift_limit": 3.6, "nose_drop": 9.0, "wing_drop": 3.2, "autorotation": 3.5, "departure_build": 2.2, "departure_recovery": 1.6, "directional": 3.8},
 	3: {"mass": 700.0, "pitch": 6.8, "roll": 16.0, "yaw": 2.3, "damping": 13.5, "stability": 1.45, "stall": 36.0, "autorudder": 0.32, "induced_drag": 0.22, "simplified_pitch": 7.0, "control_full": 1.25, "control_taper": 1.00, "stiffen": 100.0, "vne": 145.0, "stiffen_full": 180.0, "pitch_rate": 5.0, "roll_rate": 7.5, "yaw_rate": 4.2, "aoa_start": 19.0, "aoa_full": 35.0, "aoa_loss": 0.62, "lift_limit": 4.3, "nose_drop": 10.5, "wing_drop": 5.3, "autorotation": 5.8, "departure_build": 3.3, "departure_recovery": 2.4, "directional": 1.5},
 	4: {"mass": 1350.0, "pitch": 4.6, "roll": 6.6, "yaw": 2.2, "damping": 22.0, "stability": 4.2, "stall": 47.0, "autorudder": 0.42, "induced_drag": 0.28, "simplified_pitch": 7.0, "control_full": 1.42, "control_taper": 1.10, "stiffen": 90.0, "vne": 130.0, "stiffen_full": 165.0, "pitch_rate": 2.6, "roll_rate": 3.4, "yaw_rate": 2.5, "aoa_start": 23.0, "aoa_full": 45.0, "aoa_loss": 0.60, "lift_limit": 3.2, "nose_drop": 11.0, "wing_drop": 3.0, "autorotation": 3.2, "departure_build": 2.0, "departure_recovery": 1.5, "directional": 4.2},
 	5: {"mass": 900.0, "pitch": 6.25, "roll": 13.0, "yaw": 2.0, "damping": 16.0, "stability": 2.8, "stall": 42.0, "autorudder": 0.25, "induced_drag": 0.20, "simplified_pitch": 7.5, "control_full": 1.35, "control_taper": 1.05, "stiffen": 135.0, "vne": 180.0, "stiffen_full": 225.0, "pitch_rate": 4.0, "roll_rate": 6.0, "yaw_rate": 3.5, "aoa_start": 20.0, "aoa_full": 38.0, "aoa_loss": 0.65, "lift_limit": 4.5, "nose_drop": 10.0, "wing_drop": 4.5, "autorotation": 5.0, "departure_build": 3.0, "departure_recovery": 2.0, "directional": 2.4},
@@ -58,6 +58,25 @@ func _check_aircraft(aircraft_index: int, expected: Dictionary) -> void:
 		return
 
 	_expect_close(aircraft.mass, float(expected.mass), "Aircraft_%d mass" % aircraft_index)
+	_expect(bool(aero.progressive_control_authority_enabled), "Aircraft_%d missing progressive controls" % aircraft_index)
+	var controls := aircraft.get_node_or_null("ControlSteering")
+	_expect(controls != null and bool(controls.rudder_assist_adaptive_response_enabled),
+		"Aircraft_%d missing adaptive autorudder" % aircraft_index)
+	aero.set_flight_model_override_for_testing(1)
+	_expect_close(float(aero.control_reference_speed_mps), 70.0,
+		"Aircraft_%d full control speed" % aircraft_index)
+	# Exercise the shared speed curve on every authored airframe, including
+	# its individual high-speed envelope; do not copy Aircraft 5's power tuning.
+	for axis in [&"pitch", &"roll", &"yaw"]:
+		_expect_close(float(aero.get_axis_control_authority_at_speed(70.0, axis)), 1.0,
+			"Aircraft_%d %s full authority by 70 m/s" % [aircraft_index, axis])
+		var reference := float(aero.control_reference_speed_mps)
+		var slow := float(aero.get_axis_control_authority_at_speed(reference * 0.4, axis))
+		var faster := float(aero.get_axis_control_authority_at_speed(reference * 0.7, axis))
+		_expect(slow > 0.0 and faster > slow,
+			"Aircraft_%d %s controls must firm up with airspeed" % [aircraft_index, axis])
+		_expect_close(float(aero.get_axis_control_authority_at_speed(0.0, axis)), 0.0,
+			"Aircraft_%d %s controls without airflow" % [aircraft_index, axis])
 	for property_pair in [
 		["pitch_power", "pitch"],
 		["roll_power", "roll"],

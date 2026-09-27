@@ -20,6 +20,8 @@ const EMPLACEMENT_SEARCH_ATTEMPTS := 32
 
 var bases: Array[EnemyBase] = []
 var emplacements: Array[Node3D] = []
+const OUTPOST_SCENE := preload("res://Buildings/building_enemy_outpost.tscn")
+var outposts: Array[EnemyOutpost] = []
 var _rng := RandomNumberGenerator.new()
 var _disabled_for_test: bool = false
 
@@ -57,6 +59,7 @@ func _spawn_bases() -> void:
 			NavGraph.graph_ready.connect(_spawn_bases, CONNECT_ONE_SHOT)
 		return
 	bases.clear()
+	_clear_managed_outposts()
 	_clear_managed_emplacements()
 	var pending := _get_pending_save_state()
 	if not pending.is_empty():
@@ -103,6 +106,7 @@ func _spawn_bases() -> void:
 		])
 
 	_spawn_enemy_emplacement_clumps(center, half_ext, carrier_ground_y)
+	_spawn_outposts(center, half_ext)
 
 
 func enable_for_game() -> void:
@@ -224,6 +228,9 @@ func _get_carrier_ground_level(center: Vector3) -> float:
 
 
 func _clear_managed_emplacements() -> void:
+	for wreck in get_tree().get_nodes_in_group("building_wrecks"):
+		if bool(wreck.get_meta("managed_enemy_emplacement_wreck", false)):
+			wreck.queue_free()
 	var still_valid: Array[Node3D] = []
 	for emplacement in emplacements:
 		if not is_instance_valid(emplacement):
@@ -246,6 +253,7 @@ func _clear_managed_emplacements() -> void:
 
 func disable_for_heli_test() -> void:
 	_disabled_for_test = true
+	_clear_managed_outposts()
 	if NavGraph.graph_ready.is_connected(_spawn_bases):
 		NavGraph.graph_ready.disconnect(_spawn_bases)
 	if TerrainNavGrid.bake_complete.is_connected(_spawn_bases):
@@ -348,12 +356,18 @@ func get_all_bases() -> Array[EnemyBase]:
 
 
 func capture_save_state() -> Dictionary:
+	var outpost_states: Array[Dictionary] = []
+	for outpost in outposts:
+		if is_instance_valid(outpost):
+			outpost_states.append(outpost.capture_save_state())
 	var base_states: Array[Dictionary] = []
 	for base in get_all_bases():
 		base_states.append(base.capture_save_state())
 	var emplacement_states: Array[Dictionary] = []
 	for emplacement in emplacements:
 		if not is_instance_valid(emplacement):
+			continue
+		if emplacement.is_queued_for_deletion() or bool(emplacement.get("is_destroyed")):
 			continue
 		emplacement_states.append({
 			"position": emplacement.global_position,
@@ -362,7 +376,14 @@ func capture_save_state() -> Dictionary:
 			"current_health": float(emplacement.get("current_health")) if emplacement.get("current_health") != null else -1.0,
 			"enemy_faction_id": int(emplacement.get_meta("enemy_faction_id", 0)),
 		})
-	return {"bases": base_states, "emplacements": emplacement_states}
+	for wreck in get_tree().get_nodes_in_group("building_wrecks"):
+		if not wreck is Node3D or not bool(wreck.get_meta("managed_enemy_emplacement_wreck", false)):
+			continue
+		emplacement_states.append({"position": wreck.global_position,
+			"rotation": wreck.global_rotation, "is_destroyed": true,
+			"main_color": wreck.get_meta("emplacement_main_color", Livery.get_team_upper_color(2)),
+			"enemy_faction_id": int(wreck.get_meta("enemy_faction_id", 0))})
+	return {"bases": base_states, "emplacements": emplacement_states, "outposts": outpost_states}
 
 
 func _get_pending_save_state() -> Dictionary:
@@ -392,6 +413,15 @@ func _spawn_bases_from_save(state: Dictionary) -> void:
 			if not (emplacement_state_variant is Dictionary):
 				continue
 			var emplacement_state := emplacement_state_variant as Dictionary
+			if bool(emplacement_state.get("is_destroyed", false)):
+				var wreck := preload("res://Buildings/gun_emplacement_destroyed.tscn").instantiate() as Node3D
+				wreck.position = emplacement_state.get("position", Vector3.ZERO)
+				wreck.rotation = emplacement_state.get("rotation", Vector3.ZERO)
+				wreck.set_meta("managed_enemy_emplacement_wreck", true)
+				wreck.set_meta("emplacement_main_color", emplacement_state.get("main_color", Livery.get_team_upper_color(2)))
+				wreck.set_meta("enemy_faction_id", int(emplacement_state.get("enemy_faction_id", 0)))
+				get_tree().current_scene.add_child(wreck)
+				continue
 			_spawn_single_emplacement(
 				emplacement_state.get("position", Vector3.ZERO) as Vector3,
 				int(emplacement_state.get("enemy_faction_id", 0))
@@ -403,3 +433,118 @@ func _spawn_bases_from_save(state: Dictionary) -> void:
 				if saved_health >= 0.0 and "current_health" in emplacement:
 					emplacement.set("current_health", saved_health)
 	print("[EnemyBaseManager] Restored %d enemy base(s)" % bases.size())
+	for entry: Dictionary in state.get("outposts", []):
+		var outpost := _add_outpost(entry.position, str(entry.outpost_id), int(entry.get("faction_id", 0)))
+		outpost.rotation = entry.get("rotation", Vector3.ZERO)
+		outpost.restore_save_state(entry)
+	# Older checkpoints retain their existing force structure; new regions get a network.
+
+
+func get_outposts_for_base(base: EnemyBase) -> Array[EnemyOutpost]:
+	var result: Array[EnemyOutpost] = []
+	for outpost in outposts:
+		if is_instance_valid(outpost) and outpost.faction_id == base.faction_id:
+			result.append(outpost)
+	return result
+
+
+func _clear_managed_outposts() -> void:
+	for outpost in outposts:
+		if is_instance_valid(outpost):
+			outpost.queue_free()
+	outposts.clear()
+
+
+func _add_outpost(location: Vector3, id: String, faction: int) -> EnemyOutpost:
+	var outpost := OUTPOST_SCENE.instantiate() as EnemyOutpost
+	outpost.outpost_id = id
+	outpost.faction_id = faction
+	outpost.position = location
+	get_tree().current_scene.add_child(outpost)
+	outposts.append(outpost)
+	return outpost
+
+
+func _spawn_outposts(center: Vector3, half_extent: float) -> void:
+	if bases.is_empty() or GameSession.is_trailer_scenario:
+		return
+	var carrier := get_tree().get_first_node_in_group("carrier") as Node3D
+	var start := carrier.global_position if carrier != null else center
+	# Six separate compounds across two rows of the map, in addition to the base.
+	# Bounded jitter preserves regional coverage while allowing flat-pad searches.
+	var sectors: Array[Vector2] = [
+		Vector2(-0.55, -0.4), Vector2(0.0, -0.4), Vector2(0.55, -0.4),
+		Vector2(-0.55, 0.4), Vector2(0.0, 0.4), Vector2(0.55, 0.4),
+	]
+	for index in range(sectors.size()):
+		var chosen := Vector3.INF
+		var compound_positions: Array[Vector3] = []
+		for attempt in range(180):
+			var sector := sectors[index] * half_extent
+			var jitter := Vector2(_rng.randf_range(-0.18, 0.18), _rng.randf_range(-0.18, 0.18)) * half_extent
+			var x := center.x + sector.x + jitter.x
+			var z := center.z + sector.y + jitter.y
+			var h := EnemyOutpost.sample_terrain_height(x, z)
+			if not is_finite(h) or h <= TerrainNavGrid.IMPASSABLE * 0.5:
+				continue
+			var candidate := Vector3(x, h, z)
+			if candidate.distance_to(start) < 6000.0 or candidate.distance_to(bases[0].global_position) < 3000.0:
+				continue
+			var spaced := true
+			for other in outposts:
+				if candidate.distance_to(other.global_position) < 6000.0:
+					spaced = false
+			if not spaced:
+				continue
+			# The authored footprint is about 17 by 13 metres; check the whole pad.
+			var low := h
+			var high := h
+			for dx in [-10.0, -5.0, 0.0, 5.0, 10.0]:
+				for dz in [-10.0, -5.0, 0.0, 5.0, 10.0]:
+					var sample := EnemyOutpost.sample_terrain_height(x + dx, z + dz)
+					if not is_finite(sample):
+						sample = TerrainNavGrid.IMPASSABLE
+					low = minf(low, sample)
+					high = maxf(high, sample)
+			if high - low > 1.5 or not NavGraph.can_anchor(candidate, 20.0, 260.0):
+				continue
+			chosen = Vector3(x, low, z)
+			compound_positions = _find_outpost_compound_pads(chosen)
+			if compound_positions.is_empty():
+				chosen = Vector3.INF
+				continue
+			break
+		if chosen == Vector3.INF:
+			push_warning("[EnemyBaseManager] No suitable footprint for outpost %d" % (index + 1))
+			continue
+		var station := _add_outpost(chosen, "OP-%02d" % (index + 1), bases[0].faction_id)
+		_populate_outpost_compound(station, compound_positions)
+	print("[EnemyBaseManager] Spawned %d observation outposts" % outposts.size())
+
+
+func _find_outpost_compound_pads(center: Vector3) -> Array[Vector3]:
+	# Keep the bay's +Z doorway clear, with guns outside both building footprints.
+	var offsets: Array[Vector3] = [Vector3(32, 0, 0), Vector3(-30, 0, -30), Vector3(0, 0, 38), Vector3(40, 0, -32)]
+	var pads: Array[Vector3] = []
+	for i in offsets.size():
+		var point := center + offsets[i]
+		var radius := 14.0 if i == 0 else 6.0
+		var low := INF
+		var high := -INF
+		for x in range(5):
+			for z in range(5):
+				var height := EnemyOutpost.sample_terrain_height(point.x + lerpf(-radius, radius, x / 4.0), point.z + lerpf(-radius, radius, z / 4.0))
+				if not is_finite(height) or height <= TerrainNavGrid.IMPASSABLE * 0.5: return []
+				low = minf(low, height)
+				high = maxf(high, height)
+		if high - low > 1.5: return []
+		point.y = low
+		pads.append(point)
+	return pads
+
+
+func _populate_outpost_compound(station: EnemyOutpost, pads: Array[Vector3]) -> void:
+	if pads.size() != 4: return
+	station.add_vehicle_bay(station.to_local(pads[0]))
+	for i in range(1, pads.size()):
+		_spawn_single_emplacement(pads[i], station.faction_id)

@@ -25,6 +25,9 @@ func run() -> void:
 	host.add_child(gunner)
 	gunner.set_physics_process(false)
 	gunner.host_actor = host
+	gunner.weapon_instance = Weapon.new()
+	gunner.weapon_instance.ammo_count = 10000
+	rig.add_child(gunner.weapon_instance)
 	var results: Dictionary = {}
 	for role in ["ground_vehicles", "carrier", "aircraft", "emplacement"]:
 		host.add_to_group(role)

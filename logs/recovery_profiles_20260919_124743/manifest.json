@@ -1,0 +1,52 @@
+{
+  "directory": "C:\\Godot projects\\Project-Flight\\logs\\recovery_profiles_20260919_124743",
+  "started": "2026-09-19T12:47:43.3331679+02:00",
+  "trials_per_model": 2,
+  "source_hashes": [
+    {
+      "Path": "C:\\Godot projects\\Project-Flight\\AI\\AIPilot.gd",
+      "Hash": "25CAB88FDD092BFC4744A9533A9C5AEAB4F5528B0477C52A8555ACCE4622778C"
+    },
+    {
+      "Path": "C:\\Godot projects\\Project-Flight\\AI\\LandingSight.gd",
+      "Hash": "BC914B08ED0A05F3AF77472AC3A1C966399E8A68B101EFA8957CCFB071F2DD8C"
+    },
+    {
+      "Path": "C:\\Godot projects\\Project-Flight\\Aircraft\\SimpleAero.gd",
+      "Hash": "EFD3781F37D682B4EB8A4DBA7C55A3841D22C0C01EFA3292B65133057AB3E4A1"
+    },
+    {
+      "Path": "C:\\Godot projects\\Project-Flight\\Aircraft\\Aircraft_2.tscn",
+      "Hash": "9B6BCAC61F99F3F548B607E1C372090526E39851C00C3D8A11F426D1D5630E3D"
+    },
+    {
+      "Path": "C:\\Godot projects\\Project-Flight\\LandCarrier\\FlightDeckManager.gd",
+      "Hash": "498555F91588FDBBB99966F9BBC95EE5986387A81F611067F0F53F0199315C4F"
+    }
+  ],
+  "workers": [
+    {
+      "pid": 37704,
+      "model": 1,
+      "label": "recovery_profiles_20260919_124743_aircraft_1_fast"
+    },
+    {
+      "pid": 50836,
+      "model": 2,
+      "label": "recovery_profiles_20260919_124743_aircraft_2_fast"
+    },
+    {
+      "pid": 7816,
+      "model": 5,
+      "label": "recovery_profiles_20260919_124743_aircraft_5_fast"
+    },
+    {
+      "pid": 11248,
+      "model": 14,
+      "label": "recovery_profiles_20260919_124743_aircraft_14_fast"
+    }
+  ],
+  "wind_enabled": false,
+  "timeout_s": 900,
+  "fixed_fps": 60
+}

@@ -172,7 +172,7 @@ func _run() -> void:
 	await RenderingServer.frame_post_draw
 	root.get_texture().get_image().save_png("%s/restored_physical_monitor.png" % OUTPUT_DIR)
 
-	var carrier_model_scene := load("res://Models/LandCarrier/Land carrier 3.glb") as PackedScene
+	var carrier_model_scene := load("res://Models/LandCarrier/Land carrier 4.glb") as PackedScene
 	if carrier_model_scene == null:
 		push_error("[CarrierTargetCameraRenderedProbe] carrier model is unavailable")
 		quit(1)

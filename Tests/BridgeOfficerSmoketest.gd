@@ -214,8 +214,8 @@ func _run() -> void:
 				and animation_player.is_playing(),
 			"stationary Commander did not select the officer idle animation"
 		)
-		_send_physical_key(commander, KEY_D, true)
-		_send_physical_key(commander, KEY_D, false)
+		_send_physical_key(commander, KEY_D, true, true)
+		_send_physical_key(commander, KEY_D, false, true)
 		var selected_dance := commander.get("_officer_animation") as StringName
 		_expect(
 			DANCE_ANIMATIONS.has(selected_dance) \
@@ -223,7 +223,7 @@ func _run() -> void:
 				and animation_player != null \
 				and animation_player.assigned_animation == selected_dance \
 				and animation_player.is_playing(),
-			"D did not start one random officer dance"
+			"Shift+D did not start one random officer dance"
 		)
 		_expect(
 			_animation_moves_skeleton(animation_player, officer_skeleton, selected_dance),
@@ -384,7 +384,7 @@ func _run() -> void:
 		commander.queue_free()
 
 	if _failures.is_empty():
-		print("[BridgeOfficerSmoketest] PASS female_imported=true male_imported=true human_scale=true skinned=true rig_controls_hidden=true player_primary_uniform=true officer_switch_o=true inactive_rig_stopped=true dance_count=7 dance_random_d=true dance_one_shot=true dance_returns_selected_idle=true external_visible=true first_person_hidden=true idle_cycle=7 visible_skeleton_motion=true walk=true arrows_switched=true arrow_left_right=true free_camera_view_preserved=true free_camera_officer_control=true gamepad_camera_only=true")
+		print("[BridgeOfficerSmoketest] PASS female_imported=true male_imported=true human_scale=true skinned=true rig_controls_hidden=true player_primary_uniform=true officer_switch_o=true inactive_rig_stopped=true dance_count=7 dance_random_shift_d=true dance_one_shot=true dance_returns_selected_idle=true external_visible=true first_person_hidden=true idle_cycle=7 visible_skeleton_motion=true walk=true arrows_switched=true arrow_left_right=true free_camera_view_preserved=true free_camera_officer_control=true gamepad_camera_only=true")
 		quit(0)
 	else:
 		for failure in _failures:
@@ -437,11 +437,12 @@ func _uniform_color_surface_count(node: Node, expected_color: Color) -> int:
 	return matching_surfaces
 
 
-func _send_physical_key(target: Node, keycode: Key, pressed: bool) -> void:
+func _send_physical_key(target: Node, keycode: Key, pressed: bool, shift_pressed: bool = false) -> void:
 	var event := InputEventKey.new()
 	event.keycode = keycode
 	event.physical_keycode = keycode
 	event.pressed = pressed
+	event.shift_pressed = shift_pressed
 	target.call("_input", event)
 
 

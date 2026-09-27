@@ -7,6 +7,7 @@ signal launch_sequence_complete
 signal launch_sequence_aborted
 
 @export var debug_enabled: bool = false
+@export var launch_steam_enabled: bool = true
 
 # Nodes
 @export var shuttle: Node3D            # Shuttle Node3D (moves along deck axis)
@@ -19,6 +20,7 @@ signal launch_sequence_aborted
 @export var shuttle_speed: float = 30.0       # Constant shuttle speed (m/s)
 @export var respect_aircraft_min_control_speed: bool = true
 @export var launch_control_speed_margin_mps: float = 8.0
+@export var launch_speed_adjustment_mps: float = -10.0 # Applied after aircraft-specific target selection; 0 restores the prior speeds.
 @export var approach_speed_mps: float = 2.0   # Slow approach speed when moving to latch
 @export var return_speed_mps: float = 35.0    # Speed shuttle moves back after launch
 @export var latch_proximity_m: float = 0.1    # Distance at which shuttle latches nose gear (proximity fallback)
@@ -29,6 +31,7 @@ signal launch_sequence_aborted
 @export var hold_duration_s: float = 2.5      # Time to hold at full power before stroke
 @export var settle_duration_s: float = 0.2    # Physics settle time after alignment
 @export var launch_carrier_contact_grace_s: float = 0.75 # Ignore only carrier-body damage while the tail clears the deck edge
+@export var launch_separation_s: float = 3.0 # Keep other catapults waiting after release so the departing aircraft can clear.
 
 # Input
 @export var launch_action: String = "fire_weapon"
@@ -50,6 +53,7 @@ var _aircraft: RigidBody3D
 var _latched: bool = false
 var _moving_to_latch: bool = false
 var _launching: bool = false
+var _launch_clearance_remaining_s: float = 0.0
 var _start_marker: Marker3D # DEPRECATED - Manager now provides the transform
 var _latch_marker: Marker3D
 var _release_marker: Marker3D
@@ -132,10 +136,15 @@ func _ready():
 	if debug_enabled: print("[CATAPULT] Ready.")
 
 	_is_ready = true
+	add_to_group("carrier_catapults")
+	if launch_steam_enabled:
+		var steam := preload("res://Effects/CatapultSteam.gd").new()
+		add_child(steam)
 	set_physics_process(true)
 
 var _dbg_frame: int = 0
 func _physics_process(delta: float):
+	_launch_clearance_remaining_s = maxf(_launch_clearance_remaining_s - delta, 0.0)
 	if debug_enabled and is_instance_valid(_aircraft) and (not _pin_at_connect_point) and not _launching:
 		_dbg_frame += 1
 		if _dbg_frame % 10 == 0:  # every ~10 physics frames
@@ -163,6 +172,13 @@ func _physics_process(delta: float):
 		return
 		
 	# State machine
+	# Losing an aircraft must terminate every owned phase, including settling
+	# while the shuttle is still pinned at its idle position.
+	if not is_instance_valid(_aircraft) and (_alignment_pending or _settling \
+			or _moving_to_latch or _latched or _launching or _engine_starting \
+			or _spooling_up or _hold_at_power):
+		_abort_launch()
+		return
 	if _settling and is_instance_valid(_aircraft):
 		_sync_aircraft_rotation_to_carrier()
 		_settle_timer -= delta
@@ -253,14 +269,7 @@ func _physics_process(delta: float):
 		# Hold at full power for a few seconds before launch
 		_hold_timer -= delta
 		if _hold_timer <= 0.0:
-			if debug_enabled: print("[CATAPULT] Hold complete. Launching!")
-			_hold_at_power = false
-			_release_wheels()
-			_launching = true
-			_shuttle_current_velocity = Vector3.ZERO
-			_last_shuttle_global_position = shuttle.global_position
-			# No position reset needed — shuttle is a child of the carrier and already
-			# sits at the nose gear position it stopped at when latching.
+			_try_start_launch()
 			
 	elif _launching and _latched:
 		_sync_aircraft_rotation_to_carrier()
@@ -288,18 +297,31 @@ func _input(event):
 	if _latched and not _launching and not _spooling_up and Input.is_action_just_pressed(launch_action):
 		# Manual override for launch if auto-spool fails, for debug.
 		if debug_enabled: print("[CATAPULT] Manual launch override pressed.")
-		_release_wheels()
-		_spooling_up = false
-		_launching = true
-		_shuttle_current_velocity = Vector3.ZERO
-		shuttle.global_position = _latch_target_position
-		_last_shuttle_global_position = shuttle.global_position
+		_try_start_launch()
 	# -- The following is now handled by FlightDeckManager --
 	# elif Input.is_action_just_pressed(align_action):
 	# 	var ac = _get_aircraft()
 	# 	if ac and not _finalizing and not _settling:
 	# 		if debug_enabled: print("[CATAPULT] Align action pressed.")
 	# 		_align_aircraft_to_start(ac)
+
+func _try_start_launch() -> bool:
+	if not is_instance_valid(_aircraft) or not _latched or _launching:
+		return false
+	for other in get_tree().get_nodes_in_group("carrier_catapults"):
+		if other != self and other.get("deck_ref") == deck_ref \
+		and (bool(other.get("_launching")) or float(other.get("_launch_clearance_remaining_s")) > 0.0):
+			return false
+	# Claim the stroke before unfreezing. The next catapult processed in this
+	# same frame observes ownership, including when both receive manual input.
+	_launching = true
+	_engine_starting = false
+	_spooling_up = false
+	_hold_at_power = false
+	_release_wheels()
+	_shuttle_current_velocity = Vector3.ZERO
+	_last_shuttle_global_position = shuttle.global_position
+	return true
 
 func begin_sequence(aircraft: RigidBody3D) -> void:
 	if debug_enabled: print("[CATAPULT] Begin sequence called. Unpinning shuttle and starting approach.")
@@ -333,6 +355,11 @@ func _configure_launch_acceleration_for_aircraft(aircraft: RigidBody3D) -> void:
 					required_release_speed_mps,
 					float(min_control_variant) + maxf(launch_control_speed_margin_mps, 0.0)
 				)
+	required_release_speed_mps = maxf(required_release_speed_mps + launch_speed_adjustment_mps, 1.0)
+	if is_instance_valid(aircraft):
+		var airframe_minimum: Variant = aircraft.get("minimum_catapult_launch_speed_mps")
+		if airframe_minimum is float or airframe_minimum is int:
+			required_release_speed_mps = maxf(required_release_speed_mps, float(airframe_minimum))
 	var launch_distance_m: float = latch_marker.global_position.distance_to(release_marker.global_position) \
 		if is_instance_valid(latch_marker) and is_instance_valid(release_marker) else 0.0
 	if launch_distance_m > 0.01:
@@ -460,6 +487,7 @@ func _drag_aircraft_to_shuttle() -> void:
 
 
 func _release() -> void:
+	_launch_clearance_remaining_s = maxf(launch_separation_s, 0.0)
 	if debug_enabled: print("[CATAPULT] Releasing aircraft.")
 	if is_instance_valid(_aircraft):
 		_sync_aircraft_rotation_to_carrier()
@@ -703,6 +731,12 @@ func _finalize_alignment_and_settle() -> void:
 
 func _abort_launch() -> void:
 	# Shuttle reached its limit without connecting — clean up and signal failure.
+	if _launching:
+		_launch_clearance_remaining_s = maxf(launch_separation_s, 0.0)
+	_alignment_pending = false
+	_finalizing = false
+	_settling = false
+	_settle_timer = 0.0
 	if is_instance_valid(_aircraft):
 		if _aircraft.has_meta("controls_disabled"):
 			_aircraft.remove_meta("controls_disabled")

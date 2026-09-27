@@ -51,7 +51,7 @@ extends Node
 
 @export var log_path: String = "user://heli_navigation_aircraft_11_tuning.log"
 @export var project_mirror_enabled: bool = true
-@export var project_mirror_path: String = "res://heli_navigation_aircraft_11_tuning.log"
+@export var project_mirror_path: String = "res://logs/heli_navigation_aircraft_11_tuning.log"
 @export var state_path: String = "user://heli_navigation_aircraft_11_tuning_state.json"
 @export var champion_project_mirror_path: String = "res://heli_navigation_aircraft_11_champion.json"
 @export var seed_genome_path: String = "res://heli_navigation_aircraft_9_champion.json"

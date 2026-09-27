@@ -635,6 +635,8 @@ func update_speed_altitude():
 		return
 
 	var velocity: Vector3 = aircraft.linear_velocity
+	if aircraft.has_method("get_air_relative_velocity"):
+		velocity = aircraft.call("get_air_relative_velocity")
 	var speed_mps: int = int(round(velocity.length()))
 	var altitude_value: float = aircraft.global_position.y
 	var local_altitude_value: Variant = aircraft.get("local_altitude")

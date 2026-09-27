@@ -388,6 +388,10 @@ func _restore_pending_campaign() -> void:
 	if carrier == null or carrier_manager == null or flight_deck == null:
 		_restore_failed("Campaign systems were not ready")
 		return
+	var enemy_state: Variant = campaign.get("enemy_ops", {})
+	if not enemy_state is Dictionary or not EnemyOpsManager.validate_save_state(enemy_state, EnemyBaseManager.get_all_bases()):
+		_restore_failed("Enemy operations checkpoint is invalid")
+		return
 	if carrier_manager.has_method("restore_save_state"):
 		carrier_manager.call("restore_save_state", campaign.get("carrier_manager", {}))
 	if PilotRoster.has_method("restore_save_state"):
@@ -416,7 +420,9 @@ func _restore_pending_campaign() -> void:
 	if POIManager.has_method("restore_save_state"):
 		POIManager.call("restore_save_state", campaign.get("pois", {}))
 	if EnemyOpsManager.has_method("restore_save_state"):
-		EnemyOpsManager.call("restore_save_state", campaign.get("enemy_ops", {}), EnemyBaseManager.get_all_bases())
+		if not bool(EnemyOpsManager.call("restore_save_state", enemy_state, EnemyBaseManager.get_all_bases())):
+			_restore_failed("Enemy operations could not be restored")
+			return
 	var scene := get_tree().current_scene
 	if scene != null and scene.has_method("restore_save_state"):
 		scene.call("restore_save_state", campaign.get("scenario", {}))

@@ -111,8 +111,8 @@ func _start_missile_camera_tracking(missile: Node3D, aircraft: Node3D) -> void:
 
 func _ensure_missile_scene() -> bool:
 	var candidates: Array[String] = [
-		"res://Projectiles/AG Missile/ag_missile.tscn",
-		"res://Projectiles/AG Missile/ag_missile_projectile.tscn"
+		"res://Projectiles/AG Missile/ag_missile_projectile.tscn",
+		"res://Projectiles/AG Missile/ag_missile.tscn"
 	]
 	for p in candidates:
 		if ResourceLoader.exists(p):

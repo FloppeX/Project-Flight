@@ -4,6 +4,8 @@ const WorldMapTextureBuilder = preload("res://UI/WorldMapTextureBuilder.gd")
 const TERRAIN_MAP_EDGE_INSET_PX: float = 2.0
 const POI_ACTIVE_COLOR: Color = Color(1.0, 0.92, 0.28, 1.0)
 const POI_USED_COLOR: Color = Color(0.52, 0.56, 0.52, 0.95)
+const WILDLIFE_COLOR: Color = Color(1.0, 1.0, 1.0, 0.95)
+const WILDLIFE_DOT_RADIUS_PX: float = 2.0
 
 var provider: Node = null
 var debug_enabled: bool = false
@@ -21,6 +23,7 @@ var _refresh_timer_s: float = 0.0
 var _cached_air_contacts: Array = []
 var _cached_ground_enemy_contacts: Array = []
 var _cached_ground_friendly_contacts: Array = []
+var _cached_wildlife_contacts: Array = []
 var _cached_ground_enemies: Array = []  # Static enemies (EnemyBox etc.)
 var _cached_enemies: Array = []
 var _contact_cache_timer_s: float = 0.0
@@ -93,9 +96,12 @@ func _draw() -> void:
 	var air_contacts: Array = _cached_air_contacts
 	var ground_enemy_contacts: Array = _cached_ground_enemy_contacts
 	var ground_friendly_contacts: Array = _cached_ground_friendly_contacts
+	var wildlife_contacts: Array = _cached_wildlife_contacts
 	var ground_enemies: Array = _cached_ground_enemies
 
-	var has_contacts: bool = air_contacts.size() > 0 or ground_enemies.size() > 0 or ground_enemy_contacts.size() > 0 or ground_friendly_contacts.size() > 0
+	var has_contacts: bool = air_contacts.size() > 0 or ground_enemies.size() > 0 \
+			or ground_enemy_contacts.size() > 0 or ground_friendly_contacts.size() > 0 \
+			or wildlife_contacts.size() > 0
 	var carrier_nodes: Array = get_tree().get_nodes_in_group("carrier")
 	var has_carrier: bool = carrier_nodes.size() > 0
 
@@ -239,6 +245,22 @@ func _draw() -> void:
 		if e == current_target:
 			draw_arc(Vector2(epx, epy), 8, 0, TAU, 16, Color.WHITE, 2)
 
+	# Wildlife is neutral ambient traffic: visible as a small white return, but
+	# deliberately excluded from aircraft/enemy contact and targeting lists.
+	for wildlife in wildlife_contacts:
+		if not is_instance_valid(wildlife) or not (wildlife is Node3D):
+			continue
+		var rel: Vector3 = (wildlife as Node3D).global_position - origin
+		var wx: float = rel.dot(flat_right)
+		var wz: float = rel.dot(flat_forward)
+		if sqrt(wx * wx + wz * wz) > range_m:
+			continue
+		var wildlife_pos := Vector2(
+			center.x + (wx / range_m) * radius,
+			center.y - (wz / range_m) * radius
+		)
+		draw_circle(wildlife_pos, WILDLIFE_DOT_RADIUS_PX, WILDLIFE_COLOR)
+
 	# Draw flight route (waypoints from HelicopterPilot or AIPilot)
 	_draw_flight_route(center, radius, origin, flat_right, flat_forward, range_m)
 
@@ -333,6 +355,13 @@ func _rebuild_contact_cache() -> void:
 			_cached_ground_friendly_contacts.append(node)
 		else:
 			_cached_ground_enemy_contacts.append(node)
+
+	# Neutral wildlife returns are cached independently so displaying them never
+	# promotes them into combat contacts or target selection.
+	_cached_wildlife_contacts.clear()
+	for node in get_tree().get_nodes_in_group("wildlife"):
+		if node is Node3D and is_instance_valid(node) and not node.is_queued_for_deletion():
+			_cached_wildlife_contacts.append(node)
 
 	# Static ground enemies
 	_cached_ground_enemies.clear()

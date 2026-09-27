@@ -89,6 +89,7 @@ var _landing_test_mode: Node = null
 var _carrier_combat_test_mode: Node = null
 var _ground_combat_test_mode: Node = null
 var _vehicle_spawn_menu: CanvasLayer = null
+var _hangar_spawn_menu: CanvasLayer = null
 
 func _enter_tree() -> void:
 	_configure_play_area_for_run()
@@ -96,6 +97,7 @@ func _enter_tree() -> void:
 func _ready():
 	Engine.time_scale = 1.0
 	_setup_vehicle_spawn_menu()
+	_setup_hangar_spawn_menu()
 	if GameSession.is_trailer_scenario:
 		var trailer: Node = load("res://Scenario/Trailer/TrailerScenario.gd").new()
 		trailer.name = "TrailerScenario"
@@ -173,9 +175,14 @@ func disable_structures_for_navigation_test() -> void:
 
 
 func _input(event: InputEvent):
+	if _is_hangar_spawn_key_event(event):
+		if _hangar_spawn_menu != null and not get_tree().paused:
+			_hangar_spawn_menu.call("open_from_hotkey")
+			get_viewport().set_input_as_handled()
+		return
 	if _is_vehicle_spawn_key_event(event):
 		if _vehicle_spawn_menu != null and not get_tree().paused:
-			_vehicle_spawn_menu.call("set_open", true)
+			_vehicle_spawn_menu.call("open_from_hotkey")
 			get_viewport().set_input_as_handled()
 		return
 	if event.is_action_pressed("ui_cancel", false):
@@ -193,6 +200,36 @@ func _setup_vehicle_spawn_menu() -> void:
 	add_child(_vehicle_spawn_menu)
 
 
+func _setup_hangar_spawn_menu() -> void:
+	if is_instance_valid(_hangar_spawn_menu):
+		return
+	_hangar_spawn_menu = VEHICLE_SPAWN_MENU_SCRIPT.new() as CanvasLayer
+	if _hangar_spawn_menu == null:
+		push_warning("ScenarioManager: hangar spawn menu could not be created")
+		return
+	_hangar_spawn_menu.name = "HangarSpawnMenu"
+	_hangar_spawn_menu.set("hangar_mode", true)
+	_hangar_spawn_menu.connect("hangar_aircraft_requested", _on_hangar_aircraft_requested)
+	add_child(_hangar_spawn_menu)
+
+
+func _on_hangar_aircraft_requested(entry: Dictionary) -> void:
+	var category := str(entry.get("category", ""))
+	if category not in ["AIRPLANES", "HELICOPTERS"]:
+		_hangar_spawn_menu.call("_report_failure", "SELECT AN AIRCRAFT")
+		return
+	var carrier := get_node_or_null(carrier_node_path)
+	var deck := carrier.get_node_or_null("FlightDeckManager") if carrier != null else null
+	if deck == null or not deck.has_method("request_hangar_aircraft_for_launch"):
+		_hangar_spawn_menu.call("_report_failure", "CARRIER FLIGHT DECK UNAVAILABLE")
+		return
+	var scene_path := str(entry.get("scene", ""))
+	if not bool(deck.call("request_hangar_aircraft_for_launch", scene_path)):
+		_hangar_spawn_menu.call("_report_failure", "HANGAR OR FLIGHT DECK NOT READY")
+		return
+	_hangar_spawn_menu.call("_show_toast", "RETRIEVING  //  %s" % str(entry.get("name", scene_path)))
+
+
 func _is_vehicle_spawn_key_event(event: InputEvent) -> bool:
 	if not (event is InputEventKey):
 		return false
@@ -201,6 +238,17 @@ func _is_vehicle_spawn_key_event(event: InputEvent) -> bool:
 			or key_event.ctrl_pressed or key_event.alt_pressed or key_event.meta_pressed:
 		return false
 	return key_event.physical_keycode == KEY_S or key_event.keycode == KEY_S
+
+
+func _is_hangar_spawn_key_event(event: InputEvent) -> bool:
+	if not (event is InputEventKey):
+		return false
+	var key_event := event as InputEventKey
+	if not key_event.pressed or key_event.echo \
+			or key_event.ctrl_pressed or key_event.alt_pressed or key_event.meta_pressed \
+			or key_event.shift_pressed:
+		return false
+	return key_event.physical_keycode == KEY_D or key_event.keycode == KEY_D
 
 
 func _process(delta: float) -> void:
@@ -315,6 +363,10 @@ func _configure_play_area_for_run() -> void:
 	elif carrier_combat_test_requested or ground_combat_test_requested or landing_test_requested:
 		center.x = carrier_combat_test_fixed_play_area_xz.x
 		center.z = carrier_combat_test_fixed_play_area_xz.y
+	elif selected_map_id == "canyon_highlands":
+		# Keep the generated first-plateau approaches inside the playable map.
+		center.x = 0.0
+		center.z = 0.0
 	elif selected_map_id == MAP_LAYERED_BADLANDS:
 		center.x = layered_badlands_play_area_xz.x
 		center.z = layered_badlands_play_area_xz.y
@@ -920,12 +972,17 @@ func capture_save_state() -> Dictionary:
 					"team": guard.team,
 					"current_health": guard.current_health,
 				})
-	return {"wind_turbines": turbines, "wind_farm_guards": guards}
+	var weather := get_tree().get_first_node_in_group("weather_director")
+	return {"wind_turbines": turbines, "wind_farm_guards": guards,
+		"weather": weather.call("capture_save_state") if weather != null else {}}
 
 
 func restore_save_state(state: Dictionary) -> bool:
 	if state.is_empty():
 		return false
+	var weather := get_tree().get_first_node_in_group("weather_director")
+	if weather != null and state.get("weather", {}) is Dictionary:
+		weather.call("restore_save_state", state.get("weather", {}))
 	var container := get_node_or_null("WindTurbines")
 	if container != null and container.get_child_count() > 0:
 		return true

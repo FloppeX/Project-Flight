@@ -146,6 +146,9 @@ func is_visible_to_active_camera() -> bool:
 	return _visibility_notifier.is_on_screen()
 
 func _recording_focused() -> bool:
+	# The console schematic builds tread geometry before entering the scene tree.
+	if not is_inside_tree():
+		return false
 	var recorder := get_node_or_null("/root/RecordingMode")
 	return recorder != null and recorder.recording and recorder.is_target_camera_focusing_node(self)
 

@@ -1,25 +1,19 @@
-[gd_scene load_steps=7 format=3 uid="uid://bmauvc63rtm4a"]
+[gd_scene load_steps=6 format=3 uid="uid://bmauvc63rtm4a"]
 
 [ext_resource type="Script" uid="uid://b2fanpn4ocluh" path="res://Buildings/GunEmplacement.gd" id="1_emplacement"]
-[ext_resource type="PackedScene" uid="uid://cpkdstgg3rpes" path="res://Models/Turrets/turret base.glb" id="2_base_model"]
+[ext_resource type="PackedScene" path="res://Models/building - enemy gun emplacement.glb" id="2_base_model"]
 [ext_resource type="Script" uid="uid://cqw36derm5yh1" path="res://Weapons/Turrets/turret_controller.gd" id="3_turret_controller"]
-[ext_resource type="PackedScene" uid="uid://38xqikpdfhdk" path="res://Weapons/Turrets/turret.tscn" id="4_turret_scene"]
+[ext_resource type="Script" path="res://Buildings/EmplacementTurret.gd" id="4_turret_script"]
 [ext_resource type="PackedScene" path="res://Weapons/Turrets/bullet_weapon.tscn" id="5_weapon_scene"]
-
-[sub_resource type="BoxShape3D" id="BoxShape3D_x2tn6"]
-size = Vector3(9.62045, 1.98645, 9.7411)
 
 [node name="GunEmplacement" type="StaticBody3D"]
 script = ExtResource("1_emplacement")
+destroyed_scene_path = "res://Buildings/gun_emplacement_destroyed.tscn"
+authored_model_path = NodePath("Model")
 
-[node name="BaseModel" parent="." instance=ExtResource("2_base_model")]
-
-[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.0248871, 0.993225, 0.0249405)
-shape = SubResource("BoxShape3D_x2tn6")
+[node name="Model" parent="." instance=ExtResource("2_base_model")]
 
 [node name="TurretController" type="Node3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.05, 0)
 script = ExtResource("3_turret_controller")
 weapon_scene = ExtResource("5_weapon_scene")
 max_range = 1400.0
@@ -31,5 +25,5 @@ air_target_range_multiplier = 0.65
 air_target_aim_skill_multiplier = 0.7
 air_target_extra_spread_m = 18.0
 
-[node name="TurretScene" parent="TurretController" instance=ExtResource("4_turret_scene")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.220869, 0)
+[node name="TurretScene" type="Node3D" parent="TurretController"]
+script = ExtResource("4_turret_script")

@@ -23,7 +23,7 @@ func _run() -> void:
 	environment.environment = environment_resource
 	scene.add_child(environment)
 
-	var carrier_model_scene := load("res://Models/LandCarrier/Land carrier 3.glb") as PackedScene
+	var carrier_model_scene := load("res://Models/LandCarrier/Land carrier 4.glb") as PackedScene
 	var station_scene := load("res://LandCarrier/ComputerStation.tscn") as PackedScene
 	var commander_scene := load("res://LandCarrier/Commander.tscn") as PackedScene
 	if carrier_model_scene == null or station_scene == null or commander_scene == null:

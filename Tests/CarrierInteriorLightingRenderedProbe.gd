@@ -31,7 +31,7 @@ func _run() -> void:
 	environment.environment = environment_resource
 	scene.add_child(environment)
 
-	var carrier_scene := load("res://Models/LandCarrier/Land carrier 3.glb") as PackedScene
+	var carrier_scene := load("res://Models/LandCarrier/Land carrier 4.glb") as PackedScene
 	if carrier_scene == null:
 		push_error("[CarrierInteriorLightingRenderedProbe] carrier model unavailable")
 		quit(1)
@@ -142,4 +142,3 @@ func _vertical_triangle_height(point: Vector2, a: Vector3, b: Vector3, c: Vector
 	if a_weight < -0.0001 or b_weight < -0.0001 or c_weight < -0.0001:
 		return INF
 	return a.y * a_weight + b.y * b_weight + c.y * c_weight
-

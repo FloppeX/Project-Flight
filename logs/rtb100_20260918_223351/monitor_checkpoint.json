@@ -1,0 +1,32 @@
+{
+  "checked_at": "2026-09-18T23:43:04.912787+02:00",
+  "completed": 39,
+  "source_files_changed": [],
+  "workers": [
+    {
+      "model": 1,
+      "sim_time": 8638.21666666667,
+      "state": "RECOVERY_APPROACH",
+      "script_errors": 0
+    },
+    {
+      "model": 2,
+      "sim_time": 8647.58333333333,
+      "state": "RECOVERY_HOLD",
+      "script_errors": 0
+    },
+    {
+      "model": 5,
+      "sim_time": 8465.36666666667,
+      "state": "RECOVERY_APPROACH",
+      "script_errors": 0
+    },
+    {
+      "model": 14,
+      "sim_time": 8962.36666666667,
+      "state": "RECOVERY_HOLD",
+      "script_errors": 0
+    }
+  ],
+  "observation": "All four workers progressing (1260-1340 simulated seconds since previous check). 39 completed: 0 catches, 5 losses, 34 timeouts. No script errors or source changes. Continue unchanged baseline."
+}

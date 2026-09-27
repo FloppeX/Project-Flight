@@ -96,7 +96,7 @@ wreck_extra_spin = 15.0
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.123306, 0.707575)
 
 [node name="Aircraft 2 propeller" parent="aircraft_14" unique_id=199105519 instance=ExtResource("4_ii5ys")]
-transform = Transform3D(0.94, 0, 2.801419e-08, 0, 0.94, 0, -2.801419e-08, 0, 0.94, -2.00808e-09, 0.4830287, -3.5167868)
+transform = Transform3D(0.94, 0, 2.801419e-08, 0, 0.94, 0, -2.801419e-08, 0, 0.94, -2.00808e-09, 0.4830287, -3.4466827)
 
 [node name="FuselageDamageCollider" type="CollisionShape3D" parent="." unique_id=699888493]
 transform = Transform3D(1, 0, 0, 0, -4.37114e-08, -1, 0, 1, -4.37114e-08, 0, -0.22, 1.65)
@@ -123,7 +123,7 @@ shape = SubResource("BoxShape3D_cockpit_damage")
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.32, -1.4)
 shape = SubResource("BoxShape3D_horizontal_stabilizer_damage")
 
-[node name="VerticalStabilizerDamageCollider" type="CollisionShape3D" parent="."]
+[node name="VerticalStabilizerDamageCollider" type="CollisionShape3D" parent="." unique_id=578560202]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.45, -1.4)
 shape = SubResource("BoxShape3D_vertical_stabilizer_damage")
 
@@ -258,7 +258,6 @@ spring_strength = 20000.0
 wheel_rest_height = 0.3
 wheel_rest_heights = Array[float]([0.2, 0.3, 0.3])
 max_compression = 0.4
-move_colliders_with_suspension = true
 
 [node name="ControlEngine" parent="." unique_id=1866200711 instance=ExtResource("18_gjrvb")]
 
@@ -377,7 +376,11 @@ vertical_stabilizer_visual_paths = Array[NodePath]([NodePath("../aircraft_14/bro
 align_companion_wing_visuals_to_outer_fold = true
 
 [node name="InsigniaWing" parent="." unique_id=1171960425 instance=ExtResource("45_insignia")]
-transform = Transform3D(-1, 0, -8.742278e-08, 0, 1, 0, 8.742278e-08, 0, -1, 2.8330016, -0.70940953, 0.7166815)
+transform = Transform3D(-0.9, 0, -1.3589622e-07, 0, 0.9, 0, 1.3589622e-07, 0, -0.9, 2.6, -0.709, 0.717)
+follow_target_path = NodePath("../aircraft_14/left wing")
+
+[node name="InsigniaWing2" parent="." unique_id=537224075 instance=ExtResource("45_insignia")]
+transform = Transform3D(-0.9, 0, -1.3589622e-07, 0, 0.9, 0, 1.3589622e-07, 0, -0.9, -2.6, -0.709, 0.717)
 follow_target_path = NodePath("../aircraft_14/left wing")
 
 [node name="InsigniaTail" parent="." unique_id=1687275190 instance=ExtResource("45_insignia")]

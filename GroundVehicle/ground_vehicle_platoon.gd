@@ -281,6 +281,17 @@ func get_formation_destination_for(vehicle: Node3D, fallback_destination: Vector
 		slot_world.y = fallback_destination.y
 	return slot_world
 
+func set_hold_objective() -> void:
+	objective_type = ObjectiveType.NONE
+	protected_node = null
+	attack_node = null
+	escort_node = null
+	_clear_route_preview()
+	for member in get_members():
+		if is_instance_valid(member) and member.has_method("set_patrol_waypoints"):
+			var empty: Array[Vector3] = []
+			member.set_patrol_waypoints(empty)
+
 func set_move_objective(position: Vector3) -> void:
 	objective_type = ObjectiveType.MOVE_TO_POSITION
 	objective_position = position

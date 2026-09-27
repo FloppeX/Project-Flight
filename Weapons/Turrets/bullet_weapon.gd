@@ -84,6 +84,9 @@ var virtual_rounds_fired: int = 0
 var shot_sound_events: int = 0
 var _pending_virtual_rounds: Array[Dictionary] = []
 var _barrel_recoil: Node
+## The AI controller already steers the barrel with a coherent burst error.
+## Do not scatter individual rounds around that solution a second time.
+var use_controller_burst_error: bool = false
 
 func _ready() -> void:
 	_apply_gun_profile()
@@ -191,6 +194,7 @@ func _queue_virtual_rounds(
 			"fallback_transform": spawn_transform,
 			"firing_entity": firing_entity,
 			"firing_turret": firing_turret,
+			"use_controller_burst_error": use_controller_burst_error,
 		})
 	set_process(true)
 
@@ -217,7 +221,7 @@ func _fire_virtual_round(pending: Dictionary) -> void:
 		0.05
 	)
 	var direction: Vector3 = spawn_transform.basis.z.normalized()
-	if spread_angle > 0.001:
+	if spread_angle > 0.001 and not pending.get("use_controller_burst_error", false):
 		var pitch_offset_rad: float = deg_to_rad(randf_range(-spread_angle, spread_angle))
 		var yaw_offset_rad: float = deg_to_rad(randf_range(-spread_angle, spread_angle))
 		var yaw_basis: Basis = Basis(spawn_transform.basis.y.normalized(), yaw_offset_rad)
@@ -378,7 +382,7 @@ func _spawn_bullet(spawn_transform: Transform3D, firing_entity: Node3D) -> void:
 	bullet.set_meta("debug_nominal_bullet_speed_mps", bullet_speed)
 
 	var direction: Vector3 = spawn_transform.basis.z.normalized()
-	if spread_angle > 0.001:
+	if spread_angle > 0.001 and not use_controller_burst_error:
 		var pitch_offset_rad: float = deg_to_rad(randf_range(-spread_angle, spread_angle))
 		var yaw_offset_rad: float = deg_to_rad(randf_range(-spread_angle, spread_angle))
 		var yaw_basis: Basis = Basis(spawn_transform.basis.y.normalized(), yaw_offset_rad)

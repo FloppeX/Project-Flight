@@ -29,7 +29,7 @@ func consider(pilot: Node3D, helicopter: Node3D) -> bool:
 	var best_cost := INF
 	for pname in ops.get_platoon_names():
 		var p: GroundVehiclePlatoon = ops.get_platoon(pname)
-		if not is_instance_valid(p) or p.objective_type != GroundVehiclePlatoon.ObjectiveType.NONE:
+		if not ops.is_automatically_available(p):
 			continue # Never steal explicit movement, escort, or combat orders.
 		if not _eligible(p):
 			continue
@@ -91,6 +91,7 @@ func assign(p: GroundVehiclePlatoon, pilot: Node3D, manual: bool = true, air_eta
 		or not NavGraph.can_anchor(goal, p.contact_path_clearance_m, p.contact_anchor_distance_m):
 		return false
 	p.set_rescue_objective(start) # Hold while the route is checked.
+	ops._record_order(p, OpsOrder.rescue_target(pilot), "player" if manual else "automatic")
 	_serial += 1
 	var serial := _serial
 	jobs[pilot] = {"platoon": p, "planning": true, "age": 0.0, "stalled": 0.0,

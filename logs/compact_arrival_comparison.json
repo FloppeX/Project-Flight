@@ -1,0 +1,46 @@
+[
+  {
+    "run": "arrival_select_left",
+    "status": "PASS",
+    "to_wire_s": 177.15,
+    "to_stow_s": 218.116666666667,
+    "health": 100.0,
+    "fuel": 87.4727512745427
+  },
+  {
+    "run": "arrival_select_right",
+    "status": "PASS",
+    "to_wire_s": 87.6166666666667,
+    "to_stow_s": 128.8833333333337,
+    "health": 100.0,
+    "fuel": 93.866434875942
+  },
+  {
+    "run": "arrival_select_sortie",
+    "status": "COMPLETE",
+    "to_wire_s": 124.583333333333,
+    "to_stow_s": 165.666666666667,
+    "health": 100.0,
+    "fuel": 76.1667213260967,
+    "mission_passed": true,
+    "target_damage": 172.581746578217
+  },
+  {
+    "run": "arrival_select_left_final",
+    "status": "PASS",
+    "to_wire_s": 176.1666666666663,
+    "to_stow_s": 216.9500000000003,
+    "health": 100.0,
+    "fuel": 87.5346202995123
+  },
+  {
+    "run": "arrival_select_sortie_final",
+    "status": "COMPLETE",
+    "to_wire_s": 138.55,
+    "to_stow_s": 173.39999999999998,
+    "health": 100.0,
+    "fuel": 73.0708063353145,
+    "mission_passed": true,
+    "target_damage": 95.0
+  }
+]

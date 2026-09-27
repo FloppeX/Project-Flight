@@ -40,6 +40,8 @@ static var CATALOG: Dictionary = {
 		_helicopter_entry(10, "TAG RA-14 Dune Skimmer", "Light recon/attack helicopter."),
 		_helicopter_entry(11, "AD UH-8 Hummingbird", "Zippy, quiet utility/armed recon helicopter built for agility."),
 		_helicopter_entry(12, "HK AH-99 Huntsman", "Heavy armored attack helicopter with coaxial rotors and heavy anti-armor ordnance."),
+		_helicopter_entry(13, "TAG LH-3 \"Dragonfly\"", "Ultra-light observation and scout helicopter; built around an exposed tubular frame and a bubble canopy. Compact and easy to fly, but vulnerable."),
+		_helicopter_entry(15, "AIRCRAFT 15", "Medium attack helicopter with a heavier airframe, stronger rotor, wheeled landing gear, and two configurable weapon hardpoints."),
 	],
 	"STRUCTURES": [
 		_structure_entry("AIRFIELD", "res://Buildings/building_enemy_airfield.tscn", "Complete hostile airfield complex used to support local aviation operations."),

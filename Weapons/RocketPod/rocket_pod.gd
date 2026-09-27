@@ -129,6 +129,12 @@ func can_fire() -> bool:
 func is_burst_in_progress() -> bool:
 	return _burst_remaining > 0
 
+func cancel_burst() -> void:
+	# Already launched rockets continue; only unsent rounds are cancelled.
+	_burst_remaining = 0
+	_burst_timer = 0.0
+	if not _has_persistent_tuning_context(): _clear_tuning_context()
+
 func fire() -> bool:
 	if not can_fire():
 		return false

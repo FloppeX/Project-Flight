@@ -1,8 +1,8 @@
 class_name TacticalScreenDisplay
 extends Node
 
-## One shared, throttled tactical render target for every physical carrier
-## computer. WorldMapOverlay moves into this viewport while the full console is
+## Shared, throttled render targets for each tab on physical carrier computers.
+## WorldMapOverlay moves into the tactical viewport while the full console is
 ## closed, then returns to the main viewport when the player uses a station.
 
 const VIEWPORT_SIZE := Vector2i(1024, 576)
@@ -17,6 +17,8 @@ var _world_map_overlay: Node = null
 var _carrier_console: Node = null
 var _refresh_accumulator_s: float = 0.0
 var _preview_enabled: bool = true
+var _page_feeds: Dictionary = {}
+var _station_pages: Dictionary = {}
 
 
 func _ready() -> void:
@@ -33,24 +35,96 @@ func _exit_tree() -> void:
 
 
 func _process(delta: float) -> void:
-	if not _preview_enabled or _preview_viewport == null:
+	if _preview_viewport == null:
 		return
 	_refresh_accumulator_s += delta
 	if _refresh_accumulator_s < REFRESH_INTERVAL_S:
 		return
 	_refresh_accumulator_s = fmod(_refresh_accumulator_s, REFRESH_INTERVAL_S)
 	_request_preview_frame()
+	_refresh_page_feeds()
 
 
-func get_screen_material(mesh_min: Vector2, mesh_max: Vector2) -> ShaderMaterial:
+func get_screen_material(mesh_min: Vector2, mesh_max: Vector2, page_id: String = "tactical", station: Node = null) -> ShaderMaterial:
 	_ensure_preview_viewport()
 	if _preview_viewport == null:
 		return null
-	if _screen_material == null:
-		_screen_material = _create_screen_material()
-	_screen_material.set_shader_parameter("mesh_min", mesh_min)
-	_screen_material.set_shader_parameter("mesh_max", mesh_max)
-	return _screen_material
+	if station != null:
+		_station_pages[station.get_instance_id()] = {"station": weakref(station), "page": page_id}
+	var texture: Texture2D = _preview_viewport.get_texture()
+	if page_id != "tactical":
+		var feed := _ensure_page_feed(page_id)
+		if not feed.is_empty():
+			texture = (feed.viewport as SubViewport).get_texture()
+	# Mesh mapping belongs to each station; only the page texture is shared.
+	var material := _create_screen_material()
+	material.set_shader_parameter("tactical_texture", texture)
+	material.set_shader_parameter("mesh_min", mesh_min)
+	material.set_shader_parameter("mesh_max", mesh_max)
+	_screen_material = material
+	return material
+
+func _ensure_page_feed(page_id: String) -> Dictionary:
+	if _page_feeds.has(page_id):
+		return _page_feeds[page_id]
+	var scripts := {
+		"air_wing": "res://UI/OperationalUnitsPage.gd",
+		"ground_bay": "res://UI/OperationalUnitsPage.gd",
+		"personnel": "res://UI/PilotRosterOverlay.gd",
+		"carrier": "res://UI/CarrierPage.gd",
+		"replicator": "res://UI/ReplicatorPage.gd",
+	}
+	if not scripts.has(page_id):
+		return {}
+	var viewport := SubViewport.new()
+	viewport.name = "Monitor_" + page_id
+	viewport.size = VIEWPORT_SIZE
+	viewport.size_2d_override = LAYOUT_SIZE
+	viewport.size_2d_override_stretch = true
+	viewport.disable_3d = true
+	viewport.gui_disable_input = true
+	viewport.render_target_update_mode = SubViewport.UPDATE_ONCE
+	add_child(viewport)
+	var page: Node = (load(scripts[page_id]) as Script).new()
+	if page_id in ["air_wing", "ground_bay"]:
+		page.set("unit_kind", 0 if page_id == "air_wing" else 1)
+	viewport.add_child(page)
+	if page is Control:
+		page.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		page.mouse_behavior_recursive = Control.MOUSE_BEHAVIOR_DISABLED
+	elif page is CanvasLayer:
+		page.custom_viewport = viewport
+	page.call("set_console_visible", true)
+	_disable_preview_input(page)
+	var feed := {"viewport": viewport, "page": page}
+	_page_feeds[page_id] = feed
+	return feed
+
+func _disable_preview_input(node: Node) -> void:
+	node.set_process_input(false)
+	node.set_process_unhandled_input(false)
+	node.set_process_unhandled_key_input(false)
+	node.set_process_shortcut_input(false)
+	for child in node.get_children():
+		_disable_preview_input(child)
+
+func _refresh_page_feeds() -> void:
+	var used: Dictionary = {}
+	for id in _station_pages.keys():
+		var station: Variant = _station_pages[id].station.get_ref()
+		if not is_instance_valid(station) or station.is_queued_for_deletion():
+			_station_pages.erase(id)
+		else:
+			used[_station_pages[id].page] = true
+	for page_id in _page_feeds:
+		var feed: Dictionary = _page_feeds[page_id]
+		var active := used.has(page_id)
+		if active and page_id == "replicator" and is_instance_valid(_carrier_console):
+			var source: Variant = _carrier_console.get("_replicator_page")
+			if is_instance_valid(source):
+				feed.page.sync_monitor_preview_from(source)
+		(feed.page as Node).process_mode = Node.PROCESS_MODE_ALWAYS if active else Node.PROCESS_MODE_DISABLED
+		(feed.viewport as SubViewport).render_target_update_mode = SubViewport.UPDATE_ONCE if active else SubViewport.UPDATE_DISABLED
 
 
 func get_debug_snapshot() -> Dictionary:

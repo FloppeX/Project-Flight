@@ -1,7 +1,7 @@
 [gd_scene format=3 uid="uid://d1a4ljrkfqcq2"]
 
 [ext_resource type="Script" uid="uid://cb3wjh1t75o32" path="res://Weapons/RocketPod/rocket_pod.gd" id="1_gnqlx"]
-[ext_resource type="PackedScene" uid="uid://cgaapny53wu15" path="res://Weapons/RocketPod/rocket pod.glb" id="2_ccyiv"]
+[ext_resource type="PackedScene" uid="uid://cgaapny53wu15" path="res://Models/Weapons/rocket_pod.glb" id="2_ccyiv"]
 
 [node name="RocketPod" type="Node3D" unique_id=262664900]
 script = ExtResource("1_gnqlx")

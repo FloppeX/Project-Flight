@@ -1,0 +1,111 @@
+{
+  "completed": 44,
+  "models": [
+    {
+      "model": 1,
+      "completed": 10,
+      "caught": 0,
+      "stowed": 0,
+      "undamaged_stowed": 0,
+      "lost": 0,
+      "timeout": 10,
+      "wire_median_s": null,
+      "stow_median_s": null,
+      "stow_p90_s": null,
+      "retry_trials": 10,
+      "strict_handoffs": 0,
+      "press_handoffs": 0,
+      "stow_wilson_95": [
+        -2.7755575615628914e-17,
+        0.2775401687666166
+      ]
+    },
+    {
+      "model": 2,
+      "completed": 13,
+      "caught": 0,
+      "stowed": 0,
+      "undamaged_stowed": 0,
+      "lost": 5,
+      "timeout": 8,
+      "wire_median_s": null,
+      "stow_median_s": null,
+      "stow_p90_s": null,
+      "retry_trials": 9,
+      "strict_handoffs": 0,
+      "press_handoffs": 0,
+      "stow_wilson_95": [
+        0.0,
+        0.22810184305529166
+      ]
+    },
+    {
+      "model": 5,
+      "completed": 10,
+      "caught": 0,
+      "stowed": 0,
+      "undamaged_stowed": 0,
+      "lost": 0,
+      "timeout": 10,
+      "wire_median_s": null,
+      "stow_median_s": null,
+      "stow_p90_s": null,
+      "retry_trials": 10,
+      "strict_handoffs": 0,
+      "press_handoffs": 0,
+      "stow_wilson_95": [
+        -2.7755575615628914e-17,
+        0.2775401687666166
+      ]
+    },
+    {
+      "model": 14,
+      "completed": 11,
+      "caught": 0,
+      "stowed": 0,
+      "undamaged_stowed": 0,
+      "lost": 0,
+      "timeout": 11,
+      "wire_median_s": null,
+      "stow_median_s": null,
+      "stow_p90_s": null,
+      "retry_trials": 11,
+      "strict_handoffs": 0,
+      "press_handoffs": 0,
+      "stow_wilson_95": [
+        2.7755575615628914e-17,
+        0.2588400172488141
+      ]
+    }
+  ],
+  "workers": [
+    {
+      "model": 1,
+      "complete": false,
+      "script_errors": 0,
+      "sim_time": 9708.28333333333,
+      "state": "RECOVERY_APPROACH"
+    },
+    {
+      "model": 2,
+      "complete": false,
+      "script_errors": 0,
+      "sim_time": 9710.65,
+      "state": "PRE_LANDING"
+    },
+    {
+      "model": 5,
+      "complete": false,
+      "script_errors": 0,
+      "sim_time": 9515.43333333333,
+      "state": "RECOVERY_APPROACH"
+    },
+    {
+      "model": 14,
+      "complete": false,
+      "script_errors": 0,
+      "sim_time": 10072.5,
+      "state": "MISSED_APPROACH"
+    }
+  ]
+}

@@ -147,6 +147,12 @@ func _run_checks() -> void:
 		return
 	var expected_aircraft_health := float(probe_result.get("aircraft_health", 0.0))
 	var expected_vehicle_health := float(probe_result.get("vehicle_health", 0.0))
+	var stations := get_tree().get_nodes_in_group("computer_station")
+	if stations.size() < 2:
+		_fail("two computer stations required for tab persistence check")
+		return
+	stations[0].set_remembered_page("air_wing")
+	stations[1].set_remembered_page("personnel")
 	var campaign: Dictionary = SaveGameManager.call("_capture_campaign_state")
 	if campaign.is_empty():
 		_fail("campaign capture was empty")
@@ -192,12 +198,16 @@ func _run_checks() -> void:
 	add_child(virtual_flight)
 	virtual_flight.restore_save_state({
 		"flight_name": "Flight Mackerel",
+		"aircraft_count": 0,
+		"aircraft_scene_paths": [],
 		"pending_reports": [{"kind": "smoke"}],
 	})
 	var virtual_platoon := EnemyVirtualPlatoon.new()
 	add_child(virtual_platoon)
 	virtual_platoon.restore_save_state({
 		"platoon_name": "Platoon Haddock",
+		"vehicle_count": 0,
+		"vehicle_scene_paths": [],
 		"pending_reports": [{"kind": "smoke"}],
 	})
 	if (virtual_flight.capture_save_state().get("pending_reports", []) as Array).size() != 1 \
@@ -256,7 +266,12 @@ func _run_checks() -> void:
 		_fail("session identity did not restore")
 		return
 	await _clear_deployed_friendlies()
+	stations[0].set_remembered_page("tactical")
+	stations[1].set_remembered_page("tactical")
 	SaveGameManager.call("_restore_pending_campaign")
+	if stations[0].get_remembered_page() != "air_wing" or stations[1].get_remembered_page() != "personnel":
+		_fail("per-station console tabs did not survive save/load")
+		return
 	if GameSession.has_pending_save_state():
 		_fail("pending campaign state was not consumed")
 		return

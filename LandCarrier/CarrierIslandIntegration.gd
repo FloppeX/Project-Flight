@@ -1,11 +1,15 @@
 extends Node3D
-## Walking collision and lighting for the unified carrier model.
+## Walking collision and lighting for the carrier model.
 const INTERIOR_LAYER: int = 1 << 20
 
 func _ready() -> void:
 	var faces := PackedVector3Array()
+	var carrier_4 := get_node_or_null("CarrierSlidingDoor_Frame_001") != null
 	for mesh in find_children("*", "MeshInstance3D", true, false):
-		if not mesh.get_meta("carrier_interior", false):
+		var new_interior_surface := carrier_4 and mesh.get_parent() == self and mesh.name in [
+			"superstructure main island", "superstructure floor lower",
+			"superstructure floor upper", "Superstructure elevator"]
+		if not new_interior_surface and not mesh.get_meta("carrier_interior", false):
 			continue
 		if mesh.has_meta("open_offset_x_m"):
 			continue
@@ -26,11 +30,16 @@ func _ready() -> void:
 		for vertex in deck.mesh.get_faces():
 			deck_faces.append(to_model * vertex)
 		add_surface_body(self, deck_faces, INTERIOR_LAYER, "FlightDeckWalkingCollision")
-	for point in [Vector3(21.5, 2.2, -4), Vector3(21.5, 2.2, 1.5),
+	var light_points := [
+		Vector3(20.0, 10.8, -1.0), Vector3(22.0, 10.8, 2.0),
+		Vector3(21.5, 10.8, 5.5), Vector3(20.0, 15.0, 5.0),
+		Vector3(22.0, 15.0, 7.0)] if carrier_4 else [
+		Vector3(21.5, 2.2, -4), Vector3(21.5, 2.2, 1.5),
 		Vector3(20.4, 3.8, 6.0), Vector3(19.3, 5.8, 6.0),
 		Vector3(21.6, 6.8, 2.3), Vector3(23.7, 6.8, 5.4),
 		Vector3(20.4, 8.0, 6.0), Vector3(19.25, 9.5, 7.4),
-		Vector3(19.25, 9.5, 4.5), Vector3(21.8, 10.7, 4.5)]:
+		Vector3(19.25, 9.5, 4.5), Vector3(21.8, 10.7, 4.5)]
+	for point in light_points:
 		var light := OmniLight3D.new()
 		light.name = "InteriorUtilityLight"
 		light.position = point

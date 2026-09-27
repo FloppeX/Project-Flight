@@ -38,6 +38,8 @@ signal pilot_killed(pilot_id: String)
 @export var wreck_extra_spin: float = 25.0
 @export var wreck_spawn_max_agl_m: float = 120.0
 @export var team: int = 1
+## Optional airframe-specific catapult target floor, after global speed adjustments.
+@export var minimum_catapult_launch_speed_mps: float = 0.0
 @export var damage_cooldown_s: float = 0.01  # Reduced from 0.05 to allow more bullet hits
 @export var debug_damage: bool = false
 @export_group("Critical Damage")
@@ -181,6 +183,17 @@ var _effective_agl_cache_value_m: float = NAN
 var _last_touchdown_signal_physics_frame: int = -1000000
 var _last_touchdown_signal_severity: int = -1
 
+var runtime_initialized := false
+var _pending_combat_state: Dictionary = {}
+
+
+func restore_combat_state(state: Dictionary) -> void:
+	if not runtime_initialized:
+		_pending_combat_state = state.duplicate(true)
+		return
+	preload("res://Aircraft/AircraftRuntimeState.gd").restore(self, state)
+
+
 func _ready():
 	# Register before the startup-frame await. FloatingOrigin may shift as soon as
 	# the active camera is placed on a large map; without this early registration,
@@ -246,6 +259,10 @@ func _ready():
 		livery_node.call("apply", self)
 
 	physics_interpolation_mode = Node3D.PHYSICS_INTERPOLATION_MODE_ON
+	runtime_initialized = true
+	if not _pending_combat_state.is_empty():
+		restore_combat_state(_pending_combat_state)
+		_pending_combat_state.clear()
 
 
 func apply_origin_shift(_offset: Vector3) -> void:
@@ -316,6 +333,10 @@ func _refresh_payload_mass() -> void:
 	for payload_mass in _payload_mass_by_source.values():
 		total_payload_mass_kg += float(payload_mass)
 	mass = _base_mass_kg + total_payload_mass_kg
+
+func get_unloaded_mass_kg() -> float:
+	# Payload changes weight, not the wing's aerodynamic coefficients.
+	return _base_mass_kg if _payload_mass_initialized else mass
 
 func set_payload_mass(source: Object, payload_mass_kg: float) -> void:
 	if source == null:
@@ -948,10 +969,17 @@ func apply_shake_forces(delta):
 #  FLIGHT DATA CALCULATIONS
 # ----------------------------------------------------------------------------
 
+func get_air_relative_velocity() -> Vector3:
+	var aero := get_node_or_null("SimpleAero")
+	if aero != null and aero.has_method("get_air_relative_velocity"):
+		return aero.call("get_air_relative_velocity")
+	return linear_velocity
+
 func calculate_flight_data(delta):
 	# Calculate speed
-	air_velocity = linear_velocity.length()
-	forward_air_speed = linear_velocity.dot(global_transform.basis.z)  # Speed in forward direction
+	var airflow := get_air_relative_velocity()
+	air_velocity = airflow.length()
+	forward_air_speed = airflow.dot(global_transform.basis.z)
 	
 	# Calculate altitude
 	if altitude_enabled:

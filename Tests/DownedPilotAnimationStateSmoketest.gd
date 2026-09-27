@@ -1,9 +1,6 @@
 extends SceneTree
 ## Exercises grounded pilot animation selection, in-place turning, helicopter
-## attention, and repeated rescue waving.
-
-const DOWNED_PILOT_SCENE := preload("res://Models/Characters/DownedPilot.tscn")
-
+## and repeated rescue waving to helicopters and ground vehicles.
 
 class UnboardableHelicopterPilot:
 	extends Node
@@ -17,7 +14,7 @@ func _initialize() -> void:
 
 
 func _run() -> void:
-	var pilot := DOWNED_PILOT_SCENE.instantiate() as RigidBody3D
+	var pilot := load("res://Models/Characters/DownedPilot.tscn").instantiate() as RigidBody3D
 	root.add_child(pilot)
 	await process_frame
 	pilot.set_physics_process(false)
@@ -93,26 +90,66 @@ func _run() -> void:
 	player.advance(wave_clip.length + 0.1)
 	helicopter.global_position = Vector3(1200.0, 0.0, 0.0)
 	pilot.call("_physics_process", 0.1)
-	if pilot.get("_attention_heli") != null or player.assigned_animation != &"idle_breathing":
+	if pilot.get("_attention_rescuer") != null or player.assigned_animation != &"idle_breathing":
 		_fail("pilot kept signalling after the helicopter left the 1 km range")
 		return
 
+	var ground_vehicle := Node3D.new()
+	ground_vehicle.name = "AnimationTestGroundVehicle"
+	root.add_child(ground_vehicle)
+	ground_vehicle.global_position = Vector3(-100.0, 0.0, 0.0)
+	ground_vehicle.add_to_group("friendlies")
+	ground_vehicle.add_to_group("ground_vehicles")
+	model.quaternion = Quaternion.IDENTITY
+	for step in range(20):
+		pilot.call("_physics_process", 0.1)
+		if player.assigned_animation == &"wave":
+			break
+	if player.assigned_animation != &"wave" or pilot.get("_attention_rescuer") != ground_vehicle:
+		_fail("pilot did not wave to a friendly ground vehicle within 1 km")
+		return
+	if model.global_transform.basis.z.normalized().dot(Vector3.LEFT) < 0.97:
+		_fail("pilot waved without facing the nearby ground vehicle")
+		return
+	player.advance(wave_clip.length + 0.1)
+	ground_vehicle.global_position = Vector3(-1200.0, 0.0, 0.0)
+	pilot.call("_physics_process", 0.1)
+	if pilot.get("_attention_rescuer") != null or player.assigned_animation != &"idle_breathing":
+		_fail("pilot kept signalling after the ground vehicle left the 1 km range")
+		return
+	var enemy_vehicle := Node3D.new()
+	root.add_child(enemy_vehicle)
+	enemy_vehicle.global_position = Vector3(50.0, 0.0, 0.0)
+	enemy_vehicle.add_to_group("ground_vehicles")
+	pilot.call("_physics_process", 0.1)
+	if pilot.get("_attention_rescuer") != null or player.assigned_animation != &"idle_breathing":
+		_fail("pilot waved to a non-friendly ground vehicle")
+		return
+	enemy_vehicle.free()
+
 	# A helicopter may despawn between the pilot's periodic scans. The stale
-	# typed reference must be cleared before _update_helicopter_attention is
+	# typed reference must be cleared before _update_rescuer_attention is
 	# called, otherwise Godot rejects the freed Object at the function boundary.
 	pilot.set("helicopter_scan_interval_s", 10.0)
 	pilot.set("_helicopter_scan_remaining_s", 10.0)
 	pilot.set("_nearby_helicopter", helicopter)
-	pilot.set("_attention_heli", helicopter)
+	pilot.set("_attention_rescuer", helicopter)
 	helicopter.free()
 	pilot.call("_physics_process", 0.1)
-	if pilot.get("_nearby_helicopter") != null or pilot.get("_attention_heli") != null:
+	if pilot.get("_nearby_helicopter") != null or pilot.get("_attention_rescuer") != null:
 		_fail("pilot retained a helicopter reference after that helicopter was freed")
+		return
+	pilot.set("_nearby_ground_vehicle", ground_vehicle)
+	pilot.set("_attention_rescuer", ground_vehicle)
+	ground_vehicle.free()
+	pilot.call("_physics_process", 0.1)
+	if pilot.get("_nearby_ground_vehicle") != null or pilot.get("_attention_rescuer") != null:
+		_fail("pilot retained a ground vehicle reference after it was freed")
 		return
 
 	print(
 		"[DownedPilotAnimationStateSmoketest] PASS "
-		+ "idle=true walk=true run=true turn=true face_heli=true wave_10s=true freed_heli_safe=true"
+		+ "idle=true walk=true run=true turn=true face_heli=true wave_10s=true ground_wave=true freed_refs_safe=true"
 	)
 	pilot.free()
 	quit(0)

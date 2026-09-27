@@ -12,11 +12,13 @@ signal update_interface(values)
 
 @export var propeller_node: NodePath = "../Model/propeller_spin"  # Adjust path
 @onready var propeller = get_node_or_null(propeller_node)
+@export var propeller_disc_node: NodePath = NodePath()
 
 @export var EngineSoundLoop: AudioStream
 @export var EngineSoundStart: AudioStream
 @export var EngineSoundStop: AudioStream
 @export var GovernPropellerVisualSpeed: bool = false
+const GOVERNED_PROPELLER_SPEED_RAD_S: float = 55.0
 
 @export var FuelRate: float = 1.0 # Fuel units per second, at max power
 @export var FuelBaseRate: float = 0.0 # Fuel units per second whenever the engine is running
@@ -152,7 +154,7 @@ func advance_technical_index_preview(delta: float) -> void:
 	var spin_axis: Vector3 = propeller_spin_axis_local
 	if spin_axis.length_squared() <= 0.0001:
 		spin_axis = Vector3.BACK
-	var propeller_speed := _technical_index_preview_fraction * 50.0 + 5.0
+	var propeller_speed := _technical_index_preview_fraction * GOVERNED_PROPELLER_SPEED_RAD_S if GovernPropellerVisualSpeed else _technical_index_preview_fraction * 50.0 + 5.0
 	(propeller as Node3D).rotate_object_local(spin_axis.normalized(), propeller_speed * delta)
 
 func setup(aircraft_node):
@@ -177,8 +179,7 @@ func process_physic_frame(delta):
 		
 	# Spin propeller directly. Budgeting this only affects visuals; thrust above still runs.
 		if visual_budget_enabled and propeller is Node3D and (current_power > 0.0 or (GovernPropellerVisualSpeed and is_engine_working)):
-			var visual_power: float = 1.0 if GovernPropellerVisualSpeed else current_power
-			var prop_speed = visual_power * 50.0 + 5.0  # RPM based on power
+			var prop_speed: float = GOVERNED_PROPELLER_SPEED_RAD_S if GovernPropellerVisualSpeed else current_power * 50.0 + 5.0
 			var spin_axis: Vector3 = propeller_spin_axis_local
 			if spin_axis.length_squared() <= 0.0001:
 				spin_axis = Vector3.BACK
@@ -399,6 +400,10 @@ func _setup_propeller_blur() -> void:
 	_prop_hub_mesh_nodes.clear()
 	var mesh_nodes: Array[MeshInstance3D] = []
 	_collect_propeller_mesh_nodes(propeller, mesh_nodes)
+	if not propeller_disc_node.is_empty():
+		var separate_disc := get_node_or_null(propeller_disc_node)
+		if separate_disc != null:
+			_collect_propeller_mesh_nodes(separate_disc, mesh_nodes)
 	_classify_propeller_mesh_nodes(mesh_nodes)
 	_update_propeller_blur_visuals(1.0)
 
@@ -474,7 +479,8 @@ func _update_propeller_blur_visuals(delta: float) -> void:
 		return
 
 	var denom: float = maxf(blur_full_power - blur_start_power, 0.001)
-	var target_t: float = clampf((current_power - blur_start_power) / denom, 0.0, 1.0)
+	var blur_power: float = 1.0 if GovernPropellerVisualSpeed and is_engine_working else current_power
+	var target_t: float = clampf((blur_power - blur_start_power) / denom, 0.0, 1.0)
 	var response_t: float = clampf(blur_response_hz * delta, 0.0, 1.0)
 	_current_blur_t = lerpf(_current_blur_t, target_t, response_t)
 	_apply_propeller_blur_t(_current_blur_t)
@@ -482,9 +488,15 @@ func _update_propeller_blur_visuals(delta: float) -> void:
 func _apply_propeller_blur_t(blur_t: float) -> void:
 	var clamped_blur_t := clampf(blur_t, 0.0, 1.0)
 	var blade_alpha: float = lerpf(1.0, blade_min_alpha, clamped_blur_t)
+	if GovernPropellerVisualSpeed and _prop_disc_mesh_nodes.is_empty():
+		blade_alpha = 1.0
 	var disc_alpha: float = clampf(disc_max_alpha * clamped_blur_t, 0.0, 1.0)
 	for blade_mesh in _prop_blade_mesh_nodes:
-		_apply_mesh_alpha(blade_mesh, blade_alpha)
+		if GovernPropellerVisualSpeed and not _prop_disc_mesh_nodes.is_empty():
+			blade_mesh.visible = clamped_blur_t < 0.8
+			blade_mesh.transparency = 0.0
+		else:
+			_apply_mesh_alpha(blade_mesh, blade_alpha)
 	for disc_mesh in _prop_disc_mesh_nodes:
 		_apply_mesh_alpha(disc_mesh, disc_alpha)
 	for hub_mesh in _prop_hub_mesh_nodes:

@@ -374,8 +374,11 @@ func _ready() -> void:
 	_cache_cockpit_visibility_nodes()
 	_update_head_visibility(true)
 	set_process(not Engine.is_editor_hint())
-	var should_start_initial_animation := not defer_initial_baked_animation_until_presented \
-			or Engine.is_editor_hint()
+	# The imported rigAction is the authored seated mesh pose. In the editor,
+	# keep that one-frame pose instead of sampling the runtime cockpit loop:
+	# the latter moves control bones but leaves the visible leg mesh upright.
+	var should_start_initial_animation := (not defer_initial_baked_animation_until_presented \
+			or Engine.is_editor_hint()) and not (Engine.is_editor_hint() and _baked_sitting_pose_active)
 	if initial_baked_animation != &"" and should_start_initial_animation:
 		if not play_baked_animation(
 			initial_baked_animation,
@@ -539,7 +542,7 @@ func _find_first_animation_player(node: Node) -> AnimationPlayer:
 
 
 func _try_apply_baked_sitting_pose() -> bool:
-	if Engine.is_editor_hint() or initial_pose_name != &"sitting" or not _is_arp_rig():
+	if initial_pose_name != &"sitting" or not _is_arp_rig():
 		return false
 	_anim_player = _find_first_animation_player(_pose_target_root)
 	if _anim_player == null:
@@ -2181,7 +2184,10 @@ func _should_hide_node_in_cockpit(node: Node3D) -> bool:
 
 func _update_head_visibility(force: bool) -> void:
 	var should_hide: bool = false
-	if hide_head_in_cockpit and is_instance_valid(_cockpit_camera) and _cockpit_camera.is_inside_tree():
+	# The editor may make this aircraft's cockpit camera current while placing the
+	# pilot. Keep the whole seated body visible there, even from that camera.
+	if not Engine.is_editor_hint() and hide_head_in_cockpit \
+			and is_instance_valid(_cockpit_camera) and _cockpit_camera.is_inside_tree():
 		# Only this pilot's actual first-person camera hides its mesh. A detached
 		# camera's stale `current` flag, nearby free cam, or copied view is not it.
 		should_hide = get_viewport().get_camera_3d() == _cockpit_camera

@@ -18,8 +18,8 @@ const ELITE_XP: int = 7500
 const ACE_AIR_KILLS: int = 5
 const PORTRAIT_CATALOG_PATH := "res://Images/Pilot Portraits/pilot_portrait_catalog.csv"
 const PORTRAIT_DIRECTORY := "res://Images/Pilot Portraits/"
-const PILOT_SURNAME_POOL_PATH := "res://docs/names.txt"
-const PILOT_CALLSIGN_POOL_PATH := "res://docs/callsigns.txt"
+const PILOT_SURNAME_POOL_PATH := "res://Data/Pilots/names.txt"
+const PILOT_CALLSIGN_POOL_PATH := "res://Data/Pilots/callsigns.txt"
 
 const ORIGIN_PORTRAIT_REGIONS := {
 	"Ukraine": "Eastern Europe & Russia",
@@ -33,7 +33,7 @@ const ORIGIN_PORTRAIT_REGIONS := {
 	"Nigeria": "Sub-Saharan Africa",
 }
 
-# Zero-based, end-exclusive ranges in docs/names.txt, whose source list is
+# Zero-based, end-exclusive ranges in Data/Pilots/names.txt, whose source list is
 # grouped by surname region. Keeping surname, voice, and portrait origin aligned
 # avoids turning campaign randomization into visibly mismatched identities.
 const ORIGIN_SURNAME_RANGES := {

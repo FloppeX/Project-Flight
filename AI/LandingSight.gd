@@ -247,11 +247,36 @@ static func deck_entry_lateral_unreachable(position_m: float, speed_mps: float,
 	return absf(position_m + speed_mps * time_s) - correction > maxf(half_width_m, 0.0)
 
 
+static func pre_landing_lateral_accel(position_m: float, speed_mps: float,
+		response_s: float, accel_limit_mps2: float, time_to_handoff_s: float = INF) -> float:
+	# Critically damped line acquisition (natural frequency 0.3 rad/s). Unlike a
+	# saturated short-horizon intercept, this brakes closing speed before crossing
+	# the centreline. Predict position across actuator lag, then hold the same line.
+	var frequency := 0.3
+	var predicted_position := position_m + speed_mps * maxf(response_s, 0.1)
+	var acceleration := -frequency * frequency * predicted_position - 2.0 * frequency * speed_mps
+	var limit := maxf(accel_limit_mps2, 0.1)
+	if is_finite(time_to_handoff_s):
+		# Centreline pursuit must leave time to remove sideways velocity before
+		# final handoff, not merely before the wire. Reserve half the remaining
+		# time for braking plus actuator settling; an unreachable offset remains
+		# visible to the unchanged handoff gates instead of becoming a late swerve.
+		var lag := maxf(response_s, 0.1)
+		var speed_limit := 0.5 * limit * maxf(time_to_handoff_s - 2.0 * lag, 0.0)
+		acceleration = clampf(acceleration,
+			(-speed_limit - speed_mps) / lag, (speed_limit - speed_mps) / lag)
+	return clampf(acceleration, -limit, limit)
+
+
 static func settled_lateral_plan(position_m: float, speed_mps: float, time_to_wire_s: float,
 		accel_limit_mps2: float, response_s: float, current_accel_mps2: float) -> Dictionary:
 	# Arrive settled four seconds BEFORE the wire. Blend into a damped centreline
 	# hold instead of letting a shrinking time-to-go demand violent late reversals.
-	var plan := terminal_lateral_plan(position_m, speed_mps, maxf(time_to_wire_s - 4.0, 2.0),
+	# Acquire the centreline during the outer final rather than spending the
+	# entire time-to-wire drifting toward it. Keep a finite correction horizon
+	# even when the deck is distant, with room for slow actuator response.
+	var capture_horizon_s := maxf(6.0, response_s * 4.0)
+	var plan := terminal_lateral_plan(position_m, speed_mps, clampf(time_to_wire_s - 4.0, 2.0, capture_horizon_s),
 		accel_limit_mps2, response_s, current_accel_mps2)
 	var hold_accel := clampf(-0.16 * position_m - 0.8 * speed_mps,
 		-accel_limit_mps2, accel_limit_mps2)

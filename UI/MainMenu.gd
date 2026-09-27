@@ -3,6 +3,7 @@ extends Node3D
 const MenuTypography = preload("res://UI/MenuTypography.gd")
 const MenuTheme = preload("res://UI/MenuTheme.gd")
 const TechnicalIndexView = preload("res://UI/TechnicalIndexView.gd")
+const MenuStickNavigationGate = preload("res://UI/MenuStickNavigationGate.gd")
 const MENU_TERRAIN_SCENE: PackedScene = preload("res://Environment/LowPolyTerrainPrototype.tscn")
 const MENU_CARRIER_SCENE: PackedScene = preload("res://LandCarrier/LandCarrier2.tscn")
 const GAME_SCENE := "res://Main_Scene.tscn"
@@ -12,8 +13,8 @@ const LANDING_TEST_SCENARIO := 5
 const CARRIER_COMBAT_TEST_SCENARIO := 6
 const DEFAULT_CARRIER_NAME := "Land Carrier"
 const SHIP_NAME_LIST_PATH := "res://Data/ShipNames.txt"
-const MAP_IDS: Array[String] = ["open_canyons", "layered_badlands"]
-const MAP_NAMES: Array[String] = ["OPEN CANYONS", "FRACTURED BADLANDS"]
+const MAP_IDS: Array[String] = ["open_canyons", "layered_badlands", "canyon_highlands"]
+const MAP_NAMES: Array[String] = ["OPEN CANYONS", "FRACTURED BADLANDS", "OPEN CANYONS - HIGHLANDS"]
 const BASE_UI_SIZE := MenuTypography.CANVAS_SIZE
 const CAMERA_LOOP_S := 56.0
 const CARRIER_RIDE_HEIGHT_M := 40.0
@@ -133,6 +134,7 @@ var _main_camera_shot_index := -1
 var _main_camera_fixed_anchor := Vector3.ZERO
 var _main_camera_cut_pending := true
 var _main_camera_fov_cut_pending := true
+var _menu_stick_navigation_gate := MenuStickNavigationGate.new()
 
 
 func _ready() -> void:
@@ -215,6 +217,9 @@ func _input(event: InputEvent) -> void:
 		# active, so the same stick/A event must not also move or press focus.
 		return
 	if _current_screen == "":
+		return
+	if _menu_stick_navigation_gate.should_suppress(event):
+		viewport.set_input_as_handled()
 		return
 
 	var focus_owner := viewport.gui_get_focus_owner()

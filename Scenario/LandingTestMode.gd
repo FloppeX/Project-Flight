@@ -351,7 +351,7 @@ func _ready() -> void:
 		_ga_tuner.set("state_path", "user://landing_ga_state_%s.json" % ga_model_slug)
 		_ga_tuner.set("log_path", "user://landing_ga_tuning_%s.log" % ga_model_slug)
 		_ga_tuner.set("champion_project_path", "res://landing_ga_champion_%s.json" % ga_model_slug)
-		_ga_tuner.set("project_log_path", "res://landing_ga_tuning_%s.log" % ga_model_slug)
+		_ga_tuner.set("project_log_path", "res://logs/landing_ga_tuning_%s.log" % ga_model_slug)
 		add_child(_ga_tuner)
 	else:
 		var truncate: FileAccess = FileAccess.open(REPORT_PATH, FileAccess.WRITE)

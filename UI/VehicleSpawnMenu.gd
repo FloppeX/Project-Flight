@@ -1,18 +1,21 @@
 extends CanvasLayer
-## Modal development picker opened with S during gameplay. It reuses the
-## Technical Index catalog and supplements it with any numbered aircraft scenes
-## that have not been catalogued yet.
+## Modal development picker opened with S during gameplay, or in aircraft-only
+## hangar mode with D. It reuses the Technical Index catalog and supplements it
+## with any numbered aircraft scenes that have not been catalogued yet.
 
 signal vehicle_spawned(vehicle: Node3D, entry: Dictionary)
+signal wildlife_spawned(wildlife: Node3D, entry: Dictionary)
+signal environment_spawned(environment: Node3D, entry: Dictionary)
 signal enemy_force_spawned(force: Node, entry: Dictionary, member_count: int)
 signal spawn_failed(message: String)
+signal hangar_aircraft_requested(entry: Dictionary)
 
 const Catalog: Script = preload("res://UI/TechnicalIndexCatalog.gd")
 const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
 const HEADLINE_FONT: FontFile = preload("res://UI/Fonts/ArchivoNarrow-Variable.ttf")
 const DATA_FONT: FontFile = preload("res://UI/Fonts/JetBrainsMono-Variable.ttf")
 
-const CATEGORY_ORDER: Array[String] = ["AIRPLANES", "HELICOPTERS", "GROUND VEHICLES", "ENEMY FORCES"]
+const CATEGORY_ORDER: Array[String] = ["AIRPLANES", "HELICOPTERS", "GROUND VEHICLES", "WILDLIFE", "ENEMY FORCES", "ENVIRONMENT"]
 const TEXT_COLOR := Color("e5e2e1")
 const STATUS_COLOR := Color("c4c7c7")
 const BORDER_COLOR := Color("434747")
@@ -30,6 +33,7 @@ const TOAST_DURATION_S := 2.5
 @export var airplane_spawn_speed_mps: float = 95.0
 @export var helicopter_spawn_speed_mps: float = 22.0
 @export var ground_vehicle_spawn_distance_m: float = 75.0
+@export var hangar_mode: bool = false
 
 var _modal_root: Control
 var _panel: Panel
@@ -43,6 +47,7 @@ var _toast_label: Label
 var _toast_hide_at_s: float = 0.0
 var _buttons: Array[Button] = []
 var _is_open: bool = false
+var _ignore_toggle_until_release: bool = false
 var _tree_was_paused: bool = false
 var _previous_mouse_mode: int = Input.MOUSE_MODE_VISIBLE
 var _spawn_serial: int = 0
@@ -71,6 +76,15 @@ func _process(_delta: float) -> void:
 func _input(event: InputEvent) -> void:
 	if not _is_open:
 		return
+	if event is InputEventKey:
+		var key_event := event as InputEventKey
+		var menu_key := KEY_D if hangar_mode else KEY_S
+		if _ignore_toggle_until_release \
+				and (key_event.physical_keycode == menu_key or key_event.keycode == menu_key):
+			if not key_event.pressed:
+				_ignore_toggle_until_release = false
+			get_viewport().set_input_as_handled()
+			return
 	if _is_spawn_key_event(event) or event.is_action_pressed("ui_cancel", false):
 		set_open(false)
 		get_viewport().set_input_as_handled()
@@ -91,8 +105,14 @@ func set_open(value: bool) -> void:
 		return
 
 	get_viewport().gui_release_focus()
+	_ignore_toggle_until_release = false
 	get_tree().paused = _tree_was_paused
 	Input.mouse_mode = _previous_mouse_mode
+
+
+func open_from_hotkey() -> void:
+	set_open(true)
+	_ignore_toggle_until_release = true
 
 
 func is_open() -> bool:
@@ -180,17 +200,17 @@ func _build_ui() -> void:
 	_panel.add_theme_stylebox_override("panel", _make_style(PANEL_BG, BORDER_COLOR, 2, 4))
 	_modal_root.add_child(_panel)
 
-	_title = _make_label("VEHICLE SPAWN", 28, TEXT_COLOR, HEADLINE_FONT)
+	_title = _make_label("HANGAR LAUNCH" if hangar_mode else "SPAWN MENU", 28, TEXT_COLOR, HEADLINE_FONT)
 	_panel.add_child(_title)
 	_subtitle = _make_label(
-		"SELECT A UNIT OR HOSTILE FORMATION // AIRCRAFT SPAWN AIRBORNE",
+		"SELECT AN AIRCRAFT FOR CARRIER RETRIEVAL" if hangar_mode else "SELECT A UNIT, WILDLIFE, HOSTILE FORMATION, OR WEATHER EVENT",
 		12,
 		CYAN_COLOR,
 		DATA_FONT
 	)
 	_panel.add_child(_subtitle)
 	_description = _make_label(
-		"Single aircraft spawn friendly. Enemy presets deploy complete hostile formations.",
+		"The selected aircraft is prepared in the hangar and brought up for launch. Selection does not require existing stock." if hangar_mode else "Single aircraft spawn friendly. Wildlife soars nearby. Enemy presets deploy hostile formations. Weather spawns ahead of the view.",
 		13,
 		STATUS_COLOR,
 		DATA_FONT
@@ -204,7 +224,7 @@ func _build_ui() -> void:
 	_populate_columns()
 
 	_footer = _make_label(
-		"UP / DOWN: SELECT    ENTER: SPAWN    S / ESC: CLOSE",
+		"UP / DOWN: SELECT    ENTER: RETRIEVE    D / ESC: CLOSE" if hangar_mode else "UP / DOWN: SELECT    ENTER: SPAWN    S / ESC: CLOSE",
 		12,
 		DIM_COLOR,
 		DATA_FONT,
@@ -228,7 +248,10 @@ func _build_ui() -> void:
 
 func _populate_columns() -> void:
 	var entries := _build_spawn_catalog()
-	for category in CATEGORY_ORDER:
+	var categories: Array[String] = CATEGORY_ORDER.duplicate()
+	if hangar_mode:
+		categories.resize(2)
+	for category in categories:
 		var column_panel := PanelContainer.new()
 		column_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		column_panel.add_theme_stylebox_override("panel", _make_style(ROW_BG, BORDER_COLOR, 1, 2))
@@ -309,10 +332,184 @@ func _layout_ui() -> void:
 
 func _on_entry_pressed(entry: Dictionary) -> void:
 	set_open(false)
-	if str(entry.get("spawn_kind", "")).is_empty():
+	if hangar_mode:
+		hangar_aircraft_requested.emit(entry.duplicate(true))
+		return
+	var spawn_kind := str(entry.get("spawn_kind", ""))
+	if spawn_kind.is_empty():
 		spawn_entry.call_deferred(entry.duplicate(true))
+	elif spawn_kind == "wildlife_vulture":
+		spawn_wildlife_entry.call_deferred(entry.duplicate(true))
+	elif spawn_kind in ["dust_storm", "twister", "fog_bank", "electrical_storm"]:
+		spawn_environment_entry.call_deferred(entry.duplicate(true))
 	else:
 		_spawn_enemy_force.call_deferred(entry.duplicate(true))
+
+
+func spawn_environment_entry(entry: Dictionary) -> Node3D:
+	if str(entry.get("spawn_kind", "")) == "fog_bank":
+		return _spawn_fog_bank(entry)
+	if str(entry.get("spawn_kind", "")) == "twister":
+		return _spawn_twister(entry)
+	if str(entry.get("spawn_kind", "")) == "electrical_storm":
+		return _spawn_electrical_storm(entry)
+	if str(entry.get("spawn_kind", "")) != "dust_storm":
+		_report_failure("UNKNOWN ENVIRONMENT PRESET")
+		return null
+	var world_root := _get_world_root()
+	if world_root == null:
+		_report_failure("NO ACTIVE WORLD FOR WEATHER SPAWN")
+		return null
+	var front := get_tree().get_first_node_in_group("dust_front") as Node3D
+	if front == null:
+		front = load("res://Weather/DustFront.gd").new() as Node3D
+		if front == null:
+			_report_failure("DUST STORM IS UNAVAILABLE")
+			return null
+		front.name = "DustFront"
+		front.set("automatic_start", false)
+		world_root.add_child(front)
+	var frame := _get_spawn_frame()
+	var origin: Vector3 = frame["origin"] as Vector3
+	var forward: Vector3 = frame["forward"] as Vector3
+	var half_depth: float = front.get("half_depth_m")
+	var center := origin + forward * (half_depth + 600.0)
+	var ground_height := _sample_terrain_height(center)
+	center.y = ground_height - 180.0 if not is_nan(ground_height) else origin.y - 550.0
+	front.set("enabled", true)
+	front.set("severity", clampi(int(entry.get("severity", 2)), 1, 5))
+	front.call("start_at", center, -forward)
+	# The spawn menu is for inspection: make the wall visible as soon as play resumes.
+	front.set("elapsed_s", 45.0)
+	front.set("strength", 1.0)
+	front.set_meta("spawned_from_vehicle_menu", true)
+	_show_toast("DUST STORM %d/5  //  APPROACHING 600 M AHEAD" % front.get_severity())
+	print("[VehicleSpawnMenu] positioned dust storm center=%s" % str(center.snapped(Vector3.ONE)))
+	environment_spawned.emit(front, entry.duplicate(true))
+	return front
+
+
+func _spawn_fog_bank(entry: Dictionary) -> Node3D:
+	var world_root := _get_world_root()
+	if world_root == null:
+		_report_failure("NO ACTIVE WORLD FOR WEATHER SPAWN")
+		return null
+	var frame := _get_spawn_frame()
+	var forward: Vector3 = frame["forward"]
+	var preferred: Vector3 = frame["origin"] + forward * 1000.0
+	var center := preferred
+	var best_score := INF
+	# Prefer nearby canyon floors over mesa tops, while keeping the bank ahead.
+	var side := forward.cross(Vector3.UP)
+	for across in range(-3, 4):
+		for along in range(-2, 3):
+			var point := preferred + side * float(across) * 100.0 + forward * float(along) * 100.0
+			var ground := _sample_terrain_height(point)
+			if is_nan(ground):
+				continue
+			var score := ground + point.distance_to(preferred) * 0.25
+			if score < best_score:
+				best_score = score
+				center = Vector3(point.x, ground, point.z)
+	if is_inf(best_score):
+		center.y = preferred.y - 150.0
+	var bank := get_tree().get_first_node_in_group("faceted_fog_bank") as Node3D
+	if bank == null:
+		bank = load("res://Weather/FacetedFogBank.gd").new() as Node3D
+		bank.name = "FacetedFogBank"
+		world_root.add_child(bank)
+	bank.start_at(center, forward)
+	bank.set_meta("spawned_from_vehicle_menu", true)
+	_show_toast("FOG BANK  //  AHEAD NEAR GROUND  //  VISUAL PROTOTYPE")
+	environment_spawned.emit(bank, entry.duplicate(true))
+	return bank
+
+
+func _spawn_twister(entry: Dictionary) -> Node3D:
+	var world_root := _get_world_root()
+	if world_root == null:
+		_report_failure("NO ACTIVE WORLD FOR WEATHER SPAWN")
+		return null
+	var twister := get_tree().get_first_node_in_group("twister") as Node3D
+	if twister == null:
+		twister = load("res://Weather/Twister.gd").new() as Node3D
+		twister.name = "Twister"
+		world_root.add_child(twister)
+	var frame := _get_spawn_frame()
+	var forward: Vector3 = frame["forward"]
+	var center: Vector3 = frame["origin"] + forward * 1600.0
+	var ground := _sample_terrain_height(center)
+	center.y = ground if not is_nan(ground) else center.y - 300.0
+	twister.enabled = true
+	twister.start_at(center, forward.cross(Vector3.UP))
+	twister.elapsed_s = 20.0
+	twister.strength = 1.0
+	twister.set_meta("spawned_from_vehicle_menu", true)
+	_show_toast("TWISTER  //  1.6 KM AHEAD  //  DANGEROUS CORE")
+	environment_spawned.emit(twister, entry.duplicate(true))
+	return twister
+
+
+func _spawn_electrical_storm(entry: Dictionary) -> Node3D:
+	var world_root := _get_world_root()
+	if world_root == null:
+		_report_failure("NO ACTIVE WORLD FOR WEATHER SPAWN")
+		return null
+	var storm: Node3D = null
+	for candidate in get_tree().get_nodes_in_group("electrical_storm"):
+		if is_instance_valid(candidate) and not candidate.is_queued_for_deletion() and candidate.active:
+			storm = candidate as Node3D
+			break
+	if storm == null:
+		storm = load("res://Weather/ElectricalStorm.gd").new() as Node3D
+		storm.name = "ElectricalStorm"
+		world_root.add_child(storm)
+	var frame := _get_spawn_frame()
+	var forward: Vector3 = frame["forward"]
+	var center: Vector3 = frame["origin"] + forward * 2200.0
+	var ground := _sample_terrain_height(center)
+	if not is_nan(ground):
+		center.y = ground
+	storm.start_at(center, -forward)
+	storm.set_meta("spawned_from_vehicle_menu", true)
+	_show_toast("ELECTRICAL STORM  //  2.2 KM AHEAD  //  RANDOM STRIKES")
+	environment_spawned.emit(storm, entry.duplicate(true))
+	return storm
+
+
+func spawn_wildlife_entry(entry: Dictionary) -> Node3D:
+	if str(entry.get("spawn_kind", "")) != "wildlife_vulture":
+		_report_failure("UNKNOWN WILDLIFE PRESET")
+		return null
+	var manager := _get_wildlife_manager()
+	if manager == null or not manager.has_method("spawn_vulture"):
+		_report_failure("WILDLIFE MANAGER IS NOT AVAILABLE IN THIS SCENARIO")
+		return null
+	var frame := _get_spawn_frame()
+	var origin: Vector3 = frame["origin"] as Vector3
+	var forward: Vector3 = frame["forward"] as Vector3
+	var center := origin + forward * 240.0
+	var ground_height := _sample_terrain_height(center)
+	center.y = origin.y + 55.0
+	if not is_nan(ground_height):
+		center.y = maxf(center.y, ground_height + 130.0)
+	var bird_variant: Variant = manager.call("spawn_vulture", center, 90.0, 0.0, 1.0)
+	if not (bird_variant is Node3D) or not is_instance_valid(bird_variant):
+		_report_failure("CANYON VULTURE COULD NOT BE SPAWNED")
+		return null
+	var bird := bird_variant as Node3D
+	_spawn_serial += 1
+	bird.name = "Spawned_CanyonVulture_%02d" % _spawn_serial
+	bird.set_meta("spawned_from_vehicle_menu", true)
+	bird.set_meta("source_scene_path", str(entry.get("scene", "res://Wildlife/CanyonVulture.tscn")))
+	var display_name := str(entry.get("name", "CANYON VULTURE"))
+	_show_toast("SPAWNED  //  %s" % display_name)
+	print("[VehicleSpawnMenu] spawned %s position=%s" % [
+		display_name,
+		str(bird.global_position.snapped(Vector3.ONE * 0.1)),
+	])
+	wildlife_spawned.emit(bird, entry.duplicate(true))
+	return bird
 
 
 func _spawn_enemy_force(entry: Dictionary) -> void:
@@ -499,6 +696,24 @@ func _get_enemy_aircraft_spawner() -> Node:
 	return null
 
 
+func _get_wildlife_manager() -> Node:
+	var grouped := get_tree().get_first_node_in_group("wildlife_manager")
+	if grouped != null and is_instance_valid(grouped):
+		return grouped
+	var world_root := _get_world_root()
+	if world_root == null:
+		return null
+	var named := world_root.find_child("WildlifeManager", true, false)
+	if named != null and is_instance_valid(named):
+		return named
+	var manager := load("res://Wildlife/WildlifeManager.gd").new() as Node3D
+	if manager == null:
+		return null
+	manager.name = "WildlifeManager"
+	world_root.add_child(manager)
+	return manager
+
+
 func _show_toast(message: String) -> void:
 	if _toast_panel == null or _toast_label == null:
 		return
@@ -520,7 +735,8 @@ func _is_spawn_key_event(event: InputEvent) -> bool:
 	if not key_event.pressed or key_event.echo \
 			or key_event.ctrl_pressed or key_event.alt_pressed or key_event.meta_pressed:
 		return false
-	return key_event.physical_keycode == KEY_S or key_event.keycode == KEY_S
+	var menu_key := KEY_D if hangar_mode else KEY_S
+	return key_event.physical_keycode == menu_key or key_event.keycode == menu_key
 
 
 static func _build_spawn_catalog() -> Array[Dictionary]:
@@ -559,7 +775,47 @@ static func _build_spawn_catalog() -> Array[Dictionary]:
 			"sort_index": aircraft_index,
 		})
 
+	for level in range(1, 6):
+		var labels := ["LIGHT", "MODERATE", "STRONG", "SEVERE", "EXTREME"]
+		var visibility_m := [900, 450, 220, 90, 30]
+		var hazard := "Wind and reduced visibility."
+		if level == 4:
+			hazard = "Severe turbulence and gradual aircraft damage."
+		elif level == 5:
+			hazard = "Extreme turbulence. Rapid aircraft destruction in the core."
+		entries.append({
+			"name": "DUST %d: %s" % [level, labels[level - 1]],
+			"description": "%s About %d m core visibility. Approaches from 600 m ahead; replaces the current storm." % [hazard, visibility_m[level - 1]],
+			"category": "ENVIRONMENT", "spawn_kind": "dust_storm",
+			"scene": "res://Weather/DustFront.gd", "severity": level, "sort_index": level,
+		})
 	entries.append_array([
+		{
+			"name": "FOG BANK",
+			"description": "Faceted canyon fog prototype. Spawns about 1 km ahead, preferring low ground. Fly around and through it; selecting again repositions the bank.",
+			"category": "ENVIRONMENT", "spawn_kind": "fog_bank",
+			"scene": "res://Weather/FacetedFogBank.gd", "sort_index": 7,
+		},
+		{
+			"name": "TWISTER",
+			"description": "Moving dust funnel, violent rotating wind and damaging debris near its core. Spawns 1.6 km ahead; repositions the existing twister.",
+			"category": "ENVIRONMENT", "spawn_kind": "twister",
+			"scene": "res://Weather/Twister.gd", "sort_index": 6,
+		},
+		{
+			"name": "ELECTRICAL STORM",
+			"description": "Dark charged area of the dust layer, with blue sparks and random lightning strikes. Spawns 2.2 km ahead; selecting again repositions the storm.",
+			"category": "ENVIRONMENT", "spawn_kind": "electrical_storm",
+			"scene": "res://Weather/ElectricalStorm.gd", "sort_index": 8,
+		},
+		{
+			"name": "CANYON VULTURE",
+			"description": "Spawn a protected canyon vulture soaring near the current view.",
+			"category": "WILDLIFE",
+			"spawn_kind": "wildlife_vulture",
+			"scene": "res://Wildlife/CanyonVulture.tscn",
+			"sort_index": 1,
+		},
 		{
 			"name": "BOMBER FLIGHT // AIRCRAFT 04",
 			"description": "Deploy four hostile OKB TB-60 Vulture bombers inbound against the carrier.",

@@ -48,6 +48,7 @@ const REPORT_DELAY_MAX_S        := 90.0
 @export var vehicle_count: int    = 5
 @export var patrol_radius: float  = 2000.0
 @export var faction_color: Color  = Color.RED
+var outpost_id: String = ""
 
 # Runtime state
 var position:        Vector3 = Vector3.ZERO
@@ -58,6 +59,8 @@ var vstate:          VState  = VState.VIRTUAL
 var attack_position: Vector3 = Vector3.ZERO
 
 var _vehicle_scenes:   Array[PackedScene] = []
+var _vehicle_slots: Array[Dictionary] = [] # Stable model and health per survivor.
+var _active_slot_indices: Array[int] = []
 var _patrol_waypoints: Array[Vector3] = []
 var _patrol_wp_idx:    int = 0
 var _platoon_node:     GroundVehiclePlatoon = null
@@ -71,6 +74,7 @@ var _virtual_path_idx: int = 0
 var _virtual_path_goal: Vector3 = Vector3.INF
 var _virtual_path_retry_s: float = 0.0
 var _is_virtual_pathfinding: bool = false
+var _virtual_path_request_serial := 0
 
 static var _global_virtual_path_jobs: int = 0
 
@@ -84,6 +88,7 @@ func _ready() -> void:
 
 
 func _exit_tree() -> void:
+	_release_virtual_path_request()
 	if vstate == VState.MATERIALIZING:
 		dematerialize()
 	if WorldUnitIndex != null:
@@ -93,6 +98,7 @@ func _exit_tree() -> void:
 func setup(home_pos: Vector3, scenes: Array[PackedScene], start_angle: float = 0.0) -> void:
 	home_position   = home_pos
 	_vehicle_scenes = scenes
+	_vehicle_slots.clear()
 	_rng.randomize()
 	_generate_patrol_waypoints(start_angle)
 	_randomize_initial_patrol_waypoint()
@@ -107,11 +113,13 @@ func setup(home_pos: Vector3, scenes: Array[PackedScene], start_angle: float = 0
 
 
 func capture_save_state() -> Dictionary:
+	_ensure_vehicle_slots()
 	var scene_paths: Array[String] = []
 	for scene in _vehicle_scenes:
 		scene_paths.append(scene.resource_path if scene != null else "")
 	return {
 		"platoon_name": platoon_name,
+		"outpost_id": outpost_id,
 		"vehicle_count": vehicle_count,
 		"patrol_radius": patrol_radius,
 		"faction_color": faction_color,
@@ -121,6 +129,7 @@ func capture_save_state() -> Dictionary:
 		"mission": mission,
 		"attack_position": attack_position,
 		"vehicle_scene_paths": scene_paths,
+		"vehicle_slots": _vehicle_slots.duplicate(true),
 		"patrol_waypoints": _patrol_waypoints.duplicate(),
 		"patrol_wp_idx": _patrol_wp_idx,
 		"pending_reports": _pending_reports.duplicate(true),
@@ -130,10 +139,36 @@ func capture_save_state() -> Dictionary:
 	}
 
 
-func restore_save_state(state: Dictionary) -> bool:
-	if state.is_empty():
+static func validate_save_state(state: Dictionary) -> bool:
+	var paths: Variant = state.get("vehicle_scene_paths")
+	# The scene list is a palette, not a roster: any number of units can share it.
+	var count := int(state.get("vehicle_count", -1))
+	if state.is_empty() or not paths is Array or count < 0 or (count > 0 and paths.is_empty()):
 		return false
+	for path: Variant in paths:
+		if not path is String or not ResourceLoader.exists(path) or not load(path) is PackedScene:
+			return false
+	if state.has("vehicle_slots"):
+		var slots: Variant = state.vehicle_slots
+		if not slots is Array or slots.size() != count:
+			return false
+		for slot: Variant in slots:
+			if not slot is Dictionary or not slot.get("scene_file") is String:
+				return false
+			if not ResourceLoader.exists(slot.scene_file) or not load(slot.scene_file) is PackedScene:
+				return false
+			var health: Variant = slot.get("health")
+			if not (health is float or health is int) or not is_finite(float(health)) or float(health) < -1.0:
+				return false
+	return true
+
+
+func restore_save_state(state: Dictionary) -> bool:
+	if not validate_save_state(state):
+		return false
+	_release_virtual_path_request()
 	platoon_name = str(state.get("platoon_name", platoon_name))
+	outpost_id = str(state.get("outpost_id", ""))
 	vehicle_count = maxi(int(state.get("vehicle_count", vehicle_count)), 0)
 	patrol_radius = float(state.get("patrol_radius", patrol_radius))
 	faction_color = state.get("faction_color", faction_color) as Color
@@ -145,6 +180,10 @@ func restore_save_state(state: Dictionary) -> bool:
 	vstate = VState.VIRTUAL
 	_platoon_node = null
 	_active_vehicles.clear()
+	_active_slot_indices.clear()
+	_vehicle_slots.clear()
+	for slot: Dictionary in state.get("vehicle_slots", []):
+		_vehicle_slots.append(slot.duplicate(true))
 	_vehicle_scenes.clear()
 	var paths_variant: Variant = state.get("vehicle_scene_paths", [])
 	if paths_variant is Array:
@@ -209,7 +248,7 @@ func _update_heading_toward_next_patrol_waypoint(fallback_angle: float) -> void:
 
 func tick(delta: float) -> void:
 	var _profiler_start: int = FrameProfiler.begin("EnemyVirtualPlatoon.tick")
-	_active_vehicles = _active_vehicles.filter(func(v): return is_instance_valid(v))
+	_prune_active_vehicles()
 	if vstate == VState.MATERIALIZING:
 		FrameProfiler.end("EnemyVirtualPlatoon.tick", _profiler_start)
 		return
@@ -219,7 +258,7 @@ func tick(delta: float) -> void:
 			_on_platoon_gone()
 			FrameProfiler.end("EnemyVirtualPlatoon.tick", _profiler_start)
 			return
-		var live := _platoon_node.get_members().size()
+		var live := _active_vehicles.size()
 		if live != _last_live_count:
 			_last_live_count = live
 			vehicle_count = live
@@ -236,8 +275,9 @@ func tick(delta: float) -> void:
 			FrameProfiler.end("EnemyVirtualPlatoon.active_checks", active_check_start)
 			FrameProfiler.end("EnemyVirtualPlatoon.tick", _profiler_start)
 			return
-		# Materialized units report immediately
+		# Carrier sightings keep their reporting window after materialization.
 		_scan_for_contacts(true)
+		_process_pending_reports(delta)
 		FrameProfiler.end("EnemyVirtualPlatoon.active_checks", active_check_start)
 		FrameProfiler.end("EnemyVirtualPlatoon.tick", _profiler_start)
 		return
@@ -370,20 +410,27 @@ func _recompute_virtual_path(target: Vector3) -> void:
 	_virtual_path_goal = goal_pos
 	_is_virtual_pathfinding = true
 	_global_virtual_path_jobs += 1
-	var callback: Callable = func(path: Array[Vector3]) -> void:
-		_on_virtual_path_computed(path, goal_pos)
+	_virtual_path_request_serial += 1
+	var callback := _on_virtual_path_computed.bind(goal_pos, _virtual_path_request_serial)
 	var job_id: int = NavPathScheduler.request_find_path(start_pos, goal_pos, DRIVE_NAV_CLEARANCE_M, callback, 0, "EnemyVirtualPlatoon")
 	if job_id < 0:
-		_global_virtual_path_jobs = maxi(_global_virtual_path_jobs - 1, 0)
-		_is_virtual_pathfinding = false
+		_release_virtual_path_request()
 		_virtual_path_retry_s = _next_path_retry_s()
 		return
 
 
-func _on_virtual_path_computed(path: Array[Vector3], goal_at_request: Vector3) -> void:
-	_global_virtual_path_jobs = maxi(_global_virtual_path_jobs - 1, 0)
-	_is_virtual_pathfinding = false
-	if not is_instance_valid(self):
+func _release_virtual_path_request() -> void:
+	_virtual_path_request_serial += 1
+	if _is_virtual_pathfinding:
+		_global_virtual_path_jobs = maxi(_global_virtual_path_jobs - 1, 0)
+		_is_virtual_pathfinding = false
+
+
+func _on_virtual_path_computed(path: Array[Vector3], goal_at_request: Vector3, request_serial: int) -> void:
+	if request_serial != _virtual_path_request_serial or not _is_virtual_pathfinding:
+		return
+	_release_virtual_path_request()
+	if not is_inside_tree() or vstate != VState.VIRTUAL:
 		return
 	if not _is_valid_world_position(_virtual_path_goal) or _flat_distance(goal_at_request, _virtual_path_goal) > DRIVE_PATH_REPATH_M:
 		return
@@ -404,6 +451,7 @@ func _on_virtual_path_computed(path: Array[Vector3], goal_at_request: Vector3) -
 
 
 func _clear_virtual_path() -> void:
+	_release_virtual_path_request()
 	_virtual_path.clear()
 	_virtual_path_idx = 0
 	_virtual_path_goal = Vector3.INF
@@ -464,6 +512,9 @@ func _queue_report(contact_type: String, contact_pos: Vector3, strength: int, de
 			r["position"] = contact_pos
 			r["strength"] = strength
 			return
+	if contact_type == "carrier":
+		if delay_s <= 0.0: delay_s = _rng.randf_range(REPORT_DELAY_MIN_S, REPORT_DELAY_MAX_S)
+		EnemyOpsManager.notify_carrier_report_pending(self, platoon_name)
 	_pending_reports.append({
 		"type":      contact_type,
 		"position":  contact_pos,
@@ -473,6 +524,9 @@ func _queue_report(contact_type: String, contact_pos: Vector3, strength: int, de
 
 
 func _process_pending_reports(delta: float) -> void:
+	if vehicle_count <= 0:
+		_pending_reports.clear()
+		return
 	var sent: Array[int] = []
 	for i in range(_pending_reports.size()):
 		_pending_reports[i]["countdown"] -= delta
@@ -513,14 +567,40 @@ func _should_materialize() -> bool:
 	return false
 
 
+func _ensure_vehicle_slots() -> void:
+	if not _vehicle_slots.is_empty() or _vehicle_scenes.is_empty():
+		return
+	for index in range(vehicle_count):
+		var scene := _vehicle_scenes[_rng.randi() % _vehicle_scenes.size()]
+		_vehicle_slots.append({"scene_file": scene.resource_path, "health": -1.0})
+
+
+func _prune_active_vehicles() -> void:
+	var vehicles: Array[Node3D] = []
+	var indices: Array[int] = []
+	for index in range(_active_vehicles.size()):
+		var vehicle: Variant = _active_vehicles[index]
+		if not is_instance_valid(vehicle) or vehicle.is_queued_for_deletion():
+			continue
+		if ("is_dying" in vehicle and bool(vehicle.get("is_dying"))) \
+				or ("current_health" in vehicle and float(vehicle.get("current_health")) <= 0.0):
+			continue
+		vehicles.append(vehicle)
+		indices.append(_active_slot_indices[index])
+	_active_vehicles = vehicles
+	_active_slot_indices = indices
+
+
 func _materialize() -> void:
 	if _vehicle_scenes.is_empty() or vstate != VState.VIRTUAL or vehicle_count <= 0:
 		return
+	_clear_virtual_path()
 	vstate = VState.MATERIALIZING
 	var scene_root := get_tree().current_scene
 	if not is_instance_valid(scene_root):
 		vstate = VState.VIRTUAL
 		return
+	_ensure_vehicle_slots()
 
 	_platoon_node = GroundVehiclePlatoon.new()
 	_platoon_node.name      = "EnemyPlatoon_" + platoon_name
@@ -549,7 +629,8 @@ func _process(_delta: float) -> void:
 	if _spawn_index < _spawn_total:
 		var i := _spawn_index
 		_spawn_index += 1
-		var scene := _vehicle_scenes[_rng.randi() % _vehicle_scenes.size()]
+		var slot: Dictionary = _vehicle_slots[i]
+		var scene := load(str(slot.scene_file)) as PackedScene
 		var veh := scene.instantiate() as Node3D if scene != null else null
 		if veh == null:
 			FrameProfiler.end("EnemyVirtualPlatoon.spawn_slice", started)
@@ -565,9 +646,12 @@ func _process(_delta: float) -> void:
 		if "team" in veh:
 			veh.set("team", 2)
 		scene_root.add_child(veh)
+		if float(slot.health) >= 0.0 and "current_health" in veh:
+			veh.set("current_health", float(slot.health))
 		if veh.has_method("assign_platoon"):
 			veh.call("assign_platoon", _platoon_node)
 		_active_vehicles.append(veh)
+		_active_slot_indices.append(i)
 
 	FrameProfiler.end("EnemyVirtualPlatoon.spawn_slice", started)
 	materialization_max_slice_ms = maxf(materialization_max_slice_ms, (Time.get_ticks_usec() - clock_start) / 1000.0)
@@ -587,6 +671,10 @@ func _apply_mission_to_platoon() -> void:
 	if _platoon_node == null or not is_instance_valid(_platoon_node):
 		return
 	match mission:
+		Mission.RTB:
+			_platoon_node.set_move_objective(home_position)
+		Mission.HOLD:
+			_platoon_node.set_hold_objective()
 		Mission.ATTACK_CARRIER:
 			var carrier := get_tree().get_first_node_in_group("carrier") as Node3D
 			if carrier and is_instance_valid(carrier):
@@ -596,7 +684,7 @@ func _apply_mission_to_platoon() -> void:
 		Mission.ATTACK_POSITION:
 			_platoon_node.set_attack_position(attack_position)
 		_:
-			# PATROL / RTB / HOLD — move to next patrol waypoint
+			# PATROL follows the strategic patrol route.
 			var dest := _current_patrol_waypoint()
 			_platoon_node.set_move_objective(dest)
 
@@ -610,25 +698,44 @@ func _current_patrol_waypoint() -> Vector3:
 func _on_platoon_gone() -> void:
 	vehicle_count    = 0
 	vstate           = VState.VIRTUAL
-	_platoon_node    = null
+	if is_instance_valid(_platoon_node):
+		_platoon_node.queue_free()
+	_platoon_node = null
 	_active_vehicles.clear()
+	_active_slot_indices.clear()
+	_vehicle_slots.clear()
 	unit_destroyed.emit(self)
 
 
 func dematerialize() -> void:
 	set_process(false)
+	if vstate == VState.VIRTUAL:
+		return
+	_prune_active_vehicles()
+	var survivors: Array[Dictionary] = []
+	for index in range(_active_vehicles.size()):
+		var vehicle: Node3D = _active_vehicles[index]
+		var slot: Dictionary = _vehicle_slots[_active_slot_indices[index]].duplicate(true)
+		if "current_health" in vehicle:
+			slot.health = float(vehicle.get("current_health"))
+		survivors.append(slot)
+	if vstate == VState.MATERIALIZING:
+		for index in range(_spawn_index, _spawn_total):
+			survivors.append(_vehicle_slots[index].duplicate(true))
+	_vehicle_slots = survivors
+	vehicle_count = survivors.size()
 	_spawn_index = 0
 	_spawn_total = 0
 	for veh in _active_vehicles:
 		if is_instance_valid(veh):
 			veh.queue_free()
 	_active_vehicles.clear()
+	_active_slot_indices.clear()
 	if _platoon_node != null and is_instance_valid(_platoon_node):
 		_platoon_node.queue_free()
 	_platoon_node = null
 	vstate  = VState.VIRTUAL
-	mission = Mission.RTB
-	print("[EnemyVirtualPlatoon] %s dematerialized → RTB" % platoon_name)
+	print("[EnemyVirtualPlatoon] %s dematerialized → %s" % [platoon_name, Mission.keys()[mission]])
 
 
 # ── Mission orders ────────────────────────────────────────────────────────────

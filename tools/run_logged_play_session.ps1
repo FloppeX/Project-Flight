@@ -20,7 +20,7 @@ $captureRoot = Join-Path $userDataDir 'perf_play_sessions'
 $sessionDir = Join-Path $captureRoot $stamp
 $userPerfDir = Join-Path $userDataDir 'perf_logs'
 $userFlightLogPath = Join-Path $userDataDir 'airplane_aero_report.log'
-$projectFlightLogPath = Join-Path $project 'airplane_aero_report.log'
+$projectFlightLogPath = Join-Path $project 'logs\airplane_aero_report.log'
 $userHitchLogPath = Join-Path $userPerfDir 'hitch_events.csv'
 New-Item -ItemType Directory -Force -Path $sessionDir | Out-Null
 New-Item -ItemType Directory -Force -Path $userPerfDir | Out-Null

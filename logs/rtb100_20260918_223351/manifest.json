@@ -1,0 +1,57 @@
+{
+  "started": "2026-09-18T22:33:51.1972664+02:00",
+  "directory": "C:\\Godot projects\\Project-Flight\\logs\\rtb100_20260918_223351",
+  "trials_per_model": 25,
+  "physics_hz": 60,
+  "timeout_s": 900,
+  "workers": [
+    {
+      "model": 1,
+      "pid": 37452,
+      "label": "rtb100_20260918_223351_a1",
+      "stdout": "C:\\Godot projects\\Project-Flight\\logs\\rtb100_20260918_223351\\aircraft_1.log",
+      "stderr": "C:\\Godot projects\\Project-Flight\\logs\\rtb100_20260918_223351\\aircraft_1_errors.log"
+    },
+    {
+      "model": 2,
+      "pid": 34460,
+      "label": "rtb100_20260918_223351_a2",
+      "stdout": "C:\\Godot projects\\Project-Flight\\logs\\rtb100_20260918_223351\\aircraft_2.log",
+      "stderr": "C:\\Godot projects\\Project-Flight\\logs\\rtb100_20260918_223351\\aircraft_2_errors.log"
+    },
+    {
+      "model": 5,
+      "pid": 56976,
+      "label": "rtb100_20260918_223351_a5",
+      "stdout": "C:\\Godot projects\\Project-Flight\\logs\\rtb100_20260918_223351\\aircraft_5.log",
+      "stderr": "C:\\Godot projects\\Project-Flight\\logs\\rtb100_20260918_223351\\aircraft_5_errors.log"
+    },
+    {
+      "model": 14,
+      "pid": 55636,
+      "label": "rtb100_20260918_223351_a14",
+      "stdout": "C:\\Godot projects\\Project-Flight\\logs\\rtb100_20260918_223351\\aircraft_14.log",
+      "stderr": "C:\\Godot projects\\Project-Flight\\logs\\rtb100_20260918_223351\\aircraft_14_errors.log"
+    }
+  ],
+  "source_hashes": [
+    {
+      "Path": "C:\\Godot projects\\Project-Flight\\AI\\AIPilot.gd",
+      "Hash": "5A19215B657FFA54B6F4BFE0845EEA4C1199CFC8B39430C7F38B80407B8CF584"
+    },
+    {
+      "Path": "C:\\Godot projects\\Project-Flight\\AI\\LandingSight.gd",
+      "Hash": "7DC732BF93FF8D024A02B7D5FC355F189E87584EB6E337807169AA54B38F42AC"
+    },
+    {
+      "Path": "C:\\Godot projects\\Project-Flight\\Aircraft\\SimpleAero.gd",
+      "Hash": "4E264A61E9D46686A7B4E31FBF2EFFD78DEFFBCA28032895505B7222011DF910"
+    },
+    {
+      "Path": "C:\\Godot projects\\Project-Flight\\Tests\\ContinuousRTBTest.gd",
+      "Hash": "84321C44E5AC3C8B9AE3B5D8A323706AC2E07778F813CE689776220280246CAB"
+    }
+  ],
+  "stopped_at": "2026-09-18T23:51:25.048607+02:00",
+  "stop_reason": "User requested stop; incomplete trials excluded from completed-attempt counts."
+}

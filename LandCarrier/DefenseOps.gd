@@ -37,6 +37,16 @@ static func is_live_target(target: Variant) -> bool:
 		and not ("is_destroyed" in target and bool(target.get("is_destroyed"))) \
 		and not ("is_dying" in target and bool(target.get("is_dying")))
 
+func get_recently_fired_targets() -> Array[Node3D]:
+	var result: Array[Node3D] = []
+	for turret in _turrets:
+		if not is_instance_valid(turret) or not turret.has_method("get_recently_fired_target"):
+			continue
+		var target: Variant = turret.call("get_recently_fired_target")
+		if is_live_target(target) and not result.has(target):
+			result.append(target)
+	return result
+
 func coordinate_defense() -> void:
 	_refresh_sensor_contacts()
 	_turrets.clear()

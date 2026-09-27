@@ -25,13 +25,37 @@ var _in_use: bool = false
 var _screen_mesh: MeshInstance3D = null
 var _screen_anchor_source: String = "authored_fallback"
 var _tactical_screen_display: Node = null
+@export_enum("tactical", "air_wing", "personnel", "ground_bay", "carrier", "replicator") var last_console_page: String = "tactical"
 
 
 func _ready() -> void:
 	add_to_group("computer_station")
 	_anchor_interaction_to_imported_screen()
-	_attach_tactical_screen_display()
+	_attach_tactical_screen_display.call_deferred()
 	set_interaction_available(false)
+	var console := get_node_or_null("/root/CarrierConsole")
+	if console != null:
+		console.page_changed.connect(_on_console_page_changed)
+
+func activate_station() -> void:
+	var console := get_node_or_null("/root/CarrierConsole")
+	if console != null:
+		console.show_page(last_console_page, true)
+
+func _on_console_page_changed(page_id: String) -> void:
+	if not _in_use:
+		return
+	set_remembered_page(page_id)
+
+func get_remembered_page() -> String:
+	return last_console_page
+
+func set_remembered_page(page_id: String) -> void:
+	if page_id not in ["tactical", "air_wing", "personnel", "ground_bay", "carrier", "replicator"]:
+		return
+	last_console_page = page_id
+	if is_node_ready():
+		_attach_tactical_screen_display()
 
 
 func _anchor_interaction_to_imported_screen() -> void:
@@ -114,7 +138,7 @@ func _anchor_interaction_to_imported_screen() -> void:
 
 
 func _attach_tactical_screen_display() -> void:
-	if _screen_mesh == null or _screen_mesh.mesh == null or get_tree() == null:
+	if not is_inside_tree() or _screen_mesh == null or _screen_mesh.mesh == null:
 		return
 	var tree_root := get_tree().root
 	var display_parent: Node = get_tree().current_scene
@@ -137,7 +161,9 @@ func _attach_tactical_screen_display() -> void:
 	_screen_mesh.material_override = _tactical_screen_display.call(
 		"get_screen_material",
 		mesh_min,
-		mesh_max
+		mesh_max,
+		last_console_page,
+		self
 	) as Material
 
 
@@ -225,6 +251,7 @@ func is_in_use() -> bool:
 func get_debug_snapshot() -> Dictionary:
 	return {
 		"in_use": _in_use,
+		"last_console_page": last_console_page,
 		"interaction_distance_m": interaction_distance_m,
 		"screen_interaction_half_size_m": screen_interaction_half_size_m,
 		"screen_mesh_name": String(screen_mesh_name),

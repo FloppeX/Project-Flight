@@ -1,7 +1,7 @@
 extends SceneTree
 
 const SOURCES := {
-	1: "res://Models/Aircraft_1/Aircraft_1.glb",
+	1: "res://Models/Aircraft_1/aircraft 1.glb",
 	2: "res://Models/Aircraft_2/aircraft 2 body.glb",
 	5: "res://Models/Aircraft_5/aircraft_5.glb",
 }
@@ -108,8 +108,10 @@ func check_damage(number: int, zone: StringName, fraction: float) -> void:
 	aircraft.get_node("WingDamageColliderFollower").call("_update_collider_poses")
 	var damage := aircraft.get_node("PartDamageModel")
 	var visuals: Dictionary = {}
+	var attached_visuals: Dictionary = {}
 	for candidate_zone: StringName in ZONES:
 		visuals[candidate_zone] = []
+		attached_visuals[candidate_zone] = []
 		var paths: Array = damage.get(String(candidate_zone) + "_visual_paths")
 		expect(not paths.is_empty(), "missing " + String(candidate_zone) + " visuals")
 		for path: NodePath in paths:
@@ -117,6 +119,12 @@ func check_damage(number: int, zone: StringName, fraction: float) -> void:
 			expect(mesh != null and has_cap(mesh) and mesh.is_visible_in_tree(), "missing visible capped part: " + String(path))
 			if mesh != null:
 				visuals[candidate_zone].append(mesh)
+		var attached_paths: Array = damage.get(String(candidate_zone) + "_attached_visual_paths")
+		for path: NodePath in attached_paths:
+			var attached := damage.get_node_or_null(path) as MeshInstance3D
+			expect(attached != null and attached.is_visible_in_tree(), "missing visible attached part: " + String(path))
+			if attached != null:
+				attached_visuals[candidate_zone].append(attached)
 	var coll := aircraft.get_node(COLLIDERS[ZONES.find(zone)]) as CollisionShape3D
 	var index := -1
 	for owner_id in aircraft.get_shape_owners():
@@ -170,6 +178,8 @@ func check_damage(number: int, zone: StringName, fraction: float) -> void:
 	for candidate_zone: StringName in ZONES:
 		for mesh: MeshInstance3D in visuals[candidate_zone]:
 			expect(mesh.is_visible_in_tree() == (candidate_zone not in affected), "incorrect visibility after damage")
+		for attached: MeshInstance3D in attached_visuals[candidate_zone]:
+			expect(attached.is_visible_in_tree() == (candidate_zone not in affected), "incorrect attached-part visibility after damage")
 		if candidate_zone in affected:
 			expect(damage.call("is_zone_destroyed", candidate_zone), "supported tail surface did not fail")
 	for wing_name: String in WINGS[number]:

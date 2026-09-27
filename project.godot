@@ -36,6 +36,7 @@ VelocityFrame="*res://Environment/VelocityFrame.gd"
 GameSession="*res://GameSession.gd"
 SaveGameManager="*res://SaveGameManager.gd"
 LoadingScreen="*res://UI/LoadingScreen.gd"
+OpenTrackReceiver="*res://Camera/OpenTrackReceiver.gd"
 PauseMenu="*res://UI/PauseMenu.gd"
 WorldMapOverlay="*res://UI/WorldMapOverlay.gd"
 PilotRosterOverlay="*res://UI/PilotRosterOverlay.gd"
@@ -68,6 +69,7 @@ FloatingOrigin="*res://Environment/FloatingOrigin.gd"
 POIManager="*res://POI/POIManager.gd"
 RecordingMode="*res://Recording/RecordingMode.gd"
 DirectVideoCapture="*res://Recording/DirectVideoCapture.gd"
+_mcp_game_helper="*res://addons/godot_ai/runtime/game_helper.gd"
 
 [display]
 
@@ -79,7 +81,7 @@ window/vsync/vsync_mode=0
 
 [editor_plugins]
 
-enabled=PackedStringArray("res://addons/simplified_flightsim/plugin.cfg")
+enabled=PackedStringArray("res://addons/godot_ai/plugin.cfg", "res://addons/simplified_flightsim/plugin.cfg")
 
 [filesystem]
 

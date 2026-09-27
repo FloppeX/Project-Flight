@@ -2,7 +2,8 @@ extends Node3D
 
 const MENU_FONT: FontFile = preload("res://UI/Orbitron-VariableFont_wght.ttf")
 const TITLE_FONT: FontFile = preload("res://UI/Pixel.ttf")
-const CARRIER_PREVIEW_SCENE: PackedScene = preload("res://Models/LandCarrier/Land carrier 2.glb")
+const MenuStickNavigationGate = preload("res://UI/MenuStickNavigationGate.gd")
+const CARRIER_PREVIEW_SCENE: PackedScene = preload("res://Models/LandCarrier/Land carrier 4.glb")
 const GAME_SCENE := "res://Main_Scene.tscn"
 const DEFAULT_CARRIER_NAME := "Land Carrier"
 const BASE_UI_SIZE := Vector2(1280.0, 720.0)
@@ -38,6 +39,7 @@ var _current_screen := ""
 var _primary_value_button: Button
 var _secondary_value_button: Button
 var _pattern_value_button: Button
+var _menu_stick_navigation_gate := MenuStickNavigationGate.new()
 
 
 func _ready() -> void:
@@ -95,6 +97,9 @@ func _input(event: InputEvent) -> void:
 	if pause_menu != null and bool(pause_menu.get("visible")):
 		return
 	if _current_screen == "":
+		return
+	if _menu_stick_navigation_gate.should_suppress(event):
+		viewport.set_input_as_handled()
 		return
 
 	var focus_owner := viewport.gui_get_focus_owner()

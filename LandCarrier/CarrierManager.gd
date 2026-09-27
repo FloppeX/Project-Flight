@@ -2,8 +2,8 @@ extends Node
 class_name CarrierManager
 
 @export var starting_pilot_count: int = 30
-@export var pilot_names_file_path: String = "res://docs/names.txt"
-@export var pilot_callsigns_file_path: String = "res://docs/callsigns.txt"
+@export var pilot_names_file_path: String = "res://Data/Pilots/names.txt"
+@export var pilot_callsigns_file_path: String = "res://Data/Pilots/callsigns.txt"
 
 # Carrier resources (minimal set for now).
 @export var corium_units: float = 1000.0

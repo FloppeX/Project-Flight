@@ -1,0 +1,19 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://Wildlife/CanyonVulture.gd" id="1_script"]
+[ext_resource type="PackedScene" uid="uid://5p84a0le8glt" path="res://Models/Animals/bird 1.glb" id="2_model"]
+
+[sub_resource type="BoxShape3D" id="BoxShape_bird"]
+size = Vector3(3.5, 0.7, 1.9)
+
+[node name="CanyonVulture" type="CharacterBody3D"]
+collision_layer = 1
+collision_mask = 1
+script = ExtResource("1_script")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+position = Vector3(0, 0.15, 0)
+shape = SubResource("BoxShape_bird")
+
+[node name="Model" parent="." instance=ExtResource("2_model")]
+position = Vector3(0, -0.7, 0)

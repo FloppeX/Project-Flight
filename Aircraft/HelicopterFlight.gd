@@ -81,6 +81,8 @@ var _debug_canvas: CanvasLayer = null
 var _debug_label: Label = null
 var _debug_timer_s: float = 0.0
 var _debug_console_timer_s: float = 0.0
+var _wind_field: Node
+var _next_wind_lookup_frame := 0
 
 @onready var rb: RigidBody3D = get_node_or_null(rb_path) as RigidBody3D
 @onready var engine: Node = get_node_or_null(engine_path)
@@ -100,7 +102,7 @@ func _physics_process(delta: float) -> void:
 
 	var collective: float = _get_collective()
 	_update_engine_stopped_brake()
-	var speed: float = rb.linear_velocity.length()
+	var speed: float = get_air_relative_velocity().length()
 	var speed_t: float = _smoothstep(0.0, maxf(cyclic_full_response_speed_mps, 0.1), speed)
 
 	_update_disc_tilt(delta, speed_t)
@@ -214,7 +216,7 @@ func _apply_yaw(collective: float, speed_t: float, delta: float) -> void:
 func _apply_vertical_stabilizer_yaw(yaw_axis: Vector3, yaw_rate: float) -> void:
 	if vertical_stabilizer_strength <= 0.0:
 		return
-	var vel_flat := rb.linear_velocity
+	var vel_flat := get_air_relative_velocity()
 	vel_flat.y = 0.0
 	var speed := vel_flat.length()
 	if speed <= 0.5:
@@ -234,7 +236,7 @@ func _apply_vertical_stabilizer_yaw(yaw_axis: Vector3, yaw_rate: float) -> void:
 
 func _apply_drag(speed: float) -> void:
 	var basis: Basis = rb.global_transform.basis
-	var vel: Vector3 = rb.linear_velocity
+	var vel: Vector3 = get_air_relative_velocity()
 	var forward: Vector3 = basis.z.normalized()
 	var right: Vector3 = basis.x.normalized()
 	var up: Vector3 = basis.y.normalized()
@@ -252,6 +254,25 @@ func _apply_drag(speed: float) -> void:
 		drag += -forward * signf(forward_speed) * excess * excess * high_speed_nose_drag_strength * rb.mass
 
 	rb.apply_central_force(drag)
+
+
+func has_wind_field() -> bool:
+	if not is_instance_valid(_wind_field) and is_inside_tree() and Engine.get_physics_frames() >= _next_wind_lookup_frame:
+		_wind_field = get_tree().get_first_node_in_group("atmospheric_wind")
+		_next_wind_lookup_frame = Engine.get_physics_frames() + 60
+	return is_instance_valid(_wind_field)
+
+
+func get_wind_velocity_at(world_position: Vector3) -> Vector3:
+	if has_wind_field():
+		return _wind_field.call("get_velocity_at", world_position)
+	return Vector3.ZERO
+
+
+func get_air_relative_velocity() -> Vector3:
+	if rb == null:
+		return Vector3.ZERO
+	return rb.linear_velocity - get_wind_velocity_at(rb.global_position)
 
 
 func _setup_debug_overlay() -> void:

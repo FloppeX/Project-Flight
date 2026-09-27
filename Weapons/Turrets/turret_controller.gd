@@ -66,6 +66,13 @@ const PROJECTILE_SPEED_CAP_SETTING_KEYS: Array = [
 @export_range(0.0, 3.0, 0.05) var reaction_unskilled_s: float = 1.0
 @export_range(0.05, 3.0, 0.05) var correction_skilled_s: float = 0.9
 @export_range(0.05, 3.0, 0.05) var correction_unskilled_s: float = 1.5
+@export_group("Burst Accuracy")
+## All crews hold one angular bias per burst; skill controls their accuracy.
+@export var burst_aim_enabled: bool = true
+@export_range(1.0, 4.0, 0.05) var burst_initial_error_multiplier: float = 1.8
+@export_range(0.1, 2.0, 0.05) var burst_settled_error_multiplier: float = 0.8
+@export_range(1.0, 30.0, 0.5) var burst_settle_unskilled_s: float = 12.0
+@export_range(1.0, 30.0, 0.5) var burst_settle_skilled_s: float = 5.0
 @export_group("Host Aircraft Limits")
 @export var block_targets_below_host_plane: bool = false
 @export var host_plane_fire_margin_m: float = 0.0
@@ -94,6 +101,8 @@ const PROJECTILE_SPEED_CAP_SETTING_KEYS: Array = [
 
 # State
 var current_target: Node3D = null
+var _last_fired_target: WeakRef
+var _last_fired_at_ms: int = -10000
 var defense_coordinator: Node = null
 var target_search_timer: float = 0.0
 
@@ -120,6 +129,10 @@ var _ai_darkness_cache_at_ms: int = -100000
 var _noise_offset: Vector3 = Vector3.ZERO
 var _noise_timer: float = 0.0
 var _reaction_remaining_s: float = 0.0
+var _burst_aim_time_s: float = 0.0
+var _burst_error_direction: Vector2 = Vector2.ZERO
+var _burst_error_scale: float = 1.0
+var _burst_error_fraction: float = 0.0
 
 # Target acceleration tracking for second-order lead prediction.
 # Linear-only prediction systematically under-leads accelerating targets.
@@ -212,6 +225,7 @@ func _physics_process(delta: float) -> void:
 	if is_instance_valid(host_actor) and host_actor.has_method("get_system_capability"):
 		var capability := float(host_actor.call("get_system_capability", "defenses", self))
 		if capability <= 0.0:
+			_reset_burst_aim()
 			stop_firing()
 			fire_state = FireState.IDLE
 			return
@@ -238,7 +252,9 @@ func _physics_process(delta: float) -> void:
 	# Noise offset: refresh on a timer so the aim point is stable between updates.
 	# Per-frame randomness causes 60 Hz jitter that the turret physically cannot track.
 	_noise_timer -= delta
-	if _noise_timer <= 0.0:
+	if _uses_burst_aim():
+		_update_burst_estimate()
+	elif _noise_timer <= 0.0:
 		var correction_interval := noise_update_interval_s
 		if gunnery_error_enabled and is_instance_valid(current_target):
 			correction_interval = maxf(correction_interval, lerpf(correction_unskilled_s, correction_skilled_s, _get_effective_aim_skill(current_target)))
@@ -272,24 +288,35 @@ func _physics_process(delta: float) -> void:
 
 		var aim_angle := turret.get_aim_angle_to_target()
 		var aimed := aim_angle >= 0.0 and aim_angle <= _get_effective_fire_angle_tolerance_deg(current_target)
-		var has_line_of_sight: bool = _get_cached_line_of_sight(delta, lead_position, current_target)
+		# Aim bias can pass beside cover. Visibility must still be checked
+		# against the target itself, or a miss could count as seeing through cover.
+		var sight_point: Vector3 = target_aim_point if _uses_burst_aim() else lead_position
+		var has_line_of_sight: bool = _get_cached_line_of_sight(delta, sight_point, current_target)
 		var above_host_plane: bool = _is_target_above_host_plane(lead_position)
 		var aim_origin: Vector3 = _get_aim_origin()
 		var target_distance_m: float = aim_origin.distance_to(target_aim_point)
 		var effective_range_m: float = _get_effective_range_for_target(current_target)
 		var in_range: bool = target_distance_m <= effective_range_m
 		# 3. Burst firing logic
-		if aimed and has_line_of_sight and above_host_plane and within_fire_arc and in_range and _reaction_remaining_s <= 0.0:
-			update_burst_firing(delta)
-		elif fire_state == FireState.DELAYING:
+		var weapon_available := is_instance_valid(weapon_instance) and weapon_instance.ammo_count > 0
+		if aimed and has_line_of_sight and above_host_plane and within_fire_arc and in_range and _reaction_remaining_s <= 0.0 and weapon_available:
+			if _uses_burst_aim():
+				_burst_aim_time_s = minf(_burst_aim_time_s + delta, _get_burst_settle_time_s())
 			update_burst_firing(delta)
 		else:
-			if fire_state == FireState.BURSTING:
+			_reset_burst_aim()
+			if _uses_burst_aim():
+				fire_state = FireState.IDLE
+				delay_timer = 0.0
+			elif fire_state == FireState.BURSTING:
 				fire_state = FireState.DELAYING
 				delay_timer = 0.0
+			elif fire_state == FireState.DELAYING:
+				update_burst_firing(delta)
 			stop_firing()
 
 	else:
+		_reset_burst_aim()
 		turret.set_target(null)
 		stop_firing()
 		fire_state = FireState.IDLE
@@ -378,15 +405,28 @@ func start_burst() -> void:
 	fire_weapon()
 
 func stop_firing() -> void:
+	if weapon_instance is BulletWeapon:
+		weapon_instance.use_controller_burst_error = false
 	if weapon_instance and weapon_instance.has_method("stop_firing"):
 		weapon_instance.stop_firing()
 
 func fire_weapon() -> void:
 	if not weapon_instance or not turret:
 		return
+	if weapon_instance is BulletWeapon:
+		weapon_instance.use_controller_burst_error = _uses_burst_aim()
 	if weapon_instance.can_fire():
 		turret.fire()
-		weapon_instance.fire()
+		if weapon_instance.fire() and is_instance_valid(current_target):
+			_last_fired_target = weakref(current_target)
+			_last_fired_at_ms = Time.get_ticks_msec()
+
+func get_recently_fired_target() -> Node3D:
+	# Hold across short burst gaps, but do not report mere aiming as gunfire.
+	if _last_fired_target == null or Time.get_ticks_msec() - _last_fired_at_ms > 2500:
+		return null
+	var target: Variant = _last_fired_target.get_ref()
+	return target as Node3D if is_instance_valid(target) and not target.is_queued_for_deletion() else null
 
 # --- Advanced targeting ---
 
@@ -464,6 +504,8 @@ func _set_current_target(next_target: Node3D) -> void:
 	if WorldUnitIndex != null and WorldUnitIndex.has_method("clear_target_engagement"):
 		WorldUnitIndex.clear_target_engagement(self)
 	current_target = next_target if is_instance_valid(next_target) else null
+	_reset_burst_aim()
+	_burst_error_direction = Vector2.ZERO
 	_reset_target_motion_tracking()
 	_reaction_remaining_s = 0.0
 	if gunnery_error_enabled:
@@ -604,6 +646,52 @@ func _uses_vehicle_target_allocation() -> bool:
 		and host_actor != null \
 		and is_instance_valid(host_actor) \
 		and host_actor.is_in_group("ground_vehicles")
+
+func _uses_burst_aim() -> bool:
+	return burst_aim_enabled and gunnery_error_enabled
+
+func _get_burst_settle_time_s() -> float:
+	return maxf(lerpf(burst_settle_unskilled_s, burst_settle_skilled_s, _get_effective_aim_skill(current_target)), 0.1)
+
+func _reset_burst_aim() -> void:
+	# Do not reroll every blocked frame while initially slewing onto the target.
+	# A real lost firing opportunity invalidates all accumulated corrections.
+	if _burst_aim_time_s <= 0.0:
+		return
+	_burst_aim_time_s = 0.0
+	_burst_error_direction = Vector2.ZERO
+	_cached_lead_position_valid = false
+
+func _update_burst_estimate() -> void:
+	if not is_instance_valid(current_target):
+		_noise_offset = Vector3.ZERO
+		return
+	var refresh_estimate := fire_state != FireState.BURSTING or _burst_error_direction == Vector2.ZERO
+	var target_direction := _get_target_aim_point(current_target) - _get_aim_origin()
+	var target_range := target_direction.length()
+	if _burst_error_direction == Vector2.ZERO:
+		var angle := randf_range(-PI, PI)
+		# Mostly lateral misses, with some vertical uncertainty. Keep this bias
+		# direction through the engagement so successive bursts walk toward aim.
+		_burst_error_direction = Vector2(cos(angle), sin(angle) * 0.35)
+		_burst_error_scale = burst_initial_error_multiplier
+	if refresh_estimate:
+		var correction := clampf(_burst_aim_time_s / _get_burst_settle_time_s(), 0.0, 1.0)
+		var floor_scale := minf(burst_settled_error_multiplier, burst_initial_error_multiplier)
+		var next_scale := lerpf(burst_initial_error_multiplier, floor_scale, correction)
+		var next_fraction := _get_aim_error_spread_m(current_target) / maxf(target_range, 0.001) * next_scale
+		if not is_equal_approx(next_fraction, _burst_error_fraction):
+			_cached_lead_position_valid = false
+		_burst_error_scale = next_scale
+		_burst_error_fraction = next_fraction
+	# Angular bias stays fixed within a burst even as range and bearing change.
+	var forward := target_direction.normalized()
+	var right := Vector3.UP.cross(forward).normalized()
+	if right.length_squared() < 0.001:
+		right = Vector3.RIGHT
+	var up := forward.cross(right).normalized()
+	_noise_offset = (right * _burst_error_direction.x + up * _burst_error_direction.y) \
+		* target_range * _burst_error_fraction
 
 func _get_aim_error_spread_m(target: Node3D) -> float:
 	if not gunnery_error_enabled or not is_instance_valid(target): return 0.0

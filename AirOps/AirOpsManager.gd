@@ -2,6 +2,8 @@ extends Node
 
 const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
 
+const Readiness = preload("res://Operations/OperationalReadiness.gd")
+
 signal downed_pilot_registered(pilot: Node3D)
 signal rescue_assigned(pilot: Node3D, helicopter: Node3D)
 signal downed_pilot_rescued(pilot: Node3D, helicopter: Node3D)
@@ -105,7 +107,7 @@ var _cas_flight: Flight = null
 # }
 @export var task_assign_interval_s: float = 2.0
 @export var strike_cluster_radius_m: float = 1200.0   # enemy targets within this of each other form one strike task
-@export var task_switch_hysteresis: float = 0.0       # (reserved) extra priority a new task must beat to steal a flight
+@export var task_switch_hysteresis: float = 150.0     # Required priority advantage for emergency diversion
 @export var min_cap_flights: int = 1                  # keep at least this many patrolling the carrier when possible
 @export var dynamic_tasking_enabled: bool = true      # false = fall back to the legacy 3-slot updates
 # Do not empty the hangar just because every scenario has a standing CAP board
@@ -136,6 +138,12 @@ var _pending_rescue_launch_elapsed_s: float = 0.0
 # ── Lifecycle ──────────────────────────────────────────────────────────────────
 
 func _ready() -> void:
+	_create_flights()
+	print("[AirOpsManager] Ready — flights: %s" % ", ".join(FLIGHT_NAMES))
+	call_deferred("_apply_default_missions")
+
+
+func _create_flights() -> void:
 	for fname in FLIGHT_NAMES:
 		var f := Flight.new()
 		f.name = "Flight_" + fname
@@ -144,8 +152,43 @@ func _ready() -> void:
 		f.mission = default_mission
 		add_child(f)
 		flights.append(f)
-	print("[AirOpsManager] Ready — flights: %s" % ", ".join(FLIGHT_NAMES))
-	call_deferred("_apply_default_missions")
+
+
+func reset_runtime_state() -> void:
+	for flight in flights:
+		if is_instance_valid(flight):
+			remove_child(flight)
+			flight.queue_free()
+	flights.clear()
+	_carrier = null
+	_cap_flight = null
+	_intercept_flight = null
+	_cas_flight = null
+	_scrambling_flight = null
+	_scrambling_expected_count = 0
+	_scrambling_elapsed_s = 0.0
+	_pending_rescue_launch_pilot = null
+	_pending_rescue_launch_elapsed_s = 0.0
+	_next_flight_idx = 0
+	_assign_timer = 0.0
+	_threat_timer = 0.0
+	_task_timer = 0.0
+	_sensor_picture_timer = 0.0
+	_sensor_batch_index = 0
+	_recovery_supervision_timer_s = 0.0
+	_recovery_supervision_elapsed_s = 0.0
+	_rescue_dispatch_timer_s = 0.0
+	_tasks.clear()
+	_flight_task.clear()
+	_flight_role.clear()
+	_reported_contacts.clear()
+	_acknowledged_order_keys.clear()
+	_downed_pilots.clear()
+	_rescue_assignments.clear()
+	_recovery_supervision_records.clear()
+	_pending_sensor_observers.clear()
+	_sensor_batch_candidates.clear()
+	_create_flights()
 
 func _apply_default_missions() -> void:
 	_refresh_carrier()
@@ -426,6 +469,8 @@ func order_rtb(fname: String) -> void:
 		push_warning("[AirOpsManager] Unknown flight: " + fname)
 		return
 	_clear_role(f)
+	for member in f.get_members():
+		OperationsCoordinator.clear_order(member, "superseded by flight recall")
 	f.set_rtb()
 	if _mark_order_acknowledgement_needed(f, "manual_rtb"):
 		RadioComms.say_rtb_order(fname)
@@ -644,6 +689,7 @@ func get_flight_status(fname: String) -> Dictionary:
 	summary["role"] = _get_role_name(f)
 	summary["is_scrambling"] = f == _scrambling_flight
 	summary["empty"] = f.strength() <= 0
+	summary.merge(get_flight_readiness(f), true)
 	return summary
 
 func print_status() -> void:
@@ -831,8 +877,12 @@ func _on_flight_lost(f: Flight, role: String) -> void:
 func _update_tasking() -> void:
 	## Rebuild the task board from the fused sensor picture, then assign flights.
 	_refresh_carrier()
+	_supervise_flight_readiness()
 	_tasks = _build_tasks()
-	_tasks.sort_custom(func(a, b): return float(a.get("priority", 0.0)) > float(b.get("priority", 0.0)))
+	_tasks.sort_custom(func(a, b):
+		var a_priority: float = 950.0 if a.type == "cap" and min_cap_flights > 0 else float(a.priority)
+		var b_priority: float = 950.0 if b.type == "cap" and min_cap_flights > 0 else float(b.priority)
+		return a_priority > b_priority)
 	_assign_flights_to_tasks()
 	if debug_print:
 		_print_task_board()
@@ -877,7 +927,7 @@ func _build_tasks() -> Array:
 			value += _ground_target_value(t)
 		# Strikes rank below intercepts (base < 1000). Closer + higher-value clusters first.
 		var dist: float = _flat_dist_to_carrier(center)
-		var prio: float = 200.0 + value + clampf((strike_target_scan_radius_m - dist) / strike_target_scan_radius_m, 0.0, 1.0) * 100.0
+		var prio: float = minf(900.0, 200.0 + value + clampf((strike_target_scan_radius_m - dist) / maxf(strike_target_scan_radius_m, 1.0), 0.0, 1.0) * 100.0)
 		tasks.append({
 			"id": "strike:%d" % _cluster_id(members),
 			"type": "strike",
@@ -903,53 +953,167 @@ func _build_tasks() -> Array:
 	return tasks
 
 func _assign_flights_to_tasks() -> void:
-	# Reconcile: drop stale flight->task links (flight gone, or task id no longer exists).
 	var live_ids: Dictionary = {}
-	for t in _tasks:
-		live_ids[t["id"]] = t
-	for f in _flight_task.keys():
-		# A flight receives its task reservation before the deck starts launching
-		# it. It has no members at first, and its members remain unavailable for
-		# tactical orders while launching/climbing. Dropping the reservation during
-		# that window made the standing CAP look unfilled and caused a second
-		# two-aircraft flight to scramble as soon as the first launch completed.
-		var has_live_task: bool = live_ids.has(_flight_task[f])
-		var has_pending_scramble: bool = f == _scrambling_flight
-		if (not _flight_is_active(f) and not has_pending_scramble) or not has_live_task:
-			_flight_task.erase(f)
-			# Wiped flight -> forget its role so a rebuilt flight barks fresh. (A flight that merely lost
-			# its task but is still alive keeps its role, so re-tasking to the SAME role stays quiet.)
-			if not _flight_is_active(f) and not has_pending_scramble:
-				_flight_role.erase(f)
-	# Re-attach flights already on a still-live task (hysteresis: they stay put).
-	for f in _flight_task.keys():
-		var t: Dictionary = live_ids[_flight_task[f]]
-		t["flight"] = f
-	# Assign unfilled tasks, highest priority first, to the best available flight.
-	var min_cap_reserved: int = 0
-	for t in _tasks:
-		if t.get("flight") != null:
+	for task: Dictionary in _tasks:
+		task["flight"] = null
+		live_ids[task.id] = task
+	for f: Flight in _flight_task.keys():
+		var task: Dictionary = live_ids.get(_flight_task[f], {})
+		var pending := _flight_has_pending_departure(f)
+		if f.mission_source != "automatic" or task.is_empty() \
+				or (not pending and not _flight_suitable_for_task(f, task)):
+			_release_task(f, "Task ended or flight unavailable")
+		else:
+			task["flight"] = f
+	for task: Dictionary in _tasks:
+		if task.get("flight") != null:
 			continue
-		# Defense-first: if this is CAP and we've already met the CAP minimum, only fill it with leftovers.
-		if t["type"] == "cap":
-			if min_cap_reserved >= max(min_cap_flights, 0) and not _tasks_all_higher_filled(t):
-				# Still assign CAP if a flight is genuinely idle (handled by _pick below returning idle only).
-				pass
-		var f := _pick_flight_for_task(t)
+		var f := _pick_flight_for_task(task)
 		if f == null:
-			# No available flight -> scramble one if this task warrants it (intercept/strike/ or CAP if none up).
-			if _scrambling_flight == null and _task_allows_automatic_scramble(t):
-				var empty := _pick_empty_flight(null)
-				if empty != null:
-					var reason: String = _scramble_reason_for_task(t)
-					if _scramble_flight(empty, reason):
-						# Silent: the scramble bark already announced the launch; no redundant second order.
-						_apply_task_to_flight(t, empty, true)
+			f = _pick_diversion(task, live_ids)
+		if f != null:
+			var previous: String = str(_flight_task.get(f, ""))
+			if not previous.is_empty():
+				_release_task(f, "Diverting to carrier defence")
+			_apply_task_to_flight(task, f)
 			continue
-		_apply_task_to_flight(t, f)
-		if t["type"] == "cap":
-			min_cap_reserved += 1
+		if _scrambling_flight == null and _task_allows_automatic_scramble(task):
+			var empty := _pick_empty_flight(null)
+			if empty != null and empty.mission_source == "automatic":
+				if _scramble_flight(empty, _scramble_reason_for_task(task)):
+					_apply_task_to_flight(task, empty, true)
+	# A completed strike/intercept must not leave an aircraft flying an obsolete
+	# attack. Spare automatic flights return to patrol without reserving extra tasks.
+	for f in flights:
+		if f.mission_source == "automatic" and not _flight_task.has(f) \
+				and f.mission in [Flight.Mission.CAS, Flight.Mission.INTERCEPT] \
+				and _flight_can_take_tactical_order(f) and _flight_safe_to_redirect(f):
+			f.mission_reason = "Previous task ended; patrol pending new task"
+			f.set_cap(_carrier, default_cap_altitude_m)
+			_flight_role[f] = "cap"
 
+
+func _release_task(f: Flight, reason: String) -> void:
+	var previous := str(_flight_task.get(f, ""))
+	_flight_task.erase(f)
+	if not previous.is_empty():
+		CombatLog.event("ORDER", "%s released from %s: %s" % [f.flight_name, previous.get_slice(":", 0), reason])
+	if not _flight_is_active(f):
+		_flight_role.erase(f)
+	for task: Dictionary in _tasks:
+		if task.get("flight") == f:
+			task["flight"] = null
+	f.mission_reason = reason
+
+
+func _flight_has_pending_departure(f: Flight) -> bool:
+	if f == _scrambling_flight:
+		return true
+	for member in f.get_members():
+		var pilot := member.find_child("AIPilot", true, false) as AIPilot
+		if pilot != null and pilot.current_state in [AIPilot.State.LAUNCHING, AIPilot.State.CLIMBING]:
+			return true
+	return false
+
+
+func _flight_suitable_for_task(f: Flight, task: Dictionary) -> bool:
+	for member in f.get_members():
+		if Readiness.can_fill(Readiness.aircraft_status(member), str(task.get("type", ""))):
+			return true
+	return false
+
+
+func _pick_diversion(task: Dictionary, live_ids: Dictionary) -> Flight:
+	# Only carrier defence preempts a live mission. Small distance/cluster changes
+	# must never repeatedly interrupt attacks or shuffle patrol assignments.
+	if task.type != "intercept":
+		return null
+	var best: Flight = null
+	var best_cost := INF
+	for f: Flight in _flight_task.keys():
+		var old: Dictionary = live_ids.get(_flight_task[f], {})
+		if old.is_empty() or old.get("type") == "intercept" or f.mission_source != "automatic":
+			continue
+		if _flight_has_pending_departure(f) or not _flight_suitable_for_task(f, task):
+			continue
+		if float(task.priority) <= float(old.priority) + maxf(task_switch_hysteresis, 0.0):
+			continue
+		if not _flight_safe_to_redirect(f):
+			continue
+		var cost := _flight_center(f).distance_to(task.area)
+		if cost < best_cost:
+			best = f
+			best_cost = cost
+	return best
+
+
+func _flight_safe_to_redirect(f: Flight) -> bool:
+	for member in f.get_members():
+		var pilot := member.find_child("AIPilot", true, false) as AIPilot
+		if pilot != null and pilot.current_state in [AIPilot.State.ATTACK_DIVE, AIPilot.State.ATTACK_BREAK_OFF]:
+			return false
+	return true
+
+
+func release_to_automatic(fname: String) -> void:
+	var f := get_flight(fname)
+	if f == null:
+		return
+	_release_task(f, "Released to AirOps")
+	for member in f.get_members():
+		OperationsCoordinator.clear_order(member, "released to AirOps")
+	f.mission_source = "automatic"
+	# Recovery remains protected even after releasing command ownership.
+	if _flight_can_take_tactical_order(f):
+		f.set_cap(_carrier, default_cap_altitude_m)
+
+
+func get_aircraft_readiness(aircraft: Node3D) -> Dictionary:
+	return Readiness.aircraft_status(aircraft) if is_instance_valid(aircraft) else {}
+
+
+func get_flight_readiness(f: Flight) -> Dictionary:
+	var members: Array[Dictionary] = []
+	var ready := 0
+	var recovering := 0
+	var departing := 0
+	for member in f.get_members():
+		var status := Readiness.aircraft_status(member)
+		members.append(status)
+		ready += int(status.available)
+		recovering += int(status.recovering)
+		departing += int(status.departing)
+	var phase := "ACTIVE"
+	if members.is_empty():
+		phase = "STORED"
+	elif recovering == members.size():
+		phase = "RETURNING"
+	elif ready == 0:
+		phase = "UNAVAILABLE"
+	elif ready < members.size():
+		phase = "PARTIAL"
+	if f == _scrambling_flight or (departing > 0 and ready == 0):
+		phase = "LAUNCHING"
+	return {"member_readiness": members, "ready_count": ready, "recovering_count": recovering,
+		"phase": phase, "task_id": str(_flight_task.get(f, ""))}
+
+
+func _supervise_flight_readiness() -> void:
+	for f in flights:
+		for member in f.get_members():
+			var status := Readiness.aircraft_status(member)
+			if status.player_controlled or status.recovering or status.departing or status.reason in ["Individual order", "Deck operations", "Destroyed or initializing"]:
+				continue
+			var pilot := member.find_child("AIPilot", true, false) as AIPilot
+			if pilot == null:
+				continue
+			# Reuse the pilot's health/fuel and recovery-queue budget policy.
+			if pilot.supervise_return_resources():
+				continue
+			if status.available and status.weapons_known and status.guns + status.bombs + status.rockets == 0:
+				member.set_meta("rtb_reason", "Weapons exhausted")
+				pilot.assign_air_task(preload("res://AI/AirTask.gd").return_to_base())
+				CombatLog.event("RTB", "%s returning: weapons exhausted" % member.name)
 
 func _task_allows_automatic_scramble(task: Dictionary) -> bool:
 	match str(task.get("type", "")):
@@ -977,6 +1141,8 @@ func _apply_task_to_flight(t: Dictionary, f: Flight, silent: bool = false) -> vo
 	## "random, not tied to what's happening" chatter.
 	if f == null or not is_instance_valid(f):
 		return
+	f.mission_source = "automatic"
+	f.mission_reason = "Carrier defence" if t.get("type") == "intercept" else "Mission board assignment"
 	t["flight"] = f
 	_flight_task[f] = t["id"]
 	_clear_legacy_role(f)
@@ -1019,9 +1185,9 @@ func _pick_flight_for_task(t: Dictionary) -> Flight:
 	for f in flights:
 		if not _flight_is_active(f):
 			continue
-		if _flight_task.has(f):
-			continue  # already on a task this tick
-		if not _flight_can_take_tactical_order(f):
+		if _flight_task.has(f) or f.mission_source != "automatic":
+			continue
+		if not _flight_suitable_for_task(f, t) or not _flight_safe_to_redirect(f):
 			continue
 		var cost: float = _flight_center(f).distance_to(task_pos)
 		if cost < best_cost:
@@ -1202,32 +1368,7 @@ func _flight_can_take_tactical_order(f: Flight) -> bool:
 	return false
 
 func _aircraft_can_take_tactical_order(aircraft: Node3D) -> bool:
-	if aircraft == null or not is_instance_valid(aircraft):
-		return false
-	if bool(aircraft.get_meta("controls_disabled", false)):
-		return false
-	if bool(aircraft.get_meta("parking_brake", false)):
-		return false
-	if bool(aircraft.get_meta("carrier_transport_mode", false)):
-		return false
-	if bool(aircraft.get_meta("arresting_engaged", false)):
-		return false
-	var pilot := aircraft.find_child("AIPilot", true, false) as AIPilot
-	if pilot == null:
-		return false
-	return pilot.current_state not in [
-		AIPilot.State.IDLE,
-		AIPilot.State.LAUNCHING,
-		AIPilot.State.CLIMBING,
-		AIPilot.State.RTB,
-		AIPilot.State.RECOVERY_MARSHAL,
-		AIPilot.State.RECOVERY_HOLD,
-		AIPilot.State.RECOVERY_APPROACH,
-		AIPilot.State.PRE_LANDING,
-		AIPilot.State.APPROACH,
-		AIPilot.State.LANDING,
-		AIPilot.State.MISSED_APPROACH,
-	]
+	return is_instance_valid(aircraft) and bool(Readiness.aircraft_status(aircraft).available)
 
 func _pick_flight(exclude: Flight = null) -> Flight:
 	## Pick the best available flight for a new mission, excluding one flight
@@ -1365,6 +1506,8 @@ func _pick_cap_candidate(require_overhead: bool = false) -> Flight:
 
 func _pick_empty_flight(exclude: Flight = null) -> Flight:
 	for f in flights:
+		if f.mission_source != "automatic":
+			continue
 		if f == exclude:
 			continue
 		if f == _scrambling_flight:
@@ -1372,8 +1515,6 @@ func _pick_empty_flight(exclude: Flight = null) -> Flight:
 		if f == _intercept_flight or f == _cas_flight:
 			continue
 		if f.strength() > 0:
-			continue
-		if f.mission == Flight.Mission.RTB:
 			continue
 		return f
 	return null
@@ -1417,6 +1558,10 @@ func _callsign_suffix_for_member_index(index: int) -> String:
 			return str(index + 1)
 
 func _clear_role(f: Flight) -> void:
+	_release_task(f, "Player order")
+	_flight_role.erase(f)
+	f.mission_source = "player"
+	f.mission_reason = "Player order"
 	## When a flight is manually ordered, release any automatic role it held.
 	if f == _cap_flight:
 		_cap_flight = null
@@ -1797,7 +1942,7 @@ func get_carrier_sensor_contacts(carrier: Node3D) -> Array[Node3D]:
 	return result
 
 func get_carrier_monitor_contacts(carrier: Node3D) -> Array[Node3D]:
-	# Observation may include friendly recoveries; never feed this mixed list to
+	# Observation includes live friendly aircraft and ground units; never feed this mixed list to
 	# hostile-contact reporting or weapon allocation.
 	var result := get_carrier_sensor_contacts(carrier)
 	if not is_instance_valid(carrier) or not carrier.is_inside_tree():
@@ -1808,18 +1953,32 @@ func get_carrier_monitor_contacts(carrier: Node3D) -> Array[Node3D]:
 	var candidates: Array[Node3D] = []
 	if WorldUnitIndex.enabled and WorldUnitIndex.spatial_queries_enabled:
 		candidates = WorldUnitIndex.query_nodes_in_groups(carrier.global_position, radius,
-			["aircraft", "ai_aircraft", "friendlies"])
+			["aircraft", "ai_aircraft", "friendlies", "ground_vehicles"])
 	else:
-		for group_name in ["aircraft", "ai_aircraft", "friendlies"]:
+		for group_name in ["aircraft", "ai_aircraft", "friendlies", "ground_vehicles"]:
 			for node in get_tree().get_nodes_in_group(group_name):
 				if node is Node3D:
 					candidates.append(node as Node3D)
 	for aircraft in candidates:
-		if is_friendly_carrier_recovery_contact(aircraft, carrier) \
+		if _is_friendly_monitor_contact(aircraft, carrier) \
 				and carrier.global_position.distance_squared_to(aircraft.global_position) <= radius * radius \
 				and not result.has(aircraft):
 			result.append(aircraft)
 	return result
+
+func _is_friendly_monitor_contact(unit: Node3D, carrier: Node3D) -> bool:
+	if not is_instance_valid(unit) or unit == carrier or not unit.is_inside_tree() \
+			or unit.is_queued_for_deletion() or _get_node_team(unit, 0) != 1:
+		return false
+	if ("is_destroyed" in unit and bool(unit.get("is_destroyed"))) \
+			or ("is_dying" in unit and bool(unit.get("is_dying"))):
+		return false
+	if unit is RigidBody3D and unit.freeze:
+		return false
+	for flag in ["carrier_transport_mode", "carrier_manual_transport", "parking_brake"]:
+		if bool(unit.get_meta(flag, false)):
+			return false
+	return true
 
 func is_friendly_carrier_recovery_contact(aircraft: Node3D, carrier: Node3D) -> bool:
 	if not is_instance_valid(aircraft) or not aircraft.is_inside_tree() \
@@ -1911,13 +2070,7 @@ func _is_valid_report_target_for_team(target: Node3D, reporter_team: int) -> boo
 	return target_team == 1 or target.is_in_group("friendlies") or target.is_in_group("carrier")
 
 func _get_role_name(f: Flight) -> String:
-	if f == _intercept_flight:
-		return "INTERCEPT"
-	if f == _cas_flight:
-		return "CAS"
-	if f == _cap_flight:
-		return "CAP"
-	return "STANDBY"
+	return f.get_mission_name()
 
 func _auto_assign_unassigned() -> void:
 	var candidates: Array[Node3D] = []

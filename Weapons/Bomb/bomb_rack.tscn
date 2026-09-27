@@ -1,8 +1,8 @@
 [gd_scene format=3 uid="uid://bc6wrpt4b3m41"]
 
 [ext_resource type="Script" uid="uid://nqac1r8yv7a8" path="res://Weapons/Bomb/bomb_rack.gd" id="1_brkscript"]
-[ext_resource type="PackedScene" uid="uid://de3lvcwdbpkbs" path="res://Weapons/bomb rack.glb" id="2_rackglb"]
-[ext_resource type="PackedScene" uid="uid://cbpsn8r87hlrc" path="res://Weapons/bomb.glb" id="3_bombglb"]
+[ext_resource type="PackedScene" uid="uid://de3lvcwdbpkbs" path="res://Models/Weapons/bomb_rack.glb" id="2_rackglb"]
+[ext_resource type="PackedScene" uid="uid://cbpsn8r87hlrc" path="res://Models/Weapons/bomb.glb" id="3_bombglb"]
 [ext_resource type="PackedScene" uid="uid://bjh4sid7u0lyk" path="res://Projectiles/BombNew/bomb_new.tscn" id="4_bombnew"]
 
 [node name="BombRack" type="Node3D" unique_id=1079932325]

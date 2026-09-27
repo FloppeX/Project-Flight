@@ -1,0 +1,34 @@
+[
+  {
+    "run": "handoff_right_damped",
+    "caught": true,
+    "stowed": true,
+    "health": 100.0,
+    "final_state": "LANDING",
+    "recall_to_wire_s": 89.0833333333333,
+    "recall_to_stow_s": 130.4000000000003,
+    "missed_approach_transitions": 0
+  },
+  {
+    "run": "handoff_left_damped",
+    "caught": true,
+    "stowed": true,
+    "health": 100.0,
+    "final_state": "LANDING",
+    "recall_to_wire_s": 177.55,
+    "recall_to_stow_s": 219.166666666667,
+    "missed_approach_transitions": 0
+  },
+  {
+    "run": "handoff_sortie_damped",
+    "caught": true,
+    "stowed": true,
+    "health": 100.0,
+    "final_state": "LANDING",
+    "recall_to_wire_s": 291.2,
+    "recall_to_stow_s": 333.05,
+    "missed_approach_transitions": 2,
+    "mission_passed": true,
+    "target_damage": 478.291662633419
+  }
+]

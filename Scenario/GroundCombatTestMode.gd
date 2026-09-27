@@ -12,7 +12,7 @@ const ENEMY_BUGGY_SCENE: PackedScene = preload("res://GroundVehicle/vehicle_enem
 const ENEMY_PICKUP_SCENE: PackedScene = preload("res://GroundVehicle/vehicle_enemy_pickup.tscn")
 const ENEMY_BATTLE_BUS_SCENE: PackedScene = preload("res://GroundVehicle/vehicle_enemy_battle_bus.tscn")
 const OpsOrderModel: Script = preload("res://Operations/OpsOrder.gd")
-const SUPPORT_AIRCRAFT_SCENE_PATH := "res://Aircraft/Aircraft_12.tscn"
+const SUPPORT_AIRCRAFT_SCENE_PATH := "res://Aircraft/Aircraft_13.tscn"
 const SUPPORT_AIRCRAFT_MODEL_LABEL := "Aircraft_13"
 const SUPPORT_AIRCRAFT_HANGAR_NAME := "Aircraft_13_GroundSupport"
 const REPORT_PATH := "user://ground_combat_test_report.log"
@@ -129,7 +129,7 @@ func _setup_scenario() -> void:
 	_create_observation_camera()
 	_create_status_overlay()
 
-	if not _spawn_enemy_attack():
+	if not await _spawn_enemy_attack():
 		_finish("FAIL", "enemy_platoon_spawn_failed")
 		return
 	_order_friendly_defense()
@@ -297,8 +297,12 @@ func _spawn_enemy_attack() -> bool:
 		get_tree().current_scene.add_child(platoon)
 		platoon.set_mission_attack_carrier()
 		platoon.tick(0.01)
-		if platoon.vstate != EnemyVirtualPlatoon.VState.ACTIVE:
+		if platoon.vstate == EnemyVirtualPlatoon.VState.VIRTUAL:
 			platoon.call("_materialize")
+		var materialization_deadline_ms := Time.get_ticks_msec() + 15000
+		while platoon.vstate == EnemyVirtualPlatoon.VState.MATERIALIZING \
+				and Time.get_ticks_msec() < materialization_deadline_ms:
+			await get_tree().process_frame
 		if platoon.vstate != EnemyVirtualPlatoon.VState.ACTIVE:
 			_log("ERROR %s did not materialize" % platoon.platoon_name)
 			return false
@@ -435,13 +439,17 @@ func _ensure_support_aircraft_hangar_stock() -> bool:
 	entry["name"] = SUPPORT_AIRCRAFT_HANGAR_NAME
 	entry["scene_file"] = SUPPORT_AIRCRAFT_SCENE_PATH
 	entry["scene"] = support_scene
+	# The converted hangar slot may carry another aircraft's health and loadout.
+	for key in ["current_health", "energy_state", "loadout_state", "engine_state",
+			"landing_gear_state", "requested_ai_loadout_profile"]:
+		entry.erase(key)
 	var metadata: Dictionary = entry.get("metadata", {})
 	metadata["aircraft_role"] = "attack_helicopter"
 	metadata["is_helicopter"] = true
 	entry["metadata"] = metadata
 	stored[selected_index] = entry
 	_fdm.set("stored_aircraft", stored)
-	_log("SUPPORT_HANGAR ready model=%s runtime_scene=%s slot=%d weapons=rockets+15mm" % [
+	_log("SUPPORT_HANGAR ready model=%s runtime_scene=%s slot=%d weapons=rockets" % [
 		SUPPORT_AIRCRAFT_MODEL_LABEL,
 		SUPPORT_AIRCRAFT_SCENE_PATH,
 		selected_index,
@@ -492,9 +500,14 @@ func notify_aircraft_launched(pilot: Node) -> void:
 		_support_pilot.set("atk_enabled", true)
 	_support_launched = true
 	_support_retask_timer_s = 0.0
-	_log("SUPPORT_LAUNCHED aircraft=%s model=%s pos=%s" % [
+	_log("SUPPORT_LAUNCHED aircraft=%s model=%s scene=%s hp=%.0f state=%s deck_ready=%s brake=%s pos=%s" % [
 		_support_aircraft.name,
 		SUPPORT_AIRCRAFT_MODEL_LABEL,
+		_support_aircraft.scene_file_path,
+		float(_support_aircraft.get("max_health")),
+		str(_support_pilot.get("state")),
+		str(bool(_support_aircraft.get_meta("helicopter_deck_takeoff_ready", false))),
+		str(bool(_support_aircraft.get_meta("parking_brake", false))),
 		str(_support_aircraft.global_position),
 	])
 	_update_support_aircraft(0.0)
@@ -863,7 +876,7 @@ func _update_observer_ui() -> void:
 	if not is_instance_valid(_status_label):
 		return
 	var state := "COMPLETE" if _completed else ("ACTIVE" if _started else "SETUP")
-	_status_label.text = "GROUND DEFENSE TEST — %s\nEnemy vehicles: %d / %d\nFriendly vehicles: %d / %d\nEmber + Ferret: PURSUE\nAircraft_13 support: %s\nTime: %.0f s  Scale: %.1fx" % [
+	_status_label.text = "GROUND DEFENSE TEST — %s\nEnemy vehicles: %d / %d\nFriendly vehicles: %d / %d\nEmber + Ferret: PURSUE\nDragonfly support: %s\nTime: %.0f s  Scale: %.1fx" % [
 		state,
 		_count_enemy_alive(),
 		_initial_enemy_count,

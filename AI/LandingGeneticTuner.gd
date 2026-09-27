@@ -13,7 +13,7 @@ extends Node
 @export var state_path: String = "user://landing_ga_state.json"
 @export var log_path: String = "user://landing_ga_tuning.log"
 @export var champion_project_path: String = "res://landing_ga_champion.json"
-@export var project_log_path: String = "res://landing_ga_tuning.log"
+@export var project_log_path: String = "res://logs/landing_ga_tuning.log"
 
 const FITNESS_VERSION: int = 41 # Success requires sustained arrest; retain damage and terminal drift costs.
 const CURRICULUM_VERSION: int = 2

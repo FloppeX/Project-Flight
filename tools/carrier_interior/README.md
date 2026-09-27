@@ -1,78 +1,37 @@
-# Unified carrier export
+# Land carrier model integration
 
-The live carrier (`LandCarrier/LandCarrier2.tscn`, used by `Main_Scene.tscn`) uses
-`Models/LandCarrier/CarrierWithInterior.tscn`. This lightweight inherited scene
-references `Models/LandCarrier/CarrierUnified.glb` directly: hull, deck, island,
-interior and doors. The build step generates scripts and metadata overrides;
-it neither merges GLBs nor copies geometry into another scene resource.
-The old `CarrierInteriorModel.scn` is no longer used by the current carrier.
-The separate legacy `LandCarrier.tscn` still uses its older carrier model.
+The live carrier in `LandCarrier/LandCarrier2.tscn` uses
+`Models/LandCarrier/CarrierWithInterior.tscn`. That small inherited scene is
+based directly on `Models/LandCarrier/Land carrier 4.glb`. There is no longer a
+second visible carrier or interior layered over it. The hull, flight deck,
+island, two island floors, and elevator all come from the new GLB.
 
-Source: `D:/3D printing files/Land carrier - unified.blend`.
-The previous island-interior Blender file and separate GLBs are retained as
-historical sources, but are not used by this export pipeline.
+`CarrierIslandIntegration.gd` builds walking collision from the authored island
+mesh and floor surfaces, plus a separate flight-deck walking surface. The
+commander's walk area uses the named lower floor, upper floor, elevator, and
+`human` reference from the same GLB. `LandCarrier4VisualIntegration.gd`
+reassembles the two sliding doors that Godot imports as separate top-level
+meshes and attaches the existing facing-and-distance door controller. The doors
+open when approached within 1 metre while facing them, remain open while the
+person is within 20 cm or still facing them, and close once the person moves
+away and looks elsewhere.
 
-Save that file in Blender, then run this from the project directory:
+To rebuild the lightweight scene wrapper after editing `Land carrier 4.glb`,
+run Godot's import and then the model builder from the project directory:
 
 ```powershell
-.\tools\carrier_interior\export_carrier.ps1
+& 'C:\Godot\Godot_v4.6.2-stable_win64_console.exe' --headless --editor --path . --import --quit
+& 'C:\Godot\Godot_v4.6.2-stable_win64_console.exe' --headless --path . --script res://tools/carrier_interior/build_model.gd
 ```
 
-Add `-Validate` to run the existing door, stair and elevator checks after rebuilding.
-The script reads the saved file, so save Blender edits first. Use `-BlendFile` if
-you save a renamed copy. Logs are written under `%TEMP%/ProjectFlight-CarrierExport`.
+The builder checks that the required named meshes and both door mesh sets are
+present before writing the scene. Keep those names in future Blender exports.
+The older `export_carrier.ps1` exports the historical `CarrierUnified.glb`; it
+does not update the live `Land carrier 4.glb` geometry.
 
-The individual rebuild stages are:
-
-1. Run Blender in background with that file and `--python tools/carrier_interior/export_unified.py`.
-2. Run Godot `--headless --editor --path . --import --quit`.
-3. Run Godot `--headless --path . --script res://tools/carrier_interior/build_model.gd`.
-4. Run `smoke.gd` and `game_smoke.gd` in this directory with Godot `--headless --path . --script res://tools/carrier_interior/<name>.gd`.
-
-The Blender source now contains the four thick threshold plates, widened upper
-stair turn, cleared rail ends and hatch clearances. The exporter does not alter
-geometry. The GLB instance makes the result visible in the Godot editor;
-runtime scripts add collision, local utility lights and doors.
-
-All mesh, text, curve and empty objects in the source scene are exported.
-Keep reference geometry outside the export scene. Put added interior geometry in
-an `ISLAND...` collection so it receives interior walking collision. Keep
-the original island/floor/elevator object names, and keep each sliding door's
-root, two leaf meshes and custom properties. Moving or rotating a whole door
-assembly preserves its local animation. If you remodel its aperture or apply
-scale to its meshes, update `opening_width_m`, `opening_height_m` and the leaves'
-signed `open_offset_x_m` accordingly. Substantial route changes may require
-updating the test waypoints and utility-light positions; export alone cannot
-guarantee clearance for an arbitrary new layout. The hull and deck are grouped
-in `CARRIER | Body and deck`; island collections remain separately editable.
-This is one asset file, not one welded mesh: doors, ramps and elevator surfaces
-retain their names, transforms and separate objects for game animation. Runtime
-tracks, weapons, aircraft and other game entities remain in the carrier scene.
-
-Pre-sync backup: `D:/3D printing files/Carrier interior review/before_authoring_godot_fixes.blend`.
-
-Doors use authored opening dimensions and signed leaf travel. A character within
-the approach volume opens them over 0.65 seconds. They wait 1.25 seconds after the
-last character leaves before closing; re-entry reverses closing. `CharacterBody3D`
-actors are recognized automatically, except the ancestor carrier. Other physics
-bodies can opt in with the `door_users` group. Rendering and collision clip at the
-jambs to conceal retraction in thin walls. The door mesh remains separate from
-the fixed frame.
-
-Physics layer 21 is reserved for interior walking; layer 20 remains projectile
-hit volumes. The commander's existing carrier-local movement now queries the
-interior surfaces, steps over treads, checks body clearance and prevents walking
-off unsupported edges. The observation room keeps its original automatic lift.
-
-`smoke.gd` checks all 16 door approaches, closing, occupancy, re-entry, movement of
-the carrier, door passage clearance and both directions through the stairs.
-`game_smoke.gd` loads the actual carrier scene and checks corridor/lift/observation
-room access. It also verifies that `CommanderBridgeSpawn` overrides imported
-reference positions and places the commander on the bridge floor with body
-clearance and a ceiling overhead. Move that marker in `LandCarrier2.tscn` when
-deliberately changing her starting location. `render.gd` produces Forward+ door/stair images in the source review
-directory. The full-scene probe currently reports renderer null-material warnings
-after the carrier is freed, despite the route assertions passing. This also
-reproduces with the door controllers removed; its cause is not yet resolved.
-`teardown_probe.gd` retains that reproduction (`-- --baseline` uses the old model).
-Short probes also report project autoload resource cleanup warnings at exit.
+Focused checks are `Tests/Carrier4IntegrationSmoketest.gd`,
+`Tests/CarrierDoorFacingFleetSmoketest.gd`, `smoke.gd`, and `game_smoke.gd` in
+this directory. The live game check verifies the commander's lower-floor spawn,
+interior enclosure, corridor approach, elevator ride, and upper-floor exit.
+Physics layer 21 is reserved for interior walking; layer 20 remains for
+projectile hit volumes.

@@ -26,14 +26,14 @@ const FOLD_CONTROLLERS: Dictionary = {
 }
 const AIRCRAFT_3_BREAKAWAY_PATHS: Dictionary = {
 	&"left_wing": [
-		NodePath("../Aircraft 3/broken left wing section"),
+		NodePath("../Aircraft 3/wing left/OuterWingLeft"),
 	],
 	&"right_wing": [
-		NodePath("../Aircraft 3/broken right wing section"),
+		NodePath("../Aircraft 3/wing right/OuterWingRight"),
 	],
 	&"cockpit": [NodePath("../Aircraft 3/broken cockpit section")],
-	&"horizontal_stabilizer": [NodePath("../Aircraft 3/broken horizontal stabilizer section")],
-	&"vertical_stabilizer": [NodePath("../Aircraft 3/broken vertical stabilizer section")],
+	&"horizontal_stabilizer": [NodePath("../Aircraft 3/tail_002/HorizontalTipLeft"), NodePath("../Aircraft 3/tail_002/HorizontalTipRight")],
+	&"vertical_stabilizer": [NodePath("../Aircraft 3/tail_002/VerticalTip")],
 }
 const AIRCRAFT_3_VISUAL_PROPERTY_BY_ZONE: Dictionary = {
 	&"left_wing": &"left_wing_visual_paths",
@@ -175,19 +175,19 @@ func _check_aircraft_3_breakaway_wiring(
 		return
 	var wing_marker := aircraft.get_node_or_null("InsigniaWing")
 	var tail_marker := aircraft.get_node_or_null("InsigniaTail")
-	var left_main_wing := aircraft.get_node_or_null("Aircraft 3/left wing") as MeshInstance3D
-	var right_main_wing := aircraft.get_node_or_null("Aircraft 3/right wing") as MeshInstance3D
-	var tail_visual := aircraft.get_node_or_null("Aircraft 3/tail") as MeshInstance3D
+	var left_main_wing := aircraft.get_node_or_null("Aircraft 3/wing left") as MeshInstance3D
+	var right_main_wing := aircraft.get_node_or_null("Aircraft 3/wing right") as MeshInstance3D
+	var tail_visual := aircraft.get_node_or_null("Aircraft 3/tail_002") as MeshInstance3D
 	_expect(
-		wing_marker != null and wing_marker.get("follow_target_path") == NodePath("../Aircraft 3/left wing"),
+		wing_marker != null and wing_marker.get("follow_target_path") == NodePath("../Aircraft 3/wing left"),
 		"%s wing insignia is not attached to the detachable left wing" % label
 	)
 	_expect(
-		tail_marker != null and tail_marker.get("follow_target_path") == NodePath("../Aircraft 3/broken vertical stabilizer section"),
+		tail_marker != null and tail_marker.get("follow_target_path") == NodePath("../Aircraft 3/tail_002/VerticalTip"),
 		"%s tail insignia is not attached to the detachable vertical stabilizer" % label
 	)
 	_expect(
-		damage_model.get("tail_section_visual_paths") == [NodePath("../Aircraft 3/tail")],
+		damage_model.get("tail_section_visual_paths") == [NodePath("../Aircraft 3/tail_002")],
 		"%s common tail section is not configured as a breakaway visual" % label
 	)
 	for zone: StringName in [

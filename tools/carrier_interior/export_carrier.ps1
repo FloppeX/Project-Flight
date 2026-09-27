@@ -27,14 +27,15 @@ function Run-ExportStage([string]$Executable, [string[]]$StageArguments, [string
     }
 }
 
-Write-Host 'Exporting the complete saved Blender carrier...'
+Write-Warning 'This script exports the historical CarrierUnified.glb. The live carrier uses Land carrier 4.glb; update that GLB separately.'
+Write-Host 'Exporting the historical unified Blender carrier...'
 Run-ExportStage $Blender @('--background', $BlendFile, '--python', (Join-Path $PSScriptRoot 'export_unified.py')) (Join-Path $logDirectory 'blender.log') 'CARRIER_UNIFIED_EXPORT_OK'
 Write-Host 'Importing into Godot...'
 Run-ExportStage $Godot @('--headless', '--editor', '--path', $projectRoot, '--import', '--quit') (Join-Path $logDirectory 'import.log')
 Write-Host 'Rebuilding the editor-visible carrier model...'
-Run-ExportStage $Godot @('--headless', '--path', $projectRoot, '--script', 'res://tools/carrier_interior/build_model.gd') (Join-Path $logDirectory 'build.log') 'CARRIER_INTERIOR_MODEL_BUILT'
+Run-ExportStage $Godot @('--headless', '--path', $projectRoot, '--script', 'res://tools/carrier_interior/build_model.gd') (Join-Path $logDirectory 'build.log') 'CARRIER_4_MODEL_BUILT'
 if ($Validate) {
     Run-ExportStage $Godot @('--headless', '--path', $projectRoot, '--script', 'res://tools/carrier_interior/smoke.gd', '--quit-after', '1000') (Join-Path $logDirectory 'smoke.log') 'CARRIER_INTERIOR_SMOKE PASS'
     Run-ExportStage $Godot @('--headless', '--path', $projectRoot, '--script', 'res://tools/carrier_interior/game_smoke.gd', '--quit-after', '1000') (Join-Path $logDirectory 'game.log') 'CARRIER_INTERIOR_GAME_SMOKE PASS'
 }
-Write-Host "Carrier updated. Logs: $logDirectory"
+Write-Host "Historical unified export updated. Live Land carrier 4 geometry was not changed. Logs: $logDirectory"

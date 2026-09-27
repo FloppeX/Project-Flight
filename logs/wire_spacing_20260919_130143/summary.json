@@ -1,0 +1,73 @@
+{
+  "complete": false,
+  "workers": [
+    {
+      "model": 1,
+      "pid": 57488,
+      "label": "wire_spacing_20260919_130143_aircraft_1",
+      "complete": false,
+      "completion": [],
+      "position_checks": [],
+      "corridor_samples": {
+        "clear": 0,
+        "obstructed": 0,
+        "unknown": 0
+      },
+      "handoffs": [],
+      "results": [],
+      "status": {},
+      "script_errors": 0
+    },
+    {
+      "model": 2,
+      "pid": 9320,
+      "label": "wire_spacing_20260919_130143_aircraft_2",
+      "complete": false,
+      "completion": [],
+      "position_checks": [],
+      "corridor_samples": {
+        "clear": 0,
+        "obstructed": 0,
+        "unknown": 0
+      },
+      "handoffs": [],
+      "results": [],
+      "status": {},
+      "script_errors": 0
+    },
+    {
+      "model": 5,
+      "pid": 22244,
+      "label": "wire_spacing_20260919_130143_aircraft_5",
+      "complete": false,
+      "completion": [],
+      "position_checks": [],
+      "corridor_samples": {
+        "clear": 0,
+        "obstructed": 0,
+        "unknown": 0
+      },
+      "handoffs": [],
+      "results": [],
+      "status": {},
+      "script_errors": 0
+    },
+    {
+      "model": 14,
+      "pid": 32292,
+      "label": "wire_spacing_20260919_130143_aircraft_14",
+      "complete": false,
+      "completion": [],
+      "position_checks": [],
+      "corridor_samples": {
+        "clear": 0,
+        "obstructed": 0,
+        "unknown": 0
+      },
+      "handoffs": [],
+      "results": [],
+      "status": {},
+      "script_errors": 0
+    }
+  ]
+}

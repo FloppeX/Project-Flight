@@ -54,6 +54,9 @@ var _base_platoons: Dictionary = {}   # EnemyBase → Array[EnemyVirtualPlatoon]
 # Known contacts received via delayed intel reports.
 # Each entry: { "type": String, "position": Vector3, "strength": int, "ttl": float }
 var _known_contacts: Array[Dictionary] = []
+var _carrier_report_notices: Dictionary = {}
+var _next_carrier_warning_s := 0.0
+var _next_carrier_confirmation_s := 0.0
 
 var _eval_timer:   float = 3.0   # slight delay so bases finish spawning first
 var _threat_timer: float = 5.0
@@ -81,6 +84,25 @@ func _ready() -> void:
 	_unit_schedule_rng.randomize()
 
 
+func reset_runtime_state() -> void:
+	_clear_carrier_report_notices()
+	# Physical and virtual units belong to the departing scene, not this service.
+	bases.clear()
+	_base_flights.clear()
+	_base_platoons.clear()
+	_known_contacts.clear()
+	_pending_loss_incidents.clear()
+	_investigation_flight_ref = null
+	_flight_next_tick_s.clear()
+	_flight_last_tick_s.clear()
+	_platoon_next_tick_s.clear()
+	_platoon_last_tick_s.clear()
+	_ops_clock_s = 0.0
+	_service_accum_s = 0.0
+	_eval_timer = 3.0
+	_threat_timer = 5.0
+
+
 func _physics_process(delta: float) -> void:
 	# Trailer events own reinforcement timing; existing units still fly/fight.
 	if GameSession.is_trailer_scenario:
@@ -90,6 +112,7 @@ func _physics_process(delta: float) -> void:
 	if GameSession != null and GameSession.has_pending_save_state():
 		return
 	_ops_clock_s += maxf(delta, 0.0)
+	_service_carrier_report_notices()
 	_service_accum_s += maxf(delta, 0.0)
 	if _service_accum_s < OPS_SERVICE_INTERVAL_S:
 		return
@@ -237,9 +260,33 @@ func capture_save_state() -> Dictionary:
 	}
 
 
-func restore_save_state(state: Dictionary, restored_bases: Array[EnemyBase]) -> bool:
-	if state.is_empty():
+func validate_save_state(state: Dictionary, restored_bases: Array[EnemyBase]) -> bool:
+	var entries: Variant = state.get("base_entries")
+	if state.is_empty() or not entries is Array:
 		return false
+	var seen: Dictionary = {}
+	for entry: Variant in entries:
+		if not entry is Dictionary:
+			return false
+		var index := int(entry.get("base_index", -1))
+		if index < 0 or index >= restored_bases.size() or not is_instance_valid(restored_bases[index]) or seen.has(index):
+			return false
+		seen[index] = true
+		if not entry.get("flights") is Array or not entry.get("platoons") is Array:
+			return false
+		for flight: Variant in entry.flights:
+			if not flight is Dictionary or not EnemyVirtualFlight.validate_save_state(flight):
+				return false
+		for platoon: Variant in entry.platoons:
+			if not platoon is Dictionary or not EnemyVirtualPlatoon.validate_save_state(platoon):
+				return false
+	return true
+
+
+func restore_save_state(state: Dictionary, restored_bases: Array[EnemyBase]) -> bool:
+	if not validate_save_state(state, restored_bases):
+		return false
+	_clear_carrier_report_notices()
 	for old_base in bases:
 		if not is_instance_valid(old_base):
 			continue
@@ -277,8 +324,10 @@ func restore_save_state(state: Dictionary, restored_bases: Array[EnemyBase]) -> 
 				for flight_state_variant in flights_variant:
 					if not (flight_state_variant is Dictionary):
 						continue
-					var flight := EnemyVirtualFlight.new()
-					flight.restore_save_state(flight_state_variant as Dictionary)
+					var flight: EnemyVirtualFlight = load("res://Enemies/EnemyOutpostHelicopterFlight.gd").new() if flight_state_variant.get("flight_kind", "") == "outpost_helicopter" else EnemyVirtualFlight.new()
+					if not flight.restore_save_state(flight_state_variant as Dictionary):
+						flight.free()
+						return false
 					_base_flights[base].append(flight)
 					get_tree().current_scene.add_child(flight)
 			var platoons_variant: Variant = entry.get("platoons", [])
@@ -287,7 +336,9 @@ func restore_save_state(state: Dictionary, restored_bases: Array[EnemyBase]) -> 
 					if not (platoon_state_variant is Dictionary):
 						continue
 					var platoon := EnemyVirtualPlatoon.new()
-					platoon.restore_save_state(platoon_state_variant as Dictionary)
+					if not platoon.restore_save_state(platoon_state_variant as Dictionary):
+						platoon.free()
+						return false
 					_base_platoons[base].append(platoon)
 					get_tree().current_scene.add_child(platoon)
 	_known_contacts.clear()
@@ -548,6 +599,7 @@ func _evaluate_deployment() -> void:
 			continue
 		_evaluate_air(base)
 		_evaluate_ground(base)
+		_evaluate_outpost_helicopters(base)
 
 
 func _evaluate_air(base: EnemyBase) -> void:
@@ -576,6 +628,10 @@ func _evaluate_air(base: EnemyBase) -> void:
 
 func _evaluate_ground(base: EnemyBase) -> void:
 	_clean_platoons(base)
+	var stations := EnemyBaseManager.get_outposts_for_base(base)
+	if not stations.is_empty():
+		_evaluate_outpost_patrols(base, stations)
+		return
 	var deployed := _count_deployed_vehicles(base)
 	var target   := int(float(base.vehicle_max) * TARGET_DEPLOY_FRACTION)
 
@@ -597,8 +653,70 @@ func _evaluate_ground(base: EnemyBase) -> void:
 func _count_deployed_aircraft(base: EnemyBase) -> int:
 	var n := 0
 	for f: EnemyVirtualFlight in _get_flights(base):
-		n += f.aircraft_count
+		if f.outpost_id.is_empty():
+			n += f.aircraft_count
 	return n
+
+
+func _evaluate_outpost_helicopters(base: EnemyBase) -> void:
+	for station in EnemyBaseManager.get_outposts_for_base(base):
+		if not station.can_support_patrols(): continue
+		var occupied := false
+		for flight in _get_flights(base):
+			if flight.outpost_id == station.outpost_id and flight.aircraft_count > 0:
+				occupied = true
+				station.helicopter_cooldown_s = station.helicopter_replacement_delay_s
+				break
+		if occupied or station.helicopter_cooldown_s > 0.0: continue
+		var section: EnemyVirtualFlight = load("res://Enemies/EnemyOutpostHelicopterFlight.gd").new()
+		section.outpost_id = station.outpost_id
+		section.flight_name = station.outpost_id + " helicopter patrol"
+		section.role = EnemyVirtualFlight.AircraftRole.BOMBER
+		section.patrol_radius = 3000.0
+		section.faction_color = base.faction_color
+		# Every section has both airframes; the optional third can be either.
+		var scenes: Array[PackedScene] = [
+			load("res://Aircraft/Aircraft_13.tscn"),
+			load("res://Aircraft/Aircraft_15.tscn"),
+		]
+		if randi_range(2, 3) == 3:
+			scenes.append(scenes[randi_range(0, 1)])
+		scenes.shuffle()
+		var loadouts: Array[String] = []
+		for slot in scenes.size():
+			loadouts.append("rockets")
+		section.setup(station.global_position, scenes, loadouts, randf_range(0.0, TAU))
+		_base_flights[base].append(section)
+		get_tree().current_scene.add_child(section)
+		station.helicopter_cooldown_s = station.helicopter_replacement_delay_s
+		break
+
+
+func _evaluate_outpost_patrols(base: EnemyBase, stations: Array[EnemyOutpost]) -> void:
+	# New networks replace the map-wide ground quota with one local patrol per station.
+	# Survivors retain their ownership and orders when their home is destroyed.
+	for station in stations:
+		if not station.can_support_patrols():
+			continue
+		var has_patrol := false
+		for platoon in _get_platoons(base):
+			if platoon.outpost_id == station.outpost_id and platoon.vehicle_count > 0:
+				has_patrol = true
+				station.patrol_cooldown_s = station.patrol_replacement_delay_s
+				break
+		if has_patrol or station.patrol_cooldown_s > 0.0 or base.vehicle_reserve < VEHICLES_PER_PLATOON:
+			continue
+		var patrol := base.deploy_platoon(VEHICLES_PER_PLATOON, station.global_position, station.patrol_radius_m)
+		if patrol == null:
+			continue
+		patrol.outpost_id = station.outpost_id
+		patrol.platoon_name = station.outpost_id + " patrol"
+		station.on_patrol_deployed()
+		_base_platoons[base].append(patrol)
+		get_tree().current_scene.add_child(patrol)
+		station.patrol_cooldown_s = station.patrol_replacement_delay_s
+		# Bound the expensive path generation to one patrol per evaluation.
+		break
 
 
 func _count_deployed_vehicles(base: EnemyBase) -> int:
@@ -612,6 +730,8 @@ func _count_deployed_vehicles(base: EnemyBase) -> int:
 
 ## Called by EnemyVirtualFlight / EnemyVirtualPlatoon after their radio-delay timer fires.
 func receive_intel(reporter_name: String, contact_type: String, contact_pos: Vector3, strength: int) -> void:
+	if contact_type == "carrier":
+		_confirm_carrier_report(reporter_name)
 	var ttl := _ttl_for_type(contact_type)
 	# Update existing entry if present, otherwise append.
 	for c in _known_contacts:
@@ -619,6 +739,7 @@ func receive_intel(reporter_name: String, contact_type: String, contact_pos: Vec
 			c["position"] = contact_pos
 			c["strength"] = strength
 			c["ttl"]      = ttl
+			c["reporter"] = reporter_name
 			if debug_print:
 				print("[EnemyOps] Intel update from %s: %s at (%.0f, %.0f)" % [
 					reporter_name, contact_type, contact_pos.x, contact_pos.z])
@@ -628,11 +749,57 @@ func receive_intel(reporter_name: String, contact_type: String, contact_pos: Vec
 		"position": contact_pos,
 		"strength": strength,
 		"ttl":      ttl,
+		"reporter": reporter_name,
 	})
 	if debug_print:
 		print("[EnemyOps] New intel from %s: %s at (%.0f, %.0f)" % [
 			reporter_name, contact_type, contact_pos.x, contact_pos.z])
 
+
+func notify_carrier_report_pending(source: Node, reporter_name: String) -> void:
+	var previous: Dictionary = _carrier_report_notices.get(reporter_name, {})
+	if previous.get("pending", false): return
+	var warned := false
+	# Once command already has a recent position, repeated scans should not
+	# sound like a new first sighting every few seconds.
+	if _get_contact("carrier").is_empty() and _ops_clock_s >= _next_carrier_warning_s:
+		var body := "That patrol has spotted us! Destroy the reporting patrol before it relays our position."
+		if source is EnemyOutpost:
+			body = "An enemy outpost has spotted the carrier. Destroy its observation building before it relays our position."
+		RadioComms.transmit("Citadel", "Commander", body)
+		_next_carrier_warning_s = _ops_clock_s + 20.0
+		warned = true
+	_carrier_report_notices[reporter_name] = {"source": weakref(source), "pending": true, "warned": warned}
+
+func _confirm_carrier_report(reporter_name: String) -> void:
+	_carrier_report_notices.erase(reporter_name)
+	if _get_contact("carrier").is_empty() or _ops_clock_s >= _next_carrier_confirmation_s:
+		RadioComms.transmit("Citadel", "Commander", "Enemy transmission confirmed. They have our reported position. Keep the carrier moving.")
+		_next_carrier_confirmation_s = _ops_clock_s + 60.0
+
+func _service_carrier_report_notices() -> void:
+	for reporter in _carrier_report_notices.keys():
+		var notice: Dictionary = _carrier_report_notices[reporter]
+		var source: Variant = notice.source.get_ref()
+		var gone := not is_instance_valid(source)
+		if not gone:
+			gone = source.is_queued_for_deletion()
+			if source is EnemyOutpost: gone = gone or source.is_destroyed
+			elif source is EnemyVirtualPlatoon: gone = gone or source.vehicle_count <= 0
+			elif source is EnemyVirtualFlight: gone = gone or source.aircraft_count <= 0
+		if gone:
+			_carrier_report_notices.erase(reporter)
+			if notice.warned:
+				RadioComms.transmit("Citadel", "Commander", "That report did not get through. Other patrols may still be watching.")
+
+func _clear_carrier_report_notices() -> void:
+	_carrier_report_notices.clear()
+	_next_carrier_warning_s = 0.0
+	_next_carrier_confirmation_s = 0.0
+
+func get_reported_carrier_position() -> Vector3:
+	# This is the intercepted report, never the carrier's live position.
+	return _get_contact("carrier").get("position", Vector3.INF)
 
 func _ttl_for_type(contact_type: String) -> float:
 	match contact_type:
@@ -671,6 +838,19 @@ func _assess_threats() -> void:
 
 		var flights:  Array = _get_flights(base)
 		var platoons: Array = _get_platoons(base)
+		# Local helicopter sections only respond to ground/carrier reports near home.
+		for flight: EnemyVirtualFlight in flights:
+			if flight.outpost_id.is_empty(): continue
+			var ground_report: Dictionary = {}
+			for kind in ["carrier", "ground"]:
+				var report := _get_contact(kind)
+				if not report.is_empty() and flight.home_position.distance_to(report.position) <= 8000.0:
+					ground_report = report
+					break
+			if ground_report.is_empty():
+				if flight.mission == EnemyVirtualFlight.Mission.INVESTIGATE: flight.resume_patrol()
+			elif flight.mission == EnemyVirtualFlight.Mission.PATROL or flight.get_investigation_position().distance_to(ground_report.position) > 200.0:
+				flight.assign_investigation(ground_report.position)
 
 		# ── Air threat: redirect one patrol flight to intercept ────────────────
 		var air_contact := _get_contact("air")
@@ -709,6 +889,8 @@ func _assess_threats() -> void:
 
 		# ── Ground threat: redirect one patrol platoon to attack carrier ───────
 		var carrier_contact := _get_contact("carrier")
+		if carrier_contact.is_empty():
+			carrier_contact = _get_contact("ground")
 		var attacking := 0
 		for p: EnemyVirtualPlatoon in platoons:
 			if p.mission in [EnemyVirtualPlatoon.Mission.ATTACK_CARRIER, EnemyVirtualPlatoon.Mission.ATTACK_POSITION]:
@@ -717,14 +899,12 @@ func _assess_threats() -> void:
 		if not carrier_contact.is_empty():
 			var carrier_pos  := carrier_contact["position"] as Vector3
 			var carrier_dist := base.global_position.distance_to(carrier_pos)
-			if attacking == 0 and carrier_dist < CARRIER_THREAT_RANGE_M:
-				for p: EnemyVirtualPlatoon in platoons:
-					if p.mission == EnemyVirtualPlatoon.Mission.PATROL:
-						p.set_mission_attack_position(carrier_pos)
-						if debug_print:
-							print("[EnemyOps] Platoon %s → ATTACK CARRIER POSITION (intel: %.0fm away)" % [
-								p.platoon_name, carrier_dist])
-						break
+			if attacking == 0:
+				var responder := _nearest_ground_responder(base, carrier_pos)
+				if responder != null:
+					responder.set_mission_attack_position(carrier_pos)
+					if debug_print:
+						print("[EnemyOps] Platoon %s → ATTACK REPORTED POSITION (intel: %.0fm from base)" % [responder.platoon_name, carrier_dist])
 		elif attacking > 0:
 			# No carrier intel — recall
 			for p: EnemyVirtualPlatoon in platoons:
@@ -735,6 +915,23 @@ func _assess_threats() -> void:
 
 
 # ── Unit cleanup ──────────────────────────────────────────────────────────────
+
+func _nearest_ground_responder(base: EnemyBase, location: Vector3) -> EnemyVirtualPlatoon:
+	var closest: EnemyVirtualPlatoon = null
+	var closest_distance := INF
+	for patrol in _get_platoons(base):
+		if patrol.mission != EnemyVirtualPlatoon.Mission.PATROL or patrol.vehicle_count <= 0:
+			continue
+		# Local patrols respond around their station even far from the parent airfield.
+		var response_home := base.global_position if patrol.outpost_id.is_empty() else patrol.home_position
+		var response_range := CARRIER_THREAT_RANGE_M if patrol.outpost_id.is_empty() else 6000.0
+		if response_home.distance_to(location) > response_range:
+			continue
+		var distance := patrol.position.distance_to(location)
+		if distance < closest_distance:
+			closest_distance = distance
+			closest = patrol
+	return closest
 
 func _clean_flights(base: EnemyBase) -> void:
 	var valid: Array[EnemyVirtualFlight] = []
@@ -784,6 +981,7 @@ func _get_platoons(base: EnemyBase) -> Array[EnemyVirtualPlatoon]:
 
 
 func disable_for_heli_test() -> void:
+	_clear_carrier_report_notices()
 	_disabled_for_test = true
 	set_physics_process(false)
 	_known_contacts.clear()

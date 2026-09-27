@@ -164,6 +164,19 @@ func set_console_visible(value: bool) -> void:
 	if value:
 		_refresh_all()
 
+func sync_monitor_preview_from(source: Control) -> void:
+	# This tab is a UI-owned concept simulation, not a live manager. Mirror its
+	# state instead of giving unattended monitors a separate mock queue.
+	var changed := false
+	for property in ["_available_plasteel", "_available_corium", "_selected_blueprint_id",
+		"_filter_category", "_preview_quantity", "_mock_queue"]:
+		var value: Variant = source.get(property)
+		if get(property) != value:
+			set(property, value.duplicate(true) if value is Array or value is Dictionary else value)
+			changed = true
+	if changed:
+		_refresh_all()
+
 
 func get_debug_snapshot() -> Dictionary:
 	return {

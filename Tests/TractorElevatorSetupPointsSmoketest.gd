@@ -15,7 +15,8 @@ func _ready() -> void:
 	var marker_2 := carrier.get_node("elevator_marker_2") as Marker3D
 	var catapult_1 := carrier.get_node("Catapult1")
 	var catapult_2 := carrier.get_node("Catapult2")
-	_expect(carrier_model.scene_file_path == "res://Models/LandCarrier/Land carrier 3.glb", "carrier did not use Land carrier 3 GLB")
+	_expect(carrier_model.scene_file_path == "res://Models/LandCarrier/CarrierWithInterior.tscn", "carrier did not use the Land carrier 4 gameplay scene")
+	_expect(carrier_model.get_node_or_null("superstructure floor lower") != null and carrier_model.get_node_or_null("LandCarrier4Visual") == null, "carrier model still overlays old and new geometry")
 	_expect(elevator.position.is_equal_approx(Vector3(-8.0, 0.0, 10.0)), "elevator 1 did not map from its Blender coordinates")
 	_expect(elevator_2.position.is_equal_approx(Vector3(8.0, 0.0, -10.0)), "elevator 2 did not map from its Blender coordinates")
 	_expect(elevator.platform_size.is_equal_approx(Vector3(10.0, 1.0, 15.0)) and elevator_2.platform_size.is_equal_approx(Vector3(10.0, 1.0, 15.0)), "dual elevator platform dimensions are not 10 x 15 m")

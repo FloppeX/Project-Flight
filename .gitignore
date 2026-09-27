@@ -38,3 +38,5 @@ turn_optimizer_runs/
 captures/
 run_archives/
 *.log
+gunnery_optimizer_runs/
+.codex_video_frames/

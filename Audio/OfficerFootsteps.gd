@@ -20,6 +20,7 @@ func _ready() -> void:
 	_player.volume_db = -8.0
 	_player.max_polyphony = 2
 	_player.add_to_group("3d_audio")
+	_player.add_to_group("carrier_local_audio")
 	add_child(_player)
 
 func _physics_process(_delta: float) -> void:

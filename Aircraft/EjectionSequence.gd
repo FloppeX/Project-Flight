@@ -362,6 +362,8 @@ func _launch_ejection_seat() -> void:
 	seat_body.contact_monitor = true
 	seat_body.max_contacts_reported = maxi(seat_body.max_contacts_reported, 4)
 	seat_body.body_entered.connect(_on_pilot_body_entered)
+	_copy_pilot_identity_metadata(aircraft, seat_body)
+	seat_body.set_meta("source_aircraft_name", aircraft.name)
 	if should_take_player_view:
 		_prepare_ejected_pilot_camera_target(aircraft, seat_body)
 
@@ -630,9 +632,8 @@ func _get_nearby_landing_surface_point(seat_pos: Vector3, velocity: Vector3, del
 
 
 func _sample_landing_height(world_pos: Vector3) -> float:
-	var h: float = TerrainNavGrid.sample_height(world_pos.x, world_pos.z)
-	if _is_valid_landing_height(h):
-		return h
+	# Match the actual terrain triangles when no nearby physics hit is available.
+	var h: float = TerrainNavGrid.IMPASSABLE
 	var terrain := get_tree().get_first_node_in_group("terrain_provider")
 	if terrain != null and terrain.has_method("get_height"):
 		var sampled: Variant = terrain.call("get_height", world_pos)
@@ -642,6 +643,9 @@ func _sample_landing_height(world_pos: Vector3) -> float:
 			h = float(sampled)
 		if _is_valid_landing_height(h):
 			return h
+	h = TerrainNavGrid.sample_height(world_pos.x, world_pos.z)
+	if _is_valid_landing_height(h):
+		return h
 	return TerrainNavGrid.IMPASSABLE
 
 
@@ -945,19 +949,18 @@ func _prepare_ejected_pilot_camera_target(aircraft: Node, ejected_body: RigidBod
 	aircraft.set_meta("camera_abandoned", true)
 	aircraft.set_meta("camera_replaced_by_ejected_pilot", true)
 	aircraft.set_meta("ejected_pilot_body", ejected_body.get_path())
-	ejected_body.set_meta("source_aircraft_name", aircraft.name)
-	for key in [
-		"pilot_identity", "pilot_roster_id", "pilot_display_name", "pilot_rank",
-		"pilot_callsign", "pilot_name", "pilot_full_name", "pilot_gender",
-		"pilot_national_origin"
-	]:
-		if aircraft.has_meta(key):
-			var metadata_value: Variant = aircraft.get_meta(key)
-			ejected_body.set_meta(
-				key,
-				metadata_value.duplicate(true) if metadata_value is Dictionary else metadata_value
-			)
-	PilotAppearance.copy_palette_metadata(aircraft, ejected_body)
+	_copy_pilot_identity_metadata(aircraft, ejected_body)
+
+
+func _copy_pilot_identity_metadata(source: Node, target: Node) -> void:
+	if source == null or target == null:
+		return
+	for key: StringName in source.get_meta_list():
+		if not String(key).begins_with("pilot_") and key != &"source_aircraft_name":
+			continue
+		var value: Variant = source.get_meta(key)
+		target.set_meta(key, value.duplicate(true) if value is Dictionary else value)
+	PilotAppearance.copy_palette_metadata(source, target)
 
 
 func _notify_flight_director_ejected_pilot_took_over(old_aircraft: RigidBody3D, ejected_body: RigidBody3D) -> void:
@@ -1119,20 +1122,10 @@ func _land_pilot(surface_position: Variant = null) -> void:
 		dp = downed_pilot_scene.instantiate() as Node3D
 		
 	if dp != null:
-		# Copy metadata from pilot body
-		for key in [
-			"ejected_pilot_camera_target", "player_control_locked", "non_aircraft_body",
-			"pilot_identity", "pilot_roster_id", "pilot_display_name", "pilot_rank",
-			"pilot_callsign", "pilot_name", "pilot_full_name", "pilot_gender",
-			"pilot_national_origin", "source_aircraft_name"
-		]:
-			if _pilot_body.has_meta(key):
-				var metadata_value: Variant = _pilot_body.get_meta(key)
-				dp.set_meta(
-					key,
-					metadata_value.duplicate(true) if metadata_value is Dictionary else metadata_value
-				)
-		PilotAppearance.copy_palette_metadata(_pilot_body, dp)
+		_copy_pilot_identity_metadata(_pilot_body, dp)
+		dp.set_meta("ejected_pilot_camera_target", true)
+		dp.set_meta("player_control_locked", true)
+		dp.set_meta("non_aircraft_body", true)
 		
 		# Put downed pilot on ground
 		dp.global_transform = Transform3D(Basis.IDENTITY, land_pos)
@@ -1150,11 +1143,14 @@ func _land_pilot(surface_position: Variant = null) -> void:
 		if camera_rig != null:
 			_reparent_preserve_global(camera_rig, dp)
 			_position_landed_camera_at_head(camera_rig, dp)
-			
-			# Call focus_ejected_pilot on all camera controllers
+		if dp.has_method("ensure_spectator_cameras"):
+			dp.call("ensure_spectator_cameras")
+		if camera_rig != null:
+			# Only the controller following this ejection may inherit its landed view.
 			var ccs := get_tree().get_nodes_in_group("camera_controller")
 			for cc in ccs:
-				if cc != null and cc.has_method("focus_ejected_pilot"):
+				if cc != null and cc.has_method("focus_ejected_pilot") \
+						and cc.get("aircraft") == _pilot_body:
 					cc.call("focus_ejected_pilot", dp, dp)
 		
 		# Exclude the old parachute body from camera cycling before registering dp.
@@ -1167,11 +1163,13 @@ func _land_pilot(surface_position: Variant = null) -> void:
 		var flight_director := get_node_or_null("/root/FlightDirector") as FlightDirectorScript
 		if flight_director != null:
 			flight_director.register_aircraft(dp)
-			if flight_director.current_viewed_aircraft == _pilot_body:
+			var was_viewed: bool = flight_director.current_viewed_aircraft == _pilot_body
+			if was_viewed:
 				flight_director.current_viewed_aircraft = dp
 				flight_director._select_friendly_index_for(dp)
 			flight_director.unregister_aircraft(_pilot_body)
-			flight_director._activate_view()
+			if was_viewed:
+				flight_director._activate_view()
 				
 		print("[EjectionSequence] Downed pilot character spawned successfully at: ", land_pos)
 

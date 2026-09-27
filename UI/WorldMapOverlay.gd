@@ -22,8 +22,11 @@ const MAP_SCROLLBAR_GAP_PX: float = 6.0
 const MAP_MIN_ZOOM: float = 1.0
 const MAP_MAX_ZOOM: float = 8.0
 const MAP_ZOOM_STEP: float = 1.5
-const MAP_TRIGGER_PRESS_THRESHOLD: float = 0.55
-const MAP_TRIGGER_RELEASE_THRESHOLD: float = 0.30
+const MAP_OVERVIEW_SIZE_PX: float = 132.0
+const MAP_OVERVIEW_MIN_SIZE_PX: float = 96.0
+const MAP_CONTROL_GAP_PX: float = 12.0
+const MAP_CONTROL_BUTTON_GAP_PX: float = 8.0
+const MAP_ZOOM_BUTTON_SIZE_PX: float = 42.0
 const GRID_COORD_COLUMNS: PackedStringArray = ["A", "B", "C", "D", "E", "F", "G", "H"]
 const ROUTE_NODE_HIT_RADIUS_PX: float = 10.0
 const ROUTE_SEGMENT_HIT_RADIUS_PX: float = 8.0
@@ -92,8 +95,24 @@ var _mobility_material: ShaderMaterial
 var _fog_rect: TextureRect
 var _map_input: Control
 var _symbol_layer: Control
+var _weather_layer: Control
+var _overview_weather_layer: Control
+var _weather_button: Button
+var _weather_info: Label
+var _observation_layer: Control
+var _overview_observation_layer: Control
+var _observation_button: Button
+var _observation_info: Label
+var _selected_outpost: EnemyOutpost
 var _horizontal_pan: HScrollBar
 var _vertical_pan: VScrollBar
+var _zoom_in_button: Button
+var _zoom_out_button: Button
+var _overview_panel: Panel
+var _overview_map_rect: TextureRect
+var _overview_fog_rect: TextureRect
+var _overview_view_rect: Panel
+var _overview_dragging: bool = false
 var _map_meta: Label
 var _map_hint: Label
 var _map_status: Label
@@ -132,8 +151,6 @@ var _fog_mask_suppressed: bool = false
 var _map_zoom: float = MAP_MIN_ZOOM
 var _map_view_center_uv: Vector2 = Vector2(0.5, 0.5)
 var _syncing_pan_controls: bool = false
-var _right_trigger_pressed: bool = false
-var _left_trigger_pressed: bool = false
 var _monitor_preview_viewport: Viewport = null
 var _monitor_preview_only: bool = false
 var _console_visible: bool = false
@@ -177,8 +194,6 @@ func _input(event: InputEvent) -> void:
 		set_fog_mask_suppressed(not _fog_mask_suppressed)
 		get_viewport().set_input_as_handled()
 		return
-	if event is InputEventJoypadMotion:
-		_handle_map_trigger_zoom(event as InputEventJoypadMotion)
 
 func _process(delta: float) -> void:
 	if _root == null or not _console_visible:
@@ -203,11 +218,15 @@ func _on_navgraph_ready() -> void:
 
 
 func _invalidate_map_layers() -> void:
+	if _observation_layer != null:
+		_observation_layer.invalidate()
 	_map_ready = false
 	_map_texture = null
 	_mobility_texture = null
 	if _map_rect != null:
 		_map_rect.texture = null
+	if _overview_map_rect != null:
+		_overview_map_rect.texture = null
 	if _mobility_rect != null:
 		_mobility_rect.texture = null
 
@@ -303,6 +322,8 @@ func _build_ui() -> void:
 	_mobility_material = _make_mobility_material()
 	_mobility_rect.material = _mobility_material
 	_map_viewport.add_child(_mobility_rect)
+	_observation_layer = preload("res://UI/EnemyObservationMapLayer.gd").new()
+	_map_viewport.add_child(_observation_layer)
 	_fog_rect = TextureRect.new()
 	_fog_rect.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	_fog_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
@@ -310,7 +331,10 @@ func _build_ui() -> void:
 	_fog_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_fog_rect.material = _make_fog_material()
 	_map_viewport.add_child(_fog_rect)
+	_weather_layer = preload("res://UI/WeatherMapLayer.gd").new()
+	_map_viewport.add_child(_weather_layer)
 	_symbol_layer = preload("res://UI/WorldMapSymbolLayer.gd").new()
+	_symbol_layer.show_outpost_range_estimates = false
 	_map_viewport.add_child(_symbol_layer)
 	_map_input = Control.new()
 	_map_input.mouse_filter = Control.MOUSE_FILTER_STOP
@@ -343,6 +367,71 @@ func _build_ui() -> void:
 	_map_status = _make_label("", 16, VECTOR_STATUS_COLOR, HORIZONTAL_ALIGNMENT_CENTER, DATA_FONT)
 	_map_status.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_center_panel.add_child(_map_status)
+	_zoom_in_button = _make_button("+", VECTOR_CYAN_COLOR, 42.0, 24)
+	_zoom_in_button.name = "MapZoomIn"
+	_zoom_in_button.alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_zoom_in_button.pressed.connect(_on_zoom_button_pressed.bind(1))
+	_center_panel.add_child(_zoom_in_button)
+	_zoom_out_button = _make_button("−", VECTOR_CYAN_COLOR, 42.0, 24)
+	_zoom_out_button.name = "MapZoomOut"
+	_zoom_out_button.alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_zoom_out_button.pressed.connect(_on_zoom_button_pressed.bind(-1))
+	_center_panel.add_child(_zoom_out_button)
+	_overview_panel = _make_panel(Color("111719"), VECTOR_CYAN_COLOR, 1)
+	_overview_panel.name = "MapOverview"
+	_overview_panel.clip_contents = true
+	_overview_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	_overview_panel.tooltip_text = "Click or drag to recenter the map"
+	_overview_panel.gui_input.connect(_on_overview_gui_input)
+	_overview_panel.mouse_exited.connect(_on_overview_mouse_exited)
+	_center_panel.add_child(_overview_panel)
+	_overview_map_rect = TextureRect.new()
+	_overview_map_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_overview_map_rect.stretch_mode = TextureRect.STRETCH_SCALE
+	_overview_map_rect.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	_overview_map_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_overview_panel.add_child(_overview_map_rect)
+	_overview_observation_layer = preload("res://UI/EnemyObservationMapLayer.gd").new()
+	_overview_observation_layer.overview = true
+	_overview_observation_layer.coverage_source = _observation_layer
+	_overview_panel.add_child(_overview_observation_layer)
+	_overview_fog_rect = TextureRect.new()
+	_overview_fog_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_overview_fog_rect.stretch_mode = TextureRect.STRETCH_SCALE
+	_overview_fog_rect.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	_overview_fog_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_overview_fog_rect.material = _fog_rect.material
+	_overview_panel.add_child(_overview_fog_rect)
+	_overview_weather_layer = preload("res://UI/WeatherMapLayer.gd").new()
+	_overview_weather_layer.set("overview", true)
+	_overview_panel.add_child(_overview_weather_layer)
+	_overview_view_rect = _make_panel(Color(0.05, 0.13, 0.14, 0.22), VECTOR_CYAN_COLOR, 2)
+	_overview_view_rect.name = "VisibleMapArea"
+	_overview_view_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_overview_panel.add_child(_overview_view_rect)
+	_weather_button = _make_button("WEATHER", VECTOR_AMBER_COLOR, 30.0)
+	_weather_button.toggle_mode = true
+	_weather_button.button_pressed = true
+	_weather_button.tooltip_text = "Regional wind, visibility, dust height and hazard potential (0-100 index, not a percent chance). Storm outlines show active cells."
+	_weather_button.toggled.connect(func(_pressed: bool): _refresh_weather())
+	_center_panel.add_child(_weather_button)
+	_observation_button = _make_button("ENEMY OBSERVATION", Color("ff8a80"), 30.0, 12)
+	_observation_button.name = "EnemyObservationToggle"
+	_observation_button.toggle_mode = true
+	_observation_button.button_pressed = true
+	_observation_button.tooltip_text = "Estimated carrier exposure from known outposts. Red: fixed observation. Hatching: possible patrol activity. Unshaded areas are not guaranteed safe. Click an outpost to inspect its capabilities."
+	_observation_button.toggled.connect(func(_pressed: bool): _refresh_observation())
+	_center_panel.add_child(_observation_button)
+	_observation_info = _make_label("", 11, Color("ffb4ab"), HORIZONTAL_ALIGNMENT_LEFT, DATA_FONT)
+	_observation_info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_center_panel.add_child(_observation_info)
+	_weather_info = Label.new()
+	_weather_info.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_weather_info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_weather_info.add_theme_font_override("font", preload("res://UI/Fonts/JetBrainsMono-Variable.ttf"))
+	_weather_info.add_theme_font_size_override("font_size", 12)
+	_weather_info.add_theme_color_override("font_color", VECTOR_AMBER_COLOR)
+	_center_panel.add_child(_weather_info)
 	for column_name in GRID_COORD_COLUMNS:
 		var col_label := _make_label(column_name, 12, VECTOR_STATUS_COLOR, HORIZONTAL_ALIGNMENT_CENTER, DATA_FONT)
 		col_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -374,12 +463,16 @@ func _build_ui() -> void:
 
 	_footer_panel = _make_panel(Color("353434"), VECTOR_BORDER_COLOR, 1)
 	_root.add_child(_footer_panel)
-	_footer_left = _make_label("MAP: LMB / RT ZOOM IN // RMB / LT ZOOM OUT // BARS PAN", 12, VECTOR_STATUS_COLOR, HORIZONTAL_ALIGNMENT_LEFT, DATA_FONT)
+	_footer_left = _make_label("MAP: + / − ZOOM // OVERVIEW CLICK TO PAN // L STICK CURSOR // LB / RB TABS", 12, VECTOR_STATUS_COLOR, HORIZONTAL_ALIGNMENT_LEFT, DATA_FONT)
 	_footer_left.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_footer_panel.add_child(_footer_left)
 	_footer_right = _make_label("GLOBAL ALERTS    RESOURCES    MISSION TIMER", 12, VECTOR_STATUS_COLOR, HORIZONTAL_ALIGNMENT_RIGHT, DATA_FONT)
 	_footer_right.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_footer_panel.add_child(_footer_right)
+
+	# GUI hit testing follows tree order, not z_index. Keep the flyout after
+	# the map so its entire visible buttons receive clicks over the map.
+	_root.move_child(_mission_popup, -1)
 
 	_root.resized.connect(_on_root_resized)
 	_layout_ui()
@@ -443,13 +536,17 @@ func _layout_ui() -> void:
 	_draft_summary.position = Vector2(left_inner_x, left_y)
 	_draft_summary.size = Vector2(left_inner_w, maxf(remaining_h, 56.0))
 
+	var overview_side := clampf(_center_panel.size.x * 0.2, MAP_OVERVIEW_MIN_SIZE_PX, MAP_OVERVIEW_SIZE_PX)
+	var control_rail_width := overview_side + MAP_CONTROL_BUTTON_GAP_PX + MAP_ZOOM_BUTTON_SIZE_PX
 	var map_side: float = minf(
-		_center_panel.size.x - 48.0 - GRID_COORD_BAND_WIDTH_PX - MAP_SCROLLBAR_GAP_PX - MAP_SCROLLBAR_THICKNESS_PX,
+		_center_panel.size.x - GRID_COORD_BAND_WIDTH_PX - MAP_SCROLLBAR_GAP_PX \
+			- MAP_SCROLLBAR_THICKNESS_PX - MAP_CONTROL_GAP_PX - control_rail_width,
 		_center_panel.size.y - 36.0 - GRID_COORD_BAND_HEIGHT_PX - MAP_SCROLLBAR_GAP_PX - MAP_SCROLLBAR_THICKNESS_PX
 	)
-	map_side = maxf(map_side, MIN_MAP_SIDE_PX)
+	map_side = maxf(map_side, 1.0)
 	var map_block_size := Vector2(
-		GRID_COORD_BAND_WIDTH_PX + map_side + MAP_SCROLLBAR_GAP_PX + MAP_SCROLLBAR_THICKNESS_PX,
+		GRID_COORD_BAND_WIDTH_PX + map_side + MAP_SCROLLBAR_GAP_PX + MAP_SCROLLBAR_THICKNESS_PX \
+			+ MAP_CONTROL_GAP_PX + control_rail_width,
 		GRID_COORD_BAND_HEIGHT_PX + map_side + MAP_SCROLLBAR_GAP_PX + MAP_SCROLLBAR_THICKNESS_PX
 	)
 	var map_block_origin := (_center_panel.size - map_block_size) * 0.5
@@ -462,6 +559,31 @@ func _layout_ui() -> void:
 	_horizontal_pan.size = Vector2(map_side, MAP_SCROLLBAR_THICKNESS_PX)
 	_vertical_pan.position = map_pos + Vector2(map_side + MAP_SCROLLBAR_GAP_PX, 0.0)
 	_vertical_pan.size = Vector2(MAP_SCROLLBAR_THICKNESS_PX, map_side)
+	var control_x := map_pos.x + map_side + MAP_SCROLLBAR_GAP_PX + MAP_SCROLLBAR_THICKNESS_PX + MAP_CONTROL_GAP_PX
+	var control_y := map_pos.y + (map_side - overview_side) * 0.5
+	_overview_panel.position = Vector2(control_x, control_y)
+	_overview_panel.size = Vector2.ONE * overview_side
+	_weather_button.position = Vector2(control_x, control_y - 40.0)
+	_weather_button.size = Vector2(control_rail_width, 30.0)
+	_observation_button.position = Vector2(control_x, control_y - 76.0)
+	_observation_button.size = Vector2(control_rail_width, 30.0)
+	_observation_info.position = Vector2(control_x, control_y + overview_side + 12.0)
+	_observation_info.size = Vector2(control_rail_width, 78.0)
+	_overview_observation_layer.size = _overview_panel.size
+	_weather_info.position = Vector2(control_x, control_y + overview_side + (94.0 if _observation_button.button_pressed else 12.0))
+	_weather_info.size = Vector2(control_rail_width, 170.0)
+	_overview_weather_layer.size = _overview_panel.size
+	_zoom_in_button.position = Vector2(
+		control_x + overview_side + MAP_CONTROL_BUTTON_GAP_PX,
+		control_y + (overview_side - MAP_ZOOM_BUTTON_SIZE_PX * 2.0 - 6.0) * 0.5
+	)
+	_zoom_in_button.size = Vector2.ONE * MAP_ZOOM_BUTTON_SIZE_PX
+	_zoom_out_button.position = _zoom_in_button.position + Vector2(0.0, MAP_ZOOM_BUTTON_SIZE_PX + 6.0)
+	_zoom_out_button.size = Vector2.ONE * MAP_ZOOM_BUTTON_SIZE_PX
+	_overview_map_rect.position = Vector2.ZERO
+	_overview_map_rect.size = _overview_panel.size
+	_overview_fog_rect.position = Vector2.ZERO
+	_overview_fog_rect.size = _overview_panel.size
 	_map_meta.position = map_pos + Vector2(16.0, 14.0)
 	_map_meta.size = Vector2(390.0, 62.0)
 	_map_hint.position = Vector2(map_pos.x + 16.0, map_pos.y + map_side - 34.0)
@@ -530,8 +652,7 @@ func _set_open(is_open: bool) -> void:
 	if _symbol_layer != null and _symbol_layer.has_method("set_continuous_updates"):
 		_symbol_layer.call("set_continuous_updates", is_open)
 	if not is_open:
-		_right_trigger_pressed = false
-		_left_trigger_pressed = false
+		_overview_dragging = false
 		if _mission_popup != null:
 			_mission_popup.visible = false
 			_mission_popup_source = null
@@ -635,15 +756,63 @@ func _apply_map_view() -> void:
 		texture_rect.size = content_size
 	_symbol_layer.position = Vector2.ZERO
 	_symbol_layer.size = viewport_size
+	_weather_layer.size = viewport_size
+	_weather_layer.call("set_map_view", view_rect)
+	_observation_layer.size = viewport_size
+	_observation_layer.set_map_view(view_rect)
 	if _symbol_layer.has_method("set_map_view"):
 		_symbol_layer.call("set_map_view", view_rect)
 	_map_input.position = Vector2.ZERO
 	_map_input.size = viewport_size
+	_sync_overview_view_rect(view_rect)
 	_sync_pan_controls()
 	_layout_grid_coord_labels(_map_viewport.position, viewport_size.x)
 	_refresh_mobility_display()
 	if _map_hover_active:
 		_update_map_hover_readout(_map_input.get_local_mouse_position())
+
+
+func _sync_overview_view_rect(view_rect: Rect2) -> void:
+	if _overview_panel == null or _overview_view_rect == null:
+		return
+	_overview_view_rect.position = view_rect.position * _overview_panel.size
+	_overview_view_rect.size = view_rect.size * _overview_panel.size
+
+
+func _on_overview_gui_input(event: InputEvent) -> void:
+	if not _console_visible:
+		return
+	if event is InputEventMouseButton:
+		var click := event as InputEventMouseButton
+		if click.button_index != MOUSE_BUTTON_LEFT:
+			return
+		_overview_dragging = click.pressed
+		if click.pressed:
+			_recenter_map_from_overview(click.position)
+		get_viewport().set_input_as_handled()
+	elif event is InputEventMouseMotion and _overview_dragging:
+		_recenter_map_from_overview((event as InputEventMouseMotion).position)
+		get_viewport().set_input_as_handled()
+
+
+func _on_overview_mouse_exited() -> void:
+	_overview_dragging = false
+
+
+func _recenter_map_from_overview(local_pos: Vector2) -> void:
+	if _overview_panel == null:
+		return
+	var view_size := _get_map_view_uv_rect().size
+	var half_view := view_size * 0.5
+	var uv := Vector2(
+		clampf(local_pos.x / maxf(_overview_panel.size.x, 1.0), 0.0, 1.0),
+		clampf(local_pos.y / maxf(_overview_panel.size.y, 1.0), 0.0, 1.0)
+	)
+	_map_view_center_uv = Vector2(
+		clampf(uv.x, half_view.x, 1.0 - half_view.x),
+		clampf(uv.y, half_view.y, 1.0 - half_view.y)
+	)
+	_apply_map_view()
 
 
 func _sync_pan_controls() -> void:
@@ -703,52 +872,9 @@ func _zoom_map_at(direction: int, anchor_local: Vector2) -> void:
 	_apply_map_view()
 
 
-func _get_map_zoom_anchor_local() -> Vector2:
-	if _map_input == null:
-		return Vector2.ZERO
-	var local_mouse := _map_input.get_local_mouse_position()
-	if Rect2(Vector2.ZERO, _map_input.size).has_point(local_mouse):
-		return local_mouse
-	return _map_input.size * 0.5
-
-
-func _handle_map_trigger_zoom(event: InputEventJoypadMotion) -> void:
-	var is_map_trigger := event.axis == JOY_AXIS_TRIGGER_RIGHT or event.axis == JOY_AXIS_TRIGGER_LEFT
-	if not is_map_trigger:
-		return
-	var pressed_now := event.axis_value >= MAP_TRIGGER_PRESS_THRESHOLD
-	var released_now := event.axis_value <= MAP_TRIGGER_RELEASE_THRESHOLD
-	if event.axis == JOY_AXIS_TRIGGER_RIGHT:
-		if pressed_now and not _right_trigger_pressed:
-			_right_trigger_pressed = true
-			_zoom_map_at(1, _get_map_zoom_anchor_local())
-		elif released_now:
-			_right_trigger_pressed = false
-	else:
-		if pressed_now and not _left_trigger_pressed:
-			_left_trigger_pressed = true
-			_zoom_map_at(-1, _get_map_zoom_anchor_local())
-		elif released_now:
-			_left_trigger_pressed = false
-	get_viewport().set_input_as_handled()
-
-
-func _handle_map_mouse_zoom(event: InputEvent) -> bool:
-	if not (event is InputEventMouseButton):
-		return false
-	var mouse_event := event as InputEventMouseButton
-	if not mouse_event.pressed or mouse_event.double_click:
-		return false
-	var direction := 0
-	if mouse_event.button_index == MOUSE_BUTTON_LEFT:
-		direction = 1
-	elif mouse_event.button_index == MOUSE_BUTTON_RIGHT:
-		direction = -1
-	if direction == 0:
-		return false
-	_zoom_map_at(direction, mouse_event.position)
-	get_viewport().set_input_as_handled()
-	return true
+func _on_zoom_button_pressed(direction: int) -> void:
+	if _map_input != null:
+		_zoom_map_at(direction, _map_input.size * 0.5)
 
 func _ensure_map_texture() -> void:
 	if _map_ready:
@@ -774,6 +900,7 @@ func _ensure_map_texture() -> void:
 	_map_texture = relief_texture
 	_mobility_texture = mobility_texture
 	_map_rect.texture = _map_texture
+	_overview_map_rect.texture = _map_texture
 	_mobility_rect.texture = _mobility_texture
 	_refresh_mobility_display()
 	_refresh_fog_mask()
@@ -789,13 +916,18 @@ func _refresh_fog_mask() -> void:
 		return
 	if _fog_mask_suppressed:
 		_fog_rect.visible = false
+		_overview_fog_rect.visible = false
 		return
 	if not MapFogOfWar.is_initialized():
 		_fog_rect.texture = null
 		_fog_rect.visible = false
+		_overview_fog_rect.texture = null
+		_overview_fog_rect.visible = false
 		return
 	_fog_rect.texture = MapFogOfWar.get_mask_texture()
 	_fog_rect.visible = _fog_rect.texture != null
+	_overview_fog_rect.texture = _fog_rect.texture
+	_overview_fog_rect.visible = _fog_rect.visible
 
 
 func _make_fog_material() -> ShaderMaterial:
@@ -917,6 +1049,60 @@ func _refresh_ui(force_rebuild: bool = false) -> void:
 	_refresh_mobility_display()
 	_refresh_fog_mask()
 	_refresh_map_overlays()
+	_refresh_weather()
+	_refresh_observation()
+
+func _refresh_observation() -> void:
+	if _observation_button == null: return
+	var show_observation := _observation_button.button_pressed
+	_observation_layer.visible = show_observation
+	_overview_observation_layer.visible = show_observation
+	_observation_info.visible = show_observation
+	_observation_layer.selected_outpost = _selected_outpost if is_instance_valid(_selected_outpost) else null
+	_style_button(_observation_button, Color("ff8a80"), show_observation, false)
+	_observation_info.text = "RED: fixed observation\nHATCH: possible patrols\nUnshaded does not mean safe."
+	if _observation_layer.is_building_coverage():
+		_observation_info.text += "\nCalculating coverage..."
+
+func _refresh_weather() -> void:
+	if _weather_button == null:
+		return
+	var show_weather := _weather_button.button_pressed
+	_weather_layer.visible = show_weather
+	_overview_weather_layer.visible = show_weather
+	_weather_info.visible = show_weather
+	_weather_layer.queue_redraw()
+	_overview_weather_layer.queue_redraw()
+	_style_button(_weather_button, VECTOR_AMBER_COLOR, show_weather, false)
+	var director := get_tree().get_first_node_in_group("weather_director")
+	var report := "WEATHER UNAVAILABLE"
+	if director != null and director.has_method("get_snapshot"):
+		var state: Dictionary = director.get_snapshot()
+		var wind: Vector3 = state.get("wind_mps", Vector3.ZERO)
+		report = "%s  WIND %d m/s\nVIS ~%.1f km  TURB %.1fx\nDUST %d-%d m over deck\nRISK INDEX D%02d T%02d E%02d" % [
+			str(state.get("regime", "")), roundi(wind.length()),
+			float(state.get("visibility_m", 0.0)) / 1000.0,
+			float(state.get("turbulence", 1.0)),
+			roundi(float(state.get("dust_lower_m", 0.0))),
+			roundi(float(state.get("dust_upper_m", 0.0))),
+			roundi(float(state.get("dust_risk", 0.0)) * 100.0),
+			roundi(float(state.get("twister_risk", 0.0)) * 100.0),
+			roundi(float(state.get("electrical_risk", 0.0)) * 100.0)]
+	var twister_active := false
+	for twister in get_tree().get_nodes_in_group("twister"):
+		if twister.enabled and twister.initialized and twister.strength > 0.01:
+			twister_active = true
+			break
+	var front := get_tree().get_first_node_in_group("dust_front") as Node3D
+	if front != null and front.enabled and front.initialized and front.strength > 0.01:
+		report += "\nDUST STORM %d/5: ~%d m" % [front.get_severity(), roundi(3.912 / front.get_extinction())]
+	if twister_active:
+		report += "\nTWISTER ACTIVE"
+	for storm in get_tree().get_nodes_in_group("electrical_storm"):
+		if storm.active:
+			report += "\nELECTRICAL STORM ACTIVE"
+			break
+	_weather_info.text = report
 
 func _refresh_asset_button_states() -> void:
 	if _carrier_button != null:
@@ -960,6 +1146,10 @@ func _refresh_mission_button_states() -> void:
 	_style_cancel_button(_cancel_button.disabled)
 
 func _refresh_info_panel() -> void:
+	if is_instance_valid(_selected_outpost) and _selected_mission_id.is_empty():
+		_info_body.text = _observation_layer.get_outpost_description(_selected_outpost)
+		_command_prompt.text = "CMD> OUTPOST INTELLIGENCE"
+		return
 	var status := _get_selected_asset_status()
 	if status.is_empty():
 		_info_body.text = "No asset selected.\n\nPick the Carrier, a flight, or a platoon on the left, then choose a mission and use the map to place its target."
@@ -1137,6 +1327,7 @@ func _layout_mission_popup() -> void:
 
 
 func _select_asset(kind: AssetKind, asset_name: String, source_button: Button) -> void:
+	_selected_outpost = null
 	_clear_command_error()
 	_selected_asset_kind = kind
 	_selected_asset_name = asset_name
@@ -1149,6 +1340,7 @@ func _select_asset(kind: AssetKind, asset_name: String, source_button: Button) -
 	_show_mission_popup(source_button)
 
 func _begin_mission_draft(mission_id: String) -> void:
+	_selected_outpost = null
 	if _selected_asset_kind == AssetKind.NONE or _selected_asset_name.is_empty():
 		return
 	_clear_command_error()
@@ -1193,6 +1385,8 @@ func _confirm_flight_order() -> void:
 			if _draft_points.is_empty():
 				return
 			AirOpsManager.order_cas(_selected_asset_name, _draft_points[0], FLIGHT_CAS_RADIUS_M)
+		"AUTO":
+			AirOpsManager.release_to_automatic(_selected_asset_name)
 		"RTB":
 			AirOpsManager.order_rtb(_selected_asset_name)
 
@@ -1214,6 +1408,8 @@ func _confirm_platoon_order() -> void:
 			GroundOpsManager.order_escort(_selected_asset_name)
 		"HOLD":
 			GroundOpsManager.order_hold(_selected_asset_name)
+		"AUTO":
+			GroundOpsManager.release_to_automatic(_selected_asset_name)
 		"RTB":
 			GroundOpsManager.order_rtb(_selected_asset_name)
 
@@ -1269,8 +1465,9 @@ func _on_map_gui_input(event: InputEvent) -> void:
 		return
 	if _selected_mission_id.is_empty() and _try_open_pending_poi(event):
 		return
+	if _selected_mission_id.is_empty() and _try_select_outpost(event):
+		return
 	if not _mission_requires_target(_selected_mission_id):
-		_handle_map_mouse_zoom(event)
 		return
 	if event is InputEventMouseButton and event.pressed and not event.double_click:
 		var mouse_event := event as InputEventMouseButton
@@ -1316,8 +1513,24 @@ func _on_map_gui_input(event: InputEvent) -> void:
 			_refresh_ui()
 			get_viewport().set_input_as_handled()
 			return
-	_handle_map_mouse_zoom(event)
 
+
+func _try_select_outpost(event: InputEvent) -> bool:
+	if not event is InputEventMouseButton or not event.pressed or event.button_index != MOUSE_BUTTON_LEFT:
+		return false
+	var closest: EnemyOutpost
+	var distance := 20.0
+	for station in get_tree().get_nodes_in_group("enemy_outposts"):
+		if not station is EnemyOutpost or not _is_world_explored(station.global_position): continue
+		var pixels := _world_to_map_local(station.global_position).distance_to(event.position)
+		if pixels < distance:
+			distance = pixels
+			closest = station
+	_selected_outpost = closest
+	_refresh_ui()
+	if closest == null: return false
+	get_viewport().set_input_as_handled()
+	return true
 
 func _on_map_mouse_exited() -> void:
 	_map_hover_active = false
@@ -1339,6 +1552,8 @@ func _update_map_hover_readout(local_pos: Vector2) -> void:
 		"GRID %s // ZOOM %.2fX // ELEV: %.0f M // GRADE: %.0f DEG\n" % [grid_reference, _map_zoom, world_pos.y, grade_degrees]
 		+ "MOBILITY: %s" % mobility_label
 	)
+	if _observation_button.button_pressed:
+		_map_meta.text += "\nEXPOSURE: " + _observation_layer.get_exposure_status(world_pos)
 
 
 func _format_map_grid_reference(local_pos: Vector2) -> String:
@@ -1396,7 +1611,8 @@ func _get_selected_mission_specs() -> Array[Dictionary]:
 			return [
 				{"id": "CAP", "label": "> CAP", "accent": VECTOR_TEXT_COLOR},
 				{"id": "CAS", "label": "> CAS", "accent": VECTOR_AMBER_COLOR},
-				{"id": "INTERDICTION", "label": "> INTERDICTION", "accent": VECTOR_STATUS_COLOR, "supported": false},
+				{"id": "RTB", "label": "> RECALL / RTB", "accent": VECTOR_AMBER_COLOR},
+				{"id": "AUTO", "label": "> RELEASE TO AIROPS", "accent": VECTOR_STATUS_COLOR},
 				{"id": "STRIKE", "label": "> STRIKE", "accent": VECTOR_AMBER_COLOR, "supported": false},
 				{"id": "ESCORT", "label": "> ESCORT", "accent": VECTOR_TEXT_COLOR, "supported": false},
 			]
@@ -1410,6 +1626,7 @@ func _get_selected_mission_specs() -> Array[Dictionary]:
 				{"id": "ESCORT", "label": "> ESCORT", "accent": VECTOR_TEXT_COLOR},
 				{"id": "RTB", "label": "> RTB", "accent": VECTOR_AMBER_COLOR},
 				{"id": "HOLD", "label": "> HOLD", "accent": VECTOR_STATUS_COLOR},
+				{"id": "AUTO", "label": "> RELEASE TO GROUNDOPS", "accent": VECTOR_STATUS_COLOR},
 			]
 		AssetKind.CARRIER:
 			return [
@@ -1603,8 +1820,8 @@ func _format_asset_info(status: Dictionary) -> String:
 	if status.get("kind", "") == "flight":
 		lines.append("TYPE: FLIGHT")
 		lines.append("MISSION: %s" % status.get("mission", "NONE"))
-		lines.append("ROLE: %s" % status.get("role", "STANDBY"))
-		lines.append("STATE: %s" % status.get("lead_state", "INACTIVE"))
+		lines.append("ORDERS: %s" % str(status.get("order_source", "automatic")).to_upper())
+		lines.append("STATE: %s | READY %d/%d" % [status.get("phase", "INACTIVE"), int(status.get("ready_count", 0)), int(status.get("strength", 0))])
 		lines.append("STRENGTH: %d" % int(status.get("strength", 0)))
 	else:
 		lines.append("TYPE: PLATOON")

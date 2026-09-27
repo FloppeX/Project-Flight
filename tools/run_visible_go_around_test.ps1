@@ -18,7 +18,7 @@ $paths = @('AI/AIPilot.gd', 'AI/LandingSight.gd', 'Aircraft/aircraft.gd', 'Aircr
     'LandCarrier/ArrestingCable.gd', 'LandCarrier/arresting_cable.tscn',
     'LandCarrier/LandCarrier2.tscn', 'LandCarrier/LandCarrier.gd', 'LandCarrier/FlightDeckManager.gd',
     'LandCarrier/CarrierCollisionSetup.gd', 'Environment/LowPolyTerrain.gd',
-    'Main_Scene.tscn', 'project.godot', 'Models/LandCarrier/Land carrier 3.glb',
+    'Main_Scene.tscn', 'project.godot', 'Models/LandCarrier/Land carrier 4.glb',
     'addons/simplified_flightsim/aircraft_modules/Flaps/flaps.gd')
 $manifest = @(foreach ($path in $paths) {
     $source = Join-Path $projectPath $path

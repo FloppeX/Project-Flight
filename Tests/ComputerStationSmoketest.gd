@@ -51,7 +51,7 @@ func _run() -> void:
 	var second_screen := second_station.find_child("computer console screen", true, false) as MeshInstance3D
 	_expect(first_screen != null and second_screen != null, "multi-station screen meshes are unavailable")
 	if first_screen != null and second_screen != null:
-		_expect(first_screen.material_override == second_screen.material_override, "stations do not share one tactical viewport material")
+		_expect(first_screen.material_override.get_shader_parameter("tactical_texture") == second_screen.material_override.get_shader_parameter("tactical_texture"), "stations do not share one tactical viewport texture")
 	var world_map := root.get_node_or_null("WorldMapOverlay")
 	var world_map_root := world_map.get("_root") as Control if world_map != null else null
 	_expect(world_map_root != null, "WorldMapOverlay control root is unavailable")

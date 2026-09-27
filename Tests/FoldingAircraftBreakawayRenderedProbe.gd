@@ -2,9 +2,9 @@ extends SceneTree
 
 const OUTPUT := "res://captures/folding_aircraft_breakaway"
 const SOURCES := {
-	1: "res://Models/Aircraft_1/Aircraft_1.glb",
+	1: "res://Models/Aircraft_1/aircraft 1.glb",
 	2: "res://Models/Aircraft_2/aircraft 2 body.glb",
-	5: "res://Models/Aircraft_5/aircraft_5.glb",
+	5: "res://Models/Aircraft_5/aircraft 5 with control surfaces.glb",
 }
 var world: Node3D
 var camera: Camera3D
@@ -52,7 +52,8 @@ func run() -> void:
 		model.free()
 		if "--original-only" in OS.get_cmdline_user_args():
 			continue
-		model = (load("res://Models/Aircraft_%d/aircraft_%d_breakaway.glb" % [number, number]) as PackedScene).instantiate() as Node3D
+		var derivative := "res://Models/Aircraft_5/aircraft_5_control_surfaces_rigged.glb" if number == 5 else "res://Models/Aircraft_%d/aircraft_%d_breakaway.glb" % [number, number]
+		model = (load(derivative) as PackedScene).instantiate() as Node3D
 		world.add_child(model)
 		camera.size = 18.0 if number == 2 else 14.5
 		camera.position = Vector3(10, 11, 14)
@@ -85,6 +86,11 @@ func run() -> void:
 		fold.call("set_technical_index_preview_fraction", 1.0)
 		await capture("%d_06_folded" % number)
 		fold.call("set_technical_index_preview_fraction", 0.0)
+		if number == 5:
+			var controls := aircraft.get_node("MovingParts")
+			controls.apply_control_surface_inputs(1.0, 1.0, 1.0)
+			await capture("5_08_controls_deflected")
+			controls.apply_control_surface_inputs(0.0, 0.0, 0.0)
 		var damage := aircraft.get_node("PartDamageModel")
 		for zone: StringName in [&"left_wing", &"right_wing", &"horizontal_stabilizer", &"vertical_stabilizer"]:
 			damage.call("damage_zone", zone, damage.call("get_zone_max_health", zone))

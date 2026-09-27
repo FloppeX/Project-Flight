@@ -1,9 +1,8 @@
 extends SceneTree
-## Verifies the shared cockpit pilot freezes the runtime piloting clip into a
-## seated editor pose, allowing per-aircraft placement against the real mesh.
+## Verifies the editor shows the imported seated mesh pose, allowing
+## per-aircraft placement against the real character.
 
 const COCKPIT_PILOT_SCENE := preload("res://Aircraft/CockpitPilot.tscn")
-const EXPECTED_PREVIEW_TIME_S := 1.5
 
 
 func _initialize() -> void:
@@ -22,14 +21,14 @@ func _run() -> void:
 	await process_frame
 
 	var pooled_visual := pilot.call("get_pilot_visual") as Node3D
-	var player := pooled_visual.get_node_or_null("BakedAnimationPlayer") as AnimationPlayer \
+	var player := pooled_visual.get_node_or_null("Pilot/AnimationPlayer") as AnimationPlayer \
 			if pooled_visual != null else null
 	if player == null:
 		_fail("cockpit mount has no editor-preview pilot")
 		return
-	if player.assigned_animation != "piloting":
+	if player.assigned_animation != "rigAction":
 		_fail(
-			"editor preview did not sample the piloting clip "
+			"editor preview did not retain the imported seated pose "
 			+ "(configured=%s assigned=%s position=%.3f)"
 			% [
 				pilot.get("initial_baked_animation"),
@@ -40,12 +39,6 @@ func _run() -> void:
 		return
 	if player.is_playing():
 		_fail("editor preview was left playing instead of frozen")
-		return
-	if absf(player.current_animation_position - EXPECTED_PREVIEW_TIME_S) > 0.02:
-		_fail(
-			"editor preview sampled %.3fs instead of %.3fs"
-			% [player.current_animation_position, EXPECTED_PREVIEW_TIME_S]
-		)
 		return
 	var skeleton := pooled_visual.find_child("Skeleton3D", true, false) as Skeleton3D
 	if skeleton == null:
@@ -58,10 +51,7 @@ func _run() -> void:
 		_fail("editor preview left the skeleton near its rest pose")
 		return
 
-	print(
-		"[CockpitPilotEditorPreviewSmoketest] PASS clip=piloting "
-		+ "time=%.2fs frozen=true" % player.current_animation_position
-	)
+	print("[CockpitPilotEditorPreviewSmoketest] PASS clip=rigAction frozen=true")
 	quit(0)
 
 

@@ -42,7 +42,7 @@ func _run() -> void:
 			_fail("graphics menu was missing %s" % graphics_key)
 			return
 	var gameplay_buttons: Dictionary = pause_menu.get("_gameplay_buttons")
-	for gameplay_key in ["flight_model", "stick_deadzone", "controller_menu_cursor", "look_sensitivity", "invert_look_y", "camera_motion", "camera_fov"]:
+	for gameplay_key in ["flight_model", "stick_deadzone", "controller_menu_cursor", "look_sensitivity", "invert_look_y", "camera_motion", "camera_fov", "opentrack", "opentrack_smoothing"]:
 		if not gameplay_buttons.has(gameplay_key) or not (gameplay_buttons[gameplay_key] is Button):
 			_fail("gameplay menu was missing %s" % gameplay_key)
 			return

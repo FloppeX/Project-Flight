@@ -28,6 +28,12 @@ class_name AircraftModule_ControlSteering
 @export var rudder_assist_manual_override_start: float = 0.05
 @export var rudder_assist_manual_override_full: float = 0.30
 @export var rudder_assist_reengagement_speed: float = 5.0  # Full automatic authority returns in about 0.2 s after release
+@export var rudder_assist_integral_gain: float = 0.45
+@export var rudder_assist_integral_limit: float = 0.8
+@export var rudder_assist_adaptive_response_enabled: bool = true
+@export var rudder_assist_reference_yaw_rate: float = 0.125 # rad/s per full rudder, established Aircraft 5 tuning
+@export var rudder_assist_error_rate_damping: float = 0.25
+@export var rudder_assist_integral_unwind_multiplier: float = 3.0
 @export_group("Simplified Fixed-Wing Assist")
 @export var simplified_rudder_assist_gain: float = 2.25
 @export var simplified_rudder_assist_max_input: float = 1.0
@@ -47,6 +53,9 @@ class_name AircraftModule_ControlSteering
 @export var helicopter_rudder_assist_center_deadzone: float = 0.12
 @export var helicopter_rudder_assist_manual_override_start: float = 0.02
 @export var helicopter_rudder_assist_manual_override_full: float = 0.16
+@export var helicopter_rudder_assist_roll_feedforward: float = 0.25
+@export var helicopter_rudder_assist_lateral_velocity_gain: float = 0.55
+@export var helicopter_rudder_assist_min_reference_speed: float = 8.0
 @export var helicopter_rudder_assist_min_forward_speed: float = 8.0
 @export var helicopter_rudder_assist_full_forward_speed: float = 32.0
 
@@ -58,6 +67,10 @@ var _filtered_lateral_g: float = 0.0
 var _previous_velocity: Vector3 = Vector3.ZERO
 var _has_previous_velocity: bool = false
 var _filtered_assist_yaw: float = 0.0
+var _rudder_integral: float = 0.0
+var _previous_assist_error: float = 0.0
+var _filtered_assist_error_rate: float = 0.0
+var _has_assist_error: bool = false
 var _fixed_wing_auto_rudder_authority: float = 1.0
 var _simple_aero_has_control_envelope: bool = false
 
@@ -80,6 +93,7 @@ var telemetry_rudder_assist_limit: float = 0.0
 var telemetry_rudder_assist_stiffening: float = 0.0
 
 func setup(aircraft_node: Node) -> void:
+	_reset_rudder_assist_state()
 	aircraft = aircraft_node
 
 	# Grab the steering module provided by the addon
@@ -98,6 +112,7 @@ func setup(aircraft_node: Node) -> void:
 
 func _physics_process(delta: float) -> void:
 	if (not ControlActive) or (steering_module == null):
+		_reset_rudder_assist_state()
 		return
 
 	var advanced_fixed_wing := not _is_helicopter_controls and _is_advanced_fixed_wing_model()
@@ -126,7 +141,7 @@ func _physics_process(delta: float) -> void:
 		advanced_yaw_expo,
 		_get_advanced_fixed_wing_deadzone()
 	) if advanced_fixed_wing else _shape_input(yaw_raw)
-	var assisted_yaw := _apply_rudder_assist(yaw, delta)
+	var assisted_yaw := _apply_rudder_assist(yaw, delta, roll)
 	telemetry_shaped_roll = roll
 	telemetry_shaped_pitch = pitch
 	telemetry_shaped_yaw = yaw
@@ -179,7 +194,7 @@ func _get_advanced_fixed_wing_deadzone() -> float:
 	return 0.05
 
 
-func _apply_rudder_assist(manual_yaw: float, delta: float) -> float:
+func _apply_rudder_assist(manual_yaw: float, delta: float, roll_command: float = 0.0) -> float:
 	var assist_strength := _get_rudder_assist_strength(_is_helicopter_controls)
 	telemetry_rudder_assist_strength = assist_strength
 	if assist_strength <= 0.0 or aircraft == null or not is_instance_valid(aircraft) or not (aircraft is RigidBody3D):
@@ -224,24 +239,58 @@ func _apply_rudder_assist(manual_yaw: float, delta: float) -> float:
 
 	var basis := (aircraft as Node3D).global_transform.basis.orthonormalized()
 	var yaw_rate := 0.0
+	var helicopter_speed_factor := 1.0
 	if aircraft is RigidBody3D:
 		yaw_rate = (aircraft as RigidBody3D).angular_velocity.dot(basis.y)
-		if _is_helicopter_controls:
-			var local_velocity := basis.inverse() * (aircraft as RigidBody3D).linear_velocity
-			var forward_speed := absf(local_velocity.z)
-			assist_strength *= _smoothstep(
-				helicopter_rudder_assist_min_forward_speed,
-				maxf(helicopter_rudder_assist_full_forward_speed, helicopter_rudder_assist_min_forward_speed + 0.1),
-				forward_speed
-			)
-	telemetry_rudder_assist_strength = assist_strength
 
-	# SimpleAero flies along local +Z, so positive local-X sideslip needs a
-	# positive yaw command to turn the nose into the relative wind. Keep the
-	# legacy sign for Simplified and helicopters, whose existing force-based
-	# slip signal and control convention are intentionally unchanged.
+	# Fixed-wing uses its existing slip-ball feedback below. Helicopters replace
+	# this target with rotor-roll feed-forward and measured lateral airspeed.
 	var slip_correction := slip_error * gain if advanced_fixed_wing else -slip_error * gain
+	if advanced_fixed_wing and rudder_assist_adaptive_response_enabled:
+		# Existing high-speed protection already reduces feedback and disables trim.
+		# Fade out the extra gain reduction as that protection takes over.
+		var response_scale := lerpf(_get_rudder_response_gain_scale(), 1.0,
+			_smoothstep(0.0, 0.15, fixed_wing_stiffening))
+		var error_rate := (slip_error - _previous_assist_error) / maxf(delta, 0.001) if _has_assist_error else 0.0
+		_filtered_assist_error_rate = lerpf(_filtered_assist_error_rate, error_rate, 1.0 - exp(-maxf(delta, 0.0) / 0.15))
+		_previous_assist_error = slip_error
+		_has_assist_error = true
+		# The derivative anticipates slip reaching centre; it does not oppose a
+		# steady coordinated turn merely because the aircraft has a yaw rate.
+		slip_correction = (slip_correction + _filtered_assist_error_rate * rudder_assist_error_rate_damping) * response_scale
 	var target_assist := slip_correction - yaw_rate * yaw_rate_damping
+	if _is_helicopter_controls:
+		var local_velocity := basis.inverse() * _get_control_air_velocity()
+		helicopter_speed_factor = _smoothstep(
+			helicopter_rudder_assist_min_forward_speed,
+			maxf(helicopter_rudder_assist_full_forward_speed,
+				helicopter_rudder_assist_min_forward_speed + 0.1),
+			absf(local_velocity.z)
+		)
+		var reference_speed := maxf(absf(local_velocity.z), helicopter_rudder_assist_min_reference_speed)
+		var lateral_error := clampf(local_velocity.x / reference_speed, -1.0, 1.0)
+		# HelicopterFlight negates the shaped roll command before tilting its rotor.
+		# Feed yaw toward that lateral thrust immediately, then follow the actual
+		# sideways movement as it builds. Pedals retain the existing override.
+		target_assist = -roll_command * helicopter_rudder_assist_roll_feedforward \
+			+ lateral_error * helicopter_rudder_assist_lateral_velocity_gain \
+			- yaw_rate * yaw_rate_damping
+		telemetry_rudder_slip_error = lateral_error
+	if advanced_fixed_wing:
+		var bank := atan2(basis.x.y, basis.y.y)
+		var speed := _get_control_air_velocity().length()
+		var can_accumulate: bool = assist_strength > 0.99 and fixed_wing_stiffening < 0.05 \
+			and absf(manual_yaw) < 0.05 and absf(bank) > deg_to_rad(5.0) \
+			and basis.y.y > 0.25 and speed > float(simple_aero.get("stall_speed")) * 1.2 \
+			and simple_aero.call("_is_airborne_for_stall_effects")
+		# Positive bank requires negative yaw for this aircraft's +Z forward axis.
+		# Release stored turn trim on rollout/reversal or pedal takeover.
+		if _rudder_integral * bank > 0.0:
+			can_accumulate = false
+		var ball_error := -_filtered_lateral_g / maxf(rudder_assist_full_deflection_lateral_g, 0.05)
+		target_assist += _update_rudder_integral(ball_error, target_assist, max_input, can_accumulate, delta)
+	else:
+		_rudder_integral = 0.0
 	target_assist = clampf(
 		target_assist,
 		-max_input,
@@ -251,11 +300,15 @@ func _apply_rudder_assist(manual_yaw: float, delta: float) -> float:
 
 	var response_t := clampf(delta * maxf(response_speed, 0.1), 0.0, 1.0)
 	_filtered_assist_yaw = lerpf(_filtered_assist_yaw, target_assist, response_t)
-	telemetry_rudder_filtered_assist = _filtered_assist_yaw
+	var available_assist := _filtered_assist_yaw * helicopter_speed_factor \
+		if _is_helicopter_controls else _filtered_assist_yaw
+	telemetry_rudder_filtered_assist = available_assist
+	if _is_helicopter_controls:
+		telemetry_rudder_assist_strength = assist_strength * helicopter_speed_factor
 
 	var assisted_yaw := _blend_legacy_manual_rudder_override(
 		manual_yaw,
-		_filtered_assist_yaw,
+		available_assist,
 		manual_override_start,
 		manual_override_full
 	) if _is_helicopter_controls else _blend_fixed_wing_manual_rudder_priority(
@@ -268,13 +321,45 @@ func _apply_rudder_assist(manual_yaw: float, delta: float) -> float:
 	return assisted_yaw
 
 
+func _update_rudder_integral(error: float, proportional: float, limit: float, enabled: bool, delta: float) -> float:
+	if not enabled or rudder_assist_integral_gain <= 0.0:
+		_rudder_integral = move_toward(_rudder_integral, 0.0, 2.0 * delta)
+		return _rudder_integral
+	# Conditional integration prevents accumulating against a saturated command.
+	# Opposite error can always unwind the stored correction.
+	var total := proportional + _rudder_integral
+	if absf(error) > 0.025 and (absf(total) < limit or error * total < 0.0):
+		var integral_step := error * rudder_assist_integral_gain * delta
+		if rudder_assist_adaptive_response_enabled and error * _rudder_integral < 0.0:
+			# Remove stale trim faster, without jumping through zero and creating
+			# a new opposite trim demand in the same step.
+			integral_step = signf(integral_step) * minf(absf(_rudder_integral),
+				absf(integral_step) * maxf(rudder_assist_integral_unwind_multiplier, 1.0))
+		_rudder_integral = clampf(_rudder_integral + integral_step,
+			-minf(limit, rudder_assist_integral_limit), minf(limit, rudder_assist_integral_limit))
+	return _rudder_integral
+
+
+func _get_rudder_response_gain_scale() -> float:
+	if not is_instance_valid(simple_aero) or not simple_aero.has_method("get_rate_damping_factor_at_speed"):
+		return 1.0
+	var speed := _get_control_air_velocity().length()
+	var authority := float(simple_aero.get_axis_control_authority_at_speed(speed, &"yaw"))
+	var damping := float(simple_aero.get_rate_damping_factor_at_speed(speed))
+	var maximum_rate := absf(float(simple_aero.yaw_power)) * authority \
+		/ maxf(float(simple_aero.angular_damping_strength) * damping, 0.001)
+	# Reduce feedback gain on more responsive aircraft, without increasing gain
+	# on a weak/stalled rudder or changing the available manual surface travel.
+	return clampf(rudder_assist_reference_yaw_rate / maxf(maximum_rate, 0.001), 0.2, 1.0)
+
+
 func _estimate_slip_ball_error(delta: float, use_helicopter_tuning: bool) -> float:
 	var rb := aircraft as RigidBody3D
 	if rb == null:
 		return 0.0
 	var velocity: Vector3 = rb.linear_velocity
 	var basis := rb.global_transform.basis.orthonormalized()
-	var local_velocity: Vector3 = basis.inverse() * velocity
+	var local_velocity: Vector3 = basis.inverse() * _get_control_air_velocity()
 	var reference_speed := maxf(absf(local_velocity.z), 20.0)
 	var velocity_slip := clampf(local_velocity.x / reference_speed, -1.0, 1.0)
 
@@ -357,10 +442,15 @@ func _get_fixed_wing_rudder_stiffening() -> float:
 			]):
 		var start_speed := maxf(float(simple_aero.get("control_stiffening_start_speed_mps")), 0.0)
 		var vne := maxf(float(simple_aero.get("never_exceed_speed_mps")), start_speed + 0.1)
-		var speed := (aircraft as RigidBody3D).linear_velocity.length()
+		var speed := _get_control_air_velocity().length()
 		stiffening = maxf(stiffening, _smoothstep(start_speed, vne, speed))
 	return stiffening
 
+
+func _get_control_air_velocity() -> Vector3:
+	if aircraft.has_method("get_air_relative_velocity"):
+		return aircraft.call("get_air_relative_velocity")
+	return (aircraft as RigidBody3D).linear_velocity
 
 func _get_fixed_wing_slip_ball_scale() -> float:
 	return 1.0 - _get_fixed_wing_rudder_stiffening()
@@ -438,6 +528,10 @@ func _get_rudder_assist_strength(use_helicopter_setting: bool) -> float:
 
 
 func _reset_rudder_assist_state() -> void:
+	_has_assist_error = false
+	_previous_assist_error = 0.0
+	_filtered_assist_error_rate = 0.0
+	_rudder_integral = 0.0
 	_filtered_lateral_g = 0.0
 	_filtered_assist_yaw = 0.0
 	_fixed_wing_auto_rudder_authority = 1.0

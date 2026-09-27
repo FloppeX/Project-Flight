@@ -59,6 +59,7 @@ const DOWNED_PILOT_OUTLINE_COLOR: Color = Color(0.03, 0.03, 0.03, 0.92)
 @export var counter_font_size_px: int = 14
 @export var show_contact_counters: bool = true
 @export var show_plant_patches: bool = true
+var show_outpost_range_estimates := true
 @export var plant_patch_marker_size_px: float = 12.0
 
 var _counts_label: Label
@@ -158,6 +159,8 @@ func _draw() -> void:
 				continue
 			if node_3d == carrier:
 				continue
+			if node_3d is EnemyOutpost:
+				continue # Station markers and coverage are drawn together below.
 			var is_enemy: bool = _is_enemy_node(node_3d)
 			if is_enemy and not _is_world_explored(node_3d.global_position):
 				continue
@@ -185,6 +188,7 @@ func _draw() -> void:
 		var map_pos: Vector2 = _world_to_map(platoon_pos)
 		_draw_square_marker(map_pos, platoon_marker_size_px, platoon_color, true)
 	_draw_enemy_bases()
+	_draw_enemy_outposts()
 	_draw_enemy_virtual_platoons()
 	_draw_poi_markers()
 	_draw_selection_route()
@@ -741,6 +745,33 @@ func _draw_enemy_bases() -> void:
 			var alpha := 0.50 if flight.vstate == EnemyVirtualFlight.VState.VIRTUAL else 1.0
 			var fc    := Color(color.r, color.g, color.b, alpha)
 			draw_colored_polygon(PackedVector2Array([tip, bl, br]), fc)
+
+
+func _draw_enemy_outposts() -> void:
+	for station in get_tree().get_nodes_in_group("enemy_outposts"):
+		if not station is EnemyOutpost or not _is_world_explored(station.global_position):
+			continue
+		if not _is_world_in_map_bounds(station.global_position):
+			continue
+		var mp := _world_to_map(station.global_position)
+		var color := Color("92908a") if station.is_destroyed else enemy_color
+		if not station.is_destroyed and show_outpost_range_estimates:
+			# A dashed maximum-range estimate, not a claim of visibility through hills.
+			for segment in range(32):
+				var arc := PackedVector2Array()
+				for step in range(4):
+					var angle := TAU * (float(segment) + float(step) / 5.0) / 32.0
+					var world: Vector3 = station.global_position + Vector3(cos(angle), 0, sin(angle)) * station.observation_radius_m
+					arc.append(_world_to_map(world))
+				draw_polyline(arc, Color(color, 0.3), 1.0, true)
+		_draw_square_marker(mp, building_marker_size_px + 3.0, color, false)
+		var label: String = station.outpost_id + ("  OFFLINE" if station.is_destroyed else "  OBSERVATION ~%.0f km" % (station.observation_radius_m / 1000.0))
+		draw_string(DATA_FONT, mp + Vector2(13, -7), label, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, color)
+		if station.is_destroyed:
+			draw_line(mp - Vector2(6, 6), mp + Vector2(6, 6), color, 1.5)
+			draw_string(DATA_FONT, mp + Vector2(13, 9), "Observation / patrol replacements lost", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, color)
+		elif not station.can_support_patrols():
+			draw_string(DATA_FONT, mp + Vector2(13, 9), "Vehicle bay lost / no replacement patrols", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, color)
 
 
 func _draw_enemy_virtual_platoons() -> void:

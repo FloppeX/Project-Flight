@@ -516,6 +516,11 @@ func capture_save_state() -> Dictionary:
 		"active_waypoints": get_active_waypoints(),
 		"player_route_active": _player_route_active,
 	}
+	var station_pages := {}
+	for station in get_tree().get_nodes_in_group("computer_station"):
+		if is_ancestor_of(station) and station.has_method("get_remembered_page"):
+			station_pages[str(get_path_to(station))] = station.get_remembered_page()
+	state["computer_station_pages"] = station_pages
 	var loadout := get_node_or_null("CarrierDefenseLoadout")
 	if loadout != null:
 		state["defense_loadout"] = loadout.call("capture_save_state")
@@ -528,6 +533,13 @@ func capture_save_state() -> Dictionary:
 func restore_save_state(state: Dictionary) -> bool:
 	if state.is_empty():
 		return false
+	var station_pages: Variant = state.get("computer_station_pages", {})
+	if station_pages is Dictionary:
+		for station in get_tree().get_nodes_in_group("computer_station"):
+			if is_ancestor_of(station) and station.has_method("set_remembered_page"):
+				var station_path := str(get_path_to(station))
+				if station_pages.has(station_path):
+					station.set_remembered_page(str(station_pages[station_path]))
 	var damage_control := get_node_or_null("CarrierDamageControl")
 	if damage_control != null and state.get("damage_control") is Dictionary:
 		if not damage_control.call("restore_save_state", state.damage_control):

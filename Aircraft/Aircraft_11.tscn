@@ -57,6 +57,9 @@ radius = 4.868164
 [sub_resource type="BoxShape3D" id="BoxShape3D_0gu2e"]
 size = Vector3(0.23223877, 0.21679688, 2.8190918)
 
+[sub_resource type="BoxShape3D" id="BoxShape3D_skid_contact"]
+size = Vector3(0.23223877, 0.21679688, 0.24)
+
 [node name="Aircraft_11" type="RigidBody3D" unique_id=1609503509]
 collision_layer = 513
 collision_mask = 513
@@ -179,6 +182,22 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.2158446, -2.1326714, 1.9545
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.2158446, -2.025064, 0.5510266)
 shape = SubResource("BoxShape3D_0gu2e")
 
+[node name="RightRearSkidContact" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.216197, -2.025064, -0.78)
+shape = SubResource("BoxShape3D_skid_contact")
+
+[node name="RightFrontSkidContact" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.216197, -2.025064, 1.88)
+shape = SubResource("BoxShape3D_skid_contact")
+
+[node name="LeftRearSkidContact" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.2158446, -2.025064, -0.78)
+shape = SubResource("BoxShape3D_skid_contact")
+
+[node name="LeftFrontSkidContact" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.2158446, -2.025064, 1.88)
+shape = SubResource("BoxShape3D_skid_contact")
+
 [node name="EnergyContainer" parent="." unique_id=1127279281 instance=ExtResource("7_energy")]
 
 [node name="Engine" parent="." unique_id=1819551411 instance=ExtResource("8_engine")]
@@ -199,10 +218,11 @@ PowerFactor = 0.0
 
 [node name="Flaps" parent="." unique_id=1129245514 instance=ExtResource("12_flaps")]
 
-[node name="LandingGear" parent="." unique_id=238043636 node_paths=PackedStringArray("gear_collision_shapes", "gear_visuals") instance=ExtResource("13_gear")]
+[node name="LandingGear" parent="." unique_id=238043636 node_paths=PackedStringArray("gear_collision_shapes", "auxiliary_safe_collision_shapes", "gear_visuals") instance=ExtResource("13_gear")]
 lock_deployed = true
-gear_collision_shapes = [NodePath("../LeftGearCollider"), NodePath("../RightGearCollider")]
-gear_visuals = [null, null]
+gear_collision_shapes = [NodePath("../RightRearSkidContact"), NodePath("../RightFrontSkidContact"), NodePath("../LeftRearSkidContact"), NodePath("../LeftFrontSkidContact")]
+auxiliary_safe_collision_shapes = [NodePath("../LeftGearCollider"), NodePath("../RightGearCollider")]
+gear_visuals = [null, null, null, null]
 InitialState = 1
 DeployStowTime = 2.0
 DeploySound = ExtResource("14_gear_deploy")
@@ -214,9 +234,11 @@ max_compression = 0.28
 deck_contact_visual_offset_m = 0.25
 move_colliders_with_suspension = true
 use_accel_lean = false
-rear_gear_indices = Array[int]([0, 1])
+nose_gear_index = 1
+front_gear_indices = Array[int]([1, 3])
+rear_gear_indices = Array[int]([0, 2])
 nose_wheel_taxi_steering_enabled = false
-carrier_deck_follow_min_wheels = 2
+carrier_deck_follow_min_wheels = 3
 
 [node name="ControlEngine" parent="." unique_id=1520295740 instance=ExtResource("16_ctl_engine")]
 

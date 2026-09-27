@@ -30,9 +30,34 @@ func _ready() -> void:
 				absf(authored_aero.actual_yaw_control - authored_aero.actual_roll_control * 0.25) < 0.001,
 				"Aircraft_5 small-roll autorudder did not follow physical aileron travel"
 			)
+			# Opposing aileron coordination must yield to explicit rudder, including
+			# the slip controller's full correction during a roll reversal.
+			for direction in [-1.0, 1.0]:
+				authored_aero.roll_input = -direction
+				authored_aero.yaw_input = direction
+				authored_aero._update_control_envelope(
+					1.0, 82.0, 82.0, authored_aero.stall_speed, 0.0,
+					Vector3(0.0, 0.0, 82.0)
+				)
+				_expect(
+					absf(authored_aero.actual_yaw_control - direction) < 0.001,
+					"opposing roll coordination reduced full explicit rudder"
+				)
 		aircraft.free()
 
 	var controls := AircraftModule_ControlSteering.new()
+	for step in range(120):
+		controls._update_rudder_integral(0.4, 0.2, 1.0, true, 1.0 / 60.0)
+	_expect(controls._rudder_integral > 0.3, "persistent ball displacement did not build turn correction")
+	var stored := controls._rudder_integral
+	for step in range(120):
+		controls._update_rudder_integral(0.4, 1.0, 1.0, true, 1.0 / 60.0)
+	_expect(absf(controls._rudder_integral - stored) < 0.001, "saturated rudder accumulated windup")
+	controls._update_rudder_integral(-0.4, 1.0, 1.0, true, 0.1)
+	_expect(controls._rudder_integral < stored, "opposite error could not unwind saturated correction")
+	controls._update_rudder_integral(0.4, 0.2, 1.0, false, 0.5)
+	_expect(absf(controls._rudder_integral) < 0.001, "rollout or pedal takeover did not release stored correction")
+	controls._reset_rudder_assist_state()
 	_expect(controls.rudder_assist_max_input <= 0.35, "LIGHT fixed-wing rudder assist can command excessive normal-speed rudder")
 	_expect(controls.rudder_assist_stiffened_max_input <= 0.18, "LIGHT fixed-wing rudder assist can command excessive Vne rudder")
 	_expect(controls.rudder_assist_full_max_input >= 0.99, "FULL fixed-wing rudder assist cannot request full input")

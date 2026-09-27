@@ -1,6 +1,6 @@
 [gd_scene load_steps=2 format=3 uid="uid://bphkjx4otmve7"]
 
-[ext_resource type="PackedScene" uid="uid://cbpsn8r87hlrc" path="res://Weapons/bomb.glb" id="2_4fn8o"]
+[ext_resource type="PackedScene" uid="uid://cbpsn8r87hlrc" path="res://Models/Weapons/bomb.glb" id="2_4fn8o"]
 
 [node name="Bomb" type="Node3D"]
 transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, 0, 0)

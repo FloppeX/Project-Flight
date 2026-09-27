@@ -20,10 +20,9 @@ const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
 const PLATOON_NAMES := ["Ember", "Ferret", "Grizzly", "Hammer"]
 
 @export var debug_print: bool = false
-# Normal play starts with every platoon stored in the carrier. The player can
-# deploy one through a ground order; test scenarios may opt back into automatic
-# escort maintenance explicitly.
-@export var maintain_carrier_escort: bool = false
+# Maintain a carrier escort automatically once initial terrain placement finishes.
+# Explicit player orders remain protected by the automatic-availability checks.
+@export var maintain_carrier_escort: bool = true
 @export var carrier_escort_min_vehicles: int = 2
 @export var carrier_escort_desired_vehicles: int = 4
 @export var carrier_escort_check_interval_s: float = 5.0
@@ -43,6 +42,11 @@ var _deploying_platoon_name: String = ""
 # ── Lifecycle ────────────────────────────────────────────────────────────────
 
 func _ready() -> void:
+	_create_platoons()
+	print("[GroundOps] Ready — platoons: %s" % ", ".join(PLATOON_NAMES))
+
+
+func _create_platoons() -> void:
 	rescue_service = preload("res://GroundOps/GroundRescue.gd").new()
 	rescue_service.name = "GroundRescue"
 	add_child(rescue_service)
@@ -56,7 +60,21 @@ func _ready() -> void:
 		p.attack_slot_radius_m = 80.0
 		add_child(p)
 		platoons[pname] = p
-	print("[GroundOps] Ready — platoons: %s" % ", ".join(PLATOON_NAMES))
+
+
+func reset_runtime_state() -> void:
+	# Recreate scene-owned jobs and platoons, including their navigation caches.
+	for child in get_children():
+		if child == rescue_service or child is GroundVehiclePlatoon:
+			remove_child(child)
+			child.queue_free()
+	platoons.clear()
+	_carrier = null
+	_vehicle_bay = null
+	_deploy_queue.clear()
+	_deploying_platoon_name = ""
+	_escort_check_timer_s = 0.0
+	_create_platoons()
 
 func _process(delta: float) -> void:
 	if GameSession.has_pending_save_state():
@@ -148,6 +166,34 @@ func _on_platoon_deployed(platoon: GroundVehiclePlatoon) -> void:
 
 # ── Orders ───────────────────────────────────────────────────────────────────
 
+func _record_order(platoon: GroundVehiclePlatoon, order: OpsOrder, source: String = "player") -> void:
+	platoon.set_meta("ops_order_source", source)
+	order.metadata["source"] = source
+	if order.kind == OpsOrder.Kind.RECOVER and platoon.objective_type == GroundVehiclePlatoon.ObjectiveType.NONE:
+		order.metadata["retrieval_started"] = true
+	OperationsCoordinator.track_accepted_order(platoon, order)
+
+
+func release_to_automatic(platoon_name: String) -> void:
+	var platoon := get_platoon(platoon_name)
+	if platoon == null:
+		return
+	if platoon.objective_type not in [GroundVehiclePlatoon.ObjectiveType.RETURN_TO_BASE, GroundVehiclePlatoon.ObjectiveType.RESCUE]:
+		order_hold(platoon_name)
+		OperationsCoordinator.clear_order(platoon)
+	platoon.set_meta("ops_order_source", "automatic")
+	var status: Dictionary = OperationsCoordinator.get_unit_status(platoon)
+	var order: OpsOrder = status.get("order", null)
+	if order != null:
+		order.metadata["source"] = "automatic"
+
+
+func is_automatically_available(platoon: GroundVehiclePlatoon) -> bool:
+	return is_instance_valid(platoon) and str(platoon.get_meta("ops_order_source", "automatic")) == "automatic" \
+		and platoon.objective_type == GroundVehiclePlatoon.ObjectiveType.NONE \
+		and platoon.get_passenger_count() == 0 and not platoon.has_any_member_in_combat()
+
+
 func order_rescue(platoon_name: String, pilot_node: Node3D) -> bool:
 	var p := get_platoon(platoon_name)
 	if p == null or not is_instance_valid(pilot_node): return false
@@ -172,6 +218,7 @@ func order_move(platoon_name: String, target: Vector3) -> void:
 	if not p:
 		return
 	p.set_move_objective(target)
+	_record_order(p, OpsOrder.transit_to_position(target, NAN, NAN, 75.0))
 	_ensure_platoon_deployed(platoon_name, p)
 	if debug_print:
 		print("[GroundOps] %s — move to %s" % [platoon_name, str(target)])
@@ -185,6 +232,7 @@ func order_attack(platoon_name: String, target_node: Node3D, radius_m: float = 3
 	if not p:
 		return
 	p.set_attack_node(target_node, radius_m)
+	_record_order(p, OpsOrder.attack_target(target_node, radius_m))
 	_ensure_platoon_deployed(platoon_name, p)
 	if debug_print:
 		print("[GroundOps] %s — attack %s" % [platoon_name, target_node.name])
@@ -197,6 +245,7 @@ func order_attack_position(platoon_name: String, target_position: Vector3, radiu
 	if not p:
 		return
 	p.set_attack_position(target_position, radius_m)
+	_record_order(p, OpsOrder.attack_position(target_position, radius_m))
 	_ensure_platoon_deployed(platoon_name, p)
 	if debug_print:
 		print("[GroundOps] %s — attack position %s" % [platoon_name, str(target_position)])
@@ -210,6 +259,7 @@ func order_protect(platoon_name: String, target_node: Node3D, radius_m: float = 
 	if not p:
 		return
 	p.set_protect_node(target_node, radius_m)
+	_record_order(p, OpsOrder.protect_target(target_node, radius_m))
 	_ensure_platoon_deployed(platoon_name, p)
 	if debug_print:
 		print("[GroundOps] %s — protect %s" % [platoon_name, target_node.name])
@@ -222,6 +272,7 @@ func order_protect_position(platoon_name: String, target_position: Vector3, radi
 	if not p:
 		return
 	p.set_protect_position(target_position, radius_m)
+	_record_order(p, OpsOrder.protect_position(target_position, radius_m))
 	_ensure_platoon_deployed(platoon_name, p)
 	if debug_print:
 		print("[GroundOps] %s — protect position %s" % [platoon_name, str(target_position)])
@@ -236,6 +287,7 @@ func order_escort(platoon_name: String, distance_m: float = 100.0) -> void:
 		push_warning("[GroundOps] No carrier found for escort order")
 		return
 	p.set_escort_carrier(_carrier, distance_m)
+	_record_order(p, OpsOrder.escort_carrier(distance_m))
 	_ensure_platoon_deployed(platoon_name, p)
 	if debug_print:
 		print("[GroundOps] %s — escort carrier at %.0fm" % [platoon_name, distance_m])
@@ -254,6 +306,7 @@ func order_rtb(platoon_name: String, distance_m: float = 90.0) -> void:
 			print("[GroundOps] %s has no deployed vehicles to return" % platoon_name)
 		return
 	p.set_return_to_base(_carrier, distance_m)
+	_record_order(p, OpsOrder.return_to_base())
 	if debug_print:
 		print("[GroundOps] %s - return to base" % platoon_name)
 
@@ -308,6 +361,7 @@ func _ensure_carrier_escort() -> void:
 	if undeployed != "":
 		var p: GroundVehiclePlatoon = platoons[undeployed]
 		p.set_escort_carrier(_carrier, carrier_escort_distance_m)
+		_record_order(p, OpsOrder.escort_carrier(carrier_escort_distance_m), "automatic")
 		deploy(undeployed)
 		if debug_print:
 			print("[GroundOps] Maintaining carrier escort: deploying %s (%d/%d vehicles)" % [undeployed, escort_count, desired_count])
@@ -319,6 +373,7 @@ func _ensure_carrier_escort() -> void:
 	var fallback := _find_reassignable_platoon_name()
 	if fallback != "":
 		order_escort(fallback, carrier_escort_distance_m)
+		_record_order(platoons[fallback], OpsOrder.escort_carrier(carrier_escort_distance_m), "automatic")
 		if debug_print:
 			print("[GroundOps] Maintaining minimum escort: reassigning %s (%d/%d vehicles)" % [fallback, escort_count, carrier_escort_min_vehicles])
 
@@ -344,7 +399,7 @@ func _has_pending_escort_deploy() -> bool:
 func _find_undeployed_platoon_name() -> String:
 	for pname in PLATOON_NAMES:
 		var p: GroundVehiclePlatoon = platoons[pname]
-		if p.has_members():
+		if p.has_members() or not is_automatically_available(p):
 			continue
 		if pname in _deploy_queue or _deploying_platoon_name == pname:
 			continue
@@ -358,7 +413,7 @@ func _find_reassignable_platoon_name() -> String:
 			continue
 		if p.objective_type == GroundVehiclePlatoon.ObjectiveType.ESCORT_CARRIER:
 			continue
-		if p.objective_type in [GroundVehiclePlatoon.ObjectiveType.NONE, GroundVehiclePlatoon.ObjectiveType.RETURN_TO_BASE]:
+		if is_automatically_available(p):
 			return pname
 	return ""
 
@@ -375,15 +430,8 @@ func order_hold(platoon_name: String) -> void:
 	var p := _get_platoon(platoon_name)
 	if not p:
 		return
-	p.objective_type = GroundVehiclePlatoon.ObjectiveType.NONE
-	p.protected_node = null
-	p.attack_node = null
-	p.escort_node = null
-	# Clear member waypoints so they stop moving
-	for member in p.get_members():
-		if member.has_method("set_patrol_waypoints"):
-			var empty: Array[Vector3] = []
-			member.set_patrol_waypoints(empty)
+	p.set_hold_objective()
+	_record_order(p, OpsOrder.hold_position())
 	if debug_print:
 		print("[GroundOps] %s — hold position" % platoon_name)
 
@@ -405,6 +453,7 @@ func retrieve(platoon_name: String) -> void:
 		return
 	# Clear platoon objective so vehicles stop their current task
 	p.objective_type = GroundVehiclePlatoon.ObjectiveType.NONE
+	_record_order(p, OpsOrder.recover())
 	_vehicle_bay.retrieve_vehicles(members)
 	if debug_print:
 		print("[GroundOps] %s — retrieving %d vehicles" % [platoon_name, members.size()])
@@ -415,6 +464,7 @@ func order_pursue(platoon_name: String, range_m: float = 1200.0) -> void:
 	if not p:
 		return
 	p.set_pursue_enemies(range_m)
+	_record_order(p, OpsOrder.pursue_enemies(range_m))
 	_ensure_platoon_deployed(platoon_name, p)
 	if debug_print:
 		print("[GroundOps] %s — pursue enemies within %.0fm" % [platoon_name, range_m])
@@ -448,6 +498,9 @@ func get_platoon_status(platoon_name: String) -> Dictionary:
 		"kind": "platoon",
 		"name": platoon_name,
 		"objective": p.get_objective_name(),
+		"order_source": str(p.get_meta("ops_order_source", "automatic")),
+		"order_stalled": bool(OperationsCoordinator.get_unit_status(p).get("order_stalled", false)),
+		"phase": str(p.get_meta("ops_order_phase", "ACTIVE" if has_members else "STORED")),
 		"passengers": p.get_passenger_count(),
 		"strength": p.get_members().size(),
 		"deployed": has_members,
@@ -607,6 +660,7 @@ func _capture_platoon_objective(platoon: GroundVehiclePlatoon) -> Dictionary:
 		objective_position = platoon.attack_node.global_position
 	return {
 		"objective_type": int(platoon.objective_type),
+		"order_source": str(platoon.get_meta("ops_order_source", "automatic")),
 		"objective_position": objective_position,
 		"pursue_range_m": platoon.pursue_range_m,
 		"protect_radius_m": platoon.protect_radius_m,
@@ -617,6 +671,8 @@ func _capture_platoon_objective(platoon: GroundVehiclePlatoon) -> Dictionary:
 
 
 func _restore_platoon_objective(platoon: GroundVehiclePlatoon, state: Dictionary) -> void:
+	platoon.set_meta("ops_order_source", str(state.get("order_source", "player")))
+	OperationsCoordinator.clear_order(platoon)
 	var objective_type := int(state.get(
 		"objective_type", GroundVehiclePlatoon.ObjectiveType.NONE
 	))
@@ -657,6 +713,24 @@ func _restore_platoon_objective(platoon: GroundVehiclePlatoon, state: Dictionary
 			platoon.protected_node = null
 			platoon.attack_node = null
 			platoon.escort_node = null
+
+	var restored_order: OpsOrder
+	match platoon.objective_type:
+		GroundVehiclePlatoon.ObjectiveType.MOVE_TO_POSITION:
+			restored_order = OpsOrder.transit_to_position(position, NAN, NAN, 75.0)
+		GroundVehiclePlatoon.ObjectiveType.PURSUE_ENEMIES:
+			restored_order = OpsOrder.pursue_enemies(platoon.pursue_range_m)
+		GroundVehiclePlatoon.ObjectiveType.PROTECT_POSITION:
+			restored_order = OpsOrder.protect_position(position, platoon.protect_radius_m)
+		GroundVehiclePlatoon.ObjectiveType.ATTACK_POSITION:
+			restored_order = OpsOrder.attack_position(position, platoon.attack_radius_m)
+		GroundVehiclePlatoon.ObjectiveType.ESCORT_CARRIER:
+			restored_order = OpsOrder.escort_carrier(platoon.escort_distance_m)
+		GroundVehiclePlatoon.ObjectiveType.RETURN_TO_BASE:
+			restored_order = OpsOrder.return_to_base()
+		_:
+			restored_order = OpsOrder.hold_position()
+	_record_order(platoon, restored_order, str(platoon.get_meta("ops_order_source", "player")))
 
 func get_platoon_of(vehicle: Node3D) -> GroundVehiclePlatoon:
 	for pname in PLATOON_NAMES:

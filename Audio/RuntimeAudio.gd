@@ -6,6 +6,10 @@ static func loop_stream(source: AudioStream) -> AudioStream:
 	if stream is AudioStreamOggVorbis or stream is AudioStreamMP3:
 		stream.loop = true
 	elif stream is AudioStreamWAV:
+		# Imported non-looping WAVs can retain a zero-length loop range.
+		# Give runtime-enabled loops the full recording before enabling playback.
+		if stream.loop_end <= stream.loop_begin:
+			stream.loop_end = maxi(1, roundi(stream.get_length() * stream.mix_rate) - 1)
 		stream.loop_mode = AudioStreamWAV.LOOP_FORWARD
 	return stream
 

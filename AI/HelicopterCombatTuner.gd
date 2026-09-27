@@ -34,7 +34,7 @@ extends Node
 @export var aim_track_bonus_max: float = 8.0
 @export var log_path: String = "user://heli_combat_tuning.log"
 @export var project_mirror_enabled: bool = true
-@export var project_mirror_path: String = "res://heli_combat_tuning.log"
+@export var project_mirror_path: String = "res://logs/heli_combat_tuning.log"
 @export var state_path: String = "user://heli_combat_tuning_state.json"
 @export var champion_project_mirror_path: String = "res://heli_combat_champion.json"
 

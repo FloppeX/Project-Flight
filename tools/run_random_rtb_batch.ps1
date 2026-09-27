@@ -56,7 +56,7 @@ if ($ResumeSuiteId) {
     }
     $inputManifest = @(Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json)
 } else {
-    $inputManifest = @(foreach ($path in ($inputPaths + @("Models/LandCarrier/Land carrier 3.glb"))) {
+    $inputManifest = @(foreach ($path in ($inputPaths + @("Models/LandCarrier/Land carrier 4.glb"))) {
         [ordered]@{ path=$path; sha256=(Get-FileHash -LiteralPath (Join-Path $projectPath $path)).Hash }
     })
     $inputManifest | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $manifestPath -Encoding UTF8

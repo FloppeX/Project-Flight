@@ -3,9 +3,11 @@ extends SceneTree
 ## Real aircraft/controllers/weapons; durable target, flat collidable terrain and
 ## a baked navigation grid. Intentionally NOT combat-hunt mode (it bypasses routes).
 class Target extends StaticBody3D:
+	var team := 2
+	var linear_velocity := Vector3.ZERO
 	var current_health := 1000.0
 	var damage_total := 0.0
-	func get_team() -> int: return 2
+	func get_team() -> int: return team
 	func take_damage(amount: float) -> void: damage_total += amount
 
 func _initialize() -> void:
@@ -16,12 +18,16 @@ func _run() -> void:
 	var label := "baseline"
 	var duration := 120.0
 	var popup_terrain := false
+	var air_target := false
+	var rescue := false
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--model="): model = int(arg.get_slice("=", 1))
 		elif arg.begins_with("--label="): label = arg.get_slice("=", 1)
 		elif arg.begins_with("--duration="): duration = float(arg.get_slice("=", 1))
 		elif arg == "--popup-terrain": popup_terrain = true
-	assert(model in [9, 10, 11])
+		elif arg == "--air-target": air_target = true
+		elif arg == "--rescue": rescue = true
+	assert(model in [9, 10, 11, 13])
 	seed(20260911)
 	for autoload_name in ["FlightDirector", "AirOpsManager", "EnemyOpsManager", "GroundOpsManager", "OperationsCoordinator", "NavGraph", "FloatingOrigin"]:
 		var manager := root.get_node_or_null(autoload_name)
@@ -68,6 +74,17 @@ func _run() -> void:
 	target.position.y = 4
 	scene.add_child(target)
 	target.add_to_group("ground_vehicles")
+	if model == 13:
+		target.team = 1
+		target.add_to_group("carrier")
+	if air_target:
+		target.remove_from_group("ground_vehicles")
+		target.remove_from_group("carrier")
+		target.add_to_group("ai_aircraft")
+		target.set_meta("is_helicopter", true)
+		target.position.y = 140.0
+		target.linear_velocity = Vector3(6, 0, 0)
+		if rescue: target.rotation.y = PI
 	var path := "res://Aircraft/Aircraft_%d.tscn" % model
 	var craft := (load(path) as PackedScene).instantiate() as RigidBody3D
 	craft.freeze = true
@@ -76,7 +93,15 @@ func _run() -> void:
 	craft.set("team", 1)
 	craft.linear_velocity = Vector3(0, 0, 35)
 	await process_frame
-	craft.get_node("AIToggle").call("enable_ai")
+	if model == 13:
+		var section = load("res://Enemies/EnemyOutpostHelicopterFlight.gd").new()
+		scene.add_child(section)
+		section.home_position = Vector3.ZERO
+		section.heading = Vector3.BACK
+		section._patrol_waypoints.assign([Vector3(0, 140, 2000), Vector3(2000, 140, 0), Vector3(0, 140, -2000)])
+		section._configure_materialized_enemy_aircraft(craft, "rockets", 0)
+	else:
+		craft.get_node("AIToggle").call("enable_ai")
 	var pilot: Node = craft.get_node("HelicopterPilot")
 	pilot.set("crash_log_enabled", false)
 	pilot.set("combat_report_enabled", false)
@@ -84,13 +109,14 @@ func _run() -> void:
 	# Airborne starts require a running engine, not a cold-start drop test.
 	var engine: Node = pilot.get("engine")
 	var trim := float(pilot.call("_get_collective_trim"))
-	engine.set("is_engine_working", true)
-	engine.set("current_power", trim)
-	engine.set("target_power", trim)
-	pilot.set("_collective_cmd", trim)
-	(pilot.get("control_engine") as Node).call("set_target_power", trim)
-	craft.position = Vector3(300, 80, -2200)
-	craft.linear_velocity = Vector3(0, 0, 35)
+	if model != 13:
+		engine.set("is_engine_working", true)
+		engine.set("current_power", trim)
+		engine.set("target_power", trim)
+		pilot.set("_collective_cmd", trim)
+		(pilot.get("control_engine") as Node).call("set_target_power", trim)
+	craft.position = Vector3(300, 140 if model == 13 else 80, -2200)
+	craft.linear_velocity = Vector3(0, 0, 30 if model == 13 else 35)
 	craft.angular_velocity = Vector3.ZERO
 	if popup_terrain:
 		craft.position = Vector3(0, 80, -680)
@@ -98,7 +124,14 @@ func _run() -> void:
 	craft.set_meta("parking_brake", false)
 	craft.freeze = false
 	pilot.call("change_state", 2)
-	pilot.call("command_attack_target", target)
+	if model != 13:
+		pilot.call("command_attack_target", target)
+	if rescue:
+		var survivor := Node3D.new()
+		scene.add_child(survivor)
+		survivor.position = Vector3(0, 0, 2500)
+		craft.position = Vector3(0, 140, -800)
+		pilot.call("command_rescue", survivor)
 	var result := {"model": model, "label": label, "status": "RUNNING", "duration_s": duration,
 		"popup_terrain": popup_terrain, "popup_sha256": FileAccess.get_sha256("res://AI/HelicopterPopup.gd"),
 		"hunt_mode": pilot.get("_combat_hunt_mode"), "pathfinding": pilot.get("use_heightmap_pathfinding"),
@@ -109,12 +142,20 @@ func _run() -> void:
 		"scene_sha256": FileAccess.get_sha256(path), "first_damage_s": -1.0,
 		"states_s": {}, "trace": [], "min_range_m": 1e9, "min_agl_m": 1e9}
 	var tick := 0
+	result["air_target"] = air_target
+	result["rescue"] = rescue
+	result["attack_selected"] = false
+	result["weapons_used"] = []
 	var elapsed := 0.0
 	while elapsed < duration and is_instance_valid(craft) and float(craft.get("current_health")) > 0:
 		await physics_frame
 		elapsed += 1.0 / Engine.physics_ticks_per_second
+		target.position += target.linear_velocity / Engine.physics_ticks_per_second
 		if not is_instance_valid(craft) or not is_instance_valid(pilot): break
 		var phase := str(pilot.get("_atk_state"))
+		if pilot.get("_atk_target") != null: result.attack_selected = true
+		var kind := str(pilot.get("_atk_weapon_kind"))
+		if not kind.is_empty() and not result.weapons_used.has(kind): result.weapons_used.append(kind)
 		result.states_s[phase] = float(result.states_s.get(phase, 0.0)) + 1.0 / Engine.physics_ticks_per_second
 		var range_m := Vector2(craft.position.x, craft.position.z).length()
 		result.min_range_m = minf(result.min_range_m, range_m)
@@ -139,6 +180,7 @@ func _run() -> void:
 	result["elapsed_s"] = elapsed
 	result["alive"] = is_instance_valid(craft) and float(craft.get("current_health")) > 0
 	result["damage"] = target.damage_total
+	result["evasion_episodes"] = pilot.get("_air_awareness").episodes if is_instance_valid(pilot) else -1
 	var output := "user://heli_attack_%s_%d.json" % [label, model]
 	var file := FileAccess.open(output, FileAccess.WRITE)
 	file.store_string(JSON.stringify(result, "\t"))

@@ -6,6 +6,7 @@ extends CanvasLayer
 
 const MenuTypography = preload("res://UI/MenuTypography.gd")
 const MenuTheme = preload("res://UI/MenuTheme.gd")
+const MenuStickNavigationGate = preload("res://UI/MenuStickNavigationGate.gd")
 
 const FONT_NORMAL   := MenuTypography.MENU_ITEM_SIZE
 const MARGIN_X      := 20.0
@@ -119,6 +120,10 @@ var _audio_value_labels: Dictionary = {}
 var _audio_buttons: Dictionary = {}
 var _graphics_buttons: Dictionary = {}
 var _gameplay_buttons: Dictionary = {}
+var _opentrack_enabled := false
+var _opentrack_smoothing := 2
+var _opentrack_status: Label
+var _opentrack_help: Label
 var _master_volume: float = DEFAULT_MASTER_VOLUME
 var _radio_volume: float = DEFAULT_RADIO_VOLUME
 var _radio_captions_enabled: bool = DEFAULT_RADIO_CAPTIONS_ENABLED
@@ -160,6 +165,7 @@ var _photo_mode_active: bool = false
 var _recording_button: Button
 var _video_button: Button
 var _photo_mode_canvas_visibility: Dictionary = {}
+var _menu_stick_navigation_gate := MenuStickNavigationGate.new()
 
 
 func _ready() -> void:
@@ -177,6 +183,8 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	if visible and _current_screen == "gameplay" and is_instance_valid(_opentrack_status):
+		_opentrack_status.text = OpenTrackReceiver.status_text()
 	if _photo_mode_active:
 		_suppress_photo_mode_ui()
 		return
@@ -226,6 +234,10 @@ func _input(event: InputEvent) -> void:
 		if _is_menu_back_event(event) or event.is_action_pressed("pause_game", false):
 			exit_photo_mode()
 			viewport.set_input_as_handled()
+			return
+		var director := get_node_or_null("/root/FlightDirector")
+		if director != null and director.handle_photo_camera_input(event):
+			viewport.set_input_as_handled()
 		return
 	if event.is_action_pressed("pause_game", false):
 		if not visible:
@@ -241,6 +253,9 @@ func _input(event: InputEvent) -> void:
 		return
 
 	if not visible:
+		return
+	if _menu_stick_navigation_gate.should_suppress(event):
+		viewport.set_input_as_handled()
 		return
 
 	if _handle_pause_navigation_input(event):
@@ -300,10 +315,8 @@ func _is_menu_cursor_context_active() -> bool:
 	var current_scene := get_tree().current_scene
 	if current_scene != null and MENU_CURSOR_SCENES.has(current_scene.scene_file_path):
 		return true
-	var carrier_console := get_node_or_null("/root/CarrierConsole")
-	return carrier_console != null \
-		and carrier_console.has_method("is_open") \
-		and bool(carrier_console.call("is_open"))
+	# The carrier console always owns its own cursor and A-click mapping.
+	return false
 
 
 func _remember_menu_cursor_device(event: InputEvent) -> void:
@@ -807,6 +820,28 @@ func _build_gameplay_screen() -> Control:
 	_fixed_time_controls.add_child(_fixed_time_minute)
 	_fixed_time_hour.value_changed.connect(_on_fixed_time_clock_changed)
 	_fixed_time_minute.value_changed.connect(_on_fixed_time_clock_changed)
+	var tracking_x := OPERATOR_RAIL_WIDTH + 56.0
+	root.add_child(_make_console_label("HEAD TRACKING / COCKPIT", Vector2(tracking_x, 252.0), 24, COLOR_WHITE, MenuTypography.TECH_FONT))
+	var tracking_btn := _make_row_button("", Vector2(tracking_x, 310.0), 650.0)
+	tracking_btn.pressed.connect(func():
+		_opentrack_enabled = not _opentrack_enabled
+		_apply_opentrack_settings()
+		_refresh_gameplay_button_labels()
+		_save_settings())
+	root.add_child(tracking_btn)
+	_gameplay_buttons["opentrack"] = tracking_btn
+	var smoothing_btn := _make_row_button("", Vector2(tracking_x, 368.0), 650.0)
+	smoothing_btn.pressed.connect(func():
+		_opentrack_smoothing = (_opentrack_smoothing + 1) % 4
+		_apply_opentrack_settings()
+		_refresh_gameplay_button_labels()
+		_save_settings())
+	root.add_child(smoothing_btn)
+	_gameplay_buttons["opentrack_smoothing"] = smoothing_btn
+	_opentrack_status = _make_console_label("", Vector2(tracking_x + 18.0, 442.0), 20, COLOR_WHITE, MenuTypography.TECH_FONT)
+	root.add_child(_opentrack_status)
+	_opentrack_help = _make_console_label("In OpenTrack, set Output to UDP over network.\nSend to 127.0.0.1, port 4242, then Start.\n\nUse OpenTrack's Center shortcut while looking ahead.\nStick look stays active underneath head movement.\n\nSmoothing trades response speed for steadiness.\nUse LIGHT or OFF if OpenTrack already filters motion.", Vector2(tracking_x + 18.0, 500.0), 20, COLOR_WHITE, MenuTypography.TECH_FONT)
+	root.add_child(_opentrack_help)
 	_refresh_gameplay_button_labels()
 	return root
 
@@ -1133,6 +1168,11 @@ func _refresh_graphics_button_labels() -> void:
 
 
 func _refresh_gameplay_button_labels() -> void:
+	if is_instance_valid(_opentrack_help):
+		_opentrack_help.visible = _opentrack_enabled
+	if _gameplay_buttons.has("opentrack"):
+		(_gameplay_buttons["opentrack"] as Button).text = "OPENTRACK: %s" % ("ON" if _opentrack_enabled else "OFF")
+		(_gameplay_buttons["opentrack_smoothing"] as Button).text = "TRACKING SMOOTHING: %s" % OpenTrackReceiver.SMOOTHING_LABELS[_opentrack_smoothing]
 	if _gameplay_buttons.has("fixed_time"):
 		(_gameplay_buttons["fixed_time"] as Button).text = "FIX TIME OF DAY: %s" % ("ON" if _fixed_time_enabled else "OFF")
 	if is_instance_valid(_fixed_time_controls):
@@ -1256,7 +1296,12 @@ func _apply_radio_settings() -> void:
 		radio_comms.call("apply_user_settings", _radio_volume, _radio_captions_enabled, get_radio_caption_duration_s())
 
 
+func _apply_opentrack_settings() -> void:
+	OpenTrackReceiver.configure(_opentrack_enabled, _opentrack_smoothing)
+
+
 func _apply_gameplay_settings() -> void:
+	_apply_opentrack_settings()
 	_apply_stick_deadzone_setting()
 	_apply_camera_settings()
 	_apply_fixed_time_setting()
@@ -1557,6 +1602,8 @@ func _load_settings(path: String = SETTINGS_PATH) -> void:
 		0,
 		LOOK_SENSITIVITY_LABELS.size() - 1
 	)
+	_opentrack_enabled = bool(cfg.get_value(SETTINGS_SECTION_GAMEPLAY, "opentrack_enabled", false))
+	_opentrack_smoothing = clampi(int(cfg.get_value(SETTINGS_SECTION_GAMEPLAY, "opentrack_smoothing", 2)), 0, 3)
 	_invert_look_y = bool(cfg.get_value(SETTINGS_SECTION_GAMEPLAY, "invert_look_y", _invert_look_y))
 	_camera_motion_index = clampi(
 		int(cfg.get_value(SETTINGS_SECTION_GAMEPLAY, "camera_motion_index", _camera_motion_index)),
@@ -1606,6 +1653,8 @@ func _save_settings(path: String = SETTINGS_PATH) -> void:
 	cfg.set_value(SETTINGS_SECTION_GAMEPLAY, "helicopter_rudder_assist_level", _helicopter_rudder_assist_level)
 	cfg.set_value(SETTINGS_SECTION_GAMEPLAY, "stick_deadzone_index", _stick_deadzone_index)
 	cfg.set_value(SETTINGS_SECTION_GAMEPLAY, "look_sensitivity_index", _look_sensitivity_index)
+	cfg.set_value(SETTINGS_SECTION_GAMEPLAY, "opentrack_enabled", _opentrack_enabled)
+	cfg.set_value(SETTINGS_SECTION_GAMEPLAY, "opentrack_smoothing", _opentrack_smoothing)
 	cfg.set_value(SETTINGS_SECTION_GAMEPLAY, "invert_look_y", _invert_look_y)
 	cfg.set_value(SETTINGS_SECTION_GAMEPLAY, "camera_motion_index", _camera_motion_index)
 	cfg.set_value(SETTINGS_SECTION_GAMEPLAY, "camera_fov_index", _camera_fov_index)
@@ -1635,6 +1684,8 @@ func _reset_all_defaults() -> void:
 	_helicopter_rudder_assist_level = 1
 	_stick_deadzone_index = DEFAULT_STICK_DEADZONE_INDEX
 	_look_sensitivity_index = DEFAULT_LOOK_SENSITIVITY_INDEX
+	_opentrack_enabled = false
+	_opentrack_smoothing = 2
 	_invert_look_y = DEFAULT_INVERT_LOOK_Y
 	_camera_motion_index = DEFAULT_CAMERA_MOTION_INDEX
 	_camera_fov_index = DEFAULT_CAMERA_FOV_INDEX

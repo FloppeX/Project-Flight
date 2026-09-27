@@ -21,6 +21,8 @@ enum Mission {
 @export var debug_print: bool = false
 
 var mission: Mission = Mission.NONE
+var mission_source := "automatic"
+var mission_reason := "Standing orders"
 
 var _members: Array[Node3D] = []
 var _claimed_targets: Dictionary = {}  # Node3D target -> Node3D aircraft
@@ -204,6 +206,8 @@ func get_campaign_save_blocker() -> String:
 func capture_mission_save_state() -> Dictionary:
 	return {
 		"mission": int(mission),
+		"mission_source": mission_source,
+		"mission_reason": mission_reason,
 		"cap_altitude_m": _cap_altitude_m,
 		"cap_route_points": _cap_route_points.duplicate(),
 		"cas_area_center": _cas_area_center,
@@ -214,6 +218,8 @@ func capture_mission_save_state() -> Dictionary:
 
 
 func restore_mission_save_state(state: Dictionary, carrier: Node3D) -> bool:
+	mission_source = str(state.get("mission_source", "player"))
+	mission_reason = str(state.get("mission_reason", "Restored order"))
 	var restored_mission := int(state.get("mission", Mission.NONE))
 	match restored_mission:
 		Mission.NONE:
@@ -435,7 +441,7 @@ func _update_cas_assignments() -> void:
 
 	for aircraft in get_members():
 		var pilot := _get_pilot(aircraft)
-		if not pilot:
+		if not pilot or _is_deck_busy(pilot):
 			continue
 
 		# Only assign to aircraft that are free to accept a new target
@@ -845,6 +851,8 @@ func get_status_summary() -> Dictionary:
 	return {
 		"name": flight_name,
 		"mission": get_mission_name(),
+		"order_source": mission_source,
+		"order_reason": mission_reason,
 		"strength": strength(),
 		"position": get_center_position(),
 		"active_waypoints": get_active_waypoints(),
@@ -854,14 +862,14 @@ func get_status_summary() -> Dictionary:
 	}
 
 func _is_deck_busy(pilot: AIPilot) -> bool:
+	var director := get_node_or_null("/root/FlightDirector")
+	if director != null and is_instance_valid(pilot.aircraft) and director.get("player_controlled_plane") == pilot.aircraft:
+		return true
+	var coordinator := get_node_or_null("/root/OperationsCoordinator")
+	if coordinator != null and is_instance_valid(pilot.aircraft) and coordinator.has_individual_order(pilot.aircraft):
+		return true
 	## True when the pilot is in a deck/flight phase we should not interrupt.
-	return pilot.current_state in [
-		AIPilot.State.IDLE, AIPilot.State.LAUNCHING,
-		AIPilot.State.CLIMBING, AIPilot.State.RTB,
-		AIPilot.State.RECOVERY_MARSHAL, AIPilot.State.RECOVERY_HOLD,
-		AIPilot.State.RECOVERY_APPROACH, AIPilot.State.MISSED_APPROACH,
-		AIPilot.State.PRE_LANDING, AIPilot.State.APPROACH, AIPilot.State.LANDING,
-	]
+	return pilot.is_recovering() or pilot.is_departing()
 
 func _mark_mission_dirty() -> void:
 	_mission_revision += 1
@@ -884,6 +892,8 @@ func _clear_navigation_waypoints(pilot: AIPilot, follow_carrier: bool = false) -
 	pilot.waypoints_follow_carrier = follow_carrier
 
 func _is_aircraft_unavailable_for_formation(aircraft: Node3D, pilot: AIPilot) -> bool:
+	if pilot != null and _is_deck_busy(pilot):
+		return true
 	if not aircraft or not is_instance_valid(aircraft):
 		return true
 	if not pilot:

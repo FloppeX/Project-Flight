@@ -8,7 +8,8 @@ const BOMB := 5
 const PILOT := 6
 const VIEW_COUNT := 7
 const VIEW_NAMES := ["CAMERA 1", "CAMERA 2", "CAMERA 3", "FREE CAM", "FREE CAM ANCHORED", "BOMB CAM", "COCKPIT / PILOT"]
-const MOVE_SPEED_LEVELS := [0.625, 1.25, 2.5, 5.0, 10.0, 20.0, 40.0, 80.0, 160.0, 320.0]
+const CameraInput := preload("res://Recording/CinematicCameraInput.gd")
+const MOVE_SPEED_LEVELS := CameraInput.MOVE_SPEED_LEVELS
 var move_speed_level := 4
 var camera: Camera3D
 var active := false
@@ -414,15 +415,10 @@ func _notification(what: int) -> void:
 		_look = Vector2.ZERO
 
 func _pad_axis(axis: int, deadzone: float = 0.15) -> float:
-	var value := float(_pad_axes.get(axis, 0.0))
-	return signf(value) * maxf(0.0, (absf(value) - deadzone) / (1.0 - deadzone))
+	return CameraInput.axis(_pad_axes, axis, deadzone)
 
 func _pad_motion() -> Dictionary:
-	return {
-		"move": Vector3(_pad_axis(JOY_AXIS_LEFT_X), float(_pad_buttons.get(JOY_BUTTON_RIGHT_SHOULDER, false)) - float(_pad_buttons.get(JOY_BUTTON_LEFT_SHOULDER, false)), _pad_axis(JOY_AXIS_LEFT_Y)),
-		"look": Vector2(_pad_axis(JOY_AXIS_RIGHT_X), _pad_axis(JOY_AXIS_RIGHT_Y)),
-		"roll": float(_pad_buttons.get(JOY_BUTTON_DPAD_LEFT, false)) - float(_pad_buttons.get(JOY_BUTTON_DPAD_RIGHT, false)),
-		"zoom": maxf(0.0, _pad_axis(JOY_AXIS_TRIGGER_LEFT, 0.05)) - maxf(0.0, _pad_axis(JOY_AXIS_TRIGGER_RIGHT, 0.05))}
+	return CameraInput.pad_motion(_pad_axes, _pad_buttons)
 
 func _input(event: InputEvent) -> void:
 	if RecordingMode.active or PauseMenu.visible or PauseMenu.is_photo_mode_active(): return

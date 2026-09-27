@@ -39,6 +39,7 @@ signal cable_released(aircraft: RigidBody3D)
 @export var force_smoothing: float = 0.03       # Smooth force changes (s) — fast engagement
 @export var visualize_cable: bool = true        # Enable simple cable visuals
 @export var cable_radius: float = 0.05
+@export var cable_reset_speed_m_s: float = 6.0 # Visual take-up after the hook releases.
 @export var band_length_m: float = 0.5          # Stripe length for visualization (m)
 @export var band_color_a: Color = Color(0, 0, 0, 1)
 @export var band_color_b: Color = Color(1, 1, 1, 1)
@@ -83,6 +84,8 @@ var last_braking_force_n := Vector3.ZERO
 var last_lateral_force_n := Vector3.ZERO
 var last_attitude_torque_nm := Vector3.ZERO
 var hard_stop_corrections := 0
+var _resetting := false
+var _reset_tip_local := Vector3.ZERO
 
 func _ready():
 	add_to_group("arresting_cable")
@@ -109,6 +112,9 @@ func _ready():
 		_create_cable_visuals()
 
 func _physics_process(delta: float) -> void:
+	if _resetting:
+		_update_reset(delta)
+		return
 	if not _engaged:
 		_try_swept_hook_engagement()
 		if not _engaged:
@@ -164,6 +170,16 @@ func _physics_process(delta: float) -> void:
 	var alpha = clamp(delta / max(force_smoothing, 0.001), 0.0, 1.0)
 	var force_along = lerp(_force_along_prev, force_along_target, alpha)
 	force_along = clamp(force_along, -max_tension, max_tension)
+	# Payout absorbs energy; it must never return stored spring energy to the
+	# aircraft. Clamp AFTER smoothing so residual tension cannot reverse a stop,
+	# including recovery aircraft held until the deck manager releases them.
+	var stopping_force: float = _aircraft.mass * absf(v_along) / maxf(delta, 0.0001)
+	if x * v_along <= 0.0:
+		force_along = 0.0
+	elif v_along > 0.0:
+		force_along = clampf(force_along, -stopping_force, 0.0)
+	else:
+		force_along = clampf(force_along, 0.0, stopping_force)
 	var force_vec = axis * force_along
 	# Braking force applied at CG — avoids pitch torque from hook offset (hook is ~1.7m below
 	# and ~2.4m behind CG; applying there creates nose-down pitching that lifts the main gear).
@@ -330,7 +346,7 @@ func _try_swept_hook_engagement() -> void:
 
 
 func _engage_hook_area(area: Area3D, source: String) -> bool:
-	if _engaged or not is_instance_valid(area):
+	if _engaged or _resetting or not is_instance_valid(area):
 		return false
 	if not area.is_in_group("tailhook") and area.name.to_lower().find("hook") == -1:
 		return false
@@ -369,6 +385,10 @@ func _engage_hook_area(area: Area3D, source: String) -> bool:
 		if fm != null:
 			_orig_friction_multiplier = float(fm)
 			_gear_module.set("friction_force_multiplier", max(200.0, _orig_friction_multiplier * 0.5))
+	# Notify before subscribers transfer control to the deck and disable the pilot.
+	var pilot := _aircraft.get_node_or_null("AIPilot")
+	if is_instance_valid(pilot) and pilot.has_method("notify_arresting_catch"):
+		pilot.notify_arresting_catch()
 	emit_signal("cable_engaged", _aircraft)
 	return true
 
@@ -380,7 +400,12 @@ func _on_area_exited(area: Area3D) -> void:
 func _release():
 	# Clear engaged state, visuals, and restore gear friction settings
 	var released_aircraft := _aircraft
+	if _engaged and is_instance_valid(_left_anchor) and is_instance_valid(_right_anchor):
+		_reset_tip_local = to_local(_hook_global_position())
+		_resetting = true
 	_engaged = false
+	_force_along_prev = 0.0
+	last_braking_force_n = Vector3.ZERO
 	if is_instance_valid(_aircraft) and _aircraft.has_meta("arresting_engaged"):
 		_aircraft.set_meta("arresting_engaged", false)
 		if _aircraft.has_meta("arresting_cable"):
@@ -391,7 +416,7 @@ func _release():
 	_hook_node = null
 	print("[Cable] RELEASED")
 	if visualize_cable:
-		_update_cable_visuals(Vector3.INF)
+		_update_cable_visuals(to_global(_reset_tip_local) if _resetting else Vector3.INF)
 	if is_instance_valid(_gear_module):
 		if not is_nan(_orig_sideways_friction) and _gear_module.get("sideways_friction") != null:
 			_gear_module.set("sideways_friction", _orig_sideways_friction)
@@ -483,7 +508,7 @@ func _pitch_damping_torque(delta: float) -> Vector3:
 
 
 func _hook_global_position() -> Vector3:
-	if _hook_node and _hook_node is Node3D:
+	if is_instance_valid(_hook_node) and _hook_node is Node3D:
 		return (_hook_node as Node3D).global_position
 	return _engage_point
 
@@ -523,6 +548,25 @@ func _enforce_max_payout(axis: Vector3, x: float, rel_v_along: float, deck_veloc
 	return clamped_x
 
 # --- Cable visuals ---
+func _update_reset(delta: float) -> void:
+	# Keep the released bend in deck space. Reel it back onto the anchor span
+	# without applying any force to the aircraft or snapping the wire straight.
+	if not is_instance_valid(_left_anchor) or not is_instance_valid(_right_anchor):
+		_resetting = false
+		return
+	var a := to_local(_left_anchor.global_position)
+	var b := to_local(_right_anchor.global_position)
+	var span := b - a
+	var fraction := clampf((_reset_tip_local - a).dot(span) / maxf(span.length_squared(), 0.0001), 0.0, 1.0)
+	var target := a + span * fraction
+	_reset_tip_local = _reset_tip_local.move_toward(target, maxf(cable_reset_speed_m_s, 0.1) * delta)
+	if _reset_tip_local.distance_to(target) < 0.01:
+		_resetting = false
+		_hook_previous_positions.clear()
+	if visualize_cable:
+		_update_cable_visuals(to_global(_reset_tip_local) if _resetting else Vector3.INF)
+
+
 func _create_cable_visuals() -> void:
 	# One straight segment for idle, and two segments when engaged (left->hook, hook->right)
 	_seg_rest = MeshInstance3D.new()
@@ -554,7 +598,7 @@ func _update_cable_visuals(hook_pos: Vector3) -> void:
 		return
 	var A = _left_anchor.global_position
 	var B = _right_anchor.global_position
-	if _engaged and hook_pos != Vector3.INF:
+	if (_engaged or _resetting) and hook_pos != Vector3.INF:
 		_seg_rest.visible = false
 		_seg_left.visible = true
 		_seg_right.visible = true

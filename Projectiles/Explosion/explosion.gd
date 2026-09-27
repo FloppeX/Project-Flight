@@ -342,7 +342,9 @@ func deal_explosion_damage() -> void:
 		var damage_amount: float = lerpf(min_damage, max_damage, damage_ratio)
 		if target.has_method("take_damage"):
 			_report_damage_credit(target, damage_amount)
-			if target.has_method("take_damage_event"):
+			if target.has_method("take_damage_from"):
+				target.call("take_damage_from", damage_amount, source_attacker)
+			elif target.has_method("take_damage_event"):
 				target.call("take_damage_event", damage_amount, damage_point, str(get_meta("carrier_damage_event", "blast:%d" % get_instance_id())))
 			elif target.has_method("take_damage_at"):
 				target.call("take_damage_at", damage_amount, global_position, -1)
@@ -358,6 +360,8 @@ func deal_explosion_damage() -> void:
 		print("Explosion hit ", targets_hit, " targets")
 
 func _report_damage_credit(damage_target: Node, damage_amount: float) -> void:
+	if damage_target.is_in_group("wildlife"):
+		return
 	if source_attacker == null or not is_instance_valid(source_attacker):
 		return
 	if PilotRoster == null or not is_instance_valid(PilotRoster) or not PilotRoster.has_method("report_damage"):

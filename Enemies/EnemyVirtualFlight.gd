@@ -2,6 +2,7 @@ class_name EnemyVirtualFlight
 extends Node
 
 const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
+const RuntimeState: Script = preload("res://Aircraft/AircraftRuntimeState.gd")
 ## Abstract representation of an enemy flight on the tactical map.
 ## Moves as data until a friendly asset comes within ACTIVATE_RANGE_M,
 ## then spawns real aircraft. When they retreat beyond DEACTIVATE_RANGE_M
@@ -46,12 +47,14 @@ const INVESTIGATION_ORBIT_RATE_RAD_S := 0.10
 var position:        Vector3 = Vector3.ZERO
 var heading:         Vector3 = Vector3(1, 0, 0)
 var home_position:   Vector3 = Vector3.ZERO
+var outpost_id: String = ""
 var mission:         Mission = Mission.PATROL
 var vstate:          VState  = VState.VIRTUAL
 var active_aircraft: Array[Node3D] = []
 
 var _aircraft_slots:  Array[PackedScene] = []
 var _loadout_slots:   Array[String] = []     # "guns", "bombs", or "rockets" per slot
+var _runtime_slots: Array[Dictionary] = []
 var _active_slot_indices: Array[int] = []
 var _patrol_waypoints:  Array[Vector3] = []
 var _patrol_wp_idx:     int = 0
@@ -85,6 +88,7 @@ func setup(home_pos: Vector3, aircraft_scenes: Array[PackedScene], loadouts: Arr
 	home_position   = home_pos
 	_aircraft_slots = aircraft_scenes.duplicate()
 	_loadout_slots  = loadouts.duplicate()
+	_runtime_slots.clear()
 	aircraft_count  = _aircraft_slots.size()
 	_rng.randomize()
 	_generate_patrol_waypoints(start_angle)
@@ -102,6 +106,7 @@ func capture_save_state() -> Dictionary:
 		scene_paths.append(scene.resource_path if scene != null else "")
 	return {
 		"flight_name": flight_name,
+		"outpost_id": outpost_id,
 		"aircraft_count": aircraft_count,
 		"patrol_radius": patrol_radius,
 		"faction_color": faction_color,
@@ -112,6 +117,7 @@ func capture_save_state() -> Dictionary:
 		"mission": mission,
 		"aircraft_scene_paths": scene_paths,
 		"loadout_slots": _loadout_slots.duplicate(),
+		"runtime_slots": _runtime_slots.duplicate(true),
 		"patrol_waypoints": _patrol_waypoints.duplicate(),
 		"patrol_wp_idx": _patrol_wp_idx,
 		"intercept_position": _intercept_position,
@@ -123,10 +129,27 @@ func capture_save_state() -> Dictionary:
 	}
 
 
+static func validate_save_state(state: Dictionary) -> bool:
+	var paths: Variant = state.get("aircraft_scene_paths")
+	if state.is_empty() or not paths is Array or int(state.get("aircraft_count", -1)) != paths.size():
+		return false
+	for path: Variant in paths:
+		if not path is String or not ResourceLoader.exists(path) or not load(path) is PackedScene:
+			return false
+	var states: Variant = state.get("runtime_slots", [])
+	if not states is Array or (not states.is_empty() and states.size() != paths.size()):
+		return false
+	for entry: Variant in states:
+		if not entry is Dictionary or not RuntimeState.validate(entry):
+			return false
+	return true
+
+
 func restore_save_state(state: Dictionary) -> bool:
-	if state.is_empty():
+	if not validate_save_state(state):
 		return false
 	flight_name = str(state.get("flight_name", flight_name))
+	outpost_id = str(state.get("outpost_id", ""))
 	aircraft_count = maxi(int(state.get("aircraft_count", aircraft_count)), 0)
 	patrol_radius = float(state.get("patrol_radius", patrol_radius))
 	faction_color = state.get("faction_color", faction_color) as Color
@@ -138,6 +161,9 @@ func restore_save_state(state: Dictionary) -> bool:
 	vstate = VState.VIRTUAL
 	active_aircraft.clear()
 	_active_slot_indices.clear()
+	_runtime_slots.clear()
+	for entry: Dictionary in state.get("runtime_slots", []):
+		_runtime_slots.append(entry.duplicate(true))
 	_aircraft_slots.clear()
 	var paths_variant: Variant = state.get("aircraft_scene_paths", [])
 	if paths_variant is Array:
@@ -211,6 +237,9 @@ func tick(delta: float) -> void:
 		if active_aircraft.is_empty():
 			vstate = VState.VIRTUAL
 			aircraft_count = 0
+			_aircraft_slots.clear()
+			_loadout_slots.clear()
+			_runtime_slots.clear()
 			FrameProfiler.end("EnemyVirtualFlight.tick", _profiler_start)
 			return
 		position = _active_aircraft_centroid()
@@ -220,8 +249,9 @@ func tick(delta: float) -> void:
 		if vstate != VState.ACTIVE:
 			FrameProfiler.end("EnemyVirtualFlight.tick", _profiler_start)
 			return
-		# Materialized units report immediately — pilots can see and talk
+		# Keep carrier reporting delays consistent with virtual patrols.
 		_tick_active_contact_scan(delta)
+		_process_pending_reports(delta)
 		FrameProfiler.end("EnemyVirtualFlight.tick", _profiler_start)
 		return
 
@@ -410,6 +440,9 @@ func _queue_report(contact_type: String, contact_pos: Vector3, strength: int, de
 			r["position"] = contact_pos
 			r["strength"] = strength
 			return
+	if contact_type == "carrier":
+		if delay_s <= 0.0: delay_s = _carrier_report_delay_s()
+		EnemyOpsManager.notify_carrier_report_pending(self, flight_name)
 	_pending_reports.append({
 		"type":      contact_type,
 		"position":  contact_pos,
@@ -418,7 +451,13 @@ func _queue_report(contact_type: String, contact_pos: Vector3, strength: int, de
 	})
 
 
+func _carrier_report_delay_s() -> float:
+	return _rng.randf_range(REPORT_DELAY_MIN_S, REPORT_DELAY_MAX_S)
+
 func _process_pending_reports(delta: float) -> void:
+	if aircraft_count <= 0:
+		_pending_reports.clear()
+		return
 	var sent: Array[int] = []
 	for i in range(_pending_reports.size()):
 		_pending_reports[i]["countdown"] -= delta
@@ -518,6 +557,11 @@ func _tick_materialize_step() -> void:
 		var loadout: String = _loadout_slots[slot_idx] if slot_idx < _loadout_slots.size() else "guns"
 		var configure_start_usec: int = Time.get_ticks_usec()
 		_configure_materialized_enemy_aircraft(ac, loadout, slot_idx)
+		if slot_idx < _runtime_slots.size():
+			if ac.has_method("restore_combat_state"):
+				ac.restore_combat_state(_runtime_slots[slot_idx])
+			else:
+				RuntimeState.restore(ac, _runtime_slots[slot_idx])
 		var configure_usec: int = maxi(Time.get_ticks_usec() - configure_start_usec, 0)
 		FrameProfiler.end("EnemyVirtualFlight.materialize_configure", configure_start_usec)
 		active_aircraft.append(ac)
@@ -685,7 +729,7 @@ func _configure_materialized_enemy_aircraft(ac: Node3D, loadout: String = "guns"
 		ai_toggle.call("enable_ai")
 
 	var ai_pilot := ac.find_child("AIPilot", true, false) as AIPilot
-	if ai_pilot:
+	if ai_pilot and ac.find_child("HelicopterFlight", true, false) == null:
 		ai_pilot.carrier_position = home_position
 		ai_pilot.waypoints.clear()
 		# Virtual patrols can legitimately materialize far from their home base.
@@ -718,10 +762,24 @@ func dematerialize() -> void:
 	_prune_active_aircraft()
 	var remaining_scenes: Array[PackedScene] = []
 	var remaining_loadouts: Array[String] = []
-	for slot_idx: int in _active_slot_indices:
+	var remaining_states: Array[Dictionary] = []
+	for active_index in range(_active_slot_indices.size()):
+		var slot_idx := _active_slot_indices[active_index]
 		if slot_idx >= 0 and slot_idx < _aircraft_slots.size():
 			remaining_scenes.append(_aircraft_slots[slot_idx])
 			remaining_loadouts.append(_loadout_slots[slot_idx] if slot_idx < _loadout_slots.size() else "guns")
+			var aircraft: Node3D = active_aircraft[active_index]
+			if "runtime_initialized" in aircraft and not bool(aircraft.get("runtime_initialized")):
+				remaining_states.append(_runtime_slots[slot_idx] if slot_idx < _runtime_slots.size() else {})
+			else:
+				remaining_states.append(RuntimeState.capture(aircraft))
+	# Cancellation partway through spawning must retain untouched slots without
+	# resurrecting aircraft already lost during the partial materialization.
+	if was_materializing:
+		for slot_idx in range(_materialize_next_slot_idx, _aircraft_slots.size()):
+			remaining_scenes.append(_aircraft_slots[slot_idx])
+			remaining_loadouts.append(_loadout_slots[slot_idx] if slot_idx < _loadout_slots.size() else "guns")
+			remaining_states.append(_runtime_slots[slot_idx] if slot_idx < _runtime_slots.size() else {})
 	if not active_aircraft.is_empty():
 		position = _active_aircraft_centroid()
 	var visual_budget := get_node_or_null("/root/EnemyVisualBudget")
@@ -733,18 +791,19 @@ func dematerialize() -> void:
 	active_aircraft.clear()
 	_active_slot_indices.clear()
 	if vstate != VState.VIRTUAL:
-		if not was_materializing:
-			_aircraft_slots = remaining_scenes
-			_loadout_slots = remaining_loadouts
+		_aircraft_slots = remaining_scenes
+		_loadout_slots = remaining_loadouts
+		_runtime_slots = remaining_states
 		aircraft_count = _aircraft_slots.size()
 	_materialize_next_slot_idx = 0
 	_materialize_spawned_count = 0
 	vstate = VState.VIRTUAL
-	mission = Mission.PATROL if should_resume_patrol else Mission.RTB
+	if should_resume_patrol:
+		mission = Mission.PATROL
 	_resume_patrol_on_dematerialize = false
 	print("[EnemyVirtualFlight] %s dematerialized → %s" % [
 		flight_name,
-		"PATROL" if mission == Mission.PATROL else "RTB",
+		Mission.keys()[mission],
 	])
 
 
@@ -947,8 +1006,12 @@ func _prune_active_aircraft() -> void:
 	var kept_aircraft: Array[Node3D] = []
 	var kept_slots: Array[int] = []
 	for i in range(active_aircraft.size()):
-		var aircraft: Node3D = active_aircraft[i]
+		var aircraft: Variant = active_aircraft[i]
 		if not is_instance_valid(aircraft):
+			continue
+		if aircraft.is_queued_for_deletion() or bool(aircraft.get_meta("destroyed", false)) \
+				or ("current_health" in aircraft and float(aircraft.get("current_health")) <= 0.0 \
+				and (not "runtime_initialized" in aircraft or bool(aircraft.get("runtime_initialized")))):
 			continue
 		kept_aircraft.append(aircraft)
 		if i < _active_slot_indices.size():

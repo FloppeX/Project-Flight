@@ -1,7 +1,7 @@
 [gd_scene load_steps=6 format=3 uid="uid://cmx18s8a4vo04"]
 
 [ext_resource type="Script" uid="uid://b8ml1ntx5hf6y" path="res://Aircraft/Visuals/SteeringThrusters/SteeringThrusters.gd" id="1"]
-[ext_resource type="Texture2D" uid="uid://c4frdb71hah6s" path="res://Materials/fire_gradient.png" id="2_2gh4a"]
+[ext_resource type="Texture2D" uid="uid://dsv5ugjg0n4vn" path="res://Materials/fire_gradient.png" id="2_2gh4a"]
 
 [sub_resource type="CylinderMesh" id="47"]
 top_radius = 0.1

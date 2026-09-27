@@ -6,6 +6,7 @@ var catapult: Node3D
 var tick := 0
 var failures: Array[String] = []
 var aircraft_number := 5
+var release_observation_ticks := 75
 
 func _ready() -> void:
 	call_deferred("run_probe")
@@ -59,8 +60,8 @@ func run_probe() -> void:
 			if released_ticks <= 30:
 				minimum_exit_speed = minf(minimum_exit_speed, relative_velocity.z)
 				maximum_exit_vertical_speed = maxf(maximum_exit_vertical_speed, absf(relative_velocity.y))
-		if released_ticks >= 75: break
-	check(released_ticks >= 75, "aircraft must release and remain alive")
+		if released_ticks >= release_observation_ticks: break
+	check(released_ticks >= release_observation_ticks, "aircraft must release and remain alive")
 	check(minimum_exit_speed >= release_speed * 0.85, "bow exit must not lose more than 15 percent forward speed")
 	check(maximum_exit_vertical_speed < 8.0, "bow exit must not deliver a vertical kick")
 	check(not walking_collision_contact, "aircraft must not contact the walking-only deck")

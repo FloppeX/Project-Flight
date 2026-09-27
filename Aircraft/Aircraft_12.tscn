@@ -2,7 +2,7 @@
 
 [ext_resource type="Script" uid="uid://c4ltq2v6fji05" path="res://Aircraft/aircraft.gd" id="1_aircraft"]
 [ext_resource type="PackedScene" uid="uid://cadi81fcpvmuc" path="res://Projectiles/Explosion/explosion.tscn" id="2_explosion"]
-[ext_resource type="PackedScene" uid="uid://bfr6vpw1f4cmn" path="res://aircraft 13.glb" id="3_model"]
+[ext_resource type="PackedScene" uid="uid://bfr6vpw1f4cmn" path="res://Models/Aircraft_12/aircraft_12.glb" id="3_model"]
 [ext_resource type="PackedScene" uid="uid://djtbinx1svo2u" path="res://Aircraft/Aircraft wreck/aircraft_1_wreck.tscn" id="4_wreck"]
 [ext_resource type="Script" uid="uid://cef6lhgwhvqck" path="res://Aircraft/HelicopterFlight.gd" id="5_aero"]
 [ext_resource type="PackedScene" uid="uid://2iprlcyidpwa" path="res://Models/Aircraft_9/rotor disc.glb" id="6_disc"]

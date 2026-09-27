@@ -4,12 +4,18 @@ class_name LowPolyTerrain
 const FrameProfiler: Script = preload("res://Debug/FrameProfiler.gd")
 const MAP_OPEN_CANYONS := "open_canyons"
 const MAP_LAYERED_BADLANDS := "layered_badlands"
-const HEIGHT_PROFILE_REVISION := 2
+const MAP_CANYON_HIGHLANDS := "canyon_highlands"
+const HighlandsProfile = preload("res://Environment/HighlandsProfile.gd")
+const HEIGHT_PROFILE_REVISION := 3
 const LAYERED_PLAYABLE_HALF_EXTENT_M := 25000.0
 const LAYERED_ROUTE_COUNT := 3
 const LAYERED_CONNECTOR_COUNT := 4
 const LAYERED_ROUTE_CORE_HALF_WIDTH_M := 400.0
 const LAYERED_ROUTE_BLEND_HALF_WIDTH_M := 720.0
+
+# Read-only during mesh workers; refreshed with the noise configuration.
+var _highlands_ramps: Array[Dictionary] = []
+var _highlands_ramp_bins: Dictionary = {}
 
 @export_group("Size")
 @export var quads_x: int = 2778
@@ -235,6 +241,9 @@ var _shape_node: CollisionShape3D
 var _chunk_root: Node3D
 var _shared_material: StandardMaterial3D
 var _noises: Dictionary = {}
+# Main-thread query cache; workers build their own grids without mutating this.
+var _height_query_grids: Dictionary = {}
+const HEIGHT_QUERY_CACHE_LIMIT := 256
 
 var _size_x: int = 0
 var _size_z: int = 0
@@ -359,39 +368,74 @@ func rebuild() -> void:
 
 
 func set_map_profile(profile_id: String) -> void:
-	map_profile_id = MAP_LAYERED_BADLANDS if profile_id.strip_edges().to_lower() == MAP_LAYERED_BADLANDS else MAP_OPEN_CANYONS
+	var requested := profile_id.strip_edges().to_lower()
+	map_profile_id = requested if requested in [MAP_LAYERED_BADLANDS, MAP_CANYON_HIGHLANDS] else MAP_OPEN_CANYONS
 
 
 func get_map_profile_id() -> String:
 	return map_profile_id
 
 
+func _effective_quant_step() -> float:
+	# Metre-scale rounding keeps gradual Highlands passes smooth at the 36 m
+	# mesh resolution; the original map retains its authored quantization.
+	return minf(quant_step_m, 1.0) if map_profile_id == MAP_CANYON_HIGHLANDS else quant_step_m
+
+
 func get_height_profile_revision() -> int:
-	return HEIGHT_PROFILE_REVISION
+	return HEIGHT_PROFILE_REVISION + HighlandsProfile.REVISION if map_profile_id == MAP_CANYON_HIGHLANDS else HEIGHT_PROFILE_REVISION
 
 
 func get_map_profile_display_name() -> String:
+	if map_profile_id == MAP_CANYON_HIGHLANDS:
+		return "Open Canyons - Highlands"
 	return "Fractured Badlands" if map_profile_id == MAP_LAYERED_BADLANDS else "Open Canyons"
+
+
+func get_navigation_clearance_cap(world_x: float, world_z: float) -> float:
+	if map_profile_id != MAP_CANYON_HIGHLANDS:
+		return INF
+	var local := to_local(Vector3(world_x, global_position.y, world_z))
+	var ramp := _sample_highlands_ramp(local.x, local.z)
+	# Keep routes off the cut/fill shoulder where a coarse nav cell can
+	# underestimate the actual mesh slope. Flat shelf junctions remain open.
+	if ramp.x > 110.0 and ramp.x < 250.0 and ramp.z > 0.04 and ramp.z < 0.96:
+		if absf(_regional_highlands_sample(local.x, local.z, _noises) - ramp.y) > 10.0:
+			return 0.0
+	return 40.0 if ramp.x < 250.0 else INF
+
+
+func get_highlands_route_position(progress: float) -> Vector3:
+	if _noises.is_empty():
+		_noises = _build_noises()
+	if _highlands_ramps.is_empty():
+		return global_position
+	var ramp: Dictionary = _highlands_ramps[0]
+	var local: Vector3 = ramp.start.lerp(ramp.end, clampf(progress, 0.0, 1.0))
+	local.y = get_height(to_global(local)) - global_position.y
+	return to_global(local)
 
 
 ## Samples one of the three protected carrier-scale routes in local terrain space.
 ## progress=0 is the north edge and progress=1 is the south edge.
 func get_profile_route_local_position(progress: float, branch_index: int = 0) -> Vector3:
+	var quant_step := _effective_quant_step()
 	var u: float = clampf(progress, 0.0, 1.0)
 	var local_z := lerpf(-LAYERED_PLAYABLE_HALF_EXTENT_M, LAYERED_PLAYABLE_HALF_EXTENT_M, u)
 	var local_x := _layered_route_x(local_z, branch_index)
 	var local_y := _layered_route_height(local_z, branch_index) + base_height_offset_m
-	if quant_step_m > 0.1:
-		local_y = round(local_y / quant_step_m) * quant_step_m
+	if quant_step > 0.1:
+		local_y = round(local_y / quant_step) * quant_step
 	return Vector3(local_x, local_y, local_z)
 
 
 ## Samples a protected cross-connector between two carrier routes.
 func get_profile_connector_local_position(progress: float, connector_index: int = 0) -> Vector3:
+	var quant_step := _effective_quant_step()
 	var local_position := _layered_connector_position(progress, connector_index)
 	local_position.y += base_height_offset_m
-	if quant_step_m > 0.1:
-		local_position.y = round(local_position.y / quant_step_m) * quant_step_m
+	if quant_step > 0.1:
+		local_position.y = round(local_position.y / quant_step) * quant_step
 	return local_position
 
 
@@ -481,9 +525,10 @@ func _sample_connector_trace_position(progress: float, connector_index: int, lat
 
 
 func _sample_profile_height(local_x: float, local_z: float) -> float:
+	var quant_step := _effective_quant_step()
 	var height := _sample_height(local_x, local_z, _noises)
-	if quant_step_m > 0.1:
-		height = round(height / quant_step_m) * quant_step_m
+	if quant_step > 0.1:
+		height = round(height / quant_step) * quant_step
 	return height
 
 ## Returns 0.0..1.0 fraction of the initial chunk fill completed.
@@ -520,10 +565,56 @@ func get_height(world_pos: Vector3) -> float:
 	var local: Vector3 = to_local(world_pos)
 	if local.x < _x0 or local.x > _x0 + _span_x or local.z < _z0 or local.z > _z0 + _span_z:
 		return NAN
-	var h: float = _sample_height(local.x, local.z, _noises)
-	if quant_step_m > 0.1:
-		h = round(h / quant_step_m) * quant_step_m
-	return h + global_position.y
+	return _surface_height_local(local.x, local.z) + global_position.y
+
+## Interpolate the same triangle used by the mesh/collision builder. Cache local
+## grids, so floating-origin shifts require no invalidation and distant nav queries
+## work without physics chunks. Configuration changes take effect through rebuild().
+func _surface_height_local(local_x: float, local_z: float) -> float:
+	var coord := _world_to_chunk(local_x, local_z) if use_streaming else Vector2i.ZERO
+	var grid: Dictionary = _height_query_grids.get(coord, {})
+	if grid.is_empty():
+		var qx := maxi(chunk_quads_x, 1)
+		var qz := maxi(chunk_quads_z, 1)
+		grid = _build_surface_grid(coord.x * qx, mini((coord.x + 1) * qx, _size_x),
+			coord.y * qz, mini((coord.y + 1) * qz, _size_z)) if use_streaming else _build_surface_grid(0, _size_x, 0, _size_z)
+		if _height_query_grids.size() >= HEIGHT_QUERY_CACHE_LIMIT:
+			_height_query_grids.erase(_height_query_grids.keys()[0])
+		_height_query_grids[coord] = grid
+	var gx := clampf((local_x - _x0) / cell_size_m, 0.0, float(_size_x))
+	var gz := clampf((local_z - _z0) / cell_size_m, 0.0, float(_size_z))
+	var x := mini(int(floor(gx)), _size_x - 1)
+	var z := mini(int(floor(gz)), _size_z - 1)
+	var tx := gx - float(x)
+	var tz := gz - float(z)
+	var xa := _x0 + float(x) * cell_size_m
+	var za := _z0 + float(z) * cell_size_m
+	var h00: float
+	var h10: float
+	var h01: float
+	var h11: float
+	if grid.processed:
+		var heights: PackedFloat32Array = grid.heights
+		var columns: int = grid.columns
+		var i: int = (z - int(grid.z0)) * columns + x - int(grid.x0)
+		h00 = heights[i]
+		h10 = heights[i + 1]
+		h01 = heights[i + columns]
+		h11 = heights[i + columns + 1]
+	else:
+		h00 = _sample_height(xa, za, _noises)
+		h10 = _sample_height(xa + cell_size_m, za, _noises)
+		h01 = _sample_height(xa, za + cell_size_m, _noises)
+		h11 = _sample_height(xa + cell_size_m, za + cell_size_m, _noises)
+	if _should_use_alternate_diagonal(Vector3(xa, h00, za), Vector3(xa + cell_size_m, h10, za),
+		Vector3(xa, h01, za + cell_size_m), Vector3(xa + cell_size_m, h11, za + cell_size_m), z * _size_x + x):
+		if tx + tz <= 1.0:
+			return h00 + (h10 - h00) * tx + (h01 - h00) * tz
+		return h11 + (h01 - h11) * (1.0 - tx) + (h10 - h11) * (1.0 - tz)
+	if tz <= tx:
+		return h00 + (h10 - h00) * tx + (h11 - h10) * tz
+	return h00 + (h11 - h01) * tx + (h01 - h00) * tz
+
 
 ## Exact get_height() sampling for a navigation bake slice. Keep world Vector3
 ## rounding and transform multiplication identical to the scalar public API.
@@ -543,9 +634,7 @@ func sample_height_grid_rows(origin_x: float, origin_z: float, spacing: float, f
 			var local: Vector3 = inverse * Vector3(world_x, terrain_y, world_z)
 			var h := NAN
 			if local.x >= _x0 and local.x <= _x0 + _span_x and local.z >= _z0 and local.z <= _z0 + _span_z:
-				h = _sample_height(local.x, local.z, _noises)
-				if quant_step_m > 0.1:
-					h = round(h / quant_step_m) * quant_step_m
+				h = _surface_height_local(local.x, local.z)
 				h += terrain_y
 				if not is_nan(h):
 					minimum = minf(minimum, h)
@@ -554,24 +643,25 @@ func sample_height_grid_rows(origin_x: float, origin_z: float, spacing: float, f
 
 
 func get_surface_color(world_pos: Vector3) -> Color:
+	var quant_step := _effective_quant_step()
 	if _noises.is_empty():
 		_refresh_layout()
 		_noises = _build_noises()
 	var local: Vector3 = to_local(world_pos)
 	var h: float = _sample_height(local.x, local.z, _noises)
-	if quant_step_m > 0.1:
-		h = round(h / quant_step_m) * quant_step_m
+	if quant_step > 0.1:
+		h = round(h / quant_step) * quant_step
 	var face_center := Vector3(local.x, h, local.z)
 	var sample_step := maxf(cell_size_m, 1.0)
 	var hx0 := _sample_height(local.x - sample_step, local.z, _noises)
 	var hx1 := _sample_height(local.x + sample_step, local.z, _noises)
 	var hz0 := _sample_height(local.x, local.z - sample_step, _noises)
 	var hz1 := _sample_height(local.x, local.z + sample_step, _noises)
-	if quant_step_m > 0.1:
-		hx0 = round(hx0 / quant_step_m) * quant_step_m
-		hx1 = round(hx1 / quant_step_m) * quant_step_m
-		hz0 = round(hz0 / quant_step_m) * quant_step_m
-		hz1 = round(hz1 / quant_step_m) * quant_step_m
+	if quant_step > 0.1:
+		hx0 = round(hx0 / quant_step) * quant_step
+		hx1 = round(hx1 / quant_step) * quant_step
+		hz0 = round(hz0 / quant_step) * quant_step
+		hz1 = round(hz1 / quant_step) * quant_step
 	var dx := Vector3(sample_step * 2.0, hx1 - hx0, 0.0)
 	var dz := Vector3(0.0, hz1 - hz0, sample_step * 2.0)
 	var normal := dz.cross(dx).normalized()
@@ -580,6 +670,7 @@ func get_surface_color(world_pos: Vector3) -> Color:
 	return _surface_color_for_sample(face_center, normal, _terrain_color_sample_id(local.x, local.z))
 
 func _refresh_layout() -> void:
+	_height_query_grids.clear()
 	_size_x = max(quads_x, 2)
 	_size_z = max(quads_z, 2)
 	_span_x = float(_size_x) * cell_size_m
@@ -952,15 +1043,12 @@ func _build_chunk(chunk_x: int, chunk_z: int) -> Node3D:
 
 	return root
 
-func _build_chunk_arrays(qx0: int, qx1: int, qz0: int, qz1: int) -> Array:
-	var vertices := PackedVector3Array()
-	var normals  := PackedVector3Array()
-	var colors   := PackedColorArray()
-
+func _build_surface_grid(qx0: int, qx1: int, qz0: int, qz1: int) -> Dictionary:
+	var quant_step := _effective_quant_step()
 	# --- Sampled height grid with padding for seamless post-processing ---
 	# Padding covers any grid-space post-process passes (cliff straightening / step relaxation)
 	# so chunk edges evaluate from the same neighborhood regardless of which chunk built them.
-	var use_quant: bool = quant_step_m > 0.1
+	var use_quant: bool = quant_step > 0.1
 	var use_cliff_planform: bool = (
 		cliff_planform_straighten_strength > 0.001
 		and cliff_planform_passes > 0
@@ -1007,13 +1095,27 @@ func _build_chunk_arrays(qx0: int, qx1: int, qz0: int, qz1: int) -> Array:
 
 		if use_quant:
 			for i in range(hgrid.size()):
-				hgrid[i] = round(hgrid[i] / quant_step_m) * quant_step_m
+				hgrid[i] = round(hgrid[i] / quant_step) * quant_step
 
 		if quant_relax_passes > 0 and quant_max_step_m > 0.0:
 			_relax_heights(hgrid, pcols, prows)
 
 		if use_cliff_washboard:
 			_soften_cliff_washboard(hgrid, pcols, prows)
+
+	return {"heights": hgrid, "x0": px0, "z0": pz0, "columns": pcols,
+		"processed": use_quant or use_cliff_planform}
+
+func _build_chunk_arrays(qx0: int, qx1: int, qz0: int, qz1: int) -> Array:
+	var vertices := PackedVector3Array()
+	var normals  := PackedVector3Array()
+	var colors   := PackedColorArray()
+
+	var grid := _build_surface_grid(qx0, qx1, qz0, qz1)
+	var hgrid: PackedFloat32Array = grid.heights
+	var px0: int = grid.x0
+	var pz0: int = grid.z0
+	var pcols: int = grid.columns
 
 	for z in range(qz0, qz1):
 		for x in range(qx0, qx1):
@@ -1026,7 +1128,7 @@ func _build_chunk_arrays(qx0: int, qx1: int, qz0: int, qz1: int) -> Array:
 			var h10: float
 			var h01: float
 			var h11: float
-			if use_quant or use_cliff_planform:
+			if grid.processed:
 				var lx: int = x - px0
 				var lz: int = z - pz0
 				h00 = hgrid[lz       * pcols + lx    ]
@@ -1440,7 +1542,7 @@ func _build_noises() -> Dictionary:
 	cliff_streak.fractal_lacunarity = 2.25
 	cliff_streak.fractal_gain = 0.52
 
-	return {
+	var noises := {
 		"canyon_warp": canyon_warp,
 		"main_canyon": main_canyon,
 		"tributary": tributary,
@@ -1461,9 +1563,119 @@ func _build_noises() -> Dictionary:
 		"cliff_streak": cliff_streak,
 	}
 
+	if map_profile_id == MAP_CANYON_HIGHLANDS:
+		_build_highlands_ramps(noises)
+	return noises
+
+
+func _regional_highlands_sample(x: float, z: float, noises: Dictionary) -> float:
+	var relief := HighlandsProfile.floor_relief(x, z)
+	# Enlarge landforms so shelves support substantial placement footprints.
+	x *= 0.32
+	z *= 0.32
+	var warp := noises["canyon_warp"] as FastNoiseLite
+	var wx := x + warp.get_noise_2d(x, z) * canyon_warp_amplitude_m
+	var wz := z + warp.get_noise_2d(x + 6000.0, z - 8000.0) * canyon_warp_amplitude_m
+	var main := absf((noises["main_canyon"] as FastNoiseLite).get_noise_2d(wx, wz))
+	var tributary := absf((noises["tributary"] as FastNoiseLite).get_noise_2d(wx + wz * 0.28, wz - wx * 0.22))
+	var district := (noises["plateau_surface"] as FastNoiseLite).get_noise_2d(x * 0.45, z * 0.45)
+	var valley := plateau_height_m - canyon_max_depth_m
+	return HighlandsProfile.regional_height(x, z, valley, main, tributary, district) + relief
+
+
+func _build_highlands_ramps(noises: Dictionary) -> void:
+	_highlands_ramps.clear()
+	_highlands_ramp_bins.clear()
+	var valley := plateau_height_m - canyon_max_depth_m
+	# Each district chooses real low/high shelf anchors from this seed. The
+	# protected connection between them supplies a known grade in world metres.
+	for centre in [Vector2.ZERO, Vector2(-12500, -12500), Vector2(12500, -12500), Vector2(-12500, 12500), Vector2(12500, 12500),
+			Vector2(0, -16000), Vector2(0, 16000), Vector2(-16000, 0), Vector2(16000, 0)]:
+		var candidates: Array[Vector3] = []
+		var floor_candidates: Array[Vector3] = []
+		var low := Vector3.INF
+		var low_score := INF
+		for dz in range(-3500, 3501, 250):
+			for dx in range(-3500, 3501, 250):
+				var x: float = centre.x + dx
+				var z: float = centre.y + dz
+				var h := _regional_highlands_sample(x, z, noises)
+				var variation := 0.0
+				for offset in [Vector2(250, 0), Vector2(-250, 0), Vector2(0, 250), Vector2(0, -250)]:
+					variation = maxf(variation, absf(_regional_highlands_sample(x + offset.x, z + offset.y, noises) - h))
+				if variation > 18.0:
+					continue
+				var point := Vector3(x, h, z)
+				candidates.append(point)
+				var score := Vector2(dx, dz).length()
+				if h - HighlandsProfile.floor_relief(x, z) < valley + 8.0:
+					floor_candidates.append(point)
+					if score < low_score:
+						low_score = score
+						low = point
+		if low == Vector3.INF:
+			continue
+		var high := Vector3.INF
+		var high_score := -INF
+		var chosen_low := low
+		# Consider approaches from several sides; the nearest valley point alone
+		# may leave too little run for a gentle ascent to the next substantial shelf.
+		var stride := maxi(1, floor_candidates.size() / 16)
+		for point in candidates:
+			var shelf_rise := point.y - HighlandsProfile.floor_relief(point.x, point.z) - valley
+			if absf(shelf_rise - HighlandsProfile.LEVEL_HEIGHT) > 8.0:
+				continue
+			for floor_index in range(0, floor_candidates.size(), stride):
+				var approach := floor_candidates[floor_index]
+				var distance := Vector2(point.x - approach.x, point.z - approach.z).length()
+				var climb := point.y - approach.y
+				if climb < 100.0 or distance < 1100.0 or distance > 2800.0 or climb / distance > 0.12:
+					continue
+				var score := -distance - Vector2(point.x - centre.x, point.z - centre.y).length() * 0.15
+				if score > high_score:
+					high_score = score
+					high = point
+					chosen_low = approach
+		low = chosen_low
+		if high == Vector3.INF:
+			continue
+		var index := _highlands_ramps.size()
+		_highlands_ramps.append({"start": low, "end": high})
+		var minimum := Vector2(minf(low.x, high.x), minf(low.z, high.z)) - Vector2.ONE * 250.0
+		var maximum := Vector2(maxf(low.x, high.x), maxf(low.z, high.z)) + Vector2.ONE * 250.0
+		for bz in range(int(floor(minimum.y / 4000.0)), int(floor(maximum.y / 4000.0)) + 1):
+			for bx in range(int(floor(minimum.x / 4000.0)), int(floor(maximum.x / 4000.0)) + 1):
+				var key := Vector2i(bx, bz)
+				if not _highlands_ramp_bins.has(key):
+					_highlands_ramp_bins[key] = []
+				_highlands_ramp_bins[key].append(index)
+
+
+func _sample_highlands_ramp(x: float, z: float) -> Vector3:
+	var result := Vector3(INF, 0.0, 0.0)
+	var key := Vector2i(int(floor(x / 4000.0)), int(floor(z / 4000.0)))
+	for index in _highlands_ramp_bins.get(key, []):
+		var ramp: Dictionary = _highlands_ramps[index]
+		var a: Vector3 = ramp.start
+		var b: Vector3 = ramp.end
+		var line := Vector2(b.x - a.x, b.z - a.z)
+		var point := Vector2(x - a.x, z - a.z)
+		var u := clampf(point.dot(line) / line.length_squared(), 0.0, 1.0)
+		var distance := (point - line * u).length()
+		if distance < result.x:
+			result = Vector3(distance, lerpf(a.y, b.y, smoothstep(0.0, 1.0, u)), u)
+	return result
+
+
 func _sample_height(world_x: float, world_z: float, noises: Dictionary) -> float:
 	if map_profile_id == MAP_LAYERED_BADLANDS:
 		return _sample_layered_badlands_height(world_x, world_z, noises)
+
+	if map_profile_id == MAP_CANYON_HIGHLANDS:
+		var height := _regional_highlands_sample(world_x, world_z, noises)
+		var ramp := _sample_highlands_ramp(world_x, world_z)
+		height = lerpf(height, ramp.y, 1.0 - smoothstep(150.0, 210.0, ramp.x))
+		return height + base_height_offset_m
 
 	# --- Domain warp: organically meander the canyon network ---
 	var warp_noise: FastNoiseLite = noises["canyon_warp"] as FastNoiseLite

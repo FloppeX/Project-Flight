@@ -45,6 +45,21 @@ falls as one physical piece.
 
 ## Authoring and reproducibility
 
+Aircraft 2's separate `left aileron`, `right aileron`, `elevator`, and `rudder`
+meshes are rigged during the breakaway build. Leading-edge hinges are derived
+from the source geometry without moving the authored vertices; the ailerons
+become children of their folding outer wings. `Aircraft2ControlSurfaces.gd`
+drives them from SimpleAero's actual controls (22-degree ailerons, 18-degree
+elevator, 25-degree rudder). Attached-visual damage paths hide controls when
+their supporting section is destroyed, keeping uncapped controls out of the
+fracture-debris paths.
+
+After updating `Models/Aircraft_2/aircraft 2 body.glb`, run the builder below
+with `--build --aircraft 2`, then reimport in Godot. The aircraft scene uses
+the generated `aircraft_2_breakaway.glb`, so importing the source alone does
+not update the playable aircraft. Verify with
+`Tests/Aircraft2ControlSurfacesSmoketest.gd` and the fold/breakaway regression.
+
 ```powershell
 & 'C:/Program Files/Blender Foundation/blender 4.5.3/blender.exe' --background --factory-startup --python-exit-code 1 --python tools/build_folding_aircraft_breakaway.py -- --build
 & 'C:/Godot/Godot_v4.6.2-stable_win64_console.exe' --headless --editor --path . --import --quit
@@ -101,3 +116,19 @@ The shared fixed-wing damage regression and Aircraft 6 breakaway regression
 also pass. Rendered comparisons and breakup captures were inspected. Existing ObjectDB shutdown-leak
 warnings and the fleet test's unrelated WingFold node warnings remain outside
 this mesh change.
+
+## Aircraft 5 source refresh, 2026-09-25
+
+`tools/build_aircraft5_control_surface_rig.py` now imports the authored
+`Models/Aircraft_5/aircraft 5 with control surfaces.glb` and exports
+`aircraft_5_control_surfaces_rigged.glb`, the derivative already referenced by
+`Aircraft/Aircraft_5.tscn`. Run this dedicated builder with Blender background
+mode after future changes to that source. It preserves source vertices while
+retaining established folding transforms, control hinges, and capped damage pieces.
+The authored source is unchanged. The scene's empty vertical-stabilizer damage
+collider reference was reconnected to its existing collider.
+
+The control-surface regression passed in both directions; the shared breakaway
+regression passed 24 damage cases and nine fold comparisons. The rendered probe
+now uses the current Aircraft 5 source and derivative and includes a deflected
+control-surface view. These checks do not substitute for a flight-feel playtest.

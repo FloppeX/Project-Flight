@@ -17,7 +17,7 @@ class_name AudioManager3D
 @export var cabin_systems_sound: AudioStream = preload("res://Audio/cockpit/cabin_systems.ogg")
 @export var cabin_systems_volume_db: float = -12.0
 @export var bridge_interior_sound: AudioStream = preload("res://Audio/cockpit/wind_sound_cockpit.wav")
-@export var bridge_interior_bus: String = "Interior"
+@export var bridge_interior_bus: String = "Bridge"
 @export var bridge_interior_min_volume_db: float = -24.0
 @export var bridge_interior_max_volume_db: float = -14.0
 @export var bridge_interior_pitch_min: float = 0.82
@@ -58,6 +58,7 @@ var bridge_interior_player: AudioStreamPlayer
 var carrier: Node3D
 var _aircraft_audio_destroyed: bool = false
 var _ejected_pilot_audio_active: bool = false
+var _was_authoritative: bool = false
 
 func _ready():
 	add_to_group("audio_manager_3d")
@@ -102,7 +103,7 @@ func _apply_initial_audio_bus() -> void:
 
 	# Apply initial bus based on which camera is already active
 	if is_bridge_camera_active():
-		switch_to_interior_audio()
+		switch_to_bridge_audio()
 	elif is_cockpit_camera_active():
 		switch_to_interior_audio()
 	else:
@@ -192,6 +193,10 @@ func _process(delta):
 	# Get current camera - this works even without an aircraft
 	var current_camera: Camera3D = get_current_camera()
 	var has_authority: bool = _is_authoritative_for_camera(current_camera)
+	if has_authority and not _was_authoritative:
+		# Another aircraft manager may have replaced the shared bus effects.
+		current_audio_bus = ""
+	_was_authoritative = has_authority
 	var control_room_active: bool = has_authority and _is_control_room_camera(current_camera)
 
 	_update_cockpit_interior_player(delta, has_authority and is_cockpit_camera_active())
@@ -210,8 +215,8 @@ func _process(delta):
 
 	if current_camera:
 		if _is_control_room_camera(current_camera):
-			if current_audio_bus != interior_audio_bus:
-				switch_to_interior_audio()
+			if current_audio_bus != bridge_audio_bus:
+				switch_to_bridge_audio()
 		elif _is_carrier_camera(current_camera):
 			if current_audio_bus != exterior_audio_bus:
 				switch_to_exterior_audio()
@@ -490,7 +495,10 @@ func switch_aircraft_audio_sources(node: Node, bus_name: String):
 func _apply_3d_audio_settings(player: AudioStreamPlayer3D, bus_name: String):
 	if player == null:
 		return
-	player.bus = bus_name
+	# Sounds physically inside the carrier stay crisp in the commander's room.
+	# Exterior sources still receive the bridge's window damping.
+	player.bus = exterior_audio_bus if bus_name == bridge_audio_bus \
+		and player.is_in_group("carrier_local_audio") else bus_name
 	var is_own_vehicle_player: bool = aircraft != null \
 		and is_instance_valid(aircraft) \
 		and _node_is_same_or_descendant(player, aircraft)

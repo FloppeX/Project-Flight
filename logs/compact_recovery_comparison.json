@@ -1,0 +1,110 @@
+[
+  {
+    "run": "compact_recovery_baseline",
+    "caught": false,
+    "stowed": false,
+    "health": 100.0,
+    "fuel": 18.360356071082,
+    "target_damage": 70.0,
+    "missed_approaches": 7,
+    "recall_to_catch_s": null,
+    "recall_to_stow_s": null,
+    "mission_pass": false
+  },
+  {
+    "run": "compact_recovery_vector",
+    "caught": true,
+    "stowed": true,
+    "health": 100.0,
+    "fuel": 74.4419087066466,
+    "target_damage": 428.743427395821,
+    "missed_approaches": 0,
+    "recall_to_catch_s": 134.40000000000003,
+    "recall_to_stow_s": 175.58333333333303,
+    "mission_pass": true
+  },
+  {
+    "run": "compact_recovery_vector_repeat2",
+    "caught": true,
+    "stowed": true,
+    "health": 100.0,
+    "fuel": 24.8837949710686,
+    "target_damage": 0.0,
+    "missed_approaches": 3,
+    "recall_to_catch_s": 605.9166666666671,
+    "recall_to_stow_s": 640.066666666667,
+    "mission_pass": false
+  },
+  {
+    "run": "compact_recovery_vector_repeat3",
+    "caught": true,
+    "stowed": true,
+    "health": 100.0,
+    "fuel": 55.0664796002101,
+    "target_damage": 151.163324415684,
+    "missed_approaches": 3,
+    "recall_to_catch_s": 505.5666666666659,
+    "recall_to_stow_s": 546.5666666666659,
+    "mission_pass": true
+  },
+  {
+    "run": "compact_recovery_bank60",
+    "caught": true,
+    "stowed": true,
+    "health": 100.0,
+    "fuel": 74.0435584404705,
+    "target_damage": 25.0,
+    "missed_approaches": 0,
+    "recall_to_catch_s": 141.50000000000003,
+    "recall_to_stow_s": 183.1,
+    "mission_pass": true
+  },
+  {
+    "run": "compact_entry_right50",
+    "caught": true,
+    "stowed": true,
+    "health": 100.0,
+    "fuel": 93.8394588480843,
+    "target_damage": null,
+    "missed_approaches": 1,
+    "recall_to_catch_s": 88.16666666666629,
+    "recall_to_stow_s": 129.15000000000032,
+    "mission_pass": true
+  },
+  {
+    "run": "compact_entry_right60",
+    "caught": false,
+    "stowed": false,
+    "health": 100.0,
+    "fuel": 82.9341648692116,
+    "target_damage": null,
+    "missed_approaches": 2,
+    "recall_to_catch_s": null,
+    "recall_to_stow_s": null,
+    "mission_pass": false
+  },
+  {
+    "run": "compact_entry_left50",
+    "caught": false,
+    "stowed": false,
+    "health": 100.0,
+    "fuel": 82.9124766289466,
+    "target_damage": null,
+    "missed_approaches": 1,
+    "recall_to_catch_s": null,
+    "recall_to_stow_s": null,
+    "mission_pass": false
+  },
+  {
+    "run": "compact_entry_right_legacy",
+    "caught": true,
+    "stowed": true,
+    "health": 100.0,
+    "fuel": 93.8835402818467,
+    "target_damage": null,
+    "missed_approaches": 0,
+    "recall_to_catch_s": 87.9333333333333,
+    "recall_to_stow_s": 128.9166666666663,
+    "mission_pass": true
+  }
+]

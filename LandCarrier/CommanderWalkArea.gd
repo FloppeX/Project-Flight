@@ -11,6 +11,8 @@ class_name CommanderWalkArea
 @export var derive_elevator_travel_from_floors: bool = true
 @export var elevator_speed_mps: float = 1.75
 @export var elevator_trigger_delay_s: float = 0.35
+@export var elevator_motor_sound: AudioStream = preload("res://Audio/Carrier/elevator_moving_mono.wav")
+@export var elevator_motor_volume_db: float = -12.0
 @export var elevator_edge_margin_m: float = 0.2
 @export var walk_edge_margin_m: float = 0.4
 @export var railing_collision_path: NodePath = NodePath("../AirOpsElevatorRailingCollision")
@@ -20,6 +22,7 @@ var _interior_walking: RefCounted
 var _lower_floor: MeshInstance3D
 var _upper_floor: MeshInstance3D
 var _elevator: MeshInstance3D
+var _elevator_audio_player: AudioStreamPlayer3D
 var _commander: CharacterBody3D
 var _spawn_reference: MeshInstance3D
 var _railing_shapes: Array[CollisionShape3D] = []
@@ -60,6 +63,7 @@ func _ready() -> void:
 func _physics_process(delta: float) -> void:
 	if not _ensure_initialized():
 		return
+	_update_elevator_audio(delta)
 
 	# The carrier is a CharacterBody3D and can travel hundreds of metres while it
 	# is hidden and finding its safe terrain start. Interior collision queries are
@@ -245,6 +249,7 @@ func _ensure_initialized() -> bool:
 		push_warning("CommanderWalkArea: Missing authored floor, elevator, or commander node")
 		set_physics_process(false)
 		return false
+	_setup_elevator_audio()
 
 	_lower_triangles = _extract_floor_triangles(_lower_floor)
 	_upper_triangles = _extract_floor_triangles(_upper_floor)
@@ -284,6 +289,9 @@ func _cache_railing_collision() -> void:
 
 func _begin_elevator_trip() -> void:
 	_elevator_moving = true
+	if _elevator_audio_player != null:
+		_elevator_audio_player.volume_db = -22.0
+		_elevator_audio_player.play()
 	_commander_riding = true
 	_elevator_armed = false
 	_stand_time_s = 0.0
@@ -307,6 +315,35 @@ func _update_elevator_motion(delta: float) -> void:
 	_active_floor = FLOOR_UPPER if _elevator_at_upper else FLOOR_LOWER
 	_elevator_moving = false
 	_commander_riding = false
+
+
+func _setup_elevator_audio() -> void:
+	if elevator_motor_sound == null or _elevator_audio_player != null:
+		return
+	_elevator_audio_player = AudioStreamPlayer3D.new()
+	_elevator_audio_player.name = "IslandElevatorMotor"
+	_elevator_audio_player.stream = preload("res://Audio/RuntimeAudio.gd").loop_stream(elevator_motor_sound)
+	_elevator_audio_player.position = _elevator.get_aabb().get_center()
+	_elevator_audio_player.unit_size = 5.0
+	_elevator_audio_player.max_distance = 35.0
+	_elevator_audio_player.volume_db = -80.0
+	_elevator_audio_player.pitch_scale = 1.12
+	_elevator_audio_player.add_to_group("3d_audio")
+	_elevator_audio_player.add_to_group("carrier_local_audio")
+	_elevator.add_child(_elevator_audio_player)
+
+
+func _update_elevator_audio(delta: float) -> void:
+	if _elevator_audio_player == null:
+		return
+	if _elevator_moving:
+		_elevator_audio_player.volume_db = lerpf(
+			_elevator_audio_player.volume_db, elevator_motor_volume_db, clampf(delta * 8.0, 0.0, 1.0))
+	elif _elevator_audio_player.playing:
+		_elevator_audio_player.volume_db = lerpf(
+			_elevator_audio_player.volume_db, -80.0, clampf(delta * 6.0, 0.0, 1.0))
+		if _elevator_audio_player.volume_db < -65.0:
+			_elevator_audio_player.stop()
 
 
 func _platform_is_at_active_floor() -> bool:

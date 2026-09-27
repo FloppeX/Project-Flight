@@ -318,7 +318,7 @@ func _resolve_aircraft_scene(key: String) -> PackedScene:
 
 
 ## Deploy a virtual platoon from reserve. Returns null if reserve is insufficient.
-func deploy_platoon(count: int) -> EnemyVirtualPlatoon:
+func deploy_platoon(count: int, patrol_home: Vector3 = Vector3.INF, local_radius: float = -1.0) -> EnemyVirtualPlatoon:
 	count = mini(count, vehicle_reserve)
 	if count <= 0 or _enemy_vehicle_scenes.is_empty():
 		return null
@@ -329,10 +329,10 @@ func deploy_platoon(count: int) -> EnemyVirtualPlatoon:
 	var p := EnemyVirtualPlatoon.new()
 	p.platoon_name   = "%s-P%02d" % [faction_name.left(3).to_upper(), _platoon_counter]
 	p.vehicle_count  = count
-	p.patrol_radius  = _pick_ground_patrol_radius()
+	p.patrol_radius  = local_radius if local_radius > 0.0 else _pick_ground_patrol_radius()
 	p.faction_color  = faction_color
 	var start_angle  := _rng.randf_range(0.0, TAU)
-	p.setup(global_position, _enemy_vehicle_scenes, start_angle)
+	p.setup(global_position if patrol_home == Vector3.INF else patrol_home, _enemy_vehicle_scenes, start_angle)
 	return p
 
 
